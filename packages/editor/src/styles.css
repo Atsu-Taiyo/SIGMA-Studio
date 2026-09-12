@@ -1,0 +1,53 @@
+@import "katex/dist/katex.min.css";
+@import "mathlive/static.css";
+@import "@fontsource/m-plus-1p/400.css";
+@import "@fontsource/m-plus-1p/500.css";
+@import "@fontsource/m-plus-1p/700.css";
+@import "../../../apps/desktop/src/app/globals.css";
+
+.sigma-studio-editor-host {
+  position: relative;
+  width: 100%;
+  min-width: 0;
+  min-height: 100vh;
+}
+
+.sigma-studio-editor-host > .app-shell {
+  width: 100%;
+}
+
+/* Hides the brief window where math is still blank and block-anchored overlay
+   shapes are positioned from that wrong layout (see embedded-font-warmup.ts).
+   Unbranded on purpose: an embedded editor must not paint a Sigma Studio logo
+   over a host site, unlike apps/desktop's StartupSplash. */
+.sigma-studio-editor-loading-cover {
+  position: absolute;
+  inset: 0;
+  z-index: 10000;
+  display: grid;
+  place-items: center;
+  background: var(--background, #ffffff);
+  opacity: 1;
+  /* Duration must match LOAD_COVER_FADE_MS in SigmaDocEditor.tsx. */
+  transition: opacity 220ms ease;
+}
+
+.sigma-studio-editor-loading-cover.is-leaving {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.sigma-studio-editor-loading-spinner {
+  width: 28px;
+  height: 28px;
+  border-radius: 999px;
+  border: 3px solid var(--surface-strong, #e9e9e9);
+  border-top-color: var(--accent, #1f5eff);
+  animation: sigma-studio-editor-loading-spin 700ms linear infinite;
+}
+
+@keyframes sigma-studio-editor-loading-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}

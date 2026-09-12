@@ -1,0 +1,3046 @@
+{
+  "version": "2.0",
+  "docId": "doc_7a3df17a-3903-4a00-85f9-501eef713aad",
+  "metadata": {
+    "title": "無題の教材",
+    "styleUnits": {
+      "fontSize": "pt"
+    }
+  },
+  "content": [
+    {
+      "id": "p_d026e0a0-5d50-45fd-9036-bb2529228949",
+      "type": "paragraph",
+      "children": [
+        {
+          "type": "mathInline",
+          "id": "m_inline_6d95e0f1-421a-4742-b9e4-dec265646f77",
+          "tex": "\\frac{\\log x}{x}",
+          "display": "inline",
+          "fontFamily": "\"Hiragino Maru Gothic ProN\", \"Hiragino Sans\", sans-serif",
+          "semanticRole": "expression"
+        },
+        {
+          "type": "text",
+          "text": "の増減表をかけ. ",
+          "fontFamily": "\"Hiragino Maru Gothic ProN\", \"Hiragino Sans\", sans-serif"
+        },
+        {
+          "type": "mathInline",
+          "id": "m_inline_0239b15d-c914-4ab2-a638-e866dd2f3feb",
+          "tex": "\\left(x>0\\text{とする}\\right)",
+          "display": "inline",
+          "fontFamily": "\"Hiragino Maru Gothic ProN\", \"Hiragino Sans\", sans-serif",
+          "semanticRole": "expression"
+        }
+      ]
+    },
+    {
+      "id": "ai_problem_61649926-8599-40c6-9939-61d98ebc2541",
+      "type": "problem",
+      "tags": [],
+      "lead": [
+        {
+          "id": "lead_bb113c84-fa3b-468c-8de8-99523afc7d35",
+          "type": "paragraph",
+          "children": []
+        }
+      ],
+      "prompt": [
+        {
+          "id": "ai_paragraph_b4d61016-e2e4-4628-8001-05f341d42aea",
+          "type": "paragraph",
+          "children": [
+            {
+              "type": "text",
+              "text": "関数 "
+            },
+            {
+              "type": "mathInline",
+              "id": "ai_math_0f0d753b-6701-42b9-882e-2fbbb9f2eb93",
+              "tex": "\\frac{\\log x}{x^2}",
+              "display": "inline",
+              "semanticRole": "expression"
+            },
+            {
+              "type": "text",
+              "text": " の増減qwqwqwq朝表をかけ（"
+            },
+            {
+              "type": "mathInline",
+              "id": "ai_math_cb7264de-60ec-4747-aff3-9bf6e96b47b3",
+              "tex": "x>0",
+              "display": "inline",
+              "semanticRole": "expression"
+            },
+            {
+              "type": "text",
+              "text": "）。"
+            },
+            {
+              "type": "mathInline",
+              "id": "m_inline_3cd71255-2774-4c8b-8f11-282f90e8ac22",
+              "tex": "\\sin f\\left(f\\left(f\\left(\\leftrightarrow\\iff\\right)d\\right)d\\right)s",
+              "display": "inline",
+              "semanticRole": "expression"
+            }
+          ]
+        }
+      ],
+      "answer": {
+        "type": "math",
+        "expected": "\\text{増加： }0<x<\\sqrt{e},\\quad \\text{減少： }\\sqrt{e}<x,\\quad \\text{極大値： }\\frac{1}{2e}"
+      },
+      "solution": [
+        {
+          "id": "ai_solution_1_0cc4a009-770f-4abb-a964-3e4eef6f668a",
+          "type": "paragraph",
+          "children": [
+            {
+              "type": "text",
+              "text": "ここで "
+            },
+            {
+              "type": "mathInline",
+              "id": "ai_math_3f684270-6f1f-4297-aa1d-79627915aec7",
+              "tex": "f(x)=\\frac{\\log x}{x^2}",
+              "display": "inline",
+              "semanticRole": "expression"
+            },
+            {
+              "type": "text",
+              "text": " とおくと、導関数は "
+            },
+            {
+              "type": "mathInline",
+              "id": "ai_math_aca5902a-afde-4899-ad3c-17595fee6075",
+              "tex": "f'(x)=\\frac{1-2\\log x}{x^3}",
+              "display": "inline",
+              "semanticRole": "expression"
+            },
+            {
+              "type": "text",
+              "text": " となる。 "
+            },
+            {
+              "type": "mathInline",
+              "id": "ai_math_5169284c-d976-43b6-a4b6-279d61bccd46",
+              "tex": "x>0",
+              "display": "inline",
+              "semanticRole": "expression"
+            },
+            {
+              "type": "text",
+              "text": " では "
+            },
+            {
+              "type": "mathInline",
+              "id": "ai_math_cf3f0217-8366-46bf-b542-e2a2bafecb48",
+              "tex": "x^3>0",
+              "display": "inline",
+              "semanticRole": "expression"
+            },
+            {
+              "type": "text",
+              "text": " なので、"
+            },
+            {
+              "type": "mathInline",
+              "id": "ai_math_0d10a6f6-020e-4ab3-bf75-20811ba98215",
+              "tex": "f'(x)",
+              "display": "inline",
+              "semanticRole": "expression"
+            },
+            {
+              "type": "text",
+              "text": " の符号は "
+            },
+            {
+              "type": "mathInline",
+              "id": "ai_math_e84e70ef-79ec-4839-b402-18be5db9848c",
+              "tex": "1-2\\log x",
+              "display": "inline",
+              "semanticRole": "expression"
+            },
+            {
+              "type": "text",
+              "text": " で決まる。"
+            },
+            {
+              "type": "mathInline",
+              "id": "ai_math_b49d4208-c47c-4dbd-afe8-8afa33bbc2aa",
+              "tex": "1-2\\log x=0",
+              "display": "inline",
+              "semanticRole": "expression"
+            },
+            {
+              "type": "text",
+              "text": " となるのは "
+            },
+            {
+              "type": "mathInline",
+              "id": "ai_math_x_eq_sqrte_1",
+              "tex": "x=\\sqrt{e}",
+              "display": "inline",
+              "semanticRole": "expression"
+            },
+            {
+              "type": "text",
+              "text": " のときであり、"
+            },
+            {
+              "type": "mathInline",
+              "id": "ai_math_zone1_1",
+              "tex": "0<x<\\sqrt{e}",
+              "display": "inline",
+              "semanticRole": "expression"
+            },
+            {
+              "type": "text",
+              "text": " では "
+            },
+            {
+              "type": "mathInline",
+              "id": "ai_math_fp_pos_1",
+              "tex": "f'(x)>0",
+              "display": "inline",
+              "semanticRole": "expression"
+            },
+            {
+              "type": "text",
+              "text": "、"
+            },
+            {
+              "type": "mathInline",
+              "id": "ai_math_zone2_1",
+              "tex": "x>\\sqrt{e}",
+              "display": "inline",
+              "semanticRole": "expression"
+            },
+            {
+              "type": "text",
+              "text": " では "
+            },
+            {
+              "type": "mathInline",
+              "id": "ai_math_fp_neg_1",
+              "tex": "f'(x)<0",
+              "display": "inline",
+              "semanticRole": "expression"
+            },
+            {
+              "type": "text",
+              "text": " である。したがって、"
+            },
+            {
+              "type": "mathInline",
+              "id": "ai_math_ec87ca3f-ff29-4ad3-8770-d3f8790a242e",
+              "tex": "0<x<\\sqrt{e}",
+              "display": "inline",
+              "semanticRole": "expression"
+            },
+            {
+              "type": "text",
+              "text": " では増加し、"
+            },
+            {
+              "type": "mathInline",
+              "id": "ai_math_68a675d8-3a9b-41fa-9d8f-5fff807f8f03",
+              "tex": "x>\\sqrt{e}",
+              "display": "inline",
+              "semanticRole": "expression"
+            },
+            {
+              "type": "text",
+              "text": " では減少する。よって最大値は "
+            },
+            {
+              "type": "mathInline",
+              "id": "ai_math_06d1307e-ba63-445b-b97d-b468fd0466a5",
+              "tex": "f(\\sqrt{e})=\\frac{1}{2e}",
+              "display": "inline",
+              "semanticRole": "expression"
+            },
+            {
+              "type": "text",
+              "text": " である。"
+            }
+          ]
+        }
+      ],
+      "hints": []
+    },
+    {
+      "id": "p_1e465f2e-5571-4cf8-88ad-818451b870b8",
+      "type": "paragraph",
+      "children": [
+        {
+          "type": "text",
+          "text": "解答"
+        }
+      ]
+    },
+    {
+      "id": "ai_body_1_5a618cb5-336f-4586-a1e8-785ce0a3a29a",
+      "type": "paragraph",
+      "children": [
+        {
+          "type": "mathInline",
+          "id": "ai_math_6494c6e5-4da3-4bff-87b1-ae67a08e43b2",
+          "tex": "f(x)=\\frac{\\log x}{x^2}",
+          "display": "inline",
+          "semanticRole": "expression"
+        },
+        {
+          "type": "text",
+          "text": " とおく。"
+        }
+      ]
+    },
+    {
+      "id": "p_11467058-19b7-425b-afbb-eb3e84ea4575",
+      "type": "paragraph",
+      "children": []
+    },
+    {
+      "id": "p_efea68ca-ce62-4c88-aef2-1d5a92a2a24c",
+      "type": "paragraph",
+      "children": []
+    },
+    {
+      "id": "p_3fc4b217-c38e-48bb-8f61-d82b2e34336c",
+      "type": "paragraph",
+      "children": []
+    },
+    {
+      "id": "p_6ffb6315-86c7-4fc8-be6b-0de188aff85f",
+      "type": "paragraph",
+      "children": []
+    },
+    {
+      "id": "p_176814b9-bf92-4688-a914-cc4d33628a51",
+      "type": "paragraph",
+      "children": []
+    },
+    {
+      "id": "p_c1075587-db07-43d1-ac25-a78ef76286d5",
+      "type": "paragraph",
+      "children": []
+    },
+    {
+      "id": "p_d0c0a781-2144-4ba1-b637-d0a5b120e1ae",
+      "type": "paragraph",
+      "children": []
+    },
+    {
+      "id": "p_45436345-a9b1-4390-aee9-b6a60d1554c8",
+      "type": "paragraph",
+      "children": []
+    },
+    {
+      "id": "ai_body_2_bcb24e8b-435f-4414-84df-e9fa65a23504",
+      "type": "paragraph",
+      "children": [
+        {
+          "type": "text",
+          "text": "商の微分より、"
+        },
+        {
+          "type": "mathInline",
+          "id": "ai_math_218e799a-926f-4566-b16d-58bbe91c0415",
+          "tex": "f'(x)=\\frac{1-2\\log x}{x^3}",
+          "display": "inline",
+          "semanticRole": "expression"
+        },
+        {
+          "type": "text",
+          "text": "。"
+        }
+      ]
+    },
+    {
+      "id": "ai_body_3_178fcef7-4fba-4ea9-9a48-094aa6092f45",
+      "type": "paragraph",
+      "children": [
+        {
+          "type": "mathInline",
+          "id": "ai_math_59ab742e-9da6-4519-b0c3-01329b2d971b",
+          "tex": "x>0",
+          "display": "inline",
+          "semanticRole": "expression"
+        },
+        {
+          "type": "text",
+          "text": " では "
+        },
+        {
+          "type": "mathInline",
+          "id": "ai_math_befe7c11-4300-45d0-97f4-7c21dbb9351d",
+          "tex": "x^3>0",
+          "display": "inline",
+          "semanticRole": "expression"
+        },
+        {
+          "type": "text",
+          "text": " だから、"
+        },
+        {
+          "type": "mathInline",
+          "id": "ai_math_f07d6c64-c16e-4b9d-b146-4ca212d85c1f",
+          "tex": "f'(x)",
+          "display": "inline",
+          "semanticRole": "expression"
+        },
+        {
+          "type": "text",
+          "text": " の符号は "
+        },
+        {
+          "type": "mathInline",
+          "id": "ai_math_5f07b232-eeab-44c0-8a7a-635c3e409c99",
+          "tex": "1-2\\log x",
+          "display": "inline",
+          "semanticRole": "expression"
+        },
+        {
+          "type": "text",
+          "text": " の符号で決まる。"
+        }
+      ]
+    },
+    {
+      "id": "ai_body_4_e26784be-d5c3-412b-b6d6-d078bc6bff93",
+      "type": "paragraph",
+      "children": [
+        {
+          "type": "mathInline",
+          "id": "ai_math_01dca7a1-ce2d-4430-8d10-a5a3c3bd93bc",
+          "tex": "1-2\\log x=0",
+          "display": "inline",
+          "semanticRole": "expression"
+        },
+        {
+          "type": "text",
+          "text": " より "
+        },
+        {
+          "type": "mathInline",
+          "id": "ai_math_43d1bb43-e9c1-4c09-9b1e-e64bacc40fba",
+          "tex": "x=\\sqrt{e}",
+          "display": "inline",
+          "semanticRole": "expression"
+        },
+        {
+          "type": "text",
+          "text": "。したがって、"
+        },
+        {
+          "type": "mathInline",
+          "id": "ai_math_27b60757-6143-477a-9911-c420d1c6339d",
+          "tex": "0<x<\\sqrt{e}",
+          "display": "inline",
+          "semanticRole": "expression"
+        },
+        {
+          "type": "text",
+          "text": " で "
+        },
+        {
+          "type": "mathInline",
+          "id": "ai_math_f85bf2bf-010a-4710-8abb-b1d15f04cb8a",
+          "tex": "f'(x)>0",
+          "display": "inline",
+          "semanticRole": "expression"
+        },
+        {
+          "type": "text",
+          "text": "、"
+        },
+        {
+          "type": "mathInline",
+          "id": "ai_math_e08b69de-97c6-4bfd-9675-b07ab810ae5a",
+          "tex": "x=\\sqrt{e}",
+          "display": "inline",
+          "semanticRole": "expression"
+        },
+        {
+          "type": "text",
+          "text": " で "
+        },
+        {
+          "type": "mathInline",
+          "id": "ai_math_996d44a6-58ac-4a20-8334-e77586c59575",
+          "tex": "f'(x)=0",
+          "display": "inline",
+          "semanticRole": "expression"
+        },
+        {
+          "type": "text",
+          "text": "、"
+        },
+        {
+          "type": "mathInline",
+          "id": "ai_math_e0bb9364-541b-4cb1-9d3d-13cedf606f81",
+          "tex": "\\sqrt{e}<x",
+          "display": "inline",
+          "semanticRole": "expression"
+        },
+        {
+          "type": "text",
+          "text": " で "
+        },
+        {
+          "type": "mathInline",
+          "id": "ai_math_27a11228-a0ac-4e97-a745-02da3fbf961b",
+          "tex": "f'(x)<0",
+          "display": "inline",
+          "semanticRole": "expression"
+        },
+        {
+          "type": "text",
+          "text": "。となる。"
+        }
+      ]
+    },
+    {
+      "id": "p_162ae688-efa7-46f0-b3dc-e592037334e0",
+      "type": "paragraph",
+      "children": [
+        {
+          "type": "text",
+          "text": "従ってよって "
+        },
+        {
+          "type": "mathInline",
+          "id": "ai_math_caedead0-3b4c-400b-9da8-59ab62ba2a88",
+          "tex": "\\frac{\\log x}{x^2}",
+          "display": "inline",
+          "semanticRole": "expression"
+        },
+        {
+          "type": "text",
+          "text": " は "
+        },
+        {
+          "type": "mathInline",
+          "id": "ai_math_9b9be96e-f1ce-4bba-ad77-77653743dab9",
+          "tex": "0<x<\\sqrt{e}",
+          "display": "inline",
+          "semanticRole": "expression"
+        },
+        {
+          "type": "text",
+          "text": " で増加し、"
+        },
+        {
+          "type": "mathInline",
+          "id": "ai_math_a119779c-7de8-4408-a727-240db4380662",
+          "tex": "x=\\sqrt{e}",
+          "display": "inline",
+          "semanticRole": "expression"
+        },
+        {
+          "type": "text",
+          "text": " で極大値 "
+        },
+        {
+          "type": "mathInline",
+          "id": "ai_math_efc2641e-e415-4f6d-8d71-2986714ef7fe",
+          "tex": "\\frac{1}{2e}",
+          "display": "inline",
+          "semanticRole": "expression"
+        },
+        {
+          "type": "text",
+          "text": " をとり、"
+        },
+        {
+          "type": "mathInline",
+          "id": "ai_math_8398b74f-377e-458e-9a42-49ec0304adc9",
+          "tex": "\\sqrt{e}<x",
+          "display": "inline",
+          "semanticRole": "expression"
+        },
+        {
+          "type": "text",
+          "text": " で減少する。"
+        }
+      ]
+    },
+    {
+      "id": "ai_problem_similar_rmriwl194_1",
+      "type": "problem",
+      "tags": [],
+      "lead": [
+        {
+          "id": "lead_828f634b-acbe-4f9e-963e-51f391142b72",
+          "type": "paragraph",
+          "children": []
+        }
+      ],
+      "prompt": [
+        {
+          "id": "ai_prompt_similar_rmriwl194_1",
+          "type": "paragraph",
+          "children": [
+            {
+              "type": "text",
+              "text": "類題　関数 "
+            },
+            {
+              "type": "mathInline",
+              "id": "ai_math_similar_f_rmriwl194_1",
+              "tex": "f(x)=\\frac{\\log x}{x^3}",
+              "display": "inline",
+              "semanticRole": "expression"
+            },
+            {
+              "type": "text",
+              "text": "（"
+            },
+            {
+              "type": "mathInline",
+              "id": "ai_math_similar_domain_rmriwl194_1",
+              "tex": "x>0",
+              "display": "inline",
+              "semanticRole": "expression"
+            },
+            {
+              "type": "text",
+              "text": "）の増減を調べ、極大値を求めよ。"
+            }
+          ]
+        },
+        {
+          "id": "ai_solution_heading_rmriwl194_2",
+          "type": "heading",
+          "level": 3,
+          "children": [
+            {
+              "type": "text",
+              "text": "解答"
+            }
+          ]
+        },
+        {
+          "id": "ai_solution_derivative_rmriwl194_2",
+          "type": "paragraph",
+          "children": [
+            {
+              "type": "text",
+              "text": "導関数は "
+            },
+            {
+              "type": "mathInline",
+              "id": "ai_m_sim_deriv_2",
+              "tex": "f'(x)=\\frac{1-3\\log x}{x^4}",
+              "display": "inline",
+              "semanticRole": "expression"
+            },
+            {
+              "type": "text",
+              "text": " である。"
+            }
+          ]
+        },
+        {
+          "id": "ai_solution_sign_rmriwl194_2",
+          "type": "paragraph",
+          "children": [
+            {
+              "type": "text",
+              "text": "x>0 では "
+            },
+            {
+              "type": "mathInline",
+              "id": "ai_m_sim_sign_2a",
+              "tex": "x^4>0",
+              "display": "inline",
+              "semanticRole": "expression"
+            },
+            {
+              "type": "text",
+              "text": " より、"
+            },
+            {
+              "type": "mathInline",
+              "id": "ai_m_sim_sign_2b",
+              "tex": "f'(x)>0\\ \\left(0<x<e^{1/3}\\right),\\quad f'(x)<0\\ \\left(x>e^{1/3}\\right)",
+              "display": "inline",
+              "semanticRole": "expression"
+            },
+            {
+              "type": "text",
+              "text": "。したがって、"
+            },
+            {
+              "type": "mathInline",
+              "id": "ai_m_sim_sign_2c",
+              "tex": "x=e^{1/3}",
+              "display": "inline",
+              "semanticRole": "expression"
+            },
+            {
+              "type": "text",
+              "text": " で極大となる。"
+            }
+          ]
+        },
+        {
+          "id": "ai_solution_max_rmriwl194_2",
+          "type": "paragraph",
+          "children": [
+            {
+              "type": "text",
+              "text": "極大値は "
+            },
+            {
+              "type": "mathInline",
+              "id": "ai_m_sim_max_2a",
+              "tex": "f\\left(e^{1/3}\\right)=\\frac{\\log e^{1/3}}{(e^{1/3})^3}=\\frac{1}{3e}",
+              "display": "inline",
+              "semanticRole": "expression"
+            },
+            {
+              "type": "text",
+              "text": "。なお、"
+            },
+            {
+              "type": "mathInline",
+              "id": "ai_m_sim_max_2b",
+              "tex": "\\lim_{x\\to0+}f(x)=-\\infty,\\quad \\lim_{x\\to\\infty}f(x)=0",
+              "display": "inline",
+              "semanticRole": "expression"
+            },
+            {
+              "type": "text",
+              "text": " である"
+            }
+          ]
+        },
+        {
+          "id": "p_99090aad-6109-4109-b78c-c030b02e08a2",
+          "type": "paragraph",
+          "children": []
+        }
+      ],
+      "answer": {
+        "type": "math",
+        "expected": "x=\\sqrt[3]{e} \\text{ で極大値 } \\frac{1}{3e}"
+      },
+      "solution": [
+        {
+          "id": "p_4d009a26-42f1-4f4f-9b59-199e122ee396",
+          "type": "paragraph",
+          "children": []
+        },
+        {
+          "id": "p_c60ce018-f7ea-48f1-b63c-40052aae1ef1",
+          "pagination": {
+            "breakBefore": "always"
+          },
+          "type": "paragraph",
+          "children": [
+            {
+              "type": "text",
+              "text": "ああ"
+            }
+          ]
+        }
+      ],
+      "hints": []
+    },
+    {
+      "id": "p_7523bad2-d216-4977-ac33-1cab61711ff5",
+      "type": "paragraph",
+      "children": []
+    },
+    {
+      "id": "p_32e4378c-fdfd-4227-a5e5-7f6467b21a16",
+      "type": "paragraph",
+      "children": []
+    },
+    {
+      "id": "p_ac8488e5-6ec5-4d91-b05e-e1af9eb913eb",
+      "type": "paragraph",
+      "children": []
+    },
+    {
+      "id": "p_75ed4ad0-4a88-413b-8bcb-2398a7f263e9",
+      "type": "paragraph",
+      "children": []
+    },
+    {
+      "id": "p_a2d503cc-21eb-4870-9ee0-cd1bd5d71cad",
+      "type": "paragraph",
+      "children": []
+    },
+    {
+      "id": "p_571f878c-a341-415b-b5de-c95be2012183",
+      "type": "paragraph",
+      "children": []
+    },
+    {
+      "id": "p_33e05d74-b95e-4d12-869b-33a2bfddff27",
+      "type": "paragraph",
+      "children": []
+    },
+    {
+      "id": "p_356f45fc-228f-4184-b47e-8aa6cd13afc6",
+      "pagination": {
+        "breakBefore": "always"
+      },
+      "type": "paragraph",
+      "children": []
+    },
+    {
+      "id": "ai_problem_66dc7c91-1ff5-4ca4-a48b-50326b1b2454",
+      "type": "problem",
+      "tags": [],
+      "lead": [
+        {
+          "id": "lead_25eb2ed2-e54b-4eec-a2a8-ea9181bd428d",
+          "type": "paragraph",
+          "children": []
+        }
+      ],
+      "prompt": [
+        {
+          "id": "ai_para_x3_prompt",
+          "type": "paragraph",
+          "children": [
+            {
+              "type": "text",
+              "text": "関数 "
+            },
+            {
+              "type": "mathInline",
+              "id": "ai_math_x3_1",
+              "tex": "\\frac{\\log x}{x^3}",
+              "display": "inline"
+            },
+            {
+              "type": "text",
+              "text": " の増減表をかけ（"
+            },
+            {
+              "type": "mathInline",
+              "id": "ai_math_x3_2",
+              "tex": "x>0",
+              "display": "inline"
+            },
+            {
+              "type": "text",
+              "text": "）。"
+            }
+          ]
+        }
+      ],
+      "answer": {
+        "type": "math",
+        "expected": "\\\\text{増加： }0<x<e^{1/3},\\\\quad \\\\text{減少： }e^{1/3}<x,\\\\quad \\\\text{極大値： }\\\\frac{1}{3e}"
+      },
+      "solution": [
+        {
+          "id": "ai_para_x3_sol_1",
+          "type": "paragraph",
+          "children": [
+            {
+              "type": "text",
+              "text": "ここで "
+            },
+            {
+              "type": "mathInline",
+              "id": "ai_math_x3_3",
+              "tex": "f(x)=\\frac{\\log x}{x^3}",
+              "display": "inline",
+              "semanticRole": "expression"
+            },
+            {
+              "type": "text",
+              "text": " とおくと、商の微分より "
+            },
+            {
+              "type": "mathInline",
+              "id": "ai_math_x3_4",
+              "tex": "f'(x)=\\frac{\\frac{1}{x}\\cdot x^3-\\log x\\cdot 3x^2}{x^6}=\\frac{x^2-3x^2\\log x}{x^6}=\\frac{1-3\\log x}{x^4}",
+              "display": "inline",
+              "semanticRole": "expression"
+            },
+            {
+              "type": "text",
+              "text": " となる。"
+            }
+          ]
+        },
+        {
+          "id": "ai_para_x3_sol_2",
+          "type": "paragraph",
+          "children": [
+            {
+              "type": "mathInline",
+              "id": "ai_math_x3_5",
+              "tex": "x>0",
+              "display": "inline",
+              "semanticRole": "expression"
+            },
+            {
+              "type": "text",
+              "text": " では "
+            },
+            {
+              "type": "mathInline",
+              "id": "ai_math_x3_6",
+              "tex": "x^4>0",
+              "display": "inline",
+              "semanticRole": "expression"
+            },
+            {
+              "type": "text",
+              "text": " なので、"
+            },
+            {
+              "type": "mathInline",
+              "id": "ai_math_x3_7",
+              "tex": "f'(x)",
+              "display": "inline",
+              "semanticRole": "expression"
+            },
+            {
+              "type": "text",
+              "text": " の符号は "
+            },
+            {
+              "type": "mathInline",
+              "id": "ai_math_x3_8",
+              "tex": "1-3\\log x",
+              "display": "inline",
+              "semanticRole": "expression"
+            },
+            {
+              "type": "text",
+              "text": " で決まる。"
+            }
+          ]
+        },
+        {
+          "id": "ai_para_x3_sol_3",
+          "type": "paragraph",
+          "children": [
+            {
+              "type": "mathInline",
+              "id": "ai_math_x3_9",
+              "tex": "1-3\\log x=0\\Longleftrightarrow \\log x=\\frac{1}{3}\\Longleftrightarrow x=e^{1/3}",
+              "display": "inline",
+              "semanticRole": "expression"
+            },
+            {
+              "type": "text",
+              "text": "。"
+            }
+          ]
+        },
+        {
+          "id": "ai_para_x3_sol_4",
+          "type": "paragraph",
+          "children": [
+            {
+              "type": "text",
+              "text": "したがって、"
+            },
+            {
+              "type": "mathInline",
+              "id": "ai_math_x3_10",
+              "tex": "0<x<e^{1/3}",
+              "display": "inline",
+              "semanticRole": "expression"
+            },
+            {
+              "type": "text",
+              "text": " では増加し、"
+            },
+            {
+              "type": "mathInline",
+              "id": "ai_math_x3_11",
+              "tex": "x>e^{1/3}",
+              "display": "inline",
+              "semanticRole": "expression"
+            },
+            {
+              "type": "text",
+              "text": " では減少する。よって最大値は "
+            },
+            {
+              "type": "mathInline",
+              "id": "ai_math_x3_12",
+              "tex": "f\\left(e^{1/3}\\right)=\\frac{1/3}{e}=\\frac{1}{3e}",
+              "display": "inline",
+              "semanticRole": "expression"
+            },
+            {
+              "type": "text",
+              "text": " である。"
+            }
+          ]
+        },
+        {
+          "id": "p_a59e13ee-797d-4564-8663-7166ba463bcf",
+          "type": "paragraph",
+          "children": []
+        }
+      ],
+      "hints": []
+    },
+    {
+      "id": "box_cc2b247f-a0a2-4337-a4e5-05a012c023bc",
+      "type": "boxBlock",
+      "styleId": "doublebox",
+      "blocks": [
+        {
+          "id": "p_6598c716-9aa5-4b51-97d2-692a48f23ce7",
+          "type": "paragraph",
+          "children": [
+            {
+              "type": "text",
+              "text": "あ"
+            }
+          ]
+        }
+      ],
+      "frame": {
+        "borderWidthPx": 1.1,
+        "borderColor": "#111111",
+        "borderStyle": "solid",
+        "backgroundColor": "#ffffff",
+        "cornerStyle": "sharp",
+        "paddingPx": {
+          "top": 14,
+          "right": 16,
+          "bottom": 14,
+          "left": 16
+        },
+        "decorations": [
+          {
+            "type": "doubleRule",
+            "offsetPx": 4,
+            "widthPx": 1,
+            "color": "#111111"
+          }
+        ]
+      }
+    },
+    {
+      "id": "p_43973f19-e33b-42e9-a7c1-39bb9b7fedb1",
+      "type": "paragraph",
+      "children": []
+    },
+    {
+      "id": "layout_section_ab84b7c0-1c14-4959-90c1-1c45b37f201b",
+      "type": "layoutSection",
+      "layout": {
+        "columnCount": 2,
+        "columnGapMm": 8
+      },
+      "children": [
+        {
+          "id": "p_0df2644c-40fc-4f12-908c-3f64fe6cc89d",
+          "type": "paragraph",
+          "children": [
+            {
+              "type": "text",
+              "text": "qwqwqaas"
+            }
+          ]
+        },
+        {
+          "id": "p_1f39ea58-3601-46ef-aa92-b9b8a2974bff",
+          "type": "paragraph",
+          "children": []
+        },
+        {
+          "id": "p_5989f34c-c752-466c-9de7-bacf1c8bb51c",
+          "pagination": {
+            "breakBefore": "always"
+          },
+          "type": "paragraph",
+          "children": [
+            {
+              "type": "text",
+              "text": "a"
+            }
+          ]
+        },
+        {
+          "id": "p_cfb53409-1b27-4edc-8a81-d5c502479118",
+          "pagination": {
+            "breakBefore": "always"
+          },
+          "type": "paragraph",
+          "children": [
+            {
+              "type": "text",
+              "text": "sa"
+            }
+          ]
+        },
+        {
+          "id": "p_c2e404cb-60c5-470f-9c8a-781e619cd244",
+          "type": "paragraph",
+          "children": []
+        },
+        {
+          "id": "p_cd267075-d73f-43e6-835e-f6ed78b27f78",
+          "type": "paragraph",
+          "children": []
+        },
+        {
+          "id": "box_25cc5f06-79b8-4d80-a88d-903bd16aa08c",
+          "type": "boxBlock",
+          "styleId": "tcolorbox-note",
+          "blocks": [
+            {
+              "id": "p_7c7dea7a-7a3f-450e-801e-e0e039078756",
+              "type": "paragraph",
+              "children": [
+                {
+                  "type": "text",
+                  "text": "asasa"
+                }
+              ]
+            }
+          ],
+          "frame": {
+            "borderWidthPx": 1,
+            "borderColor": "#9ca3af",
+            "borderStyle": "solid",
+            "backgroundColor": "#ffffff",
+            "bodyAlign": "justify",
+            "bodyFontSizePx": 15,
+            "bodyLineHeight": "23.35px",
+            "cornerStyle": "sharp",
+            "paddingPx": {
+              "top": 18,
+              "right": 18,
+              "bottom": 16,
+              "left": 56
+            },
+            "decorations": [
+              {
+                "type": "notebookRules",
+                "baseBodyWidthPx": 660,
+                "frameLeftPx": 20,
+                "frameHeightPx": 57.35,
+                "frameStrokeOpacity": 0.85,
+                "bindingColor": "#b9b3a1",
+                "bindingWidthPx": 1,
+                "bindingXPx": 20,
+                "bindingStrokeOpacity": 0.75,
+                "ringColor": "#706b5a",
+                "ringWidthPx": 38,
+                "ringHeightPx": 12,
+                "ringStrokePx": 1.2,
+                "ringGapPx": 23.35,
+                "ringTopPx": 8,
+                "ringCount": 1,
+                "ringLeftOverhangPx": 14,
+                "minHeightPx": 57.35
+              }
+            ]
+          }
+        },
+        {
+          "id": "p_d011c369-f0d9-48dc-a5ec-c4aafbb5e76d",
+          "type": "paragraph",
+          "children": []
+        }
+      ]
+    }
+  ],
+  "outputProfiles": {
+    "student": {},
+    "teacher": {
+      "showSolutions": true,
+      "showHints": true
+    },
+    "answerBook": {
+      "includeAnswers": true,
+      "onlySolutions": true
+    }
+  },
+  "pageLayout": {
+    "preset": "A4",
+    "orientation": "portrait",
+    "pageSize": {
+      "widthMm": 210,
+      "heightMm": 297
+    },
+    "marginsMm": {
+      "top": 19.5,
+      "right": 17,
+      "bottom": 18,
+      "left": 17
+    },
+    "flow": {
+      "type": "columns",
+      "columnCount": 1,
+      "columnGapMm": 8
+    },
+    "header": {
+      "enabled": true,
+      "heightMm": 14.5,
+      "offsetMm": 5,
+      "showOnFirstPage": true,
+      "blocks": [
+        {
+          "type": "paragraph",
+          "id": "page_header_running_body",
+          "children": [
+            {
+              "type": "text",
+              "text": "{title}"
+            }
+          ]
+        }
+      ],
+      "overlay": {
+        "overlaySnapshot": {
+          "version": 1,
+          "shapes": [
+            {
+              "id": "overlay_shape_5870000f-bfc9-48f9-89d5-46972b6c9d7a",
+              "type": "tableShape",
+              "x": 444.1008573037785,
+              "y": -1158.7540144977743,
+              "rotation": 0,
+              "props": {
+                "w": 120,
+                "h": 72,
+                "table": {
+                  "version": 1,
+                  "kind": "plain",
+                  "columns": [
+                    {
+                      "id": "table_col_91ade6b3-1621-417e-a6dc-711689789e5c",
+                      "width": {
+                        "mode": "fr",
+                        "value": 1,
+                        "min": 64
+                      }
+                    }
+                  ],
+                  "rows": [
+                    {
+                      "id": "table_row_981b29a8-be88-446c-b0ec-52c27a9d7d71",
+                      "height": {
+                        "mode": "auto",
+                        "min": 34
+                      },
+                      "role": "header"
+                    }
+                  ],
+                  "cells": [
+                    {
+                      "id": "table_cell_b25a0931-eb41-462e-8992-ddf4a0490ef1",
+                      "rowId": "table_row_981b29a8-be88-446c-b0ec-52c27a9d7d71",
+                      "columnId": "table_col_91ade6b3-1621-417e-a6dc-711689789e5c",
+                      "content": [
+                        {
+                          "type": "paragraph",
+                          "id": "table_p_eccb4a23-de78-4bcb-b9b0-dee4cfac364e",
+                          "children": [],
+                          "align": "center"
+                        }
+                      ]
+                    }
+                  ],
+                  "grid": {
+                    "borderColor": "#111827",
+                    "borderWidth": 1,
+                    "borderStyle": "solid",
+                    "showOuterBorder": true,
+                    "showInnerBorders": true
+                  },
+                  "defaultCellStyle": {
+                    "align": "center",
+                    "verticalAlign": "middle",
+                    "paddingX": 8,
+                    "paddingY": 5,
+                    "color": "#111827",
+                    "fontSize": 15,
+                    "fontWeight": "normal"
+                  }
+                }
+              },
+              "anchor": {
+                "type": "block",
+                "blockId": "p_0b91b0a9-d2c9-4965-8e81-57c2fcd54898",
+                "dy": -50.15094251161046,
+                "dx": 443.10084320460794,
+                "line": {
+                  "index": 0,
+                  "dy": -47.52540236142331
+                }
+              }
+            }
+          ],
+          "assets": {}
+        },
+        "updatedAt": "2026-07-13T00:48:08.168Z"
+      }
+    },
+    "footer": {
+      "enabled": false,
+      "heightMm": 8,
+      "offsetMm": 5,
+      "showOnFirstPage": true,
+      "blocks": [
+        {
+          "type": "paragraph",
+          "id": "page_footer_running_body",
+          "children": [
+            {
+              "type": "text",
+              "text": "{page}"
+            }
+          ],
+          "align": "center"
+        }
+      ]
+    },
+    "overlay": {
+      "overlaySnapshot": {
+        "version": 1,
+        "shapes": [
+          {
+            "id": "overlay_shape_3cc1e464-46c9-4bec-9748-80da38654044",
+            "type": "text",
+            "x": 343.4230393792298,
+            "y": 135.5191421334025,
+            "rotation": 0,
+            "props": {
+              "w": 442,
+              "h": 18,
+              "color": "black",
+              "size": "m",
+              "blocks": [
+                {
+                  "type": "paragraph",
+                  "id": "p_33177769-5c83-4b3c-9d21-4806cb8d487b",
+                  "children": [
+                    {
+                      "type": "text",
+                      "text": "ああqああああqqっっあdsdsdsdsdっsdsaaaaaあいうえおっq"
+                    }
+                  ]
+                }
+              ]
+            },
+            "anchor": {
+              "type": "block",
+              "blockId": "p_5989f34c-c752-466c-9de7-bacf1c8bb51c",
+              "dy": -2754.848432056634,
+              "dx": -68.82980431675611,
+              "line": {
+                "index": 0,
+                "dy": -2759.34843265867
+              }
+            }
+          },
+          {
+            "id": "ai_table_c128f2a8-f21a-4f01-bb61-c3e52fefbb96",
+            "type": "tableShape",
+            "x": 324.1295884154004,
+            "y": 349.00071897307,
+            "rotation": 0,
+            "anchor": {
+              "type": "block",
+              "blockId": "p_5989f34c-c752-466c-9de7-bacf1c8bb51c",
+              "dy": -2541.3668552169665,
+              "dx": -88.12325528058551,
+              "line": {
+                "index": 0,
+                "dy": -2545.8668558190025
+              }
+            },
+            "props": {
+              "w": 348,
+              "h": 116,
+              "table": {
+                "version": 1,
+                "kind": "variation",
+                "columns": [
+                  {
+                    "id": "ai_table_col_1",
+                    "width": {
+                      "mode": "auto",
+                      "min": 48,
+                      "max": 110
+                    },
+                    "role": "label"
+                  },
+                  {
+                    "id": "ai_table_col_2",
+                    "width": {
+                      "mode": "fr",
+                      "value": 1,
+                      "min": 64
+                    },
+                    "role": "interval"
+                  },
+                  {
+                    "id": "ai_table_col_3",
+                    "width": {
+                      "mode": "auto",
+                      "min": 52,
+                      "max": 110
+                    },
+                    "role": "point"
+                  },
+                  {
+                    "id": "ai_table_col_4",
+                    "width": {
+                      "mode": "fixed",
+                      "value": 72.14735430733131
+                    },
+                    "role": "interval"
+                  },
+                  {
+                    "id": "ai_table_col_5",
+                    "width": {
+                      "mode": "fixed",
+                      "value": 45.18597902600201
+                    },
+                    "role": "point"
+                  },
+                  {
+                    "id": "ai_table_col_6",
+                    "width": {
+                      "mode": "fr",
+                      "value": 1,
+                      "min": 64
+                    },
+                    "role": "interval"
+                  }
+                ],
+                "rows": [
+                  {
+                    "id": "ai_table_row_1",
+                    "height": {
+                      "mode": "auto",
+                      "min": 34
+                    },
+                    "role": "variable"
+                  },
+                  {
+                    "id": "ai_table_row_2",
+                    "height": {
+                      "mode": "auto",
+                      "min": 32
+                    },
+                    "role": "derivative"
+                  },
+                  {
+                    "id": "ai_table_row_3",
+                    "height": {
+                      "mode": "auto",
+                      "min": 38
+                    },
+                    "role": "variation"
+                  }
+                ],
+                "cells": [
+                  {
+                    "id": "ai_table_cell_1_1",
+                    "rowId": "ai_table_row_1",
+                    "columnId": "ai_table_col_1",
+                    "content": [
+                      {
+                        "type": "paragraph",
+                        "id": "ai_table_p_9f10c9fe-8e9a-440d-8cc2-2dca3ee1c7e2",
+                        "children": [
+                          {
+                            "type": "mathInline",
+                            "id": "ai_math_b89d2469-7a36-4002-974f-b720157344de",
+                            "tex": "x",
+                            "display": "inline"
+                          }
+                        ],
+                        "align": "center"
+                      }
+                    ]
+                  },
+                  {
+                    "id": "ai_table_cell_1_2",
+                    "rowId": "ai_table_row_1",
+                    "columnId": "ai_table_col_2",
+                    "content": [
+                      {
+                        "type": "paragraph",
+                        "id": "ai_table_p_56cd8351-6d0f-4d44-a070-48ba10b8e645",
+                        "children": [
+                          {
+                            "type": "mathInline",
+                            "id": "ai_math_4d31fb0a-3c22-469b-b1d7-bea43a2b15db",
+                            "tex": "(0)^+",
+                            "display": "inline"
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "id": "ai_table_cell_1_3",
+                    "rowId": "ai_table_row_1",
+                    "columnId": "ai_table_col_3",
+                    "content": [
+                      {
+                        "type": "paragraph",
+                        "id": "ai_table_p_866db7bd-49b9-4d01-b75e-d7b2614a54e1",
+                        "children": [
+                          {
+                            "type": "text",
+                            "text": ""
+                          }
+                        ],
+                        "align": "center"
+                      }
+                    ]
+                  },
+                  {
+                    "id": "ai_table_cell_1_4",
+                    "rowId": "ai_table_row_1",
+                    "columnId": "ai_table_col_4",
+                    "content": [
+                      {
+                        "type": "paragraph",
+                        "id": "ai_table_p_53a61e79-91aa-4c6b-9497-e877610e50fe",
+                        "children": [
+                          {
+                            "type": "mathInline",
+                            "id": "ai_math_536f5ca0-ec6f-4ce7-b40e-5c2477b0d3f5",
+                            "tex": "\\sqrt{e}",
+                            "display": "inline"
+                          }
+                        ],
+                        "align": "center"
+                      }
+                    ]
+                  },
+                  {
+                    "id": "ai_table_cell_1_5",
+                    "rowId": "ai_table_row_1",
+                    "columnId": "ai_table_col_5",
+                    "content": [
+                      {
+                        "type": "paragraph",
+                        "id": "ai_table_p_109cba06-a6f7-4876-9aec-c82a780327e7",
+                        "children": [
+                          {
+                            "type": "text",
+                            "text": ""
+                          }
+                        ],
+                        "align": "center"
+                      }
+                    ]
+                  },
+                  {
+                    "id": "ai_table_cell_1_6",
+                    "rowId": "ai_table_row_1",
+                    "columnId": "ai_table_col_6",
+                    "content": [
+                      {
+                        "type": "paragraph",
+                        "id": "ai_table_p_e4fee63d-dd50-4aae-a4b1-19f7151dee6c",
+                        "children": [
+                          {
+                            "type": "mathInline",
+                            "id": "ai_math_67c24243-0f2f-428d-9168-b02899782336",
+                            "tex": "(+\\infty)",
+                            "display": "inline"
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "id": "ai_table_cell_2_1",
+                    "rowId": "ai_table_row_2",
+                    "columnId": "ai_table_col_1",
+                    "content": [
+                      {
+                        "type": "paragraph",
+                        "id": "ai_table_p_73e0ad9b-df90-4a0a-90bc-97813fea448f",
+                        "children": [
+                          {
+                            "type": "mathInline",
+                            "id": "ai_math_67478a57-6c20-42ef-9623-fb9fea0fef0e",
+                            "tex": "f'(x)",
+                            "display": "inline"
+                          }
+                        ],
+                        "align": "center"
+                      }
+                    ]
+                  },
+                  {
+                    "id": "ai_table_cell_2_2",
+                    "rowId": "ai_table_row_2",
+                    "columnId": "ai_table_col_2",
+                    "content": [
+                      {
+                        "type": "paragraph",
+                        "id": "ai_table_p_18b6bdca-4b2d-41ec-a53b-a9ca3e2ab187",
+                        "children": [
+                          {
+                            "type": "text",
+                            "text": ""
+                          }
+                        ],
+                        "align": "center"
+                      }
+                    ]
+                  },
+                  {
+                    "id": "ai_table_cell_2_3",
+                    "rowId": "ai_table_row_2",
+                    "columnId": "ai_table_col_3",
+                    "content": [
+                      {
+                        "type": "paragraph",
+                        "id": "ai_table_p_fe3664ff-1f13-4154-b3cc-422df1c47164",
+                        "children": [
+                          {
+                            "type": "mathInline",
+                            "id": "ai_math_317d213f-81e1-4ce1-a1ca-d518c2c2e61b",
+                            "tex": "+",
+                            "display": "inline"
+                          }
+                        ],
+                        "align": "center"
+                      }
+                    ]
+                  },
+                  {
+                    "id": "ai_table_cell_2_4",
+                    "rowId": "ai_table_row_2",
+                    "columnId": "ai_table_col_4",
+                    "content": [
+                      {
+                        "type": "paragraph",
+                        "id": "ai_table_p_26e0aaca-57d7-4e2e-8dbe-3f994309a977",
+                        "children": [
+                          {
+                            "type": "mathInline",
+                            "id": "ai_math_8e2a1a4b-6a4e-4f64-a2eb-bf418d2a4946",
+                            "tex": "(0)",
+                            "display": "inline"
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "id": "ai_table_cell_2_5",
+                    "rowId": "ai_table_row_2",
+                    "columnId": "ai_table_col_5",
+                    "content": [
+                      {
+                        "type": "paragraph",
+                        "id": "ai_table_p_aa323433-97d7-40f5-9e01-17014ba8fb6f",
+                        "children": [
+                          {
+                            "type": "mathInline",
+                            "id": "ai_math_3acf40e3-6915-4a62-9dfa-ce33959d6d7c",
+                            "tex": "-",
+                            "display": "inline"
+                          }
+                        ],
+                        "align": "center"
+                      }
+                    ]
+                  },
+                  {
+                    "id": "ai_table_cell_2_6",
+                    "rowId": "ai_table_row_2",
+                    "columnId": "ai_table_col_6",
+                    "content": [
+                      {
+                        "type": "paragraph",
+                        "id": "ai_table_p_92398b60-316d-48e1-8b39-e851f1097102",
+                        "children": [
+                          {
+                            "type": "text",
+                            "text": ""
+                          }
+                        ],
+                        "align": "center"
+                      }
+                    ]
+                  },
+                  {
+                    "id": "ai_table_cell_3_1",
+                    "rowId": "ai_table_row_3",
+                    "columnId": "ai_table_col_1",
+                    "content": [
+                      {
+                        "type": "paragraph",
+                        "id": "ai_table_p_805402ff-ea0b-4c8d-96c0-e888bac51083",
+                        "children": [
+                          {
+                            "type": "mathInline",
+                            "id": "ai_math_fff2a922-3f71-40d4-9295-2feec654b5a5",
+                            "tex": "f(x)",
+                            "display": "inline"
+                          }
+                        ],
+                        "align": "center"
+                      }
+                    ]
+                  },
+                  {
+                    "id": "ai_table_cell_3_2",
+                    "rowId": "ai_table_row_3",
+                    "columnId": "ai_table_col_2",
+                    "content": [
+                      {
+                        "type": "paragraph",
+                        "id": "ai_table_p_b576511d-18d2-42b9-865c-39dfa10eecc0",
+                        "children": [
+                          {
+                            "type": "mathInline",
+                            "id": "ai_math_63795a4e-e6d0-49d3-aa71-49f25b09c1e8",
+                            "tex": "(-\\infty)",
+                            "display": "inline"
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "id": "ai_table_cell_3_3",
+                    "rowId": "ai_table_row_3",
+                    "columnId": "ai_table_col_3",
+                    "content": [
+                      {
+                        "type": "paragraph",
+                        "id": "ai_table_p_d7e71e6f-eb73-49ed-a909-89833e379948",
+                        "children": [
+                          {
+                            "type": "mathInline",
+                            "id": "ai_math_2cdabfec-7ede-402f-b2c8-86c029bb49e3",
+                            "tex": "\\nearrow",
+                            "display": "inline"
+                          }
+                        ],
+                        "align": "center"
+                      }
+                    ]
+                  },
+                  {
+                    "id": "ai_table_cell_3_4",
+                    "rowId": "ai_table_row_3",
+                    "columnId": "ai_table_col_4",
+                    "content": [
+                      {
+                        "type": "paragraph",
+                        "id": "ai_table_p_cb549f1d-4aee-4d16-9af9-ba94f3091abe",
+                        "children": [
+                          {
+                            "type": "mathInline",
+                            "id": "ai_math_d2bf7e62-25af-4a16-b959-bb57ecde158c",
+                            "tex": "\\frac{1}{2e}",
+                            "display": "inline"
+                          }
+                        ],
+                        "align": "center"
+                      }
+                    ]
+                  },
+                  {
+                    "id": "ai_table_cell_3_5",
+                    "rowId": "ai_table_row_3",
+                    "columnId": "ai_table_col_5",
+                    "content": [
+                      {
+                        "type": "paragraph",
+                        "id": "ai_table_p_6eacfc75-fda0-48d0-9ea3-8fe15e53fa3e",
+                        "children": [
+                          {
+                            "type": "mathInline",
+                            "id": "ai_math_f260fff1-3365-4f0d-8f0d-486545319016",
+                            "tex": "\\searrow",
+                            "display": "inline"
+                          }
+                        ],
+                        "align": "center"
+                      }
+                    ]
+                  },
+                  {
+                    "id": "ai_table_cell_3_6",
+                    "rowId": "ai_table_row_3",
+                    "columnId": "ai_table_col_6",
+                    "content": [
+                      {
+                        "type": "paragraph",
+                        "id": "ai_table_p_b2f58b42-cc0c-4b58-b0da-3b191f656eff",
+                        "children": [
+                          {
+                            "type": "mathInline",
+                            "id": "ai_math_71cf6a5d-96fa-4040-95e7-8f1a4fa79f5d",
+                            "tex": "(0)",
+                            "display": "inline",
+                            "semanticRole": "expression"
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ],
+                "grid": {
+                  "borderColor": "#111827",
+                  "borderWidth": 1,
+                  "borderStyle": "solid",
+                  "showOuterBorder": true,
+                  "showInnerBorders": true
+                },
+                "defaultCellStyle": {
+                  "align": "center",
+                  "verticalAlign": "middle",
+                  "paddingX": 8,
+                  "paddingY": 5,
+                  "color": "#111827",
+                  "fontSize": 12,
+                  "fontWeight": "normal"
+                }
+              }
+            }
+          },
+          {
+            "id": "ai_graph_logx_over_x2_20260713",
+            "type": "graph2dShape",
+            "x": 105.6359288731606,
+            "y": 415.21751584807,
+            "rotation": 0,
+            "anchor": {
+              "type": "block",
+              "blockId": "p_7c7dea7a-7a3f-450e-801e-e0e039078756",
+              "dy": -3237.150160286733,
+              "dx": -16.614914406000793,
+              "line": {
+                "index": 0,
+                "dy": -3239.6501606211973
+              }
+            },
+            "props": {
+              "w": 164.76296351031596,
+              "h": 223.56640625,
+              "spec": {
+                "kind": "cartesian",
+                "title": "f(x)=\\frac{\\log x}{x^2} の概形",
+                "width": 228.76296351031596,
+                "height": 275.56640625,
+                "viewBox": {
+                  "xMin": "0",
+                  "xMax": "6",
+                  "yMin": "-0.5",
+                  "yMax": "0.4666"
+                },
+                "axes": {
+                  "grid": false,
+                  "showX": true,
+                  "showY": true,
+                  "showTicks": false,
+                  "xLabel": "",
+                  "yLabel": "",
+                  "xTickStep": "1",
+                  "yTickStep": "1",
+                  "originLabel": ""
+                },
+                "curves": [
+                  {
+                    "id": "ai_curve_logx_over_x2",
+                    "expr": "log(x)/(x^2)",
+                    "label": "y = \\frac{\\log x}{x^2}",
+                    "color": "#0d0d0d",
+                    "mode": "yOfX",
+                    "dash": "solid",
+                    "strokeWidth": 2.4,
+                    "domain": {
+                      "min": "0.05",
+                      "max": "6"
+                    },
+                    "samples": 180
+                  }
+                ],
+                "points": [
+                  {
+                    "id": "ai_point_logx_zero",
+                    "x": "1",
+                    "y": "0",
+                    "label": "(1,0)",
+                    "labelPlacement": "se",
+                    "color": "#0d0d0d"
+                  },
+                  {
+                    "id": "ai_point_logx_max",
+                    "x": "sqrt(e)",
+                    "y": "1/(2*e)",
+                    "label": "(\\sqrt{e},\\frac{1}{2e})",
+                    "labelPlacement": "ne",
+                    "color": "#0d0d0d"
+                  }
+                ],
+                "showFormulaLabels": true
+              },
+              "axisLabelTextShapeIds": {
+                "x": "ai_graph_label_da8e0385-c1e9-4d07-8d87-091755e2e8ee",
+                "y": "ai_graph_label_cfc6b685-9a8f-4037-b535-ded18097c0b5"
+              },
+              "pointLabelTextShapeIdsByPointId": {
+                "ai_point_logx_zero": "ai_graph_label_5a40521e-300d-48fa-83a7-fa7a1c72e5ef",
+                "ai_point_logx_max": "ai_graph_label_33ca6547-8aa7-4227-a66c-7f5ff5fb9c83"
+              },
+              "labelTextShapeIds": [
+                "ai_graph_label_307a70b7-d98d-42d3-b847-b4742524e2d3"
+              ],
+              "labelTextShapeIdsByCurveId": {
+                "ai_curve_logx_over_x2": "ai_graph_label_307a70b7-d98d-42d3-b847-b4742524e2d3"
+              },
+              "boundsMode": "plot"
+            }
+          },
+          {
+            "id": "ai_graph_label_da8e0385-c1e9-4d07-8d87-091755e2e8ee",
+            "type": "text",
+            "x": 279.76169631934476,
+            "y": 554.04954709807,
+            "rotation": 0,
+            "anchor": {
+              "type": "shape",
+              "shapeId": "ai_graph_logx_over_x2_20260713",
+              "dx": 21.362803935868214,
+              "dy": 51.911396906683194,
+              "rx": 0.9271680980704825,
+              "ry": 0.3887911238601698
+            },
+            "props": {
+              "w": 8,
+              "h": 18,
+              "color": "#1f2937",
+              "fontSize": 10,
+              "size": "s",
+              "blocks": [
+                {
+                  "type": "paragraph",
+                  "id": "p_14e75e95-e396-4996-a5ea-721da2c0ee34",
+                  "children": [
+                    {
+                      "type": "mathInline",
+                      "id": "overlay_math_9cf87868-1e95-4112-9608-826f87cbe904",
+                      "tex": "x",
+                      "display": "inline"
+                    }
+                  ]
+                }
+              ]
+            }
+          },
+          {
+            "id": "ai_graph_label_cfc6b685-9a8f-4037-b535-ded18097c0b5",
+            "type": "text",
+            "x": 113.12037472597846,
+            "y": 415.21751584807,
+            "rotation": 0,
+            "anchor": {
+              "type": "shape",
+              "shapeId": "ai_graph_logx_over_x2_20260713",
+              "dx": 1.4844458528178706,
+              "dy": 3,
+              "rx": 0.03641595096475874,
+              "ry": -0.013418831792846784
+            },
+            "props": {
+              "w": 8,
+              "h": 18,
+              "color": "#1f2937",
+              "fontSize": 10,
+              "size": "s",
+              "blocks": [
+                {
+                  "type": "paragraph",
+                  "id": "p_fc8634d9-7ad1-4495-88a6-b4932e2573b0",
+                  "children": [
+                    {
+                      "type": "mathInline",
+                      "id": "overlay_math_bf1fc259-dbed-41df-b8d4-ce5dd96db08b",
+                      "tex": "y",
+                      "display": "inline"
+                    }
+                  ]
+                }
+              ]
+            }
+          },
+          {
+            "id": "ai_graph_label_5a40521e-300d-48fa-83a7-fa7a1c72e5ef",
+            "type": "text",
+            "x": 117.12037472597845,
+            "y": 545.08704709807,
+            "rotation": 0,
+            "anchor": {
+              "type": "shape",
+              "shapeId": "ai_graph_logx_over_x2_20260713",
+              "dx": -25.976048065568136,
+              "dy": 11.948896906683217,
+              "rx": 0.2273599182745979,
+              "ry": 0.5274523857195866
+            },
+            "props": {
+              "w": 30,
+              "h": 17,
+              "color": "#0d0d0d",
+              "fontSize": 10,
+              "size": "s",
+              "blocks": [
+                {
+                  "type": "paragraph",
+                  "id": "p_7d2b5e08-4f07-481f-81f0-4c1d2f854b70",
+                  "children": [
+                    {
+                      "type": "mathInline",
+                      "id": "overlay_math_143cea8b-5e93-4b2c-a595-0428acff4198",
+                      "tex": "(1,0)",
+                      "display": "inline"
+                    }
+                  ]
+                }
+              ]
+            }
+          },
+          {
+            "id": "ai_graph_label_33ca6547-8aa7-4227-a66c-7f5ff5fb9c83",
+            "type": "text",
+            "x": 161.01741062831854,
+            "y": 454.00071897307,
+            "rotation": 0,
+            "anchor": {
+              "type": "shape",
+              "shapeId": "ai_graph_logx_over_x2_20260713",
+              "dx": 0.10678132798346951,
+              "dy": -2.593729275446094,
+              "rx": 0.3354801300579526,
+              "ry": 0.18507669866185936
+            },
+            "props": {
+              "w": 54,
+              "h": 30,
+              "color": "#0d0d0d",
+              "fontSize": 10,
+              "size": "s",
+              "blocks": [
+                {
+                  "type": "paragraph",
+                  "id": "p_a42ac119-51a8-4ef5-b315-9da33da12960",
+                  "children": [
+                    {
+                      "type": "mathInline",
+                      "id": "overlay_math_95eebc9f-d116-414a-9c94-ceb2a65926fd",
+                      "tex": "\\left(\\sqrt{e},\\frac{1}{2e}",
+                      "display": "inline"
+                    }
+                  ]
+                }
+              ]
+            }
+          },
+          {
+            "id": "ai_graph_label_307a70b7-d98d-42d3-b847-b4742524e2d3",
+            "type": "text",
+            "x": 270.39889238347655,
+            "y": 465.00071897307,
+            "rotation": 0,
+            "anchor": {
+              "type": "shape",
+              "shapeId": "ai_graph_logx_over_x2_20260713",
+              "dx": 164.76296351031596,
+              "dy": 49.783203125
+            },
+            "props": {
+              "w": 55,
+              "h": 31,
+              "color": "#0d0d0d",
+              "fontSize": 9.814,
+              "size": "m",
+              "blocks": [
+                {
+                  "type": "paragraph",
+                  "id": "p_024ea800-5f34-4ca3-8843-f26c4e8b813b",
+                  "children": [
+                    {
+                      "type": "mathInline",
+                      "id": "overlay_math_7d183dbc-ba18-4771-aad2-1d664d97b183",
+                      "tex": "y = \\frac{\\log x}{x^2}",
+                      "display": "inline"
+                    }
+                  ]
+                }
+              ]
+            }
+          },
+          {
+            "id": "ai_variation_logx_over_x3_rmriwl194_1",
+            "type": "tableShape",
+            "x": 126.84862282041412,
+            "y": 1488.1664021915474,
+            "rotation": 0,
+            "anchor": {
+              "type": "block",
+              "blockId": "p_7523bad2-d216-4977-ac33-1cab61711ff5",
+              "dy": 6.4240164555089905,
+              "dx": 60.59816582863955,
+              "line": {
+                "index": 0,
+                "dy": 6.4240164555089905
+              }
+            },
+            "props": {
+              "w": 540,
+              "h": 170,
+              "table": {
+                "version": 1,
+                "kind": "variation",
+                "columns": [
+                  {
+                    "id": "ai_table_col_1",
+                    "width": {
+                      "mode": "fixed",
+                      "value": 71.33895840439473
+                    },
+                    "role": "label"
+                  },
+                  {
+                    "id": "ai_table_col_2",
+                    "width": {
+                      "mode": "fixed",
+                      "value": 105.99437492893858
+                    },
+                    "role": "interval"
+                  },
+                  {
+                    "id": "ai_table_col_3",
+                    "width": {
+                      "mode": "auto",
+                      "min": 52,
+                      "max": 110
+                    },
+                    "role": "point"
+                  },
+                  {
+                    "id": "ai_table_col_4",
+                    "width": {
+                      "mode": "fr",
+                      "value": 1,
+                      "min": 64
+                    },
+                    "role": "interval"
+                  },
+                  {
+                    "id": "ai_table_col_5",
+                    "width": {
+                      "mode": "auto",
+                      "min": 52,
+                      "max": 110
+                    },
+                    "role": "point"
+                  },
+                  {
+                    "id": "ai_table_col_6",
+                    "width": {
+                      "mode": "fr",
+                      "value": 1,
+                      "min": 64
+                    },
+                    "role": "interval"
+                  }
+                ],
+                "rows": [
+                  {
+                    "id": "ai_table_row_1",
+                    "height": {
+                      "mode": "auto",
+                      "min": 34
+                    },
+                    "role": "variable"
+                  },
+                  {
+                    "id": "ai_table_row_2",
+                    "height": {
+                      "mode": "auto",
+                      "min": 32
+                    },
+                    "role": "derivative"
+                  },
+                  {
+                    "id": "ai_table_row_3",
+                    "height": {
+                      "mode": "auto",
+                      "min": 38
+                    },
+                    "role": "variation"
+                  }
+                ],
+                "cells": [
+                  {
+                    "id": "ai_table_cell_1_1",
+                    "rowId": "ai_table_row_1",
+                    "columnId": "ai_table_col_1",
+                    "content": [
+                      {
+                        "type": "paragraph",
+                        "id": "ai_table_p_1e23be75-fb8a-4f35-a992-63f2779d9ef8",
+                        "children": [
+                          {
+                            "type": "mathInline",
+                            "id": "ai_math_574fef83-4670-4031-b1a4-73797a33a410",
+                            "tex": "x",
+                            "display": "inline"
+                          }
+                        ],
+                        "align": "center"
+                      }
+                    ]
+                  },
+                  {
+                    "id": "ai_table_cell_1_2",
+                    "rowId": "ai_table_row_1",
+                    "columnId": "ai_table_col_2",
+                    "content": [
+                      {
+                        "type": "paragraph",
+                        "id": "ai_table_p_62eeffd0-6b3e-4e1b-965d-383f63f4970d",
+                        "children": [
+                          {
+                            "type": "mathInline",
+                            "id": "ai_math_bf213676-ddb4-4ef6-851a-28ab2fadf75b",
+                            "tex": "0",
+                            "display": "inline"
+                          }
+                        ],
+                        "align": "center"
+                      }
+                    ]
+                  },
+                  {
+                    "id": "ai_table_cell_1_3",
+                    "rowId": "ai_table_row_1",
+                    "columnId": "ai_table_col_3",
+                    "content": [
+                      {
+                        "type": "paragraph",
+                        "id": "ai_table_p_7f1a8790-47f3-42eb-b293-731892d6fe1f",
+                        "children": [
+                          {
+                            "type": "text",
+                            "text": ""
+                          }
+                        ],
+                        "align": "center"
+                      }
+                    ]
+                  },
+                  {
+                    "id": "ai_table_cell_1_4",
+                    "rowId": "ai_table_row_1",
+                    "columnId": "ai_table_col_4",
+                    "content": [
+                      {
+                        "type": "paragraph",
+                        "id": "ai_table_p_8addab1e-e6c7-4406-b2da-323b22274205",
+                        "children": [
+                          {
+                            "type": "mathInline",
+                            "id": "ai_math_c9440541-dc1f-4178-a1fa-17938953a629",
+                            "tex": "e^{1/3}",
+                            "display": "inline"
+                          }
+                        ],
+                        "align": "center"
+                      }
+                    ]
+                  },
+                  {
+                    "id": "ai_table_cell_1_5",
+                    "rowId": "ai_table_row_1",
+                    "columnId": "ai_table_col_5",
+                    "content": [
+                      {
+                        "type": "paragraph",
+                        "id": "ai_table_p_526a5be0-95f9-47e3-b584-438c60746b91",
+                        "children": [
+                          {
+                            "type": "text",
+                            "text": ""
+                          }
+                        ],
+                        "align": "center"
+                      }
+                    ]
+                  },
+                  {
+                    "id": "ai_table_cell_1_6",
+                    "rowId": "ai_table_row_1",
+                    "columnId": "ai_table_col_6",
+                    "content": [
+                      {
+                        "type": "paragraph",
+                        "id": "ai_table_p_afe1f623-13b7-4067-9369-79d189f7ec9c",
+                        "children": [
+                          {
+                            "type": "mathInline",
+                            "id": "ai_math_36375132-887a-4ef9-9869-b85d08fa954f",
+                            "tex": "\\infty",
+                            "display": "inline"
+                          }
+                        ],
+                        "align": "center"
+                      }
+                    ]
+                  },
+                  {
+                    "id": "ai_table_cell_2_1",
+                    "rowId": "ai_table_row_2",
+                    "columnId": "ai_table_col_1",
+                    "content": [
+                      {
+                        "type": "paragraph",
+                        "id": "ai_table_p_c3c7128e-5a19-43de-be00-6201f9fe976b",
+                        "children": [
+                          {
+                            "type": "mathInline",
+                            "id": "ai_math_492d55e6-58a5-4ec4-b361-6bba66735cf5",
+                            "tex": "f'(x)",
+                            "display": "inline"
+                          }
+                        ],
+                        "align": "center"
+                      }
+                    ]
+                  },
+                  {
+                    "id": "ai_table_cell_2_2",
+                    "rowId": "ai_table_row_2",
+                    "columnId": "ai_table_col_2",
+                    "content": [
+                      {
+                        "type": "paragraph",
+                        "id": "ai_table_p_c47e8f19-0ec6-46c7-a1da-a4d6ae406f74",
+                        "children": [
+                          {
+                            "type": "text",
+                            "text": ""
+                          }
+                        ],
+                        "align": "center"
+                      }
+                    ]
+                  },
+                  {
+                    "id": "ai_table_cell_2_3",
+                    "rowId": "ai_table_row_2",
+                    "columnId": "ai_table_col_3",
+                    "content": [
+                      {
+                        "type": "paragraph",
+                        "id": "ai_table_p_eae4975f-4944-4a72-837f-47ff4e618e9d",
+                        "children": [
+                          {
+                            "type": "mathInline",
+                            "id": "ai_math_884d6961-abf3-4503-923d-3194b6a966f3",
+                            "tex": "+",
+                            "display": "inline"
+                          }
+                        ],
+                        "align": "center"
+                      }
+                    ]
+                  },
+                  {
+                    "id": "ai_table_cell_2_4",
+                    "rowId": "ai_table_row_2",
+                    "columnId": "ai_table_col_4",
+                    "content": [
+                      {
+                        "type": "paragraph",
+                        "id": "ai_table_p_e7dcf79d-1b9e-407c-8f56-be9e66980e17",
+                        "children": [
+                          {
+                            "type": "mathInline",
+                            "id": "ai_math_e55bf94a-ec00-41a5-b363-7288928b6006",
+                            "tex": "0",
+                            "display": "inline"
+                          }
+                        ],
+                        "align": "center"
+                      }
+                    ]
+                  },
+                  {
+                    "id": "ai_table_cell_2_5",
+                    "rowId": "ai_table_row_2",
+                    "columnId": "ai_table_col_5",
+                    "content": [
+                      {
+                        "type": "paragraph",
+                        "id": "ai_table_p_e75207a0-e6f2-4d46-8341-1e2e2b5e4029",
+                        "children": [
+                          {
+                            "type": "mathInline",
+                            "id": "ai_math_78e49a7e-5250-4b6a-986a-02896c508490",
+                            "tex": "-",
+                            "display": "inline"
+                          }
+                        ],
+                        "align": "center"
+                      }
+                    ]
+                  },
+                  {
+                    "id": "ai_table_cell_2_6",
+                    "rowId": "ai_table_row_2",
+                    "columnId": "ai_table_col_6",
+                    "content": [
+                      {
+                        "type": "paragraph",
+                        "id": "ai_table_p_b3be0b4b-01c5-4e45-900b-1a3ca1d92127",
+                        "children": [
+                          {
+                            "type": "text",
+                            "text": ""
+                          }
+                        ],
+                        "align": "center"
+                      }
+                    ]
+                  },
+                  {
+                    "id": "ai_table_cell_3_1",
+                    "rowId": "ai_table_row_3",
+                    "columnId": "ai_table_col_1",
+                    "content": [
+                      {
+                        "type": "paragraph",
+                        "id": "ai_table_p_9b450d08-668b-4ab2-a0a0-1096179e5e0c",
+                        "children": [
+                          {
+                            "type": "mathInline",
+                            "id": "ai_math_db6dab29-9fa8-426a-9e93-58f013bb114b",
+                            "tex": "f(x)",
+                            "display": "inline"
+                          }
+                        ],
+                        "align": "center"
+                      }
+                    ]
+                  },
+                  {
+                    "id": "ai_table_cell_3_2",
+                    "rowId": "ai_table_row_3",
+                    "columnId": "ai_table_col_2",
+                    "content": [
+                      {
+                        "type": "paragraph",
+                        "id": "ai_table_p_900c0cfe-fce8-43f1-a995-4faaddd08eeb",
+                        "children": [
+                          {
+                            "type": "mathInline",
+                            "id": "ai_math_db458f80-5fcd-4d29-8a43-e2d4cb7635a9",
+                            "tex": "-\\infty",
+                            "display": "inline"
+                          }
+                        ],
+                        "align": "center"
+                      }
+                    ]
+                  },
+                  {
+                    "id": "ai_table_cell_3_3",
+                    "rowId": "ai_table_row_3",
+                    "columnId": "ai_table_col_3",
+                    "content": [
+                      {
+                        "type": "paragraph",
+                        "id": "ai_table_p_7031d09e-4a3a-4722-8d9e-fe953ebde797",
+                        "children": [
+                          {
+                            "type": "mathInline",
+                            "id": "ai_math_c1d78940-b4bc-41e2-8cf4-8df0d6fd3a39",
+                            "tex": "\\nearrow",
+                            "display": "inline"
+                          }
+                        ],
+                        "align": "center"
+                      }
+                    ]
+                  },
+                  {
+                    "id": "ai_table_cell_3_4",
+                    "rowId": "ai_table_row_3",
+                    "columnId": "ai_table_col_4",
+                    "content": [
+                      {
+                        "type": "paragraph",
+                        "id": "ai_table_p_d9ca9de8-7595-4f48-ac88-950d895970e5",
+                        "children": [
+                          {
+                            "type": "mathInline",
+                            "id": "ai_math_b1a0b099-43f3-4460-8fd7-c70995cf3dfe",
+                            "tex": "\\frac{1}{3e}",
+                            "display": "inline"
+                          }
+                        ],
+                        "align": "center"
+                      }
+                    ]
+                  },
+                  {
+                    "id": "ai_table_cell_3_5",
+                    "rowId": "ai_table_row_3",
+                    "columnId": "ai_table_col_5",
+                    "content": [
+                      {
+                        "type": "paragraph",
+                        "id": "ai_table_p_a8554978-dfdb-4a95-b43a-f49f8a3b9094",
+                        "children": [
+                          {
+                            "type": "mathInline",
+                            "id": "ai_math_c75cc2a2-427f-4c91-b0ea-fbd372ac1730",
+                            "tex": "\\searrow",
+                            "display": "inline"
+                          }
+                        ],
+                        "align": "center"
+                      }
+                    ]
+                  },
+                  {
+                    "id": "ai_table_cell_3_6",
+                    "rowId": "ai_table_row_3",
+                    "columnId": "ai_table_col_6",
+                    "content": [
+                      {
+                        "type": "paragraph",
+                        "id": "ai_table_p_6397e9b3-9d05-4a04-993d-e5d9566b0aa2",
+                        "children": [
+                          {
+                            "type": "mathInline",
+                            "id": "ai_math_13db43cb-86e9-4e2e-8554-90251e85a923",
+                            "tex": "0",
+                            "display": "inline",
+                            "semanticRole": "expression"
+                          }
+                        ],
+                        "align": "center"
+                      }
+                    ]
+                  }
+                ],
+                "grid": {
+                  "borderColor": "#111827",
+                  "borderWidth": 1,
+                  "borderStyle": "solid",
+                  "showOuterBorder": true,
+                  "showInnerBorders": true
+                },
+                "defaultCellStyle": {
+                  "align": "center",
+                  "verticalAlign": "middle",
+                  "paddingX": 8,
+                  "paddingY": 5,
+                  "color": "#111827",
+                  "fontSize": 15,
+                  "fontWeight": "normal"
+                }
+              }
+            }
+          },
+          {
+            "id": "ai_graph_logx_over_x3_rmriwl194_2",
+            "type": "graph2dShape",
+            "x": 270.39889238347655,
+            "y": 1684.596924559755,
+            "rotation": 0,
+            "anchor": {
+              "type": "block",
+              "blockId": "p_33e05d74-b95e-4d12-869b-33a2bfddff27",
+              "dy": 19.995139359732093,
+              "dx": 204.14843539170198,
+              "line": {
+                "index": 0,
+                "dy": 19.995139359732093
+              }
+            },
+            "props": {
+              "w": 229.79085170477498,
+              "h": 426.1531297589244,
+              "spec": {
+                "kind": "cartesian",
+                "title": "f(x)=\\frac{\\log x}{x^3} の概形",
+                "width": 293.790851704775,
+                "height": 478.1531297589244,
+                "viewBox": {
+                  "xMin": "0",
+                  "xMax": "6",
+                  "yMin": "-0.1184",
+                  "yMax": "0.25"
+                },
+                "axes": {
+                  "grid": false,
+                  "showX": true,
+                  "showY": true,
+                  "showTicks": false,
+                  "xLabel": "",
+                  "yLabel": "",
+                  "xTickStep": "1",
+                  "yTickStep": "1",
+                  "originLabel": ""
+                },
+                "curves": [
+                  {
+                    "id": "ai_curve_logx_over_x3",
+                    "expr": "log(x)/x^3",
+                    "label": "y = \\frac{\\log x}{x^3}",
+                    "color": "#0d0d0d",
+                    "mode": "yOfX",
+                    "dash": "solid",
+                    "strokeWidth": 2.3,
+                    "domain": {
+                      "min": "0.1",
+                      "max": "6"
+                    },
+                    "samples": 500
+                  }
+                ],
+                "points": [
+                  {
+                    "id": "ai_point_zero_logx_over_x3",
+                    "x": "1",
+                    "y": "0",
+                    "label": "(1,0)",
+                    "labelPlacement": "se",
+                    "color": "#0d0d0d"
+                  },
+                  {
+                    "id": "ai_point_max_logx_over_x3",
+                    "x": "e^(1/3)",
+                    "y": "1/(3*e)",
+                    "label": "\\left(e^{1/3},\\frac{1}{3e}\\right)",
+                    "labelPlacement": "ne",
+                    "color": "#0d0d0d"
+                  }
+                ],
+                "showFormulaLabels": true
+              },
+              "axisLabelTextShapeIds": {
+                "x": "ai_graph_label_b4693b2c-8d0a-41cf-9cf6-c243ec8a532e",
+                "y": "ai_graph_label_7e6a47e0-3565-4505-8988-e756ff9befa5"
+              },
+              "pointLabelTextShapeIdsByPointId": {
+                "ai_point_zero_logx_over_x3": "ai_graph_label_2a353b2e-146b-407c-be16-656dda4c4463",
+                "ai_point_max_logx_over_x3": "ai_graph_label_616eab37-0778-4e3a-93a6-cad29679f0e3"
+              },
+              "labelTextShapeIds": [
+                "ai_graph_label_a5f4f6d3-1431-4a42-9f1d-d420f2eec0e8"
+              ],
+              "labelTextShapeIdsByCurveId": {
+                "ai_curve_logx_over_x3": "ai_graph_label_a5f4f6d3-1431-4a42-9f1d-d420f2eec0e8"
+              },
+              "boundsMode": "plot"
+            }
+          },
+          {
+            "id": "ai_graph_label_b4693b2c-8d0a-41cf-9cf6-c243ec8a532e",
+            "type": "text",
+            "x": 498.1295884154004,
+            "y": 1965.93753416758,
+            "rotation": 0,
+            "anchor": {
+              "type": "shape",
+              "shapeId": "ai_graph_logx_over_x3_rmriwl194_2",
+              "dx": 9.939844327148876,
+              "dy": 13.148746307794681,
+              "rx": 0.9477785999269586,
+              "ry": 0.6293321451182272
+            },
+            "props": {
+              "w": 15,
+              "h": 14,
+              "color": "#1f2937",
+              "fontSize": 10,
+              "size": "s",
+              "blocks": [
+                {
+                  "type": "paragraph",
+                  "id": "p_bd1f9ef9-b3d5-4ff5-b27a-d44978d34fec",
+                  "children": [
+                    {
+                      "type": "mathInline",
+                      "id": "overlay_math_41ad0957-97ba-4322-b789-cdc4de9a6b29",
+                      "tex": "x",
+                      "display": "inline"
+                    }
+                  ]
+                }
+              ]
+            }
+          },
+          {
+            "id": "ai_graph_label_7e6a47e0-3565-4505-8988-e756ff9befa5",
+            "type": "text",
+            "x": 241.72667873451053,
+            "y": 1665.2282011350924,
+            "rotation": 0,
+            "anchor": {
+              "type": "shape",
+              "shapeId": "ai_graph_logx_over_x3_rmriwl194_2",
+              "dx": -34.67221364896602,
+              "dy": -16.368723424662676,
+              "rx": 0.02611070003652074,
+              "ry": -0.007039723025610783
+            },
+            "props": {
+              "w": 15,
+              "h": 14,
+              "color": "#1f2937",
+              "fontSize": 10,
+              "size": "s",
+              "blocks": [
+                {
+                  "type": "paragraph",
+                  "id": "p_9daf330b-d800-4c11-8702-e8d8fb542326",
+                  "children": [
+                    {
+                      "type": "mathInline",
+                      "id": "overlay_math_83eeee1f-e835-4e24-813f-b4d87d614dc0",
+                      "tex": "y",
+                      "display": "inline"
+                    }
+                  ]
+                }
+              ]
+            }
+          },
+          {
+            "id": "ai_graph_label_2a353b2e-146b-407c-be16-656dda4c4463",
+            "type": "text",
+            "x": 293.2395403838917,
+            "y": 2000.308839089944,
+            "rotation": 0,
+            "anchor": {
+              "type": "shape",
+              "shapeId": "ai_graph_logx_over_x3_rmriwl194_2",
+              "dx": -25.457827283713982,
+              "dy": 16.520051230158742,
+              "rx": 0.21018450006086786,
+              "ry": 0.7020759497162053
+            },
+            "props": {
+              "w": 30,
+              "h": 17,
+              "color": "#0d0d0d",
+              "fontSize": 10,
+              "size": "s",
+              "blocks": [
+                {
+                  "type": "paragraph",
+                  "id": "p_0aedb66d-b979-441c-bc32-47a6d91c416e",
+                  "children": [
+                    {
+                      "type": "mathInline",
+                      "id": "overlay_math_b971f874-2cbc-4bfd-ac8e-3f7d4461ab0d",
+                      "tex": "(1,0)",
+                      "display": "inline"
+                    }
+                  ]
+                }
+              ]
+            }
+          },
+          {
+            "id": "ai_graph_label_616eab37-0778-4e3a-93a6-cad29679f0e3",
+            "type": "text",
+            "x": 320.5401420403609,
+            "y": 1801.6454220333455,
+            "rotation": 0,
+            "anchor": {
+              "type": "shape",
+              "shapeId": "ai_graph_logx_over_x3_rmriwl194_2",
+              "dx": -13.30857831149882,
+              "dy": -6.29304441024874,
+              "rx": 0.2761199042418828,
+              "ry": 0.28943009747133314
+            },
+            "props": {
+              "w": 59,
+              "h": 30,
+              "color": "#0d0d0d",
+              "fontSize": 10,
+              "size": "s",
+              "blocks": [
+                {
+                  "type": "paragraph",
+                  "id": "p_26102f5d-7bac-491b-85b0-0542d7481039",
+                  "children": [
+                    {
+                      "type": "mathInline",
+                      "id": "overlay_math_18734194-ca28-40e0-adb1-8077ec609177",
+                      "tex": "\\left(e^{1/3},\\frac{1}{3e}\\right)",
+                      "display": "inline"
+                    }
+                  ]
+                }
+              ]
+            }
+          },
+          {
+            "id": "ai_graph_label_a5f4f6d3-1431-4a42-9f1d-d420f2eec0e8",
+            "type": "text",
+            "x": 318.6973676676057,
+            "y": 2039.7801208522922,
+            "rotation": 0,
+            "anchor": {
+              "type": "shape",
+              "shapeId": "ai_graph_logx_over_x3_rmriwl194_2",
+              "dx": 48.298475284129154,
+              "dy": 355.1831962925371
+            },
+            "props": {
+              "w": 66,
+              "h": 37,
+              "color": "#0d0d0d",
+              "fontSize": 12,
+              "size": "m",
+              "blocks": [
+                {
+                  "type": "paragraph",
+                  "id": "p_49942421-b100-4cbf-8c39-d4cf60a79b6c",
+                  "children": [
+                    {
+                      "type": "mathInline",
+                      "id": "overlay_math_1b652b71-0a80-4ba1-b29c-cfe9ccfe02dd",
+                      "tex": "y = \\frac{\\log x}{x^3}",
+                      "display": "inline"
+                    }
+                  ]
+                }
+              ]
+            }
+          },
+          {
+            "id": "overlay_shape_980752c2-c71e-4c9d-8049-4ad0210793d5",
+            "type": "tableShape",
+            "x": 390.4230393792297,
+            "y": 499.8900140241399,
+            "rotation": 0,
+            "props": {
+              "w": 256,
+              "h": 72.15953307392996,
+              "table": {
+                "version": 1,
+                "kind": "plain",
+                "columns": [
+                  {
+                    "id": "table_col_3b9a54e5-6710-47a5-a261-33be1bbdc3ac",
+                    "width": {
+                      "mode": "fr",
+                      "value": 1,
+                      "min": 64
+                    }
+                  },
+                  {
+                    "id": "table_col_3f7be102-427b-48a6-82d5-0b7a6129e1e0",
+                    "width": {
+                      "mode": "fr",
+                      "value": 1,
+                      "min": 64
+                    }
+                  },
+                  {
+                    "id": "table_col_0472eaf7-329e-4614-a6ac-f25ba6f5306f",
+                    "width": {
+                      "mode": "fr",
+                      "value": 1,
+                      "min": 64
+                    }
+                  },
+                  {
+                    "id": "table_col_17d5f48b-20e3-46f1-b1fc-1a8d7db3e823",
+                    "width": {
+                      "mode": "fr",
+                      "value": 1,
+                      "min": 64
+                    }
+                  }
+                ],
+                "rows": [
+                  {
+                    "id": "table_row_43e0d066-3499-4268-81ad-8b917c93d41c",
+                    "height": {
+                      "mode": "fixed",
+                      "value": 43.55249027237354
+                    },
+                    "role": "header"
+                  },
+                  {
+                    "id": "table_row_e126f985-de39-4bb5-9df4-4e97fc22aa8a",
+                    "height": {
+                      "mode": "fixed",
+                      "value": 29.09953307392996
+                    },
+                    "role": "body"
+                  }
+                ],
+                "cells": [
+                  {
+                    "id": "table_cell_82971fd2-9013-43ac-977a-d60acae2a8b1",
+                    "rowId": "table_row_43e0d066-3499-4268-81ad-8b917c93d41c",
+                    "columnId": "table_col_3b9a54e5-6710-47a5-a261-33be1bbdc3ac",
+                    "content": [
+                      {
+                        "type": "paragraph",
+                        "id": "table_p_c61a21f9-fe1d-4ba6-9e2f-8b2f7f844730",
+                        "children": [],
+                        "align": "center"
+                      }
+                    ]
+                  },
+                  {
+                    "id": "table_cell_154fd211-b1f3-46b1-b222-356febb351fc",
+                    "rowId": "table_row_43e0d066-3499-4268-81ad-8b917c93d41c",
+                    "columnId": "table_col_3f7be102-427b-48a6-82d5-0b7a6129e1e0",
+                    "content": [
+                      {
+                        "type": "paragraph",
+                        "id": "table_p_d531b4eb-5e7e-4ec4-8f0f-ac1f0645174a",
+                        "children": [],
+                        "align": "center"
+                      }
+                    ]
+                  },
+                  {
+                    "id": "table_cell_27ae07c0-24cd-4a00-919a-f456df027d4e",
+                    "rowId": "table_row_43e0d066-3499-4268-81ad-8b917c93d41c",
+                    "columnId": "table_col_0472eaf7-329e-4614-a6ac-f25ba6f5306f",
+                    "content": [
+                      {
+                        "type": "paragraph",
+                        "id": "table_p_34b73eea-75d3-4391-bff5-e3136aa8d476",
+                        "children": [],
+                        "align": "center"
+                      }
+                    ]
+                  },
+                  {
+                    "id": "table_cell_3b71f812-d40a-4200-a17f-0cbe6160dc27",
+                    "rowId": "table_row_43e0d066-3499-4268-81ad-8b917c93d41c",
+                    "columnId": "table_col_17d5f48b-20e3-46f1-b1fc-1a8d7db3e823",
+                    "content": [
+                      {
+                        "type": "paragraph",
+                        "id": "table_p_fe670f3c-927e-468e-ba9b-510db0daab26",
+                        "children": [],
+                        "align": "center"
+                      }
+                    ]
+                  },
+                  {
+                    "id": "table_cell_3f1a7b8c-6614-4087-aee1-0d7afda611a5",
+                    "rowId": "table_row_e126f985-de39-4bb5-9df4-4e97fc22aa8a",
+                    "columnId": "table_col_3b9a54e5-6710-47a5-a261-33be1bbdc3ac",
+                    "content": [
+                      {
+                        "type": "paragraph",
+                        "id": "table_p_e323760b-c445-43c6-b5c6-b914673aca6d",
+                        "children": [],
+                        "align": "center"
+                      }
+                    ]
+                  },
+                  {
+                    "id": "table_cell_d8860935-b560-4954-8862-867ed3ff5636",
+                    "rowId": "table_row_e126f985-de39-4bb5-9df4-4e97fc22aa8a",
+                    "columnId": "table_col_3f7be102-427b-48a6-82d5-0b7a6129e1e0",
+                    "content": [
+                      {
+                        "type": "paragraph",
+                        "id": "table_p_7f938f6b-3ef5-495c-9025-9b82ea18592d",
+                        "children": [],
+                        "align": "center"
+                      }
+                    ]
+                  },
+                  {
+                    "id": "table_cell_87de3f87-2d25-4624-966f-30797c463082",
+                    "rowId": "table_row_e126f985-de39-4bb5-9df4-4e97fc22aa8a",
+                    "columnId": "table_col_0472eaf7-329e-4614-a6ac-f25ba6f5306f",
+                    "content": [
+                      {
+                        "type": "paragraph",
+                        "id": "table_p_4265bb45-f3b1-42de-8d1f-ff3c8ddf70c4",
+                        "children": [],
+                        "align": "center"
+                      }
+                    ]
+                  },
+                  {
+                    "id": "table_cell_3543ff93-55f5-4ae5-a803-e78af61994da",
+                    "rowId": "table_row_e126f985-de39-4bb5-9df4-4e97fc22aa8a",
+                    "columnId": "table_col_17d5f48b-20e3-46f1-b1fc-1a8d7db3e823",
+                    "content": [
+                      {
+                        "type": "paragraph",
+                        "id": "table_p_6bf941f9-d5a8-4914-b89d-9b47a91d342b",
+                        "children": [],
+                        "align": "center"
+                      }
+                    ]
+                  }
+                ],
+                "grid": {
+                  "borderColor": "#111827",
+                  "borderWidth": 1,
+                  "borderStyle": "solid",
+                  "showOuterBorder": true,
+                  "showInnerBorders": true
+                },
+                "defaultCellStyle": {
+                  "align": "center",
+                  "verticalAlign": "middle",
+                  "paddingX": 8,
+                  "paddingY": 5,
+                  "color": "#111827",
+                  "fontSize": 15,
+                  "fontWeight": "normal"
+                }
+              }
+            },
+            "anchor": {
+              "type": "block",
+              "blockId": "p_5989f34c-c752-466c-9de7-bacf1c8bb51c",
+              "dy": -2390.4775601658966,
+              "dx": -21.829804316756224,
+              "line": {
+                "index": 0,
+                "dy": -2394.9775607679326
+              }
+            }
+          }
+        ],
+        "assets": {}
+      },
+      "updatedAt": "2026-07-25T06:28:15.567Z"
+    }
+  },
+  "updatedAt": "2026-07-26T02:45:34.403Z"
+}

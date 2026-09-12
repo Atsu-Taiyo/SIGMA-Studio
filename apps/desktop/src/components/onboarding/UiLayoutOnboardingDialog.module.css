@@ -1,0 +1,136 @@
+.choices {
+  align-items: stretch;
+}
+
+/* 初期画面は編集画面の密度を持ち込まない。カード内も余白を広く取る。 */
+.card {
+  display: grid;
+  min-width: 0;
+  grid-template-rows: auto auto auto;
+  gap: var(--space-md);
+  padding: var(--space-xl);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-panel);
+  background: var(--surface);
+  color: var(--text-primary);
+  cursor: pointer;
+  text-align: left;
+}
+
+.card:hover,
+.card:focus-visible {
+  border-color: var(--border-strong);
+  background: var(--surface-soft);
+  outline: 2px solid color-mix(in srgb, var(--accent) 16%, transparent);
+  outline-offset: 1px;
+}
+
+.card[data-selected="true"] {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent-soft) 70%, var(--background));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 24%, transparent);
+}
+
+.cardTitle {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.cardDescription {
+  color: var(--text-secondary);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+/* 以下はクロームの模式図。面と線だけで描き、アクセント色は使わない。 */
+.preview {
+  display: grid;
+  min-height: 84px;
+  align-content: space-between;
+  gap: var(--space-sm);
+  padding: var(--space-md);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-control);
+  background: var(--background);
+}
+
+.wordTabs {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--space-sm);
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.wordTab {
+  width: 22px;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--border-subtle);
+}
+
+/* 選択中のタブだけが面を持つ (Wordのタブと同じ読み方)。 */
+.wordTab[data-active="true"] {
+  height: 14px;
+  border-radius: 3px 3px 0 0;
+  background: var(--surface-muted);
+  box-shadow: inset 0 0 0 1px var(--border-subtle);
+}
+
+.wordRibbon {
+  display: flex;
+  gap: var(--space-sm);
+}
+
+.wordGroup {
+  display: grid;
+  flex: 1 1 0;
+  gap: var(--space-xs);
+  justify-items: center;
+}
+
+.wordGroupBody {
+  width: 100%;
+  height: 30px;
+  border-radius: 4px;
+  background: var(--surface-muted);
+}
+
+.wordGroupLabel {
+  width: 60%;
+  height: 2px;
+  border-radius: 1px;
+  background: var(--text-muted);
+}
+
+.docsMenubar {
+  display: flex;
+  gap: var(--space-sm);
+  padding-bottom: var(--space-xs);
+}
+
+.docsMenuItem {
+  width: 22px;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--text-muted);
+}
+
+.docsToolbar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  height: 30px;
+  border-radius: 4px;
+  padding: 0 var(--space-sm);
+  background: var(--surface-muted);
+}
+
+.docsToolbarIcon {
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  background: var(--border-subtle);
+}

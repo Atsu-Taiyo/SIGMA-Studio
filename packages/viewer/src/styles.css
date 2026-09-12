@@ -1,0 +1,233 @@
+@import "katex/dist/katex.min.css";
+@import "mathlive/static.css";
+
+/* 文書面 (紙面の中身) は apps/desktop と共有する唯一の出典から読む。
+   ここに .print-* / .box-frame--* 等をコピーしないこと — packages/viewer/src/styles-sync.test.ts
+   が共有ファイルとの重複を機械的に落とす。意図的な上書きは同テストの
+   INTENTIONAL_OVERRIDES に理由付きで登録する。 */
+@import "../../../apps/desktop/src/app/document-surface.css";
+
+.sigma-viewer {
+  --sigma-viewer-border: #d7dce3;
+  --sigma-viewer-paper: #ffffff;
+  --sigma-viewer-ink: #111827;
+  --sigma-viewer-muted: #64748b;
+  --border: var(--sigma-viewer-border);
+  --border-strong: #aab2bd;
+  --text-primary: var(--sigma-viewer-ink);
+  --text-secondary: #475569;
+  --text-muted: var(--sigma-viewer-muted);
+  --danger: #b42318;
+  --background: #ffffff;
+  --surface-soft: #f1f5f9;
+  --editor-font-size: 12pt;
+  display: block;
+  width: 100%;
+  min-width: 0;
+  color: var(--sigma-viewer-ink);
+  font-family: "Yu Gothic", "Hiragino Sans", "Meiryo", system-ui, sans-serif;
+  line-height: 1.5;
+  text-align: initial;
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+.sigma-viewer,
+.sigma-viewer *,
+.sigma-viewer *::before,
+.sigma-viewer *::after {
+  box-sizing: border-box;
+}
+
+.sigma-viewer__status,
+.sigma-viewer__error {
+  display: block;
+  width: min(100%, 42rem);
+  margin: 0 auto;
+  padding: 12px 14px;
+  border: 1px solid var(--sigma-viewer-border);
+  border-radius: 6px;
+  background: #ffffff;
+  color: var(--sigma-viewer-muted);
+  font-size: 13px;
+}
+
+.sigma-viewer__error {
+  border-color: #fecaca;
+  background: #fff7f7;
+  color: #991b1b;
+}
+
+.sigma-viewer__asset-placeholder-marker {
+  display: none;
+}
+
+.sigma-viewer__viewport {
+  position: relative;
+  width: 100%;
+  min-width: 0;
+}
+
+.sigma-viewer__viewport.is-constrained {
+  overflow: hidden;
+}
+
+.sigma-viewer__viewport-content {
+  width: 100%;
+  min-width: 0;
+}
+
+.sigma-viewer__overflow-control {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 10;
+  display: flex;
+  height: 64px;
+  align-items: flex-end;
+  justify-content: center;
+  padding-bottom: 8px;
+  background: linear-gradient(to bottom, transparent, var(--sigma-viewer-paper) 72%);
+  pointer-events: none;
+}
+
+.sigma-viewer__expand-button {
+  min-height: 36px;
+  padding: 8px 16px;
+  border: 1px solid var(--sigma-viewer-border);
+  border-radius: 10px;
+  background: var(--sigma-viewer-paper);
+  box-shadow: 0 2px 8px rgb(15 23 42 / 10%);
+  color: var(--sigma-viewer-ink);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1;
+  cursor: pointer;
+  pointer-events: auto;
+}
+
+.sigma-viewer__expand-button:hover {
+  background: var(--surface-soft);
+}
+
+.sigma-viewer__expand-button:focus-visible {
+  outline: 2px solid var(--sigma-viewer-ink);
+  outline-offset: 2px;
+}
+
+/* ページの並べ方は埋め込み固有。globals.css の .print-page-stack (エディタのプレビュー用
+   レイアウト) とは別物なので共有ファイルには入れない。 */
+.sigma-viewer .print-page-stack,
+.sigma-viewer .print-page-stack.layout-vertical,
+.sigma-viewer .print-page-stack.layout-spread,
+.sigma-viewer .print-page-stack.layout-grid {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  align-items: start;
+  justify-items: center;
+  width: 100%;
+  gap: 24px;
+}
+
+.sigma-viewer__page {
+  position: relative;
+  min-width: 0;
+  overflow: visible;
+}
+
+.sigma-viewer__page-scaler {
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform-origin: top left;
+}
+
+/* --- 共有 document-surface.css への意図的な上書き (styles-sync.test.ts に登録済み) --- */
+
+/* 紙面は埋め込み先の背景から浮かせる。背景/文字色は埋め込み側が差し替えられるよう
+   公開変数 (--sigma-viewer-paper / --sigma-viewer-ink) 経由にする。 */
+.sigma-viewer .print-a4-page {
+  background: var(--sigma-viewer-paper);
+  color: var(--sigma-viewer-ink);
+  box-shadow: 0 8px 28px rgb(15 23 42 / 12%);
+}
+
+/* 読み取り専用ビューアでは図形レイヤを完全に不活性にする。 */
+.sigma-viewer .print-page-overlay-layer,
+.sigma-viewer .page-running-overlay-preview {
+  cursor: default;
+  pointer-events: none !important;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.sigma-viewer .print-page-overlay-layer svg,
+.sigma-viewer .page-running-overlay-preview svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  pointer-events: none !important;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.sigma-viewer .print-page-overlay-layer svg *,
+.sigma-viewer .page-running-overlay-preview svg * {
+  pointer-events: none !important;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+/* リストのぶら下げ幅はビューア独自 (初出コミットからの値で、globals.css には対応宣言が無い)。
+   デスクトップの紙面は UA 既定の 40px なので、ここは既知の viewer↔PDF パリティ差。
+   揃えるかどうかは別途判断する — 落とすと viewer のリスト行頭が 13.6px 動く。 */
+.sigma-viewer .print-list,
+.sigma-viewer .page-running-region :is(ul, ol) {
+  padding-inline-start: 1.65em;
+}
+
+/* エディタ側は running region の文字色を別レイヤで与えている。 */
+.sigma-viewer .page-running-region {
+  color: #333333;
+}
+
+/* --- ここまで上書き --- */
+
+/* running region の殻と本文タイポグラフィは document-surface.css の
+   .text-flow-shell / .text-flow-editor が供給する (本文と同じ静的レンダラに統合済み)。 */
+
+@media (max-width: 640px) {
+  .sigma-viewer .print-page-stack,
+  .sigma-viewer .print-page-stack.layout-vertical {
+    gap: 16px;
+  }
+
+  .sigma-viewer .print-a4-page {
+    box-shadow: 0 4px 16px rgb(15 23 42 / 10%);
+  }
+}
+
+@media print {
+  .sigma-viewer .print-page-stack {
+    gap: 0;
+  }
+
+  .sigma-viewer__page {
+    width: var(--print-page-width, 210mm) !important;
+    height: var(--print-page-height, 297mm) !important;
+    max-width: none !important;
+    break-after: page;
+  }
+
+  .sigma-viewer__page-scaler {
+    transform: none !important;
+  }
+
+  .sigma-viewer .print-a4-page {
+    border: 0;
+    box-shadow: none;
+  }
+}

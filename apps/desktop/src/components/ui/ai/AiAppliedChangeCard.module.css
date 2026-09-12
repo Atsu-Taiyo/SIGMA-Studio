@@ -1,0 +1,61 @@
+.card {
+  display: grid;
+  gap: var(--space-xs);
+  padding: var(--space-sm);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-panel);
+  background: color-mix(in srgb, var(--surface-muted) 58%, var(--background));
+  color: var(--text-primary);
+}
+
+.header,
+.state {
+  display: flex;
+  align-items: center;
+}
+
+.header {
+  justify-content: space-between;
+  gap: var(--space-sm);
+  min-width: 0;
+}
+
+.state {
+  gap: var(--space-xs);
+  min-width: 0;
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.state svg {
+  flex: 0 0 auto;
+  color: var(--success);
+}
+
+.revert {
+  flex: 0 0 auto;
+  gap: var(--space-xs);
+  padding-inline: var(--space-sm);
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.revert:disabled {
+  color: var(--text-disabled);
+  cursor: default;
+}
+
+.blockedReason {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.content {
+  min-width: 0;
+  max-height: 248px;
+  overflow: auto;
+}

@@ -1,0 +1,85 @@
+.trigger {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+  vertical-align: middle;
+}
+
+.tooltip {
+  position: fixed;
+  z-index: var(--z-tooltip);
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-sm);
+  max-width: calc(100vw - 16px);
+  min-height: 28px;
+  padding: 5px 7px 5px 9px;
+  border: 1px solid rgb(255 255 255 / 14%);
+  border-radius: 7px;
+  background: #202020;
+  box-shadow: 0 8px 24px rgb(17 17 17 / 18%);
+  color: #ffffff;
+  font-size: 11px;
+  line-height: 1.25;
+  pointer-events: none;
+  animation: tooltip-in 110ms ease both;
+}
+
+.label {
+  overflow: hidden;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.shortcut {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  min-height: 18px;
+  padding: 1px 5px;
+  border: 1px solid rgb(255 255 255 / 20%);
+  border-radius: 4px;
+  background: rgb(255 255 255 / 10%);
+  color: rgb(255 255 255 / 88%);
+  font: inherit;
+  font-size: 10px;
+  font-weight: 650;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+}
+
+@keyframes tooltip-in {
+  from {
+    opacity: 0;
+    transform: translateY(-2px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.tooltip[data-side="top"] {
+  animation-name: tooltip-in-top;
+}
+
+@keyframes tooltip-in-top {
+  from {
+    opacity: 0;
+    transform: translateY(2px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tooltip {
+    animation: none;
+  }
+}

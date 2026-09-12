@@ -1,0 +1,84 @@
+name: Release
+
+# Builds the desktop app for macOS and Windows and uploads installers, update
+# metadata, and blockmaps to a GitHub Release. Trigger by pushing a version tag
+# (e.g. v0.1.0), or run manually from the Actions tab. See docs/distribution.md
+# for the full release checklist.
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            platform: mac
+          - os: windows-latest
+            platform: win
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      # The release tag and all workspace versions must agree.
+      - name: Validate release version
+        shell: bash
+        run: |
+          version="$(node -p "require('./package.json').version")"
+          if [[ "${GITHUB_REF_TYPE}" != "tag" || "${GITHUB_REF_NAME}" != "v${version}" ]]; then
+            echo "tag ${GITHUB_REF_NAME} とSigma Studio version v${version}が一致しません。" >&2
+            exit 1
+          fi
+          npm run version:check
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Verify cross-process file locking
+        run: npm --workspace @sigma-studio/desktop run test -- file-lock
+
+      - name: Apply upstream macOS keychain fix
+        if: matrix.platform == 'mac'
+        run: node scripts/patch-electron-builder-keychain.mjs
+
+      - name: Build renderer + electron bundle
+        run: npm --workspace @sigma-studio/desktop run electron:prepare
+        env:
+          # TypeScript validation exceeds Node 20's default ~2 GiB heap on macOS.
+          NODE_OPTIONS: --max-old-space-size=4096
+
+      - name: Build and publish installer
+        working-directory: apps/desktop
+        run: npx --no-install electron-builder --${{ matrix.platform }} --publish always --config electron-builder.config.cjs
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_CONTENT_RULES: ${{ secrets.RELEASE_CONTENT_RULES }}
+          SIGMA_STUDIO_REQUIRE_RELEASE_AUDIT: "true"
+          # macOS signing + notarization. Scoped to the mac job so the Windows
+          # build never mistakes the .p12 for a Windows cert. Public macOS
+          # releases require these secrets; missing values fail the mac job.
+          CSC_LINK: ${{ matrix.platform == 'mac' && secrets.MAC_CSC_LINK || '' }}
+          CSC_KEY_PASSWORD: ${{ matrix.platform == 'mac' && secrets.MAC_CSC_KEY_PASSWORD || '' }}
+          APPLE_ID: ${{ matrix.platform == 'mac' && secrets.APPLE_ID || '' }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ matrix.platform == 'mac' && secrets.APPLE_APP_SPECIFIC_PASSWORD || '' }}
+          APPLE_TEAM_ID: ${{ matrix.platform == 'mac' && secrets.APPLE_TEAM_ID || '' }}
+          SIGMA_STUDIO_REQUIRE_MAC_SIGNING: ${{ matrix.platform == 'mac' && 'true' || '' }}

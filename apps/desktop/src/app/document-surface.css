@@ -1,0 +1,1949 @@
+/* 印刷・PDF・埋め込みビューアで共有する文書面。アプリ固有のクロームや
+   グローバル at-rule / 変数は globals.css または viewer 側に置く。 */
+
+.page-running-region {
+  position: absolute;
+  z-index: 1;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  pointer-events: none;
+}
+
+.page-running-region.footer {
+  align-items: end;
+}
+
+.page-running-region.free {
+  display: block;
+  position: absolute;
+  overflow: visible;
+  white-space: normal;
+}
+
+.page-running-text-layer {
+  position: relative;
+  z-index: 1;
+}
+
+.page-running-overlay-preview {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+/* No `svg { width: 100% }` here: the running-region overlay draws React shapes at absolute px, so
+   stretching every shape's own `<svg>` to the region's size would distort all of them. The body
+   overlay keeps that rule because its layer really is one page-sized SVG. */
+
+.boxed-text {
+  --boxed-text-border-width: 1px;
+  --boxed-text-border-style: solid;
+  --boxed-text-border-color: currentColor;
+  --boxed-text-border-radius: 2px;
+  --boxed-text-background: transparent;
+  box-sizing: border-box;
+  display: inline;
+  border:
+    var(--boxed-text-border-width)
+    var(--boxed-text-border-style)
+    var(--boxed-text-border-color);
+  border-radius: var(--boxed-text-border-radius);
+  background-color: var(--boxed-text-background);
+  padding: calc(var(--boxed-text-padding-y, 0px) + var(--boxed-run-extra-padding-y, 0px)) 0.18em;
+  line-height: var(--boxed-text-line-height, inherit);
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+}
+
+.boxed-text.boxed-inline-math {
+  display: inline-flex;
+  align-items: center;
+  vertical-align: baseline;
+  line-height: normal;
+}
+
+[data-boxed-run-aligned="true"] .boxed-text {
+  display: inline;
+  min-height: 0;
+  vertical-align: baseline;
+  line-height: normal;
+}
+
+[data-boxed-run-aligned="true"] .boxed-text.boxed-inline-math {
+  vertical-align: baseline;
+}
+
+/* 編集面ではheight-targetが入れ子、静的出力ではboxed-text自身になる。 */
+
+.boxed-text:has([data-boxed-run-height-target="true"]) {
+  border: 0;
+  border-radius: 0;
+  outline: 0;
+  padding: 0;
+}
+
+/* The frame layer positions against its container, so the container has to be one. */
+
+.boxed-run-framed {
+  position: relative;
+}
+
+/* One rectangle per connected run, positioned where the run actually is. */
+
+.boxed-run-frame-layer {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 0;
+  height: 0;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.boxed-run-frame {
+  position: absolute;
+  box-sizing: border-box;
+  border:
+    var(--boxed-text-border-width, 1px)
+    var(--boxed-text-border-style, solid)
+    var(--boxed-text-border-color, currentColor);
+  border-radius: var(--boxed-text-border-radius, 2px);
+  background-color: var(--boxed-text-background, transparent);
+}
+
+.boxed-text[data-boxed-run-height-target="true"],
+.boxed-text [data-boxed-run-height-target="true"] {
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: baseline;
+  border:
+    var(--boxed-text-border-width)
+    var(--boxed-text-border-style)
+    var(--boxed-text-border-color);
+  border-radius: var(--boxed-text-border-radius);
+  background-color: var(--boxed-text-background);
+  padding: calc(var(--boxed-text-padding-y, 0px) + var(--boxed-run-extra-padding-top, 0px)) 0.18em calc(var(--boxed-text-padding-y, 0px) + var(--boxed-run-extra-padding-bottom, 0px));
+  /* line-height:1 removes the font's line-box leading so a 0pt frame hugs the
+     content top & bottom (みっちり) instead of the large CJK leading gap. */
+  line-height: 1;
+  /* 明示heightではなくbaselineと計測paddingで隣接枠の高さを揃える。 */
+  vertical-align: baseline;
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+}
+
+/* 囲み内の数式marginは同幅のpaddingへ移し、枠の外形と計測を一致させる。 */
+.boxed-text [data-boxed-run-height-target="true"].inline-math-node {
+  margin-inline: 0;
+  padding-inline: calc(0.18em + var(--inline-math-node-margin-x, 0px));
+}
+
+/* drawRunFramesでは各segmentの外形を計測用に残し、描画だけを透明化する。
+   atomic化すると本文内の折返しを失うため、segment統合はしない。 */
+
+.boxed-run-framed .boxed-text[data-boxed-run-height-target="true"],
+.boxed-run-framed .boxed-text [data-boxed-run-height-target="true"] {
+  border-color: transparent;
+  background-color: transparent;
+  outline: 0;
+}
+
+.boxed-run-measuring .boxed-text {
+  --boxed-run-extra-padding-y: 0px !important;
+  --boxed-run-extra-padding-bottom: 0px !important;
+  --boxed-run-extra-padding-top: 0px !important;
+  display: inline-flex !important;
+  align-items: center;
+  min-height: 0 !important;
+  vertical-align: baseline;
+  /* Match the steady-state line-height:1 so the measured natural height excludes
+     line-box leading; otherwise the target would re-introduce the 0pt gap. */
+  line-height: 1;
+}
+
+/* 計測中もsegment自身のboxを残し、編集面と静的出力で同じ自然高を得る。 */
+
+.boxed-run-measuring .boxed-text[data-boxed-run-height-target="true"],
+.boxed-run-measuring .boxed-text [data-boxed-run-height-target="true"] {
+  --boxed-run-extra-padding-y: 0px !important;
+  --boxed-run-extra-padding-bottom: 0px !important;
+  --boxed-run-extra-padding-top: 0px !important;
+  display: inline-flex !important;
+  align-items: baseline;
+  /* Frame kept, only the stretch removed: the measured value is the segment's natural
+   * OUTER height, which is the quantity the run has to equalise. Zeroing the border here
+   * measured content instead, and the border then reappeared on top of the target so
+   * math sat 2px taller than the text beside it. */
+  border:
+    var(--boxed-text-border-width)
+    var(--boxed-text-border-style)
+    var(--boxed-text-border-color) !important;
+  padding: var(--boxed-text-padding-y, 0px) 0.18em !important;
+  line-height: 1 !important;
+  vertical-align: baseline !important;
+  min-height: 0 !important;
+}
+
+.boxed-text[data-boxed-run-connect-right="true"],
+.boxed-text [data-boxed-run-connect-right="true"] {
+  border-right-width: 0;
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+}
+
+.boxed-text[data-boxed-run-connect-left="true"],
+.boxed-text [data-boxed-run-connect-left="true"] {
+  border-left-width: 0;
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+}
+
+.boxed-text.boxed-inline-math .math-preview,
+.boxed-text.boxed-inline-math .inline-math-node {
+  line-height: normal;
+}
+
+/* TeX box-command variants (\ovalbox, \tcolorbox, \itembox, …). The default
+   (no variant attribute) keeps the thin \fbox-style frame above. */
+
+[data-sigma-doc-boxed-variant="thick"] {
+  --boxed-text-border-width: 2px;
+}
+
+[data-sigma-doc-boxed-variant="double"] {
+  --boxed-text-border-width: 1px;
+  --boxed-text-border-style: solid;
+  outline: 1px solid var(--boxed-text-border-color, currentColor);
+  outline-offset: -3px;
+}
+
+/* `\doubleboxed` is a single math box with an inset second rule. Unlike nesting
+   two `\boxed` commands, this keeps the gap equal to the ordinary 1px rule. */
+.sigma-doubleboxed .fbox,
+.sigma-doubleboxed .ML__box {
+  border-width: 1px !important;
+  outline: 1px solid currentColor;
+  outline-offset: -3px;
+}
+
+.sigma-thickboxed .fbox,
+.sigma-thickboxed .ML__box {
+  border-width: 2px !important;
+}
+
+/* The box border is the outer rule; the negative outline becomes the inner rule.
+   Pulling a 1px outline in by 4px preserves the same 1px inter-rule gap. */
+.sigma-outerthick-doubleboxed .fbox,
+.sigma-outerthick-doubleboxed .ML__box {
+  border-width: 2px !important;
+  outline: 1px solid currentColor;
+  outline-offset: -4px;
+}
+
+/* Common Test answer-choice marker: a heavy, vertically elongated oval rather
+   than the thin circular accent produced by \textcircled. Keep this rule in
+   sync with SIGMA_MATHLIVE_MACRO_STYLES for the editable MathLive field.
+   vertical-align is measured so the oval sits at the printed 共通テスト height:
+   geometric center matches surrounding CJK / the visual center of `\cos\alpha\sin\beta`. */
+.sigma-kyoutsuu-choice {
+  align-items: center;
+  block-size: 1.28em;
+  border: 0.14em solid currentColor;
+  border-radius: 50%;
+  box-sizing: border-box;
+  display: inline-flex !important;
+  font-family: Arial, "Helvetica Neue", sans-serif;
+  font-style: normal;
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+  inline-size: 0.9em;
+  justify-content: center;
+  line-height: 1;
+  vertical-align: 0.14em;
+}
+
+.sigma-kyoutsuu-choice > .ML__text,
+.sigma-kyoutsuu-choice > .text {
+  align-items: center;
+  display: inline-flex;
+  font-family: inherit !important;
+  font-size: 0.78em;
+  font-style: inherit;
+  font-variant-numeric: inherit;
+  font-weight: inherit;
+  justify-content: center;
+  line-height: 1;
+}
+
+.sigma-kyoutsuu-choice > .text > .mord {
+  font: inherit;
+}
+
+.boxed-text[data-sigma-doc-boxed-variant="oval"] {
+  --boxed-text-border-radius: 0.9em;
+  padding-left: 0.45em;
+  padding-right: 0.45em;
+}
+
+.boxed-text[data-sigma-doc-boxed-variant="shade"] {
+  --boxed-text-border-color: var(--boxed-tone-border, #9ca3af);
+  --boxed-text-background: var(--boxed-tone-fill, #f3f4f6);
+  --boxed-text-border-radius: 4px;
+  padding-left: 0.4em;
+  padding-right: 0.4em;
+}
+
+/* Fill/border tones for shade boxes. Plain custom properties so they cascade
+   onto the variant rule regardless of element type (editor mark or print span). */
+
+[data-sigma-doc-boxed-tone="gray"] {
+  --boxed-tone-fill: #f3f4f6;
+  --boxed-tone-border: #9ca3af;
+}
+
+[data-sigma-doc-boxed-tone="blue"] {
+  --boxed-tone-fill: #eff6ff;
+  --boxed-tone-border: #93c5fd;
+}
+
+[data-sigma-doc-boxed-tone="green"] {
+  --boxed-tone-fill: #ecfdf5;
+  --boxed-tone-border: #6ee7b7;
+}
+
+[data-sigma-doc-boxed-tone="red"] {
+  --boxed-tone-fill: #fef2f2;
+  --boxed-tone-border: #fca5a5;
+}
+
+[data-sigma-doc-boxed-tone="yellow"] {
+  --boxed-tone-fill: #fffbeb;
+  --boxed-tone-border: #fcd34d;
+}
+
+.sigma-doc-box-block,
+.print-box-block {
+  position: relative;
+  box-sizing: border-box;
+  width: 100%;
+  margin: 10px 0;
+  padding:
+    var(--sigma-doc-box-padding-top, 12px)
+    var(--sigma-doc-box-padding-right, 14px)
+    var(--sigma-doc-box-padding-bottom, 12px)
+    var(--sigma-doc-box-padding-left, 14px);
+  border:
+    var(--sigma-doc-box-border-width, 1.2px)
+    var(--sigma-doc-box-border-style, solid)
+    var(--sigma-doc-box-border-color, #111111);
+  border-radius: var(--sigma-doc-box-radius, 0);
+  background: var(--sigma-doc-box-background, #ffffff);
+  box-shadow: var(--sigma-doc-box-shadow, none);
+}
+
+.print-box-block.print-box-fragment {
+  margin-top: 0;
+  margin-bottom: 0;
+}
+
+/* A pixel-clipped slice of an over-tall block: the outer box fixes the slice
+   height and clips (overflow:hidden, set inline), while the inner wrapper renders
+   the full block and is shifted up by a negative margin (also inline) so each
+   slice shows the next vertical window of the same content. */
+
+.print-block-slice {
+  position: relative;
+  box-sizing: border-box;
+  width: 100%;
+}
+
+.print-block-slice-inner > * {
+  margin-top: 0;
+}
+
+.print-box-block.print-box-fragment-first,
+.print-box-block.print-box-fragment-middle {
+  padding-bottom: max(4px, calc(var(--sigma-doc-box-padding-bottom, 12px) * 0.35));
+  border-bottom-color: transparent;
+}
+
+.print-box-block.print-box-fragment-middle,
+.print-box-block.print-box-fragment-last {
+  padding-top: max(4px, calc(var(--sigma-doc-box-padding-top, 12px) * 0.35));
+  border-top-color: transparent;
+}
+
+.print-box-block.print-box-fragment:not(.print-box-fragment-single).box-frame--notebook-rules,
+.print-box-block.print-box-fragment:not(.print-box-fragment-single).box-frame--corner {
+  min-height: 0;
+}
+
+.print-box-block.print-box-fragment-first.box-frame--notebook-rules::after,
+.print-box-block.print-box-fragment-middle.box-frame--notebook-rules::after {
+  border-bottom-color: transparent;
+}
+
+.print-box-block.print-box-fragment-middle.box-frame--notebook-rules::after,
+.print-box-block.print-box-fragment-last.box-frame--notebook-rules::after {
+  border-top-color: transparent;
+}
+
+.print-box-block.print-box-fragment-first.box-frame--double-rule::after,
+.print-box-block.print-box-fragment-middle.box-frame--double-rule::after {
+  border-bottom-color: transparent;
+}
+
+.print-box-block.print-box-fragment-middle.box-frame--double-rule::after,
+.print-box-block.print-box-fragment-last.box-frame--double-rule::after {
+  border-top-color: transparent;
+}
+
+/*
+ * Rounded boxes (shadebox / screenbox / ovalbox) keep only their outermost corners
+ * rounded across a break — otherwise every fragment rounds all four corners and the
+ * seam reads as separate rounded cards instead of one continuous box.
+ */
+
+.print-box-block.print-box-fragment-first {
+  border-bottom-left-radius: 0;
+  border-bottom-right-radius: 0;
+}
+
+.print-box-block.print-box-fragment-middle {
+  border-radius: 0;
+}
+
+.print-box-block.print-box-fragment-last {
+  border-top-left-radius: 0;
+  border-top-right-radius: 0;
+}
+
+/*
+ * A drop shadow on every fragment renders them as separate floating cards. Drop it
+ * on split boxes so the continuation reads as a single box. (A box that fits on one
+ * page — the "single" fragment role, or an unsplit box — keeps its shadow.)
+ */
+
+.print-box-block.print-box-fragment:not(.print-box-fragment-single) {
+  box-shadow: none;
+}
+
+.box-frame--left-bar {
+  background:
+    linear-gradient(var(--sigma-doc-box-left-bar-color, #111111), var(--sigma-doc-box-left-bar-color, #111111)) left top / var(--sigma-doc-box-left-bar-width, 5px) 100% no-repeat,
+    var(--sigma-doc-box-background, #ffffff);
+}
+
+.box-frame--horizontal-rules {
+  border-width: var(--sigma-doc-box-horizontal-rule-width, 1px) 0;
+  border-style: solid;
+  border-color: var(--sigma-doc-box-horizontal-rule-color, #111111);
+}
+
+.box-frame--notebook-rules {
+  --sigma-doc-box-notebook-ring-path-image: url("data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='-16%200%2042%2023.35'%3E%3Cpath%20d='M0%200C-5.6%200.05%20-12.5%200.85%20-14.2%203.25C-16.4%206.35%20-10.7%207.65%20-2.2%207.45C6.8%207.25%2019.5%207.05%2023.4%204.55C25.75%203.05%2024.05%201.35%2020.05%200.82C17.25%200.45%2015.15%201.08%2015.12%202.62C15.08%204.85%2019.05%205.36%2022.95%205.78C26.15%206.12%2026.05%209.08%2022.55%2010.75C17.85%2012.98%207.15%2012.88%20-3.6%2011.25C-12.35%209.92%20-16.28%207.02%20-12.25%204.84C-9.02%203.08%20-2.78%204.26%200%204.8'%20fill='none'%20stroke='%23706b5a'%20stroke-width='1.2'%20stroke-linecap='round'%20stroke-linejoin='round'/%3E%3C/svg%3E");
+  min-height: var(--sigma-doc-box-notebook-min-height, 350px);
+  border: 0;
+  isolation: isolate;
+  overflow: visible;
+  background: transparent;
+}
+
+.box-frame--notebook-rules::before {
+  position: absolute;
+  z-index: 1;
+  top: 0;
+  left: calc(var(--sigma-doc-box-notebook-binding-x, 20px) - var(--sigma-doc-box-notebook-ring-left-overhang, 14px));
+  width: var(--sigma-doc-box-notebook-ring-width, 38px);
+  height: 100%;
+  min-height: var(--sigma-doc-box-notebook-frame-height, 350px);
+  pointer-events: none;
+  content: "";
+  background:
+    var(--sigma-doc-box-notebook-ring-path-image)
+      left top var(--sigma-doc-box-notebook-ring-top, 8px)
+      / var(--sigma-doc-box-notebook-ring-width, 38px) var(--sigma-doc-box-notebook-ring-gap, 23.35px)
+      no-repeat round,
+    linear-gradient(
+      var(--sigma-doc-box-notebook-binding-color, #b9b3a1),
+      var(--sigma-doc-box-notebook-binding-color, #b9b3a1)
+    )
+      left var(--sigma-doc-box-notebook-ring-left-overhang, 14px) top
+      / var(--sigma-doc-box-notebook-binding-width, 1px) 100%
+      no-repeat;
+}
+
+.box-frame--notebook-rules::after {
+  position: absolute;
+  z-index: 0;
+  inset: 0 0 0 var(--sigma-doc-box-notebook-frame-left, 20px);
+  min-height: var(--sigma-doc-box-notebook-frame-height, 350px);
+  border:
+    var(--sigma-doc-box-border-width, 1px)
+    var(--sigma-doc-box-border-style, solid)
+    var(--sigma-doc-box-notebook-frame-border-color, rgb(156 163 175 / 0.85));
+  pointer-events: none;
+  content: "";
+  background: var(--sigma-doc-box-background, #ffffff);
+}
+
+.box-frame--notebook-rules .sigma-doc-box-body,
+.box-frame--notebook-rules .print-box-body {
+  z-index: 2;
+  line-height: var(--sigma-doc-box-body-line-height, 1.85);
+}
+
+.box-frame--notebook-rules .sigma-doc-box-title,
+.box-frame--notebook-rules .print-box-title {
+  z-index: 2;
+}
+
+.box-frame--notebook-rules .sigma-doc-box-body p,
+.box-frame--notebook-rules .print-box-body p {
+  line-height: inherit;
+}
+
+.box-frame--title-band {
+  padding-top: max(var(--sigma-doc-box-padding-top, 42px), var(--sigma-doc-box-title-band-height, 32px));
+}
+
+.box-frame--title-band .sigma-doc-box-title,
+.box-frame--title-band .print-box-title {
+  display: flex;
+  align-items: center;
+  min-height: var(--sigma-doc-box-title-band-height, 32px);
+  margin:
+    calc(var(--sigma-doc-box-padding-top, 42px) * -1)
+    calc(var(--sigma-doc-box-padding-right, 14px) * -1)
+    10px
+    calc(var(--sigma-doc-box-padding-left, 14px) * -1);
+  padding: 0 var(--sigma-doc-box-padding-right, 14px) 0 var(--sigma-doc-box-padding-left, 14px);
+  /*
+   * 帯と本文を区切る罫を帯の下に 1 本引く。既定幅は 0 なので、罫を持たない既存の帯箱は変わらない。
+   */
+  border-bottom:
+    var(--sigma-doc-box-title-band-rule-width, 0)
+    solid
+    var(--sigma-doc-box-title-band-rule-color, transparent);
+  background: var(--sigma-doc-box-title-background, #e2e8f0);
+}
+
+.box-frame--title-band.box-frame--title-position-c .sigma-doc-box-title,
+.box-frame--title-band.box-frame--title-position-c .print-box-title {
+  justify-content: center;
+}
+
+.box-frame--title-band.box-frame--title-position-r .sigma-doc-box-title,
+.box-frame--title-band.box-frame--title-position-r .print-box-title {
+  justify-content: flex-end;
+}
+
+/*
+ * 枠の左上に差し込む見出しタブ。地色で塗って白抜き文字を載せるので、`titlePlate`
+ * (枠線を背景色で切って文字を置く) とは別の装飾として持つ。
+ *
+ * タブは枠の**内側**に収める。上へはみ出させると、絶対配置でブロックを積む印刷経路
+ * (`PrintPreview`) では前のブロックへ重なる — 出っ張りは border box に入らないので、
+ * 高さを測って積む側からはタブが見えないため。内側に置けば箱の高さがそのまま伸び、
+ * 編集面・静的描画・印刷の 3 経路が同じ位置に描ける。
+ *
+ * 上と左の負のマージンでタブを枠線の上まで広げ (角の罫をタブで隠す)、`margin-bottom`
+ * で本文との間隔を戻す。
+ */
+
+.box-frame--title-tab .sigma-doc-box-title,
+.box-frame--title-tab .print-box-title {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  box-sizing: border-box;
+  width: fit-content;
+  max-width: calc(100% + var(--sigma-doc-box-padding-left, 16px) + var(--sigma-doc-box-padding-right, 16px));
+  min-height: var(--sigma-doc-box-title-tab-height, 26px);
+  margin:
+    calc((var(--sigma-doc-box-padding-top, 14px) + var(--sigma-doc-box-border-width, 1.4px)) * -1)
+    auto
+    var(--sigma-doc-box-padding-top, 14px)
+    calc(
+      var(--sigma-doc-box-title-tab-offset-x, 0px)
+      - var(--sigma-doc-box-padding-left, 16px)
+      - var(--sigma-doc-box-border-width, 1.4px)
+    );
+  padding:
+    0
+    var(--sigma-doc-box-title-tab-padding-right, 12px)
+    0
+    var(--sigma-doc-box-title-tab-padding-left, 12px);
+  border-radius:
+    var(--sigma-doc-box-radius, 0)
+    var(--sigma-doc-box-title-tab-radius, 4px)
+    var(--sigma-doc-box-title-tab-radius, 4px)
+    0;
+  background: var(--sigma-doc-box-title-background, #1f3864);
+  color: var(--sigma-doc-box-title-color, #ffffff);
+}
+
+.box-frame--title-tab.box-frame--title-position-c .sigma-doc-box-title,
+.box-frame--title-tab.box-frame--title-position-c .print-box-title {
+  margin-right: auto;
+  margin-left: auto;
+  border-radius:
+    var(--sigma-doc-box-title-tab-radius, 4px)
+    var(--sigma-doc-box-title-tab-radius, 4px)
+    var(--sigma-doc-box-title-tab-radius, 4px)
+    var(--sigma-doc-box-title-tab-radius, 4px);
+}
+
+.box-frame--title-tab.box-frame--title-position-r .sigma-doc-box-title,
+.box-frame--title-tab.box-frame--title-position-r .print-box-title {
+  margin-right: calc(
+    var(--sigma-doc-box-title-tab-offset-x, 0px)
+    - var(--sigma-doc-box-padding-right, 16px)
+    - var(--sigma-doc-box-border-width, 1.4px)
+  );
+  margin-left: auto;
+  border-radius:
+    var(--sigma-doc-box-title-tab-radius, 4px)
+    var(--sigma-doc-box-radius, 0)
+    0
+    var(--sigma-doc-box-title-tab-radius, 4px);
+}
+
+.box-frame--title-plate .sigma-doc-box-title,
+.box-frame--title-plate .print-box-title {
+  position: relative;
+  z-index: 2;
+  display: block;
+  width: fit-content;
+  margin:
+    calc(
+      var(--sigma-doc-box-padding-top, 16px) * -1
+      - 0.7em
+      - var(--sigma-doc-box-border-width, 1px)
+    )
+    auto
+    8px
+    0;
+  padding:
+    var(--sigma-doc-box-title-plate-padding-top, 2px)
+    var(--sigma-doc-box-title-plate-padding-right, 10px)
+    var(--sigma-doc-box-title-plate-padding-bottom, 2px)
+    var(--sigma-doc-box-title-plate-padding-left, 10px);
+  background: var(--sigma-doc-box-background, #ffffff);
+  text-align: var(--sigma-doc-box-title-align, left);
+}
+
+.box-frame--title-plate.box-frame--title-position-c .sigma-doc-box-title,
+.box-frame--title-plate.box-frame--title-position-c .print-box-title {
+  margin-right: auto;
+  margin-left: auto;
+}
+
+.box-frame--title-plate.box-frame--title-position-r .sigma-doc-box-title,
+.box-frame--title-plate.box-frame--title-position-r .print-box-title {
+  margin-right: 0;
+  margin-left: auto;
+}
+
+.box-frame--corner {
+  container-type: inline-size;
+  --corner-frame-corner-size: 5.4px;
+  --corner-frame-corner-color: #000000;
+  --corner-frame-rule-width: 1px;
+  --corner-frame-rule-color: #111111;
+  --corner-frame-guide-width: 1px;
+  --corner-frame-guide-color: #b8b8b8;
+  --corner-frame-reference-height: 40px;
+  --corner-frame-fold-size: 9px;
+  --corner-frame-guide-inset-x: var(--corner-frame-fold-size);
+  --corner-frame-guide-side-x: 0px;
+  --corner-frame-guide-side-y: var(--corner-frame-fold-size);
+  --corner-frame-rule-x: 5.58px;
+  --corner-frame-rule-side-x: 5.58px;
+  --corner-frame-rule-y: 5.58px;
+  --corner-frame-rule-side-y: 5.58px;
+  --corner-frame-corner-x: 1.53px;
+  --corner-frame-corner-y: 1.53px;
+}
+
+.sigma-doc-box-block.box-frame--corner,
+.print-box-block.box-frame--corner {
+  --corner-frame-corner-color: var(--sigma-doc-box-corner-color, #000000);
+  --corner-frame-rule-width: var(--sigma-doc-box-title-rule-width, 1px);
+  --corner-frame-rule-color: var(--sigma-doc-box-title-rule-color, #111111);
+  --corner-frame-guide-color: var(--sigma-doc-box-title-guide-color, #b8b8b8);
+  display: grid;
+  align-content: start;
+  border: 0;
+  background: var(--sigma-doc-box-background, #ffffff);
+}
+
+.box-frame--corner::before {
+  position: absolute;
+  z-index: 0;
+  inset: 0;
+  pointer-events: none;
+  content: "";
+  background:
+    linear-gradient(var(--corner-frame-corner-color), var(--corner-frame-corner-color)) left var(--corner-frame-corner-x) top var(--corner-frame-corner-y) / var(--corner-frame-corner-size) var(--corner-frame-corner-size) no-repeat,
+    linear-gradient(var(--corner-frame-corner-color), var(--corner-frame-corner-color)) right var(--corner-frame-corner-x) top var(--corner-frame-corner-y) / var(--corner-frame-corner-size) var(--corner-frame-corner-size) no-repeat,
+    linear-gradient(var(--corner-frame-corner-color), var(--corner-frame-corner-color)) left var(--corner-frame-corner-x) bottom var(--corner-frame-corner-y) / var(--corner-frame-corner-size) var(--corner-frame-corner-size) no-repeat,
+    linear-gradient(var(--corner-frame-corner-color), var(--corner-frame-corner-color)) right var(--corner-frame-corner-x) bottom var(--corner-frame-corner-y) / var(--corner-frame-corner-size) var(--corner-frame-corner-size) no-repeat,
+    linear-gradient(var(--corner-frame-rule-color), var(--corner-frame-rule-color)) left var(--corner-frame-rule-x) top var(--corner-frame-rule-y) / calc(100% - var(--corner-frame-rule-x) - var(--corner-frame-rule-x)) var(--corner-frame-rule-width) no-repeat,
+    linear-gradient(var(--corner-frame-rule-color), var(--corner-frame-rule-color)) left var(--corner-frame-rule-x) bottom var(--corner-frame-rule-y) / calc(100% - var(--corner-frame-rule-x) - var(--corner-frame-rule-x)) var(--corner-frame-rule-width) no-repeat,
+    linear-gradient(var(--corner-frame-rule-color), var(--corner-frame-rule-color)) left var(--corner-frame-rule-side-x) top var(--corner-frame-rule-side-y) / var(--corner-frame-rule-width) calc(100% - var(--corner-frame-rule-side-y) - var(--corner-frame-rule-side-y)) no-repeat,
+    linear-gradient(var(--corner-frame-rule-color), var(--corner-frame-rule-color)) right var(--corner-frame-rule-side-x) top var(--corner-frame-rule-side-y) / var(--corner-frame-rule-width) calc(100% - var(--corner-frame-rule-side-y) - var(--corner-frame-rule-side-y)) no-repeat,
+    linear-gradient(var(--corner-frame-guide-color), var(--corner-frame-guide-color)) left var(--corner-frame-guide-inset-x) top 0 / calc(100% - var(--corner-frame-guide-inset-x) - var(--corner-frame-guide-inset-x)) var(--corner-frame-guide-width) no-repeat,
+    linear-gradient(var(--corner-frame-guide-color), var(--corner-frame-guide-color)) left var(--corner-frame-guide-inset-x) bottom 0 / calc(100% - var(--corner-frame-guide-inset-x) - var(--corner-frame-guide-inset-x)) var(--corner-frame-guide-width) no-repeat,
+    linear-gradient(var(--corner-frame-guide-color), var(--corner-frame-guide-color)) left var(--corner-frame-guide-side-x) top var(--corner-frame-guide-side-y) / var(--corner-frame-guide-width) calc(100% - var(--corner-frame-guide-side-y) - var(--corner-frame-guide-side-y)) no-repeat,
+    linear-gradient(var(--corner-frame-guide-color), var(--corner-frame-guide-color)) right var(--corner-frame-guide-side-x) top var(--corner-frame-guide-side-y) / var(--corner-frame-guide-width) calc(100% - var(--corner-frame-guide-side-y) - var(--corner-frame-guide-side-y)) no-repeat,
+    linear-gradient(var(--corner-frame-guide-color), var(--corner-frame-guide-color)) left var(--corner-frame-guide-inset-x) top 0 / var(--corner-frame-guide-width) var(--corner-frame-guide-side-y) no-repeat,
+    linear-gradient(var(--corner-frame-guide-color), var(--corner-frame-guide-color)) right var(--corner-frame-guide-inset-x) top 0 / var(--corner-frame-guide-width) var(--corner-frame-guide-side-y) no-repeat,
+    linear-gradient(var(--corner-frame-guide-color), var(--corner-frame-guide-color)) left var(--corner-frame-guide-inset-x) bottom 0 / var(--corner-frame-guide-width) var(--corner-frame-guide-side-y) no-repeat,
+    linear-gradient(var(--corner-frame-guide-color), var(--corner-frame-guide-color)) right var(--corner-frame-guide-inset-x) bottom 0 / var(--corner-frame-guide-width) var(--corner-frame-guide-side-y) no-repeat,
+    linear-gradient(var(--corner-frame-guide-color), var(--corner-frame-guide-color)) left var(--corner-frame-guide-side-x) top var(--corner-frame-guide-side-y) / var(--corner-frame-guide-inset-x) var(--corner-frame-guide-width) no-repeat,
+    linear-gradient(var(--corner-frame-guide-color), var(--corner-frame-guide-color)) right var(--corner-frame-guide-side-x) top var(--corner-frame-guide-side-y) / var(--corner-frame-guide-inset-x) var(--corner-frame-guide-width) no-repeat,
+    linear-gradient(var(--corner-frame-guide-color), var(--corner-frame-guide-color)) left var(--corner-frame-guide-side-x) bottom var(--corner-frame-guide-side-y) / var(--corner-frame-guide-inset-x) var(--corner-frame-guide-width) no-repeat,
+    linear-gradient(var(--corner-frame-guide-color), var(--corner-frame-guide-color)) right var(--corner-frame-guide-side-x) bottom var(--corner-frame-guide-side-y) / var(--corner-frame-guide-inset-x) var(--corner-frame-guide-width) no-repeat;
+}
+
+.box-frame--corner .sigma-doc-box-body,
+.box-frame--corner .print-box-body {
+  text-align: var(--sigma-doc-box-body-align, center);
+}
+
+.box-frame--corner .sigma-doc-box-body,
+.box-frame--corner .sigma-doc-box-title,
+.box-frame--corner .print-box-body,
+.box-frame--corner .print-box-title {
+  font-family: inherit;
+}
+
+.sigma-doc-box-block.box-frame--double-rule::after,
+.print-box-block.box-frame--double-rule::after {
+  content: "";
+  position: absolute;
+  inset: var(--sigma-doc-box-double-offset, 4px);
+  pointer-events: none;
+  border:
+    var(--sigma-doc-box-double-width, 1px)
+    solid
+    var(--sigma-doc-box-double-color, #111111);
+}
+
+.sigma-doc-box-title,
+.print-box-title {
+  position: relative;
+  z-index: 1;
+  margin: 0 0 6px;
+  color: var(--sigma-doc-box-title-color, inherit);
+  font-family: var(--sigma-doc-box-title-font-family, inherit);
+  font-size: var(--sigma-doc-box-title-font-size, inherit);
+  font-weight: var(--sigma-doc-box-title-weight, 700);
+  line-height: var(--sigma-doc-box-title-line-height, inherit);
+  text-align: var(--sigma-doc-box-title-align, left);
+}
+
+.box-frame--corner .sigma-doc-box-title,
+.box-frame--corner .print-box-title {
+  margin-bottom: 12px;
+}
+
+.box-frame--corner .sigma-doc-box-body,
+.box-frame--corner .print-box-body {
+  line-height: var(--sigma-doc-box-body-line-height, inherit);
+}
+
+.box-frame--corner .sigma-doc-box-body p,
+.box-frame--corner .print-box-body p {
+  min-height: 0;
+  margin: 0;
+  line-height: inherit;
+}
+
+.sigma-doc-box-body,
+.print-box-body {
+  position: relative;
+  z-index: 1;
+  color: var(--sigma-doc-box-body-color, inherit);
+  font-family: var(--sigma-doc-box-body-font-family, inherit);
+  font-size: var(--sigma-doc-box-body-font-size, inherit);
+  text-align: var(--sigma-doc-box-body-align, inherit);
+}
+
+.sigma-doc-box-body > :first-child,
+.print-box-body > :first-child {
+  margin-top: 0;
+}
+
+.sigma-doc-box-body > :last-child,
+.print-box-body > :last-child {
+  margin-bottom: 0;
+}
+
+.sigma-doc-box-corner,
+.print-box-corner {
+  position: absolute;
+  z-index: 2;
+  display: none;
+  width: var(--sigma-doc-box-corner-size, 0);
+  height: var(--sigma-doc-box-corner-size, 0);
+  pointer-events: none;
+  background: var(--sigma-doc-box-corner-color, #000000);
+}
+
+.box-frame--corner-squares:not(.box-frame--corner) .sigma-doc-box-corner,
+.box-frame--corner-squares:not(.box-frame--corner) .print-box-corner {
+  display: block;
+}
+
+.sigma-doc-box-corner.top-left,
+.print-box-corner.top-left {
+  top: calc(var(--sigma-doc-box-corner-size, 0) / -2);
+  left: calc(var(--sigma-doc-box-corner-size, 0) / -2);
+}
+
+.sigma-doc-box-corner.top-right,
+.print-box-corner.top-right {
+  top: calc(var(--sigma-doc-box-corner-size, 0) / -2);
+  right: calc(var(--sigma-doc-box-corner-size, 0) / -2);
+}
+
+.sigma-doc-box-corner.bottom-left,
+.print-box-corner.bottom-left {
+  bottom: calc(var(--sigma-doc-box-corner-size, 0) / -2);
+  left: calc(var(--sigma-doc-box-corner-size, 0) / -2);
+}
+
+.sigma-doc-box-corner.bottom-right,
+.print-box-corner.bottom-right {
+  right: calc(var(--sigma-doc-box-corner-size, 0) / -2);
+  bottom: calc(var(--sigma-doc-box-corner-size, 0) / -2);
+}
+
+.inline-math-node {
+  display: inline-block;
+  width: auto;
+  /* 左右の余白は変数越し。囲みランの枠線は「数式の外形」に合わせて描くので、この値を
+     padding へ振り替える規則 (下の `[data-boxed-run-height-target]`) が同じ数を読む。 */
+  --inline-math-node-margin-x: 2px;
+  margin: 0 var(--inline-math-node-margin-x);
+  padding: 0;
+  border-radius: 5px;
+  background: transparent;
+  vertical-align: baseline;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.inline-math-node.display-math-node {
+  display: block;
+  width: 100%;
+  margin: 0;
+  white-space: normal;
+}
+
+.math-preview-inline,
+.math-preview-inline .katex {
+  display: inline;
+  width: auto;
+}
+
+.math-preview-inline .ML__latex {
+  display: inline-block;
+  width: auto;
+  vertical-align: baseline;
+}
+
+/* MathLive intentionally gives TeX text mode (`\text{...}`) its own system-font
+   default. The custom property is emitted with an inline font mark and survives
+   MathLive's nested wrappers; unmarked formulas use the bundled document default.
+   Symbols continue to use the dedicated math fonts. */
+.math-preview .ML__text {
+  font-family: var(--sigma-math-text-font-family, var(--editor-body-font-family));
+}
+
+.math-preview-inline .katex-html {
+  display: inline;
+}
+
+/* Text-only underline runs: normal text-decoration at the alphabetic baseline. */
+
+.sigma-underline-run:not(:has(.math-preview)) {
+  text-decoration-line: underline;
+  text-decoration-thickness: 1px;
+  text-decoration-color: currentColor;
+  text-underline-offset: 0.12em;
+  text-decoration-skip-ink: auto;
+}
+
+.sigma-underline-run .inline-math-node,
+u:has(.math-preview) .inline-math-node {
+  margin-right: 0;
+  margin-left: 0;
+}
+
+/* 数式を含む下線はrun全体のborderで描き、背の高い数式と二重線を避ける。 */
+
+.sigma-underline-run:has(.math-preview),
+u:has(.math-preview) {
+  display: inline-block;
+  vertical-align: baseline;
+  max-width: 100%;
+  text-decoration: none;
+  /* Solid border under the lowest ink of the whole run (text + math). */
+  border-bottom: 1.25px solid currentColor;
+  /* Small gap under the lowest ink, similar to text-underline-offset. */
+  padding-bottom: 0.1em;
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+}
+
+/* Kill any nested text-decoration inside a continuous math underline run so the
+   only stroke is the run's bottom border (no baseline-height second line). */
+
+.sigma-underline-run:has(.math-preview) *,
+u:has(.math-preview) * {
+  text-decoration: none;
+}
+
+.math-preview-display {
+  display: block;
+  width: 100%;
+}
+
+.graph2d-svg {
+  display: block;
+  width: 100%;
+  height: auto;
+  overflow: visible;
+  background: transparent;
+}
+
+.graph2d-plot-bg {
+  fill: transparent;
+}
+
+.graph2d-fill-region {
+  stroke: none;
+  pointer-events: none;
+}
+
+.graph2d-grid line {
+  stroke: #e9edf3;
+  stroke-width: 1;
+}
+
+.graph2d-axes line {
+  stroke: #30343b;
+  stroke-width: 1.2;
+}
+
+.graph2d-axis-arrow {
+  fill: #30343b;
+}
+
+.graph2d-ticks line {
+  stroke: #50555f;
+  stroke-width: 1;
+}
+
+.graph2d-ticks text {
+  fill: #4b5563;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 9pt;
+}
+
+.graph2d-tex-label {
+  color: #4b5563;
+  fill: #4b5563;
+  font-size: 9pt;
+  overflow: visible;
+}
+
+.graph2d-tex-label .katex {
+  font-size: inherit;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.graph2d-point-guides {
+  pointer-events: none;
+}
+
+.graph2d-points circle:not(.graph2d-point):not(.graph2d-point-open-halo) {
+  stroke: #ffffff;
+  stroke-width: 1.6;
+}
+
+.graph2d-error-bg {
+  fill: #fff7f7;
+  stroke: #f0c4c4;
+}
+
+.graph2d-error-text {
+  fill: var(--danger);
+  font-size: 13px;
+}
+
+.rich-inline-content .math-preview-display {
+  display: block;
+  width: 100%;
+  margin: 6px 0;
+  overflow-x: auto;
+}
+
+.print-a4-page {
+  position: relative;
+  width: var(--print-page-width, 210mm);
+  height: var(--print-page-height, 297mm);
+  overflow: hidden;
+  border: 1px solid var(--border);
+  background: #ffffff;
+  color: #111111;
+  font-family:
+    "Yu Gothic",
+    "Hiragino Sans",
+    "Meiryo",
+    system-ui,
+    sans-serif;
+}
+
+.print-page-content-layer {
+  position: absolute;
+  top: var(--print-margin-top);
+  right: calc(var(--print-margin-right) + 1px);
+  bottom: var(--print-margin-bottom);
+  left: calc(var(--print-margin-left) + 1px);
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  color: var(--text-primary);
+  font-size: var(--editor-font-size, 12pt);
+  line-height: 1.78;
+}
+
+.print-page-columns {
+  display: grid;
+  grid-template-columns: repeat(var(--print-column-count, 1), minmax(0, 1fr));
+  column-gap: var(--print-column-gap, 0mm);
+  flex: 1;
+  min-height: 0;
+}
+
+.print-page-column {
+  min-width: 0;
+  overflow: hidden;
+}
+
+.print-measure-layer {
+  position: absolute;
+  top: 0;
+  left: -100000px;
+  z-index: -1;
+  visibility: hidden;
+  color: var(--text-primary);
+  font-family:
+    "Yu Gothic",
+    "Hiragino Sans",
+    "Meiryo",
+    system-ui,
+    sans-serif;
+  font-size: var(--editor-font-size, 12pt);
+  line-height: 1.78;
+  pointer-events: none;
+}
+
+.print-measure-column {
+  width: var(--print-measure-column-width);
+}
+
+.print-page-overlay-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+/* globals.css の `.page-overlay-preview svg` (エディタ側の双子) と同じ宣言。 */
+.print-page-overlay-layer svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.print-page-overlay-layer.background {
+  z-index: 0;
+}
+
+.print-page-overlay-layer.foreground {
+  z-index: 2;
+}
+
+/* A block's baseline comes from its inline runs, while unformatted runs keep the block style's
+   default font. Browser layout owns wrapping and the height required by text and inline math. */
+.text-flow-editor :is(p, h1, h2, h3),
+.print-paragraph,
+.print-heading,
+.text-flow-editor [data-sigma-doc-list-item-text],
+.print-list [data-sigma-doc-list-item-text] {
+  --sigma-doc-text-base-font-size: var(--sigma-doc-box-body-font-size, var(--editor-font-size, 12pt));
+  font-size: var(--sigma-doc-text-line-font-size, inherit);
+}
+
+.text-flow-editor [data-sigma-doc-inherited-font],
+.print-paragraph [data-sigma-doc-inherited-font],
+.print-heading [data-sigma-doc-inherited-font],
+.print-list [data-sigma-doc-inherited-font] {
+  font-size: var(--sigma-doc-text-base-font-size, var(--editor-font-size, 12pt));
+}
+
+.print-section {
+  margin: 18px 0 14px;
+  font-size: calc(var(--editor-font-size, 12pt) * 1.85);
+  line-height: 1.28;
+  font-weight: 760;
+}
+
+.print-heading {
+  margin: 12px 0 6px;
+  --sigma-doc-text-base-font-size: calc(var(--editor-font-size, 12pt) * 1.18);
+  font-size: var(--sigma-doc-text-line-font-size, var(--sigma-doc-text-base-font-size));
+  line-height: 1.42;
+  font-weight: 700;
+}
+
+/* Display-only heading labels share this element in ProseMirror widgets and static output. */
+.heading-number-prefix {
+  margin-inline-end: 0.5em;
+  user-select: none;
+  white-space: nowrap;
+}
+
+h1.print-heading {
+  margin: 18px 0 14px;
+  --sigma-doc-text-base-font-size: calc(var(--editor-font-size, 12pt) * 1.85);
+  line-height: 1.28;
+  font-weight: 760;
+}
+
+h2.print-heading {
+  margin: 16px 0 8px;
+  --sigma-doc-text-base-font-size: calc(var(--editor-font-size, 12pt) * 1.42);
+  line-height: 1.34;
+  font-weight: 720;
+}
+
+.print-paragraph {
+  min-height: calc(1lh + var(--sigma-doc-space-after, 0px));
+  margin: 2px 0;
+  line-height: inherit;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.print-list {
+  margin: 2px 0;
+  line-height: inherit;
+  font-size: inherit;
+}
+
+.print-list .print-list {
+  margin: 0;
+}
+
+/* `(1)` 形式の番号マーカー。SigmaDoc 側は listType: "ordered" + markerStyle: "paren" のままで、
+   見え方だけがここで決まる。編集中の ProseMirror・静的描画・印刷/PDF・埋め込みビューアは
+   すべてこのファイルを読むので、マーカーの出典はこの 1 箇所だけにする。
+   リスト全体のインデントは意図的に足さない (UA 既定のまま = `-` の箇条書きと同じ見え方)。 */
+@counter-style sigma-doc-paren-decimal {
+  system: extends decimal;
+  prefix: "(";
+  suffix: ") ";
+}
+
+ol[data-list-marker="paren"] {
+  list-style-type: sigma-doc-paren-decimal;
+}
+
+/* マーカーは項目本文の「直後」= 先頭 run の書体・大きさに合わせる。値は li に載る 2 つの
+   カスタムプロパティで、編集中の ProseMirror・静的描画 (印刷/PDF/ビューア)・AI プレビューが
+   同じ純関数から同じものを出す。SigmaDoc には何も足さない派生値。
+   未設定の項目では var() が fallback の inherit に落ちるので、既存文書の計算値は変わらない。 */
+:is(ol, ul) {
+  /* カスタムプロパティは継承するので、このリセットが無いと「親項目が明朝なら入れ子の子項目の
+     マーカーも明朝」という無言の誤りになる。initial は custom property を guaranteed-invalid に
+     するため、子の li では var(--…, inherit) が fallback 側へ落ちる。 */
+  --sigma-doc-list-marker-font-family: initial;
+  --sigma-doc-list-marker-font-size: initial;
+  --sigma-doc-list-marker-color: initial;
+  --sigma-doc-list-marker-font-weight: initial;
+  --sigma-doc-list-marker-font-style: initial;
+}
+
+/* `::marker` が受け付けるのは color と font-* だけ。背景色・下線・padding は仕様上効かないので、
+   ここに書けるものが「マーカーに届く書式」の全部になる (MDN)。
+   下線付きの項目でマーカーに下線が付かないのはブラウザの仕様であって、取りこぼしではない。 */
+li[data-list-marker-typography]::marker {
+  font-family: var(--sigma-doc-list-marker-font-family, inherit);
+  font-size: var(--sigma-doc-list-marker-font-size, inherit);
+  color: var(--sigma-doc-list-marker-color, inherit);
+  font-weight: var(--sigma-doc-list-marker-font-weight, inherit);
+  font-style: var(--sigma-doc-list-marker-font-style, inherit);
+}
+
+.print-problem {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  break-inside: auto;
+}
+
+.print-problem-area {
+  margin: 2px 0;
+  padding: 0;
+}
+
+.print-problem-area-fragment-middle,
+.print-problem-area-fragment-last {
+  margin-top: 0;
+}
+
+.print-problem-area[data-problem-area="prompt"],
+.print-problem-area[data-problem-area="hints"] {
+  margin-bottom: 14px;
+}
+
+.print-problem-area.print-problem-area-fragment-first,
+.print-problem-area.print-problem-area-fragment-middle {
+  margin-bottom: 0;
+}
+
+.print-problem-area.print-problem-area-reservation-only {
+  margin: 0;
+}
+
+.print-problem-area.with-frame {
+  position: relative;
+  box-sizing: border-box;
+  padding: 2.5mm 3mm;
+  border-right: 0.3mm solid #111111;
+  border-left: 0.3mm solid #111111;
+}
+
+.print-problem-area.with-frame.first-frame-area {
+  border-top: 0.3mm solid #111111;
+  border-top-left-radius: 0.6mm;
+  border-top-right-radius: 0.6mm;
+}
+
+.print-problem-area.with-frame.last-frame-area {
+  border-bottom: 0.3mm solid #111111;
+  border-bottom-right-radius: 0.6mm;
+  border-bottom-left-radius: 0.6mm;
+}
+
+.print-problem-area.with-frame:not(.first-frame-area) {
+  padding-top: 0;
+}
+
+.print-problem-area.with-frame.box-frame--double-rule {
+  padding: 3mm 3.4mm;
+  border-right-width: 0.8mm;
+  border-right-style: double;
+  border-left-width: 0.8mm;
+  border-left-style: double;
+}
+
+.print-problem-area.with-frame.box-frame--double-rule.first-frame-area {
+  border-top-width: 0.8mm;
+  border-top-style: double;
+}
+
+.print-problem-area.with-frame.box-frame--double-rule.last-frame-area {
+  border-bottom-width: 0.8mm;
+  border-bottom-style: double;
+}
+
+.print-problem-area.with-frame.box-frame--corner {
+  --corner-frame-corner-size: 2.1mm;
+  --corner-frame-rule-width: 0.25mm;
+  --corner-frame-guide-width: 0.2mm;
+  --corner-frame-guide-inset-x: clamp(3.2mm, 6cqi, 6.4mm);
+  --corner-frame-guide-side-x: 0mm;
+  --corner-frame-guide-side-y: clamp(3.2mm, 6cqi, 6.4mm);
+  --corner-frame-rule-x: clamp(1.3mm, 1.8cqi, 1.85mm);
+  --corner-frame-rule-side-x: clamp(2.4mm, 3.25cqi, 3.45mm);
+  --corner-frame-rule-y: clamp(2.1mm, 3cqi, 3.2mm);
+  --corner-frame-rule-side-y: clamp(1.3mm, 2cqi, 1.85mm);
+  --corner-frame-corner-x: clamp(1.6mm, 2cqi, 2.1mm);
+  --corner-frame-corner-y: clamp(1.3mm, 1.8cqi, 1.85mm);
+  padding: 6.4mm 8mm;
+  border: 0;
+  border-radius: 0;
+  background: #ffffff;
+}
+
+.print-problem-area.with-frame.box-frame--corner:not(.first-frame-area) {
+  padding-top: 6.4mm;
+}
+
+.print-problem-area-content {
+  position: relative;
+  z-index: 1;
+  display: block;
+  min-width: 0;
+}
+
+.print-problem-area-content.with-number {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  align-items: start;
+  column-gap: 8px;
+}
+
+.print-problem-area-fragment .print-problem-area-content.with-number {
+  display: block;
+}
+
+.print-problem-area-fragment .print-problem-number {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 2;
+}
+
+.print-problem-area-fragment .print-problem-area-content.with-number .print-problem-area-body > :first-child {
+  box-sizing: border-box;
+  padding-left: calc(1.9em + 8px);
+}
+
+.print-problem-number {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  min-width: 1.9em;
+  height: 1.9em;
+  margin: 0;
+  padding: 0 0.24em;
+  border: 1px solid #111111;
+  border-radius: 2px;
+  font-weight: 750;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.35;
+  text-align: center;
+}
+
+.print-problem-area-body {
+  min-width: 0;
+}
+
+.print-problem-area-body.empty-lead-placeholder {
+  min-height: calc(max(34px, 1.78em) + 9.5px);
+}
+
+.print-empty-lead-shell {
+  min-height: inherit;
+}
+
+.print-layout-section {
+  min-width: 0;
+}
+
+.print-layout-section > * {
+  break-inside: avoid;
+}
+
+.print-image {
+  margin: 12px auto;
+  text-align: center;
+  break-inside: avoid;
+}
+
+.print-image img {
+  display: block;
+  width: var(--image-width);
+  max-width: 100%;
+  margin-inline: auto;
+}
+
+.print-image.align-left img {
+  margin-left: 0;
+  margin-right: auto;
+}
+
+.print-image.align-right img {
+  margin-left: auto;
+  margin-right: 0;
+}
+
+.print-image figcaption {
+  margin-top: 5px;
+  color: #555555;
+  font-size: 11px;
+}
+
+.print-image-missing {
+  display: grid;
+  place-items: center;
+  min-height: 90px;
+  border: 1px dashed #bbbbbb;
+  color: #777777;
+}
+
+.print-graph2d {
+  margin: 12px auto;
+  text-align: center;
+  break-inside: avoid;
+}
+
+.print-graph2d .graph2d-svg {
+  width: var(--graph-width);
+  max-width: 100%;
+  margin-inline: auto;
+}
+
+.print-graph2d.align-left .graph2d-svg {
+  margin-left: 0;
+  margin-right: auto;
+}
+
+.print-graph2d.align-right .graph2d-svg {
+  margin-left: auto;
+  margin-right: 0;
+}
+
+.print-graph2d figcaption {
+  margin-top: 5px;
+  color: #555555;
+  font-size: 11px;
+}
+
+/* 静的図形はviewerと共有する。選択・操作用クロームはglobals.cssに置く。 */
+
+.overlay-shape {
+  position: absolute;
+  box-sizing: border-box;
+  pointer-events: auto;
+}
+
+.overlay-vector-svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: butt;
+  stroke-linejoin: miter;
+}
+
+/* 矢印headは線のdashだけを継承しない。色と形はmarker自身の属性を使う。 */
+.overlay-vector-svg marker > * {
+  stroke-dasharray: none;
+}
+
+.overlay-image-frame {
+  position: relative;
+  width: 100%;
+  height: 100%;
+}
+
+.overlay-callout-text-frame {
+  position: absolute;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+  min-height: 0;
+  overflow: visible;
+}
+
+/* A chart is native SVG, so the only thing the stylesheet owns is the box it sits in — every
+   colour, font and size is a presentation attribute on the SVG itself, because the exported figure
+   travels without this stylesheet. */
+.chart-shape {
+  position: relative;
+  display: block;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: transparent;
+  pointer-events: all;
+}
+
+.chart-shape .chart-shape-svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.graph-shape {
+  position: relative;
+  display: block;
+  overflow: hidden;
+  border-radius: 4px;
+  background: transparent;
+  pointer-events: all;
+}
+
+.overlay-text-shape {
+  min-height: 1em;
+  line-height: 1;
+  overflow: visible;
+  outline: none;
+}
+
+/* 図中テキストは常にユーザーが決めた幅で折り返す (内容に合わせた自動フィットは廃止)。
+   幅そのものは図形の inline style が持つので、ここは中身を枠へ合わせるだけ。 */
+.overlay-text-shape {
+  width: 100%;
+  max-width: 100%;
+  min-width: 8px;
+}
+
+/* 中身の面。編集中は ProseMirror が、そうでないときは静的描画がこのクラスを付けるので、
+   図中テキストの組版はこの 1 箇所で決まる (フォーカスで見た目が変わらないのはこのため)。
+   SVG 書き出しは stylesheet を持たないので、折り返し規則は inline でも運ぶ:
+   `OverlayTextBlocksView.tsx` の定数と `rich-text-self-contained.test.ts` が対応を保つ。 */
+.overlay-text-shape .overlay-text-shape-content {
+  width: 100%;
+  max-width: 100%;
+  min-width: 8px;
+  min-height: 1em;
+  line-height: 1;
+  overflow: visible;
+  outline: none;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+/* 図中テキストの組版は本文と別。本文の 1.78 行送りと段落マージンは、図の中の 1 語ラベルには
+   大きすぎる — 描画器は本文と同じものを使い、typography だけを図形スコープで上書きする。 */
+.overlay-text-shape .overlay-text-shape-content p,
+.overlay-text-shape .overlay-text-shape-content h1,
+.overlay-text-shape .overlay-text-shape-content h2,
+.overlay-text-shape .overlay-text-shape-content h3,
+.overlay-text-shape .overlay-text-shape-content ul,
+.overlay-text-shape .overlay-text-shape-content ol {
+  margin: 0;
+}
+
+.overlay-text-shape .overlay-text-shape-content ul,
+.overlay-text-shape .overlay-text-shape-content ol {
+  padding-inline-start: 1.6em;
+}
+
+/* 引用・コード・区切り線。見た目の出典は本文の `.print-quote` / `.print-code` だが、余白だけは
+   図の寸法に合わせて詰める — 本文の 6px/10px マージンは、1 語のラベルの隣では大きすぎる。
+   図中テキストは `.text-flow-editor` の外なので `.print-*` は届かない: ここで作り直している
+   のはそのため。 */
+.overlay-text-shape .overlay-text-shape-content blockquote,
+.overlay-text-shape .overlay-text-shape-content pre,
+.overlay-text-shape .overlay-text-shape-content hr {
+  margin: 0;
+}
+
+.overlay-text-shape .overlay-text-shape-content blockquote {
+  padding: 0 0 0 0.6em;
+  border-left: 3px solid rgba(17, 17, 17, 0.28);
+  color: rgba(17, 17, 17, 0.78);
+}
+
+.overlay-text-shape .overlay-text-shape-content pre {
+  padding: 0.3em 0.5em;
+  border: 1px solid rgba(17, 17, 17, 0.09);
+  border-radius: 6px;
+  background: #f7f8fa;
+  color: #24292f;
+  font-family: "SFMono-Regular", "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: 0.92em;
+  font-variant-ligatures: none;
+  line-height: 1.5;
+  tab-size: 2;
+}
+
+/* 暗いテーマのコードは図の中でも暗いまま。上の `pre` 規則は `.print-code` より詳細度が高いので、
+   ここで名指ししないと、本文から貼った暗いブロックが図の中でだけ明るくなる。 */
+.overlay-text-shape .overlay-text-shape-content pre[data-code-theme="dark"] {
+  border-color: rgba(255, 255, 255, 0.16);
+  background: #171717;
+  color: #f5f5f5;
+}
+
+.overlay-text-shape .overlay-text-shape-content hr {
+  border: 0;
+  border-top: 1px solid rgba(17, 17, 17, 0.24);
+}
+
+.overlay-text-shape .inline-math-node {
+  margin: 0;
+}
+
+.graph-shape .graph2d-svg {
+  width: 100%;
+  height: 100%;
+}
+
+/* 本文とrunning regionの静的組版。編集専用装飾はglobals.cssに置く。 */
+
+.text-flow-editor {
+  min-height: 0;
+  outline: none;
+  color: var(--text-primary);
+  font-size: var(--editor-font-size, 12pt);
+  line-height: 1.78;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.text-formatting-mark {
+  display: inline-block;
+  position: relative;
+  width: 0;
+  height: 0;
+  pointer-events: none;
+  user-select: none;
+  color: var(--muted-foreground, #737373);
+}
+
+.text-formatting-mark::after {
+  position: absolute;
+  inset-inline-start: 0.15em;
+  bottom: 0;
+  font: normal 0.75em/1 sans-serif;
+  content: "↵";
+}
+
+.text-flow-editor [data-editor-layout-capped],
+.print-paragraph[data-editor-layout-capped] {
+  padding: 8px 10px;
+  border: 1px solid #d0d0d0;
+  background: #f5f5f5;
+  color: #555555;
+  font-size: 0.92em;
+  line-height: 1.45;
+}
+
+.text-flow-editor :where(h1, h2, h3, p) {
+  margin: 0;
+}
+
+.text-flow-editor h1 {
+  margin: 18px 0 14px;
+  --sigma-doc-text-base-font-size: calc(var(--editor-font-size, 12pt) * 1.85);
+  font-size: var(--sigma-doc-text-line-font-size, var(--sigma-doc-text-base-font-size));
+  line-height: 1.28;
+  font-weight: 760;
+}
+
+.text-flow-editor h2 {
+  margin: 16px 0 8px;
+  --sigma-doc-text-base-font-size: calc(var(--editor-font-size, 12pt) * 1.42);
+  font-size: var(--sigma-doc-text-line-font-size, var(--sigma-doc-text-base-font-size));
+  line-height: 1.34;
+  font-weight: 720;
+}
+
+.text-flow-editor h3 {
+  margin: 12px 0 6px;
+  --sigma-doc-text-base-font-size: calc(var(--editor-font-size, 12pt) * 1.18);
+  font-size: var(--sigma-doc-text-line-font-size, var(--sigma-doc-text-base-font-size));
+  line-height: 1.42;
+  font-weight: 700;
+}
+
+.text-flow-editor p {
+  min-height: calc(1lh + var(--sigma-doc-space-after, 0px));
+  margin: 2px 0;
+}
+
+/* spaceAfterPxは共有custom propertyからpaddingとして読み、ページ計測にも含める。 */
+.text-flow-editor :is(p, h1, h2, h3, ul, ol, hr),
+.print-paragraph,
+.print-heading,
+.print-section,
+.print-list,
+.print-divider {
+  padding-bottom: var(--sigma-doc-space-after, 0px);
+}
+
+/* custom property は相続するので、リスト全体の余白が各項目へ降りないよう li で断ち切る。 */
+.text-flow-editor :is(ul, ol) > li,
+.print-list > li {
+  --sigma-doc-space-after: 0px;
+  --sigma-doc-list-item-space-after: 0px;
+}
+
+/* 項目の余白は、最後の所有本文 (先頭行または継続行) の後へ一度だけ描く。入れ子リストは
+   その後ろに残るので、つまみの実測辺と保存後の見た目が一致する。専用変数に分けることで、
+   先頭段落の通常ブロック余白と二重になる経路を構造的に持たない。 */
+.text-flow-editor :is(ul, ol) > li > :not(ul, ol):not(:has(~ :not(ul, ol))),
+.print-list > li > :not(ul, ol):not(:has(~ :not(ul, ol))) {
+  padding-bottom: var(--sigma-doc-list-item-space-after, 0px);
+}
+
+.text-flow-shell {
+  position: relative;
+  margin: -6px -10px 4px;
+  padding: 6px 12px;
+}
+
+/*
+ * 本文 run を 40 ブロックごとに別エディタへ切ったときの継ぎ目。
+ * `.text-flow-shell` の縦 padding/margin と段落 margin が親をまたいで潰れないため、
+ * 同じ連なりの隣り合うユニットでは接合辺の chrome を落とす。
+ */
+[data-text-run-group] + [data-text-run-group] > .text-flow-shell {
+  margin-top: 0;
+  padding-top: 0;
+}
+
+[data-text-run-group]:has(+ [data-text-run-group]) > .text-flow-shell {
+  margin-bottom: 0;
+  padding-bottom: 0;
+}
+
+[data-text-run-group] + [data-text-run-group] .text-flow-editor > :first-child {
+  margin-top: 0;
+}
+
+/* Running-region lists keep the geometry the `.print-list` family gave them. The body editor
+   deliberately keeps the UA defaults, so this is scoped to the region rather than written as
+   `.text-flow-editor ul` — which would move every list in the document. */
+
+.page-running-region :is(ul, ol) {
+  margin: 2px 0;
+  line-height: inherit;
+  font-size: inherit;
+}
+
+.page-running-region :is(ul, ol) :is(ul, ol) {
+  margin: 0;
+}
+
+/* 上でマージンを 0 にしている面では、囲みラン計測時の「マージン → padding」振り替え幅も 0。
+   宣言をこの位置に分けてあるのは、SVG 書き出し (`rich-text-self-contained.test.ts`) が
+   `.overlay-text-shape .inline-math-node` の宣言をそのまま写し取るため — あちらは
+   カスタムプロパティを解決できないので、margin の規則は素のままにしておく。 */
+.overlay-text-shape .inline-math-node,
+.sigma-underline-run .inline-math-node,
+u:has(.math-preview) .inline-math-node {
+  --inline-math-node-margin-x: 0px;
+}
+
+/* 引用・コード・区切り線は編集面、印刷、viewerで同じblock要素を描く。 */
+
+.print-quote {
+  margin: 6px 0;
+  padding: 2px 0 2px 14px;
+  border-left: 3px solid rgba(17, 17, 17, 0.28);
+  color: rgba(17, 17, 17, 0.78);
+}
+
+/* 縦棒はこのブロックに 1 本。中身が何段落あっても、子の margin で棒が途切れることはない。 */
+.print-quote > :first-child {
+  margin-top: 0;
+}
+
+.print-quote > :last-child {
+  margin-bottom: 0;
+}
+
+.print-code {
+  position: relative;
+  margin: 10px 0;
+  padding: 12px 14px;
+  /* 枠は 1 本だけ、四辺とも同じ細さで。左だけ太い帯を入れると引用の縦棒と紛らわしく、
+     コードの箱としても野暮ったい。地の色と細い枠、角丸だけで十分に「囲まれて」見える。 */
+  border: 1px solid rgba(17, 17, 17, 0.09);
+  border-radius: 6px;
+  background: #f7f8fa;
+  color: #24292f;
+  font-family: "SFMono-Regular", "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+  /* 行間はこのブロックひとつで決まるので、何行あっても一定。`pre-wrap` なので長い行は
+     紙面の幅で折り返す (紙は横スクロールできない)。 */
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  line-height: 1.7;
+  /* `<pre>` の UA 既定 (等幅 13px 相当) を打ち消して、本文と同じ寸法体系に載せる。
+     等幅は本文より少し詰まって見えるので、0.92 で見かけの高さを合わせる。 */
+  font-size: 0.92em;
+  /* 等幅なのに合字が効くと `=>` や `!=` が別字形になり「打った通りに出ない」。 */
+  font-variant-ligatures: none;
+  tab-size: 2;
+}
+
+/* コードブロック単体のダーク表示。アプリ全体の外観には連動せず、SigmaDoc の theme 属性だけで
+   決まるので、入力中・フォーカス後・印刷/PDF・ビューアで同じ配色を保つ。 */
+.print-code[data-code-theme="dark"] {
+  border-color: rgba(255, 255, 255, 0.16);
+  background: #171717;
+  color: #f5f5f5;
+  caret-color: #f5f5f5;
+}
+
+/* 言語ラベル。言語を明示したときだけ出す (自動判定のままなら何も出さない)。
+   `::after` なので DOM には無く、編集面・静的描画・印刷・ビューアで同じに出る。
+
+   コードの上に浮かせず、箱の外の右上へ小さく逃がす。中に入れると 1 行目の折り返し位置が
+   ラベルの幅ぶんだけ変わり、「コードが読みにくい」ほうの実害が出る。 */
+.print-code[data-code-language]::after {
+  content: attr(data-code-language);
+  position: absolute;
+  right: 2px;
+  bottom: calc(100% + 1px);
+  color: rgba(17, 17, 17, 0.34);
+  font-size: 9.5px;
+  line-height: 1.2;
+  letter-spacing: 0.02em;
+  pointer-events: none;
+  user-select: none;
+}
+
+.print-code[data-code-theme="dark"][data-code-language]::after {
+  color: rgba(255, 255, 255, 0.58);
+}
+
+/* highlight.jsの共有トークン。印刷でも沈まない色だけを定義する。 */
+
+.hljs-comment,
+.hljs-quote {
+  color: #6a737d;
+  font-style: italic;
+}
+
+.hljs-keyword,
+.hljs-selector-tag,
+.hljs-literal,
+.hljs-type {
+  color: #b31d28;
+}
+
+.hljs-string,
+.hljs-regexp,
+.hljs-addition,
+.hljs-attribute,
+.hljs-meta .hljs-string {
+  color: #0a7c42;
+}
+
+.hljs-number,
+.hljs-symbol,
+.hljs-bullet,
+.hljs-link {
+  color: #005cc5;
+}
+
+.hljs-title,
+.hljs-section,
+.hljs-name,
+.hljs-selector-id,
+.hljs-selector-class {
+  color: #6f42c1;
+}
+
+.hljs-params,
+.hljs-variable,
+.hljs-template-variable,
+.hljs-attr,
+.hljs-property {
+  color: #24292f;
+}
+
+.hljs-built_in,
+.hljs-class .hljs-title,
+.hljs-doctag,
+.hljs-meta,
+.hljs-meta-keyword {
+  color: #8a4b00;
+}
+
+.hljs-deletion {
+  color: #b31d28;
+}
+
+.hljs-emphasis {
+  font-style: italic;
+}
+
+.hljs-strong {
+  font-weight: 600;
+}
+
+/* GitHub Dark に近い明度関係へ調整したダーク背景専用の構文色。ライト用の色を単純反転すると
+   コメントや文字列の彩度だけが浮くため、背景 #171717 上で本文と同じ可読性を保つ色にする。 */
+.print-code[data-code-theme="dark"] :is(.hljs-comment, .hljs-quote) {
+  color: #a3a3a3;
+}
+
+.print-code[data-code-theme="dark"] :is(.hljs-keyword, .hljs-selector-tag, .hljs-literal, .hljs-type) {
+  color: #ff7b72;
+}
+
+.print-code[data-code-theme="dark"] :is(.hljs-string, .hljs-regexp, .hljs-addition, .hljs-attribute, .hljs-meta .hljs-string) {
+  color: #7ee787;
+}
+
+.print-code[data-code-theme="dark"] :is(.hljs-number, .hljs-symbol, .hljs-bullet, .hljs-link) {
+  color: #79c0ff;
+}
+
+.print-code[data-code-theme="dark"] :is(.hljs-title, .hljs-section, .hljs-name, .hljs-selector-id, .hljs-selector-class) {
+  color: #d2a8ff;
+}
+
+.print-code[data-code-theme="dark"] :is(.hljs-params, .hljs-variable, .hljs-template-variable, .hljs-attr, .hljs-property) {
+  color: #f5f5f5;
+}
+
+.print-code[data-code-theme="dark"] :is(.hljs-built_in, .hljs-class .hljs-title, .hljs-doctag, .hljs-meta, .hljs-meta-keyword) {
+  color: #ffa657;
+}
+
+.print-code[data-code-theme="dark"] .hljs-deletion {
+  color: #ff7b72;
+}
+
+/* 区切り線。太さと色は囲み枠の罫線に合わせてある。 */
+.print-divider {
+  margin: 10px 0;
+  border: 0;
+  border-top: 1px solid rgba(17, 17, 17, 0.24);
+  background: none;
+}
+
+/* 箱内の問題番号は文書全体の採番から描画する。本文やコピーされる文字には加えない。 */
+.sigma-doc-nested-problem-area[data-problem-number] {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  align-items: start;
+  column-gap: 8px;
+}
+
+.sigma-doc-nested-problem-area[data-problem-number]::before {
+  content: attr(data-problem-number);
+  font-size: var(--nested-problem-number-size);
+  font-weight: 600;
+}
+
+.column-rule-separator {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  transform: translateX(-50%);
+  border-left: var(--column-rule-width, 1px) var(--column-rule-style, none) var(--column-rule-color, #111111);
+  pointer-events: none;
+}

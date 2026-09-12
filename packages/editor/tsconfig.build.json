@@ -1,0 +1,12 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "declaration": true,
+    "declarationMap": false,
+    "emitDeclarationOnly": true,
+    "noEmit": false,
+    "outDir": "./dist",
+    "types": []
+  },
+  "include": ["src/index.ts", "src/SigmaDocEditor.tsx", "src/internal-runtime.d.ts"]
+}

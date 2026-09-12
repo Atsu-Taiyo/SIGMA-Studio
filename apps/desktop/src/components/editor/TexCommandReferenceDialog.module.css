@@ -1,0 +1,159 @@
+.title {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-sm);
+  min-width: 0;
+}
+
+.body {
+  display: flex;
+  flex: 1 1 auto;
+  min-height: 0;
+  flex-direction: column;
+}
+
+.toolbar {
+  flex: 0 0 auto;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.searchRow {
+  width: 100%;
+}
+
+.search {
+  display: inline-flex;
+  flex: 1 1 280px;
+  align-items: center;
+  gap: var(--space-sm);
+  min-width: min(280px, 100%);
+  min-height: 38px;
+  padding: 0 var(--space-md);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  background: var(--surface);
+  color: var(--text-secondary);
+}
+
+.search:focus-within {
+  border-color: var(--border-strong);
+  outline: 2px solid color-mix(in srgb, var(--accent) 24%, transparent);
+}
+
+.search input {
+  width: 100%;
+  min-width: 0;
+  border: 0;
+  outline: none;
+  background: transparent;
+  color: var(--text-primary);
+  font-size: 13px;
+}
+
+.search input::placeholder {
+  color: var(--text-muted);
+}
+
+.resultCount {
+  flex: 0 0 auto;
+  color: var(--text-muted);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.results {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+}
+
+.grid {
+  align-items: stretch;
+}
+
+.card {
+  height: 100%;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-panel);
+  background: var(--background);
+}
+
+.card:hover {
+  border-color: var(--border);
+}
+
+.cardLabel {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.preview {
+  display: grid;
+  min-height: 52px;
+  place-items: center;
+  overflow: auto hidden;
+  background: transparent;
+  color: var(--text-primary);
+}
+
+.preview :global(.math-preview) {
+  max-width: 100%;
+  padding: 0 var(--space-sm);
+  font-size: 19px;
+  line-height: normal;
+  white-space: nowrap;
+}
+
+.command {
+  display: block;
+  flex: 1 1 auto;
+  min-width: 0;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  color: var(--text-secondary);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.commandRow {
+  width: 100%;
+}
+
+.copyButton[data-copy-state="copied"] {
+  color: var(--success);
+}
+
+.copyButton[data-copy-state="failed"] {
+  color: var(--danger);
+}
+
+.aliases {
+  color: var(--text-muted);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.empty {
+  min-height: 240px;
+  color: var(--text-muted);
+  text-align: center;
+}
+
+.empty strong {
+  color: var(--text-secondary);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+@media (max-width: 720px) {
+  .search {
+    flex-basis: 100%;
+  }
+}

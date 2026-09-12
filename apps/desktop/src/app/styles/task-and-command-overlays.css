@@ -1,0 +1,807 @@
+
+
+/* 複数runのAI編集案がたまっているときの一括適用バー (EditorShell)。AIタスクDockと同じ
+   fixed系の浮遊UIだが、下中央に置いて共存できるようにする。 */
+.ai-apply-all-bar {
+  position: fixed;
+  left: 50%;
+  /* Word風ではステータスバーが画面下端を占めるので、その分だけ持ち上げる
+     （docs では --editor-statusbar-height が 0px なので従来どおり 18px）。 */
+  bottom: calc(18px + var(--editor-statusbar-height));
+  transform: translateX(-50%);
+  z-index: 140;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px 8px 14px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 999px;
+  background: var(--background);
+  box-shadow: 0 16px 40px -18px rgb(15 23 42 / 0.35);
+}
+
+.ai-apply-all-count {
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.ai-apply-all-button {
+  appearance: none;
+  padding: 5px 14px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--text-primary);
+  color: var(--background);
+  font-size: 12px;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.ai-apply-all-button:hover:not(:disabled),
+.ai-apply-all-button:focus-visible {
+  opacity: 0.85;
+  outline: none;
+}
+
+.ai-apply-all-button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.ai-task-dock-motion {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 90;
+  transform-origin: 16px 16px;
+}
+
+.ai-task-dock-motion.is-expanded {
+  animation: ai-task-dock-expand 220ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.ai-task-dock-motion.is-collapsing {
+  pointer-events: none;
+  animation: ai-task-dock-collapse 170ms cubic-bezier(0.7, 0, 0.84, 0) both;
+}
+
+.ai-task-dock {
+  display: flex;
+  flex-direction: column;
+  width: min(340px, 82vw);
+  max-height: min(60vh, 460px);
+  border: 1px solid var(--border-subtle);
+  border-radius: 14px;
+  background: var(--background);
+  box-shadow: 0 20px 48px -20px rgb(15 23 42 / 0.35);
+  overflow: hidden;
+}
+
+@keyframes ai-task-dock-expand {
+  from {
+    opacity: 0;
+    transform: translateY(-10px) scale(0.08);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes ai-task-dock-collapse {
+  from {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+
+  to {
+    opacity: 0;
+    transform: translateY(-10px) scale(0.08);
+  }
+}
+
+.ai-task-dock-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 8px 10px 14px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.ai-task-dock-title {
+  flex: 1 1 auto;
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.ai-task-dock-count {
+  flex: 0 0 auto;
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.ai-task-dock-close {
+  appearance: none;
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.ai-task-dock-close:hover,
+.ai-task-dock-close:focus-visible {
+  background: var(--surface-soft);
+  color: var(--text-primary);
+  outline: none;
+}
+
+/* Web版だけ dock の中に入るWebMCP区画: エージェントとの接続状態と、教材ごとの
+   自由記述指示。デスクトップとSDK埋め込みでは webMcpInstructionScopeId が渡らない
+   ので描かれない。list より先に置き、縮まないようにして list 側だけをスクロールさせる。 */
+.ai-task-dock-webmcp {
+  display: grid;
+  gap: 4px;
+  flex: 0 0 auto;
+  padding: 10px 14px 12px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.ai-task-dock-webmcp-status {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin: 0;
+  color: var(--text-primary);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.ai-task-dock-webmcp-status svg {
+  flex: 0 0 auto;
+  margin-block-start: 2px;
+}
+
+.ai-task-dock-webmcp-status[data-state="partial"],
+.ai-task-dock-webmcp-status[data-state="failed"],
+.ai-task-dock-webmcp-status[data-state="unavailable"] {
+  color: var(--text-muted);
+}
+
+.ai-task-dock-webmcp-conflict {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin: 2px 0;
+  border: 1px solid color-mix(in srgb, var(--warning) 28%, var(--border-subtle));
+  border-radius: 8px;
+  padding: 6px 8px;
+  background: color-mix(in srgb, var(--warning) 8%, var(--background));
+  color: var(--warning);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.ai-task-dock-webmcp-conflict svg {
+  flex: 0 0 auto;
+  margin-block-start: 1px;
+}
+
+.ai-task-dock-webmcp-conflict > span {
+  flex: 1 1 auto;
+}
+
+.ai-task-dock-webmcp-conflict .ai-task-dock-action {
+  flex: 0 0 auto;
+  align-self: center;
+}
+
+.ai-task-dock-webmcp-title {
+  margin: 6px 0 0;
+  color: var(--text-primary);
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.ai-task-dock-webmcp-input {
+  width: 100%;
+  resize: vertical;
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  padding: 6px 8px;
+  color: var(--text-primary);
+  background: var(--background);
+  font: inherit;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.ai-task-dock-webmcp-input:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent) 34%, transparent);
+  outline-offset: 1px;
+}
+
+.ai-task-dock-webmcp-note {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.ai-task-dock-list {
+  display: grid;
+  gap: 2px;
+  padding: 6px;
+  overflow-y: auto;
+}
+
+.ai-task-dock-empty {
+  margin: 0;
+  padding: 10px 8px;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.ai-task-dock-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 8px;
+  border-radius: 8px;
+}
+
+.ai-task-dock-row:hover {
+  background: var(--surface-soft);
+}
+
+.ai-task-dock-row.is-focusable {
+  cursor: pointer;
+}
+
+.ai-task-dock-provider {
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  width: 20px;
+  height: 20px;
+  margin-top: 1px;
+  color: var(--text-muted);
+}
+
+.ai-task-dock-row-main {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.ai-task-dock-row-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.ai-task-dock-chip {
+  flex: 0 0 auto;
+  color: var(--text-muted);
+  font-size: 10.5px;
+  font-weight: 650;
+  letter-spacing: 0.02em;
+}
+
+.ai-task-dock-chip--running,
+.ai-task-dock-chip--proposal {
+  color: var(--text-primary);
+}
+
+.ai-task-dock-chip--rejected {
+  color: var(--danger, #b42318);
+}
+
+.ai-task-dock-row-label {
+  appearance: none;
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text-primary);
+  font-size: 12.5px;
+  font-weight: 600;
+  text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.ai-task-dock-row-label:disabled {
+  cursor: default;
+}
+
+.ai-task-dock-row-label:hover:not(:disabled),
+.ai-task-dock-row-label:focus-visible:not(:disabled) {
+  text-decoration: underline;
+  outline: none;
+}
+
+.ai-task-dock-anchor,
+.ai-task-dock-error {
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+}
+
+.ai-task-dock-anchor {
+  color: var(--text-muted);
+}
+
+.ai-task-dock-error {
+  color: var(--danger, #b42318);
+}
+
+.ai-task-dock-actions {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: var(--space-xs);
+}
+
+.ai-task-dock-action:not(.ai-proposal-decision-button) {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 24px;
+  padding: 0 8px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--background);
+  color: var(--text-primary);
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.ai-task-dock-action--icon:not(.ai-proposal-decision-button) {
+  justify-content: center;
+  width: 24px;
+  padding: 0;
+}
+
+.ai-task-dock-action--stop {
+  border-color: #111111;
+}
+
+.ai-task-dock-action:not(.ai-proposal-decision-button):hover:not(:disabled),
+.ai-task-dock-action:not(.ai-proposal-decision-button):focus-visible {
+  background: var(--surface-soft);
+  outline: none;
+}
+
+.ai-task-dock-action:not(.ai-proposal-decision-button):disabled {
+  color: var(--text-disabled);
+  cursor: default;
+}
+
+.ai-task-dock-action.primary {
+  border-color: #111111;
+  background: #111111;
+  color: #ffffff;
+}
+
+.ai-task-dock-action.primary:hover:not(:disabled) {
+  background: #000000;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ai-task-dock-toggle,
+  .comment-dock-toggle {
+    transition: none;
+  }
+
+  .ai-task-dock-motion.is-expanded,
+  .ai-task-dock-motion.is-collapsing,
+  .comment-dock-motion.is-expanded {
+    animation: none;
+  }
+
+  .ai-task-dock-motion.is-collapsing {
+    display: none;
+  }
+}
+
+/* MCP tool-result PNG previews (e.g. render_visual_edit_session) surfaced in
+   the AI activity feed -- thumbnails under the tool's activity row, with a
+   simple click-to-toggle full-size lightbox (see AssistantActivity in
+   AiEditPanel.tsx). Spans the full item-row width (grid-column: 1 / -1) so it
+   lands on its own row under the icon/message columns of .ai-activity-item. */
+.ai-activity-item-images {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  grid-column: 1 / -1;
+  margin: 2px 0 4px 24px;
+}
+
+.ai-activity-item-image-thumb {
+  display: block;
+  width: 96px;
+  height: 72px;
+  padding: 0;
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+  background: #ffffff;
+  cursor: zoom-in;
+  overflow: hidden;
+}
+
+.ai-activity-item-image-thumb:hover,
+.ai-activity-item-image-thumb:focus-visible {
+  border-color: var(--border);
+  outline: none;
+}
+
+.ai-activity-item-image-thumb img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  background: #ffffff;
+}
+
+.ai-activity-image-lightbox {
+  position: fixed;
+  inset: 0;
+  z-index: 4000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 32px;
+  border: 0;
+  background: color-mix(in srgb, #000000 70%, transparent);
+  cursor: zoom-out;
+}
+
+.ai-activity-image-lightbox img {
+  max-width: 100%;
+  max-height: 100%;
+  border-radius: 8px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.4);
+}
+
+/* ============================================================
+ * Paged render (print preview and PDF output)
+ *
+ * The output is a clone of the editor canvas, so nothing in this section may
+ * change geometry. Editing chrome is suppressed with `visibility: hidden`, which
+ * keeps every box in flow, rather than `display: none`, which would not.
+ * See docs/pdf-parity-architecture.md.
+ * ============================================================ */
+
+.paged-render .page-column-guides,
+.paged-render .page-content-guide,
+.paged-render .page-margin-ruler,
+.paged-render .page-layout-controls,
+.paged-render .box-layout-section-side-note-layer,
+.paged-render .layout-section-side-note,
+.paged-render .problem-area-side-note,
+.paged-render .page-flow-page-break-marker,
+.paged-render .page-break-marker,
+.paged-render .overlay-comment-marker,
+.paged-render .block-comment-marker,
+.paged-render .ai-overlay-approval-widget,
+.paged-render .ai-inline-catcher {
+  visibility: hidden;
+}
+
+.paged-render .a4-page-sheet {
+  border-color: transparent;
+  box-shadow: none;
+}
+
+/* No layout override on `.page-stack`: the staged canvas must lay out under exactly the
+ * same CSS as the editor, or its measurements are not the editor's measurements. The
+ * page windows compensate for the stack's padding and centring by measuring where the
+ * canvas actually sits, rather than by changing it. */
+
+.paged-surface {
+  position: relative;
+  width: 100%;
+}
+
+.paged-surface-pages {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--paged-surface-gap, var(--space-xl));
+  justify-content: center;
+  align-items: flex-start;
+}
+
+.paged-surface:not([data-paged-surface-state="ready"]) .paged-surface-pages {
+  display: none;
+}
+
+.paged-surface-page-slot {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-sm);
+}
+
+.paged-surface--vertical .paged-surface-pages {
+  flex-direction: column;
+  align-items: center;
+}
+
+.paged-surface--spread .paged-surface-pages,
+.paged-surface--grid .paged-surface-pages {
+  flex-direction: row;
+}
+
+.paged-surface--spread .paged-surface-pages {
+  max-width: calc(var(--paged-spread-width, 2) * 100%);
+}
+
+/* One page: a paper-sized window clipping its band out of the cloned canvas. */
+.paged-surface-page {
+  position: relative;
+  flex: none;
+  width: var(--paged-page-width);
+  height: var(--paged-page-height);
+  overflow: hidden;
+  background: #ffffff;
+  box-shadow:
+    0 0 0 1px var(--border-subtle),
+    0 2px 8px rgb(17 17 17 / 6%);
+}
+
+.paged-surface-page-number {
+  color: var(--text-muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+
+.print-paper-shimmer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: center;
+  gap: var(--space-xl);
+}
+
+.print-paper-shimmer--vertical {
+  flex-direction: column;
+  align-items: center;
+}
+
+.print-paper-shimmer-sheet {
+  flex: none;
+  width: var(--print-paper-shimmer-width);
+  height: var(--print-paper-shimmer-height);
+  border: 1px solid var(--border-subtle);
+  border-radius: 0;
+}
+
+.paged-surface-stalled {
+  width: min(560px, calc(100vw - var(--space-2xl)));
+  margin: var(--space-3xl) auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-md);
+  padding: var(--space-xl);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-panel);
+  background: var(--background);
+  color: var(--text-secondary);
+  text-align: center;
+}
+
+.paged-surface-stalled h2,
+.paged-surface-stalled p {
+  margin: 0;
+}
+
+.paged-surface-stalled h2 {
+  color: var(--text-primary);
+  font-size: 16px;
+}
+
+.paged-surface-stalled p {
+  max-width: 360px;
+}
+
+.paged-surface-page-inner {
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform: translate(
+    calc(-1 * var(--paged-page-inset, 0px)),
+    calc(-1 * var(--paged-page-offset, 0px))
+  );
+}
+
+/* The canvas has to lay out at full size to be measured, so it cannot be
+ * `display: none`. It is parked out of view instead. */
+.paged-surface-stage {
+  position: absolute;
+  top: 0;
+  left: -100000px;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+@media print {
+  .paged-surface-pages {
+    display: block;
+    gap: 0;
+  }
+
+  .paged-surface-page-slot {
+    display: contents;
+  }
+
+  .paged-surface-page {
+    border: 0;
+    box-shadow: none;
+    break-after: page;
+    break-inside: avoid;
+    /* Each paper window contains a translated clone of the entire multi-page canvas.
+     * `overflow: hidden` clips its paint, but Chromium's PDF paginator still counts the
+     * clone's full layout overflow unless the fixed-size window establishes size
+     * containment. Without this, a four-page B5 document can gain trailing blank pages. */
+    contain: size;
+  }
+
+  .paged-surface-page-slot:last-child .paged-surface-page {
+    break-after: auto;
+  }
+
+  .paged-surface-stage,
+  .paged-surface-page-number,
+  .print-paper-shimmer,
+  .paged-surface-stalled {
+    display: none;
+  }
+}
+
+/* 設定パレットから開いた項目を一時的に光らせる (settings-entry-focus.ts)。
+   `outline` を使うのはレイアウトを動かさないため — 設定行の高さが変わると、
+   scrollIntoView が終わった直後に対象がずれて «光っている行が見えない» になる。 */
+.settings-entry-focus {
+  --settings-entry-focus-ms: 1600ms;
+  animation: settings-entry-focus-pulse var(--settings-entry-focus-ms) ease-out;
+  border-radius: 8px;
+}
+
+@keyframes settings-entry-focus-pulse {
+  0%,
+  60% {
+    outline: 2px solid var(--accent, #2563eb);
+    outline-offset: 3px;
+  }
+  100% {
+    outline: 2px solid transparent;
+    outline-offset: 3px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .settings-entry-focus {
+    animation: none;
+    outline: 2px solid var(--accent, #2563eb);
+    outline-offset: 3px;
+  }
+}
+
+/* --- コマンドパレット (⌘P) --------------------------------------------------
+   VS Code 風に 1 行 = 1 項目。候補は常に見えている必要があるので、リストだけを
+   スクロールさせ、入力欄とヒントは固定する。 */
+.command-palette-surface {
+  max-height: min(70vh, 560px);
+  display: flex;
+  flex-direction: column;
+}
+
+.command-palette-body {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.command-palette-search {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border-subtle, rgba(0, 0, 0, 0.08));
+}
+
+.command-palette-input {
+  width: 100%;
+  border: 0;
+  outline: none;
+  background: transparent;
+  font-size: 15px;
+  line-height: 1.6;
+}
+
+.command-palette-list {
+  overflow-y: auto;
+  min-height: 0;
+  padding: 6px 0;
+}
+
+.command-palette-group-label {
+  padding: 6px 14px 2px;
+  font-size: 11px;
+  opacity: 0.6;
+}
+
+.command-palette-entry {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  width: 100%;
+  padding: 6px 14px;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+
+.command-palette-entry.selected {
+  /* 実在するトークンを使う (存在しない名前を書くとフォールバック側が常に効いて
+     テーマに追随しない)。 */
+  background: var(--accent-soft);
+}
+
+.command-palette-entry-label {
+  /* ラベルはユーザー入力 (カスタムコマンド名) になりうるので長さは無制限。
+     縮まないと右端のショートカット表記を押し出す。 */
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.command-palette-entry-detail {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  opacity: 0.65;
+}
+
+.command-palette-entry-shortcut {
+  flex: 0 0 auto;
+  margin-left: auto;
+  font-size: 11px;
+  opacity: 0.75;
+}
+
+.command-palette-empty,
+.command-palette-hint {
+  padding: 10px 14px;
+  font-size: 12px;
+  opacity: 0.65;
+  margin: 0;
+}
+
+.command-palette-hint {
+  border-top: 1px solid var(--border-subtle, rgba(0, 0, 0, 0.08));
+}

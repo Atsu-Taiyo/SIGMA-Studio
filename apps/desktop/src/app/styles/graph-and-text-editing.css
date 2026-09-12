@@ -1,0 +1,2964 @@
+
+
+.graph-item-actions-separator {
+  height: 1px;
+  margin: 4px 0;
+  background: var(--border-subtle);
+}
+
+.graph-item-actions-menu [data-tone="danger"] {
+  color: var(--danger);
+}
+
+.graph-fill-action-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: var(--space-sm);
+  padding: 4px;
+}
+
+.graph-item-action-field {
+  display: grid;
+  gap: var(--space-xs);
+  min-width: 0;
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.graph-item-actions-menu .graph-item-action-field button {
+  width: 100%;
+}
+
+.graph-item-opacity-field {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) 34px;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: 5px 7px;
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.graph-item-opacity-field input {
+  width: 100%;
+  accent-color: var(--accent);
+}
+
+.graph-item-opacity-field output {
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.graph-item-number-field,
+.graph-item-checkboxes {
+  display: grid;
+  gap: var(--space-sm);
+  padding: 5px 7px;
+}
+
+.graph-item-number-field {
+  grid-template-columns: minmax(0, 1fr) 84px;
+  align-items: center;
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.graph-item-number-field input {
+  width: 100%;
+}
+
+.graph-item-checkboxes .checkbox-field {
+  min-height: 28px;
+  margin: 0;
+}
+
+.graph-fill-pattern-button {
+  justify-content: space-between;
+  min-width: 0;
+  border: 1px solid var(--border) !important;
+  background: var(--background) !important;
+}
+
+.graph-fill-pattern-button > span:nth-child(2) {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.graph-fill-pattern-button:hover,
+.graph-fill-pattern-button:focus-visible,
+.graph-fill-pattern-button.active {
+  border-color: var(--accent) !important;
+  outline: none;
+  box-shadow: 0 0 0 2px var(--accent-soft);
+}
+
+.graph-fill-pattern-menu {
+  min-width: 150px;
+}
+
+.shape-menu.graph-fill-pattern-menu button {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr);
+}
+
+.shape-menu.graph-fill-pattern-menu button.selected {
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+
+.graph-curve-select-grid > label,
+.graph-style-field {
+  min-width: 0;
+}
+
+.graph-style-field > span {
+  display: block;
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.graph-tick-font-size-field {
+  display: grid;
+}
+
+.graph-number-input {
+  display: grid !important;
+  grid-template-columns: minmax(0, 1fr) auto;
+  min-height: 32px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  background: var(--background);
+  transition: border-color 120ms ease, box-shadow 120ms ease;
+}
+
+.graph-number-input:focus-within {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 18%, transparent);
+}
+
+.graph-number-input input {
+  width: 100%;
+  min-width: 0;
+  padding: var(--space-xs) var(--space-sm);
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--text-primary);
+  font: inherit;
+  font-variant-numeric: tabular-nums;
+}
+
+.graph-number-input-unit {
+  display: inline-flex !important;
+  align-items: center;
+  padding-inline: var(--space-sm);
+  border-inline-start: 1px solid var(--border-subtle);
+  background: var(--surface-muted);
+  color: var(--text-muted) !important;
+  font-size: 11px !important;
+  font-weight: 600 !important;
+}
+
+.graph-curve-select-grid > label > span {
+  display: block;
+  margin-bottom: var(--space-xs);
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.math-expression-input {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  min-width: 0;
+  min-height: 32px;
+  padding: var(--space-xs) var(--space-sm);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  background: var(--background);
+  color: var(--text-primary);
+  font-size: 13px;
+  text-align: left;
+  cursor: text;
+  transition: border-color 120ms ease, box-shadow 120ms ease, background 120ms ease;
+}
+
+.math-expression-input-button {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: inherit;
+  cursor: text;
+}
+
+.math-expression-input:hover:has(.math-expression-input-button:not(:disabled)) {
+  background: var(--surface-soft);
+}
+
+.math-expression-input.is-editing,
+.math-expression-input:focus-within {
+  border-color: var(--accent);
+  background: var(--background);
+  box-shadow: 0 0 0 2.5px var(--accent-soft);
+}
+
+.math-expression-input.is-invalid {
+  border-color: color-mix(in srgb, var(--danger) 58%, var(--border));
+  box-shadow: none;
+}
+
+.math-expression-input:has(.math-expression-input-button:disabled) {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.math-expression-input-preview {
+  display: inline-block;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.math-expression-input-preview .math-preview {
+  margin: 0;
+}
+
+.math-expression-input-placeholder {
+  overflow: hidden;
+  color: var(--text-secondary);
+  opacity: 0.5;
+  pointer-events: none;
+}
+
+.math-expression-input-field {
+  flex: 1;
+  /* 空の math-field が高さ 0 に潰れてフォーカス・クリックできなくなるのを防ぐ。 */
+  min-width: 2em;
+  min-height: 20px;
+  font-size: inherit;
+}
+
+.graph-function-row {
+  min-width: 0;
+}
+
+.graph-expression-field {
+  flex: 1;
+  min-width: 0;
+}
+
+.graph-expression-error {
+  min-height: 15px;
+  margin: var(--space-xs) 2px 0;
+  color: var(--danger);
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.graph-expression-error[data-empty="true"] {
+  min-height: 0;
+  margin: 0;
+  overflow: hidden;
+}
+
+.graph-settings-message {
+  margin: var(--space-xs) 0 0;
+  color: var(--text-secondary);
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.graph-function-prefix {
+  flex: 0 0 auto;
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
+.graph-range-pair {
+  min-width: 0;
+}
+
+.graph-coordinate-field {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: var(--space-xs);
+  min-width: 0;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.graph-coordinate-field .math-expression-input {
+  min-width: 0;
+}
+
+.graph-range-pair {
+  width: 100%;
+}
+
+.graph-range-pair .math-expression-input {
+  flex: 1 1 0;
+  min-width: 0;
+  padding-right: var(--space-sm);
+  padding-left: var(--space-sm);
+}
+
+.graph-range-pair .graph-expression-field {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+.graph-range-separator {
+  flex: 0 0 auto;
+  color: var(--text-secondary);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.graph-mode-control {
+  min-width: 0;
+}
+
+.graph-mode-button {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-sm);
+  width: 100%;
+  min-height: 32px;
+  padding: var(--space-xs) var(--space-sm);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  background: var(--background);
+  color: var(--text-primary);
+  cursor: pointer;
+  transition: border-color 120ms ease, box-shadow 120ms ease, background 120ms ease;
+}
+
+.graph-mode-button:hover,
+.graph-mode-button:focus-visible,
+.graph-mode-button.active {
+  border-color: var(--accent);
+  background: var(--background);
+  box-shadow: 0 0 0 2.5px var(--accent-soft);
+  outline: none;
+}
+
+.graph-mode-preview {
+  min-width: 0;
+  overflow: hidden;
+  font-size: 13px;
+}
+
+.graph-mode-menu {
+  min-width: 178px;
+}
+
+.graph-mode-menu button {
+  justify-content: flex-start;
+}
+
+.graph-curve-header-actions .shape-menu-button.icon-only {
+  min-height: 30px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  background: var(--background);
+}
+
+.graph-style-menu {
+  display: inline-flex;
+}
+
+.graph-color-button {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-xs);
+  min-height: 30px;
+  padding: 0 var(--space-sm);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  background: var(--background);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: border-color 120ms ease, background 120ms ease;
+}
+
+.graph-color-button:hover,
+.graph-color-button:focus-visible,
+.graph-color-button.active {
+  border-color: var(--accent);
+  background: var(--surface-soft);
+  outline: none;
+}
+
+.graph-color-button:focus-visible {
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 22%, transparent);
+}
+
+/* Chart settings panel rows. The panel reuses the graph frame, so only its own fields need rules. */
+.chart-settings-source {
+  font-size: 12px;
+  /* `--text-secondary`, not `--text-muted`: this line carries the chart's live/broken state, and
+     #8a8a8a at 12px is 3.45:1 — below the 4.5:1 body text has to clear. The value this rule used
+     to fall through to (#6b7280, from an undefined token) passed, so the token fix must not
+     quietly lower it. */
+  color: var(--text-secondary);
+}
+
+.chart-settings-source.broken {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+  color: var(--danger);
+}
+
+.chart-settings-hint {
+  font-size: 11px;
+  /* Carries the empty state ("グラフにできる数値がありません"), so it has to be readable too. */
+  color: var(--text-secondary);
+}
+
+/* 枠と focus の出し方は隣に並ぶ `.graph-number-input` と同じ作法にする
+   (border は `--border`、focus は border-color を `--accent` へ動かして 18% のリングを足す)。 */
+.chart-settings-text-input {
+  width: 100%;
+  min-width: 0;
+  min-height: 32px;
+  padding: var(--space-xs) var(--space-sm);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  background: var(--background);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 12px;
+  transition: border-color 120ms ease, box-shadow 120ms ease;
+}
+
+.chart-settings-text-input::placeholder {
+  color: var(--text-muted);
+}
+
+.chart-settings-text-input:focus-visible {
+  border-color: var(--accent);
+  outline: none;
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 18%, transparent);
+}
+
+/* このパネルの縦リズムは Stack の gap が持つ。`.field-label` と `.checkbox-field` が自前で持つ
+   margin と二重に効かせない (design-rules: 子要素の margin で間隔を作らず親の gap で管理する)。 */
+.chart-settings-panel .field-label,
+.chart-settings-panel .checkbox-field {
+  margin: 0;
+}
+
+.chart-settings-series-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.graph-color-button-swatch {
+  width: 22px;
+  height: 14px;
+  border: 1px solid rgb(0 0 0 / 20%);
+  border-radius: 4px;
+}
+
+.graph-segmented {
+  padding: var(--space-xs);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-control);
+  background: var(--surface-muted);
+}
+
+.graph-segmented button {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-xs);
+  min-height: 26px;
+  padding: 0 var(--space-sm);
+  border: none;
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.graph-segmented button.selected {
+  background: var(--background);
+  color: var(--text-primary);
+  box-shadow: 0 1px 2px rgb(0 0 0 / 12%);
+}
+
+.graph-segmented button:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent) 28%, transparent);
+  outline-offset: 1px;
+}
+
+.graph-fill-swatch {
+  display: inline-block;
+  width: 22px;
+  height: 14px;
+  border: 1px solid rgb(0 0 0 / 20%);
+  border-radius: 4px;
+  background-clip: padding-box;
+  flex: 0 0 auto;
+}
+
+.graph-point-fill-swatch {
+  width: 12px;
+  height: 12px;
+  border: 1.8px solid currentColor;
+  border-radius: 999px;
+  flex: 0 0 auto;
+}
+
+.graph-point-fill-swatch.solid {
+  background: currentColor;
+}
+
+.graph-point-fill-swatch.open {
+  background: var(--background);
+}
+
+.callout-shape {
+  position: relative;
+  color: #111111;
+  pointer-events: all;
+}
+
+.callout-shape-svg {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+  fill: none;
+  stroke: #111111;
+  stroke-linecap: butt;
+  stroke-linejoin: miter;
+  pointer-events: none;
+}
+
+.editor-block {
+  position: relative;
+  margin: 0 0 8px;
+  padding: 4px 8px;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: var(--background);
+}
+
+.editor-block:hover {
+  border-color: #eeeeee;
+  z-index: 10;
+}
+
+.editor-block.selected {
+  border-color: var(--accent);
+  background: #ffffff;
+  box-shadow: 0 0 0 1px var(--accent);
+  z-index: 10;
+}
+
+.editor-block.nested {
+  margin: 2px 0;
+  padding: 2px 6px;
+  background: transparent;
+}
+
+.editor-block.type-problem,
+.editor-block.type-solution,
+.editor-block.type-hint {
+  margin: 16px 0;
+  padding: 0;
+  border-color: var(--border);
+  background: #ffffff;
+}
+
+.editor-block.type-problem.selected,
+.editor-block.type-solution.selected,
+.editor-block.type-hint.selected {
+  border-color: var(--accent);
+}
+
+.editor-block.type-problem > .block-handle,
+.editor-block.type-solution > .block-handle,
+.editor-block.type-hint > .block-handle {
+  display: none;
+}
+
+.editor-block.type-problem > .block-actions,
+.editor-block.type-solution > .block-actions,
+.editor-block.type-hint > .block-actions {
+  top: 4px;
+  right: 6px;
+}
+
+.editor-block.type-problem > .block-content > .semantic-block-header,
+.editor-block.type-solution > .block-content > .semantic-block-header,
+.editor-block.type-hint > .block-content > .semantic-block-header {
+  padding-right: 144px;
+}
+
+.text-align-center {
+  text-align: center;
+}
+
+.text-align-right {
+  text-align: right;
+}
+
+.block-handle {
+  position: absolute;
+  top: -28px;
+  left: 0;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  height: 20px;
+  color: var(--text-muted);
+  font-size: 11px;
+  opacity: 0;
+  padding: 3px 8px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: #ffffff;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.08);
+  transition: opacity 120ms ease;
+  z-index: 20;
+}
+
+.editor-block:hover .block-handle,
+.editor-block.selected .block-handle {
+  opacity: 1;
+}
+
+.block-label {
+  font-weight: 650;
+}
+
+.block-actions {
+  position: absolute;
+  top: -34px;
+  right: 0;
+  display: inline-flex;
+  gap: 2px;
+  padding: 3px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #ffffff;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.08);
+  opacity: 0;
+  transition: opacity 120ms ease;
+  z-index: 20;
+}
+
+.editor-block:hover .block-actions,
+.editor-block.selected .block-actions {
+  opacity: 1;
+}
+
+.block-content {
+  min-width: 0;
+}
+
+.section-title-input {
+  width: 100%;
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  padding: 6px 0 8px;
+  background: transparent;
+  font-size: 24px;
+  font-weight: 700;
+}
+
+.section-title-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.rich-text-shell {
+  position: relative;
+  margin: -6px -10px;
+  padding: 6px 10px;
+  cursor: text;
+}
+
+.text-flow-shell {
+  cursor: text;
+}
+
+/* Rounding for the editor's block-level backgrounds (selected line, AI diff/lock states).
+   The block geometry itself lives in document-surface.css, which the embedded viewer loads. */
+.text-flow-editor :where(h1, h2, h3, p) {
+  border-radius: 3px;
+}
+
+.text-flow-side-selection-gutter {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: calc(-1 * var(--page-margin-left, 0px));
+  width: var(--page-margin-left, 0px);
+  cursor: text;
+}
+
+/* Only the leading column owns the page margin. Later columns used to extend
+   a page-margin-wide hit area over their left neighbour; grid gap clicks are
+   routed by the shared column pointer handler instead. */
+.layout-section-independent-column:not(:first-child) .text-flow-side-selection-gutter {
+  display: none;
+}
+
+/* URL detection: subtle link styling plus an inline "make QR code" affordance. */
+.url-detected {
+  color: var(--accent, #2563eb);
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 2px;
+}
+
+.url-qr-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  vertical-align: baseline;
+  width: 17px;
+  height: 17px;
+  margin: 0 1px 0 3px;
+  padding: 0;
+  border: 1px solid var(--border-strong, #cbd5e1);
+  border-radius: 4px;
+  background: var(--surface, #fff);
+  color: var(--text-secondary, #475569);
+  cursor: pointer;
+  line-height: 0;
+  user-select: none;
+  transition: background-color 0.12s ease, color 0.12s ease, border-color 0.12s ease;
+}
+
+.url-qr-action:hover {
+  background: var(--accent, #2563eb);
+  border-color: var(--accent, #2563eb);
+  color: #fff;
+}
+
+.sigma-doc-layout-section-block {
+  position: relative;
+  box-sizing: border-box;
+  margin: 2px 0;
+}
+
+.sigma-doc-layout-section-body {
+  min-width: 0;
+}
+
+.sigma-doc-layout-section-body > .layout-section-independent-column {
+  position: relative;
+  min-width: 0;
+}
+
+/* Column ownership is structural. Its editing-only marker must not push the
+   first text row below the neighbouring column or enter output measurements. */
+.sigma-doc-layout-section-body > .layout-section-independent-column > .page-break-marker:first-child {
+  position: absolute;
+  top: 0;
+  transform: translateY(-100%);
+  z-index: 1;
+  height: 18px;
+  margin: 0;
+}
+
+.sigma-doc-box-content {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+}
+
+.sigma-doc-block-action-button {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  z-index: 4;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid var(--border-subtle);
+  border-radius: 7px;
+  opacity: 0;
+  background: color-mix(in srgb, var(--background) 88%, transparent);
+  color: var(--text-secondary);
+  box-shadow: 0 4px 12px rgba(17, 17, 17, 0.12);
+  cursor: pointer;
+  font-family: var(--font-sans);
+  font-size: 16px;
+  line-height: 1;
+  pointer-events: none;
+  transition: opacity 120ms ease, background-color 120ms ease, color 120ms ease;
+}
+
+.sigma-doc-box-block:hover > .sigma-doc-box-action-button,
+.sigma-doc-box-block:focus-within > .sigma-doc-box-action-button,
+.print-code:hover > .sigma-doc-code-action-button,
+.print-code:focus-within > .sigma-doc-code-action-button,
+.sigma-doc-block-action-button:focus-visible {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.sigma-doc-block-action-button:hover,
+.sigma-doc-block-action-button:focus-visible {
+  background: var(--background);
+  color: var(--text-primary);
+  outline: 2px solid color-mix(in srgb, var(--accent) 28%, transparent);
+  outline-offset: 1px;
+}
+
+.print-code[data-code-theme="dark"] > .sigma-doc-code-action-button {
+  border-color: rgba(255, 255, 255, 0.18);
+  background: rgba(23, 23, 23, 0.88);
+  color: #e5e5e5;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.32);
+}
+
+.print-code[data-code-theme="dark"] > .sigma-doc-code-action-button:hover,
+.print-code[data-code-theme="dark"] > .sigma-doc-code-action-button:focus-visible {
+  background: #262626;
+  color: #ffffff;
+}
+
+.box-action-dialog {
+  position: fixed;
+  z-index: 245;
+  display: grid;
+  width: 188px;
+  padding: 6px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 10px;
+  background: var(--background);
+  box-shadow: 0 4px 10px rgba(17, 17, 17, 0.06), 0 18px 44px rgba(17, 17, 17, 0.14);
+}
+
+.code-block-settings-popover {
+  position: fixed;
+  z-index: 246;
+  display: grid;
+  box-sizing: border-box;
+  width: 260px;
+  max-width: calc(100vw - 24px);
+  gap: var(--space-md);
+  padding: var(--space-md);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-panel);
+  background: var(--background);
+  box-shadow: var(--shadow-floating);
+}
+
+.code-block-settings-field {
+  display: grid;
+  min-width: 0;
+  gap: var(--space-sm);
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.code-block-settings-field > span,
+.code-block-settings-field > legend {
+  padding: 0;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.code-block-settings-field > .ui-select {
+  width: 100%;
+  min-height: 34px;
+  padding-inline: var(--space-md);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  background: var(--background);
+  color: var(--text-primary);
+  font-size: 13px;
+}
+
+.code-block-settings-field > .ui-select:hover,
+.code-block-settings-field > .ui-select[aria-expanded="true"] {
+  background: var(--surface-muted);
+  border-color: var(--border-strong);
+}
+
+.code-block-settings-field > .ui-select:focus-visible {
+  border-color: var(--border-strong);
+  outline: 2px solid color-mix(in srgb, var(--accent) 18%, transparent);
+  outline-offset: 1px;
+}
+
+.code-block-theme-options {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-sm);
+}
+
+.code-block-theme-options button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 34px;
+  gap: var(--space-sm);
+  padding-inline: var(--space-md);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-control);
+  background: var(--background);
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.code-block-theme-options button:hover,
+.code-block-theme-options button:focus-visible,
+.code-block-theme-options button.selected {
+  border-color: var(--border);
+  background: var(--surface-muted);
+  color: var(--text-primary);
+}
+
+.code-block-theme-options button:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent) 28%, transparent);
+  outline-offset: 1px;
+}
+
+.text-format-context-menu {
+  position: fixed;
+  z-index: 246;
+  box-sizing: border-box;
+  display: grid;
+  width: 280px;
+  max-width: calc(100vw - 24px);
+  max-height: calc(100vh - 24px);
+  gap: var(--space-md);
+  padding: var(--space-sm);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-panel);
+  background: var(--background);
+  box-shadow: var(--shadow-floating);
+}
+
+.text-format-context-menu-title {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 28px;
+  align-items: center;
+  gap: var(--space-sm);
+  padding-left: var(--space-xs);
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.text-format-context-menu-title button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.text-format-context-menu-title button:hover,
+.text-format-context-menu-title button:focus-visible {
+  background: var(--surface-muted);
+  outline: none;
+}
+
+.text-format-context-field {
+  display: grid;
+  gap: var(--space-sm);
+}
+
+.text-format-context-field > span {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-sm);
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.text-format-context-field > .ui-select {
+  width: 100%;
+  min-height: 34px;
+  padding: 0 var(--space-md);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  background: var(--background);
+  color: var(--text-primary);
+  font-size: 13px;
+}
+
+.text-format-context-field > .ui-select:focus-visible {
+  border-color: var(--border-strong);
+  outline: 2px solid color-mix(in srgb, var(--accent) 16%, transparent);
+  outline-offset: 1px;
+}
+
+.text-format-context-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: var(--space-sm);
+  min-height: 34px;
+  padding: 0 var(--space-sm);
+  border: 0;
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--text-primary);
+  cursor: pointer;
+  font-size: 13px;
+  text-align: left;
+}
+
+.text-format-context-action:hover,
+.text-format-context-action:focus-visible {
+  background: var(--surface-muted);
+}
+
+.text-format-context-action:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent) 28%, transparent);
+  outline-offset: -1px;
+}
+
+.text-format-context-action.danger {
+  color: var(--danger);
+}
+
+.text-format-context-action.danger:hover,
+.text-format-context-action.danger:focus-visible {
+  background: #fef2f2;
+}
+
+.text-format-context-stepper {
+  grid-template-columns: 32px minmax(0, 1fr) 32px;
+}
+
+.box-action-dialog-item {
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  min-height: 34px;
+  padding: 0 9px;
+  border-radius: 8px;
+  color: var(--text-primary);
+  font-size: 13px;
+  text-align: left;
+}
+
+.box-action-dialog-item.danger {
+  color: var(--danger);
+}
+
+.box-action-dialog-item:hover,
+.box-action-dialog-item:focus-visible {
+  background: var(--surface-muted);
+  outline: none;
+}
+
+.sigma-doc-box-title:empty,
+.sigma-doc-box-title:has(> br.ProseMirror-trailingBreak:only-child) {
+  position: absolute;
+  top: 2px;
+  left: var(--sigma-doc-box-padding-left, 14px);
+  z-index: 3;
+  box-sizing: border-box;
+  min-width: 4em;
+  height: 18px;
+  min-height: 18px;
+  margin: 0;
+  padding: 0;
+  overflow: visible;
+  background: transparent;
+  cursor: text;
+  pointer-events: auto;
+}
+
+.sigma-doc-box-title:empty::before,
+.sigma-doc-box-title:has(> br.ProseMirror-trailingBreak:only-child)::before {
+  position: absolute;
+  top: 0;
+  left: 0;
+  display: block;
+  box-sizing: border-box;
+  min-width: 4em;
+  height: 18px;
+  padding: 0 3px;
+  border-radius: 3px;
+  color: color-mix(in srgb, var(--text-disabled) 82%, transparent);
+  content: "タイトル";
+  cursor: text;
+  font-family: var(--font-sans);
+  font-size: 11px;
+  font-weight: 400;
+  line-height: 18px;
+  pointer-events: none;
+  white-space: nowrap;
+}
+
+.sigma-doc-box-title:empty:focus::before,
+.sigma-doc-box-title:has(> br.ProseMirror-trailingBreak:only-child):focus::before {
+  color: var(--text-muted);
+}
+
+.sigma-doc-box-title > br.ProseMirror-trailingBreak:only-child {
+  display: none;
+}
+
+.box-frame--title-band .sigma-doc-box-title:empty,
+.box-frame--title-band .sigma-doc-box-title:has(> br.ProseMirror-trailingBreak:only-child) {
+  min-height: var(--sigma-doc-box-title-band-height, 32px);
+}
+
+.box-frame--notebook-rules .sigma-doc-box-title:empty,
+.box-frame--notebook-rules .sigma-doc-box-title:has(> br.ProseMirror-trailingBreak:only-child) {
+  top: 0;
+}
+
+.text-flow-editor :is(p, h1, h2, h3).text-flow-selected-line {
+  background: transparent;
+  box-shadow: none;
+}
+
+.problem-area-flow-unit,
+.layout-section-flow-unit {
+  position: relative;
+  --problem-area-side-note-y: 50%;
+  --problem-area-resize-y: calc(100% - 5px);
+  min-width: 0;
+  margin: 2px 0;
+  padding: 0;
+}
+
+.problem-action-button {
+  position: absolute;
+  top: var(--space-xs);
+  right: var(--space-xs);
+  z-index: 24;
+  display: inline-flex;
+  width: 28px;
+  height: 28px;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  background: color-mix(in srgb, var(--background) 94%, transparent);
+  box-shadow: 0 4px 14px rgb(15 23 42 / 10%);
+  color: var(--text-secondary);
+  cursor: pointer;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 120ms ease, background 120ms ease, border-color 120ms ease, color 120ms ease;
+}
+
+.problem-area-flow-unit:hover > .problem-action-button,
+.problem-action-button:focus-visible {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.problem-action-button:hover,
+.problem-action-button:focus-visible {
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+  background: var(--background);
+  color: var(--text-primary);
+  outline: none;
+}
+
+.box-layout-section-side-note-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.box-layout-section-side-note-anchor {
+  position: absolute;
+  min-width: 0;
+  pointer-events: none;
+}
+
+.problem-area-side-note,
+.layout-section-side-note {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: calc(-1 * var(--problem-area-page-x, var(--page-margin-left)) - 96px);
+  z-index: 20;
+  width: 86px;
+  pointer-events: none;
+  color: #64748b;
+  font-size: 10px;
+  font-weight: 750;
+  letter-spacing: 0;
+  line-height: 1.2;
+  opacity: 0.68;
+  transition: color 120ms ease, opacity 120ms ease;
+}
+
+.problem-area-side-note::before,
+.layout-section-side-note::before {
+  position: absolute;
+  top: 0;
+  right: 8px;
+  bottom: 0;
+  width: 1px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--border-strong) 62%, transparent);
+  content: "";
+}
+
+.problem-area-side-note::after,
+.layout-section-side-note::after {
+  position: absolute;
+  top: var(--problem-area-resize-y);
+  right: calc(-1 * var(--problem-area-page-x, var(--page-margin-left)) + 8px);
+  width: var(--problem-area-page-x, var(--page-margin-left));
+  height: 1px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--border-strong) 58%, transparent);
+  content: "";
+}
+
+.problem-area-side-note > span,
+.layout-section-side-note > span {
+  position: absolute;
+  top: var(--side-note-chip-y, var(--problem-area-side-note-y));
+  right: -36px;
+  display: inline-flex;
+  max-width: 68px;
+  padding: 2px 5px;
+  border: 1px solid color-mix(in srgb, var(--border) 76%, transparent);
+  border-radius: 5px;
+  background: rgba(255, 255, 255, 0.9);
+  box-shadow: 0 2px 6px rgba(15, 23, 42, 0.06);
+  transform: translateY(-50%);
+  white-space: nowrap;
+  pointer-events: auto;
+}
+
+.layout-section-flow-unit.in-problem-area .problem-area-side-note {
+  --side-note-chip-y: 16px;
+}
+
+.layout-section-flow-unit.in-problem-area .layout-section-side-note {
+  --side-note-chip-y: 42px;
+}
+
+.problem-area-flow-unit:hover .problem-area-side-note,
+.problem-area-flow-unit.selected .problem-area-side-note,
+.layout-section-flow-unit:hover .layout-section-side-note,
+.layout-section-flow-unit.selected .layout-section-side-note,
+.box-layout-section-side-note-anchor.selected .layout-section-side-note {
+  color: #0f766e;
+  opacity: 0.98;
+}
+
+.problem-area-flow-unit:hover .problem-area-side-note::before,
+.problem-area-flow-unit:hover .problem-area-side-note::after,
+.problem-area-flow-unit.selected .problem-area-side-note::before,
+.problem-area-flow-unit.selected .problem-area-side-note::after,
+.layout-section-flow-unit:hover .layout-section-side-note::before,
+.layout-section-flow-unit:hover .layout-section-side-note::after,
+.layout-section-flow-unit.selected .layout-section-side-note::before,
+.layout-section-flow-unit.selected .layout-section-side-note::after,
+.box-layout-section-side-note-anchor.selected .layout-section-side-note::before,
+.box-layout-section-side-note-anchor.selected .layout-section-side-note::after {
+  background: color-mix(in srgb, var(--accent) 78%, transparent);
+}
+
+.problem-area-flow-unit.with-frame {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 8px 10px;
+  border-right: 1px solid var(--text-primary);
+  border-left: 1px solid var(--text-primary);
+}
+
+.problem-area-flow-unit.with-frame.first-frame-area {
+  margin-top: 2px;
+  border-top: 1px solid var(--text-primary);
+  border-top-left-radius: 2px;
+  border-top-right-radius: 2px;
+}
+
+.problem-area-flow-unit.with-frame.last-frame-area {
+  margin-bottom: 2px;
+  border-bottom: 1px solid var(--text-primary);
+  border-bottom-right-radius: 2px;
+  border-bottom-left-radius: 2px;
+}
+
+.problem-area-flow-unit.with-frame:not(.first-frame-area) {
+  padding-top: 0;
+}
+
+/* Split frames keep the original box model so toggling atomic/flow cannot change
+ * measured text geometry. Only the outer decoration is hidden; overlay pieces draw it. */
+.problem-area-flow-unit.with-frame.frame-split {
+  border-color: transparent;
+}
+
+.problem-area-flow-unit.with-frame.frame-split::before,
+.problem-area-flow-unit.with-frame.frame-split::after {
+  opacity: 0;
+}
+
+.problem-area-flow-unit.with-frame.box-frame--double-rule {
+  padding: 10px 12px;
+  border-right-width: 3px;
+  border-right-style: double;
+  border-left-width: 3px;
+  border-left-style: double;
+}
+
+.problem-area-flow-unit.with-frame.box-frame--double-rule.first-frame-area {
+  border-top-width: 3px;
+  border-top-style: double;
+}
+
+.problem-area-flow-unit.with-frame.box-frame--double-rule.last-frame-area {
+  border-bottom-width: 3px;
+  border-bottom-style: double;
+}
+
+.problem-area-flow-unit.with-frame.box-frame--corner {
+  --corner-frame-corner-size: 8px;
+  --corner-frame-rule-width: 1px;
+  --corner-frame-guide-width: 1px;
+  --corner-frame-guide-inset-x: clamp(12px, 6cqi, 24px);
+  --corner-frame-guide-side-x: 0px;
+  --corner-frame-guide-side-y: clamp(12px, 6cqi, 24px);
+  --corner-frame-rule-x: clamp(5px, 1.8cqi, 7px);
+  --corner-frame-rule-side-x: clamp(9px, 3.25cqi, 13px);
+  --corner-frame-rule-y: clamp(8px, 3cqi, 12px);
+  --corner-frame-rule-side-y: clamp(5px, 2cqi, 7px);
+  --corner-frame-corner-x: clamp(6px, 2cqi, 8px);
+  --corner-frame-corner-y: clamp(5px, 1.8cqi, 7px);
+  margin: 2px 0;
+  padding: 24px 30px;
+  border: 0;
+  border-radius: 0;
+  background: #ffffff;
+}
+
+.problem-area-flow-unit.with-frame.box-frame--corner:not(.first-frame-area) {
+  padding-top: 24px;
+}
+
+.problem-area-flow-unit.with-frame.box-frame--corner.frame-split {
+  background: transparent;
+}
+
+.problem-area-paper-content {
+  position: relative;
+  z-index: 1;
+  display: block;
+  min-width: 0;
+}
+
+.problem-area-paper-content.with-number {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  align-items: start;
+  column-gap: 8px;
+}
+
+.problem-number-marker {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  min-width: 1.9em;
+  height: 1.9em;
+  margin: 0;
+  padding: 0 0.24em;
+  border: 1px solid var(--text-primary);
+  border-radius: 2px;
+  color: var(--text-primary);
+  font-weight: 750;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.35;
+  text-align: center;
+}
+
+.problem-area-paper-body {
+  min-width: 0;
+}
+
+.layout-section-paper-body {
+  min-width: 0;
+}
+
+.layout-section-independent-columns {
+  position: relative;
+  display: grid;
+  align-items: start;
+  gap: var(--layout-section-column-gap, 8mm);
+  min-width: 0;
+}
+
+.layout-section-independent-column {
+  min-width: 0;
+  align-self: stretch;
+}
+
+.layout-section-paper-body.with-independent-layout-columns .text-flow-shell.column-flow-positioned .text-flow-editor {
+  position: relative;
+  height: var(--layout-section-column-flow-height, auto);
+  min-height: 0;
+}
+
+.layout-section-column-resize-handle {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  z-index: 24;
+  width: 12px;
+  min-height: 24px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: col-resize;
+  transform: translateX(calc(-50% + var(--layout-column-resize-preview-x, 0px)));
+  touch-action: none;
+}
+
+.layout-section-column-resize-handle::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: 1px;
+  background: color-mix(in srgb, var(--accent) 45%, transparent);
+  opacity: 0;
+  transform: translateX(-50%);
+}
+
+.layout-section-column-resize-handle:hover::after,
+.layout-section-column-resize-handle:focus-visible::after,
+.layout-section-column-resize-handle[data-dragging="true"]::after {
+  opacity: 1;
+  background: color-mix(in srgb, var(--accent) 78%, transparent);
+}
+
+.layout-section-paper-body.with-layout-column-flow .text-flow-shell.column-flow-positioned .text-flow-editor {
+  position: relative;
+  height: var(--layout-section-column-flow-height, auto);
+  min-height: 0;
+}
+
+.problem-area-resize-handle {
+  position: absolute;
+  left: -17px;
+  top: calc(var(--problem-area-resize-y) - 4px);
+  z-index: 21;
+  width: 13px;
+  height: 9px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  cursor: ns-resize;
+}
+
+.problem-area-resize-handle::before {
+  content: "";
+  position: absolute;
+  left: 2px;
+  right: 2px;
+  top: 4px;
+  height: 1px;
+  border-radius: 999px;
+  background: var(--border-strong);
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+
+.problem-area-flow-unit:hover .problem-area-resize-handle::before,
+.problem-area-flow-unit.selected .problem-area-resize-handle::before,
+.problem-area-resize-handle:focus-visible::before {
+  opacity: 0.95;
+}
+
+.problem-area-resize-handle:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent) 22%, transparent);
+  outline-offset: 2px;
+}
+
+/* Body-flow proposal card. Its information structure mirrors the sidebar's
+   proposal card (`.ai-chat-result-proposal`): 見出し → 変更内容 → 参照元 → 操作.
+   Rows: heading (auto) / diff frame (fills the rest and scrolls) / 参照元 +
+   操作 (auto). The card sits inside the measured body flow, so anything that
+   grows it shifts pagination — keep vertical additions small. */
+.ai-inline-preview-dialog {
+  display: grid;
+  width: min(440px, 84vw);
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  gap: var(--space-sm);
+  margin: var(--space-md) 0;
+  padding: var(--space-md);
+  max-height: min(70vh, 640px);
+  min-height: 0;
+  overflow: hidden;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-panel);
+  background: var(--background);
+  color: var(--text-primary);
+}
+
+.ai-inline-preview-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-sm);
+}
+
+/* Column bounds locate the proposal; the review UI keeps its standard width. */
+.ai-column-preview-anchor {
+  position: absolute;
+  z-index: 13;
+  pointer-events: none;
+}
+
+.ai-column-preview-anchor .ai-inline-preview-dialog {
+  width: min(440px, 84vw);
+  margin: 0;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--background) 97%, transparent);
+  box-shadow: 0 12px 28px -22px rgb(15 23 42 / 0.48);
+  pointer-events: auto;
+}
+
+/* Overlay-only AI proposals use a contextual decision toolbar beside the
+   proposed shape. It is absolutely positioned inside `.page-overlay-layer`,
+   so showing it never changes body flow, page breaks, or anchor measurement. */
+.ai-overlay-approval-widget {
+  position: absolute;
+  z-index: 14;
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  width: 272px;
+  min-height: 40px;
+  padding: var(--space-sm);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  background: var(--background);
+  box-shadow: var(--shadow-floating);
+  color: var(--text-primary);
+  pointer-events: auto;
+  transform: translate(-50%, -100%);
+}
+
+.ai-overlay-approval-widget[data-placement="below"] {
+  transform: translate(-50%, 0);
+}
+
+.ai-overlay-approval-widget::after {
+  position: absolute;
+  left: 50%;
+  width: 8px;
+  height: 8px;
+  border-right: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  background: var(--background);
+  content: "";
+}
+
+.ai-overlay-approval-widget[data-placement="above"]::after {
+  bottom: -5px;
+  transform: translateX(-50%) rotate(45deg);
+}
+
+.ai-overlay-approval-widget[data-placement="below"]::after {
+  top: -5px;
+  transform: translateX(-50%) rotate(225deg);
+}
+
+.ai-overlay-approval-copy {
+  display: grid;
+  flex: 1;
+  min-width: 0;
+  line-height: 1.3;
+}
+
+.ai-overlay-approval-label,
+.ai-overlay-approval-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ai-overlay-approval-label {
+  color: var(--text-muted);
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.ai-overlay-approval-title {
+  color: var(--text-primary);
+  font-size: 11.5px;
+  font-weight: 650;
+}
+
+/* Compact "what changed" bullets (see summarizeAiEditPreviewChanges) — the
+   widget floats over the canvas with no room for a full diff, so this is the
+   only place an overlay-only proposal explains itself before the decision. */
+.ai-overlay-approval-summary-list {
+  display: grid;
+  gap: 1px;
+  margin: 2px 0 0;
+  padding: 0;
+  list-style: none;
+  color: var(--text-secondary);
+  font-size: 11px;
+  line-height: 1.35;
+  white-space: normal;
+}
+
+.ai-overlay-approval-summary-list li {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ai-overlay-approval-summary-more {
+  color: var(--text-muted);
+}
+
+.ai-overlay-approval-actions {
+  flex: none;
+}
+
+.ai-overlay-approval-actions .ui-shimmer-text {
+  font-size: 10px;
+}
+
+.ai-inline-preview-actions {
+  min-width: 0;
+}
+
+.ai-inline-preview-placeholder {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.ai-inline-preview-operation-list {
+  display: grid;
+  /* No inter-block gap: consecutive inserted blocks should read as one
+     continuous run, identical to how they look once applied to the body. */
+  gap: 0;
+}
+
+.ai-inline-preview-paper {
+  background: #ffffff;
+  color: #111111;
+  font-family: "Yu Gothic", "Hiragino Sans", "Meiryo", system-ui, sans-serif;
+  font-size: var(--editor-font-size, 12pt);
+  line-height: 1.78;
+}
+
+/* 「提案された変更」見出し。サイドバーの .ai-chat-result-proposal-diff-heading と
+   同じ値で、本文内カードとサイドバーの提案が同じ読み口になるようにする。 */
+.ai-inline-preview-diff-heading {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+/* サイドバーの差分ブロック (AiAppliedDocumentDiff.module.css の .body) と同じ
+   「一段沈んだ枠」。padding は縦を最小に留め、本文のページ計測への影響を抑える。 */
+.ai-inline-preview-scroll {
+  min-height: 0;
+  overflow-y: auto;
+  padding: var(--space-xs) var(--space-sm);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-control);
+  background: var(--surface-soft);
+}
+
+/* Phase 1: Agentic RAG. 参照元チップの行 (inline preview card / chat sidebar
+   turn の両方で共有 — features/ai-edit/view/AiSourceReferenceChips.tsx). Monochrome, no new colors. */
+.ai-source-ref-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 5px;
+  margin: 4px 0;
+}
+
+.ai-source-ref-caption {
+  color: var(--text-muted);
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.ai-source-ref-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 7px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 999px;
+  background: var(--background);
+  color: var(--text-secondary);
+  font-size: 10.5px;
+  line-height: 1.6;
+  max-width: 200px;
+}
+
+.ai-source-ref-chip span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+button.ai-source-ref-chip--web,
+button.ai-source-ref-chip--document {
+  appearance: none;
+  cursor: pointer;
+  transition: background 120ms ease, border-color 120ms ease, color 120ms ease;
+}
+
+button.ai-source-ref-chip--web:hover,
+button.ai-source-ref-chip--web:focus-visible,
+button.ai-source-ref-chip--document:hover,
+button.ai-source-ref-chip--document:focus-visible {
+  border-color: var(--border);
+  background: var(--surface-muted);
+  color: var(--text-primary);
+  outline: none;
+}
+
+.ai-inline-preview-mutation {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 9px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 5px;
+  background: var(--background);
+  color: var(--text-secondary);
+}
+
+.ai-inline-preview-mutation svg {
+  flex: 0 0 auto;
+  opacity: 0.7;
+}
+
+.ai-inline-preview-mutation-summary {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.ai-inline-preview-operation {
+  display: grid;
+  gap: 5px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+
+.ai-inline-preview-content {
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+.ai-inline-preview-content:not(.text-flow-editor) {
+  padding: 8px 9px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 5px;
+  background: var(--background);
+}
+
+/* Non-text candidates (shapes/tables) are boxed, so keep a little space between
+   consecutive ones. Body-flow text candidates flow continuously (gap: 0). */
+.ai-inline-preview-operation + .ai-inline-preview-operation .ai-inline-preview-content:not(.text-flow-editor) {
+  margin-top: 10px;
+}
+
+.ai-inline-preview-content.text-flow-editor {
+  min-height: auto;
+  padding: 2px 0;
+  font-size: var(--editor-font-size, 12pt);
+  line-height: 1.78;
+}
+
+.ai-inline-preview-problem-area-row {
+  display: grid;
+  grid-template-columns: minmax(58px, 76px) minmax(0, 1fr);
+  align-items: stretch;
+  min-width: 0;
+}
+
+.ai-inline-preview-problem-area-label {
+  display: flex;
+  align-items: flex-start;
+  min-width: 0;
+  padding: 3px var(--space-sm) 3px 0;
+  border-right: 1px solid color-mix(in srgb, var(--border-strong) 62%, transparent);
+  color: var(--text-muted);
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1.35;
+}
+
+.ai-inline-preview-problem-area-label.continuation {
+  padding-top: 0;
+}
+
+.ai-inline-preview-problem-area-body {
+  min-width: 0;
+  padding: 2px 0 2px var(--space-sm);
+}
+
+.ai-inline-preview-problem-area-body > :first-child {
+  margin-top: 0;
+}
+
+.ai-inline-preview-problem-area-body > :last-child {
+  margin-bottom: 0;
+}
+
+.ai-inline-preview-actions {
+  padding-top: var(--space-xs);
+}
+
+/* Button / IconButton own the visual treatment; this class only participates in
+   the proposal action frame's layout. */
+.ai-inline-preview-action {
+  flex: 0 0 auto;
+}
+
+.ai-inline-preview-discard-wrap {
+  position: relative;
+}
+
+.ai-inline-preview-reason-popover {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + var(--space-sm));
+  z-index: 20;
+  display: grid;
+  gap: var(--space-sm);
+  width: 240px;
+  padding: var(--space-md);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-control);
+  background: var(--background);
+  box-shadow: var(--shadow-floating);
+}
+
+.ai-inline-preview-reason-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-sm);
+  color: var(--text-secondary);
+  font-size: 11.5px;
+  font-weight: 600;
+}
+
+.ai-inline-preview-reason-textarea {
+  resize: none;
+  height: 64px;
+  padding: var(--space-sm);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  background: var(--background);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.ai-inline-preview-reason-textarea:focus {
+  outline: none;
+  border-color: var(--accent, #2563eb);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent, #2563eb) 15%, transparent);
+}
+
+.ai-inline-preview-reason-actions {
+  min-width: 0;
+}
+
+.ai-inline-preview-reason-submit {
+  min-width: 64px;
+}
+
+/* --- AI edit diff preview & applied feedback ---
+   GitHub-style diff coloring for pending AI proposals: pale red = will be
+   removed/replaced, pale green = will be added. Kept low-alpha (color-mix)
+   per design rule — never a saturated fill. After the approved document is
+   visible, newly written content briefly flashes pale green. */
+
+.ai-inline-preview-diff-removed,
+.ai-inline-preview-diff-added {
+  position: relative;
+}
+
+.ai-inline-preview-diff-removed {
+  background: color-mix(in srgb, var(--danger, #b42318) 8%, transparent);
+  border-color: color-mix(in srgb, var(--danger, #b42318) 35%, var(--border-subtle));
+}
+
+.ai-inline-preview-diff-added {
+  background: color-mix(in srgb, var(--success, #247a3d) 8%, transparent);
+  border-color: color-mix(in srgb, var(--success, #247a3d) 35%, var(--border-subtle));
+}
+
+.ai-inline-preview-mutation.ai-inline-preview-diff-modified {
+  background: color-mix(in srgb, var(--warning, #9a6700) 8%, transparent);
+  border-color: color-mix(in srgb, var(--warning, #9a6700) 35%, var(--border-subtle));
+}
+
+/* Body text flow: pending-diff background + apply-animation decorations.
+   The AI feature projects these states into the generic text-flow change
+   decoration contract, keyed by SigmaDoc block id. */
+.text-flow-editor .text-flow-change-before,
+.text-flow-editor .ai-diff-removed {
+  background: color-mix(in srgb, var(--danger, #b42318) 10%, transparent);
+  border-radius: 3px;
+}
+
+.text-flow-editor .text-flow-change-removing,
+.text-flow-editor .ai-apply-removing {
+  animation: ai-apply-remove 280ms ease-in forwards;
+  transform-origin: top center;
+  border-radius: 3px;
+}
+
+.text-flow-editor .text-flow-change-added,
+.text-flow-editor .ai-apply-added {
+  animation: ai-apply-add-flash 1200ms ease-out forwards;
+  border-radius: 3px;
+}
+
+@keyframes ai-apply-add-flash {
+  0% {
+    background: color-mix(in srgb, var(--success, #247a3d) 28%, transparent);
+  }
+  100% {
+    background: transparent;
+  }
+}
+
+/* AI編集中ブロックのロック: 実行中のAI run (preparing/waiting/running) がアンカーして
+   いるブロックだけを編集不可にし、文字/数式アトム単位のshimmerで示す
+   (ai-edit-lock-extension.ts / ai-editing-block-locks.ts の ProseMirror node/inline
+   decoration)。ホバーで浮かぶ「AIを停止して編集」ボタンから即キャンセルして編集を
+   再開できる。ロックは対象単位で、教材の他の場所は実行中でも編集できる。 */
+.text-flow-editor .ai-edit-locked-block {
+  position: relative;
+  background: color-mix(in srgb, var(--accent, #2563eb) 6%, transparent);
+  border-radius: 3px;
+  cursor: not-allowed;
+}
+
+/* A fragment reservation leaves the surrounding body text editable. */
+.text-flow-editor .ai-edit-locked-block.ai-edit-locked-block-partial {
+  background: transparent;
+  border-radius: 0;
+  cursor: text;
+}
+
+.text-flow-editor .ai-edit-locked-block-partial [data-edit-guard-range] {
+  cursor: not-allowed;
+}
+
+/* Read-only without a stop button: a block reserved by a pending proposal until
+   the user applies or discards it, and every block during the brief window in
+   which an approval is replacing the document. Shimmer would be wrong here --
+   nothing is being generated -- but the block must still not look ordinary, or
+   the refusal reads as the editor being broken. */
+.text-flow-editor .ai-edit-readonly-block {
+  cursor: not-allowed;
+  background: color-mix(in srgb, var(--text-primary, #111111) 4%, transparent);
+  border-radius: 3px;
+}
+
+.ai-edit-lock-char,
+.ai-edit-lock-atom {
+  display: inline-block;
+  animation: ui-opacity-shimmer 1.4s ease-in-out infinite;
+}
+
+.ai-edit-lock-char {
+  animation-delay: calc(var(--ai-edit-lock-char-i, 0) * 40ms);
+}
+
+.ai-edit-lock-stop-button {
+  position: absolute;
+  top: -18px;
+  right: 0;
+  z-index: 5;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: 1px 8px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 999px;
+  background: var(--background);
+  color: var(--text-primary);
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 120ms ease;
+}
+
+.ai-edit-lock-stop-icon {
+  flex: 0 0 auto;
+  width: 8px;
+  height: 8px;
+  border-radius: 1px;
+  background: currentColor;
+}
+
+.ai-edit-locked-block:hover .ai-edit-lock-stop-button,
+.ai-edit-lock-stop-button:focus-visible {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.ai-edit-lock-stop-button:disabled {
+  cursor: progress;
+  opacity: 0.75;
+}
+
+.text-flow-edit-guard-notice,
+.text-flow-ai-lock-notice {
+  margin: 2px 0 0;
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ai-edit-lock-char,
+  .ai-edit-lock-atom {
+    animation: none;
+    opacity: 1;
+  }
+}
+
+/* AI編集中の図形ロック: 上のテキストブロックロックのoverlay-canvas版。実行中のAI run
+   がロックしている図形(表・グラフ・通常図形)そのものを煌めかせる -- ロックはブロック
+   ではなく図形が選択されて開始されたrunにのみ発生する (ai-editing-block-locks.ts の
+   shape-kind lock / OverlayCanvasEditorClient.tsx)。表はセル単位に分割せず図形全体
+   で煌めく。世界観はテキスト側のshimmerと共通の ui-opacity-shimmer を使い、加えて
+   ハイライトが図形を斜めに一度だけ横切るスイープを重ねる。ホバーで浮かぶ「AIを停止し
+   て編集」ボタンはテキスト側と同じ状態機械(handleAiEditLockStopButtonClick)を再利用。 */
+.overlay-shape.ai-edit-locked-shape {
+  cursor: not-allowed;
+}
+
+.ai-edit-lock-shape-veil {
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  overflow: hidden;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--accent, #2563eb) 12%, transparent);
+  animation: ui-opacity-shimmer 1.6s ease-in-out infinite;
+  pointer-events: none;
+}
+
+.ai-edit-lock-shape-veil::after {
+  content: "";
+  position: absolute;
+  inset: -20% -60%;
+  background: linear-gradient(
+    100deg,
+    transparent 35%,
+    color-mix(in srgb, #fff 65%, transparent) 50%,
+    transparent 65%
+  );
+  animation: ai-edit-lock-shape-sweep 2.1s ease-in-out infinite;
+}
+
+.ai-edit-lock-shape-provider-logo {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  z-index: 5;
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--border-subtle) 75%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--background) 88%, transparent);
+  box-shadow:
+    0 2px 9px rgba(17, 17, 17, 0.12),
+    0 0 12px color-mix(in srgb, var(--accent, #2563eb) 18%, transparent);
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+
+.ai-working-provider-icon {
+  align-items: center;
+  justify-content: center;
+}
+
+.ai-thinking-orb {
+  display: block;
+  flex: 0 0 auto;
+}
+
+@keyframes ai-edit-lock-shape-sweep {
+  0% {
+    transform: translateX(-55%);
+  }
+  100% {
+    transform: translateX(55%);
+  }
+}
+
+.ai-edit-lock-shape-stop-button {
+  position: absolute;
+  top: -22px;
+  right: 0;
+  z-index: 6;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: 1px 8px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 999px;
+  background: var(--background);
+  color: var(--text-primary);
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 120ms ease;
+}
+
+.overlay-shape.ai-edit-locked-shape:hover .ai-edit-lock-shape-stop-button,
+.ai-edit-lock-shape-stop-button:focus-visible {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.ai-edit-lock-shape-stop-button:disabled {
+  cursor: progress;
+  opacity: 0.75;
+}
+
+.overlay-ai-lock-notice {
+  position: absolute;
+  left: 12px;
+  bottom: 12px;
+  z-index: 20;
+  margin: 0;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: var(--background);
+  border: 1px solid var(--border-subtle);
+  color: var(--text-muted);
+  font-size: 11px;
+  pointer-events: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ai-edit-lock-shape-veil {
+    animation: none;
+    opacity: 1;
+  }
+  .ai-edit-lock-shape-veil::after {
+    animation: none;
+    display: none;
+  }
+}
+
+/* Overlay shapes: pending-diff outline/tint + applied-feedback flashes (see
+   OverlayShapeReadOnlyView's `diffClassName` prop / OverlayPreview in
+   PageCanvasEditor.tsx). */
+.overlay-shape.ai-diff-removed-shape {
+  outline: 3px dashed var(--danger, #b42318);
+  outline-offset: 2px;
+}
+
+.overlay-shape.ai-diff-modified-shape {
+  outline: 3px dashed var(--danger, #b42318);
+  outline-offset: 2px;
+}
+
+/* Ghost preview of a not-yet-applied inserted shape: non-interactive and
+   fully opaque like the real shape; the strong green outline carries the
+   proposal-state meaning without washing out the proposed result. */
+.overlay-shape.ai-diff-ghost-shape {
+  pointer-events: none;
+  opacity: 1;
+  outline: 3px dashed var(--success, #247a3d);
+  outline-offset: 2px;
+}
+
+/* An update/replacement has both a real "before" shape and a proposed
+   "after" ghost. Alternate them so dense or overlapping geometry remains
+   legible: pale red is the current state, pale green is the proposed state.
+   Pure inserts/deletes stay continuously visible because they only have one
+   side of the comparison. Keep the two phases on the shapes themselves: the
+   live shape and its ghost can be rendered in different overlay layers. */
+@media (prefers-reduced-motion: no-preference) {
+  .overlay-shape.ai-diff-before-shape {
+    animation: ai-overlay-diff-before-phase 2400ms steps(1, end) infinite;
+  }
+
+  .overlay-shape.ai-diff-after-shape {
+    animation: ai-overlay-diff-after-phase 2400ms steps(1, end) infinite;
+  }
+
+  .page-canvas:has(.ai-overlay-approval-widget:hover) :is(.ai-diff-before-shape, .ai-diff-after-shape),
+  .page-canvas:has(.ai-overlay-approval-widget:focus-within) :is(.ai-diff-before-shape, .ai-diff-after-shape) {
+    animation-play-state: paused;
+  }
+}
+
+@keyframes ai-overlay-diff-before-phase {
+  0%, 49.999% { opacity: 1; }
+  50%, 100% { opacity: 0; }
+}
+
+@keyframes ai-overlay-diff-after-phase {
+  0%, 49.999% { opacity: 0; }
+  50%, 100% { opacity: 0.76; }
+}
+
+.overlay-shape.ai-apply-added-shape {
+  animation: ai-apply-add-flash-shape 1200ms ease-out forwards;
+}
+
+@keyframes ai-apply-add-flash-shape {
+  0% { box-shadow: 0 0 0 3px color-mix(in srgb, var(--success, #247a3d) 45%, transparent); }
+  100% { box-shadow: 0 0 0 3px transparent; }
+}
+
+.rich-text {
+  min-height: 30px;
+  outline: none;
+  font-size: var(--editor-font-size, 12pt);
+  line-height: 1.75;
+}
+
+.rich-text :where(p, h1, h2, h3) {
+  margin: 0;
+}
+
+.rich-text.heading-editor {
+  font-weight: 700;
+  line-height: 1.35;
+}
+
+.heading-1 {
+  font-size: 28px;
+}
+
+.heading-2 {
+  font-size: 22px;
+}
+
+.heading-3 {
+  font-size: 18px;
+}
+
+.ProseMirror {
+  min-height: inherit;
+  outline: none;
+}
+
+.ProseMirror p.is-editor-empty:first-child::before {
+  content: attr(data-placeholder);
+  float: left;
+  height: 0;
+  color: var(--text-disabled);
+  pointer-events: none;
+}
+
+/* The empty-editor placeholder already marks the typing spot. The paragraph ↵ is redundant. */
+.ProseMirror p.is-editor-empty:first-child .text-formatting-mark {
+  display: none;
+}
+
+/* 選択中の数式アトムの背景。フォーカス面のほか、チャンク跨ぎ選択 ([data-text-run-span]) と
+   図形操作中の保持選択 ([data-held-body-selection]) でも描く — 帯は CSS Custom Highlight が
+   グリフの背後に描くが、Highlight は非テキストノード (数式アトム) を塗らないため、
+   状態選択由来のこの装飾が補完する。 */
+:where(.ProseMirror-focused, [data-text-run-span], [data-held-body-selection]) .inline-math-node.selected,
+:where(.ProseMirror-focused, [data-text-run-span], [data-held-body-selection]) .inline-math-node.ProseMirror-selectednode,
+:where(.ProseMirror-focused, [data-text-run-span], [data-held-body-selection]) .inline-math-node.text-selected {
+  background: var(--editor-selection-background);
+  color: var(--editor-selection-color);
+  outline: none;
+}
+
+:where(.ProseMirror-focused, [data-text-run-span], [data-held-body-selection]) .inline-math-node.selected .math-preview,
+:where(.ProseMirror-focused, [data-text-run-span], [data-held-body-selection]) .inline-math-node.selected .ML__latex,
+:where(.ProseMirror-focused, [data-text-run-span], [data-held-body-selection]) .inline-math-node.selected .katex,
+:where(.ProseMirror-focused, [data-text-run-span], [data-held-body-selection]) .inline-math-node.ProseMirror-selectednode .math-preview,
+:where(.ProseMirror-focused, [data-text-run-span], [data-held-body-selection]) .inline-math-node.ProseMirror-selectednode .ML__latex,
+:where(.ProseMirror-focused, [data-text-run-span], [data-held-body-selection]) .inline-math-node.ProseMirror-selectednode .katex,
+:where(.ProseMirror-focused, [data-text-run-span], [data-held-body-selection]) .inline-math-node.text-selected .math-preview,
+:where(.ProseMirror-focused, [data-text-run-span], [data-held-body-selection]) .inline-math-node.text-selected .ML__latex,
+:where(.ProseMirror-focused, [data-text-run-span], [data-held-body-selection]) .inline-math-node.text-selected .katex {
+  color: inherit;
+}
+
+/* `color: inherit` (not `--text-primary`): the styledText mark that carries 文字色 renders as a
+   wrapping `<span style="color: …">` around the math node view, so pinning a color here repainted
+   every colored formula black for as long as it was being edited — the formula changed color when
+   you opened it and changed back when you committed. */
+.inline-math-node.editing {
+  background: transparent;
+  color: inherit;
+  outline: 1px solid var(--accent);
+  outline-offset: 0;
+  position: relative;
+}
+
+/*
+ * 数式のレイアウト箱は編集中も PDF と同じ静的 `.math-preview` が持つ。
+ * MathLive はキャレットと入力操作だけを提供する重ね合わせ層で、行高・折返し・改ページには
+ * 参加させない。静的 markup は visibility:hidden でも寸法を保つ。
+ */
+.inline-math-node.editing > .math-preview {
+  visibility: hidden;
+}
+
+.inline-math-node.editing > .inline-math-field-host {
+  position: absolute;
+  inset: 0;
+  display: inline-flex;
+  align-items: baseline;
+  inline-size: max-content;
+  min-inline-size: 100%;
+  pointer-events: none;
+}
+
+.inline-math-node.editing > .inline-math-field-host > .inline-math-field,
+.inline-math-node.editing > .inline-math-field-host > .inline-math-tex-editor {
+  pointer-events: auto;
+}
+
+.inline-math-input-mode-row button {
+  min-height: 28px;
+  padding: 0 10px;
+  border: 0;
+  border-left: 1px solid var(--border-subtle);
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.inline-math-input-mode-row button:first-child {
+  border-left: 0;
+}
+
+.inline-math-input-mode-row button.selected {
+  background: color-mix(in srgb, var(--accent) 12%, #ffffff);
+  color: var(--accent);
+}
+
+.inline-math-field {
+  --caret-color: currentColor;
+  /* 開き括弧を打つと MathLive (smartFence) が閉じ括弧も入れる。既定ではその閉じ括弧を
+     50% の濃さで「仮」として描くので、入力されていないように見える。同時に打った文字
+     として見せるため、本文と同じ濃さにする。 */
+  --smart-fence-opacity: 1;
+  --composition-background-color: transparent;
+  --contains-highlight-background-color: transparent;
+  --contains-highlight-color: currentColor;
+  --text-font-family: var(--editor-body-font-family);
+  display: inline-block;
+  width: auto;
+  min-width: 1em;
+  padding: 0;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  /* Inherit so a formula keeps its 文字色 while the MathLive field is open; see
+     `.inline-math-node.editing`. */
+  color: inherit;
+  font-family: inherit;
+  font-size: 1em;
+  line-height: 1;
+  outline: none;
+  vertical-align: baseline;
+}
+
+.inline-math-field:focus,
+.inline-math-field:focus-visible,
+.inline-math-field:focus-within {
+  outline: none;
+}
+
+.inline-math-field::part(container) {
+  min-height: 0;
+  padding: 0;
+}
+
+.inline-math-field::part(content) {
+  padding: 0;
+}
+
+/* MathLive uses the system Highlight outline for the prompt containing the
+   caret. Keep the editable placeholder visually identical to its static
+   preview while retaining the real caret and prompt focus. */
+.inline-math-field::part(prompt) {
+  outline: none;
+  border-radius: 0;
+}
+
+.inline-math-field::part(menu-toggle),
+.inline-math-field::part(virtual-keyboard-toggle) {
+  display: none !important;
+}
+
+.inline-math-tex-field {
+  box-sizing: content-box;
+  max-width: min(72ch, calc(100vw - 80px));
+  padding: 0 2px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+}
+
+.inline-error {
+  margin: 8px 0 0;
+  color: var(--danger);
+  font-size: 12px;
+}
+
+.problem-meta {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-width: 0;
+}
+
+.problem-meta span {
+  padding: 2px 7px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 999px;
+  color: var(--text-secondary);
+  font-size: 11px;
+}
+
+.field-label {
+  display: block;
+  margin: 12px 0 5px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.problem-frame-style-button {
+  display: grid;
+  min-width: 0;
+  min-height: 76px;
+  grid-template-rows: 30px auto auto;
+  gap: 3px;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--surface);
+  color: var(--text-primary);
+  text-align: left;
+}
+
+.problem-frame-style-button:hover,
+.problem-frame-style-button:focus-visible {
+  border-color: color-mix(in srgb, var(--accent) 70%, var(--border));
+  background: var(--accent-soft);
+  outline: none;
+}
+
+.problem-frame-style-button.selected {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent-soft) 74%, var(--background));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 32%, transparent);
+}
+
+.problem-frame-style-label {
+  overflow: hidden;
+  font-size: 12px;
+  font-weight: 750;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.problem-frame-style-description {
+  overflow: hidden;
+  color: var(--text-secondary);
+  font-size: 10px;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.problem-frame-style-preview {
+  position: relative;
+  display: block;
+  width: 100%;
+  min-width: 0;
+  height: 28px;
+  border: 1px solid #111111;
+  background: #ffffff;
+}
+
+.problem-frame-style-preview[data-problem-frame-style="none"] {
+  border-color: var(--border-subtle);
+  background:
+    linear-gradient(135deg, transparent calc(50% - 0.5px), #9ca3af calc(50% - 0.5px), #9ca3af calc(50% + 0.5px), transparent calc(50% + 0.5px)),
+    #ffffff;
+}
+
+.problem-frame-style-preview[data-problem-frame-style="doublebox"] {
+  border: 3px double #111111;
+}
+
+.problem-frame-style-preview[data-problem-frame-style="cornerbox"] {
+  --corner-frame-corner-size: 4px;
+  --corner-frame-rule-width: 1px;
+  --corner-frame-guide-width: 1px;
+  --corner-frame-guide-inset-x: 9px;
+  --corner-frame-guide-side-x: 0px;
+  --corner-frame-guide-side-y: 9px;
+  --corner-frame-rule-x: 5px;
+  --corner-frame-rule-side-x: 7px;
+  --corner-frame-rule-y: 6px;
+  --corner-frame-rule-side-y: 5px;
+  --corner-frame-corner-x: 3px;
+  --corner-frame-corner-y: 3px;
+  border: 0;
+  background: #ffffff;
+}
+
+.problem-number-size-field {
+  display: flex;
+  min-height: 34px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 12px 0 4px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.semantic-block-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-height: 30px;
+  padding: 5px 10px;
+  border-bottom: 1px solid var(--border-subtle);
+  background: linear-gradient(#fbfbfb, #f6f6f6);
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.semantic-block-title {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.section-title-input,
+.image-block input,
+.graph2d-block input,
+.print-page-toolbar select,
+.preview-toolbar select {
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--background);
+  color: var(--text-primary);
+}
+
+.image-block input,
+.graph2d-block input,
+.print-page-toolbar select,
+.preview-toolbar select {
+  min-height: 34px;
+  padding: 6px 8px;
+}
+
+.problem-tag-input-shell {
+  display: flex;
+  min-height: 32px;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 3px 0;
+  border: 0;
+  border-radius: 0;
+  background: var(--background);
+  cursor: text;
+}
+
+.problem-tag-tip {
+  display: inline-flex;
+  max-width: 100%;
+  height: 24px;
+  align-items: center;
+  gap: 4px;
+  padding: 0 4px 0 7px;
+  border: 0;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent-soft) 78%, var(--background));
+  color: var(--text-primary);
+  cursor: default;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.problem-tag-tip > svg {
+  flex: 0 0 auto;
+  color: var(--accent);
+}
+
+.problem-tag-tip-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.problem-tag-tip-remove {
+  display: inline-flex;
+  width: 16px;
+  height: 16px;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  opacity: 0;
+  pointer-events: none;
+  transform: scale(0.9);
+  transition:
+    background 120ms ease,
+    color 120ms ease,
+    opacity 120ms ease,
+    transform 120ms ease;
+}
+
+.problem-tag-tip:hover .problem-tag-tip-remove,
+.problem-tag-tip:focus-within .problem-tag-tip-remove,
+.problem-tag-tip-remove:focus-visible {
+  opacity: 1;
+  pointer-events: auto;
+  transform: scale(1);
+}
+
+.problem-tag-tip-remove:hover,
+.problem-tag-tip-remove:focus-visible {
+  background: color-mix(in srgb, var(--text-muted) 14%, transparent);
+  color: var(--text-primary);
+  outline: none;
+}
+
+.mono-input {
+  width: 100%;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--background);
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 13px;
+  resize: vertical;
+}
+
+.nested-group {
+  margin: 0;
+  padding: 8px 10px 10px;
+  border: 0;
+  border-top: 1px solid var(--border-subtle);
+  border-radius: 0;
+  background: #ffffff;
+}
+
+.nested-group-header {
+  margin-bottom: 4px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.nested-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.image-block {
+  margin: 0;
+  width: 100%;
+}
+
+.image-block img {
+  display: block;
+  width: var(--image-width);
+  max-width: 100%;
+  height: auto;
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.image-block.align-left img {
+  margin-right: auto;
+}
+
+.image-block.align-center img {
+  margin-inline: auto;
+}
+
+.image-block.align-right img {
+  margin-left: auto;
+}
+
+.image-block figcaption {
+  margin-top: 8px;
+}
+
+.asset-placeholder {
+  display: grid;
+  place-items: center;
+  gap: 8px;
+  min-height: 160px;
+  border: 1px dashed var(--border-strong);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.graph2d-block {
+  width: 100%;
+  margin: 6px 0;
+}
+
+.graph2d-preview-button {
+  display: block;
+  width: var(--graph-width);
+  max-width: 100%;
+  padding: 0;
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+  background: #ffffff;
+  color: var(--text-primary);
+  cursor: pointer;
+}
+
+.graph2d-preview-button:hover,
+.graph2d-preview-button:focus-visible {
+  border-color: var(--accent);
+  outline: none;
+}
+
+.graph2d-block.align-left .graph2d-preview-button {
+  margin-right: auto;
+}
+
+.graph2d-block.align-center .graph2d-preview-button {
+  margin-inline: auto;
+}
+
+.graph2d-block.align-right .graph2d-preview-button {
+  margin-left: auto;
+}
+
+.graph2d-block figcaption {
+  margin-top: 8px;
+}
+
+.editor-settings-section {
+  padding: 12px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.problem-area-layout-controls {
+  margin-top: 12px;
+}
+
+.layout-section-controls {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.layout-section-column-count-segmented {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  padding: 2px;
+  border-radius: 7px;
+}
+
+.layout-section-column-count-segmented button {
+  min-height: 28px;
+  font-size: 12px;
+}
+
+.problem-area-layout-list {
+  display: grid;
+  gap: 8px;
+}
+
+.problem-area-layout-row {
+  display: grid;
+  grid-template-columns: minmax(54px, 0.42fr) minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+}
+
+.problem-area-layout-label {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.problem-area-layout-row.selected .problem-area-layout-label {
+  color: var(--text-primary);
+  font-weight: 750;
+}
+
+.section-caption {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 10px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.meta-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-height: 26px;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.empty-panel {
+  display: grid;
+  place-items: center;
+  gap: 8px;
+  min-height: 160px;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.empty-panel.compact {
+  min-height: 86px;
+}
+
+.ai-edit-panel {
+  position: relative;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* The docked model flyout opens toward the editor. Release both clipping
+   ancestors only while that menu is mounted so the chat thread keeps its
+   normal bounded scrolling at every other time. */
+.ai-sidebar-panel:has(.ai-edit-panel[data-variant="sidebar"] .ai-chat-model-menu),
+.ai-edit-panel[data-variant="sidebar"]:has(.ai-chat-model-menu) {
+  overflow: visible;
+}
+
+.ai-edit-scroll {
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.ai-chat-thread {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-lg);
+  min-height: 0;
+  /* 188px reserves the floating composer; the other axes follow spacing tokens. */
+  padding: var(--space-lg) var(--space-md) 188px;
+  scroll-padding-bottom: 188px;
+  overflow-y: auto;
+  background: var(--background);
+}
+
+.ai-chat-room-history {
+  display: grid;
+  gap: var(--space-none);
+  min-width: 0;
+  padding: var(--space-xs) var(--space-sm);
+  border-bottom: 1px solid var(--border-subtle);
+  background: var(--background);
+}

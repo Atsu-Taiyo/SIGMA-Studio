@@ -1,0 +1,50 @@
+{
+  "name": "sigma-studio-workspace",
+  "version": "0.469.0",
+  "private": true,
+  "workspaces": [
+    "apps/desktop",
+    "packages/viewer",
+    "packages/editor",
+    "examples/editor-react18"
+  ],
+  "scripts": {
+    "dev": "npm --workspace @sigma-studio/desktop run dev",
+    "build": "npm --workspace @sigma-studio/desktop run build",
+    "start": "npm --workspace @sigma-studio/desktop run start",
+    "lint": "npm --workspace @sigma-studio/desktop run lint",
+    "test": "npm --workspace @sigma-studio/desktop run test",
+    "test:scripts": "node --test scripts/*.test.mjs",
+    "test:public-browser": "npm exec --workspace @sigma-studio/desktop -- tsc --project ../../tests/public-browser/tsconfig.json && npm exec --workspace @sigma-studio/desktop -- playwright test --config ../../tests/public-browser/playwright.config.mts",
+    "test:e2e": "npm --workspace @sigma-studio/desktop run test:e2e",
+    "test:e2e:electron": "npm --workspace @sigma-studio/desktop run test:e2e:electron",
+    "typecheck": "npm --workspace @sigma-studio/desktop run typecheck",
+    "viewer:build": "npm --workspace @sigma-studio/viewer run build",
+    "viewer:test": "npm --workspace @sigma-studio/viewer run test",
+    "viewer:typecheck": "npm --workspace @sigma-studio/viewer run typecheck",
+    "viewer:pack": "npm pack --workspace @sigma-studio/viewer --dry-run",
+    "viewer:example": "npm --workspace @sigma-studio/editor-react18-example run dev",
+    "viewer:example:build": "npm --workspace @sigma-studio/editor-react18-example run build",
+    "editor:build": "npm run viewer:build && npm --workspace @sigma-studio/editor run build",
+    "editor:test": "npm run viewer:build && npm --workspace @sigma-studio/editor run test",
+    "editor:typecheck": "npm --workspace @sigma-studio/editor run typecheck",
+    "editor:pack": "npm run editor:build && npm pack --workspace @sigma-studio/editor --dry-run",
+    "editor:example": "npm run editor:build && npm --workspace @sigma-studio/editor-react18-example run dev",
+    "editor:example:build": "npm run editor:build && npm --workspace @sigma-studio/editor-react18-example run build",
+    "version:set": "node scripts/set-release-version.mjs",
+    "version:sync": "node scripts/sync-public-package-versions.mjs",
+    "version:check": "node scripts/sync-public-package-versions.mjs --check",
+    "public-packages:sync-version": "npm run version:sync",
+    "public-packages:check-version": "npm run version:check",
+    "mcp:sigma-doc": "npm --workspace @sigma-studio/desktop run mcp:sigma-doc",
+    "electron:build": "npm --workspace @sigma-studio/desktop run electron:build",
+    "electron:dev": "node scripts/run-electron-dev.mjs",
+    "electron:dist": "npm --workspace @sigma-studio/desktop run electron:dist",
+    "electron:dist:mac": "npm --workspace @sigma-studio/desktop run electron:dist:mac",
+    "electron:dist:win": "npm --workspace @sigma-studio/desktop run electron:dist:win",
+    "electron:dist:store": "npm --workspace @sigma-studio/desktop run electron:dist:store"
+  },
+  "overrides": {
+    "postcss": "^8.5.14"
+  }
+}

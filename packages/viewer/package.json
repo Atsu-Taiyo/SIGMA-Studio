@@ -1,0 +1,76 @@
+{
+  "name": "@sigma-studio/viewer",
+  "version": "0.469.0",
+  "description": "Read-only React renderer for SigmaDoc teaching materials.",
+  "keywords": [
+    "sigma-studio",
+    "sigmadoc",
+    "react",
+    "math",
+    "education",
+    "viewer"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Atsu-Taiyo/SIGMA-Studio.git",
+    "directory": "packages/viewer"
+  },
+  "bugs": {
+    "url": "https://github.com/Atsu-Taiyo/SIGMA-Studio/issues"
+  },
+  "type": "module",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    },
+    "./styles.css": "./dist/styles.css",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "LICENSE",
+    "README.md",
+    "THIRD_PARTY_NOTICES.md"
+  ],
+  "sideEffects": [
+    "**/*.css"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "clean": "node ./scripts/clean.mjs",
+    "build": "npm run clean && npm run types:generate && node ./scripts/build.mjs && tsc -p tsconfig.build.json",
+    "typecheck": "npm run types:check && tsc --noEmit -p tsconfig.json",
+    "test": "vitest run",
+    "prepack": "npm run build",
+    "types:generate": "node ./scripts/generate-document-types.mjs",
+    "types:check": "node ./scripts/generate-document-types.mjs --check"
+  },
+  "peerDependencies": {
+    "react": ">=18.2.0 <20",
+    "react-dom": ">=18.2.0 <20"
+  },
+  "dependencies": {
+    "katex": "^0.16.45",
+    "mathlive": "^0.109.2",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
+    "esbuild": "^0.24.0",
+    "happy-dom": "^20.11.0",
+    "postcss": "^8.5.14",
+    "react": "^19.2.6",
+    "react-dom": "^19.2.6",
+    "typescript": "^5.9.3",
+    "vitest": "^3.2.4"
+  }
+}

@@ -1,0 +1,46 @@
+.panel {
+  position: fixed;
+  /* 既定幅はトークンが持ち、狭い viewport で縮めるときだけ inline style が上書きする。 */
+  width: var(--graph-panel-width);
+  z-index: var(--z-modal);
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-panel);
+  background: var(--background);
+  box-shadow: var(--shadow-floating);
+  color: var(--text-primary);
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-sm);
+  padding: var(--space-sm) var(--space-sm) var(--space-sm) var(--space-md);
+  border-bottom: 1px solid var(--border-subtle);
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+}
+
+.header:active {
+  cursor: grabbing;
+}
+
+.title {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.body {
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+
+.body .overlay-graph-inspector {
+  width: 100%;
+}
