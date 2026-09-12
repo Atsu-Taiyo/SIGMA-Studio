@@ -1,0 +1,108 @@
+.livePreview {
+  display: inline-flex;
+  min-width: 1em;
+  align-items: baseline;
+  vertical-align: baseline;
+}
+
+.popover {
+  width: min(440px, calc(100vw - (var(--space-sm) * 2)));
+  padding: var(--space-none);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-panel);
+  background: var(--background);
+  box-shadow: var(--shadow-floating);
+}
+
+.editorRow {
+  display: flex;
+  align-items: stretch;
+  gap: var(--space-sm);
+  padding: var(--space-sm);
+}
+
+.texFieldShell {
+  position: relative;
+  flex: 1 1 auto;
+  min-width: 0;
+  border-radius: var(--radius-control);
+  background: var(--surface-soft);
+}
+
+.highlight,
+.popover .texField {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  max-width: none;
+  min-height: 68px;
+  max-height: calc(100vh - 48px);
+  padding: var(--space-sm) var(--space-md);
+  border: 0;
+  border-radius: var(--radius-control);
+  font-family: inherit;
+  font-size: 13px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+}
+
+.highlight {
+  position: absolute;
+  inset: 0;
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+  color: var(--text-primary);
+  pointer-events: none;
+}
+
+.recognizedCommand {
+  color: var(--accent);
+}
+
+.popover .texField {
+  position: relative;
+  display: block;
+  height: auto;
+  overflow-x: auto;
+  overflow-y: hidden;
+  background: transparent;
+  color: transparent;
+  caret-color: var(--text-primary);
+  resize: none;
+  -webkit-text-fill-color: transparent;
+}
+
+.popover .texField:focus,
+.popover .texField:focus-visible {
+  outline: none;
+}
+
+.texFieldShell:focus-within {
+  background: var(--background);
+}
+
+.texFieldShell[data-locked="true"] {
+  opacity: 0.64;
+}
+
+.texFieldShell[data-locked="true"] .texField {
+  cursor: not-allowed;
+}
+
+.actionColumn {
+  display: flex;
+  flex: 0 0 30px;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: var(--space-xs);
+}
+
+.actionColumn .doneButton {
+  flex: 0 0 30px;
+  width: 30px;
+  min-width: 30px;
+  height: 30px;
+  border-radius: 50%;
+}

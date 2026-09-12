@@ -1,0 +1,99 @@
+.button {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-sm);
+  min-height: 34px;
+  padding: var(--space-sm) var(--space-md);
+  border: 1px solid transparent;
+  border-radius: var(--radius-control);
+  font-size: 12px;
+  font-weight: 650;
+  line-height: 1;
+  white-space: nowrap;
+  transition: background 140ms ease, border-color 140ms ease, color 140ms ease, opacity 140ms ease;
+}
+
+.button:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent) 32%, transparent);
+  outline-offset: 2px;
+}
+
+.button:disabled {
+  opacity: 0.45;
+}
+
+.button[data-tone="primary"] {
+  border-color: var(--text-primary);
+  background: var(--text-primary);
+  color: var(--background);
+}
+
+.button[data-tone="primary"]:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--text-primary) 88%, var(--background));
+}
+
+.button[data-tone="secondary"] {
+  border-color: var(--border);
+  background: var(--background);
+  color: var(--text-primary);
+}
+
+.button[data-tone="secondary"]:hover:not(:disabled),
+.button[data-tone="ghost"]:hover:not(:disabled) {
+  background: var(--surface-muted);
+}
+
+.button[aria-pressed="true"] {
+  border-color: var(--border-strong);
+  background: var(--surface-muted);
+  color: var(--text-primary);
+}
+
+.button[data-tone="ghost"] {
+  border-color: transparent;
+  background: transparent;
+  color: var(--text-secondary);
+}
+
+.button[data-tone="danger"] {
+  border-color: var(--border);
+  background: var(--background);
+  color: var(--text-secondary);
+}
+
+.button[data-tone="danger"]:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--danger) 34%, var(--border));
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
+.button[data-size="sm"] {
+  min-height: 30px;
+  padding: var(--space-xs) var(--space-sm);
+}
+
+.button[data-size="lg"] {
+  min-height: 40px;
+  padding: var(--space-md) var(--space-lg);
+  font-size: 13px;
+}
+
+.button[data-icon-only="true"] {
+  width: 34px;
+  padding: 0;
+  border-radius: var(--radius-round);
+}
+
+.button[data-icon-only="true"][data-size="sm"] {
+  width: 30px;
+}
+
+.button[data-icon-only="true"][data-size="lg"] {
+  width: 40px;
+}
+
+.button[data-icon-only="true"] > svg {
+  flex: 0 0 auto;
+}

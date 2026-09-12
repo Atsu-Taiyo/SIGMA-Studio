@@ -1,0 +1,55 @@
+.title {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-sm);
+  min-width: 0;
+}
+
+.textArea {
+  width: 100%;
+  min-height: 320px;
+  max-height: 52vh;
+  padding: var(--space-md);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  background: var(--surface);
+  color: var(--text-primary);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.6;
+  resize: vertical;
+  white-space: pre;
+  overflow: auto;
+}
+
+.textArea:focus-visible {
+  border-color: var(--border-strong);
+  outline: 2px solid color-mix(in srgb, var(--accent) 24%, transparent);
+  outline-offset: 1px;
+}
+
+.textArea:disabled {
+  color: var(--text-muted);
+  background: var(--surface-muted);
+}
+
+.error {
+  margin: 0;
+  color: var(--danger);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+}
+
+/* 状態表示は左端に置き、操作は右端へ寄せる (伸びる余白がこの1枠)。 */
+.status {
+  flex: 1 1 auto;
+  min-width: 0;
+  color: var(--text-secondary);
+  font-size: 12px;
+}

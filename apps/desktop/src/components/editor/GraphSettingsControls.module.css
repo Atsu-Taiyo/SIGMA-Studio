@@ -1,0 +1,677 @@
+.inspector {
+  width: 100%;
+}
+
+/*
+ * 3D は要素の種類が多い。パネル幅に入るだけ横に並べ、入らなくなったら折り返す。
+ * 最小幅は「x の範囲」の1行 (数式・不等号・数式) が折り返さずに収まる幅。
+ *
+ * auto-fill であって auto-fit ではない: 空の列を畳むと、カードが1枚だけの節では
+ * 「追加」タイルが節の幅いっぱいに伸び、他の節のカードと大きさが揃わなくなる。
+ */
+.cardGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(258px, 100%), 1fr));
+  grid-auto-rows: 1px;
+  grid-auto-flow: row dense;
+  align-items: start;
+  gap: var(--space-sm);
+}
+
+.card {
+  display: grid;
+  gap: var(--space-sm);
+  padding: var(--space-sm);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-control);
+  background: var(--background);
+}
+
+/*
+ * 追加はカードの並びの中にある。一覧の下にボタンを置くと、節が4つ縦に並ぶこのパネルでは
+ * 「追加する場所」が「追加されたものが出る場所」から一番遠いところに来る。
+ */
+.addCard {
+  display: grid;
+  place-content: center;
+  place-items: center;
+  gap: 4px;
+  min-height: 40px;
+  width: 100%;
+  grid-auto-flow: column;
+  column-gap: var(--space-sm);
+  padding: var(--space-sm);
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 11px;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.addCard:hover:not(:disabled),
+.addCard:focus-visible:not(:disabled) {
+  border-color: var(--accent);
+  background: var(--surface-muted);
+  color: var(--accent);
+  outline: none;
+}
+
+.addCard:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* 種類は名前だけでは見分けが付かない。押すと出てくる形そのものを並べる。 */
+.choicePopover {
+  width: min(430px, calc(100vw - 24px));
+  max-width: calc(100vw - 24px);
+  max-height: min(70vh, 620px);
+  overflow: auto;
+  overscroll-behavior: contain;
+  padding: var(--space-sm);
+}
+
+.choiceGroupTitle {
+  margin: 0 0 5px;
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.choiceGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(106px, 1fr));
+  gap: var(--space-xs);
+}
+
+.choiceCard {
+  display: grid;
+  justify-items: center;
+  gap: 4px;
+  padding: 5px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-control);
+  background: var(--background);
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 11px;
+  font-weight: 650;
+  line-height: 1.3;
+  text-align: center;
+  cursor: pointer;
+}
+
+.choiceCard:hover,
+.choiceCard:focus-visible {
+  border-color: var(--accent);
+  outline: none;
+  box-shadow: 0 0 0 2px var(--accent-soft);
+}
+
+.choiceThumbnailFrame {
+  display: grid;
+  place-items: center;
+  width: 96px;
+  height: 58px;
+  overflow: hidden;
+  border-radius: 6px;
+  background: var(--surface-muted);
+}
+
+.choiceThumbnail {
+  display: block;
+  width: 96px;
+  height: 58px;
+}
+
+/* 色・濃さ・ワイヤーは「この立体の見た目」ひと組。縦に積むと詳細が画面外へ流れる。 */
+.styleRow {
+  display: flex;
+  align-items: end;
+  flex-wrap: wrap;
+  gap: var(--space-sm);
+}
+
+.styleRow .field {
+  width: 68px;
+}
+
+.styleRow .checkbox {
+  min-height: 31px;
+}
+
+/*
+ * ベクトルは表で書く。1つずつ枠にすると、3つの数値に対して見出しと枠が3行付き、
+ * 立体1つの詳細に4組（中心・大きさ・移動・倍率・回転）並ぶと画面に収まらない。
+ */
+.vectorGrid {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: auto repeat(3, minmax(0, 1fr));
+  align-items: center;
+  gap: 3px var(--space-xs);
+}
+
+.vectorAxisHeading {
+  color: var(--text-muted);
+  font-size: 11px;
+  text-align: center;
+}
+
+.vectorRowLabel {
+  overflow: hidden;
+  padding-right: 2px;
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.vectorGrid :global(.math-expression-input) {
+  width: 100%;
+}
+
+.vectorGrid :global(.math-expression-input-button) {
+  width: 100%;
+}
+
+/* 3D cards keep the occasional-details affordance visible; primary controls live in the card. */
+.card :global(.graph-item-actions-trigger) {
+  opacity: 0.62;
+  pointer-events: auto;
+}
+
+.card:hover :global(.graph-item-actions-trigger),
+.card:focus-within :global(.graph-item-actions-trigger) {
+  opacity: 1;
+}
+
+.widgetTitle {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.widgetSummary {
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 1.4;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.quickControls {
+  padding-top: var(--space-sm);
+  border-top: 1px solid var(--border-subtle);
+}
+
+.quickControlGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-sm);
+}
+
+.compactFormulaGrid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-xs);
+}
+
+.objectOverview {
+  display: grid;
+  grid-template-columns: 132px minmax(0, 1fr);
+  align-items: center;
+  gap: var(--space-sm);
+}
+
+.objectThumbnailFrame {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 132px;
+  height: 86px;
+  overflow: hidden;
+  border: 1px solid var(--border-subtle);
+  border-radius: 7px;
+  background: var(--surface-muted);
+}
+
+.objectThumbnail {
+  display: block;
+  width: 132px;
+  height: 86px;
+}
+
+.objectThumbnailFallback {
+  position: absolute;
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+/* 共通部分にする立体は数が増えるので、はみ出す前にカード内で送る。 */
+.memberList {
+  max-height: 148px;
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+
+.objectOverviewText {
+  display: grid;
+  min-width: 0;
+  gap: var(--space-xs);
+}
+
+.objectFormula {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.detailsPopover {
+  width: min(380px, calc(100vw - 24px));
+  max-width: calc(100vw - 24px);
+}
+
+.detailsContent {
+  width: 100%;
+  max-height: min(70vh, 640px);
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+
+.card strong {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-secondary);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.field {
+  display: grid;
+  gap: 5px;
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.field input,
+.field :global(.ui-select),
+.field textarea,
+.fieldset input:not([type="checkbox"]),
+.titleInput,
+.parameterName {
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  background: var(--background);
+  color: var(--text-primary);
+  font: inherit;
+}
+
+.field input,
+.field :global(.ui-select),
+.titleInput,
+.parameterName {
+  height: 31px;
+  padding: 0 var(--space-sm);
+}
+
+.field textarea {
+  padding: var(--space-sm);
+  resize: vertical;
+  font-family: var(--font-mono, monospace);
+  line-height: 1.45;
+}
+
+.expression,
+.fieldset input:not([type="checkbox"]) {
+  font-family: var(--font-mono, monospace) !important;
+  font-size: 12px !important;
+}
+
+.field :global(.math-expression-input) {
+  width: 100%;
+}
+
+.field :global(.math-expression-input-button),
+.field :global(.math-expression-input-field) {
+  width: 100%;
+  min-height: 31px;
+}
+
+.expressionError {
+  color: var(--danger);
+  font-size: 10px;
+  font-weight: 500;
+  line-height: 1.4;
+}
+
+.fieldset {
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  color: var(--text-secondary);
+}
+
+.fieldset legend {
+  padding: 0;
+  margin-bottom: 5px;
+  font-size: 11px;
+  font-weight: 650;
+}
+
+/* チェックボックスは枠いっぱいに伸ばさない (伸ばすとラベルが右端へ飛ぶ)。 */
+.fieldset input:not([type="checkbox"]) {
+  width: 100%;
+  height: 30px;
+  padding: 0 6px;
+}
+
+/* 「min ≦ x ≦ max」「左辺 ≦ 右辺」を1行に組む。数式枠だけが伸びる。 */
+.relationRow {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-xs);
+}
+
+.inequalitySystem {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: 22px minmax(0, 1fr);
+  align-items: stretch;
+  gap: 2px;
+}
+
+.inequalityBrace {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  color: var(--text-secondary);
+  font-family: "Times New Roman", "Noto Serif JP", serif;
+  font-weight: 300;
+  line-height: 0.72;
+  transform: scaleX(0.72);
+  transform-origin: center;
+  user-select: none;
+}
+
+/* 読み取れない式の理由は行を割らずに次の行へ落とす。 */
+.relationRow .expressionError {
+  flex: 1 0 100%;
+}
+
+/*
+ * 数式欄は中身の幅に合わせる。`-2` や `x+y+z \leqq 3` のような短い式に、行いっぱいの
+ * 入力枠を与えると、書いてある量よりも枠のほうが目立つ。
+ */
+.relationRow > :global(.math-expression-input) {
+  flex: 0 1 auto;
+  min-width: 3.4em;
+  max-width: 100%;
+}
+
+.compactExpression {
+  width: auto;
+  min-width: 3.4em;
+}
+
+.compactExpression :global(.math-expression-input-button) {
+  width: auto;
+}
+
+.relationSymbol {
+  flex: 0 0 auto;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.checkbox {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-secondary);
+  font-size: 11px;
+}
+
+.checkbox:has(input:disabled) {
+  opacity: 0.45;
+}
+
+.titleInput {
+  flex: 1 1 auto;
+  width: 100%;
+  font-size: 12px;
+  font-weight: 650;
+  line-height: 1.3;
+}
+
+.parameterName {
+  width: 54px;
+  font-family: var(--font-mono, monospace);
+}
+
+.slider {
+  flex: 1 1 auto;
+  min-width: 0;
+  width: 100%;
+}
+
+.parameterValue {
+  flex: 0 0 7ch;
+  min-width: 7ch;
+  color: var(--text-secondary);
+  font-family: var(--font-mono, monospace);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.compactGrid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-xs);
+}
+
+.colorField {
+  display: grid;
+  min-width: 0;
+  /*
+   * 横並び (Inline) では伸び、縦並び (Stack) では中身の高さのまま。basis を px で書くと
+   * 縦並びのときに「高さ 150px」の意味になり、ラベルと見本が離れて見えていた。
+   */
+  flex: 0 1 auto;
+  width: max-content;
+  max-width: 100%;
+  align-content: start;
+  gap: var(--space-xs);
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 650;
+}
+
+/* 色は見本とシェブロンだけ。色コードは読み上げても意味がなく、幅だけ食う。 */
+.colorButton {
+  box-sizing: border-box;
+  display: grid;
+  grid-template-columns: minmax(22px, 1fr) auto;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  width: 54px;
+  min-height: 31px;
+  padding: 0 7px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  background: var(--background);
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.colorButton:hover,
+.colorButton:focus-visible,
+.colorButton[aria-expanded="true"] {
+  border-color: var(--accent);
+  outline: none;
+  box-shadow: 0 0 0 2px var(--accent-soft);
+}
+
+.colorSwatch {
+  width: 100%;
+  min-width: 22px;
+  height: 16px;
+  border: 1px solid rgb(0 0 0 / 18%);
+  border-radius: 4px;
+}
+
+/* 軸の色は3つ並ぶ。ラベル・見本・値を隙間なく寄せないと、幅を食うだけで読みにくい。 */
+.axisColorGrid {
+  display: grid;
+  grid-template-columns: repeat(3, max-content);
+  gap: var(--space-xs);
+}
+
+.axisColorGrid .colorField {
+  gap: 4px;
+}
+
+.axisStyleControls {
+  align-items: center;
+}
+
+.cardHeaderActions {
+  position: relative;
+  flex: 0 0 auto;
+  align-items: center;
+}
+
+.detailsTriggerHidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  pointer-events: none;
+}
+
+.cardHidden .objectThumbnailFrame,
+.cardHidden .objectOverviewText,
+.cardHidden .widgetSummary {
+  opacity: 0.4;
+}
+
+.viewGroups {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) max-content;
+  align-items: end;
+  gap: var(--space-sm);
+}
+
+.axisAppearance {
+  align-items: end;
+}
+
+.dimensionStyle {
+  align-items: end;
+}
+
+.dimensionStyle .field {
+  width: 72px;
+}
+
+.section2d {
+  display: block;
+  width: min(100%, 228px);
+  height: auto;
+  margin: 0 auto;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-control);
+  background: #ffffff;
+}
+
+.sectionSummary {
+  min-width: 0;
+}
+
+.section2dActions {
+  min-height: 30px;
+}
+
+.sectionStatus {
+  min-width: 0;
+  color: var(--text-muted);
+  font-size: 10px;
+  line-height: 1.35;
+  text-align: right;
+}
+
+.axisHint {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 10px;
+  line-height: 1.45;
+}
+
+.empty {
+  margin: 0;
+  padding: var(--space-sm);
+  border-radius: var(--radius-control);
+  background: var(--surface-muted);
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.videoExport {
+  display: flex;
+  gap: var(--space-sm);
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.videoExportNote {
+  min-width: 0;
+  flex: 1 1 140px;
+  overflow-wrap: anywhere;
+  color: var(--text-muted);
+  font-size: 10px;
+  line-height: 1.45;
+}
+
+/*
+ * 動画へ焼き込む数式ラベルを、ブラウザに組ませるためだけの置き場。
+ * 画面外へ出して隠す — `display: none` / `visibility: hidden` では採寸できない。
+ */
+.videoLabelStage {
+  position: fixed;
+  top: 0;
+  left: -10000px;
+  width: 400px;
+  pointer-events: none;
+}
+
+@media (max-width: 520px) {
+  .quickControlGrid,
+  .compactFormulaGrid,
+  .objectOverview {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .objectThumbnailFrame {
+    width: 100%;
+    max-width: 150px;
+    justify-self: center;
+  }
+}
+
+.gridCell { min-width: 0; }

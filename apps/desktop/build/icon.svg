@@ -1,0 +1,51 @@
+<!--
+  Sigma Studio アプリアイコンの唯一の出典。
+
+  ここから `scripts/generate-app-icons.mjs` が icon.png / icon.icns / icon.ico を生成する。
+  PNG/ICNS/ICO を直接編集しないこと（このSVGを編集して再生成する）。
+
+  形状は macOS の App Icon グリッドに合わせてある:
+    - キャンバス 1024×1024
+    - アートは中央の 824×824 角丸矩形（各辺 100px の余白）に収める
+    - 角丸半径 185.4 = 824 × 0.225
+  余白と角丸を「素材側に焼き込む」のが要点。`app.dock.setIcon()` も Windows の
+  タスクバーもマスクを一切かけないため、全面塗りの正方形PNGを渡すと角の立った
+  大きな四角がそのまま出る（これが修正前の見た目）。
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <defs>
+    <linearGradient id="tile" x1="512" y1="100" x2="512" y2="924" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#26262C" />
+      <stop offset="0.5" stop-color="#101013" />
+      <stop offset="1" stop-color="#000000" />
+    </linearGradient>
+  </defs>
+
+  <!-- 角丸タイル本体（黒基調はブランドロゴ/スプラッシュと同じ） -->
+  <rect x="100" y="100" width="824" height="824" rx="185.4" ry="185.4" fill="url(#tile)" />
+  <!-- 上端のごく薄いハイライト。暗いDock上でタイルの輪郭が沈まないようにする -->
+  <rect
+    x="101"
+    y="101"
+    width="822"
+    height="822"
+    rx="184.4"
+    ry="184.4"
+    fill="none"
+    stroke="#FFFFFF"
+    stroke-opacity="0.09"
+    stroke-width="2"
+  />
+
+  <!--
+    Σ マーク。従来の icon.png のレターフォームをそのままベクタ化したもの
+    （元の座標系: x 230..779 / y 179..822、すべての斜線は45度）。
+    transform で 824 タイルの約56%の高さに縮小し、キャンバス中央へ置く。
+  -->
+  <g transform="translate(314.35 280.5) scale(0.72) translate(-230 -179)">
+    <path
+      d="M230 179 H779 V326 L711 258 H373 L615.5 500.5 L373 743 H711 L779 675 V822 H230 V759 L488.5 500.5 L230 242 Z"
+      fill="#FFFFFF"
+    />
+  </g>
+</svg>

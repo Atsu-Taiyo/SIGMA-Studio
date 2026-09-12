@@ -1,0 +1,789 @@
+/* Word風リボンクロームの専用スタイル。
+ *
+ * ルール:
+ * - すべてのセレクタを `.app-shell[data-ui-layout="word"]` で始める。globals.css の冒頭で
+ *   @import されるため、詳細度でしか既存の `.editor-menubar` 等に勝てない。
+ * - 色は白・黒・グレーだけ。Word のブランド青は使わない (docs/design-rules.md のアクセント制限)。
+ * - 余白は --space-* トークンのみ。ボタンは既存の .icon-button / .toolbar-select をそのまま使い、
+ *   新しいボタン部品は作らない。
+ * - 影は使わない。グループの区切りは 1px の縦罫 (= Word の視覚署名)。
+ */
+
+.app-shell[data-ui-layout="word"] {
+  /* 74px(タイトル行) + 32px(タブ行) + 98px(リボン本体)。内訳を式のまま書いて、
+     下の grid-template-rows と数字がずれないようにしている。
+     98px の内訳: 上下 padding 4+4 + 小ボタン2段 34×2 + 段間 4 + 見出し行 14 + gap 4。
+     小ボタンは globals.css の .icon-button = 34px 固定 (word でも縮めていない)。
+     ここを 28px 前提で見積もると2段目が見出しへ食い込む (実測 6px 不足)。 */
+  --editor-chrome-height: calc(74px + 32px + 98px);
+  /* 画面下端のステータスバー。docs では :root の 0px のままなので、
+     本文の高さ計算 (globals.css の calc(100vh - …)) は式を変えずに済む。 */
+  --editor-statusbar-height: var(--ribbon-statusbar-height);
+}
+
+/* 折りたたむとタブ行までになる。本体は描かれない（浮かせている間も
+   position: absolute なのでトークンは動かさない = 本文が跳ねない）。 */
+.app-shell[data-ui-layout="word"][data-ribbon-collapsed="true"] {
+  --editor-chrome-height: calc(74px + 32px);
+}
+
+/* `.app-shell` の行を明示する。Backstage を足すと自動配置では main が3行目
+   （暗黙の行）へ押し出されるため。閉じているときの見え方は従来と同じ。 */
+.app-shell[data-ui-layout="word"] .editor-menubar {
+  grid-row: 1;
+  grid-column: 1;
+}
+
+/* 列も明示する。行だけ決めて列を auto にすると、同じ行を Backstage が
+   先に取っているせいで暗黙の2列目へ逃げ、本文が右半分に押しやられる。 */
+.app-shell[data-ui-layout="word"] main.workspace {
+  grid-row: 2;
+  grid-column: 1;
+}
+
+/* body へ portal される浮遊UIは `.app-shell` の外なので、word スコープの
+   --editor-statusbar-height が届かない（実測: 持ち上げたつもりで :root の 0px を
+   読んでいた）。レイアウトを :has() で見て、帯のぶんだけ持ち上げる。 */
+body:has(.app-shell[data-ui-layout="word"]) .overlay-drawing-hint {
+  bottom: calc(24px + var(--ribbon-statusbar-height));
+}
+
+/* 3本目のトラック。行を明示しないと、DOM 順 (header → backstage → statusbar → main)
+   のまま自動配置され、本文が下へ押し出される。 */
+.app-shell[data-ui-layout="word"] .ribbon-statusbar {
+  grid-row: 3;
+  grid-column: 1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-md);
+  min-width: 0;
+  padding: 0 var(--space-md);
+  border-top: 1px solid var(--border-subtle);
+  background: var(--surface-soft);
+  color: var(--text-secondary);
+  font-size: 11px;
+}
+
+.app-shell[data-ui-layout="word"] .ribbon-statusbar-pages {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.app-shell[data-ui-layout="word"] .ribbon-statusbar-zoom {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: var(--space-xs);
+}
+
+/* 26px の帯に 34px の .icon-button / .toolbar-select は入らないので、ここだけ詰める。
+   docs のツールバーと同じ element を置き直しているだけなので、縮めるのは word の
+   ステータスバーの中に限る。 */
+.app-shell[data-ui-layout="word"] .ribbon-statusbar .icon-button {
+  width: 22px;
+  height: 22px;
+}
+
+.app-shell[data-ui-layout="word"] .ribbon-statusbar .toolbar-select {
+  height: 22px;
+  padding-top: 0;
+  padding-bottom: 0;
+  font-size: 11px;
+}
+
+/* Backstage を開いている間はリボン本体を描かないので、クロームをタイトル行 +
+   タブ行の2段に畳む。こうすると Backstage（本文と同じ行）がタブ行の真下から
+   始まり、間に空の帯が残らない。
+   **--editor-chrome-height は変えない**: あれを動かすと .workspace /
+   .document-paper / .page-mode の高さ計算が全部動き、誰にも見えていない本文の
+   採寸をやり直させることになる。クロームの行を auto にすれば、トークンを
+   据え置いたまま実寸だけが縮む（本文は覆われているので位置だけ上がる）。 */
+.app-shell[data-ui-layout="word"][data-backstage-open="true"] {
+  /* 3本目 (ステータスバー) は Backstage 中に描かれないが、トラックは残しておく。
+     ここだけ2本にすると、将来ステータスバーを Backstage 中も出す判断をしたときに
+     暗黙の行へ落ちて本文の下へ潜り込む。 */
+  grid-template-rows: auto minmax(0, 1fr) var(--editor-statusbar-height);
+}
+
+.app-shell[data-ui-layout="word"][data-backstage-open="true"] .editor-menubar {
+  grid-template-rows: 74px 32px;
+}
+
+.app-shell[data-ui-layout="word"] .editor-menubar {
+  grid-template-rows: 74px 32px 98px;
+}
+
+.app-shell[data-ui-layout="word"][data-ribbon-collapsed="true"] .editor-menubar {
+  grid-template-rows: 74px 32px;
+}
+
+/* --- タイトル行 (Word のタイトルバー: QAT + 中央タイトル + 右端アクション) --- */
+
+/* globals.css の .menubar-row は 6列×2行で、配置は **各要素側の grid-column/grid-row 直書き**
+   で決まっている（.brand と .menubar-right-actions は display: contents）。word では列構成が
+   違うので、行き先が変わる要素は全部ここで置き直す。docs 側の指定は一切触らない。 */
+.app-shell[data-ui-layout="word"] .menubar-row {
+  /* 教材タイトルを **行の中央** に置くための列構成。QAT 側と右端アクション側を
+     同じ 1fr にして、真ん中の列を内容幅にする。ここを auto / 1fr の非対称に
+     すると、タイトルは「残りの領域の中央」= 見た目は右寄りになる。
+     1fr は minmax(auto, 1fr) なので、中身が広い側は潰れずに済む。 */
+  grid-template-columns: 42px 1fr auto 1fr;
+  /* .editor-menubar の1行目は 74px だが、.menubar-row は border-bottom: 1px を
+     持つ border-box なので中身に使えるのは 73px。合計を 73px にしないと
+     align-content: end のぶん上へ 1px はみ出す。 */
+  grid-template-rows: 41px 32px;
+}
+
+.app-shell[data-ui-layout="word"] .ribbon-qat {
+  display: flex;
+  grid-column: 2;
+  grid-row: 1;
+  align-items: center;
+  justify-self: start;
+  gap: var(--space-xs);
+  min-width: 0;
+}
+
+/* .save-state-wrap は docs では .menubar-row の grid item（grid-column: 4）だが、
+   QAT の中へ入れ子にすると grid item ではなくなり flex: 0 1 260px だけが残って
+   QAT の中で潰れる/伸びる。ここで打ち消す。 */
+.app-shell[data-ui-layout="word"] .ribbon-qat .save-state-wrap {
+  /* basis を auto に戻すのが要点。260px のままだと中身が短くても幅を確保し、
+     元に戻す / やり直す が右へ押し出されて QAT がタイトルに食い込む。 */
+  flex: 0 1 auto;
+  justify-content: flex-start;
+  max-width: 240px;
+}
+
+.app-shell[data-ui-layout="word"] .document-title-row {
+  grid-column: 3;
+  grid-row: 1;
+  justify-self: center;
+  justify-content: center;
+  max-width: 100%;
+}
+
+/* 中央寄せは「タイトルの文字が中央」であって入力欄が全幅に伸びることではない。
+   入力欄を内容幅にして、その塊を中央の auto トラックへ置く。 */
+.app-shell[data-ui-layout="word"] .document-title-row .document-title-field {
+  flex: 0 1 auto;
+  max-width: 100%;
+}
+
+/* input は内容では伸び縮みせず、既定の intrinsic 幅 (size=20 相当 ≈ 180px) で
+   止まる。auto トラックの中でそれをそのまま使うと、左右に数百px空いているのに
+   長いタイトルが ellipsis で切れる。field-sizing で内容幅にし、トラック側 (1fr) が
+   上限を決める。未対応ブラウザでは従来どおり intrinsic 幅に落ちるだけで壊れない。 */
+.app-shell[data-ui-layout="word"] .document-title-row .document-title-input {
+  flex: 0 1 auto;
+  field-sizing: content;
+  min-width: 8ch;
+  max-width: 100%;
+  font-size: 15px;
+  text-align: center;
+}
+
+/* 非フォーカス時に実際に見えているのはリッチ表示のオーバーレイなので、
+   中央寄せと字送りを入力欄と揃える。揃えないと、数式入りタイトルが
+   「未フォーカスでは左寄せ20px、クリックすると中央15px」に飛ぶ。 */
+.app-shell[data-ui-layout="word"] .document-title-row .document-title-rich-overlay {
+  justify-content: center;
+  font-size: 15px;
+}
+
+.app-shell[data-ui-layout="word"] .ribbon-titlebar-actions {
+  display: flex;
+  grid-column: 4;
+  grid-row: 1;
+  align-items: center;
+  justify-self: end;
+  gap: var(--space-sm);
+  min-width: 0;
+}
+
+/* docs では .menubar-right-actions の子として grid 配置されている。word では
+   ただの flex 子なので、その配置指定は当たらない（打ち消す必要も無い）。 */
+.app-shell[data-ui-layout="word"] .ribbon-titlebar-actions .workspace-open-button {
+  flex: 0 0 auto;
+}
+
+.app-shell[data-ui-layout="word"] .ribbon-titlebar-actions .version-history-button {
+  flex: 0 0 auto;
+}
+
+.app-shell[data-ui-layout="word"] .document-tabs-row {
+  grid-column: 2 / 5;
+  grid-row: 2;
+}
+
+/* --- タブバー --- */
+
+/* タブの並びと右端のアクションを載せる行。タブ側だけが横スクロールし、
+   アクションは常に右端に残る（Word のコメント / 共有と同じ位置）。 */
+.app-shell[data-ui-layout="word"] .ribbon-tabs-row {
+  display: flex;
+  /* stretch のままにしておく。flex-end にすると .ribbon-tabs が 32px トラックへ
+     伸びず内容高さになり、横スクロールバーが出る環境でその分だけ行が膨らむ。 */
+  align-items: stretch;
+  min-width: 0;
+  padding-right: var(--space-md);
+  background: var(--surface-soft);
+}
+
+.app-shell[data-ui-layout="word"] .ribbon-tab-actions {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  align-self: center;
+  gap: var(--space-xs);
+  padding-left: var(--space-sm);
+}
+
+/* タブ行は32pxしかないので、本体の .icon-button.with-text より一段小さくする。 */
+.app-shell[data-ui-layout="word"] .ribbon-tab-actions .icon-button {
+  height: 26px;
+  padding: 0 var(--space-sm);
+  font-size: 12px;
+}
+
+.app-shell[data-ui-layout="word"] .ribbon-tabs {
+  display: flex;
+  flex: 1 1 auto;
+  align-items: flex-end;
+  gap: var(--space-xs);
+  min-width: 0;
+  padding: 0 var(--space-md);
+  /* 下辺に罫線は引かない。タブバーの地 (--surface-soft) とリボン本体の面
+     (--surface-muted) の色差が境界になり、選択中タブは本体と同じ面色なので
+     そのまま地続きに見える (Word の形)。1px ぶん重ねるやり方は overflow-x:auto の
+     クリップで消えるので採らない。 */
+  background: var(--surface-soft);
+  /* タブは絶対に折り返さない。入りきらない幅では横スクロールする
+     (既存の .quick-toolbar-row と同じ手)。 */
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: thin;
+}
+
+.app-shell[data-ui-layout="word"] .ribbon-tab {
+  flex: 0 0 auto;
+  height: 32px;
+  padding: 0 var(--space-md);
+  border: 1px solid transparent;
+  border-bottom: 0;
+  /* 角丸は上2角だけ。下辺はリボン本体と地続きに見せる。 */
+  border-radius: var(--radius-control) var(--radius-control) 0 0;
+  background: transparent;
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 450;
+  white-space: nowrap;
+}
+
+/* ホバーは既存の .app-menu-button と同じ表現に揃える。 */
+.app-shell[data-ui-layout="word"] .ribbon-tab:hover {
+  border-color: var(--border-subtle);
+  background: var(--surface-muted);
+}
+
+/* 選択中タブは面もホバーも同じ表現なので、フォーカスだけは細い輪郭で別に示す。
+   これが無いと、矢印キーで選択中のタブへ移ったときに何も変化が見えない。 */
+.app-shell[data-ui-layout="word"] .ribbon-tab:focus-visible {
+  outline: 1px solid var(--border-strong);
+  outline-offset: -2px;
+}
+
+/* 選択中は濃い枠線ではなく薄いグレーの面 (.app-menu-button.active と同じ語彙)。
+   リボン本体も同じ面色なので、下辺の枠線を持たないタブがそのまま本体へ続いて
+   見える (Word の形)。 */
+.app-shell[data-ui-layout="word"] .ribbon-tab[aria-selected="true"] {
+  border-color: var(--border-subtle);
+  background: var(--surface-muted);
+}
+
+/* コンテキストタブ (図形の書式) は「別の系列」であることを、色ではなく
+   1本の細い縦罫だけで静かに示す。 */
+.app-shell[data-ui-layout="word"] .ribbon-tab[data-contextual="true"] {
+  position: relative;
+  margin-left: var(--space-md);
+}
+
+.app-shell[data-ui-layout="word"] .ribbon-tab[data-contextual="true"]::before {
+  position: absolute;
+  /* 幅を持たない飾りなので、タブのクリック範囲を左へ広げてしまわないようにする。 */
+  pointer-events: none;
+  top: var(--space-sm);
+  bottom: var(--space-sm);
+  left: calc(-1 * var(--space-sm));
+  border-left: 1px solid var(--border-subtle);
+  content: "";
+}
+
+/* --- リボン本体 --- */
+
+.app-shell[data-ui-layout="word"] .ribbon-body {
+  display: flex;
+  align-items: stretch;
+  min-width: 0;
+  padding: 0 var(--space-md);
+  /* 下辺の罫線は .editor-menubar が既に持っている (globals.css)。ここでもう1本
+     引くと word のときだけ2px に見える。 */
+  background: var(--surface-muted);
+  /* グループは折り返さず横スクロールする (Word も折り返さない)。 */
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: thin;
+}
+
+.app-shell[data-ui-layout="word"] .ribbon-group {
+  display: grid;
+  flex: 0 0 auto;
+  grid-template-rows: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--space-xs);
+  padding: var(--space-xs) var(--space-md);
+  /* グループ間の 1px 縦罫。影は使わない。 */
+  border-right: 1px solid var(--border-subtle);
+}
+
+/* 折りたたみボタン (button) が本体の最後の子になったので :last-child では効かない。
+   グループは div なので :last-of-type が「最後のグループ」を指す。 */
+.app-shell[data-ui-layout="word"] .ribbon-group:last-of-type {
+  border-right: 0;
+}
+
+/* 操作の面: 左に大ボタン、右に小ボタンの段。Word と同じ並び。 */
+.app-shell[data-ui-layout="word"] .ribbon-group-controls {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-sm);
+  min-width: 0;
+}
+
+.app-shell[data-ui-layout="word"] .ribbon-group-rows {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+  justify-content: center;
+  min-width: 0;
+}
+
+.app-shell[data-ui-layout="word"] .ribbon-group-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  min-width: 0;
+  min-height: 28px;
+}
+
+/* 大ボタンは «スロット» が決める。中身の element は docs のツールバーと共有して
+   いるものが多く (表・数式・図形…)、element 側に large を付けると docs の見た目まで
+   変わる。lucide の svg は width/height 属性で描くので、ここで上書きする。 */
+.app-shell[data-ui-layout="word"] .ribbon-group-large {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: stretch;
+}
+
+.app-shell[data-ui-layout="word"] .ribbon-group-large .icon-button,
+.app-shell[data-ui-layout="word"] .icon-button.large {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  align-items: center;
+  justify-content: center;
+  width: auto;
+  min-width: 52px;
+  height: 58px;
+  padding: var(--space-xs) var(--space-sm);
+  font-size: 11px;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+.app-shell[data-ui-layout="word"] .ribbon-group-large .icon-button svg,
+.app-shell[data-ui-layout="word"] .icon-button.large svg {
+  width: 24px;
+  height: 24px;
+}
+
+/* リボンの中では既存ツールバーのグループ枠を「ただの並び」に戻す
+   (押し出し用の .push や独自の余白を持ち込まない)。 */
+.app-shell[data-ui-layout="word"] .ribbon-group-controls .toolbar-group {
+  margin: 0;
+  padding: 0;
+}
+
+/* 見出し行。Word はグループ下端の中央にラベル、右下にダイアログランチャー。 */
+.app-shell[data-ui-layout="word"] .ribbon-group-footer {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--space-xs);
+  min-width: 0;
+  height: 14px;
+}
+
+.app-shell[data-ui-layout="word"] .ribbon-group-label {
+  grid-column: 1;
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 1;
+  text-align: center;
+  white-space: nowrap;
+}
+
+/* ランチャーが無いグループでもラベルの中央がずれないよう、右列は同じ幅を空ける。 */
+.app-shell[data-ui-layout="word"] .ribbon-group-footer::after {
+  grid-column: 2;
+  grid-row: 1;
+  width: 14px;
+  content: "";
+}
+
+.app-shell[data-ui-layout="word"] .ribbon-group-launcher {
+  display: flex;
+  grid-column: 2;
+  grid-row: 1;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--text-muted);
+}
+
+.app-shell[data-ui-layout="word"] .ribbon-group-launcher:hover {
+  background: var(--surface-strong);
+  color: var(--text-primary);
+}
+
+/* --- 折りたたみ --- */
+
+.app-shell[data-ui-layout="word"] .ribbon-collapse-button,
+.app-shell[data-ui-layout="word"] .ribbon-expand-button {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--text-secondary);
+}
+
+.app-shell[data-ui-layout="word"] .ribbon-collapse-button:hover,
+.app-shell[data-ui-layout="word"] .ribbon-expand-button:hover {
+  border-color: var(--border-subtle);
+  background: var(--surface-strong);
+  color: var(--text-primary);
+}
+
+/* 本体の右端・下寄せ (Word と同じ位置)。グループの縦罫には含めない。 */
+.app-shell[data-ui-layout="word"] .ribbon-collapse-button {
+  position: sticky;
+  right: 0;
+  align-self: flex-end;
+  margin-left: auto;
+  margin-bottom: var(--space-xs);
+  background: var(--surface-muted);
+}
+
+.app-shell[data-ui-layout="word"] .ribbon-expand-button {
+  align-self: center;
+  margin-left: var(--space-xs);
+}
+
+/* 折りたたみ中にタブを押して «浮かせた» 本体。トークンは動かさないので本文は
+   その場に留まり、こちらだけがタブ行の下に重なる。 */
+/* 浮かせた本体は «クロームの下端» に付ける。top を px で決め打つと、行が auto になる
+   820px 以下でタブ行へ食い込む (実測 16px 重なった)。.editor-menubar は sticky =
+   位置指定済みなので、その内容ボックス基準の top: 100% がちょうど下端になる。 */
+.app-shell[data-ui-layout="word"] .ribbon-body.is-overlay {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  left: 0;
+  z-index: 80;
+  height: 98px;
+  border-bottom: 1px solid var(--border);
+  box-shadow: var(--shadow-floating);
+}
+
+/* --- Backstage (ファイルタブ) --- */
+
+/* クロームの真下から画面下端までを覆う1画面。`.app-shell` の **中** に置くこと
+   （body portal へ出すとこのファイルのセレクタが1つも当たらない）。
+   位置は `position: fixed` + 固定 px ではなく **`.app-shell` のグリッド行**で決める:
+   820px 以下ではクロームの行が auto になり（globals.css / 下のブレークポイント）、
+   px で決め打つとタブ行へ食い込んでファイルタブを押し直せなくなる。
+   タブ行を覆わないのは「ファイルタブ再クリックで閉じる」を成り立たせるため
+   （本家 Word はタブ行ごと覆い、閉じる手段を ← だけにしている）。
+   z-index は クローム(70) / サイドバー(130) / 一括適用バー(140) より上、
+   --z-modal(5000) より下 — Backstage から開いたダイアログが上に出る。 */
+.app-shell[data-ui-layout="word"] .ribbon-backstage {
+  z-index: 200;
+  display: grid;
+  /* 本文の行からウィンドウ下端まで。3本目（ステータスバー）の行まで伸ばさないと、
+     Backstage の下に 26px の帯が残る（ステータスバーは Backstage 中は描かれないので、
+     何も無い --surface-soft の帯が見える）。 */
+  grid-row: 2 / -1;
+  grid-column: 1;
+  grid-template-columns: 220px minmax(0, 1fr);
+  min-height: 0;
+  background: var(--background);
+}
+
+.app-shell[data-ui-layout="word"] .ribbon-backstage-nav {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+  min-width: 0;
+  padding: var(--space-md) var(--space-sm);
+  /* 端まで来たホイールが背後の本文へ流れないようにする（Backstage は本文を覆う面）。 */
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  border-right: 1px solid var(--border-subtle);
+  background: var(--surface-soft);
+}
+
+.app-shell[data-ui-layout="word"] .ribbon-backstage-back {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  margin-bottom: var(--space-md);
+  border: 1px solid transparent;
+  border-radius: var(--radius-round);
+  background: transparent;
+  color: var(--text-primary);
+}
+
+.app-shell[data-ui-layout="word"] .ribbon-backstage-back:hover {
+  border-color: var(--border-subtle);
+  background: var(--surface-muted);
+}
+
+.app-shell[data-ui-layout="word"] .ribbon-backstage-nav-item {
+  flex: 0 0 auto;
+  padding: var(--space-sm) var(--space-md);
+  border: 1px solid transparent;
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--text-primary);
+  font-size: 14px;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.app-shell[data-ui-layout="word"] .ribbon-backstage-nav-item:hover {
+  border-color: var(--border-subtle);
+  background: var(--surface-muted);
+}
+
+/* 選択中は薄いグレーの面（.app-menu-button.active / .ribbon-tab[aria-selected] と同じ語彙）。 */
+.app-shell[data-ui-layout="word"] .ribbon-backstage-nav-item[aria-current="page"] {
+  border-color: var(--border-subtle);
+  background: var(--surface-strong);
+  font-weight: 500;
+}
+
+.app-shell[data-ui-layout="word"] .ribbon-backstage-pane {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-lg);
+  min-width: 0;
+  padding: var(--space-xl) var(--space-2xl);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.app-shell[data-ui-layout="word"] .ribbon-backstage-title {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: 22px;
+  font-weight: 500;
+  line-height: 1.3;
+}
+
+.app-shell[data-ui-layout="word"] .ribbon-backstage-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+  align-items: flex-start;
+  min-width: 0;
+}
+
+.app-shell[data-ui-layout="word"] .ribbon-backstage-group-label {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+/* コマンドは必ず文字ラベル付き。アイコンのみのボタンはここには置かない
+   （Word風で動線が読めなくなった直接原因）。 */
+.app-shell[data-ui-layout="word"] .ribbon-backstage-command {
+  display: flex;
+  gap: var(--space-sm);
+  align-items: center;
+  min-width: 280px;
+  padding: var(--space-sm) var(--space-md);
+  border: 1px solid transparent;
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--text-primary);
+  font-size: 14px;
+  text-align: left;
+}
+
+.app-shell[data-ui-layout="word"] .ribbon-backstage-command:hover:not(:disabled) {
+  border-color: var(--border-subtle);
+  background: var(--surface-muted);
+}
+
+.app-shell[data-ui-layout="word"] .ribbon-backstage-command:disabled {
+  color: var(--text-disabled);
+  cursor: default;
+}
+
+/* ショートカット表記は docs のメニューと同じく行の右端へ寄せる。 */
+.app-shell[data-ui-layout="word"] .ribbon-backstage-command kbd {
+  margin-left: auto;
+}
+
+.app-shell[data-ui-layout="word"] .ribbon-backstage-doc-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+  align-items: flex-start;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.app-shell[data-ui-layout="word"] .ribbon-backstage-doc {
+  display: flex;
+  gap: var(--space-sm);
+  align-items: center;
+  max-width: 100%;
+  padding: var(--space-xs) var(--space-sm);
+  overflow: hidden;
+  border: 1px solid transparent;
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 13px;
+  text-align: left;
+}
+
+.app-shell[data-ui-layout="word"] .ribbon-backstage-doc > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.app-shell[data-ui-layout="word"] .ribbon-backstage-doc:hover {
+  border-color: var(--border-subtle);
+  background: var(--surface-muted);
+}
+
+.app-shell[data-ui-layout="word"] .ribbon-backstage-doc[aria-current="true"] {
+  color: var(--text-primary);
+  font-weight: 500;
+}
+
+.app-shell[data-ui-layout="word"] .ribbon-backstage-doc-title {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: 16px;
+  overflow-wrap: anywhere;
+}
+
+/* --- レスポンシブ (既存クロームと同じブレークポイントに追随) --- */
+
+@media (max-width: 1120px) {
+  .app-shell[data-ui-layout="word"] .ribbon-group {
+    padding: var(--space-sm);
+  }
+
+  .app-shell[data-ui-layout="word"] .ribbon-group-label {
+    font-size: 10px;
+  }
+}
+
+@media (max-width: 820px) {
+  /* 820px では globals.css が .editor-menubar を auto 行に変えるが、こちらの方が
+     詳細度が高いので同じ指定をここでも書き直す必要がある。 */
+  .app-shell[data-ui-layout="word"] .editor-menubar {
+    grid-template-rows: auto auto auto;
+  }
+
+  /* globals.css は同じ breakpoint で .menubar-row を `display: flex; flex-wrap: wrap`
+     に、.brand を `display: grid` に変える。word のタイトル行は grid 前提
+     (grid-column で QAT / タイトル / 右端アクションを置いている) なので、display を
+     握り直さないと配置が丸ごと失効し、タイトルが中央でなくなり右端アクションが
+     ソース順で折り返す。docs 側の指定はそのまま。 */
+  .app-shell[data-ui-layout="word"] .menubar-row {
+    display: grid;
+    flex-wrap: nowrap;
+    align-items: center;
+  }
+
+  /* .brand は word では常に display: contents (中身が .menubar-row の grid item)。
+     ここで grid に戻されると grid-column が .brand の3列グリッドの中で解決されてしまう。 */
+  .app-shell[data-ui-layout="word"] .brand {
+    display: contents;
+  }
+
+  /* 狭い幅では保存状態の文言を削ってでも undo / redo と右端アクションを残す。 */
+  .app-shell[data-ui-layout="word"] .ribbon-qat .save-state-wrap {
+    min-width: 0;
+    max-width: 40vw;
+  }
+
+  /* 折りたたみ中も同じ理由で auto に戻す。74px/32px のまま残すと、狭い幅で
+     折り返したタイトル行が overflow: hidden に切られてタブ行ごと消える
+     (WI-2 で踏んだのと同じ罠)。 */
+  .app-shell[data-ui-layout="word"][data-ribbon-collapsed="true"] .editor-menubar {
+    grid-template-rows: auto auto;
+  }
+
+  /* 折りたたみ中に «浮かせた» リボン本体は .editor-menubar の外へはみ出す。
+     この breakpoint の overflow: hidden に切られるので、折りたたみ中だけ解く
+     (展開時の横方向のクリップは残す)。 */
+  .app-shell[data-ui-layout="word"][data-ribbon-collapsed="true"] .editor-menubar {
+    overflow: visible;
+  }
+
+  /* Backstage 表示中の2段クロームも同じく auto に戻す。ここで 74px/32px のまま
+     残すと、狭い幅で折り返したタイトル行が overflow: hidden に切られてタブ行ごと
+     消える。 */
+  .app-shell[data-ui-layout="word"][data-backstage-open="true"] .editor-menubar {
+    grid-template-rows: auto auto;
+  }
+}
+
+@media (max-width: 820px) {
+  /* 幅が無いときは左ナビを畳んで横並びにする（Word も細い幅では縮む）。 */
+  .app-shell[data-ui-layout="word"] .ribbon-backstage {
+    grid-template-columns: 160px minmax(0, 1fr);
+  }
+
+  .app-shell[data-ui-layout="word"] .ribbon-backstage-pane {
+    padding: var(--space-lg);
+  }
+
+  .app-shell[data-ui-layout="word"] .ribbon-backstage-command {
+    min-width: 0;
+  }
+}

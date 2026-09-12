@@ -1,0 +1,72 @@
+{
+  "name": "@sigma-studio/editor",
+  "version": "0.469.0",
+  "description": "Embeddable React editor for SigmaDoc teaching materials.",
+  "keywords": [
+    "sigma-studio",
+    "sigmadoc",
+    "react",
+    "math",
+    "education",
+    "editor"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Atsu-Taiyo/SIGMA-Studio.git",
+    "directory": "packages/editor"
+  },
+  "bugs": {
+    "url": "https://github.com/Atsu-Taiyo/SIGMA-Studio/issues"
+  },
+  "type": "module",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    },
+    "./styles.css": "./dist/styles.css",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "LICENSE",
+    "README.md",
+    "THIRD_PARTY_NOTICES.md"
+  ],
+  "sideEffects": [
+    "**/*.css"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "clean": "node ./scripts/clean.mjs",
+    "build": "npm run clean && node ./scripts/build.mjs && tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "vitest run",
+    "prepack": "npm run build"
+  },
+  "dependencies": {
+    "@sigma-studio/viewer": "0.469.0",
+    "zustand": "^5.0.15"
+  },
+  "peerDependencies": {
+    "react": ">=18.2.0 <20",
+    "react-dom": ">=18.2.0 <20"
+  },
+  "devDependencies": {
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
+    "esbuild": "^0.24.0",
+    "happy-dom": "^20.11.0",
+    "react": "^19.2.6",
+    "react-dom": "^19.2.6",
+    "typescript": "^5.9.3",
+    "vitest": "^3.2.4"
+  }
+}

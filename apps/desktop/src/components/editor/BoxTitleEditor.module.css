@@ -1,0 +1,40 @@
+.shell {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  padding: 2px 2px 2px var(--space-sm);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  background: var(--surface);
+}
+
+.shell:focus-within {
+  border-color: var(--border-strong);
+  outline: 2px solid color-mix(in srgb, var(--accent) 16%, transparent);
+  outline-offset: 1px;
+}
+
+.input {
+  min-width: 0;
+  flex: 1;
+}
+
+.field {
+  min-height: 26px;
+  outline: none;
+  color: var(--text-primary);
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.field p {
+  margin: 0;
+}
+
+.field p:global(.is-editor-empty):first-child::before {
+  content: attr(data-placeholder);
+  float: left;
+  height: 0;
+  color: var(--text-disabled);
+  pointer-events: none;
+}

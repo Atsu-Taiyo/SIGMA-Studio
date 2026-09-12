@@ -1,0 +1,49 @@
+.root {
+  grid-row: 1 / -1;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  width: 100%;
+  min-height: 100vh;
+  padding: var(--space-2xl) var(--space-lg) var(--space-3xl);
+  overflow: auto;
+}
+
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-lg);
+  width: min(var(--content-width-lg), 100%);
+  padding: var(--space-xl);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-panel);
+  background: var(--background);
+  box-shadow: var(--shadow-floating);
+}
+
+.header { display: flex; align-items: flex-start; gap: var(--space-md); }
+.headerIcon { display: inline-flex; flex: 0 0 auto; align-items: center; justify-content: center; width: 36px; height: 36px; border-radius: var(--radius-round); background: var(--danger-soft); color: var(--danger); }
+.headerText { display: flex; flex-direction: column; gap: var(--space-xs); min-width: 0; }
+.title { margin: 0; font-size: 17px; font-weight: 650; color: var(--text-primary); }
+.subtitle { margin: 0; font-size: 13px; color: var(--text-secondary); }
+.section { display: flex; flex-direction: column; gap: var(--space-sm); }
+.sectionTitle { margin: 0; font-size: 12px; font-weight: 650; letter-spacing: 0.04em; color: var(--text-muted); }
+.errorMessage { margin: 0; padding: var(--space-md); border: 1px solid color-mix(in srgb, var(--danger) 28%, var(--border-subtle)); border-radius: var(--radius-control); background: var(--danger-soft); color: var(--text-primary); font-size: 13px; line-height: 1.6; overflow-wrap: anywhere; }
+.failureList { display: flex; flex-direction: column; gap: var(--space-sm); margin: 0; padding: 0; list-style: none; }
+.failureItem { display: flex; flex-direction: column; gap: var(--space-xs); padding: var(--space-md); border: 1px solid var(--border-subtle); border-radius: var(--radius-control); background: var(--surface); }
+.failurePath { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; font-weight: 650; color: var(--text-primary); overflow-wrap: anywhere; }
+.failureMessage { font-size: 13px; color: var(--text-secondary); overflow-wrap: anywhere; }
+.failureValues { display: flex; flex-direction: column; gap: 2px; margin: 0; font-size: 12px; color: var(--text-secondary); }
+.failureValueRow { display: flex; gap: var(--space-sm); min-width: 0; }
+.failureValueLabel { flex: 0 0 auto; color: var(--text-muted); }
+.failureValue { min-width: 0; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; overflow-wrap: anywhere; }
+.pathRow { display: flex; align-items: center; gap: var(--space-sm); margin: 0; font-size: 12px; color: var(--text-muted); }
+.pathValue { min-width: 0; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; overflow-wrap: anywhere; user-select: text; }
+.promptWidget { display: flex; flex-direction: column; gap: var(--space-sm); padding: var(--space-md); border: 1px solid var(--border); border-radius: var(--radius-control); background: var(--surface-soft); }
+.promptHeader { display: flex; align-items: center; justify-content: space-between; gap: var(--space-md); }
+.promptHeaderText { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.promptTitle { font-size: 13px; font-weight: 650; color: var(--text-primary); }
+.promptHint { font-size: 12px; color: var(--text-muted); }
+.prompt { width: 100%; max-height: 240px; min-height: 132px; padding: var(--space-md); border: 1px solid var(--border-subtle); border-radius: var(--radius-control); background: var(--background); color: var(--text-secondary); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; line-height: 1.6; resize: vertical; }
+.copyFailed { margin: 0; color: var(--danger); font-size: 12px; }
+.actions { display: flex; flex-wrap: wrap; gap: var(--space-sm); }

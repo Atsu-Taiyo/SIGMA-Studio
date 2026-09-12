@@ -1,0 +1,3600 @@
+
+
+.outline-dialog-list span {
+  min-width: 0;
+  overflow: hidden;
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.outline-dialog-empty {
+  padding: 10px 8px;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+code {
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.issue-list {
+  margin: 10px 8px;
+  padding: 10px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  background: var(--background);
+}
+
+.issue-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.issue-list p {
+  margin: 7px 0 0;
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.editor-canvas {
+  min-width: 0;
+  overflow: auto;
+  padding: 0 38px 36px;
+  background: #fbfbfb;
+}
+
+/* ホワイトボードは無限キャンバスなので、紙モードの額縁 (左右38px・下36px) も
+   縦スクロールも持たない。属性セレクタ (詳細度 0,2,0) なので、狭い画面用の
+   `.editor-canvas { padding: 12px }` (ファイル下部のメディアクエリ) にも
+   記述順によらず勝つ。 */
+.editor-canvas[data-whiteboard="true"] {
+  padding: 0;
+  overflow: hidden;
+  background: var(--surface-soft);
+}
+
+/* 額縁が消えると Dock が表示領域の端に貼り付くので、ここだけインセットを与える。
+   AIタスクDockは padding ではなく margin: `.ai-task-dock-hover-bridge` は root の
+   padding box 基準の絶対配置なので、padding だとブリッジだけ取り残されてトグルと
+   ずれる。コメントDockは既存の --comment-dock-right-inset をそのまま使う。 */
+.editor-canvas[data-whiteboard="true"] .ai-task-dock-root {
+  margin-left: var(--space-lg);
+}
+
+.editor-canvas[data-whiteboard="true"] .comment-dock-root {
+  --comment-dock-right-inset: var(--space-lg);
+}
+
+.document-paper {
+  width: min(100%, 920px);
+  min-height: calc(100vh - var(--editor-chrome-height) - var(--editor-statusbar-height));
+  margin: 0 auto;
+  padding: 36px 62px 72px;
+  border-left: 1px solid var(--border);
+  border-right: 1px solid var(--border);
+  border-top: 0;
+  border-bottom: 0;
+  background: var(--background);
+  font-family: var(--editor-body-font-family);
+  font-size: var(--editor-font-size, 12pt);
+  zoom: var(--editor-zoom, 1);
+}
+
+/* The stack is scaled with a transform, which leaves no footprint of its own, so this
+ * reserves the scaled space for it. `--page-stack-natural-*` are published by the page
+ * canvas from the stack's untransformed `offsetWidth`/`offsetHeight`. */
+.page-mode {
+  position: relative;
+  min-width: 0;
+  /* Height only. Feeding a measured WIDTH back in ratchets: the stack is `min-width: 100%`
+   * of this box, so a wider box makes a wider stack makes a wider box. The height cannot
+   * do that — the stack is absolutely positioned, so this box's height never reaches it. */
+  min-height: max(
+    calc(100vh - var(--editor-chrome-height) - var(--editor-statusbar-height)),
+    calc(var(--page-stack-natural-height, 0px) * var(--editor-zoom, 1))
+  );
+}
+
+.page-mode-toolbar {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 46px;
+  margin: 0 -38px 18px;
+  padding: 6px 16px;
+  border-bottom: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.96);
+}
+
+.page-mode-segment {
+  grid-template-columns: repeat(2, 1fr);
+  width: 132px;
+}
+
+.page-shape-tools {
+  padding-inline: 0;
+}
+
+.page-mode-status {
+  margin-left: auto;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+/* Zoom scales the picture, never the layout.
+ *
+ * CSS `zoom` re-runs layout at the scaled font size, so line breaking — and with it the
+ * page breaks — changed with the zoom level: measured drift at 80% was about 0.5px per
+ * paragraph, accumulating down the page. The PDF is always cut at 100%, so a document
+ * edited at any other zoom was laid out slightly differently on screen than on paper.
+ * A transform paints the same layout at another size. See docs/pdf-parity-architecture.md. */
+.page-stack {
+  position: absolute;
+  top: 0;
+  left: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: max-content;
+  min-width: 100%;
+  padding: calc(24px + var(--overlay-bleed-top, 0)) var(--overlay-bleed-x, 0) 64px;
+  transform: scale(var(--editor-zoom, 1));
+  transform-origin: top left;
+}
+
+.page-stack.comments-visible {
+  padding-right: calc(330px + var(--overlay-bleed-x, 0));
+}
+
+/* Continuous canvas: one flowing content column over a backdrop of A4 sheets. */
+.page-canvas {
+  position: relative;
+  width: var(--page-width);
+  font-family: var(--editor-body-font-family);
+}
+
+.page-canvas-layers {
+  display: contents;
+}
+
+/* 高さの唯一の出典は `.workspace` のグリッド行 (= 100vh - クローム高 - ステータスバー高)。
+   ここで 100vh から引き直すと、リボンの段数・折りたたみ・ステータスバーの有無が変わる
+   たびに表示領域がはみ出し、縦スクロールバーと沈んだズームコントロールを生む。
+   480px の下限も同じ理由で持たない (表示領域より高くなった瞬間にはみ出す)。 */
+.page-mode.whiteboard-mode {
+  position: relative;
+  height: 100%;
+  overflow: hidden;
+  zoom: 1;
+}
+
+.page-stack.whiteboard-page-stack {
+  align-items: stretch;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  transform: none;
+  zoom: 1;
+}
+
+/* 下地の色は `.whiteboard-background` が唯一の出典 (背景パターンと同じ面に置く)。 */
+.page-canvas.whiteboard-page-canvas {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  touch-action: none;
+  user-select: none;
+}
+
+/* This focusable surface owns canvas shortcuts. The browser's native outline reads as a
+   finite page edge on the otherwise unbounded whiteboard, so selection chrome provides
+   the visible keyboard context instead. */
+.page-canvas.whiteboard-page-canvas:focus {
+  outline: none;
+}
+
+/* 下地の面。色とレイヤ構造だけをここに置き、パターン (background-image / -size /
+   -position) は `page-canvas/whiteboard-background.ts` が inline style で渡す。
+   分けている理由は「実効間隔が一定より狭くなったら描かない」というしきい値で、
+   `calc()` に条件分岐が無い以上 CSS 変数の算術では表現できないため。25% まで縮めると
+   間隔 6px に直径 2px の点が並んで砂嵐になる。 */
+.whiteboard-background {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  background-color: #fafafa;
+  pointer-events: none;
+}
+
+.whiteboard-canvas {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 1;
+  width: var(--whiteboard-canvas-width);
+  height: var(--whiteboard-canvas-height);
+  overflow: visible;
+  /* Camera math keeps the cursor-fixed logical point stable during zoom, so a
+     top-left origin is intentional even though the visual zoom anchor varies. */
+  transform:
+    translate(var(--whiteboard-pan-x, 0px), var(--whiteboard-pan-y, 0px))
+    scale(var(--whiteboard-zoom, 1));
+  transform-origin: 0 0;
+  will-change: transform;
+}
+
+/* Whiteboard interaction is owned by its always-mounted OverlayCanvasEditor. The preview only
+   paints comment/highlight decoration, so no descendant may re-enable pointer handling. */
+.whiteboard-canvas .page-overlay-preview,
+.whiteboard-canvas .page-overlay-preview * {
+  pointer-events: none;
+}
+
+.whiteboard-page-canvas.whiteboard-hand-ready,
+.whiteboard-page-canvas.whiteboard-hand-ready * {
+  cursor: grab !important;
+}
+
+.whiteboard-page-canvas.whiteboard-panning,
+.whiteboard-page-canvas.whiteboard-panning * {
+  cursor: grabbing !important;
+}
+
+/* 右下に並ぶ浮遊ピル群。位置は束ねる側が持ち、ピル自身は中身だけを持つ。 */
+.whiteboard-canvas-controls {
+  position: absolute;
+  right: var(--space-lg);
+  bottom: var(--space-lg);
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+}
+
+/* 浮遊ピルの見た目。ズームと背景の 2 つが共有する (新しい色・影・角丸は作らない)。
+   識別クラスは分けたまま: セレクタを 1 つに寄せると、どちらのピルを指しているのか
+   テストからも将来の調整からも書けなくなる。 */
+.whiteboard-zoom-controls,
+.whiteboard-background-controls {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  padding: var(--space-xs);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-control);
+  background: rgba(255, 255, 255, 0.94);
+  box-shadow: var(--shadow-floating);
+  backdrop-filter: blur(8px);
+}
+
+.whiteboard-zoom-controls button,
+.whiteboard-background-controls button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-round);
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer !important;
+}
+
+.whiteboard-zoom-controls button:hover,
+.whiteboard-background-controls button:hover {
+  background: var(--surface-muted);
+  color: var(--text-primary);
+}
+
+.whiteboard-background-controls button.is-selected {
+  background: var(--surface-muted);
+  color: var(--text-primary);
+}
+
+.whiteboard-zoom-controls button:focus-visible,
+.whiteboard-background-controls button:focus-visible {
+  background: var(--surface-muted);
+  color: var(--text-primary);
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.whiteboard-zoom-controls output {
+  min-width: 48px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+}
+
+.whiteboard-zoom-controls .whiteboard-reset-button {
+  width: auto;
+  padding-inline: var(--space-sm);
+  border-radius: var(--radius-control);
+  gap: var(--space-xs);
+}
+
+.whiteboard-reset-button span {
+  font-size: 12px;
+}
+
+.page-backdrop {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+}
+
+.page-layout-controls {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 5;
+  width: 0;
+  height: 0;
+  overflow: visible;
+  pointer-events: auto;
+}
+
+.page-layout-control-sheet {
+  position: absolute;
+  left: 0;
+  width: 0;
+  height: 0;
+  overflow: visible;
+  pointer-events: auto;
+  transform: translate(1px, 1px);
+}
+
+.page-layout-mode-chip {
+  position: absolute;
+  top: 8px;
+  left: calc(var(--page-width) - 10px);
+  z-index: 3;
+  padding: 3px 8px;
+  border: 1px solid rgba(15, 118, 110, 0.24);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.92);
+  color: #0f766e;
+  font-size: 11px;
+  font-weight: 750;
+  line-height: 1.4;
+  pointer-events: none;
+  transform: translateX(-100%);
+}
+
+.page-content-guide {
+  position: absolute;
+  border: 1px dashed rgba(99, 102, 241, 0.22);
+  background: rgba(99, 102, 241, 0.025);
+  pointer-events: none;
+}
+
+.page-margin-ruler {
+  position: absolute;
+  top: 4px;
+  left: 0;
+  z-index: 3;
+  width: var(--page-width);
+  height: 22px;
+  pointer-events: none;
+}
+
+.page-margin-ruler::before {
+  position: absolute;
+  right: 0;
+  bottom: 4px;
+  left: 0;
+  height: 1px;
+  background: rgba(17, 24, 39, 0.18);
+  content: "";
+}
+
+.page-margin-ruler-track {
+  position: absolute;
+  bottom: 3px;
+  height: 3px;
+  border-radius: 999px;
+  background: rgba(15, 118, 110, 0.32);
+}
+
+.page-margin-ruler-handle {
+  position: absolute;
+  bottom: 0;
+  width: 28px;
+  height: 18px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #334155;
+  cursor: ew-resize;
+  font-size: 10px;
+  font-weight: 700;
+  pointer-events: auto;
+  touch-action: none;
+}
+
+.page-margin-ruler-handle.left {
+  transform: translateX(-50%);
+}
+
+.page-margin-ruler-handle.right {
+  transform: translateX(50%);
+}
+
+.page-margin-ruler-handle::before {
+  position: absolute;
+  left: 50%;
+  bottom: 1px;
+  width: 9px;
+  height: 9px;
+  border: 1px solid rgba(15, 118, 110, 0.4);
+  border-radius: 2px;
+  background: #ffffff;
+  box-shadow: 0 1px 4px rgba(15, 23, 42, 0.16);
+  content: "";
+  transform: translateX(-50%) rotate(45deg);
+}
+
+.page-margin-ruler-handle span {
+  position: absolute;
+  bottom: 12px;
+  left: 50%;
+  padding: 1px 4px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.9);
+  transform: translateX(-50%);
+  white-space: nowrap;
+}
+
+.a4-page-sheet {
+  position: absolute;
+  left: 0;
+  width: var(--page-width);
+  height: var(--page-height);
+  overflow: hidden;
+  border: 1px solid var(--border);
+  background: #ffffff;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.12);
+}
+
+.a4-page-sheet .page-running-region,
+.print-a4-page .page-running-region {
+  color: #333333;
+}
+
+.page-running-editor-band {
+  position: absolute;
+  min-height: 8px;
+  border-radius: 3px;
+  background: transparent;
+  outline: 0;
+  cursor: default;
+  pointer-events: auto;
+}
+
+.page-running-editor-band.editing {
+  background: rgba(255, 255, 255, 0.72);
+  outline: 1px solid rgba(15, 118, 110, 0.42);
+  cursor: text;
+}
+
+.page-running-editor-band.footer.editing {
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.page-running-editor-band:not(.editing):hover {
+  background: rgba(15, 118, 110, 0.025);
+}
+
+.page-running-editor-label {
+  position: absolute;
+  top: 3px;
+  left: 6px;
+  z-index: 6;
+  padding: 1px 6px;
+  border: 1px solid rgba(15, 118, 110, 0.22);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.86);
+  color: #0f766e;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1.45;
+  pointer-events: none;
+}
+
+.page-running-edge {
+  position: absolute;
+  z-index: 7;
+  left: -10px;
+  right: -10px;
+  height: 10px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: ns-resize;
+  pointer-events: auto;
+  touch-action: none;
+}
+
+.page-running-edge::before {
+  position: absolute;
+  right: 0;
+  left: 0;
+  top: 4px;
+  height: 2px;
+  border-radius: 999px;
+  background: #0f766e;
+  content: "";
+  opacity: 0.8;
+}
+
+.page-running-edge::after {
+  position: absolute;
+  left: 50%;
+  top: 1px;
+  width: 34px;
+  height: 8px;
+  border: 1px solid rgba(15, 118, 110, 0.34);
+  border-radius: 999px;
+  background: #ffffff;
+  box-shadow: 0 1px 4px rgba(15, 23, 42, 0.16);
+  content: "";
+  transform: translateX(-50%);
+}
+
+.page-running-edge.start {
+  top: -5px;
+}
+
+.page-running-edge.end {
+  bottom: -5px;
+}
+
+.page-running-direct-editor {
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  padding: 0;
+  background: transparent;
+  pointer-events: auto;
+}
+
+.page-running-direct-flow {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+}
+
+.page-running-direct-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  overflow: hidden;
+}
+
+.page-running-direct-overlay.preview {
+  pointer-events: none;
+}
+
+.page-running-direct-overlay.preview.interactive {
+  cursor: default;
+  pointer-events: auto;
+}
+
+.page-running-direct-overlay.editing {
+  background: rgba(255, 255, 255, 0.08);
+  pointer-events: auto;
+}
+
+/* The edit band draws the same React shapes as the page, so it must not resize their `<svg>`
+   either — see the note in document-surface.css. Pointer events stay off the shapes themselves. */
+.page-running-direct-overlay.preview svg {
+  pointer-events: none;
+}
+
+.page-column-guides {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.page-column-guides span {
+  position: absolute;
+  top: var(--page-margin-top);
+  bottom: var(--page-margin-bottom);
+  width: 1px;
+  background: repeating-linear-gradient(
+    to bottom,
+    rgba(17, 17, 17, 0.16) 0,
+    rgba(17, 17, 17, 0.16) 5px,
+    transparent 5px,
+    transparent 10px
+  );
+}
+
+.page-flow {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 1;
+  width: var(--page-width);
+  padding: var(--page-margin-top) var(--page-margin-right) 0 var(--page-margin-left);
+  font-size: var(--editor-font-size, 12pt);
+}
+
+.page-flow.columns-active {
+  height: 100%;
+  padding: 0;
+}
+
+.page-flow-unit {
+  position: absolute;
+  min-width: 0;
+}
+
+.page-flow-page-break-marker {
+  position: absolute;
+  min-width: 0;
+  pointer-events: none;
+}
+
+.page-flow-unit .text-flow-editor {
+  width: 100%;
+}
+
+/*
+ * Column-flow units are placed by computed top/left coordinates, so they MUST be
+ * absolutely positioned. The base `.page-flow-unit` rule sets `position: absolute`,
+ * but a later comment-marker rule (`.page-flow-unit, .problem-area-flow-unit,
+ * [data-page-block] { position: relative }`) silently overrode it — leaving units
+ * in normal flow where `top`/`left` only *shift* them from their stacked position.
+ * That doubled every gap (one Enter looked like ~3 lines) and broke n-column layout
+ * entirely. Re-assert absolute with column-scoped specificity so it also wins for
+ * problem-area units (which carry `.page-flow-unit` in column mode).
+ */
+.page-flow.columns-active .page-flow-unit {
+  position: absolute;
+}
+
+/*
+ * Column flow places top-level flow units and, for continuous text runs, the
+ * paragraphs inside those units by computed top/left coordinates. The default
+ * `.text-flow-shell` chrome is meant for an unpositioned text run, so strip it
+ * here to keep measured paragraph heights aligned with their visual positions.
+ */
+.page-flow.columns-active .page-flow-unit .text-flow-shell {
+  margin: 0;
+  padding: 0;
+}
+
+.page-flow.columns-active .page-flow-unit .text-flow-editor {
+  min-height: 0;
+}
+
+.page-flow.columns-active .page-flow-unit .text-flow-shell.column-flow-positioned,
+.page-flow.columns-active .page-flow-unit .text-flow-shell.column-flow-positioned .text-flow-editor {
+  height: 100%;
+}
+
+.page-flow.columns-active .page-flow-unit .text-flow-shell.column-flow-positioned .text-flow-editor {
+  position: relative;
+}
+
+.page-flow.columns-active .problem-area-flow-unit.column-block-flowed {
+  margin: 0;
+  padding: 0;
+}
+
+.page-flow.columns-active .problem-area-flow-unit.column-block-flowed .problem-area-paper-content,
+.page-flow.columns-active .problem-area-flow-unit.column-block-flowed .problem-area-paper-body {
+  width: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+.page-flow.columns-active .problem-area-flow-unit.column-block-flowed .problem-area-paper-content.with-number {
+  display: block;
+}
+
+.page-flow.columns-active .problem-area-flow-unit.column-block-flowed .problem-number-marker {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 2;
+}
+
+.page-flow.columns-active .problem-area-flow-unit.column-block-flowed .problem-area-paper-content.with-number .text-flow-editor > :first-child {
+  box-sizing: border-box;
+  padding-left: calc(1.9em + 8px);
+}
+
+.text-flow-editor .text-flow-column-block {
+  margin: 0;
+}
+
+/*
+ * 見せる帯は「上端から可視高さまで」で決める。隠す量 (= 全高 − 可視高) を書くと、打鍵で
+ * 中身が伸びてからページ割りが追いつくまでの 1〜2 フレームだけ、伸びた分そのまま帯が下へ
+ * 伸びて箱がページ下端をはみ出して見える。可視高さを上端から測れば、ページ割りが遅れても
+ * 帯はページ境界に留まる (落ち着いた状態では両者は同じ値)。
+ */
+.text-flow-editor .text-flow-box-fragment-source {
+  clip-path: inset(0 0 max(0px, 100% - var(--text-flow-box-fragment-visible-height, 100%)) 0);
+}
+
+.page-box-fragment-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.editor-box-fragment-viewport {
+  position: absolute;
+  /*
+   * `clip` はスクロールコンテナ自体を作らないので `scrollTop` が構造的に 0 以外になれない。
+   * `hidden` だとブラウザ自身の caret-into-view や `scrollIntoView({block:"nearest"})` が
+   * ここを動かしてしまい、断片が恒久的にずれる。
+   */
+  overflow: clip;
+  cursor: text;
+  pointer-events: auto;
+}
+
+/*
+ * A continuation fragment is part of the same logical box as its source, which
+ * carries no selection outline — so the fragment must not draw one either, or the
+ * continuation reads as a separate, closed box. Selection is conveyed by the caret
+ * and the box action button, exactly like a box that fits on a single page.
+ */
+
+.editor-box-fragment-editor {
+  transform-origin: top left;
+}
+
+.editor-box-fragment-editor > .text-flow-shell {
+  margin: 0;
+  padding: 0;
+}
+
+.editor-box-fragment-editor > .text-flow-shell > .text-flow-side-selection-gutter {
+  display: none;
+}
+
+/* 続きの原点は、元ブロックのborder box。外側の余白だけを取り除き、
+   内部の段落・コード・入れ子枠の余白は元の組版と同じに保つ。
+   PDF clone が識別IDを外しても変わらないよう、ID属性に依存させない。 */
+.text-flow-fragment-content > .text-flow-editor > *,
+.editor-box-fragment-editor > .print-code {
+  margin-block: 0;
+}
+
+/* リスト先頭の段落余白はリスト外へ相殺されるため、原点合わせに含める。 */
+.text-flow-fragment-content > .text-flow-editor > :is(ol, ul) > li:first-child > :first-child {
+  margin-top: 0;
+}
+
+.editor-box-fragment-body.text-flow-editor {
+  min-height: 0;
+}
+
+.page-break-marker {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr auto;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  margin: 8px 0 10px;
+  color: #7a5a10;
+  font-size: 12px;
+  line-height: 1.2;
+  user-select: none;
+  pointer-events: auto;
+}
+
+.page-break-marker span {
+  border-top: 1px dashed #c59a2b;
+}
+
+.page-break-marker strong {
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.page-break-marker.positioned {
+  position: absolute;
+  z-index: 1;
+  height: 18px;
+  margin: 0;
+  pointer-events: auto;
+}
+
+.page-break-marker-remove {
+  min-width: 24px;
+  min-height: 24px;
+  padding: 2px 6px;
+  border: 1px solid color-mix(in srgb, currentColor 35%, transparent);
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--background) 92%, transparent);
+  color: inherit;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  opacity: 0;
+  transition-property: opacity, background-color;
+  transition-duration: 120ms;
+}
+
+.page-break-marker:hover .page-break-marker-remove,
+.page-break-marker:focus-within .page-break-marker-remove {
+  opacity: 1;
+}
+
+.page-break-marker-remove:hover {
+  background: color-mix(in srgb, currentColor 12%, var(--background));
+}
+
+.page-break-marker-remove:focus-visible {
+  opacity: 1;
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
+}
+
+.page-break-spacer {
+  display: block;
+  width: 100%;
+  pointer-events: none;
+  user-select: none;
+  font-size: 0;
+  line-height: 0;
+}
+
+.page-break-dialog {
+  position: fixed;
+  z-index: 150;
+  display: grid;
+  gap: 8px;
+  width: 260px;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--background);
+  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.14);
+}
+
+.page-break-dialog-header,
+.page-break-dialog-title,
+.page-break-dialog-actions {
+  display: flex;
+  align-items: center;
+}
+
+.page-break-dialog-header {
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.page-break-dialog-title {
+  gap: 7px;
+  min-width: 0;
+}
+
+.page-break-dialog-title h2 {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.3;
+}
+
+.page-break-dialog .icon-button {
+  width: 26px;
+  height: 26px;
+}
+
+.page-break-dialog-copy {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.page-break-dialog-actions {
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.page-break-dialog-actions .button {
+  min-height: 28px;
+  padding: 0 10px;
+  font-size: 12px;
+}
+
+.page-context-menu,
+.problem-context-menu {
+  position: fixed;
+  z-index: 180;
+  display: grid;
+  min-width: 188px;
+  padding: 4px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #ffffff;
+  box-shadow: 0 14px 34px rgba(15, 23, 42, 0.16);
+}
+
+.page-context-menu {
+  z-index: 190;
+}
+
+.page-context-menu button,
+.problem-context-menu button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 32px;
+  padding: 0 9px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.page-context-menu button:hover,
+.page-context-menu button:focus-visible,
+.problem-context-menu button:hover,
+.problem-context-menu button:focus-visible {
+  background: var(--surface-muted);
+  outline: none;
+}
+
+.page-context-menu button.selected,
+.problem-context-menu button.selected {
+  background: var(--surface-muted);
+  color: var(--accent);
+  font-weight: 700;
+}
+
+.page-context-menu button.danger,
+.problem-context-menu button.danger {
+  color: #b91c1c;
+}
+
+.page-context-menu button.danger:hover,
+.page-context-menu button.danger:focus-visible,
+.problem-context-menu button.danger:hover,
+.problem-context-menu button.danger:focus-visible {
+  background: #fef2f2;
+}
+
+.page-context-menu-submenu {
+  position: relative;
+}
+
+.page-context-menu-caret {
+  margin-left: auto;
+}
+
+.page-context-menu-submenu-panel {
+  position: absolute;
+  top: -4px;
+  left: calc(100% + 4px);
+  z-index: 191;
+  display: none;
+  min-width: 96px;
+  padding: 4px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #ffffff;
+  box-shadow: 0 14px 34px rgba(15, 23, 42, 0.16);
+}
+
+.page-context-menu-submenu:hover .page-context-menu-submenu-panel,
+.page-context-menu-submenu:focus-within .page-context-menu-submenu-panel {
+  display: grid;
+}
+
+/* R2: in-body "AI is working here" widgets, anchored to the live measured
+   target regions instead of a frozen pixel position. Each continuous body
+   selection (split again by columns/pages) sets its own inline center point;
+   the fixed `right` value below is only the no-measurement fallback. */
+.ai-run-anchor-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 6;
+  overflow: visible;
+  pointer-events: none;
+}
+
+/* R6 in-body run badge: a shimmering provider AI-icon that expands into an
+   activity card on hover. Echoes the pre-pill `.ai-inline-badge` look. */
+.ai-run-anchor-badge {
+  position: absolute;
+  right: 10px;
+  display: inline-flex;
+  pointer-events: auto;
+}
+
+.ai-run-anchor-badge-logo {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 5px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--background);
+  box-shadow: 0 8px 20px -14px rgb(15 23 42 / 0.45);
+  cursor: pointer;
+  transition: box-shadow 120ms ease, border-color 120ms ease;
+}
+
+.ai-run-anchor-badge-logo:hover {
+  border-color: color-mix(in srgb, var(--accent) 35%, var(--border));
+  box-shadow: 0 10px 24px -14px rgb(15 23 42 / 0.55);
+}
+
+.ai-run-anchor-badge-logo:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent) 40%, transparent);
+  outline-offset: 2px;
+}
+
+.ai-run-anchor-badge-mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Completion / failure badge tucked into the icon's corner. */
+.ai-run-anchor-badge-status {
+  position: absolute;
+  right: -4px;
+  bottom: -4px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 15px;
+  height: 15px;
+  border-radius: 999px;
+  border: 1.5px solid var(--background);
+  background: var(--success);
+  color: #fff;
+}
+
+.ai-run-anchor-badge-status--failed {
+  background: var(--danger);
+}
+
+/* Hover card: floating activity widget with a compose field. The badge stays
+   anchored in the page canvas; this card is portaled to <body> and positioned
+   against the badge so it can flip/shift away from the menubar and viewport
+   edges. */
+.ai-run-anchor-card {
+  position: fixed;
+  z-index: 246;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: min(320px, calc(100vw - 16px));
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: var(--background);
+  box-shadow:
+    0 24px 60px -28px rgb(15 23 42 / 0.55),
+    0 2px 8px rgb(15 23 42 / 0.08);
+  opacity: 1;
+  transform: scale(1);
+  pointer-events: auto;
+  overflow: hidden;
+  animation: ui-dialog-in 150ms ease both;
+  transition:
+    opacity 150ms ease,
+    transform 200ms cubic-bezier(0.2, 0.85, 0.25, 1);
+}
+
+.ai-run-anchor-card-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border);
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+}
+
+.ai-run-anchor-card-head:active {
+  cursor: grabbing;
+}
+
+.ai-run-anchor-card-head button {
+  cursor: pointer;
+}
+
+.ai-run-anchor-card-title {
+  min-width: 0;
+  flex: 1;
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 650;
+  line-height: 1.4;
+}
+
+.ai-run-anchor-card-time {
+  flex: none;
+  color: var(--text-muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.ai-run-anchor-card-list {
+  flex: none;
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.ai-run-anchor-card-transcript {
+  display: flex;
+  flex: 1;
+  min-height: 92px;
+  flex-direction: column;
+  gap: 10px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 2px 2px 4px;
+}
+
+.ai-run-anchor-card-transcript .ai-chat-turn {
+  flex: none;
+  padding: 0;
+}
+
+.ai-run-anchor-card-transcript .ai-chat-user-bubble {
+  max-width: 88%;
+  padding: 7px 9px;
+  font-size: 12px;
+}
+
+.ai-run-card-assistant-turn {
+  display: grid;
+  gap: 6px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.ai-run-card-assistant-turn .ai-chat-assistant-text,
+.ai-run-card-assistant-turn .ai-run-anchor-card-error {
+  margin: 0;
+}
+
+.ai-run-anchor-card-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.ai-run-anchor-card-item-icon {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  min-height: 17px;
+  color: var(--text-muted);
+}
+
+.ai-run-anchor-card-item[data-kind="error"] .ai-run-anchor-card-item-icon {
+  color: var(--danger);
+}
+
+.ai-run-anchor-card-item-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ai-run-anchor-card-empty,
+.ai-run-anchor-card-error {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.ai-run-anchor-card-error {
+  color: var(--danger);
+  white-space: normal;
+}
+
+/* Full follow-up composer embedded in the floating card. The input shell and
+   toolbar intentionally use the same classes as the sidebar composer. */
+.ai-run-card-composer {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+  flex: none;
+}
+
+.ai-run-card-model-wrap {
+  min-width: 0;
+}
+
+.ai-run-card-composer-error {
+  margin: 0;
+  color: var(--danger);
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.page-overlay-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  overflow: visible;
+  pointer-events: none;
+}
+
+/* The whiteboard camera transforms this layer as one 20,000 × 20,000 coordinate
+   surface. Do not let the paper-mode viewport inset shrink its layout box. */
+.whiteboard-canvas.page-overlay-layer {
+  inset: auto;
+  top: 0;
+  left: 0;
+  width: var(--whiteboard-canvas-width);
+  height: var(--whiteboard-canvas-height);
+}
+
+/* Paper mode expands this surface only by its measured bleed. A whiteboard has no paper bleed:
+   its event surface and logical editor both cover the full transformed coordinate space. */
+.whiteboard-canvas > .overlay-canvas-bleed-surface,
+.whiteboard-canvas > .overlay-canvas-bleed-surface > .overlay-canvas-editor {
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+/* Block handle, insertion line and the trailing "write here" strip. The layer itself never
+   takes a pointer event — only the three controls do — so text selection, figure hit-testing
+   and the margin drag-select gutter underneath keep working unchanged. */
+.page-block-affordance-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 25;
+  pointer-events: none;
+}
+
+.page-block-affordance-layer > * {
+  position: absolute;
+  pointer-events: auto;
+}
+
+.page-block-handle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  margin-left: -26px;
+  padding: 0;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--muted-foreground, #94a3b8);
+  cursor: pointer;
+  opacity: 0.75;
+}
+
+.page-block-handle:hover,
+.page-block-handle.selected {
+  background: var(--muted, #f1f5f9);
+  color: var(--foreground, #0f172a);
+  opacity: 1;
+}
+
+/* グリップは「掴んで動かす」もの。押して数 px 動いたらドラッグ、動かさなければクリック。 */
+.page-block-handle {
+  cursor: grab;
+  touch-action: none;
+}
+
+/* ---- ブロックのドラッグ (Notion 風) ----
+   ゴーストは React が触らない専用の層に置き、transform だけで追従する。紙面は 1px も動かない。 */
+.page-block-drag-ghost-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  pointer-events: none;
+}
+
+.page-block-drag-ghost {
+  position: absolute;
+  max-height: 260px;
+  overflow: hidden;
+  padding: 2px 4px;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--background, #ffffff) 92%, transparent);
+  box-shadow: 0 6px 24px rgba(15, 23, 42, 0.18), 0 0 0 1px color-mix(in srgb, var(--accent, #2563eb) 30%, transparent);
+  opacity: 0.85;
+  pointer-events: none;
+  will-change: transform;
+  /* 本文の余白規約に乗らない: 写しなので上下のマージンは持たない。 */
+  margin: 0;
+}
+
+.page-block-drag-ghost > * {
+  margin-top: 0 !important;
+}
+
+/* 掴んだ元のブロックは薄く残す (どこから持ち上げたかが見える)。本文の上に紙色のベールを
+   敷く — 本文側の要素に class を付けると ProseMirror の属性書き戻しで消える。 */
+.page-block-drag-source-veil {
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--background, #ffffff) 65%, transparent);
+  pointer-events: none;
+}
+
+/* ドラッグ中は落とし先の線だけを出す。グリップ・つまみ・＋ は次のホバーまで消えてよい。 */
+.page-canvas[data-block-dragging="true"] .page-block-handle,
+.page-canvas[data-block-dragging="true"] .page-block-space-handle,
+.page-canvas[data-block-dragging="true"] .page-block-insert-line {
+  display: none;
+}
+
+body.page-block-dragging,
+body.page-block-dragging * {
+  cursor: grabbing !important;
+}
+
+/* 落とし先の線。前後は横線、段組化は縦線。挿入線 (.page-block-insert-line) と同じ青。 */
+.page-block-drop-line {
+  position: absolute;
+  pointer-events: none;
+  background: var(--accent, #2563eb);
+  border-radius: 999px;
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--background, #ffffff) 60%, transparent);
+}
+
+.page-block-drop-line[data-orientation="horizontal"] {
+  height: 3px;
+  transform: translateY(-50%);
+}
+
+.page-block-drop-line[data-orientation="vertical"] {
+  width: 3px;
+  transform: translateX(-50%);
+}
+
+.page-block-drop-line::before {
+  content: "";
+  position: absolute;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: inherit;
+}
+
+.page-block-drop-line[data-orientation="horizontal"]::before {
+  left: -4px;
+  top: 50%;
+  transform: translateY(-50%);
+}
+
+.page-block-drop-line[data-orientation="vertical"]::before {
+  top: -4px;
+  left: 50%;
+  transform: translateX(-50%);
+}
+
+/* ブロックの下端を掴んで下余白を伸ばすつまみ。左ガターの 3 つは役割で棲み分ける:
+   - .page-block-handle (GripVertical) : ブロックの「選択」。上端・縦長・アイコン。
+   - .problem-area-resize-handle (1px) : 問題エリア全体の高さ。ホバーで薄く出る細線。
+   - ここ                              : ブロックの「下端を伸ばす」。下端・横の 1px 罫 + 下向きの山。
+   ホバーで初めてマウントされるので常時表示にはならず、絶対配置レイヤの中なので
+   出現しても紙面は 1px も動かない。 */
+.page-block-space-handle {
+  display: flex;
+  align-items: center;
+  /* 右の 4px は透明な当たり判定 (padding)。ボタンの右端を本文の左端に密着させる —
+     隙間があると、そこを通ってつまみへ向かう途中でホバーが「継ぎ目の下のブロック」へ
+     解決し直され、つまみが逃げる (段組フローは隣接ブロックの矩形が継ぎ目で 1px 弱
+     重なるので、継ぎ目の高さの直下解決は下のブロックに倒れる)。 */
+  box-sizing: border-box;
+  width: 30px;
+  height: 16px;
+  margin-left: -30px;
+  padding: 0 4px 0 0;
+  border: 0;
+  background: transparent;
+  color: var(--text-muted, #8a8a8a);
+  cursor: ns-resize;
+  /* ブロックの下端の線につまみの重心を合わせる。 */
+  transform: translateY(-50%);
+  touch-action: none;
+}
+
+/* 掴んでいる間は、動かしている辺そのものとしてポインタへ追従する。追従するブロックと
+   同じ 1 本の custom property を読むので、つまみと紙面がずれることが原理的に無い
+   (`top` を毎フレーム React で書き換えていた頃は、そのたびに紙面全体が再レンダーされた)。 */
+.page-block-space-handle[data-dragging="true"] {
+  transform: translateY(calc(-50% + var(--sigma-doc-space-after-preview, 0px)));
+}
+
+/* ドラッグ中に「掴んだブロックより下」を平行移動させる印。ProseMirror の node decoration と
+   フローユニットの className の両方が同じ 1 つのクラスを付け、値は紙面の親 (.page-canvas) に
+   書かれた custom property 1 本から読む。
+   transform なのは寸法を 1px も変えないため — padding を伸ばすと ResizeObserver が鳴り、
+   pointermove のたびに全体の計測とページ割りが走る (それが「まとめて瞬間移動」に見えていた
+   原因)。class は継承しないので、リスト項目や段の中身へ勝手に降りることもない。
+   ここは編集面だけの一時表示なので、共有の document-surface.css には置かない。 */
+.sigma-space-after-follower {
+  transform: translateY(var(--sigma-doc-space-after-preview, 0px));
+}
+
+/* `>--` のつまみ側: 下向きのシェブロン。ドラッグの向きを形で伝える。 */
+.page-block-space-handle::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-right: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+  border-radius: 1px;
+  transform: rotate(45deg) translate(-1px, -1px);
+}
+
+/* `>--` の罫側: 動かしている辺そのもの。 */
+.page-block-space-handle::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  margin-left: 4px;
+  border-radius: 999px;
+  background: currentColor;
+  opacity: 0.7;
+}
+
+/* 変化は色だけ。寸法を変えるとポインタの下で形が動いて掴み直しになる。 */
+.page-block-space-handle:hover,
+.page-block-space-handle[data-dragging="true"] {
+  color: var(--text-primary, #111111);
+}
+
+.page-block-space-handle[data-dragging="true"]::after {
+  opacity: 1;
+}
+
+/* 問題エリアの左ガターには問題番号・サイドノート・エリア高さハンドル (left:-17px) が
+   同居している。1 レーン外へ寄せて重なりを構造的に避ける。 */
+.page-block-space-handle[data-gutter-lane="problem"] {
+  margin-left: -54px;
+}
+
+.page-block-space-handle:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent) 22%, transparent);
+  outline-offset: 2px;
+}
+
+/* Selection reads as a wash of colour, not as a frame: a border here competes with the
+   problem frames and the box blocks that are already drawn as rectangles. */
+.page-block-selection-outline {
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--accent, #2563eb) 14%, transparent);
+  pointer-events: none;
+}
+
+.page-block-insert-line {
+  height: 0;
+  border-top: 2px solid var(--accent, #2563eb);
+  pointer-events: none;
+}
+
+.page-block-insert-button {
+  position: absolute;
+  top: -11px;
+  left: -26px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 1px solid var(--accent, #2563eb);
+  border-radius: 50%;
+  background: var(--background, #ffffff);
+  color: var(--accent, #2563eb);
+  cursor: pointer;
+  pointer-events: auto;
+}
+
+/* 下端つまみ (.page-block-space-handle: 本文左端から -30px) と同じ辺・同じレーンに
+   来たときの逃がし先。既定の位置のままだとつまみにほぼ完全に重なり、後から描かれる
+   こちらが必ずポインタを取ってしまう (問題・囲み枠の直前のブロックで、下端を掴んでも
+   何も起きない)。判定は `resolveBlockInsertButtonLane` (矩形はそこの写しと同じ)。 */
+.page-block-insert-button[data-lane="outer"] {
+  left: -56px;
+}
+
+.page-block-insert-button:hover {
+  background: var(--accent, #2563eb);
+  color: #ffffff;
+}
+
+.page-overlay-background-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.page-overlay-layer.editing {
+  pointer-events: auto;
+}
+
+.overlay-canvas-bleed-surface {
+  position: absolute;
+  inset: calc(var(--overlay-bleed-top, 0) * -1) calc(var(--overlay-bleed-x, 0) * -1) 0;
+  touch-action: none;
+  user-select: none;
+}
+
+.overlay-canvas-editor {
+  position: absolute;
+  left: var(--overlay-bleed-x, 0);
+  right: var(--overlay-bleed-x, 0);
+  top: var(--overlay-bleed-top, 0);
+  bottom: 0;
+}
+
+.overlay-canvas-bleed-surface.background,
+.overlay-canvas-editor.background,
+.overlay-canvas-editor.background .overlay-shape {
+  pointer-events: none;
+}
+
+.overlay-canvas-editor.inserting,
+.overlay-canvas-editor.inserting .overlay-shape {
+  cursor: crosshair;
+}
+
+.overlay-insert-preview-frame {
+  position: absolute;
+  z-index: 8;
+  box-sizing: border-box;
+  border: 1px dashed color-mix(in srgb, #2563eb 70%, transparent);
+  background: color-mix(in srgb, #2563eb 6%, transparent);
+  pointer-events: none;
+}
+
+.overlay-insert-preview-shape {
+  z-index: 9;
+  pointer-events: none;
+  opacity: 0.55;
+}
+
+.overlay-insert-preview-shape .overlay-text-shape-content,
+.overlay-insert-preview-shape .ProseMirror {
+  pointer-events: none;
+  user-select: none;
+}
+
+.overlay-snap-guides {
+  position: absolute;
+  inset: 0;
+  z-index: 12;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.overlay-snap-guide-line {
+  fill: none;
+  stroke: #0ea5e9;
+  stroke-width: 1.25;
+  stroke-dasharray: 5 4;
+  vector-effect: non-scaling-stroke;
+}
+
+.overlay-canvas-loading {
+  position: absolute;
+  inset: 0;
+  background: transparent;
+}
+
+.overlay-shape.selected {
+  z-index: 2;
+}
+
+.overlay-shape-dimension-label {
+  position: absolute;
+  z-index: 6;
+  box-sizing: border-box;
+  color: var(--accent);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.3;
+  pointer-events: none;
+  text-align: center;
+  transform: translateX(-50%);
+  white-space: nowrap;
+}
+
+.overlay-shape-hit-target {
+  background: transparent;
+  opacity: 0;
+}
+
+.overlay-selection-box {
+  position: absolute;
+  z-index: 8;
+  box-sizing: border-box;
+  border: 1.5px solid var(--accent);
+  pointer-events: none;
+}
+
+.overlay-selection-box.image-cropping {
+  border: 3px solid #1a73e8;
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.9),
+    0 0 0 2px rgba(26, 115, 232, 0.22);
+}
+
+.overlay-selection-box.multi {
+  border-style: dashed;
+}
+
+.overlay-marquee-box {
+  position: absolute;
+  z-index: 7;
+  box-sizing: border-box;
+  border: 1px solid var(--accent);
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  pointer-events: none;
+}
+
+.overlay-selection-box.point-only {
+  border: 0;
+}
+
+.overlay-rotate-handle {
+  position: absolute;
+  top: -34px;
+  left: 50%;
+  width: 18px;
+  height: 18px;
+  border: 1.5px solid var(--accent);
+  border-radius: 999px;
+  background: #ffffff;
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.16);
+  cursor: grab;
+  pointer-events: auto;
+  transform: translateX(-50%);
+  display: grid;
+  place-items: center;
+}
+
+.overlay-rotate-handle:active {
+  cursor: grabbing;
+}
+
+.overlay-rotate-handle svg {
+  color: var(--accent);
+  pointer-events: none;
+}
+
+.overlay-rotate-handle::after {
+  position: absolute;
+  left: 50%;
+  bottom: -17px;
+  width: 1.5px;
+  height: 17px;
+  background: var(--accent);
+  content: "";
+  transform: translateX(-50%);
+}
+
+/*
+ * 本文アンカーの表示。横線は「ここから下が図に紐付く」境界そのものなので、
+ * 段落を横切らないよう行の直後(最終行はブロック下端)に置く。線自体は
+ * pointer-events:none にして、掴めるのは中央のグリップだけにする。
+ */
+.overlay-anchor-handle {
+  --overlay-anchor-color: var(--accent);
+  --overlay-anchor-grip-x: 50%;
+  position: absolute;
+  z-index: 10;
+  height: 18px;
+  border: 0;
+  background: transparent;
+  box-sizing: border-box;
+  color: var(--overlay-anchor-color);
+  line-height: 0;
+  padding: 0;
+  pointer-events: none;
+  touch-action: none;
+  transform: translateY(-50%);
+}
+
+.overlay-anchor-handle.state-page,
+.overlay-anchor-handle.state-shape {
+  --overlay-anchor-color: #64748b;
+}
+
+.overlay-anchor-handle.state-missing {
+  --overlay-anchor-color: #d97706;
+}
+
+.overlay-anchor-rule {
+  position: absolute;
+  top: 50%;
+  right: 0;
+  left: 0;
+  height: 1.5px;
+  border-radius: 999px;
+  background: var(--overlay-anchor-color);
+  /* 本文の行間に置くので、文字と密着しないよう白いハローで抜く。 */
+  box-shadow: 0 0 0 1.5px color-mix(in srgb, var(--surface, #ffffff) 82%, transparent);
+  pointer-events: none;
+  opacity: 0;
+  transform: translateY(-50%);
+}
+
+/* 両端を下向きの爪にして、線から下が図の領域だと示す。 */
+.overlay-anchor-rule::before,
+.overlay-anchor-rule::after {
+  position: absolute;
+  top: 0;
+  width: 1.5px;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--overlay-anchor-color);
+  content: "";
+}
+
+.overlay-anchor-rule::before {
+  left: 0;
+}
+
+.overlay-anchor-rule::after {
+  right: 0;
+}
+
+.overlay-anchor-handle.above .overlay-anchor-rule::before,
+.overlay-anchor-handle.above .overlay-anchor-rule::after {
+  top: auto;
+  bottom: 0;
+}
+
+.overlay-anchor-handle.state-page .overlay-anchor-rule,
+.overlay-anchor-handle.state-shape .overlay-anchor-rule,
+.overlay-anchor-handle.state-missing .overlay-anchor-rule {
+  background: repeating-linear-gradient(
+    to right,
+    var(--overlay-anchor-color) 0 5px,
+    transparent 5px 9px
+  );
+}
+
+.overlay-anchor-grip {
+  position: absolute;
+  top: 50%;
+  left: var(--overlay-anchor-grip-x);
+  display: inline-flex;
+  height: 16px;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  border-radius: 999px;
+  background: var(--overlay-anchor-color);
+  color: #ffffff;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.24);
+  cursor: grab;
+  padding: 0;
+  pointer-events: auto;
+  transform: translate(-50%, -50%);
+  white-space: nowrap;
+}
+
+/* 常時表示はグリップだけ。説明はポインタまたはキーボードで持ち手を指した時に出す。 */
+.overlay-anchor-tip {
+  position: absolute;
+  top: calc(50% + 16px);
+  left: var(--overlay-anchor-grip-x);
+  z-index: 1;
+  display: grid;
+  width: max-content;
+  max-width: 260px;
+  gap: 3px;
+  border: 1px solid rgb(255 255 255 / 14%);
+  border-radius: 7px;
+  background: #202020;
+  box-shadow: 0 8px 24px rgb(17 17 17 / 18%);
+  color: #ffffff;
+  font-size: 11px;
+  line-height: 1.45;
+  opacity: 0;
+  padding: 6px 9px;
+  pointer-events: none;
+  text-align: left;
+  transform: translate(-50%, -2px);
+  transition: opacity 110ms ease, transform 110ms ease;
+  transition-delay: 260ms;
+  white-space: normal;
+}
+
+.overlay-anchor-handle:hover .overlay-anchor-tip,
+.overlay-anchor-handle:focus-visible .overlay-anchor-tip {
+  opacity: 1;
+  transform: translate(-50%, 0);
+}
+
+.overlay-anchor-tip-title {
+  font-weight: 650;
+}
+
+.overlay-anchor-tip-body {
+  color: rgb(255 255 255 / 78%);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .overlay-anchor-tip {
+    transition: none;
+  }
+}
+
+.overlay-anchor-handle:hover .overlay-anchor-rule,
+.overlay-anchor-handle:focus-visible .overlay-anchor-rule,
+.overlay-anchor-handle.dragging .overlay-anchor-rule {
+  height: 2.5px;
+  opacity: 1;
+}
+
+.overlay-anchor-handle:focus-visible {
+  outline: none;
+}
+
+.overlay-anchor-handle:focus-visible .overlay-anchor-grip {
+  outline: 2px solid color-mix(in srgb, var(--overlay-anchor-color) 34%, transparent);
+  outline-offset: 2px;
+}
+
+.overlay-anchor-handle.dragging .overlay-anchor-grip,
+.overlay-anchor-grip:active {
+  cursor: grabbing;
+}
+
+.overlay-anchor-handle svg {
+  display: block;
+  pointer-events: none;
+}
+
+/* 横線と図をつなぐ引き出し線。「この線から下(上)がこの図」を一目で示す。 */
+.overlay-anchor-leader {
+  position: absolute;
+  z-index: 9;
+  overflow: visible;
+  color: color-mix(in srgb, var(--accent) 62%, transparent);
+  fill: none;
+  pointer-events: none;
+  stroke: currentcolor;
+}
+
+.overlay-anchor-leader.state-page,
+.overlay-anchor-leader.state-shape {
+  color: color-mix(in srgb, #64748b 62%, transparent);
+}
+
+.overlay-anchor-leader.state-missing {
+  color: color-mix(in srgb, #d97706 70%, transparent);
+}
+
+.overlay-anchor-leader path {
+  stroke-dasharray: 3 3;
+  stroke-width: 1.5;
+}
+
+.overlay-anchor-leader circle {
+  fill: currentcolor;
+  stroke: none;
+}
+
+/* 選択中は紐付いている本文ブロックを、ドラッグ中は紐付け先になるブロックを面で示す。 */
+/* The block a figure hangs from (or would attach to). Same rule as the block selection above:
+   colour only, so the highlight never reads as another frame drawn around the text. Resting is
+   half the drag's wash — it names the paragraph without competing with the body text. */
+.overlay-anchor-target {
+  position: absolute;
+  z-index: 8;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--accent) 7%, transparent);
+  pointer-events: none;
+}
+
+.overlay-anchor-target.dragging {
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+}
+
+/*
+ * Click-to-place drawing: the vertices as they are placed, and the one line telling the author what
+ * to do next. Both are display-only; the hit testing for these tools lives in the canvas.
+ */
+.overlay-drawing-markers {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 12;
+}
+
+.overlay-drawing-vertex-marker {
+  position: absolute;
+  width: 7px;
+  height: 7px;
+  border: 1.5px solid var(--accent);
+  border-radius: 999px;
+  background: #fff;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+
+.overlay-drawing-vertex-marker.pending {
+  opacity: 0.55;
+}
+
+/* The first vertex while a click there would close the shape — otherwise a 10px invisible target. */
+.overlay-drawing-vertex-marker.close-target {
+  width: 13px;
+  height: 13px;
+  border-width: 2px;
+  background: color-mix(in srgb, var(--accent) 22%, #fff);
+}
+
+.overlay-drawing-hint {
+  position: fixed;
+  left: 50%;
+  /* Word風での持ち上げは ribbon-chrome.css 側で行う。この要素は body へ portal
+     されるので `.app-shell` の外にあり、word スコープのトークンが届かない。 */
+  bottom: 24px;
+  transform: translateX(-50%);
+  z-index: 60;
+  max-width: min(90vw, 720px);
+  padding: 6px 14px;
+  border-radius: 999px;
+  background: rgba(17, 24, 39, 0.92);
+  color: #fff;
+  font-size: 12px;
+  line-height: 1.5;
+  text-align: center;
+  pointer-events: none;
+}
+
+/*
+ * The midpoint "add a control point" handle. Dashed and quieter than a vertex handle so the two are
+ * not mistaken for each other, and on its own class because several tests count vertex handles.
+ */
+.overlay-line-insert-handle {
+  position: absolute;
+  /* The selection box is `pointer-events: none`; every handle inside it opts back in. */
+  pointer-events: auto;
+  /* Below the vertex handles (z-index 3) so a vertex always wins an overlap. */
+  width: calc(var(--overlay-point-handle-size, 8px) * 0.78);
+  height: calc(var(--overlay-point-handle-size, 8px) * 0.78);
+  border: 1.5px dashed var(--accent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent) 14%, #fff);
+  transform: translate(-50%, -50%);
+  opacity: 0.6;
+  cursor: copy;
+  z-index: 2;
+}
+
+.overlay-line-insert-handle::after {
+  content: "";
+  position: absolute;
+  inset: -6px;
+}
+
+.overlay-line-insert-handle:hover {
+  opacity: 1;
+}
+
+.overlay-point-handle {
+  position: absolute;
+  /* リサイズハンドル(z-index:2)と重なった場合は点ハンドルを優先して掴めるようにする。 */
+  z-index: 3;
+  border-radius: 999px;
+  background: #ffffff;
+  pointer-events: auto;
+  transform: translate(-50%, -50%);
+}
+
+.overlay-point-handle {
+  width: var(--overlay-point-handle-size, 8px);
+  height: var(--overlay-point-handle-size, 8px);
+  border: 1.5px solid var(--accent);
+  cursor: move;
+}
+
+.overlay-point-handle::after {
+  /* 視覚サイズより広いヒット領域（実効 ~20px 四方）。 */
+  position: absolute;
+  inset: -6px;
+  content: "";
+}
+
+/* Google Slides 風の黄色いひし形アジャストハンドル(円弧、吹き出し口、角丸)。 */
+.overlay-adjust-handle {
+  width: calc(var(--overlay-point-handle-size, 8px) + 2px);
+  height: calc(var(--overlay-point-handle-size, 8px) + 2px);
+  border: 1.5px solid #b45309;
+  border-radius: 1.5px;
+  background: #ffc107;
+  cursor: grab;
+  transform: translate(-50%, -50%) rotate(45deg);
+}
+
+.overlay-adjust-handle::after {
+  /* 視覚サイズより広いヒット領域(実効 ~20px 四方)。 */
+  position: absolute;
+  inset: -6px;
+  content: "";
+}
+
+.overlay-adjust-handle:hover {
+  transform: translate(-50%, -50%) rotate(45deg) scale(1.25);
+}
+
+.overlay-adjust-handle:active {
+  cursor: grabbing;
+}
+
+.overlay-callout-corner-radius-handle,
+.overlay-callout-corner-radius-handle:active {
+  cursor: nwse-resize;
+}
+
+/* ドラッグ中の数値ライブ表示(半径・中心角)。ポインタ近傍に追従する。 */
+.overlay-drag-readout {
+  position: absolute;
+  z-index: 20;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: rgba(17, 24, 39, 0.9);
+  color: #ffffff;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.4;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.overlay-resize-handle {
+  position: absolute;
+  z-index: 2;
+  width: var(--overlay-corner-handle-size, 9px);
+  height: var(--overlay-corner-handle-size, 9px);
+  border: 1px solid var(--accent);
+  border-radius: 2px;
+  background: #ffffff;
+  pointer-events: auto;
+}
+
+.overlay-resize-handle.n,
+.overlay-resize-handle.s {
+  z-index: 1;
+  right: 12px;
+  left: 12px;
+  width: auto;
+  height: 12px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  cursor: ns-resize;
+}
+
+.overlay-resize-handle.n {
+  top: -6px;
+}
+
+.overlay-resize-handle.s {
+  bottom: -6px;
+}
+
+.overlay-resize-handle.e,
+.overlay-resize-handle.w {
+  z-index: 1;
+  top: 12px;
+  bottom: 12px;
+  width: 12px;
+  height: auto;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  cursor: ew-resize;
+}
+
+.overlay-resize-handle.e {
+  right: -6px;
+}
+
+.overlay-resize-handle.w {
+  left: -6px;
+}
+
+.overlay-resize-handle.n::after,
+.overlay-resize-handle.s::after,
+.overlay-resize-handle.e::after,
+.overlay-resize-handle.w::after {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  border: 1px solid var(--accent);
+  border-radius: 999px;
+  background: #ffffff;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.14);
+  content: "";
+  transform: translate(-50%, -50%);
+}
+
+.overlay-resize-handle.n::after,
+.overlay-resize-handle.s::after {
+  width: var(--overlay-resize-handle-length, 18px);
+  height: 5px;
+}
+
+.overlay-resize-handle.e::after,
+.overlay-resize-handle.w::after {
+  width: 5px;
+  height: var(--overlay-resize-handle-length, 18px);
+}
+
+/* arc/扇形は角度ハンドルとの重なりを避けつつ、辺ドラッグのヒット領域は残す。 */
+.overlay-resize-handle.hit-only::after {
+  display: none;
+}
+
+.overlay-resize-handle.nw {
+  top: var(--overlay-corner-handle-offset, -5px);
+  left: var(--overlay-corner-handle-offset, -5px);
+  cursor: nwse-resize;
+}
+
+.overlay-resize-handle.ne {
+  top: var(--overlay-corner-handle-offset, -5px);
+  right: var(--overlay-corner-handle-offset, -5px);
+  cursor: nesw-resize;
+}
+
+.overlay-resize-handle.sw {
+  bottom: var(--overlay-corner-handle-offset, -5px);
+  left: var(--overlay-corner-handle-offset, -5px);
+  cursor: nesw-resize;
+}
+
+.overlay-resize-handle.se {
+  right: var(--overlay-corner-handle-offset, -5px);
+  bottom: var(--overlay-corner-handle-offset, -5px);
+  cursor: nwse-resize;
+}
+
+.overlay-crop-handle {
+  position: absolute;
+  z-index: 3;
+  box-sizing: border-box;
+  border: 0;
+  background: transparent;
+  pointer-events: auto;
+}
+
+.overlay-crop-handle.n,
+.overlay-crop-handle.s {
+  right: 12px;
+  left: 12px;
+  width: auto;
+  height: 16px;
+  border: 0;
+  background: transparent;
+  cursor: ns-resize;
+}
+
+.overlay-crop-handle.n {
+  top: -9px;
+}
+
+.overlay-crop-handle.s {
+  bottom: -9px;
+}
+
+.overlay-crop-handle.e,
+.overlay-crop-handle.w {
+  top: 12px;
+  bottom: 12px;
+  width: 16px;
+  height: auto;
+  border: 0;
+  background: transparent;
+  cursor: ew-resize;
+}
+
+.overlay-crop-handle.e {
+  right: -9px;
+}
+
+.overlay-crop-handle.w {
+  left: -9px;
+}
+
+.overlay-crop-handle.n::after,
+.overlay-crop-handle.s::after,
+.overlay-crop-handle.e::after,
+.overlay-crop-handle.w::after {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  border-radius: 1px;
+  background: #111111;
+  box-shadow:
+    0 0 0 1px #ffffff,
+    0 1px 3px rgba(0, 0, 0, 0.28);
+  content: "";
+  transform: translate(-50%, -50%);
+}
+
+.overlay-crop-handle.n::after,
+.overlay-crop-handle.s::after {
+  width: var(--overlay-resize-handle-length, 34px);
+  height: var(--overlay-crop-edge-handle-thickness, 8px);
+}
+
+.overlay-crop-handle.e::after,
+.overlay-crop-handle.w::after {
+  width: var(--overlay-crop-edge-handle-thickness, 8px);
+  height: var(--overlay-resize-handle-length, 34px);
+}
+
+.overlay-crop-handle.nw,
+.overlay-crop-handle.ne,
+.overlay-crop-handle.sw,
+.overlay-crop-handle.se {
+  width: var(--overlay-crop-corner-handle-size, 18px);
+  height: var(--overlay-crop-corner-handle-size, 18px);
+  filter:
+    drop-shadow(1px 0 0 #ffffff)
+    drop-shadow(-1px 0 0 #ffffff)
+    drop-shadow(0 1px 0 #ffffff)
+    drop-shadow(0 -1px 0 #ffffff);
+}
+
+.overlay-crop-handle.nw::before,
+.overlay-crop-handle.ne::before,
+.overlay-crop-handle.sw::before,
+.overlay-crop-handle.se::before,
+.overlay-crop-handle.nw::after,
+.overlay-crop-handle.ne::after,
+.overlay-crop-handle.sw::after,
+.overlay-crop-handle.se::after {
+  position: absolute;
+  background: #111111;
+  content: "";
+}
+
+.overlay-crop-handle.nw::before,
+.overlay-crop-handle.ne::before,
+.overlay-crop-handle.sw::before,
+.overlay-crop-handle.se::before {
+  width: 16px;
+  height: 5px;
+}
+
+.overlay-crop-handle.nw::after,
+.overlay-crop-handle.ne::after,
+.overlay-crop-handle.sw::after,
+.overlay-crop-handle.se::after {
+  width: 5px;
+  height: 16px;
+}
+
+.overlay-crop-handle.nw {
+  top: var(--overlay-crop-corner-handle-offset, -5px);
+  left: var(--overlay-crop-corner-handle-offset, -5px);
+  cursor: nwse-resize;
+}
+
+.overlay-crop-handle.nw::before,
+.overlay-crop-handle.nw::after {
+  top: 0;
+  left: 0;
+}
+
+.overlay-crop-handle.ne {
+  top: var(--overlay-crop-corner-handle-offset, -5px);
+  right: var(--overlay-crop-corner-handle-offset, -5px);
+  cursor: nesw-resize;
+}
+
+.overlay-crop-handle.ne::before,
+.overlay-crop-handle.ne::after {
+  top: 0;
+  right: 0;
+}
+
+.overlay-crop-handle.sw {
+  bottom: var(--overlay-crop-corner-handle-offset, -5px);
+  left: var(--overlay-crop-corner-handle-offset, -5px);
+  cursor: nesw-resize;
+}
+
+.overlay-crop-handle.sw::before,
+.overlay-crop-handle.sw::after {
+  bottom: 0;
+  left: 0;
+}
+
+.overlay-crop-handle.se {
+  right: var(--overlay-crop-corner-handle-offset, -5px);
+  bottom: var(--overlay-crop-corner-handle-offset, -5px);
+  cursor: nwse-resize;
+}
+
+.overlay-crop-handle.se::before,
+.overlay-crop-handle.se::after {
+  right: 0;
+  bottom: 0;
+}
+
+.overlay-image-frame.cropping {
+  cursor: move;
+}
+
+.overlay-image-frame.cropping:active {
+  cursor: move;
+}
+
+.overlay-image-crop-viewport {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  overflow: hidden;
+}
+
+.overlay-image-crop-inner {
+  transform-origin: top left;
+}
+
+.overlay-image-crop-ghost {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 0;
+  filter: brightness(0.68) saturate(0.8);
+  opacity: 0.4;
+  transform-origin: top left;
+  user-select: none;
+  pointer-events: none;
+}
+
+.overlay-image-crop-ghost img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: fill;
+}
+
+.overlay-image-shape {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: fill;
+  user-select: none;
+}
+
+/* Inside figures, inline math hugs its glyphs with no surrounding padding so
+   the auto-sized bounding box stays flush with the formula. */
+
+.overlay-text-shape.embedded-callout,
+.overlay-text-shape.embedded-callout .ProseMirror {
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  text-align: center;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+/* The segments of a run that is outlined by a single drawn rectangle paint no border of their
+ * own; that rule lives in document-surface.css, keyed on the drawn frame rather than on this
+ * surface, because the static twin of this editor has to agree with it. */
+
+/* The mark span is a wrapper — outside the measuring pass it draws no frame, and the
+ * segments inside it do. It used to be given one here because measurement read the mark
+ * itself; now that each segment is measured on the element it is decorated on, a frame
+ * here would nest one border inside another and offset every segment's top. */
+
+.overlay-table-shape {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  color: #111827;
+  font-size: 15pt;
+  line-height: 1.35;
+}
+
+.overlay-table-shape-table {
+  box-sizing: border-box;
+  border-collapse: collapse;
+  table-layout: fixed;
+  background: transparent;
+}
+
+.overlay-table-rendered-lines {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  pointer-events: none;
+}
+
+.overlay-table-rendered-line {
+  position: absolute;
+  pointer-events: none;
+}
+
+.overlay-table-line-connector {
+  position: absolute;
+  z-index: 3;
+  box-sizing: border-box;
+  pointer-events: none;
+}
+
+.overlay-table-rendered-line.vertical {
+  top: 0;
+  bottom: 0;
+  width: 0;
+}
+
+.overlay-table-line-connector.vertical {
+  width: 0;
+}
+
+.overlay-table-rendered-line.horizontal {
+  right: 0;
+  left: 0;
+  height: 0;
+}
+
+.overlay-table-line-connector.horizontal {
+  height: 0;
+}
+
+.table-insert-grid-popover {
+  position: fixed;
+  top: 82px;
+  left: 132px;
+  z-index: 4000;
+  display: grid;
+  gap: 8px;
+  padding: 10px 12px 9px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #ffffff;
+  box-shadow: 0 16px 36px rgba(15, 23, 42, 0.18);
+}
+
+.table-insert-grid {
+  display: grid;
+  gap: 2px;
+}
+
+.table-insert-grid button {
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border: 1px solid #d9dde5;
+  border-radius: 0;
+  background: #f8fafc;
+  cursor: pointer;
+}
+
+.table-insert-grid button.selected {
+  border-color: #3b82f6;
+  background: #dbeafe;
+}
+
+.table-insert-grid-size {
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 650;
+  text-align: center;
+}
+
+.overlay-table-floating-toolbar {
+  position: absolute;
+  z-index: 19;
+  display: flex;
+  align-items: center;
+  flex-wrap: nowrap;
+  gap: 5px;
+  width: max-content;
+  max-width: min(520px, calc(100vw - 36px));
+  min-height: 32px;
+  padding: 3px 5px 3px 3px;
+  border: 1px solid color-mix(in srgb, var(--accent) 30%, #ffffff);
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.97);
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.18);
+  pointer-events: auto;
+  white-space: nowrap;
+  animation: overlay-table-toolbar-in 130ms ease-out;
+}
+
+.overlay-table-toolbar-grip {
+  display: grid;
+  place-items: center;
+  width: 20px;
+  min-width: 20px;
+  height: 26px;
+  padding: 0;
+  border: 0;
+  border-radius: 5px;
+  background: #f3f4f6;
+  color: var(--text-secondary);
+  cursor: grab;
+}
+
+.overlay-table-toolbar-grip:active {
+  cursor: grabbing;
+}
+
+.overlay-table-toolbar-icon-button {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  min-height: 26px;
+  padding: 0;
+  border: 1px solid #d1d5db;
+  border-radius: 5px;
+  background: #ffffff;
+  color: var(--text-secondary);
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.overlay-table-toolbar-icon-button:hover:not(:disabled),
+.overlay-table-toolbar-icon-button:focus-visible:not(:disabled),
+.overlay-table-toolbar-icon-button[aria-pressed="true"] {
+  border-color: #c7d2fe;
+  background: #eef2ff;
+  color: #4338ca;
+  outline: none;
+}
+
+.overlay-table-toolbar-icon-button:disabled {
+  opacity: 0.42;
+  cursor: default;
+}
+
+/* 罫線の線種・線幅・文字揃えは上部メニューバーの .shape-menu* スタイルをそのまま再利用する。 */
+
+.overlay-table-toolbar-number {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.overlay-table-toolbar-number input {
+  width: 52px;
+  height: 26px;
+  padding: 0 5px;
+  border: 1px solid #d1d5db;
+  border-radius: 5px;
+  background: #ffffff;
+  color: var(--text-primary);
+  font-size: 11px;
+  font-weight: 650;
+}
+
+@keyframes overlay-table-toolbar-in {
+  from {
+    opacity: 0;
+    transform: translateY(-3px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.overlay-table-column-controls,
+.overlay-table-row-controls {
+  position: absolute;
+  inset: 0;
+  z-index: 11;
+  pointer-events: none;
+}
+
+.overlay-table-boundary-hotspot {
+  position: absolute;
+  z-index: 9;
+  pointer-events: auto;
+  touch-action: none;
+}
+
+.overlay-table-boundary-hotspot.column {
+  top: 0;
+  bottom: 0;
+  width: 10px;
+  cursor: pointer;
+  transform: translateX(-50%);
+}
+
+.overlay-table-boundary-hotspot.row {
+  right: 0;
+  left: 0;
+  height: 10px;
+  cursor: pointer;
+  transform: translateY(-50%);
+}
+
+.overlay-table-boundary-hotspot.column.resizable {
+  cursor: col-resize;
+}
+
+.overlay-table-boundary-hotspot.row.resizable {
+  cursor: row-resize;
+}
+
+.overlay-table-boundary-hotspot::after {
+  position: absolute;
+  background: color-mix(in srgb, var(--accent) 68%, transparent);
+  content: "";
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 120ms ease;
+}
+
+.overlay-table-boundary-hotspot.column::after {
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: 2px;
+  transform: translateX(-50%);
+}
+
+.overlay-table-boundary-hotspot.row::after {
+  top: 50%;
+  right: 0;
+  left: 0;
+  height: 2px;
+  transform: translateY(-50%);
+}
+
+.overlay-table-boundary-hotspot:hover::after,
+.overlay-table-boundary-hotspot:focus-visible::after,
+.overlay-table-boundary-hotspot:focus-within::after,
+.overlay-table-boundary-hotspot.selected::after {
+  opacity: 1;
+}
+
+.overlay-table-boundary-hotspot:focus-visible {
+  outline: none;
+}
+
+.overlay-table-add-control {
+  position: absolute;
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 1px solid color-mix(in srgb, var(--accent) 44%, #ffffff);
+  border-radius: 999px;
+  background: #ffffff;
+  color: var(--accent);
+  box-shadow: 0 2px 7px rgba(15, 23, 42, 0.16);
+  opacity: 0;
+  pointer-events: none;
+  transition:
+    opacity 120ms ease,
+    transform 120ms ease;
+}
+
+.overlay-table-add-control:disabled {
+  opacity: 0.35;
+  pointer-events: none;
+}
+
+.overlay-table-add-control.column {
+  top: -20px;
+  left: 50%;
+  transform: translateX(-50%) scale(0.88);
+}
+
+.overlay-table-add-control.row {
+  top: 50%;
+  left: -23px;
+  transform: translateY(-50%) scale(0.88);
+}
+
+.overlay-table-boundary-hotspot:hover .overlay-table-add-control,
+.overlay-table-boundary-hotspot:focus-within .overlay-table-add-control,
+.overlay-table-boundary-hotspot.add-visible .overlay-table-add-control {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.overlay-table-boundary-hotspot:hover .overlay-table-add-control.column,
+.overlay-table-boundary-hotspot:focus-within .overlay-table-add-control.column,
+.overlay-table-boundary-hotspot.add-visible .overlay-table-add-control.column {
+  transform: translateX(-50%);
+}
+
+.overlay-table-boundary-hotspot:hover .overlay-table-add-control.row,
+.overlay-table-boundary-hotspot:focus-within .overlay-table-add-control.row,
+.overlay-table-boundary-hotspot.add-visible .overlay-table-add-control.row {
+  transform: translateY(-50%);
+}
+
+.overlay-table-shape td {
+  box-sizing: border-box;
+  position: relative;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.overlay-table-cell-content-layer {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  flex-direction: column;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.overlay-table-shape.editing .overlay-table-cell-content-layer {
+  pointer-events: auto;
+}
+
+.overlay-table-shape td.selected-cell {
+  position: relative;
+  background:
+    linear-gradient(rgba(37, 99, 235, 0.1), rgba(37, 99, 235, 0.1)),
+    var(--table-cell-bg, #ffffff);
+  box-shadow: inset 0 0 0 1px rgba(37, 99, 235, 0.42);
+}
+
+.overlay-table-shape td.delete-preview {
+  animation: overlay-table-delete-preview 760ms ease-in-out infinite;
+  background:
+    linear-gradient(rgba(239, 68, 68, 0.18), rgba(239, 68, 68, 0.18)),
+    var(--table-cell-bg, #ffffff);
+  box-shadow: inset 0 0 0 1px rgba(185, 28, 28, 0.42);
+}
+
+.overlay-table-context-menu {
+  position: fixed;
+  z-index: 190;
+  display: grid;
+  min-width: 180px;
+  padding: 4px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #ffffff;
+  box-shadow: 0 14px 34px rgba(15, 23, 42, 0.16);
+}
+
+.overlay-table-context-menu button {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  min-height: 32px;
+  padding: 0 9px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.overlay-table-context-menu button:hover,
+.overlay-table-context-menu button:focus-visible {
+  background: var(--surface-muted);
+  outline: none;
+}
+
+.overlay-table-context-menu button.danger {
+  color: #b91c1c;
+}
+
+.overlay-table-context-menu button.danger:hover,
+.overlay-table-context-menu button.danger:focus-visible {
+  background: #fef2f2;
+}
+
+.overlay-table-context-menu button:disabled {
+  color: var(--text-muted);
+  cursor: not-allowed;
+  opacity: 0.48;
+}
+
+.overlay-table-context-menu button:disabled:hover,
+.overlay-table-context-menu button:disabled:focus-visible {
+  background: transparent;
+}
+
+.overlay-table-context-menu-separator {
+  height: 1px;
+  margin: 4px 2px;
+  background: var(--border-subtle);
+}
+
+.overlay-shape-context-menu {
+  position: fixed;
+  z-index: 195;
+  display: grid;
+  min-width: 224px;
+  max-width: 260px;
+  max-height: min(82vh, 520px);
+  padding: 5px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #ffffff;
+  box-shadow: 0 16px 38px rgba(15, 23, 42, 0.18);
+  overflow-y: auto;
+}
+
+:is(.overlay-shape-context-menu, .overlay-shape-context-submenu-panel) button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 32px;
+  padding: 0 9px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+
+:is(.overlay-shape-context-menu, .overlay-shape-context-submenu-panel) button span[aria-hidden="true"] {
+  display: inline-flex;
+  flex: 0 0 auto;
+  color: var(--text-muted);
+}
+
+:is(.overlay-shape-context-menu, .overlay-shape-context-submenu-panel) button kbd {
+  margin-left: auto;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 11px;
+}
+
+.overlay-shape-context-menu-caret {
+  flex: 0 0 auto;
+  margin-left: auto;
+  color: var(--text-muted);
+}
+
+.overlay-shape-context-submenu {
+  position: relative;
+}
+
+.overlay-shape-context-submenu-panel {
+  position: fixed;
+  z-index: 196;
+  display: grid;
+  min-width: 224px;
+  max-height: calc(100vh - 16px);
+  padding: 5px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #ffffff;
+  box-shadow: 0 16px 38px rgba(15, 23, 42, 0.18);
+  overflow-y: auto;
+}
+
+:is(.overlay-shape-context-menu, .overlay-shape-context-submenu-panel) button:hover,
+:is(.overlay-shape-context-menu, .overlay-shape-context-submenu-panel) button:focus-visible {
+  background: var(--surface-muted);
+  outline: none;
+}
+
+:is(.overlay-shape-context-menu, .overlay-shape-context-submenu-panel) button:disabled {
+  color: var(--text-disabled);
+  cursor: not-allowed;
+}
+
+:is(.overlay-shape-context-menu, .overlay-shape-context-submenu-panel) button:disabled span[aria-hidden="true"] {
+  color: var(--text-disabled);
+}
+
+:is(.overlay-shape-context-menu, .overlay-shape-context-submenu-panel) button:disabled:hover,
+:is(.overlay-shape-context-menu, .overlay-shape-context-submenu-panel) button:disabled:focus-visible {
+  background: transparent;
+}
+
+.overlay-shape-context-menu-opacity {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) 36px;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-xs) var(--space-sm);
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.overlay-shape-context-menu-opacity input {
+  width: 100%;
+  accent-color: var(--accent);
+}
+
+.overlay-shape-context-menu-opacity output {
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+:is(.overlay-shape-context-menu, .overlay-shape-context-submenu-panel) button.danger {
+  color: #b91c1c;
+}
+
+:is(.overlay-shape-context-menu, .overlay-shape-context-submenu-panel) button.danger span[aria-hidden="true"] {
+  color: #b91c1c;
+}
+
+:is(.overlay-shape-context-menu, .overlay-shape-context-submenu-panel) button.danger:hover,
+:is(.overlay-shape-context-menu, .overlay-shape-context-submenu-panel) button.danger:focus-visible {
+  background: #fef2f2;
+}
+
+.overlay-shape-context-menu-separator {
+  height: 1px;
+  margin: 4px;
+  background: var(--border);
+}
+
+.overlay-shape-context-menu-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 2px;
+}
+
+.overlay-shape-context-menu button.compact {
+  justify-content: center;
+  gap: 5px;
+  min-height: 30px;
+  padding: 0 6px;
+}
+
+.overlay-shape-type-picker {
+  display: grid;
+  max-height: 250px;
+  margin: 2px 0 4px;
+  padding: 4px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+  background: var(--surface-soft);
+  overflow-y: auto;
+}
+
+.overlay-shape-type-section + .overlay-shape-type-section {
+  margin-top: 5px;
+  padding-top: 5px;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.overlay-shape-type-section-label {
+  padding: 0 3px 3px;
+  color: var(--text-muted);
+  font-size: 10px;
+  font-weight: 650;
+}
+
+.overlay-shape-type-grid {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 2px;
+}
+
+.overlay-shape-context-menu .overlay-shape-type-grid button {
+  justify-content: center;
+  min-height: 28px;
+  padding: 0;
+  border: 1px solid transparent;
+}
+
+.overlay-shape-context-menu .overlay-shape-type-grid button:hover,
+.overlay-shape-context-menu .overlay-shape-type-grid button:focus-visible {
+  border-color: var(--border);
+  background: var(--background);
+}
+
+@keyframes overlay-table-delete-preview {
+  0%,
+  100% {
+    filter: saturate(1);
+  }
+
+  50% {
+    filter: saturate(1.25) brightness(0.98);
+  }
+}
+
+.overlay-table-paragraph,
+.overlay-table-shape-content {
+  min-width: 0;
+  min-height: 0;
+}
+
+.overlay-table-paragraph {
+  display: flex;
+  height: 100%;
+  flex-direction: column;
+  justify-content: inherit;
+}
+
+.overlay-table-shape-content {
+  display: flex;
+  height: 100%;
+  flex-direction: column;
+  justify-content: inherit;
+  outline: none;
+  white-space: pre-wrap;
+}
+
+.overlay-table-shape-content p {
+  flex: 0 0 auto;
+  margin: 0;
+}
+
+/* 数式ノードは素の NodeView (外枠 = `.inline-math-node`)。React ノードビューだった頃の
+   `.node-mathInline` という包みはもう無い。 */
+.overlay-table-shape-content .inline-math-node + img.ProseMirror-separator {
+  display: none !important;
+}
+
+.overlay-table-shape.editing .overlay-table-shape-content {
+  cursor: text;
+}
+
+.overlay-table-shape .inline-math-field {
+  min-width: 0;
+}
+
+/*
+  `.overlay-table-trend` has no rule on purpose: `OverlayTableTrendCell` writes the container's
+  layout inline, because the exported SVG is also viewed without this stylesheet. A rule here could
+  only reach the editing surface, which is the divergence that was removed — it used to enlarge the
+  arrow and its label with `font-size: 1.25em` (`1.55em` for up/down) in the editor and nowhere else.
+  `table-parity.test.tsx` keeps the rule from coming back.
+*/
+
+.page-overlay-preview {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  cursor: default;
+}
+
+/* 未選択の図形は本文を透過する。プレビュー面が `pointer-events: none` でも、共有出典
+   (document-surface.css) の `.overlay-shape { pointer-events: auto }` が図形の DIV でそれを
+   打ち消してしまい、本文の上に重なった図形が押下を奪って本文のドラッグ選択が始まらなかった。
+   ここは編集画面のクローム側なので globals.css で打ち消す (共有出典の base は動かさない —
+   `overlay-shape-classes.test.ts` が base の所在を固定している)。
+   本文モードで図形を掴む経路は `PageCanvasEditor` の JS ヒットテスト + `resolveBodyPointerRoute`
+   が持っているので、DOM 側を殺しても図形が選べなくなることはない。 */
+.page-overlay-preview .overlay-shape,
+.page-overlay-preview .overlay-shape * {
+  pointer-events: none;
+}
+
+/* 例外: AI が掴んでいる図形。停止ボタンの表示 (`.overlay-shape.ai-edit-locked-shape:hover`) も、
+   実行状況カードを開く pointerover (`ai-run-anchor-layer.tsx` の `.overlay-shape` 監視) も、
+   この要素がポインタを受け取ることが前提になっている。AI が触っている間だけの一時状態なので、
+   その間は透過より「止める手段が届くこと」を優先する。 */
+.page-overlay-preview .overlay-shape.ai-edit-locked-shape,
+.page-overlay-preview .overlay-shape.ai-edit-locked-shape * {
+  pointer-events: auto;
+}
+
+/* `.print-page-overlay-layer svg` は同じ宣言のまま document-surface.css が持つ (紙面側)。 */
+.page-overlay-preview svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.page-overlay-preview svg {
+  overflow: visible;
+  pointer-events: none;
+}
+
+.page-overlay-preview svg * {
+  pointer-events: none;
+}
+
+.page-overlay-background-layer .page-overlay-preview svg * {
+  pointer-events: none;
+}
+
+.page-oversize-warning {
+  margin-top: 10px;
+  padding: 7px 9px;
+  border: 1px solid #f0c36d;
+  border-radius: 6px;
+  background: #fff8e5;
+  color: var(--warning);
+  font-size: 12px;
+}
+
+.overlay-graph-shape,
+.overlay-graph3d-shape,
+.overlay-callout-shape {
+  width: 100%;
+  height: 100%;
+}
+
+.graph3d-preview,
+.graph3d-preview-viewport,
+.graph3d-preview-canvas {
+  width: 100%;
+  height: 100%;
+}
+
+.graph3d-preview {
+  position: relative;
+  overflow: hidden;
+  border-radius: 4px;
+  background: #ffffff;
+}
+
+.graph3d-annotation-overlay {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.graph3d-annotation-label {
+  position: absolute;
+  z-index: 2;
+  padding: 1px 4px;
+  border-radius: 3px;
+  background: rgb(255 255 255 / 82%);
+  font-size: 13px;
+  line-height: 1.2;
+  white-space: nowrap;
+  transform: translate(-50%, -50%);
+}
+
+.graph3d-annotation-overlay[data-graph3d-static-label-overlay="true"] .graph3d-annotation-label {
+  background: #ffffff;
+}
+
+.graph3d-preview-canvas {
+  display: block;
+  touch-action: none;
+}
+
+.graph3d-preview-help {
+  position: absolute;
+  right: 8px;
+  bottom: 7px;
+  padding: 3px 7px;
+  border: 1px solid rgb(15 23 42 / 12%);
+  border-radius: 5px;
+  background: rgb(255 255 255 / 84%);
+  color: #52606d;
+  font-size: 10px;
+  line-height: 1.4;
+  pointer-events: none;
+}
+
+.graph3d-preview-diagnostics {
+  position: absolute;
+  right: 8px;
+  left: 8px;
+  bottom: 8px;
+  max-height: 42%;
+  overflow: auto;
+  padding: 7px 9px;
+  border: 1px solid #e7b75f;
+  border-radius: 6px;
+  background: rgb(255 248 229 / 94%);
+  color: var(--warning);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.graph3d-preview.is-interactive .graph3d-preview-diagnostics {
+  bottom: 34px;
+}
+
+.overlay-graph3d-placeholder {
+  display: grid;
+  width: 100%;
+  height: 100%;
+  place-items: center;
+  border: 1px solid #d8dde2;
+  border-radius: 4px;
+  background:
+    linear-gradient(30deg, transparent 48%, #e9edf1 49%, #e9edf1 51%, transparent 52%),
+    #fafbfc;
+  color: #52606d;
+  font-size: 28px;
+  font-weight: 650;
+  letter-spacing: -0.04em;
+}
+
+.overlay-graph3d-shape {
+  position: relative;
+  overflow: hidden;
+  border: 1px solid #e1e5e9;
+  border-radius: 4px;
+  background: #ffffff;
+}
+
+.overlay-graph3d-live-window {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  touch-action: none;
+}
+
+.overlay-graph3d-stale {
+  position: absolute;
+  right: 6px;
+  bottom: 6px;
+  padding: 2px 5px;
+  border-radius: 4px;
+  background: rgb(255 255 255 / 86%);
+  color: var(--text-muted);
+  font-size: 9px;
+  pointer-events: none;
+}
+
+.overlay-canvas-editor.origin-picking .graph-shape {
+  cursor: crosshair;
+}
+
+.graph-origin-preview {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  opacity: 0.56;
+  pointer-events: none;
+}
+
+.graph-origin-preview .graph2d-container {
+  width: 100%;
+  height: 100%;
+}
+
+.graph-origin-preview-marker {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.graph-origin-preview-marker line {
+  stroke: var(--accent);
+  stroke-width: 1.4;
+  stroke-dasharray: 5 4;
+  vector-effect: non-scaling-stroke;
+}
+
+.graph-origin-preview-marker circle {
+  fill: #ffffff;
+  stroke: var(--accent);
+  stroke-width: 2;
+  vector-effect: non-scaling-stroke;
+}
+
+.overlay-canvas-editor.graph-fill-picking .graph-shape {
+  cursor: crosshair;
+}
+
+.overlay-graph-sidebar {
+  max-height: calc(100% - var(--space-xl));
+  overflow-y: auto;
+}
+
+.editor-settings-section.overlay-graph-inspector {
+  padding: var(--space-md);
+}
+
+.graph-add-curve-button,
+.graph-add-point-button {
+  width: 100%;
+  margin: 0;
+}
+
+.graph-find-intersections-button {
+  justify-self: start;
+  margin: 0;
+}
+
+.intersection-message {
+  padding: var(--space-sm);
+  margin-top: var(--space-xs);
+  border: 1px solid color-mix(in srgb, var(--warning) 35%, var(--border-subtle));
+  border-radius: var(--radius-control);
+  background: color-mix(in srgb, var(--warning) 8%, var(--background));
+  color: var(--warning);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.graph-tool-button.active {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.graph-tool-row {
+  margin-bottom: var(--space-xs);
+}
+
+.graph-mode-status {
+  padding: var(--space-sm);
+  margin-bottom: var(--space-xs);
+  border: 1px solid color-mix(in srgb, var(--accent) 32%, var(--border-subtle));
+  border-radius: var(--radius-control);
+  background: color-mix(in srgb, var(--accent) 8%, var(--background));
+  color: var(--text-primary);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.graph-mode-status[data-empty="true"] {
+  padding: 0;
+  margin: 0;
+  border: 0;
+  background: none;
+  block-size: 0;
+  overflow: hidden;
+}
+
+.graph-mode-status[data-tone="warning"] {
+  border-color: color-mix(in srgb, var(--warning) 35%, var(--border-subtle));
+  background: color-mix(in srgb, var(--warning) 8%, var(--background));
+  color: var(--warning);
+}
+
+.editor-settings-accordion {
+  border-top: 1px solid var(--border-subtle);
+}
+
+.editor-settings-accordion-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  width: 100%;
+  padding: var(--space-sm) 0;
+  border-radius: var(--radius-control);
+  border: 0;
+  background: transparent;
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 650;
+  text-align: left;
+  cursor: pointer;
+}
+
+.editor-settings-accordion-header:focus-visible {
+  outline: none;
+  background: var(--surface-muted);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 22%, transparent);
+  color: var(--text-primary);
+}
+
+.editor-settings-accordion-header > svg {
+  flex: 0 0 auto;
+  color: var(--text-muted);
+}
+
+.editor-settings-accordion-title {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.editor-settings-accordion-count {
+  flex: 0 0 auto;
+  min-width: 18px;
+  padding: 0 var(--space-sm);
+  border-radius: 999px;
+  background: var(--surface-muted);
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+}
+
+.editor-settings-accordion-body {
+  padding-bottom: var(--space-md);
+}
+
+.overlay-graph-inspector .editor-settings-accordion-body > .field-label {
+  margin: 0;
+}
+
+.graph-checkbox-grid .checkbox-field,
+.graph-axis-label-toggle.checkbox-field {
+  margin: 0;
+}
+
+.graph-axis-label-row {
+  min-width: 0;
+}
+
+.graph-axis-label-toggle {
+  flex: 0 0 var(--space-4xl);
+}
+
+.graph-axis-label-row .math-expression-input {
+  flex: 1 1 auto;
+}
+
+.graph-curve-editor {
+  position: relative;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-control);
+  background: var(--background);
+}
+
+.graph-curve-header {
+  min-width: 0;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.graph-curve-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.graph-curve-heading,
+.graph-fill-heading {
+  min-width: 0;
+}
+
+.graph-curve-style-summary {
+  width: 24px;
+  height: 0;
+  flex: 0 0 auto;
+}
+
+.graph-point-style-summary {
+  width: 10px;
+  height: 10px;
+  flex: 0 0 auto;
+  border: 1.5px solid;
+  border-radius: var(--radius-round);
+}
+
+.graph-fill-heading {
+  flex: 1 1 auto;
+}
+
+.graph-fill-summary {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.graph-curve-header-actions {
+  flex: 0 0 auto;
+}
+
+.graph-item-actions-trigger {
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 120ms ease, background 120ms ease;
+}
+
+.graph-curve-editor:hover .graph-item-actions-trigger,
+.graph-curve-editor:focus-within .graph-item-actions-trigger,
+.graph-item-actions-trigger:focus-visible,
+.graph-item-actions-trigger[data-open="true"] {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+@media (hover: none) {
+  .graph-item-actions-trigger {
+    opacity: 1;
+    pointer-events: auto;
+  }
+}
+
+.graph-item-actions-menu {
+  min-width: 218px;
+  transform-origin: left top;
+}
+
+.graph-item-actions-menu[data-placement="right"] {
+  animation-name: graph-item-actions-side-in;
+}
+
+@keyframes graph-item-actions-side-in {
+  from {
+    opacity: 0;
+    transform: translateX(-5px) scaleX(0.98);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateX(0) scaleX(1);
+  }
+}
+
+.graph-item-actions-menu-content {
+  display: grid;
+  gap: 2px;
+}
+
+.graph-item-style-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  padding: 2px 4px 6px;
+}
+
+.graph-item-actions-menu .graph-item-style-row button {
+  width: auto;
+  min-height: 30px;
+}

@@ -1,0 +1,5 @@
+# Local-only large test document (third-party material). Do not commit.
+/large-problem-document.sigmadoc.json
+
+# Local-only pptx fidelity decks (third-party material). Do not commit.
+/pptx-fidelity-decks/

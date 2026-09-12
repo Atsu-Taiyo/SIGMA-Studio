@@ -1,0 +1,68 @@
+/* 選択肢カードの骨格だけを持つ。色は無彩色トークン、面の階層は薄い背景差と 1px の境界線で、
+   影は使わない (docs/design-rules.md: Monochrome And Gray First / Calm And Polished Product UI)。 */
+.group {
+  min-width: 0;
+}
+
+.option {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-xs);
+  /* ラベルが 2 行になっても全カードの高さを揃える。1 行の「円グラフ」と 2 行の「折れ線グラフ」で
+     寸法が変わると、選択のたびにグリッドが動いて見える。 */
+  min-height: 68px;
+  min-width: 0;
+  padding: var(--space-sm) var(--space-xs);
+  border: 1px solid transparent;
+  border-radius: var(--radius-control);
+  background: transparent;
+  /* 兄弟の排他選択 (`.graph-segmented` / `.boxed-text-style-option`) と同じ休止色。
+     `--text-muted` (#8a8a8a) は 11px では約 3:1 で AA の 4.5:1 に届かない。 */
+  color: var(--text-secondary);
+  font: inherit;
+  cursor: pointer;
+}
+
+/* hover は「いま狙っている項目」を示すだけ。選択中の面より必ず弱くする — 同じ濃さだと、
+   ポインタを走らせている間どれが実際に選ばれているのか分からなくなる。 */
+.option:hover:not([data-selected="true"]) {
+  background: color-mix(in srgb, var(--surface-muted) 35%, transparent);
+  color: var(--text-primary);
+}
+
+.option:active {
+  background: color-mix(in srgb, var(--surface-muted) 80%, transparent);
+}
+
+/* 選択中は濃い枠線ではなく薄いグレーの面で包む。境界線の太さは未選択と同じ 1px のままにして、
+   選択でカードの寸法が動かないようにする。 */
+.option[data-selected="true"] {
+  border-color: var(--border-subtle);
+  background: var(--surface-muted);
+  color: var(--text-primary);
+}
+
+/* 実線のアクセントで囲む。矢印キーが移動と選択を同時に行うので、フォーカスが入った瞬間は
+   既にグレーの面を持つ選択中カードの上に乗る — 薄いリングだと「どこにいるか」が何も変わらない。 */
+.option:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.icon {
+  flex: 0 0 auto;
+}
+
+/* 折り返す。300px のパネルに 4 列だと 1 カードの文字幅は約 56px しかなく、`折れ線グラフ` も
+   `Scatter plot` も 1 行には収まらない。省略記号にすると、ドロップダウンでは全部見えていた
+   名前が読めなくなる (design-rules: 長いラベルは折り返し、はみ出さないようにする)。 */
+.label {
+  max-width: 100%;
+  color: inherit;
+  font-size: 11px;
+  line-height: 1.2;
+  overflow-wrap: anywhere;
+  text-align: center;
+}

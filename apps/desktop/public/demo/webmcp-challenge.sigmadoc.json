@@ -1,0 +1,178 @@
+{
+  "version": "2.0",
+  "docId": "doc_webmcp_challenge_demo",
+  "metadata": {
+    "title": "WebMCP Challenge: 二次関数の教材改善"
+  },
+  "content": [
+    {
+      "type": "heading",
+      "id": "challenge_heading",
+      "level": 1,
+      "children": [
+        { "type": "text", "text": "二次関数のグラフと変化" }
+      ]
+    },
+    {
+      "type": "paragraph",
+      "id": "challenge_intro",
+      "children": [
+        { "type": "text", "text": "関数 " },
+        {
+          "type": "mathInline",
+          "id": "challenge_math",
+          "tex": "y=x^2-2x-3",
+          "display": "inline",
+          "semanticRole": "equation"
+        },
+        { "type": "text", "text": " のグラフを調べよう。" }
+      ]
+    },
+    {
+      "type": "paragraph",
+      "id": "challenge_explanation",
+      "children": [
+        { "type": "text", "text": "平方完成すると、頂点と軸を読み取ることができます。", "marks": ["bold"] }
+      ]
+    },
+    {
+      "type": "paragraph",
+      "id": "challenge_task",
+      "children": [
+        { "type": "text", "text": "グラフと表を見比べ、増減する区間を説明しなさい。" }
+      ]
+    }
+  ],
+  "pageLayout": {
+    "preset": "A4",
+    "orientation": "portrait",
+    "pageSize": { "widthMm": 210, "heightMm": 297 },
+    "marginsMm": { "top": 18, "right": 17, "bottom": 18, "left": 17 },
+    "flow": { "type": "columns", "columnCount": 1, "columnGapMm": 8 },
+    "overlay": {
+      "overlaySnapshot": {
+        "version": 1,
+        "assets": {},
+        "shapes": [
+          {
+            "id": "challenge_shape_note",
+            "type": "geo",
+            "x": 96,
+            "y": 330,
+            "anchor": { "type": "block", "blockId": "challenge_task", "dy": 48 },
+            "props": {
+              "w": 164,
+              "h": 56,
+              "geo": "rectangle",
+              "radius": 8,
+              "fill": "solid",
+              "color": "#111827",
+              "fillColor": "#f3f4f6",
+              "labelColor": "#111827",
+              "dash": "solid",
+              "size": "m",
+              "label": "ChatGPTへの依頼: 説明を短く改善"
+            }
+          },
+          {
+            "id": "challenge_graph",
+            "type": "graph2dShape",
+            "x": 104,
+            "y": 410,
+            "anchor": { "type": "block", "blockId": "challenge_task", "dy": 128 },
+            "props": {
+              "boundsMode": "plot",
+              "w": 280,
+              "h": 180,
+              "spec": {
+                "kind": "cartesian",
+                "title": "二次関数",
+                "width": 280,
+                "height": 180,
+                "viewBox": { "xMin": "-3", "xMax": "5", "yMin": "-5", "yMax": "8" },
+                "axes": {
+                  "grid": false,
+                  "showX": true,
+                  "showY": true,
+                  "showTicks": false,
+                  "xLabel": "",
+                  "yLabel": "",
+                  "originLabel": ""
+                },
+                "curves": [
+                  {
+                    "id": "challenge_curve",
+                    "mode": "yOfX",
+                    "expr": "x^2-2*x-3",
+                    "color": "#0d0d0d",
+                    "dash": "solid",
+                    "strokeWidth": 2.4
+                  }
+                ],
+                "showFormulaLabels": false
+              }
+            }
+          },
+          {
+            "id": "challenge_table",
+            "type": "tableShape",
+            "x": 408,
+            "y": 410,
+            "anchor": { "type": "block", "blockId": "challenge_task", "dy": 128 },
+            "props": {
+              "w": 236,
+              "h": 124,
+              "table": {
+                "version": 1,
+                "kind": "plain",
+                "columns": [
+                  { "id": "challenge_col_x", "width": { "mode": "fr", "value": 1, "min": 64 } },
+                  { "id": "challenge_col_y", "width": { "mode": "fr", "value": 1, "min": 64 } }
+                ],
+                "rows": [
+                  { "id": "challenge_row_header", "height": { "mode": "auto", "min": 34 }, "role": "header" },
+                  { "id": "challenge_row_value", "height": { "mode": "auto", "min": 32 }, "role": "body" }
+                ],
+                "cells": [
+                  {
+                    "id": "challenge_cell_x",
+                    "rowId": "challenge_row_header",
+                    "columnId": "challenge_col_x",
+                    "content": [{ "type": "paragraph", "id": "challenge_cell_x_p", "children": [{ "type": "text", "text": "x" }] }]
+                  },
+                  {
+                    "id": "challenge_cell_y",
+                    "rowId": "challenge_row_header",
+                    "columnId": "challenge_col_y",
+                    "content": [{ "type": "paragraph", "id": "challenge_cell_y_p", "children": [{ "type": "text", "text": "y" }] }]
+                  },
+                  {
+                    "id": "challenge_cell_x_value",
+                    "rowId": "challenge_row_value",
+                    "columnId": "challenge_col_x",
+                    "content": [{ "type": "paragraph", "id": "challenge_cell_x_value_p", "children": [{ "type": "text", "text": "1" }] }]
+                  },
+                  {
+                    "id": "challenge_cell_y_value",
+                    "rowId": "challenge_row_value",
+                    "columnId": "challenge_col_y",
+                    "content": [{ "type": "paragraph", "id": "challenge_cell_y_value_p", "children": [{ "type": "text", "text": "-4" }] }]
+                  }
+                ],
+                "grid": { "borderColor": "#111827", "borderWidth": 1 },
+                "defaultCellStyle": {}
+              }
+            }
+          }
+        ]
+      },
+      "updatedAt": "2026-08-30T00:00:00.000+09:00"
+    }
+  },
+  "outputProfiles": {
+    "student": { "showSolutions": false },
+    "teacher": { "showSolutions": true },
+    "answerBook": { "onlySolutions": true, "showSolutions": true }
+  },
+  "updatedAt": "2026-08-30T00:00:00.000+09:00"
+}

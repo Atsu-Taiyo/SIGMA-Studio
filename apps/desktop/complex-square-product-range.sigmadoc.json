@@ -1,0 +1,689 @@
+{
+  "version": "2.0",
+  "docId": "doc_complex_square_product_range_20260606",
+  "metadata": {
+    "title": "複素数平面の正方形と積の範囲"
+  },
+  "content": [
+    {
+      "type": "problem",
+      "id": "problem_complex_square_product_range",
+      "tags": [
+        "複素数平面",
+        "軌跡",
+        "東大実戦"
+      ],
+      "lead": [],
+      "prompt": [
+        {
+          "type": "paragraph",
+          "id": "p_problem_statement",
+          "lineHeight": "1.35",
+          "children": [
+            {
+              "type": "text",
+              "text": "複素数平面において 4 点 ",
+              "fontFamily": "serif"
+            },
+            {
+              "type": "mathInline",
+              "id": "m_problem_vertices",
+              "tex": "A(1)B(i)C(-1)D(-i)",
+              "display": "inline",
+              "semanticRole": "expression"
+            },
+            {
+              "type": "text",
+              "text": " を頂点とする正方形の周上を 2点 ",
+              "fontFamily": "serif"
+            },
+            {
+              "type": "mathInline",
+              "id": "m_problem_points",
+              "tex": "P(\\alpha),\\ Q(\\beta)",
+              "display": "inline",
+              "semanticRole": "expression"
+            },
+            {
+              "type": "text",
+              "text": " が動くとき，点 ",
+              "fontFamily": "serif"
+            },
+            {
+              "type": "mathInline",
+              "id": "m_problem_product_point",
+              "tex": "R(\\alpha\\beta)",
+              "display": "inline",
+              "semanticRole": "expression"
+            },
+            {
+              "type": "text",
+              "text": " が動く範囲を図示せよ。",
+              "fontFamily": "serif"
+            }
+          ]
+        },
+        {
+          "type": "paragraph",
+          "id": "p_source_note",
+          "align": "right",
+          "lineHeight": "1.35",
+          "children": [
+            {
+              "type": "text",
+              "text": "（2022東大実戦）",
+              "fontFamily": "serif",
+              "fontSize": 12
+            }
+          ]
+        }
+      ],
+      "solution": [
+        {
+          "type": "paragraph",
+          "id": "p_ab_intro",
+          "lineHeight": "1.35",
+          "children": [
+            {
+              "type": "mathInline",
+              "id": "m_pq_ab",
+              "tex": "P,Q",
+              "display": "inline",
+              "semanticRole": "variable"
+            },
+            {
+              "type": "text",
+              "text": " が辺 ",
+              "fontFamily": "serif"
+            },
+            {
+              "type": "mathInline",
+              "id": "m_side_ab_1",
+              "tex": "AB",
+              "display": "inline",
+              "semanticRole": "expression"
+            },
+            {
+              "type": "text",
+              "text": " 上を動くときの ",
+              "fontFamily": "serif"
+            },
+            {
+              "type": "mathInline",
+              "id": "m_r_ab",
+              "tex": "R",
+              "display": "inline",
+              "semanticRole": "variable"
+            },
+            {
+              "type": "text",
+              "text": " の動く範囲 ",
+              "fontFamily": "serif"
+            },
+            {
+              "type": "mathInline",
+              "id": "m_range_e",
+              "tex": "E",
+              "display": "inline",
+              "semanticRole": "variable"
+            },
+            {
+              "type": "text",
+              "text": " を示す。",
+              "fontFamily": "serif"
+            }
+          ]
+        },
+        {
+          "type": "paragraph",
+          "id": "p_ab_point_intro",
+          "lineHeight": "1.35",
+          "children": [
+            {
+              "type": "text",
+              "text": "辺 ",
+              "fontFamily": "serif"
+            },
+            {
+              "type": "mathInline",
+              "id": "m_side_ab_point",
+              "tex": "AB",
+              "display": "inline",
+              "semanticRole": "expression"
+            },
+            {
+              "type": "text",
+              "text": " 上の点 ",
+              "fontFamily": "serif"
+            },
+            {
+              "type": "mathInline",
+              "id": "m_pq_alpha_beta",
+              "tex": "P(\\alpha)Q(\\beta)",
+              "display": "inline",
+              "semanticRole": "expression"
+            },
+            {
+              "type": "text",
+              "text": " は",
+              "fontFamily": "serif"
+            }
+          ]
+        },
+        {
+          "type": "paragraph",
+          "id": "p_ab_param_formula",
+          "align": "center",
+          "lineHeight": "1.35",
+          "pagination": {
+            "keepTogether": true
+          },
+          "children": [
+            {
+              "type": "mathInline",
+              "id": "m_ab_param",
+              "tex": "\\begin{aligned}\\alpha&=s+(1-s)i\\quad(0\\le s\\le1)\\\\\\beta&=t+(1-t)i\\quad(0\\le t\\le1)\\end{aligned}",
+              "display": "inline",
+              "semanticRole": "equation"
+            }
+          ]
+        },
+        {
+          "type": "paragraph",
+          "id": "p_yotte",
+          "lineHeight": "1.35",
+          "children": [
+            {
+              "type": "text",
+              "text": "よって",
+              "fontFamily": "serif"
+            }
+          ]
+        },
+        {
+          "type": "paragraph",
+          "id": "p_ab_product_formula",
+          "align": "center",
+          "lineHeight": "1.35",
+          "pagination": {
+            "keepTogether": true
+          },
+          "children": [
+            {
+              "type": "mathInline",
+              "id": "m_ab_product_formula",
+              "tex": "\\alpha\\beta=(s+t-1)+(s+t-2st)i",
+              "display": "inline",
+              "semanticRole": "equation"
+            }
+          ]
+        },
+        {
+          "type": "paragraph",
+          "id": "p_xy_define",
+          "lineHeight": "1.35",
+          "children": [
+            {
+              "type": "mathInline",
+              "id": "m_product_xy",
+              "tex": "\\alpha\\beta=X+Yi",
+              "display": "inline",
+              "semanticRole": "equation"
+            },
+            {
+              "type": "text",
+              "text": " とすると，",
+              "fontFamily": "serif"
+            }
+          ]
+        },
+        {
+          "type": "paragraph",
+          "id": "p_xy_define_formula",
+          "align": "center",
+          "lineHeight": "1.35",
+          "pagination": {
+            "keepTogether": true
+          },
+          "children": [
+            {
+              "type": "mathInline",
+              "id": "m_xy_define_formula",
+              "tex": "X=s+t-1,\\quad Y=s+t-2st",
+              "display": "inline",
+              "semanticRole": "equation"
+            }
+          ]
+        },
+        {
+          "type": "paragraph",
+          "id": "p_system_equiv",
+          "align": "center",
+          "lineHeight": "1.35",
+          "pagination": {
+            "keepTogether": true
+          },
+          "children": [
+            {
+              "type": "mathInline",
+              "id": "m_system_equiv",
+              "tex": "\\exists s,t\\ \\left\\{\\begin{aligned}s+t&=1+X\\\\s+t-2st&=Y\\\\0&\\le s\\le1\\\\0&\\le t\\le1\\end{aligned}\\right.\\Longleftrightarrow\\exists s,t\\ \\left\\{\\begin{aligned}s+t&=1+X\\\\st&=\\frac{X-Y+1}{2}\\\\0&\\le s\\le1\\\\0&\\le t\\le1\\end{aligned}\\right.\\qquad\\cdots(*)",
+              "display": "inline",
+              "semanticRole": "equation"
+            }
+          ]
+        },
+        {
+          "type": "paragraph",
+          "id": "p_quadratic_intro",
+          "lineHeight": "1.35",
+          "children": [
+            {
+              "type": "text",
+              "text": "ここで，",
+              "fontFamily": "serif"
+            },
+            {
+              "type": "mathInline",
+              "id": "m_st_intro",
+              "tex": "s,t",
+              "display": "inline",
+              "semanticRole": "variable"
+            },
+            {
+              "type": "text",
+              "text": " は2次方程式",
+              "fontFamily": "serif"
+            }
+          ]
+        },
+        {
+          "type": "paragraph",
+          "id": "p_quadratic_formula",
+          "align": "center",
+          "lineHeight": "1.35",
+          "pagination": {
+            "keepTogether": true
+          },
+          "children": [
+            {
+              "type": "mathInline",
+              "id": "m_quadratic_formula",
+              "tex": "x^2-(X+1)x+\\frac{X-Y+1}{2}=0\\qquad\\cdots\\text{①}",
+              "display": "inline",
+              "semanticRole": "equation"
+            }
+          ]
+        },
+        {
+          "type": "paragraph",
+          "id": "p_roots_condition_intro",
+          "lineHeight": "1.35",
+          "children": [
+            {
+              "type": "text",
+              "text": "の2解だから ",
+              "fontFamily": "serif"
+            },
+            {
+              "type": "mathInline",
+              "id": "m_x_range_roots",
+              "tex": "0\\le x\\le1",
+              "display": "inline",
+              "semanticRole": "expression"
+            },
+            {
+              "type": "text",
+              "text": " で相異2実解をもつ条件を考える（重解を含む）。①の左辺を ",
+              "fontFamily": "serif"
+            },
+            {
+              "type": "mathInline",
+              "id": "m_fx_define",
+              "tex": "f(x)",
+              "display": "inline",
+              "semanticRole": "expression"
+            },
+            {
+              "type": "text",
+              "text": " として",
+              "fontFamily": "serif"
+            }
+          ]
+        },
+        {
+          "type": "paragraph",
+          "id": "p_condition_formula",
+          "align": "center",
+          "lineHeight": "1.35",
+          "pagination": {
+            "keepTogether": true
+          },
+          "children": [
+            {
+              "type": "mathInline",
+              "id": "m_condition_formula",
+              "tex": "(*)\\Longleftrightarrow\\left\\{\\begin{aligned}f(x)=0\\text{ の判別式 }D&\\ge0\\\\\\text{軸 }x=\\frac{X+1}{2}\\text{ について }0&\\le\\frac{X+1}{2}\\le1\\\\f(0)&\\ge0,\\ f(1)\\ge0\\end{aligned}\\right.\\Longleftrightarrow\\left\\{\\begin{aligned}-1&\\le x\\le1\\\\y&\\ge\\frac{-x^2+1}{2}\\\\y&\\le -x+1,\\quad y\\le x+1\\end{aligned}\\right.",
+              "display": "inline",
+              "semanticRole": "equation"
+            }
+          ]
+        },
+        {
+          "type": "paragraph",
+          "id": "p_range_e_conclusion",
+          "lineHeight": "1.35",
+          "children": [
+            {
+              "type": "mathInline",
+              "id": "m_pq_square",
+              "tex": "P,Q",
+              "display": "inline",
+              "semanticRole": "variable"
+            },
+            {
+              "type": "text",
+              "text": " が正方形 ",
+              "fontFamily": "serif"
+            },
+            {
+              "type": "mathInline",
+              "id": "m_square_abcd",
+              "tex": "ABCD",
+              "display": "inline",
+              "semanticRole": "expression"
+            },
+            {
+              "type": "text",
+              "text": " の周上を動くときの ",
+              "fontFamily": "serif"
+            },
+            {
+              "type": "mathInline",
+              "id": "m_r_full",
+              "tex": "R",
+              "display": "inline",
+              "semanticRole": "variable"
+            },
+            {
+              "type": "text",
+              "text": " の動く範囲 ",
+              "fontFamily": "serif"
+            },
+            {
+              "type": "mathInline",
+              "id": "m_range_f_intro",
+              "tex": "F",
+              "display": "inline",
+              "semanticRole": "variable"
+            },
+            {
+              "type": "text",
+              "text": " を求める。",
+              "fontFamily": "serif"
+            }
+          ]
+        },
+        {
+          "type": "paragraph",
+          "id": "p_rotation_intro",
+          "lineHeight": "1.35",
+          "children": [
+            {
+              "type": "mathInline",
+              "id": "m_edges_bcd_da",
+              "tex": "BC,CD,DA",
+              "display": "inline",
+              "semanticRole": "expression"
+            },
+            {
+              "type": "text",
+              "text": " は辺 ",
+              "fontFamily": "serif"
+            },
+            {
+              "type": "mathInline",
+              "id": "m_side_ab_3",
+              "tex": "AB",
+              "display": "inline",
+              "semanticRole": "expression"
+            },
+            {
+              "type": "text",
+              "text": " を原点中心にそれぞれ ",
+              "fontFamily": "serif"
+            },
+            {
+              "type": "mathInline",
+              "id": "m_rotations",
+              "tex": "\\frac{\\pi}{2},\\ \\pi,\\ \\frac{3\\pi}{2}",
+              "display": "inline",
+              "semanticRole": "expression"
+            },
+            {
+              "type": "text",
+              "text": " だけ回転したものであることに注意する。",
+              "fontFamily": "serif"
+            }
+          ]
+        },
+        {
+          "type": "paragraph",
+          "id": "p_rotation_square_intro",
+          "lineHeight": "1.35",
+          "children": [
+            {
+              "type": "text",
+              "text": "正方形 ",
+              "fontFamily": "serif"
+            },
+            {
+              "type": "mathInline",
+              "id": "m_square_abcd_2",
+              "tex": "ABCD",
+              "display": "inline",
+              "semanticRole": "expression"
+            },
+            {
+              "type": "text",
+              "text": " の周上の任意の点 ",
+              "fontFamily": "serif"
+            },
+            {
+              "type": "mathInline",
+              "id": "m_any_points",
+              "tex": "P(\\alpha),Q(\\beta)",
+              "display": "inline",
+              "semanticRole": "expression"
+            },
+            {
+              "type": "text",
+              "text": " は，辺 ",
+              "fontFamily": "serif"
+            },
+            {
+              "type": "mathInline",
+              "id": "m_side_ab_4",
+              "tex": "AB",
+              "display": "inline",
+              "semanticRole": "expression"
+            },
+            {
+              "type": "text",
+              "text": " 上の ",
+              "fontFamily": "serif"
+            },
+            {
+              "type": "mathInline",
+              "id": "m_prime_points",
+              "tex": "P'(\\alpha'),Q'(\\beta')",
+              "display": "inline",
+              "semanticRole": "expression"
+            },
+            {
+              "type": "text",
+              "text": " を用いて",
+              "fontFamily": "serif"
+            }
+          ]
+        },
+        {
+          "type": "paragraph",
+          "id": "p_rotation_formula",
+          "align": "center",
+          "lineHeight": "1.35",
+          "pagination": {
+            "keepTogether": true
+          },
+          "children": [
+            {
+              "type": "mathInline",
+              "id": "m_rotation_formula",
+              "tex": "\\alpha=i^j\\alpha',\\quad\\beta=i^k\\beta'",
+              "display": "inline",
+              "semanticRole": "equation"
+            }
+          ]
+        },
+        {
+          "type": "paragraph",
+          "id": "p_rotation_product_formula",
+          "align": "center",
+          "lineHeight": "1.35",
+          "pagination": {
+            "keepTogether": true
+          },
+          "children": [
+            {
+              "type": "mathInline",
+              "id": "m_rotation_product_formula",
+              "tex": "\\alpha\\beta=i^l\\alpha'\\beta'",
+              "display": "inline",
+              "semanticRole": "equation"
+            }
+          ]
+        },
+        {
+          "type": "paragraph",
+          "id": "p_rotation_indices_note",
+          "align": "center",
+          "lineHeight": "1.35",
+          "children": [
+            {
+              "type": "mathInline",
+              "id": "m_rotation_indices_note",
+              "tex": "(j,k,l\\text{ は }0,1,2,3\\text{ のいずれかの整数})",
+              "display": "inline",
+              "semanticRole": "expression"
+            }
+          ]
+        },
+        {
+          "type": "paragraph",
+          "id": "p_range_f_conclusion",
+          "lineHeight": "1.35",
+          "pagination": {
+            "keepTogether": true
+          },
+          "children": [
+            {
+              "type": "text",
+              "text": "だから，",
+              "fontFamily": "serif"
+            },
+            {
+              "type": "mathInline",
+              "id": "m_r_range",
+              "tex": "R",
+              "display": "inline",
+              "semanticRole": "variable"
+            },
+            {
+              "type": "text",
+              "text": " の範囲は ",
+              "fontFamily": "serif"
+            },
+            {
+              "type": "mathInline",
+              "id": "m_r_prime",
+              "tex": "R'(\\alpha'\\beta')",
+              "display": "inline",
+              "semanticRole": "expression"
+            },
+            {
+              "type": "text",
+              "text": " を ",
+              "fontFamily": "serif"
+            },
+            {
+              "type": "mathInline",
+              "id": "m_four_rotations",
+              "tex": "0,\\ \\frac{\\pi}{2},\\ \\pi,\\ \\frac{3\\pi}{2}",
+              "display": "inline",
+              "semanticRole": "expression"
+            },
+            {
+              "type": "text",
+              "text": " 回転させたもの。",
+              "fontFamily": "serif"
+            }
+          ]
+        }
+      ],
+      "hints": [],
+      "numbering": {
+        "enabled": true,
+        "value": 1
+      },
+      "frame": {
+        "enabled": false
+      }
+    }
+  ],
+  "outputProfiles": {
+    "student": {
+      "showSolutions": false,
+      "showHints": false,
+      "includeAnswers": false
+    },
+    "teacher": {
+      "showSolutions": true,
+      "showHints": true,
+      "includeAnswers": true
+    },
+    "answerBook": {
+      "onlySolutions": true,
+      "showSolutions": true,
+      "showHints": false,
+      "includeAnswers": true
+    }
+  },
+  "pageLayout": {
+    "preset": "A4",
+    "orientation": "portrait",
+    "pageSize": {
+      "widthMm": 210,
+      "heightMm": 297
+    },
+    "marginsMm": {
+      "top": 18,
+      "right": 17,
+      "bottom": 18,
+      "left": 17
+    },
+    "flow": {
+      "type": "columns",
+      "columnCount": 1,
+      "columnGapMm": 8
+    },
+    "overlay": {
+      "overlaySnapshot": {
+        "version": 1,
+        "shapes": [],
+        "assets": {}
+      },
+      "updatedAt": "2026-06-06T00:00:00.000+09:00"
+    }
+  },
+  "updatedAt": "2026-06-06T00:00:00.000+09:00"
+}

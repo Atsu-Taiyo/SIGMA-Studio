@@ -1,0 +1,80 @@
+name: Checks
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: checks-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  desktop:
+    name: Desktop build and checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      NODE_OPTIONS: --max-old-space-size=4096
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+          cache: npm
+      - run: npm ci
+      - run: npm run version:check
+      - run: npm run test:scripts
+      - run: npm exec --workspace @sigma-studio/desktop -- next typegen
+      - run: npm run typecheck
+      - run: npm run lint
+      # Source-graph scans and real filesystem tests exceed 5s on shared runners.
+      - run: npm --workspace @sigma-studio/desktop run test -- --maxWorkers=2 --testTimeout=30000
+      - run: npm run build
+      - run: npm run electron:build
+
+  public-packages:
+    name: Public package build and contracts
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+          cache: npm
+      - run: npm ci
+      # Viewer declarations must exist before Editor's public contract checks.
+      - run: npm run editor:build
+      - run: npm run viewer:typecheck
+      - run: npm run editor:typecheck
+      - run: npm run viewer:test
+      - run: npm --workspace @sigma-studio/editor run test
+      - run: npm --workspace @sigma-studio/editor-react18-example run build
+      - run: npm exec --workspace @sigma-studio/desktop -- playwright install --with-deps chromium
+      - run: npm run test:public-browser
+      - name: Inspect the public tarballs without publishing
+        run: npm pack --workspace @sigma-studio/viewer --workspace @sigma-studio/editor --dry-run --ignore-scripts
+
+  file-lock:
+    name: File locking (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "20"
+          cache: npm
+      - run: npm ci
+      - name: Verify ownership and real process recovery
+        run: npm --workspace @sigma-studio/desktop run test -- file-lock
+      - name: Load the native lock in the shipped Electron runtime
+        run: npm exec --workspace @sigma-studio/desktop -- cross-env ELECTRON_RUN_AS_NODE=1 electron scripts/check-native-lock.cjs

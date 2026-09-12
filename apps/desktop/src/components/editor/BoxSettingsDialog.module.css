@@ -1,0 +1,284 @@
+.dialog {
+  width: min(100%, var(--content-width-lg));
+}
+
+.styleGrid {
+  align-items: stretch;
+}
+
+.styleButton {
+  display: grid;
+  min-width: 0;
+  grid-template-rows: 52px auto auto;
+  gap: var(--space-xs);
+  padding: var(--space-sm);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  background: var(--surface);
+  color: var(--text-primary);
+  cursor: pointer;
+  text-align: left;
+}
+
+.styleButton:hover,
+.styleButton:focus-visible {
+  border-color: var(--border-strong);
+  background: var(--surface-soft);
+  outline: 2px solid color-mix(in srgb, var(--accent) 16%, transparent);
+  outline-offset: 1px;
+}
+
+.styleButton[data-selected="true"] {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent-soft) 70%, var(--background));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 24%, transparent);
+}
+
+.stylePreview:global(.sigma-doc-box-block) {
+  display: grid;
+  width: 100%;
+  height: 52px;
+  min-height: 0;
+  grid-template-rows: auto 1fr;
+  gap: var(--space-xs);
+  margin: 0;
+  overflow: hidden;
+  padding: var(--space-sm);
+  pointer-events: none;
+}
+
+.stylePreview:global(.box-frame--notebook-rules) {
+  min-height: 0;
+}
+
+.stylePreview:global(.box-frame--notebook-rules)::before,
+.stylePreview:global(.box-frame--notebook-rules)::after {
+  min-height: 0;
+}
+
+.stylePreview :global(.sigma-doc-box-title) {
+  overflow: hidden;
+  color: var(--sigma-doc-box-title-color, #111111);
+  font-size: 8px;
+  font-weight: var(--sigma-doc-box-title-weight, 700);
+  line-height: 1;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.stylePreview :global(.sigma-doc-box-body) {
+  position: relative;
+  display: grid;
+  align-content: center;
+  gap: var(--space-xs);
+  min-width: 0;
+}
+
+.previewLine {
+  display: block;
+  width: 82%;
+  height: 2px;
+  border-radius: var(--radius-round);
+  background: color-mix(in srgb, var(--text-muted) 58%, transparent);
+}
+
+.previewLine:last-child {
+  width: 58%;
+}
+
+.styleLabel {
+  overflow: hidden;
+  font-size: 12px;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.styleDescription {
+  display: -webkit-box;
+  overflow: hidden;
+  color: var(--text-secondary);
+  font-size: 10px;
+  line-height: 1.35;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.settingsGrid {
+  align-items: start;
+}
+
+.sectionHeading {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.35;
+}
+
+.fieldHint {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.field,
+.controlGroup {
+  display: grid;
+  gap: var(--space-sm);
+  min-width: 0;
+}
+
+.field > span:first-child,
+.controlGroup > span:first-child {
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.field input[type="number"] {
+  width: 100%;
+  min-height: 36px;
+  padding: var(--space-sm) var(--space-md);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  background: var(--background);
+  color: var(--text-primary);
+  font: inherit;
+}
+
+.field input:focus-visible {
+  border-color: var(--border-strong);
+  outline: 2px solid color-mix(in srgb, var(--accent) 16%, transparent);
+  outline-offset: 1px;
+}
+
+.colorField {
+  display: grid;
+  min-height: 36px;
+  grid-template-columns: 44px minmax(0, 1fr);
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-xs) var(--space-sm);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  background: var(--background);
+}
+
+.colorField {
+  cursor: pointer;
+  text-align: left;
+}
+
+.colorSwatch {
+  width: 36px;
+  height: 22px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+}
+
+/* 色が付いていない (transparent) ことを、塗り潰さずに斜線で見せる。 */
+
+.colorSwatch[data-empty="true"] {
+  background:
+    linear-gradient(
+      to top right,
+      transparent calc(50% - 1px),
+      var(--border-strong) calc(50% - 1px),
+      var(--border-strong) calc(50% + 1px),
+      transparent calc(50% + 1px)
+    );
+}
+
+.colorField output {
+  overflow: hidden;
+  color: var(--text-secondary);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.segmentedControl,
+.modeSwitch {
+  display: inline-flex;
+  min-width: 0;
+  padding: var(--space-xs);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-control);
+  background: var(--surface-muted);
+}
+
+.segmentedControl {
+  width: 100%;
+}
+
+.segmentedButton {
+  min-height: 30px;
+  flex: 1 1 0;
+  padding: var(--space-xs) var(--space-sm);
+  border: 0;
+  border-radius: calc(var(--radius-control) - 2px);
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 650;
+  white-space: nowrap;
+}
+
+.segmentedButton:hover,
+.segmentedButton:focus-visible {
+  color: var(--text-primary);
+  outline: none;
+}
+
+.segmentedButton[data-selected="true"] {
+  background: var(--background);
+  color: var(--text-primary);
+  box-shadow: 0 1px 2px rgb(17 17 17 / 10%);
+}
+
+.modeSwitch .segmentedButton {
+  flex: 0 0 auto;
+}
+
+/* 記憶の説明と「既定に戻す」。設定の下に 1 行だけ置く。 */
+
+.footer {
+  padding-top: var(--space-md);
+  border-top: 1px solid var(--border-subtle);
+  gap: var(--space-md);
+}
+
+.resetButton {
+  flex: 0 0 auto;
+  min-height: 30px;
+  padding: var(--space-xs) var(--space-md);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  background: var(--background);
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 650;
+  white-space: nowrap;
+}
+
+.resetButton:hover,
+.resetButton:focus-visible {
+  border-color: var(--border-strong);
+  color: var(--text-primary);
+  outline: none;
+}
+
+@media (max-width: 720px) {
+  .styleGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .settingsGrid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

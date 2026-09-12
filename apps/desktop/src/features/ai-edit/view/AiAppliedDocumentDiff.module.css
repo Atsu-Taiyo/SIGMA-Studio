@@ -1,0 +1,170 @@
+.diff {
+  display: grid;
+  gap: var(--space-sm);
+  min-width: 0;
+}
+
+.stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-md);
+  align-items: center;
+  min-width: 0;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.stat[data-change="added"] {
+  color: var(--success);
+}
+
+.stat[data-change="removed"] {
+  color: var(--danger);
+}
+
+.body,
+.shapes {
+  display: grid;
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-control);
+}
+
+.bodyRow,
+.shapeRow,
+.areaLabelRow,
+.collapsedRow {
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr);
+  min-width: 0;
+}
+
+.bodyRow + .bodyRow,
+.shapeRow + .shapeRow,
+.areaLabelRow + .bodyRow,
+.bodyRow + .areaLabelRow,
+.collapsedRow + .bodyRow,
+.bodyRow + .collapsedRow,
+.collapsedRow + .areaLabelRow,
+.areaLabelRow + .collapsedRow {
+  border-top: 1px solid var(--border-subtle);
+}
+
+.bodyRow[data-change="added"],
+.shapeRow[data-change="added"] {
+  background: color-mix(in srgb, var(--success) 8%, transparent);
+}
+
+.bodyRow[data-change="removed"],
+.shapeRow[data-change="removed"] {
+  background: color-mix(in srgb, var(--danger) 8%, transparent);
+}
+
+.bodyRow[data-change="context"] .bodyContent {
+  color: var(--text-secondary);
+}
+
+.gutter {
+  display: grid;
+  place-items: start center;
+  min-height: 100%;
+  padding-top: 6px;
+  border-right: 1px solid var(--border-subtle);
+  color: var(--text-muted);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  font-size: 11px;
+  line-height: 1.4;
+  user-select: none;
+}
+
+.bodyRow[data-change="added"] .gutter,
+.shapeRow[data-change="added"] .gutter {
+  background: color-mix(in srgb, var(--success) 12%, transparent);
+  color: var(--success);
+}
+
+.bodyRow[data-change="removed"] .gutter,
+.shapeRow[data-change="removed"] .gutter {
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
+  color: var(--danger);
+}
+
+.bodyContent.bodyContent {
+  --editor-font-size: 10pt;
+  min-width: 0;
+  padding: 4px 8px;
+  background: transparent;
+  color: var(--text-primary);
+  line-height: 1.55;
+}
+
+/* 変更された単語/数式だけを強く塗る。地の文はcontextと同じ薄い行背景のまま。 */
+.mark {
+  border-radius: 3px;
+  padding: 0 1px;
+  color: inherit;
+  background-color: transparent;
+}
+
+.bodyRow[data-change="added"] .mark {
+  background-color: color-mix(in srgb, var(--success) 28%, transparent);
+}
+
+.bodyRow[data-change="removed"] .mark {
+  background-color: color-mix(in srgb, var(--danger) 28%, transparent);
+}
+
+/* 問題エリア(導入文/問題文/コメント/解答)の見出し。連続する行でラベルが変わった時だけ出す。 */
+.areaLabelRow {
+  background: var(--surface-muted);
+}
+
+.areaLabel {
+  padding: 3px 8px;
+  color: var(--text-muted);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.collapsedRow {
+  width: 100%;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+  color: inherit;
+  font: inherit;
+}
+
+.collapsedRow:hover {
+  background: var(--surface-muted);
+}
+
+.collapsedLabel {
+  padding: 4px 8px;
+  color: var(--text-muted);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  font-size: 10px;
+}
+
+.shapeStage {
+  display: grid;
+  place-items: center;
+  min-width: 0;
+  min-height: 72px;
+  max-height: 160px;
+  padding: var(--space-sm);
+  overflow: hidden;
+}
+
+.shapeStage svg {
+  display: block;
+  width: auto;
+  max-width: 100%;
+  height: auto;
+  max-height: 140px;
+}

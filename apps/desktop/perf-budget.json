@@ -1,0 +1,49 @@
+{
+  "_notes": {
+    "根拠": "docs/performance-budget.md に予算表・計測法・レビュー観点。ここには機械が読む値だけを置く。",
+    "決め方": "現在の統合ブランチの本番ビルドを 6〜11 回実行し、フィクスチャごとの観測最大値に方針の余裕を掛けた。0 でなければならない系は厳格、ms 系は実測の 1.5〜2 倍、duration 系は 8ms 量子化があるので観測最大値の 1 段上。",
+    "既定と上書き": "既定値は body 系 3 フィクスチャ (body-150 / body-600 / body) 向け。問題型は打鍵コストの水準が違うので fixtures.problem で上書きする。1 つの緩い予算を全フィクスチャに当てると、重い方に合わせた値が軽い方の退行を見逃す。",
+    "開く時間": "open.msToBlocks / msToSettled は予算に入れない (report のみ)。目標 1.5s/3.0s に対し現状 約1.0s/3.3s で settled が未達のため。支配項は数式ノードビューの二重構築で、エディタのライフサイクル変更が要る。"
+  },
+  "idle": {
+    "reactRenders": 0,
+    "recomputes": 0,
+    "longTasks": 0
+  },
+  "typing": {
+    "inputDurationP50Ms": 40,
+    "inputProcP50Ms": 8,
+    "longTasksPerChar": 0,
+    "pageScaleRatio": 3
+  },
+  "enter": {
+    "keydownDurationMs": 50,
+    "unchangedMathRemounts": 1
+  },
+  "arrow": {
+    "keydownDurationMs": 24
+  },
+  "scroll": {
+    "frameP90Ms": 20
+  },
+  "save": {
+    "rendererLongTasks": 0,
+    "rendererMainThreadMs": 1
+  },
+  "pagination": {
+    "oscillations": 0,
+    "idleRecomputes": 0
+  },
+  "fixtures": {
+    "problem": {
+      "typing": {
+        "inputDurationP50Ms": 32,
+        "inputProcP50Ms": 16,
+        "pageScaleRatio": 12
+      },
+      "enter": {
+        "unchangedMathRemounts": 0
+      }
+    }
+  }
+}

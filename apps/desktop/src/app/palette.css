@@ -1,0 +1,36 @@
+/*
+ * カラーパレット: Primary ramp
+ * ---------------------------------------------------------------------------
+ * globals.css の :root は用途名トークン (--accent / --border / --surface-*) で、
+ * 「Primary の薄い塗り」に使える段階が --accent-soft の 1 段しかなかった。
+ * 文字色を変えずに背景だけで状態を示す UI (ツールバーのトグル ON など) は明度段階が
+ * 必要なので、Primary の段階はこのファイルに集約する。
+ *
+ * 追加・調整するときの約束
+ *  - 新しい濃さが欲しくなったら、コンポーネント側に color-mix() を直書きせず
+ *    ここに段階を足す。ramp を一箇所に保つのが目的のファイル。
+ *  - --primary-500 が唯一の実値。他の段階は白/黒との color-mix で導出するので、
+ *    ブランドカラーを変えるときは 500 だけ差し替えれば全段が追従する。
+ *  - globals.css の --accent / --accent-soft はこの ramp のエイリアス。既存の
+ *    var(--accent) 参照はそのまま使い続けてよい。
+ */
+
+:root {
+  /* ブランドカラー本体 (PrimaryColor)。 */
+  --primary-500: #1f5eff;
+  --primary-600: color-mix(in srgb, var(--primary-500) 84%, #000000);
+
+  /* 薄い段階。数字が小さいほど白に近い。 */
+  --primary-50: color-mix(in srgb, var(--primary-500) 8%, #ffffff);
+  --primary-100: color-mix(in srgb, var(--primary-500) 14%, #ffffff);
+  --primary-200: color-mix(in srgb, var(--primary-500) 20%, #ffffff);
+
+  /* 用途エイリアス。塗りの意味で選べるようにしておく。 */
+  --primary: var(--primary-500);
+  /* 面のごく薄い下地 (情報パネル、選択行など)。 */
+  --primary-surface: var(--primary-50);
+  /* トグルが ON であることを背景だけで示す塗り。 */
+  --primary-surface-selected: var(--primary-100);
+  /* ON のままホバーしたときの一段濃い塗り。 */
+  --primary-surface-selected-hover: var(--primary-200);
+}

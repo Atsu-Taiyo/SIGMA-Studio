@@ -1,0 +1,22 @@
+/* Primary の明度段階は palette.css に集約している。SDK (packages/sdk/src/styles.css)
+   は globals.css だけを @import するので、パレットもここから読み込む。 */
+@import "./palette.css";
+/* 文書面 (印刷プレビュー / PDF / 埋め込みビューア) の共有スタイル。
+   packages/viewer/src/styles.css も同じファイルを @import する。 */
+@import "./document-surface.css";
+/* Word風リボンクローム。@import は他のルールより先に評価されるため、あちら側の
+   セレクタはすべて .app-shell[data-ui-layout="word"] で始めて詳細度で勝たせている。 */
+@import "./ribbon-chrome.css";
+
+@import "./styles/controls.css";
+@import "./styles/materials-and-dialogs.css";
+@import "./styles/workspace.css";
+@import "./styles/page-and-selection.css";
+@import "./styles/graph-and-text-editing.css";
+@import "./styles/ai-chat.css";
+@import "./styles/math-and-comments.css";
+@import "./styles/task-and-command-overlays.css";
+
+@media print {
+  .text-formatting-mark { display: none; }
+}

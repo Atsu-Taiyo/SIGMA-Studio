@@ -1,0 +1,1896 @@
+
+
+.inline-math-template-button .ML__mathlive {
+  font-size: 19px;
+  line-height: normal;
+}
+
+.inline-math-template-button .ML__placeholder,
+.inline-math-template-button .ML__prompt {
+  min-width: 0.72em;
+  min-height: 1em;
+  padding: 0 0.08em;
+  border: 0;
+  background: transparent;
+  color: var(--text-secondary);
+  opacity: 1;
+}
+
+.inline-math-template-button .ML__placeholder {
+  font-size: 0.72em;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.inline-math-template-button:hover,
+.inline-math-template-button:focus-visible {
+  border-color: color-mix(in srgb, var(--accent) 42%, var(--border));
+  background: #eef7ff;
+  outline: none;
+}
+
+.inline-math-toolbar-popover {
+  display: grid;
+  width: min(420px, calc(100vw - var(--space-lg)));
+  max-height: min(680px, calc(100vh - var(--space-4xl) - var(--space-4xl)));
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-panel);
+  background: var(--background);
+  box-shadow: var(--shadow-floating);
+}
+
+.inline-math-toolbar-popover-header {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  border-bottom: 1px solid var(--border-subtle);
+  background: var(--background);
+}
+
+.inline-math-toolbar-popover-title {
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 750;
+}
+
+.inline-math-toolbar-popover .editor-settings-section {
+  padding: var(--space-md);
+  border-bottom: 0;
+}
+
+.inline-math-toolbar-popover .inline-math-input-mode-row {
+  margin-top: 0;
+}
+
+/* ============================================================
+   UI motion & loading
+   Quiet, short transitions so panels, menus, and dialogs stop
+   popping in abruptly. Loading uses shimmer per design rules.
+   ============================================================ */
+
+@keyframes ui-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes ui-fade-out {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+@keyframes ui-opacity-shimmer {
+  0%,
+  100% {
+    opacity: 0.42;
+  }
+
+  50% {
+    opacity: 1;
+  }
+}
+
+@keyframes ui-menu-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px) scale(0.99);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes ui-dialog-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.99);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes ui-drawer-in {
+  from {
+    opacity: 0;
+    transform: translateY(16px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes ui-panel-in-right {
+  from {
+    opacity: 0;
+    transform: translateX(10px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes ui-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes ui-shimmer-sweep {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(100%);
+  }
+}
+
+@keyframes ui-save-dot-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.45;
+  }
+}
+
+/* --- Menus and popovers --- */
+
+.app-menu,
+.app-menu-submenu-panel,
+.shape-menu,
+.inline-math-toolbar-popover,
+.color-popover,
+.find-widget,
+.workspace-context-menu {
+  animation: ui-menu-in 120ms ease both;
+  transform-origin: top;
+}
+
+/* --- Modal backdrops and dialogs --- */
+
+.material-library-backdrop,
+.material-add-backdrop,
+.material-edit-backdrop,
+.info-dialog-backdrop,
+.template-gallery-backdrop,
+.page-settings-backdrop,
+.workspace-create-backdrop,
+.file-access-backdrop,
+.outline-dialog-backdrop,
+.desktop-settings-overlay {
+  animation: ui-fade-in 140ms ease both;
+}
+
+.material-library-dialog,
+.material-add-dialog,
+.material-edit-dialog,
+.info-dialog,
+.template-gallery-dialog,
+.page-settings-dialog,
+.workspace-create-dialog,
+.file-access-dialog,
+.outline-dialog,
+.desktop-settings-modal {
+  animation: ui-dialog-in 170ms ease both;
+}
+
+.preview-drawer {
+  animation: ui-drawer-in 200ms ease both;
+}
+
+.ai-sidebar-panel {
+  animation: ui-fade-in 180ms ease both;
+}
+
+/* --- Hover and state transitions for controls --- */
+
+.icon-button,
+.app-menu-button,
+.app-menu button,
+.workspace-open-button,
+.panel-icon-button,
+.outline-resize-handle,
+.document-tab-action,
+.document-tab-main,
+.document-tab-close,
+.shape-menu-button,
+.shape-menu button,
+.find-icon-button,
+.find-action-button,
+.outline-list button,
+.outline-dialog-list button,
+.print-preview-page-nav-button,
+.toolbar-icon-color,
+.mcp-proposal-button,
+.report-issue-button,
+.button,
+.workspace-nav-item,
+.workspace-context-menu button {
+  transition: background-color 120ms ease, border-color 120ms ease, color 120ms ease;
+}
+
+/* --- Save state feedback --- */
+
+.save-state {
+  transition: color 240ms ease;
+}
+
+.save-state-spinner {
+  animation: ui-spin 900ms linear infinite;
+}
+
+.document-tab-loading {
+  animation: ui-spin 900ms linear infinite;
+  color: var(--text-muted);
+}
+
+.document-tab-save-dot {
+  transition: background-color 240ms ease;
+}
+
+.document-tab-save-dot.saving {
+  animation: ui-save-dot-pulse 1.2s ease-in-out infinite;
+}
+
+/* --- Shimmer loading primitives --- */
+
+.ui-shimmer-text,
+.ui-shimmer-marker {
+  display: inline-block;
+  color: var(--text-primary);
+  animation: ui-opacity-shimmer 1.4s ease-in-out infinite;
+}
+
+.ui-shimmer-marker {
+  font-weight: 850;
+}
+
+.ui-shimmer-surface {
+  display: inline-block;
+  background: color-mix(in srgb, var(--text-muted) 28%, transparent);
+  animation: ui-opacity-shimmer 1.4s ease-in-out infinite;
+}
+
+.ui-shimmer-icon {
+  display: inline-flex;
+  animation: ui-opacity-shimmer 1.4s ease-in-out infinite;
+}
+
+.ai-activity-item-shimmer {
+  min-width: 10px;
+  text-align: center;
+}
+
+.ai-activity-plan-icon-shimmer {
+  min-width: 10px;
+  text-align: center;
+}
+
+.shimmer-line,
+.shimmer-block {
+  position: relative;
+  display: block;
+  overflow: hidden;
+  border-radius: 4px;
+  background: var(--surface-muted);
+}
+
+.shimmer-line {
+  height: 12px;
+}
+
+.shimmer-line::after,
+.shimmer-block::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(255, 255, 255, 0.65),
+    transparent
+  );
+  animation: ui-shimmer-sweep 1.8s ease-in-out infinite;
+}
+
+/* --- Outline loading skeleton --- */
+
+.outline-skeleton {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 10px 8px;
+}
+
+/* --- Editor canvas loading skeleton and document switching --- */
+
+.editor-canvas {
+  transition: opacity 160ms ease;
+}
+
+.editor-canvas.is-switching {
+  opacity: 0.55;
+  pointer-events: none;
+}
+
+.editor-canvas-skeleton {
+  display: grid;
+  justify-items: center;
+  padding: 28px 24px;
+}
+
+.editor-canvas-skeleton-page {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  width: min(720px, 100%);
+  min-height: min(900px, calc(100vh - 240px));
+  padding: 64px 56px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 2px;
+  background: var(--background);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+}
+
+/* --- Workspace page loading skeleton --- */
+
+.workspace-page-skeleton .workspace-sidebar,
+.workspace-page-skeleton .workspace-content {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.workspace-skeleton-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(208px, 1fr));
+  gap: 12px;
+}
+
+/* --- Comments --- */
+
+.selection-action-popover {
+  position: fixed;
+  z-index: 120;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 4px 5px;
+  border: 1px solid rgba(203, 213, 225, 0.95);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.16);
+}
+
+.selection-action-popover button {
+  display: inline-flex;
+  min-width: 30px;
+  height: 30px;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  padding: 0 9px;
+  border: 0;
+  border-radius: 999px;
+  color: #1f2937;
+  background: transparent;
+  cursor: pointer;
+}
+
+.selection-action-popover button:hover,
+.selection-action-popover button:focus-visible {
+  background: #f1f5f9;
+  outline: none;
+}
+
+.comment-text-highlight {
+  border-radius: 2px;
+  background: transparent;
+}
+
+/* ピン留めしたAI参照はグレー、現在のブラウザ選択はブルーで示す。
+   Decoration.inline と mathInline の Decoration.node は、通常の ::selection と同じ
+   四角い帯に見えるように揃える。padding-block はインライン背景を選択帯の
+   高さに近づけ、box-decoration-break: clone は複数行の各断片に同じ帯を複製する。 */
+.external-text-range-highlight,
+.external-text-range-inline-math-highlight,
+.ai-reference-text-highlight,
+.ai-reference-inline-math-highlight {
+  padding-block: 0.15em;
+  background: var(--ai-reference-highlight-background);
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+}
+
+/* ライブ選択のブルーは、ピン留めAI参照のグレーの上にもそのまま表示する。 */
+.text-flow-editor ::selection {
+  background: var(--editor-selection-background);
+  color: var(--editor-selection-color);
+}
+
+/* フォーカス中はネイティブ ::selection だけを見せる。非フォーカス時は
+   HeldBodySelectionOverlay が描くので、残ったネイティブ選択は消す。 */
+.text-flow-editor:not(:focus-within) ::selection {
+  background: transparent;
+  color: inherit;
+  -webkit-text-fill-color: inherit;
+}
+
+/* チャンクを跨ぐ選択と、図形操作中に保持した本文選択は CSS Custom Highlight で描く
+   (TextRunSelectionOverlay / HeldBodySelectionOverlay が DOM Range を登録する)。
+   `::highlight(...)` の色は custom-highlight.ts が <style> として注入する。Next.js 16 の
+   Turbopack / LightningCSS はこの擬似要素を未対応で、ここに書くとパース失敗で規則が落ちる
+   (vercel/next.js#85398)。ブラウザがネイティブ ::selection と同じ層 (グリフの背後) に描く
+   ため、fixed レイヤー + multiply の帯にあった構造的限界 — 有彩色文字の暗転・隣接行の帯の
+   重なり縞・overlay 図形への被さり — が起きない。数式アトム等の非テキストノードは
+   Highlight が塗らないので、`.inline-math-node.text-selected` が補完する。 */
+
+/* チャンクを跨ぐ選択中はネイティブ ::selection を消す。焦点エディタの担当分にだけ
+   ネイティブ選択が付くと、Highlight の帯と二重に塗られて境界で色が割れる。 */
+.text-flow-editor[data-text-run-span] ::selection,
+.text-flow-editor[data-box-fragment-span] ::selection {
+  background: transparent;
+  color: inherit;
+  -webkit-text-fill-color: inherit;
+}
+
+/* 「選択された改行」の印 (テキストを持たない空行)。跨ぎ選択・保持選択の本体は CSS Custom
+   Highlight が描くが、Highlight はテキストの無い行に何も描かないため、空行だけこの矩形
+   レイヤーが補完する (`TextRunSelectionOverlay` / `HeldBodySelectionOverlay`)。 */
+.text-flow-held-selection-layer {
+  position: fixed;
+  inset: 0;
+  /* ページの上、ダイアログ (--z-modal) の下。 */
+  z-index: 900;
+  pointer-events: none;
+  /* 紙面は常に白なので multiply 固定。screen は白地で selection(1,x)=1 になり選択が
+     完全に見えなくなる (このアプリにダークテーマは無い)。空行の印は白地の上にしか
+     乗らないので、multiply で描いた色はネイティブ選択の印と同色になる。
+
+     multiply はレイヤー要素自体に付ける。position:fixed + z-index のこの要素は isolated
+     stacking context なので、子バンドに付けるとレイヤー内 (透明地) としか合成されず、
+     ページの文字に色が「上乗せ」されてネイティブ ::selection (文字の背後に色) と見た目が
+     割れる (headless Chromium 実測: 黒グリフ上が rgb(19,42,79) になる)。レイヤー自体に
+     付ければレイヤーの描画結果 (透明地に青バンド) が背後のページと乗算され、透明部は
+     中立 (乗算単位 = 白扱い)、黒グリフは黒のまま残る。 */
+  mix-blend-mode: multiply;
+}
+
+.text-flow-held-selection {
+  position: fixed;
+  /* 角丸なし: ネイティブ ::selection の帯は角が四角い。行末の改行タブ (幅スペース 1 個分)
+     に丸みが付くと、跨いだ瞬間の切り替わりで角のピクセルだけ欠けて見える (実測)。 */
+  border-radius: 0;
+  background: var(--editor-selection-background);
+  pointer-events: none;
+}
+
+.comment-inline-math-highlight {
+  border-radius: 4px;
+  background: transparent;
+}
+
+.text-flow-commented-line {
+  position: relative;
+  border-radius: 3px;
+  background: transparent;
+}
+
+.comment-highlight-active,
+.text-flow-commented-line.comment-highlight-active {
+  background: rgba(245, 158, 11, 0.28);
+}
+
+.block-comment-marker {
+  position: absolute;
+  inset: -3px -4px;
+  z-index: 0;
+  border-radius: 4px;
+  pointer-events: none;
+  background: transparent;
+}
+
+.block-comment-marker.active {
+  background: rgba(245, 158, 11, 0.28);
+}
+
+.page-flow-unit,
+.problem-area-flow-unit,
+[data-page-block] {
+  position: relative;
+}
+
+.overlay-comment-marker {
+  position: absolute;
+  z-index: 12;
+  border-radius: 5px;
+  pointer-events: none;
+  background: transparent;
+}
+
+.overlay-comment-marker.active {
+  background: rgba(245, 158, 11, 0.3);
+}
+
+.comment-focus-pulse {
+  animation: comment-focus-pulse 900ms ease;
+}
+
+@keyframes comment-focus-pulse {
+  0% {
+    background-color: rgba(245, 158, 11, 0.42);
+  }
+
+  100% {
+    background-color: rgba(245, 158, 11, 0.22);
+  }
+}
+
+/* Agentic RAG: transient pulse when jumping to a cited block/problem/shape
+   from an AI source-reference chip (ai-source-reference-navigation.ts). */
+.source-reference-focus-pulse {
+  animation: source-reference-focus-pulse 1400ms ease;
+}
+
+@keyframes source-reference-focus-pulse {
+  0% {
+    background-color: color-mix(in srgb, #3b82f6 24%, transparent);
+    box-shadow: 0 0 0 2px color-mix(in srgb, #3b82f6 32%, transparent);
+  }
+
+  100% {
+    background-color: transparent;
+    box-shadow: none;
+  }
+}
+
+.overlay-shape.source-reference-focus-pulse {
+  animation: source-reference-shape-pulse 1400ms ease;
+}
+
+@keyframes source-reference-shape-pulse {
+  0% {
+    box-shadow: 0 0 0 4px color-mix(in srgb, #3b82f6 38%, transparent);
+  }
+
+  100% {
+    box-shadow: none;
+  }
+}
+
+.page-comment-gutter {
+  position: absolute;
+  top: 0;
+  /* 用紙外の図形も編集面に含め、コメント欄はその外側に置く。 */
+  left: calc(var(--page-width) + var(--overlay-bleed-x, 0px) + 26px);
+  z-index: 35;
+  width: 284px;
+  pointer-events: none;
+}
+
+.comment-thread-panel {
+  position: relative;
+  width: 284px;
+  pointer-events: auto;
+}
+
+.comment-thread-panel-footer {
+  position: sticky;
+  top: 8px;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* 未解決 / すべて の切り替え。チェックボックスより現在の絞り込みが読み取りやすく、
+   件数もその場に出せる (Figma のコメントサイドバーと同じ形)。 */
+.comment-filter-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 3px;
+  border: 1px solid rgba(15, 23, 42, 0.07);
+  border-radius: 999px;
+  background: #ffffff;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.05), 0 6px 16px rgba(15, 23, 42, 0.07);
+}
+
+.comment-filter-switch button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 11px;
+  border: 0;
+  border-radius: 999px;
+  color: #64748b;
+  background: transparent;
+  font-size: 11.5px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.comment-filter-switch button:hover,
+.comment-filter-switch button:focus-visible {
+  color: #1f2937;
+  background: #f1f5f9;
+  outline: none;
+}
+
+.comment-filter-switch button.is-active {
+  color: #ffffff;
+  background: #1f2937;
+}
+
+.comment-filter-switch button em {
+  color: inherit;
+  font-style: normal;
+  font-weight: 700;
+  opacity: 0.65;
+}
+
+.comment-thread-panel-body {
+  position: relative;
+  min-height: inherit;
+}
+
+/* Figma のコメントカードに合わせる: 角丸は大きめ、境界は極薄、影で浮かせる。
+   選択していないカードを灰色地にすると「無効」に見えるので、地は常に白のまま
+   影の強さだけで前後関係を出す。 */
+.comment-compose-card,
+.comment-thread-card {
+  position: absolute;
+  left: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  width: 100%;
+  padding: 12px 13px;
+  border: 1px solid rgba(15, 23, 42, 0.07);
+  border-radius: 13px;
+  background: #ffffff;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.06), 0 8px 24px rgba(15, 23, 42, 0.09);
+  overflow: visible;
+  animation: comment-card-enter 180ms ease-out;
+  transition: box-shadow 140ms ease, border-color 140ms ease;
+}
+
+.comment-compose-card.pending {
+  border-color: rgba(37, 99, 235, 0.28);
+  background: #ffffff;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1), 0 10px 28px rgba(15, 23, 42, 0.14);
+}
+
+.comment-thread-card.active {
+  z-index: 3;
+  border-color: rgba(37, 99, 235, 0.34);
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1), 0 10px 28px rgba(15, 23, 42, 0.14);
+}
+
+.comment-thread-card:hover,
+.comment-thread-card:focus-within {
+  z-index: 4;
+}
+
+.comment-thread-card:not(.active) {
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.05), 0 4px 12px rgba(15, 23, 42, 0.07);
+}
+
+.comment-thread-card:not(.active):hover {
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.06), 0 8px 22px rgba(15, 23, 42, 0.11);
+}
+
+.comment-thread-card.resolved {
+  opacity: 0.72;
+}
+
+.comment-thread-card-header,
+.comment-composer-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.comment-thread-card-header {
+  justify-content: space-between;
+}
+
+/* 解決の丸ボタンはカード右上に固定 (Figma と同じ位置)。**隠さない**: 押せる場所が
+   ホバーで現れる作りにすると、ポインタを乗せるまで存在が分からず、クリック判定も
+   ホバー状態に依存する。ふだんは薄く置いておき、注目したときだけ濃くする。 */
+.comment-thread-resolve-button {
+  display: inline-grid;
+  width: 26px;
+  height: 26px;
+  flex: 0 0 auto;
+  place-items: center;
+  border: 1px solid rgba(15, 23, 42, 0.1);
+  border-radius: 999px;
+  color: #475569;
+  background: #ffffff;
+  cursor: pointer;
+  opacity: 0.5;
+  transition: opacity 120ms ease, color 120ms ease, background 120ms ease;
+}
+
+.comment-thread-card:hover .comment-thread-resolve-button,
+.comment-thread-card:focus-within .comment-thread-resolve-button,
+.comment-thread-card.active .comment-thread-resolve-button,
+.comment-thread-card.resolved .comment-thread-resolve-button {
+  opacity: 1;
+}
+
+.comment-thread-resolve-button:hover,
+.comment-thread-resolve-button:focus-visible {
+  color: #047857;
+  border-color: rgba(4, 120, 87, 0.35);
+  background: #ecfdf5;
+  outline: none;
+}
+
+.comment-thread-resolve-button.is-resolved {
+  color: #047857;
+  border-color: rgba(4, 120, 87, 0.35);
+  background: #ecfdf5;
+}
+
+.comment-author-line {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.comment-author-avatar {
+  position: relative;
+  display: grid;
+  width: 28px;
+  height: 28px;
+  flex: 0 0 auto;
+  place-items: center;
+  border-radius: 999px;
+  color: #ffffff;
+  background: #78909c;
+  font-size: 12px;
+  font-weight: 760;
+}
+
+.comment-author-avatar.image {
+  background-position: center;
+  background-size: cover;
+}
+
+/* AI が書いたコメントのアバター。地色は提供元の色 (インラインstyle) で、
+   Microsoft のように白地のロゴもあるので薄い輪郭を必ず引く。 */
+.comment-author-avatar.agent {
+  border: 1px solid rgba(15, 23, 42, 0.12);
+}
+
+.comment-author-avatar.agent svg {
+  display: block;
+}
+
+.comment-author-avatar-badge {
+  position: absolute;
+  right: -3px;
+  bottom: -3px;
+  display: grid;
+  width: 13px;
+  height: 13px;
+  place-items: center;
+  border: 1.5px solid #ffffff;
+  border-radius: 999px;
+  color: #ffffff;
+  background: #7c3aed;
+}
+
+.comment-author-meta {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px;
+}
+
+.comment-author-meta strong {
+  min-width: 0;
+  overflow: hidden;
+  color: #111827;
+  font-size: 12.5px;
+  font-weight: 760;
+  letter-spacing: 0;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* モデル名。ブランド名の一部なので翻訳しない小さな添え字。 */
+.comment-author-model {
+  overflow: hidden;
+  max-width: 96px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  color: #4c1d95;
+  background: rgba(124, 58, 237, 0.1);
+  font-size: 10px;
+  font-style: normal;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.comment-author-meta span {
+  margin-left: auto;
+  color: #94a3b8;
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.comment-thread-menu-root {
+  position: relative;
+  flex: 0 0 auto;
+}
+
+.comment-thread-menu-button {
+  display: inline-grid;
+  width: 24px;
+  height: 24px;
+  place-items: center;
+  border: 1px solid rgba(203, 213, 225, 0.85);
+  border-radius: 6px;
+  background: #ffffff;
+  color: #475569;
+  cursor: pointer;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(2px);
+  transition: opacity 120ms ease, transform 120ms ease;
+}
+
+.comment-thread-card:hover .comment-thread-menu-button,
+.comment-thread-card:focus-within .comment-thread-menu-button,
+.comment-thread-menu-root.open .comment-thread-menu-button {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateY(0);
+}
+
+.comment-thread-menu-button:hover,
+.comment-thread-menu-button:focus-visible {
+  background: #f8fafc;
+  outline: none;
+}
+
+.comment-thread-menu {
+  position: absolute;
+  top: 28px;
+  right: 0;
+  z-index: 8;
+  display: grid;
+  min-width: 112px;
+  gap: 2px;
+  padding: 5px;
+  border: 1px solid rgba(203, 213, 225, 0.9);
+  border-radius: 8px;
+  background: #ffffff;
+  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.18);
+}
+
+.comment-thread-menu button {
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr);
+  align-items: center;
+  gap: 7px;
+  min-height: 30px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 6px;
+  color: #334155;
+  background: transparent;
+  font-size: 12px;
+  font-weight: 650;
+  text-align: left;
+  cursor: pointer;
+}
+
+.comment-thread-menu button:hover,
+.comment-thread-menu button:focus-visible {
+  background: #f1f5f9;
+  outline: none;
+}
+
+.comment-thread-menu button.danger {
+  color: #b91c1c;
+}
+
+/* 「何に付いたコメントか」のチップ。Figma には無い情報だが、この製品の
+   コメントは本文・数式・図形のどれにも刺さるので、対象の種別は必ず見せる。 */
+.comment-anchor-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: -2px;
+}
+
+.comment-anchor-label > span {
+  padding: 2px 8px;
+  border-radius: 999px;
+  color: #475569;
+  background: #f1f5f9;
+  font-size: 10.5px;
+  font-weight: 700;
+}
+
+.comment-anchor-label em {
+  padding: 2px 8px;
+  border-radius: 999px;
+  color: #047857;
+  background: #ecfdf5;
+  font-size: 10.5px;
+  font-style: normal;
+  font-weight: 700;
+}
+
+.comment-anchor-quote {
+  display: -webkit-box;
+  overflow: hidden;
+  margin: 0;
+  padding: 0 0 0 8px;
+  border-left: 2px solid rgba(148, 163, 184, 0.55);
+  color: #64748b;
+  background: transparent;
+  font-size: 11.5px;
+  line-height: 1.5;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.comment-message-list {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+}
+
+.comment-message {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 0;
+  padding: 2px 0;
+}
+
+.comment-message.root {
+  position: static;
+}
+
+.comment-message p {
+  margin: 0;
+  overflow-wrap: anywhere;
+  color: #111827;
+  font-size: 13px;
+  line-height: 1.55;
+  /* AI が書いたコメントは複数行で届く。改行をそのまま見せないと箇条書きが1行に潰れる。 */
+  white-space: pre-wrap;
+}
+
+.comment-message-edit {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.comment-message.reply {
+  gap: 6px;
+  padding-top: 2px;
+  animation: comment-message-enter 180ms ease-out;
+}
+
+.comment-message-hover-toolbar {
+  position: absolute;
+  top: -34px;
+  right: -6px;
+  z-index: 10;
+  display: inline-flex;
+  align-items: center;
+  gap: 1px;
+  padding: 4px;
+  border: 1px solid rgba(203, 213, 225, 0.92);
+  border-radius: 9px;
+  color: #334155;
+  background: #ffffff;
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.18);
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(5px) scale(0.98);
+  transition: opacity 120ms ease, transform 120ms ease;
+}
+
+.comment-message:hover .comment-message-hover-toolbar,
+.comment-thread-card:hover .comment-message.root .comment-message-hover-toolbar,
+.comment-message:focus-within .comment-message-hover-toolbar,
+.comment-message-hover-toolbar:focus-within,
+.comment-thread-menu-root.open .comment-message-hover-toolbar {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateY(0) scale(1);
+}
+
+.comment-toolbar-emoji-button,
+.comment-toolbar-icon-button {
+  display: inline-grid;
+  width: 28px;
+  height: 28px;
+  place-items: center;
+  border: 0;
+  border-radius: 7px;
+  color: #475569;
+  background: transparent;
+  cursor: pointer;
+}
+
+.comment-toolbar-emoji-button {
+  font-size: 15px;
+}
+
+.comment-toolbar-icon-button:hover,
+.comment-toolbar-icon-button:focus-visible,
+.comment-toolbar-emoji-button:hover,
+.comment-toolbar-emoji-button:focus-visible {
+  color: #111827;
+  background: #f1f5f9;
+  outline: none;
+}
+
+.comment-message-hover-toolbar .comment-thread-menu-root {
+  display: inline-flex;
+}
+
+.comment-message-hover-toolbar .comment-thread-menu-button {
+  border: 0;
+  opacity: 1;
+  pointer-events: auto;
+  transform: none;
+}
+
+.comment-message-hover-toolbar .comment-thread-menu {
+  top: 35px;
+  right: 0;
+}
+
+.comment-message.reply .comment-author-line {
+  grid-template-columns: 24px minmax(0, 1fr);
+  gap: 8px;
+}
+
+.comment-message.reply .comment-author-avatar {
+  width: 24px;
+  height: 24px;
+  font-size: 11px;
+}
+
+.comment-message.reply .comment-author-meta strong {
+  font-size: 11px;
+}
+
+.comment-reply-composer {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.comment-reply-summary {
+  display: inline-flex;
+  width: fit-content;
+  max-width: 100%;
+  align-items: center;
+  gap: 7px;
+  margin-top: -2px;
+  padding: 4px 9px 4px 5px;
+  border: 0;
+  border-radius: 999px;
+  color: #2563eb;
+  background: #f1f5f9;
+  font-size: 12px;
+  font-weight: 760;
+  text-align: left;
+  cursor: pointer;
+}
+
+/* 折りたたんだ返信行の重ねアバター。誰が返したかを開かずに読めるようにする。 */
+.comment-reply-avatars {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+}
+
+.comment-reply-avatars .comment-author-avatar {
+  width: 20px;
+  height: 20px;
+  border: 1.5px solid #ffffff;
+  font-size: 10px;
+}
+
+.comment-reply-avatars .comment-author-avatar + .comment-author-avatar {
+  margin-left: -7px;
+}
+
+.comment-reply-avatars .comment-author-avatar svg {
+  width: 11px;
+  height: 11px;
+}
+
+.comment-reply-avatars .comment-author-avatar-badge {
+  display: none;
+}
+
+.comment-reply-summary em {
+  min-width: 0;
+  overflow: hidden;
+  color: #64748b;
+  font-style: normal;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.comment-reply-summary.open {
+  color: #475569;
+}
+
+.comment-reply-summary:hover,
+.comment-reply-summary:focus-visible {
+  color: #1d4ed8;
+  background: #e2e8f0;
+  outline: none;
+}
+
+.comment-reply-composer .comment-author-line {
+  grid-template-columns: 26px minmax(0, 1fr);
+  gap: 8px;
+}
+
+.comment-reply-composer .comment-author-avatar {
+  width: 26px;
+  height: 26px;
+  font-size: 12px;
+}
+
+.comment-reply-composer .comment-author-meta strong {
+  font-size: 12px;
+}
+
+.comment-reaction-bar {
+  position: relative;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  min-height: 26px;
+}
+
+.comment-reaction-bar.empty {
+  min-height: 0;
+}
+
+.comment-message:hover .comment-reaction-bar.empty,
+.comment-message:focus-within .comment-reaction-bar.empty {
+  min-height: 0;
+}
+
+.comment-reaction-chip {
+  display: inline-flex;
+  height: 26px;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  border: 1px solid rgba(203, 213, 225, 0.85);
+  border-radius: 999px;
+  color: #334155;
+  background: rgba(226, 232, 240, 0.82);
+  cursor: pointer;
+}
+
+.comment-reaction-chip {
+  padding: 0 8px;
+  font-size: 13px;
+}
+
+.comment-reaction-chip strong {
+  font-size: 11px;
+  font-weight: 760;
+}
+
+.comment-reaction-chip.active {
+  border-color: rgba(37, 99, 235, 0.38);
+  color: #1d4ed8;
+  background: #eff6ff;
+}
+
+.comment-reaction-chip.just-added {
+  animation: comment-reaction-pop 480ms cubic-bezier(0.2, 0.9, 0.25, 1.25);
+}
+
+.comment-reaction-chip:hover,
+.comment-reaction-chip:focus-visible {
+  border-color: rgba(37, 99, 235, 0.34);
+  background: #ffffff;
+  outline: none;
+}
+
+.comment-reaction-picker-root {
+  position: relative;
+  display: inline-flex;
+}
+
+.comment-reaction-picker {
+  position: absolute;
+  bottom: 32px;
+  left: 0;
+  z-index: 12;
+  display: grid;
+  width: 286px;
+  max-height: 360px;
+  gap: 9px;
+  overflow-y: auto;
+  padding: 8px;
+  border: 1px solid rgba(203, 213, 225, 0.9);
+  border-radius: 12px;
+  background: #ffffff;
+  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.18);
+}
+
+.comment-message-hover-toolbar .comment-reaction-picker {
+  top: 35px;
+  right: -8px;
+  bottom: auto;
+  left: auto;
+}
+
+.comment-reaction-picker-search {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr);
+  align-items: center;
+  gap: 6px;
+  height: 32px;
+  padding: 0 8px;
+  border: 1px solid rgba(203, 213, 225, 0.86);
+  border-radius: 8px;
+  color: #64748b;
+  background: #ffffff;
+}
+
+.comment-reaction-picker-search input {
+  min-width: 0;
+  border: 0;
+  outline: none;
+  color: #111827;
+  background: transparent;
+  font-size: 12px;
+}
+
+.comment-reaction-picker-section {
+  display: grid;
+  gap: 5px;
+}
+
+.comment-reaction-picker-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 0 2px;
+  color: #64748b;
+  font-size: 11px;
+  font-weight: 760;
+}
+
+.comment-reaction-picker-heading small {
+  color: #94a3b8;
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.comment-reaction-picker-grid {
+  display: grid;
+  grid-template-columns: repeat(8, 1fr);
+  gap: 3px;
+}
+
+.comment-reaction-picker-grid.compact {
+  grid-template-columns: repeat(8, 28px);
+}
+
+.comment-reaction-picker-grid button {
+  display: inline-grid;
+  width: 28px;
+  height: 28px;
+  place-items: center;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  font-size: 15px;
+  cursor: pointer;
+}
+
+.comment-reaction-picker-grid button:hover,
+.comment-reaction-picker-grid button:focus-visible {
+  background: #f1f5f9;
+  outline: none;
+}
+
+.comment-reaction-picker-empty {
+  margin: 0;
+  padding: 8px 2px 2px;
+  color: #94a3b8;
+  font-size: 12px;
+}
+
+@keyframes comment-card-enter {
+  0% {
+    opacity: 0;
+    transform: translateY(8px) scale(0.985);
+  }
+
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes comment-message-enter {
+  0% {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes comment-reaction-pop {
+  0% {
+    transform: scale(0.82);
+  }
+
+  55% {
+    transform: scale(1.14);
+  }
+
+  100% {
+    transform: scale(1);
+  }
+}
+
+.comment-rich-text-shell {
+  min-height: 56px;
+  border: 1px solid transparent;
+  border-radius: 14px;
+  background: #f1f5f9;
+  transition: background 120ms ease, border-color 120ms ease;
+}
+
+.comment-rich-text-shell:focus-within {
+  border-color: rgba(37, 99, 235, 0.35);
+  background: #ffffff;
+}
+
+.comment-rich-text-editor {
+  min-height: 52px;
+  padding: 10px 14px;
+  outline: none;
+  color: #111827;
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.comment-rich-text-editor p {
+  margin: 0;
+}
+
+.comment-rich-text-editor p.is-editor-empty:first-child::before {
+  content: attr(data-placeholder);
+  float: left;
+  height: 0;
+  color: #94a3b8;
+  pointer-events: none;
+}
+
+.comment-composer-actions {
+  justify-content: flex-end;
+}
+
+.comment-composer-actions .button {
+  min-height: 28px;
+  padding: 0 14px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.comment-composer-actions .button.primary:disabled {
+  opacity: 0.45;
+}
+
+.comment-empty-state {
+  position: absolute;
+  left: 0;
+  display: flex;
+  min-height: 150px;
+  width: 100%;
+  align-items: center;
+  flex-direction: column;
+  justify-content: center;
+  gap: 6px;
+  padding: 18px 14px;
+  border: 1px dashed rgba(15, 23, 42, 0.12);
+  border-radius: 13px;
+  background: #ffffff;
+  color: #64748b;
+  font-size: 12.5px;
+  text-align: center;
+}
+
+.comment-empty-state strong {
+  color: var(--text-primary);
+}
+
+.comment-empty-state button,
+.comment-dock-add {
+  display: inline-flex;
+  min-height: 28px;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  margin-top: 4px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 999px;
+  background: #2563eb;
+  color: #ffffff;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.comment-empty-state button:hover,
+.comment-empty-state button:focus-visible,
+.comment-dock-add:hover,
+.comment-dock-add:focus-visible {
+  background: #1d4ed8;
+  outline: none;
+}
+
+/* --- Reduced motion --- */
+
+@media (prefers-reduced-motion: reduce) {
+  .startup-splash,
+  .startup-splash-logo,
+  .app-menu,
+  .app-menu-submenu-panel,
+  .shape-menu,
+  .color-popover,
+  .find-widget,
+  .workspace-context-menu,
+	  .material-library-backdrop,
+	  .material-add-backdrop,
+	  .material-edit-backdrop,
+	  .info-dialog-backdrop,
+	  .template-gallery-backdrop,
+  .page-settings-backdrop,
+  .workspace-create-backdrop,
+  .file-access-backdrop,
+  .desktop-settings-overlay,
+	  .material-library-dialog,
+	  .material-add-dialog,
+	  .material-edit-dialog,
+	  .info-dialog,
+	  .template-gallery-dialog,
+  .template-gallery-search-input,
+  .slash-command-popover,
+  .slash-command-preview,
+  .page-settings-dialog,
+  .workspace-create-dialog,
+  .file-access-dialog,
+  .desktop-settings-modal,
+  .preview-drawer,
+  .outline-resize-handle,
+  .ai-sidebar-panel,
+  .editor-canvas,
+  .workspace,
+  .text-flow-change-removing,
+  .text-flow-change-added,
+  .ai-apply-removing,
+  .ai-apply-added,
+  .ai-apply-added-shape {
+    animation: none;
+    transition: none;
+  }
+
+  .shimmer-line::after,
+  .shimmer-block::after {
+    animation: none;
+  }
+}
+
+/* AIタスクDock: persistent top-left icon anchored inside .editor-canvas (cockpit
+   affordance -- always visible, collapsed to a single icon by default, with a
+   quiet count badge for anything active/actionable). Sits inside the sticky
+   .ai-task-dock-root so it survives the canvas's own vertical scroll without
+   pushing document content down (root takes 0 layout height; overflow visible
+   lets the icon/panel render above it). Text-first, monochrome — matches the AI
+   Agent Activity design rule (no heavy chip backgrounds, quiet status text). */
+.ai-task-dock-root {
+  position: sticky;
+  top: 12px;
+  z-index: 90;
+  height: 0;
+  overflow: visible;
+  display: flex;
+  align-items: flex-start;
+}
+
+.webmcp-edit-target {
+  border-radius: 4px;
+  outline: 2px solid color-mix(in srgb, var(--accent, #2563eb) 62%, transparent);
+  outline-offset: 2px;
+  background: color-mix(in srgb, var(--accent, #2563eb) 8%, transparent);
+  cursor: not-allowed;
+}
+
+.overlay-shape.webmcp-edit-target-shape {
+  cursor: not-allowed;
+  filter: drop-shadow(0 0 0.5px var(--accent, #2563eb)) drop-shadow(0 0 4px color-mix(in srgb, var(--accent, #2563eb) 42%, transparent));
+}
+
+.webmcp-edit-lock-notice {
+  position: absolute;
+  inset-block-start: 12px;
+  inset-inline-start: 50%;
+  z-index: 12;
+  max-width: min(420px, calc(100% - 32px));
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: var(--text-primary);
+  color: var(--background);
+  box-shadow: 0 8px 24px rgb(15 23 42 / 0.18);
+  font-size: 12px;
+  transform: translateX(-50%);
+  pointer-events: none;
+}
+
+.webmcp-proposal-status {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.ai-task-dock-hover-bridge {
+  position: absolute;
+  top: -4px;
+  left: -4px;
+  width: 40px;
+  height: 40px;
+}
+
+.ai-task-dock-toggle {
+  position: relative;
+  appearance: none;
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 1px solid var(--border-subtle);
+  border-radius: 999px;
+  background: var(--background);
+  color: var(--text-secondary);
+  box-shadow: 0 8px 20px -12px rgb(15 23 42 / 0.35);
+  cursor: pointer;
+  transition:
+    opacity 100ms ease,
+    transform 160ms cubic-bezier(0.4, 0, 1, 1);
+}
+
+.ai-task-dock-toggle:hover,
+.ai-task-dock-toggle:focus-visible {
+  color: var(--text-primary);
+  border-color: var(--border);
+  outline: none;
+}
+
+.ai-task-dock-toggle.is-active {
+  color: var(--text-primary);
+}
+
+.ai-task-dock-toggle.is-panel-open {
+  opacity: 0;
+  transform: scale(0.72);
+  pointer-events: none;
+}
+
+/* コメントDock: AIタスクDockと対になるキャンバス右上の入口。
+   ページ/ホワイトボードの座標変換から切り離し、パネルの操作を
+   キャンバスの選択やパンとして扱わない。 */
+.comment-dock-root {
+  position: sticky;
+  top: var(--space-md);
+  z-index: 91;
+  display: flex;
+  width: calc(100% - var(--comment-dock-right-inset, 0px));
+  height: 0;
+  justify-content: flex-end;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.comment-dock-toggle {
+  position: relative;
+  display: grid;
+  width: 32px;
+  height: 32px;
+  flex: 0 0 auto;
+  padding: 0;
+  place-items: center;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-round);
+  background: var(--background);
+  color: var(--text-secondary);
+  box-shadow: 0 8px 20px -12px rgb(15 23 42 / 0.35);
+  cursor: pointer;
+  pointer-events: auto;
+  transition:
+    opacity 100ms ease,
+    transform 160ms cubic-bezier(0.4, 0, 1, 1);
+}
+
+.comment-dock-toggle:hover,
+.comment-dock-toggle:focus-visible {
+  border-color: var(--border);
+  color: var(--text-primary);
+  outline: none;
+}
+
+.comment-dock-toggle.is-panel-open {
+  opacity: 0;
+  transform: scale(0.72);
+  pointer-events: none;
+}
+
+.comment-dock-badge {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  display: grid;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 var(--space-xs);
+  place-items: center;
+  border-radius: var(--radius-round);
+  background: var(--text-primary);
+  color: var(--background);
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.comment-dock-motion {
+  position: absolute;
+  top: 0;
+  right: 0;
+  z-index: 91;
+  transform-origin: calc(100% - 16px) 16px;
+  pointer-events: auto;
+}
+
+.comment-dock-motion.is-expanded {
+  animation: comment-dock-expand 220ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.comment-dock {
+  display: flex;
+  width: min(360px, calc(100vw - 32px));
+  max-height: min(70vh, 600px);
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  border-radius: 16px;
+  background: #ffffff;
+  box-shadow: 0 2px 6px rgba(15, 23, 42, 0.06), 0 20px 48px rgba(15, 23, 42, 0.16);
+}
+
+.comment-dock-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: 10px 10px 10px var(--space-lg);
+  border-bottom: 1px solid rgba(15, 23, 42, 0.06);
+}
+
+.comment-dock-heading {
+  display: inline-flex;
+  flex: 1 1 auto;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+}
+
+.comment-dock-title {
+  color: var(--text-primary);
+  font-size: 13.5px;
+  font-weight: 760;
+}
+
+.comment-dock-count {
+  display: inline-grid;
+  min-width: 18px;
+  height: 18px;
+  place-items: center;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: #f1f5f9;
+  color: #475569;
+  font-size: 10.5px;
+  font-weight: 700;
+}
+
+.comment-dock-add {
+  white-space: nowrap;
+}
+
+.comment-dock-target-hint {
+  margin: 0;
+  padding: 8px var(--space-lg);
+  border-bottom: 1px solid rgba(15, 23, 42, 0.06);
+  background: #fffbeb;
+  color: #92400e;
+  font-size: 11.5px;
+  line-height: 1.45;
+}
+
+.comment-dock-close {
+  display: grid;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  place-items: center;
+  border: 0;
+  border-radius: var(--radius-round);
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.comment-dock-close:hover,
+.comment-dock-close:focus-visible {
+  background: var(--surface-muted);
+  color: var(--text-primary);
+  outline: none;
+}
+
+.comment-dock .comment-thread-panel {
+  display: flex;
+  width: 100%;
+  min-height: 0;
+  flex: 1 1 auto;
+  flex-direction: column;
+}
+
+.comment-dock .comment-thread-panel-body {
+  display: flex;
+  min-height: 0;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 10px;
+  overflow-y: auto;
+  padding: 12px;
+  background: #f8fafc;
+}
+
+.comment-dock .comment-compose-card,
+.comment-dock .comment-thread-card,
+.comment-dock .comment-empty-state {
+  position: relative;
+  top: auto !important;
+  left: auto;
+  flex: 0 0 auto;
+}
+
+.comment-dock .comment-thread-panel-footer {
+  position: relative;
+  top: auto;
+  flex: 0 0 auto;
+  margin: 0;
+  padding: 8px 12px;
+  border: 0;
+  border-top: 1px solid rgba(15, 23, 42, 0.06);
+  border-radius: 0;
+  background: #ffffff;
+}
+
+.comment-dock .comment-filter-switch {
+  width: 100%;
+  box-shadow: none;
+}
+
+.comment-dock .comment-filter-switch button {
+  flex: 1 1 0;
+  justify-content: center;
+}
+
+@keyframes comment-dock-expand {
+  from {
+    opacity: 0;
+    transform: translateY(-10px) scale(0.08);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.ai-task-dock-badge {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  display: grid;
+  place-items: center;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: #111111;
+  color: #ffffff;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1;
+}
