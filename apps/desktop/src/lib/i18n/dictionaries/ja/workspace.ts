@@ -9,6 +9,12 @@
  *   言語で保存された素材が引けなくなる。ソース側に日英併記のリテラルで置いてある。
  */
 export const workspace = {
+  githubStar: {
+    title: "GitHubのStarで応援しませんか？",
+    description: "Sigma Studioが役に立ったら、GitHubでStarを付けていただけるとうれしいです。開発を続ける励みになります。",
+    openGitHub: "GitHubを開く（外部サイト）",
+    dismissNote: "この案内は閉じると再表示されません。",
+  },
   untitledMaterial: "無題の教材",
   /** ワークスペースが 1 つも無いときに自動で作る既定のワークスペース名。 */
   defaultWorkspaceName: "マイ教材",

@@ -9,6 +9,12 @@ import type { TranslationsOf } from "../types";
  * フォールバックし、英語だけにあるキーも検出されなくなる。
  */
 export const workspace = {
+  githubStar: {
+    title: "Support Sigma Studio with a GitHub star",
+    description: "If Sigma Studio is useful to you, consider starring the project on GitHub. Your support encourages continued development.",
+    openGitHub: "Open GitHub (external site)",
+    dismissNote: "This invitation will not appear again after you close it.",
+  },
   untitledMaterial: "Untitled material",
   defaultWorkspaceName: "My materials",
   duplicatedTitle: "Copy of {{title}}",
