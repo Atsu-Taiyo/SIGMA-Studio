@@ -40,3 +40,30 @@ OSごとの検証、ビルド成功、署名・インストール後の動作確
 配布物の混入検査には `RELEASE_CONTENT_RULES` を設定します。値は正規表現文字列のJSON配列で、ソースへ含めません。Releaseビルドでは設定がない場合も検査に失敗します。
 同じリポジトリの下書きReleaseへのアップロードには、workflowの `contents: write` と `GITHUB_TOKEN` を使います。
 署名と混入検査はインストーラのアップロード前に実行されます。全OSのビルドと配布物を確認した後、下書きを公開します。
+
+## npmパッケージの公開準備
+
+`publish-npm.yml` はEditorとViewerのビルド、型契約、packageテスト、React 18のブラウザ検証後、
+実際のtgzを作成して検査します。`RELEASE_CONTENT_RULES` は既存の配布物検査と同じSecretで、
+設定なし・不正な設定では停止します。ファイル名と内容の検査に加え、代表的な資格情報形式、
+配布対象外ファイル、source map、symlink、バージョン不整合、ライセンス通知の欠落を検出します。
+検査に一致した内容や検査語はログに表示しません。資格情報の検査は全Secret実値との照合ではありません。
+
+ローカルでは上記の公開パッケージ検証後、次のコマンドで実物を検査できます。
+`RELEASE_CONTENT_RULES` は手元の環境に設定し、値をソースやコマンド履歴に記録しないでください。
+
+```sh
+mkdir -p tmp/npm-packages
+npm pack --workspace @sigma-studio/viewer --workspace @sigma-studio/editor --ignore-scripts --pack-destination tmp/npm-packages --json > tmp/npm-pack-result.json
+node scripts/audit-npm-tarballs.mjs tmp/npm-packages
+```
+
+初回公開予定は0.469.0です。手動実行はmainを選択し、既定の `publish: false` では検証だけを行います。
+後続の公開準備が整ってから `publish: true` を指定します。`v*` タグでは検証後に公開まで進むため、
+運用開始前に両packageのnpm Trusted Publisherを `Atsu-Taiyo` / `SIGMA-Studio` / `publish-npm.yml` に
+設定し、旧公開元のworkflowを停止してください。npm側の設定変更はGitHub Secretsの登録とは別です。
+詳しくは [npm Trusted Publishing](https://docs.npmjs.com/trusted-publishers/) を参照してください。
+
+公開時はOIDC対応のnpm CLIを確認し、Viewer、Editorの順に検証済みtgzを直接公開します。
+workspaceのprepackによる再ビルドは行いません。既存版はスキップしますが、registryの通信障害を
+「未公開」と扱わず停止します。初回手動公開のためにアプリ配布用タグを打ち直す必要はありません。

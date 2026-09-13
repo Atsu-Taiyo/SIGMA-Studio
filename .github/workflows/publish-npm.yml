@@ -1,0 +1,110 @@
+name: Publish npm packages
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: "検証後にnpmへ公開する（既定は検証のみ）"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: publish-npm
+  cancel-in-progress: false
+
+jobs:
+  packages:
+    if: github.repository == 'Atsu-Taiyo/SIGMA-Studio'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+          registry-url: https://registry.npmjs.org
+          package-manager-cache: false
+
+      - name: Validate release ref and version
+        id: release
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm run version:check
+          version="$(node -p "require('./package.json').version")"
+          if [[ "$GITHUB_EVENT_NAME" == "workflow_dispatch" && "$GITHUB_REF" != "refs/heads/main" ]]; then
+            echo "手動実行はmainを選択してください。" >&2
+            exit 1
+          fi
+          if [[ "$GITHUB_REF_TYPE" == "tag" && "$GITHUB_REF_NAME" != "v${version}" ]]; then
+            echo "タグとpackage versionが一致しません。" >&2
+            exit 1
+          fi
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+
+      - name: Install dependencies
+        run: npm ci
+      - name: Build packages and verify public contracts
+        run: |
+          npm run test:scripts
+          npm run editor:build
+          npm run viewer:typecheck
+          npm run editor:typecheck
+          npm run viewer:test
+          npm --workspace @sigma-studio/editor run test
+          npm --workspace @sigma-studio/editor-react18-example run build
+      - name: Verify React 18 integration
+        run: |
+          npm exec --workspace @sigma-studio/desktop -- playwright install --with-deps chromium
+          npm run test:public-browser
+
+      - name: Pack the tested output
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/npm-packages"
+          npm pack --workspace @sigma-studio/viewer --workspace @sigma-studio/editor --ignore-scripts --pack-destination "$RUNNER_TEMP/npm-packages" --json > "$RUNNER_TEMP/npm-pack-result.json"
+      - name: Audit the actual tarballs
+        run: node scripts/audit-npm-tarballs.mjs "$RUNNER_TEMP/npm-packages"
+        env:
+          RELEASE_CONTENT_RULES: ${{ secrets.RELEASE_CONTENT_RULES }}
+
+      # npm側で両packageのTrusted Publisherをこのrepo / publish-npm.ymlへ設定する。
+      # 検証済みtgzをそのまま公開し、prepackによる再ビルドは行わない。
+      - name: Publish Viewer then Editor using OIDC
+        if: github.event_name == 'push' || inputs.publish
+        shell: bash
+        env:
+          PUBLIC_VERSION: ${{ steps.release.outputs.version }}
+        run: |
+          set -euo pipefail
+          SIGMA_NPM_CLI_VERSION="$(npm --version)"
+          export SIGMA_NPM_CLI_VERSION
+          node -e 'const [major, minor, patch] = process.env.SIGMA_NPM_CLI_VERSION.split(".").map(Number); if (!(major > 11 || major === 11 && (minor > 5 || minor === 5 && patch >= 1))) throw new Error("npm >= 11.5.1 is required for OIDC")'
+          for package in viewer editor; do
+            export SIGMA_NPM_PACKAGE="$package"
+            status="$(node --input-type=module -e 'const response = await fetch("https://registry.npmjs.org/@sigma-studio%2f" + process.env.SIGMA_NPM_PACKAGE + "/" + process.env.PUBLIC_VERSION, { signal: AbortSignal.timeout(30000) }); if (response.status === 200) console.log("exists"); else if (response.status === 404) console.log("missing"); else throw new Error("Registry check failed: " + response.status)')"
+            if [[ "$status" == "exists" ]]; then
+              echo "@sigma-studio/${package}@${PUBLIC_VERSION} は公開済みのためskipします。"
+            else
+              npm publish "$RUNNER_TEMP/npm-packages/sigma-studio-${package}-${PUBLIC_VERSION}.tgz" --access public --ignore-scripts
+            fi
+          done
+      - name: Summarize verification
+        if: success()
+        env:
+          PUBLIC_VERSION: ${{ steps.release.outputs.version }}
+          PUBLISH_REQUESTED: ${{ github.event_name == 'push' || inputs.publish }}
+        run: |
+          {
+            echo "### npm packages ${PUBLIC_VERSION}"
+            echo "Build, public contracts, React 18 and tarball audit passed."
+            echo "Publication requested: ${PUBLISH_REQUESTED}"
+          } >> "$GITHUB_STEP_SUMMARY"
