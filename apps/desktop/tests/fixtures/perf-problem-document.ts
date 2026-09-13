@@ -34,7 +34,7 @@ export const PERF_PROBLEM_FRAMED_INDEXES: readonly number[] = [3, 7, 11];
 export const PERF_PROBLEM_FRAMED_COUNT = PERF_PROBLEM_FRAMED_INDEXES.length;
 export const PERF_PROBLEM_OVERSIZED_PROBLEM_ID = "perf_problem_11";
 /**
- * ページ超過の枠付き問題の形。実データで非収束を起こしていた問題 (`prt_p12_problem`) に合わせ、
+ * ページ超過の枠付き問題の形。過去にページ分割が収束しなかったケースに合わせ、
  * **lead は空**・`areaLayout` 未指定・prompt は数段落・solution だけがページ内容高さ (≈1017px) を
  * 大きく超える、という配分にしてある。エリアの高さがページを超えると、前パスで内部に入った
  * spacer が次パスの高さに混ざり、「keep-together する / しない」が毎パス入れ替わる。
