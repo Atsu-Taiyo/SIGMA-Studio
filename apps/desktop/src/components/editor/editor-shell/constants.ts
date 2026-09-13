@@ -38,7 +38,7 @@ export type {
   ShapeGallerySection,
 } from "@/components/editor/overlay-canvas/shape-gallery";
 
-export const REPORT_ISSUE_FORM_URL = "https://forms.gle/BAMWiZ1wC8PsUmX38";
+export { REPORT_ISSUE_FORM_URL } from "@/lib/project-links";
 export const INSERT_INLINE_MATH_EVENT = "sigma-studio:insert-inline-math";
 export const FORMAT_TEXT_EVENT = "sigma-studio:format-text";
 export const TEXT_FORMAT_STATE_EVENT = "sigma-studio:text-format-state";

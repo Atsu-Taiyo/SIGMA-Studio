@@ -65,7 +65,7 @@ export const chrome = {
   },
   actions: {
     reportIssue: "問題を報告",
-    reportIssueTooltip: "問題をフォームで報告",
+    reportIssueTooltip: "GitHubで問題を報告（外部サイト）",
     workspace: "ワークスペース",
     comments: "コメント表示",
     commentsShort: "コメント",

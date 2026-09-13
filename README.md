@@ -2,6 +2,10 @@
 
 理系教材を作成するオープンソースのエディタです。本文、数式、図形、グラフを組み合わせ、教材を編集してPDFに出力できます。
 
+![本文・数式・図形を組み合わせたSigma Studioの編集画面](docs/images/editor-canvas.png)
+
+[公式サイト・デモ](https://chocoschools.com/sigma-studio/) · [不具合報告・機能リクエスト](https://github.com/Atsu-Taiyo/SIGMA-Studio/issues/new/choose)
+
 ## ダウンロード
 
 macOS / Windows向けのアプリは [GitHub Releases](https://github.com/Atsu-Taiyo/SIGMA-Studio/releases/latest) からダウンロードできます。
@@ -45,3 +49,14 @@ Electronアプリの開発起動は `npm run electron:dev` です。
 ## ライセンス
 
 [MIT License](LICENSE)。同梱する第三者コンポーネントのライセンスも適用されます。
+
+## 支援
+
+Sigma Studioは、[SSS Education](https://sss-education.jp/) の支援を受けて開発しています。
+開発を支えていただき、ありがとうございます。
+
+<a href="https://sss-education.jp/">
+  <img src="docs/images/sss-education.png" alt="SSS Education" width="300" />
+</a>
+
+Sigma Studioが役に立ったら、[GitHubでStar](https://github.com/Atsu-Taiyo/SIGMA-Studio)を付けていただけると、開発を続ける励みになります。

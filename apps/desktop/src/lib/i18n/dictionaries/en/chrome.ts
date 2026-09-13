@@ -63,7 +63,7 @@ export const chrome = {
   },
   actions: {
     reportIssue: "Report an issue",
-    reportIssueTooltip: "Report an issue through the form",
+    reportIssueTooltip: "Report an issue on GitHub (external site)",
     workspace: "Workspace",
     comments: "Show comments",
     commentsShort: "Comments",
