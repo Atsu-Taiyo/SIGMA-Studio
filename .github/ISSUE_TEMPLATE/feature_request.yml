@@ -1,5 +1,5 @@
 name: 機能リクエスト
-description: 教材づくりで困っていることや、追加してほしい機能はこちら
+description: やりたいことや、追加してほしい機能はこちら
 body:
   - type: markdown
     attributes:
@@ -7,11 +7,11 @@ body:
         具体的な機能が決まっていなくても、困っていることから教えてください。
         投稿内容と添付ファイルは公開されます。教材や画像を添付する際は、生徒名などの個人情報を取り除いてください。
   - type: textarea
-    id: material
+    id: intent
     attributes:
-      label: 作りたい教材
-      description: 教科や教材の内容、使う場面を教えてください。
-      placeholder: 例：力のつり合いを図で説明する物理のプリント
+      label: やりたいこと
+      description: Sigma Studioでやりたいことや、使う場面を教えてください。
+      placeholder: 例：図と数式を並べて、考え方を分かりやすく説明したい
     validations:
       required: true
   - type: textarea
