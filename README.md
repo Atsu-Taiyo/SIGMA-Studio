@@ -37,7 +37,9 @@ Electronアプリの開発起動は `npm run electron:dev` です。
 
 ## 問い合わせ・貢献
 
-不具合や機能提案は [Issues](https://github.com/Atsu-Taiyo/SIGMA-Studio/issues) へお願いします。
+不具合や機能提案は、[Issue作成画面](https://github.com/Atsu-Taiyo/SIGMA-Studio/issues/new/choose) で「不具合報告」または「機能リクエスト」を選び、フォームに記入して送信してください。GitHubアカウントが必要です。
+投稿内容と添付ファイルは公開されます。教材や画像を添付する際は、生徒名などの個人情報を取り除いてください。
+
 変更を提案する際は、再現手順と実行した検証を添えてください。
 
 ## ライセンス

@@ -1,0 +1,64 @@
+name: 不具合報告
+description: 操作や表示が期待どおりに動かない場合はこちら
+body:
+  - type: markdown
+    attributes:
+      value: |
+        分かる範囲で記入してください。投稿内容と添付ファイルは公開されます。
+        教材や画像を添付する際は、生徒名などの個人情報を取り除いてください。
+  - type: input
+    id: version
+    attributes:
+      label: アプリのバージョン
+      description: 不明な場合は「不明」と記入してください。Reactパッケージの場合はパッケージ名とバージョンを記入してください。
+      placeholder: 例：0.469.0
+    validations:
+      required: true
+  - type: dropdown
+    id: os
+    attributes:
+      label: OS
+      options:
+        - macOS
+        - Windows
+        - Linux
+        - その他・不明
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: 環境の補足（任意）
+      description: OSのバージョンや、ブラウザで使っている場合はブラウザ名を記入してください。
+      placeholder: 例：Windows 11、Chrome
+  - type: textarea
+    id: steps
+    attributes:
+      label: 再現手順
+      description: 問題が起きるまでの操作を順番に教えてください。再現できない場合は、発生したときの状況を記入してください。
+      placeholder: |
+        1. 教材を開く
+        2. …を選ぶ
+        3. …が起きる
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: 期待した動作
+      placeholder: 例：PDFにグラフ全体が表示される
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: 実際の動作
+      description: 表示されたエラーメッセージがあれば、ここに記入してください。
+      placeholder: 例：PDFでグラフの右端が切れる
+    validations:
+      required: true
+  - type: textarea
+    id: attachments
+    attributes:
+      label: 画像・補足（任意）
+      description: 状況が分かる画像を、この欄へドラッグして添付できます。添付前に個人情報を取り除いてください。

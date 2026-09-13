@@ -1,0 +1,36 @@
+name: 機能リクエスト
+description: 教材づくりで困っていることや、追加してほしい機能はこちら
+body:
+  - type: markdown
+    attributes:
+      value: |
+        具体的な機能が決まっていなくても、困っていることから教えてください。
+        投稿内容と添付ファイルは公開されます。教材や画像を添付する際は、生徒名などの個人情報を取り除いてください。
+  - type: textarea
+    id: material
+    attributes:
+      label: 作りたい教材
+      description: 教科や教材の内容、使う場面を教えてください。
+      placeholder: 例：力のつり合いを図で説明する物理のプリント
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: 困っていること
+      description: 現在の操作で難しいことや、手間がかかっていることを教えてください。
+    validations:
+      required: true
+  - type: textarea
+    id: desired
+    attributes:
+      label: 実現したい操作
+      description: どのように作業できると便利か教えてください。具体的な操作が決まっていなければ、できるようにしたいことを記入してください。
+      placeholder: 例：複数の力の矢印を、同じ長さにまとめて変更したい
+    validations:
+      required: true
+  - type: textarea
+    id: examples
+    attributes:
+      label: 参考画像・補足（任意）
+      description: イメージが伝わる画像や、現在の工夫があれば記入してください。添付前に個人情報を取り除いてください。
