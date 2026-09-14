@@ -80,6 +80,12 @@ test("saves a coordinate comment without creating a shape and restores its marke
     await card.locator(".comment-anchor-label").click();
     await expect(restored.locator(`[data-comment-thread-id="${stored.comments![0].id}"].overlay-comment-marker`)).toBeVisible();
     await expect(restored.locator(retained)).toHaveCount(0);
+    await card.locator(".comment-thread-menu-button").click();
+    await card.getByRole("menuitem", { name: "削除", exact: true }).click();
+    await expect(card).toHaveCount(0);
+    await expect(restored.locator(".overlay-comment-marker")).toHaveCount(0);
+    await expect.poll(async () => (await saved(restored))?.comments ?? []).toEqual([]);
+    expect((await saved(restored))?.pageLayout?.overlay?.overlaySnapshot?.shapes).toEqual([]);
   } finally { await restored.close(); }
 });
 
@@ -93,12 +99,75 @@ test("passes CANVAS and the selected bounds to the AI bridge and cleans up after
   await composer.locator(".ai-chat-send-button").click();
   await expect.poll(() => page.evaluate(() => (window as unknown as { __aiEditRunPayloads: unknown[] }).__aiEditRunPayloads.length)).toBe(1);
   const payload = await page.evaluate(() => (window as unknown as { __aiEditRunPayloads: { references: unknown[] }[] }).__aiEditRunPayloads[0]);
+  expect(payload).toMatchObject({ selectedId: "CANVAS" });
   expect(payload.references).toContainEqual(expect.objectContaining({ targetId: "CANVAS", targetType: "canvasRegion", overlaySelection: { region: bounds, shapes: [], selectedShapeIds: [], assets: {} } }));
-  await page.locator(".ai-chat-stop-button").first().click();
-  await expect(page.locator(".ai-chat-stop-button")).toHaveCount(0);
+  if (await page.locator(".ai-inline-catcher").count()) {
+    await page.locator(".ai-inline-catcher").click({ position: { x: 6, y: 500 } });
+  }
+  await expect(page.locator(".ai-inline-catcher")).toBeHidden();
+  await page.locator(".ai-task-dock-toggle").hover();
+  await page.locator(".ai-task-dock-action--stop").click();
+  await expect(page.locator(".ai-task-dock-action--stop")).toHaveCount(0);
   await expect(page.locator(retained)).toHaveCount(0);
   expect((await saved(page))?.pageLayout?.overlay?.overlaySnapshot?.shapes).toEqual([]);
 });
 async function saved(page: Page): Promise<SigmaDocument | null> {
   return page.evaluate(() => window.desktopAPI!.storage.loadDocument("file_e2e_document"));
 }
+
+test("keeps comment menus usable after scrolling a list of region comments", async ({ page }) => {
+  const comments: NonNullable<SigmaDocument["comments"]> = Array.from({ length: 10 }, (_, index) => ({
+    id: `scroll_comment_${index}`,
+    anchor: { type: "canvasRegion", bounds: { x: index * 30, y: index * 30, w: 100, h: 100 } },
+    messages: [{ id: `scroll_message_${index}`, body: [{ type: "text", text: `領域コメント ${index}` }], createdAt: "2026-09-14T00:00:00Z" }],
+    createdAt: "2026-09-14T00:00:00Z",
+  }));
+  await installDesktopRuntimeMock(page, { ...document, comments });
+  await page.reload();
+  await expect(page.locator(".startup-splash")).toBeHidden();
+  await page.locator(".comment-dock-toggle").click();
+  const scroller = page.locator(".comment-dock .comment-thread-panel-body");
+  expect(await scroller.evaluate((el) => el.scrollHeight > el.clientHeight)).toBe(true);
+  for (const index of [9, 0]) {
+    const card = page.locator(`[data-comment-card-key="scroll_comment_${index}"]`);
+    await card.scrollIntoViewIfNeeded();
+    await card.hover();
+    await card.locator(".comment-thread-menu-button").click();
+    await card.getByRole("menuitem", { name: "削除", exact: true }).click();
+    await expect(card).toHaveCount(0);
+  }
+  await expect.poll(async () => (await saved(page))?.comments?.length).toBe(8);
+  await expect(page.locator(".overlay-comment-marker")).toHaveCount(8);
+  await page.screenshot({ path: test.info().outputPath("region-comments-scrolled.png") });
+});
+
+
+test("approves an AI insertion into an empty region without stale selection or synthetic body content", async ({ page }) => {
+  const bounds = await selectRegion(page);
+  await page.locator('.selection-action-popover button[aria-label="AIに追加"]').click();
+  await page.getByRole("button", { name: "サイドチャットで開く", exact: true }).click();
+  const sidebar = page.locator(".ai-sidebar-panel");
+  const composer = sidebar.locator(".ai-chat-composer");
+  await composer.locator("textarea").fill("PROPOSAL SHAPE INSERT この領域に図形を追加して");
+  await composer.locator(".ai-chat-send-button").click();
+  const proposal = sidebar.locator(".ai-chat-result-proposal");
+  await expect(proposal).toBeVisible({ timeout: 20_000 });
+  expect((await saved(page))?.pageLayout?.overlay?.overlaySnapshot?.shapes).toEqual([]);
+  await proposal.getByRole("button", { name: "適用", exact: true }).click();
+  await expect.poll(async () => (await saved(page))?.pageLayout?.overlay?.overlaySnapshot?.shapes.length).toBe(1);
+  const stored = (await saved(page))!;
+  expect(stored.content).toEqual([]);
+  const shape = stored.pageLayout!.overlay!.overlaySnapshot!.shapes[0];
+  expect(shape).toMatchObject({ x: bounds.x, y: bounds.y });
+  expect(shape.anchor).toBeUndefined();
+  const visible = page.locator(`.overlay-canvas-editor [data-overlay-shape-id="${shape.id}"]`);
+  await expect(visible).toBeVisible();
+  await expect(page.locator(retained)).toHaveCount(0);
+  await expect.poll(() => page.evaluate(async () => (await window.desktopAPI!.storage.listMcpEditProposals({ status: "all" })).map((item) => item.status))).toEqual(["approved"]);
+  const box = (await visible.boundingBox())!;
+  await page.mouse.move(box.x + 10, box.y + 1);
+  await page.mouse.down();
+  await page.mouse.move(box.x + 40, box.y + 31, { steps: 10 });
+  await page.mouse.up();
+  await expect.poll(async () => (await saved(page))?.pageLayout?.overlay?.overlaySnapshot?.shapes[0].x).toBeCloseTo(bounds.x + 30, 0);
+});

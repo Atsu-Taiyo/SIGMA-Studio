@@ -184,6 +184,8 @@ export const prompt = {
       getProblemAreaLabel3: "コメント",
       getProblemAreaLabel4: "解答",
       formatAiEditOverlaySelectionForPrompt1: "選択中の図形: なし",
+      canvasRegionTitle: "参照対象: ホワイトボードの選択領域 (targetId: CANVAS)",
+      canvasRegionPlacement: "bounds はズーム・パンに依存しないキャンバス絶対座標 (px)。この領域を配置基準として使う。既存の図形IDや本文ブロックではない。",
       formatAiEditOverlaySelectionForPrompt2: "選択中の{{p0}}: {{p1}}件",
       formatAiEditOverlaySelectionForPrompt3: "選択図形の見た目は、可能な場合は「{{pattern}}」として同じ送信に添付します。プレビューは確認用の派生画像です。画像として重複挿入せず、編集対象は selectedShapeIds と下記JSON、挿入位置は対象ブロックID/anchorを正本にしてください。",
       formatAiEditOverlaySelectionForPrompt4: "選択{{p0}}JSON:",

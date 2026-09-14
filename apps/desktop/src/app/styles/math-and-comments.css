@@ -1835,6 +1835,11 @@
   background: #f8fafc;
 }
 
+/* Keep the first card's hover controls inside the scrollport, below the target hint. */
+.comment-dock .comment-thread-panel-body:has(.comment-thread-card) {
+  padding-top: var(--space-3xl);
+}
+
 .comment-dock .comment-compose-card,
 .comment-dock .comment-thread-card,
 .comment-dock .comment-empty-state {

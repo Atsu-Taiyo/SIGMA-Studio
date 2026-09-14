@@ -146,8 +146,7 @@ test("ホワイトボードで表ピッカーから可視領域中央に4列3行
   await page.mouse.move(viewportBeforePan!.x + 480, viewportBeforePan!.y + 320);
   await page.mouse.wheel(-180, -120);
 
-  await page.getByRole("tab", { name: "挿入", exact: true }).click();
-  await page.locator(".ribbon-body").getByRole("button", { name: "表", exact: true }).click();
+  await page.getByRole("button", { name: "表", exact: true }).first().click();
   const tablePicker = page.getByRole("dialog", { name: "表を挿入" });
   await expect(tablePicker).toBeVisible();
   const fourByThree = tablePicker.getByRole("button", { name: "4列 3行の表を挿入", exact: true });
