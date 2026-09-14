@@ -48,6 +48,8 @@ export type OverlayTool =
       calloutRadius?: number;
       table?: SigmaTableSpec;
       tableSize?: { w: number; h: number };
+      /** Grow a new plain table by whole cells while dragging. Omitted for supplied table seeds. */
+      tableCellSize?: { w: number; h: number };
       /** Seed for a chart built from an existing table; see `createChartShapeProps`. */
       chart?: {
         sourceTableShapeId?: string;

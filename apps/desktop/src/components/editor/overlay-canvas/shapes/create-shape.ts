@@ -20,7 +20,7 @@ import {
   normalizeFreehandPoints,
 } from "./line";
 import { regularPolygonSidesFromCommand } from "./regular-polygon";
-import { TABLE_SHAPE_TYPE, createTableShapeProps } from "./table";
+import { TABLE_SHAPE_TYPE, createPlainTableSpec, createTableShapeProps } from "./table";
 import { buildGraph3DPresetNames } from "@/lib/graph3d-preset-names";
 import { createCurrentLocaleTranslator } from "@/lib/i18n";
 import { CHART_SHAPE_TYPE, MIN_CHART_HEIGHT, MIN_CHART_WIDTH } from "./chart";
@@ -396,6 +396,25 @@ export function buildInsertShape(
   }
 
   if (command === "table") {
+    if (tool.tableCellSize) {
+      const cellW = Math.max(1, tool.tableCellSize.w);
+      const cellH = Math.max(1, tool.tableCellSize.h);
+      const columns = Math.max(2, Math.round(w / cellW));
+      const rows = Math.max(2, Math.round(h / cellH));
+      const table = createPlainTableSpec(rows, columns);
+      table.columns.forEach((column) => { column.width = { mode: "fr", value: 1, min: cellW }; });
+      table.rows.forEach((row) => { row.height = { mode: "auto", min: cellH }; });
+      const tableW = columns * cellW;
+      const tableH = rows * cellH;
+      return {
+        id,
+        type: TABLE_SHAPE_TYPE,
+        x: end.x < start.x ? start.x - tableW : start.x,
+        y: end.y < start.y ? start.y - tableH : start.y,
+        rotation: 0,
+        props: { w: tableW, h: tableH, table },
+      };
+    }
     const tableW = Math.max(120, w, tool.tableSize?.w ?? 0);
     const tableH = Math.max(72, h, tool.tableSize?.h ?? 0);
     return {

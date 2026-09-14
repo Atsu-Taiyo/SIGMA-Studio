@@ -356,7 +356,6 @@ import  {
   DEFAULT_TABLE_COLUMN_WIDTH,
   DEFAULT_TABLE_ROW_HEIGHT,
   TABLE_SHAPE_TYPE,
-  createPlainTableSpec,
 } from "./overlay-canvas/shapes/table";
 import  {
   applyStylePatchToShape,
@@ -1675,12 +1674,14 @@ export default function OverlayCanvasEditorClient({
     if (request.command === "select") {
       transitionMode({ type: "setTool", tool: { kind: "select" } });
     } else if (request.command === "table") {
-      activeTextEditorRef.current?.commands.blur();
+      const editor = activeTextEditorRef.current;
+      // The cell editor may have been destroyed when toolbar focus ended table editing.
+      if (editor && !editor.isDestroyed) editor.commands.blur();
+      activeTextEditorRef.current = null;
       transitionMode({ type: "setTool", tool: {
         kind: "insert",
         command: "table",
-        table: createPlainTableSpec(2, 2),
-        tableSize: { w: 2 * DEFAULT_TABLE_COLUMN_WIDTH, h: Math.max(72, 2 * DEFAULT_TABLE_ROW_HEIGHT) },
+        tableCellSize: { w: DEFAULT_TABLE_COLUMN_WIDTH, h: Math.max(36, DEFAULT_TABLE_ROW_HEIGHT) },
       } });
     } else {
       transitionMode({
@@ -6517,10 +6518,18 @@ function InsertDragPreview({
   }
 
   const shapeBounds = getShapeBounds(previewShape);
+  if (previewShape.type === TABLE_SHAPE_TYPE) {
+    // Only the temporary view is dashed; the canonical table retains its solid grid.
+    previewShape.props.table.grid = {
+      ...previewShape.props.table.grid,
+      borderStyle: "dashed",
+      borderColor: "#9ca3af",
+    };
+  }
   return (
     <>
       <div
-        className="overlay-insert-preview-frame"
+        className={`overlay-insert-preview-frame${tool.command === "table" ? " table-placement" : ""}`}
         style={{
           left: tool.command === "table" ? shapeBounds.x : bounds.x,
           top: tool.command === "table" ? shapeBounds.y : bounds.y,
@@ -6529,7 +6538,7 @@ function InsertDragPreview({
         }}
       />
       <div
-        className="overlay-insert-preview-shape overlay-shape"
+        className={`overlay-insert-preview-shape overlay-shape${tool.command === "table" ? " table-placement" : ""}`}
         style={{
           left: shapeBounds.x,
           top: shapeBounds.y,
