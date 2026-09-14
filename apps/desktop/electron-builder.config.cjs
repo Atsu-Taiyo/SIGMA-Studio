@@ -70,6 +70,15 @@ module.exports = {
     output: "release",
   },
   artifactName: "Sigma-Studio-${version}-${arch}.${ext}",
+  // A single suffix is portable across OS file-type registries. Never claim .json.
+  fileAssociations: [{
+    ext: "sigma",
+    name: "Sigma Studio Document",
+    description: "Sigma Studio teaching material",
+    mimeType: "application/x-sigma-studio",
+    role: "Editor",
+    rank: "Owner",
+  }],
   files: [
     "dist-electron/**/*",
     "!dist-electron/**/*.map",
