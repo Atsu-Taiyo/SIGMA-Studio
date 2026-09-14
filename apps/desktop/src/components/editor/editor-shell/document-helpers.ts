@@ -30,7 +30,9 @@ export function getDefaultDocumentSelectionId(document: SigmaDocument): string |
 }
 
 export function sameOverlaySelectionSummary(a: OverlaySelectionSummary, b: OverlaySelectionSummary): boolean {
-  return a.selectedCount === b.selectedCount &&
+  return a.region?.x === b.region?.x && a.region?.y === b.region?.y &&
+    a.region?.w === b.region?.w && a.region?.h === b.region?.h &&
+    a.selectedCount === b.selectedCount &&
     a.textEditing?.shapeId === b.textEditing?.shapeId &&
     a.textEditing?.kind === b.textEditing?.kind &&
     a.locked === b.locked &&

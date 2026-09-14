@@ -106,6 +106,7 @@ function retainWhiteboardComments(
   }
 
   return comments.filter((thread) => {
+    if (thread.anchor.type === "canvasRegion") return true;
     if (thread.anchor.type === "overlayShape") {
       return thread.anchor.shapeIds.some((shapeId) => shapeIds.has(shapeId));
     }
@@ -120,6 +121,9 @@ export function createOverlaySelectionCommentAnchor(
   selection: OverlaySelectionSummary,
   t: Translate<"editor"> = DEFAULT_EDITOR_TRANSLATE,
 ): SigmaCommentAnchor | null {
+  if (selection.region) {
+    return { type: "canvasRegion", bounds: { ...selection.region }, quote: t("comment.anchor.canvasRegion") };
+  }
   if (selection.selectedShapeIds.length === 0) {
     return null;
   }

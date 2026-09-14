@@ -74,6 +74,7 @@ export function getCommentAnchorLabel(
   if (anchor.type === "overlayMath") {
     return t("comment.anchor.overlayMath");
   }
+  if (anchor.type === "canvasRegion") return t("comment.anchor.canvasRegion");
   if (anchor.type === "overlayShape") {
     return anchor.shapeIds.length > 1
       ? t("comment.anchor.shapes", { shapes: anchor.shapeIds.length })
@@ -131,6 +132,7 @@ export function isCommentAnchorOrphan(document: SigmaDocument, anchor: SigmaComm
   if (anchor.type === "overlayMath") {
     return anchor.shapeId ? !hasOverlayShape(document, anchor.shapeId) : false;
   }
+  if (anchor.type === "canvasRegion") return false;
   return !anchor.shapeIds.some((shapeId) => hasOverlayShape(document, shapeId));
 }
 

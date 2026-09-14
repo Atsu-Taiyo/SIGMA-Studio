@@ -520,7 +520,8 @@ export async function installDesktopRuntimeMock(
     });
     const codexStatus = () => (aiEnabled ? loggedInCodexStatus() : loggedOutCodexStatus());
 
-    const fakeAiEditRun = (payload: unknown, onEvent?: (event: unknown) => void) => {
+    const runCancellations = new Map<string, () => void>();
+    const fakeAiEditRun = (payload: unknown, onEvent?: (event: unknown) => void, onRunId?: (runId: string) => void) => {
       const request = (payload ?? {}) as {
         instruction?: string;
         agentThreadId?: string | null;
@@ -553,12 +554,21 @@ export async function installDesktopRuntimeMock(
         }
       };
 
+      const runId = `e2e-run-${runIndex}`;
       return new Promise((resolve, reject) => {
+        const timers: number[] = [];
+        const schedule = (callback: () => void, delay: number) => timers.push(window.setTimeout(callback, delay));
+        runCancellations.set(runId, () => {
+          timers.forEach((id) => window.clearTimeout(id));
+          emit({ kind: "error", phase: "complete", message: "生成を中止しました。", timestamp: Date.now() });
+          reject(new Error("生成を中止しました。"));
+        });
+        onRunId?.(runId);
         emit({ kind: "phase", phase: "preparing", message: "準備中...", timestamp: Date.now() });
-        window.setTimeout(() => {
+        schedule(() => {
           emit({ kind: "phase", phase: "thinking", message: "編集内容を検討中...", timestamp: Date.now() });
         }, Math.round(duration * 0.2));
-        window.setTimeout(() => {
+        schedule(() => {
           emit({
             kind: "stream", phase: "streaming", channel: "output",
             delta: "指示内容を確認し、編集案を作成しています。",
@@ -566,10 +576,10 @@ export async function installDesktopRuntimeMock(
             timestamp: Date.now(),
           });
         }, Math.round(duration * 0.5));
-        window.setTimeout(() => {
+        schedule(() => {
           emit({ kind: "phase", phase: "validating", message: "検証中...", timestamp: Date.now() });
         }, Math.round(duration * 0.8));
-        window.setTimeout(() => {
+        schedule(() => {
           if (shouldFail) {
             emit({ kind: "error", phase: "complete", message: "E2E疑似実行を失敗させました。", timestamp: Date.now() });
             reject(new Error("E2E疑似実行を失敗させました。"));
@@ -577,6 +587,10 @@ export async function installDesktopRuntimeMock(
           }
           if (wantsProposal && request.selectedId) {
             const targetId = request.selectedId;
+            const canvasRegion = targetId === "CANVAS"
+              ? (request.references as { overlaySelection?: { region?: { x: number; y: number } } }[] | undefined)
+                ?.find((reference) => reference.overlaySelection?.region)?.overlaySelection?.region
+              : undefined;
             const proposalId = `proposal_e2e_${runIndex}`;
             const createdAt = new Date().toISOString();
             const wantsShapeProposal = instruction.includes("SHAPE");
@@ -633,16 +647,16 @@ export async function installDesktopRuntimeMock(
                         overlayShape: instruction.includes("SVG") ? {
                           id: insertedShapeId,
                           type: "image",
-                          x: 360,
-                          y: 0,
-                          anchor: { type: "block", blockId: targetId, dx: 300, dy: 64 },
+                          x: canvasRegion?.x ?? 360,
+                          y: canvasRegion?.y ?? 0,
+                          ...(targetId === "CANVAS" ? {} : { anchor: { type: "block" as const, blockId: targetId, dx: 300, dy: 64 } }),
                           props: { w: 150, h: 84, assetId: "e2e_svg_asset" },
                         } : {
                           id: insertedShapeId,
                           type: "geo",
-                          x: 360,
-                          y: 0,
-                          anchor: { type: "block", blockId: targetId, dx: 300, dy: 64 },
+                          x: canvasRegion?.x ?? 360,
+                          y: canvasRegion?.y ?? 0,
+                          ...(targetId === "CANVAS" ? {} : { anchor: { type: "block" as const, blockId: targetId, dx: 300, dy: 64 } }),
                           props: {
                             w: 150,
                             h: 84,
@@ -884,12 +898,17 @@ export async function installDesktopRuntimeMock(
             runtime: "codex-mcp",
           });
         }, duration);
-      });
+      }).finally(() => runCancellations.delete(runId));
     };
 
     const aiEditSection = aiEnabled
       ? {
           run: fakeAiEditRun,
+          cancel: async (runId: string) => {
+            const cancel = runCancellations.get(runId);
+            cancel?.();
+            return { ok: true, cancelled: Boolean(cancel) };
+          },
           getGeneratedImage: async (runId: string, imageId: string) => ({
             dataUrl: runId === "image-fixture-run" && imageId === generatedImageFixture?.imageId ? generatedImageFixture.dataUrl : null,
           }),

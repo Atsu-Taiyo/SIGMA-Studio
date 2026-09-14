@@ -701,6 +701,7 @@ export const editor = {
       orphan: "対象なし",
       textRange: "本文の選択範囲",
       inlineMath: "数式",
+      canvasRegion: "選択した領域",
       overlayMath: "図中数式",
       shape: "図形",
       shapes: "図形 {{shapes}}件",

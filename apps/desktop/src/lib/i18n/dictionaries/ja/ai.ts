@@ -219,6 +219,7 @@ export const ai = {
     plusImages: "+画像{{count}}",
     plusShapes: "+図形{{count}}",
     shapeCount: "図形{{count}}件",
+    canvasRegion: "選択した領域",
     selectedShapeCount: "図形{{count}}件",
     selectedImageShapeCount: "画像/図形{{count}}件",
     kind: {

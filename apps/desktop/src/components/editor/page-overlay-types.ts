@@ -99,6 +99,8 @@ export interface OverlaySelectionStylePatch {
 }
 
 export interface OverlaySelectionSummary {
+  /** Transient empty selection in absolute, unzoomed canvas coordinates. */
+  region?: { x: number; y: number; w: number; h: number };
   /** The active text session survives focus moving into the formatting toolbar. */
   textEditing?: { shapeId: string; kind: "text" | "table" };
   selectedCount: number;
