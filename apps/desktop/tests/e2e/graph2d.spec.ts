@@ -1,6 +1,7 @@
 import { expect, test } from "@playwright/test";
 import type { SigmaDocument } from "@/types/sigma-doc";
 import { installDesktopRuntimeMock } from "./desktop-runtime-mock";
+import { exerciseFormulaLabels, expectFormulaOnCanvas, savedFormula } from "../helpers/graph-formula-labels";
 
 const GRAPH_E2E_DOCUMENT: SigmaDocument = {
   version: "2.0",
@@ -22,6 +23,22 @@ const GRAPH_E2E_DOCUMENT: SigmaDocument = {
 
 test.beforeEach(async ({ page }) => {
   await installDesktopRuntimeMock(page, GRAPH_E2E_DOCUMENT);
+});
+
+test("keeps formula labels consistent with display math through toggles and reload", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 960 });
+  await page.goto(appUrl("/"), { waitUntil: "domcontentloaded" });
+  await expect(page.getByText("準備完了")).toBeVisible();
+  const readDocument = () => page.evaluate(() => JSON.parse(localStorage.getItem("sigma-studio:e2e-document") ?? "null") as SigmaDocument | null);
+  const path = await exerciseFormulaLabels(page, readDocument);
+  const saved = (await readDocument())!;
+  const restored = await page.context().newPage();
+  await installDesktopRuntimeMock(restored, saved);
+  await restored.goto(appUrl("/"), { waitUntil: "domcontentloaded" });
+  await expectFormulaOnCanvas(restored, "y = sx");
+  await expect(restored.getByTestId("graph2d-curve").first()).toHaveAttribute("d", path);
+  expect(savedFormula(saved)?.curve.expr).toBe("s*x");
+  await restored.close();
 });
 
 test("shares compact parameter cards, animates 2D curves, and reloads the saved expression", async ({ page }) => {
