@@ -50,7 +50,9 @@ async function markerStyle(item: Locator): Promise<MarkerStyle> {
   return item.evaluate((element) => {
     const marker = getComputedStyle(element, "::marker");
     const own = getComputedStyle(element);
-    const run = element.querySelector<HTMLElement>("[style*='font-family'], [style*='font-size']");
+    // CSS custom properties on the paragraph describe line metrics, not the first glyph.
+    const run = Array.from(element.querySelectorAll<HTMLElement>("[style]"))
+      .find((candidate) => candidate.style.fontFamily || candidate.style.fontSize);
     const runStyle = run ? getComputedStyle(run) : null;
     return {
       markerFamily: marker.fontFamily,
@@ -94,7 +96,7 @@ test("follows a font family and size chosen from the toolbar", async ({ page }) 
   await page.getByRole("spinbutton", { name: "サイズ (pt)" }).fill("18");
   await page.getByRole("spinbutton", { name: "サイズ (pt)" }).press("Enter");
 
-  const fontFamilyButton = page.locator(".toolbar-font-select");
+  const fontFamilyButton = page.getByRole("button", { name: /^フォント:/ });
   await expect(fontFamilyButton).toBeEnabled();
   await fontFamilyButton.click();
   await page.getByRole("searchbox", { name: "フォントを検索" }).fill("Hiragino Mincho");
