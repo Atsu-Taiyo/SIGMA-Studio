@@ -114,7 +114,7 @@ export function OverlayTextShapeEditor({
         undefined,
         // 図中テキストは font-family を自分では指定せず本文と同じ既定を継承する
         // (`document-surface.css` の `.overlay-text-shape` に family 指定は無い)。
-        { state: activeEditor.state, documentFontFamily: DEFAULT_BODY_FONT_FAMILY },
+        { state: activeEditor.state, view: activeEditor.view, documentFontFamily: DEFAULT_BODY_FONT_FAMILY },
       );
       }
     },
@@ -126,7 +126,7 @@ export function OverlayTextShapeEditor({
         undefined,
         // 図中テキストは font-family を自分では指定せず本文と同じ既定を継承する
         // (`document-surface.css` の `.overlay-text-shape` に family 指定は無い)。
-        { state: activeEditor.state, documentFontFamily: DEFAULT_BODY_FONT_FAMILY },
+        { state: activeEditor.state, view: activeEditor.view, documentFontFamily: DEFAULT_BODY_FONT_FAMILY },
       );
       onFocus(activeEditor, shape.id);
     },
@@ -149,7 +149,7 @@ export function OverlayTextShapeEditor({
         undefined,
         // 図中テキストは font-family を自分では指定せず本文と同じ既定を継承する
         // (`document-surface.css` の `.overlay-text-shape` に family 指定は無い)。
-        { state: activeEditor.state, documentFontFamily: DEFAULT_BODY_FONT_FAMILY },
+        { state: activeEditor.state, view: activeEditor.view, documentFontFamily: DEFAULT_BODY_FONT_FAMILY },
       );
       const json = activeEditor.getJSON() as TiptapDoc;
       // Hand the previous blocks in so a keystroke keeps each block's identity: the editor JSON

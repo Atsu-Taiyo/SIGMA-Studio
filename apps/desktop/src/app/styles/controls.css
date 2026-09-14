@@ -2868,12 +2868,53 @@ button:disabled {
   overflow: hidden;
 }
 
+.toolbar-font-size-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.toolbar-font-size-steps {
+  display: flex;
+  flex-direction: column;
+}
+
+.toolbar-font-size-steps button {
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 16px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.toolbar-font-size-steps button:hover:not(:disabled) {
+  background: var(--surface-strong);
+}
+
+.toolbar-font-size-steps button:focus-visible {
+  outline: 2px solid var(--accent);
+}
+
+.toolbar-font-size-steps button:disabled {
+  color: var(--text-disabled);
+  cursor: default;
+}
+
+.font-size-mixed {
+  font-size: 10px;
+  color: var(--text-muted);
+}
+
 .font-size-custom-form {
   display: grid;
   flex: 0 0 auto;
   gap: 6px;
   padding: 6px 8px 10px;
-  border-bottom: 1px solid var(--border-subtle);
   font-size: 12px;
 }
 
@@ -2915,13 +2956,6 @@ button:disabled {
 
 .font-size-custom-help.error {
   color: var(--danger);
-}
-
-.font-size-options {
-  display: grid;
-  gap: 2px;
-  overflow-y: auto;
-  overscroll-behavior: contain;
 }
 
 .toolbar-color {

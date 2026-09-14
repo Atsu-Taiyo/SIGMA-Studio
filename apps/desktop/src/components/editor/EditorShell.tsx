@@ -227,6 +227,7 @@ import  {
   type SigmaTextRangeCommentAnchor,
   type TextAlign,
 } from "@/features/document";
+import { readRenderedTextFontSize, type SelectionFontSize } from "@/components/tiptap/text-format-font-size";
 import { getTextShapeFontSizePt, type MeasuredBlock } from "@/features/drawing";
 import { DocumentTitleText, MathEnvironmentProvider } from "@/features/rendering/adapters/react";
 import { parseDocumentTitleInlineNodes } from "@/features/rendering/core";
@@ -729,6 +730,7 @@ function EditorShellBody({ embeddedHost, editorStore }: EditorShellProps & { edi
   }, [setSaveState, setStatusMessage, tE]);
   /** `null` = run 自身の指定なし。ツールバーは「自動」と出し、見出しの大きさを潰さない。 */
   const [textFontSize, setTextFontSize] = useState<number | null>(BASE_EDITOR_FONT_SIZE);
+  const [textFontSizeMixed, setTextFontSizeMixed] = useState(false);
   const [fontSizeInput, setFontSizeInput] = useState("");
   const [fontSizeInputInvalid, setFontSizeInputInvalid] = useState(false);
   const [boxedTextPaddingY, setBoxedTextPaddingY] = useState(0);
@@ -2433,6 +2435,7 @@ function EditorShellBody({ embeddedHost, editorStore }: EditorShellProps & { edi
       } else if (typeof detail.fontFamily === "string") {
         setFontFamily(normalizeToolbarFontFamily(detail.fontFamily));
       }
+      setTextFontSizeMixed(detail.fontSizeMixed === true);
       if (typeof detail.fontSize === "number" && Number.isFinite(detail.fontSize)) {
         setTextFontSize(detail.fontSize);
       } else if (detail.fontSize === null) {
@@ -3724,9 +3727,29 @@ function EditorShellBody({ embeddedHost, editorStore }: EditorShellProps & { edi
   const hasOverlaySelection = overlaySelection.selectedCount > 0;
   const canUseTextToolbar = textToolbar.enabled;
   const canUseLineHeight = textToolbar.canUseLineHeight;
-  const activeTextFontSize = textToolbar.wholeTextShape
-    ? getTextShapeFontSizePt(textToolbar.wholeTextShape)
-    : textFontSize;
+  const wholeTextShape = textToolbar.wholeTextShape;
+  const [wholeTextShapeMeasurement, setWholeTextShapeMeasurement] = useState<{
+    shape: NonNullable<typeof wholeTextShape>;
+    size: SelectionFontSize | null;
+  } | null>(null);
+  useLayoutEffect(() => {
+    if (!wholeTextShape) return;
+    // Measure after the overlay's derived DOM has committed its new marks and typography.
+    const frame = window.requestAnimationFrame(() => {
+      const root = editorCanvasRef.current?.querySelector<HTMLElement>(
+        `[data-overlay-shape-id="${CSS.escape(wholeTextShape.id)}"] .overlay-text-shape-content`,
+      );
+      setWholeTextShapeMeasurement({ shape: wholeTextShape, size: root ? readRenderedTextFontSize(root) : null });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [wholeTextShape]);
+  // A measurement belongs to this exact shape revision, never the previously selected shape.
+  const wholeTextShapeSize = wholeTextShapeMeasurement?.shape === wholeTextShape
+    ? wholeTextShapeMeasurement?.size : null;
+  const activeTextFontSize = wholeTextShape
+    ? wholeTextShapeSize?.fontSize ?? getTextShapeFontSizePt(wholeTextShape)
+    : textFontSize ?? BASE_EDITOR_FONT_SIZE;
+  const activeTextFontSizeMixed = wholeTextShape ? wholeTextShapeSize?.fontSizeMixed === true : textFontSizeMixed;
   const canUseTextBlockStyle = textToolbar.canUseTextBlockStyle;
   /**
    * ブロックのボタン (箇条書き・番号付き・引用・コード・区切り線) を押せるか。
@@ -6334,7 +6357,7 @@ function EditorShellBody({ embeddedHost, editorStore }: EditorShellProps & { edi
     },
     format: {
       ActiveTextAlignIcon, activeFontFamilyLabel, activeTextAlignOption,
-      activeTextFontSize, applyBoxedTextPaddingY, applyInlineFormat, applyLineHeight,
+      activeTextFontSize, activeTextFontSizeMixed, applyBoxedTextPaddingY, applyInlineFormat, applyLineHeight,
       applyBlockStructure, applyTextAlign, applyTextStyle, blockStyleState, boldActive, boxedTextActive, boxedTextButtonRef,
       canUseBlockStructure,
       moreBlocksMenuButtonRef, moreBlocksMenuOpen, setMoreBlocksMenuOpen,

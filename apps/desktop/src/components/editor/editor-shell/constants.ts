@@ -86,7 +86,6 @@ export const LINE_HEIGHT_OPTIONS: Array<{ value: LineHeight; label: string }> = 
   label: formatLineHeightLabel(value),
 }));
 /** ツールバーのフォントサイズ候補。表示は `15pt` のようにここで組み立てる。 */
-export const TEXT_FONT_SIZE_OPTIONS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 10.5, 11, 12, 13.5, 15, 16.5, 18] as const;
 /** 段落スタイルの並び。表示は `format.blockStyle.<value>`。 */
 export const BLOCK_STYLE_OPTIONS = ["paragraph", "h1", "h2", "h3"] as const;
 export type BlockStyleOptionValue = (typeof BLOCK_STYLE_OPTIONS)[number];
