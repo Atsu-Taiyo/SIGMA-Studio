@@ -188,6 +188,22 @@ export function getNearestTableSelectionAfterDelete(table: SigmaTableSpec, range
   };
 }
 
+/** Hit-test an editing destination only; measured rectangles never determine table layout. */
+export function getTableContentIdFromClientPoint(
+  cellElement: HTMLTableCellElement | null,
+  clientX: number,
+  clientY: number,
+): string | null {
+  for (const element of cellElement?.querySelectorAll<HTMLElement>("[data-table-content-id]") ?? []) {
+    const bounds = element.getBoundingClientRect();
+    if (clientX >= bounds.left && clientX <= bounds.right
+      && clientY >= bounds.top && clientY <= bounds.bottom) {
+      return element.dataset.tableContentId ?? null;
+    }
+  }
+  return null;
+}
+
 export function getTableCellPositionFromClientPoint(
   tableElement: HTMLTableElement | null,
   tableWidth: number,

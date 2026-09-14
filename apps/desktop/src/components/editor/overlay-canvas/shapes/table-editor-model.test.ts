@@ -5,9 +5,26 @@ import {
   applyTableCellStyleToRange,
   getTableCellNavigationDirection,
   getTableCellStyle,
+  getTableContentIdFromClientPoint,
   shouldNavigateTableCell,
   type TableEditorViewLike,
 } from "./table-editor-model";
+
+describe("table paragraph hit testing", () => {
+  it("returns only the clicked paragraph ID using client coordinates, including translated/scaled cells", () => {
+    const cell = {
+      querySelectorAll: () => [
+        { dataset: { tableContentId: "first" }, getBoundingClientRect: () => ({ left: 200, right: 440, top: 120, bottom: 150 }) },
+        { dataset: { tableContentId: "second" }, getBoundingClientRect: () => ({ left: 200, right: 440, top: 160, bottom: 190 }) },
+      ],
+    } as unknown as HTMLTableCellElement;
+    expect(getTableContentIdFromClientPoint(cell, 300, 135)).toBe("first");
+    expect(getTableContentIdFromClientPoint(cell, 300, 175)).toBe("second");
+    expect(getTableContentIdFromClientPoint(cell, 300, 155)).toBeNull();
+    expect(getTableContentIdFromClientPoint(cell, 100, 175)).toBeNull();
+    expect(getTableContentIdFromClientPoint(null, 300, 175)).toBeNull();
+  });
+});
 
 function keyboardEvent(
   key: string,
