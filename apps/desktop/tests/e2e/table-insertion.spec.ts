@@ -2,6 +2,8 @@ import { expect, test, type Page } from "@playwright/test";
 
 import { sampleDocument } from "@/lib/sample-document";
 import { installDesktopRuntimeMock } from "./desktop-runtime-mock";
+import { createPlainTableSpec } from "@/components/editor/overlay-canvas/shapes/table";
+import { grabShapeFromBody } from "./body-overlay-entry";
 
 async function armTable(page: Page) {
   await page.getByRole("button", { name: "表", exact: true }).first().click();
@@ -13,8 +15,20 @@ async function armTable(page: Page) {
   return { x: bounds.x + 80, y: bounds.y + 180 };
 }
 
-test.beforeEach(async ({ page }) => {
-  await installDesktopRuntimeMock(page, sampleDocument);
+test.beforeEach(async ({ page }, testInfo) => {
+  const document = structuredClone(sampleDocument);
+  if (testInfo.title.includes("later paragraph")) {
+    const table = createPlainTableSpec(2, 2);
+    table.cells[3].content = [
+      { type: "paragraph", id: "paragraph_first", children: [{ type: "text", text: "First" }] },
+      { type: "paragraph", id: "paragraph_second", children: [{ type: "text", text: "Second" }] },
+    ];
+    document.pageLayout = { ...document.pageLayout!, overlay: { overlaySnapshot: {
+      version: 1, assets: {}, shapes: [{ id: "table_multi", type: "tableShape", x: 100, y: 220,
+        rotation: 0, props: { w: 320, h: 200, table } }],
+    } } };
+  }
+  await installDesktopRuntimeMock(page, document);
   await page.setViewportSize({ width: 1400, height: 900 });
   await page.goto("/");
   await expect(page.locator("[data-startup-splash]")).toHaveCount(0);
@@ -105,6 +119,24 @@ test("table can be armed again after leaving a cell editor", async ({ page }) =>
   await page.mouse.click(start.x + 160, start.y);
   await expect(page.locator(".overlay-table-shape")).toHaveCount(2);
   expect(errors).toEqual([]);
+});
+
+test("clicking a later paragraph in an inactive cell edits that paragraph", async ({ page }) => {
+  const staticTable = page.locator('.page-overlay-preview [data-overlay-shape-id="table_multi"]').first();
+  const bounds = await staticTable.boundingBox();
+  if (!bounds) throw new Error("Seeded table is missing");
+  await grabShapeFromBody(page, { x: bounds.x + 30, y: bounds.y + 30 });
+  await page.mouse.click(bounds.x + 30, bounds.y + 30);
+  const table = page.locator(".overlay-table-shape.editing");
+  await expect(table).toBeVisible();
+  const second = table.locator('[data-table-content-id="paragraph_second"]');
+  const paragraphBounds = await second.boundingBox();
+  if (!paragraphBounds) throw new Error("Second paragraph is missing");
+  await page.mouse.click(paragraphBounds.x + paragraphBounds.width / 2, paragraphBounds.y + paragraphBounds.height / 2);
+  await expect(second.locator("[contenteditable=true]")).toBeFocused();
+  await page.keyboard.type("X");
+  await expect(second).toContainText("X");
+  await expect(table.locator('[data-table-content-id="paragraph_first"]')).toHaveText("First");
 });
 
 test("Escape and pointer cancellation discard placement without saving a table", async ({ page }) => {

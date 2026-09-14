@@ -114,7 +114,7 @@ function OverlayTableParagraphStaticView({
   table: SigmaTableSpec;
 }) {
   return (
-    <div className="overlay-table-paragraph" style={{ pointerEvents: "none" }}>
+    <div className="overlay-table-paragraph" data-table-content-id={content.id} style={{ pointerEvents: "none" }}>
       <div className="overlay-table-shape-content ProseMirror">
         {/*
           The Tiptap cell editor is a single `paragraph`, so the alignment sits on a `<p>` there and
@@ -268,6 +268,7 @@ function OverlayTableParagraphEditor({
   return (
     <div
       className="overlay-table-paragraph"
+      data-table-content-id={content.id}
       style={{ pointerEvents: editing ? "auto" : "none" }}
       onKeyDownCapture={handleKeyDownCapture}
       onPointerDown={(event) => {
