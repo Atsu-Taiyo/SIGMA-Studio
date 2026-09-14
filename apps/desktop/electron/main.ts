@@ -1,5 +1,7 @@
 import { app, BrowserWindow, ipcMain, Menu, nativeImage, shell } from "electron";
 import crypto from "node:crypto";
+import { createInterface } from "node:readline";
+import { resolveDevServerUrl, isDevServerNavigation } from "./dev-server";
 import http from "node:http";
 import path from "node:path";
 import { existsSync, readFileSync, watch, type FSWatcher } from "node:fs";
@@ -79,6 +81,12 @@ const RELEASE_PAGE_URL = "https://github.com/Atsu-Taiyo/SIGMA-Studio/releases/la
 const UPDATE_CHECK_INTERVAL_MS = 60 * 60 * 1000;
 app.setName(APP_NAME);
 loadElectronEnvFiles();
+const DEV_SERVER_URL = resolveDevServerUrl(app.isPackaged, process.env.SIGMA_STUDIO_DEV_SERVER_URL);
+if (DEV_SERVER_URL) {
+  createInterface({ input: process.stdin }).on("line", (line) => {
+    if (line === "sigma:quit") app.quit();
+  });
+}
 const USER_DATA_PATH = resolveUserDataPath();
 let mainWindow: BrowserWindow | null = null;
 let activeWindowCloseHandshake: WindowCloseHandshake | null = null;
@@ -203,7 +211,10 @@ const pendingRenderDocuments = new Map<string, SigmaDocument>();
 
 const hasSingleInstanceLock = app.requestSingleInstanceLock();
 if (!hasSingleInstanceLock) {
-  app.quit();
+  if (DEV_SERVER_URL) {
+    console.error("[desktop] This development data directory is already open in another instance.");
+    app.exit(1);
+  } else app.quit();
 } else {
   app.on("second-instance", () => {
     if (mainWindow) {
@@ -374,6 +385,7 @@ function createWindow() {
       else if (!win.isDestroyed()) win.close();
     },
     onCancel: () => {
+      if (DEV_SERVER_URL) process.stdout.write("[desktop] close-cancelled\n");
       quitAfterMainWindowClose = false;
       installUpdateAfterMainWindowClose = false;
     },
@@ -386,7 +398,7 @@ function createWindow() {
   });
 
   win.webContents.on("will-navigate", (event, url) => {
-    if (isRendererFileUrl(url)) {
+    if (DEV_SERVER_URL ? isDevServerNavigation(url, DEV_SERVER_URL) : isRendererFileUrl(url)) {
       return;
     }
     event.preventDefault();
@@ -396,8 +408,14 @@ function createWindow() {
     activeWindowCloseHandshake?.forceFinish();
   });
 
+  win.webContents.on("will-redirect", (event, url) => {
+    if (DEV_SERVER_URL && !isDevServerNavigation(url, DEV_SERVER_URL)) {
+      event.preventDefault();
+    }
+  });
+
   const indexPath = path.join(DIST_RENDERER_DIR, "index.html");
-  win.loadFile(indexPath).catch((err) => {
+  (DEV_SERVER_URL ? win.loadURL(DEV_SERVER_URL) : win.loadFile(indexPath)).catch((err) => {
     console.error("Failed to load renderer", err);
   });
   win.on("close", (event) => {
@@ -638,9 +656,14 @@ async function renderAiPageContextPng(request: RenderPageContextRequest): Promis
   });
 
   try {
-    await renderWindow.loadFile(path.join(DIST_RENDERER_DIR, "print.html"), {
-      query: { renderId, profile: request.profile ?? "teacher" },
-    });
+    const query = { renderId, profile: request.profile ?? "teacher" };
+    if (DEV_SERVER_URL) {
+      const url = new URL("/print", DEV_SERVER_URL);
+      url.search = new URLSearchParams(query).toString();
+      await renderWindow.loadURL(url.toString());
+    } else {
+      await renderWindow.loadFile(path.join(DIST_RENDERER_DIR, "print.html"), { query });
+    }
     await waitForPrintPreviewReady(renderWindow);
 
     // First measure without scrolling: if the target page already fits
