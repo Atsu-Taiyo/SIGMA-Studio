@@ -125,6 +125,10 @@ module.exports = {
     target: buildWindowsStorePackage ? "appx" : "nsis",
     icon: "build/icon.ico",
   },
+  linux: {
+    // argv receives local paths, including a separate argument for each selected file.
+    executableArgs: ["%F"],
+  },
   appx: {
     applicationId: "SigmaStudio",
     identityName: windowsStoreIdentityName || undefined,

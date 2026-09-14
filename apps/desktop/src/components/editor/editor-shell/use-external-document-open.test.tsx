@@ -25,7 +25,7 @@ it("waits for workspace readiness, serializes arrivals using the latest callback
   let notify = () => {};
   const unsubscribe = vi.fn();
   const getPendingOpenDocument = vi.fn(async () => pending[0] ?? null);
-  const acknowledgeOpenDocument = vi.fn(async (_id: number) => { pending.shift(); });
+  const acknowledgeOpenDocument = vi.fn(async (id: number) => { if (pending[0]?.id === id) pending.shift(); });
   vi.spyOn(bridge, "getDesktopBridge").mockReturnValue({ file: {
     getPendingOpenDocument, acknowledgeOpenDocument,
     onOpenDocumentAvailable: (handler: () => void) => { notify = handler; return unsubscribe; },

@@ -13,7 +13,7 @@ import type { SigmaDocumentRecoveryIssue } from "@/lib/sigma-doc-schema";
 import { createDocumentFromSigmaDocument, type DocumentFileRecord } from "@/lib/storage";
 import { fileFromDesktopImport, planDocumentFileImport, prepareDocumentFileImport } from "./document-file-import";
 import type { EmbeddedEditorHost } from "./document-lifecycle-types";
-import { useExternalDocumentOpen } from "./use-external-document-open";
+import type { DesktopExternalDocument } from "@/types/desktop";
 
 export interface DocumentFileCommandOptions {
   documentRef: RefObject<SigmaDocument>;
@@ -173,16 +173,14 @@ export function useDocumentFileCommands({
     await importDocumentFileWithResult(file);
   };
 
-  useExternalDocumentOpen(isDesktopApp && workspaceReady, async (pending) => {
+  const openExternalDocument = async (pending: DesktopExternalDocument): Promise<boolean> => {
     if (pending.error !== undefined) {
       setStatusMessage(`${tEditor("status.fileReadFailed")}: ${pending.filePath}\n${pending.error}`);
       return true;
     }
     const baseName = pending.filePath.split(/[\\/]/).pop() ?? "document.sigma";
     return importDocumentFileWithResult(new File([pending.data], baseName, { type: "application/json" }));
-  }, (error) => {
-    setStatusMessage(error instanceof Error ? error.message : tEditor("status.fileOpenFailed"));
-  });
+  };
 
   const openImportDialog = () => {
     setActiveMenu(null);
@@ -215,6 +213,6 @@ export function useDocumentFileCommands({
   };
 
   return {
-    importInputRef, otherImportInputRef, textImportOpen, setTextImportOpen, documentTextCopyFallback, setDocumentTextCopyFallback, exportJson, copyDocumentText, openTextImportDialog, openDocumentViaDesktop, importDocumentFile, openImportDialog, openOtherImportDialog,
+    importInputRef, otherImportInputRef, textImportOpen, setTextImportOpen, documentTextCopyFallback, setDocumentTextCopyFallback, exportJson, copyDocumentText, openTextImportDialog, openDocumentViaDesktop, openExternalDocument, importDocumentFile, openImportDialog, openOtherImportDialog,
   };
 }

@@ -103,7 +103,7 @@ async function reserveDownloadPath(base: string, extension: string): Promise<str
 
 export interface RegisterFileIpcDeps {
   getMainWindow: () => BrowserWindow | null;
-  externalDocumentOpenQueue?: ExternalDocumentOpenQueue;
+  externalDocumentOpenQueue?: Pick<ExternalDocumentOpenQueue, "readNext" | "acknowledge">;
 }
 
 export function registerFileIpc(deps: RegisterFileIpcDeps): void {
