@@ -54,19 +54,21 @@ test("font sizes use the real Electron bridge and survive an app restart", async
     const created = await page.evaluate((document) => window.desktopAPI!.storage.createFileFromDocument({ document }), source);
     await page.reload();
     await expect(page.locator('.text-flow-editor [data-sigma-doc-id="body_size"]')).toBeVisible();
-    const sizeButton = () => page.getByRole("button", { name: "フォントサイズ", exact: true });
-    const up = () => page.getByRole("button", { name: "フォントサイズを1pt大きく", exact: true });
-    const down = () => page.getByRole("button", { name: "フォントサイズを1pt小さく", exact: true });
+    const sizeInput = () => page.getByRole("textbox", { name: "フォントサイズ", exact: true });
+    const up = () => page.getByRole("button", { name: "フォントサイズを大きく", exact: true });
+    const down = () => page.getByRole("button", { name: "フォントサイズを小さく", exact: true });
     await selectBody(page, "heading_size", 1, 1);
-    await expect(sizeButton()).toHaveText("17.04pt");
+    await expect(sizeInput()).toHaveValue("17.04");
     await selectBody(page, "body_size", 2, 4);
-    await expect(sizeButton()).toHaveText("12pt");
+    await expect(sizeInput()).toHaveValue("12");
     await up().click();
-    await expect(sizeButton()).toHaveText("13pt");
+    await expect(sizeInput()).toHaveValue("13");
     await expect.poll(() => page.evaluate(() => window.getSelection()?.toString())).toBe("注記");
-    await sizeButton().click();
-    await page.getByRole("spinbutton", { name: "サイズ (pt)" }).fill("7.5");
-    await page.getByRole("spinbutton", { name: "サイズ (pt)" }).press("Enter");
+    await sizeInput().click();
+    await sizeInput().press("ControlOrMeta+a");
+    await sizeInput().pressSequentially("7.5");
+    await expect(sizeInput()).toHaveValue("7.5");
+    await sizeInput().press("Enter");
     await expect.poll(() => page.evaluate((id) => window.desktopAPI!.storage.loadDocument(id), created.file.fileId))
       .toMatchObject({ content: [source.content[0], { ...source.content[1], children: [
         { type: "text", text: "前 " }, { type: "text", text: "注記", fontSize: 7.5 }, { type: "text", text: " 後" },
@@ -80,14 +82,14 @@ test("font sizes use the real Electron bridge and survive an app restart", async
     await expect(shapeEditor).toBeVisible();
     await shapeEditor.focus();
     await page.keyboard.press("ControlOrMeta+a");
-    await expect(sizeButton()).toHaveText("12pt");
+    await expect(sizeInput()).toHaveValue("12");
     await up().click();
-    await expect(sizeButton()).toHaveText("13pt");
+    await expect(sizeInput()).toHaveValue("13");
     await expect(shapeEditor.locator("span[style*='font-size']")).toHaveCSS("font-size", "17.3333px");
     await page.keyboard.press("Escape");
-    await expect(sizeButton()).toHaveText("13pt");
+    await expect(sizeInput()).toHaveValue("13");
     await up().click();
-    await expect(sizeButton()).toHaveText("14pt");
+    await expect(sizeInput()).toHaveValue("14");
     const savedShape = async () => page.evaluate(async (id) => {
       const document = await window.desktopAPI!.storage.loadDocument(id);
       return document?.pageLayout?.overlay?.overlaySnapshot?.shapes.find((shape) => shape.id === "shape_size");
@@ -100,7 +102,7 @@ test("font sizes use the real Electron bridge and survive an app restart", async
       const observation = { samples: [] as string[], frame: 0 };
       const sample = () => {
         if (document.querySelector('.overlay-shape.selected[data-overlay-shape-id="shape_math_size"]')) {
-          observation.samples.push(document.querySelector('button[aria-label="フォントサイズ"]')?.textContent ?? "");
+          observation.samples.push(document.querySelector<HTMLInputElement>('input[aria-label="フォントサイズ"]')?.value ?? "");
         }
         observation.frame = requestAnimationFrame(sample);
       };
@@ -112,7 +114,7 @@ test("font sizes use the real Electron bridge and survive an app restart", async
     await expect(mathShape).toHaveClass(/selected/);
     await expect(mathShape.locator(".ProseMirror")).toHaveCount(0);
     await expect(mathShape.locator("[data-sigma-doc-math-inline] .ML__latex")).toBeVisible();
-    await expect(sizeButton()).toHaveText("12pt");
+    await expect(sizeInput()).toHaveValue("12");
     await expect.poll(() => page.evaluate(() => (window as FontSizeObservationWindow).__fontSizeObservation!.samples.length)).toBeGreaterThan(0);
     const switchSamples = await page.evaluate(() => {
       const observation = (window as FontSizeObservationWindow).__fontSizeObservation!;
@@ -121,13 +123,13 @@ test("font sizes use the real Electron bridge and survive an app restart", async
       return observation.samples;
     });
     expect(switchSamples.length).toBeGreaterThan(0);
-    expect(new Set(switchSamples)).toEqual(new Set(["12pt"]));
+    expect(new Set(switchSamples)).toEqual(new Set(["12"]));
     await up().click();
-    await expect(sizeButton()).toHaveText("13pt");
+    await expect(sizeInput()).toHaveValue("13");
     await down().click();
-    await expect(sizeButton()).toHaveText("12pt");
+    await expect(sizeInput()).toHaveValue("12");
     await shape.click();
-    await expect(sizeButton()).toHaveText("14pt");
+    await expect(sizeInput()).toHaveValue("14");
     const savedMathShape = async () => page.evaluate(async (id) => {
       const document = await window.desktopAPI!.storage.loadDocument(id);
       return document?.pageLayout?.overlay?.overlaySnapshot?.shapes.find((shape) => shape.id === "shape_math_size");
@@ -145,7 +147,7 @@ test("font sizes use the real Electron bridge and survive an app restart", async
     await expect(body.locator("[style*='font-size']")).toHaveText("注記");
     await expect(body.locator("[style*='font-size']")).toHaveCSS("font-size", "10px");
     await selectBody(page, "heading_size", 1, 1);
-    await expect(sizeButton()).toHaveText("17.04pt");
+    await expect(sizeInput()).toHaveValue("17.04");
     await expect.poll(savedShape).toMatchObject({ props: { blocks: [{ children: [{ fontSize: 14 }] }] } });
     await expect.poll(savedMathShape).toMatchObject({ props: { fontSize: 12, blocks: [{ children: [
       { type: "mathInline", fontSize: 12 }, { type: "text", fontSize: 12 },

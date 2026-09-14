@@ -129,14 +129,9 @@ export const chrome = {
     },
     fontSize: {
       aria: "Font size",
-      increase: "Increase font size by 1pt",
-      decrease: "Decrease font size by 1pt",
-      mixed: "Mixed",
+      increase: "Increase font size",
+      decrease: "Decrease font size",
       mixedHelp: "Sizes vary. The first size is shown; changes apply to the entire selection.",
-      input: "Size (pt)",
-      inputHelp: "Enter a size of 1pt or more.",
-      inputError: "Enter a number of at least 1pt.",
-      apply: "Apply",
     },
     bold: {
       label: "Bold",

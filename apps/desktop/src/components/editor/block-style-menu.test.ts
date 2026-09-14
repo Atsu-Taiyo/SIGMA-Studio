@@ -2,9 +2,8 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 /**
- * 段落スタイルとフォントサイズはネイティブ `<select>` ではなく、書体と同じ
- * `ToolbarPopover` + `menuitemradio` で選ぶ。OS のドロップダウンはアプリの
- * ダイアログ言語から外れるため。
+ * 段落スタイルはアプリ内ポップオーバーで選び、フォントサイズはツールバー上で
+ * 直接入力できる。OS のドロップダウンや別ダイアログには依存しない。
  */
 const chromeSource = readFileSync(
   new URL("./editor-shell/chrome/editor-chrome.tsx", import.meta.url),
@@ -19,7 +18,7 @@ function popoverSource(ariaKey: string): string {
   return chromeSource.slice(start, end);
 }
 
-describe("block style and font size toolbar popovers", () => {
+describe("block style and font size toolbar controls", () => {
   it("picks heading styles from an in-app menu, not a native select", () => {
     expect(chromeSource).not.toMatch(/aria-label=\{t\("format\.blockStyle\.aria"\)\}[\s\S]{0,200}<option value="h1"/);
     const source = popoverSource("format.blockStyle.aria");
@@ -28,13 +27,21 @@ describe("block style and font size toolbar popovers", () => {
     expect(source).not.toContain("<option");
   });
 
-  it("enters font sizes in an in-app dialog without Auto or preset choices", () => {
-    expect(chromeSource).not.toMatch(/aria-label=\{t\("format\.fontSize\.aria"\)\}[\s\S]{0,200}<option key=\{size\}/);
-    const source = popoverSource("format.fontSize.aria");
-    expect(source).not.toContain('role="menuitemradio"');
-    expect(source).toContain('type="number"');
-    expect(source).not.toContain("TEXT_FONT_SIZE_OPTIONS");
-    expect(source).not.toContain('t("format.fontSize.auto")');
-    expect(source).not.toContain("<option");
+  it("uses a simple inline font size control with direct entry", () => {
+    const start = chromeSource.indexOf("const fontSizeSelect");
+    const end = chromeSource.indexOf("const boldButton", start);
+    expect(start).toBeGreaterThan(-1);
+    expect(end).toBeGreaterThan(start);
+    const source = chromeSource.slice(start, end);
+    expect(source).toContain('className="toolbar-font-size-control"');
+    expect(source).toContain('className="toolbar-font-size-input"');
+    expect(source).toContain('type="text"');
+    expect(source).toContain("<Minus");
+    expect(source).toContain("<Plus");
+    expect(source).not.toContain("ToolbarPopover");
+    expect(source).not.toContain("format.fontSize.apply");
+    expect(source).not.toContain("font-size-custom-help");
+    expect(source).not.toContain("min={1}");
+    expect(source).not.toContain("1pt以上");
   });
 });
