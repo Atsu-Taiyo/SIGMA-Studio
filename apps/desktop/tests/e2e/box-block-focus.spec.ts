@@ -85,15 +85,16 @@ test("keeps focus inside a box block while typing and supports formatting and de
   await expect.poll(() => page.evaluate(() => Boolean(document.activeElement?.closest(".text-flow-editor")))).toBe(true);
   await expect(page.locator('[data-sigma-doc-id="after_box"]')).not.toContainText(typed);
 
-  const fontSizeButton = page.getByLabel("フォントサイズ");
+  const fontSizeButton = page.getByLabel("フォントサイズ", { exact: true });
   await expect(fontSizeButton).toBeEnabled();
   await fontSizeButton.click();
-  await page.getByRole("menu", { name: "フォントサイズ" }).getByRole("menuitemradio", { name: "15pt", exact: true }).click();
+  await page.getByRole("spinbutton", { name: "サイズ (pt)" }).fill("15");
+  await page.getByRole("spinbutton", { name: "サイズ (pt)" }).press("Enter");
   await expect.poll(() => topLevelBoxFirstTextStyle(page)).toMatchObject({ fontSize: 15 });
 
   await bodyParagraph.click();
   await expect.poll(() => selectedBlockId(page)).toBe(bodyId);
-  const fontFamilyButton = page.locator(".toolbar-font-select");
+  const fontFamilyButton = page.getByRole("button", { name: /^フォント:/ });
   await expect(fontFamilyButton).toBeEnabled();
   await fontFamilyButton.click();
   await page.getByRole("searchbox", { name: "フォントを検索" }).fill("Hiragino Mincho");

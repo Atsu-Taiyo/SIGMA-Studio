@@ -30,6 +30,7 @@ import {
   getActiveTextRunSpan,
   getTextRunSpanCompositionHistoryGroup,
   getTextRunSpanToggleMarkStates,
+  getTextRunSpanFontSize,
   handleTextRunSpanKeyDown,
   handleTextRunSpanTextInput,
   selectEntireTextRun,
@@ -362,6 +363,19 @@ describe("handleTextRunSpanTextInput", () => {
       { type: "text", text: "あ", marks: ["bold"] },
       { type: "text", text: "後半一" },
     ]);
+  });
+});
+
+describe("getTextRunSpanFontSize", () => {
+  it("reports the first size and mixed state across separately mounted text surfaces", () => {
+    const { first, second } = createSpanPair();
+    first.editor.chain().setTextSelection({ from: 0, to: first.editor.state.doc.content.size }).setFontSize(10.5).run();
+    second.editor.chain().setTextSelection({ from: 0, to: second.editor.state.doc.content.size }).setFontSize(12).run();
+    expect(getTextRunSpanFontSize(second.editor)).toEqual({ fontSize: 10.5, fontSizeMixed: true });
+    second.editor.chain().setTextSelection({ from: 0, to: second.editor.state.doc.content.size }).setFontSize(10.5).run();
+    expect(getTextRunSpanFontSize(first.editor)).toEqual({ fontSize: 10.5, fontSizeMixed: false });
+    clearTextRunSpan();
+    expect(getTextRunSpanFontSize(first.editor)).toBeNull();
   });
 });
 
