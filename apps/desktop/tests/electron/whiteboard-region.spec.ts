@@ -114,8 +114,8 @@ test("empty whiteboard region comments survive real Electron storage and restart
     await expect(table.locator("tr")).toHaveCount(2);
     await expect(table.locator("td")).toHaveCount(4);
     await expect(table.locator("[contenteditable=true]").first()).toBeFocused();
-    await page.keyboard.type("Region and table");
-    await expect.poll(() => readFileSync(diskPath, "utf8")).toContain("Region and table");
+    await page.keyboard.type("R1");
+    await expect.poll(() => readFileSync(diskPath, "utf8")).toContain("R1");
     const withTable = JSON.parse(readFileSync(diskPath, "utf8")) as SigmaDocument;
     expect(withTable.content).toEqual([]);
     expect(withTable.comments ?? []).toEqual([]);
@@ -123,7 +123,7 @@ test("empty whiteboard region comments survive real Electron storage and restart
     if (placedTable?.type !== "tableShape") throw new Error("The placed table was not saved");
     expect(placedTable.props.table.rows).toHaveLength(2);
     expect(placedTable.props.table.columns).toHaveLength(2);
-    await page.screenshot({ path: test.info().outputPath("electron-region-table.png") });
+    await page.screenshot({ animations: "disabled", path: test.info().outputPath("electron-region-table.png") });
     await page.keyboard.press("Escape");
     await page.mouse.move(restoredBox.x + 280, restoredBox.y + 220);
     await page.mouse.down();
@@ -134,7 +134,7 @@ test("empty whiteboard region comments survive real Electron storage and restart
     // This real profile has no provider credentials. Browser bridge tests cover authenticated sends.
     await expect(page.getByText("AI編集の参照対象をセットしました", { exact: true })).toBeVisible();
     await expect(page.getByRole("heading", { name: "ChatGPTでログインしてAIを使う" })).toBeVisible();
-    await page.screenshot({ path: test.info().outputPath("electron-region-ai-login.png") });
+    await page.screenshot({ animations: "disabled", path: test.info().outputPath("electron-region-ai-login.png") });
   } finally {
     await app?.close();
     rmSync(profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
