@@ -1,6 +1,7 @@
 import { graphExpressionToTex } from "@/features/rendering/core";
-export { graphExpressionToTex } from "@/features/rendering/core";
 import type { GraphExpressionVariableName } from "@/lib/graph2d";
+
+export { graphExpressionToTex } from "@/features/rendering/core";
 
 /**
  * TeX とグラフ評価式 (graph2d の ExpressionParser が解釈する ASCII 式) の変換境界。

@@ -24,7 +24,7 @@ describe("graph formula label persistence", () => {
     const spec = {
       ...createGraph2DSpecPreset("blank"),
       showFormulaLabels: true,
-      parameters: [{ id: "parameter_s", name: "s", value: 2 }],
+      parameters: [{ id: "parameter_s", name: "s", value: 2, min: -3, max: 3 }],
       curves: [{ id: "curve_s", expr: "s*x", exprTex: "sx", label: "y = sx", color: "#000000" }],
     };
     const graph: OverlayGraphShape = {

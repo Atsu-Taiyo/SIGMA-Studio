@@ -20,7 +20,7 @@ export async function expectFormulaOnCanvas(page: Page, tex: string) {
   const math = page.locator(".overlay-text-shape [data-sigma-doc-math-inline]");
   await expect(math).toHaveCount(1);
   await expect(math).toHaveAttribute("data-tex", tex);
-  await expect(math.locator(".ML__mathlive, .katex").first()).toBeVisible();
+  await expect(math.locator(".ML__latex, .katex").first()).toBeVisible();
   await expect(math).not.toContainText("*");
 }
 
