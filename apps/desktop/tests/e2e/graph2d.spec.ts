@@ -705,7 +705,7 @@ test("inserts movable graph shapes, edits one, and prints them", async ({ page }
   await page.mouse.dblclick(xAxisLabelBox!.x + xAxisLabelBox!.width / 2, xAxisLabelBox!.y + xAxisLabelBox!.height / 2);
   const xAxisLabelEditor = xAxisLabelShape.locator(".overlay-text-shape-content");
   await expect(xAxisLabelEditor).toBeFocused();
-  await expect(page.getByLabel("フォントサイズ")).toContainText("10pt");
+  await expect(page.getByLabel("フォントサイズ", { exact: true })).toContainText("10pt");
   await expect.poll(async () => xAxisLabelText.evaluate((element) => getComputedStyle(element).fontSize)).toBe(staticAxisLabelFontSize);
   await page.keyboard.press("ControlOrMeta+A");
   await page.keyboard.type("u");

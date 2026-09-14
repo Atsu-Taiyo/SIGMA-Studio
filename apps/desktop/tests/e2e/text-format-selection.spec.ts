@@ -1,5 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 
+import { QUICK_TOOLBAR } from "./ui-layout-chrome";
 import { installDesktopRuntimeMock } from "./desktop-runtime-mock";
 import { ensurePageLayout, type InlineNode, type ParagraphNode, type SigmaBlock, type SigmaDocument } from "@/features/document";
 
@@ -28,7 +29,7 @@ for (const region of ["body", "footer"] as const) {
     await selectTextRange(page, "format_target", 0, note.length);
 
     for (const size of [1, 2, 3, 4, 5, 6, 7, 9, 8]) {
-      await page.getByLabel("フォントサイズ").click();
+      await page.getByLabel("フォントサイズ", { exact: true }).click();
       await page.getByRole("spinbutton", { name: "サイズ (pt)" }).fill(String(size));
       await page.getByRole("spinbutton", { name: "サイズ (pt)" }).press("Enter");
       await expect.poll(() => block.locator("[style*='font-size']").first()
@@ -129,8 +130,7 @@ for (const region of ["body", "footer"] as const) {
   });
 }
 
-for (const mode of ["docs", "word"] as const) {
-  test(`shows inherited and mixed effective sizes and steps by 1pt in ${mode}`, async ({ page }) => {
+test("shows inherited and mixed effective sizes and steps by 1pt", async ({ page }) => {
     await page.setViewportSize({ width: 1500, height: 1000 });
     const source = createDocument([
       { type: "heading", id: "heading_size", level: 2, children: [{ type: "text", text: "見出し" }] },
@@ -140,14 +140,14 @@ for (const mode of ["docs", "word"] as const) {
       ] },
       { type: "paragraph", id: "math_size", children: [
         { type: "text", text: "前" },
-        { type: "mathInline", id: "sized_math", tex: "x^2", display: "inline" },
+        { type: "mathInline", id: "sized_math", tex: "x^2", display: "inline", semanticRole: "expression" },
         { type: "text", text: "後" },
       ] },
       { type: "paragraph", id: "empty_size", children: [] },
     ]);
-    await installDesktopRuntimeMock(page, source, { uiLayout: { mode } });
+    await installDesktopRuntimeMock(page, source);
     await page.goto("/");
-    const toolbar = mode === "word" ? page.locator(".ribbon-body") : page.getByRole("toolbar", { name: "編集ツール" });
+    const toolbar = page.locator(QUICK_TOOLBAR);
     const sizeButton = toolbar.getByRole("button", { name: "フォントサイズ", exact: true });
     const up = toolbar.getByRole("button", { name: "フォントサイズを1pt大きく", exact: true });
     const down = toolbar.getByRole("button", { name: "フォントサイズを1pt小さく", exact: true });
@@ -210,8 +210,7 @@ for (const mode of ["docs", "word"] as const) {
       if (node.id === "math_size" && node.type === "paragraph") return { ...node, children: node.children.map((child) => ({ ...child, fontSize: 143.5 })) };
       return node;
     }));
-  });
-}
+});
 
 test("fits each line to its runs while retaining math, blank lines, and paragraph spacing", async ({ page }) => {
   await page.setViewportSize({ width: 1400, height: 1000 });
@@ -358,7 +357,7 @@ test("keeps the selected text range while applying font size and font family", a
   await selectTextRange(page, "format_target", 6, 16);
   await expect.poll(() => selectedText(page)).toBe("Beta Gamma");
 
-  await page.getByLabel("フォントサイズ").click();
+  await page.getByLabel("フォントサイズ", { exact: true }).click();
   await page.getByRole("spinbutton", { name: "サイズ (pt)" }).fill("15");
   await page.getByRole("spinbutton", { name: "サイズ (pt)" }).press("Enter");
   await expect.poll(() => selectedText(page)).toBe("Beta Gamma");

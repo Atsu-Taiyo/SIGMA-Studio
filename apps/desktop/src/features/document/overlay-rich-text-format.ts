@@ -24,6 +24,7 @@ export type OverlayTextCommand =
   | "color"
   | "backgroundColor"
   | "fontFamily"
+  | "fontSize"
   | "lineHeight"
   | "textAlign";
 
@@ -171,6 +172,10 @@ function formatInline(
       marks: ensureBoxedMark(node.marks),
       ...(variant && variant !== "frame" ? { boxedVariant: variant } : { boxedVariant: undefined }),
     };
+  }
+  if (command === "fontSize") {
+    const fontSize = Number(value);
+    return Number.isFinite(fontSize) && fontSize > 0 ? { ...node, fontSize } : node;
   }
   if (node.type === "mathInline") {
     return node;

@@ -226,6 +226,7 @@ import  {
   type SigmaTextRangeCommentAnchor,
   type TextAlign,
 } from "@/features/document";
+import { readRenderedTextFontSize, type SelectionFontSize } from "@/components/tiptap/text-format-font-size";
 import { getTextShapeFontSizePt, type MeasuredBlock } from "@/features/drawing";
 import { DocumentTitleText, MathEnvironmentProvider } from "@/features/rendering/adapters/react";
 import { parseDocumentTitleInlineNodes } from "@/features/rendering/core";
@@ -3713,10 +3714,23 @@ function EditorShellBody({ embeddedHost, editorStore }: EditorShellProps & { edi
   const hasOverlaySelection = overlaySelection.selectedCount > 0;
   const canUseTextToolbar = textToolbar.enabled;
   const canUseLineHeight = textToolbar.canUseLineHeight;
-  const activeTextFontSize = textToolbar.wholeTextShape
-    ? getTextShapeFontSizePt(textToolbar.wholeTextShape)
+  const wholeTextShape = textToolbar.wholeTextShape;
+  const [wholeTextShapeSize, setWholeTextShapeSize] = useState<SelectionFontSize | null>(null);
+  useLayoutEffect(() => {
+    if (!wholeTextShape) return;
+    const root = window.document.querySelector<HTMLElement>(
+      `[data-overlay-shape-id="${CSS.escape(wholeTextShape.id)}"] .overlay-text-shape-content`,
+    );
+    // Measure after the overlay's derived DOM has committed its new marks and typography.
+    const frame = window.requestAnimationFrame(() => {
+      setWholeTextShapeSize(root ? readRenderedTextFontSize(root) : null);
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [wholeTextShape]);
+  const activeTextFontSize = wholeTextShape
+    ? wholeTextShapeSize?.fontSize ?? getTextShapeFontSizePt(wholeTextShape)
     : textFontSize ?? BASE_EDITOR_FONT_SIZE;
-  const activeTextFontSizeMixed = !textToolbar.wholeTextShape && textFontSizeMixed;
+  const activeTextFontSizeMixed = wholeTextShape ? wholeTextShapeSize?.fontSizeMixed === true : textFontSizeMixed;
   const canUseTextBlockStyle = textToolbar.canUseTextBlockStyle;
   /**
    * ブロックのボタン (箇条書き・番号付き・引用・コード・区切り線) を押せるか。

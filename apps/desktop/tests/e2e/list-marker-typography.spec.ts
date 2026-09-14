@@ -88,7 +88,7 @@ test("follows a font family and size chosen from the toolbar", async ({ page }) 
   await page.keyboard.press("Home");
   await page.keyboard.press("Shift+End");
 
-  const fontSizeButton = page.getByLabel("フォントサイズ");
+  const fontSizeButton = page.getByLabel("フォントサイズ", { exact: true });
   await expect(fontSizeButton).toBeEnabled();
   await fontSizeButton.click();
   await page.getByRole("spinbutton", { name: "サイズ (pt)" }).fill("18");

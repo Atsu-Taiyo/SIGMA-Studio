@@ -25,6 +25,22 @@ function firstInline(blocks: OverlayTextBlock[]): InlineNode {
 }
 
 describe("formatOverlayTextBlocks", () => {
+  it("sets a numeric size on every run in a selected shape, including math and nested blocks", () => {
+    const blocks: OverlayTextBlock[] = [{ type: "quote", id: "quote", blocks: [{
+      type: "paragraph", id: "paragraph", children: [
+        { type: "text", text: "注記", fontSize: 7.5, marks: ["bold"] },
+        { type: "mathInline", id: "math", tex: "x", display: "inline" },
+      ],
+    }] }];
+    const resized = formatOverlayTextBlocks(blocks, "fontSize", "13.5");
+    expect(overlayTextBlockInlineRuns(resized[0])).toEqual([
+      { type: "text", text: "注記", fontSize: 13.5, marks: ["bold"] },
+      { type: "mathInline", id: "math", tex: "x", display: "inline", fontSize: 13.5 },
+    ]);
+    expect(overlayTextBlockInlineRuns(blocks[0])[0].fontSize).toBe(7.5);
+    expect(formatOverlayTextBlocks(blocks, "fontSize", "invalid")).toEqual(blocks);
+  });
+
   it("toggles semantic marks over the whole document", () => {
     const formatted = formatOverlayTextBlocks(doc("Text"), "bold");
     expect(firstInline(formatted).marks).toEqual(["bold"]);
