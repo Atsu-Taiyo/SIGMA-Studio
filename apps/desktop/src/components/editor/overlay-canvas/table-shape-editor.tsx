@@ -311,7 +311,7 @@ export function OverlayTableShapeEditor({
    * because it looks for an editor that has not been created yet.
    */
   const pendingCellFocusRef = useRef<
-    { cellId: string; contentId: string; placement: TableCellFocusPlacement } | null
+    { cellId: string; contentId: string; placement: TableCellFocusPlacement; clientPoint?: { left: number; top: number } } | null
   >(null);
 
   const activeSelectedLines = useMemo(
@@ -366,6 +366,10 @@ export function OverlayTableShapeEditor({
     if (pending && pending.cellId === cellId && pending.contentId === contentId) {
       pendingCellFocusRef.current = null;
       focusTableParagraphEditor(editor, pending.placement);
+      if (pending.clientPoint && !editor.isDestroyed) {
+        const position = editor.view.posAtCoords(pending.clientPoint);
+        if (position) editor.commands.setTextSelection(position.pos);
+      }
     }
     return () => {
       if (tableCellEditorsRef.current.get(editorKey) === editor) {
@@ -393,9 +397,8 @@ export function OverlayTableShapeEditor({
         return true;
       }
 
-      // A formula cell showing its value has no editor to find. Ask for one, and finish the focus
-      // in `registerTableCellEditor` once it exists — otherwise navigation skips the cell entirely.
-      if (targetCell && targetParagraph && getTableCellFormulaResult(table, targetCell, targetParagraph)) {
+      // Inactive cells have no editor. Mount just the destination, then focus it when registered.
+      if (targetCell && targetParagraph) {
         pendingCellFocusRef.current = {
           cellId: targetCell.id,
           contentId: targetParagraph.id,
@@ -560,14 +563,16 @@ export function OverlayTableShapeEditor({
     const clickedCell = getTableCellAtGridPosition(table, rowIndex, columnIndex);
     const clickedParagraph = clickedCell ? getFirstTableParagraphContent(clickedCell) : null;
     setFocusedCellId(clickedCell?.id ?? null);
-    // The value a formula cell shows is not an editor, so the click never reaches ProseMirror and
-    // there is no caret to keep. The source opens with the caret at the end, which is where a
-    // spreadsheet puts it when you pick a cell and start editing.
-    if (clickedCell && clickedParagraph && getTableCellFormulaResult(table, clickedCell, clickedParagraph)) {
+    const clickedEditor = clickedCell && clickedParagraph
+      ? tableCellEditorsRef.current.get(getTableParagraphEditorKey(clickedCell.id, clickedParagraph.id))
+      : null;
+    if (clickedCell && clickedParagraph && (!clickedEditor || clickedEditor.isDestroyed)) {
       pendingCellFocusRef.current = {
         cellId: clickedCell.id,
         contentId: clickedParagraph.id,
         placement: "end",
+        ...(getTableCellFormulaResult(table, clickedCell, clickedParagraph)
+          ? {} : { clientPoint: { left: event.clientX, top: event.clientY } }),
       };
     }
     setSelectedLines([]);
@@ -1462,7 +1467,7 @@ export function OverlayTableShapeEditor({
                           cell={cell}
                           cellId={cell.id}
                           content={content}
-                          editing={editing}
+                          editing={editing && cell.id === (focusedCellId ?? firstCell?.id)}
                           showFormulaSource={editing && focusedCellId === cell.id}
                           table={table}
                           rowIndex={rowIndex}

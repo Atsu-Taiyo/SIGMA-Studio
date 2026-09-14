@@ -57,9 +57,10 @@ test("click and drag table placement survive real Electron storage and an app re
     const start = { x: canvas.x + 80, y: canvas.y + 180 };
     await page.mouse.move(start.x, start.y);
     const preview = page.locator("[data-table-placement-preview] .overlay-insert-preview-shape");
-    await expect(preview.locator("tr")).toHaveCount(2);
-    await expect(preview.locator("td")).toHaveCount(4);
-    await expect(preview.locator("td").first()).toHaveCSS("border-top-style", "dashed");
+    await expect(preview).toHaveAttribute("data-table-preview-rows", "2");
+    await expect(preview).toHaveAttribute("data-table-preview-columns", "2");
+    await expect(preview.locator("svg")).toHaveCSS("stroke-dasharray", "3px, 3px");
+    await expect(preview.locator(".table-placement-hint")).toHaveText("ドラッグで行・列を増やす");
     await testInfo.attach("table-preview", { body: await page.screenshot({ path: testInfo.outputPath("table-preview.png") }), contentType: "image/png" });
     const clickSize = await preview.boundingBox();
     await page.mouse.click(start.x, start.y);
@@ -75,12 +76,19 @@ test("click and drag table placement survive real Electron storage and an app re
     await page.mouse.down();
     await page.mouse.move(start.x + 300, start.y + 300, { steps: 8 });
     const dragPreview = page.locator(".overlay-insert-preview-shape");
-    await expect(dragPreview.locator("tr")).toHaveCount(5);
-    await expect(dragPreview.locator("td")).toHaveCount(25);
+    await expect(dragPreview).toHaveAttribute("data-table-preview-rows", "5");
+    await expect(dragPreview).toHaveAttribute("data-table-preview-columns", "5");
     await testInfo.attach("table-drag-preview", { body: await page.screenshot({ path: testInfo.outputPath("table-drag-preview.png") }), contentType: "image/png" });
+    const releaseStartedAt = await page.evaluate(() => performance.now());
     await page.mouse.up();
     const enlarged = page.locator(".overlay-table-shape.editing");
     await expect(enlarged.locator("[contenteditable=true]").first()).toBeFocused();
+    await expect(enlarged.locator("[contenteditable=true]")).toHaveCount(1);
+    const releaseToReadyMs = await page.evaluate((startedAt) => performance.now() - startedAt, releaseStartedAt);
+    await testInfo.attach("table-placement-timing", {
+      body: JSON.stringify({ rows: 5, columns: 5, activeEditors: 1, releaseToReadyMs }),
+      contentType: "application/json",
+    });
     const dragSize = await enlarged.boundingBox();
     expect(dragSize!.width).toBeGreaterThan(clickSize!.width);
     expect(dragSize!.height).toBeGreaterThan(clickSize!.height);

@@ -25,13 +25,16 @@ test("2 by 2 preview follows the pointer and a click places it with first-cell f
   await page.mouse.move(start.x, start.y);
   const preview = page.locator("[data-table-placement-preview] .overlay-insert-preview-shape");
   await expect(preview).toBeVisible();
-  await expect(preview.locator("tr")).toHaveCount(2);
-  await expect(preview.locator("td")).toHaveCount(4);
-  await expect(preview).toHaveCSS("opacity", "0.45");
-  await expect(preview.locator("td").first()).toHaveCSS("border-top-style", "dashed");
+  await expect(preview).toHaveAttribute("data-table-preview-rows", "2");
+  await expect(preview).toHaveAttribute("data-table-preview-columns", "2");
+  await expect(preview.locator("svg")).toHaveCSS("stroke-dasharray", "3px, 3px");
+  await expect(preview.locator(".table-placement-hint")).toHaveText("ドラッグで行・列を増やす");
+  await expect(preview.locator("td, [contenteditable]")).toHaveCount(0);
+  const gridPath = await preview.locator("path").elementHandle();
   const first = await preview.boundingBox();
   await page.mouse.move(start.x + 60, start.y + 40);
   await expect.poll(async () => (await preview.boundingBox())?.x).toBeCloseTo(first!.x + 60, 0);
+  expect(await gridPath!.evaluate((node) => node.isConnected)).toBe(true);
   const last = await preview.boundingBox();
   expect(last!.y).toBeCloseTo(first!.y + 40, 0);
   await page.mouse.click(start.x + 60, start.y + 40);
@@ -53,9 +56,9 @@ test("dragging adds rows and columns and preview matches the placed grid", async
   await page.mouse.down();
   await page.mouse.move(start.x + 300, start.y + 180, { steps: 8 });
   const preview = page.locator(".overlay-insert-preview-shape");
-  await expect(preview.locator("tr")).toHaveCount(5);
-  await expect(preview.locator("td")).toHaveCount(25);
-  await expect(preview.locator("td").first()).toHaveCSS("border-top-style", "dashed");
+  await expect(preview).toHaveAttribute("data-table-preview-rows", "5");
+  await expect(preview).toHaveAttribute("data-table-preview-columns", "5");
+  await expect(preview.locator("td, [contenteditable]")).toHaveCount(0);
   const expected = await preview.boundingBox();
   expect(expected!.width).toBeCloseTo(320, 0);
   expect(expected!.height).toBeCloseTo(180, 0);
@@ -69,6 +72,23 @@ test("dragging adds rows and columns and preview matches the placed grid", async
   await expect(table.locator("td")).toHaveCount(25);
   await expect(table.locator("td").first()).toHaveCSS("border-top-style", "solid");
   await expect(table.locator("[contenteditable=true]").first()).toBeFocused();
+  await expect(table.locator("[contenteditable=true]")).toHaveCount(1);
+  await page.keyboard.type("A");
+  await page.keyboard.press("ArrowRight");
+  await expect(table.locator("td").nth(1).locator("[contenteditable=true]")).toBeFocused();
+  await page.keyboard.type("B");
+  await page.keyboard.press("ArrowDown");
+  await expect(table.locator("td").nth(6).locator("[contenteditable=true]")).toBeFocused();
+  await page.keyboard.type("C");
+  await table.locator("td").nth(24).click();
+  await expect(table.locator("td").nth(24).locator("[contenteditable=true]")).toBeFocused();
+  await page.keyboard.type("=1+2");
+  await table.locator("td").first().click();
+  await expect(table.locator("td").nth(24)).toHaveText("3");
+  await expect(table.locator("[contenteditable=true]")).toHaveCount(1);
+  await expect(table.locator("td").first()).toContainText("A");
+  await expect(table.locator("td").nth(1)).toContainText("B");
+  await expect(table.locator("td").nth(6)).toContainText("C");
 });
 
 test("table can be armed again after leaving a cell editor", async ({ page }) => {
