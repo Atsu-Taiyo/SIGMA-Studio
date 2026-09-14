@@ -229,3 +229,12 @@ describe("file:save-to-downloads", () => {
     await expect(save({ fileName: "3D.mp4", dataBase64: "" })).rejects.toThrow("保存する内容が指定されていません。");
   });
 });
+
+
+describe("hidden PDF route", () => {
+  it("uses the live print route for the Electron development server", async () => {
+    const { resolveHiddenPdfDocumentUrl } = await import("../pdf-output-session");
+    expect(resolveHiddenPdfDocumentUrl("http://127.0.0.1:3107/?x=1#page")).toBe("http://127.0.0.1:3107/print");
+    expect(resolveHiddenPdfDocumentUrl("file:///tmp/out/index.html?x=1#page")).toBe("file:///tmp/out/print.html");
+  });
+});
