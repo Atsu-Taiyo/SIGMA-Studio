@@ -1,4 +1,5 @@
 import type { Graph2DSpec, GraphCurve } from "@/features/document";
+import { graphCurveExprTex, graphCurveYExprTex } from "@/features/rendering/core";
 import { DEFAULT_GRAPH_PLOT_BOX, type GraphPlotBox } from "./graph-layout";
 interface GraphNumericRange { xMin: number; xMax: number; yMin: number; yMax: number; }
 
@@ -17,7 +18,7 @@ export function mapGraphPoint(
   };
 }
 
-export function formatGraphCurveLabel(curve: Pick<GraphCurve, "expr" | "label" | "mode" | "yExpr">): string {
+export function formatGraphCurveLabel(curve: Pick<GraphCurve, "expr" | "exprTex" | "label" | "mode" | "yExpr" | "yExprTex">): string {
   const mode = curve.mode ?? "yOfX";
   if (mode === "parametric") {
     const expressions = getParametricGraphCurveLabelExpressions(curve);
@@ -29,11 +30,12 @@ export function formatGraphCurveLabel(curve: Pick<GraphCurve, "expr" | "label" |
     return label;
   }
 
+  const expressionTex = graphCurveExprTex(curve);
   if (mode === "implicit") {
-    return curve.expr.includes("=") ? curve.expr : curve.expr + " = 0";
+    return expressionTex.includes("=") ? expressionTex : expressionTex + " = 0";
   }
 
-  return (mode === "xOfY" ? "x = " : "y = ") + curve.expr;
+  return (mode === "xOfY" ? "x = " : "y = ") + expressionTex;
 }
 
 export function makeParametricGraphCurveLabel(xExpr: string, yExpr: string): string {
@@ -41,10 +43,10 @@ export function makeParametricGraphCurveLabel(xExpr: string, yExpr: string): str
 }
 
 export function getParametricGraphCurveLabelExpressions(
-  curve: Pick<GraphCurve, "expr" | "label" | "yExpr">,
+  curve: Pick<GraphCurve, "expr" | "exprTex" | "label" | "yExpr" | "yExprTex">,
 ): { xExpr: string; yExpr: string } {
   const parsed = parseParametricGraphCurveLabel(curve.label?.trim() ?? "");
-  return parsed ?? { xExpr: curve.expr, yExpr: curve.yExpr ?? "" };
+  return parsed ?? { xExpr: graphCurveExprTex(curve), yExpr: graphCurveYExprTex(curve) };
 }
 
 export function parseParametricGraphCurveLabel(label: string): { xExpr: string; yExpr: string } | null {
