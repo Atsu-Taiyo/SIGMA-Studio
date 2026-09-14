@@ -2,6 +2,7 @@ import { app, ipcMain, dialog, BrowserWindow, shell, type WebContents } from "el
 import fs from "node:fs/promises";
 import path from "node:path";
 import { createCurrentLocaleTranslator } from "@/lib/i18n";
+import type { ExternalDocumentOpenQueue } from "../external-document-open";
 
 import {
   renderPdfOutputSession,
@@ -102,10 +103,20 @@ async function reserveDownloadPath(base: string, extension: string): Promise<str
 
 export interface RegisterFileIpcDeps {
   getMainWindow: () => BrowserWindow | null;
+  externalDocumentOpenQueue?: Pick<ExternalDocumentOpenQueue, "readNext" | "acknowledge">;
 }
 
 export function registerFileIpc(deps: RegisterFileIpcDeps): void {
   const { getMainWindow } = deps;
+
+  ipcMain.handle("file:get-pending-open-document", (event) => {
+    if (event.sender !== getMainWindow()?.webContents) return null;
+    return deps.externalDocumentOpenQueue?.readNext() ?? null;
+  });
+  ipcMain.handle("file:acknowledge-open-document", (event, id: number) => {
+    if (event.sender !== getMainWindow()?.webContents) return;
+    deps.externalDocumentOpenQueue?.acknowledge(id);
+  });
 
   async function exportDocumentPdf(
     sender: WebContents,
@@ -138,7 +149,7 @@ export function registerFileIpc(deps: RegisterFileIpcDeps): void {
     const result = await dialog.showOpenDialog({
       title: te("electron.file.openSigmaDoc"),
       filters: [
-        { name: "SigmaDoc", extensions: ["sigmadoc.json", "json"] },
+        { name: "SigmaDoc", extensions: ["sigma", "json"] },
       ],
       properties: ["openFile"],
     });
@@ -154,8 +165,8 @@ export function registerFileIpc(deps: RegisterFileIpcDeps): void {
     const result = await dialog.showOpenDialog({
       title: te("electron.file.importDocument"),
       filters: [
-        { name: te("electron.file.documentFiles"), extensions: ["sigmadoc.json", "json", "tex", "latex"] },
-        { name: "SigmaDoc", extensions: ["sigmadoc.json", "json"] },
+        { name: te("electron.file.documentFiles"), extensions: ["sigma", "json", "tex", "latex"] },
+        { name: "SigmaDoc", extensions: ["sigma", "json"] },
         { name: "TeX", extensions: ["tex", "latex"] },
       ],
       properties: ["openFile"],
@@ -188,8 +199,8 @@ export function registerFileIpc(deps: RegisterFileIpcDeps): void {
   ipcMain.handle("file:save-sigma-doc", async (_event, payload: { suggestedName?: string; data: string }) => {
     const result = await dialog.showSaveDialog({
       title: te("electron.file.saveSigmaDoc"),
-      defaultPath: payload.suggestedName ?? "document.sigmadoc.json",
-      filters: [{ name: "SigmaDoc", extensions: ["sigmadoc.json", "json"] }],
+      defaultPath: payload.suggestedName ?? "document.sigma",
+      filters: [{ name: "SigmaDoc", extensions: ["sigma"] }, { name: "JSON", extensions: ["json"] }],
     });
     if (result.canceled || !result.filePath) {
       return null;

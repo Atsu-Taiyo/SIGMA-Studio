@@ -70,6 +70,15 @@ module.exports = {
     output: "release",
   },
   artifactName: "Sigma-Studio-${version}-${arch}.${ext}",
+  // A single suffix is portable across OS file-type registries. Never claim .json.
+  fileAssociations: [{
+    ext: "sigma",
+    name: "Sigma Studio Document",
+    description: "Sigma Studio teaching material",
+    mimeType: "application/x-sigma-studio",
+    role: "Editor",
+    rank: "Owner",
+  }],
   files: [
     "dist-electron/**/*",
     "!dist-electron/**/*.map",
@@ -115,6 +124,10 @@ module.exports = {
   win: {
     target: buildWindowsStorePackage ? "appx" : "nsis",
     icon: "build/icon.ico",
+  },
+  linux: {
+    // argv receives local paths, including a separate argument for each selected file.
+    executableArgs: ["%F"],
   },
   appx: {
     applicationId: "SigmaStudio",

@@ -13,6 +13,7 @@ import type { SigmaDocumentRecoveryIssue } from "@/lib/sigma-doc-schema";
 import { createDocumentFromSigmaDocument, type DocumentFileRecord } from "@/lib/storage";
 import { fileFromDesktopImport, planDocumentFileImport, prepareDocumentFileImport } from "./document-file-import";
 import type { EmbeddedEditorHost } from "./document-lifecycle-types";
+import type { DesktopExternalDocument } from "@/types/desktop";
 
 export interface DocumentFileCommandOptions {
   documentRef: RefObject<SigmaDocument>;
@@ -54,7 +55,7 @@ export function useDocumentFileCommands({
   const exportJson = async () => {
     flushOverlayChanges();
     const data = serializeDocumentText(documentRef.current);
-    const suggestedName = `${resolveDocumentTitle(documentRef.current, "lesson")}.sigmadoc.json`;
+    const suggestedName = `${resolveDocumentTitle(documentRef.current, "lesson")}.sigma`;
     const bridge = getDesktopBridge();
     if (bridge) {
       try {
@@ -138,7 +139,7 @@ export function useDocumentFileCommands({
     }
   };
 
-  const importDocumentFile = async (file: File) => {
+  const importDocumentFileWithResult = async (file: File): Promise<boolean> => {
     try {
       const request = planDocumentFileImport(file);
       const { document: importedDocument, recoveryIssues, successMessageKey } = await prepareDocumentFileImport(request, {
@@ -153,10 +154,10 @@ export function useDocumentFileCommands({
         setSaveState("saved");
         setStatusMessage(tEditor(successMessageKey));
         announceRecovery(recoveryIssues);
-        return;
+        return true;
       }
       if (workspaceReady && !(await saveCurrentDocumentBeforeReplacement())) {
-        return;
+        return false;
       }
       const importedRecord = await createDocumentFromSigmaDocument(importedDocument);
       await openDocumentAsTab(importedRecord, tEditor(successMessageKey));
@@ -165,6 +166,20 @@ export function useDocumentFileCommands({
       setSaveState("error");
       setStatusMessage(error instanceof Error ? error.message : tEditor("status.fileReadFailed"));
     }
+    return true;
+  };
+
+  const importDocumentFile = async (file: File) => {
+    await importDocumentFileWithResult(file);
+  };
+
+  const openExternalDocument = async (pending: DesktopExternalDocument): Promise<boolean> => {
+    if (pending.error !== undefined) {
+      setStatusMessage(`${tEditor("status.fileReadFailed")}: ${pending.filePath}\n${pending.error}`);
+      return true;
+    }
+    const baseName = pending.filePath.split(/[\\/]/).pop() ?? "document.sigma";
+    return importDocumentFileWithResult(new File([pending.data], baseName, { type: "application/json" }));
   };
 
   const openImportDialog = () => {
@@ -198,6 +213,6 @@ export function useDocumentFileCommands({
   };
 
   return {
-    importInputRef, otherImportInputRef, textImportOpen, setTextImportOpen, documentTextCopyFallback, setDocumentTextCopyFallback, exportJson, copyDocumentText, openTextImportDialog, openDocumentViaDesktop, importDocumentFile, openImportDialog, openOtherImportDialog,
+    importInputRef, otherImportInputRef, textImportOpen, setTextImportOpen, documentTextCopyFallback, setDocumentTextCopyFallback, exportJson, copyDocumentText, openTextImportDialog, openDocumentViaDesktop, openExternalDocument, importDocumentFile, openImportDialog, openOtherImportDialog,
   };
 }
