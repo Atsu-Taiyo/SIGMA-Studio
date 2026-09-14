@@ -87,7 +87,7 @@ function launchElectron(url) {
   });
 }
 
-try {
+async function run() {
   // Allocate a private port, then verify a per-launch header before exposing the bridge.
   const port = await new Promise((resolve, reject) => {
     const socket = createServer();
@@ -97,6 +97,7 @@ try {
       socket.close(() => resolve(port));
     });
   });
+  if (stopping) return;
   const url = `http://127.0.0.1:${port}/`;
   renderer = start(process.execPath, [require.resolve('next/dist/bin/next'), 'dev', '--hostname', '127.0.0.1', '--port', String(port)], {
     env: { ...env, SIGMA_STUDIO_DEV_SESSION: session },
@@ -117,9 +118,11 @@ try {
     } catch {}
     await new Promise(resolve => setTimeout(resolve, 250));
   }
+  if (stopping) return;
   if (!ready) throw new Error('The private Electron development server did not become ready.');
   const brand = start(process.execPath, ['scripts/brand-dev-electron.mjs']);
   await new Promise((resolve, reject) => { brand.on('error', reject); brand.on('exit', resolve); });
+  if (stopping) return;
   builder = await buildElectron({ watch: true, onBuilt() {
     clearTimeout(rebuildTimer);
     rebuildTimer = setTimeout(() => {
@@ -132,7 +135,17 @@ try {
       }
     }, 150);
   } });
+  // SIGINT can finish cleanup while context()/watch() is still starting. Once
+  // that pending acquisition completes, dispose it instead of leaving a watcher.
+  if (stopping) {
+    await cleanup(process.exitCode ?? 0);
+    return;
+  }
   console.log('[desktop] Renderer: Fast Refresh. Main/preload/MCP dependencies: rebuild and restart.');
+}
+
+try {
+  await run();
 } catch (error) {
   console.error(error);
   await shutdown(1);
