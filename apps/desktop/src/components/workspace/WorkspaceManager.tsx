@@ -37,6 +37,7 @@ import { LedgerSchemaFailurePanel } from "@/components/ledger/LedgerSchemaFailur
 import { createDocumentFromTemplate } from "@/lib/templates";
 import type { TemplateItem } from "@/types/template";
 import { navigateToAppRoute } from "@/lib/app-navigation";
+import { getDesktopBridge } from "@/lib/desktop-bridge";
 import { getAppRuntime } from "@/lib/runtime";
 import { resolveDocumentTitle } from "@/lib/document-title";
 import type { LedgerSchemaFailure } from "@/lib/library-schema";
@@ -126,6 +127,21 @@ export function WorkspaceManager() {
   const [pendingDeleteConfirmation, setPendingDeleteConfirmation] = useState<PendingDeleteConfirmation | null>(null);
   const [pendingDeleteSaving, setPendingDeleteSaving] = useState(false);
   const [templateGalleryOpen, setTemplateGalleryOpen] = useState(false);
+
+  useEffect(() => {
+    const file = getDesktopBridge()?.file;
+    if (!file?.getPendingOpenDocument || !file.onOpenDocumentAvailable) return;
+    let disposed = false;
+    const openEditor = async () => {
+      // Leave the request unacknowledged. The editor owns validation, saving and import.
+      const pending = await file.getPendingOpenDocument!();
+      if (pending && !disposed) navigateToAppRoute("/");
+    };
+    const check = () => { void openEditor().catch(() => {}); };
+    const unsubscribe = file.onOpenDocumentAvailable(check);
+    check();
+    return () => { disposed = true; unsubscribe(); };
+  }, []);
   const [viewPreference, setViewPreference] = useWorkspaceViewPreference();
   // Owned here (not inside use-inline-rename.ts) so applyOverview can read it
   // directly: it must re-apply any still-pending optimistic rename on top of
