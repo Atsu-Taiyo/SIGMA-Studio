@@ -50,7 +50,10 @@ test("click and drag table placement survive real Electron storage and an app re
 
   try {
     let page = await launch();
-    await page.getByRole("button", { name: "表", exact: true }).first().click();
+    expect(await page.getByRole("button", { name: "表", exact: true }).first().evaluate((button) => {
+      (button as HTMLButtonElement).click();
+      return document.querySelector("[data-table-placement-preview]") !== null;
+    })).toBe(true);
     await expect(page.getByRole("dialog", { name: "表を挿入" })).toHaveCount(0);
     const canvas = await page.locator(".overlay-canvas-editor").first().boundingBox();
     if (!canvas) throw new Error("Canvas is missing");

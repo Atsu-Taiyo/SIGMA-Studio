@@ -34,6 +34,27 @@ test.beforeEach(async ({ page }, testInfo) => {
   await expect(page.locator("[data-startup-splash]")).toHaveCount(0);
 });
 
+test("an immediate preview buffers a drag completed before the canvas is ready", async ({ page }) => {
+  const immediate = await page.getByRole("button", { name: "表", exact: true }).first().evaluate((button) => {
+    (button as HTMLButtonElement).click();
+    const previewVisible = document.querySelector("[data-table-placement-preview]") !== null;
+    const canvas = document.querySelector(".page-canvas")!;
+    const box = canvas.getBoundingClientRect();
+    const x = box.x + 80; const y = box.y + 180;
+    canvas.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, cancelable: true, button: 0, pointerId: 7, clientX: x, clientY: y }));
+    const release = () => canvas.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, cancelable: true, button: 0, pointerId: 7, clientX: x + 300, clientY: y + 180 }));
+    release(); release();
+    const pending = document.querySelector("[data-table-placement-pending]");
+    return { previewVisible, pending: Boolean(pending), solid: (pending?.querySelector("svg") as SVGElement)?.style.strokeDasharray,
+      actualTables: document.querySelectorAll(".overlay-table-shape").length };
+  });
+  expect(immediate).toEqual({ previewVisible: true, pending: true, solid: "none", actualTables: 0 });
+  await expect(page.locator(".overlay-table-shape")).toHaveCount(1);
+  await expect(page.locator(".overlay-table-shape td")).toHaveCount(25);
+  await expect(page.locator(".overlay-table-shape [contenteditable=true]")).toBeFocused();
+  await expect(page.locator("[data-table-placement-feedback]")).toHaveCount(0);
+});
+
 test("2 by 2 preview follows the pointer and a click places it with first-cell focus", async ({ page }) => {
   const start = await armTable(page);
   await page.mouse.move(start.x, start.y);
