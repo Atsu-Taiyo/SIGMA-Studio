@@ -84,6 +84,7 @@ import  {
   getTableCellContentLayerStyle,
   getTableCellFocusPlacement,
   getTableCellPositionFromClientPoint,
+  getTableContentIdFromClientPoint,
   getTableCellSelectionRange,
   getTableCellStyle,
   getTableLineDomKey,
@@ -561,14 +562,8 @@ export function OverlayTableShapeEditor({
 
     const anchor = { rowIndex, columnIndex };
     const clickedCell = getTableCellAtGridPosition(table, rowIndex, columnIndex);
-    // Static paragraphs do not receive pointer events, so hit-test their boxes within the cell.
-    const clickedContentElement = Array.from(event.currentTarget.querySelectorAll<HTMLElement>("[data-table-content-id]"))
-      .find((element) => {
-        const bounds = element.getBoundingClientRect();
-        return event.clientX >= bounds.left && event.clientX <= bounds.right
-          && event.clientY >= bounds.top && event.clientY <= bounds.bottom;
-      });
-    const clickedContent = clickedCell?.content.find((content) => content.id === clickedContentElement?.dataset.tableContentId);
+    const clickedContentId = getTableContentIdFromClientPoint(event.currentTarget, event.clientX, event.clientY);
+    const clickedContent = clickedCell?.content.find((content) => content.id === clickedContentId);
     const clickedParagraph = clickedContent?.type === "paragraph"
       ? clickedContent : clickedCell ? getFirstTableParagraphContent(clickedCell) : null;
     setFocusedCellId(clickedCell?.id ?? null);
