@@ -13,6 +13,7 @@ import  {
 import { useDocumentSnapshotSync } from "./overlay-canvas/use-document-snapshot-sync";
 import { useOverlayGraph3DController } from "./overlay-canvas/use-graph3d-controller";
 import { getTablePlacementBounds } from "@/features/drawing";
+import { bindTablePlacementFeedback, finishTablePlacementFeedback, hasTablePlacementFeedback } from "./overlay-canvas/table-placement-feedback";
 
 
 import type  {
@@ -1656,6 +1657,7 @@ export default function OverlayCanvasEditorClient({
   }, [clearSnapGuides, createShapeFromInsertDrag, transitionMode]);
 
   const cancelTablePlacement = useCallback(() => {
+    insertedTableFocusRef.current = null;
     const pointerId = dragPointerRef.current?.pointerId;
     if (pointerId !== undefined && bleedSurfaceRef.current?.hasPointerCapture(pointerId)) {
       bleedSurfaceRef.current.releasePointerCapture(pointerId);
@@ -4614,6 +4616,7 @@ export default function OverlayCanvasEditorClient({
     }
 
     if (interaction.id === "overlay.insertDrag") {
+      if (interaction.tool.command === "table" && hasTablePlacementFeedback()) return;
       const current = getSnappedInsertDragPoint(interaction.tool, interaction.start, point, modifiers);
       if (interaction.tool.command === "table" && interaction.tool.tableCellSize) {
         const before = getTablePlacementBounds(interaction.start, interaction.current, interaction.tool.tableCellSize);
@@ -4746,6 +4749,40 @@ export default function OverlayCanvasEditorClient({
     dragPointerRef.current = null;
     stopDragAutoScroll();
   }, [cancelTablePlacement, stopDragAutoScroll]);
+
+  useLayoutEffect(() => {
+    const tool = mode.tool;
+    if (tool.kind !== "insert" || tool.command !== "table" || !tool.tableCellSize) return;
+    const modelStart = (client: OverlayPoint) => modeRef.current.id === "overlay.insertDrag"
+      ? modeRef.current.start : pagePointFromClient(client.x, client.y);
+    return bindTablePlacementFeedback(handledCommandRequestIdRef.current!, {
+      bounds: (start, end) => {
+        const box = getTablePlacementBounds(modelStart(start), pagePointFromClient(end.x, end.y), tool.tableCellSize!);
+        const topLeft = clientPointFromPage(box);
+        const bottomRight = clientPointFromPage({ x: box.x + box.w, y: box.y + box.h });
+        const w = bottomRight.x - topLeft.x;
+        const h = bottomRight.y - topLeft.y;
+        return { ...box, ...topLeft, w, h, cellW: w / box.columns, cellH: h / box.rows };
+      },
+      freeze: () => {
+        const pointerId = dragPointerRef.current?.pointerId;
+        if (pointerId !== undefined && bleedSurfaceRef.current?.hasPointerCapture(pointerId)) {
+          bleedSurfaceRef.current.releasePointerCapture(pointerId);
+        }
+        dragPointerRef.current = null;
+        stopDragAutoScroll();
+      },
+      cancel: cancelTablePlacement,
+      commit: (start, end) => {
+        const first = modelStart(start);
+        const last = pagePointFromClient(end.x, end.y);
+        cancelTablePlacement();
+        const id = createShapeFromInsertDrag(tool, first, last);
+        if (id) transitionMode({ type: "editTable", shapeId: id });
+        else finishTablePlacementFeedback();
+      },
+    });
+  }, [mode.tool, cancelTablePlacement, clientPointFromPage, createShapeFromInsertDrag, pagePointFromClient, stopDragAutoScroll, transitionMode]);
 
   const handlePointerUp = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
     dragPointerRef.current = null;
@@ -5608,6 +5645,7 @@ export default function OverlayCanvasEditorClient({
   const handleTableFirstCellReady = useCallback((editor: TiptapEditor, shapeId: OverlayShapeId) => {
     if (insertedTableFocusRef.current !== shapeId) return;
     insertedTableFocusRef.current = null;
+    finishTablePlacementFeedback();
     editor.commands.focus("start", { scrollIntoView: false });
   }, []);
 
@@ -5806,7 +5844,7 @@ export default function OverlayCanvasEditorClient({
         />
       )}
 
-      {mode.id === "overlay.select" && currentTool.kind === "insert" && currentTool.command === "table" && (
+      {mode.id === "overlay.select" && currentTool.kind === "insert" && currentTool.command === "table" && !hasTablePlacementFeedback() && (
         <TablePlacementPreview
           tool={currentTool}
           surfaceRef={bleedSurfaceRef}
@@ -5815,7 +5853,7 @@ export default function OverlayCanvasEditorClient({
           styleDefaults={pickStyleDefaultsForInsert("table", shapeStyleDefaults)}
         />
       )}
-      {insertPreview && (
+      {insertPreview && !(insertPreview.tool.command === "table" && hasTablePlacementFeedback()) && (
         <InsertDragPreview
           tool={insertPreview.tool}
           start={insertPreview.start}
