@@ -13,7 +13,9 @@ export const workspace = {
     title: "GitHubのStarで応援しませんか？",
     description: "Sigma Studioが役に立ったら、GitHubでStarを付けていただけるとうれしいです。開発を続ける励みになります。",
     openGitHub: "GitHubを開く（外部サイト）",
-    dismissNote: "この案内は閉じると再表示されません。",
+    doNotShowAgain: "もう表示しない",
+    dismissNote: "右上の×で閉じると、次回起動時に再表示されます。",
+    optOutFailed: "設定を保存できませんでした。もう一度お試しください。",
   },
   untitledMaterial: "無題の教材",
   /** ワークスペースが 1 つも無いときに自動で作る既定のワークスペース名。 */
