@@ -163,8 +163,6 @@ export interface OverlayCommandRequest {
   command: OverlayCommand;
   graphPreset?: Graph2DPreset;
   graph3dPreset?: Graph3DPreset;
-  /** 起点となったツールバーボタンの画面座標（表のサイズ選択ポップオーバーをその近くに出すため）。 */
-  anchorRect?: { x: number; y: number; width: number; height: number };
 }
 
 export interface OverlayImageRequest {
