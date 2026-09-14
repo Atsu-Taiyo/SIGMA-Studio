@@ -88,6 +88,7 @@ import  {
   capAiEditTurnReferences,
   createAiEditOverlaySelectionContext,
   createBlockAiEditReference,
+  createCanvasRegionAiEditReference,
   getAiEditReferenceKey,
   getDefaultAiEditInsertionTargetId,
   getReferenceDisplayLabel,
@@ -710,15 +711,17 @@ export function AiEditPanel({
   }, [isRunning]);
 
   const overlaySelectionContext = useMemo(() => createAiEditOverlaySelectionContext({
+    region: overlaySelection.region,
     selectedShapeIds: overlaySelection.selectedShapeIds,
     shapes: overlaySelection.selectedShapes,
     assets: overlaySelection.selectedAssets,
-  }), [overlaySelection.selectedAssets, overlaySelection.selectedShapeIds, overlaySelection.selectedShapes]);
+  }), [overlaySelection.region, overlaySelection.selectedAssets, overlaySelection.selectedShapeIds, overlaySelection.selectedShapes]);
   const overlaySelectionTargetBlockId = useMemo(
     () => getOverlaySelectionTargetBlockId(overlaySelectionContext),
     [overlaySelectionContext],
   );
   const aiTargetId =
+    (overlaySelectionContext?.region || pinnedReferences.some((item) => item.overlaySelection?.region) ? "CANVAS" : null) ??
     overlaySelectionTargetBlockId ??
     selectedId ??
     (overlaySelectionContext
@@ -728,6 +731,7 @@ export function AiEditPanel({
   // 暗黙参照 (implicit): 本文で選択しているだけのブロック/選択参照。overlaySelection の
   // 合成はこちらにのみ適用する (ピン留め参照はスナップショットのまま)。
   const effectiveReference = useMemo(() => {
+    if (overlaySelectionContext?.region) return createCanvasRegionAiEditReference(overlaySelectionContext.region);
     const baseReference = reference && reference.targetId === aiTargetId
       ? reference
       : createBlockAiEditReference(document, aiTargetId);
@@ -1135,13 +1139,13 @@ export function AiEditPanel({
       turnReasoningEffort: reasoningEffort,
       aiTargetId,
       anchor: createAiRunAnchor({
-        primaryBlockId: aiTargetId ?? null,
+        primaryBlockId: aiTargetId === "CANVAS" ? null : aiTargetId,
         documentId: documentIdentityKey,
         document,
         references: turnReferences,
         shapeIds: overlaySelectionContext?.selectedShapeIds,
         canvas: variant === "inline" && inlineAnchor ? { left: inlineAnchor.left, top: inlineAnchor.top } : undefined,
-        preferredTarget: overlaySelectionContext && variant === "inline" && inlineAnchor ? "canvas" : "block",
+        preferredTarget: (overlaySelectionContext || turnReferences.some((item) => item.overlaySelection?.region)) && variant === "inline" && inlineAnchor ? "canvas" : "block",
       }),
     };
   }, [

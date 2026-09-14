@@ -1286,6 +1286,17 @@ code {
   height: 100%;
 }
 
+/* Keep the visible empty whiteboard interactive on either side of its origin.
+   This hit surface uses the existing camera; the logical editor stays at (0, 0). */
+.whiteboard-canvas > .overlay-canvas-bleed-surface::before {
+  content: "";
+  position: absolute;
+  left: calc(-1 * var(--whiteboard-pan-x, 0px) / var(--whiteboard-zoom, 1));
+  top: calc(-1 * var(--whiteboard-pan-y, 0px) / var(--whiteboard-zoom, 1));
+  width: calc(100vw / var(--whiteboard-zoom, 1));
+  height: calc(100vh / var(--whiteboard-zoom, 1));
+}
+
 /* Block handle, insertion line and the trailing "write here" strip. The layer itself never
    takes a pointer event — only the three controls do — so text selection, figure hit-testing
    and the margin drag-select gutter underneath keep working unchanged. */

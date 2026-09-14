@@ -505,9 +505,15 @@ export interface SigmaBlockCommentAnchor {
     quote?: string;
 }
 
+/** A fixed rectangle in absolute, unzoomed canvas coordinates, independent of shapes. */
 export interface SigmaCanvasRegionCommentAnchor {
     type: "canvasRegion";
-    bounds: { x: number; y: number; w: number; h: number };
+    bounds: {
+        x: number;
+        y: number;
+        w: number;
+        h: number;
+    };
     quote?: string;
 }
 

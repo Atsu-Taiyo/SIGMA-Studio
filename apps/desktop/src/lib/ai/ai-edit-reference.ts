@@ -569,11 +569,14 @@ export function createAiEditOverlaySelectionContext({
   selectedShapeIds,
   shapes,
   assets,
+  region,
 }: {
+  region?: { x: number; y: number; w: number; h: number };
   selectedShapeIds: string[];
   shapes: OverlayShape[];
   assets: Record<string, OverlayAsset>;
 }): AiEditOverlaySelectionContext | null {
+  if (region) return { region: { ...region }, selectedShapeIds: [], shapes: [], assets: {} };
   if (selectedShapeIds.length === 0 || shapes.length === 0) {
     return null;
   }
@@ -880,8 +883,8 @@ function uniqueNonEmpty(values: string[]): string[] {
 function formatAiEditOverlaySelectionForPrompt(selection: AiEditOverlaySelectionContext | undefined): string {
   if (selection?.region) {
     return [
-      "参照対象: ホワイトボードの選択領域 (targetId: CANVAS)",
-      "bounds はズーム・パンに依存しないキャンバス絶対座標 (px)。この領域を配置基準として使う。既存の図形IDや本文ブロックではない。",
+      tv("reference.canvasRegionTitle"),
+      tv("reference.canvasRegionPlacement"),
       JSON.stringify({ bounds: selection.region }),
     ].join("\n");
   }

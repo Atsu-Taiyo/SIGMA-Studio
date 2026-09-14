@@ -601,12 +601,13 @@ interface OverlayCanvasEditorClientProps {
   onActionHandled: (requestId: number) => void;
   onSelectPointHandled: (requestId: number, hitShape: boolean) => void;
   onRequestTextMode: (screenPoint?: { x: number; y: number }) => void;
+  /** Keep an empty marquee as a coordinate selection for whiteboard hosts. */
+  retainEmptySelection?: boolean;
   /**
    * 図形を1つも掴まなかったマーキー。本文を持つ面だけが受け取り、本文の上で始まった
    * ドラッグだったときに範囲選択として引き継ぐ (本文の有無を確かめるのは受け手)。
    * 渡されない面では、空振りのマーキーは今までどおり図形モードに留まる。
    */
-  retainEmptySelection?: boolean;
   onRequestTextSelection?: (screenStart: { x: number; y: number }, screenEnd: { x: number; y: number }) => void;
   onModeStatusChange?: (status: OverlayModeStatus) => void;
   onSelectionSummaryChange?: (summary: OverlaySelectionSummary) => void;
@@ -722,7 +723,7 @@ export default function OverlayCanvasEditorClient({
     const clearOutside = (event: PointerEvent) => {
       const target = event.target;
       if (!(target instanceof Element) || event.button !== 0 ||
-          canvasRef.current?.contains(target) ||
+          bleedSurfaceRef.current?.contains(target) ||
           target.closest(".selection-action-popover, [data-preserve-canvas-selection]")) return;
       setRegionSelection(null);
     };
