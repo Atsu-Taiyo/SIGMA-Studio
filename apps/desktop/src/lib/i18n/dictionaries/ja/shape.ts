@@ -75,6 +75,12 @@ export const shape = {
     selectInnerLines: "内側の罫線だけ選択",
     insert: "表を挿入",
     insertSize: "{{columns}}列 {{rows}}行の表を挿入",
+    size: "{{rows}}行 × {{columns}}列",
+    chooseSize: "表のサイズを選択",
+    rows: "行数",
+    columns: "列数",
+    keyboardHint: "↑↓ 行・←→ 列を選択、Enter で挿入",
+    sizeRange: "行・列は1〜{{max}}の整数で指定してください。",
     /**
      * セル数式のエラー説明。**`#DIV/0!` などの表示文字列自体はここに入れない** —
      * あれは Excel 正準の値でロケールに依存せず、document 層が返すもの。ここにあるのは

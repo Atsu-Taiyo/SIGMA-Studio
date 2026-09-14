@@ -152,7 +152,7 @@ test("ホワイトボードで表ピッカーから可視領域中央に4列3行
   await expect(tablePicker).toBeVisible();
   const fourByThree = tablePicker.getByRole("button", { name: "4列 3行の表を挿入", exact: true });
   await fourByThree.hover();
-  await expect(tablePicker.locator(".table-insert-grid-size")).toHaveText("4 x 3");
+  await expect(tablePicker.locator(".table-insert-grid-size")).toHaveText("3行 × 4列");
   await page.keyboard.press("Escape");
   await expect(tablePicker).toHaveCount(0);
 

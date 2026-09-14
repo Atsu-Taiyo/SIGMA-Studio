@@ -1098,7 +1098,7 @@ test("table insertion picker creates the requested grid and a second click re-en
   await expect(tablePicker).toBeVisible();
   const fourByThree = tablePicker.getByRole("button", { name: "4列 3行の表を挿入", exact: true });
   await fourByThree.hover();
-  await expect(tablePicker.locator(".table-insert-grid-size")).toHaveText("4 x 3");
+  await expect(tablePicker.locator(".table-insert-grid-size")).toHaveText("3行 × 4列");
   await fourByThree.click();
   await expect(tablePicker).toHaveCount(0);
 
@@ -1107,7 +1107,7 @@ test("table insertion picker creates the requested grid and a second click re-en
   await expect(table.locator("tr")).toHaveCount(3);
   await expect(table.locator("tr").first().locator("td")).toHaveCount(4);
   await expect(table).toHaveClass(/editing/);
-  await expect(table.locator("td.selected-cell")).toHaveCount(0);
+  await expect(table.locator("td.selected-cell")).toHaveCount(1);
   await table.locator(".overlay-table-shape-content").first().click();
   await expect(table.locator("td.selected-cell")).toHaveCount(1);
   await expect(page.locator(".overlay-table-floating-toolbar.cell")).toBeVisible();

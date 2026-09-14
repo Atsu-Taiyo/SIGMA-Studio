@@ -1,4 +1,5 @@
 "use client";
+import { TableInsertGridPicker } from "./TableInsertGridPicker";
 import type { PendingOverlaySave } from "./overlay-canvas/pending-save";
 import  {
   AnchorIndicator,
@@ -1595,6 +1596,8 @@ export default function OverlayCanvasEditorClient({
     return insertedShape.id;
   }, [commitOverlayChangeNow, queueOverlaySave, selectKnownShape]);
 
+  const insertedTableFocusRef = useRef<string | null>(null);
+
   const insertTableAtViewportCenter = useCallback((columnCount: number, rowCount: number) => {
     const table = createPlainTableSpec(rowCount, columnCount);
     const tableWidth = Math.max(120, columnCount * DEFAULT_TABLE_COLUMN_WIDTH);
@@ -1628,10 +1631,24 @@ export default function OverlayCanvasEditorClient({
       { x: x + tableWidth, y: y + tableHeight },
     );
     if (shapeId) {
+      insertedTableFocusRef.current = shapeId;
       transitionMode({ type: "editTable", shapeId });
     }
     setTableInsertPicker(null);
   }, [createShapeFromInsertDrag, transitionMode]);
+
+  useEffect(() => {
+    const shapeId = insertedTableFocusRef.current;
+    if (!shapeId || tableInsertPicker || mode.id !== "overlay.tableEditing" || mode.shapeId !== shapeId) return;
+    const frame = requestAnimationFrame(() => {
+      const cell = canvasRef.current?.querySelector<HTMLElement>(
+        `[data-overlay-shape-id="${CSS.escape(shapeId)}"] [contenteditable="true"]`,
+      );
+      cell?.focus({ preventScroll: true });
+      insertedTableFocusRef.current = null;
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [mode, tableInsertPicker]);
 
   /**
    * Creates a chart from an existing table and selects it.
@@ -6517,85 +6534,6 @@ function InsertDragPreview({
   );
 }
 
-function TableInsertGridPicker({
-  anchorRect,
-  onPick,
-  onClose,
-}: {
-  anchorRect?: { x: number; y: number; width: number; height: number };
-  onPick: (columnCount: number, rowCount: number) => void;
-  onClose: () => void;
-}) {
-  const tShape = useT("shape");
-  const [hovered, setHovered] = useState({ columns: 4, rows: 3 });
-  const popoverRef = useRef<HTMLDivElement | null>(null);
-  const columnCount = 10;
-  const rowCount = 8;
-
-  useEffect(() => {
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        event.preventDefault();
-        onClose();
-      }
-    };
-    const handlePointerDown = (event: PointerEvent) => {
-      if (event.target instanceof Node && !popoverRef.current?.contains(event.target)) {
-        onClose();
-      }
-    };
-    window.addEventListener("keydown", handleKeyDown);
-    document.addEventListener("pointerdown", handlePointerDown, true);
-    return () => {
-      window.removeEventListener("keydown", handleKeyDown);
-      document.removeEventListener("pointerdown", handlePointerDown, true);
-    };
-  }, [onClose]);
-
-  if (typeof document === "undefined") {
-    return null;
-  }
-
-  // 「図形」ボタンのすぐ下に出す。座標が無ければ従来の既定位置（CSS）に任せる。
-  const POPOVER_WIDTH = 210;
-  const anchorStyle: CSSProperties | undefined = anchorRect
-    ? {
-        top: anchorRect.y + anchorRect.height + 6,
-        left: clamp(anchorRect.x, 8, Math.max(8, window.innerWidth - POPOVER_WIDTH - 8)),
-      }
-    : undefined;
-
-  return createPortal((
-    <div
-      ref={popoverRef}
-      className="table-insert-grid-popover"
-      role="dialog"
-      aria-label={tShape("table.insert")}
-      style={anchorStyle}
-      onPointerDown={(event) => event.stopPropagation()}
-    >
-      <div className="table-insert-grid" style={{ gridTemplateColumns: `repeat(${columnCount}, 16px)` }}>
-        {Array.from({ length: rowCount }).flatMap((_, rowIndex) => (
-          Array.from({ length: columnCount }).map((__, columnIndex) => {
-            const selected = columnIndex < hovered.columns && rowIndex < hovered.rows;
-            return (
-              <button
-                key={`${rowIndex}:${columnIndex}`}
-                type="button"
-                className={selected ? "selected" : ""}
-                aria-label={tShape("table.insertSize", { replace: { columns: columnIndex + 1, rows: rowIndex + 1 } })}
-                onMouseEnter={() => setHovered({ columns: columnIndex + 1, rows: rowIndex + 1 })}
-                onFocus={() => setHovered({ columns: columnIndex + 1, rows: rowIndex + 1 })}
-                onClick={() => onPick(columnIndex + 1, rowIndex + 1)}
-              />
-            );
-          })
-        ))}
-      </div>
-      <div className="table-insert-grid-size">{hovered.columns} x {hovered.rows}</div>
-    </div>
-  ), document.body);
-}
 
 
 function normalizeBoxedVariant(value: unknown): BoxedVariant | undefined {
