@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { OverlayShape, ParagraphNode, SigmaDocument } from "@/features/document";
 import { createEmptyEditorDocument } from "@/lib/blank-document";
 import { createTranslator } from "@/lib/i18n";
+import * as runtime from "@/lib/runtime";
 import type { MaterialRepository } from "@/lib/runtime/types";
 import type { MaterialContent, MaterialItem } from "@/types/material";
 import { FLUSH_OVERLAY_CHANGES_EVENT } from "../page-overlay-types";
@@ -123,6 +124,27 @@ function menuEvent() {
 }
 
 describe("mounted material library controller", () => {
+  it("loads the default runtime once across its own updates and unrelated rerenders", async () => {
+    const f = fixture();
+    const baseRuntime = runtime.getAppRuntime();
+    vi.spyOn(runtime, "getAppRuntime").mockImplementation(() => ({
+      ...baseRuntime,
+      materials: { ...f.repository },
+    }));
+    const options = { ...f.options, getRepository: undefined };
+    await load(options);
+    const refresh = controller.refreshMaterials;
+    for (let index = 0; index < 4; index += 1) {
+      act(() => controller.setMaterialSearch(String(index)));
+      render({ ...options });
+      await act(async () => { await vi.runOnlyPendingTimersAsync(); });
+    }
+    expect(controller.refreshMaterials).toBe(refresh);
+    expect(f.repository.listMaterials).toHaveBeenCalledOnce();
+    await act(async () => { await controller.refreshMaterials(); });
+    expect(f.repository.listMaterials).toHaveBeenCalledTimes(2);
+  });
+
   it("defers initial loading, retains pending state and reads the repository at operation time", async () => {
     const f = fixture();
     const pending = deferred<MaterialItem[]>();

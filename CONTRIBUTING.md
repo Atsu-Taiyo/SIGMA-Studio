@@ -7,6 +7,29 @@ npm ci
 npm run dev
 ```
 
+## デスクトップ版をホットリロードで開発する
+
+```sh
+mise exec -- npm run electron:dev
+```
+
+Node.js 24を既に使っている環境では `npm run electron:dev` だけで起動できます。
+専用のNext.js開発サーバーを空きポートの `127.0.0.1` に立ち上げ、Electronで開きます。
+画面・CSSはFast Refreshで反映され、main / preload / MCPの依存ソースはesbuildで監視されます。
+ビルド成功時だけ、アプリの通常の保存・終了処理を通して再起動します。
+終了をキャンセルした場合は開発を継続し、次の変更時に再起動を再要求します。
+ビルドエラー時は現在のアプリを残すので、エラーを直して保存してください。
+
+開発用データの既定保存先はリポジトリ内の `tmp/desktop-dev-profile` です。
+インストール済みアプリの教材とは分離され、再起動後も残ります。
+別の保存先は `SIGMA_STUDIO_USER_DATA_DIR` で指定できます。
+Next.jsの生成物は `.next-electron` に分け、通常のブラウザ開発サーバーと分離します。
+Ctrl+Cまたはアプリの終了で、管理している開発サーバーと監視処理も終了します。
+
+配布版と同じ静的ファイル読み込みを確認する場合は `npm run electron:preview` を使います。
+このコマンドは通常のアプリ保存先を使うため、調査時は `SIGMA_STUDIO_USER_DATA_DIR` で
+複製したデータの保存先を指定してください。配布用の `electron:dist:*` は従来どおりです。
+
 文書の正本は SigmaDoc JSON です。編集DOM、Tiptap JSON、SVGは派生表現として扱います。
 責務と依存方向は [Architecture](docs/architecture.md)、過去の不具合から得た制約は
 [MISS.md](MISS.md) を参照してください。見た目・操作・保存形式の変更と、内部構造の整理は、
