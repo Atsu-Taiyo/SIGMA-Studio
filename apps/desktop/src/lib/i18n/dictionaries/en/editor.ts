@@ -656,6 +656,7 @@ export const editor = {
       orphan: "No target",
       textRange: "Selected text",
       inlineMath: "Math",
+      canvasRegion: "Selected canvas region",
       overlayMath: "Math in a figure",
       shape: "Shape",
       shapes: "Shapes: {{shapes}}",

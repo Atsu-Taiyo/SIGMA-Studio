@@ -486,6 +486,8 @@ function getCommentAnchorSyncValue(anchor: SigmaCommentAnchor): unknown[] {
       return [anchor.type, anchor.blockId, anchor.mathInlineId];
     case "block":
       return [anchor.type, anchor.blockId];
+    case "canvasRegion":
+      return [anchor.type, anchor.bounds.x, anchor.bounds.y, anchor.bounds.w, anchor.bounds.h];
     case "overlayShape":
       return [anchor.type, [...anchor.shapeIds]];
     case "overlayMath":

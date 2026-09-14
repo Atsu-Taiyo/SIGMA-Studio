@@ -1,5 +1,6 @@
 import {
   createBlockAiEditReference,
+  createCanvasRegionAiEditReference,
   createInlineMathAiEditReference,
   createTextSelectionAiEditReference,
   type AiEditReference,
@@ -17,6 +18,9 @@ export function buildCommentAiReference(
   document: SigmaDocument,
   anchor: SigmaCommentAnchor,
 ): { selectedId: string | null; reference: AiEditReference | null } {
+  if (anchor.type === "canvasRegion") {
+    return { selectedId: null, reference: createCanvasRegionAiEditReference(anchor.bounds) };
+  }
   if (anchor.type === "textRange") {
     const targetId = anchor.start.blockId;
     return {

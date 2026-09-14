@@ -61,7 +61,8 @@ export type SigmaCommentAnchor =
   | SigmaInlineMathCommentAnchor
   | SigmaBlockCommentAnchor
   | SigmaOverlayShapeCommentAnchor
-  | SigmaOverlayMathCommentAnchor;
+  | SigmaOverlayMathCommentAnchor
+  | SigmaCanvasRegionCommentAnchor;
 
 export interface SigmaTextRangeCommentAnchor {
   type: "textRange";
@@ -88,6 +89,13 @@ export interface SigmaInlineMathCommentAnchor {
 export interface SigmaBlockCommentAnchor {
   type: "block";
   blockId: string;
+  quote?: string;
+}
+
+/** A fixed rectangle in absolute, unzoomed canvas coordinates, independent of shapes. */
+export interface SigmaCanvasRegionCommentAnchor {
+  type: "canvasRegion";
+  bounds: { x: number; y: number; w: number; h: number };
   quote?: string;
 }
 

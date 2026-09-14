@@ -158,6 +158,8 @@ export const prompt = {
       getProblemAreaLabel3: "Comment",
       getProblemAreaLabel4: "Answer",
       formatAiEditOverlaySelectionForPrompt1: "Selected shapes: none",
+      canvasRegionTitle: "Reference: selected whiteboard region (targetId: CANVAS)",
+      canvasRegionPlacement: "bounds are absolute canvas coordinates in px, independent of zoom and pan. Use this region for placement. It is not an existing shape ID or body block.",
       formatAiEditOverlaySelectionForPrompt2: "Selected {{p0}}: {{p1}}",
       formatAiEditOverlaySelectionForPrompt3: "The appearance of the selected shapes is attached to the same message as \"{{pattern}}\" when possible. The preview is a derived image for confirmation. Do not insert it again as an image; treat selectedShapeIds and the JSON below as the source of truth for what to edit, and the target block ID / anchor for where to insert.",
       formatAiEditOverlaySelectionForPrompt4: "Selected {{p0}} JSON:",
