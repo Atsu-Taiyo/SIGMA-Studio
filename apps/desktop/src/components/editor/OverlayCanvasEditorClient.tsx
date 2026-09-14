@@ -3016,6 +3016,7 @@ export default function OverlayCanvasEditorClient({
       props: {
         fontSize,
         size: fontSizeToOverlaySize(fontSize),
+        blocks: formatOverlayTextBlocks(shape.props.blocks, "fontSize", String(fontSize)),
       },
     }, { commit: true });
   }, [editingShapeId, updateShape]);

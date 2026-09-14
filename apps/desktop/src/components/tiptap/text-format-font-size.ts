@@ -9,6 +9,30 @@ export interface SelectionFontSize {
   fontSizeMixed: boolean;
 }
 
+/** Read a selected shape's static text, including headings and inline overrides. */
+export function readRenderedTextFontSize(root: HTMLElement): SelectionFontSize {
+  const elements = new Set<Element>();
+  const walker = root.ownerDocument.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  let text = walker.nextNode();
+  while (text) {
+    if (text.textContent?.trim() && text.parentElement) {
+      // KaTeX scales individual glyphs; the surrounding math wrapper owns the font size.
+      const katex = text.parentElement.closest(".katex");
+      elements.add(katex?.parentElement ?? text.parentElement);
+    }
+    text = walker.nextNode();
+  }
+  let fontSize: number | null = null;
+  for (const element of elements.size ? elements : [root]) {
+    const px = Number.parseFloat(root.ownerDocument.defaultView!.getComputedStyle(element).fontSize);
+    if (!Number.isFinite(px) || px <= 0) continue;
+    const current = pxToPt(px);
+    if (fontSize !== null && Math.abs(fontSize - current) > 0.001) return { fontSize, fontSizeMixed: true };
+    fontSize ??= current;
+  }
+  return { fontSize, fontSizeMixed: false };
+}
+
 /** Read the rendered inheritance without writing explicit sizes into SigmaDoc. */
 export function readSelectionFontSize(
   view: EditorView,
@@ -22,7 +46,7 @@ export function readSelectionFontSize(
 
     // nodeDOM gives the run wrapper (including MathLive's outer node), not KaTeX's
     // internally scaled glyphs. At a caret, domAtPos also handles empty paragraphs.
-    const at = view.domAtPos(pos, 1);
+    const at = view.domAtPos(pos, caret ? -1 : 1);
     const node = caret
       ? (at.node.nodeType === 3 ? at.node : at.node.childNodes[at.offset] ?? at.node)
       : view.nodeDOM(pos) ?? at.node;
