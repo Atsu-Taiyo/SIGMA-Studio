@@ -106,8 +106,9 @@ export interface EditorChromeFormat {
   ActiveTextAlignIcon: LucideIcon;
   activeFontFamilyLabel: string;
   activeTextAlignOption: { value: TextAlign; icon: LucideIcon; };
-  /** `null` = 「自動」(run 自身の大きさ指定なし)。 */
-  activeTextFontSize: number | null;
+  /** 現在の実効サイズ。混在選択では先頭のサイズ。 */
+  activeTextFontSize: number;
+  activeTextFontSizeMixed: boolean;
   applyBoxedTextPaddingY: (paddingY: number) => void;
   applyInlineFormat: (command: "color" | "backgroundColor" | "fontFamily" | "fontSize" | "lineHeight" | "boxedPaddingY" | "boxedVariant", value: string) => void;
   applyLineHeight: (nextLineHeightValue: string, options?: { updateInput?: boolean; }) => boolean;

@@ -29,8 +29,8 @@ for (const region of ["body", "footer"] as const) {
 
     for (const size of [1, 2, 3, 4, 5, 6, 7, 9, 8]) {
       await page.getByLabel("フォントサイズ").click();
-      await page.getByRole("menu", { name: "フォントサイズ" })
-        .getByRole("menuitemradio", { name: `${size}pt`, exact: true }).click();
+      await page.getByRole("spinbutton", { name: "サイズ (pt)" }).fill(String(size));
+      await page.getByRole("spinbutton", { name: "サイズ (pt)" }).press("Enter");
       await expect.poll(() => block.locator("[style*='font-size']").first()
         .evaluate((element) => Number.parseFloat(getComputedStyle(element).fontSize))).toBeCloseTo(size * 4 / 3, 3);
       await expect.poll(() => selectedText(page)).toBe(note);
@@ -129,6 +129,90 @@ for (const region of ["body", "footer"] as const) {
   });
 }
 
+for (const mode of ["docs", "word"] as const) {
+  test(`shows inherited and mixed effective sizes and steps by 1pt in ${mode}`, async ({ page }) => {
+    await page.setViewportSize({ width: 1500, height: 1000 });
+    const source = createDocument([
+      { type: "heading", id: "heading_size", level: 2, children: [{ type: "text", text: "見出し" }] },
+      { type: "paragraph", id: "inherited_size", children: [{ type: "text", text: "本文" }] },
+      { type: "paragraph", id: "mixed_size", children: [
+        { type: "text", text: "注記", fontSize: 7.5 }, { type: "text", text: "本文" },
+      ] },
+      { type: "paragraph", id: "math_size", children: [
+        { type: "text", text: "前" },
+        { type: "mathInline", id: "sized_math", tex: "x^2", display: "inline" },
+        { type: "text", text: "後" },
+      ] },
+      { type: "paragraph", id: "empty_size", children: [] },
+    ]);
+    await installDesktopRuntimeMock(page, source, { uiLayout: { mode } });
+    await page.goto("/");
+    const toolbar = mode === "word" ? page.locator(".ribbon-body") : page.getByRole("toolbar", { name: "編集ツール" });
+    const sizeButton = toolbar.getByRole("button", { name: "フォントサイズ", exact: true });
+    const up = toolbar.getByRole("button", { name: "フォントサイズを1pt大きく", exact: true });
+    const down = toolbar.getByRole("button", { name: "フォントサイズを1pt小さく", exact: true });
+    const block = (id: string) => page.locator(`.text-flow-editor [data-sigma-doc-id="${id}"]`);
+    await expect(block("heading_size")).toBeVisible();
+    await placeCaret(page, "heading_size", 1);
+    await expect(sizeButton).toHaveText("17.04pt");
+    await placeCaret(page, "inherited_size", 1);
+    await expect(sizeButton).toHaveText("12pt");
+    await block("empty_size").click();
+    await expect(sizeButton).toHaveText("12pt");
+    // Merely reading the control must not bake inheritance into saved runs.
+    await expect(block("heading_size").locator("[style*='font-size']")).toHaveCount(0);
+    await expect(block("inherited_size").locator("[style*='font-size']")).toHaveCount(0);
+
+    await selectTextRange(page, "mixed_size", 0, 4);
+    await expect(sizeButton).toHaveText("7.5pt混在");
+    await up.click();
+    await expect(sizeButton).toHaveText("8.5pt");
+    await expect.poll(() => selectedText(page)).toBe("注記本文");
+    await down.click();
+    await expect(sizeButton).toHaveText("7.5pt");
+    await expect(block("mixed_size").locator("[style*='font-size']")).toHaveCSS("font-size", "10px");
+
+    // Text selection including math uses the outer inline size, not KaTeX's scaled glyph size.
+    await selectTextAcrossBlocks(page, "math_size", "math_size");
+    await expect(sizeButton).toHaveText("12pt");
+    await up.click();
+    await expect(sizeButton).toHaveText("13pt");
+    await expect(block("math_size").locator(".inline-math-node")).toHaveCSS("font-size", "17.3333px");
+
+    await sizeButton.click();
+    const input = page.getByRole("spinbutton", { name: "サイズ (pt)" });
+    await expect(page.getByRole("menuitemradio", { name: "自動", exact: true })).toHaveCount(0);
+    await expect(page.getByRole("menu", { name: "フォントサイズ" })).toHaveCount(0);
+    await input.fill("7.5");
+    await input.press("ArrowUp");
+    await expect(input).toHaveValue("8.5");
+    await input.press("ArrowDown");
+    await expect(input).toHaveValue("7.5");
+    await input.fill("1");
+    await input.press("Enter");
+    await expect(down).toBeDisabled();
+    await up.click();
+    await expect(sizeButton).toHaveText("2pt");
+    await expect(down).toBeEnabled();
+
+    // The pre-existing numeric input has no fixed upper limit; preserve that contract.
+    await sizeButton.click();
+    await input.fill("144.5");
+    await input.press("Enter");
+    await expect(sizeButton).toHaveText("144.5pt");
+    await down.click();
+    await expect(sizeButton).toHaveText("143.5pt");
+    await expect.poll(() => page.evaluate(() => {
+      const saved = JSON.parse(localStorage.getItem("sigma-studio:e2e-document")!) as SigmaDocument;
+      return saved.content;
+    })).toEqual(source.content.map((node) => {
+      if (node.id === "mixed_size" && node.type === "paragraph") return { ...node, children: [{ type: "text", text: "注記本文", fontSize: 7.5 }] };
+      if (node.id === "math_size" && node.type === "paragraph") return { ...node, children: node.children.map((child) => ({ ...child, fontSize: 143.5 })) };
+      return node;
+    }));
+  });
+}
+
 test("fits each line to its runs while retaining math, blank lines, and paragraph spacing", async ({ page }) => {
   await page.setViewportSize({ width: 1400, height: 1000 });
   await installDesktopRuntimeMock(page, createDocument([
@@ -156,7 +240,8 @@ test("fits each line to its runs while retaining math, blank lines, and paragrap
   await expect(page.locator('.text-flow-editor [data-sigma-doc-id="tiny"]')).toBeVisible();
   await selectTextRange(page, "tiny", 0, 5);
   await page.getByRole("button", { name: "フォントサイズ", exact: true }).click();
-  await page.getByRole("menuitemradio", { name: "1pt", exact: true }).click();
+  await page.getByRole("spinbutton", { name: "サイズ (pt)" }).fill("1");
+  await page.getByRole("spinbutton", { name: "サイズ (pt)" }).press("Enter");
 
   const checkLayout = async () => {
     await page.evaluate(() => document.fonts.ready);
@@ -274,7 +359,8 @@ test("keeps the selected text range while applying font size and font family", a
   await expect.poll(() => selectedText(page)).toBe("Beta Gamma");
 
   await page.getByLabel("フォントサイズ").click();
-  await page.getByRole("menu", { name: "フォントサイズ" }).getByRole("menuitemradio", { name: "15pt", exact: true }).click();
+  await page.getByRole("spinbutton", { name: "サイズ (pt)" }).fill("15");
+  await page.getByRole("spinbutton", { name: "サイズ (pt)" }).press("Enter");
   await expect.poll(() => selectedText(page)).toBe("Beta Gamma");
   await expect.poll(() => textRangeStyleSummary(page)).toMatchObject({
     selectedAllStyled: true,

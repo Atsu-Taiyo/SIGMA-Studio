@@ -88,7 +88,8 @@ test("keeps focus inside a box block while typing and supports formatting and de
   const fontSizeButton = page.getByLabel("フォントサイズ");
   await expect(fontSizeButton).toBeEnabled();
   await fontSizeButton.click();
-  await page.getByRole("menu", { name: "フォントサイズ" }).getByRole("menuitemradio", { name: "15pt", exact: true }).click();
+  await page.getByRole("spinbutton", { name: "サイズ (pt)" }).fill("15");
+  await page.getByRole("spinbutton", { name: "サイズ (pt)" }).press("Enter");
   await expect.poll(() => topLevelBoxFirstTextStyle(page)).toMatchObject({ fontSize: 15 });
 
   await bodyParagraph.click();
