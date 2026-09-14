@@ -15,7 +15,7 @@ import { DocumentTabSaveDot, SaveStatusBadge } from "@/components/editor/editor-
 import { InlineMathDetails } from "@/components/editor/EditorSettings";
 import { EDITOR_TOOLBAR_CARET_SIZE, EDITOR_TOOLBAR_ICON_SIZE, EDITOR_TOOLBAR_TEXT_ICON_SIZE, EditorToolbarColorButton, EditorToolbarGroup, EditorToolbarIconButton, EditorToolbarMenuButton, EditorToolbarSelect, EditorToolbarSeparator } from "@/components/editor/EditorToolbar";
 import { ToolbarPopover } from "@/components/editor/ToolbarPopover";
-import { BOXED_TEXT_STYLE_OPTIONS, BLOCK_STYLE_OPTIONS, DEFAULT_FONT_FAMILY_VALUE, KEYBOARD_ZOOM_STEP, LINE_HEIGHT_OPTIONS, MAX_BOXED_TEXT_PADDING_Y, MIN_BOXED_TEXT_PADDING_Y, TEXT_ALIGN_OPTIONS, TEXT_FONT_SIZE_OPTIONS } from "@/components/editor/editor-shell/constants";
+import { BOXED_TEXT_STYLE_OPTIONS, BLOCK_STYLE_OPTIONS, DEFAULT_FONT_FAMILY_VALUE, KEYBOARD_ZOOM_STEP, LINE_HEIGHT_OPTIONS, MAX_BOXED_TEXT_PADDING_Y, MIN_BOXED_TEXT_PADDING_Y, TEXT_ALIGN_OPTIONS } from "@/components/editor/editor-shell/constants";
 import { BoxedTextIcon, BoxedTextStylePreview, LineEndpointMenuButton } from "@/components/editor/editor-shell/formatting-icons";
 import { normalizeToolbarFontFamily } from "@/components/editor/editor-shell/toolbar-formatting";
 import { degradedWatcherMessage } from "@/components/editor/editor-shell/workspace-request";
@@ -69,7 +69,7 @@ export function renderEditorChrome(chrome: EditorChromeValue) {
   const { activeDocumentOpenFailure, activeFileId, addBlock, aiMenuButtonRef, appUpdateState, closeDocumentTab, commentsPanelOpen, commitDocumentTitle, copyDocumentText, createDocumentTab, createWhiteboardDocumentTab, degradedWatcherScopes, deleteActiveDocument, documentMetadatas, documentTitle, duplicateActiveDocument, exportJson, exportMenuOpen, fileMenuButtonRef, handleTitleUpdateAction, importDocumentFile, importInputRef, insertMenuButtonRef, loadingFileId, newDocButtonRef, newDocMenuOpen, openCommandSettings, openDocumentInWorkspace, openDocumentListDialog, openDocumentTabs, openImportDialog, openNewDocMenu, openOtherImportDialog, openPrintPreview, openTextImportDialog, openVersionHistory, openWorkspaceScreen, otherImportInputRef, promoteAiToSidebar, reportIssue, requestOverlayImages, resolvedDocumentTitle, scheduleCloseNewDocMenu, setAiSettingsOpen, setDesktopSettingsOpen, setExportMenuOpen, setNewDocMenuOpen, setOutlineDialogOpen, setOverlayEditing, setPageSettingsOpen, setTemplateGalleryOpen, setTexCommandReferenceOpen, setTexEnvironmentSettingsOpen, setTitleInputFocused, settingsMenuButtonRef, showRichTitle, showTitleUpdateButton, titleInputValue, titleRichNodes, titleUpdateButtonDisabled, toggleCommentsPanel, uiLayoutPreference, updateMetadata, versionHistoryOpen } = chrome.appMenu;
   const { commandTooltip, renderMenuShortcut } = chrome.commands;
   const { setMaterialLibraryOpen } = chrome.editing;
-  const { ActiveTextAlignIcon, activeFontFamilyLabel, activeTextAlignOption, activeTextFontSize, applyBlockStructure, applyBoxedTextPaddingY, applyInlineFormat, applyLineHeight, applyTextAlign, applyTextStyle, blockStyleState, boldActive, boxedTextActive, boxedTextButtonRef, boxedTextMenuOpen, boxedTextPaddingY, boxedTextVariant, canUseBlockStructure, canUseLineHeight, canUseTextAlign, canUseTextBlockStyle, canUseTextToolbar, fontFamily, fontFamilyButtonRef, fontFamilyIsKnownOption, fontFamilyIsMixed, fontFamilyMenuOpen, fontFamilyQuery, handleLineHeightStepClick, italicActive, lineHeight, lineHeightButtonRef, lineHeightCustomOpen, lineHeightInput, lineHeightInputError, lineHeightMenuOpen, moreBlocksMenuButtonRef, moreBlocksMenuOpen, orderedListMenuButtonRef, orderedListMenuOpen, setMoreBlocksMenuOpen, setOrderedListMenuOpen, saveEditorFontFamilyPreference, selectBoxedTextVariant, selectedTextAlign, selectedTextStyle, setFontFamily, setFontFamilyQuery, setLineHeightCustomOpen, setLineHeightInput, setLineHeightInputError, setTextBackgroundColor, setTextColor, setTextFontSize, startLineHeightStepping, stopLineHeightStepping, textAlignButtonRef, textAlignMenuOpen, textBackgroundColor, textBackgroundColorButtonRef, textColor, textColorButtonRef, toggleBoxedText, underlineActive, visibleCustomFontOptions, visibleFontFamilyGroups, blockStyleButtonRef, blockStyleMenuOpen, fontSizeButtonRef, fontSizeMenuOpen, fontSizeInput, fontSizeInputInvalid, setFontSizeInput, setFontSizeInputInvalid } = chrome.format;
+  const { ActiveTextAlignIcon, activeFontFamilyLabel, activeTextAlignOption, activeTextFontSize, activeTextFontSizeMixed, applyBlockStructure, applyBoxedTextPaddingY, applyInlineFormat, applyLineHeight, applyTextAlign, applyTextStyle, blockStyleState, boldActive, boxedTextActive, boxedTextButtonRef, boxedTextMenuOpen, boxedTextPaddingY, boxedTextVariant, canUseBlockStructure, canUseLineHeight, canUseTextAlign, canUseTextBlockStyle, canUseTextToolbar, fontFamily, fontFamilyButtonRef, fontFamilyIsKnownOption, fontFamilyIsMixed, fontFamilyMenuOpen, fontFamilyQuery, handleLineHeightStepClick, italicActive, lineHeight, lineHeightButtonRef, lineHeightCustomOpen, lineHeightInput, lineHeightInputError, lineHeightMenuOpen, moreBlocksMenuButtonRef, moreBlocksMenuOpen, orderedListMenuButtonRef, orderedListMenuOpen, setMoreBlocksMenuOpen, setOrderedListMenuOpen, saveEditorFontFamilyPreference, selectBoxedTextVariant, selectedTextAlign, selectedTextStyle, setFontFamily, setFontFamilyQuery, setLineHeightCustomOpen, setLineHeightInput, setLineHeightInputError, setTextBackgroundColor, setTextColor, setTextFontSize, startLineHeightStepping, stopLineHeightStepping, textAlignButtonRef, textAlignMenuOpen, textBackgroundColor, textBackgroundColorButtonRef, textColor, textColorButtonRef, toggleBoxedText, underlineActive, visibleCustomFontOptions, visibleFontFamilyGroups, blockStyleButtonRef, blockStyleMenuOpen, fontSizeButtonRef, fontSizeMenuOpen, fontSizeInput, fontSizeInputInvalid, setFontSizeInput, setFontSizeInputInvalid } = chrome.format;
   const { ActiveLineToolIcon, activeLineToolItem, activeOverlayTool, bodyToolbarLockedByAi, cancelInlineMathMenuClose, inlineMathButtonRef, inlineMathMenuOpen, lineToolMenuButtonRef, lineToolMenuOpen, openInlineMathMenu, scheduleInlineMathMenuClose, selectedInlineMath, selectedInlineMathDetails, setInlineMathMenuOpen, shapeMenuButtonRef, shapeMenuOpen, startInlineMathFromToolbar } = chrome.insert;
   const { findNext, findPrevious, overlayEditing, replaceAll, replaceNext, replaceOpen, replaceText, searchButtonRef, searchMatchCount, searchOpen, searchQuery, setReplaceOpen, setReplaceText, setSearchOpen, setSearchQuery } = chrome.search;
   const { applyOverlayStyle, arrangeOverlayShapes, canArrangeOverlayShapes, canUseFillStyleControls, canUseLineEndpointControls, canUseLineStyleControls, canUseStrokeStyleControls, effectiveLineDashMenuOpen, effectiveLineEndpointMenu, effectiveLineWidthMenuOpen, fillColorButtonRef, fillColorPatch, lineDashButtonRef, lineWidthButtonRef, overlaySelection, selectedOverlayLineDash, selectedOverlayLineSize, selectionFill, selectionFillColor, selectionFillOpacity, setStrokeColor, strokeColor, strokeColorButtonRef } = chrome.shapeStyle;
@@ -656,9 +656,7 @@ export function renderEditorChrome(chrome: EditorChromeValue) {
   const blockStyleLabel = selectedTextStyle === "h1" || selectedTextStyle === "h2" || selectedTextStyle === "h3" || selectedTextStyle === "paragraph"
     ? t(`format.blockStyle.${selectedTextStyle}`)
     : t("format.blockStyle.placeholder");
-  const fontSizeLabel = activeTextFontSize == null
-    ? t("format.fontSize.auto")
-    : `${activeTextFontSize}pt`;
+  const fontSizeLabel = `${activeTextFontSize}pt`;
 
   const paragraphStyleSelect = (
           <div className="shape-menu-anchor">
@@ -872,12 +870,12 @@ export function renderEditorChrome(chrome: EditorChromeValue) {
   );
 
   const fontSizeSelect = (
-          <div className="shape-menu-anchor">
+          <div className="shape-menu-anchor toolbar-font-size-control">
             <button
               ref={fontSizeButtonRef}
               type="button"
               className="toolbar-font-select compact"
-              title={fontSizeLabel}
+              title={activeTextFontSizeMixed ? t("format.fontSize.mixedHelp") : fontSizeLabel}
               aria-label={t("format.fontSize.aria")}
               aria-haspopup="dialog"
               aria-expanded={fontSizeMenuOpen && canUseTextToolbar}
@@ -886,7 +884,7 @@ export function renderEditorChrome(chrome: EditorChromeValue) {
               onClick={() => {
                 const nextOpen = !fontSizeMenuOpen;
                 if (nextOpen) {
-                  setFontSizeInput(activeTextFontSize == null ? "" : String(activeTextFontSize));
+                  setFontSizeInput(String(activeTextFontSize));
                   setFontSizeInputInvalid(false);
                 }
                 setShapeMenuOpen(false);
@@ -904,8 +902,30 @@ export function renderEditorChrome(chrome: EditorChromeValue) {
               }}
             >
               <span className="toolbar-font-select-label">{fontSizeLabel}</span>
+              {activeTextFontSizeMixed && <span className="font-size-mixed">{t("format.fontSize.mixed")}</span>}
               <ChevronDown className="toolbar-font-select-caret" size={EDITOR_TOOLBAR_CARET_SIZE} aria-hidden="true" />
             </button>
+            <div className="toolbar-font-size-steps">
+              {[1, -1].map((delta) => (
+                <button
+                  key={delta}
+                  type="button"
+                  aria-label={delta > 0 ? t("format.fontSize.increase") : t("format.fontSize.decrease")}
+                  title={delta > 0 ? t("format.fontSize.increase") : t("format.fontSize.decrease")}
+                  disabled={!canUseTextToolbar || (delta < 0 && activeTextFontSize <= 1)}
+                  onMouseDown={(event) => event.preventDefault()}
+                  onClick={() => {
+                    const size = Math.max(1, Math.round((activeTextFontSize + delta) * 1000) / 1000);
+                    if (!Number.isFinite(size)) return;
+                    setTextFontSize(size);
+                    applyInlineFormat("fontSize", String(size));
+                    setFontSizeMenuOpen(false);
+                  }}
+                >
+                  {delta > 0 ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
+                </button>
+              ))}
+            </div>
             <ToolbarPopover
               open={fontSizeMenuOpen && canUseTextToolbar}
               anchorRef={fontSizeButtonRef}
@@ -951,7 +971,15 @@ export function renderEditorChrome(chrome: EditorChromeValue) {
                     }}
                     onKeyDown={(event) => {
                       // 数値入力の矢印操作をポップオーバーの項目移動に渡さない。
-                      if (event.key === "ArrowUp" || event.key === "ArrowDown") event.stopPropagation();
+                      if (event.key === "ArrowUp" || event.key === "ArrowDown") {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        const size = Number(fontSizeInput);
+                        if (Number.isFinite(size) && fontSizeInput.trim()) {
+                          setFontSizeInput(String(Math.max(1, Math.round((size + (event.key === "ArrowUp" ? 1 : -1)) * 1000) / 1000)));
+                          setFontSizeInputInvalid(false);
+                        }
+                      }
                       if (event.key === "Enter" && event.nativeEvent.isComposing) event.preventDefault();
                     }}
                   />
@@ -965,53 +993,6 @@ export function renderEditorChrome(chrome: EditorChromeValue) {
                   {fontSizeInputInvalid ? t("format.fontSize.inputError") : t("format.fontSize.inputHelp")}
                 </p>
               </form>
-              <div className="font-size-options" role="menu" aria-label={t("format.fontSize.aria")}>
-                {canUseTextBlockStyle ? (
-                  <button
-                    type="button"
-                    role="menuitemradio"
-                    aria-checked={activeTextFontSize == null}
-                    className={activeTextFontSize == null ? "active" : undefined}
-                    title={t("format.fontSize.auto")}
-                    onMouseDown={(event) => event.preventDefault()}
-                    onClick={() => {
-                      setTextFontSize(null);
-                      applyInlineFormat("fontSize", "");
-                      setFontSizeMenuOpen(false);
-                    }}
-                  >
-                    <span className="font-family-menu-option-label">{t("format.fontSize.auto")}</span>
-                    {activeTextFontSize == null ? (
-                      <Check size={14} className="font-family-menu-check" />
-                    ) : (
-                      <span className="font-family-menu-check" aria-hidden="true" />
-                    )}
-                  </button>
-                ) : null}
-                {TEXT_FONT_SIZE_OPTIONS.map((size) => (
-                  <button
-                    key={size}
-                    type="button"
-                    role="menuitemradio"
-                    aria-checked={activeTextFontSize === size}
-                    className={activeTextFontSize === size ? "active" : undefined}
-                    title={`${size}pt`}
-                    onMouseDown={(event) => event.preventDefault()}
-                    onClick={() => {
-                      setTextFontSize(size);
-                      applyInlineFormat("fontSize", String(size));
-                      setFontSizeMenuOpen(false);
-                    }}
-                  >
-                    <span className="font-family-menu-option-label">{size}pt</span>
-                    {activeTextFontSize === size ? (
-                      <Check size={14} className="font-family-menu-check" />
-                    ) : (
-                      <span className="font-family-menu-check" aria-hidden="true" />
-                    )}
-                  </button>
-                ))}
-              </div>
             </ToolbarPopover>
           </div>
   );

@@ -122,7 +122,7 @@ export function RichTextEditor({ block, placeholder, className, style, selected 
           TEXT_FORMAT_STATE_EVENT,
           "document",
           undefined,
-          { state: activeEditor.state, documentFontFamily: DEFAULT_FONT_FAMILY_VALUE },
+          { state: activeEditor.state, view: activeEditor.view, documentFontFamily: DEFAULT_FONT_FAMILY_VALUE },
         );
       }
     },
@@ -143,7 +143,7 @@ export function RichTextEditor({ block, placeholder, className, style, selected 
           TEXT_FORMAT_STATE_EVENT,
           "document",
           undefined,
-          { state: activeEditor.state, documentFontFamily: DEFAULT_FONT_FAMILY_VALUE },
+          { state: activeEditor.state, view: activeEditor.view, documentFontFamily: DEFAULT_FONT_FAMILY_VALUE },
         );
       publishTextFlowSelectionBookmark(
         getRichTextSelectionBookmark(activeEditor.state.selection, blockRef.current.id),
