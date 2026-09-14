@@ -19,6 +19,7 @@ const eslintConfig = [
   {
     ignores: [
       ".next/**",
+      ".next-electron/**",
       "node_modules/**",
       "coverage/**",
       "dist/**",

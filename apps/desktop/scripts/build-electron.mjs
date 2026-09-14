@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { build } from "esbuild";
+import { build, context } from "esbuild";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import { readFileSync } from "node:fs";
@@ -33,41 +33,50 @@ const common = {
   },
 };
 
-await Promise.all([
-  build({
+export async function buildElectron({ watch = false, onBuilt } = {}) {
+  const options = {
     ...common,
-    entryPoints: [path.join(root, "electron/main.ts")],
-    outfile: path.join(root, "dist-electron/main.cjs"),
-  }),
-  build({
-    ...common,
-    entryPoints: [path.join(root, "electron/preload.ts")],
-    outfile: path.join(root, "dist-electron/preload.cjs"),
-  }),
-  // Claude Code に渡す MCP サーバーも main と同じ dist-electron/ に同梱する
-  // (electron-builder の files は dist-electron/** を既に含むため packaged app にも入る)。
-  // 実行時は process.execPath (Electron バイナリ) + ELECTRON_RUN_AS_NODE=1 で起動する。
-  build({
-    ...common,
-    entryPoints: [path.join(root, "mcp/sigma-doc-mcp-server.ts")],
-    outfile: path.join(root, "dist-electron/sigma-doc-mcp-server.cjs"),
-  }),
-]);
+    entryPoints: {
+      main: path.join(root, "electron/main.ts"),
+      preload: path.join(root, "electron/preload.ts"),
+      "sigma-doc-mcp-server": path.join(root, "mcp/sigma-doc-mcp-server.ts"),
+    },
+    outdir: path.join(root, "dist-electron"),
+    outExtension: { ".js": ".cjs" },
+    plugins: watch ? [{
+      name: "desktop-restart",
+      setup(builder) {
+        builder.onEnd(async (result) => {
+          if (!result.errors.length) await onBuilt?.();
+        });
+      },
+    }] : [],
+  };
+  // LocalAiResourceStore が起動時に公式skill本文をseedできるよう、main.cjsと同じ
+  // dist-electron配下へ正本のSKILL.mdをコピーする。electron-builderは同ディレクトリを同梱する。
+  await rm(path.join(root, "dist-electron", "official-skills"), { recursive: true, force: true });
+  await cp(
+    path.join(root, "electron", "official-skills"),
+    path.join(root, "dist-electron", "official-skills"),
+    { recursive: true },
+  );
 
-// LocalAiResourceStore が起動時に公式skill本文をseedできるよう、main.cjsと同じ
-// dist-electron配下へ正本のSKILL.mdをコピーする。electron-builderは同ディレクトリを同梱する。
-await rm(path.join(root, "dist-electron", "official-skills"), { recursive: true, force: true });
-await cp(
-  path.join(root, "electron", "official-skills"),
-  path.join(root, "dist-electron", "official-skills"),
-  { recursive: true },
-);
+  if (!emitSourceMaps) {
+    await Promise.all([
+      rm(path.join(root, "dist-electron/main.cjs.map"), { force: true }),
+      rm(path.join(root, "dist-electron/preload.cjs.map"), { force: true }),
+    ]);
+  }
 
-if (!emitSourceMaps) {
-  await Promise.all([
-    rm(path.join(root, "dist-electron/main.cjs.map"), { force: true }),
-    rm(path.join(root, "dist-electron/preload.cjs.map"), { force: true }),
-  ]);
+  if (watch) {
+    const builder = await context(options);
+    await builder.watch();
+    return builder;
+  }
+  await build(options);
+  console.log("[electron] build complete");
 }
 
-console.log("[electron] build complete");
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  await buildElectron();
+}
