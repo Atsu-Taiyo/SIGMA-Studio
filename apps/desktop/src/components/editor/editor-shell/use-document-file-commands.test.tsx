@@ -73,6 +73,34 @@ function fixture() {
 }
 
 describe("document file commands", () => {
+  it("keeps an OS request pending if saving fails, then imports a separate library copy on retry", async () => {
+    const f = fixture();
+    const original = f.options.documentRef.current;
+    const pending = { id: 1, filePath: "/Downloads/配布教材.sigma.json", data: JSON.stringify(sigma()) };
+    render(f.options);
+    vi.mocked(f.options.saveCurrentDocumentBeforeReplacement).mockResolvedValueOnce(false);
+    expect(await actions.openExternalDocument(pending)).toBe(false);
+    expect(f.create).not.toHaveBeenCalled();
+    expect(f.options.openDocumentAsTab).not.toHaveBeenCalled();
+    expect(f.options.documentRef.current).toBe(original);
+    expect(await actions.openExternalDocument(pending)).toBe(true);
+    expect(f.events).toEqual(["save", "create", "open", "recovery"]);
+    expect(f.create.mock.calls[0][0].metadata.title).toBe("配布教材");
+    expect(f.create.mock.calls[0][0].docId).not.toBe(original.docId);
+    expect(f.create.mock.calls[0][0].content).toEqual(original.content);
+  });
+
+  it("reports unreadable or invalid OS files without saving or replacing the active material", async () => {
+    const f = fixture();
+    render(f.options);
+    expect(await actions.openExternalDocument({ id: 1, filePath: "/missing.sigma", error: "ENOENT" })).toBe(true);
+    expect(await actions.openExternalDocument({ id: 2, filePath: "/invalid.sigma", data: '{"unrelated":true}' })).toBe(true);
+    expect(f.options.setStatusMessage).toHaveBeenCalledTimes(2);
+    expect(f.options.saveCurrentDocumentBeforeReplacement).not.toHaveBeenCalled();
+    expect(f.create).not.toHaveBeenCalled();
+    expect(f.options.resetEditorDocument).not.toHaveBeenCalled();
+  });
+
   it("flushes overlays before reading the current document for export and clipboard fallback", async () => {
     const f = fixture();
     const exported = sigma("flush 後のタイトル");
@@ -84,7 +112,7 @@ describe("document file commands", () => {
 
     await act(async () => { await actions.exportJson(); await actions.copyDocumentText(); });
     const payload = saveSigmaDoc.mock.calls[0]?.[0] as { suggestedName: string; data: string };
-    expect(payload.suggestedName).toBe("flush 後のタイトル.sigmadoc.json");
+    expect(payload.suggestedName).toBe("flush 後のタイトル.sigma");
     expect(JSON.parse(payload.data).metadata.title).toBe("flush 後のタイトル");
     expect(write).toHaveBeenCalledWith(payload.data);
     expect(actions.documentTextCopyFallback).toBe(payload.data);

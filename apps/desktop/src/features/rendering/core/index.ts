@@ -6,6 +6,7 @@ export * from "./caret-placement";
 export * from "./code-fence";
 export * from "./document-title-inline";
 export * from "./flow-fragmentation";
+export * from "./graph-expression-tex";
 export * from "./graph3d-labels";
 export * from "./graph3d-projection";
 export * from "./graph3d-style";

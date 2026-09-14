@@ -244,7 +244,15 @@ export interface DesktopAiSkillDraftAPI {
   cancel(runId: string): Promise<{ ok: boolean; cancelled: boolean }>;
 }
 
+export type DesktopExternalDocument = { id: number; filePath: string } & (
+  | { data: string; error?: never }
+  | { error: string; data?: never }
+);
+
 export interface DesktopFileAPI {
+  getPendingOpenDocument?(): Promise<DesktopExternalDocument | null>;
+  acknowledgeOpenDocument?(id: number): Promise<void>;
+  onOpenDocumentAvailable?(handler: () => void): () => void;
   openSigmaDoc(): Promise<{ filePath: string; data: string } | null>;
   openImportDocument?(): Promise<{ filePath: string; dataBase64: string } | null>;
   openImportOtherDocument?(): Promise<{ filePath: string; dataBase64: string } | null>;

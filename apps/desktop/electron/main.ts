@@ -59,6 +59,7 @@ import { registerCodexIpc } from "./ipc/codex";
 import { registerAiEditIpc } from "./ipc/ai-edit";
 import { registerAiResourcesIpc } from "./ipc/ai-resources";
 import { registerFileIpc } from "./ipc/file";
+import { documentPathsFromArgv, ExternalDocumentOpenQueue } from "./external-document-open";
 import { registerMaterialsIpc } from "./ipc/materials";
 import { registerStorageIpc } from "./ipc/storage";
 import { createProposalApprovalCoordinator } from "./proposal-approval";
@@ -88,7 +89,43 @@ if (DEV_SERVER_URL) {
   });
 }
 const USER_DATA_PATH = resolveUserDataPath();
+const startupDocumentPaths = documentPathsFromArgv(process.argv, process.cwd(), Boolean(process.defaultApp));
+// A secondary launch only forwards files. It must not clear active AI contexts or start stores.
+const hasSingleInstanceLock = app.requestSingleInstanceLock({ documentPaths: startupDocumentPaths });
+if (!hasSingleInstanceLock) {
+  if (DEV_SERVER_URL && startupDocumentPaths.length === 0) {
+    console.error("[desktop] This development data directory is already open in another instance.");
+    app.exit(1);
+  } else app.exit(0);
+}
 let mainWindow: BrowserWindow | null = null;
+const externalDocumentOpenQueue = new ExternalDocumentOpenQueue(() => {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send("file:open-document-available");
+  }
+});
+externalDocumentOpenQueue.enqueue(startupDocumentPaths);
+// macOS can deliver open-file before ready (including a cold Finder/Dock launch).
+app.on("open-file", (event, filePath) => {
+  event.preventDefault();
+  externalDocumentOpenQueue.enqueue([filePath]);
+  focusDocumentWindow();
+});
+app.on("second-instance", (_event, argv, workingDirectory, additionalData) => {
+  const forwarded = (additionalData as { documentPaths?: unknown } | undefined)?.documentPaths;
+  externalDocumentOpenQueue.enqueue(Array.isArray(forwarded)
+    ? forwarded.filter((value): value is string => typeof value === "string")
+    : documentPathsFromArgv(argv, workingDirectory, Boolean(process.defaultApp)));
+  focusDocumentWindow();
+});
+
+function focusDocumentWindow(): void {
+  if (!app.isReady()) return;
+  if (!mainWindow || mainWindow.isDestroyed()) createWindow();
+  if (mainWindow?.isMinimized()) mainWindow.restore();
+  mainWindow?.show();
+  mainWindow?.focus();
+}
 let activeWindowCloseHandshake: WindowCloseHandshake | null = null;
 let allowMainWindowClose = false;
 let quitAfterMainWindowClose = false;
@@ -208,23 +245,6 @@ void sweepOrphanPerRunContextFiles(USER_DATA_PATH, "antigravity");
 void localAiRenderBridgeStore.clear();
 let aiRenderBridgeServer: http.Server | null = null;
 const pendingRenderDocuments = new Map<string, SigmaDocument>();
-
-const hasSingleInstanceLock = app.requestSingleInstanceLock();
-if (!hasSingleInstanceLock) {
-  if (DEV_SERVER_URL) {
-    console.error("[desktop] This development data directory is already open in another instance.");
-    app.exit(1);
-  } else app.quit();
-} else {
-  app.on("second-instance", () => {
-    if (mainWindow) {
-      if (mainWindow.isMinimized()) {
-        mainWindow.restore();
-      }
-      mainWindow.focus();
-    }
-  });
-}
 
 function resolveUserDataPath(): string {
   const explicit = process.env.SIGMA_STUDIO_USER_DATA_DIR?.trim();
@@ -1496,6 +1516,7 @@ function registerIpc() {
 
   registerFileIpc({
     getMainWindow: () => mainWindow,
+    externalDocumentOpenQueue,
   });
 
   registerMaterialsIpc({

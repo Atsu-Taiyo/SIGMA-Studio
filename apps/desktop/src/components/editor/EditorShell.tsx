@@ -3,6 +3,7 @@ import { MaterialLibraryDialogs } from "./editor-shell/material-library-dialogs"
 import { useMaterialLibraryController } from "./editor-shell/use-material-library-controller";
 import { useWorkspaceDocumentCommands } from "./editor-shell/use-workspace-document-commands";
 import { useDocumentFileCommands } from "./editor-shell/use-document-file-commands";
+import { useExternalDocumentOpen } from "./editor-shell/use-external-document-open";
 import { useDesktopMenuActions } from "./editor-shell/use-desktop-menu-actions";
 import { useEditorCommandRouting } from "./editor-shell/use-editor-command-routing";
 import { useCommandPalette } from "./editor-shell/use-command-palette";
@@ -5391,6 +5392,7 @@ function EditorShellBody({ embeddedHost, editorStore }: EditorShellProps & { edi
     copyDocumentText,
     openTextImportDialog,
     openDocumentViaDesktop,
+    openExternalDocument,
     importDocumentFile,
     openImportDialog,
     openOtherImportDialog,
@@ -5411,6 +5413,10 @@ function EditorShellBody({ embeddedHost, editorStore }: EditorShellProps & { edi
     announceRecovery,
     DOCUMENT_BLOCK_OPERATION_PORTS,
     tEditor
+  });
+
+  useExternalDocumentOpen(isDesktopApp && workspaceReady, openExternalDocument, (error) => {
+    setStatusMessage(error instanceof Error ? error.message : tEditor("status.fileOpenFailed"));
   });
 
   useDesktopMenuActions({

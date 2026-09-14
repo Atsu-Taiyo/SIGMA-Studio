@@ -2267,7 +2267,7 @@ export function renderEditorChrome(chrome: EditorChromeValue) {
     <input
       ref={importInputRef}
       type="file"
-      accept="application/json,.json,.tex,.latex,text/x-tex,application/x-tex"
+      accept="application/json,.sigma,.json,.tex,.latex,text/x-tex,application/x-tex"
       hidden
       onChange={(event) => {
         const file = event.target.files?.[0];
