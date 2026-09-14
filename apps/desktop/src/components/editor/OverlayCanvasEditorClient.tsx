@@ -12,6 +12,7 @@ import  {
 } from "./overlay-canvas/selection-handles";
 import { useDocumentSnapshotSync } from "./overlay-canvas/use-document-snapshot-sync";
 import { useOverlayGraph3DController } from "./overlay-canvas/use-graph3d-controller";
+import { getTablePlacementBounds } from "@/features/drawing";
 
 
 import type  {
@@ -4614,6 +4615,12 @@ export default function OverlayCanvasEditorClient({
 
     if (interaction.id === "overlay.insertDrag") {
       const current = getSnappedInsertDragPoint(interaction.tool, interaction.start, point, modifiers);
+      if (interaction.tool.command === "table" && interaction.tool.tableCellSize) {
+        const before = getTablePlacementBounds(interaction.start, interaction.current, interaction.tool.tableCellSize);
+        const after = getTablePlacementBounds(interaction.start, current, interaction.tool.tableCellSize);
+        // Pointer motion inside the same cell does not need a document-canvas render.
+        if (before.x === after.x && before.y === after.y && before.w === after.w && before.h === after.h) return;
+      }
       transitionMode({
         type: "updateInsertDrag",
         current,
@@ -6504,6 +6511,9 @@ function InsertDragPreview({
   /** The remembered style, already filtered for this tool, so the preview looks like the result. */
   styleDefaults: Partial<OverlayShapeStyleDefaults>;
 }) {
+  if (tool.command === "table" && tool.tableCellSize) {
+    return <TableGridPlacementPreview start={start} current={current} cellSize={tool.tableCellSize} />;
+  }
   const previewShape = buildInsertShape(
     tool,
     start,
@@ -6560,6 +6570,31 @@ function InsertDragPreview({
         />
       </div>
     </>
+  );
+}
+
+/** Preview only: no cell IDs, rich-text documents, or table editors are allocated during motion. */
+function TableGridPlacementPreview({ start, current, cellSize }: {
+  start: OverlayPoint;
+  current: OverlayPoint;
+  cellSize: { w: number; h: number };
+}) {
+  const t = useT("shape");
+  const grid = getTablePlacementBounds(start, current, cellSize);
+  const lines = [
+    ...Array.from({ length: grid.columns - 1 }, (_, i) => `M${(i + 1) * grid.cellW} 0V${grid.h}`),
+    ...Array.from({ length: grid.rows - 1 }, (_, i) => `M0 ${(i + 1) * grid.cellH}H${grid.w}`),
+  ].join(" ");
+  return (
+    <div className="overlay-insert-preview-shape overlay-shape table-grid-placement"
+      data-table-preview-rows={grid.rows} data-table-preview-columns={grid.columns}
+      style={{ left: grid.x, top: grid.y, width: grid.w, height: grid.h }}>
+      <svg width="100%" height="100%" aria-hidden="true" className="table-grid-placement-lines">
+        <rect x="0.5" y="0.5" width={grid.w - 1} height={grid.h - 1} />
+        <path d={lines} />
+      </svg>
+      <div className="table-placement-hint">{t("table.dragHint")}</div>
+    </div>
   );
 }
 

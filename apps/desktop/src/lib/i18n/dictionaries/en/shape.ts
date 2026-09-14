@@ -66,6 +66,7 @@ export const shape = {
     selectInnerLines: "Select inner rules only",
     insert: "Insert a table",
     placeHint: "Click to place 2 rows × 2 columns, drag to add rows and columns, Esc to cancel",
+    dragHint: "Drag to add rows and columns",
     formula: {
       errorAria: "Formula error",
       error: {

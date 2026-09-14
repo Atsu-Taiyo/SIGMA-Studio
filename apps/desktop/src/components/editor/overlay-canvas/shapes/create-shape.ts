@@ -9,6 +9,7 @@ import {
   DEFAULT_CALLOUT_CORNER_RADIUS,
   DEFAULT_TEXT_SHAPE_WIDTH,
   getTextShapeLineHeightPx,
+  getTablePlacementBounds,
   MIN_TEXT_SHAPE_WIDTH,
   normalizeCalloutCornerRadius,
   type OverlayShapeStyleDefaults,
@@ -397,22 +398,18 @@ export function buildInsertShape(
 
   if (command === "table") {
     if (tool.tableCellSize) {
-      const cellW = Math.max(1, tool.tableCellSize.w);
-      const cellH = Math.max(1, tool.tableCellSize.h);
-      const columns = Math.max(2, Math.round(w / cellW));
-      const rows = Math.max(2, Math.round(h / cellH));
+      const placement = getTablePlacementBounds(start, end, tool.tableCellSize);
+      const { cellW, cellH, columns, rows } = placement;
       const table = createPlainTableSpec(rows, columns);
       table.columns.forEach((column) => { column.width = { mode: "fr", value: 1, min: cellW }; });
       table.rows.forEach((row) => { row.height = { mode: "auto", min: cellH }; });
-      const tableW = columns * cellW;
-      const tableH = rows * cellH;
       return {
         id,
         type: TABLE_SHAPE_TYPE,
-        x: end.x < start.x ? start.x - tableW : start.x,
-        y: end.y < start.y ? start.y - tableH : start.y,
+        x: placement.x,
+        y: placement.y,
         rotation: 0,
-        props: { w: tableW, h: tableH, table },
+        props: { w: placement.w, h: placement.h, table },
       };
     }
     const tableW = Math.max(120, w, tool.tableSize?.w ?? 0);

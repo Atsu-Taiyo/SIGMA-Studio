@@ -1,4 +1,5 @@
 export * from "./angle";
+export * from "./table-placement";
 export * from "./arc-creation";
 export * from "./arc-interaction";
 export * from "./anchor-position";
