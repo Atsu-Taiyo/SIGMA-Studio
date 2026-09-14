@@ -72,7 +72,7 @@ export function TableInsertGridPicker({
       ? document.elementFromPoint(anchorRect.x + anchorRect.width / 2, anchorRect.y + anchorRect.height / 2)
         ?.closest<HTMLElement>("button")
       : null;
-    returnFocusRef.current = anchor ?? (document.activeElement instanceof HTMLElement ? document.activeElement : null);
+    returnFocusRef.current ??= anchor ?? (document.activeElement instanceof HTMLElement ? document.activeElement : null);
     popoverRef.current?.querySelector<HTMLElement>(".table-insert-grid button[tabindex='0']")?.focus({ preventScroll: true });
   }, [anchorRect]);
 

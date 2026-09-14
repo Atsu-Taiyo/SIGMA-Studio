@@ -65,7 +65,7 @@ export const shape = {
     selectOuterLines: "Select outer rules only",
     selectInnerLines: "Select inner rules only",
     insert: "Insert a table",
-    insertSize: "Insert a {{columns}}x{{rows}} table",
+    insertSize: "Insert a table with {{rows}} rows and {{columns}} columns",
     size: "{{rows}} rows × {{columns}} columns",
     chooseSize: "Choose the table size",
     rows: "Rows",
