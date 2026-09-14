@@ -4010,9 +4010,13 @@ export default function OverlayCanvasEditorClient({
     event.stopPropagation();
 
     updateGraphShapeSpec(originPickShapeId, preview.spec);
+    // Mark the local edit pending before leaving origin picking. Otherwise the
+    // select-mode reconciliation can restore the pre-pick document snapshot
+    // before the shapes effect has queued this edit for saving.
+    queueOverlaySave();
     setOriginPickPreview(null);
     transitionMode({ type: "setTool", tool: { kind: "select" } });
-  }, [getOriginPickPreviewFromClientPoint, originPickShapeId, transitionMode, updateGraphShapeSpec]);
+  }, [getOriginPickPreviewFromClientPoint, originPickShapeId, queueOverlaySave, transitionMode, updateGraphShapeSpec]);
 
   const handleGraphFillPickPointerDown = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
     if (!graphFillPickShapeId || event.defaultPrevented) {

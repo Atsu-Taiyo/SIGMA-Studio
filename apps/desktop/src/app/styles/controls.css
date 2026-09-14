@@ -2862,100 +2862,56 @@ button:disabled {
   text-align: center;
 }
 
-.font-size-menu {
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-}
-
 .toolbar-font-size-control {
   display: inline-flex;
   align-items: center;
-  gap: 2px;
+  gap: var(--space-xs);
 }
 
-.toolbar-font-size-steps {
-  display: flex;
-  flex-direction: column;
-}
-
-.toolbar-font-size-steps button {
+.toolbar-font-size-step {
   display: grid;
   place-items: center;
-  width: 20px;
-  height: 16px;
+  width: 24px;
+  height: 32px;
   padding: 0;
   border: 0;
   border-radius: var(--radius-control);
   background: transparent;
-  color: var(--text-secondary);
+  color: var(--text-primary);
   cursor: pointer;
 }
 
-.toolbar-font-size-steps button:hover:not(:disabled) {
+.toolbar-font-size-step:hover:not(:disabled) {
   background: var(--surface-strong);
 }
 
-.toolbar-font-size-steps button:focus-visible {
+.toolbar-font-size-step:focus-visible {
   outline: 2px solid var(--accent);
+  outline-offset: -2px;
 }
 
-.toolbar-font-size-steps button:disabled {
+.toolbar-font-size-step:disabled {
   color: var(--text-disabled);
   cursor: default;
 }
 
-.font-size-mixed {
-  font-size: 10px;
-  color: var(--text-muted);
-}
-
-.font-size-custom-form {
-  display: grid;
-  flex: 0 0 auto;
-  gap: 6px;
-  padding: 6px 8px 10px;
-  font-size: 12px;
-}
-
-.font-size-custom-row {
-  display: flex;
-  gap: 8px;
-}
-
-.font-size-custom-row input {
-  width: 100%;
-  min-width: 0;
-  min-height: 32px;
-  padding: 0 8px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-control);
-  background: var(--background);
+.toolbar-font-size-input {
+  width: 48px;
+  height: 28px;
+  padding: var(--space-none) var(--space-xs);
+  border: 1px solid var(--border-subtle);
+  border-radius: 4px;
+  background: transparent;
   color: var(--text-primary);
   font: inherit;
+  font-size: 13px;
   font-variant-numeric: tabular-nums;
+  text-align: center;
 }
 
-.font-size-custom-row input:focus-visible {
+.toolbar-font-size-input:focus-visible {
   outline: 2px solid var(--accent);
-  outline-offset: 1px;
-}
-
-.shape-menu .font-size-custom-row button {
-  flex: 0 0 auto;
-  width: auto;
-  border: 1px solid var(--border);
-}
-
-.font-size-custom-help {
-  margin: 0;
-  color: var(--text-muted);
-  font-size: 11px;
-  line-height: 1.4;
-}
-
-.font-size-custom-help.error {
-  color: var(--danger);
+  outline-offset: -2px;
 }
 
 .toolbar-color {

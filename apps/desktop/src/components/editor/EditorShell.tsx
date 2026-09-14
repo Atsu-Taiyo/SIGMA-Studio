@@ -732,8 +732,7 @@ function EditorShellBody({ embeddedHost, editorStore }: EditorShellProps & { edi
   /** `null` = run 自身の指定なし。ツールバーは「自動」と出し、見出しの大きさを潰さない。 */
   const [textFontSize, setTextFontSize] = useState<number | null>(BASE_EDITOR_FONT_SIZE);
   const [textFontSizeMixed, setTextFontSizeMixed] = useState(false);
-  const [fontSizeInput, setFontSizeInput] = useState("");
-  const [fontSizeInputInvalid, setFontSizeInputInvalid] = useState(false);
+  const [fontSizeInput, setFontSizeInput] = useState(String(BASE_EDITOR_FONT_SIZE));
   const [boxedTextPaddingY, setBoxedTextPaddingY] = useState(0);
   const [boxedTextActive, setBoxedTextActive] = useState(false);
   // B/I/U mirror the caret: the editors publish isActive() for each mark on every
@@ -840,7 +839,6 @@ function EditorShellBody({ embeddedHost, editorStore }: EditorShellProps & { edi
   const [fontFamilyMenuOpen, setFontFamilyMenuOpen] = useState(false);
   const [fontFamilyQuery, setFontFamilyQuery] = useState("");
   const [blockStyleMenuOpen, setBlockStyleMenuOpen] = useState(false);
-  const [fontSizeMenuOpen, setFontSizeMenuOpen] = useState(false);
   const [boxedTextMenuOpen, setBoxedTextMenuOpen] = useState(false);
   const [lineHeightMenuOpen, setLineHeightMenuOpen] = useState(false);
   const [textAlignMenuOpen, setTextAlignMenuOpen] = useState(false);
@@ -1160,7 +1158,7 @@ function EditorShellBody({ embeddedHost, editorStore }: EditorShellProps & { edi
   const imageInputRef = useRef<HTMLInputElement | null>(null);
   const fontFamilyButtonRef = useRef<HTMLButtonElement | null>(null);
   const blockStyleButtonRef = useRef<HTMLButtonElement | null>(null);
-  const fontSizeButtonRef = useRef<HTMLButtonElement | null>(null);
+  const fontSizeInputRef = useRef<HTMLInputElement | null>(null);
   const textColorButtonRef = useRef<HTMLButtonElement | null>(null);
   const textBackgroundColorButtonRef = useRef<HTMLButtonElement | null>(null);
   const strokeColorButtonRef = useRef<HTMLButtonElement | null>(null);
@@ -3547,7 +3545,6 @@ function EditorShellBody({ embeddedHost, editorStore }: EditorShellProps & { edi
       setLineToolMenuOpen(false);
       setFontFamilyMenuOpen(false);
       setBlockStyleMenuOpen(false);
-      setFontSizeMenuOpen(false);
       setBoxedTextMenuOpen(false);
       setLineHeightMenuOpen(false);
       setTextAlignMenuOpen(false);
@@ -3753,6 +3750,13 @@ function EditorShellBody({ embeddedHost, editorStore }: EditorShellProps & { edi
     ? wholeTextShapeSize?.fontSize ?? getTextShapeFontSizePt(wholeTextShape)
     : textFontSize ?? BASE_EDITOR_FONT_SIZE;
   const activeTextFontSizeMixed = wholeTextShape ? wholeTextShapeSize?.fontSizeMixed === true : textFontSizeMixed;
+  useLayoutEffect(() => {
+    // Sync before paint so a newly selected shape never displays the old size.
+    // Keep the inline field in sync with the selection without replacing a value
+    // while the user is in the middle of editing it.
+    if (fontSizeInputRef.current === window.document.activeElement) return;
+    setFontSizeInput(String(activeTextFontSize));
+  }, [activeTextFontSize]);
   const canUseTextBlockStyle = textToolbar.canUseTextBlockStyle;
   /**
    * ブロックのボタン (箇条書き・番号付き・引用・コード・区切り線) を押せるか。
@@ -4220,7 +4224,6 @@ function EditorShellBody({ embeddedHost, editorStore }: EditorShellProps & { edi
     setLineToolMenuOpen(false);
     setFontFamilyMenuOpen(false);
     setBlockStyleMenuOpen(false);
-    setFontSizeMenuOpen(false);
     setBoxedTextMenuOpen(false);
     setLineHeightMenuOpen(false);
     setTextAlignMenuOpen(false);
@@ -4571,7 +4574,6 @@ function EditorShellBody({ embeddedHost, editorStore }: EditorShellProps & { edi
     setLineToolMenuOpen(false);
     setFontFamilyMenuOpen(false);
     setBlockStyleMenuOpen(false);
-    setFontSizeMenuOpen(false);
     setBoxedTextMenuOpen(false);
     setLineHeightMenuOpen(false);
     setTextAlignMenuOpen(false);
@@ -4616,7 +4618,6 @@ function EditorShellBody({ embeddedHost, editorStore }: EditorShellProps & { edi
     setLineToolMenuOpen(false);
     setFontFamilyMenuOpen(false);
     setBlockStyleMenuOpen(false);
-    setFontSizeMenuOpen(false);
     setBoxedTextMenuOpen(false);
     setLineHeightMenuOpen(false);
     setTextAlignMenuOpen(false);
@@ -4838,7 +4839,6 @@ function EditorShellBody({ embeddedHost, editorStore }: EditorShellProps & { edi
     setLineToolMenuOpen(false);
     setFontFamilyMenuOpen(false);
     setBlockStyleMenuOpen(false);
-    setFontSizeMenuOpen(false);
     setBoxedTextMenuOpen(false);
     setLineHeightMenuOpen(false);
     setTextAlignMenuOpen(false);
@@ -4940,7 +4940,6 @@ function EditorShellBody({ embeddedHost, editorStore }: EditorShellProps & { edi
     setLineToolMenuOpen(false);
     setFontFamilyMenuOpen(false);
     setBlockStyleMenuOpen(false);
-    setFontSizeMenuOpen(false);
     setBoxedTextMenuOpen(false);
     setLineHeightMenuOpen(false);
     setTextAlignMenuOpen(false);
@@ -6347,7 +6346,7 @@ function EditorShellBody({ embeddedHost, editorStore }: EditorShellProps & { edi
     },
     toolbarMenus: {
       setActiveMenu, setBoxedTextMenuOpen, setColorStylePanel, setFontFamilyMenuOpen,
-      setBlockStyleMenuOpen, setFontSizeMenuOpen,
+      setBlockStyleMenuOpen,
       setLineDashMenuOpen, setLineEndpointMenu, setLineHeightMenuOpen, setLineToolMenuOpen,
       setLineWidthMenuOpen, setShapeMenuOpen, setTextAlignMenuOpen,
     },
@@ -6373,8 +6372,7 @@ function EditorShellBody({ embeddedHost, editorStore }: EditorShellProps & { edi
       blockStyleButtonRef, blockStyleMenuOpen,
       canUseTextBlockStyle, canUseTextToolbar, fontFamily, fontFamilyButtonRef,
       fontFamilyIsKnownOption, fontFamilyIsMixed, fontFamilyMenuOpen, fontFamilyQuery,
-      fontSizeButtonRef, fontSizeMenuOpen, fontSizeInput, fontSizeInputInvalid,
-      setFontSizeInput, setFontSizeInputInvalid,
+      fontSizeInputRef, fontSizeInput, setFontSizeInput,
       handleLineHeightStepClick, italicActive, lineHeight, lineHeightButtonRef,
       lineHeightCustomOpen, lineHeightInput, lineHeightInputError, lineHeightMenuOpen,
       saveEditorFontFamilyPreference, selectBoxedTextVariant, selectedTextAlign, selectedTextStyle,
