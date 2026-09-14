@@ -57,8 +57,6 @@ export interface MaterialLibraryControllerOptions {
   getRepository?: () => MaterialRepository;
 }
 
-const getMaterialRepository = () => getAppRuntime().materials;
-
 /** 素材の一覧・下書き・dialog lifecycle。文書変更は shell の履歴・編集制限を通す。 */
 export function useMaterialLibraryController({
   documentRef,
@@ -72,8 +70,15 @@ export function useMaterialLibraryController({
   blockMutationPorts,
   tEditor,
   tWorkspace,
-  getRepository = getMaterialRepository,
+  getRepository: providedGetRepository,
 }: MaterialLibraryControllerOptions) {
+  // Keep the default getter stable even in a minified production bundle. A function
+  // used only as a default argument can be inlined there and recreated per render,
+  // retriggering the loading effect after every materials/loading state update.
+  const getRepository = useCallback(
+    () => providedGetRepository ? providedGetRepository() : getAppRuntime().materials,
+    [providedGetRepository],
+  );
   const [materialLibraryOpen, setMaterialLibraryOpen] = useState(false);
   const [materials, setMaterials] = useState<MaterialItem[]>([]);
   const [materialsLoading, setMaterialsLoading] = useState(false);
