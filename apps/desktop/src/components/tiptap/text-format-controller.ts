@@ -1,5 +1,7 @@
 import type { Editor as TiptapEditor } from "@tiptap/core";
 import type { EditorState } from "@tiptap/pm/state";
+import type { EditorView } from "@tiptap/pm/view";
+import { readSelectionFontSize } from "./text-format-font-size";
 
 import {
   type BoxedVariant,
@@ -71,6 +73,7 @@ export interface TextFormatStateDetail {
   /** The selection spans more than one effective font, so the toolbar shows nothing. */
   fontFamilyMixed: boolean;
   fontSize: number | null;
+  fontSizeMixed: boolean;
   lineHeight: string | null;
   /** キャレットが引用ブロックの中にいるか。 */
   inQuoteBlock: boolean;
@@ -89,6 +92,7 @@ export interface TextFormatStateDetail {
 export interface TextFormatFontContext {
   /** Editor state to read the runs and the enclosing frame from. */
   state?: EditorState;
+  view?: EditorView;
   /** Default font of the surface: the body default for the document, its own for shape text. */
   documentFontFamily?: string;
 }
@@ -406,7 +410,9 @@ export function createTextFormatStateDetail(
       ? (effectiveFont.kind === "mixed" ? null : effectiveFont.fontFamily)
       : normalizeTextFormatCssValue(styledTextAttrs.fontFamily),
     fontFamilyMixed: effectiveFont?.kind === "mixed",
-    fontSize: normalizeTextFormatFontSize(styledTextAttrs.fontSize) ?? null,
+    ...(fontContext?.view
+      ? readSelectionFontSize(fontContext.view)
+      : { fontSize: normalizeTextFormatFontSize(styledTextAttrs.fontSize) ?? null, fontSizeMixed: false }),
     lineHeight: normalizeLineHeight(blockAttrs.lineHeight) ?? null,
   };
 }

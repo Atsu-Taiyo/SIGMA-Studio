@@ -11,6 +11,7 @@ import {
   type TextRunCaretPoint,
   type TextRunEditorRange,
 } from "@/components/editor/page-canvas/text-run-selection";
+import { readSelectionFontSize, type SelectionFontSize } from "@/components/tiptap/text-format-font-size";
 import { applyTextFormatCommand } from "@/components/tiptap/text-format-controller";
 import {
   createDocumentBlocksClipboardPayload,
@@ -1174,6 +1175,26 @@ export function getTextRunSpanToggleMarkStates(editor: Editor): TextRunSpanToggl
     underline: fullyMarked("underline"),
     boxed: fullyMarked("boxed"),
   };
+}
+
+/** Resolve sizes across the same surfaces that receive a span formatting command. */
+export function getTextRunSpanFontSize(editor: Editor): SelectionFontSize | null {
+  const span = activeSpan;
+  if (!span || !isMultiEditorTextRunSpan() || getTextRunSurface(editor)?.groupId !== span.groupId) return null;
+  const editors = getTextRunEditors(span.groupId);
+  let fontSize: number | null = null;
+  let fontSizeMixed = false;
+  for (const range of rangesForSpan(span)) {
+    const handle = editors.find((candidate) => candidate.unitId === range.unitId);
+    if (!handle) continue;
+    const current = readSelectionFontSize(handle.editor.view, range);
+    if (current.fontSize === null) continue;
+    if (fontSize !== null && Math.abs(fontSize - current.fontSize) > 0.001) fontSizeMixed = true;
+    fontSize ??= current.fontSize;
+    fontSizeMixed ||= current.fontSizeMixed;
+    if (fontSizeMixed) break;
+  }
+  return { fontSize, fontSizeMixed };
 }
 
 /** 範囲内の全インライン葉 (テキスト・数式などのアトム) が指定マークを持つか。 */

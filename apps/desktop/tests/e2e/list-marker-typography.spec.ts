@@ -91,7 +91,8 @@ test("follows a font family and size chosen from the toolbar", async ({ page }) 
   const fontSizeButton = page.getByLabel("フォントサイズ");
   await expect(fontSizeButton).toBeEnabled();
   await fontSizeButton.click();
-  await page.getByRole("menu", { name: "フォントサイズ" }).getByRole("menuitemradio", { name: "18pt", exact: true }).click();
+  await page.getByRole("spinbutton", { name: "サイズ (pt)" }).fill("18");
+  await page.getByRole("spinbutton", { name: "サイズ (pt)" }).press("Enter");
 
   const fontFamilyButton = page.locator(".toolbar-font-select");
   await expect(fontFamilyButton).toBeEnabled();

@@ -226,6 +226,7 @@ import  {
   copyActiveTextRunSpan,
   getTextRunSpanCompositionHistoryGroup,
   getTextRunSpanToggleMarkStates,
+  getTextRunSpanFontSize,
   handleTextRunSpanKeyDown,
   handleTextRunSpanTextInput,
   isMultiEditorTextRunSpan,
@@ -3203,8 +3204,8 @@ function dispatchDocumentTextFormatState(activeEditor: TiptapEditor): void {
     TEXT_FORMAT_STATE_EVENT,
     "document",
     resolveTextFormatStateContext(activeEditor.state),
-    { state: activeEditor.state, documentFontFamily: DEFAULT_FONT_FAMILY_VALUE },
-    getTextRunSpanToggleMarkStates(activeEditor) ?? undefined,
+    { state: activeEditor.state, view: activeEditor.view, documentFontFamily: DEFAULT_FONT_FAMILY_VALUE },
+    { ...getTextRunSpanToggleMarkStates(activeEditor), ...getTextRunSpanFontSize(activeEditor) },
   );
 }
 

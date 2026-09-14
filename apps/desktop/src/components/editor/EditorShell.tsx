@@ -728,6 +728,7 @@ function EditorShellBody({ embeddedHost, editorStore }: EditorShellProps & { edi
   }, [setSaveState, setStatusMessage, tE]);
   /** `null` = run 自身の指定なし。ツールバーは「自動」と出し、見出しの大きさを潰さない。 */
   const [textFontSize, setTextFontSize] = useState<number | null>(BASE_EDITOR_FONT_SIZE);
+  const [textFontSizeMixed, setTextFontSizeMixed] = useState(false);
   const [fontSizeInput, setFontSizeInput] = useState("");
   const [fontSizeInputInvalid, setFontSizeInputInvalid] = useState(false);
   const [boxedTextPaddingY, setBoxedTextPaddingY] = useState(0);
@@ -2420,6 +2421,7 @@ function EditorShellBody({ embeddedHost, editorStore }: EditorShellProps & { edi
       } else if (typeof detail.fontFamily === "string") {
         setFontFamily(normalizeToolbarFontFamily(detail.fontFamily));
       }
+      setTextFontSizeMixed(detail.fontSizeMixed === true);
       if (typeof detail.fontSize === "number" && Number.isFinite(detail.fontSize)) {
         setTextFontSize(detail.fontSize);
       } else if (detail.fontSize === null) {
@@ -3713,7 +3715,8 @@ function EditorShellBody({ embeddedHost, editorStore }: EditorShellProps & { edi
   const canUseLineHeight = textToolbar.canUseLineHeight;
   const activeTextFontSize = textToolbar.wholeTextShape
     ? getTextShapeFontSizePt(textToolbar.wholeTextShape)
-    : textFontSize;
+    : textFontSize ?? BASE_EDITOR_FONT_SIZE;
+  const activeTextFontSizeMixed = !textToolbar.wholeTextShape && textFontSizeMixed;
   const canUseTextBlockStyle = textToolbar.canUseTextBlockStyle;
   /**
    * ブロックのボタン (箇条書き・番号付き・引用・コード・区切り線) を押せるか。
@@ -6315,7 +6318,7 @@ function EditorShellBody({ embeddedHost, editorStore }: EditorShellProps & { edi
     },
     format: {
       ActiveTextAlignIcon, activeFontFamilyLabel, activeTextAlignOption,
-      activeTextFontSize, applyBoxedTextPaddingY, applyInlineFormat, applyLineHeight,
+      activeTextFontSize, activeTextFontSizeMixed, applyBoxedTextPaddingY, applyInlineFormat, applyLineHeight,
       applyBlockStructure, applyTextAlign, applyTextStyle, blockStyleState, boldActive, boxedTextActive, boxedTextButtonRef,
       canUseBlockStructure,
       moreBlocksMenuButtonRef, moreBlocksMenuOpen, setMoreBlocksMenuOpen,
