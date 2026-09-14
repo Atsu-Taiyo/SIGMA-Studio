@@ -140,6 +140,16 @@ const CommentAnchorSchema: z.ZodType<SigmaCommentAnchor> = z.discriminatedUnion(
     quote: z.string().optional(),
   }),
   z.object({
+    type: z.literal("canvasRegion"),
+    bounds: z.object({
+      x: z.number().finite(),
+      y: z.number().finite(),
+      w: z.number().finite().positive(),
+      h: z.number().finite().positive(),
+    }),
+    quote: z.string().optional(),
+  }),
+  z.object({
     type: z.literal("overlayShape"),
     shapeIds: z.array(z.string().min(1)).min(1),
     quote: z.string().optional(),
@@ -1513,6 +1523,8 @@ function getCommentAnchorIssues(
       ? []
       : [te("schemaRecovery.validation.missingOverlayMath", { threadId })];
   }
+
+  if (anchor.type === "canvasRegion") return [];
 
   return anchor.shapeIds.some((shapeId) => context.overlayShapeIds.has(shapeId))
     ? []

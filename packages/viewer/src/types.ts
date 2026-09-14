@@ -475,7 +475,7 @@ export interface SigmaCommentReaction {
     createdAt: string;
 }
 
-export type SigmaCommentAnchor = SigmaTextRangeCommentAnchor | SigmaInlineMathCommentAnchor | SigmaBlockCommentAnchor | SigmaOverlayShapeCommentAnchor | SigmaOverlayMathCommentAnchor;
+export type SigmaCommentAnchor = SigmaTextRangeCommentAnchor | SigmaInlineMathCommentAnchor | SigmaBlockCommentAnchor | SigmaOverlayShapeCommentAnchor | SigmaOverlayMathCommentAnchor | SigmaCanvasRegionCommentAnchor;
 
 export interface SigmaTextRangeCommentAnchor {
     type: "textRange";
@@ -502,6 +502,12 @@ export interface SigmaInlineMathCommentAnchor {
 export interface SigmaBlockCommentAnchor {
     type: "block";
     blockId: string;
+    quote?: string;
+}
+
+export interface SigmaCanvasRegionCommentAnchor {
+    type: "canvasRegion";
+    bounds: { x: number; y: number; w: number; h: number };
     quote?: string;
 }
 

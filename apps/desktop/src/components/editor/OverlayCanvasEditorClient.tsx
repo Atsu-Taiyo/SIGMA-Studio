@@ -606,6 +606,7 @@ interface OverlayCanvasEditorClientProps {
    * ドラッグだったときに範囲選択として引き継ぐ (本文の有無を確かめるのは受け手)。
    * 渡されない面では、空振りのマーキーは今までどおり図形モードに留まる。
    */
+  retainEmptySelection?: boolean;
   onRequestTextSelection?: (screenStart: { x: number; y: number }, screenEnd: { x: number; y: number }) => void;
   onModeStatusChange?: (status: OverlayModeStatus) => void;
   onSelectionSummaryChange?: (summary: OverlaySelectionSummary) => void;
@@ -665,6 +666,7 @@ export default function OverlayCanvasEditorClient({
   onSelectPointHandled,
   onRequestTextMode,
   onRequestTextSelection,
+  retainEmptySelection = false,
   onModeStatusChange,
   onSelectionSummaryChange,
   onSelectedCountChange,
@@ -681,6 +683,11 @@ export default function OverlayCanvasEditorClient({
   const [shapes, setShapes] = useState<OverlayShape[]>(initialSnapshot.shapes);
   const [assets, setAssets] = useState<Record<string, OverlayAsset>>(initialSnapshot.assets);
   const [selectedIds, setSelectedIds] = useState<OverlayShapeId[]>([]);
+  const [regionSelection, setRegionSelection] = useState<{
+    documentId: string | undefined;
+    revision: number;
+    bounds: OverlayBounds;
+  } | null>(null);
   /**
    * A style being dragged in the toolbar: drawn, never persisted. See `previewedShapes`.
    *
@@ -696,6 +703,9 @@ export default function OverlayCanvasEditorClient({
   const [snapGuides, setSnapGuides] = useState<OverlaySnapGuide[]>([]);
   const [appliedSnapshotRevision, setAppliedSnapshotRevision] = useState(0);
   const [mode, dispatchMode] = useReducer(overlayInteractionModeReducer, undefined, createInitialOverlayInteractionMode);
+  const selectedRegion = retainEmptySelection && regionSelection && regionSelection.documentId === documentId &&
+    regionSelection.revision === externalRevision && selectedIds.length === 0 && mode.id === "overlay.select"
+    ? regionSelection.bounds : null;
   const dragOffset = getMoveOffset(mode);
   const editingShapeId = getEditingShapeId(mode);
   const originPickShapeId = getOriginPickShapeId(mode);
@@ -704,6 +714,26 @@ export default function OverlayCanvasEditorClient({
   const graphFillPickShapeId = getGraphFillPickShapeId(mode);
   const bleedSurfaceRef = useRef<HTMLDivElement | null>(null);
   const canvasRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    if (!selectedRegion) return;
+    const clearOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setRegionSelection(null);
+    };
+    const clearOutside = (event: PointerEvent) => {
+      const target = event.target;
+      if (!(target instanceof Element) || event.button !== 0 ||
+          canvasRef.current?.contains(target) ||
+          target.closest(".selection-action-popover, [data-preserve-canvas-selection]")) return;
+      setRegionSelection(null);
+    };
+    window.addEventListener("keydown", clearOnEscape, true);
+    window.addEventListener("pointerdown", clearOutside, true);
+    return () => {
+      window.removeEventListener("keydown", clearOnEscape, true);
+      window.removeEventListener("pointerdown", clearOutside, true);
+    };
+  }, [selectedRegion]);
+
   const canvasWidthRef = useRef(canvasWidth);
   const canvasHeightRef = useRef(canvasHeight);
   const documentIdRef = useRef(documentId);
@@ -995,6 +1025,9 @@ export default function OverlayCanvasEditorClient({
       notifyEditPolicyBlocked();
       return;
     }
+    if (!(action.type === "select" && modeRef.current.id === "overlay.marquee")) {
+      setRegionSelection(null);
+    }
     modeRef.current = overlayInteractionModeReducer(modeRef.current, action);
     dispatchMode(action);
   }, [notifyEditPolicyBlocked]);
@@ -1252,6 +1285,7 @@ export default function OverlayCanvasEditorClient({
   }, [flushOverlayChange]);
 
   const setSelectedShapeIds = useCallback((ids: OverlayShapeId[]) => {
+    setRegionSelection(null);
     const uniqueIds = orderShapeIdsByVisualStackOrder(shapesRef.current, [...new Set(ids)]);
     if (sameOverlayShapeIds(selectedIdsRef.current, uniqueIds)) {
       return;
@@ -4278,10 +4312,17 @@ export default function OverlayCanvasEditorClient({
         startShapePointerInteraction(event, hitOpenStrokeShape, point);
         return;
       }
+      if (selectedRegion && !event.shiftKey && !event.metaKey && !event.ctrlKey &&
+          point.x >= selectedRegion.x && point.x <= selectedRegion.x + selectedRegion.w &&
+          point.y >= selectedRegion.y && point.y <= selectedRegion.y + selectedRegion.h) {
+        event.preventDefault();
+        return;
+      }
       beginEmptySpacePointerInteraction(event, point);
     }
   }, [
     beginEmptySpacePointerInteraction,
+    selectedRegion,
     getOpenStrokeShapeAtPoint,
     focusOverlayCanvas,
     graphFillPickShapeId,
@@ -4753,7 +4794,11 @@ export default function OverlayCanvasEditorClient({
   const handlePointerCancel = useCallback(() => {
     dragPointerRef.current = null;
     stopDragAutoScroll();
-  }, [stopDragAutoScroll]);
+    if (modeRef.current.id === "overlay.marquee") {
+      setRegionSelection(null);
+      transitionMode({ type: "select" });
+    }
+  }, [stopDragAutoScroll, transitionMode]);
 
   const handlePointerUp = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
     dragPointerRef.current = null;
@@ -4874,6 +4919,10 @@ export default function OverlayCanvasEditorClient({
           additive: interaction.additive,
         });
         setSelectedShapeIds(marqueeIds);
+        if (retainEmptySelection && marqueeIds.length === 0 && !interaction.additive &&
+            marqueeBounds.w > 0 && marqueeBounds.h > 0) {
+          setRegionSelection({ documentId, revision: externalRevision, bounds: marqueeBounds });
+        }
         // 図形を1つも囲まなかったドラッグは、図形選択ではなく本文の範囲選択だった。
         // 空振りのクリックが本文へ抜けるのと同じ規約で、掴んだ範囲ごと本文へ渡す
         // (本文の上で始まったドラッグかどうかは受け手が確かめる — 余白での空振りマーキーで
@@ -4951,6 +5000,9 @@ export default function OverlayCanvasEditorClient({
     getSnappedInsertDragPoint,
     onRequestTextMode,
     onRequestTextSelection,
+    retainEmptySelection,
+    documentId,
+    externalRevision,
     pagePointFromClient,
     queueDirtyImageCropSave,
     queueOverlaySave,
@@ -5012,7 +5064,7 @@ export default function OverlayCanvasEditorClient({
       ? selectedShapes[0]
       : null;
   const selectionChromeHidden = initialOriginPickShapeId !== null;
-  const marqueeBounds = mode.id === "overlay.marquee" ? boundsFromPoints([mode.start, mode.current]) : null;
+  const marqueeBounds = mode.id === "overlay.marquee" ? boundsFromPoints([mode.start, mode.current]) : selectedRegion;
   const currentTool = mode.tool;
   const movingShapes = mode.id === "overlay.move" ? mode.shapes : null;
   const movingShapeIds = useMemo(() => {
@@ -5121,6 +5173,7 @@ export default function OverlayCanvasEditorClient({
       ...(mode.id === "overlay.textEditing" || mode.id === "overlay.tableEditing" ? {
         textEditing: { shapeId: mode.shapeId, kind: mode.id === "overlay.tableEditing" ? "table" as const : "text" as const },
       } : {}),
+      ...(selectedRegion ? { region: selectedRegion } : {}),
       selectedCount: selectedShapes.length,
       selectedShapeIds: selectedIds,
       selectedShapes: selectedContextShapes,
@@ -5141,6 +5194,7 @@ export default function OverlayCanvasEditorClient({
   }, [
     mode,
     onSelectionSummaryChange,
+    selectedRegion,
     selectedContextAssets,
     selectedContextShapes,
     selectedHidden,
@@ -5795,6 +5849,7 @@ export default function OverlayCanvasEditorClient({
       {marqueeBounds && (
         <div
           className="overlay-marquee-box"
+          data-retained-region={selectedRegion ? "true" : undefined}
           style={{
             left: marqueeBounds.x,
             top: marqueeBounds.y,

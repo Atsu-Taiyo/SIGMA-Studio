@@ -823,7 +823,7 @@ function PageCanvasEditorImpl({
   const [extensionSelectedTargetPopover, setExtensionSelectedTargetPopover] = useState<ExtensionActionPopoverState | null>(null);
   const [commentTextSelectionPopover, setCommentTextSelectionPopover] = useState<CommentAnchorPopoverState | null>(null);
   const [commentSelectedTargetPopover, setCommentSelectedTargetPopover] = useState<CommentAnchorPopoverState | null>(null);
-  const overlaySelectionKey = overlaySelection.selectedShapeIds.join("\u0000");
+  const overlaySelectionKey = JSON.stringify([overlaySelection.selectedShapeIds, overlaySelection.region]);
   const overlayDestructiveSelectionCountRef = useRef(overlaySelection.selectedCount);
   const [overlaySelectionPopoverMeasurement, setOverlaySelectionPopoverMeasurement] = useState<OverlaySelectionPopoverMeasurement | null>(null);
   const [whiteboardTextRepaint, setWhiteboardTextRepaint] = useState<{
@@ -953,6 +953,7 @@ function PageCanvasEditorImpl({
     });
   }, [document.content, overlaySelection, overlaySelectionPopoverPosition, pageOverlayEditing, selectedId, selectionExtension]);
   const overlaySelectionActionPopover =
+    !suppressSelectionActions &&
     bodyOverlayModeStatus?.id !== "overlay.imageCropping" &&
     overlaySelectionPopoverPosition &&
     (overlaySelectionExtensionAction || overlayCommentAnchor)
@@ -1440,7 +1441,7 @@ function PageCanvasEditorImpl({
   }, [commentLayoutKey, commentPanel, showComments, zoom]);
 
   useLayoutEffect(() => {
-    if (!pageOverlayEditing || overlaySelection.selectedCount === 0) {
+    if (!pageOverlayEditing || (overlaySelection.selectedCount === 0 && !overlaySelection.region)) {
       return;
     }
 
@@ -4738,6 +4739,7 @@ function PageCanvasEditorImpl({
                 onActionHandled={handleOverlayActionHandled}
                 onSelectPointHandled={handleSelectPointHandled}
                 onRequestTextMode={handleRequestTextMode}
+                retainEmptySelection
                 onModeStatusChange={handleBodyOverlayModeStatusChange}
                 onSelectionSummaryChange={handleOverlaySelectionSummaryChange}
                 onSelectedCountChange={handleOverlaySelectedCountChange}
@@ -4771,7 +4773,7 @@ function PageCanvasEditorImpl({
                 { silent: true },
               )}
             />
-            <div className="whiteboard-zoom-controls">
+            <div className="whiteboard-zoom-controls" data-preserve-canvas-selection>
               <button
                 type="button"
                 aria-label={tEditorText("pageCanvas.zoomOut")}
@@ -8142,7 +8144,9 @@ function OverlayPreview({
   // visible while the interactive canvas owns the persisted shapes.
   const visibleGhostShapes = ghostShapes ?? [];
 
-  if (resolvedView.shapes.length === 0 && visibleGhostShapes.length === 0) {
+  const regionThreads = stackLayer !== "background"
+    ? commentThreads.filter((thread) => thread.anchor.type === "canvasRegion") : [];
+  if (resolvedView.shapes.length === 0 && visibleGhostShapes.length === 0 && regionThreads.length === 0) {
     return null;
   }
 
@@ -8153,6 +8157,16 @@ function OverlayPreview({
       onPointerDown={onPointerDown}
       onDoubleClick={onDoubleClick}
     >
+      {regionThreads.map((thread) => thread.anchor.type === "canvasRegion" && (
+        <div
+          key={thread.id}
+          className={`overlay-comment-marker ${thread.id === highlightedCommentThreadId ? "active" : ""}`}
+          data-comment-thread-id={thread.id}
+          data-comment-count={1}
+          style={{ left: thread.anchor.bounds.x, top: thread.anchor.bounds.y,
+            width: thread.anchor.bounds.w, height: thread.anchor.bounds.h }}
+        />
+      ))}
       {renderShapes && visibleShapes.map((shape) => (
         <OverlayShapeReadOnlyView
           key={shape.id}

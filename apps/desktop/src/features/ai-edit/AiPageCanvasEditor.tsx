@@ -53,6 +53,7 @@ import {
   createBlockAiEditReference,
   createInlineMathAiEditReference,
   createOverlaySelectionAiEditReference,
+  createCanvasRegionAiEditReference,
   createTextSelectionAiEditReference,
   type AiEditReference,
 } from "@/lib/ai/ai-edit-reference";
@@ -577,7 +578,9 @@ function createSelectionAction({
     } else if (source.kind === "block") {
       reference = createBlockAiEditReference(document, source.targetId);
     } else {
-      reference = createOverlaySelectionAiEditReference({
+      reference = source.selection.region
+        ? createCanvasRegionAiEditReference(source.selection.region)
+        : createOverlaySelectionAiEditReference({
         document,
         targetId: source.targetId,
         selectedShapeIds: source.selection.selectedShapeIds,

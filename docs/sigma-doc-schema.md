@@ -166,9 +166,12 @@ type SigmaCommentAnchor =
   | { type: "textRange"; start: SigmaCommentTextPosition; end: SigmaCommentTextPosition; quote: string; mathInlineIds?: string[]; mathTex?: string[] }
   | { type: "inlineMath"; blockId: string; mathInlineId: string; quote?: string; tex?: string }
   | { type: "block"; blockId: string; quote?: string }
+  | { type: "canvasRegion"; bounds: { x: number; y: number; w: number; h: number }; quote?: string }
   | { type: "overlayShape"; shapeIds: string[]; quote?: string }
   | { type: "overlayMath"; shapeId?: string; mathInlineId?: string; quote?: string; tex?: string };
 ```
+
+`canvasRegion` はホワイトボードの空領域へ付ける固定アンカーです。`bounds` はズーム・パンに依存しないキャンバス絶対座標（px）で、x/yは負値も許し、w/hは正の有限値に限ります。図形の生成・削除とは独立して保持します。ドラッグ中・保持中の選択矩形自体は文書に保存しません。
 
 `overlayMath` は、図中のテキストラベル、グラフラベル、表セルなどに含まれる数式へコメントするためのアンカーです。`shapeId` や `mathInlineId` が取れる場合は保持しますが、外部由来データや復元不能な対象でも `quote` / `tex` だけでコメントを表示できます。
 
