@@ -1637,19 +1637,6 @@ export default function OverlayCanvasEditorClient({
     setTableInsertPicker(null);
   }, [createShapeFromInsertDrag, transitionMode]);
 
-  useEffect(() => {
-    const shapeId = insertedTableFocusRef.current;
-    if (!shapeId || tableInsertPicker || mode.id !== "overlay.tableEditing" || mode.shapeId !== shapeId) return;
-    const frame = requestAnimationFrame(() => {
-      const cell = canvasRef.current?.querySelector<HTMLElement>(
-        `[data-overlay-shape-id="${CSS.escape(shapeId)}"] [contenteditable="true"]`,
-      );
-      cell?.focus({ preventScroll: true });
-      insertedTableFocusRef.current = null;
-    });
-    return () => cancelAnimationFrame(frame);
-  }, [mode, tableInsertPicker]);
-
   /**
    * Creates a chart from an existing table and selects it.
    *
@@ -5627,6 +5614,12 @@ export default function OverlayCanvasEditorClient({
     );
   }, [updateGraphShapeSpec]);
 
+  const handleTableFirstCellReady = useCallback((editor: TiptapEditor, shapeId: OverlayShapeId) => {
+    if (insertedTableFocusRef.current !== shapeId) return;
+    insertedTableFocusRef.current = null;
+    editor.commands.focus("start", { scrollIntoView: false });
+  }, []);
+
   const handleTableEditorFocus = useCallback((editor: TiptapEditor, shapeId: OverlayShapeId) => {
     activeTextEditorRef.current = editor;
     selectShape(shapeId);
@@ -5667,6 +5660,7 @@ export default function OverlayCanvasEditorClient({
     onGraph3DPreviewReady: handleGraph3DPreviewReady,
     onTableChange: handleTableChange,
     onTableEditorFocus: handleTableEditorFocus,
+    onTableFirstCellReady: handleTableFirstCellReady,
     onTableResize: handleTableResize,
     onTextMeasuredHeight: handleTextMeasuredHeight,
     onTextChange: handleTextChange,
