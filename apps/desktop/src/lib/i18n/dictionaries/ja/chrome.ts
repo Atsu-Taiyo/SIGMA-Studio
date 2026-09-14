@@ -11,7 +11,7 @@ export const chrome = {
       label: "ファイル",
       duplicate: "現在の教材を複製",
       delete: "現在の教材を削除",
-      import: "インポート（JSON / TeX）",
+      import: "インポート（.sigma / TeX）",
       importOther: "PowerPointをインポート",
       importText: "テキストから読み込み",
       export: "エクスポート",

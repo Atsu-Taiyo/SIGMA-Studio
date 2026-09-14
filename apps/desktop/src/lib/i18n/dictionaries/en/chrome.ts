@@ -9,7 +9,7 @@ export const chrome = {
       label: "File",
       duplicate: "Duplicate this material",
       delete: "Delete this material",
-      import: "Import (JSON / TeX)",
+      import: "Import (.sigma / TeX)",
       importOther: "Import PowerPoint",
       importText: "Import from text",
       export: "Export",
