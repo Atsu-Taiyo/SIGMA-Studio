@@ -1,96 +1,100 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 
 import { sampleDocument } from "@/lib/sample-document";
-
 import { installDesktopRuntimeMock } from "./desktop-runtime-mock";
+
+async function armTable(page: Page) {
+  await page.getByRole("button", { name: "表", exact: true }).first().click();
+  await expect(page.getByRole("dialog", { name: "表を挿入" })).toHaveCount(0);
+  const canvas = page.locator(".overlay-canvas-editor").first();
+  await expect(canvas).toHaveAttribute("data-overlay-insert-command", "table");
+  const bounds = await canvas.boundingBox();
+  if (!bounds) throw new Error("Canvas is missing");
+  return { x: bounds.x + 80, y: bounds.y + 180 };
+}
 
 test.beforeEach(async ({ page }) => {
   await installDesktopRuntimeMock(page, sampleDocument);
   await page.setViewportSize({ width: 1400, height: 900 });
   await page.goto("/");
   await expect(page.locator("[data-startup-splash]")).toHaveCount(0);
-  await page.getByRole("button", { name: "表", exact: true }).first().click();
 });
 
-test("previews rows and columns and focuses the first cell after insertion", async ({ page }) => {
-  const picker = page.getByRole("dialog", { name: "表を挿入" });
-  await expect(picker.getByRole("status")).toHaveText("3行 × 4列");
-  const target = picker.getByRole("button", { name: "5列 2行の表を挿入", exact: true });
-  await target.hover();
-  await expect(picker.getByRole("status")).toHaveText("2行 × 5列");
-  await expect(picker.locator(".table-insert-grid button.selected")).toHaveCount(10);
-  await expect(picker.getByRole("spinbutton", { name: "行数" })).toHaveValue("2");
-  await expect(picker.getByRole("spinbutton", { name: "列数" })).toHaveValue("5");
-  await target.click();
-  await expect(picker).toHaveCount(0);
-  const table = page.locator(".overlay-table-shape").first();
+test("2 by 2 preview follows the pointer and a click places it with first-cell focus", async ({ page }) => {
+  const start = await armTable(page);
+  await page.mouse.move(start.x, start.y);
+  const preview = page.locator("[data-table-placement-preview] .overlay-insert-preview-shape");
+  await expect(preview).toBeVisible();
+  await expect(preview.locator("tr")).toHaveCount(2);
+  await expect(preview.locator("td")).toHaveCount(4);
+  const first = await preview.boundingBox();
+  await page.mouse.move(start.x + 60, start.y + 40);
+  await expect.poll(async () => (await preview.boundingBox())?.x).toBeCloseTo(first!.x + 60, 0);
+  const last = await preview.boundingBox();
+  expect(last!.y).toBeCloseTo(first!.y + 40, 0);
+  await page.mouse.click(start.x + 60, start.y + 40);
+  await expect(preview).toHaveCount(0);
+  const table = page.locator(".overlay-table-shape");
   await expect(table.locator("tr")).toHaveCount(2);
-  await expect(table.locator("tr").first().locator("td")).toHaveCount(5);
-  const firstCell = table.locator("[contenteditable=true]").first();
-  await expect(firstCell).toBeFocused();
-  await page.keyboard.type("First cell");
-  await expect(table.locator("td").first()).toContainText("First cell");
+  await expect(table.locator("td")).toHaveCount(4);
+  const placed = await table.boundingBox();
+  expect(placed!.width).toBeCloseTo(last!.width, 0);
+  expect(placed!.height).toBeCloseTo(last!.height, 0);
+  await expect(table.locator("[contenteditable=true]").first()).toBeFocused();
+  await page.keyboard.type("Click table");
+  await expect(table.locator("td").first()).toContainText("Click table");
 });
 
-test("arrow keys select a size, Tab reaches the numeric fields, and Escape restores focus", async ({ page }) => {
-  const picker = page.getByRole("dialog", { name: "表を挿入" });
-  await expect(picker.getByRole("button", { name: "4列 3行の表を挿入", exact: true })).toBeFocused();
-  await page.keyboard.press("ArrowDown");
-  await page.keyboard.press("ArrowRight");
-  await expect(picker.getByRole("status")).toHaveText("4行 × 5列");
-  await page.keyboard.press("Tab");
-  await expect(picker.getByRole("spinbutton", { name: "行数" })).toBeFocused();
-  await page.keyboard.press("Escape");
-  await expect(picker).toHaveCount(0);
-  await expect(page.getByRole("button", { name: "表", exact: true }).first()).toBeFocused();
-  await expect(page.locator(".overlay-shape-tableShape")).toHaveCount(0);
-
-  await page.keyboard.press("Enter");
-  await expect(picker).toBeVisible();
-  await page.keyboard.press("Home");
-  await page.keyboard.press("ArrowUp");
-  await page.keyboard.press("Enter");
-  const table = page.locator(".overlay-table-shape").first();
+test("dragging enlarges the same 2 by 2 table and preview matches the placed size", async ({ page }) => {
+  const start = await armTable(page);
+  await page.mouse.move(start.x, start.y);
+  await page.mouse.down();
+  await page.mouse.move(start.x + 300, start.y + 180, { steps: 8 });
+  const preview = page.locator(".overlay-insert-preview-shape");
+  await expect(preview.locator("tr")).toHaveCount(2);
+  await expect(preview.locator("td")).toHaveCount(4);
+  const expected = await preview.boundingBox();
+  expect(expected!.width).toBeCloseTo(300, 0);
+  expect(expected!.height).toBeCloseTo(180, 0);
+  await page.mouse.up();
+  const table = page.locator(".overlay-table-shape");
+  await expect(table).toBeVisible();
+  const placed = await table.boundingBox();
+  expect(placed!.width).toBeCloseTo(expected!.width, 0);
+  expect(placed!.height).toBeCloseTo(expected!.height, 0);
   await expect(table.locator("tr")).toHaveCount(2);
-  await expect(table.locator("td")).toHaveCount(2);
-});
-
-test("accepts a numeric size beyond the grid and rejects invalid sizes", async ({ page }) => {
-  const picker = page.getByRole("dialog", { name: "表を挿入" });
-  const rows = picker.getByRole("spinbutton", { name: "行数" });
-  const columns = picker.getByRole("spinbutton", { name: "列数" });
-  const insert = picker.getByRole("button", { name: "表を挿入", exact: true });
-  for (const value of ["", "0", "-1", "2.5", "21"]) {
-    await rows.fill(value);
-    await expect(rows).toHaveAttribute("aria-invalid", "true");
-    await expect(insert).toBeDisabled();
-  }
-  await rows.fill("9");
-  await columns.fill("11");
-  await expect(picker.getByRole("status")).toHaveText("9行 × 11列");
-  await expect(insert).toBeEnabled();
-  await columns.press("Enter");
-  await expect(picker).toHaveCount(0);
-  const table = page.locator(".overlay-table-shape").first();
-  await expect(table.locator("tr")).toHaveCount(9);
-  await expect(table.locator("tr").first().locator("td")).toHaveCount(11);
+  await expect(table.locator("td")).toHaveCount(4);
   await expect(table.locator("[contenteditable=true]").first()).toBeFocused();
 });
 
-test("close button and outside click cancel without inserting; the picker fits a short viewport", async ({ page }) => {
-  const picker = page.getByRole("dialog", { name: "表を挿入" });
-  await picker.getByRole("button", { name: "閉じる", exact: true }).click();
-  await expect(picker).toHaveCount(0);
-  const trigger = page.getByRole("button", { name: "表", exact: true }).first();
-  await expect(trigger).toBeFocused();
-  await page.setViewportSize({ width: 1100, height: 500 });
-  await trigger.click();
-  await expect(picker).toBeVisible();
-  const bounds = await picker.boundingBox();
-  expect(bounds).not.toBeNull();
-  expect(bounds!.y).toBeGreaterThanOrEqual(8);
-  expect(bounds!.y + bounds!.height).toBeLessThanOrEqual(492);
-  await page.mouse.click(1000, 490);
-  await expect(picker).toHaveCount(0);
-  await expect(page.locator(".overlay-shape-tableShape")).toHaveCount(0);
+test("Escape cancels both the following preview and a placement drag without saving a table", async ({ page }) => {
+  for (const dragging of [false, true]) {
+    const start = await armTable(page);
+    await page.mouse.move(start.x, start.y);
+    await expect(page.locator("[data-table-placement-preview]")).toBeVisible();
+    if (dragging) {
+      await page.mouse.down();
+      await page.mouse.move(start.x + 220, start.y + 110, { steps: 5 });
+    }
+    await page.keyboard.press("Escape");
+    if (dragging) await page.mouse.up();
+    await expect(page.locator(".overlay-insert-preview-shape")).toHaveCount(0);
+    await expect(page.locator(".overlay-table-shape")).toHaveCount(0);
+  }
+  expect(await page.evaluate(async () => {
+    const file = (await window.desktopAPI!.storage.listFiles())[0];
+    const document = await window.desktopAPI!.storage.loadDocument(file.fileId);
+    return document?.pageLayout?.overlay?.overlaySnapshot?.shapes.filter((shape) => shape.type === "tableShape").length ?? 0;
+  })).toBe(0);
+});
+
+test("preview leaves the canvas without leaving a saved shape", async ({ page }) => {
+  const start = await armTable(page);
+  await page.mouse.move(start.x, start.y);
+  await expect(page.locator("[data-table-placement-preview]")).toBeVisible();
+  await page.getByRole("button", { name: "表", exact: true }).first().hover();
+  await expect(page.locator("[data-table-placement-preview]")).toHaveCount(0);
+  await page.mouse.move(start.x, start.y);
+  await expect(page.locator("[data-table-placement-preview]")).toBeVisible();
+  await expect(page.locator(".overlay-table-shape")).toHaveCount(0);
 });

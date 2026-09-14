@@ -1,5 +1,4 @@
 "use client";
-import { TableInsertGridPicker } from "./TableInsertGridPicker";
 import type { PendingOverlaySave } from "./overlay-canvas/pending-save";
 import  {
   AnchorIndicator,
@@ -355,7 +354,6 @@ import  {
 } from "./overlay-canvas/shapes/graph-labels";
 import  {
   DEFAULT_TABLE_COLUMN_WIDTH,
-  DEFAULT_TABLE_HEIGHT,
   DEFAULT_TABLE_ROW_HEIGHT,
   TABLE_SHAPE_TYPE,
   createPlainTableSpec,
@@ -428,11 +426,6 @@ const ANCHOR_DRAG_SLOP_PX = 2;
 // DRAG_SELECTION_THRESHOLD_PX = 2 より大きいのは、誤爆時に 1px 動くのではなく紙面が飛ぶため。
 const DRAG_AUTO_SCROLL_SLOP_PX = 8;
 const SHAPE_DRAG_AUTO_SCROLL_MAX_SPEED_PX_PER_SEC = 1100;
-
-interface TableInsertPickerState {
-  requestId: number;
-  anchorRect?: { x: number; y: number; width: number; height: number };
-}
 
 interface OverlayContextMenuState {
   x: number;
@@ -689,7 +682,7 @@ export default function OverlayCanvasEditorClient({
    * on instead of following a selection that moves underneath it.
    */
   const [preview, setPreview] = useState<{ style: OverlaySelectionStylePatch; targetIds: Set<string> } | null>(null);
-  const [tableInsertPicker, setTableInsertPicker] = useState<TableInsertPickerState | null>(null);
+  const insertedTableFocusRef = useRef<OverlayShapeId | null>(null);
   const [contextMenu, setContextMenu] = useState<OverlayContextMenuState | null>(null);
   const [focusedGroupId, setFocusedGroupId] = useState<OverlayShapeId | null>(null);
   const [anchorMeasurements, setAnchorMeasurements] = useState<AnchorMeasurements>(EMPTY_ANCHOR_MEASUREMENTS);
@@ -1586,6 +1579,7 @@ export default function OverlayCanvasEditorClient({
     if (isOverlayRichTextShape(insertedShape)) {
       suppressNextSaveRef.current = true;
     }
+    if (insertedShape.type === TABLE_SHAPE_TYPE) insertedTableFocusRef.current = insertedShape.id;
     setShapes(nextShapes);
     selectKnownShape(insertedShape, { editing: isOverlayRichTextShape(insertedShape) });
     if (isOverlayRichTextShape(insertedShape)) {
@@ -1595,47 +1589,6 @@ export default function OverlayCanvasEditorClient({
     }
     return insertedShape.id;
   }, [commitOverlayChangeNow, queueOverlaySave, selectKnownShape]);
-
-  const insertedTableFocusRef = useRef<string | null>(null);
-
-  const insertTableAtViewportCenter = useCallback((columnCount: number, rowCount: number) => {
-    const table = createPlainTableSpec(rowCount, columnCount);
-    const tableWidth = Math.max(120, columnCount * DEFAULT_TABLE_COLUMN_WIDTH);
-    const tableHeight = Math.max(72, rowCount * DEFAULT_TABLE_ROW_HEIGHT);
-    const canvasRect = canvasRef.current?.getBoundingClientRect();
-    const fallbackPoint = {
-      x: canvasWidthRef.current * 0.5,
-      y: Math.min(canvasHeightRef.current * 0.5, DEFAULT_TABLE_HEIGHT * 2),
-    };
-    const viewportRect = canvasRef.current?.closest<HTMLElement>(".whiteboard-page-canvas")?.getBoundingClientRect();
-    const visibleCenter = viewportRect
-      ? { x: viewportRect.left + viewportRect.width * 0.5, y: viewportRect.top + viewportRect.height * 0.5 }
-      : { x: window.innerWidth * 0.5, y: window.innerHeight * 0.5 };
-    const centerPoint = canvasRect && canvasRect.width > 0 && canvasRect.height > 0
-      ? {
-          x: ((clamp(visibleCenter.x, canvasRect.left, canvasRect.right) - canvasRect.left) / canvasRect.width) * canvasWidthRef.current,
-          y: ((clamp(visibleCenter.y, canvasRect.top, canvasRect.bottom) - canvasRect.top) / canvasRect.height) * canvasHeightRef.current,
-        }
-      : fallbackPoint;
-    const x = clamp(centerPoint.x - tableWidth * 0.5, 0, Math.max(0, canvasWidthRef.current - tableWidth));
-    const y = clamp(centerPoint.y - tableHeight * 0.5, 0, Math.max(0, canvasHeightRef.current - tableHeight));
-
-    const shapeId = createShapeFromInsertDrag(
-      {
-        kind: "insert",
-        command: "table",
-        table,
-        tableSize: { w: tableWidth, h: tableHeight },
-      },
-      { x, y },
-      { x: x + tableWidth, y: y + tableHeight },
-    );
-    if (shapeId) {
-      insertedTableFocusRef.current = shapeId;
-      transitionMode({ type: "editTable", shapeId });
-    }
-    setTableInsertPicker(null);
-  }, [createShapeFromInsertDrag, transitionMode]);
 
   /**
    * Creates a chart from an existing table and selects it.
@@ -1711,8 +1664,12 @@ export default function OverlayCanvasEditorClient({
       transitionMode({ type: "setTool", tool: { kind: "select" } });
     } else if (request.command === "table") {
       activeTextEditorRef.current?.commands.blur();
-      transitionMode({ type: "setTool", tool: { kind: "select" } });
-      setTableInsertPicker({ requestId: request.id, anchorRect: request.anchorRect });
+      transitionMode({ type: "setTool", tool: {
+        kind: "insert",
+        command: "table",
+        table: createPlainTableSpec(2, 2),
+        tableSize: { w: 2 * DEFAULT_TABLE_COLUMN_WIDTH, h: Math.max(72, 2 * DEFAULT_TABLE_ROW_HEIGHT) },
+      } });
     } else {
       transitionMode({
         type: "setTool",
@@ -4898,7 +4855,7 @@ export default function OverlayCanvasEditorClient({
       if (bleedSurfaceRef.current?.hasPointerCapture(event.pointerId)) {
         bleedSurfaceRef.current.releasePointerCapture(event.pointerId);
       }
-      if (dragDistance < 4) {
+      if (dragDistance < 4 && interaction.tool.command !== "table") {
         transitionMode({ type: "setTool", tool: { kind: "select" } });
         onRequestTextMode({ x: event.clientX, y: event.clientY });
         clearSnapGuides();
@@ -4922,6 +4879,9 @@ export default function OverlayCanvasEditorClient({
             detail: { shapeId: insertedShapeId },
           }));
         }, 0);
+      } else if (interaction.tool.command === "table" && insertedShapeId) {
+        transitionMode({ type: "setTool", tool: { kind: "select" } });
+        transitionMode({ type: "editTable", shapeId: insertedShapeId });
       } else if (interaction.tool.command === "text" && insertedShapeId) {
         transitionMode({ type: "setTool", tool: { kind: "select" } });
         transitionMode({ type: "editText", shapeId: insertedShapeId });
@@ -5815,6 +5775,15 @@ export default function OverlayCanvasEditorClient({
         />
       )}
 
+      {mode.id === "overlay.select" && currentTool.kind === "insert" && currentTool.command === "table" && (
+        <TablePlacementPreview
+          tool={currentTool}
+          surfaceRef={bleedSurfaceRef}
+          pointFromClient={pagePointFromClient}
+          assets={assets}
+          styleDefaults={pickStyleDefaultsForInsert("table", shapeStyleDefaults)}
+        />
+      )}
       {insertPreview && (
         <InsertDragPreview
           tool={insertPreview.tool}
@@ -5919,13 +5888,7 @@ export default function OverlayCanvasEditorClient({
         />
       ), document.body)}
 
-      {tableInsertPicker && (
-        <TableInsertGridPicker
-          anchorRect={tableInsertPicker.anchorRect}
-          onPick={insertTableAtViewportCenter}
-          onClose={() => setTableInsertPicker(null)}
-        />
-      )}
+
       </div>
     </div>
   );
@@ -6403,6 +6366,45 @@ function reanchorShapesAgainstCanvas(
 }
 
 const PREVIEW_SHAPE_ID = "__overlay_insert_preview__";
+
+/** Pointer motion updates this small preview only, without rerendering the document canvas. */
+function TablePlacementPreview({ tool, surfaceRef, pointFromClient, assets, styleDefaults }: {
+  tool: InsertTool;
+  surfaceRef: { current: HTMLDivElement | null };
+  pointFromClient: (x: number, y: number) => OverlayPoint;
+  assets: Record<string, OverlayAsset>;
+  styleDefaults: Partial<OverlayShapeStyleDefaults>;
+}) {
+  const [point, setPoint] = useState<OverlayPoint | null>(null);
+  useEffect(() => {
+    let frame = 0;
+    const move = (event: PointerEvent) => {
+      cancelAnimationFrame(frame);
+      const inside = event.target instanceof Node && surfaceRef.current?.contains(event.target);
+      frame = requestAnimationFrame(() => {
+        setPoint(inside ? pointFromClient(event.clientX, event.clientY) : null);
+      });
+    };
+    const hide = () => { cancelAnimationFrame(frame); setPoint(null); };
+    document.addEventListener("pointermove", move);
+    document.addEventListener("pointerleave", hide);
+    window.addEventListener("blur", hide);
+    return () => {
+      cancelAnimationFrame(frame);
+      document.removeEventListener("pointermove", move);
+      document.removeEventListener("pointerleave", hide);
+      window.removeEventListener("blur", hide);
+    };
+  }, [pointFromClient, surfaceRef]);
+  if (!point) return null;
+  return (
+    <div data-table-placement-preview="" aria-hidden="true" style={{ position: "absolute", inset: 0, pointerEvents: "none" }}>
+      <InsertDragPreview tool={tool} start={point} current={point}
+        bounds={{ ...point, w: 0, h: 0 }} assets={assets} styleDefaults={styleDefaults} />
+    </div>
+  );
+}
+
 function getDrawingHint(
   mode: OverlayInteractionMode,
   curveDrawing: Extract<OverlayInteractionMode, { id: "overlay.curveDrawing" }> | null,
@@ -6410,6 +6412,7 @@ function getDrawingHint(
   t: Translate<"shape">,
 ): string | null {
   const tool = getOverlayTool(mode);
+  if (tool.kind === "insert" && tool.command === "table") return t("table.placeHint");
   if (tool.kind !== "insert" || !isClickPointDrawingTool(tool)) {
     return null;
   }
@@ -6496,10 +6499,10 @@ function InsertDragPreview({
       <div
         className="overlay-insert-preview-frame"
         style={{
-          left: bounds.x,
-          top: bounds.y,
-          width: bounds.w,
-          height: bounds.h,
+          left: tool.command === "table" ? shapeBounds.x : bounds.x,
+          top: tool.command === "table" ? shapeBounds.y : bounds.y,
+          width: tool.command === "table" ? shapeBounds.w : bounds.w,
+          height: tool.command === "table" ? shapeBounds.h : bounds.h,
         }}
       />
       <div

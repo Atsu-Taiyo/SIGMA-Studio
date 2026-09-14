@@ -41,7 +41,7 @@ function createWhiteboardDocument(): SigmaDocument {
   };
 }
 
-test("ホワイトボードの挿入タブから表のサイズ選択ダイアログで表を置ける", async ({ page }) => {
+test("ホワイトボードの表ボタンからクリックで2行2列の表を置ける", async ({ page }) => {
   await page.setViewportSize({ width: 1500, height: 950 });
   await installDesktopRuntimeMock(page, createWhiteboardDocument());
   await page.goto("/");
@@ -53,18 +53,14 @@ test("ホワイトボードの挿入タブから表のサイズ選択ダイア�
   await expect(tableButton).toBeVisible();
   await tableButton.click();
 
-  const tablePicker = page.getByRole("dialog", { name: "表を挿入" });
-  await expect(tablePicker).toBeVisible();
-  const fourByThree = tablePicker.getByRole("button", { name: "4列 3行の表を挿入", exact: true });
-  await fourByThree.hover();
-  await expect(tablePicker.locator(".table-insert-grid-size")).toHaveText("3行 × 4列");
-  await fourByThree.click();
-  await expect(tablePicker).toHaveCount(0);
+  await expect(page.getByRole("dialog", { name: "表を挿入" })).toHaveCount(0);
+  const canvas = await page.locator(".whiteboard-page-canvas").boundingBox();
+  await page.mouse.click(canvas!.x + 300, canvas!.y + 200);
 
   const table = page.locator(".overlay-table-shape").first();
   await expect(table).toBeVisible();
-  await expect(table.locator("tr")).toHaveCount(3);
-  await expect(table.locator("tr").first().locator("td")).toHaveCount(4);
+  await expect(table.locator("tr")).toHaveCount(2);
+  await expect(table.locator("tr").first().locator("td")).toHaveCount(2);
 });
 
 test("ホワイトボードの図形コメントを保存し、Undo/Redoと新しい画面で復元できる", async ({ page }) => {

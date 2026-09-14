@@ -172,19 +172,15 @@ test("table can be inserted directly from the editing toolbar", async ({ page })
   await expect(tableButton).toBeVisible();
   await tableButton.click();
 
-  const tablePicker = page.getByRole("dialog", { name: "表を挿入" });
-  await expect(tablePicker).toBeVisible();
-  await expect(page.getByRole("menu", { name: "挿入" })).toHaveCount(0);
-  await expect(page.getByRole("menu", { name: "図形" })).toHaveCount(0);
-
+  await expect(page.getByRole("dialog", { name: "表を挿入" })).toHaveCount(0);
+  const canvas = page.locator(".overlay-canvas-editor").first();
+  await expect(canvas).toHaveAttribute("data-overlay-insert-command", "table");
   await page.keyboard.press("Escape");
-  await expect(tablePicker).toHaveCount(0);
-
+  await expect(page.locator(".overlay-insert-preview-shape")).toHaveCount(0);
   await tableButton.click();
-  await expect(tablePicker).toBeVisible();
-  await tablePicker.getByRole("button", { name: "3列 2行の表を挿入" }).click();
-
+  const bounds = await canvas.boundingBox();
+  await page.mouse.click(bounds!.x + 100, bounds!.y + 200);
   const tableShape = page.locator(".overlay-shape-tableShape");
   await expect(tableShape).toHaveCount(1);
-  await expect(tableShape.locator("td")).toHaveCount(6);
+  await expect(tableShape.locator("td")).toHaveCount(4);
 });
