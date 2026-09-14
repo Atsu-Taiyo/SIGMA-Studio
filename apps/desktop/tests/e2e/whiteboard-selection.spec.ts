@@ -134,7 +134,7 @@ test("creates an empty whiteboard from the new-document menu", async ({ page }) 
   });
 });
 
-test("ホワイトボードで表ピッカーから可視領域中央に4列3行を挿入する", async ({ page }) => {
+test("ホワイトボードで拡大とパンの後もクリック位置に2行2列の表を挿入する", async ({ page }) => {
   await page.setViewportSize({ width: 1500, height: 950 });
   await page.goto("/", { waitUntil: "domcontentloaded" });
   await expect(page.locator(".startup-splash")).toBeHidden();
@@ -146,32 +146,21 @@ test("ホワイトボードで表ピッカーから可視領域中央に4列3行
   await page.mouse.move(viewportBeforePan!.x + 480, viewportBeforePan!.y + 320);
   await page.mouse.wheel(-180, -120);
 
-  await page.getByRole("tab", { name: "挿入", exact: true }).click();
-  await page.locator(".ribbon-body").getByRole("button", { name: "表", exact: true }).click();
-  const tablePicker = page.getByRole("dialog", { name: "表を挿入" });
-  await expect(tablePicker).toBeVisible();
-  const fourByThree = tablePicker.getByRole("button", { name: "4列 3行の表を挿入", exact: true });
-  await fourByThree.hover();
-  await expect(tablePicker.locator(".table-insert-grid-size")).toHaveText("4 x 3");
+  await page.getByRole("button", { name: "表", exact: true }).first().click();
+  await expect(page.getByRole("dialog", { name: "表を挿入" })).toHaveCount(0);
   await page.keyboard.press("Escape");
-  await expect(tablePicker).toHaveCount(0);
-
   await page.getByRole("button", { name: "図形", exact: true }).click();
   await page.getByRole("menu").getByRole("menuitem", { name: "表", exact: true }).click();
-  await expect(tablePicker).toBeVisible();
-  await tablePicker.getByRole("button", { name: "4列 3行の表を挿入", exact: true }).click();
+  const placementViewport = await viewport.boundingBox();
+  const placement = { x: placementViewport!.x + 320, y: placementViewport!.y + 240 };
+  await page.mouse.click(placement.x, placement.y);
 
   const insertedTable = page.locator(".overlay-shape-tableShape").last();
   await expect(insertedTable).toBeVisible();
-  await expect(insertedTable.locator("tr")).toHaveCount(3);
-  await expect(insertedTable.locator("tr").first().locator("td")).toHaveCount(4);
-  const [viewportBox, tableBox] = await Promise.all([viewport.boundingBox(), insertedTable.boundingBox()]);
-  expect(viewportBox).not.toBeNull();
+  await expect(insertedTable.locator("tr")).toHaveCount(2);
+  await expect(insertedTable.locator("tr").first().locator("td")).toHaveCount(2);
+  const tableBox = await insertedTable.boundingBox();
   expect(tableBox).not.toBeNull();
-  expect(Math.abs(
-    tableBox!.x + tableBox!.width * 0.5 - (viewportBox!.x + viewportBox!.width * 0.5),
-  )).toBeLessThan(3);
-  expect(Math.abs(
-    tableBox!.y + tableBox!.height * 0.5 - (viewportBox!.y + viewportBox!.height * 0.5),
-  )).toBeLessThan(3);
+  expect(tableBox!.x).toBeCloseTo(placement.x, 0);
+  expect(tableBox!.y).toBeCloseTo(placement.y, 0);
 });

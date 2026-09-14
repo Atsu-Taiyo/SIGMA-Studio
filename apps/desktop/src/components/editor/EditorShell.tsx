@@ -4789,7 +4789,7 @@ function EditorShellBody({ embeddedHost, editorStore }: EditorShellProps & { edi
   // AI実行中でも図形の新規挿入・整列などは通す。ロック図形そのものへの変更は overlay canvas の
   // transitionMode (lockedShapeIds) と commitDocumentChange の対象判定で弾かれるため、ここで
   // 選択内容まで見て一律禁止する必要はない。
-  const runOverlayCommand = (command: OverlayCommand, graphPreset?: Graph2DPreset, options?: Pick<OverlayCommandRequest, "anchorRect">) => {
+  const runOverlayCommand = (command: OverlayCommand, graphPreset?: Graph2DPreset) => {
     if (aiDocumentWriteInProgress) {
       setStatusMessage(aiDocumentWriteInProgressMessage());
       return;
@@ -4812,10 +4812,11 @@ function EditorShellBody({ embeddedHost, editorStore }: EditorShellProps & { edi
       id: overlayCommandRequestIdRef.current,
       command,
       graphPreset,
-      ...options,
     });
     if (command !== "select") {
-      setStatusMessage(command === "graph"
+      setStatusMessage(command === "table"
+        ? tShapeChrome("table.placeHint")
+        : command === "graph"
         ? tEditor("status.graphDragHint")
         : command === "graph3d"
           ? tEditor("status.graph3dDragHint")

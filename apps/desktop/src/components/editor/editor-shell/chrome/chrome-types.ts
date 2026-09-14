@@ -17,7 +17,7 @@ import type { ColorStylePanel, EditorMenu } from "@/components/editor/editor-she
 import type { ShapeGallerySection } from "@/components/editor/overlay-canvas/shape-gallery";
 import type { SharedFillState } from "@/components/editor/overlay-canvas/style-patch";
 import type { OverlayPoint, OverlayTool } from "@/components/editor/overlay-canvas/types";
-import type { OverlayArrangeAction, OverlayCommand, OverlayCommandRequest, OverlaySelectionStylePatch, OverlaySelectionSummary } from "@/components/editor/page-overlay-types";
+import type { OverlayArrangeAction, OverlayCommand, OverlaySelectionStylePatch, OverlaySelectionSummary } from "@/components/editor/page-overlay-types";
 import type { TooltipContent } from "@/components/ui/Tooltip";
 import type { BoxedVariant, InlineNode, SigmaBlock, SigmaDocument, TextAlign } from "@/features/document";
 import type { OverlayDash, OverlayTextSize } from "@/features/document/overlay-model";
@@ -91,7 +91,7 @@ export interface EditorChromeShared {
   isEmbedded: boolean;
   versionHistoryPreviewActive: boolean;
   runEditCommand: (command: "bold" | "italic" | "underline" | "boxed" | "undo" | "redo") => void;
-  runOverlayCommand: (command: OverlayCommand, graphPreset?: Graph2DPreset, options?: Pick<OverlayCommandRequest, "anchorRect">) => void;
+  runOverlayCommand: (command: OverlayCommand, graphPreset?: Graph2DPreset) => void;
   setStatusMessage: Dispatch<SetStateAction<string>>;
   toggleMenu: (menu: NonNullable<EditorMenu>) => void;
 }
