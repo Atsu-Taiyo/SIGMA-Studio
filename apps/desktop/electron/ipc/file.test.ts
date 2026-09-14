@@ -1,4 +1,5 @@
 import { PDFDocument } from "pdf-lib";
+import { BrowserWindow } from "electron";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
@@ -59,6 +60,23 @@ vi.mock("node:fs/promises", () => ({
 }));
 
 import { registerFileIpc } from "./file";
+
+it("only lets the main editor receive and acknowledge OS-selected paths", async () => {
+  const mainWindow = new BrowserWindow();
+  const pending = { id: 1, filePath: "/Downloads/数学.sigma", data: "content" };
+  const readNext = vi.fn(async () => pending);
+  const acknowledge = vi.fn();
+  registerFileIpc({ getMainWindow: () => mainWindow, externalDocumentOpenQueue: { readNext, acknowledge } });
+  const read = mocks.handlers.get("file:get-pending-open-document")!;
+  const ack = mocks.handlers.get("file:acknowledge-open-document")!;
+  expect(await read({ sender })).toBeNull();
+  await ack({ sender }, 1);
+  expect(readNext).not.toHaveBeenCalled();
+  expect(acknowledge).not.toHaveBeenCalled();
+  expect(await read({ sender: mainWindow.webContents })).toEqual(pending);
+  await ack({ sender: mainWindow.webContents }, 1);
+  expect(acknowledge).toHaveBeenCalledWith(1);
+});
 
 const B5 = {
   surfaceId: "pdf_surface_test",

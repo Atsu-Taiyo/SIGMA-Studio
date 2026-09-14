@@ -69,7 +69,7 @@ export async function prepareDocumentFileImport(
   const now = environment.now();
   // 開くときに選んだ名前を教材名にする。JSON 内の古い題名や変換元の見出しを優先すると、
   // OS 上で名前を変えて開き直してもタブ・教材一覧にその名前が反映されない。
-  const fileTitle = file.name.trim().replace(/(?:\.sigmadoc\.json|\.[^.]+)$/i, "").trim();
+  const fileTitle = file.name.trim().replace(/(?:\.(?:sigma|sigmadoc)\.json|\.[^.]+)$/i, "").trim();
   const document = repairDuplicateTopLevelIds(ensurePageLayout({
     ...imported,
     docId: environment.createDocumentId(),
