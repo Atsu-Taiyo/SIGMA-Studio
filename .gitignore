@@ -35,3 +35,6 @@ fake-capture.json
 tmp/
 output/
 outputs/
+
+# Dedicated Electron development server
+.next-electron/
