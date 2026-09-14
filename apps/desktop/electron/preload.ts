@@ -279,6 +279,17 @@ const desktopAPI = {
   },
 
   file: {
+    getPendingOpenDocument() {
+      return ipcRenderer.invoke("file:get-pending-open-document");
+    },
+    acknowledgeOpenDocument(id: number): Promise<void> {
+      return ipcRenderer.invoke("file:acknowledge-open-document", id);
+    },
+    onOpenDocumentAvailable(handler: () => void): () => void {
+      const listener = () => handler();
+      ipcRenderer.on("file:open-document-available", listener);
+      return () => ipcRenderer.removeListener("file:open-document-available", listener);
+    },
     openSigmaDoc(): Promise<{ filePath: string; data: string } | null> {
       return ipcRenderer.invoke("file:open-sigma-doc");
     },

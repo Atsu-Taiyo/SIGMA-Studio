@@ -43,6 +43,8 @@ afterEach(() => {
 
 describe("document import planning", () => {
   it.each([
+    ["教材.sigma", "sigmadoc"],
+    ["教材.sigma.json", "sigmadoc"],
     ["教材.sigmadoc.json", "sigmadoc"],
     ["教材.unknown", "sigmadoc"],
     ["教材.TEX", "tex"],
@@ -59,6 +61,15 @@ describe("document import planning", () => {
 });
 
 describe("prepared SigmaDoc imports", () => {
+  it.each(["数学.sigma", "数学.sigma.json", "数学.SIGMADOC.JSON"])("preserves the legacy content and strips the whole suffix of %s", async (name) => {
+    const source = document();
+    const file = new File([JSON.stringify(source)], name);
+    const result = await prepareDocumentFileImport(readable(file), environment());
+    expect(result.document.metadata.title).toBe("数学");
+    expect(result.document.content).toEqual(source.content);
+    expect(result.document.docId).not.toBe(source.docId);
+    expect(JSON.parse(await file.text())).toEqual(source);
+  });
   it("uses the opened filename while preserving content, other metadata and output settings", async () => {
     const source = document();
     const ports = environment();
