@@ -1764,12 +1764,7 @@ export function renderEditorChrome(chrome: EditorChromeValue) {
         tooltip={commandTooltip(t("insert.table.tooltip"), "overlay.table")}
         aria-label={t("insert.table.label")}
         aria-pressed={activeOverlayTool.kind === "insert" && activeOverlayTool.command === "table"}
-        onClick={(event) => {
-          const rect = event.currentTarget.getBoundingClientRect();
-          runOverlayCommand("table", undefined, {
-            anchorRect: { x: rect.left, y: rect.top, width: rect.width, height: rect.height },
-          });
-        }}
+        onClick={() => runOverlayCommand("table")}
       >
         <Rows3 size={EDITOR_TOOLBAR_ICON_SIZE} />
       </EditorToolbarIconButton>
@@ -1825,20 +1820,14 @@ export function renderEditorChrome(chrome: EditorChromeValue) {
                       title={item.label}
                       aria-label={item.label}
                       className={isActive ? "active" : ""}
-                      onClick={(event) => {
+                      onClick={() => {
                         if (item.action === "image") {
                           setShapeMenuOpen(false);
                           setLineToolMenuOpen(false);
                           imageInputRef.current?.click();
                           return;
                         }
-                        const command = item.command!;
-                        // 表はサイズ選択ポップオーバーを「図形」ボタンの近くに出したいので起点座標を渡す。
-                        const anchor = command === "table" ? shapeMenuButtonRef.current ?? event.currentTarget : null;
-                        const rect = anchor?.getBoundingClientRect();
-                        runOverlayCommand(command, undefined, rect
-                          ? { anchorRect: { x: rect.left, y: rect.top, width: rect.width, height: rect.height } }
-                          : undefined);
+                        runOverlayCommand(item.command!);
                       }}
                     >
                       <Icon size={18} />

@@ -1089,24 +1089,21 @@ test("table cells drag-select and preview row or column deletion from the contex
   await expect(table.locator("tr").first().locator("td")).toHaveCount(1);
 });
 
-test("table insertion picker creates the requested grid and a second click re-enters editing", async ({ page }) => {
+test("table placement creates a 2 by 2 grid and a second click re-enters editing", async ({ page }) => {
   await page.goto("/");
 
   const menu = await openShapeMenu(page);
   await menu.getByRole("menuitem", { name: "表", exact: true }).click();
-  const tablePicker = page.getByRole("dialog", { name: "表を挿入" });
-  await expect(tablePicker).toBeVisible();
-  const fourByThree = tablePicker.getByRole("button", { name: "4列 3行の表を挿入", exact: true });
-  await fourByThree.hover();
-  await expect(tablePicker.locator(".table-insert-grid-size")).toHaveText("4 x 3");
-  await fourByThree.click();
-  await expect(tablePicker).toHaveCount(0);
+  await expect(page.getByRole("dialog", { name: "表を挿入" })).toHaveCount(0);
+  const canvas = await page.locator(".overlay-canvas-editor").first().boundingBox();
+  await page.mouse.click(canvas!.x + 100, canvas!.y + 220);
 
   const table = page.locator(".overlay-table-shape").first();
   await expect(table).toBeVisible();
-  await expect(table.locator("tr")).toHaveCount(3);
-  await expect(table.locator("tr").first().locator("td")).toHaveCount(4);
+  await expect(table.locator("tr")).toHaveCount(2);
+  await expect(table.locator("tr").first().locator("td")).toHaveCount(2);
   await expect(table).toHaveClass(/editing/);
+  await expect(table.locator("[contenteditable=true]").first()).toBeFocused();
   await expect(table.locator("td.selected-cell")).toHaveCount(0);
   await table.locator(".overlay-table-shape-content").first().click();
   await expect(table.locator("td.selected-cell")).toHaveCount(1);
@@ -1137,8 +1134,8 @@ test("table insertion picker creates the requested grid and a second click re-en
     selectedTableBox!.y + selectedTableBox!.height / 2,
   );
   await expect(table).toHaveClass(/editing/);
-  await expect(table.locator("td.selected-cell")).toHaveCount(12);
-  await expect(table.locator(".overlay-table-shape-content")).toHaveCount(12);
+  await expect(table.locator("td.selected-cell")).toHaveCount(4);
+  await expect(table.locator(".overlay-table-shape-content")).toHaveCount(4);
 
   const innerColumnBoundary = page.getByTestId("overlay-table-column-boundary").nth(1);
   await innerColumnBoundary.focus();

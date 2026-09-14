@@ -46,6 +46,7 @@ interface OverlayShapeEditorHandlers {
   ) => void;
   onCreateChartFromTable: (shapeId: OverlayShapeId) => void;
   onTableChange: (shapeId: OverlayShapeId, table: SigmaTableSpec) => void;
+  onTableFirstCellReady?: (editor: TiptapEditor, shapeId: OverlayShapeId) => void;
   onTableEditorFocus: (editor: TiptapEditor, shapeId: OverlayShapeId) => void;
   onTableResize: (shapeId: OverlayShapeId, patch: TableShapeResizePatch) => void;
   onTextMeasuredHeight: (shapeId: OverlayShapeId, height: number) => void;
@@ -133,6 +134,7 @@ export function useOverlayShapeEditorRenderers(
     onCreateChartFromTable,
     onTableChange,
     onTableEditorFocus,
+    onTableFirstCellReady,
     onTableResize,
     onTextMeasuredHeight,
     onTextChange,
@@ -166,6 +168,7 @@ export function useOverlayShapeEditorRenderers(
         shape={shape}
         editing={editing}
         onFocus={onTableEditorFocus}
+        onFirstCellReady={onTableFirstCellReady}
         onChange={onTableChange}
         onResize={onTableResize}
         onCreateChart={onCreateChartFromTable}
@@ -190,6 +193,7 @@ export function useOverlayShapeEditorRenderers(
     onGraph3DPreviewReady,
     onTableChange,
     onTableEditorFocus,
+    onTableFirstCellReady,
     onTableResize,
     onTextMeasuredHeight,
     onTextChange,
