@@ -19,6 +19,10 @@ describe("texToGraphExpression", () => {
     expect(texToGraphExpression("x^{10}")).toBe("x^10");
   });
 
+  it.each(["s x", "s\\ x", "s\\,x", "s\\quad x"])("evaluates spacing in %s as multiplication", (tex) => {
+    expect(texToGraphExpression(tex)).toBe("s*x");
+  });
+
   /**
    * 保存された評価式はそのまま人の目に触れる: 表示用 TeX を作れない場面ではこの文字列が
    * 数式として描かれるので、`x^2` が `(x)²` と表示されていた。AI が読む文字列も同じ。
