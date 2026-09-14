@@ -67,8 +67,9 @@ test("dragging enlarges the same 2 by 2 table and preview matches the placed siz
   await expect(table.locator("[contenteditable=true]").first()).toBeFocused();
 });
 
-test("Escape cancels both the following preview and a placement drag without saving a table", async ({ page }) => {
-  for (const dragging of [false, true]) {
+test("Escape and pointer cancellation discard placement without saving a table", async ({ page }) => {
+  for (const cancellation of ["preview", "drag", "pointercancel"]) {
+    const dragging = cancellation !== "preview";
     const start = await armTable(page);
     await page.mouse.move(start.x, start.y);
     await expect(page.locator("[data-table-placement-preview]")).toBeVisible();
@@ -76,7 +77,11 @@ test("Escape cancels both the following preview and a placement drag without sav
       await page.mouse.down();
       await page.mouse.move(start.x + 220, start.y + 110, { steps: 5 });
     }
-    await page.keyboard.press("Escape");
+    if (cancellation === "pointercancel") {
+      await page.locator(".overlay-canvas-bleed-surface").first().dispatchEvent("pointercancel");
+    } else {
+      await page.keyboard.press("Escape");
+    }
     if (dragging) await page.mouse.up();
     await expect(page.locator(".overlay-insert-preview-shape")).toHaveCount(0);
     await expect(page.locator(".overlay-table-shape")).toHaveCount(0);

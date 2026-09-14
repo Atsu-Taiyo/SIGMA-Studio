@@ -1655,6 +1655,18 @@ export default function OverlayCanvasEditorClient({
     return true;
   }, [clearSnapGuides, createShapeFromInsertDrag, transitionMode]);
 
+  const cancelTablePlacement = useCallback(() => {
+    const pointerId = dragPointerRef.current?.pointerId;
+    if (pointerId !== undefined && bleedSurfaceRef.current?.hasPointerCapture(pointerId)) {
+      bleedSurfaceRef.current.releasePointerCapture(pointerId);
+    }
+    dragPointerRef.current = null;
+    dragAutoScrollerRef.current?.stop();
+    dragAutoScrollerRef.current = null;
+    clearSnapGuides();
+    transitionMode({ type: "setTool", tool: { kind: "select" } });
+  }, [clearSnapGuides, transitionMode]);
+
   const handleCommandRequest = useCallback((request: OverlayCommandRequest) => {
     if (handledCommandRequestIdRef.current === request.id) {
       return;
@@ -3430,6 +3442,11 @@ export default function OverlayCanvasEditorClient({
       }
 
       const currentMode = modeRef.current;
+      if (event.key === "Escape" && currentMode.tool.kind === "insert" && currentMode.tool.command === "table" && !isTextInputTarget(event.target)) {
+        event.preventDefault();
+        cancelTablePlacement();
+        return;
+      }
 
       if (isSnapDisableKey(event.key)) {
         snapDisabledRef.current = true;
@@ -3619,6 +3636,7 @@ export default function OverlayCanvasEditorClient({
     return () => window.removeEventListener("keydown", handleOverlayKeyboard);
   }, [
     arrangeSelectedShapes,
+    cancelTablePlacement,
     deleteSelectedShapes,
     duplicateSelectedShapes,
     finishCurveDrawing,
@@ -4712,9 +4730,14 @@ export default function OverlayCanvasEditorClient({
   useEffect(() => stopDragAutoScroll, [stopDragAutoScroll]);
 
   const handlePointerCancel = useCallback(() => {
+    const tool = modeRef.current.tool;
+    if (tool.kind === "insert" && tool.command === "table") {
+      cancelTablePlacement();
+      return;
+    }
     dragPointerRef.current = null;
     stopDragAutoScroll();
-  }, [stopDragAutoScroll]);
+  }, [cancelTablePlacement, stopDragAutoScroll]);
 
   const handlePointerUp = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
     dragPointerRef.current = null;
