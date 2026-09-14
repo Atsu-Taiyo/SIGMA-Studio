@@ -9,6 +9,24 @@ import {
 import { buildInsertShape } from "./create-shape";
 
 describe("buildInsertShape", () => {
+  it("grows a plain table by whole cells and shrinks back to the initial 2 by 2", () => {
+    const tool = { kind: "insert", command: "table", tableCellSize: { w: 64, h: 36 } } as const;
+    for (const [end, rows, columns, x, y] of [
+      [{ x: 10, y: 20 }, 2, 2, 10, 20],
+      [{ x: 310, y: 200 }, 5, 5, 10, 20],
+      [{ x: -290, y: -160 }, 5, 5, -310, -160],
+      [{ x: 30, y: 40 }, 2, 2, 10, 20],
+    ] as const) {
+      const shape = buildInsertShape(tool, { x: 10, y: 20 }, end, "table");
+      expect(shape).toMatchObject({ type: "tableShape", x, y, props: { w: columns * 64, h: rows * 36 } });
+      if (shape?.type !== "tableShape") throw new Error("Expected a table");
+      expect(shape.props.table.rows).toHaveLength(rows);
+      expect(shape.props.table.columns).toHaveLength(columns);
+      expect(shape.props.table.cells).toHaveLength(rows * columns);
+      expect(shape.props.table.grid.borderStyle).toBe("solid");
+    }
+  });
+
   it.each([
     ["pentagon", 5],
     ["hexagon", 6],

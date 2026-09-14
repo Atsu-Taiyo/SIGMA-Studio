@@ -9,6 +9,7 @@ import {
   DEFAULT_CALLOUT_CORNER_RADIUS,
   DEFAULT_TEXT_SHAPE_WIDTH,
   getTextShapeLineHeightPx,
+  getTablePlacementBounds,
   MIN_TEXT_SHAPE_WIDTH,
   normalizeCalloutCornerRadius,
   type OverlayShapeStyleDefaults,
@@ -20,7 +21,7 @@ import {
   normalizeFreehandPoints,
 } from "./line";
 import { regularPolygonSidesFromCommand } from "./regular-polygon";
-import { TABLE_SHAPE_TYPE, createTableShapeProps } from "./table";
+import { TABLE_SHAPE_TYPE, createPlainTableSpec, createTableShapeProps } from "./table";
 import { buildGraph3DPresetNames } from "@/lib/graph3d-preset-names";
 import { createCurrentLocaleTranslator } from "@/lib/i18n";
 import { CHART_SHAPE_TYPE, MIN_CHART_HEIGHT, MIN_CHART_WIDTH } from "./chart";
@@ -396,6 +397,21 @@ export function buildInsertShape(
   }
 
   if (command === "table") {
+    if (tool.tableCellSize) {
+      const placement = getTablePlacementBounds(start, end, tool.tableCellSize);
+      const { cellW, cellH, columns, rows } = placement;
+      const table = createPlainTableSpec(rows, columns);
+      table.columns.forEach((column) => { column.width = { mode: "fr", value: 1, min: cellW }; });
+      table.rows.forEach((row) => { row.height = { mode: "auto", min: cellH }; });
+      return {
+        id,
+        type: TABLE_SHAPE_TYPE,
+        x: placement.x,
+        y: placement.y,
+        rotation: 0,
+        props: { w: placement.w, h: placement.h, table },
+      };
+    }
     const tableW = Math.max(120, w, tool.tableSize?.w ?? 0);
     const tableH = Math.max(72, h, tool.tableSize?.h ?? 0);
     return {

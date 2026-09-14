@@ -50,28 +50,48 @@ test("click and drag table placement survive real Electron storage and an app re
 
   try {
     let page = await launch();
-    await page.getByRole("button", { name: "表", exact: true }).first().click();
+    expect(await page.getByRole("button", { name: "表", exact: true }).first().evaluate((button) => {
+      (button as HTMLButtonElement).click();
+      return document.querySelector("[data-table-placement-preview]") !== null;
+    })).toBe(true);
     await expect(page.getByRole("dialog", { name: "表を挿入" })).toHaveCount(0);
     const canvas = await page.locator(".overlay-canvas-editor").first().boundingBox();
     if (!canvas) throw new Error("Canvas is missing");
     const start = { x: canvas.x + 80, y: canvas.y + 180 };
     await page.mouse.move(start.x, start.y);
     const preview = page.locator("[data-table-placement-preview] .overlay-insert-preview-shape");
-    await expect(preview.locator("tr")).toHaveCount(2);
-    await expect(preview.locator("td")).toHaveCount(4);
+    await expect(preview).toHaveAttribute("data-table-preview-rows", "2");
+    await expect(preview).toHaveAttribute("data-table-preview-columns", "2");
+    await expect(preview.locator("svg")).toHaveCSS("stroke-dasharray", "3px, 3px");
+    await expect(preview.locator(".table-placement-hint")).toHaveText("ドラッグで行・列を増やす");
     await testInfo.attach("table-preview", { body: await page.screenshot({ path: testInfo.outputPath("table-preview.png") }), contentType: "image/png" });
     const clickSize = await preview.boundingBox();
     await page.mouse.click(start.x, start.y);
     await expect(page.locator(".overlay-table-shape [contenteditable=true]").first()).toBeFocused();
     await page.keyboard.type("Click table");
 
+    // Leaving editing destroys the cell editor; the next table command must not use it.
+    await page.mouse.click(start.x + 450, start.y + 40);
+    await expect(page.locator(".overlay-table-shape [contenteditable=true]")).toHaveCount(0);
+
     await page.getByRole("button", { name: "表", exact: true }).first().click();
     await page.mouse.move(start.x, start.y + 120);
     await page.mouse.down();
     await page.mouse.move(start.x + 300, start.y + 300, { steps: 8 });
+    const dragPreview = page.locator(".overlay-insert-preview-shape");
+    await expect(dragPreview).toHaveAttribute("data-table-preview-rows", "5");
+    await expect(dragPreview).toHaveAttribute("data-table-preview-columns", "5");
+    await testInfo.attach("table-drag-preview", { body: await page.screenshot({ path: testInfo.outputPath("table-drag-preview.png") }), contentType: "image/png" });
+    const releaseStartedAt = await page.evaluate(() => performance.now());
     await page.mouse.up();
     const enlarged = page.locator(".overlay-table-shape.editing");
     await expect(enlarged.locator("[contenteditable=true]").first()).toBeFocused();
+    await expect(enlarged.locator("[contenteditable=true]")).toHaveCount(1);
+    const releaseToReadyMs = await page.evaluate((startedAt) => performance.now() - startedAt, releaseStartedAt);
+    await testInfo.attach("table-placement-timing", {
+      body: JSON.stringify({ rows: 5, columns: 5, activeEditors: 1, releaseToReadyMs }),
+      contentType: "application/json",
+    });
     const dragSize = await enlarged.boundingBox();
     expect(dragSize!.width).toBeGreaterThan(clickSize!.width);
     expect(dragSize!.height).toBeGreaterThan(clickSize!.height);
@@ -82,7 +102,7 @@ test("click and drag table placement survive real Electron storage and an app re
       const file = (await window.desktopAPI!.storage.listFiles())[0];
       return file ? await window.desktopAPI!.storage.loadDocument(file.fileId) : null;
     }).then((document) => document ? tableSizes(document) : []), { timeout: 30_000 }).toEqual([
-      { rows: 2, columns: 2 }, { rows: 2, columns: 2 },
+      { rows: 2, columns: 2 }, { rows: 5, columns: 5 },
     ]);
     const file = await page.evaluate(async () => (await window.desktopAPI!.storage.listFiles())[0]);
     if (!file.documentPath) throw new Error("Desktop storage did not return a file path");
@@ -90,7 +110,7 @@ test("click and drag table placement survive real Electron storage and an app re
     expect(path.relative(realpathSync(profile), realpathSync(documentPath)).startsWith("..")).toBe(false);
     await expect.poll(() => readFileSync(documentPath, "utf8")).toContain("Drag table");
     const saved = JSON.parse(readFileSync(documentPath, "utf8")) as SigmaDocument;
-    expect(tableSizes(saved)).toEqual([{ rows: 2, columns: 2 }, { rows: 2, columns: 2 }]);
+    expect(tableSizes(saved)).toEqual([{ rows: 2, columns: 2 }, { rows: 5, columns: 5 }]);
     expect(JSON.stringify(saved)).toContain("Click table");
     const savedTables = saved.pageLayout!.overlay!.overlaySnapshot!.shapes
       .filter((shape): shape is OverlayTableShape => shape.type === "tableShape");
