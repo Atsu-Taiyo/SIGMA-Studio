@@ -57,7 +57,7 @@ test("ホワイトボードの挿入タブから表のサイズ選択ダイア�
   await expect(tablePicker).toBeVisible();
   const fourByThree = tablePicker.getByRole("button", { name: "4列 3行の表を挿入", exact: true });
   await fourByThree.hover();
-  await expect(tablePicker.locator(".table-insert-grid-size")).toHaveText("4 x 3");
+  await expect(tablePicker.locator(".table-insert-grid-size")).toHaveText("3行 × 4列");
   await fourByThree.click();
   await expect(tablePicker).toHaveCount(0);
 

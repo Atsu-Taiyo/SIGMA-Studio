@@ -66,6 +66,12 @@ export const shape = {
     selectInnerLines: "Select inner rules only",
     insert: "Insert a table",
     insertSize: "Insert a {{columns}}x{{rows}} table",
+    size: "{{rows}} rows × {{columns}} columns",
+    chooseSize: "Choose the table size",
+    rows: "Rows",
+    columns: "Columns",
+    keyboardHint: "↑↓ rows · ←→ columns · Enter to insert",
+    sizeRange: "Use whole numbers from 1 to {{max}} for rows and columns.",
     formula: {
       errorAria: "Formula error",
       error: {
