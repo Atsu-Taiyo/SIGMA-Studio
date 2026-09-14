@@ -42,12 +42,21 @@ test("font sizes use the real Electron bridge and survive an app restart", async
       props: { w: 200, h: 32, color: "#111111", size: "m", blocks: [{
         type: "paragraph", id: "shape_text", children: [{ type: "text", text: "図中文字" }],
       }] },
+    }, {
+      id: "shape_math_size", type: "text", x: 100, y: 340, rotation: 0,
+      props: { w: 240, h: 64, color: "#111111", size: "m", blocks: [{
+        type: "paragraph", id: "shape_math_text", children: [
+          { type: "mathInline", id: "shape_fraction", tex: "\\frac{x_i}{y^2}", display: "inline", semanticRole: "expression" },
+          { type: "text", text: " 図中数式" },
+        ],
+      }] },
     }] } };
     const created = await page.evaluate((document) => window.desktopAPI!.storage.createFileFromDocument({ document }), source);
     await page.reload();
     await expect(page.locator('.text-flow-editor [data-sigma-doc-id="body_size"]')).toBeVisible();
     const sizeButton = () => page.getByRole("button", { name: "フォントサイズ", exact: true });
     const up = () => page.getByRole("button", { name: "フォントサイズを1pt大きく", exact: true });
+    const down = () => page.getByRole("button", { name: "フォントサイズを1pt小さく", exact: true });
     await selectBody(page, "heading_size", 1, 1);
     await expect(sizeButton()).toHaveText("17.04pt");
     await selectBody(page, "body_size", 2, 4);
@@ -84,6 +93,48 @@ test("font sizes use the real Electron bridge and survive an app restart", async
       return document?.pageLayout?.overlay?.overlaySnapshot?.shapes.find((shape) => shape.id === "shape_size");
     }, created.file.fileId);
     await expect.poll(savedShape).toMatchObject({ props: { blocks: [{ children: [{ type: "text", text: "図中文字", fontSize: 14 }] }] } });
+
+    // Observe rendered frames through the switch, including the frame before measurement.
+    // A previous shape's 14pt must never become the stepping origin of this 12pt formula shape.
+    await page.evaluate(() => {
+      const observation = { samples: [] as string[], frame: 0 };
+      const sample = () => {
+        if (document.querySelector('.overlay-shape.selected[data-overlay-shape-id="shape_math_size"]')) {
+          observation.samples.push(document.querySelector('button[aria-label="フォントサイズ"]')?.textContent ?? "");
+        }
+        observation.frame = requestAnimationFrame(sample);
+      };
+      observation.frame = requestAnimationFrame(sample);
+      (window as FontSizeObservationWindow).__fontSizeObservation = observation;
+    });
+    const mathShape = page.locator('.overlay-shape-text[data-overlay-shape-id="shape_math_size"]');
+    await mathShape.click();
+    await expect(mathShape).toHaveClass(/selected/);
+    await expect(mathShape.locator(".ProseMirror")).toHaveCount(0);
+    await expect(mathShape.locator("[data-sigma-doc-math-inline] .ML__latex")).toBeVisible();
+    await expect(sizeButton()).toHaveText("12pt");
+    await expect.poll(() => page.evaluate(() => (window as FontSizeObservationWindow).__fontSizeObservation!.samples.length)).toBeGreaterThan(0);
+    const switchSamples = await page.evaluate(() => {
+      const observation = (window as FontSizeObservationWindow).__fontSizeObservation!;
+      cancelAnimationFrame(observation.frame);
+      delete (window as FontSizeObservationWindow).__fontSizeObservation;
+      return observation.samples;
+    });
+    expect(switchSamples.length).toBeGreaterThan(0);
+    expect(new Set(switchSamples)).toEqual(new Set(["12pt"]));
+    await up().click();
+    await expect(sizeButton()).toHaveText("13pt");
+    await down().click();
+    await expect(sizeButton()).toHaveText("12pt");
+    await shape.click();
+    await expect(sizeButton()).toHaveText("14pt");
+    const savedMathShape = async () => page.evaluate(async (id) => {
+      const document = await window.desktopAPI!.storage.loadDocument(id);
+      return document?.pageLayout?.overlay?.overlaySnapshot?.shapes.find((shape) => shape.id === "shape_math_size");
+    }, created.file.fileId);
+    await expect.poll(savedMathShape).toMatchObject({ props: { fontSize: 12, blocks: [{ children: [
+      { type: "mathInline", tex: "\\frac{x_i}{y^2}", fontSize: 12 }, { type: "text", fontSize: 12 },
+    ] }] } });
     await page.screenshot({ path: testInfo.outputPath("font-size-electron.png") });
     await app.close();
 
@@ -96,6 +147,9 @@ test("font sizes use the real Electron bridge and survive an app restart", async
     await selectBody(page, "heading_size", 1, 1);
     await expect(sizeButton()).toHaveText("17.04pt");
     await expect.poll(savedShape).toMatchObject({ props: { blocks: [{ children: [{ fontSize: 14 }] }] } });
+    await expect.poll(savedMathShape).toMatchObject({ props: { fontSize: 12, blocks: [{ children: [
+      { type: "mathInline", fontSize: 12 }, { type: "text", fontSize: 12 },
+    ] }] } });
     const files = await page.evaluate(() => window.desktopAPI!.storage.listFiles());
     const file = files.find((file) => file.fileId === created.file.fileId)!;
     const documentPath = path.resolve(userData, "data", file.documentPath!);
@@ -108,6 +162,10 @@ test("font sizes use the real Electron bridge and survive an app restart", async
     rmSync(userData, { recursive: true, force: true });
   }
 });
+
+type FontSizeObservationWindow = Window & {
+  __fontSizeObservation?: { samples: string[]; frame: number };
+};
 
 async function selectBody(page: Page, id: string, from: number, to: number) {
   await page.evaluate(({ id, from, to }) => {

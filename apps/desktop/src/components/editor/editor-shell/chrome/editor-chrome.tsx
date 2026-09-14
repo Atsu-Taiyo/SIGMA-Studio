@@ -910,8 +910,8 @@ export function renderEditorChrome(chrome: EditorChromeValue) {
                 <button
                   key={delta}
                   type="button"
-                  aria-label={t(delta > 0 ? "format.fontSize.increase" : "format.fontSize.decrease")}
-                  title={t(delta > 0 ? "format.fontSize.increase" : "format.fontSize.decrease")}
+                  aria-label={delta > 0 ? t("format.fontSize.increase") : t("format.fontSize.decrease")}
+                  title={delta > 0 ? t("format.fontSize.increase") : t("format.fontSize.decrease")}
                   disabled={!canUseTextToolbar || (delta < 0 && activeTextFontSize <= 1)}
                   onMouseDown={(event) => event.preventDefault()}
                   onClick={() => {
