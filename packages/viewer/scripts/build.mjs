@@ -1,4 +1,5 @@
 import { readFile, writeFile } from "node:fs/promises";
+import { fileURLToPath } from "node:url";
 
 import { build } from "esbuild";
 import postcss from "postcss";
@@ -7,10 +8,10 @@ import { createBuildOptions, runtimeAliases } from "./build-options.mjs";
 
 await build(createBuildOptions());
 
-const stylesOutputPath = new URL("../dist/styles.css", import.meta.url).pathname;
+const stylesOutputPath = fileURLToPath(new URL("../dist/styles.css", import.meta.url));
 await build({
-  entryPoints: { styles: new URL("../src/styles.css", import.meta.url).pathname },
-  outdir: new URL("../dist", import.meta.url).pathname,
+  entryPoints: { styles: fileURLToPath(new URL("../src/styles.css", import.meta.url)) },
+  outdir: fileURLToPath(new URL("../dist", import.meta.url)),
   alias: runtimeAliases,
   assetNames: "assets/[name]-[hash]",
   bundle: true,
