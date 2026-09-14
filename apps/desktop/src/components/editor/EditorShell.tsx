@@ -3715,18 +3715,24 @@ function EditorShellBody({ embeddedHost, editorStore }: EditorShellProps & { edi
   const canUseTextToolbar = textToolbar.enabled;
   const canUseLineHeight = textToolbar.canUseLineHeight;
   const wholeTextShape = textToolbar.wholeTextShape;
-  const [wholeTextShapeSize, setWholeTextShapeSize] = useState<SelectionFontSize | null>(null);
+  const [wholeTextShapeMeasurement, setWholeTextShapeMeasurement] = useState<{
+    shape: NonNullable<typeof wholeTextShape>;
+    size: SelectionFontSize | null;
+  } | null>(null);
   useLayoutEffect(() => {
     if (!wholeTextShape) return;
-    const root = window.document.querySelector<HTMLElement>(
-      `[data-overlay-shape-id="${CSS.escape(wholeTextShape.id)}"] .overlay-text-shape-content`,
-    );
     // Measure after the overlay's derived DOM has committed its new marks and typography.
     const frame = window.requestAnimationFrame(() => {
-      setWholeTextShapeSize(root ? readRenderedTextFontSize(root) : null);
+      const root = editorCanvasRef.current?.querySelector<HTMLElement>(
+        `[data-overlay-shape-id="${CSS.escape(wholeTextShape.id)}"] .overlay-text-shape-content`,
+      );
+      setWholeTextShapeMeasurement({ shape: wholeTextShape, size: root ? readRenderedTextFontSize(root) : null });
     });
     return () => window.cancelAnimationFrame(frame);
   }, [wholeTextShape]);
+  // A measurement belongs to this exact shape revision, never the previously selected shape.
+  const wholeTextShapeSize = wholeTextShapeMeasurement?.shape === wholeTextShape
+    ? wholeTextShapeMeasurement?.size : null;
   const activeTextFontSize = wholeTextShape
     ? wholeTextShapeSize?.fontSize ?? getTextShapeFontSizePt(wholeTextShape)
     : textFontSize ?? BASE_EDITOR_FONT_SIZE;

@@ -16,9 +16,9 @@ export function readRenderedTextFontSize(root: HTMLElement): SelectionFontSize {
   let text = walker.nextNode();
   while (text) {
     if (text.textContent?.trim() && text.parentElement) {
-      // KaTeX scales individual glyphs; the surrounding math wrapper owns the font size.
-      const katex = text.parentElement.closest(".katex");
-      elements.add(katex?.parentElement ?? text.parentElement);
+      // Math renderers scale fraction/subscript glyphs inside the semantic inline node.
+      // Its frame owns the document font size, independent of the rendering engine.
+      elements.add(text.parentElement.closest("[data-sigma-doc-math-inline]") ?? text.parentElement);
     }
     text = walker.nextNode();
   }
@@ -44,8 +44,8 @@ export function readSelectionFontSize(
     const size = marks.find((mark) => mark.type.name === "styledText")?.attrs.fontSize;
     if (typeof size === "number" && Number.isFinite(size) && size > 0) return size;
 
-    // nodeDOM gives the run wrapper (including MathLive's outer node), not KaTeX's
-    // internally scaled glyphs. At a caret, domAtPos also handles empty paragraphs.
+    // nodeDOM gives the run wrapper rather than internally scaled math glyphs.
+    // At a caret, domAtPos also handles empty paragraphs.
     const at = view.domAtPos(pos, caret ? -1 : 1);
     const node = caret
       ? (at.node.nodeType === 3 ? at.node : at.node.childNodes[at.offset] ?? at.node)

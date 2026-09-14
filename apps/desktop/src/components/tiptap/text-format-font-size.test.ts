@@ -44,14 +44,22 @@ describe("effective font size", () => {
     expect(readSelectionFontSize(editor.view, { from: 1, to: 8 })).toEqual({ fontSize: 12, fontSizeMixed: true });
   });
 
-  it("reads selected shape headings and mixed runs while ignoring KaTeX glyph scaling", () => {
+  it("reads selected shape headings and mixed runs", () => {
     const root = document.createElement("div");
     root.style.fontSize = "16px";
     root.innerHTML = '<h2 style="font-size:24px">見出し</h2><p>本文</p>';
     document.body.append(root);
     expect(readRenderedTextFontSize(root)).toEqual({ fontSize: 18, fontSizeMixed: true });
-    root.innerHTML = '<p>本文<span><span class="katex" style="font-size:19px"><span style="font-size:8px">x</span></span></span></p>';
+  });
+
+  it.each(["ML__latex", "katex"])("reads the semantic math frame regardless of %s glyph scaling", (className) => {
+    const root = document.createElement("div");
+    root.style.fontSize = "16px";
+    root.innerHTML = `<p><span data-sigma-doc-math-inline><span class="${className}" style="font-size:19px"><span style="font-size:8px">x</span><span style="font-size:6px">2</span></span></span>本文</p>`;
+    document.body.append(root);
     expect(readRenderedTextFontSize(root)).toEqual({ fontSize: 12, fontSizeMixed: false });
+    (root.querySelector("[data-sigma-doc-math-inline]") as HTMLElement).style.fontSize = "20px";
+    expect(readRenderedTextFontSize(root)).toEqual({ fontSize: 15, fontSizeMixed: true });
   });
 
   it("uses stored marks for the next keystroke, without changing existing runs", () => {
