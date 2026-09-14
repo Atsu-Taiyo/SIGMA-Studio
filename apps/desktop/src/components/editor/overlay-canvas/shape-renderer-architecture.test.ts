@@ -193,11 +193,12 @@ describe("overlay shape renderer dependency boundary", () => {
     expect(renderedLines).toContain("rowOffsets");
     expect(editor).toContain("rowOffsets={rowOffsets}");
     // What may still measure, and nothing else. Each allowed function turns a client-space position
-    // into model px — a zoom ratio, which cell a point is over, whether the caret is on the first or
+    // into an editing target — a zoom ratio, which cell/paragraph a point is over, whether the caret is on the first or
     // last line — and none of them returns anything a boundary is drawn from.
     expect(layoutReadSites(editor, ["getTableResizeScale"])).toEqual([]);
     expect(layoutReadSites(model, [
       "getTableCellPositionFromClientPoint",
+      "getTableContentIdFromClientPoint",
       "isTableCellCaretAtVerticalEdge",
     ])).toEqual([]);
     expect(layoutReadSites(renderedLines, [])).toEqual([]);

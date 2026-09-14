@@ -1614,6 +1614,44 @@ body.page-block-dragging * {
   opacity: 0.55;
 }
 
+.overlay-insert-preview-frame.table-placement {
+  border: none;
+  background: rgb(128 128 128 / 7%);
+}
+
+.overlay-insert-preview-shape.table-placement {
+  opacity: 0.45;
+}
+
+.overlay-insert-preview-shape.table-grid-placement {
+  opacity: 1;
+  overflow: visible;
+}
+
+.table-grid-placement-lines {
+  display: block;
+  background: rgb(128 128 128 / 7%);
+  fill: none;
+  stroke: rgb(156 163 175 / 45%);
+  stroke-width: 1;
+  stroke-dasharray: 3 3;
+}
+
+.table-placement-hint {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  width: max-content;
+  padding: 4px 8px;
+  border-radius: 6px;
+  background: #f1f1f1;
+  color: #555;
+  font-size: 12px;
+  line-height: 1.4;
+  white-space: nowrap;
+  user-select: none;
+}
+
 .overlay-insert-preview-shape .overlay-text-shape-content,
 .overlay-insert-preview-shape .ProseMirror {
   pointer-events: none;

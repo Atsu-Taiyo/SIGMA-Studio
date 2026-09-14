@@ -401,6 +401,7 @@ import  {
 } from "@/components/editor/editor-shell/editor-tab-view-state";
 import { suggestedPdfFileName } from "@/components/editor/editor-shell/formatting-icons";
 import { handleHeadingCommandAutoNumbering } from "@/components/editor/editor-shell/heading-command";
+import { beginTablePlacementFeedback, cancelTablePlacementFeedback, trackTablePlacementPointer } from "./overlay-canvas/table-placement-feedback";
 import  {
   applyOverlayGraphAxisLabelEdit,
   mergeOverlayGraphDetailWithPending,
@@ -1139,6 +1140,8 @@ function EditorShellBody({ embeddedHost, editorStore }: EditorShellProps & { edi
   const [overlayModeStatus, setOverlayModeStatus] = useState<OverlayModeStatus | null>(null);
   const [runningRegionEditingKind, setRunningRegionEditingKind] = useState<"header" | "footer" | null>(null);
   const [overlayCommandRequest, setOverlayCommandRequest] = useState<OverlayCommandRequest | null>(null);
+  useEffect(trackTablePlacementPointer, []);
+  useEffect(() => () => cancelTablePlacementFeedback(), [document.docId]);
   const [overlayImageRequest, setOverlayImageRequest] = useState<OverlayImageRequest | null>(null);
   const [overlayActionRequest, setOverlayActionRequest] = useState<OverlayActionRequest | null>(null);
   const [overlaySelection, setOverlaySelection] = useState<OverlaySelectionSummary>(EMPTY_OVERLAY_SELECTION);
@@ -4843,11 +4846,15 @@ function EditorShellBody({ embeddedHost, editorStore }: EditorShellProps & { edi
     setLineWidthMenuOpen(false);
     setColorStylePanel(null);
     setLineEndpointMenu(null);
-    setOverlayCommandRequest({
-      id: overlayCommandRequestIdRef.current,
-      command,
-      graphPreset,
-    });
+    const request = { id: overlayCommandRequestIdRef.current, command, graphPreset };
+    if (command === "table") {
+      beginTablePlacementFeedback(request.id, tShapeChrome("table.dragHint"),
+        () => setOverlayCommandRequest((current) => current?.id === request.id ? null : current),
+        () => setOverlayCommandRequest(request));
+    } else {
+      cancelTablePlacementFeedback();
+      setOverlayCommandRequest(request);
+    }
     if (command !== "select") {
       setStatusMessage(command === "table"
         ? tShapeChrome("table.placeHint")
