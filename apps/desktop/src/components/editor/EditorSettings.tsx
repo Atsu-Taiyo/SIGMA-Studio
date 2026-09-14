@@ -1,5 +1,7 @@
 "use client";
 
+import { graphCurveExprTex, graphCurveYExprTex } from "@/features/rendering/core";
+
 import {
   ChevronDown,
   Crop,
@@ -306,14 +308,6 @@ function buildGraphLineWidthMenuOptions(t: Translate<"shape">): OverlayLineWidth
     label: t(`graphStrokeWidth.${option.id}` as never) as string,
     strokeWidth: option.value,
   }));
-}
-
-function graphCurveExprTex(curve: GraphCurve): string {
-  return curve.exprTex?.trim() || graphExpressionToTex(curve.expr);
-}
-
-function graphCurveYExprTex(curve: GraphCurve): string {
-  return curve.yExprTex?.trim() || (curve.yExpr ? graphExpressionToTex(curve.yExpr) : "");
 }
 
 function getNextPointLabel(points: readonly GraphPoint[]): string {
