@@ -92,6 +92,10 @@ test("click and drag table placement survive real Electron storage and an app re
     const saved = JSON.parse(readFileSync(documentPath, "utf8")) as SigmaDocument;
     expect(tableSizes(saved)).toEqual([{ rows: 2, columns: 2 }, { rows: 2, columns: 2 }]);
     expect(JSON.stringify(saved)).toContain("Click table");
+    const savedTables = saved.pageLayout!.overlay!.overlaySnapshot!.shapes
+      .filter((shape): shape is OverlayTableShape => shape.type === "tableShape");
+    expect(savedTables[1].props.w).toBeGreaterThan(savedTables[0].props.w);
+    expect(savedTables[1].props.h).toBeGreaterThan(savedTables[0].props.h);
     await testInfo.attach("saved-sigmadoc", { body: JSON.stringify(saved, null, 2), contentType: "application/json" });
     await testInfo.attach("inserted-tables", { body: await page.screenshot({ path: testInfo.outputPath("inserted-tables.png") }), contentType: "image/png" });
 
@@ -101,6 +105,7 @@ test("click and drag table placement survive real Electron storage and an app re
     const reloaded = await page.evaluate(async (fileId) => window.desktopAPI!.storage.loadDocument(fileId), file.fileId);
     expect(reloaded).not.toBeNull();
     expect(tableSizes(reloaded!)).toEqual(tableSizes(saved));
+    expect(reloaded!.pageLayout?.overlay?.overlaySnapshot).toEqual(saved.pageLayout?.overlay?.overlaySnapshot);
     await expect(page.locator(".page-overlay-preview").getByText("Click table", { exact: true })).toBeVisible();
     await expect(page.locator(".page-overlay-preview").getByText("Drag table", { exact: true })).toBeVisible();
     expect(errors).toEqual([]);
