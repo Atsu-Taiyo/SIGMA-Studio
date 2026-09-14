@@ -366,6 +366,8 @@ function createWindow() {
     minHeight: 600,
     title: APP_NAME,
     icon: iconPath,
+    // Development restarts must not interrupt typing in the editor/terminal.
+    show: !DEV_SERVER_URL,
     webPreferences: {
       preload: path.join(__dirname, "preload.cjs"),
       nodeIntegration: false,
@@ -374,6 +376,9 @@ function createWindow() {
     },
   });
   mainWindow = win;
+  if (DEV_SERVER_URL) {
+    win.once("ready-to-show", () => win.showInactive());
+  }
   activeWindowCloseHandshake = createWindowCloseHandshake({
     sendCloseRequested: () => {
       if (!win.isDestroyed()) win.webContents.send("app:close-requested");
