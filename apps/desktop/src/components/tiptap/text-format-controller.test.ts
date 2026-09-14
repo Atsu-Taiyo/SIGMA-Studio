@@ -135,6 +135,7 @@ describe("text format controller", () => {
       fontFamily: " serif ",
       fontFamilyMixed: false,
       fontSize: 13.5,
+      fontSizeMixed: false,
       lineHeight: null,
       inQuoteBlock: false,
       inCodeBlock: false,

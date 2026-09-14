@@ -179,13 +179,13 @@ function OverlayTableParagraphEditor({
     onFocus: ({ editor: activeEditor }) => {
       onFocus(activeEditor, shapeId, cellId);
       dispatchTextFormatState(activeEditor, "sigma-studio:text-format-state", "overlay", undefined, {
-        state: activeEditor.state, documentFontFamily: DEFAULT_BODY_FONT_FAMILY,
+        state: activeEditor.state, view: activeEditor.view, documentFontFamily: DEFAULT_BODY_FONT_FAMILY,
       });
     },
     onTransaction: ({ editor: activeEditor }) => {
       if (activeEditor.isFocused) {
         dispatchTextFormatState(activeEditor, "sigma-studio:text-format-state", "overlay", undefined, {
-          state: activeEditor.state, documentFontFamily: DEFAULT_BODY_FONT_FAMILY,
+          state: activeEditor.state, view: activeEditor.view, documentFontFamily: DEFAULT_BODY_FONT_FAMILY,
         });
       }
     },

@@ -129,7 +129,10 @@ export const chrome = {
     },
     fontSize: {
       aria: "Font size",
-      auto: "Auto",
+      increase: "Increase font size by 1pt",
+      decrease: "Decrease font size by 1pt",
+      mixed: "Mixed",
+      mixedHelp: "Sizes vary. The first size is shown; changes apply to the entire selection.",
       input: "Size (pt)",
       inputHelp: "Enter a size of 1pt or more.",
       inputError: "Enter a number of at least 1pt.",
