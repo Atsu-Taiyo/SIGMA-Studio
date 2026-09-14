@@ -24,7 +24,7 @@ export function getSelectionActionKey(
       // AI へ渡ってはいけない (数式を打っている間だけ churn するが、本文打鍵では動かない)。
       return JSON.stringify(["inlineMath", source.targetId, source.mathInlineId, source.tex]);
     case "overlaySelection":
-      return JSON.stringify(["overlaySelection", source.targetId, source.selection.selectedShapeIds]);
+      return JSON.stringify(["overlaySelection", source.targetId, source.selection.selectedShapeIds, source.selection.region]);
     case "textRange":
       return JSON.stringify(reference);
   }

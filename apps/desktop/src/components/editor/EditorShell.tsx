@@ -1469,12 +1469,24 @@ function EditorShellBody({ embeddedHost, editorStore }: EditorShellProps & { edi
           return;
         }
 
-        element.scrollIntoView({ block: "center", inline: "nearest", behavior: "smooth" });
+        const thread = documentRef.current.comments?.find((item) => item.id === targetThreadId);
+        const viewport = window.document.querySelector<HTMLElement>(".whiteboard-page-canvas");
+        if (viewport && thread?.anchor.type === "canvasRegion") {
+          const { bounds } = thread.anchor;
+          const store = editorStore.getState();
+          const scale = store.zoom / 100;
+          store.setWhiteboardPan({
+            panX: viewport.clientWidth / 2 - (bounds.x + bounds.w / 2) * scale,
+            panY: viewport.clientHeight / 2 - (bounds.y + bounds.h / 2) * scale,
+          });
+        } else {
+          element.scrollIntoView({ block: "center", inline: "nearest", behavior: "smooth" });
+        }
         element.classList.add("comment-focus-pulse");
         window.setTimeout(() => element.classList.remove("comment-focus-pulse"), 1000);
       });
     });
-  }, [activeCommentThreadId, visibleCommentThreadsForPanel]);
+  }, [activeCommentThreadId, editorStore, visibleCommentThreadsForPanel]);
 
   const toggleCommentsPanel = useCallback(() => {
     setHighlightedCommentThreadId(null);

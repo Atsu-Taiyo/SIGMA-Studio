@@ -32,6 +32,7 @@ export interface AiEditReferenceBase {
 }
 
 export interface AiEditOverlaySelectionContext {
+  region?: { x: number; y: number; w: number; h: number };
   selectedShapeIds: string[];
   shapes: OverlayShape[];
   assets: Record<string, AiEditOverlayAssetContext>;
@@ -120,7 +121,7 @@ export function getAiEditReferenceKey(reference: AiEditReference): string {
     ? `${reference.textRange.start.blockId}@${reference.textRange.start.offset}-${reference.textRange.end.blockId}@${reference.textRange.end.offset}`
     : "";
   const overlayPart = reference.overlaySelection
-    ? `overlay:${[...reference.overlaySelection.selectedShapeIds].sort().join(",")}`
+    ? `overlay:${getOverlaySelectionIdentity(reference.overlaySelection)}`
     : "";
   return `${reference.kind}:${reference.targetId}:${selectionPart}:${rangePart}:${overlayPart}`;
 }
@@ -162,7 +163,7 @@ export function isImplicitAiEditReferenceSuppressed(
 }
 
 function getOverlaySelectionIdentity(selection: AiEditOverlaySelectionContext): string {
-  return [...selection.selectedShapeIds].sort().join("\u0001");
+  return JSON.stringify([[...selection.selectedShapeIds].sort(), selection.region]);
 }
 
 /**
@@ -247,6 +248,19 @@ export function createOverlaySelectionAiEditReference({
     targetType: `overlayShape:${selectedShape.type}`,
     excerpt,
     overlaySelection,
+  };
+}
+
+/** An empty whiteboard range is a placement reference, not a synthetic shape/block. */
+export function createCanvasRegionAiEditReference(
+  region: { x: number; y: number; w: number; h: number },
+): AiEditBlockReference {
+  return {
+    kind: "block",
+    targetId: "CANVAS",
+    targetType: "canvasRegion",
+    excerpt: DEFAULT_AI_TRANSLATE("reference.canvasRegion"),
+    overlaySelection: { region: { ...region }, selectedShapeIds: [], shapes: [], assets: {} },
   };
 }
 
@@ -499,6 +513,7 @@ export function formatAiEditReferenceForPrompt(reference: AiEditReference | null
   }
 
   const overlayContext = formatAiEditOverlaySelectionForPrompt(reference.overlaySelection);
+  if (reference.targetType === "canvasRegion") return overlayContext;
 
   if (reference.kind === "textSelection") {
     const rangeContext = reference.textRange
@@ -863,6 +878,13 @@ function uniqueNonEmpty(values: string[]): string[] {
 }
 
 function formatAiEditOverlaySelectionForPrompt(selection: AiEditOverlaySelectionContext | undefined): string {
+  if (selection?.region) {
+    return [
+      "参照対象: ホワイトボードの選択領域 (targetId: CANVAS)",
+      "bounds はズーム・パンに依存しないキャンバス絶対座標 (px)。この領域を配置基準として使う。既存の図形IDや本文ブロックではない。",
+      JSON.stringify({ bounds: selection.region }),
+    ].join("\n");
+  }
   if (!selection || selection.shapes.length === 0) {
     return tv("reference.formatAiEditOverlaySelectionForPrompt1");
   }
@@ -924,6 +946,7 @@ export function getReferenceDisplayLabel(
       replace: { count },
     });
   }
+  if (reference.targetType === "canvasRegion") return t("reference.canvasRegion");
   const text = reference.kind === "textSelection"
     ? (reference.selectedText || reference.excerpt)
     : reference.kind === "inlineMath"

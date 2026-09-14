@@ -190,6 +190,7 @@ export const ai = {
     plusImages: "+{{count}} images",
     plusShapes: "+{{count}} shapes",
     shapeCount: "{{count}} shapes",
+    canvasRegion: "Selected canvas region",
     selectedShapeCount: "Selected shape count: {{count}}",
     selectedImageShapeCount: "Selected image/shape count: {{count}}",
     kind: {

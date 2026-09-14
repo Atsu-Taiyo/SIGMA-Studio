@@ -103,11 +103,11 @@ export function getOverlaySelectionActionPopoverPosition(
   zoom: number,
   offset: { x: number; y: number } = { x: 0, y: 0 },
 ): SelectionActionPopoverPosition | null {
-  if (!canvas || selection.selectedShapes.length === 0) {
+  if (!canvas || (selection.selectedShapes.length === 0 && !selection.region)) {
     return null;
   }
 
-  const bounds = getShapesSelectionBounds(selection.selectedShapes);
+  const bounds = selection.region ?? getShapesSelectionBounds(selection.selectedShapes);
   if (!bounds) {
     return null;
   }
@@ -120,7 +120,7 @@ export function getOverlaySelectionActionPopoverPosition(
     Math.max(1, bounds.w * zoomScale),
     Math.max(1, bounds.h * zoomScale),
   ), {
-    verticalClearance: OVERLAY_ROTATE_HANDLE_CLEARANCE,
+    verticalClearance: selection.region ? SELECTION_ACTION_POPOVER_GAP : OVERLAY_ROTATE_HANDLE_CLEARANCE,
   });
 }
 
