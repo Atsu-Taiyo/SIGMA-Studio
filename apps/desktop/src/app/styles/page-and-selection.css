@@ -1603,6 +1603,15 @@ body.page-block-dragging * {
   opacity: 0.55;
 }
 
+.overlay-insert-preview-frame.table-placement {
+  border: none;
+  background: rgb(128 128 128 / 7%);
+}
+
+.overlay-insert-preview-shape.table-placement {
+  opacity: 0.45;
+}
+
 .overlay-insert-preview-shape .overlay-text-shape-content,
 .overlay-insert-preview-shape .ProseMirror {
   pointer-events: none;

@@ -27,6 +27,8 @@ test("2 by 2 preview follows the pointer and a click places it with first-cell f
   await expect(preview).toBeVisible();
   await expect(preview.locator("tr")).toHaveCount(2);
   await expect(preview.locator("td")).toHaveCount(4);
+  await expect(preview).toHaveCSS("opacity", "0.45");
+  await expect(preview.locator("td").first()).toHaveCSS("border-top-style", "dashed");
   const first = await preview.boundingBox();
   await page.mouse.move(start.x + 60, start.y + 40);
   await expect.poll(async () => (await preview.boundingBox())?.x).toBeCloseTo(first!.x + 60, 0);
@@ -45,16 +47,17 @@ test("2 by 2 preview follows the pointer and a click places it with first-cell f
   await expect(table.locator("td").first()).toContainText("Click table");
 });
 
-test("dragging enlarges the same 2 by 2 table and preview matches the placed size", async ({ page }) => {
+test("dragging adds rows and columns and preview matches the placed grid", async ({ page }) => {
   const start = await armTable(page);
   await page.mouse.move(start.x, start.y);
   await page.mouse.down();
   await page.mouse.move(start.x + 300, start.y + 180, { steps: 8 });
   const preview = page.locator(".overlay-insert-preview-shape");
-  await expect(preview.locator("tr")).toHaveCount(2);
-  await expect(preview.locator("td")).toHaveCount(4);
+  await expect(preview.locator("tr")).toHaveCount(5);
+  await expect(preview.locator("td")).toHaveCount(25);
+  await expect(preview.locator("td").first()).toHaveCSS("border-top-style", "dashed");
   const expected = await preview.boundingBox();
-  expect(expected!.width).toBeCloseTo(300, 0);
+  expect(expected!.width).toBeCloseTo(320, 0);
   expect(expected!.height).toBeCloseTo(180, 0);
   await page.mouse.up();
   const table = page.locator(".overlay-table-shape");
@@ -62,9 +65,26 @@ test("dragging enlarges the same 2 by 2 table and preview matches the placed siz
   const placed = await table.boundingBox();
   expect(placed!.width).toBeCloseTo(expected!.width, 0);
   expect(placed!.height).toBeCloseTo(expected!.height, 0);
-  await expect(table.locator("tr")).toHaveCount(2);
-  await expect(table.locator("td")).toHaveCount(4);
+  await expect(table.locator("tr")).toHaveCount(5);
+  await expect(table.locator("td")).toHaveCount(25);
+  await expect(table.locator("td").first()).toHaveCSS("border-top-style", "solid");
   await expect(table.locator("[contenteditable=true]").first()).toBeFocused();
+});
+
+test("table can be armed again after leaving a cell editor", async ({ page }) => {
+  const errors: string[] = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  const start = await armTable(page);
+  await page.mouse.click(start.x, start.y);
+  const table = page.locator(".overlay-table-shape");
+  await expect(table.locator("[contenteditable=true]").first()).toBeFocused();
+  await page.keyboard.type("A");
+  await page.mouse.click(start.x + 250, start.y + 250);
+  await expect(table.locator("[contenteditable=true]")).toHaveCount(0);
+  await armTable(page);
+  await page.mouse.click(start.x + 160, start.y);
+  await expect(page.locator(".overlay-table-shape")).toHaveCount(2);
+  expect(errors).toEqual([]);
 });
 
 test("Escape and pointer cancellation discard placement without saving a table", async ({ page }) => {
