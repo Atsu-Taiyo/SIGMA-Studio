@@ -52,6 +52,8 @@ AI機能は、利用するプロバイダの接続設定が必要です。
 
 **手元の素材を使う** — JSON・TeX・PowerPointのインポートに対応しています。文書はSigmaDoc JSONで保存します。
 
+**教材ファイルを開く** — `.sigma` をSigma Studioで開けます。以前の `.sigma.json` / `.sigmadoc.json` も読み込めます。[開き方と保存先](docs/opening-material-files.md)
+
 ## あなたのアプリにも、Sigma Studioを
 
 React向けのEditor・Viewerを公開しています。編集機能や教材の表示を、別のアプリにも組み込めます。
