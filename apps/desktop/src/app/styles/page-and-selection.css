@@ -2497,47 +2497,6 @@ body.page-block-dragging * {
   height: 0;
 }
 
-.table-insert-grid-popover {
-  position: fixed;
-  top: 82px;
-  left: 132px;
-  z-index: 4000;
-  display: grid;
-  gap: 8px;
-  padding: 10px 12px 9px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: #ffffff;
-  box-shadow: 0 16px 36px rgba(15, 23, 42, 0.18);
-}
-
-.table-insert-grid {
-  display: grid;
-  gap: 2px;
-}
-
-.table-insert-grid button {
-  width: 16px;
-  height: 16px;
-  padding: 0;
-  border: 1px solid #d9dde5;
-  border-radius: 0;
-  background: #f8fafc;
-  cursor: pointer;
-}
-
-.table-insert-grid button.selected {
-  border-color: #3b82f6;
-  background: #dbeafe;
-}
-
-.table-insert-grid-size {
-  color: var(--text-primary);
-  font-size: 13px;
-  font-weight: 650;
-  text-align: center;
-}
-
 .overlay-table-floating-toolbar {
   position: absolute;
   z-index: 19;

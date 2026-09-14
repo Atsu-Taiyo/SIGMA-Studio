@@ -260,12 +260,15 @@ export function OverlayTableShapeEditor({
   onChange,
   onResize,
   onCreateChart,
+  onFirstCellReady,
 }: {
   shape: Extract<OverlayShape, { type: "tableShape" }>;
   editing: boolean;
   onFocus: (editor: TiptapEditor, shapeId: OverlayShapeId) => void;
   onChange: (shapeId: OverlayShapeId, table: SigmaTableSpec) => void;
   onResize: (shapeId: OverlayShapeId, patch: TableShapeResizePatch) => void;
+  /** Called only once its first paragraph editor can receive focus. */
+  onFirstCellReady?: (editor: TiptapEditor, shapeId: OverlayShapeId) => void;
   /** Absent on surfaces that cannot insert shapes; the menu item is then hidden. */
   onCreateChart?: (shapeId: OverlayShapeId) => void;
 }) {
@@ -351,9 +354,14 @@ export function OverlayTableShapeEditor({
     });
   }, [editing, table.columns.length, table.rows.length]);
 
+  const firstCell = getTableCellAtGridPosition(table, 0, 0);
+  const firstParagraph = firstCell ? getFirstTableParagraphContent(firstCell) : null;
   const registerTableCellEditor = useCallback((cellId: string, contentId: string, editor: TiptapEditor) => {
     const editorKey = getTableParagraphEditorKey(cellId, contentId);
     tableCellEditorsRef.current.set(editorKey, editor);
+    if (cellId === firstCell?.id && contentId === firstParagraph?.id) {
+      onFirstCellReady?.(editor, shape.id);
+    }
     const pending = pendingCellFocusRef.current;
     if (pending && pending.cellId === cellId && pending.contentId === contentId) {
       pendingCellFocusRef.current = null;
@@ -364,7 +372,7 @@ export function OverlayTableShapeEditor({
         tableCellEditorsRef.current.delete(editorKey);
       }
     };
-  }, []);
+  }, [firstCell?.id, firstParagraph?.id, onFirstCellReady, shape.id]);
 
   const focusTableCell = useCallback((
     rowIndex: number,
