@@ -115,7 +115,9 @@ export function resolveHiddenPdfDocumentUrl(sourceUrl: string): string {
     const url = new URL(sourceUrl);
     url.hash = "";
     url.search = "";
-    url.pathname = url.pathname.replace(/[^/]+$/, "print.html");
+    url.pathname = url.protocol === "http:" && url.hostname === "127.0.0.1" && url.port
+      ? "/print"
+      : url.pathname.replace(/[^/]+$/, "print.html");
     return url.toString();
   } catch {
     return "about:blank";
