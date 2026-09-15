@@ -132,14 +132,9 @@ export const chrome = {
     },
     fontSize: {
       aria: "フォントサイズ",
-      increase: "フォントサイズを1pt大きく",
-      decrease: "フォントサイズを1pt小さく",
-      mixed: "混在",
+      increase: "フォントサイズを大きく",
+      decrease: "フォントサイズを小さく",
       mixedHelp: "サイズが混在しています。先頭のサイズを表示し、変更は選択範囲全体に適用します。",
-      input: "サイズ (pt)",
-      inputHelp: "1pt以上の数値を入力できます。",
-      inputError: "1pt以上の数値を入力してください。",
-      apply: "適用",
     },
     bold: {
       label: "太字",

@@ -55,7 +55,6 @@ export interface EditorChromeToolbarMenus {
   setColorStylePanel: Dispatch<SetStateAction<ColorStylePanel>>;
   setBlockStyleMenuOpen: Dispatch<SetStateAction<boolean>>;
   setFontFamilyMenuOpen: Dispatch<SetStateAction<boolean>>;
-  setFontSizeMenuOpen: Dispatch<SetStateAction<boolean>>;
   setLineDashMenuOpen: Dispatch<SetStateAction<boolean>>;
   setLineEndpointMenu: Dispatch<SetStateAction<"start" | "end" | null>>;
   setLineHeightMenuOpen: Dispatch<SetStateAction<boolean>>;
@@ -136,12 +135,9 @@ export interface EditorChromeFormat {
   fontFamilyIsMixed: boolean;
   fontFamilyMenuOpen: boolean;
   fontFamilyQuery: string;
-  fontSizeButtonRef: RefObject<HTMLButtonElement | null>;
-  fontSizeMenuOpen: boolean;
+  fontSizeInputRef: RefObject<HTMLInputElement | null>;
   fontSizeInput: string;
-  fontSizeInputInvalid: boolean;
   setFontSizeInput: Dispatch<SetStateAction<string>>;
-  setFontSizeInputInvalid: Dispatch<SetStateAction<boolean>>;
   handleLineHeightStepClick: (event: MouseEvent<HTMLButtonElement>, direction: "increase" | "decrease") => void;
   italicActive: boolean;
   lineHeight: string;
