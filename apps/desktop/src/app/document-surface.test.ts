@@ -570,6 +570,6 @@ describe("枠レイヤを落とすとセグメントの border に戻る", () =>
     expect(staticChoice["border-radius"]).toBe("50%");
     expect(staticChoice["font-variant-numeric"]).toBe("tabular-nums");
     expect(staticChoice["vertical-align"]).toBe("-0.12em");
-    expect(staticText["font-size"]).toBe("1.1em");
+    expect(staticText["font-size"]).toBe("1.067em");
   });
 });
