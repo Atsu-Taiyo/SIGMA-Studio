@@ -244,26 +244,24 @@
   outline-offset: -4px;
 }
 
-/* Common Test answer-choice marker: a compact, heavy circle like the printed
-   answer sheet. Keep this rule in sync with SIGMA_MATHLIVE_MACRO_STYLES for the
-   editable MathLive field.
-   vertical-align keeps the circle centered on the printed 共通テスト baseline:
-   geometric center matches surrounding CJK / the visual center of `\cos\alpha\sin\beta`. */
+/* The reference is photographed sideways: upright digits have a tall oval,
+   not a circle. Keep these font-relative dimensions synchronized with
+   SIGMA_MATHLIVE_MACRO_STYLES, including the baseline optical correction. */
 .sigma-kyoutsuu-choice {
   align-items: center;
-  block-size: 1em;
-  border: 0.1em solid currentColor;
+  block-size: 1.3em;
+  border: 0.095em solid currentColor;
   border-radius: 50%;
   box-sizing: border-box;
   display: inline-flex !important;
   font-family: Arial, "Helvetica Neue", sans-serif;
   font-style: normal;
   font-variant-numeric: tabular-nums;
-  font-weight: 700;
-  inline-size: 1em;
+  font-weight: 400;
+  inline-size: 0.96em;
   justify-content: center;
   line-height: 1;
-  vertical-align: 0;
+  vertical-align: -0.12em;
 }
 
 .sigma-kyoutsuu-choice > .ML__text,
@@ -271,7 +269,7 @@
   align-items: center;
   display: inline-flex;
   font-family: inherit !important;
-  font-size: 0.78em;
+  font-size: 1.1em;
   font-style: inherit;
   font-variant-numeric: inherit;
   font-weight: inherit;
