@@ -36,6 +36,10 @@ export const SIGMA_MATHLIVE_MACRO_STYLES = String.raw`
   font-weight: inherit;
   justify-content: center;
   line-height: 1;
+  /* Fill the tall oval without widening the digit into its side strokes.
+     Transform only the glyph box so inline layout and baseline stay fixed. */
+  transform: scaleY(1.22);
+  transform-origin: center;
 }
 
 .${KYOUTSUU_CHOICE_CLASS} > .text > .mord {
