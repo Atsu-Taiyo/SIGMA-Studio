@@ -564,12 +564,13 @@ describe("枠レイヤを落とすとセグメントの border に戻る", () =>
 
     expect(staticChoice).toEqual(editableChoice);
     expect(staticText).toEqual(editableText);
-    expect(staticChoice["block-size"]).toBe("1.28em");
-    expect(staticChoice["inline-size"]).toBe("0.9em");
-    expect(staticChoice.border).toBe("0.14em solid currentColor");
+    expect(staticChoice["block-size"]).toBe("1.3em");
+    expect(staticChoice["inline-size"]).toBe("0.96em");
+    expect(staticChoice.border).toBe("0");
+    expect(staticChoice["box-shadow"]).toBe("inset 0 0 0 0.105em currentColor");
     expect(staticChoice["border-radius"]).toBe("50%");
     expect(staticChoice["font-variant-numeric"]).toBe("tabular-nums");
-    expect(staticChoice["vertical-align"]).toBe("0.14em");
-    expect(staticText["font-size"]).toBe("0.78em");
+    expect(staticChoice["vertical-align"]).toBe("middle");
+    expect(staticText["font-size"]).toBe("1.067em");
   });
 });

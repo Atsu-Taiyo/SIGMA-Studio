@@ -363,6 +363,14 @@ function parityDocumentWithKyoutsuuChoice(): SigmaDocument {
     content: [
       ...document.content,
       {
+        id: "choice_reference_line",
+        type: "paragraph",
+        children: [
+          { type: "mathInline", id: "choice_reference_zero", tex: String.raw`\kyoutsuuchoice{0}\quad`, display: "inline" },
+          { type: "text", text: "プロ選手と花子さんの「ボールが最も高くなるときの地上の位置」の方が、", fontFamily: "serif" },
+        ],
+      },
+      {
         id: "parity_kyoutsuu_choice_paragraph",
         type: "paragraph",
         children: [
@@ -370,7 +378,7 @@ function parityDocumentWithKyoutsuuChoice(): SigmaDocument {
           {
             type: "mathInline",
             id: KYOUTSUU_CHOICE_MATH_ID,
-            tex: String.raw`\kyoutsuuchoice{0}`,
+            tex: String.raw`\kyoutsuuchoice{0}\text{aaa}\quad\kyoutsuuchoice{1}\text{aaa}\quad\kyoutsuuchoice{2}\text{aaa}\quad\kyoutsuuchoice{3}\text{aaa}`,
             display: "inline",
           },
           { type: "text", text: "に当てはまるもの" },
@@ -812,7 +820,9 @@ test("renders the KaTeX fallback path in the document typeset style", async ({ p
   expect(Math.abs(plainBox.height - displayBox.height)).toBeLessThanOrEqual(PARITY_TOLERANCE_PX);
 });
 
-test("keeps canonical static math geometry while MathLive is editing", async ({ page }) => {
+test.describe("Common Test choice visual verification", () => {
+test.use({ deviceScaleFactor: 3 });
+test("keeps canonical static math geometry while MathLive is editing", async ({ page }, testInfo) => {
   await page.setViewportSize({ width: 1400, height: 1000 });
   await page.addInitScript(() => window.localStorage.clear());
   await installDesktopRuntimeMock(page, parityDocumentWithKyoutsuuChoice());
@@ -830,12 +840,47 @@ test("keeps canonical static math geometry while MathLive is editing", async ({ 
     const idle = await settledBoundingBox(math);
     const idleMarkup = await preview.innerHTML();
 
+    if (id === KYOUTSUU_CHOICE_MATH_ID) {
+      // Compare visible lowercase ink with the oval, not merely the formula's
+      // unchanged layout box: that missed the original vertical misalignment.
+      const centerGap = await preview.evaluate(el => {
+        const oval = el.querySelector<HTMLElement>(".sigma-kyoutsuu-choice")!;
+        const label = oval.nextElementSibling as HTMLElement;
+        if (label.textContent !== "aaa") throw new Error("Missing adjacent text fixture");
+        const style = getComputedStyle(label);
+        const context = document.createElement("canvas").getContext("2d")!;
+        context.font = `${style.fontStyle} ${style.fontWeight} ${style.fontSize} ${style.fontFamily}`;
+        const ink = context.measureText("aaa");
+        const baseline = document.createElement("span");
+        baseline.style.cssText = "display:inline-block;width:0;height:0;vertical-align:baseline";
+        label.after(baseline);
+        const textCenter = baseline.getBoundingClientRect().top
+          + (ink.actualBoundingBoxDescent - ink.actualBoundingBoxAscent) / 2;
+        baseline.remove();
+        const rect = oval.getBoundingClientRect();
+        return (textCenter - (rect.top + rect.height / 2)) / parseFloat(style.fontSize);
+      });
+      expect(centerGap, "choice center is above adjacent lowercase ink").toBeGreaterThan(0.1);
+      expect(centerGap, "choice center is not lifted excessively").toBeLessThan(0.3);
+      await page.screenshot({ path: testInfo.outputPath("choice-static.png") });
+      await math.locator("xpath=..").screenshot({ path: testInfo.outputPath("choice-detail.png"), scale: "css" });
+      const paragraph = math.locator("xpath=..");
+      await paragraph.screenshot({ path: testInfo.outputPath("choice-enlarged.png"), scale: "device" });
+      await page.locator('.text-flow-editor [data-sigma-doc-id="choice_reference_line"]').screenshot({
+        path: testInfo.outputPath("choice-reference-line.png"), scale: "device",
+      });
+    }
+
     await math.click();
     await expect(math).toHaveClass(/editing/);
     await expect(math.locator("math-field")).toBeVisible();
     // 非表示にしても取り外さない。同じ静的 markup がレイアウトを所有し続ける。
     await expect(preview).toHaveCSS("visibility", "hidden");
     const editing = await settledBoundingBox(math);
+
+    if (id === KYOUTSUU_CHOICE_MATH_ID) {
+      await page.screenshot({ path: testInfo.outputPath("choice-editing.png") });
+    }
 
     expect(Math.abs(editing.height - idle.height), `${id} height`).toBeLessThanOrEqual(PARITY_TOLERANCE_PX);
     expect(Math.abs(editing.width - idle.width), `${id} width`).toBeLessThanOrEqual(PARITY_TOLERANCE_PX);
@@ -864,6 +909,8 @@ test("keeps canonical static math geometry while MathLive is editing", async ({ 
     }
     await expect(preview).toBeVisible();
   }
+});
+
 });
 
 /**

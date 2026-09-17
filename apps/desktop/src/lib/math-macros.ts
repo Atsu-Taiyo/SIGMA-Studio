@@ -10,19 +10,25 @@ export const KYOUTSUU_CHOICE_CLASS = "sigma-kyoutsuu-choice";
 export const SIGMA_MATHLIVE_MACRO_STYLES = String.raw`
 .${KYOUTSUU_CHOICE_CLASS} {
   align-items: center;
-  block-size: 1.28em;
-  border: 0.14em solid currentColor;
+  block-size: 1.3em;
+  border: 0;
+  /* Inset stroke preserves fractional widths at small font sizes; CSS borders
+     quantize them to whole device pixels and change the stroke/glyph ratio. */
+  box-shadow: inset 0 0 0 0.105em currentColor;
   border-radius: 50%;
   box-sizing: border-box;
   display: inline-flex !important;
   font-family: Arial, "Helvetica Neue", sans-serif;
   font-style: normal;
   font-variant-numeric: tabular-nums;
-  font-weight: 700;
-  inline-size: 0.9em;
+  font-weight: 400;
+  inline-size: 0.96em;
   justify-content: center;
   line-height: 1;
-  vertical-align: 0.14em;
+  vertical-align: middle;
+  /* Printed choice markers sit above the lowercase x-height center.
+     Lift the whole marker; keep its internal digit centering unchanged. */
+  transform: translateY(-0.2em);
 }
 
 .${KYOUTSUU_CHOICE_CLASS} > .ML__text,
@@ -30,12 +36,16 @@ export const SIGMA_MATHLIVE_MACRO_STYLES = String.raw`
   align-items: center;
   display: inline-flex;
   font-family: inherit !important;
-  font-size: 0.78em;
+  font-size: 1.067em;
   font-style: inherit;
   font-variant-numeric: inherit;
   font-weight: inherit;
   justify-content: center;
   line-height: 1;
+  /* Arial digits sit slightly above their line-box center. Use a font-relative
+     optical correction, independent of the oval's paragraph baseline. */
+  transform: translateY(0.035em);
+  transform-origin: center;
 }
 
 .${KYOUTSUU_CHOICE_CLASS} > .text > .mord {
