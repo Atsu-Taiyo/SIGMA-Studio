@@ -812,7 +812,7 @@ test("renders the KaTeX fallback path in the document typeset style", async ({ p
   expect(Math.abs(plainBox.height - displayBox.height)).toBeLessThanOrEqual(PARITY_TOLERANCE_PX);
 });
 
-test("keeps canonical static math geometry while MathLive is editing", async ({ page }) => {
+test("keeps canonical static math geometry while MathLive is editing", async ({ page }, testInfo) => {
   await page.setViewportSize({ width: 1400, height: 1000 });
   await page.addInitScript(() => window.localStorage.clear());
   await installDesktopRuntimeMock(page, parityDocumentWithKyoutsuuChoice());
@@ -830,12 +830,20 @@ test("keeps canonical static math geometry while MathLive is editing", async ({ 
     const idle = await settledBoundingBox(math);
     const idleMarkup = await preview.innerHTML();
 
+    if (id === KYOUTSUU_CHOICE_MATH_ID) {
+      await page.screenshot({ path: testInfo.outputPath("choice-static.png") });
+    }
+
     await math.click();
     await expect(math).toHaveClass(/editing/);
     await expect(math.locator("math-field")).toBeVisible();
     // 非表示にしても取り外さない。同じ静的 markup がレイアウトを所有し続ける。
     await expect(preview).toHaveCSS("visibility", "hidden");
     const editing = await settledBoundingBox(math);
+
+    if (id === KYOUTSUU_CHOICE_MATH_ID) {
+      await page.screenshot({ path: testInfo.outputPath("choice-editing.png") });
+    }
 
     expect(Math.abs(editing.height - idle.height), `${id} height`).toBeLessThanOrEqual(PARITY_TOLERANCE_PX);
     expect(Math.abs(editing.width - idle.width), `${id} width`).toBeLessThanOrEqual(PARITY_TOLERANCE_PX);
