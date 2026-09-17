@@ -25,7 +25,7 @@ export const SIGMA_MATHLIVE_MACRO_STYLES = String.raw`
   inline-size: 0.96em;
   justify-content: center;
   line-height: 1;
-  vertical-align: 0.16em;
+  vertical-align: middle;
 }
 
 .${KYOUTSUU_CHOICE_CLASS} > .ML__text,

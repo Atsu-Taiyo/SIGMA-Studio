@@ -378,7 +378,7 @@ function parityDocumentWithKyoutsuuChoice(): SigmaDocument {
           {
             type: "mathInline",
             id: KYOUTSUU_CHOICE_MATH_ID,
-            tex: String.raw`\kyoutsuuchoice{0}\quad\kyoutsuuchoice{1}\quad\kyoutsuuchoice{2}\quad\kyoutsuuchoice{3}`,
+            tex: String.raw`\kyoutsuuchoice{0}\text{aaa}\quad\kyoutsuuchoice{1}\text{aaa}\quad\kyoutsuuchoice{2}\text{aaa}\quad\kyoutsuuchoice{3}\text{aaa}`,
             display: "inline",
           },
           { type: "text", text: "に当てはまるもの" },
@@ -841,6 +841,26 @@ test("keeps canonical static math geometry while MathLive is editing", async ({ 
     const idleMarkup = await preview.innerHTML();
 
     if (id === KYOUTSUU_CHOICE_MATH_ID) {
+      // Compare visible lowercase ink with the oval, not merely the formula's
+      // unchanged layout box: that missed the original vertical misalignment.
+      const centerGap = await preview.evaluate(el => {
+        const oval = el.querySelector<HTMLElement>(".sigma-kyoutsuu-choice")!;
+        const label = oval.nextElementSibling as HTMLElement;
+        if (label.textContent !== "aaa") throw new Error("Missing adjacent text fixture");
+        const style = getComputedStyle(label);
+        const context = document.createElement("canvas").getContext("2d")!;
+        context.font = `${style.fontStyle} ${style.fontWeight} ${style.fontSize} ${style.fontFamily}`;
+        const ink = context.measureText("aaa");
+        const baseline = document.createElement("span");
+        baseline.style.cssText = "display:inline-block;width:0;height:0;vertical-align:baseline";
+        label.after(baseline);
+        const textCenter = baseline.getBoundingClientRect().top
+          + (ink.actualBoundingBoxDescent - ink.actualBoundingBoxAscent) / 2;
+        baseline.remove();
+        const rect = oval.getBoundingClientRect();
+        return Math.abs(rect.top + rect.height / 2 - textCenter);
+      });
+      expect(centerGap, "choice oval and adjacent aaa ink centers").toBeLessThanOrEqual(1.5);
       await page.screenshot({ path: testInfo.outputPath("choice-static.png") });
       await math.locator("xpath=..").screenshot({ path: testInfo.outputPath("choice-detail.png"), scale: "css" });
       const paragraph = math.locator("xpath=..");

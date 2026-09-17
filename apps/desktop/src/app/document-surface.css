@@ -264,7 +264,7 @@
   inline-size: 0.96em;
   justify-content: center;
   line-height: 1;
-  vertical-align: 0.16em;
+  vertical-align: middle;
 }
 
 .sigma-kyoutsuu-choice > .ML__text,
