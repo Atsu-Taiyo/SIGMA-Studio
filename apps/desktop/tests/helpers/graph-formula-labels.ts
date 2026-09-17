@@ -25,7 +25,7 @@ export async function expectFormulaOnCanvas(page: Page, tex: string) {
 }
 
 /** Same UI and saved-document assertions for browser and the real Electron file store. */
-export async function exerciseFormulaLabels(page: Page, readDocument: ReadGraphDocument) {
+export async function exerciseFormulaLabels(page: Page, readDocument: ReadGraphDocument, parameterTex = "sx") {
   await page.getByRole("button", { name: "挿入", exact: true }).click();
   await page.getByRole("menu", { name: "挿入", exact: true }).getByRole("menuitem", { name: "グラフ" }).click();
   const surface = page.locator(".overlay-canvas-editor.inserting").first();
@@ -56,13 +56,18 @@ export async function exerciseFormulaLabels(page: Page, readDocument: ReadGraphD
     await field.evaluate((element, value) => {
       (element as HTMLElement & { value: string }).value = value;
       element.dispatchEvent(new Event("input", { bubbles: true }));
-    }, tex);
+    }, tex === "s\\ x" ? "" : tex);
+    if (tex === "s\\ x") {
+      // Exercise the actual Space key, which MathLive represents as an explicit TeX space.
+      await field.pressSequentially("s x");
+      await expect.poll(() => field.evaluate((element) => (element as HTMLElement & { value: string }).value)).toBe(tex);
+    }
     await field.press("Enter");
-    await expect(page.getByTestId("overlay-graph-expr-input")).toHaveAttribute("aria-label", /./);
+    await expect(page.getByTestId("overlay-graph-expr-input").locator("[data-tex]")).toHaveAttribute("data-tex", tex);
   };
 
   // Ordinary math must retain the authored fraction, then parameter math must keep s symbolic.
-  for (const tex of ["\\frac{x^{2}}{2}", "sx"]) {
+  for (const tex of ["\\frac{x^{2}}{2}", parameterTex]) {
     await setExpression(tex);
     await toggle(true);
     await expectFormulaOnCanvas(page, `y = ${tex}`);
@@ -72,16 +77,16 @@ export async function exerciseFormulaLabels(page: Page, readDocument: ReadGraphD
     await expect(page.locator(".overlay-text-shape")).toHaveCount(0);
     await toggle(true);
     await expectFormulaOnCanvas(page, `y = ${tex}`);
-    if (tex !== "sx") await toggle(false);
+    if (tex !== parameterTex) await toggle(false);
   }
   const curve = graph.getByTestId("graph2d-curve").first();
   const before = await curve.getAttribute("d");
   const slider = panel.getByRole("slider", { name: "s", exact: true });
   await slider.fill("0.5");
   await expect.poll(() => curve.getAttribute("d")).not.toBe(before);
-  await expectFormulaOnCanvas(page, "y = sx");
+  await expectFormulaOnCanvas(page, `y = ${parameterTex}`);
   await expect.poll(async () => savedFormula(await readDocument())).toMatchObject({
-    curve: { expr: "s*x", exprTex: "sx" }, parameters: [{ name: "s", value: 0.5 }], tex: "y = sx",
+    curve: { expr: "s*x", exprTex: parameterTex }, parameters: [{ name: "s", value: 0.5 }], tex: `y = ${parameterTex}`,
   });
   expect(savedFormula(await readDocument())?.curve.label).toBeUndefined();
   await panel.getByRole("button", { name: "閉じる", exact: true }).click();

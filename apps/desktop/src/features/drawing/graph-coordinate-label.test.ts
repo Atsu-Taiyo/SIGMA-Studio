@@ -5,6 +5,8 @@ import { formatGraphCurveLabel } from "./graph-coordinate-label";
 describe("graph formula label display", () => {
   it.each([
     { curve: { expr: "s*x", exprTex: "sx" }, tex: "y = sx" },
+    { curve: { expr: "s*x", exprTex: "s x" }, tex: "y = s x" },
+    { curve: { expr: "s*x", exprTex: "s\\ x" }, tex: "y = s\\ x" },
     { curve: { expr: "(x^2)/(2)", exprTex: "\\frac{x^{2}}{2}" }, tex: "y = \\frac{x^{2}}{2}" },
     { curve: { mode: "xOfY", expr: "s*y", exprTex: "sy" }, tex: "x = sy" },
     { curve: { mode: "implicit", expr: "x^2+y^2-(s^2)", exprTex: "x^{2}+y^{2}=s^{2}" }, tex: "x^{2}+y^{2}=s^{2}" },
