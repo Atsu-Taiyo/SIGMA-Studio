@@ -570,7 +570,7 @@ describe("枠レイヤを落とすとセグメントの border に戻る", () =>
     expect(staticChoice["box-shadow"]).toBe("inset 0 0 0 0.105em currentColor");
     expect(staticChoice["border-radius"]).toBe("50%");
     expect(staticChoice["font-variant-numeric"]).toBe("tabular-nums");
-    expect(staticChoice["vertical-align"]).toBe("0.16em");
+    expect(staticChoice["vertical-align"]).toBe("middle");
     expect(staticText["font-size"]).toBe("1.067em");
   });
 });
