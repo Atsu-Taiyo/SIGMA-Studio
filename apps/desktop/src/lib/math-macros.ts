@@ -10,8 +10,8 @@ export const KYOUTSUU_CHOICE_CLASS = "sigma-kyoutsuu-choice";
 export const SIGMA_MATHLIVE_MACRO_STYLES = String.raw`
 .${KYOUTSUU_CHOICE_CLASS} {
   align-items: center;
-  block-size: 1.28em;
-  border: 0.14em solid currentColor;
+  block-size: 1.3em;
+  border: 0.12em solid currentColor;
   border-radius: 50%;
   box-sizing: border-box;
   display: inline-flex !important;
@@ -19,10 +19,10 @@ export const SIGMA_MATHLIVE_MACRO_STYLES = String.raw`
   font-style: normal;
   font-variant-numeric: tabular-nums;
   font-weight: 700;
-  inline-size: 0.9em;
+  inline-size: 0.82em;
   justify-content: center;
   line-height: 1;
-  vertical-align: 0.14em;
+  vertical-align: 0.08em;
 }
 
 .${KYOUTSUU_CHOICE_CLASS} > .ML__text,
@@ -30,7 +30,7 @@ export const SIGMA_MATHLIVE_MACRO_STYLES = String.raw`
   align-items: center;
   display: inline-flex;
   font-family: inherit !important;
-  font-size: 0.78em;
+  font-size: 0.76em;
   font-style: inherit;
   font-variant-numeric: inherit;
   font-weight: inherit;
