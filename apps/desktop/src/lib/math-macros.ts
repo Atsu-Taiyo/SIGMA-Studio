@@ -30,7 +30,7 @@ export const SIGMA_MATHLIVE_MACRO_STYLES = String.raw`
   align-items: center;
   display: inline-flex;
   font-family: inherit !important;
-  font-size: 1.1em;
+  font-size: 1.067em;
   font-style: inherit;
   font-variant-numeric: inherit;
   font-weight: inherit;
@@ -38,7 +38,7 @@ export const SIGMA_MATHLIVE_MACRO_STYLES = String.raw`
   line-height: 1;
   /* Fill the tall oval without widening the digit into its side strokes.
      Transform only the glyph box so inline layout and baseline stay fixed. */
-  transform: translateY(1.5pt) scaleY(1.08);
+  transform: translateY(1pt) scaleY(1.08);
   transform-origin: center;
 }
 
