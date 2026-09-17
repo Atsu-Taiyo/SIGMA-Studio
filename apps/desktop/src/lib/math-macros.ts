@@ -11,7 +11,10 @@ export const SIGMA_MATHLIVE_MACRO_STYLES = String.raw`
 .${KYOUTSUU_CHOICE_CLASS} {
   align-items: center;
   block-size: 1.3em;
-  border: 0.14em solid currentColor;
+  border: 0;
+  /* Inset stroke preserves fractional widths at small font sizes; CSS borders
+     quantize them to whole device pixels and change the stroke/glyph ratio. */
+  box-shadow: inset 0 0 0 0.105em currentColor;
   border-radius: 50%;
   box-sizing: border-box;
   display: inline-flex !important;
@@ -22,7 +25,7 @@ export const SIGMA_MATHLIVE_MACRO_STYLES = String.raw`
   inline-size: 0.96em;
   justify-content: center;
   line-height: 1;
-  vertical-align: -0.12em;
+  vertical-align: 0.16em;
 }
 
 .${KYOUTSUU_CHOICE_CLASS} > .ML__text,
@@ -36,9 +39,9 @@ export const SIGMA_MATHLIVE_MACRO_STYLES = String.raw`
   font-weight: inherit;
   justify-content: center;
   line-height: 1;
-  /* Fill the tall oval without widening the digit into its side strokes.
-     Transform only the glyph box so inline layout and baseline stay fixed. */
-  transform: translateY(1pt) scaleY(1.08);
+  /* Arial digits sit slightly above their line-box center. Use a font-relative
+     optical correction, independent of the oval's paragraph baseline. */
+  transform: translateY(0.035em);
   transform-origin: center;
 }
 

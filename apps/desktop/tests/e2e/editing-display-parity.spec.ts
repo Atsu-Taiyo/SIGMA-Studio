@@ -363,6 +363,14 @@ function parityDocumentWithKyoutsuuChoice(): SigmaDocument {
     content: [
       ...document.content,
       {
+        id: "choice_reference_line",
+        type: "paragraph",
+        children: [
+          { type: "mathInline", id: "choice_reference_zero", tex: String.raw`\kyoutsuuchoice{0}\quad`, display: "inline" },
+          { type: "text", text: "プロ選手と花子さんの「ボールが最も高くなるときの地上の位置」の方が、", fontFamily: "serif" },
+        ],
+      },
+      {
         id: "parity_kyoutsuu_choice_paragraph",
         type: "paragraph",
         children: [
@@ -812,6 +820,8 @@ test("renders the KaTeX fallback path in the document typeset style", async ({ p
   expect(Math.abs(plainBox.height - displayBox.height)).toBeLessThanOrEqual(PARITY_TOLERANCE_PX);
 });
 
+test.describe("Common Test choice visual verification", () => {
+test.use({ deviceScaleFactor: 3 });
 test("keeps canonical static math geometry while MathLive is editing", async ({ page }, testInfo) => {
   await page.setViewportSize({ width: 1400, height: 1000 });
   await page.addInitScript(() => window.localStorage.clear());
@@ -833,6 +843,11 @@ test("keeps canonical static math geometry while MathLive is editing", async ({ 
     if (id === KYOUTSUU_CHOICE_MATH_ID) {
       await page.screenshot({ path: testInfo.outputPath("choice-static.png") });
       await math.locator("xpath=..").screenshot({ path: testInfo.outputPath("choice-detail.png"), scale: "css" });
+      const paragraph = math.locator("xpath=..");
+      await paragraph.screenshot({ path: testInfo.outputPath("choice-enlarged.png"), scale: "device" });
+      await page.locator('.text-flow-editor [data-sigma-doc-id="choice_reference_line"]').screenshot({
+        path: testInfo.outputPath("choice-reference-line.png"), scale: "device",
+      });
     }
 
     await math.click();
@@ -873,6 +888,8 @@ test("keeps canonical static math geometry while MathLive is editing", async ({ 
     }
     await expect(preview).toBeVisible();
   }
+});
+
 });
 
 /**
