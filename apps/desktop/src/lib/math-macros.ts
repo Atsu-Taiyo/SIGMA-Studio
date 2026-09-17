@@ -38,7 +38,7 @@ export const SIGMA_MATHLIVE_MACRO_STYLES = String.raw`
   line-height: 1;
   /* Fill the tall oval without widening the digit into its side strokes.
      Transform only the glyph box so inline layout and baseline stay fixed. */
-  transform: scaleY(1.08);
+  transform: translateY(3pt) scaleY(1.08);
   transform-origin: center;
 }
 
