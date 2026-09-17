@@ -28,8 +28,7 @@ export const SIGMA_MATHLIVE_MACRO_STYLES = String.raw`
   vertical-align: middle;
   /* Printed choice markers sit above the lowercase x-height center.
      Lift the whole marker; keep its internal digit centering unchanged. */
-  position: relative;
-  top: -0.2em;
+  transform: translateY(-0.2em);
 }
 
 .${KYOUTSUU_CHOICE_CLASS} > .ML__text,
