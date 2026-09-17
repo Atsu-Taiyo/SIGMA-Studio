@@ -11,7 +11,7 @@ export const SIGMA_MATHLIVE_MACRO_STYLES = String.raw`
 .${KYOUTSUU_CHOICE_CLASS} {
   align-items: center;
   block-size: 1.3em;
-  border: 0.095em solid currentColor;
+  border: 0.14em solid currentColor;
   border-radius: 50%;
   box-sizing: border-box;
   display: inline-flex !important;
