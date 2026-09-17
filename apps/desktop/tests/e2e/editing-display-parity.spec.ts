@@ -858,9 +858,10 @@ test("keeps canonical static math geometry while MathLive is editing", async ({ 
           + (ink.actualBoundingBoxDescent - ink.actualBoundingBoxAscent) / 2;
         baseline.remove();
         const rect = oval.getBoundingClientRect();
-        return Math.abs(rect.top + rect.height / 2 - textCenter);
+        return (textCenter - (rect.top + rect.height / 2)) / parseFloat(style.fontSize);
       });
-      expect(centerGap, "choice oval and adjacent aaa ink centers").toBeLessThanOrEqual(1.5);
+      expect(centerGap, "choice center is above adjacent lowercase ink").toBeGreaterThan(0.1);
+      expect(centerGap, "choice center is not lifted excessively").toBeLessThan(0.3);
       await page.screenshot({ path: testInfo.outputPath("choice-static.png") });
       await math.locator("xpath=..").screenshot({ path: testInfo.outputPath("choice-detail.png"), scale: "css" });
       const paragraph = math.locator("xpath=..");
