@@ -370,7 +370,7 @@ function parityDocumentWithKyoutsuuChoice(): SigmaDocument {
           {
             type: "mathInline",
             id: KYOUTSUU_CHOICE_MATH_ID,
-            tex: String.raw`\kyoutsuuchoice{0}`,
+            tex: String.raw`\kyoutsuuchoice{0}\quad\kyoutsuuchoice{1}\quad\kyoutsuuchoice{2}\quad\kyoutsuuchoice{3}`,
             display: "inline",
           },
           { type: "text", text: "に当てはまるもの" },
@@ -832,6 +832,7 @@ test("keeps canonical static math geometry while MathLive is editing", async ({ 
 
     if (id === KYOUTSUU_CHOICE_MATH_ID) {
       await page.screenshot({ path: testInfo.outputPath("choice-static.png") });
+      await math.locator("xpath=..").screenshot({ path: testInfo.outputPath("choice-detail.png"), scale: "css" });
     }
 
     await math.click();
