@@ -44,7 +44,7 @@ export const SIGMA_MATHLIVE_MACRO_STYLES = String.raw`
   line-height: 1;
   /* Arial digits sit slightly above their line-box center. Use a font-relative
      optical correction, independent of the oval's paragraph baseline. */
-  transform: translateY(0.035em);
+  transform: translateY(calc(0.035em - 0.5pt));
   transform-origin: center;
 }
 
