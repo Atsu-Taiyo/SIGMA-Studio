@@ -36,7 +36,7 @@ export const SIGMA_MATHLIVE_MACRO_STYLES = String.raw`
   align-items: center;
   display: inline-flex;
   font-family: inherit !important;
-  font-size: 1.067em;
+  font-size: calc(1.067em - 0.5pt);
   font-style: inherit;
   font-variant-numeric: inherit;
   font-weight: inherit;
