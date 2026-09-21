@@ -5,6 +5,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { Select } from "./Select";
+import { ModalFrame } from "./Modal";
 
 const OPTIONS = [
   { value: "x", label: "x軸" },
@@ -57,6 +58,23 @@ afterEach(() => {
 });
 
 describe("Select", () => {
+  it("closes its menu before Escape dismisses the owning modal", () => {
+    let dismissals = 0;
+    render(
+      <ModalFrame open ariaLabel="設定" onDismiss={() => { dismissals += 1; }}>
+        <Select aria-label="回転軸" value="y" options={OPTIONS} onChange={() => {}} />
+      </ModalFrame>,
+    );
+    const button = document.querySelector<HTMLButtonElement>(".ui-select")!;
+    act(() => button.click());
+    expect(listbox()).not.toBeNull();
+    act(() => button.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
+    expect(listbox()).toBeNull();
+    expect(dismissals).toBe(0);
+    act(() => button.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
+    expect(dismissals).toBe(1);
+  });
+
   it("keeps the option list inside the app instead of handing it to the OS", () => {
     render(<Select aria-label="回転軸" value="y" options={OPTIONS} onChange={() => {}} />);
 
