@@ -67,6 +67,12 @@ export const settings = {
     apply: "Apply",
   },
   box: {
+    preview: "Preview",
+    notchedCorners: "This style uses notched corners",
+    increase: "Increase {{label}}",
+    decrease: "Decrease {{label}}",
+    cornerRadiusSlider: "Adjust corner radius",
+
     title: "Box settings",
     description: "Changes apply to the material immediately",
     titleSection: "Title",
