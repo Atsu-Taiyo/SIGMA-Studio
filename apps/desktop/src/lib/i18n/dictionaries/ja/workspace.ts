@@ -9,11 +9,14 @@
  *   言語で保存された素材が引けなくなる。ソース側に日英併記のリテラルで置いてある。
  */
 export const workspace = {
+  sharedItems: "共有アイテム",
   githubStar: {
     title: "GitHubのStarで応援しませんか？",
     description: "Sigma Studioが役に立ったら、GitHubでStarを付けていただけるとうれしいです。開発を続ける励みになります。",
     openGitHub: "GitHubを開く（外部サイト）",
-    dismissNote: "この案内は閉じると再表示されません。",
+    doNotShowAgain: "もう表示しない",
+    dismissNote: "右上の×で閉じると、次回起動時に再表示されます。",
+    optOutFailed: "設定を保存できませんでした。もう一度お試しください。",
   },
   untitledMaterial: "無題の教材",
   /** ワークスペースが 1 つも無いときに自動で作る既定のワークスペース名。 */
@@ -54,6 +57,7 @@ export const workspace = {
     loadFailed: "ワークスペースを読み込めませんでした。",
     unavailable: "ワークスペースを利用できません",
     changeFailed: "ワークスペースを変更できません",
+    creationNotAllowed: "この場所に教材を作成する権限がありません。",
     createFromTemplateFailed: "テンプレートから教材を作成できませんでした。",
     moveMaterialFailed: "教材を移動できません",
     targetWorkspaceMissing: "移動先のワークスペースが見つかりません",

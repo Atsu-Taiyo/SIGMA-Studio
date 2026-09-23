@@ -65,6 +65,8 @@ interface RibbonGroupDefinition {
   launcher?: { label: string; onClick: () => void };
 }
 
+// Closed popovers return no DOM. Guard their JSX here as well so typing does
+// not build invisible font/shape catalogs on every document render.
 export function renderEditorChrome(chrome: EditorChromeValue) {
   const { activeDocumentOpenFailure, activeFileId, addBlock, aiMenuButtonRef, appUpdateState, closeDocumentTab, commentsPanelOpen, commitDocumentTitle, copyDocumentText, createDocumentTab, createWhiteboardDocumentTab, degradedWatcherScopes, deleteActiveDocument, documentMetadatas, documentTitle, duplicateActiveDocument, exportJson, exportMenuOpen, fileMenuButtonRef, handleTitleUpdateAction, importDocumentFile, importInputRef, insertMenuButtonRef, loadingFileId, newDocButtonRef, newDocMenuOpen, openCommandSettings, openDocumentInWorkspace, openDocumentListDialog, openDocumentTabs, openImportDialog, openNewDocMenu, openOtherImportDialog, openPrintPreview, openTextImportDialog, openVersionHistory, openWorkspaceScreen, otherImportInputRef, promoteAiToSidebar, reportIssue, requestOverlayImages, resolvedDocumentTitle, scheduleCloseNewDocMenu, setAiSettingsOpen, setDesktopSettingsOpen, setExportMenuOpen, setNewDocMenuOpen, setOutlineDialogOpen, setOverlayEditing, setPageSettingsOpen, setTemplateGalleryOpen, setTexCommandReferenceOpen, setTexEnvironmentSettingsOpen, setTitleInputFocused, settingsMenuButtonRef, showRichTitle, showTitleUpdateButton, titleInputValue, titleRichNodes, titleUpdateButtonDisabled, toggleCommentsPanel, uiLayoutPreference, updateMetadata, versionHistoryOpen } = chrome.appMenu;
   const { commandTooltip, renderMenuShortcut } = chrome.commands;
@@ -158,6 +160,7 @@ export function renderEditorChrome(chrome: EditorChromeValue) {
         ariaLabel={t("appMenu.file.label")}
         gap={3}
       >
+        {(activeMenu === "file") && <>
           <button type="button" role="menuitem" disabled={isEmbedded} onClick={duplicateActiveDocument}>
             <Copy size={16} />
             <span>{t("appMenu.file.duplicate")}</span>
@@ -218,6 +221,7 @@ export function renderEditorChrome(chrome: EditorChromeValue) {
               </button>
             </div>
           </div>
+        </>}
       </ToolbarPopover>
     </div>
   );
@@ -236,6 +240,7 @@ export function renderEditorChrome(chrome: EditorChromeValue) {
         ariaLabel={t("appMenu.insert.label")}
         gap={3}
       >
+        {(activeMenu === "insert") && <>
           <button type="button" role="menuitem" onClick={() => { setActiveMenu(null); addBlock("paragraph"); }}>
             <FileText size={16} />
             <span>{t("appMenu.insert.paragraph")}</span>
@@ -275,6 +280,7 @@ export function renderEditorChrome(chrome: EditorChromeValue) {
             <Square size={16} />
             <span>{t("appMenu.insert.shape")}</span>
           </button>
+        </>}
       </ToolbarPopover>
     </div>
   );
@@ -296,6 +302,7 @@ export function renderEditorChrome(chrome: EditorChromeValue) {
           ariaLabel={t("appMenu.ai.label")}
           gap={3}
         >
+          {(activeMenu === "ai") && <>
             <button type="button" role="menuitem" onClick={() => { setActiveMenu(null); promoteAiToSidebar(); }}>
               <Sparkles size={16} />
               <span>{t("appMenu.ai.openChat")}</span>
@@ -306,6 +313,7 @@ export function renderEditorChrome(chrome: EditorChromeValue) {
               <SlidersHorizontal size={16} />
               <span>{t("appMenu.ai.settings")}</span>
             </button>
+          </>}
         </ToolbarPopover>
       </div>
     )
@@ -325,6 +333,7 @@ export function renderEditorChrome(chrome: EditorChromeValue) {
         ariaLabel={t("appMenu.settings.label")}
         gap={3}
       >
+        {(activeMenu === "settings") && <>
           <button
             type="button"
             role="menuitemcheckbox"
@@ -365,6 +374,7 @@ export function renderEditorChrome(chrome: EditorChromeValue) {
               <span>{t("appMenu.settings.appSettings")}</span>
             </button>
           )}
+        </>}
       </ToolbarPopover>
     </div>
   );
@@ -402,8 +412,9 @@ export function renderEditorChrome(chrome: EditorChromeValue) {
                   : <FileText size={14} />}
                 {/* 開いていない教材のタイトルは台帳の文字列しか無いので従来どおり
                     文字列パスで描く。アクティブなタブだけ導出したノード列を渡す。 */}
-                <span><DocumentTitleText title={tab.title} nodes={active ? documentTitle.nodes : undefined} /></span>
-                {active && <DocumentTabSaveDot />}
+                <span className="document-tab-title"><DocumentTitleText title={tab.title} nodes={active ? documentTitle.nodes : undefined} /></span>
+                <span className="document-tab-initial" aria-hidden="true">{Array.from(tab.title)[0]}</span>
+                {active && !chrome.shared.hasDocumentSession && <DocumentTabSaveDot />}
               </button>
               <button
                 type="button"
@@ -438,7 +449,7 @@ export function renderEditorChrome(chrome: EditorChromeValue) {
       )}
       {/* 保存状態と状況メッセージは **この葉だけが購読する** (`SaveStatusIndicators`)。
           リボンや EditorShell 本体で受け取ると、打鍵のたびに動く値で画面全体が再描画される。 */}
-      <SaveStatusBadge />
+      <SaveStatusBadge errorsOnly={chrome.shared.hasDocumentSession} />
     </div>
   );
 
@@ -455,7 +466,7 @@ export function renderEditorChrome(chrome: EditorChromeValue) {
     </button>
   );
 
-  const versionHistoryButton = isEmbedded ? null : (
+  const versionHistoryButton = isEmbedded || chrome.shared.hasDocumentSession ? null : (
     <button
       type="button"
       className="version-history-button"
@@ -471,17 +482,21 @@ export function renderEditorChrome(chrome: EditorChromeValue) {
 
   const menubarRightActions = (
     <div className="menubar-right-actions">
+      {chrome.shared.documentActions}
       {!isEmbedded && (
-        <button
-          type="button"
-          className="workspace-open-button"
-          title={t("actions.workspace")}
-          aria-label={t("actions.workspace")}
-          onClick={() => void openWorkspaceScreen()}
-        >
-          <Building2 size={15} />
-          <span>{t("actions.workspace")}</span>
-        </button>
+        <div className="workspace-account-actions">
+          <button
+            type="button"
+            className="workspace-open-button"
+            title={t("actions.workspace")}
+            aria-label={t("actions.workspace")}
+            onClick={() => void openWorkspaceScreen()}
+          >
+            <Building2 size={15} />
+            <span>{t("actions.workspace")}</span>
+          </button>
+          {chrome.shared.accountAction}
+        </div>
       )}
 
       <div className="document-tab-actions" aria-label={t("tabs.actions")}>
@@ -513,6 +528,7 @@ export function renderEditorChrome(chrome: EditorChromeValue) {
             ariaLabel={t("tabs.newDocument")}
             gap={4}
           >
+            {(!isEmbedded && newDocMenuOpen) && <>
             <div
               className="new-doc-menu-body"
               onMouseEnter={openNewDocMenu}
@@ -531,6 +547,7 @@ export function renderEditorChrome(chrome: EditorChromeValue) {
                 <span>{t("tabs.newFromTemplate")}</span>
               </button>
             </div>
+            </>}
           </ToolbarPopover>
         </div>
         <Tooltip {...commandTooltip(t("tabs.libraryTooltip"), "document.library")}>
@@ -615,18 +632,22 @@ export function renderEditorChrome(chrome: EditorChromeValue) {
     // docs ではタイトル行に常設だったワークスペース導線をここへ戻す。
     // 出し分けは docs 側 menubarRightActions と同じ !isEmbedded。
     <div className="ribbon-titlebar-actions">
+      {chrome.shared.documentActions}
       {versionHistoryButton}
       {!isEmbedded && (
-        <button
-          type="button"
-          className="workspace-open-button"
-          title={t("actions.workspace")}
-          aria-label={t("actions.workspace")}
-          onClick={() => void openWorkspaceScreen()}
-        >
-          <Building2 size={15} />
-          <span>{t("actions.workspace")}</span>
-        </button>
+        <div className="workspace-account-actions">
+          <button
+            type="button"
+            className="workspace-open-button"
+            title={t("actions.workspace")}
+            aria-label={t("actions.workspace")}
+            onClick={() => void openWorkspaceScreen()}
+          >
+            <Building2 size={15} />
+            <span>{t("actions.workspace")}</span>
+          </button>
+          {chrome.shared.accountAction}
+        </div>
       )}
     </div>
   );
@@ -694,6 +715,7 @@ export function renderEditorChrome(chrome: EditorChromeValue) {
               role="menu"
               ariaLabel={t("format.blockStyle.aria")}
             >
+              {(blockStyleMenuOpen && canUseTextBlockStyle) && <>
               {BLOCK_STYLE_OPTIONS.map((value) => {
                 const optionLabel = t(`format.blockStyle.${value}`);
                 return (
@@ -719,6 +741,7 @@ export function renderEditorChrome(chrome: EditorChromeValue) {
                   </button>
                 );
               })}
+              </>}
             </ToolbarPopover>
           </div>
   );
@@ -767,6 +790,7 @@ export function renderEditorChrome(chrome: EditorChromeValue) {
               role="menu"
               ariaLabel={t("format.font.aria")}
             >
+              {(fontFamilyMenuOpen && canUseTextToolbar) && <>
               <label className="font-family-menu-search">
                 <Search size={14} aria-hidden="true" />
                 <input
@@ -861,6 +885,7 @@ export function renderEditorChrome(chrome: EditorChromeValue) {
               {visibleFontFamilyGroups.length === 0 && visibleCustomFontOptions.length === 0 && (
                 <p className="font-family-menu-empty">{t("format.font.empty")}</p>
               )}
+              </>}
             </ToolbarPopover>
           </div>
   );
@@ -1030,6 +1055,7 @@ export function renderEditorChrome(chrome: EditorChromeValue) {
               role="dialog"
               ariaLabel={t("format.boxedText.menu")}
             >
+              {(boxedTextMenuOpen && canUseTextToolbar) && <>
               <div className="boxed-text-style-options" role="group" aria-label={t("format.boxedText.styles")}>
                 {BOXED_TEXT_STYLE_OPTIONS.map((option) => {
                   const optionLabel = t(`format.boxedText.variant.${option.variant}`);
@@ -1082,6 +1108,7 @@ export function renderEditorChrome(chrome: EditorChromeValue) {
                   <PlusCircle size={14} />
                 </button>
               </div>
+              </>}
             </ToolbarPopover>
           </div>
   );
@@ -1116,6 +1143,7 @@ export function renderEditorChrome(chrome: EditorChromeValue) {
               className="color-popover"
               ariaLabel={t("format.textColor.label")}
             >
+              {(colorStylePanel === "text" && canUseTextToolbar) && <>
               <ColorPalette
                 value={textColor}
                 onChange={(color) => {
@@ -1125,6 +1153,7 @@ export function renderEditorChrome(chrome: EditorChromeValue) {
                   setColorStylePanel(null);
                 }}
               />
+              </>}
             </ToolbarPopover>
           </div>
   );
@@ -1163,6 +1192,7 @@ export function renderEditorChrome(chrome: EditorChromeValue) {
               className="color-popover"
               ariaLabel={t("format.backgroundColor.label")}
             >
+              {(colorStylePanel === "textBackground" && canUseTextToolbar) && <>
               <ColorPalette
                 value={textBackgroundColor}
                 allowTransparent
@@ -1173,6 +1203,7 @@ export function renderEditorChrome(chrome: EditorChromeValue) {
                   setColorStylePanel(null);
                 }}
               />
+              </>}
             </ToolbarPopover>
           </div>
   );
@@ -1222,6 +1253,7 @@ export function renderEditorChrome(chrome: EditorChromeValue) {
               role="dialog"
               ariaLabel={t("format.lineHeight.label")}
             >
+              {(lineHeightMenuOpen && canUseLineHeight) && <>
               {/* The fine ± stepper belongs to the 数値で指定 disclosure below; see
                   `line-height-menu.test.ts` for why a second always-on copy is not kept
                   here. */}
@@ -1326,6 +1358,7 @@ export function renderEditorChrome(chrome: EditorChromeValue) {
                   </p>
                 </div>
               ) : null}
+              </>}
             </ToolbarPopover>
           </div>
   );
@@ -1366,6 +1399,7 @@ export function renderEditorChrome(chrome: EditorChromeValue) {
                 role="menu"
                 ariaLabel={t("format.align.label")}
               >
+                {(textAlignMenuOpen && canUseTextAlign) && <>
                 {TEXT_ALIGN_OPTIONS.map(({ value, icon: Icon }) => (
                   <button
                     key={value}
@@ -1384,6 +1418,7 @@ export function renderEditorChrome(chrome: EditorChromeValue) {
                     <Icon size={18} />
                   </button>
                 ))}
+                </>}
               </ToolbarPopover>
             </div>
           </div>
@@ -1436,6 +1471,7 @@ export function renderEditorChrome(chrome: EditorChromeValue) {
         role="menu"
         ariaLabel={t("format.blockStructure.numberStyle")}
       >
+        {(orderedListMenuOpen && canUseBlockStructure) && <>
         {([
           { value: "orderedList" as const, marker: "decimal" as const, label: "1. 2. 3." },
           { value: "orderedListParen" as const, marker: "paren" as const, label: "(1) (2) (3)" },
@@ -1455,6 +1491,7 @@ export function renderEditorChrome(chrome: EditorChromeValue) {
             <span>{option.label}</span>
           </button>
         ))}
+        </>}
       </ToolbarPopover>
     </div>
   );
@@ -1487,6 +1524,7 @@ export function renderEditorChrome(chrome: EditorChromeValue) {
         role="menu"
         ariaLabel={t("format.blockStructure.more")}
       >
+        {(moreBlocksMenuOpen && !bodyToolbarLockedByAi) && <>
         <button
           type="button"
           role="menuitem"
@@ -1554,6 +1592,7 @@ export function renderEditorChrome(chrome: EditorChromeValue) {
           <Square size={16} />
           <span>{t("format.blockStructure.fancybox")}</span>
         </button>
+        </>}
       </ToolbarPopover>
     </div>
   );
@@ -1614,6 +1653,7 @@ export function renderEditorChrome(chrome: EditorChromeValue) {
           ariaLabel={t("insert.math.details")}
           onMouseLeave={scheduleInlineMathMenuClose}
         >
+          {(inlineMathMenuOpen) && <>
           <div onMouseEnter={openInlineMathMenu}>
             <Inset as="header" className="inline-math-toolbar-popover-header" space="md">
               <Inline gap="sm" justify="between">
@@ -1639,6 +1679,7 @@ export function renderEditorChrome(chrome: EditorChromeValue) {
               selectedInlineMath={selectedInlineMathDetails}
             />
           </div>
+          </>}
         </ToolbarPopover>
       </div>
   );
@@ -1727,6 +1768,7 @@ export function renderEditorChrome(chrome: EditorChromeValue) {
           className="shape-menu shape-gallery"
           role="menu"
         >
+          {(shapeMenuOpen) && <>
           {shapeGallerySections.map((section) => (
             <div className="shape-gallery-section" key={section.id}>
               <div className="shape-gallery-section-label">{section.label}</div>
@@ -1762,6 +1804,7 @@ export function renderEditorChrome(chrome: EditorChromeValue) {
               </div>
             </div>
           ))}
+          </>}
         </ToolbarPopover>
       </div>
   );
@@ -1798,6 +1841,7 @@ export function renderEditorChrome(chrome: EditorChromeValue) {
           className="shape-menu line-tool-menu"
           role="menu"
         >
+          {(lineToolMenuOpen) && <>
           {lineToolItems.map(({ command, label, icon: Icon }) => {
             const isActive = activeOverlayTool.kind === "insert" && activeOverlayTool.command === command;
             return (
@@ -1813,6 +1857,7 @@ export function renderEditorChrome(chrome: EditorChromeValue) {
               </button>
             );
           })}
+          </>}
         </ToolbarPopover>
       </div>
   );
@@ -1857,6 +1902,7 @@ export function renderEditorChrome(chrome: EditorChromeValue) {
               className="color-popover"
               ariaLabel={t("shapeStyle.stroke.label")}
             >
+              {(colorStylePanel === "stroke" && canUseStrokeStyleControls) && <>
               <ColorPalette
                 value={strokeColor}
                 allowTransparent
@@ -1872,6 +1918,7 @@ export function renderEditorChrome(chrome: EditorChromeValue) {
                   setColorStylePanel(null);
                 }}
               />
+              </>}
             </ToolbarPopover>
           </div>
   );
@@ -1904,6 +1951,7 @@ export function renderEditorChrome(chrome: EditorChromeValue) {
               className="color-popover"
               ariaLabel={t("shapeStyle.fill.label")}
             >
+              {(colorStylePanel === "fill" && canUseFillStyleControls) && <>
               <ColorPalette
                 value={selectionFillColor}
                 opacity={selectionFillOpacity}
@@ -1928,6 +1976,7 @@ export function renderEditorChrome(chrome: EditorChromeValue) {
                   setColorStylePanel(null);
                 }}
               />
+              </>}
             </ToolbarPopover>
           </div>
   );
@@ -2089,6 +2138,7 @@ export function renderEditorChrome(chrome: EditorChromeValue) {
           className="find-widget"
           ariaLabel={t("search.label")}
         >
+          {(searchOpen) && <>
             <div className="find-row">
               <button
                 type="button"
@@ -2152,6 +2202,7 @@ export function renderEditorChrome(chrome: EditorChromeValue) {
                 </button>
               </div>
             )}
+          </>}
         </ToolbarPopover>
         </EditorToolbarGroup>
   );

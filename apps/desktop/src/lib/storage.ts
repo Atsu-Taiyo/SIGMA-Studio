@@ -124,12 +124,12 @@ export async function captureDocumentVersion(
 }
 
 /** D3: 作成時点の UI 言語で題名を焼く (既定値は呼び出しごとに評価される)。 */
-export async function createNewDocument(title = tWorkspace("untitledMaterial")): Promise<DocumentFileRecord> {
-  return getRuntimeLibrary().createDocument({ title });
+export async function createNewDocument(title = tWorkspace("untitledMaterial"), location: Pick<DocumentMetadata, "workspaceId" | "folderId"> | undefined = undefined): Promise<DocumentFileRecord> {
+  return getRuntimeLibrary().createDocument({ title, ...location });
 }
 
-export async function createDocumentFromSigmaDocument(document: SigmaDocument): Promise<DocumentFileRecord> {
-  return getRuntimeLibrary().createFileFromDocument({ document });
+export async function createDocumentFromSigmaDocument(document: SigmaDocument, location: Pick<DocumentMetadata, "workspaceId" | "folderId"> | undefined = undefined): Promise<DocumentFileRecord> {
+  return getRuntimeLibrary().createFileFromDocument({ document, ...location });
 }
 
 export async function duplicateDocument(fileId: string): Promise<DocumentFileRecord> {

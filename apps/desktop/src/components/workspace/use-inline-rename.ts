@@ -31,6 +31,8 @@ export interface WorkspaceInlineRenameState {
 
 export interface UseInlineRenameOptions {
   activeWorkspaceId: string | null;
+  canRename?: (target: WorkspaceInlineRenameTarget) => boolean;
+  isShared?: (target: WorkspaceInlineRenameTarget) => boolean;
   // Owned by the caller (WorkspaceManager), not this hook: applyOverview
   // must be able to read the same pending-renames map to re-apply it on top
   // of ANY incoming overview, not just this hook's own success path -- and a
@@ -102,15 +104,16 @@ async function performRename(
 export function useInlineRename(options: UseInlineRenameOptions): WorkspaceInlineRenameControls {
   const t = useT("workspace");
   const [renameState, setRenameState] = useState<WorkspaceInlineRenameState | null>(null);
-  const { pendingRenamesRef } = options;
+  const { pendingRenamesRef, canRename } = options;
 
   const isEditing = useCallback((key: string) => {
     return renameState !== null && keyFor(renameState.type, renameState.id) === key;
   }, [renameState]);
 
   const start = useCallback((target: WorkspaceInlineRenameTarget, currentName: string) => {
+    if (canRename && !canRename(target)) return;
     setRenameState({ type: target.type, id: target.id, original: currentName, committing: false, error: null });
-  }, []);
+  }, [canRename]);
 
   const cancel = useCallback(() => {
     setRenameState(null);
@@ -131,11 +134,15 @@ export function useInlineRename(options: UseInlineRenameOptions): WorkspaceInlin
     }
 
     const target: WorkspaceInlineRenameTarget = { type: current.type, id: current.id };
+    if (canRename && !canRename(target)) return;
+    const optimistic = !options.isShared?.(target);
     const itemKey = keyFor(target.type, target.id);
     const original = current.original;
 
-    pendingRenamesRef.current.set(itemKey, trimmed);
-    options.setOverview((prev) => (prev ? applyPendingRenames(prev, new Map([[itemKey, trimmed]])) : prev));
+    if (optimistic) {
+      pendingRenamesRef.current.set(itemKey, trimmed);
+      options.setOverview((prev) => (prev ? applyPendingRenames(prev, new Map([[itemKey, trimmed]])) : prev));
+    }
 
     void (async () => {
       const result = await performRename(target, trimmed, options.activeWorkspaceId, t);
@@ -147,7 +154,7 @@ export function useInlineRename(options: UseInlineRenameOptions): WorkspaceInlin
       }
 
       pendingRenamesRef.current.delete(itemKey);
-      options.setOverview((prev) => (prev ? applyPendingRenames(prev, new Map([[itemKey, original]])) : prev));
+      if (optimistic) options.setOverview((prev) => (prev ? applyPendingRenames(prev, new Map([[itemKey, original]])) : prev));
       if (options.handleLedgerSchemaError(result)) {
         return;
       }
@@ -160,7 +167,7 @@ export function useInlineRename(options: UseInlineRenameOptions): WorkspaceInlin
     // stable setters/callbacks from the caller; activeWorkspaceId and
     // pendingRenamesRef are read fresh via `options` and the ref itself, so
     // only renameState needs to be a dependency here.
-  }, [renameState, options, pendingRenamesRef, t]);
+  }, [renameState, options, pendingRenamesRef, t, canRename]);
 
   return {
     renameState,

@@ -1,9 +1,11 @@
 "use client";
+import { useDocumentSession, useDocumentWritable } from "./document-session-context";
+import { applyEditorDocumentProjection } from "@/components/tiptap/document-projection";
 
 import { Extension } from "@tiptap/core";
 import { TextSelection, type Transaction } from "@tiptap/pm/state";
 import { EditorContent, useEditor } from "@tiptap/react";
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef } from "react";
 import type { CSSProperties } from "react";
 
 import { startExpandedTextSelection } from "@/components/editor/expanded-text-selection";
@@ -74,6 +76,7 @@ interface RichTextEditorProps {
 
 export function RichTextEditor({ block, placeholder, className, style, selected = false, formatTarget = "document", historyRevision, onChange }: RichTextEditorProps) {
   const t = useT("editor");
+  const documentWritable = useDocumentWritable();
   const resolvedPlaceholder = placeholder ?? t("body.inputPlaceholder");
   const blockRef = useRef(block);
   const lastTextSelectionRef = useRef<{ from: number; to: number } | null>(null);
@@ -88,6 +91,7 @@ export function RichTextEditor({ block, placeholder, className, style, selected 
   }, [block]);
 
   const editor = useEditor({
+    editable: documentWritable,
     extensions: createRichTextEngineExtensions({
       blockExtensions: [TextAlignAttrs],
       lineHeight: true,
@@ -168,8 +172,13 @@ export function RichTextEditor({ block, placeholder, className, style, selected 
     // 切り替えたときだけなので、入力中に作り直されることはない。
   }, [resolvedPlaceholder]);
 
-  const serializedBlock = JSON.stringify(block);
   useEffect(() => {
+    editor?.setEditable(documentWritable, false);
+  }, [documentWritable, editor]);
+
+  const documentSession = useDocumentSession();
+  const serializedBlock = JSON.stringify(block);
+  useLayoutEffect(() => {
     if (!editor) {
       return;
     }
@@ -177,6 +186,13 @@ export function RichTextEditor({ block, placeholder, className, style, selected 
     const isHistoryRestore = previousHistoryRevisionRef.current !== historyRevision;
     previousHistoryRevisionRef.current = historyRevision;
 
+    if (documentSession) {
+      if (!editor.isDestroyed && !editor.view.composing) {
+        const currentBlock = blockRef.current;
+        applyEditorDocumentProjection(editor, currentBlock.type === "heading" ? toTiptap(currentBlock) : inlineNodesToTiptapDoc(currentBlock.children, currentBlock.align, currentBlock.lineHeight));
+      }
+      return;
+    }
     if (editor.isFocused && !isHistoryRestore) {
       return;
     }
@@ -195,7 +211,7 @@ export function RichTextEditor({ block, placeholder, className, style, selected 
     }, 0);
 
     return () => window.clearTimeout(timeoutId);
-  }, [editor, historyRevision, serializedBlock]);
+  }, [editor, historyRevision, serializedBlock, documentSession]);
 
   /**
    * この面もキャレットの registry に載せる。ブロードキャストではなくルーターが宛先を 1 つ

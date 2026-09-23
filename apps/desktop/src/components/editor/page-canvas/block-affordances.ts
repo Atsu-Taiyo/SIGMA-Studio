@@ -50,6 +50,11 @@ export interface HoveredTopLevelBlock {
   unit?: HoveredDragUnit | null;
   /** 入れ物の上端帯に居るため、計測済みの子より入れ物自身を優先する。 */
   useOwnerAffordance?: boolean;
+  /**
+   * ポインタは段組の段の中だが、その高さに段の行が無い。グリップ・下端つまみは出さない
+   * (挿入線は入れ物の辺の判定なので従来どおり)。
+   */
+  laneEmpty?: boolean;
 }
 
 export interface BlockInsertPoint {
@@ -76,6 +81,8 @@ export interface BlockSpaceAfterTarget {
   left: number;
   /** 問題エリアの中か。既存のエリア高さハンドル・問題番号と重ねないためのレーン指定。 */
   insideProblemArea: boolean;
+  /** 段組の 2 段目以降のレーン幅 (`resolveColumnLaneWidthPx`)。ガターが段間なので本文に寄せて細く出す。 */
+  columnLaneWidthPx?: number;
   /** 現在の下余白 (px)。ドラッグの初期値。 */
   spaceAfterPx: number;
 }
@@ -87,6 +94,8 @@ export interface BlockHandleTarget {
   left: number;
   /** 問題エリアの中。左ガターの chrome と重ならないレーンへ出す。 */
   insideProblemArea?: boolean;
+  /** 段組の 2 段目以降のレーン幅 (`resolveColumnLaneWidthPx`)。ガターが段間なので本文に寄せて細く出す。 */
+  columnLaneWidthPx?: number;
 }
 
 /**
@@ -100,6 +109,27 @@ export interface HoveredDragUnit {
   bottom: number;
   left: number;
   insideProblemArea: boolean;
+  /** 段組の 2 段目以降 (ガターが段間) のレーン幅。 */
+  columnLaneWidthPx?: number;
+}
+
+/** 段間のレーンの幅。段間の中央は列境界 (幅の調整) のものなので、右半分に収める。 */
+const COLUMN_LANE_MAX_WIDTH_PX = 18;
+const COLUMN_LANE_MIN_WIDTH_PX = 10;
+/** 列境界の中央線とレーンの間に残す余白。 */
+const COLUMN_LANE_DIVIDER_CLEARANCE_PX = 2;
+
+/**
+ * 2 段目以降のグリップ・下端つまみの幅 (レイアウト px)。`dividerGapPx` はその段の左の段間
+ * (列境界のある隙間) の幅。列境界の無いガター (枠の内側の余白) なら null で、最大幅を使う。
+ * 段間が極端に狭いときだけ最小幅で中央へはみ出す。
+ */
+export function resolveColumnLaneWidthPx(dividerGapPx: number | null): number {
+  if (dividerGapPx === null || !Number.isFinite(dividerGapPx)) return COLUMN_LANE_MAX_WIDTH_PX;
+  return Math.max(
+    COLUMN_LANE_MIN_WIDTH_PX,
+    Math.min(COLUMN_LANE_MAX_WIDTH_PX, Math.floor(dividerGapPx / 2) - COLUMN_LANE_DIVIDER_CLEARANCE_PX),
+  );
 }
 
 /**
@@ -274,16 +304,43 @@ export const EMPTY_BLOCK_AFFORDANCE_HOVER: BlockAffordanceHover = {
 
 export type BlockAffordancePointerOwner = "frozen" | "divider" | "content";
 
-/** Decide which already-measured hover surface owns the current pointer position. */
+/**
+ * Decide which already-measured hover surface owns the current pointer position.
+ *
+ * 段間は列境界 (幅の調整) のもの。ただし右の段の行のグリップ・下端つまみを表示中で、ポインタが
+ * その行の高さに居る間だけは表示を保つ (`keepsColumnLaneAffordance`) — 本文から段間の
+ * つまみへ斜めに寄る途中で消えると掴めない。押せば段間は常に列境界のドラッグになる。
+ */
 export function resolveBlockAffordancePointerOwner(input: {
   dragging: boolean;
+  /** 列境界をドラッグ中。ポインタは捕捉されたまま本文の上を通るが、グリップは出さない。 */
+  resizingColumns?: boolean;
   targetIsAffordance: boolean;
   hitsColumnDivider: boolean;
+  keepsColumnLaneAffordance?: boolean;
 }): BlockAffordancePointerOwner {
   if (input.dragging) return "frozen";
+  if (input.resizingColumns) return "divider";
   if (input.targetIsAffordance) return "frozen";
-  if (input.hitsColumnDivider) return "divider";
+  if (input.hitsColumnDivider) return input.keepsColumnLaneAffordance ? "frozen" : "divider";
   return "content";
+}
+
+/** 段間でつまみを保つ縦の余裕。下端つまみ (高さ 16px) の半分と少し。 */
+const COLUMN_LANE_KEEP_SLACK_PX = 10;
+
+/**
+ * 表示中のアフォーダンスが「段間をガターに持つ段」の行のもので、ポインタがその行の高さ
+ * (上端から下端つまみの下まで) に居るか。段間のどの列境界の右の段かは DOM 側が確かめる。
+ */
+export function isPointWithinColumnLaneAffordance(
+  hover: BlockAffordanceHover,
+  point: { x: number; y: number },
+): boolean {
+  const handle = hover.handle;
+  if (!handle?.columnLaneWidthPx || point.x > handle.left) return false;
+  const bottom = Math.max(handle.bottom, hover.spaceAfter?.blockId === handle.blockId ? hover.spaceAfter.bottom : handle.bottom);
+  return point.y >= handle.top - COLUMN_LANE_KEEP_SLACK_PX / 2 && point.y <= bottom + COLUMN_LANE_KEEP_SLACK_PX;
 }
 
 export function resolveBlockAffordanceHover(
@@ -336,9 +393,20 @@ export function resolveBlockAffordanceHover(
       : null;
 
   const unit = hovered.useOwnerAffordance ? null : hovered.unit ?? null;
+  if (hovered.laneEmpty) {
+    // 段の空白。入れ物のグリップや隣の段の行のつまみを、ポインタの段のガターへ描かない。
+    return { handle: null, insertPoint, spaceAfter: null };
+  }
   return {
     handle: unit
-      ? { blockId: unit.id, top: unit.top, bottom: unit.bottom, left: unit.left, insideProblemArea: unit.insideProblemArea }
+      ? {
+          blockId: unit.id,
+          top: unit.top,
+          bottom: unit.bottom,
+          left: unit.left,
+          insideProblemArea: unit.insideProblemArea,
+          ...(unit.columnLaneWidthPx ? { columnLaneWidthPx: unit.columnLaneWidthPx } : {}),
+        }
       : { blockId: box.id, top: box.top, bottom: box.bottom, left: box.left },
     insertPoint,
     // グリップと同じ条件 (段の中 + ブロックの縦範囲) で出す。掴む相手だけがブロック本体では
@@ -358,6 +426,8 @@ export function resolveBlockAffordanceHover(
 const SPACE_HANDLE_RECT = { left: -30, right: 0, top: -8, bottom: 8 };
 /** 問題エリアの中のつまみ。問題番号・サイドノートを避けて 1 レーン外に描かれる。 */
 const PROBLEM_LANE_SPACE_HANDLE_RECT = { left: -54, right: -24, top: -8, bottom: 8 };
+/** 段組の 2 段目以降のつまみ。段間の右寄り (段の本文側) に短く描かれる (幅は最大のレーン幅)。 */
+const COLUMN_LANE_SPACE_HANDLE_RECT = { left: -COLUMN_LANE_MAX_WIDTH_PX, right: 0, top: -8, bottom: 8 };
 const INSERT_BUTTON_RECTS = {
   default: { left: -26, right: -6, top: -11, bottom: 9 },
   outer: { left: -56, right: -36, top: -11, bottom: 9 },
@@ -378,7 +448,9 @@ export function resolveBlockInsertButtonLane(hover: BlockAffordanceHover): Block
     return "default";
   }
 
-  const handle = spaceAfter.insideProblemArea ? PROBLEM_LANE_SPACE_HANDLE_RECT : SPACE_HANDLE_RECT;
+  const handle = spaceAfter.insideProblemArea
+    ? PROBLEM_LANE_SPACE_HANDLE_RECT
+    : spaceAfter.columnLaneWidthPx ? COLUMN_LANE_SPACE_HANDLE_RECT : SPACE_HANDLE_RECT;
   const handleBox = {
     left: spaceAfter.left + handle.left,
     right: spaceAfter.left + handle.right,
@@ -441,6 +513,7 @@ export function sameBlockAffordanceHover(
     || a.handle?.bottom !== b.handle?.bottom
     || a.handle?.left !== b.handle?.left
     || a.handle?.insideProblemArea !== b.handle?.insideProblemArea
+    || a.handle?.columnLaneWidthPx !== b.handle?.columnLaneWidthPx
   ) {
     return false;
   }
@@ -452,6 +525,7 @@ export function sameBlockAffordanceHover(
     || a.spaceAfter?.left !== b.spaceAfter?.left
     || a.spaceAfter?.spaceAfterPx !== b.spaceAfter?.spaceAfterPx
     || a.spaceAfter?.insideProblemArea !== b.spaceAfter?.insideProblemArea
+    || a.spaceAfter?.columnLaneWidthPx !== b.spaceAfter?.columnLaneWidthPx
   ) {
     return false;
   }

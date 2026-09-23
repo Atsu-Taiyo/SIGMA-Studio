@@ -13,10 +13,12 @@ import {
   deleteDocument,
   duplicateDocument,
   loadDocumentByFileIdWithRecovery,
-  saveWorkspaceState,
+  listSavedDocuments,
   type DocumentFileRecord,
   type DocumentMetadata,
 } from "@/lib/storage";
+import type { WorkspaceState } from "@/lib/runtime/types";
+import { deleteAiDataForDocument } from "@/lib/ai/ai-run-controller";
 import type { EmbeddedEditorHost } from "./document-lifecycle-types";
 import { closeWorkspaceDocumentTab, deleteWorkspaceDocument, type DocumentTabOpenOptions } from "./document-tab-commands";
 import type { EditorTabViewState, ResolvedEditorTabViewState } from "./editor-tab-view-state";
@@ -44,6 +46,7 @@ export interface WorkspaceDocumentCommandOptions {
   prepareIncomingEditorTabViewState(document: SigmaDocument, fileId: string): ResolvedEditorTabViewState;
   resetEditorDocument(document: SigmaDocument, selectedId?: string | null, observedRevision?: number | null): void;
   openDocumentInWorkspace(fileId: string, options?: DocumentTabOpenOptions): Promise<void>;
+  saveWorkspaceState(state: WorkspaceState): Promise<unknown>;
   refreshDocumentMetadatas(): Promise<unknown>;
   setOpenFileIds(fileIds: string[]): void;
   setActiveFileId(fileId: string): void;
@@ -65,6 +68,7 @@ export function useWorkspaceDocumentCommands({
   saveCurrentDocumentBeforeReplacement, saveCurrentDocumentRecord,
   rememberLeavingEditorTabViewState, prepareIncomingEditorTabViewState,
   resetEditorDocument, openDocumentInWorkspace, refreshDocumentMetadatas,
+  saveWorkspaceState,
   setOpenFileIds, setActiveFileId, setWorkspaceReady, setActiveMenu,
   setDocumentListOpen, setSaveState, setStatusMessage, t, tEditor,
 }: WorkspaceDocumentCommandOptions) {
@@ -114,12 +118,14 @@ export function useWorkspaceDocumentCommands({
           return;
         }
       }
-      const created = await createNewDocument();
+      const current = documentMetadatas.find(item => item.fileId === activeFileIdRef.current);
+      if (workspaceReady && !current) throw new Error("TARGET_UNAVAILABLE");
+      const created = await createNewDocument(undefined, current && { workspaceId: current.workspaceId, folderId: current.folderId });
       untouchedNewDocumentsRef.current.set(created.fileId, created.document);
       await openDocumentAsTab(created, tEditor("status.documentCreated"));
     } catch (error) {
       setSaveState("error");
-      setStatusMessage(error instanceof Error ? error.message : tEditor("status.createFailed"));
+      setStatusMessage(error instanceof Error && error.message.includes("FORBIDDEN") ? tEditor("status.creationNotAllowed") : error instanceof Error ? error.message : tEditor("status.createFailed"));
     }
   };
 
@@ -134,17 +140,19 @@ export function useWorkspaceDocumentCommands({
       if (workspaceReady && !(await saveCurrentDocumentBeforeReplacement())) {
         return;
       }
+      const current = documentMetadatas.find(item => item.fileId === activeFileIdRef.current);
+      if (workspaceReady && !current) throw new Error("TARGET_UNAVAILABLE");
       const whiteboard = createBlankDocument(t("tabs.untitledWhiteboard"));
       const created = await createDocumentFromSigmaDocument({
         ...whiteboard,
         content: [],
         pageLayout: getDefaultPageLayout("whiteboard"),
-      });
+      }, current && { workspaceId: current.workspaceId, folderId: current.folderId });
       untouchedNewDocumentsRef.current.set(created.fileId, created.document);
       await openDocumentAsTab(created, tEditor("status.whiteboardCreated"));
     } catch (error) {
       setSaveState("error");
-      setStatusMessage(error instanceof Error ? error.message : tEditor("status.whiteboardCreateFailed"));
+      setStatusMessage(error instanceof Error && error.message.includes("FORBIDDEN") ? tEditor("status.creationNotAllowed") : error instanceof Error ? error.message : tEditor("status.whiteboardCreateFailed"));
     }
   };
 
@@ -199,6 +207,11 @@ export function useWorkspaceDocumentCommands({
       setWorkspaceReady(false);
     },
     navigateToWorkspace: () => navigateToAppRoute("/workspace"),
+    canCleanupUntouchedDocument: async (fileId) => {
+      const metadata = (await listSavedDocuments()).find((item) => item.fileId === fileId);
+      return Boolean(metadata && !metadata.sharing && !metadata.sharingPending);
+    },
+    deleteAiDataForDocument,
     openDocumentInWorkspace,
     setOpenFileIds,
     saveWorkspaceState,

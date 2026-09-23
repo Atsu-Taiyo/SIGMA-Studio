@@ -786,12 +786,6 @@
   margin: 0;
 }
 
-.sigma-doc-box-content {
-  box-sizing: border-box;
-  width: 100%;
-  min-width: 0;
-}
-
 .sigma-doc-block-action-button {
   position: absolute;
   top: 6px;
@@ -1142,13 +1136,13 @@
   display: none;
 }
 
-.box-frame--title-band .sigma-doc-box-title:empty,
-.box-frame--title-band .sigma-doc-box-title:has(> br.ProseMirror-trailingBreak:only-child) {
+:is(.box-frame--title-band, .box-frame--title-band > .sigma-doc-box-content) > .sigma-doc-box-title:empty,
+:is(.box-frame--title-band, .box-frame--title-band > .sigma-doc-box-content) > .sigma-doc-box-title:has(> br.ProseMirror-trailingBreak:only-child) {
   min-height: var(--sigma-doc-box-title-band-height, 32px);
 }
 
-.box-frame--notebook-rules .sigma-doc-box-title:empty,
-.box-frame--notebook-rules .sigma-doc-box-title:has(> br.ProseMirror-trailingBreak:only-child) {
+:is(.box-frame--notebook-rules, .box-frame--notebook-rules > .sigma-doc-box-content) > .sigma-doc-box-title:empty,
+:is(.box-frame--notebook-rules, .box-frame--notebook-rules > .sigma-doc-box-content) > .sigma-doc-box-title:has(> br.ProseMirror-trailingBreak:only-child) {
   top: 0;
 }
 
@@ -1448,21 +1442,26 @@
   min-height: 0;
 }
 
+/* 部分段組の列境界 (編集専用)。段間の全幅が当たり判定 — 段間は列境界のもので、2 段目以降の
+   グリップ・下端つまみは段の本文側に寄せた細いレーンへ出る (page-and-selection.css)。
+   段間が 12px より狭いときだけ 12px に広げる。 */
 .layout-section-column-resize-handle {
   position: absolute;
   top: 0;
   bottom: 0;
   z-index: 24;
-  width: 12px;
+  width: max(12px, var(--layout-column-divider-gap, 12px));
   min-height: 24px;
   padding: 0;
   border: 0;
   background: transparent;
   cursor: col-resize;
+  outline: none;
   transform: translateX(calc(-50% + var(--layout-column-resize-preview-x, 0px)));
   touch-action: none;
 }
 
+/* 境界線。段組にホバーすると薄く出て「ここで分かれている」を示し、境界に乗ると太く濃くなる。 */
 .layout-section-column-resize-handle::after {
   content: "";
   position: absolute;
@@ -1472,14 +1471,119 @@
   width: 1px;
   background: color-mix(in srgb, var(--accent) 45%, transparent);
   opacity: 0;
+  pointer-events: none;
   transform: translateX(-50%);
+}
+
+/* 詳細度は境界そのもののホバー (下) より低く保つ。 */
+:where(.layout-section-flow-unit:is(:hover, .selected) > .layout-section-paper-body > .layout-section-independent-columns) > .layout-section-column-resize-handle::after,
+:where(.sigma-doc-layout-section-block:hover > .sigma-doc-layout-section-body) > .layout-section-column-resize-handle::after {
+  opacity: 0.5;
 }
 
 .layout-section-column-resize-handle:hover::after,
 .layout-section-column-resize-handle:focus-visible::after,
 .layout-section-column-resize-handle[data-dragging="true"]::after {
+  width: 2px;
+  background: var(--accent);
   opacity: 1;
-  background: color-mix(in srgb, var(--accent) 78%, transparent);
+}
+
+/* つまみ。ポインタの高さに出る (段組がページを跨ぐほど高くても、掴む位置に見える)。 */
+.layout-section-column-resize-knob {
+  position: absolute;
+  top: var(--layout-column-knob-y, 50%);
+  left: 50%;
+  box-sizing: border-box;
+  width: 10px;
+  height: 28px;
+  border: 1px solid var(--accent);
+  border-radius: 999px;
+  background: var(--background, #ffffff);
+  box-shadow: 0 1px 4px rgb(15 23 42 / 14%);
+  opacity: 0;
+  pointer-events: none;
+  transform: translate(-50%, -50%);
+}
+
+.layout-section-column-resize-knob::before {
+  content: "";
+  position: absolute;
+  top: 8px;
+  bottom: 8px;
+  left: 2px;
+  right: 2px;
+  border-right: 1px solid var(--accent);
+  border-left: 1px solid var(--accent);
+}
+
+.layout-section-column-resize-handle:hover > .layout-section-column-resize-knob,
+.layout-section-column-resize-handle:focus-visible > .layout-section-column-resize-knob,
+.layout-section-column-resize-handle[data-dragging="true"] > .layout-section-column-resize-knob {
+  opacity: 1;
+}
+
+/* ドラッグ中の比率 (段組全体に対する 2 列の割合)。均等に吸い付くとアクセント色、端まで寄せると
+   「列を結合」。 */
+.layout-section-column-resize-handle[data-readout]::before {
+  content: attr(data-readout);
+  position: absolute;
+  top: calc(var(--layout-column-knob-y, 50%) - 20px);
+  left: 50%;
+  z-index: 1;
+  padding: 0 var(--space-xs);
+  border-radius: 4px;
+  background: var(--text-primary, #111111);
+  box-shadow: 0 2px 8px rgb(15 23 42 / 16%);
+  color: var(--background, #ffffff);
+  font-size: 11px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  line-height: 18px;
+  white-space: nowrap;
+  pointer-events: none;
+  transform: translate(-50%, -100%);
+}
+
+.layout-section-column-resize-handle[data-resize-state="equal"]::before {
+  background: var(--accent);
+}
+
+.layout-section-column-resize-handle[data-resize-state="merge"]::before {
+  background: var(--danger, #b42318);
+}
+
+/* 端まで寄せたとき、離すと隣へ結合される段を薄く覆う。プレビューの段は最小幅で止め、
+   潰れた本文は描かない。 */
+.layout-section-column-resize-merge {
+  display: none;
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  box-sizing: border-box;
+  width: var(--layout-column-merge-width, 0px);
+  border: 1px dashed color-mix(in srgb, var(--danger, #b42318) 55%, transparent);
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--danger, #b42318) 7%, transparent);
+  pointer-events: none;
+}
+
+.layout-section-column-resize-merge[data-side] {
+  display: block;
+}
+
+.layout-section-column-resize-merge[data-side="left"] {
+  right: calc(50% + var(--layout-column-divider-gap, 0px) / 2);
+}
+
+.layout-section-column-resize-merge[data-side="right"] {
+  left: calc(50% + var(--layout-column-divider-gap, 0px) / 2);
+}
+
+/* 本文ブロックを掴んで運んでいる間、段間は落とし先 (縦線) の表示に譲る。 */
+body.page-block-dragging .layout-section-column-resize-handle::after,
+body.page-block-dragging .layout-section-column-resize-knob {
+  opacity: 0;
 }
 
 .layout-section-paper-body.with-layout-column-flow .text-flow-shell.column-flow-positioned .text-flow-editor {

@@ -188,6 +188,8 @@ const tEditorNow = createNowTranslator("editor");
 interface AiEditPanelProps {
   document: SigmaDocument;
   documentIdentityKey: string;
+  /** Pins a tab-hosted panel to one conversation while other rooms stay visible elsewhere. */
+  controlledRoomId?: string | null;
   /** 編集対象ドキュメントが属するワークスペースid(fileIdからの逆引き)。null/undefined
    * ならワークスペース不明(グローバルskillのみが候補になる)。ワークスペーススコープの
    * skill候補(/-slash)を、実行時のbuildRunContextと同じスコープに絞り込むために使う。 */
@@ -365,6 +367,7 @@ export function findActiveRoomPreview(
 export function AiEditPanel({
   document,
   documentIdentityKey,
+  controlledRoomId,
   documentWorkspaceId = null,
   selectedId,
   reference,
@@ -420,7 +423,8 @@ export function AiEditPanel({
   // (promoting inline → sidebar moves it across a portal boundary, which
   // React treats as an unmount+mount).
   const chatRooms = useAiChatRoomsForDocument(documentIdentityKey);
-  const activeRoomId = useAiActiveRoomId(documentIdentityKey);
+  const storedActiveRoomId = useAiActiveRoomId(documentIdentityKey);
+  const activeRoomId = controlledRoomId ?? storedActiveRoomId;
   const [historyLoading, setHistoryLoading] = useState(true);
   const [historyError, setHistoryError] = useState<string | null>(null);
   const [composerError, setComposerError] = useState<string | null>(null);

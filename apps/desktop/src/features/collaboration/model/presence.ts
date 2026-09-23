@@ -1,0 +1,3 @@
+export const MAX_PRESENCE_MESSAGE_BYTES = 8192;
+export const MAX_PRESENCE_SHAPE_IDS = 64;
+export const MAX_PRESENCE_PREVIEW_SHAPES = 32;

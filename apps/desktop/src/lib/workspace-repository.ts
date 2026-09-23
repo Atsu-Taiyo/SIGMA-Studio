@@ -108,6 +108,7 @@ export async function renameDocumentInWorkspace(
   name: string,
 ): Promise<WorkspaceOverviewResult> {
   const runtime = getAppRuntime();
+  if (runtime.workspace.renameDocument) return runtime.workspace.renameDocument(workspaceId, fileId, name);
   const files = await runtime.library.listFiles();
   const target = files.find((file) => file.fileId === fileId);
   const title = target

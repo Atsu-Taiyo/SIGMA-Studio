@@ -3,6 +3,7 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import { mkdirSync, watch, type FSWatcher, type WatchEventType } from "node:fs";
 import fs from "node:fs/promises";
 import path from "node:path";
+import { captureSharedProposal } from "./collaboration/proposal-context";
 import { isDeepStrictEqual } from "node:util";
 import { parseSigmaDocument } from "@/lib/sigma-doc-schema";
 import { readBlockHashRevisions } from "./block-hash-sidecar";
@@ -290,7 +291,7 @@ export class LocalMcpEditProposalStore {
       ...(touchedBlocks.length > 0 ? { touchedBlocks } : {}),
       ...(input.requestSelection ? { requestSelection: input.requestSelection } : {}),
     };
-    await this.writeProposal(proposal);
+    await this.writeProposal(proposal, baseDocument);
     return proposal;
   }
 
@@ -728,6 +729,7 @@ export class LocalMcpEditProposalStore {
       updatedAt: now,
       resolvedAt: now,
       ...(message ? { resolutionMessage: message } : {}),
+      ...(status === "approved" && extra.appliedOperationId ? { appliedOperationId: extra.appliedOperationId } : {}),
       ...(status === "approved" && extra.appliedRevision !== undefined ? { appliedRevision: extra.appliedRevision } : {}),
       ...(status === "approved" && revertDocument ? { revertDocument } : {}),
       ...(status === "approved" && appliedDocument ? { nextDocument: appliedDocument } : {}),
@@ -799,6 +801,17 @@ export class LocalMcpEditProposalStore {
 
   async countPendingProposalsForFile(fileId: string): Promise<number> {
     return (await this.listPendingMetasForFile(fileId)).length;
+  }
+
+  /** Removes proposal artifacts whose target document is being discarded. */
+  async deleteProposalsForFile(fileId: string): Promise<string[]> {
+    const normalizedFileId = fileId.trim();
+    if (!normalizedFileId) return [];
+    const proposalIds = (await this.getIndexMetas())
+      .filter((proposal) => proposal.fileId === normalizedFileId)
+      .map((proposal) => proposal.proposalId);
+    await Promise.all(proposalIds.map((proposalId) => this.deleteProposalFile(proposalId)));
+    return proposalIds;
   }
 
   /**
@@ -976,6 +989,7 @@ export class LocalMcpEditProposalStore {
     // 消さずに置くと次の承認 (resolveProposal) が autoApplied を条件付きspreadでしか更新
     // しないため「手動承認したのに自動適用ラベルが残る」といった表示不整合を招く。
     delete nextProposal.appliedRevision;
+    delete nextProposal.appliedOperationId;
     delete nextProposal.revertDocument;
     delete nextProposal.appliedDiff;
     delete nextProposal.autoApplied;
@@ -1003,6 +1017,7 @@ export class LocalMcpEditProposalStore {
           delete member.resolvedAt;
           delete member.resolutionMessage;
           delete member.appliedRevision;
+          delete member.appliedOperationId;
           delete member.revertDocument;
           delete member.appliedDiff;
           delete member.autoApplied;
@@ -1243,6 +1258,7 @@ export class LocalMcpEditProposalStore {
       .filter((candidate) => (
         candidate.fileId === proposal.fileId
         && candidate.status === "approved"
+        && candidate.appliedOperationId === proposal.appliedOperationId
         && candidate.appliedRevision === proposal.appliedRevision
       ))
       .map((candidate) => candidate.proposalId);
@@ -1254,12 +1270,13 @@ export class LocalMcpEditProposalStore {
         candidate
         && candidate.fileId === proposal.fileId
         && candidate.status === "approved"
+        && candidate.appliedOperationId === proposal.appliedOperationId
         && candidate.appliedRevision === proposal.appliedRevision,
       ))
       .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
     const proposalIds = batch.map((candidate) => candidate.proposalId);
 
-    if (proposal.appliedRevision === currentRevision) {
+    if (!proposal.appliedOperationId && proposal.appliedRevision === currentRevision) {
       return { ok: true, mode: "full", document: proposal.revertDocument, proposalIds };
     }
 
@@ -1733,6 +1750,7 @@ export class LocalMcpEditProposalStore {
         ...(typeof value.rejectedAt === "string" ? { rejectedAt: value.rejectedAt } : {}),
         ...(typeof value.rejectedReason === "string" ? { rejectedReason: value.rejectedReason } : {}),
         ...(typeof value.rebasedFrom === "number" ? { rebasedFrom: value.rebasedFrom } : {}),
+        ...(typeof value.appliedOperationId === "string" ? { appliedOperationId: value.appliedOperationId } : {}),
         ...(typeof value.appliedRevision === "number" ? { appliedRevision: value.appliedRevision } : {}),
         ...(appliedDiff ? { appliedDiff } : {}),
         ...(typeof value.autoApplied === "boolean" ? { autoApplied: value.autoApplied } : {}),
@@ -1870,7 +1888,8 @@ export class LocalMcpEditProposalStore {
     })));
   }
 
-  private async writeProposal(proposal: LocalMcpEditProposal): Promise<void> {
+  private async writeProposal(proposal: LocalMcpEditProposal, baseDocument?: SigmaDocument): Promise<void> {
+    await captureSharedProposal(path.dirname(path.dirname(this.getProposalsDir())), proposal, baseDocument);
     await this.ensureBaseDirs();
     const data = JSON.stringify(proposal);
     if (Buffer.byteLength(data, "utf8") > MAX_MCP_PROPOSAL_FILE_BYTES) {
@@ -2029,6 +2048,7 @@ function summarizeProposal(proposal: LocalMcpEditProposal): LocalMcpEditProposal
     ...(proposal.rejectedAt ? { rejectedAt: proposal.rejectedAt } : {}),
     ...(proposal.rejectedReason ? { rejectedReason: proposal.rejectedReason } : {}),
     ...(proposal.rebasedFrom !== undefined ? { rebasedFrom: proposal.rebasedFrom } : {}),
+    ...(proposal.appliedOperationId ? { appliedOperationId: proposal.appliedOperationId } : {}),
     ...(proposal.appliedRevision !== undefined ? { appliedRevision: proposal.appliedRevision } : {}),
     ...(appliedDiff ? { appliedDiff } : {}),
     ...(proposal.autoApplied ? { autoApplied: proposal.autoApplied } : {}),
@@ -2073,6 +2093,7 @@ function summarizeProposalMeta(meta: LocalMcpEditProposalMeta): LocalMcpEditProp
     ...(meta.rejectedAt ? { rejectedAt: meta.rejectedAt } : {}),
     ...(meta.rejectedReason ? { rejectedReason: meta.rejectedReason } : {}),
     ...(meta.rebasedFrom !== undefined ? { rebasedFrom: meta.rebasedFrom } : {}),
+    ...(meta.appliedOperationId ? { appliedOperationId: meta.appliedOperationId } : {}),
     ...(meta.appliedRevision !== undefined ? { appliedRevision: meta.appliedRevision } : {}),
     ...(meta.appliedDiff ? { appliedDiff: meta.appliedDiff } : {}),
     ...(meta.autoApplied ? { autoApplied: meta.autoApplied } : {}),

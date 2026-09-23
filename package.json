@@ -43,7 +43,9 @@
     "electron:dist": "npm --workspace @sigma-studio/desktop run electron:dist",
     "electron:dist:mac": "npm --workspace @sigma-studio/desktop run electron:dist:mac",
     "electron:dist:win": "npm --workspace @sigma-studio/desktop run electron:dist:win",
-    "electron:dist:store": "npm --workspace @sigma-studio/desktop run electron:dist:store"
+    "electron:dist:store": "npm --workspace @sigma-studio/desktop run electron:dist:store",
+    "collaboration:desktop": "node --env-file=.env.collaboration.local scripts/collaboration-desktop.mjs",
+    "collaboration:benchmark": "node scripts/collaboration-benchmark.mjs"
   },
   "overrides": {
     "postcss": "^8.5.14"

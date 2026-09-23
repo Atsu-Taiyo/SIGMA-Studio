@@ -18,6 +18,14 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
 }
 
 export interface RegisterStorageIpcDeps {
+  sharedProposalApprover?: import("../proposal-approval").ProposalApprovalPorts["sharedProposalApprover"];
+  sharedSessions?: {
+    has(fileId: string): boolean;
+    project(fileId: string): SigmaDocument | undefined;
+    boundarySave(fileId: string, document: SigmaDocument): Promise<{ ok: boolean; revision?: number; error?: string }>;
+    duplicate(fileId: string): ReturnType<LocalSigmaDocStore["createFileFromDocument"]>;
+    withApproverInWindow?<T>(windowId: number, run: () => Promise<T>): Promise<T>;
+  };
   localSigmaDocStore: LocalSigmaDocStore;
   localMcpProposalStore: LocalMcpEditProposalStore;
   approveSingleProposal: (
@@ -45,6 +53,7 @@ export function registerStorageIpc(deps: RegisterStorageIpcDeps): void {
     recordRendererSave,
   } = deps;
   const approvalCoordinator = createProposalApprovalCoordinator({
+    sharedProposalApprover: deps.sharedProposalApprover,
     localSigmaDocStore,
     localMcpProposalStore,
     broadcastLocalStoreChange,
@@ -93,6 +102,7 @@ export function registerStorageIpc(deps: RegisterStorageIpcDeps): void {
       };
     }
     const nextDocument = document as Parameters<LocalSigmaDocStore["saveDocument"]>[1];
+    if (deps.sharedSessions?.has(fileId)) return deps.sharedSessions.boundarySave(fileId, nextDocument);
     const origin = isPlainObject(rawOptions) && ["ai", "tab-switch", "app-close"].includes(String(rawOptions.origin))
       ? rawOptions.origin as "ai" | "tab-switch" | "app-close"
       : "user";
@@ -268,12 +278,18 @@ export function registerStorageIpc(deps: RegisterStorageIpcDeps): void {
 
   ipcMain.handle("storage:approve-mcp-edit-proposal", async (_event, proposalId: string, rawOptions?: unknown) => {
     const force = isPlainObject(rawOptions) && rawOptions.force === true;
-    return approveSingleProposal(proposalId, { force });
+    const run = () => approveSingleProposal(proposalId, { force });
+    return deps.sharedSessions?.withApproverInWindow
+      ? deps.sharedSessions.withApproverInWindow(_event.sender.id, run)
+      : run();
   });
 
-  ipcMain.handle("storage:approve-mcp-edit-proposals", (_event, rawIds: unknown, rawOptions?: unknown) => (
-    approvalCoordinator.approveProposals(rawIds, rawOptions)
-  ));
+  ipcMain.handle("storage:approve-mcp-edit-proposals", (_event, rawIds: unknown, rawOptions?: unknown) => {
+    const run = () => approvalCoordinator.approveProposals(rawIds, rawOptions);
+    return deps.sharedSessions?.withApproverInWindow
+      ? deps.sharedSessions.withApproverInWindow(_event.sender.id, run)
+      : run();
+  });
 
   // 旧来の単一proposalId呼び出し (renderer側の既存呼び出しはこれを .map() で複数回呼んでいる)
   // との後方互換を保ちつつ、reasonつきの一括却下 { proposalIds, reason } もサポートする。

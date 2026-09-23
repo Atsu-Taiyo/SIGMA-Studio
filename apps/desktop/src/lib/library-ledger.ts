@@ -4,6 +4,7 @@ import type {
   WorkspaceOverview,
   WorkspaceState,
 } from "@/lib/runtime/types";
+import { normalizeWorkspaceLayout, workspaceLayoutOpenFileIds } from "@/lib/workspace-tab-groups";
 
 /**
  * 教材台帳 (library.json 相当) の行と、行に対する純粋な操作。
@@ -684,9 +685,13 @@ export function resolveWorkspaceState(
     return fail("no-visible-files");
   }
 
-  const openFileIds = Array.from(new Set([
+  let openFileIds = Array.from(new Set([
     ...(stored?.openFileIds ?? []).filter((fileId) => visibleFileIds.has(fileId)),
     activeFileId,
   ]));
-  return ok({ openFileIds, activeFileId });
+  const layout = stored?.layout
+    ? normalizeWorkspaceLayout(stored.layout, openFileIds, activeFileId, visibleFileIds)
+    : undefined;
+  if (layout) openFileIds = workspaceLayoutOpenFileIds(layout);
+  return ok({ openFileIds, activeFileId: layout?.lastDocumentFileId ?? activeFileId, ...(layout ? { layout } : {}) });
 }

@@ -359,7 +359,7 @@ button:disabled {
 
 .menubar-row {
   display: grid;
-  grid-template-columns: 42px auto minmax(180px, 1fr) minmax(120px, 220px) auto auto max-content;
+  grid-template-columns: 42px max-content minmax(0, 1fr) minmax(0, 220px) auto auto max-content;
   grid-template-rows: 32px 32px;
   align-items: center;
   align-content: end;
@@ -389,17 +389,22 @@ button:disabled {
 
 .document-tabs-row {
   display: grid;
-  grid-column: 3 / 6;
+  grid-column: 3 / -1;
   grid-row: 2;
   grid-template-columns: minmax(0, 1fr);
   align-self: end;
   align-items: center;
   gap: var(--space-xs);
   margin-left: 0;
-  min-width: 180px;
+  min-width: 0;
+  margin-right: 68px;
   height: 32px;
   padding: 3px 0 0;
   background: transparent;
+}
+
+.app-shell[data-tab-groups="true"] .document-tabs-row {
+  display: none;
 }
 
 .document-tabs-scroll {
@@ -407,7 +412,7 @@ button:disabled {
   align-items: end;
   gap: var(--space-xs);
   min-width: 0;
-  overflow-x: hidden;
+  overflow-x: auto;
   overflow-y: hidden;
   scrollbar-width: none;
 }
@@ -417,12 +422,13 @@ button:disabled {
 }
 
 .document-tab {
+  container-type: inline-size;
   display: inline-grid;
   grid-template-columns: minmax(0, 1fr) 24px;
   align-items: center;
   flex: 1 1 220px;
   width: auto;
-  min-width: 0;
+  min-width: 48px;
   max-width: 220px;
   height: 28px;
   border: 1px solid var(--border-subtle);
@@ -556,12 +562,18 @@ button:disabled {
   padding-top: 8px;
 }
 
-.menubar-right-actions .workspace-open-button {
+.menubar-right-actions .workspace-account-actions {
   grid-column: 7;
   grid-row: 1;
   align-self: center;
   justify-self: end;
   margin: 0;
+}
+
+.workspace-account-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-sm);
 }
 
 .menubar-right-actions .document-tab-actions {
@@ -588,10 +600,12 @@ button:disabled {
 }
 
 .app-menu-anchor {
+  flex: 0 0 auto;
   position: relative;
 }
 
 .app-menu-button {
+  white-space: nowrap;
   height: 30px;
   padding: 0 2px;
   border: 1px solid transparent;
@@ -3762,3 +3776,32 @@ button:disabled {
 .column-rule-preview-line { position: absolute; top: 0; bottom: 0; left: -12px; transform: translateX(-50%); }
 
 .column-rule-heading { margin: 16px 0 8px; font-size: 13px; font-weight: 600; }
+
+/* タブが狭くても、先頭文字をアイコンや省略記号で隠さない。 */
+.document-tab-initial,
+.workspace-tab-initial {
+  display: none;
+}
+
+@container (max-width: 95px) {
+  .document-tab-main,
+  .workspace-group-tab > button:first-child[role="tab"] {
+    gap: 0;
+    padding-inline: 4px;
+  }
+
+  .document-tab-main > svg,
+  .document-tab-main > .document-tab-save-dot,
+  .document-tab-main > .document-tab-title,
+  .workspace-group-tab > button:first-child > svg,
+  .workspace-group-tab > button:first-child > .workspace-tab-title {
+    display: none;
+  }
+
+  .document-tab-main > .document-tab-initial,
+  .workspace-group-tab > button:first-child > .workspace-tab-initial {
+    display: inline;
+    flex: 0 0 auto;
+    text-overflow: clip;
+  }
+}

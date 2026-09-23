@@ -56,7 +56,7 @@ import  {
 } from "react";
 import { flushSync } from "react-dom";
 
-import { beginLayoutColumnResize } from "./layout-column-resize";
+import { attachLayoutColumnResizeHandle } from "./layout-column-resize";
 import { BlockEditor } from "@/components/editor/BlockEditor";
 import { CommentThreadsPanel, type CommentThreadsPanelProps } from "@/components/editor/CommentThreadsPanel";
 import { EditorExtensionProvider, useEditorExtensions, type EditorExtensionContextValue } from "@/components/editor/editor-extension-context";
@@ -217,11 +217,12 @@ import type  {
   OverlayTool,
 } from "./overlay-canvas/types";
 import { createResolvedOverlayView, type OverlayIdentityCache, type ResolvedOverlayView } from "./overlay-canvas/view-cache";
-import { OverlayShapeReadOnlyView } from "./OverlayCanvasEditorClient";
+import { OverlayShapeReadOnlyView, RemoteOverlayPresenceLayer } from "./OverlayCanvasEditorClient";
 import { buildAppliedGapIndex } from "./page-canvas/applied-gaps";
 import  {
   blockHitProbeColumnLeftPx,
   EMPTY_BLOCK_AFFORDANCE_HOVER,
+  isPointWithinColumnLaneAffordance,
   resolveBlockAffordanceHover,
   resolveBlockAffordancePointerOwner,
   resolveBlockInsertButtonLane,
@@ -232,7 +233,13 @@ import  {
   type BlockSpaceAfterTarget,
   type TopLevelBlockBox,
 } from "./page-canvas/block-affordances";
-import { measureDragUnitPieces, pointHitsLayoutColumnResizeHandle, type DragIndex } from "./page-canvas/block-drag-dom";
+import  {
+  layoutColumnDividerAdjoinsBlock,
+  measureDragUnitPieces,
+  pointHitsLayoutColumnResizeHandle,
+  resolveLayoutColumnResizeHandleAt,
+  type DragIndex,
+} from "./page-canvas/block-drag-dom";
 import  {
   emptyProblemAreaEditorBlockId,
   hasBreakBefore,
@@ -831,6 +838,11 @@ function PageCanvasEditorImpl({
     bounds: OverlayBounds;
   } | null>(null);
   const [blockAffordance, setBlockAffordance] = useState<BlockAffordanceHover>(EMPTY_BLOCK_AFFORDANCE_HOVER);
+  // ホバー解決はイベント時に「いま表示中のもの」を読む (段間で右の段のつまみを保つ判定)。
+  const blockAffordanceRef = useRef<BlockAffordanceHover>(EMPTY_BLOCK_AFFORDANCE_HOVER);
+  useLayoutEffect(() => {
+    blockAffordanceRef.current = blockAffordance;
+  }, [blockAffordance]);
   /**
    * 掴んでいる下端つまみ。描画用の state と、ポインタハンドラが読む ref の 2 本立て。
    *
@@ -2562,19 +2574,30 @@ function PageCanvasEditorImpl({
     // 下端つまみを掴んでいる間はホバー解決を凍結する。ポインタがブロックから離れた瞬間に
     // affordance が空になり、掴んでいるつまみごと unmount されるのを防ぐ。
     const canvas = canvasRef.current;
+    const divider = canvas ? resolveLayoutColumnResizeHandleAt(canvas, clientX, clientY) : null;
+    const shown = blockAffordanceRef.current;
+    // 列境界をドラッグ中 (ポインタは境界ボタンに捕捉されている)。
+    const resizingColumns = target instanceof Element
+      && !!target.closest('.layout-section-column-resize-handle[data-dragging="true"]');
     const pointerOwner = resolveBlockAffordancePointerOwner({
       dragging: spaceAfterSessionRef.current.isDragging || blockDrag.isDragging(),
+      resizingColumns,
       targetIsAffordance: target instanceof Element && !!target.closest(".page-block-affordance-layer"),
-      hitsColumnDivider: !!canvas && pointHitsLayoutColumnResizeHandle(canvas, clientX, clientY),
+      hitsColumnDivider: !!divider,
+      keepsColumnLaneAffordance: !!canvas && !!divider && !!shown.handle
+        && isPointWithinColumnLaneAffordance(shown, toCanvasPoint(canvas, clientX, clientY))
+        && layoutColumnDividerAdjoinsBlock(divider, shown.handle.blockId),
     });
     // 表示中のグリップ／つまみ自身が最前面なら、その上に居る間は現在の解決を保つ。
     // ドラッグ中も同じ: control が unmount されると pointer capture ごと消える。
     if (pointerOwner === "frozen") {
       return;
     }
-    // アフォーダンスが無い場所から直接入ったときだけ、実 DOM の 12px 境界矩形が勝つ。
+    // 段間 (列境界の実 DOM 矩形) は列境界のもの。表示中の右の段のつまみはその行の間だけ保つ (上)。
     if (pointerOwner === "divider") {
-      lastAffordancePointRef.current = { x: clientX, y: clientY };
+      // 列幅のドラッグ中は、プレビューの再計測で走る「静止中の取り直し」に基準点を渡さない。
+      // 渡すと、ドラッグで本文の上に来たポインタの位置でグリップが出し直される。
+      lastAffordancePointRef.current = resizingColumns ? null : { x: clientX, y: clientY };
       setBlockAffordance((current) => (
         current === EMPTY_BLOCK_AFFORDANCE_HOVER ? current : EMPTY_BLOCK_AFFORDANCE_HOVER
       ));
@@ -4749,7 +4772,9 @@ function PageCanvasEditorImpl({
                 editPolicy={editorExtensions?.overlayEditPolicy}
                 shapeDecorations={editorExtensions?.overlayShapeDecorations}
                 diffShapeClassNames={overlayShapeClassNames}
+                publishesSessionPresence={!isPagedRender}
               />
+              {!isPagedRender && <RemoteOverlayPresenceLayer shapes={overlayView.shapes} />}
               <OverlayPreview
                 resolvedView={overlayView}
                 visiblePageRange={{ start: -999, end: 9999, overscan: 0 }}
@@ -5281,12 +5306,15 @@ function PageCanvasEditorImpl({
                   key={`block-handle-${handle.blockId}`}
                   type="button"
                   className={`page-block-handle ${activeBlockSelection.ids.includes(handle.blockId) ? "selected" : ""}`}
+                  // 2 段目以降のガターは段間。段の本文に寄せた細いレーンへ出し、列境界と左の段から離す。
+                  data-gutter-lane={handle.columnLaneWidthPx ? "column" : undefined}
                   data-block-id={handle.blockId}
                   style={{
                     top: `${handle.top}px`,
                     left: `${handle.left}px`,
                     height: `${Math.max(BLOCK_HANDLE_MIN_HEIGHT_PX, Math.min(handle.bottom - handle.top, BLOCK_HANDLE_MAX_HEIGHT_PX))}px`,
-                  }}
+                    ...(handle.columnLaneWidthPx ? { "--column-lane-width": `${handle.columnLaneWidthPx}px` } : {}),
+                  } as CSSProperties}
                   aria-label={tEditorText("pageCanvas.selectBlock")}
                   title={tEditorText("pageCanvas.selectBlockHint")}
                   onMouseDown={(event) => {
@@ -5312,7 +5340,7 @@ function PageCanvasEditorImpl({
                     }
                   }}
                 >
-                  <GripVertical size={14} aria-hidden="true" />
+                  <GripVertical size={handle.columnLaneWidthPx && handle.columnLaneWidthPx < 14 ? 12 : 14} aria-hidden="true" />
                 </button>
               ))}
               {blockAffordancesEnabled && visibleSpaceAfterHandles.map((handle) => (
@@ -5322,13 +5350,14 @@ function PageCanvasEditorImpl({
                   className="page-block-space-handle"
                   // 問題エリアの左ガターには問題番号・サイドノート・エリア高さハンドルが同居する。
                   // 1 レーン外へ寄せて重なりを構造的に避ける。
-                  data-gutter-lane={handle.insideProblemArea ? "problem" : undefined}
+                  data-gutter-lane={handle.insideProblemArea ? "problem" : handle.columnLaneWidthPx ? "column" : undefined}
                   data-dragging={spaceAfterDrag ? "true" : undefined}
                   data-block-id={handle.blockId}
                   style={{
                     top: `${handle.bottom}px`,
                     left: `${handle.left}px`,
-                  }}
+                    ...(handle.columnLaneWidthPx ? { "--column-lane-width": `${handle.columnLaneWidthPx}px` } : {}),
+                  } as CSSProperties}
                   aria-label={tEditorText("pageCanvas.spaceAfter")}
                   title={tEditorText("pageCanvas.spaceAfterHint")}
                   onMouseDown={(event) => {
@@ -5438,6 +5467,7 @@ function PageCanvasEditorImpl({
                   editPolicy={editorExtensions?.overlayEditPolicy}
                   shapeDecorations={editorExtensions?.overlayShapeDecorations}
                   diffShapeClassNames={overlayShapeClassNames}
+                  publishesSessionPresence={!isPagedRender}
                 />
                 <OverlayPreview
                   resolvedView={overlayView}
@@ -5465,6 +5495,7 @@ function PageCanvasEditorImpl({
                 onDoubleClick={handleOverlayPreviewDoubleClick}
               />
             )}
+            {!isPagedRender && <RemoteOverlayPresenceLayer shapes={overlayView.shapes} />}
             {columnInlineContentAnchors.map((anchor) => (
               <div
                 key={`${pageExtension?.columnAnchor?.keyPrefix ?? "column-extension"}-${anchor.targetId}`}
@@ -6425,29 +6456,42 @@ function LayoutColumnResizeHandle({
   sectionId,
   dividerIndex,
   left,
+  gap,
   label,
+  hint,
+  mergeLabel,
   onCommit,
 }: {
   sectionId: string;
   dividerIndex: number;
   left: string;
+  /** 段間の幅 (CSS 長さ)。当たり判定は段間の全幅。 */
+  gap: string;
   label: string;
+  hint: string;
+  mergeLabel: string;
   onCommit: (leftWidth: number, rightWidth: number) => void;
 }) {
-  const resizeCleanupRef = useRef<(() => void) | null>(null);
-  useEffect(() => () => resizeCleanupRef.current?.(), []);
+  const handleRef = useRef<HTMLButtonElement | null>(null);
+  // ドラッグ・キーボードはイベント時に最新の値を読む (描画ごとに作り直されるコールバックを渡す)。
+  const bindingRef = useRef({ dividerIndex, labels: { merge: mergeLabel }, onCommit });
+  useLayoutEffect(() => {
+    bindingRef.current = { dividerIndex, labels: { merge: mergeLabel }, onCommit };
+  });
+  useEffect(() => {
+    const handle = handleRef.current;
+    return handle ? attachLayoutColumnResizeHandle(handle, () => bindingRef.current) : undefined;
+  }, []);
   return (
     <button
+      ref={handleRef}
       type="button"
       className="layout-section-column-resize-handle"
       data-layout-section-id={sectionId}
       data-divider-index={dividerIndex}
-      style={{ left }}
+      style={{ left, "--layout-column-divider-gap": gap } as CSSProperties}
       aria-label={label}
-      onPointerDown={(event) => {
-        resizeCleanupRef.current?.();
-        resizeCleanupRef.current = beginLayoutColumnResize(event, event.currentTarget, dividerIndex, onCommit);
-      }}
+      title={hint}
     />
   );
 }
@@ -6672,9 +6716,12 @@ function LayoutSectionFlowUnit({
                   sectionId={unit.section.id}
                   dividerIndex={columnIndex}
                   left={columnPresentation.dividers[columnIndex].left}
+                  gap={columnPresentation.columnGap}
                   label={tEditor("pageCanvas.resizeColumns", {
                     replace: { left: columnIndex + 1, right: columnIndex + 2 },
                   })}
+                  hint={tEditor("pageCanvas.resizeColumnsHint")}
+                  mergeLabel={tEditor("pageCanvas.mergeColumns")}
                   onCommit={(leftWidth, rightWidth) => {
                     if (onResizeColumns) {
                       onResizeColumns(unit.section.id, columnIndex, leftWidth, rightWidth);

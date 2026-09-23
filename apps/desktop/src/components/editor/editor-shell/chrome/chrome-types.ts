@@ -1,6 +1,7 @@
 import type {
   Dispatch,
   ReactElement,
+  ReactNode,
   RefObject,
   SetStateAction,
   MouseEvent,
@@ -66,6 +67,9 @@ export interface EditorChromeToolbarMenus {
 
 /** 2つ以上のグループから参照される値。どれか1つのバケットに置くと嘘になるのでここへ集める。 */
 export interface EditorChromeShared {
+  documentActions?: ReactNode;
+  accountAction?: ReactNode;
+  hasDocumentSession?: boolean;
   activeMenu: EditorMenu;
   /**
    * クロームの文言解決。`renderEditorChrome` は React コンポーネントではないので

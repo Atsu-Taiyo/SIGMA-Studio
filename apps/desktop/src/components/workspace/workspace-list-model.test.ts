@@ -91,9 +91,9 @@ describe("buildWorkspaceRows", () => {
     expect(desc.map((row) => row.name)).toEqual(["う", "あ", "い"]);
   });
 
-  it("sorts an unparsable updatedAt last regardless of direction", () => {
+  it.each(["not-a-date", new Date(0).toISOString()])("sorts unavailable updatedAt %s last regardless of direction", (updatedAt) => {
     const files = [
-      makeFile({ fileId: "a", title: "あ", updatedAt: "not-a-date" }),
+      makeFile({ fileId: "a", title: "あ", updatedAt }),
       makeFile({ fileId: "b", title: "い", updatedAt: NOW }),
     ];
     const asc = buildWorkspaceRows({ folders: [], files, sortKey: "updatedAt", sortDirection: "asc", t });

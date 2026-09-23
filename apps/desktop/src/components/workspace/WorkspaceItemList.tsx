@@ -1,8 +1,9 @@
 "use client";
 
-import { ChevronDown, ChevronUp, Folder, FileText, Loader2, MoreHorizontal } from "lucide-react";
+import { ChevronDown, ChevronUp, Folder, FileText } from "lucide-react";
 import type { DragEvent as ReactDragEvent, KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent } from "react";
 
+import { WorkspaceItemMenuButton } from "./WorkspaceItemMenuButton";
 import { DocumentTitleText } from "@/features/rendering/adapters/react";
 import type { WorkspaceFileSummary, WorkspaceFolderSummary } from "@/lib/workspace-repository";
 import type { WorkspaceSortDirection, WorkspaceSortKey } from "@/lib/workspace-view-preferences";
@@ -22,6 +23,7 @@ type DragDropProps = {
 };
 
 interface WorkspaceItemListProps {
+  menuKey?: string | null;
   folders: WorkspaceFolderSummary[];
   files: WorkspaceFileSummary[];
   allFolders: WorkspaceFolderSummary[];
@@ -46,6 +48,8 @@ interface WorkspaceItemListProps {
   saving: boolean;
   fileActionMenuFileId: string | null;
   onOpenFileActionMenu: (event: ReactMouseEvent, file: WorkspaceFileSummary) => void;
+  canCreate?: boolean;
+  canMove?: (kind: "folder" | "file", id: string) => boolean;
   onCreateDocument: () => void;
   onClearSearch: () => void;
   isRenameEditing: (key: string) => boolean;
@@ -73,6 +77,7 @@ function ariaSortFor(column: WorkspaceSortKey, sortKey: WorkspaceSortKey, sortDi
 }
 
 export function WorkspaceItemList({
+  menuKey,
   folders,
   files,
   allFolders,
@@ -97,6 +102,8 @@ export function WorkspaceItemList({
   saving,
   fileActionMenuFileId,
   onOpenFileActionMenu,
+  canCreate = true,
+  canMove,
   onCreateDocument,
   onClearSearch,
   isRenameEditing,
@@ -160,7 +167,7 @@ export function WorkspaceItemList({
                 <td colSpan={4}>
                   <WorkspaceEmptyState
                     variant={emptyVariant}
-                    canCreate
+                    canCreate={canCreate}
                     onCreateDocument={onCreateDocument}
                     onClearSearch={onClearSearch}
                   />
@@ -186,7 +193,7 @@ export function WorkspaceItemList({
                     tabIndex={editing ? -1 : effectiveFocusedKey === row.key ? 0 : -1}
                     aria-selected={selected}
                     className={`workspace-list-row ${target && dropTarget === target ? "drop-active" : ""} ${dragging ? "dragging" : ""} ${editing ? "editing" : ""}`}
-                    draggable={!editing}
+                    draggable={!editing && (canMove?.(row.kind, row.id) ?? true)}
                     {...dragProps(dragItemForRow)}
                     {...(target ? dropProps(target) : undefined)}
                     onClick={editing ? undefined : (event) => {
@@ -233,22 +240,17 @@ export function WorkspaceItemList({
                       {resolveRowLocation(row, { folders: allFolders, workspaceName })}
                     </td>
                     <td className="workspace-list-cell-actions">
+                      {!editing && row.kind === "folder" && (
+                        <WorkspaceItemMenuButton expanded={menuKey === row.key} name={row.name} onClick={(event) => onFolderContextMenu(event, row.id)} />
+                      )}
                       {!editing && row.kind === "file" && (
                         <>
-                          <button
-                            type="button"
-                            className="icon-button"
-                            title={t("action.materialMenu")}
-                            aria-label={t("action.itemMenu", { replace: { name: resolveFileDisplayName(row.file, t) } })}
-                            aria-haspopup="menu"
-                            aria-expanded={fileActionMenuFileId === row.file.fileId}
+<WorkspaceItemMenuButton
+                            name={resolveFileDisplayName(row.file, t)}
+                            expanded={fileActionMenuFileId === row.file.fileId}
                             disabled={busy || saving}
                             onClick={(event) => onOpenFileActionMenu(event, row.file)}
-                          >
-                            {busy && saving
-                              ? <Loader2 className="workspace-spin" size={15} />
-                              : <MoreHorizontal size={15} />}
-                          </button>
+                          />
                         </>
                       )}
                     </td>

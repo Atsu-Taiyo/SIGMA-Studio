@@ -301,6 +301,18 @@ describe("AI proposal action controller", () => {
     expect(h.events.at(-1)).toBe("finish");
   });
 
+  it.each([true, false])("routes shared proposal undo to the session without a JSON restore (%s)", async (restored) => {
+    const revertSessionProposals = vi.fn(async () => restored);
+    const h = await mount({ mcpProposalCitations: [citation("shared", 4)], revertSessionProposals });
+    h.storage.revertMcpEditProposal = vi.fn<NonNullable<DesktopStorageAPI["revertMcpEditProposal"]>>(async () => ({ ok: true, proposal: {} }));
+    let outcome: { ok: boolean } | undefined;
+    await act(async () => { outcome = await h.read().revertAppliedProposals(["shared"]); });
+    expect(outcome?.ok).toBe(restored);
+    expect(revertSessionProposals).toHaveBeenCalledWith(["shared"]);
+    expect(h.storage.revertMcpEditProposal).not.toHaveBeenCalled();
+    expect(h.reset).not.toHaveBeenCalled();
+  });
+
   it("reverts each saved batch newest first and reloads the returned revision while retaining selection", async () => {
     const h = await mount({ mcpProposalCitations: [citation("old-a", 4), citation("old-b", 4), citation("new", 7)] });
     h.storage.revertMcpEditProposal = vi.fn<NonNullable<DesktopStorageAPI["revertMcpEditProposal"]>>(async (id) => { h.events.push(`revert:${id}`); return { ok: true, proposal: {} }; });

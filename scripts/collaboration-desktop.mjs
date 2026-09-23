@@ -1,0 +1,16 @@
+import { spawn } from 'node:child_process';
+import { createRequire } from 'node:module';
+import { fileURLToPath } from 'node:url';
+import path from 'node:path';
+const require = createRequire(import.meta.url);
+const root = fileURLToPath(new URL('../', import.meta.url));
+const profile = process.argv[2];
+if (!['a', 'b'].includes(profile)) throw new Error('Choose the isolated development profile: a or b');
+const url = process.env.SIGMA_COLLABORATION_TEST_RENDERER ?? 'http://127.0.0.1:3218';
+const response = await fetch(url, { signal: AbortSignal.timeout(5000) });
+if (!response.ok) throw new Error('Start the renderer development server first');
+const env = { ...process.env, NODE_ENV: 'development', SIGMA_STUDIO_DEV_SERVER_URL: `${url}/`, SIGMA_STUDIO_USER_DATA_DIR: path.join(root, 'tmp', `collaboration-profile-${profile}`) };
+delete env.ELECTRON_RUN_AS_NODE;
+const child = spawn(require('electron'), [path.join(root, 'apps/desktop')], { cwd: root, env, stdio: 'inherit' });
+child.on('exit', code => { process.exitCode = code ?? 1; });
+child.on('error', error => { console.error(error.message); process.exitCode = 1; });

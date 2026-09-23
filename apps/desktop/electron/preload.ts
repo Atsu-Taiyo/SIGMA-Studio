@@ -7,6 +7,53 @@ let runCounter = 0;
 const desktopAPI = {
   isDesktop: true as const,
   platform: process.platform,
+  sharedCatalog: {
+    status: () => ipcRenderer.invoke("shared-catalog:status"),
+    refresh: () => ipcRenderer.invoke("shared-catalog:refresh"),
+    setVisible: (visible: boolean) => ipcRenderer.invoke("shared-catalog:visible", visible),
+    start: (target: unknown) => ipcRenderer.invoke("shared-catalog:start", target),
+    details: (target: unknown) => ipcRenderer.invoke("shared-catalog:details", target),
+    join: (token: string) => ipcRenderer.invoke("shared-catalog:join", token),
+    invite: (target: unknown, role: string) => ipcRenderer.invoke("shared-catalog:invite", target, role),
+    changeMember: (target: unknown, userId: string, role: string | null) => ipcRenderer.invoke("shared-catalog:change-member", target, userId, role),
+    revokeInvitation: (target: unknown, tokenHash: string) => ipcRenderer.invoke("shared-catalog:revoke-invitation", target, tokenHash),
+    end: (target: unknown, action: string) => ipcRenderer.invoke("shared-catalog:end", target, action),
+    onChange(handler: (status: unknown) => void) {
+      const listener = (_: unknown, status: unknown) => handler(status);
+      ipcRenderer.on("shared-catalog:change", listener);
+      return () => ipcRenderer.removeListener("shared-catalog:change", listener);
+    },
+  },
+  collaboration: {
+    info: () => ipcRenderer.invoke("collaboration:info"),
+    signInWithGoogle: () => ipcRenderer.invoke("collaboration:sign-in-google"),
+    cancelSignIn: () => ipcRenderer.invoke("collaboration:cancel-sign-in"),
+    signOut: () => ipcRenderer.invoke("collaboration:sign-out"),
+    start: (fileId: string, document: unknown) => ipcRenderer.invoke("collaboration:start", fileId, document),
+    join: (token: string) => ipcRenderer.invoke("collaboration:join", token),
+    update: (fileId: string, update: string, operationId: string, kind: string, epoch: number) => ipcRenderer.invoke("collaboration:update", fileId, update, operationId, kind, epoch),
+    flush: (fileId: string, online?: boolean) => ipcRenderer.invoke("collaboration:flush", fileId, online),
+    approve: (fileId: string, approval: unknown) => ipcRenderer.invoke("collaboration:approve", fileId, approval),
+    members: (fileId: string) => ipcRenderer.invoke("collaboration:members", fileId),
+    invite: (fileId: string, role: string) => ipcRenderer.invoke("collaboration:invite", fileId, role),
+    changeMember: (fileId: string, userId: string, role: string | null) => ipcRenderer.invoke("collaboration:change-member", fileId, userId, role),
+    revokeInvitation: (fileId: string, tokenHash: string) => ipcRenderer.invoke("collaboration:revoke-invitation", fileId, tokenHash),
+    backups: (fileId: string) => ipcRenderer.invoke("collaboration:backups", fileId),
+    backup: (fileId: string) => ipcRenderer.invoke("collaboration:backup", fileId),
+    restore: (fileId: string, backupId: string) => ipcRenderer.invoke("collaboration:restore", fileId, backupId),
+    reload: (fileId: string) => ipcRenderer.invoke("collaboration:reload", fileId),
+    visibleFiles: (fileIds: string[]) => ipcRenderer.invoke("collaboration:visible-files", fileIds),
+    view: (fileId: string | null) => ipcRenderer.invoke("collaboration:view", fileId),
+    presence: (fileId: string, state: unknown) => ipcRenderer.invoke("collaboration:presence", fileId, state),
+    end: (fileId: string, action: string) => ipcRenderer.invoke("collaboration:end", fileId, action),
+    copy: (fileId: string) => ipcRenderer.invoke("collaboration:copy", fileId),
+    asset: (fileId: string, assetId: string, source?: string) => ipcRenderer.invoke("collaboration:asset", fileId, assetId, source),
+    onEvent(handler: (event: unknown) => void): () => void {
+      const listener = (_: unknown, event: unknown) => handler(event);
+      ipcRenderer.on("collaboration:event", listener);
+      return () => ipcRenderer.removeListener("collaboration:event", listener);
+    },
+  },
 
   app: {
     getInfo(): Promise<{ version: string; releaseUrl: string }> {
@@ -223,6 +270,9 @@ const desktopAPI = {
     deleteChatRoom(roomId: string): Promise<unknown> {
       return ipcRenderer.invoke("ai-edit:delete-chat-room", roomId);
     },
+    deleteChatRoomsForDocument(documentIdentityKey: string): Promise<unknown> {
+      return ipcRenderer.invoke("ai-edit:delete-chat-rooms-for-document", documentIdentityKey);
+    },
   },
 
   aiSkillDraft: {
@@ -360,6 +410,7 @@ const desktopAPI = {
   },
 
   storage: {
+    renameDocument: (workspaceId: string, fileId: string, name: string) => ipcRenderer.invoke("shared-catalog:rename-document", workspaceId, fileId, name),
     initializeWorkspace(payload: unknown): Promise<unknown> {
       return ipcRenderer.invoke("storage:initialize-workspace", payload);
     },

@@ -4,6 +4,7 @@ import { Star } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import { APP_READY_EVENT, SPLASH_MARKER_ATTRIBUTE } from "@/components/StartupSplash";
+import { Button } from "@/components/ui/Button";
 import { ModalBody, ModalFrame, ModalHeader } from "@/components/ui/Modal";
 import { Stack } from "@/components/ui/layout";
 import { useT } from "@/lib/i18n/react";
@@ -11,25 +12,26 @@ import { GITHUB_REPOSITORY_URL } from "@/lib/project-links";
 import buttonStyles from "@/components/ui/Button.module.css";
 import styles from "./GitHubStarDialog.module.css";
 
-export const STAR_PROMPT_DISMISSED_KEY = "sigma-studio:github-star-dismissed:v1";
 export const STAR_PROMPT_DELAY_MS = 60_000;
 export const STAR_PROMPT_IDLE_MS = 10_000;
+// Separate explicit opt-out from the legacy flag written by every close action.
+export const STAR_PROMPT_DISABLED_KEY = "sigma-studio:github-star-disabled:v1";
 
-// Keep dismissal effective after a remount even when profile storage is unavailable.
+// Keep dismissal across remounts, but invite again on the next app launch.
 let dismissedThisSession = false;
 
 /** Standalone app only: mounted by the home route, never by the embedded Editor. */
 export function GitHubStarDialog() {
   const t = useT("workspace");
   const [open, setOpen] = useState(false);
+  const [optOutFailed, setOptOutFailed] = useState(false);
 
   useEffect(() => {
     if (dismissedThisSession) return;
     try {
-      if (window.localStorage.getItem(STAR_PROMPT_DISMISSED_KEY)) return;
+      if (window.localStorage.getItem(STAR_PROMPT_DISABLED_KEY) === "1") return;
     } catch {
-      // Optional encouragement must not become a recurring prompt in a locked profile.
-      return;
+      // Normal dismissal remains available without profile storage.
     }
     let readyAt: number | null = null;
     let lastActivityAt = Date.now();
@@ -55,7 +57,7 @@ export function GitHubStarDialog() {
     };
     const timer = window.setInterval(check, 1000);
     const storage = (event: StorageEvent) => {
-      if (event.key === STAR_PROMPT_DISMISSED_KEY && event.newValue) {
+      if (event.key === STAR_PROMPT_DISABLED_KEY && event.newValue === "1") {
         dismissedThisSession = true;
         setOpen(false);
         window.clearInterval(timer);
@@ -96,12 +98,20 @@ export function GitHubStarDialog() {
 
   const dismiss = () => {
     dismissedThisSession = true;
-    try { window.localStorage.setItem(STAR_PROMPT_DISMISSED_KEY, "1"); } catch { /* Closing never depends on storage. */ }
     setOpen(false);
   };
 
+  const disablePrompt = () => {
+    try {
+      window.localStorage.setItem(STAR_PROMPT_DISABLED_KEY, "1");
+      dismiss();
+    } catch {
+      setOptOutFailed(true);
+    }
+  };
+
   return (
-    <ModalFrame open={open} onDismiss={dismiss} size="sm">
+    <ModalFrame open={open} onDismiss={dismiss} size="sm" className={styles.backdrop}>
       <ModalHeader title={t("githubStar.title")} description={t("githubStar.description")} onClose={dismiss} />
       <ModalBody>
         <Stack gap="lg">
@@ -109,7 +119,9 @@ export function GitHubStarDialog() {
             <Star size={16} aria-hidden="true" />
             {t("githubStar.openGitHub")}
           </a>
+          <Button onClick={disablePrompt}>{t("githubStar.doNotShowAgain")}</Button>
           <span className={styles.note}>{t("githubStar.dismissNote")}</span>
+          {optOutFailed ? <span className={styles.error} role="alert">{t("githubStar.optOutFailed")}</span> : null}
         </Stack>
       </ModalBody>
     </ModalFrame>

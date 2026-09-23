@@ -9,6 +9,7 @@ import type { SigmaDocumentRecoveryIssue, SigmaDocumentSchemaFailure } from "@/l
 import type { MaterialContent, MaterialItem } from "@/types/material";
 import type { TemplateItem } from "@/types/template";
 import type { DocumentVersion, DocumentVersionMetadata, DocumentVersionOrigin } from "@/lib/document-version-history";
+import type { WorkspaceLayoutV2 } from "@/lib/workspace-tab-groups";
 
 export interface DesktopAiEditChatAttachmentSummary {
   id: string;
@@ -97,6 +98,7 @@ export interface DesktopAiEditAPI {
   listChatRooms?(documentIdentityKey?: string): Promise<DesktopAiEditChatRoom[]>;
   saveChatRoom?(room: DesktopAiEditChatRoom): Promise<DesktopAiEditChatRoomSaveResult>;
   deleteChatRoom?(roomId: string): Promise<DesktopStorageResult>;
+  deleteChatRoomsForDocument?(documentIdentityKey: string): Promise<DesktopStorageResult & { deletedRoomIds?: string[] }>;
 }
 
 export interface DesktopSettingsAPI {
@@ -467,6 +469,8 @@ export interface DesktopInputSourceAPI {
 }
 
 export interface DesktopDocumentMetadata {
+  sharingPending?: boolean;
+  sharing?: import("@/lib/runtime/shared-catalog").LibrarySharingMetadata;
   fileId: string;
   workspaceId: string;
   folderId: string | null;
@@ -481,6 +485,7 @@ export interface DesktopDocumentMetadata {
 export interface DesktopWorkspaceState {
   openFileIds: string[];
   activeFileId: string;
+  layout?: WorkspaceLayoutV2;
 }
 
 export interface DesktopStorageResult {
@@ -543,6 +548,8 @@ export type DesktopStorageChangeEvent =
     };
 
 export interface DesktopWorkspaceSummary {
+  sharingPending?: boolean;
+  sharing?: import("@/lib/runtime/shared-catalog").LibrarySharingMetadata;
   id: string;
   name: string;
   createdAt: string;
@@ -550,6 +557,8 @@ export interface DesktopWorkspaceSummary {
 }
 
 export interface DesktopFolderSummary {
+  sharingPending?: boolean;
+  sharing?: import("@/lib/runtime/shared-catalog").LibrarySharingMetadata;
   id: string;
   workspaceId: string;
   parentFolderId: string | null;
@@ -667,6 +676,7 @@ export interface DesktopMcpEditProposalSummary {
 }
 
 export interface DesktopWorkspaceOverview {
+  catalog?: import("@/lib/runtime/shared-catalog").SharedCatalogStatus;
   activeWorkspaceId: string;
   workspaces: DesktopWorkspaceSummary[];
   folders: DesktopFolderSummary[];
@@ -752,6 +762,7 @@ export type DesktopMcpEditProposalRevertResult =
   | { ok: false; reason: string };
 
 export interface DesktopStorageAPI {
+  renameDocument?(workspaceId: string, fileId: string, name: string): Promise<import("@/lib/runtime/types").WorkspaceOverviewResult>;
   initializeWorkspace(payload: {
     initialDocument: SigmaDocument;
   }): Promise<
@@ -862,6 +873,8 @@ export interface DesktopWorkspacePreviewAPI {
 }
 
 export interface DesktopAPI {
+  sharedCatalog?: import("@/lib/runtime/shared-catalog").SharedCatalogBridge;
+  collaboration?: import("@/features/collaboration/model/bridge").CollaborationBridge;
   isDesktop: true;
   platform: NodeJS.Platform;
   app: DesktopAppAPI;

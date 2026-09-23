@@ -43,9 +43,30 @@ const RESIDUE_PATTERNS = [
   { label: "removed auth external-open IPC", pattern: /auth:open-external/u },
 ] as const;
 
+// Optional per-document adapters may reference their identity provider. Legacy
+// workspace APIs and public/core imports remain forbidden everywhere.
+const OPTIONAL_COLLABORATION_PATHS = [
+  /^\.github\/workflows\/collaboration-experiment\.yml$/u,
+  /^apps\/collaboration\/.*$/u,
+  /^apps\/desktop\/(electron|src\/features)\/collaboration\/.*$/u,
+  /^supabase\/.*$/u,
+  /^docs\/collaboration.*$/u,
+  /^\.env\.example$/u,
+  /^docs\/adr\/001-optional-collaboration\.md$/u,
+  /^scripts\/collaboration-.*$/u,
+  /^apps\/desktop\/tests\/electron\/collaboration.*$/u,
+  /^apps\/desktop\/tests\/electron\/workspace-hierarchy-sharing\.spec\.ts$/u,
+] as const;
+
 // These exact lines either reject legacy ledger keys or prove that removed bridge
 // fields are ignored. Keeping the allowlist line-scoped makes any real reuse fail.
 const ALLOWED_LEGACY_ASSERTIONS: Readonly<Record<string, readonly RegExp[]>> = {
+  "packages/editor/src/package-boundary.test.ts": [
+    /^\s*expect\(inputs\.filter\(input => .*\)\)\.toEqual\(\[\]\);$/u,
+  ],
+  ".gitignore": [
+    /^supabase\/\.(?:temp|branches)\/$/u,
+  ],
   "apps/desktop/electron/local-library-record.test.ts": [
     /^\s*files: \[\{ cloudState: null \}\],$/u,
     /^\s*\{ path: "files\[0\]\.cloudState", reason: \{ kind: "forbiddenField", field: "cloudState" \}, expected: null, received: "null" \},$/u,
@@ -121,6 +142,7 @@ function scanFiles(
 
     lines.forEach((line, index) => {
       for (const { label, pattern } of patterns) {
+        if (label === RESIDUE_PATTERNS[1].label && OPTIONAL_COLLABORATION_PATHS.some(allowed => allowed.test(relativePath))) continue;
         if (pattern.test(line) && !allowedLines.some((allowed) => allowed.test(line))) {
           violations.push(`${relativePath}:${index + 1} (${label})`);
         }

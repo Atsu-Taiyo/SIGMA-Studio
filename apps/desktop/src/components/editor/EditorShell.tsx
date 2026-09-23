@@ -1,4 +1,8 @@
 "use client";
+import { sessionReadOnlyExtensions } from "./editor-shell/session-read-only-extensions";
+import type { DocumentSessionHost } from "@/features/document-session/contracts";
+import { DocumentSessionContext, DocumentWritableContext } from "./document-session-context";
+import { EMPTY_AI_LOCKED_TARGETS } from "@/features/ai-edit";
 import { MaterialLibraryDialogs } from "./editor-shell/material-library-dialogs";
 import { useMaterialLibraryController } from "./editor-shell/use-material-library-controller";
 import { useWorkspaceDocumentCommands } from "./editor-shell/use-workspace-document-commands";
@@ -21,7 +25,7 @@ import  {
   RotateCcw,
   X,
 } from "lucide-react";
-import type { CSSProperties, MouseEvent, PointerEvent as ReactPointerEvent, SetStateAction } from "react";
+import type { CSSProperties, MouseEvent, PointerEvent as ReactPointerEvent, SetStateAction, ReactNode } from "react";
 import  {
   startTransition,
   useCallback,
@@ -63,6 +67,7 @@ import { PageSettingsDialog } from "@/components/editor/PageSettingsDialog";
 import { TexCommandReferenceDialog } from "@/components/editor/TexCommandReferenceDialog";
 import { TexEnvironmentSettingsDialog } from "@/components/editor/TexEnvironmentSettingsDialog";
 import { VersionHistoryPanel } from "@/components/editor/VersionHistoryPanel";
+import { WorkspaceTabGroupGrid } from "@/components/editor/WorkspaceTabGroupGrid";
 import { WindowCloseSaveDialog } from "@/components/editor/WindowCloseSaveDialog";
 import  {
   AI_INLINE_ANCHOR_OFFSET_Y,
@@ -255,6 +260,7 @@ import  {
 import { useAiConnection, useClaudeConnection, useGeminiConnection } from "@/lib/ai/ai-connection";
 import { DEFAULT_CLAUDE_AI_EDIT_MODEL, DEFAULT_GEMINI_AI_EDIT_MODEL } from "@/lib/ai/ai-providers";
 import { isAiRunStatusActive, useAiRunSessions } from "@/lib/ai/ai-run-session-store";
+import { aiChatRoomsStore, deleteAiDataForDocument } from "@/lib/ai/ai-run-controller";
 import { focusSourceReferenceInDocument, resolveSourceReferenceNavigationTarget } from "@/lib/ai/ai-source-reference-navigation";
 import  {
   closeSurface,
@@ -351,14 +357,31 @@ import  {
   createDocumentFromSigmaDocument,
   createNewDocument,
   createObservedDocumentWrite,
+  deleteDocument,
   initializeDocumentWorkspace,
   listSavedDocuments,
   loadDocumentByFileIdWithRecovery,
   saveDocumentRecord,
-  saveWorkspaceState,
+  saveWorkspaceState as persistWorkspaceState,
   type DocumentLoadResult,
   type DocumentMetadata,
 } from "@/lib/storage";
+import {
+  closeWorkspaceTabInLayout,
+  addWorkspaceTab,
+  aiWorkspaceTab,
+  createSingleGroupWorkspaceLayout,
+  focusWorkspaceTab,
+  moveWorkspaceTab,
+  normalizeWorkspaceLayout,
+  reconcileWorkspaceLayoutDocuments,
+  splitWorkspaceGroupWithTab,
+  updateWorkspaceSplitRatio,
+  workspaceLayoutOpenFileIds,
+  type WorkspaceDropEdge,
+  type WorkspaceLayoutV2,
+  type WorkspaceTab,
+} from "@/lib/workspace-tab-groups";
 import { templateInsertContent } from "@/lib/templates";
 import { useUiLayoutPreference } from "@/lib/ui-layout-preference";
 import { useCustomFonts } from "@/lib/use-custom-fonts";
@@ -563,6 +586,10 @@ const EMPTY_COMMENT_THREADS: SigmaCommentThread[] = [];
 
 export interface EditorShellProps {
   embeddedHost?: EmbeddedEditorHost;
+  sessionHost?: DocumentSessionHost;
+  renderDocumentActions?: (context: { fileId: string; document: SigmaDocument; getDocument: () => SigmaDocument; flush: () => Promise<unknown> }) => ReactNode;
+  /** Host-owned account chrome; public Editor remains authentication agnostic. */
+  accountAction?: ReactNode;
 }
 
 interface EditorHistorySelection {
@@ -577,7 +604,14 @@ interface EditorHistorySelection {
  * ストアの寿命はこの画面の寿命に一致させる。React の外から `getState()` で同期的に読めるため、
  * 保存や CAS のように「今この瞬間の値」が要る経路も ref の二重管理なしに書ける。
  */
-export function EditorShell({ embeddedHost }: EditorShellProps = {}) {
+function DocumentActionsSlot({ render, context }: {
+  render: NonNullable<EditorShellProps["renderDocumentActions"]>;
+  context: Parameters<NonNullable<EditorShellProps["renderDocumentActions"]>>[0];
+}) {
+  return render(context);
+}
+
+export function EditorShell({ embeddedHost, sessionHost, renderDocumentActions, accountAction }: EditorShellProps = {}) {
   // **毎レンダーで呼ばない。** `createEmptyEditorDocument()` は文書 1 個分を
   // 組み立てる (旧 `emptyEditorDocument` は module 定数だった)。打鍵のたびに
   // 走ると perf 予算 `typing.longTasksPerChar` を割る。
@@ -593,7 +627,7 @@ export function EditorShell({ embeddedHost }: EditorShellProps = {}) {
 
   return (
     <EditorStoreProvider store={editorStore}>
-      <EditorShellBody embeddedHost={embeddedHost} editorStore={editorStore} />
+      <EditorShellBody embeddedHost={embeddedHost} sessionHost={sessionHost} renderDocumentActions={renderDocumentActions} accountAction={accountAction} editorStore={editorStore} />
     </EditorStoreProvider>
   );
 }
@@ -671,7 +705,7 @@ function canScrollWithin(
   return false;
 }
 
-function EditorShellBody({ embeddedHost, editorStore }: EditorShellProps & { editorStore: EditorStore }) {
+function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, accountAction, editorStore }: EditorShellProps & { editorStore: EditorStore }) {
   countPerformanceEvent("EditorShell.render");
   // クロームの文言。`renderEditorChrome` は hook を呼べないので、ここで解決して
   // `chrome.shared.t` から配る。同一ロケール内では参照が変わらない。
@@ -808,6 +842,28 @@ function EditorShellBody({ embeddedHost, editorStore }: EditorShellProps & { edi
   const [appUpdateActionBusy, setAppUpdateActionBusy] = useState(false);
   const [openFileIds, setOpenFileIds] = useState<string[]>(() => [initialDocument.docId]);
   const [activeFileId, setActiveFileId] = useState(initialDocument.docId);
+  const documentSession = sessionHost?.get(activeFileId);
+  const documentSessionRef = useRef(documentSession);
+  useLayoutEffect(() => { documentSessionRef.current = documentSession; }, [documentSession]);
+  useEffect(() => {
+    if (!sessionHost?.setActiveFile) return;
+    void sessionHost.setActiveFile(workspaceReady ? activeFileId : null);
+    return () => { void sessionHost.setActiveFile?.(null); };
+  }, [activeFileId, sessionHost, workspaceReady]);
+  const sessionWritable = useSyncExternalStore(
+    listener => {
+      const unsubscribeSession = documentSession?.subscribe(listener) ?? (() => {});
+      const unsubscribeAuthority = sessionHost?.subscribeAuthority?.(listener) ?? (() => {});
+      return () => { unsubscribeSession(); unsubscribeAuthority(); };
+    },
+    () => sessionHost?.get(activeFileId)?.writable ?? !(sessionHost?.isReadOnly?.(activeFileId) ?? false),
+    () => sessionHost?.get(activeFileId)?.writable ?? !(sessionHost?.isReadOnly?.(activeFileId) ?? false),
+  );
+  const sessionWritableRef = useRef(sessionWritable);
+  useLayoutEffect(() => { sessionWritableRef.current = sessionWritable; }, [sessionWritable]);
+  const [workspaceLayout, setWorkspaceLayout] = useState<WorkspaceLayoutV2>(() => (
+    createSingleGroupWorkspaceLayout([initialDocument.docId], initialDocument.docId)
+  ));
   const [shortcutOverrides, setShortcutOverrides] = useState<EditorShortcutOverrides>(() => (
     getDesktopBridge()?.settings ? {} : loadEditorShortcutOverrides()
   ));
@@ -1019,17 +1075,20 @@ function EditorShellBody({ embeddedHost, editorStore }: EditorShellProps & { edi
   // それ以外は人間が編集できる。他の場所への人手編集は per-block の内容ハッシュ鮮度判定で
   // 吸収されるため、提案をstaleにしない。
   // グラフのラベルはグラフの兄弟図形なので、ロック集合はラベルまで広げる (locked-targets.ts)。
-  const aiLockedTargets = useAiLockedTargets(
+  const localAiLockedTargets = useAiLockedTargets(
     activeFileId,
     aiProposalPresentation.previewGroups,
     document.pageLayout?.overlay?.overlaySnapshot?.shapes ?? EMPTY_OVERLAY_SHAPES,
   );
+  const aiLockedTargets = documentSession ? EMPTY_AI_LOCKED_TARGETS : localAiLockedTargets;
   // MCP プレビューの apply/dismiss の二重実行を防ぐ (承認済み提案への再実行で error 表示に
   // なるのを回避)。承認は文書を丸ごと差し替えるので、この窓だけは唯一の文書全体ロックも兼ねる
   // (途中の打鍵が黙って失われるため)。commitDocumentChange から参照するのでここで宣言する。
   const mcpPreviewBusyRef = useRef(false);
   const [mcpPreviewBusy, setMcpPreviewBusy] = useState(false);
-  const aiDocumentWriteInProgress = mcpPreviewBusy;
+  const aiDocumentWriteInProgress = mcpPreviewBusy || !sessionWritable;
+  const sessionEditExtensions = useMemo(() => sessionWritable ? undefined
+    : sessionReadOnlyExtensions(t("collaboration.readOnlyDocument")), [sessionWritable, t]);
   // AI ロック集合の最新値。`commitDocumentChange` の deps に入れると、保存のたびに動く
   // 提案プレビュー由来でその識別子が変わり、ぶら下がる全コールバック → memo 済み本文ユニット
   // 全部が描き直される。**イベント処理から呼ばれる前提**の choke point なので ref で足りる
@@ -1193,6 +1252,7 @@ function EditorShellBody({ embeddedHost, editorStore }: EditorShellProps & { edi
   // (runShortcutCommandRef と同じ手)。
   const toggleRibbonCollapseRef = useRef<() => void>(() => undefined);
   const documentRef = useRef(document);
+  const getCurrentSessionDocument = useCallback(() => documentRef.current, []);
   // Revision observed at the boundary where documentRef.current was adopted.
   // Metadata refreshes deliberately never mutate this value: a newer catalog
   // revision must not be attached to an older in-memory payload.
@@ -1207,6 +1267,7 @@ function EditorShellBody({ embeddedHost, editorStore }: EditorShellProps & { edi
   const pendingEditorTabViewRestoreRef = useRef<ResolvedEditorTabViewState | null>(null);
   const activeFileIdRef = useRef(activeFileId);
   const openFileIdsRef = useRef(openFileIds);
+  const workspaceLayoutRef = useRef(workspaceLayout);
   const workspaceReadyRef = useRef(workspaceReady);
   const lastSavedDocumentRef = useRef<SigmaDocument>(document);
   // 「rendererが最後にディスクと同期した時点の文書」全体。lastSavedDocumentRef はdirty判定用、
@@ -1227,6 +1288,18 @@ function EditorShellBody({ embeddedHost, editorStore }: EditorShellProps & { edi
   const [autosaveRetry, setAutosaveRetry] = useState(0);
   const autosaveRetryTimerRef = useRef<number | null>(null);
   const cancelPendingAutosaveRef = useRef<() => void>(() => undefined);
+  const workspaceLayoutSaveTimerRef = useRef<number | null>(null);
+
+  const saveWorkspaceState = useCallback(async (state: { openFileIds: string[]; activeFileId: string }) => {
+    const layout = reconcileWorkspaceLayoutDocuments(
+      workspaceLayoutRef.current,
+      state.openFileIds,
+      state.activeFileId,
+    );
+    workspaceLayoutRef.current = layout;
+    setWorkspaceLayout(layout);
+    return persistWorkspaceState({ ...state, layout });
+  }, []);
 
   const finishMcpPreviewBusy = useCallback(() => {
     mcpPreviewBusyRef.current = false;
@@ -1722,6 +1795,15 @@ function EditorShellBody({ embeddedHost, editorStore }: EditorShellProps & { edi
     appliedProposalIds: string[];
     approvedRevision: number;
   }) => {
+    const session = documentSessionRef.current;
+    if (session) {
+      // The server operation has already reached this replica through typed update IPC.
+      // Never re-merge an approval response or record a second whole-document history step.
+      const current = session.project();
+      documentRef.current = current;
+      setDocument(current);
+      return { kind: "adopt" as const, document: current, adoptedDocumentMatchesDisk: true };
+    }
     const currentDocument = documentRef.current;
     const decision = decideAiApprovedDocument({
       documentAtApprovalStart: params.documentAtApprovalStart,
@@ -1928,7 +2010,7 @@ function EditorShellBody({ embeddedHost, editorStore }: EditorShellProps & { edi
     await refreshDocumentMetadatas();
     setSaveState("error");
     setStatusMessage(tEditor("status.openFailedWithReason"));
-  }, [refreshDocumentMetadatas, resetEditorDocument, setSaveState, setStatusMessage]);
+  }, [refreshDocumentMetadatas, resetEditorDocument, saveWorkspaceState, setSaveState, setStatusMessage]);
 
   const loadWorkspaceDocument = useCallback(async (fileId: string): Promise<{
     document: SigmaDocument;
@@ -1964,6 +2046,7 @@ function EditorShellBody({ embeddedHost, editorStore }: EditorShellProps & { edi
     saveCurrentDocumentBeforeReplacement,
     attemptBoundarySave,
   } = useDocumentSaveBoundary({
+    documentSessionRef,
     setVersionHistoryWarnings,
     t,
     documentOpenFailureRef,
@@ -2007,6 +2090,28 @@ function EditorShellBody({ embeddedHost, editorStore }: EditorShellProps & { edi
     }
     return createUnsavedEditBackup(documentRef.current);
   }, [createUnsavedEditBackup, isCurrentDocumentDirty]);
+
+  const cleanupUntouchedDraftsBeforeClose = useCallback(async (): Promise<{ ok: boolean; error?: string }> => {
+    const candidates = Array.from(untouchedNewDocumentsRef.current.entries());
+    for (const [fileId, initialDraft] of candidates) {
+      const loaded = await loadDocumentByFileIdWithRecovery(fileId);
+      if (!loaded.ok || !isUntouchedNewDocument(initialDraft, loaded.document)) continue;
+      if (fileId === activeFileIdRef.current && !isUntouchedNewDocument(initialDraft, documentRef.current)) continue;
+
+      const metadata = (await listSavedDocuments()).find((item) => item.fileId === fileId);
+      if (!metadata || metadata.sharing || metadata.sharingPending || sessionHost?.get(fileId) || sessionHost?.isReadOnly?.(fileId)) continue;
+      try {
+        await deleteAiDataForDocument(fileId);
+      } catch (error) {
+        return { ok: false, error: error instanceof Error ? error.message : tEditor("status.deleteFailed") };
+      }
+      const result = await deleteDocument(fileId, { expectedRevision: loaded.revision });
+      if (!result.ok) return { ok: false, error: result.error ?? tEditor("status.deleteFailed") };
+      untouchedNewDocumentsRef.current.delete(fileId);
+      editorTabViewStateByFileIdRef.current.delete(fileId);
+    }
+    return { ok: true };
+  }, [sessionHost]);
 
   const finishWindowCloseSave = useCallback(async (action: "ready" | "cancel") => {
     const desktopApp = getDesktopBridge()?.app;
@@ -2065,6 +2170,11 @@ function EditorShellBody({ embeddedHost, editorStore }: EditorShellProps & { edi
       skippedReason: saveResult.skippedReason,
     });
     if (outcome === "ready") {
+      const cleanup = await cleanupUntouchedDraftsBeforeClose();
+      if (!cleanup.ok) {
+        setWindowCloseSaveDialog({ error: cleanup.error ?? tE("windowCloseSave.unknownError"), saving: false });
+        return;
+      }
       await finishWindowCloseSave("ready");
       return;
     }
@@ -2074,7 +2184,7 @@ function EditorShellBody({ embeddedHost, editorStore }: EditorShellProps & { edi
         ?? (skippedReasonKey ? tE(skippedReasonKey) : tE("windowCloseSave.unknownError")),
       saving: false,
     });
-  }, [attemptBoundarySave, finishWindowCloseSave, isCurrentDocumentDirty, tE]);
+  }, [attemptBoundarySave, cleanupUntouchedDraftsBeforeClose, finishWindowCloseSave, isCurrentDocumentDirty, tE]);
 
   const attemptWindowClose = useCallback(() => {
     const desktopApp = getDesktopBridge()?.app;
@@ -2149,7 +2259,7 @@ function EditorShellBody({ embeddedHost, editorStore }: EditorShellProps & { edi
     setStatusMessage(backup
       ? tEditor("status.deletedDocSetAside")
       : tEditor("status.deletedDocSwitched"));
-  }, [loadWorkspaceDocument, refreshDocumentMetadatas, resetEditorDocument, saveUnsavedEditBackup, setSaveState, setStatusMessage]);
+  }, [loadWorkspaceDocument, refreshDocumentMetadatas, resetEditorDocument, saveUnsavedEditBackup, saveWorkspaceState, setSaveState, setStatusMessage]);
 
   const openDocumentInWorkspace = useCallback(async (
     fileId: string,
@@ -2193,6 +2303,7 @@ function EditorShellBody({ embeddedHost, editorStore }: EditorShellProps & { edi
       }
       setOpenFileIds(nextOpenFileIds);
       setActiveFileId(fileId);
+      options?.onOpened?.();
       await saveWorkspaceState({ openFileIds: nextOpenFileIds, activeFileId: fileId });
       await refreshDocumentMetadatas();
       setSaveState("saved");
@@ -2208,6 +2319,7 @@ function EditorShellBody({ embeddedHost, editorStore }: EditorShellProps & { edi
     refreshDocumentMetadatas,
     rememberLeavingEditorTabViewState,
     resetEditorDocument,
+    saveWorkspaceState,
     saveCurrentDocumentBeforeReplacement,
     setSaveState,
     setStatusMessage,
@@ -2287,6 +2399,7 @@ function EditorShellBody({ embeddedHost, editorStore }: EditorShellProps & { edi
     refreshDocumentMetadatas,
     rememberLeavingEditorTabViewState,
     resetEditorDocument,
+    saveWorkspaceState,
     saveCurrentDocumentBeforeReplacement,
     setSaveState,
     setSelectedId,
@@ -2625,20 +2738,40 @@ function EditorShellBody({ embeddedHost, editorStore }: EditorShellProps & { edi
     return true;
   }, [commandSettingsError, commandSettingsLoaded, setStatusMessage, setCommandSettingsOpen]);
 
+  useLayoutEffect(() => {
+    if (!documentSession) return;
+    const apply = () => {
+      const next = documentSession.project();
+      if (areSigmaDocumentsEquivalent(documentRef.current, next)) return;
+      documentRef.current = next;
+      lastSavedDocumentRef.current = next;
+      lastSyncedDocumentRef.current = next;
+      documentObservedRevisionRef.current = 1;
+      documentDirtyRevisionRef.current += 1;
+      lastSavedDirtyRevisionRef.current = documentDirtyRevisionRef.current;
+      setDocument(next);
+      setDocumentStateStamp(documentDirtyRevisionRef.current);
+    };
+    apply();
+    return documentSession.subscribe(apply);
+  }, [documentSession]);
+
   const commitDocumentChange = useCallback((change: DocumentChange, options?: DocumentChangeOptions) => measurePerformance("EditorShell.commitDocumentChange", () => {
+    const session = documentSessionRef.current;
+    if (!sessionWritableRef.current) return false;
     // AI 側の状態は ref から読む (上の `aiLockedTargetsRef` のコメント参照)。書き込み中は
     // state のミラーではなく、書き込み開始と同時に立つ `mcpPreviewBusyRef` を直接見る。
     const aiDocumentWriteInProgress = mcpPreviewBusyRef.current;
     const aiLockedTargets = aiLockedTargetsRef.current;
     if (aiDocumentWriteInProgress) {
-      setStatusMessage(aiDocumentWriteInProgressMessage());
+      setStatusMessage(sessionWritableRef.current ? aiDocumentWriteInProgressMessage() : t("collaboration.readOnlyDocument"));
       return false;
     }
     const current = documentRef.current;
     const proposed = typeof change === "function" ? change(current) : change;
     // 本文を空のままにはしない。ブロック削除・切り取り・AI 適用のどれで空になっても、
     // ここで空段落が 1 つ残るので「消したら二度と入力できない」状態にはならない。
-    const next = ensureEditableBody(repairDuplicateTopLevelIds(
+    let next = ensureEditableBody(repairDuplicateTopLevelIds(
       proposed,
       DOCUMENT_BLOCK_OPERATION_PORTS,
     )).document;
@@ -2661,7 +2794,8 @@ function EditorShellBody({ embeddedHost, editorStore }: EditorShellProps & { edi
     // `coalesce` folds derived overlay geometry into the preceding user edit.
     // This keeps automatic re-anchors and text auto-size corrections in the
     // same undo step as the deletion or text edit that caused them.
-    if (!options?.coalesce) {
+    if (session) next = session.change(current, next);
+    if (!session && !options?.coalesce) {
       const pendingTextSelection = pendingTextHistorySelectionRef.current;
       documentHistory.record({
         document: current,
@@ -2682,7 +2816,10 @@ function EditorShellBody({ embeddedHost, editorStore }: EditorShellProps & { edi
     documentRef.current = next;
     documentDirtyRevisionRef.current += 1;
     const nextDocumentStateStamp = documentDirtyRevisionRef.current;
-    if (options?.deferRender) {
+    // Shared views also project remote changes into the focused editor. A deferred
+    // local render can otherwise land after another keystroke and replace its
+    // newer ProseMirror content with the older projection.
+    if (options?.deferRender && !session) {
       startTransition(() => {
         setDocument(next);
         setDocumentStateStamp(nextDocumentStateStamp);
@@ -2698,7 +2835,7 @@ function EditorShellBody({ embeddedHost, editorStore }: EditorShellProps & { edi
       setPendingDeletion({ revision: deletionSeqRef.current, deletedIds });
     }
     return true;
-  }), [documentHistory, setStatusMessage]);
+  }), [documentHistory, setStatusMessage, t]);
 
   const materialLibrary = useMaterialLibraryController({
     documentRef,
@@ -2727,6 +2864,7 @@ function EditorShellBody({ embeddedHost, editorStore }: EditorShellProps & { edi
   } = materialLibrary;
 
   const restoreDocumentVersion = async (version: DocumentVersion): Promise<DocumentVersionRestoreResult> => {
+    if (documentSessionRef.current) return { ok: false, error: t("collaboration.useSharedBackup") };
     const fileId = activeFileIdRef.current;
     const observedRevision = documentObservedRevisionRef.current;
     const dirtyRevision = documentDirtyRevisionRef.current;
@@ -2817,6 +2955,18 @@ function EditorShellBody({ embeddedHost, editorStore }: EditorShellProps & { edi
   });
 
   const restoreDocumentHistory = useCallback((direction: "undo" | "redo") => {
+    const session = documentSessionRef.current;
+    if (session) {
+      window.dispatchEvent(new CustomEvent(FLUSH_OVERLAY_CHANGES_EVENT));
+      const next = session.restore(direction);
+      if (next) {
+        documentRef.current = next;
+        documentDirtyRevisionRef.current += 1;
+        setDocument(next);
+        setDocumentStateStamp(documentDirtyRevisionRef.current);
+      }
+      return;
+    }
     // AI 側の状態は ref から読む (`aiLockedTargetsRef` の宣言のコメント参照)。書き込み中は
     // state のミラーではなく、書き込み開始と同時に立つ `mcpPreviewBusyRef` を直接見る。
     //
@@ -2827,7 +2977,7 @@ function EditorShellBody({ embeddedHost, editorStore }: EditorShellProps & { edi
     const aiDocumentWriteInProgress = mcpPreviewBusyRef.current;
     const aiLockedTargets = aiLockedTargetsRef.current;
     if (aiDocumentWriteInProgress) {
-      setStatusMessage(aiDocumentWriteInProgressMessage());
+      setStatusMessage(sessionWritableRef.current ? aiDocumentWriteInProgressMessage() : t("collaboration.readOnlyDocument"));
       return;
     }
     // Overlay edits reach the document on a short debounce. Undo pressed inside that window would
@@ -2913,7 +3063,7 @@ function EditorShellBody({ embeddedHost, editorStore }: EditorShellProps & { edi
       return;
     }
     setStatusMessage(direction === "undo" ? tEditor("status.undone") : tEditor("status.redone"));
-  }, [documentHistory, refreshMcpEditProposals, setActiveCommentThreadId, setCommentAnchorCandidate, setPendingCommentAnchor, setSelectedId, setSelectedInlineMath, setStatusMessage]);
+  }, [documentHistory, refreshMcpEditProposals, setActiveCommentThreadId, setCommentAnchorCandidate, setPendingCommentAnchor, setSelectedId, setSelectedInlineMath, setStatusMessage, t]);
 
   const undoDocumentChange = useCallback(() => {
     restoreDocumentHistory("undo");
@@ -2935,8 +3085,9 @@ function EditorShellBody({ embeddedHost, editorStore }: EditorShellProps & { edi
     selectedIdRef.current = selectedId;
     activeFileIdRef.current = activeFileId;
     openFileIdsRef.current = openFileIds;
+    workspaceLayoutRef.current = workspaceLayout;
     workspaceReadyRef.current = workspaceReady;
-  }, [activeFileId, document, documentStateStamp, openFileIds, selectedId, workspaceReady]);
+  }, [activeFileId, document, documentStateStamp, openFileIds, selectedId, workspaceLayout, workspaceReady]);
 
   const lastEmbeddedInputRef = useRef(embeddedHost?.document);
   const lastEmittedEmbeddedDocumentRef = useRef(document);
@@ -3025,6 +3176,31 @@ function EditorShellBody({ embeddedHost, editorStore }: EditorShellProps & { edi
           const metadata = await listSavedDocuments();
           const requestedFileId = getRequestedFileId();
           const availableFileIds = new Set(metadata.map((item) => item.fileId));
+          const layoutDocumentIds = new Set(
+            workspace.state.layout?.groups.flatMap((group) => group.tabs.flatMap((tab) => (
+              tab.kind === "ai" ? [tab.documentFileId] : []
+            ))) ?? [],
+          );
+          let availableRoomIds: Set<string> | undefined;
+          const listChatRooms = getDesktopBridge()?.aiEdit?.listChatRooms;
+          if (listChatRooms && layoutDocumentIds.size > 0) {
+            try {
+              const rooms = await Promise.all(Array.from(layoutDocumentIds, (fileId) => listChatRooms(fileId)));
+              availableRoomIds = new Set(rooms.flat().map((room) => room.id));
+            } catch {
+              // A transient chat-store read failure must not discard restorable AI tabs.
+              availableRoomIds = undefined;
+            }
+          }
+          const restoredLayout = normalizeWorkspaceLayout(
+            workspace.state.layout,
+            workspace.state.openFileIds,
+            workspace.state.activeFileId,
+            availableFileIds,
+            availableRoomIds,
+          );
+          workspaceLayoutRef.current = restoredLayout;
+          setWorkspaceLayout(restoredLayout);
           const firstLocalFileId = metadata[0]?.fileId;
           const candidateFileIds = uniqueStringIds([
             ...(requestedFileId ? [requestedFileId] : []),
@@ -3136,6 +3312,7 @@ function EditorShellBody({ embeddedHost, editorStore }: EditorShellProps & { edi
     loadWorkspaceDocument,
     refreshDocumentMetadatas,
     resetEditorDocument,
+    saveWorkspaceState,
     setSaveState,
     setStatusMessage,
     showRecordedDocumentOpenFailure,
@@ -3155,6 +3332,13 @@ function EditorShellBody({ embeddedHost, editorStore }: EditorShellProps & { edi
 
   useEffect(() => {
     if (!workspaceReady || ledgerFailure) {
+      return;
+    }
+    if (documentSession) {
+      void documentSession.flush().then(() => {
+        lastSavedDocumentRef.current = documentSession.project();
+        lastSavedDirtyRevisionRef.current = documentDirtyRevisionRef.current;
+      }).catch(() => setSaveState("error"));
       return;
     }
 
@@ -3360,6 +3544,7 @@ function EditorShellBody({ embeddedHost, editorStore }: EditorShellProps & { edi
     };
   }, [
     activeFileId,
+    documentSession,
     autosaveRetry,
     dispatchDocumentStorageChange,
     document,
@@ -3369,6 +3554,7 @@ function EditorShellBody({ embeddedHost, editorStore }: EditorShellProps & { edi
     openFileIds,
     refreshDocumentMetadatas,
     scheduleAutosaveRetry,
+    saveWorkspaceState,
     setSaveState,
     setStatusMessage,
     t,
@@ -4830,7 +5016,7 @@ function EditorShellBody({ embeddedHost, editorStore }: EditorShellProps & { edi
   // 選択内容まで見て一律禁止する必要はない。
   const runOverlayCommand = (command: OverlayCommand, graphPreset?: Graph2DPreset) => {
     if (aiDocumentWriteInProgress) {
-      setStatusMessage(aiDocumentWriteInProgressMessage());
+      setStatusMessage(sessionWritableRef.current ? aiDocumentWriteInProgressMessage() : t("collaboration.readOnlyDocument"));
       return;
     }
     captureMaterialBlockSelectionFromDom();
@@ -5388,6 +5574,7 @@ function EditorShellBody({ embeddedHost, editorStore }: EditorShellProps & { edi
     prepareIncomingEditorTabViewState,
     resetEditorDocument,
     openDocumentInWorkspace,
+    saveWorkspaceState,
     refreshDocumentMetadatas,
     setOpenFileIds,
     setActiveFileId,
@@ -5417,6 +5604,7 @@ function EditorShellBody({ embeddedHost, editorStore }: EditorShellProps & { edi
     openOtherImportDialog,
   } = useDocumentFileCommands({
     documentRef,
+    exportDocument: async () => documentSessionRef.current?.exportDocument?.() ?? documentRef.current,
     embeddedHostRef,
     workspaceReady,
     isDesktopApp,
@@ -5635,6 +5823,12 @@ function EditorShellBody({ embeddedHost, editorStore }: EditorShellProps & { edi
     dispatchDocumentStorageChange,
     updateVersionHistoryCaptureStatus,
     applyAiApprovedDocument,
+    revertSessionProposals: async (ids: string[]) => {
+      const session = documentSessionRef.current;
+      if (!session) return undefined;
+      flushOverlayChanges();
+      return (await session.restoreOperations?.(ids)) ?? false;
+    },
     resetEditorDocument,
     scheduleAutosaveRetry,
     announceRecovery,
@@ -5670,6 +5864,20 @@ function EditorShellBody({ embeddedHost, editorStore }: EditorShellProps & { edi
     setVersionHistoryOpen(false);
     setAiInlineRunAnchor(null);
     setAiInlineRunAnchorCanvas(null);
+    const documentFileId = activeFileIdRef.current;
+    const roomId = aiChatRoomsStore.getActiveRoomId(documentFileId);
+    if (roomId) {
+      const nextLayout = addWorkspaceTab(workspaceLayoutRef.current, aiWorkspaceTab(roomId, documentFileId));
+      workspaceLayoutRef.current = nextLayout;
+      setWorkspaceLayout(nextLayout);
+      setAiInlineOpen(false);
+      void persistWorkspaceState({
+        openFileIds: workspaceLayoutOpenFileIds(nextLayout),
+        activeFileId: nextLayout.lastDocumentFileId,
+        layout: nextLayout,
+      });
+      return;
+    }
     applyAiSurface(promoteToSidebar());
   }, [applyAiSurface, isDesktopApp, setVersionHistoryOpen]);
 
@@ -6047,6 +6255,76 @@ function EditorShellBody({ embeddedHost, editorStore }: EditorShellProps & { edi
       };
     });
   }, [activeFileId, document, metadataByFileId, openFileIds, resolvedDocumentTitle, tE]);
+
+  const persistTabGroupLayout = useCallback((layout: WorkspaceLayoutV2) => {
+    workspaceLayoutRef.current = layout;
+    setWorkspaceLayout(layout);
+    const nextOpenFileIds = workspaceLayoutOpenFileIds(layout);
+    setOpenFileIds(nextOpenFileIds);
+    openFileIdsRef.current = nextOpenFileIds;
+    void persistWorkspaceState({
+      openFileIds: nextOpenFileIds,
+      activeFileId: layout.lastDocumentFileId,
+      layout,
+    });
+  }, []);
+
+  const activateWorkspaceGroupTab = useCallback((groupId: string, tab: WorkspaceTab) => {
+    const nextLayout = focusWorkspaceTab(workspaceLayoutRef.current, groupId, tab.id);
+    if (tab.kind === "document") {
+      void openDocumentInWorkspace(tab.fileId, { nextOpenFileIds: workspaceLayoutOpenFileIds(nextLayout), onOpened: () => persistTabGroupLayout(nextLayout) });
+      return;
+    }
+    persistTabGroupLayout(nextLayout);
+  }, [openDocumentInWorkspace, persistTabGroupLayout]);
+
+  const moveWorkspaceGroupTab = useCallback((tabId: string, targetGroupId: string, targetIndex?: number) => {
+    const nextLayout = moveWorkspaceTab(workspaceLayoutRef.current, tabId, targetGroupId, targetIndex);
+    const tab = nextLayout.groups.flatMap((group) => group.tabs).find((candidate) => candidate.id === tabId);
+    if (tab?.kind === "document") {
+      void openDocumentInWorkspace(tab.fileId, { nextOpenFileIds: workspaceLayoutOpenFileIds(nextLayout), onOpened: () => persistTabGroupLayout(nextLayout) });
+    } else {
+      persistTabGroupLayout(nextLayout);
+    }
+  }, [openDocumentInWorkspace, persistTabGroupLayout]);
+
+  const splitWorkspaceGroupTab = useCallback((tabId: string, targetGroupId: string, edge: WorkspaceDropEdge) => {
+    const nextLayout = splitWorkspaceGroupWithTab(
+      workspaceLayoutRef.current,
+      tabId,
+      targetGroupId,
+      edge,
+      createId("tab-group"),
+      createId("tab-split"),
+    );
+    const tab = nextLayout.groups.flatMap((group) => group.tabs).find((candidate) => candidate.id === tabId);
+    if (tab?.kind === "document") {
+      void openDocumentInWorkspace(tab.fileId, { nextOpenFileIds: workspaceLayoutOpenFileIds(nextLayout), onOpened: () => persistTabGroupLayout(nextLayout) });
+    } else {
+      persistTabGroupLayout(nextLayout);
+    }
+  }, [openDocumentInWorkspace, persistTabGroupLayout]);
+
+  const closeWorkspaceGroupTab = useCallback((_groupId: string, tab: WorkspaceTab) => {
+    const nextLayout = closeWorkspaceTabInLayout(workspaceLayoutRef.current, tab.id);
+    if (nextLayout === workspaceLayoutRef.current) return;
+    if (tab.kind === "document") {
+      void closeDocumentTab(tab.fileId);
+      return;
+    }
+    persistTabGroupLayout(nextLayout);
+  }, [closeDocumentTab, persistTabGroupLayout]);
+
+  const resizeWorkspaceGroupSplit = useCallback((splitId: string, ratio: number) => {
+    const nextLayout = updateWorkspaceSplitRatio(workspaceLayoutRef.current, splitId, ratio);
+    workspaceLayoutRef.current = nextLayout;
+    setWorkspaceLayout(nextLayout);
+    if (workspaceLayoutSaveTimerRef.current !== null) window.clearTimeout(workspaceLayoutSaveTimerRef.current);
+    workspaceLayoutSaveTimerRef.current = window.setTimeout(() => {
+      persistTabGroupLayout(workspaceLayoutRef.current);
+      workspaceLayoutSaveTimerRef.current = null;
+    }, 160);
+  }, [persistTabGroupLayout]);
   const pageNavigatorScale = Math.min(
     PAGE_NAVIGATOR_MAX_SCALE,
     Math.max(
@@ -6351,6 +6629,9 @@ function EditorShellBody({ embeddedHost, editorStore }: EditorShellProps & { edi
       setLineWidthMenuOpen, setShapeMenuOpen, setTextAlignMenuOpen,
     },
     shared: {
+      documentActions: renderDocumentActions ? <DocumentActionsSlot render={renderDocumentActions} context={{ fileId: activeFileId, document, getDocument: getCurrentSessionDocument, flush: saveCurrentDocumentRecord }} /> : null,
+      accountAction,
+      hasDocumentSession: Boolean(documentSession),
       activeMenu, aiDocumentWriteInProgress, colorStylePanel, document, getActiveTextTarget,
       imageInputRef, insertInlineMath, isDesktopApp, isEmbedded, runEditCommand, runOverlayCommand,
       // `saveState` / `statusMessage` は渡さない。打鍵のたびに動く値なので、
@@ -6448,6 +6729,8 @@ function EditorShellBody({ embeddedHost, editorStore }: EditorShellProps & { edi
   };
 
   return (
+    <DocumentSessionContext.Provider value={documentSession}>
+    <DocumentWritableContext.Provider value={sessionWritable}>
     <MathEnvironmentProvider
       mathFractionSizing={document.metadata.mathFractionSizing}
       preamble={document.metadata.texPreamble}
@@ -6459,6 +6742,7 @@ function EditorShellBody({ embeddedHost, editorStore }: EditorShellProps & { edi
       data-backstage-open={ribbonBackstageOpen ? "true" : undefined}
       data-ribbon-collapsed={ribbonCollapse.collapsed ? "true" : undefined}
       data-ai-sidebar-open={aiDisplayMode === "sidebar" && aiSidebarOpen ? "true" : undefined}
+      data-tab-groups={!isEmbedded ? "true" : undefined}
       style={{ "--ai-sidebar-width": `${AI_SIDEBAR_WIDTH}px` } as CSSProperties}
     >
       <WebMcpBridge
@@ -6589,6 +6873,19 @@ function EditorShellBody({ embeddedHost, editorStore }: EditorShellProps & { edi
           </aside>
         )}
 
+        <WorkspaceTabGroupGrid
+          enabled={!isEmbedded}
+          layout={workspaceLayout}
+          metadata={documentMetadatas}
+          activeFileId={activeFileId}
+          sessionHost={sessionHost}
+          onActivateTab={activateWorkspaceGroupTab}
+          onCloseTab={closeWorkspaceGroupTab}
+          onMoveTab={moveWorkspaceGroupTab}
+          onSplitTab={splitWorkspaceGroupTab}
+          onResizeSplit={resizeWorkspaceGroupSplit}
+          onOpenAiSettings={() => setAiSettingsOpen(true)}
+        >
         <section
           className={`editor-canvas ${loadingFileId ? "is-switching" : ""}`}
           data-whiteboard={isWhiteboardDocument ? "true" : undefined}
@@ -6672,7 +6969,8 @@ function EditorShellBody({ embeddedHost, editorStore }: EditorShellProps & { edi
             commentPanel={isWhiteboardDocument ? undefined : commentPanelProps}
             overlaySelection={overlaySelection}
             overlayCommentAnchor={currentOverlayCommentAnchor}
-            aiDocumentWriteInProgress={aiDocumentWriteInProgress}
+            aiDocumentWriteInProgress={mcpPreviewBusy}
+            editorExtensions={sessionEditExtensions}
             aiEditPreviewGroups={visibleAiEditPreviewGroups}
             aiEditPreviewApplying={mcpPreviewBusy}
             aiApplyAnimation={aiApplyAnimation}
@@ -6786,6 +7084,7 @@ function EditorShellBody({ embeddedHost, editorStore }: EditorShellProps & { edi
             </div>
           )}
         </section>
+        </WorkspaceTabGroupGrid>
 
         <AiEditorHost
           enabled={!isEmbedded && isDesktopApp}
@@ -7035,6 +7334,8 @@ function EditorShellBody({ embeddedHost, editorStore }: EditorShellProps & { edi
       )}
     </div>
     </MathEnvironmentProvider>
+    </DocumentWritableContext.Provider>
+    </DocumentSessionContext.Provider>
   );
 }
 
