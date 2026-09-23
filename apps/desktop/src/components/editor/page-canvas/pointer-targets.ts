@@ -13,6 +13,7 @@ import type { OverlayPoint } from "../overlay-canvas/types";
 import  {
   blockHitProbeColumnLeftPx,
   isContainerTopBand,
+  resolveColumnLaneWidthPx,
   type BlockNeighborKind,
   type HoveredTopLevelBlock,
   type TopLevelBlockBox,
@@ -215,19 +216,26 @@ export function hitTestTopLevelBlock(
     unitCanvasY,
     resolvedUnit?.id !== content[index].id ? resolvedUnit?.ownBox.top : undefined,
   );
-  const hoveredUnit = ownerOwnsTopBand ? null : resolvedUnit;
+  // 段の中の空白 (その高さに段の行が無い)。隣の段の行や入れ物のつまみを、この段のガターへ出さない。
+  const laneEmpty = !ownerOwnsTopBand && resolvedUnit?.emptyLane === true;
+  const hoveredUnit = ownerOwnsTopBand || laneEmpty ? null : resolvedUnit;
   const hoveredBlock = hoveredUnit ? findBlock(document, hoveredUnit.id) : null;
   const hoveredLeft = innerLane
     ? (innerLane.laneLeft - canvasRect.left) / scale
     : hoveredUnit?.ownBox.left ?? box.left;
   const useProblemGutterLane = hoveredUnit?.insideProblemArea === true
     && (innerLane?.firstColumn ?? true);
+  // 2 段目以降のガターは段間 (列境界と共有)。段の本文に寄せ、段間の中央 (列境界) を空けた幅で出す。
+  const columnLaneWidthPx = hoveredUnit && innerLane?.firstColumn === false
+    ? resolveColumnLaneWidthPx(typeof innerLane.dividerGap === "number" ? innerLane.dividerGap / scale : null)
+    : undefined;
   const spaceAfterTarget = hoveredUnit && hoveredUnit.hasVisibleEnd !== false && hoveredBlock && rendersBlockSpaceAfter(hoveredBlock.type)
     ? {
         blockId: hoveredUnit.id,
         bottom: hoveredUnit.ownBox.bottom,
         left: hoveredLeft,
         insideProblemArea: useProblemGutterLane,
+        ...(columnLaneWidthPx ? { columnLaneWidthPx } : {}),
         spaceAfterPx: blockSpaceAfterPx(hoveredBlock),
       }
     : null;
@@ -242,6 +250,7 @@ export function hitTestTopLevelBlock(
     gapEdge: gapAbove ? "bottom" : gapBelow ? "top" : null,
     spaceAfterTarget,
     useOwnerAffordance: ownerOwnsTopBand || hoveredUnit?.id === content[index].id,
+    ...(laneEmpty ? { laneEmpty: true } : {}),
     unit: hoveredUnit
       ? {
         id: hoveredUnit.id,
@@ -249,6 +258,7 @@ export function hitTestTopLevelBlock(
         bottom: hoveredUnit.ownBox.bottom,
         left: hoveredLeft,
         insideProblemArea: useProblemGutterLane,
+        ...(columnLaneWidthPx ? { columnLaneWidthPx } : {}),
       }
       : null,
   };
