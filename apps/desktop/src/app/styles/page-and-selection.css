@@ -2304,7 +2304,7 @@ body.page-block-dragging * {
 
 .overlay-resize-handle.e::after,
 .overlay-resize-handle.w::after {
-  width: 5px;
+  width: var(--overlay-resize-handle-thickness, 5px);
   height: var(--overlay-resize-handle-length, 18px);
 }
 

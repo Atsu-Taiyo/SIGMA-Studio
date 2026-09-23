@@ -2,6 +2,11 @@ import { describe, expect, it } from "vitest";
 
 import {
   aiWorkspaceTab,
+  canSplitWorkspaceLayout,
+  orderedWorkspaceGroups,
+  resolveWorkspaceDropIntent,
+  workspaceGroupPosition,
+  workspaceTabInsertionIndex,
   closeWorkspaceTabInLayout,
   createSingleGroupWorkspaceLayout,
   documentWorkspaceTab,
@@ -85,5 +90,42 @@ describe("workspace tab groups", () => {
     expect(reconciled.groups).toHaveLength(1);
     expect(reconciled.groups[0].tabs.map((tab) => tab.id)).toEqual(["document:b", "document:c"]);
     expect(reconciled.lastDocumentFileId).toBe("c");
+  });
+});
+
+describe("workspace tab group placement", () => {
+  const paneBounds = { left: 0, top: 0, width: 1200, height: 800 };
+
+  it("lists groups and positions in screen order, not creation order", () => {
+    let layout = createSingleGroupWorkspaceLayout(["a", "b", "c"], "a");
+    layout = splitWorkspaceGroupWithTab(layout, "document:b", "group-1", "left", "group-2", "split-1");
+    layout = splitWorkspaceGroupWithTab(layout, "document:c", "group-1", "bottom", "group-3", "split-2");
+    expect(orderedWorkspaceGroups(layout).map((group) => group.id)).toEqual(["group-2", "group-1", "group-3"]);
+    expect(workspaceGroupPosition(layout, "group-1")).toBe(2);
+    expect(canSplitWorkspaceLayout(layout)).toBe(false);
+  });
+
+  it("splits only near an edge and moves anywhere inside", () => {
+    expect(resolveWorkspaceDropIntent(paneBounds, { x: 40, y: 400 })).toEqual({ kind: "split", edge: "left" });
+    expect(resolveWorkspaceDropIntent(paneBounds, { x: 1180, y: 400 })).toEqual({ kind: "split", edge: "right" });
+    expect(resolveWorkspaceDropIntent(paneBounds, { x: 600, y: 30 })).toEqual({ kind: "split", edge: "top" });
+    expect(resolveWorkspaceDropIntent(paneBounds, { x: 600, y: 780 })).toEqual({ kind: "split", edge: "bottom" });
+    expect(resolveWorkspaceDropIntent(paneBounds, { x: 600, y: 400 })).toEqual({ kind: "move" });
+  });
+
+  it("shifts the drop position when a tab is reordered to its right", () => {
+    const group = createSingleGroupWorkspaceLayout(["a", "b", "c"], "a").groups[0];
+    expect(workspaceTabInsertionIndex(group, "document:a", 2)).toBe(1);
+    expect(workspaceTabInsertionIndex(group, "document:c", 1)).toBe(1);
+    expect(workspaceTabInsertionIndex(group, "document:from-another-pane", 2)).toBe(2);
+  });
+
+  it("keeps a too small or capped pane as a move target", () => {
+    expect(resolveWorkspaceDropIntent({ left: 0, top: 0, width: 420, height: 300 }, { x: 8, y: 150 }))
+      .toEqual({ kind: "move" });
+    expect(resolveWorkspaceDropIntent({ left: 0, top: 0, width: 420, height: 800 }, { x: 8, y: 400 }))
+      .toEqual({ kind: "move" });
+    expect(resolveWorkspaceDropIntent(paneBounds, { x: 10, y: 10 }, { splittable: false }))
+      .toEqual({ kind: "move" });
   });
 });

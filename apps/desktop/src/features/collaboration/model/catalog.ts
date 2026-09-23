@@ -84,7 +84,13 @@ export interface HierarchyShareOperation {
 export interface ServerCollaborationCapabilities {
   hierarchySharingEnabled: boolean;
   canStartDocumentShare: boolean;
-  documentShareSource: "none" | "trial" | "entitlement";
+  documentShareSource: "none" | "free" | "trial" | "entitlement";
+  billingAvailable?: boolean;
+  plan?: "free" | "trial" | "pro";
+  participantLimit?: number;
+  paymentWarning?: boolean;
+  accessUntil?: string | null;
+  trialEligible?: boolean;
   canStartHierarchyShare: boolean;
   hierarchyShareSource: "none" | "trial" | "entitlement";
 }

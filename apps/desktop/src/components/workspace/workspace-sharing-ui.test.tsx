@@ -72,6 +72,7 @@ function setupCatalog() {
   let status: SharedCatalogStatus = { state: "ready", actorId: "owner", revision: 1, capabilities: { canStartDocumentShare: true, documentShareSource: "trial", canStartHierarchyShare: true, hierarchySharingEnabled: true, hierarchyShareSource: "trial" } };
   let listener = () => {};
   const catalog: SharedCatalogBridge = {
+    billing: vi.fn(async () => {}), recoverLocked: vi.fn(async () => ({ saved: 0, failed: 0 })),
     status: vi.fn(async () => status), refresh: vi.fn(async () => status), setVisible: vi.fn(async () => {}),
     details: vi.fn(async () => null), start: vi.fn(), join: vi.fn(), invite: vi.fn(), changeMember: vi.fn(), revokeInvitation: vi.fn(), end: vi.fn(),
     onChange: vi.fn((next) => { listener = () => next(status); return vi.fn(); }),
@@ -168,4 +169,40 @@ it("a valid target can be shared after automatic login without changing its iden
   await settle(); await settle();
   await click(button("共有を開始"));
   expect(f.signInWithGoogle).toHaveBeenCalledOnce(); expect(f.catalog.start).toHaveBeenCalledWith(local);
+});
+
+describe("Pro paywall entry", () => {
+  const free = { canStartDocumentShare: true, documentShareSource: "free" as const, hierarchySharingEnabled: true, canStartHierarchyShare: false, hierarchyShareSource: "none" as const };
+  it("replaces workspace and folder sharing start with the Pro paywall for a free owner", async () => {
+    const f = setupCatalog();
+    f.change({ state: "ready", actorId: "owner", revision: 1, capabilities: free });
+    const local = { kind: "folder" as const, workspaceId: "w", folderId: "f" };
+    act(() => root.render(<WorkspaceSharingDialog target={{ source: "local", local }} name="数学" onClose={vi.fn()} onChanged={vi.fn()} />));
+    await settle();
+    expect(Array.from(document.querySelectorAll("button")).some((item) => item.textContent === "共有を開始")).toBe(false);
+    expect(document.body.textContent).toContain("ワークスペースとフォルダの共有はProプランの機能です。");
+    expect(document.body.textContent).not.toContain("この項目の共有を開始できません。");
+    await click(button("Proプランを見る"));
+    const dialogs = document.querySelectorAll('[role="dialog"]');
+    expect(dialogs).toHaveLength(2);
+    expect(dialogs[1].textContent).toContain("$9");
+    expect(dialogs[1].textContent).toContain("共同編集者を15人まで招待");
+    expect(f.catalog.start).not.toHaveBeenCalled();
+    await act(async () => { document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })); });
+    expect(document.querySelectorAll('[role="dialog"]')).toHaveLength(1);
+  });
+  it("keeps individual documents free and disabled servers out of the paywall", async () => {
+    const f = setupCatalog();
+    f.change({ state: "ready", actorId: "owner", revision: 1, capabilities: free });
+    act(() => root.render(<WorkspaceSharingDialog target={{ source: "local", local: { kind: "document", fileId: "d" } }} name="問題" onClose={vi.fn()} onChanged={vi.fn()} />));
+    await settle();
+    expect(button("共有を開始").disabled).toBe(false);
+    expect(document.body.textContent).not.toContain("Proプランを見る");
+    f.change({ state: "ready", actorId: "owner", revision: 1, capabilities: { ...free, canStartDocumentShare: true, documentShareSource: "free" as const, hierarchySharingEnabled: false } });
+    act(() => root.render(<WorkspaceSharingDialog target={{ source: "local", local: { kind: "workspace", workspaceId: "w" } }} name="授業" onClose={vi.fn()} onChanged={vi.fn()} />));
+    await settle();
+    expect(button("共有を開始").disabled).toBe(true);
+    expect(document.body.textContent).toContain("この項目の共有を開始できません。");
+    expect(document.body.textContent).not.toContain("Proプランを見る");
+  });
 });

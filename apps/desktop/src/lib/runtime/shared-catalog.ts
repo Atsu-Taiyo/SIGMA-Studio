@@ -45,6 +45,8 @@ export interface CatalogSharingDetails {
   members: CatalogMember[];
 }
 export interface SharedCatalogBridge {
+  billing(action: "checkout" | "portal"): Promise<void>;
+  recoverLocked(): Promise<{ saved: number; failed: number }>;
   status(): Promise<SharedCatalogStatus>;
   refresh(): Promise<SharedCatalogStatus>;
   /** Main owns the serialized five-second poll; cleanup must set false. */

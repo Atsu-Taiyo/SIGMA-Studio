@@ -50,7 +50,7 @@ async function render(host?: DocumentSessionHost, ai = false, metadata: Document
   layout.groups[0].tabs = [tab]; layout.groups[0].activeTabId = tab.id;
   await act(async () => root.render(
     <DocumentSessionContext.Provider value={fixture().session}><DocumentWritableContext.Provider value={true}>
-      <WorkspaceTabGroupGrid layout={layout} metadata={metadata} activeFileId="other" sessionHost={host} onActivateTab={vi.fn()} onCloseTab={vi.fn()} onMoveTab={vi.fn()} onSplitTab={vi.fn()} onResizeSplit={vi.fn()}><div>active editor</div></WorkspaceTabGroupGrid>
+      <WorkspaceTabGroupGrid layout={layout} metadata={metadata} activeFileId="other" sessionHost={host} onFocusGroup={vi.fn()} onMoveTab={vi.fn()} onSplitTab={vi.fn()} onResizeSplit={vi.fn()}><div>active editor</div></WorkspaceTabGroupGrid>
     </DocumentWritableContext.Provider></DocumentSessionContext.Provider>,
   ));
 }

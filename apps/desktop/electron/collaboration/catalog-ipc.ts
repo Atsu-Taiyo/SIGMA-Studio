@@ -17,6 +17,8 @@ export function registerCatalogIpc(catalog: DesktopSharedCatalog, local: LocalSi
     if (event.senderFrame !== event.sender.mainFrame) throw new Error("MAIN_FRAME_REQUIRED");
     return run(...args);
   });
+  handle("billing", action => catalog.billing(z.enum(["checkout", "portal"]).parse(action)));
+  handle("recover-locked", () => catalog.recoverLocked());
   handle("status", () => catalog.status());
   handle("refresh", () => catalog.refresh());
   handle("visible", visible => catalog.setVisible(z.boolean().parse(visible)));

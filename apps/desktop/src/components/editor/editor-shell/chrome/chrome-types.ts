@@ -329,6 +329,11 @@ export interface EditorChromeAppMenu {
   uiLayoutPreference: UiLayoutPreference;
   updateMetadata: (metadata: SigmaDocument["metadata"]) => void;
   updateUiLayoutPreference: (patch: Partial<UiLayoutPreference>) => void;
+  /**
+   * 分割ペインを扱う教材タブ列。組み上がった element を受け取り、クロームは
+   * 従来のタブ列と同じ場所へ置くだけ。埋め込み表示では null (分割機能を持たない)。
+   */
+  workspaceTabsRow: ReactNode;
 }
 
 /** Word風リボン専用。docs クロームでは1つも読まれない。 */

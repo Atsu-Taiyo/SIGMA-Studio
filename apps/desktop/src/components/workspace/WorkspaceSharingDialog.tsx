@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Check, Copy, LogIn, Share2, UserRound, X } from "lucide-react";
+import { Check, Copy, LogIn, Share2, Sparkles, UserRound, X } from "lucide-react";
 import { Button, IconButton } from "@/components/ui/Button";
 import { ModalBody, ModalFrame, ModalHeader } from "@/components/ui/Modal";
 import { Select } from "@/components/ui/Select";
@@ -10,7 +10,10 @@ import { Inline, Stack } from "@/components/ui/layout";
 import { getDesktopBridge } from "@/lib/desktop-bridge";
 import { useT } from "@/lib/i18n/react";
 import type { CatalogMember, CatalogSharingDetails, LibrarySharingTarget, SharedCatalogStatus } from "@/lib/runtime/shared-catalog";
+import { collaborationPlanState } from "@/features/collaboration/model/plan";
 import type { MemberRole } from "@/features/collaboration/model/protocol";
+import { CollaborationPlanDialog } from "@/features/collaboration/renderer/CollaborationPlanDialog";
+import planStyles from "@/features/collaboration/renderer/plan.module.css";
 import styles from "@/features/collaboration/renderer/sharing.module.css";
 
 type GrantRole = Exclude<MemberRole, "owner">;
@@ -39,6 +42,7 @@ export function WorkspaceSharingDialog({ target, name, onClose, onChanged, start
   const [role, setRole] = useState<GrantRole>("editor");
   const [copied, setCopied] = useState(false);
   const [confirmation, setConfirmation] = useState<CatalogMember | "stop" | "delete" | "leave" | null>(null);
+  const [planOpen, setPlanOpen] = useState(false);
   const generation = useRef(0);
   const alive = useRef(true);
   const attemptedAuth = useRef(false);
@@ -126,7 +130,9 @@ export function WorkspaceSharingDialog({ target, name, onClose, onChanged, start
   const canStart = target.source === "local" && online && (target.local.kind === "document"
     ? status?.capabilities?.canStartDocumentShare === true
     : status?.capabilities?.canStartHierarchyShare === true);
-  return <ModalFrame open onDismiss={dismiss} size="sm">
+  const needsUpgrade = target.source === "local" && online && !canStart && status?.capabilities?.hierarchySharingEnabled === true;
+  const plan = collaborationPlanState(status?.capabilities);
+  return <><ModalFrame open onDismiss={dismiss} size="sm">
     <ModalHeader title={t("collaboration.settingsTitle")} onClose={dismiss} />
     <ModalBody><Stack gap="lg">
       <Inline gap="sm"><Share2 size={18} /><strong>{details?.name ?? name}</strong></Inline>
@@ -192,14 +198,18 @@ export function WorkspaceSharingDialog({ target, name, onClose, onChanged, start
         </Stack> : <Stack gap="sm">
           <p>{t("collaboration.localTarget")}</p>
           {target.source === "local" && target.local.kind !== "document" && <p className={styles.caption}>{t("collaboration.confirmStartDescription")}</p>}
-          <Button tone="primary" disabled={busy || !canStart} onClick={() => void run(async () => { if (startTarget) await startTarget(); else if (target.source === "local") await catalog.start(target.local); })}>{t("collaboration.start")}</Button>
+          {needsUpgrade ? <>
+            <p className={planStyles.upsellText}>{t(target.source === "local" && target.local.kind === "document" ? "collaboration.plan.documentLimit" : "collaboration.plan.hierarchyRequired")}</p>
+            <Button tone="primary" disabled={busy} onClick={() => setPlanOpen(true)}><Sparkles size={16} aria-hidden="true" />{t("collaboration.plan.viewPlan")}</Button>
+          </> : <Button tone="primary" disabled={busy || !canStart} onClick={() => void run(async () => { if (startTarget) await startTarget(); else if (target.source === "local") await catalog.start(target.local); })}>{t("collaboration.start")}</Button>}
           {status?.state === "offline" && <p role="status">{t("collaboration.offlineHierarchy")}</p>}
-          {online && !canStart && <p>{status?.capabilities?.canStartDocumentShare === false
-            ? t("collaboration.ownerPlanRequired") : t("collaboration.startUnavailable")}</p>}
+          {online && !canStart && !needsUpgrade && <p>{t("collaboration.startUnavailable")}</p>}
         </Stack>}
       {details && onOpenDetails && <Button tone="ghost" disabled={busy} onClick={onOpenDetails}>{t("collaboration.details")}</Button>}
       {busy && <Shimmer>{t("collaboration.working")}</Shimmer>}
       {error && <p role="alert" className={styles.error}>{t("collaboration.error")}</p>}
     </Stack></ModalBody>
-  </ModalFrame>;
+  </ModalFrame>
+  {planOpen && needsUpgrade && plan !== "unavailable" && <CollaborationPlanDialog billingAvailable={status?.capabilities?.billingAvailable} plan={plan} reason={target.source === "local" && target.local.kind === "document" ? "documentLimit" : "hierarchyShare"} layer="nested" onClose={() => setPlanOpen(false)} />}
+  </>;
 }

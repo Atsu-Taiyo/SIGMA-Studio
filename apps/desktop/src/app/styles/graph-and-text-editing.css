@@ -192,7 +192,10 @@
   transition: border-color 120ms ease, box-shadow 120ms ease, background 120ms ease;
 }
 
-.math-expression-input-button {
+.math-expression-input-button,
+.math-expression-input > .math-expression-input-field {
+  /* 同じ内容領域を表示・編集・空欄で共有する。 */
+  min-height: 20px;
   display: flex;
   align-items: center;
   width: 100%;
@@ -202,6 +205,7 @@
   background: transparent;
   color: inherit;
   font: inherit;
+  line-height: 1;
   text-align: inherit;
   cursor: text;
 }
@@ -227,14 +231,12 @@
   cursor: default;
 }
 
-.math-expression-input-preview {
-  display: inline-block;
+.math-expression-input .math-expression-input-preview {
+  display: flex;
+  align-items: center;
+  margin: 0;
   overflow: hidden;
   pointer-events: none;
-}
-
-.math-expression-input-preview .math-preview {
-  margin: 0;
 }
 
 .math-expression-input-placeholder {
@@ -244,13 +246,6 @@
   pointer-events: none;
 }
 
-.math-expression-input-field {
-  flex: 1;
-  /* 空の math-field が高さ 0 に潰れてフォーカス・クリックできなくなるのを防ぐ。 */
-  min-width: 2em;
-  min-height: 20px;
-  font-size: inherit;
-}
 
 .graph-function-row {
   min-width: 0;

@@ -68,6 +68,7 @@ import { TexCommandReferenceDialog } from "@/components/editor/TexCommandReferen
 import { TexEnvironmentSettingsDialog } from "@/components/editor/TexEnvironmentSettingsDialog";
 import { VersionHistoryPanel } from "@/components/editor/VersionHistoryPanel";
 import { WorkspaceTabGroupGrid } from "@/components/editor/WorkspaceTabGroupGrid";
+import { WorkspaceTabStrip } from "@/components/editor/WorkspaceTabStrip";
 import { WindowCloseSaveDialog } from "@/components/editor/WindowCloseSaveDialog";
 import  {
   AI_INLINE_ANCHOR_OFFSET_Y,
@@ -201,6 +202,8 @@ import  {
   diffDeletedContentIds,
   DocumentHistoryController,
   ensurePageLayout,
+  getPageMetrics,
+  MM_TO_PX,
   expandMarginsForRunningRegions,
   getPageLayoutIssues,
   inlineNodesToPlainText,
@@ -1241,6 +1244,12 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, acc
   const newDocMenuCloseTimerRef = useRef<number | null>(null);
   const settingsMenuButtonRef = useRef<HTMLButtonElement | null>(null);
   const editorCanvasRef = useRef<HTMLElement | null>(null);
+  // A split re-parents the editor canvas. Track the node so native listeners follow it.
+  const [editorCanvasElement, setEditorCanvasElement] = useState<HTMLElement | null>(null);
+  const attachEditorCanvas = useCallback((element: HTMLElement | null) => {
+    editorCanvasRef.current = element;
+    setEditorCanvasElement(element);
+  }, []);
   const overlayCommandRequestIdRef = useRef(0);
   const overlayImageRequestIdRef = useRef(0);
   const overlayActionRequestIdRef = useRef(0);
@@ -2488,6 +2497,26 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, acc
     applyZoom(100);
   }, [applyZoom, editorStore, isWhiteboardDocument]);
 
+  // A newly narrowed pane should keep the entire page visible. Only lower the
+  // zoom here; manual zoom changes and splitter dragging remain under user control.
+  useEffect(() => {
+    if (!editorCanvasElement || workspaceLayout.groups.length < 2 || isWhiteboardDocument) return;
+    let frame = window.requestAnimationFrame(() => {
+      frame = window.requestAnimationFrame(() => {
+        const scroller = editorCanvasRef.current;
+        if (!scroller) return;
+        const style = window.getComputedStyle(scroller);
+        const available = scroller.clientWidth - Number.parseFloat(style.paddingLeft || "0")
+          - Number.parseFloat(style.paddingRight || "0");
+        const pageWidth = getPageMetrics(ensurePageLayout(documentRef.current).pageLayout!).page.widthMm * MM_TO_PX;
+        if (available <= 0 || pageWidth <= 0) return;
+        const fitted = Math.floor((available / pageWidth) * 100);
+        if (fitted < editorStore.getState().zoom) applyZoom(Math.max(25, fitted));
+      });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [applyZoom, editorCanvasElement, editorStore, isWhiteboardDocument, workspaceLayout.groups.length]);
+
   /**
    * パンは常に「差分」で受ける。中ボタンドラッグは 1 フレームに何度も動くので、
    * 絶対値で受けると render 時の古いパンに毎回足し込んで最後の 1 回だけが残り、
@@ -2578,7 +2607,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, acc
   }, []);
 
   useEffect(() => {
-    const scroller = editorCanvasRef.current;
+    const scroller = editorCanvasElement;
     if (!scroller) {
       return;
     }
@@ -2654,7 +2683,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, acc
 
     scroller.addEventListener("wheel", handleNativeWheel, { capture: true, passive: false });
     return () => scroller.removeEventListener("wheel", handleNativeWheel, { capture: true });
-  }, [applyZoom, isWhiteboardDocument, panWhiteboardBy]);
+  }, [applyZoom, editorCanvasElement, isWhiteboardDocument, panWhiteboardBy]);
 
   useEffect(() => {
     const bridge = getDesktopBridge();
@@ -3825,7 +3854,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, acc
       return;
     }
 
-    const scroller = editorCanvasRef.current;
+    const scroller = editorCanvasElement;
     if (!scroller) {
       return;
     }
@@ -3848,6 +3877,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, acc
     activeFileId,
     document.content.length,
     document.pageLayout,
+    editorCanvasElement,
     updateActivePageFromScroll,
     workspaceReady,
   ]);
@@ -6271,7 +6301,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, acc
 
   const activateWorkspaceGroupTab = useCallback((groupId: string, tab: WorkspaceTab) => {
     const nextLayout = focusWorkspaceTab(workspaceLayoutRef.current, groupId, tab.id);
-    if (tab.kind === "document") {
+    if (tab.kind === "document" && tab.fileId !== activeFileIdRef.current) {
       void openDocumentInWorkspace(tab.fileId, { nextOpenFileIds: workspaceLayoutOpenFileIds(nextLayout), onOpened: () => persistTabGroupLayout(nextLayout) });
       return;
     }
@@ -6281,7 +6311,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, acc
   const moveWorkspaceGroupTab = useCallback((tabId: string, targetGroupId: string, targetIndex?: number) => {
     const nextLayout = moveWorkspaceTab(workspaceLayoutRef.current, tabId, targetGroupId, targetIndex);
     const tab = nextLayout.groups.flatMap((group) => group.tabs).find((candidate) => candidate.id === tabId);
-    if (tab?.kind === "document") {
+    if (tab?.kind === "document" && tab.fileId !== activeFileIdRef.current) {
       void openDocumentInWorkspace(tab.fileId, { nextOpenFileIds: workspaceLayoutOpenFileIds(nextLayout), onOpened: () => persistTabGroupLayout(nextLayout) });
     } else {
       persistTabGroupLayout(nextLayout);
@@ -6298,7 +6328,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, acc
       createId("tab-split"),
     );
     const tab = nextLayout.groups.flatMap((group) => group.tabs).find((candidate) => candidate.id === tabId);
-    if (tab?.kind === "document") {
+    if (tab?.kind === "document" && tab.fileId !== activeFileIdRef.current) {
       void openDocumentInWorkspace(tab.fileId, { nextOpenFileIds: workspaceLayoutOpenFileIds(nextLayout), onOpened: () => persistTabGroupLayout(nextLayout) });
     } else {
       persistTabGroupLayout(nextLayout);
@@ -6325,6 +6355,28 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, acc
       workspaceLayoutSaveTimerRef.current = null;
     }, 160);
   }, [persistTabGroupLayout]);
+  const focusWorkspaceGroup = useCallback((groupId: string) => {
+    const group = workspaceLayoutRef.current.groups.find((candidate) => candidate.id === groupId);
+    const tab = group?.tabs.find((candidate) => candidate.id === group.activeTabId) ?? group?.tabs[0];
+    if (group && tab) activateWorkspaceGroupTab(group.id, tab);
+  }, [activateWorkspaceGroupTab]);
+
+  const workspaceTabsRow = isEmbedded ? null : (
+    <WorkspaceTabStrip
+      layout={workspaceLayout}
+      metadata={documentMetadatas}
+      activeFileId={activeFileId}
+      loadingFileId={loadingFileId}
+      activeDocumentTitle={resolvedDocumentTitle}
+      activeDocumentTitleNodes={documentTitle.nodes}
+      onActivateTab={activateWorkspaceGroupTab}
+      onCloseTab={closeWorkspaceGroupTab}
+      onMoveTab={moveWorkspaceGroupTab}
+      onSplitTab={splitWorkspaceGroupTab}
+      onFocusGroup={focusWorkspaceGroup}
+    />
+  );
+
   const pageNavigatorScale = Math.min(
     PAGE_NAVIGATOR_MAX_SCALE,
     Math.max(
@@ -6708,7 +6760,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, acc
       setOutlineDialogOpen, setOverlayEditing, setPageSettingsOpen, setTemplateGalleryOpen,
       setTexCommandReferenceOpen, setTexEnvironmentSettingsOpen, setTitleInputFocused,
       settingsMenuButtonRef, showRichTitle,
-      showTitleUpdateButton, titleInputValue, titleRichNodes,
+      showTitleUpdateButton, titleInputValue, titleRichNodes, workspaceTabsRow,
       titleUpdateButtonDisabled, toggleCommentsPanel, uiLayoutPreference, updateMetadata,
       updateUiLayoutPreference, versionHistoryOpen,
     },
@@ -6879,8 +6931,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, acc
           metadata={documentMetadatas}
           activeFileId={activeFileId}
           sessionHost={sessionHost}
-          onActivateTab={activateWorkspaceGroupTab}
-          onCloseTab={closeWorkspaceGroupTab}
+          onFocusGroup={focusWorkspaceGroup}
           onMoveTab={moveWorkspaceGroupTab}
           onSplitTab={splitWorkspaceGroupTab}
           onResizeSplit={resizeWorkspaceGroupSplit}
@@ -6889,7 +6940,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, acc
         <section
           className={`editor-canvas ${loadingFileId ? "is-switching" : ""}`}
           data-whiteboard={isWhiteboardDocument ? "true" : undefined}
-          ref={editorCanvasRef}
+          ref={attachEditorCanvas}
           onClick={(event) => {
             if (versionHistoryPreviewActive) return;
             const target = event.target instanceof Element ? event.target : null;

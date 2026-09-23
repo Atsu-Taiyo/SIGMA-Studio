@@ -164,6 +164,7 @@ const sharedCatalog = new DesktopSharedCatalog(collaborationSessions.directory, 
   activate: ids => collaborationSessions.activateCatalogDocuments(ids),
   start: (id, document) => collaborationSessions.start(id, document),
   flush: id => collaborationSessions.flush(id, true),
+  recoverLocked: () => collaborationSessions.recoverLocked(),
   retainLocal: id => collaborationSessions.retainLocal(id),
   restrict: allowed => collaborationSessions.restrictCatalog(allowed),
 }, status => {
