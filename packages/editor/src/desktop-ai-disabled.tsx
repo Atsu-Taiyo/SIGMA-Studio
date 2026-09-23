@@ -5,6 +5,18 @@ import { PageCanvasEditor } from "@sigma-studio/editor-internal/page-canvas-edit
 
 const EMPTY_ARRAY: never[] = [];
 const EMPTY_MAP = new Map();
+
+// Workspace tabs can inspect this store even when the embedded tab UI is hidden.
+// Keep its snapshot stable and never initialize desktop persistence or providers.
+export const aiChatRoomsStore = {
+  subscribe: (_listener: () => void): (() => void) => () => undefined,
+  getSnapshot: (): never[] => EMPTY_ARRAY,
+  getActiveRoomId: (_documentIdentityKey: string): null => null,
+};
+export async function deleteAiDataForDocument(_documentIdentityKey: string): Promise<void> {
+  return undefined;
+}
+
 const EMPTY_PREVIEWS = new Map();
 const EMPTY_LOCKED_TARGETS = {
   blockIds: new Set<string>(),
@@ -12,6 +24,7 @@ const EMPTY_LOCKED_TARGETS = {
   runBlockIds: new Set<string>(),
   runShapeIds: new Set<string>(),
 };
+export const EMPTY_AI_LOCKED_TARGETS = EMPTY_LOCKED_TARGETS;
 const AI_UNAVAILABLE_REASON = "AI編集は公開Editorに含まれていません";
 const EMPTY_PREVIEW_CLEAR_REQUEST = { seq: 0, outcome: "dismissed" as const };
 

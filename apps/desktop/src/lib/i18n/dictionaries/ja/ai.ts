@@ -36,6 +36,7 @@ export const ai = {
   /** 会話 (チャットルーム)。**タイトルは保存されるので D3: 作った時点の言語で焼く。** */
   chat: {
     historyLoadFailed: "AI会話履歴を読み込めませんでした。",
+    documentCleanupFailed: "AI編集データを削除できませんでした。",
     historyLoading: "履歴を読み込み中",
     historyTitle: "AI会話履歴",
     history: "履歴",

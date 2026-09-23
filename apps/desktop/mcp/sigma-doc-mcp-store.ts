@@ -1,5 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
+import { hasSharedBinding, readSharedDocument } from "../electron/collaboration/local-bridge";
+import { observeSharedRead } from "../electron/collaboration/proposal-context";
 
 import type { LocalDocumentMetadata, LocalSigmaDocStore } from "../electron/local-sigma-doc-store";
 import type { SigmaDocument } from "@/features/document";
@@ -84,7 +86,7 @@ export async function getFileMetadata(store: LocalSigmaDocStore, fileId: string)
     invalidateDocumentCacheEntry(store, fileId);
     throw new Error(`教材ファイルが見つかりません: ${fileId}`);
   }
-  return file;
+  return await hasSharedBinding(path.dirname(store.getDataDir()), fileId) ? { ...file, revision: 1 } : file;
 }
 
 export async function loadDocumentForFile(
@@ -96,6 +98,11 @@ export async function loadDocumentForFile(
   document: SigmaDocument;
 }> {
   const file = knownFile ?? await getFileMetadata(store, fileId);
+  const shared = await readSharedDocument(path.dirname(store.getDataDir()), fileId);
+  if (shared) {
+    observeSharedRead(path.dirname(store.getDataDir()), fileId, shared);
+    return { file: { ...file, revision: 1, title: shared.metadata.title }, document: shared };
+  }
   const key = documentCacheKey(store, fileId);
   const cached = readDocumentCache(key);
   if (cached?.revision === file.revision) {

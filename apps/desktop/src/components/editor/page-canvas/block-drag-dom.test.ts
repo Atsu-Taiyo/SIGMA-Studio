@@ -6,12 +6,16 @@ import type { SigmaDocument } from "@/features/document";
 import type { DragUnitInfo } from "@/lib/block-drag-move";
 
 import {
+  layoutColumnDividerAdjoinsBlock,
   measureDragUnit,
   pointHitsLayoutColumnResizeHandle,
   resolveDeepestDescendantHoverCandidate,
+  resolveDragHitAt,
   resolveInnerAffordanceProbe,
   resolveHoverDragUnitAt,
+  resolveLayoutColumnResizeHandleAt,
   resolveListItemAffordanceProbe,
+  resolvePointerLaneColumn,
   type DragIndex,
 } from "./block-drag-dom";
 
@@ -425,5 +429,129 @@ describe("layout-column affordance lanes", () => {
       laneLeft: 215,
       firstColumn: false,
     });
+  });
+});
+
+/**
+ * 左段が長く右段が短い 2 段組。段間は 400〜430、列境界のボタンは段間の全幅。
+ *   左段: l1 100-128 / l2 130-158 / l3 160-188
+ *   右段: r1 100-128
+ */
+function unevenColumns() {
+  const canvas = document.createElement("div");
+  canvas.innerHTML = `
+    <section data-sigma-doc-id="sec">
+      <div class="layout-section-independent-columns">
+        <div class="layout-section-independent-column" data-col="0">
+          <p data-sigma-doc-id="l1"></p><p data-sigma-doc-id="l2"></p><p data-sigma-doc-id="l3"></p>
+        </div>
+        <button class="layout-section-column-resize-handle" data-divider-index="0"></button>
+        <div class="layout-section-independent-column" data-col="1">
+          <p data-sigma-doc-id="r1"></p>
+        </div>
+      </div>
+    </section>`;
+  document.body.append(canvas);
+  Object.defineProperty(canvas, "offsetWidth", { configurable: true, value: 800 });
+  const at = (selector: string) => canvas.querySelector<HTMLElement>(selector)!;
+  const rects: Array<[HTMLElement, { left: number; top: number; right: number; bottom: number }]> = [
+    [canvas, { left: 0, top: 0, right: 800, bottom: 1000 }],
+    [at("section"), { left: 100, top: 100, right: 730, bottom: 188 }],
+    [at(".layout-section-independent-columns"), { left: 100, top: 100, right: 730, bottom: 188 }],
+    [at('[data-col="0"]'), { left: 100, top: 100, right: 400, bottom: 188 }],
+    [at('[data-col="1"]'), { left: 430, top: 100, right: 730, bottom: 188 }],
+    [at(".layout-section-column-resize-handle"), { left: 400, top: 100, right: 430, bottom: 188 }],
+    [at('[data-sigma-doc-id="l1"]'), { left: 100, top: 100, right: 400, bottom: 128 }],
+    [at('[data-sigma-doc-id="l2"]'), { left: 100, top: 130, right: 400, bottom: 158 }],
+    [at('[data-sigma-doc-id="l3"]'), { left: 100, top: 160, right: 400, bottom: 188 }],
+    [at('[data-sigma-doc-id="r1"]'), { left: 430, top: 100, right: 730, bottom: 128 }],
+  ];
+  for (const [element, rect] of rects) setRect(element, rect);
+  // 実物と同じく、点を含む要素を深い順に返す。
+  const elementsFromPoint = document.elementsFromPoint;
+  document.elementsFromPoint = (x: number, y: number) => rects
+    .filter(([, rect]) => x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom)
+    .map(([element]) => element)
+    .sort((a, b) => (a.contains(b) ? 1 : b.contains(a) ? -1 : 0));
+  const info = (id: string, type: DragUnitInfo["type"], index: number): DragUnitInfo => ({
+    id,
+    type,
+    container: id === "sec" ? { kind: "content", ownerId: null } : { kind: "layout", ownerId: "sec" },
+    ancestors: id === "sec" ? [] : ["sec"],
+    order: id === "sec" ? 0 : index + 1,
+    index,
+    siblingCount: id === "sec" ? 1 : 4,
+  });
+  const infos = [info("sec", "layoutSection", 0), ...["l1", "l2", "l3", "r1"].map((id, index) => info(id, "paragraph", index))];
+  const index: DragIndex = {
+    units: new Map(infos.map((item) => [item.id, item])),
+    anchors: new Map(infos.map((item) => [item.id, item])),
+  };
+  const sigmaDocument = { content: [{
+    type: "layoutSection",
+    id: "sec",
+    layout: { columnCount: 2, columnStartIds: ["l1", "r1"] },
+    children: ["l1", "l2", "l3", "r1"].map((id) => ({ type: "paragraph", id, children: [] })),
+  }] } as unknown as SigmaDocument;
+  return {
+    canvas,
+    index,
+    sigmaDocument,
+    handle: at(".layout-section-column-resize-handle"),
+    cleanup: () => {
+      document.elementsFromPoint = elementsFromPoint;
+      canvas.remove();
+    },
+  };
+}
+
+describe("partial columns keep every affordance in the pointer's own column", () => {
+  it("never hands a sibling column's row to the empty part of a shorter column", () => {
+    const { canvas, index, sigmaDocument, cleanup } = unevenColumns();
+    // 右段の空白 (左段 l3 と同じ高さ)。以前はここで l3 が選ばれ、右段のガターに描かれていた。
+    expect(resolveHoverDragUnitAt(canvas, sigmaDocument, index, 500, 170)).toMatchObject({ id: "sec", emptyLane: true });
+    // 右段のガター側のプローブ (段の左 + 8px) でも同じ。
+    expect(resolveHoverDragUnitAt(canvas, sigmaDocument, index, 438, 170)).toMatchObject({ id: "sec", emptyLane: true });
+    // 行があれば、その段の行。
+    expect(resolveHoverDragUnitAt(canvas, sigmaDocument, index, 500, 110)?.id).toBe("r1");
+    expect(resolveHoverDragUnitAt(canvas, sigmaDocument, index, 200, 170)?.id).toBe("l3");
+    cleanup();
+  });
+
+  it("reaches the row just above the pointer inside the same column, for its bottom handle", () => {
+    const { canvas, index, sigmaDocument, cleanup } = unevenColumns();
+    expect(resolveHoverDragUnitAt(canvas, sigmaDocument, index, 500, 138)).toMatchObject({ id: "r1", resolvedFromContainer: true });
+    expect(resolveHoverDragUnitAt(canvas, sigmaDocument, index, 500, 150)?.emptyLane).toBe(true);
+    cleanup();
+  });
+
+  it("measures the divider gap to the left of the pointer's column", () => {
+    const { canvas, cleanup } = unevenColumns();
+    const section = canvas.querySelector<HTMLElement>("section")!;
+    expect(resolvePointerLaneColumn(section, 500, 110)).toMatchObject({ laneLeft: 430, firstColumn: false, dividerGap: 30 });
+    expect(resolvePointerLaneColumn(section, 200, 110)).toMatchObject({ laneLeft: 100, firstColumn: true, dividerGap: null });
+    expect(resolveInnerAffordanceProbe(section, 500, 110)).toMatchObject({ laneLeft: 430, dividerGap: 30 });
+    cleanup();
+  });
+
+  it("owns the whole gap with the divider and knows which column it borders", () => {
+    const { canvas, handle, cleanup } = unevenColumns();
+    expect(resolveLayoutColumnResizeHandleAt(canvas, 403, 150)).toBe(handle);
+    expect(resolveLayoutColumnResizeHandleAt(canvas, 428, 110)).toBe(handle);
+    expect(resolveLayoutColumnResizeHandleAt(canvas, 432, 110)).toBeNull();
+    expect(layoutColumnDividerAdjoinsBlock(handle, "r1")).toBe(true);
+    expect(layoutColumnDividerAdjoinsBlock(handle, "l1")).toBe(false);
+    cleanup();
+  });
+
+  it("drops into the end of the pointed column instead of around the whole section", () => {
+    const { canvas, index, sigmaDocument, cleanup } = unevenColumns();
+    // 右段の空白 → 右段の最後の行の後ろ。
+    expect(resolveDragHitAt(canvas, sigmaDocument, index, 500, 170, 108)).toMatchObject({ kind: "unit", id: "r1", gapEdge: "bottom" });
+    // 段間 (右の段の行の高さ) → その行。左端の帯として「段を足す」縦線になる。
+    expect(resolveDragHitAt(canvas, sigmaDocument, index, 415, 110, 108)).toMatchObject({ kind: "unit", id: "r1", gapEdge: null });
+    // 行の上は従来どおり行そのもの。
+    expect(resolveDragHitAt(canvas, sigmaDocument, index, 200, 140, 108)).toMatchObject({ kind: "unit", id: "l2" });
+    cleanup();
   });
 });

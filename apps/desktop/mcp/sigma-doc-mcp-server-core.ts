@@ -147,6 +147,7 @@ import {
 } from "./sigma-doc-mcp-preview";
 import { renderGraph3DPreviewPng } from "./sigma-doc-mcp-graph3d-preview";
 import { getFileMetadata, loadDocumentForFile, pruneDocumentLoadCache } from "./sigma-doc-mcp-store";
+import { hasSharedBinding, readSharedDocument, libraryBridgeAuthority } from "../electron/collaboration/local-bridge";
 import { writeRunContextPreviewFile } from "./sigma-doc-mcp-files";
 import { createToolActivityLogger } from "./tool-activity";
 import { hasSelfIntersection, inspectShapeBasics, type VisualInspectionIssue } from "./visual-inspection";
@@ -1092,6 +1093,11 @@ function resolveUserDataPath(): string {
 function createStore(): { store: LocalSigmaDocStore; userDataPath: string; dataDir: string } {
   const userDataPath = resolveUserDataPath();
   const store = new LocalSigmaDocStore(userDataPath);
+  store.setLibraryAuthority(libraryBridgeAuthority(userDataPath));
+  store.setDocumentAuthority({
+    read: fileId => readSharedDocument(userDataPath, fileId),
+    save: async fileId => await hasSharedBinding(userDataPath, fileId) ? { ok: false, error: "SHARED_PROPOSAL_REQUIRED" } : undefined,
+  });
   return {
     store,
     userDataPath,
@@ -3011,6 +3017,12 @@ const { registerTool, bodyImplementations } = createMcpToolRegistrar(server, {
   toolProfile,
   profileGuidance,
   activityLogger: createToolActivityLogger(process.env),
+  activeRunId: () => {
+    try {
+      const loaded = loadAiEditRunContext(process.env, { provider: resolveMcpProvider() ?? undefined });
+      return loaded.state === "ready" ? loaded.context.runId : undefined;
+    } catch { return undefined; }
+  },
   visualSessionRunId: (sessionId) => visualEditSessions.peek(sessionId)?.runId ?? undefined,
 });
 

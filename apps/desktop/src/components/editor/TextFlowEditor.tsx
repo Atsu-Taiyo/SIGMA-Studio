@@ -1,4 +1,9 @@
 "use client";
+import { applyEditorDocumentProjection } from "@/components/tiptap/document-projection";
+
+const sessionProjectionEditors = new WeakSet<TiptapEditor>();
+import { useDocumentSession, useDocumentWritable } from "./document-session-context";
+import { SessionPresenceExtension, sessionPresenceKey } from "@/components/tiptap/session-presence";
 
 import { acknowledgeTextFlowContent, expectTextFlowContent } from "./text-flow/measurement-revision";
 import { getFragmentEditSession } from "./text-flow/fragment-edit-session";
@@ -739,6 +744,10 @@ function TextFlowEditorImpl({
   textRunScopeContainer,
   textRunPreserveEmpty = false,
 }: TextFlowEditorProps) {
+  const documentSession = useDocumentSession();
+  const documentWritable = useDocumentWritable();
+  const documentSessionRef = useRef(documentSession);
+  useLayoutEffect(() => { documentSessionRef.current = documentSession; }, [documentSession]);
   const t = useT("editor");
   const locale = useAppLocale();
   countPerformanceEvent("TextFlowEditor.render");
@@ -1083,7 +1092,11 @@ function TextFlowEditorImpl({
   }, [setSlashCommandActiveIndex, setSlashCommandQuery]);
 
   const editor = useEditor({
+    editable: documentWritable,
     extensions: [
+      // configure stores the callback; the plugin reads it only when rendering decorations.
+      // eslint-disable-next-line react-hooks/refs
+      SessionPresenceExtension.configure({ session: () => documentSessionRef.current }),
       // プレースホルダ文言は ref。言語切替でエディタを作り直さず、↵ の出し分けだけ追従する。
       // eslint-disable-next-line react-hooks/refs
       FormattingMarksExtension.configure({
@@ -1477,6 +1490,7 @@ function TextFlowEditorImpl({
       const selectionBookmark = getTextFlowSelectionBookmark(activeEditor, verticalNavigationXRef.current);
       if (selectionBookmark && activeEditor.isFocused) {
         publishTextFlowSelectionBookmark(selectionBookmark);
+        documentSessionRef.current?.setSelection?.(selectionBookmark);
       }
       if (selectedBlockId) {
         selectedIdRef.current = selectedBlockId;
@@ -1499,6 +1513,7 @@ function TextFlowEditorImpl({
       const selectionBookmark = getTextFlowSelectionBookmark(activeEditor, verticalNavigationXRef.current);
       if (selectionBookmark) {
         publishTextFlowSelectionBookmark(selectionBookmark);
+        documentSessionRef.current?.setSelection?.(selectionBookmark);
       }
       if (selectedBlockId) {
         selectedIdRef.current = selectedBlockId;
@@ -1591,6 +1606,12 @@ function TextFlowEditorImpl({
   }, [mathEnvironment, mathFractionSizing, readOnlyBoxTitle, showPlaceholder, singleBlock]);
 
   useLayoutEffect(() => {
+    if (!editor || !documentSession) return;
+    sessionProjectionEditors.add(editor);
+    return () => { sessionProjectionEditors.delete(editor); };
+  }, [editor, documentSession]);
+
+  useLayoutEffect(() => {
     if (!editor || editor.isDestroyed) return;
     const canvas = readMountedEditorDom(editor)?.closest<HTMLElement>(".page-canvas");
     if (!canvas) return;
@@ -1666,6 +1687,17 @@ function TextFlowEditorImpl({
 
   // `/` から Tiptap のコマンドを呼ぶための ref。`useEditor` の設定の中では `editor` を
   // まだ参照できないので、作られた後にここで持ち回りへ渡す。
+  useEffect(() => {
+    editor?.setEditable(documentWritable, false);
+  }, [documentWritable, editor]);
+
+  useEffect(() => {
+    if (!editor || !documentSession?.subscribePresence) return;
+    return documentSession.subscribePresence(() => {
+      if (!editor.isDestroyed) editor.view.dispatch(editor.state.tr.setMeta(sessionPresenceKey, true).setMeta("addToHistory", false));
+    });
+  }, [documentSession, editor]);
+
   useEffect(() => {
     tiptapEditorRef.current = editor ?? null;
     return () => {
@@ -1840,7 +1872,7 @@ function TextFlowEditorImpl({
     if (!editor || editor.isDestroyed) {
       return;
     }
-    if (editor.isFocused || editor.view.composing || crossEditorSyncRef.current) {
+    if ((!documentSession && editor.isFocused) || editor.view.composing || crossEditorSyncRef.current) {
       return;
     }
     if (!shouldSyncExternalTextFlowContent(
@@ -1850,11 +1882,12 @@ function TextFlowEditorImpl({
     )) {
       return;
     }
-    setTextFlowContentPreservingSelection(editor, blocks);
+    if (documentSession) applySharedTextFlowProjection(editor, blocks);
+    else setTextFlowContentPreservingSelection(editor, blocks);
     syncedContentKeyRef.current = blocksSyncKey;
     // `blocks` はこのレンダーが渡されたものを使い、同期対象のリビジョンを揃える。
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [blocksSyncKey, editor]);
+  }, [blocksSyncKey, editor, documentSession]);
 
   // Manual breaks split one editing surface into two. The old surface must
   // release blocks it no longer owns before the parent measures or the next
@@ -4103,6 +4136,11 @@ export function setTextFlowContentPreservingSelection(
   editor: TiptapEditor,
   blocks: TextFlowBlock[],
 ): void {
+  if (sessionProjectionEditors.has(editor)) {
+    applySharedTextFlowProjection(editor, blocks);
+    return;
+  }
+  countPerformanceEvent("TextFlowEditor.fullProjectionReset");
   const selection = getTextFlowSelectionBookmark(editor, null);
   const wasFocused = editor.isFocused;
   const activeMarks = editor.state.selection.empty
@@ -4124,6 +4162,15 @@ export function setTextFlowContentPreservingSelection(
   if (activeMarks && editor.state.selection.empty) {
     editor.view.dispatch(editor.state.tr.setStoredMarks(activeMarks));
   }
+}
+
+/** Bind a logical CRDT projection to this view with mapped ProseMirror positions.
+ * Continuations still dispatch through FragmentEditSession; they own no Y.Doc.
+ */
+export function applySharedTextFlowProjection(editor: TiptapEditor, blocks: TextFlowBlock[]): void {
+  applyEditorDocumentProjection(editor, textFlowToTiptap(blocks));
+  const dom = readMountedEditorDom(editor);
+  if (dom) acknowledgeTextFlowContent(dom, getTextFlowBlocksSyncKey(blocks));
 }
 
 function getSelectedTextBlockId(editor: TiptapEditor): string | null {

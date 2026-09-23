@@ -9,6 +9,8 @@ import type { Translate } from "@/lib/i18n/translator";
  * 画面のここだけ元の言語で出る (WI-8 の教訓)。
  */
 export function formatDateTime(value: string, locale: AppLocale): string {
+  const timestamp = Date.parse(value);
+  if (!Number.isFinite(timestamp) || timestamp === 0) return "";
   return new Intl.DateTimeFormat(locale, {
     month: "numeric",
     day: "numeric",

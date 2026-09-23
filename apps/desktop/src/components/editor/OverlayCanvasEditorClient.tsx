@@ -34,6 +34,11 @@ import  {
   useState,
 } from "react";
 import { createPortal } from "react-dom";
+import { useDocumentSession } from "./document-session-context";
+import type {
+  RemoteSessionOverlayPresence,
+  SessionOverlayPresence,
+} from "@/features/document-session/contracts";
 
 import type { Editor as TiptapEditor } from "@tiptap/core";
 import  {
@@ -264,6 +269,7 @@ import  {
   boundsFromPoints,
   clamp,
   constrainPointToAspectFromStart,
+  getAxisAlignedRotatedBounds,
   pagePointToUnrotatedShapePoint,
 } from "./overlay-canvas/math";
 import { prepareOverlayShapesForPaste } from "./overlay-canvas/paste-shapes";
@@ -618,6 +624,8 @@ interface OverlayCanvasEditorClientProps {
   shapeDecorations?: ReadonlyMap<string, OverlayShapeDecoration>;
   /** Diff/apply classes for existing shapes, supplied by the host feature. */
   diffShapeClassNames?: ReadonlyMap<string, string>;
+  /** Publish this canvas's transient selection to the active document session. */
+  publishesSessionPresence?: boolean;
 }
 
 function isDragAutoScrollInteraction(mode: OverlayInteractionMode): boolean {
@@ -673,8 +681,10 @@ export default function OverlayCanvasEditorClient({
   editPolicy = EMPTY_OVERLAY_EDIT_POLICY,
   shapeDecorations,
   diffShapeClassNames,
+  publishesSessionPresence = false,
 }: OverlayCanvasEditorClientProps) {
   const tShape = useT("shape");
+  const documentSession = useDocumentSession();
   const initialSnapshot = useMemo(() => normalizeOverlaySnapshot(overlay.overlaySnapshot), [overlay.overlaySnapshot]);
   const [shapes, setShapes] = useState<OverlayShape[]>(initialSnapshot.shapes);
   const [assets, setAssets] = useState<Record<string, OverlayAsset>>(initialSnapshot.assets);
@@ -1703,6 +1713,25 @@ export default function OverlayCanvasEditorClient({
     clearSnapGuides();
     transitionMode({ type: "setTool", tool: { kind: "select" } });
   }, [clearSnapGuides, transitionMode]);
+
+  const restoreTransientInteraction = useCallback((interaction: OverlayInteractionMode) => {
+    const originals = interaction.id === "overlay.resize" || interaction.id === "overlay.rotate"
+      ? interaction.shapes
+      : interaction.id === "overlay.point" || interaction.id === "overlay.imageCropResize" || interaction.id === "overlay.imageCropPan"
+        ? [interaction.shape]
+        : [];
+    if (originals.length > 0) {
+      setShapes((current) => {
+        const next = normalizeOverlayGroups(mergeShapesById(current, originals));
+        shapesRef.current = next;
+        return next;
+      });
+    }
+    if (interaction.id === "overlay.imageCropResize" || interaction.id === "overlay.imageCropPan")
+      imageCropDirtyRef.current = false;
+    setAdjustmentDragReadoutPointerPosition(null);
+    clearSnapGuides();
+  }, [clearSnapGuides]);
 
   const handleCommandRequest = useCallback((request: OverlayCommandRequest) => {
     if (handledCommandRequestIdRef.current === request.id) {
@@ -3542,6 +3571,7 @@ export default function OverlayCanvasEditorClient({
         if (activeTextEditor && !activeTextEditor.isDestroyed) {
           activeTextEditor.commands.blur();
         }
+        restoreTransientInteraction(currentMode);
         transitionMode({ type: "select" });
         return;
       }
@@ -3685,6 +3715,7 @@ export default function OverlayCanvasEditorClient({
     notifyEditPolicyBlocked,
     queueDirtyImageCropSave,
     refreshAnchorMeasurements,
+    restoreTransientInteraction,
     setSelectedShapeIds,
     transitionMode,
     ungroupSelectedShapes,
@@ -4795,11 +4826,13 @@ export default function OverlayCanvasEditorClient({
     }
     dragPointerRef.current = null;
     stopDragAutoScroll();
-    if (modeRef.current.id === "overlay.marquee") {
+    const interaction = modeRef.current;
+    if (isInteractionMode(interaction)) {
+      restoreTransientInteraction(interaction);
       setRegionSelection(null);
       transitionMode({ type: "select" });
     }
-  }, [cancelTablePlacement, stopDragAutoScroll, transitionMode]);
+  }, [cancelTablePlacement, restoreTransientInteraction, stopDragAutoScroll, transitionMode]);
 
   useLayoutEffect(() => {
     const tool = mode.tool;
@@ -5124,6 +5157,45 @@ export default function OverlayCanvasEditorClient({
     }
     return getMovingShapeIdsWithFullyMovingGroups(shapes, ids);
   }, [movingShapes, shapes]);
+  const localOverlayPresence = useMemo<SessionOverlayPresence | null>(() => {
+    if (selectedIds.length === 0) return null;
+    const previewKind = getOverlayPresencePreviewKind(mode);
+    const previewShapes = previewKind
+      ? selectedShapes.map((shape) => {
+          const bounds = shape.type === "group"
+            ? getShapesVisualBounds([shape], shapes) ?? getShapeVisualBounds(shape)
+            : getShapeVisualBounds(shape);
+          const translated = mode.id === "overlay.move" && movingShapeIds?.has(shape.id) && dragOffset
+            ? { ...bounds, x: bounds.x + dragOffset.x, y: bounds.y + dragOffset.y }
+            : bounds;
+          const rotation = getShapeRotation(shape);
+          const pivot = rotation ? getShapeRotationPivot(shape) : null;
+          const translatedPivot = pivot && mode.id === "overlay.move" && movingShapeIds?.has(shape.id) && dragOffset
+            ? { x: pivot.x + dragOffset.x, y: pivot.y + dragOffset.y }
+            : pivot;
+          return {
+            id: shape.id,
+            ...translated,
+            ...(rotation && translatedPivot ? { rotation, pivot: translatedPivot } : {}),
+          };
+        })
+      : [];
+    return {
+      selectedShapeIds: selectedIds,
+      ...(previewKind ? { preview: { kind: previewKind, shapes: previewShapes } } : {}),
+    };
+  }, [dragOffset, mode, movingShapeIds, selectedIds, selectedShapes, shapes]);
+
+  useEffect(() => {
+    if (publishesSessionPresence) {
+      documentSession?.setOverlayPresence?.(localOverlayPresence);
+    }
+  }, [documentSession, localOverlayPresence, publishesSessionPresence]);
+  useEffect(() => () => {
+    if (publishesSessionPresence) {
+      documentSession?.setOverlayPresence?.(null);
+    }
+  }, [documentSession, publishesSessionPresence]);
   const anchorDrag = mode.id === "overlay.anchor" ? mode : null;
   const insertDrag = mode.id === "overlay.insertDrag" ? mode : null;
   const curveDrawing = mode.id === "overlay.curveDrawing" ? mode : null;
@@ -6449,6 +6521,156 @@ function ContextMenuButton({
   );
 }
 
+function getOverlayPresencePreviewKind(
+  mode: OverlayInteractionMode,
+): NonNullable<SessionOverlayPresence["preview"]>["kind"] | null {
+  if (mode.id === "overlay.move") return "move";
+  if (mode.id === "overlay.resize") return "resize";
+  if (mode.id === "overlay.rotate") return "rotate";
+  if (mode.id === "overlay.imageCropResize" || mode.id === "overlay.imageCropPan") return "crop";
+  return null;
+}
+
+function useRemoteOverlayPresence(
+  session: ReturnType<typeof useDocumentSession>,
+): RemoteSessionOverlayPresence[] {
+  const [snapshot, setSnapshot] = useState<{
+    session: ReturnType<typeof useDocumentSession>;
+    presence: RemoteSessionOverlayPresence[];
+  } | null>(null);
+  useEffect(() => {
+    if (!session?.remoteOverlayPresence || !session.subscribePresence) return;
+    const update = () => setSnapshot({ session, presence: session.remoteOverlayPresence?.() ?? [] });
+    return session.subscribePresence(update);
+  }, [session]);
+  if (!session?.remoteOverlayPresence) return [];
+  return snapshot?.session === session ? snapshot.presence : session.remoteOverlayPresence();
+}
+
+export function RemoteOverlayPresenceLayer({
+  shapes,
+}: {
+  shapes: OverlayShape[];
+}) {
+  const session = useDocumentSession();
+  const participants = useRemoteOverlayPresence(session);
+  const presentations = participants
+    .map((participant) => ({ participant, frames: resolveRemoteOverlayPresenceFrames(participant, shapes) }))
+    .filter((entry) => entry.frames.length > 0)
+    .sort((left, right) => left.participant.clientId.localeCompare(right.participant.clientId));
+  const labelSlots = new Map<string, number>();
+  return (
+    <div className="overlay-remote-presence-layer" aria-hidden="true">
+      {presentations.map(({ participant, frames }) => {
+        const labelBounds = getRemoteOverlayPresenceLabelBounds(frames);
+        const labelKey = `${Math.round(labelBounds.x)}:${Math.round(labelBounds.y)}:${frames.map((frame) => frame.id).sort().join("|")}`;
+        const labelSlot = labelSlots.get(labelKey) ?? 0;
+        labelSlots.set(labelKey, labelSlot + 1);
+        const color = remotePresenceColor(participant.clientId);
+        return (
+          <div
+            key={participant.clientId}
+            className="overlay-remote-presence"
+            data-remote-client-id={participant.clientId}
+            data-remote-preview-kind={participant.preview?.kind}
+            style={{ "--overlay-remote-color": color } as CSSProperties}
+          >
+            {frames.map((frame) => (
+              <div
+                key={frame.id}
+                className="overlay-remote-selection-box"
+                data-remote-shape-id={frame.id}
+                style={getRemoteOverlayPresenceFrameStyle(frame)}
+              />
+            ))}
+            <span
+              className="overlay-remote-presence-label"
+              data-remote-label-slot={labelSlot}
+              style={{ left: labelBounds.x, top: labelBounds.y - (labelSlot * 30) }}
+            >
+              <RemotePresenceAvatar participant={participant} />
+              <span>{participant.displayName}</span>
+            </span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+export function resolveRemoteOverlayPresenceFrames(
+  participant: RemoteSessionOverlayPresence,
+  shapes: OverlayShape[],
+): Array<NonNullable<SessionOverlayPresence["preview"]>["shapes"][number]> {
+  const byId = new Map(shapes.map((shape) => [shape.id, shape]));
+  const preview = participant.preview?.shapes.filter((item) => byId.has(item.id)) ?? [];
+  if (preview.length > 0) return preview;
+  return participant.selectedShapeIds.flatMap((id) => {
+    const shape = byId.get(id);
+    if (!shape) return [];
+    const bounds = shape.type === "group"
+      ? getShapesVisualBounds([shape], shapes) ?? getShapeVisualBounds(shape)
+      : getShapeVisualBounds(shape);
+    const rotation = getShapeRotation(shape);
+    return [{
+      id,
+      ...bounds,
+      ...(rotation ? { rotation, pivot: getShapeRotationPivot(shape) } : {}),
+    }];
+  });
+}
+
+export function getRemoteOverlayPresenceFrameStyle(
+  frame: NonNullable<SessionOverlayPresence["preview"]>["shapes"][number],
+): CSSProperties {
+  return {
+    left: frame.x,
+    top: frame.y,
+    width: frame.w,
+    height: frame.h,
+    transform: frame.rotation ? `rotate(${frame.rotation}rad)` : undefined,
+    transformOrigin: frame.rotation && frame.pivot
+      ? getSelectionTransformOriginFromPivot(frame.pivot, frame)
+      : undefined,
+  };
+}
+
+export function getRemoteOverlayPresenceLabelBounds(
+  frames: Array<NonNullable<SessionOverlayPresence["preview"]>["shapes"][number]>,
+): OverlayBounds {
+  const rotatedBounds = frames.map((frame) => getAxisAlignedRotatedBounds(
+    frame,
+    frame.rotation ?? 0,
+    frame.pivot,
+  ));
+  return boundsFromPoints(rotatedBounds.flatMap((bounds) => [
+    { x: bounds.x, y: bounds.y },
+    { x: bounds.x + bounds.w, y: bounds.y + bounds.h },
+  ]));
+}
+
+function RemotePresenceAvatar({ participant }: { participant: RemoteSessionOverlayPresence }) {
+  const [failed, setFailed] = useState(false);
+  const initial = participant.displayName.trim().charAt(0).toLocaleUpperCase() || "?";
+  return (
+    <span className="overlay-remote-presence-avatar">
+      {participant.avatarSource && !failed ? (
+        // Electron main bounds and validates this custom-protocol image response.
+        // eslint-disable-next-line @next/next/no-img-element
+        <img src={participant.avatarSource} alt="" onError={() => setFailed(true)} />
+      ) : initial}
+    </span>
+  );
+}
+
+function remotePresenceColor(clientId: string): string {
+  const colors = ["#2563eb", "#7c3aed", "#db2777", "#059669", "#d97706", "#0891b2"];
+  let hash = 0;
+  for (let index = 0; index < clientId.length; index += 1)
+    hash = ((hash << 5) - hash + clientId.charCodeAt(index)) | 0;
+  return colors[Math.abs(hash) % colors.length];
+}
+
 function SnapGuides({ guides }: { guides: OverlaySnapGuide[] }) {
   const lineGuides = guides.filter((guide): guide is Extract<OverlaySnapGuide, { type: "line" }> => guide.type === "line");
   if (lineGuides.length === 0) {
@@ -7044,7 +7266,10 @@ function getAdaptiveEdgeHandleLength(axisLength: number): number {
 }
 
 function getSelectionTransformOrigin(shape: OverlayShape, selectionBounds: OverlayBounds): string {
-  const pivot = getShapeRotationPivot(shape);
+  return getSelectionTransformOriginFromPivot(getShapeRotationPivot(shape), selectionBounds);
+}
+
+function getSelectionTransformOriginFromPivot(pivot: OverlayPoint, selectionBounds: OverlayBounds): string {
   return `${pivot.x - selectionBounds.x}px ${pivot.y - selectionBounds.y}px`;
 }
 

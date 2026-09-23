@@ -33,6 +33,7 @@ describe("Editor package boundary", () => {
     expect(inputs.some((input) => input.includes("/apps/desktop/electron/"))).toBe(false);
     expect(inputs.some((input) => input.includes("/node_modules/@modelcontextprotocol/"))).toBe(false);
     expect(inputs.some((input) => input.includes("/features/ai-edit/"))).toBe(false);
+    expect(inputs.filter(input => /\/(?:features\/collaboration|node_modules\/(?:yjs|y-protocols|@supabase))\//.test(input))).toEqual([]);
     const allowedWebMcpExecutionModules = [
       "ai-edit-attachment-names.ts",
       "ai-edit-reference.ts",

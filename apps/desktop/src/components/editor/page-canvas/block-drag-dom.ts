@@ -16,13 +16,21 @@ import type { DragContainerKind, DragUnitInfo } from "@/lib/block-drag-move";
 
 import { type DragBox, type DragHit, type DragHitAncestor } from "./block-drag-target";
 import { visibleBlockClientRect } from "./visible-block-rect";
-import { resolveInnerLaneProbe } from "./block-affordances";
+import { resolveInnerLaneIndex, resolveInnerLaneProbe } from "./block-affordances";
 
 /** ドラッグ中だけ紙面に載る層。ポインタの下に居ても本文ではない。 */
 const DRAG_CHROME_SELECTOR = ".page-block-drag-ghost-layer, .page-block-affordance-layer";
 const PROBLEM_AREA_SELECTOR = "[data-problem-id][data-problem-area]";
+const COLUMN_GRID_SELECTOR = ".layout-section-independent-columns";
+const COLUMN_SELECTOR = "layout-section-independent-column";
+const COLUMN_DIVIDER_SELECTOR = ".layout-section-column-resize-handle";
 /** 隙間から上下へ伸ばして拾う距離 (画面 px 換算前のレイアウト px)。 */
 const GAP_PROBE_PX = 14;
+/**
+ * 段の中の空いた所から、その段の直上の行へ届く距離 (レイアウト px)。下端つまみへ下から
+ * 寄ったときの救済。これより離れた空白は「何も無い」— 隣の段の同じ高さの行へは渡さない。
+ */
+const LANE_REACH_BELOW_PX = 14;
 /** ゴーストに載せる単位の上限。掴んだのが 10 個でも重さは一定にする。 */
 const GHOST_UNIT_LIMIT = 3;
 
@@ -524,6 +532,21 @@ function toDragHit(
   };
 }
 
+export interface HoverDragUnit {
+  id: string;
+  box: DragBox;
+  ownBox: DragBox;
+  insideProblemArea: boolean;
+  resolvedFromContainer: boolean;
+  hasVisibleEnd?: boolean;
+  /**
+   * ポインタは段組の段の中だが、その高さに段の行が無い (段の下の空白)。`id` は入れ物自身で、
+   * グリップ・下端つまみは出さない — 出すと隣の段の行や入れ物のつまみが、ポインタの段の
+   * ガターに描かれる。
+   */
+  emptyLane?: boolean;
+}
+
 /** ホバー用: ポインタの下の掴む単位の id と箱。落とし先の解決ほどの情報は要らない。 */
 export function resolveHoverDragUnitAt(
   canvas: HTMLElement,
@@ -531,14 +554,7 @@ export function resolveHoverDragUnitAt(
   index: DragIndex,
   clientX: number,
   clientY: number,
-): {
-  id: string;
-  box: DragBox;
-  ownBox: DragBox;
-  insideProblemArea: boolean;
-  resolvedFromContainer: boolean;
-  hasVisibleEnd?: boolean;
-} | null {
+): HoverDragUnit | null {
   const raw = rawHitAt(canvas, document, index, clientX, clientY, { chromeResolvesToProblem: true });
   if (!raw || raw.kind !== "unit") {
     return null;
@@ -553,20 +569,33 @@ export function resolveHoverDragUnitAt(
   )
     ? resolveDescendantHoverUnitAt(canvas, index, info.id, geometry, clientX, clientY)
     : null;
-  if (descendant) {
+  if (descendant && descendant !== EMPTY_LANE) {
     return descendant;
   }
   const insideProblemArea = info.type !== "problem"
     && info.ancestors.some((ancestorId) => index.anchors.get(ancestorId)?.type === "problem");
-  return { id: raw.id, box: geometry.box, ownBox: geometry.ownBox, insideProblemArea, resolvedFromContainer: false, hasVisibleEnd: geometry.hasVisibleEnd };
+  return {
+    id: raw.id,
+    box: geometry.box,
+    ownBox: geometry.ownBox,
+    insideProblemArea,
+    resolvedFromContainer: false,
+    hasVisibleEnd: geometry.hasVisibleEnd,
+    ...(descendant === EMPTY_LANE ? { emptyLane: true } : {}),
+  };
 }
 
 const CONTAINER_TOP_BAND_PX = 6;
+const EMPTY_LANE = "emptyLane";
 
 /**
  * Container chrome may be the topmost hit even over its editable body. Below its first child,
  * choose the deepest same-row unit. The first-child edge (or at least 6px) remains owned by the
  * box/problem/section itself, so the container still has a stable drag target.
+ *
+ * 段組の中では、まずポインタの段 (最も内側の列) を決め、その段と祖先の枝の単位だけを候補にする。
+ * 同じ高さに行が並んでいても、兄弟の段の行は選ばない — 選ぶと、その行のグリップが
+ * **ポインタの段のガター**に描かれる (右段の空白で左段の行のつまみが出ていた形)。
  */
 function resolveDescendantHoverUnitAt(
   canvas: HTMLElement,
@@ -575,21 +604,37 @@ function resolveDescendantHoverUnitAt(
   ownerGeometry: DragUnitGeometry,
   clientX: number,
   clientY: number,
-): {
-  id: string;
-  box: DragBox;
-  ownBox: DragBox;
-  insideProblemArea: boolean;
-  resolvedFromContainer: boolean;
-  hasVisibleEnd?: boolean;
-} | null {
+): HoverDragUnit | typeof EMPTY_LANE | null {
   const point = toCanvasPoint(canvas, clientX, clientY);
-  const candidates = Array.from(index.units.values()).flatMap((candidate) => {
+  const lane = ownerGeometry.elements
+    .map((element) => resolvePointerLaneColumn(element, clientX, clientY)?.column ?? null)
+    .find((column) => column !== null) ?? null;
+  const measured = Array.from(index.units.values()).flatMap((candidate) => {
     if (!candidate.ancestors.includes(ownerId)) return [];
     const geometry = measureDragUnit(canvas, candidate.id, candidate.type, clientY);
-    if (!geometry || point.y < geometry.ownBox.top || point.y >= geometry.ownBox.bottom) return [];
-    return [{ candidate, geometry }];
+    if (!geometry) return [];
+    const inLane = !lane || geometry.elements.some((element) => lane.contains(element));
+    // 段の外の枝 (兄弟の段) は候補から外す。段を包む祖先 (段組・箱) は枝の上なので残す。
+    if (!inLane && lane && !geometry.elements.some((element) => element.contains(lane))) return [];
+    return [{ candidate, geometry, inLane }];
   });
+  const candidates = measured.filter(({ geometry }) => (
+    point.y >= geometry.ownBox.top && point.y < geometry.ownBox.bottom
+  ));
+  if (lane && !candidates.some(({ inLane }) => inLane)) {
+    // 段の中の空白。直上の行の下端のそばだけはその行 (下端つまみへ下から寄れる)、それ以外は何も無い。
+    const above = measured
+      .filter(({ inLane, geometry }) => (
+        inLane
+        && geometry.ownBox.bottom <= point.y
+        && point.y - geometry.ownBox.bottom <= LANE_REACH_BELOW_PX
+      ))
+      .sort((a, b) => (
+        b.geometry.ownBox.bottom - a.geometry.ownBox.bottom
+        || b.candidate.ancestors.length - a.candidate.ancestors.length
+      ))[0];
+    return above ? toHoverUnit(index, above.candidate, above.geometry) : EMPTY_LANE;
+  }
   if (candidates.length === 0) return null;
   const firstChildTop = Math.min(...candidates.map(({ geometry }) => geometry.ownBox.top));
   const innerStart = Math.max(ownerGeometry.box.top + CONTAINER_TOP_BAND_PX, firstChildTop);
@@ -602,28 +647,28 @@ function resolveDescendantHoverUnitAt(
     right: geometry.ownBox.right,
   })), point.x);
   const match = candidates.find(({ candidate }) => candidate.id === matchId);
-  if (!match) return null;
-  const insideProblemArea = match.candidate.ancestors.some(
-    (ancestorId) => index.anchors.get(ancestorId)?.type === "problem",
-  );
+  return match ? toHoverUnit(index, match.candidate, match.geometry) : null;
+}
+
+function toHoverUnit(index: DragIndex, candidate: DragUnitInfo, geometry: DragUnitGeometry): HoverDragUnit {
   return {
-    id: match.candidate.id,
-    box: match.geometry.box,
-    ownBox: match.geometry.ownBox,
-    insideProblemArea,
+    id: candidate.id,
+    box: geometry.box,
+    ownBox: geometry.ownBox,
+    insideProblemArea: candidate.ancestors.some((ancestorId) => index.anchors.get(ancestorId)?.type === "problem"),
     resolvedFromContainer: true,
-    hasVisibleEnd: match.geometry.hasVisibleEnd,
+    hasVisibleEnd: geometry.hasVisibleEnd,
   };
 }
 
-/** True only for the actual 12px DOM hit rectangles; column geometry is never reconstructed. */
-export function pointHitsLayoutColumnResizeHandle(
+/** The divider button whose actual DOM hit rectangle holds the point; column geometry is never reconstructed. */
+export function resolveLayoutColumnResizeHandleAt(
   root: ParentNode,
   clientX: number,
   clientY: number,
-): boolean {
-  return Array.from(root.querySelectorAll<HTMLElement>(".layout-section-column-resize-handle"))
-    .some((handle) => {
+): HTMLElement | null {
+  return Array.from(root.querySelectorAll<HTMLElement>(COLUMN_DIVIDER_SELECTOR))
+    .find((handle) => {
       const rect = handle.getBoundingClientRect();
       return rect.width > 0
         && rect.height > 0
@@ -631,7 +676,88 @@ export function pointHitsLayoutColumnResizeHandle(
         && clientX <= rect.right
         && clientY >= rect.top
         && clientY <= rect.bottom;
-    });
+    }) ?? null;
+}
+
+export function pointHitsLayoutColumnResizeHandle(
+  root: ParentNode,
+  clientX: number,
+  clientY: number,
+): boolean {
+  return resolveLayoutColumnResizeHandleAt(root, clientX, clientY) !== null;
+}
+
+/**
+ * The divider sits in the gutter of the column on its right. True when `blockId` is drawn inside
+ * that column, i.e. its grip and space handle live in this divider's gap.
+ */
+export function layoutColumnDividerAdjoinsBlock(handle: HTMLElement, blockId: string): boolean {
+  const grid = handle.closest<HTMLElement>(COLUMN_GRID_SELECTOR);
+  const dividerIndex = Number(handle.dataset.dividerIndex);
+  if (!grid || !Number.isInteger(dividerIndex)) return false;
+  const right = directColumns(grid)[dividerIndex + 1];
+  return !!right && Array.from(right.querySelectorAll<HTMLElement>(`[data-sigma-doc-id="${CSS.escape(blockId)}"]`))
+    .some((element) => !element.closest(DRAG_CHROME_SELECTOR));
+}
+
+function directColumns(grid: HTMLElement): HTMLElement[] {
+  return Array.from(grid.children).filter((child): child is HTMLElement => (
+    child instanceof HTMLElement && child.classList.contains(COLUMN_SELECTOR)
+  ));
+}
+
+/**
+ * The deepest independent column the pointer belongs to. The outer lane is chosen first, then the
+ * walk descends only through grids hosted by that lane, so a narrower nested grid in a sibling
+ * lane never wins by proximity. Gaps belong to the lane on their right.
+ */
+export function resolvePointerLaneColumn(
+  owner: HTMLElement,
+  clientX: number,
+  clientY: number,
+): PointerLaneColumn | null {
+  const allGrids = Array.from(owner.querySelectorAll<HTMLElement>(COLUMN_GRID_SELECTOR));
+  if (owner.matches(COLUMN_GRID_SELECTOR)) allGrids.unshift(owner);
+  const candidatesInside = (container: HTMLElement, parentGrid: HTMLElement | null) => (
+    allGrids
+      .filter((grid) => container.contains(grid) && grid.parentElement?.closest(COLUMN_GRID_SELECTOR) === parentGrid)
+      .map((grid) => ({ grid, rect: grid.getBoundingClientRect() }))
+      .filter(({ rect }) => clientY >= rect.top && clientY <= rect.bottom && rect.width > 0)
+      .sort((a, b) => (
+        horizontalDistanceToRect(a.rect, clientX) - horizontalDistanceToRect(b.rect, clientX)
+        || a.rect.width - b.rect.width
+      ))
+  );
+
+  const outerGrid = owner.parentElement?.closest<HTMLElement>(COLUMN_GRID_SELECTOR) ?? null;
+  let current = candidatesInside(owner, outerGrid)[0]?.grid ?? null;
+  let resolved: PointerLaneColumn | null = null;
+  while (current) {
+    const columns = directColumns(current);
+    if (columns.length === 0) break;
+    const boxes = columns.map((column) => column.getBoundingClientRect());
+    const lane = resolveInnerLaneProbe(boxes, clientX, resolved?.firstColumn ?? true);
+    if (!lane) break;
+    const column = columns[lane.laneIndex];
+    resolved = {
+      column,
+      probeX: lane.probeX,
+      laneLeft: lane.laneLeft,
+      firstColumn: lane.firstColumn,
+      dividerGap: lane.laneIndex > 0 ? boxes[lane.laneIndex].left - boxes[lane.laneIndex - 1].right : null,
+    };
+    current = candidatesInside(column, current)[0]?.grid ?? null;
+  }
+  return resolved;
+}
+
+export interface PointerLaneColumn {
+  column: HTMLElement;
+  probeX: number;
+  laneLeft: number;
+  firstColumn: boolean;
+  /** 段の左が列境界のある段間なら、その幅 (画面 px)。1 段目・枠の内側の余白なら null。 */
+  dividerGap: number | null;
 }
 
 /**
@@ -642,40 +768,12 @@ export function resolveInnerAffordanceProbe(
   owner: HTMLElement,
   clientX: number,
   clientY: number,
-): { probeX: number; laneLeft: number; firstColumn: boolean } | null {
-  const gridSelector = ".layout-section-independent-columns";
-  const allGrids = Array.from(owner.querySelectorAll<HTMLElement>(gridSelector));
-  const candidatesInside = (container: HTMLElement, parentGrid: HTMLElement | null) => (
-    allGrids
-      .filter((grid) => container.contains(grid) && grid.parentElement?.closest(gridSelector) === parentGrid)
-      .map((grid) => ({ grid, rect: grid.getBoundingClientRect() }))
-      .filter(({ rect }) => clientY >= rect.top && clientY <= rect.bottom && rect.width > 0)
-      .sort((a, b) => (
-        horizontalDistanceToRect(a.rect, clientX) - horizontalDistanceToRect(b.rect, clientX)
-        || a.rect.width - b.rect.width
-      ))
-  );
-
-  let current = candidatesInside(owner, null)[0]?.grid ?? null;
-  let resolved: { probeX: number; laneLeft: number; firstColumn: boolean } | null = null;
-  let resolvedColumn: HTMLElement | null = null;
-  while (current) {
-    const columns = Array.from(current.children)
-      .filter((child): child is HTMLElement => (
-        child instanceof HTMLElement && child.classList.contains("layout-section-independent-column")
-      ));
-    if (columns.length === 0) break;
-    const boxes = columns.map((column) => column.getBoundingClientRect());
-    const lane = resolveInnerLaneProbe(boxes, clientX, resolved?.firstColumn ?? true);
-    if (!lane) break;
-    const column = columns[lane.laneIndex];
-    resolved = { probeX: lane.probeX, laneLeft: lane.laneLeft, firstColumn: lane.firstColumn };
-    resolvedColumn = column;
-    current = candidatesInside(column, current)[0]?.grid ?? null;
-  }
-  if (resolved && resolvedColumn) {
-    const list = resolveListProbeInside(resolvedColumn, clientX, clientY);
-    return list ? { ...list, firstColumn: resolved.firstColumn } : resolved;
+): { probeX: number; laneLeft: number; firstColumn: boolean; dividerGap?: number | null } | null {
+  const lane = resolvePointerLaneColumn(owner, clientX, clientY);
+  if (lane) {
+    const resolved = { probeX: lane.probeX, laneLeft: lane.laneLeft, firstColumn: lane.firstColumn, dividerGap: lane.dividerGap };
+    const list = resolveListProbeInside(lane.column, clientX, clientY);
+    return list ? { ...list, firstColumn: resolved.firstColumn, dividerGap: resolved.dividerGap } : resolved;
   }
 
   const list = resolveListProbeInside(owner, clientX, clientY);
@@ -729,9 +827,15 @@ export function resolveDragHitAt(
   clientY: number,
   columnProbeClientX: number,
 ): DragHit | null {
-  const direct = rawHitAt(canvas, document, index, clientX, clientY)
-    ?? rawHitAt(canvas, document, index, columnProbeClientX, clientY);
+  const pointed = rawHitAt(canvas, document, index, clientX, clientY);
+  const direct = pointed ?? rawHitAt(canvas, document, index, columnProbeClientX, clientY);
   if (direct) {
+    const lane = direct.kind === "unit"
+      ? resolveLaneDropRow(canvas, document, index, direct.id, pointed ? clientX : columnProbeClientX, clientY)
+      : null;
+    if (lane) {
+      return toDragHit(canvas, document, index, { kind: "unit", id: lane.id }, lane.gapEdge, lane.clientY);
+    }
     return toDragHit(canvas, document, index, direct, null, clientY);
   }
   const gap = GAP_PROBE_PX * canvasLayoutScale(canvas);
@@ -741,6 +845,61 @@ export function resolveDragHitAt(
   }
   const below = rawHitAt(canvas, document, index, columnProbeClientX, clientY + gap);
   return below ? toDragHit(canvas, document, index, below, "top", clientY + gap) : null;
+}
+
+/**
+ * 多段の段組そのものに当たった (段の中の空白・段間) ときの、ポインタの段の行。
+ *
+ * 段組の殻に当たったままだと、落とし先は「段組の前後」(全幅の横線) になり、短い段の下へ
+ * 足せない。段間は右の段 (グリップのレーンと同じ規則) — その高さの行に当てれば、行の左端の
+ * 帯として「ここに段を足す」縦線になる。行の下の空白はその段の最後の行の後ろ。
+ */
+function resolveLaneDropRow(
+  canvas: HTMLElement,
+  document: SigmaDocument,
+  index: DragIndex,
+  sectionId: string,
+  clientX: number,
+  clientY: number,
+): { id: string; gapEdge: "bottom" | null; clientY: number } | null {
+  if (index.units.get(sectionId)?.type !== "layoutSection") return null;
+  const section = findBlock(document, sectionId);
+  if (section?.type !== "layoutSection" || section.layout.columnCount <= 1) return null;
+  const grid = blockElements(canvas, sectionId)
+    .flatMap((element) => Array.from(element.querySelectorAll<HTMLElement>(COLUMN_GRID_SELECTOR))
+      .filter((candidate) => candidate.closest("[data-sigma-doc-id]") === element))
+    .find((candidate) => {
+      const rect = visibleBlockClientRect(candidate);
+      return !!rect && clientY >= rect.top && clientY <= rect.bottom;
+    });
+  const columns = grid ? directColumns(grid) : [];
+  if (columns.length === 0) return null;
+  const column = columns[Math.min(columns.length - 1, resolveInnerLaneIndex(
+    columns.map((element) => element.getBoundingClientRect()),
+    clientX,
+  ))];
+  const rows = Array.from(column.querySelectorAll<HTMLElement>("[data-sigma-doc-id]"))
+    .flatMap((element) => {
+      const id = element.getAttribute("data-sigma-doc-id") ?? "";
+      const anchor = index.anchors.get(id);
+      const rect = anchor?.container.kind === "layout" && anchor.container.ownerId === sectionId
+        && !element.closest(DRAG_CHROME_SELECTOR)
+        ? visibleBlockClientRect(element)
+        : null;
+      if (!rect) return [];
+      // 段の直下のリストは掴めない入れ物。行としてはポインタに近い項目を使う (直接当てたときと同じ)。
+      const rowId = index.units.has(id)
+        ? id
+        : element.tagName === "UL" || element.tagName === "OL" ? itemIdNearY(element, clientY) : null;
+      return rowId && index.units.has(rowId) ? [{ id: rowId, rect }] : [];
+    });
+  if (rows.length === 0 || clientY < Math.min(...rows.map(({ rect }) => rect.top))) return null;
+  const atRow = rows.find(({ rect }) => clientY >= rect.top && clientY <= rect.bottom);
+  if (atRow) return { id: atRow.id, gapEdge: null, clientY };
+  const last = rows
+    .filter(({ rect }) => rect.bottom <= clientY)
+    .sort((a, b) => b.rect.bottom - a.rect.bottom)[0];
+  return last ? { id: last.id, gapEdge: "bottom", clientY: last.rect.bottom - 1 } : null;
 }
 
 

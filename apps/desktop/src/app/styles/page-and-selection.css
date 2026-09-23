@@ -1340,6 +1340,15 @@ code {
   touch-action: none;
 }
 
+/* 部分段組の 2 段目以降。ガターは段間で、その中央は列境界が使う。段の本文に寄せ、段間の右半分に
+   収まる幅 (`--column-lane-width` = `resolveColumnLaneWidthPx`) で出す — 左の段の行末に付いて
+   見えず、表示中でも列境界の中央線を覆わない。当たり判定の右端は本文の左端に密着させる。
+   (負の margin: アフォーダンス層の座標原点はブロックの左端。そこから段の外へ出すため。) */
+.page-block-handle[data-gutter-lane="column"] {
+  width: var(--column-lane-width, 18px);
+  margin-left: calc(-1 * var(--column-lane-width, 18px));
+}
+
 /* ---- ブロックのドラッグ (Notion 風) ----
    ゴーストは React が触らない専用の層に置き、transform だけで追従する。紙面は 1px も動かない。 */
 .page-block-drag-ghost-layer {
@@ -1509,6 +1518,12 @@ body.page-block-dragging * {
    同居している。1 レーン外へ寄せて重なりを構造的に避ける。 */
 .page-block-space-handle[data-gutter-lane="problem"] {
   margin-left: -54px;
+}
+
+/* 部分段組の 2 段目以降は段間の右半分 (段の本文側) に短く出す。グリップと同じ理由・同じ幅。 */
+.page-block-space-handle[data-gutter-lane="column"] {
+  width: var(--column-lane-width, 18px);
+  margin-left: calc(-1 * var(--column-lane-width, 18px));
 }
 
 .page-block-space-handle:focus-visible {
@@ -1722,6 +1737,71 @@ body.page-block-dragging * {
 
 .overlay-selection-box.multi {
   border-style: dashed;
+}
+
+.overlay-remote-presence-layer,
+.overlay-remote-presence {
+  position: absolute;
+  inset: 0;
+  z-index: 7;
+  pointer-events: none;
+}
+
+.overlay-remote-selection-box {
+  position: absolute;
+  box-sizing: border-box;
+  border: 2px solid var(--overlay-remote-color);
+  border-radius: 2px;
+  transform-origin: center;
+}
+
+.overlay-remote-presence-label {
+  position: absolute;
+  display: inline-flex;
+  align-items: center;
+  max-width: 180px;
+  min-height: 26px;
+  padding: var(--space-xs) var(--space-sm) var(--space-xs) var(--space-xs);
+  gap: var(--space-xs);
+  border-radius: var(--radius-control);
+  background: var(--overlay-remote-color);
+  color: #ffffff;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 18px;
+  transform: translateY(calc(-100% - 4px));
+  white-space: nowrap;
+}
+
+.overlay-remote-presence-label > span:last-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.overlay-remote-presence-avatar {
+  display: inline-grid;
+  flex: 0 0 18px;
+  width: 18px;
+  height: 18px;
+  place-items: center;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.8);
+  border-radius: var(--radius-round);
+  background: rgba(255, 255, 255, 0.18);
+  color: #ffffff;
+  font-size: 10px;
+}
+
+.overlay-remote-presence-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+@media print {
+  .overlay-remote-presence-layer {
+    display: none !important;
+  }
 }
 
 .overlay-marquee-box {

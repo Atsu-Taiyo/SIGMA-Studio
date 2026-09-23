@@ -64,6 +64,12 @@ export const settings = {
   },
   // --- ボックス設定ダイアログ (BoxSettingsDialog) ---
   box: {
+    preview: "プレビュー",
+    notchedCorners: "このスタイルは四隅の切り欠きを使います",
+    increase: "{{label}}を増やす",
+    decrease: "{{label}}を減らす",
+    cornerRadiusSlider: "角丸半径を調整",
+
     title: "ボックス設定",
     description: "変更はすぐに教材へ反映されます",
     titleSection: "タイトル",

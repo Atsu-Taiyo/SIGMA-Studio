@@ -19,4 +19,13 @@
 
 @media print {
   .text-formatting-mark { display: none; }
+  .session-peer-caret { display: none; }
+  .session-peer-selection { background: transparent !important; }
 }
+
+.session-peer-caret {
+  border-left: 2px solid var(--primary);
+  margin-left: -1px;
+  pointer-events: none;
+}
+.session-peer-selection { background: color-mix(in srgb, var(--primary) 12%, transparent); }

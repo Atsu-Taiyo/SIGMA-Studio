@@ -1,0 +1,50 @@
+import { performance } from "node:perf_hooks";
+import { mkdtemp, rm, stat, writeFile } from "node:fs/promises";
+import path from "node:path";
+import os from "node:os";
+import { randomUUID } from "node:crypto";
+import { SharedDocument } from "../apps/desktop/src/features/collaboration/model/shared-document";
+import { SharedDocumentJournal } from "../apps/desktop/electron/collaboration/journal";
+import type { ObjectValue } from "../apps/desktop/src/features/collaboration/model/value";
+const results = [];
+for (const paragraphs of [100, 1000]) {
+  const directory = await mkdtemp(path.join(os.tmpdir(), "sigma-collaboration-perf-"));
+  const sharedDocumentId = randomUUID();
+  const seed = new SharedDocument();
+  const source: ObjectValue = { version: "2.0", docId: "perf", metadata: { title: "Performance fixture" }, content: Array.from({ length: paragraphs }, (_, index) => ({ id: `p${index}`, type: "paragraph", children: [{ type: "text", text: "日本語の教材を共同編集します。".repeat(20) }] })) };
+  seed.initialize(source, { sharedDocumentId, epoch: 1 });
+  const journal = await SharedDocumentJournal.create(directory, { sharedDocumentId, epoch: 1, protocol: 1, localFileId: "file_perf", docId: "perf" }, seed);
+  const editor = new SharedDocument(seed.snapshot());
+  const observer = new SharedDocument(seed.snapshot());
+  const editMs: number[] = [], persistenceMs: number[] = [], remoteMs: number[] = [];
+  let updateBytes = 0;
+  for (let index = 0; index < 30; index++) {
+    const before = editor.project();
+    const after = structuredClone(before);
+    const node = (after.content as ObjectValue[])[Math.floor(paragraphs / 2)];
+    (node.children as ObjectValue[])[0].text += "字";
+    const vector = editor.vector();
+    const start = performance.now();
+    editor.change(before, after);
+    editor.project();
+    editMs.push(performance.now() - start);
+    const update = editor.difference(vector);
+    updateBytes += update.length;
+    const localStart = performance.now();
+    const candidate = seed.prepareUpdate(update, () => {}); candidate.destroy();
+    await journal.append(update, { actorId: "fixture", operationId: randomUUID(), kind: "manual" }, true);
+    persistenceMs.push(performance.now() - localStart);
+    const remoteStart = performance.now();
+    observer.applyUpdate(update); observer.project();
+    remoteMs.push(performance.now() - remoteStart);
+  }
+  const logBytes = (await stat(path.join(directory, "updates.jsonl"))).size;
+  await journal.compact();
+  const percentile = (numbers: number[]) => Number([...numbers].sort((a,b) => a-b)[Math.floor(numbers.length * 0.95)].toFixed(2));
+  results.push({ paragraphs, sourceBytes: Buffer.byteLength(JSON.stringify(source)), edits: 30, editProjectionP95Ms: percentile(editMs), validateAndFsyncP95Ms: percentile(persistenceMs), remoteModelProjectionP95Ms: percentile(remoteMs), updateBytes, logBytes, compactedSnapshotBytes: (await stat(path.join(directory,"snapshot.json"))).size, processHeapUsedBytes: process.memoryUsage().heapUsed });
+  editor.destroy(); observer.destroy(); seed.destroy();
+  await rm(directory, { recursive: true, force: true });
+}
+const report = { measuredAt: new Date().toISOString(), environment: { node: process.version, platform: process.platform, arch: process.arch, cpu: os.cpus()[0].model }, scope: "CRDT model + main journal only. No UI layout or network latency is included.", results };
+await writeFile("tmp/collaboration-model-performance.json", JSON.stringify(report, null, 2));
+console.log(JSON.stringify(report, null, 2));

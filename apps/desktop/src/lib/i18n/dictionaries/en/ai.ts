@@ -22,6 +22,7 @@ export const ai = {
   },
   chat: {
     historyLoadFailed: "Could not load the AI chat history.",
+    documentCleanupFailed: "Could not delete the AI editing data.",
     historyLoading: "Loading the history",
     historyTitle: "AI chat history",
     history: "History",

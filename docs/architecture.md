@@ -52,6 +52,16 @@ AI編集toolの拡張計画は `docs/ai-edit-tool-roadmap.md` に置きます。
 
 本文の分割、続きの編集所有権、配置 snapshot と計測の版管理は [flow-pagination-architecture.md](flow-pagination-architecture.md) を参照してください。
 
+## 任意の共同編集
+
+明示的に共有した教材だけは、同じYjs履歴をElectron main・renderer・教材ごとの同期サーバーで複製する。SigmaDocの意味スキーマは維持し、JSONは表示・検証・書き出しの投影として扱う。ローカル専用教材は従来どおりJSONが正本で、ログインやサーバー接続を必要としない。
+
+`features/document-session/contracts.ts` は汎用の編集・履歴・保存・一時selection契約。DesktopEditorが外側から共有sessionを注入する。純粋なdocument/rendering coreと公開Editor/ViewerへYjsやクラウドの実装を持ち込まない。共有中の通常保存はmainのjournal flushへ置き換え、古いJSONのwatcherやrevision整数を共有状態への上書き経路にしない。
+
+共有AIは本人のローカルMCPがmainの現在の投影を読み、private proposalを既存UIへ返す。承認時はサーバーで権限・対象と参照元のハッシュ・冪等操作IDを検証する。共有中は従来の長時間予約と自動rebase/自動承認を使用しない。UndoはYjsの選択的履歴へ接続する。
+
+共同編集の利用方法は [共同編集ガイド](collaboration-user-guide.md) を参照。
+
 ## Module Boundaries
 
 ディレクトリ構成は、リポジトリ全体を `models` / `views` / `controllers` に分ける方式ではなく、feature単位を基本にします。各featureの内部では必要に応じてModel・Controller・Viewを分けますが、正本となるmodelと描画coreはUIやデスクトップ固有機能より内側に置きます。

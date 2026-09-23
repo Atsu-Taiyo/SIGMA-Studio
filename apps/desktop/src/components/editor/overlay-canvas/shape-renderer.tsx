@@ -1,4 +1,4 @@
-import { memo, useCallback, useMemo, useState } from "react";
+import { memo, useCallback, useMemo, useState, useSyncExternalStore } from "react";
 import type {
   MouseEvent as ReactMouseEvent,
   PointerEvent as ReactPointerEvent,
@@ -45,6 +45,7 @@ import {
 import type { GraphSpecChangeMeta } from "@/lib/graph2d";
 import { countPerformanceEvent } from "@/lib/performance";
 import { createCurrentLocaleTranslator } from "@/lib/i18n";
+import { useDocumentSession } from "../document-session-context";
 
 import type { OriginPickPreview } from "./shape-editors";
 import { getImageCropCss } from "./image-crop";
@@ -1047,6 +1048,13 @@ export function OverlayImageBody({
   asset: OverlayAsset;
   editing: boolean;
 }) {
+  const session = useDocumentSession();
+  useSyncExternalStore(
+    (listener) => session?.subscribeAssets?.(listener) ?? (() => {}),
+    () => session?.assetSourceVersion?.() ?? 0,
+    () => 0,
+  );
+  const source = session?.resolveAssetSource?.(asset.props.src) ?? asset.props.src;
   const cropStyle = getImageCropCss(shape, asset);
   return (
     <div className={`overlay-image-frame ${editing ? "cropping" : ""}`}>
@@ -1061,7 +1069,7 @@ export function OverlayImageBody({
           aria-hidden="true"
         >
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={asset.props.src} alt="" draggable={false} />
+          <img src={source} alt="" draggable={false} />
         </div>
       )}
       <div className="overlay-image-crop-viewport">
@@ -1074,7 +1082,7 @@ export function OverlayImageBody({
           }}
         >
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img className="overlay-image-shape" src={asset.props.src} alt={asset.props.name} draggable={false} />
+          <img className="overlay-image-shape" src={source} alt={asset.props.name} draggable={false} />
         </div>
       </div>
     </div>

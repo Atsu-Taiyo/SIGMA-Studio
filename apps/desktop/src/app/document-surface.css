@@ -333,8 +333,16 @@
   --boxed-tone-border: #fcd34d;
 }
 
+.sigma-doc-box-content {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+}
+
 .sigma-doc-box-block,
 .print-box-block {
+  /* A filled outer title must not turn a nested box's ordinary title white. */
+  --sigma-doc-box-title-color: initial;
   position: relative;
   box-sizing: border-box;
   width: 100%;
@@ -416,16 +424,19 @@
  * seam reads as separate rounded cards instead of one continuous box.
  */
 
-.print-box-block.print-box-fragment-first {
+.print-box-block.print-box-fragment-first,
+.print-box-block.print-box-fragment-first.box-frame--double-rule::after {
   border-bottom-left-radius: 0;
   border-bottom-right-radius: 0;
 }
 
-.print-box-block.print-box-fragment-middle {
+.print-box-block.print-box-fragment-middle,
+.print-box-block.print-box-fragment-middle.box-frame--double-rule::after {
   border-radius: 0;
 }
 
-.print-box-block.print-box-fragment-last {
+.print-box-block.print-box-fragment-last,
+.print-box-block.print-box-fragment-last.box-frame--double-rule::after {
   border-top-left-radius: 0;
   border-top-right-radius: 0;
 }
@@ -496,22 +507,23 @@
     var(--sigma-doc-box-notebook-frame-border-color, rgb(156 163 175 / 0.85));
   pointer-events: none;
   content: "";
+  border-radius: inherit;
   background: var(--sigma-doc-box-background, #ffffff);
 }
 
-.box-frame--notebook-rules .sigma-doc-box-body,
-.box-frame--notebook-rules .print-box-body {
+:is(.box-frame--notebook-rules, .box-frame--notebook-rules > .sigma-doc-box-content) > .sigma-doc-box-body,
+:is(.box-frame--notebook-rules, .box-frame--notebook-rules > .sigma-doc-box-content) > .print-box-body {
   z-index: 2;
   line-height: var(--sigma-doc-box-body-line-height, 1.85);
 }
 
-.box-frame--notebook-rules .sigma-doc-box-title,
-.box-frame--notebook-rules .print-box-title {
+:is(.box-frame--notebook-rules, .box-frame--notebook-rules > .sigma-doc-box-content) > .sigma-doc-box-title,
+:is(.box-frame--notebook-rules, .box-frame--notebook-rules > .sigma-doc-box-content) > .print-box-title {
   z-index: 2;
 }
 
-.box-frame--notebook-rules .sigma-doc-box-body p,
-.box-frame--notebook-rules .print-box-body p {
+:is(.box-frame--notebook-rules, .box-frame--notebook-rules > .sigma-doc-box-content) > .sigma-doc-box-body p,
+:is(.box-frame--notebook-rules, .box-frame--notebook-rules > .sigma-doc-box-content) > .print-box-body p {
   line-height: inherit;
 }
 
@@ -519,13 +531,13 @@
   padding-top: max(var(--sigma-doc-box-padding-top, 42px), var(--sigma-doc-box-title-band-height, 32px));
 }
 
-.box-frame--title-band .sigma-doc-box-title,
-.box-frame--title-band .print-box-title {
+:is(.box-frame--title-band, .box-frame--title-band > .sigma-doc-box-content) > .sigma-doc-box-title,
+:is(.box-frame--title-band, .box-frame--title-band > .sigma-doc-box-content) > .print-box-title {
   display: flex;
   align-items: center;
   min-height: var(--sigma-doc-box-title-band-height, 32px);
   margin:
-    calc(var(--sigma-doc-box-padding-top, 42px) * -1)
+    calc(max(var(--sigma-doc-box-padding-top, 42px), var(--sigma-doc-box-title-band-height, 32px)) * -1)
     calc(var(--sigma-doc-box-padding-right, 14px) * -1)
     10px
     calc(var(--sigma-doc-box-padding-left, 14px) * -1);
@@ -537,16 +549,21 @@
     var(--sigma-doc-box-title-band-rule-width, 0)
     solid
     var(--sigma-doc-box-title-band-rule-color, transparent);
+  /* Round the band itself; clipping the whole box would cut off title plates and editor controls. */
+  border-radius:
+    max(0px, calc(var(--sigma-doc-box-radius, 0px) - var(--sigma-doc-box-border-width, 1.2px)))
+    max(0px, calc(var(--sigma-doc-box-radius, 0px) - var(--sigma-doc-box-border-width, 1.2px)))
+    0 0;
   background: var(--sigma-doc-box-title-background, #e2e8f0);
 }
 
-.box-frame--title-band.box-frame--title-position-c .sigma-doc-box-title,
-.box-frame--title-band.box-frame--title-position-c .print-box-title {
+:is(.box-frame--title-band.box-frame--title-position-c, .box-frame--title-band.box-frame--title-position-c > .sigma-doc-box-content) > .sigma-doc-box-title,
+:is(.box-frame--title-band.box-frame--title-position-c, .box-frame--title-band.box-frame--title-position-c > .sigma-doc-box-content) > .print-box-title {
   justify-content: center;
 }
 
-.box-frame--title-band.box-frame--title-position-r .sigma-doc-box-title,
-.box-frame--title-band.box-frame--title-position-r .print-box-title {
+:is(.box-frame--title-band.box-frame--title-position-r, .box-frame--title-band.box-frame--title-position-r > .sigma-doc-box-content) > .sigma-doc-box-title,
+:is(.box-frame--title-band.box-frame--title-position-r, .box-frame--title-band.box-frame--title-position-r > .sigma-doc-box-content) > .print-box-title {
   justify-content: flex-end;
 }
 
@@ -563,8 +580,8 @@
  * で本文との間隔を戻す。
  */
 
-.box-frame--title-tab .sigma-doc-box-title,
-.box-frame--title-tab .print-box-title {
+:is(.box-frame--title-tab, .box-frame--title-tab > .sigma-doc-box-content) > .sigma-doc-box-title,
+:is(.box-frame--title-tab, .box-frame--title-tab > .sigma-doc-box-content) > .print-box-title {
   position: relative;
   z-index: 2;
   display: flex;
@@ -596,8 +613,8 @@
   color: var(--sigma-doc-box-title-color, #ffffff);
 }
 
-.box-frame--title-tab.box-frame--title-position-c .sigma-doc-box-title,
-.box-frame--title-tab.box-frame--title-position-c .print-box-title {
+:is(.box-frame--title-tab.box-frame--title-position-c, .box-frame--title-tab.box-frame--title-position-c > .sigma-doc-box-content) > .sigma-doc-box-title,
+:is(.box-frame--title-tab.box-frame--title-position-c, .box-frame--title-tab.box-frame--title-position-c > .sigma-doc-box-content) > .print-box-title {
   margin-right: auto;
   margin-left: auto;
   border-radius:
@@ -607,8 +624,8 @@
     var(--sigma-doc-box-title-tab-radius, 4px);
 }
 
-.box-frame--title-tab.box-frame--title-position-r .sigma-doc-box-title,
-.box-frame--title-tab.box-frame--title-position-r .print-box-title {
+:is(.box-frame--title-tab.box-frame--title-position-r, .box-frame--title-tab.box-frame--title-position-r > .sigma-doc-box-content) > .sigma-doc-box-title,
+:is(.box-frame--title-tab.box-frame--title-position-r, .box-frame--title-tab.box-frame--title-position-r > .sigma-doc-box-content) > .print-box-title {
   margin-right: calc(
     var(--sigma-doc-box-title-tab-offset-x, 0px)
     - var(--sigma-doc-box-padding-right, 16px)
@@ -622,8 +639,8 @@
     var(--sigma-doc-box-title-tab-radius, 4px);
 }
 
-.box-frame--title-plate .sigma-doc-box-title,
-.box-frame--title-plate .print-box-title {
+:is(.box-frame--title-plate, .box-frame--title-plate > .sigma-doc-box-content) > .sigma-doc-box-title,
+:is(.box-frame--title-plate, .box-frame--title-plate > .sigma-doc-box-content) > .print-box-title {
   position: relative;
   z-index: 2;
   display: block;
@@ -646,14 +663,14 @@
   text-align: var(--sigma-doc-box-title-align, left);
 }
 
-.box-frame--title-plate.box-frame--title-position-c .sigma-doc-box-title,
-.box-frame--title-plate.box-frame--title-position-c .print-box-title {
+:is(.box-frame--title-plate.box-frame--title-position-c, .box-frame--title-plate.box-frame--title-position-c > .sigma-doc-box-content) > .sigma-doc-box-title,
+:is(.box-frame--title-plate.box-frame--title-position-c, .box-frame--title-plate.box-frame--title-position-c > .sigma-doc-box-content) > .print-box-title {
   margin-right: auto;
   margin-left: auto;
 }
 
-.box-frame--title-plate.box-frame--title-position-r .sigma-doc-box-title,
-.box-frame--title-plate.box-frame--title-position-r .print-box-title {
+:is(.box-frame--title-plate.box-frame--title-position-r, .box-frame--title-plate.box-frame--title-position-r > .sigma-doc-box-content) > .sigma-doc-box-title,
+:is(.box-frame--title-plate.box-frame--title-position-r, .box-frame--title-plate.box-frame--title-position-r > .sigma-doc-box-content) > .print-box-title {
   margin-right: 0;
   margin-left: auto;
 }
@@ -688,7 +705,35 @@
   display: grid;
   align-content: start;
   border: 0;
+  border-radius: 0;
+  isolation: isolate;
+  background: transparent;
+}
+
+/* The notched frame and its corner squares keep their own geometry. Only the
+   paper fill is cut out, so colored boxes do not paint over the four notches. */
+.sigma-doc-box-block.box-frame--corner::after,
+.print-box-block.box-frame--corner::after {
+  position: absolute;
+  z-index: -1;
+  inset: 0;
+  content: "";
+  pointer-events: none;
   background: var(--sigma-doc-box-background, #ffffff);
+  clip-path: polygon(
+    var(--corner-frame-guide-inset-x) 0,
+    calc(100% - var(--corner-frame-guide-inset-x)) 0,
+    calc(100% - var(--corner-frame-guide-inset-x)) var(--corner-frame-guide-side-y),
+    100% var(--corner-frame-guide-side-y),
+    100% calc(100% - var(--corner-frame-guide-side-y)),
+    calc(100% - var(--corner-frame-guide-inset-x)) calc(100% - var(--corner-frame-guide-side-y)),
+    calc(100% - var(--corner-frame-guide-inset-x)) 100%,
+    var(--corner-frame-guide-inset-x) 100%,
+    var(--corner-frame-guide-inset-x) calc(100% - var(--corner-frame-guide-side-y)),
+    0 calc(100% - var(--corner-frame-guide-side-y)),
+    0 var(--corner-frame-guide-side-y),
+    var(--corner-frame-guide-inset-x) var(--corner-frame-guide-side-y)
+  );
 }
 
 .box-frame--corner::before {
@@ -720,15 +765,15 @@
     linear-gradient(var(--corner-frame-guide-color), var(--corner-frame-guide-color)) right var(--corner-frame-guide-side-x) bottom var(--corner-frame-guide-side-y) / var(--corner-frame-guide-inset-x) var(--corner-frame-guide-width) no-repeat;
 }
 
-.box-frame--corner .sigma-doc-box-body,
-.box-frame--corner .print-box-body {
+:is(.box-frame--corner, .box-frame--corner > .sigma-doc-box-content) > .sigma-doc-box-body,
+:is(.box-frame--corner, .box-frame--corner > .sigma-doc-box-content) > .print-box-body {
   text-align: var(--sigma-doc-box-body-align, center);
 }
 
-.box-frame--corner .sigma-doc-box-body,
-.box-frame--corner .sigma-doc-box-title,
-.box-frame--corner .print-box-body,
-.box-frame--corner .print-box-title {
+:is(.box-frame--corner, .box-frame--corner > .sigma-doc-box-content) > .sigma-doc-box-body,
+:is(.box-frame--corner, .box-frame--corner > .sigma-doc-box-content) > .sigma-doc-box-title,
+:is(.box-frame--corner, .box-frame--corner > .sigma-doc-box-content) > .print-box-body,
+:is(.box-frame--corner, .box-frame--corner > .sigma-doc-box-content) > .print-box-title {
   font-family: inherit;
 }
 
@@ -742,6 +787,11 @@
     var(--sigma-doc-box-double-width, 1px)
     solid
     var(--sigma-doc-box-double-color, #111111);
+  border-radius: max(0px, calc(
+    var(--sigma-doc-box-radius, 0px)
+    - var(--sigma-doc-box-border-width, 1.2px)
+    - var(--sigma-doc-box-double-offset, 4px)
+  ));
 }
 
 .sigma-doc-box-title,
@@ -757,18 +807,18 @@
   text-align: var(--sigma-doc-box-title-align, left);
 }
 
-.box-frame--corner .sigma-doc-box-title,
-.box-frame--corner .print-box-title {
+:is(.box-frame--corner, .box-frame--corner > .sigma-doc-box-content) > .sigma-doc-box-title,
+:is(.box-frame--corner, .box-frame--corner > .sigma-doc-box-content) > .print-box-title {
   margin-bottom: 12px;
 }
 
-.box-frame--corner .sigma-doc-box-body,
-.box-frame--corner .print-box-body {
+:is(.box-frame--corner, .box-frame--corner > .sigma-doc-box-content) > .sigma-doc-box-body,
+:is(.box-frame--corner, .box-frame--corner > .sigma-doc-box-content) > .print-box-body {
   line-height: var(--sigma-doc-box-body-line-height, inherit);
 }
 
-.box-frame--corner .sigma-doc-box-body p,
-.box-frame--corner .print-box-body p {
+:is(.box-frame--corner, .box-frame--corner > .sigma-doc-box-content) > .sigma-doc-box-body p,
+:is(.box-frame--corner, .box-frame--corner > .sigma-doc-box-content) > .print-box-body p {
   min-height: 0;
   margin: 0;
   line-height: inherit;

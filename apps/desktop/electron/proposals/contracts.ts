@@ -186,6 +186,7 @@ export interface LocalMcpEditProposal extends LocalMcpEditProposalAttribution {
   // appliedRevision: 保存直後のファイルrevision。revertはこのrevisionと現在のファイルrevisionが
   // 一致する場合のみ許可される (承認後にさらに別の変更が入っていたら取り消し不可)。
   appliedRevision?: number;
+  appliedOperationId?: string;
   // revertDocument: 適用前 (マージ前) に読み込んだ現在ドキュメント。rebase後に承認された場合は
   // baseDocument (提案作成時点の文書) ではなく「承認実行時に読み込んだ文書」なので注意。
   revertDocument?: SigmaDocument;
@@ -246,6 +247,7 @@ export interface LocalMcpEditProposalSummary extends LocalMcpEditProposalAttribu
   rejectedAt?: string;
   rebasedFrom?: number;
   appliedRevision?: number;
+  appliedOperationId?: string;
   // rendererへ返す適用結果。revertDocument自体は渡さず、対象ノードのbefore/afterだけを返す。
   appliedDiff?: AiAppliedDocumentDiff;
   autoApplied?: boolean;
@@ -341,6 +343,7 @@ export type RebaseProposalResult =
 export interface ResolveProposalExtra {
   /** approved のみ: 保存直後のファイルrevision (revertの前提条件として保存)。 */
   appliedRevision?: number;
+  appliedOperationId?: string;
   /** approved のみ: 適用前 (マージ前) に読み込んだ現在ドキュメント (revert先)。 */
   revertDocument?: SigmaDocument;
   /** approved のみ: 実際に保存した適用後ドキュメント。実差分のafter側を確定する。 */
