@@ -8,7 +8,7 @@ import { Decoration, DecorationSet } from "@tiptap/pm/view";
 import { normalizeLayoutSectionColumnCount, normalizeNonnegativeNumber, getLayoutSectionColumnWidths } from "@/features/text-editing";
 import { createTranslator, getAppLocale } from "@/lib/i18n";
 import { createIndependentColumnLayout } from "@/features/rendering/core";
-import { beginLayoutColumnResize } from "@/components/editor/layout-column-resize";
+import { attachLayoutColumnResizeHandle } from "@/components/editor/layout-column-resize";
 import { textFlowBlockToTiptapNode, tiptapToTextFlow } from "@/components/editor/text-flow/tiptap-document-adapter";
 
 const childContent = "(paragraph | heading | bulletList | orderedList | quote | codeBlock | divider | boxBlock)+";
@@ -39,7 +39,7 @@ function columnWidths(node: ProseMirrorNode): number[] {
 }
 
 const resizeKey = new PluginKey("nestedLayoutColumnResize");
-const resizeCleanupByHandle = new WeakMap<Node, () => void>();
+const resizeDetachByHandle = new WeakMap<Node, () => void>();
 const initializeColumns = "initializeIndependentColumns";
 
 export const LayoutSectionExtension = TiptapNodeExtension.create({
@@ -168,6 +168,7 @@ export const LayoutSectionExtension = TiptapNodeExtension.create({
               offset += column.nodeSize;
               if (index >= node.childCount - 1) return;
               decorations.push(Decoration.widget(offset, (view, getPos) => {
+                const t = createTranslator(getAppLocale(), "editor");
                 const handle = document.createElement("button");
                 handle.type = "button";
                 handle.contentEditable = "false";
@@ -175,47 +176,51 @@ export const LayoutSectionExtension = TiptapNodeExtension.create({
                 handle.dataset.layoutSectionId = node.attrs.sigmaDocId;
                 handle.dataset.dividerIndex = String(index);
                 handle.style.left = presentation.dividers[index].left;
-                handle.setAttribute("aria-label", createTranslator(getAppLocale(), "editor")("pageCanvas.resizeColumns", {
+                handle.style.setProperty("--layout-column-divider-gap", presentation.columnGap);
+                handle.setAttribute("aria-label", t("pageCanvas.resizeColumns", {
                   replace: { left: index + 1, right: index + 2 },
                 }));
-                handle.addEventListener("pointerdown", event => {
-                  resizeCleanupByHandle.get(handle)?.();
-                  resizeCleanupByHandle.set(handle, beginLayoutColumnResize(event, handle, index, (leftWidth, rightWidth) => {
-                    const position = getPos();
-                    if (position === undefined) return;
-                    const $pos = view.state.doc.resolve(position);
-                    const section = $pos.parent;
-                    if (section.type.name !== "layoutSection" || index + 1 >= section.childCount) return;
-                    const currentWidths = columnWidths(section);
-                    const pairTotal = currentWidths[index] + currentWidths[index + 1];
-                    const tr = view.state.tr;
-                    if (leftWidth <= 0 || rightWidth <= 0) {
-                      const columns: ProseMirrorNode[] = [];
-                      section.forEach(child => columns.push(child));
-                      columns.splice(index, 2, columns[index].copy(columns[index].content.append(columns[index + 1].content)));
-                      currentWidths.splice(index, 2, pairTotal);
-                      if (columns.length === 1) {
-                        tr.replaceWith($pos.before(), $pos.after(), columns[0].content);
-                      } else {
-                        const updated = section.type.create({
-                          ...section.attrs, columnCount: columns.length, columnWidths: currentWidths,
-                          columnStartIds: columns.map(column => column.firstChild?.attrs.sigmaDocId),
-                        }, Fragment.from(columns.map((column, columnIndex) => column.type.create({ ...column.attrs, index: columnIndex }, column.content))));
-                        tr.replaceWith($pos.before(), $pos.after(), updated);
-                      }
+                handle.title = t("pageCanvas.resizeColumnsHint");
+                const commit = (leftWidth: number, rightWidth: number) => {
+                  const position = getPos();
+                  if (position === undefined) return;
+                  const $pos = view.state.doc.resolve(position);
+                  const section = $pos.parent;
+                  if (section.type.name !== "layoutSection" || index + 1 >= section.childCount) return;
+                  const currentWidths = columnWidths(section);
+                  const pairTotal = currentWidths[index] + currentWidths[index + 1];
+                  const tr = view.state.tr;
+                  if (leftWidth <= 0 || rightWidth <= 0) {
+                    const columns: ProseMirrorNode[] = [];
+                    section.forEach(child => columns.push(child));
+                    columns.splice(index, 2, columns[index].copy(columns[index].content.append(columns[index + 1].content)));
+                    currentWidths.splice(index, 2, pairTotal);
+                    if (columns.length === 1) {
+                      tr.replaceWith($pos.before(), $pos.after(), columns[0].content);
                     } else {
-                      currentWidths[index] = Math.round(pairTotal * leftWidth / (leftWidth + rightWidth));
-                      currentWidths[index + 1] = pairTotal - currentWidths[index];
-                      tr.setNodeMarkup($pos.before(), undefined, { ...section.attrs, columnWidths: currentWidths });
+                      const updated = section.type.create({
+                        ...section.attrs, columnCount: columns.length, columnWidths: currentWidths,
+                        columnStartIds: columns.map(column => column.firstChild?.attrs.sigmaDocId),
+                      }, Fragment.from(columns.map((column, columnIndex) => column.type.create({ ...column.attrs, index: columnIndex }, column.content))));
+                      tr.replaceWith($pos.before(), $pos.after(), updated);
                     }
-                    view.dispatch(tr);
-                  }));
-                });
+                  } else {
+                    currentWidths[index] = Math.round(pairTotal * leftWidth / (leftWidth + rightWidth));
+                    currentWidths[index + 1] = pairTotal - currentWidths[index];
+                    tr.setNodeMarkup($pos.before(), undefined, { ...section.attrs, columnWidths: currentWidths });
+                  }
+                  view.dispatch(tr);
+                };
+                resizeDetachByHandle.set(handle, attachLayoutColumnResizeHandle(handle, () => ({
+                  dividerIndex: index,
+                  labels: { merge: t("pageCanvas.mergeColumns") },
+                  onCommit: commit,
+                })));
                 return handle;
               }, {
                 key: `${node.attrs.sigmaDocId}:column-divider:${index}:${JSON.stringify(widths)}:${presentation.columnGap}`,
                 side: -1,
-                destroy: handle => { resizeCleanupByHandle.get(handle)?.(); resizeCleanupByHandle.delete(handle); },
+                destroy: handle => { resizeDetachByHandle.get(handle)?.(); resizeDetachByHandle.delete(handle); },
                 stopEvent: () => true,
               }));
             });

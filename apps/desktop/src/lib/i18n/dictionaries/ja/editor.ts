@@ -80,6 +80,8 @@ export const editor = {
     marginLeft: "左余白",
     marginRight: "右余白",
     resizeColumns: "{{left}}列目と{{right}}列目の幅を変更",
+    resizeColumnsHint: "ドラッグで列幅を変更（ダブルクリックで均等・端まで寄せると結合）",
+    mergeColumns: "列を結合",
     problemActions: "問題操作",
     bodyActions: "本文操作",
     problemNumber: "問題番号 {{number}}",

@@ -59,6 +59,8 @@ export const editor = {
     marginLeft: "Left margin",
     marginRight: "Right margin",
     resizeColumns: "Resize columns {{left}} and {{right}}",
+    resizeColumnsHint: "Drag to resize the columns (double-click evens them, drag to the edge to merge)",
+    mergeColumns: "Merge columns",
     problemActions: "Problem actions",
     bodyActions: "Body actions",
     problemNumber: "Problem number {{number}}",
