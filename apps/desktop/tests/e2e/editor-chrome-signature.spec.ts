@@ -90,8 +90,10 @@ const DOCS_MENUBAR_SIGNATURE: readonly string[] = [
   "brand>app-menu-list>app-menu-anchor|BUTTON|app-menu-button ||||false||挿入|",
   "brand>app-menu-list>app-menu-anchor|BUTTON|app-menu-button ||||false||AI|",
   "brand>app-menu-list>app-menu-anchor|BUTTON|app-menu-button ||||false||設定|",
-  "brand>document-tabs-row>document-tabs-scroll>document-tab active|BUTTON|document-tab-main|複素数平面の正方形と積の範囲|||false|||",
-  "brand>document-tabs-row>document-tabs-scroll>document-tab active|BUTTON|document-tab-close|複素数平面の正方形と積の範囲 のタブを閉じる|||false|||",
+  // 分割ペインを扱うタブ列に差し替えたので、タブはペインごとの囲み (.workspace-tab-cluster)
+  // の中に入る。囲みは 1 ペインのときも DOM に居るが、見た目は従来のタブ列のまま。
+  "brand>document-tabs-row workspace-tabs-row>document-tabs-scroll>workspace-tab-cluster>document-tab workspace-tab active|BUTTON|document-tab-main|複素数平面の正方形と積の範囲|||false|||",
+  "brand>document-tabs-row workspace-tabs-row>document-tabs-scroll>workspace-tab-cluster>document-tab workspace-tab active|BUTTON|document-tab-close|複素数平面の正方形と積の範囲 のタブを閉じる|||false|||",
   "|BUTTON|version-history-button|バージョン履歴|false||false|||",
   "|BUTTON|report-issue-button|問題を報告|||false|||",
   "menubar-right-actions|BUTTON|workspace-open-button|ワークスペース|||false|||",

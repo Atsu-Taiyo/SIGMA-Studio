@@ -8,6 +8,8 @@ const desktopAPI = {
   isDesktop: true as const,
   platform: process.platform,
   sharedCatalog: {
+    billing: (action: string) => ipcRenderer.invoke("shared-catalog:billing", action),
+    recoverLocked: () => ipcRenderer.invoke("shared-catalog:recover-locked"),
     status: () => ipcRenderer.invoke("shared-catalog:status"),
     refresh: () => ipcRenderer.invoke("shared-catalog:refresh"),
     setVisible: (visible: boolean) => ipcRenderer.invoke("shared-catalog:visible", visible),

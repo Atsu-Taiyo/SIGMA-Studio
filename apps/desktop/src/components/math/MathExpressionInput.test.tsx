@@ -19,7 +19,7 @@ vi.mock("@/features/rendering/adapters/react", () => ({
       <span className="math-preview math-preview-inline">{tex}</span>
     </span>
   ),
-  MathPreview: ({ tex }: { tex: string }) => <span>{tex}</span>,
+  MathPreview: ({ tex, className }: { tex: string; className?: string }) => <span className={`math-preview ${className ?? ""}`}>{tex}</span>,
   useMathEnvironment: () => ({ macroSet: { mathLiveMacros: {} }, typesetStyle: "displaystyle" }),
 }));
 
@@ -143,7 +143,7 @@ describe("MathExpressionInput", () => {
     expect(onCommit).toHaveBeenCalledWith("\\frac{x}{2}");
   });
 
-  it("本文数式と同じ固定フレームとmath-field設定で表示する", async () => {
+  it("共通の入力枠とmath-field設定を維持して表示する", async () => {
     await act(async () => {
       root.render(
         <MathExpressionInput
@@ -156,7 +156,7 @@ describe("MathExpressionInput", () => {
     });
 
     const shell = container.querySelector<HTMLElement>(".math-expression-input");
-    expect(shell?.querySelector(".inline-math-node .math-preview")).not.toBeNull();
+    expect(shell?.querySelector(".math-preview")).not.toBeNull();
 
     await act(async () => {
       container.querySelector<HTMLButtonElement>('[data-testid="expression"]')?.click();

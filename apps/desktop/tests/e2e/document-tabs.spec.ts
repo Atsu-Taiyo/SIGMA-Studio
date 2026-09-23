@@ -183,7 +183,8 @@ test("creates, switches, closes, and reopens Chrome-like document tabs", async (
         : Number.NaN,
     };
   });
-  expect(tabStripMetrics.overflowX).toBe("hidden");
+  // タブは Chrome と同じく、縮みきったら列ごと横スクロールする (無限に痩せない)。
+  expect(tabStripMetrics.overflowX).toBe("auto");
   expect(tabStripMetrics.scrollWidth).toBeLessThanOrEqual(tabStripMetrics.clientWidth + 1);
   expect(Math.abs(tabStripMetrics.firstTabOffset)).toBeLessThanOrEqual(1);
   expect(tabStripMetrics.actionGap).toBeGreaterThanOrEqual(8);

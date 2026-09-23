@@ -1,12 +1,17 @@
 "use client";
 
-import { LogIn, LogOut } from "lucide-react";
+import { LogIn, LogOut, Sparkles } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/Button";
+import { Stack } from "@/components/ui/layout";
 import { getDesktopBridge } from "@/lib/desktop-bridge";
 import { useT } from "@/lib/i18n/react";
 import type { CollaborationInfo } from "../model/bridge";
+import type { ServerCollaborationCapabilities } from "../model/catalog";
+import { collaborationPlanState } from "../model/plan";
+import { CollaborationPlanDialog } from "./CollaborationPlanDialog";
 import { CollaborationProfileAvatar, collaborationProfileLabel } from "./CollaborationProfileAvatar";
+import planStyles from "./plan.module.css";
 import styles from "./sharing.module.css";
 
 export function CollaborationAccountControl({ info, refresh }: {
@@ -15,9 +20,13 @@ export function CollaborationAccountControl({ info, refresh }: {
 }) {
   const t = useT("chrome");
   const bridge = getDesktopBridge()?.collaboration;
+  const catalog = getDesktopBridge()?.sharedCatalog;
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(false);
+  const [capabilities, setCapabilities] = useState<ServerCollaborationCapabilities>();
+  const [recovered, setRecovered] = useState<{ saved: number; failed: number } | null>(null);
+  const [planOpen, setPlanOpen] = useState(false);
   const root = useRef<HTMLDivElement>(null);
   const accountButton = useRef<HTMLButtonElement>(null);
   useEffect(() => {
@@ -39,6 +48,13 @@ export function CollaborationAccountControl({ info, refresh }: {
       window.removeEventListener("keydown", escape);
     };
   }, [open]);
+  useEffect(() => {
+    if (!catalog) return;
+    const refreshPlan = () => { void catalog.refresh().catch(() => {}); };
+    window.addEventListener("focus", refreshPlan);
+    const unsubscribe = catalog.onChange(status => setCapabilities(status.capabilities));
+    return () => { unsubscribe(); window.removeEventListener("focus", refreshPlan); };
+  }, [catalog]);
   if (!bridge || !info.configured) return null;
   if (!info.user) {
     return <div className={styles.accountControl}>
@@ -65,6 +81,14 @@ export function CollaborationAccountControl({ info, refresh }: {
       </div>;
   }
   const name = collaborationProfileLabel(info.user, t("collaboration.googleAccount"));
+  const plan = collaborationPlanState(capabilities);
+  // Plan display follows the server's hierarchy entitlement; a failed read only hides it.
+  const loadPlan = () => {
+    if (!catalog) return;
+    void catalog.refresh()
+      .then((status) => setCapabilities(status.capabilities))
+      .catch(() => setCapabilities(undefined));
+  };
   return (
     <div className={styles.account} ref={root}>
       <button
@@ -74,14 +98,39 @@ export function CollaborationAccountControl({ info, refresh }: {
         title={name}
         aria-label={t("collaboration.accountLabel", { name })}
         aria-expanded={open}
-        onClick={() => setOpen((value) => !value)}
+        onClick={() => {
+          if (!open) loadPlan();
+          setOpen(!open);
+        }}
       >
         <CollaborationProfileAvatar profile={info.user} label={name} />
       </button>
       {open && (
         <div className={styles.accountMenu} role="dialog" aria-label={t("collaboration.accountLabel", { name })}>
           <strong>{name}</strong>
+          {capabilities?.paymentWarning && <p role="alert">{t("collaboration.plan.paymentWarning")}</p>}
+          <Button tone="ghost" disabled={busy} onClick={() => {
+            setBusy(true); setError(false); setRecovered(null);
+            void catalog?.recoverLocked().then(setRecovered).catch(() => setError(true)).finally(() => setBusy(false));
+          }}>{t("collaboration.plan.recovery")}</Button>
+          {recovered && <p role="status">{t("collaboration.plan.recovered", recovered)}</p>}
           {info.user.email && info.user.email !== name ? <span>{info.user.email}</span> : null}
+          {plan !== "unavailable" && (
+            <Stack gap="xs" className={planStyles.menuPlan}>
+              <span>{t(`collaboration.plan.menuLabel.${plan}`)}</span>
+              <Button
+                size="sm"
+                tone="ghost"
+                onClick={() => {
+                  setOpen(false);
+                  setPlanOpen(true);
+                }}
+              >
+                <Sparkles size={15} aria-hidden="true" />
+                {t(plan === "free" ? "collaboration.plan.upgrade" : "collaboration.plan.viewPlan")}
+              </Button>
+            </Stack>
+          )}
           <Button
             size="sm"
             tone="ghost"
@@ -101,6 +150,9 @@ export function CollaborationAccountControl({ info, refresh }: {
           </Button>
           {error && <span className={styles.error} role="alert">{t("collaboration.error")}</span>}
         </div>
+      )}
+      {planOpen && plan !== "unavailable" && (
+        <CollaborationPlanDialog billingAvailable={capabilities?.billingAvailable} plan={plan} onClose={() => setPlanOpen(false)} />
       )}
     </div>
   );

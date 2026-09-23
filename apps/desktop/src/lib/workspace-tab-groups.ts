@@ -372,3 +372,78 @@ function collectGroupIds(node: WorkspaceSplitNode): Set<string> {
 function uniqueStrings(values: readonly string[]): string[] {
   return Array.from(new Set(values));
 }
+
+/** ペインがこれより狭い / 低いと、さらに分割しても本文が読めなくなる。 */
+export const MIN_SPLIT_PANE_WIDTH = 560;
+export const MIN_SPLIT_PANE_HEIGHT = 440;
+/** ペイン端からこの割合までが「分割」、内側は「このペインへ移動」。 */
+const SPLIT_EDGE_RATIO = 0.3;
+
+export type WorkspaceDropIntent =
+  | { kind: "move" }
+  | { kind: "split"; edge: WorkspaceDropEdge };
+
+/**
+ * 並べ替えの差し込み位置。
+ *
+ * `moveWorkspaceTab` は «抜いてから差す» ので、同じ囲みの中で右へ動かすときは、
+ * 画面で数えた落とし先から抜いた 1 つ分を引く。引かないと 1 つ右へ行き過ぎる。
+ */
+export function workspaceTabInsertionIndex(
+  group: TabGroupState,
+  tabId: string,
+  dropIndex: number,
+): number {
+  const current = group.tabs.findIndex((tab) => tab.id === tabId);
+  return current >= 0 && current < dropIndex ? dropIndex - 1 : dropIndex;
+}
+
+/** 画面での並び順 (左→右 / 上→下)。タブ列の並びとペインの並びを一致させるために使う。 */
+export function orderedWorkspaceGroups(layout: WorkspaceLayoutV2): TabGroupState[] {
+  const byId = new Map(layout.groups.map((group) => [group.id, group]));
+  return orderedGroupIds(layout.root).flatMap((groupId) => {
+    const group = byId.get(groupId);
+    return group ? [group] : [];
+  });
+}
+
+export function workspaceGroupPosition(layout: WorkspaceLayoutV2, groupId: string): number {
+  return orderedGroupIds(layout.root).indexOf(groupId) + 1;
+}
+
+export function canSplitWorkspaceLayout(layout: WorkspaceLayoutV2): boolean {
+  return layout.groups.length < MAX_WORKSPACE_TAB_GROUPS;
+}
+
+/**
+ * ドラッグ中のタブをどう落とすかを、ペインの矩形とポインタ位置だけから決める。
+ *
+ * 4隅に目印を出す代わりに「端に寄せたら分割 / 内側なら移動」の 1 つの規則にまとめてある。
+ * 分割できない (上限・ペインが小さい) 方向は候補に入らないので、移動として扱われる。
+ */
+export function resolveWorkspaceDropIntent(
+  bounds: { left: number; top: number; width: number; height: number },
+  point: { x: number; y: number },
+  options: { splittable?: boolean } = {},
+): WorkspaceDropIntent {
+  if (options.splittable === false || bounds.width <= 0 || bounds.height <= 0) return { kind: "move" };
+  const relativeX = (point.x - bounds.left) / bounds.width;
+  const relativeY = (point.y - bounds.top) / bounds.height;
+  const candidates: { edge: WorkspaceDropEdge; distance: number }[] = [];
+  if (bounds.width >= MIN_SPLIT_PANE_WIDTH) {
+    candidates.push({ edge: "left", distance: relativeX }, { edge: "right", distance: 1 - relativeX });
+  }
+  if (bounds.height >= MIN_SPLIT_PANE_HEIGHT) {
+    candidates.push({ edge: "top", distance: relativeY }, { edge: "bottom", distance: 1 - relativeY });
+  }
+  const nearest = candidates
+    .filter((candidate) => candidate.distance >= 0 && candidate.distance <= SPLIT_EDGE_RATIO)
+    .sort((a, b) => a.distance - b.distance)[0];
+  return nearest ? { kind: "split", edge: nearest.edge } : { kind: "move" };
+}
+
+function orderedGroupIds(node: WorkspaceSplitNode): string[] {
+  return node.kind === "group"
+    ? [node.groupId]
+    : [...orderedGroupIds(node.first), ...orderedGroupIds(node.second)];
+}

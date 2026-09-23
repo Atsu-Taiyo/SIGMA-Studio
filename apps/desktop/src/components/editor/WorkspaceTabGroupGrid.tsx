@@ -1,26 +1,34 @@
 "use client";
 
-import { Bot, FileText, GripVertical, X } from "lucide-react";
-import { type ReactNode, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { Minus, Plus, Scan } from "lucide-react";
+import { type ReactNode, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
-import { DocumentSessionContext, DocumentWritableContext } from "./document-session-context";
 import { AiEditPanel } from "@/components/editor/AiEditPanel";
+import { DocumentSessionContext, DocumentWritableContext } from "./document-session-context";
 import { EMPTY_OVERLAY_SELECTION } from "@/components/editor/editor-shell/constants";
+import { WORKSPACE_TAB_DRAG_TYPE } from "@/components/editor/WorkspaceTabStrip";
 import { PagedRenderSurface } from "@/components/print/paged-render/PagedRenderSurface";
 import type { DocumentSessionHost } from "@/features/document-session/contracts";
 import { getAppRuntime } from "@/lib/runtime";
-import type { SigmaDocument } from "@/features/document";
-import { aiChatRoomsStore } from "@/lib/ai/ai-run-controller";
+import { ensurePageLayout, getPageMetrics, MM_TO_PX, type SigmaDocument } from "@/features/document";
 import { loadDocumentByFileIdWithRecovery, type DocumentMetadata } from "@/lib/storage";
 import { useT } from "@/lib/i18n/react";
 import {
-  MAX_WORKSPACE_TAB_GROUPS,
+  canSplitWorkspaceLayout,
+  orderedWorkspaceGroups,
+  resolveWorkspaceDropIntent,
   type TabGroupState,
   type WorkspaceDropEdge,
+  type WorkspaceDropIntent,
   type WorkspaceLayoutV2,
   type WorkspaceSplitNode,
   type WorkspaceTab,
 } from "@/lib/workspace-tab-groups";
+
+/** プレビューの紙の周りに残す余白。 */
+const PREVIEW_GUTTER = 24;
+const MIN_PREVIEW_SCALE = 0.1;
+const MAX_PREVIEW_SCALE = 3;
 
 interface WorkspaceTabGroupGridProps {
   enabled?: boolean;
@@ -29,8 +37,7 @@ interface WorkspaceTabGroupGridProps {
   metadata: readonly DocumentMetadata[];
   activeFileId: string;
   children: ReactNode;
-  onActivateTab(groupId: string, tab: WorkspaceTab): void;
-  onCloseTab(groupId: string, tab: WorkspaceTab): void;
+  onFocusGroup(groupId: string): void;
   onMoveTab(tabId: string, targetGroupId: string, targetIndex?: number): void;
   onSplitTab(tabId: string, targetGroupId: string, edge: WorkspaceDropEdge): void;
   onResizeSplit(splitId: string, ratio: number): void;
@@ -38,30 +45,33 @@ interface WorkspaceTabGroupGridProps {
 }
 
 export function WorkspaceTabGroupGrid(props: WorkspaceTabGroupGridProps) {
-  const aiRooms = useSyncExternalStore(
-    aiChatRoomsStore.subscribe,
-    aiChatRoomsStore.getSnapshot,
-    aiChatRoomsStore.getSnapshot,
-  );
   const metadataByFileId = useMemo(
     () => new Map(props.metadata.map((item) => [item.fileId, item])),
     [props.metadata],
   );
+  const groupPositions = useMemo(() => new Map(
+    orderedWorkspaceGroups(props.layout).map((group, index) => [group.id, index + 1]),
+  ), [props.layout]);
   if (props.enabled === false) return props.children;
   return (
     <div className="workspace-tab-group-grid" data-group-count={props.layout.groups.length}>
-      <SplitNodeView {...props} node={props.layout.root} metadataByFileId={metadataByFileId} aiRooms={aiRooms} />
+      <SplitNodeView
+        {...props}
+        node={props.layout.root}
+        metadataByFileId={metadataByFileId}
+        groupPositions={groupPositions}
+      />
     </div>
   );
 }
 
-function SplitNodeView(
-  props: WorkspaceTabGroupGridProps & {
-    node: WorkspaceSplitNode;
-    metadataByFileId: ReadonlyMap<string, DocumentMetadata>;
-    aiRooms: ReturnType<typeof aiChatRoomsStore.getSnapshot>;
-  },
-) {
+type SplitNodeViewProps = WorkspaceTabGroupGridProps & {
+  node: WorkspaceSplitNode;
+  metadataByFileId: ReadonlyMap<string, DocumentMetadata>;
+  groupPositions: ReadonlyMap<string, number>;
+};
+
+function SplitNodeView(props: SplitNodeViewProps) {
   const { node } = props;
   const t = useT("editor");
   const splitRef = useRef<HTMLDivElement>(null);
@@ -73,6 +83,7 @@ function SplitNodeView(
     event.preventDefault();
     const bounds = splitRef.current?.getBoundingClientRect();
     if (!bounds) return;
+    splitRef.current?.setAttribute("data-resizing", "true");
     const move = (pointer: PointerEvent) => {
       const ratio = node.direction === "row"
         ? (pointer.clientX - bounds.left) / bounds.width
@@ -80,6 +91,7 @@ function SplitNodeView(
       props.onResizeSplit(node.id, ratio);
     };
     const finish = () => {
+      splitRef.current?.removeAttribute("data-resizing");
       window.removeEventListener("pointermove", move);
       window.removeEventListener("pointerup", finish);
     };
@@ -98,8 +110,8 @@ function SplitNodeView(
       ref={splitRef}
       className={`workspace-tab-split workspace-tab-split--${node.direction}`}
       style={node.direction === "row"
-        ? { gridTemplateColumns: `minmax(280px, ${node.ratio}fr) 5px minmax(280px, ${1 - node.ratio}fr)` }
-        : { gridTemplateRows: `minmax(220px, ${node.ratio}fr) 5px minmax(220px, ${1 - node.ratio}fr)` }}
+        ? { gridTemplateColumns: `minmax(240px, ${node.ratio}fr) 8px minmax(240px, ${1 - node.ratio}fr)` }
+        : { gridTemplateRows: `minmax(180px, ${node.ratio}fr) 8px minmax(180px, ${1 - node.ratio}fr)` }}
     >
       <SplitNodeView {...props} node={node.first} />
       <button
@@ -107,123 +119,87 @@ function SplitNodeView(
         className="workspace-tab-splitter"
         aria-label={node.direction === "row" ? t("tabGroups.resizeHorizontal") : t("tabGroups.resizeVertical")}
         onPointerDown={startResize}
+        onDoubleClick={() => props.onResizeSplit(node.id, 0.5)}
         onKeyDown={keyboardResize}
       >
-        <GripVertical size={12} aria-hidden="true" />
+        <span className="workspace-tab-splitter-grip" aria-hidden="true" />
       </button>
       <SplitNodeView {...props} node={node.second} />
     </div>
   );
 }
 
-function GroupView(
-  props: WorkspaceTabGroupGridProps & {
-    group: TabGroupState;
-    metadataByFileId: ReadonlyMap<string, DocumentMetadata>;
-    aiRooms: ReturnType<typeof aiChatRoomsStore.getSnapshot>;
-  },
-) {
+function GroupView(props: SplitNodeViewProps & { group: TabGroupState }) {
   const { group } = props;
   const t = useT("editor");
-  const [dragOver, setDragOver] = useState(false);
-  const [splitAvailability, setSplitAvailability] = useState({ horizontal: false, vertical: false });
+  const [dropIntent, setDropIntent] = useState<WorkspaceDropIntent | null>(null);
   const activeTab = group.tabs.find((tab) => tab.id === group.activeTabId) ?? group.tabs[0];
+  const focused = props.layout.focusedGroupId === group.id;
+  const grouped = props.layout.groups.length > 1;
+  const splittable = canSplitWorkspaceLayout(props.layout);
+  const live = focused && activeTab?.kind === "document" && activeTab.fileId === props.activeFileId;
+
+  const readIntent = (event: React.DragEvent<HTMLElement>): WorkspaceDropIntent => {
+    const bounds = event.currentTarget.getBoundingClientRect();
+    return resolveWorkspaceDropIntent(bounds, { x: event.clientX, y: event.clientY }, { splittable });
+  };
+
   return (
     <section
-      className={`workspace-tab-group${props.layout.focusedGroupId === group.id ? " is-focused" : ""}`}
+      className="workspace-tab-group"
       data-group-id={group.id}
-      onDragEnter={(event) => {
-        if (event.dataTransfer.types.includes("application/x-sigma-workspace-tab")) {
-          const bounds = event.currentTarget.getBoundingClientRect();
-          setSplitAvailability({ horizontal: bounds.width >= 565, vertical: bounds.height >= 445 });
-          setDragOver(true);
-        }
+      data-focused={focused ? "true" : undefined}
+      data-live={live ? "true" : undefined}
+      onPointerDown={() => {
+        if (!focused) props.onFocusGroup(group.id);
+      }}
+      onDragOver={(event) => {
+        if (!event.dataTransfer.types.includes(WORKSPACE_TAB_DRAG_TYPE)) return;
+        event.preventDefault();
+        event.dataTransfer.dropEffect = "move";
+        setDropIntent(readIntent(event));
       }}
       onDragLeave={(event) => {
-        if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDragOver(false);
+        if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDropIntent(null);
       }}
-      onDrop={() => setDragOver(false)}
+      onDrop={(event) => {
+        const tabId = event.dataTransfer.getData(WORKSPACE_TAB_DRAG_TYPE);
+        if (!tabId) {
+          setDropIntent(null);
+          return;
+        }
+        event.preventDefault();
+        const intent = readIntent(event);
+        setDropIntent(null);
+        if (intent.kind === "split") props.onSplitTab(tabId, group.id, intent.edge);
+        else props.onMoveTab(tabId, group.id);
+      }}
     >
-      <div
-        className="workspace-tab-strip"
-        role="tablist"
-        aria-label={t("tabGroups.label")}
-        onDragOver={(event) => event.preventDefault()}
-        onDrop={(event) => {
-          event.preventDefault();
-          const tabId = event.dataTransfer.getData("application/x-sigma-workspace-tab");
-          if (tabId) props.onMoveTab(tabId, group.id);
-        }}
-      >
-        {group.tabs.map((tab) => {
-          const title = tab.kind === "document"
-            ? props.metadataByFileId.get(tab.fileId)?.title ?? t("tabGroups.untitled")
-            : `${props.aiRooms.find((room) => room.id === tab.roomId)?.title?.trim() || t("tabGroups.aiEdit")} · ${props.metadataByFileId.get(tab.documentFileId)?.title ?? t("tabGroups.untitled")}`;
-          return (
-            <div
-              className={`workspace-group-tab${tab.id === activeTab?.id ? " active" : ""}`}
-              key={tab.id}
-              data-tab-id={tab.id}
-              onDragOver={(event) => {
-                event.preventDefault();
-                event.stopPropagation();
-              }}
-              onDrop={(event) => {
-                event.preventDefault();
-                event.stopPropagation();
-                setDragOver(false);
-                const tabId = event.dataTransfer.getData("application/x-sigma-workspace-tab");
-                if (tabId) props.onMoveTab(tabId, group.id, group.tabs.findIndex((candidate) => candidate.id === tab.id));
-              }}
-            >
-              <button
-                type="button"
-                role="tab"
-                draggable
-                aria-selected={tab.id === activeTab?.id}
-                aria-label={title}
-                title={title}
-                onDragStart={(event) => {
-                  event.dataTransfer.effectAllowed = "move";
-                  event.dataTransfer.setData("application/x-sigma-workspace-tab", tab.id);
-                }}
-                onClick={() => props.onActivateTab(group.id, tab)}
-              >
-                {tab.kind === "document" ? <FileText size={13} /> : <Bot size={13} />}
-                <span className="workspace-tab-title">{title}</span>
-                <span className="workspace-tab-initial" aria-hidden="true">{Array.from(title)[0]}</span>
-              </button>
-              <button type="button" className="workspace-group-tab-close" aria-label={t("tabGroups.close", { title })} onClick={() => props.onCloseTab(group.id, tab)}>
-                <X size={12} />
-              </button>
-            </div>
-          );
-        })}
-      </div>
+      {grouped && (
+        <span className="workspace-pane-badge" aria-hidden="true">{props.groupPositions.get(group.id)}</span>
+      )}
       <div className="workspace-tab-group-content">
-        {activeTab?.kind === "document" && props.layout.focusedGroupId === group.id && activeTab.fileId === props.activeFileId
+        {live
           ? props.children
-          : activeTab ? <BackgroundTabContent key={activeTab.id} sessionHost={props.sessionHost} tab={activeTab} metadata={props.metadataByFileId.get(activeTab.kind === "document" ? activeTab.fileId : activeTab.documentFileId)} onOpenAiSettings={props.onOpenAiSettings} /> : null}
+          : activeTab
+            ? <BackgroundTabContent
+                sessionHost={props.sessionHost}
+                tab={activeTab}
+                metadata={props.metadataByFileId.get(activeTab.kind === "document" ? activeTab.fileId : activeTab.documentFileId)}
+                onOpenAiSettings={props.onOpenAiSettings}
+              />
+            : null}
       </div>
-      {dragOver && props.layout.groups.length < MAX_WORKSPACE_TAB_GROUPS && (
-        <div className="workspace-tab-drop-zones" aria-hidden="true">
-          {(["left", "right", "top", "bottom"] as const)
-            .filter((edge) => edge === "left" || edge === "right" ? splitAvailability.horizontal : splitAvailability.vertical)
-            .map((edge) => (
-            <div
-              key={edge}
-              className={`workspace-tab-drop-zone workspace-tab-drop-zone--${edge}`}
-              onDragOver={(event) => { event.preventDefault(); event.stopPropagation(); }}
-              onDrop={(event) => {
-                event.preventDefault();
-                event.stopPropagation();
-                setDragOver(false);
-                const tabId = event.dataTransfer.getData("application/x-sigma-workspace-tab");
-                if (tabId) props.onSplitTab(tabId, group.id, edge);
-              }}
-            />
-          ))}
-        </div>
+      {!live && activeTab?.kind === "document" && (
+        <span className="workspace-pane-edit-hint" aria-hidden="true">{t("tabGroups.clickToEdit")}</span>
+      )}
+      {dropIntent && (
+        <div
+          className="workspace-tab-drop-preview"
+          data-intent={dropIntent.kind}
+          data-edge={dropIntent.kind === "split" ? dropIntent.edge : undefined}
+          aria-hidden="true"
+        />
       )}
     </section>
   );
@@ -306,13 +282,116 @@ function BackgroundTabContent({
         />
       </div>
   ) : (
-    <div className="workspace-document-preview" aria-label={t("tabGroups.preview", { title: metadata?.title ?? t("tabGroups.material") })}>
-      <PagedRenderSurface document={document} profile="teacher" />
-    </div>
+    <DocumentPreviewPane document={document} title={metadata?.title ?? t("tabGroups.material")} />
   );
   return (
     <DocumentSessionContext.Provider value={sessionHost?.get(fileId)}>
       <DocumentWritableContext.Provider value={writable}>{content}</DocumentWritableContext.Provider>
     </DocumentSessionContext.Provider>
   );
+}
+
+/**
+ * 編集していないペインの紙面。
+ *
+ * 既定はペイン幅に合わせた倍率で、`Ctrl`/`⌘` + ホイールと隅の操作で拡大縮小できる。
+ * 分割するとペインは必ず本来の紙より狭くなるので、倍率を持たないと中身が読めない。
+ */
+function DocumentPreviewPane({ document, title }: { document: SigmaDocument; title: string }) {
+  const t = useT("editor");
+  const viewportRef = useRef<HTMLDivElement>(null);
+  const contentRef = useRef<HTMLDivElement>(null);
+  const [viewportWidth, setViewportWidth] = useState(0);
+  const [contentHeight, setContentHeight] = useState(0);
+  const [manualScale, setManualScale] = useState<number | null>(null);
+
+  const pageWidthPx = useMemo(() => {
+    const metrics = getPageMetrics(ensurePageLayout(document).pageLayout!);
+    return Math.max(1, metrics.page.widthMm * MM_TO_PX);
+  }, [document]);
+
+  useLayoutEffect(() => {
+    const viewport = viewportRef.current;
+    const content = contentRef.current;
+    if (!viewport || !content) return;
+    const observer = new ResizeObserver(() => {
+      setViewportWidth(viewport.clientWidth);
+      setContentHeight(content.offsetHeight);
+    });
+    observer.observe(viewport);
+    observer.observe(content);
+    setViewportWidth(viewport.clientWidth);
+    setContentHeight(content.offsetHeight);
+    return () => observer.disconnect();
+  }, []);
+
+  const fitScale = viewportWidth > 0
+    ? clamp((viewportWidth - PREVIEW_GUTTER * 2) / pageWidthPx, MIN_PREVIEW_SCALE, 1)
+    : 1;
+  const scale = manualScale ?? fitScale;
+
+  const zoomBy = useCallback((factor: number) => {
+    setManualScale((current) => clamp((current ?? fitScale) * factor, MIN_PREVIEW_SCALE, MAX_PREVIEW_SCALE));
+  }, [fitScale]);
+
+  useEffect(() => {
+    const viewport = viewportRef.current;
+    if (!viewport) return;
+    const onWheel = (event: WheelEvent) => {
+      if (!event.ctrlKey && !event.metaKey) return;
+      event.preventDefault();
+      // ピンチも ctrlKey 付きのホイールとして届く。1 イベントの跳ね上がりは抑え、
+      // マウスの 1 目盛りでも一気に飛ばないようにする。
+      zoomBy(clamp(Math.exp(-event.deltaY / 420), 0.8, 1.25));
+    };
+    viewport.addEventListener("wheel", onWheel, { passive: false });
+    return () => viewport.removeEventListener("wheel", onWheel);
+  }, [zoomBy]);
+
+  return (
+    <div className="workspace-document-preview">
+      <div className="workspace-preview-viewport" ref={viewportRef} aria-label={t("tabGroups.preview", { title })}>
+        <div
+          className="workspace-preview-sizer"
+          style={{ width: pageWidthPx * scale, height: contentHeight * scale }}
+        >
+          <div
+            className="workspace-preview-scaler"
+            ref={contentRef}
+            style={{ width: pageWidthPx, transform: `scale(${scale})` }}
+          >
+            <PagedRenderSurface document={document} profile="teacher" />
+          </div>
+        </div>
+      </div>
+      <div
+        className="workspace-preview-zoom"
+        role="group"
+        aria-label={t("tabGroups.zoomLabel")}
+        // 倍率を変えただけでペインの担当教材が編集面に載せ替わらないようにする。
+        onPointerDown={(event) => event.stopPropagation()}
+      >
+        <button type="button" aria-label={t("tabGroups.zoomOut")} title={t("tabGroups.zoomOut")} onClick={() => zoomBy(1 / 1.2)}>
+          <Minus size={14} aria-hidden="true" />
+        </button>
+        <button
+          type="button"
+          className="workspace-preview-zoom-value"
+          aria-label={t("tabGroups.zoomFit")}
+          title={t("tabGroups.zoomFit")}
+          onClick={() => setManualScale(null)}
+        >
+          {manualScale === null ? <Scan size={13} aria-hidden="true" /> : null}
+          <span>{Math.round(scale * 100)}%</span>
+        </button>
+        <button type="button" aria-label={t("tabGroups.zoomIn")} title={t("tabGroups.zoomIn")} onClick={() => zoomBy(1.2)}>
+          <Plus size={14} aria-hidden="true" />
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, value));
 }

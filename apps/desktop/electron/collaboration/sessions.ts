@@ -380,6 +380,43 @@ export class CollaborationSessions {
     void this.flush(fileId, true).catch(() => {});
     return this.describe(fileId);
   }
+  async recoverLocked(): Promise<{ saved: number; failed: number }> {
+    const actor = this.actorId();
+    if (!actor) throw new Error("AUTH_REQUIRED");
+    const documents = await this.request<{ id: string; title: string }[]>("/billing/locked");
+    let savedCount = 0, failedCount = 0;
+    for (const item of documents) {
+      try {
+      const snapshot = await this.request<{ state: string }>(`/documents/${item.id}/recovery`);
+      const shared = new SharedDocument(fromBase64(snapshot.state, MAX_DOCUMENT_BYTES));
+      try {
+        const replace = async (value: unknown): Promise<unknown> => {
+          if (typeof value === "string" && value.startsWith("sigma-doc-storage://")) {
+            const id = value.slice(20);
+            if (!/^[A-Za-z0-9_-]{1,180}$/.test(id)) throw new Error("INVALID_ASSET");
+            const response = await this.requestRaw(`/documents/${item.id}/recovery/assets/${id}`);
+            const source = `data:${response.headers.get("Content-Type")};base64,${Buffer.from(await response.arrayBuffer()).toString("base64")}`;
+            this.parseImage(source);
+            return source;
+          }
+          if (Array.isArray(value)) return Promise.all(value.map(replace));
+          if (!isObject(value)) return value;
+          return Object.fromEntries(await Promise.all(Object.entries(value).map(async ([key, child]) => [key, await replace(child)])));
+        };
+        const document = parseSigmaDocument(await replace(shared.project()));
+        if (actor !== this.actorId()) throw new Error("ACCOUNT_CHANGED");
+        await this.local.withLocalLibrary(async () => {
+          await this.local.createFileFromDocument({ document: { ...document, docId: `doc_${randomUUID()}` } });
+        });
+      } finally { shared.destroy(); }
+      savedCount++;
+      } catch {
+        if (actor !== this.actorId()) throw new Error("ACCOUNT_CHANGED");
+        failedCount++;
+      }
+    }
+    return { saved: savedCount, failed: failedCount };
+  }
   async retainLocal(fileId: string): Promise<void> {
     const entry = this.registry.files[fileId];
     if (!entry || entry.actorId !== this.actorId()) throw new Error("ACCOUNT_CHANGED");

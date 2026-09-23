@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { InlineMathField } from "@/components/tiptap/inline-math-extension";
-import { InlineMathPreview, MathPreview, useMathEnvironment } from "@/features/rendering/adapters/react";
+import { MathPreview, useMathEnvironment } from "@/features/rendering/adapters/react";
 
 export interface MathExpressionInputProps {
   /** 現在確定している TeX。 */
@@ -85,9 +85,11 @@ export function MathExpressionInput({
     className ?? null,
   ].filter(Boolean).join(" ");
 
-  if (editing) {
-    return (
-      <span className={shellClassName}>
+  const trimmed = tex.trim();
+
+  return (
+    <span className={shellClassName}>
+      {editing ? (
         <InlineMathField
           ariaDescribedBy={ariaDescribedBy}
           ariaLabel={ariaLabel}
@@ -110,37 +112,31 @@ export function MathExpressionInput({
           onMouseDown={(event) => event.stopPropagation()}
           onKeyDown={(event) => event.stopPropagation()}
         />
-      </span>
-    );
-  }
-
-  const trimmed = tex.trim();
-
-  return (
-    <span className={shellClassName}>
-      <button
-        ref={buttonRef}
-        type="button"
-        className="math-expression-input-button"
-        aria-label={ariaLabel}
-        aria-describedby={ariaDescribedBy}
-        data-testid={dataTestId}
-        disabled={disabled}
-        onClick={() => {
-          finishedRef.current = false;
-          initialTexRef.current = tex;
-          setDraftTex(tex);
-          setEditing(true);
-        }}
-      >
-        {trimmed ? (
-          <InlineMathPreview tex={trimmed} className="math-expression-input-preview" />
-        ) : (
-          <span className="math-expression-input-placeholder">
-            {placeholderTex ? <MathPreview tex={placeholderTex} /> : null}
-          </span>
-        )}
-      </button>
+      ) : (
+        <button
+          ref={buttonRef}
+          type="button"
+          className="math-expression-input-button"
+          aria-label={ariaLabel}
+          aria-describedby={ariaDescribedBy}
+          data-testid={dataTestId}
+          disabled={disabled}
+          onClick={() => {
+            finishedRef.current = false;
+            initialTexRef.current = tex;
+            setDraftTex(tex);
+            setEditing(true);
+          }}
+        >
+          {trimmed ? (
+            <MathPreview tex={trimmed} className="math-expression-input-preview" />
+          ) : (
+            <span className="math-expression-input-placeholder">
+              {placeholderTex ? <MathPreview tex={placeholderTex} /> : null}
+            </span>
+          )}
+        </button>
+      )}
     </span>
   );
 }

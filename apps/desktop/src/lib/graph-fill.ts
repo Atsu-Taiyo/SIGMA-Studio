@@ -9,6 +9,7 @@ import {
   mapGraphPoint,
   normalizeGraphCurveMode,
   refineCurveDomainEdge,
+  sampleImplicitCurveSegments,
   resolveGraphCurveSamplingRange,
   type GraphNumericRange,
   type GraphPlotBox,
@@ -302,7 +303,8 @@ export function sampleCurveSegments(
   spec = resolveGraph2DParameters(spec);
   const mode = normalizeGraphCurveMode(curve.mode);
   if (mode === "implicit") {
-    return [];
+    return sampleImplicitCurveSegments(curve, spec, axisRange, clipRange, plotBox)
+      .map((segment) => ({ ...segment, kind: "curve" as const }));
   }
 
   const samplingRange = resolveGraphCurveSamplingRange(curve, mode, clipRange);

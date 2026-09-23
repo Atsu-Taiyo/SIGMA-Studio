@@ -1,5 +1,6 @@
 import { normalizeWorkspaceLayout } from "@/lib/workspace-tab-groups";
 import { createCurrentLocaleTranslator } from "@/lib/i18n";
+import { shell } from "electron";
 import { randomUUID } from "node:crypto";
 import type { SigmaDocument } from "@/features/document";
 import type { CatalogDelta, CatalogNode, CatalogNodeId, HierarchyShareOperation, ServerCollaborationCapabilities, SharedTargetRef } from "@/features/collaboration/model/catalog";
@@ -22,6 +23,7 @@ export interface CatalogSessionsPort {
   start(fileId: string, document: SigmaDocument): Promise<unknown>;
   flush(fileId: string): Promise<void>;
   retainLocal(fileId: string): Promise<void>;
+  recoverLocked(): Promise<{ saved: number; failed: number }>;
   restrict(allowed: Map<string, MemberRole>): void;
 }
 /** Metadata authority. Document journals/assets are owned by CollaborationSessions. */
@@ -60,6 +62,13 @@ export class DesktopSharedCatalog {
       this.current = { ...this.current, revision: cache.data.revision };
     }
   }
+  async billing(action: "checkout" | "portal"): Promise<void> {
+    const result = await this.sessions.request<{ url: string }>(`/billing/${action}`, {});
+    const url = new URL(result.url);
+    if (url.protocol !== "https:" || !["checkout.stripe.com", "billing.stripe.com"].includes(url.hostname) || url.username || url.password) throw new Error("INVALID_BILLING_URL");
+    await shell.openExternal(url.href);
+  }
+  async recoverLocked(): Promise<{ saved: number; failed: number }> { return this.sessions.recoverLocked(); }
   async status(): Promise<SharedCatalogStatus> { await this.account(); return { ...this.current }; }
   async setVisible(visible: boolean): Promise<void> {
     const generation = ++this.visibilityGeneration;

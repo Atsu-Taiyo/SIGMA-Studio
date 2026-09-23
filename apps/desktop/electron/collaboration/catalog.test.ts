@@ -32,7 +32,8 @@ async function fixture() {
     throw new Error(`UNEXPECTED_REQUEST ${route}`);
   });
   const open = vi.fn(async () => document);
-  const sessions: CatalogSessionsPort = { actorId: () => actor, request: request as CatalogSessionsPort["request"], bindings: () => [], has: () => false, open, initialize: vi.fn(), activate: vi.fn(), start: vi.fn(), flush: vi.fn(), retainLocal: vi.fn(), restrict: vi.fn() };
+  const sessions: CatalogSessionsPort = {
+    recoverLocked: vi.fn(async () => ({ saved: 0, failed: 0 })), actorId: () => actor, request: request as CatalogSessionsPort["request"], bindings: () => [], has: () => false, open, initialize: vi.fn(), activate: vi.fn(), start: vi.fn(), flush: vi.fn(), retainLocal: vi.fn(), restrict: vi.fn() };
   const emit = vi.fn();
   const catalog = new DesktopSharedCatalog(directory, local, sessions, emit);
   local.setLibraryAuthority(catalog.authority());

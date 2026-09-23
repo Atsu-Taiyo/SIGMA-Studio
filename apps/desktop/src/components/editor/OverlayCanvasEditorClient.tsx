@@ -2896,7 +2896,6 @@ export default function OverlayCanvasEditorClient({
             nextAnnotationLabelIdsByAnnotationId[entry.annotationId] = entry.shape.id;
           }
           nextGraph = withGraphAnnotationLabelTextShapeIds(nextGraph, nextAnnotationLabelIdsByAnnotationId);
-          nextGraph = clearMaterializedGraphLabelTexts(nextGraph);
           const changedPointLabelIds = [...nextPointIdsWithLabels].filter((pointId) => (
             previousPointLabelsByPointId.get(pointId) !== nextPointLabelsByPointId.get(pointId) &&
             Boolean(nextPointLabelIdsByPointId[pointId])
@@ -2913,6 +2912,8 @@ export default function OverlayCanvasEditorClient({
             createGraphAnnotationLabelShapeEntries(nextGraph, () => "", { annotationIds: changedAnnotationLabelIds })
               .map((entry) => [nextAnnotationLabelIdsByAnnotationId[entry.annotationId], entry.shape.props]),
           );
+          // Materialize changed text before removing the duplicate labels from the saved spec.
+          nextGraph = clearMaterializedGraphLabelTexts(nextGraph);
           const removeIdSet = new Set(removedLabelIds);
           const nextBeforeAxisSync = current
             .filter((shape) => !removeIdSet.has(shape.id))
@@ -7235,7 +7236,8 @@ function getEdgeResizeHandleStyle(handle: ResizeHandle, bounds: OverlayBounds): 
   }
   if (handle === "e" || handle === "w") {
     return {
-      "--overlay-resize-handle-length": `${getAdaptiveEdgeHandleLength(bounds.h)}px`,
+      "--overlay-resize-handle-length": `${Math.min(getAdaptiveEdgeHandleLength(bounds.h), Math.max(2, bounds.w * 0.4))}px`,
+      "--overlay-resize-handle-thickness": `${Math.min(5, Math.max(1, bounds.w * 0.1))}px`,
       top: `${getEdgeResizeHandleInsetPx(bounds.h)}px`,
       bottom: `${getEdgeResizeHandleInsetPx(bounds.h)}px`,
     } as CSSProperties;

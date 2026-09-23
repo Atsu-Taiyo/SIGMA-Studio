@@ -1186,9 +1186,21 @@ function buildImplicitFunctionPath(
   graphRange: GraphNumericRange,
   plotBox: GraphPlotBox,
 ): string {
+  return sampleImplicitCurveSegments(curve, spec, axisRange, graphRange, plotBox)
+    .map(({ a, b }) => `M${roundCoordinate(a.x)} ${roundCoordinate(a.y)} L${roundCoordinate(b.x)} ${roundCoordinate(b.y)}`)
+    .join(" ");
+}
+
+export function sampleImplicitCurveSegments(
+  curve: GraphCurve,
+  spec: Graph2DSpec,
+  axisRange: GraphNumericRange,
+  graphRange: GraphNumericRange,
+  plotBox: GraphPlotBox,
+): { a: { x: number; y: number }; b: { x: number; y: number } }[] {
   const xRange = resolveGraphCurveSamplingRange(curve, "implicit", graphRange);
   if (!xRange) {
-    return "";
+    return [];
   }
 
   const sampleCount = clampInteger(
@@ -1212,7 +1224,7 @@ function buildImplicitFunctionPath(
     grid.push(samples);
   }
 
-  const commands: string[] = [];
+  const segments: { a: { x: number; y: number }; b: { x: number; y: number } }[] = [];
   for (let row = 0; row < sampleCount; row += 1) {
     for (let column = 0; column < sampleCount; column += 1) {
       const bottomLeft = grid[row][column];
@@ -1232,14 +1244,12 @@ function buildImplicitFunctionPath(
         if (distance(start, end) <= 0.001) {
           continue;
         }
-        commands.push(
-          `M${roundCoordinate(start.x)} ${roundCoordinate(start.y)} L${roundCoordinate(end.x)} ${roundCoordinate(end.y)}`,
-        );
+        segments.push({ a: start, b: end });
       }
     }
   }
 
-  return commands.join(" ");
+  return segments;
 }
 
 interface ImplicitSamplePoint {

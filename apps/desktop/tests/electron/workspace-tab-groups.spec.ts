@@ -10,13 +10,15 @@ const PREPARED = existsSync(MAIN_ENTRY) && existsSync(path.join(APP_ROOT, "out/i
 async function dragTabToEdge(page: Page, tabName: string, targetGroupIndex: number, edge: "right" | "bottom") {
   const source = page.getByRole("tab", { name: tabName, exact: true });
   const target = page.locator(".workspace-tab-group").nth(targetGroupIndex);
+  const bounds = (await target.boundingBox())!;
+  const point = edge === "right"
+    ? { clientX: bounds.x + bounds.width - 12, clientY: bounds.y + bounds.height / 2 }
+    : { clientX: bounds.x + bounds.width / 2, clientY: bounds.y + bounds.height - 12 };
   const dataTransfer = await page.evaluateHandle(() => new DataTransfer());
   await source.dispatchEvent("dragstart", { dataTransfer });
-  await target.dispatchEvent("dragenter", { dataTransfer });
-  const zone = target.locator(`.workspace-tab-drop-zone--${edge}`);
-  await expect(zone).toBeVisible();
-  await zone.dispatchEvent("dragover", { dataTransfer });
-  await zone.dispatchEvent("drop", { dataTransfer });
+  await target.dispatchEvent("dragover", { dataTransfer, ...point });
+  await expect(target.locator(`.workspace-tab-drop-preview[data-edge="${edge}"]`)).toBeVisible();
+  await target.dispatchEvent("drop", { dataTransfer, ...point });
   await source.dispatchEvent("dragend", { dataTransfer });
 }
 
@@ -49,14 +51,14 @@ test("real Electron supports persisted three-way tab groups and untouched-draft 
     });
     await page.reload();
     await expect(page.locator(".workspace-tab-group")).toHaveCount(1, { timeout: 60_000 });
-    await expect(page.locator(".workspace-group-tab")).toHaveCount(3);
+    await expect(page.locator(".editor-menubar .workspace-tabs-row .workspace-tab")).toHaveCount(3);
     await expect(page.locator(".editor-menubar")).toHaveCount(1);
 
     await dragTabToEdge(page, "分割教材B", 0, "right");
     await expect(page.locator(".workspace-tab-group")).toHaveCount(2);
     await dragTabToEdge(page, "分割教材C", 0, "bottom");
     await expect(page.locator(".workspace-tab-group")).toHaveCount(3);
-    await expect(page.locator(".workspace-tab-drop-zone")).toHaveCount(0);
+    await expect(page.locator(".workspace-tab-drop-preview")).toHaveCount(0);
     const evidence = path.resolve(APP_ROOT, "../../tmp/collaboration-fixes-evidence");
     mkdirSync(evidence, { recursive: true });
     await expect(page.locator("[data-startup-splash]")).toHaveCount(0, { timeout: 60_000 });
@@ -80,7 +82,7 @@ test("real Electron supports persisted three-way tab groups and untouched-draft 
     }).not.toBeNull();
     const temporary = (await page.evaluate(() => window.desktopAPI!.storage.listFiles()))
       .find((file) => !beforeNewDocument.some((before) => before.fileId === file.fileId))!.fileId;
-    await page.locator(`[data-tab-id="document:${temporary}"] .workspace-group-tab-close`).click();
+    await page.locator(`[data-tab-id="document:${temporary}"] .document-tab-close`).click();
     await expect.poll(() => page.evaluate((fileId) => window.desktopAPI!.storage.listFiles().then((files) => files.some((file) => file.fileId === fileId)), temporary)).toBe(false);
 
     const beforeCloseDraft = await page.evaluate(() => window.desktopAPI!.storage.listFiles());
@@ -140,7 +142,7 @@ test("failed save keeps the current document and pane layout when splitting a ta
     await dragTabToEdge(page, "移動先B", 0, "right");
     await expect(page.getByText("TEST_SAVE_FAILURE", { exact: true })).toBeVisible();
     await expect(page.locator(".workspace-tab-group")).toHaveCount(1);
-    await expect(page.locator(".workspace-group-tab.active")).toContainText("保存元A");
+    await expect(page.locator(".workspace-tab.active")).toContainText("保存元A");
     await expect(body).toContainText("未保存の入力を保持");
   } finally {
     // This isolated fixture deliberately makes all saves fail; discard only its
