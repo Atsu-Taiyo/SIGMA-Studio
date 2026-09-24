@@ -5,6 +5,7 @@ import http from "node:http";
 import path from "node:path";
 
 import { z } from "zod";
+import { PROBLEM_SOLUTION_BRIDGE_PATH, ProblemSolutionRequestSchema, type ProblemSolutionResult } from "./problem-solution-client";
 
 import { SHAPE_PREVIEW_PADDING_PX } from "@/lib/ai/ai-edit-shape-preview";
 import { createCurrentLocaleTranslator } from "@/lib/i18n";
@@ -292,6 +293,7 @@ export type RenderSvgResult = RenderSvgSuccess | RenderPageContextFailure;
 
 export interface CreateAiRenderBridgeServerDeps {
   token: string;
+  getProblemSolution?: (request: { problemId: string }) => Promise<ProblemSolutionResult>;
   renderPageContext: (request: RenderPageContextRequest) => Promise<RenderPageContextResult>;
   renderSvg: (request: RenderSvgRequest) => Promise<RenderSvgResult>;
   parseDocument: (input: unknown) => unknown;
@@ -302,6 +304,7 @@ function sendJson(res: http.ServerResponse, statusCode: number, payload: unknown
   res.writeHead(statusCode, {
     "Content-Type": "application/json; charset=utf-8",
     "Content-Length": Buffer.byteLength(body),
+    "Cache-Control": "no-store",
   });
   res.end(body);
 }
@@ -361,7 +364,8 @@ export function createAiRenderBridgeServer(deps: CreateAiRenderBridgeServerDeps)
     void (async () => {
       const isPageContext = req.method === "POST" && req.url === RENDER_PAGE_CONTEXT_PATH;
       const isSvg = req.method === "POST" && req.url === RENDER_SVG_PATH;
-      if (!isPageContext && !isSvg) {
+      const isSolution = req.method === "POST" && req.url === PROBLEM_SOLUTION_BRIDGE_PATH;
+      if (!isPageContext && !isSvg && !isSolution) {
         sendJson(res, 404, { ok: false, error: "not found" });
         return;
       }
@@ -382,6 +386,22 @@ export function createAiRenderBridgeServer(deps: CreateAiRenderBridgeServerDeps)
         parsedJson = JSON.parse(bodyResult.body.toString("utf8"));
       } catch {
         sendJson(res, 400, { ok: false, error: ta("desktop.renderBridge.requestJsonFailed") });
+        return;
+      }
+
+      if (isSolution) {
+        const request = ProblemSolutionRequestSchema.safeParse(parsedJson);
+        if (!request.success) {
+          sendJson(res, 400, { ok: false, error: ta("problemSolution.invalidId") });
+          return;
+        }
+        try {
+          const result = await deps.getProblemSolution?.(request.data)
+            ?? { ok: false, error: ta("problemSolution.unconfigured") };
+          sendJson(res, result.ok ? 200 : 502, result);
+        } catch {
+          sendJson(res, 502, { ok: false, error: ta("problemSolution.connectionFailed") });
+        }
         return;
       }
 

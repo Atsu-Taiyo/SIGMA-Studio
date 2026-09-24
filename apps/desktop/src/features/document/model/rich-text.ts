@@ -8,6 +8,8 @@ export type InlineNode = TextInlineNode | MathInlineNode;
 export interface TextInlineNode {
   type: "text";
   text: string;
+  /** Stable recipient identity for a collaborator mention in a comment. */
+  mentionUserId?: string;
   marks?: TextMark[];
   color?: string;
   backgroundColor?: string;

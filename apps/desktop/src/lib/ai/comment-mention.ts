@@ -22,7 +22,8 @@ const MENTION_PATTERN = /(?:^|\s)@(codex|chatgpt|ai|claude|antigravity|agy)(?![\
  * コメント本文 (InlineNode[]) の最初の AI メンションを検出する。なければ null。
  */
 export function detectCommentAiMention(body: readonly InlineNode[]): CommentMentionMatch | null {
-  const text = inlineNodesToCommentText(body);
+  const text = inlineNodesToCommentText(body.map((node) =>
+    node.type === "text" && node.mentionUserId ? { type: "text", text: " " } : node));
   const match = MENTION_PATTERN.exec(text);
   if (!match) {
     return null;

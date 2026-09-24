@@ -24,6 +24,7 @@ export type McpToolCategory = (typeof MCP_TOOL_CATEGORIES)[number];
 export const MCP_TOOL_CATEGORY_MAP = {
   "文書探索": [
     "get_active_reference",
+    "get_problem_solution",
     "get_block",
     "get_blocks",
     "get_edit_context",

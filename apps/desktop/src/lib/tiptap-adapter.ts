@@ -142,6 +142,9 @@ export function inlineNodesToTiptapNodes(children: InlineNode[]): TiptapNode[] {
       const attrs = boxedMarkAttrs(child);
       return Object.keys(attrs).length ? { type: mark, attrs } : { type: mark };
     }) ?? [];
+    if (child.mentionUserId) {
+      marks.push({ type: "commentMention", attrs: { userId: child.mentionUserId } });
+    }
     const fontSize = normalizeFontSize(child.fontSize);
     const fontFamily = resolveDocumentFontFamily(child.fontFamily);
     if (child.color || child.backgroundColor || fontFamily || fontSize) {
@@ -178,6 +181,7 @@ export function tiptapNodesToInlineNodes(nodes: TiptapNode[]): InlineNode[] {
         getBoxedTextPaddingY(node),
         getBoxedTextVariant(node),
         getBoxedTextTone(node),
+        getCommentMentionUserId(node),
       );
       continue;
     }
@@ -280,6 +284,7 @@ function pushText(
   boxedPaddingY?: number,
   boxedVariant?: BoxedVariant,
   boxedTone?: BoxedTone,
+  mentionUserId?: string,
 ): void {
   const previous = nodes[nodes.length - 1];
   const normalizedMarks = marks?.length ? marks : undefined;
@@ -297,7 +302,8 @@ function pushText(
     previous.fontSize === normalizedFontSize &&
     previous.boxedPaddingY === normalizedBoxedPaddingY &&
     previous.boxedVariant === normalizedBoxedVariant &&
-    previous.boxedTone === normalizedBoxedTone
+    previous.boxedTone === normalizedBoxedTone &&
+    previous.mentionUserId === mentionUserId
   ) {
     previous.text += text;
     return;
@@ -306,6 +312,7 @@ function pushText(
   nodes.push({
     type: "text",
     text,
+    ...(mentionUserId ? { mentionUserId } : {}),
     ...(normalizedMarks ? { marks: normalizedMarks } : {}),
     ...(color ? { color } : {}),
     ...(backgroundColor ? { backgroundColor } : {}),
@@ -424,4 +431,9 @@ function normalizeBoxedTone(value: unknown): BoxedTone | undefined {
   return value === "gray" || value === "blue" || value === "green" || value === "red" || value === "yellow"
     ? value
     : undefined;
+}
+
+function getCommentMentionUserId(node: TiptapNode): string | undefined {
+  const value = node.marks?.find((mark) => mark.type === "commentMention")?.attrs?.userId;
+  return typeof value === "string" && value.length > 0 ? value : undefined;
 }
