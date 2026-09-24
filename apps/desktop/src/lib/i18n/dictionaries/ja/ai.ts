@@ -10,6 +10,20 @@
  * (WI-4 で実測)。
  */
 export const ai = {
+  problemSolution: {
+    loginRequired: "解答を取得するにはSigma Studioにログインしてください。",
+    invalidId: "問題IDが不正です。",
+    unconfigured: "解答APIの認証が未設定です。管理者に接続設定を確認してください。",
+    denied: "解答APIへのアクセスが許可されていません。認証設定を確認してください。",
+    notFound: "公開済みの問題または解答が見つかりません。",
+    rateLimited: "解答APIの利用制限に達しました。時間を置いて再試行してください。",
+    upstreamError: "解答APIでエラーが発生しました。",
+    invalidResponse: "解答APIの応答形式が不正です。",
+    emptyResponse: "解答APIの応答が空です。",
+    tooLarge: "解答APIの応答がサイズ上限を超えました。",
+    unsafeResponse: "解答APIの応答を安全に処理できませんでした。",
+    connectionFailed: "解答APIに接続できないか、応答を読み取れませんでした。",
+  },
   provider: {
     unknown: "不明なプロバイダ",
     unknownWithId: "不明なプロバイダ ({{id}})",

@@ -82,6 +82,24 @@ function merge(a: SharedDocument, b: SharedDocument) {
 }
 
 describe("shared document CRDT", () => {
+  it("syncs comment recipient identities, preserves them on reply, and removes them on edit", () => {
+    const [a, b] = replicas();
+    const body: ObjectValue[] = [{ type: "text", text: "@共同編集者", mentionUserId: "recipient" }, { type: "text", text: " 確認をお願いします" }];
+    edit(a, (value) => {
+      value.comments = [{ id: "thread", anchor: { type: "block", blockId: "p1" }, messages: [{ id: "message", body }] }];
+    });
+    merge(a, b);
+    const messages = (value: ObjectValue) => (value.comments as ObjectValue[])[0].messages as ObjectValue[];
+    edit(b, (value) => { messages(value).push({ id: "reply", body: [{ type: "text", text: "確認しました" }] }); });
+    edit(a, (value) => { setText(value, "更新した本文"); });
+    merge(a, b);
+    const reloaded = new SharedDocument(b.snapshot());
+    expect(messages(reloaded.project())[0].body).toEqual(body);
+    expect(messages(reloaded.project())).toHaveLength(2);
+    edit(reloaded, (value) => { messages(value)[0].body = [{ type: "text", text: "宛先なし" }]; });
+    merge(a, reloaded);
+    expect(messages(new SharedDocument(a.snapshot()).project())[0].body).toEqual([{ type: "text", text: "宛先なし" }]);
+  });
   it("merges table-cell text, problem solution, graph labels, and page settings independently after reload", () => {
     const value = initial();
     (value.content as ObjectValue[]).push({

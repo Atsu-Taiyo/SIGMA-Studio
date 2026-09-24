@@ -1,5 +1,6 @@
 import { app, BrowserWindow, ipcMain, Menu, nativeImage, shell, protocol } from "electron";
 import crypto from "node:crypto";
+import { fetchProblemSolution } from "./problem-solution-client";
 import { createInterface } from "node:readline";
 import { resolveDevServerUrl, isDevServerNavigation } from "./dev-server";
 import http from "node:http";
@@ -81,6 +82,9 @@ import { parseSigmaDocument } from "@/lib/sigma-doc-schema";
 import { createCurrentLocaleTranslator, setAppLocale } from "@/lib/i18n";
 
 const te = createCurrentLocaleTranslator("error");
+
+// The shared upstream credential belongs to Workers, never to desktop child processes.
+delete process.env.SIGMA_API_KEY;
 
 const APP_NAME = "Sigma Studio";
 const DIST_RENDERER_DIR = path.join(__dirname, "..", "out");
@@ -1669,6 +1673,7 @@ async function startAiRenderBridgeServer(): Promise<void> {
   const token = crypto.randomBytes(32).toString("hex");
   const server = createAiRenderBridgeServer({
     token,
+    getProblemSolution: (request) => fetchProblemSolution(request, collaborationSessions.auth),
     renderPageContext: renderAiPageContextPng,
     renderSvg: renderAiSvgPng,
     parseDocument: (input) => parseSigmaDocument(input),

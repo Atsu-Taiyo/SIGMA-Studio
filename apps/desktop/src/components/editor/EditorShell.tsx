@@ -589,6 +589,8 @@ const EMPTY_OVERLAY_SHAPES: OverlayShape[] = [];
 const EMPTY_COMMENT_THREADS: SigmaCommentThread[] = [];
 
 export interface EditorShellProps {
+  commentIdentity?: CommentPanelAuthor & { userId: string };
+  loadCommentMentionCandidates?: (fileId: string) => Promise<import("./comment-mentions").CommentMentionCandidate[]>;
   embeddedHost?: EmbeddedEditorHost;
   sessionHost?: DocumentSessionHost;
   renderDocumentActions?: (context: { fileId: string; document: SigmaDocument; getDocument: () => SigmaDocument; flush: () => Promise<unknown> }) => ReactNode;
@@ -615,7 +617,7 @@ function DocumentActionsSlot({ render, context }: {
   return render(context);
 }
 
-export function EditorShell({ embeddedHost, sessionHost, renderDocumentActions, accountAction }: EditorShellProps = {}) {
+export function EditorShell({ embeddedHost, sessionHost, renderDocumentActions, accountAction, commentIdentity, loadCommentMentionCandidates }: EditorShellProps = {}) {
   // **毎レンダーで呼ばない。** `createEmptyEditorDocument()` は文書 1 個分を
   // 組み立てる (旧 `emptyEditorDocument` は module 定数だった)。打鍵のたびに
   // 走ると perf 予算 `typing.longTasksPerChar` を割る。
@@ -631,7 +633,7 @@ export function EditorShell({ embeddedHost, sessionHost, renderDocumentActions, 
 
   return (
     <EditorStoreProvider store={editorStore}>
-      <EditorShellBody embeddedHost={embeddedHost} sessionHost={sessionHost} renderDocumentActions={renderDocumentActions} accountAction={accountAction} editorStore={editorStore} />
+      <EditorShellBody embeddedHost={embeddedHost} sessionHost={sessionHost} renderDocumentActions={renderDocumentActions} accountAction={accountAction} commentIdentity={commentIdentity} loadCommentMentionCandidates={loadCommentMentionCandidates} editorStore={editorStore} />
     </EditorStoreProvider>
   );
 }
@@ -709,7 +711,7 @@ function canScrollWithin(
   return false;
 }
 
-function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, accountAction, editorStore }: EditorShellProps & { editorStore: EditorStore }) {
+function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, accountAction, commentIdentity, loadCommentMentionCandidates, editorStore }: EditorShellProps & { editorStore: EditorStore }) {
   countPerformanceEvent("EditorShell.render");
   // クロームの文言。`renderEditorChrome` は hook を呼べないので、ここで解決して
   // `chrome.shared.t` から配る。同一ロケール内では参照が変わらない。
@@ -1196,7 +1198,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, acc
   const highlightedCommentThreadId = useStore(editorStore, (state) => state.highlightedCommentThreadId);
   const [commentsPanelOpen, setCommentsPanelOpen] = useState(() => !isWhiteboardDocument);
   const [showResolvedComments, setShowResolvedComments] = useState(false);
-  const commentAuthor = COMMENT_AUTHOR;
+  const commentAuthor = commentIdentity ?? COMMENT_AUTHOR;
   const [overlayEditing, setOverlayEditing] = useState(false);
   const [overlayModeStatus, setOverlayModeStatus] = useState<OverlayModeStatus | null>(null);
   const [runningRegionEditingKind, setRunningRegionEditingKind] = useState<"header" | "footer" | null>(null);
@@ -6603,7 +6605,10 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, acc
     void reloadFailedDocument();
   }, [reloadFailedDocument]);
 
-  const commentPanelProps = useMemo(() => ({
+  const loadMentionCandidates = useMemo(() => loadCommentMentionCandidates
+    ? () => loadCommentMentionCandidates(activeFileId)
+    : undefined, [activeFileId, loadCommentMentionCandidates]);
+  const commentPanelBaseProps = useMemo(() => ({
     activeThreadId: activeCommentThreadId,
     author: commentAuthor,
     candidateAnchor: currentCommentAnchor,
@@ -6654,6 +6659,8 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, acc
     updateCommentResolved,
     visibleCommentThreadsForPanel,
   ]);
+
+  const commentPanelProps = { ...commentPanelBaseProps, loadMentionCandidates, currentUserId: commentIdentity?.userId };
 
   if (ledgerFailure) {
     return (

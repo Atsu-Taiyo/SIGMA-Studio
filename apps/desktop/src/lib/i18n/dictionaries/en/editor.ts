@@ -633,6 +633,12 @@ export const editor = {
     },
   },
   comment: {
+    mentionMembers: "Mention a collaborator",
+    mentionLoading: "Loading collaborators…",
+    mentionEmpty: "No matching collaborators",
+    mentionError: "Could not load collaborators",
+    mentionsYou: "Mentions you",
+
     none: "No comments yet",
     emptyHint: "Select a shape or text, then choose Add comment.",
     resolved: "Resolved",
