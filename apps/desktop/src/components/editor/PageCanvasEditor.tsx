@@ -5340,7 +5340,8 @@ function PageCanvasEditorImpl({
                     }
                   }}
                 >
-                  <GripVertical size={handle.columnLaneWidthPx && handle.columnLaneWidthPx < 14 ? 12 : 14} aria-hidden="true" />
+                  {/* 段間のレーンではアイコンもレーン幅に収める (はみ出すと列境界の線に当たる)。 */}
+                  <GripVertical size={handle.columnLaneWidthPx ? Math.min(14, handle.columnLaneWidthPx) : 14} aria-hidden="true" />
                 </button>
               ))}
               {blockAffordancesEnabled && visibleSpaceAfterHandles.map((handle) => (
