@@ -1769,7 +1769,7 @@ describe("sigma-doc-mcp-server new read/write tools", () => {
     return result.revision;
   }
 
-  async function seedTextShape(fileId: string, fixed = false): Promise<number> {
+  async function seedTextShape(fileId: string, fixed = false, kind: "text" | "callout" = "text"): Promise<number> {
     const store = new LocalSigmaDocStore(userDataDir);
     const document = await store.loadDocument(fileId);
     if (!document) {
@@ -1782,7 +1782,7 @@ describe("sigma-doc-mcp-server new read/write tools", () => {
     const result = executeSigmaDocAgentDraftTool(session, "draft_insert_shape", {
       targetId: "problem_complex_square_product_range",
       id: "text_for_update",
-      kind: "text",
+      kind,
       x: 40,
       y: 400,
       text: "短い",
@@ -3541,6 +3541,27 @@ describe("sigma-doc-mcp-server new read/write tools", () => {
     // One line of content is one line of box. Wrapping is the editor's to measure; this process
     // has no DOM and only keeps the stored height from being shorter than the content's own lines.
     expect(props).toMatchObject({ h: 16 });
+  });
+
+  it.each(["text", "callout"] as const)("update_shape overrides existing %s inline sizes instead of reporting an invisible size change", async (kind) => {
+    const fileId = await getFileId();
+    await seedTextShape(fileId, false, kind);
+    const store = new LocalSigmaDocStore(userDataDir);
+    const document = (await store.loadDocument(fileId))!;
+    const shape = document.pageLayout!.overlay!.overlaySnapshot!.shapes.find((item) => item.id === "text_for_update")!;
+    if (shape.type !== "text" && shape.type !== "callout") throw new Error("expected text shape");
+    shape.props.blocks = [{ type: "paragraph", id: "sized_run", children: [
+      { type: "text", text: "短い", fontSize: 9, fontFamily: "serif", marks: ["bold"] },
+    ] }];
+    const saved = await saveAtCurrentRevision(store, fileId, document);
+    const result = extractPayload(await client.callTool({ name: "update_shape", arguments: {
+      fileId, shapeId: shape.id, fontSize: 18, expectedRevision: saved.revision,
+    } }));
+    expect(result.ok).toBe(true);
+    const patch = await getProposalUpdateOverlayShapePatch(fileId);
+    expect(patch.props).toMatchObject({ fontSize: 18, blocks: [{ children: [
+      { text: "短い", fontSize: 18, fontFamily: "serif", marks: ["bold"] },
+    ] }] });
   });
 
   it("update_shape remeasures the text height after a fontSize change", async () => {
