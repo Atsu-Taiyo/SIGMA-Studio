@@ -3335,11 +3335,11 @@ function normalizePaginationInput(input: unknown): PaginationHints | undefined {
 
 function normalizeAiInlineContent(source: Record<string, unknown>): InlineNode[] {
   if (Array.isArray(source.children)) {
-    return normalizeAiInlineNodes(source.children);
+    return normalizeAiInlineNodes(source.children, source);
   }
 
   if (Array.isArray(source.runs)) {
-    return normalizeAiInlineNodes(source.runs);
+    return normalizeAiInlineNodes(source.runs, source);
   }
 
   const children: InlineNode[] = [];
@@ -3353,10 +3353,16 @@ function normalizeAiInlineContent(source: Record<string, unknown>): InlineNode[]
   return children.length > 0 ? children : [{ type: "text", text: "" }];
 }
 
-function normalizeAiInlineNodes(input: unknown[]): InlineNode[] {
+function normalizeAiInlineNodes(input: unknown[], source: Record<string, unknown> = {}): InlineNode[] {
+  // AI-friendly blocks may carry typography for all their runs. Store it on the canonical
+  // inline nodes, where rendering and saving actually read it; explicit run values win.
+  const typography = {
+    ...(typeof source.fontFamily === "string" ? { fontFamily: source.fontFamily } : {}),
+    ...(source.fontSize !== undefined ? { fontSize: source.fontSize } : {}),
+  };
   const children = input.flatMap((node): InlineNode[] => {
     if (typeof node === "string") {
-      return createTextInlinesWithDelimitedMath(node, {});
+      return createTextInlinesWithDelimitedMath(node, typography);
     }
 
     if (!isRecord(node)) {
@@ -3364,11 +3370,11 @@ function normalizeAiInlineNodes(input: unknown[]): InlineNode[] {
     }
 
     if (node.type === "math" || node.type === "mathInline" || typeof node.tex === "string") {
-      return [createMathInline(typeof node.tex === "string" ? node.tex : "", node.id, node)];
+      return [createMathInline(typeof node.tex === "string" ? node.tex : "", node.id, { ...typography, ...node })];
     }
 
     if (node.type === "text" || typeof node.text === "string") {
-      return createTextInlinesWithDelimitedMath(typeof node.text === "string" ? node.text : "", node);
+      return createTextInlinesWithDelimitedMath(typeof node.text === "string" ? node.text : "", { ...typography, ...node });
     }
 
     return [];

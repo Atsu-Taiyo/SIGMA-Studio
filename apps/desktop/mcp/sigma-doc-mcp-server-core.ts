@@ -1807,11 +1807,14 @@ function createTextShapeUpdateProps(
       ...(typeof label === "string" ? { label } : {}),
     })
     : null;
-  const blocks = typeof markdown === "string"
+  const contentBlocks = typeof markdown === "string"
     ? createShapeToolMarkdownBlocks(markdown)
     : inlineContent
       ? inlineNodesToOverlayTextBlocks(inlineContent)
       : shape.props.blocks;
+  const blocks = typeof fontSize === "number"
+    ? formatOverlayTextBlocks(contentBlocks, { fontSize })
+    : contentBlocks;
   const nextWidth = typeof w === "number" ? w : shape.props.w;
   // The stored height is a cache of the measured DOM, and this process has no DOM. What it can do
   // is keep the cache from being *too small* after a change that adds lines or grows the type —
@@ -1832,7 +1835,7 @@ function createTextShapeUpdateProps(
 
   return {
     ...definedOtherProps,
-    ...(hasRichContentChange ? { blocks } : {}),
+    ...(hasRichContentChange || typeof fontSize === "number" ? { blocks } : {}),
     ...(size === undefined ? {} : { size: nextSize }),
     ...(fontSize === undefined ? {} : { fontSize: nextFontSize }),
     ...(typeof w === "number" ? { w: nextWidth } : {}),
@@ -1841,7 +1844,7 @@ function createTextShapeUpdateProps(
 }
 
 function createCalloutShapeUpdateProps(
-  _shape: Extract<OverlayShape, { type: "callout" }>,
+  shape: Extract<OverlayShape, { type: "callout" }>,
   changes: Record<string, unknown>,
 ): JsonObject {
   const {
@@ -1869,9 +1872,13 @@ function createCalloutShapeUpdateProps(
       })
     : null;
 
+  const contentBlocks = inlineContent ? inlineNodesToOverlayTextBlocks(inlineContent) : shape.props.blocks;
+  const blocks = typeof fontSize === "number"
+    ? formatOverlayTextBlocks(contentBlocks, { fontSize })
+    : contentBlocks;
   return {
     ...Object.fromEntries(Object.entries(otherProps).filter(([, value]) => value !== undefined)),
-    ...(inlineContent ? { blocks: inlineNodesToOverlayTextBlocks(inlineContent) } : {}),
+    ...(inlineContent || typeof fontSize === "number" ? { blocks } : {}),
     ...(typeof w === "number" ? { w } : {}),
     ...(typeof h === "number" ? { h } : {}),
     ...(typeof fontSize === "number" ? { fontSize } : {}),
@@ -4511,7 +4518,7 @@ registerTool(
       tex: z.string().optional(),
       markdown: z.string().optional().describe('kind:textの複数段落リッチテキスト。insert_body_contentと同じMarkdown規則(見出し・リスト・$...$数式)。text/tex/labelとは併用不可。'),
       size: z.enum(["s", "m", "l", "xl"]).optional(),
-      fontSize: z.number().positive().optional().describe("text/calloutの文字サイズ(pt)。textの高さはこれに合わせて導出し直します。"),
+      fontSize: z.number().positive().optional().describe("text/callout全体の文字サイズ(pt)。既存の個別文字サイズも更新します。textの高さはこれに合わせて導出し直します。"),
       arrowheadStart: z.enum(OVERLAY_ARROWHEADS).optional().describe("線分の始端マーカーだけを部分更新します(insert_shapeと同じ値域)。位置・長さ・色・反対側の端点は保持されます。line(線)・arrow(矢印)・arc(弧)にのみ指定できます。"),
       arrowheadEnd: z.enum(OVERLAY_ARROWHEADS).optional().describe("線分の終端マーカーだけを部分更新します(insert_shapeと同じ値域)。例: 既存の直線の右端だけ矢印にする場合は arrowheadEnd:\"arrow\" のみを指定します(delete_shapes+insert_shapeで作り直さないでください)。"),
       points: z.array(OverlayPointInputSchema).min(2).max(256).optional().describe("line(線・折れ線・曲線・フリーハンド)の点列を丸ごと置き換えます。insert_shapeと同じ絶対座標(ページ左上基準)で、図形の現在位置からの相対ではありません。1頂点だけ動かす場合も全点を渡してください。先頭点が図形の新しい位置になります。多点のフリーハンドを編集できるよう上限は256点です。line以外の図形に指定するとエラーになります。"),

@@ -33,6 +33,23 @@ const PNG_2X2_BASE64 =
   "iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAEElEQVR4nGP4z8AARAwQCgAf7gP9i18U1AAAAABJRU5ErkJggg==";
 
 describe("SigmaDoc draft mutation tools", () => {
+  it.each(["runs", "children"])("inherits block typography into AI %s while preserving explicit run overrides", (key) => {
+    const session = createSigmaDocAgentSession({ document: createDocument(), selectedId: "p_1" });
+    const result = executeSigmaDocAgentDraftTool(session, "draft_insert_body_content", {
+      targetId: "p_1",
+      blocks: [{ type: "paragraph", id: "styled_ai", fontFamily: "serif", fontSize: 18,
+        [key]: ["文章 $x$", { type: "math", tex: "y" }, { text: "注記", fontSize: 9, fontFamily: "sans-serif" }],
+      }],
+    });
+    expect(result.ok).toBe(true);
+    expect(session.draftDocument.content.at(-1)).toMatchObject({ children: [
+      { type: "text", fontFamily: "serif", fontSize: 18 },
+      { type: "mathInline", fontFamily: "serif", fontSize: 18 },
+      { type: "mathInline", fontFamily: "serif", fontSize: 18 },
+      { type: "text", fontFamily: "sans-serif", fontSize: 9 },
+    ] });
+  });
+
   it("copy-with replaces text while preserving the source run formatting", () => {
     const document = createDocument([{
       type: "paragraph",
