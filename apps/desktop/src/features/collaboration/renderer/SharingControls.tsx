@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState, useSyncExternalStore } from "react";
+import { useEffect, useState, useSyncExternalStore, type ReactNode } from "react";
 import {
   Check,
   Cloud,
@@ -99,6 +99,12 @@ export function SharingControls({ context, info, session, refresh }: Props) {
         .then(setMembers)
         .catch(() => setError(true));
   }, [open, session, context.fileId, bridge]);
+  // Owners open this dialog to back up or restore; list what exists right away.
+  const owner = session?.role === "owner";
+  useEffect(() => {
+    if (open && owner && bridge)
+      void bridge.backups(context.fileId).then(setBackups).catch(() => setError(true));
+  }, [open, owner, context.fileId, bridge]);
   if (!bridge) return null;
   const roleOptions = [
     { value: "editor", label: t("collaboration.editor") },
@@ -148,10 +154,10 @@ export function SharingControls({ context, info, session, refresh }: Props) {
             )}
           </span>
         )}
-        <Button size="sm" tone="ghost" onClick={() => catalog ? setCatalogOpen(true) : setOpen(true)}>
-          <Share2 size={15} />
+        <button type="button" className={styles.shareButton} onClick={() => catalog ? setCatalogOpen(true) : setOpen(true)}>
+          <Share2 size={14} aria-hidden="true" />
           {t("collaboration.share")}
-        </Button>
+        </button>
       </Inline>
       {catalogOpen && catalog && <WorkspaceSharingDialog target={target} name={context.document.metadata.title}
         onClose={() => setCatalogOpen(false)} onChanged={() => void refresh()}
@@ -178,7 +184,7 @@ export function SharingControls({ context, info, session, refresh }: Props) {
                 ? t("collaboration.confirmRestore")
                 : ending
                   ? t("collaboration.confirmEnd")
-                  : t(catalog ? "collaboration.details" : "collaboration.title")
+                  : t(catalog ? "collaboration.detailsTitle" : "collaboration.title")
           }
           onClose={close}
         />
@@ -275,9 +281,9 @@ export function SharingControls({ context, info, session, refresh }: Props) {
               </>
             ) : session ? (
               <>
-                <Inline gap="sm">
-                  <Cloud size={16} />
-                  <span>{t(`collaboration.status.${status}`)}</span>
+                <Inline gap="sm" className={styles.syncRow}>
+                  <Cloud size={16} aria-hidden="true" />
+                  <span className={styles.member}>{t(`collaboration.status.${status}`)}</span>
                   <IconButton
                     label={t("collaboration.retry")}
                     tone="ghost"
@@ -304,6 +310,8 @@ export function SharingControls({ context, info, session, refresh }: Props) {
                       </span>
                       {session.role === "owner" && member.role !== "owner" ? (
                         <Select
+                          className={styles.roleSelect}
+                          menuWidth="auto"
                           value={member.role}
                           disabled={busy}
                           aria-label={t("collaboration.members")}
@@ -341,7 +349,9 @@ export function SharingControls({ context, info, session, refresh }: Props) {
                   <Stack gap="sm">
                     <Inline gap="sm">
                       <Select
-                        aria-label={t("collaboration.invitation")}
+                        className={styles.roleField}
+                        menuWidth="auto"
+                        aria-label={t("collaboration.inviteRole")}
                         value={role}
                         options={roleOptions}
                         onChange={(value) =>
@@ -428,9 +438,7 @@ export function SharingControls({ context, info, session, refresh }: Props) {
                     </Button>
                   </Stack>
                 )}
-                <details className={styles.details} open={Boolean(catalog)}>
-                  <summary>{t("collaboration.details")}</summary>
-                  <Stack gap="md">
+                <DetailsDisclosure collapsible={!catalog} summary={t("collaboration.details")}>
                     <Button
                       disabled={busy}
                       onClick={() =>
@@ -441,8 +449,10 @@ export function SharingControls({ context, info, session, refresh }: Props) {
                     </Button>
                     {session.role === "owner" && (
                       <>
-                        <Inline gap="sm">
+                        <Inline gap="sm" justify="between" className={styles.syncRow}>
+                          <span className={styles.caption}>{t("collaboration.backups")}</span>
                           <Button
+                            size="sm"
                             disabled={busy || status !== "saved"}
                             onClick={() =>
                               void run(async () => {
@@ -455,19 +465,6 @@ export function SharingControls({ context, info, session, refresh }: Props) {
                           >
                             <History size={15} />
                             {t("collaboration.backup")}
-                          </Button>
-                          <Button
-                            tone="ghost"
-                            disabled={busy}
-                            onClick={() =>
-                              void run(async () =>
-                                setBackups(
-                                  await bridge.backups(context.fileId),
-                                ),
-                              )
-                            }
-                          >
-                            {t("collaboration.backups")}
                           </Button>
                         </Inline>
                         {backups.map((backup) => (
@@ -515,8 +512,7 @@ export function SharingControls({ context, info, session, refresh }: Props) {
                         </Button>
                       )}
                     </Inline>}
-                  </Stack>
-                </details>
+                </DetailsDisclosure>
               </>
             ) : (
               <>
@@ -573,7 +569,7 @@ export function SharingControls({ context, info, session, refresh }: Props) {
                 )}
               </>
             )}
-            {info.user && !ending && !restoring && (
+            {!catalog && info.user && !ending && !restoring && (
               <Inline gap="sm">
                 <span className={styles.member}>{collaborationProfileLabel(info.user, t("collaboration.googleAccount"))}</span>
                 <IconButton
@@ -596,5 +592,16 @@ export function SharingControls({ context, info, session, refresh }: Props) {
         </ModalBody>
       </ModalFrame>
     </>
+  );
+}
+
+/** The legacy dialog folds rare actions away; the catalog details dialog is already "details". */
+function DetailsDisclosure({ collapsible, summary, children }: { collapsible: boolean; summary: string; children: ReactNode }) {
+  if (!collapsible) return <Stack gap="md">{children}</Stack>;
+  return (
+    <details className={styles.details}>
+      <summary>{summary}</summary>
+      <Stack gap="md">{children}</Stack>
+    </details>
   );
 }

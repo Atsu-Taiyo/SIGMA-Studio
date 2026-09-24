@@ -121,7 +121,6 @@ const EDITOR_CHROME_CLASSES = new Set([
   "print-preview-page-nav-scaler",
   "print-preview-page-nav-viewport",
   "print-preview-page-navigator",
-  "print-preview-thumbnail",
   "print-sheet",
   "print-status-toast",
   "print-status-toast-close",

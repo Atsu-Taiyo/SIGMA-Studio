@@ -14,16 +14,21 @@ import {
   PRO_PLAN,
   PRO_PLAN_FEATURES,
   type CollaborationPlanState,
+  type PlanPaywallReason,
 } from "../model/plan";
 import styles from "./plan.module.css";
 
 /**
  * Paywall comparing the free and Pro plans side by side. It only presents the
  * plans: without `onUpgrade` the checkout action stays disabled until billing ships.
+ *
+ * Opened by a blocked action (`reason` other than `account`), the heading states
+ * what was blocked and why, so the explanation lives where the upgrade is offered
+ * instead of in an inline notice before the attempt.
  */
 export function CollaborationPlanDialog({ plan, reason = "account", layer, onClose, onUpgrade, billingAvailable = false }: {
   plan: Exclude<CollaborationPlanState, "unavailable">;
-  reason?: "account" | "hierarchyShare" | "documentLimit";
+  reason?: "account" | PlanPaywallReason;
   layer?: "base" | "nested";
   onClose: () => void;
   onUpgrade?: () => void;
@@ -41,53 +46,56 @@ export function CollaborationPlanDialog({ plan, reason = "account", layer, onClo
   return (
     <ModalFrame open onDismiss={onClose} size="lg" layer={layer}>
       <ModalHeader
-        title={t("collaboration.plan.title")}
-        description={t(reason === "documentLimit" ? "collaboration.plan.documentLimit" : reason === "hierarchyShare" ? "collaboration.plan.hierarchyRequired" : "collaboration.plan.description")}
+        title={reason === "account" ? t("collaboration.plan.title") : t(`collaboration.plan.reasons.${reason}.title`)}
+        description={reason === "account" ? t("collaboration.plan.description") : t(`collaboration.plan.reasons.${reason}.body`)}
         onClose={onClose}
+        data-paywall-reason={reason}
       />
       <ModalBody>
-        <p>{t("collaboration.plan.trialTerms")}</p>
-        {error && <p role="alert">{t("collaboration.error")}</p>}
-        {plan !== "free" && <Button disabled={busy || !upgrade} onClick={upgrade}>{t("collaboration.plan.manageBilling")}</Button>}
-        <div className={styles.plans}>
-          <PlanCard
-            mark={<PlanMark particles={FREE_PARTICLES} />}
-            name={t("collaboration.plan.free.name")}
-            tagline={t("collaboration.plan.free.tagline")}
-            price={formatUsd(FREE_PLAN.priceUsd)}
-            priceNote={billingPeriod}
-            action={plan === "free" ? (
-              <Button size="lg" className={styles.cta} disabled>{t("collaboration.plan.currentPlan")}</Button>
-            ) : null}
-            featuresLabel={t("collaboration.plan.free.featuresLabel")}
-            features={FREE_PLAN_FEATURES.map((feature) => t(`collaboration.plan.free.features.${feature}`))}
-          />
-          <PlanCard
-            emphasized
-            mark={<PlanMark particles={PRO_PARTICLES} />}
-            name={t("collaboration.plan.pro.name")}
-            tagline={t("collaboration.plan.pro.tagline")}
-            price={formatUsd(PRO_PLAN.priceUsd)}
-            priceNote={<>{billingPeriod}<span>{t("collaboration.plan.perUser")}</span></>}
-            action={plan === "pro" ? (
-              <Inline gap="sm" justify="center" className={styles.status} role="status">
-                <Check size={16} aria-hidden="true" />
-                {t("collaboration.plan.proActive")}
-              </Inline>
-            ) : (
-              <Stack gap="sm">
-                <Button tone="primary" size="lg" className={styles.cta} disabled={busy || !upgrade} onClick={upgrade}>
-                  <Sparkles size={16} aria-hidden="true" />
-                  {t("collaboration.plan.upgrade")}
-                </Button>
-                {!upgrade && <span className={styles.note}>{t("collaboration.plan.checkoutPending")}</span>}
-                {plan === "trial" && <span className={styles.note}>{t("collaboration.plan.trialActive")}</span>}
-              </Stack>
-            )}
-            featuresLabel={t("collaboration.plan.pro.featuresLabel")}
-            features={PRO_PLAN_FEATURES.map((feature) => t(`collaboration.plan.pro.features.${feature}`, { limit: PRO_PLAN.collaboratorLimit }))}
-          />
-        </div>
+        <Stack gap="lg">
+          {error && <p role="alert" className={styles.error}>{t("collaboration.error")}</p>}
+          {plan !== "free" && <Button disabled={busy || !upgrade} onClick={upgrade}>{t("collaboration.plan.manageBilling")}</Button>}
+          <div className={styles.plans}>
+            <PlanCard
+              mark={<PlanMark particles={FREE_PARTICLES} />}
+              name={t("collaboration.plan.free.name")}
+              tagline={t("collaboration.plan.free.tagline")}
+              price={formatUsd(FREE_PLAN.priceUsd)}
+              priceNote={billingPeriod}
+              action={plan === "free" ? (
+                <Button size="lg" className={styles.cta} disabled>{t("collaboration.plan.currentPlan")}</Button>
+              ) : null}
+              featuresLabel={t("collaboration.plan.free.featuresLabel")}
+              features={FREE_PLAN_FEATURES.map((feature) => t(`collaboration.plan.free.features.${feature}`))}
+            />
+            <PlanCard
+              emphasized
+              mark={<PlanMark particles={PRO_PARTICLES} />}
+              name={t("collaboration.plan.pro.name")}
+              tagline={t("collaboration.plan.pro.tagline")}
+              price={formatUsd(PRO_PLAN.priceUsd)}
+              priceNote={<>{billingPeriod}<span>{t("collaboration.plan.perUser")}</span></>}
+              action={plan === "pro" ? (
+                <Inline gap="sm" justify="center" className={styles.status} role="status">
+                  <Check size={16} aria-hidden="true" />
+                  {t("collaboration.plan.proActive")}
+                </Inline>
+              ) : (
+                <Stack gap="sm">
+                  <Button tone="primary" size="lg" className={styles.cta} disabled={busy || !upgrade} onClick={upgrade}>
+                    <Sparkles size={16} aria-hidden="true" />
+                    {t("collaboration.plan.upgrade")}
+                  </Button>
+                  {!upgrade && <span className={styles.note}>{t("collaboration.plan.checkoutPending")}</span>}
+                  {plan === "trial" && <span className={styles.note}>{t("collaboration.plan.trialActive")}</span>}
+                </Stack>
+              )}
+              featuresLabel={t("collaboration.plan.pro.featuresLabel")}
+              features={PRO_PLAN_FEATURES.map((feature) => t(`collaboration.plan.pro.features.${feature}`, { limit: PRO_PLAN.collaboratorLimit }))}
+            />
+          </div>
+          <p className={styles.terms}>{t("collaboration.plan.trialTerms")}</p>
+        </Stack>
       </ModalBody>
     </ModalFrame>
   );

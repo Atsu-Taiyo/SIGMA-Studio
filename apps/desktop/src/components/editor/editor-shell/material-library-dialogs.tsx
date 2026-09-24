@@ -1,6 +1,6 @@
 "use client";
 
-import { Loader2, MoreHorizontal, PlusCircle, Search, X } from "lucide-react";
+import { Library, Loader2, MoreHorizontal, Plus, PlusCircle, Search, X } from "lucide-react";
 
 import { MaterialContentPreview, MaterialPreview } from "@/components/editor/MaterialPreview";
 import { useT } from "@/lib/i18n/react";
@@ -14,12 +14,7 @@ export function MaterialLibraryDialogs({ controller }: { controller: MaterialLib
   const {
     materialLibraryOpen,
     setMaterialLibraryOpen,
-    materialNameDraft,
-    setMaterialNameDraft,
-    materialDescriptionDraft,
-    setMaterialDescriptionDraft,
     materialsLoading,
-    saveSelectedMaterial,
     materialSearch,
     setMaterialSearch,
     materialError,
@@ -48,7 +43,9 @@ export function MaterialLibraryDialogs({ controller }: { controller: MaterialLib
     confirmMaterialAddDialog,
     materialAddDraft,
     setMaterialAddDraft,
+    openMaterialAddDialog,
   } = controller;
+  const searching = materialSearch.trim().length > 0;
 
   return (
     <>
@@ -70,46 +67,52 @@ export function MaterialLibraryDialogs({ controller }: { controller: MaterialLib
                 <X size={16} />
               </button>
             </header>
-            <div className="material-library-create">
-              <input
-                type="text"
-                value={materialNameDraft}
-                placeholder={tE("material.name")}
-                aria-label={tE("material.name")}
-                onChange={(event) => setMaterialNameDraft(event.target.value)}
-              />
-              <input
-                type="text"
-                value={materialDescriptionDraft}
-                placeholder={tE("material.usage")}
-                aria-label={tE("material.usageAria")}
-                onChange={(event) => setMaterialDescriptionDraft(event.target.value)}
-              />
-              <button type="button" className="button primary" disabled={materialsLoading} onClick={() => void saveSelectedMaterial()}>
-                {materialsLoading ? <Loader2 className="save-state-spinner" size={14} /> : <PlusCircle size={15} />}
+            <div className="material-library-toolbar">
+              <label className="material-library-search">
+                <Search size={15} aria-hidden="true" />
+                <input
+                  type="search"
+                  value={materialSearch}
+                  placeholder={tE("material.search")}
+                  aria-label={tE("material.search")}
+                  onChange={(event) => setMaterialSearch(event.target.value)}
+                />
+              </label>
+              {/* 名前や使う場面は追加ダイアログでプレビューを見ながら決める。一覧の上に常設の入力欄は置かない。 */}
+              <button type="button" className="button secondary material-library-add" disabled={materialsLoading} onClick={() => openMaterialAddDialog()}>
+                <Plus size={15} aria-hidden="true" />
                 {tE("material.saveSelection")}
               </button>
-            </div>
-            <div className="material-library-search">
-              <Search size={15} />
-              <input
-                type="search"
-                value={materialSearch}
-                placeholder={tE("material.search")}
-                aria-label={tE("material.search")}
-                onChange={(event) => setMaterialSearch(event.target.value)}
-              />
             </div>
             {materialError && <p className="material-library-error" role="alert">{materialError}</p>}
             <div className="material-library-list">
               {materialsLoading && materials.length === 0 ? (
-                <div className="material-library-empty">{tE("material.loading")}</div>
+                [0, 1, 2, 3].map((index) => (
+                  <div className="material-library-item material-library-item--loading" key={index} aria-hidden="true">
+                    <span className="ui-shimmer-surface" />
+                    <span className="ui-shimmer-surface" />
+                  </div>
+                ))
               ) : visibleMaterials.length === 0 ? (
-                <div className="material-library-empty">{tE("material.empty")}</div>
+                <div className="material-library-empty">
+                  <span className="material-library-empty-icon" aria-hidden="true"><Library size={20} /></span>
+                  <strong>{tE(searching ? "material.noMatches" : "material.empty")}</strong>
+                  {!searching && <span>{tE("material.emptyHint")}</span>}
+                </div>
               ) : (
-                  visibleMaterials.map((material) => (
+                  visibleMaterials.map((material) => {
+                    const labels = [...(material.tags ?? []), ...(material.visualConcepts ?? [])].slice(0, 3);
+                    return (
                     <article className="material-library-item" key={material.id}>
-                      <MaterialPreview material={material} />
+                      <button
+                        type="button"
+                        className="material-library-item-insert"
+                        aria-label={tE("material.insertNamed", { name: material.name })}
+                        title={tE("material.insertNamed", { name: material.name })}
+                        onClick={() => insertMaterialFromDialog(material)}
+                      >
+                        <MaterialPreview material={material} />
+                      </button>
                       <div className="material-library-item-main">
                         <div className="material-library-item-title">
                           <strong>{material.name}</strong>
@@ -118,17 +121,10 @@ export function MaterialLibraryDialogs({ controller }: { controller: MaterialLib
                         {material.description && (
                           <p className="material-library-item-desc">{material.description}</p>
                         )}
-                        {material.tags && material.tags.length > 0 && (
+                        {labels.length > 0 && (
                           <div className="material-library-item-tags">
-                            {material.tags.slice(0, 4).map((tag) => (
-                              <span className="material-library-tag" key={tag}>{tag}</span>
-                            ))}
-                          </div>
-                        )}
-                        {material.visualConcepts && material.visualConcepts.length > 0 && (
-                          <div className="material-library-item-tags">
-                            {material.visualConcepts.slice(0, 4).map((concept) => (
-                              <span className="material-library-tag semantic" key={concept}>{concept}</span>
+                            {labels.map((label) => (
+                              <span className="material-library-tag" key={label}>{label}</span>
                             ))}
                           </div>
                         )}
@@ -143,11 +139,12 @@ export function MaterialLibraryDialogs({ controller }: { controller: MaterialLib
                           aria-expanded={materialActionMenu?.materialId === material.id}
                           onClick={(event) => openMaterialActionMenu(event, material)}
                         >
-                          <MoreHorizontal size={14} />
+                          <MoreHorizontal size={15} />
                         </button>
                       </div>
                     </article>
-                  ))
+                    );
+                  })
               )}
             </div>
           </section>

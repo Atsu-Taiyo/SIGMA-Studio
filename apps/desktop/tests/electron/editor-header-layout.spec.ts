@@ -42,9 +42,14 @@ test("desktop header keeps the title, menus and sharing controls inside its two 
       const share = await controls[1].boundingBox();
       const workspace = await controls[2].boundingBox();
       expect(share!.x + share!.width).toBeLessThanOrEqual(workspace!.x);
+      // Sharing is a per-document action: it sits directly left of the version history.
+      const history = await page.getByRole("button", { name: "過去の版", exact: true }).boundingBox();
+      expect(share!.x + share!.width).toBeLessThanOrEqual(history!.x);
+      expect(Math.abs((share!.y + share!.height / 2) - (history!.y + history!.height / 2))).toBeLessThan(2);
       await page.screenshot({ path: testInfo.outputPath(`header-${width}.png`) });
       await controls[1].click();
-      await expect(page.getByRole("dialog")).toContainText("共有設定");
+      // One heading names what is being shared; the name is not repeated in the body.
+      await expect(page.getByRole("dialog").getByRole("heading", { level: 2 })).toHaveText("「無題の教材」を共有");
       await page.getByRole("dialog").getByRole("button", { name: "閉じる", exact: true }).click();
       await expect(page.getByRole("dialog")).toBeHidden();
       await page.reload();

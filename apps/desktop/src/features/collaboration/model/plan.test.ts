@@ -33,3 +33,26 @@ describe("collaboration plan", () => {
     expect(hierarchyShareNeedsUpgrade(undefined)).toBe(false);
   });
 });
+
+describe("paywall reasons", () => {
+  it("maps plan-limit failures to the action that was attempted", async () => {
+    const { planPaywallReasonFromError } = await import("./plan");
+    const ipc = (code: string) => new Error(`Error invoking remote method 'shared-catalog:start': Error: ${code}`);
+    expect(planPaywallReasonFromError(ipc("DOCUMENT_LIMIT"), "documentShare")).toBe("documentLimit");
+    expect(planPaywallReasonFromError(ipc("PRO_REQUIRED"), "hierarchyShare")).toBe("hierarchyShare");
+    expect(planPaywallReasonFromError(ipc("PRO_REQUIRED"), "adminRole")).toBe("adminRole");
+    expect(planPaywallReasonFromError(ipc("PARTICIPANT_LIMIT"), "invite")).toBe("participantLimit");
+    expect(planPaywallReasonFromError(ipc("PRO_REQUIRED"), "invite")).toBeNull();
+    expect(planPaywallReasonFromError(ipc("FORBIDDEN"), "hierarchyShare")).toBeNull();
+    expect(planPaywallReasonFromError(undefined, "documentShare")).toBeNull();
+  });
+
+  it("treats the free participant seat as taken only on the free plan", async () => {
+    const { freeParticipantSeatTaken } = await import("./plan");
+    const owner = { role: "owner" }, editor = { role: "editor" };
+    expect(freeParticipantSeatTaken(capabilities({ participantLimit: 1 }), [owner])).toBe(false);
+    expect(freeParticipantSeatTaken(capabilities({ participantLimit: 1 }), [owner, editor])).toBe(true);
+    expect(freeParticipantSeatTaken(capabilities({ participantLimit: 15, canStartHierarchyShare: true, hierarchyShareSource: "entitlement" }), [owner, editor])).toBe(false);
+    expect(freeParticipantSeatTaken(capabilities({}), [owner, editor])).toBe(false);
+  });
+});
