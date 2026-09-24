@@ -81,6 +81,7 @@ const BoxedToneSchema = z.enum(["gray", "blue", "green", "red", "yellow"]).optio
 const TextInlineSchema = z.object({
   type: z.literal("text"),
   text: z.string(),
+  mentionUserId: z.string().min(1).optional(),
   marks: z.array(z.enum(["bold", "italic", "underline", "boxed"])).optional(),
   color: z.string().optional(),
   backgroundColor: z.string().optional(),

@@ -62,6 +62,7 @@ MCPからの書き込み系ツールは、既定では教材ファイルを直�
 - `search_document` - 本文テキスト、TeX、表セル、overlayテキスト図形を横断してクエリ文字列を検索します。`get_document_outline` より対象を絞り込みたい時に使います。
 - `search_library` - 今開いている教材だけでなく、ユーザーの過去教材ライブラリ全体から類似の問題・記述を検索します。`query`(必須)、`scope`(`"all"` 既定 / `"problems"`)、`limit`(既定8、上限20)、`excludeFileId`(結果から除外するfileId。通常は現在編集中の教材)を受け取ります。`scope: "problems"` にすると問題ブロック単位でヒットし、prompt本文とtagsを含む詳しい抜粋を返すため、類題を探す用途に向きます。
 - `validate_local_document` - SigmaDoc と MathLive TeX を検証します。
+- `get_problem_solution` - jukenmathの公開済み問題の非公開解答を参照します。入力は `{ "problemId": "問題ID" }` のみ。ユーザー指定または検索結果の正確なIDを使い、IDの推測・総当たりは行いません。解答・解説に関する依頼時にだけ利用します。取得したJSONは `data.solution` に入り、教材への挿入は別の編集操作です。
 - `list_edit_proposals` - 現在のrun/チャットに帰属するMCP編集提案の軽量な一覧を返します。`draft`、変更後教材全体、内部proposal IDは含みません。
 - `get_edit_proposal` - `fileId`/`runId`から現在の作業案を読みます。既定の `detail:"summary"` は要約のみ、`detail:"full"` は再適用可能な `draft` を含みますが、内部の教材スナップショットとproposal IDは返しません。
 - `withdraw_current_edit_proposal` - 同じチャットルームの未承認の作業案全体を取り下げます。

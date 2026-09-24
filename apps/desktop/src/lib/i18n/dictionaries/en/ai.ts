@@ -3,6 +3,20 @@ import type { TranslationsOf } from "../types";
 
 /** 対応する日本語 namespace と同時に埋める。詳細は `../ja/ai.ts` を参照。 */
 export const ai = {
+  problemSolution: {
+    loginRequired: "Sign in to Sigma Studio to retrieve a solution.",
+    invalidId: "The problem ID is invalid.",
+    unconfigured: "Solution API authentication is not configured. Ask your administrator to check the connection.",
+    denied: "Access to the solution API was denied. Check authentication settings.",
+    notFound: "The published problem or solution was not found.",
+    rateLimited: "The solution API rate limit was reached. Try again later.",
+    upstreamError: "The solution API returned an error.",
+    invalidResponse: "The solution API response format is invalid.",
+    emptyResponse: "The solution API response is empty.",
+    tooLarge: "The solution API response exceeds the size limit.",
+    unsafeResponse: "The solution API response could not be processed safely.",
+    connectionFailed: "Could not connect to the solution API or read its response.",
+  },
   provider: {
     unknown: "Unknown provider",
     unknownWithId: "Unknown provider ({{id}})",

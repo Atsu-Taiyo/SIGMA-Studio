@@ -30,6 +30,7 @@ export function CommentDock({ document, open, panel, onOpenChange }: CommentDock
   const t = useT("editor");
   const rootRef = useRef<HTMLDivElement>(null);
   const unresolvedCount = (document.comments ?? []).filter((thread) => !thread.resolved).length;
+  const mentionCount = (document.comments ?? []).filter((thread) => !thread.resolved && thread.messages.some((message) => message.body.some((node) => node.type === "text" && node.mentionUserId && node.mentionUserId === panel.currentUserId))).length;
   const toggleLabel = unresolvedCount > 0
     ? t("comment.toggleWithCount", { comments: unresolvedCount })
     : t("comment.toggle");
@@ -83,6 +84,7 @@ export function CommentDock({ document, open, panel, onOpenChange }: CommentDock
             {unresolvedCount}
           </span>
         )}
+        {mentionCount > 0 && <span className="comment-dock-mention-badge" title={t("comment.mentionsYou")} aria-label={t("comment.mentionsYou")}>@{mentionCount}</span>}
       </button>
 
       {open && (

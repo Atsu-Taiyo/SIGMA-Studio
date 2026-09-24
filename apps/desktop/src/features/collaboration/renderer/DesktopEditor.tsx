@@ -165,11 +165,26 @@ export function DesktopEditor() {
       refresh={refresh}
     />
   );
+  const user = info?.user;
+  const commentIdentity = useMemo(() => user ? {
+    userId: user.actorId,
+    name: user.displayName || user.email || user.actorId,
+    avatarUrl: user.avatarUrl,
+  } : undefined, [user]);
+  const loadCommentMentionCandidates = useCallback(async (fileId: string) => {
+    const bridge = getDesktopBridge()?.collaboration;
+    if (!bridge || !user || !sessions.current.has(fileId)) return [];
+    const members = await bridge.members(fileId);
+    return members.filter((member) => member.user_id !== user.actorId)
+      .map((member) => ({ userId: member.user_id, name: member.email || member.user_id }));
+  }, [user]);
   if (bootError) throw bootError;
   if (!info) return null;
   return (
     <EditorShell
       sessionHost={host}
+      commentIdentity={commentIdentity}
+      loadCommentMentionCandidates={loadCommentMentionCandidates}
       renderDocumentActions={renderActions}
       accountAction={<CollaborationAccountControl info={info} refresh={refresh} />}
     />
