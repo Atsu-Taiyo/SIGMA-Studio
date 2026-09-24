@@ -16,11 +16,12 @@ export function DocumentTabSaveDot() {
   return <i className={`document-tab-save-dot ${saveState}`} aria-hidden="true" />;
 }
 
-export function SaveStatusBadge() {
+export function SaveStatusBadge({ errorsOnly = false }: { errorsOnly?: boolean }) {
   // 保存状態の変化でどれだけ描画されるかを EditorShell と切り分けて見るためのカウンタ。
   countPerformanceEvent("SaveStatusBadge.render");
   const saveState = useEditorStore((state) => state.saveState);
   const statusMessage = useEditorStore((state) => state.statusMessage);
+  if (errorsOnly && saveState !== "error" && saveState !== "warning") return null;
   return (
     <div className={`save-state ${saveState}`}>
       {saveState === "saving"

@@ -151,6 +151,7 @@ function createDesktopLibraryRepository(storage: DesktopStorageAPI): LocalLibrar
 
 function createDesktopWorkspaceRepository(storage: DesktopStorageAPI): LocalWorkspaceRepository {
   return {
+    ...(storage.renameDocument ? { renameDocument: (workspaceId: string, fileId: string, name: string) => storage.renameDocument!(workspaceId, fileId, name) } : {}),
     listOverview(workspaceId?: string | null): Promise<WorkspaceOverviewResult> {
       return storage.getWorkspaceOverview(workspaceId);
     },

@@ -146,6 +146,19 @@ describe("LocalAiEditChatRoomStore", () => {
     expect(restored).toHaveLength(20);
     expect(new Set(restored.map((room) => room.id))).toEqual(new Set(rooms.map((room) => room.id)));
   });
+
+  it("deletes every room for one ephemeral document without touching other documents", async () => {
+    await store.saveRoom(createRoom("room_a1", "file_a", "thread_a1"));
+    await store.saveRoom(createRoom("room_b", "file_b", "thread_b"));
+    await store.saveRoom(createRoom("room_a2", "file_a", "thread_a2"));
+
+    await expect(store.deleteRoomsForDocument("file_a")).resolves.toEqual({
+      ok: true,
+      deletedRoomIds: ["room_a2", "room_a1"],
+    });
+    await expect(store.listRooms()).resolves.toMatchObject([{ id: "room_b", documentIdentityKey: "file_b" }]);
+    await expect(store.deleteRoomsForDocument("file_a")).resolves.toEqual({ ok: true, deletedRoomIds: [] });
+  });
 });
 
 function createRoom(

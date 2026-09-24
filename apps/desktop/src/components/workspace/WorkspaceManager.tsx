@@ -8,15 +8,17 @@ import {
   Loader2,
   RefreshCw,
   Search,
+  UserRoundPlus,
   X,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { FormEvent, MouseEvent as ReactMouseEvent } from "react";
 
+import { Button } from "@/components/ui/Button";
+import { WorkspaceJoinDialog } from "./WorkspaceJoinDialog";
 import { Select } from "@/components/ui/Select";
 
 import {
-  createDocumentFromTemplateInWorkspace,
   createDocumentInWorkspace,
   createFolder,
   createWorkspace,
@@ -34,7 +36,7 @@ import {
 } from "@/lib/workspace-repository";
 import { TemplateGallery } from "@/components/templates/TemplateGallery";
 import { LedgerSchemaFailurePanel } from "@/components/ledger/LedgerSchemaFailurePanel";
-import { createDocumentFromTemplate } from "@/lib/templates";
+import { createTemplateAtDestination } from "./workspace-template-commands";
 import type { TemplateItem } from "@/types/template";
 import { navigateToAppRoute } from "@/lib/app-navigation";
 import { getDesktopBridge } from "@/lib/desktop-bridge";
@@ -59,6 +61,10 @@ import { WorkspaceDeleteDialog, type WorkspaceDeleteDialogState } from "./Worksp
 import type { WorkspaceEmptyVariant } from "./WorkspaceEmptyState";
 import { WorkspaceItemGrid } from "./WorkspaceItemGrid";
 import { WorkspaceItemList } from "./WorkspaceItemList";
+import { canDeleteWorkspaceItem, canMutateWorkspaceItem } from "./workspace-sharing-permissions";
+import type { WorkspaceInlineRenameTarget } from "./use-inline-rename";
+import { WorkspaceSharingDialog } from "./WorkspaceSharingDialog";
+import { SHARED_ITEMS_WORKSPACE_ID, type LibrarySharingTarget } from "@/lib/runtime/shared-catalog";
 import { WorkspaceSidebar } from "./WorkspaceSidebar";
 import { parseWorkspaceItemKey, type WorkspaceDragItem, type WorkspaceDropTarget } from "./workspace-drag";
 import { useWorkspaceDragAndDrop } from "./use-workspace-drag-and-drop";
@@ -71,6 +77,7 @@ import { isInteractiveContextTarget, isSelectableItemTarget } from "./workspace-
 import { enterLedgerSchemaFailure, type LedgerSchemaErrorResult } from "./workspace-overview-result";
 import { useT } from "@/lib/i18n/react";
 import type { Translate } from "@/lib/i18n/translator";
+import { WorkspaceCollaborationAccount } from "@/features/collaboration/renderer/CollaborationAccountControl";
 
 const ALL_FOLDERS = "all";
 
@@ -103,7 +110,14 @@ function listWorkspaceOverviewWithTimeout(
 
 export function WorkspaceManager() {
   const t = useT("workspace");
+  const tc = useT("chrome");
 
+  const [joinOpen, setJoinOpen] = useState(false);
+  const [sharingSelection, setSharingSelection] = useState<{ target: LibrarySharingTarget; name: string } | null>(null);
+  const share = (target: LibrarySharingTarget, name: string) => {
+    setContextMenu(null); setFileActionMenu(null); setWorkspaceNavContextMenu(null);
+    setSharingSelection({ target, name });
+  };
   const [overview, setOverview] = useState<WorkspaceOverview | null>(null);
   const [ledgerFailure, setLedgerFailure] = useState<LedgerSchemaFailure | null>(null);
   const [folderFilter, setFolderFilter] = useState<FolderFilter>(ALL_FOLDERS);
@@ -122,6 +136,7 @@ export function WorkspaceManager() {
   const [contextMenu, setContextMenu] = useState<WorkspaceContextMenuState | null>(null);
   const [fileActionMenu, setFileActionMenu] = useState<WorkspaceFileActionMenuState | null>(null);
   const [workspaceNavContextMenu, setWorkspaceNavContextMenu] = useState<WorkspaceNavContextMenuState | null>(null);
+  const menuKey = fileActionMenu ? `file:${fileActionMenu.fileId}` : workspaceNavContextMenu ? `workspace:${workspaceNavContextMenu.workspaceId}` : contextMenu?.folderId ? `folder:${contextMenu.folderId}` : null;
   const [createDialog, setCreateDialog] = useState<WorkspaceCreateDialogState | null>(null);
   const [deleteDialog, setDeleteDialog] = useState<WorkspaceDeleteDialogState | null>(null);
   const [pendingDeleteConfirmation, setPendingDeleteConfirmation] = useState<PendingDeleteConfirmation | null>(null);
@@ -150,8 +165,11 @@ export function WorkspaceManager() {
   // storage-change effect below), which can land mid-flight and would
   // otherwise revert an in-flight rename's display name for a frame.
   const pendingRenamesRef = useRef<Map<string, string>>(new Map());
+  const currentWorkspaceIdRef = useRef<string | null>(null);
+  const overviewRequestRef = useRef(0);
 
   const applyOverview = useCallback((nextOverview: WorkspaceOverview, nextMessage?: string) => {
+    currentWorkspaceIdRef.current = nextOverview.activeWorkspaceId;
     setOverview(applyPendingRenames(nextOverview, pendingRenamesRef.current));
     setEditingFolderId(null);
     setFolderNameDraft("");
@@ -175,11 +193,15 @@ export function WorkspaceManager() {
     nextMessage?: string,
     options?: { silent?: boolean },
   ) => {
+    const request = ++overviewRequestRef.current;
+    const requestedWorkspaceId = workspaceId ?? currentWorkspaceIdRef.current;
+    if (workspaceId) currentWorkspaceIdRef.current = workspaceId;
     if (!options?.silent) {
       setStatus("loading");
       setMessage(t("status.loading"));
     }
-    const result = await listWorkspaceOverviewWithTimeout(workspaceId, t);
+    const result = await listWorkspaceOverviewWithTimeout(requestedWorkspaceId, t);
+    if (request !== overviewRequestRef.current) return;
     if (handleLedgerSchemaError(result)) {
       return;
     }
@@ -227,6 +249,19 @@ export function WorkspaceManager() {
     };
   }, [loadOverview]);
 
+  useEffect(() => {
+    const catalog = getDesktopBridge()?.sharedCatalog;
+    if (!catalog) return;
+    const visible = () => { void catalog.setVisible(document.visibilityState !== "hidden").catch(() => {}); };
+    const refresh = () => { void catalog.refresh().catch(() => {}); };
+    const unsubscribe = catalog.onChange(() => { void loadOverview(undefined, undefined, { silent: true }); });
+    visible();
+    window.addEventListener("focus", refresh);
+    window.addEventListener("online", refresh);
+    document.addEventListener("visibilitychange", visible);
+    return () => { unsubscribe(); void catalog.setVisible(false).catch(() => {}); window.removeEventListener("focus", refresh); window.removeEventListener("online", refresh); document.removeEventListener("visibilitychange", visible); };
+  }, [loadOverview]);
+
   const activeWorkspace = useMemo(() => {
     return overview?.workspaces.find((workspace) => workspace.id === overview.activeWorkspaceId) ?? null;
   }, [overview]);
@@ -269,7 +304,24 @@ export function WorkspaceManager() {
   const workspaceName = activeWorkspace?.name ?? t("nav.workspace");
   const workspaceCount = overview?.workspaces.length ?? 0;
   const activeWorkspaceId = activeWorkspace?.id ?? null;
+  const renameItem = (target: WorkspaceInlineRenameTarget) => target.type === "workspace"
+    ? visibleWorkspaces.find((item) => item.id === target.id)
+    : target.type === "folder" ? folders.find((item) => item.id === target.id)
+    : files.find((item) => item.fileId === target.id);
+  const canEditItem = (item: { sharing?: import("@/lib/runtime/shared-catalog").LibrarySharingMetadata; sharingPending?: boolean } | null | undefined, capability: "rename" | "move" | "deleteDescendants" | "createChildren" | "deleteRootShare") => Boolean(item) && !item?.sharingPending && canMutateWorkspaceItem(item?.sharing, overview?.catalog, capability);
+  const canDeleteItem = (item: WorkspaceFileSummary | WorkspaceFolderSummary | undefined) => {
+    if (!item || item.sharingPending) return false;
+    if (!item.sharing) return true;
+    const parentFolderId = "fileId" in item ? item.folderId : item.parentFolderId;
+    const parent = parentFolderId ? folders.find((folder) => folder.id === parentFolderId) : activeWorkspace;
+    return canDeleteWorkspaceItem(item, parent, overview?.catalog);
+  };
+  const canCreateAt = (folderId: string | null) => folderId
+    ? canEditItem(folders.find((item) => item.id === folderId), "createChildren")
+    : activeWorkspaceId !== SHARED_ITEMS_WORKSPACE_ID && canEditItem(activeWorkspace, "createChildren");
   const inlineRename = useInlineRename({
+    canRename: (target) => target.id !== SHARED_ITEMS_WORKSPACE_ID && canEditItem(renameItem(target), "rename"),
+    isShared: (target) => Boolean(renameItem(target)?.sharing || renameItem(target)?.sharingPending),
     activeWorkspaceId,
     pendingRenamesRef,
     setOverview,
@@ -443,12 +495,16 @@ export function WorkspaceManager() {
 
     event.preventDefault();
     event.stopPropagation();
+    const rect = event.currentTarget.getBoundingClientRect();
+    const x = event.type === "click" ? rect.right - 224 : event.clientX;
+    const y = event.type === "click" ? rect.bottom + 6 : event.clientY;
     const maxX = Math.max(12, window.innerWidth - 248);
-    const maxY = Math.max(12, window.innerHeight - 156);
+    const maxY = Math.max(12, window.innerHeight - 280);
+    setWorkspaceNavContextMenu(null);
     setFileActionMenu(null);
     setContextMenu({
-      x: Math.min(Math.max(event.clientX, 12), maxX),
-      y: Math.min(Math.max(event.clientY, 12), maxY),
+      x: Math.min(Math.max(x, 12), maxX),
+      y: Math.min(Math.max(y, 12), maxY),
       folderId,
     });
   };
@@ -469,10 +525,11 @@ export function WorkspaceManager() {
     event.preventDefault();
     event.stopPropagation();
     setContextMenu(null);
+    setWorkspaceNavContextMenu(null);
     const rect = event.currentTarget.getBoundingClientRect();
     const menuWidth = 224;
     const maxX = Math.max(12, window.innerWidth - menuWidth - 12);
-    const maxY = Math.max(12, window.innerHeight - 152);
+    const maxY = Math.max(12, window.innerHeight - 212);
     setFileActionMenu({
       x: Math.min(Math.max(rect.right - menuWidth, 12), maxX),
       y: Math.min(rect.bottom + 6, maxY),
@@ -481,6 +538,7 @@ export function WorkspaceManager() {
   };
 
   const openCreateDialog = (kind: WorkspaceCreateKind, folderId: string | null) => {
+    if (kind !== "workspace" && !canCreateAt(folderId)) return;
     setContextMenu(null);
     setFileActionMenu(null);
     setWorkspaceNavContextMenu(null);
@@ -497,14 +555,19 @@ export function WorkspaceManager() {
 
   const useTemplateInWorkspace = useCallback(async (template: TemplateItem) => {
     try {
-      const document = createDocumentFromTemplate(template);
-      const record = await createDocumentFromTemplateInWorkspace(template.workspaceId, null, document);
+      const target = selectedFolder ?? activeWorkspace;
+      const canCreate = Boolean(activeWorkspace && target && !target.sharingPending)
+        && (Boolean(selectedFolder) || activeWorkspace?.id !== SHARED_ITEMS_WORKSPACE_ID)
+        && canMutateWorkspaceItem(target?.sharing, overview?.catalog, "createChildren");
+      const record = await createTemplateAtDestination(template, {
+        workspaceId: activeWorkspace?.id ?? "", folderId: currentFolderContextId, canCreate,
+      });
       navigateToAppRoute("/", { fileId: record.metadata.fileId });
     } catch (error) {
       setStatus("error");
-      setMessage(error instanceof Error ? error.message : t("error.createFromTemplateFailed"));
+      setMessage(error instanceof Error && error.message.includes("FORBIDDEN") ? t("error.creationNotAllowed") : error instanceof Error ? error.message : t("error.createFromTemplateFailed"));
     }
-  }, [t]);
+  }, [t, activeWorkspace, selectedFolder, currentFolderContextId, overview]);
 
   const submitCreateDialog = async (event: FormEvent) => {
     event.preventDefault();
@@ -529,6 +592,7 @@ export function WorkspaceManager() {
       return;
     }
 
+    if (!canCreateAt(dialog.folderId)) return;
     const created = await runWorkspaceAction(
       () => dialog.kind === "folder"
         ? createFolder(activeWorkspace.id, dialog.name, dialog.folderId)
@@ -548,20 +612,25 @@ export function WorkspaceManager() {
     event.stopPropagation();
     setContextMenu(null);
     setFileActionMenu(null);
+    const rect = event.currentTarget.getBoundingClientRect();
+    const x = event.type === "click" ? rect.right - 224 : event.clientX;
+    const y = event.type === "click" ? rect.bottom + 6 : event.clientY;
     setWorkspaceNavContextMenu({
-      x: Math.min(Math.max(event.clientX, 12), Math.max(12, window.innerWidth - 224)),
-      y: Math.min(Math.max(event.clientY, 12), Math.max(12, window.innerHeight - 132)),
+      x: Math.min(Math.max(x, 12), Math.max(12, window.innerWidth - 224)),
+      y: Math.min(Math.max(y, 12), Math.max(12, window.innerHeight - 248)),
       workspaceId,
     });
   };
 
   const startEditingFolder = (folder: WorkspaceFolderSummary) => {
+    if (!canEditItem(folder, "rename")) return;
     setEditingFolderId(folder.id);
     setFolderNameDraft(folder.name);
     setFolderParentDraft(folder.parentFolderId ?? "");
   };
 
   const saveFolder = async (folder: WorkspaceFolderSummary) => {
+    if (!canEditItem(folder, "rename")) return;
     if (!activeWorkspace) {
       return;
     }
@@ -576,6 +645,7 @@ export function WorkspaceManager() {
   };
 
   const removeFolder = (folder: WorkspaceFolderSummary) => {
+    if (!canDeleteItem(folder)) return;
     const key = `folder:${folder.id}`;
     // If this folder is part of a broader multi-selection, "削除" deletes
     // the whole selection behind one count-based confirmation instead of
@@ -593,6 +663,7 @@ export function WorkspaceManager() {
   };
 
   const performRemoveFolder = async (folder: WorkspaceFolderSummary) => {
+    if (!canDeleteItem(folders.find((current) => current.id === folder.id))) return;
     if (!activeWorkspace) {
       return;
     }
@@ -610,6 +681,7 @@ export function WorkspaceManager() {
       return;
     }
     const folder = folders.find((item) => item.id === folderId);
+    if (!canEditItem(folder, "move") || !canCreateAt(parentFolderId)) return;
     if (!folder || folder.parentFolderId === parentFolderId || folder.id === parentFolderId) {
       return;
     }
@@ -621,6 +693,7 @@ export function WorkspaceManager() {
   };
 
   const moveFile = async (file: WorkspaceFileSummary, folderId: string) => {
+    if (!canEditItem(file, "move")) return;
     if (!activeWorkspace) {
       return;
     }
@@ -651,6 +724,7 @@ export function WorkspaceManager() {
     folderId: string | null = null,
     nextMessage = t("status.locationUpdated"),
   ) => {
+    if (!canEditItem(file, "move")) return;
     const targetWorkspace = overview?.workspaces.find((workspace) => workspace.id === targetWorkspaceId) ?? null;
     if (!targetWorkspace) {
       setStatus("error");
@@ -679,6 +753,7 @@ export function WorkspaceManager() {
   };
 
   const openDeleteWorkspaceDialog = async (workspace: WorkspaceSummary) => {
+    if (workspace.id === SHARED_ITEMS_WORKSPACE_ID || !canEditItem(workspace, "deleteRootShare")) return;
     setWorkspaceNavContextMenu(null);
     const result = await listWorkspaceOverview(workspace.id);
     if (handleLedgerSchemaError(result)) {
@@ -703,6 +778,7 @@ export function WorkspaceManager() {
     if (!deleteDialog) {
       return;
     }
+    if (!canEditItem(visibleWorkspaces.find((item) => item.id === deleteDialog.workspaceId), "deleteRootShare")) return;
     const deleted = await runWorkspaceAction(
       () => deleteWorkspaceInRepository(deleteDialog.workspaceId),
       t("status.workspaceDeleted"),
@@ -714,6 +790,7 @@ export function WorkspaceManager() {
   };
 
   const removeFile = (file: WorkspaceFileSummary) => {
+    if (!canDeleteItem(file)) return;
     setFileActionMenu(null);
     const key = `file:${file.fileId}`;
     // If this file is part of a broader multi-selection, "削除" deletes the
@@ -732,6 +809,7 @@ export function WorkspaceManager() {
   };
 
   const performRemoveFile = async (file: WorkspaceFileSummary) => {
+    if (!canDeleteItem(files.find((current) => current.fileId === file.fileId))) return;
     if (!activeWorkspace) {
       return;
     }
@@ -796,11 +874,11 @@ export function WorkspaceManager() {
   const canRenameKey = (key: string) => {
     if (key.startsWith("file:")) {
       const fileId = key.slice("file:".length);
-      return files.some((file) => file.fileId === fileId);
+      return canEditItem(files.find((file) => file.fileId === fileId), "rename");
     }
     if (key.startsWith("folder:")) {
       const folderId = key.slice("folder:".length);
-      return folders.some((folder) => folder.id === folderId);
+      return canEditItem(folders.find((folder) => folder.id === folderId), "rename");
     }
     return false;
   };
@@ -828,6 +906,11 @@ export function WorkspaceManager() {
   // removeFile/removeFolder above when the target item is part of a >1
   // selection. Sequences the repository calls and applies only the last
   // resulting overview, mirroring moveSelection below.
+  const canMutateDragItem = (item: WorkspaceDragItem, capability: "move" | "deleteDescendants") => {
+    const record = item.type === "file" ? files.find((candidate) => candidate.fileId === item.fileId)
+      : folders.find((candidate) => candidate.id === item.folderId);
+    return capability === "deleteDescendants" ? canDeleteItem(record) : canEditItem(record, capability);
+  };
   const deleteSelection = (keys: ReadonlySet<string>) => {
     if (!activeWorkspace || keys.size === 0) {
       return;
@@ -835,7 +918,7 @@ export function WorkspaceManager() {
     const items = Array.from(keys)
       .map((key) => parseWorkspaceItemKey(key))
       .filter((item): item is WorkspaceDragItem => item !== null);
-    if (items.length === 0) {
+    if (items.length === 0 || !items.every((item) => canMutateDragItem(item, "deleteDescendants"))) {
       return;
     }
 
@@ -860,6 +943,7 @@ export function WorkspaceManager() {
     setMessage(t("status.deleting"));
     let lastResult: WorkspaceOverviewResult | null = null;
     for (const item of items) {
+      if (!canMutateDragItem(item, "deleteDescendants")) return;
       lastResult = item.type === "file"
         ? await deleteDocumentInWorkspace(activeWorkspace.id, item.fileId)
         : await deleteFolder(activeWorkspace.id, item.folderId);
@@ -926,6 +1010,7 @@ export function WorkspaceManager() {
       return;
     }
 
+    if (!items.every((item) => canMutateDragItem(item, "move"))) return;
     setStatus("saving");
     setMessage(t("status.movingSelection"));
     let lastResult: WorkspaceOverviewResult | null = null;
@@ -981,6 +1066,10 @@ export function WorkspaceManager() {
   });
 
   const dragDrop = useWorkspaceDragAndDrop({
+    canMoveItem: (item) => canMutateDragItem(item, "move"),
+    canReceive: (target) => target === "root" ? canCreateAt(null)
+      : target?.startsWith("folder:") ? canCreateAt(target.slice(7))
+      : target?.startsWith("workspace:") ? target.slice(10) !== SHARED_ITEMS_WORKSPACE_ID && canEditItem(visibleWorkspaces.find((item) => item.id === target.slice(10)), "createChildren") : false,
     folders,
     files,
     workspaces: overview?.workspaces ?? [],
@@ -1033,6 +1122,7 @@ export function WorkspaceManager() {
           )}
         </label>
         <div className="workspace-page-actions">
+          {overview?.catalog && <Button size="sm" tone="ghost" onClick={() => setJoinOpen(true)}><UserRoundPlus size={15} />{tc("collaboration.join")}</Button>}
           <button
             type="button"
             className="workspace-template-button"
@@ -1053,6 +1143,7 @@ export function WorkspaceManager() {
             <RefreshCw size={15} />
             <span>{t("action.reloadShort")}</span>
           </button>
+          <WorkspaceCollaborationAccount />
         </div>
       </header>
 
@@ -1091,6 +1182,7 @@ export function WorkspaceManager() {
       ) : (
         <main className="workspace-page-main">
           <WorkspaceSidebar
+            menuKey={menuKey}
             visibleWorkspaces={visibleWorkspaces}
             activeWorkspaceId={overview.activeWorkspaceId}
             workspaceTreeExpanded={workspaceTreeExpanded}
@@ -1109,6 +1201,8 @@ export function WorkspaceManager() {
             onNewButtonClick={openCreateMenuFromButton}
             onSwitchWorkspace={(workspaceId) => void loadOverview(workspaceId)}
             onWorkspaceContextMenu={openWorkspaceNavContextMenu}
+            onFolderContextMenu={(event, folderId) => openContextMenu(event, folderId, { allowInteractiveTarget: true })}
+            onFileContextMenu={openFileActionMenu}
             onOpenFile={openFile}
             isRenameEditing={inlineRename.isEditing}
             onStartRename={inlineRename.start}
@@ -1131,7 +1225,10 @@ export function WorkspaceManager() {
             }}
             {...dragDrop.dropProps("root")}
           >
+            {overview.catalog?.state === "offline" && (activeWorkspace?.sharing || activeWorkspaceId === SHARED_ITEMS_WORKSPACE_ID) && <p role="status">{tc("collaboration.offlineHierarchy")}</p>}
             <WorkspaceContentHeader
+              canEditFolder={canEditItem(selectedFolder, "rename") && canEditItem(selectedFolder, "move")}
+              canDeleteFolder={canDeleteItem(selectedFolder ?? undefined)}
               workspaceName={workspaceName}
               folderPath={folderPath}
               selectedFolder={selectedFolder}
@@ -1181,6 +1278,7 @@ export function WorkspaceManager() {
 
             {viewPreference.mode === "grid" ? (
               <WorkspaceItemGrid
+            menuKey={menuKey}
                 folders={visibleFolders}
                 files={filteredFiles}
                 sortKey={viewPreference.sortKey}
@@ -1204,6 +1302,8 @@ export function WorkspaceManager() {
                 saving={status === "saving"}
                 fileActionMenuFileId={fileActionMenu?.fileId ?? null}
                 onOpenFileActionMenu={openFileActionMenu}
+                canCreate={canCreateAt(currentFolderContextId)}
+                canMove={(kind, id) => canMutateDragItem(kind === "file" ? { type: "file", fileId: id } : { type: "folder", folderId: id }, "move")}
                 onCreateDocument={() => openCreateDialog("document", currentFolderContextId)}
                 onClearSearch={() => setSearchQuery("")}
                 isRenameEditing={inlineRename.isEditing}
@@ -1212,6 +1312,7 @@ export function WorkspaceManager() {
               />
             ) : (
               <WorkspaceItemList
+            menuKey={menuKey}
                 folders={visibleFolders}
                 files={filteredFiles}
                 allFolders={folders}
@@ -1239,6 +1340,8 @@ export function WorkspaceManager() {
                 saving={status === "saving"}
                 fileActionMenuFileId={fileActionMenu?.fileId ?? null}
                 onOpenFileActionMenu={openFileActionMenu}
+                canCreate={canCreateAt(currentFolderContextId)}
+                canMove={(kind, id) => canMutateDragItem(kind === "file" ? { type: "file", fileId: id } : { type: "folder", folderId: id }, "move")}
                 onCreateDocument={() => openCreateDialog("document", currentFolderContextId)}
                 onClearSearch={() => setSearchQuery("")}
                 isRenameEditing={inlineRename.isEditing}
@@ -1275,7 +1378,13 @@ export function WorkspaceManager() {
           <WorkspaceNavContextMenu
             menu={workspaceNavContextMenu}
             workspace={workspace}
+            canRename={workspace.id !== SHARED_ITEMS_WORKSPACE_ID && canEditItem(workspace, "rename")}
+            canDelete={workspace.id !== SHARED_ITEMS_WORKSPACE_ID && canEditItem(workspace, "deleteRootShare")}
+            canCreate={workspace.id !== SHARED_ITEMS_WORKSPACE_ID && canEditItem(workspace, "createChildren")}
             targetIsActive={targetIsActive}
+            onShare={workspace.id === SHARED_ITEMS_WORKSPACE_ID ? undefined : () => share(workspace.sharing
+              ? { source: "shared", shared: workspace.sharing.target }
+              : { source: "local", local: { kind: "workspace", workspaceId: workspace.id } }, workspace.name)}
             saving={status === "saving"}
             deleteDisabled={deleteDisabled}
             deleteDisabledReason={deleteDisabledReason}
@@ -1299,6 +1408,10 @@ export function WorkspaceManager() {
           <WorkspaceFileActionMenu
             menu={fileActionMenu}
             file={file}
+            canRename={canEditItem(file, "rename")}
+            canDelete={canDeleteItem(file)}
+            onShare={() => share(file.sharing ? { source: "shared", shared: file.sharing.target }
+              : { source: "local", local: { kind: "document", fileId: file.fileId } }, resolveFileDisplayName(file, t))}
             busy={busy}
             saving={status === "saving"}
             onRename={() => {
@@ -1313,6 +1426,14 @@ export function WorkspaceManager() {
       {contextMenu && (
         <WorkspaceCreateContextMenu
           menu={contextMenu}
+          canRename={canEditItem(folders.find((item) => item.id === contextMenu.folderId), "rename")}
+          canDelete={canDeleteItem(folders.find((item) => item.id === contextMenu.folderId))}
+          canCreate={canCreateAt(contextMenu.folderId)}
+          onShare={contextMenu.folderId ? () => {
+            const folder = folders.find((candidate) => candidate.id === contextMenu.folderId);
+            if (folder && activeWorkspaceId) share(folder.sharing ? { source: "shared", shared: folder.sharing.target }
+              : { source: "local", local: { kind: "folder", workspaceId: activeWorkspaceId, folderId: folder.id } }, folder.name);
+          } : undefined}
           onCreateFolder={(folderId) => openCreateDialog("folder", folderId)}
           onCreateDocument={(folderId) => openCreateDialog("document", folderId)}
           onCreateWorkspace={() => openCreateDialog("workspace", null)}
@@ -1332,6 +1453,13 @@ export function WorkspaceManager() {
           }}
         />
       )}
+      {joinOpen && <WorkspaceJoinDialog onClose={() => setJoinOpen(false)} onJoined={(result) => {
+        setJoinOpen(false); setSearchQuery(""); setFolderFilter(result.folderId ?? ALL_FOLDERS);
+        setWorkspaceTreeExpanded(true); if (result.folderId) setExpandedFolderIds(new Set([result.folderId]));
+        void loadOverview(result.workspaceId);
+      }} />}
+      {sharingSelection && <WorkspaceSharingDialog target={sharingSelection.target} name={sharingSelection.name}
+        onClose={() => setSharingSelection(null)} onChanged={() => void loadOverview(activeWorkspaceId ?? undefined)} />}
       {createDialog && (
         <WorkspaceCreateDialog
           dialog={createDialog}

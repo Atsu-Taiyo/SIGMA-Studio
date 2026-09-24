@@ -85,3 +85,5 @@ export { MAX_AI_EDIT_REFERENCES, type AiEditReference } from "@/lib/ai/ai-edit-r
 export type { AiEditShapeOnlyPreview } from "@/lib/ai/ai-edit-shape-preview";
 export { useAiProposalActions, type AiProposalActionsDependencies } from "./application/use-ai-proposal-actions";
 export { useCommentAiRun, type CommentAiRunOptions } from "./application/use-comment-ai-run";
+
+export { useAiWorkspaceTabTitles } from "./application/use-ai-workspace-tab-titles";

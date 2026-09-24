@@ -3,11 +3,13 @@ import { describe, expect, it } from "vitest";
 import {
   blockHitProbeColumnLeftPx,
   isContainerTopBand,
+  isPointWithinColumnLaneAffordance,
   resolveBlockAffordanceHover,
   resolveBlockAffordancePointerOwner,
   resolveStationaryBlockAffordanceRefresh,
   resolveBlockInsertButtonLane,
   resolveBlockSelectionRange,
+  resolveColumnLaneWidthPx,
   resolveInnerBlockAt,
   resolveInnerLaneProbe,
   sameBlockAffordanceHover,
@@ -47,6 +49,33 @@ describe("resolveBlockAffordanceHover", () => {
       targetIsAffordance: true,
       hitsColumnDivider: true,
     })).toBe("frozen");
+  });
+
+  it("gives the column gap to its divider unless the right lane's shown row is being approached", () => {
+    const base = { dragging: false, targetIsAffordance: false, hitsColumnDivider: true };
+    expect(resolveBlockAffordancePointerOwner(base)).toBe("divider");
+    expect(resolveBlockAffordancePointerOwner({ ...base, keepsColumnLaneAffordance: true })).toBe("frozen");
+    expect(resolveBlockAffordancePointerOwner({ ...base, hitsColumnDivider: false, keepsColumnLaneAffordance: true }))
+      .toBe("content");
+  });
+
+  it("shows no gutter control while a column divider is being dragged over the text", () => {
+    expect(resolveBlockAffordancePointerOwner({
+      dragging: false,
+      resizingColumns: true,
+      targetIsAffordance: false,
+      hitsColumnDivider: false,
+    })).toBe("divider");
+  });
+
+  it("draws nothing in an empty part of a column, but keeps the container's insertion edge", () => {
+    const hover = resolveBlockAffordanceHover(
+      { ...problem, laneEmpty: true, spaceAfterTarget: { blockId: "inner", bottom: 120, left: 430, insideProblemArea: false, spaceAfterPx: 0 } },
+      { x: 460, y: 199 },
+    );
+    expect(hover.handle).toBeNull();
+    expect(hover.spaceAfter).toBeNull();
+    expect(hover.insertPoint?.top).toBe(200);
   });
 
   it("suppresses both gutter controls while a column divider owns the pointer", () => {
@@ -316,6 +345,7 @@ describe("sameBlockAffordanceHover with a space-after target", () => {
     ["left", { left: 210 }],
     ["value", { spaceAfterPx: 24 }],
     ["lane", { insideProblemArea: true }],
+    ["column lane", { columnLaneWidthPx: 13 }],
     ["block", { blockId: "other" }],
   ])("detects a changed %s", (_name, patch) => {
     expect(sameBlockAffordanceHover(base, hoverWith(patch))).toBe(false);
@@ -424,5 +454,47 @@ describe("isContainerTopBand", () => {
   it("reserves six pixels when the first child starts at the container top", () => {
     expect(isContainerTopBand(100, 102, 100)).toBe(true);
     expect(isContainerTopBand(100, 106, 100)).toBe(false);
+  });
+});
+
+describe("column gap lanes", () => {
+  it("keeps grips in the right half of a divider gap, clear of the divider line", () => {
+    // 8mm (≈30px) の段間: 中央 15px から 3px 離し、右半分の 12px に収める。
+    expect(resolveColumnLaneWidthPx(30.2)).toBe(12);
+    // 中央線の左右 3px を空けられる最も狭い段間。
+    expect(resolveColumnLaneWidthPx(26)).toBe(10);
+    // 広い段間でも最大幅まで。
+    expect(resolveColumnLaneWidthPx(80)).toBe(18);
+    // 極端に狭い段間では掴める最小幅を優先する (中央へはみ出す)。
+    expect(resolveColumnLaneWidthPx(12)).toBe(10);
+    expect(resolveColumnLaneWidthPx(0)).toBe(10);
+    // 列境界の無いガター (枠の内側) は最大幅。
+    expect(resolveColumnLaneWidthPx(null)).toBe(18);
+  });
+
+  it("keeps a right-lane affordance only while the pointer stays on that row inside the gap", () => {
+    const hover = {
+      handle: { blockId: "r2", top: 100, bottom: 160, left: 430, columnLaneWidthPx: 13 },
+      insertPoint: null,
+      spaceAfter: { blockId: "r2", bottom: 160, left: 430, insideProblemArea: false, columnLaneWidthPx: 13, spaceAfterPx: 0 },
+    };
+    expect(isPointWithinColumnLaneAffordance(hover, { x: 415, y: 100 })).toBe(true);
+    // 下端つまみ (高さ 16px) の下まで。
+    expect(isPointWithinColumnLaneAffordance(hover, { x: 415, y: 169 })).toBe(true);
+    expect(isPointWithinColumnLaneAffordance(hover, { x: 415, y: 175 })).toBe(false);
+    expect(isPointWithinColumnLaneAffordance(hover, { x: 415, y: 90 })).toBe(false);
+    // 段の本文側は通常の解決に任せる。
+    expect(isPointWithinColumnLaneAffordance(hover, { x: 440, y: 120 })).toBe(false);
+    // 1 段目 (ページ余白のレーン) の表示は段間では保たない。
+    expect(isPointWithinColumnLaneAffordance({ ...hover, handle: { ...hover.handle, columnLaneWidthPx: undefined } }, { x: 415, y: 120 }))
+      .toBe(false);
+  });
+
+  it("carries the column lane width from the hovered unit to the grip", () => {
+    const hover = resolveBlockAffordanceHover(
+      { ...middleParagraph, unit: { id: "r2", top: 300, bottom: 340, left: 430, insideProblemArea: false, columnLaneWidthPx: 13 } },
+      { x: 500, y: 320 },
+    );
+    expect(hover.handle).toEqual({ blockId: "r2", top: 300, bottom: 340, left: 430, insideProblemArea: false, columnLaneWidthPx: 13 });
   });
 });

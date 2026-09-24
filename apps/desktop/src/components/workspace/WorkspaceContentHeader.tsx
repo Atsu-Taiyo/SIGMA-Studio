@@ -27,6 +27,8 @@ interface WorkspaceContentHeaderProps {
   onNavigateFolder: (folderId: string) => void;
   viewMode: WorkspaceViewMode;
   onViewModeChange: (mode: WorkspaceViewMode) => void;
+  canEditFolder?: boolean;
+  canDeleteFolder?: boolean;
   onEditFolder: () => void;
   onDeleteFolder: () => void;
 }
@@ -42,6 +44,8 @@ export function WorkspaceContentHeader({
   onNavigateFolder,
   viewMode,
   onViewModeChange,
+  canEditFolder = true,
+  canDeleteFolder = true,
   onEditFolder,
   onDeleteFolder,
 }: WorkspaceContentHeaderProps) {
@@ -105,6 +109,7 @@ export function WorkspaceContentHeader({
               className="icon-button"
               title={t("action.moveFolder")}
               aria-label={t("action.moveFolder")}
+              disabled={!canEditFolder}
               onClick={onEditFolder}
             >
               <Pencil size={15} />
@@ -114,6 +119,7 @@ export function WorkspaceContentHeader({
               className="icon-button danger"
               title={t("action.deleteFolder")}
               aria-label={t("action.deleteFolder")}
+              disabled={!canDeleteFolder}
               onClick={onDeleteFolder}
             >
               <Trash2 size={15} />

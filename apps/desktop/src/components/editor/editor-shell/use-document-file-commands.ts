@@ -17,6 +17,7 @@ import type { DesktopExternalDocument } from "@/types/desktop";
 
 export interface DocumentFileCommandOptions {
   documentRef: RefObject<SigmaDocument>;
+  exportDocument?: () => Promise<SigmaDocument>;
   embeddedHostRef: RefObject<EmbeddedEditorHost | undefined>;
   workspaceReady: boolean;
   isDesktopApp: boolean;
@@ -36,7 +37,7 @@ export interface DocumentFileCommandOptions {
 
 /** ファイル選択と取り込み用 UI 状態を持ち、SigmaDoc の保存・切替は既存境界へ渡す。 */
 export function useDocumentFileCommands({
-  documentRef, embeddedHostRef, workspaceReady, isDesktopApp, flushOverlayChanges,
+  documentRef, exportDocument, embeddedHostRef, workspaceReady, isDesktopApp, flushOverlayChanges,
   saveCurrentDocumentBeforeReplacement, openDocumentAsTab, resetEditorDocument,
   setOpenFileIds, setActiveFileId, setActiveMenu, setSaveState, setStatusMessage,
   announceRecovery, DOCUMENT_BLOCK_OPERATION_PORTS, tEditor,
@@ -54,7 +55,10 @@ export function useDocumentFileCommands({
 
   const exportJson = async () => {
     flushOverlayChanges();
-    const data = serializeDocumentText(documentRef.current);
+    let document: SigmaDocument;
+    try { document = exportDocument ? await exportDocument() : documentRef.current; }
+    catch { setStatusMessage(tEditor("status.saveFailed")); return; }
+    const data = serializeDocumentText(document);
     const suggestedName = `${resolveDocumentTitle(documentRef.current, "lesson")}.sigma`;
     const bridge = getDesktopBridge();
     if (bridge) {
@@ -85,7 +89,10 @@ export function useDocumentFileCommands({
   const copyDocumentText = async () => {
     setActiveMenu(null);
     flushOverlayChanges();
-    const text = serializeDocumentText(documentRef.current);
+    let document: SigmaDocument;
+    try { document = exportDocument ? await exportDocument() : documentRef.current; }
+    catch { setStatusMessage(tEditor("status.saveFailed")); return; }
+    const text = serializeDocumentText(document);
     if (await writeTextToClipboard(text)) {
       setStatusMessage(tEditor("status.documentTextCopied"));
       return;

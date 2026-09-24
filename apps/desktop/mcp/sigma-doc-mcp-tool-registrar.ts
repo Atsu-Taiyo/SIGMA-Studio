@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { withSharedReadScope } from "../electron/collaboration/proposal-context";
 
 import type { McpServer, RegisteredTool, ToolCallback } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { CallToolResult, ToolAnnotations } from "@modelcontextprotocol/sdk/types.js";
@@ -48,6 +49,7 @@ export interface McpToolRegistrarOptions {
   toolProfile: McpToolProfile;
   profileGuidance: (description: string) => string;
   activityLogger: ToolActivityLogger;
+  activeRunId?: () => string | undefined;
   visualSessionRunId: (sessionId: string) => string | undefined;
 }
 
@@ -83,7 +85,7 @@ export function createMcpToolRegistrar(server: McpServer, options: McpToolRegist
       const toolArgs = isRecord(firstArg) ? firstArg : null;
       const explicitRunId = typeof toolArgs?.runId === "string" ? toolArgs.runId.trim() || undefined : undefined;
       const sessionId = typeof toolArgs?.sessionId === "string" ? toolArgs.sessionId : undefined;
-      const runId = explicitRunId ?? (sessionId ? visualSessionRunId(sessionId) : undefined);
+      const runId = explicitRunId ?? (sessionId ? visualSessionRunId(sessionId) : undefined) ?? options.activeRunId?.();
       // Read provenance is collected here for every profile. Only its intersection
       // with library-search hits is later exposed as a proposal source reference.
       if (READ_ONLY_TOOL_NAMES.has(name) && typeof toolArgs?.fileId === "string") {
@@ -92,7 +94,7 @@ export function createMcpToolRegistrar(server: McpServer, options: McpToolRegist
       activityLogger({ callId, tool: name, runId, status: "started" });
       return runWithMcpToolStats(name, runId, async () => {
         try {
-          const result = await invoke(...handlerArgs);
+          const result = await withSharedReadScope(runId, READ_ONLY_TOOL_NAMES.has(name), async () => invoke(...handlerArgs));
           activityLogger({ callId, tool: name, runId, status: "completed" });
           return result;
         } catch (error) {

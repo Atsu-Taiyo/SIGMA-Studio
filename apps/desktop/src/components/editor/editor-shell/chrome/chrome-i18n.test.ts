@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -57,6 +57,22 @@ const staticKeys = new Set(
 const dynamicPrefixes = [
   ...source.matchAll(/\bt\(\s*`([a-zA-Z0-9_.]*?)\$\{/gu),
 ].map((match) => match[1] ?? "");
+
+// Collaboration controls share chrome copy from workspace and feature surfaces.
+// Include literal conditional keys and feature-list suffixes as well as t()/tc().
+function productionSources(directory: string): string[] {
+  return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
+    const file = path.join(directory, entry.name);
+    return entry.isDirectory() ? productionSources(file)
+      : /\.tsx?$/.test(entry.name) && !/\.(test|spec)\./.test(entry.name) ? [readFileSync(file, "utf8")] : [];
+  });
+}
+const collaborationSource = [
+  ...productionSources(path.join(desktopRoot, "src/features/collaboration/renderer")),
+  ...productionSources(path.join(desktopRoot, "src/components/workspace")),
+].join("\n");
+for (const match of collaborationSource.matchAll(/["'](collaboration\.[a-zA-Z0-9_.]+)["']/g)) staticKeys.add(match[1]);
+for (const match of collaborationSource.matchAll(/`(collaboration\.[a-zA-Z0-9_.]*?)\$\{/g)) dynamicPrefixes.push(match[1]);
 
 const dictionaryKeys = flattenKeys(jaChrome as unknown as DictionaryValue);
 

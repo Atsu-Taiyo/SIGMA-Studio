@@ -23,10 +23,13 @@ export type WorkspaceFilePreviewState = {
 export function WorkspaceFileCardPreview({
   fileId,
   revision,
+  allowDocumentLoad = true,
 }: {
   fileId: string;
   revision: number;
   updatedAt?: string;
+  /** Shared cards use saved thumbnails; listing must not open a body session. */
+  allowDocumentLoad?: boolean;
 }) {
   const previewKey = `${fileId}:${revision}`;
   const rootRef = useRef<HTMLDivElement | null>(null);
@@ -72,6 +75,10 @@ export function WorkspaceFileCardPreview({
         setPreview({ key: previewKey, status: "ready", imageUrl: cached, document: null });
         return;
       }
+      if (!allowDocumentLoad) {
+        setPreview({ key: previewKey, status: "idle", imageUrl: null, document: null });
+        return;
+      }
       const document = await loadWorkspacePreviewDocument(fileId);
       if (cancelled) {
         return;
@@ -104,7 +111,7 @@ export function WorkspaceFileCardPreview({
       cancelled = true;
       observer.disconnect();
     };
-  }, [fileId, previewKey, revision]);
+  }, [allowDocumentLoad, fileId, previewKey, revision]);
 
   return (
     <div

@@ -3,7 +3,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { InlineNode, SigmaCommentAnchor } from "@sigma-studio/viewer";
 
-import { AiEditorHost, useAiProposalActions, useCommentAiRun } from "./desktop-ai-disabled";
+import { aiChatRoomsStore, deleteAiDataForDocument, AiEditorHost, useAiProposalActions, useCommentAiRun } from "./desktop-ai-disabled";
 
 let mounted: { root: Root; container: HTMLDivElement } | undefined;
 
@@ -15,6 +15,18 @@ afterEach(() => {
 });
 
 describe("public Editor disabled AI hooks", () => {
+  it("keeps workspace AI snapshots stable and cleanup inert", async () => {
+    const listener = vi.fn();
+    const snapshot = aiChatRoomsStore.getSnapshot();
+    const unsubscribe = aiChatRoomsStore.subscribe(listener);
+    expect(snapshot).toEqual([]);
+    expect(aiChatRoomsStore.getActiveRoomId("document")).toBeNull();
+    await deleteAiDataForDocument("document");
+    expect(aiChatRoomsStore.getSnapshot()).toBe(snapshot);
+    expect(listener).not.toHaveBeenCalled();
+    unsubscribe();
+  });
+
   it("keeps the AI host and its children absent without subscribing to interactions", () => {
     const mountPanel = vi.fn();
     const close = vi.fn();

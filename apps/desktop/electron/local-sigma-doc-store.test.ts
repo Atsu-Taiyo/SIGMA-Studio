@@ -15,6 +15,11 @@ import { createBlankDocument } from "@/lib/blank-document";
 import { sampleDocument } from "@/lib/sample-document";
 import type { SigmaDocument } from "@/types/sigma-doc";
 import { setAppLocale } from "@/lib/i18n";
+import {
+  aiWorkspaceTab,
+  createSingleGroupWorkspaceLayout,
+  splitWorkspaceGroupWithTab,
+} from "@/lib/workspace-tab-groups";
 
 const realFsWriteFile = fs.writeFile;
 
@@ -585,7 +590,38 @@ describe("LocalSigmaDocStore", () => {
       id: "default",
       openFileIds: [file.fileId],
       activeFileId: file.fileId,
+      layout: createSingleGroupWorkspaceLayout([file.fileId], file.fileId),
     });
+  });
+
+  it("persists V2 split layout and removes deleted document and AI tabs without flattening the remainder", async () => {
+    await store.initializeWorkspace({ initialDocument: sampleDocument });
+    const first = (await store.listFiles())[0];
+    const second = await store.createDocument({ title: "二つ目" });
+    let layout = createSingleGroupWorkspaceLayout([first.fileId, second.file.fileId], first.fileId);
+    layout = splitWorkspaceGroupWithTab(layout, `document:${second.file.fileId}`, "group-1", "right", "group-2", "split-1");
+    layout = {
+      ...layout,
+      root: layout.root.kind === "split" ? { ...layout.root, ratio: 0.63 } : layout.root,
+      groups: layout.groups.map((group) => group.id === "group-2"
+        ? { ...group, tabs: [...group.tabs, aiWorkspaceTab("room-2", second.file.fileId)] }
+        : group),
+    };
+
+    await expect(store.saveWorkspace({
+      openFileIds: [first.fileId, second.file.fileId],
+      activeFileId: first.fileId,
+      layout,
+    })).resolves.toEqual({ ok: true });
+    const restored = await store.initializeWorkspace({ initialDocument: sampleDocument });
+    expect(restored.layout).toEqual(layout);
+
+    await expect(store.deleteFile(second.file.fileId, { expectedRevision: second.file.revision }))
+      .resolves.toMatchObject({ ok: true });
+    const workspace = await readWorkspace(userDataDir) as { layout: typeof layout };
+    expect(workspace.layout.groups).toHaveLength(1);
+    expect(workspace.layout.groups[0].tabs).toEqual([{ id: `document:${first.fileId}`, kind: "document", fileId: first.fileId }]);
+    expect(workspace.layout.root).toEqual({ kind: "group", groupId: "group-1" });
   });
 
   it("loads the valid portion of a document and deduplicates an exact recovery backup", async () => {

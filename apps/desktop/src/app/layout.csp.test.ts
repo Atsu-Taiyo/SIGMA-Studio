@@ -34,7 +34,7 @@ describe("desktop renderer Content-Security-Policy", () => {
       "script-src 'self' 'unsafe-inline'",
       "script-src-attr 'none'",
       "style-src 'self' 'unsafe-inline'",
-      "img-src 'self' data: blob:",
+      "img-src 'self' data: blob: sigma-doc-storage: sigma-collaboration-profile:",
       "font-src 'self'",
       "connect-src 'self'",
       "object-src 'none'",
@@ -71,7 +71,7 @@ describe("desktop renderer Content-Security-Policy", () => {
     const parsed = directives();
     // 外部への送出と、文書由来の外部 URL 画像による開封通知 / IP 漏洩を止めるのが本 WI の実利。
     expect(parsed.get("connect-src")).toBe("'self'");
-    expect(parsed.get("img-src")).toBe("'self' data: blob:");
+    expect(parsed.get("img-src")).toBe("'self' data: blob: sigma-doc-storage: sigma-collaboration-profile:");
     // `webrtc` は `connect-src` の管轄外の egress 経路。
     expect(parsed.get("webrtc")).toBe("'block'");
     // 注入経路として最も現実的な `<img onerror>` は、`script-src` が `'unsafe-inline'` でも

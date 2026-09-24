@@ -32,8 +32,8 @@ const GLOBALS_EXCEPTIONS: Record<string, string> = {
   ".sigma-doc-box-title:empty": "空タイトルのプレースホルダはエディタ専用の入力アフォーダンス",
   ".sigma-doc-box-title:empty::before": "同上 (『タイトル』プレースホルダ)",
   ".sigma-doc-box-title:empty:focus::before": "同上",
-  ".box-frame--title-band .sigma-doc-box-title:empty": "同上",
-  ".box-frame--notebook-rules .sigma-doc-box-title:empty": "同上",
+  ":is(.box-frame--title-band, .box-frame--title-band > .sigma-doc-box-content) > .sigma-doc-box-title:empty": "同上",
+  ":is(.box-frame--notebook-rules, .box-frame--notebook-rules > .sigma-doc-box-content) > .sigma-doc-box-title:empty": "同上",
   ".text-flow-shell":
     "共有ファイルは殻のジオメトリだけを持つ。`cursor: text` は編集アフォーダンスなので"
     + "読み取り専用の埋め込みビューアへ降らせない",
@@ -381,10 +381,10 @@ describe("document-surface.css stays embeddable", () => {
  */
 describe("cornerbox の font-family 打ち消しと boxFrameAppliesFontFamily は対で決まる", () => {
   const NEUTRALIZED_SELECTORS = [
-    ".box-frame--corner .sigma-doc-box-body",
-    ".box-frame--corner .sigma-doc-box-title",
-    ".box-frame--corner .print-box-body",
-    ".box-frame--corner .print-box-title",
+    ":is(.box-frame--corner, .box-frame--corner > .sigma-doc-box-content) > .sigma-doc-box-body",
+    ":is(.box-frame--corner, .box-frame--corner > .sigma-doc-box-content) > .sigma-doc-box-title",
+    ":is(.box-frame--corner, .box-frame--corner > .sigma-doc-box-content) > .print-box-body",
+    ":is(.box-frame--corner, .box-frame--corner > .sigma-doc-box-content) > .print-box-title",
   ];
 
   /** Every top-level rule, with its selectors and its declarations. */
@@ -463,7 +463,7 @@ describe("タイトルの地色", () => {
   it("draws the band rule from the band-rule custom properties", () => {
     const band = ruleDeclarations(
       documentSurfaceCss,
-      ".box-frame--title-band .sigma-doc-box-title",
+      ":is(.box-frame--title-band, .box-frame--title-band > .sigma-doc-box-content) > .sigma-doc-box-title",
     );
     expect(band["border-bottom"]).toContain("--sigma-doc-box-title-band-rule-width");
     expect(band["border-bottom"]).toContain("--sigma-doc-box-title-band-rule-color");
@@ -474,7 +474,7 @@ describe("タイトルの地色", () => {
   it("keeps the title tab inside the frame", () => {
     const tab = ruleDeclarations(
       documentSurfaceCss,
-      ".box-frame--title-tab .sigma-doc-box-title",
+      ":is(.box-frame--title-tab, .box-frame--title-tab > .sigma-doc-box-content) > .sigma-doc-box-title",
     );
     expect(tab.margin).toContain("--sigma-doc-box-padding-top");
     expect(tab.margin).toContain("--sigma-doc-box-border-width");

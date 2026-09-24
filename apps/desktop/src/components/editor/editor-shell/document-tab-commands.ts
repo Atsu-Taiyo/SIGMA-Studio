@@ -7,6 +7,8 @@ export interface DocumentTabOpenOptions {
   nextOpenFileIds?: string[];
   status?: string;
   saveCurrent?: boolean;
+  /** Adopt pane state only after the target document has loaded successfully. */
+  onOpened?: () => void;
 }
 
 interface DocumentTabs {
@@ -45,6 +47,7 @@ interface CloseDocumentTabState extends DocumentTabs {
 }
 
 interface CloseDocumentTabPorts extends DocumentTabPorts {
+  canCleanupUntouchedDocument?(fileId: string): Promise<boolean>;
   flushOverlayChanges(): void;
   saveCurrentDocumentBeforeReplacement(): Promise<boolean>;
   loadDocumentByFileIdWithRecovery(fileId: string): Promise<DocumentLoadResult>;
@@ -52,6 +55,7 @@ interface CloseDocumentTabPorts extends DocumentTabPorts {
   cancelPendingAutosave(): void;
   markWorkspaceNotReady(): void;
   navigateToWorkspace(): void;
+  deleteAiDataForDocument(fileId: string): Promise<void>;
 }
 
 /**
@@ -67,9 +71,9 @@ export async function closeWorkspaceDocumentTab(
     activeFileIdRef, openFileIdsRef, documentRef,
   }: CloseDocumentTabState,
   {
-    flushOverlayChanges, saveCurrentDocumentBeforeReplacement, loadDocumentByFileIdWithRecovery,
+    canCleanupUntouchedDocument, flushOverlayChanges, saveCurrentDocumentBeforeReplacement, loadDocumentByFileIdWithRecovery,
     deleteDocument, forgetTabView, cancelPendingAutosave, markWorkspaceNotReady,
-    navigateToWorkspace, openDocumentInWorkspace, setOpenFileIds, saveWorkspaceState,
+    navigateToWorkspace, deleteAiDataForDocument, openDocumentInWorkspace, setOpenFileIds, saveWorkspaceState,
     refreshDocumentMetadatas, setSaveState, setStatusMessage, tEditor,
   }: CloseDocumentTabPorts,
 ): Promise<void> {
@@ -80,7 +84,15 @@ export async function closeWorkspaceDocumentTab(
     const loaded = await loadDocumentByFileIdWithRecovery(fileId);
     if (untouchedNewDocumentsRef.current.has(fileId) && loaded.ok
       && isUntouchedNewDocument(initialDraft, loaded.document)
-      && (fileId !== activeFileIdRef.current || isUntouchedNewDocument(initialDraft, documentRef.current))) {
+      && (fileId !== activeFileIdRef.current || isUntouchedNewDocument(initialDraft, documentRef.current))
+      && (!canCleanupUntouchedDocument || await canCleanupUntouchedDocument(fileId))) {
+      try {
+        await deleteAiDataForDocument(fileId);
+      } catch (error) {
+        setSaveState("error");
+        setStatusMessage(error instanceof Error ? error.message : tEditor("status.deleteFailed"));
+        return;
+      }
       // Compare-and-delete: a concurrent save retains the newly written content.
       const result = await deleteDocument(fileId, { expectedRevision: loaded.revision });
       if (!result.ok) {

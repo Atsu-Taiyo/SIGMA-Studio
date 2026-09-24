@@ -1,5 +1,5 @@
-.dialog {
-  width: min(100%, var(--content-width-lg));
+.dialog[data-size="xl"] {
+  width: min(100%, 1000px);
 }
 
 .styleGrid {
@@ -34,16 +34,26 @@
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 24%, transparent);
 }
 
-.stylePreview:global(.sigma-doc-box-block) {
-  display: grid;
-  width: 100%;
+.stylePreviewViewport {
+  display: block;
+  position: relative;
   height: 52px;
+  pointer-events: none;
+}
+
+/* Scale the actual frame, including its padding and decorations, as one unit.
+   Leave room above for the title plate that straddles the top border. */
+.stylePreview:global(.sigma-doc-box-block) {
+  position: absolute;
+  top: 6px;
+  left: 2px;
+  display: block;
+  width: calc(200% - 8px);
+  height: 88px;
   min-height: 0;
-  grid-template-rows: auto 1fr;
-  gap: var(--space-xs);
   margin: 0;
-  overflow: hidden;
-  padding: var(--space-sm);
+  transform: scale(0.5);
+  transform-origin: top left;
   pointer-events: none;
 }
 
@@ -59,7 +69,7 @@
 .stylePreview :global(.sigma-doc-box-title) {
   overflow: hidden;
   color: var(--sigma-doc-box-title-color, #111111);
-  font-size: 8px;
+  font-size: 16px;
   font-weight: var(--sigma-doc-box-title-weight, 700);
   line-height: 1;
   text-overflow: ellipsis;
@@ -70,14 +80,14 @@
   position: relative;
   display: grid;
   align-content: center;
-  gap: var(--space-xs);
+  gap: 8px;
   min-width: 0;
 }
 
 .previewLine {
   display: block;
   width: 82%;
-  height: 2px;
+  height: 4px;
   border-radius: var(--radius-round);
   background: color-mix(in srgb, var(--text-muted) 58%, transparent);
 }
@@ -137,27 +147,10 @@
   font-weight: 650;
 }
 
-.field input[type="number"] {
-  width: 100%;
-  min-height: 36px;
-  padding: var(--space-sm) var(--space-md);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-control);
-  background: var(--background);
-  color: var(--text-primary);
-  font: inherit;
-}
-
-.field input:focus-visible {
-  border-color: var(--border-strong);
-  outline: 2px solid color-mix(in srgb, var(--accent) 16%, transparent);
-  outline-offset: 1px;
-}
-
 .colorField {
   display: grid;
-  min-height: 36px;
-  grid-template-columns: 44px minmax(0, 1fr);
+  min-height: 38px;
+  grid-template-columns: 24px minmax(0, 1fr) 14px;
   align-items: center;
   gap: var(--space-sm);
   padding: var(--space-xs) var(--space-sm);
@@ -167,12 +160,13 @@
 }
 
 .colorField {
+  color: var(--text-secondary);
   cursor: pointer;
   text-align: left;
 }
 
 .colorSwatch {
-  width: 36px;
+  width: 22px;
   height: 22px;
   border: 1px solid var(--border);
   border-radius: 5px;
@@ -278,6 +272,293 @@
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
+}
+
+.workbench {
+  display: grid;
+  grid-template-columns: 224px minmax(0, 1fr);
+  gap: 28px;
+  align-items: start;
+}
+
+.controls {
+  min-width: 0;
+}
+
+.previewPanel {
+  position: sticky;
+  top: 0;
+  min-width: 0;
+  padding: 18px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-control);
+  background: var(--surface-soft);
+}
+
+.previewHeading {
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.livePreview {
+  margin: 20px -6px 16px;
+  padding: 16px 10px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-control);
+  background: #fff;
+  color: #111;
+}
+
+.livePreview .stylePreviewViewport {
+  height: 104px;
+}
+.livePreview .stylePreview:global(.sigma-doc-box-block) {
+  height: auto;
+  min-height: 180px;
+}
+.livePreview .stylePreview :global(.sigma-doc-box-title) {
+  white-space: normal;
+  overflow: visible;
+  line-height: 1.5;
+}
+.livePreview .previewLine {
+  background: #c5c5c5;
+}
+
+.currentStyleName {
+  display: block;
+  margin-bottom: 4px;
+  font-size: 13px;
+}
+
+.stylePicker {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: 12px;
+  min-height: 42px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  background: var(--background);
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.stylePicker strong {
+  flex: 1;
+  color: var(--text-primary);
+  font-weight: 600;
+}
+.stylePicker svg {
+  color: var(--text-muted);
+  transition: transform 150ms ease;
+}
+.stylePicker[aria-expanded="true"] svg {
+  transform: rotate(180deg);
+}
+.styleGrid[hidden] {
+  display: none;
+}
+
+.field > label {
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.selectField {
+  width: 100%;
+  min-height: 38px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  background: var(--background);
+  font: inherit;
+  font-size: 12px;
+}
+
+.choiceOption {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+}
+.lineSample {
+  display: inline-block;
+  width: 36px;
+  border-top: 3px solid currentColor;
+}
+
+.numberControl {
+  display: grid;
+  grid-template-columns: 30px minmax(0, 1fr) 30px;
+  align-items: center;
+  min-height: 38px;
+  padding: 3px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  background: var(--background);
+}
+
+.numberControl input[type="number"] {
+  width: 100%;
+  min-width: 0;
+  min-height: 28px;
+  padding: 0 4px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--text-primary);
+  text-align: center;
+  font: inherit;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  appearance: textfield;
+}
+
+.numberControl input::-webkit-inner-spin-button,
+.numberControl input::-webkit-outer-spin-button {
+  appearance: none;
+  margin: 0;
+}
+.numberControl input:focus-visible {
+  outline: none;
+}
+.numberControl:focus-within {
+  border-color: var(--border-strong);
+  box-shadow: 0 0 0 2px var(--surface-strong);
+}
+
+.stepButton {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-round);
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+.stepButton:hover:not(:disabled) {
+  background: var(--surface-muted);
+  color: var(--text-primary);
+}
+.stepButton:disabled {
+  color: var(--text-disabled);
+  cursor: default;
+}
+
+.radiusSlider {
+  width: 100%;
+  height: 20px;
+  margin: 2px 0 0;
+  padding: 0;
+  background: transparent;
+  cursor: pointer;
+  appearance: none;
+}
+.radiusSlider::-webkit-slider-runnable-track {
+  height: 4px;
+  border-radius: 2px;
+  background: linear-gradient(to right, var(--text-secondary) var(--slider-fill), var(--surface-strong) var(--slider-fill));
+}
+.radiusSlider::-webkit-slider-thumb {
+  width: 14px;
+  height: 14px;
+  margin-top: -5px;
+  border: 1px solid var(--border-strong);
+  border-radius: 50%;
+  background: var(--background);
+  box-shadow: 0 1px 3px #0002;
+  appearance: none;
+}
+.radiusSlider::-moz-range-track {
+  height: 4px;
+  border-radius: 2px;
+  background: var(--surface-strong);
+}
+.radiusSlider::-moz-range-progress {
+  height: 4px;
+  background: var(--text-secondary);
+}
+.radiusSlider::-moz-range-thumb {
+  width: 12px;
+  height: 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: 50%;
+  background: var(--background);
+}
+
+.segmentedButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+.cornerIcon {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  border-top: 1.5px solid currentColor;
+  border-left: 1.5px solid currentColor;
+}
+.cornerIcon[data-rounded="true"] {
+  border-top-left-radius: 8px;
+}
+
+.resetButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+.footer {
+  flex-wrap: wrap;
+}
+
+.stylePicker:hover,
+.selectField:hover,
+.colorField:hover {
+  border-color: var(--border-strong);
+  background: var(--surface-soft);
+}
+.stylePicker:focus-visible,
+.selectField:focus-visible,
+.colorField:focus-visible,
+.stepButton:focus-visible,
+.segmentedButton:focus-visible,
+.resetButton:focus-visible,
+.radiusSlider:focus-visible {
+  outline: 2px solid var(--border-strong);
+  outline-offset: 2px;
+}
+
+@media (max-width: 800px) {
+  .workbench {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .previewPanel {
+    position: static;
+  }
+
+  .livePreview {
+    max-width: 360px;
+    margin-inline: auto;
+  }
+
+  .settingsGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 560px) {
   .settingsGrid {
     grid-template-columns: minmax(0, 1fr);
   }

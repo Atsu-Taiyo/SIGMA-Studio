@@ -1,7 +1,7 @@
 import { useMemo, useSyncExternalStore } from "react";
 
 import { cancelAiEditViaDesktopRuntime, runAiEditViaDesktopRuntime } from "@/lib/ai/codex-ai-edit-client";
-import { aiRunSessionStore, type AiRunAnchor } from "@/lib/ai/ai-run-session-store";
+import { aiRunSessionStore, isAiRunStatusActive, type AiRunAnchor } from "@/lib/ai/ai-run-session-store";
 import {
   AiRunAnchorQueue,
   doAiRunAnchorQueueTargetsOverlap,
@@ -528,6 +528,19 @@ class AiChatRoomsStore {
     return next;
   }
 
+  removeDocument(documentIdentityKey: string): void {
+    let changed = false;
+    for (const [roomId, room] of this.rooms) {
+      if (room.documentIdentityKey === documentIdentityKey) {
+        this.rooms.delete(roomId);
+        changed = true;
+      }
+    }
+    if (this.activeRoomIdByDocument.delete(documentIdentityKey)) changed = true;
+    this.explicitSelection.delete(documentIdentityKey);
+    if (changed) this.emit();
+  }
+
   private emit(): void {
     this.snapshot = Array.from(this.rooms.values());
     this.listeners.forEach((listener) => listener());
@@ -535,6 +548,17 @@ class AiChatRoomsStore {
 }
 
 export const aiChatRoomsStore = new AiChatRoomsStore();
+
+export async function deleteAiDataForDocument(documentIdentityKey: string): Promise<void> {
+  const roomIds = new Set(aiChatRoomsStore.getRoomsForDocument(documentIdentityKey).map((room) => room.id));
+  const cancellations = Array.from(aiRunSessionStore.getSnapshot().values())
+    .filter((session) => roomIds.has(session.roomId) && isAiRunStatusActive(session.status) && session.runId)
+    .map((session) => cancelRun(session.runId!));
+  await Promise.allSettled(cancellations);
+  const result = await getDesktopBridge()?.aiEdit?.deleteChatRoomsForDocument?.(documentIdentityKey);
+  if (result && !result.ok) throw new Error(result.error || tAiNow("chat.documentCleanupFailed"));
+  aiChatRoomsStore.removeDocument(documentIdentityKey);
+}
 
 export function useAiChatRoomsForDocument(documentIdentityKey: string): AiEditChatRoom[] {
   const all = useSyncExternalStore(aiChatRoomsStore.subscribe, aiChatRoomsStore.getSnapshot, aiChatRoomsStore.getSnapshot);

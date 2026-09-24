@@ -9,11 +9,14 @@ import type { TranslationsOf } from "../types";
  * フォールバックし、英語だけにあるキーも検出されなくなる。
  */
 export const workspace = {
+  sharedItems: "Shared Items",
   githubStar: {
     title: "Support Sigma Studio with a GitHub star",
     description: "If Sigma Studio is useful to you, consider starring the project on GitHub. Your support encourages continued development.",
     openGitHub: "Open GitHub (external site)",
-    dismissNote: "This invitation will not appear again after you close it.",
+    doNotShowAgain: "Don't show again",
+    dismissNote: "Close with the × above to see this invitation again next time you start the app.",
+    optOutFailed: "Could not save your preference. Please try again.",
   },
   untitledMaterial: "Untitled material",
   defaultWorkspaceName: "My materials",
@@ -52,6 +55,7 @@ export const workspace = {
     loadFailed: "Couldn't load the workspace.",
     unavailable: "Workspace unavailable",
     changeFailed: "Can't change the workspace",
+    creationNotAllowed: "You do not have permission to create documents in this location.",
     createFromTemplateFailed: "Couldn't create a material from the template.",
     moveMaterialFailed: "Can't move the material",
     targetWorkspaceMissing: "Destination workspace not found",
@@ -115,7 +119,6 @@ export const workspace = {
     createMaterial: "Create material",
     itemMenu: "{{name}} actions",
     openItem: "Open {{name}}",
-    materialMenu: "Material actions",
     cancel: "Cancel",
     cancelLong: "Cancel",
     create: "Create",

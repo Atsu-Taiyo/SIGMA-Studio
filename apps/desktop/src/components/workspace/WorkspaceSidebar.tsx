@@ -1,8 +1,10 @@
 "use client";
 
-import { Building2, ChevronRight, FileText, Folder, Plus } from "lucide-react";
+import { Building2, ChevronRight, FileText, Folder, Plus, Share2 } from "lucide-react";
 import type { CSSProperties, Dispatch, DragEvent as ReactDragEvent, MouseEvent as ReactMouseEvent, SetStateAction } from "react";
 
+import { SHARED_ITEMS_WORKSPACE_ID } from "@/lib/runtime/shared-catalog";
+import { WorkspaceItemMenuButton } from "./WorkspaceItemMenuButton";
 import { DocumentTitleText } from "@/features/rendering/adapters/react";
 import type { WorkspaceSummary } from "@/lib/runtime/types";
 import type { WorkspaceFileSummary, WorkspaceFolderSummary } from "@/lib/workspace-repository";
@@ -14,6 +16,7 @@ import type { WorkspaceInlineRenameTarget } from "./use-inline-rename";
 import { useT } from "@/lib/i18n/react";
 
 interface WorkspaceSidebarProps {
+  menuKey?: string | null;
   visibleWorkspaces: WorkspaceSummary[];
   activeWorkspaceId: string | null;
   workspaceTreeExpanded: boolean;
@@ -37,6 +40,8 @@ interface WorkspaceSidebarProps {
   onSwitchWorkspace: (workspaceId: string) => void;
   onWorkspaceContextMenu: (event: ReactMouseEvent, workspaceId: string) => void;
   onOpenFile: (fileId: string) => void;
+  onFolderContextMenu: (event: ReactMouseEvent, folderId: string) => void;
+  onFileContextMenu: (event: ReactMouseEvent, file: WorkspaceFileSummary) => void;
   isRenameEditing: (key: string) => boolean;
   onStartRename: (target: WorkspaceInlineRenameTarget, currentName: string) => void;
   onCommitRename: (nextName: string) => void;
@@ -44,6 +49,7 @@ interface WorkspaceSidebarProps {
 }
 
 export function WorkspaceSidebar({
+  menuKey,
   visibleWorkspaces,
   activeWorkspaceId,
   workspaceTreeExpanded,
@@ -63,12 +69,15 @@ export function WorkspaceSidebar({
   onSwitchWorkspace,
   onWorkspaceContextMenu,
   onOpenFile,
+  onFolderContextMenu,
+  onFileContextMenu,
   isRenameEditing,
   onStartRename,
   onCommitRename,
   onCancelRename,
 }: WorkspaceSidebarProps) {
   const t = useT("workspace");
+  const tc = useT("chrome");
 
   const toggleSidebarFolder = (folderId: string) => {
     setExpandedFolderIds((current) => {
@@ -81,6 +90,19 @@ export function WorkspaceSidebar({
       return next;
     });
   };
+
+  const renderFile = (file: WorkspaceFileSummary, depth: number) => (
+    <div className="workspace-tree-file-row" key={file.fileId} style={{ "--workspace-tree-depth": depth } as CSSProperties}>
+      <button type="button" className="workspace-tree-file"
+        aria-label={resolveFileDisplayName(file, t)}
+        onContextMenu={(event) => onFileContextMenu(event, file)}
+        onClick={() => onOpenFile(file.fileId)}>
+        <FileText size={14} />
+        <span><DocumentTitleText title={resolveFileDisplayName(file, t)} /></span>
+      </button>
+      <WorkspaceItemMenuButton expanded={menuKey === `file:${file.fileId}`} name={resolveFileDisplayName(file, t)} onClick={(event) => onFileContextMenu(event, file)} />
+    </div>
+  );
 
   const renderSidebarFolder = (folder: WorkspaceFolderSummary, depth = 0) => {
     const childFolders = folders.filter((candidate) => candidate.parentFolderId === folder.id);
@@ -104,6 +126,7 @@ export function WorkspaceSidebar({
           <button
             type="button"
             className={`workspace-tree-item ${effectiveFolderFilter === folder.id ? "active" : ""}`}
+            onContextMenu={(event) => onFolderContextMenu(event, folder.id)}
             onClick={() => {
               setFolderFilter(folder.id);
               setSearchQuery("");
@@ -115,23 +138,12 @@ export function WorkspaceSidebar({
             <Folder size={15} />
             <span>{folder.name}</span>
           </button>
+          <WorkspaceItemMenuButton expanded={menuKey === `folder:${folder.id}`} name={folder.name} onClick={(event) => onFolderContextMenu(event, folder.id)} />
         </div>
         {expanded && (
           <div className="workspace-tree-children">
             {childFolders.map((child) => renderSidebarFolder(child, depth + 1))}
-            {childFiles.map((file) => (
-              <button
-                type="button"
-                className="workspace-tree-file"
-                style={{ "--workspace-tree-depth": depth + 1 } as CSSProperties}
-                key={file.fileId}
-                aria-label={resolveFileDisplayName(file, t)}
-                onClick={() => onOpenFile(file.fileId)}
-              >
-                <FileText size={14} />
-                <span><DocumentTitleText title={resolveFileDisplayName(file, t)} /></span>
-              </button>
-            ))}
+            {childFiles.map((file) => renderFile(file, depth + 1))}
           </div>
         )}
       </div>
@@ -174,12 +186,13 @@ export function WorkspaceSidebar({
                   />
                 </div>
               ) : (
+                <div className="workspace-nav-row">
                 <button
                   type="button"
                   className={`workspace-nav-item ${active ? "active" : ""} ${dropTarget === target ? "drop-active" : ""}`}
                   onClick={() => {
                     if (!active) {
-                      setWorkspaceTreeExpanded(false);
+                      setWorkspaceTreeExpanded(workspace.sharing?.placement === "incoming");
                       setExpandedFolderIds(new Set());
                       onSwitchWorkspace(workspace.id);
                       return;
@@ -198,25 +211,16 @@ export function WorkspaceSidebar({
                 >
                   <ChevronRight className="workspace-nav-chevron" size={14} />
                   <Building2 size={16} />
-                  <span className="workspace-nav-name">{workspace.name}</span>
+                  <span className="workspace-nav-name">{workspace.id === SHARED_ITEMS_WORKSPACE_ID ? tc("collaboration.sharedItems") : workspace.name}</span>
+                  {workspace.sharing && <Share2 size={14} aria-label={tc("collaboration.sharedBadge")} />}
                 </button>
+                {workspace.id !== SHARED_ITEMS_WORKSPACE_ID && <WorkspaceItemMenuButton expanded={menuKey === `workspace:${workspace.id}`} name={workspace.name} onClick={(event) => onWorkspaceContextMenu(event, workspace.id)} />}
+                </div>
               )}
               {active && workspaceTreeExpanded && (
                 <div className="workspace-tree" aria-label={t("nav.workspaceTree", { replace: { name: workspace.name } })}>
                   {rootFolders.map((folder) => renderSidebarFolder(folder))}
-                  {rootFiles.map((file) => (
-                    <button
-                      type="button"
-                      className="workspace-tree-file"
-                      style={{ "--workspace-tree-depth": 0 } as CSSProperties}
-                      key={file.fileId}
-                      aria-label={resolveFileDisplayName(file, t)}
-                      onClick={() => onOpenFile(file.fileId)}
-                    >
-                      <FileText size={14} />
-                      <span><DocumentTitleText title={resolveFileDisplayName(file, t)} /></span>
-                    </button>
-                  ))}
+                  {rootFiles.map((file) => renderFile(file, 0))}
                 </div>
               )}
             </div>

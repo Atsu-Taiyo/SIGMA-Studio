@@ -1216,13 +1216,13 @@ describe("empty box title editing structure", () => {
   it("keeps title plates on the box background without an opaque focused placeholder chip", () => {
     const css = readBoxStylesheets();
     const titlePlateRule = css.match(
-      /\.box-frame--title-plate \.sigma-doc-box-title,\s*\.box-frame--title-plate \.print-box-title \{([^}]+)\}/,
+      /:is\(\.box-frame--title-plate, \.box-frame--title-plate > \.sigma-doc-box-content\) > \.sigma-doc-box-title,\s*:is\(\.box-frame--title-plate, \.box-frame--title-plate > \.sigma-doc-box-content\) > \.print-box-title \{([^}]+)\}/,
     )?.[1];
     const focusedPlaceholderRule = css.match(
       /\.sigma-doc-box-title:empty:focus::before,\s*\.sigma-doc-box-title:has\(> br\.ProseMirror-trailingBreak:only-child\):focus::before \{([^}]+)\}/,
     )?.[1];
     const titleBandRule = css.match(
-      /\.box-frame--title-band \.sigma-doc-box-title,\s*\.box-frame--title-band \.print-box-title \{([^}]+)\}/,
+      /:is\(\.box-frame--title-band, \.box-frame--title-band > \.sigma-doc-box-content\) > \.sigma-doc-box-title,\s*:is\(\.box-frame--title-band, \.box-frame--title-band > \.sigma-doc-box-content\) > \.print-box-title \{([^}]+)\}/,
     )?.[1];
 
     expect(titlePlateRule).toMatch(/background:\s*var\(--sigma-doc-box-background,\s*#ffffff\)/);

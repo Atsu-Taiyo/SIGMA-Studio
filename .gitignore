@@ -38,3 +38,18 @@ outputs/
 
 # Dedicated Electron development server
 .next-electron/
+.wrangler/
+.dev.vars
+/supabase/
+/apps/collaboration/
+
+# Collaboration service deployment and database internals live in a private repository.
+*.sql
+/scripts/collaboration-cloud-*
+/scripts/collaboration-local-env.mjs
+
+/docs/collaboration-*.md
+!/docs/collaboration-user-guide.md
+/docs/adr/001-optional-collaboration.md
+/apps/desktop/tests/electron/collaboration-cloud-*.ts
+/apps/desktop/electron/collaboration/cloud-test-cleanup.test.ts

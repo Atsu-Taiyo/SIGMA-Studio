@@ -46,7 +46,8 @@ test("gives a box a title with math from the ⋯ menu, then hands the caret back
     expect.objectContaining({ type: "mathInline", tex: "x^2+1" }),
     { type: "text", text: "を確認" },
   ]);
-  await expect(page.locator('.sigma-doc-box-title [data-sigma-doc-math-inline]')).toHaveCount(1);
+  await expect(box.locator('.sigma-doc-box-title [data-sigma-doc-math-inline]')).toHaveCount(1);
+  await expect(dialog.getByTestId("box-live-preview").locator('[data-sigma-doc-math-inline]')).toHaveCount(1);
 
   // 閉じたあとのフォーカスは箱へ戻る。ModalFrame の既定の復帰先 (body 先頭 = 画面上端の
   // 教材タイトル) のままだと、次の 1 打鍵が教材名の書き換えになる。
