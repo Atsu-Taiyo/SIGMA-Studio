@@ -65,6 +65,7 @@ const ALLOWED_LEGACY_ASSERTIONS: Readonly<Record<string, readonly RegExp[]>> = {
     /^\s*expect\(inputs\.filter\(input => .*\)\)\.toEqual\(\[\]\);$/u,
   ],
   ".gitignore": [
+    /^\/supabase\/$/u,
     /^supabase\/\.(?:temp|branches)\/$/u,
   ],
   "apps/desktop/electron/local-library-record.test.ts": [

@@ -5,6 +5,7 @@ import { PageCanvasEditor } from "@sigma-studio/editor-internal/page-canvas-edit
 
 const EMPTY_ARRAY: never[] = [];
 const EMPTY_MAP = new Map();
+export function useAiWorkspaceTabTitles(): ReadonlyMap<string, string> { return EMPTY_MAP; }
 
 // Workspace tabs can inspect this store even when the embedded tab UI is hidden.
 // Keep its snapshot stable and never initialize desktop persistence or providers.
