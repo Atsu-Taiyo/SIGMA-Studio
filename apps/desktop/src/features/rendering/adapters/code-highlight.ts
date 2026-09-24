@@ -1,3 +1,5 @@
+import { normalizeCodeLanguage } from "@/features/document";
+export { normalizeCodeLanguage } from "@/features/document";
 import type { Element as HastElement, Root as HastRoot, RootContent } from "hast";
 import bash from "highlight.js/lib/languages/bash";
 import c from "highlight.js/lib/languages/c";
@@ -94,7 +96,6 @@ const lowlight = createLowlight({
   yaml,
 });
 
-const REGISTERED_LANGUAGES = new Set(CODE_BLOCK_LANGUAGES.map((option) => option.value));
 
 /** 色分けを持たない言語。選べるが、highlight.js には登録しない (トークンが出ないだけ)。 */
 export const PLAIN_CODE_LANGUAGE = "plaintext";
@@ -158,10 +159,6 @@ const AUTO_DETECT_SUBSET = [
 const highlightCache = new Map<string, CodeHighlightToken[]>();
 const HIGHLIGHT_CACHE_LIMIT = 64;
 
-/** 読めない言語は `undefined` (＝自動判定) に落とす。未知の値で色が消えるだけで、本文は残る。 */
-export function normalizeCodeLanguage(value: unknown): string | undefined {
-  return typeof value === "string" && REGISTERED_LANGUAGES.has(value) ? value : undefined;
-}
 
 export interface CodeHighlightToken {
   /** このトークンが覆う文字数。位置合わせに使うので、必ず元の文字列の長さと一致させる。 */
