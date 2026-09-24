@@ -19,11 +19,12 @@ vi.mock("@/lib/ai/ai-run-controller", () => {
   return { aiChatRoomsStore: { subscribe: () => () => {}, getSnapshot: () => rooms } };
 });
 vi.mock("@/components/editor/AiEditPanel", () => ({ AiEditPanel: () => <button data-ai="true">AI</button> }));
-vi.mock("@/components/print/paged-render/PagedRenderSurface", () => ({ PagedRenderSurface: ({ document }: { document: SigmaDocument }) => {
+vi.mock("@/components/editor/PageCanvasEditor", () => ({ PageCanvasEditor: ({ document, zoom, publishesSessionPresence }: { document: SigmaDocument; zoom: number; publishesSessionPresence?: boolean }) => {
   const session = useDocumentSession();
   const writable = useDocumentWritable();
-  return <div data-preview="true" data-writable={String(writable)} data-asset={session?.resolveAssetSource?.("asset")}>{document.metadata.title}</div>;
+  return <div className="page-canvas" data-preview="true" data-writable={String(writable)} data-zoom={zoom} data-presence={String(publishesSessionPresence)} data-asset={session?.resolveAssetSource?.("asset")}>{document.metadata.title}</div>;
 } }));
+const paneView = { zoom: 125, showComments: false, showResolvedComments: false, commentAuthor: { name: "guest", avatarUrl: null } };
 
 function signal() {
   const listeners = new Set<() => void>();
@@ -44,13 +45,14 @@ beforeEach(() => {
   bridge.load.mockResolvedValue({ ok: true, document: doc("local") });
 });
 afterEach(() => { act(() => root.unmount()); container.remove(); bridge.listeners.clear(); vi.clearAllMocks(); });
-async function render(host?: DocumentSessionHost, ai = false, metadata: DocumentMetadata[] = []) {
+async function render(host?: DocumentSessionHost, ai = false, metadata: DocumentMetadata[] = [], onFocusGroup = vi.fn(), focused = true) {
   const layout = createSingleGroupWorkspaceLayout(["target"], "target");
+  if (!focused) layout.focusedGroupId = "another-group";
   const tab = ai ? aiWorkspaceTab("room", "target") : documentWorkspaceTab("target");
   layout.groups[0].tabs = [tab]; layout.groups[0].activeTabId = tab.id;
   await act(async () => root.render(
     <DocumentSessionContext.Provider value={fixture().session}><DocumentWritableContext.Provider value={true}>
-      <WorkspaceTabGroupGrid layout={layout} metadata={metadata} activeFileId="other" sessionHost={host} onFocusGroup={vi.fn()} onMoveTab={vi.fn()} onSplitTab={vi.fn()} onResizeSplit={vi.fn()}><div>active editor</div></WorkspaceTabGroupGrid>
+      <WorkspaceTabGroupGrid layout={layout} metadata={metadata} activeFileId="other" sessionHost={host} paneView={paneView} onFocusGroup={onFocusGroup} onMoveTab={vi.fn()} onSplitTab={vi.fn()} onResizeSplit={vi.fn()}><div>active editor</div></WorkspaceTabGroupGrid>
     </DocumentWritableContext.Provider></DocumentSessionContext.Provider>,
   ));
 }
@@ -107,4 +109,18 @@ it("retains the mounted detached file and releases it when the pane disappears",
   expect(release).not.toHaveBeenCalled();
   await act(async () => root.render(<div />));
   expect(release).toHaveBeenCalledTimes(1);
+});
+it("shows an unfocused document as a read-only editing surface and hands off its scroll and click point", async () => {
+  const f = fixture(); const onFocusGroup = vi.fn();
+  await render(f.host, false, [], onFocusGroup, false);
+  const surface = container.querySelector<HTMLElement>("[data-preview]")!;
+  // The same editor surface at the editor's zoom, never writable and never announcing presence.
+  expect(surface.getAttribute("data-zoom")).toBe("125");
+  expect(surface.getAttribute("data-writable")).toBe("false");
+  expect(surface.getAttribute("data-presence")).toBe("false");
+  expect(surface.getAttribute("data-asset")).toBe("first");
+  const scroller = container.querySelector<HTMLElement>(".workspace-passive-editor")!;
+  scroller.scrollTop = 240;
+  await act(async () => surface.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, button: 0, clientX: 30, clientY: 40 })));
+  expect(onFocusGroup).toHaveBeenCalledWith(expect.any(String), { scrollTop: 240, scrollLeft: 0, point: { x: 30, y: 40 } });
 });

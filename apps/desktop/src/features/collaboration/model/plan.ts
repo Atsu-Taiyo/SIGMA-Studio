@@ -61,3 +61,46 @@ export function formatUsd(amount: number): string {
     maximumFractionDigits: 2,
   }).format(amount);
 }
+
+/**
+ * Why the paywall opened. The paywall states this reason first, so a blocked
+ * action always explains itself where the upgrade is offered.
+ */
+export type PlanPaywallReason = "hierarchyShare" | "documentLimit" | "participantLimit" | "adminRole";
+
+/** Server codes that mean "this owner's plan does not allow it". */
+const PLAN_LIMIT_CODES = ["DOCUMENT_LIMIT", "PARTICIPANT_LIMIT", "PRO_REQUIRED"] as const;
+
+/**
+ * Maps a failed owner-side sharing action to the paywall reason, or `null` when
+ * the failure is not about the plan. `PRO_REQUIRED` is ambiguous on the server
+ * (hierarchy share or admin role), so the caller says what it attempted.
+ */
+export function planPaywallReasonFromError(
+  error: unknown,
+  attempted: "hierarchyShare" | "documentShare" | "adminRole" | "invite",
+): PlanPaywallReason | null {
+  const message = error instanceof Error ? error.message : typeof error === "string" ? error : "";
+  const code = PLAN_LIMIT_CODES.find((candidate) => message.includes(candidate));
+  if (!code) return null;
+  if (code === "DOCUMENT_LIMIT") return "documentLimit";
+  if (code === "PARTICIPANT_LIMIT") return "participantLimit";
+  if (attempted === "adminRole") return "adminRole";
+  if (attempted === "hierarchyShare") return "hierarchyShare";
+  return null;
+}
+
+/**
+ * Free owners have one participant seat; seats are counted when an invitation is
+ * accepted. Creating another invitation once the seat is taken cannot succeed, so
+ * the paywall opens at the attempt instead of failing later for the invitee.
+ */
+export function freeParticipantSeatTaken(
+  capabilities: ServerCollaborationCapabilities | undefined,
+  participants: readonly { role: string }[],
+): boolean {
+  if (collaborationPlanState(capabilities) !== "free") return false;
+  const limit = capabilities?.participantLimit;
+  if (typeof limit !== "number") return false;
+  return participants.filter((participant) => participant.role !== "owner").length >= limit;
+}

@@ -1,16 +1,17 @@
 "use client";
 
-import { Minus, Plus, Scan } from "lucide-react";
 import { type ReactNode, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 import { AiEditPanel } from "@/components/editor/AiEditPanel";
+import type { CommentPanelAuthor } from "@/components/editor/CommentThreadsPanel";
 import { DocumentSessionContext, DocumentWritableContext } from "./document-session-context";
-import { EMPTY_OVERLAY_SELECTION } from "@/components/editor/editor-shell/constants";
+import { BASE_EDITOR_FONT_SIZE, EMPTY_OVERLAY_SELECTION } from "@/components/editor/editor-shell/constants";
+import { PageCanvasEditor } from "@/components/editor/PageCanvasEditor";
 import { WORKSPACE_TAB_DRAG_TYPE } from "@/components/editor/WorkspaceTabStrip";
-import { PagedRenderSurface } from "@/components/print/paged-render/PagedRenderSurface";
-import type { DocumentSessionHost } from "@/features/document-session/contracts";
+import type { DocumentSession, DocumentSessionHost } from "@/features/document-session/contracts";
 import { getAppRuntime } from "@/lib/runtime";
-import { ensurePageLayout, getPageMetrics, MM_TO_PX, type SigmaDocument } from "@/features/document";
+import { visibleCommentThreads } from "@/lib/comments";
+import { isWhiteboardPageLayout, normalizePageLayout, type SigmaDocument } from "@/features/document";
 import { loadDocumentByFileIdWithRecovery, type DocumentMetadata } from "@/lib/storage";
 import { useT } from "@/lib/i18n/react";
 import {
@@ -25,10 +26,28 @@ import {
   type WorkspaceTab,
 } from "@/lib/workspace-tab-groups";
 
-/** プレビューの紙の周りに残す余白。 */
-const PREVIEW_GUTTER = 24;
-const MIN_PREVIEW_SCALE = 0.1;
-const MAX_PREVIEW_SCALE = 3;
+/**
+ * 編集していないペインを、編集中のペインと同じ見た目 (倍率・コメント欄) で描くための表示状態。
+ * 印刷プレビューに切り替えると紙の大きさも余白も変わり、クリックした瞬間に中身が跳ぶ。
+ */
+export interface WorkspacePaneView {
+  zoom: number;
+  showComments: boolean;
+  showResolvedComments: boolean;
+  commentAuthor: CommentPanelAuthor;
+  /** そのタブを最後に編集していたときのスクロール位置。 */
+  scrollFor?(fileId: string): { scrollTop: number; scrollLeft: number } | undefined;
+}
+
+/**
+ * 編集していないペインを押したときに、編集面へ引き継ぐ位置。
+ * 同じ倍率で描いているので、スクロール量と押した点をそのまま渡せば同じ場所にキャレットが立つ。
+ */
+export interface WorkspacePaneHandoff {
+  scrollTop: number;
+  scrollLeft: number;
+  point: { x: number; y: number } | null;
+}
 
 interface WorkspaceTabGroupGridProps {
   enabled?: boolean;
@@ -36,8 +55,9 @@ interface WorkspaceTabGroupGridProps {
   layout: WorkspaceLayoutV2;
   metadata: readonly DocumentMetadata[];
   activeFileId: string;
+  paneView: WorkspacePaneView;
   children: ReactNode;
-  onFocusGroup(groupId: string): void;
+  onFocusGroup(groupId: string, handoff?: WorkspacePaneHandoff): void;
   onMoveTab(tabId: string, targetGroupId: string, targetIndex?: number): void;
   onSplitTab(tabId: string, targetGroupId: string, edge: WorkspaceDropEdge): void;
   onResizeSplit(splitId: string, ratio: number): void;
@@ -131,7 +151,6 @@ function SplitNodeView(props: SplitNodeViewProps) {
 
 function GroupView(props: SplitNodeViewProps & { group: TabGroupState }) {
   const { group } = props;
-  const t = useT("editor");
   const [dropIntent, setDropIntent] = useState<WorkspaceDropIntent | null>(null);
   const activeTab = group.tabs.find((tab) => tab.id === group.activeTabId) ?? group.tabs[0];
   const focused = props.layout.focusedGroupId === group.id;
@@ -150,8 +169,17 @@ function GroupView(props: SplitNodeViewProps & { group: TabGroupState }) {
       data-group-id={group.id}
       data-focused={focused ? "true" : undefined}
       data-live={live ? "true" : undefined}
-      onPointerDown={() => {
-        if (!focused) props.onFocusGroup(group.id);
+      onPointerDown={(event) => {
+        if (focused) return;
+        const scroller = event.currentTarget.querySelector<HTMLElement>(".workspace-passive-editor");
+        const target = event.target instanceof Element ? event.target : null;
+        // 紙面の上を押したときだけ、その点へキャレットを渡す (スクロールバーやコメント欄は除く)。
+        const onPaper = event.button === 0 && Boolean(target?.closest(".workspace-passive-editor .page-canvas"));
+        props.onFocusGroup(group.id, scroller ? {
+          scrollTop: scroller.scrollTop,
+          scrollLeft: scroller.scrollLeft,
+          point: onPaper ? { x: event.clientX, y: event.clientY } : null,
+        } : undefined);
       }}
       onDragOver={(event) => {
         if (!event.dataTransfer.types.includes(WORKSPACE_TAB_DRAG_TYPE)) return;
@@ -186,13 +214,11 @@ function GroupView(props: SplitNodeViewProps & { group: TabGroupState }) {
                 sessionHost={props.sessionHost}
                 tab={activeTab}
                 metadata={props.metadataByFileId.get(activeTab.kind === "document" ? activeTab.fileId : activeTab.documentFileId)}
+                paneView={props.paneView}
                 onOpenAiSettings={props.onOpenAiSettings}
               />
             : null}
       </div>
-      {!live && activeTab?.kind === "document" && (
-        <span className="workspace-pane-edit-hint" aria-hidden="true">{t("tabGroups.clickToEdit")}</span>
-      )}
       {dropIntent && (
         <div
           className="workspace-tab-drop-preview"
@@ -209,11 +235,13 @@ function BackgroundTabContent({
   sessionHost,
   tab,
   metadata,
+  paneView,
   onOpenAiSettings,
 }: {
   sessionHost?: DocumentSessionHost;
   tab: WorkspaceTab;
   metadata?: DocumentMetadata;
+  paneView: WorkspacePaneView;
   onOpenAiSettings?: () => void;
 }) {
   const t = useT("editor");
@@ -264,134 +292,168 @@ function BackgroundTabContent({
     };
   }, [fileId, sessionHost, metadata?.sharing]);
   if (!document) return <div className="workspace-tab-loading-preview" aria-label={t("tabGroups.loading")} />;
-  const content = tab.kind === "ai" && writable ? (
-      <div className="workspace-ai-tab-panel">
-        <AiEditPanel
-          document={document}
-          documentIdentityKey={tab.documentFileId}
-          documentWorkspaceId={metadata?.workspaceId ?? null}
-          controlledRoomId={tab.roomId}
-          selectedId={null}
-          selectedBlock={null}
-          reference={null}
-          overlaySelection={EMPTY_OVERLAY_SELECTION}
-          variant="sidebar"
-          staleProposalGroups={[]}
-          onDiscardStaleProposals={() => undefined}
-          onOpenAiSettings={onOpenAiSettings}
-        />
-      </div>
-  ) : (
-    <DocumentPreviewPane document={document} title={metadata?.title ?? t("tabGroups.material")} />
-  );
+  if (tab.kind === "ai" && writable) {
+    return (
+      <DocumentSessionContext.Provider value={sessionHost?.get(fileId)}>
+        <DocumentWritableContext.Provider value={writable}>
+          <div className="workspace-ai-tab-panel">
+            <AiEditPanel
+              document={document}
+              documentIdentityKey={tab.documentFileId}
+              documentWorkspaceId={metadata?.workspaceId ?? null}
+              controlledRoomId={tab.roomId}
+              selectedId={null}
+              selectedBlock={null}
+              reference={null}
+              overlaySelection={EMPTY_OVERLAY_SELECTION}
+              variant="sidebar"
+              staleProposalGroups={[]}
+              onDiscardStaleProposals={() => undefined}
+              onOpenAiSettings={onOpenAiSettings}
+            />
+          </div>
+        </DocumentWritableContext.Provider>
+      </DocumentSessionContext.Provider>
+    );
+  }
   return (
-    <DocumentSessionContext.Provider value={sessionHost?.get(fileId)}>
-      <DocumentWritableContext.Provider value={writable}>{content}</DocumentWritableContext.Provider>
-    </DocumentSessionContext.Provider>
+    <PassiveDocumentPane
+      document={document}
+      fileId={fileId}
+      title={metadata?.title ?? t("tabGroups.material")}
+      view={paneView}
+      session={sessionHost?.get(fileId)}
+    />
   );
 }
 
 /**
- * 編集していないペインの紙面。
+ * 編集していないペインの紙面。編集中のペインと同じ編集面 (`PageCanvasEditor`) を、同じ倍率と
+ * コメント欄で読み取り専用に描く。押すとそのペインが編集対象になり、スクロール位置と押した点が
+ * 編集面へ引き継がれる (`WorkspacePaneHandoff`)。
  *
- * 既定はペイン幅に合わせた倍率で、`Ctrl`/`⌘` + ホイールと隅の操作で拡大縮小できる。
- * 分割するとペインは必ず本来の紙より狭くなるので、倍率を持たないと中身が読めない。
+ * 共同編集のセッションは画像の解決と相手のカーソル表示のために渡すが、自分の選択は配信しない
+ * (`publishesSessionPresence={false}`)。見ているだけのペインの状態を他の参加者へ見せないため。
  */
-function DocumentPreviewPane({ document, title }: { document: SigmaDocument; title: string }) {
+function PassiveDocumentPane({
+  document,
+  fileId,
+  title,
+  view,
+  session,
+}: {
+  document: SigmaDocument;
+  fileId: string;
+  title: string;
+  view: WorkspacePaneView;
+  session: DocumentSession | undefined;
+}) {
   const t = useT("editor");
-  const viewportRef = useRef<HTMLDivElement>(null);
-  const contentRef = useRef<HTMLDivElement>(null);
-  const [viewportWidth, setViewportWidth] = useState(0);
-  const [contentHeight, setContentHeight] = useState(0);
-  const [manualScale, setManualScale] = useState<number | null>(null);
+  const scrollerRef = useRef<HTMLElement>(null);
+  const noop = useCallback(() => {}, []);
+  const isWhiteboard = useMemo(() => isWhiteboardPageLayout(normalizePageLayout(document.pageLayout)), [document.pageLayout]);
+  const threads = useMemo(
+    () => visibleCommentThreads(document.comments, { showResolved: view.showResolvedComments }),
+    [document.comments, view.showResolvedComments],
+  );
+  const commentPanel = useMemo(() => (view.showComments && !isWhiteboard ? {
+    activeThreadId: null,
+    author: view.commentAuthor,
+    candidateAnchor: null,
+    pendingAnchor: null,
+    pendingDraft: [],
+    replyDrafts: {},
+    showResolved: view.showResolvedComments,
+    threads,
+    onAddThread: noop,
+    onCancelPending: noop,
+    onDeleteMessage: noop,
+    onDeleteThread: noop,
+    onEditMessage: noop,
+    onEditThread: noop,
+    onPendingDraftChange: noop,
+    onReply: noop,
+    onReplyDraftChange: noop,
+    onResolveThread: noop,
+    onReopenThread: noop,
+    onSelectThread: noop,
+    onShowResolvedChange: noop,
+    onStartThread: noop,
+    onToggleReaction: noop,
+  } : undefined), [isWhiteboard, noop, threads, view.commentAuthor, view.showComments, view.showResolvedComments]);
 
-  const pageWidthPx = useMemo(() => {
-    const metrics = getPageMetrics(ensurePageLayout(document).pageLayout!);
-    return Math.max(1, metrics.page.widthMm * MM_TO_PX);
-  }, [document]);
-
+  // 最後に編集していた位置から見せる。紙面は計測のあとで伸びるので、届くまで数回当て直す。
+  const { scrollFor } = view;
   useLayoutEffect(() => {
-    const viewport = viewportRef.current;
-    const content = contentRef.current;
-    if (!viewport || !content) return;
-    const observer = new ResizeObserver(() => {
-      setViewportWidth(viewport.clientWidth);
-      setContentHeight(content.offsetHeight);
-    });
-    observer.observe(viewport);
-    observer.observe(content);
-    setViewportWidth(viewport.clientWidth);
-    setContentHeight(content.offsetHeight);
-    return () => observer.disconnect();
-  }, []);
-
-  const fitScale = viewportWidth > 0
-    ? clamp((viewportWidth - PREVIEW_GUTTER * 2) / pageWidthPx, MIN_PREVIEW_SCALE, 1)
-    : 1;
-  const scale = manualScale ?? fitScale;
-
-  const zoomBy = useCallback((factor: number) => {
-    setManualScale((current) => clamp((current ?? fitScale) * factor, MIN_PREVIEW_SCALE, MAX_PREVIEW_SCALE));
-  }, [fitScale]);
-
-  useEffect(() => {
-    const viewport = viewportRef.current;
-    if (!viewport) return;
-    const onWheel = (event: WheelEvent) => {
-      if (!event.ctrlKey && !event.metaKey) return;
-      event.preventDefault();
-      // ピンチも ctrlKey 付きのホイールとして届く。1 イベントの跳ね上がりは抑え、
-      // マウスの 1 目盛りでも一気に飛ばないようにする。
-      zoomBy(clamp(Math.exp(-event.deltaY / 420), 0.8, 1.25));
+    const scroller = scrollerRef.current;
+    const saved = scrollFor?.(fileId);
+    if (!scroller || !saved || (saved.scrollTop <= 0 && saved.scrollLeft <= 0)) return;
+    let userScrolled = false;
+    const markUserScroll = () => { userScrolled = true; };
+    const apply = () => {
+      if (userScrolled) return;
+      scroller.scrollTop = saved.scrollTop;
+      scroller.scrollLeft = saved.scrollLeft;
     };
-    viewport.addEventListener("wheel", onWheel, { passive: false });
-    return () => viewport.removeEventListener("wheel", onWheel);
-  }, [zoomBy]);
+    apply();
+    const content = scroller.firstElementChild;
+    const observer = content ? new ResizeObserver(apply) : null;
+    if (content) observer?.observe(content);
+    scroller.addEventListener("wheel", markUserScroll, { passive: true });
+    scroller.addEventListener("keydown", markUserScroll);
+    const stop = window.setTimeout(() => observer?.disconnect(), 3000);
+    return () => {
+      window.clearTimeout(stop);
+      observer?.disconnect();
+      scroller.removeEventListener("wheel", markUserScroll);
+      scroller.removeEventListener("keydown", markUserScroll);
+    };
+  }, [fileId, scrollFor]);
 
   return (
-    <div className="workspace-document-preview">
-      <div className="workspace-preview-viewport" ref={viewportRef} aria-label={t("tabGroups.preview", { title })}>
-        <div
-          className="workspace-preview-sizer"
-          style={{ width: pageWidthPx * scale, height: contentHeight * scale }}
-        >
-          <div
-            className="workspace-preview-scaler"
-            ref={contentRef}
-            style={{ width: pageWidthPx, transform: `scale(${scale})` }}
-          >
-            <PagedRenderSurface document={document} profile="teacher" />
-          </div>
-        </div>
-      </div>
-      <div
-        className="workspace-preview-zoom"
-        role="group"
-        aria-label={t("tabGroups.zoomLabel")}
-        // 倍率を変えただけでペインの担当教材が編集面に載せ替わらないようにする。
-        onPointerDown={(event) => event.stopPropagation()}
-      >
-        <button type="button" aria-label={t("tabGroups.zoomOut")} title={t("tabGroups.zoomOut")} onClick={() => zoomBy(1 / 1.2)}>
-          <Minus size={14} aria-hidden="true" />
-        </button>
-        <button
-          type="button"
-          className="workspace-preview-zoom-value"
-          aria-label={t("tabGroups.zoomFit")}
-          title={t("tabGroups.zoomFit")}
-          onClick={() => setManualScale(null)}
-        >
-          {manualScale === null ? <Scan size={13} aria-hidden="true" /> : null}
-          <span>{Math.round(scale * 100)}%</span>
-        </button>
-        <button type="button" aria-label={t("tabGroups.zoomIn")} title={t("tabGroups.zoomIn")} onClick={() => zoomBy(1.2)}>
-          <Plus size={14} aria-hidden="true" />
-        </button>
-      </div>
-    </div>
+    <section
+      ref={scrollerRef}
+      className="editor-canvas workspace-passive-editor"
+      data-whiteboard={isWhiteboard ? "true" : undefined}
+      aria-label={t("tabGroups.pane", { title })}
+    >
+      <DocumentSessionContext.Provider value={session}>
+        <DocumentWritableContext.Provider value={false}>
+          <PageCanvasEditor
+            publishesSessionPresence={false}
+            document={document}
+            selectedId={null}
+            selectedInlineMath={null}
+            commentThreads={document.comments ?? []}
+            showComments={view.showComments}
+            commentPanel={commentPanel}
+            overlaySelection={EMPTY_OVERLAY_SELECTION}
+            fontSize={BASE_EDITOR_FONT_SIZE}
+            zoom={view.zoom}
+            historyRevision={0}
+            suppressSelectionActions
+            pendingDeletion={null}
+            overlayCommandRequest={null}
+            overlayImageRequest={null}
+            overlayActionRequest={null}
+            onSelect={noop}
+            onChange={noop}
+            onDelete={noop}
+            onCopyBlock={noop}
+            onDuplicate={noop}
+            onMove={noop}
+            onAddProblemBlock={noop}
+            onReplaceTextFlow={noop}
+            onPageLayoutChange={noop}
+            onOverlayChange={noop}
+            onOverlayImagesRequest={noop}
+            onReanchorOverlay={noop}
+            onOverlayCommandHandled={noop}
+            onOverlayImageHandled={noop}
+            onOverlayActionHandled={noop}
+          />
+        </DocumentWritableContext.Provider>
+      </DocumentSessionContext.Provider>
+    </section>
   );
-}
-
-function clamp(value: number, min: number, max: number): number {
-  return Math.min(max, Math.max(min, value));
 }

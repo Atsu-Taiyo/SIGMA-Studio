@@ -480,10 +480,14 @@ export function renderEditorChrome(chrome: EditorChromeValue) {
     </button>
   );
 
+  // 共有などの教材ごとの操作。docs ではタイトル行の「過去の版」の左に置く。
+  const documentActions = chrome.shared.documentActions ? (
+    <div className="menubar-document-actions">{chrome.shared.documentActions}</div>
+  ) : null;
+
   const menubarRightActions = (
     <div className="menubar-right-actions">
       <div className="workspace-account-actions">
-        {chrome.shared.documentActions}
         {!isEmbedded && <>
           <button
             type="button"
@@ -2887,6 +2891,7 @@ export function renderEditorChrome(chrome: EditorChromeValue) {
     settingsMenu,
     documentTabsRow,
     saveStateBadge,
+    documentActions,
     versionHistoryButton,
     reportIssueButton,
     menubarRightActions,

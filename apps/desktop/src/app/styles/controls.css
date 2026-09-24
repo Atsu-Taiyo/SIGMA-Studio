@@ -359,7 +359,7 @@ button:disabled {
 
 .menubar-row {
   display: grid;
-  grid-template-columns: 42px max-content minmax(0, 1fr) minmax(0, 220px) auto auto max-content;
+  grid-template-columns: 42px max-content minmax(0, 1fr) minmax(0, 220px) auto auto auto max-content;
   grid-template-rows: 32px 32px;
   align-items: center;
   align-content: end;
@@ -560,7 +560,7 @@ button:disabled {
 }
 
 .menubar-right-actions .workspace-account-actions {
-  grid-column: 7;
+  grid-column: 8;
   grid-row: 1;
   align-self: center;
   justify-self: end;
@@ -574,7 +574,7 @@ button:disabled {
 }
 
 .menubar-right-actions .document-tab-actions {
-  grid-column: 7;
+  grid-column: 8;
   grid-row: 2;
   align-self: end;
   justify-self: end;
@@ -2487,11 +2487,14 @@ button:disabled {
 }
 
 .icon-button.with-text {
+  flex-shrink: 0;
   width: auto;
   gap: 6px;
   padding: 0 10px;
   font-size: 12px;
   font-weight: 650;
+  /* 狭いツールバーでも短いラベル (「素材」など) を 1 文字ずつ折り返さない。 */
+  white-space: nowrap;
 }
 
 .icon-button.danger:hover {

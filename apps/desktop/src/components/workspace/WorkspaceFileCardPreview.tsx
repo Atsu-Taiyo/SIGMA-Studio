@@ -3,8 +3,7 @@
 import { FileText } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { PrintPreviewThumbnail } from "@/components/print/PrintPreview";
-import { rasterizePrintPageTopHalf } from "@/components/print/rasterize-print-thumbnail";
+import { PagedThumbnailRenderer } from "@/components/print/paged-render/PagedThumbnailRenderer";
 import { loadWorkspacePreviewDocument } from "@/lib/workspace-repository";
 import {
   lookupWorkspacePreviewImage,
@@ -43,23 +42,22 @@ export function WorkspaceFileCardPreview({
     ? preview
     : { key: previewKey, status: "idle" as const, imageUrl: null, document: null };
 
-  const handleRasterReady = useCallback(async (surface: HTMLElement) => {
-    try {
-      const dataUrl = await rasterizePrintPageTopHalf(surface);
-      await persistWorkspacePreviewImage(fileId, revision, dataUrl);
-      setPreview((current) => (
-        current.key === previewKey
-          ? { key: previewKey, status: "ready", imageUrl: dataUrl, document: null }
-          : current
-      ));
-    } catch {
-      setPreview((current) => (
-        current.key === previewKey
-          ? { key: previewKey, status: "error", imageUrl: null, document: null }
-          : current
-      ));
-    }
+  const handleRendered = useCallback((dataUrl: string) => {
+    void persistWorkspacePreviewImage(fileId, revision, dataUrl);
+    setPreview((current) => (
+      current.key === previewKey
+        ? { key: previewKey, status: "ready", imageUrl: dataUrl, document: null }
+        : current
+    ));
   }, [fileId, previewKey, revision]);
+
+  const handleRenderFailed = useCallback(() => {
+    setPreview((current) => (
+      current.key === previewKey
+        ? { key: previewKey, status: "error", imageUrl: null, document: null }
+        : current
+    ));
+  }, [previewKey]);
 
   useEffect(() => {
     const element = rootRef.current;
@@ -136,67 +134,14 @@ export function WorkspaceFileCardPreview({
         <WorkspaceFileCardPreviewFallback loading={currentPreview.status === "loading"} />
       )}
       {currentPreview.document ? (
-        <WorkspacePreviewRasterHost
+        // Same surface as the print preview; the card only shows its top half.
+        <PagedThumbnailRenderer
+          key={previewKey}
           document={currentPreview.document}
-          onReady={handleRasterReady}
+          onRendered={handleRendered}
+          onFailed={handleRenderFailed}
         />
       ) : null}
-    </div>
-  );
-}
-
-function WorkspacePreviewRasterHost({
-  document: previewDocument,
-  onReady,
-}: {
-  document: SigmaDocument;
-  onReady: (root: HTMLElement) => void;
-}) {
-  const hostRef = useRef<HTMLDivElement | null>(null);
-  const onReadyRef = useRef(onReady);
-  useEffect(() => {
-    onReadyRef.current = onReady;
-  }, [onReady]);
-
-  useEffect(() => {
-    const host = hostRef.current;
-    if (!host) {
-      return;
-    }
-    let cancelled = false;
-    const wait = async () => {
-      await globalThis.document.fonts?.ready;
-      for (let attempt = 0; attempt < 45; attempt += 1) {
-        if (cancelled) {
-          return;
-        }
-        if (host.querySelector(".print-a4-page")) {
-          await new Promise<void>((resolve) => {
-            requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
-          });
-          if (!cancelled) {
-            onReadyRef.current(host);
-          }
-          return;
-        }
-        await new Promise<void>((resolve) => {
-          requestAnimationFrame(() => resolve());
-        });
-      }
-    };
-    void wait();
-    return () => {
-      cancelled = true;
-    };
-  }, [previewDocument]);
-
-  return (
-    <div
-      ref={hostRef}
-      aria-hidden="true"
-      className="workspace-file-preview-raster-host"
-    >
-      <PrintPreviewThumbnail document={previewDocument} />
     </div>
   );
 }
