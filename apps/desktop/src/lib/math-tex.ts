@@ -1,5 +1,6 @@
 import katex from "katex";
 import { convertLatexToMarkup, validateLatex } from "mathlive";
+import { normalizeMathLiveBoxMarkup } from "@/lib/mathlive-box-layout";
 
 import { applyMathTypesetStyle } from "@/features/rendering/core";
 import { mathRenderEnvironmentCacheKey, type MathRenderEnvironment } from "@/lib/math-environment";
@@ -86,7 +87,7 @@ function renderMathMarkup(tex: string, environment: MathRenderEnvironment): stri
   );
 
   if (!MATHLIVE_ERROR_CLASS_PATTERN.test(mathLiveMarkup)) {
-    return mathLiveMarkup;
+    return normalizeMathLiveBoxMarkup(mathLiveMarkup);
   }
 
   // MathLive が描けなかった式だけ KaTeX へ。どちらも駄目なら MathLive のエラー markup を見せる。

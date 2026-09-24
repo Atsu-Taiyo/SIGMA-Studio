@@ -8,6 +8,31 @@ export const KYOUTSUU_CHOICE_CLASS = "sigma-kyoutsuu-choice";
  * document-surface.test.ts が両者の宣言一致を固定する。
  */
 export const SIGMA_MATHLIVE_MACRO_STYLES = String.raw`
+.sigma-doubleboxed .fbox,
+.sigma-doubleboxed .ML__box[style*="border:"] {
+  border-width: 1px !important;
+  outline: 1px solid currentColor;
+  outline-offset: -3px;
+}
+
+.sigma-thickboxed .fbox,
+.sigma-thickboxed .ML__box[style*="border:"] {
+  border-width: 2px !important;
+}
+
+/* The box border is the outer rule; the negative outline becomes the inner rule.
+   Pulling a 1px outline in by 4px preserves the same 1px inter-rule gap. */
+.sigma-outerthick-doubleboxed .fbox,
+.sigma-outerthick-doubleboxed .ML__box[style*="border:"] {
+  border-width: 2px !important;
+  outline: 1px solid currentColor;
+  outline-offset: -4px;
+}
+
+.sigma-math-box-layout {
+  contain: layout;
+}
+
 .${KYOUTSUU_CHOICE_CLASS} {
   align-items: center;
   block-size: 1.3em;
@@ -134,11 +159,12 @@ export function createMathMacroSet(preamble = ""): MathMacroSet {
 export const DEFAULT_MATH_MACRO_SET = createMathMacroSet();
 
 /**
- * Sigma 自前の装飾マクロだけが出すクラス。数式 markup の中にしか現れないので、
+ * Sigma 自前の装飾マクロと数式レイアウト補正だけが出すクラス。数式 markup の中にしか現れないので、
  * CSS 衝突の門番 (`math-class-collision.test.ts`) はこれを数式コンテナとして扱う。
  */
 export const TRUSTED_SIGMA_MATH_CLASSES: ReadonlySet<string> = new Set([
   KYOUTSUU_CHOICE_CLASS,
+  "sigma-math-box-layout",
   "sigma-doubleboxed",
   "sigma-thickboxed",
   "sigma-outerthick-doubleboxed",

@@ -1,6 +1,7 @@
 import { mathFieldDefaultMode } from "@/features/rendering/core";
 import type { MathRenderEnvironment } from "@/lib/math-environment";
 import { SIGMA_MATHLIVE_MACRO_STYLES } from "@/lib/math-macros";
+import { MATHLIVE_BOX_LAYOUT_CLASS, normalizeMathLiveBoxStyle } from "@/lib/mathlive-box-layout";
 
 export const MATHLIVE_MATH_MODE_SPACE = "\\ ";
 
@@ -27,6 +28,27 @@ export type InlineMathLiveFieldElement = HTMLElement & {
 };
 
 const SIGMA_MATHLIVE_MACRO_STYLE_ATTRIBUTE = "data-sigma-math-macro-styles";
+const observedBoxRoots = new WeakSet<ShadowRoot>();
+
+function installMathLiveBoxLayout(root: ShadowRoot) {
+  if (observedBoxRoots.has(root)) return;
+  observedBoxRoots.add(root);
+  const normalize = () => {
+    root.querySelectorAll<HTMLElement>(".ML__box").forEach((frame) => {
+      const box = frame.parentElement;
+      if (!frame.style.border || !box || box.classList.contains(MATHLIVE_BOX_LAYOUT_CLASS)) return;
+      const style = normalizeMathLiveBoxStyle(box.getAttribute("style") ?? "");
+      if (style) {
+        box.setAttribute("style", style);
+        box.classList.add(MATHLIVE_BOX_LAYOUT_CLASS);
+      }
+    });
+  };
+  // MathLive replaces its output on input and selection changes. Observe only
+  // child lists so our style/class updates cannot retrigger this observer.
+  new MutationObserver(normalize).observe(root, { childList: true, subtree: true });
+  normalize();
+}
 
 function installSigmaMathLiveMacroStyles(mathField: InlineMathLiveFieldElement) {
   const shadowRoot = mathField.shadowRoot;
@@ -37,6 +59,7 @@ function installSigmaMathLiveMacroStyles(mathField: InlineMathLiveFieldElement) 
   style.setAttribute(SIGMA_MATHLIVE_MACRO_STYLE_ATTRIBUTE, "");
   style.textContent = SIGMA_MATHLIVE_MACRO_STYLES;
   shadowRoot.append(style);
+  installMathLiveBoxLayout(shadowRoot);
 }
 
 /**
