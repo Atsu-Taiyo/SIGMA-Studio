@@ -1,6 +1,6 @@
 "use client";
 
-import { AlertTriangle, Check, Loader2, Save } from "lucide-react";
+import { AlertTriangle } from "lucide-react";
 
 import { useEditorStore } from "@/features/editor-state";
 import { countPerformanceEvent } from "@/lib/performance";
@@ -16,23 +16,31 @@ export function DocumentTabSaveDot() {
   return <i className={`document-tab-save-dot ${saveState}`} aria-hidden="true" />;
 }
 
+/**
+ * 右上の状態表示。画面に出すのは **エラーと警告だけ** にする。
+ *
+ * 「保存しました」「教材を開きました」のような成功・経過の報告は、緑色の文字が常に
+ * 視界の端で入れ替わり続けるだけで、次の操作には何も足さない (保存中・未保存はタブの点が
+ * 示している)。文言そのものは読み上げのために見えない領域へ残す — 親の
+ * `.save-state-wrap` が `aria-live="polite"` なので、支援技術には従来どおり伝わる。
+ */
 export function SaveStatusBadge({ errorsOnly = false }: { errorsOnly?: boolean }) {
   // 保存状態の変化でどれだけ描画されるかを EditorShell と切り分けて見るためのカウンタ。
   countPerformanceEvent("SaveStatusBadge.render");
   const saveState = useEditorStore((state) => state.saveState);
   const statusMessage = useEditorStore((state) => state.statusMessage);
-  if (errorsOnly && saveState !== "error" && saveState !== "warning") return null;
+  const problem = saveState === "error" || saveState === "warning";
+  if (errorsOnly && !problem) return null;
+  if (!problem) {
+    return (
+      <div className={`save-state ${saveState}`} data-quiet="true">
+        <span>{statusMessage}</span>
+      </div>
+    );
+  }
   return (
     <div className={`save-state ${saveState}`}>
-      {saveState === "saving"
-        ? <Loader2 className="save-state-spinner" size={14} />
-        : saveState === "saved"
-          ? <Check size={14} />
-          : saveState === "warning"
-            ? <AlertTriangle size={14} />
-            : saveState === "error"
-              ? <AlertTriangle size={14} />
-              : <Save size={14} />}
+      <AlertTriangle size={14} />
       <span>{statusMessage}</span>
     </div>
   );

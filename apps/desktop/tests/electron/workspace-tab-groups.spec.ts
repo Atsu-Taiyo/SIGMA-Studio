@@ -152,3 +152,67 @@ test("failed save keeps the current document and pane layout when splitting a ta
     rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });
+
+test("an unfocused pane stays an editing surface and a click there edits at that point", async () => {
+  test.skip(!PREPARED, "Build Electron and the static renderer first.");
+  test.setTimeout(180_000);
+  const root = mkdtempSync(path.join(os.tmpdir(), "sigma-tab-passive-"));
+  const env = Object.fromEntries(Object.entries(process.env).filter((entry): entry is [string, string] => entry[1] !== undefined));
+  delete env.ELECTRON_RUN_AS_NODE;
+  env.SIGMA_STUDIO_USER_DATA_DIR = path.join(root, "profile");
+  const app = await electron.launch({ args: [APP_ROOT], cwd: APP_ROOT, env });
+  try {
+    const page = await app.firstWindow();
+    await page.setViewportSize({ width: 1500, height: 1000 });
+    await page.waitForFunction(() => Boolean(window.desktopAPI?.storage));
+    const fileIds = await page.evaluate(async () => {
+      await window.desktopAPI!.settings!.setUiLocale!("ja");
+      const api = window.desktopAPI!.storage;
+      const paragraph = (id: string, text: string) => ({ type: "paragraph", id, children: [{ type: "text", text }] });
+      const make = (docId: string, title: string, lead: string) => ({
+        version: "2.0", docId, metadata: { title },
+        outputProfiles: {
+          student: { showSolutions: false, showHints: false, includeAnswers: false },
+          teacher: { showSolutions: true, showHints: true, includeAnswers: true },
+          answerBook: { onlySolutions: true, showSolutions: true, showHints: false, includeAnswers: true },
+        },
+        content: [paragraph(`${docId}_lead`, lead), ...Array.from({ length: 40 }, (_, index) => paragraph(`${docId}_p${index}`, `${title} ${index + 1}行目の本文`))],
+      });
+      const a = await api.createFileFromDocument({ document: make("doc_passive_a", "左の教材", "左の先頭") } as never);
+      const b = await api.createFileFromDocument({ document: make("doc_passive_b", "右の教材", "右の先頭") } as never);
+      const ids = [a.file.fileId, b.file.fileId];
+      await api.saveWorkspace({ openFileIds: ids, activeFileId: ids[0] });
+      return ids;
+    });
+    await page.reload();
+    await expect(page.locator("[data-startup-splash]")).toHaveCount(0, { timeout: 60_000 });
+    await dragTabToEdge(page, "右の教材", 0, "right");
+    await expect(page.locator(".workspace-tab-group")).toHaveCount(2);
+
+    // The pane that is not being edited shows the editor's own surface, read-only, not a print preview.
+    const passive = page.locator(".workspace-passive-editor");
+    await expect(passive).toHaveCount(1);
+    await expect(passive.locator(".page-canvas")).toBeVisible();
+    await expect(passive.locator(".paged-surface")).toHaveCount(0);
+    await expect(passive.locator('[contenteditable="true"]')).toHaveCount(0);
+    await expect(passive).toContainText("左の教材 12行目の本文");
+
+    // Clicking a line there makes it the edited pane with the caret on that line.
+    await passive.evaluate((element) => { element.scrollTop = 160; });
+    const line = passive.getByText("左の教材 12行目の本文", { exact: true });
+    const box = (await line.boundingBox())!;
+    await page.mouse.click(box.x + box.width - 2, box.y + box.height / 2);
+    const live = page.locator('.workspace-tab-group[data-live="true"]');
+    await expect(live.locator('[data-sigma-doc-id="doc_passive_a_p11"]')).toBeVisible();
+    await expect.poll(() => page.evaluate(() => document.activeElement?.closest('[contenteditable="true"]') !== null)).toBe(true);
+    await page.keyboard.insertText("★");
+    await expect(live.locator('[data-sigma-doc-id="doc_passive_a_p11"]')).toContainText("左の教材 12行目の本文★");
+    await expect.poll(() => page.evaluate((fileId) => window.desktopAPI!.storage.loadDocument(fileId).then((doc) => JSON.stringify(doc)), fileIds[0]))
+      .toContain("12行目の本文★");
+    // The pane that was being edited is now the read-only one.
+    await expect(page.locator(".workspace-passive-editor")).toContainText("右の教材 1行目の本文");
+  } finally {
+    await app.close().catch(() => {});
+    rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+  }
+});
