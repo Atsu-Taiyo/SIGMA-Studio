@@ -186,7 +186,7 @@ describe("Pro paywall entry", () => {
     const dialogs = document.querySelectorAll('[role="dialog"]');
     expect(dialogs).toHaveLength(2);
     expect(dialogs[1].textContent).toContain("$9");
-    expect(dialogs[1].textContent).toContain("共同編集者を15人まで招待");
+    expect(dialogs[1].textContent).toContain("教材ごとに閲覧者を含め15人まで招待（所有者を除く）");
     expect(f.catalog.start).not.toHaveBeenCalled();
     await act(async () => { document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })); });
     expect(document.querySelectorAll('[role="dialog"]')).toHaveLength(1);

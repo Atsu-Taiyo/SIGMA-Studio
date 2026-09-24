@@ -121,7 +121,6 @@ export const workspace = {
     createMaterial: "教材を作成",
     itemMenu: "{{name}} の操作",
     openItem: "{{name}} を開く",
-    materialMenu: "教材操作",
     cancel: "取消",
     cancelLong: "キャンセル",
     create: "作成",

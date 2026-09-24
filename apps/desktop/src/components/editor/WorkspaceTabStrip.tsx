@@ -3,7 +3,6 @@
 import { Bot, Columns2, FileText, Loader2, Rows2, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 
-import { useAiWorkspaceTabTitles } from "@/components/editor/AiWorkspaceTabTitles";
 import { DocumentTabSaveDot } from "@/components/editor/editor-shell/SaveStatusIndicators";
 import { DocumentTitleText } from "@/features/rendering/adapters/react";
 import type { InlineNode } from "@/features/document";
@@ -23,6 +22,7 @@ export const WORKSPACE_TAB_DRAG_TYPE = "application/x-sigma-workspace-tab";
 
 export interface WorkspaceTabStripProps {
   layout: WorkspaceLayoutV2;
+  aiRoomTitles: ReadonlyMap<string, string>;
   metadata: readonly DocumentMetadata[];
   activeFileId: string;
   loadingFileId: string | null;
@@ -55,7 +55,7 @@ export function WorkspaceTabStrip(props: WorkspaceTabStripProps) {
   const t = useT("editor");
   // タブそのものの文言 (領域名・閉じる) は従来のタブ列と同じものを使う。
   const tChrome = useT("chrome");
-  const aiRoomTitles = useAiWorkspaceTabTitles();
+  const { aiRoomTitles } = props;
   const metadataByFileId = useMemo(
     () => new Map(props.metadata.map((item) => [item.fileId, item])),
     [props.metadata],

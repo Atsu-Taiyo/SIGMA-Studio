@@ -57,6 +57,7 @@ function fixture() {
   const events: string[] = [];
   const saveWorkspace = vi.spyOn(storage, "saveWorkspaceState").mockImplementation(async () => { events.push("workspace"); return { ok: true }; });
   const options: WorkspaceDocumentCommandOptions = {
+    deleteAiDataForDocument: vi.fn(async () => undefined),
     openFileIds: [original.fileId], activeFileId: original.fileId,
     documentMetadatas: [original.metadata], workspaceReady: true,
     embeddedHostRef: { current: undefined }, documentRef: { current: original.document },
@@ -213,6 +214,7 @@ describe("workspace document commands", () => {
     render(f.options);
     await actions.closeDocumentTab(draft.fileId);
     expect(remove).toHaveBeenCalledWith(draft.fileId, { expectedRevision: 13 });
+    expect(f.options.deleteAiDataForDocument).toHaveBeenCalledWith(draft.fileId);
     expect(f.options.openDocumentInWorkspace).toHaveBeenCalledWith("arrived-during-delete", {
       nextOpenFileIds: ["arrived-during-delete"], saveCurrent: false, status: f.options.tEditor("status.tabClosed"),
     });

@@ -191,6 +191,7 @@ import  {
   isAiLockedShapeSelection,
   useAiLockedTargets,
   useAiPinnedReferences,
+  useAiWorkspaceTabTitles,
   useAiProposalActions,
   useCommentAiRun,
   type AiEditPreviewState,
@@ -5583,6 +5584,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, acc
     deleteDocumentFromList,
     deleteActiveDocument
   } = useWorkspaceDocumentCommands({
+    deleteAiDataForDocument,
     openFileIds,
     activeFileId,
     documentMetadatas,
@@ -6361,8 +6363,10 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, acc
     if (group && tab) activateWorkspaceGroupTab(group.id, tab);
   }, [activateWorkspaceGroupTab]);
 
+  const aiRoomTitles = useAiWorkspaceTabTitles();
   const workspaceTabsRow = isEmbedded ? null : (
     <WorkspaceTabStrip
+      aiRoomTitles={aiRoomTitles}
       layout={workspaceLayout}
       metadata={documentMetadatas}
       activeFileId={activeFileId}

@@ -230,7 +230,8 @@ describe("AI editor extension boundary", () => {
     expect(source).toContain('from "@/features/ai-edit"');
     expect(source).not.toMatch(/from\s+["']@\/features\/ai-edit\//);
     expect(source).not.toContain("useAiEditorExtensions");
-    expect(source).not.toContain("editorExtensions=");
+    // Shared-session guards use the generic extension contract; AI extensions remain inside the feature.
+    expect(source.match(/editorExtensions=\{([^}]+)\}/g)).toEqual(["editorExtensions={sessionEditExtensions}"]);
     expect(namedImportSource(source, "useAiPinnedReferences")).toBe("@/features/ai-edit");
     expect(namedImportSource(source, "useAiProposalActions")).toBe("@/features/ai-edit");
     expect(namedImportSource(source, "useCommentAiRun")).toBe("@/features/ai-edit");

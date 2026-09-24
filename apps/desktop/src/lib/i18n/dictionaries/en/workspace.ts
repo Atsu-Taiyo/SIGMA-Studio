@@ -119,7 +119,6 @@ export const workspace = {
     createMaterial: "Create material",
     itemMenu: "{{name}} actions",
     openItem: "Open {{name}}",
-    materialMenu: "Material actions",
     cancel: "Cancel",
     cancelLong: "Cancel",
     create: "Create",

@@ -17,14 +17,14 @@ import {
   type DocumentFileRecord,
   type DocumentMetadata,
 } from "@/lib/storage";
-import type { WorkspaceState } from "@/lib/runtime/types";
-import { deleteAiDataForDocument } from "@/lib/ai/ai-run-controller";
+import type { WorkspaceState } from "@/lib/storage";
 import type { EmbeddedEditorHost } from "./document-lifecycle-types";
 import { closeWorkspaceDocumentTab, deleteWorkspaceDocument, type DocumentTabOpenOptions } from "./document-tab-commands";
 import type { EditorTabViewState, ResolvedEditorTabViewState } from "./editor-tab-view-state";
 import { uniqueStringIds } from "./workspace-request";
 
 export interface WorkspaceDocumentCommandOptions {
+  deleteAiDataForDocument(fileId: string): Promise<void>;
   openFileIds: string[];
   activeFileId: string;
   documentMetadatas: DocumentMetadata[];
@@ -61,6 +61,7 @@ export interface WorkspaceDocumentCommandOptions {
 
 /** 文書コマンドの配送。保存・切替・履歴の所有者は呼び出し元の境界に残す。 */
 export function useWorkspaceDocumentCommands({
+  deleteAiDataForDocument,
   openFileIds, activeFileId, documentMetadatas, workspaceReady, embeddedHostRef,
   documentRef, activeFileIdRef, openFileIdsRef, untouchedNewDocumentsRef,
   mcpPreviewBusyRef, workspaceReadyRef, editorTabViewStateByFileIdRef,
