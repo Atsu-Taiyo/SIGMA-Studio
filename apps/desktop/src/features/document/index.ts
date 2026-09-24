@@ -55,3 +55,5 @@ export { WHITEBOARD_BASE_CELL_PX } from "./model";
 export type * from "./overlay-model";
 
 export { DEFAULT_COLUMN_RULE, normalizeColumnRule } from "./model/column-rule";
+
+export { CODE_LANGUAGE_IDS, normalizeCodeLanguage } from "./model/code-language";

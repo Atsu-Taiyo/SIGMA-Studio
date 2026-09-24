@@ -22,13 +22,13 @@ import {
   type SigmaDocument,
   normalizeBlockSpaceAfterPx,
   normalizeCodeBlockTheme,
+  normalizeCodeLanguage,
   normalizeLineHeight,
   expandMarginsForRunningRegions,
   getPageLayoutIssues,
   isWhiteboardPageLayout,
   normalizePageLayout,
 } from "@/features/document";
-import { normalizeCodeLanguage } from "@/features/rendering/adapters";
 import { FONT_SIZE_UNIT_PT, pxToPt } from "@/lib/font-size-units";
 import { createCurrentLocaleTranslator } from "@/lib/i18n";
 

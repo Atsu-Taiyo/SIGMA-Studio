@@ -1,3 +1,4 @@
+import { CODE_LANGUAGE_IDS } from "@/features/document";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -12,6 +13,9 @@ import {
 const JS = "function add(a, b) {\n  return a + b; // sum\n}";
 
 describe("highlightCode", () => {
+  it("offers every language accepted by the document schema", () => {
+    expect(CODE_BLOCK_LANGUAGES.map(option => option.value)).toEqual([...CODE_LANGUAGE_IDS]);
+  });
   // これが崩れると、装飾も静的描画も 1 文字ずつずれた場所を塗る。位置合わせの土台。
   it("トークンの長さの総和は必ず元の文字数に等しい", () => {
     for (const [code, language] of [
