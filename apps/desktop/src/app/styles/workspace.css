@@ -607,7 +607,6 @@ button.workspace-breadcrumb-item:focus-visible {
 }
 
 .workspace-file-card-preview {
-  --workspace-file-thumbnail-scale: 0.265;
   position: relative;
   display: grid;
   place-items: center;
@@ -645,35 +644,15 @@ button.workspace-breadcrumb-item:focus-visible {
   background: #ffffff;
 }
 
-.workspace-file-preview-raster-host {
-  position: absolute;
-  left: -12000px;
+/* Thumbnails are rendered with the print preview's surface off screen, then drawn to
+   an image. The host has to lay out normally (measurement drives pagination), so it is
+   moved out of view rather than hidden. Fixed positioning keeps it out of any scroller. */
+.paged-thumbnail-host {
+  position: fixed;
   top: 0;
-  width: 360px;
+  left: -20000px;
+  width: 1200px;
   pointer-events: none;
-}
-
-.workspace-file-card-thumbnail-scaler {
-  position: absolute;
-  top: 10px;
-  left: 50%;
-  width: max-content;
-  transform: translateX(-50%) scale(var(--workspace-file-thumbnail-scale));
-  transform-origin: top center;
-}
-
-.workspace-file-card-thumbnail .print-preview-thumbnail,
-.workspace-file-card-thumbnail .print-page-stack {
-  width: max-content;
-}
-
-.workspace-file-card-thumbnail .print-page-thumbnail-stack {
-  gap: 0;
-}
-
-.workspace-file-card-thumbnail .print-a4-page {
-  border-color: #d8dde6;
-  box-shadow: 0 10px 26px rgba(15, 23, 42, 0.18);
 }
 
 .workspace-file-card-preview-fallback {
@@ -1512,6 +1491,7 @@ button.workspace-breadcrumb-item:focus-visible {
 }
 
 .save-state-wrap {
+  position: relative;
   display: flex;
   grid-column: 4;
   grid-row: 1;
@@ -1587,12 +1567,14 @@ button.workspace-breadcrumb-item:focus-visible {
   white-space: nowrap;
 }
 
-.save-state.saved {
-  color: var(--success);
-}
-
-.save-state.saving {
-  color: var(--warning);
+/* 成功・経過の報告は読み上げ専用。画面には出さない (SaveStatusBadge のコメント参照)。 */
+.save-state[data-quiet="true"] {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
 }
 
 .save-state.warning {
@@ -1682,12 +1664,22 @@ button.workspace-breadcrumb-item:focus-visible {
   cursor: pointer;
 }
 
-.version-history-button {
+/* 共有 (教材ごとの操作) は「過去の版」の左に置く。どちらも教材そのものに対する操作なので
+   隣り合わせ、ワークスペース・アカウントなどアプリ全体の操作とは右端で分ける。 */
+.menubar-document-actions {
+  display: inline-flex;
   grid-column: 5;
+  grid-row: 1;
+  align-items: center;
+  min-width: 0;
+}
+
+.version-history-button {
+  grid-column: 6;
 }
 
 .report-issue-button {
-  grid-column: 6;
+  grid-column: 7;
 }
 
 .report-issue-button:hover,
@@ -1860,25 +1852,6 @@ nav.app-menu-list[inert] *,
   color: #ffffff;
 }
 
-.workspace-pane-edit-hint {
-  position: absolute;
-  z-index: 3;
-  right: 12px;
-  bottom: 12px;
-  padding: 4px 10px;
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--text-primary) 72%, transparent);
-  color: var(--background);
-  font-size: 11px;
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity 140ms ease;
-}
-
-.workspace-tab-group:hover .workspace-pane-edit-hint {
-  opacity: 1;
-}
-
 .workspace-tab-group-content,
 .workspace-tab-group-content > .editor-canvas {
   min-width: 0;
@@ -1886,79 +1859,19 @@ nav.app-menu-list[inert] *,
   height: 100%;
 }
 
-/* --- 編集していないペインの紙面 --- */
+/* --- 編集していないペイン ---
+   編集中のペインと同じ編集面を読み取り専用で描く。掴む・挿入するなどの操作の手がかりは、
+   押しても働かない (押した時点で編集面に載せ替わる) ので出さない。 */
 
-.workspace-document-preview {
-  position: relative;
-  min-width: 0;
-  min-height: 0;
-  height: 100%;
-  overflow: hidden;
-  background: var(--surface-muted);
+.workspace-passive-editor .page-block-affordance-layer,
+.workspace-passive-editor .page-block-drag-ghost-layer,
+.workspace-passive-editor .page-layout-controls,
+.workspace-passive-editor .page-margin-ruler {
+  display: none;
 }
 
-.workspace-preview-viewport {
-  width: 100%;
-  height: 100%;
-  overflow: auto;
-  padding: 24px;
-  scrollbar-width: thin;
-}
-
-.workspace-preview-sizer {
-  margin: 0 auto;
-}
-
-/* 拡大縮小は transform だけで行う (紙面の組版は倍率に影響されない)。 */
-.workspace-preview-scaler {
-  transform-origin: top left;
-  will-change: transform;
-}
-
-.workspace-preview-zoom {
-  position: absolute;
-  right: 12px;
-  bottom: 12px;
-  display: inline-flex;
-  align-items: center;
-  gap: 2px;
-  padding: 2px;
-  border: 1px solid var(--border-subtle);
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--background) 92%, transparent);
-  box-shadow: 0 2px 8px rgb(17 17 17 / 8%);
-  opacity: 0.35;
-  backdrop-filter: blur(6px);
-  transition: opacity 140ms ease;
-}
-
-.workspace-tab-group:hover .workspace-preview-zoom,
-.workspace-preview-zoom:focus-within {
-  opacity: 1;
-}
-
-.workspace-preview-zoom button {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 4px;
-  min-width: 24px;
-  height: 24px;
-  padding: 0 6px;
-  border: 0;
-  border-radius: 999px;
-  background: transparent;
-  color: var(--text-secondary);
-  font-size: 11px;
-  font-variant-numeric: tabular-nums;
-  cursor: pointer;
-}
-
-.workspace-preview-zoom button:hover,
-.workspace-preview-zoom button:focus-visible {
-  background: var(--surface-muted);
-  color: var(--text-primary);
-  outline: none;
+.workspace-passive-editor .page-canvas {
+  cursor: text;
 }
 
 .workspace-ai-tab-panel {

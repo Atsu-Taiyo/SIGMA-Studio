@@ -9,6 +9,16 @@ export const chrome = {
 
     readOnlyDocument: "This document is read-only. Check your sharing access.",
     settingsTitle: "Sharing settings",
+    shareTitle: "Share “{{name}}”",
+    inviteHeading: "Invite",
+    inviteRole: "Access for the invitee",
+    memberRole: "Access for {{name}}",
+    signInRequired: "Sharing uses your Google account.",
+    joinAction: "Join",
+    joinDescription: "Paste the invitation code you received.",
+    joinParticipantLimit: "This share has reached its participant limit. Check with the person who invited you.",
+    detailsTitle: "Sharing details",
+    proBadge: "Pro",
     shareAction: "Share",
     inherited: "Inherited from parent",
     direct: "Direct access",
@@ -48,7 +58,24 @@ export const chrome = {
     error: "The action could not be completed. Check your connection and access, then try again.", working: "Preparing", ready: "Joined. Open the material from your library.",
     status: { "epoch-error": "Shared document restored", "local-saving": "Saving on device", "local-saved": "Saved on device · Not synced", syncing: "Syncing", saved: "Saved to cloud", offline: "Offline", "permission-error": "Check sharing access", "save-error": "Save failed" },
     plan: {
-      documentLimit: "Free allows one shared document at a time. Stop another share or upgrade to Pro.",
+      reasons: {
+        documentLimit: {
+          title: "This material can't be shared",
+          body: "The Free plan shares one material at a time. Stop sharing the other material or upgrade to Pro to share this one.",
+        },
+        hierarchyShare: {
+          title: "Folders and workspaces can't be shared",
+          body: "Sharing whole folders and workspaces is a Pro feature. On the Free plan, share materials one at a time.",
+        },
+        participantLimit: {
+          title: "You can't invite more people",
+          body: "The Free plan allows one participant besides the owner, including viewers. Pro allows up to 15 per material.",
+        },
+        adminRole: {
+          title: "Admins require Pro",
+          body: "The admin role is a Pro feature. On the Free plan, people can be editors or viewers.",
+        },
+      },
       trialTerms: "First 7 days free, once per account. A card is required. Then $9 USD per owner per month, renewed automatically. Cancel before the period ends.",
       manageBilling: "Manage subscription and payment",
       paymentWarning: "Payment failed. Update your payment method within the 7-day grace period.",
@@ -57,7 +84,6 @@ export const chrome = {
 
       title: "Sigma Studio plans",
       description: "For teams that edit together, Pro is the way to go.",
-      hierarchyRequired: "Sharing workspaces and folders is a Pro feature.",
       billingPeriod: "USD / month",
       perUser: "per owner (invitees are free)",
       free: {

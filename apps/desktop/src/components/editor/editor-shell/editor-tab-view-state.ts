@@ -155,3 +155,58 @@ function applyScrollerOffset(scroller: HTMLElement, scrollTop: number, scrollLef
   scroller.scrollTop = scrollTop;
   scroller.scrollLeft = scrollLeft;
 }
+
+/**
+ * 編集していなかったペインを押したとき、編集面に載せ替わった後で押した点にキャレットを置く。
+ *
+ * 押した時点のペインは読み取り専用の紙面で、同じ倍率・同じスクロール量で描いている。
+ * 編集面がスクロール位置を当て直し終えてから同じ画面座標を引けば、同じ文字の位置に当たる。
+ * 本文の編集面 (contenteditable) が点の下に現れるまで短い間隔で待ち、現れなければ何もしない。
+ */
+export function placeCaretAtPointWhenReady(params: {
+  getScroller: () => HTMLElement | null;
+  point: { x: number; y: number };
+  scrollTop: number;
+  maxAttempts?: number;
+}): void {
+  const maxAttempts = params.maxAttempts ?? 40;
+  const attempt = (count: number) => {
+    const scroller = params.getScroller();
+    // スクロール量が届かない (紙面がまだ短い) ままでも、数回待ったら今の位置で置く。
+    const settled = Boolean(scroller) && (Math.abs(scroller!.scrollTop - params.scrollTop) < 2 || count > 10);
+    const target = settled ? document.elementFromPoint(params.point.x, params.point.y) : null;
+    const editable = target && scroller?.contains(target)
+      ? target.closest<HTMLElement>('[contenteditable="true"]')
+      : null;
+    const range = editable ? caretRangeAtPoint(params.point.x, params.point.y) : null;
+    if (editable && range && editable.contains(range.startContainer)) {
+      editable.focus({ preventScroll: true });
+      const selection = window.getSelection();
+      selection?.removeAllRanges();
+      selection?.addRange(range);
+      return;
+    }
+    if (count < maxAttempts) {
+      window.setTimeout(() => attempt(count + 1), 40);
+    }
+  };
+  window.requestAnimationFrame(() => window.requestAnimationFrame(() => attempt(0)));
+}
+
+function caretRangeAtPoint(x: number, y: number): Range | null {
+  const ownerDocument = document as Document & {
+    caretRangeFromPoint?: (x: number, y: number) => Range | null;
+    caretPositionFromPoint?: (x: number, y: number) => { offsetNode: Node; offset: number } | null;
+  };
+  if (ownerDocument.caretRangeFromPoint) {
+    return ownerDocument.caretRangeFromPoint(x, y);
+  }
+  const position = ownerDocument.caretPositionFromPoint?.(x, y);
+  if (!position) {
+    return null;
+  }
+  const range = document.createRange();
+  range.setStart(position.offsetNode, position.offset);
+  range.collapse(true);
+  return range;
+}

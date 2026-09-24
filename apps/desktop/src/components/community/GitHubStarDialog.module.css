@@ -4,19 +4,8 @@
 }
 
 .link {
+  width: 100%;
   text-decoration: none;
   white-space: normal;
-  line-height: 1.5;
-}
-
-.note {
-  color: var(--text-secondary);
-  font-size: 12px;
-  line-height: 1.5;
-}
-
-.error {
-  color: var(--danger);
-  font-size: 12px;
   line-height: 1.5;
 }

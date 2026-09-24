@@ -101,7 +101,6 @@ it("stays closed after remount but invites again in a new app session", async ()
   await advance(60_000);
   await act(async () => { document.querySelector<HTMLButtonElement>('button[aria-label="閉じる"]')!.click(); });
   expect(values.get(legacyDismissedKey)).toBeUndefined();
-  expect(values.get(component.STAR_PROMPT_DISABLED_KEY)).toBeUndefined();
   expect(dialog()).toBeNull();
   await act(async () => root.unmount());
   root = createRoot(container);
@@ -118,56 +117,15 @@ it("stays closed after remount but invites again in a new app session", async ()
   expect(dialog()).not.toBeNull();
 });
 
-it("invites even when a previous version persisted dismissal", async () => {
+it("has no permanent opt-out and ignores flags persisted by earlier versions", async () => {
   values.set(legacyDismissedKey, "1");
+  values.set("sigma-studio:github-star-disabled:v1", "1");
   await mount();
   await advance(70_000);
   expect(dialog()).not.toBeNull();
-});
-
-it("persists explicit opt-out and stays hidden in a new app session", async () => {
-  await mount();
-  await advance(60_000);
-  const button = Array.from(dialog()!.querySelectorAll("button")).find((button) => button.textContent === "もう表示しない")!;
-  await act(async () => { button.click(); });
-  expect(values.get(component.STAR_PROMPT_DISABLED_KEY)).toBe("1");
-  expect(dialog()).toBeNull();
-
-  await act(async () => root.unmount());
-  vi.resetModules();
-  component = await import("./GitHubStarDialog");
-  root = createRoot(container);
-  await mount();
-  await advance(70_000);
-  expect(dialog()).toBeNull();
-});
-
-it("keeps the invitation open with an error if opt-out cannot be saved", async () => {
-  await mount();
-  await advance(60_000);
-  const write = vi.spyOn(window.localStorage, "setItem").mockImplementation(() => { throw new Error("Storage unavailable"); });
-  const button = Array.from(dialog()!.querySelectorAll("button")).find((button) => button.textContent === "もう表示しない")!;
-  await act(async () => { button.click(); });
-  expect(dialog()).not.toBeNull();
-  expect(dialog()!.querySelector('[role="alert"]')?.textContent).toContain("設定を保存できませんでした");
-  expect(values.get(component.STAR_PROMPT_DISABLED_KEY)).toBeUndefined();
-  write.mockRestore();
-  await act(async () => { button.click(); });
-  expect(dialog()).toBeNull();
-  expect(values.get(component.STAR_PROMPT_DISABLED_KEY)).toBe("1");
-});
-
-it("honors explicit opt-out from another window", async () => {
-  await mount();
-  await advance(60_000);
-  expect(dialog()).not.toBeNull();
-  await act(async () => { window.dispatchEvent(new StorageEvent("storage", { key: component.STAR_PROMPT_DISABLED_KEY, newValue: "1" })); });
-  expect(dialog()).toBeNull();
-  await act(async () => root.unmount());
-  root = createRoot(container);
-  await mount();
-  await advance(70_000);
-  expect(dialog()).toBeNull();
+  const buttons = Array.from(dialog()!.querySelectorAll("button")).map((button) => button.getAttribute("aria-label") ?? button.textContent);
+  expect(buttons).toEqual(["閉じる"]);
+  expect(dialog()!.textContent).not.toContain("もう表示しない");
 });
 
 it("invites and closes without profile storage, staying dismissed after remount", async () => {
@@ -191,8 +149,6 @@ it("links to the public repository, translates live, and ignores legacy dismissa
   const { setAppLocale } = await import("@/lib/i18n/react");
   await act(async () => { setAppLocale("en"); });
   expect(dialog()?.textContent).toContain("Support Sigma Studio");
-  expect(dialog()?.textContent).toContain("Don't show again");
-  expect(dialog()?.textContent).toContain("next time you start the app");
   const link = dialog()!.querySelector("a")!;
   expect(link.href).toBe("https://github.com/Atsu-Taiyo/SIGMA-Studio");
   expect(link.rel).toBe("noopener noreferrer");

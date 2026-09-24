@@ -512,6 +512,14 @@
   box-shadow: none;
 }
 
+/* Formatting marks and the empty-body placeholder are editing aids: the PDF drops
+ * them through `@media print`, and the on-screen preview (and the thumbnails cut from
+ * it) must match the PDF. Both are zero-size decorations, so hiding them moves nothing. */
+.paged-render .text-formatting-mark,
+.paged-render .ProseMirror p.is-editor-empty:first-child::before {
+  visibility: hidden;
+}
+
 /* No layout override on `.page-stack`: the staged canvas must lay out under exactly the
  * same CSS as the editor, or its measurements are not the editor's measurements. The
  * page windows compensate for the stack's padding and centring by measuring where the
