@@ -25,6 +25,7 @@ test("desktop header keeps the title, menus and sharing controls inside its two 
     for (const width of [1400, 900]) {
       await page.setViewportSize({ width, height: 900 });
       await expect(page.locator('.app-shell[data-ui-layout="docs"]')).toBeVisible();
+      await expect(page.locator(".startup-splash")).toBeHidden();
       const header = page.locator(".menubar-row");
       const bounds = await header.boundingBox();
       expect(bounds).not.toBeNull();
