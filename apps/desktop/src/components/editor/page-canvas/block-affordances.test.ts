@@ -459,12 +459,15 @@ describe("isContainerTopBand", () => {
 
 describe("column gap lanes", () => {
   it("keeps grips in the right half of a divider gap, clear of the divider line", () => {
-    // 8mm (≈30px) の段間: 中央 15px から 2px 離し、右半分の 13px に収める。
-    expect(resolveColumnLaneWidthPx(30.2)).toBe(13);
+    // 8mm (≈30px) の段間: 中央 15px から 3px 離し、右半分の 12px に収める。
+    expect(resolveColumnLaneWidthPx(30.2)).toBe(12);
+    // 中央線の左右 3px を空けられる最も狭い段間。
+    expect(resolveColumnLaneWidthPx(26)).toBe(10);
     // 広い段間でも最大幅まで。
     expect(resolveColumnLaneWidthPx(80)).toBe(18);
-    // 極端に狭い段間では最小幅 (中央へ少しはみ出す)。
+    // 極端に狭い段間では掴める最小幅を優先する (中央へはみ出す)。
     expect(resolveColumnLaneWidthPx(12)).toBe(10);
+    expect(resolveColumnLaneWidthPx(0)).toBe(10);
     // 列境界の無いガター (枠の内側) は最大幅。
     expect(resolveColumnLaneWidthPx(null)).toBe(18);
   });

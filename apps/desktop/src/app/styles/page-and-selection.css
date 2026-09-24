@@ -1520,10 +1520,22 @@ body.page-block-dragging * {
   margin-left: -54px;
 }
 
-/* 部分段組の 2 段目以降は段間の右半分 (段の本文側) に短く出す。グリップと同じ理由・同じ幅。 */
+/* 部分段組の 2 段目以降は段間の右半分 (段の本文側) に、グリップと同じ幅で出す。細いレーンに
+   罫は入らないので下向きの山だけにし、回した山の角もボタンの内側へ収める — はみ出した角は
+   当たり判定に入り、列境界の線を覆う。 */
 .page-block-space-handle[data-gutter-lane="column"] {
+  justify-content: center;
   width: var(--column-lane-width, 18px);
   margin-left: calc(-1 * var(--column-lane-width, 18px));
+  padding: 0;
+}
+
+.page-block-space-handle[data-gutter-lane="column"]::before {
+  flex: none;
+}
+
+.page-block-space-handle[data-gutter-lane="column"]::after {
+  display: none;
 }
 
 .page-block-space-handle:focus-visible {

@@ -116,13 +116,16 @@ export interface HoveredDragUnit {
 /** 段間のレーンの幅。段間の中央は列境界 (幅の調整) のものなので、右半分に収める。 */
 const COLUMN_LANE_MAX_WIDTH_PX = 18;
 const COLUMN_LANE_MIN_WIDTH_PX = 10;
-/** 列境界の中央線とレーンの間に残す余白。 */
-const COLUMN_LANE_DIVIDER_CLEARANCE_PX = 2;
+/**
+ * 列境界の中央線とレーンの間に残す余白。線の左右この幅は、つまみを表示中でも列境界が取る
+ * (段間がおよそ 26px 以上のとき。既定の 8mm は約 30px)。
+ */
+const COLUMN_LANE_DIVIDER_CLEARANCE_PX = 3;
 
 /**
  * 2 段目以降のグリップ・下端つまみの幅 (レイアウト px)。`dividerGapPx` はその段の左の段間
  * (列境界のある隙間) の幅。列境界の無いガター (枠の内側の余白) なら null で、最大幅を使う。
- * 段間が極端に狭いときだけ最小幅で中央へはみ出す。
+ * 段間が極端に狭い (0mm の取り込みなど) ときだけ、掴める最小幅を優先して中央へはみ出す。
  */
 export function resolveColumnLaneWidthPx(dividerGapPx: number | null): number {
   if (dividerGapPx === null || !Number.isFinite(dividerGapPx)) return COLUMN_LANE_MAX_WIDTH_PX;
