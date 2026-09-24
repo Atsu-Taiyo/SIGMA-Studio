@@ -51,6 +51,6 @@ test("desktop header keeps the title, menus and sharing controls inside its two 
     }
   } finally {
     await app.close();
-    await rm(profile, { recursive: true, force: true });
+    await rm(profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });
