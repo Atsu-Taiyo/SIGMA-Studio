@@ -1,0 +1,168 @@
+.plans {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-lg);
+}
+
+/* Subgrid rows keep the price, action, and divider aligned across plans. */
+.plan {
+  display: grid;
+  grid-row: span 4;
+  grid-template-rows: subgrid;
+  row-gap: var(--space-xl);
+  min-width: 0;
+  padding-top: var(--space-xl);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-panel);
+  background: var(--background);
+}
+
+.plan[data-emphasized="true"] {
+  border-color: var(--border-strong);
+}
+
+.planSection {
+  min-width: 0;
+  padding-inline: var(--space-xl);
+}
+
+.mark {
+  width: 90px;
+  height: 60px;
+  overflow: visible;
+}
+
+.sum {
+  fill: var(--text-primary);
+}
+
+.particle {
+  fill: var(--text-primary);
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: particleEmit 3.6s cubic-bezier(0.2, 0.7, 0.3, 1) infinite both;
+}
+
+.particle:nth-of-type(3n + 2) {
+  fill: var(--text-muted);
+}
+
+/* Each particle leaves the Σ, rests at its place, then drifts on and fades. */
+@keyframes particleEmit {
+  0% {
+    opacity: 0;
+    transform: translate(var(--particle-from-x), var(--particle-from-y)) scale(0.4);
+  }
+  20% {
+    opacity: 1;
+  }
+  60% {
+    opacity: 1;
+    transform: none;
+  }
+  100% {
+    opacity: 0;
+    transform: translate(var(--particle-drift-x), var(--particle-drift-y)) scale(0.8);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .particle {
+    animation: none;
+  }
+}
+
+.planName {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: 20px;
+  font-weight: 650;
+  line-height: 1.3;
+}
+
+.tagline {
+  color: var(--text-muted);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.amount {
+  color: var(--text-primary);
+  font-size: 36px;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+  line-height: 1;
+}
+
+.priceNote {
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.cta {
+  width: 100%;
+}
+
+.note {
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.5;
+  text-align: center;
+}
+
+.status {
+  min-height: 44px;
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
+.planFeatures {
+  min-width: 0;
+  padding: var(--space-xl);
+  border-top: 1px solid var(--border-subtle);
+}
+
+.featuresLabel {
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
+.featureList {
+  margin: 0;
+  padding: 0;
+  color: var(--text-primary);
+  font-size: 13px;
+  line-height: 1.5;
+  list-style: none;
+}
+
+.featureList span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.check {
+  flex: 0 0 auto;
+  /* Optical correction: centers the 15px icon on the first 19.5px text line. */
+  margin-top: 2px;
+  color: var(--text-muted);
+}
+
+@media (max-width: 760px) {
+  .plans {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.upsellText {
+  color: var(--text-primary);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.menuPlan {
+  padding-block: var(--space-sm);
+  border-block: 1px solid var(--border-subtle);
+}

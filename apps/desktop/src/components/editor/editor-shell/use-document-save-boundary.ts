@@ -15,8 +15,10 @@ import { captureDocumentVersion, createObservedDocumentWrite, saveDocumentRecord
 import type { Dispatch, RefObject, SetStateAction } from "react";
 import { useCallback } from "react";
 import type { DocumentStorageChangeEvent, EmbeddedEditorHost } from "./document-lifecycle-types";
+import type { DocumentSession } from "@/features/document-session/contracts";
 
 interface Dependencies {
+  documentSessionRef?: RefObject<DocumentSession | undefined>;
   setVersionHistoryWarnings: Dispatch<SetStateAction<Record<string, string>>>;
   t: Translate<"chrome">;
   documentOpenFailureRef: RefObject<DocumentOpenFailure | null>;
@@ -42,6 +44,7 @@ interface Dependencies {
 }
 
 export function useDocumentSaveBoundary({
+  documentSessionRef,
   setVersionHistoryWarnings,
   t,
   documentOpenFailureRef,
@@ -94,6 +97,16 @@ export function useDocumentSaveBoundary({
       return { ok: true };
     }
     const saveRevision = documentDirtyRevisionRef.current;
+    const session = documentSessionRef?.current;
+    if (session) {
+      try {
+        await session.flush();
+        lastSavedDocumentRef.current = session.project();
+        lastSyncedDocumentRef.current = lastSavedDocumentRef.current;
+        lastSavedDirtyRevisionRef.current = saveRevision;
+        return { ok: true, revision: 1 };
+      } catch { return { ok: false, error: tEditor("status.saveFailed") }; }
+    }
     const host = embeddedHostRef.current;
     if (host) {
       try {
@@ -148,7 +161,7 @@ export function useDocumentSaveBoundary({
       }
       return result;
     })());
-  }, [activeFileIdRef, documentDirtyRevisionRef, documentObservedRevisionRef, documentOpenFailureRef, documentRef, embeddedHostRef, inFlightSavePromiseRef, lastSavedDirtyRevisionRef, lastSavedDocumentRef, lastSyncedDocumentRef, successfulDocumentSavesRef, tEditor, updateVersionHistoryCaptureStatus]);
+  }, [activeFileIdRef, documentDirtyRevisionRef, documentObservedRevisionRef, documentOpenFailureRef, documentRef, documentSessionRef, embeddedHostRef, inFlightSavePromiseRef, lastSavedDirtyRevisionRef, lastSavedDocumentRef, lastSyncedDocumentRef, successfulDocumentSavesRef, tEditor, updateVersionHistoryCaptureStatus]);
 
 
   const saveCurrentDocumentBoundary = useCallback(async (
@@ -161,6 +174,7 @@ export function useDocumentSaveBoundary({
     skippedReason?: DocumentBoundarySkipReason;
   }> => {
     const boundaryFileId = activeFileIdRef.current;
+    if (documentSessionRef?.current) return saveCurrentDocumentRecord(origin);
     const boundarySkipReason = () => getDocumentBoundarySkipReason({
       isEmbedded,
       workspaceReady: workspaceReadyRef.current,
@@ -197,7 +211,7 @@ export function useDocumentSaveBoundary({
       }));
     }
     return { ok: true };
-  }, [activeFileIdRef, documentObservedRevisionRef, documentOpenFailureRef, documentRef, externalChangeFileIdsRef, inFlightSavePromiseRef, isCurrentDocumentDirty, isEmbedded, mcpPreviewBusyRef, saveCurrentDocumentRecord, setVersionHistoryWarnings, t, workspaceReadyRef]);
+  }, [activeFileIdRef, documentObservedRevisionRef, documentOpenFailureRef, documentRef, documentSessionRef, externalChangeFileIdsRef, inFlightSavePromiseRef, isCurrentDocumentDirty, isEmbedded, mcpPreviewBusyRef, saveCurrentDocumentRecord, setVersionHistoryWarnings, t, workspaceReadyRef]);
 
 
   const saveCurrentDocumentBeforeReplacement = useCallback(async (): Promise<boolean> => {

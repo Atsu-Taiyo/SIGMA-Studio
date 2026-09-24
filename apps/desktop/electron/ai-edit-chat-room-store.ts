@@ -146,6 +146,26 @@ export class LocalAiEditChatRoomStore {
     });
   }
 
+  /** Idempotently removes every conversation owned by an ephemeral document. */
+  async deleteRoomsForDocument(documentIdentityKey: string): Promise<{ ok: boolean; deletedRoomIds: string[]; error?: string }> {
+    return this.enqueueMutation(async () => {
+      const normalizedKey = documentIdentityKey.trim();
+      if (!normalizedKey) {
+        return { ok: false, deletedRoomIds: [], error: ta("desktop.chatStore.missingId") };
+      }
+      const data = await this.readFile();
+      const deletedRoomIds = data.rooms
+        .filter((room) => room.documentIdentityKey === normalizedKey)
+        .map((room) => room.id);
+      if (deletedRoomIds.length === 0) return { ok: true, deletedRoomIds };
+      await this.writeFile({
+        version: 1,
+        rooms: data.rooms.filter((room) => room.documentIdentityKey !== normalizedKey),
+      });
+      return { ok: true, deletedRoomIds };
+    });
+  }
+
   private enqueueMutation<T>(operation: () => Promise<T>): Promise<T> {
     const result = this.mutationQueue.then(operation, operation);
     this.mutationQueue = result.then(() => undefined, () => undefined);

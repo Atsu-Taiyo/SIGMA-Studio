@@ -1,3 +1,4 @@
+import type { LibrarySharingMetadata, SharedCatalogStatus } from "./shared-catalog";
 import type {
   DesktopMcpEditProposalActionResult,
   DesktopMcpEditProposalStatus,
@@ -14,6 +15,7 @@ import type {
   DocumentVersionMetadata,
   DocumentVersionOrigin,
 } from "@/lib/document-version-history";
+import type { WorkspaceLayoutV2 } from "@/lib/workspace-tab-groups";
 
 /**
  * どの土台で動いているか。
@@ -48,6 +50,8 @@ export interface StorageResult {
 }
 
 export interface DocumentMetadata {
+  sharingPending?: boolean;
+  sharing?: LibrarySharingMetadata;
   fileId: string;
   workspaceId: string;
   folderId: string | null;
@@ -62,6 +66,8 @@ export interface DocumentMetadata {
 export interface WorkspaceState {
   openFileIds: string[];
   activeFileId: string;
+  /** Chrome-like split/tab layout. Legacy callers may omit it. */
+  layout?: WorkspaceLayoutV2;
 }
 
 export type WorkspaceInitializationResult =
@@ -113,6 +119,8 @@ export interface CreateFileFromDocumentInput {
 
 
 export interface WorkspaceSummary {
+  sharingPending?: boolean;
+  sharing?: LibrarySharingMetadata;
   id: string;
   name: string;
   createdAt: string;
@@ -120,6 +128,8 @@ export interface WorkspaceSummary {
 }
 
 export interface WorkspaceFolderSummary {
+  sharingPending?: boolean;
+  sharing?: LibrarySharingMetadata;
   id: string;
   workspaceId: string;
   parentFolderId: string | null;
@@ -132,6 +142,7 @@ export interface WorkspaceFolderSummary {
 export type WorkspaceFileSummary = DocumentMetadata;
 
 export interface WorkspaceOverview {
+  catalog?: SharedCatalogStatus;
   activeWorkspaceId: string;
   workspaces: WorkspaceSummary[];
   folders: WorkspaceFolderSummary[];
@@ -196,6 +207,7 @@ export interface LocalLibraryRepository extends DocumentLibraryRepository {
 }
 
 export interface LocalWorkspaceRepository {
+  renameDocument?(workspaceId: string, fileId: string, name: string): Promise<WorkspaceOverviewResult>;
   listOverview(workspaceId?: string | null): Promise<WorkspaceOverviewResult>;
   createWorkspace(name: string): Promise<WorkspaceOverviewResult>;
   renameWorkspace(workspaceId: string, name: string): Promise<WorkspaceOverviewResult>;

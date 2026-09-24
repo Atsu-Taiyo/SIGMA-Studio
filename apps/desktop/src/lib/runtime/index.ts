@@ -34,3 +34,5 @@ export type {
   WorkspaceState,
   WorkspaceSummary,
 } from "./types";
+
+export * from "./shared-catalog";

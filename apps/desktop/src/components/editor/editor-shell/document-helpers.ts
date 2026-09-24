@@ -209,6 +209,8 @@ export function areGraphSpecsEqual(a: Graph2DSpec, b: Graph2DSpec): boolean {
  * という静かな取りこぼしに化ける。
  */
 const DOCUMENT_METADATA_COMPARED_KEYS: Record<keyof DocumentMetadata, true> = {
+  sharing: true,
+  sharingPending: true,
   fileId: true,
   workspaceId: true,
   folderId: true,

@@ -299,6 +299,11 @@ function OpenModalFrame({
         return;
       }
       if (event.key === "Escape" && closeOnEscapeRef.current) {
+        // The open Select handles Escape at document capture too. Let it close
+        // its menu before a subsequent Escape dismisses the owning dialog.
+        if (backdrop.querySelector('[data-ui-select-open="true"]')) {
+          return;
+        }
         const target = event.target instanceof Element ? event.target : null;
         if (target?.closest("[data-toolbar-popover], [data-toolbar-popover-anchor-open]")) {
           return;

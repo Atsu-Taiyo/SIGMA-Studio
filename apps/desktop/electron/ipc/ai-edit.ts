@@ -409,6 +409,17 @@ export function registerAiEditIpc(deps: RegisterAiEditIpcDeps): void {
     return localAiEditChatRoomStore.deleteRoom(typeof roomId === "string" ? roomId : "");
   });
 
+  ipcMain.handle("ai-edit:delete-chat-rooms-for-document", async (_event, documentIdentityKey: unknown) => {
+    const fileId = typeof documentIdentityKey === "string" ? documentIdentityKey : "";
+    try {
+      const deletedProposalIds = await localMcpProposalStore.deleteProposalsForFile(fileId);
+      const roomResult = await localAiEditChatRoomStore.deleteRoomsForDocument(fileId);
+      return { ...roomResult, deletedProposalIds };
+    } catch (error) {
+      return { ok: false, deletedRoomIds: [], error: error instanceof Error ? error.message : String(error) };
+    }
+  });
+
   ipcMain.handle("ai-render:get-document", async (_event, renderId: unknown) => {
     if (typeof renderId !== "string") {
       return null;

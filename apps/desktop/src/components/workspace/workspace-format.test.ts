@@ -31,6 +31,10 @@ describe("workspace-format", () => {
   });
 
   describe("formatDateTime", () => {
+    it("omits unavailable catalog dates", () => {
+      expect(formatDateTime(new Date(0).toISOString(), "ja")).toBe("");
+      expect(formatDateTime("not-a-date", "ja")).toBe("");
+    });
     it("formats an ISO timestamp into a month/day/hour/minute ja-JP string", () => {
       const formatted = formatDateTime("2026-07-26T09:05:00.000Z", "ja");
       expect(typeof formatted).toBe("string");

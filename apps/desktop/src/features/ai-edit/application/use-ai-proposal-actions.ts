@@ -85,6 +85,7 @@ export interface AiProposalActionsDependencies {
   dispatchDocumentStorageChange(event: DocumentStorageChangeEvent): void;
   updateVersionHistoryCaptureStatus(fileId: string, result: { ok: boolean; versionCaptureError?: string }): void;
   applyAiApprovedDocument(params: ApprovedDocumentAdoption): AiApprovedDocumentDecision;
+  revertSessionProposals?(proposalIds: string[]): Promise<boolean | undefined>;
   resetEditorDocument(document: SigmaDocument, selectedId?: string | null, revision?: number | null): void;
   scheduleAutosaveRetry(): void;
   announceRecovery(issues: SigmaDocumentRecoveryIssue[], recoveryBackupPath?: string): void;
@@ -130,6 +131,7 @@ export function useAiProposalActions({
   dispatchDocumentStorageChange,
   updateVersionHistoryCaptureStatus,
   applyAiApprovedDocument,
+  revertSessionProposals,
   resetEditorDocument,
   scheduleAutosaveRetry,
   announceRecovery,
@@ -669,6 +671,13 @@ export function useAiProposalActions({
     setMcpPreviewBusy(true);
     try {
       let revertedBatches = 0;
+      const sessionResult = await revertSessionProposals?.(proposalIds);
+      if (sessionResult !== undefined) {
+        await refreshMcpEditProposals();
+        const reason = sessionResult ? tEditor("status.editReverted") : tEditor("status.sharedRevertUnavailable");
+        setStatusMessage(reason);
+        return sessionResult ? { ok: true } : { ok: false, reason };
+      }
       let failureReason: string | null = null;
       for (const targetProposalId of revertTargets) {
         const result = await bridge.storage.revertMcpEditProposal(targetProposalId);

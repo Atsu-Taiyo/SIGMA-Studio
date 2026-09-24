@@ -18,6 +18,12 @@ import {
 } from "@/features/document";
 import { createBlankDocument } from "@/lib/blank-document";
 import {
+  createSingleGroupWorkspaceLayout,
+  normalizeWorkspaceLayout,
+  workspaceLayoutOpenFileIds,
+  type WorkspaceLayoutV2,
+} from "@/lib/workspace-tab-groups";
+import {
   availableDocumentTitle,
   type LibraryFileRow as LocalFileRecord,
   type LibraryFolderRow as LocalFolderRecord,
@@ -104,6 +110,8 @@ const LIBRARY_LOCK_FILE_NAME = "library.lock";
 const LEDGER_MUTEX_KEY = "\u0000ledger-transaction-mutex";
 
 export interface LocalDocumentMetadata {
+  sharingPending?: boolean;
+  sharing?: import("@/lib/runtime/shared-catalog").LibrarySharingMetadata;
   fileId: string;
   workspaceId: string;
   folderId: string | null;
@@ -118,9 +126,12 @@ export interface LocalDocumentMetadata {
 export interface LocalWorkspaceState {
   openFileIds: string[];
   activeFileId: string;
+  layout?: WorkspaceLayoutV2;
 }
 
 export interface LocalWorkspaceSummary {
+  sharingPending?: boolean;
+  sharing?: import("@/lib/runtime/shared-catalog").LibrarySharingMetadata;
   id: string;
   name: string;
   createdAt: string;
@@ -128,6 +139,8 @@ export interface LocalWorkspaceSummary {
 }
 
 export interface LocalFolderSummary {
+  sharingPending?: boolean;
+  sharing?: import("@/lib/runtime/shared-catalog").LibrarySharingMetadata;
   id: string;
   workspaceId: string;
   parentFolderId: string | null;
@@ -140,6 +153,7 @@ export interface LocalFolderSummary {
 export type LocalWorkspaceFileSummary = LocalDocumentMetadata;
 
 export interface LocalWorkspaceOverview {
+  catalog?: import("@/lib/runtime/shared-catalog").SharedCatalogStatus;
   activeWorkspaceId: string;
   workspaces: LocalWorkspaceSummary[];
   folders: LocalFolderSummary[];
@@ -292,7 +306,23 @@ interface LedgerTransactionState {
   changed: boolean;
 }
 
+/** Application-owned authority runs before any local ledger lock. Undefined means local. */
+export type LibraryAuthority = {
+  [K in "initializeWorkspace" | "saveWorkspace" | "listFiles" | "getWorkspaceOverview" | "createFileFromDocument" | "duplicateFile" | "deleteFile" | "renameWorkspace" | "deleteWorkspace" | "createFolder" | "updateFolder" | "deleteFolder" | "moveFileToFolder" | "moveFileToWorkspace"]: (...args: Parameters<LocalSigmaDocStore[K]>) => Promise<Awaited<ReturnType<LocalSigmaDocStore[K]>> | undefined>;
+};
+
 export class LocalSigmaDocStore {
+  private libraryAuthority?: Partial<LibraryAuthority>;
+  private readonly rawLibraryContext = new AsyncLocalStorage<boolean>();
+  setLibraryAuthority(authority: Partial<LibraryAuthority>): void { this.libraryAuthority = authority; }
+  /** Main-only adapter projection/initialization. Never exposed through IPC. */
+  withLocalLibrary<T>(run: () => Promise<T>): Promise<T> { return this.rawLibraryContext.run(true, run); }
+
+  private documentAuthority?: {
+    read(fileId: string): Promise<SigmaDocument | undefined>;
+    save(fileId: string, document: SigmaDocument): Promise<LocalStorageResult | undefined>;
+  };
+  setDocumentAuthority(authority: NonNullable<LocalSigmaDocStore["documentAuthority"]>): void { this.documentAuthority = authority; }
   private readonly dataDir: string;
   private readonly documentsDir: string;
   private readonly docBlockHashesDir: string;
@@ -560,6 +590,10 @@ export class LocalSigmaDocStore {
   }
 
   async initializeWorkspace(payload: InitializeWorkspacePayload = {}): Promise<LocalWorkspaceState> {
+    if (!this.rawLibraryContext.getStore()) {
+      const managed = await this.libraryAuthority?.initializeWorkspace?.(payload);
+      if (managed !== undefined) return managed;
+    }
     return this.withLedger(
       "initializeWorkspace",
       async (tx) => this.readWorkspace(tx.library),
@@ -568,6 +602,10 @@ export class LocalSigmaDocStore {
   }
 
   async listFiles(): Promise<LocalDocumentMetadata[]> {
+    if (!this.rawLibraryContext.getStore()) {
+      const managed = await this.libraryAuthority?.listFiles?.();
+      if (managed !== undefined) return managed;
+    }
     return this.withLedgerRead(async (library) => {
       return this.getVisibleFiles(library).map(mapFileMetadata).sort(compareFileUpdatedAt);
     });
@@ -579,6 +617,8 @@ export class LocalSigmaDocStore {
   }
 
   async loadDocumentWithRecovery(fileId: string): Promise<LocalDocumentLoadResult> {
+    const managed = this.rawLibraryContext.getStore() ? undefined : await this.documentAuthority?.read(fileId);
+    if (managed) return { ok: true, document: managed, revision: 1, recoveryIssues: [] };
     return this.withLedgerRead(async (library) => {
       const file = this.findVisibleFile(library, fileId);
       if (!file) {
@@ -715,9 +755,13 @@ export class LocalSigmaDocStore {
     document: SigmaDocument,
     options: SaveDocumentOptions,
   ): Promise<LocalStorageResult> {
+    const managed = this.rawLibraryContext.getStore() ? undefined : await this.documentAuthority?.save(fileId, document);
+    if (managed) return managed;
     // ロック順序の不変条件: fileId ロックを必ず先に取り、その内側で台帳トランザクション
     // (withLedger) を開始する。逆順にすると他の呼び出しとデッドロックし得る。
     return this.runExclusive(fileId, async () => {
+      const currentAuthority = this.rawLibraryContext.getStore() ? undefined : await this.documentAuthority?.save(fileId, document);
+      if (currentAuthority) return currentAuthority;
       return this.withLedger("saveDocument", async (tx) => {
         try {
           const library = tx.library;
@@ -914,6 +958,10 @@ export class LocalSigmaDocStore {
   }
 
   async createFileFromDocument(payload: CreateFileFromDocumentPayload): Promise<LocalWorkspaceFileCreateResult> {
+    if (!this.rawLibraryContext.getStore()) {
+      const managed = await this.libraryAuthority?.createFileFromDocument?.(payload);
+      if (managed !== undefined) return managed;
+    }
     return this.withLedger("createFileFromDocument", async (tx) => {
       const library = tx.library;
       // workspaceId 省略時は、既存の優先ワークスペースをローカル保存先に使う。
@@ -963,6 +1011,10 @@ export class LocalSigmaDocStore {
   }
 
   async duplicateFile(fileId: string): Promise<LocalWorkspaceFileCreateResult> {
+    if (!this.rawLibraryContext.getStore()) {
+      const managed = await this.libraryAuthority?.duplicateFile?.(fileId);
+      if (managed !== undefined) return managed;
+    }
     const sourceFile = await this.withLedgerRead(async (library) =>
       this.findVisibleFile(library, fileId));
     if (!sourceFile) {
@@ -991,6 +1043,10 @@ export class LocalSigmaDocStore {
   }
 
   async deleteFile(fileId: string, options?: { expectedRevision: number }): Promise<LocalStorageResult> {
+    if (!this.rawLibraryContext.getStore()) {
+      const managed = await this.libraryAuthority?.deleteFile?.(fileId, options);
+      if (managed !== undefined) return managed;
+    }
     try {
       return await this.withLedger("deleteFile", async (tx) => {
         const library = tx.library;
@@ -1021,9 +1077,13 @@ export class LocalSigmaDocStore {
             ? workspace.activeFileId
             : openFileIds[0] ?? visibleFiles[0]?.fileId;
           if (activeFileId && (workspace.openFileIds.includes(fileId) || workspace.activeFileId === fileId)) {
+            const nextOpenFileIds = openFileIds.length > 0 ? openFileIds : [activeFileId];
             await this.saveWorkspaceWithLibrary({
-              openFileIds: openFileIds.length > 0 ? openFileIds : [activeFileId],
+              openFileIds: nextOpenFileIds,
               activeFileId,
+              ...(workspace.layout ? {
+                layout: normalizeWorkspaceLayout(workspace.layout, nextOpenFileIds, activeFileId, availableFileIds),
+              } : {}),
             });
           }
         }
@@ -1062,6 +1122,10 @@ export class LocalSigmaDocStore {
   }
 
   async saveWorkspace(state: LocalWorkspaceState): Promise<LocalStorageResult> {
+    if (!this.rawLibraryContext.getStore()) {
+      const managed = await this.libraryAuthority?.saveWorkspace?.(state);
+      if (managed !== undefined) return managed;
+    }
     try {
       await this.withLedger("saveWorkspace", async () => {
         await this.saveWorkspaceWithLibrary(state);
@@ -1075,9 +1139,21 @@ export class LocalSigmaDocStore {
     }
   }
 
+  /** Metadata-only adapter input. Never changes selected workspace or reads document bodies. */
+  async getLocalLibrarySnapshot(): Promise<LocalWorkspaceOverview> {
+    return this.withLedgerRead(async library => {
+      const overview = this.createWorkspaceOverview(library, library.activeWorkspaceId);
+      return { ...overview, folders: this.getVisibleWorkspaces(library).flatMap(w => this.createWorkspaceOverview(library, w.id).folders), files: this.getVisibleFiles(library).map(mapFileMetadata) };
+    });
+  }
+
   async getWorkspaceOverview(
     workspaceId?: string | null,
   ): Promise<LocalWorkspaceOverviewResult> {
+    if (!this.rawLibraryContext.getStore()) {
+      const managed = await this.libraryAuthority?.getWorkspaceOverview?.(workspaceId);
+      if (managed !== undefined) return managed;
+    }
     try {
       // 定常状態 (MCPが高頻度で呼ぶ) ではロックを一切取らない: activeWorkspaceId が
       // 既に解決先と一致していれば書き込みは要らないので、そのまま読み取り専用で返す。
@@ -1126,6 +1202,10 @@ export class LocalSigmaDocStore {
   }
 
   async renameWorkspace(workspaceId: string, name: string): Promise<LocalWorkspaceOverviewResult> {
+    if (!this.rawLibraryContext.getStore()) {
+      const managed = await this.libraryAuthority?.renameWorkspace?.(workspaceId, name);
+      if (managed !== undefined) return managed;
+    }
     try {
       return await this.withLedger("renameWorkspace", async (tx) => {
         const library = tx.library;
@@ -1149,6 +1229,10 @@ export class LocalSigmaDocStore {
   }
 
   async deleteWorkspace(workspaceId: string): Promise<LocalWorkspaceOverviewResult> {
+    if (!this.rawLibraryContext.getStore()) {
+      const managed = await this.libraryAuthority?.deleteWorkspace?.(workspaceId);
+      if (managed !== undefined) return managed;
+    }
     try {
       return await this.withLedger("deleteWorkspace", async (tx) => {
         const library = tx.library;
@@ -1186,9 +1270,13 @@ export class LocalSigmaDocStore {
             ? workspaceState.activeFileId
             : openFileIds[0] ?? visibleFiles.find((item) => item.workspaceId === nextActiveWorkspace?.id)?.fileId ?? visibleFiles[0]?.fileId;
           if (activeFileId) {
+            const nextOpenFileIds = openFileIds.length > 0 ? openFileIds : [activeFileId];
             await this.saveWorkspaceWithLibrary({
-              openFileIds: openFileIds.length > 0 ? openFileIds : [activeFileId],
+              openFileIds: nextOpenFileIds,
               activeFileId,
+              ...(workspaceState.layout ? {
+                layout: normalizeWorkspaceLayout(workspaceState.layout, nextOpenFileIds, activeFileId, availableFileIds),
+              } : {}),
             });
           }
         }
@@ -1208,6 +1296,10 @@ export class LocalSigmaDocStore {
     name: string,
     parentFolderId?: string | null,
   ): Promise<LocalWorkspaceOverviewResult> {
+    if (!this.rawLibraryContext.getStore()) {
+      const managed = await this.libraryAuthority?.createFolder?.(workspaceId, name, parentFolderId);
+      if (managed !== undefined) return managed;
+    }
     try {
       return await this.withLedger("createFolder", async (tx) => {
         const library = tx.library;
@@ -1238,6 +1330,10 @@ export class LocalSigmaDocStore {
     folderId: string,
     patch: UpdateFolderPayload,
   ): Promise<LocalWorkspaceOverviewResult> {
+    if (!this.rawLibraryContext.getStore()) {
+      const managed = await this.libraryAuthority?.updateFolder?.(workspaceId, folderId, patch);
+      if (managed !== undefined) return managed;
+    }
     try {
       return await this.withLedger("updateFolder", async (tx) => {
         const library = tx.library;
@@ -1272,6 +1368,10 @@ export class LocalSigmaDocStore {
   }
 
   async deleteFolder(workspaceId: string, folderId: string): Promise<LocalWorkspaceOverviewResult> {
+    if (!this.rawLibraryContext.getStore()) {
+      const managed = await this.libraryAuthority?.deleteFolder?.(workspaceId, folderId);
+      if (managed !== undefined) return managed;
+    }
     try {
       return await this.withLedger("deleteFolder", async (tx) => {
         const library = tx.library;
@@ -1304,6 +1404,10 @@ export class LocalSigmaDocStore {
     fileId: string,
     folderId?: string | null,
   ): Promise<LocalWorkspaceOverviewResult> {
+    if (!this.rawLibraryContext.getStore()) {
+      const managed = await this.libraryAuthority?.moveFileToFolder?.(workspaceId, fileId, folderId);
+      if (managed !== undefined) return managed;
+    }
     try {
       return await this.withLedger("moveFileToFolder", async (tx) => {
         const library = tx.library;
@@ -1333,6 +1437,10 @@ export class LocalSigmaDocStore {
     targetWorkspaceId: string,
     folderId?: string | null,
   ): Promise<LocalWorkspaceOverviewResult> {
+    if (!this.rawLibraryContext.getStore()) {
+      const managed = await this.libraryAuthority?.moveFileToWorkspace?.(fileId, targetWorkspaceId, folderId);
+      if (managed !== undefined) return managed;
+    }
     try {
       return await this.withLedger("moveFileToWorkspace", async (tx) => {
         const library = tx.library;
@@ -2047,6 +2155,9 @@ export class LocalSigmaDocStore {
             ? value.openFileIds.filter((id): id is string => typeof id === "string")
             : undefined,
           activeFileId: typeof value.activeFileId === "string" ? value.activeFileId : undefined,
+          layout: isPlainObject(value.layout) && value.layout.version === 2
+            ? value.layout as unknown as WorkspaceLayoutV2
+            : undefined,
         };
       }
     } catch {
@@ -2063,7 +2174,14 @@ export class LocalSigmaDocStore {
       ...(parsed?.openFileIds ?? []).filter((id) => visibleFileIds.has(id)),
       activeFileId,
     ]);
-    const state = { openFileIds, activeFileId };
+    const layout = parsed?.layout
+      ? normalizeWorkspaceLayout(parsed.layout, openFileIds, activeFileId, visibleFileIds)
+      : undefined;
+    const state = {
+      openFileIds: layout ? workspaceLayoutOpenFileIds(layout) : openFileIds,
+      activeFileId: layout?.lastDocumentFileId ?? activeFileId,
+      ...(layout ? { layout } : {}),
+    };
     await this.saveWorkspaceWithLibrary(state);
     return state;
   }
@@ -2093,6 +2211,12 @@ export class LocalSigmaDocStore {
         library.activeWorkspaceId = activeFile.workspaceId;
         await this.writeLibrary(library);
       }
+      const layout = normalizeWorkspaceLayout(
+        state.layout ?? createSingleGroupWorkspaceLayout(state.openFileIds, activeFileId),
+        state.openFileIds,
+        activeFileId,
+        visibleFileIds,
+      );
       const record = {
         id: WORKSPACE_RECORD_ID,
         openFileIds: uniqueIds([
@@ -2100,6 +2224,7 @@ export class LocalSigmaDocStore {
           activeFileId,
         ]),
         activeFileId,
+        layout,
       };
       const data = JSON.stringify(record, null, 2);
       await fs.writeFile(this.workspacePath, data, "utf8");

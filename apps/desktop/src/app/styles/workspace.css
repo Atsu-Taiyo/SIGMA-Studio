@@ -1742,6 +1742,263 @@ nav.app-menu-list[inert] *,
   transition: grid-template-columns 160ms ease;
 }
 
+.workspace-tab-group-grid {
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--surface-muted);
+}
+
+.workspace-tab-split {
+  display: grid;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+}
+
+.workspace-tab-split--row {
+  grid-template-columns: minmax(240px, 1fr) 8px minmax(240px, 1fr);
+}
+
+.workspace-tab-split--column {
+  grid-template-rows: minmax(180px, 1fr) 8px minmax(180px, 1fr);
+}
+
+.workspace-tab-splitter {
+  z-index: 4;
+  display: grid;
+  place-items: center;
+  min-width: 0;
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  background: var(--surface-muted);
+  cursor: col-resize;
+}
+
+.workspace-tab-split--column > .workspace-tab-splitter {
+  cursor: row-resize;
+}
+
+/* 掴める幅だけ確保し、線は細いまま。ホバーとドラッグ中だけ濃くする。 */
+.workspace-tab-splitter-grip {
+  display: block;
+  width: 1px;
+  height: 100%;
+  background: var(--border);
+  transition: background-color 120ms ease, width 120ms ease;
+}
+
+.workspace-tab-split--column > .workspace-tab-splitter .workspace-tab-splitter-grip {
+  width: 100%;
+  height: 1px;
+}
+
+.workspace-tab-splitter:hover .workspace-tab-splitter-grip,
+.workspace-tab-splitter:focus-visible .workspace-tab-splitter-grip,
+.workspace-tab-split[data-resizing="true"] > .workspace-tab-splitter .workspace-tab-splitter-grip {
+  width: 3px;
+  background: var(--border-strong);
+}
+
+.workspace-tab-split--column > .workspace-tab-splitter:hover .workspace-tab-splitter-grip,
+.workspace-tab-split--column > .workspace-tab-splitter:focus-visible .workspace-tab-splitter-grip,
+.workspace-tab-split--column[data-resizing="true"] > .workspace-tab-splitter .workspace-tab-splitter-grip {
+  width: 100%;
+  height: 3px;
+}
+
+.workspace-tab-splitter:focus-visible {
+  outline: none;
+}
+
+.workspace-tab-group {
+  position: relative;
+  display: grid;
+  grid-template-rows: minmax(0, 1fr);
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--background);
+}
+
+/* 分割中はどのペインを編集しているかが一目で分かるようにする (編集中だけ枠が立つ)。 */
+.workspace-tab-group-grid[data-group-count="1"] .workspace-tab-group {
+  box-shadow: none;
+}
+
+.workspace-tab-group[data-focused="true"] {
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--primary) 32%, var(--border));
+}
+
+.workspace-tab-group-grid[data-group-count="1"] .workspace-tab-group[data-focused="true"] {
+  box-shadow: none;
+}
+
+/* タブ列側の番号と対にする、ペインの通し番号。 */
+.workspace-pane-badge {
+  position: absolute;
+  z-index: 3;
+  top: 6px;
+  left: 6px;
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 999px;
+  background: var(--surface-strong);
+  color: var(--text-muted);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  pointer-events: none;
+}
+
+.workspace-tab-group[data-focused="true"] .workspace-pane-badge {
+  background: var(--primary);
+  color: #ffffff;
+}
+
+.workspace-pane-edit-hint {
+  position: absolute;
+  z-index: 3;
+  right: 12px;
+  bottom: 12px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--text-primary) 72%, transparent);
+  color: var(--background);
+  font-size: 11px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 140ms ease;
+}
+
+.workspace-tab-group:hover .workspace-pane-edit-hint {
+  opacity: 1;
+}
+
+.workspace-tab-group-content,
+.workspace-tab-group-content > .editor-canvas {
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+}
+
+/* --- 編集していないペインの紙面 --- */
+
+.workspace-document-preview {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+  overflow: hidden;
+  background: var(--surface-muted);
+}
+
+.workspace-preview-viewport {
+  width: 100%;
+  height: 100%;
+  overflow: auto;
+  padding: 24px;
+  scrollbar-width: thin;
+}
+
+.workspace-preview-sizer {
+  margin: 0 auto;
+}
+
+/* 拡大縮小は transform だけで行う (紙面の組版は倍率に影響されない)。 */
+.workspace-preview-scaler {
+  transform-origin: top left;
+  will-change: transform;
+}
+
+.workspace-preview-zoom {
+  position: absolute;
+  right: 12px;
+  bottom: 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--background) 92%, transparent);
+  box-shadow: 0 2px 8px rgb(17 17 17 / 8%);
+  opacity: 0.35;
+  backdrop-filter: blur(6px);
+  transition: opacity 140ms ease;
+}
+
+.workspace-tab-group:hover .workspace-preview-zoom,
+.workspace-preview-zoom:focus-within {
+  opacity: 1;
+}
+
+.workspace-preview-zoom button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  min-width: 24px;
+  height: 24px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+}
+
+.workspace-preview-zoom button:hover,
+.workspace-preview-zoom button:focus-visible {
+  background: var(--surface-muted);
+  color: var(--text-primary);
+  outline: none;
+}
+
+.workspace-ai-tab-panel {
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--background);
+}
+
+.workspace-ai-tab-panel .ai-edit-panel {
+  height: 100%;
+}
+
+.workspace-tab-loading-preview {
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(90deg, var(--surface) 25%, var(--surface-muted) 50%, var(--surface) 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.2s infinite;
+}
+
+/* --- ドラッグ中の落とし先 ---
+   目印をいくつも出さず、落ちる場所そのものを 1 枚の面で見せる。 */
+
+.workspace-tab-drop-preview {
+  position: absolute;
+  z-index: 20;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--text-primary) 10%, transparent);
+  box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--text-primary) 28%, transparent);
+  pointer-events: none;
+  transition: inset 120ms ease;
+}
+
+.workspace-tab-drop-preview[data-intent="move"] { inset: 6px; }
+.workspace-tab-drop-preview[data-edge="left"] { inset: 6px 50% 6px 6px; }
+.workspace-tab-drop-preview[data-edge="right"] { inset: 6px 6px 6px 50%; }
+.workspace-tab-drop-preview[data-edge="top"] { inset: 6px 6px 50% 6px; }
+.workspace-tab-drop-preview[data-edge="bottom"] { inset: 50% 6px 6px 6px; }
+
 .workspace.ai-sidebar-open {
   grid-template-columns: var(--outline-width) minmax(0, 1fr) minmax(320px, var(--ai-sidebar-width));
 }
@@ -2698,4 +2955,29 @@ nav.app-menu-list[inert] *,
   background: var(--surface-muted);
   color: var(--text-primary);
   outline: none;
+}
+/* Menu controls are siblings of sidebar navigation buttons. */
+.workspace-nav-row,
+.workspace-tree-file-row {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+.workspace-nav-row > .workspace-nav-item,
+.workspace-tree-file-row > .workspace-tree-file {
+  flex: 1;
+  min-width: 0;
+}
+.workspace-item-menu-button {
+  flex: 0 0 auto;
+}
+.workspace-sidebar .workspace-item-menu-button {
+  opacity: 0;
+}
+.workspace-nav-row:hover > .workspace-item-menu-button,
+.workspace-tree-row:hover > .workspace-item-menu-button,
+.workspace-tree-file-row:hover > .workspace-item-menu-button,
+.workspace-sidebar .workspace-item-menu-button:focus-visible,
+.workspace-sidebar .workspace-item-menu-button[aria-expanded="true"] {
+  opacity: 1;
 }

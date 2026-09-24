@@ -39,6 +39,7 @@ const PDF_EXPORT_STYLE_ID = "sigma-pdf-export-style";
 export async function renderPdfOutputSession(
   webContents: WebContents,
   expectation: PdfOutputSessionExpectation,
+  resolveImage?: (source: string) => Promise<string>,
 ): Promise<Buffer> {
   const pagePdfs: Buffer[] = [];
   let hiddenWindow: BrowserWindow | null = null;
@@ -51,7 +52,7 @@ export async function renderPdfOutputSession(
       const captured = await capturePdfPage(webContents, expectation, pageIndex);
       assertPreparedPageState(captured, expectation, pageIndex);
 
-      await writeHiddenPdfPage(hiddenWindow, captured.documentHtml);
+      await writeHiddenPdfPage(hiddenWindow, await inlineSessionImages(captured.documentHtml, resolveImage));
       const pdf = await hiddenWindow.webContents.printToPDF({
         displayHeaderFooter: false,
         margins: { marginType: "none" },
@@ -81,6 +82,20 @@ export async function renderPdfOutputSession(
   } finally {
     closeHiddenPdfWindow(hiddenWindow);
   }
+}
+
+/** The settled PageCanvas DOM remains the output source. Only private image references are materialized. */
+export async function inlineSessionImages(html: string, resolve?: (source: string) => Promise<string>): Promise<string> {
+  const pattern = /\b(?:src|href|xlink:href)="(sigma-doc-storage:\/\/[A-Za-z0-9_-]+\/?)"/g;
+  const sources = new Set([...html.matchAll(pattern)].map(match => match[1]));
+  const values = new Map<string, string>();
+  for (const source of sources) {
+    if (!resolve) throw new Error("PDF_IMAGE_UNAVAILABLE");
+    const value = await resolve(source);
+    if (!/^data:image\/(?:png|jpeg|webp|gif|svg\+xml);base64,[A-Za-z0-9+/=]+$/.test(value)) throw new Error("PDF_IMAGE_UNAVAILABLE");
+    values.set(source, value);
+  }
+  return html.replace(pattern, (attribute, source: string) => attribute.replace(source, values.get(source)!));
 }
 
 function createHiddenPdfWindow(
@@ -154,6 +169,9 @@ async function writeHiddenPdfPage(window: BrowserWindow, documentHtml: string): 
       }));
       const fontsReady = document.fonts?.ready ?? Promise.resolve();
       return imagesReady
+        .then(() => {
+          if (images.some((image) => image.getAttribute("src") && image.naturalWidth === 0)) throw new Error("PDF_IMAGE_UNAVAILABLE");
+        })
         .then(() => fontsReady)
         .then(() => new Promise((resolve) => {
           requestAnimationFrame(() => requestAnimationFrame(() => resolve(true)));

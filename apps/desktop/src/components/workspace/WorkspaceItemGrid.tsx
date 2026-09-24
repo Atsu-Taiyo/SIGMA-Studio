@@ -1,8 +1,9 @@
 "use client";
 
-import { Folder, Loader2, MoreHorizontal } from "lucide-react";
+import { Folder } from "lucide-react";
 import type { CSSProperties, DragEvent as ReactDragEvent, KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent } from "react";
 
+import { WorkspaceItemMenuButton } from "./WorkspaceItemMenuButton";
 import { DocumentTitleText } from "@/features/rendering/adapters/react";
 import type { WorkspaceFileSummary, WorkspaceFolderSummary } from "@/lib/workspace-repository";
 import type { WorkspaceSortDirection, WorkspaceSortKey } from "@/lib/workspace-view-preferences";
@@ -23,6 +24,7 @@ type DragDropProps = {
 };
 
 interface WorkspaceItemGridProps {
+  menuKey?: string | null;
   folders: WorkspaceFolderSummary[];
   files: WorkspaceFileSummary[];
   sortKey: WorkspaceSortKey;
@@ -43,6 +45,8 @@ interface WorkspaceItemGridProps {
   saving: boolean;
   fileActionMenuFileId: string | null;
   onOpenFileActionMenu: (event: ReactMouseEvent, file: WorkspaceFileSummary) => void;
+  canCreate?: boolean;
+  canMove?: (kind: "folder" | "file", id: string) => boolean;
   onCreateDocument: () => void;
   onClearSearch: () => void;
   isRenameEditing: (key: string) => boolean;
@@ -51,6 +55,7 @@ interface WorkspaceItemGridProps {
 }
 
 export function WorkspaceItemGrid({
+  menuKey,
   folders,
   files,
   sortKey,
@@ -71,6 +76,8 @@ export function WorkspaceItemGrid({
   saving,
   fileActionMenuFileId,
   onOpenFileActionMenu,
+  canCreate = true,
+  canMove,
   onCreateDocument,
   onClearSearch,
   isRenameEditing,
@@ -107,7 +114,7 @@ export function WorkspaceItemGrid({
                   key={folder.id}
                   data-item-key={key}
                   aria-label={editing ? undefined : t("action.openItem", { replace: { name: folder.name } })}
-                  draggable={!editing}
+                  draggable={!editing && (canMove?.("folder", folder.id) ?? true)}
                   {...dragProps({ type: "folder", folderId: folder.id })}
                   {...dropProps(target)}
                   onClick={editing ? undefined : (event) => {
@@ -139,6 +146,7 @@ export function WorkspaceItemGrid({
                     <span className="workspace-folder-card-name">{folder.name}</span>
                   )}
                   <small>{folder.fileCount}</small>
+                  {!editing && <WorkspaceItemMenuButton expanded={menuKey === `folder:${folder.id}`} name={folder.name} onClick={(event) => onFolderContextMenu(event, folder.id)} />}
                 </div>
               );
             })}
@@ -151,7 +159,7 @@ export function WorkspaceItemGrid({
         {sortedFiles.length === 0 ? (
           <WorkspaceEmptyState
             variant={emptyVariant}
-            canCreate
+            canCreate={canCreate}
             onCreateDocument={onCreateDocument}
             onClearSearch={onClearSearch}
           />
@@ -172,7 +180,7 @@ export function WorkspaceItemGrid({
                   key={file.fileId}
                   data-item-key={key}
                   aria-label={editing ? undefined : t("action.openItem", { replace: { name: displayName } })}
-                  draggable={!editing}
+                  draggable={!editing && (canMove?.("file", file.fileId) ?? true)}
                   {...dragProps({ type: "file", fileId: file.fileId })}
                   onClick={editing ? undefined : (event) => {
                     if (isInteractiveTargetWithin(event.target, event.currentTarget)) {
@@ -193,6 +201,7 @@ export function WorkspaceItemGrid({
                       fileId={file.fileId}
                       revision={file.revision}
                       updatedAt={file.updatedAt}
+                      allowDocumentLoad={!file.sharing}
                     />
                   </div>
                   <div className="workspace-file-card-body">
@@ -212,20 +221,12 @@ export function WorkspaceItemGrid({
                   </div>
                   {!editing && (
                   <div className="workspace-file-card-actions">
-                    <button
-                      type="button"
-                      className="icon-button"
-                      title={t("action.materialMenu")}
-                      aria-label={t("action.itemMenu", { replace: { name: displayName } })}
-                      aria-haspopup="menu"
-                      aria-expanded={fileActionMenuFileId === file.fileId}
-                      disabled={busy || saving}
-                      onClick={(event) => onOpenFileActionMenu(event, file)}
-                    >
-                      {busy && saving
-                        ? <Loader2 className="workspace-spin" size={15} />
-                        : <MoreHorizontal size={15} />}
-                    </button>
+<WorkspaceItemMenuButton
+                            name={resolveFileDisplayName(file, t)}
+                            expanded={fileActionMenuFileId === file.fileId}
+                            disabled={busy || saving}
+                            onClick={(event) => onOpenFileActionMenu(event, file)}
+                          />
                   </div>
                   )}
                 </div>

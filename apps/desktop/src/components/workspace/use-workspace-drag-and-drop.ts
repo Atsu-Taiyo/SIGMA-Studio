@@ -20,6 +20,8 @@ export interface UseWorkspaceDragAndDropOptions {
   files: WorkspaceFileSummary[];
   workspaces: WorkspaceSummary[];
   hasActiveWorkspace: boolean;
+  canMoveItem?: (item: WorkspaceDragItem) => boolean;
+  canReceive?: (target: WorkspaceDropTarget) => boolean;
   // The current multi-selection (see use-workspace-selection.ts), keyed by
   // the shared "file:<id>" / "folder:<id>" vocabulary. When the dragged item
   // is part of a >1-sized selection, the whole selection moves together via
@@ -66,6 +68,7 @@ export function useWorkspaceDragAndDrop(options: UseWorkspaceDragAndDropOptions)
   };
 
   const startDragItem = (event: ReactDragEvent, item: WorkspaceDragItem) => {
+    if (options.canMoveItem && !options.canMoveItem(item)) { event.preventDefault(); return; }
     setDragItem(item);
     event.dataTransfer.effectAllowed = "move";
     event.dataTransfer.setData(WORKSPACE_DRAG_DATA_TYPE, JSON.stringify(item));
@@ -78,6 +81,7 @@ export function useWorkspaceDragAndDrop(options: UseWorkspaceDragAndDropOptions)
   };
 
   const evaluateDrop = (item: WorkspaceDragItem | null, target: WorkspaceDropTarget): boolean => {
+    if (!item || (options.canMoveItem && !options.canMoveItem(item)) || (options.canReceive && !options.canReceive(target))) return false;
     return canDropItem({
       item,
       target,

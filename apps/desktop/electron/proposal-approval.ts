@@ -24,6 +24,7 @@ import {
 } from "./proposals/replay";
 
 export interface ProposalApprovalPorts {
+  sharedProposalApprover?: (proposals: LocalMcpEditProposal[]) => Promise<ApproveProposalResult | undefined>;
   localSigmaDocStore: Pick<LocalSigmaDocStore, "runExclusive" | "listFiles" | "loadDocument" | "saveDocument">;
   localMcpProposalStore: Pick<LocalMcpEditProposalStore, "loadProposal" | "runExclusive" | "recordProposalConflict" | "resolveProposal">;
   broadcastLocalStoreChange: (event: LocalStoreChangeEvent | LocalMcpEditProposalChangeEvent) => void;
@@ -47,6 +48,7 @@ export type ApproveProposalResult =
  * external canvas editors の transaction / after-event の所有分離を参考にした独自実装であり、依存はない。
  */
 export function createProposalApprovalCoordinator({
+  sharedProposalApprover,
   localSigmaDocStore,
   localMcpProposalStore,
   broadcastLocalStoreChange,
@@ -72,6 +74,8 @@ export function createProposalApprovalCoordinator({
     if (proposal.status !== "pending") {
       return { ok: false, error: te("electron.proposal.alreadyProcessed") };
     }
+    const shared = await sharedProposalApprover?.([proposal]);
+    if (shared) return shared;
 
     return localMcpProposalStore.runExclusive(proposal.fileId, async (): Promise<ApproveProposalResult> => {
       // lock待機中にreject/upsertされた場合は、クリック時のdraftを適用せずCAS失敗として返す。
@@ -248,6 +252,8 @@ export function createProposalApprovalCoordinator({
     if (!proposals.every((proposal) => proposal.fileId === fileId)) {
       return { ok: false, error: te("electron.storage.crossDocumentBatch") };
     }
+    const shared = await sharedProposalApprover?.(proposals);
+    if (shared) return shared;
 
     // proposal側を先にclaim(CAS)し、その保持中にdocument側のread-modify-write lockを取る。
     // reject/upsert/auto-approvalも同じproposal lockを通るため、クリック時に読んだdraftを待機後に

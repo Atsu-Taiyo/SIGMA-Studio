@@ -103,6 +103,7 @@ async function reserveDownloadPath(base: string, extension: string): Promise<str
 
 export interface RegisterFileIpcDeps {
   getMainWindow: () => BrowserWindow | null;
+  resolveSessionImage?: (source: string) => Promise<string>;
   externalDocumentOpenQueue?: Pick<ExternalDocumentOpenQueue, "readNext" | "acknowledge">;
 }
 
@@ -140,7 +141,7 @@ export function registerFileIpc(deps: RegisterFileIpcDeps): void {
       return null;
     }
     const outputFilePath = ensurePdfFilePath(result.filePath);
-    const pdf = await renderPdfOutputSession(sender, outputSession);
+    const pdf = await renderPdfOutputSession(sender, outputSession, deps.resolveSessionImage);
     await fs.writeFile(outputFilePath, pdf);
     return { filePath: outputFilePath, pageCount: outputSession.pageCount };
   }

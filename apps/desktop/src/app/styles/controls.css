@@ -359,7 +359,7 @@ button:disabled {
 
 .menubar-row {
   display: grid;
-  grid-template-columns: 42px auto minmax(180px, 1fr) minmax(120px, 220px) auto auto max-content;
+  grid-template-columns: 42px max-content minmax(0, 1fr) minmax(0, 220px) auto auto max-content;
   grid-template-rows: 32px 32px;
   align-items: center;
   align-content: end;
@@ -389,14 +389,15 @@ button:disabled {
 
 .document-tabs-row {
   display: grid;
-  grid-column: 3 / 6;
+  grid-column: 3 / -1;
   grid-row: 2;
   grid-template-columns: minmax(0, 1fr);
   align-self: end;
   align-items: center;
   gap: var(--space-xs);
   margin-left: 0;
-  min-width: 180px;
+  min-width: 0;
+  margin-right: 72px;
   height: 32px;
   padding: 3px 0 0;
   background: transparent;
@@ -407,7 +408,7 @@ button:disabled {
   align-items: end;
   gap: var(--space-xs);
   min-width: 0;
-  overflow-x: hidden;
+  overflow-x: auto;
   overflow-y: hidden;
   scrollbar-width: none;
 }
@@ -417,12 +418,14 @@ button:disabled {
 }
 
 .document-tab {
+  container-type: inline-size;
+  container-type: inline-size;
   display: inline-grid;
   grid-template-columns: minmax(0, 1fr) 24px;
   align-items: center;
   flex: 1 1 220px;
   width: auto;
-  min-width: 0;
+  min-width: 48px;
   max-width: 220px;
   height: 28px;
   border: 1px solid var(--border-subtle);
@@ -556,12 +559,18 @@ button:disabled {
   padding-top: 8px;
 }
 
-.menubar-right-actions .workspace-open-button {
+.menubar-right-actions .workspace-account-actions {
   grid-column: 7;
   grid-row: 1;
   align-self: center;
   justify-self: end;
   margin: 0;
+}
+
+.workspace-account-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-sm);
 }
 
 .menubar-right-actions .document-tab-actions {
@@ -588,10 +597,12 @@ button:disabled {
 }
 
 .app-menu-anchor {
+  flex: 0 0 auto;
   position: relative;
 }
 
 .app-menu-button {
+  white-space: nowrap;
   height: 30px;
   padding: 0 2px;
   border: 1px solid transparent;
@@ -3762,3 +3773,163 @@ button:disabled {
 .column-rule-preview-line { position: absolute; top: 0; bottom: 0; left: -12px; transform: translateX(-50%); }
 
 .column-rule-heading { margin: 16px 0 8px; font-size: 13px; font-weight: 600; }
+
+/* タブが狭くても、先頭文字をアイコンや省略記号で隠さない。 */
+.document-tab-initial,
+.workspace-tab-initial {
+  display: none;
+}
+
+@container (max-width: 95px) {
+  .document-tab-main,
+  .workspace-group-tab > button:first-child[role="tab"] {
+    gap: 0;
+    padding-inline: 4px;
+  }
+
+  .document-tab-main > svg,
+  .document-tab-main > .document-tab-save-dot,
+  .document-tab-main > .document-tab-title,
+  .workspace-group-tab > button:first-child > svg,
+  .workspace-group-tab > button:first-child > .workspace-tab-title {
+    display: none;
+  }
+
+  .document-tab-main > .document-tab-initial,
+  .workspace-group-tab > button:first-child > .workspace-tab-initial {
+    display: inline;
+    flex: 0 0 auto;
+    text-overflow: clip;
+  }
+}
+
+/* タブが狭くても、先頭文字をアイコンや省略記号で隠さない。 */
+.document-tab-initial {
+  display: none;
+}
+
+@container (max-width: 95px) {
+  .document-tab-main {
+    gap: 0;
+    padding-inline: 4px;
+  }
+
+  .document-tab-main > svg,
+  .document-tab-main > .document-tab-save-dot,
+  .document-tab-main > .document-tab-title {
+    display: none;
+  }
+
+  .document-tab-main > .document-tab-initial {
+    display: inline;
+    flex: 0 0 auto;
+    text-overflow: clip;
+  }
+}
+
+/* --- 分割ペインの教材タブ列 -------------------------------------------------
+   置き場所は従来のタブ列と同じメニューバーの段。分割しているときだけ、Chrome の
+   タブグループのように「ペインごとの囲み」が付き、囲みの番号がペイン左上の番号と
+   対応する。 */
+
+.workspace-tabs-row .document-tabs-scroll {
+  gap: 0;
+}
+
+.workspace-tab-cluster {
+  display: flex;
+  align-items: end;
+  gap: var(--space-xs);
+  min-width: 0;
+  border-radius: 10px 10px 0 0;
+}
+
+.workspace-tabs-row[data-grouped="true"] .document-tabs-scroll {
+  gap: 12px;
+}
+
+.workspace-tabs-row[data-grouped="true"] .workspace-tab-cluster {
+  padding: 3px 6px 0;
+  background: var(--surface-strong);
+}
+
+/* 編集中のペインの囲みだけ、状態色として薄く色を持たせる。 */
+.workspace-tabs-row[data-grouped="true"] .workspace-tab-cluster[data-focused="true"] {
+  background: var(--primary-surface);
+}
+
+/* 囲みの中では、選択中のタブだけが紙色で浮く (Chrome のタブグループと同じ読み方)。 */
+.workspace-tabs-row[data-grouped="true"] .workspace-tab {
+  border-color: transparent;
+  background: transparent;
+}
+
+.workspace-tabs-row[data-grouped="true"] .workspace-tab:hover {
+  background: color-mix(in srgb, var(--background) 55%, transparent);
+}
+
+.workspace-tabs-row[data-grouped="true"] .workspace-tab.active {
+  border-color: var(--border);
+  border-bottom-color: var(--background);
+  background: var(--background);
+}
+
+.workspace-tab-cluster-handle {
+  display: grid;
+  flex: 0 0 auto;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  margin-bottom: 5px;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: var(--surface-strong);
+  color: var(--text-muted);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.workspace-tab-cluster[data-focused="true"] .workspace-tab-cluster-handle {
+  background: var(--primary);
+  color: #ffffff;
+}
+
+.workspace-tab {
+  position: relative;
+  /* 囲みの幅は中身から決まるが、タブは container-type: inline-size を持つので
+     中身から幅を導けない。基準幅を明示し、狭いときだけ min-width まで縮める。 */
+  flex: 0 1 220px;
+  width: 220px;
+}
+
+/* 並べ替え先は、落ちる位置そのものに 1 本の線で出す。 */
+.workspace-tab[data-drop-before="true"]::before {
+  position: absolute;
+  top: 3px;
+  bottom: 0;
+  left: -5px;
+  width: 2px;
+  border-radius: 1px;
+  background: var(--text-primary);
+  content: "";
+}
+
+.workspace-tab-drop-marker {
+  flex: 0 0 auto;
+  align-self: end;
+  width: 2px;
+  height: 22px;
+  border-radius: 1px;
+  background: transparent;
+}
+
+.workspace-tab-drop-marker[data-visible="true"] {
+  background: var(--text-primary);
+}
+
+.workspace-tab-menu {
+  width: 208px;
+}

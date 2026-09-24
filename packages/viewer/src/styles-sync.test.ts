@@ -157,9 +157,12 @@ describe("the shared document surface stays compatible with the viewer build", (
 describe("viewer stylesheet size", () => {
   // Guard against the tempting regression of `@import`-ing all of globals.css (~380KB / 18k lines)
   // instead of the document surface: the embedded viewer bundle would grow ~10x.
-  // 0.403.0: 共有文書面を含む手書き CSS は65,663 bytes。68 KiBを上限にする。
+  // 0.469.2 (2969786): authored CSS is 72,849 bytes. Since 2a6fa62 the shared
+  // surface gained 4,904 bytes for nested box scoping, rounded split frames,
+  // corner fill geometry and choice-marker parity. These are document styles,
+  // not desktop chrome. Keep only 879 bytes of headroom; dist stays at 128 KiB.
   // globals.css (約 380KB) を丸ごと import すると手書き分が一気に 8 倍以上になるので手前で止める。
-  const MAX_AUTHORED_CSS_BYTES = 68 * 1024;
+  const MAX_AUTHORED_CSS_BYTES = 72 * 1024;
   const MAX_DIST_CSS_BYTES = 128 * 1024;
 
   it("keeps the authored CSS (viewer + shared document surface) small", () => {

@@ -38,6 +38,7 @@ function harness(openFileIds = ["a", "b", "c"], activeFileId = "b") {
     cancelPendingAutosave: vi.fn(() => { events.push("cancel-autosave"); }),
     markWorkspaceNotReady: vi.fn(() => { events.push("workspace-not-ready"); }),
     navigateToWorkspace: vi.fn(() => { events.push("navigate"); }),
+    deleteAiDataForDocument: vi.fn(async () => { events.push("delete-ai"); }),
     openDocumentInWorkspace: vi.fn<Ports["openDocumentInWorkspace"]>(async (fileId, options) => {
       events.push("open"); view.active = fileId; view.tabs = options?.nextOpenFileIds ?? view.tabs;
     }),
@@ -57,6 +58,15 @@ function harness(openFileIds = ["a", "b", "c"], activeFileId = "b") {
 }
 
 describe("document tab close", () => {
+  it("closes a shared blank draft without deleting its document or AI data", async () => {
+    const h = harness();
+    h.draft();
+    await closeWorkspaceDocumentTab("b", h.state, { ...h.ports, canCleanupUntouchedDocument: async () => false });
+    expect(h.ports.deleteDocument).not.toHaveBeenCalled();
+    expect(h.ports.deleteAiDataForDocument).not.toHaveBeenCalled();
+    expect(h.view.tabs).toEqual(["a", "c"]);
+  });
+
   it.each([
     { closing: "a", active: "a", next: "b" },
     { closing: "b", active: "b", next: "a" },
@@ -103,7 +113,7 @@ describe("document tab close", () => {
       nextOpenFileIds: ["a", "c"], saveCurrent: false, status: "ja:status.tabClosed",
     });
     expect(h.state.untouchedNewDocumentsRef.current.has("b")).toBe(false);
-    expect(h.events).toEqual(["flush", "save", "load", "delete", "forget", "open", "refresh"]);
+    expect(h.events).toEqual(["flush", "save", "load", "delete-ai", "delete", "forget", "open", "refresh"]);
   });
 
   it("cancels pending writes before leaving the last deleted draft and refreshing the library", async () => {
@@ -111,10 +121,20 @@ describe("document tab close", () => {
     h.draft();
     await h.close();
     expect(h.events).toEqual([
-      "flush", "save", "load", "delete", "forget", "cancel-autosave", "workspace-not-ready", "navigate", "refresh",
+      "flush", "save", "load", "delete-ai", "delete", "forget", "cancel-autosave", "workspace-not-ready", "navigate", "refresh",
     ]);
     expect(h.ports.saveWorkspaceState).not.toHaveBeenCalled();
     expect(h.ports.openDocumentInWorkspace).not.toHaveBeenCalled();
+  });
+
+  it("retains the draft when related AI data cannot be cleaned up", async () => {
+    const h = harness();
+    h.draft();
+    h.ports.deleteAiDataForDocument.mockRejectedValue(new Error("AI cleanup failed"));
+    await h.close();
+    expect(h.ports.deleteDocument).not.toHaveBeenCalled();
+    expect(h.state.untouchedNewDocumentsRef.current.has("b")).toBe(true);
+    expect(h.view.status).toBe("AI cleanup failed");
   });
 
   it("uses the latest tabs and active document after an inactive draft deletion completes", async () => {

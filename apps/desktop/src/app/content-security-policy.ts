@@ -49,7 +49,7 @@ const DIRECTIVES: readonly (readonly [string, string])[] = [
   ["style-src", "'self' 'unsafe-inline'"],
   // 図形画像は data URL、`EditorShell` の貼り付けは `URL.createObjectURL`。
   // 外部 URL を落とすことで、教材を開いただけの開封通知と IP 漏洩を止める。
-  ["img-src", "'self' data: blob:"],
+  ["img-src", "'self' data: blob: sigma-doc-storage: sigma-collaboration-profile:"],
   // 実測: KaTeX / MathLive / M PLUS のフォントは相対パス (`../media/...`) で吐かれる。
   ["font-src", "'self'"],
   // `fetch` / `XHR` / `WebSocket` / `EventSource` / `sendBeacon` を同一オリジンに限る (本番コードの

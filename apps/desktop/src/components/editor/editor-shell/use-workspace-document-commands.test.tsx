@@ -55,7 +55,9 @@ function record(fileId: string): storage.DocumentFileRecord {
 function fixture() {
   const original = record("original");
   const events: string[] = [];
+  const saveWorkspace = vi.spyOn(storage, "saveWorkspaceState").mockImplementation(async () => { events.push("workspace"); return { ok: true }; });
   const options: WorkspaceDocumentCommandOptions = {
+    deleteAiDataForDocument: vi.fn(async () => undefined),
     openFileIds: [original.fileId], activeFileId: original.fileId,
     documentMetadatas: [original.metadata], workspaceReady: true,
     embeddedHostRef: { current: undefined }, documentRef: { current: original.document },
@@ -70,12 +72,12 @@ function fixture() {
     prepareIncomingEditorTabViewState: vi.fn(() => ({ selectedId: "restored", textSelection: null, scrollTop: 9, scrollLeft: 0 })),
     resetEditorDocument: vi.fn(() => { events.push("reset"); }),
     openDocumentInWorkspace: vi.fn(async () => undefined),
+    saveWorkspaceState: (state) => storage.saveWorkspaceState(state),
     refreshDocumentMetadatas: vi.fn(async () => { events.push("refresh"); }),
     setOpenFileIds: vi.fn(), setActiveFileId: vi.fn(), setWorkspaceReady: vi.fn(),
     setActiveMenu: vi.fn(), setDocumentListOpen: vi.fn(), setSaveState: vi.fn(), setStatusMessage: vi.fn(),
     t: createTranslator("ja", "chrome"), tEditor: createTranslator("ja", "editor"),
   };
-  const saveWorkspace = vi.spyOn(storage, "saveWorkspaceState").mockImplementation(async () => { events.push("workspace"); return { ok: true }; });
   return { options, original, events, saveWorkspace };
 }
 
@@ -100,6 +102,34 @@ describe("workspace document commands", () => {
     expect(duplicate).not.toHaveBeenCalled();
     expect(navigate).not.toHaveBeenCalled();
     expect(f.options.resetEditorDocument).not.toHaveBeenCalled();
+  });
+
+  it("keeps new material and whiteboard creation in the current parent when permission is denied", async () => {
+    const f = fixture();
+    f.options.documentMetadatas[0].workspaceId = "shared-items";
+    f.options.documentMetadatas[0].folderId = "catalog-shared-folder";
+    const create = vi.spyOn(storage, "createNewDocument").mockRejectedValue(new Error("FORBIDDEN"));
+    const whiteboard = vi.spyOn(storage, "createDocumentFromSigmaDocument").mockRejectedValue(new Error("FORBIDDEN"));
+    render(f.options);
+    await actions.createDocumentTab();
+    await actions.createWhiteboardDocumentTab();
+    const location = { workspaceId: "shared-items", folderId: "catalog-shared-folder" };
+    expect(create).toHaveBeenCalledExactlyOnceWith(undefined, location);
+    expect(whiteboard).toHaveBeenCalledExactlyOnceWith(expect.any(Object), location);
+    expect(f.options.resetEditorDocument).not.toHaveBeenCalled();
+    expect(f.options.untouchedNewDocumentsRef.current.size).toBe(0);
+    expect(f.saveWorkspace).not.toHaveBeenCalled();
+    expect(f.options.setStatusMessage).toHaveBeenLastCalledWith(f.options.tEditor("status.creationNotAllowed"));
+  });
+
+  it("does not fall back to a local create when the current parent metadata is unavailable", async () => {
+    const f = fixture(); f.options.documentMetadatas = [];
+    const create = vi.spyOn(storage, "createNewDocument");
+    const whiteboard = vi.spyOn(storage, "createDocumentFromSigmaDocument");
+    render(f.options);
+    await actions.createDocumentTab(); await actions.createWhiteboardDocumentTab();
+    expect(create).not.toHaveBeenCalled(); expect(whiteboard).not.toHaveBeenCalled();
+    expect(f.options.setStatusMessage).toHaveBeenLastCalledWith("TARGET_UNAVAILABLE");
   });
 
   it("observes a host attached after render before running host-owned document commands", async () => {
@@ -174,6 +204,7 @@ describe("workspace document commands", () => {
   it("passes observed revisions and live tab refs to untouched-draft deletion", async () => {
     const f = fixture();
     const draft = f.original;
+    vi.spyOn(storage, "listSavedDocuments").mockResolvedValue([draft.metadata]);
     f.options.untouchedNewDocumentsRef.current.set(draft.fileId, draft.document);
     vi.spyOn(storage, "loadDocumentByFileIdWithRecovery").mockResolvedValue({ ok: true, document: draft.document, revision: 13, recoveryIssues: [] });
     const remove = vi.spyOn(storage, "deleteDocument").mockImplementation(async () => {
@@ -183,6 +214,7 @@ describe("workspace document commands", () => {
     render(f.options);
     await actions.closeDocumentTab(draft.fileId);
     expect(remove).toHaveBeenCalledWith(draft.fileId, { expectedRevision: 13 });
+    expect(f.options.deleteAiDataForDocument).toHaveBeenCalledWith(draft.fileId);
     expect(f.options.openDocumentInWorkspace).toHaveBeenCalledWith("arrived-during-delete", {
       nextOpenFileIds: ["arrived-during-delete"], saveCurrent: false, status: f.options.tEditor("status.tabClosed"),
     });

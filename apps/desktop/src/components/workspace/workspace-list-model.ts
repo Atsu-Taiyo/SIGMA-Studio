@@ -91,8 +91,8 @@ function compareByName(a: WorkspaceRow, b: WorkspaceRow, direction: WorkspaceSor
 function compareByUpdatedAt(a: WorkspaceRow, b: WorkspaceRow, direction: WorkspaceSortDirection): number {
   const aTime = Date.parse(a.updatedAt);
   const bTime = Date.parse(b.updatedAt);
-  const aValid = !Number.isNaN(aTime);
-  const bValid = !Number.isNaN(bTime);
+  const aValid = Number.isFinite(aTime) && aTime !== 0;
+  const bValid = Number.isFinite(bTime) && bTime !== 0;
 
   if (aValid && bValid) {
     if (aTime !== bTime) {
@@ -103,7 +103,7 @@ function compareByUpdatedAt(a: WorkspaceRow, b: WorkspaceRow, direction: Workspa
     return COLLATOR.compare(a.name, b.name);
   }
   if (aValid !== bValid) {
-    // An unparsable updatedAt sorts last regardless of direction: it's a
+    // An unavailable or unparsable updatedAt sorts last regardless of direction: it's a
     // data-quality problem, not "oldest".
     return aValid ? -1 : 1;
   }

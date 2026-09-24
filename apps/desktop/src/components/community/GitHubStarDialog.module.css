@@ -1,3 +1,8 @@
+.backdrop[data-modal-backdrop] {
+  place-items: end;
+  background: transparent;
+}
+
 .link {
   text-decoration: none;
   white-space: normal;
@@ -6,6 +11,12 @@
 
 .note {
   color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.error {
+  color: var(--danger);
   font-size: 12px;
   line-height: 1.5;
 }

@@ -919,7 +919,7 @@ describe("graph-fill", () => {
       color: "#2563eb",
     });
 
-    expect(implicitCurve).toEqual([]);
+    expect(implicitCurve.length).toBeGreaterThan(0);
     expect(parametricWithoutYExpr).toEqual([]);
     expect(emptyDomain).toEqual([]);
     expect(unparsableExpression).toEqual([]);
@@ -953,5 +953,22 @@ describe("graph-fill", () => {
 
     expect(boundaryClick.fills).toBeUndefined();
     expect(numberLineClick.fills).toBeUndefined();
+  });
+});
+
+
+describe("implicit closed fill boundaries", () => {
+  it.each([false, true])("follows the circle with axes enabled=%s", (axes) => {
+    const spec = baseCartesianSpec();
+    spec.axes = { ...spec.axes, showX: axes, showY: axes };
+    spec.curves = [{ id: "circle", mode: "implicit", expr: "x^2+y^2-1", color: "black" }];
+    const region = resolveGraphFillRegion(spec, { x: 0.3, y: 0.3 });
+    expect(region).not.toBeNull();
+    const range = getGraphNumericRange(spec);
+    const box = getGraphPlotBox(spec);
+    const center = mapGraphPoint(0, 0, range, spec, box);
+    const unit = mapGraphPoint(1, 1, range, spec, box);
+    const expected = Math.PI * Math.abs((unit.x-center.x)*(unit.y-center.y)) / (axes ? 4 : 1);
+    expect(region!.area / expected).toBeCloseTo(1, 2);
   });
 });

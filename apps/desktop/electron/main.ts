@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, Menu, nativeImage, shell } from "electron";
+import { app, BrowserWindow, ipcMain, Menu, nativeImage, shell, protocol } from "electron";
 import crypto from "node:crypto";
 import { createInterface } from "node:readline";
 import { resolveDevServerUrl, isDevServerNavigation } from "./dev-server";
@@ -62,6 +62,13 @@ import { registerFileIpc } from "./ipc/file";
 import { documentPathsFromArgv, ExternalDocumentOpenQueue } from "./external-document-open";
 import { registerMaterialsIpc } from "./ipc/materials";
 import { registerStorageIpc } from "./ipc/storage";
+import { DesktopSharedCatalog } from "./collaboration/catalog";
+import { registerCatalogIpc } from "./collaboration/catalog-ipc";
+import { CollaborationSessions } from "./collaboration/sessions";
+import { registerCollaborationIpc } from "./collaboration/ipc";
+import { profileImageResponse } from "./collaboration/auth";
+import { startSessionBridge } from "./collaboration/local-bridge";
+import { createSharedProposalApprover } from "./collaboration/proposal-approval";
 import { createProposalApprovalCoordinator } from "./proposal-approval";
 import { registerWorkspacePreviewIpc } from "./ipc/workspace-preview";
 import { createWindowCloseHandshake, type WindowCloseHandshake } from "./window-close-handshake";
@@ -135,6 +142,40 @@ let stopLocalProposalWatch: (() => void) | null = null;
 let stopAiResourceWatch: (() => void) | null = null;
 let stopAiSettingsWatch: (() => void) | null = null;
 const localSigmaDocStore = new LocalSigmaDocStore(USER_DATA_PATH);
+protocol.registerSchemesAsPrivileged([
+  { scheme: "sigma-doc-storage", privileges: { secure: true, supportFetchAPI: false, stream: true } },
+  { scheme: "sigma-collaboration-profile", privileges: { secure: true, supportFetchAPI: false, stream: true } },
+]);
+const collaborationSessions = new CollaborationSessions(USER_DATA_PATH, localSigmaDocStore, (event, approvalWindow) => {
+  for (const window of BrowserWindow.getAllWindows()) if (!window.isDestroyed()) {
+    const delivered = event.type === "update" && window.webContents.id !== approvalWindow
+      ? { ...event, approvalIds: undefined }
+      : event;
+    window.webContents.send("collaboration:event", delivered);
+  }
+});
+const sharedCatalog = new DesktopSharedCatalog(collaborationSessions.directory, localSigmaDocStore, {
+  actorId: () => collaborationSessions.actorId(),
+  request: (route, body) => collaborationSessions.request(route, body),
+  bindings: () => collaborationSessions.bindings(),
+  has: id => collaborationSessions.has(id),
+  open: (id, sharedId) => collaborationSessions.openCatalogDocument(id, sharedId),
+  initialize: (id, sharedId, operationId, document, staged) => collaborationSessions.initializeCatalogDocument(id, sharedId, operationId, document, staged),
+  activate: ids => collaborationSessions.activateCatalogDocuments(ids),
+  start: (id, document) => collaborationSessions.start(id, document),
+  flush: id => collaborationSessions.flush(id, true),
+  recoverLocked: () => collaborationSessions.recoverLocked(),
+  retainLocal: id => collaborationSessions.retainLocal(id),
+  restrict: allowed => collaborationSessions.restrictCatalog(allowed),
+}, status => {
+  for (const window of BrowserWindow.getAllWindows()) window.webContents.send("shared-catalog:change", status);
+});
+localSigmaDocStore.setLibraryAuthority(sharedCatalog.authority());
+localSigmaDocStore.setDocumentAuthority({
+  read: async fileId => sharedCatalog.read(fileId),
+  save: async (fileId, document) => collaborationSessions.has(fileId) ? collaborationSessions.boundarySave(fileId, document) : undefined,
+});
+let stopSessionBridge: (() => Promise<void>) | undefined;
 const localMaterialStore = new LocalMaterialStore(USER_DATA_PATH);
 const localTemplateStore = new LocalTemplateStore(USER_DATA_PATH);
 const localMcpProposalStore = new LocalMcpEditProposalStore(USER_DATA_PATH);
@@ -1135,6 +1176,7 @@ function buildMenu() {
 }
 
 function broadcastLocalStoreChange(event: LocalStoreChangeEvent | LocalMcpEditProposalChangeEvent): void {
+  if (event.type === "document" && collaborationSessions.has(event.fileId)) return;
   for (const win of BrowserWindow.getAllWindows()) {
     win.webContents.send("storage:changed", event);
   }
@@ -1147,6 +1189,7 @@ function broadcastLocalStoreChange(event: LocalStoreChangeEvent | LocalMcpEditPr
 // ここから再度ドキュメント保存が走ることはなく無限ループしない。(2) 検証済み自動承認の
 // 再チェックをスケジュールする (rebaseで baseRevision===current に追いついた提案を拾う)。
 async function runPostSaveHooks(fileId: string, document: SigmaDocument, revision: number): Promise<void> {
+  if (collaborationSessions.isShared(fileId)) return;
   if (await localMcpProposalStore.countPendingProposalsForFile(fileId) === 0) {
     scheduleAutoApplyCheck();
     return;
@@ -1160,6 +1203,7 @@ async function runPostSaveHooks(fileId: string, document: SigmaDocument, revisio
 }
 
 const { approveSingleProposal } = createProposalApprovalCoordinator({
+  sharedProposalApprover: createSharedProposalApprover(collaborationSessions, localMcpProposalStore, { localSigmaDocStore, broadcastLocalStoreChange, translate: te }),
   localSigmaDocStore,
   localMcpProposalStore,
   broadcastLocalStoreChange,
@@ -1213,7 +1257,7 @@ async function runAutoApplyCheck(): Promise<void> {
   }
 
   const pending = await localMcpProposalStore.listProposals({ status: "pending" });
-  const eligible = pending.filter((proposal) => !autoApplyInFlight.has(proposal.proposalId));
+  const eligible = pending.filter((proposal) => !collaborationSessions.has(proposal.fileId) && !autoApplyInFlight.has(proposal.proposalId));
   if (eligible.length === 0) {
     return;
   }
@@ -1517,6 +1561,11 @@ function registerIpc() {
   registerFileIpc({
     getMainWindow: () => mainWindow,
     externalDocumentOpenQueue,
+    resolveSessionImage: async source => {
+      const response = await collaborationSessions.assetResponse(source);
+      if (!response.ok) throw new Error("PDF_IMAGE_UNAVAILABLE");
+      return `data:${response.headers.get("Content-Type")};base64,${Buffer.from(await response.arrayBuffer()).toString("base64")}`;
+    },
   });
 
   registerMaterialsIpc({
@@ -1525,6 +1574,8 @@ function registerIpc() {
   });
 
   registerStorageIpc({
+    sharedProposalApprover: createSharedProposalApprover(collaborationSessions, localMcpProposalStore, { localSigmaDocStore, broadcastLocalStoreChange, translate: te }),
+    sharedSessions: collaborationSessions,
     localSigmaDocStore,
     localMcpProposalStore,
     approveSingleProposal,
@@ -1539,6 +1590,13 @@ function registerIpc() {
 }
 
 app.whenReady().then(async () => {
+  await collaborationSessions.initialize();
+  stopSessionBridge = await startSessionBridge(collaborationSessions, localSigmaDocStore);
+  protocol.handle("sigma-doc-storage", request => collaborationSessions.assetResponse(request.url));
+  protocol.handle("sigma-collaboration-profile", request => profileImageResponse(request.url));
+  registerCollaborationIpc(collaborationSessions, sharedCatalog);
+  registerCatalogIpc(sharedCatalog, localSigmaDocStore);
+  void sharedCatalog.refresh().then(status => status.state === "ready" ? sharedCatalog.recoverPending() : undefined).catch(() => {});
   codexAppServerClient.on("statusChanged", broadcastCodexStatusChange);
   claudeStreamClient.on("statusChanged", broadcastClaudeStatusChange);
   registerIpc();
@@ -1602,6 +1660,9 @@ app.on("before-quit", (event) => {
   void sweepOrphanPerRunContextFiles(USER_DATA_PATH, "chatgpt");
   void sweepOrphanPerRunContextFiles(USER_DATA_PATH, "antigravity");
   stopAiRenderBridgeServer();
+  void stopSessionBridge?.();
+  sharedCatalog.close();
+  void collaborationSessions.close();
 });
 
 async function startAiRenderBridgeServer(): Promise<void> {

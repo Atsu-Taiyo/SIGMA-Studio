@@ -1,5 +1,5 @@
 import { AppErrorBoundary } from "@/components/AppErrorBoundary";
-import { EditorShell } from "@/components/editor/EditorShell";
+import { DesktopEditor } from "@/features/collaboration/renderer/DesktopEditor";
 import { StartupSplash } from "@/components/StartupSplash";
 import { GitHubStarDialog } from "@/components/community/GitHubStarDialog";
 
@@ -9,7 +9,7 @@ export default function Home() {
       <StartupSplash />
       <GitHubStarDialog />
       <AppErrorBoundary>
-        <EditorShell />
+        <DesktopEditor />
       </AppErrorBoundary>
     </>
   );
