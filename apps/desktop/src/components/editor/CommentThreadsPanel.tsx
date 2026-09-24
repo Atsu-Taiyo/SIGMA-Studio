@@ -1,6 +1,6 @@
 "use client";
 
-import { useLayoutEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties } from "react";
 import { Check, MessageSquarePlus, MoreHorizontal, Pencil, Reply, RotateCcw, Search, Smile, Trash2 } from "lucide-react";
 
@@ -25,6 +25,8 @@ import type { AppLocale } from "@/lib/i18n";
 import { useAppLocale, useT } from "@/lib/i18n/react";
 import type { SigmaCommentAgent, SigmaCommentAnchor, SigmaCommentMessage, SigmaCommentReaction, SigmaCommentThread, SigmaDocument, InlineNode } from "@/features/document";
 
+import type { LoadCommentMentionCandidates } from "./comment-mentions";
+
 const COMMENT_CARD_GAP_PX = 12;
 const COMMENT_EMPTY_STATE_HEIGHT_PX = 150;
 const COMMENT_THREAD_CARD_HEIGHT_PX = 152;
@@ -43,6 +45,8 @@ export interface CommentPanelAuthor {
 }
 
 export interface CommentThreadsPanelProps {
+  loadMentionCandidates?: LoadCommentMentionCandidates;
+  currentUserId?: string;
   activeThreadId: string | null;
   author: CommentPanelAuthor;
   candidateAnchor: SigmaCommentAnchor | null;
@@ -75,6 +79,8 @@ export interface CommentThreadsPanelProps {
 }
 
 export function CommentThreadsPanel({
+  loadMentionCandidates,
+  currentUserId,
   activeThreadId,
   author,
   candidateAnchor,
@@ -228,6 +234,7 @@ export function CommentThreadsPanel({
             <CommentAuthorLine author={author} />
             <CommentQuote anchor={pendingAnchor} />
             <CommentRichTextEditor
+              loadMentionCandidates={loadMentionCandidates}
               value={pendingDraft}
               mathFractionSizing={mathFractionSizing}
               placeholder={t("comment.agentPlaceholder")}
@@ -345,6 +352,7 @@ export function CommentThreadsPanel({
                       <div className={`comment-message-edit ${index > 0 ? "reply" : ""}`} key={message.id} onClick={(event) => event.stopPropagation()}>
                         {index > 0 && <CommentAuthorLine author={messageAuthor} />}
                         <CommentRichTextEditor
+                          loadMentionCandidates={loadMentionCandidates}
                           value={editDraft}
                           mathFractionSizing={mathFractionSizing}
                           placeholder={t("comment.editPlaceholder")}
@@ -392,7 +400,7 @@ export function CommentThreadsPanel({
                         onReactionSearchChange={setReactionSearchQuery}
                         onToggleReaction={(emoji) => toggleReaction(thread.id, message.id, emoji)}
                       />
-                      <CommentMessageBody body={message.body} mathFractionSizing={mathFractionSizing} />
+                      <CommentMessageBody currentUserId={currentUserId} body={message.body} mathFractionSizing={mathFractionSizing} />
                       <CommentReactionBar
                         currentAuthorName={author.name}
                         recentReactionKey={recentReactionKey}
@@ -441,6 +449,7 @@ export function CommentThreadsPanel({
                 <div className="comment-reply-composer" onClick={(event) => event.stopPropagation()}>
                   <CommentAuthorLine author={author} />
                   <CommentRichTextEditor
+                    loadMentionCandidates={loadMentionCandidates}
                     value={replyDraft}
                     mathFractionSizing={mathFractionSizing}
                     placeholder={t("comment.replyPlaceholder")}
@@ -801,10 +810,12 @@ function CommentQuote({ anchor }: { anchor: SigmaCommentAnchor }) {
 }
 
 export function CommentMessageBody({
+  currentUserId,
   body,
   mathFractionSizing,
 }: {
   body: InlineNode[];
+  currentUserId?: string;
   mathFractionSizing?: SigmaDocument["metadata"]["mathFractionSizing"] | null;
 }) {
   const t = useT("editor");
@@ -812,7 +823,9 @@ export function CommentMessageBody({
     return <p>{t("comment.emptyBody")}</p>;
   }
 
-  return <p className="rich-inline-content">{renderInlineContent(body, { mathFractionSizing })}</p>;
+  return <p className="rich-inline-content">{body.map((node, index) => node.type === "text" && node.mentionUserId
+    ? <span key={index} className={`comment-mention${node.mentionUserId === currentUserId ? " is-self" : ""}`} data-comment-mention={node.mentionUserId} title={node.mentionUserId === currentUserId ? t("comment.mentionsYou") : undefined}>{renderInlineContent([node], { mathFractionSizing })}</span>
+    : <Fragment key={index}>{renderInlineContent([node], { mathFractionSizing })}</Fragment>)}</p>;
 }
 
 function ComposerActions({

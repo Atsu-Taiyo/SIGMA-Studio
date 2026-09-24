@@ -13,6 +13,7 @@ import { runWithMcpToolStats } from "./sigma-doc-mcp-stats";
 import type { ToolActivityLogger } from "./tool-activity";
 
 const READ_ONLY_TOOL_NAMES = new Set([
+  "get_problem_solution",
   "get_local_app_status", "list_edit_proposals", "get_edit_proposal", "list_all_pending_proposals", "list_local_documents",
   "read_local_document", "get_edit_context", "get_document_outline", "get_block", "get_blocks", "search_document",
   "search_library", "validate_local_document", "list_materials", "get_material", "render_block_context", "render_page",

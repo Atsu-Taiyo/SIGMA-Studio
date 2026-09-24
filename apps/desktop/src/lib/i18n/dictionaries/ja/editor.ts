@@ -674,6 +674,12 @@ export const editor = {
     },
   },
   comment: {
+    mentionMembers: "共同編集者をメンション",
+    mentionLoading: "共同編集者を取得中…",
+    mentionEmpty: "該当する共同編集者がいません",
+    mentionError: "共同編集者を取得できませんでした",
+    mentionsYou: "あなたへのメンション",
+
     none: "コメントはありません",
     emptyHint: "図形やテキストを選んでから「コメントを追加」を押します。",
     resolved: "解決済み",

@@ -100,6 +100,7 @@ async function saveAtCurrentRevision(
 // Pins the public tool contract consumed by docs/mcp-local-app.md and the
 // external Codex-import tooling. Public contract is intentionally versioned by exact names.
 const DOCUMENTED_TOOL_NAMES = [
+  "get_problem_solution",
   "align_shapes",
   "apply_edits",
   "begin_visual_edit_session",

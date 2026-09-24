@@ -22,10 +22,14 @@ import {
   type TiptapDoc,
 } from "@/lib/tiptap-adapter";
 
+import { CommentMentionMark, type LoadCommentMentionCandidates } from "./comment-mentions";
+import { CommentMentionMenu } from "./CommentMentionMenu";
+
 const INSERT_INLINE_MATH_EVENT = "sigma-studio:insert-inline-math";
 
 interface CommentRichTextEditorProps {
   value: InlineNode[];
+  loadMentionCandidates?: LoadCommentMentionCandidates;
   mathFractionSizing?: MathFractionSizing | null;
   placeholder?: string;
   onChange: (value: InlineNode[]) => void;
@@ -33,6 +37,7 @@ interface CommentRichTextEditorProps {
 
 export function CommentRichTextEditor({
   value,
+  loadMentionCandidates,
   mathFractionSizing,
   placeholder,
   onChange,
@@ -51,6 +56,7 @@ export function CommentRichTextEditor({
   const mathEnvironment = useMathRenderEnvironment(mathFractionSizing);
   const editor = useEditor({
     extensions: [
+      CommentMentionMark,
       // **`undoRedo` を落とさない。** ここが編むのはコメントの下書きで、
       // SigmaDoc には投稿するまで 1 文字も入らない (下書きの置き場は
       // `EditorShell` の `pendingCommentDraft` / editorStore の `commentReplyDrafts` /
@@ -152,6 +158,10 @@ export function CommentRichTextEditor({
   return (
     <div className="comment-rich-text-shell">
       <EditorContent editor={editor} />
+      {loadMentionCandidates && <button type="button" className="comment-mention-trigger" aria-label={t("comment.mentionMembers")} title={t("comment.mentionMembers")}
+        onMouseDown={(event) => event.preventDefault()}
+        onClick={() => editor?.chain().focus().insertContent(" @").run()}>@</button>}
+      <CommentMentionMenu editor={editor} loadCandidates={loadMentionCandidates} />
     </div>
   );
 }
