@@ -549,6 +549,18 @@ describe("枠レイヤを落とすとセグメントの border に戻る", () =>
     expect(outerThick["outline-offset"]).toBe("-4px");
   });
 
+  it("keeps framed box geometry and variants identical in static and editable math", () => {
+    for (const selector of [
+      ".sigma-math-box-layout",
+      '.sigma-doubleboxed .ML__box[style*="border:"]',
+      '.sigma-thickboxed .ML__box[style*="border:"]',
+      '.sigma-outerthick-doubleboxed .ML__box[style*="border:"]',
+    ]) {
+      expect(ruleDeclarations(documentSurfaceCss, selector))
+        .toEqual(ruleDeclarations(SIGMA_MATHLIVE_MACRO_STYLES, selector));
+    }
+  });
+
   it("keeps the Common Test choice oval identical in static and editable math", () => {
     const selector = `.${KYOUTSUU_CHOICE_CLASS}`;
     const staticChoice = ruleDeclarations(documentSurfaceCss, selector);

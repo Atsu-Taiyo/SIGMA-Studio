@@ -221,24 +221,30 @@
   outline-offset: -3px;
 }
 
+/* BoxAtom reports its own height/depth; glyphs must not redefine its baseline. */
+.sigma-math-box-layout {
+  contain: layout;
+}
+
 /* `\doubleboxed` is a single math box with an inset second rule. Unlike nesting
-   two `\boxed` commands, this keeps the gap equal to the ordinary 1px rule. */
+   two `\boxed` commands, this keeps the gap equal to the ordinary 1px rule.
+   Unframed BoxAtoms (e.g. raisebox inside an answer) must not acquire outlines. */
 .sigma-doubleboxed .fbox,
-.sigma-doubleboxed .ML__box {
+.sigma-doubleboxed .ML__box[style*="border:"] {
   border-width: 1px !important;
   outline: 1px solid currentColor;
   outline-offset: -3px;
 }
 
 .sigma-thickboxed .fbox,
-.sigma-thickboxed .ML__box {
+.sigma-thickboxed .ML__box[style*="border:"] {
   border-width: 2px !important;
 }
 
 /* The box border is the outer rule; the negative outline becomes the inner rule.
    Pulling a 1px outline in by 4px preserves the same 1px inter-rule gap. */
 .sigma-outerthick-doubleboxed .fbox,
-.sigma-outerthick-doubleboxed .ML__box {
+.sigma-outerthick-doubleboxed .ML__box[style*="border:"] {
   border-width: 2px !important;
   outline: 1px solid currentColor;
   outline-offset: -4px;
