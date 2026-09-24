@@ -482,9 +482,9 @@ export function renderEditorChrome(chrome: EditorChromeValue) {
 
   const menubarRightActions = (
     <div className="menubar-right-actions">
-      {chrome.shared.documentActions}
-      {!isEmbedded && (
-        <div className="workspace-account-actions">
+      <div className="workspace-account-actions">
+        {chrome.shared.documentActions}
+        {!isEmbedded && <>
           <button
             type="button"
             className="workspace-open-button"
@@ -496,8 +496,8 @@ export function renderEditorChrome(chrome: EditorChromeValue) {
             <span>{t("actions.workspace")}</span>
           </button>
           {chrome.shared.accountAction}
-        </div>
-      )}
+        </>}
+      </div>
 
       <div className="document-tab-actions" aria-label={t("tabs.actions")}>
         <div
