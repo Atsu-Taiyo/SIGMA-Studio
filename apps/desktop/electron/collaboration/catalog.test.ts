@@ -345,3 +345,16 @@ it("uses refreshed parent permission when a create races with a role downgrade",
   expect((await CatalogCache.open(f.directory, "participant")).data.creates).toEqual({});
   expect(f.request.mock.calls.some(([route]) => route === "/catalog/nodes")).toBe(false);
 });
+
+it("reads a shared preview without opening a session or marking the document body cached", async () => {
+  const f = await fixture(); const doc = node("document"); f.setNodes([doc]); await f.catalog.refresh();
+  const file = (await f.local.listFiles()).find(value => value.sharing)!;
+  f.sessions.preview = vi.fn(async () => createBlankDocument("preview"));
+  expect((await f.catalog.preview(file.fileId))?.metadata.title).toBe("preview");
+  expect(f.sessions.preview).toHaveBeenCalledWith(file.fileId, doc.sharedDocumentId);
+  expect(f.open).not.toHaveBeenCalled();
+  const cache = await CatalogCache.open(f.directory, "participant");
+  expect(cache.data.mappings[doc.id].bodyCached).not.toBe(true);
+  f.setActor(null);
+  expect(await f.catalog.preview(file.fileId)).toBeNull();
+});

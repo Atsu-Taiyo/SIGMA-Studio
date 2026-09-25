@@ -1,4 +1,5 @@
 import { ipcMain } from "electron";
+import type { SigmaDocument } from "@/features/document";
 
 import {
   readWorkspacePreviewPng,
@@ -7,10 +8,15 @@ import {
 
 export interface RegisterWorkspacePreviewIpcDeps {
   userDataPath: string;
+  loadSharedDocument?: (fileId: string) => Promise<SigmaDocument | null>;
 }
 
 export function registerWorkspacePreviewIpc(deps: RegisterWorkspacePreviewIpcDeps): void {
   const { userDataPath } = deps;
+  ipcMain.handle("workspace-preview:shared-document", async (event, fileId: unknown) => {
+    if (event.senderFrame !== event.sender.mainFrame || typeof fileId !== "string" || !/^[A-Za-z0-9_-]{1,200}$/.test(fileId)) return null;
+    return deps.loadSharedDocument?.(fileId) ?? null;
+  });
 
   ipcMain.handle("workspace-preview:get", async (_event, payload: unknown) => {
     const parsed = parsePreviewKey(payload);

@@ -91,6 +91,6 @@ test("desktop comments select collaborators and retain recipients after shared r
     expect(memberFiles).toEqual([fileId]);
   } finally {
     await app.close();
-    rmSync(profile, { recursive: true, force: true });
+    rmSync(profile, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
   }
 });

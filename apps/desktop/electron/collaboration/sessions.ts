@@ -510,6 +510,90 @@ export class CollaborationSessions {
     await this.saveRegistry();
     for (const fileId of fileIds) await this.flush(fileId, true);
   }
+  /** Read-only thumbnail projection: no journal, socket, presence or catalog mutation. */
+  async previewCatalogDocument(fileId: string, sharedDocumentId: string): Promise<SigmaDocument> {
+    const actor = this.actorId();
+    if (!actor) throw new Error("AUTH_REQUIRED");
+    const session = this.sessions.get(fileId);
+    const binding = this.registry.files[fileId];
+    const canUseLocal = Boolean(session && binding?.actorId === actor && binding.sharedDocumentId === sharedDocumentId && !session.stopped && !session.failed && session.status !== "permission-error");
+    let useLocal = false;
+    let document: SigmaDocument;
+    try {
+      const snapshot = await this.request<{ state: string; epoch: number }>(`/documents/${sharedDocumentId}/snapshot`);
+      let shared = new SharedDocument(fromBase64(snapshot.state, MAX_DOCUMENT_BYTES));
+      useLocal = canUseLocal && session!.journal.binding.epoch === snapshot.epoch;
+      try {
+        // Combine the fresh remote state with pending local edits in an isolated
+        // CRDT. Never let an idle local journal hide newer remote content.
+        if (useLocal) for (const pending of session!.journal.outbox()) {
+          const merged = shared.prepareUpdate(fromBase64(pending.update, MAX_UPDATE_BYTES), parseSigmaDocument);
+          shared.destroy(); shared = merged;
+        }
+        document = parseSigmaDocument(shared.project());
+      } finally { shared.destroy(); }
+    } catch (error) {
+      // Offline access keeps the same account's already-opened document available.
+      // Authorization failures must never use this fallback.
+      const offline = error instanceof TypeError || (error instanceof Error && (error.name === "TimeoutError" || /^(NETWORK_UNAVAILABLE|HTTP_5\d\d|fetch failed)$/.test(error.message)));
+      if (!canUseLocal || !offline) throw error;
+      useLocal = true;
+      document = this.project(fileId)!;
+    }
+    const images = new Map<string, string>();
+    let totalAssetBytes = 0;
+    // Keep text visible even when a large document exceeds the thumbnail budget.
+    const previewAssetBudget = MAX_ASSET_BYTES * 3;
+    const omittedImage = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=";
+    const embed = async (value: unknown): Promise<unknown> => {
+      if (Array.isArray(value)) { const result = []; for (const child of value) result.push(await embed(child)); return result; }
+      if (!isObject(value)) return value;
+      const result: Record<string, unknown> = {};
+      for (const [key, child] of Object.entries(value)) {
+        const match = key === "src" && typeof child === "string" ? /^sigma-doc-storage:\/\/([A-Za-z0-9_-]{1,180})$/.exec(child) : null;
+        if (!match) { result[key] = await embed(child); continue; }
+        const id = match[1];
+        if (!images.has(id) && totalAssetBytes >= previewAssetBudget) images.set(id, omittedImage);
+        if (!images.has(id) && useLocal) {
+          try {
+            const source = await this.asset(fileId, id, undefined, false);
+            totalAssetBytes += this.parseImage(source).bytes.byteLength;
+            images.set(id, totalAssetBytes > previewAssetBudget ? omittedImage : source);
+          } catch (error) {
+            if (!(error instanceof Error && (error.message === "MISSING_ASSET" || (error as NodeJS.ErrnoException).code === "ENOENT"))) throw error;
+          }
+        }
+        if (!images.has(id)) {
+          const response = await this.requestRaw(`/documents/${sharedDocumentId}/assets/${id}`);
+          const reader = response.body?.getReader();
+          if (!reader) throw new Error("MISSING_ASSET");
+          const chunks: Uint8Array[] = [];
+          let assetBytes = 0;
+          let omitted = false;
+          try {
+            for (;;) {
+              const { done, value } = await reader.read();
+              if (done) break;
+              totalAssetBytes += value.byteLength;
+              assetBytes += value.byteLength;
+              if (totalAssetBytes > previewAssetBudget || assetBytes > MAX_ASSET_BYTES) {
+                await reader.cancel(); omitted = true; break;
+              }
+              chunks.push(value);
+            }
+          } finally { reader.releaseLock(); }
+          const source = omitted ? omittedImage : `data:${response.headers.get("Content-Type")};base64,${Buffer.concat(chunks).toString("base64")}`;
+          this.parseImage(source);
+          images.set(id, source);
+        }
+        result[key] = images.get(id);
+      }
+      return result;
+    };
+    const result = parseSigmaDocument(await embed(document));
+    if (actor !== this.actorId()) throw new Error("ACCOUNT_CHANGED");
+    return result;
+  }
   async openCatalogDocument(fileId: string, sharedDocumentId: string): Promise<SigmaDocument> {
     const actorId = this.actorId();
     if (!actorId) throw new Error("AUTH_REQUIRED");
