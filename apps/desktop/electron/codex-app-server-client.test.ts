@@ -412,14 +412,16 @@ describe("CodexAppServerClient", () => {
     const { client } = createClient();
     const thread = await client.startThread("gpt-test");
 
+    let refusalStarted = false;
     const runTurnPromise = client.runTurn({
       threadId: thread.threadId,
       model: "gpt-test",
       input: [{ type: "text", text: "FORBIDDEN_SLOW_INTERRUPT", text_elements: [] }],
       runId: "run_cancel_during_refusal",
+      onRefusal: () => { refusalStarted = true; },
     });
 
-    await new Promise((resolve) => setTimeout(resolve, 40));
+    await vi.waitFor(() => expect(refusalStarted).toBe(true));
     expect(client.cancelByRunId("run_cancel_during_refusal")).toBe(true);
 
     const result = await runTurnPromise;
@@ -604,10 +606,9 @@ describe("CodexAppServerClient", () => {
       runId: "run_cancel_1",
     });
 
-    // Give the fake app-server a tick to register turn/start before cancelling.
-    await new Promise((resolve) => setTimeout(resolve, 20));
-    const cancelled = client.cancelByRunId("run_cancel_1");
-    expect(cancelled).toBe(true);
+    // A busy runner may take longer than a fixed delay to register turn/start.
+    // False means no turn was touched; stop as soon as cancellation is accepted.
+    await vi.waitFor(() => expect(client.cancelByRunId("run_cancel_1")).toBe(true));
 
     const result = await runTurnPromise;
     client.dispose();
