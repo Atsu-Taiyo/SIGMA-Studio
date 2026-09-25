@@ -358,3 +358,21 @@ it("reads a shared preview without opening a session or marking the document bod
   f.setActor(null);
   expect(await f.catalog.preview(file.fileId)).toBeNull();
 });
+
+it("places owner documents without saved placement in a personal workspace, keeping incoming documents separate", async () => {
+  const f = await fixture();
+  const originalWorkspaceId = (await f.local.getLocalLibrarySnapshot()).workspaces[0].id;
+  await f.local.withLocalLibrary(() => f.local.createWorkspace("second workspace"));
+  const owned = { ...node("document"), ownerId: "participant", role: "owner" as const };
+  const incoming = node("document");
+  f.setNodes([owned, incoming]); await f.catalog.refresh();
+  const local = await f.local.getLocalLibrarySnapshot();
+  const personal = (await f.catalog.listFiles()).find(file => file.sharing?.target.catalogNodeId === owned.id)!;
+  expect(personal.workspaceId).toBe(originalWorkspaceId);
+  expect(personal.sharing?.placement).toBe("owned");
+  const shared = await f.catalog.overview("shared-items");
+  if (shared.state !== "ready") throw new Error("missing overview");
+  expect(shared.overview.files.map(file => file.sharing?.target.catalogNodeId)).toEqual([incoming.id]);
+  const restored = await CatalogCache.open(f.directory, "participant");
+  expect(restored.project({ ...local, workspaces: [...local.workspaces].reverse() }, originalWorkspaceId).files.some(file => file.fileId === personal.fileId)).toBe(true);
+});

@@ -529,6 +529,8 @@ const desktopAPI = {
   },
 
   workspacePreview: {
+    getShared(fileId: string) { return ipcRenderer.invoke("workspace-preview:shared-get", fileId); },
+    putShared(fileId: string, token: string, dataUrl: string) { return ipcRenderer.invoke("workspace-preview:shared-put", { fileId, token, dataUrl }); },
     loadSharedDocument(fileId: string) { return ipcRenderer.invoke("workspace-preview:shared-document", fileId); },
     get(fileId: string, revision: number): Promise<string | null> {
       return ipcRenderer.invoke("workspace-preview:get", { fileId, revision });

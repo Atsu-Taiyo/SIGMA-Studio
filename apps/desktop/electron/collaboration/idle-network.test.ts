@@ -53,7 +53,7 @@ async function setup(pendingAsset = false) {
   session.lastSynchronizedAt = Date.now();
   return { sessions, session, socket };
 }
-it("does not poll healthy idle sockets every five seconds, reconciles once a minute, and leaves closed clean sessions idle", async () => {
+it("does not poll healthy idle sockets every five seconds, reconciles once a minute, and synchronizes previously opened sessions in the background", async () => {
   const { sessions, session } = await setup();
   session.viewing = true;
   const flush = vi.spyOn(sessions, "flush").mockImplementation(async () => { session.lastSynchronizedAt = Date.now(); });
@@ -63,7 +63,7 @@ it("does not poll healthy idle sockets every five seconds, reconciles once a min
   expect(flush).toHaveBeenCalledTimes(1);
   session.viewing = false;
   await vi.advanceTimersByTimeAsync(120_000);
-  expect(flush).toHaveBeenCalledTimes(1);
+  expect(flush).toHaveBeenCalledTimes(3);
 });
 it("uses protocol ping for unchanged presence but sends transitions and resends on a new socket", async () => {
   const { sessions, session, socket } = await setup();
@@ -135,5 +135,5 @@ it("retains only mounted detached previews and closes their socket on release", 
   expect(socket.close).toHaveBeenCalledWith(1000, "VIEW_CHANGED");
   flush.mockClear();
   await vi.advanceTimersByTimeAsync(120_000);
-  expect(flush).not.toHaveBeenCalled();
+  expect(flush).toHaveBeenCalledTimes(2);
 });

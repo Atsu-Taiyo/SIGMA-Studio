@@ -157,7 +157,36 @@ export class CatalogCache {
           : folderId,
       };
     }
+    if (root.ownerId === this.data.actorId && local) {
+      const target = mapping?.local;
+      const original = target?.kind === "document"
+        ? local.files.find(file => file.fileId === target.fileId)
+        : undefined;
+      const workspace = local.workspaces.find(w => w.id === original?.workspaceId && !w.sharing)
+        ?? local.workspaces.find(w => !w.sharing && w.id !== SHARED_ITEMS_WORKSPACE_ID);
+      if (workspace) return { workspaceId: workspace.id, folderId: root.id === node.id ? original?.folderId ?? null : folderId };
+    }
     return { workspaceId: SHARED_ITEMS_WORKSPACE_ID, folderId };
+  }
+  ensureOwnerLocations(local: WorkspaceOverview): void {
+    const sharedWorkspaceIds = new Set(Object.values(this.data.nodes).filter(node => node.kind === "workspace").map(node => this.navigationId(node)));
+    const personal = local.workspaces.filter(w => !sharedWorkspaceIds.has(w.id)).sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id));
+    // The oldest personal workspace is the original library home, even after renaming.
+    const fallback = personal[0];
+    for (const node of Object.values(this.data.nodes)) {
+      if (node.ownerId !== this.data.actorId || node.kind === "workspace" || (node.parentId && this.data.nodes[node.parentId])) continue;
+      const mapping = this.data.mappings[node.id];
+      if (mapping?.workspaceId && local.workspaces.some(w => w.id === mapping.workspaceId)) continue;
+      const target = mapping?.local;
+      const original = target?.kind === "document" ? local.files.find(f => f.fileId === target.fileId)
+        : target?.kind === "folder" ? local.folders.find(f => f.id === target.folderId) : undefined;
+      const workspaceId = original?.workspaceId ?? fallback?.id;
+      if (!workspaceId) continue;
+      this.data.mappings[node.id] = { ...mapping, nodeId: node.id,
+        local: target ?? { kind: "folder", workspaceId, folderId: this.navigationId(node) },
+        bodyCached: mapping?.bodyCached ?? false, workspaceId,
+        folderId: original && "parentFolderId" in original ? original.parentFolderId : original && "folderId" in original ? original.folderId : null };
+    }
   }
   project(local: WorkspaceOverview, requested?: string | null, hiddenFileIds: ReadonlySet<string> = new Set()): WorkspaceOverview {
     const nodes = Object.values(this.data.nodes).filter(node => node.state === "active");

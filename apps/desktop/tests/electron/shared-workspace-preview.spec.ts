@@ -22,15 +22,19 @@ test("shared workspace cards render and refresh previews without opening editabl
     if (overview.state !== "ready") throw new Error("Fixture library unavailable");
     const base = overview.overview.files[0];
     overview.overview.files = [{ ...base, fileId: "catalog_preview", docId: document.docId, title: document.metadata.title, revision: 1,
-      sharing: { target: { kind: "document", catalogNodeId: "preview" as never, sharedDocumentId: "preview" as never }, ownerId: "owner", createdBy: "owner", role: "viewer", capabilities: { read: true } as never, state: "active", placement: "incoming", isShareRoot: true, bodyCached: false },
+      sharing: { target: { kind: "document", catalogNodeId: "preview" as never, sharedDocumentId: "preview" as never }, ownerId: "owner", createdBy: "owner", role: "owner", capabilities: { read: true } as never, state: "active", placement: "owned", isShareRoot: true, bodyCached: false },
     }];
     await app.evaluate(({ ipcMain }, data) => {
-      const state = globalThis as typeof globalThis & { previewCalls: number; bodyCalls: number };
+      const state = globalThis as typeof globalThis & { previewCalls: number; bodyCalls: number; cached?: string; cachedAt?: number };
       state.previewCalls = 0; state.bodyCalls = 0;
       ipcMain.removeHandler("storage:get-workspace-overview");
       ipcMain.handle("storage:get-workspace-overview", () => data.overview);
       ipcMain.removeHandler("workspace-preview:shared-document");
       ipcMain.handle("workspace-preview:shared-document", () => { state.previewCalls++; return data.document; });
+      ipcMain.removeHandler("workspace-preview:shared-get");
+      ipcMain.handle("workspace-preview:shared-get", () => ({ token: "fixture-account:document", opened: false, dataUrl: state.cached ?? null, updatedAt: state.cachedAt ?? 0 }));
+      ipcMain.removeHandler("workspace-preview:shared-put");
+      ipcMain.handle("workspace-preview:shared-put", (_event, value) => { state.cached = value.dataUrl; state.cachedAt = Date.now(); return { ok: true }; });
       ipcMain.removeHandler("storage:load-document");
       ipcMain.handle("storage:load-document", () => { state.bodyCalls++; throw new Error("Preview must not open document"); });
     }, { overview, document });
@@ -45,8 +49,11 @@ test("shared workspace cards render and refresh previews without opening editabl
     await app.evaluate(({ BrowserWindow }) => { BrowserWindow.getAllWindows()[0].webContents.send("collaboration:event", { type: "update", fileId: "catalog_preview", update: "", kind: "manual" }); });
     await expect.poll(() => app.evaluate(() => (globalThis as typeof globalThis & { previewCalls: number }).previewCalls)).toBeGreaterThan(1);
     await expect(preview).toBeVisible();
+    const callsBeforeReload = await app.evaluate(() => (globalThis as typeof globalThis & { previewCalls: number }).previewCalls);
     await page.reload();
     await expect(preview).toBeVisible({ timeout: 60000 });
+    expect(await app.evaluate(() => (globalThis as typeof globalThis & { previewCalls: number }).previewCalls)).toBe(callsBeforeReload);
+    await expect(card.getByRole("img", { name: "共有中" })).toBeVisible();
     expect(await app.evaluate(() => (globalThis as typeof globalThis & { bodyCalls: number }).bodyCalls)).toBe(0);
   } finally {
     await app.close();

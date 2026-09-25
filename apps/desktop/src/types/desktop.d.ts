@@ -868,6 +868,8 @@ export interface DesktopStorageAPI {
 }
 
 export interface DesktopWorkspacePreviewAPI {
+  getShared?: (fileId: string) => Promise<{ token: string; opened: boolean; dataUrl: string | null; updatedAt: number } | null>;
+  putShared?: (fileId: string, token: string, dataUrl: string) => Promise<{ ok: boolean }>;
   loadSharedDocument?: (fileId: string) => Promise<SigmaDocument | null>;
   get(fileId: string, revision: number): Promise<string | null>;
   put(fileId: string, revision: number, dataUrl: string): Promise<{ ok: boolean }>;

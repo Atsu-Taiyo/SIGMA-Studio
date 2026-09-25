@@ -3,6 +3,7 @@
 import { ChevronDown, ChevronUp, Folder, FileText } from "lucide-react";
 import type { DragEvent as ReactDragEvent, KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent } from "react";
 
+import { WorkspaceSharedBadge } from "./WorkspaceSharedBadge";
 import { WorkspaceItemMenuButton } from "./WorkspaceItemMenuButton";
 import { DocumentTitleText } from "@/features/rendering/adapters/react";
 import type { WorkspaceFileSummary, WorkspaceFolderSummary } from "@/lib/workspace-repository";
@@ -233,6 +234,7 @@ export function WorkspaceItemList({
                             {row.kind === "file" ? <DocumentTitleText title={row.name} /> : row.name}
                           </span>
                         )}
+                        {(row.kind === "file" ? row.file.sharing : row.folder.sharing) && <WorkspaceSharedBadge />}
                       </span>
                     </td>
                     <td className="workspace-list-cell-updated">{formatDateTime(row.updatedAt, locale)}</td>

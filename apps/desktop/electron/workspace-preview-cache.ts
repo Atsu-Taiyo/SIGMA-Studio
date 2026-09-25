@@ -96,3 +96,31 @@ async function removeOtherRevisions(
     await fs.unlink(path.join(directory, name)).catch(() => undefined);
   }));
 }
+
+/** Shared previews are isolated by account and document identity, never revision 1. */
+export interface SharedPreviewImage { token: string; dataUrl: string; updatedAt: number }
+export async function readSharedPreviewImage(directory: string, scope: string): Promise<SharedPreviewImage | null> {
+  try {
+    const file = path.join(directory, "shared-workspace-previews", `${scope}.json`);
+    if ((await fs.stat(file)).size > MAX_PNG_BYTES * 2) return null;
+    const cached = JSON.parse(await fs.readFile(file, "utf8")) as SharedPreviewImage;
+    return typeof cached.token === "string" && typeof cached.updatedAt === "number" &&
+      typeof cached.dataUrl === "string" && cached.dataUrl.startsWith(PNG_DATA_URL_PREFIX) ? cached : null;
+  } catch { return null; }
+}
+export async function writeSharedPreviewImage(directory: string, scope: string, cached: SharedPreviewImage): Promise<boolean> {
+  if (!cached.dataUrl.startsWith(PNG_DATA_URL_PREFIX) || cached.dataUrl.length > MAX_PNG_BYTES * 2) return false;
+  const bytes = Buffer.from(cached.dataUrl.slice(PNG_DATA_URL_PREFIX.length), "base64");
+  if (!bytes.length || bytes.length > MAX_PNG_BYTES) return false;
+  const folder = path.join(directory, "shared-workspace-previews");
+  await fs.mkdir(folder, { recursive: true });
+  const file = path.join(folder, `${scope}.json`);
+  const temporary = `${file}.${crypto.randomUUID()}.tmp`;
+  try { await fs.writeFile(temporary, JSON.stringify(cached)); await fs.rename(temporary, file); }
+  finally { await fs.unlink(temporary).catch(() => {}); }
+  return true;
+}
+
+export async function removeSharedPreviewImage(directory: string, scope: string): Promise<void> {
+  await fs.unlink(path.join(directory, "shared-workspace-previews", `${scope}.json`)).catch(() => {});
+}
