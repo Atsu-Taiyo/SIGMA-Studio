@@ -2894,3 +2894,22 @@ nav.app-menu-list[inert] *,
 .workspace-sidebar .workspace-item-menu-button[aria-expanded="true"] {
   opacity: 1;
 }
+
+.workspace-shared-badge {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  vertical-align: middle;
+  margin-inline-start: 6px;
+  color: var(--text-muted, #777);
+}
+
+.workspace-file-card-title {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+.workspace-file-card-title strong {
+  min-width: 0;
+  flex: 0 1 auto;
+}

@@ -1,7 +1,7 @@
 "use client";
 
 import { FileText } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 
 import { PagedThumbnailRenderer } from "@/components/print/paged-render/PagedThumbnailRenderer";
 import { loadWorkspacePreviewDocument, loadSharedWorkspacePreviewDocument } from "@/lib/workspace-repository";
@@ -17,6 +17,7 @@ export type WorkspaceFilePreviewState = {
   status: WorkspaceFilePreviewStatus;
   imageUrl: string | null;
   document: SigmaDocument | null;
+  cacheToken?: string;
 };
 
 export function WorkspaceFileCardPreview({
@@ -30,15 +31,18 @@ export function WorkspaceFileCardPreview({
   /** Shared cards use read-only snapshots; listing must not open an editing session. */
   allowDocumentLoad?: boolean;
 }) {
+  const forceRefresh = useRef(false);
   const [generation, setGeneration] = useState(0);
   const previewKey = `${fileId}:${revision}:${generation}`;
   useEffect(() => {
     if (allowDocumentLoad) return;
     let timer = 0;
     const refresh = () => {
+      forceRefresh.current = true;
       window.clearTimeout(timer);
       timer = window.setTimeout(() => setGeneration(value => value + 1), 300);
     };
+    const poll = window.setInterval(() => setGeneration(value => value + 1), 30_000);
     const unsubscribe = window.desktopAPI?.collaboration?.onEvent(event => {
       if (event.fileId === fileId && ["update", "reset", "asset-ready", "status"].includes(event.type)) refresh();
     });
@@ -46,7 +50,7 @@ export function WorkspaceFileCardPreview({
       // Clear the visible image immediately on account or permission changes.
       setGeneration(value => value + 1);
     });
-    return () => { window.clearTimeout(timer); unsubscribe?.(); unsubscribeCatalog?.(); };
+    return () => { window.clearInterval(poll); window.clearTimeout(timer); unsubscribe?.(); unsubscribeCatalog?.(); };
   }, [allowDocumentLoad, fileId]);
   const rootRef = useRef<HTMLDivElement | null>(null);
   const [preview, setPreview] = useState<WorkspaceFilePreviewState>(() => ({
@@ -59,14 +63,19 @@ export function WorkspaceFileCardPreview({
     ? preview
     : { key: previewKey, status: "idle" as const, imageUrl: null, document: null };
 
+  const activePreviewKey = useRef(previewKey);
+  useLayoutEffect(() => { activePreviewKey.current = previewKey; return () => { activePreviewKey.current = ""; }; }, [previewKey]);
+
   const handleRendered = useCallback((dataUrl: string) => {
+    if (activePreviewKey.current !== previewKey) return;
     if (allowDocumentLoad) void persistWorkspacePreviewImage(fileId, revision, dataUrl);
+    else if (currentPreview.cacheToken) void window.desktopAPI?.workspacePreview?.putShared?.(fileId, currentPreview.cacheToken, dataUrl).catch(() => {});
     setPreview((current) => (
       current.key === previewKey
         ? { key: previewKey, status: "ready", imageUrl: dataUrl, document: null }
         : current
     ));
-  }, [allowDocumentLoad, fileId, previewKey, revision]);
+  }, [allowDocumentLoad, currentPreview.cacheToken, fileId, previewKey, revision]);
 
   const handleRenderFailed = useCallback(() => {
     setPreview((current) => (
@@ -82,27 +91,37 @@ export function WorkspaceFileCardPreview({
 
     const loadPreview = async () => {
       setPreview({ key: previewKey, status: "loading", imageUrl: null, document: null });
-      // Shared metadata revisions do not track every CRDT edit. Never reuse a
-      // persistent revision-only thumbnail across account changes or remote edits.
-      const cached = allowDocumentLoad ? await lookupWorkspacePreviewImage(fileId, revision) : null;
+      const shared = !allowDocumentLoad
+        ? await window.desktopAPI?.workspacePreview?.getShared?.(fileId).catch(() => null)
+        : null;
+      let cached = allowDocumentLoad ? await lookupWorkspacePreviewImage(fileId, revision) : shared?.dataUrl;
+      const force = forceRefresh.current;
+      forceRefresh.current = false;
       if (cancelled) {
         return;
       }
       if (cached) {
-        setPreview({ key: previewKey, status: "ready", imageUrl: cached, document: null });
-        return;
+        setPreview({ key: previewKey, status: "ready", imageUrl: cached, document: null, cacheToken: shared?.token });
+        if (allowDocumentLoad || (!force && shared && Date.now() - shared.updatedAt < (shared.opened ? 60_000 : 300_000))) return;
       }
-      const document = allowDocumentLoad
-        ? await loadWorkspacePreviewDocument(fileId)
-        : await loadSharedWorkspacePreviewDocument(fileId);
+      let document: SigmaDocument | null = null;
+      try {
+        document = allowDocumentLoad
+          ? await loadWorkspacePreviewDocument(fileId)
+          : await loadSharedWorkspacePreviewDocument(fileId);
+        if (!document) cached = null;
+      } catch (error) {
+        if (!(error instanceof Error) || !/NETWORK_UNAVAILABLE|fetch failed|Failed to fetch|HTTP_5\d\d|TimeoutError/.test(`${error.name}: ${error.message}`)) cached = null;
+      }
       if (cancelled) {
         return;
       }
       setPreview({
         key: previewKey,
-        status: document ? "loading" : "error",
-        imageUrl: null,
+        status: cached ? "ready" : document ? "loading" : "error",
+        imageUrl: cached ?? null,
         document,
+        cacheToken: shared?.token,
       });
     };
 

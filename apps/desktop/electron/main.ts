@@ -164,6 +164,7 @@ const sharedCatalog = new DesktopSharedCatalog(collaborationSessions.directory, 
   bindings: () => collaborationSessions.bindings(),
   has: id => collaborationSessions.has(id),
   open: (id, sharedId) => collaborationSessions.openCatalogDocument(id, sharedId),
+  previewVersion: id => collaborationSessions.previewVersion(id),
   preview: (id, sharedId) => collaborationSessions.previewCatalogDocument(id, sharedId),
   initialize: (id, sharedId, operationId, document, staged) => collaborationSessions.initializeCatalogDocument(id, sharedId, operationId, document, staged),
   activate: ids => collaborationSessions.activateCatalogDocuments(ids),
@@ -1592,6 +1593,7 @@ function registerIpc() {
   registerWorkspacePreviewIpc({
     userDataPath: USER_DATA_PATH,
     loadSharedDocument: id => sharedCatalog.preview(id),
+    sharedContext: id => sharedCatalog.previewContext(id),
   });
 }
 

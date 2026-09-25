@@ -31,8 +31,7 @@ export async function listWorkspaceOverview(
 }
 
 export async function loadSharedWorkspacePreviewDocument(fileId: string): Promise<SigmaDocument | null> {
-  try { return await window.desktopAPI?.workspacePreview?.loadSharedDocument?.(fileId) ?? null; }
-  catch { return null; }
+  return await window.desktopAPI?.workspacePreview?.loadSharedDocument?.(fileId) ?? null;
 }
 
 export async function loadWorkspacePreviewDocument(fileId: string): Promise<SigmaDocument | null> {

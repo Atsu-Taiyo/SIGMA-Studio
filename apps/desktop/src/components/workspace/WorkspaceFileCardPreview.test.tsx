@@ -18,7 +18,7 @@ beforeEach(() => {
   vi.mocked(lookupWorkspacePreviewImage).mockResolvedValue(null);
   container = document.createElement("div"); document.body.append(container); root = createRoot(container);
 });
-afterEach(() => { act(() => root.unmount()); container.remove(); vi.clearAllMocks(); vi.unstubAllGlobals(); });
+afterEach(() => { vi.useRealTimers(); Object.defineProperty(window, "desktopAPI", { configurable: true, value: undefined }); act(() => root.unmount()); container.remove(); vi.clearAllMocks(); vi.unstubAllGlobals(); });
 
 it("generates an unopened shared preview without opening its editable body or using stale revision caches", async () => {
   vi.mocked(loadSharedWorkspacePreviewDocument).mockResolvedValue(createBlankDocument("shared"));
@@ -43,4 +43,31 @@ it("does not show an old account thumbnail when shared access is unavailable", a
 it("continues generating previews for local documents", async () => {
   await act(async () => root.render(<WorkspaceFileCardPreview fileId="local" revision={1} />));
   expect(loadWorkspacePreviewDocument).toHaveBeenCalledWith("local");
+});
+
+it("reuses fresh shared thumbnails across remounts and refreshes after five minutes", async () => {
+  vi.useFakeTimers();
+  const getShared = vi.fn().mockResolvedValue({ token: "actor:document:version", dataUrl: "data:image/png;base64,cached", updatedAt: Date.now(), opened: false });
+  Object.defineProperty(window, "desktopAPI", { configurable: true, value: { workspacePreview: { getShared } } });
+  await act(async () => root.render(<WorkspaceFileCardPreview fileId="shared" revision={1} allowDocumentLoad={false} />));
+  expect(container.querySelector("img")?.getAttribute("src")).toContain("cached");
+  expect(loadSharedWorkspacePreviewDocument).not.toHaveBeenCalled();
+  await act(async () => vi.advanceTimersByTimeAsync(270_000));
+  expect(loadSharedWorkspacePreviewDocument).not.toHaveBeenCalled();
+  await act(async () => vi.advanceTimersByTimeAsync(30_000));
+  expect(loadSharedWorkspacePreviewDocument).toHaveBeenCalledTimes(1);
+  vi.useRealTimers();
+  Object.defineProperty(window, "desktopAPI", { configurable: true, value: undefined });
+});
+
+it("refreshes previously opened previews after one minute and removes cached images on authorization failure", async () => {
+  vi.useFakeTimers();
+  const getShared = vi.fn().mockResolvedValue({ token: "actor:document:version", dataUrl: "data:image/png;base64,cached", updatedAt: Date.now(), opened: true });
+  Object.defineProperty(window, "desktopAPI", { configurable: true, value: { workspacePreview: { getShared } } });
+  vi.mocked(loadSharedWorkspacePreviewDocument).mockRejectedValue(new Error("HTTP_403"));
+  await act(async () => root.render(<WorkspaceFileCardPreview fileId="shared" revision={1} allowDocumentLoad={false} />));
+  expect(container.querySelector("img")).not.toBeNull();
+  await act(async () => vi.advanceTimersByTimeAsync(60_000));
+  expect(loadSharedWorkspacePreviewDocument).toHaveBeenCalledTimes(1);
+  expect(container.querySelector("img")).toBeNull();
 });

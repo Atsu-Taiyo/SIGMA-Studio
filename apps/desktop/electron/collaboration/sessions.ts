@@ -214,12 +214,11 @@ export class CollaborationSessions {
     if (session.stopped || session.failed || entry.staged || entry.actorId !== this.auth?.user()?.id) return false;
     if (!entry.initialized || session.journal.outbox().length ||
       (session.pendingAssetRevision ?? 0) !== (session.uploadedAssetRevision ?? 0)) return true;
-    // Closed clean documents are refreshed when opened. The live socket carries
-    // edits; a slower reconciliation also detects missed delivery and revocation.
-    return Boolean(session.viewing && (
-      session.socket?.readyState !== WebSocket.OPEN ||
-      Date.now() - (session.lastSynchronizedAt ?? 0) >= 60_000
-    ));
+    // Previously opened documents keep synchronizing in the background even
+    // after leaving the editor. Unopened catalog entries never create sessions.
+    return Boolean((session.viewing && session.socket?.readyState !== WebSocket.OPEN) ||
+      Date.now() - (session.lastSynchronizedAt ?? 0) >= 60_000);
+
   }
   private async recoverPendingAssets(fileId: string): Promise<void> {
     const session = this.require(fileId);
@@ -509,6 +508,11 @@ export class CollaborationSessions {
     }
     await this.saveRegistry();
     for (const fileId of fileIds) await this.flush(fileId, true);
+  }
+  previewVersion(fileId: string): string | undefined {
+    const session = this.sessions.get(fileId);
+    if (!session || this.registry.files[fileId]?.actorId !== this.actorId() || session.stopped || session.failed) return undefined;
+    return createHash("sha256").update(session.journal.document.snapshot()).digest("hex");
   }
   /** Read-only thumbnail projection: no journal, socket, presence or catalog mutation. */
   async previewCatalogDocument(fileId: string, sharedDocumentId: string): Promise<SigmaDocument> {

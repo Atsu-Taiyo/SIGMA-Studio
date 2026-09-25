@@ -3,6 +3,7 @@
 import { Folder } from "lucide-react";
 import type { CSSProperties, DragEvent as ReactDragEvent, KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent } from "react";
 
+import { WorkspaceSharedBadge } from "./WorkspaceSharedBadge";
 import { WorkspaceItemMenuButton } from "./WorkspaceItemMenuButton";
 import { DocumentTitleText } from "@/features/rendering/adapters/react";
 import type { WorkspaceFileSummary, WorkspaceFolderSummary } from "@/lib/workspace-repository";
@@ -145,6 +146,7 @@ export function WorkspaceItemGrid({
                   ) : (
                     <span className="workspace-folder-card-name">{folder.name}</span>
                   )}
+                  {folder.sharing && <WorkspaceSharedBadge />}
                   <small>{folder.fileCount}</small>
                   {!editing && <WorkspaceItemMenuButton expanded={menuKey === `folder:${folder.id}`} name={folder.name} onClick={(event) => onFolderContextMenu(event, folder.id)} />}
                 </div>
@@ -215,7 +217,7 @@ export function WorkspaceItemGrid({
                         onCancel={onCancelRename}
                       />
                     ) : (
-                      <strong><DocumentTitleText title={displayName} /></strong>
+                      <div className="workspace-file-card-title"><strong><DocumentTitleText title={displayName} /></strong>{file.sharing && <WorkspaceSharedBadge />}</div>
                     )}
                     <small>{formatDateTime(file.updatedAt, locale)}</small>
                   </div>

@@ -1,7 +1,7 @@
 import { normalizeWorkspaceLayout } from "@/lib/workspace-tab-groups";
 import { createCurrentLocaleTranslator } from "@/lib/i18n";
 import { shell } from "electron";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import type { SigmaDocument } from "@/features/document";
 import type { CatalogDelta, CatalogNode, CatalogNodeId, HierarchyShareOperation, ServerCollaborationCapabilities, SharedTargetRef } from "@/features/collaboration/model/catalog";
 import type { MemberRole } from "@/features/collaboration/model/protocol";
@@ -18,6 +18,7 @@ export interface CatalogSessionsPort {
   bindings(): { fileId: string; sharedDocumentId: string; actorId: string; docId?: string }[];
   has(fileId: string): boolean;
   open(fileId: string, sharedDocumentId: string): Promise<SigmaDocument>;
+  previewVersion?(fileId: string): string | undefined;
   preview?(fileId: string, sharedDocumentId: string): Promise<SigmaDocument>;
   initialize(fileId: string, sharedDocumentId: string, operationId: string, document: SigmaDocument, staged?: boolean): Promise<void>;
   activate(fileIds: string[]): Promise<void>;
@@ -107,7 +108,8 @@ export class DesktopSharedCatalog {
       }
       if (generation !== this.generation || cache.data.actorId !== this.sessions.actorId()) { await this.account(); return this.status(); }
       for (const delta of deltas) cache.apply(delta);
-      const localFiles = (await this.local.getLocalLibrarySnapshot()).files;
+      const localOverview = await this.local.getLocalLibrarySnapshot();
+      const localFiles = localOverview.files;
       for (const binding of this.sessions.bindings()) {
         if (binding.actorId !== cache.data.actorId) continue;
         const node = Object.values(cache.data.nodes).find(n => n.sharedDocumentId === binding.sharedDocumentId);
@@ -116,6 +118,7 @@ export class DesktopSharedCatalog {
         const localFile = localFiles.find(f => f.fileId === binding.fileId);
         cache.data.mappings[node.id] = { ...prior, nodeId: node.id, local: { kind: "document", fileId: binding.fileId }, bodyCached: true, docId: binding.docId, ...(node.ownerId === cache.data.actorId && localFile && !prior?.workspaceId ? { workspaceId: localFile.workspaceId, folderId: localFile.folderId } : {}) };
       }
+      cache.ensureOwnerLocations(localOverview);
       await cache.save();
       if (generation !== this.generation || cache.data.actorId !== this.sessions.actorId()) { await this.account(); return this.status(); }
       const allowed = new Map(Object.values(cache.data.nodes).filter(n => n.sharedDocumentId && (n.state === "active" || n.state === "initializing")).map(n => [n.sharedDocumentId!, n.role]));
@@ -187,6 +190,14 @@ export class DesktopSharedCatalog {
       if (workspace.id !== projected.activeWorkspaceId) results.push(...this.cache.project(local, workspace.id, hidden).files);
     }
     return results;
+  }
+  async previewContext(fileId: string): Promise<{ scope: string; token: string; opened: boolean } | null> {
+    await this.account();
+    const node = this.find(fileId, "document");
+    if (!node || node.state !== "active" || !node.capabilities.read || !node.sharedDocumentId) return null;
+    const scope = createHash("sha256").update(JSON.stringify([this.actor, node.id, node.sharedDocumentId])).digest("hex");
+    const version = this.sessions.previewVersion?.(fileId) ?? "unopened";
+    return { scope, token: `${scope}:${version}`, opened: this.cache!.data.mappings[node.id]?.bodyCached ?? false };
   }
   async preview(fileId: string): Promise<SigmaDocument | null> {
     await this.account();
