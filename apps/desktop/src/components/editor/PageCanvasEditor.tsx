@@ -571,6 +571,12 @@ export interface PageCanvasEditorProps {
    * clone of this DOM — see docs/pdf-parity-architecture.md.
    */
   presentation?: "edit" | "paged";
+  /**
+   * Whether this canvas announces the local selection to other participants of the
+   * document session. Output surfaces never do; a read-only pane that only shows a
+   * document next to the one being edited must not either (defaults to edit mode).
+   */
+  publishesSessionPresence?: boolean;
 }
 
 function PageCanvasEditorImpl({
@@ -645,9 +651,11 @@ function PageCanvasEditorImpl({
   onCommentThreadSelect,
   suppressSelectionActions = false,
   presentation = "edit",
+  publishesSessionPresence: publishesSessionPresenceProp,
 }: PageCanvasEditorProps) {
   const tEditorText = useT("editor");
   const isPagedRender = presentation === "paged";
+  const publishesSessionPresence = !isPagedRender && publishesSessionPresenceProp !== false;
     countPerformanceEvent("PageCanvasEditor.render");
   const mathFractionSizing = (document.metadata.mathFractionSizing || 'uniform') as "uniform" | "texDefault";
   const pageDocument = useMemo(() => ensurePageLayout(document), [document]);
@@ -4772,7 +4780,7 @@ function PageCanvasEditorImpl({
                 editPolicy={editorExtensions?.overlayEditPolicy}
                 shapeDecorations={editorExtensions?.overlayShapeDecorations}
                 diffShapeClassNames={overlayShapeClassNames}
-                publishesSessionPresence={!isPagedRender}
+                publishesSessionPresence={publishesSessionPresence}
               />
               {!isPagedRender && <RemoteOverlayPresenceLayer shapes={overlayView.shapes} />}
               <OverlayPreview
@@ -5468,7 +5476,7 @@ function PageCanvasEditorImpl({
                   editPolicy={editorExtensions?.overlayEditPolicy}
                   shapeDecorations={editorExtensions?.overlayShapeDecorations}
                   diffShapeClassNames={overlayShapeClassNames}
-                  publishesSessionPresence={!isPagedRender}
+                  publishesSessionPresence={publishesSessionPresence}
                 />
                 <OverlayPreview
                   resolvedView={overlayView}

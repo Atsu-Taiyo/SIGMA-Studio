@@ -11,6 +11,16 @@ export const chrome = {
 
     readOnlyDocument: "この教材は閲覧のみです。共有権限を確認してください。",
     settingsTitle: "共有設定",
+    shareTitle: "「{{name}}」を共有",
+    inviteHeading: "招待",
+    inviteRole: "招待する人の権限",
+    memberRole: "{{name}} の権限",
+    signInRequired: "共有にはGoogleアカウントを使います。",
+    joinAction: "参加する",
+    joinDescription: "受け取った招待コードを貼り付けてください。",
+    joinParticipantLimit: "共有元の参加人数が上限に達しているため参加できません。招待した人に確認してください。",
+    detailsTitle: "共有の詳細",
+    proBadge: "Pro",
     shareAction: "共有する",
     inherited: "親から継承",
     direct: "直接の権限",
@@ -50,7 +60,25 @@ export const chrome = {
     error: "操作を完了できませんでした。接続と権限を確認して、もう一度お試しください。", working: "準備中", ready: "参加しました。教材一覧から開けます。",
     status: { "epoch-error": "共有教材が復元されました", "local-saving": "端末に保存中", "local-saved": "端末保存済み・未同期", syncing: "同期中", saved: "クラウド保存済み", offline: "オフライン", "permission-error": "共有権限を確認してください", "save-error": "保存に失敗しました" },
     plan: {
-      documentLimit: "無料で同時に共有できる教材は1件です。別の教材の共有を停止するか、Proをご利用ください。",
+      /** 操作を止めたときにPaywallの見出しで示す理由。 */
+      reasons: {
+        documentLimit: {
+          title: "この教材は共有できません",
+          body: "無料プランで同時に共有できる教材は1件です。共有中の教材を停止するか、Proにアップグレードすると共有できます。",
+        },
+        hierarchyShare: {
+          title: "フォルダとワークスペースは共有できません",
+          body: "フォルダやワークスペースごとの共有はProプランの機能です。無料プランでは教材を1件ずつ共有できます。",
+        },
+        participantLimit: {
+          title: "これ以上招待できません",
+          body: "無料プランで招待できるのは、所有者以外に閲覧者を含め1人までです。Proでは教材ごとに15人まで招待できます。",
+        },
+        adminRole: {
+          title: "管理者を設定できません",
+          body: "管理者の権限はProプランの機能です。無料プランでは編集者と閲覧者を設定できます。",
+        },
+      },
       trialTerms: "初回は7日間無料。カード登録が必要です。終了後は所有者1人につき月額$9 USDで自動更新されます。期間終了前に解約できます。",
       manageBilling: "契約・お支払いの管理",
       paymentWarning: "お支払いを確認できません。7日間の猶予期間中にお支払い方法を更新してください。",
@@ -59,7 +87,6 @@ export const chrome = {
 
       title: "Sigma Studio のプラン",
       description: "チームで共同編集するなら、Proプランがおすすめです。",
-      hierarchyRequired: "ワークスペースとフォルダの共有はProプランの機能です。",
       billingPeriod: "USD / 月",
       perUser: "所有者1人あたり（招待された人は無料）",
       free: {

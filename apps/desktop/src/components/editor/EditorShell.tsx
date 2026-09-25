@@ -67,7 +67,7 @@ import { PageSettingsDialog } from "@/components/editor/PageSettingsDialog";
 import { TexCommandReferenceDialog } from "@/components/editor/TexCommandReferenceDialog";
 import { TexEnvironmentSettingsDialog } from "@/components/editor/TexEnvironmentSettingsDialog";
 import { VersionHistoryPanel } from "@/components/editor/VersionHistoryPanel";
-import { WorkspaceTabGroupGrid } from "@/components/editor/WorkspaceTabGroupGrid";
+import { WorkspaceTabGroupGrid, type WorkspacePaneHandoff, type WorkspacePaneView } from "@/components/editor/WorkspaceTabGroupGrid";
 import { WorkspaceTabStrip } from "@/components/editor/WorkspaceTabStrip";
 import { WindowCloseSaveDialog } from "@/components/editor/WindowCloseSaveDialog";
 import  {
@@ -421,6 +421,7 @@ import  {
 } from "@/components/editor/editor-shell/document-version-restore";
 import  {
   captureEditorTabViewState,
+  placeCaretAtPointWhenReady,
   resolveEditorTabViewState,
   scheduleEditorTabViewRestore,
   type EditorTabViewState,
@@ -1277,6 +1278,8 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, acc
   const editorTabViewStateByFileIdRef = useRef(new Map<string, EditorTabViewState>());
   const untouchedNewDocumentsRef = useRef(new Map<string, SigmaDocument>());
   const pendingEditorTabViewRestoreRef = useRef<ResolvedEditorTabViewState | null>(null);
+  // 編集していなかったペインを押した点。その教材が編集面に載ったらキャレットを置く。
+  const pendingPaneCaretRef = useRef<{ fileId: string; x: number; y: number } | null>(null);
   const activeFileIdRef = useRef(activeFileId);
   const openFileIdsRef = useRef(openFileIds);
   const workspaceLayoutRef = useRef(workspaceLayout);
@@ -1698,6 +1701,15 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, acc
       textSelection: pending.textSelection,
       restoreTextSelection: deliverCaret,
     });
+    const caret = pendingPaneCaretRef.current;
+    pendingPaneCaretRef.current = null;
+    if (caret && caret.fileId === activeFileId) {
+      placeCaretAtPointWhenReady({
+        getScroller: () => editorCanvasRef.current,
+        point: caret,
+        scrollTop: pending.scrollTop,
+      });
+    }
   }, [activeFileId, documentInstanceRevision, workspaceReady]);
 
   // 外部変更 (AI提案の自動承認などによる保存) を mergeExternalDocumentChange で人間の未保存編集と
@@ -6359,11 +6371,33 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, acc
       workspaceLayoutSaveTimerRef.current = null;
     }, 160);
   }, [persistTabGroupLayout]);
-  const focusWorkspaceGroup = useCallback((groupId: string) => {
+  const focusWorkspaceGroup = useCallback((groupId: string, handoff?: WorkspacePaneHandoff) => {
     const group = workspaceLayoutRef.current.groups.find((candidate) => candidate.id === groupId);
     const tab = group?.tabs.find((candidate) => candidate.id === group.activeTabId) ?? group?.tabs[0];
-    if (group && tab) activateWorkspaceGroupTab(group.id, tab);
+    if (!group || !tab) return;
+    // 読み取り専用で描いていた紙面の位置を、そのまま編集面の復元位置にする。
+    // 押した点があればキャレットはそこへ置くので、前回のキャレットは戻さない。
+    if (handoff && tab.kind === "document" && tab.fileId !== activeFileIdRef.current) {
+      const saved = editorTabViewStateByFileIdRef.current.get(tab.fileId);
+      editorTabViewStateByFileIdRef.current.set(tab.fileId, {
+        selectedId: saved?.selectedId ?? null,
+        textSelection: handoff.point ? null : saved?.textSelection ?? null,
+        scrollTop: handoff.scrollTop,
+        scrollLeft: handoff.scrollLeft,
+      });
+      pendingPaneCaretRef.current = handoff.point ? { fileId: tab.fileId, ...handoff.point } : null;
+    }
+    activateWorkspaceGroupTab(group.id, tab);
   }, [activateWorkspaceGroupTab]);
+
+  const readPaneScroll = useCallback((fileId: string) => editorTabViewStateByFileIdRef.current.get(fileId), []);
+  const workspacePaneView = useMemo<WorkspacePaneView>(() => ({
+    zoom,
+    showComments: commentsPanelOpen,
+    showResolvedComments,
+    commentAuthor,
+    scrollFor: readPaneScroll,
+  }), [commentAuthor, commentsPanelOpen, readPaneScroll, showResolvedComments, zoom]);
 
   const aiRoomTitles = useAiWorkspaceTabTitles();
   const workspaceTabsRow = isEmbedded ? null : (
@@ -6942,6 +6976,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, acc
           metadata={documentMetadatas}
           activeFileId={activeFileId}
           sessionHost={sessionHost}
+          paneView={workspacePaneView}
           onFocusGroup={focusWorkspaceGroup}
           onMoveTab={moveWorkspaceGroupTab}
           onSplitTab={splitWorkspaceGroupTab}

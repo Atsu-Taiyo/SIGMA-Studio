@@ -1,18 +1,19 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Building2,
   Check,
+  LayoutTemplate,
   Loader2,
   PenLine,
-  PlusCircle,
+  Plus,
   Search,
   Trash2,
   X,
 } from "lucide-react";
 
-import { PrintPreviewThumbnail } from "@/components/print/PrintPreview";
+import { PagedThumbnailRenderer } from "@/components/print/paged-render/PagedThumbnailRenderer";
 import { getAppRuntime } from "@/lib/runtime";
 import { listWorkspaceOverview } from "@/lib/workspace-repository";
 import type { SigmaDocument } from "@/features/document";
@@ -56,34 +57,16 @@ export function TemplateGallery({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
-  const [searchOpen, setSearchOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingName, setEditingName] = useState("");
   const [busy, setBusy] = useState(false);
-  const searchInputRef = useRef<HTMLInputElement | null>(null);
 
   const resetTransientState = useCallback(() => {
     setSearch("");
-    setSearchOpen(false);
     setEditingId(null);
     setEditingName("");
     setError(null);
   }, []);
-
-  const toggleSearch = useCallback(() => {
-    setSearchOpen((isOpen) => {
-      if (isOpen) {
-        setSearch("");
-      }
-      return !isOpen;
-    });
-  }, []);
-
-  useEffect(() => {
-    if (searchOpen) {
-      searchInputRef.current?.focus();
-    }
-  }, [searchOpen]);
 
   const closeGallery = useCallback(() => {
     resetTransientState();
@@ -265,26 +248,13 @@ export function TemplateGallery({
             <h2>{t("action.openTemplateGallery")}</h2>
             <p>{mode === "insert" ? t("template.insertHint") : t("template.createHint")}</p>
           </div>
-          <div className="template-gallery-header-actions">
-            {canSave && (
-              <button
-                type="button"
-                className="button primary template-gallery-save-button"
-                disabled={busy || !selectedWorkspaceId}
-                onClick={() => void saveCurrentAsTemplate()}
-              >
-                {busy ? <Loader2 className="save-state-spinner" size={14} /> : <PlusCircle size={15} />}
-                <span>{t("action.saveCurrentDocument")}</span>
-              </button>
-            )}
-            <button type="button" className="icon-button" title={t("action.close")} aria-label={t("action.close")} onClick={closeGallery}>
-              <X size={16} />
-            </button>
-          </div>
+          <button type="button" className="icon-button" title={t("action.close")} aria-label={t("action.close")} onClick={closeGallery}>
+            <X size={16} />
+          </button>
         </header>
 
-        <div className="template-gallery-tabs">
-          <div className="template-gallery-tabs-scroll" role="tablist" aria-label={t("template.workspaces")}>
+        <div className="template-gallery-toolbar">
+          <div className="template-gallery-tabs" role="tablist" aria-label={t("template.workspaces")}>
             {workspaces.length === 0 ? (
               <span className="template-gallery-tabs-empty">{t("label.noWorkspaces")}</span>
             ) : (
@@ -293,58 +263,66 @@ export function TemplateGallery({
                   key={workspace.id}
                   type="button"
                   role="tab"
-                  aria-selected={workspace.id === selectedWorkspaceId}
-                  className={`template-gallery-tab ${workspace.id === selectedWorkspaceId ? "active" : ""}`}
-                  onClick={() => setSelectedWorkspaceId(workspace.id)}
+                  aria-selected={!searchActive && workspace.id === selectedWorkspaceId}
+                  className={`template-gallery-tab ${!searchActive && workspace.id === selectedWorkspaceId ? "active" : ""}`}
+                  onClick={() => {
+                    setSearch("");
+                    setSelectedWorkspaceId(workspace.id);
+                  }}
                 >
-                  <Building2 size={14} />
+                  <Building2 size={14} aria-hidden="true" />
                   <span>{workspace.name}</span>
                 </button>
               ))
             )}
           </div>
-          <div className={`template-gallery-search ${searchOpen ? "open" : ""}`}>
+          <label className="template-gallery-search">
+            <Search size={15} aria-hidden="true" />
             <input
-              ref={searchInputRef}
               type="search"
               className="template-gallery-search-input"
               value={search}
               placeholder={t("template.searchPlaceholder")}
               aria-label={t("template.searchPlaceholder")}
-              aria-hidden={!searchOpen}
-              tabIndex={searchOpen ? 0 : -1}
               onChange={(event) => setSearch(event.target.value)}
               onKeyDown={(event) => {
-                if (event.key === "Escape") {
+                if (event.key === "Escape" && search) {
+                  event.stopPropagation();
                   setSearch("");
-                  setSearchOpen(false);
                 }
               }}
             />
+          </label>
+          {canSave && (
             <button
               type="button"
-              className="template-gallery-search-toggle"
-              aria-label={searchOpen ? t("template.closeSearch") : t("template.search")}
-              aria-expanded={searchOpen}
-              onClick={toggleSearch}
+              className="button secondary template-gallery-save-button"
+              disabled={busy || !selectedWorkspaceId}
+              onClick={() => void saveCurrentAsTemplate()}
             >
-              <Search size={15} />
+              {busy ? <Loader2 className="save-state-spinner" size={14} /> : <Plus size={15} aria-hidden="true" />}
+              <span>{t("action.saveCurrentDocument")}</span>
             </button>
-          </div>
+          )}
         </div>
 
         {error && <p className="template-gallery-error" role="alert">{error}</p>}
 
         <div className="template-gallery-body">
           {loading && templates.length === 0 ? (
-            <div className="template-gallery-empty">{t("label.loading")}</div>
+            <div className="template-gallery-grid" role="status" aria-label={t("label.loading")}>
+              {[0, 1, 2, 3].map((index) => (
+                <div className="template-gallery-card template-gallery-card--loading" key={index} aria-hidden="true">
+                  <span className="ui-shimmer-surface" />
+                  <span className="ui-shimmer-surface" />
+                </div>
+              ))}
+            </div>
           ) : visibleTemplates.length === 0 ? (
             <div className="template-gallery-empty">
-              {searchActive
-                ? t("template.noMatches")
-                : mode === "insert"
-                  ? t("template.emptyInsert")
-                  : t("template.emptyCreate")}
+              <span className="template-gallery-empty-icon" aria-hidden="true">{searchActive ? <Search size={20} /> : <LayoutTemplate size={20} />}</span>
+              <strong>{searchActive ? t("template.noMatches") : t("template.emptyTitle")}</strong>
+              {!searchActive && <span>{mode === "insert" ? t("template.emptyInsert") : t("template.emptyCreate")}</span>}
             </div>
           ) : (
             <div className="template-gallery-grid">
@@ -356,19 +334,17 @@ export function TemplateGallery({
                     title={mode === "insert" ? t("template.insertIntoDocument") : t("template.createFromTemplate")}
                     onClick={() => void applyTemplate(template)}
                   >
-                    <div className="template-gallery-card-preview" aria-hidden="true">
-                      <div className="template-gallery-card-thumbnail-scaler">
-                        <PrintPreviewThumbnail document={template.document} profile="student" maxPages={1} />
-                      </div>
-                    </div>
+                    <span className="template-gallery-card-preview" aria-hidden="true">
+                      <TemplateThumbnail template={template} />
+                    </span>
                     {editingId !== template.id && (
-                      <div className="template-gallery-card-meta">
+                      <span className="template-gallery-card-meta">
                         <strong>{template.name}</strong>
                         <span>
                           {searchActive ? `${workspaceNameById(template.workspaceId)} ${t("asset.previewSeparator")} ` : ""}
                           {formatTemplateSummary(template, t)}
                         </span>
-                      </div>
+                      </span>
                     )}
                   </button>
 
@@ -385,6 +361,7 @@ export function TemplateGallery({
                             event.preventDefault();
                             void renameTemplate(template);
                           } else if (event.key === "Escape") {
+                            event.stopPropagation();
                             setEditingId(null);
                             setEditingName("");
                           }
@@ -426,6 +403,45 @@ export function TemplateGallery({
         </div>
       </section>
     </div>
+  );
+}
+
+/** Thumbnails already drawn this session, keyed by template and revision. */
+const templateThumbnailCache = new Map<string, string>();
+const TEMPLATE_THUMBNAIL_CACHE_LIMIT = 120;
+
+/**
+ * The top half of the template's first page, drawn by the print preview's surface
+ * (the same image the workspace cards use), so a template looks like what it prints.
+ */
+function TemplateThumbnail({ template }: { template: TemplateItem }) {
+  const key = `${template.id}:${template.updatedAt}`;
+  const [rendered, setRendered] = useState<{ key: string; url: string | null; failed: boolean }>({ key, url: null, failed: false });
+  const current = rendered.key === key ? rendered : { key, url: null, failed: false };
+  const url = templateThumbnailCache.get(key) ?? current.url;
+  const handleRendered = useCallback((dataUrl: string) => {
+    if (templateThumbnailCache.size >= TEMPLATE_THUMBNAIL_CACHE_LIMIT) {
+      const oldest = templateThumbnailCache.keys().next().value;
+      if (oldest !== undefined) templateThumbnailCache.delete(oldest);
+    }
+    templateThumbnailCache.set(key, dataUrl);
+    setRendered({ key, url: dataUrl, failed: false });
+  }, [key]);
+  const handleFailed = useCallback(() => setRendered({ key, url: null, failed: true }), [key]);
+  if (url) {
+    // A data URL drawn on this device; Next/Image cannot optimize it.
+    // eslint-disable-next-line @next/next/no-img-element
+    return <img className="template-gallery-card-image" src={url} alt="" draggable={false} />;
+  }
+  return (
+    <>
+      {current.failed
+        ? <span className="template-gallery-card-fallback"><LayoutTemplate size={24} /></span>
+        : <span className="template-gallery-card-shimmer ui-shimmer-surface" />}
+      {!current.failed && (
+        <PagedThumbnailRenderer key={key} document={template.document} profile="student" onRendered={handleRendered} onFailed={handleFailed} />
+      )}
+    </>
   );
 }
 

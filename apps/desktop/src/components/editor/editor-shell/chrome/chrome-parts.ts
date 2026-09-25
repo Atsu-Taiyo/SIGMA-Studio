@@ -16,6 +16,8 @@ export interface EditorChromeParts {
   settingsMenu: ReactNode;
   documentTabsRow: ReactNode;
   saveStateBadge: ReactNode;
+  /** 共有などの教材ごとの操作。docs では「過去の版」の左。Word風はタイトル行右端に直接置く。 */
+  documentActions: ReactNode;
   versionHistoryButton: ReactNode;
   reportIssueButton: ReactNode;
   menubarRightActions: ReactNode;
