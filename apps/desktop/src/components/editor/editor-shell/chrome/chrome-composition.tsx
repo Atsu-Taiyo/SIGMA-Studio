@@ -34,6 +34,8 @@ export function renderDocsComposition(parts: EditorChromeParts, t: Translate<"ch
 
         {parts.saveStateBadge}
 
+        {parts.documentActions}
+
         {parts.versionHistoryButton}
 
         {parts.reportIssueButton}

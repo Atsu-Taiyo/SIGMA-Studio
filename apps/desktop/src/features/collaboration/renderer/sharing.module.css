@@ -120,7 +120,9 @@
   padding: var(--space-sm) var(--space-md);
 }
 .caption {
+  margin: 0;
   font-size: 12px;
+  line-height: 1.5;
   color: var(--text-muted);
 }
 .member {
@@ -134,8 +136,10 @@
   font-size: 11px;
 }
 .error {
+  margin: 0;
   font-size: 13px;
-  color: var(--text);
+  line-height: 1.5;
+  color: var(--danger);
 }
 
 .details > summary {
@@ -162,4 +166,255 @@
   height: 20px;
   flex-shrink: 0;
   background: url("../../../../public/brand/google-g.png") center / contain no-repeat;
+}
+
+/* --- Sharing dialog ---
+   One heading names the item; the body shows each fact once. Sections are
+   separated by rhythm and small headings rather than boxes. */
+.message {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 13px;
+  line-height: 1.6;
+}
+.notice {
+  margin: 0;
+  padding: var(--space-sm) var(--space-md);
+  border-radius: var(--radius-control);
+  background: var(--surface-soft);
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.5;
+}
+.confirmTitle {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.5;
+}
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+  min-width: 0;
+}
+.sectionTitle {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-sm);
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.4;
+}
+.count {
+  color: var(--text-muted);
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+.inviteRow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: var(--space-sm);
+  align-items: center;
+}
+/* The invite role reads as a form field next to its action button. */
+.roleField {
+  height: 36px;
+  padding: 0 var(--space-sm) 0 var(--space-md);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  background: var(--background);
+  font: inherit;
+  font-size: 13px;
+}
+.roleField:hover:not(:disabled) {
+  border-color: var(--border-strong);
+}
+.roleField:focus-visible,
+.roleSelect:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--text-primary) 24%, transparent);
+  outline-offset: 1px;
+}
+/* A member's role is quiet text until hovered: the menu is there when needed. */
+.roleSelect {
+  flex: 0 0 auto;
+  height: 30px;
+  padding: 0 var(--space-xs) 0 var(--space-sm);
+  border: 1px solid transparent;
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 13px;
+}
+.roleSelect:hover:not(:disabled),
+.roleSelect[aria-expanded="true"] {
+  background: var(--surface-muted);
+  color: var(--text-primary);
+}
+.roleText {
+  flex: 0 0 auto;
+  padding: 0 var(--space-sm);
+  color: var(--text-muted);
+  font-size: 13px;
+}
+.codeRow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: var(--space-xs);
+  align-items: center;
+}
+.code {
+  height: 36px;
+  font-size: 12px;
+  letter-spacing: 0.02em;
+}
+.memberList {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.memberRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  min-height: 44px;
+  min-width: 0;
+}
+.memberAvatar {
+  display: inline-grid;
+  flex: 0 0 auto;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: var(--radius-round);
+  background: var(--surface-muted);
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 600;
+}
+.memberText {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.memberName {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-sm);
+  min-width: 0;
+  color: var(--text-primary);
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+.meTag {
+  flex: 0 0 auto;
+  padding: 0 var(--space-sm);
+  border-radius: var(--radius-round);
+  background: var(--surface-muted);
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 18px;
+}
+.footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-sm);
+  padding-top: var(--space-md);
+  border-top: 1px solid var(--border-subtle);
+}
+.dangerText:hover:not(:disabled),
+.dangerText:focus-visible {
+  color: var(--danger);
+}
+.startState {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-lg) 0 var(--space-sm);
+  color: var(--text-primary);
+  font-size: 14px;
+  text-align: center;
+}
+.startIcon {
+  display: inline-grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border-radius: var(--radius-round);
+  background: var(--surface-muted);
+  color: var(--text-secondary);
+}
+.wide {
+  width: 100%;
+}
+.proOption {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-sm);
+}
+.proBadge {
+  padding: 0 6px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-round);
+  color: var(--text-secondary);
+  font-size: 10px;
+  font-weight: 650;
+  letter-spacing: 0.04em;
+  line-height: 16px;
+}
+.skeleton {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+}
+.skeleton > span {
+  display: block;
+  height: 36px;
+  border-radius: var(--radius-control);
+}
+.skeleton > span:last-child {
+  width: 60%;
+}
+
+/* The share action is the one filled control in the header: it is what the
+   whole document is for once it is ready to hand to someone. */
+.shareButton {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 var(--space-md);
+  border: 1px solid var(--text-primary);
+  border-radius: var(--radius-round);
+  background: var(--text-primary);
+  color: var(--background);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background-color 120ms ease, border-color 120ms ease;
+}
+.shareButton:hover {
+  border-color: color-mix(in srgb, var(--text-primary) 82%, var(--background));
+  background: color-mix(in srgb, var(--text-primary) 82%, var(--background));
+}
+.shareButton:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--text-primary) 32%, transparent);
+  outline-offset: 2px;
+}
+.syncRow {
+  min-width: 0;
+  color: var(--text-secondary);
 }

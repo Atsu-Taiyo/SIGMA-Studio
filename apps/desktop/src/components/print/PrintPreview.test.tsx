@@ -7,7 +7,6 @@ import {
   paginateMeasuredPrintBlocks,
   PrintPreview,
   PrintPreviewPageNavigator,
-  PrintPreviewThumbnail,
   translateNestedMeasuredBlock,
   type PrintContentUnit,
 } from "@/components/print/PrintPreview";
@@ -435,23 +434,6 @@ describe("PrintPreview layout modes", () => {
     expect(html).toContain("--sigma-doc-box-notebook-frame-height:57.35px");
     expect(html).toContain("--sigma-doc-box-notebook-ring-count:1");
     expect(html).not.toContain("--sigma-doc-box-notebook-line-gap");
-  });
-});
-
-describe("PrintPreviewThumbnail", () => {
-  it("renders only the first printable page with page sizing and math content", () => {
-    const html = renderToStaticMarkup(
-      <PrintPreviewThumbnail document={thumbnailDocument()} />,
-    );
-    const previewHtml = html.split('<div class="print-measure-layer"')[0] ?? html;
-
-    expect(html).toContain('data-print-preview-thumbnail="true"');
-    expect(html).toContain('data-print-preview-max-pages="1"');
-    expect(previewHtml.match(/class="print-a4-page"/g) ?? []).toHaveLength(1);
-    expect(previewHtml).toContain('data-sigma-doc-id="thumbnail_heading"');
-    expect(previewHtml).toContain("math-preview");
-    expect(html).toContain("--print-page-width:182mm");
-    expect(html).toContain("--print-page-height:257mm");
   });
 });
 
@@ -1709,30 +1691,6 @@ describe("PrintPreview print pagination", () => {
     expect(renderedNoteBodyIds).toContain("layout_split_note_body_18");
   });
 });
-
-function thumbnailDocument(): SigmaDocument {
-  return documentWithColumns(1, [
-    {
-      type: "heading",
-      id: "thumbnail_heading",
-      level: 2,
-      children: [
-        { type: "text", text: "二次関数の確認" },
-        { type: "mathInline", id: "thumbnail_math", tex: "y=ax^2", display: "inline" },
-      ],
-    },
-    paragraph("thumbnail_body", "グラフの形と係数の関係を確認する。"),
-    ...Array.from({ length: 80 }, (_, index) => (
-      paragraph(`thumbnail_tail_${index}`, `追加問題 ${index + 1}`)
-    )),
-  ], {
-    preset: "B5",
-    orientation: "portrait",
-    pageSize: { widthMm: 182, heightMm: 257 },
-    marginsMm: { top: 18, right: 16, bottom: 18, left: 16 },
-    flow: { type: "columns", columnCount: 1, columnGapMm: 0 },
-  });
-}
 
 function documentWithColumns(
   columnCount: number,

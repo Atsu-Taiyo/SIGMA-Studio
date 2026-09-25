@@ -130,9 +130,12 @@ it("admin manages editor/viewer but cannot change admins or stop the root; offli
   act(() => root.render(<WorkspaceSharingDialog target={{ source: "shared", shared: details.target }} name="授業" onClose={vi.fn()} onChanged={vi.fn()} />));
   await settle();
   expect(document.body.textContent).toContain("学校から継承：管理者");
-  expect(document.querySelector('[aria-label="editor@example.test 参加者"]')).toBeTruthy();
-  expect(document.querySelector('[aria-label="admin@example.test 参加者"]')).toBeNull();
-  expect(document.querySelector('[aria-label="inherited@example.test 参加者"]')).toBeNull();
+  expect(document.querySelector('[aria-label="editor@example.test の権限"]')).toBeTruthy();
+  expect(document.querySelector('[aria-label="admin@example.test の権限"]')).toBeNull();
+  expect(document.querySelector('[aria-label="inherited@example.test の権限"]')).toBeNull();
+  // Each role is stated once; the old "effective access" and "direct access" lines are gone.
+  expect(document.body.textContent).not.toContain("実効権限");
+  expect(document.body.textContent).not.toContain("直接の権限");
   expect(document.body.textContent).not.toContain("共有を停止"); expect(document.body.textContent).not.toContain("サーバーから削除");
   vi.mocked(f.catalog.details).mockRejectedValue(new Error("OFFLINE"));
   await act(async () => f.change({ state: "offline", actorId: "owner", revision: 1 })); await settle();
@@ -150,8 +153,21 @@ it("join retains the submitted token through Google authentication", async () =>
   act(() => root.render(<WorkspaceJoinDialog onClose={vi.fn()} onJoined={onJoined} />));
   const input = document.querySelector("input")!;
   await act(async () => { Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(input, "  original-token  "); input.dispatchEvent(new Event("input", { bubbles: true })); });
-  await click(button("招待に参加"));
+  await click(button("参加する"));
   expect(f.signInWithGoogle).toHaveBeenCalledOnce(); expect(f.catalog.join).toHaveBeenCalledWith("original-token"); expect(onJoined).toHaveBeenCalledWith(result);
+});
+
+it("a full share tells the invitee why joining failed instead of offering a plan", async () => {
+  const { WorkspaceJoinDialog } = await import("./WorkspaceJoinDialog");
+  const f = setupCatalog();
+  vi.mocked(bridgeModule.getDesktopBridge()!.collaboration!.info).mockResolvedValue({ configured: true, user: { actorId: "guest" }, sessions: [], restrictedFileIds: [] } as never);
+  vi.mocked(f.catalog.join).mockRejectedValue(new Error("Error invoking remote method 'shared-catalog:join': Error: PARTICIPANT_LIMIT"));
+  act(() => root.render(<WorkspaceJoinDialog onClose={vi.fn()} onJoined={vi.fn()} />));
+  const input = document.querySelector("input")!;
+  await act(async () => { Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(input, "token"); input.dispatchEvent(new Event("input", { bubbles: true })); });
+  await click(button("参加する"));
+  expect(document.querySelector('[role="alert"]')?.textContent).toContain("参加人数が上限");
+  expect(document.querySelectorAll('[role="dialog"]')).toHaveLength(1);
 });
 
 it("unconfigured desktop never starts a Google authentication attempt", async () => {
@@ -172,24 +188,64 @@ it("a valid target can be shared after automatic login without changing its iden
 });
 
 describe("Pro paywall entry", () => {
-  const free = { canStartDocumentShare: true, documentShareSource: "free" as const, hierarchySharingEnabled: true, canStartHierarchyShare: false, hierarchyShareSource: "none" as const };
-  it("replaces workspace and folder sharing start with the Pro paywall for a free owner", async () => {
+  const free = { canStartDocumentShare: true, documentShareSource: "free" as const, hierarchySharingEnabled: true, canStartHierarchyShare: false, hierarchyShareSource: "none" as const, participantLimit: 1 };
+  const dialogs = () => Array.from(document.querySelectorAll('[role="dialog"]'));
+  it("opens the paywall at once, with the reason, when a free owner shares a folder", async () => {
     const f = setupCatalog();
     f.change({ state: "ready", actorId: "owner", revision: 1, capabilities: free });
+    const onClose = vi.fn();
     const local = { kind: "folder" as const, workspaceId: "w", folderId: "f" };
-    act(() => root.render(<WorkspaceSharingDialog target={{ source: "local", local }} name="数学" onClose={vi.fn()} onChanged={vi.fn()} />));
+    act(() => root.render(<WorkspaceSharingDialog target={{ source: "local", local }} name="数学" onClose={onClose} onChanged={vi.fn()} />));
     await settle();
-    expect(Array.from(document.querySelectorAll("button")).some((item) => item.textContent === "共有を開始")).toBe(false);
-    expect(document.body.textContent).toContain("ワークスペースとフォルダの共有はProプランの機能です。");
-    expect(document.body.textContent).not.toContain("この項目の共有を開始できません。");
-    await click(button("Proプランを見る"));
-    const dialogs = document.querySelectorAll('[role="dialog"]');
-    expect(dialogs).toHaveLength(2);
-    expect(dialogs[1].textContent).toContain("$9");
-    expect(dialogs[1].textContent).toContain("教材ごとに閲覧者を含め15人まで招待（所有者を除く）");
+    expect(dialogs()).toHaveLength(1);
+    expect(dialogs()[0].querySelector("h2")?.textContent).toBe("フォルダとワークスペースは共有できません");
+    expect(dialogs()[0].textContent).toContain("フォルダやワークスペースごとの共有はProプランの機能です。");
+    expect(dialogs()[0].textContent).toContain("$9");
+    expect(dialogs()[0].textContent).toContain("教材ごとに閲覧者を含め15人まで招待（所有者を除く）");
     expect(f.catalog.start).not.toHaveBeenCalled();
     await act(async () => { document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })); });
-    expect(document.querySelectorAll('[role="dialog"]')).toHaveLength(1);
+    expect(onClose).toHaveBeenCalled();
+  });
+  it("opens the paywall at once when the free document share is already used", async () => {
+    const f = setupCatalog();
+    f.change({ state: "ready", actorId: "owner", revision: 1, capabilities: { ...free, canStartDocumentShare: false } });
+    act(() => root.render(<WorkspaceSharingDialog target={{ source: "local", local: { kind: "document", fileId: "d" } }} name="問題" onClose={vi.fn()} onChanged={vi.fn()} />));
+    await settle();
+    expect(dialogs()).toHaveLength(1);
+    expect(dialogs()[0].querySelector("h2")?.textContent).toBe("この教材は共有できません");
+    expect(dialogs()[0].textContent).toContain("同時に共有できる教材は1件です");
+  });
+  it("turns a plan-limit failure from the server into the paywall instead of an error line", async () => {
+    const f = setupCatalog();
+    f.change({ state: "ready", actorId: "owner", revision: 1, capabilities: free });
+    vi.mocked(f.catalog.start).mockRejectedValue(new Error("Error invoking remote method 'shared-catalog:start': Error: DOCUMENT_LIMIT"));
+    act(() => root.render(<WorkspaceSharingDialog target={{ source: "local", local: { kind: "document", fileId: "d" } }} name="問題" onClose={vi.fn()} onChanged={vi.fn()} />));
+    await settle();
+    await click(button("共有を開始"));
+    expect(dialogs()).toHaveLength(2);
+    expect(dialogs()[1].querySelector("h2")?.textContent).toBe("この教材は共有できません");
+    expect(document.querySelector('[role="alert"]')).toBeNull();
+  });
+  it("opens the paywall when a free owner invites a second participant or picks the admin role", async () => {
+    const f = setupCatalog();
+    f.change({ state: "ready", actorId: "owner", revision: 1, capabilities: free });
+    const member = { userId: "owner", email: "owner@example.test", role: "owner", direct: true, directRole: "owner", inheritanceSources: [], hasHiddenInheritance: false };
+    const details = { target: { kind: "document", catalogNodeId: "node" }, name: "問題", sharing: { role: "owner", placement: "owned", capabilities: { invite: true, manageEditorViewer: true, appointAdmin: false, stopRootShare: true, deleteRootShare: true } },
+      members: [member, { ...member, userId: "editor", email: "editor@example.test", role: "editor", directRole: "editor" }] } as unknown as CatalogSharingDetails;
+    vi.mocked(f.catalog.details).mockResolvedValue(details);
+    act(() => root.render(<WorkspaceSharingDialog target={{ source: "shared", shared: details.target }} name="問題" onClose={vi.fn()} onChanged={vi.fn()} />));
+    await settle();
+    await click(button("招待コードを作成"));
+    expect(f.catalog.invite).not.toHaveBeenCalled();
+    expect(dialogs()[1].querySelector("h2")?.textContent).toBe("これ以上招待できません");
+    await act(async () => { document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })); });
+    expect(dialogs()).toHaveLength(1);
+
+    await click(document.querySelector('[aria-label="招待する人の権限"]')!);
+    const admin = Array.from(document.querySelectorAll('[role="option"]')).find((option) => option.textContent?.startsWith("管理者"))!;
+    expect(admin.textContent).toContain("Pro");
+    await click(admin);
+    expect(dialogs()[1].querySelector("h2")?.textContent).toBe("管理者を設定できません");
   });
   it("keeps individual documents free and disabled servers out of the paywall", async () => {
     const f = setupCatalog();
@@ -197,12 +253,12 @@ describe("Pro paywall entry", () => {
     act(() => root.render(<WorkspaceSharingDialog target={{ source: "local", local: { kind: "document", fileId: "d" } }} name="問題" onClose={vi.fn()} onChanged={vi.fn()} />));
     await settle();
     expect(button("共有を開始").disabled).toBe(false);
-    expect(document.body.textContent).not.toContain("Proプランを見る");
+    expect(dialogs()).toHaveLength(1);
     f.change({ state: "ready", actorId: "owner", revision: 1, capabilities: { ...free, canStartDocumentShare: true, documentShareSource: "free" as const, hierarchySharingEnabled: false } });
     act(() => root.render(<WorkspaceSharingDialog target={{ source: "local", local: { kind: "workspace", workspaceId: "w" } }} name="授業" onClose={vi.fn()} onChanged={vi.fn()} />));
     await settle();
     expect(button("共有を開始").disabled).toBe(true);
     expect(document.body.textContent).toContain("この項目の共有を開始できません。");
-    expect(document.body.textContent).not.toContain("Proプランを見る");
+    expect(dialogs()).toHaveLength(1);
   });
 });

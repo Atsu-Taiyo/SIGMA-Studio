@@ -6,8 +6,7 @@ import { WorkspaceFileCardPreview } from "./WorkspaceFileCardPreview";
 import { loadWorkspacePreviewDocument } from "@/lib/workspace-repository";
 import { lookupWorkspacePreviewImage } from "@/lib/workspace-preview-image";
 
-vi.mock("@/components/print/PrintPreview", () => ({ PrintPreviewThumbnail: () => null }));
-vi.mock("@/components/print/rasterize-print-thumbnail", () => ({ rasterizePrintPageTopHalf: vi.fn() }));
+vi.mock("@/components/print/paged-render/PagedThumbnailRenderer", () => ({ PagedThumbnailRenderer: () => null }));
 vi.mock("@/lib/workspace-repository", () => ({ loadWorkspacePreviewDocument: vi.fn().mockResolvedValue(null) }));
 vi.mock("@/lib/workspace-preview-image", () => ({ lookupWorkspacePreviewImage: vi.fn(), persistWorkspacePreviewImage: vi.fn() }));
 let root: Root;

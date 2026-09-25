@@ -110,12 +110,6 @@ interface PrintPreviewProps {
 
 export type PrintPreviewDisplayMode = "vertical" | "spread" | "grid";
 
-interface PrintPreviewThumbnailProps {
-  document: SigmaDocument;
-  profile?: OutputProfileName;
-  maxPages?: number | "all";
-}
-
 interface PrintPreviewPageNavigatorProps {
   document: SigmaDocument;
   profile?: OutputProfileName;
@@ -149,21 +143,6 @@ export interface SigmaDocPrintSurfaceProps {
 export function PrintPreview(props: PrintPreviewProps) {
   useCustomFonts();
   return <PrintPreviewSurface {...props} />;
-}
-
-export function PrintPreviewThumbnail({ document, profile = "teacher", maxPages = 1 }: PrintPreviewThumbnailProps) {
-  const resolvedMaxPages = maxPages === "all" ? undefined : maxPages;
-  return (
-    <div className="print-preview-thumbnail" data-print-preview-thumbnail="true">
-      <PrintPreviewSurface
-        document={document}
-        profile={profile}
-        displayMode="vertical"
-        maxPages={resolvedMaxPages}
-        stackClassName="print-page-thumbnail-stack"
-      />
-    </div>
-  );
 }
 
 export function PrintPreviewPageNavigator({
