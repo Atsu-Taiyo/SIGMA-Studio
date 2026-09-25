@@ -109,3 +109,12 @@ Pull Requestとmainへのpushでは [Checks](.github/workflows/checks.yml) が�
 CI定義の検査、GitHub上の実行、同梱Electronでのネイティブ機能確認、公開版・インストール済みアプリの確認は
 それぞれ分けて報告します。保存ロックを変更した場合の配布物検査と対応OSの確認も下記の配布手順に従います。
 リリース手順は [配布手順](docs/distribution.md) にあります。
+
+### 共同編集を有効にした開発起動
+
+`npm run electron:dev` はリポジトリ直下の `.env.collaboration-desktop.local` から
+`SIGMA_COLLABORATION_URL`・`SIGMA_SUPABASE_URL`・`SIGMA_SUPABASE_ANON_KEY` の3項目だけを読み込みます。
+既に指定された環境変数を優先し、保存先は従来の `tmp/desktop-dev-profile` を維持します。
+ローカルバックエンド用の `.env.collaboration.local` は自動では読みません。
+それを使う場合はバックエンドを起動した上で
+`SIGMA_STUDIO_COLLABORATION_ENV_FILE=.env.collaboration.local npm run electron:dev` と指定してください。

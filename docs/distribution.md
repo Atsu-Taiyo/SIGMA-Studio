@@ -67,3 +67,13 @@ node scripts/audit-npm-tarballs.mjs tmp/npm-packages
 公開時はOIDC対応のnpm CLIを確認し、Viewer、Editorの順に検証済みtgzを直接公開します。
 workspaceのprepackによる再ビルドは行いません。既存版はスキップしますが、registryの通信障害を
 「未公開」と扱わず停止します。初回手動公開のためにアプリ配布用タグを打ち直す必要はありません。
+
+## 配布アプリの共同編集設定
+
+ReleaseワークフローはGitHub Secretsの `SIGMA_COLLABORATION_URL`、`SIGMA_SUPABASE_URL`、
+`SIGMA_SUPABASE_ANON_KEY` をElectronビルドへ渡し、main bundleにクライアント用の既定値として同梱します。
+配布後の通常起動で環境変数を指定する必要はありません。実行時に同名の環境変数があれば優先します。
+URLは公開HTTPS origin、キーはSupabase publishable/anonキーに限定します。
+この3項目は配布物から読める公開設定であり、service-roleキー・Google client secret・個人の認証トークンを同梱してはいけません。
+`SIGMA_STUDIO_REQUIRE_COLLABORATION_CONFIG=true` のReleaseビルドは設定が欠落・不正なら停止します。
+通常のChecksワークフローには変更を加えず、設定の埋め込みはReleaseビルドのみで行います。

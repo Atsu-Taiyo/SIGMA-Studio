@@ -6,11 +6,12 @@ import { randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { buildElectron } from './build-electron.mjs';
+import { developmentCollaborationEnv } from './collaboration-build-config.mjs';
 
 const require = createRequire(import.meta.url);
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const repository = path.resolve(root, '../..');
-const env = { ...process.env };
+const env = developmentCollaborationEnv(repository);
 delete env.ELECTRON_RUN_AS_NODE;
 delete env.NEXT_PUBLIC_TARGET;
 const session = randomUUID();
