@@ -18,6 +18,7 @@ export interface CatalogSessionsPort {
   bindings(): { fileId: string; sharedDocumentId: string; actorId: string; docId?: string }[];
   has(fileId: string): boolean;
   open(fileId: string, sharedDocumentId: string): Promise<SigmaDocument>;
+  preview?(fileId: string, sharedDocumentId: string): Promise<SigmaDocument>;
   initialize(fileId: string, sharedDocumentId: string, operationId: string, document: SigmaDocument, staged?: boolean): Promise<void>;
   activate(fileIds: string[]): Promise<void>;
   start(fileId: string, document: SigmaDocument): Promise<unknown>;
@@ -186,6 +187,17 @@ export class DesktopSharedCatalog {
       if (workspace.id !== projected.activeWorkspaceId) results.push(...this.cache.project(local, workspace.id, hidden).files);
     }
     return results;
+  }
+  async preview(fileId: string): Promise<SigmaDocument | null> {
+    await this.account();
+    const node = this.find(fileId, "document");
+    if (!node || node.state !== "active" || !node.sharedDocumentId || !this.sessions.preview) return null;
+    const cache = this.cache!;
+    const document = await this.sessions.preview(fileId, node.sharedDocumentId);
+    this.checkAccount(cache);
+    const current = this.find(fileId, "document");
+    if (current?.state !== "active" || current.id !== node.id || current.sharedDocumentId !== node.sharedDocumentId) return null;
+    return document;
   }
   async read(fileId: string): Promise<SigmaDocument | undefined> {
     await this.account();

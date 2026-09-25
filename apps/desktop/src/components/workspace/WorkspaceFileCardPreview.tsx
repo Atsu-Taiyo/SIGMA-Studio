@@ -4,7 +4,7 @@ import { FileText } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { PagedThumbnailRenderer } from "@/components/print/paged-render/PagedThumbnailRenderer";
-import { loadWorkspacePreviewDocument } from "@/lib/workspace-repository";
+import { loadWorkspacePreviewDocument, loadSharedWorkspacePreviewDocument } from "@/lib/workspace-repository";
 import {
   lookupWorkspacePreviewImage,
   persistWorkspacePreviewImage,
@@ -27,10 +27,27 @@ export function WorkspaceFileCardPreview({
   fileId: string;
   revision: number;
   updatedAt?: string;
-  /** Shared cards use saved thumbnails; listing must not open a body session. */
+  /** Shared cards use read-only snapshots; listing must not open an editing session. */
   allowDocumentLoad?: boolean;
 }) {
-  const previewKey = `${fileId}:${revision}`;
+  const [generation, setGeneration] = useState(0);
+  const previewKey = `${fileId}:${revision}:${generation}`;
+  useEffect(() => {
+    if (allowDocumentLoad) return;
+    let timer = 0;
+    const refresh = () => {
+      window.clearTimeout(timer);
+      timer = window.setTimeout(() => setGeneration(value => value + 1), 300);
+    };
+    const unsubscribe = window.desktopAPI?.collaboration?.onEvent(event => {
+      if (event.fileId === fileId && ["update", "reset", "asset-ready", "status"].includes(event.type)) refresh();
+    });
+    const unsubscribeCatalog = window.desktopAPI?.sharedCatalog?.onChange(() => {
+      // Clear the visible image immediately on account or permission changes.
+      setGeneration(value => value + 1);
+    });
+    return () => { window.clearTimeout(timer); unsubscribe?.(); unsubscribeCatalog?.(); };
+  }, [allowDocumentLoad, fileId]);
   const rootRef = useRef<HTMLDivElement | null>(null);
   const [preview, setPreview] = useState<WorkspaceFilePreviewState>(() => ({
     key: previewKey,
@@ -43,13 +60,13 @@ export function WorkspaceFileCardPreview({
     : { key: previewKey, status: "idle" as const, imageUrl: null, document: null };
 
   const handleRendered = useCallback((dataUrl: string) => {
-    void persistWorkspacePreviewImage(fileId, revision, dataUrl);
+    if (allowDocumentLoad) void persistWorkspacePreviewImage(fileId, revision, dataUrl);
     setPreview((current) => (
       current.key === previewKey
         ? { key: previewKey, status: "ready", imageUrl: dataUrl, document: null }
         : current
     ));
-  }, [fileId, previewKey, revision]);
+  }, [allowDocumentLoad, fileId, previewKey, revision]);
 
   const handleRenderFailed = useCallback(() => {
     setPreview((current) => (
@@ -65,7 +82,9 @@ export function WorkspaceFileCardPreview({
 
     const loadPreview = async () => {
       setPreview({ key: previewKey, status: "loading", imageUrl: null, document: null });
-      const cached = await lookupWorkspacePreviewImage(fileId, revision);
+      // Shared metadata revisions do not track every CRDT edit. Never reuse a
+      // persistent revision-only thumbnail across account changes or remote edits.
+      const cached = allowDocumentLoad ? await lookupWorkspacePreviewImage(fileId, revision) : null;
       if (cancelled) {
         return;
       }
@@ -73,11 +92,9 @@ export function WorkspaceFileCardPreview({
         setPreview({ key: previewKey, status: "ready", imageUrl: cached, document: null });
         return;
       }
-      if (!allowDocumentLoad) {
-        setPreview({ key: previewKey, status: "idle", imageUrl: null, document: null });
-        return;
-      }
-      const document = await loadWorkspacePreviewDocument(fileId);
+      const document = allowDocumentLoad
+        ? await loadWorkspacePreviewDocument(fileId)
+        : await loadSharedWorkspacePreviewDocument(fileId);
       if (cancelled) {
         return;
       }
