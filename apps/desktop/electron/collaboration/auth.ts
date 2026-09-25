@@ -32,10 +32,13 @@ function secureStorageAvailable(): boolean {
         )))
   );
 }
+// Replaced only by the Electron build. Unit tests and source execution have no defaults.
+declare const __SIGMA_COLLABORATION_DEFAULTS__: Record<string, string> | null;
 export function collaborationConfig(): CollaborationConfig | null {
-  const apiUrl = process.env.SIGMA_COLLABORATION_URL;
-  const authUrl = process.env.SIGMA_SUPABASE_URL;
-  const publicKey = process.env.SIGMA_SUPABASE_ANON_KEY;
+  const defaults = typeof __SIGMA_COLLABORATION_DEFAULTS__ === "undefined" ? null : __SIGMA_COLLABORATION_DEFAULTS__;
+  const apiUrl = process.env.SIGMA_COLLABORATION_URL ?? defaults?.SIGMA_COLLABORATION_URL;
+  const authUrl = process.env.SIGMA_SUPABASE_URL ?? defaults?.SIGMA_SUPABASE_URL;
+  const publicKey = process.env.SIGMA_SUPABASE_ANON_KEY ?? defaults?.SIGMA_SUPABASE_ANON_KEY;
   if (!apiUrl || !authUrl || !publicKey) return null;
   try {
     for (const address of [apiUrl, authUrl]) {

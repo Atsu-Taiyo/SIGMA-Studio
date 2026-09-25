@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { build, context } from "esbuild";
+import { releaseCollaborationDefaults } from "./collaboration-build-config.mjs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import { readFileSync } from "node:fs";
@@ -36,6 +37,7 @@ const common = {
 export async function buildElectron({ watch = false, onBuilt } = {}) {
   const options = {
     ...common,
+    define: { __SIGMA_COLLABORATION_DEFAULTS__: JSON.stringify(releaseCollaborationDefaults()) },
     entryPoints: {
       main: path.join(root, "electron/main.ts"),
       preload: path.join(root, "electron/preload.ts"),

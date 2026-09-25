@@ -65,6 +65,10 @@ jobs:
         env:
           # TypeScript validation exceeds Node 20's default ~2 GiB heap on macOS.
           NODE_OPTIONS: --max-old-space-size=4096
+          SIGMA_STUDIO_REQUIRE_COLLABORATION_CONFIG: "true"
+          SIGMA_COLLABORATION_URL: ${{ secrets.SIGMA_COLLABORATION_URL }}
+          SIGMA_SUPABASE_URL: ${{ secrets.SIGMA_SUPABASE_URL }}
+          SIGMA_SUPABASE_ANON_KEY: ${{ secrets.SIGMA_SUPABASE_ANON_KEY }}
 
       - name: Build and publish installer
         working-directory: apps/desktop

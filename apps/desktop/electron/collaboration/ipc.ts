@@ -35,8 +35,7 @@ export function registerCollaborationIpc(
     await catalog?.recoverPending();
   });
   handle("cancel-sign-in", () => {
-    if (!sessions.auth) throw new Error("COLLABORATION_NOT_CONFIGURED");
-    sessions.auth.cancelSignIn();
+    sessions.auth?.cancelSignIn();
   });
   handle("sign-out", async () => { const pending = sessions.signOut(); await catalog?.status(); await pending; });
   handle("start", async (id, document) => {

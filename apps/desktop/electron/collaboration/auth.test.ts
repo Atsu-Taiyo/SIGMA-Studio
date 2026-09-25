@@ -89,3 +89,16 @@ it("rejects overlapping logins and cancels before exchanging any code", async ()
   await expect(pending).rejects.toThrow("AUTH_CANCELLED");
   expect(request).not.toHaveBeenCalled();
 });
+it("uses bundled public settings without runtime environment and honors explicit overrides", () => {
+  for (const name of ["SIGMA_COLLABORATION_URL", "SIGMA_SUPABASE_URL", "SIGMA_SUPABASE_ANON_KEY"]) vi.stubEnv(name, undefined);
+  vi.stubGlobal("__SIGMA_COLLABORATION_DEFAULTS__", {
+    SIGMA_COLLABORATION_URL: "https://shipped.example.test",
+    SIGMA_SUPABASE_URL: "https://auth.example.test",
+    SIGMA_SUPABASE_ANON_KEY: "sb_publishable_shipped",
+  });
+  expect(collaborationConfig()).toEqual({ apiUrl: "https://shipped.example.test", authUrl: "https://auth.example.test", publicKey: "sb_publishable_shipped" });
+  vi.stubEnv("SIGMA_COLLABORATION_URL", "https://override.example.test");
+  expect(collaborationConfig()?.apiUrl).toBe("https://override.example.test");
+  vi.stubEnv("SIGMA_COLLABORATION_URL", "");
+  expect(collaborationConfig()).toBeNull();
+});
