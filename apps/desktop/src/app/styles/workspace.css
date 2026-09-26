@@ -1758,11 +1758,11 @@ nav.app-menu-list[inert] *,
 }
 
 .workspace-tab-split--row {
-  grid-template-columns: minmax(240px, 1fr) 8px minmax(240px, 1fr);
+  grid-template-columns: minmax(0, 1fr) 8px minmax(0, 1fr);
 }
 
 .workspace-tab-split--column {
-  grid-template-rows: minmax(180px, 1fr) 8px minmax(180px, 1fr);
+  grid-template-rows: minmax(0, 1fr) 8px minmax(0, 1fr);
 }
 
 .workspace-tab-splitter {
