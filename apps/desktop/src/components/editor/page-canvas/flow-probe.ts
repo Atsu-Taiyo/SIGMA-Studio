@@ -165,7 +165,11 @@ export function probeFlow(flow: HTMLElement, options: FlowProbeOptions): ProbeTr
       return;
     }
 
-    const columnElements = Array.from(unitElement.querySelectorAll<HTMLElement>(".layout-section-independent-column[data-layout-column-index]"));
+    // 独立段組のユニット自身の列だけ。箱の中の段組 (同じ class を使う) を拾うと、そのユニットの
+    // 本文ブロックを丸ごと見失う。
+    const columnElements = Array.from(unitElement.querySelectorAll<HTMLElement>(
+      ":scope > .layout-section-paper-body > .layout-section-independent-columns > .layout-section-independent-column[data-layout-column-index]",
+    ));
     let nodes: ProbeNode[] = [];
     let columns: ProbeColumn[] | undefined;
     if (columnElements.length > 0) {
