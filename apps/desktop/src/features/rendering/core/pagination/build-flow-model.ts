@@ -61,6 +61,12 @@ interface Band {
 
 /** 重なり判定の許容。丸めで 1px 未満触れているだけの行は別の行として扱う。 */
 const OVERLAP_TOLERANCE_PX = 1;
+/**
+ * 同じ行とみなす重なりの割合 (小さい方の高さに対して)。文字の矩形はフォントの ascent+descent で、
+ * 行送りが詰まった段落 (line-height が文字の高さより小さい) では隣の行の矩形と重なる。
+ * 少し触れているだけの重なりで同じ行にすると、段落全体が 1 行になって分割できなくなる。
+ */
+const SAME_LINE_OVERLAP_RATIO = 0.5;
 
 export function groupInkIntoBands(ink: readonly Pick<ProbeInk, "top" | "bottom">[]): Band[] {
   const sorted = ink
@@ -70,10 +76,25 @@ export function groupInkIntoBands(ink: readonly Pick<ProbeInk, "top" | "bottom">
   const bands: Band[] = [];
   for (const item of sorted) {
     const last = bands.at(-1);
-    if (last && item.top < last.bottom - OVERLAP_TOLERANCE_PX) {
+    const overlap = last ? Math.min(last.bottom, item.bottom) - item.top : 0;
+    const required = last
+      ? Math.max(OVERLAP_TOLERANCE_PX, SAME_LINE_OVERLAP_RATIO * Math.min(item.bottom - item.top, last.bottom - last.top))
+      : 0;
+    if (last && overlap > required) {
       last.bottom = Math.max(last.bottom, item.bottom);
     } else {
       bands.push({ ...item });
+    }
+  }
+  // 重なったまま別の行になった隣どうしは、重なりの中ほどを境にする (行ボックスの境に当たる)。
+  // 境をずらさないと、前の行の下端で切ったときに次の行の頭が前のページに覗く。
+  for (let index = 1; index < bands.length; index += 1) {
+    const previous = bands[index - 1];
+    const current = bands[index];
+    if (previous.bottom > current.top) {
+      const boundary = (previous.bottom + current.top) / 2;
+      previous.bottom = boundary;
+      current.top = boundary;
     }
   }
   return bands;
