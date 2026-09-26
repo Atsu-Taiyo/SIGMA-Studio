@@ -130,9 +130,11 @@ function SplitNodeView(props: SplitNodeViewProps) {
     <div
       ref={splitRef}
       className={`workspace-tab-split workspace-tab-split--${node.direction}`}
+      // Split eligibility enforces usable initial sizes. Existing nested splits
+      // must still fit their assigned area when the window shrinks.
       style={node.direction === "row"
-        ? { gridTemplateColumns: `minmax(240px, ${node.ratio}fr) 8px minmax(240px, ${1 - node.ratio}fr)` }
-        : { gridTemplateRows: `minmax(180px, ${node.ratio}fr) 8px minmax(180px, ${1 - node.ratio}fr)` }}
+        ? { gridTemplateColumns: `minmax(0, ${node.ratio}fr) 8px minmax(0, ${1 - node.ratio}fr)` }
+        : { gridTemplateRows: `minmax(0, ${node.ratio}fr) 8px minmax(0, ${1 - node.ratio}fr)` }}
     >
       <SplitNodeView {...props} node={node.first} />
       <button
