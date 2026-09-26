@@ -1737,6 +1737,12 @@ nav.app-menu-list[inert] *,
 }
 
 .workspace-tab-group-grid {
+  /* Bound the root pane to the workspace. In a single-pane layout there is no
+     split wrapper to supply a height, so normal block flow would let the pane
+     grow with the whole document and clip it instead of scrolling its canvas. */
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
   min-width: 0;
   min-height: 0;
   overflow: hidden;
