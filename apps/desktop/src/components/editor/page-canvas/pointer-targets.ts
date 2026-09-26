@@ -282,7 +282,8 @@ export function neighborKind(block: SigmaBlock | null): BlockNeighborKind {
 
 /** A block a caret cannot step out of, so the gaps around it need their own way in. */
 export function isAtomicTopLevelBlock(block: SigmaBlock): boolean {
-  return block.type === "problem" || block.type === "boxBlock";
+  return block.type === "problem" || block.type === "boxBlock"
+    || block.type === "codeBlock" || block.type === "quote";
 }
 
 
