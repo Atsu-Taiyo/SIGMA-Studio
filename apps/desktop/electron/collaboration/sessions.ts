@@ -379,9 +379,16 @@ export class CollaborationSessions {
     void this.flush(fileId, true).catch(() => {});
     return this.describe(fileId);
   }
-  async recoverLocked(): Promise<{ saved: number; failed: number }> {
+  private recoveryTail: Promise<unknown> = Promise.resolve();
+  recoverLocked(): Promise<{ saved: number; failed: number }> {
     const actor = this.actorId();
-    if (!actor) throw new Error("AUTH_REQUIRED");
+    if (!actor) return Promise.reject(new Error("AUTH_REQUIRED"));
+    const run = this.recoveryTail.then(() => this.moveLockedToLocal(actor));
+    this.recoveryTail = run.catch(() => {});
+    return run;
+  }
+  private async moveLockedToLocal(actor: string): Promise<{ saved: number; failed: number }> {
+    if (actor !== this.actorId()) throw new Error("ACCOUNT_CHANGED");
     const documents = await this.request<{ id: string; title: string }[]>("/billing/locked");
     let savedCount = 0, failedCount = 0;
     for (const item of documents) {
@@ -404,9 +411,26 @@ export class CollaborationSessions {
         };
         const document = parseSigmaDocument(await replace(shared.project()));
         if (actor !== this.actorId()) throw new Error("ACCOUNT_CHANGED");
+        // Stable identity makes a failed online deletion retryable after restart
+        // without repeatedly creating the same local copy.
+        const docId = `doc_recovered_${createHash("sha256").update(JSON.stringify([actor, item.id, snapshot.state])).digest("hex")}`;
         await this.local.withLocalLibrary(async () => {
-          await this.local.createFileFromDocument({ document: { ...document, docId: `doc_${randomUUID()}` } });
+          const candidates = (await this.local.listFiles()).filter(file => file.docId === docId);
+          let verified = false;
+          for (const file of candidates) {
+            const saved = await this.local.loadDocument(file.fileId).catch(() => null);
+            if (saved && areSigmaDocumentsEquivalent(saved, { ...document, docId, metadata: { ...document.metadata, title: saved.metadata.title } })) { verified = true; break; }
+          }
+          if (!verified) {
+            const created = await this.local.createFileFromDocument({ document: { ...document, docId } });
+            const saved = await this.local.loadDocument(created.file.fileId);
+            if (!saved || !areSigmaDocumentsEquivalent(saved, created.document)) throw new Error("LOCAL_RECOVERY_VERIFY_FAILED");
+          }
         });
+        if (actor !== this.actorId()) throw new Error("ACCOUNT_CHANGED");
+        // Only retire the server document after its complete local body/assets
+        // were saved and read back successfully. Server deletion is owner-only.
+        await this.request(`/documents/${item.id}/delete`, {});
       } finally { shared.destroy(); }
       savedCount++;
       } catch {

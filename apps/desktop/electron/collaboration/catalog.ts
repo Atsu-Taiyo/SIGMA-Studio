@@ -77,7 +77,11 @@ export class DesktopSharedCatalog {
     if (actor !== this.sessions.actorId()) throw new Error("ACCOUNT_CHANGED");
     return documents.length;
   }
-  async recoverLocked(): Promise<{ saved: number; failed: number }> { return this.sessions.recoverLocked(); }
+  async recoverLocked(): Promise<{ saved: number; failed: number }> {
+    const result = await this.sessions.recoverLocked();
+    await this.refresh();
+    return result;
+  }
   async status(): Promise<SharedCatalogStatus> { await this.account(); return { ...this.current }; }
   async setVisible(visible: boolean): Promise<void> {
     const generation = ++this.visibilityGeneration;

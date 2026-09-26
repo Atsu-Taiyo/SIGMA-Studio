@@ -79,8 +79,8 @@ export const chrome = {
       trialTerms: "First 7 days free, once per account. A card is required. Then $9 USD per owner per month, renewed automatically. Cancel before the period ends.",
       manageBilling: "Manage subscription and payment",
       paymentWarning: "Payment failed. Update your payment method within the 7-day grace period.",
-      recovery: "Save the latest locked documents to this device",
-      recovered: "Saved {{saved}} local copies. {{failed}} documents could not be saved.",
+      recovery: "Move locked documents to this device (remove from online)",
+      recovered: "Moved {{saved}} documents to this device. {{failed}} moves did not complete. Online documents are removed only after the move completes.",
 
       title: "Sigma Studio plans",
       description: "For teams that edit together, Pro is the way to go.",
