@@ -1,6 +1,7 @@
 import type { BlockExtent, MeasuredBlock } from "../overlay-canvas/anchor";
 import type { TextFlowBoxFragmentSourceLayout, TextFlowColumnBlockLayout } from "../text-flow/types";
 import type { SigmaDocument } from "@/features/document";
+import type { FlowDisplacement } from "@/features/rendering/core";
 import type { EditorBoxBlockFragmentLayout, FlowUnitLayout, ProblemAreaColumnLayout, ProblemAreaFrameFragmentLayout } from "./types";
 
 /** Identity of the committed layout inputs; never persisted in SigmaDoc. */
@@ -31,6 +32,16 @@ export interface PageLayoutSnapshot {
   textFlowBlockLayouts: Record<string, TextFlowColumnBlockLayout>;
   totalHeight: number;
   unitLayouts: Record<string, FlowUnitLayout>;
+  /** フロー直下のユニットの変位 (レイアウトに影響しない translate)。 */
+  unitDisplacements: Record<string, FlowDisplacement>;
+  /** 編集面の最上位ブロックの、ユニットからの相対変位。 */
+  nodeDisplacements: Record<string, FlowDisplacement>;
+  /** 複数の領域に分かれたユニットの、描かれた内容の末尾 (サイド注・リサイズつまみの位置)。 */
+  visualEnds: Record<string, number>;
+  /** 分かれたユニットのサイド注の見出しの位置 (最初の片の中ほど)。 */
+  sideNoteLabelYs: Record<string, number>;
+  /** 手動改ページの印の変位 (印を描く要素からの相対)。 */
+  markerDisplacements: Record<string, FlowDisplacement>;
 }
 
 export type FragmentGeometrySnapshot = Pick<PageLayoutSnapshot,

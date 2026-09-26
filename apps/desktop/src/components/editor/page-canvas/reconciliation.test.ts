@@ -101,7 +101,7 @@ describe("page-canvas TextFlow reconciliation", () => {
         borderColor: "#2563eb",
         titlePosition: "c",
       },
-      pagination: { keepWithNext: true },
+      pagination: { break: true },
     };
 
     const result = replaceProblemAreaRichBlocks(

@@ -19,7 +19,8 @@ test("flows a long solution through page columns and onto the next page", async 
 
   await expect.poll(async () => page.locator(".page-column-guides span").count()).toBeGreaterThan(0);
   await expect.poll(async () => page.locator(".page-backdrop .a4-page-sheet").count()).toBeGreaterThan(1);
-  await expect.poll(async () => page.locator('[data-problem-area="solution"] .text-flow-column-block').count()).toBe(12);
+  await expect.poll(async () => page.locator('[data-problem-area="solution"] [data-sigma-doc-id^="solution_flow_"]').count()).toBe(12);
+  await expect.poll(async () => page.locator('[data-problem-area="solution"] [data-flow-dy]').count()).toBeGreaterThan(0);
 
   const proof = await page.evaluate(() => {
     const canvas = document.querySelector<HTMLElement>(".page-canvas");
@@ -73,7 +74,8 @@ test("flows a long solution through page columns and onto the next page", async 
   });
 
   expect(proof.blockCount).toBe(12);
-  expect(proof.positionedBlocks).toBe(12);
+  // 段・ページへの配置は translate (レイアウトに影響しない変位)。絶対配置は使わない。
+  expect(proof.positionedBlocks).toBe(0);
   expect(proof.leftColumnBlocks).toBeGreaterThan(0);
   expect(proof.rightColumnBlocks).toBeGreaterThan(0);
   expect(proof.nextPageBlocks).toBeGreaterThan(0);

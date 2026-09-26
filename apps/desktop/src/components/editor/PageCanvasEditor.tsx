@@ -138,12 +138,24 @@ import  {
 } from "@/features/document";
 import { getShapeBounds, hitTestShape } from "@/features/drawing";
 import  {
+  buildFlowModel,
   getSafeProblemAreaMinHeightPx,
   createIndependentColumnLayout,
   getVisibleOverlayShapes,
+  placeFlow,
+  planFlowRender,
+  type FlowDisplacement,
   type OverlayPreviewStackLayer,
   type TextFlowColumnBlockLayout,
 } from "@/features/rendering/core";
+import {
+  createFlowProbeCache,
+  FLOW_BREAK_BEFORE_ATTRIBUTE,
+  FLOW_SPAN_ATTRIBUTE,
+  FLOW_DX_ATTRIBUTE,
+  FLOW_DY_ATTRIBUTE,
+  probeFlow,
+} from "./page-canvas/flow-probe";
 import { EDITOR_ZOOM_CHANGE_EVENT } from "@/features/rendering/adapters/editor-zoom-event";
 import  {
   bodyTextFlowBlockContainsId,
@@ -218,7 +230,6 @@ import type  {
 } from "./overlay-canvas/types";
 import { createResolvedOverlayView, type OverlayIdentityCache, type ResolvedOverlayView } from "./overlay-canvas/view-cache";
 import { OverlayShapeReadOnlyView, RemoteOverlayPresenceLayer } from "./OverlayCanvasEditorClient";
-import { buildAppliedGapIndex } from "./page-canvas/applied-gaps";
 import  {
   blockHitProbeColumnLeftPx,
   EMPTY_BLOCK_AFFORDANCE_HOVER,
@@ -260,7 +271,6 @@ import  {
   type OverlayPreviewPointerHandoff,
 } from "./page-canvas/caret-focus";
 import  {
-  computeColumnUnitLayouts,
   getColumnBreakBeforeBlockIdForContextMenu,
   getPageIndexForY,
   measureLocalColumnContextMenuLayout,
@@ -307,10 +317,6 @@ import  {
 import { resolveOverlayBleed } from "./page-canvas/overlay-bleed";
 import { formatMm } from "./page-canvas/page-layout-format";
 import  {
-  detectGapOscillation,
-  gapMapSignature,
-} from "./page-canvas/pagination-decisions";
-import  {
   getCanvasPointerPoint,
   getPageDoubleTapHit,
   getWhiteboardPointerPoint,
@@ -344,14 +350,11 @@ import  {
 import  {
   buildRenderUnits,
   getFlowLayoutStyle,
-  getFlowUnitStyle,
   getLayoutSectionColumnCount,
   getLayoutSectionColumnGapPx,
+  isFullSpanUnit,
   getPageColumnSideNoteOffsetPx,
-  getProblemAreaSideNoteOffsetPx,
-  getProblemAreaUnitGapKey,
   getSingleColumnProblemLayoutSectionMinHeightMm,
-  getTextFlowColumnBlockLayouts,
   pickTextFlowBoxFragmentSourceLayouts,
   pickTextFlowColumnBlockLayouts,
   pickUnitBreakGaps,
@@ -359,8 +362,6 @@ import  {
   reconcileRenderUnits,
 } from "./page-canvas/render-units";
 import { pageRunningRegionToTextFlowBlocks, replacePageRunningRegionTextFlow } from "./page-canvas/running-region-text-model";
-import { computeSingleColumnLayouts, measureSingleColumnLayoutInput } from "./page-canvas/single-column-layout";
-export { getBlockPaginationGapCarrier } from "./page-canvas/single-column-layout";
 import { SpaceAfterDragSession } from "./page-canvas/space-after-drag-session";
 import { waitForSpaceAfterCommitPaint } from "./page-canvas/space-after-commit-paint";
 import { resolveSpaceAfterDragPx, resolveSpaceAfterPreviewCohort, type SpaceAfterPreviewCohort } from "./page-canvas/space-after-preview";
@@ -444,8 +445,6 @@ interface BlockHandleSelection {
 
 const EMPTY_BLOCK_SELECTION: BlockHandleSelection = { ids: [], boxes: [] };
 
-/** 1 構造あたりの再ページ割りの上限。超えたら最後に採用した gap で固定する。 */
-const MAX_PAGINATION_PASSES = 8;
 
 interface ExtensionActionPopoverState {
   action: PageCanvasSelectionAction;
@@ -673,7 +672,9 @@ function PageCanvasEditorImpl({
   const visibleLayout = pageLayoutDraft ?? layout;
   const overlay = useMemo(() => layout.overlay ?? {}, [layout.overlay]);
   const metrics = useMemo(() => getPageMetrics(visibleLayout), [visibleLayout]);
-  const isColumnFlow = metrics.flow.columnCount > 1;
+  // 段組のページか。段組でも本文は段幅の自然フローとして置き、配置は変位で与える
+  // (1 段組と同じ描画・同じ計測・同じページ割り)。手動改ページは改段になる。
+  const isColumnPage = metrics.flow.columnCount > 1;
   const problemNumbers = useMemo(() => getProblemNumberMap(pageDocument.content), [pageDocument.content]);
   // 前回のユニット。打鍵のたびに `buildRenderUnits` は新しい配列を作るので、中身が変わって
   // いないユニットは前回のオブジェクトを使い回す (下流の memo が効くのはこれが前提)。
@@ -1037,7 +1038,7 @@ function PageCanvasEditorImpl({
   const canInsertContextMenuBreak = !!activeBodyContextMenu
     && canInsertManualBreakAtBlock(pageDocument, activeBodyContextMenu.blockId)
     && canInsertManualPageBreakAfterBlock(pageDocument.content, activeBodyContextMenu.blockId);
-  const contextMenuBreaksToColumn = resolveContextMenuBreaksToColumn(isColumnFlow, contextMenuLayoutSection);
+  const contextMenuBreaksToColumn = resolveContextMenuBreaksToColumn(isColumnPage, contextMenuLayoutSection);
   const problemContextMenuLayoutSection = problemContextMenu?.breakBlockId
     ? findContainingLayoutSection(pageDocument, problemContextMenu.breakBlockId)
     : null;
@@ -1057,7 +1058,7 @@ function PageCanvasEditorImpl({
   const canInsertProblemContextMenuBreak = !!problemContextMenu?.breakBlockId
     && canInsertManualBreakAtBlock(pageDocument, problemContextMenu.breakBlockId)
     && canInsertManualPageBreakAfterBlock(pageDocument.content, problemContextMenu.breakBlockId);
-  const problemContextMenuBreaksToColumn = resolveContextMenuBreaksToColumn(isColumnFlow, problemContextMenuLayoutSection);
+  const problemContextMenuBreaksToColumn = resolveContextMenuBreaksToColumn(isColumnPage, problemContextMenuLayoutSection);
   const problemContextMenuBlock = problemContextMenu?.breakBlockId
     ? findBlock(pageDocument, problemContextMenu.breakBlockId)
     : null;
@@ -1146,13 +1147,17 @@ function PageCanvasEditorImpl({
     boxBlockFragmentLayouts,
     boxFragmentSourceLayouts,
     frameFragmentLayouts,
-    gaps,
     paginationMarkerLayouts,
     pageCount,
     problemAreaColumnLayouts,
     textFlowBlockLayouts,
     totalHeight,
     unitLayouts,
+    unitDisplacements,
+    nodeDisplacements,
+    visualEnds,
+    sideNoteLabelYs,
+    markerDisplacements,
   } = layoutViewState;
   useLayoutEffect(() => {
     requestCaretKeeperReanchor();
@@ -1319,19 +1324,29 @@ function PageCanvasEditorImpl({
   // blocks whose size/zoom changed pay the cost of re-measuring (see
   // `measureFlowBlocks`). Survives every keystroke; self-prunes deleted blocks.
   const lineMeasureCacheRef = useRef<LineMeasureCache>(new Map());
+  const flowProbeCacheRef = useRef(createFlowProbeCache());
+  /** 変位が変わったことだけを理由に予約した測り直しが、まだ走っていない。 */
+  const displacementRemeasurePendingRef = useRef(false);
+  /** 直前に走った測り直しが、変位の変化だけを理由にしたものだった。 */
+  const lastRecomputeWasDisplacementRemeasureRef = useRef(false);
   const fontRevisionRef = useRef(0);
+  // 手動改ページは紙面の印ではなく文書から読む (PDF の出力面には印が描かれない)。
+  const breakBeforeIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const [id, block] of collectBlocksById(pageDocument.content)) {
+      if (block.type !== "listItem" && hasBreakBefore(block)) ids.add(id);
+    }
+    return ids;
+  }, [pageDocument.content]);
+  const breakBeforeIdsRef = useRef(breakBeforeIds);
+  useLayoutEffect(() => {
+    breakBeforeIdsRef.current = breakBeforeIds;
+  }, [breakBeforeIds]);
   const onReanchorOverlayRef = useRef(onReanchorOverlay);
   const lastHandledDeletionRef = useRef(0);
   const [bleed, setBleed] = useState({ x: 0, top: 0 });
   const previousBleedRef = useRef(bleed);
   const recomputeFrameRef = useRef<number | null>(null);
-  /** 直近の gap マップ署名 (最大 4)。往復は隣接 2 パスの比較では見えないので履歴で見る。 */
-  const paginationSignatureHistoryRef = useRef<string[]>([]);
-  const paginationPassCountRef = useRef(0);
-  /** 振動 or パス上限で固定した gap マップ。入力が変わるまでこれを使い続ける。 */
-  const frozenPaginationGapsRef = useRef<Record<string, number> | null>(null);
-  /** ガードが見ている入力。これが変わったら履歴もパス数も固定も無効になる。 */
-  const paginationInputRef = useRef<RenderUnit[] | null>(null);
   /**
    * 次の recompute で測り直す範囲。
    *
@@ -1600,14 +1615,22 @@ function PageCanvasEditorImpl({
     if (!flow) {
       return "unavailable";
     }
+    // 描かれていない本文 (display: none の中など、矩形がすべて 0) は測らない。0 の矩形から
+    // 「表示位置 − 与えた変位」を読むと、変位を与えるたびに自然位置が同じだけずれて、
+    // 測り直しが止まらない。描かれた時点で ResizeObserver が測り直しを起こす。
+    const flowRect = flow.getBoundingClientRect();
+    if (flowRect.width <= 0 || flowRect.height <= 0) {
+      return "unavailable";
+    }
+    const selfTriggered = displacementRemeasurePendingRef.current;
+    displacementRemeasurePendingRef.current = false;
+    lastRecomputeWasDisplacementRemeasureRef.current = selfTriggered;
 
     const zoomFactor = zoom / 100;
     const pageStride = pageHeightPx + PAGE_GAP_PX;
-    const incrementalEligible = canMeasureIncrementally(units, isColumnFlow);
-    const measuredAppliedGaps = incrementalEligible ? buildAppliedGapIndex(flow) : null;
-    const appliedSpacerSignature = measuredAppliedGaps
-      ? gapMapSignature(Object.fromEntries(measuredAppliedGaps.spacerHeightByBlockId))
-      : "";
+    const incrementalEligible = canMeasureIncrementally(units, false);
+    // 前回の計測を持ち越せるのは、描かれている変位が同じときだけ (変位が変われば表示位置が変わる)。
+    const appliedSpacerSignature = readFlowDisplacementSignature(flow);
 
     // 測り直す範囲を決める。前回の計測がそのまま使えるのは「同じズーム・同じ余白で、
     // 汚れたユニットより上」のブロックだけ。
@@ -1662,108 +1685,54 @@ function PageCanvasEditorImpl({
 
     let textPageCount = 1;
     let nextGaps = layoutViewStateRef.current.gaps;
-    let nextLayouts: Record<string, FlowUnitLayout> = {};
-    let nextBlockLayouts: Record<string, TextFlowColumnBlockLayout> = {};
+    const nextLayouts: Record<string, FlowUnitLayout> = {};
+    const nextBlockLayouts: Record<string, TextFlowColumnBlockLayout> = {};
     let nextBoxBlockFragmentLayouts: Record<string, EditorBoxBlockFragmentLayout[]> = {};
     let nextBoxFragmentSourceLayouts: Record<string, TextFlowBoxFragmentSourceLayout> = {};
     let nextFrameFragmentLayouts: Record<string, ProblemAreaFrameFragmentLayout[]> = {};
-    let nextMarkerLayouts: Record<string, FlowUnitLayout> = {};
-    let nextAreaLayouts: Record<string, ProblemAreaColumnLayout> = {};
+    const nextMarkerLayouts: Record<string, FlowUnitLayout> = {};
+    const nextAreaLayouts: Record<string, ProblemAreaColumnLayout> = {};
+    let nextUnitDisplacements: Record<string, FlowDisplacement> = {};
+    let nextNodeDisplacements: Record<string, FlowDisplacement> = {};
+    let nextVisualEnds: Record<string, number> = {};
+    let nextSideNoteLabelYs: Record<string, number> = {};
+    let nextMarkerDisplacements: Record<string, FlowDisplacement> = {};
 
-    if (isColumnFlow) {
-      const columnLayouts = measurePerformance(
-        "PageCanvasEditor.computeColumnUnitLayouts",
-        () => computeColumnUnitLayouts(
-          flow,
-          units,
-          metrics,
-          pageHeightPx,
-          PAGE_GAP_PX,
-          zoomFactor,
-          reserveSpaceGaps,
-        ),
-      );
-      nextLayouts = columnLayouts.layouts;
-      nextBlockLayouts = columnLayouts.blockLayouts;
-      nextBoxBlockFragmentLayouts = columnLayouts.boxBlockFragmentLayouts;
-      nextBoxFragmentSourceLayouts = columnLayouts.boxFragmentSourceLayouts;
-      nextFrameFragmentLayouts = columnLayouts.frameFragmentLayouts;
-      nextMarkerLayouts = columnLayouts.markerLayouts;
-      nextAreaLayouts = columnLayouts.nestedColumnLayouts;
-      nextGaps = {};
-      textPageCount = columnLayouts.pageCount;
-    } else {
-      const singleColumnInput = measureSingleColumnLayoutInput({
-        content: pageDocument.content,
-        flow,
-        units,
-        metrics,
-        pageHeightPx,
-        pageStride,
+    {
+      // 開ループのページ割り: 自然配置を読む → 行モデル → 配置 → 描画の指示。
+      // 変位はレイアウトに影響しない translate なので、この計測は前回の答えに依存しない。
+      const tree = measurePerformance("PageCanvasEditor.probeFlow", () => probeFlow(flow, {
         zoomFactor,
-        marginTopPx,
-        contentHeightPx,
-        reserveSpaceGaps,
-        measurement,
-        measuredAppliedGaps,
+        breakIds: breakBeforeIdsRef.current,
+        cache: flowProbeCacheRef.current,
+        cacheEpoch: fontRevisionRef.current,
+      }));
+      const built = buildFlowModel(tree, { breakTarget: isColumnPage ? "column" : "page" });
+      const placement = placeFlow(built.model, {
+        pageHeight: pageHeightPx,
+        pageGap: PAGE_GAP_PX,
+        contentTop: marginTopPx,
+        contentHeight: contentHeightPx,
+        contentLeft: metrics.margins.leftPx,
+        contentWidth: metrics.content.widthPx,
+        columnCount: metrics.flow.columnCount,
+        columnWidth: isColumnPage ? metrics.flow.columnWidthPx : metrics.content.widthPx,
+        columnGap: isColumnPage ? metrics.flow.columnGapPx : 0,
       });
-
-      // DOM から読んだ「今そこにある gap」と state の gap が食い違うパスは、まだ描画が
-      // コミットに追いついていない。ここで採用すると 2 つの出典が混ざり、同じ文書に
-      // 自己整合なレイアウトが 2 つできる (2px / 1 ページのずれ)。捨てて次のパスに任せる —
-      // 既存の staleMeasurementSkipped と同型で、別カウンタ・別上限。
-      // 「DOM の gap と state の gap が食い違うパスを捨てる」案 (spec の (c)) は入れていない。
-      // 判定の入力である `topNat` は既に **DOM から読んだ** 適用済み gap だけで作られており、
-      // state と混ざる余地が無い ＝ 捨てる理由が無い。実測では捨てる側の害だけが出た:
-      // 最後のパスが捨てられるとページ割りが古いまま残り (continuous-pagination が落ちる)、
-      // 捨てたぶんを自分で再予約すると recompute が 60Hz で回り続けた (アイドル 3 秒で 181 回)。
-
-      // 固定中は「gap だけ前の答え・レイアウトは今の答え」という混ざり方を避けるため、
-      // パスごと捨てる。固定は入力か構造が変わった時点で解除される。
-      if (frozenPaginationGapsRef.current && paginationInputRef.current === units) {
-        return "skipped";
+      const flowPlan = planFlowRender(built, placement);
+      if (placement.diagnostics.tallLines.length > 0) {
+        countPerformanceEvent("PageCanvasEditor.tallLineOverflow");
       }
-
-      const singleColumnLayouts = computeSingleColumnLayouts(singleColumnInput);
-      nextBoxBlockFragmentLayouts = singleColumnLayouts.boxBlockFragmentLayouts;
-      nextBoxFragmentSourceLayouts = singleColumnLayouts.boxFragmentSourceLayouts;
-      nextFrameFragmentLayouts = singleColumnLayouts.frameFragmentLayouts;
-      nextAreaLayouts = singleColumnLayouts.areaLayouts;
-
-      nextGaps = singleColumnLayouts.gaps;
-      // ガードは「同じ入力が違う答えを出し続ける」ことだけを見る。入力 (= 本文の構成) が
-      // 変われば署名が変わるのは当たり前なので、履歴もパス数も固定もここで捨てる。
-      // これが無いと、打鍵し続けるだけでパス上限に達し、gap が空のまま凍る。
-      if (paginationInputRef.current !== units) {
-        paginationInputRef.current = units;
-        paginationSignatureHistoryRef.current = [];
-        paginationPassCountRef.current = 0;
-        frozenPaginationGapsRef.current = null;
-      }
-      // 不動点ガード。決定規則を gap-free 入力に固定してもなお往復する入力が残り得るので、
-      // 署名の履歴で往復を検出したら「最初に現れた側」= 直前に採用した gap で固定する。
-      // 固定は構造が変わるまで続く (下の layout effect で履歴ごとクリアする)。
-      {
-        // 読み戻しが state と食い違っていたパスは「DOM がまだ追いついていない」だけで、
-        // 往復の証拠にはならない。証拠を汚すと、普通に打鍵しているだけで振動と誤判定して
-        // gap を凍らせてしまう (実測: 60 行入力で誤発火し、改ページの spacer が消えた)。
-        const signature = gapMapSignature(nextGaps);
-        const verdict = detectGapOscillation(paginationSignatureHistoryRef.current, signature);
-        // 収束したパスは「回り続けている」証拠にならない。数えると、画像やフォントが
-        // 落ち着くたびに走る外部トリガだけで上限に達し、既に安定したレイアウトを凍らせる。
-        paginationPassCountRef.current = verdict === "stable" ? 0 : paginationPassCountRef.current + 1;
-        if (verdict === "oscillating" || paginationPassCountRef.current > MAX_PAGINATION_PASSES) {
-          countPerformanceEvent("PageCanvasEditor.paginationOscillation");
-          // 直前に採用した状態 (gap もレイアウトもページ数も同じパス由来) をそのまま残す。
-          frozenPaginationGapsRef.current = layoutViewStateRef.current.gaps;
-          return "skipped";
-        }
-        paginationSignatureHistoryRef.current = [
-          ...paginationSignatureHistoryRef.current.slice(-3),
-          signature,
-        ];
-      }
-      textPageCount = singleColumnLayouts.pageCount;
+      nextBoxBlockFragmentLayouts = flowPlan.fragmentReplicas;
+      nextBoxFragmentSourceLayouts = flowPlan.fragmentSources;
+      nextFrameFragmentLayouts = flowPlan.framePieces;
+      nextUnitDisplacements = flowPlan.unitDisplacements;
+      nextNodeDisplacements = flowPlan.nodeDisplacements;
+      nextVisualEnds = flowPlan.visualEnds;
+      nextSideNoteLabelYs = flowPlan.sideNoteLabelYs;
+      nextMarkerDisplacements = flowPlan.markerDisplacements;
+      nextGaps = {};
+      textPageCount = flowPlan.pageCount;
     }
 
     const nextBoxLayoutSectionSideNoteLayouts = measureBoxLayoutSectionSideNotes(
@@ -1837,7 +1806,12 @@ function PageCanvasEditorImpl({
         sameUnitLayouts(current.paginationMarkerLayouts, nextMarkerLayouts) &&
         sameProblemAreaColumnLayouts(current.problemAreaColumnLayouts, nextAreaLayouts) &&
         sameMeasuredBlockMap(current.blockRects, blockCanvasRects) &&
-        sameBlockExtentMap(current.blockExtents, extents)
+        sameBlockExtentMap(current.blockExtents, extents) &&
+        sameDisplacementMap(current.unitDisplacements, nextUnitDisplacements) &&
+        sameDisplacementMap(current.nodeDisplacements, nextNodeDisplacements) &&
+        sameNumberMap(current.visualEnds, nextVisualEnds) &&
+        sameNumberMap(current.sideNoteLabelYs, nextSideNoteLabelYs) &&
+        sameDisplacementMap(current.markerDisplacements, nextMarkerDisplacements)
       ) {
         return current;
       }
@@ -1860,12 +1834,17 @@ function PageCanvasEditorImpl({
         textFlowBlockLayouts: nextBlockLayouts,
         totalHeight: nextTotalHeight,
         unitLayouts: nextLayouts,
+        unitDisplacements: nextUnitDisplacements,
+        nodeDisplacements: nextNodeDisplacements,
+        visualEnds: nextVisualEnds,
+        sideNoteLabelYs: nextSideNoteLabelYs,
+        markerDisplacements: nextMarkerDisplacements,
       };
       layoutViewStateRef.current = next;
       return next;
     });
     return "measured";
-  }, [layoutInput, zoom, marginTopPx, pageHeightPx, contentHeightPx, isColumnFlow, metrics, units, pageDocument.content, pageDocument.docId, pageWidthPx]);
+  }, [layoutInput, zoom, marginTopPx, pageHeightPx, contentHeightPx, isColumnPage, metrics, units, pageDocument.docId, pageWidthPx]);
 
   // 再ページ割り 1 回ぶんの実測。打鍵ごとに rAF で走るので、ここが 1 フレームを超えると
   // そのまま入力の詰まりになる (perf-probe の typing フェーズがこの measure を見る)。
@@ -1920,6 +1899,8 @@ function PageCanvasEditorImpl({
     // 変わらず ResizeObserver は鳴らないが、フォントの遅延ロードのような外因はここへ来る。
     // ドラッグ中に答えが変わると、後続ブロックが「別のページへ一気に移る」ように見える。
     if (!spaceAfterSessionRef.current.requestRecompute(updatePrevMeasure)) return;
+    // ほかの理由の予約と同じ frame に畳まれたら、変位の変化だけが理由の測り直しではない。
+    displacementRemeasurePendingRef.current = false;
     if (recomputeFrameRef.current !== null) {
       window.cancelAnimationFrame(recomputeFrameRef.current);
     }
@@ -1939,6 +1920,24 @@ function PageCanvasEditorImpl({
   useLayoutEffect(() => {
     scheduleRecomputeRef.current = scheduleRecompute;
   }, [scheduleRecompute]);
+  // 変位はレイアウトに影響しないので ResizeObserver は鳴らない。配置が変わったコミットの後に
+  // 1 回測り直して、図形のアンカー・キャレット・つまみが使う表示位置を新しい配置に揃える
+  // (自然配置は変わらないので、測り直しても配置は同じ答えになる)。
+  const displacementSignature = useMemo(
+    () => `${getNodeDisplacementsKey(unitDisplacements)}#${getNodeDisplacementsKey(nodeDisplacements)}`,
+    [nodeDisplacements, unitDisplacements],
+  );
+  const lastDisplacementSignatureRef = useRef(displacementSignature);
+  useLayoutEffect(() => {
+    if (lastDisplacementSignatureRef.current === displacementSignature) return;
+    lastDisplacementSignatureRef.current = displacementSignature;
+    // この測り直し自体が変位を変えたなら追いかけない。正しく描かれていれば測り直しは同じ答えに
+    // なるので、ここへ来るのは表示位置が変位に追従しない環境 (座標を持たない DOM 実装など) だけ。
+    // 追いかけると「表示位置 − 変位」が毎回ずれて止まらない。編集・リサイズの測り直しは別に起きる。
+    if (lastRecomputeWasDisplacementRemeasureRef.current) return;
+    scheduleRecomputeRef.current();
+    displacementRemeasurePendingRef.current = true;
+  }, [displacementSignature]);
 
   useEffect(() => {
     if (!flowElement) return;
@@ -2072,11 +2071,6 @@ function PageCanvasEditorImpl({
       if (spaceAfterSessionRef.current.isFrozen) {
         cancelBlockSpaceAfterDragRef.current();
       }
-      // 構造 (ズーム・余白・フォント・undo) が変われば前の署名列は無意味になる。
-      paginationInputRef.current = null;
-      paginationSignatureHistoryRef.current = [];
-      paginationPassCountRef.current = 0;
-      frozenPaginationGapsRef.current = null;
       // First mount or a layout-reshaping change (zoom, margins/page size, font,
       // undo/redo, overlay): recompute synchronously before paint so the page
       // doesn't flash an un-paginated frame.
@@ -3535,11 +3529,7 @@ function PageCanvasEditorImpl({
       setHorizontalMarginEditPageNumber(null);
     }
 
-    if (!isColumnFlow) {
-      return;
-    }
-
-  }, [horizontalMarginEditPageNumber, isColumnFlow, runningRegionEditKind]);
+  }, [horizontalMarginEditPageNumber, runningRegionEditKind]);
 
   const handleTextFlowBoundaryDelete = useCallback((request: TextFlowBoundaryDeleteRequest) => {
     const deletion = resolveTextFlowBoundaryDelete(pageContentRef.current, request);
@@ -3691,7 +3681,7 @@ function PageCanvasEditorImpl({
         blockId: request.blockId,
         blocks: pageDocument.content,
         units,
-        isColumnFlow,
+        isColumnFlow: false,
         metrics,
         pageStridePx: pageHeightPx + PAGE_GAP_PX,
         blockRects,
@@ -3719,7 +3709,6 @@ function PageCanvasEditorImpl({
     setProblemContextMenu(null);
   }, [
     blockRects,
-    isColumnFlow,
     metrics,
     onSelect,
     pageDocument,
@@ -3762,7 +3751,7 @@ function PageCanvasEditorImpl({
           blockId: breakBlockId,
           blocks: pageDocument.content,
           units,
-          isColumnFlow,
+          isColumnFlow: false,
           metrics,
           pageStridePx: pageHeightPx + PAGE_GAP_PX,
           blockRects,
@@ -3818,7 +3807,6 @@ function PageCanvasEditorImpl({
     });
   }, [
     isOverlayEditing,
-    isColumnFlow,
     blockRects,
     metrics,
     onSelect,
@@ -5051,33 +5039,24 @@ function PageCanvasEditorImpl({
           </div>
 
           <div
-            className={`page-flow ${isColumnFlow ? "columns-active" : ""}`}
+            className={`page-flow ${isColumnPage ? "page-columns" : ""}`}
             ref={setFlowRef}
           >
-            {isColumnFlow && Object.entries(paginationMarkerLayouts).map(([blockId, markerLayout]) => (
-              <div
-                key={`page-break-marker-${blockId}`}
-                className="page-flow-page-break-marker"
-                style={getFlowLayoutStyle(markerLayout)}
-              >
-                <PageBreakMarker blockId={blockId} kind="columnBreak" onRemove={markerRemoveHandler} />
-              </div>
-            ))}
             {units.map((unit) =>
               unit.type === "textFlow" ? (
                 <div
-                  key={`text-flow-${isColumnFlow ? "column-" : ""}${unit.renderKey ?? unit.id}`}
-                  className={`${isColumnFlow ? "page-flow-unit" : ""} ${spaceAfterFollowerUnitClass(unit.id)}`.trim() || undefined}
+                  key={`text-flow-${unit.renderKey ?? unit.id}`}
+                  className={spaceAfterFollowerUnitClass(unit.id) || undefined}
                   data-flow-unit-id={unit.id}
                   data-text-run-group={textRunGroupByUnitId.get(unit.id)?.groupId}
-                  style={getFlowUnitStyle(unit, isColumnFlow, unitLayouts, metrics)}
+                  {...getFlowDisplacementProps(unitDisplacements[unit.id]).attributes}
+                  style={mergeFlowUnitStyle(getFlowUnitPlacementStyle(unit, unitDisplacements[unit.id], metrics, isColumnPage), unitDisplacements[unit.id])}
                 >
                   {largePasteHydration
                     && !largePasteHydration.hydratedUnitIds.has(unit.id)
                     && unit.blocks.every((block) => largePasteHydration.deferredBlockIds.has(block.id)) ? (
                       <DeferredLargePasteTextFlowUnit
                         blocks={unit.blocks}
-                        breakGapPx={isColumnFlow ? 0 : gaps[unit.blocks[0]?.id ?? ""] ?? 0}
                         onVisible={hydrateLargePasteUnit}
                         unitId={unit.id}
                       />
@@ -5095,16 +5074,16 @@ function PageCanvasEditorImpl({
                         activeCommentThreadId={activeCommentThreadId}
                         highlightedCommentThreadId={highlightedCommentThreadId}
                         historyRevision={historyRevision}
-                        breakGaps={isColumnFlow ? undefined : gaps}
+                        nodeDisplacements={nodeDisplacements}
+                        markerDisplacements={markerDisplacements}
                         paginationBeforeIds={[
-                          ...(isColumnFlow ? [] : getPageBreakBeforeIds(unit.blocks)),
+                          ...getPageBreakBeforeIds(unit.blocks),
                           ...getNestedPageBreakBeforeIds(unit.blocks),
                         ]}
-                        paginationMarkerKind={resolvePageBreakMarkerKind(isColumnFlow)}
-                        paginationMarkerKinds={getNestedPageBreakBeforeKinds(unit.blocks, isColumnFlow ? "columnBreak" : "pageBreak")}
-                        columnFlowBlockLayouts={isColumnFlow ? getTextFlowColumnBlockLayouts(unit, textFlowBlockLayouts) : undefined}
+                        paginationMarkerKind={resolvePageBreakMarkerKind(isColumnPage)}
+                        paginationMarkerKinds={getNestedPageBreakBeforeKinds(unit.blocks, isColumnPage ? "columnBreak" : "pageBreak")}
                         boxFragmentSourceLayouts={pickTextFlowBoxFragmentSourceLayouts(unit.blocks, boxFragmentSourceLayouts)}
-                        showPlaceholder={!isColumnFlow && units[0]?.type === "textFlow" && unit.id === units[0].id}
+                        showPlaceholder={units[0]?.type === "textFlow" && unit.id === units[0].id}
                         onSelect={onSelect}
                         onCommentThreadSelect={onCommentThreadSelect}
                         onChange={handleTextFlowChange}
@@ -5125,22 +5104,25 @@ function PageCanvasEditorImpl({
                 </div>
               ) : unit.type === "layoutSection" || unit.type === "problemLayoutSection" ? (
                 <LayoutSectionFlowUnit
-                  key={isColumnFlow ? `column-${unit.id}` : unit.id}
+                  key={unit.id}
                   unit={unit}
                   textRunAssignment={textRunGroupByUnitId.get(unit.id)}
                   selectedId={selectedId}
                   mathFractionSizing={mathFractionSizing}
                   historyRevision={historyRevision}
-                  isColumnFlow={isColumnFlow}
-                  gaps={gaps}
+                  isColumnPage={isColumnPage}
+                  displacement={unitDisplacements[unit.id]}
+                  nodeDisplacements={nodeDisplacements}
+                  markerDisplacements={markerDisplacements}
+                  visualEnd={visualEnds[unit.id]}
+                  sideNoteLabelY={sideNoteLabelYs[unit.id]}
                   columnLayout={problemAreaColumnLayouts[unit.id]}
                   boxFragmentSourceLayouts={boxFragmentSourceLayouts}
-                  layoutStyle={getFlowUnitStyle(unit, isColumnFlow, unitLayouts, metrics)}
+                  layoutStyle={getFlowUnitPlacementStyle(unit, unitDisplacements[unit.id], metrics, isColumnPage)}
                   spaceAfterFollowerClass={spaceAfterFollowerUnitClass(unit.id)}
                   pageColumnGapPx={metrics.flow.columnGapPx}
                   pageColumnGapMm={metrics.flow.columnGapMm}
                   pageContentHeightPx={metrics.content.heightPx}
-                  sideNoteOffsetPx={getProblemAreaSideNoteOffsetPx(unit, isColumnFlow, unitLayouts, metrics)}
                   onSelect={onSelect}
                   onChange={updateLayoutSectionBlocks}
                   onLayoutChange={(sectionId, updater) => onChange(sectionId, updater)}
@@ -5158,20 +5140,22 @@ function PageCanvasEditorImpl({
                 />
               ) : unit.type === "problemArea" ? (
                 <ProblemAreaFlowUnit
-                  key={isColumnFlow ? `column-${unit.id}` : unit.id}
+                  key={unit.id}
                   unit={unit}
                   textRunAssignment={textRunGroupByUnitId.get(unit.id)}
                   selectedId={selectedId}
                   mathFractionSizing={mathFractionSizing}
                   historyRevision={historyRevision}
-                  isColumnFlow={isColumnFlow}
-                  gaps={gaps}
+                  isColumnPage={isColumnPage}
+                  displacement={unitDisplacements[unit.id]}
+                  nodeDisplacements={nodeDisplacements}
+                  markerDisplacements={markerDisplacements}
+                  visualEnd={visualEnds[unit.id]}
+                  sideNoteLabelY={sideNoteLabelYs[unit.id]}
                   boxFragmentSourceLayouts={boxFragmentSourceLayouts}
-                  columnFlowBlockLayouts={isColumnFlow ? pickTextFlowColumnBlockLayouts(unit.blocks, textFlowBlockLayouts) : undefined}
                   frameFragments={frameFragmentLayouts[unit.id]}
-                  layoutStyle={getFlowUnitStyle(unit, isColumnFlow, unitLayouts, metrics)}
+                  layoutStyle={getFlowUnitPlacementStyle(unit, unitDisplacements[unit.id], metrics, isColumnPage)}
                   spaceAfterFollowerClass={spaceAfterFollowerUnitClass(unit.id)}
-                  sideNoteOffsetPx={getProblemAreaSideNoteOffsetPx(unit, isColumnFlow, unitLayouts, metrics, textFlowBlockLayouts)}
                   draftMinHeightMm={problemAreaHeightDrafts[problemAreaDraftKey(unit.problem.id, unit.area)]}
                   pageContentHeightPx={metrics.content.heightPx}
                   onSelect={onSelect}
@@ -5198,13 +5182,13 @@ function PageCanvasEditorImpl({
                   id={unit.block.id}
                   data-page-block=""
                   data-flow-unit-id={unit.id}
-                  className={`${isColumnFlow ? "page-flow-unit" : ""} ${spaceAfterFollowerUnitClass(unit.id)}`.trim() || undefined}
-                  key={isColumnFlow ? `column-${unit.id}` : unit.block.id}
-                  style={getFlowUnitStyle(unit, isColumnFlow, unitLayouts, metrics) ??
-                    (gaps[unit.block.id] ? { marginTop: `${gaps[unit.block.id]}px` } : undefined)}
+                  className={spaceAfterFollowerUnitClass(unit.id) || undefined}
+                  key={unit.block.id}
+                  {...getFlowDisplacementProps(unitDisplacements[unit.id]).attributes}
+                  style={mergeFlowUnitStyle(getFlowUnitPlacementStyle(unit, unitDisplacements[unit.id], metrics, isColumnPage), unitDisplacements[unit.id])}
                 >
-                  {!isColumnFlow && hasBreakBefore(unit.block) && (
-                    <PageBreakMarker blockId={unit.block.id} onRemove={markerRemoveHandler} />
+                  {hasBreakBefore(unit.block) && (
+                    <PageBreakMarker blockId={unit.block.id} onRemove={markerRemoveHandler} displacement={markerDisplacements[unit.id]} />
                   )}
                   <BlockEditor
                     block={unit.block}
@@ -5250,7 +5234,7 @@ function PageCanvasEditorImpl({
                     onSelect={onSelect}
                     changeDecorationState={textFlowChangeDecorationState}
                     pagedRender={isPagedRender}
-                    paginationMarkerKind={resolvePageBreakMarkerKind(isColumnFlow)}
+                    paginationMarkerKind={resolvePageBreakMarkerKind(isColumnPage)}
                     fragmentPageIndex={getPageIndexForY(fragment.y, pageHeightPx + PAGE_GAP_PX)}
                   />
                 ) : null;
@@ -5812,12 +5796,10 @@ function hasNewTopLevelBlockIds(previousIds: readonly string[], nextBlocks: read
  */
 function DeferredLargePasteTextFlowUnit({
   blocks,
-  breakGapPx,
   onVisible,
   unitId,
 }: {
   blocks: TextFlowBlock[];
-  breakGapPx: number;
   onVisible: (unitId: string) => void;
   unitId: string;
 }) {
@@ -5852,7 +5834,6 @@ function DeferredLargePasteTextFlowUnit({
       aria-hidden="true"
       style={{
         height: `${Math.max(1, estimatedHeight)}px`,
-        marginTop: breakGapPx > 0 ? `${breakGapPx}px` : undefined,
       }}
     />
   );
@@ -5867,6 +5848,8 @@ function TextFlowWithInlineContent({
   singleBlock = false,
   historyRevision,
   breakGaps,
+  nodeDisplacements,
+  markerDisplacements,
   paginationBeforeIds,
   paginationMarkerKind,
   paginationMarkerKinds,
@@ -5909,6 +5892,10 @@ function TextFlowWithInlineContent({
   singleBlock?: boolean;
   historyRevision: number;
   breakGaps?: Record<string, number>;
+  /** 本文フローのブロック変位 (ユニットからの相対)。ここで自分のブロックの分だけを選ぶ。 */
+  nodeDisplacements?: Readonly<Record<string, FlowDisplacement>>;
+  /** 手動改ページの印の変位 (ブロック id → ユニットからの相対)。 */
+  markerDisplacements?: Readonly<Record<string, FlowDisplacement>>;
   paginationBeforeIds?: string[];
   paginationMarkerKind?: PageBreakMarkerKind;
   paginationMarkerKinds?: Record<string, PageBreakMarkerKind>;
@@ -5984,6 +5971,10 @@ function TextFlowWithInlineContent({
   const boxFragmentSourceLayoutsKey = getTextFlowFragmentLayoutsSyncKey(boxFragmentSourceLayouts);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const stableBoxFragmentSourceLayouts = useMemo(() => boxFragmentSourceLayouts, [boxFragmentSourceLayoutsKey]);
+  const unitNodeDisplacements = pickUnitNodeDisplacements(blocks, nodeDisplacements, markerDisplacements);
+  const unitNodeDisplacementsKey = getNodeDisplacementsKey(unitNodeDisplacements);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const stableNodeDisplacements = useMemo(() => unitNodeDisplacements, [unitNodeDisplacementsKey]);
 
   if (parts.length === 1 && parts[0].type === "blocks") {
     return (
@@ -5996,6 +5987,7 @@ function TextFlowWithInlineContent({
         singleBlock={singleBlock}
         historyRevision={historyRevision}
         breakGaps={stableBreakGaps}
+        nodeDisplacements={stableNodeDisplacements}
         paginationBeforeIds={stablePaginationBeforeIds}
         paginationMarkerKind={paginationMarkerKind}
         paginationMarkerKinds={stablePaginationMarkerKinds}
@@ -6047,6 +6039,7 @@ function TextFlowWithInlineContent({
             singleBlock={singleBlock}
             historyRevision={historyRevision}
             breakGaps={stableBreakGaps}
+            nodeDisplacements={stableNodeDisplacements}
             paginationBeforeIds={paginationBeforeIds?.filter((id) => part.blocks.some((block) => bodyTextFlowBlockContainsId(block, id)))}
             paginationMarkerKind={paginationMarkerKind}
             paginationMarkerKinds={paginationMarkerKinds}
@@ -6085,6 +6078,7 @@ function TextFlowWithInlineContent({
           <InlineContentStack
             key={part.key}
             items={part.items}
+            displacement={precedingBlockDisplacement(parts, index, stableNodeDisplacements)}
           />
         ),
       )}
@@ -6092,11 +6086,45 @@ function TextFlowWithInlineContent({
   );
 }
 
-function InlineContentStack({ items }: { items: readonly PageCanvasInlineContent[] }) {
+/**
+ * 本文の間に挟む差し込み (AI の差分プレビューなど) は、直前のブロックと同じだけずらして描く。
+ * ブロックはページ・段へずらして描かれるので、差し込みだけ自然配置のままだと別のページに
+ * 描かれ、ずらした本文と重なる。値の無いブロックは前のブロックの値を継ぐ。
+ */
+function precedingBlockDisplacement(
+  parts: readonly ({ type: "blocks"; blocks: readonly TextFlowBlock[] } | { type: string })[],
+  partIndex: number,
+  nodeDisplacements: Readonly<Record<string, FlowDisplacement>> | undefined,
+): FlowDisplacement | undefined {
+  if (!nodeDisplacements) return undefined;
+  for (let index = partIndex - 1; index >= 0; index -= 1) {
+    const part = parts[index];
+    if (part.type !== "blocks" || !("blocks" in part)) continue;
+    for (let blockIndex = part.blocks.length - 1; blockIndex >= 0; blockIndex -= 1) {
+      const displacement = nodeDisplacements[part.blocks[blockIndex].id];
+      if (displacement) return displacement;
+    }
+  }
+  return undefined;
+}
+
+function InlineContentStack({
+  items,
+  displacement,
+}: {
+  items: readonly PageCanvasInlineContent[];
+  displacement?: FlowDisplacement;
+}) {
+  // 包みは常に置く (変位の有無で木の形を変えると、差し込みの中身が作り直されて状態を失う)。
   return (
-    <>
+    <div
+      className="text-flow-inline-content"
+      style={displacement && (displacement.dx !== 0 || displacement.dy !== 0)
+        ? { position: "relative", top: displacement.dy, left: displacement.dx }
+        : undefined}
+    >
       {items.map((item) => <Fragment key={item.key}>{item.content}</Fragment>)}
-    </>
+    </div>
   );
 }
 
@@ -6169,9 +6197,12 @@ function EditorBoxBlockFragmentPreview({
     width: `${fragment.width}px`,
     height: `${fragment.height}px`,
   };
+  // 続きの帯は相対配置で上へずらして viewport で切る。transform にするとブラウザ自身の
+  // キャレット追従がずらす前の位置を見て、打鍵のたびに紙面を跳ばす。
   const editorStyle = {
     minHeight: `${fragment.totalHeight}px`,
-    transform: `translateY(-${fragment.sourceOffsetY}px)`,
+    position: "relative",
+    top: `${-fragment.sourceOffsetY}px`,
     ...cornerBoxReferenceHeightStyleVars(fragment.totalHeight),
   } as CSSProperties;
 
@@ -6511,8 +6542,12 @@ function LayoutSectionFlowUnit({
   selectedId,
   mathFractionSizing,
   historyRevision,
-  isColumnFlow,
-  gaps,
+  isColumnPage,
+  displacement,
+  nodeDisplacements,
+  markerDisplacements,
+  visualEnd,
+  sideNoteLabelY,
   columnLayout,
   boxFragmentSourceLayouts,
   layoutStyle,
@@ -6520,7 +6555,6 @@ function LayoutSectionFlowUnit({
   pageColumnGapPx,
   pageColumnGapMm,
   pageContentHeightPx,
-  sideNoteOffsetPx,
   onSelect,
   onChange,
   onLayoutChange,
@@ -6541,8 +6575,12 @@ function LayoutSectionFlowUnit({
   selectedId: string | null;
   mathFractionSizing: "uniform" | "texDefault";
   historyRevision: number;
-  isColumnFlow: boolean;
-  gaps: Record<string, number>;
+  isColumnPage: boolean;
+  displacement: FlowDisplacement | undefined;
+  nodeDisplacements: Readonly<Record<string, FlowDisplacement>> | undefined;
+  markerDisplacements: Readonly<Record<string, FlowDisplacement>> | undefined;
+  visualEnd: number | undefined;
+  sideNoteLabelY: number | undefined;
   columnLayout: ProblemAreaColumnLayout | undefined;
   boxFragmentSourceLayouts: Record<string, TextFlowBoxFragmentSourceLayout>;
   layoutStyle: CSSProperties | undefined;
@@ -6551,7 +6589,6 @@ function LayoutSectionFlowUnit({
   pageColumnGapPx: number;
   pageColumnGapMm: number;
   pageContentHeightPx: number;
-  sideNoteOffsetPx: number | undefined;
   onSelect: (blockId: string | null) => void;
   onChange: (
     sectionId: string,
@@ -6576,7 +6613,7 @@ function LayoutSectionFlowUnit({
   const tEditor = useT("editor");
   const selected = selectedId === unit.section.id || unit.blocks.some((block) => block.id === selectedId);
   const isProblemAreaSection = unit.type === "problemLayoutSection";
-  const problemAreaMinHeightMm = getSingleColumnProblemLayoutSectionMinHeightMm(unit, isColumnFlow);
+  const problemAreaMinHeightMm = getSingleColumnProblemLayoutSectionMinHeightMm(unit, false);
   // memo 済みの本文エディタへ渡るので identity を固定する。跨ぎコピーが段組セクションを
   // 組み直すのに使う (このユニットの doc には段落しか入っていない)。
   const sectionId = unit.section.id;
@@ -6602,15 +6639,16 @@ function LayoutSectionFlowUnit({
   const columnCount = getLayoutSectionColumnCount(unit.section);
   const columnGapPx = getLayoutSectionColumnGapPx(unit.section, pageColumnGapMm, pageColumnGapPx);
   const columnFlowActive = columnCount > 1 && columnLayout != null;
-  const gapStyle = !isColumnFlow && gaps[unit.id] ? { marginTop: `${gaps[unit.id]}px` } : undefined;
   const problemAreaMinHeightPx = getSafeProblemAreaMinHeightPx(
     problemAreaMinHeightMm,
     pageContentHeightPx,
   );
+  const displacementProps = getFlowDisplacementProps(displacement);
   const style = {
-    ...(layoutStyle ?? gapStyle),
+    ...layoutStyle,
+    ...displacementProps.style,
+    ...getVisualEndStyle(visualEnd, sideNoteLabelY),
     minHeight: problemAreaMinHeightPx > 0 ? `${problemAreaMinHeightPx}px` : undefined,
-    ...(isColumnFlow && typeof sideNoteOffsetPx === "number" ? { "--problem-area-page-x": `${sideNoteOffsetPx}px` } : {}),
   } as CSSProperties;
   const columnStyle = columnFlowActive
     ? ({
@@ -6656,7 +6694,10 @@ function LayoutSectionFlowUnit({
       data-problem-area={isProblemAreaSection ? unit.area : undefined}
       data-problem-id={isProblemAreaSection ? unit.problem.id : undefined}
       data-flow-unit-id={unit.id}
-      className={`layout-section-flow-unit ${selected ? "selected" : ""} ${isColumnFlow ? "page-flow-unit" : ""} ${isProblemAreaSection ? "in-problem-area" : ""} ${spaceAfterFollowerClass}`}
+      {...displacementProps.attributes}
+      {...{ [FLOW_BREAK_BEFORE_ATTRIBUTE]: hasBreakBefore(unit.section) ? "true" : undefined }}
+      {...{ [FLOW_SPAN_ATTRIBUTE]: isColumnPage && isFullSpanUnit(unit) ? "full" : undefined }}
+      className={`layout-section-flow-unit ${selected ? "selected" : ""} ${isProblemAreaSection ? "in-problem-area" : ""} ${spaceAfterFollowerClass}`}
       style={style}
       onClick={(event) => {
         event.stopPropagation();
@@ -6671,8 +6712,8 @@ function LayoutSectionFlowUnit({
       <div className="layout-section-side-note">
         <span>{tEditor("block.columns", { replace: { columns: columnCount } })}</span>
       </div>
-      {!isColumnFlow && hasBreakBefore(unit.section) && (
-        <PageBreakMarker blockId={unit.section.id} onRemove={onRemoveBreak} />
+      {hasBreakBefore(unit.section) && (
+        <PageBreakMarker blockId={unit.section.id} onRemove={onRemoveBreak} displacement={markerDisplacements?.[unit.id]} />
       )}
       <div
         className="layout-section-paper-body with-independent-layout-columns"
@@ -6690,9 +6731,11 @@ function LayoutSectionFlowUnit({
                   mathFractionSizing={mathFractionSizing}
                   historyRevision={historyRevision}
                   breakGaps={undefined}
+                  nodeDisplacements={nodeDisplacements}
+                  markerDisplacements={markerDisplacements}
                   paginationBeforeIds={getNestedPageBreakBeforeIds(blocks)}
-                  paginationMarkerKind={resolvePageBreakMarkerKind(columnCount > 1 || isColumnFlow)}
-                  paginationMarkerKinds={getNestedPageBreakBeforeKinds(blocks, resolvePageBreakMarkerKind(columnCount > 1 || isColumnFlow))}
+                  paginationMarkerKind={resolvePageBreakMarkerKind(columnCount > 1 || isColumnPage)}
+                  paginationMarkerKinds={getNestedPageBreakBeforeKinds(blocks, resolvePageBreakMarkerKind(columnCount > 1 || isColumnPage))}
                   paginationMarkerLayouts={undefined}
                   columnFlowBlockLayouts={columnFlowActive ? columnLayout!.blockLayouts : undefined}
                   boxFragmentSourceLayouts={pickTextFlowBoxFragmentSourceLayouts(blocks, boxFragmentSourceLayouts)}
@@ -6771,14 +6814,16 @@ function ProblemAreaFlowUnit({
   selectedId,
   mathFractionSizing,
   historyRevision,
-  isColumnFlow,
-  gaps,
+  isColumnPage,
+  displacement,
+  nodeDisplacements,
+  markerDisplacements,
+  visualEnd,
+  sideNoteLabelY,
   boxFragmentSourceLayouts,
-  columnFlowBlockLayouts,
   frameFragments,
   layoutStyle,
   spaceAfterFollowerClass,
-  sideNoteOffsetPx,
   draftMinHeightMm,
   pageContentHeightPx,
   onSelect,
@@ -6801,15 +6846,18 @@ function ProblemAreaFlowUnit({
   selectedId: string | null;
   mathFractionSizing: "uniform" | "texDefault";
   historyRevision: number;
-  isColumnFlow: boolean;
-  gaps: Record<string, number>;
+  isColumnPage: boolean;
+  displacement: FlowDisplacement | undefined;
+  nodeDisplacements: Readonly<Record<string, FlowDisplacement>> | undefined;
+  markerDisplacements: Readonly<Record<string, FlowDisplacement>> | undefined;
+  /** 予約空白が分かれたとき、その末尾 (ユニット上端からの相対 y)。 */
+  visualEnd: number | undefined;
+  sideNoteLabelY: number | undefined;
   boxFragmentSourceLayouts: Record<string, TextFlowBoxFragmentSourceLayout>;
-  columnFlowBlockLayouts: Record<string, TextFlowColumnBlockLayout> | undefined;
   frameFragments: ProblemAreaFrameFragmentLayout[] | undefined;
   layoutStyle: CSSProperties | undefined;
   /** 下端つまみのドラッグ中、このユニットを殻ごと平行移動させる印 (該当しなければ空文字)。 */
   spaceAfterFollowerClass: string;
-  sideNoteOffsetPx: number | undefined;
   draftMinHeightMm: number | undefined;
   pageContentHeightPx: number;
   onSelect: (blockId: string | null) => void;
@@ -6841,24 +6889,16 @@ function ProblemAreaFlowUnit({
   const tEditor = useT("editor");
   const { problem, area } = unit;
   const selected = selectedId === problem.id || unit.blocks.some((block) => block.id === selectedId);
-  const columnBlockFlowed = isColumnFlow
-    && unit.blocks.length > 0
-    && unit.blocks.some((block) => columnFlowBlockLayouts?.[block.id] !== undefined);
   const minHeightPx = getSafeProblemAreaMinHeightPx(
     draftMinHeightMm ?? problem.areaLayout?.[area]?.minHeightMm ?? 0,
     pageContentHeightPx,
   );
-  const sectionGapPx = !isColumnFlow
-    ? gaps[getProblemAreaUnitGapKey(unit)]
-    : undefined;
-  const gapStyle = sectionGapPx ? { marginTop: `${sectionGapPx}px` } : undefined;
+  const displacementProps = getFlowDisplacementProps(displacement);
   const style = {
-    ...(layoutStyle ?? gapStyle),
-    minHeight: !columnBlockFlowed && minHeightPx > 0 ? `${minHeightPx}px` : undefined,
-    ...(isColumnFlow && typeof sideNoteOffsetPx === "number" ? { "--problem-area-page-x": `${sideNoteOffsetPx}px` } : {}),
-    ...(columnBlockFlowed && unit.blocks[0] && columnFlowBlockLayouts?.[unit.blocks[0].id]
-      ? { "--problem-area-side-note-y": `${columnFlowBlockLayouts[unit.blocks[0].id].y + 16}px` }
-      : {}),
+    ...layoutStyle,
+    ...displacementProps.style,
+    ...getVisualEndStyle(visualEnd, sideNoteLabelY),
+    minHeight: minHeightPx > 0 ? `${minHeightPx}px` : undefined,
   } as CSSProperties;
   const problemNumber = unit.problemNumber;
   const isFirstArea = unit.isFirstProblemArea;
@@ -6876,6 +6916,7 @@ function ProblemAreaFlowUnit({
   const splitFrameFragments = hasFrame && frameFragments && frameFragments.length > 1
     ? frameFragments
     : undefined;
+  const breakBeforeArea = isFirstArea && hasBreakBefore(problem);
   const outerFirstFrameClass = hasFrame && unit.isFirstProblemFrameArea ? "first-frame-area" : "";
   const outerLastFrameClass = hasFrame && unit.isLastProblemFrameArea ? "last-frame-area" : "";
   const outerFrameClasses = splitFrameFragments ? `${frameClasses} frame-split` : frameClasses;
@@ -6902,8 +6943,11 @@ function ProblemAreaFlowUnit({
       data-problem-area={area}
       data-problem-id={problem.id}
       data-flow-unit-id={unit.id}
+      {...displacementProps.attributes}
+      {...{ [FLOW_BREAK_BEFORE_ATTRIBUTE]: breakBeforeArea ? "true" : undefined }}
+      {...{ [FLOW_SPAN_ATTRIBUTE]: isColumnPage && isFullSpanUnit(unit) ? "full" : undefined }}
       data-problem-frame-style={frameStyleId}
-      className={`problem-area-flow-unit ${selected ? "selected" : ""} ${isColumnFlow ? "page-flow-unit" : ""} ${columnBlockFlowed ? "column-block-flowed" : ""} ${outerFrameClasses} ${outerFirstFrameClass} ${outerLastFrameClass} ${spaceAfterFollowerClass}`}
+      className={`problem-area-flow-unit ${selected ? "selected" : ""} ${outerFrameClasses} ${outerFirstFrameClass} ${outerLastFrameClass} ${spaceAfterFollowerClass}`}
       style={style}
       onClick={(event) => {
         event.stopPropagation();
@@ -6945,8 +6989,8 @@ function ProblemAreaFlowUnit({
           <span>{problemAreaSideLabel(area, unit.problemNumber, tEditor)}</span>
         </div>
       )}
-      {!isColumnFlow && isFirstArea && hasBreakBefore(problem) && (
-        <PageBreakMarker blockId={problem.id} onRemove={onRemoveBreak} />
+      {isFirstArea && hasBreakBefore(problem) && (
+        <PageBreakMarker blockId={problem.id} onRemove={onRemoveBreak} displacement={markerDisplacements?.[unit.id]} />
       )}
       <div className={`problem-area-paper-content ${showNumber ? "with-number" : ""}`}>
         {showNumber && (
@@ -6962,14 +7006,14 @@ function ProblemAreaFlowUnit({
             selectedId={selectedId}
             mathFractionSizing={mathFractionSizing}
             historyRevision={historyRevision}
-            breakGaps={isColumnFlow ? undefined : gaps}
+            nodeDisplacements={nodeDisplacements}
+            markerDisplacements={markerDisplacements}
             paginationBeforeIds={[
-                      ...(isColumnFlow ? [] : getPageBreakBeforeIds(unit.blocks)),
+                      ...getPageBreakBeforeIds(unit.blocks),
                       ...getNestedPageBreakBeforeIds(unit.blocks),
                     ]}
-            paginationMarkerKind={resolvePageBreakMarkerKind(isColumnFlow)}
-            paginationMarkerKinds={getNestedPageBreakBeforeKinds(unit.blocks, resolvePageBreakMarkerKind(isColumnFlow))}
-            columnFlowBlockLayouts={columnFlowBlockLayouts}
+            paginationMarkerKind={resolvePageBreakMarkerKind(isColumnPage)}
+            paginationMarkerKinds={getNestedPageBreakBeforeKinds(unit.blocks, resolvePageBreakMarkerKind(isColumnPage))}
             boxFragmentSourceLayouts={pickTextFlowBoxFragmentSourceLayouts(unit.blocks, boxFragmentSourceLayouts)}
             commentThreads={commentThreads}
             activeCommentThreadId={activeCommentThreadId}
@@ -6995,7 +7039,10 @@ function ProblemAreaFlowUnit({
         </div>
       </div>
       {afterInlineContent.length > 0 && (
-        <InlineContentStack items={afterInlineContent} />
+        <InlineContentStack
+          items={afterInlineContent}
+          displacement={precedingBlockDisplacement([{ type: "blocks", blocks: unit.blocks }], 1, nodeDisplacements)}
+        />
       )}
       {area !== "lead" && (
         <button
@@ -7037,6 +7084,27 @@ function ProblemAreaFrameFragmentPieces({
   return (
     <>
       {fragments.map((fragment, index) => {
+        if (fragment.openTop !== undefined || fragment.openBottom !== undefined) {
+          // 配置エンジンの枠片: 矩形は枠線込みの確定値。切れ目の辺だけ開く。
+          return (
+            <div
+              key={`frame-piece-${index}`}
+              aria-hidden="true"
+              className={`problem-area-flow-unit ${frameClasses} ${fragment.openTop ? "" : "first-frame-area"} ${fragment.openBottom ? "" : "last-frame-area"}`}
+              style={{
+                position: "absolute",
+                left: `${fragment.x}px`,
+                top: `${fragment.y}px`,
+                width: `${fragment.width}px`,
+                height: `${fragment.height}px`,
+                margin: 0,
+                padding: 0,
+                boxSizing: "border-box",
+                pointerEvents: "none",
+              }}
+            />
+          );
+        }
         const isFirstPiece = index === 0 && isFirstProblemFrameArea;
         const isLastPiece = index === fragments.length - 1 && isLastProblemFrameArea;
         // Mirrors the CSS: only the top edge is ever removed for a continuation
@@ -7809,17 +7877,27 @@ export function PageBreakMarker({
   blockId,
   kind = "pageBreak",
   onRemove,
+  displacement,
 }: {
   blockId: string;
   kind?: PageBreakMarkerKind;
   onRemove?: (blockId: string) => void;
+  /** 印は改ページする前のページの末尾に描く (直前の行と同じ変位)。 */
+  displacement?: FlowDisplacement;
 }) {
   // 区切り印の文言は本文編集面の語彙 (`editor` namespace)。
   const t = useT("editor");
   const label = kind === "columnBreak" ? t("pagination.columnBreak") : t("pagination.pageBreak");
   const removeLabel = t("pagination.removeBreak", { replace: { kind: label } });
   return (
-    <div className="page-break-marker" data-page-break-marker="" data-page-break-block-id={blockId}>
+    <div
+      className="page-break-marker"
+      data-page-break-marker=""
+      data-page-break-block-id={blockId}
+      style={displacement && (displacement.dx !== 0 || displacement.dy !== 0)
+        ? { position: "relative", top: `${displacement.dy}px`, left: `${displacement.dx}px` }
+        : undefined}
+    >
       <span />
       <strong>{label}</strong>
       <span />
@@ -8365,6 +8443,111 @@ function getFlowUnitBlockIds(unit: RenderUnit): string[] {
   return unit.type === "block" ? [unit.block.id] : unit.blocks.map((block) => block.id);
 }
 
+function readFlowDisplacementSignature(flow: HTMLElement): string {
+  let signature = "";
+  flow.querySelectorAll<HTMLElement>(`[${FLOW_DY_ATTRIBUTE}], [${FLOW_DX_ATTRIBUTE}]`).forEach((element) => {
+    signature += `${element.getAttribute(FLOW_DX_ATTRIBUTE) ?? 0},${element.getAttribute(FLOW_DY_ATTRIBUTE) ?? 0};`;
+  });
+  return signature;
+}
+
+/** 印の変位は同じ表に `marker:<id>` で入れて運ぶ (編集面の装飾が 1 つの表だけを読むため)。 */
+function pickUnitNodeDisplacements(
+  blocks: readonly TextFlowBlock[],
+  displacements: Readonly<Record<string, FlowDisplacement>> | undefined,
+  markerDisplacements?: Readonly<Record<string, FlowDisplacement>>,
+): Record<string, FlowDisplacement> | undefined {
+  if (!displacements) return undefined;
+  const picked: Record<string, FlowDisplacement> = {};
+  for (const block of blocks) {
+    const value = displacements[block.id];
+    if (value) picked[block.id] = value;
+    const marker = markerDisplacements?.[block.id];
+    if (marker) picked[`marker:${block.id}`] = marker;
+  }
+  return picked;
+}
+
+function getNodeDisplacementsKey(displacements: Readonly<Record<string, FlowDisplacement>> | undefined): string {
+  if (!displacements) return "";
+  return Object.entries(displacements).map(([id, value]) => `${id}:${value.dx}:${value.dy}`).join("|");
+}
+
+function sameDisplacementMap(
+  a: Readonly<Record<string, FlowDisplacement>>,
+  b: Readonly<Record<string, FlowDisplacement>>,
+): boolean {
+  const aKeys = Object.keys(a);
+  if (aKeys.length !== Object.keys(b).length) return false;
+  return aKeys.every((key) => {
+    const other = b[key];
+    return other !== undefined && other.dx === a[key].dx && other.dy === a[key].dy;
+  });
+}
+
+/**
+ * ユニットの置き方のうち、変位以外のもの。段組のページでは本文は段幅の自然フローに置くので、
+ * 全幅のエリアだけは本文幅を明示する (段幅の帯から右へはみ出すが、変位と同じくレイアウトには
+ * 影響しない)。紙面外のサイド注は、段へ動いたユニットでも紙面の左余白に出す。
+ */
+function getFlowUnitPlacementStyle(
+  unit: RenderUnit,
+  displacement: FlowDisplacement | undefined,
+  metrics: PageMetrics,
+  isColumnPage: boolean,
+): CSSProperties | undefined {
+  const style: Record<string, string> = {};
+  if (isColumnPage && isFullSpanUnit(unit)) {
+    style.width = `${metrics.content.widthPx}px`;
+  }
+  if (displacement && displacement.dx !== 0) {
+    style["--problem-area-page-x"] = `${metrics.margins.leftPx + displacement.dx}px`;
+  }
+  return Object.keys(style).length > 0 ? (style as CSSProperties) : undefined;
+}
+
+/**
+ * 複数の領域に分かれたユニットのサイド注 (括弧) とリサイズつまみを、描かれた内容の末尾まで伸ばし、
+ * 見出しは最初の片の中ほどに置く (括弧全体の中ほどだとページの間に浮く)。
+ * 分かれていないユニットは自然配置の高さのまま (CSS の既定値)。
+ */
+function getVisualEndStyle(visualEnd: number | undefined, labelY: number | undefined): Record<string, string> {
+  if (typeof visualEnd !== "number") return {};
+  return {
+    "--flow-unit-visual-height": `${visualEnd}px`,
+    "--problem-area-resize-y": `${visualEnd - 5}px`,
+    ...(typeof labelY === "number" ? { "--problem-area-side-note-y": `${labelY}px` } : {}),
+  };
+}
+
+function mergeFlowUnitStyle(
+  base: CSSProperties | undefined,
+  displacement: FlowDisplacement | undefined,
+): CSSProperties | undefined {
+  const { style } = getFlowDisplacementProps(displacement);
+  if (!style) return base;
+  return base ? { ...base, ...style } : style;
+}
+
+/** ユニットの変位を描く style と、計測が差し引くための属性。0 のときは何も付けない。 */
+function getFlowDisplacementProps(displacement: FlowDisplacement | undefined): {
+  style: CSSProperties | undefined;
+  attributes: Record<string, string>;
+} {
+  if (!displacement || (displacement.dx === 0 && displacement.dy === 0)) {
+    return { style: undefined, attributes: {} };
+  }
+  return {
+    // 相対配置のずらし。translate と同じく兄弟のレイアウトに影響しないが、ブラウザ自身の
+    // キャレット追従 (入力時の reveal) は transform を正しく扱わず紙面を跳ばすので使わない。
+    style: { position: "relative", top: `${displacement.dy}px`, left: `${displacement.dx}px` },
+    attributes: {
+      [FLOW_DX_ATTRIBUTE]: String(displacement.dx),
+      [FLOW_DY_ATTRIBUTE]: String(displacement.dy),
+    },
+  };
+}
+
 function createInitialPageLayoutSnapshot(pageHeightPx: number): PageLayoutSnapshot {
   return {
     input: null,
@@ -8384,6 +8567,11 @@ function createInitialPageLayoutSnapshot(pageHeightPx: number): PageLayoutSnapsh
     textFlowBlockLayouts: {},
     totalHeight: pageHeightPx,
     unitLayouts: {},
+    unitDisplacements: {},
+    nodeDisplacements: {},
+    visualEnds: {},
+    sideNoteLabelYs: {},
+    markerDisplacements: {},
   };
 }
 
@@ -8506,12 +8694,6 @@ function focusBlockElementEdge(blockId: string, position: "start" | "end"): void
 }
 
 export {
-computeProblemAreaColumnFlow,
-simulateBalancedColumnHeightPx,
-type ProblemAreaColumnFlowBlock,
-type ProblemAreaColumnFlowResult
-} from "@/features/rendering/core";
-export {
 cloneTextFlowBlock,
 hasBreakBefore,
 isProblemFrameArea,
@@ -8521,7 +8703,7 @@ problemAreaDraftKey,
 shouldShowProblemArea,
 TEXT_FLOW_BLOCKS_PER_RENDER_UNIT_TARGET
 } from "./page-canvas/block-ops";
-export { computeColumnUnitLayouts,getColumnBreakBeforeBlockIdForContextMenu } from "./page-canvas/column-layout";
+export { getColumnBreakBeforeBlockIdForContextMenu } from "./page-canvas/column-layout";
 export { getSelectionActionPopoverPosition,viewportToCanvasAnchor } from "./page-canvas/popover-anchors";
 export { buildRenderUnits } from "./page-canvas/render-units";
 export type { FlowUnitLayout,ProblemAreaColumnLayout,RenderUnit } from "./page-canvas/types";

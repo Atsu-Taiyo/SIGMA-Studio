@@ -232,7 +232,7 @@ function paginationSyncKey(pagination: TextFlowBlock["pagination"]): string {
   if (!pagination) {
     return "";
   }
-  return `${pagination.break ?? ""}|${pagination.keepTogether ?? ""}|${pagination.keepWithNext ?? ""}`;
+  return `${pagination.break ?? ""}`;
 }
 
 function boxFrameSyncKey(frame: BoxFrameSpec | undefined): string {

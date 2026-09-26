@@ -20,6 +20,7 @@ import {
   type LayoutSectionNode,
   type ListItemNode,
   type ListNode,
+  type PaginationHints,
   type ParagraphNode,
   type ProblemAreaBlock,
   type ProblemAreaKind,
@@ -2337,7 +2338,7 @@ function removeFromBoxBlockChildren(
 
 /** ブロックそのものを消す操作では、break-before を同じ入れ物の直後の兄弟へ渡す。 */
 function removeDirectBlock<
-  T extends { id: string; pagination?: { break?: boolean; keepTogether?: boolean; keepWithNext?: boolean } },
+  T extends { id: string; pagination?: PaginationHints },
 >(blocks: T[], blockId: string, transferBreak: boolean): T[] {
   const index = blocks.findIndex((block) => block.id === blockId);
   if (index < 0) {
