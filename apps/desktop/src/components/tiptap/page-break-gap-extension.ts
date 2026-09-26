@@ -11,6 +11,11 @@ import { countDecorationBlockWalk } from "./decoration-walk-metrics";
 export interface PageBreakGapOptions {
   /** Returns the current map of block sigmaDocId -> spacer height px that pushes a block to the next page. */
   getGaps: () => Record<string, number>;
+  /**
+   * 最上位ブロックのページ割りの変位 (ユニットからの相対)。最上位の改ページ印は
+   * 直前のブロックと同じページ (改ページする前のページの末尾) に描く。
+   */
+  getNodeDisplacements?: () => Readonly<Record<string, { dx: number; dy: number }>> | undefined;
   /** Returns block ids that explicitly start with a manual page break marker. */
   getBreakBeforeIds: () => string[];
   /** Returns the kind of manual break used when a block has no override. */
@@ -59,6 +64,7 @@ export const PageBreakGapExtension = Extension.create<PageBreakGapOptions>({
   addOptions() {
     return {
       getGaps: () => ({}),
+      getNodeDisplacements: () => undefined,
       getBreakBeforeIds: () => [],
       getBreakBeforeKind: () => "pageBreak",
       getBreakBeforeKinds: () => ({}),
@@ -96,6 +102,7 @@ export const PageBreakGapExtension = Extension.create<PageBreakGapOptions>({
         removeLabel: getRemoveBreakLabel,
         removeButtonLabel: getRemoveBreakButtonLabel,
         onRemove: isReplicaSurface() ? undefined : this.options.onRemoveBreak,
+        nodeDisplacements: this.options.getNodeDisplacements?.(),
       },
     );
 
@@ -150,6 +157,7 @@ export interface PageBreakDecorationOptions {
   removeLabel?: (kind: PageBreakMarkerKind) => string;
   removeButtonLabel?: () => string;
   onRemove?: (blockId: string) => void;
+  nodeDisplacements?: Readonly<Record<string, { dx: number; dy: number }>>;
 }
 
 export function createPageBreakDecorations(
@@ -164,9 +172,21 @@ export function createPageBreakDecorations(
     removeLabel,
     removeButtonLabel,
     onRemove,
+    nodeDisplacements,
   }: PageBreakDecorationOptions,
 ): DecorationSet {
   const decorations: Decoration[] = [];
+  // 最上位の印は、その印の前のブロックの変位 (= 改ページ前のページ) を継ぐ。
+  const markerDisplacementByPos = new Map<number, { dx: number; dy: number }>();
+  if (nodeDisplacements) {
+    let inherited = { dx: 0, dy: 0 };
+    doc.forEach((node, offset) => {
+      markerDisplacementByPos.set(offset, inherited);
+      const id = typeof node.attrs?.sigmaDocId === "string" ? node.attrs.sigmaDocId : null;
+      const own = id ? own_(nodeDisplacements, id) : undefined;
+      if (own) inherited = own;
+    });
+  }
 
   // Markers walk the whole document, not just the top level: a manual break can sit on a
   // block nested inside a box or a layout section, and without this the user gets no visible
@@ -189,6 +209,8 @@ export function createPageBreakDecorations(
       : "inline";
     const resolvedMarkerKind = own(markerKinds, id) ?? markerKind;
     const resolvedMarkerLabel = markerLabel(resolvedMarkerKind);
+    const markerDisplacement = markerDisplacementByPos.get(pos);
+    const displacementKey = markerDisplacement ? `${markerDisplacement.dx}:${markerDisplacement.dy}` : "0:0";
     if (resolvedMarkerKind === "columnBreak") {
       decorations.push(
         Decoration.node(pos, pos + node.nodeSize, {
@@ -204,12 +226,13 @@ export function createPageBreakDecorations(
         removeButtonLabel?.(),
         onRemove,
         layout,
+        markerDisplacement,
       ), {
         blockId: id,
         kind: "page-break-marker",
         // key に種別ではなく**表示文言**を混ぜる。言語を切り替えたとき、
         // ProseMirror に「別の widget だ」と分からせて描き直させるため。
-        key: `page-break-marker-${id}-${resolvedMarkerKind}-${resolvedMarkerLabel}-${layoutKey}`,
+        key: `page-break-marker-${id}-${resolvedMarkerKind}-${resolvedMarkerLabel}-${layoutKey}-${displacementKey}`,
         markerKind: resolvedMarkerKind,
         markerLabel: resolvedMarkerLabel,
         side: -2,
@@ -246,6 +269,10 @@ function own<T>(record: Record<string, T>, key: string): T | undefined {
   return Object.hasOwn(record, key) ? record[key] : undefined;
 }
 
+function own_<T>(record: Readonly<Record<string, T>>, key: string): T | undefined {
+  return Object.hasOwn(record, key) ? record[key] : undefined;
+}
+
 function createPageBreakMarker(
   blockId: string,
   labelText: string,
@@ -253,6 +280,7 @@ function createPageBreakMarker(
   removeButtonLabel: string | undefined,
   onRemove: ((blockId: string) => void) | undefined,
   layout?: PageBreakMarkerLayout,
+  displacement?: { dx: number; dy: number },
 ): HTMLElement {
   const marker = document.createElement("div");
   marker.className = "page-break-marker";
@@ -264,6 +292,9 @@ function createPageBreakMarker(
     marker.style.left = `${Math.round(layout.x)}px`;
     marker.style.top = `${Math.round(layout.y)}px`;
     marker.style.width = `${Math.round(layout.width)}px`;
+  }
+  if (displacement && (displacement.dx !== 0 || displacement.dy !== 0)) {
+    marker.style.translate = `${displacement.dx}px ${displacement.dy}px`;
   }
 
   createPageBreakMarkerContent(marker, {
