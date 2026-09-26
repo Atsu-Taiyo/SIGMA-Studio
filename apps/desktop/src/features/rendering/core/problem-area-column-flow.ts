@@ -1,21 +1,6 @@
-import type {
-  BoxBlockNode,
-  CodeBlockNode,
-  DividerNode,
-  HeadingNode,
-  LayoutSectionNode,
-  ListNode,
-  ParagraphNode,
-  QuoteBlockNode,
-  SectionNode,
-} from "@/features/document";
 import { MM_TO_PX } from "@/features/document";
-import type { CaretFragmentPlacement } from "./caret-placement";
-import { isFlowBlockFragmentable, fragmentFlowBlock } from "./flow-fragmentation";
 
 const MAX_PROBLEM_AREA_MIN_HEIGHT_SEGMENTS = 1_000;
-const MAX_PROBLEM_AREA_FLOW_SEGMENTS = 1_000;
-const MAX_PROBLEM_AREA_FLOW_FRAGMENTS = 1_000;
 
 /** 文書由来の予約高を有限なページ数へ正規化する。 */
 export function getSafeProblemAreaMinHeightPx(
@@ -92,18 +77,6 @@ export function isProblemAreaFlowEligible({
     && typeof segmentHeightPx === "number" && Number.isFinite(segmentHeightPx) && segmentHeightPx > 0.5;
   return !isAtomicByDefault || isMeasuredFramedFlow || hasManualBreakInside(blocks) || isOverTall;
 }
-
-type ProblemAreaColumnFlowBlockType = (
-  | SectionNode
-  | HeadingNode
-  | ParagraphNode
-  | ListNode
-  | QuoteBlockNode
-  | CodeBlockNode
-  | DividerNode
-  | BoxBlockNode
-  | LayoutSectionNode
-)["type"] | "problem";
 
 export function roundTextFlowColumnBlockLayout(
   layout: TextFlowColumnBlockLayout,

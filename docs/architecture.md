@@ -583,13 +583,12 @@ HTML/CSS + ChromiumのベクターPDF出力は現実的ですが、商用品質�
 - 低解像度画像検出
 - 数式欠け検出
 
-ページ分割は自動任せにしません。ノード側に制約を持たせます。
+ページ分割は自動ページネーションが担い、ノード側には手動の改ページ/改段だけを持たせます(`keepTogether` / `keepWithNext` は廃止しました)。
 
 ```json
 {
   "pagination": {
-    "keepTogether": true,
-    "keepWithNext": true
+    "break": true
   }
 }
 ```

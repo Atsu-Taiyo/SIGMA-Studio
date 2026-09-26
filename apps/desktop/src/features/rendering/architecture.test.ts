@@ -12,12 +12,8 @@ import {
   type OverlayPageSlice,
   type OverlayPageWindow,
   type OverlayPreviewStackLayer,
-  type TextFlowColumnBlockLayout,
   type VisiblePageRange,
 } from "./core";
-import type {
-  TextFlowColumnBlockLayout as LegacyTextFlowColumnBlockLayout,
-} from "@/components/editor/TextFlowEditor";
 import {
   createOverlayPageSlices as legacyCreateOverlayPageSlices,
   getVisibleOverlayShapes as legacyGetVisibleOverlayShapes,

@@ -665,27 +665,6 @@ describe("PrintPreview print pagination", () => {
     ]);
   });
 
-  it("keeps a block with its next block when the pair fits the next column", () => {
-    const filler = Array.from({ length: 5 }, (_, index) => (
-      paragraph(`keep_next_filler_${index + 1}`, `前置き ${index + 1}`)
-    ));
-    const html = renderToStaticMarkup(
-      <PrintPreview
-        document={documentWithColumns(2, [
-          ...filler,
-          paragraph("keep_next_heading", "見出し", { pagination: { keepWithNext: true } }),
-          paragraph("keep_next_body", "直後の本文"),
-        ], shortTwoColumnPageLayout())}
-        profile="teacher"
-      />,
-    );
-
-    expect(renderedPageColumns(html)).toEqual([[
-      filler.map((block) => block.id),
-      ["keep_next_heading", "keep_next_body"],
-    ]]);
-  });
-
   it("flows an oversized unframed problem area from the left into the right column", () => {
     const html = renderToStaticMarkup(
       <PrintPreview
@@ -1473,38 +1452,6 @@ describe("PrintPreview print pagination", () => {
     expect(previewHtml).not.toContain("data-box-fragment=");
   });
 
-  it("moves a keepTogether box instead of splitting it across pages", () => {
-    const note = createBoxBlock("tcolorbox-note", "", {
-      id: "keep_together_note",
-      bodyId: "keep_together_body_1",
-    });
-    note.pagination = { keepTogether: true };
-    note.blocks = [
-      richParagraph("keep_together_body_1", "本文 1"),
-      richParagraph("keep_together_body_2", "本文 2"),
-    ];
-    const filler = Array.from({ length: 4 }, (_, index) => (
-      paragraph(`keep_together_filler_${index + 1}`, `前置き ${index + 1}`)
-    ));
-
-    const html = renderToStaticMarkup(
-      <PrintPreview
-        document={documentWithColumns(1, [...filler, note], {
-          ...shortTwoColumnPageLayout(),
-          flow: { type: "columns", columnCount: 1, columnGapMm: 0 },
-        })}
-        profile="teacher"
-      />,
-    );
-    const previewHtml = renderedPreviewHtml(html);
-
-    expect(renderedPageColumns(html)).toEqual([
-      [filler.map((block) => block.id)],
-      [["keep_together_note", "keep_together_body_1", "keep_together_body_2"]],
-    ]);
-    expect(previewHtml).not.toContain("data-box-fragment=");
-  });
-
   it("pixel-slices a standalone block taller than a whole page across pages", () => {
     const html = renderToStaticMarkup(
       <PrintPreview
@@ -1828,16 +1775,6 @@ describe("paginateMeasuredPrintBlocks keeps a block whose only overflow is its s
     expect(pages.map((page) => page.blocks.map((block) => block.id))).toEqual([["a"], ["b", "c"]]);
   });
 
-  it("excludes the following block's trailing space from keep-with-next fitting", () => {
-    const heading = unit("heading");
-    heading.pagination = { keepWithNext: true };
-    const units = [unit("filler"), heading, unit("body", 20)];
-    const run = () => paginate(units, [70, 20, 30]);
-
-    const first = run();
-    expect(first.map((page) => page.blocks.map((block) => block.id))).toEqual([["filler", "heading", "body"]]);
-    expect(run()).toEqual(first);
-  });
 });
 
 describe("paginateMeasuredPrintBlocks problem-area reservations and nested sections", () => {
@@ -1888,62 +1825,6 @@ describe("paginateMeasuredPrintBlocks problem-area reservations and nested secti
     expect(run()).toEqual(first);
     return first;
   }
-
-  it("keeps a problem lead with the following framed prompt on the same page", () => {
-    const lead = problemArea("lead_keep_lead", "lead", [richParagraph("lead_keep_number", "1")]);
-    const prompt = problemArea(
-      "lead_keep_prompt",
-      "prompt",
-      [richParagraph("lead_keep_prompt_block", "prompt")],
-      { hasFrame: true },
-    );
-    lead.problemId = "lead_keep_problem";
-    prompt.problemId = "lead_keep_problem";
-    prompt.isFirstProblemArea = false;
-
-    const pages = paginateTwice(
-      [
-        { type: "block", id: "lead_keep_filler", block: richParagraph("lead_keep_filler", "filler") },
-        lead,
-        prompt,
-      ],
-      [70, 20, 40],
-      measured({ lead_keep_number: 20, lead_keep_prompt_block: 40 }),
-    );
-
-    expect(pages.map((page) => page.blocks.map((block) => block.id))).toEqual([
-      ["lead_keep_filler"],
-      ["lead_keep_lead:area-fragment:0", "lead_keep_prompt:area-fragment:0"],
-    ]);
-  });
-
-  it("keeps a problem lead on the page where its full-span prompt starts", () => {
-    const lead = problemArea("full_lead_keep_lead", "lead", [richParagraph("full_lead_number", "1")]);
-    const prompt = problemArea(
-      "full_lead_keep_prompt",
-      "prompt",
-      [richParagraph("full_lead_prompt_block", "prompt")],
-      { columnSpan: "full" },
-    );
-    lead.problemId = "full_lead_keep_problem";
-    prompt.problemId = "full_lead_keep_problem";
-    prompt.isFirstProblemArea = false;
-
-    const pages = paginateTwice(
-      [
-        { type: "block", id: "full_lead_filler", block: richParagraph("full_lead_filler", "filler") },
-        lead,
-        prompt,
-      ],
-      [70, 20, 40],
-      measured({ full_lead_number: 20, full_lead_prompt_block: 40 }),
-    );
-
-    expect(pages.map((page) => page.blocks.map((block) => block.id))).toEqual([
-      ["full_lead_filler"],
-      ["full_lead_keep_lead:area-fragment:0", "full_lead_keep_prompt"],
-    ]);
-  });
 
   it("automatically fragments a framed area taller than one page", () => {
     const blocks = [
@@ -2276,72 +2157,6 @@ describe("paginateMeasuredPrintBlocks problem-area reservations and nested secti
     )).join("")).toContain('data-box-fragment="last"');
   });
 
-  it("moves a keep-with-next pair from a short recursive page to the next full page", () => {
-    const heading = {
-      ...richParagraph("short_keep_heading", "heading"),
-      pagination: { keepWithNext: true },
-    };
-    const body = richParagraph("short_keep_body", "body");
-    const units: PrintContentUnit[] = [
-      { type: "block", id: heading.id, block: heading, pagination: heading.pagination },
-      { type: "block", id: body.id, block: body },
-    ];
-    const run = () => paginateMeasuredPrintBlocks(
-      units,
-      [20, 30],
-      [20, 30],
-      2,
-      100,
-      60,
-      measured({ short_keep_heading: 20, short_keep_body: 30 }),
-      8,
-    );
-
-    const first = run();
-    expect(first[0].columns.flatMap((column) => column.blocks)).toEqual([]);
-    expect(first[1].columns[0].blocks.map((block) => block.id)).toEqual([
-      "short_keep_heading",
-      "short_keep_body",
-    ]);
-    expect(run()).toEqual(first);
-  });
-
-  it("moves a keep-together nested section before fragmenting it", () => {
-    const box = createBoxBlock("itembox", "", { id: "kept_nested_box", bodyId: "kept_nested_body" });
-    box.blocks = [richParagraph("kept_nested_body", "枠")];
-    const section = {
-      type: "layoutSection" as const,
-      id: "kept_nested_section",
-      layout: { columnCount: 2, columnGapMm: 4 },
-      pagination: { keepTogether: true },
-      children: [box],
-    };
-    const filler = paragraph("kept_nested_filler", "前置き");
-    const heights = measured({
-      kept_nested_section: 40,
-      kept_nested_box: 40,
-      kept_nested_body: 20,
-    });
-    const run = () => paginateMeasuredPrintBlocks(
-      [
-        { type: "block", id: filler.id, block: filler },
-        problemArea("kept_nested_area", "solution", [section]),
-      ],
-      [80, 40],
-      [80, 40],
-      2,
-      100,
-      0,
-      heights,
-      8,
-    );
-
-    const first = run();
-    expect(first[0].columns[0].blocks.every((unit) => unit.type !== "problemAreaFragment")).toBe(true);
-    expect(first[0].columns[1].blocks.some((unit) => unit.type === "problemAreaFragment")).toBe(true);
-    expect(run()).toEqual(first);
-  });
-
   it("subtracts framed-fragment chrome from nested-section capacity", () => {
     const children = Array.from({ length: 8 }, (_, index) => richParagraph(`framed_nested_${index + 1}`, "枠内段"));
     const section = {
@@ -2387,42 +2202,6 @@ describe("paginateMeasuredPrintBlocks problem-area reservations and nested secti
       .reduce((height, column) => height + column.estimatedContentHeightPx, 0);
 
     expect(occupied).toBeCloseTo(100, 5);
-  });
-
-  it("excludes the following problem child trailing space from keep-with-next fitting", () => {
-    const heading = {
-      ...richParagraph("problem_keep_heading", "heading"),
-      pagination: { keepWithNext: true },
-    };
-    const body = {
-      ...richParagraph("problem_keep_body", "body"),
-      spaceAfterPx: 20,
-    };
-    const area = problemArea("problem_keep_area", "solution", [
-      richParagraph("problem_keep_filler", "filler"),
-      heading,
-      body,
-    ]);
-    const heights = measured({
-      problem_keep_filler: 70,
-      problem_keep_heading: 20,
-      problem_keep_body: 30,
-    });
-    const run = () => paginateMeasuredPrintBlocks(
-      [area],
-      [120],
-      [120],
-      2,
-      100,
-      0,
-      heights,
-      8,
-    );
-
-    const first = run();
-    expect(first[0].columns[0].blocks).toHaveLength(1);
-    expect(first[0].columns[1].blocks).toHaveLength(0);
-    expect(run()).toEqual(first);
   });
 
   it("splits an empty problem-area reservation across pages", () => {
