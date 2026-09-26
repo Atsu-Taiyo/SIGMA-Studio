@@ -20,7 +20,7 @@ export interface TopLevelBlockBox {
 }
 
 /**
- * What sits on one side of a block. `atomic` is a problem or a box — a block a caret cannot
+ * What sits on one side of a block. `atomic` is a problem, box, code block, or quote — a block a caret cannot
  * step out of, so the gap beside it has no keyboard route in and always earns an insert line.
  */
 export type BlockNeighborKind = "none" | "atomic" | "body";
@@ -36,7 +36,7 @@ export interface HoveredTopLevelBlock {
   spaceAfterTarget?: BlockSpaceAfterTarget | null;
   /** The following top-level block, if any. Anchors "insert after" to a stable side. */
   nextBlockId: string | null;
-  /** Whether this block is itself a problem or a box. */
+  /** Whether this block needs an insertion affordance outside its boundary. */
   isAtomic: boolean;
   aboveKind: BlockNeighborKind;
   belowKind: BlockNeighborKind;
@@ -373,7 +373,7 @@ export function resolveBlockAffordanceHover(
   const nearTop = hovered.gapEdge === "top" || distanceToTop <= edgeThresholdPx;
   const nearBottom = hovered.gapEdge === "bottom" || distanceToBottom <= edgeThresholdPx;
 
-  // A boundary earns the line when a caret cannot reach it: next to a problem or a box, or
+  // A boundary earns the line when a caret cannot reach it: next to a problem, box, code block, or quote, or
   // at the very top of the document. Both sides of one gap agree, because the test looks at
   // the pair of blocks around it rather than at whichever one the pointer happens to be on.
   // The document's own end is left to the trailing click zone.
