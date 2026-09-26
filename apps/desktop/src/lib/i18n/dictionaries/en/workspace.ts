@@ -149,6 +149,7 @@ export const workspace = {
     noWorkspaces: "No workspaces",
   },
   confirm: {
+    deleteFolderWarning: "This deletes the folder and all folders and materials inside it. This cannot be undone.",
     deleteWarning: "Deleting can't be undone.",
     deleteMaterial: "\"{{title}}\" will be deleted. This action can't be undone.",
     deleteWorkspaceBody: "This deletes this workspace and everything it contains: {{files}} material(s) and {{folders}} folder(s). This can't be undone.",

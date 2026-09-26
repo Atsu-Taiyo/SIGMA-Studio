@@ -135,13 +135,17 @@ describe("workspace deletion", () => {
 });
 
 describe("folders", () => {
-  it("refuses to delete a folder that still holds a file", () => {
+  it("recursively deletes descendants and files while preserving siblings", () => {
     const { library, workspaceId } = libraryWithWorkspace();
-    createFolderRow(library, { id: "folder_1", workspaceId, name: "F", now: NOW });
-    addFile(library, "file_1", workspaceId, "folder_1");
-
-    expect(deleteFolderRow(library, workspaceId, "folder_1", NOW))
-      .toEqual({ ok: false, reason: "non-empty-folder" });
+    createFolderRow(library, { id: "parent", workspaceId, name: "P", now: NOW });
+    createFolderRow(library, { id: "child", workspaceId, parentFolderId: "parent", name: "C", now: NOW });
+    createFolderRow(library, { id: "grandchild", workspaceId, parentFolderId: "child", name: "G", now: NOW });
+    createFolderRow(library, { id: "sibling", workspaceId, name: "S", now: NOW });
+    addFile(library, "nested", workspaceId, "grandchild");
+    addFile(library, "kept", workspaceId, "sibling");
+    expect(deleteFolderRow(library, workspaceId, "parent", NOW).ok).toBe(true);
+    expect(library.folders.filter(f => !f.deletedAt).map(f => f.id)).toEqual(["sibling"]);
+    expect(listFileMetadata(library).map(f => f.fileId)).toEqual(["kept"]);
   });
 
   it("refuses to move a folder inside its own descendant", () => {

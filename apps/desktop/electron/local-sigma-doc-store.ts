@@ -25,6 +25,7 @@ import {
 } from "@/lib/workspace-tab-groups";
 import {
   availableDocumentTitle,
+  deleteFolderRow,
   type LibraryFileRow as LocalFileRecord,
   type LibraryFolderRow as LocalFolderRecord,
   type LibraryWorkspaceRow as LocalWorkspaceRecord,
@@ -1380,16 +1381,8 @@ export class LocalSigmaDocStore {
         if (!folder) {
           return { state: "error", error: te("electron.storage.folderNotFound") };
         }
-        const hasChildFolder = library.folders.some((item) =>
-          item.workspaceId === workspace.id && item.parentFolderId === folderId && !item.deletedAt);
-        const hasFile = library.files.some((item) =>
-          item.workspaceId === workspace.id && item.folderId === folderId && !item.deletedAt);
-        if (hasChildFolder || hasFile) {
-          return { state: "error", error: te("electron.storage.nonEmptyFolder") };
-        }
-
         const now = new Date().toISOString();
-        this.replaceFolder(library, { ...folder, deletedAt: now, updatedAt: now });
+        deleteFolderRow(library, workspace.id, folderId, now);
         this.touchWorkspace(library, workspace.id, now);
         tx.markChanged();
         return { state: "ready", overview: this.createWorkspaceOverview(library, workspace.id) };

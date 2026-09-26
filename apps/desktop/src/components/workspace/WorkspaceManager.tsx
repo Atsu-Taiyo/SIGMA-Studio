@@ -943,6 +943,16 @@ export function WorkspaceManager() {
     setMessage(t("status.deleting"));
     let lastResult: WorkspaceOverviewResult | null = null;
     for (const item of items) {
+      const selectedFolders = new Set(items.flatMap(candidate => candidate.type === "folder" ? [candidate.folderId] : []));
+      let parent = item.type === "folder" ? folders.find(f => f.id === item.folderId)?.parentFolderId : files.find(f => f.fileId === item.fileId)?.folderId;
+      const seen = new Set<string>();
+      let covered = false;
+      while (parent && !seen.has(parent)) {
+        if (selectedFolders.has(parent)) { covered = true; break; }
+        seen.add(parent);
+        parent = folders.find(f => f.id === parent)?.parentFolderId;
+      }
+      if (covered) continue;
       if (!canMutateDragItem(item, "deleteDescendants")) return;
       lastResult = item.type === "file"
         ? await deleteDocumentInWorkspace(activeWorkspace.id, item.fileId)
@@ -1490,7 +1500,7 @@ export function WorkspaceManager() {
             : pendingDeleteConfirmation.kind === "file"
               ? resolveFileDisplayName(pendingDeleteConfirmation.file, t)
               : t("label.itemCount", { count: pendingDeleteConfirmation.keys.length })}
-          warning={t("confirm.deleteWarning")}
+          warning={t(pendingDeleteConfirmation.kind === "folder" || (pendingDeleteConfirmation.kind === "selection" && pendingDeleteConfirmation.keys.some(key => key.startsWith("folder:"))) ? "confirm.deleteFolderWarning" : "confirm.deleteWarning")}
           confirmLabel={t("action.delete")}
           saving={pendingDeleteSaving}
           onConfirm={() => void confirmPendingDelete()}

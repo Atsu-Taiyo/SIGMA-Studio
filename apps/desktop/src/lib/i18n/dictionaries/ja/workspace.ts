@@ -152,6 +152,7 @@ export const workspace = {
     noWorkspaces: "ワークスペースがありません",
   },
   confirm: {
+    deleteFolderWarning: "このフォルダと、その中のすべての子フォルダ・教材を削除します。削除すると元に戻せません。",
     deleteWarning: "削除すると元に戻せません。",
     deleteMaterial: "「{{title}}」を削除します。この操作は取り消せません。",
     deleteWorkspaceBody: "このワークスペースと、含まれる教材 {{files}} 件・フォルダ {{folders}} 件をすべて削除します。元に戻せません。",

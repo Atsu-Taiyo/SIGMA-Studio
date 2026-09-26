@@ -849,6 +849,16 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, acc
   const [appUpdateActionBusy, setAppUpdateActionBusy] = useState(false);
   const [openFileIds, setOpenFileIds] = useState<string[]>(() => [initialDocument.docId]);
   const [activeFileId, setActiveFileId] = useState(initialDocument.docId);
+  const cameraByFileIdRef = useRef(new Map<string, { zoom: number; panX: number; panY: number }>());
+  const cameraFileIdRef = useRef(initialDocument.docId);
+  useLayoutEffect(() => {
+    if (cameraFileIdRef.current === activeFileId) return;
+    const store = editorStore.getState();
+    cameraByFileIdRef.current.set(cameraFileIdRef.current, { zoom: store.zoom, ...store.whiteboardPan });
+    cameraFileIdRef.current = activeFileId;
+    const camera = cameraByFileIdRef.current.get(activeFileId) ?? { zoom: 100, panX: 0, panY: 0 };
+    store.setWhiteboardCamera(camera.zoom, { panX: camera.panX, panY: camera.panY });
+  }, [activeFileId, editorStore]);
   const documentSession = sessionHost?.get(activeFileId);
   const documentSessionRef = useRef(documentSession);
   useLayoutEffect(() => { documentSessionRef.current = documentSession; }, [documentSession]);
@@ -2515,7 +2525,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, acc
   // A newly narrowed pane should keep the entire page visible. Only lower the
   // zoom here; manual zoom changes and splitter dragging remain under user control.
   useEffect(() => {
-    if (!editorCanvasElement || workspaceLayout.groups.length < 2 || isWhiteboardDocument) return;
+    if (!editorCanvasElement || workspaceLayout.groups.length < 2 || isWhiteboardDocument || cameraByFileIdRef.current.has(activeFileId)) return;
     let frame = window.requestAnimationFrame(() => {
       frame = window.requestAnimationFrame(() => {
         const scroller = editorCanvasRef.current;
@@ -2530,7 +2540,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, acc
       });
     });
     return () => window.cancelAnimationFrame(frame);
-  }, [applyZoom, editorCanvasElement, editorStore, isWhiteboardDocument, workspaceLayout.groups.length]);
+  }, [activeFileId, applyZoom, editorCanvasElement, editorStore, isWhiteboardDocument, workspaceLayout.groups.length]);
 
   /**
    * パンは常に「差分」で受ける。中ボタンドラッグは 1 フレームに何度も動くので、
@@ -6390,6 +6400,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, acc
     activateWorkspaceGroupTab(group.id, tab);
   }, [activateWorkspaceGroupTab]);
 
+  const readPaneZoom = useCallback((fileId: string) => cameraByFileIdRef.current.get(fileId)?.zoom ?? 100, []);
   const readPaneScroll = useCallback((fileId: string) => editorTabViewStateByFileIdRef.current.get(fileId), []);
   const workspacePaneView = useMemo<WorkspacePaneView>(() => ({
     zoom,
@@ -6397,7 +6408,8 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, acc
     showResolvedComments,
     commentAuthor,
     scrollFor: readPaneScroll,
-  }), [commentAuthor, commentsPanelOpen, readPaneScroll, showResolvedComments, zoom]);
+    zoomFor: readPaneZoom,
+  }), [commentAuthor, commentsPanelOpen, readPaneScroll, readPaneZoom, showResolvedComments, zoom]);
 
   const aiRoomTitles = useAiWorkspaceTabTitles();
   const workspaceTabsRow = isEmbedded ? null : (
