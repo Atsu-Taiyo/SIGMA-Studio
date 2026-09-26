@@ -174,7 +174,6 @@ export const chrome = {
     untitledWhiteboard: "Untitled whiteboard",
     newFromTemplate: "From a template",
     library: "Material list",
-    libraryTooltip: "Open a saved material",
   },
   actions: {
     reportIssue: "Report an issue",
