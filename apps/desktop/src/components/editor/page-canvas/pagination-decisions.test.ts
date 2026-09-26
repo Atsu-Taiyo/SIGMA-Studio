@@ -161,6 +161,24 @@ describe("decidePagination", () => {
     expect(detectGapOscillation([signature, signature], gapMapSignature(second.gaps))).toBe("stable");
   });
 
+  it("honors a first-block manual break before an atomic area without adding a blank page", () => {
+    const afterPrompt = [
+      block("prompt", 0, 200),
+      atomicProblemArea("solution_area", 200, 400, { forceBreakBefore: true }),
+    ];
+    const first = decidePagination(afterPrompt, ENV, {});
+    const second = decidePagination(afterPrompt, ENV, {});
+    const alreadyAtPageStart = decidePagination([
+      atomicProblemArea("solution_area", 0, 400, { forceBreakBefore: true }),
+    ], ENV, {});
+
+    expect(first.gaps.solution_area).toBe(900);
+    expect(first.pageCount).toBe(2);
+    expect(second).toEqual(first);
+    expect(alreadyAtPageStart.gaps.solution_area).toBeUndefined();
+    expect(alreadyAtPageStart.pageCount).toBe(1);
+  });
+
   it("advances following flow by a min-height deficit missing from the area DOM", () => {
     const items = [
       block("intro", 0, 700),

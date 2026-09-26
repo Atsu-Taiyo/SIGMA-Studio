@@ -160,9 +160,9 @@ export function decidePagination(
     const forceBreak = item.forceBreakBefore === true && !isFirstOnPage;
 
     if (item.kind === "atomicProblemArea") {
-      // keep-together が唯一の規則。ページより高い枠付きエリアも分割せず、次ページの頭から
+      // 先頭ブロックの手動改ページはエリア全体の前で処理する。ページより高い枠付きエリアも分割せず、次ページの頭から
       // 始める (枠を切らないための規則で、そこが「どのページにも収まらない枠」にできる最善)。
-      if (!isFirstOnPage && relTop + item.height > env.contentHeightPx + 0.5) {
+      if (forceBreak || (!isFirstOnPage && relTop + item.height > env.contentHeightPx + 0.5)) {
         gap += pushToNextPage(item.gapKey, item.topNat);
       }
       // 占有するページ数だけカーソルを進める。これが無いと、後続のブロックが
