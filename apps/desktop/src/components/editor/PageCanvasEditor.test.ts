@@ -1183,6 +1183,59 @@ describe("computeColumnUnitLayouts", () => {
     })).toBe("inner");
   });
 
+  it("does not resolve a preceding outside break from inside a box", () => {
+    const blocks: SigmaBlock[] = [
+      { ...paragraph("outside_break", "before"), pagination: { break: true } },
+      { ...createBoxBlock("fancybox"), id: "box", blocks: [paragraph("inside", "inside")] },
+    ];
+
+    expect(resolveContextMenuBreakTarget(blocks, "inside")).toBeNull();
+  });
+
+  it("does not carry an outside break through a container into a nested box", () => {
+    const blocks: SigmaBlock[] = [
+      { ...paragraph("outside_break", "before"), pagination: { break: true } },
+      { type: "layoutSection", id: "section", layout: { columnCount: 1 }, children: [{
+        ...createBoxBlock("fancybox"), id: "box", blocks: [paragraph("inside", "inside")],
+      }] },
+    ];
+
+    expect(resolveContextMenuBreakTarget(blocks, "inside")).toBeNull();
+  });
+
+  it("keeps a preceding paragraph break available within the same box", () => {
+    const blocks: SigmaBlock[] = [{
+      ...createBoxBlock("fancybox"), id: "box", blocks: [
+        { ...paragraph("box_break", "first"), pagination: { break: true } },
+        paragraph("box_tail", "second"),
+      ],
+    }];
+
+    expect(resolveContextMenuBreakTarget(blocks, "box_tail")).toBe("box_break");
+  });
+
+  it("keeps nested box breaks within their own sibling subtree", () => {
+    const blocks: SigmaBlock[] = [{
+      ...createBoxBlock("fancybox"), id: "outer", blocks: [
+        { ...createBoxBlock("fancybox"), id: "first", pagination: { break: true }, blocks: [paragraph("first_body", "first")] },
+        { ...createBoxBlock("fancybox"), id: "second", blocks: [paragraph("second_body", "second")] },
+      ],
+    }];
+
+    expect(resolveContextMenuBreakTarget(blocks, "first_body")).toBe("first");
+    expect(resolveContextMenuBreakTarget(blocks, "second_body")).toBeNull();
+  });
+
+  it("retains an enclosing box break across an unbroken nested box", () => {
+    const blocks: SigmaBlock[] = [{
+      ...createBoxBlock("fancybox"), id: "outer", pagination: { break: true }, blocks: [{
+        ...createBoxBlock("fancybox"), id: "inner", blocks: [paragraph("inner_body", "inside")],
+      }],
+    }];
+
+    expect(resolveContextMenuBreakTarget(blocks, "inner_body")).toBe("outer");
+  });
+
   it("resolves the break target from the units being drawn, not from a rebuilt guess", () => {
     // 描画側のチャンク境界は前回の描画から引き継ぐ (`text-run-chunking.ts`)。ここで blocks から
     // 組み直すと id が実描画とずれ、`unitLayouts` が引けずに「改段/改ページを解除」がメニューから

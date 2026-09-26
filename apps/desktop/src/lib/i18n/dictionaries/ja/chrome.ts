@@ -177,7 +177,6 @@ export const chrome = {
     untitledWhiteboard: "無題のホワイトボード",
     newFromTemplate: "テンプレートから追加",
     library: "教材一覧",
-    libraryTooltip: "保存済みの教材を開く",
   },
   actions: {
     reportIssue: "問題を報告",

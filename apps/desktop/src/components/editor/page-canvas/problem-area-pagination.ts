@@ -20,6 +20,8 @@ export interface AtomicProblemAreaItem {
   height: number;
   /** 論理予約高のうち、現在の area DOM がまだ占有していない高さ。 */
   reservedHeightDeficitPx: number;
+  /** The first block's manual break applies before the whole atomic area. */
+  forceBreakBefore: boolean;
   ownedBlockIds: string[];
 }
 
@@ -191,6 +193,7 @@ export function collectProblemAreaPaginationItems(
       segmentHeightPx: contentHeightPx,
     });
     const manualBreakInside = hasManualBreakInside(eligibilityBlocks);
+    const forceBreakBefore = eligibilityBlocks[0]?.pagination?.break === true;
     const keepAtomic = shouldKeepProblemAreaAtomic({
       flowEligible,
       gapFreeHeightPx: gapFreeHeight,
@@ -231,6 +234,7 @@ export function collectProblemAreaPaginationItems(
       top,
       height: gapFreeHeight,
       reservedHeightDeficitPx: domReservesMinHeight ? 0 : Math.max(0, gapFreeHeight - height),
+      forceBreakBefore,
       ownedBlockIds,
     });
   }

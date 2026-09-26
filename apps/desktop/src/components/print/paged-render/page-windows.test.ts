@@ -73,7 +73,7 @@ describe("buildPageWindows", () => {
     canvas.className = "page-canvas";
     canvas.innerHTML = `
       <pre class="print-code text-flow-box-fragment-source" data-sigma-doc-id="large_code"
-        style="clip-path:inset(0 0 100px 0);--text-flow-box-fragment-hidden-bottom:100px">line 1<br>line 2</pre>
+        style="clip-path:inset(0 0 100px 0);--text-flow-box-fragment-hidden-bottom:100px"><button data-code-block-action-button="true">⋯</button><span class="hljs-keyword">line 1</span><br><span style="color: red">line 2</span></pre>
       <div class="editor-box-fragment-viewport" data-paged-code-fragment
         data-fragment-page-index="1" data-box-source-id="large_code">
         <div class="editor-box-fragment-editor"></div>
@@ -94,7 +94,11 @@ describe("buildPageWindows", () => {
     const pages = container.querySelectorAll(".paged-surface-page");
     expect(pages[0].querySelectorAll("[data-paged-code-fragment] .print-code")).toHaveLength(0);
     const continuation = pages[1].querySelector<HTMLElement>("[data-paged-code-fragment] .print-code");
-    expect(continuation?.textContent).toBe("line 1\nline 2");
+    expect(continuation?.textContent).toBe("line 1line 2");
+    expect(continuation?.querySelector("br")).not.toBeNull();
+    expect(continuation?.querySelector(".hljs-keyword")?.textContent).toBe("line 1");
+    expect(continuation?.querySelector<HTMLElement>("span[style]")?.style.color).toBe("red");
+    expect(continuation?.querySelector("[data-code-block-action-button]")).toBeNull();
     expect(continuation?.classList.contains("text-flow-box-fragment-source")).toBe(false);
     expect(continuation?.style.clipPath).toBe("");
     expect(continuation?.hasAttribute("data-sigma-doc-id")).toBe(false);
@@ -102,6 +106,44 @@ describe("buildPageWindows", () => {
 });
 
 describe("compactPagedCodeBlocks", () => {
+  it("removes the editing action without adding its label to compacted plain code", () => {
+    const root = document.createElement("div");
+    root.innerHTML = '<pre class="print-code"><button data-code-block-action-button="true">⋯</button>one<br>two</pre>';
+
+    compactPagedCodeBlocks(root);
+
+    const code = root.querySelector(".print-code")!;
+    expect(code.textContent).toBe("one\ntwo");
+    expect(code.childNodes).toHaveLength(1);
+    expect(code.querySelector("button")).toBeNull();
+  });
+
+  it("keeps syntax highlighting and inline styles in the cloned code", () => {
+    const root = document.createElement("div");
+    root.innerHTML = '<pre class="print-code"><button data-code-block-action-button="true">⋯</button><span class="hljs-keyword">const</span> <span style="font-size: 18pt; color: red">answer</span><br><strong>42</strong></pre>';
+
+    compactPagedCodeBlocks(root);
+
+    const code = root.querySelector(".print-code")!;
+    expect(code.querySelector("button")).toBeNull();
+    expect(code.querySelector(".hljs-keyword")?.textContent).toBe("const");
+    expect(code.querySelector<HTMLElement>("span[style]")?.style.fontSize).toBe("18pt");
+    expect(code.querySelector("strong")?.textContent).toBe("42");
+    expect(code.querySelector("br")).not.toBeNull();
+  });
+
+  it("removes wrapping fences without losing styles inside them", () => {
+    const root = document.createElement("div");
+    root.innerHTML = '<pre class="print-code">```js<br><span class="hljs-keyword">const</span> <span style="color: red">answer</span><br>```</pre>';
+
+    compactPagedCodeBlocks(root);
+
+    const code = root.querySelector(".print-code")!;
+    expect(code.querySelector(".hljs-keyword")?.textContent).toBe("const");
+    expect(code.querySelector<HTMLElement>("span[style]")?.style.color).toBe("red");
+    expect(code.textContent).toBe("const answer");
+  });
+
   it("does not keep a wrapping markdown fence at the start of compacted print code", () => {
     const root = document.createElement("div");
     const ordinary = document.createElement("pre");
