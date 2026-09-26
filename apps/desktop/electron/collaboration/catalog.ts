@@ -480,7 +480,33 @@ export class DesktopSharedCatalog {
       renameWorkspace: async (id, name) => { await this.account(); this.assertHierarchyMutable(id); if (!this.find(id)) return undefined; await this.rename(id, name); return this.overview(id); },
       deleteWorkspace: async id => { await this.account(); this.assertHierarchyMutable(id); if (!this.find(id)) return undefined; await this.remove(id); return this.overview(); },
       deleteFile: async id => { await this.account(); this.assertHierarchyMutable(id); if (!this.find(id)) { if (this.sessions.has(id)) throw new Error("TARGET_UNAVAILABLE"); return undefined; } await this.remove(id); return { ok: true }; },
-      deleteFolder: async (workspaceId, id) => { await this.account(); this.assertHierarchyMutable(id); if (!this.find(id)) return undefined; await this.remove(id); return this.overview(workspaceId); },
+      deleteFolder: async (workspaceId, id) => {
+        await this.account(); this.assertHierarchyMutable(id);
+        if (this.find(id)) { await this.remove(id); return this.overview(workspaceId); }
+        // A local folder may contain independently shared roots. Delete those
+        // through the authority before removing local ledger rows.
+        const local = await this.rawOverview(workspaceId);
+        const projected = this.cache?.project(local, workspaceId);
+        const folders = projected?.folders ?? local.folders;
+        const removed = new Set([id]);
+        for (;;) {
+          const before = removed.size;
+          for (const folder of folders) if (folder.workspaceId === workspaceId && folder.parentFolderId && removed.has(folder.parentFolderId)) removed.add(folder.id);
+          if (before === removed.size) break;
+        }
+        const nodes = Object.values(this.cache?.data.nodes ?? {}).filter(node => {
+          const location = this.cache!.location(node, local);
+          return node.state === "active" && location.workspaceId === workspaceId && location.folderId && removed.has(location.folderId);
+        });
+        const nodeIds = new Set(nodes.map(node => node.id));
+        const roots = nodes.filter(node => !node.parentId || !nodeIds.has(node.parentId));
+        for (const node of roots) {
+          this.assertHierarchyMutable(this.cache!.navigationId(node));
+          if (!(node.isShareRoot ? node.capabilities.deleteRootShare : node.capabilities.deleteDescendants)) throw new Error("FORBIDDEN");
+        }
+        for (const node of roots) await this.remove(this.cache!.navigationId(node));
+        return undefined;
+      },
       createFolder: async (workspaceId, name, parentId) => {
         await this.account(); this.assertHierarchyMutable(parentId ?? workspaceId); const parent = this.find(parentId ?? workspaceId); if (!parent) { this.rejectVirtual(workspaceId, parentId); return undefined; }
         await this.mutate(async cache => { await this.createNode(cache, parent, "folder", name); });

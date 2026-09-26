@@ -23,7 +23,6 @@ import { isLineToolCommand, isShapeMenuCommand } from "@/components/editor/overl
 import { OverlayLineDashMenuButton, OverlayLineWidthMenuButton } from "@/components/editor/overlay-line-style-menus";
 import { dispatchOverlayStylePreview } from "@/components/editor/page-overlay-types";
 import { IconButton } from "@/components/ui/Button";
-import { Tooltip } from "@/components/ui/Tooltip";
 import { Inline, Inset } from "@/components/ui/layout";
 // 矢印/Home/End の移動先計算は設定タブと同じ純関数を使う（実装を二重に持たない）。
 // Tabs コンポーネント自体は使わない（Settings.module.css をクロームへ漏らさないため）。
@@ -554,11 +553,7 @@ export function renderEditorChrome(chrome: EditorChromeValue) {
             </>}
           </ToolbarPopover>
         </div>
-        <Tooltip {...commandTooltip(t("tabs.libraryTooltip"), "document.library")}>
-          <button type="button" className="document-tab-action" title={t("tabs.library")} aria-label={t("tabs.library")} disabled={isEmbedded} onClick={() => void openDocumentListDialog()}>
-            <Library size={15} />
-          </button>
-        </Tooltip>
+
       </div>
     </div>
   );

@@ -376,3 +376,26 @@ it("places owner documents without saved placement in a personal workspace, keep
   const restored = await CatalogCache.open(f.directory, "participant");
   expect(restored.project({ ...local, workspaces: [...local.workspaces].reverse() }, originalWorkspaceId).files.some(file => file.fileId === personal.fileId)).toBe(true);
 });
+
+it("deletes independently shared documents through authority before deleting their local parent folder", async () => {
+  const f = await fixture();
+  const initial = await f.local.getLocalLibrarySnapshot();
+  const workspaceId = initial.activeWorkspaceId;
+  const created = await f.local.withLocalLibrary(() => f.local.createFolder(workspaceId, "parent"));
+  if (created.state !== "ready") throw new Error("Missing folder");
+  const folderId = created.overview.folders[0].id;
+  const fileId = initial.files[0].fileId;
+  await f.local.withLocalLibrary(() => f.local.moveFileToFolder(workspaceId, fileId, folderId));
+  const shared = node("document"); shared.ownerId = "participant"; shared.role = "owner"; shared.capabilities.deleteRootShare = true;
+  f.sessions.bindings = () => [{ fileId, actorId: "participant", sharedDocumentId: shared.sharedDocumentId! }];
+  f.setNodes([shared]); await f.catalog.refresh();
+  const request = f.request.getMockImplementation()!;
+  f.request.mockImplementation(async (route, body) => {
+    if (route.endsWith("/stop")) { f.setNodes([]); return {}; }
+    return request(route, body);
+  });
+  const deleted = await f.local.deleteFolder(workspaceId, folderId);
+  expect(deleted.state).toBe("ready");
+  expect(f.request).toHaveBeenCalledWith(`/catalog/nodes/${shared.id}/stop`, { delete: true });
+  expect((await f.catalog.listFiles()).some(file => file.fileId === fileId)).toBe(false);
+});

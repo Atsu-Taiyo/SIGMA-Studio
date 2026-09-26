@@ -517,16 +517,17 @@ export function deleteFolderRow(
   if (!folder) {
     return fail("folder-not-found");
   }
-  const hasChildFolder = library.folders.some((item) =>
-    item.workspaceId === workspace.value.id && item.parentFolderId === folderId && !item.deletedAt);
-  const hasFile = library.files.some((item) =>
-    item.workspaceId === workspace.value.id && item.folderId === folderId && !item.deletedAt);
-  if (hasChildFolder || hasFile) {
-    return fail("non-empty-folder");
+  const removedFolderIds = new Set([folderId]);
+  for (;;) {
+    const before = removedFolderIds.size;
+    for (const item of library.folders) {
+      if (item.workspaceId === workspace.value.id && !item.deletedAt && item.parentFolderId && removedFolderIds.has(item.parentFolderId)) removedFolderIds.add(item.id);
+    }
+    if (removedFolderIds.size === before) break;
   }
-
   const next = { ...folder, deletedAt: now, updatedAt: now };
-  replaceFolder(library, next);
+  library.folders = library.folders.map(item => item.workspaceId === workspace.value.id && removedFolderIds.has(item.id) && !item.deletedAt ? { ...item, deletedAt: now, updatedAt: now } : item);
+  library.files = library.files.map(item => item.workspaceId === workspace.value.id && item.folderId && removedFolderIds.has(item.folderId) && !item.deletedAt ? { ...item, deletedAt: now, updatedAt: now } : item);
   touchWorkspace(library, workspace.value.id, now);
   return ok(next);
 }

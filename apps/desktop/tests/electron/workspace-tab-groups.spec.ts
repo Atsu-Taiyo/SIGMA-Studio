@@ -56,6 +56,19 @@ test("real Electron supports persisted three-way tab groups and untouched-draft 
 
     await dragTabToEdge(page, "分割教材B", 0, "right");
     await expect(page.locator(".workspace-tab-group")).toHaveCount(2);
+    const passive = page.locator(".workspace-passive-editor .page-canvas").first();
+    const passiveScale = () => passive.evaluate(element => getComputedStyle(element).getPropertyValue("--editor-zoom"));
+    const beforeZoom = await passiveScale();
+    await expect(page.locator('[title="保存済みの教材を開く"]')).toHaveCount(0);
+    await page.getByRole("button", { name: "拡大", exact: true }).last().click();
+    expect(await passiveScale()).toBe(beforeZoom);
+    expect(beforeZoom).not.toBe("");
+    const activeGroup = page.locator('.workspace-tab-group[data-focused="true"]');
+    const activeId = await activeGroup.getAttribute("data-group-id");
+    const zoomedScale = await activeGroup.locator(".page-canvas").first().evaluate(element => getComputedStyle(element).getPropertyValue("--editor-zoom"));
+    await passive.click({ position: { x: 30, y: 30 } });
+    await page.locator(`[data-group-id="${activeId}"] .workspace-passive-editor`).click({ position: { x: 30, y: 30 } });
+    await expect.poll(() => page.locator(`[data-group-id="${activeId}"] .page-canvas`).first().evaluate(element => getComputedStyle(element).getPropertyValue("--editor-zoom"))).toBe(zoomedScale);
     await dragTabToEdge(page, "分割教材C", 0, "bottom");
     await expect(page.locator(".workspace-tab-group")).toHaveCount(3);
     await expect(page.locator(".workspace-tab-drop-preview")).toHaveCount(0);
@@ -200,7 +213,13 @@ test("an unfocused pane stays an editing surface and a click there edits at that
     // Clicking a line there makes it the edited pane with the caret on that line.
     await passive.evaluate((element) => { element.scrollTop = 160; });
     const line = passive.getByText("左の教材 12行目の本文", { exact: true });
-    const box = (await line.boundingBox())!;
+    const box = await line.evaluate(element => {
+      // Independent zoom may make the block wider than its clipped pane.
+      // Click the visible text, not the block's offscreen right border.
+      const range = document.createRange(); range.selectNodeContents(element);
+      const rect = range.getBoundingClientRect();
+      return { x: rect.x, y: rect.y, width: rect.width, height: rect.height };
+    });
     await page.mouse.click(box.x + box.width - 2, box.y + box.height / 2);
     const live = page.locator('.workspace-tab-group[data-live="true"]');
     await expect(live.locator('[data-sigma-doc-id="doc_passive_a_p11"]')).toBeVisible();

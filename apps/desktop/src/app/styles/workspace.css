@@ -469,8 +469,10 @@ button.workspace-breadcrumb-item:focus-visible {
   gap: 6px;
 }
 
-.workspace-view-toggle {
-  grid-template-columns: repeat(2, 1fr);
+.segmented.workspace-view-toggle {
+  grid-template-columns: repeat(2, 32px);
+  width: max-content;
+  flex-shrink: 0;
 }
 
 .workspace-section-heading {

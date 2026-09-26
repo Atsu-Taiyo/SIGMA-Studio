@@ -32,6 +32,7 @@ import {
  */
 export interface WorkspacePaneView {
   zoom: number;
+  zoomFor?(fileId: string): number;
   showComments: boolean;
   showResolvedComments: boolean;
   commentAuthor: CommentPanelAuthor;
@@ -429,7 +430,7 @@ function PassiveDocumentPane({
             commentPanel={commentPanel}
             overlaySelection={EMPTY_OVERLAY_SELECTION}
             fontSize={BASE_EDITOR_FONT_SIZE}
-            zoom={view.zoom}
+            zoom={view.zoomFor?.(fileId) ?? view.zoom}
             historyRevision={0}
             suppressSelectionActions
             pendingDeletion={null}
