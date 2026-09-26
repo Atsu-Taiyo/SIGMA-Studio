@@ -101,15 +101,15 @@ describe("account menu plan entry", () => {
     const catalog = mockCatalog({ state: "ready", actorId: "owner", revision: 1 });
     act(() => root.render(<CollaborationAccountControl info={info} refresh={vi.fn(async () => {})} />));
     await click(button("Owner のアカウント")); await settle();
-    expect(document.body.textContent).not.toContain("ロックされた教材の最新データを端末に保存");
+    expect(document.body.textContent).not.toContain("ロックされた教材を端末に移動（オンラインから削除）");
     await click(button("Owner のアカウント"));
     catalog.lockedDocumentCount.mockResolvedValue(1);
     await click(button("Owner のアカウント")); await settle();
-    expect(document.body.textContent).toContain("ロックされた教材の最新データを端末に保存");
+    expect(document.body.textContent).toContain("ロックされた教材を端末に移動（オンラインから削除）");
     await click(button("Owner のアカウント"));
     catalog.lockedDocumentCount.mockRejectedValue(new Error("offline"));
     await click(button("Owner のアカウント")); await settle();
-    expect(document.body.textContent).not.toContain("ロックされた教材の最新データを端末に保存");
+    expect(document.body.textContent).not.toContain("ロックされた教材を端末に移動（オンラインから削除）");
   });
 
   it("opens the paywall from the free plan label", async () => {

@@ -82,8 +82,8 @@ export const chrome = {
       trialTerms: "初回は7日間無料。カード登録が必要です。終了後は所有者1人につき月額$9 USDで自動更新されます。期間終了前に解約できます。",
       manageBilling: "契約・お支払いの管理",
       paymentWarning: "お支払いを確認できません。7日間の猶予期間中にお支払い方法を更新してください。",
-      recovery: "ロックされた教材の最新データを端末に保存",
-      recovered: "{{saved}}件を端末に保存しました。保存できなかった教材は{{failed}}件です。",
+      recovery: "ロックされた教材を端末に移動（オンラインから削除）",
+      recovered: "{{saved}}件を端末に移動しました。移動が完了しなかった教材は{{failed}}件です。オンラインの教材は移動完了後に削除されます。",
 
       title: "Sigma Studio のプラン",
       description: "チームで共同編集するなら、Proプランがおすすめです。",

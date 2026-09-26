@@ -127,7 +127,12 @@ export function CollaborationAccountControl({ info, refresh }: {
           {capabilities?.paymentWarning && <p role="alert">{t("collaboration.plan.paymentWarning")}</p>}
           {locked && locked.actorId === actorId && locked.count > 0 && <Button tone="ghost" disabled={busy} onClick={() => {
             setBusy(true); setError(false); setRecovered(null);
-            void catalog?.recoverLocked().then(setRecovered).catch(() => setError(true)).finally(() => setBusy(false));
+            void catalog?.recoverLocked().then(async result => {
+              setRecovered(result);
+              const count = await catalog.lockedDocumentCount?.();
+              setLocked(count === undefined || !actorId ? null : { actorId, count });
+              await refresh();
+            }).catch(() => setError(true)).finally(() => setBusy(false));
           }}>{t("collaboration.plan.recovery")}</Button>}
           {recovered && <p role="status">{t("collaboration.plan.recovered", recovered)}</p>}
           {info.user.email && info.user.email !== name ? <span>{info.user.email}</span> : null}
