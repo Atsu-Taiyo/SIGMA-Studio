@@ -46,6 +46,7 @@ export interface CatalogSharingDetails {
 }
 export interface SharedCatalogBridge {
   billing(action: "checkout" | "portal"): Promise<void>;
+  lockedDocumentCount?(): Promise<number>;
   recoverLocked(): Promise<{ saved: number; failed: number }>;
   status(): Promise<SharedCatalogStatus>;
   refresh(): Promise<SharedCatalogStatus>;

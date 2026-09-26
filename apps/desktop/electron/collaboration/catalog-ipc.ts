@@ -18,6 +18,7 @@ export function registerCatalogIpc(catalog: DesktopSharedCatalog, local: LocalSi
     return run(...args);
   });
   handle("billing", action => catalog.billing(z.enum(["checkout", "portal"]).parse(action)));
+  handle("locked-document-count", () => catalog.lockedDocumentCount());
   handle("recover-locked", () => catalog.recoverLocked());
   handle("status", () => catalog.status());
   handle("refresh", () => catalog.refresh());

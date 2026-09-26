@@ -399,3 +399,15 @@ it("deletes independently shared documents through authority before deleting the
   expect(f.request).toHaveBeenCalledWith(`/catalog/nodes/${shared.id}/stop`, { delete: true });
   expect((await f.catalog.listFiles()).some(file => file.fileId === fileId)).toBe(false);
 });
+
+it("counts only server-confirmed locked documents for the current account", async () => {
+  const f = await fixture();
+  const request = f.request.getMockImplementation()!;
+  f.request.mockImplementation(async (route, body) => route === "/billing/locked" ? [{ id: "locked" }] : request(route, body));
+  expect(await f.catalog.lockedDocumentCount()).toBe(1);
+  f.setActor(null);
+  expect(await f.catalog.lockedDocumentCount()).toBe(0);
+  f.setActor("participant");
+  f.request.mockImplementation(async () => { f.setActor("another"); return [{ id: "old-account" }]; });
+  await expect(f.catalog.lockedDocumentCount()).rejects.toThrow("ACCOUNT_CHANGED");
+});
