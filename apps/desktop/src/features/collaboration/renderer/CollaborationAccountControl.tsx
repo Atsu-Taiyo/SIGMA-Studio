@@ -26,6 +26,8 @@ export function CollaborationAccountControl({ info, refresh }: {
   const [error, setError] = useState(false);
   const [capabilities, setCapabilities] = useState<ServerCollaborationCapabilities>();
   const [recovered, setRecovered] = useState<{ saved: number; failed: number } | null>(null);
+  const [locked, setLocked] = useState<{ actorId: string; count: number } | null>(null);
+  const actorId = info.user?.actorId;
   const [planOpen, setPlanOpen] = useState(false);
   const root = useRef<HTMLDivElement>(null);
   const accountButton = useRef<HTMLButtonElement>(null);
@@ -55,6 +57,20 @@ export function CollaborationAccountControl({ info, refresh }: {
     const unsubscribe = catalog.onChange(status => setCapabilities(status.capabilities));
     return () => { unsubscribe(); window.removeEventListener("focus", refreshPlan); };
   }, [catalog]);
+  useEffect(() => {
+    if (!open || !actorId || !catalog?.lockedDocumentCount) return;
+    let generation = 0;
+    const update = () => {
+      const request = ++generation;
+      void catalog.lockedDocumentCount!().then(count => {
+        if (request === generation) setLocked({ actorId, count });
+      }).catch(() => { if (request === generation) setLocked(null); });
+    };
+    update();
+    const unsubscribe = catalog.onChange(update);
+    window.addEventListener("focus", update);
+    return () => { generation++; unsubscribe(); window.removeEventListener("focus", update); };
+  }, [open, actorId, catalog]);
   if (!bridge || !info.configured) return null;
   if (!info.user) {
     return <div className={styles.accountControl}>
@@ -99,7 +115,7 @@ export function CollaborationAccountControl({ info, refresh }: {
         aria-label={t("collaboration.accountLabel", { name })}
         aria-expanded={open}
         onClick={() => {
-          if (!open) loadPlan();
+          if (!open) { setLocked(null); setRecovered(null); loadPlan(); }
           setOpen(!open);
         }}
       >
@@ -109,10 +125,10 @@ export function CollaborationAccountControl({ info, refresh }: {
         <div className={styles.accountMenu} role="dialog" aria-label={t("collaboration.accountLabel", { name })}>
           <strong>{name}</strong>
           {capabilities?.paymentWarning && <p role="alert">{t("collaboration.plan.paymentWarning")}</p>}
-          <Button tone="ghost" disabled={busy} onClick={() => {
+          {locked && locked.actorId === actorId && locked.count > 0 && <Button tone="ghost" disabled={busy} onClick={() => {
             setBusy(true); setError(false); setRecovered(null);
             void catalog?.recoverLocked().then(setRecovered).catch(() => setError(true)).finally(() => setBusy(false));
-          }}>{t("collaboration.plan.recovery")}</Button>
+          }}>{t("collaboration.plan.recovery")}</Button>}
           {recovered && <p role="status">{t("collaboration.plan.recovered", recovered)}</p>}
           {info.user.email && info.user.email !== name ? <span>{info.user.email}</span> : null}
           {plan !== "unavailable" && (

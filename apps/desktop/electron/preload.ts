@@ -9,6 +9,7 @@ const desktopAPI = {
   platform: process.platform,
   sharedCatalog: {
     billing: (action: string) => ipcRenderer.invoke("shared-catalog:billing", action),
+    lockedDocumentCount: () => ipcRenderer.invoke("shared-catalog:locked-document-count"),
     recoverLocked: () => ipcRenderer.invoke("shared-catalog:recover-locked"),
     status: () => ipcRenderer.invoke("shared-catalog:status"),
     refresh: () => ipcRenderer.invoke("shared-catalog:refresh"),

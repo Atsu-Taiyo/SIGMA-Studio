@@ -89,13 +89,28 @@ describe("plan paywall", () => {
 describe("account menu plan entry", () => {
   const info = { configured: true, user: { actorId: "owner", email: "owner@example.test", displayName: "Owner" }, sessions: [], restrictedFileIds: [] };
   function mockCatalog(status: SharedCatalogStatus) {
-    const catalog = { onChange: vi.fn(() => vi.fn()), recoverLocked: vi.fn(async () => ({saved:0,failed:0})), status: vi.fn(async () => status), refresh: vi.fn(async () => status) };
+    const catalog = { lockedDocumentCount: vi.fn(async () => 0), onChange: vi.fn(() => vi.fn()), recoverLocked: vi.fn(async () => ({saved:0,failed:0})), status: vi.fn(async () => status), refresh: vi.fn(async () => status) };
     vi.spyOn(bridgeModule, "getDesktopBridge").mockReturnValue({
       sharedCatalog: catalog,
       collaboration: { signOut: vi.fn(), signInWithGoogle: vi.fn() },
     } as unknown as ReturnType<typeof bridgeModule.getDesktopBridge>);
     return catalog;
   }
+
+  it("shows recovery only when the account actually has locked documents", async () => {
+    const catalog = mockCatalog({ state: "ready", actorId: "owner", revision: 1 });
+    act(() => root.render(<CollaborationAccountControl info={info} refresh={vi.fn(async () => {})} />));
+    await click(button("Owner のアカウント")); await settle();
+    expect(document.body.textContent).not.toContain("ロックされた教材の最新データを端末に保存");
+    await click(button("Owner のアカウント"));
+    catalog.lockedDocumentCount.mockResolvedValue(1);
+    await click(button("Owner のアカウント")); await settle();
+    expect(document.body.textContent).toContain("ロックされた教材の最新データを端末に保存");
+    await click(button("Owner のアカウント"));
+    catalog.lockedDocumentCount.mockRejectedValue(new Error("offline"));
+    await click(button("Owner のアカウント")); await settle();
+    expect(document.body.textContent).not.toContain("ロックされた教材の最新データを端末に保存");
+  });
 
   it("opens the paywall from the free plan label", async () => {
     mockCatalog({ state: "ready", actorId: "owner", revision: 1, capabilities: { canStartDocumentShare: true, documentShareSource: "free", hierarchySharingEnabled: true, canStartHierarchyShare: false, hierarchyShareSource: "none" } });

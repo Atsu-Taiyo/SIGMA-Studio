@@ -70,6 +70,13 @@ export class DesktopSharedCatalog {
     if (url.protocol !== "https:" || !["checkout.stripe.com", "billing.stripe.com"].includes(url.hostname) || url.username || url.password) throw new Error("INVALID_BILLING_URL");
     await shell.openExternal(url.href);
   }
+  async lockedDocumentCount(): Promise<number> {
+    const actor = this.sessions.actorId();
+    if (!actor) return 0;
+    const documents = await this.sessions.request<{ id: string }[]>("/billing/locked");
+    if (actor !== this.sessions.actorId()) throw new Error("ACCOUNT_CHANGED");
+    return documents.length;
+  }
   async recoverLocked(): Promise<{ saved: number; failed: number }> { return this.sessions.recoverLocked(); }
   async status(): Promise<SharedCatalogStatus> { await this.account(); return { ...this.current }; }
   async setVisible(visible: boolean): Promise<void> {
