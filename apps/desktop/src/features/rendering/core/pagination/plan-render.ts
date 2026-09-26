@@ -52,6 +52,12 @@ export interface FlowRenderPlan {
   framePieces: Record<string, FlowFramePiece[]>;
   /** 予約空白が分かれたユニットの、リサイズつまみの位置 (ユニット上端からの相対 y)。 */
   reservationEnds: Record<string, number>;
+  /**
+   * 手動改ページの印の変位 (その印を描く要素からの相対)。印は改ページする前のページの末尾、
+   * つまり直前に置いた行と同じ場所に描く。キーはユニット単位の改ページならユニット id、
+   * ブロックの改ページならブロック id。
+   */
+  markerDisplacements: Record<string, FlowDisplacement>;
   pageCount: number;
 }
 
@@ -80,23 +86,29 @@ export function planFlowRender(built: BuiltFlowModel, placement: FlowPlacement):
     fragmentReplicas: {},
     framePieces: {},
     reservationEnds: {},
+    markerDisplacements: {},
     pageCount: placement.pageCount,
   };
   const regionOf = (index: number): Region | undefined => placement.regions[index];
   let previousUnit: FlowDisplacement = ZERO;
+  /** 文書順で直前に置いた行の変位 (改ページの印を描く場所)。 */
+  let lastPlaced: FlowDisplacement = ZERO;
 
   for (const unit of built.units) {
     const unitDisplacement = firstDisplacement(unit, built, placement) ?? previousUnit;
     plan.unitDisplacements[unit.id] = { dx: round(unitDisplacement.dx), dy: round(unitDisplacement.dy) };
+    if (unit.breakBefore) plan.markerDisplacements[unit.id] = relative(lastPlaced, unitDisplacement);
     previousUnit = unitDisplacement;
     let previousNode = unitDisplacement;
 
     for (const node of unit.nodes) {
       const groups = groupLines(node.lineKeys, built, placement);
+      if (node.breakBefore) plan.markerDisplacements[node.id] = relative(lastPlaced, unitDisplacement);
       if (groups.length === 0) {
         plan.nodeDisplacements[node.id] = relative(previousNode, unitDisplacement);
         continue;
       }
+      lastPlaced = { dx: groups[groups.length - 1].dx, dy: groups[groups.length - 1].dy };
       const first = groups[0];
       previousNode = { dx: first.dx, dy: first.dy };
       plan.nodeDisplacements[node.id] = relative(previousNode, unitDisplacement);
@@ -136,6 +148,15 @@ export function planFlowRender(built: BuiltFlowModel, placement: FlowPlacement):
       previousNode = { dx: last.dx, dy: last.dy };
     }
 
+    if (unit.reservationKey) {
+      const blank = built.blanks.get(unit.reservationKey);
+      const pieces = placement.blanks.filter((piece) => piece.key === unit.reservationKey);
+      if (blank && pieces.length > 0) {
+        const last = pieces[pieces.length - 1];
+        const naturalTop = blank.top + pieces.slice(0, -1).reduce((sum, piece) => sum + piece.height, 0);
+        lastPlaced = { dx: placement.regions[last.regionIndex]?.dx ?? 0, dy: last.y - naturalTop };
+      }
+    }
     planFramePieces(unit, built, placement, unitDisplacement, plan);
   }
   return plan;

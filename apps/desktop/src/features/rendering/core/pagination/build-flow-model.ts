@@ -21,6 +21,7 @@ export interface BuiltNode {
   left: number;
   width: number;
   lineKeys: string[];
+  breakBefore: boolean;
 }
 
 export interface BuiltUnit {
@@ -37,6 +38,7 @@ export interface BuiltUnit {
   frame?: ProbeUnit["frame"];
   reservationKey?: string;
   placeholderKey?: string;
+  breakBefore: boolean;
 }
 
 export interface BuiltFlowModel {
@@ -148,6 +150,7 @@ export function buildFlowModel(tree: ProbeTree, options: BuildFlowModelOptions):
       nodes: [],
       ownLineKeys: [],
       itemKeys: [],
+      breakBefore: unit.breakBefore,
       ...(unit.frame ? { frame: unit.frame } : {}),
     };
     units.push(built);
@@ -200,6 +203,7 @@ export function buildFlowModel(tree: ProbeTree, options: BuildFlowModelOptions):
             left: node.rect.left,
             width: node.rect.width,
             lineKeys: nodeLines.map((line) => line.key),
+            breakBefore: node.breakBefore,
           });
           items.push(...nodeLines);
           unitLines.push(...nodeLines);
@@ -253,6 +257,7 @@ export function buildFlowModel(tree: ProbeTree, options: BuildFlowModelOptions):
           left: node.rect.left,
           width: node.rect.width,
           lineKeys: nodeLines.map((line) => line.key),
+          breakBefore: node.breakBefore,
         });
         if (node.breakBefore && !(index === 0 && unit.breakBefore)) {
           unitItems.push({ kind: "break", key: `${node.id}#break`, ownerId: node.id, target: options.breakTarget });

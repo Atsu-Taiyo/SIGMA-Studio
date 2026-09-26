@@ -38,6 +38,8 @@ export interface PageLayoutSnapshot {
   nodeDisplacements: Record<string, FlowDisplacement>;
   /** 予約空白が複数ページに分かれたユニットの、末尾 (リサイズつまみ) の位置。 */
   reservationEnds: Record<string, number>;
+  /** 手動改ページの印の変位 (印を描く要素からの相対)。 */
+  markerDisplacements: Record<string, FlowDisplacement>;
 }
 
 export type FragmentGeometrySnapshot = Pick<PageLayoutSnapshot,

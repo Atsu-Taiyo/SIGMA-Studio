@@ -1155,6 +1155,7 @@ function PageCanvasEditorImpl({
     unitDisplacements,
     nodeDisplacements,
     reservationEnds,
+    markerDisplacements,
   } = layoutViewState;
   useLayoutEffect(() => {
     requestCaretKeeperReanchor();
@@ -1678,6 +1679,7 @@ function PageCanvasEditorImpl({
     let nextUnitDisplacements: Record<string, FlowDisplacement> = {};
     let nextNodeDisplacements: Record<string, FlowDisplacement> = {};
     let nextReservationEnds: Record<string, number> = {};
+    let nextMarkerDisplacements: Record<string, FlowDisplacement> = {};
 
     {
       // 開ループのページ割り: 自然配置を読む → 行モデル → 配置 → 描画の指示。
@@ -1710,6 +1712,7 @@ function PageCanvasEditorImpl({
       nextUnitDisplacements = flowPlan.unitDisplacements;
       nextNodeDisplacements = flowPlan.nodeDisplacements;
       nextReservationEnds = flowPlan.reservationEnds;
+      nextMarkerDisplacements = flowPlan.markerDisplacements;
       nextGaps = {};
       textPageCount = flowPlan.pageCount;
     }
@@ -1788,7 +1791,8 @@ function PageCanvasEditorImpl({
         sameBlockExtentMap(current.blockExtents, extents) &&
         sameDisplacementMap(current.unitDisplacements, nextUnitDisplacements) &&
         sameDisplacementMap(current.nodeDisplacements, nextNodeDisplacements) &&
-        sameNumberMap(current.reservationEnds, nextReservationEnds)
+        sameNumberMap(current.reservationEnds, nextReservationEnds) &&
+        sameDisplacementMap(current.markerDisplacements, nextMarkerDisplacements)
       ) {
         return current;
       }
@@ -1814,6 +1818,7 @@ function PageCanvasEditorImpl({
         unitDisplacements: nextUnitDisplacements,
         nodeDisplacements: nextNodeDisplacements,
         reservationEnds: nextReservationEnds,
+        markerDisplacements: nextMarkerDisplacements,
       };
       layoutViewStateRef.current = next;
       return next;
@@ -5043,6 +5048,7 @@ function PageCanvasEditorImpl({
                         highlightedCommentThreadId={highlightedCommentThreadId}
                         historyRevision={historyRevision}
                         nodeDisplacements={nodeDisplacements}
+                        markerDisplacements={markerDisplacements}
                         paginationBeforeIds={[
                           ...getPageBreakBeforeIds(unit.blocks),
                           ...getNestedPageBreakBeforeIds(unit.blocks),
@@ -5080,6 +5086,7 @@ function PageCanvasEditorImpl({
                   isColumnPage={isColumnPage}
                   displacement={unitDisplacements[unit.id]}
                   nodeDisplacements={nodeDisplacements}
+                  markerDisplacements={markerDisplacements}
                   columnLayout={problemAreaColumnLayouts[unit.id]}
                   boxFragmentSourceLayouts={boxFragmentSourceLayouts}
                   layoutStyle={getFlowUnitPlacementStyle(unit, unitDisplacements[unit.id], metrics, isColumnPage)}
@@ -5113,6 +5120,7 @@ function PageCanvasEditorImpl({
                   isColumnPage={isColumnPage}
                   displacement={unitDisplacements[unit.id]}
                   nodeDisplacements={nodeDisplacements}
+                  markerDisplacements={markerDisplacements}
                   reservationEnd={reservationEnds[unit.id]}
                   boxFragmentSourceLayouts={boxFragmentSourceLayouts}
                   frameFragments={frameFragmentLayouts[unit.id]}
@@ -5150,7 +5158,7 @@ function PageCanvasEditorImpl({
                   style={mergeFlowUnitStyle(getFlowUnitPlacementStyle(unit, unitDisplacements[unit.id], metrics, isColumnPage), unitDisplacements[unit.id])}
                 >
                   {hasBreakBefore(unit.block) && (
-                    <PageBreakMarker blockId={unit.block.id} onRemove={markerRemoveHandler} />
+                    <PageBreakMarker blockId={unit.block.id} onRemove={markerRemoveHandler} displacement={markerDisplacements[unit.id]} />
                   )}
                   <BlockEditor
                     block={unit.block}
@@ -5811,6 +5819,7 @@ function TextFlowWithInlineContent({
   historyRevision,
   breakGaps,
   nodeDisplacements,
+  markerDisplacements,
   paginationBeforeIds,
   paginationMarkerKind,
   paginationMarkerKinds,
@@ -5855,6 +5864,8 @@ function TextFlowWithInlineContent({
   breakGaps?: Record<string, number>;
   /** 本文フローのブロック変位 (ユニットからの相対)。ここで自分のブロックの分だけを選ぶ。 */
   nodeDisplacements?: Readonly<Record<string, FlowDisplacement>>;
+  /** 手動改ページの印の変位 (ブロック id → ユニットからの相対)。 */
+  markerDisplacements?: Readonly<Record<string, FlowDisplacement>>;
   paginationBeforeIds?: string[];
   paginationMarkerKind?: PageBreakMarkerKind;
   paginationMarkerKinds?: Record<string, PageBreakMarkerKind>;
@@ -5930,7 +5941,7 @@ function TextFlowWithInlineContent({
   const boxFragmentSourceLayoutsKey = getTextFlowFragmentLayoutsSyncKey(boxFragmentSourceLayouts);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const stableBoxFragmentSourceLayouts = useMemo(() => boxFragmentSourceLayouts, [boxFragmentSourceLayoutsKey]);
-  const unitNodeDisplacements = pickUnitNodeDisplacements(blocks, nodeDisplacements);
+  const unitNodeDisplacements = pickUnitNodeDisplacements(blocks, nodeDisplacements, markerDisplacements);
   const unitNodeDisplacementsKey = getNodeDisplacementsKey(unitNodeDisplacements);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const stableNodeDisplacements = useMemo(() => unitNodeDisplacements, [unitNodeDisplacementsKey]);
@@ -6466,6 +6477,7 @@ function LayoutSectionFlowUnit({
   isColumnPage,
   displacement,
   nodeDisplacements,
+  markerDisplacements,
   columnLayout,
   boxFragmentSourceLayouts,
   layoutStyle,
@@ -6496,6 +6508,7 @@ function LayoutSectionFlowUnit({
   isColumnPage: boolean;
   displacement: FlowDisplacement | undefined;
   nodeDisplacements: Readonly<Record<string, FlowDisplacement>> | undefined;
+  markerDisplacements: Readonly<Record<string, FlowDisplacement>> | undefined;
   columnLayout: ProblemAreaColumnLayout | undefined;
   boxFragmentSourceLayouts: Record<string, TextFlowBoxFragmentSourceLayout>;
   layoutStyle: CSSProperties | undefined;
@@ -6626,7 +6639,7 @@ function LayoutSectionFlowUnit({
         <span>{tEditor("block.columns", { replace: { columns: columnCount } })}</span>
       </div>
       {hasBreakBefore(unit.section) && (
-        <PageBreakMarker blockId={unit.section.id} onRemove={onRemoveBreak} />
+        <PageBreakMarker blockId={unit.section.id} onRemove={onRemoveBreak} displacement={markerDisplacements?.[unit.id]} />
       )}
       <div
         className="layout-section-paper-body with-independent-layout-columns"
@@ -6645,6 +6658,7 @@ function LayoutSectionFlowUnit({
                   historyRevision={historyRevision}
                   breakGaps={undefined}
                   nodeDisplacements={nodeDisplacements}
+                  markerDisplacements={markerDisplacements}
                   paginationBeforeIds={getNestedPageBreakBeforeIds(blocks)}
                   paginationMarkerKind={resolvePageBreakMarkerKind(columnCount > 1 || isColumnPage)}
                   paginationMarkerKinds={getNestedPageBreakBeforeKinds(blocks, resolvePageBreakMarkerKind(columnCount > 1 || isColumnPage))}
@@ -6729,6 +6743,7 @@ function ProblemAreaFlowUnit({
   isColumnPage,
   displacement,
   nodeDisplacements,
+  markerDisplacements,
   reservationEnd,
   boxFragmentSourceLayouts,
   frameFragments,
@@ -6759,6 +6774,7 @@ function ProblemAreaFlowUnit({
   isColumnPage: boolean;
   displacement: FlowDisplacement | undefined;
   nodeDisplacements: Readonly<Record<string, FlowDisplacement>> | undefined;
+  markerDisplacements: Readonly<Record<string, FlowDisplacement>> | undefined;
   /** 予約空白が分かれたとき、その末尾 (ユニット上端からの相対 y)。 */
   reservationEnd: number | undefined;
   boxFragmentSourceLayouts: Record<string, TextFlowBoxFragmentSourceLayout>;
@@ -6897,7 +6913,7 @@ function ProblemAreaFlowUnit({
         </div>
       )}
       {isFirstArea && hasBreakBefore(problem) && (
-        <PageBreakMarker blockId={problem.id} onRemove={onRemoveBreak} />
+        <PageBreakMarker blockId={problem.id} onRemove={onRemoveBreak} displacement={markerDisplacements?.[unit.id]} />
       )}
       <div className={`problem-area-paper-content ${showNumber ? "with-number" : ""}`}>
         {showNumber && (
@@ -6914,6 +6930,7 @@ function ProblemAreaFlowUnit({
             mathFractionSizing={mathFractionSizing}
             historyRevision={historyRevision}
             nodeDisplacements={nodeDisplacements}
+            markerDisplacements={markerDisplacements}
             paginationBeforeIds={[
                       ...getPageBreakBeforeIds(unit.blocks),
                       ...getNestedPageBreakBeforeIds(unit.blocks),
@@ -7780,17 +7797,27 @@ export function PageBreakMarker({
   blockId,
   kind = "pageBreak",
   onRemove,
+  displacement,
 }: {
   blockId: string;
   kind?: PageBreakMarkerKind;
   onRemove?: (blockId: string) => void;
+  /** 印は改ページする前のページの末尾に描く (直前の行と同じ変位)。 */
+  displacement?: FlowDisplacement;
 }) {
   // 区切り印の文言は本文編集面の語彙 (`editor` namespace)。
   const t = useT("editor");
   const label = kind === "columnBreak" ? t("pagination.columnBreak") : t("pagination.pageBreak");
   const removeLabel = t("pagination.removeBreak", { replace: { kind: label } });
   return (
-    <div className="page-break-marker" data-page-break-marker="" data-page-break-block-id={blockId}>
+    <div
+      className="page-break-marker"
+      data-page-break-marker=""
+      data-page-break-block-id={blockId}
+      style={displacement && (displacement.dx !== 0 || displacement.dy !== 0)
+        ? { translate: `${displacement.dx}px ${displacement.dy}px` }
+        : undefined}
+    >
       <span />
       <strong>{label}</strong>
       <span />
@@ -8344,15 +8371,19 @@ function readFlowDisplacementSignature(flow: HTMLElement): string {
   return signature;
 }
 
+/** 印の変位は同じ表に `marker:<id>` で入れて運ぶ (編集面の装飾が 1 つの表だけを読むため)。 */
 function pickUnitNodeDisplacements(
   blocks: readonly TextFlowBlock[],
   displacements: Readonly<Record<string, FlowDisplacement>> | undefined,
+  markerDisplacements?: Readonly<Record<string, FlowDisplacement>>,
 ): Record<string, FlowDisplacement> | undefined {
   if (!displacements) return undefined;
   const picked: Record<string, FlowDisplacement> = {};
   for (const block of blocks) {
     const value = displacements[block.id];
     if (value) picked[block.id] = value;
+    const marker = markerDisplacements?.[block.id];
+    if (marker) picked[`marker:${block.id}`] = marker;
   }
   return picked;
 }
@@ -8443,6 +8474,7 @@ function createInitialPageLayoutSnapshot(pageHeightPx: number): PageLayoutSnapsh
     unitDisplacements: {},
     nodeDisplacements: {},
     reservationEnds: {},
+    markerDisplacements: {},
   };
 }
 
