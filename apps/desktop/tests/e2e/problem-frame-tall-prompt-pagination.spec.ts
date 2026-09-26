@@ -290,10 +290,6 @@ function shortIntroCount(columnCount: number): number {
   return columnCount > 1 ? 22 : 9;
 }
 
-function shortIntroLastId(columnCount: number): string {
-  return `short_intro_${shortIntroCount(columnCount) - 1}`;
-}
-
 function documentWithContent(content: SigmaDocument["content"], columnCount: number, docId: string): SigmaDocument {
   return {
     version: "2.0",
