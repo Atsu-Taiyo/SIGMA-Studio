@@ -1,6 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 
 import { installDesktopRuntimeMock } from "./desktop-runtime-mock";
+import { auditPagination, findUnderfilledBreaks } from "./pagination-audit";
 import type { ParagraphNode, SigmaDocument } from "@/types/sigma-doc";
 
 test.beforeEach(async ({ page }) => {
@@ -28,7 +29,10 @@ for (const { mode, styleId } of [
     if (styleId === "fancybox") {
       expect(first.borderRolesCorrect).toBe(true);
     }
-    expect(first.solutionTop).toBeGreaterThanOrEqual(first.promptBottom);
+    if (mode === "single") {
+      // 段組みでは y だけでは読み順を表せない (解答は次の段の上にある)。
+      expect(first.solutionTop).toBeGreaterThanOrEqual(first.promptBottom);
+    }
     expect(first.outerBackgroundColor).toBe("rgba(0, 0, 0, 0)");
 
     await page.waitForTimeout(2500);
@@ -38,85 +42,43 @@ for (const { mode, styleId } of [
   });
 }
 
-for (const { mode, promptParagraphCount, boundaryLabel } of [
-  { mode: "single", promptParagraphCount: 3, boundaryLabel: "" },
-  { mode: "single", promptParagraphCount: 2, boundaryLabel: " at the lead-unit boundary" },
-  { mode: "columns", promptParagraphCount: 2, boundaryLabel: "" },
+for (const { mode, promptParagraphCount } of [
+  { mode: "single", promptParagraphCount: 3 },
+  { mode: "single", promptParagraphCount: 2 },
+  { mode: "columns", promptParagraphCount: 2 },
 ] as const) {
-  test(`keeps a short framed prompt whole and moves it to the next ${mode === "single" ? "page" : "column or page"}${boundaryLabel}`, async ({ page }) => {
+  test(`splits a short framed prompt at the ${mode === "single" ? "page" : "column"} end instead of moving it whole (${promptParagraphCount} paragraphs)`, async ({ page }) => {
     test.setTimeout(180_000);
     const consoleErrors = collectConsoleErrors(page);
-    await page.setViewportSize({ width: 1500, height: 1000 });
+    // 全ページを描かせる (紙面は表示範囲だけ描かれ、編集キャンバスの外は切り取られる)。
+    await page.setViewportSize({ width: 1500, height: 4000 });
     await installDesktopRuntimeMock(page, createShortPromptDocument(
       mode === "columns" ? 2 : 1,
       promptParagraphCount,
     ));
     await openEditorAndWaitForStablePagination(page, '[data-sigma-doc-id^="short_prompt_"]');
 
-    const first = await page.evaluate(() => {
-    const canvas = document.querySelector<HTMLElement>(".page-canvas");
-    const prompt = document.querySelector<HTMLElement>(
-      '[data-problem-area="prompt"][data-problem-id="short_frame_problem"]',
-    );
-    const intro = Array.from(document.querySelectorAll<HTMLElement>('[data-sigma-doc-id^="short_intro_"]')).at(-1);
-    const lead = document.querySelector<HTMLElement>(
-      '[data-problem-area="lead"][data-problem-id="short_frame_problem"]',
-    );
-    if (!canvas || !prompt || !intro || !lead) {
-      throw new Error("short framed prompt geometry was not rendered");
-    }
-    const canvasRect = canvas.getBoundingClientRect();
-    const stride = Number(canvas.dataset.pageStride ?? "0");
-    const relative = (element: Element) => {
-      const rect = element.getBoundingClientRect();
-      return { top: rect.top - canvasRect.top, bottom: rect.bottom - canvasRect.top, left: rect.left - canvasRect.left };
+    const columnCount = mode === "columns" ? 2 : 1;
+    const geometry = {
+      marginTopMm: 10, marginBottomMm: 10, pageHeightMm: 150, marginLeftMm: 10, columnCount,
+      columnWidthMm: columnCount > 1 ? (100 - 6) / 2 : 100, columnGapMm: columnCount > 1 ? 6 : 0,
     };
-    const promptRect = relative(prompt);
-    const introRect = relative(intro);
-    const leadRect = relative(lead);
-    return {
-      pageCount: Number(canvas.dataset.pageCount ?? "0"),
-      promptStartPage: Math.floor((promptRect.top + 1) / stride),
-      promptEndPage: Math.floor((promptRect.bottom - 1) / stride),
-      introEndPage: Math.floor((introRect.bottom - 1) / stride),
-      movedForward: Math.floor((promptRect.top + 1) / stride) > Math.floor((introRect.bottom - 1) / stride)
-        || promptRect.left > introRect.left + 1,
-      remainingBeforePrompt: Math.floor((introRect.bottom - 1) / stride) * stride
-        + Number(canvas.dataset.pageHeight ?? "0")
-        - Number.parseFloat(getComputedStyle(document.querySelector<HTMLElement>(".page-flow") ?? canvas)
-          .getPropertyValue("--page-margin-bottom") || "0")
-        - introRect.bottom,
-      promptHeight: promptRect.bottom - promptRect.top,
-      leadHeight: leadRect.bottom - leadRect.top,
-      leadStartPage: Math.floor((leadRect.top + 1) / stride),
-      leadLeft: leadRect.left,
-      promptLeft: promptRect.left,
-      leadBottom: leadRect.bottom,
-      promptTop: promptRect.top,
-      leadHasPositiveBlockSpacer: Array.from(
-        lead.querySelectorAll<HTMLElement>("[data-page-break-spacer]"),
-      ).some((spacer) => spacer.offsetHeight > 0),
-      framePieceCount: prompt.querySelectorAll(':scope > [aria-hidden="true"].problem-area-flow-unit.with-frame').length,
-    };
-    });
+    const paged = await auditPagination(page, geometry);
+    const framePieceCount = await page.locator(
+      '[data-problem-area="prompt"][data-problem-id="short_frame_problem"] > [aria-hidden="true"].problem-area-flow-unit.with-frame',
+    ).count();
+    // 基準の自然配置 (同じ教材を 1 ページに収まる高さで描いたもの)。
+    const natural = createShortPromptDocument(columnCount, promptParagraphCount);
+    natural.pageLayout!.pageSize = { widthMm: 120, heightMm: 1000 };
+    await page.setViewportSize({ width: 1500, height: 4000 });
+    await installDesktopRuntimeMock(page, natural);
+    await openEditorAndWaitForStablePagination(page, '[data-sigma-doc-id^="short_prompt_"]');
+    const naturalAudit = await auditPagination(page, { ...geometry, pageHeightMm: 1000 });
 
-    expect(first.promptStartPage).toBe(first.promptEndPage);
-    if (boundaryLabel) {
-      // The intro rect ends inside its text-flow shell. Account for the shell/unit
-      // spacing before the lead when checking the pre-pagination boundary.
-      expect(first.remainingBeforePrompt).toBeGreaterThanOrEqual(first.promptHeight);
-      expect(first.remainingBeforePrompt).toBeLessThan(first.leadHeight + first.promptHeight + 16);
-    } else {
-      expect(first.remainingBeforePrompt).toBeLessThan(first.leadHeight + first.promptHeight);
-    }
-    expect(first.movedForward).toBe(true);
-    expect(first.leadStartPage).toBe(first.promptStartPage);
-    expect(first.leadLeft).toBeCloseTo(first.promptLeft, 0);
-    expect(first.leadBottom).toBeLessThanOrEqual(first.promptTop + 1);
-    if (mode === "single") {
-      expect(first.leadHasPositiveBlockSpacer).toBe(false);
-    }
-    expect(first.framePieceCount).toBe(0);
+    // 行を途中で切らず、枠付き問題文をまとめて送らない: 次の領域の先頭の行は前の領域に入らなかった行だけ。
+    expect([...paged.violations, ...findUnderfilledBreaks(paged, naturalAudit)]).toEqual([]);
+    // 問題文が境界にかかったときは、枠は切れ目で開いた枠片で描く (かからなければ 1 つの枠)。
+    expect(framePieceCount === 0 || framePieceCount >= 2).toBe(true);
     await page.waitForTimeout(2500);
     expect(relevantConsoleErrors(consoleErrors)).toEqual([]);
   });
@@ -190,47 +152,6 @@ test(`prints open-edged framed prompt fragments on bounded pages in ${columnCoun
 });
 }
 
-for (const columnCount of [1, 2] as const) {
-test(`prints a fitting framed prompt as one moved unit in ${columnCount} column flow`, async ({ page }) => {
-  test.setTimeout(180_000);
-  const consoleErrors = collectConsoleErrors(page);
-  await page.setViewportSize({ width: 1500, height: 1000 });
-  await installDesktopRuntimeMock(page, createShortPromptDocument(columnCount));
-  await page.goto("/print?fileId=file_e2e_document&profile=teacher", { waitUntil: "domcontentloaded" });
-  await expect(page.locator(".paged-surface[data-paged-surface-state='ready']")).toBeVisible({ timeout: 30_000 });
-  const pages = page.locator(".paged-surface-page");
-  await expect(pages.first()).toBeVisible({ timeout: 30_000 });
-  const lastIntroId = shortIntroLastId(columnCount);
-  const introPage = pages.filter({ has: page.locator(`[data-sigma-doc-id="${lastIntroId}"]`) });
-  const leadPage = pages.filter({
-    has: page.locator('[data-sigma-doc-id="short_frame_problem_lead_empty"]'),
-  });
-  const promptPage = pages.filter({ has: page.locator('[data-sigma-doc-id="short_prompt_1"]') });
-  await expect(introPage).toHaveCount(1, { timeout: 30_000 });
-  await expect(leadPage).toHaveCount(1, { timeout: 30_000 });
-  await expect(promptPage).toHaveCount(1, { timeout: 30_000 });
-
-  const introPageNumber = Number(await introPage.getAttribute("data-page-number"));
-  const leadPageNumber = Number(await leadPage.getAttribute("data-page-number"));
-  const promptPageNumber = Number(await promptPage.getAttribute("data-page-number"));
-  expect(leadPageNumber).toBe(promptPageNumber);
-  expect(introPageNumber).toBeLessThanOrEqual(promptPageNumber);
-  if (columnCount > 1 && introPageNumber === promptPageNumber) {
-    const introBox = await introPage.locator(`[data-sigma-doc-id="${lastIntroId}"]`).boundingBox();
-    const promptBox = await promptPage.locator('[data-sigma-doc-id="short_prompt_1"]').boundingBox();
-    expect(introBox).not.toBeNull();
-    expect(promptBox).not.toBeNull();
-    expect(promptBox!.x).toBeGreaterThan(introBox!.x + 1);
-  }
-  await expect(promptPage.locator(
-    '[data-problem-area="prompt"][data-problem-id="short_frame_problem"]'
-      + ' > [aria-hidden="true"].with-frame',
-  )).toHaveCount(0);
-  await page.waitForTimeout(2500);
-  expect(relevantConsoleErrors(consoleErrors)).toEqual([]);
-});
-}
-
 async function openEditorAndWaitForStablePagination(page: Page, selector: string) {
   await page.goto("/");
   await expect(page.locator(".startup-splash")).toBeHidden({ timeout: 15_000 });
@@ -241,8 +162,8 @@ async function openEditorAndWaitForStablePagination(page: Page, selector: string
     const signature = await page.evaluate((targetSelector) => {
       const canvas = document.querySelector(".page-canvas");
       const pageCount = canvas?.getAttribute("data-page-count") ?? "0";
-      const spacers = Array.from(document.querySelectorAll<HTMLElement>("[data-page-break-spacer]"))
-        .map((element) => element.offsetHeight);
+      const spacers = Array.from(document.querySelectorAll<HTMLElement>("[data-flow-dy]"))
+        .map((element) => element.getAttribute("data-flow-dy"));
       const tops = Array.from(document.querySelectorAll<HTMLElement>(targetSelector)).slice(0, 8)
         .map((element) => Math.round(element.getBoundingClientRect().top));
       return `${pageCount}|${spacers.join(",")}|${tops.join(",")}`;
@@ -265,9 +186,19 @@ async function readTallFrameEditorGeometry(page: Page) {
     const canvasRect = canvas.getBoundingClientRect();
     const pageHeight = Number(canvas.dataset.pageHeight ?? "0");
     const stride = Number(canvas.dataset.pageStride ?? "0");
+    const zoom = Number.parseFloat(getComputedStyle(canvas).getPropertyValue("--editor-zoom"));
+    const scale = Number.isFinite(zoom) && zoom > 0 ? zoom : 1;
     const relative = (element: Element) => {
       const rect = element.getBoundingClientRect();
-      return { top: rect.top - canvasRect.top, bottom: rect.bottom - canvasRect.top };
+      // ページを跨ぐブロックは正本を可視帯でクリップして描く (続きは複製)。見えている範囲で測る。
+      const source = element.closest<HTMLElement>(".text-flow-box-fragment-source");
+      const visibleHeight = source
+        ? Number.parseFloat(source.style.getPropertyValue("--text-flow-box-fragment-visible-height"))
+        : Number.NaN;
+      const visibleBottom = source && Number.isFinite(visibleHeight)
+        ? Math.min(rect.bottom, source.getBoundingClientRect().top + visibleHeight * scale)
+        : rect.bottom;
+      return { top: (rect.top - canvasRect.top) / scale, bottom: (Math.max(rect.top, visibleBottom) - canvasRect.top) / scale };
     };
     const pageIndex = (y: number) => Math.floor(Math.max(0, y) / stride);
     const crossesGap = ({ top, bottom }: { top: number; bottom: number }) => {
@@ -300,8 +231,8 @@ async function readTallFrameEditorGeometry(page: Page) {
       crossingGapCount: [...blocks, ...pieces].filter(crossesGap).length,
       borderRolesCorrect,
       outerBackgroundColor: getComputedStyle(area).backgroundColor,
-      promptBottom: Math.max(...blocks.map((rect) => rect.bottom), ...pieces.map((rect) => rect.bottom)),
-      solutionTop: Math.min(...solution.map((rect) => rect.top)),
+      promptBottom: Math.round(Math.max(...blocks.map((rect) => rect.bottom), ...pieces.map((rect) => rect.bottom)) * 10) / 10,
+      solutionTop: Math.round(Math.min(...solution.map((rect) => rect.top)) * 10) / 10,
     };
   });
 }

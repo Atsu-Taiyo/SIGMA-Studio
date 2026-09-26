@@ -262,7 +262,17 @@ export function buildFlowModel(tree: ProbeTree, options: BuildFlowModelOptions):
         if (node.breakBefore && !(index === 0 && unit.breakBefore)) {
           unitItems.push({ kind: "break", key: `${node.id}#break`, ownerId: node.id, target: options.breakTarget });
         }
-        unitItems.push(...nodeLines);
+        const innerBreaks = [...(node.innerBreaks ?? [])];
+        nodeLines.forEach((line, lineIndex) => {
+          // 箱の中の子の手動改ページ: その子の最初の行の前で切る (ブロックの先頭では切らない)。
+          while (innerBreaks.length > 0 && innerBreaks[0] <= line.fitBottom - 0.5) {
+            const breakY = innerBreaks.shift()!;
+            if (lineIndex > 0 && breakY > nodeLines[lineIndex - 1].bottom - 0.5) {
+              unitItems.push({ kind: "break", key: `${node.id}#inner${breakY.toFixed(1)}`, ownerId: node.id, target: options.breakTarget });
+            }
+          }
+          unitItems.push(line);
+        });
         unitLines.push(...nodeLines);
       });
     }

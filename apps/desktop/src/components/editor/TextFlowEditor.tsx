@@ -621,7 +621,7 @@ export function createColumnFlowLayoutDecorations(
     const styles: string[] = [];
     const attributes: Record<string, string> = {};
     if (displacement) {
-      styles.push(`translate:${displacement.dx}px ${displacement.dy}px`);
+      styles.push("position:relative", `top:${displacement.dy}px`, `left:${displacement.dx}px`);
       attributes["data-flow-dx"] = String(displacement.dx);
       attributes["data-flow-dy"] = String(displacement.dy);
     }

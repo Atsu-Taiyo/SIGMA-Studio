@@ -6132,9 +6132,12 @@ function EditorBoxBlockFragmentPreview({
     width: `${fragment.width}px`,
     height: `${fragment.height}px`,
   };
+  // 続きの帯は相対配置で上へずらして viewport で切る。transform にするとブラウザ自身の
+  // キャレット追従がずらす前の位置を見て、打鍵のたびに紙面を跳ばす。
   const editorStyle = {
     minHeight: `${fragment.totalHeight}px`,
-    transform: `translateY(-${fragment.sourceOffsetY}px)`,
+    position: "relative",
+    top: `${-fragment.sourceOffsetY}px`,
     ...cornerBoxReferenceHeightStyleVars(fragment.totalHeight),
   } as CSSProperties;
 
@@ -7815,7 +7818,7 @@ export function PageBreakMarker({
       data-page-break-marker=""
       data-page-break-block-id={blockId}
       style={displacement && (displacement.dx !== 0 || displacement.dy !== 0)
-        ? { translate: `${displacement.dx}px ${displacement.dy}px` }
+        ? { position: "relative", top: `${displacement.dy}px`, left: `${displacement.dx}px` }
         : undefined}
     >
       <span />
@@ -8444,7 +8447,9 @@ function getFlowDisplacementProps(displacement: FlowDisplacement | undefined): {
     return { style: undefined, attributes: {} };
   }
   return {
-    style: { translate: `${displacement.dx}px ${displacement.dy}px` },
+    // 相対配置のずらし。translate と同じく兄弟のレイアウトに影響しないが、ブラウザ自身の
+    // キャレット追従 (入力時の reveal) は transform を正しく扱わず紙面を跳ばすので使わない。
+    style: { position: "relative", top: `${displacement.dy}px`, left: `${displacement.dx}px` },
     attributes: {
       [FLOW_DX_ATTRIBUTE]: String(displacement.dx),
       [FLOW_DY_ATTRIBUTE]: String(displacement.dy),

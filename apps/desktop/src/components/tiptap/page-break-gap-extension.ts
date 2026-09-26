@@ -298,7 +298,9 @@ function createPageBreakMarker(
     marker.style.width = `${Math.round(layout.width)}px`;
   }
   if (displacement && (displacement.dx !== 0 || displacement.dy !== 0)) {
-    marker.style.translate = `${displacement.dx}px ${displacement.dy}px`;
+    marker.style.position = "relative";
+    marker.style.top = `${displacement.dy}px`;
+    marker.style.left = `${displacement.dx}px`;
   }
 
   createPageBreakMarkerContent(marker, {
