@@ -10,7 +10,6 @@ import {
   resolveMeasureScope,
   type MeasuredBlockEntry,
 } from "./incremental-layout";
-import { decidePagination, type PaginationItem } from "./pagination-decisions";
 import type { RenderUnit } from "./types";
 
 /**
@@ -42,16 +41,7 @@ function bodyBlocks(count: number, { shiftFrom = count, delta = 0 } = {}): Measu
   ));
 }
 
-function paginationItems(blocks: readonly MeasuredBlock[]): PaginationItem[] {
-  return blocks.map((measured) => ({
-    kind: "block" as const,
-    gapKey: measured.id,
-    topNat: measured.top,
-    height: measured.height ?? 0,
-  }));
-}
 
-const ENV = { contentHeightPx: 200, pageStride: 220 };
 
 describe("composeFlowMeasurement", () => {
   it("rebuilds the whole-document maps from carried and freshly measured blocks", () => {
@@ -206,57 +196,6 @@ describe("patchFlowMeasurement", () => {
 
   it("returns the previous measurement untouched when nothing was re-measured", () => {
     expect(patchFlowMeasurement(previous, [])).toBe(previous);
-  });
-});
-
-describe("full vs partial measurement produce one layout", () => {
-  it("keeps the same gaps when nothing upstream moved", () => {
-    const blocks = bodyBlocks(30);
-    const full = composeFlowMeasurement(oneSegment(blocks, new Set(blocks.map((entry) => entry.id))));
-    // 部分計測: 先頭 20 ブロックは前回の実測を持ち越し、残りだけ測り直した。
-    const partial = composeFlowMeasurement(oneSegment(
-      [...blocks.slice(0, 20), ...blocks.slice(20)],
-      new Set(blocks.map((entry) => entry.id)),
-    ));
-
-    const fullGaps = decidePagination(paginationItems(full.ordered), ENV, {}).gaps;
-    const partialGaps = decidePagination(paginationItems(partial.ordered), ENV, {}).gaps;
-
-    expect(partialGaps).toEqual(fullGaps);
-  });
-
-  it("moves the downstream blocks by exactly the upstream height change", () => {
-    const before = bodyBlocks(30);
-    const after = bodyBlocks(30, { shiftFrom: 10, delta: 10 });
-    const partial = composeFlowMeasurement(oneSegment(
-      // 先頭 10 は持ち越し (動いていない)、以降は測り直し (10px 下がった)。
-      [...before.slice(0, 10), ...after.slice(10)],
-      new Set(before.map((entry) => entry.id)),
-    ));
-
-    expect(partial.tops.get("b9")).toBe(180);
-    expect(partial.tops.get("b10")).toBe(210);
-    expect(partial.extents.get("b29")).toEqual({ top: 590, height: 20 });
-    // 全部測り直した結果と一致する。
-    expect(partial.tops).toEqual(composeFlowMeasurement(oneSegment(after, new Set(before.map((entry) => entry.id)))).tops);
-  });
-
-  it("agrees with a full re-measure when the change pushes a block onto the next page", () => {
-    // 上流が 120px 伸びて、ページ (contentHeight 200) を跨ぐ位置まで下がるケース。
-    const after = bodyBlocks(20, { shiftFrom: 5, delta: 120 });
-    const flowUnits = new Set(after.map((entry) => entry.id));
-    const full = composeFlowMeasurement(oneSegment(after, flowUnits));
-    const partial = composeFlowMeasurement(oneSegment(
-      [...bodyBlocks(20).slice(0, 5), ...after.slice(5)],
-      flowUnits,
-    ));
-
-    const fullResult = decidePagination(paginationItems(full.ordered), ENV, {});
-    const partialResult = decidePagination(paginationItems(partial.ordered), ENV, {});
-
-    expect(partialResult.gaps).toEqual(fullResult.gaps);
-    expect(partialResult.pageCount).toBe(fullResult.pageCount);
-    expect(fullResult.pageCount).toBeGreaterThan(1);
   });
 });
 

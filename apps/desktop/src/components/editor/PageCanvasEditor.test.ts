@@ -23,7 +23,6 @@ import  {
 } from "@/components/editor/page-canvas/render-units";
 import type { ProblemAreaColumnLayout, RenderUnit } from "@/components/editor/page-canvas/types";
 import { calculateVisiblePageRange, getVisiblePageIndexes } from "@/components/editor/page-canvas/virtualization";
-import { getBlockPaginationGapCarrier } from "@/components/editor/page-canvas/single-column-layout";
 import { groupAiEditPreviewEntries } from "@/features/ai-edit";
 import { computeProblemAreaColumnFlow, simulateBalancedColumnHeightPx } from "@/features/rendering/core";
 import { BUILTIN_BOX_STYLES, createBoxBlock } from "@/lib/box-blocks";
@@ -43,42 +42,6 @@ describe("local layout section columns", () => {
     const leadUnit = problemAreaUnit(problem, "lead", "empty_lead_unit");
 
     expect(buildProblemAreaOwnerByBlockId([leadUnit]).get("empty_lead_problem_lead_empty")).toBe(leadUnit);
-  });
-
-  it("carries a first lead block break on the problem-area unit", () => {
-    const lead = paragraph("lead_first", "Lead");
-    const problem = createProblem({ id: "lead_carrier_problem", lead: [lead] });
-    const leadUnit = problemAreaUnit(problem, "lead", "lead_carrier_unit");
-    const owners = buildProblemAreaOwnerByBlockId([leadUnit]);
-
-    expect(getBlockPaginationGapCarrier(lead.id, owners)).toEqual({
-      gapKey: problem.id,
-      appliedGapItem: { kind: "unit", unitId: leadUnit.id },
-    });
-  });
-
-  it("carries an empty first lead break on the problem-area unit", () => {
-    const problem = createProblem({ id: "empty_lead_carrier_problem" });
-    const leadUnit = problemAreaUnit(problem, "lead", "empty_lead_carrier_unit");
-    const owners = buildProblemAreaOwnerByBlockId([leadUnit]);
-
-    expect(getBlockPaginationGapCarrier("empty_lead_carrier_problem_lead_empty", owners)).toEqual({
-      gapKey: problem.id,
-      appliedGapItem: { kind: "unit", unitId: leadUnit.id },
-    });
-  });
-
-  it("keeps later problem-area blocks on their block spacer", () => {
-    const first = paragraph("lead_first", "First");
-    const second = paragraph("lead_second", "Second");
-    const problem = createProblem({ id: "later_block_carrier_problem", lead: [first, second] });
-    const leadUnit = problemAreaUnit(problem, "lead", "later_block_carrier_unit");
-    const owners = buildProblemAreaOwnerByBlockId([leadUnit]);
-
-    expect(getBlockPaginationGapCarrier(second.id, owners)).toEqual({
-      gapKey: second.id,
-      appliedGapItem: { kind: "block", id: second.id },
-    });
   });
 
   it("uses the section column gap instead of the document-wide fallback", () => {

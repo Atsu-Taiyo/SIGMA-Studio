@@ -210,7 +210,9 @@ export function createPageBreakDecorations(
     const resolvedMarkerKind = own(markerKinds, id) ?? markerKind;
     const resolvedMarkerLabel = markerLabel(resolvedMarkerKind);
     const markerDisplacement = markerDisplacementByPos.get(pos);
-    const displacementKey = markerDisplacement ? `${markerDisplacement.dx}:${markerDisplacement.dy}` : "0:0";
+    const displacementKey = markerDisplacement && (markerDisplacement.dx !== 0 || markerDisplacement.dy !== 0)
+      ? `-${markerDisplacement.dx}:${markerDisplacement.dy}`
+      : "";
     if (resolvedMarkerKind === "columnBreak") {
       decorations.push(
         Decoration.node(pos, pos + node.nodeSize, {
@@ -232,7 +234,7 @@ export function createPageBreakDecorations(
         kind: "page-break-marker",
         // key に種別ではなく**表示文言**を混ぜる。言語を切り替えたとき、
         // ProseMirror に「別の widget だ」と分からせて描き直させるため。
-        key: `page-break-marker-${id}-${resolvedMarkerKind}-${resolvedMarkerLabel}-${layoutKey}-${displacementKey}`,
+        key: `page-break-marker-${id}-${resolvedMarkerKind}-${resolvedMarkerLabel}-${layoutKey}${displacementKey}`,
         markerKind: resolvedMarkerKind,
         markerLabel: resolvedMarkerLabel,
         side: -2,
