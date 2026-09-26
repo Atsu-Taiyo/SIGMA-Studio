@@ -628,11 +628,20 @@ code {
   );
 }
 
+/*
+ * 本文は自然フローのまま置き、ページ・段へは相対配置でずらして描く。段組では自然フローが
+ * 紙面の何倍も縦に長くなるので、フローの箱は紙面 (`.page-canvas`) の高さで縦だけ切る。
+ * 切らないと、最後のページの下に何も無いスクロール領域ができる。横は切らない (左余白の
+ * サイド注・全幅エリアは段幅の帯からはみ出して描く)。
+ */
 .page-flow {
   position: absolute;
   top: 0;
+  bottom: 0;
   left: 0;
   z-index: 1;
+  overflow-x: visible;
+  overflow-y: clip;
   width: var(--page-width);
   padding: var(--page-margin-top) var(--page-margin-right) 0 var(--page-margin-left);
   font-size: var(--editor-font-size, 12pt);
@@ -640,7 +649,7 @@ code {
 
 /*
  * 段組のページでも本文は「段幅の自然フロー」として 1 本に置き、段・ページへの配置は
- * レイアウトに影響しない変位 (translate) で与える。1 段組と同じ描画・同じ余白になる。
+ * 兄弟のレイアウトに影響しない相対配置のずらしで与える。1 段組と同じ描画・同じ余白になる。
  * 全幅のエリアはユニット自身が本文幅を持ち、段幅の帯から右へはみ出す。
  */
 .page-flow.page-columns {
