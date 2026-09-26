@@ -45,6 +45,11 @@ export interface ProbeNode {
   chrome: readonly ProbeChromeBox[];
   /** このブロックの前で手動改ページ (改段) する。 */
   breakBefore: boolean;
+  /**
+   * ブロックの内側にある手動改ページの位置 (自然座標)。箱の中の子に保存された旧来の
+   * 改ページで、その位置でブロックを分割して次のページ (段) から続ける。
+   */
+  innerBreaks?: readonly number[];
 }
 
 export interface ProbeColumn {

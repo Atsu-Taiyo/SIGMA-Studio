@@ -77,7 +77,7 @@ test("typed paragraphs continue from the first column into the next column", asy
   expect(layoutProof.duplicateMarkerCount).toBe(1);
 });
 
-test("column units are absolutely placed and stack without doubled gaps", async ({ page }) => {
+test("column paragraphs keep the single-column spacing and are placed without layout shifts", async ({ page }) => {
   test.setTimeout(60_000);
 
   await installDesktopRuntimeMock(page, createMultilineTwoColumnDocument());
@@ -85,33 +85,31 @@ test("column units are absolutely placed and stack without doubled gaps", async 
   await page.waitForTimeout(1500);
 
   await expect.poll(async () => page.locator(".page-column-guides span").count()).toBeGreaterThan(0);
+  await expect.poll(async () => page.locator(".page-flow [data-flow-dx]").count()).toBeGreaterThan(0);
 
   const proof = await page.evaluate(() => {
-    const blocks = Array.from(document.querySelectorAll<HTMLElement>(".page-flow .text-flow-column-block"));
+    const blocks = Array.from(document.querySelectorAll<HTMLElement>(".page-flow .ProseMirror > [data-sigma-doc-id]"));
     const positions = new Set(blocks.map((block) => getComputedStyle(block).position));
-    const lefts = Array.from(new Set(blocks.map((block) => Math.round(parseFloat(block.style.left || "0"))))).sort((a, b) => a - b);
+    const rects = blocks.map((block) => block.getBoundingClientRect());
+    const lefts = Array.from(new Set(rects.map((rect) => Math.round(rect.left)))).sort((a, b) => a - b);
 
-    // Visual gaps between consecutive positioned paragraphs within the first
-    // column. A regression in column positioning balloons this to roughly one
-    // paragraph height instead of staying near zero.
+    // 段の中で隣り合う段落の間隔。段組みでも 1 段組と同じ自然フローなので、段落は詰まって並ぶ。
     const firstLeft = lefts[0] ?? 0;
-    const column1 = blocks
-      .filter((block) => Math.abs(parseFloat(block.style.left || "0") - firstLeft) < 1)
-      .map((block) => block.getBoundingClientRect())
+    const column1 = rects
+      .filter((rect) => Math.abs(rect.left - firstLeft) < 1)
       .sort((a, b) => a.top - b.top);
     const intraColumnGaps: number[] = [];
     for (let i = 1; i < column1.length; i += 1) {
       const gap = column1[i].top - column1[i - 1].bottom;
-      // Ignore the large jump that marks a page break.
       if (gap < 100) intraColumnGaps.push(gap);
     }
     const maxGap = intraColumnGaps.length > 0 ? Math.max(...intraColumnGaps) : 0;
     return { positions: Array.from(positions), distinctLefts: lefts.length, maxIntraColumnGap: Math.round(maxGap) };
   });
 
-  expect(proof.positions).toEqual(["absolute"]);
+  // 配置は translate (レイアウトに影響しない変位) で与える。絶対配置は使わない。
+  expect(proof.positions).not.toContain("absolute");
   expect(proof.distinctLefts).toBeGreaterThanOrEqual(2);
-  // Consecutive paragraphs in a column should butt up against each other.
   expect(proof.maxIntraColumnGap).toBeLessThan(12);
 });
 
@@ -122,7 +120,7 @@ test("selects adjacent page-wide column paragraphs in one text flow", async ({ p
   await page.goto("/");
   await page.waitForTimeout(1500);
 
-  await expect.poll(async () => page.locator(".page-flow .text-flow-column-block").count()).toBeGreaterThan(1);
+  await expect.poll(async () => page.locator(".page-column-guides span").count()).toBeGreaterThan(0);
 
   await dragSelectBetween(
     page,
@@ -162,13 +160,13 @@ test("段組みを跨ぐ下移動が次の段の先頭へ行く", async ({ page 
   await installDesktopRuntimeMock(page, createMultilineTwoColumnDocument());
   await page.goto("/");
   await expect(page.locator(".startup-splash")).toBeHidden();
-  await expect.poll(async () => page.locator(".page-flow .text-flow-column-block").count())
-    .toBeGreaterThan(1);
+  await expect.poll(async () => page.locator(".page-flow [data-flow-dx]").count())
+    .toBeGreaterThan(0);
 
   // 1 段目の最後の段落へキャレットを置く。
   const lastInFirstColumn = await page.evaluate(() => {
     const blocks = Array.from(document.querySelectorAll<HTMLElement>(
-      ".page-flow .text-flow-column-block[data-sigma-doc-id]",
+      ".page-flow .ProseMirror > [data-sigma-doc-id]",
     ));
     const first = blocks[0]?.getBoundingClientRect();
     if (!first) {

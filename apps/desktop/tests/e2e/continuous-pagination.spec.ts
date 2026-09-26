@@ -120,10 +120,11 @@ test("continuous flow: overflow adds pages without duplicating text", async ({ p
   await expect.poll(async () => countCanonicalBodyTextOccurrences(page, marker)).toBe(1);
   await expect.poll(async () => countSavedDocumentOccurrences(page, marker)).toBe(1);
 
-  // Page-start whitespace must be a non-editable spacer widget, not margin on
-  // editable paragraph/heading nodes. Native caret painting gets unstable when
-  // large pagination margins live on contenteditable text nodes.
-  await expect.poll(async () => page.locator(".page-break-spacer").count()).toBeGreaterThan(0);
+  // Blocks after a page boundary are placed by a layout-neutral displacement
+  // (data-flow-dy), never by margins on editable paragraph/heading nodes or by
+  // spacers that change the measured layout (docs/flow-pagination-architecture.md).
+  await expect.poll(async () => page.locator(".page-flow [data-flow-dy]").count()).toBeGreaterThan(0);
+  await expect(page.locator(".page-break-spacer")).toHaveCount(0);
   const editablePageGapNodes = await page.evaluate(() => {
     return Array.from(document.querySelectorAll<HTMLElement>(".page-flow .ProseMirror > [data-sigma-doc-id]"))
       .filter((element) =>
@@ -505,10 +506,10 @@ test("manual page break sends the following paragraph to the next column", async
     const documentJson = saved ? JSON.parse(saved) : null;
     const secondBlock = documentJson?.content?.find((block: { id?: string }) => block.id === "p_manual_second");
     return {
-      firstLeft: firstUnit ? parseFloat(firstUnit.style.left || "0") : null,
-      secondLeft: secondUnit ? parseFloat(secondUnit.style.left || "0") : null,
+      firstLeft: firstUnit ? firstUnit.getBoundingClientRect().left : null,
+      secondLeft: secondUnit ? secondUnit.getBoundingClientRect().left : null,
       secondBreakBefore: secondBlock?.pagination?.break ?? null,
-      markerCount: document.querySelectorAll(".page-flow-page-break-marker").length,
+      markerCount: document.querySelectorAll('.page-flow .page-break-marker[data-page-break-block-id="p_manual_second"]').length,
     };
   });
 

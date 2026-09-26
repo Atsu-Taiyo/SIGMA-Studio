@@ -129,12 +129,16 @@ export function probeFlow(flow: HTMLElement, options: FlowProbeOptions): ProbeTr
       chromeRelative = measured.chrome;
       cache?.nodes.set(id, { element, revision, width: rect.width, height, ink: inkRelative, chrome: chromeRelative });
     }
+    const innerBreaks = element.getAttribute("data-sigma-doc-type") === "boxBlock"
+      ? measureInnerBreaks(element, options.breakIds, (clientY) => toY(clientY, acc))
+      : [];
     return {
       id,
       rect,
       ink: inkRelative.map((ink) => ({ ...ink, top: ink.top + rect.top, bottom: ink.bottom + rect.top })),
       chrome: chromeRelative.map((box) => ({ ...box, top: box.top + rect.top, bottom: box.bottom + rect.top })),
       breakBefore: options.breakIds.has(id),
+      ...(innerBreaks.length > 0 ? { innerBreaks } : {}),
     };
   };
 
@@ -234,6 +238,27 @@ export function probeFlow(flow: HTMLElement, options: FlowProbeOptions): ProbeTr
     }
   }
   return { units };
+}
+
+/**
+ * 箱の中の子に保存された手動改ページの位置。複数段の段組みの中の改ページは、その段組み
+ * 自身の改段なので外側の改ページには使わない。
+ */
+function measureInnerBreaks(
+  element: HTMLElement,
+  breakIds: ReadonlySet<string>,
+  toY: (clientY: number) => number,
+): number[] {
+  if (breakIds.size === 0) return [];
+  const positions: number[] = [];
+  element.querySelectorAll<HTMLElement>("[data-sigma-doc-id]").forEach((child) => {
+    const id = child.getAttribute("data-sigma-doc-id");
+    if (!id || !breakIds.has(id)) return;
+    const section = child.parentElement?.closest<HTMLElement>(".sigma-doc-layout-section-block");
+    if (section && element.contains(section) && Number(section.getAttribute("data-column-count") ?? 1) > 1) return;
+    positions.push(toY(child.getBoundingClientRect().top));
+  });
+  return positions.sort((a, b) => a - b);
 }
 
 /**

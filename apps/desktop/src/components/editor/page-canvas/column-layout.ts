@@ -101,6 +101,7 @@ export function getColumnBreakBeforeBlockIdForContextMenu({
       blocks,
       blockRects,
       pageStridePx,
+      metrics,
     });
   }
 
@@ -223,23 +224,38 @@ export function measureLocalColumnContextMenuLayout(
   };
 }
 
+/**
+ * 右クリックしたブロックの領域 (ページ / 段) を終わらせている手動改ページ (改段) の持ち主。
+ * 次の領域の先頭にある、手動改ページ付きのブロックのうち最も上のもの。
+ */
 function getSingleColumnPageBreakBeforeBlockId({
   blockId,
   blocks,
   blockRects,
   pageStridePx,
+  metrics,
 }: {
   blockId: string;
   blocks: SigmaBlock[];
   blockRects: ReadonlyMap<string, MeasuredBlock>;
   pageStridePx: number;
+  metrics: PageMetrics;
 }): string | null {
   const clicked = blockRects.get(blockId);
   if (!clicked) {
     return null;
   }
 
-  const clickedPageIndex = getPageIndexForMeasuredTop(clicked.top, pageStridePx);
+  const columnCount = Math.max(1, metrics.flow.columnCount);
+  const columnStep = metrics.flow.columnWidthPx + metrics.flow.columnGapPx;
+  const regionOf = (block: MeasuredBlock) => {
+    const pageIndex = getPageIndexForMeasuredTop(block.top, pageStridePx);
+    const columnIndex = columnCount > 1 && columnStep > 0
+      ? Math.max(0, Math.min(columnCount - 1, Math.round(((block.left ?? metrics.margins.leftPx) - metrics.margins.leftPx) / columnStep)))
+      : 0;
+    return pageIndex * columnCount + columnIndex;
+  };
+  const clickedRegion = regionOf(clicked);
   const blocksById = collectBlocksById(blocks);
   let nearest: MeasuredBlock | null = null;
 
@@ -258,8 +274,7 @@ function getSingleColumnPageBreakBeforeBlockId({
     const measured = blockRects.get(candidateId);
     if (
       !measured
-      || getPageIndexForMeasuredTop(measured.top, pageStridePx) !== clickedPageIndex + 1
-      || measured.top <= clicked.top
+      || regionOf(measured) !== clickedRegion + 1
     ) {
       continue;
     }

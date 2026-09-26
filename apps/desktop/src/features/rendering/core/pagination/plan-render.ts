@@ -75,7 +75,7 @@ function round(value: number): number {
 }
 
 function sameDisplacement(a: PlacedLine, b: { regionIndex: number; dx: number; dy: number }): boolean {
-  return a.regionIndex === b.regionIndex && Math.abs(a.dy - b.dy) < 0.01 && Math.abs(a.dx - b.dx) < 0.01;
+  return a.regionIndex === b.regionIndex && Math.round(a.dy) === b.dy && Math.round(a.dx) === b.dx;
 }
 
 export function planFlowRender(built: BuiltFlowModel, placement: FlowPlacement): FlowRenderPlan {
@@ -154,7 +154,7 @@ export function planFlowRender(built: BuiltFlowModel, placement: FlowPlacement):
       if (blank && pieces.length > 0) {
         const last = pieces[pieces.length - 1];
         const naturalTop = blank.top + pieces.slice(0, -1).reduce((sum, piece) => sum + piece.height, 0);
-        lastPlaced = { dx: placement.regions[last.regionIndex]?.dx ?? 0, dy: last.y - naturalTop };
+        lastPlaced = { dx: Math.round(placement.regions[last.regionIndex]?.dx ?? 0), dy: Math.round(last.y - naturalTop) };
       }
     }
     planFramePieces(unit, built, placement, unitDisplacement, plan);
@@ -172,7 +172,7 @@ function firstDisplacement(unit: BuiltUnit, built: BuiltFlowModel, placement: Fl
     const placed = placement.lines.get(key);
     const line = built.lines.get(key);
     if (placed && line) {
-      if (!best || line.top < best.top) best = { top: line.top, displacement: { dx: placed.dx, dy: placed.dy } };
+      if (!best || line.top < best.top) best = { top: line.top, displacement: { dx: Math.round(placed.dx), dy: Math.round(placed.dy) } };
       continue;
     }
     const blank = built.blanks.get(key);
@@ -180,7 +180,7 @@ function firstDisplacement(unit: BuiltUnit, built: BuiltFlowModel, placement: Fl
     const piece = placement.blanks.find((candidate) => candidate.key === key);
     if (piece && (!best || blank.top < best.top)) {
       const region = placement.regions[piece.regionIndex];
-      best = { top: blank.top, displacement: { dx: region?.dx ?? 0, dy: piece.y - blank.top } };
+      best = { top: blank.top, displacement: { dx: Math.round(region?.dx ?? 0), dy: Math.round(piece.y - blank.top) } };
     }
   }
   return best?.displacement ?? null;
@@ -196,7 +196,9 @@ function groupLines(keys: readonly string[], built: BuiltFlowModel, placement: F
     if (last && sameDisplacement(placed, last)) {
       last.lines.push(line);
     } else {
-      groups.push({ regionIndex: placed.regionIndex, dx: placed.dx, dy: placed.dy, lines: [line] });
+      // 変位は整数 px にする。レイアウトの丸め (1/64 px) の上で「表示位置 − 変位 = 自然位置」が
+      // 厳密に成り立ち、次の計測が同じ自然配置を読む (端数の変位は計測のたびに揺れる)。
+      groups.push({ regionIndex: placed.regionIndex, dx: Math.round(placed.dx), dy: Math.round(placed.dy), lines: [line] });
     }
   }
   return groups;
@@ -225,7 +227,7 @@ function planFramePieces(
     const line = built.lines.get(key);
     const placed = placement.lines.get(key);
     if (line && placed) {
-      note(placed.regionIndex, line.top + placed.dy, line.fitBottom + placed.dy, placed.dx);
+      note(placed.regionIndex, line.top + Math.round(placed.dy), line.fitBottom + Math.round(placed.dy), Math.round(placed.dx));
       continue;
     }
     const blank = built.blanks.get(key);
