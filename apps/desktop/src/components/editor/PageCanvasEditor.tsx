@@ -8597,12 +8597,6 @@ function focusBlockElementEdge(blockId: string, position: "start" | "end"): void
 }
 
 export {
-computeProblemAreaColumnFlow,
-simulateBalancedColumnHeightPx,
-type ProblemAreaColumnFlowBlock,
-type ProblemAreaColumnFlowResult
-} from "@/features/rendering/core";
-export {
 cloneTextFlowBlock,
 hasBreakBefore,
 isProblemFrameArea,
@@ -8612,7 +8606,7 @@ problemAreaDraftKey,
 shouldShowProblemArea,
 TEXT_FLOW_BLOCKS_PER_RENDER_UNIT_TARGET
 } from "./page-canvas/block-ops";
-export { computeColumnUnitLayouts,getColumnBreakBeforeBlockIdForContextMenu } from "./page-canvas/column-layout";
+export { getColumnBreakBeforeBlockIdForContextMenu } from "./page-canvas/column-layout";
 export { getSelectionActionPopoverPosition,viewportToCanvasAnchor } from "./page-canvas/popover-anchors";
 export { buildRenderUnits } from "./page-canvas/render-units";
 export type { FlowUnitLayout,ProblemAreaColumnLayout,RenderUnit } from "./page-canvas/types";

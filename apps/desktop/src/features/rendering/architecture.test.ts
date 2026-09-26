@@ -7,20 +7,14 @@ import { describe, expect, expectTypeOf, it } from "vitest";
 import { getModuleSpecifiers as importSpecifiers } from "../../../tests/helpers/source-dependencies";
 
 import {
-  computeProblemAreaColumnFlow,
   createOverlayPageSlices,
   getVisibleOverlayShapes,
-  simulateBalancedColumnHeightPx,
   type OverlayPageSlice,
   type OverlayPageWindow,
   type OverlayPreviewStackLayer,
   type TextFlowColumnBlockLayout,
   type VisiblePageRange,
 } from "./core";
-import {
-  computeProblemAreaColumnFlow as legacyComputeProblemAreaColumnFlow,
-  simulateBalancedColumnHeightPx as legacySimulateBalancedColumnHeightPx,
-} from "@/components/editor/page-canvas/problem-area-flow";
 import type {
   TextFlowColumnBlockLayout as LegacyTextFlowColumnBlockLayout,
 } from "@/components/editor/TextFlowEditor";
@@ -346,51 +340,6 @@ describe("rendering feature dependency boundary", () => {
     expect(pageCanvasCoreImport?.[1]).toContain("TextFlowColumnBlockLayout");
     expect(viewCacheImport?.[1]).not.toContain("getVisibleOverlayShapes");
     expect(viewCacheImport?.[1]).not.toContain("OverlayPreviewStackLayer");
-  });
-
-  it("owns problem-area column flow in the public framework-neutral core", () => {
-    const core = readFileSync(
-      fileURLToPath(new URL(
-        "./core/problem-area-column-flow.ts",
-        import.meta.url,
-      )),
-      "utf8",
-    );
-    const pageAdapter = readFileSync(
-      fileURLToPath(new URL(
-        "../../components/editor/page-canvas/problem-area-flow.ts",
-        import.meta.url,
-      )),
-      "utf8",
-    );
-    const pageCanvas = readFileSync(
-      fileURLToPath(new URL(
-        "../../components/editor/PageCanvasEditor.tsx",
-        import.meta.url,
-      )),
-      "utf8",
-    );
-
-    expect(core).not.toMatch(
-      /\b(?:window|HTMLElement|DOMRect|ResizeObserver)\b|\bdocument\s*\./,
-    );
-    expect(pageAdapter).not.toMatch(
-      /\bfunction\s+(?:computeProblemAreaColumnFlow|simulateBalancedColumnHeightPx)\b/,
-    );
-    expect(importSpecifiers(pageAdapter)).toContain(
-      "@/features/rendering/core",
-    );
-    expect(importSpecifiers(pageCanvas)).toContain(
-      "@/features/rendering/core",
-    );
-    expect(legacyComputeProblemAreaColumnFlow).toBe(
-      computeProblemAreaColumnFlow,
-    );
-    expect(legacySimulateBalancedColumnHeightPx).toBe(
-      simulateBalancedColumnHeightPx,
-    );
-    expectTypeOf<LegacyTextFlowColumnBlockLayout>()
-      .toEqualTypeOf<TextFlowColumnBlockLayout>();
   });
 
   it("keeps former Graph, Math, and SVG component paths as logic-free facades", () => {
