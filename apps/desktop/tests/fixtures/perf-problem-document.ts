@@ -83,9 +83,7 @@ export function createPerfProblemDocument(): SigmaDocument {
       orientation: "portrait",
       pageSize: { widthMm: 210, heightMm: 297 },
       marginsMm: { top: 14, right: 16, bottom: 14, left: 16 },
-      // 1 段組。1段組の教材 と同じで、ページ割りの walk はこちらの経路にしか無い
-      // — 2 段組だと `computeColumnUnitLayouts` に分岐して、枠付き問題の keep-together 判定を
-      // 一度も通らない。
+      // 1 段組 (1 段組の教材と同じ)。ページ割りは段組でも同じ配置エンジン (`placeFlow`) を通る。
       flow: { type: "columns", columnCount: 1, columnGapMm: 10 },
       overlay: {
         overlaySnapshot: {
