@@ -242,6 +242,7 @@ export function computeSingleColumnLayouts(
         topNat,
         height: item.area.height,
         reservedHeightDeficitPx: item.area.reservedHeightDeficitPx,
+        forceBreakBefore: item.area.forceBreakBefore,
       };
     } else if (item.kind === "reservedAreaEnd") {
       paginationItem = { kind: "reservedAreaEnd", gapKey, topNat, height: 0 };
@@ -300,6 +301,8 @@ export function computeSingleColumnLayouts(
             : undefined;
       const nextProblemAreaStartsWithBreak = nextNaturalItem?.kind === "area"
         ? nextNaturalItem.area.blockHeights[0]?.break === true
+        : nextNaturalItem?.kind === "atomicProblemArea"
+          ? nextNaturalItem.area.forceBreakBefore
         : nextNaturalItem?.kind === "block"
           ? nextBlock?.type !== "listItem" && nextBlock?.pagination?.break === true
           : false;

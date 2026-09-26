@@ -599,6 +599,23 @@ test("実PDFでも最終ページの後に空白ページを追加しない", as
   }
 });
 
+test("コードのページ窓は編集ボタンを本文に混ぜず構文色を保つ", async ({ page }) => {
+  const document = documentWith([{
+    type: "codeBlock", id: "code_pdf", language: "javascript",
+    children: [{ type: "text", text: "const answer = 42;" }],
+  }]);
+  await openEditor(page, document);
+  const editingCode = page.locator('.page-canvas .print-code[data-sigma-doc-id="code_pdf"]');
+  await expect(editingCode.locator('[data-code-block-action-button="true"]')).toHaveCount(1);
+  await expect(editingCode.locator(".hljs-keyword")).toHaveText("const");
+
+  await openPaged(page, document);
+  const pageCode = page.locator('.paged-surface-page .print-code[data-sigma-doc-id="code_pdf"]');
+  await expect(pageCode).toHaveText("const answer = 42;");
+  await expect(pageCode.locator('[data-code-block-action-button="true"]')).toHaveCount(0);
+  await expect(pageCode.locator(".hljs-keyword")).toHaveText("const");
+});
+
 async function readRenderedFont(
   page: Page,
   selector: string,
@@ -671,6 +688,29 @@ test("枠付き問題エリアが、同じページの同じ位置に出る", as
     ...Array.from({ length: 8 }, (_, i) => `solution_${i + 1}`),
     ...Array.from({ length: 6 }, (_, i) => `outro_${i + 1}`),
   ]);
+});
+
+test("確保高さ付き解答エリア先頭の改ページを編集面とPDF面で守る", async ({ page }) => {
+  test.setTimeout(120_000);
+  const document = documentWith([
+    ...paragraphs("atomic_intro", 1),
+    {
+      type: "problem", id: "atomic_problem", tags: [],
+      numbering: { enabled: false }, frame: { enabled: false },
+      lead: [], prompt: paragraphs("atomic_prompt", 1), hints: [],
+      solution: [{ ...paragraphs("atomic_solution", 1)[0], pagination: { break: true } }],
+      areaLayout: { solution: { minHeightMm: 60 } },
+    },
+  ] as SigmaDocument["content"]);
+
+  await openEditor(page, document);
+  const editor = await editorGeometry(page);
+  expect(editor.atomic_intro_1?.[0]?.pageIndex).toBe(0);
+  expect(editor.atomic_solution_1?.[0]?.pageIndex).toBe(1);
+
+  await openPaged(page, document);
+  const paged = await settledPagedGeometry(page);
+  expectParity(editor, paged, ["atomic_intro_1", "atomic_prompt_1", "atomic_solution_1"]);
 });
 
 test("ページを超える枠付き問題でも、2回続けてレンダーしたページ割りが一致する", async ({ page }) => {
