@@ -124,6 +124,7 @@ export const workspace = {
     new: "New",
     newMaterial: "New material",
     addToTemplates: "Add to templates",
+    retry: "Retry",
     reloadShort: "Reload",
     templatesShort: "Templates",
     deleteWorkspace: "Delete workspace",
