@@ -6,7 +6,7 @@ import type {
   ProbeRect,
   ProbeTree,
   ProbeUnit,
-} from "@/features/rendering/core/pagination/probe-types";
+} from "@/features/rendering/core";
 
 /**
  * 本文フローの**自然配置**を読む。

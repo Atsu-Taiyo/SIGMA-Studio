@@ -229,7 +229,6 @@ import type  {
 } from "./overlay-canvas/types";
 import { createResolvedOverlayView, type OverlayIdentityCache, type ResolvedOverlayView } from "./overlay-canvas/view-cache";
 import { OverlayShapeReadOnlyView, RemoteOverlayPresenceLayer } from "./OverlayCanvasEditorClient";
-import { buildAppliedGapIndex } from "./page-canvas/applied-gaps";
 import  {
   blockHitProbeColumnLeftPx,
   EMPTY_BLOCK_AFFORDANCE_HOVER,
@@ -318,10 +317,6 @@ import  {
 import { resolveOverlayBleed } from "./page-canvas/overlay-bleed";
 import { formatMm } from "./page-canvas/page-layout-format";
 import  {
-  detectGapOscillation,
-  gapMapSignature,
-} from "./page-canvas/pagination-decisions";
-import  {
   getCanvasPointerPoint,
   getPageDoubleTapHit,
   getWhiteboardPointerPoint,
@@ -370,8 +365,6 @@ import  {
   reconcileRenderUnits,
 } from "./page-canvas/render-units";
 import { pageRunningRegionToTextFlowBlocks, replacePageRunningRegionTextFlow } from "./page-canvas/running-region-text-model";
-import { computeSingleColumnLayouts, measureSingleColumnLayoutInput } from "./page-canvas/single-column-layout";
-export { getBlockPaginationGapCarrier } from "./page-canvas/single-column-layout";
 import { SpaceAfterDragSession } from "./page-canvas/space-after-drag-session";
 import { waitForSpaceAfterCommitPaint } from "./page-canvas/space-after-commit-paint";
 import { resolveSpaceAfterDragPx, resolveSpaceAfterPreviewCohort, type SpaceAfterPreviewCohort } from "./page-canvas/space-after-preview";
@@ -455,8 +448,6 @@ interface BlockHandleSelection {
 
 const EMPTY_BLOCK_SELECTION: BlockHandleSelection = { ids: [], boxes: [] };
 
-/** 1 構造あたりの再ページ割りの上限。超えたら最後に採用した gap で固定する。 */
-const MAX_PAGINATION_PASSES = 8;
 
 interface ExtensionActionPopoverState {
   action: PageCanvasSelectionAction;
@@ -1363,13 +1354,6 @@ function PageCanvasEditorImpl({
   const [bleed, setBleed] = useState({ x: 0, top: 0 });
   const previousBleedRef = useRef(bleed);
   const recomputeFrameRef = useRef<number | null>(null);
-  /** 直近の gap マップ署名 (最大 4)。往復は隣接 2 パスの比較では見えないので履歴で見る。 */
-  const paginationSignatureHistoryRef = useRef<string[]>([]);
-  const paginationPassCountRef = useRef(0);
-  /** 振動 or パス上限で固定した gap マップ。入力が変わるまでこれを使い続ける。 */
-  const frozenPaginationGapsRef = useRef<Record<string, number> | null>(null);
-  /** ガードが見ている入力。これが変わったら履歴もパス数も固定も無効になる。 */
-  const paginationInputRef = useRef<RenderUnit[] | null>(null);
   /**
    * 次の recompute で測り直す範囲。
    *
@@ -2078,11 +2062,6 @@ function PageCanvasEditorImpl({
       if (spaceAfterSessionRef.current.isFrozen) {
         cancelBlockSpaceAfterDragRef.current();
       }
-      // 構造 (ズーム・余白・フォント・undo) が変われば前の署名列は無意味になる。
-      paginationInputRef.current = null;
-      paginationSignatureHistoryRef.current = [];
-      paginationPassCountRef.current = 0;
-      frozenPaginationGapsRef.current = null;
       // First mount or a layout-reshaping change (zoom, margins/page size, font,
       // undo/redo, overlay): recompute synchronously before paint so the page
       // doesn't flash an un-paginated frame.

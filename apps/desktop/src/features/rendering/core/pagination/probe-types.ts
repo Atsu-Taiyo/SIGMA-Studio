@@ -54,7 +54,7 @@ export interface ProbeColumn {
 }
 
 export interface ProbeUnit {
-  /** `data-flow-unit-id`。変位を受け持つ外側の要素。 */
+  /** フロー直下のユニットの id。変位を受け持つ外側の要素。 */
   id: string;
   rect: ProbeRect;
   span: "column" | "full";
