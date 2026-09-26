@@ -29,6 +29,12 @@ export interface AuditLine {
    * 閉じ側の縁は最後の行と同じページに置く規則なので、送りの最小性はこの分も含めて判定する。
    */
   closingChrome: number;
+  /** 文書順 (本文フローの DOM 順)。断片の複製も元と同じ値になる。 */
+  order: number;
+  /** 段組みのページで本文幅に広がる区間 (全幅の問題など) の行か。 */
+  fullSpan: boolean;
+  /** 部分段組 (独立した列) の中の行か。列どうしは横に並ぶので文書順と縦の順が一致しない。 */
+  inBand: boolean;
 }
 
 export interface PaginationAuditResult {
@@ -143,6 +149,19 @@ export async function auditPagination(page: Page, options: PaginationAuditOption
 
     const roots = Array.from(canvas.querySelectorAll<HTMLElement>(".page-flow, .editor-box-fragment-viewport"));
     const lines: AuditLine[] = [];
+    // 文書順と区間の種類は本文フローの DOM から決める (断片の複製はキーで引き継ぐ)。
+    const orderByKey = new Map<string, number>();
+    const fullSpanKeys = new Set<string>();
+    const bandKeys = new Set<string>();
+    const noteOrder = (key: string, element: Element) => {
+      if (orderByKey.has(key)) return;
+      orderByKey.set(key, orderByKey.size);
+      // 全幅: 段組みのページで、行を含むユニットの幅が段の幅より広い (実装の印ではなく見た目で決める)。
+      const unit = element.closest<HTMLElement>("[data-flow-unit-id]");
+      const columnWidthPx = (options.columnWidthMm ?? 0) * mmToPx;
+      if ((options.columnCount ?? 1) > 1 && unit && unit.getBoundingClientRect().width / scale > columnWidthPx + 2) fullSpanKeys.add(key);
+      if (element.closest(".layout-section-independent-column")) bandKeys.add(key);
+    };
     const CHROME_SELECTOR = ".sigma-doc-box-block, pre, .problem-area-flow-unit.with-frame.last-frame-area";
     const linesByChrome = new Map<Element, AuditLine[]>();
     const pushLine = (keyBase: string, block: HTMLElement | null, text: string, rect: DOMRect, clip: { top: number; bottom: number }) => {
@@ -172,6 +191,9 @@ export async function auditPagination(page: Page, options: PaginationAuditOption
         })(),
         manualBreak: manualBreakOf(block),
         closingChrome: 0,
+        order: orderByKey.get(keyBase) ?? Number.POSITIVE_INFINITY,
+        fullSpan: fullSpanKeys.has(keyBase),
+        inBand: bandKeys.has(keyBase),
       });
       const line = lines[lines.length - 1];
       for (let chrome = block?.closest(CHROME_SELECTOR) ?? null; chrome; chrome = chrome.parentElement?.closest(CHROME_SELECTOR) ?? null) {
@@ -191,8 +213,11 @@ export async function auditPagination(page: Page, options: PaginationAuditOption
         // 断片は別の root として数える (キーが元と揃うように)。
         const viewport = element.closest(".editor-box-fragment-viewport");
         if (viewport && viewport !== root) continue;
+        // 問題番号は枠の外 (ブロックの外) にあるので、問題とエリアで区別する。数字は印として 1 回だけ数える。
+        if (node.nodeType === Node.TEXT_NODE && element.closest(".problem-number-marker")) continue;
         const block = blockOf(node);
-        const blockId = block?.dataset.sigmaDocId ?? "(none)";
+        const area = block ? null : element.closest<HTMLElement>("[data-problem-id]");
+        const blockId = block?.dataset.sigmaDocId ?? (area ? `${area.dataset.problemId}:${area.dataset.problemArea ?? ""}` : "(none)");
         if (node.nodeType === Node.TEXT_NODE) {
           const text = node.textContent ?? "";
           if (!text.trim()) continue;
@@ -202,6 +227,7 @@ export async function auditPagination(page: Page, options: PaginationAuditOption
           range.selectNodeContents(node);
           const clip = clipOf(element);
           Array.from(range.getClientRects()).forEach((rect, rectIndex) => {
+            if (!viewport) noteOrder(`${blockId}:t${localIndex}:r${rectIndex}`, element);
             pushLine(`${blockId}:t${localIndex}:r${rectIndex}`, block, text, rect, clip);
           });
           continue;
@@ -213,10 +239,12 @@ export async function auditPagination(page: Page, options: PaginationAuditOption
           range.selectNode(node);
           let rect = range.getBoundingClientRect();
           if (rect.height < 1) rect = paragraph.getBoundingClientRect();
+          if (!viewport) noteOrder(`${blockId}:empty`, paragraph);
           pushLine(`${blockId}:empty`, block, "↵", rect, clipOf(paragraph));
           continue;
         }
         if (node instanceof HTMLElement && node.classList.contains("problem-number-marker")) {
+          if (!viewport) noteOrder(`${blockId}:marker`, node);
           pushLine(`${blockId}:marker`, block, node.textContent ?? "", node.getBoundingClientRect(), clipOf(node));
         }
       }
@@ -257,14 +285,58 @@ export async function auditPagination(page: Page, options: PaginationAuditOption
       }
       visibleLines.push(line);
     }
+    violations.push(...readingOrderViolations(visibleLines));
     return { pageCount, contentTop, contentBottom, lines: visibleLines, violations };
+
+    /**
+     * 読む順の検査。
+     * - 全幅の行と同じページの行は、文書順で前なら全幅の行より上、後なら下にある。
+     * - 全幅の行で区切られた区間の中では、(ページ, 段, 縦位置) の順が文書順と一致する
+     *   (部分段組の列の中の行は横に並ぶので除く。縦に重なる行どうしは同じ行とみなす)。
+     */
+    function readingOrderViolations(all: AuditLine[]): string[] {
+      const found: string[] = [];
+      const sorted = [...all].filter((line) => Number.isFinite(line.order)).sort((a, b) => a.order - b.order);
+      for (const wide of sorted.filter((line) => line.fullSpan)) {
+        for (const other of sorted) {
+          if (other.fullSpan || other.page !== wide.page) continue;
+          if (other.order > wide.order && other.top < wide.bottom - 1) {
+            found.push(`line ${other.key} "${other.text}" is above the full-width line ${wide.key} it follows (page ${wide.page + 1})`);
+          } else if (other.order < wide.order && other.bottom > wide.top + 1) {
+            found.push(`line ${other.key} "${other.text}" is below the full-width line ${wide.key} it precedes (page ${wide.page + 1})`);
+          }
+        }
+      }
+      let previous: AuditLine | null = null;
+      for (const line of sorted) {
+        if (line.fullSpan) {
+          previous = null;
+          continue;
+        }
+        if (line.inBand) continue;
+        if (previous) {
+          const before = previous.page * 100 + previous.column;
+          const here = line.page * 100 + line.column;
+          // 同じ段では「後の行が前の行より丸ごと上にある」ときだけ違反 (同じ行に並ぶ飾りは順不同)。
+          if (here < before || (here === before && line.bottom <= previous.top + 1)) {
+            found.push(`line ${line.key} "${line.text}" (page ${line.page + 1} column ${line.column + 1}) comes before ${previous.key} "${previous.text}" (page ${previous.page + 1} column ${previous.column + 1}) in reading order`);
+          }
+        }
+        previous = line;
+      }
+      return found;
+    }
   }, { options, excluded: EXCLUDED_SELECTOR });
 }
 
 /**
  * 同じ文書を用紙 1 枚に収まる高さで描いた自然配置と比べ、改ページの最小性を検査する。
- * ページ k の最後の行 L と次ページ先頭の行 M について、自然配置での L→M の送り量を
- * ページ k の残りに足しても下端を越えないなら、M は前ページに入ったはず。
+ * 領域 k の最後の行 L と次の領域の先頭の行 M について、自然配置での L→M の送り量を
+ * 領域 k の残りに足しても下端を越えないなら、M は前の領域に入ったはず。
+ *
+ * 領域は (ページ, 区間, 段)。区間は文書順で全幅の行の並びが始まる・終わるたびに変わる。
+ * 同じページの中で区間が変わるのは送りではない (全幅の区間は段組みの直下から始まる) ので検査しない。
+ * 全幅の区間の直前の段組みは左右を揃えて詰めるので、そのページの段から段への送りも検査しない。
  */
 export function findUnderfilledBreaks(
   paged: PaginationAuditResult,
@@ -273,37 +345,57 @@ export function findUnderfilledBreaks(
 ): string[] {
   const naturalByKey = new Map(natural.lines.map((line) => [line.key, line]));
   const violations: string[] = [];
-  // 領域 = (ページ, 段)。読む順に並べ、隣り合う領域の間の送りが最小かを見る。
-  const regionKey = (line: AuditLine) => line.page * 100 + line.column;
-  const byRegion = new Map<number, AuditLine[]>();
-  for (const line of paged.lines) {
-    const key = regionKey(line);
-    const existing = byRegion.get(key);
-    if (existing) existing.push(line);
-    else byRegion.set(key, [line]);
+  const ordered = [...paged.lines].sort((a, b) => a.order - b.order);
+  const sectionOf = new Map<AuditLine, number>();
+  let section = 0;
+  let previousFullSpan: boolean | null = null;
+  for (const line of ordered) {
+    if (previousFullSpan !== null && line.fullSpan !== previousFullSpan) section += 1;
+    previousFullSpan = line.fullSpan;
+    sectionOf.set(line, section);
   }
-  const regionKeys = [...byRegion.keys()].sort((a, b) => a - b);
-  for (let index = 0; index < regionKeys.length - 1; index += 1) {
-    const current = byRegion.get(regionKeys[index]) ?? [];
-    const next = byRegion.get(regionKeys[index + 1]) ?? [];
-    const pageIndex = Math.floor(regionKeys[index] / 100);
-    if (current.length === 0 || next.length === 0) continue;
-    const last = current.reduce((a, b) => (b.bottom > a.bottom ? b : a));
-    const first = next.reduce((a, b) => (b.top < a.top ? b : a));
+  interface RegionLines { page: number; section: number; column: number; lines: AuditLine[] }
+  const regions = new Map<string, RegionLines>();
+  for (const line of ordered) {
+    const lineSection = sectionOf.get(line) ?? 0;
+    const column = line.fullSpan ? 0 : line.column;
+    const key = `${line.page}:${lineSection}:${column}`;
+    const existing = regions.get(key);
+    if (existing) existing.lines.push(line);
+    else regions.set(key, { page: line.page, section: lineSection, column, lines: [line] });
+  }
+  const sorted = [...regions.values()].sort((a, b) => a.page - b.page || a.section - b.section || a.column - b.column);
+  const balancedPageSections = new Set<string>();
+  for (const region of sorted) {
+    if (sorted.some((other) => other.page === region.page && other.section > region.section)) {
+      balancedPageSections.add(`${region.page}:${region.section}`);
+    }
+  }
+  for (let index = 0; index < sorted.length - 1; index += 1) {
+    const current = sorted[index];
+    const next = sorted[index + 1];
+    if (next.page === current.page && next.section !== current.section) continue;
+    if (next.page === current.page && balancedPageSections.has(`${current.page}:${current.section}`)) continue;
+    const pageLines = next.section !== current.section
+      ? sorted.filter((region) => region.page === current.page && region.section === current.section).flatMap((region) => region.lines)
+      : current.lines;
+    const last = pageLines.reduce((a, b) => (b.bottom > a.bottom ? b : a));
+    const first = next.lines.reduce((a, b) => (b.top < a.top ? b : a));
     if (first.manualBreak) continue;
     const naturalLast = naturalByKey.get(last.key);
     const naturalFirst = naturalByKey.get(first.key);
+    const label = `page ${current.page + 1} column ${current.column + 1}`;
     if (!naturalLast || !naturalFirst) {
-      violations.push(`region ${regionKeys[index + 1]} first line ${first.key} has no natural counterpart`);
+      violations.push(`${label}: first line ${first.key} of the next region has no natural counterpart`);
       continue;
     }
     const advance = naturalFirst.fullBottom + naturalFirst.closingChrome - naturalLast.fullBottom;
     if (advance <= 0) continue;
     const wouldBottom = last.bottom + advance;
-    if (wouldBottom <= paged.contentBottom[pageIndex] - tolerancePx) {
+    if (wouldBottom <= paged.contentBottom[current.page] - tolerancePx) {
       violations.push(
-        `region ${regionKeys[index]} underfilled: "${first.text}" (${first.key}) needs ${advance.toFixed(1)}px, `
-        + `${(paged.contentBottom[pageIndex] - last.bottom).toFixed(1)}px left`,
+        `${label} underfilled: "${first.text}" (${first.key}) needs ${advance.toFixed(1)}px, `
+        + `${(paged.contentBottom[current.page] - last.bottom).toFixed(1)}px left`,
       );
     }
   }

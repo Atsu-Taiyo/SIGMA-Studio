@@ -36,6 +36,7 @@ import {
  * - 空白 (解答欄の予約) は任意の位置で分割する。
  * - 領域より背の高い 1 行は領域の頭に置いてはみ出させ、後続はその下端より下の領域から始める。
  * - 段組の後に全幅の区間が来るときは、最後のページの段組部分を左右の高さが揃うよう詰め直す。
+ * - ページの途中から始まる段組の区間は、どの段も最初の行と同じ高さから始める。
  * - 独立段組 (band) の各列は別々に流れ、後続は最も遅く終わった列の後から始める。
  */
 export function placeFlow(model: FlowModel, geometry: PageGeometry): FlowPlacement {
@@ -56,21 +57,29 @@ export function placeFlow(model: FlowModel, geometry: PageGeometry): FlowPlaceme
   model.sections.forEach((section, sectionIndex) => {
     if (section.items.length === 0) return;
     const multiColumn = section.span === "column" && g.columnCount > 1;
-    const topOfSection = startTop ?? pageContentTop(g, page);
+    // ページの途中から始まる段組みの区間は、どの段も最初の行と同じ高さから始める
+    // (全幅の区間との間の自然な隙間を段の上端に含める。2 段目だけ詰まって行がずれない)。
+    const firstItem = section.items[0];
+    const alignedTop = multiColumn && startTop !== null && prevBottom !== null && firstItem.kind !== "break"
+      ? startTop + Math.max(0, firstItem.top - prevBottom)
+      : null;
+    const topOfSection = alignedTop ?? startTop ?? pageContentTop(g, page);
     const stream: RegionStream = multiColumn
       ? new PageColumnStream(allocator, g, page, topOfSection, null)
       : new FullWidthStream(allocator, g, page, topOfSection);
     const beforeRegions = allocator.regions.length;
     const flowStart: FlowStart = startTop === null
       ? { kind: "document" }
-      : { kind: "continue", y: startTop, prevBottom };
+      : alignedTop !== null
+        ? { kind: "continue", y: alignedTop, prevBottom: null }
+        : { kind: "continue", y: startTop, prevBottom };
     const result = fillFlow(section.items, "root", stream, flowStart, context, sink);
     if (!result) return;
     let end = result;
 
     const nextSection = model.sections[sectionIndex + 1];
     if (multiColumn && nextSection?.span === "full") {
-      const balancedEnd = balanceTail(section.items, sink, beforeRegions, end, context, section.key, balancedTails);
+      const balancedEnd = balanceTail(section.items, sink, beforeRegions, end, context, section.key, balancedTails, flowStart.kind === "document");
       if (balancedEnd) {
         end = balancedEnd;
         balanced.push(section.key);
@@ -101,7 +110,8 @@ export function placeFlow(model: FlowModel, geometry: PageGeometry): FlowPlaceme
     lines: sink.lines,
     blanks: sink.blanks,
     pageCount: lastPage + 1,
-    diagnostics: { tallLines, balanced, balancedTails, ignoredBreaks },
+    // 均等化は最後のページの尾を置き直すので、同じ行が 2 回数えられうる。
+    diagnostics: { tallLines: [...new Set(tallLines)], balanced, balancedTails, ignoredBreaks: [...new Set(ignoredBreaks)] },
   };
 }
 
@@ -209,7 +219,8 @@ function fillFlow(
   /** 領域が空で、かつページ (段) の頭にある = ここに収まらない行はどこにも収まらない。 */
   const atFreshTop = () => !cursor.placedInRegion && regionAtPageTop(cursor.region);
   const startY = (top: number, leadingSpace: number): number => {
-    if (cursor.prevBottom !== null) return cursor.y + (top - cursor.prevBottom);
+    // 自然な隙間が負 (重なり) でも、領域の上端より上には置かない。
+    if (cursor.prevBottom !== null) return Math.max(cursor.region.top, cursor.y + (top - cursor.prevBottom));
     if (cursor.documentStart) return Math.max(cursor.region.top, top);
     return cursor.y + (cursor.forced ? leadingSpace : 0);
   };
@@ -237,7 +248,9 @@ function fillFlow(
     if (!clearTallOverflow()) return false;
     const fitHeight = Math.max(0, line.fitBottom - line.top);
     let y = startY(line.top, line.leadingSpace);
-    if (y + fitHeight > cursor.region.bottom + FLOW_EPS && !atFreshTop()) {
+    // 次の領域も途中から始まる (ページの途中から始まる段組みの 2 段目など) ことがあるので、
+    // ページ・段の頭の空の領域に着くまで送り続ける。そこにも収まらない行だけが「背の高い行」。
+    while (y + fitHeight > cursor.region.bottom + FLOW_EPS && !atFreshTop()) {
       if (!advance(false)) return false;
       y = cursor.y + (cursor.forced ? line.leadingSpace : 0);
     }
@@ -378,8 +391,9 @@ function findLastSegment(segments: readonly PlacementSegment[], flowKey: string)
 }
 
 /**
- * 全幅の区間の直前: 最後のページの段組部分を、左右の段の高さが揃う最小の高さで詰め直す。
- * 段組部分が改ページ・独立段組・空白を含むとき、または前のページから続く途中の項目で
+ * 全幅の区間の直前: 最後のページの段組部分を、左右の段の高さが揃う最小の高さで詰め直す
+ * (Word の「現在の位置から新しいセクション」と同じ)。行・空白・独立段組のどれでも詰め直す。
+ * 最後のページに手動改ページがあるとき、または前のページから続く空白・独立段組の途中で
  * 始まるときは詰め直さない (単純な順送りのまま)。
  */
 function balanceTail(
@@ -390,51 +404,71 @@ function balanceTail(
   context: FillContext,
   sectionKey: string,
   balancedTails: BalancedTail[],
+  sectionStartsDocument: boolean,
 ): FillEnd | null {
   const { g, allocator } = context;
   if (g.columnCount <= 1) return null;
   const endPage = end.page;
-  const tailStart = items.findIndex((item) => {
-    if (item.kind !== "line") return false;
-    const placed = sink.lines.get(item.key);
-    return placed ? allocator.regions[placed.regionIndex]?.page === endPage : false;
-  });
+  const pageOfRegion = (index: number) => allocator.regions[index]?.page;
+  /** 項目が置かれたページ (最初と最後)。置かれていなければ null。 */
+  const pagesOf = (item: FlowItem): { first: number; last: number } | null => {
+    const pages: number[] = [];
+    const visit = (entry: FlowItem) => {
+      if (entry.kind === "line") {
+        const placed = sink.lines.get(entry.key);
+        const page = placed ? pageOfRegion(placed.regionIndex) : undefined;
+        if (page !== undefined) pages.push(page);
+      } else if (entry.kind === "blank") {
+        for (const piece of sink.blanks) {
+          if (piece.key !== entry.key) continue;
+          const page = pageOfRegion(piece.regionIndex);
+          if (page !== undefined) pages.push(page);
+        }
+      } else if (entry.kind === "band") {
+        for (const column of entry.columns) column.items.forEach(visit);
+      }
+    };
+    visit(item);
+    return pages.length > 0 ? { first: Math.min(...pages), last: Math.max(...pages) } : null;
+  };
+  const tailStart = items.findIndex((item) => pagesOf(item)?.first === endPage);
   if (tailStart < 0) return null;
   const tail = items.slice(tailStart);
-  if (tail.some((item) => item.kind !== "line")) return null;
-  const tailLines = tail as FlowLine[];
-  const firstPlaced = sink.lines.get(tailLines[0].key);
-  if (!firstPlaced) return null;
-  const firstRegion = allocator.regions[firstPlaced.regionIndex];
-  // 段組部分が複数の段にまたがらないなら詰め直す意味が無い。
-  const usesSecondColumn = tailLines.some((line) => {
-    const placed = sink.lines.get(line.key);
-    return placed ? (allocator.regions[placed.regionIndex]?.column ?? 0) > 0 : false;
-  });
-  if (!usesSecondColumn) return null;
-  const previousItem = items[tailStart - 1];
-  // 前のページから続く空白/段組の途中で始まる尾は扱わない。
-  if (previousItem && previousItem.kind !== "line") return null;
-  if (firstRegion.column !== 0) return null;
+  if (tail.some((item) => item.kind === "break")) return null;
+  // 前のページから続く空白・独立段組の途中で始まる尾は扱わない。
+  for (let index = tailStart - 1; index >= 0; index -= 1) {
+    const pages = pagesOf(items[index]);
+    if (!pages) continue;
+    if (pages.last === endPage) return null;
+    break;
+  }
+  const firstPlacement = (() => {
+    const first = tail[0];
+    if (first.kind === "line") return sink.lines.get(first.key)?.regionIndex;
+    if (first.kind === "blank") return sink.blanks.find((piece) => piece.key === first.key)?.regionIndex;
+    return undefined;
+  })();
+  const firstRegion = allocator.regions[firstPlacement ?? -1]
+    ?? allocator.regions.find((region, index) => index >= firstRegionIndex && region.page === endPage && region.flowKey === "root");
+  if (!firstRegion || firstRegion.column !== 0) return null;
   const tailTop = firstRegion.top;
-  const startsFresh = !previousItem || sink.lines.get((previousItem as FlowLine).key)?.regionIndex !== firstRegion.index;
-  const tailStartY = firstPlaced.y;
-  const prevBottom = startsFresh ? null : (previousItem as FlowLine).bottom;
   const pageBottom = pageContentTop(g, endPage) + g.contentHeight;
-  const maxLine = Math.max(...tailLines.map((line) => Math.max(line.fitBottom, line.bottom) - line.top));
+  const tallest = (item: FlowItem): number => {
+    if (item.kind === "line") return Math.max(item.fitBottom, item.bottom) - item.top;
+    if (item.kind === "band") return Math.max(0, ...item.columns.flatMap((column) => column.items.map(tallest)));
+    return 0;
+  };
+  const maxLine = Math.max(0, ...tail.map(tallest));
 
   const attempt = (height: number): { sink: Sink; end: FillEnd } | null => {
     const trialSink = createSink();
     const mark = allocator.regions.length;
     const stream = new PageColumnStream(allocator, g, endPage, tailTop, { page: endPage, bottom: tailTop + height });
-    const trialEnd = fillFlow(
-      tailLines,
-      "root",
-      stream,
-      startsFresh ? { kind: "continue", y: tailTop, prevBottom: null } : { kind: "continue", y: tailStartY, prevBottom },
-      context,
-      trialSink,
-    );
+    // 文書の先頭から始まる尾は、先頭の行の自然な位置を保つ (元の配置と同じ規則)。
+    const start: FlowStart = sectionStartsDocument && tailStart === 0
+      ? { kind: "document" }
+      : { kind: "continue", y: tailTop, prevBottom: null };
+    const trialEnd = fillFlow(tail, "root", stream, start, context, trialSink);
     if (!trialEnd) {
       allocator.truncate(mark);
       return null;
@@ -446,35 +480,42 @@ function balanceTail(
   let high = pageBottom - tailTop;
   if (high < low) return null;
   const mark = allocator.regions.length;
-  let best: { sink: Sink; end: FillEnd; height: number } | null = null;
+  const tallLinesBefore = context.tallLines.length;
+  const ignoredBefore = context.ignoredBreaks.length;
   for (let guard = 0; guard < 64 && high - low > 0.5; guard += 1) {
     const mid = Math.round(((low + high) / 2) * 2) / 2;
     const trial = attempt(mid);
     allocator.truncate(mark);
+    context.tallLines.length = tallLinesBefore;
+    context.ignoredBreaks.length = ignoredBefore;
     if (trial) high = mid;
     else low = mid + 0.5;
   }
   const finalTrial = attempt(high);
   if (!finalTrial) {
     allocator.truncate(mark);
+    context.tallLines.length = tallLinesBefore;
+    context.ignoredBreaks.length = ignoredBefore;
     return null;
   }
-  best = { ...finalTrial, height: high };
-
-  // 元の尾の配置を差し替える。
-  const tailKeys = new Set(tailLines.map((line) => line.key));
-  for (const key of tailKeys) sink.lines.delete(key);
-  for (const [key, placed] of best.sink.lines) sink.lines.set(key, placed);
-  const keptSegments = sink.segments.filter((segment) => {
-    const region = allocator.regions[segment.regionIndex];
-    return !(segment.flowKey === "root" && region && region.page === endPage && segment.regionIndex >= firstRegionIndex);
-  });
+  // 元の尾の配置 (最後のページの、この区間の領域にあるもの) を差し替える。
+  const replaced = (regionIndex: number) => regionIndex >= firstRegionIndex && regionIndex < mark && pageOfRegion(regionIndex) === endPage;
+  for (const [key, placed] of [...sink.lines]) {
+    if (replaced(placed.regionIndex)) sink.lines.delete(key);
+  }
+  const keptBlanks = sink.blanks.filter((piece) => !replaced(piece.regionIndex));
+  sink.blanks.length = 0;
+  sink.blanks.push(...keptBlanks);
+  const keptSegments = sink.segments.filter((segment) => !replaced(segment.regionIndex));
   sink.segments.length = 0;
-  sink.segments.push(...keptSegments, ...best.sink.segments);
-  balancedTails.push({ sectionKey, page: endPage, top: tailTop, height: best.height });
+  sink.segments.push(...keptSegments);
+  for (const [key, placed] of finalTrial.sink.lines) sink.lines.set(key, placed);
+  sink.blanks.push(...finalTrial.sink.blanks);
+  sink.segments.push(...finalTrial.sink.segments);
+  balancedTails.push({ sectionKey, page: endPage, top: tailTop, height: high });
   return {
-    ...best.end,
+    ...finalTrial.end,
     page: endPage,
-    pageBottomUsed: best.end.pageBottomUsedByPage.get(endPage) ?? best.end.pageBottomUsed,
+    pageBottomUsed: finalTrial.end.pageBottomUsedByPage.get(endPage) ?? finalTrial.end.pageBottomUsed,
   };
 }

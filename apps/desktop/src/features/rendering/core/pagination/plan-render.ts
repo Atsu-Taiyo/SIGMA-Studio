@@ -5,7 +5,7 @@ import { type FlowLine, type FlowPlacement, type PlacedLine, type Region } from 
  * 配置結果を描画の指示へ写す。
  *
  * - ユニット (フローの直下の要素) には絶対の変位、編集面の最上位ブロックにはユニットからの
- *   相対の変位を与える。どちらもレイアウトに影響しない `translate` で描く。
+ *   相対の変位を与える。どちらも兄弟のレイアウトに影響しない相対配置のずらしで描く。
  * - 1 つの最上位ブロックの行が複数の領域に分かれたら、正本を最初の帯でクリップし、
  *   残りを続きの複製 (断片) で描く。帯の切れ目は行と行の間にしか来ない。
  * - 枠付き問題文が分かれたら、領域ごとの枠片を描く (切れ目の辺は開く)。
@@ -50,8 +50,11 @@ export interface FlowRenderPlan {
   fragmentSources: Record<string, FlowFragmentSource>;
   fragmentReplicas: Record<string, FlowFragmentReplica[]>;
   framePieces: Record<string, FlowFramePiece[]>;
-  /** 予約空白が分かれたユニットの、リサイズつまみの位置 (ユニット上端からの相対 y)。 */
-  reservationEnds: Record<string, number>;
+  /**
+   * 複数の領域に分かれたユニットの、描かれた内容の末尾 (ユニット上端からの相対 y)。
+   * サイド注の括弧とリサイズつまみを、自然配置の高さではなく実際に描いた末尾に合わせる。
+   */
+  visualEnds: Record<string, number>;
   /**
    * 手動改ページの印の変位 (その印を描く要素からの相対)。印は改ページする前のページの末尾、
    * つまり直前に置いた行と同じ場所に描く。キーはユニット単位の改ページならユニット id、
@@ -85,7 +88,7 @@ export function planFlowRender(built: BuiltFlowModel, placement: FlowPlacement):
     fragmentSources: {},
     fragmentReplicas: {},
     framePieces: {},
-    reservationEnds: {},
+    visualEnds: {},
     markerDisplacements: {},
     pageCount: placement.pageCount,
   };
@@ -239,16 +242,10 @@ function planFramePieces(
     }
   }
   const segments = [...byRegion.entries()].sort(([a], [b]) => a - b).map(([, extent]) => extent);
-  const reservationPieces = unit.reservationKey
-    ? placement.blanks.filter((piece) => piece.key === unit.reservationKey)
-    : [];
-  if (reservationPieces.length > 1) {
-    const last = reservationPieces[reservationPieces.length - 1];
-    const blank = built.blanks.get(unit.reservationKey!);
-    plan.reservationEnds[unit.id] = round(last.y + last.height + (blank?.closingChrome ?? 0) - (unit.top + unitDisplacement.dy));
-  }
-  if (!unit.frame || segments.length <= 1) return;
+  if (segments.length <= 1) return;
   const unitTop = unit.top + unitDisplacement.dy;
+  plan.visualEnds[unit.id] = round(Math.max(...segments.map((segment) => segment.bottom)) - unitTop);
+  if (!unit.frame) return;
   plan.framePieces[unit.id] = segments.map((segment, index) => {
     const isFirst = index === 0;
     const isLast = index === segments.length - 1;

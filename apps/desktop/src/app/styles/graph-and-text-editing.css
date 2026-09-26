@@ -1210,7 +1210,8 @@
 .layout-section-side-note {
   position: absolute;
   top: 0;
-  bottom: 0;
+  /* ページをまたいだユニットは、描かれた内容の末尾まで (自然配置の高さではなく)。 */
+  bottom: calc(100% - var(--flow-unit-visual-height, 100%));
   left: calc(-1 * var(--problem-area-page-x, var(--page-margin-left)) - 96px);
   z-index: 20;
   width: 86px;
