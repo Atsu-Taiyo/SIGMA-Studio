@@ -47,7 +47,6 @@ export const workspace = {
     selectionDeleted: "選択した項目を削除しました",
     selectionMoved: "選択した項目を移動しました",
     renamed: "名前を変更しました",
-    reloaded: "ワークスペースを再読み込みしました",
   },
   error: {
     loadTimeout: "ワークスペースの読み込みがタイムアウトしました。",
@@ -103,7 +102,6 @@ export const workspace = {
     results: "検索結果",
   },
   action: {
-    reload: "ワークスペースを再読み込み",
     openTemplateGallery: "テンプレートギャラリー",
     moveFolder: "フォルダを移動",
     deleteFolder: "フォルダを削除",

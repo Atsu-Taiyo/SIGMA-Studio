@@ -349,13 +349,6 @@ describe("sigma-doc-mcp-server integration", () => {
     const createdFile = createdDocument.file as { fileId: string; revision: number; folderId: string | null };
     expect(createdFile.folderId).toBe(folderId);
 
-    const nonEmptyDelete = extractPayload(await client.callTool({
-      name: "delete_local_folder",
-      arguments: { workspaceId, folderId },
-    }));
-    expect(nonEmptyDelete.ok).toBe(false);
-    expect(String(nonEmptyDelete.error)).toContain("中身があるフォルダ");
-
     const updatedDocument = extractPayload(await client.callTool({
       name: "update_local_document",
       arguments: {
@@ -385,12 +378,21 @@ describe("sigma-doc-mcp-server integration", () => {
     }));
     expect(deletedDocument).toMatchObject({ ok: true, deletedFileId: createdFile.fileId });
 
+    const containedDocument = extractPayload(await client.callTool({
+      name: "create_local_document",
+      arguments: { workspaceId, folderId, title: "フォルダと一緒に削除" },
+    }));
+    expect(containedDocument.ok).toBe(true);
+    const containedFileId = (containedDocument.file as { fileId: string }).fileId;
+
     const deletedFolder = extractPayload(await client.callTool({
       name: "delete_local_folder",
       arguments: { workspaceId, folderId },
     }));
     expect(deletedFolder).toMatchObject({ ok: true, deletedFolderId: folderId });
     expect((await store.listFiles()).some((item) => item.fileId === createdFile.fileId)).toBe(false);
+    expect((await store.listFiles()).some((item) => item.fileId === containedFileId)).toBe(false);
+    expect(await store.loadDocument(containedFileId)).toBeNull();
   });
 
   it("rejects stale revisions for app-owned document updates and deletes", async () => {
