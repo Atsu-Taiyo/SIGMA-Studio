@@ -128,6 +128,51 @@ describe("placeFlow", () => {
     expect(result.diagnostics.balanced).toEqual(["cols"]);
   });
 
+  it("balances a tail that holds a reservation blank", () => {
+    const geometry = { ...GEOMETRY, columnCount: 2, columnWidth: 95, columnGap: 10 };
+    const blank: FlowItem = { kind: "blank", key: "k", ownerId: "u", top: 50, height: 40, virtual: false, closingChrome: 0 };
+    const result = placeFlow({
+      sections: [
+        { key: "cols", span: "column", items: [...lines(2, 20), blank] },
+        { key: "full", span: "full", items: [line("f", 100, 20)] },
+      ],
+      containers: [],
+    }, geometry);
+    // 20 + 20 + 40 = 80 を 2 段に: 左に 2 行 (40)、右に空白 (40)。
+    expect(result.diagnostics.balanced).toEqual(["cols"]);
+    expect(result.blanks).toEqual([expect.objectContaining({ key: "k", y: 10, height: 40 })]);
+    expect(placedY(result, "f")).toBe(60);
+  });
+
+  it("balances column content that sits in the first column only", () => {
+    const geometry = { ...GEOMETRY, columnCount: 2, columnWidth: 95, columnGap: 10 };
+    const result = placeFlow({
+      sections: [
+        { key: "cols", span: "column", items: lines(4, 20) },
+        { key: "full", span: "full", items: [line("f", 90, 20)] },
+      ],
+      containers: [],
+    }, geometry);
+    expect(result.lines.get("l1")).toMatchObject({ y: 30, dx: 0 });
+    expect(result.lines.get("l2")).toMatchObject({ y: 10, dx: 105 });
+    expect(placedY(result, "f")).toBe(50);
+  });
+
+  it("starts every column of a mid-page column section at its first line", () => {
+    const geometry = { ...GEOMETRY, columnCount: 2, columnWidth: 95, columnGap: 10, contentHeight: 100 };
+    const tail = lines(4, 20, 48).map((item) => ({ ...item, key: `t${item.key}` }));
+    const result = placeFlow({
+      sections: [
+        { key: "full", span: "full", items: [line("f", 10, 20)] },
+        { key: "cols", span: "column", items: tail },
+      ],
+      containers: [],
+    }, geometry);
+    // 全幅の行の下端 30 と後続の最初の行 48 の間の 18px は、どちらの段の上端にも入る。
+    expect(result.lines.get("tl0")).toMatchObject({ y: 48, dx: 0 });
+    expect(result.lines.get("tl3")).toMatchObject({ y: 48, dx: 105 });
+  });
+
   it("flows independent band columns separately and continues after the longest", () => {
     const band: FlowItem = {
       kind: "band",

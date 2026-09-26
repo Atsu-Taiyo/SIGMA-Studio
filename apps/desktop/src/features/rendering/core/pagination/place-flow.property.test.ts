@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { FLOW_EPS, type FlowBand, type FlowItem, type FlowLine, type FlowModel, type PageGeometry } from "./model";
+import { FLOW_EPS, type FlowBand, type FlowItem, type FlowLine, type FlowModel, type FlowSection, type PageGeometry } from "./model";
 import { placeFlow } from "./place-flow";
 
 /**
@@ -122,8 +122,8 @@ describe("placeFlow invariants (seeded)", () => {
           if (!placed) continue;
           const region = placement.regions[placed.regionIndex];
           const height = item.fitBottom - item.top;
-          // I2
-          if (height <= region.bottom - region.top + FLOW_EPS) {
+          // I2 (背の高い行 = 空の領域 1 つ分より高い行。途中から始まる領域の残りで判断しない)
+          if (height <= geometry.contentHeight + FLOW_EPS) {
             expect(placed.y, `${label} ${item.key} top`).toBeGreaterThanOrEqual(region.top - FLOW_EPS);
             expect(placed.y + height, `${label} ${item.key} bottom`).toBeLessThanOrEqual(region.bottom + FLOW_EPS);
           } else {
@@ -137,7 +137,7 @@ describe("placeFlow invariants (seeded)", () => {
             }
             // I3
             const previousHeight = previous.line.fitBottom - previous.line.top;
-            const previousWasTall = previousHeight > previousRegion.bottom - previousRegion.top + FLOW_EPS;
+            const previousWasTall = previousHeight > geometry.contentHeight + FLOW_EPS;
             if (!interrupted && previous.regionIndex !== placed.regionIndex && !previousWasTall) {
               const wouldTop = previous.y + (previous.line.bottom - previous.line.top) + (item.top - previous.line.bottom);
               expect(wouldTop + height, `${label} ${item.key} minimal`).toBeGreaterThan(previousRegion.bottom + FLOW_EPS);
@@ -148,6 +148,130 @@ describe("placeFlow invariants (seeded)", () => {
         }
         expect(lines.every((line) => placement.lines.has(line.key)), label).toBe(true);
       }
+    }
+  });
+});
+
+/**
+ * 段組みの区間と全幅の区間が交互に来る文書。
+ *
+ * J1 すべての行がちょうど 1 回、領域の中に置かれる (背の高い行を除く)。
+ * J2 同じページでは、後の区間の行・空白は前の区間のどの行・空白よりも下にある。
+ * J3 最小性: 同じ区間で次の領域へ送られた行は前の領域の残りに入らない
+ *    (全幅の区間の直前で左右を揃えたページの段から段への送りを除く)。
+ */
+function generateSections(seed: number): { model: FlowModel; geometry: PageGeometry } {
+  const random = mulberry32(seed);
+  const pick = (min: number, max: number) => min + random() * (max - min);
+  const columnCount = 2 + Math.floor(random() * 2);
+  const contentHeight = Math.round(pick(120, 400));
+  const geometry: PageGeometry = {
+    pageHeight: contentHeight + 40,
+    pageGap: 30,
+    contentTop: 20,
+    contentHeight,
+    contentLeft: 10,
+    contentWidth: 300,
+    columnCount,
+    columnWidth: (300 - 10 * (columnCount - 1)) / columnCount,
+    columnGap: 10,
+  };
+  let y = geometry.contentTop;
+  let serial = 0;
+  const sections: FlowSection[] = [];
+  const sectionCount = 1 + Math.floor(random() * 5);
+  let span: "column" | "full" = random() < 0.5 ? "column" : "full";
+  for (let sectionIndex = 0; sectionIndex < sectionCount; sectionIndex += 1) {
+    const items: FlowItem[] = [];
+    const itemCount = 1 + Math.floor(random() * 25);
+    for (let index = 0; index < itemCount; index += 1) {
+      y += random() < 0.5 ? 0 : pick(0, 15);
+      if (span === "column" && random() < 0.08) {
+        const height = pick(0, 200);
+        const closingChrome = random() < 0.3 ? pick(1, 8) : 0;
+        items.push({ kind: "blank", key: `blank${serial++}`, ownerId: "k", top: y, height, virtual: false, closingChrome });
+        y += height + closingChrome;
+        continue;
+      }
+      const height = pick(5, 50);
+      const key = `s${sectionIndex}:l${serial++}`;
+      items.push({ kind: "line", key, ownerId: key, top: y, fitBottom: y + height, bottom: y + height, leadingSpace: 0 });
+      y += height;
+    }
+    sections.push({ key: `s${sectionIndex}`, span, items });
+    span = span === "column" ? "full" : "column";
+  }
+  return { model: { sections, containers: [] }, geometry };
+}
+
+describe("placeFlow invariants with full-width sections (seeded)", () => {
+  it("holds J1-J3 for 1,500 random section sequences", () => {
+    for (let seed = 1; seed <= 1_500; seed += 1) {
+      const { model, geometry } = generateSections(seed);
+      const placement = placeFlow(model, geometry);
+      const label = `seed ${seed}`;
+      const extentOf = (item: FlowItem): { page: number; top: number; bottom: number }[] => {
+        if (item.kind === "line") {
+          const placed = placement.lines.get(item.key);
+          if (!placed) return [];
+          const region = placement.regions[placed.regionIndex];
+          return [{ page: region.page, top: placed.y, bottom: placed.y + (item.fitBottom - item.top) }];
+        }
+        if (item.kind === "blank") {
+          return placement.blanks.filter((piece) => piece.key === item.key).map((piece) => ({
+            page: placement.regions[piece.regionIndex].page,
+            top: piece.y,
+            bottom: piece.y + piece.height,
+          }));
+        }
+        return [];
+      };
+      const balancedPages = new Set(placement.diagnostics.balancedTails.map((tail) => `${tail.sectionKey}:${tail.page}`));
+      model.sections.forEach((section, sectionIndex) => {
+        let previous: { line: FlowLine; y: number; regionIndex: number } | null = null;
+        let interrupted = false;
+        for (const item of section.items) {
+          if (item.kind !== "line") {
+            interrupted = true;
+            continue;
+          }
+          const placed = placement.lines.get(item.key);
+          // J1
+          expect(placed, `${label} ${item.key} placed`).toBeDefined();
+          if (!placed) continue;
+          const region = placement.regions[placed.regionIndex];
+          const height = item.fitBottom - item.top;
+          const tall = height > geometry.contentHeight + FLOW_EPS;
+          if (!tall) {
+            expect(placed.y, `${label} ${item.key} top`).toBeGreaterThanOrEqual(region.top - FLOW_EPS);
+            expect(placed.y + height, `${label} ${item.key} bottom`).toBeLessThanOrEqual(region.bottom + FLOW_EPS);
+          }
+          // J3
+          if (previous && !interrupted && previous.regionIndex !== placed.regionIndex) {
+            const previousRegion = placement.regions[previous.regionIndex];
+            const previousHeight = previous.line.fitBottom - previous.line.top;
+            const previousTall = previousHeight > geometry.contentHeight + FLOW_EPS;
+            const withinBalancedPage = previousRegion.page === region.page && balancedPages.has(`${section.key}:${region.page}`);
+            if (!previousTall && !withinBalancedPage) {
+              const wouldTop = previous.y + (previous.line.bottom - previous.line.top) + (item.top - previous.line.bottom);
+              expect(wouldTop + height, `${label} ${item.key} minimal`).toBeGreaterThan(previousRegion.bottom + FLOW_EPS);
+            }
+          }
+          previous = { line: item, y: placed.y, regionIndex: placed.regionIndex };
+          interrupted = false;
+        }
+        // J2
+        if (sectionIndex === 0) return;
+        const earlier = model.sections.slice(0, sectionIndex).flatMap((other) => other.items.flatMap(extentOf));
+        const hasTall = placement.diagnostics.tallLines.length > 0;
+        if (hasTall) return;
+        for (const extent of section.items.flatMap(extentOf)) {
+          for (const before of earlier) {
+            if (before.page !== extent.page) continue;
+            expect(extent.top, `${label} ${section.key} below earlier sections on page ${extent.page}`).toBeGreaterThanOrEqual(before.bottom - FLOW_EPS);
+          }
+        }
+      });
     }
   });
 });

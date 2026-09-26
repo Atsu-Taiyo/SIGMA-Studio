@@ -91,6 +91,27 @@ function fullSpanScenario(filler: number): SigmaBlock[] {
   ];
 }
 
+/** 枠付き問題 (解答の予約空白あり) → 全幅の問題 → 段に戻る後続。全幅の直前の段は左右を揃えて詰める。 */
+function fullSpanAfterFrameScenario(filler: number): SigmaBlock[] {
+  return [
+    ...Array.from({ length: filler }, (_, index) => text(`fill_${index}`, `本文${index}`)),
+    {
+      type: "problem", id: "framed", tags: [], lead: [text("lead_a", "導入")],
+      prompt: Array.from({ length: 6 }, (_, index) => text(`prompt_${index}`, `枠付き問題文の行${index}`)),
+      solution: [text("solution_a", "解答")], hints: [],
+      frame: { enabled: true, styleId: "doublebox" },
+      areaLayout: { solution: { minHeightMm: 30 } },
+    } as SigmaBlock,
+    {
+      type: "problem", id: "wide", tags: [], lead: [],
+      prompt: Array.from({ length: 4 }, (_, index) => text(`wide_${index}`, `全幅の問題文の行${index}`)),
+      solution: [], hints: [],
+      areaLayout: { prompt: { columnSpan: "full" } },
+    } as SigmaBlock,
+    ...Array.from({ length: 16 }, (_, index) => text(`tail_${index}`, `後続${index}`)),
+  ];
+}
+
 function localColumnsScenario(filler: number): SigmaBlock[] {
   const left = Array.from({ length: 12 }, (_, index) => text(`left_${index}`, `左の列${index}`));
   const right = Array.from({ length: 3 }, (_, index) => text(`right_${index}`, `右の列${index}`));
@@ -195,6 +216,7 @@ const SCENARIOS = {
   quote: quoteScenario,
   box: boxScenario,
   fullspan: fullSpanScenario,
+  fullspanAfterFrame: fullSpanAfterFrameScenario,
   local: localColumnsScenario,
   nested: nestedScenario,
   breaks: breaksScenario,

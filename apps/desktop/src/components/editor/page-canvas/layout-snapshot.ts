@@ -36,8 +36,8 @@ export interface PageLayoutSnapshot {
   unitDisplacements: Record<string, FlowDisplacement>;
   /** 編集面の最上位ブロックの、ユニットからの相対変位。 */
   nodeDisplacements: Record<string, FlowDisplacement>;
-  /** 予約空白が複数ページに分かれたユニットの、末尾 (リサイズつまみ) の位置。 */
-  reservationEnds: Record<string, number>;
+  /** 複数の領域に分かれたユニットの、描かれた内容の末尾 (サイド注・リサイズつまみの位置)。 */
+  visualEnds: Record<string, number>;
   /** 手動改ページの印の変位 (印を描く要素からの相対)。 */
   markerDisplacements: Record<string, FlowDisplacement>;
 }
