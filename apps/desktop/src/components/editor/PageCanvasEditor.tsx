@@ -1325,6 +1325,10 @@ function PageCanvasEditorImpl({
   // `measureFlowBlocks`). Survives every keystroke; self-prunes deleted blocks.
   const lineMeasureCacheRef = useRef<LineMeasureCache>(new Map());
   const flowProbeCacheRef = useRef(createFlowProbeCache());
+  /** 変位が変わったことだけを理由に予約した測り直しが、まだ走っていない。 */
+  const displacementRemeasurePendingRef = useRef(false);
+  /** 直前に走った測り直しが、変位の変化だけを理由にしたものだった。 */
+  const lastRecomputeWasDisplacementRemeasureRef = useRef(false);
   const fontRevisionRef = useRef(0);
   // 手動改ページは紙面の印ではなく文書から読む (PDF の出力面には印が描かれない)。
   const breakBeforeIds = useMemo(() => {
@@ -1611,6 +1615,16 @@ function PageCanvasEditorImpl({
     if (!flow) {
       return "unavailable";
     }
+    // 描かれていない本文 (display: none の中など、矩形がすべて 0) は測らない。0 の矩形から
+    // 「表示位置 − 与えた変位」を読むと、変位を与えるたびに自然位置が同じだけずれて、
+    // 測り直しが止まらない。描かれた時点で ResizeObserver が測り直しを起こす。
+    const flowRect = flow.getBoundingClientRect();
+    if (flowRect.width <= 0 || flowRect.height <= 0) {
+      return "unavailable";
+    }
+    const selfTriggered = displacementRemeasurePendingRef.current;
+    displacementRemeasurePendingRef.current = false;
+    lastRecomputeWasDisplacementRemeasureRef.current = selfTriggered;
 
     const zoomFactor = zoom / 100;
     const pageStride = pageHeightPx + PAGE_GAP_PX;
@@ -1885,6 +1899,8 @@ function PageCanvasEditorImpl({
     // 変わらず ResizeObserver は鳴らないが、フォントの遅延ロードのような外因はここへ来る。
     // ドラッグ中に答えが変わると、後続ブロックが「別のページへ一気に移る」ように見える。
     if (!spaceAfterSessionRef.current.requestRecompute(updatePrevMeasure)) return;
+    // ほかの理由の予約と同じ frame に畳まれたら、変位の変化だけが理由の測り直しではない。
+    displacementRemeasurePendingRef.current = false;
     if (recomputeFrameRef.current !== null) {
       window.cancelAnimationFrame(recomputeFrameRef.current);
     }
@@ -1915,7 +1931,12 @@ function PageCanvasEditorImpl({
   useLayoutEffect(() => {
     if (lastDisplacementSignatureRef.current === displacementSignature) return;
     lastDisplacementSignatureRef.current = displacementSignature;
+    // この測り直し自体が変位を変えたなら追いかけない。正しく描かれていれば測り直しは同じ答えに
+    // なるので、ここへ来るのは表示位置が変位に追従しない環境 (座標を持たない DOM 実装など) だけ。
+    // 追いかけると「表示位置 − 変位」が毎回ずれて止まらない。編集・リサイズの測り直しは別に起きる。
+    if (lastRecomputeWasDisplacementRemeasureRef.current) return;
     scheduleRecomputeRef.current();
+    displacementRemeasurePendingRef.current = true;
   }, [displacementSignature]);
 
   useEffect(() => {
