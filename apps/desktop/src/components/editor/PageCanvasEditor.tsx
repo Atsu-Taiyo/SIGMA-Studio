@@ -1156,6 +1156,7 @@ function PageCanvasEditorImpl({
     unitDisplacements,
     nodeDisplacements,
     visualEnds,
+    sideNoteLabelYs,
     markerDisplacements,
   } = layoutViewState;
   useLayoutEffect(() => {
@@ -1680,6 +1681,7 @@ function PageCanvasEditorImpl({
     let nextUnitDisplacements: Record<string, FlowDisplacement> = {};
     let nextNodeDisplacements: Record<string, FlowDisplacement> = {};
     let nextVisualEnds: Record<string, number> = {};
+    let nextSideNoteLabelYs: Record<string, number> = {};
     let nextMarkerDisplacements: Record<string, FlowDisplacement> = {};
 
     {
@@ -1713,6 +1715,7 @@ function PageCanvasEditorImpl({
       nextUnitDisplacements = flowPlan.unitDisplacements;
       nextNodeDisplacements = flowPlan.nodeDisplacements;
       nextVisualEnds = flowPlan.visualEnds;
+      nextSideNoteLabelYs = flowPlan.sideNoteLabelYs;
       nextMarkerDisplacements = flowPlan.markerDisplacements;
       nextGaps = {};
       textPageCount = flowPlan.pageCount;
@@ -1793,6 +1796,7 @@ function PageCanvasEditorImpl({
         sameDisplacementMap(current.unitDisplacements, nextUnitDisplacements) &&
         sameDisplacementMap(current.nodeDisplacements, nextNodeDisplacements) &&
         sameNumberMap(current.visualEnds, nextVisualEnds) &&
+        sameNumberMap(current.sideNoteLabelYs, nextSideNoteLabelYs) &&
         sameDisplacementMap(current.markerDisplacements, nextMarkerDisplacements)
       ) {
         return current;
@@ -1819,6 +1823,7 @@ function PageCanvasEditorImpl({
         unitDisplacements: nextUnitDisplacements,
         nodeDisplacements: nextNodeDisplacements,
         visualEnds: nextVisualEnds,
+        sideNoteLabelYs: nextSideNoteLabelYs,
         markerDisplacements: nextMarkerDisplacements,
       };
       layoutViewStateRef.current = next;
@@ -5089,6 +5094,7 @@ function PageCanvasEditorImpl({
                   nodeDisplacements={nodeDisplacements}
                   markerDisplacements={markerDisplacements}
                   visualEnd={visualEnds[unit.id]}
+                  sideNoteLabelY={sideNoteLabelYs[unit.id]}
                   columnLayout={problemAreaColumnLayouts[unit.id]}
                   boxFragmentSourceLayouts={boxFragmentSourceLayouts}
                   layoutStyle={getFlowUnitPlacementStyle(unit, unitDisplacements[unit.id], metrics, isColumnPage)}
@@ -5124,6 +5130,7 @@ function PageCanvasEditorImpl({
                   nodeDisplacements={nodeDisplacements}
                   markerDisplacements={markerDisplacements}
                   visualEnd={visualEnds[unit.id]}
+                  sideNoteLabelY={sideNoteLabelYs[unit.id]}
                   boxFragmentSourceLayouts={boxFragmentSourceLayouts}
                   frameFragments={frameFragmentLayouts[unit.id]}
                   layoutStyle={getFlowUnitPlacementStyle(unit, unitDisplacements[unit.id], metrics, isColumnPage)}
@@ -6484,6 +6491,7 @@ function LayoutSectionFlowUnit({
   nodeDisplacements,
   markerDisplacements,
   visualEnd,
+  sideNoteLabelY,
   columnLayout,
   boxFragmentSourceLayouts,
   layoutStyle,
@@ -6516,6 +6524,7 @@ function LayoutSectionFlowUnit({
   nodeDisplacements: Readonly<Record<string, FlowDisplacement>> | undefined;
   markerDisplacements: Readonly<Record<string, FlowDisplacement>> | undefined;
   visualEnd: number | undefined;
+  sideNoteLabelY: number | undefined;
   columnLayout: ProblemAreaColumnLayout | undefined;
   boxFragmentSourceLayouts: Record<string, TextFlowBoxFragmentSourceLayout>;
   layoutStyle: CSSProperties | undefined;
@@ -6582,7 +6591,7 @@ function LayoutSectionFlowUnit({
   const style = {
     ...layoutStyle,
     ...displacementProps.style,
-    ...getVisualEndStyle(visualEnd),
+    ...getVisualEndStyle(visualEnd, sideNoteLabelY),
     minHeight: problemAreaMinHeightPx > 0 ? `${problemAreaMinHeightPx}px` : undefined,
   } as CSSProperties;
   const columnStyle = columnFlowActive
@@ -6754,6 +6763,7 @@ function ProblemAreaFlowUnit({
   nodeDisplacements,
   markerDisplacements,
   visualEnd,
+  sideNoteLabelY,
   boxFragmentSourceLayouts,
   frameFragments,
   layoutStyle,
@@ -6786,6 +6796,7 @@ function ProblemAreaFlowUnit({
   markerDisplacements: Readonly<Record<string, FlowDisplacement>> | undefined;
   /** 予約空白が分かれたとき、その末尾 (ユニット上端からの相対 y)。 */
   visualEnd: number | undefined;
+  sideNoteLabelY: number | undefined;
   boxFragmentSourceLayouts: Record<string, TextFlowBoxFragmentSourceLayout>;
   frameFragments: ProblemAreaFrameFragmentLayout[] | undefined;
   layoutStyle: CSSProperties | undefined;
@@ -6830,7 +6841,7 @@ function ProblemAreaFlowUnit({
   const style = {
     ...layoutStyle,
     ...displacementProps.style,
-    ...getVisualEndStyle(visualEnd),
+    ...getVisualEndStyle(visualEnd, sideNoteLabelY),
     minHeight: minHeightPx > 0 ? `${minHeightPx}px` : undefined,
   } as CSSProperties;
   const problemNumber = unit.problemNumber;
@@ -8437,14 +8448,16 @@ function getFlowUnitPlacementStyle(
 }
 
 /**
- * 複数の領域に分かれたユニットのサイド注 (括弧) とリサイズつまみを、描かれた内容の末尾まで伸ばす。
+ * 複数の領域に分かれたユニットのサイド注 (括弧) とリサイズつまみを、描かれた内容の末尾まで伸ばし、
+ * 見出しは最初の片の中ほどに置く (括弧全体の中ほどだとページの間に浮く)。
  * 分かれていないユニットは自然配置の高さのまま (CSS の既定値)。
  */
-function getVisualEndStyle(visualEnd: number | undefined): Record<string, string> {
+function getVisualEndStyle(visualEnd: number | undefined, labelY: number | undefined): Record<string, string> {
   if (typeof visualEnd !== "number") return {};
   return {
     "--flow-unit-visual-height": `${visualEnd}px`,
     "--problem-area-resize-y": `${visualEnd - 5}px`,
+    ...(typeof labelY === "number" ? { "--problem-area-side-note-y": `${labelY}px` } : {}),
   };
 }
 
@@ -8498,6 +8511,7 @@ function createInitialPageLayoutSnapshot(pageHeightPx: number): PageLayoutSnapsh
     unitDisplacements: {},
     nodeDisplacements: {},
     visualEnds: {},
+    sideNoteLabelYs: {},
     markerDisplacements: {},
   };
 }
