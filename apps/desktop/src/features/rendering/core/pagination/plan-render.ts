@@ -55,6 +55,8 @@ export interface FlowRenderPlan {
    * サイド注の括弧とリサイズつまみを、自然配置の高さではなく実際に描いた末尾に合わせる。
    */
   visualEnds: Record<string, number>;
+  /** 同じユニットのサイド注の見出しの位置 (最初の片の中ほど。ページの間に浮かないように)。 */
+  sideNoteLabelYs: Record<string, number>;
   /**
    * 手動改ページの印の変位 (その印を描く要素からの相対)。印は改ページする前のページの末尾、
    * つまり直前に置いた行と同じ場所に描く。キーはユニット単位の改ページならユニット id、
@@ -89,6 +91,7 @@ export function planFlowRender(built: BuiltFlowModel, placement: FlowPlacement):
     fragmentReplicas: {},
     framePieces: {},
     visualEnds: {},
+    sideNoteLabelYs: {},
     markerDisplacements: {},
     pageCount: placement.pageCount,
   };
@@ -245,6 +248,7 @@ function planFramePieces(
   if (segments.length <= 1) return;
   const unitTop = unit.top + unitDisplacement.dy;
   plan.visualEnds[unit.id] = round(Math.max(...segments.map((segment) => segment.bottom)) - unitTop);
+  plan.sideNoteLabelYs[unit.id] = round((Math.max(segments[0].top, unitTop) + segments[0].bottom) / 2 - unitTop);
   if (!unit.frame) return;
   plan.framePieces[unit.id] = segments.map((segment, index) => {
     const isFirst = index === 0;

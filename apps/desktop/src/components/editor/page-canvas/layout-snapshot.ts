@@ -38,6 +38,8 @@ export interface PageLayoutSnapshot {
   nodeDisplacements: Record<string, FlowDisplacement>;
   /** 複数の領域に分かれたユニットの、描かれた内容の末尾 (サイド注・リサイズつまみの位置)。 */
   visualEnds: Record<string, number>;
+  /** 分かれたユニットのサイド注の見出しの位置 (最初の片の中ほど)。 */
+  sideNoteLabelYs: Record<string, number>;
   /** 手動改ページの印の変位 (印を描く要素からの相対)。 */
   markerDisplacements: Record<string, FlowDisplacement>;
 }
