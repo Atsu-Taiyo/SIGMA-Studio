@@ -97,6 +97,9 @@ export interface ProblemAreaFrameFragmentLayout {
   y: number;
   width: number;
   height: number;
+  /** 切れ目の辺 (上下) を開くか。配置エンジンの枠片だけが持つ。 */
+  openTop?: boolean;
+  openBottom?: boolean;
 }
 
 /**
