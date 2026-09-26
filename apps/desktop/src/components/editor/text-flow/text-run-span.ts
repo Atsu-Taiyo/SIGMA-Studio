@@ -23,6 +23,7 @@ import {
 } from "@/lib/editor-clipboard";
 import { PROBLEM_AREA_ORDER, type SigmaBlock } from "@/features/document";
 import { posAtClientPoint } from "@/components/editor/text-flow/pos-at-client-point";
+import { getEditorVisualRectAtY, getEditorVisualRects } from "./editor-visual-rects";
 import { localColumnAtPoint } from "./local-column-dom";
 import { createId } from "@/lib/id";
 import { tiptapNodesToInlineNodes } from "@/lib/tiptap-adapter";
@@ -603,8 +604,8 @@ export function startTextRunPointerSelection(
     // 余白からのドラッグは、本文へ入った行の端を起点にする。単一編集面の
     // startExpandedTextSelection と同じ規約を、編集面をまたぐ本文にも適用する。
     if (!clickAnchor) {
-      const rect = target.editor.view.dom.getBoundingClientRect();
-      if (clientX < rect.left || clientX > rect.right || clientY < rect.top || clientY > rect.bottom) {
+      const rect = getEditorVisualRectAtY(target.editor.view, clientY);
+      if (!rect || clientX < rect.left || clientX > rect.right) {
         return;
       }
       const edgePos = posInEditor(target.editor, gutterSide === "left" ? rect.left + 1 : rect.right - 1, clientY);
@@ -1702,7 +1703,11 @@ function resolveVerticalExtensionHead(
   active: boolean,
 ): TextRunCaretPoint | null {
   const current = editors[currentIndex];
-  const rect = current.editor.view.dom.getBoundingClientRect();
+  const currentRects = getEditorVisualRects(current.editor.view);
+  const rect = {
+    top: Math.min(...currentRects.map((item) => item.top)),
+    bottom: Math.max(...currentRects.map((item) => item.bottom)),
+  };
   const size = current.editor.state.doc.content.size;
   const boundedPos = clamp(point.pos, 0, size);
   try {
@@ -1722,7 +1727,9 @@ function resolveVerticalExtensionHead(
     if (!adjacent) {
       return null;
     }
-    const adjacentRect = adjacent.editor.view.dom.getBoundingClientRect();
+    // 隣の編集面の、こちらに近い側の端のブロック (ずらして描かれた位置)。
+    const adjacentRects = getEditorVisualRects(adjacent.editor.view);
+    const adjacentRect = (direction < 0 ? adjacentRects.at(-1) : adjacentRects[0]) ?? adjacent.editor.view.dom.getBoundingClientRect();
     const target = adjacent.editor.view.posAtCoords({
       left: clamp(coords.left, adjacentRect.left + 1, adjacentRect.right - 1),
       top: direction < 0 ? adjacentRect.bottom - 1 : adjacentRect.top + 1,
@@ -2031,11 +2038,17 @@ function editorAtPoint(
   x: number,
   y: number,
 ): TextRunEditorHandle | null {
+  // 本文の上ならその場所に描かれている編集面。最上位ブロックはページ・段へずらして描かれるので、
+  // 編集面の root の矩形 (自然配置) では 2 ページ目以降の本文を取り違える。
+  const hitDocument = runEditors[0]?.editor.view.dom.ownerDocument;
+  const hitEditor = hitDocument?.elementFromPoint(x, y)?.closest(".ProseMirror");
+  const hit = hitEditor ? runEditors.find((handle) => handle.editor.view.dom === hitEditor) : undefined;
+  if (hit) return hit;
   const unitId = resolveRunEditorAtPoint(
-    runEditors.map((handle) => ({
+    runEditors.flatMap((handle) => getEditorVisualRects(handle.editor.view).map((rect) => ({
       unitId: handle.unitId,
-      rect: handle.editor.view.dom.getBoundingClientRect(),
-    })),
+      rect,
+    }))),
     x,
     y,
   );
