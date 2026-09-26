@@ -209,7 +209,9 @@ export function createPageBreakDecorations(
       : "inline";
     const resolvedMarkerKind = own(markerKinds, id) ?? markerKind;
     const resolvedMarkerLabel = markerLabel(resolvedMarkerKind);
-    const markerDisplacement = markerDisplacementByPos.get(pos);
+    // 配置が印の場所を決めていればそれを使う (ユニットの先頭の印は前のユニットの末尾へ)。
+    const markerDisplacement = (nodeDisplacements ? own_(nodeDisplacements, `marker:${id}`) : undefined)
+      ?? markerDisplacementByPos.get(pos);
     const displacementKey = markerDisplacement && (markerDisplacement.dx !== 0 || markerDisplacement.dy !== 0)
       ? `-${markerDisplacement.dx}:${markerDisplacement.dy}`
       : "";
