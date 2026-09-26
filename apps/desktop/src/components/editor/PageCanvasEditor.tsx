@@ -6078,6 +6078,7 @@ function TextFlowWithInlineContent({
           <InlineContentStack
             key={part.key}
             items={part.items}
+            displacement={precedingBlockDisplacement(parts, index, stableNodeDisplacements)}
           />
         ),
       )}
@@ -6085,11 +6086,45 @@ function TextFlowWithInlineContent({
   );
 }
 
-function InlineContentStack({ items }: { items: readonly PageCanvasInlineContent[] }) {
+/**
+ * 本文の間に挟む差し込み (AI の差分プレビューなど) は、直前のブロックと同じだけずらして描く。
+ * ブロックはページ・段へずらして描かれるので、差し込みだけ自然配置のままだと別のページに
+ * 描かれ、ずらした本文と重なる。値の無いブロックは前のブロックの値を継ぐ。
+ */
+function precedingBlockDisplacement(
+  parts: readonly ({ type: "blocks"; blocks: readonly TextFlowBlock[] } | { type: string })[],
+  partIndex: number,
+  nodeDisplacements: Readonly<Record<string, FlowDisplacement>> | undefined,
+): FlowDisplacement | undefined {
+  if (!nodeDisplacements) return undefined;
+  for (let index = partIndex - 1; index >= 0; index -= 1) {
+    const part = parts[index];
+    if (part.type !== "blocks" || !("blocks" in part)) continue;
+    for (let blockIndex = part.blocks.length - 1; blockIndex >= 0; blockIndex -= 1) {
+      const displacement = nodeDisplacements[part.blocks[blockIndex].id];
+      if (displacement) return displacement;
+    }
+  }
+  return undefined;
+}
+
+function InlineContentStack({
+  items,
+  displacement,
+}: {
+  items: readonly PageCanvasInlineContent[];
+  displacement?: FlowDisplacement;
+}) {
+  // 包みは常に置く (変位の有無で木の形を変えると、差し込みの中身が作り直されて状態を失う)。
   return (
-    <>
+    <div
+      className="text-flow-inline-content"
+      style={displacement && (displacement.dx !== 0 || displacement.dy !== 0)
+        ? { position: "relative", top: displacement.dy, left: displacement.dx }
+        : undefined}
+    >
       {items.map((item) => <Fragment key={item.key}>{item.content}</Fragment>)}
-    </>
+    </div>
   );
 }
 
@@ -7004,7 +7039,10 @@ function ProblemAreaFlowUnit({
         </div>
       </div>
       {afterInlineContent.length > 0 && (
-        <InlineContentStack items={afterInlineContent} />
+        <InlineContentStack
+          items={afterInlineContent}
+          displacement={precedingBlockDisplacement([{ type: "blocks", blocks: unit.blocks }], 1, nodeDisplacements)}
+        />
       )}
       {area !== "lead" && (
         <button
