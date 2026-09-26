@@ -608,28 +608,18 @@ export function createColumnFlowLayoutDecorations(
     const ownDisplacement = nodeDisplacements && blockId ? nodeDisplacements[blockId] : undefined;
     if (ownDisplacement) inherited = ownDisplacement;
     const displacement = nodeDisplacements && (inherited.dx !== 0 || inherited.dy !== 0) ? inherited : undefined;
-    const positionable = node.type.name === "paragraph" || node.type.name === "heading" || node.type.name === "bulletList" || node.type.name === "orderedList" || node.type.name === "boxBlock" || node.type.name === "layoutSection" || node.type.name === "quote" || node.type.name === "codeBlock" || node.type.name === "divider";
-    const layout = positionable && blockId ? layouts[blockId] : undefined;
+    void layouts;
     // Any block (not only a box) can be split into clipped fragments when it is
     // taller than a page/column, so the source clip applies whenever a fragment
     // source layout exists for this block.
     const fragmentSource = blockId ? boxFragmentSourceLayouts[blockId] : undefined;
-    if (!layout && !fragmentSource && !displacement) {
+    if (!fragmentSource && !displacement) {
       return;
     }
 
     const classes: string[] = [];
     const styles: string[] = [];
     const attributes: Record<string, string> = {};
-    if (layout) {
-      classes.push("text-flow-column-block");
-      styles.push(
-        "position:absolute",
-        `left:${Math.round(layout.x)}px`,
-        `top:${Math.round(layout.y)}px`,
-        `width:${Math.round(layout.width)}px`,
-      );
-    }
     if (displacement) {
       styles.push(`translate:${displacement.dx}px ${displacement.dy}px`);
       attributes["data-flow-dx"] = String(displacement.dx);
