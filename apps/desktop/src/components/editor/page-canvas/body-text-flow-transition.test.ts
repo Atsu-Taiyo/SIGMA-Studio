@@ -181,7 +181,7 @@ describe("body TextFlow transition", () => {
         borderColor: "#2563eb",
         titlePosition: "c",
       },
-      pagination: { keepWithNext: true },
+      pagination: { break: true },
     };
     const transition = resolveBodyTextFlowTransition([problem], {
       scope: "problemArea",

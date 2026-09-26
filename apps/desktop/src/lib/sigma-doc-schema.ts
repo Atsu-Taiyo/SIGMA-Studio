@@ -37,12 +37,21 @@ import { validateMathTex } from "@/lib/math-tex";
 
 const te = createCurrentLocaleTranslator("error");
 
+/**
+ * ページ指定。残っているのは手動改ページ / 改段の `break` だけ。
+ *
+ * 廃止した `keepTogether` / `keepWithNext` を持つ旧教材も開けるよう、未知キーとして受けて
+ * 黙って落とす (zod の object は未知キーを strip する)。落とした結果が空になったら
+ * `pagination` ごと消す — `{}` を残すと、読み直すたびに「指定なし」と「空の指定」が
+ * 別の形で残り続ける。どの入れ子 (問題エリア・枠・段組み・引用・リスト) もこの 1 つを通る。
+ */
 const PaginationSchema = z
   .object({
-    keepTogether: z.boolean().optional(),
-    keepWithNext: z.boolean().optional(),
     break: z.boolean().optional(),
   })
+  .transform((pagination) => (
+    pagination.break === undefined ? undefined : { break: pagination.break }
+  ))
   .optional();
 
 /**

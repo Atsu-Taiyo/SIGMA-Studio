@@ -209,20 +209,18 @@ interface BaseNode {
 
 interface PaginationHints {
   break?: boolean;
-  keepTogether?: boolean;
-  keepWithNext?: boolean;
 }
 ```
 
 すべての本文ブロックは `id` を持ちます。`id` は空文字不可で、同一文書内で重複させません。`getDocumentIssues` は本文ブロック、問題内のrich block、`mathInline` の重複IDを検出します。
 
-`pagination` はページ分割へのヒントです。
+`pagination` はページ分割の手動指定です。
 
 - `break`: このブロックから次のページへ送る。段組み内では次の段へ送る
-- `keepTogether`: 収まる限りブロック内で分割せず、ブロック全体を次のページまたは段へ送る
-- `keepWithNext`: 収まる限り後続ブロックと同じページまたは段に配置する
 
-3項目は編集画面と印刷/PDFのページネーションに反映されます。`keepTogether` または `keepWithNext` の対象全体が1ページ・1段より高い場合は、内容を失わないため制約を緩めて分割します。明示的な `break` はこれらの制約より優先します。
+`break` は編集画面と印刷/PDFのページネーションに反映されます。
+
+以前あった `keepTogether` / `keepWithNext` は廃止しました。これらを含む旧教材もそのまま読み込めますが、読み込み時に黙って取り除かれ (`break` だけが残り、空になった `pagination` は項目ごと消えます)、次の保存でファイルからも消えます。AI・WebMCP・ローカルMCPのツールに渡された場合も、拒否せずに無視します。
 
 `break` はトップレベルのブロックだけでなく、オブジェクトの内側のブロックでも効きます。段組みのときは改ページではなく改段になります。ただしTeX風の箱は外側のページ・段に対して一つのまとまりなので、`boxBlock.blocks` 直下では手動改ページを指定できません。
 
@@ -282,7 +280,6 @@ interface ParagraphNode extends BaseNode {
   "type": "paragraph",
   "id": "paragraph_formula",
   "align": "center",
-  "pagination": { "keepTogether": true },
   "children": [
     {
       "type": "mathInline",

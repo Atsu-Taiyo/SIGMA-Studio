@@ -1,67 +1,30 @@
 import {
-  getMeasuredLineBreakOffsets,
-  measureElementLineBoxes,
   type MeasuredBlock,
-  type MeasuredLine,
 } from "@/components/editor/overlay-canvas/anchor";
-import type {
-  TextFlowBlock,
-  TextFlowBoxFragmentSourceLayout,
-} from "@/components/editor/TextFlowEditor";
 import {
-  isFlowBlockFragmentable,
-  getFlowBlockStartHeight,
-  getSafeProblemAreaMinHeightPx,
-  fragmentFlowBlock,
   roundTextFlowColumnBlockLayout,
   type TextFlowColumnBlockLayout,
 } from "@/features/rendering/core";
-import { boxBlockTitleText, boxFragmentMinStartHeightPx, findBoxDecoration, resolveBoxFrame } from "@/lib/box-blocks";
 import { collectBlocksById } from "@/lib/document-tree";
-import { getLayoutSectionColumns, getLayoutSectionColumnWidths, LAYOUT_SECTION_WIDTH_TOTAL } from "@/features/text-editing";
-import { getProblemFrameChromePaddingPx } from "@/lib/problem-frame";
 import {
-  blockSpaceAfterPx,
   type PageMetrics,
   type BoxBlockChildBlock,
-  type BoxBlockNode,
   type LayoutSectionChildBlock,
   type LayoutSectionNode,
   type ProblemAreaBlock,
   type SigmaBlock,
 } from "@/features/document";
-import { hasBreakBefore, isProblemFrameArea, PROBLEM_AREA_ORDER } from "./block-ops";
-import {
-  collectTextFlowBlockElements,
-  getMeasuredColumnItemHeight,
-  roundEditorBoxBlockFragmentLayout,
-  roundFlowUnitLayout,
-} from "./layout-measure";
+import { hasBreakBefore, PROBLEM_AREA_ORDER } from "./block-ops";
 import {
   getFirstUnitBlock,
   getLayoutSectionColumnCount,
-  getLayoutSectionColumnGapPx,
-  isFullSpanUnit,
-  isProblemAreaColumnBlockFlowEligible,
 } from "./render-units";
 import type {
-  EditorBoxBlockFragmentLayout,
   FlowUnitLayout,
   ProblemAreaColumnLayout,
-  ProblemAreaFrameFragmentLayout,
   RenderUnit,
 } from "./types";
 
-/** The column geometry a block flow places against — normally the page's own
- * column count/width/gap, but a full-span area's flow substitutes a single
- * "column" spanning the whole content width (see fullSpanGeometry below). */
-interface FlowColumnGeometry {
-  columnCount: number;
-  columnWidthPx: number;
-  columnGapPx: number;
-}
-
-const MAX_EDITOR_FRAGMENTS_PER_BLOCK = 1_000;
 
 
 interface ColumnBreakContextMenuLookup {

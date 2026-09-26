@@ -10,7 +10,7 @@ import { tiptapToTextFlow } from "./tiptap-document-adapter";
  * 1 エディタ内の PM slice を SigmaDoc 本文ブロックへ戻す。
  *
  * チャンクを跨ぐコピー / 削除は、各エディタの部分範囲をこれでブロック化し、文書順に連結する。
- * PM スキーマは pagination (改ページ / keepTogether / keepWithNext) を持たないので、
+ * PM スキーマは pagination (手動改ページ) を持たないので、
  * 選択の外に残るブロックのヒントを保つ経路は通常の onUpdate と同じく `previousBlocks`
  * から id で引き継ぐ。
  */

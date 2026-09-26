@@ -10,9 +10,6 @@
   "content": [
     {
       "id": "ai3_sat_title",
-      "pagination": {
-        "keepWithNext": true
-      },
       "type": "heading",
       "level": 1,
       "children": [
@@ -49,9 +46,6 @@
       "children": [
         {
           "id": "p_3fd52672-d673-4978-98f5-8cb2015c5b73",
-          "pagination": {
-            "keepWithNext": true
-          },
           "type": "paragraph",
           "children": [
             {
@@ -92,9 +86,6 @@
         },
         {
           "id": "ai3_notes_h",
-          "pagination": {
-            "keepWithNext": true
-          },
           "type": "heading",
           "level": 3,
           "children": [
@@ -174,9 +165,6 @@
     },
     {
       "id": "ai3_reference_h",
-      "pagination": {
-        "keepWithNext": true
-      },
       "type": "heading",
       "level": 3,
       "children": [

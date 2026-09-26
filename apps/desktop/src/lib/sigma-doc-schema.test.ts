@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { getDocumentIssues, parseSigmaDocument, recoverSigmaDocument } from "@/lib/sigma-doc-schema";
+import { areSigmaDocumentsEquivalent } from "@/lib/document-equivalence";
 import { ensurePageLayout } from "@/lib/page-layout";
 import { sampleDocument } from "@/lib/sample-document";
 import type { ListNode, PageOverlay } from "@/features/document";
@@ -1606,6 +1607,181 @@ describe("block space after", () => {
       layout.spaceAfterPx,
       layout.type === "layoutSection" ? layout.children[0].spaceAfterPx : undefined,
     ]).toEqual([8, 9, 10, 11, 12]);
+  });
+});
+
+describe("abolished keep pagination hints", () => {
+  // `keepTogether` / `keepWithNext` は廃止した。旧教材はそのまま開け、ヒントだけが黙って消える。
+  function legacyParagraph(id: string, pagination: unknown) {
+    return { type: "paragraph", id, pagination, children: [{ type: "text", text: id }] };
+  }
+
+  function legacyDocument(): unknown {
+    return {
+      ...sampleDocument,
+      content: [
+        legacyParagraph("p_keep_together", { keepTogether: true }),
+        legacyParagraph("p_break_keep_next", { break: true, keepWithNext: true }),
+        legacyParagraph("p_break_false", { break: false, keepTogether: true }),
+        {
+          type: "problem",
+          id: "problem_legacy",
+          tags: [],
+          pagination: { break: true, keepTogether: true },
+          lead: [legacyParagraph("p_lead", { keepWithNext: true })],
+          prompt: [
+            legacyParagraph("p_prompt", { keepWithNext: true, keepTogether: true }),
+            {
+              type: "boxBlock",
+              id: "box_in_prompt",
+              styleId: "itembox",
+              pagination: { keepTogether: true },
+              blocks: [legacyParagraph("p_in_prompt_box", { break: true, keepWithNext: true })],
+            },
+          ],
+          solution: [{
+            type: "layoutSection",
+            id: "layout_in_solution",
+            layout: { columnCount: 2 },
+            pagination: { keepTogether: true },
+            children: [legacyParagraph("p_in_solution_layout", { keepWithNext: true })],
+          }],
+          hints: [],
+        },
+        {
+          type: "boxBlock",
+          id: "box_legacy",
+          styleId: "itembox",
+          pagination: { keepTogether: true, keepWithNext: true },
+          blocks: [
+            legacyParagraph("p_in_box", { keepWithNext: true }),
+            {
+              type: "quote",
+              id: "quote_in_box",
+              pagination: { keepTogether: true },
+              blocks: [legacyParagraph("p_in_quote", { break: true, keepTogether: true })],
+            },
+          ],
+        },
+        {
+          type: "layoutSection",
+          id: "layout_legacy",
+          layout: { columnCount: 2 },
+          pagination: { keepWithNext: true },
+          children: [
+            legacyParagraph("p_in_layout", { break: true, keepTogether: true }),
+            {
+              type: "list",
+              id: "list_in_layout",
+              listType: "bullet",
+              pagination: { keepTogether: true },
+              items: [{
+                type: "listItem",
+                id: "li_in_layout",
+                children: [{ type: "text", text: "項目" }],
+                continuations: [legacyParagraph("p_list_continuation", { keepWithNext: true })],
+                nested: [{
+                  type: "list",
+                  id: "list_nested",
+                  listType: "ordered",
+                  pagination: { break: true, keepWithNext: true },
+                  items: [{ type: "listItem", id: "li_nested", children: [{ type: "text", text: "子" }] }],
+                }],
+              }],
+            },
+          ],
+        },
+      ],
+    };
+  }
+
+  /** 保存した JSON に書かれる形で、ID → pagination を集める。 */
+  function persistedPaginationById(document: SigmaDocument): Record<string, unknown> {
+    const found: Record<string, unknown> = {};
+    const visit = (value: unknown) => {
+      if (Array.isArray(value)) {
+        value.forEach(visit);
+        return;
+      }
+      if (typeof value !== "object" || value === null) {
+        return;
+      }
+      const record = value as Record<string, unknown>;
+      if (typeof record.id === "string" && typeof record.type === "string") {
+        found[record.id] = Object.prototype.hasOwnProperty.call(record, "pagination") ? record.pagination : "(none)";
+      }
+      Object.values(record).forEach(visit);
+    };
+    visit(JSON.parse(JSON.stringify(document)).content);
+    return found;
+  }
+
+  const expectedPagination = {
+    p_keep_together: "(none)",
+    p_break_keep_next: { break: true },
+    p_break_false: { break: false },
+    problem_legacy: { break: true },
+    p_lead: "(none)",
+    p_prompt: "(none)",
+    box_in_prompt: "(none)",
+    p_in_prompt_box: { break: true },
+    layout_in_solution: "(none)",
+    p_in_solution_layout: "(none)",
+    box_legacy: "(none)",
+    p_in_box: "(none)",
+    quote_in_box: "(none)",
+    p_in_quote: { break: true },
+    layout_legacy: "(none)",
+    p_in_layout: { break: true },
+    list_in_layout: "(none)",
+    li_in_layout: "(none)",
+    p_list_continuation: "(none)",
+    list_nested: { break: true },
+    li_nested: "(none)",
+  };
+
+  it("drops the hints at every nesting depth and keeps only the manual break", () => {
+    const parsed = parseSigmaDocument(legacyDocument());
+
+    expect(persistedPaginationById(parsed)).toEqual(expectedPagination);
+    expect(JSON.stringify(parsed)).not.toMatch(/keepTogether|keepWithNext/);
+    expect(getDocumentIssues(parsed)).toEqual([]);
+  });
+
+  it("leaves no pagination value on a block whose only hints were keep hints", () => {
+    const parsed = parseSigmaDocument({
+      ...sampleDocument,
+      content: [legacyParagraph("p_only_keep", { keepTogether: true, keepWithNext: true })],
+    });
+
+    expect(parsed.content[0].pagination).toBeUndefined();
+    expect(Object.keys(JSON.parse(JSON.stringify(parsed.content[0]))).sort()).toEqual(["children", "id", "type"]);
+  });
+
+  it("drops the hints on the recovery path too, even when another block has to be dropped", () => {
+    const input = legacyDocument() as { content: unknown[] };
+    const result = recoverSigmaDocument({
+      ...input,
+      // 復旧経路 (ブロック単位の safeParse → 全体の再 parse) を必ず通すための壊れたブロック。
+      content: [...input.content, { type: "paragraph", id: "broken", children: "not-an-array" }],
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+    expect(result.issues.map((issue) => issue.id)).toEqual(["broken"]);
+    expect(persistedPaginationById(result.document)).toEqual(expectedPagination);
+  });
+
+  it("is idempotent across save and reload", () => {
+    const loaded = parseSigmaDocument(legacyDocument());
+    const reloaded = parseSigmaDocument(JSON.parse(JSON.stringify(loaded)));
+    const recovered = recoverSigmaDocument(JSON.parse(JSON.stringify(loaded)));
+
+    expect(areSigmaDocumentsEquivalent(loaded, reloaded)).toBe(true);
+    expect(JSON.stringify(reloaded)).toBe(JSON.stringify(loaded));
+    expect(recovered.ok && areSigmaDocumentsEquivalent(loaded, recovered.document)).toBe(true);
   });
 });
 
