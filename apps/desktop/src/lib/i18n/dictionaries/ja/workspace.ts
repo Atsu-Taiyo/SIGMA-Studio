@@ -126,6 +126,7 @@ export const workspace = {
     new: "新規",
     newMaterial: "新規教材",
     addToTemplates: "テンプレートに追加",
+    retry: "再試行",
     reloadShort: "再読み込み",
     templatesShort: "テンプレート",
     deleteWorkspace: "ワークスペースを削除",

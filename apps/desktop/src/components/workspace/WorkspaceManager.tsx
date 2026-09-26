@@ -128,6 +128,8 @@ export function WorkspaceManager() {
   const [folderParentDraft, setFolderParentDraft] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
   const [status, setStatus] = useState<SaveStatus>("loading");
+  const [overviewLoadFailed, setOverviewLoadFailed] = useState(false);
+  const [retryingOverview, setRetryingOverview] = useState(false);
   // 初期値は mount 時に確定するので、**言語を切り替えてもここだけ元の言語のまま**
   // 次の状態更新まで残る (EditorShell の同種の箇所と同じ既知の割り切り)。読み込みは
   // すぐ終わって上書きされるため、実際に見えるのは一瞬。
@@ -206,9 +208,11 @@ export function WorkspaceManager() {
       return;
     }
     if (result.state === "ready") {
+      setOverviewLoadFailed(false);
       applyOverview(result.overview, nextMessage);
       return;
     }
+    setOverviewLoadFailed(result.state === "error");
     if (options?.silent) {
       return;
     }
@@ -218,6 +222,15 @@ export function WorkspaceManager() {
       ? t("error.unavailable")
       : result.error);
   }, [applyOverview, handleLedgerSchemaError, t]);
+
+  const retryOverview = async () => {
+    if (retryingOverview) return;
+    setRetryingOverview(true);
+    try {
+      await getDesktopBridge()?.sharedCatalog?.refresh().catch(() => {});
+      await loadOverview();
+    } finally { setRetryingOverview(false); }
+  };
 
   useEffect(() => {
     const timeoutId = window.setTimeout(() => void loadOverview(), 0);
@@ -1143,16 +1156,18 @@ export function WorkspaceManager() {
             <LayoutTemplate size={15} />
             <span>{t("action.templatesShort")}</span>
           </button>
-          <button
-            type="button"
-            className="workspace-reload-button"
-            title={t("action.reload")}
-            aria-label={t("action.reload")}
-            onClick={() => void loadOverview(undefined, t("status.reloaded"))}
-          >
-            <RefreshCw size={15} />
-            <span>{t("action.reloadShort")}</span>
-          </button>
+          {(overviewLoadFailed || overview?.catalog?.state === "offline" || overview?.catalog?.state === "error") && (
+            <button
+              type="button"
+              className="workspace-reload-button"
+              aria-label={t("action.retry")}
+              disabled={retryingOverview}
+              onClick={() => void retryOverview()}
+            >
+              <RefreshCw size={15} className={retryingOverview ? "workspace-spin" : undefined} />
+              <span>{t("action.retry")}</span>
+            </button>
+          )}
           <WorkspaceCollaborationAccount />
         </div>
       </header>

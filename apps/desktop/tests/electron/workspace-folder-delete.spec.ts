@@ -33,6 +33,8 @@ test("workspace uses a two-button toggle and deletes nested folders after explic
     const url = new URL(page.url());
     url.pathname = process.env.SIGMA_STUDIO_DEV_SERVER_URL ? "/workspace" : url.pathname.replace(/index\.html$/, "workspace.html");
     await page.goto(url.href);
+    await expect(page.getByRole("button", { name: "ワークスペースを再読み込み", exact: true })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "再試行", exact: true })).toHaveCount(0);
     const toggle = page.locator(".workspace-view-toggle");
     await expect(toggle.locator("button")).toHaveCount(2);
     expect(await toggle.evaluate(element => getComputedStyle(element).gridTemplateColumns.split(" ").length)).toBe(2);
@@ -50,5 +52,20 @@ test("workspace uses a two-button toggle and deletes nested folders after explic
     expect(after.overview.folders.map(f => f.id)).toContain(fixture.kept);
     for (const id of [fixture.parent, fixture.child, fixture.grandchild]) expect(after.overview.folders.map(f => f.id)).not.toContain(id);
     expect(after.overview.files.map(f => f.fileId)).not.toContain(fixture.fileId);
+    // Only the failing transport boundary is replaced; real workspace UI/preload remain in use.
+    await app.evaluate(({ ipcMain }) => {
+      ipcMain.removeHandler("storage:get-workspace-overview");
+      ipcMain.handle("storage:get-workspace-overview", () => ({ state: "error", error: "NETWORK_UNAVAILABLE" }));
+    });
+    await page.reload();
+    const retry = page.getByRole("button", { name: "再試行", exact: true });
+    await expect(retry).toBeVisible();
+    await app.evaluate(({ ipcMain }, overview) => {
+      ipcMain.removeHandler("storage:get-workspace-overview");
+      ipcMain.handle("storage:get-workspace-overview", () => overview);
+    }, after);
+    await retry.click();
+    await expect(retry).toHaveCount(0);
+    await expect(page.locator(".workspace-view-toggle")).toBeVisible();
   } finally { await app.close(); await rm(profile, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 }); }
 });
