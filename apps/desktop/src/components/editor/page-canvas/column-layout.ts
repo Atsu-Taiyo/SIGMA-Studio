@@ -130,7 +130,7 @@ export function getColumnBreakBeforeBlockIdForContextMenu({
   }
 
   // A box continuation has no top-level unit for each descendant. Resolve its explicit
-  // boundary from document order so its body can remove the same break as the box itself.
+  // boundary within the clicked box so its body can remove the same break as the box itself.
   const nestedBreak = getNestedBoxBreakBeforeId(blocks, blockId);
   if (nestedBreak) return nestedBreak;
 
@@ -169,22 +169,35 @@ export function getColumnBreakBeforeBlockIdForContextMenu({
 }
 
 function getNestedBoxBreakBeforeId(blocks: readonly SigmaBlock[], blockId: string): string | null {
-  let boundary: string | null = null;
-  const visit = (children: readonly SigmaBlock[], insideBox: boolean): string | null | undefined => {
+  const visit = (
+    children: readonly SigmaBlock[],
+    insideBox: boolean,
+    inheritedBoundary: string | null,
+    ancestorBoundary: string | null,
+  ): string | null | undefined => {
+    let siblingBoundary = inheritedBoundary;
     for (const child of children) {
-      if (hasBreakBefore(child)) boundary = child.id;
-      if (child.id === blockId) return insideBox ? boundary : null;
+      const hasBreak = hasBreakBefore(child);
+      const boundary = hasBreak ? child.id : siblingBoundary;
+      const ownBoundary = hasBreak ? child.id : ancestorBoundary;
+      if (child.id === blockId) return insideBox ? (child.type === "boxBlock" ? ownBoundary : boundary) : null;
       const groups = child.type === "boxBlock" || child.type === "quote" ? [child.blocks]
         : child.type === "problem" ? PROBLEM_AREA_ORDER.map(area => child[area])
           : child.type === "layoutSection" && child.layout.columnCount <= 1 ? [child.children] : [];
       for (const group of groups) {
-        const result = visit(group, insideBox || child.type === "boxBlock");
+        // A box owns a separate break scope. Its body can inherit a break on the box
+        // or an ancestor, but not a break on a preceding sibling box or paragraph.
+        const inheritedBoundary = child.type === "boxBlock"
+          ? ownBoundary
+          : boundary;
+        const result = visit(group, insideBox || child.type === "boxBlock", inheritedBoundary, ownBoundary);
         if (result !== undefined) return result;
       }
+      if (child.type !== "boxBlock") siblingBoundary = boundary;
     }
     return undefined;
   };
-  return visit(blocks, false) ?? null;
+  return visit(blocks, false, null, null) ?? null;
 }
 
 export function measureLocalColumnContextMenuLayout(

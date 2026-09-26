@@ -141,17 +141,72 @@ export function hydratePagedCodeFragment(clonedCanvas: Element, pageIndex: numbe
 }
 
 /**
- * The editing DOM represents every newline as its own `<br>` node. Keep that DOM in the staged
- * canvas for measurement, then collapse each code block to one text node in the clone template.
- * Page windows clone this compact template, so a 10,000-line block does not become millions of
- * DOM nodes. Outer markdown fences are dropped here — they are editing leftovers, not code, and
- * the PDF preview is this clone rather than the live editor.
+ * The editing DOM represents every newline as its own `<br>` node. Collapse plain code in the
+ * clone template so a large block does not multiply its nodes across page windows. Preserve
+ * styled runs and syntax tokens: flattening those changes both their appearance and line wraps.
+ * Editing widgets are removed from every code block before reading its text.
  */
 export function compactPagedCodeBlocks(root: Element): void {
   root.querySelectorAll<HTMLElement>(".print-code").forEach((code) => {
-    const text = stripWrappingMarkdownCodeFence(readCodeDomText(code));
+    code.querySelectorAll("[data-code-block-action-button='true']").forEach((button) => button.remove());
+    const original = readCodeDomText(code);
+    const text = stripWrappingMarkdownCodeFence(original);
+    if (hasStyledCodeContent(code)) {
+      if (text !== original) {
+        retainCodeTextRange(code, original, text);
+      }
+      return;
+    }
     code.replaceChildren(code.ownerDocument.createTextNode(text));
   });
+}
+
+function hasStyledCodeContent(code: HTMLElement): boolean {
+  return Array.from(code.querySelectorAll("*")).some((element) => element.tagName !== "BR");
+}
+
+/** Keep the markup around a stripped fence when the remaining text is one contiguous range. */
+function retainCodeTextRange(code: HTMLElement, original: string, text: string): void {
+  const start = original.indexOf(text);
+  if (start < 0) {
+    code.replaceChildren(code.ownerDocument.createTextNode(text));
+    return;
+  }
+  const range = code.ownerDocument.createRange();
+  const from = codeTextBoundary(code, start);
+  const to = codeTextBoundary(code, start + text.length);
+  if (!from || !to) {
+    code.replaceChildren(code.ownerDocument.createTextNode(text));
+    return;
+  }
+  range.setStart(from.node, from.offset);
+  range.setEnd(to.node, to.offset);
+  code.replaceChildren(range.cloneContents());
+}
+
+function codeTextBoundary(root: Node, position: number): { node: Node; offset: number } | null {
+  let current = 0;
+  function visit(parent: Node): { node: Node; offset: number } | null {
+    for (const [index, node] of Array.from(parent.childNodes).entries()) {
+      const length = node.nodeType === Node.TEXT_NODE
+        ? (node.textContent?.length ?? 0)
+        : node instanceof HTMLElement && node.tagName === "BR" ? 1 : 0;
+      if (length > 0) {
+        if (position <= current + length) {
+          if (node.nodeType === Node.TEXT_NODE) {
+            return { node, offset: position - current };
+          }
+          return { node: parent, offset: index + (position === current + 1 ? 1 : 0) };
+        }
+        current += length;
+      } else {
+        const nested = visit(node);
+        if (nested) return nested;
+      }
+    }
+    return null;
+  }
+  return visit(root) ?? (position === current ? { node: root, offset: root.childNodes.length } : null);
 }
 
 function readCodeDomText(root: Node): string {

@@ -165,6 +165,21 @@ describe("collectProblemAreaPaginationItems", () => {
     expect(solution?.gapKey).toBe(solution?.firstUnitId);
   });
 
+  it("carries the first solution block's manual break onto an atomic min-height area", () => {
+    const source = problem({
+      solution: [
+        { ...paragraph("solution_1"), pagination: { break: true } },
+        paragraph("solution_2"),
+      ],
+      areaLayout: { solution: { minHeightMm: 120 } },
+    });
+    const result = collect(source, { prompt: 180, solution: 600 });
+    const solution = result.atomicItems.find((item) => item.ownedBlockIds.includes("solution_1"));
+
+    expect(solution?.forceBreakBefore).toBe(true);
+    expect(solution?.ownedBlockIds).toEqual(["solution_1", "solution_2"]);
+  });
+
   it("classifies from gap-free height so an applied inner spacer cannot flip the mode", () => {
     const source = problem({ areaLayout: { solution: { minHeightMm: 120 } } });
     const first = collect(source, { prompt: 180, solution: 1_200 }, { solution: 300 });

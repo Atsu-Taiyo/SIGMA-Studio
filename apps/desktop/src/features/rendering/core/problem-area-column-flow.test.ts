@@ -30,6 +30,24 @@ describe("computeProblemAreaColumnFlow", () => {
     expect(result.blockLayouts).toEqual({});
   });
 
+  it("ignores legacy breaks inside independent columns at both fit and overflow heights", () => {
+    const blocks = [
+      { id: "first", height: 30, columnIndex: 0 },
+      { id: "break", height: 30, columnIndex: 0, break: true },
+      { id: "other-column", height: 20, columnIndex: 1 },
+    ];
+    const fitting = computeProblemAreaColumnFlow(blocks, 2, 100, 10, 100, 100, 130);
+    const overflowing = computeProblemAreaColumnFlow(blocks, 2, 100, 10, 50, 100, 130);
+    const overflowingWithoutBreak = computeProblemAreaColumnFlow(
+      blocks.map((block) => ({ ...block, break: false })), 2, 100, 10, 50, 100, 130,
+    );
+
+    expect(fitting.mode).toBe("balance");
+    expect(overflowing.mode).toBe("flow");
+    expect(overflowing.markerLayouts).toEqual({});
+    expect(overflowing).toEqual(overflowingWithoutBreak);
+  });
+
   it("continues columns onto the next page when it does not fit", () => {
     const result = computeProblemAreaColumnFlow(
       blocks10,

@@ -45,7 +45,6 @@ export const workspace = {
     selectionDeleted: "Deleted the selected items",
     selectionMoved: "Moved the selected items",
     renamed: "Renamed",
-    reloaded: "Reloaded the workspace",
   },
   error: {
     loadTimeout: "Loading the workspace timed out.",
@@ -101,7 +100,6 @@ export const workspace = {
     results: "Search results",
   },
   action: {
-    reload: "Reload workspace",
     openTemplateGallery: "Template gallery",
     moveFolder: "Move folder",
     deleteFolder: "Delete folder",

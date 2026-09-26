@@ -242,6 +242,8 @@ export function computeProblemAreaColumnFlow(
     };
   }
 
+  // Independent columns do not support manual breaks. Ignore legacy flags in
+  // both balance and overflow flow, so growing the content cannot activate one.
   const hasManualColumnBreak = !independent && blocks.some((block, index) => index > 0 && block.break);
   const balanced = independent
     ? Math.max(...Array.from({ length: columns }, (_, columnIndex) => blocks.reduce((sum, block, index) => (
@@ -322,19 +324,9 @@ export function computeProblemAreaColumnFlow(
         const fragmentX = block.columnOffsetPx ?? columnIndex * step;
         const nextEntry = columnBlocks[columnBlockIndex + 1];
 
-        if (columnBlockIndex > 0 && block.break && cursor.y > 0.5) {
-          markerLayouts[block.id] = roundTextFlowColumnBlockLayout({
-            x: 0,
-            y: segmentTopShellY(cursor.segment) + cursor.y,
-            width,
-          });
-          advanceSegment();
-        }
-
         let available = segmentHeight(cursor.segment) - cursor.y;
         const keepWithNextHeight = block.keepWithNext === true
           && nextEntry
-          && !nextEntry.block.break
           ? height + fitHeights[nextEntry.index]
           : 0;
         const shouldAdvanceShortFirstSegment = cursor.segment === 0
