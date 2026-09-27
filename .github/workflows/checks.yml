@@ -28,7 +28,7 @@ jobs:
       - run: npm ci
       - run: npm run version:check
       - run: npm run test:scripts
-      - run: python3 -m unittest discover -s scripts -p windows_store_test.py
+      - run: python3 -m unittest discover -s scripts -p 'windows_store*_test.py'
       - run: npm exec --workspace @sigma-studio/desktop -- next typegen
       - run: npm run typecheck
       - run: npm run lint
