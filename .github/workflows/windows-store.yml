@@ -10,7 +10,7 @@ on:
         options: [preflight, submit, status]
         default: preflight
       release_tag:
-        description: "submit時の既存Releaseタグ (v1.0.0など、先頭は0不可)"
+        description: "submit時の既存Releaseタグ (v0.500.0など)"
         type: string
       package_sha256:
         description: "submit時の検証済みAppXのSHA-256 (64文字)"

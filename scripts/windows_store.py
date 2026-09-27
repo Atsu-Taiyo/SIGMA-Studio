@@ -188,8 +188,8 @@ def version_tuple(value, *, uploading=False):
     if not isinstance(value, str) or not re.fullmatch(r"\d+\.\d+\.\d+\.\d+", value):
         raise StoreError("Invalid package version.")
     parts = tuple(int(part) for part in value.split("."))
-    if any(part > 65535 for part in parts) or parts[0] == 0 or (uploading and parts[3] != 0):
-        raise StoreError("Store package versions need a nonzero major and four 16-bit parts; uploads must end in zero.")
+    if any(part > 65535 for part in parts) or (uploading and parts[3] != 0):
+        raise StoreError("Store package versions need four 16-bit parts; uploads must end in zero.")
     return parts
 
 

@@ -163,9 +163,20 @@ class StoreTests(unittest.TestCase):
 
     def test_store_version_rules_allow_store_assigned_revision_only_on_baseline(self):
         self.assertEqual(store.version_tuple("1.2.2.42"), (1, 2, 2, 42))
-        for version in ["0.500.0.0", "1.2.3.1", "1.65536.0.0", "1.2.3", "1.2.3.0x"]:
+        self.assertEqual(store.version_tuple("0.500.0.0", uploading=True), (0, 500, 0, 0))
+        for version in ["1.2.3.1", "1.65536.0.0", "1.2.3", "1.2.3.0x"]:
             with self.assertRaises(store.StoreError):
                 store.version_tuple(version, uploading=True)
+
+    def test_zero_major_desktop_appx_can_upgrade_the_existing_baseline(self):
+        self.path = Path(self.temp.name) / "Sigma-Studio-Store-0.500.0-x64.appx"
+        self.env["STORE_RELEASE_TAG"] = "v0.500.0"
+        self.write_package(version="0.500.0.0")
+        client = FakeClient()
+        client.previous["applicationPackages"][0]["version"] = "0.306.1.0"
+        with patch.dict("os.environ", {}, clear=True), redirect_stdout(io.StringIO()):
+            result = store.submit(client, self.env, self.path, transport=lambda *a, **kw: None, sleep=lambda _: None)
+        self.assertEqual(result, "PreProcessing")
 
     def test_multiversion_baseline_is_not_silently_removed(self):
         client = FakeClient()
