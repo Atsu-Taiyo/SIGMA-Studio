@@ -24,8 +24,6 @@ on:
         type: choice
         options: [Manual, Immediate]
         default: Manual
-  release:
-    types: [published]
   schedule:
     - cron: "23 */6 * * *"
 
@@ -42,14 +40,13 @@ jobs:
   store:
     if: >-
       (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') ||
-      (github.event_name == 'release' && vars.WINDOWS_STORE_AUTO_SUBMIT == 'true') ||
       (github.event_name == 'schedule' && vars.WINDOWS_STORE_MONITOR_ENABLED == 'true')
     runs-on: ubuntu-latest
     timeout-minutes: 40
     environment: windows-store
     env:
-      STORE_OPERATION: ${{ github.event_name == 'schedule' && 'status' || github.event_name == 'release' && 'submit' || inputs.operation }}
-      STORE_RELEASE_TAG: ${{ github.event.release.tag_name || inputs.release_tag }}
+      STORE_OPERATION: ${{ github.event_name == 'schedule' && 'status' || inputs.operation }}
+      STORE_RELEASE_TAG: ${{ inputs.release_tag }}
       STORE_PUBLISH_MODE: ${{ inputs.publish_mode || vars.WINDOWS_STORE_PUBLISH_MODE || 'Manual' }}
       STORE_PACKAGE_SHA256: ${{ inputs.package_sha256 }}
       STORE_PACKAGE_RUN_ID: ${{ inputs.package_run_id }}
@@ -63,7 +60,7 @@ jobs:
         with:
           python-version: "3.13"
       - name: Verify submission guards without credentials
-        run: python3 -m unittest discover -s scripts -p windows_store_test.py
+        run: python3 -m unittest discover -s scripts -p 'windows_store*_test.py'
       - name: Download the existing Store package
         if: env.STORE_OPERATION == 'submit'
         run: python3 scripts/windows_store.py download "$RUNNER_TEMP/store-package"
