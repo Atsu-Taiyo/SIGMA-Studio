@@ -77,6 +77,8 @@ jobs:
           WINDOWS_STORE_PUBLISHER: ${{ secrets.WINDOWS_STORE_PUBLISHER }}
           WINDOWS_STORE_PUBLISHER_DISPLAY_NAME: ${{ secrets.WINDOWS_STORE_PUBLISHER_DISPLAY_NAME }}
           # No Store API credentials are exposed to this packaging step.
+      - name: Verify Windows Electron file opening and persistence
+        run: npm --workspace @sigma-studio/desktop run test:e2e:electron -- open-document.spec.ts
       - name: Verify the AppX manifest and record its public hash
         shell: pwsh
         env:

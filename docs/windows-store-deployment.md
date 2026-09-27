@@ -136,9 +136,10 @@ POSTを自動再試行せず、残った下書きや審査中提出も自動削�
 1. Actions → **Prepare Windows Store package** を `main` で手動実行し、
    `release_tag` に対象の公開済みタグを指定します。
 2. この処理はmain履歴に含まれる安定版タグだけをcheckoutし、既存の `electron:dist:store` を実行します。
-   配布内容の機密情報検査、Windowsでのfile-lockテスト、梱包済みnative moduleの実行確認、
+   配布内容の機密情報検査、Windowsでのfile-lockテストとElectronでのファイル読込・保存・再読込、
+   梱包済みnative moduleの実行確認、
    AppXのmanifest・識別情報・ハッシュ検証を通してからartifactを保存します。
-   Windowsのインストール、画面操作、保存・再読込の実機確認とは別です。
+   このElectronテストはタグの静的出力を使います。AppXのインストール・Store経由の起動確認とは別です。
 3. 成功したrunのSummaryにある **Package run ID** と **AppX SHA-256** を控えます。
    artifactは `sigma-studio-windows-store-<release_tag>` で、保存期間は14日です。
 4. AppXのWindows動作確認と既存ドラフトの整理後、**Microsoft Store deployment** を手動実行します。
