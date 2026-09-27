@@ -1,0 +1,148 @@
+name: Microsoft Store continuous delivery
+run-name: Store CD ${{ inputs.release_tag || github.event.release.tag_name || 'latest stable release' }}${{ inputs.verify_only && ' (verify only)' || '' }}
+
+on:
+  release:
+    types: [published]
+  # Also catches releases published with GITHUB_TOKEN, which do not emit a new
+  # Actions release event, and retries after an earlier certification finishes.
+  schedule:
+    - cron: '41 * * * *'
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: '公開済み正式版タグ。空欄なら最新の正式版'
+        type: string
+      verify_only:
+        description: 'パッケージの作成・受け渡し・検証だけ実行（Storeへ提出しない）'
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: windows-store-cd-${{ github.event_name == 'release' && 'dispatch' || 'pipeline' }}
+  cancel-in-progress: false
+
+jobs:
+  dispatch:
+    if: >-
+      github.event_name == 'release' && vars.WINDOWS_STORE_AUTO_SUBMIT == 'true' &&
+      !github.event.release.draft && !github.event.release.prerelease
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: write
+      contents: read
+    steps:
+      # No checkout or Store secrets in this relay. Always run CD from main.
+      - name: Start the main-branch Store pipeline
+        env:
+          GH_TOKEN: ${{ github.token }}
+          STORE_RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: |
+          [[ "$STORE_RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || exit 1
+          gh workflow run windows-store-cd.yml --repo "$GITHUB_REPOSITORY" --ref main \
+            -f release_tag="$STORE_RELEASE_TAG" -f verify_only=false
+
+  plan:
+    if: >-
+      github.ref == 'refs/heads/main' &&
+      (github.event_name == 'workflow_dispatch' || github.event_name == 'schedule') &&
+      (vars.WINDOWS_STORE_AUTO_SUBMIT == 'true' || inputs.verify_only)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    environment: windows-store
+    outputs:
+      release_tag: ${{ steps.plan.outputs.release_tag }}
+      build: ${{ steps.plan.outputs.build }}
+      submit: ${{ steps.plan.outputs.submit }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: main
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.13'
+      - run: python3 -m unittest discover -s scripts -p 'windows_store*_test.py'
+      - name: Check the release and Store state without changing either
+        id: plan
+        run: python3 scripts/windows_store_release.py
+        env:
+          GH_TOKEN: ${{ github.token }}
+          STORE_RELEASE_TAG: ${{ inputs.release_tag }}
+          STORE_VERIFY_ONLY: ${{ inputs.verify_only && 'true' || 'false' }}
+          WINDOWS_STORE_TENANT_ID: ${{ secrets.WINDOWS_STORE_TENANT_ID }}
+          WINDOWS_STORE_CLIENT_ID: ${{ secrets.WINDOWS_STORE_CLIENT_ID }}
+          WINDOWS_STORE_CLIENT_SECRET: ${{ secrets.WINDOWS_STORE_CLIENT_SECRET }}
+          WINDOWS_STORE_APPLICATION_ID: ${{ secrets.WINDOWS_STORE_APPLICATION_ID }}
+          WINDOWS_STORE_IDENTITY_NAME: ${{ secrets.WINDOWS_STORE_IDENTITY_NAME }}
+          WINDOWS_STORE_PUBLISHER: ${{ secrets.WINDOWS_STORE_PUBLISHER }}
+
+  package:
+    needs: plan
+    if: needs.plan.outputs.build == 'true'
+    uses: ./.github/workflows/build-windows-store.yml
+    with:
+      release_tag: ${{ needs.plan.outputs.release_tag }}
+    # Only these repository secrets are passed. The packaging job obtains Store
+    # identity from its environment; Store API credentials are never exported.
+    secrets:
+      SIGMA_COLLABORATION_URL: ${{ secrets.SIGMA_COLLABORATION_URL }}
+      SIGMA_SUPABASE_URL: ${{ secrets.SIGMA_SUPABASE_URL }}
+      SIGMA_SUPABASE_ANON_KEY: ${{ secrets.SIGMA_SUPABASE_ANON_KEY }}
+      RELEASE_CONTENT_RULES: ${{ secrets.RELEASE_CONTENT_RULES }}
+
+  submit:
+    needs: [plan, package]
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    environment: windows-store
+    # Share the lock with manual submission/status, including a final live guard.
+    concurrency:
+      group: microsoft-store-production
+      cancel-in-progress: false
+    env:
+      STORE_RELEASE_TAG: ${{ needs.plan.outputs.release_tag }}
+      STORE_PACKAGE_SHA256: ${{ needs.package.outputs.package_sha256 }}
+      STORE_PUBLISH_MODE: ${{ vars.WINDOWS_STORE_PUBLISH_MODE || 'Manual' }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: main
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.13'
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          # Only the immutable artifact produced by the successful dependency in
+          # this same run. Never take an artifact/run ID from a release or PR.
+          artifact-ids: ${{ needs.package.outputs.artifact_id }}
+          path: ${{ runner.temp }}/store-package
+          merge-multiple: true
+      - name: Verify the transferred package without API credentials
+        run: python3 scripts/windows_store.py inspect "$RUNNER_TEMP/store-package/Sigma-Studio-Store-${STORE_RELEASE_TAG#v}-x64.appx"
+        env:
+          WINDOWS_STORE_IDENTITY_NAME: ${{ secrets.WINDOWS_STORE_IDENTITY_NAME }}
+          WINDOWS_STORE_PUBLISHER: ${{ secrets.WINDOWS_STORE_PUBLISHER }}
+      - name: Submit the verified release for certification
+        if: needs.plan.outputs.submit == 'true'
+        run: python3 scripts/windows_store.py submit "$RUNNER_TEMP/store-package/Sigma-Studio-Store-${STORE_RELEASE_TAG#v}-x64.appx"
+        env:
+          WINDOWS_STORE_TENANT_ID: ${{ secrets.WINDOWS_STORE_TENANT_ID }}
+          WINDOWS_STORE_CLIENT_ID: ${{ secrets.WINDOWS_STORE_CLIENT_ID }}
+          WINDOWS_STORE_CLIENT_SECRET: ${{ secrets.WINDOWS_STORE_CLIENT_SECRET }}
+          WINDOWS_STORE_APPLICATION_ID: ${{ secrets.WINDOWS_STORE_APPLICATION_ID }}
+          WINDOWS_STORE_IDENTITY_NAME: ${{ secrets.WINDOWS_STORE_IDENTITY_NAME }}
+          WINDOWS_STORE_PUBLISHER: ${{ secrets.WINDOWS_STORE_PUBLISHER }}
+          WINDOWS_STORE_CERTIFICATION_NOTES: ${{ secrets.WINDOWS_STORE_CERTIFICATION_NOTES }}
+      - name: Report verification-only completion
+        if: needs.plan.outputs.submit != 'true'
+        run: echo 'Store CD package handoff verified. No submission was created.' >> "$GITHUB_STEP_SUMMARY"
+      - name: Remove temporary package data
+        if: always()
+        run: rm -rf -- "$RUNNER_TEMP/store-package"

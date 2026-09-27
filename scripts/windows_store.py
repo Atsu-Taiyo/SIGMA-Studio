@@ -51,7 +51,7 @@ def numeric_id(value):
 
 def report(state, *, message="", errors=0, warnings=0):
     # Do not render arbitrary provider strings, IDs, URLs, notes or error bodies.
-    if state not in STATES | {"Ready", "PackageVerified", "NoSubmission"}:
+    if state not in STATES | {"Ready", "PackageVerified", "NoSubmission", "Deferred", "Current"}:
         raise StoreError("Store returned an unknown status; inspect Partner Center privately.")
     line = f"Microsoft Store: {state}; errors={int(errors)}, warnings={int(warnings)}. {message}".strip()
     print(line, flush=True)
@@ -157,12 +157,17 @@ def read_status(client, submission_id):
     return state
 
 
-def check_ready(client, env):
+def checked_application(client, env):
     app = client.call()
     if (app.get("id") != client.app_id
             or app.get("packageIdentityName") != require(env, "WINDOWS_STORE_IDENTITY_NAME")
             or app.get("publisherName") != require(env, "WINDOWS_STORE_PUBLISHER")):
         raise StoreError("Partner Center identity does not match the configured application.")
+    return app
+
+
+def check_ready(client, env):
+    app = checked_application(client, env)
     if app.get("pendingApplicationSubmission"):
         raise StoreError("An existing submission is present. It will not be deleted, overwritten or resubmitted.")
     published = app.get("lastPublishedApplicationSubmission") or {}

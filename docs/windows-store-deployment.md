@@ -5,6 +5,7 @@ Partner Center APIへの接続確認、アップロード、審査提出、審�
 Windowsのビルドは行いません。通常のNSISインストーラを配布する `release.yml` とは別です。
 AppXがまだない公開済みバージョンでは、手動の **Prepare Windows Store package** で
 そのReleaseタグのソースからAppXを用意できます。パッケージ作成と審査提出は別のworkflowです。
+新しい正式Releaseからの全自動実行は **Microsoft Store continuous delivery** が両者を接続します。
 
 ## 公開情報と非公開情報
 
@@ -22,7 +23,7 @@ GitHubの **Secretsに保存することと、配布アプリで秘密にでき�
 Storeのパッケージ識別情報はmanifestから読める公開識別子です。
 アプリへ同梱する公開接続設定については [配布設定](distribution.md#配布アプリの共同編集設定) を参照してください。
 Client secret、service-roleキー、審査用ログイン情報をアプリのビルド環境や
-`NEXT_PUBLIC_*` に渡してはいけません。本workflowは認証Secretsを提出stepだけに渡します。
+`NEXT_PUBLIC_*` に渡してはいけません。認証SecretsはStoreの状態確認・提出stepだけに渡します。
 
 公開Actionsログには、状態名とエラー・警告の件数だけを出します。
 APIエラー本文、審査レポートURL、Store内部ID、審査メモは出しません。
@@ -103,13 +104,35 @@ descriptionやreleaseNotesは前回のままなので、機能・申告・掲載
 
 | Variable名 | 設定値・動作 |
 | --- | --- |
-| `WINDOWS_STORE_AUTO_SUBMIT` | `true` の場合、GitHub Releaseの公開時に審査提出。未設定なら実行しない |
+| `WINDOWS_STORE_AUTO_SUBMIT` | `true` の場合、正式Release公開時にStore用AppXの準備から審査提出まで実行。毎時の再確認も有効。未設定なら自動実行しない |
 | `WINDOWS_STORE_PUBLISH_MODE` | 自動提出時は `Manual`（既定）または `Immediate` |
 | `WINDOWS_STORE_MONITOR_ENABLED` | `true` の場合、6時間ごとに審査状態を取得。未設定なら実行しない |
 
-自動提出では公開イベント発生時にAppXアセットとGitHubのSHA-256 digestが必要です。
-**下書きReleaseへ検証済みAppXを追加してからReleaseを公開**します。
-公開後に追加した場合は手動 `submit` を使用してください。ビルド完了だけでは審査提出しません。
+**Microsoft Store continuous delivery** (`windows-store-cd.yml`) が次の順に実行します。
+
+1. GitHubの正式Releaseを公開すると、Storeの処理を `main` で起動します。
+   下書きやプレリリースは対象外です。通常のRelease workflowが作る下書きは、公開時に対象になります。
+2. 公開済みStore版・審査中の提出を読み取り、新版が必要か判断します。
+3. **Prepare Windows Store package** を再利用して、対象タグからAppXを作成します。
+   配布内容の機密情報検査、Windows Electronの保存・再読込テスト、manifest検証を通します。
+4. 同じrunの成功した作成jobが返したartifact IDとSHA-256だけを受け渡し、別runnerで再検証します。
+5. Store状態を再確認してからアップロード・審査提出します。
+   既定は審査通過後の公開を保留する `Manual` です。`WINDOWS_STORE_PUBLISH_MODE=Immediate` の場合は自動公開します。
+
+GitHub ReleaseへAppXを手動追加したり、run ID・ハッシュを手で入力する必要はありません。
+Store APIキーは状態確認・提出のstepだけに渡し、パッケージ作成・テストには渡しません。
+掲載情報・価格・審査メモは前回公開版を引き継ぎます。
+
+毎時41分にも最新の正式Releaseを確認します。`GITHUB_TOKEN` で公開したReleaseは別workflowの
+公開イベントを起こさないため、この定期確認で拾います（GitHubの混雑時は遅れることがあります）。
+前版が受付処理中・審査中・公開処理中なら上書きせず延期し、次の定期確認で再判定します。
+同じ版・新しい版がStoreで公開済みなら何もしません。複数版が待つ場合、定期確認では最新の正式版を選びます。
+未提出下書き、審査失敗、公開保留は自動破棄しません。下書き・失敗は復旧が必要なエラー、
+公開保留は保留中の提出として扱います。手動公開または復旧の完了後、次回定期確認で続行します。
+
+Actionsから `verify_only=true`（手動起動の既定値）で実行すると、
+実際のWindowsパッケージ作成・job間の受け渡し・再検証まで行い、Storeへの書き込みは行いません。
+`release_tag` を空にすると最新の正式版を選びます。`verify_only=false` は自動提出スイッチが有効なときだけ実行できます。
 失敗状態はActionsの失敗にし、通常のGitHub通知設定で検知できます。
 審査結果が出るまでジョブを占有し続けず、次回の `status` で進捗を確認します。
 
@@ -154,8 +177,8 @@ Store APIのClient secret・Tenant ID・審査メモはパッケージ作成へ�
 ローカル確認（通信・認証情報なし）:
 
 ```sh
-python3 -m unittest discover -s scripts -p windows_store_test.py
-actionlint .github/workflows/windows-store.yml .github/workflows/checks.yml
+python3 -m unittest discover -s scripts -p 'windows_store*_test.py'
+actionlint .github/workflows/windows-store-cd.yml .github/workflows/build-windows-store.yml .github/workflows/windows-store.yml .github/workflows/checks.yml
 ```
 
 ## Microsoftの公式仕様
