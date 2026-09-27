@@ -209,6 +209,17 @@ test("allows removing an existing box-local column break", async ({ page }) => {
   await expect(menu.getByRole("menuitem", { name: "改段を挿入", exact: true })).toHaveCount(0);
   await menu.getByRole("menuitem", { name: "改段を解除", exact: true }).click();
   await expect(marker).toHaveCount(0);
+  // 表示の更新は自動保存より先に完了する。解除前のスナップショットで mock を
+  // 再初期化しないよう、正本に対象ブロックの変更が保存されたことを確認する。
+  await expect.poll(() => page.evaluate(() => {
+    const saved = JSON.parse(localStorage.getItem("sigma-studio:e2e-document")!) as SigmaDocument;
+    const box = saved.content.find((block) => block.id === "inner_break_box");
+    if (box?.type !== "boxBlock") return false;
+    const section = box.blocks[0];
+    if (section?.type !== "layoutSection") return false;
+    const target = section.children.find((block) => block.id === "inner_break_2");
+    return !!target && target.pagination?.break !== true;
+  })).toBe(true);
   await installDesktopRuntimeMock(page, await page.evaluate(() => JSON.parse(localStorage.getItem("sigma-studio:e2e-document")!)));
   await page.reload();
   await expect(page.locator(".startup-splash")).toBeHidden();
