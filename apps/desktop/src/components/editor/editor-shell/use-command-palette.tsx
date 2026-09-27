@@ -107,6 +107,7 @@ export function useCommandPalette({
         setPageSettingsOpen(true);
         return;
       case "texEnvironment":
+        setSettingsFocusEntryId(entry.id);
         setTexEnvironmentSettingsOpen(true);
         return;
       case "commands":

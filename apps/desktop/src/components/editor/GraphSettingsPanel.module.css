@@ -29,6 +29,12 @@
   cursor: grabbing;
 }
 
+.headerActions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+}
+
 .title {
   margin: 0;
   font-size: 13px;

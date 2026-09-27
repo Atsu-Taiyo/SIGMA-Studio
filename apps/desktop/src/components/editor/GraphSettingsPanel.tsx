@@ -148,6 +148,7 @@ export function GraphSettingsPanelFrame({
   width = GRAPH_SETTINGS_PANEL_WIDTH_PX,
   /** 横に置けないときに縮んでよい下限。広いパネルはこれを下げてグラフを覆わずに済ませる。 */
   minWidth = width,
+  headerActions,
   onClose,
 }: {
   shapeId: string;
@@ -157,6 +158,7 @@ export function GraphSettingsPanelFrame({
   children: ReactNode;
   width?: number;
   minWidth?: number;
+  headerActions?: ReactNode;
   onClose: () => void;
 }) {
   const t = useT("shape");
@@ -378,9 +380,12 @@ export function GraphSettingsPanelFrame({
         onPointerCancel={handleDragEnd}
       >
         <h2 className={styles.title}>{title}</h2>
-        <IconButton label={resolvedCloseLabel} tone="ghost" size="sm" onClick={onClose}>
-          <X size={15} aria-hidden="true" />
-        </IconButton>
+        <div className={styles.headerActions}>
+          {headerActions}
+          <IconButton label={resolvedCloseLabel} tone="ghost" size="sm" onClick={onClose}>
+            <X size={15} aria-hidden="true" />
+          </IconButton>
+        </div>
       </header>
       <div className={styles.body}>
         {children}

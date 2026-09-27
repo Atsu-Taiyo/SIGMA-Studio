@@ -160,11 +160,11 @@ describe("mounted command palette", () => {
     expect(frames).toEqual([]);
   });
 
-  it("opens the TeX surface without leaving a focus request for another settings dialog", () => {
+  it("opens the TeX surface with its requested settings tab", () => {
     const f = fixture();
     render(f.options);
     act(() => palette.runPaletteEntry(settingEntry("texEnvironment")));
-    expect(f.calls).toEqual([["palette", false], ["tex", true]]);
+    expect(f.calls).toEqual([["palette", false], ["focus", "setting.texEnvironment"], ["tex", true]]);
     expect(frames).toEqual([]);
   });
 

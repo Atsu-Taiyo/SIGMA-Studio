@@ -154,7 +154,7 @@ export const chrome = {
       outline: "Show outline",
       shortcuts: "Keyboard shortcuts",
       texReference: "Equation command reference",
-      texEnvironment: "TeX environment",
+      texEnvironment: "TeX / TikZ environment",
       pageSettings: "Page setup",
       appSettings: "App settings",
     },

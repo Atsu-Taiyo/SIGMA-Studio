@@ -1023,6 +1023,10 @@ type OverlayImageShape = OverlayBaseShape<"image", {
   assetId: string;
   w: number;
   h: number;
+  tikz?: {
+    source: string;
+    environment: { packages: string; libraries: string; preamble: string };
+  };
   crop?: {
     topLeft: { x: number; y: number };
     bottomRight: { x: number; y: number };
@@ -1031,6 +1035,10 @@ type OverlayImageShape = OverlayBaseShape<"image", {
 ```
 
 `assetId` は `overlaySnapshot.assets` のキーを参照します。`crop` は元画像内の表示範囲を `0..1` の正規化座標で表します。省略時は画像assetの比率を保ったまま、shape枠を満たす中央cover cropとして表示します。
+
+TikZ画像は `props.tikz` に元のコードと生成時の環境を保持します。`packages` は `\usepackage` の宣言、`libraries` はカンマ区切りのTikZライブラリ名、`preamble` は独自コマンド・環境などの宣言です。コードは最大100,000文字、環境の各欄は最大20,000文字です。`metadata.tikzEnvironment` は同じ環境型で、新規画像の既定値として教材ごとに保存します。既存画像の環境は個別に保持します。標準の矢印ライブラリ `arrows.meta` は生成時に常に読み込み、`Latex` や `Stealth` を環境設定なしで利用できます。保存されたコード・環境は書き換えません。
+
+Electronの内蔵TikZJaxで生成したSVGはフォントを埋め込み、通常の画像assetとして保存します。閲覧・印刷時の再コンパイルやネット接続は不要です。内蔵パッケージを利用し、任意の外部TeXパッケージのインストールは行いません。日本語などのUnicodeラベルは未対応で、画像を挿入せず編集画面にエラーを表示します。編集の適用は画像assetとソースを同じ履歴で更新し、置換後の未使用assetを除去します。
 
 ### Callout Shape
 
