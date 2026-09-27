@@ -1,3 +1,4 @@
+import type { TikzImageSource } from "./model/tikz";
 import type { InlineNode, TextAlign } from "./model/rich-text";
 import type { CodeBlockNode, DividerNode, QuoteBlockNode, RichBlock } from "./model/blocks";
 import type { Graph2DSpec } from "./model/graph";
@@ -258,6 +259,7 @@ export type OverlayTextShape = OverlayBaseShape<"text", {
 }>;
 
 export type OverlayImageShape = OverlayBaseShape<"image", {
+  tikz?: TikzImageSource;
   assetId: OverlayAssetId;
   w: number;
   h: number;

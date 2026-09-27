@@ -1,4 +1,4 @@
-import { memo, useCallback, useMemo, useState, useSyncExternalStore } from "react";
+import { memo, useCallback, useContext, useMemo, useState, useSyncExternalStore } from "react";
 import type {
   MouseEvent as ReactMouseEvent,
   PointerEvent as ReactPointerEvent,
@@ -49,6 +49,7 @@ import { useDocumentSession } from "../document-session-context";
 
 import type { OriginPickPreview } from "./shape-editors";
 import { getImageCropCss } from "./image-crop";
+import { OverlayImagePreviewContext } from "./image-preview-context";
 import type { OverlayShapeDecoration } from "./editor-extension";
 import { getAxisAlignedRotatedBounds } from "./math";
 import {
@@ -302,7 +303,18 @@ export const OverlayShapeView = memo(function OverlayShapeView({
   onGraphCropEnd: () => void;
 }) {
   countPerformanceEvent("OverlayShapeView.render");
-  const bounds = getShapeBounds(shape);
+  const imagePreview = useContext(OverlayImagePreviewContext);
+  const preview = shape.type === "image" && imagePreview?.shapeId === shape.id ? imagePreview : null;
+  // Only the painted image changes. Pointer handlers still receive the canonical shape,
+  // so moving another object or saving the document cannot persist the draft.
+  const displayedShape = preview && shape.type === "image"
+    ? { ...shape, props: { ...shape.props, h: shape.props.w * preview.height / preview.width, crop: undefined } }
+    : shape;
+  const asset = shape.type === "image" ? assets[shape.props.assetId] : undefined;
+  const displayedAssets = preview && asset ? { ...assets, [asset.id]: {
+    ...asset, props: { ...asset.props, src: preview.src, w: preview.width, h: preview.height },
+  } } : assets;
+  const bounds = getShapeBounds(displayedShape);
   const rotation = getShapeRotation(shape);
   const className = `overlay-shape overlay-shape-${shape.type} ${selected ? "selected" : ""} ${shape.locked ? "locked" : ""} ${decoration?.className ?? ""} ${diffClassName ?? ""}`;
 
@@ -339,8 +351,8 @@ export const OverlayShapeView = memo(function OverlayShapeView({
     >
       <ShapeBody
         key={!editing && (shape.type === "text" || shape.type === "callout") ? textPaintRevision : undefined}
-        shape={shape}
-        assets={assets}
+        shape={displayedShape}
+        assets={displayedAssets}
         bounds={bounds}
         chartSourceTable={chartSourceTable}
         externalRevision={externalRevision}

@@ -24,6 +24,7 @@ type BlockPaste =
 
 interface EditorClipboardPorts {
   overlayEditing: boolean;
+  pasteTikz?: (text: string) => boolean;
   selectedInlineMath: { tex: string } | null;
   getSelectedBlock: () => SigmaBlock | null;
   isMaterialEditing: () => boolean;
@@ -74,6 +75,14 @@ export function registerEditorClipboardEvents(ports: EditorClipboardPorts): () =
   };
 
   const handlePaste = (event: ClipboardEvent) => {
+    if (event.clipboardData && !ports.isMaterialEditing() && !isPlainTextClipboardTarget(event.target)
+      && !(event.target instanceof Element && event.target.closest('[role="dialog"]'))
+      && !readEditorClipboardPayload(event.clipboardData)
+      && ports.pasteTikz?.(event.clipboardData.getData("text/plain"))) {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      return;
+    }
     if (overlayEditing || !event.clipboardData) {
       return;
     }

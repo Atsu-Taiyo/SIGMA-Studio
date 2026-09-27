@@ -615,6 +615,11 @@ const SigmaDocumentInputSchema = z.object({
       depth: z.union([z.literal(1), z.literal(2), z.literal(3)]).optional(),
     }).optional(),
     texPreamble: z.string().max(20_000).optional(),
+    tikzEnvironment: z.object({
+      packages: z.string().max(20_000),
+      libraries: z.string().max(20_000),
+      preamble: z.string().max(20_000),
+    }).optional(),
   }),
   content: z.array(SigmaBlockSchema),
   outputProfiles: z.object({

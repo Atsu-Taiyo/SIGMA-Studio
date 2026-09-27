@@ -1,0 +1,18 @@
+.code {
+  box-sizing: border-box;
+  width: 100%;
+  resize: vertical;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  background: var(--surface, #fafafa);
+  color: var(--text-primary);
+  padding: var(--space-md);
+  font: 13px/1.7 var(--font-mono, monospace);
+  tab-size: 2;
+}
+.code:focus { outline: 2px solid var(--border-strong, #bdbdbd); outline-offset: 2px; }
+.editor { padding: var(--space-lg); }
+.source { min-height: min(300px, 45vh); }
+.sourceLabel { display: block; padding-bottom: var(--space-sm); color: var(--text-secondary); font-size: 12px; }
+.error { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 140px; overflow: auto; color: var(--text-secondary); font-size: 12px; }
+.hint { color: var(--text-muted); font-size: 12px; }

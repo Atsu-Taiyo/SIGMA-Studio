@@ -40,6 +40,7 @@ export * from "./overlay-rich-text";
 export * from "./overlay-rich-text-format";
 export * from "./overlay-snapshot";
 export * from "./overlay-assets";
+export * from "./tikz";
 export {
   isBaseOverlaySnapshot,
   isOverlayAsset,

@@ -75,6 +75,28 @@ beforeEach(() => {
   clipboardData(createOverlayClipboardPayload([], {}));
 });
 
+describe("TikZ paste routing", () => {
+  it.each([false, true])("routes plain TikZ before editor handlers (overlay=%s)", (overlayEditing) => {
+    const target = mount('<div class="page-flow"><div contenteditable="true" data-target></div></div>');
+    const pasteTikz = vi.fn(() => true);
+    install({ overlayEditing, pasteTikz });
+    const data = clipboardData();
+    data.setData("text/plain", "tikz source");
+    expect(dispatch(target, "paste", data).defaultPrevented).toBe(true);
+    expect(pasteTikz).toHaveBeenCalledWith("tikz source");
+  });
+
+  it.each(['<textarea data-target></textarea>', '<input data-target>', '<div role="dialog"><div data-target></div></div>'])("keeps paste in ordinary inputs and dialogs: %s", (html) => {
+    const target = mount(html);
+    const pasteTikz = vi.fn(() => true);
+    install({ pasteTikz });
+    const data = clipboardData();
+    data.setData("text/plain", "tikz source");
+    dispatch(target, "paste", data);
+    expect(pasteTikz).not.toHaveBeenCalled();
+  });
+});
+
 afterEach(() => {
   cleanups.splice(0).forEach((cleanup) => cleanup());
   window.getSelection()?.removeAllRanges();

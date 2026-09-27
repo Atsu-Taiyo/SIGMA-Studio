@@ -1,5 +1,10 @@
 "use client";
 
+import { EMPTY_TIKZ_ENVIRONMENT, type TikzEnvironment } from "@/features/document";
+import { Tabs } from "@/components/ui/settings";
+import { Inline, Stack } from "@/components/ui/layout";
+import { TikzEnvironmentFields } from "./tikz/TikzEnvironmentFields";
+import { useSettingsEntryFocus } from "./settings-entry-focus";
 import { Braces } from "lucide-react";
 import { useMemo, useRef, useState } from "react";
 
@@ -23,12 +28,18 @@ import { useT } from "@/lib/i18n/react";
 
 interface TexEnvironmentSettingsDialogProps {
   preamble?: string;
+  tikzEnvironment?: TikzEnvironment;
+  onTikzChange?: (environment: TikzEnvironment) => void;
+  focusEntryId?: string;
   onChange: (preamble: string | undefined) => void;
   onClose: () => void;
 }
 
-export function TexEnvironmentSettingsDialog({ preamble, onChange, onClose }: TexEnvironmentSettingsDialogProps) {
+export function TexEnvironmentSettingsDialog({ preamble, onChange, onClose, tikzEnvironment, onTikzChange, focusEntryId }: TexEnvironmentSettingsDialogProps) {
   const t = useT("settings");
+  const [tab, setTab] = useState<"math" | "tikz">(focusEntryId === "settings.tikz.environment" ? "tikz" : "math");
+  const [tikzDraft, setTikzDraft] = useState(tikzEnvironment ?? EMPTY_TIKZ_ENVIRONMENT);
+  useSettingsEntryFocus(focusEntryId);
   const tCommon = useT("common");
   const tTex = useT("tex");
   const examplePreamble = useMemo(() => resolveExampleTexPreamble(tTex), [tTex]);
@@ -67,11 +78,19 @@ export function TexEnvironmentSettingsDialog({ preamble, onChange, onClose }: Te
             <span>{t("tex.title")}</span>
           </span>
         )}
-        description={t("tex.description")}
+        description={tab === "tikz" ? t("tikz.settingsDescription") : t("tex.description")}
         onClose={onClose}
       />
 
       <ModalBody className={styles.body} padding="xl">
+        <Tabs label={t("tex.title")} items={[{ value: "math", label: t("tikz.mathTab") }, { value: "tikz", label: "TikZ" }]} value={tab} onValueChange={setTab}>
+        {tab === "tikz" ? <Stack gap="xl" id="tikz-environment-settings">
+          <TikzEnvironmentFields value={tikzDraft} onChange={setTikzDraft} />
+          <Inline gap="sm" justify="end">
+            <Button onClick={onClose}>{tCommon("actions.cancel")}</Button>
+            <Button tone="primary" onClick={() => { onTikzChange?.(tikzDraft); onClose(); }}>{t("tikz.save")}</Button>
+          </Inline>
+        </Stack> : <Stack gap="xl">
         <section className={styles.editorSection} aria-labelledby="tex-preamble-label">
           <div className={styles.sectionHeading}>
             <div>
@@ -173,6 +192,8 @@ export function TexEnvironmentSettingsDialog({ preamble, onChange, onClose }: Te
           <Button onClick={onClose}>{tCommon("actions.cancel")}</Button>
           <Button tone="primary" onClick={save}>{t("tex.save")}</Button>
         </footer>
+        </Stack>}
+        </Tabs>
       </ModalBody>
     </ModalFrame>
   );
