@@ -3,6 +3,20 @@ import type { TranslationsOf } from "../types";
 
 /** 対応する日本語 namespace と同時に埋める。詳細は `../ja/ai.ts` を参照。 */
 export const ai = {
+  problemSearch: {
+    loginRequired: "Sign in to Sigma Studio to search problems.",
+    invalidQuery: "The search parameters are invalid.",
+    unconfigured: "Problem search API authentication is not configured. Ask your administrator to check the connection.",
+    denied: "Access to the problem search API was denied. Check authentication settings.",
+    notFound: "The requested problem search resource was not found.",
+    rateLimited: "The problem search API rate limit was reached. Try again later.",
+    upstreamError: "The problem search API returned an error.",
+    invalidResponse: "The problem search API response format is invalid.",
+    emptyResponse: "The problem search API response is empty.",
+    tooLarge: "The problem search API response exceeds the size limit.",
+    unsafeResponse: "The problem search API response could not be processed safely.",
+    connectionFailed: "Could not connect to the problem search API or read its response.",
+  },
   problemSolution: {
     loginRequired: "Sign in to Sigma Studio to retrieve a solution.",
     invalidId: "The problem ID is invalid.",

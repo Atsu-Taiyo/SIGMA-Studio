@@ -1,3 +1,4 @@
+import { PROBLEM_SEARCH_BRIDGE_PATH, ProblemSearchRequestSchema, type ProblemSearchRequest, type ProblemSearchResult } from "./problem-search-client";
 import crypto from "node:crypto";
 import fsSync from "node:fs";
 import fs from "node:fs/promises";
@@ -293,6 +294,7 @@ export type RenderSvgResult = RenderSvgSuccess | RenderPageContextFailure;
 
 export interface CreateAiRenderBridgeServerDeps {
   token: string;
+  searchProblems?: (request: ProblemSearchRequest) => Promise<ProblemSearchResult>;
   getProblemSolution?: (request: { problemId: string }) => Promise<ProblemSolutionResult>;
   renderPageContext: (request: RenderPageContextRequest) => Promise<RenderPageContextResult>;
   renderSvg: (request: RenderSvgRequest) => Promise<RenderSvgResult>;
@@ -365,7 +367,8 @@ export function createAiRenderBridgeServer(deps: CreateAiRenderBridgeServerDeps)
       const isPageContext = req.method === "POST" && req.url === RENDER_PAGE_CONTEXT_PATH;
       const isSvg = req.method === "POST" && req.url === RENDER_SVG_PATH;
       const isSolution = req.method === "POST" && req.url === PROBLEM_SOLUTION_BRIDGE_PATH;
-      if (!isPageContext && !isSvg && !isSolution) {
+      const isSearch = req.method === "POST" && req.url === PROBLEM_SEARCH_BRIDGE_PATH;
+      if (!isPageContext && !isSvg && !isSolution && !isSearch) {
         sendJson(res, 404, { ok: false, error: "not found" });
         return;
       }
@@ -386,6 +389,22 @@ export function createAiRenderBridgeServer(deps: CreateAiRenderBridgeServerDeps)
         parsedJson = JSON.parse(bodyResult.body.toString("utf8"));
       } catch {
         sendJson(res, 400, { ok: false, error: ta("desktop.renderBridge.requestJsonFailed") });
+        return;
+      }
+
+      if (isSearch) {
+        const request = ProblemSearchRequestSchema.safeParse(parsedJson);
+        if (!request.success) {
+          sendJson(res, 400, { ok: false, error: ta("problemSearch.invalidQuery") });
+          return;
+        }
+        try {
+          const result = await deps.searchProblems?.(request.data)
+            ?? { ok: false, error: ta("problemSearch.unconfigured") };
+          sendJson(res, result.ok ? 200 : 502, result);
+        } catch {
+          sendJson(res, 502, { ok: false, error: ta("problemSearch.connectionFailed") });
+        }
         return;
       }
 

@@ -10,6 +10,20 @@
  * (WI-4 で実測)。
  */
 export const ai = {
+  problemSearch: {
+    loginRequired: "問題を検索するにはSigma Studioにログインしてください。",
+    invalidQuery: "検索条件が不正です。",
+    unconfigured: "問題検索APIの認証が未設定です。管理者に接続設定を確認してください。",
+    denied: "問題検索APIへのアクセスが許可されていません。認証設定を確認してください。",
+    notFound: "公開済みの問題が見つかりません。",
+    rateLimited: "問題検索APIの利用制限に達しました。時間を置いて再試行してください。",
+    upstreamError: "問題検索APIでエラーが発生しました。",
+    invalidResponse: "問題検索APIの応答形式が不正です。",
+    emptyResponse: "問題検索APIの応答が空です。",
+    tooLarge: "問題検索APIの応答がサイズ上限を超えました。",
+    unsafeResponse: "問題検索APIの応答を安全に処理できませんでした。",
+    connectionFailed: "問題検索APIに接続できないか、応答を読み取れませんでした。",
+  },
   problemSolution: {
     loginRequired: "解答を取得するにはSigma Studioにログインしてください。",
     invalidId: "問題IDが不正です。",

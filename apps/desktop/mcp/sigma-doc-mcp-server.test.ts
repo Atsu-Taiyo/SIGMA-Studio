@@ -101,6 +101,7 @@ async function saveAtCurrentRevision(
 // external Codex-import tooling. Public contract is intentionally versioned by exact names.
 const DOCUMENTED_TOOL_NAMES = [
   "get_problem_solution",
+  "search_problems",
   "align_shapes",
   "apply_edits",
   "begin_visual_edit_session",
