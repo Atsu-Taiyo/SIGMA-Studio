@@ -21,6 +21,7 @@ perf-out/
 cache/
 *.tmp
 *.tsbuildinfo
+__pycache__/
 .env*.local
 fake-capture.json
 

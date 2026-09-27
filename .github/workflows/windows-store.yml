@@ -1,0 +1,88 @@
+name: Microsoft Store deployment
+
+# Consumes an existing AppX release asset. This workflow never builds Windows.
+on:
+  workflow_dispatch:
+    inputs:
+      operation:
+        description: "preflight=接続確認 / submit=審査提出 / status=審査状況"
+        type: choice
+        options: [preflight, submit, status]
+        default: preflight
+      release_tag:
+        description: "submit時の既存Releaseタグ (v0.500.0など)"
+        type: string
+      package_sha256:
+        description: "submit時の検証済みAppXのSHA-256 (64文字)"
+        type: string
+      publish_mode:
+        description: "Manual=審査後に公開を保留 / Immediate=審査通過後に公開"
+        type: choice
+        options: [Manual, Immediate]
+        default: Manual
+  release:
+    types: [published]
+  schedule:
+    - cron: "23 */6 * * *"
+
+permissions:
+  contents: read
+
+# One application, including status checks: never race two submission mutations.
+concurrency:
+  group: microsoft-store-production
+  cancel-in-progress: false
+
+jobs:
+  store:
+    if: >-
+      (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') ||
+      (github.event_name == 'release' && vars.WINDOWS_STORE_AUTO_SUBMIT == 'true') ||
+      (github.event_name == 'schedule' && vars.WINDOWS_STORE_MONITOR_ENABLED == 'true')
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    environment: windows-store
+    env:
+      STORE_OPERATION: ${{ github.event_name == 'schedule' && 'status' || github.event_name == 'release' && 'submit' || inputs.operation }}
+      STORE_RELEASE_TAG: ${{ github.event.release.tag_name || inputs.release_tag }}
+      STORE_PUBLISH_MODE: ${{ inputs.publish_mode || vars.WINDOWS_STORE_PUBLISH_MODE || 'Manual' }}
+      STORE_PACKAGE_SHA256: ${{ inputs.package_sha256 }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          # Submission code comes from main, never from the release asset or tag.
+          ref: main
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.13"
+      - name: Verify submission guards without credentials
+        run: python3 -m unittest discover -s scripts -p windows_store_test.py
+      - name: Download the existing Store package
+        if: env.STORE_OPERATION == 'submit'
+        run: python3 scripts/windows_store.py download "$RUNNER_TEMP/store-package"
+        env:
+          GH_TOKEN: ${{ github.token }}
+      - name: Check access, submit for certification, or read status
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "$STORE_OPERATION" == "submit" ]]; then
+            export STORE_PACKAGE_SHA256
+            STORE_PACKAGE_SHA256="$(cat "$RUNNER_TEMP/store-package/sha256")"
+            package="$RUNNER_TEMP/store-package/Sigma-Studio-Store-${STORE_RELEASE_TAG#v}-x64.appx"
+            python3 scripts/windows_store.py submit "$package"
+          else
+            python3 scripts/windows_store.py "$STORE_OPERATION"
+          fi
+        env:
+          WINDOWS_STORE_TENANT_ID: ${{ secrets.WINDOWS_STORE_TENANT_ID }}
+          WINDOWS_STORE_CLIENT_ID: ${{ secrets.WINDOWS_STORE_CLIENT_ID }}
+          WINDOWS_STORE_CLIENT_SECRET: ${{ secrets.WINDOWS_STORE_CLIENT_SECRET }}
+          WINDOWS_STORE_APPLICATION_ID: ${{ secrets.WINDOWS_STORE_APPLICATION_ID }}
+          WINDOWS_STORE_IDENTITY_NAME: ${{ secrets.WINDOWS_STORE_IDENTITY_NAME }}
+          WINDOWS_STORE_PUBLISHER: ${{ secrets.WINDOWS_STORE_PUBLISHER }}
+          WINDOWS_STORE_CERTIFICATION_NOTES: ${{ secrets.WINDOWS_STORE_CERTIFICATION_NOTES }}
+      - name: Remove temporary package data
+        if: always()
+        run: rm -rf -- "$RUNNER_TEMP/store-package"

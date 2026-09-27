@@ -36,6 +36,9 @@ OSごとの検証、ビルド成功、署名・インストール後の動作確
 
 ## GitHub Actionsの設定
 
+Microsoft Storeへのアップロード・審査提出・状態確認は、ビルドとは独立した
+[Microsoft Storeへの提出と審査](windows-store-deployment.md) を参照してください。
+
 署名用の `MAC_CSC_LINK`・`MAC_CSC_KEY_PASSWORD`、公証用の `APPLE_ID`・`APPLE_APP_SPECIFIC_PASSWORD`・`APPLE_TEAM_ID` をリポジトリSecretsに設定します。
 配布物の混入検査には `RELEASE_CONTENT_RULES` を設定します。値は正規表現文字列のJSON配列で、ソースへ含めません。Releaseビルドでは設定がない場合も検査に失敗します。
 同じリポジトリの下書きReleaseへのアップロードには、workflowの `contents: write` と `GITHUB_TOKEN` を使います。
