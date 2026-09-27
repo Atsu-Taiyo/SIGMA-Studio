@@ -1,6 +1,7 @@
 name: Microsoft Store deployment
 
-# Consumes an existing AppX release asset. This workflow never builds Windows.
+# Consumes an existing AppX from a Release or the manual Store package workflow.
+# This submission workflow never builds Windows.
 on:
   workflow_dispatch:
     inputs:
@@ -15,6 +16,9 @@ on:
       package_sha256:
         description: "submit時の検証済みAppXのSHA-256 (64文字)"
         type: string
+      package_run_id:
+        description: "任意: Prepare Windows Store packageの成功run ID。空欄ならReleaseから取得"
+        type: string
       publish_mode:
         description: "Manual=審査後に公開を保留 / Immediate=審査通過後に公開"
         type: choice
@@ -27,6 +31,7 @@ on:
 
 permissions:
   contents: read
+  actions: read
 
 # One application, including status checks: never race two submission mutations.
 concurrency:
@@ -47,6 +52,7 @@ jobs:
       STORE_RELEASE_TAG: ${{ github.event.release.tag_name || inputs.release_tag }}
       STORE_PUBLISH_MODE: ${{ inputs.publish_mode || vars.WINDOWS_STORE_PUBLISH_MODE || 'Manual' }}
       STORE_PACKAGE_SHA256: ${{ inputs.package_sha256 }}
+      STORE_PACKAGE_RUN_ID: ${{ inputs.package_run_id }}
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:

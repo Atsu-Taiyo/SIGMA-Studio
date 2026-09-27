@@ -3,6 +3,8 @@
 `.github/workflows/windows-store.yml` は **既に作成されたStore用AppX** を使い、
 Partner Center APIへの接続確認、アップロード、審査提出、審査・公開状態の取得を行います。
 Windowsのビルドは行いません。通常のNSISインストーラを配布する `release.yml` とは別です。
+AppXがまだない公開済みバージョンでは、手動の **Prepare Windows Store package** で
+そのReleaseタグのソースからAppXを用意できます。パッケージ作成と審査提出は別のworkflowです。
 
 ## 公開情報と非公開情報
 
@@ -14,7 +16,7 @@ Windowsのビルドは行いません。通常のNSISインストーラを配布
 | 審査員向けの補足・テストアカウント情報 | `WINDOWS_STORE_CERTIFICATION_NOTES` Secret、または既存のPartner Center審査メモ |
 | 説明文、スクリーンショット、価格、公開リリースノート | Partner Centerの既存公開情報を引き継ぐ |
 | OAuthアクセストークン、SASアップロードURL、API応答全体 | 実行プロセスのメモリのみ。ログ・artifact・キャッシュへ保存しない |
-| 提出対象AppX、SHA-256 | GitHub Releaseと一時runnerディレクトリ。配布可能な内容だけを含める |
+| 提出対象AppX、SHA-256 | GitHub ReleaseまたはActions artifactと一時runnerディレクトリ。配布可能な内容だけを含める |
 
 GitHubの **Secretsに保存することと、配布アプリで秘密にできることは別です**。
 Storeのパッケージ識別情報はmanifestから読める公開識別子です。
@@ -126,6 +128,28 @@ POSTを自動再試行せず、残った下書きや審査中提出も自動削�
 同じ版・古い版の再提出は拒否します。APIで作成した下書きはPartner Centerの編集画面で
 変更せず、障害調査後にAPIで復旧するか、明示的に破棄して新しい提出を作る方針を決めます。
 本workflowには無条件削除・commitだけの再実行機能はありません。
+
+## 公開済みバージョンにAppXがない場合
+
+古いAppXのファイル名を変えても中身のバージョンは変わりません。新しいReleaseタグから作成します。
+
+1. Actions → **Prepare Windows Store package** を `main` で手動実行し、
+   `release_tag` に対象の公開済みタグを指定します。
+2. この処理はmain履歴に含まれる安定版タグだけをcheckoutし、既存の `electron:dist:store` を実行します。
+   配布内容の機密情報検査、Windowsでのfile-lockテストとElectronでのファイル読込・保存・再読込、
+   梱包済みnative moduleの実行確認、
+   AppXのmanifest・識別情報・ハッシュ検証を通してからartifactを保存します。
+   このElectronテストはタグの静的出力を使います。AppXのインストール・Store経由の起動確認とは別です。
+3. 成功したrunのSummaryにある **Package run ID** と **AppX SHA-256** を控えます。
+   artifactは `sigma-studio-windows-store-<release_tag>` で、保存期間は14日です。
+4. AppXのWindows動作確認と既存ドラフトの整理後、**Microsoft Store deployment** を手動実行します。
+   `operation=submit`、同じ `release_tag`、`package_run_id`、`package_sha256` を指定します。
+   この経路ではGitHub ReleaseへAppXを追加する必要はありません。
+
+提出側は同じリポジトリのmainで手動実行された専用パッケージworkflowの成功runだけを許可します。
+別workflow、PR、別ブランチ、期限切れartifact、版違い、ハッシュ不一致では提出しません。
+Store APIのClient secret・Tenant ID・審査メモはパッケージ作成へ渡しません。
+パッケージ作成だけで審査提出やStore公開は始まりません。
 
 ローカル確認（通信・認証情報なし）:
 
