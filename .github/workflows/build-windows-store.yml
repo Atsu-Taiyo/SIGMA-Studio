@@ -1,7 +1,33 @@
 name: Prepare Windows Store package
 
-# One-off packaging of an existing published release, separate from submission.
+# Shared packaging of an existing published release. No Store API credentials.
 on:
+  workflow_call:
+    inputs:
+      release_tag:
+        type: string
+        required: true
+    secrets:
+      SIGMA_COLLABORATION_URL:
+        required: true
+      SIGMA_SUPABASE_URL:
+        required: true
+      SIGMA_SUPABASE_ANON_KEY:
+        required: true
+      RELEASE_CONTENT_RULES:
+        required: true
+      # Supplied by the job's windows-store environment, not by the caller.
+      WINDOWS_STORE_IDENTITY_NAME:
+        required: false
+      WINDOWS_STORE_PUBLISHER:
+        required: false
+      WINDOWS_STORE_PUBLISHER_DISPLAY_NAME:
+        required: false
+    outputs:
+      package_sha256:
+        value: ${{ jobs.package.outputs.package_sha256 }}
+      artifact_id:
+        value: ${{ jobs.package.outputs.artifact_id }}
   workflow_dispatch:
     inputs:
       release_tag:
@@ -13,7 +39,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: prepare-windows-store-package
+  group: prepare-windows-store-package-${{ github.workflow }}
   cancel-in-progress: false
 
 jobs:
@@ -22,6 +48,9 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 45
     environment: windows-store
+    outputs:
+      package_sha256: ${{ steps.inspect.outputs.sha256 }}
+      artifact_id: ${{ steps.upload.outputs.artifact-id }}
     env:
       STORE_RELEASE_TAG: ${{ inputs.release_tag }}
     steps:
@@ -83,6 +112,7 @@ jobs:
       - name: Verify Windows Electron file opening and persistence
         run: npm --workspace @sigma-studio/desktop run test:e2e:electron -- open-document.spec.ts
       - name: Verify the AppX manifest and record its public hash
+        id: inspect
         shell: pwsh
         env:
           WINDOWS_STORE_IDENTITY_NAME: ${{ secrets.WINDOWS_STORE_IDENTITY_NAME }}
@@ -93,9 +123,11 @@ jobs:
           $env:STORE_PACKAGE_SHA256 = (Get-FileHash $package -Algorithm SHA256).Hash.ToLowerInvariant()
           python "$env:RUNNER_TEMP/trusted-windows-store.py" inspect $package
           if ($LASTEXITCODE -ne 0) { throw 'Store package validation failed.' }
+          "sha256=$env:STORE_PACKAGE_SHA256" >> $env:GITHUB_OUTPUT
           "AppX SHA-256: $env:STORE_PACKAGE_SHA256" | Tee-Object -FilePath $env:GITHUB_STEP_SUMMARY -Append
           "Package run ID: $env:GITHUB_RUN_ID" | Tee-Object -FilePath $env:GITHUB_STEP_SUMMARY -Append
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        id: upload
         with:
           name: sigma-studio-windows-store-${{ inputs.release_tag }}
           path: apps/desktop/release/Sigma-Studio-Store-*-x64.appx
