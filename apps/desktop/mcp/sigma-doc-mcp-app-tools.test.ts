@@ -166,11 +166,11 @@ describe("app MCP body tool profile", () => {
     await call(client, "edit_text", { edit: { action: "patch", operations: [{
       op: "format_inline", target: { type: "block", blockId: "p_1" }, style: { fontSizePt: 18 },
     }] } });
-    await call(client, "edit_text", { edit: { action: "update", blockId: "p_1", pagination: { keepWithNext: true } } });
+    await call(client, "edit_text", { edit: { action: "update", blockId: "p_1", pagination: { break: true } } });
     const current = findBlock((await pending()).nextDocument, "p_1")!;
     await call(client, "edit_text", { edit: { action: "replace_structure", blockId: "p_1", block: { ...current, align: "center" } } });
     const proposal = await pending();
-    expect(findBlock(proposal.nextDocument, "p_1")).toMatchObject({ align: "center", pagination: { keepWithNext: true }, children: [{ text: "After text", fontSize: 18, marks: ["bold"] }] });
+    expect(findBlock(proposal.nextDocument, "p_1")).toMatchObject({ align: "center", pagination: { break: true }, children: [{ text: "After text", fontSize: 18, marks: ["bold"] }] });
     expect(findBlock(proposal.nextDocument, "p_2")).toEqual(initialDocument.content[1]);
     expect(await proposals.listProposals({ status: "pending" })).toHaveLength(1);
   });

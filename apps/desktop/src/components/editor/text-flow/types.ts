@@ -110,6 +110,12 @@ export interface TextFlowEditorProps {
   paginationMarkerKinds?: Record<string, import("@/features/text-editing/model").PageBreakMarkerKind>;
   paginationMarkerLayouts?: Record<string, import("@/components/tiptap/page-break-gap-extension").PageBreakMarkerLayout>;
   columnFlowBlockLayouts?: Record<string, TextFlowColumnBlockLayout>;
+  /**
+   * 最上位ブロックのページ割りの変位 (ユニットからの相対)。レイアウトに影響しない `translate` で
+   * 描く。値の無いブロックは直前のブロックの値を継ぐ (配置が決まる前の新しいブロックが
+   * 前のページへ戻って見えないように)。
+   */
+  nodeDisplacements?: Readonly<Record<string, { dx: number; dy: number }>>;
   boxFragmentSourceLayouts?: Record<string, TextFlowBoxFragmentSourceLayout>;
   /** Display-only heading labels keyed by SigmaDoc heading id. */
   headingNumbers?: Readonly<Record<string, string>>;

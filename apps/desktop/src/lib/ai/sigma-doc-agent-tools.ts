@@ -426,11 +426,28 @@ const OverlayAssetsSchema = z.record(z.string(), OverlayAssetSchema).optional().
 const Graph2DSpecSchema = z.custom<Graph2DSpec>((value) => isRecord(value));
 const LooseRecordSchema = z.record(z.string(), z.unknown());
 const AiRichBlockInputSchema = z.union([z.string(), LooseRecordSchema]);
-const PaginationInputSchema = z.object({
-  break: z.boolean().optional(),
-  keepTogether: z.boolean().optional(),
-  keepWithNext: z.boolean().optional(),
-}).strict();
+/**
+ * 廃止したページ指定 (`keepTogether` / `keepWithNext`)。古いスキルやクライアントが送ってきても
+ * 拒否せず、検証の前に黙って落とす — 教材側 (sigma-doc-schema) が読み込み時に捨てるのと同じ扱い。
+ * それ以外の未知キー (綴り違いなど) は従来どおり strict で弾く。
+ */
+const ABOLISHED_PAGINATION_INPUT_KEYS: readonly string[] = ["keepTogether", "keepWithNext"];
+
+export function stripAbolishedPaginationInputKeys(input: unknown): unknown {
+  if (!isRecord(input) || !ABOLISHED_PAGINATION_INPUT_KEYS.some((key) => key in input)) {
+    return input;
+  }
+  return Object.fromEntries(
+    Object.entries(input).filter(([key]) => !ABOLISHED_PAGINATION_INPUT_KEYS.includes(key)),
+  );
+}
+
+export const PaginationInputSchema = z.preprocess(
+  stripAbolishedPaginationInputKeys,
+  z.object({
+    break: z.boolean().optional(),
+  }).strict(),
+);
 const AiRichBlockListSchema = z.union([
   AiRichBlockInputSchema,
   z.array(AiRichBlockInputSchema).min(1),
@@ -3325,12 +3342,7 @@ function normalizePaginationInput(input: unknown): PaginationHints | undefined {
     return undefined;
   }
   const parsed = PaginationInputSchema.parse(input);
-  const pagination = {
-    ...(parsed.break === true ? { break: true } : {}),
-    ...(parsed.keepTogether === true ? { keepTogether: true } : {}),
-    ...(parsed.keepWithNext === true ? { keepWithNext: true } : {}),
-  };
-  return Object.keys(pagination).length > 0 ? pagination : undefined;
+  return parsed.break === true ? { break: true } : undefined;
 }
 
 function normalizeAiInlineContent(source: Record<string, unknown>): InlineNode[] {

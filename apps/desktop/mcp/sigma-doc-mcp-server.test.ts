@@ -429,7 +429,9 @@ describe("sigma-doc-mcp-server integration", () => {
     expect(descriptionOf("insert_body_content")).toContain("boxBlock");
     expect(descriptionOf("insert_body_content")).toContain("pagination");
     expect(schemaOf("insert_body_content")).toContain("boxBlock");
-    expect(schemaOf("insert_body_content")).toContain("keepWithNext");
+    // 廃止したページ指定はツールの入力スキーマに載せない (送られても黙って落とす)。
+    expect(schemaOf("insert_body_content")).not.toContain("keepWithNext");
+    expect(schemaOf("insert_body_content")).not.toContain("keepTogether");
     for (const styleId of [
       "fancybox",
       "itembox",
@@ -2677,7 +2679,7 @@ describe("sigma-doc-mcp-server new read/write tools", () => {
     }
   });
 
-  it("update_rich_content can update pagination without rewriting paragraph content", async () => {
+  it("update_rich_content updates pagination and silently drops abolished keep hints", async () => {
     const fileId = await getFileId();
     const result = extractPayload(await client.callTool({
       name: "update_rich_content",
@@ -2694,10 +2696,8 @@ describe("sigma-doc-mcp-server new read/write tools", () => {
       arguments: { fileId, detail: "full" },
     }));
     const operation = ((detail.proposal as { draft: { operations: Array<Record<string, unknown>> } }).draft.operations[0]);
-    expect(operation.replacementBlock).toMatchObject({
-      id: "p_source_note",
-      pagination: { break: true, keepTogether: true, keepWithNext: true },
-    });
+    expect(operation.replacementBlock).toMatchObject({ id: "p_source_note" });
+    expect((operation.replacementBlock as { pagination?: unknown }).pagination).toEqual({ break: true });
   });
 
   it("update_problem_content updates prompt without requiring a full problem replacement", async () => {

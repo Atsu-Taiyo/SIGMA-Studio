@@ -213,9 +213,7 @@ const PLACEMENT_SCHEMA = {
 const PAGINATION_SCHEMA = {
   type: "object",
   properties: {
-    break: { type: "boolean" },
-    keepTogether: { type: "boolean" },
-    keepWithNext: { type: "boolean" },
+    break: { type: "boolean", description: "Start this block on the next page (the next column inside columns)." },
   },
   additionalProperties: false,
 } as const;
@@ -1949,7 +1947,7 @@ export function createSigmaWebMcpTools(
     directTool("validate_document"),
     directTool("get_pending_proposal"),
     directTool("withdraw_pending_proposal"),
-    makeWriteTool("insert_markdown", "Insert Word-like flowing content from Markdown. It converts paragraphs, headings, nested lists, fenced code, bold, italic, $...$/$$...$$ math, and escaped \\$ into canonical SigmaDoc. Optionally wrap the result in a native box style or apply pagination hints. Unavailable on whiteboard documents (WHITEBOARD_NO_BODY); use create_overlay kind:\"text\" there.", {
+    makeWriteTool("insert_markdown", "Insert Word-like flowing content from Markdown. It converts paragraphs, headings, nested lists, fenced code, bold, italic, $...$/$$...$$ math, and escaped \\$ into canonical SigmaDoc. Optionally wrap the result in a native box style or start it on a new page with pagination.break. Unavailable on whiteboard documents (WHITEBOARD_NO_BODY); use create_overlay kind:\"text\" there.", {
       type: "object",
       properties: {
         ...EXPECTED_REVISION_PROPERTY,

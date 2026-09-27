@@ -136,7 +136,6 @@ const EDITOR_CHROME_CLASSES = new Set([
   "text-flow-change-added",
   "text-flow-change-before",
   "text-flow-change-removing",
-  "text-flow-column-block",
   "text-flow-commented-line",
   "text-flow-edit-guard-notice",
   "text-flow-held-selection",

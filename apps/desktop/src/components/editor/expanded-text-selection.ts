@@ -1,6 +1,10 @@
 import type { Editor } from "@tiptap/core";
 import type { MouseEvent as ReactMouseEvent } from "react";
 
+import {
+  getEditorVisualRectAtPoint,
+  isPointInEditorVisualRects,
+} from "@/components/editor/text-flow/editor-visual-rects";
 import { posAtClientPoint } from "@/components/editor/text-flow/pos-at-client-point";
 
 const CONTENT_EDITABLE_SELECTOR = "[contenteditable='true']";
@@ -46,12 +50,12 @@ export function startExpandedTextSelection(event: ReactMouseEvent<HTMLElement>, 
 
   const updateSelection = (clientX: number, clientY: number) => {
     if (anchor === null) {
-      const edgePosition = getSideEdgePosition(editor, side, clientY);
+      const edgePosition = getSideEdgePosition(editor, side, clientX, clientY);
       if (edgePosition === null) {
         return;
       }
 
-      if (isPointInsideRect({ x: clientX, y: clientY }, editor.view.dom.getBoundingClientRect())) {
+      if (isPointInEditorVisualRects(editor.view, clientX, clientY)) {
         anchor = edgePosition;
         editor.commands.focus();
       } else {
@@ -99,8 +103,9 @@ export function startExpandedTextSelection(event: ReactMouseEvent<HTMLElement>, 
 }
 
 export function getEditorSideAtClientPoint(editor: Editor, point: ClientPoint): "left" | "right" | null {
-  const rect = editor.view.dom.getBoundingClientRect();
-  if (rect.width <= 0 || rect.height <= 0 || point.y < rect.top || point.y > rect.bottom) {
+  // 最上位ブロックはページ・段へずらして描かれるので、root ではなく同じ高さに描かれたブロックで見る。
+  const rect = getEditorVisualRectAtPoint(editor.view, point.x, point.y);
+  if (!rect || rect.width <= 0 || rect.height <= 0) {
     return null;
   }
 
@@ -115,20 +120,16 @@ export function getEditorSideAtClientPoint(editor: Editor, point: ClientPoint): 
   return null;
 }
 
-function getSideEdgePosition(editor: Editor, side: "left" | "right" | null, clientY: number): number | null {
+function getSideEdgePosition(editor: Editor, side: "left" | "right" | null, clientX: number, clientY: number): number | null {
   if (side === null) {
     return null;
   }
 
-  const rect = editor.view.dom.getBoundingClientRect();
+  const rect = getEditorVisualRectAtPoint(editor.view, clientX, clientY) ?? editor.view.dom.getBoundingClientRect();
   const edgeX = side === "left" ? rect.left + 1 : rect.right - 1;
   return getPosAtClientPoint(editor, edgeX, clientY);
 }
 
 function getPosAtClientPoint(editor: Editor, clientX: number, clientY: number): number | null {
   return posAtClientPoint(editor.view, clientX, clientY);
-}
-
-function isPointInsideRect(point: ClientPoint, rect: DOMRect): boolean {
-  return point.x >= rect.left && point.x <= rect.right && point.y >= rect.top && point.y <= rect.bottom;
 }

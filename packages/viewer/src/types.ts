@@ -35,9 +35,8 @@ export interface BaseNode {
 }
 
 export interface PaginationHints {
+    /** 手動改ページ / 改段。このブロックを次のページ (段組みでは次の段) の先頭から始める。 */
     break?: boolean;
-    keepTogether?: boolean;
-    keepWithNext?: boolean;
 }
 
 export interface SectionNode extends BaseNode {

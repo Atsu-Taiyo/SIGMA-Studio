@@ -35,6 +35,52 @@ export function flushDeferredCaretScroll(view: EditorView): void {
   scrollCaretIntoView(view);
 }
 
+/** いま見張っているガードを外す関数 (同時に 1 つだけ)。 */
+let stopActiveCaretScrollGuard: (() => void) | null = null;
+
+/**
+ * キャレットを別の面 (正本 ⇄ 断片の複製) へ移した直後の短い間だけ、利用者の操作ではない
+ * スクロールでキャレットが見えなくなったら見える位置へ戻す。
+ *
+ * Chromium は `preventScroll` で focus しても、配置が変わった後の frame で自前の
+ * 「キャレットを見せる」スクロールをすることがあり、断片の複製の中のキャレットの位置を
+ * 取り違えて紙面を数百 px 動かす (スクリプトの scrollTop / scrollIntoView を経由しない)。
+ * ホイール・ポインタ・キー操作があれば、利用者のスクロールを邪魔しないようすぐにやめる。
+ */
+export function guardCaretAgainstForeignScroll(
+  from: HTMLElement,
+  ensureCaretVisible: () => void,
+  durationMs = 600,
+): void {
+  if (typeof window === "undefined") {
+    return;
+  }
+  const scroller = findCaretScroller(from);
+  if (!scroller) {
+    return;
+  }
+  stopActiveCaretScrollGuard?.();
+  const onScroll = () => ensureCaretVisible();
+  const stop = () => {
+    scroller.removeEventListener("scroll", onScroll);
+    window.removeEventListener("wheel", stop, true);
+    window.removeEventListener("pointerdown", stop, true);
+    window.removeEventListener("touchstart", stop, true);
+    window.removeEventListener("keydown", stop, true);
+    window.clearTimeout(timer);
+    if (stopActiveCaretScrollGuard === stop) {
+      stopActiveCaretScrollGuard = null;
+    }
+  };
+  scroller.addEventListener("scroll", onScroll, { passive: true });
+  window.addEventListener("wheel", stop, { capture: true, passive: true });
+  window.addEventListener("pointerdown", stop, true);
+  window.addEventListener("touchstart", stop, { capture: true, passive: true });
+  window.addEventListener("keydown", stop, true);
+  const timer = window.setTimeout(stop, durationMs);
+  stopActiveCaretScrollGuard = stop;
+}
+
 /**
  * キャレットの座標がまだ意味を持たない = 次の計測待ちか。
  *

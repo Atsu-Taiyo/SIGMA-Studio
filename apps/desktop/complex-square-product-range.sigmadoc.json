@@ -175,9 +175,6 @@
           "id": "p_ab_param_formula",
           "align": "center",
           "lineHeight": "1.35",
-          "pagination": {
-            "keepTogether": true
-          },
           "children": [
             {
               "type": "mathInline",
@@ -205,9 +202,6 @@
           "id": "p_ab_product_formula",
           "align": "center",
           "lineHeight": "1.35",
-          "pagination": {
-            "keepTogether": true
-          },
           "children": [
             {
               "type": "mathInline",
@@ -242,9 +236,6 @@
           "id": "p_xy_define_formula",
           "align": "center",
           "lineHeight": "1.35",
-          "pagination": {
-            "keepTogether": true
-          },
           "children": [
             {
               "type": "mathInline",
@@ -260,9 +251,6 @@
           "id": "p_system_equiv",
           "align": "center",
           "lineHeight": "1.35",
-          "pagination": {
-            "keepTogether": true
-          },
           "children": [
             {
               "type": "mathInline",
@@ -302,9 +290,6 @@
           "id": "p_quadratic_formula",
           "align": "center",
           "lineHeight": "1.35",
-          "pagination": {
-            "keepTogether": true
-          },
           "children": [
             {
               "type": "mathInline",
@@ -356,9 +341,6 @@
           "id": "p_condition_formula",
           "align": "center",
           "lineHeight": "1.35",
-          "pagination": {
-            "keepTogether": true
-          },
           "children": [
             {
               "type": "mathInline",
@@ -532,9 +514,6 @@
           "id": "p_rotation_formula",
           "align": "center",
           "lineHeight": "1.35",
-          "pagination": {
-            "keepTogether": true
-          },
           "children": [
             {
               "type": "mathInline",
@@ -550,9 +529,6 @@
           "id": "p_rotation_product_formula",
           "align": "center",
           "lineHeight": "1.35",
-          "pagination": {
-            "keepTogether": true
-          },
           "children": [
             {
               "type": "mathInline",
@@ -582,9 +558,6 @@
           "type": "paragraph",
           "id": "p_range_f_conclusion",
           "lineHeight": "1.35",
-          "pagination": {
-            "keepTogether": true
-          },
           "children": [
             {
               "type": "text",

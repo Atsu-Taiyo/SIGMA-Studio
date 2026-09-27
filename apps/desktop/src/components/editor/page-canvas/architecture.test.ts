@@ -19,9 +19,9 @@ describe("page canvas pure-model dependency boundary", () => {
     expect(importSpecifiers(canvas)).toContain("./page-canvas/manual-break-context");
   });
 
-  it("keeps measured single-column layout independent from editor controllers and state", () => {
-    const layout = readSiblingSource("./single-column-layout.ts");
-    const invalidImports = importSpecifiers(layout).filter((specifier) => (
+  it("paginates with an open loop: probe natural geometry, place once, adopt", () => {
+    const probe = readSiblingSource("./flow-probe.ts");
+    const invalidImports = importSpecifiers(probe).filter((specifier) => (
       specifier === "react"
       || specifier === "react-dom"
       || specifier.startsWith("@tiptap/")
@@ -30,21 +30,21 @@ describe("page canvas pure-model dependency boundary", () => {
       || /(?:PageCanvasEditor|TextFlowEditor|EditorShell|OverlayCanvasEditorClient)/.test(specifier)
     ));
     expect(invalidImports).toEqual([]);
-    expect(layout).not.toMatch(/\b(?:useState|useRef|useEffect|requestAnimationFrame|ResizeObserver)\b/);
+    expect(probe).not.toMatch(/\b(?:useState|useRef|useEffect|requestAnimationFrame|ResizeObserver)\b/);
 
     const pageCanvas = readSiblingSource("../PageCanvasEditor.tsx");
-    const measure = pageCanvas.indexOf("const singleColumnInput = measureSingleColumnLayoutInput(");
-    const frozenGuard = pageCanvas.indexOf("if (frozenPaginationGapsRef.current && paginationInputRef.current === units)", measure);
-    const compute = pageCanvas.indexOf("const singleColumnLayouts = computeSingleColumnLayouts(", frozenGuard);
-    const oscillationGuard = pageCanvas.indexOf("detectGapOscillation(paginationSignatureHistoryRef.current", compute);
-    const adopt = pageCanvas.indexOf("setLayoutViewState(", oscillationGuard);
+    const measure = pageCanvas.indexOf("probeFlow(flow, {");
+    const build = pageCanvas.indexOf("buildFlowModel(tree,", measure);
+    const place = pageCanvas.indexOf("placeFlow(built.model,", build);
+    const plan = pageCanvas.indexOf("planFlowRender(built, placement)", place);
+    const adopt = pageCanvas.indexOf("setLayoutViewState(", plan);
     expect(measure).toBeGreaterThan(-1);
-    expect(frozenGuard).toBeGreaterThan(measure);
-    expect(compute).toBeGreaterThan(frozenGuard);
-    expect(oscillationGuard).toBeGreaterThan(compute);
-    expect(adopt).toBeGreaterThan(oscillationGuard);
-    expect(pageCanvas).not.toContain("const naturalItems = walkItems.map(");
-    expect(pageCanvas).not.toContain("const paginationResult = decidePagination(");
+    expect(build).toBeGreaterThan(measure);
+    expect(place).toBeGreaterThan(build);
+    expect(plan).toBeGreaterThan(place);
+    expect(adopt).toBeGreaterThan(plan);
+    // 閉ループ (隙間を入れた DOM の再計測・振動ガード・凍結) を二度と持ち込まない。
+    expect(pageCanvas).not.toMatch(/detectGapOscillation|frozenPaginationGaps|MAX_PAGINATION_PASSES|buildAppliedGapIndex|readAppliedGapPx/);
   });
 
   it("keeps page models independent from UI and AI", () => {
@@ -117,8 +117,7 @@ describe("page canvas pure-model dependency boundary", () => {
     expect(pageCanvas).toContain('from "./page-canvas/problem-area-model"');
     expect(pageCanvas).toContain('from "./page-canvas/running-region-text-model"');
     expect(pageCanvas).toContain('from "./page-canvas/virtualization"');
-    expect(pageCanvas).toContain('from "./page-canvas/applied-gaps"');
-    expect(pageCanvas).toContain('from "./page-canvas/pagination-decisions"');
+    expect(pageCanvas).toContain('from "./page-canvas/flow-probe"');
     expect(pageCanvas).toContain('from "./page-canvas/space-after-preview"');
     // ドラッグ中の換算と追従集合はページ制御側で書き直さない (純関数側の 1 箇所だけ)。
     expect(pageCanvas).not.toMatch(/\bfunction resolveSpaceAfterDragPx\s*\(/);

@@ -10,6 +10,7 @@ import {
 } from "@/features/rendering/core";
 import type { CaretAddress, TextFlowSelectionBookmark } from "@/features/text-editing";
 
+import { guardCaretAgainstForeignScroll } from "./caret-scroll";
 import type { TextRunEditorHandle } from "./text-run-span";
 
 /**
@@ -150,6 +151,14 @@ function installFocusTrace(): void {
       scheduleCaretKeeperCheck(caretKeeper);
     }
   });
+  // 入力のたびに、ブラウザ自身のキャレット追従スクロールを見張る (打鍵の keydown で前の見張りは
+  // 外れるので、ここで張り直す)。
+  window.addEventListener("beforeinput", (event) => {
+    const surface = surfaceForFocusTarget(event.target);
+    if (surface) {
+      guardCaretVisibility(surface);
+    }
+  }, true);
   window.addEventListener("pointerdown", cancelCaretKeeperForUserNavigation, true);
   window.addEventListener("touchstart", cancelCaretKeeperForUserNavigation, true);
   window.addEventListener("wheel", cancelCaretKeeperForUserNavigation, { capture: true, passive: true });
@@ -171,6 +180,18 @@ const CARET_KEEPER_NAVIGATION_KEYS = new Set([
   "PageUp",
   " ",
 ]);
+
+/** 利用者の操作ではないスクロールでこの面のキャレットが見えなくなったら、短い間だけ戻す。 */
+function guardCaretVisibility(handle: CaretSurfaceHandle): void {
+  if (handle.editor.isDestroyed) {
+    return;
+  }
+  guardCaretAgainstForeignScroll(handle.editor.view.dom as HTMLElement, () => {
+    if (!handle.editor.isDestroyed && handle.editor.isFocused) {
+      handle.ensureCaretVisible();
+    }
+  });
+}
 
 function cancelCaretKeeperForUserNavigation(): void {
   if (caretKeeper) {
@@ -859,8 +880,14 @@ function applyToSurface(
     }
     return false;
   }
+  const previousFocus = typeof document === "undefined" ? null : document.activeElement;
   const applied = handle.applyCaret(selection);
   if (applied) {
+    // 別の面から移ってきたときだけ、ブラウザ自身のキャレット追従スクロールを見張る。
+    const previousSurface = surfaceForFocusTarget(previousFocus);
+    if (previousSurface && previousSurface !== handle) {
+      guardCaretVisibility(handle);
+    }
     const keeper = caretKeeper;
     armCaretKeeper(handle);
     publishCaretKeeperTarget(selection.head.blockId);

@@ -432,30 +432,14 @@ export function paginateBlocksIntoColumns(content: SigmaBlock[], layout: PageLay
     advanceColumn();
   };
 
-  for (const [index, block] of content.entries()) {
+  for (const block of content) {
     const blockHeight = estimateBlockHeightPx(block, charsPerLine);
-    const nextBlock = content[index + 1];
-    const nextBlockHeight = nextBlock ? estimateBlockHeightPx(nextBlock, charsPerLine) : 0;
     const shouldBreakBefore =
       pageHasContent() &&
       block.pagination?.break === true;
 
     if (shouldBreakBefore) {
       advanceForExplicitBreak();
-    }
-
-    const keepWithNextHeight = block.pagination?.keepWithNext === true
-      && nextBlock
-      && nextBlock.pagination?.break !== true
-      ? blockHeight + nextBlockHeight
-      : 0;
-    if (
-      currentColumn().blocks.length > 0
-      && keepWithNextHeight > 0
-      && currentColumn().estimatedContentHeightPx + keepWithNextHeight > columnHeightPx
-      && keepWithNextHeight <= columnHeightPx
-    ) {
-      advanceColumn();
     }
 
     if (

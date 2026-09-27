@@ -410,41 +410,6 @@ describe("page layout", () => {
     ]);
   });
 
-  it("moves a keepWithNext pair together when it fits the next column", () => {
-    const layout = normalizePageLayout({
-      preset: "custom",
-      pageSize: { widthMm: 120, heightMm: 80 },
-      marginsMm: { top: 10, right: 10, bottom: 10, left: 10 },
-      flow: { type: "columns", columnCount: 2, columnGapMm: 8 },
-    });
-    const blocks: SigmaBlock[] = [
-      {
-        type: "paragraph",
-        id: "filler",
-        children: [{ type: "text", text: "filler ".repeat(70) }],
-      },
-      {
-        type: "heading",
-        id: "heading",
-        level: 2,
-        pagination: { keepWithNext: true },
-        children: [{ type: "text", text: "見出し" }],
-      },
-      {
-        type: "paragraph",
-        id: "body",
-        children: [{ type: "text", text: "本文" }],
-      },
-    ];
-
-    const pages = paginateBlocks(blocks, layout);
-    const columns = pages.flatMap((page) => page.columns);
-    const headingColumn = columns.findIndex((column) => column.blocks.some((block) => block.id === "heading"));
-    const bodyColumn = columns.findIndex((column) => column.blocks.some((block) => block.id === "body"));
-    expect(headingColumn).toBeGreaterThan(0);
-    expect(bodyColumn).toBe(headingColumn);
-  });
-
   it("keeps line-break commands in inline math at paragraph line height", () => {
     const singleLine: SigmaBlock = {
       type: "paragraph",

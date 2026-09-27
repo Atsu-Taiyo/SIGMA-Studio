@@ -53,11 +53,11 @@ const DOCUMENT: SigmaDocument = {
 };
 
 /**
- * エリア単位 keep-together を固定する（問題全体をまとめて動かす規則は 3 エンジン統一で撤去済み）。
- * 各エリアは自分の予約込みで残りに収まるページに置かれ、90mm 文書では prompt が 1 ページ目、
- * solution が 2 ページ目に置かれる。どちらも予約高さを確保し、紙面外へはみ出さない。
+ * 解答エリアもまとめて送らない (Word と同じ最小送り)。90mm 文書では解答の行は問題文の予約の
+ * 直後の 1 ページ目に収まり、解答欄の予約空白だけが 2 ページ目の先頭へ続く。
+ * 予約高さは分割されても合計で確保され、文字は紙面の本文領域をはみ出さない。
  */
-test("places the 90mm prompt and solution by area without overflowing either reservation", async ({ page }) => {
+test("keeps the 90mm solution line on page one and continues only its reserved space", async ({ page }) => {
   await installDesktopRuntimeMock(page, DOCUMENT);
   await page.goto("/print?fileId=file_e2e_document&profile=teacher", { waitUntil: "domcontentloaded" });
 
@@ -65,34 +65,30 @@ test("places the 90mm prompt and solution by area without overflowing either res
   await expect(pages).toHaveCount(2);
   await expect(pages.nth(0).locator('[data-sigma-doc-id="before_problem"]')).toBeVisible();
   await expect(pages.nth(0).locator('[data-sigma-doc-id="kept_prompt"]')).toBeVisible();
-  await expect(pages.nth(0).locator('[data-sigma-doc-id="kept_solution"]')).toHaveCount(0);
+  await expect(pages.nth(0).locator('[data-sigma-doc-id="kept_solution"]')).toBeVisible();
   await expect(pages.nth(1).locator('[data-sigma-doc-id="kept_prompt"]')).toHaveCount(0);
-  await expect(pages.nth(1).locator('[data-sigma-doc-id="kept_solution"]')).toBeVisible();
+  await expect(pages.nth(1).locator('[data-sigma-doc-id="kept_solution"]')).toHaveCount(0);
 
-  const areas = await page.evaluate(() => {
+  const proof = await page.evaluate(() => {
     const pageElements = Array.from(document.querySelectorAll<HTMLElement>(".paged-surface-page"));
-    return ["kept_prompt", "kept_solution"].map((id) => {
-      const area = pageElements
-        .map((pageElement) => pageElement.querySelector<HTMLElement>(`[data-sigma-doc-id="${id}"]`)?.closest<HTMLElement>(".problem-area-flow-unit"))
-        .find((candidate) => candidate);
-      const pageElement = area?.closest<HTMLElement>(".paged-surface-page");
-      if (!area || !pageElement) return null;
-      const rect = area.getBoundingClientRect();
-      const pageRect = pageElement.getBoundingClientRect();
-      return {
-        height: rect.height,
-        insidePage: rect.top >= pageRect.top - 0.5
-          && rect.left >= pageRect.left - 0.5
-          && rect.bottom <= pageRect.bottom + 0.5
-          && rect.right <= pageRect.right + 0.5,
-      };
+    const first = pageElements[0];
+    const firstRect = first.getBoundingClientRect();
+    const textInside = ["before_problem", "kept_prompt", "kept_solution"].every((id) => {
+      const element = first.querySelector<HTMLElement>(`[data-sigma-doc-id="${id}"]`);
+      if (!element) return false;
+      const range = document.createRange();
+      range.selectNodeContents(element);
+      const rect = range.getBoundingClientRect();
+      return rect.top >= firstRect.top - 0.5 && rect.bottom <= firstRect.bottom + 0.5;
     });
+    const reservedHeights = ["kept_prompt", "kept_solution"].map((id) => (
+      first.querySelector<HTMLElement>(`[data-sigma-doc-id="${id}"]`)?.closest<HTMLElement>(".problem-area-flow-unit")?.getBoundingClientRect().height ?? 0
+    ));
+    return { textInside, reservedHeights };
   });
-  expect(areas).not.toBeNull();
-  expect(areas).not.toContain(null);
-  for (const area of areas!) {
-    expect(area!.height).toBeGreaterThanOrEqual(32 * (96 / 25.4) - 1);
-    expect(area!.insidePage).toBe(true);
+  expect(proof.textInside).toBe(true);
+  for (const height of proof.reservedHeights) {
+    expect(height).toBeGreaterThanOrEqual(32 * (96 / 25.4) - 1);
   }
 });
 

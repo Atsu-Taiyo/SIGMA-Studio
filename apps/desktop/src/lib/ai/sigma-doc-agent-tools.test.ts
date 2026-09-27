@@ -446,11 +446,9 @@ describe("SigmaDoc draft mutation tools", () => {
     }).ok).toBe(true);
 
     expect(session.draftDocument.content).toHaveLength(5);
-    expect(session.draftDocument.content[1]).toMatchObject({
-      type: "heading",
-      id: "ai_heading",
-      pagination: { break: true, keepWithNext: true },
-    });
+    // 廃止したページ指定 (keepWithNext / keepTogether) は受け付けるが黙って落とす。
+    expect(session.draftDocument.content[1]).toMatchObject({ type: "heading", id: "ai_heading" });
+    expect((session.draftDocument.content[1] as { pagination?: unknown }).pagination).toEqual({ break: true });
     expect(session.draftDocument.content[2]).toMatchObject({
       type: "paragraph",
       id: "ai_body_math",
@@ -464,8 +462,8 @@ describe("SigmaDoc draft mutation tools", () => {
       id: "problem_ai_content",
       lead: [{ type: "heading", children: [{ text: "確認問題" }] }],
       answer: { type: "math", expected: "x=\\pm2" },
-      pagination: { break: true, keepTogether: true },
     });
+    expect((session.draftDocument.content[3] as { pagination?: unknown }).pagination).toEqual({ break: true });
     expect(session.draftDocument.content[3]).toHaveProperty(
       "solution",
       [expect.objectContaining({
@@ -484,7 +482,7 @@ describe("SigmaDoc draft mutation tools", () => {
     });
   });
 
-  it("updates and clears pagination without rewriting paragraph content", () => {
+  it("drops abolished keep hints and clears pagination without rewriting paragraph content", () => {
     const session = createSigmaDocAgentSession({
       document: createDocument([paragraph("p_1", "本文")]),
       selectedId: "p_1",
@@ -492,13 +490,14 @@ describe("SigmaDoc draft mutation tools", () => {
 
     expect(executeSigmaDocAgentDraftTool(session, "draft_update_rich_content", {
       targetId: "p_1",
-      pagination: { keepTogether: true, keepWithNext: true },
+      pagination: { break: true, keepTogether: true, keepWithNext: true },
     }).ok).toBe(true);
     expect(session.draftDocument.content[0]).toMatchObject({
       id: "p_1",
       children: [{ type: "text", text: "本文" }],
-      pagination: { keepTogether: true, keepWithNext: true },
+      pagination: { break: true },
     });
+    expect((session.draftDocument.content[0] as { pagination?: unknown }).pagination).toEqual({ break: true });
 
     expect(executeSigmaDocAgentDraftTool(session, "draft_update_rich_content", {
       targetId: "p_1",

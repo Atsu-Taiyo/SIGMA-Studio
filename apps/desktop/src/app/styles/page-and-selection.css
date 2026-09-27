@@ -628,104 +628,32 @@ code {
   );
 }
 
+/*
+ * 本文は自然フローのまま置き、ページ・段へは相対配置でずらして描く。段組では自然フローが
+ * 紙面の何倍も縦に長くなるので、フローの箱は紙面 (`.page-canvas`) の高さで縦だけ切る。
+ * 切らないと、最後のページの下に何も無いスクロール領域ができる。横は切らない (左余白の
+ * サイド注・全幅エリアは段幅の帯からはみ出して描く)。
+ */
 .page-flow {
   position: absolute;
   top: 0;
+  bottom: 0;
   left: 0;
   z-index: 1;
+  overflow-x: visible;
+  overflow-y: clip;
   width: var(--page-width);
   padding: var(--page-margin-top) var(--page-margin-right) 0 var(--page-margin-left);
   font-size: var(--editor-font-size, 12pt);
 }
 
-.page-flow.columns-active {
-  height: 100%;
-  padding: 0;
-}
-
-.page-flow-unit {
-  position: absolute;
-  min-width: 0;
-}
-
-.page-flow-page-break-marker {
-  position: absolute;
-  min-width: 0;
-  pointer-events: none;
-}
-
-.page-flow-unit .text-flow-editor {
-  width: 100%;
-}
-
 /*
- * Column-flow units are placed by computed top/left coordinates, so they MUST be
- * absolutely positioned. The base `.page-flow-unit` rule sets `position: absolute`,
- * but a later comment-marker rule (`.page-flow-unit, .problem-area-flow-unit,
- * [data-page-block] { position: relative }`) silently overrode it — leaving units
- * in normal flow where `top`/`left` only *shift* them from their stacked position.
- * That doubled every gap (one Enter looked like ~3 lines) and broke n-column layout
- * entirely. Re-assert absolute with column-scoped specificity so it also wins for
- * problem-area units (which carry `.page-flow-unit` in column mode).
+ * 段組のページでも本文は「段幅の自然フロー」として 1 本に置き、段・ページへの配置は
+ * 兄弟のレイアウトに影響しない相対配置のずらしで与える。1 段組と同じ描画・同じ余白になる。
+ * 全幅のエリアはユニット自身が本文幅を持ち、段幅の帯から右へはみ出す。
  */
-.page-flow.columns-active .page-flow-unit {
-  position: absolute;
-}
-
-/*
- * Column flow places top-level flow units and, for continuous text runs, the
- * paragraphs inside those units by computed top/left coordinates. The default
- * `.text-flow-shell` chrome is meant for an unpositioned text run, so strip it
- * here to keep measured paragraph heights aligned with their visual positions.
- */
-.page-flow.columns-active .page-flow-unit .text-flow-shell {
-  margin: 0;
-  padding: 0;
-}
-
-.page-flow.columns-active .page-flow-unit .text-flow-editor {
-  min-height: 0;
-}
-
-.page-flow.columns-active .page-flow-unit .text-flow-shell.column-flow-positioned,
-.page-flow.columns-active .page-flow-unit .text-flow-shell.column-flow-positioned .text-flow-editor {
-  height: 100%;
-}
-
-.page-flow.columns-active .page-flow-unit .text-flow-shell.column-flow-positioned .text-flow-editor {
-  position: relative;
-}
-
-.page-flow.columns-active .problem-area-flow-unit.column-block-flowed {
-  margin: 0;
-  padding: 0;
-}
-
-.page-flow.columns-active .problem-area-flow-unit.column-block-flowed .problem-area-paper-content,
-.page-flow.columns-active .problem-area-flow-unit.column-block-flowed .problem-area-paper-body {
-  width: 100%;
-  margin: 0;
-  padding: 0;
-}
-
-.page-flow.columns-active .problem-area-flow-unit.column-block-flowed .problem-area-paper-content.with-number {
-  display: block;
-}
-
-.page-flow.columns-active .problem-area-flow-unit.column-block-flowed .problem-number-marker {
-  position: absolute;
-  top: 0;
-  left: 0;
-  z-index: 2;
-}
-
-.page-flow.columns-active .problem-area-flow-unit.column-block-flowed .problem-area-paper-content.with-number .text-flow-editor > :first-child {
-  box-sizing: border-box;
-  padding-left: calc(1.9em + 8px);
-}
-
-.text-flow-editor .text-flow-column-block {
-  margin: 0;
+.page-flow.page-columns {
+  padding-right: calc(var(--page-width) - var(--page-margin-left) - var(--page-column-width));
 }
 
 /*

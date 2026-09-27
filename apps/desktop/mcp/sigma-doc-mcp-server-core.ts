@@ -96,6 +96,7 @@ import {
   executeSigmaDocAgentDraftTool,
   getSigmaDocAgentSessionDraft,
   getShapeToolTextBox,
+  stripAbolishedPaginationInputKeys,
   summarizeSessionDraftForToolResult,
   summarizeSigmaDocMutationOps,
   summarizeToolBlock,
@@ -196,13 +197,13 @@ const SERVER_VERSION = "0.3.0";
 const DATA_DIR_NAME = "data";
 
 const JsonRecordSchema = z.record(z.string(), z.unknown());
-const PaginationInputSchema = z.object({
+// 廃止した keepTogether / keepWithNext は検証の前に黙って落とす (古いスキルの呼び出しを拒否しない)。
+// preprocess は JSON Schema (io: "input") では中身の object として公開されるので、広告は break だけになる。
+const PaginationInputSchema = z.preprocess(stripAbolishedPaginationInputKeys, z.object({
   break: z.boolean().optional().describe("このブロックから次のページへ送ります。段組み内では次の段へ送ります。"),
-  keepTogether: z.boolean().optional().describe("このブロックを、収まる限りページや段の途中で分割しません。"),
-  keepWithNext: z.boolean().optional().describe("このブロックと直後のブロックを、収まる限り同じページまたは段に置きます。"),
-}).strict();
+}).strict());
 const RichInputSchema = z.union([z.string(), JsonRecordSchema]).describe(
-  '短い文章は文字列、構造化する場合は {type:"paragraph"|"heading"|"list"|"boxBlock", id, text?, runs?, pagination?:{break?,keepTogether?,keepWithNext?}, ...}。boxBlockの例: {type:"boxBlock", id:"ai_box_1", styleId:"fancybox", title:"タイトル", blocks:[...]}。利用可能なstyleId: fancybox|itembox|tcolorbox|tcolorbox-note|doublebox|shadebox|leftbar|dashedbox|ruledbox|screenbox|ovalbox|cornerbox。文章と数式を混ぜる例: {type:"paragraph",id:"ai_p_1",runs:["式 ",{type:"math",id:"ai_m_1",tex:"x^2"},"を考える。"]}。',
+  '短い文章は文字列、構造化する場合は {type:"paragraph"|"heading"|"list"|"boxBlock", id, text?, runs?, pagination?:{break?}, ...}。boxBlockの例: {type:"boxBlock", id:"ai_box_1", styleId:"fancybox", title:"タイトル", blocks:[...]}。利用可能なstyleId: fancybox|itembox|tcolorbox|tcolorbox-note|doublebox|shadebox|leftbar|dashedbox|ruledbox|screenbox|ovalbox|cornerbox。文章と数式を混ぜる例: {type:"paragraph",id:"ai_p_1",runs:["式 ",{type:"math",id:"ai_m_1",tex:"x^2"},"を考える。"]}。',
 );
 const InlineFormatBoxInputSchema = z.object({
   enabled: z.boolean().describe("trueで囲みを追加、falseで囲みとその設定を削除します。"),
@@ -3913,7 +3914,7 @@ registerTool(
   "insert_body_content",
   {
     title: "本文を挿入",
-    description: '新しいparagraph/heading/list/boxBlockを基準ブロックの後へ挿入します。無限キャンバス(ホワイトボード)モードには対応していません。各blockのpaginationで改ページ・分割回避・次ブロックとの一体配置を指定できます。選択ブロックは編集境界ではないため、既存内容の分割ではupdate_rich_contentで元ブロックを更新してから、このtoolで後続ブロックを追加できます。既存paragraph/headingの本文修正はupdate_rich_content、問題全体の新規作成はcreate_problem_contentを使います。problem内の既存段落直後へ入れる場合はその段落IDをtargetIdにしてareaを省略します。areaはproblemの特定領域へ末尾追加する場合に指定します。例: {targetId:"END_OF_DOCUMENT",blocks:[{text:"新しい本文",pagination:{break:true}}],expectedRevision:3}。',
+    description: '新しいparagraph/heading/list/boxBlockを基準ブロックの後へ挿入します。無限キャンバス(ホワイトボード)モードには対応していません。各blockのpagination:{break:true}で改ページ(段組み内では改段)を指定できます。選択ブロックは編集境界ではないため、既存内容の分割ではupdate_rich_contentで元ブロックを更新してから、このtoolで後続ブロックを追加できます。既存paragraph/headingの本文修正はupdate_rich_content、問題全体の新規作成はcreate_problem_contentを使います。problem内の既存段落直後へ入れる場合はその段落IDをtargetIdにしてareaを省略します。areaはproblemの特定領域へ末尾追加する場合に指定します。例: {targetId:"END_OF_DOCUMENT",blocks:[{text:"新しい本文",pagination:{break:true}}],expectedRevision:3}。',
     inputSchema: {
       ...DocumentTargetSchema,
       area: ProblemAreaInputSchema.optional(),
@@ -4100,7 +4101,7 @@ registerTool(
   "update_problem_content",
   {
     title: "既存問題を更新",
-    description: "既存problemのlead/prompt/answer/solution/hints/paginationの指定項目だけを更新し、未指定項目とproblem IDを保持します。pagination:nullで問題のページ指定をすべて解除できます。lead/solution/hintsは空配列で消去、answerはnullまたは空のanswerText/answerTexで消去できます。answer/answerText/answerTexは1つだけ指定します。targetIdはproblem IDまたはその内部ブロックID。例: {fileId:\"...\",targetId:\"problem_1\",pagination:{break:true,keepTogether:true},expectedRevision:3}。",
+    description: "既存problemのlead/prompt/answer/solution/hints/paginationの指定項目だけを更新し、未指定項目とproblem IDを保持します。pagination:nullで問題のページ指定をすべて解除できます。lead/solution/hintsは空配列で消去、answerはnullまたは空のanswerText/answerTexで消去できます。answer/answerText/answerTexは1つだけ指定します。targetIdはproblem IDまたはその内部ブロックID。例: {fileId:\"...\",targetId:\"problem_1\",pagination:{break:true},expectedRevision:3}。",
     inputSchema: {
       ...DocumentTargetSchema,
       lead: UpdateLeadRichInputListSchema.optional(),

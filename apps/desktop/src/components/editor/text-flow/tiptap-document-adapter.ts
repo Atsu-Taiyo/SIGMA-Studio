@@ -220,17 +220,8 @@ function paginationFromAttrs(node: TiptapNode): PaginationHints | undefined {
   if (!isRecord(value)) {
     return undefined;
   }
-  const hints: PaginationHints = {};
-  if (value.break === true) {
-    hints.break = true;
-  }
-  if (value.keepTogether === true) {
-    hints.keepTogether = true;
-  }
-  if (value.keepWithNext === true) {
-    hints.keepWithNext = true;
-  }
-  return Object.keys(hints).length > 0 ? hints : undefined;
+  // 手動改ページだけが残る (keepTogether / keepWithNext は廃止)。
+  return value.break === true ? { break: true } : undefined;
 }
 
 export function textFlowBlockToTiptapNode(block: TextFlowBlock): TiptapNode {

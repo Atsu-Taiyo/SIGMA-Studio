@@ -703,62 +703,6 @@ export function paginateMeasuredPrintBlocks(
       column.oversizedBlockIds.push(unit.id);
     }
   };
-  const keepWithNextIfPossible = (index: number) => {
-    const unit = blocks[index];
-    const next = blocks[index + 1];
-    const isImplicitLeadKeep = unit.type === "problemArea"
-      && unit.area === "lead"
-      && next?.type === "problemArea"
-      && next.problemId === unit.problemId
-      && next.area !== "lead"
-      && next.blocks[0]?.pagination?.break !== true;
-    if (
-      (unit.pagination?.keepWithNext !== true && !isImplicitLeadKeep)
-      || !next
-      || next.pagination?.break === true
-      || isFullSpanPrintUnit(unit)
-      || (isFullSpanPrintUnit(next) && !isImplicitLeadKeep)
-    ) {
-      return;
-    }
-
-    const currentHeight = Math.max(heights[index] || 0, flowHeights[index] ?? 0);
-    const nextHeight = Math.max(heights[index + 1] || 0, flowHeights[index + 1] ?? 0);
-    const nextTrailingSpacePx = next.type === "block" ? blockSpaceAfterPx(next.block) : 0;
-    const firstNextProblemBlock = next.type === "problemArea" ? next.blocks[0] : undefined;
-    const implicitLeadNextHeight = isImplicitLeadKeep && next.type === "problemArea"
-      && firstNextProblemBlock
-      && isFlowableProblemArea(next, nextHeight, contentHeightPx)
-      ? Math.max(
-        0,
-        getMeasuredOrEstimatedBlockHeight(firstNextProblemBlock, measuredDescendantHeights)
-          - blockSpaceAfterPx(firstNextProblemBlock),
-      ) + (next.hasFrame
-        ? getPrintProblemFrameFragmentChromeHeightMm(next.frameStyleId, "first") * MM_TO_PX
-        : 0)
-      : Math.max(0, nextHeight - nextTrailingSpacePx);
-    const groupHeight = currentHeight + implicitLeadNextHeight;
-    const nextColumnHeight = columnIndex < columnCount - 1 ? currentColumnHeight() : contentHeightPx;
-    const shouldAdvanceShortFirstPage = pageNumber === 1
-      && columnIndex === 0
-      && !pageHasColumnContent()
-      && currentColumnHeight() < contentHeightPx - 0.5
-      && groupHeight > currentColumnHeight() + 0.5
-      && groupHeight <= contentHeightPx + 0.5;
-    if (shouldAdvanceShortFirstPage) {
-      flushPage(true);
-    } else if (
-      columnHasFlowContent(currentColumn())
-      && groupHeight > currentColumnRemainingHeight() + 0.5
-      && groupHeight <= nextColumnHeight + 0.5
-    ) {
-      if (isFullSpanPrintUnit(next)) {
-        flushPage();
-      } else {
-        advanceColumn();
-      }
-    }
-  };
   const placeBreakableBox = (
     unit: Extract<PrintContentUnit, { type: "block" }>,
     totalHeight: number,
@@ -774,18 +718,6 @@ export function paginateMeasuredPrintBlocks(
 
     if (totalHeight <= currentColumnRemainingHeight() + 0.5) {
       return false;
-    }
-
-    const nextColumnHeight = columnIndex < columnCount - 1 ? currentColumnHeight() : contentHeightPx;
-    if (
-      boxBlock.pagination?.keepTogether === true
-      && columnHasFlowContent(currentColumn())
-      && totalHeight <= nextColumnHeight + 0.5
-    ) {
-      advanceColumn();
-      if (totalHeight <= currentColumnRemainingHeight() + 0.5) {
-        return false;
-      }
     }
 
     const fragments: Array<Extract<PrintContentUnit, { type: "boxFragment" }>> = [];
@@ -1231,32 +1163,7 @@ export function paginateMeasuredPrintBlocks(
 
       const childHeight = getMeasuredOrEstimatedBlockHeight(child, measuredDescendantHeights);
       const childFitHeight = Math.max(0, childHeight - blockSpaceAfterPx(child));
-      const nextChild = unit.blocks[childIndex + 1];
       const isLastAreaChild = childIndex === unit.blocks.length - 1;
-      const keepWithNextHeight = child.pagination?.keepWithNext === true
-        && nextChild
-        && nextChild.pagination?.break !== true
-        ? childHeight + Math.max(
-          0,
-          getMeasuredOrEstimatedBlockHeight(nextChild, measuredDescendantHeights) - blockSpaceAfterPx(nextChild),
-        )
-        : 0;
-      const keepPairEndsArea = childIndex + 1 === unit.blocks.length - 1;
-      const pendingChromeHeight = frameChromeHeightPxForRole(
-        fragments.length === 0
-          ? keepPairEndsArea ? "single" : "first"
-          : keepPairEndsArea ? "last" : "middle",
-      );
-      const pendingHeight = runContentHeight + keepWithNextHeight + pendingChromeHeight;
-      if (
-        (columnHasFlowContent(currentColumn()) || runBlocks.length > 0)
-        && keepWithNextHeight > 0
-        && pendingHeight > currentColumnRemainingHeight() + 0.5
-        && keepWithNextHeight + pendingChromeHeight <= contentHeightPx + 0.5
-      ) {
-        flushRun();
-        advanceAreaFlow();
-      }
       if (child.type === "layoutSection") {
         flushRun();
         const prospectiveRole: ProblemFrameFragmentRole = fragments.length === 0
@@ -1264,14 +1171,6 @@ export function paginateMeasuredPrintBlocks(
           : isLastAreaChild ? "last" : "middle";
         const frameChromeHeightPx = frameChromeHeightPxForRole(prospectiveRole);
         if (currentColumnRemainingHeight() <= 0.5) {
-          advanceAreaFlow();
-        }
-        if (
-          child.pagination?.keepTogether === true
-          && columnHasFlowContent(currentColumn())
-          && childHeight + frameChromeHeightPx > currentColumnRemainingHeight() + 0.5
-          && childHeight + frameChromeHeightPx <= contentHeightPx + 0.5
-        ) {
           advanceAreaFlow();
         }
         const sectionFragments = createLayoutSectionFragments(
@@ -1439,16 +1338,6 @@ export function paginateMeasuredPrintBlocks(
       return false;
     }
 
-    if (
-      layoutSection.pagination?.keepTogether === true
-      && columnHasFlowContent(currentColumn())
-      && totalHeight > currentColumnRemainingHeight() + 0.5
-      && totalHeight <= currentColumnHeight() + 0.5
-    ) {
-      advanceColumn();
-      return false;
-    }
-
     const fragments = createLayoutSectionFragments(
       layoutSection,
       totalHeight,
@@ -1490,7 +1379,6 @@ export function paginateMeasuredPrintBlocks(
       advanceForExplicitBreak();
     }
 
-    keepWithNextIfPossible(index);
     // A flowable problem area (ordinary, or framed/full-span with a manual break
     // inside — see isFlowableProblemArea) is handled entirely by its own fragment
     // placer, including full-span fragments (placeFlowableProblemArea reserves

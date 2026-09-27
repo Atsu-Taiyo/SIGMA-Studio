@@ -3,11 +3,13 @@ import { expect, test } from "@playwright/test";
 import { installDesktopRuntimeMock } from "./desktop-runtime-mock";
 import type { ParagraphNode, SigmaDocument } from "@/types/sigma-doc";
 
+const RESERVED_MIN_HEIGHT_MM = 80;
+
 test.beforeEach(async ({ page }) => {
   await page.addInitScript(() => window.localStorage.clear());
 });
 
-test("framed problem: solution paginates across pages while the frame stays whole", async ({ page }) => {
+test("framed problem: solution paginates across pages and the reserved blank may continue", async ({ page }) => {
   test.setTimeout(180_000);
   const consoleErrors: string[] = [];
   page.on("console", (message) => {
@@ -21,14 +23,14 @@ test("framed problem: solution paginates across pages while the frame stays whol
   await expect(page.locator(".startup-splash")).toBeHidden({ timeout: 15_000 });
   await expect(page.locator(".page-backdrop .a4-page-sheet").first()).toBeVisible({ timeout: 30_000 });
 
-  // Wait until pagination settles: sheet count + applied spacer heights stop changing.
+  // Wait until pagination settles: sheet count + applied displacements stop changing.
   let previousSignature = "";
   let stable = 0;
   for (let attempt = 0; attempt < 80 && stable < 5; attempt += 1) {
     const signature = await page.evaluate(() => {
       const pageCount = document.querySelector(".page-canvas")?.getAttribute("data-page-count") ?? "0";
-      const spacers = Array.from(document.querySelectorAll<HTMLElement>(".page-break-spacer")).map((el) => el.offsetHeight);
-      return `${pageCount}|${spacers.join(",")}`;
+      const displacements = Array.from(document.querySelectorAll<HTMLElement>("[data-flow-dy]")).map((el) => el.getAttribute("data-flow-dy"));
+      return `${pageCount}|${displacements.join(",")}`;
     });
     if (signature === previousSignature) {
       stable += 1;
@@ -67,7 +69,7 @@ test("framed problem: solution paginates across pages while the frame stays whol
     const solutionBlocks = Array.from(document.querySelectorAll('[data-problem-area="solution"][data-problem-id="army_problem"] [data-sigma-doc-id]'))
       .map((el) => ({ id: el.getAttribute("data-sigma-doc-id"), ...rect(el) }));
     const reserved = document.querySelector('[data-problem-area="solution"][data-problem-id="army_problem2"]');
-    const spacers = Array.from(document.querySelectorAll(".page-break-spacer")).map((el) => (el as HTMLElement).offsetHeight);
+    const spacers = Array.from(document.querySelectorAll("[data-flow-dy]")).map((el) => el.getAttribute("data-flow-dy"));
     return {
       sheets,
       prompt: prompt ? { ...rect(prompt), withFrame: prompt.classList.contains("with-frame") } : null,
@@ -92,9 +94,10 @@ test("framed problem: solution paginates across pages while the frame stays whol
   // 3) The long solution flows across at least two sheets (= the answer paginates).
   expect(g1.solutionFirstSheet).toBeGreaterThanOrEqual(0);
   expect(g1.solutionLastSheet).toBeGreaterThan(g1.solutionFirstSheet);
-  // 4) The reserved (minHeight) solution area of problem 2 stays on one sheet.
+  // 4) The reserved (minHeight) solution area of problem 2 keeps its full reserved height.
+  //    Like any other content it is not moved whole: the blank may continue on the next sheet.
   expect(g1.reservedSheetSpan?.[0]).toBeGreaterThanOrEqual(0);
-  expect(g1.reservedSheetSpan?.[0]).toBe(g1.reservedSheetSpan?.[1]);
+  expect(g1.reserved?.height ?? 0).toBeGreaterThanOrEqual(RESERVED_MIN_HEIGHT_MM * (96 / 25.4) - 1);
 
   // 5) Stability probe: no gap oscillation while idle.
   await page.waitForTimeout(2500);
