@@ -1,0 +1,123 @@
+name: Prepare Store package
+description: Build and verify one published Store AppX without Store API credentials.
+inputs:
+  release_tag:
+    description: Published stable release tag in main history.
+    required: true
+  SIGMA_COLLABORATION_URL:
+    description: Supplied by the caller from GitHub Secrets.
+    required: true
+  SIGMA_SUPABASE_URL:
+    description: Supplied by the caller from GitHub Secrets.
+    required: true
+  SIGMA_SUPABASE_ANON_KEY:
+    description: Supplied by the caller from GitHub Secrets.
+    required: true
+  RELEASE_CONTENT_RULES:
+    description: Supplied by the caller from GitHub Secrets.
+    required: true
+  WINDOWS_STORE_IDENTITY_NAME:
+    description: Supplied by the caller from GitHub Secrets.
+    required: true
+  WINDOWS_STORE_PUBLISHER:
+    description: Supplied by the caller from GitHub Secrets.
+    required: true
+  WINDOWS_STORE_PUBLISHER_DISPLAY_NAME:
+    description: Supplied by the caller from GitHub Secrets.
+    required: true
+outputs:
+  package_sha256:
+    description: SHA-256 of the verified AppX.
+    value: ${{ steps.inspect.outputs.sha256 }}
+  artifact_id:
+    description: Immutable artifact ID from this job.
+    value: ${{ steps.upload.outputs.artifact-id }}
+runs:
+  using: composite
+  steps:
+    - name: Select a published release from main history
+      shell: pwsh
+      env:
+        GH_TOKEN: ${{ github.token }}
+        STORE_RELEASE_TAG: ${{ inputs.release_tag }}
+      run: |
+        $ErrorActionPreference = 'Stop'
+        if ($env:STORE_RELEASE_TAG -cnotmatch '^v\d+\.\d+\.\d+$') { throw 'Invalid release tag.' }
+        $releaseJson = gh api "repos/$env:GITHUB_REPOSITORY/releases/tags/$env:STORE_RELEASE_TAG" 2>$null
+        if ($LASTEXITCODE -ne 0) { throw 'Release lookup failed.' }
+        $release = $releaseJson | ConvertFrom-Json
+        if ($release.tag_name -cne $env:STORE_RELEASE_TAG -or $release.draft -or $release.prerelease) {
+          throw 'Select an existing published stable release.'
+        }
+        $commit = git rev-parse "refs/tags/$env:STORE_RELEASE_TAG^{commit}"
+        if ($LASTEXITCODE -ne 0) { throw 'Release tag is unavailable.' }
+        git merge-base --is-ancestor $commit origin/main
+        if ($LASTEXITCODE -ne 0) { throw 'Release must belong to main history.' }
+        Copy-Item -Recurse .github/actions/prepare-store-package "$env:RUNNER_TEMP/trusted-store-action"
+        Copy-Item scripts/windows_store.py "$env:RUNNER_TEMP/trusted-windows-store.py"
+        Copy-Item apps/desktop/tests/electron/open-document.spec.ts "$env:RUNNER_TEMP/trusted-open-document.spec.ts"
+        git checkout --detach $commit
+        if ($LASTEXITCODE -ne 0) { throw 'Cannot check out the release.' }
+        # Keep the trusted composite definition available for post-job cleanup.
+        New-Item -ItemType Directory -Force .github/actions/prepare-store-package | Out-Null
+        Copy-Item -Recurse -Force "$env:RUNNER_TEMP/trusted-store-action/*" .github/actions/prepare-store-package
+        # Test harness fixes come from main; the packaged application stays at the release tag.
+        Copy-Item "$env:RUNNER_TEMP/trusted-open-document.spec.ts" apps/desktop/tests/electron/open-document.spec.ts
+        $package = Get-Content package.json -Raw | ConvertFrom-Json
+        if ("v$($package.version)" -cne $env:STORE_RELEASE_TAG) { throw 'Release version mismatch.' }
+    - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+      with:
+        node-version: '24'
+        cache: npm
+    - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+      with:
+        python-version: '3.13'
+    - shell: pwsh
+      run: npm ci
+    - shell: pwsh
+      run: npm run version:check
+    - name: Verify Windows file locking
+      shell: pwsh
+      run: npm --workspace @sigma-studio/desktop run test -- file-lock
+    - name: Prepare and audit the Store package
+      shell: pwsh
+      run: npm --workspace @sigma-studio/desktop run electron:dist:store
+      env:
+        NODE_OPTIONS: --max-old-space-size=4096
+        SIGMA_STUDIO_REQUIRE_COLLABORATION_CONFIG: 'true'
+        SIGMA_COLLABORATION_URL: ${{ inputs.SIGMA_COLLABORATION_URL }}
+        SIGMA_SUPABASE_URL: ${{ inputs.SIGMA_SUPABASE_URL }}
+        SIGMA_SUPABASE_ANON_KEY: ${{ inputs.SIGMA_SUPABASE_ANON_KEY }}
+        SIGMA_STUDIO_REQUIRE_RELEASE_AUDIT: 'true'
+        RELEASE_CONTENT_RULES: ${{ inputs.RELEASE_CONTENT_RULES }}
+        WINDOWS_STORE_IDENTITY_NAME: ${{ inputs.WINDOWS_STORE_IDENTITY_NAME }}
+        WINDOWS_STORE_PUBLISHER: ${{ inputs.WINDOWS_STORE_PUBLISHER }}
+        WINDOWS_STORE_PUBLISHER_DISPLAY_NAME: ${{ inputs.WINDOWS_STORE_PUBLISHER_DISPLAY_NAME }}
+        # No Store API credentials are exposed to this packaging step.
+    - name: Verify Windows Electron file opening and persistence
+      shell: pwsh
+      run: npm --workspace @sigma-studio/desktop run test:e2e:electron -- open-document.spec.ts
+    - name: Verify the AppX manifest and record its public hash
+      id: inspect
+      shell: pwsh
+      env:
+        STORE_RELEASE_TAG: ${{ inputs.release_tag }}
+        WINDOWS_STORE_IDENTITY_NAME: ${{ inputs.WINDOWS_STORE_IDENTITY_NAME }}
+        WINDOWS_STORE_PUBLISHER: ${{ inputs.WINDOWS_STORE_PUBLISHER }}
+      run: |
+        $version = $env:STORE_RELEASE_TAG.Substring(1)
+        $package = "apps/desktop/release/Sigma-Studio-Store-$version-x64.appx"
+        $env:STORE_PACKAGE_SHA256 = (Get-FileHash $package -Algorithm SHA256).Hash.ToLowerInvariant()
+        python "$env:RUNNER_TEMP/trusted-windows-store.py" inspect $package
+        if ($LASTEXITCODE -ne 0) { throw 'Store package validation failed.' }
+        "sha256=$env:STORE_PACKAGE_SHA256" >> $env:GITHUB_OUTPUT
+        "AppX SHA-256: $env:STORE_PACKAGE_SHA256" | Tee-Object -FilePath $env:GITHUB_STEP_SUMMARY -Append
+        "Package run ID: $env:GITHUB_RUN_ID" | Tee-Object -FilePath $env:GITHUB_STEP_SUMMARY -Append
+    - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+      id: upload
+      with:
+        name: sigma-studio-windows-store-${{ inputs.release_tag }}
+        path: apps/desktop/release/Sigma-Studio-Store-*-x64.appx
+        if-no-files-found: error
+        compression-level: 0
+        retention-days: 14
