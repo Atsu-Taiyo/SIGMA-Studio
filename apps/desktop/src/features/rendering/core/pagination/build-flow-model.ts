@@ -33,6 +33,8 @@ export interface BuiltUnit {
   nodes: BuiltNode[];
   /** ユニットが所有する行 (付属物・分割できない中身) のキー。 */
   ownLineKeys: string[];
+  /** Natural origin of the independent column grid. */
+  columnOrigin?: { top: number };
   /** ユニットの全項目 (行と空白) のキーを文書順に。 */
   itemKeys: string[];
   frame?: ProbeUnit["frame"];
@@ -170,6 +172,7 @@ export function buildFlowModel(tree: ProbeTree, options: BuildFlowModelOptions):
       width: unit.rect.width,
       nodes: [],
       ownLineKeys: [],
+      ...(unit.columns?.length ? { columnOrigin: { top: unit.columns[0].rect.top } } : {}),
       itemKeys: [],
       breakBefore: unit.breakBefore,
       ...(unit.frame ? { frame: unit.frame } : {}),

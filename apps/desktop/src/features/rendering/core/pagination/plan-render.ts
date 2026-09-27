@@ -43,7 +43,15 @@ export interface FlowFramePiece {
   openBottom: boolean;
 }
 
+export interface FlowColumnRulePiece {
+  x: number;
+  y: number;
+  height: number;
+}
+
 export interface FlowRenderPlan {
+  /** Column separators share the body placement, split at each page/outer column. */
+  columnRulePieces: Record<string, FlowColumnRulePiece[]>;
   unitDisplacements: Record<string, FlowDisplacement>;
   /** ユニットからの相対。値が 0 のブロックも入れる (新しいブロックは前のブロックの値を継ぐ)。 */
   nodeDisplacements: Record<string, FlowDisplacement>;
@@ -85,6 +93,7 @@ function sameDisplacement(a: PlacedLine, b: { regionIndex: number; dx: number; d
 
 export function planFlowRender(built: BuiltFlowModel, placement: FlowPlacement): FlowRenderPlan {
   const plan: FlowRenderPlan = {
+    columnRulePieces: {},
     unitDisplacements: {},
     nodeDisplacements: {},
     fragmentSources: {},
@@ -245,8 +254,16 @@ function planFramePieces(
     }
   }
   const segments = [...byRegion.entries()].sort(([a], [b]) => a - b).map(([, extent]) => extent);
-  if (segments.length <= 1) return;
   const unitTop = unit.top + unitDisplacement.dy;
+  const columnOrigin = unit.columnOrigin;
+  if (columnOrigin) {
+    plan.columnRulePieces[unit.id] = segments.map(segment => ({
+      x: round(segment.x - unitDisplacement.dx),
+      y: round(segment.top - columnOrigin.top - unitDisplacement.dy),
+      height: round(Math.max(0, segment.bottom - segment.top)),
+    }));
+  }
+  if (segments.length <= 1) return;
   plan.visualEnds[unit.id] = round(Math.max(...segments.map((segment) => segment.bottom)) - unitTop);
   plan.sideNoteLabelYs[unit.id] = round((Math.max(segments[0].top, unitTop) + segments[0].bottom) / 2 - unitTop);
   if (!unit.frame) return;

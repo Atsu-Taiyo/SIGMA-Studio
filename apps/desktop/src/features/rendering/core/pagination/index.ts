@@ -9,5 +9,6 @@ export {
   type FlowFragmentReplica,
   type FlowFragmentSource,
   type FlowFramePiece,
+  type FlowColumnRulePiece,
   type FlowRenderPlan,
 } from "./plan-render";

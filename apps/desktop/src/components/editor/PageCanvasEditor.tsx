@@ -145,6 +145,7 @@ import  {
   placeFlow,
   planFlowRender,
   type FlowDisplacement,
+  type FlowColumnRulePiece,
   type OverlayPreviewStackLayer,
   type TextFlowColumnBlockLayout,
 } from "@/features/rendering/core";
@@ -1153,6 +1154,7 @@ function PageCanvasEditorImpl({
     textFlowBlockLayouts,
     totalHeight,
     unitLayouts,
+    columnRulePieces,
     unitDisplacements,
     nodeDisplacements,
     visualEnds,
@@ -1692,6 +1694,7 @@ function PageCanvasEditorImpl({
     let nextFrameFragmentLayouts: Record<string, ProblemAreaFrameFragmentLayout[]> = {};
     const nextMarkerLayouts: Record<string, FlowUnitLayout> = {};
     const nextAreaLayouts: Record<string, ProblemAreaColumnLayout> = {};
+    let nextColumnRulePieces: Record<string, FlowColumnRulePiece[]> = {};
     let nextUnitDisplacements: Record<string, FlowDisplacement> = {};
     let nextNodeDisplacements: Record<string, FlowDisplacement> = {};
     let nextVisualEnds: Record<string, number> = {};
@@ -1726,6 +1729,7 @@ function PageCanvasEditorImpl({
       nextBoxBlockFragmentLayouts = flowPlan.fragmentReplicas;
       nextBoxFragmentSourceLayouts = flowPlan.fragmentSources;
       nextFrameFragmentLayouts = flowPlan.framePieces;
+      nextColumnRulePieces = flowPlan.columnRulePieces;
       nextUnitDisplacements = flowPlan.unitDisplacements;
       nextNodeDisplacements = flowPlan.nodeDisplacements;
       nextVisualEnds = flowPlan.visualEnds;
@@ -1809,6 +1813,7 @@ function PageCanvasEditorImpl({
         sameBlockExtentMap(current.blockExtents, extents) &&
         sameDisplacementMap(current.unitDisplacements, nextUnitDisplacements) &&
         sameDisplacementMap(current.nodeDisplacements, nextNodeDisplacements) &&
+        sameColumnRulePieces(current.columnRulePieces ?? {}, nextColumnRulePieces) &&
         sameNumberMap(current.visualEnds, nextVisualEnds) &&
         sameNumberMap(current.sideNoteLabelYs, nextSideNoteLabelYs) &&
         sameDisplacementMap(current.markerDisplacements, nextMarkerDisplacements)
@@ -1834,6 +1839,7 @@ function PageCanvasEditorImpl({
         textFlowBlockLayouts: nextBlockLayouts,
         totalHeight: nextTotalHeight,
         unitLayouts: nextLayouts,
+        columnRulePieces: nextColumnRulePieces,
         unitDisplacements: nextUnitDisplacements,
         nodeDisplacements: nextNodeDisplacements,
         visualEnds: nextVisualEnds,
@@ -5116,6 +5122,7 @@ function PageCanvasEditorImpl({
                   markerDisplacements={markerDisplacements}
                   visualEnd={visualEnds[unit.id]}
                   sideNoteLabelY={sideNoteLabelYs[unit.id]}
+                  columnRulePieces={columnRulePieces?.[unit.id]}
                   columnLayout={problemAreaColumnLayouts[unit.id]}
                   boxFragmentSourceLayouts={boxFragmentSourceLayouts}
                   layoutStyle={getFlowUnitPlacementStyle(unit, unitDisplacements[unit.id], metrics, isColumnPage)}
@@ -6500,9 +6507,11 @@ function LayoutColumnResizeHandle({
   label,
   hint,
   mergeLabel,
+  piece,
   onCommit,
 }: {
   sectionId: string;
+  piece?: FlowColumnRulePiece;
   dividerIndex: number;
   left: string;
   /** 段間の幅 (CSS 長さ)。当たり判定は段間の全幅。 */
@@ -6529,7 +6538,8 @@ function LayoutColumnResizeHandle({
       className="layout-section-column-resize-handle"
       data-layout-section-id={sectionId}
       data-divider-index={dividerIndex}
-      style={{ left, "--layout-column-divider-gap": gap } as CSSProperties}
+      style={{ left: piece ? `calc(${left} + ${piece.x}px)` : left, "--layout-column-divider-gap": gap,
+        ...(piece ? { top: piece.y, height: piece.height, bottom: "auto", minHeight: 0 } : {}) } as CSSProperties}
       aria-label={label}
       title={hint}
     />
@@ -6549,6 +6559,7 @@ function LayoutSectionFlowUnit({
   visualEnd,
   sideNoteLabelY,
   columnLayout,
+  columnRulePieces,
   boxFragmentSourceLayouts,
   layoutStyle,
   spaceAfterFollowerClass,
@@ -6582,6 +6593,7 @@ function LayoutSectionFlowUnit({
   visualEnd: number | undefined;
   sideNoteLabelY: number | undefined;
   columnLayout: ProblemAreaColumnLayout | undefined;
+  columnRulePieces?: readonly FlowColumnRulePiece[];
   boxFragmentSourceLayouts: Record<string, TextFlowBoxFragmentSourceLayout>;
   layoutStyle: CSSProperties | undefined;
   /** 下端つまみのドラッグ中、このユニットを殻ごと平行移動させる印 (該当しなければ空文字)。 */
@@ -6720,7 +6732,7 @@ function LayoutSectionFlowUnit({
         style={columnStyle}
       >
         <div className="layout-section-independent-columns" style={independentColumnStyle} onMouseDownCapture={startLocalColumnPointerSelection}>
-          <ColumnRuleLines rule={unit.section.layout.columnRule} dividers={columnPresentation.dividers} />
+          <ColumnRuleLines rule={unit.section.layout.columnRule} dividers={columnPresentation.dividers} pieces={columnRulePieces} />
           {columnBlocks.map((blocks, columnIndex) => (
             <Fragment key={unit.section.layout.columnStartIds?.[columnIndex] ?? blocks[0]?.id ?? columnIndex}>
               <div className="layout-section-independent-column" data-layout-column-index={columnIndex}>
@@ -6763,8 +6775,10 @@ function LayoutSectionFlowUnit({
                   textRunPreserveEmpty
                 />
               </div>
-              {columnIndex < columnBlocks.length - 1 && (
+              {columnIndex < columnBlocks.length - 1 && (columnRulePieces ?? [undefined]).map((piece, pieceIndex) => (
                 <LayoutColumnResizeHandle
+                  key={pieceIndex}
+                  piece={piece}
                   sectionId={unit.section.id}
                   dividerIndex={columnIndex}
                   left={columnPresentation.dividers[columnIndex].left}
@@ -6799,7 +6813,7 @@ function LayoutSectionFlowUnit({
                     });
                   }}
                 />
-              )}
+              ))}
             </Fragment>
           ))}
         </div>
@@ -8471,6 +8485,20 @@ function pickUnitNodeDisplacements(
 function getNodeDisplacementsKey(displacements: Readonly<Record<string, FlowDisplacement>> | undefined): string {
   if (!displacements) return "";
   return Object.entries(displacements).map(([id, value]) => `${id}:${value.dx}:${value.dy}`).join("|");
+}
+
+function sameColumnRulePieces(
+  current: Record<string, FlowColumnRulePiece[]>,
+  next: Record<string, FlowColumnRulePiece[]>,
+): boolean {
+  const keys = Object.keys(next);
+  return keys.length === Object.keys(current).length && keys.every(key => {
+    const a = current[key];
+    const b = next[key];
+    return a?.length === b.length && b.every((piece, index) => (
+      a[index].x === piece.x && a[index].y === piece.y && a[index].height === piece.height
+    ));
+  });
 }
 
 function sameDisplacementMap(

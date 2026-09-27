@@ -1,7 +1,7 @@
 import type { BlockExtent, MeasuredBlock } from "../overlay-canvas/anchor";
 import type { TextFlowBoxFragmentSourceLayout, TextFlowColumnBlockLayout } from "../text-flow/types";
 import type { SigmaDocument } from "@/features/document";
-import type { FlowDisplacement } from "@/features/rendering/core";
+import type { FlowDisplacement, FlowColumnRulePiece } from "@/features/rendering/core";
 import type { EditorBoxBlockFragmentLayout, FlowUnitLayout, ProblemAreaColumnLayout, ProblemAreaFrameFragmentLayout } from "./types";
 
 /** Identity of the committed layout inputs; never persisted in SigmaDoc. */
@@ -15,6 +15,7 @@ export interface PageLayoutInput {
 
 /** One publication for content, frame, interaction, caret and output geometry. */
 export interface PageLayoutSnapshot {
+  columnRulePieces?: Record<string, FlowColumnRulePiece[]>;
   input: PageLayoutInput | null;
   fontRevision: number;
   blockAnchorable: MeasuredBlock[];
