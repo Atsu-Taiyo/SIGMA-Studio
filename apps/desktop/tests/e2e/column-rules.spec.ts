@@ -86,15 +86,18 @@ test("local rules share controls inside and outside boxes and survive typing, un
     await openLocal(page, id);
     await chooseStyle(page, style);
     await page.screenshot({ path: `test-results/column-rule-${id}-settings.png` });
-    await page.getByRole("dialog", { name: "段間の線", exact: true }).getByRole("button", { name: "適用", exact: true }).click();
+    await expect(page.getByRole("dialog").getByRole("button", { name: /^(適用|キャンセル)$/ })).toHaveCount(0);
+    await page.keyboard.press("Escape");
     await expect.poll(async () => local(await saved(page), id).layout.columnRule?.style).toBe(expected);
     await expect.poll(async () => (await ruleCss(page, id)).style).toBe(expected);
   }
   expect((await saved(page)).pageLayout?.flow.columnRule).toBeUndefined();
   await openLocal(page, "inside");
   await chooseStyle(page, "線なし");
-  await page.getByRole("dialog", { name: "段間の線", exact: true }).getByRole("button", { name: "キャンセル", exact: true }).click();
-  expect((await ruleCss(page, "inside")).style).toBe("double");
+  await expect.poll(async () => local(await saved(page), "inside").layout.columnRule?.style).toBe("none");
+  await chooseStyle(page, "二重線");
+  await expect.poll(async () => (await ruleCss(page, "inside")).style).toBe("double");
+  await page.keyboard.press("Escape");
 
   const target = page.locator('.page-flow [data-sigma-doc-id="inside_left"]').first();
   await target.click();
@@ -107,7 +110,8 @@ test("local rules share controls inside and outside boxes and survive typing, un
   expect(local(await saved(page), "inside").layout.columnRule?.style).toBe("double");
   await openLocal(page, "inside");
   await chooseStyle(page, "線なし");
-  await page.getByRole("dialog", { name: "段間の線", exact: true }).getByRole("button", { name: "適用", exact: true }).click();
+  await expect(page.getByRole("dialog").getByRole("button", { name: /^(適用|キャンセル)$/ })).toHaveCount(0);
+    await page.keyboard.press("Escape");
   await expect.poll(async () => local(await saved(page), "inside").layout.columnRule?.style).toBe("none");
   await expect(page.locator('.page-flow [data-layout-section-id="inside"] > .column-rule-separator')).toHaveCount(0);
   await page.keyboard.press(process.platform === "darwin" ? "Meta+z" : "Control+z");
@@ -132,4 +136,34 @@ test("configured page and local separators remain visible in the settled output 
   await expect(page.locator(".page-column-rules > span").first()).toHaveCSS("border-left-style", "solid");
   await expect.poll(async () => (await ruleCss(page, "inside")).style).toBe("double");
   await expect.poll(async () => (await ruleCss(page, "outside")).style).toBe("dashed");
+});
+
+test("multi-page column rules use identical page-local segments in the editor and print surface", async ({ page }) => {
+  const doc = seed(1);
+  const localSection = section("outside");
+  localSection.layout.columnRule = { style: "solid", widthPx: 2, color: "#123456" };
+  localSection.layout.columnStartIds = ["left0", "right0"];
+  localSection.children = ["left", "right"].flatMap(side => Array.from({ length: side === "left" ? 65 : 40 }, (_, i) => ({
+    type: "paragraph" as const, id: `${side}${i}`,
+    children: [{ type: "text" as const, text: `本文 ${i}` }],
+  })));
+  doc.content = [localSection];
+  await open(page, doc);
+  const ruleSelector = '.page-flow [data-layout-section-id="outside"] .column-rule-separator';
+  await expect.poll(() => page.locator(ruleSelector).count()).toBeGreaterThan(1);
+  const read = () => page.locator('.page-flow [data-layout-section-id="outside"] .layout-section-independent-columns').first().locator(":scope > .column-rule-separator").evaluateAll(nodes => nodes.map(node => {
+    const el = node as HTMLElement;
+    return { top: el.style.top, height: el.style.height, left: el.style.left };
+  }));
+  const editorRules = await read();
+  await page.goto("/print?fileId=file_e2e_document&profile=teacher");
+  await waitForPagedSurfaceSettled(page);
+  await expect.poll(read).toEqual(editorRules);
+  expect(editorRules.length).toBeGreaterThan(1);
+  for (let i = 1; i < editorRules.length; i++) {
+    expect(parseFloat(editorRules[i].top) - parseFloat(editorRules[i - 1].top) - parseFloat(editorRules[i - 1].height)).toBeGreaterThan(35);
+  }
+  const { PDFDocument } = await import("pdf-lib");
+  const pdf = await PDFDocument.load(await page.pdf({ preferCSSPageSize: true, printBackground: true }));
+  expect(pdf.getPageCount()).toBe(editorRules.length);
 });
