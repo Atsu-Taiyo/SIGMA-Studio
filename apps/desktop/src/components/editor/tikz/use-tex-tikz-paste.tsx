@@ -53,7 +53,7 @@ export function useTexTikzPaste(ports: TexTikzPastePorts) {
     let active = true;
     const api = getDesktopBridge()!.tikz!;
     void renderTexTikzPaste(batch.plan, input => api.render(input), {
-      maxWidth: Math.min(480, getPageMetrics(live.current.document.pageLayout).flow.columnWidthPx),
+      imageWidthLimit: Math.min(480, getPageMetrics(live.current.document.pageLayout).flow.columnWidthPx),
       cancelled: () => !active,
       onProgress: completed => { if (active) setProgress(completed); },
     }).then(result => {

@@ -45,7 +45,11 @@ describe("mixed TeX and TikZ paste", () => {
     const snapshot = restored.pageLayout!.overlay!.overlaySnapshot!;
     expect(snapshot.shapes.map(s => s.anchor)).toEqual(plan.figures.map(f => ({ type: "block", blockId: f.blockId, dx: 0, dy: 0 })));
     expect(Object.keys(snapshot.assets)).toHaveLength(2);
-    for (const { blockId } of plan.figures) expect(restored.content.find(b => b.id === blockId)).toMatchObject({ type: "paragraph", spaceAfterPx: 96, pagination: { keepTogether: true } });
+    for (const { blockId } of plan.figures) {
+      expect(restored.content.find(b => b.id === blockId)).toMatchObject({ type: "paragraph", spaceAfterPx: 96 });
+      // Figure spacing survives reload without writing retired pagination hints.
+      expect(result.document.content.find(b => b.id === blockId)?.pagination).toBeUndefined();
+    }
     expect(restored.content.map(blockText).join(" ")).toContain("最後の本文");
   });
 
@@ -161,7 +165,7 @@ ${b}
       active--;
       if (++calls === 12) throw new Error("worker unavailable");
       return success;
-    }, { onProgress: progress, maxWidth: 60 }))!;
+    }, { onProgress: progress, imageWidthLimit: 60 }))!;
     const restored = parseSigmaDocument(JSON.parse(JSON.stringify(result.document)));
     const shapes = restored.pageLayout!.overlay!.overlaySnapshot!.shapes;
     expect(maximum).toBe(1);

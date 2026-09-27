@@ -149,7 +149,7 @@ export function planTexTikzPaste(text: string, defaults: TikzEnvironment = EMPTY
 export async function renderTexTikzPaste(plan: TexTikzPastePlan, render: TikzRenderAPI["render"], options: {
   cancelled?: () => boolean;
   onProgress?: (completed: number, total: number) => void;
-  maxWidth?: number;
+  imageWidthLimit?: number;
 } = {}): Promise<{ document: SigmaDocument; failures: number } | null> {
   const shapes: OverlayImageShape[] = [];
   const assets: Record<string, OverlayAsset> = {};
@@ -163,7 +163,7 @@ export async function renderTexTikzPaste(plan: TexTikzPastePlan, render: TikzRen
       if (options.cancelled?.()) return null;
       if (!response.ok) throw new Error(response.error);
       const image = response.image;
-      const scale = Math.min(1, (options.maxWidth ?? 480) / image.width, 360 / image.height);
+      const scale = Math.min(1, (options.imageWidthLimit ?? 480) / image.width, 360 / image.height);
       const height = image.height * scale;
       const assetId = createId("asset");
       assets[assetId] = { id: assetId, type: "image", props: { src: image.src, w: image.width, h: image.height,
@@ -184,7 +184,7 @@ export async function renderTexTikzPaste(plan: TexTikzPastePlan, render: TikzRen
     const replacement = replacements.get(node.id as string);
     if (!replacement) return node;
     if (replacement.height !== undefined) return { ...node, type: node.type === "codeBlock" ? "paragraph" : node.type,
-      children: [{ type: "text", text: "" }], language: undefined, spaceAfterPx: Math.ceil(replacement.height + 16), pagination: { keepTogether: true } };
+      children: [{ type: "text", text: "" }], language: undefined, spaceAfterPx: Math.ceil(replacement.height + 16) };
     return { ...node, children: [{ type: "text", text: replacement.source }] };
   }) as SigmaDocument;
   document.pageLayout!.overlay = { ...document.pageLayout!.overlay!, overlaySnapshot: { version: 1, shapes, assets } };
