@@ -48,8 +48,11 @@ jobs:
           git merge-base --is-ancestor $commit origin/main
           if ($LASTEXITCODE -ne 0) { throw 'Release must belong to main history.' }
           Copy-Item scripts/windows_store.py "$env:RUNNER_TEMP/trusted-windows-store.py"
+          Copy-Item apps/desktop/tests/electron/open-document.spec.ts "$env:RUNNER_TEMP/trusted-open-document.spec.ts"
           git checkout --detach $commit
           if ($LASTEXITCODE -ne 0) { throw 'Cannot check out the release.' }
+          # Test harness fixes come from main; the packaged application stays at the release tag.
+          Copy-Item "$env:RUNNER_TEMP/trusted-open-document.spec.ts" apps/desktop/tests/electron/open-document.spec.ts
           $package = Get-Content package.json -Raw | ConvertFrom-Json
           if ("v$($package.version)" -cne $env:STORE_RELEASE_TAG) { throw 'Release version mismatch.' }
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6

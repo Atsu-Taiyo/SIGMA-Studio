@@ -57,7 +57,9 @@ test("opens startup/second-instance/macOS files through real storage and preserv
     await page.keyboard.type(" EDIT_BEFORE_OPEN");
 
     // A real second process exercises Electron's lock and additionalData transport.
-    const executable = app.process().spawnfile;
+    // Playwright launches through cmd.exe on Windows; use the actual Electron
+    // binary, not the test runner's shell wrapper, for the secondary process.
+    const executable = await app.evaluate(() => process.execPath);
     await new Promise<void>((resolve, reject) => {
       const child = spawn(executable, [APP_ROOT, second, third], {
         cwd: root, env: { ...env, NODE_ENV: process.env.NODE_ENV }, stdio: "ignore",
