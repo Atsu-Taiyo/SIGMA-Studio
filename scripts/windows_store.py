@@ -315,26 +315,46 @@ def github_json(args):
 def download(env, destination):
     tag = require(env, "STORE_RELEASE_TAG", r"v\d+\.\d+\.\d+")
     repository = require(env, "GITHUB_REPOSITORY", r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+")
-    release = github_json(["api", f"repos/{repository}/releases/tags/{tag}"])
-    if release.get("tag_name") != tag or release.get("prerelease"):
-        raise StoreError("Select an existing stable release tag.")
     filename = f"Sigma-Studio-Store-{tag[1:]}-x64.appx"
-    assets = [asset for asset in release.get("assets", []) if asset.get("name") == filename]
-    if len(assets) != 1 or not 0 < assets[0].get("size", 0) <= MAX_PACKAGE_BYTES:
-        raise StoreError("The release has no valid x64 Store AppX asset. An NSIS EXE cannot be submitted here.")
     expected = env.get("STORE_PACKAGE_SHA256", "").lower()
-    if not expected and env.get("GITHUB_EVENT_NAME") == "release":
-        digest = assets[0].get("digest") or ""
-        expected = digest.removeprefix("sha256:") if digest.startswith("sha256:") else ""
+    if env.get("STORE_PACKAGE_RUN_ID"):
+        run_id = require(env, "STORE_PACKAGE_RUN_ID", r"[1-9][0-9]{0,19}")
+        if env.get("GITHUB_EVENT_NAME") != "workflow_dispatch":
+            raise StoreError("Actions package selection is only supported for manual submission.")
+        run = github_json(["api", f"repos/{repository}/actions/runs/{run_id}"])
+        if (run.get("status") != "completed" or run.get("conclusion") != "success"
+                or run.get("event") != "workflow_dispatch" or run.get("head_branch") != "main"
+                or run.get("path") != ".github/workflows/build-windows-store.yml"
+                or run.get("repository", {}).get("full_name") != repository):
+            raise StoreError("Select a successful Store package workflow run on main in this repository.")
+        name = f"sigma-studio-windows-store-{tag}"
+        result = github_json(["api", f"repos/{repository}/actions/runs/{run_id}/artifacts?per_page=100"])
+        artifacts = [item for item in result.get("artifacts", []) if item.get("name") == name]
+        if (len(artifacts) != 1 or artifacts[0].get("expired") is not False
+                or not 0 < artifacts[0].get("size_in_bytes", 0) <= MAX_PACKAGE_BYTES):
+            raise StoreError("The run has no valid Store package artifact for the selected version.")
+        args = ["gh", "run", "download", run_id, "--repo", repository, "--name", name]
+    else:
+        release = github_json(["api", f"repos/{repository}/releases/tags/{tag}"])
+        if release.get("tag_name") != tag or release.get("prerelease"):
+            raise StoreError("Select an existing stable release tag.")
+        assets = [asset for asset in release.get("assets", []) if asset.get("name") == filename]
+        if len(assets) != 1 or not 0 < assets[0].get("size", 0) <= MAX_PACKAGE_BYTES:
+            raise StoreError("The release has no valid x64 Store AppX asset. An NSIS EXE cannot be submitted here.")
+        if not expected and env.get("GITHUB_EVENT_NAME") == "release":
+            digest = assets[0].get("digest") or ""
+            expected = digest.removeprefix("sha256:") if digest.startswith("sha256:") else ""
+        args = ["gh", "release", "download", tag, "--repo", repository, "--pattern", filename]
     if not re.fullmatch(r"[a-f0-9]{64}", expected):
         raise StoreError("A SHA-256 is required; automatic release submission needs GitHub's asset digest.")
     directory = Path(destination)
     directory.mkdir(parents=True, exist_ok=False, mode=0o700)
-    result = subprocess.run(["gh", "release", "download", tag, "--repo", repository,
-                             "--pattern", filename, "--dir", str(directory)], capture_output=True, check=False)
+    result = subprocess.run([*args, "--dir", str(directory)], capture_output=True, check=False)
     if result.returncode:
         raise StoreError("GitHub package download failed; output is intentionally withheld.")
     path = directory / filename
+    if list(directory.iterdir()) != [path] or path.is_symlink() or not path.is_file():
+        raise StoreError("Expected exactly one regular AppX file in the download.")
     with path.open("rb") as package:
         if hashlib.file_digest(package, "sha256").hexdigest() != expected:
             raise StoreError("Downloaded package SHA-256 does not match.")
@@ -349,6 +369,10 @@ def main():
     if action == "download" and len(sys.argv) == 3:
         download(env, sys.argv[2])
         return
+    if action == "inspect" and len(sys.argv) == 3:
+        package_details(Path(sys.argv[2]), env)
+        report("PackageVerified", message="AppX manifest and hash verified; no Store API access was used.")
+        return
     client = StoreClient(env)
     if action == "preflight":
         check_ready(client, env)
@@ -358,7 +382,7 @@ def main():
     elif action == "submit" and len(sys.argv) == 3:
         submit(client, env, Path(sys.argv[2]))
     else:
-        raise StoreError("Usage: windows_store.py preflight|status|submit <appx>|download <directory>")
+        raise StoreError("Usage: windows_store.py preflight|status|submit <appx>|inspect <appx>|download <directory>")
 
 
 if __name__ == "__main__":

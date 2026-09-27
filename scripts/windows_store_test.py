@@ -322,6 +322,92 @@ class StoreTests(unittest.TestCase):
         self.assertEqual((destination / "sha256").read_text(), self.env["STORE_PACKAGE_SHA256"])
         self.assertEqual(sorted(p.name for p in destination.iterdir()), sorted([self.path.name, "sha256"]))
 
+    def package_run(self):
+        return {"status": "completed", "conclusion": "success", "event": "workflow_dispatch",
+                "head_branch": "main", "path": ".github/workflows/build-windows-store.yml",
+                "repository": {"full_name": "owner/repo"}}
+
+    def package_artifacts(self):
+        return {"artifacts": [{"name": "sigma-studio-windows-store-v1.2.3", "expired": False,
+                                "size_in_bytes": self.path.stat().st_size}]}
+
+    def artifact_env(self):
+        return {**self.env, "GITHUB_REPOSITORY": "owner/repo", "GITHUB_EVENT_NAME": "workflow_dispatch",
+                "STORE_PACKAGE_RUN_ID": "123"}
+
+    def test_actions_download_uses_successful_main_workflow_and_exact_version(self):
+        destination = Path(self.temp.name) / "artifact"
+
+        def run(args, **kwargs):
+            self.assertEqual(args[:8], ["gh", "run", "download", "123", "--repo", "owner/repo",
+                                       "--name", "sigma-studio-windows-store-v1.2.3"])
+            (destination / self.path.name).write_bytes(self.path.read_bytes())
+            return store.subprocess.CompletedProcess(args, 0)
+
+        with patch.object(store, "github_json", side_effect=[self.package_run(), self.package_artifacts()]), \
+                patch.object(store.subprocess, "run", side_effect=run), \
+                patch.dict("os.environ", {}, clear=True), redirect_stdout(io.StringIO()):
+            store.download(self.artifact_env(), destination)
+        self.assertEqual((destination / "sha256").read_text(), self.env["STORE_PACKAGE_SHA256"])
+
+    def test_artifact_download_rejects_untrusted_run_before_download(self):
+        for change in [{"status": "in_progress"}, {"conclusion": "failure"}, {"event": "pull_request"},
+                       {"head_branch": "feature"}, {"path": ".github/workflows/other.yml"},
+                       {"repository": {"full_name": "other/repo"}}]:
+            with self.subTest(change=change), \
+                    patch.object(store, "github_json", return_value={**self.package_run(), **change}), \
+                    patch.object(store.subprocess, "run") as download:
+                with self.assertRaisesRegex(store.StoreError, "successful Store package"):
+                    store.download(self.artifact_env(), Path(self.temp.name) / "download")
+                download.assert_not_called()
+
+    def test_artifact_download_rejects_expired_missing_version_or_missing_digest(self):
+        for changes in [{"expired": True}, {"name": "sigma-studio-windows-store-v1.2.4"},
+                        {"size_in_bytes": 0}]:
+            artifact = self.package_artifacts()
+            artifact["artifacts"][0].update(changes)
+            with self.subTest(changes=changes), \
+                    patch.object(store, "github_json", side_effect=[self.package_run(), artifact]), \
+                    patch.object(store.subprocess, "run") as download:
+                with self.assertRaisesRegex(store.StoreError, "no valid Store package"):
+                    store.download(self.artifact_env(), Path(self.temp.name) / "download")
+                download.assert_not_called()
+        with patch.object(store, "github_json", side_effect=[self.package_run(), self.package_artifacts()]), \
+                patch.object(store.subprocess, "run") as download:
+            with self.assertRaisesRegex(store.StoreError, "SHA-256 is required"):
+                store.download({**self.artifact_env(), "STORE_PACKAGE_SHA256": ""}, Path(self.temp.name) / "download")
+            download.assert_not_called()
+
+    def test_artifact_download_rejects_automatic_event_and_invalid_run_id(self):
+        for changes in [{"GITHUB_EVENT_NAME": "release"}, {"STORE_PACKAGE_RUN_ID": "../123"}]:
+            with patch.object(store, "github_json") as lookup, self.assertRaises(store.StoreError):
+                store.download({**self.artifact_env(), **changes}, Path(self.temp.name) / "download")
+            lookup.assert_not_called()
+
+    def test_artifact_download_rejects_extra_files(self):
+        destination = Path(self.temp.name) / "artifact"
+
+        def run(*args, **kwargs):
+            (destination / self.path.name).write_bytes(self.path.read_bytes())
+            (destination / "unexpected.env").write_text("test-only-private-data")
+            return store.subprocess.CompletedProcess([], 0)
+
+        with patch.object(store, "github_json", side_effect=[self.package_run(), self.package_artifacts()]), \
+                patch.object(store.subprocess, "run", side_effect=run):
+            with self.assertRaisesRegex(store.StoreError, "exactly one regular AppX"):
+                store.download(self.artifact_env(), destination)
+        self.assertFalse((destination / "sha256").exists())
+
+    def test_inspect_works_without_authentication_and_never_calls_the_api(self):
+        public_env = {key: self.env[key] for key in ["STORE_RELEASE_TAG", "STORE_PACKAGE_SHA256",
+                      "WINDOWS_STORE_IDENTITY_NAME", "WINDOWS_STORE_PUBLISHER"]}
+        with patch.dict("os.environ", public_env, clear=True), \
+                patch.object(store.sys, "argv", ["windows_store.py", "inspect", str(self.path)]), \
+                patch.object(store, "StoreClient") as client, redirect_stdout(io.StringIO()) as output:
+            store.main()
+        client.assert_not_called()
+        self.assertIn("PackageVerified", output.getvalue())
+
     def test_private_provider_details_do_not_reach_saved_actions_summary(self):
         summary = Path(self.temp.name) / "summary.md"
         client = FakeClient([{"status": "Certification", "statusDetails": {
