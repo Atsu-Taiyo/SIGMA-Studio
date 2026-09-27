@@ -40,7 +40,7 @@ const HINT_ENVIRONMENTS = new Set(["hint", "hints"]);
 const ANSWER_ENVIRONMENTS = new Set(["answer", "answers"]);
 const AREA_COMMANDS = new Set(["answer", "solution", "hint"]);
 const LIST_ENVIRONMENTS = new Set(["enumerate", "itemize", "description"]);
-const TRANSPARENT_TEXT_ENVIRONMENTS = new Set(["quote", "quotation"]);
+const TRANSPARENT_TEXT_ENVIRONMENTS = new Set(["quote", "quotation", "figure", "figure*"]);
 const IGNORED_TOP_LEVEL_COMMANDS = new Set([
   "author",
   "columnratio",
@@ -79,6 +79,7 @@ const MARK_COMMANDS: Partial<Record<string, TextMark>> = {
   underline: "underline",
 };
 const UNWRAP_TEXT_COMMANDS = new Set([
+  "caption",
   "large",
   "mbox",
   "scriptsize",

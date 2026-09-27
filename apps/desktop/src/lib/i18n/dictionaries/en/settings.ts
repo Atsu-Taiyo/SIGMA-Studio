@@ -4,6 +4,9 @@ import type { TranslationsOf } from "../types";
 /** 対応する日本語 namespace と同時に埋める。詳細は `../ja/settings.ts` を参照。 */
 export const settings = {
   tikz: {
+    importTitle: "Paste TeX",
+    importProgress: "Generating figures… {{completed}} / {{total}}",
+    importFailures: "Could not convert {{count}} figures. Their original TeX source was kept in the document.",
     unsupportedUnicode: "The bundled TikZ engine cannot render Unicode labels such as Japanese. Use Latin characters or TeX math commands for labels.",
     "title": "Edit TikZ",
     "source": "Code",

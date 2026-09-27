@@ -3808,6 +3808,20 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, acc
 
   const tikzEditor = useTikzEditor({
     document, fileId: activeFileId, writable: sessionWritable, commit: commitDocumentChange,
+    getPasteAnchor: () => selectedIdRef.current,
+    insertDocument: (imported, afterBlockId) => {
+      return commitDocumentChange((current) => {
+        const next = insertTopLevelDocumentBlocks(current, afterBlockId, imported.content, DOCUMENT_BLOCK_OPERATION_PORTS);
+        const incoming = imported.pageLayout!.overlay!.overlaySnapshot!;
+        const layout = ensurePageLayout(next).pageLayout!;
+        const existing = layout.overlay?.overlaySnapshot;
+        return { ...next, pageLayout: { ...layout, overlay: { ...layout.overlay!, overlaySnapshot: {
+          ...existing, version: 1,
+          shapes: [...(existing?.shapes ?? []), ...incoming.shapes],
+          assets: { ...existing?.assets, ...incoming.assets },
+        } } } };
+      });
+    },
     insert: (payload) => {
       overlayActionRequestIdRef.current += 1;
       setOverlayActionRequest({ id: overlayActionRequestIdRef.current, type: "pasteShapes", payload });
