@@ -93,14 +93,14 @@ describe("pagination round trip", () => {
         id: "h_keep",
         level: 2,
         children: [{ type: "text", text: "見出し" }],
-        pagination: { keepWithNext: true },
+        pagination: { break: true },
       },
       {
         type: "list",
         id: "list_together",
         listType: "bullet",
         items: [{ type: "listItem", id: "li_1", children: [{ type: "text", text: "項目" }] }],
-        pagination: { keepTogether: true },
+        pagination: { break: true },
       },
       {
         type: "boxBlock",
@@ -123,8 +123,8 @@ describe("pagination round trip", () => {
 
     expect(restored.map((block) => block.pagination)).toEqual([
       { break: true },
-      { keepWithNext: true },
-      { keepTogether: true },
+      { break: true },
+      { break: true },
       { break: true },
       { break: true },
     ]);

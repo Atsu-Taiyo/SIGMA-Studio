@@ -121,7 +121,7 @@ describe("running region text model", () => {
         id: "running_box_body",
         children: [{ type: "text", text: "本文" }],
       }],
-      pagination: { keepWithNext: true },
+      pagination: { break: true },
     };
 
     expect(textFlowBlocksToRunningBlocks([section, box])).toEqual([{
@@ -135,7 +135,7 @@ describe("running region text model", () => {
       type: "paragraph",
       id: "running_box",
       children: [{ type: "text", text: "箱" }],
-      pagination: { keepWithNext: true },
+      pagination: { break: true },
     }]);
   });
 

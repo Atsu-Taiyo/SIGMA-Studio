@@ -340,6 +340,7 @@ interface CommentDecorationOptions {
 interface ColumnFlowLayoutOptions {
   getLayouts: () => Record<string, TextFlowColumnBlockLayout>;
   getBoxFragmentSourceLayouts: () => Record<string, TextFlowBoxFragmentSourceLayout>;
+  getNodeDisplacements: () => Readonly<Record<string, { dx: number; dy: number }>> | undefined;
 }
 
 /**
@@ -567,12 +568,14 @@ const ColumnFlowLayoutExtension = Extension.create<ColumnFlowLayoutOptions>({
     return {
       getLayouts: () => ({}),
       getBoxFragmentSourceLayouts: () => ({}),
+      getNodeDisplacements: () => undefined,
     };
   },
 
   addProseMirrorPlugins() {
     const getLayouts = () => this.options.getLayouts();
     const getBoxFragmentSourceLayouts = () => this.options.getBoxFragmentSourceLayouts();
+    const getNodeDisplacements = () => this.options.getNodeDisplacements();
 
     return [
       new Plugin({
@@ -582,6 +585,7 @@ const ColumnFlowLayoutExtension = Extension.create<ColumnFlowLayoutOptions>({
             state.doc,
             getLayouts(),
             getBoxFragmentSourceLayouts(),
+            getNodeDisplacements(),
           ),
         },
       }),
@@ -589,57 +593,55 @@ const ColumnFlowLayoutExtension = Extension.create<ColumnFlowLayoutOptions>({
   },
 });
 
-function createColumnFlowLayoutDecorations(
+export function createColumnFlowLayoutDecorations(
   doc: ProseMirrorModelNode,
   layouts: Record<string, TextFlowColumnBlockLayout>,
   boxFragmentSourceLayouts: Record<string, TextFlowBoxFragmentSourceLayout>,
+  nodeDisplacements?: Readonly<Record<string, { dx: number; dy: number }>>,
 ): DecorationSet {
   const decorations: Decoration[] = [];
+  // ページ割りの変位。値の無いブロックは直前のブロックの値を継ぐ。
+  let inherited = { dx: 0, dy: 0 };
 
   doc.forEach((node, offset) => {
-    if (node.type.name !== "paragraph" && node.type.name !== "heading" && node.type.name !== "bulletList" && node.type.name !== "orderedList" && node.type.name !== "boxBlock" && node.type.name !== "layoutSection" && node.type.name !== "quote" && node.type.name !== "codeBlock" && node.type.name !== "divider") {
-      return;
-    }
-
     const blockId = typeof node.attrs?.sigmaDocId === "string" ? node.attrs.sigmaDocId : "";
-    const layout = blockId ? layouts[blockId] : undefined;
+    const ownDisplacement = nodeDisplacements && blockId ? nodeDisplacements[blockId] : undefined;
+    if (ownDisplacement) inherited = ownDisplacement;
+    const displacement = nodeDisplacements && (inherited.dx !== 0 || inherited.dy !== 0) ? inherited : undefined;
+    void layouts;
     // Any block (not only a box) can be split into clipped fragments when it is
     // taller than a page/column, so the source clip applies whenever a fragment
     // source layout exists for this block.
     const fragmentSource = blockId ? boxFragmentSourceLayouts[blockId] : undefined;
-    if (!layout && !fragmentSource) {
+    if (!fragmentSource && !displacement) {
       return;
     }
 
     const classes: string[] = [];
     const styles: string[] = [];
-    if (layout) {
-      classes.push("text-flow-column-block");
-      styles.push(
-        "position:absolute",
-        `left:${Math.round(layout.x)}px`,
-        `top:${Math.round(layout.y)}px`,
-        `width:${Math.round(layout.width)}px`,
-      );
+    const attributes: Record<string, string> = {};
+    if (displacement) {
+      styles.push("position:relative", `top:${displacement.dy}px`, `left:${displacement.dx}px`);
+      attributes["data-flow-dx"] = String(displacement.dx);
+      attributes["data-flow-dy"] = String(displacement.dy);
     }
     if (fragmentSource && fragmentSource.totalHeight > fragmentSource.visibleHeight + 0.5) {
       const hiddenBottom = Math.max(0, fragmentSource.totalHeight - fragmentSource.visibleHeight);
       classes.push("text-flow-box-fragment-source");
       styles.push(
-        `--text-flow-box-fragment-visible-height:${Math.round(fragmentSource.visibleHeight)}px`,
-        `--text-flow-box-fragment-hidden-bottom:${Math.round(hiddenBottom)}px`,
+        `--text-flow-box-fragment-visible-height:${fragmentSource.visibleHeight}px`,
+        `--text-flow-box-fragment-hidden-bottom:${hiddenBottom}px`,
         ...styleVarsToInlineCss(cornerBoxReferenceHeightStyleVars(fragmentSource.totalHeight)),
-        `clip-path:inset(0 0 ${Math.round(hiddenBottom)}px 0)`,
+        `clip-path:inset(0 0 ${hiddenBottom}px 0)`,
       );
+      attributes["data-box-fragment-source-id"] = blockId;
     }
 
     decorations.push(
       Decoration.node(offset, offset + node.nodeSize, {
-        class: classes.join(" "),
+        ...(classes.length > 0 ? { class: classes.join(" ") } : {}),
         style: styles.join(";"),
-        ...(fragmentSource && fragmentSource.totalHeight > fragmentSource.visibleHeight + 0.5
-          ? { "data-box-fragment-source-id": blockId }
-          : {}),
+        ...attributes,
       }),
     );
   });
@@ -709,6 +711,7 @@ function TextFlowEditorImpl({
   paginationMarkerKinds,
   paginationMarkerLayouts,
   columnFlowBlockLayouts,
+  nodeDisplacements,
   boxFragmentSourceLayouts,
   headingNumbers = {},
   boxFragmentReplicaId,
@@ -907,6 +910,7 @@ function TextFlowEditorImpl({
   }, [markerLabelOf, removeMarkerLabelOf, t]);
   const paginationMarkerLayoutsRef = useRef<Record<string, PageBreakMarkerLayout>>(paginationMarkerLayouts ?? {});
   const columnFlowBlockLayoutsRef = useRef<Record<string, TextFlowColumnBlockLayout>>(columnFlowBlockLayouts ?? {});
+  const nodeDisplacementsRef = useRef(nodeDisplacements);
   const problemNumbers = useProblemNumbers();
   const problemNumbersRef = useRef(problemNumbers);
   const getProblemNumbers = useCallback(() => problemNumbersRef.current, []);
@@ -937,6 +941,7 @@ function TextFlowEditorImpl({
   }, []);
   const getPageBreakMarkerLayouts = useCallback(() => paginationMarkerLayoutsRef.current, []);
   const getColumnFlowBlockLayouts = useCallback(() => columnFlowBlockLayoutsRef.current, []);
+  const getNodeDisplacements = useCallback(() => nodeDisplacementsRef.current, []);
   const getHeadingNumbers = useCallback(() => headingNumbersRef.current, []);
   const getHeadingNumberLayoutKey = useCallback((blockId: string) => {
     const layout = columnFlowBlockLayoutsRef.current[blockId];
@@ -1147,6 +1152,7 @@ function TextFlowEditorImpl({
       // eslint-disable-next-line react-hooks/refs
       PageBreakGapExtension.configure({
         getGaps: getBreakGaps,
+        getNodeDisplacements,
         getBreakBeforeIds: getPageBreakBeforeIds,
         getBreakBeforeKind: getPageBreakMarkerKind,
         getBreakBeforeKinds: getPageBreakMarkerKinds,
@@ -1163,6 +1169,7 @@ function TextFlowEditorImpl({
       ColumnFlowLayoutExtension.configure({
         getLayouts: getColumnFlowBlockLayouts,
         getBoxFragmentSourceLayouts,
+        getNodeDisplacements,
       }),
       // This callback runs at transaction time, after source ownership is registered.
       // eslint-disable-next-line react-hooks/refs
@@ -2052,16 +2059,28 @@ function TextFlowEditorImpl({
     () => Object.entries(headingNumbers).sort(([a], [b]) => a.localeCompare(b)).map(([id, number]) => `${id}:${number}`).join("\u0000"),
     [headingNumbers],
   );
-  useEffect(() => {
+  const nodeDisplacementsKey = useMemo(
+    () => (nodeDisplacements ? Object.entries(nodeDisplacements).map(([id, value]) => `${id}:${value.dx}:${value.dy}`).join("|") : ""),
+    [nodeDisplacements],
+  );
+  // ページ割りの変位・断片のクリップは、同じコミットのうちに描く。受け身の effect にすると
+  // ユニットの外枠だけが先に動いて、中のブロックが 1 フレーム遅れる。
+  useLayoutEffect(() => {
     columnFlowBlockLayoutsRef.current = columnFlowBlockLayouts ?? {};
     boxFragmentSourceLayoutsRef.current = boxFragmentSourceLayouts ?? {};
+    nodeDisplacementsRef.current = nodeDisplacements;
+    if (editor && !editor.isDestroyed) {
+      dispatchTextFlowDecorationRefresh(editor.view, new Set(["columnFlow", "gaps"]));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editor, columnFlowBlockLayoutsKey, boxFragmentSourceLayoutsKey, nodeDisplacementsKey]);
+  useEffect(() => {
     headingNumbersRef.current = headingNumbers;
     if (editor && !editor.isDestroyed) {
-      requestSyncDecorationRefresh("columnFlow");
       requestSyncDecorationRefresh("headingNumbers");
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [editor, columnFlowBlockLayoutsKey, boxFragmentSourceLayoutsKey, headingNumbersKey, requestSyncDecorationRefresh]);
+  }, [editor, headingNumbersKey, requestSyncDecorationRefresh]);
 
   // ドラッグ中の下余白プレビュー。`requestSyncDecorationRefresh` は「この commit の最後に打つ」
   // 予約なので、React の外 (pointerdown / pointerup) から来るこの合図はその場で打つ。

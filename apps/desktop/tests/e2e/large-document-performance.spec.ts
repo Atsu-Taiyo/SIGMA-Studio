@@ -13,7 +13,7 @@ const MAX_INITIAL_MOUNTED_SHEETS = 12;
 const MAX_SCROLLED_MOUNTED_SHEETS = 16;
 const MAX_MOUNTED_OVERLAY_SHAPES = 260;
 const REQUIRED_RENDER_MEASURE_NAMES = [
-  "PageCanvasEditor.computeColumnUnitLayouts",
+  "PageCanvasEditor.probeFlow",
   "PageCanvasEditor.createResolvedOverlayView",
 ] as const;
 

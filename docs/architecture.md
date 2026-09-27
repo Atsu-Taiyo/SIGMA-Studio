@@ -362,7 +362,7 @@ Tiptapは編集UIとして使い、保存形式にはしません。
 
 - 用紙サイズ、余白、段組み、ヘッダー/フッターの編集
 - 本文ブロック、問題エリア、`layoutSection`、`boxBlock` のページ/段への流し込み
-- 本文ブロックの実測高さと `computeColumnUnitLayouts` によるページ分割
+- 本文の自然配置の計測 (`flow-probe.ts`) と、行モデルを詰める配置エンジン (`features/rendering/core/pagination`) によるページ・段への分割
 - 可視ページwindowingと、重いoverlay/graph/text viewの描画範囲制御
 - body選択とoverlay選択を同じページ座標で扱うための選択popover配置
 
@@ -583,13 +583,12 @@ HTML/CSS + ChromiumのベクターPDF出力は現実的ですが、商用品質�
 - 低解像度画像検出
 - 数式欠け検出
 
-ページ分割は自動任せにしません。ノード側に制約を持たせます。
+ページ分割は自動ページネーションが担い、ノード側には手動の改ページ/改段だけを持たせます(`keepTogether` / `keepWithNext` は廃止しました)。
 
 ```json
 {
   "pagination": {
-    "keepTogether": true,
-    "keepWithNext": true
+    "break": true
   }
 }
 ```

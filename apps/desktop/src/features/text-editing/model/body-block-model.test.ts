@@ -149,7 +149,7 @@ describe("body block model", () => {
       paragraph("first"),
       {
         ...paragraph("second"),
-        pagination: { break: true, keepWithNext: true },
+        pagination: { break: true },
       },
       {
         ...paragraph("third"),
@@ -284,11 +284,11 @@ describe("body block model", () => {
       paragraph("first"),
       {
         ...paragraph("kept-break"),
-        pagination: { break: true, keepWithNext: true },
+        pagination: { break: true },
       },
       {
         ...paragraph("pruned-break"),
-        pagination: { break: true, keepTogether: true },
+        pagination: { break: true },
       },
       paragraph("last"),
     ], 3);
@@ -301,8 +301,8 @@ describe("body block model", () => {
       "pruned-break",
       "last",
     ]);
-    expect(updated.children[1].pagination).toEqual({ keepWithNext: true });
-    expect(updated.children[2].pagination).toEqual({ keepTogether: true });
+    expect(updated.children[1].pagination).toBeUndefined();
+    expect(updated.children[2].pagination).toBeUndefined();
     expect(updated.children.filter((child, index) => (
       index > 0 && child.pagination?.break === true
     ))).toHaveLength(0);
@@ -316,7 +316,7 @@ describe("body block model", () => {
     };
     const secondBreak = {
       ...paragraph("second-break"),
-      pagination: { break: true as const, keepWithNext: true },
+      pagination: { break: true as const },
     };
     const section = layoutSection("layout", [paragraph("first"), firstBreak, secondBreak], 2);
 
@@ -330,25 +330,15 @@ describe("body block model", () => {
     expect(updated.layout.columnStartIds).toEqual(["first", "first-break", "second-break"]);
   });
 
-  it("toggles the manual break while retaining unrelated pagination hints", () => {
-    const block = {
-      ...paragraph("paragraph"),
-      pagination: { keepWithNext: true, keepTogether: true },
-    };
+  it("toggles the manual break and drops an emptied pagination object", () => {
+    const block = paragraph("paragraph");
 
     const enabled = setBlockBreakBefore(block, true);
-    expect(enabled).toEqual({
-      ...block,
-      pagination: {
-        keepWithNext: true,
-        keepTogether: true,
-        break: true,
-      },
-    });
-    expect(block.pagination).toEqual({ keepWithNext: true, keepTogether: true });
+    expect(enabled).toEqual({ ...block, pagination: { break: true } });
+    expect(block.pagination).toBeUndefined();
 
-    expect(setBlockBreakBefore(enabled, false)).toEqual(block);
-    expect(setBlockBreakBefore(paragraph("empty-hints"), false)).toEqual(paragraph("empty-hints"));
+    expect(setBlockBreakBefore(enabled, false)).toEqual({ ...block, pagination: undefined });
+    expect(setBlockBreakBefore(paragraph("empty-hints"), false)).toEqual({ ...paragraph("empty-hints"), pagination: undefined });
   });
 
   it("finds only direct top-level blocks", () => {

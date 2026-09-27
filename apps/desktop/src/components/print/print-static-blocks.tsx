@@ -160,21 +160,16 @@ export function buildProblemAreaPrintUnits(
     isFirstProblemFrameArea: areaUnit.area === firstFrameArea,
     isLastProblemFrameArea: areaUnit.area === lastFrameArea,
     columnSpan: areaUnit.columnSpan,
-    pagination: paginationForProblemArea(problem.pagination, index, areas.length),
+    pagination: paginationForProblemArea(problem.pagination, index),
   }));
 }
 
+/** 問題の改ページ指定は先頭エリアの前でだけ効く。 */
 function paginationForProblemArea(
   pagination: PaginationHints | undefined,
   index: number,
-  areaCount: number,
 ): PaginationHints | undefined {
-  if (!pagination) return undefined;
-
-  const next = { ...pagination };
-  if (index > 0) delete next.break;
-  if (index < areaCount - 1) delete next.keepWithNext;
-  return Object.keys(next).length > 0 ? next : undefined;
+  return index === 0 && pagination?.break === true ? { break: true } : undefined;
 }
 
 function isProblemFrameArea(area: ProblemAreaKind): boolean {
