@@ -1,6 +1,9 @@
 /** WI-3 が本格的に埋める namespace。WI-1 は言語切り替え行の文言だけを置く。 */
 export const settings = {
   tikz: {
+    importTitle: "TeXを貼り付け",
+    importProgress: "図を生成中… {{completed}} / {{total}}",
+    importFailures: "{{count}}個の図を変換できませんでした。元のTeXコードを本文に残しました。",
     unsupportedUnicode: "日本語などのUnicode文字は、内蔵TikZエンジンでは利用できません。ラベルには英数字やTeXの数式コマンドを使用してください。",
     "title": "TikZを編集",
     "source": "コード",

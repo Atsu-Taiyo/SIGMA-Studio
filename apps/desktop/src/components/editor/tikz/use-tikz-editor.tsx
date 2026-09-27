@@ -11,6 +11,7 @@ import { getDesktopBridge } from "@/lib/desktop-bridge";
 import { OPEN_TIKZ_EDITOR_EVENT, type TikzRenderResult } from "@/lib/tikz-contract";
 import { TikzEditorDialog } from "./TikzEditorDialog";
 import type { OverlayImagePreview } from "../overlay-canvas/image-preview-context";
+import { useTexTikzPaste, type TexTikzPastePorts } from "./use-tex-tikz-paste";
 
 interface Request {
   id: number;
@@ -22,13 +23,13 @@ interface Request {
   image?: TikzRenderResult;
 }
 
-export function useTikzEditor(ports: {
-  document: SigmaDocument;
-  fileId: string | null;
-  writable: boolean;
+export function useTikzEditor(ports: TexTikzPastePorts & {
   commit: (change: (current: SigmaDocument) => SigmaDocument) => boolean;
   insert: (payload: Extract<EditorClipboardPayload, { kind: "overlayShapes" }>) => void;
 }) {
+  const texPaste = useTexTikzPaste(ports);
+  const pasteTex = texPaste.paste;
+  const cancelTex = texPaste.cancel;
   const live = useRef(ports);
   useLayoutEffect(() => { live.current = ports; });
   const counter = useRef(0);
@@ -42,14 +43,16 @@ export function useTikzEditor(ports: {
     setPreview(null);
   }
   const pasteTikz = useCallback((text: string): boolean => {
+    if (pasteTex(text)) { setRequest(null); setPreview(null); return true; }
     const current = live.current;
     if (!current.writable || !getDesktopBridge()?.tikz) return false;
     const source = readTikzClipboardSource(text);
     if (!source) return false;
+    cancelTex();
     setRequest({ id: ++counter.current, documentId: current.document.docId, fileId: current.fileId,
       input: { source, environment: current.document.metadata.tikzEnvironment ?? EMPTY_TIKZ_ENVIRONMENT } });
     return true;
-  }, []);
+  }, [pasteTex, cancelTex]);
 
   useEffect(() => {
     const open = (event: Event) => {
@@ -59,6 +62,7 @@ export function useTikzEditor(ports: {
       const snapshot = current.document.pageLayout?.overlay?.overlaySnapshot;
       const shape = snapshot?.shapes.find((item) => item.id === detail.shapeId);
       if (shape?.type !== "image" || !shape.props.tikz || shape.locked) return;
+      cancelTex();
       const asset = snapshot?.assets[shape.props.assetId];
       const next = { id: ++counter.current, documentId: current.document.docId, fileId: current.fileId,
         input: shape.props.tikz, originalSource: shape.props.tikz, shapeId: shape.id,
@@ -68,7 +72,7 @@ export function useTikzEditor(ports: {
     };
     window.addEventListener(OPEN_TIKZ_EDITOR_EVENT, open);
     return () => window.removeEventListener(OPEN_TIKZ_EDITOR_EVENT, open);
-  }, []);
+  }, [cancelTex]);
 
   const apply = (input: TikzImageSource, image: TikzRenderResult): boolean => {
     const current = live.current;
@@ -111,12 +115,12 @@ export function useTikzEditor(ports: {
     setPreview(null);
   }
   return { pasteTikz, preview: visible && preview?.requestId === request.id ? preview : null,
-    dialog: visible ? <TikzEditorDialog key={request.id} initial={request.input} initialImage={request.image} shapeId={request.shapeId}
+    dialog: texPaste.dialog ?? (visible ? <TikzEditorDialog key={request.id} initial={request.input} initialImage={request.image} shapeId={request.shapeId}
       autoInsert={!request.shapeId} onApply={apply}
       onPreview={(image) => {
         // Returning to the original code also restores any existing image crop.
         if (image === request.image) setPreview(null);
         else if (request.shapeId) setPreview({ ...image, shapeId: request.shapeId, requestId: request.id });
       }}
-      onClose={() => { setRequest(null); setPreview(null); }} /> : null };
+      onClose={() => { setRequest(null); setPreview(null); }} /> : null) };
 }
