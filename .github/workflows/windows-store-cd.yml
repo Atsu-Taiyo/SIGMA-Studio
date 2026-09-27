@@ -85,16 +85,29 @@ jobs:
   package:
     needs: plan
     if: needs.plan.outputs.build == 'true'
-    uses: ./.github/workflows/build-windows-store.yml
-    with:
-      release_tag: ${{ needs.plan.outputs.release_tag }}
-    # Only these repository secrets are passed. The packaging job obtains Store
-    # identity from its environment; Store API credentials are never exported.
-    secrets:
-      SIGMA_COLLABORATION_URL: ${{ secrets.SIGMA_COLLABORATION_URL }}
-      SIGMA_SUPABASE_URL: ${{ secrets.SIGMA_SUPABASE_URL }}
-      SIGMA_SUPABASE_ANON_KEY: ${{ secrets.SIGMA_SUPABASE_ANON_KEY }}
-      RELEASE_CONTENT_RULES: ${{ secrets.RELEASE_CONTENT_RULES }}
+    runs-on: windows-latest
+    timeout-minutes: 45
+    environment: windows-store
+    outputs:
+      package_sha256: ${{ steps.package.outputs.package_sha256 }}
+      artifact_id: ${{ steps.package.outputs.artifact_id }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: main
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: ./.github/actions/prepare-store-package
+        id: package
+        with:
+          release_tag: ${{ needs.plan.outputs.release_tag }}
+          SIGMA_COLLABORATION_URL: ${{ secrets.SIGMA_COLLABORATION_URL }}
+          SIGMA_SUPABASE_URL: ${{ secrets.SIGMA_SUPABASE_URL }}
+          SIGMA_SUPABASE_ANON_KEY: ${{ secrets.SIGMA_SUPABASE_ANON_KEY }}
+          RELEASE_CONTENT_RULES: ${{ secrets.RELEASE_CONTENT_RULES }}
+          WINDOWS_STORE_IDENTITY_NAME: ${{ secrets.WINDOWS_STORE_IDENTITY_NAME }}
+          WINDOWS_STORE_PUBLISHER: ${{ secrets.WINDOWS_STORE_PUBLISHER }}
+          WINDOWS_STORE_PUBLISHER_DISPLAY_NAME: ${{ secrets.WINDOWS_STORE_PUBLISHER_DISPLAY_NAME }}
 
   submit:
     needs: [plan, package]
