@@ -23,7 +23,7 @@ import {
 } from "@/lib/editor-clipboard";
 import { PROBLEM_AREA_ORDER, type SigmaBlock } from "@/features/document";
 import { posAtClientPoint } from "@/components/editor/text-flow/pos-at-client-point";
-import { getEditorVisualRectAtY, getEditorVisualRects } from "./editor-visual-rects";
+import { getEditorVisualRectAtPoint, getEditorVisualRects } from "./editor-visual-rects";
 import { localColumnAtPoint } from "./local-column-dom";
 import { createId } from "@/lib/id";
 import { tiptapNodesToInlineNodes } from "@/lib/tiptap-adapter";
@@ -604,7 +604,7 @@ export function startTextRunPointerSelection(
     // 余白からのドラッグは、本文へ入った行の端を起点にする。単一編集面の
     // startExpandedTextSelection と同じ規約を、編集面をまたぐ本文にも適用する。
     if (!clickAnchor) {
-      const rect = getEditorVisualRectAtY(target.editor.view, clientY);
+      const rect = getEditorVisualRectAtPoint(target.editor.view, clientX, clientY);
       if (!rect || clientX < rect.left || clientX > rect.right) {
         return;
       }

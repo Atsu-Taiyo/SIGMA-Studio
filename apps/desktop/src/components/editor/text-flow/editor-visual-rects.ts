@@ -17,9 +17,19 @@ export function getEditorVisualRects(view: EditorView): DOMRect[] {
   return rects;
 }
 
-/** 描かれた範囲のうち、縦位置 `y` を含む矩形。無ければ null。 */
-export function getEditorVisualRectAtY(view: EditorView, y: number): DOMRect | null {
-  return getEditorVisualRects(view).find((rect) => y >= rect.top && y <= rect.bottom) ?? null;
+/** 同じ高さに複数の段がある場合も、ポインタに最も近い段の矩形を返す。 */
+export function getEditorVisualRectAtPoint(view: EditorView, x: number, y: number): DOMRect | null {
+  let nearest: DOMRect | null = null;
+  let distance = Number.POSITIVE_INFINITY;
+  for (const rect of getEditorVisualRects(view)) {
+    if (y < rect.top || y > rect.bottom) continue;
+    const dx = Math.max(rect.left - x, 0, x - rect.right);
+    if (dx < distance) {
+      nearest = rect;
+      distance = dx;
+    }
+  }
+  return nearest;
 }
 
 /** 点が描かれた範囲のどれかの中にあるか。 */
