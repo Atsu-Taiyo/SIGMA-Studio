@@ -113,7 +113,8 @@ descriptionやreleaseNotesは前回のままなので、機能・申告・掲載
 1. GitHubの正式Releaseを公開すると、Storeの処理を `main` で起動します。
    下書きやプレリリースは対象外です。通常のRelease workflowが作る下書きは、公開時に対象になります。
 2. 公開済みStore版・審査中の提出を読み取り、新版が必要か判断します。
-3. **Prepare Windows Store package** を再利用して、対象タグからAppXを作成します。
+3. 手動の **Prepare Windows Store package** と共通のパッケージ作成actionで、対象タグからAppXを作成します。
+   Windowsジョブ自身が `windows-store` Environmentを使い、識別情報をSecretsから直接渡します。
    配布内容の機密情報検査、Windows Electronの保存・再読込テスト、manifest検証を通します。
 4. 同じrunの成功した作成jobが返したartifact IDとSHA-256だけを受け渡し、別runnerで再検証します。
 5. Store状態を再確認してからアップロード・審査提出します。
