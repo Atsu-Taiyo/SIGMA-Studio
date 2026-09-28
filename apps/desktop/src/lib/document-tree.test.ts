@@ -778,17 +778,39 @@ describe("moveBlocksInDocument", () => {
       .toEqual(["b"]);
   });
 
-  it("drops a moved block's break when its destination cannot own one", () => {
+  it("keeps a moved block's break inside a box, where it splits the box like \\newpage", () => {
     const box = createBoxBlock("fancybox", "", { id: "box", bodyId: "box_body", bodyText: "inside" });
     const document = {
       ...baseDocument,
       content: [
+        paragraph("before", "before"),
         { ...paragraph("moving", "moving"), pagination: { break: true as const } },
         box,
       ],
     };
 
     const next = moveBlocksInDocument(document, ["moving"], "box_body", "after");
+    const moved = findBlock(next, "moving");
+
+    expect(moved && moved.type !== "listItem" ? moved.pagination?.break : undefined).toBe(true);
+  });
+
+  it("drops a moved block's break when its destination cannot own one", () => {
+    const document = {
+      ...baseDocument,
+      content: [
+        paragraph("before", "before"),
+        { ...paragraph("moving", "moving"), pagination: { break: true as const } },
+        {
+          type: "layoutSection" as const,
+          id: "columns",
+          layout: { columnCount: 2, columnStartIds: ["left", "right"] },
+          children: [paragraph("left", "left"), paragraph("right", "right")],
+        },
+      ],
+    };
+
+    const next = moveBlocksInDocument(document, ["moving"], "left", "after");
     const moved = findBlock(next, "moving");
 
     expect(moved && moved.type !== "listItem" ? moved.pagination?.break : undefined).toBeUndefined();

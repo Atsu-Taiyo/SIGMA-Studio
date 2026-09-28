@@ -6,7 +6,6 @@
 export const schemaRecovery = {
     whiteboardContent: "無限キャンバス(ホワイトボード)モードの教材には本文ブロックを追加できません",
     whiteboardAnchor: "ホワイトボードの図形は本文・ページに固定せず絶対座標で配置してください",
-    boxBreakSchema: "boxBlock直下では改ページできません。箱内の複数段layoutSectionでは改段を使用できます。",
     disallowedKeys: "許可されていないキー: {{keys}}",
     requiredStructure: "SigmaDocの必須構造を読み込めませんでした{{location}}: {{detail}}",
     invalidFormat: "形式が正しくありません",
@@ -23,8 +22,6 @@ export const schemaRecovery = {
       overlayLayer: "図形レイヤーの形式が異なるため空の状態で読み込みました。",
     },
     validation: {
-      boxDirectBreak: "枠 {{boxId}} 直下のブロック {{blockId}} では改ページできません。箱内の複数段では改段を使用してください。",
-      boxSingleColumnBreak: "枠 {{boxId}} 内の1段組 {{sectionId}} では改ページできません。",
       emptyCommentReply: "コメント {{threadId}} の返信 {{messageId}} に本文がありません。",
       duplicateId: "ID {{id}} が重複しています。",
       missingNodeId: "{{type}} ノードにIDがありません。",

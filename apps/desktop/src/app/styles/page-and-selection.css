@@ -729,6 +729,9 @@ code {
   align-items: center;
   gap: 10px;
   width: 100%;
+  /* 解除ボタンの有無で高さを変えない。ボタンの無い続きの複製・PDF 面と編集面で、印の後ろの
+     本文の自然位置がずれると、分割したブロックの続きが行の途中から描かれる。 */
+  min-height: 24px;
   margin: 8px 0 10px;
   color: #7a5a10;
   font-size: 12px;

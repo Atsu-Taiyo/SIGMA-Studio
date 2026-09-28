@@ -94,6 +94,7 @@ export const command = {
     "insert.heading": "見出しを挿入",
     "insert.problem": "問題を挿入",
     "insert.inlineMath": "数式を挿入",
+    "insert.pageBreak": "改ページ・改段を挿入",
     "format.block.paragraph": "段落スタイル: 本文",
     "format.block.h1": "段落スタイル: 見出し1",
     "format.block.h2": "段落スタイル: 見出し2",
@@ -241,11 +242,13 @@ export const command = {
     "edit.redo": "やり直し",
     "insert.inlineMath": "数式 tex 挿入",
     "insert.problem": "問題 挿入",
+    "insert.pageBreak": "改ページ 改段 区切り newpage pagebreak columnbreak 挿入",
     "insert.material": "素材 図 挿入",
     "ai.chat": "ai チャット 相談",
   },
   /** 説明。無いコマンドは引かない (`defaultValue: ""`)。上と同じ理由で葉は文字列。 */
   description: {
+    "insert.pageBreak": "キャレットの位置で改ページします (段組みのページでは改段)。後ろの内容は次のページ・段から始まります。本文中では ⌘/Ctrl+Enter でも入れられます",
     "edit.selectAllWithShapes": "本文の選択範囲に、その本文にぶら下がっている図形を足して選びます (範囲が無ければ、改ページを跨いで文書全体の本文と図形をすべて選びます)",
     "edit.bold": "本文または図中テキストの選択範囲を太字にします",
     "edit.italic": "本文または図中テキストの選択範囲を斜体にします",

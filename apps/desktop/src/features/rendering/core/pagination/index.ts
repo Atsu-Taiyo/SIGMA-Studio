@@ -11,4 +11,5 @@ export {
   type FlowFramePiece,
   type FlowColumnRulePiece,
   type FlowRenderPlan,
+  type PlanFlowRenderOptions,
 } from "./plan-render";

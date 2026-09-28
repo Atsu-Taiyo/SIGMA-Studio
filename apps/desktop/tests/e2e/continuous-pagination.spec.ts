@@ -491,9 +491,16 @@ test("manual page break sends the following paragraph to the next column", async
     selection?.removeAllRanges();
     selection?.addRange(range);
   });
-  const box = await first.boundingBox();
-  expect(box).toBeTruthy();
-  await page.mouse.click(box!.x + 8, box!.y + 8, { button: "right" });
+  // 右クリックはキャレットをその位置へ動かし、区切りはキャレットの位置に入る。段落の後ろで
+  // 区切るので、文字の末尾を右クリックする (先頭を右クリックするとその段落の前で区切る)。
+  const textEnd = await first.evaluate((element) => {
+    const range = document.createRange();
+    range.selectNodeContents(element);
+    const rects = Array.from(range.getClientRects());
+    const last = rects[rects.length - 1];
+    return { x: last.right - 1, y: last.top + last.height / 2 };
+  });
+  await page.mouse.click(textEnd.x, textEnd.y, { button: "right" });
   const menu = page.locator(".page-context-menu");
   await expect(menu).toBeVisible();
   await menu.getByRole("menuitem", { name: "改段を挿入", exact: true }).click();

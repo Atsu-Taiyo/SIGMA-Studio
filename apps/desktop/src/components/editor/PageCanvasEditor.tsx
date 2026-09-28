@@ -161,7 +161,9 @@ import { EDITOR_ZOOM_CHANGE_EVENT } from "@/features/rendering/adapters/editor-z
 import  {
   bodyTextFlowBlockContainsId,
   canInsertManualPageBreakAfterBlock,
+  canInsertManualPageBreakAt,
   caretAddressAtBlockEdge,
+  collectManualBreakHostIds,
   collectBoxBlocksById,
   findTopLevelBlock,
   getCommentThreadsSyncKey,
@@ -184,6 +186,8 @@ import  {
   setBlockSpaceAfter,
   setLayoutSectionColumnCount,
   setLayoutSectionColumns,
+  type CaretAddress,
+  type ManualTextPageBreakSelection,
   type PageBreakMarkerKind,
   type TextFlowBlock,
   type TextFlowSelectionBookmark,
@@ -350,6 +354,8 @@ import  {
 
 import  {
   buildRenderUnits,
+  getRenderUnitManualBreakEdges,
+  type RenderUnitManualBreakEdges,
   getFlowLayoutStyle,
   getLayoutSectionColumnCount,
   getLayoutSectionColumnGapPx,
@@ -713,6 +719,7 @@ function PageCanvasEditorImpl({
     /* eslint-enable react-hooks/refs */
     [pageDocument.content, pageDocument.docId, pageDocument.metadata.headingNumbering],
   );
+  const unitManualBreakEdges = useMemo(() => getRenderUnitManualBreakEdges(units), [units]);
   const textRunGroupByUnitId = useMemo(
     () => assignTextRunGroupIds(units, textRunDocumentId),
     [textRunDocumentId, units],
@@ -1148,12 +1155,9 @@ function PageCanvasEditorImpl({
     boxBlockFragmentLayouts,
     boxFragmentSourceLayouts,
     frameFragmentLayouts,
-    paginationMarkerLayouts,
     pageCount,
     problemAreaColumnLayouts,
-    textFlowBlockLayouts,
     totalHeight,
-    unitLayouts,
     columnRulePieces,
     unitDisplacements,
     nodeDisplacements,
@@ -1341,9 +1345,13 @@ function PageCanvasEditorImpl({
     return ids;
   }, [pageDocument.content]);
   const breakBeforeIdsRef = useRef(breakBeforeIds);
+  // 入れ子の区切りを探す最上位ブロックを文書から絞る (計測で引用・リスト・箱の中を毎回歩かない)。
+  const breakHostIds = useMemo(() => collectManualBreakHostIds(pageDocument.content), [pageDocument.content]);
+  const breakHostIdsRef = useRef(breakHostIds);
   useLayoutEffect(() => {
     breakBeforeIdsRef.current = breakBeforeIds;
-  }, [breakBeforeIds]);
+    breakHostIdsRef.current = breakHostIds;
+  }, [breakBeforeIds, breakHostIds]);
   const onReanchorOverlayRef = useRef(onReanchorOverlay);
   const lastHandledDeletionRef = useRef(0);
   const [bleed, setBleed] = useState({ x: 0, top: 0 });
@@ -1707,6 +1715,7 @@ function PageCanvasEditorImpl({
       const tree = measurePerformance("PageCanvasEditor.probeFlow", () => probeFlow(flow, {
         zoomFactor,
         breakIds: breakBeforeIdsRef.current,
+        breakHostIds: breakHostIdsRef.current,
         cache: flowProbeCacheRef.current,
         cacheEpoch: fontRevisionRef.current,
       }));
@@ -1722,7 +1731,8 @@ function PageCanvasEditorImpl({
         columnWidth: isColumnPage ? metrics.flow.columnWidthPx : metrics.content.widthPx,
         columnGap: isColumnPage ? metrics.flow.columnGapPx : 0,
       });
-      const flowPlan = planFlowRender(built, placement);
+      // 印刷・PDF の面は改ページの印を描かないので、印の場所で入れ物の片を切らない。
+      const flowPlan = planFlowRender(built, placement, { hideManualBreakMarkers: isPagedRender });
       if (placement.diagnostics.tallLines.length > 0) {
         countPerformanceEvent("PageCanvasEditor.tallLineOverflow");
       }
@@ -1850,7 +1860,7 @@ function PageCanvasEditorImpl({
       return next;
     });
     return "measured";
-  }, [layoutInput, zoom, marginTopPx, pageHeightPx, contentHeightPx, isColumnPage, metrics, units, pageDocument.docId, pageWidthPx]);
+  }, [layoutInput, zoom, marginTopPx, pageHeightPx, contentHeightPx, isColumnPage, isPagedRender, metrics, units, pageDocument.docId, pageWidthPx]);
 
   // 再ページ割り 1 回ぶんの実測。打鍵ごとに rAF で走るので、ここが 1 フレームを超えると
   // そのまま入力の詰まりになる (perf-probe の typing フェーズがこの measure を見る)。
@@ -3367,6 +3377,9 @@ function PageCanvasEditorImpl({
     const beforePaint = context?.deferredPasteBlockIds !== undefined
       || editTouchesPageSplitBlock(previousIds, nextBlocks, activeBlockId)
       || hasNewTopLevelBlockIds(previousIds, nextBlocks)
+      // 手動改ページの付け外しはユニットを切り直す。遅らせると、区切りの後ろへ移るブロックが
+      // 1〜2 フレーム古い編集面に残り、そこへキャレットが落ちる。
+      || changesTopLevelManualBreaks(breakBeforeIdsRef.current, nextBlocks)
       || previousIds.some((id) => !nextBlocks.some((block) => block.id === id))
       // Removing a line above a page spacer changes both the natural flow and
       // the spacer. Commit those together so the next page never jumps up for a frame.
@@ -3567,61 +3580,87 @@ function PageCanvasEditorImpl({
     onChange(sectionId, (block) => setLayoutSectionColumnCount(block, columnCount, () => createParagraph("")));
   }, [onChange]);
 
+  /**
+   * キャレットの位置に手動改ページ (改段) を入れる。右クリックメニュー・`/` コマンド・
+   * ショートカットの共通の入口。区切りを実際に組み立てるのはキャレットを持つ本文エディタ
+   * (`REQUEST_TEXT_PAGE_BREAK_EVENT`) で、ここは文書全体を見た可否 (独立段組みの中・空のページ)
+   * と、どのエディタも受けなかったときの後始末だけを持つ。
+   */
+  const insertManualBreakAt = useCallback((
+    blockId: string,
+    selection?: ManualTextPageBreakSelection | null,
+  ): boolean => {
+    // 本文エディタへ渡る (memo の関門を越える) ので、文書は ref から読み、打鍵ごとに作り直さない。
+    const document = pageDocumentRef.current;
+    if (!canInsertManualBreakAtBlock(document, blockId)) {
+      return false;
+    }
+    const content = document.content;
+    const documentNextBlockId = getNextTopLevelTextFlowBlockId(content, blockId);
+    const detail: TextPageBreakRequestDetail = {
+      blockId,
+      enabled: true,
+      documentNextBlockId,
+      selection: selection ?? null,
+      canInsertAt: (point) => canInsertManualPageBreakAt(content, point),
+    };
+    window.dispatchEvent(new CustomEvent(REQUEST_TEXT_PAGE_BREAK_EVENT, { detail }));
+    if (detail.handled) {
+      if (detail.rejected) {
+        return false;
+      }
+      // キャレットは区切りの後ろ (次のページの先頭)。本文エディタが変更と一緒に予約した位置は
+      // 新しいユニットの登録時に配られるが、開発時の StrictMode の付け外しで焦点が落ちることが
+      // あるので、描き直しが落ち着いた後にもう一度同じ住所へ配る。
+      if (detail.focusBlockId) {
+        onSelect(detail.focusBlockId);
+      }
+      if (detail.focusAddress) {
+        scheduleCaretAddressFocus(detail.focusAddress);
+      }
+      return true;
+    }
+
+    // どのエディタも受けなかった: 最上位のユニットの末尾で区切った (次のユニットの先頭が持つ) か、
+    // 本文エディタを持たないブロック (区切り線など) の後ろで区切る。
+    const fallbackBlockId = documentNextBlockId ?? blockId;
+    if (!canInsertManualPageBreakAt(content, { blockId: fallbackBlockId, offset: 0 })) {
+      return false;
+    }
+    updateBreakBefore(fallbackBlockId, true);
+    if (fallbackBlockId !== blockId) {
+      onSelect(fallbackBlockId);
+      scheduleTextBlockFocus(pageContentRef.current, fallbackBlockId, "start");
+    }
+    return true;
+  }, [onSelect, updateBreakBefore]);
+
   // Shared by both the body and problem context menus (the latter reuses it for breaks placed
   // on blocks inside a problem's prompt/hints/solution area): flips the manual break on/off for
-  // whichever block a menu's "改ページ/改段 を挿入・解除" item targets. `blockId` need not be
-  // top-level — `getNextTopLevelTextFlowBlockId` simply returns null for a nested block, so the
-  // break is set directly on the clicked block itself, which is the correct behavior there.
+  // whichever block a menu's "改ページ/改段 を挿入・解除" item targets.
   const applyContextMenuBreak = useCallback((
     target: { blockId: string; breakTargetBlockId: string | null; nextBreakBefore: boolean },
     enabled: boolean | undefined,
     closeMenu: () => void,
   ) => {
     const nextBreakBefore = enabled ?? target.nextBreakBefore;
-    if (nextBreakBefore && !canInsertManualBreakAtBlock(pageDocument, target.blockId)) {
-      closeMenu();
-      return;
-    }
-    if (nextBreakBefore && !canInsertManualPageBreakAfterBlock(pageDocument.content, target.blockId)) {
-      closeMenu();
-      return;
-    }
-    if (!nextBreakBefore && target.breakTargetBlockId) {
-      updateBreakBefore(target.breakTargetBlockId, false);
-      onSelect(target.breakTargetBlockId);
-      scheduleTextBlockFocus(pageContentRef.current, target.breakTargetBlockId, "start");
-      closeMenu();
-      return;
-    }
-
-    const documentNextBlockId = nextBreakBefore
-      ? getNextTopLevelTextFlowBlockId(pageDocument.content, target.blockId)
-      : null;
-    const fallbackBlockId = nextBreakBefore
-      ? documentNextBlockId ?? target.blockId
-      : target.blockId;
-    const detail: TextPageBreakRequestDetail = {
-      blockId: target.blockId,
-      enabled: nextBreakBefore,
-      documentNextBlockId,
-    };
-    window.dispatchEvent(new CustomEvent(REQUEST_TEXT_PAGE_BREAK_EVENT, { detail }));
-    if (detail.handled) {
-      if (detail.focusBlockId) {
-        onSelect(detail.focusBlockId);
-        scheduleTextBlockFocus(pageContentRef.current, detail.focusBlockId, detail.focusPosition ?? "start");
+    if (!nextBreakBefore) {
+      if (target.breakTargetBlockId) {
+        updateBreakBefore(target.breakTargetBlockId, false);
+        onSelect(target.breakTargetBlockId);
+        scheduleTextBlockFocus(pageContentRef.current, target.breakTargetBlockId, "start");
       }
       closeMenu();
       return;
     }
-
-    updateBreakBefore(fallbackBlockId, nextBreakBefore);
-    if (fallbackBlockId !== target.blockId) {
-      onSelect(fallbackBlockId);
-      scheduleTextBlockFocus(pageContentRef.current, fallbackBlockId, "start");
-    }
     closeMenu();
-  }, [onSelect, pageDocument, updateBreakBefore]);
+    insertManualBreakAt(target.blockId);
+  }, [insertManualBreakAt, onSelect, updateBreakBefore]);
+
+  const handleManualBreakCommand = useCallback(
+    (selection: ManualTextPageBreakSelection) => insertManualBreakAt(selection.blockId, selection),
+    [insertManualBreakAt],
+  );
 
   const applyBodyContextMenuBreak = useCallback((enabled?: boolean) => {
     if (!bodyContextMenu) {
@@ -3686,14 +3725,7 @@ function PageCanvasEditorImpl({
       ?? getColumnBreakBeforeBlockIdForContextMenu({
         blockId: request.blockId,
         blocks: pageDocument.content,
-        units,
-        isColumnFlow: false,
-        metrics,
         pageStridePx: pageHeightPx + PAGE_GAP_PX,
-        blockRects,
-        paginationMarkerLayouts,
-        textFlowBlockLayouts,
-        unitLayouts,
         problemAreaColumnLayouts,
         localColumnContextMenuLayout: request.localColumnLayout ?? null,
       });
@@ -3714,16 +3746,10 @@ function PageCanvasEditorImpl({
     });
     setProblemContextMenu(null);
   }, [
-    blockRects,
-    metrics,
     onSelect,
     pageDocument,
     pageHeightPx,
-    paginationMarkerLayouts,
     problemAreaColumnLayouts,
-    textFlowBlockLayouts,
-    unitLayouts,
-    units,
   ]);
 
   const handlePageContextMenu = useCallback((event: ReactMouseEvent<HTMLElement>) => {
@@ -3756,14 +3782,7 @@ function PageCanvasEditorImpl({
         ? paginationBlockId ?? getColumnBreakBeforeBlockIdForContextMenu({
           blockId: breakBlockId,
           blocks: pageDocument.content,
-          units,
-          isColumnFlow: false,
-          metrics,
           pageStridePx: pageHeightPx + PAGE_GAP_PX,
-          blockRects,
-          paginationMarkerLayouts,
-          textFlowBlockLayouts,
-          unitLayouts,
           problemAreaColumnLayouts,
           localColumnContextMenuLayout,
         })
@@ -3813,18 +3832,12 @@ function PageCanvasEditorImpl({
     });
   }, [
     isOverlayEditing,
-    blockRects,
-    metrics,
     onSelect,
     openBodyContextMenu,
-    paginationMarkerLayouts,
     pageDocument,
     pageHeightPx,
     problemAreaColumnLayouts,
     selectedId,
-    textFlowBlockLayouts,
-    unitLayouts,
-    units,
     zoom,
   ]);
 
@@ -5089,6 +5102,9 @@ function PageCanvasEditorImpl({
                         ]}
                         paginationMarkerKind={resolvePageBreakMarkerKind(isColumnPage)}
                         paginationMarkerKinds={getNestedPageBreakBeforeKinds(unit.blocks, isColumnPage ? "columnBreak" : "pageBreak")}
+                        leadingManualBreak={unitManualBreakEdges.get(unit.id)?.leading}
+                        trailingManualBreak={unitManualBreakEdges.get(unit.id)?.trailing}
+                        onManualBreakCommand={isPagedRender ? undefined : handleManualBreakCommand}
                         boxFragmentSourceLayouts={pickTextFlowBoxFragmentSourceLayouts(unit.blocks, boxFragmentSourceLayouts)}
                         showPlaceholder={units[0]?.type === "textFlow" && unit.id === units[0].id}
                         onSelect={onSelect}
@@ -5113,6 +5129,8 @@ function PageCanvasEditorImpl({
                 <LayoutSectionFlowUnit
                   key={unit.id}
                   unit={unit}
+                  manualBreakEdges={unitManualBreakEdges.get(unit.id)}
+                  onManualBreakCommand={isPagedRender ? undefined : handleManualBreakCommand}
                   textRunAssignment={textRunGroupByUnitId.get(unit.id)}
                   selectedId={selectedId}
                   mathFractionSizing={mathFractionSizing}
@@ -5150,6 +5168,8 @@ function PageCanvasEditorImpl({
                 <ProblemAreaFlowUnit
                   key={unit.id}
                   unit={unit}
+                  manualBreakEdges={unitManualBreakEdges.get(unit.id)}
+                  onManualBreakCommand={isPagedRender ? undefined : handleManualBreakCommand}
                   textRunAssignment={textRunGroupByUnitId.get(unit.id)}
                   selectedId={selectedId}
                   mathFractionSizing={mathFractionSizing}
@@ -5792,6 +5812,14 @@ function PageCanvasEditorImpl({
   );
 }
 
+/**
+ * 最上位ブロックの手動改ページを付け外す編集か。描いている文書の区切りの集合 (`breakBeforeIds`) と
+ * 比べるので、打鍵ごとに文書全体を歩かない。
+ */
+function changesTopLevelManualBreaks(currentBreakIds: ReadonlySet<string>, nextBlocks: readonly TextFlowBlock[]): boolean {
+  return nextBlocks.some((block) => currentBreakIds.has(block.id) !== hasBreakBefore(block));
+}
+
 /** 前回に無かったトップレベルブロック id を含むか (= 段組みで配置がまだ無いブロックが生まれる編集か)。 */
 function hasNewTopLevelBlockIds(previousIds: readonly string[], nextBlocks: readonly TextFlowBlock[]): boolean {
   const known = new Set(previousIds);
@@ -5862,6 +5890,9 @@ function TextFlowWithInlineContent({
   paginationMarkerKind,
   paginationMarkerKinds,
   paginationMarkerLayouts,
+  leadingManualBreak = false,
+  trailingManualBreak = false,
+  onManualBreakCommand,
   columnFlowBlockLayouts,
   boxFragmentSourceLayouts,
   headingNumbers = {},
@@ -5908,6 +5939,10 @@ function TextFlowWithInlineContent({
   paginationMarkerKind?: PageBreakMarkerKind;
   paginationMarkerKinds?: Record<string, PageBreakMarkerKind>;
   paginationMarkerLayouts?: Record<string, TextFlowColumnBlockLayout>;
+  /** この面の前 / 後ろに、面の外のブロック (問題・段組み・隣のユニット) が持つ手動改ページがある。 */
+  leadingManualBreak?: boolean;
+  trailingManualBreak?: boolean;
+  onManualBreakCommand?: (selection: ManualTextPageBreakSelection) => boolean;
   columnFlowBlockLayouts?: Record<string, TextFlowColumnBlockLayout>;
   boxFragmentSourceLayouts?: Record<string, TextFlowBoxFragmentSourceLayout>;
   headingNumbers?: Readonly<Record<string, string>>;
@@ -6000,6 +6035,9 @@ function TextFlowWithInlineContent({
         paginationMarkerKind={paginationMarkerKind}
         paginationMarkerKinds={stablePaginationMarkerKinds}
         paginationMarkerLayouts={stablePaginationMarkerLayouts}
+        leadingManualBreak={leadingManualBreak}
+        trailingManualBreak={trailingManualBreak}
+        onManualBreakCommand={onManualBreakCommand}
         columnFlowBlockLayouts={stableColumnFlowBlockLayouts}
         boxFragmentSourceLayouts={stableBoxFragmentSourceLayouts}
         headingNumbers={headingNumbers}
@@ -6052,6 +6090,9 @@ function TextFlowWithInlineContent({
             paginationMarkerKind={paginationMarkerKind}
             paginationMarkerKinds={paginationMarkerKinds}
             paginationMarkerLayouts={pickTextFlowColumnBlockLayouts(part.blocks, paginationMarkerLayouts)}
+            leadingManualBreak={leadingManualBreak && index === 0}
+            trailingManualBreak={trailingManualBreak && index === parts.length - 1}
+            onManualBreakCommand={onManualBreakCommand}
             columnFlowBlockLayouts={pickTextFlowColumnBlockLayouts(part.blocks, columnFlowBlockLayouts)}
             boxFragmentSourceLayouts={pickTextFlowBoxFragmentSourceLayouts(part.blocks, boxFragmentSourceLayouts)}
             headingNumbers={headingNumbers}
@@ -6549,6 +6590,8 @@ function LayoutColumnResizeHandle({
 
 function LayoutSectionFlowUnit({
   unit,
+  manualBreakEdges,
+  onManualBreakCommand,
   textRunAssignment,
   selectedId,
   mathFractionSizing,
@@ -6583,6 +6626,8 @@ function LayoutSectionFlowUnit({
   changeDecorationState,
 }: {
   unit: Extract<RenderUnit, { type: "layoutSection" | "problemLayoutSection" }>;
+  manualBreakEdges?: RenderUnitManualBreakEdges;
+  onManualBreakCommand?: (selection: ManualTextPageBreakSelection) => boolean;
   textRunAssignment?: TextRunGroupAssignment;
   selectedId: string | null;
   mathFractionSizing: "uniform" | "texDefault";
@@ -6750,6 +6795,11 @@ function LayoutSectionFlowUnit({
                   paginationMarkerKind={resolvePageBreakMarkerKind(columnCount > 1 || isColumnPage)}
                   paginationMarkerKinds={getNestedPageBreakBeforeKinds(blocks, resolvePageBreakMarkerKind(columnCount > 1 || isColumnPage))}
                   paginationMarkerLayouts={undefined}
+                  leadingManualBreak={columnIndex === 0 && !!manualBreakEdges?.leading}
+                  trailingManualBreak={columnIndex === columnBlocks.length - 1 && !!manualBreakEdges?.trailing}
+                  // 独立した複数段の中は段の所属を columnStartIds が決めるので区切りを入れない
+                  // (候補にも出さない)。1 段組の段組みの中は本文と同じ。
+                  onManualBreakCommand={columnCount > 1 ? undefined : onManualBreakCommand}
                   columnFlowBlockLayouts={columnFlowActive ? columnLayout!.blockLayouts : undefined}
                   boxFragmentSourceLayouts={pickTextFlowBoxFragmentSourceLayouts(blocks, boxFragmentSourceLayouts)}
                   commentThreads={commentThreads}
@@ -6825,6 +6875,8 @@ function LayoutSectionFlowUnit({
 
 function ProblemAreaFlowUnit({
   unit,
+  manualBreakEdges,
+  onManualBreakCommand,
   textRunAssignment,
   selectedId,
   mathFractionSizing,
@@ -6857,6 +6909,8 @@ function ProblemAreaFlowUnit({
   changeDecorationState,
 }: {
   unit: Extract<RenderUnit, { type: "problemArea" }>;
+  manualBreakEdges?: RenderUnitManualBreakEdges;
+  onManualBreakCommand?: (selection: ManualTextPageBreakSelection) => boolean;
   textRunAssignment?: TextRunGroupAssignment;
   selectedId: string | null;
   mathFractionSizing: "uniform" | "texDefault";
@@ -7029,6 +7083,9 @@ function ProblemAreaFlowUnit({
                     ]}
             paginationMarkerKind={resolvePageBreakMarkerKind(isColumnPage)}
             paginationMarkerKinds={getNestedPageBreakBeforeKinds(unit.blocks, resolvePageBreakMarkerKind(isColumnPage))}
+            leadingManualBreak={!!manualBreakEdges?.leading}
+            trailingManualBreak={!!manualBreakEdges?.trailing}
+            onManualBreakCommand={onManualBreakCommand}
             boxFragmentSourceLayouts={pickTextFlowBoxFragmentSourceLayouts(unit.blocks, boxFragmentSourceLayouts)}
             commentThreads={commentThreads}
             activeCommentThreadId={activeCommentThreadId}
@@ -8701,6 +8758,15 @@ function scheduleTextBlockFocus(
       // DOM から辿る (ページを跨ぐブロックはトップレベルにしか無いので、ここで
       // 見えない複製を掴む心配は無い)。
       focusBlockElementEdge(blockId, position);
+    });
+  });
+}
+
+/** 描き直しが落ち着いてから (2 rAF 後に) 論理位置へキャレットを配る。 */
+function scheduleCaretAddressFocus(address: CaretAddress) {
+  window.requestAnimationFrame(() => {
+    window.requestAnimationFrame(() => {
+      focusCaretAddress(address);
     });
   });
 }

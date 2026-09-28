@@ -242,7 +242,7 @@ test("inserts a problem from the top menu inside the selected box and continues 
 });
 
 for (const columnCount of [1, 2]) {
-  test(`hides new breaks but can remove a saved box break in ${columnCount} column flow`, async ({ page }) => {
+  test(`offers new breaks and can remove a saved box break in ${columnCount} column flow`, async ({ page }) => {
     await page.setViewportSize({ width: 1400, height: 1000 });
     const saved = documentWithBox(columnCount);
     const box = saved.content[0];
@@ -252,8 +252,10 @@ for (const columnCount of [1, 2]) {
     await page.goto("/");
     const first = page.locator('.ProseMirror [data-sigma-doc-id="before"]').first();
     await first.click({ button: "right" });
-    await expect(page.getByRole("menuitem", { name: "改ページを挿入", exact: true })).toHaveCount(0);
-    await expect(page.getByRole("menuitem", { name: "改段を挿入", exact: true })).toHaveCount(0);
+    // 箱の中も本文の流れなので、区切りはどの深さでも入れられる (段組みのページでは改段)。
+    await expect(page.getByRole("menuitem", { name: columnCount === 1 ? "改ページを挿入" : "改段を挿入", exact: true })).toBeVisible();
+    // すぐ後ろの入れ子の箱が持つ区切りは、その直前のブロックからも解除できる。
+    await expect(page.getByRole("menuitem", { name: columnCount === 1 ? "改ページを解除" : "改段を解除", exact: true })).toBeVisible();
     await page.keyboard.press("Escape");
     const fragments = page.locator('[data-box-source-id="outer"]');
     await expect(fragments).toHaveCount(1);

@@ -122,6 +122,9 @@ export const EDITOR_COMMAND_SHORTCUTS: readonly EditorCommandShortcutDefinition[
   { id: "insert.heading", categoryId: "insert", defaultBinding: null },
   { id: "insert.problem", categoryId: "insert", defaultBinding: null },
   { id: "insert.inlineMath", categoryId: "insert", defaultBinding: { primary: true, shift: true, key: "m" } },
+  // 既定のキーは持たない: ⌘/Ctrl+Enter は本文エディタ自身が受ける (ここで捕まえると、コード
+  // ブロックの ⌘/Ctrl+Enter「コードから抜ける」を奪う)。パレットと再割り当てのために登録する。
+  { id: "insert.pageBreak", categoryId: "insert", defaultBinding: null },
   { id: "format.block.paragraph", categoryId: "paragraphFormat", defaultBinding: null },
   { id: "format.block.h1", categoryId: "paragraphFormat", defaultBinding: null },
   { id: "format.block.h2", categoryId: "paragraphFormat", defaultBinding: null },

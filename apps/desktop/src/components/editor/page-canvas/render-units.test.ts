@@ -6,6 +6,7 @@ import type { TextFlowBlock } from "@/features/text-editing";
 import {
   buildRenderUnits,
   getProblemAreaUnitGapKey,
+  getRenderUnitManualBreakEdges,
   getSingleColumnProblemLayoutSectionMinHeightMm,
   pickUnitBreakGaps,
   pickUnitCommentThreads,
@@ -295,5 +296,39 @@ describe("pickUnitCommentThreads", () => {
 
   it("returns one shared empty array so an untouched unit keeps its props identity", () => {
     expect(pickUnitCommentThreads(blocks, [])).toBe(pickUnitCommentThreads([paragraph("p9")], []));
+  });
+});
+
+describe("getRenderUnitManualBreakEdges", () => {
+  it("marks the surfaces on both sides of a break, including breaks owned by a problem or section", () => {
+    const content = [
+      paragraph("intro"),
+      {
+        type: "problem", id: "problem", tags: [], lead: [], hints: [], solution: [],
+        prompt: [paragraph("prompt") as Extract<SigmaBlock, { type: "paragraph" }>],
+        pagination: { break: true },
+      },
+      paragraph("after_problem"),
+      pageBreakParagraph("broken"),
+      {
+        type: "layoutSection", id: "section", layout: { columnCount: 1 },
+        children: [paragraph("inside") as Extract<SigmaBlock, { type: "paragraph" }>],
+        pagination: { break: true },
+      },
+    ] as SigmaBlock[];
+    const units = buildRenderUnits(content);
+    const edges = getRenderUnitManualBreakEdges(units);
+    const byFirstId = (id: string) => {
+      const unit = units.find((candidate) => (
+        candidate.type === "layoutSection" ? candidate.section.id === id : "blocks" in candidate && candidate.blocks[0]?.id === id
+      ) || (candidate.type === "problemArea" && candidate.area === "lead" && id === "problem"));
+      return unit ? edges.get(unit.id) : undefined;
+    };
+    expect(byFirstId("intro")).toEqual({ leading: false, trailing: true });
+    // 問題の区切りは最初に描くエリア (空の導入文) の前。
+    expect(byFirstId("problem")).toEqual({ leading: true, trailing: false });
+    expect(byFirstId("after_problem")).toEqual({ leading: false, trailing: true });
+    expect(byFirstId("broken")).toEqual({ leading: true, trailing: true });
+    expect(byFirstId("section")).toEqual({ leading: true, trailing: false });
   });
 });
