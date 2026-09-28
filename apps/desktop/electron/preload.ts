@@ -5,6 +5,9 @@ type AiEditEvent = unknown;
 let runCounter = 0;
 
 const desktopAPI = {
+  tikz: {
+    render: (input: unknown) => ipcRenderer.invoke("tikz:render", input),
+  },
   isDesktop: true as const,
   platform: process.platform,
   sharedCatalog: {

@@ -1,3 +1,5 @@
+import type { TikzEnvironment } from "./tikz";
+
 /** Controls whether inline fractions keep TeX sizing or use display-style fractions. */
 export type MathFractionSizing = "uniform" | "texDefault";
 
@@ -10,6 +12,8 @@ export interface HeadingNumberingConfig {
 }
 
 export interface SigmaMetadata {
+  /** File-scoped defaults for newly created TikZ images. */
+  tikzEnvironment?: TikzEnvironment;
   title: string;
   source?: SigmaDocumentSourceMetadata;
   styleUnits?: SigmaDocumentStyleUnits;

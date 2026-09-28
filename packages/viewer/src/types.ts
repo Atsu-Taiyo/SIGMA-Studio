@@ -1092,6 +1092,8 @@ export interface HeadingNumberingConfig {
 }
 
 export interface SigmaMetadata {
+    /** File-scoped defaults for newly created TikZ images. */
+    tikzEnvironment?: TikzEnvironment;
     title: string;
     source?: SigmaDocumentSourceMetadata;
     styleUnits?: SigmaDocumentStyleUnits;
@@ -1400,6 +1402,18 @@ export declare function getTableCellMatrix(table: SigmaTableSpec): SigmaTableCel
  */
 export declare function parseChartNumber(text: string): number | null;
 
+/** The environment is snapshotted with each image so that it remains editable after copying. */
+export interface TikzEnvironment {
+    packages: string;
+    libraries: string;
+    preamble: string;
+}
+
+export interface TikzImageSource {
+    source: string;
+    environment: TikzEnvironment;
+}
+
 export type OverlayShapeId = string;
 
 export type OverlayAssetId = string;
@@ -1660,6 +1674,7 @@ export type OverlayTextShape = OverlayBaseShape<"text", {
 }>;
 
 export type OverlayImageShape = OverlayBaseShape<"image", {
+    tikz?: TikzImageSource;
     assetId: OverlayAssetId;
     w: number;
     h: number;

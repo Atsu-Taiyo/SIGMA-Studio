@@ -4083,7 +4083,8 @@ function PageCanvasEditorImpl({
       // 透過は「下の本文を触らせるため」の規約なので、下に本文があるときだけ効かせる。用紙の外に
       // はみ出したオブジェクトも余白のオブジェクトも、ここが false になって素のクリックで掴める。
       // 図形に当たっていない押下では経路が本文で確定するので、その分の走査は省く。
-      pointerOverBodyText: hitShape
+      // TikZ images are directly editable on tap, including when they overlap body text.
+      pointerOverBodyText: hitShape && !(hitShape.type === "image" && hitShape.props.tikz)
         ? !!findEditableElementUnderPoint({ x: event.clientX, y: event.clientY })
         : false,
       modifiers: {

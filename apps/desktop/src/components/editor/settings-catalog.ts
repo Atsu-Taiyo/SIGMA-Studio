@@ -183,6 +183,15 @@ export const SETTINGS_ENTRIES: readonly SettingsEntryDefinition[] = [
     labelKey: "ai.skills",
     keywordsKey: "catalog.keywords.skills",
   },
+  {
+    id: "settings.tikz.environment",
+    surface: "texEnvironment",
+    surfaceState: "tikz",
+    anchorId: "tikz-environment-settings",
+    labelKey: "tikz.settingsTitle",
+    descriptionKey: "tikz.settingsDescription",
+    keywordsKey: "tikz.keywords",
+  },
   // --- TeX 環境設定 (TexEnvironmentSettingsDialog) ---
   {
     id: "settings.tex.preamble",

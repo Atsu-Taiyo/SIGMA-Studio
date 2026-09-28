@@ -65,6 +65,8 @@ import { GraphSettingsPanel } from "@/components/editor/GraphSettingsPanel";
 import { viewportToCanvasAnchor } from "@/components/editor/PageCanvasEditor";
 import { PageSettingsDialog } from "@/components/editor/PageSettingsDialog";
 import { TexCommandReferenceDialog } from "@/components/editor/TexCommandReferenceDialog";
+import { useTikzEditor } from "./tikz/use-tikz-editor";
+import { OverlayImagePreviewContext } from "./overlay-canvas/image-preview-context";
 import { TexEnvironmentSettingsDialog } from "@/components/editor/TexEnvironmentSettingsDialog";
 import { VersionHistoryPanel } from "@/components/editor/VersionHistoryPanel";
 import { WorkspaceTabGroupGrid, type WorkspacePaneHandoff, type WorkspacePaneView } from "@/components/editor/WorkspaceTabGroupGrid";
@@ -3804,7 +3806,30 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, acc
     return () => window.removeEventListener("keydown", closeTransientUi);
   }, [setMaterialActionMenu]);
 
+  const tikzEditor = useTikzEditor({
+    document, fileId: activeFileId, writable: sessionWritable, commit: commitDocumentChange,
+    getPasteAnchor: () => selectedIdRef.current,
+    insertDocument: (imported, afterBlockId) => {
+      return commitDocumentChange((current) => {
+        const next = insertTopLevelDocumentBlocks(current, afterBlockId, imported.content, DOCUMENT_BLOCK_OPERATION_PORTS);
+        const incoming = imported.pageLayout!.overlay!.overlaySnapshot!;
+        const layout = ensurePageLayout(next).pageLayout!;
+        const existing = layout.overlay?.overlaySnapshot;
+        return { ...next, pageLayout: { ...layout, overlay: { ...layout.overlay!, overlaySnapshot: {
+          ...existing, version: 1,
+          shapes: [...(existing?.shapes ?? []), ...incoming.shapes],
+          assets: { ...existing?.assets, ...incoming.assets },
+        } } } };
+      });
+    },
+    insert: (payload) => {
+      overlayActionRequestIdRef.current += 1;
+      setOverlayActionRequest({ id: overlayActionRequestIdRef.current, type: "pasteShapes", payload });
+    },
+  });
+
   useEffect(() => registerEditorClipboardEvents({
+    pasteTikz: tikzEditor.pasteTikz,
     overlayEditing,
     selectedInlineMath,
     getSelectedBlock: () => selectedIdRef.current
@@ -3827,7 +3852,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, acc
     setCanPasteProblem,
     setStatusMessage,
     translate: tEditor,
-  }), [materialEditingOpenRef, commitDocumentChange, overlayEditing, selectedInlineMath, setSelectedId, setSelectedInlineMath, setStatusMessage]);
+  }), [tikzEditor.pasteTikz, materialEditingOpenRef, commitDocumentChange, overlayEditing, selectedInlineMath, setSelectedId, setSelectedInlineMath, setStatusMessage]);
 
   // 画面のアウトラインは表示言語で引く (`t` を省略すると `collectOutline` の既定 =
   // 日本語になる。既定が日本語なのは AI / MCP の呼び出しを固定するため)。
@@ -7059,7 +7084,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, acc
               onReload={handleReloadFailedDocument}
             />
           )}
-          {pageEditorMounted && <AiPageCanvasEditor
+          {pageEditorMounted && <OverlayImagePreviewContext.Provider value={tikzEditor.preview}><AiPageCanvasEditor
             key={`${activeFileId}:${documentInstanceRevision}`}
             aiEnabled={!isEmbedded}
             onPageCountChange={setEditorPageCount}
@@ -7148,7 +7173,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, acc
             documentIdentityKey={activeFileId}
             documentWorkspaceId={activeDocumentMetadata?.workspaceId ?? null}
             onFocusAiSession={focusAiSession}
-          />}
+          /></OverlayImagePreviewContext.Provider>}
           {versionHistoryPreview && (
             <div className="version-history-preview" data-version-history-preview="true">
               <div className="version-history-preview-banner" role="status">
@@ -7431,14 +7456,18 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, acc
       {texCommandReferenceOpen && (
         <TexCommandReferenceDialog onClose={() => setTexCommandReferenceOpen(false)} />
       )}
+      {tikzEditor.dialog}
       {texEnvironmentSettingsOpen && (
         <TexEnvironmentSettingsDialog
           preamble={document.metadata.texPreamble}
+          tikzEnvironment={document.metadata.tikzEnvironment}
+          focusEntryId={settingsFocusEntryId}
+          onTikzChange={(tikzEnvironment) => updateMetadata({ ...document.metadata, tikzEnvironment })}
           onChange={(texPreamble) => {
             updateMetadata({ ...document.metadata, texPreamble });
             setStatusMessage(tE("status.texEnvUpdated"));
           }}
-          onClose={() => setTexEnvironmentSettingsOpen(false)}
+          onClose={() => { setTexEnvironmentSettingsOpen(false); setSettingsFocusEntryId(undefined); }}
         />
       )}
     </div>

@@ -32,7 +32,7 @@ const SHAPE_PROP_KEYS: Record<OverlayShape["type"], readonly string[]> = {
   arrow: ["start", "end", "arrowheadStart", "arrowheadEnd", "fill", "color", "strokeOpacity", "labelColor", "dash", "size", "label"],
   line: ["kind", "points", "closed", "arrowheadStart", "arrowheadEnd", "fill", "fillColor", "fillOpacity", "fillPattern", "color", "strokeOpacity", "labelColor", "dash", "size", "label"],
   text: ["w", "h", "blocks", "color", "fontSize", "size"],
-  image: ["assetId", "w", "h", "crop"],
+  image: ["assetId", "w", "h", "crop", "tikz"],
   callout: ["w", "h", "radius", "tail", "blocks", "color", "fontSize", "size", "dash", "strokeWidth"],
   graph2dShape: ["boundsMode", "w", "h", "spec", "preserveSpecSize", "axisLabelTextShapeIds", "pointLabelTextShapeIdsByPointId", "annotationTextShapeIdsByAnnotationId", "labelTextShapeIds", "labelTextShapeIdsByCurveId"],
   graph3dShape: ["w", "h", "spec", "previewAssetId", "previewSourceHash"],

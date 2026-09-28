@@ -1,5 +1,29 @@
 /** WI-3 が本格的に埋める namespace。WI-1 は言語切り替え行の文言だけを置く。 */
 export const settings = {
+  tikz: {
+    importTitle: "TeXを貼り付け",
+    importProgress: "図を生成中… {{completed}} / {{total}}",
+    importFailures: "{{count}}個の図を変換できませんでした。元のTeXコードを本文に残しました。",
+    unsupportedUnicode: "日本語などのUnicode文字は、内蔵TikZエンジンでは利用できません。ラベルには英数字やTeXの数式コマンドを使用してください。",
+    "title": "TikZを編集",
+    "source": "コード",
+    "environment": "環境",
+    "settingsTitle": "TikZ環境",
+    "settingsDescription": "この教材で新しく作るTikZ画像に適用します。既存の画像は編集画面で環境を変更できます。",
+    "packages": "パッケージ",
+    "packagesHelp": "内蔵：amsmath, amssymb, amsfonts, array, pgfplots, tikz-cd, circuitikz, chemfig, tikz-3dplot。TikZとarrows.metaは読み込み済みです。",
+    "libraries": "TikZライブラリ",
+    "preamble": "コマンド・環境の定義",
+    "rendering": "画像を生成中…",
+    "apply": "適用",
+    "desktopRequired": "TikZの画像生成はデスクトップ版で利用できます。",
+    "timeout": "変換がタイムアウトしました。コードを短くして再試行してください。",
+    "renderFailed": "画像を生成できませんでした。コード、パッケージ、ライブラリの指定を確認してください。",
+    "targetChanged": "編集対象が変更されたため反映できませんでした。画像を開き直してください。",
+    "mathTab": "数式",
+    "save": "保存",
+    "keywords": "TikZ tikz パッケージ ライブラリ 環境 図 LaTeX"
+},
   columnRule: { title: "段間の線", color: "線の色", preview: "段間の線のプレビュー", pageScope: "全ページに適用", localScope: "この部分段組に適用" },
   language: {
     title: "言語",

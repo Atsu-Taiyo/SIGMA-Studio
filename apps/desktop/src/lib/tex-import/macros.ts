@@ -41,7 +41,7 @@ export function collectTexMacroDefinitions(source: string): Map<string, TexMacro
   return macros;
 }
 
-function readTexMacroDefinition(
+export function readTexMacroDefinition(
   source: string,
   index: number,
 ): (TexMacroDefinition & { endIndex: number }) | null {

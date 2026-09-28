@@ -1,4 +1,5 @@
 import { isGraphParameter } from "./graph-parameter-validation";
+import { isTikzImageSource } from "./tikz";
 import { isGraphFillPattern } from "./graph-fill-style";
 import { isGraph3DSpec } from "./graph3d-validation";
 import { OVERLAY_ARROWHEADS } from "./overlay-model";
@@ -164,6 +165,7 @@ export function isOverlayShape(value: unknown): value is OverlayShape {
     case "image":
       return typeof value.props.assetId === "string" &&
         hasBox(value.props) &&
+        (value.props.tikz === undefined || isTikzImageSource(value.props.tikz)) &&
         (value.props.crop === undefined || isOverlayImageCrop(value.props.crop));
     case "callout":
       return hasBox(value.props) &&
