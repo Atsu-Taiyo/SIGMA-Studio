@@ -157,7 +157,7 @@ export const chrome = {
       outline: "アウトラインを表示",
       shortcuts: "ショートカット設定",
       texReference: "数式コマンド確認",
-      texEnvironment: "TeX環境設定",
+      texEnvironment: "TeX・TikZ環境設定",
       pageSettings: "ページ設定",
       appSettings: "アプリ設定",
     },

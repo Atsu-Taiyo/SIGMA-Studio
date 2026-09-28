@@ -876,6 +876,7 @@ export interface DesktopWorkspacePreviewAPI {
 }
 
 export interface DesktopAPI {
+  tikz?: import("@/lib/tikz-contract").TikzRenderAPI;
   sharedCatalog?: import("@/lib/runtime/shared-catalog").SharedCatalogBridge;
   collaboration?: import("@/features/collaboration/model/bridge").CollaborationBridge;
   isDesktop: true;

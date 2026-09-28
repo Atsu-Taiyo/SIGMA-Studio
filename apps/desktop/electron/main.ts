@@ -56,6 +56,7 @@ import {
 import { registerAppIpc } from "./ipc/app";
 import { registerShellIpc } from "./ipc/shell";
 import { registerSettingsIpc } from "./ipc/settings";
+import { registerTikzIpc } from "./ipc/tikz";
 import { assertUsableCliBinPath } from "./cli-spawn";
 import { registerCodexIpc } from "./ipc/codex";
 import { registerAiEditIpc } from "./ipc/ai-edit";
@@ -1497,6 +1498,7 @@ function checkForUpdatesInBackground(): void {
 }
 
 function registerIpc() {
+  registerTikzIpc();
   ipcMain.handle("app:close-ack", (event) => {
     return activeWindowCloseHandshake?.acknowledge(event.sender) ?? false;
   });

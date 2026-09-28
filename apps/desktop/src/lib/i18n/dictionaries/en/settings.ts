@@ -3,6 +3,30 @@ import type { TranslationsOf } from "../types";
 
 /** 対応する日本語 namespace と同時に埋める。詳細は `../ja/settings.ts` を参照。 */
 export const settings = {
+  tikz: {
+    importTitle: "Paste TeX",
+    importProgress: "Generating figures… {{completed}} / {{total}}",
+    importFailures: "Could not convert {{count}} figures. Their original TeX source was kept in the document.",
+    unsupportedUnicode: "The bundled TikZ engine cannot render Unicode labels such as Japanese. Use Latin characters or TeX math commands for labels.",
+    "title": "Edit TikZ",
+    "source": "Code",
+    "environment": "Environment",
+    "settingsTitle": "TikZ environment",
+    "settingsDescription": "Applies to new TikZ images in this document. Existing images retain their own editable environment.",
+    "packages": "Packages",
+    "packagesHelp": "Bundled: amsmath, amssymb, amsfonts, array, pgfplots, tikz-cd, circuitikz, chemfig, tikz-3dplot. TikZ and arrows.meta are already loaded.",
+    "libraries": "TikZ libraries",
+    "preamble": "Command and environment definitions",
+    "rendering": "Generating image…",
+    "apply": "Apply",
+    "desktopRequired": "TikZ rendering is available in the desktop app.",
+    "timeout": "Rendering timed out. Try simplifying the code.",
+    "renderFailed": "Could not render the image. Check the code, packages, and libraries.",
+    "targetChanged": "The editing target has changed. Reopen the image to try again.",
+    "mathTab": "Math",
+    "save": "Save",
+    "keywords": "TikZ tikz packages libraries environment diagram LaTeX"
+},
   columnRule: { title: "Column separators", color: "Line color", preview: "Column separator preview", pageScope: "Applies to every page", localScope: "Applies to this column block" },
   language: {
     title: "Language",

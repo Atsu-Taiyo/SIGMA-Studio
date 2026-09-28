@@ -1031,6 +1031,10 @@ type OverlayImageShape = OverlayBaseShape<"image", {
   assetId: string;
   w: number;
   h: number;
+  tikz?: {
+    source: string;
+    environment: { packages: string; libraries: string; preamble: string };
+  };
   crop?: {
     topLeft: { x: number; y: number };
     bottomRight: { x: number; y: number };
@@ -1039,6 +1043,16 @@ type OverlayImageShape = OverlayBaseShape<"image", {
 ```
 
 `assetId` は `overlaySnapshot.assets` のキーを参照します。`crop` は元画像内の表示範囲を `0..1` の正規化座標で表します。省略時は画像assetの比率を保ったまま、shape枠を満たす中央cover cropとして表示します。
+
+TikZ画像は `props.tikz` に元のコードと生成時の環境を保持します。`packages` は `\usepackage` の宣言、`libraries` はカンマ区切りのTikZライブラリ名、`preamble` は独自コマンド・環境などの宣言です。コードは最大100,000文字、環境の各欄は最大20,000文字です。`metadata.tikzEnvironment` は同じ環境型で、新規画像の既定値として教材ごとに保存します。既存画像の環境は個別に保持します。標準の矢印ライブラリ `arrows.meta` は生成時に常に読み込み、`Latex` や `Stealth` を環境設定なしで利用できます。保存されたコード・環境は書き換えません。
+
+Electronの内蔵TikZJaxで生成したSVGはフォントを埋め込み、通常の画像assetとして保存します。閲覧・印刷時の再コンパイルやネット接続は不要です。内蔵パッケージを利用し、任意の外部TeXパッケージのインストールは行いません。日本語などのUnicodeラベルは未対応で、画像を挿入せず編集画面にエラーを表示します。編集の適用は画像assetとソースを同じ履歴で更新し、置換後の未使用assetを除去します。
+
+本文と複数のTikZ環境を含むTeXの貼り付けでは、本文・数式・リスト・問題を既存のTeX importerで変換し、図ごとに独立した画像を生成します。プリアンブルのパッケージ・ライブラリ・定義を各画像の環境に保持します。文書全体は最大2,097,152文字で、画像ごとのコード・環境の上限は従来どおりです。
+
+画像は元の順序で挿入した空段落（リスト内では項目または継続段落）へblock anchorで接続します。挿入時に `spaceAfterPx` で余白を確保し、既存のページ配置を使います。画像の移動・リサイズで本文を自動的に組み直す仕組みは追加しません。本文と画像assetは1回の履歴操作で挿入し、生成中のキャンセル・教材切り替え・編集権限喪失時には反映しません。
+
+変換は直列で実行し、失敗した図は環境を添えた編集可能なTeXコードとして残して、後続の図を処理します。閉じ忘れたTikZ環境で区切りを特定できない場合は、貼り付けたソース全体をコードとして保持します。独自の外側環境やTeXの任意のページ組版を再現する機能ではありません。
 
 ### Callout Shape
 

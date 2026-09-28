@@ -1,4 +1,5 @@
 "use client";
+import { OPEN_TIKZ_EDITOR_EVENT } from "@/lib/tikz-contract";
 import type { PendingOverlaySave } from "./overlay-canvas/pending-save";
 import  {
   AnchorIndicator,
@@ -2523,6 +2524,11 @@ export default function OverlayCanvasEditorClient({
 
       transitionMode({ type: "select" });
       selectShape(shape.id);
+      if (shape.type === "image" && shape.props.tikz && !shape.locked &&
+          !editPolicyLockedShapeIdsRef.current.has(shape.id) && request.dragEndPoint &&
+          Math.hypot(request.dragEndPoint.x - request.point.x, request.dragEndPoint.y - request.point.y) < 3) {
+        window.dispatchEvent(new CustomEvent(OPEN_TIKZ_EDITOR_EVENT, { detail: { documentId, shapeId: shape.id } }));
+      }
       if (request.startCrop && shape.type === "graph2dShape") {
         transitionMode({ type: "editGraph", shapeId: shape.id });
       } else if (request.startCrop && isOverlayRichTextShape(shape)) {
@@ -2541,6 +2547,7 @@ export default function OverlayCanvasEditorClient({
     getOpenStrokeShapeAtPoint,
     getShapeAtPoint,
     onSelectPointHandled,
+    documentId,
     queueOverlaySave,
     refreshAnchorMeasurements,
     selectShape,
@@ -4942,6 +4949,14 @@ export default function OverlayCanvasEditorClient({
     }
 
     if (interaction.id === "overlay.move") {
+      const tapped = interaction.shapes.length === 1 ? interaction.shapes[0] : null;
+      const release = pagePointFromClient(event.clientX, event.clientY);
+      if (moveResolution?.kind === "noop" && tapped?.type === "image" && tapped.props.tikz &&
+          !tapped.locked && !editPolicyLockedShapeIdsRef.current.has(tapped.id) &&
+          !event.shiftKey && !event.metaKey && !event.ctrlKey &&
+          Math.hypot(release.x - interaction.start.x, release.y - interaction.start.y) < 3) {
+        window.dispatchEvent(new CustomEvent(OPEN_TIKZ_EDITOR_EVENT, { detail: { documentId, shapeId: tapped.id } }));
+      }
       if (moveResolution?.kind === "commit") {
         const { offset } = moveResolution;
         shouldSaveOverlay = true;
