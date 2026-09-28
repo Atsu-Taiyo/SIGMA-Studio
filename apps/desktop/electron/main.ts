@@ -1,3 +1,4 @@
+import { fetchProblemSearch } from "./problem-search-client";
 import { app, BrowserWindow, ipcMain, Menu, nativeImage, shell, protocol } from "electron";
 import crypto from "node:crypto";
 import { fetchProblemSolution } from "./problem-solution-client";
@@ -1677,6 +1678,7 @@ async function startAiRenderBridgeServer(): Promise<void> {
   const token = crypto.randomBytes(32).toString("hex");
   const server = createAiRenderBridgeServer({
     token,
+    searchProblems: (request) => fetchProblemSearch(request, collaborationSessions.auth),
     getProblemSolution: (request) => fetchProblemSolution(request, collaborationSessions.auth),
     renderPageContext: renderAiPageContextPng,
     renderSvg: renderAiSvgPng,
