@@ -1,4 +1,4 @@
-# 解答・解説のMCP連携
+# 問題検索・解答のMCP連携
 
 `get_problem_solution({ problemId })` は、起動中のElectronの認証付きローカルbridgeから
 ログイン中の利用者トークンでCloudflare Workersを呼びます。
@@ -21,7 +21,12 @@ Workerには次のGET経路があります。いずれもSigma Studioの利用�
 - `/integrations/juken/problems/{問題ID}/solution`
 
 検索は `q`（最大500文字）、`category`（最大100文字）、`sort`（newest / likes / difficulty）、
-`limit`（1〜50、既定5）だけを受け付けます。検索のMCPツールはまだ追加していません。
+`limit`（1〜50、既定5）だけを受け付けます。
+
+MCPでは `search_problems({ category: "整数", sort: "likes", limit: 5 })` を呼びます。
+応答は `data.search` に入り、`results` 内の `id`、`title`、`problem_tex`、`has_solution` などを参照できます。
+解答も依頼されている場合は、結果の `id` を文字列にして `get_problem_solution({ problemId: String(id) })` に渡します。
+検索語は `q` に指定し、引数を省略すると既定5件を検索します。制御文字・未知の引数・範囲外の件数は拒否します。
 解答JSONは `ok`、`problem`、`solutions` を持ち、`solutions` には official / author / editorial があります。
 
 ## 非公開情報の扱い
@@ -37,7 +42,9 @@ Workerには次のGET経路があります。いずれもSigma Studioの利用�
 
 ## 確認範囲
 
-自動テストは架空のキーと解答だけを使います。本番キー・本番解答をfixtureに保存しません。
-検索APIの実データ5件と解答APIのHTTP 200を確認しました（本文は記録していません）。
-Worker経由の実利用者認証付き通信は別途確認が必要です。
-ElectronからWorkerへの通信は模擬応答で検証しています。
+自動テストは架空のキーと問題・解答だけを使います。本番キー・本番本文をfixtureに保存しません。
+2026-09-27、変更をビルドしたElectronと付属MCPを別プロファイルで起動し、実利用者認証付きで
+`search_problems({ category: "整数", sort: "likes", limit: 5 })` の5件取得と、結果のIDを使う
+`get_problem_solution` の解答取得を確認しました。本文は記録していません。
+MCPから範囲外のlimitを拒否することも実確認しました。未ログイン拒否・bridge認証・入力検証・
+エラー秘匿は自動テストで確認しています。
