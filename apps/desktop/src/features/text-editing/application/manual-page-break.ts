@@ -8,6 +8,7 @@ import {
   getTextFlowBlockChildren,
   getTextFlowBlockEditorLength,
   idPrefixForTextBlock,
+  indexTextFlowBlocksById,
   isNonEmptyInlineNode,
   withTextFlowBlockChildren,
   type ManualTextPageBreakResult,
@@ -16,6 +17,7 @@ import {
   type TextFlowIdFactory,
   type TextPageBreakRequestDetail,
 } from "../model";
+import { isManualBreakAllowedAtBlock, resolveManualBreakHoistTarget } from "./manual-break-rules";
 import { createTextFlowId } from "./text-flow-id";
 
 export interface ResolveManualTextPageBreakOptions {
@@ -48,6 +50,11 @@ export function canInsertManualPageBreakAfterBlock(blocks: readonly SigmaBlock[]
   return find(blocks) ?? false;
 }
 
+/**
+ * このエディタの最後のブロックの末尾で区切るとき、区切りを持つのは**次のユニットの先頭**
+ * (このエディタの外) なので、文書を持つホストに任せる。先頭で区切る場合はこのブロック自身の
+ * 前に入るので任せない。
+ */
 export function shouldUseDocumentNextBlockForPageBreak(
   blocks: TextFlowBlock[],
   detail: TextPageBreakRequestDetail,
@@ -65,9 +72,17 @@ export function shouldUseDocumentNextBlockForPageBreak(
   const block = blocks[blockIndex];
   const blockLength = getTextFlowBlockEditorLength(block);
   const offset = clampInteger(selection?.offset ?? blockLength, 0, blockLength);
-  return offset <= 0 || offset >= blockLength;
+  return offset > 0 && offset >= blockLength;
 }
 
+/**
+ * キャレットの位置に手動改ページ (改段) を入れる。TeX の `\newpage` と同じく、キャレットより
+ * 後ろの内容が次のページ (段) へ移り、キャレットもそこへ移る。
+ *
+ * - 文字の途中: ブロックを分け、後ろの半分の前で区切る
+ * - 先頭 (空のブロックを含む): このブロックの前で区切る。引用・箱・1段組の先頭の子なら入れ物の前
+ * - 末尾: 次のブロックの前で区切る。次が無ければ空の段落を足してその前で区切る
+ */
 export function resolveManualTextPageBreakBlocks(
   blocks: TextFlowBlock[],
   requestedBlockId: string,
@@ -75,8 +90,6 @@ export function resolveManualTextPageBreakBlocks(
   selection?: ManualTextPageBreakSelection | null,
   options: ResolveManualTextPageBreakOptions = {},
 ): ManualTextPageBreakResult | null {
-  const createId = options.createId ?? createTextFlowId;
-
   if (!enabled) {
     const result = setTextFlowBlockBreakBeforeRecursively(blocks, requestedBlockId, false);
     return result.changed
@@ -84,19 +97,41 @@ export function resolveManualTextPageBreakBlocks(
       : null;
   }
 
-  const selectedBlockId = selection?.blockId
-    && blocks.some((block) => block.id === selection.blockId)
-    ? selection.blockId
-    : requestedBlockId;
-  const blockIndex = blocks.findIndex((block) => block.id === selectedBlockId);
+  const targetBlockId = selection?.blockId ?? requestedBlockId;
+  const targetBlock = indexTextFlowBlocksById(blocks).get(targetBlockId);
+  if (!targetBlock || !isManualBreakAllowedAtBlock(blocks, targetBlockId)) {
+    return null;
+  }
+  const targetLength = getTextFlowBlockEditorLength(targetBlock);
+  const targetOffset = clampInteger(selection?.offset ?? targetLength, 0, targetLength);
+  if (targetOffset <= 0) {
+    const ownerId = resolveManualBreakHoistTarget(blocks, targetBlockId);
+    const result = setTextFlowBlockBreakBeforeRecursively(blocks, ownerId, true);
+    return result.changed
+      ? { blocks: result.blocks, focusBlockId: targetBlockId, focusPosition: "start" }
+      : null;
+  }
+
+  return insertManualTextPageBreakAfterCaret(
+    blocks,
+    { blockId: targetBlockId, offset: targetOffset },
+    options.createId ?? createTextFlowId,
+  );
+}
+
+function insertManualTextPageBreakAfterCaret(
+  blocks: TextFlowBlock[],
+  selection: ManualTextPageBreakSelection,
+  createId: TextFlowIdFactory,
+): ManualTextPageBreakResult | null {
+  const blockIndex = blocks.findIndex((block) => block.id === selection.blockId);
   if (blockIndex < 0) {
     for (const [index, parent] of blocks.entries()) {
-      if (parent.type === "layoutSection" && (parent.layout.columnCount ?? 2) > 1) continue;
       const groups = parent.type === "problem" ? PROBLEM_AREA_ORDER.map((area) => ({ key: area, children: parent[area] }))
         : parent.type === "boxBlock" || parent.type === "quote" ? [{ key: "blocks", children: parent.blocks }]
           : parent.type === "layoutSection" ? [{ key: "children", children: parent.children }] : [];
       for (const { key, children } of groups) {
-        const nested = resolveManualTextPageBreakBlocks(children, requestedBlockId, enabled, selection, options);
+        const nested = insertManualTextPageBreakAfterCaret(children, selection, createId);
         if (nested) {
           const updated = { ...parent, [key]: nested.blocks } as TextFlowBlock;
           return {
@@ -111,29 +146,8 @@ export function resolveManualTextPageBreakBlocks(
 
   const block = blocks[blockIndex];
   const blockLength = getTextFlowBlockEditorLength(block);
-  const offset = clampInteger(selection?.offset ?? blockLength, 0, blockLength);
+  const offset = clampInteger(selection.offset, 0, blockLength);
   const nextBlock = blocks[blockIndex + 1];
-
-  if (offset <= 0) {
-    if (nextBlock) {
-      const result = setTextFlowBlockBreakBefore(blocks, nextBlock.id, true);
-      return {
-        blocks: result.blocks,
-        focusBlockId: nextBlock.id,
-        focusPosition: "start",
-      };
-    }
-
-    const appended = setTextFlowBlockBreakBeforeValue(
-      createEmptyParagraphTextBlock(createId),
-      true,
-    );
-    return {
-      blocks: [...blocks, appended],
-      focusBlockId: appended.id,
-      focusPosition: "start",
-    };
-  }
 
   if (offset < blockLength) {
     const split = splitTextFlowBlockAtEditorOffset(block, offset, createId);

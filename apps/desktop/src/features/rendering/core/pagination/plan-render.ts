@@ -91,7 +91,20 @@ function sameDisplacement(a: PlacedLine, b: { regionIndex: number; dx: number; d
   return a.regionIndex === b.regionIndex && Math.round(a.dy) === b.dy && Math.round(a.dx) === b.dx;
 }
 
-export function planFlowRender(built: BuiltFlowModel, placement: FlowPlacement): FlowRenderPlan {
+export interface PlanFlowRenderOptions {
+  /**
+   * 改ページの印を描かない面 (印刷・PDF)。入れ物の中の手動改ページで分かれた片を、印の場所では
+   * なく区切りの前の内容の終わりで切る。印の場所を縦線・枠の中の空白として残さないため。
+   * 切る位置が変わるだけで、ページ割り (どの行がどのページか) は編集面と同じ。
+   */
+  hideManualBreakMarkers?: boolean;
+}
+
+export function planFlowRender(
+  built: BuiltFlowModel,
+  placement: FlowPlacement,
+  options: PlanFlowRenderOptions = {},
+): FlowRenderPlan {
   const plan: FlowRenderPlan = {
     columnRulePieces: {},
     unitDisplacements: {},
@@ -137,7 +150,10 @@ export function planFlowRender(built: BuiltFlowModel, placement: FlowPlacement):
         if (!next) return node.bottom;
         const region = regionOf(group.regionIndex);
         const regionBottomNatural = region ? region.bottom - group.dy : lastLine.fitBottom;
-        return Math.max(lastLine.fitBottom, Math.min(next.lines[0].top, regionBottomNatural));
+        const nextStart = (options.hideManualBreakMarkers
+          ? built.manualBreakContentEnds.get(next.lines[0].key)
+          : undefined) ?? next.lines[0].top;
+        return Math.max(lastLine.fitBottom, Math.min(nextStart, regionBottomNatural));
       };
       plan.fragmentSources[node.id] = {
         visibleHeight: round(clipEnd(0) - node.top),

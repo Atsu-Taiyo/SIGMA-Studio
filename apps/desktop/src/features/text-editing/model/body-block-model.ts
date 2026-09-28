@@ -1,4 +1,4 @@
-import { normalizeBlockSpaceAfterPx } from "@/features/document";
+import { normalizeBlockSpaceAfterPx, PROBLEM_AREA_ORDER } from "@/features/document";
 import type {
   BoxBlockNode,
   CodeBlockNode,
@@ -163,17 +163,21 @@ export function getNestedPageBreakBeforeKinds(
   outerKind: PageBreakMarkerKind = "pageBreak",
 ): Record<string, PageBreakMarkerKind> {
   const kinds: Record<string, PageBreakMarkerKind> = {};
-  const visit = (children: readonly SigmaBlock[], kind: PageBreakMarkerKind, nested: boolean) => {
+  // 引用・箱の先頭の子の区切りも効く (入れ物の前、タイトルのある箱ならタイトルの後) ので印を出す。
+  // 複数段の段組みの先頭の子だけは段の始まりそのものなので区切りにならない。
+  const visit = (children: readonly SigmaBlock[], kind: PageBreakMarkerKind, nested: boolean, markFirst: boolean) => {
     children.forEach((child, index) => {
-      if (nested && index > 0 && child.pagination?.break) kinds[child.id] = kind;
-      if (child.type === "boxBlock" || child.type === "quote") visit(child.blocks, kind, true);
-      else if (child.type === "layoutSection") visit(child.children, child.layout.columnCount > 1 ? "columnBreak" : kind, true);
-      else if (child.type === "problem") {
-        for (const area of [child.lead, child.prompt, child.hints, child.solution]) visit(area, kind, true);
+      if (nested && (index > 0 || markFirst) && child.pagination?.break) kinds[child.id] = kind;
+      if (child.type === "boxBlock" || child.type === "quote") visit(child.blocks, kind, true, true);
+      else if (child.type === "layoutSection") {
+        const multiColumn = child.layout.columnCount > 1;
+        visit(child.children, multiColumn ? "columnBreak" : kind, true, !multiColumn);
+      } else if (child.type === "problem") {
+        for (const area of [child.lead, child.prompt, child.hints, child.solution]) visit(area, kind, true, true);
       }
     });
   };
-  visit(blocks, outerKind, false);
+  visit(blocks, outerKind, false, false);
   return kinds;
 }
 
@@ -202,11 +206,16 @@ export function bodyTextFlowBlockContainsId(
   if (block.id === selectedId) {
     return true;
   }
-  if (block.type === "boxBlock") {
+  // 入れ物はすべて降りる。引用が抜けていると、引用で始まるユニットへキャレットを配る面が
+  // 見つからず、区切りや隣のユニットから左右キー・Delete で引用の中へ入れなかった。
+  if (block.type === "boxBlock" || block.type === "quote") {
     return block.blocks.some((child) => bodyTextFlowBlockContainsId(child, selectedId));
   }
   if (block.type === "layoutSection") {
     return block.children.some((child) => bodyTextFlowBlockContainsId(child, selectedId));
+  }
+  if (block.type === "problem") {
+    return PROBLEM_AREA_ORDER.some((area) => block[area].some((child) => bodyTextFlowBlockContainsId(child, selectedId)));
   }
   if (block.type === "list") {
     return block.items.some((item) => (

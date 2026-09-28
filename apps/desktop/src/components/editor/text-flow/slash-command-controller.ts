@@ -1,5 +1,5 @@
 import type { Editor as TiptapEditor } from "@tiptap/core";
-import { TextSelection, type EditorState } from "@tiptap/pm/state";
+import { EditorState, TextSelection } from "@tiptap/pm/state";
 import type { EditorView } from "@tiptap/pm/view";
 
 import { findAncestorNodeDepth } from "@/components/tiptap/node-queries";
@@ -10,6 +10,7 @@ import { createTranslator, getAppLocale } from "@/lib/i18n";
 import { applyRememberedBoxFrame } from "@/lib/remembered-box-style";
 import type { MaterialItem } from "@/types/material";
 
+import { getManualBreakCaretSelection } from "./manual-break-transactions";
 import { bodyBlockCommandId, bodyBlockCommandKindFromId, type ActiveSlashCommandQuery, type SlashCommandCandidate } from "./slash-command-model";
 import { textFlowBlockToTiptapNode } from "./tiptap-document-adapter";
 import type { TextFlowEditorProps } from "./types";
@@ -47,6 +48,7 @@ export function handleSlashCommandQueryKeyDown(
   editorRef: { current: TiptapEditor | null },
   onHeadingCommandRef: { current: TextFlowEditorProps["onHeadingCommand"] },
   setSlashCommandQuery: (query: ActiveSlashCommandQuery | null) => void,
+  onManualBreakCommandRef: { current: TextFlowEditorProps["onManualBreakCommand"] } = { current: undefined },
 ): boolean {
   if (!slashCommandQueryRef.current) {
     return false;
@@ -88,6 +90,7 @@ export function handleSlashCommandQueryKeyDown(
       editorRef,
       onHeadingCommandRef,
       setSlashCommandQuery,
+      onManualBreakCommandRef,
     );
     return true;
   }
@@ -106,7 +109,13 @@ export function insertSlashCommandFromQuery(
   editorRef: { current: TiptapEditor | null },
   onHeadingCommandRef: { current: TextFlowEditorProps["onHeadingCommand"] },
   setSlashCommandQuery: (query: ActiveSlashCommandQuery | null) => void,
+  onManualBreakCommandRef: { current: TextFlowEditorProps["onManualBreakCommand"] } = { current: undefined },
 ): void {
+  if (candidate.kind === "pageBreak") {
+    insertPageBreakCommandFromQuery(view, slashCommandQueryRef, onManualBreakCommandRef, setSlashCommandQuery);
+    return;
+  }
+
   if (candidate.kind === "problem") {
     insertProblemCommandFromQuery(view, slashCommandQueryRef, onProblemCommandRef, setSlashCommandQuery);
     return;
@@ -141,6 +150,30 @@ export function insertSlashCommandFromQuery(
   }
 
   insertMaterialFromQuery(view, candidate.material, slashCommandQueryRef, onMaterialInsertRef, setSlashCommandQuery);
+}
+
+/**
+ * `/newpage` (`/改ページ`)。打った `/…` を消してから、キャレットの位置で区切るようホストに頼む。
+ * 区切りは本文エディタの外 (ホストの文書全体) で決まるので、ここでは位置を渡すだけにする。
+ */
+function insertPageBreakCommandFromQuery(
+  view: EditorView,
+  slashCommandQueryRef: { current: ActiveSlashCommandQuery | null },
+  onManualBreakCommandRef: { current: TextFlowEditorProps["onManualBreakCommand"] },
+  setSlashCommandQuery: (query: ActiveSlashCommandQuery | null) => void,
+): void {
+  const query = slashCommandQueryRef.current;
+  const onManualBreakCommand = onManualBreakCommandRef.current;
+  setSlashCommandQuery(null);
+  if (!query || !onManualBreakCommand) {
+    return;
+  }
+  view.dispatch(view.state.tr.delete(query.from, query.to));
+  view.focus();
+  const selection = getManualBreakCaretSelection(view.state);
+  if (selection) {
+    onManualBreakCommand(selection);
+  }
 }
 
 function insertHeadingCommandFromQuery(
@@ -400,6 +433,7 @@ export function getActiveSlashCommandQuery(view: EditorView): ActiveSlashCommand
       to,
       query: trigger.query,
       canInsertBox,
+      canInsertPageBreak: canInsertPageBreakAfterTrigger(view.state, from, to),
       availableBlockCommandIds,
       rect: {
         bottom: rect.bottom,
@@ -423,4 +457,22 @@ function isSelectionInsideBoxBlock(state: EditorState): boolean {
     }
   }
   return false;
+}
+
+/**
+ * 打った `/…` を消した後のキャレットで区切れるか。プラグインを通さない仮の state で見る
+ * (打鍵ごとに走るので、装飾の作り直しを伴う `state.apply` は使わない)。
+ */
+function canInsertPageBreakAfterTrigger(state: EditorState, from: number, to: number): boolean {
+  try {
+    const doc = state.tr.delete(from, to).doc;
+    const probe = EditorState.create({
+      schema: state.schema,
+      doc,
+      selection: TextSelection.create(doc, from),
+    });
+    return getManualBreakCaretSelection(probe) !== null;
+  } catch {
+    return false;
+  }
 }

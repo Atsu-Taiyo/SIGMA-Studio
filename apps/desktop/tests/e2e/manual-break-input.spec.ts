@@ -19,7 +19,10 @@ async function typeReportedDocument(page: Page) {
   await paragraphs.first().click();
   await page.keyboard.insertText("s");
   await page.keyboard.press("Enter");
-  await expect(paragraphs).toHaveCount(2);
+  await page.keyboard.press("Enter");
+  await expect(paragraphs).toHaveCount(3);
+  // 空行で改ページを入れると、その空行ごと (キャレットの後ろが) 次のページへ移る。
+  // 1 ページ目は「s」と空行、2 ページ目は区切りを持つ行になる。
   await paragraphs.last().click({ button: "right" });
   await startFrameRecording(page);
   await page.getByRole("menuitem", { name: "改ページを挿入", exact: true }).click();
@@ -173,6 +176,33 @@ for (const operation of ["delete-line", "insert-line", "delete-text"] as const) 
     await expect.poll(() => savedBreakCount(page)).toBe(1);
   });
 }
+
+test("inserting a break on an empty line moves that line to the next page instead of leaving it behind", async ({ page }) => {
+  await installDesktopRuntimeMock(page, {
+    ...sampleDocument,
+    content: [{ type: "paragraph", id: "typed_first", children: [] }],
+    pageLayout: normalizePageLayout({}),
+  });
+  await page.goto("/");
+  await expect(page.locator(".startup-splash")).toBeHidden();
+  const paragraphs = page.locator('.page-flow p[data-sigma-doc-type="paragraph"]');
+  await paragraphs.first().click();
+  await page.keyboard.insertText("s");
+  await page.keyboard.press("Enter");
+  await expect(paragraphs).toHaveCount(2);
+  await page.keyboard.press(process.platform === "darwin" ? "Meta+Enter" : "Control+Enter");
+  await expect.poll(() => savedBreakCount(page)).toBe(1);
+  // キャレットは区切りの後ろ (2 ページ目の行) へ移る。クリックせずにそのまま打てる。
+  await expect.poll(() => paragraphs.last().evaluate(element => {
+    const selection = window.getSelection();
+    return element.closest("[contenteditable=true]") === document.activeElement
+      && !!selection?.focusNode && element.contains(selection.focusNode);
+  })).toBe(true);
+  await page.keyboard.insertText("t");
+  await expect(paragraphs).toHaveCount(2);
+  await expect(paragraphs.last()).toHaveText("t");
+  await expect(page.locator(".page-canvas")).toHaveAttribute("data-page-count", "2");
+});
 
 test("an empty first line cannot insert a manual page break", async ({ page }) => {
   await installDesktopRuntimeMock(page, {

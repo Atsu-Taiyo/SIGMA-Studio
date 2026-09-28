@@ -30,6 +30,8 @@ const INTENTIONAL_JAPANESE_IN_EN = [
   "slash.block.quote.aliases",
   "slash.block.codeBlock.aliases",
   "slash.block.divider.aliases",
+  "slash.pageBreak.aliases",
+  "slash.columnBreak.aliases",
   "slash.problem.aliases",
 ];
 

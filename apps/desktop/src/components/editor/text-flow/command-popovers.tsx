@@ -634,6 +634,9 @@ export function getSlashCommandCandidateKey(candidate: SlashCommandCandidate): s
   if (candidate.kind === "heading") {
     return `heading:${candidate.heading.id}`;
   }
+  if (candidate.kind === "pageBreak") {
+    return `pageBreak:${candidate.pageBreak.breakKind}`;
+  }
   return candidate.kind === "box" ? `box:${candidate.box.id}` : `material:${candidate.material.id}`;
 }
 
@@ -648,6 +651,9 @@ export function getSlashCommandCandidateMeta(candidate: SlashCommandCandidate, t
   if (candidate.kind === "heading") {
     return candidate.heading.description;
   }
+  if (candidate.kind === "pageBreak") {
+    return `${candidate.pageBreak.displayName} — ${candidate.pageBreak.description}`;
+  }
   return candidate.kind === "box" ? candidate.box.description : getMaterialSummaryLabel(candidate.material, t);
 }
 
@@ -661,6 +667,7 @@ export function getSlashCommandCandidateKindLabel(candidate: SlashCommandCandida
   }
   if (candidate.kind === "problem") return t("slash.kindProblem");
   if (candidate.kind === "heading") return t("slash.kindHeading");
+  if (candidate.kind === "pageBreak") return t("slash.kindBreak");
   return t("slash.kindMaterial");
 }
 

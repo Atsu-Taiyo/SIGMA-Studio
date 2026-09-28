@@ -139,6 +139,19 @@ export const editor = {
       },
     },
     kindHeading: "Heading",
+    kindBreak: "Break",
+    pageBreak: {
+      command: "newpage",
+      displayName: "Page break",
+      description: "Breaks the page here (what follows starts on the next page, ⌘/Ctrl+Enter)",
+      aliases: "pagebreak clearpage break 改ページ",
+    },
+    columnBreak: {
+      command: "newpage",
+      displayName: "Column break",
+      description: "Breaks the column here (what follows starts in the next column, ⌘/Ctrl+Enter)",
+      aliases: "columnbreak newcolumn break 改段",
+    },
     problem: {
       command: "problem",
       displayName: "Problem",

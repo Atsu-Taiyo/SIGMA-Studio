@@ -34,6 +34,8 @@ import {
 import {
   consumeRejectedManualBreakPaste,
   deleteManualBreakSpanningSelection,
+  getManualBreakCaretSelection,
+  isCaretAtManualBreakBoundary,
   pasteHasUsableContent,
   resolveManualBreakBoundaryNavigation,
   resolveManualBreakPasteContent,
@@ -139,14 +141,15 @@ describe("resolveManualTextPageBreakBlocks", () => {
     expect(result?.focusBlockId).toBe("p_second");
   });
 
-  it("puts break on the next paragraph when the cursor is at the start of a paragraph", () => {
+  it("puts the break before the caret paragraph when the cursor is at its start", () => {
     const blocks = [
       paragraph("p_first", "first"),
       paragraph("p_second", "second"),
     ];
 
-    const result = resolveManualTextPageBreakBlocks(blocks, "p_first", true, {
-      blockId: "p_first",
+    // TeX の \newpage と同じ: キャレットから後ろ (この段落ごと) が次のページへ移る。
+    const result = resolveManualTextPageBreakBlocks(blocks, "p_second", true, {
+      blockId: "p_second",
       offset: 0,
     });
 
@@ -359,6 +362,66 @@ describe("resolveManualBreakBoundaryNavigation", () => {
     const state = createParagraphBoundaryState(blocks, targetId ?? "nested_leaf", "start");
 
     expect(resolveManualBreakBoundaryNavigation(state, "backward", blocks)).not.toBeNull();
+  });
+});
+
+describe("isCaretAtManualBreakBoundary", () => {
+  it("recognizes a break owner that starts the editor even with nothing before it in this doc", () => {
+    // 改ページで始まるユニットは、区切りの前の本文を別のエディタが持つ。
+    const blocks: TextFlowBlock[] = [
+      { type: "quote", id: "owner", blocks: [paragraph("quoted", "後")], pagination: { break: true } } as TextFlowBlock,
+    ];
+    const state = createParagraphBoundaryState(blocks, "quoted", "start");
+    expect(resolveManualBreakBoundaryNavigation(state, "backward", blocks)).toBeNull();
+    expect(isCaretAtManualBreakBoundary(state, "backward", blocks)).toBe(true);
+  });
+
+  it("uses the surface edges for breaks owned outside the editor (problem, section, next unit)", () => {
+    const blocks = [paragraph("only", "本文")];
+    const start = createParagraphBoundaryState(blocks, "only", "start");
+    const end = createParagraphBoundaryState(blocks, "only", "end");
+    expect(isCaretAtManualBreakBoundary(start, "backward", blocks)).toBe(false);
+    expect(isCaretAtManualBreakBoundary(start, "backward", blocks, { leading: true })).toBe(true);
+    expect(isCaretAtManualBreakBoundary(end, "forward", blocks)).toBe(false);
+    expect(isCaretAtManualBreakBoundary(end, "forward", blocks, { trailing: true })).toBe(true);
+    // 行の途中では越えない。
+    expect(isCaretAtManualBreakBoundary(end, "backward", blocks, { leading: true })).toBe(false);
+  });
+
+  it("sees a break between children of a quote from both sides", () => {
+    const blocks: TextFlowBlock[] = [{
+      type: "quote",
+      id: "quote",
+      blocks: [paragraph("q1", "前"), { ...paragraph("q2", "後"), pagination: { break: true } } as never],
+    } as TextFlowBlock];
+    expect(isCaretAtManualBreakBoundary(createParagraphBoundaryState(blocks, "q2", "start"), "backward", blocks)).toBe(true);
+    expect(isCaretAtManualBreakBoundary(createParagraphBoundaryState(blocks, "q1", "end"), "forward", blocks)).toBe(true);
+    expect(isCaretAtManualBreakBoundary(createParagraphBoundaryState(blocks, "q1", "start"), "backward", blocks)).toBe(false);
+  });
+});
+
+describe("getManualBreakCaretSelection", () => {
+  it("maps the caret to a SigmaDoc block and offset", () => {
+    const state = createParagraphBoundaryState([paragraph("before", "前"), paragraph("target", "本文")], "target", "end");
+    expect(getManualBreakCaretSelection(state)).toEqual({ blockId: "target", offset: 2 });
+  });
+
+  it("breaks around a list only at its outer edges", () => {
+    const list: TextFlowBlock = {
+      type: "list",
+      id: "list",
+      listType: "bullet",
+      items: [
+        { type: "listItem", id: "first_item", children: [{ type: "text", text: "一" }] },
+        { type: "listItem", id: "last_item", children: [{ type: "text", text: "二" }] },
+      ],
+    };
+    const blocks = [paragraph("before", "前"), list];
+    expect(getManualBreakCaretSelection(createParagraphBoundaryState(blocks, "first_item", "start")))
+      .toEqual({ blockId: "list", offset: 0 });
+    expect(getManualBreakCaretSelection(createParagraphBoundaryState(blocks, "last_item", "end")))
+      .toEqual({ blockId: "list", offset: Number.MAX_SAFE_INTEGER });
+    expect(getManualBreakCaretSelection(createParagraphBoundaryState(blocks, "first_item", "end"))).toBeNull();
   });
 });
 

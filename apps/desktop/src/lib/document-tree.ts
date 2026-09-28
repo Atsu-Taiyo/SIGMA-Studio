@@ -33,6 +33,7 @@ import {
 import {
   getLayoutSectionColumns,
   getLayoutSectionColumnWidths,
+  isManualBreakAllowedAtBlock,
   setLayoutSectionColumns,
 } from "@/features/text-editing";
 
@@ -1322,7 +1323,11 @@ export function moveBlocksInDocument(
   return dropInvalidMovedBreaks(moved, extracted.map((block) => block.id));
 }
 
-/** 移動先で表示できない break-before だけを落とす。移動した subtree 内部の区切りは触らない。 */
+/**
+ * 移動先で効かない break-before だけを落とす。移動した subtree 内部の区切りは触らない。
+ * 区切りは箱・引用・問題の中でも効く (`isManualBreakAllowedAtBlock`)。効かないのは独立した
+ * 複数段の段組みの中 (箱内の段組みの改段を除く) と、段組みの先頭の子。
+ */
 function dropInvalidMovedBreaks(document: SigmaDocument, movedBlockIds: readonly string[]): SigmaDocument {
   let next = document;
   for (const blockId of movedBlockIds) {
@@ -1335,8 +1340,9 @@ function dropInvalidMovedBreaks(document: SigmaDocument, movedBlockIds: readonly
     const isFirstLayoutChild = layoutSection?.children[0]?.id === blockId;
     const isAllowedBoxColumnBreak = !!layoutSection
       && layoutSection.layout.columnCount > 1
-      && findContainingBoxBlock(next, layoutSection.id)?.id === containingBox?.id;
-    if (isFirstLayoutChild || (containingBox && !isAllowedBoxColumnBreak)) {
+      && !!containingBox
+      && findContainingBoxBlock(next, layoutSection.id)?.id === containingBox.id;
+    if (isFirstLayoutChild || !(isManualBreakAllowedAtBlock(next.content, blockId) || isAllowedBoxColumnBreak)) {
       next = updateBlockInDocument(next, blockId, (current) => {
         if (current.type === "listItem") {
           return current;

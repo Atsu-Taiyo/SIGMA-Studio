@@ -228,3 +228,49 @@ test("a manual break in a box-local layout becomes an inner column break in both
   expect(printColumns.parity_box_body_2 - printColumns.parity_box_body_1)
     .toBe(editorColumns.parity_box_body_2 - editorColumns.parity_box_body_1);
 });
+
+test("a manual break inside a quote continues the quote on the next page in both the editor and the PDF", async ({ page }) => {
+  test.setTimeout(90_000);
+  const document = documentWith([
+    { type: "paragraph", id: "parity_quote_before", children: [{ type: "text", text: "引用の前" }] },
+    { type: "quote", id: "parity_quote", blocks: paragraphs("parity_quote", 3, 2) },
+  ], 1);
+  // 区切りの後ろの子は、どちらの面でも「続きの複製」(断片の viewport) に描かれる。
+  const pagesOf = (sheetSelector: string) => page.evaluate((selector) => {
+    const sheets = Array.from(window.document.querySelectorAll<HTMLElement>(selector)).map((sheet) => sheet.getBoundingClientRect());
+    const pageOf = (element: Element | null) => {
+      if (!element) return -1;
+      const rect = element.getBoundingClientRect();
+      const center = rect.top + rect.height / 2;
+      return sheets.findIndex((sheet) => center >= sheet.top && center <= sheet.bottom);
+    };
+    return {
+      first: pageOf(window.document.querySelector('.page-flow [data-sigma-doc-id="parity_quote_1"]')),
+      continued: pageOf(window.document.querySelector('.editor-box-fragment-viewport [data-sigma-doc-id="parity_quote_2"]')),
+      last: pageOf(window.document.querySelector('.editor-box-fragment-viewport [data-sigma-doc-id="parity_quote_3"]')),
+    };
+  }, sheetSelector);
+
+  // 1 ページ目の引用の片の見えている下端が、区切りの前の最後の行からどれだけ下か。
+  const firstPieceTail = (scope: string) => page.evaluate((selector) => {
+    const quote = window.document.querySelector<HTMLElement>(`${selector} [data-sigma-doc-id="parity_quote"]`)!;
+    const last = window.document.querySelector<HTMLElement>(`${selector} [data-sigma-doc-id="parity_quote_1"]`)!;
+    const hidden = Number.parseFloat(getComputedStyle(quote).getPropertyValue("--text-flow-box-fragment-hidden-bottom")) || 0;
+    const scale = quote.getBoundingClientRect().height / quote.offsetHeight;
+    return quote.getBoundingClientRect().bottom - hidden * scale - last.getBoundingClientRect().bottom;
+  }, scope);
+
+  await openEditor(page, document);
+  const editorPages = await pagesOf(".page-backdrop .a4-page-sheet");
+  expect(editorPages.first).toBe(0);
+  expect(editorPages.continued).toBe(1);
+  expect(editorPages.last).toBe(1);
+  // 編集面は改ページの印を引用の中に描くので、片は印の下まで見える。
+  expect(await firstPieceTail(".page-flow")).toBeGreaterThan(30);
+
+  await openPrint(page, document);
+  const printPages = await pagesOf(".paged-surface-page");
+  expect(printPages).toEqual(editorPages);
+  // PDF は印を描かないので、印の場所を引用の縦線の中の空白として残さない。
+  expect(await firstPieceTail(".paged-surface-page")).toBeLessThan(16);
+});

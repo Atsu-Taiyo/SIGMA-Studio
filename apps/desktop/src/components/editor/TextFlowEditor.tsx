@@ -7,7 +7,7 @@ import { SessionPresenceExtension, sessionPresenceKey } from "@/components/tipta
 
 import { acknowledgeTextFlowContent, expectTextFlowContent } from "./text-flow/measurement-revision";
 import { getFragmentEditSession } from "./text-flow/fragment-edit-session";
-import { indexTextFlowBlocksById } from "@/features/text-editing";
+import { caretAddressAtBlockEdge, indexTextFlowBlocksById } from "@/features/text-editing";
 import  {
   BoxActionDialog,
   BoxActionDialogState,
@@ -188,9 +188,12 @@ import {
 } from "./text-flow/clipboard-transactions";
 import {
   deleteManualBreakSpanningSelection,
+  getManualBreakCaretSelection,
+  isCaretAtManualBreakBoundary,
   resolveManualBreakBoundaryNavigation,
   transferManualBreakToPastedBlocksAtOwnerStart,
   transferManualBreakToPastedSliceAtOwnerStart,
+  type ManualBreakSurfaceEdges,
 } from "./text-flow/manual-break-transactions";
 export {
   getTextBlockBoundaryInsertPosition,
@@ -220,6 +223,7 @@ import  {
   localClipboardPayloadMatchesPlainText,
   shouldUseLargeTextPaste,
 } from "./text-flow/large-text-paste";
+import { INSERT_MANUAL_BREAK_EVENT } from "./text-flow/manual-break-command";
 import { getActiveSlashCommandQuery, handleSlashCommandQueryKeyDown, insertSlashCommandFromQuery } from "./text-flow/slash-command-controller";
 import { filterSlashCommandCandidates, sameSlashCommandQuery, type ActiveSlashCommandQuery, type SlashCommandCandidate } from "./text-flow/slash-command-model";
 import  {
@@ -710,6 +714,9 @@ function TextFlowEditorImpl({
   paginationMarkerKind,
   paginationMarkerKinds,
   paginationMarkerLayouts,
+  leadingManualBreak = false,
+  trailingManualBreak = false,
+  onManualBreakCommand,
   columnFlowBlockLayouts,
   nodeDisplacements,
   boxFragmentSourceLayouts,
@@ -794,6 +801,14 @@ function TextFlowEditorImpl({
     onDocumentChange(ids, nextBlocks, activeId, context);
   }, [boxFragmentReplicaId, onDocumentChange]);
   const onChangeRef = useRef(onChange);
+  const manualBreakEdgesRef = useRef<ManualBreakSurfaceEdges>({ leading: leadingManualBreak, trailing: trailingManualBreak });
+  useLayoutEffect(() => {
+    manualBreakEdgesRef.current = { leading: leadingManualBreak, trailing: trailingManualBreak };
+  }, [leadingManualBreak, trailingManualBreak]);
+  const onManualBreakCommandRef = useRef(onManualBreakCommand);
+  useLayoutEffect(() => {
+    onManualBreakCommandRef.current = onManualBreakCommand;
+  }, [onManualBreakCommand]);
   const onBoundaryDeleteRef = useRef(onBoundaryDelete);
   const onMaterialInsertRef = useRef(onMaterialInsert);
   const onBoxCommandRef = useRef(onBoxCommand);
@@ -965,6 +980,9 @@ function TextFlowEditorImpl({
     ? codeBlockSettingsPopover
     : null;
   const slashCommandBlockIds = singleBlock ? EMPTY_BLOCK_COMMAND_IDS : slashCommandQuery?.availableBlockCommandIds ?? EMPTY_BLOCK_COMMAND_IDS;
+  const slashCommandPageBreakKind = !singleBlock && onManualBreakCommand && slashCommandQuery?.canInsertPageBreak
+    ? resolvedPaginationMarkerKind
+    : null;
   const slashCommandCandidates = useMemo(
     () => filterSlashCommandCandidates(
       materials,
@@ -975,8 +993,9 @@ function TextFlowEditorImpl({
       enableProblemCommands,
       slashCommandBlockIds,
       enableHeadingCommands,
+      slashCommandPageBreakKind,
     ),
-    [boxCommandStyleIds, enableBoxCommands, enableHeadingCommands, enableProblemCommands, materials, slashCommandBlockIds, slashCommandQuery?.canInsertBox, slashCommandQuery?.query, t],
+    [boxCommandStyleIds, enableBoxCommands, enableHeadingCommands, enableProblemCommands, materials, slashCommandBlockIds, slashCommandPageBreakKind, slashCommandQuery?.canInsertBox, slashCommandQuery?.query, t],
   );
   const slashCommandMaxIndex = Math.max(0, slashCommandCandidates.length - 1);
   const clampedSlashCommandActiveIndex = Math.min(slashCommandActiveIndex, slashCommandMaxIndex);
@@ -1256,6 +1275,7 @@ function TextFlowEditorImpl({
           tiptapEditorRef,
           onHeadingCommandRef,
           setSlashCommandQuery,
+          onManualBreakCommandRef,
         )) {
           return true;
         }
@@ -1263,6 +1283,25 @@ function TextFlowEditorImpl({
         if (singleBlock && event.key === "Enter") {
           event.preventDefault();
           return true;
+        }
+
+        // ⌘/Ctrl+Enter: キャレットの位置で改ページ (段組みのページでは改段)。Word と同じ手。
+        // コードブロックの中では「コードから抜ける」(body-block-extensions) に譲る。
+        if (
+          event.key === "Enter"
+          && (event.metaKey || event.ctrlKey)
+          && !event.shiftKey
+          && !event.altKey
+          && !event.isComposing
+          && onManualBreakCommandRef.current
+          && view.state.selection.$from.parent.type.name !== "codeBlock"
+        ) {
+          const manualBreakSelection = getManualBreakCaretSelection(view.state);
+          if (manualBreakSelection) {
+            event.preventDefault();
+            onManualBreakCommandRef.current(manualBreakSelection);
+            return true;
+          }
         }
 
         if (
@@ -1324,19 +1363,38 @@ function TextFlowEditorImpl({
           }
         }
 
-        const manualBreakNavigation = resolveManualBreakBoundaryNavigation(
-          view.state,
-          event.key === "Backspace" ? "backward" : event.key === "Delete" ? "forward" : null,
-          blocksRef.current,
-          event,
-        );
-        if (manualBreakNavigation) {
-          view.dispatch(
-            view.state.tr.setSelection(
-              TextSelection.create(view.state.doc, manualBreakNavigation.position),
-            ),
-          );
+        // 手動改ページ (改段) の隣での Backspace / Delete は、区切りを消さず・ブロックを結合せず・
+        // リストや引用を持ち上げず、区切りの向こう側へキャレットを動かすだけにする。行き先が別の面
+        // (前後のユニット・分割されたブロックの続き) ならルーターが見えている面へ届ける。
+        const manualBreakDirection = event.key === "Backspace" ? "backward" : event.key === "Delete" ? "forward" : null;
+        if (
+          manualBreakDirection
+          && !event.isComposing
+          && isCaretAtManualBreakBoundary(view.state, manualBreakDirection, blocksRef.current, manualBreakEdgesRef.current)
+        ) {
           event.preventDefault();
+          // 区切りの直後の空行での Backspace は、空行だけを消して区切りの前へ戻る (区切りは後ろの
+          // ブロックへ残す)。入れた直後に取り消したいときに、空のページが残り続けないように。
+          const emptyOwnerRequest = manualBreakDirection === "backward"
+            ? getEmptyManualBreakOwnerDeleteRequest(view.state, blocksRef.current)
+            : null;
+          if (emptyOwnerRequest && onBoundaryDeleteRef.current?.(emptyOwnerRequest)) {
+            return true;
+          }
+          if (!moveCaretHorizontally(view.dom, manualBreakDirection)) {
+            const manualBreakNavigation = resolveManualBreakBoundaryNavigation(
+              view.state,
+              manualBreakDirection,
+              blocksRef.current,
+            );
+            if (manualBreakNavigation) {
+              view.dispatch(
+                view.state.tr.setSelection(
+                  TextSelection.create(view.state.doc, manualBreakNavigation.position),
+                ).scrollIntoView(),
+              );
+            }
+          }
           return true;
         }
 
@@ -2420,8 +2478,22 @@ function TextFlowEditorImpl({
       }
 
       const currentBlocks = tiptapToTextFlow(editor.getJSON() as TiptapDoc, blocksRef.current);
-      const selection = getManualTextPageBreakSelection(editor, detail.blockId, currentBlocks);
+      const requestedSelection = detail.selection
+        && indexTextFlowBlocksById(currentBlocks).has(detail.selection.blockId)
+        ? detail.selection
+        : null;
+      if (detail.enabled && detail.selection && !requestedSelection) {
+        // キャレットのブロックはこの面の担当ではない。
+        return;
+      }
+      const selection = requestedSelection ?? getManualTextPageBreakSelection(editor, detail.blockId, currentBlocks);
       if (shouldUseDocumentNextBlockForPageBreak(currentBlocks, detail, selection)) {
+        return;
+      }
+      if (detail.enabled && selection && detail.canInsertAt && !detail.canInsertAt(selection)) {
+        // 区切りの前に本文が無い (空のページ・段ができる)。
+        detail.handled = true;
+        detail.rejected = true;
         return;
       }
       const result = resolveManualTextPageBreakBlocks(
@@ -2445,7 +2517,25 @@ function TextFlowEditorImpl({
         const ownedBlocks = result.blocks.filter((block) => previousIdsRef.current.includes(block.id));
         setTextFlowContentPreservingSelection(editor, ownedBlocks);
       }
-      onChange(previousIdsRef.current, result.blocks, result.focusBlockId);
+      // キャレットは区切りの後ろ (次のページの先頭) へ。そのブロックはこれから別のユニットに
+      // 移って描き直されるので、描き直しの後にルーターが配るよう変更と一緒に渡す。
+      const focusBlock = indexTextFlowBlocksById(result.blocks).get(result.focusBlockId);
+      const focusAddress = focusBlock ? caretAddressAtBlockEdge(focusBlock, result.focusPosition) : null;
+      if (focusAddress) {
+        detail.focusAddress = focusAddress;
+      }
+      onChange(
+        previousIdsRef.current,
+        result.blocks,
+        result.focusBlockId,
+        focusAddress
+          ? {
+              historyGroup: createId("manual_break"),
+              selection: { anchor: focusAddress, head: focusAddress, preferredX: null },
+              crossEditor: true,
+            }
+          : undefined,
+      );
     };
 
     window.addEventListener(REQUEST_TEXT_PAGE_BREAK_EVENT, requestTextPageBreak);
@@ -2490,6 +2580,26 @@ function TextFlowEditorImpl({
     window.addEventListener(INSERT_INLINE_MATH_EVENT, insertInlineMath);
     return () => window.removeEventListener(INSERT_INLINE_MATH_EVENT, insertInlineMath);
   }, [blocks, editor, formatTarget, selectedId]);
+
+  useEffect(() => {
+    if (!editor) {
+      return;
+    }
+    // コマンドパレット・再割り当てしたショートカットからの「ここで改ページ」。フォーカス中の
+    // 面だけが受ける (位置はその面のキャレット)。
+    const insertManualBreak = () => {
+      const onCommand = onManualBreakCommandRef.current;
+      if (!onCommand || editor.isDestroyed || !editor.isFocused) {
+        return;
+      }
+      const selection = getManualBreakCaretSelection(editor.state);
+      if (selection) {
+        onCommand(selection);
+      }
+    };
+    window.addEventListener(INSERT_MANUAL_BREAK_EVENT, insertManualBreak);
+    return () => window.removeEventListener(INSERT_MANUAL_BREAK_EVENT, insertManualBreak);
+  }, [editor]);
 
   useEffect(() => {
     if (!editor) {
@@ -2556,6 +2666,7 @@ function TextFlowEditorImpl({
       tiptapEditorRef,
       onHeadingCommandRef,
       setSlashCommandQuery,
+      onManualBreakCommandRef,
     );
   }, [editor, setSlashCommandQuery]);
 
@@ -4231,6 +4342,27 @@ function getClosestBoxActionButton(target: EventTarget | null): HTMLElement | nu
   }
 
   return target.closest<HTMLElement>(".sigma-doc-box-action-button[data-box-action-button='true']");
+}
+
+/** キャレットが「区切りを持つ最上位の空の段落・見出し」の中にあるときの境界削除の依頼。 */
+function getEmptyManualBreakOwnerDeleteRequest(
+  state: EditorState,
+  blocks: TextFlowBlock[],
+): TextFlowBoundaryDeleteRequest | null {
+  const { $from } = state.selection;
+  const parent = $from.parent;
+  if (
+    !state.selection.empty
+    || (parent.type.name !== "paragraph" && parent.type.name !== "heading")
+    || !isEmptyEditorTextBlock(parent)
+  ) {
+    return null;
+  }
+  const blockId = parent.attrs.sigmaDocId;
+  const block = typeof blockId === "string" ? blocks.find((candidate) => candidate.id === blockId) : undefined;
+  return block?.pagination?.break === true
+    ? { direction: "backward", blockId: block.id, emptyBlock: true }
+    : null;
 }
 
 function getBoundaryDeleteRequest(

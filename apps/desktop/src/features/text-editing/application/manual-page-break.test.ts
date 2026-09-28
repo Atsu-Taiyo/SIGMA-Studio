@@ -161,7 +161,7 @@ describe("manual page-break application model", () => {
     });
   });
 
-  it("defers only edge selections at the final chunk block", () => {
+  it("defers only the end of the final chunk block to the next unit", () => {
     const blocks = [paragraph("first", "abc")];
     const detail = {
       blockId: "first",
@@ -169,15 +169,51 @@ describe("manual page-break application model", () => {
       documentNextBlockId: "next-chunk",
     };
 
-    expect(shouldUseDocumentNextBlockForPageBreak(
-      blocks,
-      detail,
-      { blockId: "first", offset: 0 },
-    )).toBe(true);
-    expect(shouldUseDocumentNextBlockForPageBreak(
-      blocks,
-      detail,
-      { blockId: "first", offset: 2 },
-    )).toBe(false);
+    // 末尾で区切ると区切りは次のユニットの先頭が持つ。先頭・途中はこのブロックの中で済む。
+    expect(shouldUseDocumentNextBlockForPageBreak(blocks, detail, { blockId: "first", offset: 3 })).toBe(true);
+    expect(shouldUseDocumentNextBlockForPageBreak(blocks, detail, { blockId: "first", offset: 0 })).toBe(false);
+    expect(shouldUseDocumentNextBlockForPageBreak(blocks, detail, { blockId: "first", offset: 2 })).toBe(false);
+  });
+
+  it("breaks before the caret block at its start, like TeX's \\newpage at the caret", () => {
+    const result = resolveManualTextPageBreakBlocks(
+      [paragraph("first", "first"), paragraph("second", "second")],
+      "second",
+      true,
+      { blockId: "second", offset: 0 },
+    );
+    expect(result?.blocks.map((block) => [block.id, block.pagination?.break === true])).toEqual([
+      ["first", false],
+      ["second", true],
+    ]);
+    expect(result?.focusBlockId).toBe("second");
+  });
+
+  it("moves an empty caret line to the next page instead of leaving it behind", () => {
+    const result = resolveManualTextPageBreakBlocks(
+      [paragraph("body", "body"), paragraph("blank", "")],
+      "blank",
+      true,
+      { blockId: "blank", offset: 0 },
+    );
+    expect(result?.blocks).toHaveLength(2);
+    expect(result?.blocks[1]).toMatchObject({ id: "blank", pagination: { break: true } });
+  });
+
+  it("hoists a break at the start of a quote or box body to the container", () => {
+    const quote = { type: "quote" as const, id: "quote", blocks: [paragraph("q1", "one"), paragraph("q2", "two")] };
+    const atQuoteStart = resolveManualTextPageBreakBlocks([paragraph("before", "x"), quote], "q1", true, { blockId: "q1", offset: 0 });
+    expect(atQuoteStart?.blocks[1]).toMatchObject({ id: "quote", pagination: { break: true }, blocks: [{ id: "q1" }, { id: "q2" }] });
+    expect((atQuoteStart?.blocks[1] as typeof quote).blocks[0].pagination).toBeUndefined();
+
+    const inQuote = resolveManualTextPageBreakBlocks([paragraph("before", "x"), quote], "q2", true, { blockId: "q2", offset: 0 });
+    expect(inQuote?.blocks[1]).toMatchObject({ id: "quote", blocks: [{ id: "q1" }, { id: "q2", pagination: { break: true } }] });
+    expect(inQuote?.blocks[1].pagination).toBeUndefined();
+
+    const box: BoxBlockNode = { type: "boxBlock", id: "box", styleId: "fancybox", blocks: [paragraph("b1", "one"), paragraph("b2", "two")] };
+    const inBox = resolveManualTextPageBreakBlocks([paragraph("before", "x"), box], "b2", true, { blockId: "b2", offset: 1 }, { createId: deterministicIdFactory() });
+    expect(inBox?.blocks[1]).toMatchObject({ id: "box", blocks: [
+      { id: "b1" }, paragraph("b2", "t"), { ...paragraph("p_generated_1", "wo"), pagination: { break: true } },
+    ] });
   });
 });
