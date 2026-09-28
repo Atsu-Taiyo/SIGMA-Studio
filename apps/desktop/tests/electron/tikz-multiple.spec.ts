@@ -92,8 +92,20 @@ ${last}
     await page.reload();
     await expect(images).toHaveCount(2);
     await expect(page.locator(`.page-flow [data-sigma-doc-id="${failedBlockId}"]`).first()).toBeVisible();
+    // Fonts and anchor placement can still move the preview after reload.
+    // A raw coordinate click must use the settled visual position.
+    await page.evaluate(() => document.fonts.ready);
     const target = images.first();
     await target.scrollIntoViewIfNeeded();
+    let previous = "";
+    let stable = 0;
+    await expect.poll(async () => {
+      const rect = await target.boundingBox();
+      const signature = JSON.stringify(rect);
+      stable = rect && signature === previous ? stable + 1 : 0;
+      previous = signature;
+      return stable;
+    }).toBeGreaterThanOrEqual(3);
     const box = (await target.boundingBox())!;
     await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
     await expect(page.getByRole("textbox", { name: "コード", exact: true })).toHaveValue(first);
