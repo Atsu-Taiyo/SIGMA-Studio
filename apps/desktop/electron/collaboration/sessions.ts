@@ -531,7 +531,10 @@ export class CollaborationSessions {
       entry.staged = false;
     }
     await this.saveRegistry();
-    for (const fileId of fileIds) await this.flush(fileId, true);
+    // Each file syncs independently (flush dedupes per file); overlap a few at a time
+    // instead of paying one upload round trip per document in sequence.
+    for (let offset = 0; offset < fileIds.length; offset += 4)
+      await Promise.all(fileIds.slice(offset, offset + 4).map(fileId => this.flush(fileId, true)));
   }
   previewVersion(fileId: string): string | undefined {
     const session = this.sessions.get(fileId);
