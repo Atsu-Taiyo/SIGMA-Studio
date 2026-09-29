@@ -52,7 +52,7 @@ describe("ai-model-catalog", () => {
   it("falls back to built-in candidates when a runtime cannot return a catalog", () => {
     expect(resolveAiModelOptions("chatgpt", null).length).toBeGreaterThan(0);
     expect(resolveAiModelOptions("claude", { models: [] }).length).toBeGreaterThan(0);
-    expect(resolveAiModelOptions("antigravity", undefined).length).toBeGreaterThan(0);
+    expect(resolveAiModelOptions("antigravity", undefined).map((model) => model.id)).toEqual(["auto"]);
   });
 
   it("offers effort choices for Claude/Sonnet but not Antigravity models", () => {

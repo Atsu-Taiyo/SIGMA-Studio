@@ -115,6 +115,7 @@ export const ai = {
       xhigh: "Very high",
       max: "Maximum",
     },
+    runtimeDefault: "Automatic (available model)",
     effortUnset: "Not set",
   },
   change: {
