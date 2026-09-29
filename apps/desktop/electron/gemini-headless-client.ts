@@ -78,7 +78,7 @@ export interface GeminiHeadlessClientOptions {
 const EXIT_AUTH_ERROR = 41;
 const EXIT_INPUT_ERROR = 42;
 
-const DEFAULT_MODEL = "Gemini 3.5 Flash (High)";
+const DEFAULT_MODEL = "auto";
 const DEFAULT_TURN_TIMEOUT_MS = 1000 * 60 * 8;
 const AVAILABILITY_CACHE_MS = 10_000;
 const DEFAULT_AVAILABILITY_PROBE_TIMEOUT_MS = 3000;
@@ -306,12 +306,17 @@ export class GeminiHeadlessClient {
         }
       }));
     });
-    const models = [...new Set(output.split(/\r?\n/).map((line) => line.trim()).filter(Boolean))];
+    // agy models emits tab-separated IDs and display names in current versions.
+    // --model accepts the display name; older versions emitted only that name.
+    const models = [...new Set(output.split(/\r?\n/).map((line) => {
+      const columns = line.trim().split("\t");
+      return (columns.length > 1 ? columns[1] : columns[0]).trim();
+    }).filter((line) => line && !/^Fetching available models\.{0,3}$/i.test(line)))];
     return {
-      models: models.map((model) => ({
+      models: models.map((model, index) => ({
         id: model,
         label: model,
-        ...(model === this.defaultModel ? { isDefault: true } : {}),
+        ...((models.includes(this.defaultModel) ? model === this.defaultModel : index === 0) ? { isDefault: true } : {}),
       })),
     };
   }
@@ -324,7 +329,16 @@ export class GeminiHeadlessClient {
       throw new Error(this.lastError ?? te("electron.antigravity.commandNotFound"));
     }
 
-    const model = params.model?.trim() || this.defaultModel;
+    const requestedModel = params.model?.trim() || this.defaultModel;
+    // Refresh for every turn so saved rooms also follow catalog changes.
+    // On catalog failure, let the CLI handle its default/custom model and auth.
+    const { models } = await this.listModels().catch(() => ({ models: [] }));
+    const family = (name: string) => name.replace(/\d+(?:[.-]\d+)*/g, "#");
+    const model = models.find((option) => option.id === requestedModel)?.id
+      ?? models.find((option) => family(option.id) === family(requestedModel))?.id
+      ?? models.find((option) => option.isDefault)?.id
+      ?? models[0]?.id
+      ?? (requestedModel === "auto" ? "" : requestedModel);
     // F3 (実機確認): printモードのstdoutには会話ID(conversation)を含むJSONイベントが流れないため、
     // `--log-file` で指定したログファイルに書かれる行から回収する (resume用のsessionIdとして使う)。
     // このturn専用のファイルにする (runId、無ければ時刻) ことで並行run同士のログが混ざらない。
@@ -602,8 +616,7 @@ export class GeminiHeadlessClient {
       `--print=${instruction}`,
       "--print-timeout",
       `${Math.max(1, Math.ceil(this.turnTimeoutMs / 60_000))}m`,
-      "--model",
-      model,
+      ...(model ? ["--model", model] : []),
     ];
     if (resumeSessionId) {
       args.push("--conversation", resumeSessionId);

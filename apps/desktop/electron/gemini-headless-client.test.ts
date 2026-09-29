@@ -40,6 +40,8 @@ afterEach(() => {
 function createClient(options: {
   binSource?: string;
   writeCreds?: boolean;
+  modelListFails?: boolean;
+  defaultModel?: string;
   turnTimeoutMs?: number;
   cancelGraceMs?: number;
 } = {}): ClientFixture {
@@ -49,7 +51,12 @@ function createClient(options: {
   const workspaceDir = path.join(dir, "workspace");
   const credsFilePath = path.join(dir, "gemini-home", "oauth_creds.json");
   mkdirSync(workspaceDir, { recursive: true });
-  writeFileSync(fakeGeminiBin, options.binSource ?? FAKE_GEMINI_BIN, "utf8");
+  const source = options.binSource ?? FAKE_GEMINI_BIN;
+  const modelAwareSource = options.modelListFails || source.includes('includes("models")') ? source : source.replace(
+    /^(#![^\n]*\n)/,
+    '$1if (process.argv.includes("models")) { console.log("Gemini 3.5 Flash (High)"); process.exit(0); }\n',
+  );
+  writeFileSync(fakeGeminiBin, modelAwareSource, "utf8");
   chmodSync(fakeGeminiBin, 0o755);
   if (options.writeCreds !== false) {
     mkdirSync(path.dirname(credsFilePath), { recursive: true });
@@ -64,7 +71,7 @@ function createClient(options: {
     client: new GeminiHeadlessClient({
       workspaceDir,
       geminiBin: fakeGeminiBin,
-      defaultModel: "Gemini 3.5 Flash (High)",
+      defaultModel: options.defaultModel ?? "Gemini 3.5 Flash (High)",
       credsFilePath,
       turnTimeoutMs: options.turnTimeoutMs,
       availabilityProbeTimeoutMs: 10_000,
@@ -197,6 +204,43 @@ describe("GeminiHeadlessClient", () => {
     }]);
   });
 
+  it("parses current tab-separated models and migrates a retired Flash selection", async () => {
+    const { client, dir } = createClient({
+      binSource: FAKE_GEMINI_BIN.replace(
+        'console.log("Gemini 3.5 Flash (High)");',
+        'console.log("Fetching available models...\\ngemini-3.8-flash-high\\tGemini 3.8 Flash (High)\\ngemini-3.8-flash-low\\tGemini 3.8 Flash (Low)");',
+      ),
+    });
+    expect((await client.listModels()).models.map((model) => model.id)).toEqual([
+      "Gemini 3.8 Flash (High)", "Gemini 3.8 Flash (Low)",
+    ]);
+    await client.runTurn({ instruction: "hello", model: "Gemini 3.5 Flash (Low)" });
+    const { argv } = readFakeCapture(dir);
+    expect(argv[argv.indexOf("--model") + 1]).toBe("Gemini 3.8 Flash (Low)");
+  });
+
+  it("resolves automatic and retired selections again after the CLI catalog changes", async () => {
+    const { client, dir, fakeGeminiBin } = createClient({ defaultModel: "auto" });
+    const advertise = (model: string) => writeFileSync(fakeGeminiBin, FAKE_GEMINI_BIN.replace(
+      'console.log("Gemini 3.5 Flash (High)");', `console.log(${JSON.stringify(model)});`,
+    ));
+    advertise("Future Model A");
+    await client.runTurn({ instruction: "hello" });
+    let argv = readFakeCapture(dir).argv;
+    expect(argv[argv.indexOf("--model") + 1]).toBe("Future Model A");
+    advertise("Future Model B");
+    await client.runTurn({ instruction: "hello again", model: "Future Model A" });
+    argv = readFakeCapture(dir).argv;
+    expect(argv[argv.indexOf("--model") + 1]).toBe("Future Model B");
+  });
+
+  it("omits --model when automatic selection has no catalog", async () => {
+    const { client, dir } = createClient({ defaultModel: "auto" });
+    vi.spyOn(client, "listModels").mockRejectedValue(new Error("offline"));
+    await client.runTurn({ instruction: "hello" });
+    expect(readFakeCapture(dir).argv).not.toContain("--model");
+  });
+
   it("ignores a configured legacy gemini CLI binary path", () => {
     const dir = mkdtempSync(path.join(tmpdir(), "fake-gemini-headless-"));
     tempDirs.push(dir);
@@ -235,7 +279,7 @@ describe("GeminiHeadlessClient", () => {
   });
 
   it("getStatus reports loggedIn:false when agy cannot list models", async () => {
-    const { client } = createClient({ writeCreds: false, binSource: AUTH_ERROR_BIN });
+    const { client } = createClient({ writeCreds: false, modelListFails: true, binSource: AUTH_ERROR_BIN });
 
     const status = await client.getStatus();
 
@@ -323,7 +367,7 @@ describe("GeminiHeadlessClient", () => {
   it("spawns agy with the instruction as the print value, flags, and the requested cwd", async () => {
     const { client, dir, workspaceDir } = createClient();
 
-    await client.runTurn({ instruction: "hello", model: "Gemini 3.5 Flash (Low)" });
+    await client.runTurn({ instruction: "hello", model: "Gemini 3.5 Flash (High)" });
     const capture = readFakeCapture(dir);
 
     expect(capture.argv[0]).toBe("--print=hello");
@@ -331,7 +375,7 @@ describe("GeminiHeadlessClient", () => {
       "--print-timeout",
       "8m",
       "--model",
-      "Gemini 3.5 Flash (Low)",
+      "Gemini 3.5 Flash (High)",
     ]);
     const logFileIndex = capture.argv.indexOf("--log-file");
     expect(logFileIndex).toBeGreaterThanOrEqual(0);
@@ -347,7 +391,7 @@ describe("GeminiHeadlessClient", () => {
     const { client, dir } = createClient();
     const instruction = 'say "hi" & echo %PATH% | cat ^ (x) !';
 
-    await client.runTurn({ instruction, model: "Gemini 3.5 Flash (Low)" });
+    await client.runTurn({ instruction, model: "Gemini 3.5 Flash (High)" });
 
     expect(readFakeCapture(dir).argv[0]).toBe(`--print=${instruction}`);
   });
@@ -357,7 +401,7 @@ describe("GeminiHeadlessClient", () => {
     const { client, dir } = createClient();
     const instruction = "line1\nline2\nline3";
 
-    await client.runTurn({ instruction, model: "Gemini 3.5 Flash (Low)" });
+    await client.runTurn({ instruction, model: "Gemini 3.5 Flash (High)" });
 
     expect(readFakeCapture(dir).argv[0]).toBe(`--print=${instruction}`);
   });
@@ -379,7 +423,7 @@ describe("GeminiHeadlessClient", () => {
     const { client, dir } = createClient();
     const dangerousInstruction = 'line one\nline two "quoted" \'quoted\' & echo injected | rm -rf / < in > out';
 
-    await client.runTurn({ instruction: dangerousInstruction, model: "Gemini 3.5 Flash (Low)" });
+    await client.runTurn({ instruction: dangerousInstruction, model: "Gemini 3.5 Flash (High)" });
     const capture = readFakeCapture(dir);
 
     expect(capture.stdin).toBe("");
@@ -531,7 +575,7 @@ describe("GeminiHeadlessClient", () => {
     // completed turn, but the UI gates turns on loggedIn -> permanent logged-out
     // deadlock until app restart. getStatus() must self-heal once it observes that
     // the creds file was (re)written after the authError was recorded.
-    const fixture = createClient({ writeCreds: false, binSource: AUTH_ERROR_BIN });
+    const fixture = createClient({ writeCreds: false, modelListFails: true, binSource: AUTH_ERROR_BIN });
 
     await fixture.client.runTurn({ instruction: "hi" });
     const loggedOut = await fixture.client.getStatus();
