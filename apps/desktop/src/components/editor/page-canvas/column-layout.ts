@@ -1,13 +1,9 @@
 import {
-  type MeasuredBlock,
-} from "@/components/editor/overlay-canvas/anchor";
-import {
   roundTextFlowColumnBlockLayout,
   type TextFlowColumnBlockLayout,
 } from "@/features/rendering/core";
-import { collectBlocksById } from "@/lib/document-tree";
+import { findManualBreakOwnerForBlock } from "@/features/text-editing";
 import {
-  type PageMetrics,
   type BoxBlockChildBlock,
   type LayoutSectionChildBlock,
   type LayoutSectionNode,
@@ -15,34 +11,15 @@ import {
   type SigmaBlock,
 } from "@/features/document";
 import { hasBreakBefore, PROBLEM_AREA_ORDER } from "./block-ops";
-import {
-  getFirstUnitBlock,
-  getLayoutSectionColumnCount,
-} from "./render-units";
-import type {
-  FlowUnitLayout,
-  ProblemAreaColumnLayout,
-  RenderUnit,
-} from "./types";
+import { getLayoutSectionColumnCount } from "./render-units";
+import type { ProblemAreaColumnLayout } from "./types";
 
 
 
 interface ColumnBreakContextMenuLookup {
   blockId: string;
   blocks: SigmaBlock[];
-  /**
-   * **実際に描画しているユニット**。ここで組み直してはいけない — チャンク境界は前回の描画から
-   * 引き継ぐ (`text-run-chunking.ts`) ので、blocks だけから作り直すと id が実描画とずれ、
-   * `unitLayouts` が引けずにメニューが無言で出なくなる。
-   */
-  units: readonly RenderUnit[];
-  isColumnFlow: boolean;
-  metrics: PageMetrics;
   pageStridePx: number;
-  blockRects?: ReadonlyMap<string, MeasuredBlock>;
-  paginationMarkerLayouts: Record<string, FlowUnitLayout>;
-  textFlowBlockLayouts: Record<string, TextFlowColumnBlockLayout>;
-  unitLayouts: Record<string, FlowUnitLayout>;
   problemAreaColumnLayouts: Record<string, ProblemAreaColumnLayout>;
   localColumnContextMenuLayout?: LocalColumnContextMenuLayout | null;
 }
@@ -55,14 +32,7 @@ export interface LocalColumnContextMenuLayout {
 export function getColumnBreakBeforeBlockIdForContextMenu({
   blockId,
   blocks,
-  units,
-  isColumnFlow,
-  metrics,
   pageStridePx,
-  blockRects = new Map(),
-  paginationMarkerLayouts,
-  textFlowBlockLayouts,
-  unitLayouts,
   problemAreaColumnLayouts,
   localColumnContextMenuLayout,
 }: ColumnBreakContextMenuLookup): string | null {
@@ -85,81 +55,10 @@ export function getColumnBreakBeforeBlockIdForContextMenu({
       : null;
   }
 
-  const clickedBlock = collectBlocksById(blocks).get(blockId);
-  if (clickedBlock && clickedBlock.type !== "listItem" && hasBreakBefore(clickedBlock)) {
-    return blockId;
-  }
-
-  // A box continuation has no top-level unit for each descendant. Resolve its explicit
-  // boundary within the clicked box so its body can remove the same break as the box itself.
-  const nestedBreak = getNestedBoxBreakBeforeId(blocks, blockId);
-  if (nestedBreak) return nestedBreak;
-
-  if (!isColumnFlow) {
-    return getSingleColumnPageBreakBeforeBlockId({
-      blockId,
-      blocks,
-      blockRects,
-      pageStridePx,
-      metrics,
-    });
-  }
-
-  const unit = units.find((candidate) => {
-    if (candidate.type === "textFlow" || candidate.type === "problemArea") {
-      return candidate.blocks.some((block) => block.id === blockId);
-    }
-    return getFirstUnitBlock(candidate).id === blockId;
-  });
-  if (!unit) {
-    return null;
-  }
-
-  const clickedLayout = getAbsoluteBlockColumnLayout(blockId, unit, unitLayouts, textFlowBlockLayouts);
-  if (!clickedLayout) {
-    return null;
-  }
-
-  const clickedColumn = getPageColumnKey(clickedLayout, metrics, pageStridePx);
-  for (const [candidateId, markerLayout] of Object.entries(paginationMarkerLayouts)) {
-    if (samePageColumn(clickedColumn, getPageColumnKey(markerLayout, metrics, pageStridePx))) {
-      return candidateId;
-    }
-  }
-
-  return null;
-}
-
-function getNestedBoxBreakBeforeId(blocks: readonly SigmaBlock[], blockId: string): string | null {
-  const visit = (
-    children: readonly SigmaBlock[],
-    insideBox: boolean,
-    inheritedBoundary: string | null,
-    ancestorBoundary: string | null,
-  ): string | null | undefined => {
-    let siblingBoundary = inheritedBoundary;
-    for (const child of children) {
-      const hasBreak = hasBreakBefore(child);
-      const boundary = hasBreak ? child.id : siblingBoundary;
-      const ownBoundary = hasBreak ? child.id : ancestorBoundary;
-      if (child.id === blockId) return insideBox ? (child.type === "boxBlock" ? ownBoundary : boundary) : null;
-      const groups = child.type === "boxBlock" || child.type === "quote" ? [child.blocks]
-        : child.type === "problem" ? PROBLEM_AREA_ORDER.map(area => child[area])
-          : child.type === "layoutSection" && child.layout.columnCount <= 1 ? [child.children] : [];
-      for (const group of groups) {
-        // A box owns a separate break scope. Its body can inherit a break on the box
-        // or an ancestor, but not a break on a preceding sibling box or paragraph.
-        const inheritedBoundary = child.type === "boxBlock"
-          ? ownBoundary
-          : boundary;
-        const result = visit(group, insideBox || child.type === "boxBlock", inheritedBoundary, ownBoundary);
-        if (result !== undefined) return result;
-      }
-      if (child.type !== "boxBlock") siblingBoundary = boundary;
-    }
-    return undefined;
-  };
-  return visit(blocks, false, null, null) ?? null;
+  // 解除できるのは、そのブロック自身・それを囲む入れ物・すぐ後ろの区切りだけ。以前は「右クリック
+  // したページ (段) を終わらせる区切り」を探していたので、ページの途中の無関係な段落にまで
+  // 「改ページを挿入」と「改ページを解除」が同時に出ていた。
+  return findManualBreakOwnerForBlock(blocks, blockId);
 }
 
 export function measureLocalColumnContextMenuLayout(
@@ -222,73 +121,6 @@ export function measureLocalColumnContextMenuLayout(
       columnGapPx,
     },
   };
-}
-
-/**
- * 右クリックしたブロックの領域 (ページ / 段) を終わらせている手動改ページ (改段) の持ち主。
- * 次の領域の先頭にある、手動改ページ付きのブロックのうち最も上のもの。
- */
-function getSingleColumnPageBreakBeforeBlockId({
-  blockId,
-  blocks,
-  blockRects,
-  pageStridePx,
-  metrics,
-}: {
-  blockId: string;
-  blocks: SigmaBlock[];
-  blockRects: ReadonlyMap<string, MeasuredBlock>;
-  pageStridePx: number;
-  metrics: PageMetrics;
-}): string | null {
-  const clicked = blockRects.get(blockId);
-  if (!clicked) {
-    return null;
-  }
-
-  const columnCount = Math.max(1, metrics.flow.columnCount);
-  const columnStep = metrics.flow.columnWidthPx + metrics.flow.columnGapPx;
-  const regionOf = (block: MeasuredBlock) => {
-    const pageIndex = getPageIndexForMeasuredTop(block.top, pageStridePx);
-    const columnIndex = columnCount > 1 && columnStep > 0
-      ? Math.max(0, Math.min(columnCount - 1, Math.round(((block.left ?? metrics.margins.leftPx) - metrics.margins.leftPx) / columnStep)))
-      : 0;
-    return pageIndex * columnCount + columnIndex;
-  };
-  const clickedRegion = regionOf(clicked);
-  const blocksById = collectBlocksById(blocks);
-  let nearest: MeasuredBlock | null = null;
-
-  for (const [candidateId, candidate] of blocksById) {
-    if (candidate.type === "listItem" || !hasBreakBefore(candidate)) {
-      continue;
-    }
-
-    // A break inside a multi-column layout section belongs to that local
-    // column flow and is resolved above from its rendered block/marker column.
-    const section = findContainingLayoutSectionInBlocks(blocks, candidateId);
-    if (section && getLayoutSectionColumnCount(section) > 1) {
-      continue;
-    }
-
-    const measured = blockRects.get(candidateId);
-    if (
-      !measured
-      || regionOf(measured) !== clickedRegion + 1
-    ) {
-      continue;
-    }
-
-    if (!nearest || measured.top < nearest.top) {
-      nearest = measured;
-    }
-  }
-
-  return nearest?.id ?? null;
-}
-
-function getPageIndexForMeasuredTop(top: number, pageStridePx: number): number {
-  return Math.max(0, Math.floor(Math.max(0, top) / Math.max(1, pageStridePx)));
 }
 
 function getLocalColumnBreakBeforeBlockId({
@@ -362,29 +194,6 @@ function getFollowingManualBreakBeforeBlockId(
   return null;
 }
 
-function getAbsoluteBlockColumnLayout(
-  blockId: string,
-  unit: RenderUnit,
-  unitLayouts: Record<string, FlowUnitLayout>,
-  textFlowBlockLayouts: Record<string, TextFlowColumnBlockLayout>,
-): FlowUnitLayout | null {
-  const unitLayout = unitLayouts[unit.id];
-  if (!unitLayout) {
-    return null;
-  }
-  if (unit.type === "textFlow" || unit.type === "problemArea") {
-    const blockLayout = textFlowBlockLayouts[blockId];
-    return blockLayout
-      ? {
-          x: unitLayout.x + blockLayout.x,
-          y: unitLayout.y + blockLayout.y,
-          width: blockLayout.width,
-        }
-      : null;
-  }
-  return getFirstUnitBlock(unit).id === blockId ? unitLayout : null;
-}
-
 function findContainingLayoutSectionInBlocks(blocks: SigmaBlock[], blockId: string): LayoutSectionNode | null {
   for (const block of blocks) {
     const section = findContainingLayoutSectionInBlock(block, blockId);
@@ -439,16 +248,6 @@ function findContainingLayoutSectionInBlock(
 interface PageColumnKey {
   pageIndex: number;
   columnIndex: number;
-}
-
-function getPageColumnKey(layout: Pick<FlowUnitLayout, "x" | "y">, metrics: PageMetrics, pageStridePx: number): PageColumnKey {
-  const columnStep = metrics.flow.columnWidthPx + metrics.flow.columnGapPx;
-  return {
-    pageIndex: Math.max(0, Math.floor(Math.max(0, layout.y) / Math.max(1, pageStridePx))),
-    columnIndex: columnStep > 0
-      ? Math.max(0, Math.round((layout.x - metrics.margins.leftPx) / columnStep))
-      : 0,
-  };
 }
 
 function getLocalColumnKey(

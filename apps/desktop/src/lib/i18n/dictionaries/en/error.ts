@@ -5,7 +5,6 @@ import type { TranslationsOf } from "../types";
 export const schemaRecovery = {
     whiteboardContent: "Documents in infinite-canvas (whiteboard) mode cannot contain body blocks",
     whiteboardAnchor: "Whiteboard shapes must use absolute coordinates instead of being anchored to body content or a page",
-    boxBreakSchema: "A page break cannot be placed directly under a boxBlock. Use a column break in a multi-column layoutSection inside the box.",
     disallowedKeys: "Disallowed keys: {{keys}}",
     requiredStructure: "Could not read the required SigmaDoc structure{{location}}: {{detail}}",
     invalidFormat: "The format is invalid",
@@ -22,8 +21,6 @@ export const schemaRecovery = {
       overlayLayer: "Loaded an empty shape layer because its format is invalid.",
     },
     validation: {
-      boxDirectBreak: "Block {{blockId}} directly under box {{boxId}} cannot have a page break. Use a column break in a multi-column section inside the box.",
-      boxSingleColumnBreak: "Single-column section {{sectionId}} in box {{boxId}} cannot have a page break.",
       emptyCommentReply: "Reply {{messageId}} in comment {{threadId}} has no body.",
       duplicateId: "ID {{id}} is duplicated.",
       missingNodeId: "The {{type}} node has no ID.",

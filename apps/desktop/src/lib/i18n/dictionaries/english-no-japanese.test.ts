@@ -27,6 +27,8 @@ const INTENTIONAL_JAPANESE = new Set([
   "editor.slash.block.codeBlock.aliases",
   "editor.slash.block.divider.aliases",
   "editor.slash.problem.aliases",
+  "editor.slash.pageBreak.aliases",
+  "editor.slash.columnBreak.aliases",
 ]);
 
 describe("English dictionaries", () => {

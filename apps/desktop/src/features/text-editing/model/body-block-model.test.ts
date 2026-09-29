@@ -455,3 +455,16 @@ describe("setBlockSpaceAfter", () => {
     expect(result).toEqual({ ...block, spaceAfterPx: 24 });
   });
 });
+
+describe("bodyTextFlowBlockContainsId", () => {
+  it("looks inside quotes and nested problems as well as boxes, sections and lists", () => {
+    const quote = { type: "quote" as const, id: "quote", blocks: [paragraph("quoted")] };
+    const problem = {
+      type: "problem" as const, id: "problem", tags: [], lead: [], hints: [], solution: [],
+      prompt: [paragraph("prompt")],
+    };
+    expect(bodyTextFlowBlockContainsId(quote as never, "quoted")).toBe(true);
+    expect(bodyTextFlowBlockContainsId(box("box", [problem as never]) as never, "prompt")).toBe(true);
+    expect(bodyTextFlowBlockContainsId(quote as never, "elsewhere")).toBe(false);
+  });
+});

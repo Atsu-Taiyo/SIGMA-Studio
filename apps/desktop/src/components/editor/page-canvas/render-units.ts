@@ -134,6 +134,43 @@ export function buildRenderUnits(
   return units;
 }
 
+/** ユニットの編集面の前後に手動改ページ (改段) があるか。 */
+export interface RenderUnitManualBreakEdges {
+  /** このユニットの最初の行の前で区切る (ユニットの外の持ち主を含む: 問題・段組みの区切り)。 */
+  leading: boolean;
+  /** 次のユニットの前で区切る。 */
+  trailing: boolean;
+}
+
+function renderUnitStartsWithManualBreak(unit: RenderUnit): boolean {
+  if (unit.type === "block") return hasBreakBefore(unit.block);
+  if (unit.type === "layoutSection") return hasBreakBefore(unit.section);
+  const firstBlock = unit.blocks[0];
+  if (unit.type === "textFlow") return !!firstBlock && hasBreakBefore(firstBlock);
+  const problemBreak = unit.isFirstProblemArea && unit.isFirstProblemAreaUnit && hasBreakBefore(unit.problem);
+  if (unit.type === "problemLayoutSection") return problemBreak || hasBreakBefore(unit.section);
+  return problemBreak || (!!firstBlock && hasBreakBefore(firstBlock));
+}
+
+/**
+ * ユニットごとの「前後に区切りがあるか」。区切りを持つブロックが編集面の外にある (問題そのもの・
+ * 段組み・次のユニット) とき、編集面は自分の doc だけでは区切りの隣にいると分からないので、
+ * Backspace / Delete が区切りを越えるときの判定に渡す。
+ */
+export function getRenderUnitManualBreakEdges(
+  units: readonly RenderUnit[],
+): Map<string, RenderUnitManualBreakEdges> {
+  const edges = new Map<string, RenderUnitManualBreakEdges>();
+  units.forEach((unit, index) => {
+    const next = units[index + 1];
+    edges.set(unit.id, {
+      leading: renderUnitStartsWithManualBreak(unit),
+      trailing: !!next && renderUnitStartsWithManualBreak(next),
+    });
+  });
+  return edges;
+}
+
 function pickHeadingNumbers(
   blocks: readonly { id: string }[],
   numbers: ReadonlyMap<string, string>,

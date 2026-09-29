@@ -2,6 +2,7 @@ import type {
   ProbeChromeBox,
   ProbeColumn,
   ProbeInk,
+  ProbeInnerBreak,
   ProbeNode,
   ProbeRect,
   ProbeTree,
@@ -45,6 +46,8 @@ const INLINE_ATOM_SELECTOR = ".inline-math-node, .boxed-run-frame, .math-preview
 const OBJECT_TAGS = new Set(["HR", "IMG", "SVG", "CANVAS", "VIDEO", "IFRAME", "OBJECT", "EMBED"]);
 /** 上下に見える縁を持つ入れ物。 */
 const CHROME_SELECTOR = ".sigma-doc-box-block, pre";
+/** 中に本文ブロックを持たない最上位ブロック。入れ子の手動改ページを探さない。 */
+const TEXT_LEAF_TAGS = new Set(["P", "H1", "H2", "H3", "H4", "H5", "H6", "PRE", "HR"]);
 
 interface NodeCacheEntry {
   element: HTMLElement;
@@ -69,6 +72,11 @@ export interface FlowProbeOptions {
   zoomFactor: number;
   /** 手動改ページを持つブロック id。紙面の印ではなく文書から渡す (PDF 面には印が無い)。 */
   breakIds: ReadonlySet<string>;
+  /**
+   * 子孫に手動改ページを持つブロック id (`collectManualBreakHostIds`)。渡すと、この中の最上位
+   * ブロックだけで入れ子の区切りを探す。渡さなければ中身を持つすべての最上位ブロックで探す。
+   */
+  breakHostIds?: ReadonlySet<string>;
   cache?: FlowProbeCache;
   /** フォントの差し替えなど、見た目の寸法が変わりうる合図。変われば行の計測を捨てる。 */
   cacheEpoch?: number;
@@ -130,9 +138,10 @@ export function probeFlow(flow: HTMLElement, options: FlowProbeOptions): ProbeTr
       chromeRelative = measured.chrome;
       cache?.nodes.set(id, { element, revision, width: rect.width, height, ink: inkRelative, chrome: chromeRelative });
     }
-    const innerBreaks = element.getAttribute("data-sigma-doc-type") === "boxBlock"
-      ? measureInnerBreaks(element, options.breakIds, (clientY) => toY(clientY, acc))
-      : [];
+    const innerBreaks = TEXT_LEAF_TAGS.has(element.tagName.toUpperCase())
+      || (options.breakHostIds !== undefined && !options.breakHostIds.has(id))
+      ? []
+      : measureInnerBreaks(element, options.breakIds, (clientY) => toY(clientY, acc));
     return {
       id,
       rect,
@@ -246,24 +255,31 @@ export function probeFlow(flow: HTMLElement, options: FlowProbeOptions): ProbeTr
 }
 
 /**
- * 箱の中の子に保存された手動改ページの位置。複数段の段組みの中の改ページは、その段組み
- * 自身の改段なので外側の改ページには使わない。
+ * 最上位ブロックの中 (引用・箱・入れ子の問題など) の子に保存された手動改ページの位置。
+ * 複数段の段組みの中の改ページは、その段組み自身の改段なので外側の改ページには使わない。
  */
 function measureInnerBreaks(
   element: HTMLElement,
   breakIds: ReadonlySet<string>,
   toY: (clientY: number) => number,
-): number[] {
+): ProbeInnerBreak[] {
   if (breakIds.size === 0) return [];
-  const positions: number[] = [];
+  // 子の前の改ページの印 (編集面では見え、PDF 面では場所だけ残る)。
+  const markerTops = new Map<string, number>();
+  element.querySelectorAll<HTMLElement>(".page-break-marker[data-page-break-block-id]").forEach((marker) => {
+    const id = marker.getAttribute("data-page-break-block-id");
+    if (id && !markerTops.has(id)) markerTops.set(id, toY(marker.getBoundingClientRect().top));
+  });
+  const breaks: ProbeInnerBreak[] = [];
   element.querySelectorAll<HTMLElement>("[data-sigma-doc-id]").forEach((child) => {
     const id = child.getAttribute("data-sigma-doc-id");
     if (!id || !breakIds.has(id)) return;
     const section = child.parentElement?.closest<HTMLElement>(".sigma-doc-layout-section-block");
     if (section && element.contains(section) && Number(section.getAttribute("data-column-count") ?? 1) > 1) return;
-    positions.push(toY(child.getBoundingClientRect().top));
+    const top = toY(child.getBoundingClientRect().top);
+    breaks.push({ top, contentEnd: Math.min(top, markerTops.get(id) ?? top) });
   });
-  return positions.sort((a, b) => a - b);
+  return breaks.sort((a, b) => a.top - b.top);
 }
 
 /**

@@ -1,4 +1,9 @@
-import { filterTextFlowCommandDefinitions, textFlowCommandNameMatchRank, type TextFlowCommandDefinition } from "@/features/text-editing";
+import {
+  filterTextFlowCommandDefinitions,
+  textFlowCommandNameMatchRank,
+  type PageBreakMarkerKind,
+  type TextFlowCommandDefinition,
+} from "@/features/text-editing";
 import { resolveBoxStyles } from "@/lib/box-blocks";
 import type { Translate } from "@/lib/i18n";
 import { materialMatchesQuery } from "@/lib/materials";
@@ -11,6 +16,8 @@ export interface ActiveSlashCommandQuery {
   to: number;
   query: string;
   canInsertBox: boolean;
+  /** `/` の文字を消した後のキャレットで手動改ページ (改段) を入れられるか。 */
+  canInsertPageBreak: boolean;
   /** いまのキャレット位置で置ける本文ブロックの id。空なら本文ブロックは出さない。 */
   availableBlockCommandIds: string[];
   rect: {
@@ -28,6 +35,7 @@ export type SlashCommandCandidate =
   | { kind: "block"; block: TextFlowCommandDefinition }
   | { kind: "problem"; problem: TextFlowCommandDefinition }
   | { kind: "heading"; heading: TextFlowCommandDefinition & { level: 1 | 2 | 3 } }
+  | { kind: "pageBreak"; pageBreak: TextFlowCommandDefinition & { breakKind: PageBreakMarkerKind } }
   | { kind: "material"; material: MaterialItem };
 
 export function getSlashCommandCandidateName(candidate: SlashCommandCandidate): string {
@@ -39,6 +47,9 @@ export function getSlashCommandCandidateName(candidate: SlashCommandCandidate): 
   }
   if (candidate.kind === "heading") {
     return `/${candidate.heading.commandName}`;
+  }
+  if (candidate.kind === "pageBreak") {
+    return `/${candidate.pageBreak.commandName}`;
   }
   return candidate.kind === "box" ? `/${candidate.box.commandName}` : `/${candidate.material.name}`;
 }
@@ -103,6 +114,25 @@ function buildProblemCommandDefinition(t: Translate<"editor">): TextFlowCommandD
   };
 }
 
+/**
+ * 手動改ページ (改段)。打つ名前は TeX と同じ `newpage` で、段組みのページでは改段になる
+ * (TeX でも 2 段組の `\newpage` は段を送る)。表示名と説明だけを区切りの種別で替える。
+ */
+function buildPageBreakCommandDefinition(
+  t: Translate<"editor">,
+  breakKind: PageBreakMarkerKind,
+): TextFlowCommandDefinition & { breakKind: PageBreakMarkerKind } {
+  const key = breakKind === "columnBreak" ? "columnBreak" : "pageBreak";
+  return {
+    id: "insert.pageBreak",
+    breakKind,
+    commandName: t(`slash.${key}.command`),
+    displayName: t(`slash.${key}.displayName`),
+    description: t(`slash.${key}.description`),
+    aliases: (t(`slash.${key}.aliases`) as string).split(" ").filter(Boolean),
+  };
+}
+
 function buildHeadingCommandDefinitions(t: Translate<"editor">): Array<TextFlowCommandDefinition & { level: 1 | 2 | 3 }> {
   const headings = [
     { level: 1, key: "heading1" },
@@ -135,6 +165,8 @@ export function filterSlashCommandCandidates(
   includeProblemCommand = false,
   blockCommandIds: readonly string[] = [],
   includeHeadingCommands = false,
+  /** 区切りを出すならその種別。null なら出さない。 */
+  pageBreakKind: PageBreakMarkerKind | null = null,
 ): SlashCommandCandidate[] {
   const problemCandidates = includeProblemCommand
     ? filterTextFlowCommandDefinitions([buildProblemCommandDefinition(t)], {
@@ -162,11 +194,17 @@ export function filterSlashCommandCandidates(
         limit: BODY_BLOCK_COMMAND_KINDS.length,
       }).map((block): SlashCommandCandidate => ({ kind: "block", block }))
     : [];
+  const pageBreakCandidates = pageBreakKind
+    ? filterTextFlowCommandDefinitions([buildPageBreakCommandDefinition(t, pageBreakKind)], {
+        query,
+        limit: 1,
+      }).map((pageBreak): SlashCommandCandidate => ({ kind: "pageBreak", pageBreak }))
+    : [];
   const materialCandidates = filterMaterialCandidates(materials, query)
     .map((material): SlashCommandCandidate => ({ kind: "material", material }));
   // 名前が前方一致した候補を先に出す。`/引用` は引用ブロックであって「引用」を別名に持つ箱
   // (leftbar) ではない、という当たり前の順番は、説明文や別名まで見る絞り込みだけでは作れない。
-  const commandCandidates = [...problemCandidates, ...headingCandidates, ...blockCandidates, ...boxCandidates];
+  const commandCandidates = [...problemCandidates, ...headingCandidates, ...blockCandidates, ...pageBreakCandidates, ...boxCandidates];
   const rankedCommands = [...commandCandidates].sort((a, b) => (
     textFlowCommandNameMatchRank(getSlashCommandCandidateName(a).slice(1), query)
     - textFlowCommandNameMatchRank(getSlashCommandCandidateName(b).slice(1), query)
@@ -180,6 +218,7 @@ export function sameSlashCommandQuery(a: ActiveSlashCommandQuery | null, b: Acti
     a?.to === b?.to &&
     a?.query === b?.query &&
     a?.canInsertBox === b?.canInsertBox &&
+    a?.canInsertPageBreak === b?.canInsertPageBreak &&
     (a?.availableBlockCommandIds ?? []).join(" ") === (b?.availableBlockCommandIds ?? []).join(" ") &&
     a?.rect.left === b?.rect.left &&
     a?.rect.bottom === b?.rect.bottom;

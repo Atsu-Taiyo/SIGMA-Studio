@@ -7,7 +7,7 @@ import { auditPagination, findUnderfilledBreaks } from "./pagination-audit";
 /**
  * Word と同じ改ページ (溢れた行だけを次のページ・段へ送る) の受入テスト。
  *
- * 問題・枠付き問題・最小高さ・引用 (空行入り)・箱・入れ子・リスト・コード・手動改ページ・全幅・
+ * 問題・枠付き問題・最小高さ・引用 (空行入り)・箱・入れ子・リスト・コード・手動改ページ (入れ物の中を含む)・全幅・
  * 部分段組を、1 段組と段組、2 種類の用紙の高さで、ページ末尾に来る位置をずらしながら描き、
  * 実描画から次を検査する (`pagination-audit.ts`)。
  *
@@ -151,6 +151,15 @@ function breaksScenario(filler: number): SigmaBlock[] {
       prompt: [text("p0", "問題文"), { type: "paragraph", id: "p1", pagination: { break: true }, children: [{ type: "text", text: "問題内の改ページ後" }] } as SigmaBlock],
       solution: [text("s0", "")], hints: [],
       areaLayout: { solution: { minHeightMm: 40 } },
+    } as SigmaBlock,
+    // 入れ物の中の区切り: 引用・箱はその位置で分割して次のページ (段) へ続く。
+    {
+      type: "quote", id: "break_quote",
+      blocks: [text("bq0", "引用の前半"), { type: "paragraph", id: "bq1", pagination: { break: true }, children: [{ type: "text", text: "引用の後半" }] }, text("bq2", "引用の続き")],
+    } as SigmaBlock,
+    {
+      ...createBoxBlock("fancybox", "", { id: "break_box", bodyId: "bb0" }),
+      blocks: [text("bb0", "箱の前半"), { type: "paragraph", id: "bb1", pagination: { break: true }, children: [{ type: "text", text: "箱の後半" }] }, text("bb2", "箱の続き")],
     } as SigmaBlock,
     text("after", "後続の本文"),
   ];

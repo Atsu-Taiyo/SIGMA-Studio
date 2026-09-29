@@ -10,14 +10,15 @@ const columns = (id: string, children: SigmaBlock[]): SigmaBlock => ({ type: "la
 const document = (content: SigmaBlock[]): SigmaDocument => ({ version: "2.0", docId: "test", metadata: { title: "test" }, content, outputProfiles: { student: {}, teacher: {}, answerBook: {} } });
 
 describe("contextual layout commands", () => {
-  it("rejects page breaks at every depth below a box, including code and quotes", () => {
+  it("accepts page breaks at every depth below a box, including code and quotes", () => {
     const doc = document([paragraph("outside"), box("outer", [
       paragraph("body"), box("inner", [{ type: "codeBlock", id: "code", children: [{ type: "text", text: "code" }] }]),
       { type: "quote", id: "quote", blocks: [paragraph("quoted") as Extract<SigmaBlock, { type: "paragraph" }>] },
     ])]);
-    for (const id of ["body", "inner", "code", "quote", "quoted"]) expect(canUseManualBreakAtBlock(doc, id), id).toBe(false);
-    expect(canUseManualBreakAtBlock(doc, "outside")).toBe(true);
-    expect(canUseManualBreakAtBlock(doc, "outer")).toBe(true);
+    for (const id of ["outside", "outer", "body", "inner", "code", "quote", "quoted"]) {
+      expect(canUseManualBreakAtBlock(doc, id), id).toBe(true);
+    }
+    expect(canUseManualBreakAtBlock(doc, "missing")).toBe(false);
   });
 
   it("rejects manual breaks in independent columns inside and outside boxes", () => {

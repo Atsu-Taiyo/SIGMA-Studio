@@ -111,7 +111,7 @@ function boxLocalColumnsInSecondOuterColumnDocument(): SigmaDocument {
   return document;
 }
 
-test("a direct child of a box can be wrapped in columns but cannot insert a page/outer-column break", async ({ page }) => {
+test("a direct child of a box can be wrapped in columns and can break the box into the next outer column", async ({ page }) => {
   await installDesktopRuntimeMock(page, boxDocument(2));
   await page.goto("/");
   await expect(page.locator(".startup-splash")).toBeHidden();
@@ -124,12 +124,22 @@ test("a direct child of a box can be wrapped in columns but cannot insert a page
   await expect(menu.getByRole("menuitem", { name: "boxの設定…", exact: true })).toBeVisible();
   await expect(menu.getByRole("menuitem", { name: "boxをコピー", exact: true })).toBeVisible();
   await expect(menu.getByRole("menuitem", { name: "boxを削除", exact: true })).toBeVisible();
-  await expect(menu.getByRole("menuitem", { name: "改段を挿入", exact: true })).toHaveCount(0);
   await expect(menu.getByRole("menuitem", { name: "改ページを挿入", exact: true })).toHaveCount(0);
+  // 箱も TeX の breakable な箱と同じく、中の区切りで次の段へ続く。
+  await menu.getByRole("menuitem", { name: "改段を挿入", exact: true }).click();
+  await expect.poll(async () => {
+    const saved = await page.evaluate(() => JSON.parse(localStorage.getItem("sigma-studio:e2e-document") ?? "{}"));
+    const box = saved.content?.find((block: { id?: string }) => block.id === "inner_break_box");
+    return box?.blocks?.map((block: { id: string; pagination?: { break?: boolean } }) => block.pagination?.break === true) ?? [];
+  }).toEqual([false, false, true]);
+  const firstLeft = (await page.locator('[data-sigma-doc-id="inner_break_1"]').first().boundingBox())!.x;
+  const continued = page.locator('[data-box-source-id="inner_break_box"] [data-sigma-doc-id="inner_break_3"]');
+  await expect(continued).toHaveCount(1);
+  expect((await continued.boundingBox())!.x).toBeGreaterThan(firstLeft + 100);
 });
 
 for (const nestedKind of ["code", "quote", "nestedBox"] as const) {
-  test(`hides unavailable layout commands in a box descendant: ${nestedKind}`, async ({ page }) => {
+  test(`offers page breaks but hides unavailable column commands in a box descendant: ${nestedKind}`, async ({ page }) => {
     const doc = boxDocument(1);
     const box = doc.content[1];
     if (box.type !== "boxBlock") throw new Error("missing box");
@@ -145,7 +155,8 @@ for (const nestedKind of ["code", "quote", "nestedBox"] as const) {
     await page.locator('.page-flow [data-sigma-doc-id="nested_target"]').first().click({ button: "right" });
     const menu = page.getByRole("menu", { name: "本文操作" });
     await expect(menu).toBeVisible();
-    await expect(menu.getByRole("menuitem", { name: "改ページを挿入", exact: true })).toHaveCount(0);
+    // 箱の中も本文の流れの一部なので、改ページはどの深さでも入れられる。
+    await expect(menu.getByRole("menuitem", { name: "改ページを挿入", exact: true })).toBeVisible();
     await expect(menu.getByRole("menuitem", { name: "改段を挿入", exact: true })).toHaveCount(0);
     await expect(menu.getByRole("menuitem", { name: "ここを段組にする", exact: true })).toHaveCount(nestedKind === "nestedBox" ? 1 : 0);
     await page.keyboard.press("Escape");

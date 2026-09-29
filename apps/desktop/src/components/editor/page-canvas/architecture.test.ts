@@ -36,7 +36,7 @@ describe("page canvas pure-model dependency boundary", () => {
     const measure = pageCanvas.indexOf("probeFlow(flow, {");
     const build = pageCanvas.indexOf("buildFlowModel(tree,", measure);
     const place = pageCanvas.indexOf("placeFlow(built.model,", build);
-    const plan = pageCanvas.indexOf("planFlowRender(built, placement)", place);
+    const plan = pageCanvas.indexOf("planFlowRender(built, placement", place);
     const adopt = pageCanvas.indexOf("setLayoutViewState(", plan);
     expect(measure).toBeGreaterThan(-1);
     expect(build).toBeGreaterThan(measure);

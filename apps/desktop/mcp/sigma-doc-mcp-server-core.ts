@@ -4273,7 +4273,7 @@ registerTool(
   {
     title: "段組みを変更",
     description:
-      "教材全体または連続した本文ブロックの段組みを変更します。scope:documentはページ全体(expectedRevision完全一致)、scope:blocksは指定ブロックを新しいlayoutSectionで囲み、scope:sectionは既存layoutSectionを部分更新します。scope:blocksは問題のsolutionエリアやboxBlock内の段落も対象にでき、問題内エリアの局所段組みに対応します。boxBlock内では作成した複数段layoutSectionの中だけ改段でき、箱直下の手動改ページはできません。ローカル段組みの解除はscope:section + unwrap:trueだけを指定します(columnCount:1は1段のsectionとして保持)。実行前にget_document_outlineで現在の段組みとIDを確認してください。",
+      "教材全体または連続した本文ブロックの段組みを変更します。scope:documentはページ全体(expectedRevision完全一致)、scope:blocksは指定ブロックを新しいlayoutSectionで囲み、scope:sectionは既存layoutSectionを部分更新します。scope:blocksは問題のsolutionエリアやboxBlock内の段落も対象にでき、問題内エリアの局所段組みに対応します。boxBlock内の複数段layoutSectionでは子のpagination.breakが改段になります。箱・引用・問題エリアの中のブロックのpagination.breakはその位置で改ページ(段組みのページでは改段)し、箱や引用はそこで分割されて次のページへ続きます。ローカル段組みの解除はscope:section + unwrap:trueだけを指定します(columnCount:1は1段のsectionとして保持)。実行前にget_document_outlineで現在の段組みとIDを確認してください。",
     inputSchema: UpdateColumnLayoutInputShape,
   },
   async (rawArgs) => withToolErrorHandling(async () => {

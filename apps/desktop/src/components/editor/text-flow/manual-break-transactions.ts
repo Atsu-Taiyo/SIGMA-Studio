@@ -374,6 +374,125 @@ export function selectionCrossesManualBreak(state: EditorState): boolean {
   return crosses;
 }
 
+/**
+ * `/改ページ`・ショートカットで区切るキャレットの位置を、SigmaDoc のブロックと offset で表す。
+ * 区切れない位置 (独立した複数段の段組みの中・リストの項目の途中・範囲選択) なら null。
+ *
+ * - 段落・見出し・コード: そのブロックの中の offset
+ * - リスト: 最初の項目の先頭ならリストの前、最後の項目の末尾ならリストの後ろ (項目の間では
+ *   リストを 2 つに割ることになるので区切らない)
+ * - 箱のタイトル: 先頭なら箱の前
+ */
+export function getManualBreakCaretSelection(state: EditorState): { blockId: string; offset: number } | null {
+  const { selection } = state;
+  if (!selection.empty) {
+    return null;
+  }
+  const { $from } = selection;
+  if (!$from.parent.isTextblock) {
+    return null;
+  }
+  let listDepth = -1;
+  for (let depth = $from.depth; depth > 0; depth -= 1) {
+    const node = $from.node(depth);
+    if (node.type.name === "layoutSection" && Number(node.attrs.columnCount ?? 1) > 1) {
+      return null;
+    }
+    if (node.type.name === "bulletList" || node.type.name === "orderedList") {
+      listDepth = depth;
+    }
+  }
+  const position = selection.from;
+  if (listDepth > 0) {
+    const list = $from.node(listDepth);
+    const listId = list.attrs.sigmaDocId;
+    if (typeof listId !== "string" || !listId) {
+      return null;
+    }
+    const first = TextSelection.findFrom(state.doc.resolve($from.before(listDepth) + 1), 1, true);
+    const last = TextSelection.findFrom(state.doc.resolve($from.after(listDepth) - 1), -1, true);
+    if (first?.from === position) {
+      return { blockId: listId, offset: 0 };
+    }
+    if (last?.from === position) {
+      return { blockId: listId, offset: Number.MAX_SAFE_INTEGER };
+    }
+    return null;
+  }
+  if ($from.parent.type.name === "boxBlockTitle") {
+    const box = $from.node($from.depth - 1);
+    const boxId = box?.attrs.sigmaDocId;
+    return $from.parentOffset === 0 && typeof boxId === "string" && boxId
+      ? { blockId: boxId, offset: 0 }
+      : null;
+  }
+  const blockId = $from.parent.attrs.sigmaDocId;
+  return typeof blockId === "string" && blockId
+    ? { blockId, offset: $from.parentOffset }
+    : null;
+}
+
+/** 編集面の doc の外にある区切り (問題・段組み・隣のユニットが持つもの)。 */
+export interface ManualBreakSurfaceEdges {
+  /** doc の先頭の前に区切りがある。 */
+  leading?: boolean;
+  /** doc の末尾の後ろに区切りがある。 */
+  trailing?: boolean;
+}
+
+/**
+ * キャレットが手動改ページ (改段) の**すぐ隣**にいるか。Backspace なら区切りの直後 (区切りを
+ * 持つブロックの最初の位置)、Delete なら区切りの直前 (次の位置が区切りを持つブロックの最初)。
+ *
+ * ここで true になったキーは、文字の削除・ブロックの結合・リストや引用の持ち上げに流さず、
+ * 区切りの向こう側へキャレットを動かすだけにする (TeX の `\newpage` を消さずに越える)。
+ */
+export function isCaretAtManualBreakBoundary(
+  state: EditorState,
+  direction: "backward" | "forward",
+  blocks: TextFlowBlock[],
+  edges: ManualBreakSurfaceEdges = {},
+): boolean {
+  if (!state.selection.empty) {
+    return false;
+  }
+  const { $from } = state.selection;
+  if (!$from.parent.isTextblock) {
+    return false;
+  }
+  const breakIds = new Set([
+    ...collectPageBreakBeforeIds(blocks),
+    ...getNestedPageBreakBeforeIds(blocks),
+  ]);
+  const position = state.selection.from;
+  if (direction === "backward") {
+    if (position !== $from.start()) {
+      return false;
+    }
+    if (edges.leading && position === TextSelection.atStart(state.doc).from) {
+      return true;
+    }
+    const owner = getManualBreakOwnerAtPosition(state, position, breakIds);
+    return !!owner && owner.firstCursorPosition === position;
+  }
+  if (position !== $from.end()) {
+    return false;
+  }
+  if (edges.trailing && position === TextSelection.atEnd(state.doc).from) {
+    return true;
+  }
+  const next = TextSelection.findFrom(
+    state.doc.resolve(Math.min(state.doc.content.size, $from.end() + 1)),
+    1,
+    true,
+  );
+  if (!next) {
+    return false;
+  }
+  const owner = getManualBreakOwnerAtPosition(state, next.from, breakIds);
+  return !!owner && owner.firstCursorPosition === next.from;
+}
+
 export function resolveManualBreakBoundaryNavigation(
   state: EditorState,
   direction: "backward" | "forward" | null,

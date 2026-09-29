@@ -222,13 +222,22 @@ interface PaginationHints {
 
 以前あった `keepTogether` / `keepWithNext` は廃止しました。これらを含む旧教材もそのまま読み込めますが、読み込み時に黙って取り除かれ (`break` だけが残り、空になった `pagination` は項目ごと消えます)、次の保存でファイルからも消えます。AI・WebMCP・ローカルMCPのツールに渡された場合も、拒否せずに無視します。
 
-`break` はトップレベルのブロックだけでなく、オブジェクトの内側のブロックでも効きます。段組みのときは改ページではなく改段になります。ただしTeX風の箱は外側のページ・段に対して一つのまとまりなので、`boxBlock.blocks` 直下では手動改ページを指定できません。
+`break` は TeX の `\newpage` と同じく、本文の流れの中の一点です。トップレベルのブロックだけでなく、入れ物の内側のブロックでも効き、その位置で入れ物を分割して次のページへ続けます。段組みのページでは改ページではなく改段になります。
 
-- 問題エリア(`problem.lead` / `prompt` / `hints` / `solution`)内のブロック: そのブロックの前で分割します
-- `layoutSection.children`: 独立した列の所属は `layout.columnStartIds` が決めます。列の内側の `break` は無視します
-- `boxBlock.blocks`: 直下の `break` は不正です
-- エリア/セクションの**先頭**ブロックに付けた `break` は「そのオブジェクトの前で改ページ」として扱います
+- 問題エリア(`problem.lead` / `prompt` / `hints` / `solution`)・引用(`quote.blocks`)・箱(`boxBlock.blocks`)・1段組の `layoutSection.children` 内のブロック: そのブロックの前で分割します。箱や引用の縁は切れ目で開きます
+- 独立した複数段の `layoutSection.children`: 列の所属は `layout.columnStartIds` が決めます。列の内側の `break` は無視します (箱内の複数段の既存の `break` は改段として扱います)
+- 入れ物の**先頭**ブロックに付けた `break` は「その入れ物の前で改ページ」として扱います。編集で入れる区切りは、引用・箱・1段組の段組みの先頭では最初から入れ物に付けます (問題のエリアの先頭は「そのエリアの前」なので持ち上げません)
 - ページや段の頭に既にいるブロックの `break` は何もしません (空のページを作りません)
+- リストの項目の間には置けません (リスト全体の前・後ろには置けます)
+
+編集での扱い:
+
+- 入れる: 右クリックメニューの「改ページを挿入」、`/newpage` (`/改ページ`)、⌘/Ctrl+Enter、コマンドパレットの「改ページ・改段を挿入」。どれもキャレットの位置に入れ、キャレットより後ろの内容とキャレットが次のページへ移ります (空行で入れるとその行ごと移ります)。区切りの前に本文が無い位置 (文書の先頭・区切りの直後) では入れません
+- 越える: 区切りの直後で Backspace、直前で Delete を押すと、区切りを消さずにキャレットだけが向こう側へ移ります。ブロックの結合・リストや引用の持ち上げはしません
+- 消す: 印の「× 解除」ボタンか、右クリックメニューの「改ページを解除」。メニューは右クリックしたブロック自身・それを囲む入れ物・すぐ後ろの区切りだけを解除できます
+- 区切りを持つブロックを含む範囲を削除・貼り付けで置き換えても、区切りは残ります
+
+判定 (置ける場所・持ち上げ・隣接) は `features/text-editing/application/manual-break-rules.ts` にあります。
 
 #### 自動の改ページ (Word と同じ最小送り)
 
@@ -470,7 +479,7 @@ type BoxBlockChildBlock = SectionNode | HeadingNode | ParagraphNode | ListNode |
 - `frame`: その箱を最低限再現するための描画スナップショット。`styleId` が見つからない場合やstyleが変わった場合でも、既存文書を表示できるようにします。
 
 箱の描画は `BoxFrameSpec` からCSS変数と `data-box-*` 属性を作って行います。TeXやTikZを任意実行しません。
-箱内の `layoutSection` はTeXで `itembox` 内へ `multicols` を置く構成に相当し、複数段内の `pagination.break: true` は改段として扱います。箱直下の手動改ページは許可しません。
+箱内の `layoutSection` はTeXで `itembox` 内へ `multicols` を置く構成に相当し、複数段内の `pagination.break: true` は改段として扱います。箱直下の子の `pagination.break: true` は、breakable な箱の中の `\newpage` と同じく、その子の前で箱を分割して次のページ (段組みのページでは次の段) へ続けます。
 
 ```ts
 interface BoxFrameSpec {

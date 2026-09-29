@@ -119,7 +119,7 @@ describe("slash command query context", () => {
     const editor = createEditor([paragraph("/quote")]);
 
     expect(getActiveSlashCommandQuery(editor.view)).toEqual({
-      blockId: "trigger", from: 1, to: 7, query: "quote", canInsertBox: true,
+      blockId: "trigger", from: 1, to: 7, query: "quote", canInsertBox: true, canInsertPageBreak: true,
       availableBlockCommandIds: ["insert.quote", "insert.codeBlock", "insert.divider"],
       rect: { bottom: 60, left: 24 }, screenPoint: { x: 24, y: 40 },
     });
@@ -144,6 +144,36 @@ describe("slash command query context", () => {
     editor.commands.setTextSelection(7);
     vi.mocked(editor.view.coordsAtPos).mockImplementation(() => { throw new Error("unmounted"); });
     expect(getActiveSlashCommandQuery(editor.view)).toBeNull();
+  });
+
+  it("offers /newpage under its TeX and Japanese names and hands the caret to the host", () => {
+    const pageBreak = (query: string, kind: "pageBreak" | "columnBreak" = "pageBreak") => filterSlashCommandCandidates(
+      [], query, false, t, [], false, [], false, kind,
+    ).find((item) => item.kind === "pageBreak");
+    expect(pageBreak("newp")).toMatchObject({ kind: "pageBreak", pageBreak: { commandName: "newpage", breakKind: "pageBreak" } });
+    expect(pageBreak("改ページ")).toBeDefined();
+    expect(pageBreak("columnbreak", "columnBreak")).toMatchObject({ pageBreak: { displayName: "Column break" } });
+    expect(filterSlashCommandCandidates([], "newpage", false, t, [], false, [], false, null)).toEqual([]);
+
+    const editor = createEditor([paragraph("本文"), { type: "paragraph", id: "next", children: [{ type: "text", text: "/newpage" }] }]);
+    const query = { current: getActiveSlashCommandQuery(editor.view) };
+    expect(query.current).toMatchObject({ blockId: "next", canInsertPageBreak: true });
+    const onManualBreakCommand = vi.fn(() => true);
+    const noop = { current: undefined };
+    insertSlashCommandFromQuery(
+      editor.view, pageBreak("newpage")!, query, noop, noop, noop, noop, { current: editor }, noop, () => {},
+      { current: onManualBreakCommand },
+    );
+    expect(onManualBreakCommand).toHaveBeenCalledWith({ blockId: "next", offset: 0 });
+    expect(tiptapToTextFlow(editor.getJSON())[1]).toMatchObject({ id: "next", children: [] });
+  });
+
+  it("does not offer a manual break inside independent columns", () => {
+    const editor = createEditor([{
+      type: "layoutSection", id: "columns", layout: { columnCount: 2, columnStartIds: ["trigger", "right"] },
+      children: [paragraph("/newpage"), { type: "paragraph", id: "right", children: [{ type: "text", text: "右" }] }],
+    }]);
+    expect(getActiveSlashCommandQuery(editor.view)?.canInsertPageBreak).toBe(false);
   });
 
   it("excludes nesting the current quote or code block and excludes commands in box titles", () => {

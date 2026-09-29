@@ -52,3 +52,40 @@ describe("column separator placement", () => {
     expect(plan.columnRulePieces.columns).toEqual([{ x: 0, y: 0, height: 40 }]);
   });
 });
+
+describe("fragments split by a manual break inside a block", () => {
+  // 引用の 2 行目と 3 行目の間に改ページ。印は y=62〜86、3 行目の子は y=96 から。
+  const tree: ProbeTree = { units: [{
+    id: "unit", rect: { top: 10, bottom: 130, left: 20, width: 200 },
+    span: "column", breakBefore: false, attachments: [], objects: [],
+    nodes: [{
+      id: "quote", rect: { top: 10, bottom: 130, left: 20, width: 200 },
+      ink: [
+        { kind: "text", top: 14, bottom: 36 },
+        { kind: "text", top: 40, bottom: 58 },
+        { kind: "text", top: 98, bottom: 120 },
+      ],
+      chrome: [], breakBefore: false,
+      innerBreaks: [{ top: 96, contentEnd: 62 }],
+    }],
+  }] };
+  const tall: PageGeometry = { ...geometry, pageHeight: 400, contentHeight: 380 };
+
+  it("keeps the marker in the first piece on the editing surface", () => {
+    const built = buildFlowModel(tree, { breakTarget: "page" });
+    const plan = planFlowRender(built, placeFlow(built.model, tall));
+    expect(plan.fragmentSources.quote.visibleHeight).toBe(96 - 10);
+    expect(plan.fragmentReplicas.quote).toHaveLength(1);
+  });
+
+  it("ends the first piece where the marker starts when markers are not drawn (print/PDF)", () => {
+    const built = buildFlowModel(tree, { breakTarget: "page" });
+    const placement = placeFlow(built.model, tall);
+    const editor = planFlowRender(built, placement);
+    const paged = planFlowRender(built, placement, { hideManualBreakMarkers: true });
+    expect(paged.fragmentSources.quote.visibleHeight).toBe(62 - 10);
+    // どの行がどのページに行くか・続きの描き始めは同じ。
+    expect(paged.fragmentReplicas).toEqual(editor.fragmentReplicas);
+    expect(paged.pageCount).toBe(editor.pageCount);
+  });
+});

@@ -288,7 +288,7 @@ mathInline (インライン)
 
 用紙・余白・ページ番号・フォント・数式サイズ・図版サイズ・分割禁止といった紙面の制御は、印刷側ではなくページキャンバス（＝編集画面そのもの）が担います。
 
-手動の改ページ/改段(`pagination.break: true`)は、枠付き問題文や全幅エリアでは「分割禁止」より優先します。TeX風の`boxBlock`は別で、箱直下の手動改ページは許可せず、箱内の複数段`layoutSection`配下だけを改段として扱います。長い箱のページ・外側段への分割は手動指定ではなく自動ページネーションが担当します。分割の適格判定はDOM非依存の`features/rendering/core`に置いた`isProblemAreaFlowEligible`が唯一の出典です。分割位置がページキャンバスとPDFで一致することは`tests/e2e/object-break-parity.spec.ts`で担保します。
+手動の改ページ/改段(`pagination.break: true`)は、枠付き問題文や全幅エリアでは「分割禁止」より優先します。`boxBlock`・引用・問題エリア・1段組の`layoutSection`の中のブロックに付けた区切りも、その位置で入れ物を分割して次のページ (段組みのページでは次の段) へ続けます (TeXの`\newpage`と同じ)。例外は独立した複数段の`layoutSection`の中で、段の所属は`columnStartIds`が決めるので区切りを置けません (箱内の複数段の既存の区切りは改段として扱います)。長い箱のページ・外側段への分割は自動ページネーションも担当します。区切りを置ける場所・持ち上げ・隣接の判定は`features/text-editing/application/manual-break-rules.ts`が唯一の出典です。分割の適格判定はDOM非依存の`features/rendering/core`に置いた`isProblemAreaFlowEligible`が唯一の出典です。分割位置がページキャンバスとPDFで一致することは`tests/e2e/object-break-parity.spec.ts`で担保します。
 
 `components/print/PrintPreview.tsx` の静的レンダラはPDFの経路から外れており、`packages/viewer`・サムネイル・テンプレートギャラリーの近似プレビュー専用です。ここに用紙出力を追加しないこと。
 
