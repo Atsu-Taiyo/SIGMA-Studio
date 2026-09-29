@@ -66,12 +66,16 @@ interface CatalogData {
 }
 export class CatalogCache {
   private tail: Promise<void> = Promise.resolve();
+  /** Last content handed to durableWrite; identical snapshots skip the fsync round. */
+  private requested?: string;
   private constructor(readonly file: string, readonly data: CatalogData) {}
   static async open(directory: string, actorId: string): Promise<CatalogCache> {
     const file = path.join(directory, `catalog-${createHash("sha256").update(actorId).digest("hex")}.json`);
     let data: CatalogData;
+    let onDisk: string | undefined;
     try {
       data = JSON.parse(await fs.readFile(file, "utf8")) as CatalogData;
+      onDisk = JSON.stringify(data);
       data.creates ??= {};
       data.moves ??= {};
       if (data.version !== 1 || data.actorId !== actorId || !data.nodes || !data.mappings || !data.operations)
@@ -80,12 +84,21 @@ export class CatalogCache {
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
       data = { version: 1, actorId, revision: 0, nodes: {}, mappings: {}, operations: {}, creates: {}, moves: {} };
     }
-    return new CatalogCache(file, data);
+    const cache = new CatalogCache(file, data);
+    // Remember what is already on disk so an unchanged poll does not rewrite it.
+    // A missing file (or one upgraded in memory above) still gets its first save.
+    cache.requested = onDisk;
+    return cache;
   }
   save(): Promise<void> {
     const serialized = JSON.stringify(this.data);
+    // Still wait for writes already queued so callers keep "durable on return".
+    if (serialized === this.requested) return this.tail;
+    this.requested = serialized;
     const next = this.tail.then(() => durableWrite(this.file, serialized));
     this.tail = next.catch(() => {});
+    // A failed write leaves the disk stale; the next save must retry the same content.
+    next.catch(() => { if (this.requested === serialized) this.requested = undefined; });
     return next;
   }
   apply(delta: CatalogDelta): void {
