@@ -109,6 +109,18 @@ export interface TextFlowEditorProps {
   paginationMarkerKind?: import("@/features/text-editing/model").PageBreakMarkerKind;
   paginationMarkerKinds?: Record<string, import("@/features/text-editing/model").PageBreakMarkerKind>;
   paginationMarkerLayouts?: Record<string, import("@/components/tiptap/page-break-gap-extension").PageBreakMarkerLayout>;
+  /**
+   * doc の先頭の前 / 末尾の後ろに、この面の外のブロック (問題・段組み・隣のユニット) が持つ
+   * 手動改ページがある。Backspace / Delete が区切りを消さずに越える判定に使う。
+   */
+  leadingManualBreak?: boolean;
+  trailingManualBreak?: boolean;
+  /**
+   * キャレットの位置で手動改ページ (改段) を入れる (`/newpage`・⌘/Ctrl+Enter・コマンド)。
+   * 文書全体を持つホストが、空のページができないかを見て区切る。入れたら true。
+   * 渡さない面 (ヘッダー・図中文字など) では区切りの操作を出さない。
+   */
+  onManualBreakCommand?: (selection: import("@/features/text-editing/model").ManualTextPageBreakSelection) => boolean;
   columnFlowBlockLayouts?: Record<string, TextFlowColumnBlockLayout>;
   /**
    * 最上位ブロックのページ割りの変位 (ユニットからの相対)。レイアウトに影響しない `translate` で

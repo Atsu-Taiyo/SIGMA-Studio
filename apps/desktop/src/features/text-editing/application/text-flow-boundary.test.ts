@@ -109,7 +109,8 @@ describe("resolveTextFlowBoundaryDelete", () => {
     });
   });
 
-  it("does not delete an empty block that carries a manual break on Backspace", () => {
+  it("removes a trailing empty line after a manual break together with its empty page", () => {
+    // TeX の末尾の \newpage と同じ: 後ろに何も無ければ新しいページは生まれない。
     const content: SigmaBlock[] = [
       paragraph("before", "前"),
       {
@@ -122,7 +123,49 @@ describe("resolveTextFlowBoundaryDelete", () => {
       blockId: "empty_after_break",
       direction: "backward",
       emptyBlock: true,
-    })?.previousIds).toEqual([]);
+    })).toEqual({
+      previousIds: ["empty_after_break"],
+      nextBlocks: [],
+      focusBlockId: "before",
+      focusPosition: "end",
+      activeIds: ["before"],
+    });
+  });
+
+  it("removes an empty line after a manual break but keeps the break before the following block", () => {
+    const content: SigmaBlock[] = [
+      paragraph("before", "前"),
+      { ...paragraph("empty_after_break", ""), pagination: { break: true } },
+      paragraph("next_page", "次"),
+    ];
+
+    expect(resolveTextFlowBoundaryDelete(content, {
+      blockId: "empty_after_break",
+      direction: "backward",
+      emptyBlock: true,
+    })).toEqual({
+      previousIds: ["empty_after_break", "next_page"],
+      nextBlocks: [{ ...paragraph("next_page", "次"), pagination: { break: true } }],
+      focusBlockId: "before",
+      focusPosition: "end",
+      activeIds: ["before"],
+    });
+  });
+
+  it("crosses a manual break after a problem to the problem's last block", () => {
+    const content: SigmaBlock[] = [
+      {
+        type: "problem", id: "problem", tags: [], lead: [], hints: [], solution: [],
+        prompt: [paragraph("prompt", "問題") as RichBlock],
+      },
+      { ...paragraph("after_problem", "後"), pagination: { break: true } },
+    ];
+
+    expect(resolveTextFlowBoundaryDelete(content, {
+      blockId: "after_problem",
+      direction: "backward",
+      emptyBlock: false,
+    })).toMatchObject({ previousIds: [], nextBlocks: [], focusBlockId: "prompt", focusPosition: "end" });
   });
 
   it("does not delete an empty block with a manual break at the start of a flow", () => {

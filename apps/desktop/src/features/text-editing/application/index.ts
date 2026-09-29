@@ -18,6 +18,16 @@ export {
   shouldUseDocumentNextBlockForPageBreak,
   type ResolveManualTextPageBreakOptions,
 } from "./manual-page-break";
+export {
+  canInsertManualPageBreakAt,
+  collectManualBreakHostIds,
+  findManualBreakOwnerAfterBlock,
+  findManualBreakOwnerAtBlockStart,
+  findManualBreakOwnerForBlock,
+  isManualBreakAllowedAtBlock,
+  resolveManualBreakHoistTarget,
+  type ManualBreakInsertionPoint,
+} from "./manual-break-rules";
 export { createTextFlowId } from "./text-flow-id";
 export {
   preserveManualBreaksAfterTextEdit,

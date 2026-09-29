@@ -17,7 +17,7 @@
 - `/itembox` や `/tcolorbox` などの単純な箱は、素材の overlay 図形として挿入しない。
 - 挿入される実体は `type: "boxBlock"` の SigmaDoc ブロック。
 - 箱の本文は `blocks: BoxBlockChildBlock[]` に入る。通常の paragraph、heading、list に加え、入れ子 `boxBlock` や箱内 `layoutSection` も保持できる。
-- 箱内 `layoutSection` の複数段では手動改段を使える。箱直下の手動改ページは使えず、長い箱のページ・外側段への継続は自動分割で処理する。
+- 箱内 `layoutSection` の複数段では手動改段を使える。箱直下の子の手動改ページ (`pagination.break`) は、その子の前で箱を分割して次のページ (段組みのページでは次の段) へ続ける (TeX の breakable な箱の `\newpage` と同じ)。長い箱のページ・外側段への継続は自動分割でも処理する。
 - 箱の見た目は `styleId` と `frame` で決まる。
 - `frame.decorations` は、CSS だけで安全に再現できる装飾を表す。TeX や TikZ を任意実行しない。
 

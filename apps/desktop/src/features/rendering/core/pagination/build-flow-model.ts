@@ -49,6 +49,11 @@ export interface BuiltFlowModel {
   /** 行キー → 行 (描画計画が自然座標を引くため)。 */
   lines: Map<string, FlowLine>;
   blanks: Map<string, FlowBlank>;
+  /**
+   * 入れ物の中の手動改ページの直後の行キー → 区切りの前の内容の終わり (自然座標。改ページの印の
+   * 上端)。印を描かない面は、前の片をここで切る。
+   */
+  manualBreakContentEnds: Map<string, number>;
 }
 
 export interface BuildFlowModelOptions {
@@ -105,6 +110,7 @@ export function groupInkIntoBands(ink: readonly Pick<ProbeInk, "top" | "bottom">
 export function buildFlowModel(tree: ProbeTree, options: BuildFlowModelOptions): BuiltFlowModel {
   const lines = new Map<string, FlowLine>();
   const blanks = new Map<string, FlowBlank>();
+  const manualBreakContentEnds = new Map<string, number>();
   const units: BuiltUnit[] = [];
   const sections: FlowSection[] = [];
 
@@ -121,6 +127,8 @@ export function buildFlowModel(tree: ProbeTree, options: BuildFlowModelOptions):
     lines.set(line.key, line);
     return line;
   };
+  /** 行の描画 (文字・原子) の上端。行の上端はこれより上の行間を含むことがある。 */
+  const inkTopOf = new WeakMap<FlowLine, number>();
 
   /** 1 つのブロックの行を作る。付属物は重なる行へ吸収する。 */
   const buildNodeLines = (node: ProbeNode, attachments: readonly ProbeInk[]): FlowLine[] => {
@@ -146,6 +154,7 @@ export function buildFlowModel(tree: ProbeTree, options: BuildFlowModelOptions):
         leadingSpace: 0,
       };
     });
+    nodeLines.forEach((line, index) => inkTopOf.set(line, bands[index].top));
     // 見える縁の接着。入れ子の箱も外側から順に同じ規則で。
     const chrome = [...node.chrome].sort((a, b) => a.top - b.top || b.bottom - a.bottom);
     for (const box of chrome) {
@@ -283,16 +292,31 @@ export function buildFlowModel(tree: ProbeTree, options: BuildFlowModelOptions):
           lineKeys: nodeLines.map((line) => line.key),
           breakBefore: node.breakBefore,
         });
-        if (node.breakBefore && !(index === 0 && unit.breakBefore)) {
+        const breaksAtUnitStart = index === 0 && unit.breakBefore;
+        let brokeBeforeNode = node.breakBefore;
+        if (node.breakBefore && !breaksAtUnitStart) {
           unitItems.push({ kind: "break", key: `${node.id}#break`, ownerId: node.id, target: options.breakTarget });
         }
         const innerBreaks = [...(node.innerBreaks ?? [])];
         nodeLines.forEach((line, lineIndex) => {
-          // 箱の中の子の手動改ページ: その子の最初の行の前で切る (ブロックの先頭では切らない)。
-          while (innerBreaks.length > 0 && innerBreaks[0] <= line.fitBottom - 0.5) {
-            const breakY = innerBreaks.shift()!;
-            if (lineIndex > 0 && breakY > nodeLines[lineIndex - 1].bottom - 0.5) {
+          // 入れ物 (引用・箱など) の中の子の手動改ページ: その子の最初の行の前で切る。
+          while (innerBreaks.length > 0 && innerBreaks[0].top <= line.fitBottom - 0.5) {
+            const innerBreak = innerBreaks.shift()!;
+            const breakY = innerBreak.top;
+            if (lineIndex === 0) {
+              // 最初の行より前 = 入れ物の先頭の子の区切りは、入れ物の前の区切りと同じ。
+              if (!brokeBeforeNode && !breaksAtUnitStart) {
+                unitItems.push({ kind: "break", key: `${node.id}#break`, ownerId: node.id, target: options.breakTarget });
+              }
+              brokeBeforeNode = true;
+              continue;
+            }
+            if (breakY > nodeLines[lineIndex - 1].bottom - 0.5) {
               unitItems.push({ kind: "break", key: `${node.id}#inner${breakY.toFixed(1)}`, ownerId: node.id, target: options.breakTarget });
+              // 送った先の行はその子の上端から始める (文字の上端より下にはしない)。子の前に描かれる
+              // 改ページの印は、前の子と同じ片 (区切りの前のページの末尾) に残る。
+              line.top = Math.max(line.top, Math.min(breakY, inkTopOf.get(line) ?? line.top));
+              manualBreakContentEnds.set(line.key, Math.max(nodeLines[lineIndex - 1].fitBottom, innerBreak.contentEnd));
             }
           }
           unitItems.push(line);
@@ -359,5 +383,6 @@ export function buildFlowModel(tree: ProbeTree, options: BuildFlowModelOptions):
     units,
     lines,
     blanks,
+    manualBreakContentEnds,
   };
 }

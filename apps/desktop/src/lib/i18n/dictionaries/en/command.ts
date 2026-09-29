@@ -91,6 +91,7 @@ export const command = {
     "insert.heading": "Insert a heading",
     "insert.problem": "Insert a problem",
     "insert.inlineMath": "Insert an equation",
+    "insert.pageBreak": "Insert a page or column break",
     "format.block.paragraph": "Paragraph style: Body text",
     "format.block.h1": "Paragraph style: Heading 1",
     "format.block.h2": "Paragraph style: Heading 2",
@@ -238,11 +239,13 @@ export const command = {
     "edit.redo": "redo",
     "insert.inlineMath": "math formula tex insert equation",
     "insert.problem": "problem question insert",
+    "insert.pageBreak": "page break column break newpage pagebreak columnbreak insert",
     "insert.material": "material figure insert",
     "ai.chat": "ai chat assistant",
   },
   /** 説明。無いコマンドは引かない (`defaultValue: ""`)。上と同じ理由で葉は文字列。 */
   description: {
+    "insert.pageBreak": "Breaks the page at the caret (a column break on column pages). Everything after it starts on the next page or column. In the text you can also press ⌘/Ctrl+Enter",
     "edit.selectAllWithShapes": "Adds the shapes anchored to the selected body text to the selection (with no selection, selects all body text and shapes across the whole document, page breaks included)",
     "edit.bold": "Makes the selected body or figure text bold",
     "edit.italic": "Makes the selected body or figure text italic",

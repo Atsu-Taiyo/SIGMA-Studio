@@ -166,6 +166,23 @@ export const editor = {
       },
     },
     kindHeading: "見出し",
+    kindBreak: "区切り",
+    /**
+     * 改ページ・改段。TeX の `\newpage` と同じ名前で打てるようにする (段組みのページでは
+     * `\newpage` も改段になる)。日本語の名前は別名で引く。
+     */
+    pageBreak: {
+      command: "newpage",
+      displayName: "改ページ",
+      description: "ここで改ページする（後ろは次のページから・⌘/Ctrl+Enter）",
+      aliases: "改ページ 改頁 かいぺーじ pagebreak clearpage 区切り",
+    },
+    columnBreak: {
+      command: "newpage",
+      displayName: "改段",
+      description: "ここで改段する（後ろは次の段から・⌘/Ctrl+Enter）",
+      aliases: "改段 改ページ columnbreak newcolumn 区切り",
+    },
     problem: {
       command: "問題",
       displayName: "問題文",

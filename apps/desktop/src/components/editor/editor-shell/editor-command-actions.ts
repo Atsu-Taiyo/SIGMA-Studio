@@ -7,6 +7,7 @@ import type {
 import type { Translate } from "@/lib/i18n";
 
 import { SELECT_BODY_WITH_SHAPES_EVENT } from "../text-flow/body-shape-selection";
+import { INSERT_MANUAL_BREAK_EVENT } from "../text-flow/manual-break-command";
 import type { OverlayActionRequestInput, OverlayCommand, OverlaySelectionStylePatch } from "../page-overlay-types";
 import {
   DEFAULT_FONT_FAMILY_VALUE,
@@ -315,6 +316,10 @@ export function createEditorCommandRunner(
     }
     if (commandId === "insert.problem") {
       addBlock("problem");
+      return;
+    }
+    if (commandId === "insert.pageBreak") {
+      window.dispatchEvent(new CustomEvent(INSERT_MANUAL_BREAK_EVENT));
       return;
     }
     if (commandId === "insert.inlineMath") {

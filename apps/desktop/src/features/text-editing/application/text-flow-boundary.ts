@@ -62,8 +62,22 @@ export function resolveTextFlowBoundaryDelete(
   const currentIsEmpty = request.emptyBlock || isEmptyTextFlowBlock(current);
 
   if (request.direction === "backward" && hasManualBreakBefore(current)) {
-    return previous
-      ? boundaryNavigationOnly(previous, "end")
+    // 区切りの直後の空行: 空行だけを消し、区切りは後ろのブロックへ残す (後ろが無ければ空の
+    // ページごと消える)。キャレットは区切りの前へ。中身のある行では何も消さずに越えるだけ。
+    const previousEdge = previous
+      ? { blockId: previous.id, position: "end" as const }
+      : resolveProblemEdge(previousBlock, "end");
+    if (currentIsEmpty && current.type !== "divider" && previousEdge && (next || !nextBlock)) {
+      return {
+        previousIds: next ? [current.id, next.id] : [current.id],
+        nextBlocks: next ? [withManualBreakBefore(next)] : [],
+        focusBlockId: previousEdge.blockId,
+        focusPosition: previousEdge.position,
+        activeIds: [previousEdge.blockId],
+      };
+    }
+    return previousEdge
+      ? navigationOnly(previousEdge.blockId, previousEdge.position)
       : boundaryNavigationOnly(current, "start");
   }
 
@@ -203,6 +217,12 @@ function navigationOnly(
 
 function hasManualBreakBefore(block: TextFlowBlock): boolean {
   return block.pagination?.break === true;
+}
+
+function withManualBreakBefore<T extends TextFlowBlock>(block: T): T {
+  return hasManualBreakBefore(block)
+    ? block
+    : { ...block, pagination: { ...(block.pagination ?? {}), break: true } };
 }
 
 function isTopLevelTextFlowBlock(block: SigmaBlock): block is Exclude<TextFlowBlock, { type: "layoutSection" }> {

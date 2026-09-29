@@ -46,10 +46,20 @@ export interface ProbeNode {
   /** このブロックの前で手動改ページ (改段) する。 */
   breakBefore: boolean;
   /**
-   * ブロックの内側にある手動改ページの位置 (自然座標)。箱の中の子に保存された旧来の
-   * 改ページで、その位置でブロックを分割して次のページ (段) から続ける。
+   * ブロックの内側 (引用・箱などの子) にある手動改ページ。その位置でブロックを分割して次の
+   * ページ (段) から続ける。最初の行より前にある区切りはブロック自身の前の区切りとして扱う。
    */
-  innerBreaks?: readonly number[];
+  innerBreaks?: readonly ProbeInnerBreak[];
+}
+
+export interface ProbeInnerBreak {
+  /** 区切りを持つ子の上端 (自然座標)。続きはここから描く。 */
+  top: number;
+  /**
+   * 区切りの前の内容の終わり = 子の前に描かれる改ページの印の上端。印を描かない面 (PDF) は
+   * ここで前の片を切る (印の場所を入れ物の縦線・枠の中の空白として残さない)。
+   */
+  contentEnd: number;
 }
 
 export interface ProbeColumn {
