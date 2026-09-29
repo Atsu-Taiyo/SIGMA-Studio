@@ -63,26 +63,12 @@ export function claudeModelLabel(model: string): string {
   return CLAUDE_MODEL_LABELS[model] ?? model;
 }
 
-export const GEMINI_AI_EDIT_MODELS = [
-  "Gemini 3.5 Flash (High)",
-  "Gemini 3.5 Flash (Medium)",
-  "Gemini 3.5 Flash (Low)",
-  "Gemini 3.1 Pro (High)",
-  "Gemini 3.1 Pro (Low)",
-] as const;
-
-export type GeminiAiEditModel = (typeof GEMINI_AI_EDIT_MODELS)[number] | (string & {});
-
-export const DEFAULT_GEMINI_AI_EDIT_MODEL: GeminiAiEditModel = "Gemini 3.5 Flash (High)";
-
-export const GEMINI_MODEL_LABELS: Record<string, string> = {
-  "Gemini 3.5 Flash (High)": "Gemini 3.5 Flash (High)",
-  "Gemini 3.5 Flash (Medium)": "Gemini 3.5 Flash (Medium)",
-  "Gemini 3.5 Flash (Low)": "Gemini 3.5 Flash (Low)",
-  "Gemini 3.1 Pro (High)": "Gemini 3.1 Pro (High)",
-  "Gemini 3.1 Pro (Low)": "Gemini 3.1 Pro (Low)",
-};
+// Antigravity's account-specific catalog is supplied by the installed CLI.
+// This sentinel is resolved at execution time and is never passed to --model.
+export const GEMINI_AI_EDIT_MODELS = ["auto"] as const;
+export type GeminiAiEditModel = string;
+export const DEFAULT_GEMINI_AI_EDIT_MODEL: GeminiAiEditModel = "auto";
 
 export function geminiModelLabel(model: string): string {
-  return GEMINI_MODEL_LABELS[model] ?? model;
+  return model === "auto" ? ta("model.runtimeDefault") : model;
 }

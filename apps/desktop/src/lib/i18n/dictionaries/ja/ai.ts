@@ -135,6 +135,7 @@ export const ai = {
       xhigh: "最高",
       max: "最大",
     },
+    runtimeDefault: "自動（利用可能なモデル）",
     effortUnset: "未設定",
   },
   /**
