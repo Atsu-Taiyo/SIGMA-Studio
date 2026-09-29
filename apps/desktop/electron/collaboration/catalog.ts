@@ -12,6 +12,24 @@ import type { WorkspaceOverview } from "@/lib/runtime/types";
 import type { LibraryAuthority, LocalSigmaDocStore, LocalWorkspaceOverviewResult } from "../local-sigma-doc-store";
 import { CatalogCache, localTargetKey, type PendingHierarchyShare, type ShareSourceItem, type PendingCatalogCreate } from "./catalog-cache";
 
+/** Entitlements change on billing events, not every five seconds; polls reuse them briefly. */
+const CAPABILITIES_TTL_MS = 30_000;
+/** Documents uploaded at once while sharing a folder or workspace. */
+const SHARE_CONCURRENCY = 4;
+
+/** Runs `run` over `items` with bounded concurrency; in-flight work settles before the first failure is rethrown. */
+async function forEachLimit<T>(items: readonly T[], limit: number, run: (item: T) => Promise<void>): Promise<void> {
+  let next = 0;
+  let failure: { error: unknown } | undefined;
+  const worker = async () => {
+    while (!failure && next < items.length) {
+      try { await run(items[next++]); } catch (error) { failure ??= { error }; }
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+  if (failure) throw failure.error;
+}
+
 export interface CatalogSessionsPort {
   actorId(): string | null;
   request<T>(route: string, body?: unknown): Promise<T>;
@@ -39,6 +57,7 @@ export class DesktopSharedCatalog {
   private visible = false;
   private visibilityGeneration = 0;
   private timer?: ReturnType<typeof setInterval>;
+  private capabilities?: { value: ServerCollaborationCapabilities; at: number };
   private lastEmitted = "";
   private publish(): void {
     const value = JSON.stringify(this.current);
@@ -53,6 +72,7 @@ export class DesktopSharedCatalog {
     if (actor === this.actor && (this.cache || !actor)) return;
     this.actor = actor;
     this.refreshPending = undefined;
+    this.capabilities = undefined;
     const generation = ++this.generation;
     this.cache = undefined;
     this.current = { state: actor ? "loading" : "signed-out", actorId: actor, revision: 0 };
@@ -68,6 +88,7 @@ export class DesktopSharedCatalog {
     const result = await this.sessions.request<{ url: string }>(`/billing/${action}`, {});
     const url = new URL(result.url);
     if (url.protocol !== "https:" || !["checkout.stripe.com", "billing.stripe.com"].includes(url.hostname) || url.username || url.password) throw new Error("INVALID_BILLING_URL");
+    this.capabilities = undefined;
     await shell.openExternal(url.href);
   }
   async lockedDocumentCount(): Promise<number> {
@@ -79,7 +100,7 @@ export class DesktopSharedCatalog {
   }
   async recoverLocked(): Promise<{ saved: number; failed: number }> {
     const result = await this.sessions.recoverLocked();
-    await this.refresh();
+    await this.refresh({ force: true });
     return result;
   }
   async status(): Promise<SharedCatalogStatus> { await this.account(); return { ...this.current }; }
@@ -95,38 +116,53 @@ export class DesktopSharedCatalog {
       this.timer.unref();
     }
   }
-  async refresh(): Promise<SharedCatalogStatus> {
+  /** `force` bypasses the short-lived capability cache (explicit refresh, or after a change that can alter entitlements). */
+  async refresh(options: { force?: boolean } = {}): Promise<SharedCatalogStatus> {
     await this.account();
     if (!this.cache) return this.status();
-    if (this.refreshPending) return this.refreshPending;
-    const run = this.refreshTail.then(() => this.refreshNow());
+    if (this.refreshPending && !options.force) return this.refreshPending;
+    const run = this.refreshTail.then(() => this.refreshNow(options.force));
     this.refreshTail = run.catch(() => {});
     this.refreshPending = run;
     try { return await run; } finally { if (this.refreshPending === run) this.refreshPending = undefined; }
   }
-  private async refreshNow(): Promise<SharedCatalogStatus> {
+  private serverCapabilities(force: boolean): Promise<ServerCollaborationCapabilities> {
+    const cached = this.capabilities;
+    if (!force && cached && Date.now() - cached.at < CAPABILITIES_TTL_MS) return Promise.resolve(cached.value);
+    const generation = this.generation;
+    return this.sessions.request<ServerCollaborationCapabilities>("/catalog/capabilities").then(value => {
+      if (generation === this.generation) this.capabilities = { value, at: Date.now() };
+      return value;
+    });
+  }
+  private async refreshNow(force = false): Promise<SharedCatalogStatus> {
     await this.account();
     const cache = this.cache;
     if (!cache) return this.status();
     const generation = this.generation;
     try {
-      const capabilities = await this.sessions.request<ServerCollaborationCapabilities>("/catalog/capabilities");
       const known = Object.keys(cache.data.nodes);
-      const deltas: CatalogDelta[] = [];
-      // All batches share the old cursor; publish only when the complete set arrived.
-      for (let i = 0; i < Math.max(known.length, 1); i += 5000) {
-        deltas.push(await this.sessions.request<CatalogDelta>("/catalog/delta", { since: cache.data.revision, knownIds: known.slice(i, i + 5000) }));
-      }
+      // Capabilities, every delta batch and the local library snapshot are independent
+      // reads, so one refresh costs one network round trip instead of one per request.
+      // All delta batches share the old cursor; publish only when the complete set arrived.
+      const batches: string[][] = [];
+      for (let i = 0; i < Math.max(known.length, 1); i += 5000) batches.push(known.slice(i, i + 5000));
+      const [capabilities, deltas, localOverview] = await Promise.all([
+        this.serverCapabilities(force),
+        Promise.all(batches.map(knownIds => this.sessions.request<CatalogDelta>("/catalog/delta", { since: cache.data.revision, knownIds }))),
+        this.local.getLocalLibrarySnapshot(),
+      ]);
       if (generation !== this.generation || cache.data.actorId !== this.sessions.actorId()) { await this.account(); return this.status(); }
       for (const delta of deltas) cache.apply(delta);
-      const localOverview = await this.local.getLocalLibrarySnapshot();
-      const localFiles = localOverview.files;
+      const localFiles = new Map(localOverview.files.map(f => [f.fileId, f]));
+      const nodeByDocument = new Map<string, CatalogNode>();
+      for (const node of Object.values(cache.data.nodes)) if (node.sharedDocumentId) nodeByDocument.set(node.sharedDocumentId, node);
       for (const binding of this.sessions.bindings()) {
         if (binding.actorId !== cache.data.actorId) continue;
-        const node = Object.values(cache.data.nodes).find(n => n.sharedDocumentId === binding.sharedDocumentId);
+        const node = nodeByDocument.get(binding.sharedDocumentId);
         if (!node) continue;
         const prior = cache.data.mappings[node.id];
-        const localFile = localFiles.find(f => f.fileId === binding.fileId);
+        const localFile = localFiles.get(binding.fileId);
         cache.data.mappings[node.id] = { ...prior, nodeId: node.id, local: { kind: "document", fileId: binding.fileId }, bodyCached: true, docId: binding.docId, ...(node.ownerId === cache.data.actorId && localFile && !prior?.workspaceId ? { workspaceId: localFile.workspaceId, folderId: localFile.folderId } : {}) };
       }
       cache.ensureOwnerLocations(localOverview);
@@ -160,7 +196,7 @@ export class DesktopSharedCatalog {
       const cache = await this.online();
       const result = await run(cache);
       this.checkAccount(cache);
-      await this.refresh();
+      await this.refresh({ force: true });
       return result;
     });
     this.operationTail = next.catch(() => {});
@@ -169,9 +205,13 @@ export class DesktopSharedCatalog {
   private find(id: string, kind?: CatalogNode["kind"]): CatalogNode | undefined {
     return this.cache && Object.values(this.cache.data.nodes).find(n => (!kind || n.kind === kind) && this.cache!.navigationId(n) === id);
   }
-  private requireTarget(target: SharedTargetRef, cache = this.cache): CatalogNode {
+  private locateShared(target: SharedTargetRef, cache = this.cache): CatalogNode | undefined {
     const node = cache?.data.nodes[target.catalogNodeId];
-    if (!node || node.kind !== target.kind || node.state !== "active" || (target.sharedDocumentId && target.sharedDocumentId !== node.sharedDocumentId)) throw new Error("TARGET_UNAVAILABLE");
+    return node && node.kind === target.kind && node.state === "active" && (!target.sharedDocumentId || target.sharedDocumentId === node.sharedDocumentId) ? node : undefined;
+  }
+  private requireTarget(target: SharedTargetRef, cache = this.cache): CatalogNode {
+    const node = this.locateShared(target, cache);
+    if (!node) throw new Error("TARGET_UNAVAILABLE");
     return node;
   }
   private async rawOverview(workspaceId?: string | null): Promise<WorkspaceOverview> {
@@ -237,12 +277,37 @@ export class DesktopSharedCatalog {
     await cache.save();
     return document;
   }
+  private locateSharing(target: LibrarySharingTarget, cache = this.cache): CatalogNode | undefined {
+    return target.source === "shared" ? this.locateShared(target.shared, cache) : cache?.nodeForLocal(target.local);
+  }
+  private members(nodeId: string) {
+    return this.sessions.request<import("@/lib/runtime/shared-catalog").CatalogMember[]>(`/catalog/nodes/${nodeId}/members`);
+  }
   async details(target: LibrarySharingTarget): Promise<CatalogSharingDetails | null> {
-    await this.online();
+    await this.account();
+    const cache = this.cache;
+    const early = cache && this.actor ? this.locateSharing(target, cache) : undefined;
+    // Unknown target: only an authoritative refresh can say whether it exists.
+    if (!early) { await this.online(); return this.readDetails(target); }
+    // The member list does not depend on the refresh, so both run at once and the
+    // dialog waits for the slower of the two instead of their sum.
+    const refreshing = this.refresh().catch(() => undefined);
+    const fetched = this.members(early.id).then(members => ({ members }), (error: unknown) => ({ error }));
+    await refreshing;
+    const result = await fetched;
+    this.checkAccount(cache!);
+    if ("error" in result) {
+      if (this.current.state !== "ready") throw new Error("CATALOG_OFFLINE");
+      if (!this.locateSharing(target, cache)) return this.readDetails(target);
+      throw result.error;
+    }
+    return this.readDetails(target, { nodeId: early.id, members: result.members });
+  }
+  private async readDetails(target: LibrarySharingTarget, prefetched?: { nodeId: string; members: import("@/lib/runtime/shared-catalog").CatalogMember[] }): Promise<CatalogSharingDetails | null> {
     const node = target.source === "shared" ? this.requireTarget(target.shared) : this.cache!.nodeForLocal(target.local);
     if (!node) { await this.validateLocal(target.source === "local" ? target.local : (() => { throw new Error("TARGET_UNAVAILABLE"); })()); return null; }
     const cache = this.cache!;
-    const members = await this.sessions.request<import("@/lib/runtime/shared-catalog").CatalogMember[]>(`/catalog/nodes/${node.id}/members`);
+    const members = prefetched?.nodeId === node.id ? prefetched.members : await this.members(node.id);
     this.checkAccount(cache);
     return { target: cache.metadata(node).target, name: node.name, sharing: cache.metadata(node), members };
   }
@@ -360,7 +425,7 @@ export class DesktopSharedCatalog {
     cache.data.mappings[begin.rootNodeId] = { nodeId: begin.rootNodeId, local: operation.source, workspaceId: operation.source.kind === "document" ? undefined : operation.source.workspaceId, folderId: sourceFolder?.parentFolderId, bodyCached: false };
     await cache.save();
     if (begin.state !== "complete") {
-      for (const item of operation.items) {
+      const stageItem = async (item: ShareSourceItem) => {
         this.checkAccount(cache);
         const existing = cache.nodeForLocal(item.local);
         const binding = item.local.kind === "document" ? this.sessions.bindings().find(b => b.fileId === (item.local as { fileId: string }).fileId && b.actorId === cache.data.actorId) : undefined;
@@ -390,13 +455,19 @@ export class DesktopSharedCatalog {
           cache.data.mappings[staged.nodeId].bodyCached = true;
           await cache.save();
         }
-      }
+      };
+      // The server needs a parent staged before its children, and items list folders
+      // parents-first, so folders keep their order. Documents only depend on their
+      // (already staged) folder, so their stage + upload round trips overlap.
+      const documents = operation.items.filter(item => item.local.kind === "document");
+      for (const item of operation.items) if (item.local.kind !== "document") await stageItem(item);
+      await forEachLimit(documents, SHARE_CONCURRENCY, stageItem);
       this.checkAccount(cache);
       // Drain every staged journal again after all uploads; the invitation remains inactive.
-      for (const item of operation.items) if (item.local.kind === "document") {
-        await this.sessions.flush(item.local.fileId);
+      await forEachLimit(documents, SHARE_CONCURRENCY, async item => {
+        await this.sessions.flush((item.local as { fileId: string }).fileId);
         this.checkAccount(cache);
-      }
+      });
       await this.sessions.request("/catalog/share/complete", { operationId: operation.operationId });
     }
     this.checkAccount(cache);
