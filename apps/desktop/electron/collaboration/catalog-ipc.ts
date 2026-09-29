@@ -21,7 +21,7 @@ export function registerCatalogIpc(catalog: DesktopSharedCatalog, local: LocalSi
   handle("locked-document-count", () => catalog.lockedDocumentCount());
   handle("recover-locked", () => catalog.recoverLocked());
   handle("status", () => catalog.status());
-  handle("refresh", () => catalog.refresh());
+  handle("refresh", () => catalog.refresh({ force: true }));
   handle("visible", visible => catalog.setVisible(z.boolean().parse(visible)));
   handle("start", target => catalog.start(localTarget.parse(target)));
   handle("details", target => catalog.details(z.discriminatedUnion("source", [z.object({ source: z.literal("local"), local: localTarget }), z.object({ source: z.literal("shared"), shared: sharedTarget })]).parse(target) as LibrarySharingTarget));

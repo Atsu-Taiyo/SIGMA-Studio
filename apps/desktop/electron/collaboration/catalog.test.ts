@@ -411,3 +411,97 @@ it("counts only server-confirmed locked documents for the current account", asyn
   f.request.mockImplementation(async () => { f.setActor("another"); return [{ id: "old-account" }]; });
   await expect(f.catalog.lockedDocumentCount()).rejects.toThrow("ACCOUNT_CHANGED");
 });
+
+it("fetches capabilities alongside the delta, reuses them for polls, and re-reads them when forced or expired", async () => {
+  const f = await fixture(); f.setNodes([node("document")]);
+  let open!: () => void; const gate = new Promise<void>(resolve => { open = resolve; });
+  const prior = f.sessions.request; const started: string[] = [];
+  f.sessions.request = async (route, body) => { started.push(route); await gate; return prior(route, body); };
+  const first = f.catalog.refresh();
+  // Neither read waits for the other: one network round trip per refresh.
+  await vi.waitFor(() => expect(started).toEqual(["/catalog/capabilities", "/catalog/delta"]));
+  open(); await first;
+  const capabilityCalls = () => f.request.mock.calls.filter(([route]) => route === "/catalog/capabilities").length;
+  expect(capabilityCalls()).toBe(1);
+  await f.catalog.refresh(); expect(capabilityCalls()).toBe(1);
+  await f.catalog.refresh({ force: true }); expect(capabilityCalls()).toBe(2);
+  vi.useFakeTimers({ toFake: ["Date"] }); vi.setSystemTime(Date.now() + 31_000);
+  await f.catalog.refresh(); expect(capabilityCalls()).toBe(3);
+});
+it("re-reads capabilities after a mutation because it can change entitlements", async () => {
+  const f = await fixture(); const doc = node("document"); f.setNodes([doc]); await f.catalog.refresh();
+  const capabilityCalls = () => f.request.mock.calls.filter(([route]) => route === "/catalog/capabilities").length;
+  expect(capabilityCalls()).toBe(1);
+  await f.catalog.renameDocument("shared-items", (await f.local.listFiles()).find(file => file.sharing)!.fileId, "renamed");
+  expect(capabilityCalls()).toBe(2);
+});
+it("fetches shared members while the refresh is still running", async () => {
+  const f = await fixture(); const doc = node("document"); f.setNodes([doc]); await f.catalog.refresh();
+  let release!: () => void; const gate = new Promise<void>(resolve => { release = resolve; });
+  const prior = f.sessions.request; const routes: string[] = [];
+  f.sessions.request = async (route, body) => { routes.push(route); if (route === "/catalog/delta") await gate; return prior(route, body); };
+  const pending = f.catalog.details({ source: "shared", shared: { kind: "document", catalogNodeId: doc.id } });
+  await vi.waitFor(() => expect(routes).toContain(`/catalog/nodes/${doc.id}/members`));
+  expect(routes).toContain("/catalog/delta");
+  release();
+  expect((await pending)?.members).toEqual([]);
+});
+it("reports a revoked target as unavailable when the member request fails", async () => {
+  const f = await fixture(); const doc = node("document"); f.setNodes([doc]); await f.catalog.refresh();
+  f.setNodes([]);
+  const prior = f.sessions.request;
+  f.sessions.request = async (route, body) => { if (route.endsWith("/members")) throw new Error("FORBIDDEN"); return prior(route, body); };
+  await expect(f.catalog.details({ source: "shared", shared: { kind: "document", catalogNodeId: doc.id } })).rejects.toThrow("TARGET_UNAVAILABLE");
+});
+it("stages folders parents-first but overlaps document staging and upload", async () => {
+  const f = await fixture(); const raw = await f.local.getLocalLibrarySnapshot(); const workspaceId = raw.activeWorkspaceId;
+  const made = await f.local.createFolder(workspaceId, "chapter");
+  if (made.state !== "ready") throw new Error(made.state);
+  const folderId = made.overview.folders.find(folder => folder.name === "chapter")!.id;
+  for (let i = 0; i < 5; i++) await f.local.createDocument({ workspaceId, folderId, title: `doc ${i}` });
+  const root = { ...node("workspace"), ownerId: "participant" };
+  let inFlight = 0, peak = 0; const order: string[] = [];
+  const prior = f.sessions.request;
+  f.sessions.request = async (route, body) => {
+    if (route === "/catalog/share/begin") return { operationId: "op", rootNodeId: root.id, state: "staging", stagedCount: 0, pendingDocumentIds: [] } as never;
+    if (route === "/catalog/share/stage") {
+      const item = body as { kind: string };
+      order.push(item.kind); inFlight++; peak = Math.max(peak, inFlight);
+      await new Promise(resolve => setTimeout(resolve, 15)); inFlight--;
+      return { nodeId: randomUUID(), sharedDocumentId: item.kind === "document" ? randomUUID() : null, existing: false } as never;
+    }
+    if (route === "/catalog/share/complete") { f.setNodes([root]); return {} as never; }
+    return prior(route, body);
+  };
+  await f.catalog.start({ kind: "workspace", workspaceId });
+  expect(order.filter(kind => kind === "document")).toHaveLength(6);
+  expect(order.lastIndexOf("folder")).toBeLessThan(order.indexOf("document"));
+  expect(peak).toBeGreaterThan(1); expect(peak).toBeLessThanOrEqual(4);
+  expect(f.sessions.flush).toHaveBeenCalledTimes(12);
+});
+it("stops staging new documents after a failure and reports the first error", async () => {
+  const f = await fixture(); const raw = await f.local.getLocalLibrarySnapshot(); const workspaceId = raw.activeWorkspaceId;
+  for (let i = 0; i < 8; i++) await f.local.createDocument({ workspaceId, title: `doc ${i}` });
+  const root = { ...node("workspace"), ownerId: "participant" };
+  let staged = 0; const prior = f.sessions.request;
+  f.sessions.request = async (route, body) => {
+    if (route === "/catalog/share/begin") return { operationId: "op", rootNodeId: root.id, state: "staging", stagedCount: 0, pendingDocumentIds: [] } as never;
+    if (route === "/catalog/share/stage") { staged++; await new Promise(resolve => setTimeout(resolve, 5)); throw new Error("STAGING_LOST"); }
+    return prior(route, body);
+  };
+  await expect(f.catalog.start({ kind: "workspace", workspaceId })).rejects.toThrow("STAGING_LOST");
+  expect(staged).toBeLessThanOrEqual(4);
+});
+it("does not rewrite an unchanged catalog cache but writes every change", async () => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), "sigma-catalog-cache-")); directories.push(directory);
+  const rename = vi.spyOn(fs, "rename");
+  try {
+    const cache = await CatalogCache.open(directory, "actor");
+    await cache.save(); expect(rename).toHaveBeenCalledTimes(1);
+    await cache.save(); await cache.save(); expect(rename).toHaveBeenCalledTimes(1);
+    cache.data.revision = 5; await cache.save(); expect(rename).toHaveBeenCalledTimes(2);
+    const reopened = await CatalogCache.open(directory, "actor");
+    await reopened.save(); expect(rename).toHaveBeenCalledTimes(2);
+    expect(reopened.data.revision).toBe(5);
+  } finally { rename.mockRestore(); }
+});
