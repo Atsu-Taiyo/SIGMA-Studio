@@ -664,6 +664,8 @@ export const editor = {
     add: "Add",
     addComment: "Add comment",
     save: "Save",
+    mentionAgentHint: "AI agent · ask with @{{keyword}}",
+    mentionAgentTitle: "{{name}} (AI agent) · sending this comment asks it to work",
     cancel: "Cancel",
     close: "Close",
     placeholder: "Write a comment",

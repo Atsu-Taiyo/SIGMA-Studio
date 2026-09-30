@@ -22,7 +22,7 @@ import {
   type TiptapDoc,
 } from "@/lib/tiptap-adapter";
 
-import { CommentMentionMark, type LoadCommentMentionCandidates } from "./comment-mentions";
+import { CommentAgentMentionHighlight, CommentMentionMark, type LoadCommentMentionCandidates } from "./comment-mentions";
 import { CommentMentionMenu } from "./CommentMentionMenu";
 
 const INSERT_INLINE_MATH_EVENT = "sigma-studio:insert-inline-math";
@@ -57,6 +57,7 @@ export function CommentRichTextEditor({
   const editor = useEditor({
     extensions: [
       CommentMentionMark,
+      CommentAgentMentionHighlight,
       // **`undoRedo` を落とさない。** ここが編むのはコメントの下書きで、
       // SigmaDoc には投稿するまで 1 文字も入らない (下書きの置き場は
       // `EditorShell` の `pendingCommentDraft` / editorStore の `commentReplyDrafts` /

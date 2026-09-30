@@ -1949,3 +1949,35 @@
   font-size: 11px;
   font-weight: 600;
 }
+/* 投稿済みの宛先 (人・AI) はアイコン + 名前のチップ。詳細は title のツールチップに出す。 */
+.comment-mention.is-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 100%;
+  padding: 0 6px 0 2px;
+  border-radius: 999px;
+  vertical-align: baseline;
+  cursor: default;
+}
+.comment-mention.is-chip .comment-author-avatar {
+  width: 16px;
+  height: 16px;
+  font-size: 10px;
+}
+.comment-mention.is-chip .comment-author-avatar-badge { display: none; }
+.comment-mention.is-chip .comment-author-avatar svg { width: 10px; height: 10px; }
+.comment-mention.is-agent { border-radius: 999px; padding: 0 6px; }
+.comment-mention-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.comment-mention-option .comment-author-avatar {
+  width: 22px;
+  height: 22px;
+  font-size: 11px;
+}
+.comment-mention-option .comment-author-avatar-badge { display: none; }
+.comment-mention-option-text { display: grid; min-width: 0; }
+.comment-mention-option-sub { color: var(--muted, #666); font-size: 11px; }

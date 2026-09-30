@@ -712,6 +712,8 @@ export const editor = {
     addComment: "コメントを追加",
     save: "保存",
     cancel: "キャンセル",
+    mentionAgentHint: "AI Agent · @{{keyword}} で依頼",
+    mentionAgentTitle: "{{name}}（AI Agent）· コメントを送ると作業を依頼します",
     close: "閉じる",
     placeholder: "コメントを入力",
     agentPlaceholder: "コメントを入力（@claude / @codex / @chatgpt でAI Agentに依頼）",

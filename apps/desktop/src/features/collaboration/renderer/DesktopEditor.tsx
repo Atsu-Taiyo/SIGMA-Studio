@@ -177,7 +177,7 @@ export function DesktopEditor() {
     if (!bridge || !user || !sessions.current.has(fileId)) return [];
     const members = await bridge.members(fileId);
     return members.filter((member) => member.user_id !== user.actorId)
-      .map((member) => ({ userId: member.user_id, name: member.email || member.user_id }));
+      .map((member) => ({ userId: member.user_id, name: member.email || member.user_id, email: member.email || undefined }));
   }, [user]);
   if (bootError) throw bootError;
   if (!info) return null;
