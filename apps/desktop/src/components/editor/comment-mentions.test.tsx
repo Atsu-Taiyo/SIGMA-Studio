@@ -54,6 +54,47 @@ describe("collaborator mentions", () => {
     editor.commands.undo();
     expect(editor.getText()).toBe("確認 @ta");
   });
+  it("opens after Japanese text without a space and for the full-width at sign", () => {
+    expect(commentMentionQuery(createEditor("お疲れ様です@ta"))?.query).toBe("ta");
+    const editor = createEditor("確認＠太");
+    expect(commentMentionQuery(editor)).toEqual({ from: 3, to: 5, query: "太" });
+    insertCommentMention(editor, { userId: "taro", name: "太郎" });
+    expect(tiptapDocToInlineNodes(editor.getJSON() as TiptapDoc)[0]).toEqual({ type: "text", text: "確認" });
+    expect(tiptapDocToInlineNodes(editor.getJSON() as TiptapDoc)[1]).toEqual({ type: "text", text: "@太郎", mentionUserId: "taro" });
+  });
+  it("lists AI agents after collaborators and inserts one as plain text the AI trigger can read", async () => {
+    (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+    const editor = createEditor("確認 @cl");
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+    cleanup.push(() => { act(() => root.unmount()); container.remove(); });
+    const load = vi.fn(async () => [{ userId: "a", name: "clara@example.com", email: "clara@example.com" }, { userId: "b", name: "Bob" }]);
+    await act(async () => { root.render(<CommentMentionMenu editor={editor} loadCandidates={load} />); });
+    await act(async () => { editor.emit("focus", { editor, event: new FocusEvent("focus"), transaction: editor.state.tr }); });
+    const options = Array.from(container.querySelectorAll('[role="option"]'));
+    expect(options.map((option) => option.querySelector(".comment-mention-option-name")?.textContent)).toEqual(["clara@example.com", "Claude"]);
+    expect(options[0].querySelector(".comment-mention-option-sub")).toBeNull();
+    act(() => { (options[1] as HTMLElement).click(); });
+    const body = tiptapDocToInlineNodes(editor.getJSON() as TiptapDoc);
+    expect(body.map((node) => node.type === "text" ? node.text : "").join("")).toBe("確認 @claude ");
+    expect(body.every((node) => node.type === "text" && !node.mentionUserId)).toBe(true);
+    expect(detectCommentAiMention(body)?.provider).toBe("claude");
+  });
+  it("shows the collaborator's email under the name only when it differs", async () => {
+    (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+    const editor = createEditor("@ta");
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+    cleanup.push(() => { act(() => root.unmount()); container.remove(); });
+    const load = vi.fn(async () => [{ userId: "taro", name: "太郎", email: "taro@example.com" }]);
+    await act(async () => { root.render(<CommentMentionMenu editor={editor} loadCandidates={load} />); });
+    await act(async () => { editor.emit("focus", { editor, event: new FocusEvent("focus"), transaction: editor.state.tr }); });
+    const option = container.querySelector('[role="option"]')!;
+    expect(option.querySelector(".comment-mention-option-name")?.textContent).toBe("太郎");
+    expect(option.querySelector(".comment-mention-option-sub")?.textContent).toBe("taro@example.com");
+  });
   it("ignores email addresses and a selected range", () => {
     const editor = createEditor("person@example.com");
     expect(commentMentionQuery(editor)).toBeNull();
@@ -71,7 +112,8 @@ describe("collaborator mentions", () => {
     const load = vi.fn(async () => [{ userId: "a", name: "Alice" }, { userId: "b", name: "Bob" }]);
     await act(async () => { root.render(<CommentMentionMenu editor={editor} loadCandidates={load} />); });
     await act(async () => { editor.emit("focus", { editor, event: new FocusEvent("focus"), transaction: editor.state.tr }); });
-    expect(container.querySelectorAll('[role="option"]')).toHaveLength(2);
+    // 共同編集者 2 人 + AI 4 つ。人が先に並ぶ。
+    expect(container.querySelectorAll('[role="option"]')).toHaveLength(6);
     const ime = new KeyboardEvent("keydown", { key: "Enter", isComposing: true, bubbles: true, cancelable: true });
     // Observe after the mention handler, before ProseMirror handles the synthetic IME event.
     const stopAtEditor = (event: Event) => event.stopImmediatePropagation();

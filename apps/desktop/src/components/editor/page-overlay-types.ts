@@ -1,6 +1,8 @@
 import type { EditorClipboardPayload } from "@/lib/editor-clipboard";
 import type { Graph2DPreset, Graph3DPreset } from "@/features/document";
 import type { SharedFillState } from "./overlay-canvas/style-patch";
+import type { OverlayFlipAxis, OverlaySolidCommand } from "@/features/drawing";
+import type { ShapeTypeChangeCommand } from "./overlay-canvas/shape-type-change";
 import type { OverlayArrowhead, OverlayAsset, OverlayDash, OverlayPoint, OverlayShape, OverlayTextSize } from "./overlay-canvas/types";
 
 export const FLUSH_OVERLAY_CHANGES_EVENT = "sigma-studio:flush-overlay-changes";
@@ -65,6 +67,7 @@ export type OverlayCommand =
   | "decagon"
   | "hendecagon"
   | "dodecagon"
+  | OverlaySolidCommand
   | "blockArrow"
   | "arc"
   | "sector"
@@ -82,6 +85,25 @@ export type OverlayCommand =
   | "table";
 
 export type OverlayArrangeAction = "front" | "back" | "forward" | "backward";
+/** 選択図形の回転・反転。右クリックメニューの「回転・反転」と同じ操作。 */
+export type OverlayQuickTransformAction = "rotateClockwise" | "rotateCounterclockwise" | OverlayFlipAxis;
+/**
+ * 選択中の **1 つの図形** に対する、種類固有の操作。右クリックメニューが持つものと同じ集合で、
+ * 選択バーなど別の入口からも同じ処理を通すために要求として表す。種類が合わない選択
+ * (画像でない図形への `imageCrop` など) は何もしない。
+ */
+export type OverlayShapeCommand =
+  | "imageCrop"
+  | "imageReplace"
+  | "imageResetCrop"
+  | "imageNaturalSize"
+  | "graphSettings"
+  | "graphCrop"
+  | "graphOriginPick"
+  | "graphFillPick"
+  | "graph3dSettings"
+  | "chartSettings"
+  | "chartFromTable";
 export type OverlayAlignAction = "left" | "center" | "right" | "top" | "middle" | "bottom";
 export type OverlayDistributeAxis = "horizontal" | "vertical";
 
@@ -96,6 +118,12 @@ export interface OverlaySelectionStylePatch {
   opacity?: number;
   arrowheadStart?: OverlayArrowhead;
   arrowheadEnd?: OverlayArrowhead;
+}
+
+/** 選んでいる立体図形の辺。辺の番号は `OverlayGeoShape.props.solidEdgeDash` の添字と同じ。 */
+export interface OverlaySolidEdgeSelection {
+  shapeId: string;
+  index: number;
 }
 
 export interface OverlaySelectionSummary {
@@ -120,6 +148,8 @@ export interface OverlaySelectionSummary {
   arrowheadEnd: OverlayArrowhead | null;
   /** The selection's own fill, so the toolbar shows the document rather than the last value applied. */
   fill: SharedFillState;
+  /** 立体図形の辺を選んでいるとき。線種の変更はこの辺だけに効く。 */
+  solidEdge?: OverlaySolidEdgeSelection;
 }
 
 export type OverlayActionRequestInput =
@@ -133,6 +163,9 @@ export type OverlayActionRequestInput =
   | { type: "toggleLock" }
   | { type: "toggleHidden" }
   | { type: "style"; style: OverlaySelectionStylePatch }
+  | { type: "transform"; action: OverlayQuickTransformAction }
+  | { type: "changeShapeType"; command: ShapeTypeChangeCommand }
+  | { type: "shapeCommand"; command: OverlayShapeCommand }
   | { type: "insertTextAtPoint"; point: { x: number; y: number } }
   /**
    * 本文の選択範囲にぶら下がっている図形を、本文の選択を保ったまま選ぶ。

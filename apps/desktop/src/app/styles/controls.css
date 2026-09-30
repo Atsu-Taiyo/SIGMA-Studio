@@ -403,14 +403,57 @@ button:disabled {
   background: transparent;
 }
 
+/* 列の左右端の薄れ。その向きにまだタブが続いているときだけ、端から順に濃くなる。
+   スクロール位置で幅を動かす (JS は使わない) ので、この列を使うどのタブ列でも同じに効き、
+   端に着けば薄れは 0 に戻る。溢れていない列はスクロールの範囲が無く、何も起きない。
+   スクロール連動に非対応の環境では薄れないだけで、列の動きは変わらない。 */
+@property --tabs-fade-start {
+  syntax: "<length>";
+  inherits: false;
+  initial-value: 0px;
+}
+
+@property --tabs-fade-end {
+  syntax: "<length>";
+  inherits: false;
+  initial-value: 0px;
+}
+
+@keyframes tabs-fade-start {
+  to { --tabs-fade-start: var(--tabs-fade-size); }
+}
+
+@keyframes tabs-fade-end {
+  from { --tabs-fade-end: var(--tabs-fade-size); }
+}
+
 .document-tabs-scroll {
+  --tabs-fade-size: 48px;
+  --document-tab-min-width: 64px;
   display: flex;
   align-items: end;
   gap: var(--space-xs);
   min-width: 0;
   overflow-x: auto;
   overflow-y: hidden;
+  /* キーボードで焦点が動いたタブを、薄れの下に潜らせず内側へ寄せて見せる。 */
+  scroll-padding-inline: var(--tabs-fade-size);
   scrollbar-width: none;
+  mask-image: linear-gradient(
+    to right,
+    transparent 0,
+    #000 var(--tabs-fade-start),
+    #000 calc(100% - var(--tabs-fade-end)),
+    transparent 100%
+  );
+  animation:
+    tabs-fade-start linear both,
+    tabs-fade-end linear both;
+  /* animation ショートハンドは animation-timeline / range を初期化するので、必ずこの後に書く。 */
+  animation-timeline: scroll(self x), scroll(self x);
+  animation-range:
+    0px var(--tabs-fade-size),
+    calc(100% - var(--tabs-fade-size)) 100%;
 }
 
 .document-tabs-scroll::-webkit-scrollbar {
@@ -425,7 +468,8 @@ button:disabled {
   align-items: center;
   flex: 1 1 220px;
   width: auto;
-  min-width: 48px;
+  /* 縮みきっても、タイトルの頭 2 文字ほどが薄れずに読める幅。 */
+  min-width: var(--document-tab-min-width, 64px);
   max-width: 220px;
   height: 28px;
   border: 1px solid var(--border-subtle);
@@ -473,8 +517,17 @@ button:disabled {
 .document-tab-main > span {
   min-width: 0;
   overflow: hidden;
-  text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* 入りきらないタイトルは「…」で切らず、右端に向かって薄れさせる (続きがあると分かる)。
+   薄れる幅ぶんの余白を右に持たせておくので、収まるタイトルの文字は薄れず、余白だけが
+   薄れる。狭いタブでも、頭の数文字は読める濃さのまま残る。 */
+.document-tab-main > .document-tab-title {
+  /* 幅はタブの幅に比例させる。狭いタブで固定幅だと、読める部分まで薄れてしまう。 */
+  --tab-title-fade: clamp(6px, 10cqw, 14px);
+  padding-right: var(--tab-title-fade);
+  mask-image: linear-gradient(to right, #000 calc(100% - var(--tab-title-fade)), transparent);
 }
 
 .document-tab-close {
@@ -942,7 +995,7 @@ button:disabled {
 
 .command-settings-content {
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
+  grid-template-rows: auto auto minmax(0, 1fr);
   flex: 1 1 auto;
   min-height: 0;
   overflow: hidden;
@@ -992,41 +1045,67 @@ button:disabled {
   font-size: 13px;
 }
 
-.command-settings-content:has(.custom-command-panel) {
-  grid-template-rows: auto auto minmax(0, 1fr);
-}
-
+/* 名前 + 操作の並び。開閉も段階もない 1 枚のフォーム。 */
 .custom-command-panel {
   display: grid;
-  grid-template-columns: minmax(150px, 1fr) minmax(170px, 1fr) minmax(180px, 1.2fr) auto;
-  align-items: end;
-  gap: var(--space-md);
-  padding: var(--space-sm) var(--space-lg);
+  gap: var(--space-sm);
+  max-height: 42vh;
+  overflow-y: auto;
+  padding: var(--space-md) var(--space-lg);
   border-bottom: 1px solid var(--border-subtle);
   background: var(--surface-soft);
 }
 
-.custom-command-panel label {
+.custom-command-heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-xs) var(--space-md);
+}
+
+.custom-command-heading strong {
+  color: var(--text-primary);
+  font-size: 13px;
+}
+
+.custom-command-heading span {
+  color: var(--text-secondary);
+  font-size: 11.5px;
+}
+
+.custom-command-steps {
   display: grid;
   gap: var(--space-xs);
-  min-width: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.custom-command-step {
+  display: grid;
+  grid-template-columns: 52px minmax(160px, 220px) minmax(0, 1fr) 28px;
+  align-items: center;
+  gap: var(--space-sm);
+}
+
+.custom-command-step-number {
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 650;
 }
 
 .custom-command-value-field {
   display: grid;
-  grid-template-columns: minmax(0, 1fr);
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(0, 1fr);
   gap: var(--space-sm);
   min-width: 0;
 }
 
-.custom-command-value-field:has(label + label) {
-  grid-template-columns: minmax(0, 1fr) 72px;
-}
-
-.custom-command-panel label > span {
-  color: var(--text-secondary);
-  font-size: 11px;
-  font-weight: 650;
+.custom-command-actions {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-sm);
 }
 
 .custom-command-panel input,
@@ -1035,18 +1114,13 @@ button:disabled {
   width: 100%;
   min-width: 0;
   height: 32px;
+  padding: 0 var(--space-sm);
   border: 1px solid var(--border);
   border-radius: var(--radius-control);
   background: var(--background);
   color: var(--text-primary);
   font: inherit;
   font-size: 12.5px;
-}
-
-.custom-command-panel input,
-.custom-command-panel .ui-select,
-.custom-command-color-button {
-  padding: 0 var(--space-sm);
 }
 
 .custom-command-color-button {
@@ -2868,6 +2942,22 @@ button:disabled {
   color: var(--accent);
 }
 
+/* 見出しは、選ぶ前に大きさの違いが分かるよう、それぞれの重みで並べる。 */
+.block-style-option-h1 .font-family-menu-option-label {
+  font-size: 16px;
+  font-weight: 760;
+}
+
+.block-style-option-h2 .font-family-menu-option-label {
+  font-size: 14.5px;
+  font-weight: 720;
+}
+
+.block-style-option-h3 .font-family-menu-option-label {
+  font-size: 13.5px;
+  font-weight: 700;
+}
+
 .font-family-menu-empty {
   margin: var(--space-none);
   padding: var(--space-md) var(--space-sm);
@@ -3253,6 +3343,18 @@ button:disabled {
   flex: 1;
 }
 
+/* The palette's own opacity slider, under the summary that reports it. The track and thumb are
+   the colour dialog's alpha slider (see `.color-picker-alpha-slider`). */
+.color-palette-opacity {
+  display: grid;
+  gap: 6px;
+}
+
+.color-palette-opacity-slider:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
 /*
  * The colour-creation dialog.
  *
@@ -3344,7 +3446,8 @@ button:disabled {
   min-width: 0;
 }
 
-.color-picker-sliders input[type="range"] {
+.color-picker-sliders input[type="range"],
+.color-palette-opacity-slider {
   -webkit-appearance: none;
   appearance: none;
   width: 100%;
@@ -3355,18 +3458,21 @@ button:disabled {
   cursor: pointer;
 }
 
-.color-picker-sliders input[type="range"]:focus-visible {
+.color-picker-sliders input[type="range"]:focus-visible,
+.color-palette-opacity-slider:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
 
-.color-picker-sliders input[type="range"]::-webkit-slider-runnable-track {
+.color-picker-sliders input[type="range"]::-webkit-slider-runnable-track,
+.color-palette-opacity-slider::-webkit-slider-runnable-track {
   height: 12px;
   border: 1px solid var(--border);
   border-radius: var(--radius-round, 999px);
 }
 
-.color-picker-sliders input[type="range"]::-webkit-slider-thumb {
+.color-picker-sliders input[type="range"]::-webkit-slider-thumb,
+.color-palette-opacity-slider::-webkit-slider-thumb {
   -webkit-appearance: none;
   appearance: none;
   width: 12px;
@@ -3777,40 +3883,8 @@ button:disabled {
 
 .column-rule-heading { margin: 16px 0 8px; font-size: 13px; font-weight: 600; }
 
-/* タブが狭くても、先頭文字をアイコンや省略記号で隠さない。 */
-.document-tab-initial,
-.workspace-tab-initial {
-  display: none;
-}
-
-@container (max-width: 95px) {
-  .document-tab-main,
-  .workspace-group-tab > button:first-child[role="tab"] {
-    gap: 0;
-    padding-inline: 4px;
-  }
-
-  .document-tab-main > svg,
-  .document-tab-main > .document-tab-save-dot,
-  .document-tab-main > .document-tab-title,
-  .workspace-group-tab > button:first-child > svg,
-  .workspace-group-tab > button:first-child > .workspace-tab-title {
-    display: none;
-  }
-
-  .document-tab-main > .document-tab-initial,
-  .workspace-group-tab > button:first-child > .workspace-tab-initial {
-    display: inline;
-    flex: 0 0 auto;
-    text-overflow: clip;
-  }
-}
-
-/* タブが狭くても、先頭文字をアイコンや省略記号で隠さない。 */
-.document-tab-initial {
-  display: none;
-}
-
+/* タブが狭くても、タイトルを頭文字だけや「…」に潰さない。アイコンと保存の点を畳んで
+   場所を空け、入りきらない分は右端でフェードさせる (フェードの規則は .document-tab-title)。 */
 @container (max-width: 95px) {
   .document-tab-main {
     gap: 0;
@@ -3818,15 +3892,8 @@ button:disabled {
   }
 
   .document-tab-main > svg,
-  .document-tab-main > .document-tab-save-dot,
-  .document-tab-main > .document-tab-title {
+  .document-tab-main > .document-tab-save-dot {
     display: none;
-  }
-
-  .document-tab-main > .document-tab-initial {
-    display: inline;
-    flex: 0 0 auto;
-    text-overflow: clip;
   }
 }
 
@@ -3840,10 +3907,16 @@ button:disabled {
 }
 
 .workspace-tab-cluster {
+  /* 囲みの余白と番号の分 (分割時だけ持つ)。 */
+  --cluster-extra: 0px;
   display: flex;
   align-items: end;
   gap: var(--space-xs);
-  min-width: 0;
+  /* 囲みは、中のタブが最小幅まで縮んだ幅より狭くならない。0 のままだとタブの最小幅を
+     割って囲みだけが縮み、はみ出したタブが隣の囲みに重なって二重に見える。足りない分は
+     列のスクロールで受ける。--cluster-tabs は WorkspaceTabStrip が囲みのタブ数を渡す。
+     2px は末尾のドロップ位置の印 (.workspace-tab-drop-marker) の幅。 */
+  min-width: calc(var(--cluster-tabs, 1) * (var(--document-tab-min-width) + var(--space-xs)) + 2px + var(--cluster-extra));
   border-radius: 10px 10px 0 0;
 }
 
@@ -3852,6 +3925,8 @@ button:disabled {
 }
 
 .workspace-tabs-row[data-grouped="true"] .workspace-tab-cluster {
+  /* 左右の余白 6px x 2 + 番号 18px + 番号との間隔。 */
+  --cluster-extra: calc(12px + 18px + var(--space-xs));
   padding: 3px 6px 0;
   background: var(--surface-strong);
 }

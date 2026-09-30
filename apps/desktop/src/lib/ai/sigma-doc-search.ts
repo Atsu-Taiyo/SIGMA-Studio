@@ -132,6 +132,7 @@ function searchBlock(block: SigmaBlock | RichBlock, areaPath: string, context: S
 
   if (block.type === "boxBlock") {
     searchInlineNodes(block.title ?? [], block.id, "boxBlock", areaPath, context);
+    searchInlineNodes(block.subtitle ?? [], block.id, "boxBlock", areaPath, context);
     searchBoxBlockChildren(block.blocks, areaPath, context);
     return;
   }

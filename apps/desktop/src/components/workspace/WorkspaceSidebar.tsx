@@ -1,6 +1,6 @@
 "use client";
 
-import { Building2, ChevronRight, FileText, Folder, Plus, Share2 } from "lucide-react";
+import { Bookmark, Building2, ChevronRight, FileText, Folder, MessageSquare, Plus, Share2 } from "lucide-react";
 import type { CSSProperties, Dispatch, DragEvent as ReactDragEvent, MouseEvent as ReactMouseEvent, SetStateAction } from "react";
 
 import { SHARED_ITEMS_WORKSPACE_ID } from "@/lib/runtime/shared-catalog";
@@ -10,12 +10,21 @@ import type { WorkspaceSummary } from "@/lib/runtime/types";
 import type { WorkspaceFileSummary, WorkspaceFolderSummary } from "@/lib/workspace-repository";
 
 import type { WorkspaceDropTarget } from "./workspace-drag";
+import type { WorkspacePanel } from "./workspace-panels-model";
 import { resolveFileDisplayName } from "./workspace-format";
 import { WorkspaceInlineRenameInput } from "./WorkspaceInlineRenameInput";
 import type { WorkspaceInlineRenameTarget } from "./use-inline-rename";
 import { useT } from "@/lib/i18n/react";
 
 interface WorkspaceSidebarProps {
+  /** 細いアイコン列へ畳む。ワークスペースの一覧とツリーは畳んでいる間は出さない。 */
+  collapsed: boolean;
+  panel: WorkspacePanel;
+  /** コメント一覧は共同編集が使える環境でだけ出す。 */
+  commentsAvailable: boolean;
+  /** 自分宛ての未解決コメントの数。 */
+  mentionCount: number;
+  onSelectPanel: (panel: WorkspacePanel) => void;
   menuKey?: string | null;
   visibleWorkspaces: WorkspaceSummary[];
   activeWorkspaceId: string | null;
@@ -49,6 +58,11 @@ interface WorkspaceSidebarProps {
 }
 
 export function WorkspaceSidebar({
+  collapsed,
+  panel,
+  commentsAvailable,
+  mentionCount,
+  onSelectPanel,
   menuKey,
   visibleWorkspaces,
   activeWorkspaceId,
@@ -125,9 +139,10 @@ export function WorkspaceSidebar({
           </button>
           <button
             type="button"
-            className={`workspace-tree-item ${effectiveFolderFilter === folder.id ? "active" : ""}`}
+            className={`workspace-tree-item ${panel === "files" && effectiveFolderFilter === folder.id ? "active" : ""}`}
             onContextMenu={(event) => onFolderContextMenu(event, folder.id)}
             onClick={() => {
+              onSelectPanel("files");
               setFolderFilter(folder.id);
               setSearchQuery("");
               if (hasChildren) {
@@ -151,16 +166,45 @@ export function WorkspaceSidebar({
   };
 
   return (
-    <aside className="workspace-sidebar" aria-label={t("nav.workspace")}>
+    <aside id="workspace-sidebar" className="workspace-sidebar" data-collapsed={collapsed} aria-label={t("nav.workspace")}>
       <button
         type="button"
         className="workspace-new-button"
+        aria-label={t("action.new")}
+        title={collapsed ? t("action.new") : undefined}
         onClick={onNewButtonClick}
       >
         <Plus size={18} />
         <span>{t("action.new")}</span>
       </button>
-      <nav className="workspace-nav" aria-label={t("nav.workspaceList")}>
+      <nav className="workspace-nav workspace-nav-panels" aria-label={t("nav.panels")}>
+        {commentsAvailable && (
+          <button
+            type="button"
+            className={`workspace-nav-item ${panel === "comments" ? "active" : ""}`}
+            aria-current={panel === "comments" ? "page" : undefined}
+            aria-label={mentionCount > 0 ? t("nav.commentsUnread", { replace: { count: mentionCount } }) : t("nav.comments")}
+            title={collapsed ? t("nav.comments") : undefined}
+            onClick={() => onSelectPanel("comments")}
+          >
+            <MessageSquare size={16} aria-hidden="true" />
+            <span className="workspace-nav-name">{t("nav.comments")}</span>
+            {mentionCount > 0 && <span className="workspace-nav-count" aria-hidden="true">@{mentionCount}</span>}
+          </button>
+        )}
+        <button
+          type="button"
+          className={`workspace-nav-item ${panel === "bookmarks" ? "active" : ""}`}
+          aria-current={panel === "bookmarks" ? "page" : undefined}
+          aria-label={t("nav.bookmarks")}
+          title={collapsed ? t("nav.bookmarks") : undefined}
+          onClick={() => onSelectPanel("bookmarks")}
+        >
+          <Bookmark size={16} aria-hidden="true" />
+          <span className="workspace-nav-name">{t("nav.bookmarks")}</span>
+        </button>
+      </nav>
+      {!collapsed && <nav className="workspace-nav" aria-label={t("nav.workspaceList")}>
         <span className="workspace-nav-label">{t("nav.workspace")}</span>
         {visibleWorkspaces.map((workspace) => {
           const target = `workspace:${workspace.id}` as const;
@@ -189,14 +233,17 @@ export function WorkspaceSidebar({
                 <div className="workspace-nav-row">
                 <button
                   type="button"
-                  className={`workspace-nav-item ${active ? "active" : ""} ${dropTarget === target ? "drop-active" : ""}`}
+                  className={`workspace-nav-item ${active && panel === "files" ? "active" : ""} ${dropTarget === target ? "drop-active" : ""}`}
                   onClick={() => {
+                    onSelectPanel("files");
                     if (!active) {
                       setWorkspaceTreeExpanded(workspace.sharing?.placement === "incoming");
                       setExpandedFolderIds(new Set());
                       onSwitchWorkspace(workspace.id);
                       return;
                     }
+                    // 別の面から戻ってきたときは、一覧へ戻すだけでツリーは畳み直さない。
+                    if (panel !== "files") return;
                     setWorkspaceTreeExpanded((expanded) => !expanded);
                   }}
                   onContextMenu={(event) => onWorkspaceContextMenu(event, workspace.id)}
@@ -226,7 +273,7 @@ export function WorkspaceSidebar({
             </div>
           );
         })}
-      </nav>
+      </nav>}
     </aside>
   );
 }

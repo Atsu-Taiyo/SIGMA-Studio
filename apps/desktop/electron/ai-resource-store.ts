@@ -5,6 +5,15 @@ import path from "node:path";
 import { composeSkillFile, parseSkillFile } from "@/lib/ai/skill-frontmatter";
 import { createCurrentLocaleTranslator } from "@/lib/i18n";
 
+import { OFFICIAL_SKILL_DEFINITIONS, type OfficialSkillDefinition } from "./official-skill-definitions";
+
+export {
+  OFFICIAL_GRAPH_SKILL_ID,
+  OFFICIAL_IMAGE_MATERIAL_SKILL_ID,
+  OFFICIAL_SKILL_DEFINITIONS,
+  OFFICIAL_SVG_FIGURE_SKILL_ID,
+} from "./official-skill-definitions";
+
 const ta = createCurrentLocaleTranslator("ai");
 
 const DATA_DIR_NAME = "data";
@@ -16,8 +25,6 @@ const SYNC_MANIFEST_FILE_NAME = ".sync-manifest.json";
 // ワークスペース指示は `workspace-instructions:<workspaceId>` で、初回保存まで
 // manifest に存在しない(空扱い)。
 export const GLOBAL_INSTRUCTIONS_ID = "global-instructions";
-export const OFFICIAL_IMAGE_MATERIAL_SKILL_ID = "official-image-material";
-export const OFFICIAL_GRAPH_SKILL_ID = "official-graph";
 const ALL_PROVIDERS: AiResourceProvider[] = ["codex", "claude", "antigravity"];
 
 export type AiResourceKind = "instruction" | "skill";
@@ -146,33 +153,6 @@ const GLOBAL_INSTRUCTIONS_ENTRY: Omit<AiResourceManifestEntry, "updatedAt"> = {
   workspaceId: null,
 };
 
-interface OfficialSkillDefinition {
-  id: string;
-  title: string;
-  sourcePath: string;
-  description: string;
-  tags: string[];
-  bundledPath: string;
-}
-
-const OFFICIAL_SKILL_DEFINITIONS: OfficialSkillDefinition[] = [
-  {
-    id: OFFICIAL_IMAGE_MATERIAL_SKILL_ID,
-    title: "画像からSigma Studio教材を作成",
-    sourcePath: "skills/sigma-image-material-reconstruction/SKILL.md",
-    description: "画像、写真、スクリーンショット、手書きラフを基に、本文・数式・表・グラフ・図形・注記を編集可能なSigma Studio教材として再構成するときに使う。",
-    tags: ["画像", "教材再構成", "OCR", "図形"],
-    bundledPath: "sigma-image-material-reconstruction/SKILL.md",
-  },
-  {
-    id: OFFICIAL_GRAPH_SKILL_ID,
-    title: "グラフを挿入・更新する",
-    sourcePath: "skills/sigma-graph-editing/SKILL.md",
-    description: "Sigma Studio教材で関数グラフ、座標平面、数直線、領域図を挿入・更新し、軸・曲線・点・ラベルまで検証するときに使う。",
-    tags: ["グラフ", "Graph2D", "関数", "座標"],
-    bundledPath: "sigma-graph-editing/SKILL.md",
-  },
-];
 /* eslint-enable no-restricted-syntax */
 
 export interface LocalAiResourceStoreOptions {
@@ -753,11 +733,16 @@ export class LocalAiResourceStore {
    */
   private async seedOfficialSkillsOnce(): Promise<void> {
     await fs.mkdir(path.join(this.sourceRoot, "instructions"), { recursive: true });
-    // ユーザー編集欄(グローバル「AIへの指示」)は空でseedする。旧デフォルト文が担っていた
-    // 基盤ルール(SigmaDoc JSONが正本・編集はMCP提案ツール経由・日本語応答など)は、
+    // ユーザー編集欄(グローバル「AIへの指示」)には、新規インストールでだけ運用ルール(進め方・
+    // 教材の書き方・報告)の初期文を入れる。既存のglobal.mdは空でも上書きしない。基盤ルール
+    // (SigmaDoc JSONが正本・編集はMCP提案ツール経由・日本語応答など)はここに複製せず、
     // ユーザー非可視の組み込みプロンプト(SIGMA_DOC_AI_CONTEXT_PROMPT /
     // MCP_EDIT_TURN_HARD_RULES / MCP_EDIT_INVARIANT_GUIDANCE)側で全provider・毎runに届く。
-    await writeIfMissing(path.join(this.sourceRoot, "instructions", "global.md"), "");
+    // 初期文は作成時の表示言語で保存され、以後はユーザーのファイルとして扱う。
+    await writeIfMissing(
+      path.join(this.sourceRoot, "instructions", "global.md"),
+      ta("desktop.resource.defaultGlobalInstructions"),
+    );
     const manifest = await this.readManifestFile();
     let changed = false;
     if (!manifest.resources.some((item) => item.id === GLOBAL_INSTRUCTIONS_ID)) {

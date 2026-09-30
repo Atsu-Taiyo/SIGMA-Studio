@@ -19,6 +19,7 @@ export type PointHandle =
   | { type: "arc"; endpoint: "start" | "end" }
   | { type: "arcRadius" }
   | { type: "triangleApex" }
+  | { type: "solidVertex"; index: number }
   | { type: "blockArrowHead" }
   | { type: "blockArrowShaft" }
   | { type: "calloutTailTip" }

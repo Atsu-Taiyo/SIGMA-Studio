@@ -110,6 +110,13 @@ function compareByUpdatedAt(a: WorkspaceRow, b: WorkspaceRow, direction: Workspa
   return COLLATOR.compare(a.name, b.name);
 }
 
+export function resolveSearchLocation(row: WorkspaceRow, folders: WorkspaceFolderSummary[], workspaces: WorkspaceOverview["workspaces"]): string {
+  const item = row.kind === "file" ? row.file : row.folder;
+  const parentId = row.kind === "file" ? row.file.folderId : row.folder.parentFolderId;
+  const workspace = workspaces.find(w => w.id === item.workspaceId);
+  return [workspace?.name, ...buildFolderPath(folders.filter(f => f.workspaceId === item.workspaceId), parentId).map(f => f.name)].filter(Boolean).join(" / ");
+}
+
 export interface ResolveRowLocationContext {
   folders: WorkspaceFolderSummary[];
   workspaceName: string;

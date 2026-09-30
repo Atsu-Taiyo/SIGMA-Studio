@@ -116,6 +116,40 @@ describe("ColorPalette", () => {
     expect(html).toContain('aria-selected="true"');
   });
 
+  it("puts the opacity slider in the palette itself, not only behind the plus button", () => {
+    const html = renderToStaticMarkup(
+      <ColorPalette value="#ff0000" opacity={0.35} onChange={() => {}} onOpacityChange={() => {}} />,
+    );
+
+    expect(html).toContain('type="range"');
+    expect(html).toContain('aria-label="不透明度"');
+    expect(html).toContain('value="35"');
+    expect(html).toContain("不透明度 35%");
+  });
+
+  it("shows no slider unless the caller can also receive what it sets", () => {
+    // `opacity` alone is what the swatch dialog needs; a slider with nowhere to send its value
+    // would move and change nothing.
+    const withoutHandler = renderToStaticMarkup(<ColorPalette value="#ff0000" opacity={0.35} onChange={() => {}} />);
+    const withoutOpacity = renderToStaticMarkup(<ColorPalette value="#ff0000" onChange={() => {}} onOpacityChange={() => {}} />);
+
+    expect(withoutHandler).not.toContain('type="range"');
+    expect(withoutOpacity).not.toContain('type="range"');
+  });
+
+  it("leaves the slider off a fill that is not there, but not off a disagreeing selection", () => {
+    const noFill = renderToStaticMarkup(
+      <ColorPalette value={null} opacity={1} allowTransparent onChange={() => {}} onOpacityChange={() => {}} />,
+    );
+    const mixed = renderToStaticMarkup(
+      <ColorPalette value={null} opacity={1} mixed allowTransparent onChange={() => {}} onOpacityChange={() => {}} />,
+    );
+
+    expect(noFill).toMatch(/<input[^>]*type="range"[^>]*disabled=""/);
+    expect(mixed).toContain('type="range"');
+    expect(mixed).not.toMatch(/<input[^>]*type="range"[^>]*disabled=""/);
+  });
+
   it("has one way in to editing a colour, and it is the plus button", () => {
     // The summary row keeps reporting the state; what it no longer carries is a second edit button
     // pointing at the same dialog.

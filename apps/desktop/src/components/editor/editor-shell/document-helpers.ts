@@ -46,6 +46,8 @@ export function sameOverlaySelectionSummary(a: OverlaySelectionSummary, b: Overl
     a.canStyleLineEndpoints === b.canStyleLineEndpoints &&
     a.arrowheadStart === b.arrowheadStart &&
     a.arrowheadEnd === b.arrowheadEnd &&
+    a.solidEdge?.shapeId === b.solidEdge?.shapeId &&
+    a.solidEdge?.index === b.solidEdge?.index &&
     sameSharedFill(a.fill, b.fill) &&
     sameStringItems(a.selectedShapeIds, b.selectedShapeIds) &&
     sameSelectedShapes(a.selectedShapes, b.selectedShapes) &&

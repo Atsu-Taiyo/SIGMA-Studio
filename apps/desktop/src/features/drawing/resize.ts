@@ -2,6 +2,7 @@ import type { OverlayBounds, OverlayPoint, OverlayShape } from "@/features/docum
 
 import type { OverlayInteractionMode, ResizeHandle } from "./interaction-mode";
 import { dragSign } from "./math";
+import { getSolidKind, getSolidNaturalAspect, hasCustomSolidPoints } from "./solid-geometry";
 
 const EQUILATERAL_TRIANGLE_HEIGHT_RATIO = Math.sqrt(3) / 2;
 
@@ -94,6 +95,14 @@ export function getRegularResizeAspect(shapes: readonly OverlayShape[]): number 
   const shape = shapes[0];
   if (shape.type !== "geo") {
     return null;
+  }
+
+  // 立体は既定の見え方の縦横比にそろえる。頂点を動かした後は元の比が無いので、いまの枠の比を保つ。
+  const solid = getSolidKind(shape);
+  if (solid) {
+    return hasCustomSolidPoints(shape)
+      ? shape.props.h / Math.max(1, shape.props.w)
+      : getSolidNaturalAspect(solid);
   }
 
   return shape.props.geo === "triangle"

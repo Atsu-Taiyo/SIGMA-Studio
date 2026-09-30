@@ -53,6 +53,21 @@ describe("workspace-preview ipc", () => {
     await fs.rm(userDataPath, { recursive: true, force: true });
   });
 
+  it("passes only the text-only option to the shared document loader", async () => {
+    const loadSharedDocument = vi.fn().mockResolvedValue(null);
+    registerWorkspacePreviewIpc({ userDataPath, loadSharedDocument });
+    const frame = {}; const event = { senderFrame: frame, sender: { mainFrame: frame } };
+    const load = mocks.handlers.get("workspace-preview:shared-document")!;
+    await load(event, "file");
+    expect(loadSharedDocument).toHaveBeenLastCalledWith("file");
+    await load(event, "file", { assets: false });
+    expect(loadSharedDocument).toHaveBeenLastCalledWith("file", { assets: false });
+    await load(event, "file", { assets: "no", extra: true });
+    expect(loadSharedDocument).toHaveBeenLastCalledWith("file");
+    await load(event, "file", "assets");
+    expect(loadSharedDocument).toHaveBeenLastCalledWith("file");
+  });
+
   it("returns a cached PNG and rejects malformed puts", async () => {
     await writeWorkspacePreviewPng(userDataPath, "file_a", 4, PNG_DATA_URL);
     const get = mocks.handlers.get("workspace-preview:get");

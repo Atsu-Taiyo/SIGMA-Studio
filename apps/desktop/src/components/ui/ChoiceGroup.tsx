@@ -1,17 +1,22 @@
 "use client";
 
 import { useRef } from "react";
-import type { KeyboardEvent as ReactKeyboardEvent } from "react";
-import type { LucideIcon } from "lucide-react";
+import type { ComponentType, KeyboardEvent as ReactKeyboardEvent } from "react";
 
 import { Grid } from "./layout";
 import styles from "./ChoiceGroup.module.css";
+
+/**
+ * What a card draws above its label. A lucide icon fits, and so does any component that paints one
+ * glyph at `size` — a site's own logo, say — as long as it stays out of the accessible name.
+ */
+export type ChoiceGroupIcon = ComponentType<{ size?: number; className?: string; "aria-hidden"?: boolean }>;
 
 export interface ChoiceGroupOption<T extends string> {
   value: T;
   /** The accessible name and the card's short label — the same words, so they cannot drift. */
   label: string;
-  icon: LucideIcon;
+  icon: ChoiceGroupIcon;
 }
 
 export interface ChoiceGroupProps<T extends string> {

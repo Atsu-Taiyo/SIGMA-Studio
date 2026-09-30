@@ -1,0 +1,72 @@
+/* Hub (新しいタブ)。中央に寄せず、ツールの一覧とおすすめを左揃えで縦に並べる。
+   余白はスペーシングトークンだけを使い、区切りは薄い面の差で示す。 */
+.hub {
+  display: flex;
+  min-height: 0;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: var(--space-xl);
+  padding: var(--space-lg);
+  overflow-y: auto;
+}
+
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+
+.heading {
+  margin: 0;
+  padding: 0 var(--space-xs);
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.tools {
+  display: flex;
+  margin: 0;
+  padding: 0;
+  flex-direction: column;
+  gap: var(--space-xs);
+  list-style: none;
+}
+
+.tool {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: var(--space-md);
+  padding: var(--space-md);
+  border: 0;
+  border-radius: var(--radius-control);
+  background: var(--surface-soft);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+  transition: background 140ms ease;
+}
+
+.tool > svg {
+  flex: 0 0 auto;
+  color: var(--text-secondary);
+}
+
+.tool:hover {
+  background: var(--surface-muted);
+}
+
+.tool:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent) 32%, transparent);
+  outline-offset: 1px;
+}
+
+.notice {
+  margin: 0;
+  padding: 0 var(--space-xs);
+  color: var(--text-muted);
+  font-size: 11px;
+}

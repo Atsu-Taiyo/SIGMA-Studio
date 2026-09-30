@@ -51,7 +51,7 @@ test("text color button is not stuck in the selected state", async ({ page }) =>
     document.dispatchEvent(new Event("selectionchange"));
   });
 
-  const colorButton = page.getByRole("button", { name: "文字色" });
+  const colorButton = page.locator(".editor-menubar").getByRole("button", { name: "文字色" });
   await expect(colorButton).toBeVisible();
   await expect(colorButton).toBeEnabled();
   await expect(colorButton).not.toHaveClass(/active/);

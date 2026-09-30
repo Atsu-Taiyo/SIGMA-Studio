@@ -236,9 +236,17 @@ describe("getSelectionActionPopoverPosition", () => {
       rect({ left: 120, top: 200, width: 80, height: 24 }),
       { viewport: { width: 800, height: 600 } },
     )).toEqual({
-      left: 104,
+      left: 55,
       top: 154,
+      centerX: 160,
     });
+  });
+
+  it("reports the selection centre so the popover can be centred on its measured width", () => {
+    expect(getSelectionActionPopoverPosition(
+      rect({ left: 400, top: 200, width: 80, height: 24 }),
+      { viewport: { width: 800, height: 600 } },
+    )).toEqual({ left: 335, top: 154, centerX: 440 });
   });
 
   it("moves overlay selection actions above the rotate handle clearance", () => {
@@ -246,8 +254,9 @@ describe("getSelectionActionPopoverPosition", () => {
       rect({ left: 120, top: 200, width: 80, height: 24 }),
       { verticalClearance: 42, viewport: { width: 800, height: 600 } },
     )).toEqual({
-      left: 104,
+      left: 55,
       top: 120,
+      centerX: 160,
     });
   });
 
@@ -256,8 +265,9 @@ describe("getSelectionActionPopoverPosition", () => {
       rect({ left: 120, top: 40, width: 80, height: 24 }),
       { verticalClearance: 42, viewport: { width: 800, height: 600 } },
     )).toEqual({
-      left: 104,
+      left: 55,
       top: 72,
+      centerX: 160,
     });
   });
 });
@@ -471,6 +481,7 @@ describe("isFlowBlockFragmentable", () => {
       "titlebox",
       "bandbox",
       "itembox",
+      "splitbox",
       "theorembox",
       "tabbox",
       "tcolorbox",

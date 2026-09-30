@@ -2,6 +2,7 @@ import type { Editor as TiptapEditor } from "@tiptap/core";
 import type { EditorState } from "@tiptap/pm/state";
 import type { EditorView } from "@tiptap/pm/view";
 import { readSelectionFontSize } from "./text-format-font-size";
+import { isBoxTitleNodeName } from "./node-queries";
 
 import {
   type BoxedVariant,
@@ -322,7 +323,7 @@ export function resolveBoxFontContext(state: EditorState): {
   let inBoxTitle = false;
   for (let depth = $from.depth; depth > 0; depth -= 1) {
     const node = $from.node(depth);
-    if (node.type.name === "boxBlockTitle") {
+    if (isBoxTitleNodeName(node.type.name)) {
       inBoxTitle = true;
     }
     if (node.type.name === "boxBlock") {

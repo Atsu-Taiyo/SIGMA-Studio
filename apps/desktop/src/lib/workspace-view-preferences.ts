@@ -12,6 +12,8 @@ export interface WorkspaceViewPreference {
   mode: WorkspaceViewMode;
   sortKey: WorkspaceSortKey;
   sortDirection: WorkspaceSortDirection;
+  /** 左サイドバーを細いアイコン列へ畳む。表示形式と同じく次回起動時も維持する。 */
+  sidebarCollapsed: boolean;
 }
 
 const STORAGE_KEY = "sigma-studio:workspace-view-preference";
@@ -21,6 +23,7 @@ const DEFAULT_PREFERENCE: WorkspaceViewPreference = {
   mode: "grid",
   sortKey: "updatedAt",
   sortDirection: "desc",
+  sidebarCollapsed: false,
 };
 
 function isWorkspaceViewMode(value: unknown): value is WorkspaceViewMode {
@@ -54,6 +57,9 @@ function readWorkspaceViewPreference(): WorkspaceViewPreference {
       sortDirection: isWorkspaceSortDirection(parsed.sortDirection)
         ? parsed.sortDirection
         : DEFAULT_PREFERENCE.sortDirection,
+      sidebarCollapsed: typeof parsed.sidebarCollapsed === "boolean"
+        ? parsed.sidebarCollapsed
+        : DEFAULT_PREFERENCE.sidebarCollapsed,
     };
   } catch {
     return DEFAULT_PREFERENCE;

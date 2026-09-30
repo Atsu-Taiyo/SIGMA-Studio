@@ -63,6 +63,7 @@ import { PAGE_GAP_PX } from "@/features/document";
 import { mergeEditorExtensionSets } from "@/components/editor/webmcp/webmcp-editor-extensions";
 
 import { useAiEditorExtensions } from "./editor-extensions";
+import { ProblemFrameChatNotices } from "./view/ProblemFrameChatNotices";
 import type { AiProposalApplyOutcome } from "./application/proposal-action-model";
 
 const OVERLAY_APPROVAL_WIDGET_WIDTH = 272;
@@ -171,11 +172,18 @@ function AiEnabledPageCanvasEditor({
   });
 
   return (
-    <PageCanvasEditor
-      {...pageEditorProps}
-      editorExtensions={editorExtensions}
-      pageExtension={extension}
-    />
+    <>
+      <PageCanvasEditor
+        {...pageEditorProps}
+        editorExtensions={editorExtensions}
+        pageExtension={extension}
+      />
+      <ProblemFrameChatNotices
+        documentIdentityKey={documentIdentityKey}
+        document={pageEditorProps.document}
+        onChange={pageEditorProps.onChange}
+      />
+    </>
   );
 }
 
@@ -615,6 +623,7 @@ function createSelectionAction({
         title={t("reference.addToAi")}
         aria-label={t("reference.addToAi")}
         data-reference-kind={referenceKind}
+        className="selection-action-labeled"
         onClick={(event) => {
           event.stopPropagation();
           const latest = buildReference(getDocument());
@@ -628,7 +637,8 @@ function createSelectionAction({
           );
         }}
       >
-        <WandSparkles size={16} />
+        <WandSparkles size={16} aria-hidden="true" />
+        <span>{t("reference.addToAiShort")}</span>
       </button>
     ),
   };

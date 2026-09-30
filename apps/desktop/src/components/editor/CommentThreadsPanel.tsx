@@ -1,7 +1,7 @@
 "use client";
 
-import { Fragment, useLayoutEffect, useMemo, useRef, useState } from "react";
-import type { CSSProperties } from "react";
+import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import type { CSSProperties, ReactNode } from "react";
 import { Check, MessageSquarePlus, MoreHorizontal, Pencil, Reply, RotateCcw, Search, Smile, Trash2 } from "lucide-react";
 
 import { CommentAuthorAvatar } from "@/components/editor/CommentAuthorAvatar";
@@ -25,7 +25,9 @@ import type { AppLocale } from "@/lib/i18n";
 import { useAppLocale, useT } from "@/lib/i18n/react";
 import type { SigmaCommentAgent, SigmaCommentAnchor, SigmaCommentMessage, SigmaCommentReaction, SigmaCommentThread, SigmaDocument, InlineNode } from "@/features/document";
 
-import type { LoadCommentMentionCandidates } from "./comment-mentions";
+import { splitCommentAiMentions } from "@/lib/comment-agent-mentions";
+
+import type { CommentMentionCandidate, LoadCommentMentionCandidates } from "./comment-mentions";
 
 const COMMENT_CARD_GAP_PX = 12;
 const COMMENT_EMPTY_STATE_HEIGHT_PX = 150;
@@ -126,6 +128,7 @@ export function CommentThreadsPanel({
   const [reactionUsage, setReactionUsage] = useState<CommentReactionUsage>(loadStoredCommentReactionUsage);
   const [recentReactionKey, setRecentReactionKey] = useState<string | null>(null);
   const [expandedReplyThreadIds, setExpandedReplyThreadIds] = useState<Set<string>>(() => new Set());
+  const mentionDirectory = useCommentMentionDirectory({ author, currentUserId, loadMentionCandidates, threads });
   const quickReactionEmojis = useMemo(() => getQuickCommentReactionEmojis(reactionUsage), [reactionUsage]);
   const frequentReactionEmojis = useMemo(() => getFrequentCommentReactionEmojis(reactionUsage), [reactionUsage]);
   const recentReactionEmojis = reactionUsage.recent;
@@ -400,7 +403,7 @@ export function CommentThreadsPanel({
                         onReactionSearchChange={setReactionSearchQuery}
                         onToggleReaction={(emoji) => toggleReaction(thread.id, message.id, emoji)}
                       />
-                      <CommentMessageBody currentUserId={currentUserId} body={message.body} mathFractionSizing={mathFractionSizing} />
+                      <CommentMessageBody currentUserId={currentUserId} body={message.body} mentionDirectory={mentionDirectory} mathFractionSizing={mathFractionSizing} />
                       <CommentReactionBar
                         currentAuthorName={author.name}
                         recentReactionKey={recentReactionKey}
@@ -809,13 +812,67 @@ function CommentQuote({ anchor }: { anchor: SigmaCommentAnchor }) {
   return <blockquote className="comment-anchor-quote">{quote}</blockquote>;
 }
 
+/**
+ * 本文の宛先 (userId) から名前・メール・アイコンを引く表。本文には userId と表示名しか
+ * 保存していないので、メンションがあるスレッドがあるときだけ共同編集者の一覧を読んで補う。
+ * 一覧に居ない人 (共有から外れた人など) は本文の表示名で描く。
+ */
+function useCommentMentionDirectory({ author, currentUserId, loadMentionCandidates, threads }: {
+  author: CommentPanelAuthor;
+  currentUserId?: string;
+  loadMentionCandidates?: LoadCommentMentionCandidates;
+  threads: readonly SigmaCommentThread[];
+}): ReadonlyMap<string, CommentMentionCandidate> {
+  const hasMentions = useMemo(() => threads.some((thread) => thread.messages.some((message) => (
+    message.body.some((node) => node.type === "text" && node.mentionUserId)
+  ))), [threads]);
+  const [loaded, setLoaded] = useState<{ loader: LoadCommentMentionCandidates; members: CommentMentionCandidate[] } | null>(null);
+  useEffect(() => {
+    if (!hasMentions || !loadMentionCandidates) return;
+    let cancelled = false;
+    loadMentionCandidates()
+      .then((members) => { if (!cancelled) setLoaded({ loader: loadMentionCandidates, members }); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [hasMentions, loadMentionCandidates]);
+
+  return useMemo(() => {
+    const directory = new Map<string, CommentMentionCandidate>();
+    for (const member of loaded && loaded.loader === loadMentionCandidates ? loaded.members : []) {
+      directory.set(member.userId, member);
+    }
+    if (currentUserId) {
+      directory.set(currentUserId, { userId: currentUserId, name: author.name, avatarUrl: author.avatarUrl });
+    }
+    return directory;
+  }, [author.avatarUrl, author.name, currentUserId, loaded, loadMentionCandidates]);
+}
+
+/** アイコンと名前を 1 つにまとめた宛先のチップ。詳細 (名前・メール) はツールチップに出す。 */
+function CommentMentionChip({ className, title, avatar, label, userId }: {
+  className: string;
+  title?: string;
+  avatar: ReactNode;
+  label: ReactNode;
+  userId?: string;
+}) {
+  return (
+    <span className={className} data-comment-mention={userId} title={title}>
+      {avatar}
+      <span className="comment-mention-label">{label}</span>
+    </span>
+  );
+}
+
 export function CommentMessageBody({
   currentUserId,
   body,
+  mentionDirectory,
   mathFractionSizing,
 }: {
   body: InlineNode[];
   currentUserId?: string;
+  mentionDirectory?: ReadonlyMap<string, CommentMentionCandidate>;
   mathFractionSizing?: SigmaDocument["metadata"]["mathFractionSizing"] | null;
 }) {
   const t = useT("editor");
@@ -823,9 +880,43 @@ export function CommentMessageBody({
     return <p>{t("comment.emptyBody")}</p>;
   }
 
-  return <p className="rich-inline-content">{body.map((node, index) => node.type === "text" && node.mentionUserId
-    ? <span key={index} className={`comment-mention${node.mentionUserId === currentUserId ? " is-self" : ""}`} data-comment-mention={node.mentionUserId} title={node.mentionUserId === currentUserId ? t("comment.mentionsYou") : undefined}>{renderInlineContent([node], { mathFractionSizing })}</span>
-    : <Fragment key={index}>{renderInlineContent([node], { mathFractionSizing })}</Fragment>)}</p>;
+  return <p className="rich-inline-content">{body.map((node, index) => {
+    if (node.type !== "text") {
+      return <Fragment key={index}>{renderInlineContent([node], { mathFractionSizing })}</Fragment>;
+    }
+
+    if (node.mentionUserId) {
+      const isSelf = node.mentionUserId === currentUserId;
+      const member = mentionDirectory?.get(node.mentionUserId);
+      const name = member?.name ?? node.text.replace(/^[@＠]/u, "");
+      const detail = member?.email && member.email !== name ? `${name} <${member.email}>` : name;
+      return (
+        <CommentMentionChip
+          key={index}
+          className={`comment-mention is-chip${isSelf ? " is-self" : ""}`}
+          userId={node.mentionUserId}
+          title={isSelf ? `${detail} · ${t("comment.mentionsYou")}` : detail}
+          avatar={<CommentAuthorAvatar name={name} avatarUrl={member?.avatarUrl} />}
+          label={renderInlineContent([node], { mathFractionSizing })}
+        />
+      );
+    }
+
+    // AI へのメンション (@claude など) は本文の文字列のまま保存されているので、表示のときに見つけてチップにする。
+    const parts = splitCommentAiMentions(node.text);
+    if (!parts.some((part) => part.agent)) {
+      return <Fragment key={index}>{renderInlineContent([node], { mathFractionSizing })}</Fragment>;
+    }
+    return <Fragment key={index}>{parts.map((part, partIndex) => part.agent
+      ? <CommentMentionChip
+        key={partIndex}
+        className="comment-mention is-chip is-agent"
+        title={t("comment.mentionAgentTitle", { name: part.agent.name })}
+        avatar={<CommentAuthorAvatar name={part.agent.name} agent={{ vendor: part.agent.vendor }} />}
+        label={part.text}
+      />
+      : <Fragment key={partIndex}>{renderInlineContent([{ ...node, text: part.text }], { mathFractionSizing })}</Fragment>)}</Fragment>;
+  })}</p>;
 }
 
 function ComposerActions({

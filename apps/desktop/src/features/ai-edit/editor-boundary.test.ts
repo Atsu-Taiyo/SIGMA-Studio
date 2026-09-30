@@ -235,7 +235,6 @@ describe("AI editor extension boundary", () => {
     expect(namedImportSource(source, "useAiPinnedReferences")).toBe("@/features/ai-edit");
     expect(namedImportSource(source, "useAiProposalActions")).toBe("@/features/ai-edit");
     expect(namedImportSource(source, "useCommentAiRun")).toBe("@/features/ai-edit");
-    expect(namedImportSource(source, "AI_SIDEBAR_WIDTH")).toBe("@/features/ai-edit");
     expect(namedImportSource(source, "AiEditReference")).toBe("@/features/ai-edit");
     expect(namedImportSource(source, "AiEditShapeOnlyPreview")).toBe("@/features/ai-edit");
     expect(namedImportSource(source, "groupMcpProposalsForPreview")).toBe("@/features/ai-edit");

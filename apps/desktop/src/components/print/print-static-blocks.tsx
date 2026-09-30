@@ -11,6 +11,7 @@ import {
   type BoxBlockChildBlock,
   type PaginationHints,
   type ProblemAreaBlock,
+  type ProblemCustomFrame,
   type ProblemAreaColumnSpan,
   type ProblemAreaKind,
   type SigmaBlock,
@@ -20,7 +21,9 @@ import { renderInlineContent } from "@/features/rendering/adapters/react";
 import { getProblemNumberFontSize, getLayoutSectionColumns, getLayoutSectionColumnWidths, migrateLegacyLayoutColumns } from "@/features/text-editing/model";
 import { createIndependentColumnLayout } from "@/features/rendering/core";
 import {
+  boxBlockSubtitleText,
   boxBlockTitleText,
+  boxFrameHasSubtitle,
   boxFrameClassName,
   boxFrameDecorationAttributes,
   boxFrameStyleVars,
@@ -29,6 +32,8 @@ import {
 } from "@/lib/box-blocks";
 import { formatProblemNumber } from "@/lib/problem-numbering";
 import {
+  getProblemCustomFrame,
+  getProblemCustomFrameStyle,
   getProblemFrameStyleId,
   problemFrameClassName,
 } from "@/lib/problem-frame";
@@ -85,6 +90,7 @@ export type PrintContentUnit =
       numberFontSize: number;
       hasFrame: boolean;
       frameStyleId?: string;
+      frameCustom?: ProblemCustomFrame;
       isFirstProblemArea: boolean;
       isLastProblemArea: boolean;
       isFirstProblemFrameArea: boolean;
@@ -108,6 +114,7 @@ export type PrintContentUnit =
       numberFontSize: number;
       hasFrame: boolean;
       frameStyleId?: string;
+      frameCustom?: ProblemCustomFrame;
       columnSpan?: ProblemAreaColumnSpan;
       isFirstProblemArea: boolean;
       isLastProblemArea: boolean;
@@ -155,6 +162,9 @@ export function buildProblemAreaPrintUnits(
     frameStyleId: problem.frame?.enabled === true && isProblemFrameArea(areaUnit.area)
       ? getProblemFrameStyleId(problem)
       : undefined,
+    frameCustom: problem.frame?.enabled === true && isProblemFrameArea(areaUnit.area)
+      ? getProblemCustomFrame(problem)
+      : undefined,
     isFirstProblemArea: index === 0,
     isLastProblemArea: index === areas.length - 1,
     isFirstProblemFrameArea: areaUnit.area === firstFrameArea,
@@ -201,6 +211,7 @@ export function PrintBlock({
         numberFontSize={unit.numberFontSize}
         hasFrame={unit.hasFrame}
         frameStyleId={unit.frameStyleId}
+        frameCustom={unit.frameCustom}
         isFirstProblemArea={unit.isFirstProblemArea}
         isFirstProblemFrameArea={unit.hasFrame && isFirstFragment}
         isLastProblemFrameArea={unit.hasFrame && isLastFragment}
@@ -379,6 +390,9 @@ export function PrintBoxBlock({
 }) {
   const frame = resolveBoxFrame(block);
   const hasTitle = boxBlockTitleText(block).length > 0;
+  // 2 欄の見出しは、どちらかに文字があれば両方の欄を出す (欄が欠けると grid の列がずれる)。
+  const hasSubtitleCell = boxFrameHasSubtitle(frame);
+  const hasHeader = hasTitle || (hasSubtitleCell && boxBlockSubtitleText(block).length > 0);
   const blocks = fragmentBlocks ?? block.blocks;
   const fragmentClass = fragmentRole ? ` print-box-fragment print-box-fragment-${fragmentRole}` : "";
   const style = {
@@ -400,9 +414,14 @@ export function PrintBoxBlock({
       <span className="print-box-corner top-right" aria-hidden="true" />
       <span className="print-box-corner bottom-left" aria-hidden="true" />
       <span className="print-box-corner bottom-right" aria-hidden="true" />
-      {includeTitle && hasTitle && (
+      {includeTitle && hasHeader && (
         <div className="print-box-title">
           {renderInlineContent(block.title ?? [], { keyPrefix: `${block.id}-title`, mathFractionSizing })}
+        </div>
+      )}
+      {includeTitle && hasHeader && hasSubtitleCell && (
+        <div className="print-box-title print-box-subtitle">
+          {renderInlineContent(block.subtitle ?? [], { keyPrefix: `${block.id}-subtitle`, mathFractionSizing })}
         </div>
       )}
       <div className="print-box-body">
@@ -463,6 +482,7 @@ export function PrintProblemArea({
   numberFontSize,
   hasFrame,
   frameStyleId,
+  frameCustom,
   isFirstProblemArea,
   isFirstProblemFrameArea,
   isLastProblemFrameArea,
@@ -483,6 +503,7 @@ export function PrintProblemArea({
   numberFontSize: number;
   hasFrame: boolean;
   frameStyleId?: string;
+  frameCustom?: ProblemCustomFrame;
   isFirstProblemArea: boolean;
   isFirstProblemFrameArea: boolean;
   isLastProblemFrameArea: boolean;
@@ -498,6 +519,9 @@ export function PrintProblemArea({
   const showEmptyLeadPlaceholder = showNumber && blocks.length === 0;
   const frameClasses = hasFrame ? problemFrameClassName("print-problem-area with-frame", frameStyleId) : "print-problem-area";
   const fragmentClasses = fragmentRole ? ` print-problem-area-fragment print-problem-area-fragment-${fragmentRole}` : "";
+  const printFrameStyle: CSSProperties | undefined = hasFrame && frameCustom
+    ? { ...(minHeightMm ? { minHeight: `${minHeightMm}mm` } : {}), ...getProblemCustomFrameStyle(frameCustom, "mm") }
+    : minHeightMm ? { minHeight: `${minHeightMm}mm` } : undefined;
   const reservationClass = blocks.length === 0 && !layoutSectionFragment && minHeightMm
     ? " print-problem-area-reservation-only"
     : "";
@@ -510,7 +534,7 @@ export function PrintProblemArea({
       data-problem-area-fragment={fragmentRole}
       data-problem-source-id={sourceId}
       data-problem-frame-style={hasFrame ? frameStyleId : undefined}
-      style={minHeightMm ? { minHeight: `${minHeightMm}mm` } : undefined}
+      style={printFrameStyle}
     >
       <div className={`print-problem-area-content ${showNumber ? "with-number" : ""}`}>
         {showNumber && <span className="print-problem-number" style={{ fontSize: `${numberFontSize}pt` }}>{formatProblemNumber(problemNumber)}</span>}

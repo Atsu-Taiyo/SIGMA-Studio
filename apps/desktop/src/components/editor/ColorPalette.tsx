@@ -23,10 +23,16 @@ type ColorPaletteProps = {
   /** 確定。透明度 UI を出していない呼び出しには `opacity` が来ない。 */
   onChange: (color: string | null, opacity?: number) => void;
   /**
+   * パレット本体の不透明度スライダーの確定 (離したとき)。`opacity` と一緒に渡したときだけ
+   * スライダーが出る。色は変えず不透明度だけを書くので、色が食い違う選択でも使え、パレットは閉じない。
+   */
+  onOpacityChange?: (opacity: number) => void;
+  /**
    * 操作中の即時プレビュー。ドラッグのたびに呼ばれるので、**履歴に残さない**経路へ配線すること。
+   * `color` が `null` のときは不透明度のスライダーで、色は触らない。
    * `null` は「プレビューをやめて元に戻す」。
    */
-  onPreview?: (preview: { color: string; opacity: number } | null) => void;
+  onPreview?: (preview: { color: string | null; opacity: number } | null) => void;
   /** 複数選択で値が食い違っている。単一の誤った値を見せないための表示。 */
   mixed?: boolean;
   allowTransparent?: boolean;
@@ -125,6 +131,7 @@ export function ColorPalette({
   value,
   opacity,
   onChange,
+  onOpacityChange,
   onPreview,
   mixed = false,
   allowTransparent = false,
@@ -137,6 +144,22 @@ export function ColorPalette({
   const normalizedValue = value ? normalizeColor(value) : null;
   const [customColors, setCustomColors] = useState<string[]>([]);
   const supportsOpacity = opacity !== undefined;
+  const hasOpacitySlider = supportsOpacity && onOpacityChange !== undefined;
+  const storedPercent = fillOpacityToPercent(opacity);
+  // The slider follows the drag through a draft, so the value it shows does not wait for the
+  // document. The draft is dropped as soon as the stored value moves (the confirmed change landing,
+  // an undo, another selection), which is what keeps it from outliving the value it was made against.
+  const [opacityDraft, setOpacityDraft] = useState<number | null>(null);
+  const [seenStoredPercent, setSeenStoredPercent] = useState(storedPercent);
+  if (seenStoredPercent !== storedPercent) {
+    setSeenStoredPercent(storedPercent);
+    setOpacityDraft(null);
+  }
+  const shownPercent = opacityDraft ?? storedPercent;
+  const opacityDirtyRef = useRef(false);
+  const opacitySliderRef = useRef<HTMLInputElement>(null);
+  // An arrow key held down repeats `change` for every step; the release is what commits it.
+  const opacityKeyHeldRef = useRef(false);
   const [creating, setCreating] = useState<{ side: "left" | "right" } | null>(null);
   const createButtonRef = useRef<HTMLButtonElement>(null);
   const hadDialogRef = useRef(false);
@@ -191,6 +214,44 @@ export function ColorPalette({
       || rect.left >= COLOR_PICKER_DIALOG_WIDTH + COLOR_PICKER_DIALOG_GAP;
     setCreating({ side: roomOnTheLeft ? "left" : "right" });
   };
+
+  const previewOpacity = (percent: number) => {
+    opacityDirtyRef.current = true;
+    setOpacityDraft(percent);
+    onPreview?.({ color: null, opacity: percentToFillOpacity(percent) });
+  };
+
+  /** Runs on release (change, pointer up, key up, blur), so one drag is one change rather than one per tick. */
+  const commitOpacity = (percent: number) => {
+    if (!opacityDirtyRef.current) return;
+    opacityDirtyRef.current = false;
+    // Drop the preview before the change lands, for the same reason as the dialog's OK below.
+    onPreview?.(null);
+    // A drag that ends where it began writes nothing — except over a disagreeing selection, where
+    // the slider's resting position is a placeholder and landing on it still means "make them equal".
+    if (!mixed && percent === storedPercent) {
+      setOpacityDraft(null);
+      return;
+    }
+    onOpacityChange?.(percentToFillOpacity(percent));
+  };
+
+  // The native `change` is what a drag's release, a script and an assistive technology's "set value"
+  // all end with, and none of them is guaranteed a pointer-up or key-up. React's `onChange` is the
+  // `input` event, so this one is attached by hand; the ref keeps it reading the current render.
+  const commitOpacityRef = useRef(commitOpacity);
+  useEffect(() => {
+    commitOpacityRef.current = commitOpacity;
+  });
+  useEffect(() => {
+    const slider = opacitySliderRef.current;
+    if (!slider) return;
+    const handleChange = () => {
+      if (!opacityKeyHeldRef.current) commitOpacityRef.current(Number(slider.value));
+    };
+    slider.addEventListener("change", handleChange);
+    return () => slider.removeEventListener("change", handleChange);
+  }, [hasOpacitySlider]);
 
   const selectedSwatch = mixed ? null : normalizedValue;
   const createLabel = supportsOpacity ? t("color.createWithOpacity") : t("color.create");
@@ -270,21 +331,56 @@ export function ColorPalette({
         </div>
 
         {supportsOpacity && (
-          <div className="color-palette-fill-summary">
-            <span
-              className={`color-palette-fill-chip ${mixed ? "mixed" : ""} ${!mixed && value === null ? "empty" : ""}`}
-              aria-hidden="true"
-              style={mixed || value === null
-                ? undefined
-                // A stored colour this palette cannot parse (`red`, `rgb(...)`) is still a colour:
-                // show it as it is rather than reporting "no fill" over a visibly filled shape.
-                : { ["--fill-chip-color" as string]: normalizedValue === null
-                  ? value
-                  : withAlpha(normalizedValue, percentToFillOpacity(fillOpacityToPercent(opacity))) }}
-            />
-            <span className="color-palette-fill-value">
-              {mixed ? t("color.mixed") : value === null ? t("color.noFill") : t("color.opacityPercent", { percent: fillOpacityToPercent(opacity) })}
-            </span>
+          <div className="color-palette-opacity">
+            <div className="color-palette-fill-summary">
+              <span
+                className={`color-palette-fill-chip ${mixed ? "mixed" : ""} ${!mixed && value === null ? "empty" : ""}`}
+                aria-hidden="true"
+                style={mixed || value === null
+                  ? undefined
+                  // A stored colour this palette cannot parse (`red`, `rgb(...)`) is still a colour:
+                  // show it as it is rather than reporting "no fill" over a visibly filled shape.
+                  : { ["--fill-chip-color" as string]: normalizedValue === null
+                    ? value
+                    : withAlpha(normalizedValue, percentToFillOpacity(shownPercent)) }}
+              />
+              <span className="color-palette-fill-value">
+                {mixed ? t("color.mixed") : value === null ? t("color.noFill") : t("color.opacityPercent", { percent: shownPercent })}
+              </span>
+            </div>
+            {hasOpacitySlider && (
+              <input
+                ref={opacitySliderRef}
+                type="range"
+                // The dialog's own alpha slider shares this look; only the colour ramp differs.
+                className="color-palette-opacity-slider color-picker-alpha-slider"
+                aria-label={t("color.opacity")}
+                min={0}
+                max={100}
+                step={1}
+                value={shownPercent}
+                // With no fill there is no colour for an opacity to belong to; the "no fill" state is
+                // left through a swatch, not through this slider.
+                disabled={!mixed && value === null}
+                style={{ ["--color-picker-alpha-color" as string]: normalizedValue ?? "#000000" }}
+                onChange={(event) => previewOpacity(Number(event.target.value))}
+                onPointerUp={(event) => commitOpacity(Number(event.currentTarget.value))}
+                onKeyUp={(event) => {
+                  opacityKeyHeldRef.current = false;
+                  commitOpacity(Number(event.currentTarget.value));
+                }}
+                onBlur={(event) => {
+                  opacityKeyHeldRef.current = false;
+                  commitOpacity(Number(event.currentTarget.value));
+                }}
+                onKeyDown={(event) => {
+                  opacityKeyHeldRef.current = true;
+                  // The popover walks focus between its controls on these keys, which would take the
+                  // vertical arrows away from the slider.
+                  if (event.key === "ArrowUp" || event.key === "ArrowDown") event.stopPropagation();
+                }}
+              />
+            )}
           </div>
         )}
 

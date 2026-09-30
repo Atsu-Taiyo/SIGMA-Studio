@@ -14,7 +14,8 @@ const external = [
   "electron",
   // mathlive / i18next は main.cjs へ束ねる。external のままだと実行時に node_modules を
   // 要求し、electron-builder の `files` に載っていないパッケージング事故になる。
-  ...Object.keys(pkg.dependencies ?? {}).filter((name) => name !== "mathlive" && name !== "i18next"),
+  // unused-filename はESM専用で、Electron 34 (Node 20) の require では読めないため同じく束ねる。
+  ...Object.keys(pkg.dependencies ?? {}).filter((name) => name !== "mathlive" && name !== "i18next" && name !== "unused-filename"),
   ...Object.keys(pkg.devDependencies ?? {}),
 ];
 const emitSourceMaps = process.env.SIGMA_STUDIO_ELECTRON_SOURCEMAP === "true";

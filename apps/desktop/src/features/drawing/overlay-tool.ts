@@ -6,6 +6,8 @@ import type {
   SigmaTableSpec,
 } from "@/features/document";
 
+import type { OverlaySolidCommand } from "./solid-geometry";
+
 export type OverlayInsertCommand =
   | "rectangle"
   | "circle"
@@ -20,6 +22,7 @@ export type OverlayInsertCommand =
   | "decagon"
   | "hendecagon"
   | "dodecagon"
+  | OverlaySolidCommand
   | "blockArrow"
   | "arc"
   | "sector"

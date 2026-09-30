@@ -23,7 +23,7 @@ import { readEditorClipboardPayload } from "@/lib/editor-clipboard";
  * 段落と見出しは入れない — あれは割れてよいブロックで、複数段落を貼れば段落が増えるのが
  * 正しい。ここに挙げるのは「1 ブロック＝1 つの箱」であることが意味を持つ入れ物だけ。
  */
-const INLINE_ONLY_PASTE_BLOCKS = new Set(["codeBlock", "boxBlockTitle"]);
+const INLINE_ONLY_PASTE_BLOCKS = new Set(["codeBlock", "boxBlockTitle", "boxBlockSubtitle"]);
 
 /**
  * 書式を持ち込まず、プレーンテキストとして貼る入れ物。

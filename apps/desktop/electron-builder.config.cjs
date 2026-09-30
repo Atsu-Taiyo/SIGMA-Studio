@@ -71,6 +71,7 @@ module.exports = {
   },
   artifactName: "Sigma-Studio-${version}-${arch}.${ext}",
   // A single suffix is portable across OS file-type registries. Never claim .json.
+  protocols: [{ name: "Sigma Studio shared items", schemes: ["sigma-studio"] }],
   fileAssociations: [{
     ext: "sigma",
     name: "Sigma Studio Document",

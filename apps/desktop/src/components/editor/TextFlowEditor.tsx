@@ -86,7 +86,7 @@ import { useProblemNumbers } from "./text-flow/ProblemNumberingContext";
 import { HeadingNumberingExtension, headingNumberingKey } from "@/components/tiptap/heading-numbering-extension";
 import { PageBreakGapExtension, paginationGapKey, type PageBreakMarkerLayout } from "@/components/tiptap/page-break-gap-extension";
 import { FormattingMarksExtension } from "@/components/tiptap/formatting-marks-extension";
-import { findAncestorNodeDepth, isEmptyEditorTextBlock } from "@/components/tiptap/node-queries";
+import { findAncestorNodeDepth, isBoxTitleNodeName, isEmptyEditorTextBlock } from "@/components/tiptap/node-queries";
 import {
   BoxBlockBodyExtension,
   BoxBlockExtension,
@@ -155,7 +155,9 @@ import type { PageBreakMarkerKind } from "@/features/text-editing/model";
 import  {
   cornerBoxReferenceHeightStyleVars,
   observeCornerBoxReferenceHeights,
+  boxFrameHasSubtitle,
   patchBoxFrame,
+  resolveBoxFrame,
   setBoxStyle,
 } from "@/lib/box-blocks";
 import  {
@@ -326,6 +328,8 @@ interface BoxSettingsDialogState {
   styleId: string;
   frame?: BoxFrameSpec;
   title: InlineNode[];
+  /** 2 欄の見出しを持つ箱だけ。 */
+  subtitle?: InlineNode[];
   /** ⋯メニューの「タイトルを編集…」から開いたときだけ true。 */
   focusTitle: boolean;
 }
@@ -2745,6 +2749,7 @@ function TextFlowEditorImpl({
       styleId: boxBlock.styleId,
       frame: boxBlock.frame,
       title: boxTitleFromNode(target.node),
+      subtitle: boxSubtitleFromNode(target.node),
       focusTitle: options.focusTitle === true,
     } : null);
   }, [editor, readOnlyBoxTitle, setBoxActionDialog, setBoxSettingsDialog]);
@@ -2785,12 +2790,21 @@ function TextFlowEditorImpl({
       styleId: nextBoxBlock.styleId,
       frame: nextBoxBlock.frame ?? null,
     });
+    // 箱の構造は枠の装飾に従う: 2 欄の見出しを持つ枠へ替えたらサブタイトル欄を足し、外れたら消す。
+    syncBoxSubtitleNode(
+      transaction,
+      target.pos,
+      boxFrameHasSubtitle(resolveBoxFrame(nextBoxBlock)),
+      nextBoxBlock.subtitle,
+    );
     editor.view.dispatch(transaction);
+    const updated = findBoxBlockNodeInDoc(editor.state.doc, nextBoxBlock.id);
     setBoxSettingsDialog((current) => ({
       boxId: nextBoxBlock.id,
       styleId: nextBoxBlock.styleId,
       frame: nextBoxBlock.frame,
       title: current?.boxId === nextBoxBlock.id ? current.title : boxTitleFromNode(target.node),
+      subtitle: updated ? boxSubtitleFromNode(updated.node) : undefined,
       focusTitle: false,
     }));
   }, [editor, setBoxSettingsDialog]);
@@ -2812,7 +2826,7 @@ function TextFlowEditorImpl({
       return;
     }
 
-    const selection = TextSelection.near(editor.state.doc.resolve(target.pos + titleNode.nodeSize), -1);
+    const selection = TextSelection.near(editor.state.doc.resolve(target.pos + boxHeaderNodeSize(target.node)), -1);
     editor.view.focus();
     editor.view.dispatch(editor.state.tr.setSelection(selection).scrollIntoView());
   }, [editor]);
@@ -2840,6 +2854,30 @@ function TextFlowEditorImpl({
     editor.view.dispatch(editor.state.tr.replaceWith(contentFrom, contentTo, nextContent));
     setBoxSettingsDialog((current) => (
       current && current.boxId === boxId ? { ...current, title, focusTitle: false } : current
+    ));
+  }, [editor, setBoxSettingsDialog]);
+
+  /** `applyBoxTitle` のサブタイトル版。欄が無い箱では何もしない。 */
+  const applyBoxSubtitle = useCallback((boxId: string, subtitle: InlineNode[]) => {
+    if (!editor || editor.isDestroyed) {
+      return;
+    }
+    const target = findBoxBlockNodeInDoc(editor.state.doc, boxId);
+    const titleNode = target?.node.firstChild;
+    const subtitleNode = target?.node.maybeChild(1);
+    if (!target || titleNode?.type.name !== "boxBlockTitle" || subtitleNode?.type.name !== "boxBlockSubtitle") {
+      return;
+    }
+
+    const subtitleStart = target.pos + 1 + titleNode.nodeSize;
+    const nextContent = Fragment.fromJSON(editor.state.schema, inlineNodesToTiptapNodes(subtitle));
+    editor.view.dispatch(editor.state.tr.replaceWith(
+      subtitleStart + 1,
+      subtitleStart + subtitleNode.nodeSize - 1,
+      nextContent,
+    ));
+    setBoxSettingsDialog((current) => (
+      current && current.boxId === boxId ? { ...current, subtitle, focusTitle: false } : current
     ));
   }, [editor, setBoxSettingsDialog]);
 
@@ -3061,13 +3099,14 @@ function TextFlowEditorImpl({
             frame: activeBoxSettingsDialog.frame,
           }}
           title={activeBoxSettingsDialog.title}
+          subtitle={activeBoxSettingsDialog.subtitle}
           mathFractionSizing={mathFractionSizing}
           autoFocusTitle={activeBoxSettingsDialog.focusTitle}
           onStyleChange={(styleId) => {
             // スタイルを選び直すのも「そのスタイルを手に入れる」操作。覚えている見た目があれば
             // 挿入と同じように載せる (でないと、記憶した色がスタイル切替のたびに剥がれる)。
             applyBoxSettings(activeBoxSettingsDialog.boxId, (boxBlock) => (
-              applyRememberedBoxFrame(setBoxStyle(boxBlock, styleId))
+              applyRememberedBoxFrame(setBoxStyle(boxBlock, styleId, t))
             ));
           }}
           onFrameChange={(patch) => {
@@ -3077,10 +3116,11 @@ function TextFlowEditorImpl({
           onResetStyle={() => {
             forgetRememberedBoxFrame(activeBoxSettingsDialog.styleId);
             applyBoxSettings(activeBoxSettingsDialog.boxId, (boxBlock) => (
-              setBoxStyle(boxBlock, activeBoxSettingsDialog.styleId)
+              setBoxStyle(boxBlock, activeBoxSettingsDialog.styleId, t)
             ));
           }}
           onTitleChange={(title) => applyBoxTitle(activeBoxSettingsDialog.boxId, title)}
+          onSubtitleChange={(subtitle) => applyBoxSubtitle(activeBoxSettingsDialog.boxId, subtitle)}
           onClose={() => {
             const { boxId } = activeBoxSettingsDialog;
             setBoxSettingsDialog(null);
@@ -3377,7 +3417,7 @@ export function resolveTextFormatStateContext(state: EditorState): TextFormatSta
   for (let depth = $from.depth; depth > 0; depth -= 1) {
     const node = $from.node(depth);
     const nodeType = node.type.name;
-    if (nodeType === "boxBlockTitle") {
+    if (isBoxTitleNodeName(nodeType)) {
       for (let boxDepth = depth - 1; boxDepth > 0; boxDepth -= 1) {
         const boxNode = $from.node(boxDepth);
         if (boxNode.type.name === "boxBlock") {
@@ -3574,6 +3614,60 @@ function boxTitleFromNode(node: ProseMirrorModelNode): InlineNode[] {
 
   const json = titleNode.toJSON() as { content?: TiptapNode[] };
   return tiptapNodesToInlineNodes(json.content ?? []);
+}
+
+/** 箱のサブタイトル欄の中身。欄が無い箱は `undefined`。 */
+function boxSubtitleFromNode(node: ProseMirrorModelNode): InlineNode[] | undefined {
+  const subtitleNode = node.maybeChild(1);
+  if (subtitleNode?.type.name !== "boxBlockSubtitle") {
+    return undefined;
+  }
+
+  const json = subtitleNode.toJSON() as { content?: TiptapNode[] };
+  return tiptapNodesToInlineNodes(json.content ?? []);
+}
+
+/** 箱の中で本文の手前までを占めるタイトル欄すべての大きさ。 */
+function boxHeaderNodeSize(node: ProseMirrorModelNode): number {
+  let size = 0;
+  node.forEach((child) => {
+    if (isBoxTitleNodeName(child.type.name)) {
+      size += child.nodeSize;
+    }
+  });
+  return size;
+}
+
+/**
+ * 箱のサブタイトル欄を、枠が求める状態に合わせる。位置は箱の先頭から動かないので、
+ * `setNodeMarkup` と同じ transaction に続けて積める。外す欄に文字があっても消える (undo で戻る)。
+ */
+function syncBoxSubtitleNode(
+  transaction: Transaction,
+  boxPos: number,
+  wantsSubtitle: boolean,
+  subtitle: InlineNode[] | undefined,
+): void {
+  const box = transaction.doc.nodeAt(boxPos);
+  const titleNode = box?.firstChild;
+  if (!box || titleNode?.type.name !== "boxBlockTitle") {
+    return;
+  }
+
+  const existing = box.maybeChild(1);
+  const hasSubtitle = existing?.type.name === "boxBlockSubtitle";
+  const subtitleStart = boxPos + 1 + titleNode.nodeSize;
+  if (wantsSubtitle && !hasSubtitle) {
+    const nodeType = transaction.doc.type.schema.nodes.boxBlockSubtitle;
+    if (nodeType) {
+      transaction.insert(subtitleStart, nodeType.create(
+        null,
+        Fragment.fromJSON(transaction.doc.type.schema, inlineNodesToTiptapNodes(subtitle ?? [])),
+      ));
+    }
+  } else if (!wantsSubtitle && existing && hasSubtitle) {
+    transaction.delete(subtitleStart, subtitleStart + existing.nodeSize);
+  }
 }
 
 function boxSettingsBlockFromNode(node: ProseMirrorModelNode): BoxBlockNode | null {

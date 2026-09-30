@@ -914,6 +914,7 @@ function commentThreadTouchesId(thread: SigmaCommentThread, id: string): boolean
   if (anchor.type === "textRange") return anchor.start.blockId === id || anchor.end.blockId === id;
   if (anchor.type === "overlayShape") return anchor.shapeIds.includes(id);
   if (anchor.type === "canvasRegion") return id === "CANVAS";
+  if (anchor.type === "document") return false;
   return anchor.shapeId === id;
 }
 

@@ -37,7 +37,7 @@ export interface CatalogSessionsPort {
   has(fileId: string): boolean;
   open(fileId: string, sharedDocumentId: string): Promise<SigmaDocument>;
   previewVersion?(fileId: string): string | undefined;
-  preview?(fileId: string, sharedDocumentId: string): Promise<SigmaDocument>;
+  preview?(fileId: string, sharedDocumentId: string, options?: { assets?: boolean }): Promise<SigmaDocument>;
   initialize(fileId: string, sharedDocumentId: string, operationId: string, document: SigmaDocument, staged?: boolean): Promise<void>;
   activate(fileIds: string[]): Promise<void>;
   start(fileId: string, document: SigmaDocument): Promise<unknown>;
@@ -230,6 +230,26 @@ export class DesktopSharedCatalog {
     const overview = this.cache ? this.cache.project(local, workspaceId, hidden) : { ...local, files: local.files.filter(f => !hidden.has(f.fileId)), folders: local.folders.filter(f => f.workspaceId === local.activeWorkspaceId) };
     return { state: "ready", overview: { ...overview, catalog: await this.status() } } as LocalWorkspaceOverviewResult;
   }
+  async searchOverview(): Promise<WorkspaceOverview> {
+    await this.account();
+    const local = await this.rawOverview();
+    const hidden = new Set(this.sessions.bindings().map(b => b.fileId));
+    const overview = this.cache ? this.cache.project(local, undefined, hidden, true)
+      : { ...local, files: local.files.filter(f => !hidden.has(f.fileId)) };
+    return { ...overview, catalog: await this.status() };
+  }
+  async openLink(target: SharedTargetRef) {
+    await this.refresh();
+    const cache = await this.online();
+    const node = this.requireTarget(target, cache);
+    if (!node.capabilities.read) throw new Error("TARGET_UNAVAILABLE");
+    const local = await this.rawOverview();
+    this.checkAccount(cache);
+    const location = node.kind === "workspace" ? { workspaceId: cache.navigationId(node) } : cache.location(node, local);
+    return { target: cache.metadata(node).target, workspaceId: location.workspaceId,
+      ...(node.kind === "folder" ? { folderId: cache.navigationId(node) } : {}),
+      ...(node.kind === "document" ? { fileId: cache.navigationId(node) } : {}) };
+  }
   async listFiles() {
     await this.account();
     const local = await this.rawOverview();
@@ -250,12 +270,12 @@ export class DesktopSharedCatalog {
     const version = this.sessions.previewVersion?.(fileId) ?? "unopened";
     return { scope, token: `${scope}:${version}`, opened: this.cache!.data.mappings[node.id]?.bodyCached ?? false };
   }
-  async preview(fileId: string): Promise<SigmaDocument | null> {
+  async preview(fileId: string, options?: { assets?: boolean }): Promise<SigmaDocument | null> {
     await this.account();
     const node = this.find(fileId, "document");
     if (!node || node.state !== "active" || !node.sharedDocumentId || !this.sessions.preview) return null;
     const cache = this.cache!;
-    const document = await this.sessions.preview(fileId, node.sharedDocumentId);
+    const document = options ? await this.sessions.preview(fileId, node.sharedDocumentId, options) : await this.sessions.preview(fileId, node.sharedDocumentId);
     this.checkAccount(cache);
     const current = this.find(fileId, "document");
     if (current?.state !== "active" || current.id !== node.id || current.sharedDocumentId !== node.sharedDocumentId) return null;

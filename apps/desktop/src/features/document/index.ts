@@ -7,6 +7,7 @@ export {
 export * from "./application";
 export * from "./chart-data";
 export * from "./graph-fill-style";
+export * from "./problem-custom-frame";
 export * from "./graph3d-validation";
 export * from "./validation-error";
 export * from "./graph-label-read-model";
