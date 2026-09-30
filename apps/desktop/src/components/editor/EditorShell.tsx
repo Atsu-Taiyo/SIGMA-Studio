@@ -478,6 +478,7 @@ import  {
   uniqueStringIds,
   type DegradedWatcherScope,
 } from "@/components/editor/editor-shell/workspace-request";
+import { useRequestedDocumentLocation } from "@/components/editor/editor-shell/use-requested-document-location";
 import { createBlockCommentAnchor } from "@/components/editor/page-canvas/popover-anchors";
 import { shouldDispatchSearchQuery } from "@/components/editor/search-query-dispatch";
 import type  {
@@ -592,6 +593,8 @@ const EMPTY_OVERLAY_SHAPES: OverlayShape[] = [];
 const EMPTY_COMMENT_THREADS: SigmaCommentThread[] = [];
 
 export interface EditorShellProps {
+  /** Host-owned actions for a measured selection; no sharing implementation belongs to the editor. */
+  renderSelectionActions?: (context: { fileId: string; document: SigmaDocument; metadata?: DocumentMetadata; anchor: SigmaCommentAnchor }) => ReactNode;
   commentIdentity?: CommentPanelAuthor & { userId: string };
   loadCommentMentionCandidates?: (fileId: string) => Promise<import("./comment-mentions").CommentMentionCandidate[]>;
   embeddedHost?: EmbeddedEditorHost;
@@ -620,7 +623,7 @@ function DocumentActionsSlot({ render, context }: {
   return render(context);
 }
 
-export function EditorShell({ embeddedHost, sessionHost, renderDocumentActions, accountAction, commentIdentity, loadCommentMentionCandidates }: EditorShellProps = {}) {
+export function EditorShell({ embeddedHost, sessionHost, renderDocumentActions, renderSelectionActions, accountAction, commentIdentity, loadCommentMentionCandidates }: EditorShellProps = {}) {
   // **毎レンダーで呼ばない。** `createEmptyEditorDocument()` は文書 1 個分を
   // 組み立てる (旧 `emptyEditorDocument` は module 定数だった)。打鍵のたびに
   // 走ると perf 予算 `typing.longTasksPerChar` を割る。
@@ -636,7 +639,7 @@ export function EditorShell({ embeddedHost, sessionHost, renderDocumentActions, 
 
   return (
     <EditorStoreProvider store={editorStore}>
-      <EditorShellBody embeddedHost={embeddedHost} sessionHost={sessionHost} renderDocumentActions={renderDocumentActions} accountAction={accountAction} commentIdentity={commentIdentity} loadCommentMentionCandidates={loadCommentMentionCandidates} editorStore={editorStore} />
+      <EditorShellBody embeddedHost={embeddedHost} sessionHost={sessionHost} renderDocumentActions={renderDocumentActions} renderSelectionActions={renderSelectionActions} accountAction={accountAction} commentIdentity={commentIdentity} loadCommentMentionCandidates={loadCommentMentionCandidates} editorStore={editorStore} />
     </EditorStoreProvider>
   );
 }
@@ -714,7 +717,7 @@ function canScrollWithin(
   return false;
 }
 
-function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, accountAction, commentIdentity, loadCommentMentionCandidates, editorStore }: EditorShellProps & { editorStore: EditorStore }) {
+function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, renderSelectionActions, accountAction, commentIdentity, loadCommentMentionCandidates, editorStore }: EditorShellProps & { editorStore: EditorStore }) {
   countPerformanceEvent("EditorShell.render");
   // クロームの文言。`renderEditorChrome` は hook を呼べないので、ここで解決して
   // `chrome.shared.t` から配る。同一ロケール内では参照が変わらない。
@@ -6306,6 +6309,18 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, acc
   // （描かれていないのに前の教材のページ数を出さないため。onPageCountChange は
   // アンマウントでは呼ばれない）。
   const pageEditorMounted = workspaceReady && !activeDocumentOpenFailure && !versionHistoryPreviewActive;
+  useRequestedDocumentLocation({
+    ready: pageEditorMounted, fileId: activeFileId, document, root: editorCanvasElement,
+    selectBlock: id => { setSelectedInlineMath(null); setSelectedId(id); },
+    revealRegion: bounds => {
+      const viewport = editorCanvasElement?.querySelector<HTMLElement>(".whiteboard-page-canvas");
+      if (!viewport) return;
+      const store = editorStore.getState(), scale = store.zoom / 100;
+      store.setWhiteboardPan({ panX: viewport.clientWidth / 2 - (bounds.x + bounds.w / 2) * scale,
+        panY: viewport.clientHeight / 2 - (bounds.y + bounds.h / 2) * scale });
+    },
+    unavailable: () => setStatusMessage(t("collaboration.locationUnavailable")),
+  });
 
   const reloadFailedDocument = useCallback(async () => {
     const failure = documentOpenFailureRef.current;
@@ -7168,6 +7183,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, acc
             onAiEditPreviewDismiss={stableDismissVisibleAiEditPreviewGroup}
             onOpenSourceDocument={openSourceReferenceDocument}
             suppressSelectionActions={aiDisplayMode === "inline" && aiInlineOpen}
+            renderSelectionActions={renderSelectionActions ? anchor => renderSelectionActions({ fileId: activeFileId, document, metadata: activeDocumentMetadata ?? undefined, anchor }) : undefined}
             pinAiTextSelectionReference={isDesktopApp && pinAiTextSelectionReference}
             onInlineRunPortalReady={handleInlineRunPortalReady}
             documentIdentityKey={activeFileId}

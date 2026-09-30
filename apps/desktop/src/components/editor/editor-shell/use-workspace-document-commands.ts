@@ -1,10 +1,11 @@
 "use client";
 
-import type { RefObject } from "react";
+import { useLayoutEffect, type RefObject } from "react";
+import { useStableCallback } from "@/lib/react/use-stable-callback";
 import { getDefaultPageLayout, type SigmaDocument } from "@/features/document";
 import type { EditorSaveState } from "@/features/editor-state/types";
 import type { TextFlowSelectionBookmark } from "@/features/text-editing";
-import { navigateToAppRoute } from "@/lib/app-navigation";
+import { navigateToAppRoute, registerAppNavigationGuard } from "@/lib/app-navigation";
 import { createBlankDocument } from "@/lib/blank-document";
 import type { Translate } from "@/lib/i18n";
 import {
@@ -73,6 +74,16 @@ export function useWorkspaceDocumentCommands({
   setOpenFileIds, setActiveFileId, setWorkspaceReady, setActiveMenu,
   setDocumentListOpen, setSaveState, setStatusMessage, t, tEditor,
 }: WorkspaceDocumentCommandOptions) {
+
+  const prepareExternalNavigation = useStableCallback(async () => {
+    if (embeddedHostRef.current || !workspaceReadyRef.current) return false;
+    flushOverlayChanges();
+    return saveCurrentDocumentBeforeReplacement();
+  });
+  useLayoutEffect(() => {
+    if (embeddedHostRef.current) return;
+    return registerAppNavigationGuard(prepareExternalNavigation);
+  }, [embeddedHostRef, prepareExternalNavigation]);
 
   const openWorkspaceScreen = async () => {
     setActiveMenu(null);

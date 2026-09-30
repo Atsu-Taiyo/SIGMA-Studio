@@ -566,6 +566,7 @@ export interface PageCanvasEditorProps {
   onOverlaySelectionSummaryChange?: (summary: OverlaySelectionSummary) => void;
   onOverlayActiveToolChange?: (tool: OverlayTool) => void;
   onRunningRegionEditingChange?: (kind: "header" | "footer" | null) => void;
+  renderSelectionActions?: (anchor: SigmaCommentAnchor) => React.ReactNode;
   onCommentAnchorRequest?: (anchor: SigmaCommentAnchor) => void;
   onCommentAnchorCandidateChange?: (anchor: SigmaCommentAnchor | null) => void;
   onCommentThreadSelect?: (threadId: string) => void;
@@ -653,6 +654,7 @@ function PageCanvasEditorImpl({
   onOverlayActiveToolChange,
   onRunningRegionEditingChange,
   onCommentAnchorRequest,
+  renderSelectionActions,
   onCommentAnchorCandidateChange,
   onCommentThreadSelect,
   suppressSelectionActions = false,
@@ -4341,7 +4343,7 @@ function PageCanvasEditorImpl({
     onCommentAnchorCandidateChangeRef.current = onCommentAnchorCandidateChange;
     isOverlayEditingRef.current = isOverlayEditing;
   }, [isOverlayEditing, onCommentAnchorCandidateChange]);
-  const hasCommentAnchorRequest = !!onCommentAnchorRequest;
+  const hasCommentAnchorRequest = !!onCommentAnchorRequest || !!renderSelectionActions;
   const scheduleTextSelectionUpdateRef = useRef<(() => void) | null>(null);
   // テキスト選択が消えた瞬間に 1 つだけ進むカウンタ。候補の所有権がテキスト選択から
   // 選択ブロック側へ戻ったことを下の effect に伝えるためだけに存在する (アイドル中は
@@ -4856,6 +4858,7 @@ function PageCanvasEditorImpl({
             onMouseDown={(event) => event.preventDefault()}
           >
             {selectionActionPopover.extensionAction?.render(selectionActionPopover.position)}
+            {selectionActionPopover.commentAnchor && renderSelectionActions?.(selectionActionPopover.commentAnchor)}
             {selectionActionPopover.commentAnchor && onCommentAnchorRequest && (
               <button
                 type="button"
@@ -5566,6 +5569,7 @@ function PageCanvasEditorImpl({
           onMouseDown={(event) => event.preventDefault()}
         >
           {selectionActionPopover.extensionAction?.render(selectionActionPopover.position)}
+            {selectionActionPopover.commentAnchor && renderSelectionActions?.(selectionActionPopover.commentAnchor)}
           {selectionActionPopover.commentAnchor && onCommentAnchorRequest && (
             <button
               type="button"

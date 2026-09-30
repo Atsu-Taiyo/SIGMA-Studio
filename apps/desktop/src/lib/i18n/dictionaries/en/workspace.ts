@@ -95,7 +95,7 @@ export const workspace = {
   },
   search: {
     material: "Search materials",
-    placeholder: "Search materials and folders",
+    placeholder: "Search all workspaces",
     clear: "Clear search",
     results: "Search results",
   },
