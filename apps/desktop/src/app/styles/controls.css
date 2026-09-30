@@ -403,14 +403,57 @@ button:disabled {
   background: transparent;
 }
 
+/* 列の左右端の薄れ。その向きにまだタブが続いているときだけ、端から順に濃くなる。
+   スクロール位置で幅を動かす (JS は使わない) ので、この列を使うどのタブ列でも同じに効き、
+   端に着けば薄れは 0 に戻る。溢れていない列はスクロールの範囲が無く、何も起きない。
+   スクロール連動に非対応の環境では薄れないだけで、列の動きは変わらない。 */
+@property --tabs-fade-start {
+  syntax: "<length>";
+  inherits: false;
+  initial-value: 0px;
+}
+
+@property --tabs-fade-end {
+  syntax: "<length>";
+  inherits: false;
+  initial-value: 0px;
+}
+
+@keyframes tabs-fade-start {
+  to { --tabs-fade-start: var(--tabs-fade-size); }
+}
+
+@keyframes tabs-fade-end {
+  from { --tabs-fade-end: var(--tabs-fade-size); }
+}
+
 .document-tabs-scroll {
+  --tabs-fade-size: 48px;
+  --document-tab-min-width: 64px;
   display: flex;
   align-items: end;
   gap: var(--space-xs);
   min-width: 0;
   overflow-x: auto;
   overflow-y: hidden;
+  /* キーボードで焦点が動いたタブを、薄れの下に潜らせず内側へ寄せて見せる。 */
+  scroll-padding-inline: var(--tabs-fade-size);
   scrollbar-width: none;
+  mask-image: linear-gradient(
+    to right,
+    transparent 0,
+    #000 var(--tabs-fade-start),
+    #000 calc(100% - var(--tabs-fade-end)),
+    transparent 100%
+  );
+  animation:
+    tabs-fade-start linear both,
+    tabs-fade-end linear both;
+  /* animation ショートハンドは animation-timeline / range を初期化するので、必ずこの後に書く。 */
+  animation-timeline: scroll(self x), scroll(self x);
+  animation-range:
+    0px var(--tabs-fade-size),
+    calc(100% - var(--tabs-fade-size)) 100%;
 }
 
 .document-tabs-scroll::-webkit-scrollbar {
@@ -425,7 +468,8 @@ button:disabled {
   align-items: center;
   flex: 1 1 220px;
   width: auto;
-  min-width: 48px;
+  /* 縮みきっても、タイトルの頭 2 文字ほどが薄れずに読める幅。 */
+  min-width: var(--document-tab-min-width, 64px);
   max-width: 220px;
   height: 28px;
   border: 1px solid var(--border-subtle);
@@ -473,8 +517,17 @@ button:disabled {
 .document-tab-main > span {
   min-width: 0;
   overflow: hidden;
-  text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* 入りきらないタイトルは「…」で切らず、右端に向かって薄れさせる (続きがあると分かる)。
+   薄れる幅ぶんの余白を右に持たせておくので、収まるタイトルの文字は薄れず、余白だけが
+   薄れる。狭いタブでも、頭の数文字は読める濃さのまま残る。 */
+.document-tab-main > .document-tab-title {
+  /* 幅はタブの幅に比例させる。狭いタブで固定幅だと、読める部分まで薄れてしまう。 */
+  --tab-title-fade: clamp(6px, 10cqw, 14px);
+  padding-right: var(--tab-title-fade);
+  mask-image: linear-gradient(to right, #000 calc(100% - var(--tab-title-fade)), transparent);
 }
 
 .document-tab-close {
@@ -3777,40 +3830,8 @@ button:disabled {
 
 .column-rule-heading { margin: 16px 0 8px; font-size: 13px; font-weight: 600; }
 
-/* タブが狭くても、先頭文字をアイコンや省略記号で隠さない。 */
-.document-tab-initial,
-.workspace-tab-initial {
-  display: none;
-}
-
-@container (max-width: 95px) {
-  .document-tab-main,
-  .workspace-group-tab > button:first-child[role="tab"] {
-    gap: 0;
-    padding-inline: 4px;
-  }
-
-  .document-tab-main > svg,
-  .document-tab-main > .document-tab-save-dot,
-  .document-tab-main > .document-tab-title,
-  .workspace-group-tab > button:first-child > svg,
-  .workspace-group-tab > button:first-child > .workspace-tab-title {
-    display: none;
-  }
-
-  .document-tab-main > .document-tab-initial,
-  .workspace-group-tab > button:first-child > .workspace-tab-initial {
-    display: inline;
-    flex: 0 0 auto;
-    text-overflow: clip;
-  }
-}
-
-/* タブが狭くても、先頭文字をアイコンや省略記号で隠さない。 */
-.document-tab-initial {
-  display: none;
-}
-
+/* タブが狭くても、タイトルを頭文字だけや「…」に潰さない。アイコンと保存の点を畳んで
+   場所を空け、入りきらない分は右端でフェードさせる (フェードの規則は .document-tab-title)。 */
 @container (max-width: 95px) {
   .document-tab-main {
     gap: 0;
@@ -3818,15 +3839,8 @@ button:disabled {
   }
 
   .document-tab-main > svg,
-  .document-tab-main > .document-tab-save-dot,
-  .document-tab-main > .document-tab-title {
+  .document-tab-main > .document-tab-save-dot {
     display: none;
-  }
-
-  .document-tab-main > .document-tab-initial {
-    display: inline;
-    flex: 0 0 auto;
-    text-overflow: clip;
   }
 }
 
@@ -3843,7 +3857,11 @@ button:disabled {
   display: flex;
   align-items: end;
   gap: var(--space-xs);
-  min-width: 0;
+  /* 囲みは、中のタブが最小幅まで縮んだ幅より狭くならない。0 のままだとタブの最小幅を
+     割って囲みだけが縮み、はみ出したタブが隣の囲みに重なって二重に見える。足りない分は
+     列のスクロールで受ける。--cluster-tabs は WorkspaceTabStrip が囲みのタブ数を渡す。
+     2px は末尾のドロップ位置の印 (.workspace-tab-drop-marker) の幅。 */
+  min-width: calc(var(--cluster-tabs, 1) * (var(--document-tab-min-width) + var(--space-xs)) + 2px + var(--cluster-extra));
   border-radius: 10px 10px 0 0;
 }
 
@@ -3877,6 +3895,8 @@ button:disabled {
   background: var(--background);
 }
 
+  /* 囲みの余白と番号の分 (分割時だけ持つ)。 */
+  --cluster-extra: 0px;
 .workspace-tab-cluster-handle {
   display: grid;
   flex: 0 0 auto;
@@ -3889,6 +3909,8 @@ button:disabled {
   border-radius: 999px;
   background: var(--surface-strong);
   color: var(--text-muted);
+  /* 左右の余白 6px x 2 + 番号 18px + 番号との間隔。 */
+  --cluster-extra: calc(12px + 18px + var(--space-xs));
   font-size: 10px;
   font-variant-numeric: tabular-nums;
   line-height: 1;

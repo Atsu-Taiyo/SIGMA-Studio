@@ -412,7 +412,6 @@ export function renderEditorChrome(chrome: EditorChromeValue) {
                 {/* 開いていない教材のタイトルは台帳の文字列しか無いので従来どおり
                     文字列パスで描く。アクティブなタブだけ導出したノード列を渡す。 */}
                 <span className="document-tab-title"><DocumentTitleText title={tab.title} nodes={active ? documentTitle.nodes : undefined} /></span>
-                <span className="document-tab-initial" aria-hidden="true">{Array.from(tab.title)[0]}</span>
                 {active && !chrome.shared.hasDocumentSession && <DocumentTabSaveDot />}
               </button>
               <button
