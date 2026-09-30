@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { resolveGraph3DDimensionEndStyle } from "./model/graph3d";
 import { OVERLAY_ARROWHEADS, type OverlayTextBlock } from "./overlay-model";
+import { normalizeOverlaySnapshot } from "./overlay-snapshot";
 import {
   isGraph3DSpec,
   isOverlayTextBlocks,
@@ -587,5 +588,88 @@ describe("chart overlay validation", () => {
     }],
   ])("rejects a chart with %s", (_label, props) => {
     expect(isValidOverlaySnapshot(chartSnapshot(props))).toBe(false);
+  });
+});
+
+describe("solid shape validation", () => {
+  function solidSnapshot(props: Record<string, unknown>) {
+    return {
+      version: 1,
+      shapes: [{
+        id: "shape_solid",
+        type: "geo",
+        x: 10,
+        y: 20,
+        props: {
+          w: 120,
+          h: 160,
+          fill: "none",
+          color: "#111111",
+          labelColor: "#111111",
+          dash: "solid",
+          size: "m",
+          ...props,
+        },
+      }],
+      assets: {},
+    };
+  }
+
+  it.each([3, 4, 5, 12])("accepts a pyramid and a prism on a %i-sided base", (baseSides) => {
+    expect(isValidOverlaySnapshot(solidSnapshot({ geo: "pyramid", baseSides }))).toBe(true);
+    expect(isValidOverlaySnapshot(solidSnapshot({ geo: "prism", baseSides }))).toBe(true);
+  });
+
+  it("accepts a sphere, which has no base", () => {
+    expect(isValidOverlaySnapshot(solidSnapshot({ geo: "sphere" }))).toBe(true);
+  });
+
+  it.each([undefined, 2, 13, 3.5, "4", Number.NaN])("rejects a pyramid whose base sides are %s", (baseSides) => {
+    expect(isValidOverlaySnapshot(solidSnapshot({ geo: "pyramid", baseSides }))).toBe(false);
+    expect(isValidOverlaySnapshot(solidSnapshot({ geo: "prism", baseSides }))).toBe(false);
+  });
+
+  it("accepts moved vertices and per-edge line styles", () => {
+    expect(isValidOverlaySnapshot(solidSnapshot({
+      geo: "pyramid",
+      baseSides: 3,
+      solidPoints: [{ x: 0, y: 100 }, { x: 120, y: 100 }, { x: 60, y: 130 }, { x: 60, y: 0 }],
+      solidEdgeDash: ["solid", "solid", "dashed", "dotted", "solid", "dashed"],
+    }))).toBe(true);
+  });
+
+  it("rejects vertices and line styles that are not what they claim to be", () => {
+    for (const props of [
+      { solidPoints: [{ x: 0, y: Number.NaN }] },
+      { solidPoints: [{ x: 0 }] },
+      { solidPoints: "none" },
+      { solidPoints: Array.from({ length: 25 }, () => ({ x: 0, y: 0 })) },
+      { solidEdgeDash: ["solid", "wavy"] },
+      { solidEdgeDash: "dashed" },
+      { solidEdgeDash: Array.from({ length: 37 }, () => "solid") },
+      { solidEdgeSize: ["m", "huge"] },
+      { solidEdgeSize: "m" },
+      { solidEdgeSize: Array.from({ length: 37 }, () => "m") },
+    ]) {
+      expect(isValidOverlaySnapshot(solidSnapshot({ geo: "prism", baseSides: 3, ...props }))).toBe(false);
+    }
+  });
+
+  it("keeps the solid fields through normalization and drops unknown ones", () => {
+    const solidPoints = [{ x: 0, y: 100 }, { x: 120, y: 100 }, { x: 60, y: 130 }, { x: 60, y: 0 }];
+    const solidEdgeDash = ["solid", "solid", "dashed", "dotted", "solid", "dashed"];
+    const solidEdgeSize = ["s", "m", "l", "xl", "m", "m"];
+    const normalized = normalizeOverlaySnapshot(solidSnapshot({
+      geo: "pyramid",
+      baseSides: 3,
+      solidPoints,
+      solidEdgeDash,
+      solidEdgeSize,
+      hiddenEdges: [1],
+    }));
+    expect(normalized.shapes).toHaveLength(1);
+    const [shape] = normalized.shapes;
+    expect(shape.type === "geo" && shape.props).toMatchObject({ geo: "pyramid", baseSides: 3, solidPoints, solidEdgeDash, solidEdgeSize });
+    expect(shape.props).not.toHaveProperty("hiddenEdges");
   });
 });

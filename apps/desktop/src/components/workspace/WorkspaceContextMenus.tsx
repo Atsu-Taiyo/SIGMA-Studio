@@ -1,6 +1,6 @@
 "use client";
 
-import { Building2, FilePlus, FolderPlus, LayoutTemplate, Pencil, Share2, Trash2 } from "lucide-react";
+import { Bookmark, Building2, FilePlus, FolderPlus, LayoutTemplate, Pencil, Share2, Trash2 } from "lucide-react";
 import { WorkspaceMenuSurface } from "./WorkspaceMenuSurface";
 
 import type { WorkspaceFileSummary } from "@/lib/workspace-repository";
@@ -36,6 +36,9 @@ interface WorkspaceCreateContextMenuProps {
   canRename?: boolean;
   canDelete?: boolean;
   canCreate?: boolean;
+  /** Whether the folder the menu was opened on is bookmarked. */
+  folderBookmarked?: boolean;
+  onToggleFolderBookmark?: (folderId: string) => void;
   onRenameFolder: (folderId: string) => void;
   onDeleteFolder: (folderId: string) => void;
 }
@@ -49,6 +52,8 @@ export function WorkspaceCreateContextMenu({
   canRename = true,
   canDelete = true,
   canCreate = true,
+  folderBookmarked = false,
+  onToggleFolderBookmark,
   onRenameFolder,
   onDeleteFolder,
 }: WorkspaceCreateContextMenuProps) {
@@ -65,6 +70,12 @@ export function WorkspaceCreateContextMenu({
       {onShare && <button type="button" role="menuitem" onClick={onShare}><Share2 size={15} /><span>{tc("collaboration.shareAction")}</span></button>}
       {folderId !== null && (
         <>
+          {onToggleFolderBookmark && (
+            <button type="button" role="menuitem" onClick={() => onToggleFolderBookmark(folderId)}>
+              <Bookmark size={15} fill={folderBookmarked ? "currentColor" : "none"} />
+              <span>{t(folderBookmarked ? "bookmarks.menuRemove" : "bookmarks.menuAdd")}</span>
+            </button>
+          )}
           <button
             type="button"
             role="menuitem"
@@ -125,6 +136,8 @@ interface WorkspaceFileActionMenuProps {
   canRename?: boolean;
   canDelete?: boolean;
   canCreate?: boolean;
+  bookmarked?: boolean;
+  onToggleBookmark?: () => void;
   onRename: () => void;
   onAddToTemplate: () => void;
   onDelete: () => void;
@@ -138,6 +151,8 @@ export function WorkspaceFileActionMenu({
   onShare,
   canRename = true,
   canDelete = true,
+  bookmarked = false,
+  onToggleBookmark,
   onRename,
   onAddToTemplate,
   onDelete,
@@ -153,6 +168,12 @@ export function WorkspaceFileActionMenu({
       style={{ left: menu.x, top: menu.y }}
     >
       {onShare && <button type="button" role="menuitem" onClick={onShare}><Share2 size={15} /><span>{tc("collaboration.shareAction")}</span></button>}
+      {onToggleBookmark && (
+        <button type="button" role="menuitem" onClick={onToggleBookmark}>
+          <Bookmark size={15} fill={bookmarked ? "currentColor" : "none"} />
+          <span>{t(bookmarked ? "bookmarks.menuRemove" : "bookmarks.menuAdd")}</span>
+        </button>
+      )}
       <button
         type="button"
         role="menuitem"

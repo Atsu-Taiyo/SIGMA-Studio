@@ -25,6 +25,11 @@ export interface CommentAnchorPopoverState {
 export interface SelectionActionPopoverPosition {
   left: number;
   top: number;
+  /**
+   * 選択範囲の中心 (画面座標)。ポップオーバーの実寸が分かってから中央寄せするための値。
+   * `left` は幅の見積りで決めた端の位置で、AI パネルなど他の配置も参照するため残す。
+   */
+  centerX?: number;
 }
 
 export interface OverlaySelectionPopoverMeasurement {
@@ -40,10 +45,10 @@ export interface SelectionActionPopoverPositionOptions {
   };
 }
 
-const SELECTION_ACTION_POPOVER_WIDTH = 112;
+const SELECTION_ACTION_POPOVER_WIDTH = 210;
 const SELECTION_ACTION_POPOVER_HEIGHT = 38;
 const SELECTION_ACTION_POPOVER_GAP = 8;
-const SELECTION_ACTION_POPOVER_MARGIN = 12;
+export const SELECTION_ACTION_POPOVER_MARGIN = 12;
 const OVERLAY_ROTATE_HANDLE_CLEARANCE = 42;
 
 export function viewportToCanvasAnchor(
@@ -64,7 +69,7 @@ export function viewportToCanvasAnchor(
 export function getSelectionActionPopoverPosition(
   rect: DOMRect,
   options: SelectionActionPopoverPositionOptions = {},
-): { left: number; top: number } {
+): SelectionActionPopoverPosition {
   const viewportWidth = options.viewport?.width ?? window.innerWidth;
   const viewportHeight = options.viewport?.height ?? window.innerHeight;
   const verticalClearance = options.verticalClearance ?? SELECTION_ACTION_POPOVER_GAP;
@@ -94,6 +99,7 @@ export function getSelectionActionPopoverPosition(
     top: shouldFallbackBelow
       ? fallbackBelowTop
       : Math.min(maxTop, Math.max(SELECTION_ACTION_POPOVER_MARGIN, preferredTop)),
+    centerX: rect.left + rect.width / 2,
   };
 }
 
@@ -128,7 +134,7 @@ export function sameSelectionActionPopoverPosition(
   a: SelectionActionPopoverPosition | null,
   b: SelectionActionPopoverPosition | null,
 ): boolean {
-  return a === b || Boolean(a && b && a.left === b.left && a.top === b.top);
+  return a === b || Boolean(a && b && a.left === b.left && a.top === b.top && a.centerX === b.centerX);
 }
 
 export function createTextCommentAnchorFromRange(

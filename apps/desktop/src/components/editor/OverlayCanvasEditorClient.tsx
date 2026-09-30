@@ -7,6 +7,7 @@ import  {
   AnchorLeader,
   AnchorMeasurements,
   PointHandles,
+  SolidEdgeHighlight,
   getAdaptiveSelectionHandleStyle,
   getAnchorIndicator,
   hasPointOnlySelection,
@@ -158,8 +159,15 @@ import  {
   rotateShapesAround,
   sameOverlayShapeIds,
   sameOverlayShapeReferences,
+  getSolidPoints,
+  hitTestSolidEdgeAtPagePoint,
+  isSolidShape,
+  setSolidEdgeDash,
+  setSolidEdgeSize,
   shouldClosePolylineDrawing,
+  getShapesSnapSourcePoints,
   snapBoundsToGeometry,
+  snapMovedPointsToGeometry,
   snapPointToGeometry,
   snapResizeBoundsToGeometry,
   toggleOverlayShapeSelectionIds,
@@ -403,6 +411,7 @@ import  {
   type OverlaySelectPointRequest,
   type OverlaySelectionStylePatch,
   type OverlaySelectionSummary,
+  type OverlaySolidEdgeSelection,
   type OverlayStylePreviewEvent,
 } from "./page-overlay-types";
 export {
@@ -690,6 +699,25 @@ export default function OverlayCanvasEditorClient({
   const [shapes, setShapes] = useState<OverlayShape[]>(initialSnapshot.shapes);
   const [assets, setAssets] = useState<Record<string, OverlayAsset>>(initialSnapshot.assets);
   const [selectedIds, setSelectedIds] = useState<OverlayShapeId[]>([]);
+  /**
+   * 選んでいる立体の辺 (1 つの立体を選んでいるときだけ)。保存はしない一時の選択で、
+   * 線種などのスタイル変更が図形全体ではなくこの辺に効く。
+   */
+  const [solidEdge, setSolidEdgeState] = useState<OverlaySolidEdgeSelection | null>(null);
+  const solidEdgeRef = useRef<OverlaySolidEdgeSelection | null>(null);
+  /** ポインタの下にある、立体の辺 (選んでいる立体のみ)。もう一度押すと選べることを示す。 */
+  const [hoverSolidEdge, setHoverSolidEdge] = useState<OverlaySolidEdgeSelection | null>(null);
+  const setSolidEdge = useCallback((next: OverlaySolidEdgeSelection | null) => {
+    solidEdgeRef.current = next;
+    setSolidEdgeState(next);
+  }, []);
+  useEffect(() => {
+    // 辺は「その立体だけを選んでいる間」の選択。別の図形へ移ったら手放す。
+    const current = solidEdgeRef.current;
+    if (current && !(selectedIds.length === 1 && selectedIds[0] === current.shapeId)) {
+      setSolidEdge(null);
+    }
+  }, [selectedIds, setSolidEdge]);
   const [regionSelection, setRegionSelection] = useState<{
     documentId: string | undefined;
     revision: number;
@@ -2251,14 +2279,34 @@ export default function OverlayCanvasEditorClient({
     if (isOverlaySelectionBlockedByEditPolicy(shapesRef.current, selectedIdsRef.current, editPolicyLockedShapeIdsRef.current)) {
       notifyEditPolicyBlocked();
     }
-    setShapes((current) => {
-      const idSet = getStyleTargetIds(current, selectedIdsRef.current, editPolicyLockedShapeIdsRef.current);
-      const next = normalizeOverlayGroups(current.map((shape) => (
-        idSet.has(shape.id) ? applyStylePatchToShape(shape, style) : shape
-      )));
-      shapesRef.current = next;
-      return next;
-    });
+    // 立体の辺を選んでいる間の線種・線の太さは、その辺だけに効く。ほかの項目 (色など) は図形全体のまま。
+    const selectedEdge = solidEdgeRef.current;
+    const edgeDash = selectedEdge && style.dash !== undefined ? style.dash : undefined;
+    const edgeSize = selectedEdge && style.size !== undefined ? style.size : undefined;
+    const shapeStyle = edgeDash === undefined && edgeSize === undefined
+      ? style
+      : {
+          ...style,
+          ...(edgeDash === undefined ? {} : { dash: undefined }),
+          ...(edgeSize === undefined ? {} : { size: undefined }),
+        };
+    // Anchor measurement and request completion can run before React evaluates a
+    // queued updater. Publish the new snapshot first so they cannot restore old styles.
+    const current = shapesRef.current;
+    const idSet = getStyleTargetIds(current, selectedIdsRef.current, editPolicyLockedShapeIdsRef.current);
+    const next = normalizeOverlayGroups(current.map((shape) => {
+      if (!idSet.has(shape.id)) {
+        return shape;
+      }
+      const styled = applyStylePatchToShape(shape, shapeStyle);
+      if (selectedEdge?.shapeId !== shape.id || !isSolidShape(styled)) {
+        return styled;
+      }
+      const dashed = edgeDash === undefined ? styled : setSolidEdgeDash(styled, selectedEdge.index, edgeDash);
+      return edgeSize === undefined ? dashed : setSolidEdgeSize(dashed, selectedEdge.index, edgeSize);
+    }));
+    shapesRef.current = next;
+    setShapes(next);
   }, [notifyEditPolicyBlocked]);
 
   /**
@@ -2368,6 +2416,12 @@ export default function OverlayCanvasEditorClient({
     );
   }, [refreshAnchorMeasurements]);
 
+  /**
+   * 種類固有の操作 (画像のトリミング・図形の種類変更など)。実装は右クリックメニューと同じ
+   * 関数を使うが、それらは後ろで定義されるので、最新の実装を ref 越しに呼ぶ。
+   */
+  const extendedActionRunnerRef = useRef<((request: OverlayActionRequest) => void) | null>(null);
+
   const handleActionRequest = useCallback((request: OverlayActionRequest) => {
     if (handledActionRequestIdRef.current === request.id) {
       return;
@@ -2401,7 +2455,11 @@ export default function OverlayCanvasEditorClient({
       // Only when the change actually lands: with a locked selection the patch is dropped, and
       // reprogramming the next insertion from a click that visibly did nothing would be a surprise.
       if (getStyleTargetIds(shapesRef.current, selectedIdsRef.current, editPolicyLockedShapeIdsRef.current).size > 0) {
-        learnShapeStyleDefaults(mergeStyleDefaults(readRememberedShapeStyle(), request.style));
+        // 辺だけの線種・太さは「次に描く図形の線種・太さ」にはしない。
+        const learnedStyle = solidEdgeRef.current
+          ? { ...request.style, dash: undefined, size: undefined }
+          : request.style;
+        learnShapeStyleDefaults(mergeStyleDefaults(readRememberedShapeStyle(), learnedStyle));
       }
       applyStyleToSelectedShapes(request.style);
     } else if (request.type === "pasteShapes") {
@@ -2425,6 +2483,12 @@ export default function OverlayCanvasEditorClient({
             refreshAnchorMeasurements().rects,
           ));
       transitionMode({ type: "select" });
+    } else if (
+      request.type === "transform"
+      || request.type === "changeShapeType"
+      || request.type === "shapeCommand"
+    ) {
+      extendedActionRunnerRef.current?.(request);
     } else if (request.type === "insertTextAtPoint") {
       activeTextEditorRef.current?.commands.blur();
       // No drag, so no width was asked for: an empty rect at the point lets the builder apply the
@@ -3201,14 +3265,26 @@ export default function OverlayCanvasEditorClient({
     let finalDy = dy;
 
     if (startBounds) {
-      const snap = snapBoundsToGeometry(
-        { ...startBounds, x: startBounds.x + dx, y: startBounds.y + dy },
-        createSnapGeometry(getIdsWithDescendants(shapesRef.current, [...movedIdSet], { includeGroups: true })),
-        {
-          threshold: getOverlaySnapThreshold(),
-          disabled: snapDisabledRef.current,
-        },
+      const geometry = createSnapGeometry(getIdsWithDescendants(shapesRef.current, [...movedIdSet], { includeGroups: true }));
+      const snapOptions = {
+        threshold: getOverlaySnapThreshold(),
+        disabled: snapDisabledRef.current,
+      };
+      // 線端を掴んでいなくても、動かしている図形の角・端点が他図形の角へ吸い付く。
+      // 点が合う場合は x・y を同時に合わせ、合わなければ従来どおり枠の辺・中心を軸へ合わせる。
+      const pointSnap = snapMovedPointsToGeometry(
+        getShapesSnapSourcePoints(interaction.shapes),
+        { x: dx, y: dy },
+        geometry,
+        snapOptions,
       );
+      const snap = pointSnap.guides.length > 0
+        ? pointSnap
+        : snapBoundsToGeometry(
+            { ...startBounds, x: startBounds.x + dx, y: startBounds.y + dy },
+            geometry,
+            snapOptions,
+          );
       finalDx += snap.nudge.x;
       finalDy += snap.nudge.y;
       setSnapGuides(snap.guides);
@@ -3584,6 +3660,12 @@ export default function OverlayCanvasEditorClient({
         return;
       }
 
+      if (event.key === "Escape" && solidEdgeRef.current && currentMode.id === "overlay.select") {
+        event.preventDefault();
+        setSolidEdge(null);
+        return;
+      }
+
       if (event.key === "Escape" && focusedGroupIdRef.current && currentMode.id === "overlay.select") {
         event.preventDefault();
         setFocusedGroupId(null);
@@ -3725,6 +3807,7 @@ export default function OverlayCanvasEditorClient({
     refreshAnchorMeasurements,
     restoreTransientInteraction,
     setSelectedShapeIds,
+    setSolidEdge,
     transitionMode,
     ungroupSelectedShapes,
     updateModifierDrivenInteraction,
@@ -4239,6 +4322,16 @@ export default function OverlayCanvasEditorClient({
     if (!clickedSelectionSelected) {
       setSelectedShapeIds(shapeSelectionIds);
     }
+    // 立体は、すでに選んでいる状態でもう一度線をつまむと、その辺が選ばれる (線種を変える対象)。
+    // 最初の 1 回目は図形全体の選択にとどめる — 辺を狙わずに立体を選んだだけで、
+    // 線種の変更が 1 本の辺にだけ効いてしまわないように。線以外を押せば辺の選択は外れる。
+    // 押下のあとに動かせば、そのまま立体の移動になる。
+    if (isSolidShape(shape)) {
+      const edge = wasOnlySelected && !event.altKey
+        ? hitTestSolidEdgeAtPagePoint(shape, point, getOverlaySnapThreshold() * 0.75)
+        : null;
+      setSolidEdge(edge === null ? null : { shapeId: shape.id, index: edge });
+    }
     if (event.altKey) {
       const duplicatedShapes = duplicateSelectedShapes({ x: 0, y: 0 });
       if (duplicatedShapes.length === 0) {
@@ -4278,7 +4371,7 @@ export default function OverlayCanvasEditorClient({
         : undefined,
     });
     captureDragPointer(event);
-  }, [captureDragPointer, duplicateSelectedShapes, focusOverlayCanvas, notifyEditPolicyBlocked, setSelectedShapeIds, toggleShapeSelection, transitionMode]);
+  }, [captureDragPointer, duplicateSelectedShapes, focusOverlayCanvas, getOverlaySnapThreshold, notifyEditPolicyBlocked, setSelectedShapeIds, setSolidEdge, toggleShapeSelection, transitionMode]);
 
   /**
    * インクに当たらなかった押下の共通処理 (選択を落としてマーキーを始める)。
@@ -4799,6 +4892,24 @@ export default function OverlayCanvasEditorClient({
       ctrlKey: event.ctrlKey,
       shiftKey: event.shiftKey,
     };
+    // 立体を 1 つだけ選んでいるときは、ポインタの下の辺をうっすら示す。ドラッグ中は出さない。
+    const soleShape = selectedIdsRef.current.length === 1
+      ? shapesRef.current.find((shape) => shape.id === selectedIdsRef.current[0])
+      : undefined;
+    if (soleShape && isSolidShape(soleShape) && !soleShape.locked && event.buttons === 0 && modeRef.current.id === "overlay.select") {
+      const edge = hitTestSolidEdgeAtPagePoint(
+        soleShape,
+        pagePointFromClient(event.clientX, event.clientY),
+        getOverlaySnapThreshold() * 0.75,
+      );
+      setHoverSolidEdge((current) => (
+        current?.shapeId === soleShape.id && current.index === edge
+          ? current
+          : edge === null ? null : { shapeId: soleShape.id, index: edge }
+      ));
+    } else {
+      setHoverSolidEdge((current) => (current === null ? current : null));
+    }
     advanceInteractionFromClient(event.clientX, event.clientY, lastPointerModifiersRef.current);
     const dragPointer = dragPointerRef.current;
     if (event.buttons !== 0 && dragPointer?.pointerId === event.pointerId) {
@@ -4816,7 +4927,7 @@ export default function OverlayCanvasEditorClient({
     } else {
       stopDragAutoScroll();
     }
-  }, [advanceInteractionFromClient, originPickShapeId, stopDragAutoScroll, updateDragAutoScroll, updateOriginPickPreviewFromEvent]);
+  }, [advanceInteractionFromClient, getOverlaySnapThreshold, originPickShapeId, pagePointFromClient, stopDragAutoScroll, updateDragAutoScroll, updateOriginPickPreviewFromEvent]);
 
   useEffect(() => {
     if (!isDragAutoScrollInteraction(mode)) {
@@ -5316,10 +5427,14 @@ export default function OverlayCanvasEditorClient({
       arrowheadStart,
       arrowheadEnd,
       fill,
+      ...(solidEdge && selectedShapes.length === 1 && selectedShapes[0].id === solidEdge.shapeId
+        ? { solidEdge }
+        : {}),
     });
   }, [
     mode,
     onSelectionSummaryChange,
+    solidEdge,
     selectedRegion,
     selectedContextAssets,
     selectedContextShapes,
@@ -5561,6 +5676,80 @@ export default function OverlayCanvasEditorClient({
     transitionMode({ type: "select" });
     queueOverlaySave();
   }, [notifyEditPolicyBlocked, queueOverlaySave, transitionMode]);
+
+  useEffect(() => {
+    extendedActionRunnerRef.current = (request) => {
+      if (request.type === "transform") {
+        applyQuickTransformToSelectedShapes(request.action);
+        return;
+      }
+      if (request.type === "changeShapeType") {
+        changeSelectedShapeType(request.command);
+        return;
+      }
+      if (request.type !== "shapeCommand") {
+        return;
+      }
+      // 選択が 1 つで、その図形の種類がコマンドに合うときだけ動かす。
+      const [shape] = getSelectedShapesInStackOrder(shapesRef.current, selectedIdsRef.current);
+      if (!shape || selectedIdsRef.current.length !== 1) {
+        return;
+      }
+      switch (request.command) {
+        case "imageCrop":
+          if (shape.type === "image") startImageCrop(shape.id);
+          break;
+        case "imageReplace":
+          if (shape.type === "image") requestImageReplacement(shape.id);
+          break;
+        case "imageResetCrop":
+          if (shape.type === "image") resetImageCrop(shape.id);
+          break;
+        case "imageNaturalSize":
+          if (shape.type === "image") restoreImageNaturalSize(shape.id);
+          break;
+        case "chartFromTable":
+          if (shape.type === "tableShape") createChartFromTable(shape.id);
+          break;
+        case "chartSettings":
+          if (shape.type === "chartShape") {
+            window.dispatchEvent(new CustomEvent(OPEN_OVERLAY_CHART_SETTINGS_EVENT, { detail: { shapeId: shape.id } }));
+          }
+          break;
+        case "graph3dSettings":
+          if (shape.type === "graph3dShape") {
+            transitionMode({ type: "editGraph3D", shapeId: shape.id });
+            window.dispatchEvent(new CustomEvent(OPEN_OVERLAY_GRAPH3D_SETTINGS_EVENT, { detail: { shapeId: shape.id } }));
+          }
+          break;
+        case "graphSettings":
+          if (shape.type === "graph2dShape") {
+            window.dispatchEvent(new CustomEvent(OPEN_OVERLAY_GRAPH_SETTINGS_EVENT, { detail: { shapeId: shape.id } }));
+          }
+          break;
+        case "graphCrop":
+          if (shape.type === "graph2dShape") transitionMode({ type: "editGraph", shapeId: shape.id });
+          break;
+        case "graphOriginPick":
+          if (shape.type === "graph2dShape") transitionMode({ type: "pickOrigin", shapeId: shape.id });
+          break;
+        case "graphFillPick":
+          if (shape.type === "graph2dShape" && shape.props.spec.kind === "cartesian") {
+            transitionMode({ type: "pickGraphFill", shapeId: shape.id });
+          }
+          break;
+      }
+    };
+  }, [
+    applyQuickTransformToSelectedShapes,
+    changeSelectedShapeType,
+    createChartFromTable,
+    requestImageReplacement,
+    resetImageCrop,
+    restoreImageNaturalSize,
+    startImageCrop,
+    transitionMode,
+  ]);
 
   const handleShapeDoubleClick = useCallback((event: ReactMouseEvent<HTMLDivElement>, targetShape: OverlayShape) => {
     if (handleCurveDrawingDoubleClick(event)) {
@@ -5857,6 +6046,7 @@ export default function OverlayCanvasEditorClient({
       onPointerMove={handlePointerMove}
       onPointerCancel={handlePointerCancel}
       onPointerLeave={() => {
+        setHoverSolidEdge(null);
         if (originPickShapeId) {
           setOriginPickPreview(null);
         }
@@ -5970,6 +6160,8 @@ export default function OverlayCanvasEditorClient({
           onRotatePointerDown={handleRotatePointerDown}
           onPointPointerDown={handlePointPointerDown}
           onLineInsertPointerDown={handleLineInsertPointerDown}
+          solidEdge={solidEdge && selectedShapes.length === 1 && selectedShapes[0].id === solidEdge.shapeId ? solidEdge.index : null}
+          solidHoverEdge={hoverSolidEdge && selectedShapes.length === 1 && selectedShapes[0].id === hoverSolidEdge.shapeId ? hoverSolidEdge.index : null}
         />
       )}
 
@@ -7090,6 +7282,8 @@ function SelectionBox({
   onRotatePointerDown,
   onPointPointerDown,
   onLineInsertPointerDown,
+  solidEdge,
+  solidHoverEdge,
 }: {
   shapes: OverlayShape[];
   /** Every shape on the canvas, so a selected group can be expanded to the members it draws. */
@@ -7110,6 +7304,10 @@ function SelectionBox({
     index: number,
     point: OverlayPoint,
   ) => void;
+  /** 選んでいる立体の辺の番号。選んでいなければ `null`。 */
+  solidEdge: number | null;
+  /** ポインタの下にある辺の番号。 */
+  solidHoverEdge: number | null;
 }) {
   const onlyShape = shapes.length === 1 ? shapes[0] : null;
   const rotation = onlyShape ? getShapeRotation(onlyShape) : 0;
@@ -7172,6 +7370,12 @@ function SelectionBox({
           >
             <RotateCw size={12} strokeWidth={2.2} />
           </div>
+        )}
+        {onlyShape && !cropShape && solidHoverEdge !== null && solidHoverEdge !== solidEdge && isSolidShape(onlyShape) && (
+          <SolidEdgeHighlight shape={onlyShape} bounds={bounds} edge={solidHoverEdge} hover />
+        )}
+        {onlyShape && !cropShape && solidEdge !== null && isSolidShape(onlyShape) && (
+          <SolidEdgeHighlight shape={onlyShape} bounds={bounds} edge={solidEdge} />
         )}
         {onlyShape && !cropShape && (
           <PointHandles
@@ -7389,6 +7593,11 @@ function areGraphViewBoxesEqual(a: Graph2DSpec["viewBox"], b: Graph2DSpec["viewB
 }
 
 function getSnappablePointHandlePagePoint(shape: OverlayShape, handle: PointHandle): OverlayPoint | null {
+  if (shape.type === "geo" && isSolidShape(shape) && handle.type === "solidVertex") {
+    const point = getSolidPoints(shape)[handle.index];
+    return point ? { x: shape.x + point.x, y: shape.y + point.y } : null;
+  }
+
   if (shape.type === "line" && handle.type === "line") {
     const point = shape.props.points[handle.index];
     return point ? { x: shape.x + point.x, y: shape.y + point.y } : null;

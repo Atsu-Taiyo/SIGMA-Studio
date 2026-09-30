@@ -51,7 +51,7 @@ test("text color button is not stuck in the selected state", async ({ page }) =>
     document.dispatchEvent(new Event("selectionchange"));
   });
 
-  const colorButton = page.getByRole("button", { name: "文字色" });
+  const colorButton = page.locator(".editor-menubar").getByRole("button", { name: "文字色" });
   await expect(colorButton).toBeVisible();
   await expect(colorButton).toBeEnabled();
   await expect(colorButton).not.toHaveClass(/active/);
@@ -112,9 +112,9 @@ test("inserted body paragraph is focused and supports font controls", async ({ p
     document.dispatchEvent(new Event("selectionchange"));
   });
 
-  await page.locator('button[aria-label="フォントサイズ"]').click();
-  await page.getByRole("spinbutton", { name: "サイズ (pt)" }).fill("15");
-  await page.getByRole("spinbutton", { name: "サイズ (pt)" }).press("Enter");
+  await page.locator('input[aria-label="フォントサイズ"]').click();
+  await page.getByRole("textbox", { name: "フォントサイズ", exact: true }).fill("15");
+  await page.getByRole("textbox", { name: "フォントサイズ", exact: true }).press("Enter");
   await page.getByRole("button", { name: /^フォント:/ }).click();
   const fontMenu = page.getByRole("menu", { name: "フォント", exact: true });
   await expect(fontMenu).toBeVisible();

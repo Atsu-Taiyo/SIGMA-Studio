@@ -15,8 +15,16 @@ import { DocumentTabSaveDot, SaveStatusBadge } from "@/components/editor/editor-
 import { InlineMathDetails } from "@/components/editor/EditorSettings";
 import { EDITOR_TOOLBAR_CARET_SIZE, EDITOR_TOOLBAR_ICON_SIZE, EDITOR_TOOLBAR_TEXT_ICON_SIZE, EditorToolbarColorButton, EditorToolbarGroup, EditorToolbarIconButton, EditorToolbarMenuButton, EditorToolbarSelect, EditorToolbarSeparator } from "@/components/editor/EditorToolbar";
 import { ToolbarPopover } from "@/components/editor/ToolbarPopover";
-import { BOXED_TEXT_STYLE_OPTIONS, BLOCK_STYLE_OPTIONS, DEFAULT_FONT_FAMILY_VALUE, KEYBOARD_ZOOM_STEP, LINE_HEIGHT_OPTIONS, MAX_BOXED_TEXT_PADDING_Y, MIN_BOXED_TEXT_PADDING_Y, TEXT_ALIGN_OPTIONS } from "@/components/editor/editor-shell/constants";
+import { BOXED_TEXT_STYLE_OPTIONS, BLOCK_STRUCTURE_OPTIONS, BLOCK_STYLE_OPTIONS, DEFAULT_FONT_FAMILY_VALUE, KEYBOARD_ZOOM_STEP, LINE_HEIGHT_OPTIONS, MAX_BOXED_TEXT_PADDING_Y, MIN_BOXED_TEXT_PADDING_Y, TEXT_ALIGN_OPTIONS, type BlockStructureOptionValue } from "@/components/editor/editor-shell/constants";
 import { BoxedTextIcon, BoxedTextStylePreview, LineEndpointMenuButton } from "@/components/editor/editor-shell/formatting-icons";
+import {
+  fillPreviewPatch,
+  readSharedStrokeColor,
+  readSharedStrokeOpacity,
+  strokeColorPatch,
+  strokePreviewPatch,
+} from "@/components/editor/editor-shell/selection-toolbar/model";
+import { ShapeTypeMenuButton } from "@/components/editor/editor-shell/shape-type-menu";
 import { normalizeToolbarFontFamily } from "@/components/editor/editor-shell/toolbar-formatting";
 import { degradedWatcherMessage } from "@/components/editor/editor-shell/workspace-request";
 import { isLineToolCommand, isShapeMenuCommand } from "@/components/editor/overlay-canvas/shape-gallery";
@@ -32,7 +40,7 @@ import { DocumentTitleText } from "@/features/rendering/adapters/react";
 import type { Translate } from "@/lib/i18n";
 import { SUPPORTED_OVERLAY_IMAGE_MIME_TYPES } from "@/lib/overlay-image-files";
 import { POWERPOINT_IMPORT_ACCEPT } from "@/lib/powerpoint-import";
-import { AlertTriangle, AppWindow, ArrowDownRight, ArrowLeft, Bold, Braces, BringToFront, Building2, ChartSpline, Check, ChevronDown, ChevronRight, ChevronUp, ClipboardCopy, ClipboardPaste, Clock3, Code, Columns3, Copy, Cuboid, Download, FileCog, FilePlus, FileQuestion, FileText, FolderOpen, Highlighter, ImageIcon, Italic, Keyboard, LayoutTemplate, Library, List, ListChevronsUpDown, ListOrdered, ListPlus, ListTree, Loader2, MessageSquare, Minus, MinusCircle, MoreHorizontal, MoveDown, MoveUp, PaintBucket, PenLine, Plus, PlusCircle, Quote, Redo2, Replace, Rows3, Search, SendToBack, SeparatorHorizontal, Sigma, SlidersHorizontal, Sparkles, Square, SquareFunction, Trash2, Type, Underline, Undo2, X } from "lucide-react";
+import { AlertTriangle, AppWindow, ArrowDownRight, ArrowLeft, Bold, Braces, BringToFront, Building2, ChartSpline, Check, ChevronDown, ChevronRight, ChevronUp, ClipboardCopy, ClipboardPaste, Clock3, Code, Columns3, Copy, Cuboid, Download, FileCog, FilePlus, FileQuestion, FileText, FolderOpen, Highlighter, ImageIcon, Italic, Keyboard, LayoutTemplate, Library, List, ListChevronsUpDown, ListOrdered, ListPlus, ListTree, Loader2, MessageSquare, Minus, MinusCircle, MoreHorizontal, MoveDown, MoveUp, PaintBucket, PenLine, Plus, PlusCircle, Quote, Redo2, Replace, Rows3, Search, SendToBack, SeparatorHorizontal, Shapes, Sigma, SlidersHorizontal, Sparkles, Square, SquareFunction, Trash2, Type, Underline, Undo2, X } from "lucide-react";
 import { Fragment } from "react";
 import type { ReactNode } from "react";
 import type { DesktopUpdateState } from "@/types/desktop";
@@ -70,10 +78,10 @@ export function renderEditorChrome(chrome: EditorChromeValue) {
   const { activeDocumentOpenFailure, activeFileId, addBlock, aiMenuButtonRef, appUpdateState, closeDocumentTab, commentsPanelOpen, commitDocumentTitle, copyDocumentText, createDocumentTab, createWhiteboardDocumentTab, degradedWatcherScopes, deleteActiveDocument, documentMetadatas, documentTitle, duplicateActiveDocument, exportJson, exportMenuOpen, fileMenuButtonRef, handleTitleUpdateAction, importDocumentFile, importInputRef, insertMenuButtonRef, loadingFileId, newDocButtonRef, newDocMenuOpen, openCommandSettings, openDocumentInWorkspace, openDocumentListDialog, openDocumentTabs, openImportDialog, openNewDocMenu, openOtherImportDialog, openPrintPreview, openTextImportDialog, openVersionHistory, openWorkspaceScreen, otherImportInputRef, promoteAiToSidebar, reportIssue, requestOverlayImages, resolvedDocumentTitle, scheduleCloseNewDocMenu, setAiSettingsOpen, setDesktopSettingsOpen, setExportMenuOpen, setNewDocMenuOpen, setOutlineDialogOpen, setOverlayEditing, setPageSettingsOpen, setTemplateGalleryOpen, setTexCommandReferenceOpen, setTexEnvironmentSettingsOpen, setTitleInputFocused, settingsMenuButtonRef, showRichTitle, showTitleUpdateButton, titleInputValue, titleRichNodes, titleUpdateButtonDisabled, toggleCommentsPanel, uiLayoutPreference, updateMetadata, versionHistoryOpen, workspaceTabsRow } = chrome.appMenu;
   const { commandTooltip, renderMenuShortcut } = chrome.commands;
   const { setMaterialLibraryOpen } = chrome.editing;
-  const { ActiveTextAlignIcon, activeFontFamilyLabel, activeTextAlignOption, activeTextFontSize, activeTextFontSizeMixed, applyBlockStructure, applyBoxedTextPaddingY, applyInlineFormat, applyLineHeight, applyTextAlign, applyTextStyle, blockStyleState, boldActive, boxedTextActive, boxedTextButtonRef, boxedTextMenuOpen, boxedTextPaddingY, boxedTextVariant, canUseBlockStructure, canUseLineHeight, canUseTextAlign, canUseTextBlockStyle, canUseTextToolbar, fontFamily, fontFamilyButtonRef, fontFamilyIsKnownOption, fontFamilyIsMixed, fontFamilyMenuOpen, fontFamilyQuery, handleLineHeightStepClick, italicActive, lineHeight, lineHeightButtonRef, lineHeightCustomOpen, lineHeightInput, lineHeightInputError, lineHeightMenuOpen, moreBlocksMenuButtonRef, moreBlocksMenuOpen, orderedListMenuButtonRef, orderedListMenuOpen, setMoreBlocksMenuOpen, setOrderedListMenuOpen, saveEditorFontFamilyPreference, selectBoxedTextVariant, selectedTextAlign, selectedTextStyle, setFontFamily, setFontFamilyQuery, setLineHeightCustomOpen, setLineHeightInput, setLineHeightInputError, setTextBackgroundColor, setTextColor, setTextFontSize, startLineHeightStepping, stopLineHeightStepping, textAlignButtonRef, textAlignMenuOpen, textBackgroundColor, textBackgroundColorButtonRef, textColor, textColorButtonRef, toggleBoxedText, underlineActive, visibleCustomFontOptions, visibleFontFamilyGroups, blockStyleButtonRef, blockStyleMenuOpen, fontSizeInputRef, fontSizeInput, setFontSizeInput } = chrome.format;
+  const { ActiveTextAlignIcon, activeFontFamilyLabel, activeTextAlignOption, activeTextFontSize, activeTextFontSizeMixed, applyBlockStructure, applyBoxedTextPaddingY, applyInlineFormat, applyLineHeight, applyTextAlign, applyTextStyle, blockStyleState, boldActive, boxedTextActive, boxedTextButtonRef, boxedTextMenuOpen, boxedTextPaddingY, boxedTextVariant, canUseBlockStructure, canUseLineHeight, canUseTextAlign, canUseTextBlockStyle, canUseTextToolbar, fontFamily, fontFamilyButtonRef, fontFamilyIsKnownOption, fontFamilyIsMixed, fontFamilyMenuOpen, fontFamilyQuery, handleLineHeightStepClick, italicActive, lineHeight, lineHeightButtonRef, lineHeightCustomOpen, lineHeightInput, lineHeightInputError, lineHeightMenuOpen, moreBlocksMenuButtonRef, moreBlocksMenuOpen, orderedListMenuButtonRef, orderedListMenuOpen, setMoreBlocksMenuOpen, setOrderedListMenuOpen, saveEditorFontFamilyPreference, selectBoxedTextVariant, selectedTextAlign, selectedTextStyle, setFontFamily, setFontFamilyQuery, setLineHeightCustomOpen, setLineHeightInput, setLineHeightInputError, setTextBackgroundColor, setTextColor, setTextFontSize, startLineHeightStepping, stopLineHeightStepping, textAlignButtonRef, textAlignMenuOpen, textBackgroundColor, textBackgroundColorButtonRef, textColor, textColorButtonRef, toggleBoxedText, underlineActive, visibleCustomFontOptions, visibleFontFamilyGroups, blockStyleButtonRef, blockStyleMenuOpen, fontSizeInputRef, fontSizeSkipBlurRef, fontSizeInput, setFontSizeInput } = chrome.format;
   const { ActiveLineToolIcon, activeLineToolItem, activeOverlayTool, bodyToolbarLockedByAi, cancelInlineMathMenuClose, inlineMathButtonRef, inlineMathMenuOpen, lineToolMenuButtonRef, lineToolMenuOpen, openInlineMathMenu, scheduleInlineMathMenuClose, selectedInlineMath, selectedInlineMathDetails, setInlineMathMenuOpen, shapeMenuButtonRef, shapeMenuOpen, startInlineMathFromToolbar } = chrome.insert;
   const { findNext, findPrevious, overlayEditing, replaceAll, replaceNext, replaceOpen, replaceText, searchButtonRef, searchMatchCount, searchOpen, searchQuery, setReplaceOpen, setReplaceText, setSearchOpen, setSearchQuery } = chrome.search;
-  const { applyOverlayStyle, arrangeOverlayShapes, canArrangeOverlayShapes, canUseFillStyleControls, canUseLineEndpointControls, canUseLineStyleControls, canUseStrokeStyleControls, effectiveLineDashMenuOpen, effectiveLineEndpointMenu, effectiveLineWidthMenuOpen, fillColorButtonRef, fillColorPatch, lineDashButtonRef, lineWidthButtonRef, overlaySelection, selectedOverlayLineDash, selectedOverlayLineSize, selectionFill, selectionFillColor, selectionFillOpacity, setStrokeColor, strokeColor, strokeColorButtonRef } = chrome.shapeStyle;
+  const { applyOverlayStyle, arrangeOverlayShapes, canChangeOverlayShapeType, changeOverlayShapeType, canArrangeOverlayShapes, canUseFillStyleControls, canUseLineEndpointControls, canUseLineStyleControls, canUseStrokeStyleControls, effectiveLineDashMenuOpen, effectiveLineEndpointMenu, effectiveLineWidthMenuOpen, fillColorButtonRef, fillColorPatch, lineDashButtonRef, lineWidthButtonRef, overlaySelection, selectedOverlayLineDash, selectedOverlayLineSize, selectionFill, selectionFillColor, selectionFillOpacity, setStrokeColor, strokeColor, strokeColorButtonRef } = chrome.shapeStyle;
   const { activeMenu, aiDocumentWriteInProgress, colorStylePanel, document, getActiveTextTarget, imageInputRef, insertInlineMath, isDesktopApp, isEmbedded, runEditCommand, runOverlayCommand, setStatusMessage, shapeGallerySections, lineToolItems, t, toggleMenu, versionHistoryPreviewActive } = chrome.shared;
   const { setActiveMenu, setBoxedTextMenuOpen, setColorStylePanel, setFontFamilyMenuOpen, setBlockStyleMenuOpen, setLineDashMenuOpen, setLineEndpointMenu, setLineHeightMenuOpen, setLineToolMenuOpen, setLineWidthMenuOpen, setShapeMenuOpen, setTextAlignMenuOpen } = chrome.toolbarMenus;
   const { activePageNumber, applyZoom, pageCount, zoom, zoomOptions } = chrome.view;
@@ -276,7 +284,7 @@ export function renderEditorChrome(chrome: EditorChromeValue) {
             {renderMenuShortcut("overlay.image")}
           </button>
           <button type="button" role="menuitem" onClick={() => { setActiveMenu(null); setOverlayEditing(true); setLineToolMenuOpen(false); setShapeMenuOpen(true); }}>
-            <Square size={16} />
+            <Shapes size={16} />
             <span>{t("appMenu.insert.shape")}</span>
           </button>
         </>}
@@ -412,7 +420,6 @@ export function renderEditorChrome(chrome: EditorChromeValue) {
                 {/* 開いていない教材のタイトルは台帳の文字列しか無いので従来どおり
                     文字列パスで描く。アクティブなタブだけ導出したノード列を渡す。 */}
                 <span className="document-tab-title"><DocumentTitleText title={tab.title} nodes={active ? documentTitle.nodes : undefined} /></span>
-                <span className="document-tab-initial" aria-hidden="true">{Array.from(tab.title)[0]}</span>
                 {active && !chrome.shared.hasDocumentSession && <DocumentTabSaveDot />}
               </button>
               <button
@@ -673,9 +680,26 @@ export function renderEditorChrome(chrome: EditorChromeValue) {
     </EditorToolbarGroup>
   );
 
-  const blockStyleLabel = selectedTextStyle === "h1" || selectedTextStyle === "h2" || selectedTextStyle === "h3" || selectedTextStyle === "paragraph"
-    ? t(`format.blockStyle.${selectedTextStyle}`)
-    : t("format.blockStyle.placeholder");
+  // いまの段落を 1 つのスタイル名で言い表す。コード・リストは本文の一種でもあるので、それらを
+  // 優先して見せる (「本文」と「箇条書き」が同時に選ばれているように見せない)。
+  const activeBlockStructure: BlockStructureOptionValue | null = blockStyleState.inCodeBlock
+    ? "code"
+    : blockStyleState.listType === "bullet"
+      ? "bulletList"
+      : blockStyleState.listType === "ordered"
+        ? "orderedList"
+        : blockStyleState.inQuoteBlock && selectedTextStyle === "paragraph"
+          ? "quote"
+          : null;
+  const activeTextBlockStyle = activeBlockStructure === null ? selectedTextStyle : null;
+  const blockStyleLabel = activeBlockStructure !== null
+    ? t(`format.blockStructure.${activeBlockStructure}`)
+    : selectedTextStyle === "h1" || selectedTextStyle === "h2" || selectedTextStyle === "h3" || selectedTextStyle === "paragraph"
+      ? t(`format.blockStyle.${selectedTextStyle}`)
+      : t("format.blockStyle.placeholder");
+  // 区切り線の上など、文字スタイルは使えなくてもブロックを解除したい状態がある。
+  const blockStyleMenuEnabled = canUseTextBlockStyle || canUseBlockStructure;
+  const blockStyleMenuVisible = blockStyleMenuOpen && blockStyleMenuEnabled;
   const paragraphStyleSelect = (
           <div className="shape-menu-anchor">
             <button
@@ -685,8 +709,8 @@ export function renderEditorChrome(chrome: EditorChromeValue) {
               title={blockStyleLabel}
               aria-label={t("format.blockStyle.aria")}
               aria-haspopup="menu"
-              aria-expanded={blockStyleMenuOpen && canUseTextBlockStyle}
-              disabled={!canUseTextBlockStyle}
+              aria-expanded={blockStyleMenuVisible}
+              disabled={!blockStyleMenuEnabled}
               onMouseDown={(event) => event.preventDefault()}
               onClick={() => {
                 const nextOpen = !blockStyleMenuOpen;
@@ -707,24 +731,27 @@ export function renderEditorChrome(chrome: EditorChromeValue) {
               <ChevronDown className="toolbar-font-select-caret" size={EDITOR_TOOLBAR_CARET_SIZE} aria-hidden="true" />
             </button>
             <ToolbarPopover
-              open={blockStyleMenuOpen && canUseTextBlockStyle}
+              open={blockStyleMenuVisible}
               anchorRef={blockStyleButtonRef}
               onClose={() => setBlockStyleMenuOpen(false)}
               className="shape-menu font-family-menu"
               role="menu"
               ariaLabel={t("format.blockStyle.aria")}
             >
-              {(blockStyleMenuOpen && canUseTextBlockStyle) && <>
+              {blockStyleMenuVisible && <>
+              <div className="font-family-menu-group" role="group" aria-label={t("format.blockStyle.groupText")}>
               {BLOCK_STYLE_OPTIONS.map((value) => {
                 const optionLabel = t(`format.blockStyle.${value}`);
+                const checked = activeTextBlockStyle === value;
                 return (
                   <button
                     key={value}
                     type="button"
                     role="menuitemradio"
-                    aria-checked={selectedTextStyle === value}
-                    className={selectedTextStyle === value ? "active" : undefined}
+                    aria-checked={checked}
+                    className={`block-style-option block-style-option-${value}${checked ? " active" : ""}`}
                     title={optionLabel}
+                    disabled={!canUseTextBlockStyle}
                     onMouseDown={(event) => event.preventDefault()}
                     onClick={() => {
                       applyTextStyle(value);
@@ -732,7 +759,7 @@ export function renderEditorChrome(chrome: EditorChromeValue) {
                     }}
                   >
                     <span className="font-family-menu-option-label">{optionLabel}</span>
-                    {selectedTextStyle === value ? (
+                    {checked ? (
                       <Check size={14} className="font-family-menu-check" />
                     ) : (
                       <span className="font-family-menu-check" aria-hidden="true" />
@@ -740,6 +767,40 @@ export function renderEditorChrome(chrome: EditorChromeValue) {
                   </button>
                 );
               })}
+              </div>
+              <div className="font-family-menu-group" role="group" aria-label={t("format.blockStyle.groupBlock")}>
+              {BLOCK_STRUCTURE_OPTIONS.map((value) => {
+                const optionLabel = t(`format.blockStructure.${value}`);
+                // 箇条書き・番号付き・引用・コードはツールバーのボタンと同じトグル。選び直すと解除。
+                const checked = value === "bulletList" ? blockStyleState.listType === "bullet"
+                  : value === "orderedList" ? blockStyleState.listType === "ordered"
+                    : value === "quote" ? blockStyleState.inQuoteBlock
+                      : blockStyleState.inCodeBlock;
+                return (
+                  <button
+                    key={value}
+                    type="button"
+                    role="menuitemcheckbox"
+                    aria-checked={checked}
+                    className={checked ? "active" : undefined}
+                    title={optionLabel}
+                    disabled={!canUseBlockStructure}
+                    onMouseDown={(event) => event.preventDefault()}
+                    onClick={() => {
+                      applyBlockStructure(value);
+                      setBlockStyleMenuOpen(false);
+                    }}
+                  >
+                    <span className="font-family-menu-option-label">{optionLabel}</span>
+                    {checked ? (
+                      <Check size={14} className="font-family-menu-check" />
+                    ) : (
+                      <span className="font-family-menu-check" aria-hidden="true" />
+                    )}
+                  </button>
+                );
+              })}
+              </div>
               </>}
             </ToolbarPopover>
           </div>
@@ -936,9 +997,20 @@ export function renderEditorChrome(chrome: EditorChromeValue) {
         type="text"
         inputMode="decimal"
         value={fontSizeInput}
-        onFocus={(event) => event.currentTarget.select()}
+        onFocus={(event) => {
+          fontSizeSkipBlurRef.current = false;
+          event.currentTarget.select();
+        }}
         onChange={(event) => setFontSizeInput(event.currentTarget.value)}
-        onBlur={(event) => commitFontSizeInput(event.currentTarget.value)}
+        onBlur={(event) => {
+          // Enter already committed and Escape cancelled. The synchronous blur
+          // must not submit the old input value a second time.
+          if (fontSizeSkipBlurRef.current) {
+            fontSizeSkipBlurRef.current = false;
+            return;
+          }
+          commitFontSizeInput(event.currentTarget.value);
+        }}
         onKeyDown={(event) => {
           if (event.key === "Enter") {
             if (event.nativeEvent.isComposing) {
@@ -946,12 +1018,20 @@ export function renderEditorChrome(chrome: EditorChromeValue) {
               return;
             }
             event.preventDefault();
+            event.stopPropagation();
+            fontSizeSkipBlurRef.current = true;
             commitFontSizeInput(event.currentTarget.value);
             event.currentTarget.blur();
           } else if (event.key === "Escape") {
             event.preventDefault();
+            event.stopPropagation();
+            fontSizeSkipBlurRef.current = true;
             setFontSizeInput(String(activeTextFontSize));
             event.currentTarget.blur();
+          } else if (event.key === "ArrowUp" || event.key === "ArrowDown") {
+            event.preventDefault();
+            event.stopPropagation();
+            adjustFontSize(event.key === "ArrowUp" ? 1 : -1);
           }
         }}
       />
@@ -1757,7 +1837,7 @@ export function renderEditorChrome(chrome: EditorChromeValue) {
             setShapeMenuOpen((current) => !current);
           }}
         >
-          <Square size={EDITOR_TOOLBAR_TEXT_ICON_SIZE} />
+          <Shapes size={EDITOR_TOOLBAR_TEXT_ICON_SIZE} />
           <ChevronDown size={EDITOR_TOOLBAR_CARET_SIZE} />
         </EditorToolbarMenuButton>
         <ToolbarPopover
@@ -1873,10 +1953,16 @@ export function renderEditorChrome(chrome: EditorChromeValue) {
     </EditorToolbarGroup>
   );
 
+  // The selection's own stroke, for the same reason the fill reads `selectionFill`: the palette has
+  // to show what the figure stores, not the last value the toolbar applied. `null` is a disagreement.
+  const selectionStrokeColor = readSharedStrokeColor(overlaySelection.selectedShapes);
+  const selectionStrokeOpacity = readSharedStrokeOpacity(overlaySelection.selectedShapes);
+
   const strokeColorControl = (
           <div className="shape-menu-anchor">
             <EditorToolbarColorButton
               buttonRef={strokeColorButtonRef}
+              text
               active={colorStylePanel === "stroke" && canUseStrokeStyleControls}
               tooltip={{ label: t("shapeStyle.stroke.tooltip") }}
               aria-label={t("shapeStyle.stroke.label")}
@@ -1893,6 +1979,12 @@ export function renderEditorChrome(chrome: EditorChromeValue) {
               }}
             >
               <PenLine size={EDITOR_TOOLBAR_TEXT_ICON_SIZE} />
+              {/* 選択バーと同じく、いまの色を帯で見せる (選択が無いときは最後に選んだ色)。 */}
+              <span
+                aria-hidden="true"
+                className="toolbar-icon-color-stripe"
+                style={{ backgroundColor: (overlaySelection.selectedCount > 0 ? readSharedStrokeColor(overlaySelection.selectedShapes) : strokeColor) ?? "transparent" }}
+              />
             </EditorToolbarColorButton>
             <ToolbarPopover
               open={colorStylePanel === "stroke" && canUseStrokeStyleControls}
@@ -1903,16 +1995,22 @@ export function renderEditorChrome(chrome: EditorChromeValue) {
             >
               {(colorStylePanel === "stroke" && canUseStrokeStyleControls) && <>
               <ColorPalette
-                value={strokeColor}
+                value={selectionStrokeColor}
+                opacity={selectionStrokeOpacity ?? 1}
+                mixed={selectionStrokeColor === null || selectionStrokeOpacity === null}
                 allowTransparent
                 transparentLabel={t("shapeStyle.stroke.transparent")}
-                onChange={(color) => {
+                onPreview={(preview) => dispatchOverlayStylePreview(preview === null ? null : strokePreviewPatch(preview))}
+                onOpacityChange={(nextOpacity) => applyOverlayStyle({ strokeOpacity: nextOpacity })}
+                onChange={(color, nextOpacity) => {
                   if (color === null) {
                     applyOverlayStyle({ strokeOpacity: 0 });
                     setStrokeColor(null);
                   } else {
                     setStrokeColor(color);
-                    applyOverlayStyle({ color, strokeOpacity: 1 });
+                    applyOverlayStyle(nextOpacity === undefined
+                      ? strokeColorPatch(color, selectionStrokeOpacity)
+                      : { color, strokeOpacity: nextOpacity });
                   }
                   setColorStylePanel(null);
                 }}
@@ -1926,6 +2024,7 @@ export function renderEditorChrome(chrome: EditorChromeValue) {
           <div className="shape-menu-anchor">
             <EditorToolbarColorButton
               buttonRef={fillColorButtonRef}
+              text
               active={colorStylePanel === "fill" && canUseFillStyleControls}
               tooltip={{ label: t("shapeStyle.fill.tooltip") }}
               aria-label={t("shapeStyle.fill.label")}
@@ -1942,6 +2041,11 @@ export function renderEditorChrome(chrome: EditorChromeValue) {
               }}
             >
               <PaintBucket size={EDITOR_TOOLBAR_ICON_SIZE} />
+              <span
+                aria-hidden="true"
+                className="toolbar-icon-color-stripe"
+                style={{ backgroundColor: selectionFillColor ?? "transparent" }}
+              />
             </EditorToolbarColorButton>
             <ToolbarPopover
               open={colorStylePanel === "fill" && canUseFillStyleControls}
@@ -1957,11 +2061,8 @@ export function renderEditorChrome(chrome: EditorChromeValue) {
                 mixed={selectionFill.kind === "mixed"}
                 allowTransparent
                 transparentLabel={t("shapeStyle.fill.transparent")}
-                onPreview={(preview) => {
-                  dispatchOverlayStylePreview(preview === null
-                    ? null
-                    : { fill: "solid", fillColor: preview.color, fillOpacity: preview.opacity });
-                }}
+                onPreview={(preview) => dispatchOverlayStylePreview(preview === null ? null : fillPreviewPatch(preview))}
+                onOpacityChange={(nextOpacity) => applyOverlayStyle({ fillOpacity: nextOpacity })}
                 onChange={(color, nextOpacity) => {
                   // "No fill" and "a fully transparent colour" are different documents, so the
                   // null colour is decided before any opacity is looked at.
@@ -2097,6 +2198,14 @@ export function renderEditorChrome(chrome: EditorChromeValue) {
     </EditorToolbarIconButton>
   );
 
+  // 図形の種類を変える。選択バーと同じアイコン・同じ一覧 (共有部品)。
+  const shapeTypeControl = (
+    <ShapeTypeMenuButton
+      disabled={!canChangeOverlayShapeType}
+      onSelect={changeOverlayShapeType}
+    />
+  );
+
   const shapeStyleGroup = (
     <>
         <EditorToolbarSeparator />
@@ -2108,6 +2217,7 @@ export function renderEditorChrome(chrome: EditorChromeValue) {
           {lineWidthButton}
           {lineStartButton}
           {lineEndButton}
+          {shapeTypeControl}
           {arrangeFrontQuickButton}
           {arrangeForwardQuickButton}
           {arrangeBackwardQuickButton}
@@ -2710,6 +2820,7 @@ export function renderEditorChrome(chrome: EditorChromeValue) {
           <Fragment key="line-2">{lineStartButton}{lineEndButton}</Fragment>,
         ],
       },
+      { key: "shapeType", label: t("ribbon.group.shapeType"), rows: [<>{shapeTypeControl}</>] },
       {
         key: "arrange",
         label: t("ribbon.group.arrange"),

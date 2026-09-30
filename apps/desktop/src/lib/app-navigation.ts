@@ -50,3 +50,14 @@ function normalizeSearch(search: RouteSearch | undefined): string {
   }
   return params.toString();
 }
+
+// External links can arrive while an editor owns unsaved changes. The editor
+// supplies its existing save boundary; workspace/print pages have no guard.
+let navigationGuard: (() => Promise<boolean>) | null = null;
+export function registerAppNavigationGuard(guard: () => Promise<boolean>): () => void {
+  navigationGuard = guard;
+  return () => { if (navigationGuard === guard) navigationGuard = null; };
+}
+export async function prepareAppNavigation(): Promise<boolean> {
+  return navigationGuard ? navigationGuard() : true;
+}

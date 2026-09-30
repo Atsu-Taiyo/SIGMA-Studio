@@ -417,6 +417,155 @@
   outline: none;
 }
 
+/* 文字ラベル付きの操作。アイコンだけでは「何が起きるか」が読み取れないため、
+   AI 依頼とコメントは言葉を添える。 */
+.selection-action-popover .selection-action-labeled {
+  padding: 0 11px 0 9px;
+  font-size: 13px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.selection-action-divider {
+  width: 1px;
+  height: 18px;
+  margin: 0 3px;
+  background: rgba(148, 163, 184, 0.55);
+}
+
+/* 選択バーの編集操作 (書式・図形の操作)。上部ツールバーと同じ部品をそのまま使うので、
+   ここでは大きさと並びだけを整える。 */
+/* 狭いウィンドウでは 2 段に折り返す (はみ出して操作できなくなるより、少し高くなる方がよい)。 */
+.selection-action-popover {
+  max-width: calc(100vw - 24px);
+  flex-wrap: wrap;
+  row-gap: 2px;
+  border-radius: 20px;
+}
+
+.selection-action-popover .shape-menu-anchor {
+  display: inline-flex;
+  align-items: center;
+}
+
+.selection-action-popover .toolbar-icon-color {
+  width: 30px;
+  height: 30px;
+}
+
+.selection-action-popover .selection-toolbar-button,
+.selection-action-popover .shape-menu-button.icon-only {
+  position: relative;
+  min-width: 30px;
+  height: 30px;
+  padding: 0 6px;
+  border-radius: 8px;
+}
+
+.selection-action-popover .selection-toolbar-button.active,
+.selection-action-popover .selection-toolbar-button[aria-pressed="true"],
+.selection-action-popover .shape-menu-button.active {
+  color: #1d4ed8;
+  background: #e0e7ff;
+}
+
+.selection-action-popover .selection-toolbar-labeled {
+  gap: 5px;
+  padding: 0 9px;
+  font-size: 13px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.selection-action-popover .selection-toolbar-select {
+  min-width: 0;
+  gap: 4px;
+  padding: 0 8px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.selection-action-popover .selection-toolbar-size {
+  display: inline-flex;
+  align-items: center;
+  gap: 1px;
+}
+
+.selection-action-popover .selection-toolbar-step {
+  min-width: 22px;
+  height: 26px;
+  padding: 0;
+  border-radius: 6px;
+}
+
+.selection-action-popover .selection-toolbar-size-value {
+  min-width: 34px;
+  height: 26px;
+  padding: 0 4px;
+  border: 1px solid rgba(203, 213, 225, 0.95);
+  border-radius: 6px;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+
+.selection-toolbar-size-menu {
+  max-height: 280px;
+  overflow-y: auto;
+}
+
+.selection-toolbar-icon-menu,
+.selection-toolbar-icon-row {
+  display: flex;
+  gap: 2px;
+}
+
+.selection-toolbar-icon-menu button,
+.selection-toolbar-icon-row button {
+  display: inline-flex;
+  min-width: 30px;
+  height: 30px;
+  align-items: center;
+  justify-content: center;
+}
+
+.selection-toolbar-more-menu {
+  min-width: 200px;
+}
+
+.selection-toolbar-more-menu button {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: 9px;
+}
+
+.selection-toolbar-more-menu button.danger {
+  color: #b91c1c;
+}
+
+.selection-toolbar-menu-separator {
+  height: 1px;
+  margin: 4px 0;
+  background: rgba(148, 163, 184, 0.4);
+}
+
+.selection-toolbar-opacity label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 6px;
+  font-size: 13px;
+}
+
+.selection-toolbar-opacity output {
+  min-width: 3.2em;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+
 .comment-text-highlight {
   border-radius: 2px;
   background: transparent;
@@ -1908,6 +2057,38 @@
   overflow-wrap: anywhere;
 }
 .comment-mention.is-self { outline: 1px solid currentColor; }
+/* 投稿済みの宛先 (人・AI) はアイコン + 名前のチップ。詳細は title のツールチップに出す。 */
+.comment-mention.is-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 100%;
+  padding: 0 6px 0 2px;
+  border-radius: 999px;
+  vertical-align: baseline;
+  cursor: default;
+}
+.comment-mention.is-chip .comment-author-avatar {
+  width: 16px;
+  height: 16px;
+  font-size: 10px;
+}
+.comment-mention.is-chip .comment-author-avatar-badge { display: none; }
+.comment-mention.is-chip .comment-author-avatar svg { width: 10px; height: 10px; }
+.comment-mention.is-agent { border-radius: 999px; padding: 0 6px; }
+.comment-mention-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.comment-mention-option .comment-author-avatar {
+  width: 22px;
+  height: 22px;
+  font-size: 11px;
+}
+.comment-mention-option .comment-author-avatar-badge { display: none; }
+.comment-mention-option-text { display: grid; min-width: 0; }
+.comment-mention-option-sub { color: var(--muted, #666); font-size: 11px; }
 .comment-mention-menu {
   padding: 6px;
   margin-top: 4px;

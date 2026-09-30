@@ -360,6 +360,32 @@ describe("moveBlocksByDrag — columns", () => {
     expect(updated.layout.columnStartIds).toEqual(["a", "c"]);
   });
 
+  it("moves the top block of the right column to the end of the left column", () => {
+    // 平坦な子の並び ([a, b, c, d]) は変わらないが、列の所属は変わる。
+    const document = doc([section("sec", [p("a"), p("b"), p("c"), p("d")])]);
+    expect(resolveExplicitColumns(document.content[0] as LayoutSectionNode).map((column) => column.map((child) => child.id))).toEqual([["a", "b"], ["c", "d"]]);
+    const next = moveBlocksByDrag(document, { unitIds: ["c"], target: { kind: "sibling", anchorId: "b", position: "after" } });
+    expect(next).not.toBe(document);
+    const updated = next.content[0] as LayoutSectionNode;
+    expect(resolveExplicitColumns(updated).map((column) => column.map((child) => child.id))).toEqual([["a", "b", "c"], ["d"]]);
+    expect(updated.layout.columnStartIds).toEqual(["a", "d"]);
+  });
+
+  it("moves the last block of the left column to the top of the right column", () => {
+    const document = doc([section("sec", [p("a"), p("b"), p("c"), p("d")])]);
+    const next = moveBlocksByDrag(document, { unitIds: ["b"], target: { kind: "sibling", anchorId: "c", position: "before" } });
+    expect(next).not.toBe(document);
+    const updated = next.content[0] as LayoutSectionNode;
+    expect(resolveExplicitColumns(updated).map((column) => column.map((child) => child.id))).toEqual([["a"], ["b", "c", "d"]]);
+    expect(updated.layout.columnStartIds).toEqual(["a", "b"]);
+  });
+
+  it("still ignores a drop that keeps every block in the same column and place", () => {
+    const document = doc([section("sec", [p("a"), p("b"), p("c"), p("d")])]);
+    expect(moveBlocksByDrag(document, { unitIds: ["b"], target: { kind: "sibling", anchorId: "a", position: "after" } })).toBe(document);
+    expect(moveBlocksByDrag(document, { unitIds: ["c"], target: { kind: "sibling", anchorId: "d", position: "before" } })).toBe(document);
+  });
+
   it("keeps a balanced section's column count when a block is dropped inside it", () => {
     const document = doc([section("sec", [p("a"), p("b")]), p("z")]);
     const next = moveBlocksByDrag(document, {

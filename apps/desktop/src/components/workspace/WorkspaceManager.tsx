@@ -6,6 +6,8 @@ import {
   Check,
   LayoutTemplate,
   Loader2,
+  PanelLeftClose,
+  PanelLeftOpen,
   RefreshCw,
   Search,
   UserRoundPlus,
@@ -14,8 +16,24 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { FormEvent, MouseEvent as ReactMouseEvent } from "react";
 
-import { Button } from "@/components/ui/Button";
+import { Button, IconButton } from "@/components/ui/Button";
+import { useWorkspaceLibrary } from "./use-workspace-search";
+import { useWorkspaceComments } from "./use-workspace-comments";
 import { WorkspaceJoinDialog } from "./WorkspaceJoinDialog";
+import { WorkspaceCommentsPanel } from "./WorkspaceCommentsPanel";
+import { WorkspaceBookmarksPanel } from "./WorkspaceBookmarksPanel";
+import {
+  buildBookmarkEntries,
+  buildCommentEntries,
+  countUnresolvedMentions,
+  type WorkspaceBookmarkEntry,
+  type WorkspaceCommentEntry,
+  type WorkspacePanel,
+  type WorkspacePanelContext,
+} from "./workspace-panels-model";
+import { toggleWorkspaceBookmark, useWorkspaceBookmarks, workspaceBookmarkKey, type WorkspaceBookmarkKind } from "@/lib/workspace-bookmarks";
+import type { CommentUserIdentity } from "@/features/document";
+import { useCollaborationProfile } from "@/features/collaboration/renderer/use-collaboration-profile";
 import { Select } from "@/components/ui/Select";
 
 import {
@@ -38,6 +56,7 @@ import { TemplateGallery } from "@/components/templates/TemplateGallery";
 import { LedgerSchemaFailurePanel } from "@/components/ledger/LedgerSchemaFailurePanel";
 import { createTemplateAtDestination } from "./workspace-template-commands";
 import type { TemplateItem } from "@/types/template";
+import { encodeDocumentLocation } from "@/lib/document-location";
 import { navigateToAppRoute } from "@/lib/app-navigation";
 import { getDesktopBridge } from "@/lib/desktop-bridge";
 import { getAppRuntime } from "@/lib/runtime";
@@ -71,7 +90,7 @@ import { useWorkspaceDragAndDrop } from "./use-workspace-drag-and-drop";
 import { useInlineRename } from "./use-inline-rename";
 import { useWorkspaceItemKeyboard } from "./use-workspace-item-keyboard";
 import { useWorkspaceSelection } from "./use-workspace-selection";
-import { applyPendingRenames, buildFolderPath, buildWorkspaceRows } from "./workspace-list-model";
+import { applyPendingRenames, buildFolderPath, buildWorkspaceRows, resolveSearchLocation } from "./workspace-list-model";
 import { resolveFileDisplayName, resolveFolderDisplayName } from "./workspace-format";
 import { isInteractiveContextTarget, isSelectableItemTarget } from "./workspace-interaction";
 import { enterLedgerSchemaFailure, type LedgerSchemaErrorResult } from "./workspace-overview-result";
@@ -121,6 +140,8 @@ export function WorkspaceManager() {
   const [overview, setOverview] = useState<WorkspaceOverview | null>(null);
   const [ledgerFailure, setLedgerFailure] = useState<LedgerSchemaFailure | null>(null);
   const [folderFilter, setFolderFilter] = useState<FolderFilter>(ALL_FOLDERS);
+  // 本体に出す面。教材とフォルダの一覧以外は、全ワークスペースを横断して見せる。
+  const [panel, setPanel] = useState<WorkspacePanel>("files");
   const [workspaceTreeExpanded, setWorkspaceTreeExpanded] = useState(false);
   const [expandedFolderIds, setExpandedFolderIds] = useState<Set<string>>(() => new Set());
   const [editingFolderId, setEditingFolderId] = useState<string | null>(null);
@@ -233,7 +254,13 @@ export function WorkspaceManager() {
   };
 
   useEffect(() => {
-    const timeoutId = window.setTimeout(() => void loadOverview(), 0);
+    const timeoutId = window.setTimeout(() => {
+      const params = new URLSearchParams(window.location.search);
+      const workspaceId = params.get("workspaceId");
+      const folderId = params.get("folderId");
+      if (folderId) setFolderFilter(folderId);
+      void loadOverview(workspaceId);
+    }, 0);
     return () => window.clearTimeout(timeoutId);
   }, [loadOverview]);
 
@@ -280,6 +307,21 @@ export function WorkspaceManager() {
   }, [overview]);
   const visibleWorkspaces = useMemo(() => overview?.workspaces ?? [], [overview]);
 
+  const searchActive = searchQuery.trim().length > 0;
+  // 検索・コメント一覧・ブックマークが読む、全ワークスペースの読み取り専用スナップショット。
+  const profile = useCollaborationProfile();
+  const commentIdentity = useMemo<CommentUserIdentity | null>(() => profile ? {
+    userId: profile.actorId,
+    // 投稿者は書いた時点の表示名 / メールアドレス / ID で保存されている。
+    authorNames: [profile.displayName, profile.email, profile.actorId].filter((name): name is string => Boolean(name)),
+  } : null, [profile]);
+  const { latest: library, current: searchResult } = useWorkspaceLibrary(
+    searchActive || panel !== "files" || commentIdentity !== null,
+    overview,
+  );
+  const searchOverview = searchResult?.overview;
+  const resultFiles = useMemo(() => (searchActive ? searchOverview?.files : overview?.files) ?? [], [searchActive, searchOverview, overview]);
+  const resultFolders = useMemo(() => (searchActive ? searchOverview?.folders : overview?.folders) ?? [], [searchActive, searchOverview, overview]);
   const folders = useMemo(() => overview?.folders ?? [], [overview]);
   const files = useMemo(() => overview?.files ?? [], [overview]);
   const effectiveFolderFilter = folderFilter === ALL_FOLDERS ||
@@ -287,36 +329,69 @@ export function WorkspaceManager() {
     ? folderFilter
     : ALL_FOLDERS;
   const selectedFolder = folders.find((folder) => folder.id === effectiveFolderFilter) ?? null;
-  const searchActive = searchQuery.trim().length > 0;
   const emptyVariant: WorkspaceEmptyVariant = searchActive ? "search" : selectedFolder ? "folder" : "root";
   const filteredFiles = useMemo(() => {
     const query = searchQuery.trim().toLowerCase();
     if (query) {
-      return files.filter((file) => file.title.toLowerCase().includes(query));
+      return resultFiles.filter((file) => file.title.toLowerCase().includes(query));
     }
     return files.filter((file) =>
       effectiveFolderFilter === ALL_FOLDERS ? !file.folderId : file.folderId === effectiveFolderFilter,
     );
-  }, [effectiveFolderFilter, files, searchQuery]);
+  }, [effectiveFolderFilter, files, resultFiles, searchQuery]);
   const visibleFolders = useMemo(() => {
     const query = searchQuery.trim().toLowerCase();
     if (query) {
-      return folders.filter((folder) => folder.name.toLowerCase().includes(query));
+      return resultFolders.filter((folder) => folder.name.toLowerCase().includes(query));
     }
     return folders.filter((folder) =>
       effectiveFolderFilter === ALL_FOLDERS
         ? !folder.parentFolderId
         : folder.parentFolderId === effectiveFolderFilter,
     );
-  }, [effectiveFolderFilter, folders, searchQuery]);
+  }, [effectiveFolderFilter, folders, resultFolders, searchQuery]);
   const rootFolders = useMemo(() => folders.filter((folder) => !folder.parentFolderId), [folders]);
   const rootFiles = useMemo(() => files.filter((file) => !file.folderId), [files]);
+
+  const bookmarks = useWorkspaceBookmarks();
+  const bookmarkedKeys = useMemo(
+    () => new Set<string>(bookmarks.map((item) => workspaceBookmarkKey(item.kind, item.id))),
+    [bookmarks],
+  );
+  // ブックマークとコメントは全ワークスペースを横断する。スナップショットが届くまでは、開いている
+  // ワークスペースだけで引き当てる。
+  const panelSource = library ?? overview;
+  const panelContext = useMemo<WorkspacePanelContext | null>(() => panelSource ? {
+    workspaces: panelSource.workspaces,
+    folders: panelSource.folders,
+    files: panelSource.files,
+    workspaceLabel: (workspace) => workspace.id === SHARED_ITEMS_WORKSPACE_ID ? tc("collaboration.sharedItems") : workspace.name,
+  } : null, [panelSource, tc]);
+  const comments = useWorkspaceComments({ files: library?.files ?? null, identity: commentIdentity, active: panel === "comments" });
+  const commentEntries = useMemo(
+    () => panelContext ? buildCommentEntries(comments.threadsByFile, panelContext, t) : [],
+    [comments.threadsByFile, panelContext, t],
+  );
+  const mentionCount = countUnresolvedMentions(commentEntries);
+  const bookmarkEntries = useMemo(
+    () => panelContext ? buildBookmarkEntries(bookmarks, panelContext, t) : [],
+    [bookmarks, panelContext, t],
+  );
+  const sidebarCollapsed = viewPreference.sidebarCollapsed;
 
   const currentFolderContextId = selectedFolder?.id ?? null;
   const folderPath = buildFolderPath(folders, currentFolderContextId);
   const workspaceName = activeWorkspace?.name ?? t("nav.workspace");
   const workspaceCount = overview?.workspaces.length ?? 0;
   const activeWorkspaceId = activeWorkspace?.id ?? null;
+  useEffect(() => {
+    if (!activeWorkspaceId || status === "loading" || currentWorkspaceIdRef.current !== activeWorkspaceId) return;
+    const url = new URL(window.location.href);
+    url.searchParams.set("workspaceId", activeWorkspaceId);
+    if (selectedFolder) url.searchParams.set("folderId", selectedFolder.id);
+    else url.searchParams.delete("folderId");
+    window.history.replaceState(window.history.state, "", url);
+  }, [activeWorkspaceId, selectedFolder, status]);
   const renameItem = (target: WorkspaceInlineRenameTarget) => target.type === "workspace"
     ? visibleWorkspaces.find((item) => item.id === target.id)
     : target.type === "folder" ? folders.find((item) => item.id === target.id)
@@ -372,8 +447,8 @@ export function WorkspaceManager() {
       return;
     }
     const existingKeys = new Set<string>([
-      ...overview.files.map((file) => `file:${file.fileId}`),
-      ...overview.folders.map((folder) => `folder:${folder.id}`),
+      ...resultFiles.map((file) => `file:${file.fileId}`),
+      ...resultFolders.map((folder) => `folder:${folder.id}`),
     ]);
     selection.pruneToKeys(existingKeys);
     // selection.pruneToKeys is a stable useCallback identity; the containing
@@ -382,7 +457,7 @@ export function WorkspaceManager() {
     // this effect -- and clear/prune the selection -- on every render
     // instead of only when the overview actually changes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [overview, selection.pruneToKeys]);
+  }, [overview, searchOverview, searchActive, selection.pruneToKeys]);
 
   // A folder navigation, a search query change, or switching the active
   // workspace all change the visible row set outright, so the selection is
@@ -497,7 +572,7 @@ export function WorkspaceManager() {
     return false;
   };
 
-  const openContextMenu = (
+  const openContextMenu = async (
     event: ReactMouseEvent,
     folderId: string | null,
     options?: { allowInteractiveTarget?: boolean },
@@ -509,6 +584,11 @@ export function WorkspaceManager() {
     event.preventDefault();
     event.stopPropagation();
     const rect = event.currentTarget.getBoundingClientRect();
+    const resultFolder = resultFolders.find(folder => folder.id === folderId);
+    if (resultFolder && resultFolder.workspaceId !== activeWorkspaceId) {
+      setSearchQuery(""); setFolderFilter(resultFolder.parentFolderId ?? ALL_FOLDERS);
+      await loadOverview(resultFolder.workspaceId);
+    }
     const x = event.type === "click" ? rect.right - 224 : event.clientX;
     const y = event.type === "click" ? rect.bottom + 6 : event.clientY;
     const maxX = Math.max(12, window.innerWidth - 248);
@@ -534,12 +614,16 @@ export function WorkspaceManager() {
     });
   };
 
-  const openFileActionMenu = (event: ReactMouseEvent, file: WorkspaceFileSummary) => {
+  const openFileActionMenu = async (event: ReactMouseEvent, file: WorkspaceFileSummary) => {
     event.preventDefault();
     event.stopPropagation();
     setContextMenu(null);
     setWorkspaceNavContextMenu(null);
     const rect = event.currentTarget.getBoundingClientRect();
+    if (file.workspaceId !== activeWorkspaceId) {
+      setSearchQuery(""); setFolderFilter(file.folderId ?? ALL_FOLDERS);
+      await loadOverview(file.workspaceId);
+    }
     const menuWidth = 224;
     const maxX = Math.max(12, window.innerWidth - menuWidth - 12);
     const maxY = Math.max(12, window.innerHeight - 212);
@@ -562,9 +646,32 @@ export function WorkspaceManager() {
     });
   };
 
+  const openFolder = (folderId: string) => {
+    const folder = resultFolders.find(item => item.id === folderId);
+    setFolderFilter(folderId); setSearchQuery("");
+    if (folder && folder.workspaceId !== activeWorkspaceId) void loadOverview(folder.workspaceId);
+  };
   const openFile = (fileId: string) => {
     navigateToAppRoute("/", { fileId });
   };
+  const openComment = (entry: WorkspaceCommentEntry) => {
+    navigateToAppRoute("/", { fileId: entry.fileId, commentThreadId: entry.threadId });
+  };
+  const openBookmark = (entry: WorkspaceBookmarkEntry) => {
+    if (entry.kind === "file") {
+      openFile(entry.id);
+      return;
+    }
+    // フォルダは、その場所 (別のワークスペースでも) の一覧へ移り、サイドバーのツリーもそこまで開く。
+    const ancestors = buildFolderPath((panelContext?.folders ?? []).filter((folder) => folder.workspaceId === entry.workspaceId), entry.parentFolderId);
+    setPanel("files");
+    setSearchQuery("");
+    setFolderFilter(entry.id);
+    setExpandedFolderIds(new Set(ancestors.map((folder) => folder.id)));
+    setWorkspaceTreeExpanded(true);
+    if (entry.workspaceId !== activeWorkspaceId) void loadOverview(entry.workspaceId);
+  };
+  const toggleBookmark = (kind: WorkspaceBookmarkKind, id: string) => toggleWorkspaceBookmark(kind, id);
 
   const useTemplateInWorkspace = useCallback(async (template: TemplateItem) => {
     try {
@@ -879,8 +986,7 @@ export function WorkspaceManager() {
       return;
     }
     if (key.startsWith("folder:")) {
-      setFolderFilter(key.slice("folder:".length));
-      setSearchQuery("");
+      openFolder(key.slice("folder:".length));
     }
   };
 
@@ -1122,6 +1228,15 @@ export function WorkspaceManager() {
     <div className="workspace-page-shell">
       <header className="workspace-page-header">
         <div className="workspace-page-brand">
+          <IconButton
+            className="workspace-sidebar-toggle"
+            label={t(sidebarCollapsed ? "nav.sidebarExpand" : "nav.sidebarCollapse")}
+            size="md"
+            tone="ghost"
+            aria-expanded={!sidebarCollapsed}
+            aria-controls="workspace-sidebar"
+            onClick={() => setViewPreference({ sidebarCollapsed: !sidebarCollapsed })}
+          >{sidebarCollapsed ? <PanelLeftOpen size={18} /> : <PanelLeftClose size={18} />}</IconButton>
           <div className="workspace-brand-mark" aria-hidden="true">Σ</div>
           <h1>Sigma Studio</h1>
         </div>
@@ -1131,7 +1246,7 @@ export function WorkspaceManager() {
             aria-label={t("search.material")}
             value={searchQuery}
             placeholder={t("search.placeholder")}
-            onChange={(event) => setSearchQuery(event.target.value)}
+            onChange={(event) => { setSearchQuery(event.target.value); setPanel("files"); }}
           />
           {searchActive && (
             <button
@@ -1205,8 +1320,13 @@ export function WorkspaceManager() {
           </main>
         )
       ) : (
-        <main className="workspace-page-main">
+        <main className="workspace-page-main" data-sidebar={sidebarCollapsed ? "collapsed" : "expanded"}>
           <WorkspaceSidebar
+            collapsed={sidebarCollapsed}
+            panel={panel}
+            commentsAvailable={Boolean(overview.catalog)}
+            mentionCount={mentionCount}
+            onSelectPanel={setPanel}
             menuKey={menuKey}
             visibleWorkspaces={visibleWorkspaces}
             activeWorkspaceId={overview.activeWorkspaceId}
@@ -1235,6 +1355,26 @@ export function WorkspaceManager() {
             onCancelRename={inlineRename.cancel}
           />
 
+          {panel !== "files" ? (
+            <section className="workspace-content workspace-panel-content" aria-label={t(panel === "comments" ? "comments.title" : "bookmarks.title")}>
+              {panel === "comments" ? (
+                <WorkspaceCommentsPanel
+                  entries={commentEntries}
+                  signedIn={commentIdentity !== null}
+                  scanning={comments.scanning}
+                  onOpen={openComment}
+                />
+              ) : (
+                <WorkspaceBookmarksPanel
+                  entries={bookmarkEntries}
+                  loading={bookmarks.length > 0 && !library && !searchResult?.failed}
+                  failed={bookmarks.length > 0 && !library && Boolean(searchResult?.failed)}
+                  onOpen={openBookmark}
+                  onRemove={(entry) => toggleBookmark(entry.kind, entry.id)}
+                />
+              )}
+            </section>
+          ) : (
           <section
             className={`workspace-content ${dragDrop.dropTarget === "root" ? "drop-active" : ""}`}
             aria-label={t("nav.workspaceManagement")}
@@ -1304,11 +1444,14 @@ export function WorkspaceManager() {
             {viewPreference.mode === "grid" ? (
               <WorkspaceItemGrid
             menuKey={menuKey}
+                locationLabel={searchActive ? (row) => resolveSearchLocation(row, resultFolders, visibleWorkspaces) : undefined}
                 folders={visibleFolders}
                 files={filteredFiles}
                 sortKey={viewPreference.sortKey}
                 sortDirection={viewPreference.sortDirection}
                 emptyVariant={emptyVariant}
+                loading={searchActive && !searchResult}
+                searchFailed={searchActive && Boolean(searchResult?.failed)}
                 dragItem={dragDrop.dragItem}
                 dropTarget={dragDrop.dropTarget}
                 dragProps={dragDrop.dragProps}
@@ -1317,10 +1460,7 @@ export function WorkspaceManager() {
                 focusedKey={selection.focusedKey}
                 onItemClick={(event, key, rows) => selection.handleItemClick(event, key, rows)}
                 onItemKeyDown={itemKeyboardHandler}
-                onOpenFolder={(folderId) => {
-                  setFolderFilter(folderId);
-                  setSearchQuery("");
-                }}
+                onOpenFolder={openFolder}
                 onFolderContextMenu={(event, folderId) => openContextMenu(event, folderId, { allowInteractiveTarget: true })}
                 onOpenFile={openFile}
                 savingFileId={savingFileId}
@@ -1334,19 +1474,24 @@ export function WorkspaceManager() {
                 isRenameEditing={inlineRename.isEditing}
                 onCommitRename={inlineRename.commit}
                 onCancelRename={inlineRename.cancel}
+                bookmarkedKeys={bookmarkedKeys}
+                onToggleBookmark={toggleBookmark}
               />
             ) : (
               <WorkspaceItemList
             menuKey={menuKey}
+                locationLabel={searchActive ? (row) => resolveSearchLocation(row, resultFolders, visibleWorkspaces) : undefined}
                 folders={visibleFolders}
                 files={filteredFiles}
-                allFolders={folders}
+                allFolders={resultFolders}
                 workspaceName={workspaceName}
                 sortKey={viewPreference.sortKey}
                 sortDirection={viewPreference.sortDirection}
                 onRequestSort={(sortKey, sortDirection) => setViewPreference({ sortKey, sortDirection })}
                 searchActive={searchActive}
                 emptyVariant={emptyVariant}
+                loading={searchActive && !searchResult}
+                searchFailed={searchActive && Boolean(searchResult?.failed)}
                 dragItem={dragDrop.dragItem}
                 dropTarget={dragDrop.dropTarget}
                 dragProps={dragDrop.dragProps}
@@ -1355,10 +1500,7 @@ export function WorkspaceManager() {
                 focusedKey={selection.focusedKey}
                 onItemClick={(event, key, rows) => selection.handleItemClick(event, key, rows)}
                 onItemKeyDown={itemKeyboardHandler}
-                onOpenFolder={(folderId) => {
-                  setFolderFilter(folderId);
-                  setSearchQuery("");
-                }}
+                onOpenFolder={openFolder}
                 onFolderContextMenu={(event, folderId) => openContextMenu(event, folderId, { allowInteractiveTarget: true })}
                 onOpenFile={openFile}
                 savingFileId={savingFileId}
@@ -1372,10 +1514,13 @@ export function WorkspaceManager() {
                 isRenameEditing={inlineRename.isEditing}
                 onCommitRename={inlineRename.commit}
                 onCancelRename={inlineRename.cancel}
+                bookmarkedKeys={bookmarkedKeys}
+                onToggleBookmark={toggleBookmark}
               />
             )}
 
           </section>
+          )}
         </main>
       )}
       {overview && status !== "idle" && (
@@ -1439,6 +1584,8 @@ export function WorkspaceManager() {
               : { source: "local", local: { kind: "document", fileId: file.fileId } }, resolveFileDisplayName(file, t))}
             busy={busy}
             saving={status === "saving"}
+            bookmarked={bookmarkedKeys.has(workspaceBookmarkKey("file", file.fileId))}
+            onToggleBookmark={() => { setFileActionMenu(null); toggleBookmark("file", file.fileId); }}
             onRename={() => {
               setFileActionMenu(null);
               inlineRename.start({ type: "file", id: file.fileId }, resolveFileDisplayName(file, t));
@@ -1454,6 +1601,8 @@ export function WorkspaceManager() {
           canRename={canEditItem(folders.find((item) => item.id === contextMenu.folderId), "rename")}
           canDelete={canDeleteItem(folders.find((item) => item.id === contextMenu.folderId))}
           canCreate={canCreateAt(contextMenu.folderId)}
+          folderBookmarked={contextMenu.folderId !== null && bookmarkedKeys.has(workspaceBookmarkKey("folder", contextMenu.folderId))}
+          onToggleFolderBookmark={(folderId) => { setContextMenu(null); toggleBookmark("folder", folderId); }}
           onShare={contextMenu.folderId ? () => {
             const folder = folders.find((candidate) => candidate.id === contextMenu.folderId);
             if (folder && activeWorkspaceId) share(folder.sharing ? { source: "shared", shared: folder.sharing.target }
@@ -1478,10 +1627,10 @@ export function WorkspaceManager() {
           }}
         />
       )}
-      {joinOpen && <WorkspaceJoinDialog onClose={() => setJoinOpen(false)} onJoined={(result) => {
+      {joinOpen && <WorkspaceJoinDialog onClose={() => setJoinOpen(false)} onJoined={(result, location) => {
         setJoinOpen(false); setSearchQuery(""); setFolderFilter(result.folderId ?? ALL_FOLDERS);
         setWorkspaceTreeExpanded(true); if (result.folderId) setExpandedFolderIds(new Set([result.folderId]));
-        void loadOverview(result.workspaceId);
+        if (result.fileId) navigateToAppRoute("/", { fileId: result.fileId, location: location ? encodeDocumentLocation(location) : undefined }); else void loadOverview(result.workspaceId);
       }} />}
       {sharingSelection && <WorkspaceSharingDialog target={sharingSelection.target} name={sharingSelection.name}
         onClose={() => setSharingSelection(null)} onChanged={() => void loadOverview(activeWorkspaceId ?? undefined)} />}

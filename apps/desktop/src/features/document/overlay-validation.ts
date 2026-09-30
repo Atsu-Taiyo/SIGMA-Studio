@@ -86,7 +86,10 @@ export function isOverlayShape(value: unknown): value is OverlayShape {
           value.props.geo === "diamond" ||
           value.props.geo === "pentagon" ||
           value.props.geo === "regularPolygon" ||
-          value.props.geo === "blockArrow"
+          value.props.geo === "blockArrow" ||
+          value.props.geo === "pyramid" ||
+          value.props.geo === "prism" ||
+          value.props.geo === "sphere"
         ) &&
         (value.props.geo !== "regularPolygon" || (
           isFiniteNumber(value.props.polygonSides) &&
@@ -94,6 +97,15 @@ export function isOverlayShape(value: unknown): value is OverlayShape {
           value.props.polygonSides >= 5 &&
           value.props.polygonSides <= 12
         )) &&
+        ((value.props.geo !== "pyramid" && value.props.geo !== "prism") || (
+          isFiniteNumber(value.props.baseSides) &&
+          Number.isInteger(value.props.baseSides) &&
+          value.props.baseSides >= 3 &&
+          value.props.baseSides <= 12
+        )) &&
+        (value.props.solidPoints === undefined || isSolidPointList(value.props.solidPoints)) &&
+        (value.props.solidEdgeDash === undefined || isSolidEdgeDashList(value.props.solidEdgeDash)) &&
+        (value.props.solidEdgeSize === undefined || isSolidEdgeSizeList(value.props.solidEdgeSize)) &&
         (value.props.apexX === undefined || isFiniteNumber(value.props.apexX)) &&
         (value.props.headLengthRatio === undefined || (isFiniteNumber(value.props.headLengthRatio) && value.props.headLengthRatio > 0 && value.props.headLengthRatio < 1)) &&
         (value.props.shaftRatio === undefined || (isFiniteNumber(value.props.shaftRatio) && value.props.shaftRatio > 0 && value.props.shaftRatio <= 1)) &&
@@ -395,6 +407,25 @@ function isFiniteNumber(value: unknown): value is number {
 
 function hasBox(value: Record<string, unknown>): value is Record<string, unknown> & { w: number; h: number } {
   return isFiniteNumber(value.w) && isFiniteNumber(value.h);
+}
+
+/**
+ * 立体の頂点・辺の線種の上限。十二角柱が持つ頂点 (24) と辺 (36) がちょうど入る大きさで、
+ * 本数がその立体と合うかどうかは描画側が見る (ここは形と桁だけを守る)。
+ */
+const MAX_SOLID_POINTS = 24;
+const MAX_SOLID_EDGES = 36;
+
+function isSolidPointList(value: unknown): value is { x: number; y: number }[] {
+  return Array.isArray(value) && value.length <= MAX_SOLID_POINTS && value.every(isOverlayPoint);
+}
+
+function isSolidEdgeDashList(value: unknown): value is OverlayDash[] {
+  return Array.isArray(value) && value.length <= MAX_SOLID_EDGES && value.every(isOverlayDash);
+}
+
+function isSolidEdgeSizeList(value: unknown): value is OverlayTextSize[] {
+  return Array.isArray(value) && value.length <= MAX_SOLID_EDGES && value.every(isOverlayTextSize);
 }
 
 function isOverlayPoint(value: unknown): value is { x: number; y: number } {

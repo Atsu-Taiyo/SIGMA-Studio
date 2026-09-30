@@ -2,6 +2,7 @@ import {
   getShapeDimensionBounds,
   getShapeRotation,
   resizeBoxShape,
+  solidFromCommand,
   type OverlayInsertCommand,
 } from "@/features/drawing";
 
@@ -45,7 +46,18 @@ export function changeOverlayShapeType(source: OverlayShape, command: ShapeTypeC
     ? center
     : { x: bounds.x, y: bounds.y };
   const end = { x: bounds.x + bounds.w, y: bounds.y + bounds.h };
-  const built = buildInsertShape({ kind: "insert", command }, start, end, source.id);
+  // 立体へ変えるときは、元の線種を「見える辺の線種」に引き継ぐ。見えない辺の破線は立体ごとの既定に任せる。
+  const sourceStyle = getSourceStyle(source);
+  const toSolid = solidFromCommand(command) !== null;
+  const built = buildInsertShape(
+    { kind: "insert", command },
+    start,
+    end,
+    source.id,
+    undefined,
+    false,
+    toSolid && sourceStyle.dash ? { dash: sourceStyle.dash } : {},
+  );
   if (!built) {
     return null;
   }
@@ -53,7 +65,7 @@ export function changeOverlayShapeType(source: OverlayShape, command: ShapeTypeC
   const sized = built.type === "geo" || built.type === "arc" || built.type === "callout"
     ? resizeBoxShape(built, bounds)
     : built;
-  const styled = applyStylePatchToShape(sized, getSourceStyle(source));
+  const styled = applyStylePatchToShape(sized, toSolid ? { ...sourceStyle, dash: undefined } : sourceStyle);
   const label = getShapeLabel(source);
   const labelColor = getShapeLabelColor(source);
   const withLabel = label !== undefined || labelColor !== undefined

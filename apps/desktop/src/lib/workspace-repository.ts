@@ -30,8 +30,18 @@ export async function listWorkspaceOverview(
   return getAppRuntime().workspace.listOverview(workspaceId);
 }
 
-export async function loadSharedWorkspacePreviewDocument(fileId: string): Promise<SigmaDocument | null> {
-  return await window.desktopAPI?.workspacePreview?.loadSharedDocument?.(fileId) ?? null;
+export async function listWorkspaceSearchOverview(): Promise<WorkspaceOverviewResult> {
+  const catalog = typeof window !== "undefined" ? window.desktopAPI?.sharedCatalog : undefined;
+  if (catalog?.searchOverview) return { state: "ready", overview: await catalog.searchOverview() };
+  const workspace = getAppRuntime().workspace;
+  return workspace.listSearchOverview ? workspace.listSearchOverview() : workspace.listOverview();
+}
+
+export async function loadSharedWorkspacePreviewDocument(
+  fileId: string,
+  options?: { assets?: boolean },
+): Promise<SigmaDocument | null> {
+  return await window.desktopAPI?.workspacePreview?.loadSharedDocument?.(fileId, options) ?? null;
 }
 
 export async function loadWorkspacePreviewDocument(fileId: string): Promise<SigmaDocument | null> {

@@ -49,6 +49,10 @@ const DEFAULT_SURFACE = "#ffffff";
 
 export const BOX_FRAME_BORDER_STYLES = ["solid", "dashed", "dotted", "double", "none"] as const;
 export const BOX_FRAME_TITLE_WEIGHTS = ["normal", "bold"] as const;
+export const BOX_FRAME_SPLIT_ORDERS = ["subtitleFirst", "titleFirst"] as const;
+export const BOX_FRAME_SPLIT_ALIGNS = ["l", "c", "r"] as const;
+/** `boxFrameStyleVars` の既定と揃える。 */
+const DEFAULT_SUBTITLE_SHARE = 1 / 6;
 
 /**
  * いまの枠仕様で決められる項目。**解決済みの枠** (`resolveBoxFrame`) を渡すこと — スタイル既定を
@@ -105,6 +109,7 @@ export function boxFrameFields(frame: BoxFrameSpec): BoxFrameField[] {
   const band = findDecoration(frame, "titleBand");
   const tab = findDecoration(frame, "titleTab");
   const plate = findDecoration(frame, "titlePlate");
+  const split = findDecoration(frame, "titleSplit");
 
   // タイトルの地色は装飾ごとの色より枠の値が優先される (`boxFrameStyleVars`)。地の付く装飾を
   // 持つスタイルでだけ出し、書き込みは枠の 1 フィールドへ寄せる。
@@ -185,6 +190,68 @@ export function boxFrameFields(frame: BoxFrameSpec): BoxFrameField[] {
         max: 120,
         step: 1,
         patch: (offsetXPx) => patchDecoration(frame, "titleTab", { offsetXPx }),
+      },
+    );
+  }
+
+  if (split) {
+    fields.push(
+      {
+        kind: "choice",
+        id: "titleSplit.order",
+        group: "decoration",
+        value: split.order ?? "subtitleFirst",
+        options: BOX_FRAME_SPLIT_ORDERS,
+        patch: (value) => patchDecoration(frame, "titleSplit", {
+          order: value === "titleFirst" ? "titleFirst" : "subtitleFirst",
+        }),
+      },
+      {
+        kind: "length",
+        id: "titleSplit.subtitleShare",
+        group: "decoration",
+        // 画面では %、保存は 0〜1 の割合 (段組みの幅と同じく比で持つ)。
+        value: Math.round((split.subtitleShare ?? DEFAULT_SUBTITLE_SHARE) * 100),
+        min: 5,
+        max: 95,
+        step: 1,
+        patch: (percent) => patchDecoration(frame, "titleSplit", {
+          subtitleShare: Math.min(0.95, Math.max(0.05, Math.round(percent) / 100)),
+        }),
+      },
+      {
+        kind: "length",
+        id: "titleSplit.gapPx",
+        group: "decoration",
+        value: split.gapPx ?? 0,
+        min: 0,
+        max: 40,
+        step: 1,
+        patch: (gapPx) => patchDecoration(frame, "titleSplit", { gapPx }),
+      },
+      {
+        kind: "choice",
+        id: "titleSplit.subtitleAlign",
+        group: "decoration",
+        value: split.subtitleAlign ?? "l",
+        options: BOX_FRAME_SPLIT_ALIGNS,
+        patch: (value) => patchDecoration(frame, "titleSplit", {
+          subtitleAlign: value === "c" || value === "r" ? value : "l",
+        }),
+      },
+      {
+        kind: "color",
+        id: "titleSplit.subtitleBackgroundColor",
+        group: "decoration",
+        value: split.subtitleBackgroundColor ?? frame.borderColor ?? DEFAULT_INK,
+        patch: (subtitleBackgroundColor) => patchDecoration(frame, "titleSplit", { subtitleBackgroundColor }),
+      },
+      {
+        kind: "color",
+        id: "titleSplit.subtitleColor",
+        group: "decoration",
+        value: split.subtitleColor ?? DEFAULT_SURFACE,
+        patch: (subtitleColor) => patchDecoration(frame, "titleSplit", { subtitleColor }),
       },
     );
   }

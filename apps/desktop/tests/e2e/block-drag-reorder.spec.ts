@@ -190,6 +190,42 @@ test("dropping at the right edge of a paragraph makes a two-column section", asy
   expect(c.x).toBeGreaterThan(a.x + a.width - 1);
 });
 
+// 段組の子は列をまたいで 1 本の配列に並ぶ。右段の先頭を左段の末尾の後ろへ落としても平坦な順序は
+// 変わらないため、「何も変わらない」と誤判定されて動かなかった。列の所属で見て動かす。
+for (const [name, grabbed, anchor, dropFraction, expectedStarts] of [
+  ["the top of the right column to the end of the left column", "col_c", "col_b", 0.85, ["col_a", "col_d"]],
+  ["the end of the left column to the top of the right column", "col_b", "col_c", 0.15, ["col_a", "col_b"]],
+] as const) {
+  test(`dragging ${name} moves it across the partial columns`, async ({ page }) => {
+    const document = createDocument();
+    document.content = [
+      paragraph("col_top", "上の段落"),
+      {
+        type: "layoutSection",
+        id: "col_section",
+        layout: { columnCount: 2, columnGapMm: 8, columnStartIds: ["col_a", "col_c"] },
+        children: [paragraph("col_a", "左 A"), paragraph("col_b", "左 B"), paragraph("col_c", "右 C"), paragraph("col_d", "右 D")],
+      },
+      paragraph("col_bottom", "下の段落"),
+    ];
+    await installDesktopRuntimeMock(page, document);
+    await page.goto("/");
+    await expect(block(page, "col_d")).toBeVisible();
+
+    const handle = await hoverBlock(page, grabbed);
+    const from = await pressHandle(page, handle);
+    const target = (await block(page, anchor).boundingBox())!;
+    await dragTo(page, from, { x: target.x + target.width / 2, y: target.y + target.height * dropFraction });
+    await expect(page.locator('.page-block-drop-line[data-orientation="horizontal"]')).toBeVisible();
+    await page.mouse.up();
+
+    await expect.poll(async () => {
+      const section = (await savedContent(page)).find((entry) => entry.type === "layoutSection");
+      return section?.type === "layoutSection" ? section.layout.columnStartIds : null;
+    }, { timeout: 8_000 }).toEqual(expectedStarts);
+  });
+}
+
 test("a list item dragged out stays a (1)-style item, and the list keeps the rest", async ({ page }) => {
   await openDocument(page);
   const handle = await hoverBlock(page, "li_1");

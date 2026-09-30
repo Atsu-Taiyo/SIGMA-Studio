@@ -820,6 +820,69 @@ test("renders the KaTeX fallback path in the document typeset style", async ({ p
   expect(Math.abs(plainBox.height - displayBox.height)).toBeLessThanOrEqual(PARITY_TOLERANCE_PX);
 });
 
+/**
+ * KaTeX の既定 CSS は `.katex { font-size: 1.21em }` で、MathLive (継承の 1em) より 21% 大きい。
+ * 文字サイズを揃えても `\dots` などを含む式だけ大きく見えていた (経路 B)。
+ * どちらの経路の式も、周りの文字と同じ px で描かれること。
+ */
+test("renders the KaTeX fallback path at the same font size as MathLive", async ({ page }) => {
+  await page.setViewportSize({ width: 1400, height: 1000 });
+  await page.addInitScript(() => window.localStorage.clear());
+  await installDesktopRuntimeMock(page, parityDocument());
+  await page.goto("/");
+
+  const mathLive = page.locator(`.text-flow-editor .inline-math-node[data-id="${NESTED_FRACTION_MATH_ID}"]`);
+  const katex = page.locator(`.text-flow-editor .inline-math-node[data-id="${KATEX_FALLBACK_MATH_ID}"]`);
+  await expect(mathLive.locator(".ML__latex")).toHaveCount(1);
+  // この式が KaTeX へ落ちていること自体が前提。MathLive で描けるようになったら別の式に替える。
+  await expect(katex.locator(".katex")).toHaveCount(1);
+
+  const fontSize = (locator: Locator) => locator.evaluate((element) => getComputedStyle(element).fontSize);
+  const surroundingFontSize = await fontSize(katex);
+
+  expect(await fontSize(mathLive.locator(".ML__latex"))).toBe(surroundingFontSize);
+  expect(await fontSize(katex.locator(".katex"))).toBe(surroundingFontSize);
+});
+
+/**
+ * MathLive は `macros` を渡されると標準のマクロ表を捨てる。静的描画が Sigma 組み込みのマクロだけを
+ * 渡していたので、標準マクロで書かれた `\iff` `\pmod` は「未定義」になり、その式だけ KaTeX へ落ちて
+ * 別の大きさ・別の箱高で描かれていた (経路 B の根本)。編集中の `math-field` は標準を引き継ぐので、
+ * 編集中は MathLive・静的表示だけ KaTeX という食い違いにもなっていた。
+ */
+test("renders MathLive's built-in macros (\\iff, \\pmod) through MathLive, like the editing field", async ({ page }) => {
+  const IFF_ID = "math_parity_default_macro_iff";
+  const PMOD_ID = "math_parity_default_macro_pmod";
+  const source = parityDocument();
+  await page.setViewportSize({ width: 1400, height: 1000 });
+  await page.addInitScript(() => window.localStorage.clear());
+  await installDesktopRuntimeMock(page, {
+    ...source,
+    content: [
+      ...source.content,
+      {
+        id: "parity_default_macro_paragraph",
+        type: "paragraph",
+        children: [
+          { type: "text", text: "本文 " },
+          { type: "mathInline", id: IFF_ID, tex: String.raw`27\mid R_n\iff t\geqq3`, display: "inline" },
+          { type: "text", text: " と " },
+          { type: "mathInline", id: PMOD_ID, tex: String.raw`10^k\equiv1\pmod9`, display: "inline" },
+        ],
+      },
+    ],
+  });
+  await page.goto("/");
+
+  for (const id of [IFF_ID, PMOD_ID]) {
+    const math = page.locator(`.text-flow-editor .inline-math-node[data-id="${id}"]`);
+    await expect(math).toBeVisible();
+    await expect(math.locator(".ML__latex")).toHaveCount(1);
+    await expect(math.locator(".katex")).toHaveCount(0);
+    await expect(math.locator(".ML__error")).toHaveCount(0);
+  }
+});
+
 test.describe("Common Test choice visual verification", () => {
 test.use({ deviceScaleFactor: 3 });
 test("keeps canonical static math geometry while MathLive is editing", async ({ page }, testInfo) => {

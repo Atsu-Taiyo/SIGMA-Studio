@@ -1,7 +1,7 @@
 "use client";
 
 import { Bot, Columns2, FileText, Loader2, Rows2, X } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 
 import { DocumentTabSaveDot } from "@/components/editor/editor-shell/SaveStatusIndicators";
 import { DocumentTitleText } from "@/features/rendering/adapters/react";
@@ -133,6 +133,7 @@ export function WorkspaceTabStrip(props: WorkspaceTabStripProps) {
             key={group.id}
             data-group-id={group.id}
             data-focused={props.layout.focusedGroupId === group.id ? "true" : undefined}
+            style={{ "--cluster-tabs": group.tabs.length } as CSSProperties}
             onDragOver={(event) => {
               if (!event.dataTransfer.types.includes(WORKSPACE_TAB_DRAG_TYPE)) return;
               event.preventDefault();
@@ -203,7 +204,6 @@ export function WorkspaceTabStrip(props: WorkspaceTabStripProps) {
                         ? <DocumentTitleText title={title} nodes={live ? props.activeDocumentTitleNodes ?? undefined : undefined} />
                         : title}
                     </span>
-                    <span className="document-tab-initial" aria-hidden="true">{Array.from(title)[0]}</span>
                     {live && <DocumentTabSaveDot />}
                   </button>
                   <button

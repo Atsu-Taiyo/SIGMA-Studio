@@ -98,9 +98,9 @@ MCPからの書き込み系ツールは、既定では教材ファイルを直�
 - `insert_generated_image` - `imageId`を通常の画像assetとimage shapeに変換し、挿入の承認待ち提案を作ります。`targetId`または`selectedId`が必須で、ホワイトボードは`CANVAS`。同じ画像の再呼び出しでは図形を重複させません。
 - `update_generated_image` - `shapeId`の画像を生成結果へ差し替える承認待ち提案を作ります。位置、表示サイズ、回転、アンカーを保持し、assetを共有する別の図形へ影響させません。
 - `get_image_reference` - 教材内のimage shapeをCodexの画像編集へ渡す参照画像として取得します。`fileId` / `runId` / `shapeId`が必須。返る`filePath`を`view_image`と画像生成ツールの参照入力に使います。自己完結SVGは検証後にPNGへ変換します。
-- `insert_svg_image` - AIが書いた自己完結した静的SVGを、画像アセットとimage shapeとして承認待ち提案へ追加します。`svg`にxmlnsとviewBoxが必須。`targetId`（ホワイトボードは`CANVAS`）または`selectedId`、必要に応じて`area`/`x`/`y`/`w`/`h`/`name`を指定します。片方だけの表示寸法は縦横比を保持します。座標省略時はアンカーの下へ配置します。本文とは独立した画像レイヤーなので、プレビューで重なりを確認し、必要なら`update_shape`で位置・サイズを調整します。SVG原文はSigmaDocのasset.props.src（base64）に保存し、描画結果は`verification.preview`で確認します。
+- `insert_svg_image` - 図・図解・模式図・イラスト・挿絵を入れる既定の入口です(迷ったらSVG)。AIが書いた自己完結した静的SVGを、画像アセットとimage shapeとして承認待ち提案へ追加します。関数グラフは`insert_graph`、立体は`insert_graph3d`、表は`insert_table`、部品ごとの個別編集を求められた図だけ`insert_shape`を使います。TeXは解釈されないため、図中の記号はUnicodeで書き、凝った式は図の上に`insert_shape`(`kind:"text"`, `tex`)で重ねます。`svg`にxmlnsとviewBoxが必須。`targetId`（ホワイトボードは`CANVAS`）または`selectedId`、必要に応じて`area`/`x`/`y`/`w`/`h`/`name`を指定します。片方だけの表示寸法は縦横比を保持します。座標省略時はアンカーの下へ配置します。本文とは独立した画像レイヤーなので、プレビューで重なりを確認し、必要なら`update_shape`で位置・サイズを調整します。SVG原文はSigmaDocのasset.props.src（base64）に保存し、描画結果は`verification.preview`で確認します。
 - `update_svg_image` - `shapeId`と新しい`svg`でSVG画像を差し替える承認待ち提案を作ります。位置・表示サイズ・回転・アンカーを保持し、共有アセットは対象画像だけを変更します。原文は`read_local_document(detail:"full")`で取得できます。両ツールとも最大256 KiB・4096要素・64段、xmlnsと正のviewBoxが必要です。静的なpath・基本図形・text/tspan・defs・グラデーション・clipPath・mask・markerと表示属性のみを受理し、style・script・外部参照・use・foreignObject・アニメーション・XML宣言を拒否します。`verification.preview`のPNGを実見して必要なら更新します。previewが生成できない場合は未確認として扱い、`render_block_context`/`render_page`で再確認します。
-- `insert_shape` - 通常の図形、補助線、矢印、折れ線、曲線、ハイライト、テキスト注記、吹き出しを overlay に挿入します。ホワイトボードでは `targetId:"CANVAS"` と絶対座標 `x`/`y` を指定し、本文・ページ anchor を作りません。吹き出し(`kind:"callout"`)は`text`/`tex`を内部のリッチテキストとして保持する単一オブジェクトです。`kind:"text"`では`markdown`に複数段落、見出し、リスト、`$...$`数式を指定でき、`text`/`tex`/`label`とは併用できません。`w`/`h`は本文矩形のサイズ、`cornerRadius`は角丸半径、`tailBaseStart`/`tailBaseEnd`は本文矩形外周上の独立した麓2点、`tailTip`は自由に動く頂点で、3点は本文矩形左上基準の相対座標です。`rotationDeg`とarc/sectorの`startAngleDeg`/`endAngleDeg`は度で指定し、サーバーがoverlay内部のラジアンへ変換します。ページ座標はy軸下向きで0°=右、弧は`startAngleDeg`から`endAngleDeg`へ画面上の時計回りです(上半円は180→360)。circle/arc/sectorの`x`/`y`は円全体のバウンディングボックス左上で、中心は`(x+r, y+r)`です(ellipseは`(x+rx, y+ry)`)。`kind:"text"`は`w`がテキストの折り返し幅で、省略すると既定幅になります。高さは内容から導出されるので`h`は指定できません。標準kindで表せる図形を`polyline`で近似しません。線・矢印・開いた曲線・開いた円弧の端点装飾は`arrowheadStart`/`arrowheadEnd`に`none`/`arrow`/`triangle`/`openArrow`/`thinArrow`/`diamond`/`dot`/`bar`、またはそれぞれを小さく描く`arrowSmall`/`triangleSmall`/`openArrowSmall`/`thinArrowSmall`/`diamondSmall`/`dotSmall`/`barSmall`を指定します(始点と終点は独立、線幅に比例して拡大)。**位置指定**は絶対座標(`x`/`y`)または`placement`のいずれか一方です。`x`/`y`・`points`・`start`/`end` はページ左上基準の絶対座標で、`update_shape` と同じ座標系です。基準にする座標は `get_insertion_candidates` の `rect`(推定値)や `get_document_outline` の `blockRects` / `overlayShapes` の `x`,`y` から取得します。`x`/`y` を省略するとアンカーブロック直下24pxに配置され、位置を意味で指定できる場合は `placement` が推奨です。
+- `insert_shape` - 部品ごとに個別編集する図形、図や本文に重ねる補助線・矢印・折れ線・曲線・ハイライト・テキスト注記・吹き出しを overlay に挿入します(図全体は`insert_svg_image`)。ホワイトボードでは `targetId:"CANVAS"` と絶対座標 `x`/`y` を指定し、本文・ページ anchor を作りません。吹き出し(`kind:"callout"`)は`text`/`tex`を内部のリッチテキストとして保持する単一オブジェクトです。`kind:"text"`では`markdown`に複数段落、見出し、リスト、`$...$`数式を指定でき、`text`/`tex`/`label`とは併用できません。`w`/`h`は本文矩形のサイズ、`cornerRadius`は角丸半径、`tailBaseStart`/`tailBaseEnd`は本文矩形外周上の独立した麓2点、`tailTip`は自由に動く頂点で、3点は本文矩形左上基準の相対座標です。`rotationDeg`とarc/sectorの`startAngleDeg`/`endAngleDeg`は度で指定し、サーバーがoverlay内部のラジアンへ変換します。ページ座標はy軸下向きで0°=右、弧は`startAngleDeg`から`endAngleDeg`へ画面上の時計回りです(上半円は180→360)。circle/arc/sectorの`x`/`y`は円全体のバウンディングボックス左上で、中心は`(x+r, y+r)`です(ellipseは`(x+rx, y+ry)`)。`kind:"text"`は`w`がテキストの折り返し幅で、省略すると既定幅になります。高さは内容から導出されるので`h`は指定できません。標準kindで表せる図形を`polyline`で近似しません。線・矢印・開いた曲線・開いた円弧の端点装飾は`arrowheadStart`/`arrowheadEnd`に`none`/`arrow`/`triangle`/`openArrow`/`thinArrow`/`diamond`/`dot`/`bar`、またはそれぞれを小さく描く`arrowSmall`/`triangleSmall`/`openArrowSmall`/`thinArrowSmall`/`diamondSmall`/`dotSmall`/`barSmall`を指定します(始点と終点は独立、線幅に比例して拡大)。**位置指定**は絶対座標(`x`/`y`)または`placement`のいずれか一方です。`x`/`y`・`points`・`start`/`end` はページ左上基準の絶対座標で、`update_shape` と同じ座標系です。基準にする座標は `get_insertion_candidates` の `rect`(推定値)や `get_document_outline` の `blockRects` / `overlayShapes` の `x`,`y` から取得します。`x`/`y` を省略するとアンカーブロック直下24pxに配置され、位置を意味で指定できる場合は `placement` が推奨です。
 - `update_shape` - 通常のoverlay図形をIDで指定し、位置・回転・表示状態・色・線・サイズ・ラベルなどを部分更新します。吹き出しは`w`/`h`/`text`/`tex`/`fontSize`/`cornerRadius`/`tailBaseStart`/`tailBaseEnd`/`tailTip`を同じshapeへ直接更新できます。text図形の`text`/`tex`/`markdown`/`fontSize`を更新すると、本文変換と高さの導出を同じ操作で行います。text図形の幅は`w`で指定し、高さは内容から導出されるので指定できません。`rotationDeg`は時計回りの度で指定し、サーバーがoverlay内部のラジアンへ変換します。`points`はline、`start`/`end`はarrowの絶対座標更新に使います。表とグラフには専用ツールを使います。
 - `align_shapes` - 複数のoverlay図形をIDで指定し、指定したモードで整列または等間隔配置します。
 - `delete_shapes` - overlay図形(表・グラフ・通常の図形をすべて含む)をIDで指定して削除します。IDは `get_document_outline` の `overlayShapes` または `search_document` で確認してください(本文ブロックの削除は `delete_blocks`)。
@@ -157,6 +157,32 @@ MCPからの書き込み系ツールは、既定では教材ファイルを直�
 既存handlerの検証、対象の鮮度確認、run/roomへの帰属、1件の作業案への蓄積、dryRun、検証・previewをそのまま通します。本文を直接保存する新しい経路はありません。プロンプトはこのprofileに合わせた説明を使い、ユーザーの指示・選択テキスト・添付リソースは書き換えません。古い会話・スキルの呼び出し例より現在の `inputSchema` を優先する旨は、再開turnでも通知します。
 
 Claudeの `--allowedTools` も同じツール名対応を使います。ただしカテゴリごとの実行許可は、MCPの公開スキーマ自体をカテゴリ別に削減する仕組みではありません。`sigma-doc-mcp-app-tools.test.ts` は両profileの実際の `tools/list` を比較し、公開定義のUTF-8 JSONサイズを計測します。この数値はモデルのトークン消費量やツール選択成功率ではありません。
+
+## 公式スキル
+
+アプリは、AIが作業の種類ごとに参照する公式スキルを同梱します。定義は `apps/desktop/electron/official-skill-definitions.ts`、本文は `apps/desktop/electron/official-skills/<name>/SKILL.md` です。プロバイダには必要なときだけ参照させ、本文を毎ターン一括で渡しません。ユーザーが編集した公式スキルはアプリ更新で上書きしません。
+
+公式スキルはアプリ内AI(上の app profile)向けなので、本文編集は `insert_content` / `edit_text` / `edit_problem` / `organize_blocks` の名前で書きます。`insert_body_content` などの外部MCP名は書きません。`electron/official-skills.test.ts` が、定義とディレクトリの1対1、frontmatterと定義の一致、ツール名の実在、SVG・JSON例の検証、本文の長さ上限(`SKILL_CONTENT_MAX_LENGTH`)を確かめます。
+
+| id | 用途 |
+| --- | --- |
+| `official-svg-figure` | 図・図解・模式図・イラスト・挿絵をSVG1枚として入れる(`insert_svg_image`)。図が必要なら最初に使う |
+| `official-image-material` | 画像・PDF・手書きラフを、編集できる教材へ再構成する |
+| `official-graph` / `official-graph3d` | 関数グラフ・座標平面(`insert_graph`)と、立体・回転体・断面(`insert_graph3d`) |
+| `official-problem` | 問題・解答・解説・ヒントの作成と更新(`edit_problem`) |
+| `official-body` | 本文・数式・囲み枠・書式(`insert_content` / `edit_text` / `organize_blocks`) |
+| `official-table` | 表と増減表(`insert_table` / `update_table`) |
+| `official-page-layout` | 用紙・余白・段組み・改ページ |
+| `official-proofreading` | 書式と数式を保った最小差分の校正 |
+| `official-shape` | 個別に動かす図形、図の上に重ねる数式ラベル、既存図形の修正 |
+| `official-material-library` | 保存済み素材・過去教材・公開問題の検索と再利用 |
+| `official-document-management` | 教材・フォルダの作成と整理 |
+
+### AIへの指示 (agent.md) の初期文
+
+設定の「AIへの指示」(`data/ai-agent-config/instructions/global.md`。各AIへは `AGENTS.md` / `CLAUDE.md` として渡る) は、**新規インストールでだけ**運用ルール(進め方・教材の書き方・報告)の初期文で始まります。文は `desktop.resource.defaultGlobalInstructions` (ja/en) が持ち、作成時の表示言語で保存されます。既存のファイルは、空でも上書きしません。基盤ルール(SigmaDocが正本、編集は提案経由、日本語の扱いなど)は組み込みプロンプトが毎回渡すので、初期文には複製しません。初期文が入ると毎ターンのプロンプトにも載るため、短く保ちます。
+
+SVGは、AIが教材へ入れられる絵の既定の形式です。プロンプト・ツール説明・`official-svg-figure` は、図・イラストを先に `insert_svg_image` で入れ、部品ごとの編集を求められたときだけ `insert_shape` を使う方針で揃えています。
 
 ## AI向けの選択・入力例
 
@@ -239,7 +265,7 @@ SigmaDoc JSON が正本です。MCPツールは Tiptap JSON、HTML、LaTeX全文
 
 表(`tableShape`)・2Dグラフ(`graph2dShape`)・3Dグラフ(`graph3dShape`)・通常の図形は、いずれも本文ブロック(SigmaBlock)ではなくoverlay図形です。IDは `get_document_outline` の `overlayShapes` から確認し、表は `update_table`、2Dグラフは `update_graph`、3Dグラフは `update_graph3d`、通常図形は `update_shape`、整列は `align_shapes`、削除は `delete_shapes` を使ってください。誤って `delete_blocks` に図形/表/グラフのIDを渡した場合、またはその逆(`delete_shapes` に本文ブロックのIDを渡した場合)は、正しいツールを案内するエラーメッセージが返ります。
 
-通常の図形・模式図・注記は`insert_shape`で編集可能なネイティブ図形として提案し、細かな位置・サイズ・重なりはユーザーがクライアントで仕上げます。元画像・参照図への忠実な再現、またはユーザーが見た目の一致を明示した場合だけvisual edit sessionを使います。その場合は`begin_visual_edit_session` → `visual_insert_shape` → `render_visual_edit_session` → `preview.previewFile`を`view_image`で開く → `inspect_visual_edit_session` → `review_visual_edit_session`(`previewCode`に画像右上の5文字コードを渡す)を必要なだけ繰り返し、最後に`propose_visual_edit_session`を呼びます。円・楕円・円弧は標準kindで作り、多数点の折れ線で近似しません。
+図・図解・模式図・イラスト・挿絵は`insert_svg_image`でSVG1枚として提案し、`verification.preview`を見て`update_svg_image`で直します。部品ごとの個別編集を求められたとき、図や本文に重ねる文字注記・強調・吹き出しは`insert_shape`で編集可能なネイティブ図形として提案し、細かな位置・サイズはユーザーがクライアントで仕上げます。部品単位での忠実な再現、またはユーザーが見た目の一致と個別編集を明示した場合だけvisual edit sessionを使います。その場合は`begin_visual_edit_session` → `visual_insert_shape` → `render_visual_edit_session` → `preview.previewFile`を`view_image`で開く → `inspect_visual_edit_session` → `review_visual_edit_session`(`previewCode`に画像右上の5文字コードを渡す)を必要なだけ繰り返し、最後に`propose_visual_edit_session`を呼びます。円・楕円・円弧は標準kindで作り、多数点の折れ線で近似しません。
 
 ### 視覚レビューの強制継続と状態ファイル
 

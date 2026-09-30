@@ -18,6 +18,7 @@ import {
 } from "@/features/collaboration/model/plan";
 import type { MemberRole } from "@/features/collaboration/model/protocol";
 import { CollaborationPlanDialog } from "@/features/collaboration/renderer/CollaborationPlanDialog";
+import { createShareLink } from "@/features/collaboration/model/share-link";
 import styles from "@/features/collaboration/renderer/sharing.module.css";
 
 type GrantRole = Exclude<MemberRole, "owner">;
@@ -48,6 +49,7 @@ export function WorkspaceSharingDialog({ target, name, onClose, onChanged, start
   const [invite, setInvite] = useState<{ token: string; tokenHash: string } | null>(null);
   const [role, setRole] = useState<GrantRole>("editor");
   const [copied, setCopied] = useState(false);
+  const [linkCopied, setLinkCopied] = useState(false);
   const [confirmation, setConfirmation] = useState<CatalogMember | "stop" | "delete" | "leave" | null>(null);
   const [paywall, setPaywall] = useState<PlanPaywallReason | null>(null);
   const generation = useRef(0);
@@ -208,18 +210,26 @@ export function WorkspaceSharingDialog({ target, name, onClose, onChanged, start
       </Inline>
     </Stack>
     : details ? <Stack gap="xl">
+      <section className={styles.section} aria-label={t("collaboration.itemLink")}>
+        <h3 className={styles.sectionTitle}>{t("collaboration.itemLink")}</h3>
+        <div className={styles.codeRow}>
+          <a className={styles.code} href={createShareLink(details.target)}>{details.name}</a>
+          <IconButton size="sm" tone="ghost" label={t(linkCopied ? "collaboration.copied" : "collaboration.copyLink")} onClick={() => void run(async () => { await navigator.clipboard.writeText(createShareLink(details.target)); setLinkCopied(true); })}>{linkCopied ? <Check size={15} /> : <Copy size={15} />}</IconButton>
+        </div>
+        <span className={styles.caption}>{t("collaboration.itemLinkDescription")}</span>
+      </section>
       {status?.state === "offline" && <p role="status" className={styles.notice}>{t("collaboration.offlineHierarchy")}</p>}
       {capabilities?.invite && <section className={styles.section} aria-label={t("collaboration.inviteHeading")}>
         <h3 className={styles.sectionTitle}>{t("collaboration.inviteHeading")}</h3>
         <div className={styles.inviteRow}>
           <Select className={styles.roleField} aria-label={t("collaboration.inviteRole")} value={role} options={roleOptions}
             disabled={busy || !online} menuWidth="auto" onChange={(value) => chooseRole(value, setRole)} />
-          <Button tone="primary" disabled={busy || !online} onClick={createInvitation}>{t("collaboration.createInvitation")}</Button>
+          <Button tone="primary" disabled={busy || !online} onClick={createInvitation}>{t("collaboration.createInvitationLink")}</Button>
         </div>
         {invite && <Stack gap="xs">
           <div className={styles.codeRow}>
-            <input className={styles.code} aria-label={t("collaboration.invitation")} readOnly value={invite.token} onFocus={(event) => event.currentTarget.select()} />
-            <IconButton size="sm" tone="ghost" label={t(copied ? "collaboration.copied" : "collaboration.copyInvitation")} onClick={() => void run(async () => { await navigator.clipboard.writeText(invite.token); setCopied(true); })}>{copied ? <Check size={15} /> : <Copy size={15} />}</IconButton>
+            <input className={styles.code} aria-label={t("collaboration.invitationLinkOrCode")} readOnly value={createShareLink(details.target, invite.token)} onFocus={(event) => event.currentTarget.select()} />
+            <IconButton size="sm" tone="ghost" label={t(copied ? "collaboration.copied" : "collaboration.copyInvitationLink")} onClick={() => void run(async () => { await navigator.clipboard.writeText(createShareLink(details.target, invite.token)); setCopied(true); })}>{copied ? <Check size={15} /> : <Copy size={15} />}</IconButton>
             <IconButton size="sm" tone="ghost" label={t("collaboration.revokeInvitation")} disabled={busy || !online} onClick={() => void run(async () => { await catalog.revokeInvitation(details.target, invite.tokenHash); setInvite(null); })}><X size={15} /></IconButton>
           </div>
           <span className={styles.caption}>{t("collaboration.expires")}</span>

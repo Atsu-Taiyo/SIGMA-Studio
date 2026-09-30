@@ -222,3 +222,17 @@ describe("workspace document commands", () => {
     expect(f.options.cancelPendingAutosaveRef.current).not.toHaveBeenCalled();
   });
 });
+
+it("external links flush through the existing save boundary and retain the editor on failed saves", async () => {
+  const f = fixture();
+  render(f.options);
+  expect(await navigation.prepareAppNavigation()).toBe(true);
+  expect(f.events).toEqual(["flush", "save"]);
+  vi.mocked(f.options.saveCurrentDocumentBeforeReplacement).mockResolvedValue(false);
+  expect(await navigation.prepareAppNavigation()).toBe(false);
+  expect(f.options.resetEditorDocument).not.toHaveBeenCalled();
+  f.options.workspaceReadyRef.current = false;
+  vi.mocked(f.options.saveCurrentDocumentBeforeReplacement).mockClear();
+  expect(await navigation.prepareAppNavigation()).toBe(false);
+  expect(f.options.saveCurrentDocumentBeforeReplacement).not.toHaveBeenCalled();
+});

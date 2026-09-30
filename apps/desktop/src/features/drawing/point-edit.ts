@@ -17,6 +17,7 @@ import {
 import type { PointHandle } from "./interaction-mode";
 import { clamp } from "./math";
 import { getArcRadii } from "./shape-bounds";
+import { isSolidShape, moveSolidVertex } from "./solid-geometry";
 
 export function updateShapePoint(shape: OverlayShape, handle: PointHandle, point: OverlayPoint, shiftKey = false): OverlayShape {
   if (shape.type === "geo" && shape.props.geo === "triangle" && handle.type === "triangleApex") {
@@ -27,6 +28,10 @@ export function updateShapePoint(shape: OverlayShape, handle: PointHandle, point
         apexX: clamp(point.x - shape.x, 0, shape.props.w),
       },
     };
+  }
+
+  if (shape.type === "geo" && isSolidShape(shape) && handle.type === "solidVertex") {
+    return moveSolidVertex(shape, handle.index, point);
   }
 
   if (shape.type === "geo" && shape.props.geo === "blockArrow" && handle.type === "blockArrowHead") {

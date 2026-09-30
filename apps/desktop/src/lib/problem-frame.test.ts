@@ -1,12 +1,19 @@
 import { describe, expect, it } from "vitest";
 import { readStylesheet as readFileSync } from "../../tests/helpers/read-stylesheet";
 
+import type { ProblemCustomFrame, SigmaBlock } from "@/features/document";
 import  {
   getPrintProblemFrameChromePaddingMm,
   getPrintProblemFrameFragmentChromeHeightMm,
+  getProblemCustomFrame,
+  getProblemCustomFrameStyle,
   getProblemFrameChromePaddingPx,
+  getProblemFrameStyleId,
+  normalizeProblemFrameInput,
   PROBLEM_FRAME_STYLE_OPTIONS,
   problemFrameClassName,
+  setProblemCustomFrame,
+  setProblemFrameStyle,
 } from "./problem-frame";
 
 /**
@@ -48,7 +55,7 @@ function readFramePadding(selector: string, unit: "px" | "mm"): { x: number; y: 
 function frameVariantSelector(baseSelector: string, styleId: string): string {
   const variantClass = problemFrameClassName("", styleId)
     .split(" ")
-    .find((className) => className.startsWith("box-frame--"));
+    .find((className) => className.startsWith("box-frame--") || className.startsWith("problem-frame--"));
   return variantClass ? `${baseSelector}.${variantClass}` : baseSelector;
 }
 
@@ -85,6 +92,102 @@ describe("problem frame chrome padding", () => {
     expect(getPrintProblemFrameFragmentChromeHeightMm("fancybox", "last")).toBeCloseTo(2.8);
     expect(getPrintProblemFrameFragmentChromeHeightMm("fancybox", "single")).toBeCloseTo(5.6);
     expect(getPrintProblemFrameFragmentChromeHeightMm("doublebox", "single")).toBeCloseTo(7.6);
-    expect(getPrintProblemFrameFragmentChromeHeightMm("cornerbox", "single")).toBeCloseTo(12.8);
+    expect(getPrintProblemFrameFragmentChromeHeightMm("cornerbox", "single")).toBeCloseTo(7);
+  });
+});
+
+const CUSTOM: ProblemCustomFrame = {
+  svg: '<svg xmlns="http://www.w3.org/2000/svg" width="60" height="40" viewBox="0 0 60 40"><rect width="60" height="40" fill="none" stroke="#000"/></svg>',
+  width: 60,
+  height: 40,
+  slice: 10,
+  borderPx: 18,
+  paddingPx: 12,
+};
+
+describe("custom problem frame", () => {
+  it("is only selected while the drawing is present", () => {
+    const withDrawing = { frame: { enabled: true, styleId: "custom", custom: CUSTOM } };
+    expect(getProblemFrameStyleId(withDrawing)).toBe("custom");
+    expect(getProblemCustomFrame(withDrawing)).toBe(CUSTOM);
+    const lostDrawing = { frame: { enabled: true, styleId: "custom" } };
+    expect(getProblemFrameStyleId(lostDrawing)).toBe("fancybox");
+    expect(getProblemCustomFrame(lostDrawing)).toBeUndefined();
+  });
+
+  it("keeps the drawing when a built-in style is chosen and again when the drawing is reselected", () => {
+    const problem = { type: "problem", frame: { enabled: true, styleId: "custom", custom: CUSTOM } } as unknown as SigmaBlock;
+    const builtIn = setProblemFrameStyle(problem, "doublebox") as { frame: { styleId: string; custom?: unknown } };
+    expect(builtIn.frame).toMatchObject({ styleId: "doublebox", custom: CUSTOM });
+    const again = setProblemCustomFrame(builtIn as unknown as SigmaBlock, CUSTOM) as { frame: { styleId: string } };
+    expect(again.frame.styleId).toBe("custom");
+  });
+
+  it("hands the stylesheet the same drawing in px for the editor and mm for print", () => {
+    const editor = getProblemCustomFrameStyle(CUSTOM, "px");
+    const print = getProblemCustomFrameStyle(CUSTOM, "mm");
+    expect(editor["--problem-frame-border"]).toBe("18px");
+    expect(editor["--problem-frame-padding"]).toBe("12px");
+    expect(print["--problem-frame-border"]).toBe("4.763mm");
+    expect(print["--problem-frame-slice"]).toBe("10");
+  });
+
+  it("gives a piece open at the top and bottom a cropped drawing, so the sides run straight on", () => {
+    const style = getProblemCustomFrameStyle(CUSTOM, "px");
+    expect(decodeURIComponent(style["--problem-frame-image-closed"])).toContain('viewBox="0 0 60 40"');
+    expect(decodeURIComponent(style["--problem-frame-image-open-bottom"])).toContain('viewBox="0 0 60 30"');
+    expect(decodeURIComponent(style["--problem-frame-image-open-top"])).toContain('viewBox="0 10 60 30"');
+    expect(decodeURIComponent(style["--problem-frame-image-open-both"])).toContain('viewBox="0 10 60 20"');
+    // The payload is fully percent-encoded, so it cannot end the `url("…")` or the declaration.
+    for (const name of ["closed", "open-bottom", "open-top", "open-both"]) {
+      const value = style[`--problem-frame-image-${name}`];
+      expect(value).toMatch(/^url\("data:image\/svg\+xml,[^"';)]*"\)$/);
+    }
+  });
+
+  it("never writes an untrusted value into a style, however the document was made", () => {
+    const hostile = {
+      ...CUSTOM,
+      borderPx: "1px;position:fixed;inset:0" as unknown as number,
+      paddingPx: Number.NaN,
+      slice: 1e9,
+    };
+    const style = getProblemCustomFrameStyle(hostile, "px");
+    expect(style["--problem-frame-border"]).toBe("16px");
+    expect(style["--problem-frame-padding"]).toBe("12px");
+    expect(style["--problem-frame-slice"]).toBe("19");
+    for (const value of Object.values(style)) {
+      expect(value).not.toMatch(/position|inset/);
+    }
+    expect(getProblemFrameChromePaddingPx("custom", hostile)).toEqual({ x: 28, y: 28 });
+  });
+
+  it("measures the chrome of a custom frame from its own border and padding", () => {
+    expect(getProblemFrameChromePaddingPx("custom", CUSTOM)).toEqual({ x: 30, y: 30 });
+    const paddingMm = 12 * 25.4 / 96;
+    const borderMm = 18 * 25.4 / 96;
+    expect(getPrintProblemFrameChromePaddingMm("custom", CUSTOM).y).toBeCloseTo(paddingMm);
+    expect(getPrintProblemFrameFragmentChromeHeightMm("custom", "single", CUSTOM))
+      .toBeCloseTo(paddingMm * 2 + borderMm * 2);
+    expect(getPrintProblemFrameFragmentChromeHeightMm("custom", "middle", CUSTOM)).toBeCloseTo(paddingMm);
+  });
+});
+
+describe("normalizeProblemFrameInput", () => {
+  const loose = '<svg viewBox="0 0 100 60"><rect x="2" y="2" width="96" height="56" fill="none" stroke="#c2410c" stroke-width="4"/></svg>';
+
+  it("stores a loosely written drawing in the canonical form the schema accepts", () => {
+    const frame = normalizeProblemFrameInput({ custom: { svg: loose, borderPx: 20 } });
+    expect(frame).toMatchObject({ enabled: true, styleId: "custom", custom: { width: 100, height: 60, slice: 15, borderPx: 20, paddingPx: 12 } });
+    expect(frame.custom?.svg).toContain('xmlns="http://www.w3.org/2000/svg"');
+  });
+
+  it("passes the built-in styles through and never invents a drawing for them", () => {
+    expect(normalizeProblemFrameInput({ enabled: true, styleId: "doublebox", custom: "nope" }))
+      .toEqual({ enabled: true, styleId: "doublebox" });
+  });
+
+  it("refuses a drawing that cannot be used instead of saving something the file would reject", () => {
+    expect(() => normalizeProblemFrameInput({ custom: { svg: "<svg><rect/></svg>" } })).toThrow(/noViewBox/);
   });
 });

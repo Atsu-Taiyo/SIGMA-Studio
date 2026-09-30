@@ -2156,6 +2156,45 @@ body.page-block-dragging * {
   cursor: nwse-resize;
 }
 
+/*
+ * 立体図形で選んでいる辺。図形の線とは別のレイヤーで、線種を変える対象を示す (保存はされない)。
+ * 太い半透明の縁取りと細い芯線の二重にして、破線・点線の辺にも、濃い線の上にも見える。
+ */
+.overlay-solid-edge-highlight {
+  position: absolute;
+  left: 0;
+  top: 0;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.overlay-solid-edge-highlight polyline {
+  fill: none;
+  stroke: var(--accent);
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.overlay-solid-edge-highlight .halo {
+  stroke-width: 6;
+  stroke-opacity: 0.28;
+}
+
+.overlay-solid-edge-highlight .core {
+  stroke-width: 1.5;
+  stroke-opacity: 0.9;
+}
+
+/* 押せば選べる辺 (ポインタが乗っている)。選択中の辺よりずっと控えめにする。 */
+.overlay-solid-edge-highlight.hover .halo {
+  stroke-width: 5;
+  stroke-opacity: 0.14;
+}
+
+.overlay-solid-edge-highlight.hover .core {
+  stroke-opacity: 0.5;
+}
+
 /* ドラッグ中の数値ライブ表示(半径・中心角)。ポインタ近傍に追従する。 */
 .overlay-drag-readout {
   position: absolute;

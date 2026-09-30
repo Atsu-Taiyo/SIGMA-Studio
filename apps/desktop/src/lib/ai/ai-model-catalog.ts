@@ -86,12 +86,6 @@ export function resolveAiModelOptions(
     }];
   });
   if (runtimeModels.length === 0) return getFallbackAiModelOptions(provider);
-  // CLI help lists example aliases, not an exhaustive catalog. Older CLI
-  // versions can still select Fable by its full model id.
-  if (provider === "claude" && !runtimeModels.some((model) => /^(?:claude-)?fable(?:-|$)/.test(model.id))) {
-    const fable = getFallbackAiModelOptions(provider).find((model) => model.id === "claude-fable-5-1");
-    if (fable) runtimeModels.push(fable);
-  }
   return runtimeModels;
 }
 

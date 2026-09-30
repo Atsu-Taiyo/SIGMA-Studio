@@ -5,7 +5,12 @@ import { Decoration, DecorationSet } from "@tiptap/pm/view";
 
 import { PROBLEM_AREA_ORDER, type ProblemNode } from "@/features/document";
 import { getProblemNumberFontSize, isRecord } from "@/features/text-editing/model";
-import { getProblemFrameStyleId, problemFrameClassName } from "@/lib/problem-frame";
+import {
+  getProblemCustomFrame,
+  getProblemCustomFrameStyle,
+  getProblemFrameStyleId,
+  problemFrameClassName,
+} from "@/lib/problem-frame";
 
 export interface NestedProblemOptions {
   getProblemNumbers: () => ReadonlyMap<string, number>;
@@ -32,8 +37,13 @@ export function createNestedProblemDecorations(doc: ProseMirrorNode, numbers: Re
       const classes = ["print-problem-area", framed ? problemFrameClassName("with-frame", getProblemFrameStyleId(metadata)) : ""];
       if (framed && area === visibleFrameAreas[0]) classes.push("first-frame-area");
       if (framed && area === visibleFrameAreas.at(-1)) classes.push("last-frame-area");
+      const frameCustom = framed ? getProblemCustomFrame(metadata) : undefined;
+      const customFrameStyle = frameCustom
+        ? Object.entries(getProblemCustomFrameStyle(frameCustom, "mm")).map(([name, value]) => `${name}:${value}`)
+        : [];
       const style = [!visible ? "display:none" : "", minHeight ? `min-height:${minHeight}mm` : "",
-        showNumber ? `--nested-problem-number-size:${getProblemNumberFontSize(metadata)}pt` : ""].filter(Boolean).join(";");
+        showNumber ? `--nested-problem-number-size:${getProblemNumberFontSize(metadata)}pt` : "",
+        ...customFrameStyle].filter(Boolean).join(";");
       decorations.push(Decoration.node(pos + 1 + offset, pos + 1 + offset + areaNode.nodeSize, {
         class: classes.filter(Boolean).join(" "), style,
         ...(showNumber ? { "data-problem-number": String(number) } : {}),

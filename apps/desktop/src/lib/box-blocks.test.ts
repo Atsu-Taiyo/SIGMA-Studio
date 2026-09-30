@@ -2,7 +2,9 @@ import { describe, expect, it } from "vitest";
 
 import {
   BUILTIN_BOX_STYLES,
+  boxBlockSubtitleText,
   boxBlockTitleText,
+  boxFrameHasSubtitle,
   boxFrameAppliesFontFamily,
   boxFrameClassName,
   boxFrameDecorationAttributes,
@@ -150,6 +152,80 @@ describe("box frame render metadata", () => {
       "--sigma-doc-box-left-bar-color": "#1f3864",
       "--sigma-doc-box-title-color": "#1f3864",
     });
+  });
+
+  it("splits the heading into two cells whose order, share and gap are free", () => {
+    const splitbox = createBoxBlock("splitbox");
+    const frame = resolveBoxFrame(splitbox);
+
+    expect(boxBlockTitleText(splitbox)).toBe("解法");
+    expect(boxBlockSubtitleText(splitbox)).toBe("Point");
+    expect(boxFrameHasSubtitle(frame)).toBe(true);
+    expect(boxFrameClassName("sigma-doc-box-block", frame, splitbox.styleId)).toContain("box-frame--title-split");
+    expect(boxFrameDecorationAttributes(frame)).toMatchObject({ "data-box-title-split": "true" });
+
+    // 既定はサブタイトルが左、幅は 1:5。枠の左端に接するのはサブタイトル、右端はタイトル。
+    expect(boxFrameStyleVars(frame)).toMatchObject({
+      "--sigma-doc-box-split-columns": "minmax(0, 0.1667fr) minmax(0, 0.8333fr)",
+      "--sigma-doc-box-split-gap": "0px",
+      "--sigma-doc-box-subtitle-col": "1",
+      "--sigma-doc-box-title-col": "2",
+      "--sigma-doc-box-subtitle-margin-left": "-14px",
+      "--sigma-doc-box-subtitle-margin-right": "0px",
+      "--sigma-doc-box-title-margin-right": "-14px",
+      "--sigma-doc-box-title-margin-left": "0px",
+      "--sigma-doc-box-subtitle-background": "#333333",
+      "--sigma-doc-box-subtitle-color": "#ffffff",
+    });
+
+    // 左右を入れ替え、幅と隙間を変える (段組みの列と同じ扱い)。
+    const swapped = boxFrameStyleVars(patchBoxFrame(splitbox, {
+      decorations: [
+        ...(frame.decorations ?? []).filter((d) => d.type !== "titleSplit"),
+        { type: "titleSplit", order: "titleFirst", subtitleShare: 0.25, gapPx: 6, subtitleAlign: "c" },
+      ],
+    }).frame ?? {});
+    expect(swapped).toMatchObject({
+      "--sigma-doc-box-split-columns": "minmax(0, 0.75fr) minmax(0, 0.25fr)",
+      "--sigma-doc-box-split-gap": "6px",
+      "--sigma-doc-box-title-col": "1",
+      "--sigma-doc-box-subtitle-col": "2",
+      "--sigma-doc-box-subtitle-justify": "center",
+    });
+
+    // 角丸の箱でも、丸めるのは外周に接する角だけ。2 欄の境目は直線で切る。
+    const rounded = boxFrameStyleVars({ ...frame, cornerStyle: "round", radiusPx: 20, borderWidthPx: 2 });
+    expect(rounded).toMatchObject({
+      "--sigma-doc-box-subtitle-radius": "18px 0 0 0",
+      "--sigma-doc-box-title-radius": "0 18px 0 0",
+    });
+    expect(boxFrameStyleVars({
+      ...frame,
+      cornerStyle: "round",
+      radiusPx: 20,
+      borderWidthPx: 2,
+      decorations: [{ type: "titleSplit", order: "titleFirst" }],
+    })).toMatchObject({
+      "--sigma-doc-box-title-radius": "18px 0 0 0",
+      "--sigma-doc-box-subtitle-radius": "0 18px 0 0",
+    });
+
+    // 割れない箱は何も足さない。
+    const plain = resolveBoxFrame(createBoxBlock("titlebox"));
+    expect(boxFrameHasSubtitle(plain)).toBe(false);
+    expect(boxFrameClassName("sigma-doc-box-block", plain, "titlebox")).not.toContain("box-frame--title-split");
+    expect(boxFrameStyleVars(plain)).not.toHaveProperty("--sigma-doc-box-split-columns");
+    expect(createBoxBlock("titlebox").subtitle).toBeUndefined();
+  });
+
+  it("adds and drops the subtitle when the style gains or loses the split heading", () => {
+    const withSubtitle = setBoxStyle(createBoxBlock("titlebox", "見出し"), "splitbox");
+    expect(boxBlockSubtitleText(withSubtitle)).toBe("Point");
+    expect(boxBlockTitleText(withSubtitle)).toBe("見出し");
+
+    const edited = { ...withSubtitle, subtitle: [{ type: "text" as const, text: "要点" }] };
+    expect(boxBlockSubtitleText(setBoxStyle(edited, "splitbox"))).toBe("要点");
+    expect(setBoxStyle(edited, "titlebox")).not.toHaveProperty("subtitle");
   });
 
   it("falls back to the tab color for the title background when the frame sets none", () => {

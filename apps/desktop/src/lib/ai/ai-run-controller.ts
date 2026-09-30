@@ -568,6 +568,11 @@ export function useAiChatRoomsForDocument(documentIdentityKey: string): AiEditCh
   );
 }
 
+/** 全教材の部屋。開いていない教材で走っているAIの状況を見るための購読。 */
+export function useAllAiChatRooms(): readonly AiEditChatRoom[] {
+  return useSyncExternalStore(aiChatRoomsStore.subscribe, aiChatRoomsStore.getSnapshot, aiChatRoomsStore.getSnapshot);
+}
+
 export function useAiActiveRoomId(documentIdentityKey: string): string | null {
   return useSyncExternalStore(
     aiChatRoomsStore.subscribe,

@@ -21,6 +21,8 @@ export type OverlayExtensions = Record<string, OverlayExtensionValue>;
 
 export type OverlayTextSize = "s" | "m" | "l" | "xl";
 export type OverlayRegularPolygonSides = 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12;
+/** 角錐・角柱の底面の辺の数。三角錐(3)から十二角柱(12)まで。 */
+export type OverlaySolidBaseSides = 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12;
 export type OverlayDash = "solid" | "dashed" | "dotted";
 /**
  * Every line/arc endpoint decoration, in the order the toolbar offers them.
@@ -178,8 +180,27 @@ export type OverlayGroupShape = OverlayBaseShape<"group", {
 export type OverlayGeoShape = OverlayBaseShape<"geo", {
   w: number;
   h: number;
-  geo: "rectangle" | "ellipse" | "triangle" | "diamond" | "pentagon" | "regularPolygon" | "blockArrow";
+  geo: "rectangle" | "ellipse" | "triangle" | "diamond" | "pentagon" | "regularPolygon" | "blockArrow" | "pyramid" | "prism" | "sphere";
   polygonSides?: OverlayRegularPolygonSides;
+  /** `pyramid` / `prism` の底面の辺の数。 */
+  baseSides?: OverlaySolidBaseSides;
+  /**
+   * 角錐・角柱の頂点(図形ローカル座標)。未指定は既定の見え方。
+   * 頂点は角錐なら底面の頂点 → 頂点、角柱なら下底 → 上底の順で、`baseSides` から決まる本数と一致する。
+   * 図形の外接矩形 (`w`/`h`) はこれらの頂点にぴったり接する。
+   */
+  solidPoints?: OverlayPoint[];
+  /**
+   * 立体の辺ごとの線種。辺の並びは頂点と同じく `geo` と `baseSides` から決まる。
+   * 角錐・角柱は底面の辺 → 側面の辺(角柱は下底 → 上底 → 側面)、球は 輪郭 → 赤道の手前 → 赤道の奥。
+   * 未指定の辺・範囲外の辺は `dash` を使う。
+   */
+  solidEdgeDash?: OverlayDash[];
+  /**
+   * 立体の辺ごとの線の太さ。添字は `solidEdgeDash` と同じ (辺の並び)。
+   * 未指定の辺・範囲外の辺は `size` を使う。
+   */
+  solidEdgeSize?: OverlayTextSize[];
   apexX?: number;
   headLengthRatio?: number;
   shaftRatio?: number;

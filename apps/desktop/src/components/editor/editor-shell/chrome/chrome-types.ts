@@ -16,6 +16,7 @@ import type {
 } from "@/components/editor/editor-shell/toolbar-formatting";
 import type { ColorStylePanel, EditorMenu } from "@/components/editor/editor-shell/types";
 import type { ShapeGallerySection } from "@/components/editor/overlay-canvas/shape-gallery";
+import type { ShapeTypeChangeCommand } from "@/components/editor/overlay-canvas/shape-type-change";
 import type { SharedFillState } from "@/components/editor/overlay-canvas/style-patch";
 import type { OverlayPoint, OverlayTool } from "@/components/editor/overlay-canvas/types";
 import type { OverlayArrangeAction, OverlayCommand, OverlaySelectionStylePatch, OverlaySelectionSummary } from "@/components/editor/page-overlay-types";
@@ -140,6 +141,7 @@ export interface EditorChromeFormat {
   fontFamilyMenuOpen: boolean;
   fontFamilyQuery: string;
   fontSizeInputRef: RefObject<HTMLInputElement | null>;
+  fontSizeSkipBlurRef: RefObject<boolean>;
   fontSizeInput: string;
   setFontSizeInput: Dispatch<SetStateAction<string>>;
   handleLineHeightStepClick: (event: MouseEvent<HTMLButtonElement>, direction: "increase" | "decrease") => void;
@@ -206,6 +208,10 @@ export interface EditorChromeInsert {
 /** 図形スタイルグループ。 */
 export interface EditorChromeShapeStyle {
   applyOverlayStyle: (style: OverlaySelectionStylePatch) => void;
+  /** 選んだ図形の種類を変える (四角→円など)。 */
+  changeOverlayShapeType: (command: ShapeTypeChangeCommand) => void;
+  /** 図形が1つだけ選ばれていて、種類を変えられる。 */
+  canChangeOverlayShapeType: boolean;
   arrangeOverlayShapes: (action: OverlayArrangeAction) => void;
   canArrangeOverlayShapes: boolean;
   canUseFillStyleControls: boolean;

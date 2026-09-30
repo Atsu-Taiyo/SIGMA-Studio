@@ -12,6 +12,7 @@ import {
   type TextRunEditorRange,
 } from "@/components/editor/page-canvas/text-run-selection";
 import { readSelectionFontSize, type SelectionFontSize } from "@/components/tiptap/text-format-font-size";
+import { isBoxTitleNodeName } from "@/components/tiptap/node-queries";
 import { applyTextFormatCommand } from "@/components/tiptap/text-format-controller";
 import {
   createDocumentBlocksClipboardPayload,
@@ -1109,7 +1110,7 @@ export function applyTextRunSpanFormat(request: TextRunSpanFormatRequest): boole
       applyTextFormatCommand(handle.editor, { command: request.command, value: request.value }, {
         selection: { from: range.from, to: range.to },
         blockNodeType: parentName === "heading" ? "heading" : "paragraph",
-        allowBlockStyle: parentName !== "boxBlockTitle",
+        allowBlockStyle: !isBoxTitleNodeName(parentName),
         preserveSelectionForBlockAttributes: true,
         // focus() は各エディタへ順に焦点を移してスクロールまで起こす。span の書式適用は
         // 選択を動かさないのが約束なので、どのエディタにも焦点を当てない。
@@ -1230,7 +1231,7 @@ function blockContextNodeName(editor: Editor, pos: number): string {
   const resolved = editor.state.doc.resolve(clamp(pos, 0, size));
   for (let depth = resolved.depth; depth > 0; depth -= 1) {
     const name = resolved.node(depth).type.name;
-    if (name === "heading" || name === "paragraph" || name === "boxBlockTitle") {
+    if (name === "heading" || name === "paragraph" || isBoxTitleNodeName(name)) {
       return name;
     }
   }

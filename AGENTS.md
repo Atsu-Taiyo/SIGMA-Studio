@@ -13,6 +13,16 @@
 - Run focused tests first, typecheck for shared contracts, and lint for substantial changes. Verify saved/reloaded outcomes and cleanup, not only immediate UI.
 - Public packages require actual build settings, generated declarations, Bundler/NodeNext consumers, and React 18 browser checks. See `CONTRIBUTING.md`.
 - Do not publish packages, installers, or changes to release assets as a side effect of local verification.
+- Follow the "AIスキルと図・イラストの方針" section below when changing official skills, AI prompts, or MCP tool descriptions.
+
+## AIスキルと図・イラストの方針
+
+- 公式スキルの定義は `apps/desktop/electron/official-skill-definitions.ts`、本文は `apps/desktop/electron/official-skills/<name>/SKILL.md`。一覧・追加の手順は `docs/mcp-local-app.md` の「公式スキル」を参照する。本文は `SKILL_CONTENT_MAX_LENGTH` (12,000字) 以内にし、frontmatterの `description` は定義と同じ文にする。
+- スキル本文はアプリ内AI (app profile) のツール名で書く。本文編集は `insert_content` / `edit_text` / `edit_problem` / `organize_blocks`。外部MCPの旧名 (`insert_body_content` など) は書かない。現在の `inputSchema` を優先し、例は実際のツールが受理するものだけを載せる (`electron/official-skills.test.ts` と `mcp/sigma-doc-mcp-official-skill-examples.test.ts` が守る)。
+- 図・図解・模式図・イラスト・挿絵は `insert_svg_image` (静的SVG1枚) を既定にする。関数グラフは `insert_graph`、立体は `insert_graph3d`、表は `insert_table`、部品ごとの個別編集を求められたときと図に重ねる文字注記だけ `insert_shape`。この方針を変えるときは、`dictionaries/{ja,en}/prompt.ts`、`mcp/sigma-doc-mcp-server-core.ts` のツール説明とinstructions、公式スキル、`docs/mcp-local-app.md` を一緒に揃え、文言を固定しているテストも更新する。
+- SVGの制約 (xmlns・viewBox必須、style・use・foreignObject不可、TeXは解釈されない) は `lib/ai/svg-image.ts` が正本。SVGは本文と独立した画像レイヤーで、本文は回り込まない。
+- 提案を作る新しい書き込みツールは `electron/ai-edit-shared.ts` の `WRITE_CAPABLE_MCP_TOOL_NAMES` にも足す。足さないと、その実行が編集案ではなく「回答」として扱われる。
+- 英語UIの文言は、SSR (`renderToStaticMarkup`) では常に日本語で描かれる。テストは `createTranslator("en", ...)` で辞書を直接引く。
 
 ## デスクトップ版の開発・動作確認
 

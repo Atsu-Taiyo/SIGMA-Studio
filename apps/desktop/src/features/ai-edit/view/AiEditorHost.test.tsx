@@ -39,7 +39,6 @@ beforeEach(() => {
     inlineRunAnchor: null,
     inlineSessionId: 1,
     editorCanvasRef: { current: scroller },
-    closeLabel: "AIチャットを閉じる",
     onClose: vi.fn(),
   };
 });
@@ -194,26 +193,22 @@ describe("AI editor host lifecycle", () => {
     expect(unmounts).toBe(0);
   });
 
-  it("docks the panel in the workspace grid with the existing portal-to-grid mount behavior", () => {
+  it("leaves the docked side chat to the right dock and unmounts the floating panel when switching to it", () => {
     render();
     const { element, captured } = geometry();
     pointer(element, "pointerdown");
     pointer(element, "pointermove", { x: 160, y: 230 });
     pointer(element, "pointerup");
-    render({ displayMode: "sidebar", inlineOpen: false, surface: resolveAiSurface({ displayMode: "sidebar", aiInlineOpen: false, aiSidebarOpen: true }) });
+    render({ enabled: false, displayMode: "sidebar", inlineOpen: false, surface: resolveAiSurface({ displayMode: "sidebar", aiInlineOpen: false, aiSidebarOpen: true }) });
     expect(captured.size).toBe(0);
     expect(document.body.style.cursor).toBe("");
-    expect(host().parentElement).toBe(container);
-    expect(host().style.left).toBe("");
-    expect(host().classList.contains("ai-chat-host--sidebar")).toBe(true);
+    expect(host()).toBeNull();
     expect(document.querySelector(".ai-inline-catcher")).toBeNull();
-    // As before extraction, changing between a portal and the grid reparents the panel.
-    expect(mounts).toBe(2);
     expect(unmounts).toBe(1);
-    const close = host().querySelector<HTMLButtonElement>(".sidebar-close-button")!;
-    expect(close.getAttribute("aria-label")).toBe(props.closeLabel);
-    act(() => close.click());
-    expect(props.onClose).toHaveBeenCalledOnce();
+    // Even if a sidebar-mode surface reaches the host while enabled, it draws nothing of its own.
+    render({ enabled: true });
+    expect(host()).toBeNull();
+    expect(container.querySelector("[data-panel]")).toBeNull();
   });
 
   it("does not mount panel children while disabled and returns focus on pointercancel before unmount", () => {

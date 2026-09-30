@@ -77,6 +77,9 @@ import  {
 } from "@/components/editor/ai-inline-placement";
 import { HeldBodySelectionOverlay } from "@/components/editor/editor-shell/HeldBodySelectionOverlay";
 import type { EditorChromeValue } from "@/components/editor/editor-shell/chrome/chrome-types";
+import { SelectionToolbarProvider, type SelectionToolbarBinding } from "@/components/editor/editor-shell/selection-toolbar/binding";
+import { createSelectionToolbarExtension } from "@/components/editor/editor-shell/selection-toolbar/extension";
+import { planShapeTools } from "@/components/editor/editor-shell/selection-toolbar/model";
 import { renderEditorChrome } from "@/components/editor/editor-shell/chrome/editor-chrome";
 import { NO_COLUMN_COMMAND, resolveColumnCommandState } from "@/components/editor/editor-shell/chrome/layout-commands";
 import type { BackstageSectionId } from "@/components/editor/editor-shell/chrome/ribbon-backstage";
@@ -129,6 +132,7 @@ import { toDocumentOpenFailure, type DocumentOpenFailure } from "@/components/ed
 import { formatDocumentRecoveryStatus } from "@/components/editor/editor-shell/recovery-status";
 import type { ColorStylePanel, DocumentChange, DocumentChangeOptions, EditorMenu } from "@/components/editor/editor-shell/types";
 import { buildLineToolItems, buildShapeGallerySections, isLineToolCommand } from "@/components/editor/overlay-canvas/shape-gallery";
+import type { ShapeTypeChangeCommand } from "@/components/editor/overlay-canvas/shape-type-change";
 import type { OverlayPoint, OverlayTool } from "@/components/editor/overlay-canvas/types";
 import  {
   FLUSH_OVERLAY_CHANGES_EVENT,
@@ -172,10 +176,27 @@ import { resolveTextToolbarTarget } from "./editor-shell/text-toolbar-target";
 import { isTextFormatTargetNodeType, type TextFormatStateContext } from "@/components/tiptap/text-format-controller";
 import { QR_CODE_REQUEST_EVENT, type QrCodeRequestDetail } from "@/components/tiptap/url-detection-extension";
 import { Tooltip } from "@/components/ui/Tooltip";
+import { RightDockToggle } from "@/features/right-dock/view/RightDock";
+import { RightDockHost } from "@/features/right-dock/view/RightDockHost";
+import { FilesPanel } from "@/features/right-dock/view/FilesPanel";
+import {
+  readRightDockPreference,
+  saveRightDockPreference,
+} from "@/features/right-dock/model/right-dock-preference";
+import {
+  closeRightDock,
+  closeRightDockPage,
+  closeRightDockToolIfShowing,
+  INITIAL_RIGHT_DOCK_STATE,
+  isRightDockShowing,
+  openRightDock,
+  openRightDockTool,
+  RIGHT_DOCK_DEFAULT_WIDTH,
+  type RightDockState,
+} from "@/features/right-dock/model/right-dock-state";
 import  {
   AiEditorHost,
   AI_REFERENCE_TEXT_RANGE_EVENT,
-  AI_SIDEBAR_WIDTH,
   aiDocumentWriteInProgressMessage,
   AiPageCanvasEditor,
   buildAppliedTurnChangesByTurnId,
@@ -266,7 +287,7 @@ import  {
 import { useAiConnection, useClaudeConnection, useGeminiConnection } from "@/lib/ai/ai-connection";
 import { DEFAULT_CLAUDE_AI_EDIT_MODEL, DEFAULT_GEMINI_AI_EDIT_MODEL } from "@/lib/ai/ai-providers";
 import { isAiRunStatusActive, useAiRunSessions } from "@/lib/ai/ai-run-session-store";
-import { aiChatRoomsStore, deleteAiDataForDocument } from "@/lib/ai/ai-run-controller";
+import { deleteAiDataForDocument } from "@/lib/ai/ai-run-controller";
 import { focusSourceReferenceInDocument, resolveSourceReferenceNavigationTarget } from "@/lib/ai/ai-source-reference-navigation";
 import  {
   closeSurface,
@@ -374,8 +395,6 @@ import  {
 } from "@/lib/storage";
 import {
   closeWorkspaceTabInLayout,
-  addWorkspaceTab,
-  aiWorkspaceTab,
   createSingleGroupWorkspaceLayout,
   focusWorkspaceTab,
   moveWorkspaceTab,
@@ -478,6 +497,8 @@ import  {
   uniqueStringIds,
   type DegradedWatcherScope,
 } from "@/components/editor/editor-shell/workspace-request";
+import { useRequestedDocumentLocation } from "@/components/editor/editor-shell/use-requested-document-location";
+import { useRequestedCommentThread } from "@/components/editor/editor-shell/use-requested-comment-thread";
 import { createBlockCommentAnchor } from "@/components/editor/page-canvas/popover-anchors";
 import { shouldDispatchSearchQuery } from "@/components/editor/search-query-dispatch";
 import type  {
@@ -592,6 +613,8 @@ const EMPTY_OVERLAY_SHAPES: OverlayShape[] = [];
 const EMPTY_COMMENT_THREADS: SigmaCommentThread[] = [];
 
 export interface EditorShellProps {
+  /** Host-owned actions for a measured selection; no sharing implementation belongs to the editor. */
+  renderSelectionActions?: (context: { fileId: string; document: SigmaDocument; metadata?: DocumentMetadata; anchor: SigmaCommentAnchor }) => ReactNode;
   commentIdentity?: CommentPanelAuthor & { userId: string };
   loadCommentMentionCandidates?: (fileId: string) => Promise<import("./comment-mentions").CommentMentionCandidate[]>;
   embeddedHost?: EmbeddedEditorHost;
@@ -620,7 +643,7 @@ function DocumentActionsSlot({ render, context }: {
   return render(context);
 }
 
-export function EditorShell({ embeddedHost, sessionHost, renderDocumentActions, accountAction, commentIdentity, loadCommentMentionCandidates }: EditorShellProps = {}) {
+export function EditorShell({ embeddedHost, sessionHost, renderDocumentActions, renderSelectionActions, accountAction, commentIdentity, loadCommentMentionCandidates }: EditorShellProps = {}) {
   // **毎レンダーで呼ばない。** `createEmptyEditorDocument()` は文書 1 個分を
   // 組み立てる (旧 `emptyEditorDocument` は module 定数だった)。打鍵のたびに
   // 走ると perf 予算 `typing.longTasksPerChar` を割る。
@@ -636,7 +659,7 @@ export function EditorShell({ embeddedHost, sessionHost, renderDocumentActions, 
 
   return (
     <EditorStoreProvider store={editorStore}>
-      <EditorShellBody embeddedHost={embeddedHost} sessionHost={sessionHost} renderDocumentActions={renderDocumentActions} accountAction={accountAction} commentIdentity={commentIdentity} loadCommentMentionCandidates={loadCommentMentionCandidates} editorStore={editorStore} />
+      <EditorShellBody embeddedHost={embeddedHost} sessionHost={sessionHost} renderDocumentActions={renderDocumentActions} renderSelectionActions={renderSelectionActions} accountAction={accountAction} commentIdentity={commentIdentity} loadCommentMentionCandidates={loadCommentMentionCandidates} editorStore={editorStore} />
     </EditorStoreProvider>
   );
 }
@@ -714,7 +737,7 @@ function canScrollWithin(
   return false;
 }
 
-function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, accountAction, commentIdentity, loadCommentMentionCandidates, editorStore }: EditorShellProps & { editorStore: EditorStore }) {
+function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, renderSelectionActions, accountAction, commentIdentity, loadCommentMentionCandidates, editorStore }: EditorShellProps & { editorStore: EditorStore }) {
   countPerformanceEvent("EditorShell.render");
   // クロームの文言。`renderEditorChrome` は hook を呼べないので、ここで解決して
   // `chrome.shared.t` から配る。同一ロケール内では参照が変わらない。
@@ -982,7 +1005,12 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, acc
     remove: removeAiPinnedReference,
     reconcileTextRanges: reconcileAiEditPinnedReferenceTextRanges,
   } = useAiPinnedReferences();
-  const [aiSidebarOpen, setAiSidebarOpen] = useState(false);
+  // キャンバス右のサイドバー (開いているページのタブ列。ファイル / ブラウザ / サイドチャットは Hub から選ぶ)。
+  // AIのサイドチャットが開いている状態は「ドックがチャットを見せている」ことそのもの (状態を二重に持たない)。
+  const [rightDock, setRightDock] = useState<RightDockState>(INITIAL_RIGHT_DOCK_STATE);
+  const [rightDockWidth, setRightDockWidth] = useState(RIGHT_DOCK_DEFAULT_WIDTH);
+  const rightDockPreferenceLoadedRef = useRef(false);
+  const aiSidebarOpen = isRightDockShowing(rightDock, "chat");
   const [versionHistoryOpen, setVersionHistoryOpen] = useState(false);
   const [versionHistoryPreviewState, setVersionHistoryPreviewState] = useState<{
     fileId: string;
@@ -1237,6 +1265,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, acc
   const fontFamilyButtonRef = useRef<HTMLButtonElement | null>(null);
   const blockStyleButtonRef = useRef<HTMLButtonElement | null>(null);
   const fontSizeInputRef = useRef<HTMLInputElement | null>(null);
+  const fontSizeSkipBlurRef = useRef(false);
   const textColorButtonRef = useRef<HTMLButtonElement | null>(null);
   const textBackgroundColorButtonRef = useRef<HTMLButtonElement | null>(null);
   const strokeColorButtonRef = useRef<HTMLButtonElement | null>(null);
@@ -1536,11 +1565,9 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, acc
     return commentAnchorCandidate;
   }, [commentAnchorCandidate, currentOverlayCommentAnchor]);
 
-  const openCommentComposer = useCallback((anchor: SigmaCommentAnchor | null) => {
-    if (!anchor) {
-      setStatusMessage(tEditor("status.selectCommentTarget"));
-      return;
-    }
+  const openCommentComposer = useCallback((requestedAnchor: SigmaCommentAnchor | null) => {
+    // 対象が選ばれていなければ、場所を持たない文書全体へのコメントとして始める。
+    const anchor: SigmaCommentAnchor = requestedAnchor ?? { type: "document" };
     // 候補アンカーは「場所」で持ち回しているので、引用文は最後に選択された時点のもの。
     // コメントを作る瞬間にいまの本文から取り直す (打鍵ごとに候補を作り直さないための対価)。
     const anchoredAtNow = anchor.type === "block"
@@ -1609,6 +1636,8 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, acc
     setCommentsPanelOpen(true);
     focusCommentLocation(threadId);
   }, [setCommentsPanelOpen, focusCommentLocation, setActiveCommentThreadId]);
+  // The workspace's comment list links here with `?commentThreadId=` to land on one thread.
+  useRequestedCommentThread({ ready: workspaceReady, activeFileId, comments: document.comments, select: selectCommentThread });
 
   const resetEditorDocument = useCallback((
     incomingDocument: SigmaDocument,
@@ -4062,15 +4091,18 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, acc
       : { fill: "solid", fillColor: color }
   );
   const canUseLineStyleControls = !overlayToolbarLockedByAi && hasOverlaySelection && overlaySelection.canStyleLine;
+  // 図形の種類の変更は、種類を変えられる図形が 1 つだけ選ばれているときに限る。
+  const canChangeOverlayShapeTypeNow = canArrangeOverlayShapes && planShapeTools(overlaySelection).shapeType;
+
   const canUseLineEndpointControls = !overlayToolbarLockedByAi && hasOverlaySelection && overlaySelection.canStyleLineEndpoints;
 
   const selectedOverlayLineDash = useMemo(
-    () => getSharedOverlayLineDash(overlaySelection.selectedShapes),
-    [overlaySelection.selectedShapes],
+    () => getSharedOverlayLineDash(overlaySelection.selectedShapes, overlaySelection.solidEdge),
+    [overlaySelection.selectedShapes, overlaySelection.solidEdge],
   );
   const selectedOverlayLineSize = useMemo(
-    () => getSharedOverlayLineSize(overlaySelection.selectedShapes),
-    [overlaySelection.selectedShapes],
+    () => getSharedOverlayLineSize(overlaySelection.selectedShapes, overlaySelection.solidEdge),
+    [overlaySelection.selectedShapes, overlaySelection.solidEdge],
   );
   // 打鍵ごとに走る `renderEditorChrome` へ渡るので、言語が変わったときだけ組み直す。
   const lineToolItems = useMemo(() => buildLineToolItems(tShapeChrome), [tShapeChrome]);
@@ -5190,6 +5222,8 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, acc
       ...request,
     } as OverlayActionRequest);
   }, []);
+  // 選択の近くに出す編集操作。中身は SelectionToolbarProvider 越しに読むので identity は不変でよい。
+  const selectionToolbarExtension = useMemo(() => createSelectionToolbarExtension(), []);
 
   /**
    * コマンドを走らせる前の後始末。開いているメニュー・ポップオーバーを閉じる。
@@ -5390,6 +5424,11 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, acc
     }
 
     requestOverlayAction({ type: "style", style });
+  };
+  const changeOverlayShapeType = (command: ShapeTypeChangeCommand) => {
+    if (canChangeOverlayShapeTypeNow) {
+      requestOverlayAction({ type: "changeShapeType", command });
+    }
   };
   const arrangeOverlayShapes = (action: OverlayArrangeAction) => {
     if (canArrangeOverlayShapes) {
@@ -5918,9 +5957,11 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, acc
 
   const applyAiSurface = useCallback((next: AiSurfaceState) => {
     setAiDisplayMode(next.displayMode);
-    setAiSidebarOpen(next.aiSidebarOpen);
+    setRightDock((current) => (
+      next.aiSidebarOpen ? openRightDockTool(current, "chat") : closeRightDockToolIfShowing(current, "chat")
+    ));
     setAiInlineOpen(next.aiInlineOpen);
-  }, []);
+  }, [setRightDock]);
 
   const openAiInline = useCallback((anchor: { left: number; top: number } | null) => {
     // Web版にAIチャット面は無い (AI面はキャンバス左上のAiTaskDock一本)。⌘Kや
@@ -5945,22 +5986,18 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, acc
     setVersionHistoryOpen(false);
     setAiInlineRunAnchor(null);
     setAiInlineRunAnchorCanvas(null);
-    const documentFileId = activeFileIdRef.current;
-    const roomId = aiChatRoomsStore.getActiveRoomId(documentFileId);
-    if (roomId) {
-      const nextLayout = addWorkspaceTab(workspaceLayoutRef.current, aiWorkspaceTab(roomId, documentFileId));
-      workspaceLayoutRef.current = nextLayout;
-      setWorkspaceLayout(nextLayout);
-      setAiInlineOpen(false);
-      void persistWorkspaceState({
-        openFileIds: workspaceLayoutOpenFileIds(nextLayout),
-        activeFileId: nextLayout.lastDocumentFileId,
-        layout: nextLayout,
-      });
-      return;
-    }
+    // 会話があっても、本文と同じ大きさのタブにはしない。右のサイドバーに開いて、本文と並べて使う。
     applyAiSurface(promoteToSidebar());
   }, [applyAiSurface, isDesktopApp, setVersionHistoryOpen]);
+
+  // サイドバーを開く。開いていたページに戻り、無ければ Hub を出す。版履歴と同じ列を使うので、開くときは版履歴を閉じる。
+  const openRightDockSurface = useCallback(() => {
+    if (!isDesktopApp) {
+      return;
+    }
+    setVersionHistoryOpen(false);
+    setRightDock(openRightDock);
+  }, [isDesktopApp, setRightDock, setVersionHistoryOpen]);
 
   const openVersionHistory = () => {
     if (versionHistoryRestoring) return;
@@ -5970,6 +6007,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, acc
       return;
     }
     applyAiSurface({ displayMode: "sidebar", aiSidebarOpen: false, aiInlineOpen: false });
+    setRightDock(closeRightDock);
     setCommentsPanelOpen(false);
     setVersionHistoryOpen(true);
   };
@@ -5991,6 +6029,20 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, acc
     setAiFocusRoomRequest({ roomId, seq: Date.now() });
     applyAiSurface(promoteToSidebar());
   }, [applyAiSurface, setVersionHistoryOpen]);
+
+  // AIタスクDockの「他のドキュメント」行: その教材へ移り、部屋があればAIチャットでも開く。
+  // 移動に失敗した (保存できない・読み込めない) ときは、元の教材でチャットを開かない。
+  const openAiTaskDocument = useCallback(async (fileId: string, roomId: string | null) => {
+    await openDocumentInWorkspace(fileId);
+    if (roomId && activeFileIdRef.current === fileId) {
+      focusAiSession(roomId);
+    }
+  }, [focusAiSession, openDocumentInWorkspace]);
+  const otherDocumentsForAiTasks = useMemo(() => ({
+    pendingProposals: mcpEditProposals,
+    resolveDocumentTitle: (fileId: string) => metadataByFileId.get(fileId)?.title || tE("shell.untitledDocument"),
+    onOpen: (fileId: string, roomId: string | null) => { void openAiTaskDocument(fileId, roomId); },
+  }), [mcpEditProposals, metadataByFileId, openAiTaskDocument, tE]);
 
   const closeAiSurface = useCallback(() => {
     // Closing the inline editor discards a single-shot result, so drop the floating
@@ -6023,6 +6075,32 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, acc
       }
     }
   }, [aiDisplayMode, aiInlineOpen, applyAiSurface, clearAiEditPinnedReferences, clearAiEditPreview]);
+
+  // サイドバー右上の ×。開いているページは残したまま、サイドバーだけを閉じる (開き直すと同じページに戻る)。
+  const collapseRightDock = useCallback(() => setRightDock(closeRightDock), [setRightDock]);
+
+  // チャットのタブの ×。見せているときはAI面の閉じ方 (未適用の提案を残す) に揃え、見せていなければタブだけを外す。
+  const closeRightDockChat = useCallback(() => {
+    if (isRightDockShowing(rightDock, "chat")) {
+      closeAiSurface();
+      return;
+    }
+    setRightDock((current) => closeRightDockPage(current, "chat"));
+  }, [closeAiSurface, rightDock, setRightDock]);
+
+  // 開閉と開いていたページは引き継がず、幅だけを次回へ引き継ぐ。読む前に書かない。
+  useEffect(() => {
+    const preference = readRightDockPreference();
+    // 保存済みの好みは hydration の後でしか読めない (SSR の初回描画と一致させるため)。
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setRightDockWidth(preference.width);
+    rightDockPreferenceLoadedRef.current = true;
+  }, []);
+  useEffect(() => {
+    if (rightDockPreferenceLoadedRef.current) {
+      saveRightDockPreference({ width: rightDockWidth });
+    }
+  }, [rightDockWidth]);
 
   // AIパネル(inline/sidebar)が参照ハイライトを表示すべき状態か。
   const aiReferenceHighlightActive = useMemo(
@@ -6159,7 +6237,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, acc
 
     const clampWidth = (width: number) => {
       const reservedWidth = MIN_EDITOR_WIDTH_WHILE_RESIZING_OUTLINE
-        + (aiSidebarOpen ? AI_SIDEBAR_WIDTH : 0);
+        + (rightDock.open ? rightDockWidth : 0);
       const availableWidth = window.innerWidth - reservedWidth;
       const maxWidth = Math.min(MAX_OUTLINE_WIDTH, Math.max(MIN_OUTLINE_WIDTH, availableWidth));
       return Math.min(maxWidth, Math.max(MIN_OUTLINE_WIDTH, width));
@@ -6194,7 +6272,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, acc
     toggleRibbonCollapseRef,
     actions: {
       text: {
-        runEditCommand, toggleBoxedText, applyTextStyle, applyTextAlign, applyLineHeight,
+        runEditCommand, toggleBoxedText, applyTextStyle, applyBlockStructure, applyTextAlign, applyLineHeight,
         applyInlineFormat, getActiveTextTarget, insertInlineMath, setFontFamily,
         setTextFontSize, setTextColor, setTextBackgroundColor,
       },
@@ -6306,6 +6384,18 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, acc
   // （描かれていないのに前の教材のページ数を出さないため。onPageCountChange は
   // アンマウントでは呼ばれない）。
   const pageEditorMounted = workspaceReady && !activeDocumentOpenFailure && !versionHistoryPreviewActive;
+  useRequestedDocumentLocation({
+    ready: pageEditorMounted, fileId: activeFileId, document, root: editorCanvasElement,
+    selectBlock: id => { setSelectedInlineMath(null); setSelectedId(id); },
+    revealRegion: bounds => {
+      const viewport = editorCanvasElement?.querySelector<HTMLElement>(".whiteboard-page-canvas");
+      if (!viewport) return;
+      const store = editorStore.getState(), scale = store.zoom / 100;
+      store.setWhiteboardPan({ panX: viewport.clientWidth / 2 - (bounds.x + bounds.w / 2) * scale,
+        panY: viewport.clientHeight / 2 - (bounds.y + bounds.h / 2) * scale });
+    },
+    unavailable: () => setStatusMessage(t("collaboration.locationUnavailable")),
+  });
 
   const reloadFailedDocument = useCallback(async () => {
     const failure = documentOpenFailureRef.current;
@@ -6474,7 +6564,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, acc
     "workspace",
     showPageNavigator ? "" : "outline-hidden",
     outlineOpen ? "" : "outline-collapsed",
-    aiSurface.gridHasAiColumn || versionHistoryOpen ? "ai-sidebar-open" : "",
+    (isDesktopApp && !isEmbedded && rightDock.open) || versionHistoryOpen ? "ai-sidebar-open" : "",
   ].filter(Boolean).join(" ");
 
   const {
@@ -6748,6 +6838,61 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, acc
     );
   }
 
+  // 選択の近くに出す操作バーへ渡す値。上部ツールバーと同じ状態・同じ操作の窓口で、
+  // 別の書式実装は持たない (押せる/押せないの判定もツールバーと一致する)。
+  const selectionToolbarBinding: SelectionToolbarBinding = {
+    text: {
+      enabled: canUseTextToolbar,
+      canBlockStyle: canUseTextBlockStyle,
+      canBlockStructure: canUseBlockStructure,
+      canAlign: canUseTextAlign,
+      fontSize: activeTextFontSize,
+      fontSizeMixed: activeTextFontSizeMixed,
+      blockStyle: selectedTextStyle,
+      blockStructure: blockStyleState,
+      bold: boldActive,
+      italic: italicActive,
+      underline: underlineActive,
+      boxed: boxedTextActive,
+      boxedVariant: boxedTextVariant,
+      boxedPaddingY: boxedTextPaddingY,
+      textColor,
+      textBackgroundColor,
+      textAlign: selectedTextAlign,
+      toggleInline: runEditCommand,
+      applyBlockStyle: applyTextStyle,
+      applyBlockStructure,
+      setFontSize: (size) => {
+        setTextFontSize(size);
+        applyInlineFormat("fontSize", String(size));
+      },
+      toggleBoxed: toggleBoxedText,
+      selectBoxedVariant: selectBoxedTextVariant,
+      setBoxedPaddingY: applyBoxedTextPaddingY,
+      setTextColor: (color) => {
+        setTextColor(color);
+        applyInlineFormat("color", color);
+      },
+      setTextBackgroundColor: (color) => {
+        setTextBackgroundColor(color);
+        applyInlineFormat("backgroundColor", color ?? "");
+      },
+      applyTextAlign,
+      insertBoxBlock: () => addBlock("boxBlock"),
+    },
+    shape: {
+      enabled: !overlayToolbarLockedByAi,
+      selection: overlaySelection,
+      strokeColor,
+      fillColor: selectionFillColor,
+      fillOpacity: selectionFillOpacity,
+      applyStyle: applyOverlayStyle,
+      fillColorPatch,
+      request: requestOverlayAction,
+      saveAsMaterial: () => openMaterialAddDialog(),
+    },
+  };
+
   // クロームへ渡す値。**useMemo は使わない**: 依存配列が200個近くになり、1つ漏らすだけで
   // 「押しても光らないボタン」という無音の腐敗になる。EditorShell はもともと毎レンダー全体が
   // 再構築されるので、素の object literal なら挙動は現行と厳密に同一。同じ理由でグループ部品に
@@ -6787,7 +6932,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, acc
       blockStyleButtonRef, blockStyleMenuOpen,
       canUseTextBlockStyle, canUseTextToolbar, fontFamily, fontFamilyButtonRef,
       fontFamilyIsKnownOption, fontFamilyIsMixed, fontFamilyMenuOpen, fontFamilyQuery,
-      fontSizeInputRef, fontSizeInput, setFontSizeInput,
+      fontSizeInputRef, fontSizeSkipBlurRef, fontSizeInput, setFontSizeInput,
       handleLineHeightStepClick, italicActive, lineHeight, lineHeightButtonRef,
       lineHeightCustomOpen, lineHeightInput, lineHeightInputError, lineHeightMenuOpen,
       saveEditorFontFamilyPreference, selectBoxedTextVariant, selectedTextAlign, selectedTextStyle,
@@ -6805,7 +6950,8 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, acc
       startInlineMathFromToolbar,
     },
     shapeStyle: {
-      applyOverlayStyle, arrangeOverlayShapes, canArrangeOverlayShapes, canUseFillStyleControls, canUseLineEndpointControls,
+      applyOverlayStyle, arrangeOverlayShapes, changeOverlayShapeType,
+      canChangeOverlayShapeType: canChangeOverlayShapeTypeNow, canArrangeOverlayShapes, canUseFillStyleControls, canUseLineEndpointControls,
       canUseLineStyleControls, canUseStrokeStyleControls, effectiveLineDashMenuOpen,
       effectiveLineEndpointMenu, effectiveLineWidthMenuOpen, fillColorButtonRef, fillColorPatch,
       lineDashButtonRef, lineWidthButtonRef, overlaySelection, selectedOverlayLineDash,
@@ -6862,6 +7008,49 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, acc
     },
   };
 
+  const aiEditPanelElement = (
+    <AiEditPanel
+      document={document}
+      documentIdentityKey={activeFileId}
+      documentWorkspaceId={activeDocumentMetadata?.workspaceId ?? null}
+      selectedId={selectedId}
+      selectedBlock={selectedBlock}
+      reference={aiEditReference}
+      pinnedReferences={aiEditPinnedReferences}
+      pinnedReferencePreviews={aiEditPinnedReferencePreviews}
+      onRemovePinnedReference={removeAiPinnedReference}
+      overlaySelection={overlaySelection}
+      variant={aiDisplayMode}
+      inlineSessionId={aiInlineSessionId}
+      inlineOpen={aiInlineOpen}
+      inlineAnchor={aiInlineAnchor}
+      inlineRunAnchor={aiInlineRunAnchor}
+      inlineRunAnchorCanvas={aiInlineRunAnchorCanvas}
+      inlineRunPortalTarget={aiInlineRunPortal}
+      previewClearRequest={aiEditPreviewClearRequest}
+      previewGroups={aiEditPreviewGroups}
+      busy={mcpPreviewBusy}
+      onApplyGroup={applyAiEditPreviewGroup}
+      onDismissGroup={dismissAiEditPreviewGroup}
+      staleProposalGroups={staleProposalGroups}
+      sourceReferencesByTurnId={sourceReferencesByTurnId}
+      insertedShapePreviewsByTurnId={insertedShapePreviewsByTurnId}
+      appliedChangesByTurnId={appliedChangesByTurnId}
+      onRevertAppliedChange={revertAppliedProposals}
+      restorableProposalsByTurnId={restorableProposalsByTurnId}
+      onRestoreProposal={restoreProposalFromHistory}
+      onOpenSourceDocument={openSourceReferenceDocument}
+      onDiscardStaleProposals={discardStaleProposals}
+      onRebaseStaleProposals={rebaseStaleProposals}
+      onForceApplyStaleProposals={forceApplyStaleProposals}
+      onOpenAiSettings={() => setAiSettingsOpen(true)}
+      onCloseInline={closeAiSurface}
+      onPromoteToSidebar={promoteAiToSidebar}
+      onInlineRunAnchorChange={handleInlineRunAnchorChange}
+      focusRoomRequest={aiFocusRoomRequest}
+    />
+  );
+
   return (
     <DocumentSessionContext.Provider value={documentSession}>
     <DocumentWritableContext.Provider value={sessionWritable}>
@@ -6876,8 +7065,9 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, acc
       data-backstage-open={ribbonBackstageOpen ? "true" : undefined}
       data-ribbon-collapsed={ribbonCollapse.collapsed ? "true" : undefined}
       data-ai-sidebar-open={aiDisplayMode === "sidebar" && aiSidebarOpen ? "true" : undefined}
+      data-right-dock-open={isDesktopApp && !isEmbedded && rightDock.open ? "true" : undefined}
       data-tab-groups={!isEmbedded ? "true" : undefined}
-      style={{ "--ai-sidebar-width": `${AI_SIDEBAR_WIDTH}px` } as CSSProperties}
+      style={{ "--ai-sidebar-width": `${rightDockWidth}px` } as CSSProperties}
     >
       <WebMcpBridge
         ref={webMcpBridgeRef}
@@ -6951,6 +7141,8 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, acc
         inert={ribbonBackstageOpen}
         style={{
           "--outline-width": `${outlineWidth}px`,
+          // .workspace 自身が狭い画面用の幅を宣言するので、ドラッグで決めた幅はここで上書きする。
+          "--ai-sidebar-width": `${rightDockWidth}px`,
         } as CSSProperties}
       >
         {showPageNavigator && (
@@ -7054,10 +7246,14 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, acc
               onRevertProposal={revertAppliedProposals}
               onRestoreProposal={restoreProposalFromHistory}
               onFocusSession={focusAiSession}
+              otherDocuments={isDesktopApp ? otherDocumentsForAiTasks : undefined}
               resolvedProposals={resolvedMcpEditProposals}
               webMcpInstructionScopeId={webMcpEnabled ? document.docId : null}
               webMcpHistory={webMcpEnabled ? webMcpHistory : undefined}
             />
+          )}
+          {!versionHistoryPreviewActive && !rightDock.open && workspaceReady && isDesktopApp && !isEmbedded && !activeDocumentOpenFailure && (
+            <RightDockToggle onOpen={openRightDockSurface} />
           )}
           {!versionHistoryPreviewActive && workspaceReady && isWhiteboardDocument && (
             <CommentDock
@@ -7084,7 +7280,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, acc
               onReload={handleReloadFailedDocument}
             />
           )}
-          {pageEditorMounted && <OverlayImagePreviewContext.Provider value={tikzEditor.preview}><AiPageCanvasEditor
+          {pageEditorMounted && <SelectionToolbarProvider value={selectionToolbarBinding}><OverlayImagePreviewContext.Provider value={tikzEditor.preview}><AiPageCanvasEditor
             key={`${activeFileId}:${documentInstanceRevision}`}
             aiEnabled={!isEmbedded}
             onPageCountChange={setEditorPageCount}
@@ -7168,12 +7364,14 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, acc
             onAiEditPreviewDismiss={stableDismissVisibleAiEditPreviewGroup}
             onOpenSourceDocument={openSourceReferenceDocument}
             suppressSelectionActions={aiDisplayMode === "inline" && aiInlineOpen}
+            renderSelectionActions={renderSelectionActions ? anchor => renderSelectionActions({ fileId: activeFileId, document, metadata: activeDocumentMetadata ?? undefined, anchor }) : undefined}
+            selectionTools={selectionToolbarExtension}
             pinAiTextSelectionReference={isDesktopApp && pinAiTextSelectionReference}
             onInlineRunPortalReady={handleInlineRunPortalReady}
             documentIdentityKey={activeFileId}
             documentWorkspaceId={activeDocumentMetadata?.workspaceId ?? null}
             onFocusAiSession={focusAiSession}
-          /></OverlayImagePreviewContext.Provider>}
+          /></OverlayImagePreviewContext.Provider></SelectionToolbarProvider>}
           {versionHistoryPreview && (
             <div className="version-history-preview" data-version-history-preview="true">
               <div className="version-history-preview-banner" role="status">
@@ -7220,8 +7418,10 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, acc
         </section>
         </WorkspaceTabGroupGrid>
 
+        {/* インラインのAI入力。サイドチャットは右のサイドバー(下)に載る。パネルは常に1か所だけに描き、
+            どちらの面でも実行中の状態を失わない。 */}
         <AiEditorHost
-          enabled={!isEmbedded && isDesktopApp}
+          enabled={!isEmbedded && isDesktopApp && aiDisplayMode === "inline"}
           displayMode={aiDisplayMode}
           surface={aiSurface}
           inlineOpen={aiInlineOpen}
@@ -7230,50 +7430,31 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, acc
           inlineRunAnchor={aiInlineRunAnchor}
           inlineSessionId={aiInlineSessionId}
           editorCanvasRef={editorCanvasRef}
-          closeLabel={tEditor("aria.closeAiChat")}
           onClose={closeAiSurface}
         >
-          <AiEditPanel
-            document={document}
-            documentIdentityKey={activeFileId}
-            documentWorkspaceId={activeDocumentMetadata?.workspaceId ?? null}
-            selectedId={selectedId}
-            selectedBlock={selectedBlock}
-            reference={aiEditReference}
-            pinnedReferences={aiEditPinnedReferences}
-            pinnedReferencePreviews={aiEditPinnedReferencePreviews}
-            onRemovePinnedReference={removeAiPinnedReference}
-            overlaySelection={overlaySelection}
-            variant={aiDisplayMode}
-            inlineSessionId={aiInlineSessionId}
-            inlineOpen={aiInlineOpen}
-            inlineAnchor={aiInlineAnchor}
-            inlineRunAnchor={aiInlineRunAnchor}
-            inlineRunAnchorCanvas={aiInlineRunAnchorCanvas}
-            inlineRunPortalTarget={aiInlineRunPortal}
-            previewClearRequest={aiEditPreviewClearRequest}
-            previewGroups={aiEditPreviewGroups}
-            busy={mcpPreviewBusy}
-            onApplyGroup={applyAiEditPreviewGroup}
-            onDismissGroup={dismissAiEditPreviewGroup}
-            staleProposalGroups={staleProposalGroups}
-            sourceReferencesByTurnId={sourceReferencesByTurnId}
-            insertedShapePreviewsByTurnId={insertedShapePreviewsByTurnId}
-            appliedChangesByTurnId={appliedChangesByTurnId}
-            onRevertAppliedChange={revertAppliedProposals}
-            restorableProposalsByTurnId={restorableProposalsByTurnId}
-            onRestoreProposal={restoreProposalFromHistory}
-            onOpenSourceDocument={openSourceReferenceDocument}
-            onDiscardStaleProposals={discardStaleProposals}
-            onRebaseStaleProposals={rebaseStaleProposals}
-            onForceApplyStaleProposals={forceApplyStaleProposals}
-            onOpenAiSettings={() => setAiSettingsOpen(true)}
-            onCloseInline={closeAiSurface}
-            onPromoteToSidebar={promoteAiToSidebar}
-            onInlineRunAnchorChange={handleInlineRunAnchorChange}
-            focusRoomRequest={aiFocusRoomRequest}
-          />
+          {aiEditPanelElement}
         </AiEditorHost>
+        {!isEmbedded && isDesktopApp && (
+          <RightDockHost
+            state={rightDock}
+            onStateChange={setRightDock}
+            width={rightDockWidth}
+            onResize={setRightDockWidth}
+            files={(
+              <FilesPanel
+                documents={documentMetadatas}
+                activeFileId={activeFileId}
+                openFileIds={workspaceLayoutOpenFileIds(workspaceLayout)}
+                onOpenFile={(fileId) => void openDocumentInWorkspace(fileId)}
+                onOpenWorkspaces={openWorkspaceScreen}
+              />
+            )}
+            chat={aiDisplayMode === "sidebar" ? aiEditPanelElement : null}
+            onOpenChat={promoteAiToSidebar}
+            onCloseChat={closeRightDockChat}
+            onCollapse={collapseRightDock}
+          />
+        )}
         {versionHistoryOpen && (
           <VersionHistoryPanel
             key={activeFileId}

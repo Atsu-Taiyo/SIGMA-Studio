@@ -74,6 +74,11 @@ const collaborationSource = [
 for (const match of collaborationSource.matchAll(/["'](collaboration\.[a-zA-Z0-9_.]+)["']/g)) staticKeys.add(match[1]);
 for (const match of collaborationSource.matchAll(/`(collaboration\.[a-zA-Z0-9_.]*?)\$\{/g)) dynamicPrefixes.push(match[1]);
 
+// 右サイドバー (ファイル / ブラウザ / サイドチャット) の文言は features/right-dock が引く。
+const rightDockSource = productionSources(path.join(desktopRoot, "src/features/right-dock")).join("\n");
+for (const match of rightDockSource.matchAll(/["'](rightDock\.[a-zA-Z0-9_.]+)["']/g)) staticKeys.add(match[1]);
+for (const match of rightDockSource.matchAll(/`(rightDock\.[a-zA-Z0-9_.]*?)\$\{/g)) dynamicPrefixes.push(match[1]);
+
 const dictionaryKeys = flattenKeys(jaChrome as unknown as DictionaryValue);
 
 function isUsed(key: string): boolean {

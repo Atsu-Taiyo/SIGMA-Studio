@@ -152,7 +152,7 @@ test("hides graph chrome while choosing the initial origin", async ({ page }) =>
   await expect(page.locator(".overlay-selection-box")).toHaveCount(1);
   await expect(page.locator(".overlay-shape-dimension-label")).toHaveCount(1);
   await openGraphSettingsFromContextMenu(page, overlayGraphs.first());
-  await expect(page.getByRole("button", { name: "原点をクリックで指定" })).toBeVisible();
+  await expect(page.locator(".graph-tool-row").getByRole("button", { name: "原点をクリックで指定" })).toBeVisible();
 });
 
 test("keeps an axis label attached while its graph moves and resizes", async ({ page }) => {
@@ -227,7 +227,7 @@ test("toggles graph point fill between solid and open styles", async ({ page }) 
   const originPickY = originBox!.y + originBox!.height * 0.38;
   await page.mouse.click(originPickX, originPickY);
   await openGraphSettingsFromContextMenu(page, overlayGraph);
-  await expect(page.getByRole("button", { name: "原点をクリックで指定" })).toBeVisible();
+  await expect(page.locator(".graph-tool-row").getByRole("button", { name: "原点をクリックで指定" })).toBeVisible();
 
   await page.getByRole("button", { name: "点を追加", exact: true }).click();
   const graphPoint = page.locator(".overlay-shape.selected .graph2d-point").first();
@@ -265,7 +265,7 @@ test("edits point coordinates with math input", async ({ page }) => {
   expect(originBox).not.toBeNull();
   await page.mouse.click(originBox!.x + originBox!.width * 0.3, originBox!.y + originBox!.height * 0.38);
   await openGraphSettingsFromContextMenu(page, overlayGraph);
-  await expect(page.getByRole("button", { name: "原点をクリックで指定" })).toBeVisible();
+  await expect(page.locator(".graph-tool-row").getByRole("button", { name: "原点をクリックで指定" })).toBeVisible();
 
   await page.getByRole("button", { name: "点を追加", exact: true }).click();
   const graphPoint = page.locator(".overlay-shape.selected .graph2d-point").first();
@@ -441,6 +441,7 @@ test("runs editor shortcuts while the settings panel is open", async ({ page }) 
 
   // backdrop が無くなったので、パネル内にフォーカスがあるまま Delete / 矢印キーが
   // キャンバスへ届いて図形を消す・動かすことがあってはならない。
+  await expect(page.getByRole("dialog", { name: "グラフの設定" })).toBeFocused();
   const beforeKeys = await graph.boundingBox();
   await page.keyboard.press("Delete");
   await page.keyboard.press("ArrowRight");
@@ -646,7 +647,7 @@ test("inserts movable graph shapes, edits one, and prints them", async ({ page }
   await page.mouse.click(originPickX, originPickY);
   await expect(originPreview).toHaveCount(0);
   await openGraphSettingsFromContextMenu(page, overlayGraphs.first());
-  await expect(page.getByRole("button", { name: "原点をクリックで指定" })).toBeVisible();
+  await expect(page.locator(".graph-tool-row").getByRole("button", { name: "原点をクリックで指定" })).toBeVisible();
   await expect(page.getByRole("button", { name: "関数を追加" })).toBeVisible();
   await expandGraphDisclosure(page, "表示範囲");
   await expect(page.getByLabel("目盛", { exact: true })).not.toBeChecked();
@@ -654,7 +655,7 @@ test("inserts movable graph shapes, edits one, and prints them", async ({ page }
   await expect(page.locator(".overlay-shape.selected .graph2d-axes line")).toHaveCount(2);
   await expectPlotSelectionToMatch(page);
 
-  const originButton = page.getByRole("button", { name: "原点をクリックで指定" });
+  const originButton = page.locator(".graph-tool-row").getByRole("button", { name: "原点をクリックで指定" });
   await originButton.click();
   // 非モーダルパネルはモード開始で閉じない。押下状態と次の操作案内をその場で見せる。
   await expect(page.getByRole("dialog", { name: "グラフの設定" })).toBeVisible();
@@ -722,7 +723,7 @@ test("inserts movable graph shapes, edits one, and prints them", async ({ page }
   await page.mouse.dblclick(xAxisLabelBox!.x + xAxisLabelBox!.width / 2, xAxisLabelBox!.y + xAxisLabelBox!.height / 2);
   const xAxisLabelEditor = xAxisLabelShape.locator(".overlay-text-shape-content");
   await expect(xAxisLabelEditor).toBeFocused();
-  await expect(page.getByLabel("フォントサイズ", { exact: true })).toContainText("10pt");
+  await expect(page.locator(".editor-menubar").getByRole("textbox", { name: "フォントサイズ", exact: true })).toHaveValue("10");
   await expect.poll(async () => xAxisLabelText.evaluate((element) => getComputedStyle(element).fontSize)).toBe(staticAxisLabelFontSize);
   await page.keyboard.press("ControlOrMeta+A");
   await page.keyboard.type("u");
@@ -803,7 +804,7 @@ test("inserts movable graph shapes, edits one, and prints them", async ({ page }
   await expect(page.getByTestId("overlay-graph-origin-preview")).toBeVisible();
   await page.mouse.click(secondOriginPickX, secondOriginPickY);
   await openGraphSettingsFromContextMenu(page, overlayGraphs.nth(1));
-  await expect(page.getByRole("button", { name: "原点をクリックで指定" })).toBeVisible();
+  await expect(page.locator(".graph-tool-row").getByRole("button", { name: "原点をクリックで指定" })).toBeVisible();
   await page.getByRole("button", { name: "関数を追加" }).click();
   await closeGraphSettingsPanel(page);
   await rotateSelectedGraph(page, overlayGraphs.nth(1));
