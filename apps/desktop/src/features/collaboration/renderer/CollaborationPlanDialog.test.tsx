@@ -124,6 +124,20 @@ describe("account menu plan entry", () => {
     expect(document.body.textContent).toContain("チームで共同編集するなら、Proプランがおすすめです。");
   });
 
+  it("shows a Pro badge beside the avatar and account name without a plan-view action", async () => {
+    mockCatalog({ state: "ready", actorId: "owner", revision: 1, capabilities: {
+      canStartDocumentShare: true, documentShareSource: "entitlement", hierarchySharingEnabled: true,
+      canStartHierarchyShare: true, hierarchyShareSource: "entitlement", participantLimit: 15,
+    } });
+    act(() => root.render(<CollaborationAccountControl info={info} refresh={vi.fn(async () => {})} />));
+    await settle();
+    const account = button("Owner のアカウント");
+    expect(account.textContent?.trim()).toBe("Pro");
+    await click(account);
+    expect(document.querySelector('[aria-label="Owner のアカウント"][role="dialog"]')?.textContent).toContain("OwnerPro");
+    expect(Array.from(document.querySelectorAll("button")).some(item => item.textContent === "Proプランを見る")).toBe(false);
+  });
+
   it("refreshes missing capabilities and hides plans on servers without hierarchy sharing", async () => {
     const catalog = mockCatalog({ state: "ready", actorId: "owner", revision: 1 });
     catalog.refresh.mockResolvedValue({ state: "ready", actorId: "owner", revision: 1, capabilities: { canStartDocumentShare: true, documentShareSource: "free", hierarchySharingEnabled: false, canStartHierarchyShare: false, hierarchyShareSource: "none" } });
