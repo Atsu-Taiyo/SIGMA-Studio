@@ -924,6 +924,14 @@
   vertical-align: baseline;
 }
 
+/* MathLive が描けない式だけ KaTeX へ落ちる (`convertLatexToMarkupCached`)。KaTeX の既定 CSS は
+   `.katex { font: normal 1.21em … }` で、MathLive (`.ML__latex` は継承の 1em) より 21% 大きく描く。
+   同じ文字サイズ指定でも `\dots` などを含む式だけ大きく見えるので、ここで 1em へ揃える。
+   family / style は KaTeX 側の指定をそのまま使う。 */
+.math-preview .katex {
+  font-size: 1em;
+}
+
 /* MathLive intentionally gives TeX text mode (`\text{...}`) its own system-font
    default. The custom property is emitted with an inline font mark and survives
    MathLive's nested wrappers; unmarked formulas use the bundled document default.
