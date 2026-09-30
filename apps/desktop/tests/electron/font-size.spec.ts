@@ -2,6 +2,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { _electron as electron, expect, test, type Page } from "@playwright/test";
+import { QUICK_TOOLBAR } from "../e2e/ui-layout-chrome";
 import { grabShapeFromBody } from "../e2e/body-overlay-entry";
 import { sampleDocument } from "@/lib/sample-document";
 import { ensurePageLayout, type SigmaDocument } from "@/features/document";
@@ -55,8 +56,8 @@ test("font sizes use the real Electron bridge and survive an app restart", async
     await page.reload();
     await expect(page.locator('.text-flow-editor [data-sigma-doc-id="body_size"]')).toBeVisible();
     const sizeInput = () => page.getByRole("textbox", { name: "フォントサイズ", exact: true });
-    const up = () => page.getByRole("button", { name: "フォントサイズを大きく", exact: true });
-    const down = () => page.getByRole("button", { name: "フォントサイズを小さく", exact: true });
+    const up = () => page.locator(QUICK_TOOLBAR).getByRole("button", { name: "フォントサイズを大きく", exact: true });
+    const down = () => page.locator(QUICK_TOOLBAR).getByRole("button", { name: "フォントサイズを小さく", exact: true });
     await selectBody(page, "heading_size", 1, 1);
     await expect(sizeInput()).toHaveValue("17.04");
     await selectBody(page, "body_size", 2, 4);
@@ -69,6 +70,14 @@ test("font sizes use the real Electron bridge and survive an app restart", async
     await sizeInput().pressSequentially("7.5");
     await expect(sizeInput()).toHaveValue("7.5");
     await sizeInput().press("Enter");
+    await expect.poll(() => page.evaluate((id) => window.desktopAPI!.storage.loadDocument(id), created.file.fileId))
+      .toMatchObject({ content: [source.content[0], { ...source.content[1], children: [
+        { type: "text", text: "前 " }, { type: "text", text: "注記", fontSize: 7.5 }, { type: "text", text: " 後" },
+      ] }] });
+
+    await sizeInput().fill("2");
+    await sizeInput().press("Escape");
+    await expect(sizeInput()).toHaveValue("7.5");
     await expect.poll(() => page.evaluate((id) => window.desktopAPI!.storage.loadDocument(id), created.file.fileId))
       .toMatchObject({ content: [source.content[0], { ...source.content[1], children: [
         { type: "text", text: "前 " }, { type: "text", text: "注記", fontSize: 7.5 }, { type: "text", text: " 後" },

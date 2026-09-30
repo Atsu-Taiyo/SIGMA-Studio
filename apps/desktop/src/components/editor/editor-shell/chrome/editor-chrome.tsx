@@ -78,7 +78,7 @@ export function renderEditorChrome(chrome: EditorChromeValue) {
   const { activeDocumentOpenFailure, activeFileId, addBlock, aiMenuButtonRef, appUpdateState, closeDocumentTab, commentsPanelOpen, commitDocumentTitle, copyDocumentText, createDocumentTab, createWhiteboardDocumentTab, degradedWatcherScopes, deleteActiveDocument, documentMetadatas, documentTitle, duplicateActiveDocument, exportJson, exportMenuOpen, fileMenuButtonRef, handleTitleUpdateAction, importDocumentFile, importInputRef, insertMenuButtonRef, loadingFileId, newDocButtonRef, newDocMenuOpen, openCommandSettings, openDocumentInWorkspace, openDocumentListDialog, openDocumentTabs, openImportDialog, openNewDocMenu, openOtherImportDialog, openPrintPreview, openTextImportDialog, openVersionHistory, openWorkspaceScreen, otherImportInputRef, promoteAiToSidebar, reportIssue, requestOverlayImages, resolvedDocumentTitle, scheduleCloseNewDocMenu, setAiSettingsOpen, setDesktopSettingsOpen, setExportMenuOpen, setNewDocMenuOpen, setOutlineDialogOpen, setOverlayEditing, setPageSettingsOpen, setTemplateGalleryOpen, setTexCommandReferenceOpen, setTexEnvironmentSettingsOpen, setTitleInputFocused, settingsMenuButtonRef, showRichTitle, showTitleUpdateButton, titleInputValue, titleRichNodes, titleUpdateButtonDisabled, toggleCommentsPanel, uiLayoutPreference, updateMetadata, versionHistoryOpen, workspaceTabsRow } = chrome.appMenu;
   const { commandTooltip, renderMenuShortcut } = chrome.commands;
   const { setMaterialLibraryOpen } = chrome.editing;
-  const { ActiveTextAlignIcon, activeFontFamilyLabel, activeTextAlignOption, activeTextFontSize, activeTextFontSizeMixed, applyBlockStructure, applyBoxedTextPaddingY, applyInlineFormat, applyLineHeight, applyTextAlign, applyTextStyle, blockStyleState, boldActive, boxedTextActive, boxedTextButtonRef, boxedTextMenuOpen, boxedTextPaddingY, boxedTextVariant, canUseBlockStructure, canUseLineHeight, canUseTextAlign, canUseTextBlockStyle, canUseTextToolbar, fontFamily, fontFamilyButtonRef, fontFamilyIsKnownOption, fontFamilyIsMixed, fontFamilyMenuOpen, fontFamilyQuery, handleLineHeightStepClick, italicActive, lineHeight, lineHeightButtonRef, lineHeightCustomOpen, lineHeightInput, lineHeightInputError, lineHeightMenuOpen, moreBlocksMenuButtonRef, moreBlocksMenuOpen, orderedListMenuButtonRef, orderedListMenuOpen, setMoreBlocksMenuOpen, setOrderedListMenuOpen, saveEditorFontFamilyPreference, selectBoxedTextVariant, selectedTextAlign, selectedTextStyle, setFontFamily, setFontFamilyQuery, setLineHeightCustomOpen, setLineHeightInput, setLineHeightInputError, setTextBackgroundColor, setTextColor, setTextFontSize, startLineHeightStepping, stopLineHeightStepping, textAlignButtonRef, textAlignMenuOpen, textBackgroundColor, textBackgroundColorButtonRef, textColor, textColorButtonRef, toggleBoxedText, underlineActive, visibleCustomFontOptions, visibleFontFamilyGroups, blockStyleButtonRef, blockStyleMenuOpen, fontSizeInputRef, fontSizeInput, setFontSizeInput } = chrome.format;
+  const { ActiveTextAlignIcon, activeFontFamilyLabel, activeTextAlignOption, activeTextFontSize, activeTextFontSizeMixed, applyBlockStructure, applyBoxedTextPaddingY, applyInlineFormat, applyLineHeight, applyTextAlign, applyTextStyle, blockStyleState, boldActive, boxedTextActive, boxedTextButtonRef, boxedTextMenuOpen, boxedTextPaddingY, boxedTextVariant, canUseBlockStructure, canUseLineHeight, canUseTextAlign, canUseTextBlockStyle, canUseTextToolbar, fontFamily, fontFamilyButtonRef, fontFamilyIsKnownOption, fontFamilyIsMixed, fontFamilyMenuOpen, fontFamilyQuery, handleLineHeightStepClick, italicActive, lineHeight, lineHeightButtonRef, lineHeightCustomOpen, lineHeightInput, lineHeightInputError, lineHeightMenuOpen, moreBlocksMenuButtonRef, moreBlocksMenuOpen, orderedListMenuButtonRef, orderedListMenuOpen, setMoreBlocksMenuOpen, setOrderedListMenuOpen, saveEditorFontFamilyPreference, selectBoxedTextVariant, selectedTextAlign, selectedTextStyle, setFontFamily, setFontFamilyQuery, setLineHeightCustomOpen, setLineHeightInput, setLineHeightInputError, setTextBackgroundColor, setTextColor, setTextFontSize, startLineHeightStepping, stopLineHeightStepping, textAlignButtonRef, textAlignMenuOpen, textBackgroundColor, textBackgroundColorButtonRef, textColor, textColorButtonRef, toggleBoxedText, underlineActive, visibleCustomFontOptions, visibleFontFamilyGroups, blockStyleButtonRef, blockStyleMenuOpen, fontSizeInputRef, fontSizeSkipBlurRef, fontSizeInput, setFontSizeInput } = chrome.format;
   const { ActiveLineToolIcon, activeLineToolItem, activeOverlayTool, bodyToolbarLockedByAi, cancelInlineMathMenuClose, inlineMathButtonRef, inlineMathMenuOpen, lineToolMenuButtonRef, lineToolMenuOpen, openInlineMathMenu, scheduleInlineMathMenuClose, selectedInlineMath, selectedInlineMathDetails, setInlineMathMenuOpen, shapeMenuButtonRef, shapeMenuOpen, startInlineMathFromToolbar } = chrome.insert;
   const { findNext, findPrevious, overlayEditing, replaceAll, replaceNext, replaceOpen, replaceText, searchButtonRef, searchMatchCount, searchOpen, searchQuery, setReplaceOpen, setReplaceText, setSearchOpen, setSearchQuery } = chrome.search;
   const { applyOverlayStyle, arrangeOverlayShapes, canChangeOverlayShapeType, changeOverlayShapeType, canArrangeOverlayShapes, canUseFillStyleControls, canUseLineEndpointControls, canUseLineStyleControls, canUseStrokeStyleControls, effectiveLineDashMenuOpen, effectiveLineEndpointMenu, effectiveLineWidthMenuOpen, fillColorButtonRef, fillColorPatch, lineDashButtonRef, lineWidthButtonRef, overlaySelection, selectedOverlayLineDash, selectedOverlayLineSize, selectionFill, selectionFillColor, selectionFillOpacity, setStrokeColor, strokeColor, strokeColorButtonRef } = chrome.shapeStyle;
@@ -997,9 +997,20 @@ export function renderEditorChrome(chrome: EditorChromeValue) {
         type="text"
         inputMode="decimal"
         value={fontSizeInput}
-        onFocus={(event) => event.currentTarget.select()}
+        onFocus={(event) => {
+          fontSizeSkipBlurRef.current = false;
+          event.currentTarget.select();
+        }}
         onChange={(event) => setFontSizeInput(event.currentTarget.value)}
-        onBlur={(event) => commitFontSizeInput(event.currentTarget.value)}
+        onBlur={(event) => {
+          // Enter already committed and Escape cancelled. The synchronous blur
+          // must not submit the old input value a second time.
+          if (fontSizeSkipBlurRef.current) {
+            fontSizeSkipBlurRef.current = false;
+            return;
+          }
+          commitFontSizeInput(event.currentTarget.value);
+        }}
         onKeyDown={(event) => {
           if (event.key === "Enter") {
             if (event.nativeEvent.isComposing) {
@@ -1007,12 +1018,20 @@ export function renderEditorChrome(chrome: EditorChromeValue) {
               return;
             }
             event.preventDefault();
+            event.stopPropagation();
+            fontSizeSkipBlurRef.current = true;
             commitFontSizeInput(event.currentTarget.value);
             event.currentTarget.blur();
           } else if (event.key === "Escape") {
             event.preventDefault();
+            event.stopPropagation();
+            fontSizeSkipBlurRef.current = true;
             setFontSizeInput(String(activeTextFontSize));
             event.currentTarget.blur();
+          } else if (event.key === "ArrowUp" || event.key === "ArrowDown") {
+            event.preventDefault();
+            event.stopPropagation();
+            adjustFontSize(event.key === "ArrowUp" ? 1 : -1);
           }
         }}
       />

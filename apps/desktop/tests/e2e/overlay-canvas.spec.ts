@@ -1194,11 +1194,7 @@ test("table placement creates a 2 by 2 grid and a second click re-enters editing
 test("table editor keeps row boundary controls aligned after resizing a row", async ({ page }) => {
   await page.goto("/");
 
-  const shapeMenu = await openShapeMenu(page);
-  await shapeMenu.getByRole("menuitem", { name: "表", exact: true }).click();
-  const tablePicker = page.getByRole("dialog", { name: "表を挿入" });
-  await expect(tablePicker).toBeVisible();
-  await tablePicker.getByRole("button", { name: "4列 3行の表を挿入" }).click();
+  await chooseShape(page, "表");
 
   const table = page.locator(".overlay-table-shape").first();
   await expect(table).toBeVisible();
