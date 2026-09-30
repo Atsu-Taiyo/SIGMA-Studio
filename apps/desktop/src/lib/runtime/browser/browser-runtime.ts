@@ -644,6 +644,19 @@ export function createBrowserRuntime(options: BrowserRuntimeOptions): AppRuntime
   };
 
   const workspace: LocalWorkspaceRepository = {
+    async listSearchOverview() {
+      try {
+        return await backend.read(["library"], async tx => {
+          const record = await readLibrary(tx);
+          const base = buildWorkspaceOverview(record, record.activeWorkspaceId);
+          const overviews = base.workspaces.map(w => buildWorkspaceOverview(record, w.id));
+          return { state: "ready", overview: { ...base, folders: overviews.flatMap(o => o.folders), files: overviews.flatMap(o => o.files) } };
+        });
+      } catch (error) {
+        if (error instanceof BrowserLedgerSchemaError) return { state: "ledger-schema-error", failure: error.failure };
+        return { state: "error", error: describeStorageError(error, tWorkspace("error.loadFailed")) };
+      }
+    },
     listOverview: (workspaceId) => withOverview(workspaceId, () => null),
     createWorkspace: (name) => withOverview(null, (record, now) => {
       createWorkspaceRow(record, {

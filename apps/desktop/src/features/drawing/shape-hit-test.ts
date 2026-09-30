@@ -15,6 +15,7 @@ import {
   getShapeSelectionBounds,
 } from "./shape-bounds";
 import { getShapeRotationPivot } from "./shape-visual-bounds";
+import { getSolidFillPolygon, hitTestSolidEdge, isSolidShape } from "./solid-geometry";
 
 export function hitTestShape(
   shape: OverlayShape,
@@ -35,6 +36,16 @@ export function hitTestShape(
       x: shape.flipX ? pivot.x * 2 - testPoint.x : testPoint.x,
       y: shape.flipY ? pivot.y * 2 - testPoint.y : testPoint.y,
     };
+  }
+
+  // 立体は針金細工。掴めるのは線の上だけで、塗っているときに限り塗りの内側も掴める
+  // (塗っていない立体の中の空白は、下の本文の空白として扱う)。
+  if (shape.type === "geo" && isSolidShape(shape)) {
+    const local = { x: testPoint.x - shape.x, y: testPoint.y - shape.y };
+    if (shape.props.fill === "solid" && isPointInSolidFill(shape, local)) {
+      return true;
+    }
+    return hitTestSolidEdge(shape, local, effectiveMargin) !== null;
   }
 
   if (shape.type === "geo" && shape.props.geo === "ellipse") {
@@ -115,6 +126,18 @@ export function hitTestShape(
     testPoint.y >= bounds.y - effectiveMargin &&
     testPoint.y <= bounds.y + bounds.h + effectiveMargin
   );
+}
+
+function isPointInSolidFill(
+  shape: Extract<OverlayShape, { type: "geo" }>,
+  local: OverlayPoint,
+): boolean {
+  if (shape.props.geo === "sphere") {
+    const rx = Math.max(1, shape.props.w / 2);
+    const ry = Math.max(1, shape.props.h / 2);
+    return ((local.x - rx) ** 2) / (rx ** 2) + ((local.y - ry) ** 2) / (ry ** 2) <= 1;
+  }
+  return pointInPolygon(local, getSolidFillPolygon(shape));
 }
 
 function rotatePointAround(

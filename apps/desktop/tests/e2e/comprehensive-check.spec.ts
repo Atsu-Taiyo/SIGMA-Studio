@@ -196,7 +196,7 @@ async function chooseGraphOrigin(page: Page, graph: Locator): Promise<void> {
   await page.mouse.click(box!.x + box!.width * 0.42, box!.y + box!.height * 0.48, { button: "right" });
   await page.locator(".overlay-shape-context-menu").getByRole("menuitem", { name: "グラフの設定…" }).click();
   await expect(page.getByRole("dialog", { name: "グラフの設定" })).toBeVisible();
-  await expect(page.getByRole("button", { name: "原点をクリックで指定" })).toBeVisible();
+  await expect(page.locator(".graph-tool-row").getByRole("button", { name: "原点をクリックで指定" })).toBeVisible();
 }
 
 async function expandGraphDisclosure(page: Page, name: string): Promise<void> {

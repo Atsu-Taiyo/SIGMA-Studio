@@ -16,25 +16,126 @@ export interface AiResourceDisplayMetadata {
   tags: string[];
 }
 
+/**
+ * 公式skillのid → 表示用の翻訳キー。tags はmanifestのtagsと同じ並びで、翻訳しない語
+ * (OCR・Graph2D・3Dなど)は null のまま元の値を出す。新しい公式skillを足すときは
+ * electron/ai-resource-store.ts の定義と、ja/en の `desktop.resource.officialSkills` を揃える。
+ */
 const OFFICIAL_DISPLAY_KEYS = {
-  "official-image-material": {
-    title: "desktop.resource.officialImageTitle",
-    description: "desktop.resource.officialImageDescription",
+  "official-svg-figure": {
+    title: "desktop.resource.officialSkills.svgFigure.title",
+    description: "desktop.resource.officialSkills.svgFigure.description",
     tags: [
-      "desktop.resource.officialImageTags.image",
-      "desktop.resource.officialImageTags.material",
+      "desktop.resource.officialSkills.svgFigure.tags.svg",
+      "desktop.resource.officialSkills.svgFigure.tags.diagram",
+      "desktop.resource.officialSkills.svgFigure.tags.illustration",
+      "desktop.resource.officialSkills.svgFigure.tags.artwork",
+    ],
+  },
+  "official-image-material": {
+    title: "desktop.resource.officialSkills.imageMaterial.title",
+    description: "desktop.resource.officialSkills.imageMaterial.description",
+    tags: [
+      "desktop.resource.officialSkills.imageMaterial.tags.image",
+      "desktop.resource.officialSkills.imageMaterial.tags.material",
       null,
-      "desktop.resource.officialImageTags.shape",
+      "desktop.resource.officialSkills.imageMaterial.tags.diagram",
     ],
   },
   "official-graph": {
-    title: "desktop.resource.officialGraphTitle",
-    description: "desktop.resource.officialGraphDescription",
+    title: "desktop.resource.officialSkills.graph.title",
+    description: "desktop.resource.officialSkills.graph.description",
     tags: [
-      "desktop.resource.officialGraphTags.graph",
+      "desktop.resource.officialSkills.graph.tags.graph",
       null,
-      "desktop.resource.officialGraphTags.function",
-      "desktop.resource.officialGraphTags.coordinates",
+      "desktop.resource.officialSkills.graph.tags.function",
+      "desktop.resource.officialSkills.graph.tags.coordinates",
+    ],
+  },
+  "official-graph3d": {
+    title: "desktop.resource.officialSkills.graph3d.title",
+    description: "desktop.resource.officialSkills.graph3d.description",
+    tags: [
+      null,
+      "desktop.resource.officialSkills.graph3d.tags.solid",
+      "desktop.resource.officialSkills.graph3d.tags.revolution",
+      "desktop.resource.officialSkills.graph3d.tags.section",
+    ],
+  },
+  "official-problem": {
+    title: "desktop.resource.officialSkills.problem.title",
+    description: "desktop.resource.officialSkills.problem.description",
+    tags: [
+      "desktop.resource.officialSkills.problem.tags.problem",
+      "desktop.resource.officialSkills.problem.tags.answer",
+      "desktop.resource.officialSkills.problem.tags.explanation",
+      "desktop.resource.officialSkills.problem.tags.hint",
+    ],
+  },
+  "official-body": {
+    title: "desktop.resource.officialSkills.body.title",
+    description: "desktop.resource.officialSkills.body.description",
+    tags: [
+      "desktop.resource.officialSkills.body.tags.body",
+      "desktop.resource.officialSkills.body.tags.formula",
+      "desktop.resource.officialSkills.body.tags.list",
+      "desktop.resource.officialSkills.body.tags.box",
+    ],
+  },
+  "official-table": {
+    title: "desktop.resource.officialSkills.table.title",
+    description: "desktop.resource.officialSkills.table.description",
+    tags: [
+      "desktop.resource.officialSkills.table.tags.table",
+      "desktop.resource.officialSkills.table.tags.variation",
+      "desktop.resource.officialSkills.table.tags.cell",
+    ],
+  },
+  "official-page-layout": {
+    title: "desktop.resource.officialSkills.pageLayout.title",
+    description: "desktop.resource.officialSkills.pageLayout.description",
+    tags: [
+      "desktop.resource.officialSkills.pageLayout.tags.page",
+      "desktop.resource.officialSkills.pageLayout.tags.columns",
+      "desktop.resource.officialSkills.pageLayout.tags.pageBreak",
+      "desktop.resource.officialSkills.pageLayout.tags.margins",
+    ],
+  },
+  "official-proofreading": {
+    title: "desktop.resource.officialSkills.proofreading.title",
+    description: "desktop.resource.officialSkills.proofreading.description",
+    tags: [
+      "desktop.resource.officialSkills.proofreading.tags.proofreading",
+      "desktop.resource.officialSkills.proofreading.tags.rephrasing",
+      "desktop.resource.officialSkills.proofreading.tags.notation",
+    ],
+  },
+  "official-shape": {
+    title: "desktop.resource.officialSkills.shape.title",
+    description: "desktop.resource.officialSkills.shape.description",
+    tags: [
+      "desktop.resource.officialSkills.shape.tags.shape",
+      "desktop.resource.officialSkills.shape.tags.arrow",
+      "desktop.resource.officialSkills.shape.tags.annotation",
+      "desktop.resource.officialSkills.shape.tags.callout",
+    ],
+  },
+  "official-material-library": {
+    title: "desktop.resource.officialSkills.materialLibrary.title",
+    description: "desktop.resource.officialSkills.materialLibrary.description",
+    tags: [
+      "desktop.resource.officialSkills.materialLibrary.tags.material",
+      "desktop.resource.officialSkills.materialLibrary.tags.pastDocuments",
+      "desktop.resource.officialSkills.materialLibrary.tags.search",
+    ],
+  },
+  "official-document-management": {
+    title: "desktop.resource.officialSkills.documentManagement.title",
+    description: "desktop.resource.officialSkills.documentManagement.description",
+    tags: [
+      "desktop.resource.officialSkills.documentManagement.tags.documents",
+      "desktop.resource.officialSkills.documentManagement.tags.folders",
+      "desktop.resource.officialSkills.documentManagement.tags.organize",
     ],
   },
 } as const;

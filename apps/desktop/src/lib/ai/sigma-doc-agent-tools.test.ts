@@ -1,3 +1,4 @@
+import { parseSigmaDocument } from "@/lib/sigma-doc-schema";
 import { isOverlayShape, overlayTextBlocksToInlineNodes } from "@/features/document";
 import { createGraph3DSpecPreset, DEFAULT_TEXT_SHAPE_WIDTH, getGraph3DPreviewSourceHash } from "@/features/drawing";
 import { describe, expect, it } from "vitest";
@@ -574,6 +575,41 @@ describe("SigmaDoc draft mutation tools", () => {
       id: "solution_long_12",
       children: [{ text: "解説 12" }],
     });
+  });
+
+  it("stores a hand-drawn problem frame in the canonical form the document schema accepts", () => {
+    const session = createSigmaDocAgentSession({ document: createDocument(), selectedId: "p_1" });
+    const result = executeSigmaDocAgentDraftTool(session, "draft_create_problem_content", {
+      targetId: "p_1",
+      id: "problem_ai_frame",
+      prompt: { id: "prompt_ai_frame", text: "AIが枠を描いた問題" },
+      frame: {
+        custom: { svg: '<svg viewBox="0 0 100 60"><rect x="2" y="2" width="96" height="56" fill="none" stroke="#c2410c" onclick="x()"/></svg>' },
+      },
+    });
+    expect(result.ok).toBe(true);
+
+    const problem = session.draftDocument.content[1];
+    expect(problem.type === "problem" ? problem.frame : undefined).toMatchObject({
+      enabled: true,
+      styleId: "custom",
+      custom: { width: 100, height: 60 },
+    });
+    const frame = problem.type === "problem" ? problem.frame : undefined;
+    expect(frame?.custom?.svg).toContain('xmlns="http://www.w3.org/2000/svg"');
+    expect(frame?.custom?.svg).not.toContain("onclick");
+    expect(() => parseSigmaDocument(session.draftDocument)).not.toThrow();
+  });
+
+  it("rejects a problem frame drawing that cannot be used", () => {
+    const session = createSigmaDocAgentSession({ document: createDocument(), selectedId: "p_1" });
+    const result = executeSigmaDocAgentDraftTool(session, "draft_create_problem_content", {
+      targetId: "p_1",
+      id: "problem_ai_bad_frame",
+      prompt: { id: "prompt_ai_bad_frame", text: "壊れた枠" },
+      frame: { custom: { svg: "<div>not svg</div>" } },
+    });
+    expect(result.ok).toBe(false);
   });
 
   it("draft_update_problem_content can clear optional problem areas and the answer", () => {

@@ -48,7 +48,7 @@ import { getHeadingNumberMap } from "@/lib/heading-numbering";
 import { getPrintableDocument } from "@/lib/print-renderer";
 import { useT } from "@/lib/i18n/react";
 import {
-  boxBlockTitleText,
+  boxBlockHasHeader,
   observeCornerBoxReferenceHeights,
   resolveBoxFrame,
 } from "@/lib/box-blocks";
@@ -978,7 +978,7 @@ export function paginateMeasuredPrintBlocks(
     };
 
     const frameChromeHeightPxForRole = (role: ProblemFrameFragmentRole) => unit.hasFrame
-      ? getPrintProblemFrameFragmentChromeHeightMm(unit.frameStyleId, role) * MM_TO_PX
+      ? getPrintProblemFrameFragmentChromeHeightMm(unit.frameStyleId, role, unit.frameCustom) * MM_TO_PX
       : 0;
     if (
       unit.isFirstProblemArea
@@ -1025,6 +1025,7 @@ export function paginateMeasuredPrintBlocks(
         numberFontSize: unit.numberFontSize,
         hasFrame: unit.hasFrame,
         frameStyleId: unit.frameStyleId,
+        frameCustom: unit.frameCustom,
         columnSpan: unit.columnSpan,
         isFirstProblemArea: unit.isFirstProblemArea,
         isLastProblemArea: unit.isLastProblemArea,
@@ -1481,8 +1482,7 @@ export function paginateMeasuredPrintBlocks(
 function estimatePrintBoxFragmentChromeHeight(block: Extract<SigmaBlock, { type: "boxBlock" }>): number {
   const frame = resolveBoxFrame(block);
   const padding = frame.paddingPx ?? { top: 12, right: 14, bottom: 12, left: 14 };
-  const title = boxBlockTitleText(block);
-  const titleHeight = title ? 24 : 0;
+  const titleHeight = boxBlockHasHeader(block) ? 24 : 0;
   return padding.top + padding.bottom + titleHeight;
 }
 
@@ -1519,8 +1519,7 @@ function getBlockSliceBreakOffsets(
   }
   const frame = resolveBoxFrame(block);
   const padding = frame.paddingPx ?? { top: 12, right: 14, bottom: 12, left: 14 };
-  const title = boxBlockTitleText(block);
-  let cursor = padding.top + (title ? 24 : 0);
+  let cursor = padding.top + (boxBlockHasHeader(block) ? 24 : 0);
   const offsets: number[] = [];
   for (const child of block.blocks) {
     cursor += getMeasuredOrEstimatedBlockHeight(child, measuredDescendantHeights);

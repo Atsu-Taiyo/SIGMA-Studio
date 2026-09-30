@@ -1,6 +1,7 @@
 import katex from "katex";
 import { convertLatexToMarkup, validateLatex } from "mathlive";
 import { normalizeMathLiveBoxMarkup } from "@/lib/mathlive-box-layout";
+import { withMathLiveDefaultMacros } from "@/lib/mathlive-default-macros";
 
 import { applyMathTypesetStyle } from "@/features/rendering/core";
 import { mathRenderEnvironmentCacheKey, type MathRenderEnvironment } from "@/lib/math-environment";
@@ -83,7 +84,12 @@ function renderMathMarkup(tex: string, environment: MathRenderEnvironment): stri
   const { macroSet, typesetStyle } = environment;
   const mathLiveMarkup = convertLatexToMarkup(
     applyMathTypesetStyle(toMathLivePreviewTex(tex) || "\\square", typesetStyle),
-    { defaultMode: "math", macros: macroSet.mathLiveMacros },
+    {
+      defaultMode: "math",
+      // 標準のマクロ表 (`\iff` `\pmod` …) を落とさない。`macros` は標準の表を丸ごと置き換えるので、
+      // 編集中の `math-field` と同じく標準の上へ重ねて渡す (`mathlive-default-macros.ts`)。
+      macros: withMathLiveDefaultMacros(macroSet.mathLiveMacros),
+    },
   );
 
   if (!MATHLIVE_ERROR_CLASS_PATTERN.test(mathLiveMarkup)) {

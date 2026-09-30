@@ -1,6 +1,7 @@
 import { normalizeColumnRule } from "@/features/document";
 import { normalizeCodeLanguage } from "@/features/rendering/adapters";
 import { createId } from "@/lib/id";
+import { boxFrameHasSubtitle, resolveBoxFrame } from "@/lib/box-blocks";
 import {
   normalizeBlockSpaceAfterPx,
   normalizeCodeBlockTheme,
@@ -370,6 +371,13 @@ function boxBlockToTiptapNode(block: BoxBlockNode): TiptapNode {
         type: "boxBlockTitle",
         content: inlineNodesToTiptapNodes([...capInlineNodesForEditorLayout(block.title ?? []).children]),
       },
+      // サブタイトルの欄は、2 欄の見出しを持つ枠のときだけ置く (箱の構造が枠の装飾に従う)。
+      ...(boxFrameHasSubtitle(resolveBoxFrame(block))
+        ? [{
+          type: "boxBlockSubtitle",
+          content: inlineNodesToTiptapNodes([...capInlineNodesForEditorLayout(block.subtitle ?? []).children]),
+        }]
+        : []),
       {
         type: "boxBlockBody",
         content: block.blocks.length > 0
@@ -755,12 +763,15 @@ function tiptapBoxNodeToTextBlock(node: TiptapNode): BoxBlockNode {
   const titleNode = node.content?.find((child) => child.type === "boxBlockTitle");
   const bodyNode = node.content?.find((child) => child.type === "boxBlockBody");
   const title = tiptapNodesToInlineNodes(titleNode?.content ?? []);
+  const subtitleNode = node.content?.find((child) => child.type === "boxBlockSubtitle");
+  const subtitle = subtitleNode ? tiptapNodesToInlineNodes(subtitleNode.content ?? []) : [];
   const blocks = tiptapNodesToBoxBlockChildren(bodyNode?.content ?? []);
   return {
     type: "boxBlock",
     id: typeof node.attrs?.sigmaDocId === "string" ? node.attrs.sigmaDocId : createId("box"),
     styleId,
     ...(title.length > 0 ? { title } : {}),
+    ...(subtitle.length > 0 ? { subtitle } : {}),
     ...(frame ? { frame } : {}),
     ...(paginationFromAttrs(node) ? { pagination: paginationFromAttrs(node) } : {}),
     ...(spaceAfterFromAttrs(node) ? { spaceAfterPx: spaceAfterFromAttrs(node) } : {}),

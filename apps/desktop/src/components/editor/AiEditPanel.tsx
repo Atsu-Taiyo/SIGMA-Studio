@@ -4,22 +4,32 @@ import { AiModelMenuContents } from "./ai-model-menu-contents";
 import  {
   ArrowUp,
   AtSign,
+  ChartLine,
   Check,
   ChevronDown,
   ChevronRight,
+  Copy,
   File as FileIcon,
+  FilePlus2,
   FileText,
   History,
+  ImagePlus,
   PanelRight,
   Paperclip,
+  PenLine,
   Plus,
   RotateCcw,
   Search,
   Settings,
+  Shapes,
   Sparkles,
+  SpellCheck,
   SquarePen,
+  Table2,
+  TrendingUp,
   X,
 } from "lucide-react";
+import type { LucideIcon } from "lucide-react";
 import  {
   useCallback,
   useEffect,
@@ -299,11 +309,24 @@ export const AI_ACTION_PRESET_IDS = [
   "table",
   "variationTable",
   "graph",
-  "shape",
+  "figure",
+  "proofread",
   "imageToMaterial",
 ] as const;
 
 type AiActionPresetId = (typeof AI_ACTION_PRESET_IDS)[number];
+
+/** クイック操作の先頭に置く線画アイコン。ラベルだけだと並びが単調になるので、種類を一目で分ける。 */
+const AI_ACTION_PRESET_ICONS: Record<AiActionPresetId, LucideIcon> = {
+  createProblem: FilePlus2,
+  addAnswer: PenLine,
+  table: Table2,
+  variationTable: TrendingUp,
+  graph: ChartLine,
+  figure: Shapes,
+  proofread: SpellCheck,
+  imageToMaterial: ImagePlus,
+};
 
 function buildAiActionPresets(t: Translate<"ai">): Array<{ id: AiActionPresetId; label: string; prompt: string }> {
   return AI_ACTION_PRESET_IDS.map((id) => ({
@@ -2574,7 +2597,7 @@ export function AiEditPanel({
 }
 
 /** AI会話の切り替え、新規作成、設定導線を共通モーダルで提供する履歴ナビゲーション。 */
-function ChatRoomHistory({
+export function ChatRoomHistory({
   rooms,
   activeRoomId,
   loading,
@@ -2675,11 +2698,21 @@ function ChatRoomHistory({
     () => rooms.filter((room) => isAiRunStatusActive(runSessions.get(room.id)?.status)).length,
     [rooms, runSessions],
   );
+  // 見出しには今開いている会話の名前を出す。まだ名前が付いていない会話は、これまでどおり
+  // 「チャット」の見出しのままにして、履歴の並びを勝手に増やさない。
+  const activeRoom = activeRoomId ? rooms.find((room) => room.id === activeRoomId) ?? null : null;
+  const activeRoomTitle = activeRoom && !isDefaultChatRoomTitle(activeRoom.title) ? activeRoom.title : null;
 
   return (
     <div className="ai-chat-room-history" aria-label={t("panel.chatActionsAria")}>
       <div className="ai-chat-room-history-head">
-        <span className="ai-chat-room-section-label">{t("panel.chat")}</span>
+        <span
+          className="ai-chat-room-section-label"
+          data-titled={activeRoomTitle !== null}
+          title={activeRoomTitle ?? undefined}
+        >
+          {activeRoomTitle ?? t("panel.chat")}
+        </span>
         <div className="ai-chat-room-actions" aria-label={t("panel.chatActionsAria")}>
           <IconButton
             ref={historyDialogAnchorRef}
@@ -2840,7 +2873,7 @@ export function ChatHistoryRoomItem({
 }
 
 /** 会話開始前に、現在の参照対象とすぐ使える編集指示を中央へまとめて提示する。 */
-function ChatEmptyState({
+export function ChatEmptyState({
   reference,
   onSelectPreset,
 }: {
@@ -2853,6 +2886,9 @@ function ChatEmptyState({
     <Center className="ai-chat-empty" size="sm" gutter="none">
       <Stack className="ai-chat-empty-stack" gap="lg">
         <Stack className="ai-chat-empty-intro" gap="xs">
+          <span className="ai-chat-empty-mark" aria-hidden="true">
+            <Sparkles size={16} strokeWidth={1.75} />
+          </span>
           <h3>{t("panel.emptyTitle")}</h3>
           <p>{t("panel.emptyBody")}</p>
         </Stack>
@@ -2875,17 +2911,22 @@ function ChatEmptyState({
         <Stack className="ai-chat-empty-presets" gap="sm">
           <div className="ai-chat-empty-presets-title">{t("panel.quickActions")}</div>
           <Grid className="ai-chat-empty-presets-grid" columns={2} gap="sm" responsive={false}>
-            {buildAiActionPresets(t).map((preset) => (
-              <Button
-                key={preset.id}
-                tone="secondary"
-                size="sm"
-                className="ai-chat-empty-preset"
-                onClick={() => onSelectPreset(preset.prompt)}
-              >
-                <span>{preset.label}</span>
-              </Button>
-            ))}
+            {buildAiActionPresets(t).map((preset) => {
+              const PresetIcon = AI_ACTION_PRESET_ICONS[preset.id];
+              return (
+                <Button
+                  key={preset.id}
+                  tone="ghost"
+                  size="sm"
+                  className="ai-chat-empty-preset"
+                  data-preset={preset.id}
+                  onClick={() => onSelectPreset(preset.prompt)}
+                >
+                  <PresetIcon size={15} strokeWidth={1.75} aria-hidden="true" />
+                  <span>{preset.label}</span>
+                </Button>
+              );
+            })}
           </Grid>
         </Stack>
       </Stack>
@@ -3449,6 +3490,11 @@ export function AssistantTurnView({
       {turn.result && (
         <div className="ai-chat-result">
           <AiStreamRenderer className="ai-chat-assistant-text" text={turn.result.draft.summary} />
+          {turn.result.draft.summary.trim().length > 0 && (
+            <div className="ai-chat-result-tools">
+              <AiCopyTextButton text={turn.result.draft.summary} />
+            </div>
+          )}
 
           {proposal && (onApplyProposal || onDismissProposal) && (
             <div className="ai-chat-result-proposal" aria-label={t("panel.proposalActionsAria")}>
@@ -3542,6 +3588,34 @@ export function AssistantTurnView({
   );
 }
 
+/** 返答の文章をクリップボードへ写す。ふだんは目立たず、返答にカーソルを置いたときだけ現れる。 */
+function AiCopyTextButton({ text }: { text: string }) {
+  const t = useT("ai");
+  const [copied, setCopied] = useState(false);
+  useEffect(() => {
+    if (!copied) {
+      return;
+    }
+    const timer = window.setTimeout(() => setCopied(false), 1600);
+    return () => window.clearTimeout(timer);
+  }, [copied]);
+  return (
+    <IconButton
+      className="ai-chat-copy-button"
+      label={copied ? t("chat.copied") : t("chat.copyReply")}
+      tone="ghost"
+      size="sm"
+      data-copied={copied}
+      onClick={() => {
+        // クリップボードが使えない環境では何も起こさない(コピー済みの表示も出さない)。
+        void navigator.clipboard?.writeText(text).then(() => setCopied(true), () => undefined);
+      }}
+    >
+      {copied ? <Check size={13} strokeWidth={2} /> : <Copy size={13} strokeWidth={1.75} />}
+    </IconButton>
+  );
+}
+
 export function AiChatShapeArtifact({
   preview,
   outcome,
@@ -3628,7 +3702,7 @@ export function AssistantActivity({
     const parts: string[] = [];
     if (toolCount > 0) parts.push(t("panel.toolRuns", { replace: { count: toolCount } }));
     if (validationCount > 0) parts.push(t("panel.validations", { replace: { count: validationCount } }));
-    parts.push(formatDuration(elapsedMs));
+    parts.push(formatDuration(elapsedMs, t));
     return parts.join(" · ");
   }, [turn.error, turn.isRunning, turn.events, elapsedMs, t]);
 
@@ -3647,7 +3721,7 @@ export function AssistantActivity({
             {turn.isRunning ? <Shimmer>{summary}</Shimmer> : summary}
           </span>
           {turn.isRunning && (
-            <span className="ai-activity-time" aria-hidden="true">{formatDuration(elapsedMs)}</span>
+            <span className="ai-activity-time" aria-hidden="true">{formatDuration(elapsedMs, t)}</span>
           )}
           {headerAction && (
             <span className="ai-activity-popover-action">{headerAction}</span>
@@ -3662,7 +3736,7 @@ export function AssistantActivity({
             {turn.isRunning ? <Shimmer>{summary}</Shimmer> : summary}
           </span>
           {turn.isRunning && (
-            <span className="ai-activity-time" aria-hidden="true">{formatDuration(elapsedMs)}</span>
+            <span className="ai-activity-time" aria-hidden="true">{formatDuration(elapsedMs, t)}</span>
           )}
           {expanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
         </button>
@@ -3805,11 +3879,14 @@ function AiEditPlanList({ title, items, compact = false }: { title: string; item
   );
 }
 
-function formatDuration(milliseconds: number): string {
+/** 経過時間。「3s」のような略記ではなく、表示言語の単位で出す(日本語なら「3秒」「1分4秒」)。 */
+function formatDuration(milliseconds: number, t: Translate<"ai">): string {
   const totalSeconds = Math.max(0, Math.floor(milliseconds / 1000));
   const minutes = Math.floor(totalSeconds / 60);
   const seconds = totalSeconds % 60;
-  return minutes > 0 ? `${minutes}:${seconds.toString().padStart(2, "0")}` : `${seconds}s`;
+  return minutes > 0
+    ? t("panel.durationMinutes", { replace: { minutes, seconds } })
+    : t("panel.durationSeconds", { replace: { seconds } });
 }
 
 function truncateLiveText(text: string): string {

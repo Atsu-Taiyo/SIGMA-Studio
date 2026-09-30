@@ -162,7 +162,10 @@ describe("viewer stylesheet size", () => {
   // corner fill geometry and choice-marker parity. These are document styles,
   // not desktop chrome. Keep only 879 bytes of headroom; dist stays at 128 KiB.
   // globals.css (約 380KB) を丸ごと import すると手書き分が一気に 8 倍以上になるので手前で止める。
-  const MAX_AUTHORED_CSS_BYTES = 72 * 1024;
+  // splitbox の 2 欄の見出し (`titleSplit` の grid) で約 1.6KB 増えたので 78KiB へ上げた。
+  // 問題の枠線 (角付きの作り直しと、自作SVG枠の9分割描画) で約 3.1KB 増えたので 76KiB へ上げた。
+  // 印刷・埋め込み viewer も同じ枠を描くので、共有面に置くほかない。
+  const MAX_AUTHORED_CSS_BYTES = 78 * 1024;
   const MAX_DIST_CSS_BYTES = 128 * 1024;
 
   it("keeps the authored CSS (viewer + shared document surface) small", () => {

@@ -30,8 +30,8 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-function custom(action: EditorCustomCommandAction): EditorCustomCommandDefinition {
-  return { id: "custom.example", categoryId: "custom", custom: true, label: "Example", defaultBinding: null, action };
+function custom(...actions: EditorCustomCommandAction[]): EditorCustomCommandDefinition {
+  return { id: "custom.example", categoryId: "custom", custom: true, label: "Example", defaultBinding: null, actions };
 }
 
 function fixture() {
@@ -43,6 +43,7 @@ function fixture() {
       runEditCommand: record("edit"),
       toggleBoxedText: record("boxed"),
       applyTextStyle: record("block-style"),
+      applyBlockStructure: record("block-structure"),
       applyTextAlign: record("align"),
       applyLineHeight: vi.fn((value) => { calls.push(["line-height", value]); return false; }),
       applyInlineFormat: record("format"),
@@ -161,6 +162,28 @@ describe("command execution ports", () => {
     runner("edit.undo");
     expect(f.calls).toEqual([["close-transient"], ["boxed"], ["close-transient"], ["undo"]]);
     expect(f.actions.text.runEditCommand).not.toHaveBeenCalled();
+  });
+
+  it("runs every step of a custom command in order and routes block styles by kind", () => {
+    const f = fixture();
+    createEditorCommandRunner([
+      custom(
+        { type: "blockStyle", value: "h2" },
+        { type: "blockStyle", value: "quote" },
+        { type: "textBackgroundColor", value: null },
+        { type: "command", commandId: "insert.pageBreak" },
+      ),
+    ], f.actions)("custom.example");
+    expect(f.calls[0]).toEqual(["close-transient"]);
+    expect(f.calls.slice(1, 3)).toEqual([["block-style", "h2"], ["block-structure", "quote"]]);
+    expect(f.actions.text.applyInlineFormat).toHaveBeenCalledWith("backgroundColor", "");
+    expect(f.actions.text.setTextBackgroundColor).not.toHaveBeenCalled();
+  });
+
+  it("runs a built-in command as a custom step", () => {
+    const f = fixture();
+    createEditorCommandRunner([custom({ type: "command", commandId: "edit.undo" })], f.actions)("custom.example");
+    expect(f.calls).toEqual([["close-transient"], ["close-transient"], ["undo"]]);
   });
 
   it("keeps the stored font reset value distinct from the normalized toolbar display", () => {

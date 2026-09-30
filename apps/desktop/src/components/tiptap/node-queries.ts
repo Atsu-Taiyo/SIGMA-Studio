@@ -12,6 +12,21 @@ export function findAncestorNodeDepth(
   return -1;
 }
 
+/** 箱のタイトル欄 (タイトルとサブタイトル)。どちらもインラインだけを持つ見出しで、扱いは同じ。 */
+export function isBoxTitleNodeName(name: string): boolean {
+  return name === "boxBlockTitle" || name === "boxBlockSubtitle";
+}
+
+/** キャレット位置の祖先にあるタイトル欄の深さ。無ければ -1。 */
+export function findBoxTitleAncestorDepth(position: EditorState["selection"]["$from"]): number {
+  for (let depth = position.depth; depth > 0; depth -= 1) {
+    if (isBoxTitleNodeName(position.node(depth).type.name)) {
+      return depth;
+    }
+  }
+  return -1;
+}
+
 export function isEmptyEditorTextBlock(node: EditorState["doc"]): boolean {
   if (node.content.size === 0) {
     return true;

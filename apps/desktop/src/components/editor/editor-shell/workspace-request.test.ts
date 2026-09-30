@@ -1,11 +1,13 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
+  clearRequestedCommentThread,
   clearRequestedFileId,
   canCaptureDocumentBoundary,
   createUnsavedEditBackupTitle,
   degradedWatcherMessage,
   getDocumentBoundarySkipReason,
+  getRequestedCommentThread,
   getRequestedFileId,
   isDesktopStorageChangeEvent,
   updateDegradedWatcherScopes,
@@ -202,5 +204,46 @@ describe("workspace requests", () => {
     clearRequestedFileId();
 
     expect(replaceState).not.toHaveBeenCalled();
+  });
+
+  it("reads the requested comment thread together with its file, and needs both", () => {
+    const at = (search: string) => vi.stubGlobal("window", {
+      location: { href: `https://example.test/${search}`, search },
+      history: { replaceState: vi.fn() },
+    });
+    at("?fileId=file-1&commentThreadId=%20thread-9%20");
+    expect(getRequestedCommentThread()).toEqual({ fileId: "file-1", threadId: "thread-9" });
+    at("?commentThreadId=thread-9");
+    expect(getRequestedCommentThread()).toBeNull();
+    at("?fileId=file-1");
+    expect(getRequestedCommentThread()).toBeNull();
+  });
+
+  it("removes only the comment thread parameter", () => {
+    const replaceState = vi.fn();
+    vi.stubGlobal("window", {
+      location: {
+        href: "https://example.test/editor?fileId=file-1&commentThreadId=thread-9#x",
+        search: "?fileId=file-1&commentThreadId=thread-9",
+      },
+      history: { replaceState },
+    });
+
+    clearRequestedCommentThread();
+
+    expect(replaceState).toHaveBeenCalledWith({}, "", "/editor?fileId=file-1#x");
+  });
+
+  it("does not rewrite the URL when no comment thread is requested", () => {
+    const replaceState = vi.fn();
+    vi.stubGlobal("window", {
+      location: { href: "https://example.test/editor?fileId=file-1", search: "?fileId=file-1" },
+      history: { replaceState },
+    });
+    clearRequestedCommentThread();
+    expect(replaceState).not.toHaveBeenCalled();
+    vi.unstubAllGlobals();
+    expect(() => clearRequestedCommentThread()).not.toThrow();
+    expect(getRequestedCommentThread()).toBeNull();
   });
 });

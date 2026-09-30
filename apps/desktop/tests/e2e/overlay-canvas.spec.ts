@@ -72,23 +72,23 @@ test("applies boxed text and advances its padding control", async ({ page }) => 
   // suite selects through a real gesture or a ProseMirror-aware offset helper; this was the only
   // `selectText()` left.
   await firstParagraph.click({ clickCount: 3 });
-  await page.getByRole("button", { name: "囲み文字の種類と上下余白 0px", exact: true }).click();
+  await page.locator(".editor-menubar").getByRole("button", { name: "囲み文字の種類と上下余白 0px", exact: true }).click();
   await expect(page.getByRole("button", { name: "囲みを適用", exact: true })).toHaveCount(0);
   await expect(page.getByRole("button", { name: "囲みを解除", exact: true })).toHaveCount(0);
-  await page.getByRole("button", { name: "囲み文字の種類と上下余白 0px", exact: true }).click();
+  await page.locator(".editor-menubar").getByRole("button", { name: "囲み文字の種類と上下余白 0px", exact: true }).click();
   await expect(page.getByRole("dialog", { name: "囲み文字", exact: true })).toHaveCount(0);
   await page.getByRole("button", { name: "囲み文字を適用", exact: true }).click();
   await expect(firstParagraph.locator('.boxed-text[data-sigma-doc-boxed-padding-y="0"]')).toBeVisible();
-  await page.getByRole("button", { name: "囲み文字の種類と上下余白 0px", exact: true }).click();
+  await page.locator(".editor-menubar").getByRole("button", { name: "囲み文字の種類と上下余白 0px", exact: true }).click();
   const increasePadding = page.getByRole("button", { name: "上下余白を1px増やす", exact: true });
   for (let i = 0; i < 4; i += 1) {
     await increasePadding.click();
-    await expect(page.getByRole("button", {
+    await expect(page.locator(".editor-menubar").getByRole("button", {
       name: `囲み文字の種類と上下余白 ${i + 1}px`,
       exact: true,
     })).toBeVisible();
   }
-  await page.getByRole("button", { name: "囲み文字の種類と上下余白 4px", exact: true }).click();
+  await page.locator(".editor-menubar").getByRole("button", { name: "囲み文字の種類と上下余白 4px", exact: true }).click();
   await expect(page.getByRole("button", { name: "囲み文字を解除", exact: true })).toHaveAttribute("aria-pressed", "true");
 
   const boxedText = firstParagraph.locator(".boxed-text").filter({ hasNot: page.locator(".math-preview-inline") }).first();
@@ -99,7 +99,7 @@ test("applies boxed text and advances its padding control", async ({ page }) => 
   await expect(boxedHeightTarget).toBeVisible();
   await expect.poll(async () => boxedHeightTarget.evaluate((element) => getComputedStyle(element).paddingTop)).toBe("4px");
   await expect.poll(async () => boxedHeightTarget.evaluate((element) => getComputedStyle(element).paddingBottom)).toBe("4px");
-  await expect(page.getByRole("button", { name: "囲み文字の種類と上下余白 4px", exact: true })).toBeVisible();
+  await expect(page.locator(".editor-menubar").getByRole("button", { name: "囲み文字の種類と上下余白 4px", exact: true })).toBeVisible();
   await expect.poll(async () => page.evaluate(() => {
     const raw = window.localStorage.getItem("sigma-studio:e2e-document");
     const document = raw ? JSON.parse(raw) : null;
@@ -124,7 +124,7 @@ test("uses split boxed text controls and style buttons toggle the box", async ({
     }
   });
 
-  await page.getByRole("button", { name: "囲み文字の種類と上下余白 0px", exact: true }).click();
+  await page.locator(".editor-menubar").getByRole("button", { name: "囲み文字の種類と上下余白 0px", exact: true }).click();
   await expect(page.getByRole("button", { name: "囲みを適用", exact: true })).toHaveCount(0);
   await expect(page.getByRole("button", { name: "囲みを解除", exact: true })).toHaveCount(0);
   await page.getByRole("button", { name: "角丸", exact: true }).click();
@@ -825,7 +825,8 @@ test("table editor reveals row plus on boundary hover and styles a selected grid
 
   const firstCell = table.locator("td").first();
   const firstCellEditor = firstCell.locator(".overlay-table-shape-content");
-  await firstCellEditor.click();
+  await firstCellEditor.locator("xpath=ancestor::td").click();
+  await expect(firstCellEditor).toBeFocused();
   await expect.poll(async () => firstCell.evaluate((element) => {
     const paragraph = element.querySelector(".overlay-table-shape-content p");
     if (!paragraph) {
@@ -907,7 +908,8 @@ test("table inline math remains vertically centered in a narrow cell", async ({ 
 
   const firstCell = table.locator("td").first();
   const firstCellEditor = firstCell.locator(".overlay-table-shape-content");
-  await firstCellEditor.click();
+  await firstCellEditor.locator("xpath=ancestor::td").click();
+  await expect(firstCellEditor).toBeFocused();
   await page.keyboard.press("Control+M");
   const inlineMathField = page.getByRole("dialog", { name: "TeX数式を編集" }).getByRole("textbox", { name: "TeX" });
   await expect(inlineMathField).toBeVisible();
@@ -948,7 +950,8 @@ test("table math keeps the same font size before and during cell editing", async
   await page.mouse.click(center.x, center.y);
 
   const firstCell = table.locator("td").first();
-  await firstCell.locator(".overlay-table-shape-content").click();
+  await firstCell.click();
+  await expect(firstCell.locator(".overlay-table-shape-content")).toBeFocused();
   await page.keyboard.press("Control+M");
   await page.locator("textarea.inline-math-tex-field").first().fill("x^2");
   await page.keyboard.press("Control+Enter");
@@ -995,7 +998,8 @@ test("table cells navigate with arrow keys at cell boundaries", async ({ page })
   // test typed into whichever element happened to hold focus and pressed ArrowRight before the
   // insertion had been applied, and ArrowRight then moved inside the text rather than crossing to
   // the next cell — a ~50% failure rate that has nothing to do with the behaviour under test.
-  await firstCellEditor.click();
+  await firstCellEditor.locator("xpath=ancestor::td").click();
+  await expect(firstCellEditor).toBeFocused();
   await expect(firstCellEditor).toBeFocused();
   await page.keyboard.insertText("abc");
   await expect(firstCellEditor).toContainText("abc");
@@ -1058,7 +1062,8 @@ test("table cells drag-select and preview row or column deletion from the contex
 
   const firstCell = table.locator("td").nth(0);
   const firstCellEditor = firstCell.locator(".overlay-table-shape-content");
-  await firstCellEditor.click();
+  await firstCellEditor.locator("xpath=ancestor::td").click();
+  await expect(firstCellEditor).toBeFocused();
   await page.keyboard.insertText("abc");
   await expect(firstCellEditor).toContainText("abc");
   const firstCellBox = await firstCell.boundingBox();
@@ -1189,11 +1194,7 @@ test("table placement creates a 2 by 2 grid and a second click re-enters editing
 test("table editor keeps row boundary controls aligned after resizing a row", async ({ page }) => {
   await page.goto("/");
 
-  const shapeMenu = await openShapeMenu(page);
-  await shapeMenu.getByRole("menuitem", { name: "表", exact: true }).click();
-  const tablePicker = page.getByRole("dialog", { name: "表を挿入" });
-  await expect(tablePicker).toBeVisible();
-  await tablePicker.getByRole("button", { name: "4列 3行の表を挿入" }).click();
+  await chooseShape(page, "表");
 
   const table = page.locator(".overlay-table-shape").first();
   await expect(table).toBeVisible();
@@ -1674,7 +1675,7 @@ test("closes a polyline by clicking its first vertex", async ({ page }) => {
     };
   })).toEqual({ closed: true, pointCount: 3 });
 
-  const fillButton = page.getByRole("button", { name: "内部塗りつぶし", exact: true });
+  const fillButton = page.locator(".editor-menubar").getByRole("button", { name: "内部塗りつぶし", exact: true });
   await expect(fillButton).toBeVisible();
   await fillButton.click();
   await page.locator(".color-popover").getByTitle("#ffc400").click();
@@ -2315,7 +2316,8 @@ test("表のセルへ複数行を貼っても 1 つのセルの中に収まる",
   await page.mouse.click(center.x, center.y);
 
   const firstCellEditor = table.locator("td").first().locator(".overlay-table-shape-content");
-  await firstCellEditor.click();
+  await firstCellEditor.locator("xpath=ancestor::td").click();
+  await expect(firstCellEditor).toBeFocused();
   await page.evaluate(() => {
     const target = document.activeElement?.closest(".overlay-table-shape-content");
     if (!target) {
@@ -2432,10 +2434,26 @@ async function chooseShape(page: Page, label: string, options: { create?: boolea
   const menu = await openShapeMenu(page);
   await menu.getByRole("menuitem", { name: label, exact: true }).click();
   if (label === "表") {
-    const tablePicker = page.getByRole("dialog", { name: "表を挿入" });
-    await expect(tablePicker).toBeVisible();
     if (shouldCreate) {
-      await tablePicker.getByRole("button", { name: "3列 3行の表を挿入", exact: true }).click();
+      // Table insertion now places the grid directly on the canvas. Preserve the
+      // 3 by 3 fixture these cell/boundary tests require, including at other zooms.
+      const surface = page.locator(".overlay-canvas-editor.inserting").first();
+      await expect(surface).toBeVisible();
+      const bounds = await surface.boundingBox();
+      expect(bounds).not.toBeNull();
+      const start = { x: bounds!.x + 100, y: bounds!.y + 220 };
+      await page.mouse.move(start.x, start.y);
+      const preview = page.locator("[data-table-preview-rows][data-table-preview-columns]");
+      await expect(preview).toHaveAttribute("data-table-preview-rows", "2");
+      await expect(preview).toHaveAttribute("data-table-preview-columns", "2");
+      const grid = await preview.boundingBox();
+      expect(grid).not.toBeNull();
+      await page.mouse.down();
+      await page.mouse.move(start.x + grid!.width * 1.5, start.y + grid!.height * 1.5, { steps: 8 });
+      await expect(preview).toHaveAttribute("data-table-preview-rows", "3");
+      await expect(preview).toHaveAttribute("data-table-preview-columns", "3");
+      await page.mouse.up();
+      await expect(page.locator(".overlay-table-shape").last().locator("td")).toHaveCount(9);
     }
     return;
   }

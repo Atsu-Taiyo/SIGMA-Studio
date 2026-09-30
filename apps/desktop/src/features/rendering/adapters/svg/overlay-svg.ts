@@ -35,9 +35,12 @@ import {
   getShapeLabelPlacement,
   getShapeRotation,
   getShapeRotationPivot,
+  getSolidFillPolygon,
+  getSolidStrokes,
   getTextShapeFontSizePt,
   getTextShapeRenderedFontSizePx,
   isClosedPolyline,
+  isSolidShape,
   normalizeLineKind,
   normalizePositiveAngle,
   normalizeRegularPolygonSides,
@@ -258,6 +261,11 @@ function shapeToSvg(
     const fill = shape.props.fill === "solid" ? escapeAttr(shape.props.fillColor || shape.props.color || "#111111") : "transparent";
     const strokeOpacity = opacityAttr("stroke-opacity", shape.props.strokeOpacity);
     const fillOpacity = opacityAttr("fill-opacity", shape.props.fillOpacity);
+    if (isSolidShape(shape)) {
+      svg = solidToSvg(shape, { stroke, strokeOpacity, fill, fillOpacity });
+      return withShapeOpacity(shape, withShapeRotation(shape, withShapeLabel(shape, svg)));
+    }
+
     if (shape.props.geo === "ellipse") {
       svg = `<ellipse cx="${shape.x + shape.props.w / 2}" cy="${shape.y + shape.props.h / 2}" rx="${shape.props.w / 2}" ry="${shape.props.h / 2}" fill="${fill}" stroke="${stroke}" stroke-width="${strokeWidth}" ${SHARP_STROKE_ATTRS}${dash}${strokeOpacity}${fillOpacity} />`;
       return withShapeOpacity(shape, withShapeRotation(shape, withShapeLabel(shape, svg)));
@@ -703,6 +711,31 @@ function getArcEndpoint(shape: Extract<OverlayShape, { type: "arc" }>, angle: nu
     x: rx + Math.cos(angle) * rx,
     y: ry + Math.sin(angle) * ry,
   };
+}
+
+/**
+ * 立体図形。編集画面と同じく、塗りは外周だけに敷き、線は辺ごとに自分の線種・太さで引く。
+ * 線は図形ローカル座標のまま `translate` で置く (曲線の弧を絶対座標へ組み替えない)。
+ */
+function solidToSvg(
+  shape: Extract<OverlayShape, { type: "geo" }>,
+  style: { stroke: string; strokeOpacity: string; fill: string; fillOpacity: string },
+): string {
+  const parts: string[] = [];
+  if (shape.props.fill === "solid") {
+    parts.push(
+      shape.props.geo === "sphere"
+        ? `<ellipse cx="${shape.x + shape.props.w / 2}" cy="${shape.y + shape.props.h / 2}" rx="${shape.props.w / 2}" ry="${shape.props.h / 2}" fill="${style.fill}" stroke="none"${style.fillOpacity} />`
+        : `<polygon points="${absolutePolygonPoints(getSolidFillPolygon(shape), shape.x, shape.y)}" fill="${style.fill}" stroke="none"${style.fillOpacity} />`,
+    );
+  }
+  for (const stroke of getSolidStrokes(shape)) {
+    const linecap = stroke.dash === "solid" ? "round" : "butt";
+    parts.push(
+      `<path d="${escapeAttr(stroke.d)}" transform="translate(${shape.x} ${shape.y})" fill="none" stroke="${style.stroke}" stroke-width="${overlayStrokeWidth(stroke.size)}" stroke-linecap="${linecap}" stroke-linejoin="round"${dashAttr(stroke.dash)}${style.strokeOpacity} />`,
+    );
+  }
+  return parts.join("");
 }
 
 function absolutePolygonPoints(points: OverlayPoint[], x: number, y: number): string {

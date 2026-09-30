@@ -3,6 +3,7 @@ import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { describe, expect, it } from "vitest";
 
 import { createSigmaDocMcpServer } from "../../../mcp/sigma-doc-mcp-server-core";
+import { OFFICIAL_SKILL_DEFINITIONS } from "../../../electron/ai-resource-store";
 import {
   ALWAYS_AVAILABLE_MCP_TOOL_NAMES,
   inferToolCategoriesForRun,
@@ -73,6 +74,34 @@ describe("MCP tool category inference", () => {
       references: [],
       selectedSkillIds: ["official-image-material"],
     })).toEqual(["文書探索", "本文編集", "図形", "表", "グラフ", "visual edit", "素材"]);
+  });
+
+  it("opens the SVG image tools for any request that mentions a figure or illustration", () => {
+    for (const instruction of [
+      "この問題に図を追加して",
+      "解説にイラストを入れて",
+      "フローチャートを描いて",
+      "斜面の絵を入れてほしい",
+      "Add a diagram to problem 2",
+    ]) {
+      const categories = inferToolCategoriesForRun({ instruction, references: [], selectedSkillIds: [] });
+      expect(toolNamesForCategories(categories), instruction).toEqual(expect.arrayContaining([
+        "insert_svg_image",
+        "update_svg_image",
+      ]));
+    }
+    // 「図書」のような無関係な語だけでは、図形カテゴリを足さない。
+    expect(inferToolCategoriesForRun({ instruction: "図書館の紹介文を書き直して", references: [], selectedSkillIds: [] }))
+      .toEqual(["文書探索", "本文編集"]);
+  });
+
+  it("recognises every official skill instead of exposing all tools", () => {
+    for (const { id } of OFFICIAL_SKILL_DEFINITIONS) {
+      const categories = inferToolCategoriesForRun({ instruction: "", references: [], selectedSkillIds: [id] });
+      expect(categories, id).not.toEqual([...MCP_TOOL_CATEGORIES]);
+    }
+    expect(inferToolCategoriesForRun({ instruction: "", references: [], selectedSkillIds: ["official-svg-figure"] }))
+      .toEqual(["文書探索", "図形", "visual edit", "素材"]);
   });
 
   it("falls back to all categories for uncertain instructions or unknown selected skills", () => {

@@ -35,10 +35,9 @@ test.describe("design system dialogs", () => {
     expect(closeButtonShape.width).toBeCloseTo(closeButtonShape.height, 1);
     expect(closeButtonShape.radius).toBeGreaterThanOrEqual(closeButtonShape.height / 2);
 
-    const customToggle = dialog.getByRole("button", { name: "カスタムコマンド" });
-    await expect(customToggle).toHaveAttribute("aria-expanded", "false");
-    await customToggle.click();
-    await expect(customToggle).toHaveAttribute("aria-expanded", "true");
+    // カスタムコマンドの作成欄は開閉せず最初から見えている。
+    await expect(dialog.getByRole("region", { name: "カスタムコマンドを追加" })).toBeVisible();
+    await expect(dialog.getByRole("button", { name: "操作を追加" })).toBeVisible();
 
     await dialog.getByRole("button", { name: /キー割り当てを変更/ }).first().click();
     await page.keyboard.press("Escape");

@@ -163,6 +163,70 @@ export function snapBoundsToGeometry(
   };
 }
 
+/**
+ * 移動中の図形自身が持つ吸着元の点 (頂点・線端・辺中点、点を持たない図形は外接矩形の 9 点)。
+ * スナップ先 (`createOverlaySnapGeometry` の points) と同じ規則で作るので、線端を掴んでいなくても
+ * 角同士・端点同士が対応する。グループは子が別に含まれるので自身の点は持たない。
+ */
+export function getShapesSnapSourcePoints(shapes: OverlayShape[]): OverlayPoint[] {
+  const points: OverlayPoint[] = [];
+  for (const shape of shapes) {
+    if (shape.hidden || shape.type === "group") {
+      continue;
+    }
+
+    const snapPoints = getShapeSnapPoints(shape);
+    if (snapPoints) {
+      points.push(...snapPoints);
+      continue;
+    }
+
+    points.push(...getBoundsPointTargets(normalizeBounds(getShapeSelectionBounds(shape))).map((target) => target.point));
+  }
+  return points;
+}
+
+/**
+ * 図形を動かしている間、`points` (移動前の位置) を `offset` だけ動かしたときに
+ * 最も近い吸着先の点へ重なるようなずれを返す。x・y を同時に合わせるので、軸ごとのスナップより優先する。
+ */
+export function snapMovedPointsToGeometry(
+  points: OverlayPoint[],
+  offset: OverlayPoint,
+  geometry: OverlaySnapGeometry,
+  options: OverlaySnapOptions = {},
+): OverlaySnapResult {
+  const threshold = options.threshold ?? DEFAULT_OVERLAY_SNAP_THRESHOLD;
+  if (options.disabled || threshold <= 0) {
+    return { snapped: false, nudge: ZERO_NUDGE, guides: [] };
+  }
+
+  let nearest: { target: OverlayPoint; nudge: OverlayPoint; distance: number } | null = null;
+  for (const source of points) {
+    const moved = { x: source.x + offset.x, y: source.y + offset.y };
+    for (const target of geometry.points) {
+      const distance = Math.hypot(target.point.x - moved.x, target.point.y - moved.y);
+      if (distance <= threshold && (!nearest || distance < nearest.distance)) {
+        nearest = {
+          target: target.point,
+          nudge: { x: target.point.x - moved.x, y: target.point.y - moved.y },
+          distance,
+        };
+      }
+    }
+  }
+
+  if (!nearest) {
+    return { snapped: false, nudge: ZERO_NUDGE, guides: [] };
+  }
+
+  return {
+    snapped: nearest.nudge.x !== 0 || nearest.nudge.y !== 0,
+    nudge: nearest.nudge,
+    guides: [{ type: "point", point: nearest.target }],
+  };
+}
+
 export function snapResizeBoundsToGeometry(
   bounds: OverlayBounds,
   handle: ResizeHandle,

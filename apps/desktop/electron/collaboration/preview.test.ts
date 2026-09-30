@@ -38,6 +38,17 @@ it("projects an authorized snapshot with images without persisting a body or ope
   expect(open).not.toHaveBeenCalled(); expect(f.sessions.has("catalog_file")).toBe(false);
   expect(await fs.readdir(f.directory)).toEqual([]);
 });
+it("skips image downloads for text-only readers such as comment scans", async () => {
+  const f = await fixture();
+  const preview = await f.sessions.previewCatalogDocument("catalog_file", "shared", { assets: false });
+  expect(preview.metadata.title).toBe("shared preview");
+  expect(JSON.stringify(preview)).toContain("sigma-doc-storage://asset1");
+  expect(JSON.stringify(preview)).not.toContain("data:image/png");
+  expect(f.request).toHaveBeenCalledWith("/documents/shared/snapshot");
+  expect(fetch).not.toHaveBeenCalled();
+  f.request.mockImplementationOnce(async () => { f.actor.mockReturnValue("other"); return { state: f.state, epoch: 1 }; });
+  await expect(f.sessions.previewCatalogDocument("catalog_file", "shared", { assets: false })).rejects.toThrow("ACCOUNT_CHANGED");
+});
 it("does not return previews after permission failure or an account switch", async () => {
   const f = await fixture(); f.request.mockRejectedValueOnce(new Error("FORBIDDEN"));
   await expect(f.sessions.previewCatalogDocument("catalog_file", "shared")).rejects.toThrow("FORBIDDEN");

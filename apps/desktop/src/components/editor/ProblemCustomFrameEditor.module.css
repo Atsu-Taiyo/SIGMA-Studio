@@ -1,0 +1,222 @@
+.editor {
+  display: grid;
+  gap: var(--space-md);
+  padding: var(--space-md);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-control);
+  background: var(--surface-muted);
+}
+
+.hint,
+.note {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.error {
+  margin: 0;
+  color: var(--danger, #b42318);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.presets {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-sm);
+}
+
+.preset {
+  display: grid;
+  min-width: 0;
+  gap: var(--space-xs);
+  padding: var(--space-sm);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  background: var(--background);
+  color: var(--text-primary);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 650;
+  text-align: center;
+}
+
+.preset:hover,
+.preset:focus-visible {
+  border-color: var(--border-strong);
+  outline: none;
+}
+
+.presetImage {
+  display: block;
+  width: 100%;
+  height: 44px;
+  object-fit: contain;
+}
+
+.panel {
+  display: grid;
+  gap: var(--space-sm);
+  padding-top: var(--space-sm);
+}
+
+.code,
+.prompt {
+  width: 100%;
+  min-height: 120px;
+  padding: var(--space-sm);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  background: var(--background);
+  color: var(--text-primary);
+  font-size: 12px;
+  line-height: 1.5;
+  resize: vertical;
+}
+
+.code {
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+}
+
+.prompt {
+  min-height: 72px;
+  font-family: inherit;
+  font-size: 13px;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-sm);
+}
+
+.fileInput {
+  display: none;
+}
+
+.controls {
+  display: grid;
+  gap: var(--space-sm);
+}
+
+.rangeField {
+  display: grid;
+  grid-template-columns: 96px minmax(0, 1fr) 40px;
+  align-items: center;
+  gap: var(--space-sm);
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.rangeValue {
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.slider {
+  width: 100%;
+  height: 20px;
+  margin: 0;
+  padding: 0;
+  background: transparent;
+  cursor: pointer;
+  appearance: none;
+}
+
+.slider::-webkit-slider-runnable-track {
+  height: 4px;
+  border-radius: 2px;
+  background: linear-gradient(to right, var(--text-secondary) var(--slider-fill), var(--surface-strong) var(--slider-fill));
+}
+
+.slider::-webkit-slider-thumb {
+  width: 14px;
+  height: 14px;
+  margin-top: -5px;
+  border: 1px solid var(--border-strong);
+  border-radius: 50%;
+  background: var(--background);
+  box-shadow: 0 1px 3px #0002;
+  appearance: none;
+}
+
+.slider::-moz-range-track {
+  height: 4px;
+  border-radius: 2px;
+  background: var(--surface-strong);
+}
+
+.slider::-moz-range-progress {
+  height: 4px;
+  background: var(--text-secondary);
+}
+
+.slider::-moz-range-thumb {
+  width: 12px;
+  height: 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: 50%;
+  background: var(--background);
+}
+
+.shelf {
+  display: grid;
+  gap: var(--space-sm);
+}
+
+.nameField {
+  display: grid;
+  grid-template-columns: 96px minmax(0, 1fr);
+  align-items: center;
+  gap: var(--space-sm);
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.nameField input {
+  width: 100%;
+  min-height: 32px;
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  background: var(--background);
+  color: var(--text-primary);
+  font-size: 13px;
+}
+
+.note {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.previewBlock {
+  display: grid;
+  gap: var(--space-xs);
+}
+
+.previewLabel {
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+/*
+ * The frame and the problem text are transparent, so the preview sits on a light checkerboard:
+ * whatever shows through is paper, not a fill the drawing brought along.
+ */
+.previewPaper {
+  min-height: 96px;
+  background:
+    repeating-conic-gradient(#f3f4f6 0% 25%, #ffffff 0% 50%) 0 0 / 16px 16px;
+  color: #111111;
+  font-size: 13px;
+  line-height: 1.7;
+}

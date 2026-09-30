@@ -1,0 +1,285 @@
+/* The "Draw with AI" chat of the problem frame dialog. Spacing is the shared scale only. */
+
+.panel {
+  display: grid;
+  gap: var(--space-md);
+  padding-top: var(--space-sm);
+}
+
+.notice,
+.note {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.note {
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+/* --- conversation ------------------------------------------------------------------------- */
+
+.log {
+  display: grid;
+  align-content: start;
+  gap: var(--space-md);
+  max-height: min(360px, 46vh);
+  overflow-y: auto;
+  padding: var(--space-xs);
+  scroll-behavior: smooth;
+}
+
+.assistantRow {
+  display: grid;
+  gap: var(--space-sm);
+  min-width: 0;
+  justify-items: start;
+}
+
+.userRow {
+  display: flex;
+  justify-content: flex-end;
+  min-width: 0;
+}
+
+.userBubble {
+  margin: 0;
+  max-width: 88%;
+  padding: var(--space-sm) var(--space-md);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-panel);
+  /* The dialog's section is already a grey surface: the message sits on white to read as a bubble. */
+  background: var(--background);
+  color: var(--text-primary);
+  font-size: 13px;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.message {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: 13px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.meta,
+.progress {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.error {
+  margin: 0;
+  color: var(--danger, #b42318);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.examples {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-xs);
+}
+
+.example {
+  padding: var(--space-xs) var(--space-sm);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-round);
+  background: var(--background);
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.example:hover,
+.example:focus-visible {
+  border-color: var(--border-strong);
+  color: var(--text-primary);
+  outline: none;
+}
+
+/* --- thinking ----------------------------------------------------------------------------- */
+
+.thinking {
+  display: grid;
+  gap: var(--space-xs);
+  min-width: 0;
+  max-width: 100%;
+}
+
+.thinkingToggle {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-xs);
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.thinkingToggle:hover,
+.thinkingToggle:focus-visible {
+  color: var(--text-primary);
+  outline: none;
+}
+
+.thinkingStatic {
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.chevron {
+  transition: transform 120ms ease;
+}
+
+.chevron[data-open="true"] {
+  transform: rotate(90deg);
+}
+
+/* The thinking text is a side note next to the answer: quiet, with a rule on its left. */
+.reasoning {
+  max-height: 140px;
+  margin: 0;
+  padding: 0 0 0 var(--space-sm);
+  overflow-y: auto;
+  border-left: 1px solid var(--border-subtle);
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+/* --- drawing ------------------------------------------------------------------------------ */
+
+.drawing {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  max-width: 100%;
+  padding: var(--space-sm);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-panel);
+  background: var(--surface);
+}
+
+.drawingImage {
+  display: block;
+  width: 120px;
+  height: auto;
+  max-height: 80px;
+  object-fit: contain;
+  border: 1px dashed var(--border-subtle);
+  background: var(--background);
+}
+
+.inUse {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-xs);
+  padding: var(--space-xs) var(--space-sm);
+  border-radius: var(--radius-round);
+  background: var(--surface-muted);
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+/* --- composer ----------------------------------------------------------------------------- */
+
+/* The shell is the AI chat's own (`ai-chat-input-shell`); only what the chat lacks is added. */
+.composer {
+  box-shadow: none;
+}
+
+.contextRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-xs);
+}
+
+.contextChip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-xs);
+  padding: var(--space-xs) var(--space-sm);
+  border-radius: var(--radius-round);
+  background: var(--surface-muted);
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.contextChipRemove {
+  display: inline-grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.contextChipRemove:hover,
+.contextChipRemove:focus-visible {
+  color: var(--text-primary);
+  outline: none;
+}
+
+.toolbar {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 34px;
+  gap: var(--space-sm);
+  align-items: center;
+}
+
+/* --- finished-in-the-background notice ---------------------------------------------------- */
+
+.noticePreview {
+  display: grid;
+  place-items: center;
+  padding: var(--space-lg);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-panel);
+  background: var(--surface);
+}
+
+.noticePreview .drawingImage {
+  width: 200px;
+  max-height: 128px;
+}
+
+/* --- drawing in the background ------------------------------------------------------------ */
+
+/* A floating status, so it may carry the shared floating shadow. Under the modals, above the page. */
+.busy {
+  position: fixed;
+  bottom: var(--space-xl);
+  left: 50%;
+  z-index: calc(var(--z-modal) - 1);
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-xs) var(--space-xs) var(--space-xs) var(--space-md);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-round);
+  background: var(--background);
+  box-shadow: var(--shadow-floating);
+  color: var(--text-secondary);
+  font-size: 12px;
+  transform: translateX(-50%);
+}

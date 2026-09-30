@@ -246,7 +246,7 @@ function isEmptyTextFlowBlock(block: TextFlowBlock): boolean {
   }
 
   if (block.type === "boxBlock") {
-    return areInlineNodesEmpty(block.title ?? []) && block.blocks.every(isEmptyBoxBlockChild);
+    return areInlineNodesEmpty(block.title ?? []) && areInlineNodesEmpty(block.subtitle ?? []) && block.blocks.every(isEmptyBoxBlockChild);
   }
 
   if (block.type === "layoutSection") {
@@ -288,7 +288,7 @@ function isEmptyLayoutSectionChild(block: LayoutSectionChildBlock): boolean {
     return block.title.trim().length === 0;
   }
   if (block.type === "boxBlock") {
-    return areInlineNodesEmpty(block.title ?? []) && block.blocks.every(isEmptyBoxBlockChild);
+    return areInlineNodesEmpty(block.title ?? []) && areInlineNodesEmpty(block.subtitle ?? []) && block.blocks.every(isEmptyBoxBlockChild);
   }
   if (block.type === "list") {
     return !block.items.some(listItemHasContent);

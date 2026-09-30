@@ -62,7 +62,8 @@ export type SigmaCommentAnchor =
   | SigmaBlockCommentAnchor
   | SigmaOverlayShapeCommentAnchor
   | SigmaOverlayMathCommentAnchor
-  | SigmaCanvasRegionCommentAnchor;
+  | SigmaCanvasRegionCommentAnchor
+  | SigmaDocumentCommentAnchor;
 
 export interface SigmaTextRangeCommentAnchor {
   type: "textRange";
@@ -89,6 +90,12 @@ export interface SigmaInlineMathCommentAnchor {
 export interface SigmaBlockCommentAnchor {
   type: "block";
   blockId: string;
+  quote?: string;
+}
+
+/** 文書全体へのコメント。場所を持たないので、本文やキャンバスの編集で孤立しない。 */
+export interface SigmaDocumentCommentAnchor {
+  type: "document";
   quote?: string;
 }
 

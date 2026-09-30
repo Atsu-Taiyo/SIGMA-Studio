@@ -1092,7 +1092,7 @@ export function isEmptyTopLevelTextFlowBlock(block: SigmaBlock): boolean {
     return !listHasContent(block);
   }
   if (block.type === "boxBlock") {
-    return block.blocks.every(isEmptyBoxBlockChild) && areInlineNodesEmpty(block.title ?? []);
+    return block.blocks.every(isEmptyBoxBlockChild) && areInlineNodesEmpty(block.title ?? []) && areInlineNodesEmpty(block.subtitle ?? []);
   }
   if (block.type === "quote") {
     return block.blocks.every(isEmptyRichBlock);
@@ -1878,9 +1878,15 @@ function describeOverlayShape(shape: OverlayShape, t: Translate<"shape">): strin
       return describeLabeledShapeKind(
         shape.props.geo === "regularPolygon"
           ? t("shapeKind.regularPolygonSides", { sides: shape.props.polygonSides ?? 5 })
-          : (OVERLAY_GEO_KEYS as readonly string[]).includes(shape.props.geo)
-            ? t(`shapeKind.${shape.props.geo}` as never) as string
-            : shape.props.geo,
+          : shape.props.geo === "pyramid"
+            ? t("shapeKind.pyramidSides", { sides: shape.props.baseSides ?? 3 })
+            : shape.props.geo === "prism"
+              ? t("shapeKind.prismSides", { sides: shape.props.baseSides ?? 3 })
+              : shape.props.geo === "sphere"
+                ? t("shapeKind.sphere")
+                : (OVERLAY_GEO_KEYS as readonly string[]).includes(shape.props.geo)
+                  ? t(`shapeKind.${shape.props.geo}` as never) as string
+                  : shape.props.geo,
         shape.props.label,
         t,
       );
@@ -2491,7 +2497,7 @@ function isEmptyRichBlock(block: ProblemAreaBlock): boolean {
   }
   if (block.type === "boxBlock") {
     return block.blocks.every(isEmptyBoxBlockChild)
-      && areInlineNodesEmpty(block.title ?? []);
+      && areInlineNodesEmpty(block.title ?? []) && areInlineNodesEmpty(block.subtitle ?? []);
   }
   if (block.type === "divider") {
     // 空ではない — 空扱いすると「中身の無いブロック」を掃除する経路に黙って消される。
@@ -2511,7 +2517,7 @@ function isEmptyBoxBlockChild(block: BoxBlockChildBlock): boolean {
         return child.title.trim().length === 0;
       }
       if (child.type === "boxBlock") {
-        return child.blocks.every(isEmptyBoxBlockChild) && areInlineNodesEmpty(child.title ?? []);
+        return child.blocks.every(isEmptyBoxBlockChild) && areInlineNodesEmpty(child.title ?? []) && areInlineNodesEmpty(child.subtitle ?? []);
       }
       return isEmptyRichBlock(child);
     });
@@ -2520,7 +2526,7 @@ function isEmptyBoxBlockChild(block: BoxBlockChildBlock): boolean {
     return block.title.trim().length === 0;
   }
   if (block.type === "boxBlock") {
-    return block.blocks.every(isEmptyBoxBlockChild) && areInlineNodesEmpty(block.title ?? []);
+    return block.blocks.every(isEmptyBoxBlockChild) && areInlineNodesEmpty(block.title ?? []) && areInlineNodesEmpty(block.subtitle ?? []);
   }
   return isEmptyRichBlock(block);
 }

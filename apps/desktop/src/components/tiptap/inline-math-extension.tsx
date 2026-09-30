@@ -1259,7 +1259,9 @@ function InlineMathTexField({
 
           event.preventDefault();
           event.stopPropagation();
-          commit(event.currentTarget);
+          // Cmd/Ctrl+Enter・Escape は「数式を確定して本文へ戻る」操作なので、MathLive 側と同じく
+          // キャレットを数式の直後へ置く。
+          commit(event.currentTarget, "after");
         },
         onKeyDown: (event: KeyboardEvent) => {
           const input = event.currentTarget as HTMLTextAreaElement;
@@ -1332,7 +1334,7 @@ function InlineMathTexField({
             return;
           }
           event.preventDefault();
-          commit(event.currentTarget);
+          commit(event.currentTarget, "after");
         },
         onBlur: (event) => {
           if (commandReferenceOpenRef.current) {
@@ -1744,7 +1746,9 @@ function InlineMathLiveField({
 
       event.preventDefault();
       event.stopPropagation();
-      commit(event.currentTarget, event.key === "Enter" ? "after" : "commit");
+      // Enter でも Escape でも、確定したあとはキャレットを数式の直後へ置く。Escape だけ位置を
+      // 動かさないと、フォーカスが本文から外れて「数式の直後にキャレットが出ない」状態になる。
+      commit(event.currentTarget, "after");
     },
     onKeyDown: (event: KeyboardEvent) => {
       const mathField = event.currentTarget as InlineMathFieldElement;

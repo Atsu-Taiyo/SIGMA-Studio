@@ -10,19 +10,23 @@ import {
 } from "@/lib/ai/ai-model-catalog";
 
 describe("ai-model-catalog", () => {
-  it("keeps Fable selectable with no catalog or an older CLI alias list", () => {
-    for (const catalog of [null, { models: [{ id: "sonnet", label: "Sonnet", isDefault: true }] }]) {
+  it("offers the latest-model aliases, never a pinned version, when Claude reports no catalog", () => {
+    for (const catalog of [null, { models: [] }]) {
       const models = resolveAiModelOptions("claude", catalog);
-      expect(models).toContainEqual(expect.objectContaining({ id: "claude-fable-5-1", label: "Claude Fable 5.1" }));
-      expect(resolveCatalogSelection({ models, model: "claude-fable-5-1", reasoningEffort: "high" }).model)
-        .toBe("claude-fable-5-1");
+      expect(models.map((model) => model.id)).toEqual(["sonnet", "opus", "fable", "haiku"]);
+      expect(models.map((model) => model.label).join(" ")).not.toMatch(/\d/);
       expect(models.find((model) => model.isDefault)?.id).toBe("sonnet");
     }
   });
 
-  it("preserves the runtime Fable option without adding a duplicate", () => {
-    const models = resolveAiModelOptions("claude", { models: [{ id: "fable", label: "Fable (latest)" }] });
-    expect(models.map((model) => model.id)).toEqual(["fable"]);
+  it("uses the runtime Claude catalog as-is, so a newer model appears without an app release", () => {
+    const models = resolveAiModelOptions("claude", {
+      models: [
+        { id: "sonnet", label: "Claude Sonnet 9.1", isDefault: true },
+        { id: "claude-opus-9-0", label: "Claude Opus 9" },
+      ],
+    });
+    expect(models.map((model) => model.label)).toEqual(["Claude Sonnet 9.1", "Claude Opus 9"]);
   });
 
   it("always renders explicit effort labels, including unknown and missing values", () => {

@@ -31,6 +31,7 @@ describe("workspace menu targets", () => {
     const onSwitchWorkspace = vi.fn(), onOpenFile = vi.fn(), setFolderFilter = vi.fn();
     const onWorkspaceContextMenu = vi.fn(), onFolderContextMenu = vi.fn(), onFileContextMenu = vi.fn();
     const props: ComponentProps<typeof WorkspaceSidebar> = {
+      collapsed: false, panel: "files", commentsAvailable: false, mentionCount: 0, onSelectPanel: vi.fn(),
       visibleWorkspaces: [workspace, { ...workspace, id: "other", name: "別の授業" }], activeWorkspaceId: "w",
       workspaceTreeExpanded: true, setWorkspaceTreeExpanded: vi.fn(), expandedFolderIds: new Set(["f"]), setExpandedFolderIds: vi.fn(),
       folders: [folder], files: [file, { ...file, fileId: "nested", title: "小問", folderId: "f" }], rootFolders: [folder], rootFiles: [file],
@@ -48,14 +49,31 @@ describe("workspace menu targets", () => {
     expect(onSwitchWorkspace).not.toHaveBeenCalled(); expect(onOpenFile).not.toHaveBeenCalled(); expect(setFolderFilter).not.toHaveBeenCalled();
   });
   for (const mode of ["list", "grid"] as const) it(`${mode} folder/file menus do not select/open the row`, async () => {
-    const onItemClick = vi.fn(), onOpenFolder = vi.fn(), onOpenFile = vi.fn(), onFolderContextMenu = vi.fn(), onOpenFileActionMenu = vi.fn();
+    const onItemClick = vi.fn(), onOpenFolder = vi.fn(), onOpenFile = vi.fn(), onFolderContextMenu = vi.fn(), onOpenFileActionMenu = vi.fn(), onToggleBookmark = vi.fn();
     const common = { folders: [folder], files: [file], sortKey: "name" as const, sortDirection: "asc" as const, emptyVariant: "root" as const,
       dragItem: null, dropTarget: null, dragProps: () => ({ onDragStart: vi.fn(), onDragEnd: vi.fn() }), dropProps: () => ({ onDragOver: vi.fn(), onDragLeave: vi.fn(), onDrop: vi.fn() }), selectedKeys: new Set<string>(), focusedKey: null,
       onItemClick, onItemKeyDown: vi.fn(), onOpenFolder, onFolderContextMenu, onOpenFile, savingFileId: null, saving: false, fileActionMenuFileId: null, onOpenFileActionMenu,
-      onCreateDocument: vi.fn(), onClearSearch: vi.fn(), isRenameEditing: () => false, onCommitRename: vi.fn(), onCancelRename: vi.fn() };
+      onCreateDocument: vi.fn(), onClearSearch: vi.fn(), isRenameEditing: () => false, onCommitRename: vi.fn(), onCancelRename: vi.fn(),
+      bookmarkedKeys: new Set<string>(["file:d"]), onToggleBookmark };
     act(() => root.render(mode === "grid" ? <WorkspaceItemGrid {...common} /> : <WorkspaceItemList {...common} allFolders={[folder]} workspaceName="授業" onRequestSort={vi.fn()} searchActive={false} />));
     for (const name of ["数学", "問題"]) await click(container.querySelector(`button[aria-label="${name} の操作"]`)!);
     expect(onFolderContextMenu).toHaveBeenCalledOnce(); expect(onOpenFileActionMenu).toHaveBeenCalledOnce();
+    expect(onItemClick).not.toHaveBeenCalled(); expect(onOpenFolder).not.toHaveBeenCalled(); expect(onOpenFile).not.toHaveBeenCalled();
+  });
+  for (const mode of ["list", "grid"] as const) it(`${mode} bookmark buttons toggle only the bookmark and show the current state`, async () => {
+    const onItemClick = vi.fn(), onOpenFolder = vi.fn(), onOpenFile = vi.fn(), onToggleBookmark = vi.fn();
+    const common = { folders: [folder], files: [file], sortKey: "name" as const, sortDirection: "asc" as const, emptyVariant: "root" as const,
+      dragItem: null, dropTarget: null, dragProps: () => ({ onDragStart: vi.fn(), onDragEnd: vi.fn() }), dropProps: () => ({ onDragOver: vi.fn(), onDragLeave: vi.fn(), onDrop: vi.fn() }), selectedKeys: new Set<string>(), focusedKey: null,
+      onItemClick, onItemKeyDown: vi.fn(), onOpenFolder, onFolderContextMenu: vi.fn(), onOpenFile, savingFileId: null, saving: false, fileActionMenuFileId: null, onOpenFileActionMenu: vi.fn(),
+      onCreateDocument: vi.fn(), onClearSearch: vi.fn(), isRenameEditing: () => false, onCommitRename: vi.fn(), onCancelRename: vi.fn(),
+      bookmarkedKeys: new Set<string>(["file:d"]), onToggleBookmark };
+    act(() => root.render(mode === "grid" ? <WorkspaceItemGrid {...common} /> : <WorkspaceItemList {...common} allFolders={[folder]} workspaceName="授業" onRequestSort={vi.fn()} searchActive={false} />));
+    const removeFile = container.querySelector('button[aria-label="問題 のブックマークを外す"]')!;
+    expect(removeFile.getAttribute("aria-pressed")).toBe("true");
+    expect(container.querySelector('button[aria-label="数学 をブックマークに追加"]')!.getAttribute("aria-pressed")).toBe("false");
+    await click(container.querySelector('button[aria-label="数学 をブックマークに追加"]')!);
+    await click(removeFile);
+    expect(onToggleBookmark.mock.calls).toEqual([["folder", "f"], ["file", "d"]]);
     expect(onItemClick).not.toHaveBeenCalled(); expect(onOpenFolder).not.toHaveBeenCalled(); expect(onOpenFile).not.toHaveBeenCalled();
   });
   it("menu arrows skip disabled actions and restores trigger focus", () => {
@@ -102,7 +120,7 @@ describe("sharing settings authority", () => {
     vi.mocked(f.catalog.details).mockResolvedValue(details);
     act(() => root.render(<WorkspaceSharingDialog target={{ source: "shared", shared: details.target }} name="数学" onClose={vi.fn()} onChanged={vi.fn()} />));
     await settle(); expect(document.body.textContent).toContain("親から継承"); expect(document.body.textContent).toContain("変更は管理者に依頼");
-    expect(document.body.textContent).not.toContain("招待コードを作成"); expect(document.body.textContent).not.toContain("共有を停止");
+    expect(document.body.textContent).not.toContain("招待リンクを作成"); expect(document.body.textContent).not.toContain("共有を停止");
     vi.mocked(f.catalog.details).mockRejectedValue(new Error("FORBIDDEN"));
     await act(async () => f.change({ state: "ready", actorId: "other", revision: 2 }));
     await settle(); expect(document.body.textContent).toContain("この項目は利用できなくなりました");
@@ -140,7 +158,7 @@ it("admin manages editor/viewer but cannot change admins or stop the root; offli
   vi.mocked(f.catalog.details).mockRejectedValue(new Error("OFFLINE"));
   await act(async () => f.change({ state: "offline", actorId: "owner", revision: 1 })); await settle();
   expect(document.body.textContent).toContain("学校から継承：管理者");
-  expect(button("招待コードを作成").disabled).toBe(true);
+  expect(button("招待リンクを作成").disabled).toBe(true);
   expect(document.body.textContent).not.toContain("この項目は利用できなくなりました");
 });
 
@@ -152,9 +170,9 @@ it("join retains the submitted token through Google authentication", async () =>
   vi.mocked(f.catalog.join).mockResolvedValue(result);
   act(() => root.render(<WorkspaceJoinDialog onClose={vi.fn()} onJoined={onJoined} />));
   const input = document.querySelector("input")!;
-  await act(async () => { Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(input, "  original-token  "); input.dispatchEvent(new Event("input", { bubbles: true })); });
+  await act(async () => { Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(input, `  ${"a".repeat(43)}  `); input.dispatchEvent(new Event("input", { bubbles: true })); });
   await click(button("参加する"));
-  expect(f.signInWithGoogle).toHaveBeenCalledOnce(); expect(f.catalog.join).toHaveBeenCalledWith("original-token"); expect(onJoined).toHaveBeenCalledWith(result);
+  expect(f.signInWithGoogle).toHaveBeenCalledOnce(); expect(f.catalog.join).toHaveBeenCalledWith("a".repeat(43)); expect(onJoined).toHaveBeenCalledWith(result);
 });
 
 it("a full share tells the invitee why joining failed instead of offering a plan", async () => {
@@ -164,7 +182,7 @@ it("a full share tells the invitee why joining failed instead of offering a plan
   vi.mocked(f.catalog.join).mockRejectedValue(new Error("Error invoking remote method 'shared-catalog:join': Error: PARTICIPANT_LIMIT"));
   act(() => root.render(<WorkspaceJoinDialog onClose={vi.fn()} onJoined={vi.fn()} />));
   const input = document.querySelector("input")!;
-  await act(async () => { Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(input, "token"); input.dispatchEvent(new Event("input", { bubbles: true })); });
+  await act(async () => { Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(input, "b".repeat(43)); input.dispatchEvent(new Event("input", { bubbles: true })); });
   await click(button("参加する"));
   expect(document.querySelector('[role="alert"]')?.textContent).toContain("参加人数が上限");
   expect(document.querySelectorAll('[role="dialog"]')).toHaveLength(1);
@@ -235,7 +253,7 @@ describe("Pro paywall entry", () => {
     vi.mocked(f.catalog.details).mockResolvedValue(details);
     act(() => root.render(<WorkspaceSharingDialog target={{ source: "shared", shared: details.target }} name="問題" onClose={vi.fn()} onChanged={vi.fn()} />));
     await settle();
-    await click(button("招待コードを作成"));
+    await click(button("招待リンクを作成"));
     expect(f.catalog.invite).not.toHaveBeenCalled();
     expect(dialogs()[1].querySelector("h2")?.textContent).toBe("これ以上招待できません");
     await act(async () => { document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })); });
@@ -261,4 +279,36 @@ describe("Pro paywall entry", () => {
     expect(document.body.textContent).toContain("この項目の共有を開始できません。");
     expect(dialogs()).toHaveLength(1);
   });
+});
+
+it("shows and copies distinct member and invitation links for the selected item", async () => {
+  const { createShareLink } = await import("@/features/collaboration/model/share-link");
+  const f = setupCatalog();
+  const details = { target: { kind: "folder", catalogNodeId: "12345678-1234-4234-8234-123456789012" }, name: "数学", sharing: { role: "owner", capabilities: { invite: true } }, members: [] } as unknown as CatalogSharingDetails;
+  vi.mocked(f.catalog.details).mockResolvedValue(details);
+  vi.mocked(f.catalog.invite).mockResolvedValue({ token: "t".repeat(43), tokenHash: "hash" });
+  const writeText = vi.fn(async () => {});
+  vi.stubGlobal("navigator", { ...navigator, clipboard: { writeText } });
+  try {
+    act(() => root.render(<WorkspaceSharingDialog target={{ source: "shared", shared: details.target }} name="数学" onClose={vi.fn()} onChanged={vi.fn()} />));
+    await settle();
+    expect(document.querySelector("a")?.getAttribute("href")).toBe(createShareLink(details.target));
+    await click(document.querySelector('[aria-label="リンクをコピー"]')!);
+    expect(writeText).toHaveBeenLastCalledWith(createShareLink(details.target));
+    await click(button("招待リンクを作成"));
+    await click(document.querySelector('[aria-label="招待リンクをコピー"]')!);
+    expect(writeText).toHaveBeenLastCalledWith(createShareLink(details.target, "t".repeat(43)));
+  } finally { vi.unstubAllGlobals(); }
+});
+it("opens a member link without accepting an invitation and preserves the target through login", async () => {
+  const { WorkspaceJoinDialog } = await import("./WorkspaceJoinDialog");
+  const { createShareLink } = await import("@/features/collaboration/model/share-link");
+  const f = setupCatalog(); const onJoined = vi.fn();
+  const target = { kind: "document", catalogNodeId: "12345678-1234-4234-8234-123456789012" } as CatalogSharingDetails["target"];
+  const result = { target, workspaceId: "w", fileId: "device-specific-file" };
+  f.catalog.openLink = vi.fn(async () => result);
+  act(() => root.render(<WorkspaceJoinDialog initialValue={createShareLink(target)} autoSubmit onClose={vi.fn()} onJoined={onJoined} />));
+  await settle(); await settle();
+  expect(f.signInWithGoogle).toHaveBeenCalledOnce(); expect(f.catalog.openLink).toHaveBeenCalledWith(target);
+  expect(f.catalog.join).not.toHaveBeenCalled(); expect(onJoined).toHaveBeenCalledWith(result);
 });

@@ -4,7 +4,10 @@ import { useMemo, useState } from "react";
 
 import { AiWorkingProviderIcon } from "@/components/branding/AiWorkingProviderIcon";
 import type { OverlayShapeDecoration } from "@/components/editor/overlay-canvas/editor-extension";
-import type { EditorExtensionContextValue } from "@/components/editor/editor-extension-context";
+import type {
+  EditorExtensionContextValue,
+  ProblemFrameDrawingExtension,
+} from "@/components/editor/editor-extension-context";
 import {
   getTextFlowEditGuardsSyncKey,
   handleEditGuardAction,
@@ -24,6 +27,7 @@ import {
 } from "@/lib/ai/ai-editing-block-locks";
 
 import { buildAiTextFlowEditPolicy } from "./adapters/tiptap/edit-lock-adapter";
+import { AiProblemFramePanel } from "./view/AiProblemFramePanel";
 import { createCurrentLocaleTranslator, type Translate } from "@/lib/i18n";
 import { useT } from "@/lib/i18n/react";
 import { expandShapeIdsWithAiLockOwnership } from "./application/shape-lock-ownership";
@@ -122,6 +126,16 @@ export function buildAiOverlayEditorExtensions({
 }
 
 /**
+ * "Draw with AI" for the problem frame dialog, offered to the generic editor through its context.
+ * The conversation belongs to a problem of this document, so the panel is told which document.
+ */
+function createProblemFrameDrawingExtension(documentIdentityKey: string | null | undefined): ProblemFrameDrawingExtension {
+  return {
+    renderPanel: (props) => <AiProblemFramePanel {...props} documentIdentityKey={documentIdentityKey} />,
+  };
+}
+
+/**
  * Desktop composition adapter from AI run/proposal state to the generic
  * editor-extension contracts. Drawing and text-flow modules never subscribe
  * to AI stores and never know how cancellation is implemented.
@@ -193,9 +207,19 @@ export function useAiEditorExtensions({
   // 戻り値のオブジェクトも memo する。ここで毎回新しいオブジェクトを返すと、
   // `EditorExtensionProvider` の value が打鍵のたびに変わり、本文ユニットの `editPolicy`
   // (context 経由) も一緒に変わって memo が全部無効になる。
+  const problemFrameDrawing = useMemo(
+    () => createProblemFrameDrawingExtension(documentIdentityKey),
+    [documentIdentityKey],
+  );
   return useMemo(
-    () => ({ textFlowEditPolicy, overlayEditPolicy, overlayShapeDecorations, auxiliarySurfaceExtensions }),
-    [auxiliarySurfaceExtensions, overlayEditPolicy, overlayShapeDecorations, textFlowEditPolicy],
+    () => ({
+      textFlowEditPolicy,
+      overlayEditPolicy,
+      overlayShapeDecorations,
+      auxiliarySurfaceExtensions,
+      problemFrameDrawing,
+    }),
+    [auxiliarySurfaceExtensions, overlayEditPolicy, overlayShapeDecorations, problemFrameDrawing, textFlowEditPolicy],
   );
 }
 
