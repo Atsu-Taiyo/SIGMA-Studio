@@ -26,6 +26,9 @@ test("a hand-drawn problem frame is saved with the file and drawn again after re
       localStorage.setItem("sigma-studio:ui-layout-preference", JSON.stringify({ mode: "docs", onboardingCompleted: true }));
       await window.desktopAPI!.settings!.setUiLocale!("ja");
     });
+    // Finish the initial empty workspace bootstrap before installing the fixture.
+    await expect(page.locator(".text-flow-editor").first()).toBeVisible();
+    await expect(page.locator(".startup-splash")).toBeHidden();
     const created = await page.evaluate(
       (document) => window.desktopAPI!.storage.createFileFromDocument({ document }),
       createDocument(),
