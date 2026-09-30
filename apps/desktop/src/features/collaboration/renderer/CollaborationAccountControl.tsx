@@ -24,10 +24,14 @@ export function CollaborationAccountControl({ info, refresh }: {
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(false);
-  const [capabilities, setCapabilities] = useState<ServerCollaborationCapabilities>();
+  const [planStatus, setPlanStatus] = useState<{ actorId: string; capabilities?: ServerCollaborationCapabilities }>();
   const [recovered, setRecovered] = useState<{ saved: number; failed: number } | null>(null);
   const [locked, setLocked] = useState<{ actorId: string; count: number } | null>(null);
   const actorId = info.user?.actorId;
+  const capabilities = planStatus && planStatus.actorId === actorId ? planStatus.capabilities : undefined;
+  const setCapabilities = useCallback((next?: ServerCollaborationCapabilities) => {
+    if (actorId) setPlanStatus({ actorId, capabilities: next });
+  }, [actorId]);
   const [planOpen, setPlanOpen] = useState(false);
   const root = useRef<HTMLDivElement>(null);
   const accountButton = useRef<HTMLButtonElement>(null);
@@ -51,12 +55,17 @@ export function CollaborationAccountControl({ info, refresh }: {
     };
   }, [open]);
   useEffect(() => {
-    if (!catalog) return;
-    const refreshPlan = () => { void catalog.refresh().catch(() => {}); };
+    if (!catalog || !actorId) return;
+    let active = true;
+    const updatePlan = (status: Awaited<ReturnType<typeof catalog.status>>) => {
+      if (active && status.actorId === actorId) setCapabilities(status.state === "ready" ? status.capabilities : undefined);
+    };
+    const refreshPlan = () => { void catalog.refresh().then(updatePlan).catch(() => { if (active) setCapabilities(undefined); }); };
     window.addEventListener("focus", refreshPlan);
-    const unsubscribe = catalog.onChange(status => setCapabilities(status.capabilities));
-    return () => { unsubscribe(); window.removeEventListener("focus", refreshPlan); };
-  }, [catalog]);
+    const unsubscribe = catalog.onChange(updatePlan);
+    void catalog.status().then(updatePlan).catch(() => { if (active) setCapabilities(undefined); });
+    return () => { active = false; unsubscribe(); window.removeEventListener("focus", refreshPlan); };
+  }, [catalog, actorId, setCapabilities]);
   useEffect(() => {
     if (!open || !actorId || !catalog?.lockedDocumentCount) return;
     let generation = 0;
@@ -102,7 +111,7 @@ export function CollaborationAccountControl({ info, refresh }: {
   const loadPlan = () => {
     if (!catalog) return;
     void catalog.refresh()
-      .then((status) => setCapabilities(status.capabilities))
+      .then((status) => setCapabilities(status.state === "ready" && status.actorId === actorId ? status.capabilities : undefined))
       .catch(() => setCapabilities(undefined));
   };
   return (
@@ -120,10 +129,14 @@ export function CollaborationAccountControl({ info, refresh }: {
         }}
       >
         <CollaborationProfileAvatar profile={info.user} label={name} />
+        {plan === "pro" && <span className={styles.proBadge}>{t("collaboration.plan.menuLabel.pro")}</span>}
       </button>
       {open && (
         <div className={styles.accountMenu} role="dialog" aria-label={t("collaboration.accountLabel", { name })}>
-          <strong>{name}</strong>
+          <div className={styles.accountNameRow}>
+            <strong>{name}</strong>
+            {plan === "pro" && <span className={styles.proBadge}>{t("collaboration.plan.menuLabel.pro")}</span>}
+          </div>
           {capabilities?.paymentWarning && <p role="alert">{t("collaboration.plan.paymentWarning")}</p>}
           {locked && locked.actorId === actorId && locked.count > 0 && <Button tone="ghost" disabled={busy} onClick={() => {
             setBusy(true); setError(false); setRecovered(null);
@@ -136,7 +149,7 @@ export function CollaborationAccountControl({ info, refresh }: {
           }}>{t("collaboration.plan.recovery")}</Button>}
           {recovered && <p role="status">{t("collaboration.plan.recovered", recovered)}</p>}
           {info.user.email && info.user.email !== name ? <span>{info.user.email}</span> : null}
-          {plan !== "unavailable" && (
+          {plan !== "unavailable" && plan !== "pro" && (
             <Stack gap="xs" className={planStyles.menuPlan}>
               <span>{t(`collaboration.plan.menuLabel.${plan}`)}</span>
               <Button
