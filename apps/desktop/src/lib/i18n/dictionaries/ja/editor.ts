@@ -291,7 +291,6 @@ export const editor = {
   /** ステータスバー / トーストの文言。ほぼ全て `setStatusMessage` から出る。 */
   status: {
     ready: "準備完了",
-    selectCommentTarget: "コメントする対象を選択してください",
     commentReady: "コメントを入力できます",
     openFailedWithReason: "教材を開けませんでした（原因を表示しています）",
     saveFailed: "保存に失敗しました",
@@ -698,7 +697,7 @@ export const editor = {
     mentionsYou: "あなたへのメンション",
 
     none: "コメントはありません",
-    emptyHint: "図形やテキストを選んでから「コメントを追加」を押します。",
+    emptyHint: "「コメントを追加」を押すと書き始められます。図形やテキストを選ぶとその箇所へのコメントになります。",
     resolved: "解決済み",
     edit: "編集",
     delete: "削除",
@@ -708,7 +707,7 @@ export const editor = {
     toggleWithCount: "コメント ({{comments}}件)",
     dockPanel: "コメントパネル",
     closeDock: "コメントを閉じる",
-    selectTargetHint: "コメントする図形やテキストを選択してください。",
+    selectTargetHint: "図形やテキストを選ぶとその箇所へのコメントに、選ばない場合は文書全体へのコメントになります。",
     add: "追加",
     addComment: "コメントを追加",
     save: "保存",
@@ -765,6 +764,7 @@ export const editor = {
       clap: "拍手",
       please: "お願いします",
       ok: "OK",
+      document: "文書全体",
       thinking: "検討",
       question: "質問",
       attention: "注意",

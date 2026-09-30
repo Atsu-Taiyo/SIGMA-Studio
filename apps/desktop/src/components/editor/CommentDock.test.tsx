@@ -82,11 +82,11 @@ describe("CommentDock", () => {
     expect(html).toContain('aria-label="コメントパネル"');
     expect(html).toContain("確認してください");
     expect(html).toContain("コメントを追加");
-    expect(html).toContain("コメントする図形やテキストを選択してください。");
+    expect(html).toContain("選ばない場合は文書全体へのコメントになります。");
     expect(html).toContain('aria-label="コメントを閉じる"');
   });
 
-  it("空状態で対象の選択方法と追加ボタンを表示する", () => {
+  it("空状態で追加ボタンと対象の選び方を表示する", () => {
     const html = renderToStaticMarkup(createElement(CommentDock, {
       document: emptyDocument,
       open: true,
@@ -94,7 +94,7 @@ describe("CommentDock", () => {
       onOpenChange: noop,
     }));
 
-    expect(html).toContain("図形やテキストを選んでから「コメントを追加」を押します。");
+    expect(html).toContain("「コメントを追加」を押すと書き始められます。");
     expect(html.match(/>コメントを追加</g)).toHaveLength(2);
   });
 });

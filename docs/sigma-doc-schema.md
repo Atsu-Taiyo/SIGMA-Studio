@@ -166,10 +166,13 @@ type SigmaCommentAnchor =
   | { type: "textRange"; start: SigmaCommentTextPosition; end: SigmaCommentTextPosition; quote: string; mathInlineIds?: string[]; mathTex?: string[] }
   | { type: "inlineMath"; blockId: string; mathInlineId: string; quote?: string; tex?: string }
   | { type: "block"; blockId: string; quote?: string }
+  | { type: "document"; quote?: string }
   | { type: "canvasRegion"; bounds: { x: number; y: number; w: number; h: number }; quote?: string }
   | { type: "overlayShape"; shapeIds: string[]; quote?: string }
   | { type: "overlayMath"; shapeId?: string; mathInlineId?: string; quote?: string; tex?: string };
 ```
+
+`document` は場所を指定しない文書全体へのコメントです。対象が存在しなくなることがないので、本文やキャンバスを編集しても孤立しません。
 
 `canvasRegion` はホワイトボードの空領域へ付ける固定アンカーです。`bounds` はズーム・パンに依存しないキャンバス絶対座標（px）で、x/yは負値も許し、w/hは正の有限値に限ります。図形の生成・削除とは独立して保持します。ドラッグ中・保持中の選択矩形自体は文書に保存しません。
 

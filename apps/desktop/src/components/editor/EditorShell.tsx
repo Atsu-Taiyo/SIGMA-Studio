@@ -1539,11 +1539,9 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
     return commentAnchorCandidate;
   }, [commentAnchorCandidate, currentOverlayCommentAnchor]);
 
-  const openCommentComposer = useCallback((anchor: SigmaCommentAnchor | null) => {
-    if (!anchor) {
-      setStatusMessage(tEditor("status.selectCommentTarget"));
-      return;
-    }
+  const openCommentComposer = useCallback((requestedAnchor: SigmaCommentAnchor | null) => {
+    // 対象が選ばれていなければ、場所を持たない文書全体へのコメントとして始める。
+    const anchor: SigmaCommentAnchor = requestedAnchor ?? { type: "document" };
     // 候補アンカーは「場所」で持ち回しているので、引用文は最後に選択された時点のもの。
     // コメントを作る瞬間にいまの本文から取り直す (打鍵ごとに候補を作り直さないための対価)。
     const anchoredAtNow = anchor.type === "block"

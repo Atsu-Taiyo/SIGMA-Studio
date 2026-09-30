@@ -474,7 +474,7 @@ export interface SigmaCommentReaction {
     createdAt: string;
 }
 
-export type SigmaCommentAnchor = SigmaTextRangeCommentAnchor | SigmaInlineMathCommentAnchor | SigmaBlockCommentAnchor | SigmaOverlayShapeCommentAnchor | SigmaOverlayMathCommentAnchor | SigmaCanvasRegionCommentAnchor;
+export type SigmaCommentAnchor = SigmaTextRangeCommentAnchor | SigmaInlineMathCommentAnchor | SigmaBlockCommentAnchor | SigmaOverlayShapeCommentAnchor | SigmaOverlayMathCommentAnchor | SigmaCanvasRegionCommentAnchor | SigmaDocumentCommentAnchor;
 
 export interface SigmaTextRangeCommentAnchor {
     type: "textRange";
@@ -545,6 +545,12 @@ export declare function getCommentAnchorKey(anchor: SigmaCommentAnchor | null | 
  *
  * 他の種別 (テキスト選択・インライン数式・図形) の引用は選択範囲のスナップショットで、
  * 打鍵では作り直されない。ここで手を抜くと引用だけ古いコメントが保存されるので、完全一致で比べる。
+/** 文書全体へのコメント。場所を持たないので、本文やキャンバスの編集で孤立しない。 */
+export interface SigmaDocumentCommentAnchor {
+    type: "document";
+    quote?: string;
+}
+
  */
 export declare function getCommentAnchorCandidateKey(anchor: SigmaCommentAnchor | null | undefined): string;
 
