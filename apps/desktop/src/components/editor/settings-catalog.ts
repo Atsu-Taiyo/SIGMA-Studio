@@ -30,7 +30,7 @@ export interface SettingsEntryDefinition {
   /**
    * anchor を出すためにダイアログ側で先に選んでおく状態。
    * 折りたたみやタブの裏に居る項目は、これを見て開かないと **anchor が DOM に無い**。
-   * 例: AI 設定のセクション id、ショートカット設定の `custom` パネル。
+   * 例: AI 設定のセクション id。
    */
   surfaceState?: string;
   /** `settings` namespace のキー。 */
@@ -152,8 +152,6 @@ export const SETTINGS_ENTRIES: readonly SettingsEntryDefinition[] = [
     id: "settings.commands.custom",
     surface: "commands",
     anchorId: "custom-command-panel",
-    // 既定では畳まれている。開かないと anchor が存在しない。
-    surfaceState: "custom-open",
     labelKey: "commands.customCommand",
     keywordsKey: "catalog.keywords.customCommand",
   },

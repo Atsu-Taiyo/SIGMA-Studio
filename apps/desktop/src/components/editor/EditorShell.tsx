@@ -6194,7 +6194,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, acc
     toggleRibbonCollapseRef,
     actions: {
       text: {
-        runEditCommand, toggleBoxedText, applyTextStyle, applyTextAlign, applyLineHeight,
+        runEditCommand, toggleBoxedText, applyTextStyle, applyBlockStructure, applyTextAlign, applyLineHeight,
         applyInlineFormat, getActiveTextTarget, insertInlineMath, setFontFamily,
         setTextFontSize, setTextColor, setTextBackgroundColor,
       },

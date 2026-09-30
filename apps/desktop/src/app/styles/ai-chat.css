@@ -3537,8 +3537,19 @@
   }
 
   .custom-command-panel {
-    grid-template-columns: minmax(0, 1fr);
     padding: var(--space-md);
+  }
+
+  .custom-command-step {
+    grid-template-columns: minmax(0, 1fr) 28px;
+  }
+
+  .custom-command-step-number {
+    grid-column: 1 / -1;
+  }
+
+  .custom-command-value-field {
+    grid-column: 1;
   }
 
   .command-shortcuts-row {

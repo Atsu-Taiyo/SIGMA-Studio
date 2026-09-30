@@ -224,6 +224,8 @@ export const chrome = {
       placeholder: "スタイル",
       paragraph: "本文",
       h1: "見出し 1",
+      groupText: "本文と見出し",
+      groupBlock: "リスト・引用・コード",
       h2: "見出し 2",
       h3: "見出し 3",
     },
