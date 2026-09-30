@@ -112,9 +112,9 @@ test("inserted body paragraph is focused and supports font controls", async ({ p
     document.dispatchEvent(new Event("selectionchange"));
   });
 
-  await page.locator('button[aria-label="フォントサイズ"]').click();
-  await page.getByRole("spinbutton", { name: "サイズ (pt)" }).fill("15");
-  await page.getByRole("spinbutton", { name: "サイズ (pt)" }).press("Enter");
+  await page.locator('input[aria-label="フォントサイズ"]').click();
+  await page.getByRole("textbox", { name: "フォントサイズ", exact: true }).fill("15");
+  await page.getByRole("textbox", { name: "フォントサイズ", exact: true }).press("Enter");
   await page.getByRole("button", { name: /^フォント:/ }).click();
   const fontMenu = page.getByRole("menu", { name: "フォント", exact: true });
   await expect(fontMenu).toBeVisible();

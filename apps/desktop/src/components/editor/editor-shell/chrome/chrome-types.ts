@@ -141,6 +141,7 @@ export interface EditorChromeFormat {
   fontFamilyMenuOpen: boolean;
   fontFamilyQuery: string;
   fontSizeInputRef: RefObject<HTMLInputElement | null>;
+  fontSizeSkipBlurRef: RefObject<boolean>;
   fontSizeInput: string;
   setFontSizeInput: Dispatch<SetStateAction<string>>;
   handleLineHeightStepClick: (event: MouseEvent<HTMLButtonElement>, direction: "increase" | "decrease") => void;

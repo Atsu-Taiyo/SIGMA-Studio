@@ -1265,6 +1265,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
   const fontFamilyButtonRef = useRef<HTMLButtonElement | null>(null);
   const blockStyleButtonRef = useRef<HTMLButtonElement | null>(null);
   const fontSizeInputRef = useRef<HTMLInputElement | null>(null);
+  const fontSizeSkipBlurRef = useRef(false);
   const textColorButtonRef = useRef<HTMLButtonElement | null>(null);
   const textBackgroundColorButtonRef = useRef<HTMLButtonElement | null>(null);
   const strokeColorButtonRef = useRef<HTMLButtonElement | null>(null);
@@ -6931,7 +6932,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
       blockStyleButtonRef, blockStyleMenuOpen,
       canUseTextBlockStyle, canUseTextToolbar, fontFamily, fontFamilyButtonRef,
       fontFamilyIsKnownOption, fontFamilyIsMixed, fontFamilyMenuOpen, fontFamilyQuery,
-      fontSizeInputRef, fontSizeInput, setFontSizeInput,
+      fontSizeInputRef, fontSizeSkipBlurRef, fontSizeInput, setFontSizeInput,
       handleLineHeightStepClick, italicActive, lineHeight, lineHeightButtonRef,
       lineHeightCustomOpen, lineHeightInput, lineHeightInputError, lineHeightMenuOpen,
       saveEditorFontFamilyPreference, selectBoxedTextVariant, selectedTextAlign, selectedTextStyle,

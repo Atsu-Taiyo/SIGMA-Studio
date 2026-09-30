@@ -2290,22 +2290,23 @@ export default function OverlayCanvasEditorClient({
           ...(edgeDash === undefined ? {} : { dash: undefined }),
           ...(edgeSize === undefined ? {} : { size: undefined }),
         };
-    setShapes((current) => {
-      const idSet = getStyleTargetIds(current, selectedIdsRef.current, editPolicyLockedShapeIdsRef.current);
-      const next = normalizeOverlayGroups(current.map((shape) => {
-        if (!idSet.has(shape.id)) {
-          return shape;
-        }
-        const styled = applyStylePatchToShape(shape, shapeStyle);
-        if (selectedEdge?.shapeId !== shape.id || !isSolidShape(styled)) {
-          return styled;
-        }
-        const dashed = edgeDash === undefined ? styled : setSolidEdgeDash(styled, selectedEdge.index, edgeDash);
-        return edgeSize === undefined ? dashed : setSolidEdgeSize(dashed, selectedEdge.index, edgeSize);
-      }));
-      shapesRef.current = next;
-      return next;
-    });
+    // Anchor measurement and request completion can run before React evaluates a
+    // queued updater. Publish the new snapshot first so they cannot restore old styles.
+    const current = shapesRef.current;
+    const idSet = getStyleTargetIds(current, selectedIdsRef.current, editPolicyLockedShapeIdsRef.current);
+    const next = normalizeOverlayGroups(current.map((shape) => {
+      if (!idSet.has(shape.id)) {
+        return shape;
+      }
+      const styled = applyStylePatchToShape(shape, shapeStyle);
+      if (selectedEdge?.shapeId !== shape.id || !isSolidShape(styled)) {
+        return styled;
+      }
+      const dashed = edgeDash === undefined ? styled : setSolidEdgeDash(styled, selectedEdge.index, edgeDash);
+      return edgeSize === undefined ? dashed : setSolidEdgeSize(dashed, selectedEdge.index, edgeSize);
+    }));
+    shapesRef.current = next;
+    setShapes(next);
   }, [notifyEditPolicyBlocked]);
 
   /**
