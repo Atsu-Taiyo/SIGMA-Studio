@@ -190,6 +190,26 @@ export class DesktopSharedCatalog {
     const overview = this.cache ? this.cache.project(local, workspaceId, hidden) : { ...local, files: local.files.filter(f => !hidden.has(f.fileId)), folders: local.folders.filter(f => f.workspaceId === local.activeWorkspaceId) };
     return { state: "ready", overview: { ...overview, catalog: await this.status() } } as LocalWorkspaceOverviewResult;
   }
+  async searchOverview(): Promise<WorkspaceOverview> {
+    await this.account();
+    const local = await this.rawOverview();
+    const hidden = new Set(this.sessions.bindings().map(b => b.fileId));
+    const overview = this.cache ? this.cache.project(local, undefined, hidden, true)
+      : { ...local, files: local.files.filter(f => !hidden.has(f.fileId)) };
+    return { ...overview, catalog: await this.status() };
+  }
+  async openLink(target: SharedTargetRef) {
+    await this.refresh();
+    const cache = await this.online();
+    const node = this.requireTarget(target, cache);
+    if (!node.capabilities.read) throw new Error("TARGET_UNAVAILABLE");
+    const local = await this.rawOverview();
+    this.checkAccount(cache);
+    const location = node.kind === "workspace" ? { workspaceId: cache.navigationId(node) } : cache.location(node, local);
+    return { target: cache.metadata(node).target, workspaceId: location.workspaceId,
+      ...(node.kind === "folder" ? { folderId: cache.navigationId(node) } : {}),
+      ...(node.kind === "document" ? { fileId: cache.navigationId(node) } : {}) };
+  }
   async listFiles() {
     await this.account();
     const local = await this.rawOverview();

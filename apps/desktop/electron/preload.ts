@@ -10,7 +10,18 @@ const desktopAPI = {
   },
   isDesktop: true as const,
   platform: process.platform,
+  shareLinks: {
+    pending: () => ipcRenderer.invoke("share-link:pending"),
+    acknowledge: (id: string) => ipcRenderer.invoke("share-link:acknowledge", id),
+    onAvailable(handler: () => void) {
+      const listener = () => handler();
+      ipcRenderer.on("share-link:available", listener);
+      return () => ipcRenderer.removeListener("share-link:available", listener);
+    },
+  },
   sharedCatalog: {
+    searchOverview: () => ipcRenderer.invoke("shared-catalog:search-overview"),
+    openLink: (target: unknown) => ipcRenderer.invoke("shared-catalog:open-link", target),
     billing: (action: string) => ipcRenderer.invoke("shared-catalog:billing", action),
     lockedDocumentCount: () => ipcRenderer.invoke("shared-catalog:locked-document-count"),
     recoverLocked: () => ipcRenderer.invoke("shared-catalog:recover-locked"),

@@ -208,6 +208,7 @@ export interface LocalLibraryRepository extends DocumentLibraryRepository {
 
 export interface LocalWorkspaceRepository {
   renameDocument?(workspaceId: string, fileId: string, name: string): Promise<WorkspaceOverviewResult>;
+  listSearchOverview?(): Promise<WorkspaceOverviewResult>;
   listOverview(workspaceId?: string | null): Promise<WorkspaceOverviewResult>;
   createWorkspace(name: string): Promise<WorkspaceOverviewResult>;
   renameWorkspace(workspaceId: string, name: string): Promise<WorkspaceOverviewResult>;

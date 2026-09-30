@@ -85,6 +85,23 @@ describe("browser runtime", () => {
     expect((await runtime.library.listFiles()).find((file) => file.fileId === created.fileId)?.title).toBe("残す教材");
   });
 
+  it("searches all workspaces without changing the saved active workspace", async () => {
+    await runtime.library.initializeWorkspace();
+    const first = await runtime.workspace.listOverview();
+    if (first.state !== "ready") throw new Error();
+    const second = await runtime.workspace.createWorkspace("Another");
+    if (second.state !== "ready") throw new Error();
+    await runtime.workspace.createFolder(second.overview.activeWorkspaceId, "Search folder");
+    await runtime.library.createDocument({ workspaceId: second.overview.activeWorkspaceId, title: "Search document" });
+    await runtime.workspace.listOverview(first.overview.activeWorkspaceId);
+    const result = await runtime.workspace.listSearchOverview!();
+    if (result.state !== "ready") throw new Error();
+    expect(result.overview.folders.some(folder => folder.name === "Search folder")).toBe(true);
+    expect(result.overview.files.some(file => file.title === "Search document")).toBe(true);
+    const reloaded = await createRuntime(backend).workspace.listOverview();
+    expect(reloaded.state === "ready" && reloaded.overview.activeWorkspaceId).toBe(first.overview.activeWorkspaceId);
+  });
+
   it("reports itself as the web target with browser storage", () => {
     expect(runtime.target).toBe("web");
     expect(runtime.capabilities).toMatchObject({

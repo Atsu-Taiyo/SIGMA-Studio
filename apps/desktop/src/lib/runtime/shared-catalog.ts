@@ -45,6 +45,8 @@ export interface CatalogSharingDetails {
   members: CatalogMember[];
 }
 export interface SharedCatalogBridge {
+  searchOverview?(): Promise<import("./types").WorkspaceOverview>;
+  openLink?(target: SharedTargetRef): ReturnType<SharedCatalogBridge["join"]>;
   billing(action: "checkout" | "portal"): Promise<void>;
   lockedDocumentCount?(): Promise<number>;
   recoverLocked(): Promise<{ saved: number; failed: number }>;

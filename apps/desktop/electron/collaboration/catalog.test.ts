@@ -411,3 +411,41 @@ it("counts only server-confirmed locked documents for the current account", asyn
   f.request.mockImplementation(async () => { f.setActor("another"); return [{ id: "old-account" }]; });
   await expect(f.catalog.lockedDocumentCount()).rejects.toThrow("ACCOUNT_CHANGED");
 });
+
+it("searches all local and shared workspaces without selecting them or downloading bodies", async () => {
+  const f = await fixture();
+  const first = await f.local.getWorkspaceOverview();
+  if (first.state !== "ready") throw new Error();
+  const second = await f.local.createWorkspace("Another workspace");
+  if (second.state !== "ready") throw new Error();
+  await f.local.createFolder(second.overview.activeWorkspaceId, "Nested folder");
+  await f.local.getWorkspaceOverview(first.overview.activeWorkspaceId);
+  const workspace = node("workspace"), folder = node("folder", workspace.id), document = node("document", folder.id);
+  f.setNodes([workspace, folder, document]); await f.catalog.refresh();
+  const all = await f.catalog.searchOverview();
+  expect(all.workspaces.map(w => w.id)).toContain(second.overview.activeWorkspaceId);
+  expect(all.folders.map(folder => folder.name)).toContain("Nested folder");
+  expect(all.folders.some(item => item.sharing?.target.catalogNodeId === folder.id)).toBe(true);
+  expect(all.files.some(item => item.sharing?.target.catalogNodeId === document.id)).toBe(true);
+  expect(all.files.some(item => item.title === "local")).toBe(true);
+  expect((await f.local.getLocalLibrarySnapshot()).activeWorkspaceId).toBe(first.overview.activeWorkspaceId);
+  expect(f.open).not.toHaveBeenCalled();
+  f.setActor(null);
+  expect((await f.catalog.searchOverview()).files.some(item => item.sharing)).toBe(false);
+});
+it("resolves shared links to each account's location and rejects revoked targets", async () => {
+  const f = await fixture();
+  const workspace = node("workspace"), folder = node("folder", workspace.id), document = node("document", folder.id);
+  f.setNodes([workspace, folder, document]); await f.catalog.refresh();
+  const ref = (n: CatalogNode) => ({ kind: n.kind, catalogNodeId: n.id });
+  expect(await f.catalog.openLink(ref(workspace))).toMatchObject({ workspaceId: `catalog_${workspace.id}` });
+  expect(await f.catalog.openLink(ref(folder))).toMatchObject({ workspaceId: `catalog_${workspace.id}`, folderId: `catalog_${folder.id}` });
+  const file = await f.catalog.openLink(ref(document));
+  expect(file).toMatchObject({ workspaceId: `catalog_${workspace.id}`, fileId: expect.any(String) });
+  expect((await f.catalog.searchOverview()).files.find(item => item.sharing?.target.catalogNodeId === document.id)?.fileId).toBe(file.fileId);
+  f.setNodes([document]);
+  expect(await f.catalog.openLink(ref(document))).toMatchObject({ workspaceId: "shared-items", fileId: file.fileId });
+  f.setNodes([]);
+  await expect(f.catalog.openLink(ref(document))).rejects.toThrow("TARGET_UNAVAILABLE");
+  expect(f.open).not.toHaveBeenCalled();
+});

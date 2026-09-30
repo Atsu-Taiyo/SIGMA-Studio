@@ -26,6 +26,9 @@ type DragDropProps = {
 
 interface WorkspaceItemGridProps {
   menuKey?: string | null;
+  loading?: boolean;
+  searchFailed?: boolean;
+  locationLabel?: (row: WorkspaceRow) => string;
   folders: WorkspaceFolderSummary[];
   files: WorkspaceFileSummary[];
   sortKey: WorkspaceSortKey;
@@ -57,6 +60,9 @@ interface WorkspaceItemGridProps {
 
 export function WorkspaceItemGrid({
   menuKey,
+  loading = false,
+  searchFailed = false,
+  locationLabel,
   folders,
   files,
   sortKey,
@@ -86,6 +92,7 @@ export function WorkspaceItemGrid({
   onCancelRename,
 }: WorkspaceItemGridProps) {
   const t = useT("workspace");
+  const locationFor = (key: string) => { const row = rows.find(row => row.key === key); return row && locationLabel?.(row); };
   const locale = useAppLocale();
 
   const rows = buildWorkspaceRows({ folders, files, sortKey, sortDirection, t });
@@ -94,6 +101,8 @@ export function WorkspaceItemGrid({
   // Roving tabIndex: only focusedKey gets 0. Falls back to the first row so
   // the grid stays Tab-reachable before any item has ever been focused.
   const effectiveFocusedKey = focusedKey ?? rows[0]?.key ?? null;
+
+  if (loading || searchFailed) return <p role={searchFailed ? "alert" : "status"}>{t(searchFailed ? "error.loadFailed" : "status.loading")}</p>;
 
   return (
     <>
@@ -147,7 +156,7 @@ export function WorkspaceItemGrid({
                     <span className="workspace-folder-card-name">{folder.name}</span>
                   )}
                   {folder.sharing && <WorkspaceSharedBadge />}
-                  <small>{folder.fileCount}</small>
+                  <small>{locationLabel ? locationFor(key) : folder.fileCount}</small>
                   {!editing && <WorkspaceItemMenuButton expanded={menuKey === `folder:${folder.id}`} name={folder.name} onClick={(event) => onFolderContextMenu(event, folder.id)} />}
                 </div>
               );
@@ -219,7 +228,7 @@ export function WorkspaceItemGrid({
                     ) : (
                       <div className="workspace-file-card-title"><strong><DocumentTitleText title={displayName} /></strong>{file.sharing && <WorkspaceSharedBadge />}</div>
                     )}
-                    <small>{formatDateTime(file.updatedAt, locale)}</small>
+                    <small>{locationLabel ? locationFor(`file:${file.fileId}`) : formatDateTime(file.updatedAt, locale)}</small>
                   </div>
                   {!editing && (
                   <div className="workspace-file-card-actions">

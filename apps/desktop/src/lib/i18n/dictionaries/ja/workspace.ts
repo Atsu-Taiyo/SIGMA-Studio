@@ -97,7 +97,7 @@ export const workspace = {
   },
   search: {
     material: "教材を検索",
-    placeholder: "教材やフォルダを検索",
+    placeholder: "すべてのワークスペースを検索",
     clear: "検索をクリア",
     results: "検索結果",
   },

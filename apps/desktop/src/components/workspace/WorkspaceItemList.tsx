@@ -25,6 +25,9 @@ type DragDropProps = {
 
 interface WorkspaceItemListProps {
   menuKey?: string | null;
+  loading?: boolean;
+  searchFailed?: boolean;
+  locationLabel?: (row: WorkspaceRow) => string;
   folders: WorkspaceFolderSummary[];
   files: WorkspaceFileSummary[];
   allFolders: WorkspaceFolderSummary[];
@@ -79,6 +82,9 @@ function ariaSortFor(column: WorkspaceSortKey, sortKey: WorkspaceSortKey, sortDi
 
 export function WorkspaceItemList({
   menuKey,
+  loading = false,
+  searchFailed = false,
+  locationLabel,
   folders,
   files,
   allFolders,
@@ -131,6 +137,8 @@ export function WorkspaceItemList({
       onOpenFile(row.id);
     }
   };
+
+  if (loading || searchFailed) return <p role={searchFailed ? "alert" : "status"}>{t(searchFailed ? "error.loadFailed" : "status.loading")}</p>;
 
   return (
     <section className="workspace-group" aria-label={searchActive ? t("search.results") : t("label.materialsAndFolders")}>
@@ -239,7 +247,7 @@ export function WorkspaceItemList({
                     </td>
                     <td className="workspace-list-cell-updated">{formatDateTime(row.updatedAt, locale)}</td>
                     <td className="workspace-list-cell-location">
-                      {resolveRowLocation(row, { folders: allFolders, workspaceName })}
+                      {locationLabel?.(row) ?? resolveRowLocation(row, { folders: allFolders, workspaceName })}
                     </td>
                     <td className="workspace-list-cell-actions">
                       {!editing && row.kind === "folder" && (

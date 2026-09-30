@@ -20,6 +20,8 @@ export function registerCatalogIpc(catalog: DesktopSharedCatalog, local: LocalSi
   handle("billing", action => catalog.billing(z.enum(["checkout", "portal"]).parse(action)));
   handle("locked-document-count", () => catalog.lockedDocumentCount());
   handle("recover-locked", () => catalog.recoverLocked());
+  handle("search-overview", () => catalog.searchOverview());
+  handle("open-link", target => catalog.openLink(sharedTarget.parse(target) as SharedTargetRef));
   handle("status", () => catalog.status());
   handle("refresh", () => catalog.refresh());
   handle("visible", visible => catalog.setVisible(z.boolean().parse(visible)));

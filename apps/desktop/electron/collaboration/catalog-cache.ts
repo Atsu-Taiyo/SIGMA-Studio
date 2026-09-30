@@ -188,7 +188,7 @@ export class CatalogCache {
         folderId: original && "parentFolderId" in original ? original.parentFolderId : original && "folderId" in original ? original.folderId : null };
     }
   }
-  project(local: WorkspaceOverview, requested?: string | null, hiddenFileIds: ReadonlySet<string> = new Set()): WorkspaceOverview {
+  project(local: WorkspaceOverview, requested?: string | null, hiddenFileIds: ReadonlySet<string> = new Set(), allWorkspaces = false): WorkspaceOverview {
     const nodes = Object.values(this.data.nodes).filter(node => node.state === "active");
     const pendingIds = new Set(Object.values(this.data.operations).filter(op => !op.complete).flatMap(op => op.items.map(item => item.nodeId)));
     const pendingFiles = new Set(Object.values(this.data.mappings).filter(m => pendingIds.has(m.nodeId)).flatMap(m => m.local.kind === "document" ? [m.local.fileId] : []));
@@ -230,7 +230,7 @@ export class CatalogCache {
     }
     for (const folder of folders) folder.fileCount = folderCounts.get(JSON.stringify([folder.workspaceId, folder.id])) ?? 0;
     const activeWorkspaceId = requested && workspaces.some(w => w.id === requested) ? requested : local.activeWorkspaceId;
-    return { activeWorkspaceId, workspaces, folders: folders.filter(f => f.workspaceId === activeWorkspaceId), files: files.filter(f => f.workspaceId === activeWorkspaceId) };
+    return { activeWorkspaceId, workspaces, folders: allWorkspaces ? folders : folders.filter(f => f.workspaceId === activeWorkspaceId), files: allWorkspaces ? files : files.filter(f => f.workspaceId === activeWorkspaceId) };
   }
 }
 export function localTargetKey(target: LocalSharingTarget): string {

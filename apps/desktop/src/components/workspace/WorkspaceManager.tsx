@@ -14,6 +14,7 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { FormEvent, MouseEvent as ReactMouseEvent } from "react";
 
+import { useWorkspaceLibrary } from "./use-workspace-search";
 import { Button } from "@/components/ui/Button";
 import { WorkspaceJoinDialog } from "./WorkspaceJoinDialog";
 import { Select } from "@/components/ui/Select";
@@ -38,6 +39,7 @@ import { TemplateGallery } from "@/components/templates/TemplateGallery";
 import { LedgerSchemaFailurePanel } from "@/components/ledger/LedgerSchemaFailurePanel";
 import { createTemplateAtDestination } from "./workspace-template-commands";
 import type { TemplateItem } from "@/types/template";
+import { encodeDocumentLocation } from "@/lib/document-location";
 import { navigateToAppRoute } from "@/lib/app-navigation";
 import { getDesktopBridge } from "@/lib/desktop-bridge";
 import { getAppRuntime } from "@/lib/runtime";
@@ -71,7 +73,7 @@ import { useWorkspaceDragAndDrop } from "./use-workspace-drag-and-drop";
 import { useInlineRename } from "./use-inline-rename";
 import { useWorkspaceItemKeyboard } from "./use-workspace-item-keyboard";
 import { useWorkspaceSelection } from "./use-workspace-selection";
-import { applyPendingRenames, buildFolderPath, buildWorkspaceRows } from "./workspace-list-model";
+import { applyPendingRenames, buildFolderPath, buildWorkspaceRows, resolveSearchLocation } from "./workspace-list-model";
 import { resolveFileDisplayName, resolveFolderDisplayName } from "./workspace-format";
 import { isInteractiveContextTarget, isSelectableItemTarget } from "./workspace-interaction";
 import { enterLedgerSchemaFailure, type LedgerSchemaErrorResult } from "./workspace-overview-result";
@@ -233,7 +235,13 @@ export function WorkspaceManager() {
   };
 
   useEffect(() => {
-    const timeoutId = window.setTimeout(() => void loadOverview(), 0);
+    const timeoutId = window.setTimeout(() => {
+      const params = new URLSearchParams(window.location.search);
+      const workspaceId = params.get("workspaceId");
+      const folderId = params.get("folderId");
+      if (folderId) setFolderFilter(folderId);
+      void loadOverview(workspaceId);
+    }, 0);
     return () => window.clearTimeout(timeoutId);
   }, [loadOverview]);
 
@@ -280,6 +288,11 @@ export function WorkspaceManager() {
   }, [overview]);
   const visibleWorkspaces = useMemo(() => overview?.workspaces ?? [], [overview]);
 
+  const searchActive = searchQuery.trim().length > 0;
+  const { current: searchResult } = useWorkspaceLibrary(searchActive, overview);
+  const searchOverview = searchResult?.overview;
+  const resultFiles = useMemo(() => (searchActive ? searchOverview?.files : overview?.files) ?? [], [searchActive, searchOverview, overview]);
+  const resultFolders = useMemo(() => (searchActive ? searchOverview?.folders : overview?.folders) ?? [], [searchActive, searchOverview, overview]);
   const folders = useMemo(() => overview?.folders ?? [], [overview]);
   const files = useMemo(() => overview?.files ?? [], [overview]);
   const effectiveFolderFilter = folderFilter === ALL_FOLDERS ||
@@ -287,28 +300,27 @@ export function WorkspaceManager() {
     ? folderFilter
     : ALL_FOLDERS;
   const selectedFolder = folders.find((folder) => folder.id === effectiveFolderFilter) ?? null;
-  const searchActive = searchQuery.trim().length > 0;
   const emptyVariant: WorkspaceEmptyVariant = searchActive ? "search" : selectedFolder ? "folder" : "root";
   const filteredFiles = useMemo(() => {
     const query = searchQuery.trim().toLowerCase();
     if (query) {
-      return files.filter((file) => file.title.toLowerCase().includes(query));
+      return resultFiles.filter((file) => file.title.toLowerCase().includes(query));
     }
     return files.filter((file) =>
       effectiveFolderFilter === ALL_FOLDERS ? !file.folderId : file.folderId === effectiveFolderFilter,
     );
-  }, [effectiveFolderFilter, files, searchQuery]);
+  }, [effectiveFolderFilter, files, resultFiles, searchQuery]);
   const visibleFolders = useMemo(() => {
     const query = searchQuery.trim().toLowerCase();
     if (query) {
-      return folders.filter((folder) => folder.name.toLowerCase().includes(query));
+      return resultFolders.filter((folder) => folder.name.toLowerCase().includes(query));
     }
     return folders.filter((folder) =>
       effectiveFolderFilter === ALL_FOLDERS
         ? !folder.parentFolderId
         : folder.parentFolderId === effectiveFolderFilter,
     );
-  }, [effectiveFolderFilter, folders, searchQuery]);
+  }, [effectiveFolderFilter, folders, resultFolders, searchQuery]);
   const rootFolders = useMemo(() => folders.filter((folder) => !folder.parentFolderId), [folders]);
   const rootFiles = useMemo(() => files.filter((file) => !file.folderId), [files]);
 
@@ -317,6 +329,14 @@ export function WorkspaceManager() {
   const workspaceName = activeWorkspace?.name ?? t("nav.workspace");
   const workspaceCount = overview?.workspaces.length ?? 0;
   const activeWorkspaceId = activeWorkspace?.id ?? null;
+  useEffect(() => {
+    if (!activeWorkspaceId || status === "loading" || currentWorkspaceIdRef.current !== activeWorkspaceId) return;
+    const url = new URL(window.location.href);
+    url.searchParams.set("workspaceId", activeWorkspaceId);
+    if (selectedFolder) url.searchParams.set("folderId", selectedFolder.id);
+    else url.searchParams.delete("folderId");
+    window.history.replaceState(window.history.state, "", url);
+  }, [activeWorkspaceId, selectedFolder, status]);
   const renameItem = (target: WorkspaceInlineRenameTarget) => target.type === "workspace"
     ? visibleWorkspaces.find((item) => item.id === target.id)
     : target.type === "folder" ? folders.find((item) => item.id === target.id)
@@ -372,8 +392,8 @@ export function WorkspaceManager() {
       return;
     }
     const existingKeys = new Set<string>([
-      ...overview.files.map((file) => `file:${file.fileId}`),
-      ...overview.folders.map((folder) => `folder:${folder.id}`),
+      ...resultFiles.map((file) => `file:${file.fileId}`),
+      ...resultFolders.map((folder) => `folder:${folder.id}`),
     ]);
     selection.pruneToKeys(existingKeys);
     // selection.pruneToKeys is a stable useCallback identity; the containing
@@ -382,7 +402,7 @@ export function WorkspaceManager() {
     // this effect -- and clear/prune the selection -- on every render
     // instead of only when the overview actually changes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [overview, selection.pruneToKeys]);
+  }, [overview, searchOverview, searchActive, selection.pruneToKeys]);
 
   // A folder navigation, a search query change, or switching the active
   // workspace all change the visible row set outright, so the selection is
@@ -497,7 +517,7 @@ export function WorkspaceManager() {
     return false;
   };
 
-  const openContextMenu = (
+  const openContextMenu = async (
     event: ReactMouseEvent,
     folderId: string | null,
     options?: { allowInteractiveTarget?: boolean },
@@ -509,6 +529,11 @@ export function WorkspaceManager() {
     event.preventDefault();
     event.stopPropagation();
     const rect = event.currentTarget.getBoundingClientRect();
+    const resultFolder = resultFolders.find(folder => folder.id === folderId);
+    if (resultFolder && resultFolder.workspaceId !== activeWorkspaceId) {
+      setSearchQuery(""); setFolderFilter(resultFolder.parentFolderId ?? ALL_FOLDERS);
+      await loadOverview(resultFolder.workspaceId);
+    }
     const x = event.type === "click" ? rect.right - 224 : event.clientX;
     const y = event.type === "click" ? rect.bottom + 6 : event.clientY;
     const maxX = Math.max(12, window.innerWidth - 248);
@@ -534,12 +559,16 @@ export function WorkspaceManager() {
     });
   };
 
-  const openFileActionMenu = (event: ReactMouseEvent, file: WorkspaceFileSummary) => {
+  const openFileActionMenu = async (event: ReactMouseEvent, file: WorkspaceFileSummary) => {
     event.preventDefault();
     event.stopPropagation();
     setContextMenu(null);
     setWorkspaceNavContextMenu(null);
     const rect = event.currentTarget.getBoundingClientRect();
+    if (file.workspaceId !== activeWorkspaceId) {
+      setSearchQuery(""); setFolderFilter(file.folderId ?? ALL_FOLDERS);
+      await loadOverview(file.workspaceId);
+    }
     const menuWidth = 224;
     const maxX = Math.max(12, window.innerWidth - menuWidth - 12);
     const maxY = Math.max(12, window.innerHeight - 212);
@@ -562,6 +591,11 @@ export function WorkspaceManager() {
     });
   };
 
+  const openFolder = (folderId: string) => {
+    const folder = resultFolders.find(item => item.id === folderId);
+    setFolderFilter(folderId); setSearchQuery("");
+    if (folder && folder.workspaceId !== activeWorkspaceId) void loadOverview(folder.workspaceId);
+  };
   const openFile = (fileId: string) => {
     navigateToAppRoute("/", { fileId });
   };
@@ -879,8 +913,7 @@ export function WorkspaceManager() {
       return;
     }
     if (key.startsWith("folder:")) {
-      setFolderFilter(key.slice("folder:".length));
-      setSearchQuery("");
+      openFolder(key.slice("folder:".length));
     }
   };
 
@@ -1304,11 +1337,14 @@ export function WorkspaceManager() {
             {viewPreference.mode === "grid" ? (
               <WorkspaceItemGrid
             menuKey={menuKey}
+                locationLabel={searchActive ? (row) => resolveSearchLocation(row, resultFolders, visibleWorkspaces) : undefined}
                 folders={visibleFolders}
                 files={filteredFiles}
                 sortKey={viewPreference.sortKey}
                 sortDirection={viewPreference.sortDirection}
                 emptyVariant={emptyVariant}
+                loading={searchActive && !searchResult}
+                searchFailed={searchActive && Boolean(searchResult?.failed)}
                 dragItem={dragDrop.dragItem}
                 dropTarget={dragDrop.dropTarget}
                 dragProps={dragDrop.dragProps}
@@ -1317,10 +1353,7 @@ export function WorkspaceManager() {
                 focusedKey={selection.focusedKey}
                 onItemClick={(event, key, rows) => selection.handleItemClick(event, key, rows)}
                 onItemKeyDown={itemKeyboardHandler}
-                onOpenFolder={(folderId) => {
-                  setFolderFilter(folderId);
-                  setSearchQuery("");
-                }}
+                onOpenFolder={openFolder}
                 onFolderContextMenu={(event, folderId) => openContextMenu(event, folderId, { allowInteractiveTarget: true })}
                 onOpenFile={openFile}
                 savingFileId={savingFileId}
@@ -1338,15 +1371,18 @@ export function WorkspaceManager() {
             ) : (
               <WorkspaceItemList
             menuKey={menuKey}
+                locationLabel={searchActive ? (row) => resolveSearchLocation(row, resultFolders, visibleWorkspaces) : undefined}
                 folders={visibleFolders}
                 files={filteredFiles}
-                allFolders={folders}
+                allFolders={resultFolders}
                 workspaceName={workspaceName}
                 sortKey={viewPreference.sortKey}
                 sortDirection={viewPreference.sortDirection}
                 onRequestSort={(sortKey, sortDirection) => setViewPreference({ sortKey, sortDirection })}
                 searchActive={searchActive}
                 emptyVariant={emptyVariant}
+                loading={searchActive && !searchResult}
+                searchFailed={searchActive && Boolean(searchResult?.failed)}
                 dragItem={dragDrop.dragItem}
                 dropTarget={dragDrop.dropTarget}
                 dragProps={dragDrop.dragProps}
@@ -1355,10 +1391,7 @@ export function WorkspaceManager() {
                 focusedKey={selection.focusedKey}
                 onItemClick={(event, key, rows) => selection.handleItemClick(event, key, rows)}
                 onItemKeyDown={itemKeyboardHandler}
-                onOpenFolder={(folderId) => {
-                  setFolderFilter(folderId);
-                  setSearchQuery("");
-                }}
+                onOpenFolder={openFolder}
                 onFolderContextMenu={(event, folderId) => openContextMenu(event, folderId, { allowInteractiveTarget: true })}
                 onOpenFile={openFile}
                 savingFileId={savingFileId}
@@ -1478,10 +1511,10 @@ export function WorkspaceManager() {
           }}
         />
       )}
-      {joinOpen && <WorkspaceJoinDialog onClose={() => setJoinOpen(false)} onJoined={(result) => {
+      {joinOpen && <WorkspaceJoinDialog onClose={() => setJoinOpen(false)} onJoined={(result, location) => {
         setJoinOpen(false); setSearchQuery(""); setFolderFilter(result.folderId ?? ALL_FOLDERS);
         setWorkspaceTreeExpanded(true); if (result.folderId) setExpandedFolderIds(new Set([result.folderId]));
-        void loadOverview(result.workspaceId);
+        if (result.fileId) navigateToAppRoute("/", { fileId: result.fileId, location: location ? encodeDocumentLocation(location) : undefined }); else void loadOverview(result.workspaceId);
       }} />}
       {sharingSelection && <WorkspaceSharingDialog target={sharingSelection.target} name={sharingSelection.name}
         onClose={() => setSharingSelection(null)} onChanged={() => void loadOverview(activeWorkspaceId ?? undefined)} />}

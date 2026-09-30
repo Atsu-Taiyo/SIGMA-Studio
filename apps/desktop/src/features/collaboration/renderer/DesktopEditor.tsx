@@ -7,6 +7,7 @@ import {
 } from "@/components/editor/EditorShell";
 import { getDesktopBridge } from "@/lib/desktop-bridge";
 import { RendererDocumentSession } from "./session";
+import { SelectionLinkButton } from "./SelectionLinkButton";
 import { SharingControls } from "./SharingControls";
 import { CollaborationAccountControl } from "./CollaborationAccountControl";
 import type { CollaborationBridge, CollaborationInfo, SessionInfo } from "../model/bridge";
@@ -186,6 +187,8 @@ export function DesktopEditor() {
       commentIdentity={commentIdentity}
       loadCommentMentionCandidates={loadCommentMentionCandidates}
       renderDocumentActions={renderActions}
+      renderSelectionActions={({ fileId, document, metadata, anchor }) => metadata?.sharing?.state === "active" && metadata.sharing.capabilities.read
+        ? <SelectionLinkButton key={`${fileId}:${JSON.stringify(anchor)}`} target={metadata.sharing.target} anchor={anchor} title={document.metadata.title} /> : null}
       accountAction={<CollaborationAccountControl info={info} refresh={refresh} />}
     />
   );

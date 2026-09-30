@@ -66,6 +66,8 @@ import { documentPathsFromArgv, ExternalDocumentOpenQueue } from "./external-doc
 import { registerMaterialsIpc } from "./ipc/materials";
 import { registerStorageIpc } from "./ipc/storage";
 import { DesktopSharedCatalog } from "./collaboration/catalog";
+import { SHARE_LINK_SCHEME } from "@/features/collaboration/model/share-link";
+import { ShareLinkQueue } from "./collaboration/share-link-queue";
 import { registerCatalogIpc } from "./collaboration/catalog-ipc";
 import { CollaborationSessions } from "./collaboration/sessions";
 import { registerCollaborationIpc } from "./collaboration/ipc";
@@ -103,15 +105,24 @@ if (DEV_SERVER_URL) {
 }
 const USER_DATA_PATH = resolveUserDataPath();
 const startupDocumentPaths = documentPathsFromArgv(process.argv, process.cwd(), Boolean(process.defaultApp));
-// A secondary launch only forwards files. It must not clear active AI contexts or start stores.
-const hasSingleInstanceLock = app.requestSingleInstanceLock({ documentPaths: startupDocumentPaths });
+const startupShareLinks = process.argv.filter(value => value.startsWith(`${SHARE_LINK_SCHEME}://`));
+// A secondary launch forwards requests without clearing AI contexts or starting stores.
+const hasSingleInstanceLock = app.requestSingleInstanceLock({ documentPaths: startupDocumentPaths, shareLinks: startupShareLinks });
 if (!hasSingleInstanceLock) {
-  if (DEV_SERVER_URL && startupDocumentPaths.length === 0) {
+  if (DEV_SERVER_URL && startupDocumentPaths.length === 0 && startupShareLinks.length === 0) {
     console.error("[desktop] This development data directory is already open in another instance.");
     app.exit(1);
   } else app.exit(0);
 }
 let mainWindow: BrowserWindow | null = null;
+const shareLinkQueue = new ShareLinkQueue(() => {
+  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send("share-link:available");
+});
+for (const link of startupShareLinks) shareLinkQueue.enqueue(link);
+app.on("open-url", (event, url) => {
+  event.preventDefault();
+  if (shareLinkQueue.enqueue(url)) focusDocumentWindow();
+});
 const externalDocumentOpenQueue = new ExternalDocumentOpenQueue(() => {
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.webContents.send("file:open-document-available");
@@ -125,6 +136,8 @@ app.on("open-file", (event, filePath) => {
   focusDocumentWindow();
 });
 app.on("second-instance", (_event, argv, workingDirectory, additionalData) => {
+  const links = (additionalData as { shareLinks?: unknown } | undefined)?.shareLinks;
+  for (const value of Array.isArray(links) ? links : argv) if (typeof value === "string") shareLinkQueue.enqueue(value);
   const forwarded = (additionalData as { documentPaths?: unknown } | undefined)?.documentPaths;
   externalDocumentOpenQueue.enqueue(Array.isArray(forwarded)
     ? forwarded.filter((value): value is string => typeof value === "string")
@@ -467,7 +480,7 @@ function createWindow() {
   });
 
   win.webContents.setWindowOpenHandler(({ url }) => {
-    openExternalUrl(url);
+    if (shareLinkQueue.enqueue(url)) focusDocumentWindow(); else openExternalUrl(url);
     return { action: "deny" };
   });
 
@@ -476,7 +489,7 @@ function createWindow() {
       return;
     }
     event.preventDefault();
-    openExternalUrl(url);
+    if (shareLinkQueue.enqueue(url)) focusDocumentWindow(); else openExternalUrl(url);
   });
   win.webContents.on("render-process-gone", () => {
     activeWindowCloseHandshake?.forceFinish();
@@ -488,8 +501,9 @@ function createWindow() {
     }
   });
 
-  const indexPath = path.join(DIST_RENDERER_DIR, "index.html");
-  (DEV_SERVER_URL ? win.loadURL(DEV_SERVER_URL) : win.loadFile(indexPath)).catch((err) => {
+  const initialRoute = shareLinkQueue.peek() ? "workspace" : "";
+  const indexPath = path.join(DIST_RENDERER_DIR, initialRoute ? "workspace.html" : "index.html");
+  (DEV_SERVER_URL ? win.loadURL(new URL(initialRoute, DEV_SERVER_URL).href) : win.loadFile(indexPath)).catch((err) => {
     console.error("Failed to load renderer", err);
   });
   win.on("close", (event) => {
@@ -1607,6 +1621,16 @@ app.whenReady().then(async () => {
   protocol.handle("sigma-collaboration-profile", request => profileImageResponse(request.url));
   registerCollaborationIpc(collaborationSessions, sharedCatalog);
   registerCatalogIpc(sharedCatalog, localSigmaDocStore);
+  // Development instances must not take over the installed app's URL association.
+  if (app.isPackaged) app.setAsDefaultProtocolClient(SHARE_LINK_SCHEME);
+  ipcMain.handle("share-link:pending", event => {
+    if (event.sender !== mainWindow?.webContents || event.senderFrame !== event.sender.mainFrame) throw new Error("MAIN_FRAME_REQUIRED");
+    return shareLinkQueue.peek();
+  });
+  ipcMain.handle("share-link:acknowledge", (event, id: unknown) => {
+    if (event.sender !== mainWindow?.webContents || event.senderFrame !== event.sender.mainFrame) throw new Error("MAIN_FRAME_REQUIRED");
+    if (typeof id === "string") shareLinkQueue.acknowledge(id);
+  });
   void sharedCatalog.refresh().then(status => status.state === "ready" ? sharedCatalog.recoverPending() : undefined).catch(() => {});
   codexAppServerClient.on("statusChanged", broadcastCodexStatusChange);
   claudeStreamClient.on("statusChanged", broadcastClaudeStatusChange);

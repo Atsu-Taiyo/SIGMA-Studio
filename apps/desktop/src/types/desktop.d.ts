@@ -877,6 +877,11 @@ export interface DesktopWorkspacePreviewAPI {
 
 export interface DesktopAPI {
   tikz?: import("@/lib/tikz-contract").TikzRenderAPI;
+  shareLinks?: {
+    pending(): Promise<{ id: string; url: string } | null>;
+    acknowledge(id: string): Promise<void>;
+    onAvailable(handler: () => void): () => void;
+  };
   sharedCatalog?: import("@/lib/runtime/shared-catalog").SharedCatalogBridge;
   collaboration?: import("@/features/collaboration/model/bridge").CollaborationBridge;
   isDesktop: true;
