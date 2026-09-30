@@ -51,6 +51,14 @@ describe("comments", () => {
     expect(getCommentAnchorQuote({ type: "overlayMath", tex: "x" })).toBe("x");
   });
 
+  it("treats document-level comments as always attached", () => {
+    const emptyDocument: SigmaDocument = { ...sampleDocument, content: [] };
+
+    expect(isCommentAnchorOrphan(emptyDocument, { type: "document" })).toBe(false);
+    expect(getCommentAnchorLabel({ type: "document" }, emptyDocument)).toBe("文書全体");
+    expect(getCommentAnchorQuote({ type: "document" })).toBe("");
+  });
+
   it("returns block comment threads including inline math and text range endpoints", () => {
     const threads: SigmaCommentThread[] = [
       {

@@ -106,7 +106,7 @@ function retainWhiteboardComments(
   }
 
   return comments.filter((thread) => {
-    if (thread.anchor.type === "canvasRegion") return true;
+    if (thread.anchor.type === "canvasRegion" || thread.anchor.type === "document") return true;
     if (thread.anchor.type === "overlayShape") {
       return thread.anchor.shapeIds.some((shapeId) => shapeIds.has(shapeId));
     }

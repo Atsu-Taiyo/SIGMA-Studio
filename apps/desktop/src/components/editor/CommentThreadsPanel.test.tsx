@@ -25,7 +25,7 @@ describe("CommentMessageBody", () => {
 });
 
 describe("CommentThreadsPanel", () => {
-  it("コメントがないときは選択後に追加する案内を表示する", () => {
+  it("コメントがないときは追加の案内を表示する", () => {
     const html = renderToStaticMarkup(
       <CommentThreadsPanel
         activeThreadId={null}
@@ -61,6 +61,6 @@ describe("CommentThreadsPanel", () => {
       />,
     );
 
-    expect(html).toContain("図形やテキストを選んでから");
+    expect(html).toContain("「コメントを追加」を押すと書き始められます。");
   });
 });

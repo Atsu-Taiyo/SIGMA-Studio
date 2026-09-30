@@ -250,7 +250,6 @@ export const editor = {
   },
   status: {
     ready: "Ready",
-    selectCommentTarget: "Select what you want to comment on",
     commentReady: "You can write a comment now",
     openFailedWithReason: "Could not open the document (showing the cause)",
     saveFailed: "Could not save",
@@ -651,7 +650,7 @@ export const editor = {
     mentionsYou: "Mentions you",
 
     none: "No comments yet",
-    emptyHint: "Select a shape or text, then choose Add comment.",
+    emptyHint: "Choose Add comment to start writing. Select a shape or text first to attach it there.",
     resolved: "Resolved",
     edit: "Edit",
     delete: "Delete",
@@ -661,7 +660,7 @@ export const editor = {
     toggleWithCount: "Comments ({{comments}})",
     dockPanel: "Comments panel",
     closeDock: "Close comments",
-    selectTargetHint: "Select a shape or text to comment on.",
+    selectTargetHint: "Select a shape or text to attach the comment there; otherwise it applies to the whole document.",
     add: "Add",
     addComment: "Add comment",
     save: "Save",
@@ -715,6 +714,7 @@ export const editor = {
       helpful: "Helpful",
       clap: "Applause",
       please: "Please",
+      document: "Whole document",
       ok: "OK",
       thinking: "Thinking",
       question: "Question",

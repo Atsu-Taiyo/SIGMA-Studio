@@ -978,6 +978,31 @@ describe("SigmaDoc schema", () => {
     expect(getDocumentIssues(parsed)).toEqual([]);
   });
 
+  it("accepts document-level comments that have no target", () => {
+    const document: SigmaDocument = {
+      ...sampleDocument,
+      comments: [
+        {
+          id: "comment_thread_document",
+          anchor: { type: "document" },
+          messages: [
+            {
+              id: "comment_message_document",
+              body: [{ type: "text", text: "全体へのコメント" }],
+              createdAt: "2026-06-16T00:00:00.000Z",
+            },
+          ],
+          createdAt: "2026-06-16T00:00:00.000Z",
+        },
+      ],
+    };
+
+    const parsed = parseSigmaDocument(document);
+
+    expect(parsed.comments?.[0].anchor).toEqual({ type: "document" });
+    expect(getDocumentIssues(parsed)).toEqual([]);
+  });
+
   it("reports overlay math comments only when a referenced shape id is missing", () => {
     const document: SigmaDocument = {
       ...sampleDocument,
