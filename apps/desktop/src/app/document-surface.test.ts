@@ -127,6 +127,7 @@ const EDITOR_CHROME_CLASSES = new Set([
   "print-status-toast-message",
   "print-status-toast-retry",
   "sigma-doc-box-action-button",
+  "sigma-doc-box-split-handle",
   "sigma-doc-box-content",
   // `.text-flow-editor` itself is shared (the body typography the viewer needs); everything else in
   // the family is editing chrome — selection, comments, AI diff/lock states, column and box
@@ -465,8 +466,28 @@ describe("タイトルの地色", () => {
     );
     expect(band["border-bottom"]).toContain("--sigma-doc-box-title-band-rule-width");
     expect(band["border-bottom"]).toContain("--sigma-doc-box-title-band-rule-color");
+    // 枠線の種類 (破線・点線など) は、見出しと本文のあいだの罫にも同じに効く。
+    expect(band["border-bottom"]).toContain("--sigma-doc-box-border-style");
     expect(boxFrameStyleVars(resolveBoxFrame(createBoxBlock("tcolorbox")))["--sigma-doc-box-title-band-rule-width"]).toBe("0px");
     expect(boxFrameStyleVars(resolveBoxFrame(createBoxBlock("titlebox")))["--sigma-doc-box-title-band-rule-width"]).toBe("1.2px");
+  });
+
+  it("lays a split heading out as a two-column grid driven by custom properties", () => {
+    const grid = ruleDeclarations(
+      documentSurfaceCss,
+      ".print-box-block.box-frame--title-split",
+    );
+    expect(grid.display).toBe("grid");
+    expect(grid["grid-template-columns"]).toContain("--sigma-doc-box-split-columns");
+    expect(grid["column-gap"]).toContain("--sigma-doc-box-split-gap");
+
+    const subtitle = ruleDeclarations(
+      documentSurfaceCss,
+      ":is(.box-frame--title-split.box-frame--title-band, .box-frame--title-split.box-frame--title-band > .sigma-doc-box-content) > :is(.sigma-doc-box-subtitle, .print-box-subtitle)",
+    );
+    expect(subtitle.background).toContain("--sigma-doc-box-subtitle-background");
+    expect(subtitle.color).toContain("--sigma-doc-box-subtitle-color");
+    expect(subtitle["grid-column"]).toContain("--sigma-doc-box-subtitle-col");
   });
 
   it("keeps the title tab inside the frame", () => {

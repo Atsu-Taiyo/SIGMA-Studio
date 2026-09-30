@@ -100,9 +100,15 @@ export const INTENTIONAL_RUNTIME_JAPANESE: readonly IntentionalJapaneseRule[] = 
   },
   {
     path: /^electron\/ai-resource-store\.ts$/,
-    value: /^(?:グローバル指示|すべてのワークスペースで、AIが常に従う指示です。|画像からSigma Studio教材を作成|画像、写真、スクリーンショット、手書きラフを基に、本文・数式・表・グラフ・図形・注記を編集可能なSigma Studio教材として再構成するときに使う。|画像|教材再構成|図形|グラフを挿入・更新する|Sigma Studio教材で関数グラフ、座標平面、数直線、領域図を挿入・更新し、軸・曲線・点・ラベルまで検証するときに使う。|グラフ|関数|座標|ワークスペースの指示|AIリソース)$/,
+    value: /^(?:グローバル指示|すべてのワークスペースで、AIが常に従う指示です。|ワークスペースの指示|AIリソース)$/,
     classification: "AI resource contract",
     reason: "Canonical resource metadata is persisted and included in model context; only renderer display adapters localize it.",
+  },
+  {
+    // 公式スキルの定義だけを置くファイル。ここの日本語はすべてmanifestへ保存されるAI向けのcanonical値。
+    path: /^electron\/official-skill-definitions\.ts$/,
+    classification: "AI resource contract",
+    reason: "Official skill titles, descriptions, and tags are persisted and included in model context; only renderer display adapters (lib/ai/ai-resource-display.ts) localize them.",
   },
   {
     path: /^electron\/ai-edit\.ts$/,

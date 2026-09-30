@@ -27,6 +27,8 @@ interface BoxTitleEditorProps {
   value: InlineNode[];
   mathFractionSizing?: MathFractionSizing | null;
   autoFocus?: boolean;
+  /** 入力欄の名前。サブタイトルなど、タイトル以外の欄で使うときに渡す。 */
+  ariaLabel?: string;
   onChange: (value: InlineNode[]) => void;
 }
 
@@ -42,6 +44,7 @@ export function BoxTitleEditor({
   value,
   mathFractionSizing,
   autoFocus = false,
+  ariaLabel,
   onChange,
 }: BoxTitleEditorProps) {
   const t = useT("settings");
@@ -79,7 +82,7 @@ export function BoxTitleEditor({
     editorProps: {
       attributes: {
         class: styles.field,
-        "aria-label": t("box.titleSection"),
+        "aria-label": ariaLabel ?? t("box.titleSection"),
         // ⌘Z をこの欄自身の履歴へ届けるための目印
         // (`editor-shell/command-shortcut-targets.ts`)。無いとダイアログ背後の文書が巻き戻る。
         [LOCAL_EDIT_HISTORY_ATTRIBUTE]: "true",
@@ -95,7 +98,7 @@ export function BoxTitleEditor({
       onChange(nextValue);
     },
     // プレースホルダが変わったらエディタを作り直す (表示言語を切り替えたときだけ)。
-  }, [placeholder]);
+  }, [placeholder, ariaLabel]);
 
   const serializedValue = JSON.stringify(value);
   useEffect(() => {

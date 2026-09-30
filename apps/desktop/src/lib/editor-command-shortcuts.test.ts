@@ -8,10 +8,11 @@ import { command as jaCommand } from "@/lib/i18n/dictionaries/ja/command";
 import {
   assignShortcutOverride,
   clearShortcutOverride,
+  createEditorCustomCommandDefinition,
   detectEditorShortcutPlatform,
   EDITOR_COMMAND_SHORTCUTS,
   findCommandByShortcut,
-  formatCustomCommandActionDescription,
+  formatCustomCommandDescription,
   formatShortcutText,
   getShortcutForCommand,
   parseEditorCustomCommands,
@@ -193,7 +194,8 @@ describe("editor command shortcuts", () => {
 
     expect(customCommands).toHaveLength(1);
     // 説明は保存値ではなく action から組み立て直す (保存済み JSON にあっても読み捨てる)。
-    expect(formatCustomCommandActionDescription(customCommands[0].action, createTranslator("ja", "command")))
+    expect(customCommands[0].actions).toEqual([{ type: "fontFamily", value: "\"Yu Mincho\", serif" }]);
+    expect(formatCustomCommandDescription(customCommands[0].actions, createTranslator("ja", "command")))
       .toContain("Yu Mincho");
 
     const overrides = assignShortcutOverride(
@@ -232,7 +234,44 @@ describe("editor command shortcuts", () => {
     ]));
 
     expect(customCommands).toHaveLength(1);
-    expect(customCommands[0].action).toEqual({ type: "lineHeight", value: "1.2" });
+    expect(customCommands[0].actions).toEqual([{ type: "lineHeight", value: "1.2" }]);
+  });
+
+  it("keeps several steps in order, drops the invalid ones, and never nests custom commands", () => {
+    const [command, ...rest] = parseEditorCustomCommands(JSON.stringify([
+      {
+        id: "custom.combo",
+        label: "見出しを整える",
+        actions: [
+          { type: "blockStyle", value: "h2" },
+          { type: "blockStyle", value: "quote" },
+          { type: "blockStyle", value: "h9" },
+          { type: "textBackgroundColor", value: null },
+          { type: "command", commandId: "insert.pageBreak" },
+          { type: "command", commandId: "custom.combo" },
+          { type: "command", commandId: "no.such.command" },
+        ],
+      },
+      { id: "custom.only-invalid", label: "空", actions: [{ type: "blockStyle", value: "h9" }] },
+    ]));
+
+    expect(rest).toEqual([]);
+    expect(command.actions).toEqual([
+      { type: "blockStyle", value: "h2" },
+      { type: "blockStyle", value: "quote" },
+      { type: "textBackgroundColor", value: null },
+      { type: "command", commandId: "insert.pageBreak" },
+    ]);
+    expect(formatCustomCommandDescription(command.actions, createTranslator("ja", "command")))
+      .toBe("段落スタイルを「見出し 2」に変更 → 段落スタイルを「引用」に変更 → 文字背景色をなしに変更 → 「改ページ・改段を挿入」を実行");
+  });
+
+  it("round-trips created commands through storage", () => {
+    const created = createEditorCustomCommandDefinition({
+      label: "A",
+      actions: [{ type: "textFormat", command: "bold" }, { type: "fontSize", value: 20 }],
+    });
+    expect(parseEditorCustomCommands(JSON.stringify([created]))).toEqual([created]);
   });
 
   it("detects the shortcut platform from navigator platform text", () => {

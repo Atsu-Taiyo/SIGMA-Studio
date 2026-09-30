@@ -170,3 +170,55 @@ describe("applying a fill patch", () => {
     expect(sharedFill([patched])).toEqual({ kind: "solid", fillColor: "#0000ff", fillOpacity: 0.4 });
   });
 });
+
+describe("applyStylePatchToShape on solids", () => {
+  function prism(props: Partial<Record<string, unknown>> = {}): OverlayShape {
+    return rectangle({
+      geo: "prism",
+      baseSides: 3,
+      fill: "none",
+      dash: "solid",
+      solidEdgeDash: ["solid", "solid", "solid", "solid", "solid", "solid", "dashed", "dashed", "dashed"],
+      ...props,
+    });
+  }
+
+  it("makes every edge the chosen line style when the whole solid takes a line style", () => {
+    const styled = applyStylePatchToShape(prism(), { dash: "dotted" });
+    expect(styled.type === "geo" && styled.props.dash).toBe("dotted");
+    // 辺ごとの指定は捨てる。残すと、全体の線種を変えたのに一部の辺だけ変わらない。
+    expect(styled.type === "geo" && styled.props.solidEdgeDash).toBeUndefined();
+  });
+
+  it("keeps the per-edge line styles when the patch does not touch the line style", () => {
+    const shape = prism();
+    const styled = applyStylePatchToShape(shape, { color: "#dc2626", size: "l" });
+    expect(styled.type === "geo" && styled.props).toMatchObject({
+      color: "#dc2626",
+      size: "l",
+      solidEdgeDash: shape.type === "geo" ? shape.props.solidEdgeDash : undefined,
+    });
+  });
+
+  it("does not add edge styles to a plane shape", () => {
+    const styled = applyStylePatchToShape(rectangle(), { dash: "dashed" });
+    expect(styled.type === "geo" && styled.props).not.toHaveProperty("solidEdgeDash");
+  });
+});
+
+describe("applyStylePatchToShape on solid line widths", () => {
+  function prism(props: Partial<Record<string, unknown>> = {}): OverlayShape {
+    return rectangle({ geo: "prism", baseSides: 3, fill: "none", size: "m", solidEdgeSize: ["s", "xl"], ...props });
+  }
+
+  it("makes every edge the chosen width when the whole solid takes a width, dropping the per-edge widths", () => {
+    const styled = applyStylePatchToShape(prism(), { size: "l" });
+    expect(styled.type === "geo" && styled.props.size).toBe("l");
+    expect(styled.type === "geo" && styled.props.solidEdgeSize).toBeUndefined();
+  });
+
+  it("keeps the per-edge widths when the patch does not touch the width", () => {
+    const styled = applyStylePatchToShape(prism(), { color: "#dc2626", dash: "dashed" });
+    expect(styled.type === "geo" && styled.props.solidEdgeSize).toEqual(["s", "xl"]);
+  });
+});

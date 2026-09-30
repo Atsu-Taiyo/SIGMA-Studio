@@ -10,7 +10,10 @@ import {
   LocalAiResourceStore,
   OFFICIAL_GRAPH_SKILL_ID,
   OFFICIAL_IMAGE_MATERIAL_SKILL_ID,
+  OFFICIAL_SKILL_DEFINITIONS,
 } from "./ai-resource-store";
+
+const OFFICIAL_SKILL_IDS = OFFICIAL_SKILL_DEFINITIONS.map((definition) => definition.id);
 
 const IMAGE_SKILL_V1 = "---\nname: sigma-image-material-reconstruction\ndescription: image v1\n---\n\n# Image v1\n";
 const IMAGE_SKILL_V2 = "---\nname: sigma-image-material-reconstruction\ndescription: image v2\n---\n\n# Image v2\n";
@@ -35,40 +38,67 @@ describe("LocalAiResourceStore", () => {
     await fs.rm(userDataDir, { recursive: true, force: true });
   });
 
-  it("creates the global instruction entry with an EMPTY user-editable seed and no projection", async () => {
+  const globalInstructionPath = () => path.join(userDataDir, "data", "ai-agent-config", "instructions", "global.md");
+
+  it("seeds the global instruction with the default operating rules and projects them to every provider", async () => {
     await store.syncToRuntimeTargets();
 
     const tree = await store.getTree();
     expect(nonOfficialResourceIds(tree.resources)).toEqual([GLOBAL_INSTRUCTIONS_ID]);
     expect(tree.resources.find((resource) => resource.id === GLOBAL_INSTRUCTIONS_ID)?.workspaceId).toBeUndefined();
-    // ユーザー編集欄は空でseed(内部デフォルト文をユーザーに見せない)。基盤ルールは
-    // 組み込みプロンプト(mcp-edit-prompt.ts側)で届くため、空の間は投影ファイルも作られない。
-    await expect(fs.readFile(path.join(userDataDir, "data", "ai-agent-config", "instructions", "global.md"), "utf8"))
-      .resolves.toBe("");
-    await expect(fs.access(path.join(userDataDir, "data", "codex-agent-workspace", "AGENTS.md")))
-      .rejects.toMatchObject({ code: "ENOENT" });
-    await expect(fs.access(path.join(userDataDir, "data", "claude-agent-home", "CLAUDE.md")))
-      .rejects.toMatchObject({ code: "ENOENT" });
-    await expect(fs.access(path.join(userDataDir, "data", "antigravity-agent-workspace", "AGENTS.md")))
-      .rejects.toMatchObject({ code: "ENOENT" });
+    // 初期文は運用ルールだけ。基盤ルール(SigmaDocが正本・提案経由)は組み込みプロンプトが毎回渡すので複製しない。
+    const seeded = await fs.readFile(globalInstructionPath(), "utf8");
+    expect(seeded).toContain("## 進め方");
+    expect(seeded).toContain("頼まれた範囲だけを直す");
+    expect(seeded).toContain("未確認");
+    expect(seeded).not.toContain("SigmaDoc JSON");
+    expect(seeded).not.toContain("MCP");
+    for (const projected of [
+      path.join("codex-agent-workspace", "AGENTS.md"),
+      path.join("claude-agent-home", "CLAUDE.md"),
+      path.join("antigravity-agent-workspace", "AGENTS.md"),
+    ]) {
+      await expect(fs.readFile(path.join(userDataDir, "data", projected), "utf8")).resolves.toContain("頼まれた範囲だけを直す");
+    }
   });
 
-  it("seeds both official skills as managed resources on a fresh install", async () => {
+  it("seeds the default rules in the display language at first run, and never rewrites an existing file", async () => {
+    setAppLocale("en");
+    const english = await fs.mkdtemp(path.join(os.tmpdir(), "sigma-ai-resources-en-"));
+    try {
+      await new LocalAiResourceStore(english).getTree();
+      const seeded = await fs.readFile(path.join(english, "data", "ai-agent-config", "instructions", "global.md"), "utf8");
+      expect(seeded).toContain("Change only what was asked");
+      expect(seeded).not.toMatch(/[぀-ヿ一-鿿]/u);
+    } finally {
+      setAppLocale("ja");
+      await fs.rm(english, { recursive: true, force: true });
+    }
+
+    // すでにあるglobal.md(空を含む)は初期文で上書きしない。既存ユーザーのファイルはそのまま。
+    const existing = await fs.mkdtemp(path.join(os.tmpdir(), "sigma-ai-resources-existing-"));
+    try {
+      const file = path.join(existing, "data", "ai-agent-config", "instructions", "global.md");
+      await fs.mkdir(path.dirname(file), { recursive: true });
+      await fs.writeFile(file, "", "utf8");
+      await new LocalAiResourceStore(existing).getTree();
+      await expect(fs.readFile(file, "utf8")).resolves.toBe("");
+    } finally {
+      await fs.rm(existing, { recursive: true, force: true });
+    }
+  });
+
+  it("seeds every official skill as a managed resource on a fresh install", async () => {
     const tree = await store.getTree();
     const officialSkills = tree.resources.filter((resource) => resource.origin === "official");
 
-    expect(officialSkills).toEqual([
-      expect.objectContaining({
-        id: OFFICIAL_IMAGE_MATERIAL_SKILL_ID,
-        origin: "official",
-        officialState: "managed",
-      }),
-      expect.objectContaining({
-        id: OFFICIAL_GRAPH_SKILL_ID,
-        origin: "official",
-        officialState: "managed",
-      }),
-    ]);
+    expect(officialSkills.map((resource) => resource.id)).toEqual(OFFICIAL_SKILL_IDS);
+    expect(officialSkills).toEqual(OFFICIAL_SKILL_IDS.map((id) => expect.objectContaining({
+      id,
+      origin: "official",
+      officialState: "managed",
+      loadMode: "auto",
+    })));
     await Promise.all(officialSkills.map(async (resource) => {
       const file = await store.readFile(resource.id);
       expect(file.content.length).toBeGreaterThan(0);
@@ -207,11 +237,11 @@ describe("LocalAiResourceStore", () => {
       store.readFile(OFFICIAL_GRAPH_SKILL_ID),
     ]);
 
-    expect(results[0].resources.filter((resource) => resource.origin === "official")).toHaveLength(2);
-    expect(results[1].resources.filter((resource) => resource.origin === "official")).toHaveLength(2);
+    expect(results[0].resources.filter((resource) => resource.origin === "official")).toHaveLength(OFFICIAL_SKILL_IDS.length);
+    expect(results[1].resources.filter((resource) => resource.origin === "official")).toHaveLength(OFFICIAL_SKILL_IDS.length);
     const rawManifest = await fs.readFile(path.join(store.getSourceRoot(), "manifest.json"), "utf8");
     const parsedManifest = JSON.parse(rawManifest) as { resources: unknown[] };
-    expect(parsedManifest.resources).toHaveLength(3);
+    expect(parsedManifest.resources).toHaveLength(OFFICIAL_SKILL_IDS.length + 1);
   });
 
   it("preserves a hand-edited official SKILL.md and marks it as modified", async () => {
@@ -292,16 +322,14 @@ describe("LocalAiResourceStore", () => {
     expect(legacy?.origin).toBeUndefined();
     expect(legacy?.bundledHash).toBeUndefined();
     expect(legacy?.officialState).toBeUndefined();
-    expect(tree.resources.filter((resource) => resource.origin === "official").map((resource) => resource.id)).toEqual([
-      OFFICIAL_IMAGE_MATERIAL_SKILL_ID,
-      OFFICIAL_GRAPH_SKILL_ID,
-    ]);
+    expect(tree.resources.filter((resource) => resource.origin === "official").map((resource) => resource.id))
+      .toEqual(OFFICIAL_SKILL_IDS);
   });
 
   it("rejects deleting official skills", async () => {
     await store.getTree();
 
-    for (const resourceId of [OFFICIAL_IMAGE_MATERIAL_SKILL_ID, OFFICIAL_GRAPH_SKILL_ID]) {
+    for (const resourceId of OFFICIAL_SKILL_IDS) {
       await expect(store.deleteResource(resourceId)).rejects.toThrow("公式スキルは削除できません");
       await expect(store.readFile(resourceId)).resolves.toMatchObject({
         resource: expect.objectContaining({ id: resourceId, origin: "official" }),
@@ -381,10 +409,14 @@ describe("LocalAiResourceStore", () => {
     }
   });
 
-  it("keeps the empty-seeded global instruction out of the run context", async () => {
-    const context = await store.buildRunContext("codex", []);
+  it("puts the seeded default rules in the run context, and keeps an emptied global instruction out of it", async () => {
+    const seeded = await store.buildRunContext("codex", []);
+    expect(seeded.always.map((item) => item.id)).toEqual([GLOBAL_INSTRUCTIONS_ID]);
+    expect(seeded.always[0]?.content).toContain("頼まれた範囲だけを直す");
 
-    expect(context.always.some((item) => item.id === GLOBAL_INSTRUCTIONS_ID)).toBe(false);
+    await store.saveInstruction({ content: "" });
+    const emptied = await store.buildRunContext("codex", []);
+    expect(emptied.always.some((item) => item.id === GLOBAL_INSTRUCTIONS_ID)).toBe(false);
   });
 
   it("does not auto-inject a skill's body just because it wasn't explicitly selected", async () => {
@@ -395,7 +427,8 @@ describe("LocalAiResourceStore", () => {
     const context = await store.buildRunContext("codex", []);
 
     expect(context.explicit).toEqual([]);
-    expect(context.always).toEqual([]);
+    // 常に乗るのは、新規インストールで入る運用ルールの初期文(グローバル指示)だけ。
+    expect(context.always.map((item) => item.id)).toEqual([GLOBAL_INSTRUCTIONS_ID]);
   });
 
   it("scopes buildRunContext's always instructions to global plus the matching workspaceId only", async () => {

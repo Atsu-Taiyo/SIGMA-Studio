@@ -20,10 +20,13 @@ import type {
 import {
   resolveBoxStyles,
   boxFrameClassName,
+  boxFrameHasSubtitle,
   boxFrameDecorationAttributes,
   boxFrameStyleVars,
   resolveBoxFrame,
 } from "@/lib/box-blocks";
+import { joinBoxColor, splitBoxColor } from "@/lib/box-color";
+import { fillOpacityToPercent } from "@/lib/fill-opacity";
 import { boxFrameFields, type BoxFrameField, type BoxFrameFieldGroup } from "@/lib/box-frame-fields";
 import styles from "./BoxSettingsDialog.module.css";
 import type { Translate } from "@/lib/i18n";
@@ -34,12 +37,15 @@ type BoxSettingsBlock = Pick<BoxBlockNode, "id" | "styleId" | "frame">;
 interface BoxSettingsDialogProps {
   boxBlock: BoxSettingsBlock;
   title: InlineNode[];
+  /** 2 欄の見出しを持つ箱だけが渡す。 */
+  subtitle?: InlineNode[];
   mathFractionSizing?: MathFractionSizing | null;
   /** ⋯メニューの「タイトルを編集…」から開いたときだけタイトル入力へキャレットを置く。 */
   autoFocusTitle?: boolean;
   onStyleChange: (styleId: string) => void;
   onFrameChange: (patch: Partial<BoxFrameSpec>) => void;
   onTitleChange: (title: InlineNode[]) => void;
+  onSubtitleChange?: (subtitle: InlineNode[]) => void;
   /** このスタイルで覚えている見た目を捨て、組み込みの既定へ戻す。 */
   onResetStyle: () => void;
   onClose: () => void;
@@ -62,11 +68,13 @@ const DEFAULT_PADDING: BoxSpacingPx = {
 export function BoxSettingsDialog({
   boxBlock,
   title,
+  subtitle,
   mathFractionSizing,
   autoFocusTitle = false,
   onStyleChange,
   onFrameChange,
   onTitleChange,
+  onSubtitleChange,
   onResetStyle,
   onClose,
 }: BoxSettingsDialogProps) {
@@ -85,6 +93,7 @@ export function BoxSettingsDialog({
     hasUniformPadding(padding) ? "all" : "sides"
   ));
   const uniformPadding = hasUniformPadding(padding) ? padding.top : "";
+  const hasSubtitle = boxFrameHasSubtitle(resolvedFrame);
   const fields = boxFrameFields(resolvedFrame);
   const decorationFields = fields.filter((field) => field.group === "decoration");
 
@@ -120,6 +129,7 @@ export function BoxSettingsDialog({
                 styleId={boxBlock.styleId}
                 frame={resolvedFrame}
                 title={title}
+                subtitle={hasSubtitle ? subtitle ?? [] : undefined}
                 mathFractionSizing={mathFractionSizing}
               />
             </div>
@@ -135,6 +145,17 @@ export function BoxSettingsDialog({
                 autoFocus={autoFocusTitle}
                 onChange={onTitleChange}
               />
+              {hasSubtitle ? (
+                <>
+                  <SectionHeading id="box-settings-subtitle-heading" title={t("box.subtitleSection")} />
+                  <BoxTitleEditor
+                    value={subtitle ?? []}
+                    mathFractionSizing={mathFractionSizing}
+                    ariaLabel={t("box.subtitleSection")}
+                    onChange={(next) => onSubtitleChange?.(next)}
+                  />
+                </>
+              ) : null}
               <p className={styles.fieldHint}>{t("box.titleHint")}</p>
             </Stack>
 
@@ -400,9 +421,9 @@ function renderFields(
                 <span className={styles.choiceOption}>
                   {field.id === "borderStyle" ? (
                     <span className={styles.lineSample} style={{ borderTopStyle: option as CSSProperties["borderTopStyle"] }} aria-hidden="true" />
-                  ) : (
+                  ) : field.id === "titleFontWeight" ? (
                     <span aria-hidden="true" style={{ fontWeight: option === "bold" ? 700 : 400 }}>Aa</span>
-                  )}
+                  ) : null}
                   {t(`box.fieldOption.${option}` as never) as string}
                 </span>
               ),
@@ -431,6 +452,11 @@ function ColorField({
   const buttonRef = useRef<HTMLButtonElement | null>(null);
   const [open, setOpen] = useState(false);
   const labelId = `box-settings-${fieldId.replace(/\./g, "-")}-label`;
+  // 色と不透明度は 8 桁 16 進 1 つに載っている。パレットへは「色 + 不透明度」に分けて渡す。
+  const parts = splitBoxColor(value);
+  const paletteColor = parts?.color ?? "#000000";
+  const paletteOpacity = parts?.opacity ?? 1;
+  const opacityPercent = fillOpacityToPercent(paletteOpacity);
   return (
     <div className={styles.field}>
       <span id={labelId}>{label}</span>
@@ -445,14 +471,15 @@ function ColorField({
         onClick={() => setOpen((current) => !current)}
       >
         <span
-          className={styles.colorSwatch}
           // 16 進で書かれていない値 (`transparent` など) は塗らずに「色なし」として見せる。
           // 黒で塗ると、枠線を消しているスタイルが「黒い枠線」に見える。
-          data-empty={isHtmlColor(value) ? undefined : "true"}
-          style={isHtmlColor(value) ? { backgroundColor: value } : undefined}
+          // 透けている色は、市松模様の上に重ねて見せる (パレットの色チップと同じ見せ方)。
+          className={`${styles.colorSwatch} color-palette-fill-chip`}
+          data-empty={parts ? undefined : "true"}
+          style={parts ? { ["--fill-chip-color" as string]: value } : undefined}
           aria-hidden="true"
         />
-        <output>{value}</output>
+        <output>{parts && opacityPercent < 100 ? `${parts.color} · ${opacityPercent}%` : value}</output>
         <ChevronDown size={14} aria-hidden="true" />
       </button>
       <ToolbarPopover
@@ -464,13 +491,16 @@ function ColorField({
         zIndex="var(--z-modal-nested)"
       >
         <ColorPalette
-          value={htmlColorValue(value)}
-          onChange={(color) => {
+          value={paletteColor}
+          opacity={paletteOpacity}
+          onChange={(color, nextOpacity) => {
             if (color) {
-              onChange(color);
+              // スウォッチは色だけを返す。いまの不透明度は持ち越す。
+              onChange(joinBoxColor(color, nextOpacity ?? paletteOpacity));
             }
             setOpen(false);
           }}
+          onOpacityChange={(nextOpacity) => onChange(joinBoxColor(paletteColor, nextOpacity))}
         />
       </ToolbarPopover>
     </div>
@@ -612,10 +642,11 @@ function SegmentedButton({
   );
 }
 
-function BoxStylePreview({ styleId, frame, title, mathFractionSizing }: {
+function BoxStylePreview({ styleId, frame, title, subtitle, mathFractionSizing }: {
   styleId: string;
   frame: BoxFrameSpec;
   title?: InlineNode[];
+  subtitle?: InlineNode[];
   mathFractionSizing?: MathFractionSizing | null;
 }) {
   const t = useT("settings");
@@ -647,6 +678,11 @@ function BoxStylePreview({ styleId, frame, title, mathFractionSizing }: {
         <span className="sigma-doc-box-corner bottom-left" />
         <span className="sigma-doc-box-corner bottom-right" />
         <span className="sigma-doc-box-title">{title?.length ? <InlineContent nodes={title} mathFractionSizing={mathFractionSizing} /> : t("box.previewTitle")}</span>
+        {subtitle ? (
+          <span className="sigma-doc-box-title sigma-doc-box-subtitle">
+            {subtitle.length ? <InlineContent nodes={subtitle} mathFractionSizing={mathFractionSizing} /> : t("box.previewSubtitle")}
+          </span>
+        ) : null}
         <span className="sigma-doc-box-body">
           <span className={styles.previewLine} />
           <span className={styles.previewLine} />
@@ -660,12 +696,4 @@ function hasUniformPadding(padding: BoxSpacingPx): boolean {
   return padding.top === padding.right &&
     padding.top === padding.bottom &&
     padding.top === padding.left;
-}
-
-function isHtmlColor(color: string): boolean {
-  return /^#[0-9a-f]{6}$/i.test(color);
-}
-
-function htmlColorValue(color: string): string {
-  return isHtmlColor(color) ? color : "#000000";
 }

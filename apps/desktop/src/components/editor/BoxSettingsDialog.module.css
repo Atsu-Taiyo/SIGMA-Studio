@@ -57,6 +57,12 @@
   pointer-events: none;
 }
 
+.stylePreview:global(.box-frame--title-split) {
+  display: grid;
+  grid-template-columns: var(--sigma-doc-box-split-columns);
+  column-gap: var(--sigma-doc-box-split-gap, 0);
+}
+
 .stylePreview:global(.box-frame--notebook-rules) {
   min-height: 0;
 }

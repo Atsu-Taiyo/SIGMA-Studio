@@ -8,6 +8,7 @@ import { describe, expect, it } from "vitest";
 import {
   AiTaskDock,
   AiTaskDockPanel,
+  buildOtherDocumentTaskRows,
   buildTaskRows,
   buildWebMcpHistoryRows,
   countAiTaskBadge,
@@ -556,5 +557,74 @@ describe("AiTaskDockPanel (Web版のWebMCP区画)", () => {
 
     expect(html).not.toContain("ai-task-dock-webmcp");
     expect(html).not.toContain("エージェントへの指示");
+  });
+});
+
+describe("buildOtherDocumentTaskRows", () => {
+  const resolveDocumentTitle = (fileId: string) => `title:${fileId}`;
+  const build = (
+    rooms: AiEditChatRoom[],
+    sessions: Map<string, AiRunSession>,
+    pendingProposals: DesktopMcpEditProposalSummary[] = [],
+  ) => buildOtherDocumentTaskRows({ rooms, sessions, pendingProposals, currentFileId: "doc_1", resolveDocumentTitle });
+
+  it("別教材で実行中・待機中の部屋を教材名つきで並べ、今の教材の部屋は除く", () => {
+    const here = makeRoom({ id: "room_here" });
+    const running = makeRoom({ id: "room_run", documentIdentityKey: "doc_2", title: "解説の追加" });
+    const waiting = makeRoom({ id: "room_wait", documentIdentityKey: "doc_3" });
+    const sessions = new Map([
+      ["room_here", makeSession({ roomId: "room_here" })],
+      ["room_run", makeSession({ roomId: "room_run", runId: "turn_run" })],
+      ["room_wait", makeSession({ roomId: "room_wait", runId: "turn_wait", status: "waiting" })],
+    ]);
+
+    const rows = build([here, running, waiting], sessions);
+
+    expect(rows).toHaveLength(2);
+    expect(rows[0]).toMatchObject({ fileId: "doc_2", roomId: "room_run", runId: "turn_run", status: "running", label: "解説の追加", documentTitle: "title:doc_2" });
+    expect(rows[1]).toMatchObject({ fileId: "doc_3", roomId: "room_wait", status: "waiting" });
+  });
+
+  it("終わった部屋 (completed/failed) と session の無い部屋は出さない", () => {
+    const done = makeRoom({ id: "room_done", documentIdentityKey: "doc_2" });
+    const failed = makeRoom({ id: "room_failed", documentIdentityKey: "doc_2" });
+    const idle = makeRoom({ id: "room_idle", documentIdentityKey: "doc_2" });
+    const sessions = new Map([
+      ["room_done", makeSession({ roomId: "room_done", status: "completed", runId: null })],
+      ["room_failed", makeSession({ roomId: "room_failed", status: "failed", runId: null })],
+    ]);
+    expect(build([done, failed, idle], sessions)).toEqual([]);
+  });
+
+  it("別教材の承認待ち提案を部屋/run単位にまとめ、実行中の部屋の提案は二重に出さない", () => {
+    const running = makeRoom({ id: "room_run", documentIdentityKey: "doc_2" });
+    const sessions = new Map([["room_run", makeSession({ roomId: "room_run" })]]);
+    const pending = [
+      makeProposal({ proposalId: "a", fileId: "doc_2", roomId: "room_run", status: "pending" }),
+      makeProposal({ proposalId: "b", fileId: "doc_3", roomId: "room_p", status: "pending" }),
+      makeProposal({ proposalId: "c", fileId: "doc_3", roomId: "room_p", status: "pending" }),
+      makeProposal({ proposalId: "d", fileId: "doc_4", runId: "run_ext", status: "pending", sessionLabel: "外部MCP" }),
+      makeProposal({ proposalId: "e", fileId: "doc_1", roomId: "room_here", status: "pending" }),
+    ];
+
+    const rows = build([running, makeRoom({ id: "room_p", documentIdentityKey: "doc_3", title: "図の修正" })], sessions, pending);
+
+    expect(rows.map((row) => [row.fileId, row.status])).toEqual([
+      ["doc_2", "running"],
+      ["doc_3", "proposal"],
+      ["doc_4", "proposal"],
+    ]);
+    expect(rows[1]).toMatchObject({ roomId: "room_p", label: "図の修正" });
+    expect(rows[2]).toMatchObject({ roomId: null, label: "外部MCP" });
+  });
+
+  it("バッジと実行中表示に他教材の分が加わる", () => {
+    const running = makeRoom({ id: "room_run", documentIdentityKey: "doc_2" });
+    const otherRows = build([running], new Map([["room_run", makeSession({ roomId: "room_run" })]]));
+
+    expect(countAiTaskBadge([], otherRows)).toBe(1);
+    expect(hasActiveAiTaskRun([], otherRows)).toBe(true);
+    expect(countAiTaskBadge([])).toBe(0);
+    expect(hasActiveAiTaskRun([])).toBe(false);
   });
 });

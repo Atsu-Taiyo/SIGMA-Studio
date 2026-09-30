@@ -66,12 +66,21 @@ export const editor = {
     endEdge: "{{region}}の終了位置",
     edit: "{{region}}の編集",
   },
+  /** 文字や図形を選んだときに、選択の近くへ出る操作バー。書式そのものの文言は chrome / shape を引く。 */
+  selectionToolbar: {
+    more: "その他",
+    crop: "トリミング",
+    replaceImage: "差し替え",
+    lock: "ロック",
+    unlock: "ロック解除",
+  },
   /** 紙面そのものの操作 (ブロックハンドル・余白ルーラー・問題エリア)。 */
   pageCanvas: {
     selectBlock: "ブロックを選択",
     selectBlockHint: "クリックで選択（Delete で削除）・ドラッグで移動（左右端で段組）",
     addBodyHere: "ここに本文を追加",
     addComment: "コメントを追加",
+    commentShort: "コメント",
     zoomOut: "縮小",
     zoomIn: "拡大",
     resetView: "表示をリセット",
@@ -291,7 +300,6 @@ export const editor = {
   /** ステータスバー / トーストの文言。ほぼ全て `setStatusMessage` から出る。 */
   status: {
     ready: "準備完了",
-    selectCommentTarget: "コメントする対象を選択してください",
     commentReady: "コメントを入力できます",
     openFailedWithReason: "教材を開けませんでした（原因を表示しています）",
     saveFailed: "保存に失敗しました",
@@ -638,6 +646,7 @@ export const editor = {
     displayName: {
       "tcolorbox-note": "tcolorbox ノート罫",
     },
+    resizeSplit: "見出しの境界をドラッグして幅を変える（← → で微調整）",
     actions: "box操作",
     editTitle: "タイトルを編集…",
     settings: "boxの設定…",
@@ -648,6 +657,7 @@ export const editor = {
       titlebox: "タイトルに帯地と罫が付く箱",
       bandbox: "濃い帯地に白抜きのタイトルを載せる箱",
       itembox: "見出しラベル付きの箱",
+      splitbox: "見出しが 2 つに割れる箱（サブタイトル + タイトル）",
       theorembox: "左の太罫と淡い地色で定理を示す箱",
       tabbox: "上辺にタブ見出しを載せた角丸の箱",
       tcolorbox: "帯見出し付きの箱",
@@ -666,6 +676,7 @@ export const editor = {
       titlebox: "title 帯 見出し 表題 タイトル 背景 問題枠",
       bandbox: "band 帯 黒帯 白抜き 見出し 反転 タイトル 背景",
       itembox: "item 見出し ポイント 要点",
+      splitbox: "split point ポイント 要点 2つ 二つ タイトル サブタイトル ラベル 参考書 解法 まとめ",
       theorembox: "theorem 定理 定義 補題 左罫 地色",
       tabbox: "tab タブ 見出し 角丸 question 問",
       tcolorbox: "tcbox 定理 定義 帯",
@@ -683,11 +694,16 @@ export const editor = {
       titlebox: "タイトル",
       bandbox: "タイトル",
       itembox: "ポイント",
+      splitbox: "解法",
       theorembox: "定理",
       tabbox: "問",
       tcolorbox: "定理",
       ruledbox: "定義",
       screenbox: "例題",
+    },
+    /** 2 欄の見出しを持つ箱の 2 つ目の欄。作成時に文書へ焼き込まれる。 */
+    defaultSubtitle: {
+      splitbox: "Point",
     },
   },
   comment: {
@@ -696,9 +712,11 @@ export const editor = {
     mentionEmpty: "該当する共同編集者がいません",
     mentionError: "共同編集者を取得できませんでした",
     mentionsYou: "あなたへのメンション",
+    mentionAgentHint: "AI Agent · @{{keyword}} で依頼",
+    mentionAgentTitle: "{{name}}（AI Agent）· コメントを送ると作業を依頼します",
 
     none: "コメントはありません",
-    emptyHint: "図形やテキストを選んでから「コメントを追加」を押します。",
+    emptyHint: "「コメントを追加」を押すと書き始められます。図形やテキストを選ぶとその箇所へのコメントになります。",
     resolved: "解決済み",
     edit: "編集",
     delete: "削除",
@@ -708,7 +726,7 @@ export const editor = {
     toggleWithCount: "コメント ({{comments}}件)",
     dockPanel: "コメントパネル",
     closeDock: "コメントを閉じる",
-    selectTargetHint: "コメントする図形やテキストを選択してください。",
+    selectTargetHint: "図形やテキストを選ぶとその箇所へのコメントに、選ばない場合は文書全体へのコメントになります。",
     add: "追加",
     addComment: "コメントを追加",
     save: "保存",
@@ -746,6 +764,7 @@ export const editor = {
       orphan: "対象なし",
       textRange: "本文の選択範囲",
       inlineMath: "数式",
+      document: "文書全体",
       canvasRegion: "選択した領域",
       overlayMath: "図中数式",
       shape: "図形",

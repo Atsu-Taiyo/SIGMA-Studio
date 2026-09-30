@@ -130,7 +130,7 @@ describe("mounted command palette", () => {
     const f = fixture();
     f.options.catalog.customCommands = [{
       id: "custom.my-format", categoryId: "custom", label: "授業用の強調", custom: true,
-      defaultBinding: null, action: { type: "textColor", value: "#123456" },
+      defaultBinding: null, actions: [{ type: "textColor", value: "#123456" }],
     }];
     f.options.catalog.shortcutOverrides = { "custom.my-format": { key: "j", primary: true, alt: true } };
     render(f.options);

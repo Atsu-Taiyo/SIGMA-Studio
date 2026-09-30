@@ -2,7 +2,9 @@ import { describe, expect, it } from "vitest";
 
 import {
   createOverlaySnapGeometry,
+  getShapesSnapSourcePoints,
   snapBoundsToGeometry,
+  snapMovedPointsToGeometry,
   snapPointToGeometry,
   snapResizeBoundsToGeometry,
 } from "./snapping";
@@ -72,6 +74,38 @@ function arrow(id: string, x: number, y: number, start: { x: number; y: number }
 }
 
 describe("overlay snapping", () => {
+  it("snaps a moved line's end to another corner without grabbing the end point", () => {
+    const geometry = createOverlaySnapGeometry([rect("target", 100, 100, 80, 80)], { includePage: false });
+    // 端点 (0,0)→(50,30) の線を動かす。終点が (100,100) の少し手前 (98,99) に来る移動量。
+    const moving = line("moving", 0, 0, [{ x: 0, y: 0 }, { x: 50, y: 30 }]);
+    const sources = getShapesSnapSourcePoints([moving]);
+
+    const snapped = snapMovedPointsToGeometry(sources, { x: 48, y: 69 }, geometry, { threshold: 4 });
+
+    expect(snapped.snapped).toBe(true);
+    expect(snapped.nudge).toEqual({ x: 2, y: 1 });
+    expect(snapped.guides).toEqual([{ type: "point", point: { x: 100, y: 100 } }]);
+  });
+
+  it("does not snap moved points beyond the threshold or when snapping is disabled", () => {
+    const geometry = createOverlaySnapGeometry([rect("target", 100, 100, 80, 80)], { includePage: false });
+    const sources = getShapesSnapSourcePoints([rect("moving", 0, 0, 20, 20)]);
+
+    expect(snapMovedPointsToGeometry(sources, { x: 70, y: 70 }, geometry, { threshold: 4 }).guides).toEqual([]);
+    expect(snapMovedPointsToGeometry(sources, { x: 79, y: 79 }, geometry, { threshold: 4, disabled: true }).guides).toEqual([]);
+  });
+
+  it("uses bounds points for shapes without vertices and skips groups", () => {
+    const sources = getShapesSnapSourcePoints([
+      { id: "group", type: "group", x: 0, y: 0, props: { childIds: ["r"] } } as unknown as OverlayShape,
+      rect("r", 10, 20, 30, 40),
+    ]);
+
+    expect(sources).toHaveLength(9);
+    expect(sources).toContainEqual({ x: 10, y: 20 });
+    expect(sources).toContainEqual({ x: 40, y: 60 });
+  });
+
   it.each([
     ["left", { x: 98, y: 8, w: 20, h: 20 }, { x: 2, y: 0 }],
     ["center", { x: 129, y: 8, w: 20, h: 20 }, { x: 1, y: 0 }],

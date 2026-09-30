@@ -80,7 +80,7 @@ async function insertGraphWithAxisLabel(page: Page): Promise<void> {
   await expect(graphMenu).toBeVisible();
   await graphMenu.getByRole("menuitem", { name: "グラフの設定…" }).click();
   await expect(page.getByRole("dialog", { name: "グラフの設定" })).toBeVisible();
-  await expect(page.getByRole("button", { name: "原点をクリックで指定" })).toBeVisible();
+  await expect(page.locator(".graph-tool-row").getByRole("button", { name: "原点をクリックで指定" })).toBeVisible();
 
   // Turning an axis name on materializes it as a graph-owned text shape.
   const axisNameSection = page.getByRole("button", { name: "軸名", exact: true });

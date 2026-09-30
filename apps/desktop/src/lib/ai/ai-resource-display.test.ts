@@ -10,7 +10,7 @@ const OFFICIAL_IMAGE = {
   bundledTitle: "画像からSigma Studio教材を作成",
   description: "canonical description",
   bundledDescription: "canonical description",
-  tags: ["画像", "教材再構成", "OCR", "図形"],
+  tags: ["画像", "教材再構成", "OCR", "図解"],
 };
 
 describe("resolveAiResourceDisplayMetadata", () => {
@@ -18,8 +18,8 @@ describe("resolveAiResourceDisplayMetadata", () => {
     const canonical = structuredClone(OFFICIAL_IMAGE);
     expect(resolveAiResourceDisplayMetadata(OFFICIAL_IMAGE, createTranslator("en", "ai"))).toEqual({
       title: "Create Sigma Studio material from an image",
-      description: "Use this to reconstruct images, photos, screenshots, and handwritten sketches as editable Sigma Studio material with text, formulas, tables, graphs, shapes, and annotations.",
-      tags: ["image", "material reconstruction", "OCR", "shape"],
+      description: "Use this to reconstruct images, photos, screenshots, handwritten sketches, and PDF pages as editable Sigma Studio material with text, formulas, problems, tables, graphs, and figures.",
+      tags: ["image", "material reconstruction", "OCR", "diagram"],
     });
     expect(resolveAiResourceDisplayMetadata(OFFICIAL_IMAGE, createTranslator("ja", "ai")).title)
       .toBe("画像からSigma Studio教材を作成");

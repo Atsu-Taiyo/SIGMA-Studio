@@ -161,7 +161,7 @@ describe("native history guard wiring", () => {
       "utf8",
     );
     expect(routing).toContain("runShortcutCommandRef.current = createEditorCommandRunner(customCommands, actions)");
-    const runnerStart = actions.indexOf("return (commandId: EditorCommandId) => {");
+    const runnerStart = actions.indexOf("const run = (commandId: EditorCommandId) => {");
     expect(runnerStart).toBeGreaterThan(-1);
     expect(actions.slice(runnerStart)).toContain("closeTransientCommandSurfaces()");
   });

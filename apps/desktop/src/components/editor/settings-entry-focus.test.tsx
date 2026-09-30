@@ -93,15 +93,10 @@ describe("settings entry anchors actually render", () => {
     expect(document.getElementById(anchorOf("settings.commands.shortcuts"))).not.toBeNull();
   });
 
-  it("opens the custom command panel so its anchor exists", async () => {
-    // 既定では畳まれている面。`focusEntryId` を渡したときだけ開くのが仕様。
-    await render(commandDialog("settings.commands.custom"));
-    expect(document.getElementById(anchorOf("settings.commands.custom"))).not.toBeNull();
-  });
-
-  it("keeps the custom command panel collapsed without a focus entry", async () => {
+  it("always renders the custom command form, with no toggle in front of it", async () => {
     await render(commandDialog());
-    expect(document.getElementById(anchorOf("settings.commands.custom"))).toBeNull();
+    expect(document.getElementById(anchorOf("settings.commands.custom"))).not.toBeNull();
+    expect(document.querySelector("[aria-controls='custom-command-panel']")).toBeNull();
   });
 
   it("renders every page setup anchor", async () => {

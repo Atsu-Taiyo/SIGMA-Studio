@@ -156,6 +156,7 @@ import {
   inlineNodesToPlainText,
 } from "@/lib/tiptap-adapter";
 
+import { normalizeProblemFrameInput } from "@/lib/problem-frame";
 import type { MaterialItem } from "@/types/material";
 
 export interface AiEditAttachment {
@@ -3141,7 +3142,7 @@ function createProblemNodeFromContentArgs(args: z.infer<typeof DraftCreateProble
     ...(pagination ? { pagination } : {}),
     ...(isRecord(args.areaLayout) ? { areaLayout: args.areaLayout as ProblemNode["areaLayout"] } : {}),
     ...(isRecord(args.numbering) ? { numbering: args.numbering as ProblemNode["numbering"] } : {}),
-    ...(isRecord(args.frame) ? { frame: args.frame as ProblemNode["frame"] } : {}),
+    ...(isRecord(args.frame) ? { frame: normalizeProblemFrameInput(args.frame) } : {}),
   });
 }
 

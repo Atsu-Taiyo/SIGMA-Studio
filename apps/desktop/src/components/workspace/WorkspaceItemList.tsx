@@ -4,6 +4,7 @@ import { ChevronDown, ChevronUp, Folder, FileText } from "lucide-react";
 import type { DragEvent as ReactDragEvent, KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent } from "react";
 
 import { WorkspaceSharedBadge } from "./WorkspaceSharedBadge";
+import { WorkspaceBookmarkButton } from "./WorkspaceBookmarkButton";
 import { WorkspaceItemMenuButton } from "./WorkspaceItemMenuButton";
 import { DocumentTitleText } from "@/features/rendering/adapters/react";
 import type { WorkspaceFileSummary, WorkspaceFolderSummary } from "@/lib/workspace-repository";
@@ -25,6 +26,9 @@ type DragDropProps = {
 
 interface WorkspaceItemListProps {
   menuKey?: string | null;
+  loading?: boolean;
+  searchFailed?: boolean;
+  locationLabel?: (row: WorkspaceRow) => string;
   folders: WorkspaceFolderSummary[];
   files: WorkspaceFileSummary[];
   allFolders: WorkspaceFolderSummary[];
@@ -56,6 +60,9 @@ interface WorkspaceItemListProps {
   isRenameEditing: (key: string) => boolean;
   onCommitRename: (nextName: string) => void;
   onCancelRename: () => void;
+  /** `file:<id>` / `folder:<id>` of every bookmarked item. */
+  bookmarkedKeys: ReadonlySet<string>;
+  onToggleBookmark: (kind: "file" | "folder", id: string) => void;
 }
 
 function nextSort(
@@ -79,6 +86,9 @@ function ariaSortFor(column: WorkspaceSortKey, sortKey: WorkspaceSortKey, sortDi
 
 export function WorkspaceItemList({
   menuKey,
+  loading = false,
+  searchFailed = false,
+  locationLabel,
   folders,
   files,
   allFolders,
@@ -110,6 +120,8 @@ export function WorkspaceItemList({
   isRenameEditing,
   onCommitRename,
   onCancelRename,
+  bookmarkedKeys,
+  onToggleBookmark,
 }: WorkspaceItemListProps) {
   const t = useT("workspace");
   const locale = useAppLocale();
@@ -131,6 +143,8 @@ export function WorkspaceItemList({
       onOpenFile(row.id);
     }
   };
+
+  if (loading || searchFailed) return <p role={searchFailed ? "alert" : "status"}>{t(searchFailed ? "error.loadFailed" : "status.loading")}</p>;
 
   return (
     <section className="workspace-group" aria-label={searchActive ? t("search.results") : t("label.materialsAndFolders")}>
@@ -239,9 +253,16 @@ export function WorkspaceItemList({
                     </td>
                     <td className="workspace-list-cell-updated">{formatDateTime(row.updatedAt, locale)}</td>
                     <td className="workspace-list-cell-location">
-                      {resolveRowLocation(row, { folders: allFolders, workspaceName })}
+                      {locationLabel?.(row) ?? resolveRowLocation(row, { folders: allFolders, workspaceName })}
                     </td>
                     <td className="workspace-list-cell-actions">
+                      {!editing && (
+                        <WorkspaceBookmarkButton
+                          name={row.name}
+                          bookmarked={bookmarkedKeys.has(row.key)}
+                          onToggle={() => onToggleBookmark(row.kind, row.id)}
+                        />
+                      )}
                       {!editing && row.kind === "folder" && (
                         <WorkspaceItemMenuButton expanded={menuKey === row.key} name={row.name} onClick={(event) => onFolderContextMenu(event, row.id)} />
                       )}

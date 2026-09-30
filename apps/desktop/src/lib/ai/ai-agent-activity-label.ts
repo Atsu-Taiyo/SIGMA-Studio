@@ -20,6 +20,8 @@ export const ACTIVITY_LABEL_TOOL_NAMES = [
   "draft_insert_graph",
   "draft_insert_graph3d",
   "draft_update_graph3d",
+  "draft_insert_svg_image",
+  "draft_update_svg_image",
   "draft_insert_text_block",
   "draft_create_problem",
   "draft_update_problem_answer",

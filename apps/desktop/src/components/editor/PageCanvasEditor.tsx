@@ -3,6 +3,8 @@ import { createColumnRuleStyle } from "@/features/rendering/adapters";
 
 import { ColumnRuleLines, PageColumnRules } from "@/features/rendering/adapters/react";
 import { ColumnRuleDialog } from "./ColumnRuleDialog";
+import { SelectionActionPopover } from "./page-canvas/SelectionActionPopover";
+import { mergeSelectionExtensions } from "./page-canvas/selection-extension-merge";
 
 import { resolveColumnCommandState } from "./page-canvas/column-command-state";
 import { canInsertManualBreakAtBlock } from "./page-canvas/manual-break-context";
@@ -29,7 +31,6 @@ import  {
   GripVertical,
   Heading,
   Maximize,
-  MessageSquarePlus,
   Minus,
   MoreHorizontal,
   PackagePlus,
@@ -128,6 +129,7 @@ import  {
   type PageRunningRegion,
   type ProblemAreaBlock,
   type ProblemAreaKind,
+  type ProblemCustomFrame,
   type ProblemNode,
   type RichBlock,
   type SigmaBlock,
@@ -211,7 +213,13 @@ import { useT } from "@/lib/i18n/react";
 import { createId } from "@/lib/id";
 import { getSupportedOverlayImageFilesFromDataTransfer, hasSupportedOverlayImageData } from "@/lib/overlay-image-files";
 import { countPerformanceEvent, measurePerformance } from "@/lib/performance";
-import { getProblemFrameChromePaddingPx, getProblemFrameStyleId, problemFrameClassName } from "@/lib/problem-frame";
+import {
+  getProblemCustomFrame,
+  getProblemCustomFrameStyle,
+  getProblemFrameChromePaddingPx,
+  getProblemFrameStyleId,
+  problemFrameClassName,
+} from "@/lib/problem-frame";
 import { formatProblemNumber } from "@/lib/problem-numbering";
 import { isInsertTextShapeAtCursorShortcut } from "@/shortcuts/editor-shortcuts";
 import type { MaterialItem } from "@/types/material";
@@ -290,7 +298,12 @@ import  {
   sameExtensionActionPopover,
   type CommentAnchorCandidateGate,
 } from "./page-canvas/comment-anchor-candidate";
-import type { PageCanvasEditorExtension, PageCanvasInlineContent, PageCanvasSelectionAction } from "./page-canvas/editor-extension";
+import type {
+  PageCanvasEditorExtension,
+  PageCanvasInlineContent,
+  PageCanvasSelectionAction,
+  PageCanvasSelectionExtension,
+} from "./page-canvas/editor-extension";
 import { getColumnContentAnchor, type ColumnContentAnchor } from "./page-canvas/extension-placement";
 import  {
   canMeasureIncrementally,
@@ -566,10 +579,16 @@ export interface PageCanvasEditorProps {
   onOverlaySelectionSummaryChange?: (summary: OverlaySelectionSummary) => void;
   onOverlayActiveToolChange?: (tool: OverlayTool) => void;
   onRunningRegionEditingChange?: (kind: "header" | "footer" | null) => void;
+  renderSelectionActions?: (anchor: SigmaCommentAnchor) => React.ReactNode;
   onCommentAnchorRequest?: (anchor: SigmaCommentAnchor) => void;
   onCommentAnchorCandidateChange?: (anchor: SigmaCommentAnchor | null) => void;
   onCommentThreadSelect?: (threadId: string) => void;
   suppressSelectionActions?: boolean;
+  /**
+   * 選択の近くに出す編集操作 (書式・図形の操作)。機能側の選択アクション (AI など) と並べて出す。
+   * 何を並べるかは呼び出し側が決め、紙面は選択の測定と配置だけを持つ。
+   */
+  selectionTools?: PageCanvasSelectionExtension;
   /**
    * `"paged"` renders the canvas for output rather than for editing: every page is
    * materialized (no windowing) and the editing chrome is suppressed in CSS. The
@@ -653,9 +672,11 @@ function PageCanvasEditorImpl({
   onOverlayActiveToolChange,
   onRunningRegionEditingChange,
   onCommentAnchorRequest,
+  renderSelectionActions,
   onCommentAnchorCandidateChange,
   onCommentThreadSelect,
   suppressSelectionActions = false,
+  selectionTools,
   presentation = "edit",
   publishesSessionPresence: publishesSessionPresenceProp,
 }: PageCanvasEditorProps) {
@@ -837,7 +858,11 @@ function PageCanvasEditorImpl({
   const textFlowChangeDecorationState = pageExtension?.textFlowChangeDecorationState;
   const overlayShapeClassNames = pageExtension?.overlayShapeClassNames;
   const resolveOverlayPresentation = pageExtension?.resolveOverlayPresentation;
-  const selectionExtension = pageExtension?.selection;
+  const featureSelectionExtension = pageExtension?.selection;
+  const selectionExtension = useMemo(
+    () => mergeSelectionExtensions(selectionTools, featureSelectionExtension),
+    [featureSelectionExtension, selectionTools],
+  );
   const [overlayEditing, setOverlayEditing] = useState(false);
   const [bodyOverlayModeStatus, setBodyOverlayModeStatus] = useState<OverlayModeStatus | null>(null);
   const [overlayBackgroundLayerElement, setOverlayBackgroundLayerElement] = useState<HTMLDivElement | null>(null);
@@ -4341,7 +4366,7 @@ function PageCanvasEditorImpl({
     onCommentAnchorCandidateChangeRef.current = onCommentAnchorCandidateChange;
     isOverlayEditingRef.current = isOverlayEditing;
   }, [isOverlayEditing, onCommentAnchorCandidateChange]);
-  const hasCommentAnchorRequest = !!onCommentAnchorRequest;
+  const hasCommentAnchorRequest = !!onCommentAnchorRequest || !!renderSelectionActions;
   const scheduleTextSelectionUpdateRef = useRef<(() => void) | null>(null);
   // テキスト選択が消えた瞬間に 1 つだけ進むカウンタ。候補の所有権がテキスト選択から
   // 選択ブロック側へ戻ったことを下の effect に伝えるためだけに存在する (アイドル中は
@@ -4847,30 +4872,11 @@ function PageCanvasEditorImpl({
           </div>
         </div>
         {selectionActionPopover && (
-          <div
-            className="selection-action-popover"
-            style={{
-              left: `${selectionActionPopover.position.left}px`,
-              top: `${selectionActionPopover.position.top}px`,
-            }}
-            onMouseDown={(event) => event.preventDefault()}
-          >
-            {selectionActionPopover.extensionAction?.render(selectionActionPopover.position)}
-            {selectionActionPopover.commentAnchor && onCommentAnchorRequest && (
-              <button
-                type="button"
-                title={tEditorText("pageCanvas.addComment")}
-                aria-label={tEditorText("pageCanvas.addComment")}
-                onClick={(event) => {
-                  event.stopPropagation();
-                  const anchor = selectionActionPopover.commentAnchor;
-                  if (anchor) onCommentAnchorRequest(anchor);
-                }}
-              >
-                <MessageSquarePlus size={16} aria-hidden="true" />
-              </button>
-            )}
-          </div>
+          <SelectionActionPopover
+            popover={selectionActionPopover}
+            onCommentAnchorRequest={onCommentAnchorRequest}
+            renderSelectionActions={renderSelectionActions}
+          />
         )}
       </section>
     );
@@ -5557,32 +5563,11 @@ function PageCanvasEditorImpl({
         </div>
       </div>
       {selectionActionPopover && (
-        <div
-          className="selection-action-popover"
-          style={{
-            left: `${selectionActionPopover.position.left}px`,
-            top: `${selectionActionPopover.position.top}px`,
-          }}
-          onMouseDown={(event) => event.preventDefault()}
-        >
-          {selectionActionPopover.extensionAction?.render(selectionActionPopover.position)}
-          {selectionActionPopover.commentAnchor && onCommentAnchorRequest && (
-            <button
-              type="button"
-              title={tEditorText("pageCanvas.addComment")}
-              aria-label={tEditorText("pageCanvas.addComment")}
-              onClick={(event) => {
-                event.stopPropagation();
-                const anchor = selectionActionPopover.commentAnchor;
-                if (anchor) {
-                  onCommentAnchorRequest(anchor);
-                }
-              }}
-            >
-              <MessageSquarePlus size={16} aria-hidden="true" />
-            </button>
-          )}
-        </div>
+        <SelectionActionPopover
+          popover={selectionActionPopover}
+          onCommentAnchorRequest={onCommentAnchorRequest}
+            renderSelectionActions={renderSelectionActions}
+        />
       )}
       {problemContextMenu && (
         <div
@@ -6963,18 +6948,21 @@ function ProblemAreaFlowUnit({
     pageContentHeightPx,
   );
   const displacementProps = getFlowDisplacementProps(displacement);
+  const hasFrame = problem.frame?.enabled === true && isProblemFrameArea(area);
+  const frameStyleId = hasFrame ? getProblemFrameStyleId(problem) : undefined;
+  const frameCustom = hasFrame ? getProblemCustomFrame(problem) : undefined;
+  const frameCustomStyle = frameCustom ? getProblemCustomFrameStyle(frameCustom, "px") : undefined;
   const style = {
     ...layoutStyle,
     ...displacementProps.style,
     ...getVisualEndStyle(visualEnd, sideNoteLabelY),
+    ...frameCustomStyle,
     minHeight: minHeightPx > 0 ? `${minHeightPx}px` : undefined,
   } as CSSProperties;
   const problemNumber = unit.problemNumber;
   const isFirstArea = unit.isFirstProblemArea;
   const showNumber = area === "lead" && typeof problemNumber === "number";
   const problemNumberStyle = showNumber ? { fontSize: `${getProblemNumberFontSize(problem)}pt` } : undefined;
-  const hasFrame = problem.frame?.enabled === true && isProblemFrameArea(area);
-  const frameStyleId = hasFrame ? getProblemFrameStyleId(problem) : undefined;
   const frameClasses = hasFrame ? problemFrameClassName("with-frame", frameStyleId) : "";
   // A manual break can split a framed area into several page/column segments (see
   // isProblemAreaColumnBlockFlowEligible). When that happens, the border can no
@@ -7028,6 +7016,7 @@ function ProblemAreaFlowUnit({
           fragments={splitFrameFragments}
           frameClasses={frameClasses}
           frameStyleId={frameStyleId}
+          frameCustom={frameCustom}
           isFirstProblemFrameArea={unit.isFirstProblemFrameArea}
           isLastProblemFrameArea={unit.isLastProblemFrameArea}
         />
@@ -7143,16 +7132,19 @@ function ProblemAreaFrameFragmentPieces({
   fragments,
   frameClasses,
   frameStyleId,
+  frameCustom,
   isFirstProblemFrameArea,
   isLastProblemFrameArea,
 }: {
   fragments: ProblemAreaFrameFragmentLayout[];
   frameClasses: string;
   frameStyleId: string | undefined;
+  frameCustom: ProblemCustomFrame | undefined;
   isFirstProblemFrameArea: boolean;
   isLastProblemFrameArea: boolean;
 }) {
-  const chromePadding = getProblemFrameChromePaddingPx(frameStyleId);
+  const chromePadding = getProblemFrameChromePaddingPx(frameStyleId, frameCustom);
+  const frameCustomStyle = frameCustom ? getProblemCustomFrameStyle(frameCustom, "px") as CSSProperties : undefined;
   return (
     <>
       {fragments.map((fragment, index) => {
@@ -7173,6 +7165,7 @@ function ProblemAreaFrameFragmentPieces({
                 padding: 0,
                 boxSizing: "border-box",
                 pointerEvents: "none",
+                ...frameCustomStyle,
               }}
             />
           );
@@ -7198,6 +7191,7 @@ function ProblemAreaFrameFragmentPieces({
               height: `${fragment.height + topOutset + bottomOutset}px`,
               margin: 0,
               pointerEvents: "none",
+              ...frameCustomStyle,
             }}
           />
         );

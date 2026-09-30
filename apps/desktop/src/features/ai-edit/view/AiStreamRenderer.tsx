@@ -3,6 +3,7 @@
 import { Fragment, useMemo } from "react";
 
 import type { MathFractionSizing } from "@/features/document";
+import { MarkdownTable } from "@/components/ui/MarkdownTable";
 import { InlineMathPreview } from "@/features/rendering/adapters/react";
 
 export interface AiStreamRendererProps {
@@ -69,11 +70,58 @@ function tokenize(text: string): Segment[] {
   return segments;
 }
 
+type TableAlign = "left" | "center" | "right" | null;
+
 interface Block {
-  kind: "heading" | "paragraph" | "list" | "ordered" | "code";
+  kind: "heading" | "paragraph" | "list" | "ordered" | "code" | "quote" | "rule" | "table";
   level?: number;
   lines: string[];
   language?: string;
+  /** kind が table のときだけ。1行目が見出し、alignments は列ごとの寄せ。 */
+  rows?: string[][];
+  alignments?: TableAlign[];
+}
+
+const TABLE_SEPARATOR = /^\s*\|?\s*:?-{2,}:?\s*(?:\|\s*:?-{2,}:?\s*)*\|?\s*$/;
+const RULE_LINE = /^(?:-{3,}|\*{3,}|_{3,})\s*$/;
+
+/**
+ * 表の1行をセルに割る。`$...$` の数式と `...` のコードの中の `|` (絶対値など) では割らない。
+ * 先頭と末尾の縦線は飾りとして落とす。
+ */
+function splitTableRow(line: string): string[] {
+  const cells: string[] = [];
+  let current = "";
+  let inMath = false;
+  let inCode = false;
+  for (let index = 0; index < line.length; index += 1) {
+    const char = line[index];
+    if (char === "\\" && index + 1 < line.length) {
+      current += char + line[index + 1];
+      index += 1;
+      continue;
+    }
+    if (char === "`" && !inMath) inCode = !inCode;
+    if (char === "$" && !inCode) inMath = !inMath;
+    if (char === "|" && !inMath && !inCode) {
+      cells.push(current.trim());
+      current = "";
+      continue;
+    }
+    current += char;
+  }
+  cells.push(current.trim());
+  if (cells.length > 0 && cells[0] === "") cells.shift();
+  if (cells.length > 0 && cells[cells.length - 1] === "") cells.pop();
+  return cells;
+}
+
+function parseTableAlignments(separator: string): TableAlign[] {
+  return splitTableRow(separator).map((cell) => {
+    const left = cell.startsWith(":");
+    const right = cell.endsWith(":");
+    return left && right ? "center" : right ? "right" : left ? "left" : null;
+  });
 }
 
 function parseBlocks(text: string): Block[] {
@@ -98,6 +146,38 @@ function parseBlocks(text: string): Block[] {
       }
       blocks.push({ kind: "code", lines: codeLines, language });
       continue;
+    }
+
+    if (RULE_LINE.test(trimmed)) {
+      blocks.push({ kind: "rule", lines: [] });
+      i += 1;
+      continue;
+    }
+
+    if (trimmed.startsWith(">")) {
+      const quoteLines: string[] = [];
+      while (i < lines.length && lines[i].trimStart().startsWith(">")) {
+        quoteLines.push(lines[i].trimStart().replace(/^>\s?/, ""));
+        i += 1;
+      }
+      blocks.push({ kind: "quote", lines: quoteLines });
+      continue;
+    }
+
+    // 表: 「| a | b |」の行の次が区切り行 (|---|---|) のときだけ表として読む。
+    if (trimmed.includes("|") && i + 1 < lines.length && TABLE_SEPARATOR.test(lines[i + 1]) && lines[i + 1].includes("-")) {
+      const header = splitTableRow(trimmed);
+      const alignments = parseTableAlignments(lines[i + 1]);
+      if (header.length > 0 && header.length === alignments.length) {
+        const rows: string[][] = [header];
+        i += 2;
+        while (i < lines.length && lines[i].trim().length > 0 && lines[i].includes("|")) {
+          rows.push(splitTableRow(lines[i].trim()));
+          i += 1;
+        }
+        blocks.push({ kind: "table", lines: [], rows, alignments });
+        continue;
+      }
     }
 
     const headingMatch = /^(#{1,3})\s+(.*)$/.exec(trimmed);
@@ -143,7 +223,9 @@ function parseBlocks(text: string): Block[] {
       !/^(#{1,3})\s+/.test(lines[i].trimStart()) &&
       !/^[-*]\s+/.test(lines[i].trimStart()) &&
       !/^\d+\.\s+/.test(lines[i].trimStart()) &&
-      !lines[i].trimStart().startsWith("```")
+      !lines[i].trimStart().startsWith("```") &&
+      !lines[i].trimStart().startsWith(">") &&
+      !RULE_LINE.test(lines[i].trim())
     ) {
       paragraphLines.push(lines[i]);
       i += 1;
@@ -283,6 +365,31 @@ export function AiStreamRenderer({ text, className, mathFractionSizing }: AiStre
                 <li key={`${key}:i${idx}`}>{renderInline(item, `${key}:i${idx}`, mathFractionSizing)}</li>
               ))}
             </ol>
+          );
+        }
+
+        if (block.kind === "rule") {
+          return <hr key={key} />;
+        }
+
+        if (block.kind === "quote") {
+          return (
+            <blockquote key={key}>{renderLineBreaks(block.lines, key, mathFractionSizing)}</blockquote>
+          );
+        }
+
+        if (block.kind === "table" && block.rows) {
+          const [header, ...body] = block.rows;
+          const cells = (row: string[], prefix: string) => row.map((text, column) => (
+            <Fragment key={`${prefix}:c${column}`}>{renderInline(text, `${prefix}:c${column}`, mathFractionSizing)}</Fragment>
+          ));
+          return (
+            <MarkdownTable
+              key={key}
+              header={cells(header, `${key}:h`)}
+              rows={body.map((row, rowIndex) => cells(row, `${key}:r${rowIndex}`))}
+              alignments={block.alignments}
+            />
           );
         }
 

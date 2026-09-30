@@ -1141,6 +1141,67 @@
   top: 0;
 }
 
+/*
+ * 2 欄の見出しでは、空の欄も他の欄と同じ帯として grid に残す (既定の空タイトルは浮かせた小さな
+ * 入力欄で、grid の欄から外れてしまう)。案内の文字は欄の中に静かに出す。
+ */
+:is(.box-frame--title-split, .box-frame--title-split > .sigma-doc-box-content) > .sigma-doc-box-title:is(:empty, :has(> br.ProseMirror-trailingBreak:only-child)) {
+  position: relative;
+  top: auto;
+  left: auto;
+  height: auto;
+  min-width: 0;
+  min-height: var(--sigma-doc-box-title-band-height, 32px);
+  margin-top: calc(max(var(--sigma-doc-box-padding-top, 42px), var(--sigma-doc-box-title-band-height, 32px)) * -1);
+  margin-bottom: 10px;
+}
+
+:is(.box-frame--title-split, .box-frame--title-split > .sigma-doc-box-content) > .sigma-doc-box-title:is(:empty, :has(> br.ProseMirror-trailingBreak:only-child))::before {
+  position: static;
+  height: auto;
+  color: color-mix(in srgb, currentColor 45%, transparent);
+  line-height: inherit;
+}
+
+:is(.box-frame--title-split, .box-frame--title-split > .sigma-doc-box-content) > .sigma-doc-box-subtitle:is(:empty, :has(> br.ProseMirror-trailingBreak:only-child))::before {
+  content: "サブタイトル";
+}
+
+/* 見出しの境界つまみ。中身は tiptap の widget (`box-split-handle.ts`)。欄の幅の比をドラッグで変える。 */
+.sigma-doc-box-split-handle {
+  position: absolute;
+  top: calc(max(var(--sigma-doc-box-padding-top, 42px), var(--sigma-doc-box-title-band-height, 32px)) * -1);
+  left: calc((100% - var(--sigma-doc-box-split-gap, 0px)) * var(--sigma-doc-box-split-first-share, 0.5) + var(--sigma-doc-box-split-gap, 0px) / 2);
+  z-index: 4;
+  width: 14px;
+  height: var(--sigma-doc-box-title-band-height, 32px);
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: col-resize;
+  transform: translateX(-50%);
+  touch-action: none;
+}
+
+.sigma-doc-box-split-handle::after {
+  position: absolute;
+  top: 3px;
+  bottom: 3px;
+  left: 50%;
+  width: 3px;
+  border-radius: 2px;
+  background: var(--accent, #2563eb);
+  content: "";
+  opacity: 0;
+  transform: translateX(-50%);
+}
+
+.sigma-doc-box-split-handle:hover::after,
+.sigma-doc-box-split-handle:focus-visible::after,
+.sigma-doc-box-split-handle[data-dragging="true"]::after {
+  opacity: 1;
+}
+
 .text-flow-editor :is(p, h1, h2, h3).text-flow-selected-line {
   background: transparent;
   box-shadow: none;
@@ -1322,6 +1383,17 @@
   padding-top: 0;
 }
 
+/*
+ * `.text-flow-shell` は `margin: -6px -10px 4px; padding: 6px 12px` で、上側は負マージンが
+ * padding を打ち消す (実質 0) 一方、下側は margin 4px + padding 6px が丸ごと残る。
+ * 本文どうしの間隔としては意図どおりだが、枠の中では「枠の下だけ約10px余分に空く」ことになる。
+ * 上側と対称になるよう下側も打ち消す。分割エディタの接合辺は既存ルールが chrome を
+ * 落としているので対象外にする。
+ */
+.problem-area-flow-unit.with-frame .text-flow-shell:not([data-text-run-group]:has(+ [data-text-run-group]) > .text-flow-shell) {
+  margin-bottom: -6px;
+}
+
 /* Split frames keep the original box model so toggling atomic/flow cannot change
  * measured text geometry. Only the outer decoration is hidden; overlay pieces draw it. */
 .problem-area-flow-unit.with-frame.frame-split {
@@ -1351,32 +1423,105 @@
   border-bottom-style: double;
 }
 
-.problem-area-flow-unit.with-frame.box-frame--corner {
-  --corner-frame-corner-size: 8px;
-  --corner-frame-rule-width: 1px;
-  --corner-frame-guide-width: 1px;
-  --corner-frame-guide-inset-x: clamp(12px, 6cqi, 24px);
-  --corner-frame-guide-side-x: 0px;
-  --corner-frame-guide-side-y: clamp(12px, 6cqi, 24px);
-  --corner-frame-rule-x: clamp(5px, 1.8cqi, 7px);
-  --corner-frame-rule-side-x: clamp(9px, 3.25cqi, 13px);
-  --corner-frame-rule-y: clamp(8px, 3cqi, 12px);
-  --corner-frame-rule-side-y: clamp(5px, 2cqi, 7px);
-  --corner-frame-corner-x: clamp(6px, 2cqi, 8px);
-  --corner-frame-corner-y: clamp(5px, 1.8cqi, 7px);
-  margin: 2px 0;
-  padding: 24px 30px;
-  border: 0;
-  border-radius: 0;
-  background: #ffffff;
-}
-
-.problem-area-flow-unit.with-frame.box-frame--corner:not(.first-frame-area) {
-  padding-top: 24px;
-}
-
-.problem-area-flow-unit.with-frame.box-frame--corner.frame-split {
+/*
+ * 角付き: 細い罫線の枠に、四隅だけ太いブラケットを重ねる。ブラケットは枠の外縁に描くので、
+ * 枠が段・ページをまたぐときは、実際に閉じる辺 (first / last) の角にだけ出る。
+ * 長さ・太さ・余白は印刷側 (document-surface.css) と同じ比率で、ここは px、あちらは mm。
+ */
+.problem-area-flow-unit.with-frame.problem-frame--bracket {
   background: transparent;
+  --problem-bracket-color: var(--text-primary);
+  --problem-bracket-arm: 18px;
+  --problem-bracket-weight: 2px;
+  padding: 12px 16px;
+  border-color: color-mix(in srgb, var(--text-primary) 34%, transparent);
+  border-radius: 0;
+}
+
+.problem-area-flow-unit.with-frame.problem-frame--bracket:is(.first-frame-area, .last-frame-area) {
+  border-radius: 0;
+}
+
+/* 分割中は外側の枠を消し、断片ごとの overlay が描く (上の `.frame-split` と同じ約束)。 */
+.problem-area-flow-unit.with-frame.problem-frame--bracket.frame-split {
+  border-color: transparent;
+}
+
+.problem-area-flow-unit.with-frame.problem-frame--bracket.first-frame-area::before,
+.problem-area-flow-unit.with-frame.problem-frame--bracket.last-frame-area::after {
+  position: absolute;
+  right: -1px;
+  left: -1px;
+  height: var(--problem-bracket-arm);
+  pointer-events: none;
+  content: "";
+  background:
+    linear-gradient(var(--problem-bracket-color), var(--problem-bracket-color)) left var(--v) / var(--problem-bracket-arm) var(--problem-bracket-weight) no-repeat,
+    linear-gradient(var(--problem-bracket-color), var(--problem-bracket-color)) left var(--v) / var(--problem-bracket-weight) var(--problem-bracket-arm) no-repeat,
+    linear-gradient(var(--problem-bracket-color), var(--problem-bracket-color)) right var(--v) / var(--problem-bracket-arm) var(--problem-bracket-weight) no-repeat,
+    linear-gradient(var(--problem-bracket-color), var(--problem-bracket-color)) right var(--v) / var(--problem-bracket-weight) var(--problem-bracket-arm) no-repeat;
+}
+
+.problem-area-flow-unit.with-frame.problem-frame--bracket.first-frame-area::before {
+  --v: top;
+  top: -1px;
+}
+
+.problem-area-flow-unit.with-frame.problem-frame--bracket.last-frame-area::after {
+  --v: bottom;
+  bottom: -1px;
+}
+
+/*
+ * 自作の枠 (`ProblemFrame.custom`)。印刷側 (document-surface.css の `.print-problem-area` 版) と
+ * 同じ規則で、寸法・画像は TSX がインラインのカスタムプロパティで渡す (px)。共有ファイルは
+ * 編集面のクラスを持たない約束なので、セレクタだけ編集面用に書き直して置く。
+ * 分割中 (`.frame-split`) は外側の絵を描かず、断片ごとの overlay が描く。
+ */
+.problem-area-flow-unit.with-frame.problem-frame--custom.problem-frame--custom {
+  background: transparent;
+  --pf-top: 0;
+  --pf-bottom: 0;
+  --pf-image: var(--problem-frame-image-open-both);
+  box-sizing: border-box;
+  padding: var(--problem-frame-padding);
+  border: solid transparent;
+  border-width:
+    calc(var(--problem-frame-border) * var(--pf-top))
+    var(--problem-frame-border)
+    calc(var(--problem-frame-border) * var(--pf-bottom));
+  border-radius: 0;
+  border-image-source: none;
+  border-image-slice:
+    calc(var(--problem-frame-slice) * var(--pf-top))
+    var(--problem-frame-slice)
+    calc(var(--problem-frame-slice) * var(--pf-bottom));
+  border-image-width:
+    calc(var(--problem-frame-border) * var(--pf-top))
+    var(--problem-frame-border)
+    calc(var(--problem-frame-border) * var(--pf-bottom));
+}
+
+.problem-area-flow-unit.with-frame.problem-frame--custom.problem-frame--custom:not(.frame-split) {
+  border-image-source: var(--pf-image);
+}
+
+.problem-area-flow-unit.with-frame.problem-frame--custom.problem-frame--custom:not(.first-frame-area) {
+  padding-top: 0;
+}
+
+.problem-area-flow-unit.with-frame.problem-frame--custom.problem-frame--custom.first-frame-area {
+  --pf-top: 1;
+  --pf-image: var(--problem-frame-image-open-bottom);
+}
+
+.problem-area-flow-unit.with-frame.problem-frame--custom.problem-frame--custom.last-frame-area {
+  --pf-bottom: 1;
+  --pf-image: var(--problem-frame-image-open-top);
+}
+
+.problem-area-flow-unit.with-frame.problem-frame--custom.problem-frame--custom.first-frame-area.last-frame-area {
+  --pf-image: var(--problem-frame-image-closed);
 }
 
 .problem-area-paper-content {
@@ -2669,20 +2814,38 @@ button.ai-source-ref-chip--document:focus-visible {
 }
 
 .problem-frame-style-preview[data-problem-frame-style="cornerbox"] {
-  --corner-frame-corner-size: 4px;
-  --corner-frame-rule-width: 1px;
-  --corner-frame-guide-width: 1px;
-  --corner-frame-guide-inset-x: 9px;
-  --corner-frame-guide-side-x: 0px;
-  --corner-frame-guide-side-y: 9px;
-  --corner-frame-rule-x: 5px;
-  --corner-frame-rule-side-x: 7px;
-  --corner-frame-rule-y: 6px;
-  --corner-frame-rule-side-y: 5px;
-  --corner-frame-corner-x: 3px;
-  --corner-frame-corner-y: 3px;
-  border: 0;
+  --problem-bracket-color: #111111;
+  --problem-bracket-arm: 8px;
+  --problem-bracket-weight: 2px;
+  border: 1px solid #b6bac1;
+  background:
+    linear-gradient(var(--problem-bracket-color), var(--problem-bracket-color)) left top / var(--problem-bracket-arm) var(--problem-bracket-weight) no-repeat,
+    linear-gradient(var(--problem-bracket-color), var(--problem-bracket-color)) left top / var(--problem-bracket-weight) var(--problem-bracket-arm) no-repeat,
+    linear-gradient(var(--problem-bracket-color), var(--problem-bracket-color)) right top / var(--problem-bracket-arm) var(--problem-bracket-weight) no-repeat,
+    linear-gradient(var(--problem-bracket-color), var(--problem-bracket-color)) right top / var(--problem-bracket-weight) var(--problem-bracket-arm) no-repeat,
+    linear-gradient(var(--problem-bracket-color), var(--problem-bracket-color)) left bottom / var(--problem-bracket-arm) var(--problem-bracket-weight) no-repeat,
+    linear-gradient(var(--problem-bracket-color), var(--problem-bracket-color)) left bottom / var(--problem-bracket-weight) var(--problem-bracket-arm) no-repeat,
+    linear-gradient(var(--problem-bracket-color), var(--problem-bracket-color)) right bottom / var(--problem-bracket-arm) var(--problem-bracket-weight) no-repeat,
+    linear-gradient(var(--problem-bracket-color), var(--problem-bracket-color)) right bottom / var(--problem-bracket-weight) var(--problem-bracket-arm) no-repeat,
+    #ffffff;
+}
+
+.problem-frame-style-preview[data-problem-frame-style="custom"] {
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  border: 1px dashed var(--border);
   background: #ffffff;
+  color: var(--text-secondary);
+}
+
+/* 画像の本来の高さをグリッドの高さ計算に入れない (入れると 28px の見本枠から溢れる)。 */
+.problem-frame-style-preview[data-problem-frame-style="custom"] > img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
 }
 
 .problem-number-size-field {

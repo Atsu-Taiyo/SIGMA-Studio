@@ -12,6 +12,7 @@ import "./globals.css";
 
 import type { Metadata } from "next";
 
+import { SharedLinkHandler } from "@/components/workspace/SharedLinkHandler";
 import { AppDocumentLanguage } from "@/components/AppDocumentLanguage";
 
 import { buildContentSecurityPolicyMeta } from "./content-security-policy";
@@ -34,6 +35,7 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
       ) : null}
       <body>
         <AppDocumentLanguage />
+        <SharedLinkHandler />
         {children}
       </body>
     </html>

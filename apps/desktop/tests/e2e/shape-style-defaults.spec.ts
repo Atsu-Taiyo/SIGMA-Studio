@@ -78,7 +78,7 @@ async function chooseFromToolbarMenu(page: Page, buttonName: string, itemName: s
 }
 
 async function pickStrokeColour(page: Page, swatch: string) {
-  const button = page.getByRole("button", { name: "枠線", exact: true });
+  const button = page.locator(".editor-menubar").getByRole("button", { name: "枠線", exact: true });
   await expect(button).toBeEnabled();
   await button.click();
   const popover = page.locator(".color-popover");

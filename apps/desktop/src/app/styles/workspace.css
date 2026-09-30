@@ -2113,6 +2113,18 @@ nav.app-menu-list[inert] *,
   display: none;
 }
 
+/* 右のサイドバー (ファイル / ブラウザ / サイドチャット)。既存のAI列と同じグリッド位置・重なりを使い、
+   中の並びは features/right-dock 側が決める。旧AIサイドバーの32pxヘッダー行だけを外す。 */
+.ai-sidebar-panel.right-dock {
+  display: flex;
+  flex-direction: column;
+  grid-template-rows: none;
+}
+
+.ai-sidebar-panel.right-dock.is-hidden {
+  display: none;
+}
+
 .ai-sidebar-panel.ai-chat-host--inline:not(.is-hidden) {
   animation: ui-dialog-in 180ms ease both;
 }
@@ -2920,4 +2932,391 @@ nav.app-menu-list[inert] *,
 .workspace-file-card-title strong {
   min-width: 0;
   flex: 0 1 auto;
+}
+
+/* ── サイドバーの開閉 / コメント一覧 / ブックマーク ─────────────────────────────── */
+
+.workspace-sidebar-toggle {
+  margin-left: -8px;
+}
+
+.workspace-page-main {
+  transition: grid-template-columns 160ms ease;
+}
+
+/* 畳んだサイドバーは、新規作成・コメント・ブックマークだけを残した細いアイコン列。 */
+.workspace-page-main[data-sidebar="collapsed"] {
+  grid-template-columns: 64px minmax(0, 1fr);
+}
+
+.workspace-sidebar[data-collapsed="true"] {
+  justify-items: center;
+  padding-inline: 10px;
+  overflow-x: hidden;
+}
+
+.workspace-sidebar[data-collapsed="true"] .workspace-new-button {
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border-radius: 14px;
+}
+
+.workspace-sidebar[data-collapsed="true"] .workspace-new-button span,
+.workspace-sidebar[data-collapsed="true"] .workspace-nav-panels .workspace-nav-name {
+  display: none;
+}
+
+.workspace-sidebar[data-collapsed="true"] .workspace-nav-panels {
+  justify-items: center;
+}
+
+.workspace-sidebar[data-collapsed="true"] .workspace-nav-panels .workspace-nav-item {
+  position: relative;
+  justify-content: center;
+  width: 44px;
+  padding: 0;
+}
+
+.workspace-nav-count {
+  flex: 0 0 auto;
+  margin-left: auto;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--text-primary);
+  color: var(--background);
+  font-size: 11px;
+  font-weight: 650;
+  line-height: 16px;
+}
+
+.workspace-sidebar[data-collapsed="true"] .workspace-nav-count {
+  position: absolute;
+  top: 2px;
+  right: 0;
+  padding: 0 5px;
+  line-height: 15px;
+}
+
+/* コメント一覧・ブックマーク一覧の本体 */
+.workspace-panel-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 36px;
+}
+
+.workspace-panel-header h2 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  color: var(--text-primary);
+  font-size: 16px;
+  font-weight: 650;
+}
+
+.workspace-panel-tools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 14px;
+}
+
+.workspace-segmented {
+  display: inline-flex;
+  padding: 2px;
+  border-radius: 999px;
+  background: var(--surface-muted);
+}
+
+.workspace-segmented button {
+  height: 28px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.workspace-segmented button[aria-pressed="true"] {
+  background: var(--background);
+  color: var(--text-primary);
+  box-shadow: 0 1px 2px rgba(17, 17, 17, 0.1);
+}
+
+.workspace-segmented button:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent) 40%, transparent);
+  outline-offset: 1px;
+}
+
+.workspace-panel-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.workspace-panel-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.workspace-empty-state small {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.workspace-comment-list,
+.workspace-bookmark-list {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.workspace-comment-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 12px 14px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 14px;
+  background: var(--background);
+  color: var(--text-secondary);
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 140ms ease, box-shadow 160ms ease;
+}
+
+.workspace-comment-item:hover,
+.workspace-comment-item:focus-visible {
+  border-color: var(--border);
+  box-shadow: 0 8px 24px rgba(17, 17, 17, 0.08);
+  outline: none;
+}
+
+.workspace-comment-item.is-resolved .workspace-comment-item-main {
+  opacity: 0.7;
+}
+
+.workspace-comment-item-main {
+  display: grid;
+  flex: 1;
+  gap: 4px;
+  min-width: 0;
+}
+
+.workspace-comment-item-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.workspace-comment-item-title {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workspace-comment-item-head .workspace-shared-badge {
+  margin-inline-start: 0;
+}
+
+.workspace-comment-item-time {
+  flex: 0 0 auto;
+  margin-left: auto;
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.workspace-comment-tag {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 3px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--surface-muted);
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.workspace-comment-tag.is-mention {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.workspace-comment-item-location {
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workspace-comment-item-message {
+  display: -webkit-box;
+  overflow: hidden;
+  color: var(--text-primary);
+  font-size: 13px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.workspace-comment-item-author {
+  margin-right: 6px;
+  color: var(--text-secondary);
+  font-weight: 650;
+}
+
+.workspace-comment-item-quote {
+  overflow: hidden;
+  padding-left: 8px;
+  border-left: 2px solid var(--border);
+  color: var(--text-muted);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workspace-comment-item-count {
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.workspace-comment-item-go {
+  flex: 0 0 auto;
+  color: var(--text-muted);
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+
+.workspace-comment-item:hover .workspace-comment-item-go,
+.workspace-comment-item:focus-visible .workspace-comment-item-go {
+  opacity: 1;
+}
+
+.workspace-bookmark-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding-right: 8px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 14px;
+  background: var(--background);
+  transition: border-color 140ms ease;
+}
+
+.workspace-bookmark-row:hover,
+.workspace-bookmark-row:focus-within {
+  border-color: var(--border);
+}
+
+.workspace-bookmark-open {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  padding: 10px 8px 10px 14px;
+  border: 0;
+  border-radius: 14px;
+  background: transparent;
+  color: var(--text-secondary);
+  text-align: left;
+  cursor: pointer;
+}
+
+.workspace-bookmark-open:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent) 40%, transparent);
+  outline-offset: -2px;
+}
+
+.workspace-bookmark-icon {
+  display: grid;
+  flex: 0 0 auto;
+  color: var(--text-muted);
+}
+
+.workspace-bookmark-text {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.workspace-bookmark-name {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workspace-bookmark-text small {
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 教材・フォルダ一覧のブックマークボタン。追加済みは常に見せて (状態をホバーなしで読める)、
+   未追加はホバー / フォーカスで現れる。 */
+.workspace-bookmark-button {
+  flex: 0 0 auto;
+}
+
+.workspace-bookmark-button.is-active {
+  color: var(--text-primary);
+}
+
+.workspace-folder-card > .workspace-bookmark-button:not(.is-active),
+.workspace-list-cell-actions .workspace-bookmark-button:not(.is-active),
+.workspace-file-card-bookmark:not(.is-active) {
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+
+.workspace-folder-card:hover > .workspace-bookmark-button,
+.workspace-folder-card:focus-within > .workspace-bookmark-button,
+.workspace-list-row:hover .workspace-list-cell-actions .workspace-bookmark-button,
+.workspace-list-row:focus-within .workspace-list-cell-actions .workspace-bookmark-button,
+.workspace-file-card:hover .workspace-file-card-bookmark,
+.workspace-file-card:focus-within .workspace-file-card-bookmark {
+  opacity: 1;
+}
+
+.workspace-file-card-bookmark {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  z-index: 1;
+  background: color-mix(in srgb, var(--background) 90%, transparent);
+  box-shadow: 0 1px 4px rgba(17, 17, 17, 0.14);
 }

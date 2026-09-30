@@ -64,6 +64,8 @@
     "react-dom": "^19.2.6",
     "thinking-orbs": "^0.3.1",
     "three": "^0.185.1",
+    "tldts": "^7.4.16",
+    "unused-filename": "^4.0.1",
     "ws": "8.19.0",
     "y-protocols": "1.0.7",
     "yjs": "13.6.32",

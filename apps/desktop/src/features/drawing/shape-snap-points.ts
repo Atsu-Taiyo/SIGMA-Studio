@@ -5,6 +5,7 @@ import { normalizePositiveAngle } from "./math";
 import { getRegularPolygonPoints, normalizeRegularPolygonSides } from "./regular-polygon-geometry";
 import { getArcRadii, getShapeRotation } from "./shape-bounds";
 import { getShapeRotationPivot } from "./shape-visual-bounds";
+import { getSolidKind, getSolidPoints, getSolidTopology } from "./solid-geometry";
 
 /**
  * 図形の輪郭が持つ、線端などを吸着させる意味的な点をページ座標で返す。
@@ -57,6 +58,19 @@ function getLocalShapeSnapPoints(shape: OverlayShape): OverlayPoint[] | null {
 
   if (shape.type !== "geo") {
     return null;
+  }
+
+  // 立体は頂点と辺の中点。球は輪郭が楕円なので枠の点に任せる。
+  const kind = getSolidKind(shape);
+  if (kind && kind.geo !== "sphere") {
+    const points = getSolidPoints(shape);
+    return [
+      ...points,
+      ...getSolidTopology(kind.geo, kind.baseSides ?? 3).edges.map(([from, to]) => ({
+        x: (points[from].x + points[to].x) / 2,
+        y: (points[from].y + points[to].y) / 2,
+      })),
+    ];
   }
 
   const polygon = getLocalGeoPolygonPoints(shape);

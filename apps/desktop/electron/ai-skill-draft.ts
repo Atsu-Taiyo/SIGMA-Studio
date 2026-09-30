@@ -7,6 +7,7 @@ import { spawnCliProcess } from "./cli-spawn";
 import { buildCodexChildEnv, type CodexAppServerClient } from "./codex-app-server-client";
 import type { ClaudeStreamClient } from "./claude-stream-client";
 import type { GeminiHeadlessClient } from "./gemini-headless-client";
+import { AI_FRAME_DRAWING, normalizeFrameSvg } from "@/features/document/problem-custom-frame";
 import { parseSkillFile, SKILL_CONTENT_MAX_LENGTH } from "@/lib/ai/skill-frontmatter";
 import type { AiProvider } from "@/lib/ai/ai-providers";
 import { createCurrentLocaleTranslator } from "@/lib/i18n";
@@ -37,12 +38,23 @@ const ta = createCurrentLocaleTranslator("ai");
 // cancelAiSkillDraftCodexRun()をmain.tsのキャンセル分岐から呼べるようexportする。
 
 export const AI_SKILL_DRAFT_TIMEOUT_MS = 120_000;
+/**
+ * A frame is drawn in the background while the reader does something else, often with a thinking
+ * model (Antigravity's Flash at high effort took over 90 s). Longer than the skill draft, which
+ * someone is waiting on.
+ */
+export const AI_PROBLEM_FRAME_TIMEOUT_MS = 300_000;
 
 export interface AiSkillDraftContext {
   title: string;
   description: string;
   /** 既存のスキル本文。空文字なら新規作成として扱う。 */
   currentContent: string;
+  /**
+   * `problemFrame` のチャットで、これまでにユーザーが出した要望 (古い順)。会話そのものは
+   * プロバイダ側に持たせず (呼び出しごとに新しい一回きりの実行)、必要な文脈だけをこの形で渡す。
+   */
+  history?: string[];
 }
 
 export interface AiSkillDraftRequest {
@@ -50,11 +62,41 @@ export interface AiSkillDraftRequest {
   /** ユーザーが入力した「何をしてほしいか」の一言。 */
   prompt: string;
   context: AiSkillDraftContext;
+  /**
+   * 何を下書きするか。省略はスキル本文。`problemFrame` は問題の枠線の絵 (SVG 1枚) で、
+   * 「ツールなし・一回きり」という呼び出しの形がそのまま使えるので同じ経路に乗せる。
+   * このとき `context.currentContent` は改訂元の SVG。
+   */
+  purpose?: "skill" | "problemFrame";
+  /**
+   * 使うモデル。省略時は各プロバイダの既定。呼び出し側 (UI) が「AI設定で選んだモデル」を渡し、
+   * 画面に出した名前と実際に走るモデルを一致させる。
+   */
+  model?: string;
+  /** 推論の強さ (Claude の `--effort` / Codex の `model_reasoning_effort`)。省略は各プロバイダの既定。 */
+  reasoningEffort?: string;
 }
 
 export type AiSkillDraftResult =
-  | { ok: true; text: string }
-  | { ok: false; error: string };
+  | {
+      ok: true;
+      text: string;
+      /** `problemFrame`: SVG に添えて返ってきた一言 (どんな枠にしたか)。無ければ含めない。 */
+      message?: string;
+    }
+  | {
+      ok: false;
+      error: string;
+      /** `problemFrame`: 絵は無かったが、モデルが文章で返した内容 (会話として見せる)。 */
+      message?: string;
+    };
+
+/** 思考・返答それぞれの断片の届け先。 */
+export interface AiSkillDraftStreamHandlers {
+  onDelta?: (delta: string) => void;
+  /** 思考の断片。プロバイダが本文を出すもの (Claude の要約・Codex の推論要約) だけ届く。 */
+  onReasoning?: (delta: string) => void;
+}
 
 export interface AiSkillDraftDeps {
   claude: ClaudeStreamClient;
@@ -72,25 +114,47 @@ export async function generateAiSkillDraft(
   /** ストリーミング用のraw delta通知。サニタイズ前のモデル出力の断片がそのまま渡る
    * (最終的な整形済みテキストは戻り値のtext)。 */
   onDelta?: (delta: string) => void,
+  /** 思考の断片の通知 (対応するプロバイダだけ)。 */
+  onReasoning?: (delta: string) => void,
 ): Promise<AiSkillDraftResult> {
   const userPrompt = request.prompt.trim();
   if (!userPrompt) {
     return { ok: false, error: ta("desktop.skillDraft.instructionRequired") };
   }
 
-  const fullPrompt = buildSkillDraftPrompt(userPrompt, request.context);
+  const model = request.model?.trim() || undefined;
+  const reasoningEffort = normalizeReasoningEffort(request.reasoningEffort);
+  const isProblemFrame = request.purpose === "problemFrame";
+  const fullPrompt = isProblemFrame
+    ? buildProblemFrameDrawingPrompt(userPrompt, request.context.currentContent, request.context.history)
+    : buildSkillDraftPrompt(userPrompt, request.context);
+  // Thinking and live streaming are for the frame chat, which shows them. The skill editor keeps its
+  // one-shot call as it was: it only appends the reply, and asking the CLIs for more would change
+  // what they are run with for nothing.
+  const options: AiSkillDraftRunOptions = {
+    model,
+    reasoningEffort,
+    onDelta,
+    timeoutMs: isProblemFrame ? AI_PROBLEM_FRAME_TIMEOUT_MS : AI_SKILL_DRAFT_TIMEOUT_MS,
+    ...(isProblemFrame ? { onReasoning, streamOutput: true } : {}),
+  };
 
   try {
     const rawText = await (request.provider === "claude"
-      ? generateWithClaude(deps.claude, fullPrompt, runId, onDelta)
+      ? generateWithClaude(deps.claude, fullPrompt, runId, options)
       : request.provider === "antigravity"
-      ? generateWithGemini(deps.geminiSkillDraft, fullPrompt, runId, onDelta)
-      : generateWithCodex(deps.codex, fullPrompt, runId, onDelta));
-    const text = sanitizeSkillDraftText(rawText);
+      ? generateWithGemini(deps.geminiSkillDraft, fullPrompt, runId, options)
+      : generateWithCodex(deps.codex, fullPrompt, runId, options));
+    const text = isProblemFrame ? sanitizeProblemFrameDrawing(rawText) : sanitizeSkillDraftText(rawText);
+    const message = isProblemFrame ? extractProblemFrameReplyMessage(rawText) : "";
     if (!text) {
-      return { ok: false, error: ta("desktop.skillDraft.emptyResponse") };
+      return {
+        ok: false,
+        error: ta("desktop.skillDraft.emptyResponse"),
+        ...(message ? { message } : {}),
+      };
     }
-    return { ok: true, text };
+    return { ok: true, text, ...(message ? { message } : {}) };
   } catch (error) {
     return { ok: false, error: error instanceof Error ? error.message : ta("desktop.skillDraft.failed") };
   }
@@ -137,6 +201,89 @@ export function buildSkillDraftPrompt(userPrompt: string, context: AiSkillDraftC
   return sections.join("\n");
 }
 
+const PROBLEM_FRAME_HISTORY_LIMIT = 8;
+const PROBLEM_FRAME_HISTORY_ITEM_MAX_LENGTH = 400;
+
+export function buildProblemFrameDrawingPrompt(userPrompt: string, currentSvg: string, history: readonly string[] = []): string {
+  const { width, height, slice } = AI_FRAME_DRAWING;
+  const sections = [
+    "あなたは数学教材エディタ「Sigma Studio」で、問題を囲む枠線の絵をSVGで描くアシスタントです。",
+    "",
+    "## 枠線の仕組み (必ず守ってください)",
+    `- キャンバスは viewBox="0 0 ${width} ${height}" の長方形です。ルート要素は <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${width} ${height}"> にしてください。`,
+    `- アプリはこの絵を縦横3×3の9つに切り、四隅(各 ${slice}×${slice})は形を保ったまま、四辺は問題の大きさに合わせて引き伸ばして使います。中央は文章が入るので何も描かないでください。`,
+    `- したがって、飾りは四隅の ${slice}×${slice} の中に収めてください。四辺(隅と隅のあいだ)は、端から端まで届く単純な直線や帯だけにしてください。点線・模様・文字を辺に描くと、引き伸ばされて崩れます。`,
+    "- 背景は透明にしてください(背景の塗りつぶしは描かない)。紙に印刷されるので、読みやすさを損なわない落ち着いた色を選んでください。",
+    "- 文字(<text>)、画像、外部ファイルの参照、スクリプト、フィルター、フォントは使わないでください。図形(path, rect, circle, line, polygon)と単色・線形グラデーションだけを使ってください。",
+    "- 枠の外周を線が切れないよう、線は viewBox の内側(端から線幅の半分以上内側)に描いてください。",
+  ];
+  if (currentSvg.trim()) {
+    sections.push(
+      "",
+      "## 現在の枠線",
+      "以下は今の枠線のSVGです。細かな修正の要望なら、ゼロから描き直さずこれを改訂してください。まったく別のデザインを求められたときは、描き直してかまいません。",
+      "",
+      currentSvg.trim(),
+    );
+  }
+  const earlier = history
+    .map((entry) => entry.trim().slice(0, PROBLEM_FRAME_HISTORY_ITEM_MAX_LENGTH))
+    .filter(Boolean)
+    .slice(-PROBLEM_FRAME_HISTORY_LIMIT);
+  if (earlier.length > 0) {
+    sections.push(
+      "",
+      "## これまでのユーザーの要望 (古い順)",
+      "同じ会話の続きです。以前の要望も踏まえ、最新の要望に沿って描いてください。",
+      ...earlier.map((entry, index) => `${index + 1}. ${entry}`),
+    );
+  }
+  sections.push(
+    "",
+    earlier.length > 0 ? "## 最新のユーザーの要望" : "## ユーザーの要望",
+    userPrompt,
+    "",
+    "## 出力ルール",
+    "- 最初に、どんな枠にしたかを日本語で1〜2文だけ書いてください。そのあとにSVGのコードを1つだけ続けてください。",
+    "- SVGはコードフェンスで囲まず、<svg ...> から </svg> までをそのまま書いてください。SVGのあとに文章は書かないでください。",
+    "- ツールは一切使用しないでください。ファイルの読み書き・コマンド実行・検索などを行わず、このプロンプトの情報だけをもとに出力してください。",
+  );
+  return sections.join("\n");
+}
+
+const PROBLEM_FRAME_REPLY_MESSAGE_MAX_LENGTH = 400;
+
+/**
+ * モデルの返答から、SVG の前後に添えられた文章だけを取り出す (チャットの吹き出し用)。
+ * コードフェンスの記号は落とす。SVG が無ければ返答全体が文章。
+ */
+export function extractProblemFrameReplyMessage(raw: string): string {
+  const start = raw.search(/<svg[\s>]/i);
+  const closeIndex = raw.toLowerCase().lastIndexOf("</svg>");
+  const outside = start < 0
+    ? raw
+    : `${raw.slice(0, start)}\n${closeIndex >= 0 ? raw.slice(closeIndex + "</svg>".length) : ""}`;
+  return outside
+    .replace(/```[a-zA-Z0-9_-]*/g, "")
+    .replace(/\r\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim()
+    .slice(0, PROBLEM_FRAME_REPLY_MESSAGE_MAX_LENGTH);
+}
+
+const REASONING_EFFORT_PATTERN = /^[a-z][a-z0-9_-]{1,15}$/;
+
+function normalizeReasoningEffort(value: string | undefined): string | undefined {
+  const effort = value?.trim().toLowerCase();
+  return effort && REASONING_EFFORT_PATTERN.test(effort) ? effort : undefined;
+}
+
+/** モデルの出力から SVG 1枚だけを取り出す。描けていなければ空文字。 */
+export function sanitizeProblemFrameDrawing(raw: string): string {
+  const result = normalizeFrameSvg(raw);
+  return result.ok ? result.svg : "";
+}
+
 /**
  * モデルの出力をスキル本文として使える形へ整える:
  * - 応答全体を囲むコードフェンスがあれば剥がす
@@ -158,11 +305,41 @@ function stripSurroundingCodeFence(text: string): string {
   return match ? match[1] : text;
 }
 
+interface AiSkillDraftRunOptions extends AiSkillDraftStreamHandlers {
+  model?: string;
+  reasoningEffort?: string;
+  /** Ask the CLI for its incremental output (Antigravity prints nothing until the end otherwise). */
+  streamOutput?: boolean;
+  /** How long the run may take before it is cancelled. */
+  timeoutMs: number;
+}
+
 async function generateWithClaude(
   claude: ClaudeStreamClient,
   fullPrompt: string,
   runId: string,
-  onDelta?: (delta: string) => void,
+  options: AiSkillDraftRunOptions,
+): Promise<string> {
+  // 思考を見せたい呼び出しだけ要約の表示を求める。このフラグを知らない古い CLI は起動時に
+  // 「unknown option」で落ちるので、その場合だけ思考なしでもう一度走らせる。
+  if (options.onReasoning) {
+    try {
+      return await runClaudeDraft(claude, fullPrompt, runId, options, true);
+    } catch (error) {
+      if (!(error instanceof Error) || !/thinking-display/i.test(error.message)) {
+        throw error;
+      }
+    }
+  }
+  return runClaudeDraft(claude, fullPrompt, runId, options, false);
+}
+
+async function runClaudeDraft(
+  claude: ClaudeStreamClient,
+  fullPrompt: string,
+  runId: string,
+  { model, reasoningEffort, onDelta, onReasoning, timeoutMs }: AiSkillDraftRunOptions,
+  showThinking: boolean,
 ): Promise<string> {
   // クライアントのcancelRunはタイムアウトでもユーザー中止でも同じcancelled:trueを返すため、
   // どちらだったかをここで覚えてメッセージを出し分ける。
@@ -170,7 +347,7 @@ async function generateWithClaude(
   const timeoutHandle = setTimeout(() => {
     timedOut = true;
     claude.cancelRun(runId);
-  }, AI_SKILL_DRAFT_TIMEOUT_MS);
+  }, timeoutMs);
   try {
     const result = await claude.runTurn({
       instruction: fullPrompt,
@@ -179,6 +356,9 @@ async function generateWithClaude(
       mcpConfig: { mcpServers: {} },
       runId,
       onDelta,
+      ...(model ? { model } : {}),
+      ...(reasoningEffort ? { reasoningEffort } : {}),
+      ...(showThinking ? { thinkingDisplay: "summarized" as const, onThinkingDelta: onReasoning } : {}),
     });
     if (result.cancelled) {
       throw new Error(timedOut ? ta("desktop.skillDraft.timedOut") : ta("desktop.skillDraft.cancelled"));
@@ -196,16 +376,24 @@ async function generateWithGemini(
   gemini: GeminiHeadlessClient,
   fullPrompt: string,
   runId: string,
-  onDelta?: (delta: string) => void,
+  { model, onDelta, streamOutput, timeoutMs }: AiSkillDraftRunOptions,
 ): Promise<string> {
   // generateWithClaudeと同じ理由で、タイムアウト起因のcancelを区別する。
   let timedOut = false;
   const timeoutHandle = setTimeout(() => {
     timedOut = true;
     gemini.cancelRun(runId);
-  }, AI_SKILL_DRAFT_TIMEOUT_MS);
+  }, timeoutMs);
   try {
-    const result = await gemini.runTurn({ instruction: fullPrompt, runId, onDelta });
+    // print モードは本文が終了時まで出ないので、途中経過を見せるために stream-json で起動する。
+    // (Antigravity の CLI は思考の本文を出さないので、届くのは返答の断片だけ。)
+    const result = await gemini.runTurn({
+      instruction: fullPrompt,
+      runId,
+      onDelta,
+      ...(streamOutput ? { streamOutput: true } : {}),
+      ...(model ? { model } : {}),
+    });
     if (result.cancelled) {
       throw new Error(timedOut ? ta("desktop.skillDraft.timedOut") : ta("desktop.skillDraft.cancelled"));
     }
@@ -256,6 +444,8 @@ export function cancelAiSkillDraftCodexRun(runId: string): boolean {
 export interface CodexExecJsonLineResult {
   /** この行が完了したagent_messageアイテムを運んでいれば、そのテキスト。 */
   agentMessageText: string | null;
+  /** この行が完了した reasoning アイテム (推論の要約) を運んでいれば、そのテキスト。無ければキー自体を持たない。 */
+  reasoningText?: string;
   /** この行がエラー系イベントであれば、人間可読なメッセージへのベストエフォート変換。 */
   failureMessage: string | null;
 }
@@ -302,6 +492,9 @@ export function parseCodexExecJsonLine(line: string): CodexExecJsonLineResult {
     if (item.type === "agent_message" && typeof item.text === "string") {
       return { agentMessageText: item.text, failureMessage: null };
     }
+    if (item.type === "reasoning" && typeof item.text === "string" && item.text.trim()) {
+      return { agentMessageText: null, failureMessage: null, reasoningText: item.text };
+    }
     if (item.type === "error" && typeof item.message === "string") {
       return { agentMessageText: null, failureMessage: unwrapCodexErrorMessage(item.message) };
     }
@@ -341,7 +534,7 @@ async function generateWithCodex(
   codex: CodexAppServerClient,
   fullPrompt: string,
   runId: string,
-  onDelta?: (delta: string) => void,
+  { model, reasoningEffort, onDelta, onReasoning, timeoutMs }: AiSkillDraftRunOptions,
 ): Promise<string> {
   const codexBin = await codex.resolveCodexBinForSpawn();
   const codexHome = codex.getCodexHome();
@@ -371,6 +564,10 @@ async function generateWithCodex(
     // フォールバックとして引き続き書かせておく。
     "--output-last-message",
     outputFile,
+    ...(model ? ["--model", model] : []),
+    ...(reasoningEffort ? ["-c", `model_reasoning_effort="${reasoningEffort}"`] : []),
+    // 推論の要約を出させる (出るのは各推論の完了時に1項目ずつ)。思考を見せたい呼び出しだけ。
+    ...(onReasoning ? ["-c", 'model_reasoning_summary="auto"'] : []),
   ];
 
   return new Promise<string>((resolve, reject) => {
@@ -409,11 +606,14 @@ async function generateWithCodex(
         killCodexDraftProcess(proc);
         reject(new Error(ta("desktop.skillDraft.timedOut")));
       });
-    }, AI_SKILL_DRAFT_TIMEOUT_MS);
+    }, timeoutMs);
 
     const rl = readline.createInterface({ input: proc.stdout });
     rl.on("line", (line) => {
-      const { agentMessageText, failureMessage } = parseCodexExecJsonLine(line);
+      const { agentMessageText, failureMessage, reasoningText } = parseCodexExecJsonLine(line);
+      if (reasoningText) {
+        onReasoning?.(reasoningText);
+      }
       if (agentMessageText !== null) {
         latestAgentMessageText = agentMessageText;
         onDelta?.(agentMessageText);

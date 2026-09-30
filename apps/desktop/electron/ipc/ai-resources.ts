@@ -16,6 +16,9 @@ const ta = createCurrentLocaleTranslator("ai");
 // cancelAiSkillDraftCodexRun (Codexだけこのファイル内で自前管理) を呼ぶ。
 const activeAiSkillDraftRuns = new Map<string, { provider: AiProvider; cancel: () => boolean }>();
 
+const AI_SKILL_DRAFT_HISTORY_LIMIT = 8;
+const AI_SKILL_DRAFT_HISTORY_ITEM_MAX_LENGTH = 400;
+
 function parseAiSkillDraftPayload(payload: unknown): AiSkillDraftRequest | null {
   if (typeof payload !== "object" || payload === null) {
     return null;
@@ -27,10 +30,23 @@ function parseAiSkillDraftPayload(payload: unknown): AiSkillDraftRequest | null 
   return {
     provider,
     prompt,
+    purpose: record.purpose === "problemFrame" ? "problemFrame" : "skill",
+    ...(typeof record.model === "string" && record.model.trim() ? { model: record.model.trim().slice(0, 200) } : {}),
+    ...(typeof record.reasoningEffort === "string" && record.reasoningEffort.trim()
+      ? { reasoningEffort: record.reasoningEffort.trim().slice(0, 32) }
+      : {}),
     context: {
       title: typeof contextRaw.title === "string" ? contextRaw.title : "",
       description: typeof contextRaw.description === "string" ? contextRaw.description : "",
       currentContent: typeof contextRaw.currentContent === "string" ? contextRaw.currentContent : "",
+      ...(Array.isArray(contextRaw.history)
+        ? {
+            history: contextRaw.history
+              .filter((entry): entry is string => typeof entry === "string")
+              .slice(-AI_SKILL_DRAFT_HISTORY_LIMIT)
+              .map((entry) => entry.slice(0, AI_SKILL_DRAFT_HISTORY_ITEM_MAX_LENGTH)),
+          }
+        : {}),
     },
   };
 }
@@ -144,6 +160,7 @@ export function registerAiResourcesIpc(deps: RegisterAiResourcesIpcDeps): void {
         },
         runId,
         (delta) => event.sender.send(`ai-skill-draft:event:${runId}`, { kind: "delta", text: delta }),
+        (delta) => event.sender.send(`ai-skill-draft:event:${runId}`, { kind: "reasoning", text: delta }),
       );
     } finally {
       activeAiSkillDraftRuns.delete(runId);

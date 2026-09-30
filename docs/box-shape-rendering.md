@@ -35,6 +35,7 @@
 |---|---|---|---|
 | `/fancybox` | `fancybox` | 一重枠 | `borderWidthPx`, `borderColor`, `paddingPx`。`framed`, `fbox`, `framebox` は検索 alias。 |
 | `/itembox` | `itembox` | 見出しプレート付き枠 | `titlePlate` decoration。既定タイトルは `ポイント`。 |
+| `/splitbox` | `splitbox` | 見出しが 2 欄に割れる箱 | `titleBand` + `titleSplit` decoration。サブタイトル欄 (既定 `Point`、濃い地に白抜き) とタイトル欄 (既定 `解法`、灰色の帯) が 1 本の帯に並ぶ。欄の幅の比・間隔・左右の順・サブタイトルの位置は自由。参考書の解法・要点枠向け。 |
 | `/tcolorbox` | `tcolorbox` | タイトル帯付き枠 | `titleBand` decoration。既定タイトルは `定理`。 |
 | `/tcolorbox-note` | `tcolorbox-note` | ノート罫付き枠 | `notebookRules` decoration。左リング、縦綴じ罫、横罫をCSSで描く。`/ノート` でも検索できる。 |
 | `/doublebox` | `doublebox` | 二重罫枠 | `doubleRule` decoration。外枠は通常 border、内枠は inset border。 |
@@ -52,6 +53,7 @@
 |---|---|---|
 | `doubleRule` | `data-box-double-rule` | 箱の内側にもう一本の罫線を描く。 |
 | `titleBand` | `data-box-title-band` | タイトル行を横幅いっぱいの帯として描く。 |
+| `titleSplit` | `data-box-title-split` | 帯を 2 欄 (サブタイトルとタイトル) に割る。編集面は内容の `div`、印刷は箱そのものが grid になり、幅の比・隙間・左右は CSS 変数 (`--sigma-doc-box-split-*`) で決まる。 |
 | `titlePlate` | `data-box-title-plate` | タイトルだけを小さなラベル板として描く。 |
 | `leftBar` | `data-box-left-bar` | 左側に太いアクセント罫を描く。 |
 | `shadow` | `data-box-shadow` | `box-shadow` でカード風の影を描く。 |
@@ -65,3 +67,12 @@
 単純な箱とノート罫は `boxBlock` に寄せる。一方で、タイトル扉のように複数のテキスト領域や細かい図形を含むものは、現時点では「複合素材」として扱う。
 
 これらは純粋な箱というより、教材テンプレートに近い。将来 `boxBlock` に複数スロットや内部ラベルを持たせる設計を入れるまでは、overlay 付き素材のまま分けておく。
+
+## 2 欄の見出し (`titleSplit`)
+
+`boxBlock.subtitle` は `titleSplit` を持つ枠だけが描く 2 つ目のタイトル。中身はタイトルと同じインライン (数式も入る)。
+
+- **保存**: `subtitle?: InlineNode[]` と、枠の `decorations` の `titleSplit` (`subtitleShare` 0.05〜0.95 / `gapPx` / `order: "subtitleFirst" | "titleFirst"` / `subtitleBackgroundColor` / `subtitleColor` / `subtitleAlign`)。
+- **編集面**: Tiptap の `boxBlock` は `boxBlockTitle boxBlockSubtitle? boxBlockBody`。サブタイトル欄の有無は枠の装飾に従い、設定ダイアログでスタイルを替えると欄を足す/消す (`syncBoxSubtitleNode`)。
+- **幅の変更**: 段組みの列と同じく、境界のつまみ (`box-split-handle.ts`) をドラッグする。離したときに 1 回だけ `subtitleShare` を書き込む。設定ダイアログの数値・並び順・隙間からも変えられる。
+- **印刷・ビューア**: `print-box-title` と `print-box-title print-box-subtitle` の 2 つを出す。どちらも空なら帯ごと出さない。
