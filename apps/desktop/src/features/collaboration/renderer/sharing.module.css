@@ -64,8 +64,9 @@
   font-size: 12px;
 }
 .accountButton {
-  display: grid;
-  place-items: center;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-xs);
   padding: 0;
   border: 0;
   border-radius: var(--radius-round);
@@ -96,6 +97,29 @@
 .accountMenu strong,
 .accountMenu span {
   overflow-wrap: anywhere;
+}
+.accountNameRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+}
+.accountNameRow strong {
+  min-width: 0;
+}
+.proBadge,
+.accountMenu .proBadge {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-round);
+  padding-inline: var(--space-xs);
+  background: var(--surface-muted);
+  color: var(--text-primary);
+  font-size: 10px;
+  font-weight: 650;
+  line-height: 1.5;
+  white-space: nowrap;
 }
 .accountMenu span {
   color: var(--text-muted);
