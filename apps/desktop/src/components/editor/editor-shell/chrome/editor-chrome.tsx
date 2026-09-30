@@ -15,7 +15,7 @@ import { DocumentTabSaveDot, SaveStatusBadge } from "@/components/editor/editor-
 import { InlineMathDetails } from "@/components/editor/EditorSettings";
 import { EDITOR_TOOLBAR_CARET_SIZE, EDITOR_TOOLBAR_ICON_SIZE, EDITOR_TOOLBAR_TEXT_ICON_SIZE, EditorToolbarColorButton, EditorToolbarGroup, EditorToolbarIconButton, EditorToolbarMenuButton, EditorToolbarSelect, EditorToolbarSeparator } from "@/components/editor/EditorToolbar";
 import { ToolbarPopover } from "@/components/editor/ToolbarPopover";
-import { BOXED_TEXT_STYLE_OPTIONS, BLOCK_STYLE_OPTIONS, DEFAULT_FONT_FAMILY_VALUE, KEYBOARD_ZOOM_STEP, LINE_HEIGHT_OPTIONS, MAX_BOXED_TEXT_PADDING_Y, MIN_BOXED_TEXT_PADDING_Y, TEXT_ALIGN_OPTIONS } from "@/components/editor/editor-shell/constants";
+import { BOXED_TEXT_STYLE_OPTIONS, BLOCK_STRUCTURE_OPTIONS, BLOCK_STYLE_OPTIONS, DEFAULT_FONT_FAMILY_VALUE, KEYBOARD_ZOOM_STEP, LINE_HEIGHT_OPTIONS, MAX_BOXED_TEXT_PADDING_Y, MIN_BOXED_TEXT_PADDING_Y, TEXT_ALIGN_OPTIONS, type BlockStructureOptionValue } from "@/components/editor/editor-shell/constants";
 import { BoxedTextIcon, BoxedTextStylePreview, LineEndpointMenuButton } from "@/components/editor/editor-shell/formatting-icons";
 import { normalizeToolbarFontFamily } from "@/components/editor/editor-shell/toolbar-formatting";
 import { degradedWatcherMessage } from "@/components/editor/editor-shell/workspace-request";
@@ -672,9 +672,26 @@ export function renderEditorChrome(chrome: EditorChromeValue) {
     </EditorToolbarGroup>
   );
 
-  const blockStyleLabel = selectedTextStyle === "h1" || selectedTextStyle === "h2" || selectedTextStyle === "h3" || selectedTextStyle === "paragraph"
-    ? t(`format.blockStyle.${selectedTextStyle}`)
-    : t("format.blockStyle.placeholder");
+  // いまの段落を 1 つのスタイル名で言い表す。コード・リストは本文の一種でもあるので、それらを
+  // 優先して見せる (「本文」と「箇条書き」が同時に選ばれているように見せない)。
+  const activeBlockStructure: BlockStructureOptionValue | null = blockStyleState.inCodeBlock
+    ? "code"
+    : blockStyleState.listType === "bullet"
+      ? "bulletList"
+      : blockStyleState.listType === "ordered"
+        ? "orderedList"
+        : blockStyleState.inQuoteBlock && selectedTextStyle === "paragraph"
+          ? "quote"
+          : null;
+  const activeTextBlockStyle = activeBlockStructure === null ? selectedTextStyle : null;
+  const blockStyleLabel = activeBlockStructure !== null
+    ? t(`format.blockStructure.${activeBlockStructure}`)
+    : selectedTextStyle === "h1" || selectedTextStyle === "h2" || selectedTextStyle === "h3" || selectedTextStyle === "paragraph"
+      ? t(`format.blockStyle.${selectedTextStyle}`)
+      : t("format.blockStyle.placeholder");
+  // 区切り線の上など、文字スタイルは使えなくてもブロックを解除したい状態がある。
+  const blockStyleMenuEnabled = canUseTextBlockStyle || canUseBlockStructure;
+  const blockStyleMenuVisible = blockStyleMenuOpen && blockStyleMenuEnabled;
   const paragraphStyleSelect = (
           <div className="shape-menu-anchor">
             <button
@@ -684,8 +701,8 @@ export function renderEditorChrome(chrome: EditorChromeValue) {
               title={blockStyleLabel}
               aria-label={t("format.blockStyle.aria")}
               aria-haspopup="menu"
-              aria-expanded={blockStyleMenuOpen && canUseTextBlockStyle}
-              disabled={!canUseTextBlockStyle}
+              aria-expanded={blockStyleMenuVisible}
+              disabled={!blockStyleMenuEnabled}
               onMouseDown={(event) => event.preventDefault()}
               onClick={() => {
                 const nextOpen = !blockStyleMenuOpen;
@@ -706,14 +723,15 @@ export function renderEditorChrome(chrome: EditorChromeValue) {
               <ChevronDown className="toolbar-font-select-caret" size={EDITOR_TOOLBAR_CARET_SIZE} aria-hidden="true" />
             </button>
             <ToolbarPopover
-              open={blockStyleMenuOpen && canUseTextBlockStyle}
+              open={blockStyleMenuVisible}
               anchorRef={blockStyleButtonRef}
               onClose={() => setBlockStyleMenuOpen(false)}
               className="shape-menu font-family-menu"
               role="menu"
               ariaLabel={t("format.blockStyle.aria")}
             >
-              {(blockStyleMenuOpen && canUseTextBlockStyle) && <>
+              {blockStyleMenuVisible && <>
+              <div className="font-family-menu-group" role="group" aria-label={t("format.blockStyle.groupText")}>
               {BLOCK_STYLE_OPTIONS.map((value) => {
                 const optionLabel = t(`format.blockStyle.${value}`);
                 return (
@@ -721,9 +739,10 @@ export function renderEditorChrome(chrome: EditorChromeValue) {
                     key={value}
                     type="button"
                     role="menuitemradio"
-                    aria-checked={selectedTextStyle === value}
-                    className={selectedTextStyle === value ? "active" : undefined}
+                    aria-checked={checked}
+                    className={`block-style-option block-style-option-${value}${checked ? " active" : ""}`}
                     title={optionLabel}
+                const checked = activeTextBlockStyle === value;
                     onMouseDown={(event) => event.preventDefault()}
                     onClick={() => {
                       applyTextStyle(value);
@@ -731,7 +750,8 @@ export function renderEditorChrome(chrome: EditorChromeValue) {
                     }}
                   >
                     <span className="font-family-menu-option-label">{optionLabel}</span>
-                    {selectedTextStyle === value ? (
+                    {checked ? (
+                    disabled={!canUseTextBlockStyle}
                       <Check size={14} className="font-family-menu-check" />
                     ) : (
                       <span className="font-family-menu-check" aria-hidden="true" />
@@ -747,6 +767,40 @@ export function renderEditorChrome(chrome: EditorChromeValue) {
   const fontFamilyControl = (
           <div className="shape-menu-anchor">
             <button
+              </div>
+              <div className="font-family-menu-group" role="group" aria-label={t("format.blockStyle.groupBlock")}>
+              {BLOCK_STRUCTURE_OPTIONS.map((value) => {
+                const optionLabel = t(`format.blockStructure.${value}`);
+                // 箇条書き・番号付き・引用・コードはツールバーのボタンと同じトグル。選び直すと解除。
+                const checked = value === "bulletList" ? blockStyleState.listType === "bullet"
+                  : value === "orderedList" ? blockStyleState.listType === "ordered"
+                    : value === "quote" ? blockStyleState.inQuoteBlock
+                      : blockStyleState.inCodeBlock;
+                return (
+                  <button
+                    key={value}
+                    type="button"
+                    role="menuitemcheckbox"
+                    aria-checked={checked}
+                    className={checked ? "active" : undefined}
+                    title={optionLabel}
+                    disabled={!canUseBlockStructure}
+                    onMouseDown={(event) => event.preventDefault()}
+                    onClick={() => {
+                      applyBlockStructure(value);
+                      setBlockStyleMenuOpen(false);
+                    }}
+                  >
+                    <span className="font-family-menu-option-label">{optionLabel}</span>
+                    {checked ? (
+                      <Check size={14} className="font-family-menu-check" />
+                    ) : (
+                      <span className="font-family-menu-check" aria-hidden="true" />
+                    )}
+                  </button>
+                );
+              })}
+              </div>
               ref={fontFamilyButtonRef}
               type="button"
               className="toolbar-font-select"

@@ -13,6 +13,7 @@ import type {
   OverlaySelectionSummary,
 } from "@/components/editor/page-overlay-types";
 import type { OverlayArrowhead, OverlayDash, OverlayTextSize } from "@/components/editor/overlay-canvas/types";
+import type { CustomBlockStyleValue } from "@/lib/editor-command-shortcuts";
 import {
   DEFAULT_BODY_FONT_FAMILY,
   DEFAULT_SERIF_BODY_FONT_FAMILY,
@@ -89,6 +90,12 @@ export const LINE_HEIGHT_OPTIONS: Array<{ value: LineHeight; label: string }> = 
 /** 段落スタイルの並び。表示は `format.blockStyle.<value>`。 */
 export const BLOCK_STYLE_OPTIONS = ["paragraph", "h1", "h2", "h3"] as const;
 export type BlockStyleOptionValue = (typeof BLOCK_STYLE_OPTIONS)[number];
+/**
+ * 段落スタイルのメニューが、見出しの下に並べるブロックの種類。適用は箇条書き・引用などの
+ * ツールバーボタンと同じ経路 (`applyBlockStructure`) で、もう一度選ぶと解除になる。
+ */
+export const BLOCK_STRUCTURE_OPTIONS = ["bulletList", "orderedList", "quote", "code"] as const;
+export type BlockStructureOptionValue = (typeof BLOCK_STRUCTURE_OPTIONS)[number];
 /** Re-exported so the toolbar keeps its own name for the shared document default. */
 export const DEFAULT_FONT_FAMILY_VALUE = DEFAULT_BODY_FONT_FAMILY;
 
@@ -237,11 +244,15 @@ export const SHORTCUT_LINE_HEIGHTS: Record<string, LineHeight> = {
   "format.lineHeight.1.75": "1.75",
   "format.lineHeight.2": "2",
 };
-export const SHORTCUT_BLOCK_STYLES: Record<string, "paragraph" | "h1" | "h2" | "h3"> = {
+export const SHORTCUT_BLOCK_STYLES: Record<string, CustomBlockStyleValue> = {
   "format.block.paragraph": "paragraph",
   "format.block.h1": "h1",
   "format.block.h2": "h2",
   "format.block.h3": "h3",
+  "format.block.bulletList": "bulletList",
+  "format.block.orderedList": "orderedList",
+  "format.block.quote": "quote",
+  "format.block.code": "code",
 };
 export const SHORTCUT_TEXT_ALIGNS: Record<string, TextAlign> = {
   "format.align.left": "left",

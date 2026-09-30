@@ -65,19 +65,39 @@ export interface ResolvedEditorCommand extends EditorCommandShortcutDefinition {
   description: string;
 }
 
+/** カスタムコマンドが選べる段落スタイル。ツールバーの段落スタイルのメニューと同じ並び。 */
+export const CUSTOM_BLOCK_STYLE_VALUES = [
+  "paragraph",
+  "h1",
+  "h2",
+  "h3",
+  "bulletList",
+  "orderedList",
+  "orderedListParen",
+  "quote",
+  "code",
+] as const;
+export type CustomBlockStyleValue = (typeof CUSTOM_BLOCK_STYLE_VALUES)[number];
+
 export type EditorCustomCommandAction =
   | { type: "textFormat"; command: "bold" | "italic" | "underline" | "boxed" }
   | { type: "fontFamily"; value: string }
   | { type: "fontSize"; value: number }
   | { type: "lineHeight"; value: string }
   | { type: "textAlign"; value: "left" | "center" | "right" | "justify" }
-  | { type: "blockStyle"; value: "paragraph" | "h1" | "h2" | "h3" }
+  | { type: "blockStyle"; value: CustomBlockStyleValue }
   | { type: "textColor"; value: string }
-  | { type: "textBackgroundColor"; value: string }
+  /** `null` は背景色をなしに戻す。 */
+  | { type: "textBackgroundColor"; value: string | null }
   | { type: "overlayStrokeColor"; value: string | null }
   | { type: "overlayFillColor"; value: string | null }
   | { type: "overlayLineDash"; value: "solid" | "dashed" | "dotted" }
-  | { type: "overlayLineWidth"; value: "s" | "m" | "l" | "xl" };
+  | { type: "overlayLineWidth"; value: "s" | "m" | "l" | "xl" }
+  /**
+   * 組み込みコマンドをそのまま実行する。カスタムコマンドの入れ子は持たない
+   * (自分自身を呼ぶ循環を、データの形で作れなくするため)。
+   */
+  | { type: "command"; commandId: EditorCommandId };
 
 export interface EditorCustomCommandDefinition extends EditorCommandShortcutDefinition {
   id: `custom.${string}`;
@@ -85,7 +105,8 @@ export interface EditorCustomCommandDefinition extends EditorCommandShortcutDefi
   /** ユーザーが入力した名前。**翻訳しない**し、保存形式もこのまま。 */
   label: string;
   custom: true;
-  action: EditorCustomCommandAction;
+  /** 上から順に実行する。1 件以上。 */
+  actions: EditorCustomCommandAction[];
   defaultBinding: null;
 }
 
@@ -129,6 +150,10 @@ export const EDITOR_COMMAND_SHORTCUTS: readonly EditorCommandShortcutDefinition[
   { id: "format.block.h1", categoryId: "paragraphFormat", defaultBinding: null },
   { id: "format.block.h2", categoryId: "paragraphFormat", defaultBinding: null },
   { id: "format.block.h3", categoryId: "paragraphFormat", defaultBinding: null },
+  { id: "format.block.bulletList", categoryId: "paragraphFormat", defaultBinding: null },
+  { id: "format.block.orderedList", categoryId: "paragraphFormat", defaultBinding: null },
+  { id: "format.block.quote", categoryId: "paragraphFormat", defaultBinding: null },
+  { id: "format.block.code", categoryId: "paragraphFormat", defaultBinding: null },
   { id: "format.align.left", categoryId: "paragraphFormat", defaultBinding: null },
   { id: "format.align.center", categoryId: "paragraphFormat", defaultBinding: null },
   { id: "format.align.right", categoryId: "paragraphFormat", defaultBinding: null },
@@ -772,7 +797,7 @@ export function parseEditorCustomCommands(raw: string | null): EditorCustomComma
 
 export function createEditorCustomCommandDefinition(input: {
   label: string;
-  action: EditorCustomCommandAction;
+  actions: readonly EditorCustomCommandAction[];
 }): EditorCustomCommandDefinition {
   const id = `custom.${Date.now().toString(36)}.${Math.random().toString(36).slice(2, 8)}` as `custom.${string}`;
   return {
@@ -780,7 +805,7 @@ export function createEditorCustomCommandDefinition(input: {
     label: input.label.trim(),
     categoryId: "custom",
     custom: true,
-    action: input.action,
+    actions: [...input.actions],
     defaultBinding: null,
   };
 }
@@ -809,7 +834,7 @@ export function resolveEditorCommand(
       // (UI に説明の入力欄が無いので、失われるユーザー入力は存在しない)。
       label: command.label,
       category,
-      description: formatCustomCommandActionDescription(command.action, t),
+      description: formatCustomCommandDescription(command.actions, t),
       // シノニムはカタログ側の概念。ユーザーが作ったコマンドには無い。
       keywords: "",
     };
@@ -832,13 +857,21 @@ export function isEditorCustomCommand(
   return "custom" in command && (command as EditorCustomCommandDefinition).custom === true;
 }
 
+/** 複数の操作は実行順に「→」でつなぐ。 */
+export function formatCustomCommandDescription(
+  actions: readonly EditorCustomCommandAction[],
+  t: Translate<"command">,
+): string {
+  return actions.map((action) => formatCustomCommandActionDescription(action, t)).join(" → ");
+}
+
 export function formatCustomCommandActionDescription(
   action: EditorCustomCommandAction,
   t: Translate<"command">,
 ): string {
   switch (action.type) {
     case "textFormat":
-      return t("customAction.textFormat", { value: action.command });
+      return t("customAction.textFormat", { value: t(`customValue.textFormat.${action.command}`) });
     case "fontFamily":
       return action.value
         ? t("customAction.fontFamily", { value: action.value })
@@ -848,13 +881,15 @@ export function formatCustomCommandActionDescription(
     case "lineHeight":
       return t("customAction.lineHeight", { value: action.value });
     case "textAlign":
-      return t("customAction.textAlign", { value: action.value });
+      return t("customAction.textAlign", { value: t(`customValue.textAlign.${action.value}`) });
     case "blockStyle":
-      return t("customAction.blockStyle", { value: action.value });
+      return t("customAction.blockStyle", { value: t(`customValue.blockStyle.${action.value}`) });
     case "textColor":
       return t("customAction.textColor", { value: action.value });
     case "textBackgroundColor":
-      return t("customAction.textBackgroundColor", { value: action.value });
+      return action.value
+        ? t("customAction.textBackgroundColor", { value: action.value })
+        : t("customAction.textBackgroundColorNone");
     case "overlayStrokeColor":
       return action.value
         ? t("customAction.overlayStrokeColor", { value: action.value })
@@ -864,9 +899,11 @@ export function formatCustomCommandActionDescription(
         ? t("customAction.overlayFillColor", { value: action.value })
         : t("customAction.overlayFillColorNone");
     case "overlayLineDash":
-      return t("customAction.overlayLineDash", { value: action.value });
+      return t("customAction.overlayLineDash", { value: t(`customValue.lineDash.${action.value}`) });
     case "overlayLineWidth":
-      return t("customAction.overlayLineWidth", { value: action.value });
+      return t("customAction.overlayLineWidth", { value: t(`customValue.lineWidth.${action.value}`) });
+    case "command":
+      return t("customAction.command", { value: t(`label.${action.commandId}` as never) as string });
   }
 }
 
@@ -878,8 +915,12 @@ function parseEditorCustomCommand(value: unknown): EditorCustomCommandDefinition
   const record = value as Record<string, unknown>;
   const id = typeof record.id === "string" && /^custom\.[a-z0-9._-]+$/i.test(record.id) ? record.id : null;
   const label = typeof record.label === "string" ? record.label.trim() : "";
-  const action = parseEditorCustomCommandAction(record.action);
-  if (!id || !label || !action) {
+  // 旧形式は操作を 1 つだけ `action` に持っていた。読めるうちは 1 件の `actions` として引き継ぐ。
+  const rawActions = Array.isArray(record.actions) ? record.actions : [record.action];
+  const actions = rawActions
+    .map(parseEditorCustomCommandAction)
+    .filter((action): action is EditorCustomCommandAction => action !== null);
+  if (!id || !label || actions.length === 0) {
     return null;
   }
 
@@ -890,7 +931,7 @@ function parseEditorCustomCommand(value: unknown): EditorCustomCommandDefinition
     label,
     categoryId: "custom",
     custom: true,
-    action,
+    actions,
     defaultBinding: null,
   };
 }
@@ -917,13 +958,13 @@ function parseEditorCustomCommandAction(value: unknown): EditorCustomCommandActi
   if (action.type === "textAlign" && isOneOf(action.value, ["left", "center", "right", "justify"])) {
     return { type: "textAlign", value: action.value };
   }
-  if (action.type === "blockStyle" && isOneOf(action.value, ["paragraph", "h1", "h2", "h3"])) {
+  if (action.type === "blockStyle" && isOneOf(action.value, CUSTOM_BLOCK_STYLE_VALUES)) {
     return { type: "blockStyle", value: action.value };
   }
   if (action.type === "textColor" && isCssHexColor(action.value)) {
     return { type: "textColor", value: action.value };
   }
-  if (action.type === "textBackgroundColor" && isCssHexColor(action.value)) {
+  if (action.type === "textBackgroundColor" && (action.value === null || isCssHexColor(action.value))) {
     return { type: "textBackgroundColor", value: action.value };
   }
   if (action.type === "overlayStrokeColor" && (action.value === null || isCssHexColor(action.value))) {
@@ -937,6 +978,10 @@ function parseEditorCustomCommandAction(value: unknown): EditorCustomCommandActi
   }
   if (action.type === "overlayLineWidth" && isOneOf(action.value, ["s", "m", "l", "xl"])) {
     return { type: "overlayLineWidth", value: action.value };
+  }
+  // 入れ子を避けるため、指せるのは組み込みコマンドだけ (`custom.` は EDITOR_COMMAND_IDS に無い)。
+  if (action.type === "command" && typeof action.commandId === "string" && EDITOR_COMMAND_IDS.has(action.commandId)) {
+    return { type: "command", commandId: action.commandId };
   }
 
   return null;

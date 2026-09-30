@@ -221,6 +221,8 @@ export const chrome = {
       placeholder: "Style",
       paragraph: "Body text",
       h1: "Heading 1",
+      groupText: "Body text and headings",
+      groupBlock: "Lists, quotes and code",
       h2: "Heading 2",
       h3: "Heading 3",
     },

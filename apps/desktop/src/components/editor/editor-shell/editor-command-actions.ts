@@ -1,5 +1,6 @@
 import type { TextAlign } from "@/features/document";
 import type {
+  CustomBlockStyleValue,
   EditorCommandId,
   EditorCustomCommandAction,
   EditorCustomCommandDefinition,
@@ -26,13 +27,15 @@ import {
   SHORTCUT_STROKE_COLORS,
   SHORTCUT_TEXT_ALIGNS,
 } from "./constants";
-import { normalizeToolbarFontFamily } from "./toolbar-formatting";
+import { normalizeToolbarFontFamily, type BlockStructureCommandValue } from "./toolbar-formatting";
 
 /** Commands request edits through the existing host operations; they do not own document state. */
 export interface EditorCommandTextPorts {
   runEditCommand(command: "bold" | "italic" | "underline" | "boxed" | "undo" | "redo"): void;
   toggleBoxedText(): void;
   applyTextStyle(style: string): void;
+  /** 箇条書き・番号付き・引用・コード。見出し・本文は `applyTextStyle`。 */
+  applyBlockStructure(value: BlockStructureCommandValue): void;
   applyTextAlign(align: TextAlign): void;
   applyLineHeight(value: string): boolean;
   applyInlineFormat(command: "color" | "backgroundColor" | "fontFamily" | "fontSize" | "lineHeight", value: string): void;
@@ -104,7 +107,7 @@ export function createEditorCommandRunner(
   { text, overlay, menus, application }: EditorCommandActionPorts,
 ): (commandId: EditorCommandId) => void {
   const {
-    runEditCommand, toggleBoxedText, applyTextStyle, applyTextAlign, applyLineHeight,
+    runEditCommand, toggleBoxedText, applyTextStyle, applyBlockStructure, applyTextAlign, applyLineHeight,
     applyInlineFormat, getActiveTextTarget, insertInlineMath, setFontFamily, setTextFontSize,
     setTextColor, setTextBackgroundColor,
   } = text;
@@ -122,7 +125,21 @@ export function createEditorCommandRunner(
     openCommandSettings, setMaterialLibraryOpen, setStatusMessage, tEditor,
   } = application;
 
+  /** 見出し・本文は SigmaDoc の変換、リスト・引用・コードは ProseMirror のコマンドで適用する。 */
+  const applyBlockStyle = (style: CustomBlockStyleValue) => {
+    if (style === "paragraph" || style === "h1" || style === "h2" || style === "h3") {
+      applyTextStyle(style);
+      return;
+    }
+    applyBlockStructure(style);
+  };
+
   const executeCustomCommandAction = (action: EditorCustomCommandAction) => {
+    if (action.type === "command") {
+      // 組み込みコマンドだけ (パース時に保証)。ここで `run` を呼んでも入れ子にならない。
+      run(action.commandId);
+      return;
+    }
     if (action.type === "textFormat") {
       if (action.command === "boxed") {
         toggleBoxedText();
@@ -154,7 +171,7 @@ export function createEditorCommandRunner(
       return;
     }
     if (action.type === "blockStyle") {
-      applyTextStyle(action.value);
+      applyBlockStyle(action.value);
       return;
     }
     if (action.type === "textColor") {
@@ -163,8 +180,11 @@ export function createEditorCommandRunner(
       return;
     }
     if (action.type === "textBackgroundColor") {
-      setTextBackgroundColor(action.value);
-      applyInlineFormat("backgroundColor", action.value);
+      if (action.value) {
+        setTextBackgroundColor(action.value);
+      }
+      // 空文字は背景色を外す (ツールバーの「なし」と同じ)。
+      applyInlineFormat("backgroundColor", action.value ?? "");
       return;
     }
     if (action.type === "overlayStrokeColor") {
@@ -196,12 +216,14 @@ export function createEditorCommandRunner(
     }
   };
 
-  return (commandId: EditorCommandId) => {
+  const run = (commandId: EditorCommandId) => {
     closeTransientCommandSurfaces();
 
     const customCommand = customCommands.find((command) => command.id === commandId);
     if (customCommand) {
-      executeCustomCommandAction(customCommand.action);
+      for (const action of customCommand.actions) {
+        executeCustomCommandAction(action);
+      }
       return;
     }
 
@@ -330,7 +352,7 @@ export function createEditorCommandRunner(
 
     const blockStyle = SHORTCUT_BLOCK_STYLES[commandId];
     if (blockStyle) {
-      applyTextStyle(blockStyle);
+      applyBlockStyle(blockStyle);
       return;
     }
 
@@ -461,4 +483,5 @@ export function createEditorCommandRunner(
     const overlayCommand = commandId.replace("overlay.", "") as OverlayCommand;
     runOverlayCommand(overlayCommand);
   };
+  return run;
 }
