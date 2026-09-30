@@ -55,7 +55,7 @@ async function drawLine(page: Page, index: number): Promise<string> {
 
 /** 端点メニューから見た目を選ぶ。開くのも閉じるのも状態で待つ。 */
 async function pickEndpoint(page: Page, label: string): Promise<void> {
-  const button = page.getByRole("button", { name: /^線の右端（現在: / });
+  const button = page.locator(".editor-menubar").getByRole("button", { name: /^線の右端（現在: / });
   await expect(button).toBeEnabled();
   await button.click();
   const menu = page.getByRole("menu", { name: "線の右端" });
@@ -90,7 +90,7 @@ test("a toolbar style reaches the shape's SVG", async ({ page }) => {
   // 端点だけでなく線幅の伝播も見る。壊れたときは両方の症状が出ていたので、片方しか
   // 見ていないと線幅側だけ切れた build を緑で通してしまう。
   const before = await strokeWidthOf(page, id);
-  const widthButton = page.getByRole("button", { name: /^線幅/ });
+  const widthButton = page.locator(".editor-menubar").getByRole("button", { name: /^線幅/ });
   await expect(widthButton).toBeEnabled();
   await widthButton.click();
   const widthMenu = page.getByRole("menu", { name: "線幅" });

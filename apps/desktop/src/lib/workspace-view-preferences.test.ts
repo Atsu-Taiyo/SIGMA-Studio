@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const STORAGE_KEY = "sigma-studio:workspace-view-preference";
-const DEFAULT_PREFERENCE = { mode: "grid", sortKey: "updatedAt", sortDirection: "desc" };
+const DEFAULT_PREFERENCE = { mode: "grid", sortKey: "updatedAt", sortDirection: "desc", sidebarCollapsed: false };
 
 class FakeWindow extends EventTarget {
   private readonly store = new Map<string, string>();
@@ -52,6 +52,7 @@ describe("workspace-view-preferences", () => {
       mode: "list",
       sortKey: "updatedAt",
       sortDirection: "desc",
+      sidebarCollapsed: false,
     });
   });
 
@@ -65,6 +66,7 @@ describe("workspace-view-preferences", () => {
       mode: "grid",
       sortKey: "name",
       sortDirection: "asc",
+      sidebarCollapsed: false,
     });
   });
 
@@ -78,6 +80,7 @@ describe("workspace-view-preferences", () => {
       mode: "list",
       sortKey: "updatedAt",
       sortDirection: "asc",
+      sidebarCollapsed: false,
     });
   });
 
@@ -91,6 +94,7 @@ describe("workspace-view-preferences", () => {
       mode: "list",
       sortKey: "name",
       sortDirection: "desc",
+      sidebarCollapsed: false,
     });
   });
 
@@ -100,6 +104,7 @@ describe("workspace-view-preferences", () => {
       mode: "list",
       sortKey: "name",
       sortDirection: "asc",
+      sidebarCollapsed: false,
     });
   });
 
@@ -110,7 +115,19 @@ describe("workspace-view-preferences", () => {
       mode: "list",
       sortKey: "name",
       sortDirection: "desc",
+      sidebarCollapsed: false,
     });
+  });
+
+  it("keeps the sidebar state when other fields are saved", () => {
+    mod.saveWorkspaceViewPreference({ sidebarCollapsed: true });
+    mod.saveWorkspaceViewPreference({ mode: "list" });
+    expect(mod.getWorkspaceViewPreference().sidebarCollapsed).toBe(true);
+  });
+
+  it("defaults a non-boolean sidebar state", () => {
+    fakeWindow.localStorage.setItem(STORAGE_KEY, JSON.stringify({ mode: "list", sidebarCollapsed: "yes" }));
+    expect(mod.getWorkspaceViewPreference()).toEqual({ ...DEFAULT_PREFERENCE, mode: "list" });
   });
 
   it("returns defaults when window is unavailable", () => {

@@ -206,6 +206,41 @@ const desktopAPI = {
     },
   },
 
+  browser: {
+    getState: () => ipcRenderer.invoke("browser:get-state"),
+    openTab: (request?: unknown) => ipcRenderer.invoke("browser:open-tab", request),
+    closeTab: (tabId: string) => ipcRenderer.invoke("browser:close-tab", tabId),
+    activateTab: (tabId: string) => ipcRenderer.invoke("browser:activate-tab", tabId),
+    navigate: (tabId: string, input: string, engineId?: string) => ipcRenderer.invoke("browser:navigate", tabId, input, engineId),
+    goBack: (tabId: string) => ipcRenderer.invoke("browser:go-back", tabId),
+    goForward: (tabId: string) => ipcRenderer.invoke("browser:go-forward", tabId),
+    reload: (tabId: string) => ipcRenderer.invoke("browser:reload", tabId),
+    stop: (tabId: string) => ipcRenderer.invoke("browser:stop", tabId),
+    setViewport: (viewport: unknown) => ipcRenderer.invoke("browser:set-viewport", viewport),
+    captureSnapshot: () => ipcRenderer.invoke("browser:capture"),
+    suggest: (query: string, engineId?: string) => ipcRenderer.invoke("browser:suggest", query, engineId),
+    siteIcon: (url: string) => ipcRenderer.invoke("browser:site-icon", url),
+    cancelDownload: (downloadId: string) => ipcRenderer.invoke("browser:cancel-download", downloadId),
+    openDownload: (downloadId: string) => ipcRenderer.invoke("browser:open-download", downloadId),
+    revealDownload: (downloadId: string) => ipcRenderer.invoke("browser:reveal-download", downloadId),
+    clearDownloads: () => ipcRenderer.invoke("browser:clear-downloads"),
+    onState(handler: (snapshot: unknown) => void): () => void {
+      const listener = (_: unknown, snapshot: unknown) => handler(snapshot);
+      ipcRenderer.on("browser:state", listener);
+      return () => ipcRenderer.removeListener("browser:state", listener);
+    },
+    onDownloads(handler: (downloads: unknown) => void): () => void {
+      const listener = (_: unknown, downloads: unknown) => handler(downloads);
+      ipcRenderer.on("browser:downloads", listener);
+      return () => ipcRenderer.removeListener("browser:downloads", listener);
+    },
+    onFocusAddress(handler: () => void): () => void {
+      const listener = () => handler();
+      ipcRenderer.on("browser:focus-address", listener);
+      return () => ipcRenderer.removeListener("browser:focus-address", listener);
+    },
+  },
+
   claude: {
     getStatus(): Promise<unknown> {
       return ipcRenderer.invoke("claude:get-status");
@@ -295,7 +330,7 @@ const desktopAPI = {
   aiSkillDraft: {
     generate(
       payload: unknown,
-      onEvent?: (event: { kind: "delta"; text: string }) => void,
+      onEvent?: (event: { kind: "delta" | "reasoning"; text: string }) => void,
       onRunId?: (runId: string) => void,
     ): Promise<unknown> {
       const runId = `sd${Date.now().toString(36)}-${(runCounter++).toString(36)}`;
@@ -303,7 +338,7 @@ const desktopAPI = {
       // 来てもcancel()に渡すrunIdが必ずある状態にするため。
       onRunId?.(runId);
       const channel = `ai-skill-draft:event:${runId}`;
-      const listener = (_: unknown, event: { kind: "delta"; text: string }) => {
+      const listener = (_: unknown, event: { kind: "delta" | "reasoning"; text: string }) => {
         onEvent?.(event);
       };
       ipcRenderer.on(channel, listener);
@@ -546,7 +581,7 @@ const desktopAPI = {
   workspacePreview: {
     getShared(fileId: string) { return ipcRenderer.invoke("workspace-preview:shared-get", fileId); },
     putShared(fileId: string, token: string, dataUrl: string) { return ipcRenderer.invoke("workspace-preview:shared-put", { fileId, token, dataUrl }); },
-    loadSharedDocument(fileId: string) { return ipcRenderer.invoke("workspace-preview:shared-document", fileId); },
+    loadSharedDocument(fileId: string, options?: { assets?: boolean }) { return ipcRenderer.invoke("workspace-preview:shared-document", fileId, options); },
     get(fileId: string, revision: number): Promise<string | null> {
       return ipcRenderer.invoke("workspace-preview:get", { fileId, revision });
     },

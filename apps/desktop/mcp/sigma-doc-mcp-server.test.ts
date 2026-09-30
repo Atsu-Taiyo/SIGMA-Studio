@@ -634,18 +634,29 @@ describe("sigma-doc-mcp-server integration", () => {
       "source_references",
       "target_id",
       "write_mode",
+      // 編集操作名・返値の項目・例に使うID。ツール名ではない。
+      "replace_text",
+      "format_inline",
+      "replace_structure",
+      "has_solution",
     ]);
-    const officialSkillPaths = [
-      path.join(__dirname, "..", "electron", "official-skills", "sigma-graph-editing", "SKILL.md"),
-      path.join(__dirname, "..", "electron", "official-skills", "sigma-image-material-reconstruction", "SKILL.md"),
-    ];
+    // アプリ内AIだけが使う本文編集の4入口。skillはこちらの名前で書く(docs/mcp-local-app.md)。
+    const appProfileToolNames = ["insert_content", "edit_text", "edit_problem", "organize_blocks"];
+    const skillsRoot = path.join(__dirname, "..", "electron", "official-skills");
+    const skillDirectories = (await fs.readdir(skillsRoot, { withFileTypes: true }))
+      .filter((entry) => entry.isDirectory())
+      .map((entry) => entry.name);
+    expect(skillDirectories.length).toBeGreaterThan(0);
 
-    for (const skillPath of officialSkillPaths) {
+    for (const directory of skillDirectories) {
+      const skillPath = path.join(skillsRoot, directory, "SKILL.md");
       const content = await fs.readFile(skillPath, "utf8");
-      const toolLikeTokens = [...content.matchAll(/\b[a-z]+(?:_[a-z]+)+\b/g)].map((match) => match[0]);
+      const toolLikeTokens = [...content.matchAll(/\b[a-z]+(?:_[a-z0-9]+)+\b/g)].map((match) => match[0]);
       const unknownNames = [...new Set(toolLikeTokens)].filter((name) =>
         !DOCUMENTED_TOOL_NAMES.includes(name as (typeof DOCUMENTED_TOOL_NAMES)[number])
-        && !commonToolLikeWords.has(name));
+        && !appProfileToolNames.includes(name)
+        && !commonToolLikeWords.has(name)
+        && !name.startsWith("ai_"));
 
       expect(unknownNames, `${path.relative(process.cwd(), skillPath)} mentions unknown tool-like names`).toEqual([]);
     }

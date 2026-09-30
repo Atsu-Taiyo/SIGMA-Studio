@@ -54,6 +54,14 @@ describe("collaborator mentions", () => {
     editor.commands.undo();
     expect(editor.getText()).toBe("確認 @ta");
   });
+  it("opens after Japanese text without a space and for the full-width at sign", () => {
+    expect(commentMentionQuery(createEditor("お疲れ様です@ta"))?.query).toBe("ta");
+    const editor = createEditor("確認＠太");
+    expect(commentMentionQuery(editor)).toEqual({ from: 3, to: 5, query: "太" });
+    insertCommentMention(editor, { userId: "taro", name: "太郎" });
+    expect(tiptapDocToInlineNodes(editor.getJSON() as TiptapDoc)[0]).toEqual({ type: "text", text: "確認" });
+    expect(tiptapDocToInlineNodes(editor.getJSON() as TiptapDoc)[1]).toEqual({ type: "text", text: "@太郎", mentionUserId: "taro" });
+  });
   it("lists AI agents after collaborators and inserts one as plain text the AI trigger can read", async () => {
     (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
     const editor = createEditor("確認 @cl");

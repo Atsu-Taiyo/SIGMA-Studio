@@ -243,6 +243,47 @@
   overflow-y: auto;
 }
 
+.ai-task-dock-others {
+  display: flex;
+  flex: 0 1 auto;
+  flex-direction: column;
+  min-height: 0;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.ai-task-dock-others-title {
+  margin: 0;
+  padding: 8px 14px 0;
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 650;
+  letter-spacing: 0.02em;
+}
+
+.ai-task-dock-other-open {
+  appearance: none;
+  flex: 1 1 auto;
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.ai-task-dock-other-open:hover .ai-task-dock-row-label,
+.ai-task-dock-other-open:focus-visible .ai-task-dock-row-label {
+  text-decoration: underline;
+}
+
+.ai-task-dock-other-open:focus-visible {
+  outline: none;
+}
+
 .ai-task-dock-empty {
   margin: 0;
   padding: 10px 8px;

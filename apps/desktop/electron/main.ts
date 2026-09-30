@@ -54,6 +54,7 @@ import {
   type LocalMcpEditProposalChangeEvent,
 } from "./local-sigma-doc-proposal-store";
 import { registerAppIpc } from "./ipc/app";
+import { registerBrowserIpc } from "./ipc/browser";
 import { registerShellIpc } from "./ipc/shell";
 import { registerSettingsIpc } from "./ipc/settings";
 import { registerTikzIpc } from "./ipc/tikz";
@@ -180,7 +181,7 @@ const sharedCatalog = new DesktopSharedCatalog(collaborationSessions.directory, 
   has: id => collaborationSessions.has(id),
   open: (id, sharedId) => collaborationSessions.openCatalogDocument(id, sharedId),
   previewVersion: id => collaborationSessions.previewVersion(id),
-  preview: (id, sharedId) => collaborationSessions.previewCatalogDocument(id, sharedId),
+  preview: (id, sharedId, options) => collaborationSessions.previewCatalogDocument(id, sharedId, options),
   initialize: (id, sharedId, operationId, document, staged) => collaborationSessions.initializeCatalogDocument(id, sharedId, operationId, document, staged),
   activate: ids => collaborationSessions.activateCatalogDocuments(ids),
   start: (id, document) => collaborationSessions.start(id, document),
@@ -1540,6 +1541,7 @@ function registerIpc() {
   });
 
   registerShellIpc();
+  registerBrowserIpc({ getMainWindow: () => mainWindow });
 
   registerSettingsIpc({
     dataDir: SIGMA_STUDIO_DATA_PATH,
@@ -1609,7 +1611,7 @@ function registerIpc() {
 
   registerWorkspacePreviewIpc({
     userDataPath: USER_DATA_PATH,
-    loadSharedDocument: id => sharedCatalog.preview(id),
+    loadSharedDocument: (id, options) => options ? sharedCatalog.preview(id, options) : sharedCatalog.preview(id),
     sharedContext: id => sharedCatalog.previewContext(id),
   });
 }

@@ -4,7 +4,10 @@ import  {
   getLineInsertHandlePoints,
   getShapeBounds,
   getShapeSelectionBounds,
+  getSolidPoints,
+  getSolidStrokes,
   isEditableLineKind,
+  isSolidShape,
 } from "@/features/drawing";
 import { useT } from "@/lib/i18n/react";
 import type { CSSProperties, PointerEvent as ReactPointerEvent } from "react";
@@ -169,6 +172,29 @@ export function PointHandles({
     );
   }
 
+  if (shape.type === "geo" && isSolidShape(shape)) {
+    // 球には頂点が無い。角錐・角柱は頂点ごとに、線の頂点と同じ丸いハンドルを出す。
+    if (shape.props.geo === "sphere") {
+      return null;
+    }
+    return (
+      <>
+        {getSolidPoints(shape).map((point, index) => {
+          const position = solidPointToSelectionLocal(shape, bounds, point);
+          return (
+            <div
+              key={index}
+              className="overlay-point-handle overlay-solid-vertex-handle"
+              title={tShape("point.moveVertex")}
+              style={{ left: position.x, top: position.y }}
+              onPointerDown={(event) => onPointPointerDown(event, shape, { type: "solidVertex", index })}
+            />
+          );
+        })}
+      </>
+    );
+  }
+
   if (shape.type === "geo" && shape.props.geo === "triangle") {
     const position = shapePointToSelectionLocal(shape, bounds, {
       x: getTriangleApexX(shape),
@@ -304,6 +330,58 @@ export function PointHandles({
         );
       })}
     </>
+  );
+}
+
+
+/**
+ * 立体の点を選択枠の座標へ。反転した図形は、描かれる側 (枠の中心で鏡写し) に合わせる。
+ * 他の点ハンドルは反転を見ていないが、立体は頂点をつまむ図形なので、掴む位置と絵がずれてはならない。
+ */
+function solidPointToSelectionLocal(
+  shape: Extract<OverlayShape, { type: "geo" }>,
+  bounds: OverlayBounds,
+  point: OverlayPoint,
+): OverlayPoint {
+  return shapePointToSelectionLocal(shape, bounds, {
+    x: shape.flipX ? shape.props.w - point.x : point.x,
+    y: shape.flipY ? shape.props.h - point.y : point.y,
+  });
+}
+
+/** 選択中の辺の強調。頂点ハンドルと同じ選択枠の座標で、辺をなぞる。 */
+export function SolidEdgeHighlight({
+  shape,
+  bounds,
+  edge,
+  hover = false,
+}: {
+  shape: Extract<OverlayShape, { type: "geo" }>;
+  bounds: OverlayBounds;
+  edge: number;
+  /** 選んではいないが、押せばこの辺が選ばれる (ポインタが乗っている)。 */
+  hover?: boolean;
+}) {
+  const stroke = getSolidStrokes(shape).find((item) => item.index === edge);
+  if (!stroke) {
+    return null;
+  }
+  const points = stroke.points
+    .map((point) => solidPointToSelectionLocal(shape, bounds, point))
+    .map((point) => `${point.x},${point.y}`)
+    .join(" ");
+  return (
+    <svg
+      className={hover ? "overlay-solid-edge-highlight hover" : "overlay-solid-edge-highlight"}
+      width={bounds.w}
+      height={bounds.h}
+      aria-hidden="true"
+      data-solid-edge-highlight={hover ? undefined : edge}
+      data-solid-edge-hover={hover ? edge : undefined}
+    >
+      <polyline className="halo" points={points} />
+      <polyline className="core" points={points} />
+    </svg>
   );
 }
 

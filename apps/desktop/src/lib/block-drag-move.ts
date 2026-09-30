@@ -864,6 +864,28 @@ function isSiblingNoop(content: readonly AnyNode[], unitIds: readonly string[], 
   const located = unitIds.map((id) => locate(content, id));
   if (located.some((item) => !item || !sameRef(item.ref, anchor.ref))) return false;
   const moving = new Set(unitIds);
+  if (anchor.ref.kind === "layout" && anchor.ref.ownerId) {
+    // 段組の子は列をまたいで 1 本の配列に並ぶので、平坦な順序が同じでも列所属は変わりうる
+    // (右段の先頭を左段の末尾の後ろへ、など)。列ごとに並べ直して比べる。
+    const owner = findNode(content, anchor.ref.ownerId);
+    if (owner?.type !== "layoutSection") return false;
+    const columns = resolveExplicitColumns(owner);
+    const anchorColumn = columns.findIndex((column) => column.some((item) => item.id === target.anchorId));
+    if (anchorColumn < 0) return false;
+    const byId = new Map(anchor.siblings.map((item) => [item.id, item] as const));
+    const units = unitIds.flatMap((id) => {
+      const item = byId.get(id);
+      return item ? [item] : [];
+    });
+    const rearranged = columns.map((column, index) => {
+      const kept = column.filter((item) => !moving.has(item.id));
+      if (index !== anchorColumn) return kept;
+      const at = kept.findIndex((item) => item.id === target.anchorId);
+      const cut = target.position === "before" ? at : at + 1;
+      return [...kept.slice(0, cut), ...units, ...kept.slice(cut)];
+    });
+    return columns.every((column, index) => sameItems(column, rearranged[index]));
+  }
   const remaining = anchor.siblings.filter((item) => !moving.has(item.id));
   const anchorIndex = remaining.findIndex((item) => item.id === target.anchorId);
   if (anchorIndex < 0) return false;

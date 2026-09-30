@@ -6,12 +6,15 @@ import {
   createArcShapeFromCenterDrag,
   createArcShapeFromThreePoints,
   createGraph3DSpecPreset,
+  createSolidEdgeDash,
   DEFAULT_CALLOUT_CORNER_RADIUS,
   DEFAULT_TEXT_SHAPE_WIDTH,
+  getSolidNaturalAspect,
   getTextShapeLineHeightPx,
   getTablePlacementBounds,
   MIN_TEXT_SHAPE_WIDTH,
   normalizeCalloutCornerRadius,
+  solidFromCommand,
   type OverlayShapeStyleDefaults,
 } from "@/features/drawing";
 import { createGraphShapeFromPlotBounds } from "./graph";
@@ -83,6 +86,12 @@ export function getRegularInsertAspect(tool: InsertTool): number | null {
     return 1;
   }
 
+  // 立体は既定の見え方の縦横比 (球は 1)。
+  const solid = solidFromCommand(tool.command);
+  if (solid) {
+    return getSolidNaturalAspect(solid);
+  }
+
   if (
     tool.command === "rectangle" ||
     tool.command === "circle" ||
@@ -149,6 +158,34 @@ export function buildInsertShape(
         labelColor: style.color ?? "black",
         dash: style.dash ?? "solid",
         size: style.size ?? "m",
+      },
+    };
+  }
+
+  const solid = solidFromCommand(command);
+  if (solid) {
+    // 見える辺の線種は直前に選んだ線種、見えない辺 (球なら赤道の奥) は破線。
+    const visibleDash = style.dash ?? "solid";
+    return {
+      id,
+      type: "geo",
+      x: minX,
+      y: minY,
+      rotation: 0,
+      props: {
+        w,
+        h,
+        geo: solid.geo,
+        ...(solid.baseSides ? { baseSides: solid.baseSides } : {}),
+        fill: style.fill ?? "none",
+        color: style.color ?? "black",
+        strokeOpacity: style.strokeOpacity,
+        fillColor: style.fillColor ?? "#ffffff",
+        fillOpacity: style.fillOpacity,
+        labelColor: style.color ?? "black",
+        dash: visibleDash,
+        size: style.size ?? "m",
+        solidEdgeDash: createSolidEdgeDash(solid, visibleDash),
       },
     };
   }

@@ -1,5 +1,6 @@
 import type { ColumnRule } from "./column-rule";
 import type { InlineNode, LineHeight, TextAlign } from "./rich-text";
+import type { TikzImageSource } from "./tikz";
 
 export type SigmaBlock =
   | SectionNode
@@ -222,7 +223,30 @@ export interface ProblemNumbering {
 
 export interface ProblemFrame {
   enabled?: boolean;
+  /** Built-in style id, or `"custom"` when `custom` carries the user's own drawing. */
   styleId?: string;
+  custom?: ProblemCustomFrame;
+}
+
+/**
+ * A frame the user drew themselves. The drawing is one SVG, cut into nine pieces (CSS
+ * `border-image`): the four corners keep their shape, the four edges stretch (or repeat) to fit
+ * a problem of any size, and the middle is left empty for the text. `svg` is the canonical
+ * artwork; the TikZ source is kept only so the frame can be edited again.
+ */
+export interface ProblemCustomFrame {
+  /** SVG markup with a `viewBox`. Never executed: it is only ever drawn as an image. */
+  svg: string;
+  /** Size of the drawing in SVG units (the `viewBox` width / height). */
+  width: number;
+  height: number;
+  /** Size of each corner piece, in SVG units. */
+  slice: number;
+  /** How thick the frame is drawn, in CSS px: one corner piece is `borderPx` wide. */
+  borderPx: number;
+  /** Space between the frame and the text, in CSS px. */
+  paddingPx: number;
+  tikz?: TikzImageSource;
 }
 
 export interface LayoutSectionNode extends BaseNode {
@@ -250,6 +274,8 @@ export interface BoxBlockNode extends BaseNode {
   /** Built-in or user-defined style identifier such as `fancybox` or `doublebox`. */
   styleId: string;
   title?: InlineNode[];
+  /** 2 つ目のタイトル。`titleSplit` を持つ箱だけが描く。 */
+  subtitle?: InlineNode[];
   blocks: BoxBlockChildBlock[];
   frame?: BoxFrameSpec;
 }
@@ -301,6 +327,22 @@ export type BoxDecorationSpec =
       /** 帯と本文の境に引く罫。TeX の見出し付き枠が持つ「帯の下の 1 本」。 */
       ruleWidthPx?: number;
       ruleColor?: string;
+    }
+  /**
+   * 見出しを 2 つの欄 (タイトルと `subtitle`) に分ける。段組みの列と同じで、欄の幅の比・間隔・
+   * 左右の順を自由に変えられる。`titleBand` と一緒に使う (帯の中を分割する)。
+   */
+  | {
+      type: "titleSplit";
+      /** サブタイトル欄が見出し幅に占める割合 (0〜1)。残りがタイトル欄。 */
+      subtitleShare?: number;
+      /** 2 つの欄のあいだの隙間。 */
+      gapPx?: number;
+      /** 左に置くほう。既定は `subtitleFirst`。 */
+      order?: "subtitleFirst" | "titleFirst";
+      subtitleBackgroundColor?: string;
+      subtitleColor?: string;
+      subtitleAlign?: "l" | "c" | "r";
     }
   /**
    * 枠の上辺に載せる見出しタブ (tcolorbox の `attach boxed title to top left` 相当)。

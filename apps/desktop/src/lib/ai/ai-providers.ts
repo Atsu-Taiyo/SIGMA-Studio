@@ -35,28 +35,20 @@ export function toAiResourceProvider(provider: AiProvider): AiResourceProvider {
   return provider === "claude" || provider === "antigravity" ? provider : "codex";
 }
 
-export const CLAUDE_AI_EDIT_MODELS = [
-  "sonnet",
-  "claude-fable-5-1",
-  "claude-sonnet-5",
-  "claude-opus-4-8",
-  "claude-sonnet-4-6",
-  "claude-haiku-4-5-20251001",
-] as const;
+// Claude Codeが「常に最新を指す」別名。個別のバージョンはここに固定せず、実行時に
+// インストール済みClaude Codeのモデル一覧から取得する (electron/claude-model-catalog.ts)。
+// これは一覧を取得できないときの縮退用で、表示名にも数字を入れない。
+export const CLAUDE_AI_EDIT_MODELS = ["sonnet", "opus", "fable", "haiku"] as const;
 
 export type ClaudeAiEditModel = (typeof CLAUDE_AI_EDIT_MODELS)[number] | (string & {});
 
-// Claude Code's `sonnet` alias follows the latest Sonnet release. It currently
-// resolves to Claude Sonnet 5 and avoids freezing a dated fallback in the UI.
 export const DEFAULT_CLAUDE_AI_EDIT_MODEL: ClaudeAiEditModel = "sonnet";
 
 export const CLAUDE_MODEL_LABELS: Record<string, string> = {
-  sonnet: "Claude Sonnet 5",
-  "claude-fable-5-1": "Claude Fable 5.1",
-  "claude-sonnet-5": "Claude Sonnet 5",
-  "claude-opus-4-8": "Claude Opus 4.8",
-  "claude-sonnet-4-6": "Claude Sonnet 4.6",
-  "claude-haiku-4-5-20251001": "Claude Haiku 4.5",
+  sonnet: "Claude Sonnet (latest)",
+  opus: "Claude Opus (latest)",
+  fable: "Claude Fable (latest)",
+  haiku: "Claude Haiku (latest)",
 };
 
 export function claudeModelLabel(model: string): string {

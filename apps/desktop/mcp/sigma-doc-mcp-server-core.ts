@@ -3015,10 +3015,10 @@ const server = new McpServer(
       "表(tableShape)・グラフ(graph2dShape)・通常の図形はSigmaBlockではなくoverlay図形です。get_document_outline の overlayShapes または search_document でIDを確認し、書き換えは insert_shape で作り直さず update_shape(部分更新、pointsやstart/endによる頂点移動も可)、整列は align_shapes、削除は delete_shapes を使ってください。表・グラフも同様に delete_shapes + insert_table/insert_graph/insert_graph3d で作り直さず、update_table(cellPatchesで1セルだけ、または内容の部分再構成)・update_graph・update_graph3dで既存shapeをその場で更新してください。作り直すと位置・サイズ・スタイル・列幅/行高さがリセットされます。delete_blocks は本文ブロックにしか使えません(表・グラフ・図形には効きません)。",
       "保存済み素材が使えそうな場合は list_materials / get_material で description、usage、visualConcepts、ports を確認し、insert_material でexact cloneとして挿入してください。",
       "立体・回転体・断面・共通部分などの3D図版は insert_graph3d を使い、更新は update_graph3d で行ってください(2Dの関数グラフ・座標平面・数直線は insert_graph)。",
-      "複雑な模式図を1枚の画像にする場合はinsert_svg_imageを使えます。SVGは静的・自己完結で記述し、verification.previewを実見してupdate_svg_imageで修正してください。個別編集する図形はinsert_shape、関数グラフはinsert_graphを使います。",
-      "通常の図形、補助線、矢印、模式図、注記は insert_shape を使ってください。円・楕円・矩形・三角形など標準kindで表せる図形はそのkindを使い、polylineで近似しないでください。polylineは折れ曲がった線、経路、標準kindにない多角形など線分列であることが意味を持つ場合だけ使います。図形内ラベルの寸法はtool側で決めます。文字注記(kind:text)は幅だけを指定し、高さは内容から導出されます。",
+      "図・図解・模式図・イラスト・挿絵は、原則 insert_svg_image で静的SVGを1枚の画像として入れてください(迷ったらSVG)。「図を入れて」「画像を入れて」「絵を描いて」もこの入口です。SVGは自己完結で書き(xmlnsと正のviewBox、fill/stroke等の属性、TeXは解釈されないので記号はUnicode)、verification.previewを実見してupdate_svg_imageで修正します。関数グラフはinsert_graph、立体はinsert_graph3d、表はinsert_tableを使い、部品ごとの個別編集を求められたときだけinsert_shapeを使います。",
+      "部品ごとに編集する図形、図や本文に重ねる補助線・矢印・文字注記・吹き出しは insert_shape を使ってください。円・楕円・矩形・三角形など標準kindで表せる図形はそのkindを使い、polylineで近似しないでください。polylineは折れ曲がった線、経路、標準kindにない多角形など線分列であることが意味を持つ場合だけ使います。図形内ラベルの寸法はtool側で決めます。文字注記(kind:text)は幅だけを指定し、高さは内容から導出されます。",
       "図形を確認しながら作る場合は begin_visual_edit_session → visual_insert_shape → render_visual_edit_session → previewFileをview_imageで開く → inspect_visual_edit_session → review_visual_edit_session(previewCode付き) → propose_visual_edit_session の順で進めます。beginにはtargetIdまたはselectedIdが必要です。",
-      "insert_body_content / create_problem_content / update_rich_content / update_problem_content / replace_block / delete_blocks / move_blocks / insert_table / update_table / insert_shape / update_shape / insert_graph / update_graph / insert_graph3d / update_graph3d などの書き込みツールは、成功時に data.verification(validation、可能ならpreview PNGとpreviewFile)を返します。ChatGPTではinline image contentを省略するため、previewFileをview_imageで開いて必ず確認してください。完了前に必ず内容を確認し、問題があれば直してください。既存の内容や承認前のproposalのブロック周辺は render_block_context、ページ全体と実際のページ割当は render_page で確認します。",
+      "insert_body_content / create_problem_content / update_rich_content / update_problem_content / replace_block / delete_blocks / move_blocks / insert_table / update_table / insert_svg_image / update_svg_image / insert_shape / update_shape / insert_graph / update_graph / insert_graph3d / update_graph3d などの書き込みツールは、成功時に data.verification(validation、可能ならpreview PNGとpreviewFile)を返します。ChatGPTではinline image contentを省略するため、previewFileをview_imageで開いて必ず確認してください。完了前に必ず内容を確認し、問題があれば直してください。既存の内容や承認前のproposalのブロック周辺は render_block_context、ページ全体と実際のページ割当は render_page で確認します。",
       "書き込み系ツールでは expectedRevision が必須です。既定のwriteMode:\"proposal\" は pending proposal、writeMode:\"dryRun\" は保存なしの検証です。MCPから教材本体を直接保存しません。expectedRevisionが古くても、今回の書き込みが触るブロック/overlay図形がその時点から変わっていなければ受理されます(無関係な人間の編集で失敗しません)。触った対象が実際に変更されていた場合のみREVISION_MISMATCHになり、競合ブロックの現在の内容を踏まえて作り直してください。ただし文書全体の設定を変更する書き込み(update_column_layout の scope:\"document\" など)はこの緩和の対象外で、expectedRevisionの完全一致が必要です。不一致になったら現在の設定を読み直してから再試行してください。",
       "ユーザーがAIの挙動・スキル・設定の変更を相談してきた場合は save_ai_resource(グローバルskill/instructionの作成・更新) / delete_ai_resource(明示的な削除依頼のときだけ) / update_ai_settings(Web検索許可や検証済み提案の自動承認)で実際に変更でき、変更内容は必ず回答で報告してください。",
     ].join(" ")),
@@ -4469,7 +4469,7 @@ registerTool(
   "insert_svg_image",
   {
     title: "SVG画像を挿入",
-    description: "AIが記述した自己完結SVGを1枚の画像として提案挿入します。複雑な模式図・挿絵用。個別編集する図形はinsert_shape、関数グラフはinsert_graphを使います。svgにはxmlnsとviewBoxが必須。path/text/図形/defs/gradient/clipPath/mask/markerと表示属性を使用でき、style・script・外部参照・use・foreignObject・アニメーション・XML宣言は使えません。最大256 KiB。SVG原文はasset.props.srcにbase64で保持します。verification.previewのPNGを必ず実見し、修正にはupdate_svg_imageを使ってください。",
+    description: "図・図解・模式図・イラスト・挿絵・フローチャート・幾何の作図など、教材に入れる絵の既定の入口です(迷ったらSVG)。AIが記述した自己完結SVGを1枚の画像として提案挿入します。関数グラフはinsert_graph、立体はinsert_graph3d、表はinsert_table、部品ごとに個別編集する図形だけinsert_shapeを使います。svgにはxmlnsとviewBoxが必須。TeXは解釈されないので図中の記号はUnicodeで書き、凝った式は図の上にinsert_shape(kind:text,tex)で重ねます。path/text/図形/defs/gradient/clipPath/mask/markerと表示属性を使用でき、style・script・外部参照・use・foreignObject・アニメーション・XML宣言は使えません。最大256 KiB。SVG原文はasset.props.srcにbase64で保持します。verification.previewのPNGを必ず実見し、修正にはupdate_svg_imageを使ってください。",
     inputSchema: { ...DocumentTargetSchema, ...DraftInsertSvgImageArgsSchema.shape },
   },
   async (args) => withToolErrorHandling(async () => runDraftTool({
@@ -4493,7 +4493,7 @@ registerTool(
   "insert_shape",
   {
     title: "図形を挿入",
-    description: "通常の図形、補助線、矢印、折れ線、曲線、ハイライト、テキスト注記、吹き出しをoverlayへ挿入します。kind:calloutはtext/texを内部に持つ単一オブジェクトで、tailBaseStart/tailBaseEnd/tailTipにより口の3点、cornerRadiusにより本文矩形の角丸を指定できます。kind:textはmarkdownで複数段落・見出し・リスト・数式を保持でき、wがテキストの折り返し幅で、省略すると既定幅になります。高さは内容から導出されるのでhは指定できません。円・楕円・矩形・三角形など標準kindで表せる図形はそのkindを使い、polylineで近似しないでください。関数グラフや座標平面は insert_graph を使います。既存図形の一部はupdate_shapeで更新してください。",
+    description: "部品ごとに個別編集する図形、図や本文に重ねる補助線・矢印・折れ線・曲線・ハイライト・テキスト注記・吹き出しをoverlayへ挿入します。図・図解・模式図・イラスト全体を入れるだけなら、先にinsert_svg_image(SVG1枚)を使ってください。kind:calloutはtext/texを内部に持つ単一オブジェクトで、tailBaseStart/tailBaseEnd/tailTipにより口の3点、cornerRadiusにより本文矩形の角丸を指定できます。kind:textはmarkdownで複数段落・見出し・リスト・数式を保持でき、wがテキストの折り返し幅で、省略すると既定幅になります。高さは内容から導出されるのでhは指定できません。円・楕円・矩形・三角形など標準kindで表せる図形はそのkindを使い、polylineで近似しないでください。関数グラフや座標平面は insert_graph を使います。既存図形の一部はupdate_shapeで更新してください。",
     inputSchema: {
       ...DocumentTargetSchema,
       ...ShapeToolInputSchema,

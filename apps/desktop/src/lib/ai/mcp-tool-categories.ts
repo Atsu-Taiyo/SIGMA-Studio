@@ -175,7 +175,9 @@ const CATEGORY_KEYWORD_PATTERNS: ReadonlyArray<{
   },
   {
     category: "図形",
-    pattern: /図形|図解|模式図|矢印|補助線|三角形|四角形|長方形|多角形|円弧|円(?!周率)|楕円|吹き出し|shape|diagram|arrow|triangle|rectangle|polygon|circle|ellipse|callout/i,
+    // 図・イラスト・挿絵はSVG画像(図形カテゴリの insert_svg_image)で入れるので、「図」「絵」だけの
+    // 依頼でも図形カテゴリを開く。語を広く取って余分に開くのは安全側(足りない側の失敗を避ける)。
+    pattern: /図(?!書)|絵|イラスト|フローチャート|ダイアグラム|図形|図解|模式図|矢印|補助線|三角形|四角形|長方形|多角形|円弧|円(?!周率)|楕円|吹き出し|shape|diagram|figure|illustration|drawing|sketch|flowchart|arrow|triangle|rectangle|polygon|circle|ellipse|callout/i,
     also: ["visual edit"],
   },
   {
@@ -203,12 +205,44 @@ const SKILL_CATEGORY_RULES: ReadonlyArray<{
   categories: readonly McpToolCategory[];
 }> = [
   {
+    pattern: /^(official-svg-figure|sigma-svg-figure)$/i,
+    categories: ["図形", "素材"],
+  },
+  {
     pattern: /^(official-graph|sigma-graph-editing)$/i,
     categories: ["グラフ", "図形", "visual edit"],
   },
   {
+    pattern: /^(official-graph3d|sigma-graph3d-editing)$/i,
+    categories: ["グラフ", "図形"],
+  },
+  {
     pattern: /^(official-image-material|sigma-image-material-reconstruction)$/i,
     categories: ["本文編集", "図形", "表", "グラフ", "visual edit", "素材"],
+  },
+  {
+    pattern: /^(official-problem|sigma-problem-authoring|official-body|sigma-body-authoring|official-proofreading|sigma-proofreading)$/i,
+    categories: ["本文編集"],
+  },
+  {
+    pattern: /^(official-table|sigma-table-editing)$/i,
+    categories: ["表"],
+  },
+  {
+    pattern: /^(official-page-layout|sigma-page-layout)$/i,
+    categories: ["ページ・段組み", "本文編集"],
+  },
+  {
+    pattern: /^(official-shape|sigma-shape-editing)$/i,
+    categories: ["図形", "visual edit"],
+  },
+  {
+    pattern: /^(official-material-library|sigma-material-library)$/i,
+    categories: ["素材", "図形", "表", "グラフ"],
+  },
+  {
+    pattern: /^(official-document-management|sigma-document-management)$/i,
+    categories: ["教材管理"],
   },
   {
     pattern: /graph|plot|coordinate|グラフ|座標/i,

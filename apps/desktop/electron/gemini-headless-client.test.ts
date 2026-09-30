@@ -484,6 +484,29 @@ describe("GeminiHeadlessClient", () => {
     expect(deltas.length).toBeGreaterThan(1);
   });
 
+  it("streams the reply as it arrives when asked to (agy --output-format stream-json), and only then", async () => {
+    const { client, dir } = createClient({ binSource: AGY_STREAM_JSON_BIN });
+    const deltas: string[] = [];
+
+    const streamed = await client.runTurn({ instruction: "draw", streamOutput: true, onDelta: (d) => deltas.push(d) });
+
+    // The CLI ends the answer with a newline-only delta and reports the whole text in `result`.
+    expect(deltas).toEqual(["前置き。", "<svg/>", "\n"]);
+    expect(streamed).toMatchObject({ finalText: "前置き。<svg/>\n", isError: false, sessionId: "conv-1" });
+    const argv = readFakeCapture(dir).argv;
+    expect(argv.slice(argv.indexOf("--output-format"), argv.indexOf("--output-format") + 2)).toEqual(["--output-format", "stream-json"]);
+
+    const plain = await client.runTurn({ instruction: "draw" });
+    expect(readFakeCapture(dir).argv).not.toContain("--output-format");
+    expect(plain.finalText).toBe("plain answer");
+  });
+
+  it("reports an agy stream-json failure as an error result with its message", async () => {
+    const { client } = createClient({ binSource: AGY_STREAM_JSON_BIN });
+    const result = await client.runTurn({ instruction: "FAIL please", streamOutput: true });
+    expect(result).toMatchObject({ isError: true, errorMessage: "quota exceeded" });
+  });
+
   it("reports tool_use events to onToolUse with name/id/parameters", async () => {
     const { client } = createClient();
     const tools: Array<{ name?: string; id?: string; parameters?: unknown }> = [];
@@ -728,6 +751,34 @@ if (prompt.includes("BLOCKED")) {
 send({ type: "message", timestamp: "2026-07-02T00:00:00.000Z", role: "assistant", content: "ECHO:", delta: true });
 send({ type: "message", timestamp: "2026-07-02T00:00:00.000Z", role: "assistant", content: prompt, delta: true });
 send({ type: "result", timestamp: "2026-07-02T00:00:00.000Z", status: "success", stats: {} });
+process.exit(0);
+`;
+
+// `agy --print --output-format stream-json` (実機確認): `{event: ...}` 形式の行が流れる。
+// 返答の断片は step_update.text_delta、終わりは result.response。
+const AGY_STREAM_JSON_BIN = `#!/usr/bin/env node
+const fs = require("node:fs");
+const path = require("node:path");
+if (process.argv.includes("--version")) { console.log("agy-fake"); process.exit(0); }
+const argv = process.argv.slice(2);
+fs.writeFileSync(path.join(process.cwd(), "..", "fake-capture.json"), JSON.stringify({ argv, env: process.env, cwd: process.cwd() }));
+if (argv.includes("models")) { console.log("Gemini 3.5 Flash (High)"); process.exit(0); }
+const send = (message) => process.stdout.write(JSON.stringify(message) + "\\n");
+const printArg = argv.find((arg) => arg.startsWith("--print=")) || "";
+if (!argv.includes("--output-format")) {
+  process.stdout.write("plain answer\\n");
+  process.exit(0);
+}
+send({ event: "init", conversation_id: "conv-1", init: { cwd: process.cwd(), tools: [] } });
+send({ event: "step_update", step_update: { conversation_id: "conv-1", step_index: 0, state: "DONE", step_type: "user_input" } });
+if (printArg.includes("FAIL")) {
+  send({ event: "result", result: { conversation_id: "conv-1", status: "ERROR", error: { message: "quota exceeded" } } });
+  process.exit(1);
+}
+send({ event: "step_update", step_update: { step_index: 1, state: "ACTIVE", step_type: "agent_response", text_delta: "前置き。" } });
+send({ event: "step_update", step_update: { step_index: 1, state: "ACTIVE", step_type: "agent_response", text_delta: "<svg/>" } });
+send({ event: "step_update", step_update: { step_index: 1, state: "DONE", step_type: "agent_response", text_delta: "\\n" } });
+send({ event: "result", result: { conversation_id: "conv-1", status: "SUCCESS", response: "前置き。<svg/>\\n" } });
 process.exit(0);
 `;
 

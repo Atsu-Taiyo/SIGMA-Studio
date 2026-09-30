@@ -37,6 +37,12 @@ export interface GeminiRunTurnParams {
   model?: string | null;
   resumeSessionId?: string | null;
   onDelta?: (delta: string) => void;
+  /**
+   * true なら `--output-format stream-json` で起動し、返答の断片 (`step_update.text_delta`) を
+   * 届いた順に `onDelta` へ流す。既定 (省略) の print モードは stdout に本文が終了時まで出ないので、
+   * 生成の途中経過を見せたい呼び出しだけが指定する。
+   */
+  streamOutput?: boolean;
   onToolUse?: (tool: GeminiToolUse) => void;
   /** This run's id; lets {@link GeminiHeadlessClient.cancelRun} kill this spawned turn. */
   runId?: string;
@@ -350,7 +356,7 @@ export class GeminiHeadlessClient {
     // value is not expanded into the prompt by Antigravity: it is treated as a
     // request for the agent to read that file, so print mode can finish without
     // ever executing the actual instruction. Pass the instruction itself.
-    const args = this.buildSpawnArgs(model, params.resumeSessionId ?? null, logFilePath, params.instruction);
+    const args = this.buildSpawnArgs(model, params.resumeSessionId ?? null, logFilePath, params.instruction, params.streamOutput === true);
     const geminiBin = this.getGeminiBinForSpawn();
 
     return new Promise<GeminiTurnResult>((resolve, reject) => {
@@ -369,6 +375,8 @@ export class GeminiHeadlessClient {
       let stdoutText = "";
       let sessionId: string | null = null;
       let resultEvent: GeminiResultEvent | null = null;
+      // `streamOutput` の agy stream-json は `{event: ...}` 形式の別プロトコル (上の `type` 形式ではない)。
+      let streamResult: { status: string | null; response: string | null; errorMessage: string | null } | null = null;
       let blockedToolCount = 0;
       let stderrTail: string | null = null;
       let sawJsonProtocolEvent = false;
@@ -427,6 +435,29 @@ export class GeminiHeadlessClient {
         try {
           message = JSON.parse(line);
         } catch {
+          return;
+        }
+        if (params.streamOutput && isRecord(message) && typeof message.event === "string") {
+          if (message.event === "init") {
+            const conversationId = message.conversation_id;
+            if (typeof conversationId === "string" && conversationId) {
+              sessionId = conversationId;
+            }
+          } else if (message.event === "step_update" && isRecord(message.step_update)) {
+            const step = message.step_update;
+            if (step.step_type === "agent_response" && typeof step.text_delta === "string" && step.text_delta) {
+              finalText += step.text_delta;
+              params.onDelta?.(step.text_delta);
+            }
+          } else if (message.event === "result" && isRecord(message.result)) {
+            const result = message.result;
+            const error = isRecord(result.error) ? result.error : null;
+            streamResult = {
+              status: typeof result.status === "string" ? result.status : null,
+              response: typeof result.response === "string" ? result.response : null,
+              errorMessage: typeof error?.message === "string" ? error.message : null,
+            };
+          }
           return;
         }
         if (!isRecord(message) || typeof message.type !== "string") {
@@ -521,6 +552,24 @@ export class GeminiHeadlessClient {
           return;
         }
 
+        if (streamResult) {
+          this.authError = null;
+          this.authErrorCredsMtimeMs = null;
+          this.loginCache = null;
+          const { status, response, errorMessage } = streamResult;
+          const isError = status !== null && status !== "SUCCESS";
+          finish(() =>
+            resolve({
+              sessionId,
+              finalText: response ?? finalText,
+              isError,
+              errorMessage: isError ? errorMessage ?? te("electron.antigravity.editFailed") : null,
+              blockedToolCount,
+            }),
+          );
+          return;
+        }
+
         if (resultEvent) {
           this.authError = null;
           this.authErrorCredsMtimeMs = null;
@@ -608,6 +657,7 @@ export class GeminiHeadlessClient {
     resumeSessionId: string | null,
     logFilePath: string,
     instruction: string,
+    streamOutput = false,
   ): string[] {
     // agy 1.1.x requires the prompt as the value of its string-valued --print
     // flag. A trailing positional prompt, stdin-only input, and @file expansion
@@ -617,6 +667,7 @@ export class GeminiHeadlessClient {
       "--print-timeout",
       `${Math.max(1, Math.ceil(this.turnTimeoutMs / 60_000))}m`,
       ...(model ? ["--model", model] : []),
+      ...(streamOutput ? ["--output-format", "stream-json"] : []),
     ];
     if (resumeSessionId) {
       args.push("--conversation", resumeSessionId);

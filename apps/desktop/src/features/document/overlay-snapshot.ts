@@ -27,7 +27,7 @@ const SHAPE_KEYS = [
 ] as const;
 const SHAPE_PROP_KEYS: Record<OverlayShape["type"], readonly string[]> = {
   group: ["w", "h", "name"],
-  geo: ["w", "h", "geo", "polygonSides", "apexX", "headLengthRatio", "shaftRatio", "radius", "fill", "color", "fillColor", "strokeOpacity", "fillOpacity", "labelColor", "dash", "size", "label"],
+  geo: ["w", "h", "geo", "polygonSides", "baseSides", "solidPoints", "solidEdgeDash", "solidEdgeSize", "apexX", "headLengthRatio", "shaftRatio", "radius", "fill", "color", "fillColor", "strokeOpacity", "fillOpacity", "labelColor", "dash", "size", "label"],
   arc: ["kind", "r", "rx", "ry", "startAngle", "endAngle", "arrowheadStart", "arrowheadEnd", "fill", "fillColor", "fillOpacity", "fillPattern", "color", "strokeOpacity", "dash", "size"],
   arrow: ["start", "end", "arrowheadStart", "arrowheadEnd", "fill", "color", "strokeOpacity", "labelColor", "dash", "size", "label"],
   line: ["kind", "points", "closed", "arrowheadStart", "arrowheadEnd", "fill", "fillColor", "fillOpacity", "fillPattern", "color", "strokeOpacity", "labelColor", "dash", "size", "label"],

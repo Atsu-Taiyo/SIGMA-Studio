@@ -37,8 +37,11 @@ import {
   getShapeLabelPlacement,
   getShapeRotation,
   getShapeRotationPivot,
+  getSolidFillPolygon,
+  getSolidStrokes,
   getTextShapeFontSizePt,
   getTextShapeRenderedLineHeightPx,
+  isSolidShape,
   MIN_TEXT_SHAPE_WIDTH,
   trimPolylinePoints,
 } from "@/features/drawing";
@@ -904,6 +907,10 @@ export function GeoSvgBody({ shape }: { shape: Extract<OverlayShape, { type: "ge
     strokeOpacity: shape.props.strokeOpacity,
   };
 
+  if (isSolidShape(shape)) {
+    return <SolidSvgBody shape={shape} fill={fill} />;
+  }
+
   if (shape.props.geo === "ellipse") {
     return (
       <ellipse
@@ -941,6 +948,53 @@ export function GeoSvgBody({ shape }: { shape: Extract<OverlayShape, { type: "ge
       ry={cornerRadius}
       {...commonProps}
     />
+  );
+}
+
+/**
+ * 立体図形。塗りは外周だけに敷き、線は辺ごとに自分の線種・太さで引く。
+ *
+ * 線種と太さは辺ごとに違うので、外側の `<svg>` が持つ値を継承させず、辺ごとに必ず指定する。
+ * 実線は `none` と書かないと、図形全体の `dash` (破線など) を継承してしまう。
+ */
+function SolidSvgBody({ shape, fill }: { shape: Extract<OverlayShape, { type: "geo" }>; fill: string }) {
+  const strokes = getSolidStrokes(shape);
+  return (
+    <>
+      {shape.props.fill === "solid" && (
+        shape.props.geo === "sphere" ? (
+          <ellipse
+            cx={shape.props.w / 2}
+            cy={shape.props.h / 2}
+            rx={shape.props.w / 2}
+            ry={shape.props.h / 2}
+            fill={fill}
+            fillOpacity={shape.props.fillOpacity}
+            stroke="none"
+          />
+        ) : (
+          <polygon
+            points={getSolidFillPolygon(shape).map((point) => `${point.x},${point.y}`).join(" ")}
+            fill={fill}
+            fillOpacity={shape.props.fillOpacity}
+            stroke="none"
+          />
+        )
+      )}
+      {strokes.map((stroke) => (
+        <path
+          key={stroke.index}
+          d={stroke.d}
+          fill="none"
+          stroke={shape.props.color}
+          strokeOpacity={shape.props.strokeOpacity}
+          strokeWidth={overlayStrokeWidth(stroke.size)}
+          strokeDasharray={dashToStrokeDasharray(stroke.dash) ?? "none"}
+          strokeLinecap={stroke.dash === "solid" ? "round" : "butt"}
+          data-solid-edge={stroke.index}
+        />
+      ))}
+    </>
   );
 }
 

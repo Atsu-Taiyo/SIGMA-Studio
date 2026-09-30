@@ -8,15 +8,19 @@ import type { AiRunSession } from "@/lib/ai/ai-run-session-store";
 
 import type { AiEditMentionedDocumentContext } from "@/lib/ai/sigma-doc-agent-tools";
 import { getAiEditReferenceKey, type AiEditReference } from "@/lib/ai/ai-edit-reference";
-import { setAppLocale } from "@/lib/i18n";
+import { getDefaultChatRoomTitle } from "@/lib/ai/ai-run-controller";
+import { createTranslator, setAppLocale } from "@/lib/i18n";
 
 import {
   AssistantActivity,
   AssistantPlanChecklist,
   AssistantTurnView,
+  AI_ACTION_PRESET_IDS,
   AttachmentPreview,
   createAiEditAttachmentFromFile,
+  ChatEmptyState,
   ChatHistoryRoomItem,
+  ChatRoomHistory,
   ProviderSwitch,
   UserTurnView,
   buildSelectedOverlayShapePreview,
@@ -1211,4 +1215,125 @@ describe("ProviderSwitch", () => {
   });
 });
 
+});
+
+describe("ChatEmptyState quick actions", () => {
+  it("shows every quick action as an icon tile and offers SVG figures and proofreading", () => {
+    setAppLocale("ja");
+    const html = renderToStaticMarkup(<ChatEmptyState reference={null} onSelectPreset={() => {}} />);
+
+    expect(AI_ACTION_PRESET_IDS).toEqual(expect.arrayContaining(["figure", "proofread"]));
+    for (const id of AI_ACTION_PRESET_IDS) {
+      expect(html).toContain(`data-preset="${id}"`);
+    }
+    // 各タイルは、線画アイコンとラベルを1つずつ持つ。
+    expect(html.match(/data-preset="/g)?.length).toBe(AI_ACTION_PRESET_IDS.length);
+    expect(html.match(/<svg[^>]*aria-hidden="true"/g)?.length).toBeGreaterThanOrEqual(AI_ACTION_PRESET_IDS.length);
+    expect(html).toContain("図・イラスト");
+    expect(html).toContain("校正");
+  });
+
+  it("asks for an SVG figure and a formatting-preserving proofread in both languages", () => {
+    // SSR は常に日本語で描かれる(ハイドレーション安全性)ので、英語は辞書を直接引いて確かめる。
+    for (const locale of ["ja", "en"] as const) {
+      const t = createTranslator(locale, "ai");
+      expect(t("prompt.quickAction.figure"), locale).toContain("SVG");
+      expect(t("prompt.quickAction.proofread"), locale).not.toEqual("");
+      expect(t("quickAction.label.figure"), locale).not.toEqual("");
+    }
+    expect(createTranslator("en", "ai")("quickAction.label.figure")).toBe("Figure or illustration");
+    // 増減表の指示は、実在するツール名(insert_table)で書く。
+    expect(createTranslator("ja", "ai")("prompt.quickAction.variationTable")).toContain("insert_table");
+    expect(createTranslator("ja", "ai")("prompt.quickAction.variationTable")).not.toContain("draft_");
+  });
+});
+
+describe("ChatRoomHistory header", () => {
+  const room = (title: string, id = "room-1"): AiEditChatRoom => ({
+    id,
+    title,
+    turns: [],
+    provider: "chatgpt",
+    agentThreadId: null,
+    createdAt: 0,
+    updatedAt: 0,
+  }) as unknown as AiEditChatRoom;
+
+  const render = (rooms: AiEditChatRoom[], activeRoomId: string | null) => renderToStaticMarkup(
+    <ChatRoomHistory
+      rooms={rooms}
+      activeRoomId={activeRoomId}
+      loading={false}
+      runSessions={new Map()}
+      onNewRoom={() => {}}
+      onSelectRoom={() => {}}
+    />,
+  );
+
+  it("names the header after the open conversation", () => {
+    setAppLocale("ja");
+    const html = render([room("二次関数の解説を作る")], "room-1");
+
+    expect(html).toContain('data-titled="true"');
+    expect(html).toContain("二次関数の解説を作る");
+  });
+
+  it("keeps the plain チャット heading for an unnamed conversation", () => {
+    setAppLocale("ja");
+    const html = render([room(getDefaultChatRoomTitle())], "room-1");
+
+    expect(html).toContain('data-titled="false"');
+    expect(html).toContain("チャット");
+    expect(html).not.toContain("二次関数");
+  });
+});
+
+describe("AssistantTurnView reply tools", () => {
+  const result = (summary: string) => ({
+    draft: { summary, plan: [], warnings: [], operations: [] },
+    nextDocument: {},
+    operationResults: [],
+    logs: [],
+    repaired: false,
+    changedIds: [],
+  }) as unknown as AssistantTurn["result"];
+  const turn = (summary: string): AssistantTurn => ({
+    id: "a-copy",
+    role: "assistant",
+    startedAt: 0,
+    endedAt: 3_000,
+    isRunning: false,
+    events: [],
+    streamText: "",
+    reasoningText: "",
+    planSteps: [],
+    planExplanation: null,
+    result: result(summary),
+  }) as unknown as AssistantTurn;
+
+  it("offers a copy button for a reply that has text, and localizes the elapsed time", () => {
+    setAppLocale("ja");
+    const html = renderToStaticMarkup(<AssistantTurnView turn={turn("三角形ABCの図を挿入しました。")} clockNow={0} />);
+
+    expect(html).toContain("ai-chat-result-tools");
+    expect(html).toContain('aria-label="返答をコピー"');
+    expect(html).toContain("3秒");
+    expect(html).not.toContain(">3s<");
+  });
+
+  it("shows no copy button for an empty reply", () => {
+    setAppLocale("ja");
+    expect(renderToStaticMarkup(<AssistantTurnView turn={turn("  ")} clockNow={0} />)).not.toContain("ai-chat-result-tools");
+  });
+
+  it("formats elapsed time with the display language's units", () => {
+    // SSR は日本語で描かれるので、英語の単位は辞書で確かめる。
+    const ja = createTranslator("ja", "ai");
+    const en = createTranslator("en", "ai");
+    expect(ja("panel.durationSeconds", { replace: { seconds: 3 } })).toBe("3秒");
+    expect(ja("panel.durationMinutes", { replace: { minutes: 1, seconds: 4 } })).toBe("1分4秒");
+    expect(en("panel.durationSeconds", { replace: { seconds: 3 } })).toBe("3s");
+    expect(en("panel.durationMinutes", { replace: { minutes: 1, seconds: 4 } })).toBe("1m 4s");
+    expect(en("chat.copyReply")).toBe("Copy reply");
+  });
 });

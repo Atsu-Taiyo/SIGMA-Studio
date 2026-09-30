@@ -4,6 +4,7 @@ import { Folder } from "lucide-react";
 import type { CSSProperties, DragEvent as ReactDragEvent, KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent } from "react";
 
 import { WorkspaceSharedBadge } from "./WorkspaceSharedBadge";
+import { WorkspaceBookmarkButton } from "./WorkspaceBookmarkButton";
 import { WorkspaceItemMenuButton } from "./WorkspaceItemMenuButton";
 import { DocumentTitleText } from "@/features/rendering/adapters/react";
 import type { WorkspaceFileSummary, WorkspaceFolderSummary } from "@/lib/workspace-repository";
@@ -56,6 +57,9 @@ interface WorkspaceItemGridProps {
   isRenameEditing: (key: string) => boolean;
   onCommitRename: (nextName: string) => void;
   onCancelRename: () => void;
+  /** `file:<id>` / `folder:<id>` of every bookmarked item. */
+  bookmarkedKeys: ReadonlySet<string>;
+  onToggleBookmark: (kind: "file" | "folder", id: string) => void;
 }
 
 export function WorkspaceItemGrid({
@@ -90,6 +94,8 @@ export function WorkspaceItemGrid({
   isRenameEditing,
   onCommitRename,
   onCancelRename,
+  bookmarkedKeys,
+  onToggleBookmark,
 }: WorkspaceItemGridProps) {
   const t = useT("workspace");
   const locationFor = (key: string) => { const row = rows.find(row => row.key === key); return row && locationLabel?.(row); };
@@ -157,6 +163,7 @@ export function WorkspaceItemGrid({
                   )}
                   {folder.sharing && <WorkspaceSharedBadge />}
                   <small>{locationLabel ? locationFor(key) : folder.fileCount}</small>
+                  {!editing && <WorkspaceBookmarkButton name={folder.name} bookmarked={bookmarkedKeys.has(key)} onToggle={() => onToggleBookmark("folder", folder.id)} />}
                   {!editing && <WorkspaceItemMenuButton expanded={menuKey === `folder:${folder.id}`} name={folder.name} onClick={(event) => onFolderContextMenu(event, folder.id)} />}
                 </div>
               );
@@ -230,6 +237,14 @@ export function WorkspaceItemGrid({
                     )}
                     <small>{locationLabel ? locationFor(`file:${file.fileId}`) : formatDateTime(file.updatedAt, locale)}</small>
                   </div>
+                  {!editing && (
+                    <WorkspaceBookmarkButton
+                      className="workspace-file-card-bookmark"
+                      name={displayName}
+                      bookmarked={bookmarkedKeys.has(key)}
+                      onToggle={() => onToggleBookmark("file", file.fileId)}
+                    />
+                  )}
                   {!editing && (
                   <div className="workspace-file-card-actions">
 <WorkspaceItemMenuButton

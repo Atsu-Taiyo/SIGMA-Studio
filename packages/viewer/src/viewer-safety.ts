@@ -298,6 +298,7 @@ function visitBoxChild(block: BoxBlockChildBlock, path: string, report: SafetyRe
 
 function visitBoxBlock(block: BoxBlockNode, path: string, report: SafetyReporter) {
   block.title?.forEach((node, index) => visitInlineNode(node, `${path}.title.${index}`, report));
+  block.subtitle?.forEach((node, index) => visitInlineNode(node, `${path}.subtitle.${index}`, report));
   block.blocks.forEach((child, index) => visitBoxChild(child, `${path}.blocks.${index}`, report));
   validateBoxFrame(block.frame, `${path}.frame`, report);
 }
@@ -395,6 +396,8 @@ function validateBoxDecoration(decoration: BoxDecorationSpec, path: string, repo
   if ("color" in decoration) validateColor(decoration.color, `${path}.color`, report);
   if ("borderColor" in decoration) validateColor(decoration.borderColor, `${path}.borderColor`, report);
   if ("backgroundColor" in decoration) validateColor(decoration.backgroundColor, `${path}.backgroundColor`, report);
+  if ("subtitleBackgroundColor" in decoration) validateColor(decoration.subtitleBackgroundColor, `${path}.subtitleBackgroundColor`, report);
+  if ("subtitleColor" in decoration) validateColor(decoration.subtitleColor, `${path}.subtitleColor`, report);
   if ("ruleColor" in decoration) validateColor(decoration.ruleColor, `${path}.ruleColor`, report);
   if ("guideColor" in decoration) validateColor(decoration.guideColor, `${path}.guideColor`, report);
   if ("lineColor" in decoration) validateColor(decoration.lineColor, `${path}.lineColor`, report);

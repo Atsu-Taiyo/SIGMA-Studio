@@ -1339,3 +1339,136 @@ function createTextToolTestDocument(): SigmaDocument {
     },
   };
 }
+
+describe("overlay svg export of solids", () => {
+  function solidSnapshot(props: Record<string, unknown>, frame: Record<string, unknown> = {}): OverlaySnapshot {
+    return {
+      version: 1,
+      shapes: [{
+        id: "shape_solid",
+        type: "geo",
+        x: 40,
+        y: 30,
+        ...frame,
+        props: {
+          w: 120,
+          h: 160,
+          fill: "none",
+          color: "#123456",
+          labelColor: "#123456",
+          dash: "solid",
+          size: "m",
+          ...props,
+        },
+      }],
+      assets: {},
+    } as OverlaySnapshot;
+  }
+
+  it("draws each edge as its own path with its own line style", () => {
+    const svg = getOverlayPreviewSvg({
+      overlaySnapshot: solidSnapshot({
+        geo: "pyramid",
+        baseSides: 3,
+        solidEdgeDash: ["solid", "dashed", "dotted", "solid", "solid", "dashed"],
+      }),
+    })!;
+
+    const paths = [...svg.matchAll(/<path d="M [^"]+" transform="translate\(40 30\)"[^>]*\/>/g)].map((match) => match[0]);
+    expect(paths).toHaveLength(6);
+    expect(paths.filter((path) => path.includes('stroke-dasharray="8 6"'))).toHaveLength(2);
+    expect(paths.filter((path) => path.includes('stroke-dasharray="1 6"'))).toHaveLength(1);
+    // 実線の辺は角で欠けないよう丸い端、破線・点線は端が伸びないよう平らな端。
+    expect(paths.filter((path) => path.includes('stroke-linecap="round"'))).toHaveLength(3);
+    expect(paths.filter((path) => path.includes('stroke-linecap="butt"'))).toHaveLength(3);
+    for (const path of paths) {
+      expect(path).toContain('stroke="#123456"');
+      expect(path).toContain('fill="none"');
+    }
+  });
+
+  it("does not let the whole shape's dash leak onto an edge that is solid", () => {
+    const svg = getOverlayPreviewSvg({
+      overlaySnapshot: solidSnapshot({
+        geo: "prism",
+        baseSides: 3,
+        dash: "dashed",
+        solidEdgeDash: Array.from({ length: 9 }, () => "solid"),
+      }),
+    })!;
+    expect(svg).not.toContain("stroke-dasharray");
+  });
+
+  it("uses the stored vertices, offset by the shape's position", () => {
+    const svg = getOverlayPreviewSvg({
+      overlaySnapshot: solidSnapshot({
+        geo: "pyramid",
+        baseSides: 3,
+        w: 100,
+        h: 100,
+        solidPoints: [{ x: 0, y: 100 }, { x: 100, y: 100 }, { x: 50, y: 70 }, { x: 40, y: 0 }],
+      }),
+    })!;
+    expect(svg).toContain('d="M 0 100 L 100 100"');
+    expect(svg).toContain('d="M 0 100 L 40 0"');
+    expect(svg).toContain('transform="translate(40 30)"');
+  });
+
+  it("fills the outline once and paints the strokes over it", () => {
+    const svg = getOverlayPreviewSvg({
+      overlaySnapshot: solidSnapshot({ geo: "prism", baseSides: 4, fill: "solid", fillColor: "#fde68a", fillOpacity: 0.5 }),
+    })!;
+    expect(svg.match(/<polygon /g)).toHaveLength(1);
+    expect(svg).toContain('fill="#fde68a" stroke="none" fill-opacity="0.5"');
+    expect(svg.indexOf("<polygon ")).toBeLessThan(svg.indexOf("<path d="));
+  });
+
+  it("draws a sphere as an outline and the two halves of its equator", () => {
+    const svg = getOverlayPreviewSvg({
+      overlaySnapshot: solidSnapshot(
+        { geo: "sphere", w: 100, h: 100, fill: "solid", fillColor: "#bfdbfe", solidEdgeDash: ["solid", "solid", "dashed"] },
+        { rotation: Math.PI / 2 },
+      ),
+    })!;
+    expect(svg).toContain('<ellipse cx="90" cy="80" rx="50" ry="50" fill="#bfdbfe" stroke="none"');
+    expect(svg.match(/<path d=/g)).toHaveLength(3);
+    expect(svg.match(/stroke-dasharray="8 6"/g)).toHaveLength(1);
+    // 図形の回転はほかの図形と同じく外側の <g> がかける。
+    expect(svg).toContain('rotate(90 90 80)');
+  });
+});
+
+describe("overlay svg export of solid line widths", () => {
+  it("draws each edge with its own width, falling back to the whole shape's", () => {
+    const snapshot = {
+      version: 1,
+      shapes: [{
+        id: "shape_wide",
+        type: "geo",
+        x: 0,
+        y: 0,
+        props: {
+          w: 100,
+          h: 100,
+          geo: "prism",
+          baseSides: 3,
+          fill: "none",
+          color: "#123456",
+          labelColor: "#123456",
+          dash: "solid",
+          size: "m",
+          solidEdgeSize: ["s", "xl", "l"],
+        },
+      }],
+      assets: {},
+    } as OverlaySnapshot;
+    const svg = getOverlayPreviewSvg({ overlaySnapshot: snapshot })!;
+    const widths = [...svg.matchAll(/<path d="M [^"]+"[^>]* stroke-width="([\d.]+)"/g)].map((match) => Number(match[1]));
+    expect(widths).toHaveLength(9);
+    // s < m < l < xl. 先頭 3 本が指定した太さ、残りは図形全体の m。
+    expect(widths[0]).toBeLessThan(widths[3]);
+    expect(widths[1]).toBeGreaterThan(widths[2]);
+    expect(widths[2]).toBeGreaterThan(widths[3]);
+    expect(new Set(widths.slice(3)).size).toBe(1);
+  });
+});

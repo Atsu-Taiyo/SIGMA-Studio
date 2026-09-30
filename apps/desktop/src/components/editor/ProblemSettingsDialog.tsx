@@ -1,17 +1,21 @@
 "use client";
 
-import { Tag, X } from "lucide-react";
+import { Plus, Tag, X } from "lucide-react";
 import { useId, useRef, useState, type ChangeEvent } from "react";
 
 import { ModalBody, ModalFrame, ModalHeader } from "@/components/ui/Modal";
 import type { ProblemNode } from "@/features/document";
 import {
+  CUSTOM_FRAME_STYLE_ID,
   getProblemFrameStyleId,
   PROBLEM_FRAME_STYLE_OPTIONS,
   problemFrameClassName,
+  setProblemCustomFrame,
   setProblemFrameEnabled,
   setProblemFrameStyle,
 } from "@/lib/problem-frame";
+import { findProblemFrameLibraryEntry, useProblemFrameLibrary } from "@/lib/problem-frame-library";
+import { ProblemCustomFrameEditor, svgDataUrl } from "./ProblemCustomFrameEditor";
 import styles from "./ProblemSettingsDialog.module.css";
 import { useT } from "@/lib/i18n/react";
 
@@ -27,6 +31,15 @@ export function ProblemSettingsDialog({ problem, onChange, onClose }: ProblemSet
   const t = useT("settings");
   const frameEnabled = problem.frame?.enabled === true;
   const selectedFrameStyleId = frameEnabled ? getProblemFrameStyleId(problem) : "none";
+  const library = useProblemFrameLibrary();
+  // The drawing tools stay open while a custom frame is in use, and can be opened to start a new one.
+  const [customEditorOpen, setCustomEditorOpen] = useState(selectedFrameStyleId === CUSTOM_FRAME_STYLE_ID);
+  // Which shelf entry is being edited. A problem opened with a frame from elsewhere starts unsaved.
+  const [activeId, setActiveId] = useState<string | null>(
+    () => (selectedFrameStyleId === CUSTOM_FRAME_STYLE_ID ? findProblemFrameLibraryEntry(problem.frame?.custom)?.id : null) ?? null,
+  );
+  const [startingNew, setStartingNew] = useState(false);
+  const customSelected = frameEnabled && selectedFrameStyleId === CUSTOM_FRAME_STYLE_ID && !startingNew;
 
   return (
     <ModalFrame
@@ -92,7 +105,11 @@ export function ProblemSettingsDialog({ problem, onChange, onClose }: ProblemSet
                 label={t("problem.frameNone")}
                 description={t("problem.frameNoneDescription")}
                 selected={!frameEnabled}
-                onClick={() => onChange((current) => setProblemFrameEnabled(current, false))}
+                onClick={() => {
+                  setCustomEditorOpen(false);
+                  setStartingNew(false);
+                  onChange((current) => setProblemFrameEnabled(current, false));
+                }}
               />
               {PROBLEM_FRAME_STYLE_OPTIONS.map((option) => (
                 <FrameStyleButton
@@ -102,10 +119,53 @@ export function ProblemSettingsDialog({ problem, onChange, onClose }: ProblemSet
                   description={t(option.descriptionKey)}
                   selected={frameEnabled && selectedFrameStyleId === option.id}
                   title={`/${option.commandName}`}
-                  onClick={() => onChange((current) => setProblemFrameStyle(current, option.id))}
+                  onClick={() => {
+                    setCustomEditorOpen(false);
+                    setStartingNew(false);
+                    onChange((current) => setProblemFrameStyle(current, option.id));
+                  }}
                 />
               ))}
+              {library.map((entry) => (
+                <FrameStyleButton
+                  key={entry.id}
+                  id={`library-${entry.id}`}
+                  testId={`problem-frame-library-${entry.id}`}
+                  label={entry.name}
+                  description={t("problem.frameStyle.custom.libraryDescription")}
+                  selected={customSelected && activeId === entry.id}
+                  previewSvg={entry.custom.svg}
+                  onClick={() => {
+                    setActiveId(entry.id);
+                    setStartingNew(false);
+                    setCustomEditorOpen(true);
+                    onChange((current) => setProblemCustomFrame(current, entry.custom));
+                  }}
+                />
+              ))}
+              <FrameStyleButton
+                id={CUSTOM_FRAME_STYLE_ID}
+                testId="problem-frame-new"
+                label={t("problem.frameStyle.custom.addLabel")}
+                description={t("problem.frameStyle.custom.addDescription")}
+                selected={customEditorOpen && startingNew}
+                onClick={() => {
+                  setActiveId(null);
+                  setStartingNew(true);
+                  setCustomEditorOpen(true);
+                }}
+              />
             </div>
+            {customEditorOpen && (
+              <ProblemCustomFrameEditor
+                problem={problem}
+                onChange={onChange}
+                activeId={activeId}
+                onActiveChange={setActiveId}
+                fresh={startingNew}
+                onFreshChange={setStartingNew}
+              />
+            )}
           </section>
 
           <section className={styles.section} aria-labelledby="problem-tags-heading">
@@ -124,16 +184,22 @@ function FrameStyleButton({
   description,
   selected,
   title,
+  previewSvg,
+  testId,
   onClick,
 }: {
   id: string;
+  testId?: string;
   label: string;
   description: string;
   selected: boolean;
   title?: string;
+  /** The user's own drawing, shown in the tile of the custom frame. */
+  previewSvg?: string;
   onClick: () => void;
 }) {
-  const previewClassName = id === "none"
+  const isCustomTile = id === CUSTOM_FRAME_STYLE_ID || id.startsWith("library-");
+  const previewClassName = id === "none" || isCustomTile
     ? "problem-frame-style-preview"
     : problemFrameClassName("problem-frame-style-preview", id);
 
@@ -143,10 +209,18 @@ function FrameStyleButton({
       className={`problem-frame-style-button ${selected ? "selected" : ""}`}
       aria-pressed={selected}
       title={title}
-      data-testid={`problem-frame-style-${id}`}
+      data-testid={testId ?? `problem-frame-style-${id}`}
       onClick={onClick}
     >
-      <span className={previewClassName} data-problem-frame-style={id} aria-hidden="true"><span /></span>
+      <span className={previewClassName} data-problem-frame-style={isCustomTile ? CUSTOM_FRAME_STYLE_ID : id} aria-hidden="true">
+        {isCustomTile
+          ? previewSvg
+            // The drawing is previewed as an image, where it cannot run anything.
+            // eslint-disable-next-line @next/next/no-img-element
+            ? <img src={svgDataUrl(previewSvg)} alt="" />
+            : <Plus size={14} />
+          : <span />}
+      </span>
       <span className="problem-frame-style-label">{label}</span>
       <span className="problem-frame-style-description">{description}</span>
     </button>

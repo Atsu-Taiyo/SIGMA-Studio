@@ -143,3 +143,35 @@ export function clearRequestedFileId(): void {
   url.searchParams.delete("fileId");
   window.history.replaceState({}, "", `${url.pathname}${url.search}${url.hash}`);
 }
+
+const COMMENT_THREAD_PARAM = "commentThreadId";
+
+/**
+ * The workspace's comment list opens a material with `?fileId=…&commentThreadId=…` to land on one thread.
+ * Both ids are returned together because `fileId` is cleared once the material is open, while the thread can
+ * only be selected after that material's comments have loaded.
+ */
+export function getRequestedCommentThread(): { fileId: string; threadId: string } | null {
+  if (typeof window === "undefined") {
+    return null;
+  }
+
+  const params = new URLSearchParams(window.location.search);
+  const fileId = params.get("fileId")?.trim();
+  const threadId = params.get(COMMENT_THREAD_PARAM)?.trim();
+  return fileId && threadId ? { fileId, threadId } : null;
+}
+
+export function clearRequestedCommentThread(): void {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  const url = new URL(window.location.href);
+  if (!url.searchParams.has(COMMENT_THREAD_PARAM)) {
+    return;
+  }
+
+  url.searchParams.delete(COMMENT_THREAD_PARAM);
+  window.history.replaceState({}, "", `${url.pathname}${url.search}${url.hash}`);
+}

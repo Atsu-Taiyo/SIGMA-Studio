@@ -826,6 +826,7 @@ function AiStaticBlockPreview({
             numberFontSize={unit.numberFontSize}
             hasFrame={unit.hasFrame}
             frameStyleId={unit.frameStyleId}
+            frameCustom={unit.frameCustom}
             isFirstProblemArea={unit.isFirstProblemArea}
             isFirstProblemFrameArea={unit.isFirstProblemFrameArea}
             isLastProblemFrameArea={unit.isLastProblemFrameArea}

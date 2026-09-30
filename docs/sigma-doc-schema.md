@@ -467,6 +467,7 @@ interface BoxBlockNode extends BaseNode {
   type: "boxBlock";
   styleId: string;
   title?: InlineNode[];
+  subtitle?: InlineNode[]; // 2つ目のタイトル。titleSplit を持つ枠だけが描く
   blocks: BoxBlockChildBlock[];
   frame?: BoxFrameSpec;
 }
@@ -513,6 +514,7 @@ type BoxDecorationSpec =
   | { type: "doubleRule"; offsetPx: number; widthPx?: number; color?: string }
   | { type: "titleDoubleRule"; ruleWidthPx?: number; ruleColor?: string; guideColor?: string }
   | { type: "titleBand"; heightPx?: number; backgroundColor?: string; ruleWidthPx?: number; ruleColor?: string }
+  | { type: "titleSplit"; subtitleShare?: number; gapPx?: number; order?: "subtitleFirst" | "titleFirst"; subtitleBackgroundColor?: string; subtitleColor?: string; subtitleAlign?: "l" | "c" | "r" }
   | { type: "titleTab"; heightPx?: number; radiusPx?: number; offsetXPx?: number; paddingPx?: BoxSpacingPx; backgroundColor?: string }
   | { type: "titlePlate"; borderColor?: string; radiusPx?: number; paddingPx?: BoxSpacingPx }
   | { type: "leftBar"; widthPx: number; color: string }
@@ -523,7 +525,7 @@ type BoxDecorationSpec =
 
 `notebookRules` はノート罫、左綴じ罫、リングなどのCSSで安全に再現できるパラメータを持ちます。詳細なフィールドは `src/types/sigma-doc.ts` を正とします。
 
-タイトルに地色を敷く装飾は2種類あります。`titleBand` は枠幅いっぱいの帯で、`ruleWidthPx` を持たせると帯と本文のあいだに罫を引きます。`titleTab` は枠の左上へ差し込む見出しタブで、**枠の内側**に収めます (上へはみ出させると、ブロックを絶対配置で積む印刷経路が出っ張りを勘定できず、前のブロックへ重なるため)。
+タイトルに地色を敷く装飾は2種類あります。`titleBand` は枠幅いっぱいの帯で、`ruleWidthPx` を持たせると帯と本文のあいだに罫を引きます。`titleSplit` は帯を2欄に割り、`boxBlock.subtitle` (2つ目のタイトル) を描きます。欄の幅の比 (`subtitleShare`)・隙間・左右の順を自由に変えられます。`titleTab` は枠の左上へ差し込む見出しタブで、**枠の内側**に収めます (上へはみ出させると、ブロックを絶対配置で積む印刷経路が出っ張りを勘定できず、前のブロックへ重なるため)。
 
 ### Problem
 
@@ -554,7 +556,20 @@ interface ProblemNumbering {
 
 interface ProblemFrame {
   enabled?: boolean;
+  /** `fancybox`(標準) / `doublebox` / `cornerbox`(角付き) / `custom`。`custom` は `custom` に絵があるときだけ有効で、無ければ標準に戻る。 */
   styleId?: string;
+  custom?: ProblemCustomFrame;
+}
+
+/** ユーザーが自分で描いた枠。SVG 1枚を9分割 (CSS `border-image`) して使う。 */
+interface ProblemCustomFrame {
+  svg: string;        // viewBox 付きSVG。`normalizeFrameSvg` を通した正規形 (下記)
+  width: number;      // viewBox の幅・高さ (SVG単位)
+  height: number;
+  slice: number;      // 四隅1枚の大きさ (SVG単位)。2 * slice < min(width, height)
+  borderPx: number;   // 隅1枚を描く太さ (CSS px、4〜48)
+  paddingPx: number;  // 枠と文章のあいだ (CSS px、4〜48)
+  tikz?: { source: string; environment: TikzEnvironment }; // 再編集用。描画には使わない
 }
 ```
 
@@ -572,6 +587,15 @@ interface ProblemFrame {
 `lead`、`solution`、`hint` は独立したtop-level blockではありません。必ず対象の `problem` の内側に置きます。
 
 編集画面と印刷では、`problem` は `lead`、`prompt`、`hints`、`solution` を本文中の連続したエリアとして展開します。エディタ上ではエリア境界を示す紙面外のサイド注とガイド線を表示しますが、このガイドと自動の「問題」「コメント」「解答」ラベルは本文データやPDFには出力しません。紙面に見出しを出したい場合は、ユーザーが各エリア内の本文として書きます。導入文エリアは常に編集可能で、使わない場合は空欄のままにします。空のコメント、解答エリアは編集画面でも既定では表示せず、追加操作で表示します。問題番号はラベルではなく、表示対象の問題に対して本文順で `1`、`2` のように導出し、番号の右隣に導入文を置きます。番号は未指定なら直前の表示番号 + 1、`numbering.value` があればその番号を使い、後続の自動番号は指定番号 + 1 から続けます。`frame.enabled` が `true` の場合のみ、問題文に枠線を表示し、導入文、コメント、解答には枠線を表示しません。
+
+問題文の枠線は、標準・二重・角付きに加えて、ユーザーが自分で描いた枠 (`styleId: "custom"`) を選べます。絵の作り方は SVG の貼り付け / ファイル読み込み、TikZ (SVGへ変換して保存)、AI (SVGを描かせる) の3つで、どれも最後は `custom.svg` の1枚に行き着きます。TikZ や HTML を任意実行・埋め込みしないのは箱 (`boxBlock`) と同じ方針です。
+
+- **自作の枠の一覧**: 作った枠は `localStorage` の一覧 (`lib/problem-frame-library.ts`) に溜まり、どの教材のどの問題にも選べます。問題は使った枠の**コピー**を自分のデータに持つので、ファイルは単独で開け、一覧の編集・削除は使用済みの問題を変えません。
+- **正規形**: `svg` は `normalizeFrameSvg` (`features/document/problem-custom-frame.ts`) を通した文字列だけを保存します。単一の `<svg>` 要素で、名前空間・`width`/`height`・`viewBox` を持ち、`<script>`・`<foreignObject>`・イベント属性・`#` 以外の `href`・外部 `url()` を含みません。正規形でない値は読み込みスキーマが拒否します。AIツールの `frame.custom` は `normalizeProblemFrameInput` が正規化して保存します。
+- **描画**: 四隅は形を保ち、四辺は問題の大きさに合わせて必ず引き伸ばされるので、絵は四隅 `slice × slice` の中に飾りを収め、辺は端から端までの単純な線にします。寸法と画像はインラインのカスタムプロパティ (`--problem-frame-*`) で渡し、編集画面は px、印刷経路は mm で同じ絵を同じ物理サイズに描きます (`getProblemCustomFrameStyle`)。
+- **段・ページをまたぐ枠**: 断片ごとに別の要素が描かれ、枠が閉じるのは問題全体の最初と最後の辺だけです。開いた辺側は、絵の上下の帯を `viewBox` で切り落とした画像 (`cropCustomFrameSvg`) を使い、側辺が途切れず続きます。
+- **描画側の防御**: 保存値は信頼せず、描画時に `resolveCustomFrameMetrics` が範囲外・非数の値を既定値へ置き換えます (スタイル属性を文字列連結で書き出す経路があるため)。
+
 
 `areaLayout.*.minHeightMm` は、そのエリアの最小高さです。内容が増えた場合は内容の高さが優先され、手動で広げた高さは最小高さとして保持されます。
 
@@ -925,8 +949,12 @@ type OverlayGroupShape = OverlayBaseShape<"group", {
 type OverlayGeoShape = OverlayBaseShape<"geo", {
   w: number;
   h: number;
-  geo: "rectangle" | "ellipse" | "triangle" | "diamond" | "pentagon" | "regularPolygon" | "blockArrow";
+  geo: "rectangle" | "ellipse" | "triangle" | "diamond" | "pentagon" | "regularPolygon" | "blockArrow" | "pyramid" | "prism" | "sphere";
   polygonSides?: 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12;
+  baseSides?: 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12;
+  solidPoints?: { x: number; y: number }[];
+  solidEdgeDash?: ("solid" | "dashed" | "dotted")[];
+  solidEdgeSize?: ("s" | "m" | "l" | "xl")[];
   apexX?: number;
   headLengthRatio?: number;
   shaftRatio?: number;
@@ -944,6 +972,14 @@ type OverlayGeoShape = OverlayBaseShape<"geo", {
 ```
 
 `w` と `h` は必須です。`fill` は `"none"` または `"solid"` です。`strokeOpacity` と `fillOpacity` は指定する場合 `0..1` です。`blockArrow` は太い矢印型の図形で、`headLengthRatio` と `shaftRatio` で頭部と軸の比率を調整できます。`radius` は角丸矩形用の半径です。
+
+`pyramid`(角錐)・`prism`(角柱)・`sphere`(球)は立体図形で、教材の作図と同じく、見えない辺を破線にした針金細工として描きます。`pyramid` と `prism` は底面の辺の数 `baseSides`(3〜12)が必須です。面ではなく**頂点と辺**が正本です。
+
+- 頂点と辺の並びは `geo` と `baseSides` だけで決まります。`pyramid` の頂点は底面の頂点(`0..n-1`)→ 頂点(`n`)、辺は底面の辺(`n`本)→ 頂点への辺(`n`本)です。`prism` の頂点は下底(`0..n-1`)→ 上底(`n..2n-1`)、辺は下底 → 上底 → 側面の辺(各`n`本)です。`sphere` の辺は 輪郭 → 赤道の手前 → 赤道の奥の3本です。
+- `solidPoints` は頂点の位置(図形ローカル座標)です。**省略すると、`w` と `h` に合わせた既定の見え方**(斜め上から見下ろした正射影。奥の頂点につながる辺が隠れる)になります。頂点を動かした立体だけが持ちます。長さが立体の頂点数と合わない値は無視して既定の見え方に戻します。持つ場合、`w` と `h` は頂点の外接矩形にぴったり接します。
+- `solidEdgeDash` は辺ごとの線種です。添字は辺の並びと同じで、指定のない辺や範囲外の添字は `dash` を使います。新しく挿入した立体は、見えない辺を `"dashed"` にした配列を持ちます。
+- `solidEdgeSize` は辺ごとの線の太さです。添字と、指定のない辺・範囲外の添字が `size` を使う規則は `solidEdgeDash` と同じです。直線の辺も、球の輪郭・赤道の曲線も、1本ずつ太さを持てます。立体全体の `size` を変える操作は、辺ごとの太さを捨てて全部の辺をそろえます。
+- `fill` が `"solid"` のとき、角錐・角柱は頂点の凸包、球は輪郭の楕円を塗ります。
 
 ### Arc Shape
 

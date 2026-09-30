@@ -9,8 +9,16 @@ import {
   type SigmaDocument,
 } from "@/features/document";
 import type { OverlayShape, OverlayDash, OverlayTextSize } from "@/components/editor/overlay-canvas/types";
-import type { OverlaySelectionSummary } from "@/components/editor/page-overlay-types";
-import { resolveShapePosition, type MeasuredBlock } from "@/features/drawing";
+import type { OverlaySelectionSummary, OverlaySolidEdgeSelection } from "@/components/editor/page-overlay-types";
+import {
+  getSharedSolidDash,
+  getSharedSolidSize,
+  getSolidEdgeDash,
+  getSolidEdgeSize,
+  isSolidShape,
+  resolveShapePosition,
+  type MeasuredBlock,
+} from "@/features/drawing";
 import { createCurrentLocaleTranslator, type Translate } from "@/lib/i18n";
 
 const DEFAULT_EDITOR_TRANSLATE = createCurrentLocaleTranslator("editor");
@@ -247,11 +255,21 @@ function findFirstInlineMath(children: readonly InlineNode[]): { mathInlineId?: 
   };
 }
 
-export function getSharedOverlayLineDash(shapes: readonly OverlayShape[]): OverlayDash | null {
+/**
+ * 選択の線種。辺を選んでいる立体は、その辺の線種を返す (線種の変更がその辺だけに効くため、
+ * ツールバーにも辺の値を出す)。辺ごとに違う立体を丸ごと選んでいれば「ばらばら」。
+ */
+export function getSharedOverlayLineDash(
+  shapes: readonly OverlayShape[],
+  solidEdge?: OverlaySolidEdgeSelection,
+): OverlayDash | null {
   let result: OverlayDash | null = null;
 
   for (const shape of shapes) {
-    const dash = getOverlayLineStyleDash(shape);
+    const dash = getOverlayLineStyleDash(shape, solidEdge);
+    if (dash === "mixed") {
+      return null;
+    }
     if (!dash) {
       continue;
     }
@@ -267,7 +285,17 @@ export function getSharedOverlayLineDash(shapes: readonly OverlayShape[]): Overl
   return result;
 }
 
-function getOverlayLineStyleDash(shape: OverlayShape): OverlayDash | null {
+function getOverlayLineStyleDash(
+  shape: OverlayShape,
+  solidEdge?: OverlaySolidEdgeSelection,
+): OverlayDash | "mixed" | null {
+  if (isSolidShape(shape)) {
+    if (solidEdge?.shapeId === shape.id) {
+      return getSolidEdgeDash(shape, solidEdge.index);
+    }
+    return getSharedSolidDash(shape) ?? "mixed";
+  }
+
   if (shape.type === "geo" || shape.type === "arrow" || shape.type === "line" || shape.type === "arc" || shape.type === "callout") {
     return shape.props.dash;
   }
@@ -275,11 +303,18 @@ function getOverlayLineStyleDash(shape: OverlayShape): OverlayDash | null {
   return null;
 }
 
-export function getSharedOverlayLineSize(shapes: readonly OverlayShape[]): OverlayTextSize | null {
+/** 選択の線の太さ。辺を選んでいる立体は、その辺の太さを返す ({@link getSharedOverlayLineDash} と同じ)。 */
+export function getSharedOverlayLineSize(
+  shapes: readonly OverlayShape[],
+  solidEdge?: OverlaySolidEdgeSelection,
+): OverlayTextSize | null {
   let result: OverlayTextSize | null = null;
 
   for (const shape of shapes) {
-    const size = getOverlayLineStyleSize(shape);
+    const size = getOverlayLineStyleSize(shape, solidEdge);
+    if (size === "mixed") {
+      return null;
+    }
     if (!size) {
       continue;
     }
@@ -295,7 +330,17 @@ export function getSharedOverlayLineSize(shapes: readonly OverlayShape[]): Overl
   return result;
 }
 
-function getOverlayLineStyleSize(shape: OverlayShape): OverlayTextSize | null {
+function getOverlayLineStyleSize(
+  shape: OverlayShape,
+  solidEdge?: OverlaySolidEdgeSelection,
+): OverlayTextSize | "mixed" | null {
+  if (isSolidShape(shape)) {
+    if (solidEdge?.shapeId === shape.id) {
+      return getSolidEdgeSize(shape, solidEdge.index);
+    }
+    return getSharedSolidSize(shape) ?? "mixed";
+  }
+
   if (shape.type === "geo" || shape.type === "arrow" || shape.type === "line" || shape.type === "arc") {
     return shape.props.size;
   }

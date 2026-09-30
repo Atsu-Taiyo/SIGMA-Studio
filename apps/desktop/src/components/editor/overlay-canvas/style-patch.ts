@@ -1,6 +1,7 @@
 import { normalizeFillOpacity } from "@/lib/fill-opacity";
 
 import { applyShapeOpacity } from "./render-attrs";
+import { isSolidShape, setSolidDash, setSolidSize } from "@/features/drawing";
 import type { OverlayArrowhead, OverlayShape } from "./types";
 import { isClosedPolyline } from "./shapes/line";
 import type { OverlaySelectionStylePatch } from "../page-overlay-types";
@@ -103,7 +104,7 @@ function isSameFillState(a: SharedFillState, b: SharedFillState): boolean {
 export function applyStylePatchToShape(shape: OverlayShape, style: OverlaySelectionStylePatch): OverlayShape {
   if (shape.type === "geo") {
     const base = applyShapeOpacity(shape, style.opacity);
-    return {
+    const styled: OverlayShape = {
       ...base,
       props: {
         ...shape.props,
@@ -117,6 +118,12 @@ export function applyStylePatchToShape(shape: OverlayShape, style: OverlaySelect
         size: style.size ?? shape.props.size,
       },
     };
+    // 立体を丸ごと選んで線種・太さを変えたら、辺ごとの指定は捨てて全部の辺をそろえる。
+    if (!isSolidShape(styled)) {
+      return styled;
+    }
+    const dashed = style.dash !== undefined ? setSolidDash(styled, style.dash) : styled;
+    return style.size !== undefined ? setSolidSize(dashed, style.size) : dashed;
   }
 
   if (shape.type === "arrow") {

@@ -33,6 +33,12 @@ import { FONT_SIZE_UNIT_PT, pxToPt } from "@/lib/font-size-units";
 import { createCurrentLocaleTranslator } from "@/lib/i18n";
 
 import { isAllowedOverlayAssetSource } from "@/features/document/asset-source";
+import {
+  CUSTOM_FRAME_BORDER_RANGE,
+  CUSTOM_FRAME_PADDING_RANGE,
+  isCanonicalFrameSvg,
+  MAX_CUSTOM_FRAME_SVG_LENGTH,
+} from "@/features/document/problem-custom-frame";
 import { validateMathTex } from "@/lib/math-tex";
 
 const te = createCurrentLocaleTranslator("error");
@@ -150,15 +156,15 @@ const CommentAnchorSchema: z.ZodType<SigmaCommentAnchor> = z.discriminatedUnion(
     quote: z.string().optional(),
   }),
   z.object({
+    type: z.literal("document"),
+    quote: z.string().optional(),
+  }),
+  z.object({
     type: z.literal("canvasRegion"),
     bounds: z.object({
       x: z.number().finite(),
       y: z.number().finite(),
       w: z.number().finite().positive(),
-  z.object({
-    type: z.literal("document"),
-    quote: z.string().optional(),
-  }),
       h: z.number().finite().positive(),
     }),
     quote: z.string().optional(),
@@ -321,6 +327,15 @@ const BoxDecorationSchema = z.discriminatedUnion("type", [
     ruleColor: z.string().optional(),
   }),
   z.object({
+    type: z.literal("titleSplit"),
+    subtitleShare: z.number().min(0.05).max(0.95).optional(),
+    gapPx: z.number().nonnegative().optional(),
+    order: z.enum(["subtitleFirst", "titleFirst"]).optional(),
+    subtitleBackgroundColor: z.string().optional(),
+    subtitleColor: z.string().optional(),
+    subtitleAlign: z.enum(["l", "c", "r"]).optional(),
+  }),
+  z.object({
     type: z.literal("titleTab"),
     heightPx: z.number().positive().optional(),
     radiusPx: z.number().nonnegative().optional(),
@@ -419,6 +434,7 @@ const BoxBlockNodeSchema: z.ZodType<BoxBlockNode> = z.lazy(() => BaseNodeSchema.
   type: z.literal("boxBlock"),
   styleId: z.string().min(1),
   title: z.array(InlineNodeSchema).optional(),
+  subtitle: z.array(InlineNodeSchema).optional(),
   blocks: z.array(BoxBlockChildBlockSchema).min(1),
   frame: BoxFrameSchema,
 }));
@@ -447,6 +463,23 @@ const ProblemAreaBlockSchema: z.ZodType<ProblemAreaBlock> = z.lazy(() => z.union
   LayoutSectionNodeSchema,
   BoxBlockNodeSchema,
 ]));
+
+const ProblemCustomFrameSchema = z.object({
+  svg: z.string().max(MAX_CUSTOM_FRAME_SVG_LENGTH).refine(isCanonicalFrameSvg),
+  width: z.number().positive(),
+  height: z.number().positive(),
+  slice: z.number().positive(),
+  borderPx: z.number().min(CUSTOM_FRAME_BORDER_RANGE.min).max(CUSTOM_FRAME_BORDER_RANGE.max),
+  paddingPx: z.number().min(CUSTOM_FRAME_PADDING_RANGE.min).max(CUSTOM_FRAME_PADDING_RANGE.max),
+  tikz: z.object({
+    source: z.string().min(1).max(100_000),
+    environment: z.object({
+      packages: z.string().max(20_000),
+      libraries: z.string().max(20_000),
+      preamble: z.string().max(20_000),
+    }),
+  }).optional(),
+}).refine((frame) => frame.slice * 2 < Math.min(frame.width, frame.height));
 
 const ProblemNodeSchema = BaseNodeSchema.extend({
   type: z.literal("problem"),
@@ -480,6 +513,7 @@ const ProblemNodeSchema = BaseNodeSchema.extend({
     .object({
       enabled: z.boolean().optional(),
       styleId: z.string().min(1).optional(),
+      custom: ProblemCustomFrameSchema.optional(),
     })
     .optional(),
 });

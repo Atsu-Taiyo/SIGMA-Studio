@@ -45,6 +45,18 @@ function galleryStructure(sections: ShapeGallerySection[]) {
   }));
 }
 
+/** 底面の辺の数 3〜12 の呼び名。立体の並びは、この順で角錐 → 角柱。 */
+const SOLID_BASE_NAMES = [
+  [3, "三"], [4, "四"], [5, "五"], [6, "六"], [7, "七"],
+  [8, "八"], [9, "九"], [10, "十"], [11, "十一"], [12, "十二"],
+] as const;
+const PYRAMID_ITEMS = SOLID_BASE_NAMES.map(([sides, name]) => (
+  { action: "command", command: `pyramid${sides}`, label: `${name}角錐` }
+));
+const PRISM_ITEMS = SOLID_BASE_NAMES.map(([sides, name]) => (
+  { action: "command", command: `prism${sides}`, label: `${name}角柱` }
+));
+
 describe("overlay toolbar menu classification", () => {
   it("keeps the line menu order and shape-menu classification stable", () => {
     expect(LINE_TOOL_ITEMS.map(({ command, label }) => ({ command, label }))).toEqual([
@@ -86,6 +98,17 @@ describe("shape gallery", () => {
         ],
       },
       {
+        label: "立体（角錐・球）",
+        items: [
+          { action: "command", command: "sphere", label: "球" },
+          ...PYRAMID_ITEMS,
+        ],
+      },
+      {
+        label: "立体（角柱）",
+        items: PRISM_ITEMS,
+      },
+      {
         label: "円弧・扇形",
         items: [
           { action: "command", command: "arc", label: "円弧" },
@@ -110,6 +133,17 @@ describe("shape gallery", () => {
       {
         label: "基本図形",
         items: galleryStructure(SHAPE_GALLERY_SECTIONS)[0].items,
+      },
+      {
+        label: "立体（角錐・球）",
+        items: [
+          { action: "command", command: "sphere", label: "球" },
+          ...PYRAMID_ITEMS,
+        ],
+      },
+      {
+        label: "立体（角柱）",
+        items: PRISM_ITEMS,
       },
       {
         label: "円弧・扇形",
@@ -180,6 +214,35 @@ describe("shape gallery", () => {
     expect(pentagonMarkup.match(/<path/g)).toBeNull();
     expect(hexagonMarkup.match(/<path/g)).toHaveLength(1);
     expect(dodecagonMarkup.match(/<path/g)).toHaveLength(1);
+  });
+
+  it("draws hidden edges as dashes in every pyramid and prism icon", () => {
+    const solidItems = SHAPE_GALLERY_SECTIONS
+      .flatMap((section) => section.items)
+      .filter((item) => /^(pyramid|prism)\d+$/u.test(item.command ?? ""));
+    expect(solidItems).toHaveLength(20);
+    for (const item of solidItems) {
+      const markup = renderToStaticMarkup(createElement(item.icon));
+      // 立体の図は必ず「見える辺」と「見えない辺 (破線)」の両方を持つ。
+      expect(markup).toContain("stroke-dasharray");
+      expect(markup.match(/<path/g)!.length).toBeGreaterThan(markup.match(/stroke-dasharray/g)!.length);
+    }
+  });
+
+  it("adds the base's side count to pyramid and prism icons from six sides onward, like the polygon icons", () => {
+    const items = SHAPE_GALLERY_SECTIONS.flatMap((section) => section.items);
+    const pathCount = (label: string) => {
+      const item = items.find((candidate) => candidate.label === label)!;
+      return renderToStaticMarkup(createElement(item.icon)).match(/<path/g)!.length;
+    };
+    // 辺ごとに 1 本の path。六角形以上だけ、数字の path が 1 本増える。
+    expect(pathCount("五角錐")).toBe(10);
+    expect(pathCount("六角錐")).toBe(12 + 1);
+    expect(pathCount("十二角錐")).toBe(24 + 1);
+    expect(pathCount("四角柱")).toBe(12);
+    expect(pathCount("五角柱")).toBe(15);
+    expect(pathCount("六角柱")).toBe(18 + 1);
+    expect(pathCount("十二角柱")).toBe(36 + 1);
   });
 
   it("keeps the legacy shell exports as identity-preserving compatibility aliases", () => {

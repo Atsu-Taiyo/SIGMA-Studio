@@ -214,21 +214,42 @@ export interface DesktopAiSkillDraftContext {
   description: string;
   /** 既存のスキル本文。空文字なら新規作成として扱う。 */
   currentContent: string;
+  /** `problemFrame` のチャットで、これまでにユーザーが出した要望 (古い順)。 */
+  history?: string[];
 }
 
 export interface DesktopAiSkillDraftRequest {
   provider: AiProvider;
   prompt: string;
   context: DesktopAiSkillDraftContext;
+  /** 省略はスキル本文。`problemFrame` は問題の枠線の絵 (SVG)。`currentContent` は改訂元の SVG。 */
+  purpose?: "skill" | "problemFrame";
+  /** 使うモデル。省略は各プロバイダの既定。 */
+  model?: string;
+  /** 推論の強さ。省略は各プロバイダの既定。 */
+  reasoningEffort?: string;
 }
 
 export type DesktopAiSkillDraftResult =
-  | { ok: true; text: string }
-  | { ok: false; error: string };
+  | {
+      ok: true;
+      text: string;
+      /** `problemFrame`: SVG に添えて返ってきた一言。 */
+      message?: string;
+    }
+  | {
+      ok: false;
+      error: string;
+      /** `problemFrame`: 絵は無かったが、モデルが文章で返した内容。 */
+      message?: string;
+    };
 
-/** ストリーミング中に届く進捗イベント。今のところ生成中のテキスト断片(delta)のみ。 */
+/**
+ * ストリーミング中に届く進捗イベント。`delta` は返答の断片、`reasoning` は思考の断片
+ * (思考の本文を出すプロバイダだけ)。
+ */
 export interface DesktopAiSkillDraftEvent {
-  kind: "delta";
+  kind: "delta" | "reasoning";
   text: string;
 }
 
@@ -870,7 +891,8 @@ export interface DesktopStorageAPI {
 export interface DesktopWorkspacePreviewAPI {
   getShared?: (fileId: string) => Promise<{ token: string; opened: boolean; dataUrl: string | null; updatedAt: number } | null>;
   putShared?: (fileId: string, token: string, dataUrl: string) => Promise<{ ok: boolean }>;
-  loadSharedDocument?: (fileId: string) => Promise<SigmaDocument | null>;
+  /** `{ assets: false }` skips downloading images: enough for reading text and comments. */
+  loadSharedDocument?: (fileId: string, options?: { assets?: boolean }) => Promise<SigmaDocument | null>;
   get(fileId: string, revision: number): Promise<string | null>;
   put(fileId: string, revision: number, dataUrl: string): Promise<{ ok: boolean }>;
 }
@@ -904,6 +926,7 @@ export interface DesktopAPI {
   templates: DesktopTemplatesAPI;
   storage: DesktopStorageAPI;
   workspacePreview?: DesktopWorkspacePreviewAPI;
+  browser?: import("@/lib/browser/in-app-browser-contract").DesktopBrowserAPI;
   onMenuAction(handler: (action: string) => void): () => void;
 }
 

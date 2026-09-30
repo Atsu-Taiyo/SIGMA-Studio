@@ -63,7 +63,10 @@ export async function exerciseFormulaLabels(page: Page, readDocument: ReadGraphD
       await expect.poll(() => field.evaluate((element) => (element as HTMLElement & { value: string }).value)).toBe(tex);
     }
     await field.press("Enter");
-    await expect(page.getByTestId("overlay-graph-expr-input").locator("[data-tex]")).toHaveAttribute("data-tex", tex);
+    // MathPreview renders the formula without a data-tex wrapper. Check the rendered math and
+    // the canonical expression, then verify the owned label on the canvas below.
+    await expect(page.getByTestId("overlay-graph-expr-input").locator(".ML__latex, .katex").first()).toBeVisible();
+    await expect.poll(async () => savedFormula(await readDocument())?.curve.exprTex).toBe(tex);
   };
 
   // Ordinary math must retain the authored fraction, then parameter math must keep s symbolic.

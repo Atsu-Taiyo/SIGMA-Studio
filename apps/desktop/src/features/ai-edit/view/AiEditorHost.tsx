@@ -1,6 +1,5 @@
 "use client";
 
-import { X } from "lucide-react";
 import { createPortal } from "react-dom";
 import type { ReactNode, RefObject } from "react";
 
@@ -25,12 +24,15 @@ export interface AiEditorHostProps {
   inlineRunAnchor: AiInlineAnchor | null;
   inlineSessionId: number;
   editorCanvasRef: RefObject<HTMLElement | null>;
-  closeLabel: string;
   onClose: () => void;
   children: ReactNode;
 }
 
-/** AI panel の配置と操作面。提案・参照・文書の state は children の composition が所有する。 */
+/**
+ * インラインAI入力の配置と操作面 (本文の上に重ねる浮動パネル)。提案・参照・文書の state は
+ * children の composition が所有する。サイドチャットは右のサイドバー (features/right-dock) が
+ * 載せるので、ここでは描かない。
+ */
 export function AiEditorHost({
   enabled,
   displayMode,
@@ -41,7 +43,6 @@ export function AiEditorHost({
   inlineRunAnchor,
   inlineSessionId,
   editorCanvasRef,
-  closeLabel,
   onClose,
   children,
 }: AiEditorHostProps) {
@@ -53,7 +54,7 @@ export function AiEditorHost({
     enabled: enabled && isInlineHost,
     sessionId: inlineSessionId,
   });
-  if (!enabled) return null;
+  if (!enabled || !isInlineHost) return null;
 
   const inlineViewport = isInlineHost && hostVisible && typeof window !== "undefined"
     ? { width: window.innerWidth, height: window.innerHeight }
@@ -94,31 +95,13 @@ export function AiEditorHost({
         ].filter(Boolean).join(" ")}
         aria-label="AI"
         aria-hidden={!hostVisible}
-        {...(isInlineHost ? handlers : {})}
-        style={isInlineHost && renderPosition
-          ? { left: `${renderPosition.left}px`, top: `${renderPosition.top}px` }
-          : undefined}
+        {...handlers}
+        style={renderPosition ? { left: `${renderPosition.left}px`, top: `${renderPosition.top}px` } : undefined}
       >
-        {displayMode === "sidebar" && (
-          <div className="sidebar-panel-header">
-            <span>AI</span>
-            <button
-              type="button"
-              className="panel-icon-button sidebar-close-button"
-              aria-label={closeLabel}
-              title={closeLabel}
-              onClick={onClose}
-            >
-              <X size={14} />
-            </button>
-          </div>
-        )}
         {children}
       </aside>
     </>
   );
-  // inline は workspace の stacking context を抜け、sidebar は grid に残る。
-  return isInlineHost && typeof window !== "undefined"
-    ? createPortal(host, window.document.body)
-    : host;
+  // workspace の stacking context を抜けて、画面全体の上に載せる。
+  return typeof window !== "undefined" ? createPortal(host, window.document.body) : host;
 }

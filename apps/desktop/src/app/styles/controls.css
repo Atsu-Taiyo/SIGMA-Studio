@@ -3343,6 +3343,18 @@ button:disabled {
   flex: 1;
 }
 
+/* The palette's own opacity slider, under the summary that reports it. The track and thumb are
+   the colour dialog's alpha slider (see `.color-picker-alpha-slider`). */
+.color-palette-opacity {
+  display: grid;
+  gap: 6px;
+}
+
+.color-palette-opacity-slider:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
 /*
  * The colour-creation dialog.
  *
@@ -3434,7 +3446,8 @@ button:disabled {
   min-width: 0;
 }
 
-.color-picker-sliders input[type="range"] {
+.color-picker-sliders input[type="range"],
+.color-palette-opacity-slider {
   -webkit-appearance: none;
   appearance: none;
   width: 100%;
@@ -3445,18 +3458,21 @@ button:disabled {
   cursor: pointer;
 }
 
-.color-picker-sliders input[type="range"]:focus-visible {
+.color-picker-sliders input[type="range"]:focus-visible,
+.color-palette-opacity-slider:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
 
-.color-picker-sliders input[type="range"]::-webkit-slider-runnable-track {
+.color-picker-sliders input[type="range"]::-webkit-slider-runnable-track,
+.color-palette-opacity-slider::-webkit-slider-runnable-track {
   height: 12px;
   border: 1px solid var(--border);
   border-radius: var(--radius-round, 999px);
 }
 
-.color-picker-sliders input[type="range"]::-webkit-slider-thumb {
+.color-picker-sliders input[type="range"]::-webkit-slider-thumb,
+.color-palette-opacity-slider::-webkit-slider-thumb {
   -webkit-appearance: none;
   appearance: none;
   width: 12px;
@@ -3891,6 +3907,8 @@ button:disabled {
 }
 
 .workspace-tab-cluster {
+  /* 囲みの余白と番号の分 (分割時だけ持つ)。 */
+  --cluster-extra: 0px;
   display: flex;
   align-items: end;
   gap: var(--space-xs);
@@ -3907,6 +3925,8 @@ button:disabled {
 }
 
 .workspace-tabs-row[data-grouped="true"] .workspace-tab-cluster {
+  /* 左右の余白 6px x 2 + 番号 18px + 番号との間隔。 */
+  --cluster-extra: calc(12px + 18px + var(--space-xs));
   padding: 3px 6px 0;
   background: var(--surface-strong);
 }
@@ -3932,8 +3952,6 @@ button:disabled {
   background: var(--background);
 }
 
-  /* 囲みの余白と番号の分 (分割時だけ持つ)。 */
-  --cluster-extra: 0px;
 .workspace-tab-cluster-handle {
   display: grid;
   flex: 0 0 auto;
@@ -3946,8 +3964,6 @@ button:disabled {
   border-radius: 999px;
   background: var(--surface-strong);
   color: var(--text-muted);
-  /* 左右の余白 6px x 2 + 番号 18px + 番号との間隔。 */
-  --cluster-extra: calc(12px + 18px + var(--space-xs));
   font-size: 10px;
   font-variant-numeric: tabular-nums;
   line-height: 1;

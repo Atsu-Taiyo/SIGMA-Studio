@@ -79,7 +79,8 @@ apps/desktop/src/
 │  │     └─ *.ts         HTMLなど出力形式のserialization
 │  ├─ text-editing/      本文編集のheadless model・host/editor契約
 │  ├─ ai-edit/           AI状態を汎用editor extensionへ変換するdesktop feature
-│  └─ webmcp/            WebMCP登録・ドラフト適用・状態通知のcomposition
+│  ├─ webmcp/            WebMCP登録・ドラフト適用・状態通知のcomposition
+│  └─ right-dock/        キャンバス右のサイドバー (タブ列とHub。ファイル / ブラウザ / サイドチャット) の状態と面
 ├─ components/
 │  ├─ editor/            本文・page・overlayの編集View/Controller
 │  ├─ tiptap/            Tiptap固有の編集adapter
@@ -130,6 +131,9 @@ drawingからrendering coreへの依存は公開入口の純粋なhelperに限�
 - `EditorShell.tsx`はcomposition rootとして残し、素材取得、toolbar正規化、page navigation、workspace request、ブロックスタイル変換など単独で検証できるapplication logicは`components/editor/editor-shell/`へ切り出します。
 - コメントCRUDのUI協調は`editor-shell/use-comment-actions.ts`、AI宛コメントのprovider実行は`features/ai-edit/application/use-comment-ai-run.ts`が担当します。コメントの純粋な変更は`features/document`に残し、hostのcommitを通して履歴・保存へ反映します。
 - AI提案の適用・拒否・復元・取消とfeedbackは`features/ai-edit/application/use-ai-proposal-actions.ts`に置きます。保存待ち、busy区間、render時の対象一覧と実行時の最新ref、部分成功後の復旧順を保持し、文書採用・Undo・revision更新はEditorShellのcallbackへ委ねます。公開Editorでは同じexportをAI無効adapterに差し替えます。
+- キャンバス右のサイドバーは`features/right-dock/`が所有します。サイドバーは「開いているページ」のタブ列1本で、固定の3タブは持ちません。「+」で開くHub (新しいタブ) からファイル・ブラウザ・サイドチャットを選ぶと、Hubの場所がその面に置き換わります (Hub・ファイル・サイドチャットは1つだけ、ブラウザのページは複数)。開閉・ページの並び・見ているページ・幅は`model/right-dock-state.ts`の純粋な遷移で、EditorShellは状態を1つ (`rightDock`) だけ持ちます。ブラウザのタブはメインプロセスが正本で、`view/RightDockHost.tsx`がその一覧を購読してページの並びへ映します (タブの追加・削除・前面化はブラウザ側から届き、ドックが勝手に増減させません)。AIのサイドチャットが開いている状態は「ドックがチャットのページを見せている」ことそのもので、別のフラグを持ちません。サイドチャットは本文と同じ大きさのタブにはせず、常にこのドックの面として開きます (旧`aiWorkspaceTab`の生成は廃止し、保存済みレイアウトの読み込みだけ互換のために残します)。ドックは版履歴と同じグリッド列を使うため、どちらかを開くともう一方を閉じます。`AiEditorHost`はインラインの浮動パネルだけを担当し、`AiEditPanel`は常に1か所 (インラインならportal、サイドチャットならドックの面) にだけ描いて、実行中の状態を失わないようにします。
+- アプリ内ブラウザのページ面は、レンダラの`<webview>`ではなくメインプロセスの`WebContentsView` (`electron/browser/`) が描きます。`<webview>`は本体で`webviewTag`を有効にし、CSPの`frame-src 'none'`を緩める必要があるためです。ページは専用パーティション、`sandbox`、`contextIsolation`、preloadなしで動き、本体のIPCとNodeには届きません。権限要求 (カメラ・位置情報など) は既定で拒否し、http(s)以外への遷移は止めます。レンダラは位置 (`setViewport`) と操作だけを送り、状態 (タブ・ダウンロード) はメインが正本です。URLか検索語かの判定は`tldts`、ダウンロードの重複回避は`unused-filename`に任せ、保存先は「ダウンロード」フォルダで、開く・フォルダで表示するはメインが追跡するIDからだけ受け付けます。ネイティブビューはDOMより手前に描かれるため、`use-native-overlay.ts`がダイアログ・メニュー・選択リストを検知し、開いている間は静止画に置き換えてページ面を隠します (ドック内の候補・ダウンロード一覧も同じ)。新しい浮動UIを本文の右側に出すときは、`role="dialog|menu|listbox"`か`data-native-overlay`を付けてください。
+- Claudeのモデル一覧は固定値を持たず、Claude Codeが`~/.claude/cache/model-catalog/`に保存している一覧を`electron/claude-model-catalog.ts`が読みます。今のラインナップは`sonnet`などの別名を選択肢のidにして新しい版へ自然に追随し、旧版は完全なモデルIDで固定します。読めないときだけ、`--help`の別名 (版番号なし) に縮退します。
 - AIパネルの表示・portal・catcherと位置は`features/ai-edit/view/AiEditorHost.tsx`、drag中のrefと確定位置は`use-ai-inline-drag.ts`が所有します。`AiEditPanel`の文書・参照・提案propsはEditorShellで組み立てたchildrenとして渡し、表示だけのownerへ巨大な文書contextを渡しません。同じ表示modeの再描画・session更新ではpanelをremountせず、新sessionは古いdrag位置だけを無効にします。pointerup/cancelのcapture解除・cursor復元・focus順は既存どおりです。
 
 WebMCPの登録とドラフト適用を組み立てるReact境界は`features/webmcp/view/WebMcpBridge.tsx`です。
@@ -366,6 +370,13 @@ Tiptapは編集UIとして使い、保存形式にはしません。
 - 可視ページwindowingと、重いoverlay/graph/text viewの描画範囲制御
 - body選択とoverlay選択を同じページ座標で扱うための選択popover配置
 
+選択popover (文字・画像・図形を選んだときに近くへ出る操作バー) の分担:
+
+- `PageCanvasEditor` は選択の測定と配置だけを持つ。何を並べるかは汎用の選択拡張 (`PageCanvasSelectionExtension`) が決め、機能側の拡張 (AI) と編集操作の拡張 (`selectionTools`) を `page-canvas/selection-extension-merge.ts` で1つにまとめる。並びは「編集操作 → AI → コメント」。幅は描画後の実寸で決め、選択の中心 (`centerX`) へ寄せて画面端に収める。
+- 編集操作は `editor-shell/selection-toolbar/` が持つ。書式の実装は持たず、上部ツールバーと同じ状態・同じ要求 (`FORMAT_TEXT_EVENT`、`OverlayActionRequestInput`) の窓口 (`SelectionToolbarBinding`) を `EditorShell` が Provider で渡す。押せる/押せないの判定は上部ツールバーと一致する。
+- 図形に何を出すかは `selection-toolbar/model.ts` の `planShapeTools` (純粋関数) が選択の概要から決める。種類固有の操作 (画像のトリミング・差し替え、グラフの設定など) は右クリックメニューと同じ処理を `OverlayActionRequestInput` の `shapeCommand` で呼ぶ。
+- メニューを開いてもDOMの文字選択が外れないよう、入力欄は置かない (フォントサイズは −/＋ と候補一覧)。
+
 ページは保存データではありません。`content` は論理順の1本の配列であり、ページや段ごとの配列は保存しません。
 
 ### Page Layout
@@ -433,7 +444,7 @@ overlayは見た目のレイヤーとして `stackLayer: "background" | "foregro
 
 - `graph2dShape`: 2D関数グラフ・数直線（`Graph2DSpec`）
 - `graph3dShape`: 数式曲面・立体・共通部分・3D注釈（`Graph3DSpec`）。Three.jsのscene/meshは保存しない
-- `geo`: 矩形・楕円などの図形
+- `geo`: 矩形・楕円などの図形。角錐・角柱・球(`pyramid` / `prism` / `sphere`)は頂点と辺ごとの線種を正本に持つ立体図形で、幾何は`features/drawing/solid-geometry.ts`だけが持つ(編集画面もSVG出力もここを読む)
 - `arc`: 円弧・扇形
 - `arrow` / `line`: 矢印・折れ線・曲線・フリーハンド
 - `callout`: 吹き出し
