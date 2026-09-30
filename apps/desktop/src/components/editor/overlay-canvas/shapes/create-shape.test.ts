@@ -6,7 +6,7 @@ import {
   type OverlayInsertCommand,
 } from "@/features/drawing";
 
-import { buildInsertShape } from "./create-shape";
+import { buildInsertShape, getRegularInsertAspect } from "./create-shape";
 
 describe("buildInsertShape", () => {
   it("grows a plain table by whole cells and shrinks back to the initial 2 by 2", () => {
@@ -50,6 +50,91 @@ describe("buildInsertShape", () => {
       y: 20,
       props: { geo: "regularPolygon", polygonSides, w: 160, h: 100 },
     });
+  });
+
+  it.each([
+    ["pyramid3", "pyramid", 3],
+    ["pyramid4", "pyramid", 4],
+    ["pyramid12", "pyramid", 12],
+    ["prism3", "prism", 3],
+    ["prism5", "prism", 5],
+    ["prism12", "prism", 12],
+  ] as const)("creates %s as a %s with a %i-sided base, hidden edges dashed", (command, geo, baseSides) => {
+    const shape = buildInsertShape(
+      { kind: "insert", command },
+      { x: 10, y: 20 },
+      { x: 170, y: 220 },
+      `shape_${command}`,
+    );
+
+    expect(shape).toMatchObject({
+      type: "geo",
+      x: 10,
+      y: 20,
+      props: { geo, baseSides, w: 160, h: 200, fill: "none", dash: "solid" },
+    });
+    if (shape?.type !== "geo") throw new Error("Expected a geo shape");
+    // 頂点は保存しない (既定の見え方は枠から導く)。辺の線種だけを持ち、見えない辺が破線。
+    expect(shape.props.solidPoints).toBeUndefined();
+    const edgeDash = shape.props.solidEdgeDash!;
+    expect(edgeDash).toHaveLength(geo === "pyramid" ? baseSides * 2 : baseSides * 3);
+    expect(edgeDash).toContain("dashed");
+    expect(edgeDash).toContain("solid");
+  });
+
+  it("creates a sphere with a dashed back equator and no base sides", () => {
+    const shape = buildInsertShape(
+      { kind: "insert", command: "sphere" },
+      { x: 0, y: 0 },
+      { x: 100, y: 100 },
+      "shape_sphere",
+    );
+    expect(shape).toMatchObject({ type: "geo", props: { geo: "sphere", w: 100, h: 100 } });
+    if (shape?.type !== "geo") throw new Error("Expected a geo shape");
+    expect(shape.props.solidEdgeDash).toEqual(["solid", "solid", "dashed"]);
+    expect(shape.props).not.toHaveProperty("baseSides");
+  });
+
+  it("takes the remembered style, using the line style for the edges that can be seen", () => {
+    const style = pickStyleDefaultsForInsert("prism4", {
+      color: "#dc2626",
+      dash: "dotted",
+      size: "l",
+      fill: "solid",
+      fillColor: "#fecaca",
+      fillOpacity: 0.5,
+      // 矢じりは閉じた図形には無い軸。
+      arrowheadEnd: "arrow",
+    });
+    expect(style).toEqual({
+      color: "#dc2626",
+      dash: "dotted",
+      size: "l",
+      fill: "solid",
+      fillColor: "#fecaca",
+      fillOpacity: 0.5,
+    });
+    const shape = buildInsertShape(
+      { kind: "insert", command: "prism4" },
+      { x: 0, y: 0 },
+      { x: 100, y: 100 },
+      "shape_styled",
+      undefined,
+      false,
+      style,
+    );
+    if (shape?.type !== "geo") throw new Error("Expected a geo shape");
+    expect(shape.props).toMatchObject({ color: "#dc2626", dash: "dotted", size: "l", fill: "solid" });
+    // 見える辺は覚えている線種、見えない辺は破線のまま。
+    expect(new Set(shape.props.solidEdgeDash)).toEqual(new Set(["dotted", "dashed"]));
+  });
+
+  it("offers an aspect ratio for Ctrl-drag that matches the solid's preset", () => {
+    expect(getRegularInsertAspect({ kind: "insert", command: "sphere" })).toBe(1);
+    const aspect = getRegularInsertAspect({ kind: "insert", command: "pyramid5" });
+    expect(aspect).toBeGreaterThan(0);
+    expect(aspect).not.toBe(1);
+    expect(getRegularInsertAspect({ kind: "insert", command: "prism3" })).not.toBeNull();
   });
 
   it("inserts block arrows horizontally even when the placement drag is diagonal", () => {

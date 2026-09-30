@@ -539,7 +539,7 @@ export class CollaborationSessions {
     return createHash("sha256").update(session.journal.document.snapshot()).digest("hex");
   }
   /** Read-only thumbnail projection: no journal, socket, presence or catalog mutation. */
-  async previewCatalogDocument(fileId: string, sharedDocumentId: string): Promise<SigmaDocument> {
+  async previewCatalogDocument(fileId: string, sharedDocumentId: string, options?: { assets?: boolean }): Promise<SigmaDocument> {
     const actor = this.actorId();
     if (!actor) throw new Error("AUTH_REQUIRED");
     const session = this.sessions.get(fileId);
@@ -567,6 +567,11 @@ export class CollaborationSessions {
       if (!canUseLocal || !offline) throw error;
       useLocal = true;
       document = this.project(fileId)!;
+    }
+    // Text-only readers (comment scans) skip the image download; sources stay as storage references.
+    if (options?.assets === false) {
+      if (actor !== this.actorId()) throw new Error("ACCOUNT_CHANGED");
+      return document;
     }
     const images = new Map<string, string>();
     let totalAssetBytes = 0;

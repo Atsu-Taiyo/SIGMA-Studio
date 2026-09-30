@@ -1,4 +1,4 @@
-import { chmodSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -11,6 +11,7 @@ const tempDirs: string[] = [];
 
 interface ClientFixture {
   client: ClaudeStreamClient;
+  modelCatalogDir: string;
   dir: string;
   claudeConfigDir: string;
   fakeClaudeBin: string;
@@ -53,7 +54,7 @@ describe("ClaudeStreamClient", () => {
     expect(status.error).toBeNull();
   });
 
-  it("reads latest model aliases advertised by the installed Claude CLI", async () => {
+  it("falls back to the latest-model aliases advertised by the CLI when no catalog is cached", async () => {
     const { client } = createClient();
 
     const catalog = await client.listModels();
@@ -61,7 +62,48 @@ describe("ClaudeStreamClient", () => {
 
     expect(catalog.models.map((model) => model.id)).toEqual(["fable", "opus", "sonnet"]);
     expect(catalog.models.find((model) => model.id === "sonnet")?.isDefault).toBe(true);
-    expect(catalog.models.find((model) => model.id === "sonnet")?.label).toBe("Claude Sonnet 5");
+    // 版番号を固定しない (新しい Sonnet が出ても表示が嘘にならない)。
+    expect(catalog.models.find((model) => model.id === "sonnet")?.label).toBe("Claude Sonnet (latest)");
+  });
+
+  it("lists the models Claude Code itself cached, labelled with their current versions", async () => {
+    const { client, modelCatalogDir } = createClient();
+    mkdirSync(modelCatalogDir, { recursive: true });
+    writeFileSync(path.join(modelCatalogDir, "org-cc.json"), JSON.stringify({
+      version: 2,
+      fetchedAt: 200,
+      catalog: {
+        surface: "cc",
+        config: {
+          models: [
+            {
+              id: "claude-sonnet-9-1",
+              name: "Sonnet 9.1",
+              short_name: "Sonnet",
+              section: "main",
+              thinking: {
+                type: "effort",
+                effort_options: [{ id: "low" }, { id: "medium", badge: { message: "Recommended" } }, { id: "high" }],
+              },
+            },
+            { id: "claude-haiku-4-5-20251001", name: "Haiku 4.5", short_name: "Haiku", section: "main", thinking: { type: "none" } },
+            { id: "claude-sonnet-5", name: "Sonnet 5", short_name: "Sonnet", section: "overflow", thinking: { type: "effort", effort_options: [{ id: "high" }] } },
+          ],
+        },
+      },
+    }));
+
+    const catalog = await client.listModels();
+    client.dispose();
+
+    expect(catalog.models.map((model) => [model.id, model.label])).toEqual([
+      ["sonnet", "Claude Sonnet 9.1"],
+      ["claude-haiku-4-5-20251001", "Claude Haiku 4.5"],
+      ["claude-sonnet-5", "Claude Sonnet 5"],
+    ]);
+    expect(catalog.models[0]).toMatchObject({ isDefault: true, defaultReasoningEffort: "medium" });
+    expect(catalog.models[0].supportedReasoningEfforts).toEqual([{ id: "low" }, { id: "medium" }, { id: "high" }]);
+    expect(catalog.models[1].supportedReasoningEfforts).toEqual([]);
   });
 
   it("parses wrapped --model help without treating the full model example as an alias", () => {
@@ -69,6 +111,16 @@ describe("ClaudeStreamClient", () => {
       "--model <model> Model for the current session. Provide an alias for the latest model",
       "  (e.g. 'fable', 'opus', or 'sonnet') or a model's full name",
       "  (e.g. 'claude-fable-5').",
+    ].join("\n"))).toEqual(["fable", "opus", "sonnet"]);
+  });
+
+  it("parses the real --help layout where the sentence wraps across indented lines", () => {
+    expect(parseClaudeModelAliasesFromHelp([
+      "  --model <model>                       Model for the current session. Provide",
+      "                                        an alias for the latest model (e.g.",
+      "                                        'fable', 'opus', or 'sonnet') or a",
+      "                                        model's full name.",
+      "  -n, --name <name>                     Set a display name",
     ].join("\n"))).toEqual(["fable", "opus", "sonnet"]);
   });
 
@@ -257,6 +309,26 @@ describe("ClaudeStreamClient", () => {
     client.dispose();
 
     expect(deltas.join("")).toContain("DELTA_CHUNK");
+  });
+
+  it("streams the summarized thinking to onThinkingDelta only when asked for, and skips empty thinking blocks", async () => {
+    const { client, dir } = createClient();
+    const asked: string[] = [];
+    await client.runTurn({
+      instruction: "please THINKING now",
+      thinkingDisplay: "summarized",
+      onThinkingDelta: (d) => asked.push(d),
+    });
+    const capture = readFakeCapture(dir);
+    expect(asked).toEqual(["THINK_A", "THINK_B"]);
+    expect(capture.argv.slice(capture.argv.indexOf("--thinking-display"), capture.argv.indexOf("--thinking-display") + 2))
+      .toEqual(["--thinking-display", "summarized"]);
+
+    const notAsked: string[] = [];
+    await client.runTurn({ instruction: "please THINKING now", onThinkingDelta: (d) => notAsked.push(d) });
+    client.dispose();
+    expect(readFakeCapture(dir).argv).not.toContain("--thinking-display");
+    expect(notAsked).toEqual([]);
   });
 
   it("parses image content blocks out of a tool_result (stream-json type:\"user\") into onToolResult", async () => {
@@ -593,6 +665,7 @@ function createClient(binSource = FAKE_CLAUDE_BIN): ClientFixture {
   tempDirs.push(dir);
   const fakeClaudeBin = path.join(dir, "claude");
   const claudeConfigDir = path.join(dir, "claude-home");
+  const modelCatalogDir = path.join(dir, "model-catalog");
   writeFileSync(fakeClaudeBin, binSource, "utf8");
   chmodSync(fakeClaudeBin, 0o755);
 
@@ -600,8 +673,11 @@ function createClient(binSource = FAKE_CLAUDE_BIN): ClientFixture {
     dir,
     claudeConfigDir,
     fakeClaudeBin,
+    modelCatalogDir,
     client: new ClaudeStreamClient({
       claudeConfigDir,
+      // 実ホームの ~/.claude を読まない。
+      modelCatalogDir,
       mcpConfig: MCP_CONFIG,
       claudeBin: fakeClaudeBin,
       defaultModel: "claude-opus-4-8",
@@ -665,6 +741,13 @@ rl.on("line", (line) => {
   const text = (msg && msg.message && msg.message.content && msg.message.content[0] && msg.message.content[0].text) || "";
   if (text.includes("DELTA")) {
     send({ type: "stream_event", event: { delta: { type: "text_delta", text: "DELTA_CHUNK" } } });
+  }
+  if (text.includes("THINKING")) {
+    // Without --thinking-display the CLI still opens thinking blocks, but their text is empty.
+    const shown = process.argv.includes("--thinking-display");
+    send({ type: "stream_event", event: { delta: { type: "thinking_delta", thinking: shown ? "THINK_A" : "" } } });
+    send({ type: "stream_event", event: { delta: { type: "thinking_delta", thinking: shown ? "THINK_B" : "" } } });
+    send({ type: "stream_event", event: { delta: { type: "signature_delta", signature: "sig" } } });
   }
   if (text.includes("TOOL_RESULT_IMAGE")) {
     send({

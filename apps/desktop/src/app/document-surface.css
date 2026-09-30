@@ -553,7 +553,7 @@
    */
   border-bottom:
     var(--sigma-doc-box-title-band-rule-width, 0)
-    solid
+    var(--sigma-doc-box-border-style, solid)
     var(--sigma-doc-box-title-band-rule-color, transparent);
   /* Round the band itself; clipping the whole box would cut off title plates and editor controls. */
   border-radius:
@@ -571,6 +571,45 @@
 :is(.box-frame--title-band.box-frame--title-position-r, .box-frame--title-band.box-frame--title-position-r > .sigma-doc-box-content) > .sigma-doc-box-title,
 :is(.box-frame--title-band.box-frame--title-position-r, .box-frame--title-band.box-frame--title-position-r > .sigma-doc-box-content) > .print-box-title {
   justify-content: flex-end;
+}
+
+/*
+ * 2 欄の見出し (`titleSplit`)。編集面は内容の div、印刷は箱そのものを 2 列の grid にして、
+ * タイトルとサブタイトルを 1 行目、本文を 2 行目いっぱいに張る。欄の幅・隙間・左右は変数で決まる。
+ * サブタイトルは `.sigma-doc-box-title` も名乗るので、帯の見た目は共通で、ここは地色と余白だけ足す。
+ */
+.box-frame--title-split > .sigma-doc-box-content,
+.print-box-block.box-frame--title-split {
+  position: relative;
+  display: grid;
+  grid-template-columns: var(--sigma-doc-box-split-columns);
+  column-gap: var(--sigma-doc-box-split-gap, 0);
+}
+
+:is(.box-frame--title-split, .box-frame--title-split > .sigma-doc-box-content) > :is(.sigma-doc-box-body, .print-box-body) {
+  grid-column: 1 / -1;
+}
+
+:is(.box-frame--title-split, .box-frame--title-split > .sigma-doc-box-content) > :is(.sigma-doc-box-title, .print-box-title) {
+  grid-column: var(--sigma-doc-box-title-col);
+  grid-row: 1;
+  margin-right: var(--sigma-doc-box-title-margin-right);
+  margin-left: var(--sigma-doc-box-title-margin-left);
+  padding-right: var(--sigma-doc-box-title-padding-right);
+  padding-left: var(--sigma-doc-box-title-padding-left);
+  border-radius: var(--sigma-doc-box-title-radius);
+}
+
+:is(.box-frame--title-split.box-frame--title-band, .box-frame--title-split.box-frame--title-band > .sigma-doc-box-content) > :is(.sigma-doc-box-subtitle, .print-box-subtitle) {
+  grid-column: var(--sigma-doc-box-subtitle-col);
+  justify-content: var(--sigma-doc-box-subtitle-justify);
+  margin-right: var(--sigma-doc-box-subtitle-margin-right);
+  margin-left: var(--sigma-doc-box-subtitle-margin-left);
+  padding-right: var(--sigma-doc-box-subtitle-padding-right);
+  padding-left: var(--sigma-doc-box-subtitle-padding-left);
+  border-radius: var(--sigma-doc-box-subtitle-radius);
+  background: var(--sigma-doc-box-subtitle-background);
+  color: var(--sigma-doc-box-subtitle-color);
 }
 
 /*
@@ -1344,27 +1383,96 @@ li[data-list-marker-typography]::marker {
   border-bottom-style: double;
 }
 
-.print-problem-area.with-frame.box-frame--corner {
-  --corner-frame-corner-size: 2.1mm;
-  --corner-frame-rule-width: 0.25mm;
-  --corner-frame-guide-width: 0.2mm;
-  --corner-frame-guide-inset-x: clamp(3.2mm, 6cqi, 6.4mm);
-  --corner-frame-guide-side-x: 0mm;
-  --corner-frame-guide-side-y: clamp(3.2mm, 6cqi, 6.4mm);
-  --corner-frame-rule-x: clamp(1.3mm, 1.8cqi, 1.85mm);
-  --corner-frame-rule-side-x: clamp(2.4mm, 3.25cqi, 3.45mm);
-  --corner-frame-rule-y: clamp(2.1mm, 3cqi, 3.2mm);
-  --corner-frame-rule-side-y: clamp(1.3mm, 2cqi, 1.85mm);
-  --corner-frame-corner-x: clamp(1.6mm, 2cqi, 2.1mm);
-  --corner-frame-corner-y: clamp(1.3mm, 1.8cqi, 1.85mm);
-  padding: 6.4mm 8mm;
-  border: 0;
-  border-radius: 0;
-  background: #ffffff;
+/* 角付き: 細い罫線に四隅のブラケット。編集画面 (graph-and-text-editing.css) と同じ構成、長さは mm。 */
+.print-problem-area.with-frame.problem-frame--bracket {
+  background: transparent;
+  --problem-bracket-color: #111111;
+  --problem-bracket-arm: 5mm;
+  --problem-bracket-weight: 0.5mm;
+  padding: 3.2mm 4.2mm;
+  border-color: #b4b8bf;
 }
 
-.print-problem-area.with-frame.box-frame--corner:not(.first-frame-area) {
-  padding-top: 6.4mm;
+.print-problem-area.with-frame.problem-frame--bracket:is(.first-frame-area, .last-frame-area) {
+  border-radius: 0;
+}
+
+.print-problem-area.with-frame.problem-frame--bracket.first-frame-area::before,
+.print-problem-area.with-frame.problem-frame--bracket.last-frame-area::after {
+  position: absolute;
+  right: -0.3mm;
+  left: -0.3mm;
+  height: var(--problem-bracket-arm);
+  pointer-events: none;
+  content: "";
+  background:
+    linear-gradient(var(--problem-bracket-color), var(--problem-bracket-color)) left var(--v) / var(--problem-bracket-arm) var(--problem-bracket-weight) no-repeat,
+    linear-gradient(var(--problem-bracket-color), var(--problem-bracket-color)) left var(--v) / var(--problem-bracket-weight) var(--problem-bracket-arm) no-repeat,
+    linear-gradient(var(--problem-bracket-color), var(--problem-bracket-color)) right var(--v) / var(--problem-bracket-arm) var(--problem-bracket-weight) no-repeat,
+    linear-gradient(var(--problem-bracket-color), var(--problem-bracket-color)) right var(--v) / var(--problem-bracket-weight) var(--problem-bracket-arm) no-repeat;
+}
+
+.print-problem-area.with-frame.problem-frame--bracket.first-frame-area::before {
+  --v: top;
+  top: -0.3mm;
+}
+
+.print-problem-area.with-frame.problem-frame--bracket.last-frame-area::after {
+  --v: bottom;
+  bottom: -0.3mm;
+}
+
+/*
+ * 自作の枠 (`ProblemFrame.custom`): SVG 1枚を border-image で9分割し、四隅は形を保ち辺だけ伸ばす。
+ * 寸法と画像は TSX がインラインのカスタムプロパティで渡す (`getProblemCustomFrameStyle`、単位は
+ * 面ごと: 編集 px / 印刷 mm)。段・ページをまたぐ枠は断片ごとに描かれ、開いた辺側は画像を切り落とした
+ * もの (`-open-*`) を使って側辺を途切れさせない。`.with-frame` の既存規則に勝つためクラスを重ねる。
+ * 編集画面の同じ規則は graph-and-text-editing.css (共有ファイルは編集面のクラスを持たない約束)。
+ */
+.print-problem-area.with-frame.problem-frame--custom.problem-frame--custom {
+  background: transparent;
+  --pf-top: 0;
+  --pf-bottom: 0;
+  --pf-image: var(--problem-frame-image-open-both);
+  box-sizing: border-box;
+  padding: var(--problem-frame-padding);
+  border: solid transparent;
+  border-width:
+    calc(var(--problem-frame-border) * var(--pf-top))
+    var(--problem-frame-border)
+    calc(var(--problem-frame-border) * var(--pf-bottom));
+  border-radius: 0;
+  border-image-source: none;
+  border-image-slice:
+    calc(var(--problem-frame-slice) * var(--pf-top))
+    var(--problem-frame-slice)
+    calc(var(--problem-frame-slice) * var(--pf-bottom));
+  border-image-width:
+    calc(var(--problem-frame-border) * var(--pf-top))
+    var(--problem-frame-border)
+    calc(var(--problem-frame-border) * var(--pf-bottom));
+}
+
+.print-problem-area.with-frame.problem-frame--custom.problem-frame--custom:not(.frame-split) {
+  border-image-source: var(--pf-image);
+}
+
+.print-problem-area.with-frame.problem-frame--custom.problem-frame--custom:not(.first-frame-area) {
+  padding-top: 0;
+}
+
+.print-problem-area.with-frame.problem-frame--custom.problem-frame--custom.first-frame-area {
+  --pf-top: 1;
+  --pf-image: var(--problem-frame-image-open-bottom);
+}
+
+.print-problem-area.with-frame.problem-frame--custom.problem-frame--custom.last-frame-area {
+  --pf-bottom: 1;
+  --pf-image: var(--problem-frame-image-open-top);
+}
+
+.print-problem-area.with-frame.problem-frame--custom.problem-frame--custom.first-frame-area.last-frame-area {
+  --pf-image: var(--problem-frame-image-closed);
 }
 
 .print-problem-area-content {

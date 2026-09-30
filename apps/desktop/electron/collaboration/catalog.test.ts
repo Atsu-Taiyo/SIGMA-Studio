@@ -352,6 +352,8 @@ it("reads a shared preview without opening a session or marking the document bod
   f.sessions.preview = vi.fn(async () => createBlankDocument("preview"));
   expect((await f.catalog.preview(file.fileId))?.metadata.title).toBe("preview");
   expect(f.sessions.preview).toHaveBeenCalledWith(file.fileId, doc.sharedDocumentId);
+  await f.catalog.preview(file.fileId, { assets: false });
+  expect(f.sessions.preview).toHaveBeenLastCalledWith(file.fileId, doc.sharedDocumentId, { assets: false });
   expect(f.open).not.toHaveBeenCalled();
   const cache = await CatalogCache.open(f.directory, "participant");
   expect(cache.data.mappings[doc.id].bodyCached).not.toBe(true);

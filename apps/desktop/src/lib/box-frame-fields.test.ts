@@ -110,9 +110,35 @@ describe("箱の見た目で決められる項目", () => {
     expect(field.patch("わからない")).toEqual({ borderStyle: "solid" });
   });
 
+  it("lets the two heading cells be arranged like columns", () => {
+    const ids = fieldsFor("splitbox").map((field) => field.id);
+    expect(ids).toEqual(expect.arrayContaining([
+      "titleSplit.order",
+      "titleSplit.subtitleShare",
+      "titleSplit.gapPx",
+      "titleSplit.subtitleAlign",
+      "titleSplit.subtitleBackgroundColor",
+      "titleSplit.subtitleColor",
+    ]));
+    expect(fieldsFor("titlebox").some((field) => field.id.startsWith("titleSplit."))).toBe(false);
+
+    const share = fieldsFor("splitbox").find((field) => field.id === "titleSplit.subtitleShare");
+    expect(share?.kind).toBe("length");
+    if (share?.kind !== "length") return;
+    // 画面は %、保存は割合。範囲の外は丸める。
+    expect(share.value).toBe(17);
+    expect(share.patch(40).decorations?.find((d) => d.type === "titleSplit")).toMatchObject({ subtitleShare: 0.4 });
+    expect(share.patch(200).decorations?.find((d) => d.type === "titleSplit")).toMatchObject({ subtitleShare: 0.95 });
+
+    const order = fieldsFor("splitbox").find((field) => field.id === "titleSplit.order");
+    if (order?.kind !== "choice") throw new Error("order is a choice");
+    expect(order.patch("titleFirst").decorations?.find((d) => d.type === "titleSplit")).toMatchObject({ order: "titleFirst" });
+    expect(order.patch("なぞ").decorations?.find((d) => d.type === "titleSplit")).toMatchObject({ order: "subtitleFirst" });
+  });
+
   it("names every field in both languages", () => {
     // 一覧はデータなので、辞書を足し忘れると画面に生キーが出る。全スタイル分を回して塞ぐ。
-    const styleIds = ["fancybox", "titlebox", "bandbox", "itembox", "theorembox", "tabbox",
+    const styleIds = ["fancybox", "titlebox", "bandbox", "itembox", "splitbox", "theorembox", "tabbox",
       "tcolorbox", "tcolorbox-note", "doublebox", "shadebox", "leftbar", "dashedbox",
       "ruledbox", "screenbox", "ovalbox", "cornerbox"];
     for (const locale of LOCALES) {

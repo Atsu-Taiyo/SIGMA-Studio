@@ -12,16 +12,18 @@ import {
 export interface RegisterWorkspacePreviewIpcDeps {
   userDataPath: string;
   sharedContext?: (fileId: string) => Promise<{ scope: string; token: string; opened: boolean } | null>;
-  loadSharedDocument?: (fileId: string) => Promise<SigmaDocument | null>;
+  loadSharedDocument?: (fileId: string, options?: { assets?: boolean }) => Promise<SigmaDocument | null>;
 }
 
 export function registerWorkspacePreviewIpc(deps: RegisterWorkspacePreviewIpcDeps): void {
   const { userDataPath } = deps;
-  ipcMain.handle("workspace-preview:shared-document", async (event, fileId: unknown) => {
+  ipcMain.handle("workspace-preview:shared-document", async (event, fileId: unknown, options?: unknown) => {
     if (event.senderFrame !== event.sender.mainFrame || typeof fileId !== "string" || !/^[A-Za-z0-9_-]{1,200}$/.test(fileId)) return null;
     const context = await deps.sharedContext?.(fileId);
     try {
-      const document = await deps.loadSharedDocument?.(fileId) ?? null;
+      // Only `{ assets: false }` is honoured; anything else is a plain preview with images.
+      const textOnly = typeof options === "object" && options !== null && (options as { assets?: unknown }).assets === false;
+      const document = await (textOnly ? deps.loadSharedDocument?.(fileId, { assets: false }) : deps.loadSharedDocument?.(fileId)) ?? null;
       if (!document && context) await removeSharedPreviewImage(userDataPath, context.scope);
       return document;
     } catch (error) {

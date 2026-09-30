@@ -28,6 +28,7 @@ import type { AiResourceRunContext } from "../../../electron/ai-resource-store";
 
 /** プロンプトの既存アサートは日本語のまま維持する (locale を明示する)。 */
 const tJa = createTranslator("ja", "prompt");
+const tEn = createTranslator("en", "prompt");
 
 describe("MathLive AI context prompt", () => {
   it("distinguishes TeX values from JSON escaping and requires complete commands", () => {
@@ -164,6 +165,8 @@ describe("MCP edit execution boundaries", () => {
     expect(buildMcpEditTurnHardRules(tJa)).toContain(buildMcpOfficialSkillGuide(tJa));
     expect(buildMcpOfficialSkillGuide(tJa)).toContain("タスクに合うものだけ");
     expect(buildMcpOfficialSkillGuide(tJa)).toContain("毎ターン一括注入・全件読み込みしない");
+    // 図・画像を入れるときは、最初にSVGのskillを見る。
+    expect(buildMcpOfficialSkillGuide(tJa)).toContain("sigma-svg-figure");
   });
 });
 
@@ -336,12 +339,54 @@ describe("buildMcpEditPrompt", () => {
     expect(buildMcpShapeToolGuidePrompt(tJa)).toContain("graph-ownedラベルはtool側が自動採寸");
   });
 
-  it("treats ordinary AI shapes as editable drafts and reserves visual sessions for faithful reconstruction", () => {
-    expect(buildMcpEditInvariantGuidance(tJa)).toContain("編集可能なネイティブ図形");
-    expect(buildMcpEditInvariantGuidance(tJa)).toContain("クライアントで仕上げ");
-    expect(buildMcpEditInvariantGuidance(tJa)).toContain("元画像・参照図への忠実な再現");
+  it("makes SVG the first choice for figures and keeps native shapes for individual editing", () => {
+    const guidance = buildMcpEditInvariantGuidance(tJa);
+    // 図・イラスト・図解は迷わずSVG。部品ごとの編集を頼まれたときだけ図形。
+    expect(guidance).toContain("原則 insert_svg_image");
+    expect(guidance).toContain("迷ったらSVG");
+    expect(guidance).toContain("先回りしてinsert_shapeを選ばない");
+    expect(guidance).toContain("sigma-svg-figure");
+    expect(guidance).toContain("編集可能なネイティブ図形");
+    expect(guidance).toContain("クライアントで仕上げ");
+    expect(guidance).toContain("忠実な再現");
+    expect(buildMcpShapeToolGuidePrompt(tJa)).toContain("原則 insert_svg_image でSVG1枚として入れます");
     expect(buildMcpContentToolGuidePrompt(tJa)).toContain('target:{type:"overlaySelection"}');
     expect(buildMcpContentToolGuidePrompt(tJa)).toContain('target:{type:"shape",shapeId}');
+  });
+
+  it("sends the SVG-first rule on every turn, for every provider, and never the old shape-first line", () => {
+    for (const provider of ["claude", "codex", "antigravity"] as const) {
+      for (const prompt of [
+        buildMcpEditPrompt({ locale: "ja", provider, instruction: "三角形の図を入れて", fileId: "file_abc" }),
+        buildMcpEditTurnPrompt(provider, { instruction: "三角形の図を入れて", fileId: "file_abc" }),
+      ]) {
+        expect(prompt, provider).toContain("insert_svg_image");
+        expect(prompt, provider).not.toContain("編集可能な叩き台");
+      }
+    }
+    const english = buildMcpEditTurnPrompt("codex", { instruction: "Add a triangle figure", fileId: "file_abc" }, "en");
+    expect(english).toContain("insert_svg_image");
+    expect(english).not.toContain("editable starting point");
+  });
+
+  it("tells the agent how to write, verify, and place an SVG figure", () => {
+    const guidance = buildMcpEditInvariantGuidance(tJa);
+    for (const phrase of [
+      "xmlnsと正のviewBox",
+      "fill/stroke等の属性",
+      "TeXとして解釈されない",
+      "verification.previewのPNGを実見",
+      "update_svg_image",
+      "w:hの比はviewBoxに合わせます",
+      "本文は回り込まない",
+    ]) {
+      expect(guidance).toContain(phrase);
+    }
+    // 英語のUIでも同じ方針が届く。
+    const english = buildMcpEditInvariantGuidance(tEn);
+    expect(english).toContain("insert_svg_image by default (when in doubt, use SVG)");
+    expect(english).toContain("do not pick insert_shape ahead of time");
+    expect(english).toContain("sigma-svg-figure");
   });
 });
 

@@ -191,7 +191,30 @@ export interface ProblemNumbering {
 
 export interface ProblemFrame {
     enabled?: boolean;
+    /** Built-in style id, or `"custom"` when `custom` carries the user's own drawing. */
     styleId?: string;
+    custom?: ProblemCustomFrame;
+}
+
+/**
+ * A frame the user drew themselves. The drawing is one SVG, cut into nine pieces (CSS
+ * `border-image`): the four corners keep their shape, the four edges stretch (or repeat) to fit
+ * a problem of any size, and the middle is left empty for the text. `svg` is the canonical
+ * artwork; the TikZ source is kept only so the frame can be edited again.
+ */
+export interface ProblemCustomFrame {
+    /** SVG markup with a `viewBox`. Never executed: it is only ever drawn as an image. */
+    svg: string;
+    /** Size of the drawing in SVG units (the `viewBox` width / height). */
+    width: number;
+    height: number;
+    /** Size of each corner piece, in SVG units. */
+    slice: number;
+    /** How thick the frame is drawn, in CSS px: one corner piece is `borderPx` wide. */
+    borderPx: number;
+    /** Space between the frame and the text, in CSS px. */
+    paddingPx: number;
+    tikz?: TikzImageSource;
 }
 
 export interface LayoutSectionNode extends BaseNode {
@@ -219,6 +242,8 @@ export interface BoxBlockNode extends BaseNode {
     /** Built-in or user-defined style identifier such as `fancybox` or `doublebox`. */
     styleId: string;
     title?: InlineNode[];
+    /** 2 つ目のタイトル。`titleSplit` を持つ箱だけが描く。 */
+    subtitle?: InlineNode[];
     blocks: BoxBlockChildBlock[];
     frame?: BoxFrameSpec;
 }
@@ -275,6 +300,22 @@ export type BoxDecorationSpec = {
     /** 帯と本文の境に引く罫。TeX の見出し付き枠が持つ「帯の下の 1 本」。 */
     ruleWidthPx?: number;
     ruleColor?: string;
+}
+/**
+ * 見出しを 2 つの欄 (タイトルと `subtitle`) に分ける。段組みの列と同じで、欄の幅の比・間隔・
+ * 左右の順を自由に変えられる。`titleBand` と一緒に使う (帯の中を分割する)。
+ */
+ | {
+    type: "titleSplit";
+    /** サブタイトル欄が見出し幅に占める割合 (0〜1)。残りがタイトル欄。 */
+    subtitleShare?: number;
+    /** 2 つの欄のあいだの隙間。 */
+    gapPx?: number;
+    /** 左に置くほう。既定は `subtitleFirst`。 */
+    order?: "subtitleFirst" | "titleFirst";
+    subtitleBackgroundColor?: string;
+    subtitleColor?: string;
+    subtitleAlign?: "l" | "c" | "r";
 }
 /**
  * 枠の上辺に載せる見出しタブ (tcolorbox の `attach boxed title to top left` 相当)。
@@ -504,6 +545,12 @@ export interface SigmaBlockCommentAnchor {
     quote?: string;
 }
 
+/** 文書全体へのコメント。場所を持たないので、本文やキャンバスの編集で孤立しない。 */
+export interface SigmaDocumentCommentAnchor {
+    type: "document";
+    quote?: string;
+}
+
 /** A fixed rectangle in absolute, unzoomed canvas coordinates, independent of shapes. */
 export interface SigmaCanvasRegionCommentAnchor {
     type: "canvasRegion";
@@ -545,12 +592,6 @@ export declare function getCommentAnchorKey(anchor: SigmaCommentAnchor | null | 
  *
  * 他の種別 (テキスト選択・インライン数式・図形) の引用は選択範囲のスナップショットで、
  * 打鍵では作り直されない。ここで手を抜くと引用だけ古いコメントが保存されるので、完全一致で比べる。
-/** 文書全体へのコメント。場所を持たないので、本文やキャンバスの編集で孤立しない。 */
-export interface SigmaDocumentCommentAnchor {
-    type: "document";
-    quote?: string;
-}
-
  */
 export declare function getCommentAnchorCandidateKey(anchor: SigmaCommentAnchor | null | undefined): string;
 
@@ -1440,6 +1481,9 @@ export type OverlayTextSize = "s" | "m" | "l" | "xl";
 
 export type OverlayRegularPolygonSides = 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12;
 
+/** 角錐・角柱の底面の辺の数。三角錐(3)から十二角柱(12)まで。 */
+export type OverlaySolidBaseSides = 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12;
+
 export type OverlayDash = "solid" | "dashed" | "dotted";
 
 /**
@@ -1599,8 +1643,27 @@ export type OverlayGroupShape = OverlayBaseShape<"group", {
 export type OverlayGeoShape = OverlayBaseShape<"geo", {
     w: number;
     h: number;
-    geo: "rectangle" | "ellipse" | "triangle" | "diamond" | "pentagon" | "regularPolygon" | "blockArrow";
+    geo: "rectangle" | "ellipse" | "triangle" | "diamond" | "pentagon" | "regularPolygon" | "blockArrow" | "pyramid" | "prism" | "sphere";
     polygonSides?: OverlayRegularPolygonSides;
+    /** `pyramid` / `prism` の底面の辺の数。 */
+    baseSides?: OverlaySolidBaseSides;
+    /**
+     * 角錐・角柱の頂点(図形ローカル座標)。未指定は既定の見え方。
+     * 頂点は角錐なら底面の頂点 → 頂点、角柱なら下底 → 上底の順で、`baseSides` から決まる本数と一致する。
+     * 図形の外接矩形 (`w`/`h`) はこれらの頂点にぴったり接する。
+     */
+    solidPoints?: OverlayPoint[];
+    /**
+     * 立体の辺ごとの線種。辺の並びは頂点と同じく `geo` と `baseSides` から決まる。
+     * 角錐・角柱は底面の辺 → 側面の辺(角柱は下底 → 上底 → 側面)、球は 輪郭 → 赤道の手前 → 赤道の奥。
+     * 未指定の辺・範囲外の辺は `dash` を使う。
+     */
+    solidEdgeDash?: OverlayDash[];
+    /**
+     * 立体の辺ごとの線の太さ。添字は `solidEdgeDash` と同じ (辺の並び)。
+     * 未指定の辺・範囲外の辺は `size` を使う。
+     */
+    solidEdgeSize?: OverlayTextSize[];
     apexX?: number;
     headLengthRatio?: number;
     shaftRatio?: number;

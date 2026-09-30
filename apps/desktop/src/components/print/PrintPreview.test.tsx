@@ -113,6 +113,27 @@ describe("PrintPreview layout modes", () => {
     expect(html).not.toContain("data-math-unrendered");
   });
 
+  it("prints both cells of a split heading in the same box as the editor", () => {
+    const box = createBoxBlock("splitbox", "二次不定方程式の解法");
+    const html = renderToStaticMarkup(<PrintPreview document={documentWithColumns(1, [box])} profile="teacher" />);
+
+    expect(html).toContain("box-frame--title-split");
+    expect(html).toContain("--sigma-doc-box-split-columns:minmax(0, 0.1667fr) minmax(0, 0.8333fr)");
+    // サブタイトルが先 (左)、タイトルが後。どちらも帯の見出しとして出る。
+    const subtitleAt = html.indexOf("print-box-title print-box-subtitle");
+    const titleAt = html.indexOf('class="print-box-title"');
+    expect(subtitleAt).toBeGreaterThan(-1);
+    expect(titleAt).toBeGreaterThan(-1);
+    expect(titleAt).toBeLessThan(subtitleAt);
+    expect(html).toContain("Point");
+    expect(html).toContain("二次不定方程式の解法");
+
+    // 見出しの文字が両方空なら帯そのものを出さない (欄だけ残さない)。
+    const empty = { ...createBoxBlock("splitbox", "x"), title: undefined, subtitle: undefined };
+    const emptyHtml = renderToStaticMarkup(<PrintPreview document={documentWithColumns(1, [empty])} profile="teacher" />);
+    expect(emptyHtml).not.toContain("print-box-subtitle");
+  });
+
   it("uses the vertical layout by default", () => {
     const html = renderToStaticMarkup(<PrintPreview document={document} profile="teacher" />);
 
@@ -1111,6 +1132,44 @@ describe("PrintPreview print pagination", () => {
     expect(previewHtml).toContain('data-sigma-doc-id="problem_framed_atomic"');
     expect(previewHtml).toContain('class="print-problem-area with-frame');
     expect(previewHtml).toContain('data-problem-area-fragment="single"');
+  });
+
+  it("draws a custom problem frame through the print surface, in mm, and reserves its chrome", () => {
+    const custom = {
+      svg: '<svg xmlns="http://www.w3.org/2000/svg" width="80" height="50" viewBox="0 0 80 50"><rect x="1" y="1" width="78" height="48" fill="none" stroke="#123456"/></svg>',
+      width: 80,
+      height: 50,
+      slice: 12,
+      borderPx: 20,
+      paddingPx: 10,
+    };
+    const html = renderToStaticMarkup(
+      <PrintPreview
+        document={documentWithColumns(2, [
+          {
+            type: "problem",
+            id: "problem_custom_frame_print",
+            tags: [],
+            numbering: { enabled: false },
+            lead: [],
+            prompt: [richParagraph("custom_frame_prompt", "自作枠の問題文")],
+            solution: [],
+            hints: [],
+            frame: { enabled: true, styleId: "custom", custom },
+          },
+        ], shortTwoColumnPageLayout())}
+        profile="teacher"
+      />,
+    );
+    const previewHtml = renderedPreviewHtml(html);
+
+    expect(previewHtml).toContain("problem-frame--custom");
+    expect(previewHtml).toContain('data-problem-frame-style="custom"');
+    expect(previewHtml).toContain("--problem-frame-border:5.292mm");
+    expect(previewHtml).toContain("--problem-frame-padding:2.646mm");
+    expect(previewHtml).toContain("--problem-frame-image-closed:url(&quot;data:image/svg+xml,%3Csvg");
+    expect(getPrintProblemFrameFragmentChromeHeightMm("custom", "single", custom))
+      .toBeCloseTo((10 + 20) * 2 * 25.4 / 96);
   });
 
   it("keeps full-span problem areas atomic", () => {

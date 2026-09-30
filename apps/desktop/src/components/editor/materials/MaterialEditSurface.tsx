@@ -805,6 +805,15 @@ function getMaterialShapeLabel(shape: OverlayShape, tShape: Translate<"shape">):
     if (geo === "regularPolygon") {
       return tShape("shapeKind.regularPolygonSides", { replace: { sides: shape.props.polygonSides ?? 5 } });
     }
+    if (geo === "pyramid") {
+      return tShape("shapeKind.pyramidSides", { replace: { sides: shape.props.baseSides ?? 3 } });
+    }
+    if (geo === "prism") {
+      return tShape("shapeKind.prismSides", { replace: { sides: shape.props.baseSides ?? 3 } });
+    }
+    if (geo === "sphere") {
+      return tShape("shapeKind.sphere");
+    }
     if (geo === "ellipse") {
       return tShape("shapeKind.ellipseOrCircle");
     }

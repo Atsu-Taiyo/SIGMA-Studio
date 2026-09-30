@@ -723,9 +723,9 @@ test("reflects the selected range's inline marks and colour in the toolbar", asy
   await page.goto("/");
   await expect(page.locator('.text-flow-editor [data-sigma-doc-id="format_target"]')).toBeVisible();
 
-  const bold = page.getByRole("button", { name: "太字" });
-  const italic = page.getByRole("button", { name: "斜体" });
-  const underline = page.getByRole("button", { name: "下線" });
+  const bold = page.getByRole("button", { name: "太字", exact: true });
+  const italic = page.getByRole("button", { name: "斜体", exact: true });
+  const underline = page.getByRole("button", { name: "下線", exact: true });
 
   await selectTextRange(page, "format_target", 0, 5); // "Plain"
   await expect.poll(() => selectedText(page)).toBe("Plain");

@@ -10,7 +10,7 @@ import { WebMcpDockSection } from "@/components/editor/webmcp/WebMcpDockSection"
 import type { WebMcpHistoryEntry } from "@/components/editor/webmcp/webmcp-history";
 import { Shimmer } from "@/components/ui/Shimmer";
 import { findBlock, type EditableBlock } from "@/lib/document-tree";
-import { cancelRun, isDefaultChatRoomTitle, useAiChatRoomsForDocument, type AiEditChatRoom } from "@/lib/ai/ai-run-controller";
+import { cancelRun, isDefaultChatRoomTitle, useAiChatRoomsForDocument, useAllAiChatRooms, type AiEditChatRoom } from "@/lib/ai/ai-run-controller";
 import { createCurrentLocaleTranslator, type Translate } from "@/lib/i18n";
 import { useT } from "@/lib/i18n/react";
 import { isAiRunStatusActive, useAiRunSessions, type AiRunSession } from "@/lib/ai/ai-run-session-store";
@@ -291,6 +291,86 @@ export function buildWebMcpHistoryRows(entries: WebMcpHistoryEntry[], document: 
   }));
 }
 
+/** 今開いていない教材で走っている / 承認待ちのAI作業。押すとその教材へ移る。
+ * 適用・却下・巻き戻しは対象教材を読み込んだ状態でしか安全にできないので、ここでは
+ * 状況の確認と「開く」だけを出す。 */
+export interface OtherDocumentTaskRow {
+  key: string;
+  fileId: string;
+  /** 開いた後にAIチャットでこの部屋を表示する。部屋に帰属しない提案は null。 */
+  roomId: string | null;
+  runId: string | null;
+  provider: TaskRow["provider"];
+  status: "waiting" | "running" | "proposal";
+  label: string;
+  documentTitle: string;
+}
+
+export function buildOtherDocumentTaskRows({
+  rooms,
+  sessions,
+  pendingProposals,
+  currentFileId,
+  resolveDocumentTitle,
+  t = DEFAULT_AI_TRANSLATE,
+}: {
+  rooms: readonly AiEditChatRoom[];
+  sessions: ReadonlyMap<string, AiRunSession>;
+  pendingProposals: readonly DesktopMcpEditProposalSummary[];
+  currentFileId: string;
+  resolveDocumentTitle: (fileId: string) => string;
+  t?: Translate<"ai">;
+}): OtherDocumentTaskRow[] {
+  const running: OtherDocumentTaskRow[] = [];
+  const proposals = new Map<string, OtherDocumentTaskRow>();
+  const roomsById = new Map(rooms.map((room) => [room.id, room]));
+  const runningRoomIds = new Set<string>();
+
+  for (const room of rooms) {
+    if (room.documentIdentityKey === currentFileId) {
+      continue;
+    }
+    const session = sessions.get(room.id);
+    if (!session || !isAiRunStatusActive(session.status)) {
+      continue;
+    }
+    runningRoomIds.add(room.id);
+    running.push({
+      key: `run:${room.id}`,
+      fileId: room.documentIdentityKey,
+      roomId: room.id,
+      runId: session.runId,
+      provider: session.provider,
+      status: session.status === "waiting" ? "waiting" : "running",
+      label: resolveRoomLabel(room, t("dock.defaultLabel")),
+      documentTitle: resolveDocumentTitle(room.documentIdentityKey),
+    });
+  }
+
+  for (const proposal of pendingProposals) {
+    if (proposal.fileId === currentFileId || (proposal.roomId && runningRoomIds.has(proposal.roomId))) {
+      continue;
+    }
+    const groupKey = `proposal:${proposal.fileId}:${proposal.roomId ?? proposal.runId ?? "unattributed"}`;
+    if (proposals.has(groupKey)) {
+      continue;
+    }
+    const room = proposal.roomId ? roomsById.get(proposal.roomId) : undefined;
+    proposals.set(groupKey, {
+      key: groupKey,
+      fileId: proposal.fileId,
+      roomId: room ? room.id : null,
+      runId: null,
+      provider: proposal.provider,
+      status: "proposal",
+      label: proposal.sessionLabel?.trim() || resolveRoomLabel(room, t("dock.defaultLabel")),
+      documentTitle: resolveDocumentTitle(proposal.fileId),
+    });
+  }
+
+  return [...running, ...proposals.values()];
+}
+
 // Statuses that still need a human (or the AI) to do something: a run actually
 // executing, or a proposal sitting there awaiting approval/rejection/conflict
 // resolution. Settled rows (applied/auto-applied/rejected/reverted) are just
@@ -300,15 +380,16 @@ const ACTIONABLE_TASK_STATUSES: readonly TaskStatusKind[] = ["waiting", "running
 /** Pure badge-count derivation for the collapsed top-left icon: active runs plus
  * actionable items (pending proposals, including conflicts). Kept separate from
  * the component so it's unit-testable without rendering anything. */
-export function countAiTaskBadge(rows: TaskRow[]): number {
-  return rows.filter((row) => ACTIONABLE_TASK_STATUSES.includes(row.status)).length;
+export function countAiTaskBadge(rows: TaskRow[], otherDocumentRows: readonly OtherDocumentTaskRow[] = []): number {
+  return rows.filter((row) => ACTIONABLE_TASK_STATUSES.includes(row.status)).length + otherDocumentRows.length;
 }
 
 /** Whether any row is a run actually executing right now (not just a pending
  * proposal) -- drives the quiet shimmer on the collapsed icon so it reads as
  * "AI is working" rather than merely "something needs you". */
-export function hasActiveAiTaskRun(rows: TaskRow[]): boolean {
-  return rows.some((row) => row.status === "waiting" || row.status === "running");
+export function hasActiveAiTaskRun(rows: TaskRow[], otherDocumentRows: readonly OtherDocumentTaskRow[] = []): boolean {
+  return rows.some((row) => row.status === "waiting" || row.status === "running")
+    || otherDocumentRows.some((row) => row.status === "waiting" || row.status === "running");
 }
 
 export interface AiTaskDockProps {
@@ -329,6 +410,12 @@ export interface AiTaskDockProps {
    * touched content has not conflicted with newer user edits. */
   onRestoreProposal?: (proposalId: string) => Promise<{ ok: true } | { ok: false; reason: string }>;
   onFocusSession?: (roomId: string) => void;
+  /** 他の教材のAI作業を並べ、押すとその教材へ移る (デスクトップだけ)。 */
+  otherDocuments?: {
+    pendingProposals: readonly DesktopMcpEditProposalSummary[];
+    resolveDocumentTitle: (fileId: string) => string;
+    onOpen: (fileId: string, roomId: string | null) => void;
+  };
   resolvedProposals: DesktopMcpEditProposalSummary[];
   /** Web版だけ: 接続状態とエージェント指示欄をこのdockの中に出す (教材IDがスコープ)。
    * デスクトップとSDK埋め込みでは渡さない。 */
@@ -352,8 +439,12 @@ export function AiTaskDockPanel({
   onFocusSession,
   onClose,
   webMcpInstructionScopeId,
+  otherDocumentRows = [],
+  onOpenOtherDocument,
 }: {
   rows: TaskRow[];
+  otherDocumentRows?: readonly OtherDocumentTaskRow[];
+  onOpenOtherDocument?: (fileId: string, roomId: string | null) => void;
   busy: boolean;
   onApplyGroup: (proposalIds: string[]) => Promise<AiProposalApplyOutcome>;
   onDismissGroup: (proposalIds: string[]) => void;
@@ -371,7 +462,9 @@ export function AiTaskDockPanel({
     <div className="ai-task-dock" role="region" aria-label={t("dock.title")}>
       <header className="ai-task-dock-header">
         <span className="ai-task-dock-title">{t("dock.title")}</span>
-        {rows.length > 0 && <span className="ai-task-dock-count">{rows.length}</span>}
+        {rows.length + otherDocumentRows.length > 0 && (
+          <span className="ai-task-dock-count">{rows.length + otherDocumentRows.length}</span>
+        )}
         {onClose && (
           <button type="button" className="ai-task-dock-close" onClick={onClose} title={tCommon("actions.close")} aria-label={tCommon("actions.close")}>
             <X size={14} aria-hidden="true" />
@@ -386,7 +479,7 @@ export function AiTaskDockPanel({
         />
       )}
       <div className="ai-task-dock-list">
-        {rows.length === 0 ? (
+        {rows.length === 0 && otherDocumentRows.length === 0 ? (
           <p className="ai-task-dock-empty">{t("dock.empty")}</p>
         ) : (
           rows.map((row) => (
@@ -405,6 +498,62 @@ export function AiTaskDockPanel({
           ))
         )}
       </div>
+      {otherDocumentRows.length > 0 && onOpenOtherDocument && (
+        <section className="ai-task-dock-others" aria-label={t("dock.otherDocuments")}>
+          <h3 className="ai-task-dock-others-title">{t("dock.otherDocuments")}</h3>
+          <div className="ai-task-dock-list">
+            {otherDocumentRows.map((row) => (
+              <AiTaskDockOtherDocumentRow key={row.key} row={row} onOpen={onOpenOtherDocument} />
+            ))}
+          </div>
+        </section>
+      )}
+    </div>
+  );
+}
+
+/** 他の教材の1行。行全体が「その教材を開く」ボタン (停止だけは別ボタン)。 */
+export function AiTaskDockOtherDocumentRow({
+  row,
+  onOpen,
+}: {
+  row: OtherDocumentTaskRow;
+  onOpen: (fileId: string, roomId: string | null) => void;
+}) {
+  const t = useT("ai");
+  const isRunning = row.status === "running";
+  return (
+    <div className="ai-task-dock-row is-focusable ai-task-dock-row--other">
+      <span className="ai-task-dock-provider" aria-hidden="true">
+        {row.provider ? renderProviderMark(row.provider, { size: 14 }) : <History size={14} />}
+      </span>
+      <button
+        type="button"
+        className="ai-task-dock-other-open"
+        onClick={() => onOpen(row.fileId, row.roomId)}
+        title={t("dock.openDocument")}
+      >
+        <span className="ai-task-dock-row-head">
+          <span className={`ai-task-dock-chip ai-task-dock-chip--${row.status}`}>
+            {isRunning ? <Shimmer>{statusLabel(row.status, t)}</Shimmer> : statusLabel(row.status, t)}
+          </span>
+          <span className="ai-task-dock-row-label">{row.documentTitle}</span>
+        </span>
+        <span className="ai-task-dock-anchor">{row.label}</span>
+      </button>
+      {(row.status === "running" || row.status === "waiting") && row.runId && (
+        <div className="ai-task-dock-actions">
+          <button
+            type="button"
+            className="ai-task-dock-action ai-task-dock-action--icon ai-task-dock-action--stop"
+            onClick={() => row.runId && cancelRun(row.runId)}
+            title={t("dock.stop")}
+            aria-label={t("dock.stop")}
+          >
+            <Square size={8} fill="currentColor" aria-hidden="true" />
+          </button>
+        </div>
+      )}
     </div>
   );
 }
@@ -431,6 +580,7 @@ export function AiTaskDock({
   onRevertProposal,
   onRestoreProposal,
   onFocusSession,
+  otherDocuments,
   resolvedProposals,
   webMcpInstructionScopeId,
   webMcpHistory,
@@ -441,6 +591,7 @@ export function AiTaskDock({
   const anchorRef = useRef<HTMLDivElement>(null);
   const closeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const rooms = useAiChatRoomsForDocument(documentIdentityKey);
+  const allRooms = useAllAiChatRooms();
   const sessions = useAiRunSessions();
 
   useEffect(
@@ -484,8 +635,18 @@ export function AiTaskDock({
     ...buildTaskRows(rooms, sessions, previewGroups, staleGroups, resolvedProposals, document, activeDocumentRevision, t),
     ...(webMcpHistory ? buildWebMcpHistoryRows(webMcpHistory, document) : []),
   ];
-  const badgeCount = countAiTaskBadge(rows);
-  const isRunning = hasActiveAiTaskRun(rows);
+  const otherDocumentRows = otherDocuments
+    ? buildOtherDocumentTaskRows({
+      rooms: allRooms,
+      sessions,
+      pendingProposals: otherDocuments.pendingProposals,
+      currentFileId: documentIdentityKey,
+      resolveDocumentTitle: otherDocuments.resolveDocumentTitle,
+      t,
+    })
+    : [];
+  const badgeCount = countAiTaskBadge(rows, otherDocumentRows);
+  const isRunning = hasActiveAiTaskRun(rows, otherDocumentRows);
   const toggleLabel = badgeCount > 0 ? t("dock.titleWithCount", { replace: { count: badgeCount } }) : t("dock.title");
 
   const openPanel = () => {
@@ -578,6 +739,13 @@ export function AiTaskDock({
                 }
               : undefined}
             onClose={closePanel}
+            otherDocumentRows={otherDocumentRows}
+            onOpenOtherDocument={otherDocuments
+              ? (fileId, roomId) => {
+                  setExpanded(false);
+                  otherDocuments.onOpen(fileId, roomId);
+                }
+              : undefined}
             webMcpInstructionScopeId={webMcpInstructionScopeId}
           />
         </div>

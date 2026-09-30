@@ -4,6 +4,7 @@ import { ChevronDown, ChevronUp, Folder, FileText } from "lucide-react";
 import type { DragEvent as ReactDragEvent, KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent } from "react";
 
 import { WorkspaceSharedBadge } from "./WorkspaceSharedBadge";
+import { WorkspaceBookmarkButton } from "./WorkspaceBookmarkButton";
 import { WorkspaceItemMenuButton } from "./WorkspaceItemMenuButton";
 import { DocumentTitleText } from "@/features/rendering/adapters/react";
 import type { WorkspaceFileSummary, WorkspaceFolderSummary } from "@/lib/workspace-repository";
@@ -59,6 +60,9 @@ interface WorkspaceItemListProps {
   isRenameEditing: (key: string) => boolean;
   onCommitRename: (nextName: string) => void;
   onCancelRename: () => void;
+  /** `file:<id>` / `folder:<id>` of every bookmarked item. */
+  bookmarkedKeys: ReadonlySet<string>;
+  onToggleBookmark: (kind: "file" | "folder", id: string) => void;
 }
 
 function nextSort(
@@ -116,6 +120,8 @@ export function WorkspaceItemList({
   isRenameEditing,
   onCommitRename,
   onCancelRename,
+  bookmarkedKeys,
+  onToggleBookmark,
 }: WorkspaceItemListProps) {
   const t = useT("workspace");
   const locale = useAppLocale();
@@ -250,6 +256,13 @@ export function WorkspaceItemList({
                       {locationLabel?.(row) ?? resolveRowLocation(row, { folders: allFolders, workspaceName })}
                     </td>
                     <td className="workspace-list-cell-actions">
+                      {!editing && (
+                        <WorkspaceBookmarkButton
+                          name={row.name}
+                          bookmarked={bookmarkedKeys.has(row.key)}
+                          onToggle={() => onToggleBookmark(row.kind, row.id)}
+                        />
+                      )}
                       {!editing && row.kind === "folder" && (
                         <WorkspaceItemMenuButton expanded={menuKey === row.key} name={row.name} onClick={(event) => onFolderContextMenu(event, row.id)} />
                       )}

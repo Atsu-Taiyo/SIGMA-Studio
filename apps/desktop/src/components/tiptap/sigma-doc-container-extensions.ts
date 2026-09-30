@@ -1,4 +1,5 @@
 import { Node as TiptapNodeExtension, type Editor as TiptapEditor } from "@tiptap/core";
+import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import { TextSelection } from "@tiptap/pm/state";
 
 import type { BoxFrameSpec } from "@/features/document";
@@ -10,7 +11,8 @@ import {
   resolveBoxFrame,
 } from "@/lib/box-blocks";
 import { createTranslator, getAppLocale } from "@/lib/i18n";
-import { findAncestorNodeDepth } from "./node-queries";
+import { createBoxSplitHandlePlugin } from "./box-split-handle";
+import { findAncestorNodeDepth, findBoxTitleAncestorDepth, isBoxTitleNodeName } from "./node-queries";
 import { NestedProblemExtension, NestedProblemAreaExtension, type NestedProblemOptions } from "./nested-problem-extension";
 
 /**
@@ -25,7 +27,7 @@ function boxActionLabel(): string {
 export const BoxBlockExtension = TiptapNodeExtension.create<NestedProblemOptions>({
   name: "boxBlock",
   group: "block",
-  content: "boxBlockTitle boxBlockBody",
+  content: "boxBlockTitle boxBlockSubtitle? boxBlockBody",
   defining: true,
   isolating: true,
 
@@ -95,6 +97,52 @@ interface BoxBlockTitleOptions {
   readOnly: boolean;
 }
 
+/**
+ * 2 つ目のタイトル欄。`titleSplit` を持つ箱だけが持つ (箱の content 式では省略可)。
+ * 見た目はタイトルと同じ帯なので `sigma-doc-box-title` も名乗り、地色と余白だけ `-subtitle` が足す。
+ */
+export const BoxBlockSubtitleExtension = TiptapNodeExtension.create<BoxBlockTitleOptions>({
+  name: "boxBlockSubtitle",
+  content: "inline*",
+  defining: true,
+
+  addOptions() {
+    return { readOnly: false };
+  },
+
+  parseHTML() {
+    return [{ tag: "div[data-box-subtitle-region='true']" }];
+  },
+
+  renderHTML() {
+    return [
+      "div",
+      {
+        class: "sigma-doc-box-title sigma-doc-box-subtitle",
+        "data-box-subtitle-region": "true",
+        ...(this.options.readOnly ? {
+          contenteditable: "false",
+          "aria-readonly": "true",
+        } : {}),
+      },
+      0,
+    ];
+  },
+
+  // 2 欄の境界つまみ。複製面 (読み取り専用) には置かない。
+  addProseMirrorPlugins() {
+    return this.options.readOnly ? [] : [createBoxSplitHandlePlugin()];
+  },
+
+  addKeyboardShortcuts() {
+    return {
+      Enter: () => (
+        this.options.readOnly && isSelectionInsideBoxTitle(this.editor)
+      ) || moveSelectionFromBoxTitleToBody(this.editor),
+    };
+  },
+});
+
 export const BoxBlockTitleExtension = TiptapNodeExtension.create<BoxBlockTitleOptions>({
   name: "boxBlockTitle",
   content: "inline*",
@@ -104,6 +152,11 @@ export const BoxBlockTitleExtension = TiptapNodeExtension.create<BoxBlockTitleOp
     return {
       readOnly: false,
     };
+  },
+
+  // 2 つ目のタイトル欄。箱の content 式が参照するので、タイトルを登録すれば必ず一緒に入る。
+  addExtensions() {
+    return [BoxBlockSubtitleExtension.configure({ readOnly: this.options.readOnly })];
   },
 
   parseHTML() {
@@ -167,30 +220,40 @@ export const BoxBlockBodyExtension = TiptapNodeExtension.create<BoxBlockBodyOpti
   },
 });
 
+/** 箱の中で本文 (`boxBlockBody`) の直前までの大きさ = タイトル欄すべての nodeSize の和。 */
+function boxHeaderSize(boxNode: ProseMirrorNode): number {
+  let size = 0;
+  boxNode.forEach((child) => {
+    if (isBoxTitleNodeName(child.type.name)) {
+      size += child.nodeSize;
+    }
+  });
+  return size;
+}
+
 function moveSelectionFromBoxTitleToBody(editor: TiptapEditor): boolean {
   const { state } = editor;
   const { $from } = state.selection;
-  const titleDepth = findAncestorNodeDepth($from, "boxBlockTitle");
+  const titleDepth = findBoxTitleAncestorDepth($from);
   if (titleDepth < 1) {
     return false;
   }
 
   const boxDepth = titleDepth - 1;
   const boxNode = $from.node(boxDepth);
-  const titleNode = boxNode.firstChild;
-  if (boxNode.type.name !== "boxBlock" || titleNode?.type.name !== "boxBlockTitle") {
+  if (boxNode.type.name !== "boxBlock" || boxNode.firstChild?.type.name !== "boxBlockTitle") {
     return false;
   }
 
   const boxStart = $from.before(boxDepth);
-  const bodyStart = boxStart + 1 + titleNode.nodeSize;
+  const bodyStart = boxStart + 1 + boxHeaderSize(boxNode);
   const selection = TextSelection.near(state.doc.resolve(bodyStart + 1), 1);
   editor.view.dispatch(state.tr.setSelection(selection).scrollIntoView());
   return true;
 }
 
 function isSelectionInsideBoxTitle(editor: TiptapEditor): boolean {
-  return findAncestorNodeDepth(editor.state.selection.$from, "boxBlockTitle") >= 0;
+  return findBoxTitleAncestorDepth(editor.state.selection.$from) >= 0;
 }
 
 function moveSelectionFromBoxBodyStartToTitle(editor: TiptapEditor): boolean {
@@ -203,13 +266,12 @@ function moveSelectionFromBoxBodyStartToTitle(editor: TiptapEditor): boolean {
   const bodyDepth = findAncestorNodeDepth($from, "boxBlockBody");
   const boxDepth = bodyDepth - 1;
   const boxNode = $from.node(boxDepth);
-  const titleNode = boxNode.firstChild;
-  if (boxNode.type.name !== "boxBlock" || titleNode?.type.name !== "boxBlockTitle") {
+  if (boxNode.type.name !== "boxBlock" || boxNode.firstChild?.type.name !== "boxBlockTitle") {
     return false;
   }
 
   const boxStart = $from.before(boxDepth);
-  const titleEnd = boxStart + titleNode.nodeSize;
+  const titleEnd = boxStart + boxHeaderSize(boxNode);
   const selection = TextSelection.near(state.doc.resolve(titleEnd), -1);
   editor.view.dispatch(state.tr.setSelection(selection).scrollIntoView());
   return true;

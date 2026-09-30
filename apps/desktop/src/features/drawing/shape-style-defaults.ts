@@ -6,6 +6,7 @@ import type {
 import { getArrowheadMarkerSpec } from "@/features/rendering/core";
 
 import type { OverlayInsertCommand } from "./overlay-tool";
+import { OVERLAY_SOLID_COMMANDS, type OverlaySolidCommand } from "./solid-geometry";
 
 /**
  * The style a newly inserted shape starts from: what the author last chose in the toolbar.
@@ -94,6 +95,10 @@ const STYLE_AXES_BY_COMMAND: Record<OverlayInsertCommand, readonly OverlayShapeS
   decagon: CLOSED_AXES,
   hendecagon: CLOSED_AXES,
   dodecagon: CLOSED_AXES,
+  // 立体 (角錐・角柱・球) も閉じた図形と同じ軸を持つ。線種は「見える辺」の線種になる。
+  ...(Object.fromEntries(
+    OVERLAY_SOLID_COMMANDS.map((command) => [command, CLOSED_AXES]),
+  ) as Record<OverlaySolidCommand, readonly OverlayShapeStyleAxis[]>),
   blockArrow: CLOSED_AXES,
   sector: CLOSED_AXES,
   highlight: [],

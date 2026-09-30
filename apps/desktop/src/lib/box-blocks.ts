@@ -34,6 +34,7 @@ const BOX_DECORATION_RENDER_CLASSES: Partial<Record<BoxDecorationSpec["type"], s
   titleBand: "box-frame--title-band",
   titleTab: "box-frame--title-tab",
   titlePlate: "box-frame--title-plate",
+  titleSplit: "box-frame--title-split",
   leftBar: "box-frame--left-bar",
   shadow: "box-frame--shadow",
   horizontalRules: "box-frame--horizontal-rules",
@@ -47,6 +48,7 @@ const BOX_DECORATION_DATA_ATTRIBUTES: Partial<Record<BoxDecorationSpec["type"], 
   titleBand: "data-box-title-band",
   titleTab: "data-box-title-tab",
   titlePlate: "data-box-title-plate",
+  titleSplit: "data-box-title-split",
   leftBar: "data-box-left-bar",
   shadow: "data-box-shadow",
   horizontalRules: "data-box-horizontal-rules",
@@ -69,6 +71,9 @@ const LEFTBAR_FILL = "#f8fafc";
 const BAND_RULE = "#111111";
 const TITLE_BAND_FILL = "#e5e7eb";
 const DARK_BAND_FILL = "#1f2937";
+const SPLIT_SUBTITLE_FILL = "#333333";
+const DEFAULT_SPLIT_SUBTITLE_SHARE = 1 / 6;
+const SPLIT_CELL_INNER_PADDING_PX = 12;
 const THEOREM_INK = "#1f3864";
 const THEOREM_FILL = "#eef1f8";
 const NOTEBOOK_FRAME = "#9ca3af";
@@ -145,6 +150,42 @@ export const BUILTIN_BOX_STYLES: BoxStyleDefinition[] = [
       cornerStyle: "sharp",
       paddingPx: { top: 16, right: 14, bottom: 12, left: 14 },
       decorations: [],
+    },
+  },
+  {
+    // 見出しがタイトルとサブタイトルの 2 欄に割れる箱 (参考書の「Point | 解法」の見出し)。
+    // 欄の幅の比・間隔・左右の順は `titleSplit` で変えられる。
+    id: "splitbox",
+    commandName: "splitbox",
+    displayName: "splitbox",
+    frame: {
+      borderWidthPx: 1.2,
+      borderColor: "#333333",
+      borderStyle: "solid",
+      backgroundColor: "#ffffff",
+      titleBackgroundColor: TITLE_BAND_FILL,
+      titleAlign: "left",
+      titleFontWeight: "bold",
+      cornerStyle: "sharp",
+      paddingPx: { top: 30, right: 14, bottom: 12, left: 14 },
+      decorations: [
+        {
+          type: "titleBand",
+          heightPx: 30,
+          backgroundColor: TITLE_BAND_FILL,
+          ruleWidthPx: 1.2,
+          ruleColor: "#333333",
+        },
+        {
+          type: "titleSplit",
+          subtitleShare: DEFAULT_SPLIT_SUBTITLE_SHARE,
+          gapPx: 0,
+          order: "subtitleFirst",
+          subtitleBackgroundColor: SPLIT_SUBTITLE_FILL,
+          subtitleColor: "#ffffff",
+          subtitleAlign: "l",
+        },
+      ],
     },
   },
   {
@@ -375,6 +416,8 @@ export interface CreateBoxBlockOptions {
   id?: string;
   bodyId?: string;
   bodyText?: string;
+  /** 2 つ目のタイトル。省略すると `titleSplit` を持つ箱だけ既定の文言が入る。 */
+  subtitleText?: string;
 }
 
 /**
@@ -390,11 +433,15 @@ export function createBoxBlock(
 ): BoxBlockNode {
   const style = getBoxStyleDefinition(styleId) ?? BUILTIN_BOX_STYLES[0];
   const title = titleText.trim() || t(`box.defaultTitle.${style.id}` as never, { defaultValue: "" }) as string;
+  const subtitle = boxFrameHasSubtitle(style.frame)
+    ? options.subtitleText?.trim() || t(`box.defaultSubtitle.${style.id}` as never, { defaultValue: "" }) as string
+    : "";
   return {
     type: "boxBlock",
     id: options.id ?? createId("box"),
     styleId: style.id,
     ...(title ? { title: [{ type: "text", text: title }] } : {}),
+    ...(subtitle ? { subtitle: [{ type: "text", text: subtitle }] } : {}),
     frame: style.frame,
     blocks: [createBoxBodyParagraph(options.bodyText ?? "", options.bodyId)],
   };
@@ -440,16 +487,39 @@ export function resolveBoxFrame(block: Pick<BoxBlockNode, "styleId" | "frame">):
   return block.styleId === "cornerbox" ? withoutDefaultCornerboxTextSizes(frame) : frame;
 }
 
-export function setBoxStyle<T extends SigmaBlock | RichBlock>(block: T, styleId: string): T {
+export function setBoxStyle<T extends SigmaBlock | RichBlock>(
+  block: T,
+  styleId: string,
+  t: Translate<"editor"> = createTranslator(DEFAULT_LOCALE, "editor"),
+): T {
   if (block.type !== "boxBlock") {
     return block;
   }
   const style = getBoxStyleDefinition(styleId) ?? BUILTIN_BOX_STYLES[0];
-  return {
-    ...block,
-    styleId: style.id,
-    frame: style.frame,
-  } as T;
+  // サブタイトルは 2 欄の見出しを持つ箱だけが描く。持たない箱へ替えたら外し、持つ箱へ替えたら既定の文言で足す。
+  const box = block as BoxBlockNode;
+  const subtitle = !boxFrameHasSubtitle(style.frame)
+    ? undefined
+    : box.subtitle?.length
+      ? box.subtitle
+      : defaultBoxSubtitle(style.id, t);
+  const next: BoxBlockNode = { ...box, styleId: style.id, frame: style.frame };
+  if (subtitle) {
+    next.subtitle = subtitle;
+  } else {
+    delete next.subtitle;
+  }
+  return next as T;
+}
+
+/** 2 欄の見出し (`titleSplit`) を持つ枠か。持てばサブタイトルの欄がエディタにも印刷にも現れる。 */
+export function boxFrameHasSubtitle(frame: Pick<BoxFrameSpec, "decorations"> | undefined): boolean {
+  return hasBoxDecoration(frame, "titleSplit");
+}
+
+export function defaultBoxSubtitle(styleId: string, t: Translate<"editor">): InlineNode[] | undefined {
+  const text = t(`box.defaultSubtitle.${styleId}` as never, { defaultValue: "" }) as string;
+  return text ? [{ type: "text", text }] : undefined;
 }
 
 export function setBoxTitle<T extends SigmaBlock | RichBlock>(block: T, titleText: string): T {
@@ -484,6 +554,15 @@ function withoutDefaultCornerboxTextSizes(frame: BoxFrameSpec): BoxFrameSpec {
 
 export function boxBlockTitleText(block: Pick<BoxBlockNode, "title">): string {
   return block.title ? inlineNodesToPlainText(block.title).trim() : "";
+}
+
+export function boxBlockSubtitleText(block: Pick<BoxBlockNode, "subtitle">): string {
+  return block.subtitle ? inlineNodesToPlainText(block.subtitle).trim() : "";
+}
+
+/** 見出しの帯を描く必要があるか。2 欄の箱はどちらかに文字があれば帯を出す。 */
+export function boxBlockHasHeader(block: Pick<BoxBlockNode, "title" | "subtitle">): boolean {
+  return boxBlockTitleText(block).length > 0 || boxBlockSubtitleText(block).length > 0;
 }
 
 const DEFAULT_BOX_BODY_LINE_HEIGHT_PX = 22;
@@ -557,6 +636,49 @@ export function boxFrameDecorationAttributes(frame: Pick<BoxFrameSpec, "decorati
   return attributes;
 }
 
+/**
+ * 見出しを 2 欄に割る `titleSplit` の値を CSS 変数へ。段組みの列と同じく、欄の幅は fr の比で持ち、
+ * 見た目の左右 (`order`) に並べて `grid-template-columns` に渡す。
+ *
+ * 見出しは枠線まで届く帯なので、枠の端に接する欄だけが外側の余白ぶん負のマージンで枠線へ寄り、
+ * 同じだけ内側に余白を持つ。欄どうしが接する側は決まった余白 (`SPLIT_CELL_INNER_PADDING_PX`) にする。
+ */
+function titleSplitStyleVars(
+  frame: BoxFrameSpec,
+  split: Extract<BoxDecorationSpec, { type: "titleSplit" }>,
+): Record<string, string> {
+  const padding = frame.paddingPx ?? { top: 12, right: 14, bottom: 12, left: 14 };
+  const share = Math.min(0.95, Math.max(0.05, split.subtitleShare ?? DEFAULT_SPLIT_SUBTITLE_SHARE));
+  const subtitleFirst = (split.order ?? "subtitleFirst") === "subtitleFirst";
+  const fr = (value: number) => `minmax(0, ${Math.round(value * 10000) / 10000}fr)`;
+  const inner = SPLIT_CELL_INNER_PADDING_PX;
+  const justify = { l: "flex-start", c: "center", r: "flex-end" }[split.subtitleAlign ?? "l"];
+  // 角は箱の外周に接する側だけ丸める。2 欄を分ける内側の境目は、丸めずに直線で切る。
+  const outerRadius = Math.max(
+    0,
+    (frame.cornerStyle === "round" ? frame.radiusPx ?? 8 : 0) - (frame.borderWidthPx ?? 1.2),
+  );
+  const cell = (name: "title" | "subtitle", atLeftEdge: boolean) => ({
+    [`--sigma-doc-box-${name}-radius`]: atLeftEdge ? `${outerRadius}px 0 0 0` : `0 ${outerRadius}px 0 0`,
+    [`--sigma-doc-box-${name}-col`]: String(atLeftEdge ? 1 : 2),
+    [`--sigma-doc-box-${name}-margin-left`]: atLeftEdge ? `${-padding.left}px` : "0px",
+    [`--sigma-doc-box-${name}-margin-right`]: atLeftEdge ? "0px" : `${-padding.right}px`,
+    [`--sigma-doc-box-${name}-padding-left`]: `${atLeftEdge ? padding.left : inner}px`,
+    [`--sigma-doc-box-${name}-padding-right`]: `${atLeftEdge ? inner : padding.right}px`,
+  });
+  return {
+    "--sigma-doc-box-split-columns": subtitleFirst ? `${fr(share)} ${fr(1 - share)}` : `${fr(1 - share)} ${fr(share)}`,
+    "--sigma-doc-box-split-gap": `${split.gapPx ?? 0}px`,
+    // 左の欄が見出し幅に占める割合。編集面の境界つまみがこの位置に立つ。
+    "--sigma-doc-box-split-first-share": String(Math.round((subtitleFirst ? share : 1 - share) * 10000) / 10000),
+    ...cell("title", !subtitleFirst),
+    ...cell("subtitle", subtitleFirst),
+    "--sigma-doc-box-subtitle-background": split.subtitleBackgroundColor ?? frame.borderColor ?? "#111111",
+    "--sigma-doc-box-subtitle-color": split.subtitleColor ?? "#ffffff",
+    "--sigma-doc-box-subtitle-justify": justify,
+  };
+}
+
 export function boxFrameStyleVars(frame: BoxFrameSpec): Record<string, string> {
   const padding = frame.paddingPx ?? { top: 12, right: 14, bottom: 12, left: 14 };
   const cornerSquares = findBoxDecoration(frame, "cornerSquares");
@@ -569,6 +691,7 @@ export function boxFrameStyleVars(frame: BoxFrameSpec): Record<string, string> {
   const shadow = findBoxDecoration(frame, "shadow");
   const horizontalRules = findBoxDecoration(frame, "horizontalRules");
   const notebookRules = findBoxDecoration(frame, "notebookRules");
+  const titleSplit = findBoxDecoration(frame, "titleSplit");
   const titlePlatePadding = titlePlate?.paddingPx ?? { top: 2, right: 10, bottom: 2, left: 10 };
   const titleTabPadding = titleTab?.paddingPx ?? { top: 0, right: 12, bottom: 0, left: 12 };
   const notebookFrameHeight = notebookRules?.frameHeightPx ?? notebookRules?.minHeightPx ?? DEFAULT_NOTEBOOK_FRAME_HEIGHT_PX;
@@ -611,6 +734,7 @@ export function boxFrameStyleVars(frame: BoxFrameSpec): Record<string, string> {
     "--sigma-doc-box-title-band-height": `${titleBand?.heightPx ?? 32}px`,
     "--sigma-doc-box-title-band-rule-width": `${titleBand?.ruleWidthPx ?? 0}px`,
     "--sigma-doc-box-title-band-rule-color": titleBand?.ruleColor ?? frame.borderColor ?? "#111111",
+    ...(titleSplit ? titleSplitStyleVars(frame, titleSplit) : {}),
     "--sigma-doc-box-title-tab-height": `${titleTab?.heightPx ?? 26}px`,
     "--sigma-doc-box-title-tab-radius": `${titleTab?.radiusPx ?? 4}px`,
     "--sigma-doc-box-title-tab-offset-x": `${titleTab?.offsetXPx ?? 0}px`,

@@ -2,7 +2,7 @@ import type { Editor as TiptapEditor } from "@tiptap/core";
 import { EditorState, TextSelection } from "@tiptap/pm/state";
 import type { EditorView } from "@tiptap/pm/view";
 
-import { findAncestorNodeDepth } from "@/components/tiptap/node-queries";
+import { findAncestorNodeDepth, findBoxTitleAncestorDepth } from "@/components/tiptap/node-queries";
 import { parseTextFlowCommandTrigger, type TextFlowCommandDefinition } from "@/features/text-editing";
 import { createBlock } from "@/lib/document-tree";
 import { createBoxBlock } from "@/lib/box-blocks";
@@ -399,7 +399,7 @@ export function getActiveSlashCommandQuery(view: EditorView): ActiveSlashCommand
   }
 
   const { $from } = selection;
-  if (findAncestorNodeDepth($from, "boxBlockTitle") >= 0) {
+  if (findBoxTitleAncestorDepth($from) >= 0) {
     return null;
   }
   const parent = $from.parent;

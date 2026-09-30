@@ -3,7 +3,12 @@ import { describe, expect, it } from "vitest";
 import {
   convertOverlayToWhiteboard,
   createOverlaySelectionCommentAnchor,
+  getSharedOverlayLineDash,
+  getSharedOverlayLineSize,
 } from "@/components/editor/editor-shell/overlay-helpers";
+import { sameOverlaySelectionSummary } from "@/components/editor/editor-shell/document-helpers";
+import { EMPTY_OVERLAY_SELECTION } from "@/components/editor/editor-shell/constants";
+import { createSolidEdgeDash } from "@/features/drawing";
 import type { OverlaySelectionSummary } from "@/components/editor/page-overlay-types";
 import { ensurePageLayout } from "@/features/document";
 import { sampleDocument } from "@/lib/sample-document";
@@ -283,3 +288,99 @@ function rectangle(id: string, x: number, y: number, anchor: OverlayShape["ancho
     },
   };
 }
+
+describe("getSharedOverlayLineDash with solids", () => {
+  const prism: OverlayShape = {
+    id: "solid",
+    type: "geo",
+    x: 0,
+    y: 0,
+    props: {
+      w: 100,
+      h: 100,
+      geo: "prism",
+      baseSides: 3,
+      fill: "none",
+      color: "#111827",
+      labelColor: "#111827",
+      dash: "solid",
+      size: "m",
+      solidEdgeDash: createSolidEdgeDash({ geo: "prism", baseSides: 3 }),
+    },
+  };
+  const rect = (dash: "solid" | "dashed"): OverlayShape => ({
+    id: `rect_${dash}`,
+    type: "geo",
+    x: 0,
+    y: 0,
+    props: { w: 10, h: 10, geo: "rectangle", fill: "none", color: "#111827", labelColor: "#111827", dash, size: "m" },
+  });
+
+  it("shows the selected edge's own line style", () => {
+    // 見える辺は実線、見えない辺 (下底の奥へ向かう辺) は破線。
+    const hiddenIndex = createSolidEdgeDash({ geo: "prism", baseSides: 3 }).indexOf("dashed");
+    const visibleIndex = createSolidEdgeDash({ geo: "prism", baseSides: 3 }).indexOf("solid");
+    expect(getSharedOverlayLineDash([prism], { shapeId: "solid", index: hiddenIndex })).toBe("dashed");
+    expect(getSharedOverlayLineDash([prism], { shapeId: "solid", index: visibleIndex })).toBe("solid");
+  });
+
+  it("reports a whole solid whose edges differ as mixed, and one whose edges agree as that style", () => {
+    expect(getSharedOverlayLineDash([prism])).toBeNull();
+    const uniform: OverlayShape = {
+      ...prism,
+      props: { ...(prism as Extract<OverlayShape, { type: "geo" }>).props, dash: "dotted", solidEdgeDash: undefined },
+    } as OverlayShape;
+    expect(getSharedOverlayLineDash([uniform])).toBe("dotted");
+  });
+
+  it("ignores an edge selection that belongs to another shape", () => {
+    expect(getSharedOverlayLineDash([rect("dashed")], { shapeId: "solid", index: 0 })).toBe("dashed");
+    expect(getSharedOverlayLineDash([prism], { shapeId: "elsewhere", index: 0 })).toBeNull();
+  });
+
+  it("treats a solid that disagrees with the rest of the selection as mixed", () => {
+    expect(getSharedOverlayLineDash([rect("dashed"), prism])).toBeNull();
+  });
+
+  it("makes a selected edge a change the shell notices", () => {
+    const withoutEdge = { ...EMPTY_OVERLAY_SELECTION, selectedCount: 1, selectedShapeIds: ["solid"], selectedShapes: [prism] };
+    expect(sameOverlaySelectionSummary(withoutEdge, { ...withoutEdge, solidEdge: { shapeId: "solid", index: 2 } })).toBe(false);
+    expect(sameOverlaySelectionSummary(
+      { ...withoutEdge, solidEdge: { shapeId: "solid", index: 2 } },
+      { ...withoutEdge, solidEdge: { shapeId: "solid", index: 3 } },
+    )).toBe(false);
+    expect(sameOverlaySelectionSummary(
+      { ...withoutEdge, solidEdge: { shapeId: "solid", index: 2 } },
+      { ...withoutEdge, solidEdge: { shapeId: "solid", index: 2 } },
+    )).toBe(true);
+  });
+});
+
+describe("getSharedOverlayLineSize with solids", () => {
+  const solidWith = (props: Record<string, unknown>): OverlayShape => ({
+    id: "solid",
+    type: "geo",
+    x: 0,
+    y: 0,
+    props: {
+      w: 100, h: 100, geo: "prism", baseSides: 3, fill: "none", color: "#111827", labelColor: "#111827",
+      dash: "solid", size: "m", ...props,
+    },
+  } as OverlayShape);
+
+  it("shows the selected edge's own width", () => {
+    const shape = solidWith({ solidEdgeSize: ["s", "xl"] });
+    expect(getSharedOverlayLineSize([shape], { shapeId: "solid", index: 0 })).toBe("s");
+    expect(getSharedOverlayLineSize([shape], { shapeId: "solid", index: 1 })).toBe("xl");
+    expect(getSharedOverlayLineSize([shape], { shapeId: "solid", index: 2 })).toBe("m");
+  });
+
+  it("reports a whole solid whose edges differ as mixed, and one whose edges agree as that width", () => {
+    expect(getSharedOverlayLineSize([solidWith({ solidEdgeSize: ["s"] })])).toBeNull();
+    expect(getSharedOverlayLineSize([solidWith({ size: "l" })])).toBe("l");
+  });
+
+  it("ignores an edge selection that belongs to another shape", () => {
+    expect(getSharedOverlayLineSize([solidWith({ size: "l" })], { shapeId: "elsewhere", index: 0 })).toBe("l");
+  });
+});

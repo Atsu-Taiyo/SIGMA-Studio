@@ -6,6 +6,8 @@ import {
   Check,
   LayoutTemplate,
   Loader2,
+  PanelLeftClose,
+  PanelLeftOpen,
   RefreshCw,
   Search,
   UserRoundPlus,
@@ -14,9 +16,24 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { FormEvent, MouseEvent as ReactMouseEvent } from "react";
 
+import { Button, IconButton } from "@/components/ui/Button";
 import { useWorkspaceLibrary } from "./use-workspace-search";
-import { Button } from "@/components/ui/Button";
+import { useWorkspaceComments } from "./use-workspace-comments";
 import { WorkspaceJoinDialog } from "./WorkspaceJoinDialog";
+import { WorkspaceCommentsPanel } from "./WorkspaceCommentsPanel";
+import { WorkspaceBookmarksPanel } from "./WorkspaceBookmarksPanel";
+import {
+  buildBookmarkEntries,
+  buildCommentEntries,
+  countUnresolvedMentions,
+  type WorkspaceBookmarkEntry,
+  type WorkspaceCommentEntry,
+  type WorkspacePanel,
+  type WorkspacePanelContext,
+} from "./workspace-panels-model";
+import { toggleWorkspaceBookmark, useWorkspaceBookmarks, workspaceBookmarkKey, type WorkspaceBookmarkKind } from "@/lib/workspace-bookmarks";
+import type { CommentUserIdentity } from "@/features/document";
+import { useCollaborationProfile } from "@/features/collaboration/renderer/use-collaboration-profile";
 import { Select } from "@/components/ui/Select";
 
 import {
@@ -123,6 +140,8 @@ export function WorkspaceManager() {
   const [overview, setOverview] = useState<WorkspaceOverview | null>(null);
   const [ledgerFailure, setLedgerFailure] = useState<LedgerSchemaFailure | null>(null);
   const [folderFilter, setFolderFilter] = useState<FolderFilter>(ALL_FOLDERS);
+  // 本体に出す面。教材とフォルダの一覧以外は、全ワークスペースを横断して見せる。
+  const [panel, setPanel] = useState<WorkspacePanel>("files");
   const [workspaceTreeExpanded, setWorkspaceTreeExpanded] = useState(false);
   const [expandedFolderIds, setExpandedFolderIds] = useState<Set<string>>(() => new Set());
   const [editingFolderId, setEditingFolderId] = useState<string | null>(null);
@@ -289,7 +308,17 @@ export function WorkspaceManager() {
   const visibleWorkspaces = useMemo(() => overview?.workspaces ?? [], [overview]);
 
   const searchActive = searchQuery.trim().length > 0;
-  const { current: searchResult } = useWorkspaceLibrary(searchActive, overview);
+  // 検索・コメント一覧・ブックマークが読む、全ワークスペースの読み取り専用スナップショット。
+  const profile = useCollaborationProfile();
+  const commentIdentity = useMemo<CommentUserIdentity | null>(() => profile ? {
+    userId: profile.actorId,
+    // 投稿者は書いた時点の表示名 / メールアドレス / ID で保存されている。
+    authorNames: [profile.displayName, profile.email, profile.actorId].filter((name): name is string => Boolean(name)),
+  } : null, [profile]);
+  const { latest: library, current: searchResult } = useWorkspaceLibrary(
+    searchActive || panel !== "files" || commentIdentity !== null,
+    overview,
+  );
   const searchOverview = searchResult?.overview;
   const resultFiles = useMemo(() => (searchActive ? searchOverview?.files : overview?.files) ?? [], [searchActive, searchOverview, overview]);
   const resultFolders = useMemo(() => (searchActive ? searchOverview?.folders : overview?.folders) ?? [], [searchActive, searchOverview, overview]);
@@ -323,6 +352,32 @@ export function WorkspaceManager() {
   }, [effectiveFolderFilter, folders, resultFolders, searchQuery]);
   const rootFolders = useMemo(() => folders.filter((folder) => !folder.parentFolderId), [folders]);
   const rootFiles = useMemo(() => files.filter((file) => !file.folderId), [files]);
+
+  const bookmarks = useWorkspaceBookmarks();
+  const bookmarkedKeys = useMemo(
+    () => new Set<string>(bookmarks.map((item) => workspaceBookmarkKey(item.kind, item.id))),
+    [bookmarks],
+  );
+  // ブックマークとコメントは全ワークスペースを横断する。スナップショットが届くまでは、開いている
+  // ワークスペースだけで引き当てる。
+  const panelSource = library ?? overview;
+  const panelContext = useMemo<WorkspacePanelContext | null>(() => panelSource ? {
+    workspaces: panelSource.workspaces,
+    folders: panelSource.folders,
+    files: panelSource.files,
+    workspaceLabel: (workspace) => workspace.id === SHARED_ITEMS_WORKSPACE_ID ? tc("collaboration.sharedItems") : workspace.name,
+  } : null, [panelSource, tc]);
+  const comments = useWorkspaceComments({ files: library?.files ?? null, identity: commentIdentity, active: panel === "comments" });
+  const commentEntries = useMemo(
+    () => panelContext ? buildCommentEntries(comments.threadsByFile, panelContext, t) : [],
+    [comments.threadsByFile, panelContext, t],
+  );
+  const mentionCount = countUnresolvedMentions(commentEntries);
+  const bookmarkEntries = useMemo(
+    () => panelContext ? buildBookmarkEntries(bookmarks, panelContext, t) : [],
+    [bookmarks, panelContext, t],
+  );
+  const sidebarCollapsed = viewPreference.sidebarCollapsed;
 
   const currentFolderContextId = selectedFolder?.id ?? null;
   const folderPath = buildFolderPath(folders, currentFolderContextId);
@@ -599,6 +654,24 @@ export function WorkspaceManager() {
   const openFile = (fileId: string) => {
     navigateToAppRoute("/", { fileId });
   };
+  const openComment = (entry: WorkspaceCommentEntry) => {
+    navigateToAppRoute("/", { fileId: entry.fileId, commentThreadId: entry.threadId });
+  };
+  const openBookmark = (entry: WorkspaceBookmarkEntry) => {
+    if (entry.kind === "file") {
+      openFile(entry.id);
+      return;
+    }
+    // フォルダは、その場所 (別のワークスペースでも) の一覧へ移り、サイドバーのツリーもそこまで開く。
+    const ancestors = buildFolderPath((panelContext?.folders ?? []).filter((folder) => folder.workspaceId === entry.workspaceId), entry.parentFolderId);
+    setPanel("files");
+    setSearchQuery("");
+    setFolderFilter(entry.id);
+    setExpandedFolderIds(new Set(ancestors.map((folder) => folder.id)));
+    setWorkspaceTreeExpanded(true);
+    if (entry.workspaceId !== activeWorkspaceId) void loadOverview(entry.workspaceId);
+  };
+  const toggleBookmark = (kind: WorkspaceBookmarkKind, id: string) => toggleWorkspaceBookmark(kind, id);
 
   const useTemplateInWorkspace = useCallback(async (template: TemplateItem) => {
     try {
@@ -1155,6 +1228,15 @@ export function WorkspaceManager() {
     <div className="workspace-page-shell">
       <header className="workspace-page-header">
         <div className="workspace-page-brand">
+          <IconButton
+            className="workspace-sidebar-toggle"
+            label={t(sidebarCollapsed ? "nav.sidebarExpand" : "nav.sidebarCollapse")}
+            size="md"
+            tone="ghost"
+            aria-expanded={!sidebarCollapsed}
+            aria-controls="workspace-sidebar"
+            onClick={() => setViewPreference({ sidebarCollapsed: !sidebarCollapsed })}
+          >{sidebarCollapsed ? <PanelLeftOpen size={18} /> : <PanelLeftClose size={18} />}</IconButton>
           <div className="workspace-brand-mark" aria-hidden="true">Σ</div>
           <h1>Sigma Studio</h1>
         </div>
@@ -1164,7 +1246,7 @@ export function WorkspaceManager() {
             aria-label={t("search.material")}
             value={searchQuery}
             placeholder={t("search.placeholder")}
-            onChange={(event) => setSearchQuery(event.target.value)}
+            onChange={(event) => { setSearchQuery(event.target.value); setPanel("files"); }}
           />
           {searchActive && (
             <button
@@ -1238,8 +1320,13 @@ export function WorkspaceManager() {
           </main>
         )
       ) : (
-        <main className="workspace-page-main">
+        <main className="workspace-page-main" data-sidebar={sidebarCollapsed ? "collapsed" : "expanded"}>
           <WorkspaceSidebar
+            collapsed={sidebarCollapsed}
+            panel={panel}
+            commentsAvailable={Boolean(overview.catalog)}
+            mentionCount={mentionCount}
+            onSelectPanel={setPanel}
             menuKey={menuKey}
             visibleWorkspaces={visibleWorkspaces}
             activeWorkspaceId={overview.activeWorkspaceId}
@@ -1268,6 +1355,26 @@ export function WorkspaceManager() {
             onCancelRename={inlineRename.cancel}
           />
 
+          {panel !== "files" ? (
+            <section className="workspace-content workspace-panel-content" aria-label={t(panel === "comments" ? "comments.title" : "bookmarks.title")}>
+              {panel === "comments" ? (
+                <WorkspaceCommentsPanel
+                  entries={commentEntries}
+                  signedIn={commentIdentity !== null}
+                  scanning={comments.scanning}
+                  onOpen={openComment}
+                />
+              ) : (
+                <WorkspaceBookmarksPanel
+                  entries={bookmarkEntries}
+                  loading={bookmarks.length > 0 && !library && !searchResult?.failed}
+                  failed={bookmarks.length > 0 && !library && Boolean(searchResult?.failed)}
+                  onOpen={openBookmark}
+                  onRemove={(entry) => toggleBookmark(entry.kind, entry.id)}
+                />
+              )}
+            </section>
+          ) : (
           <section
             className={`workspace-content ${dragDrop.dropTarget === "root" ? "drop-active" : ""}`}
             aria-label={t("nav.workspaceManagement")}
@@ -1367,6 +1474,8 @@ export function WorkspaceManager() {
                 isRenameEditing={inlineRename.isEditing}
                 onCommitRename={inlineRename.commit}
                 onCancelRename={inlineRename.cancel}
+                bookmarkedKeys={bookmarkedKeys}
+                onToggleBookmark={toggleBookmark}
               />
             ) : (
               <WorkspaceItemList
@@ -1405,10 +1514,13 @@ export function WorkspaceManager() {
                 isRenameEditing={inlineRename.isEditing}
                 onCommitRename={inlineRename.commit}
                 onCancelRename={inlineRename.cancel}
+                bookmarkedKeys={bookmarkedKeys}
+                onToggleBookmark={toggleBookmark}
               />
             )}
 
           </section>
+          )}
         </main>
       )}
       {overview && status !== "idle" && (
@@ -1472,6 +1584,8 @@ export function WorkspaceManager() {
               : { source: "local", local: { kind: "document", fileId: file.fileId } }, resolveFileDisplayName(file, t))}
             busy={busy}
             saving={status === "saving"}
+            bookmarked={bookmarkedKeys.has(workspaceBookmarkKey("file", file.fileId))}
+            onToggleBookmark={() => { setFileActionMenu(null); toggleBookmark("file", file.fileId); }}
             onRename={() => {
               setFileActionMenu(null);
               inlineRename.start({ type: "file", id: file.fileId }, resolveFileDisplayName(file, t));
@@ -1487,6 +1601,8 @@ export function WorkspaceManager() {
           canRename={canEditItem(folders.find((item) => item.id === contextMenu.folderId), "rename")}
           canDelete={canDeleteItem(folders.find((item) => item.id === contextMenu.folderId))}
           canCreate={canCreateAt(contextMenu.folderId)}
+          folderBookmarked={contextMenu.folderId !== null && bookmarkedKeys.has(workspaceBookmarkKey("folder", contextMenu.folderId))}
+          onToggleFolderBookmark={(folderId) => { setContextMenu(null); toggleBookmark("folder", folderId); }}
           onShare={contextMenu.folderId ? () => {
             const folder = folders.find((candidate) => candidate.id === contextMenu.folderId);
             if (folder && activeWorkspaceId) share(folder.sharing ? { source: "shared", shared: folder.sharing.target }

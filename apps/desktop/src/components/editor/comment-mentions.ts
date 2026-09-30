@@ -28,14 +28,18 @@ export const CommentMentionMark = Mark.create({
   renderHTML: ({ HTMLAttributes }) => ["span", mergeAttributes(HTMLAttributes, { class: "comment-mention" }), 0],
 });
 
+const COMMENT_MENTION_TRIGGER = /(^|[^A-Za-z0-9._%+-])[@＠]([^\s@＠]*)$/u;
+
 export function commentMentionQuery(editor: Editor) {
   const { selection } = editor.state;
   if (!selection.empty || !editor.isFocused) return null;
   const { $from, from } = selection;
   if ($from.marks().some((mark) => mark.type.name === "commentMention")) return null;
   const prefix = $from.parent.textBetween(0, $from.parentOffset, "\n", "\ufffc");
-  const match = /(?:^|\s)@([^\s@]*)$/u.exec(prefix);
-  return match ? { from: from - match[1].length - 1, to: from, query: match[1] } : null;
+  // Japanese text is written without spaces and IMEs emit the full-width "＠", so the trigger
+  // may follow any character except ones that make it part of an email address.
+  const match = COMMENT_MENTION_TRIGGER.exec(prefix);
+  return match ? { from: from - match[2].length - 1, to: from, query: match[2] } : null;
 }
 
 export function insertCommentMention(editor: Editor, candidate: CommentMentionCandidate) {

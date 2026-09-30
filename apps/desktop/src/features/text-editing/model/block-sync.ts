@@ -492,6 +492,8 @@ function getCommentAnchorSyncValue(anchor: SigmaCommentAnchor): unknown[] {
       return [anchor.type, [...anchor.shapeIds]];
     case "overlayMath":
       return [anchor.type, anchor.shapeId ?? null, anchor.mathInlineId ?? null];
+    case "document":
+      return [anchor.type];
   }
 }
 

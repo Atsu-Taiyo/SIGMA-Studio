@@ -209,6 +209,7 @@ test("inserts nCr from the 順列・組合せ palette without typing TeX", async
   await expect(inlineMath.locator(".katex-error")).toHaveCount(0);
 
   await editInlineMath(page, inlineMathId, "end");
+  await expect(inlineMath.locator("math-field.inline-math-field")).toBeFocused();
   await page.keyboard.press("Enter");
   await expect(inlineMath).not.toHaveClass(/editing/);
   await expect(inlineMath).toHaveAttribute("data-tex", committedTex);
@@ -305,10 +306,11 @@ test("renders the Common Test choice as the same heavy vertical oval while previ
   const previewMetrics = await previewChoice.evaluate(choiceMarkerMetrics);
   expect(previewMetrics.aspectRatio).toBeGreaterThan(1.35);
   expect(previewMetrics.aspectRatio).toBeLessThan(1.5);
-  expect(previewMetrics.borderWidth).toBeGreaterThanOrEqual(2);
+  expect(previewMetrics.strokeWidthEm).toBeCloseTo(0.105, 3);
   expect(previewMetrics.display).toBe("inline-flex");
-  expect(previewMetrics.fontWeight).toBe("700");
-  expect(previewMetrics.verticalAlignEm).toBeCloseTo(0.14, 2);
+  expect(previewMetrics.fontWeight).toBe("400");
+  expect(previewMetrics.verticalAlign).toBe("middle");
+  expect(previewMetrics.liftEm).toBeCloseTo(-0.2, 2);
 
   const previewAlignment = await inlineMath.evaluate(kyoutsuuChoiceBodyAlignment);
   expect(previewAlignment.glyphHeight).toBeGreaterThan(0);
@@ -329,7 +331,7 @@ test("renders the Common Test choice as the same heavy vertical oval while previ
     const styleCount = field.shadowRoot?.querySelectorAll("style[data-sigma-math-macro-styles]").length ?? 0;
     return {
       aspectRatio: bounds.height / bounds.width,
-      borderWidth: Number.parseFloat(style.borderTopWidth),
+      strokeWidthEm: Number.parseFloat(style.boxShadow.match(/([\d.]+)px\s+inset$/)?.[1] ?? "0") / Number.parseFloat(style.fontSize),
       display: style.display,
       fontWeight: style.fontWeight,
       styleCount,
@@ -337,9 +339,9 @@ test("renders the Common Test choice as the same heavy vertical oval while previ
   });
   expect(resolvedEditingMetrics.aspectRatio).toBeGreaterThan(1.35);
   expect(resolvedEditingMetrics.aspectRatio).toBeLessThan(1.5);
-  expect(resolvedEditingMetrics.borderWidth).toBeGreaterThanOrEqual(2);
+  expect(resolvedEditingMetrics.strokeWidthEm).toBeCloseTo(previewMetrics.strokeWidthEm, 3);
   expect(resolvedEditingMetrics.display).toBe("inline-flex");
-  expect(resolvedEditingMetrics.fontWeight).toBe("700");
+  expect(resolvedEditingMetrics.fontWeight).toBe(previewMetrics.fontWeight);
   expect(resolvedEditingMetrics.styleCount).toBe(1);
 });
 
@@ -520,10 +522,7 @@ test("renders KaTeX-only commands in the TeX editor and committed formula", asyn
 
   await inlineMathTexPopover(page).getByRole("button", { name: "完了" }).click();
   const committed = flowInlineMath(page, inlineMathId);
-  await expect(committed).toHaveAttribute(
-    "data-tex",
-    String.raw`\begin{array}{c}a\\\hline b\end{array}+\ldots`,
-  );
+  await expect(committed).toHaveAttribute("data-tex", tex);
   await expect(committed.locator(".katex .hline")).toHaveCount(1);
   await expect(committed).toContainText("…");
 });
@@ -598,8 +597,53 @@ test("starts inline TeX editing when typing a backslash in body text in TeX mode
   );
   await expect(inlineMathTexPopover(page)).toHaveCount(0);
   await expect(flowInlineMath(page, inlineMathId).locator(".math-preview")).toBeVisible();
-  await expect.poll(() => page.evaluate(() => document.activeElement?.tagName ?? null)).toBe("BODY");
+  // Ctrl/Cmd+Enter returns to the body with the caret right after the formula. It used to drop
+  // focus to <body>, so no caret was visible anywhere after committing.
+  await expect.poll(() => caretIsRightAfterInlineMath(page, inlineMathId)).toBe(true);
 });
+
+for (const [mode, exitKey] of [["tex", "Escape"], ["mathlive", "Escape"]] as const) {
+  test(`keeps the caret right after the formula when ${exitKey} commits it in ${mode} mode`, async ({ page }) => {
+    await openEditor(page, mode);
+
+    await focusFirstFlowEditor(page);
+    await page.keyboard.press("Backslash");
+    const inlineMath = page.locator(".text-flow-editor .inline-math-node.editing").first();
+    await expect(inlineMath).toBeVisible();
+    const inlineMathId = await getInlineMathId(inlineMath);
+    if (mode === "tex") {
+      await expect(inlineMathTexField(page)).toBeFocused();
+      await page.keyboard.type("frac{a}{b}");
+    } else {
+      await page.keyboard.type("frac");
+    }
+    await page.keyboard.press(exitKey);
+
+    await expect(page.locator(".text-flow-editor .inline-math-node.editing")).toHaveCount(0);
+    await expect.poll(() => caretIsRightAfterInlineMath(page, inlineMathId)).toBe(true);
+  });
+}
+
+/** 折りたたまれた選択が編集面の中にあり、対象の数式ノードのすぐ後ろに置かれているか。 */
+async function caretIsRightAfterInlineMath(page: Page, id: string | null): Promise<boolean> {
+  if (!id) {
+    return false;
+  }
+  return flowInlineMath(page, id).evaluate((node) => {
+    const selection = window.getSelection();
+    const anchor = selection?.anchorNode;
+    const editor = node.closest(".ProseMirror");
+    if (!selection || !selection.isCollapsed || !anchor || !editor || !editor.contains(anchor)) {
+      return false;
+    }
+    if (document.activeElement !== editor) {
+      return false;
+    }
+    return anchor.nodeType === Node.ELEMENT_NODE
+      ? anchor.childNodes[selection.anchorOffset - 1] === node
+      : selection.anchorOffset === 0 && anchor.previousSibling === node;
+  });
+}
 
 async function openEditor(page: Page, mode: InlineMathTestInputMode = "mathlive") {
   await page.addInitScript(({ key, value }) => {
@@ -734,10 +778,11 @@ function choiceMarkerMetrics(choice: HTMLElement) {
   const fontSize = Number.parseFloat(style.fontSize);
   return {
     aspectRatio: bounds.height / bounds.width,
-    borderWidth: Number.parseFloat(style.borderTopWidth),
+    strokeWidthEm: Number.parseFloat(style.boxShadow.match(/([\d.]+)px\s+inset$/)?.[1] ?? "0") / fontSize,
     display: style.display,
     fontWeight: style.fontWeight,
-    verticalAlignEm: fontSize === 0 ? 0 : Number.parseFloat(style.verticalAlign) / fontSize,
+    verticalAlign: style.verticalAlign,
+    liftEm: new DOMMatrixReadOnly(style.transform).m42 / fontSize,
   };
 }
 

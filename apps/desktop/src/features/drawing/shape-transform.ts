@@ -13,6 +13,7 @@ import {
   getTextShapeEffectiveSize,
   MIN_TEXT_SHAPE_WIDTH,
 } from "./shape-bounds";
+import { isSolidShape, scaleSolidPoints } from "./solid-geometry";
 
 const FULL_CIRCLE = Math.PI * 2;
 const MIN_BOX_SHAPE_SIZE = 1;
@@ -189,6 +190,22 @@ export function resizeBoxShape(
           w: nextBounds.w,
           h: nextBounds.h,
           apexX: clamp(nextApexX, 0, nextBounds.w),
+        },
+      };
+    }
+
+    if (shape.type === "geo" && isSolidShape(shape)) {
+      // 動かした頂点は枠に対する位置で持っているので、枠と一緒に伸縮する。
+      const solidPoints = scaleSolidPoints(shape, nextBounds.w, nextBounds.h);
+      return {
+        ...shape,
+        x: nextBounds.x,
+        y: nextBounds.y,
+        props: {
+          ...shape.props,
+          w: nextBounds.w,
+          h: nextBounds.h,
+          ...(solidPoints ? { solidPoints } : {}),
         },
       };
     }

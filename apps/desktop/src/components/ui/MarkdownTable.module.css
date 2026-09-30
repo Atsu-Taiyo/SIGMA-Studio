@@ -1,0 +1,34 @@
+/* 文章の中に出る表。罫は薄いグレー1本、見出し行だけ薄い面で区別する(装飾は増やさない)。
+   細い列(チャットなど)でも崩れないよう、はみ出す分は枠の中で横にスクロールする。 */
+.wrap {
+  max-width: 100%;
+  margin: var(--space-sm) 0 0;
+  overflow-x: auto;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-control);
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.cell {
+  padding: var(--space-xs) var(--space-sm);
+  border-bottom: 1px solid var(--border-subtle);
+  text-align: left;
+  vertical-align: top;
+}
+
+.head {
+  background: var(--surface-soft);
+  color: var(--text-secondary);
+  font-weight: 650;
+  white-space: nowrap;
+}
+
+.table tbody tr:last-child .cell {
+  border-bottom: 0;
+}

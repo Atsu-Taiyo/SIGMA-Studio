@@ -2,6 +2,12 @@ import { EventEmitter } from "node:events";
 import fs from "node:fs/promises";
 import path from "node:path";
 import readline from "node:readline";
+import {
+  buildClaudeModelOptions,
+  defaultClaudeModelCatalogDir,
+  parseClaudeVersion,
+  readClaudeModelCatalog,
+} from "./claude-model-catalog";
 import { buildCliChildEnv, getProcessPathEnv } from "./cli-child-env";
 
 import { resolveBareBinNames, resolveCliBinForSpawn, spawnCliProcess, type CliChildProcess } from "./cli-spawn";
@@ -71,6 +77,8 @@ export interface ClaudeStreamClientOptions {
   turnMaxTimeoutMs?: number;
   /** Test-only override for the SIGTERM->SIGKILL escalation grace period (ms). */
   cancelGraceMs?: number;
+  /** Claude Code が取得したモデル一覧の置き場。テストでは実ホームを読まないよう差し替える。 */
+  modelCatalogDir?: string;
 }
 
 export interface ClaudeAccountSummary {
@@ -144,6 +152,13 @@ export interface ClaudeRunTurnParams {
    */
   webSearchEnabled?: boolean;
   onDelta?: (delta: string) => void;
+  /**
+   * `summarized` で思考の要約を `onThinkingDelta` へ流す (`--thinking-display summarized`)。
+   * 既定の Claude Code は思考ブロックを空文字で返す (推論はしているが本文が見えない) ので、
+   * 思考をユーザーへ見せたい呼び出しだけが指定する。古い CLI にはこのフラグが無い。
+   */
+  thinkingDisplay?: "summarized";
+  onThinkingDelta?: (delta: string) => void;
   onAssistantText?: (text: string) => void;
   onToolUse?: (tool: ClaudeToolUse) => void;
   /** Fired for each `tool_result` (stream-json `type:"user"` message) that carries image content blocks, e.g. an MCP tool's PNG preview. */
@@ -239,6 +254,7 @@ export class ClaudeStreamClient extends EventEmitter {
   private readonly turnIdleTimeoutMs: number;
   private readonly turnMaxTimeoutMs: number;
   private readonly cancelGraceMs: number;
+  private readonly modelCatalogDir: string;
 
   constructor(options: ClaudeStreamClientOptions) {
     super();
@@ -253,6 +269,7 @@ export class ClaudeStreamClient extends EventEmitter {
     this.turnIdleTimeoutMs = options.turnIdleTimeoutMs ?? TURN_IDLE_TIMEOUT_MS;
     this.turnMaxTimeoutMs = options.turnMaxTimeoutMs ?? TURN_MAX_TIMEOUT_MS;
     this.cancelGraceMs = options.cancelGraceMs ?? DEFAULT_CANCEL_GRACE_MS;
+    this.modelCatalogDir = options.modelCatalogDir ?? defaultClaudeModelCatalogDir();
   }
 
   getConfiguredClaudeBin(): string | null {
@@ -301,19 +318,51 @@ export class ClaudeStreamClient extends EventEmitter {
   }
 
   /**
-   * Claude Code does not expose a model-catalog RPC. Its documented `--model`
-   * help text does advertise aliases that always resolve to the latest model
-   * in each family, so read those aliases from the installed CLI instead of
-   * freezing versioned model ids in the renderer.
+   * Claude Code に「使えるモデル」を返すコマンドは無い。代わりに Claude Code 自身が
+   * サーバーから取得して保存している一覧 (claude-model-catalog.ts) を読み、最新の
+   * Sonnet / Opus / Fable / Haiku とその表示名・推論強度をそのまま出す。
+   * 読めないとき (未ログイン・古い CLI・形式変更) は、`--help` が案内する
+   * 「常に最新を指す別名」だけに縮退する。モデル名は一切ここに固定しない。
    */
   async listModels(): Promise<ClaudeModelCatalog> {
     const available = await this.isClaudeAvailable();
     if (!available) {
       throw new Error(this.lastError ?? te("electron.claudeClient.commandNotFound"));
     }
+    const [help, version, snapshot] = await Promise.all([
+      this.runCliForOutput(["--help"]).then((output) => output, (error: unknown) => error as Error),
+      this.runCliForOutput(["--version"]).then((output) => output, () => ""),
+      readClaudeModelCatalog(this.modelCatalogDir),
+    ]);
+    const advertisedAliases = typeof help === "string" ? parseClaudeModelAliasesFromHelp(help) : [];
+    const cliVersion = parseClaudeVersion(version);
+    if (snapshot) {
+      const models = buildClaudeModelOptions(snapshot.models, {
+        aliases: advertisedAliases,
+        cliVersion,
+        latestAliasDescription: te("electron.claudeClient.latestModelAlias"),
+        olderModelDescription: te("electron.claudeClient.olderModel"),
+      });
+      if (models.length > 0) return { models };
+    }
+    if (typeof help !== "string") throw help;
+    const aliases = advertisedAliases.length > 0 ? advertisedAliases : ["opus", "sonnet", "haiku"];
+    return {
+      models: aliases.map((alias) => ({
+        id: alias,
+        label: `Claude ${alias.charAt(0).toUpperCase()}${alias.slice(1)} (latest)`,
+        description: te("electron.claudeClient.latestModelAlias"),
+        ...(alias === "sonnet" ? { isDefault: true } : {}),
+        defaultReasoningEffort: "low",
+        supportedReasoningEfforts: ["low", "medium", "high", "xhigh", "max"].map((id) => ({ id })),
+      })),
+    };
+  }
+
+  private runCliForOutput(args: string[]): Promise<string> {
     const claudeBin = this.getClaudeBinForSpawn();
-    const help = await new Promise<string>((resolve, reject) => {
-      const child = spawnCliProcess(claudeBin, ["--help"], {
+    return new Promise<string>((resolve, reject) => {
+      const child = spawnCliProcess(claudeBin, args, {
         env: buildClaudeChildEnv(),
         stdio: "pipe",
         windowsHide: true,
@@ -345,18 +394,6 @@ export class ClaudeStreamClient extends EventEmitter {
         }
       }));
     });
-    const advertisedAliases = parseClaudeModelAliasesFromHelp(help);
-    const aliases = advertisedAliases.length > 0 ? advertisedAliases : ["opus", "sonnet", "haiku"];
-    return {
-      models: aliases.map((alias) => ({
-        id: alias,
-        label: alias === "sonnet" ? "Claude Sonnet 5" : `Claude ${alias.charAt(0).toUpperCase()}${alias.slice(1)} (latest)`,
-        description: te("electron.claudeClient.latestModelAlias"),
-        ...(alias === "sonnet" ? { isDefault: true } : {}),
-        defaultReasoningEffort: "low",
-        supportedReasoningEfforts: ["low", "medium", "high", "xhigh", "max"].map((id) => ({ id })),
-      })),
-    };
   }
 
   async runTurn(params: ClaudeRunTurnParams): Promise<ClaudeTurnResult> {
@@ -377,6 +414,7 @@ export class ClaudeStreamClient extends EventEmitter {
       allowedTools,
       params.webSearchEnabled === true,
       params.reasoningEffort,
+      params.thinkingDisplay,
     );
     const proc = spawnCliProcess(claudeBin, args, {
       cwd,
@@ -577,6 +615,8 @@ export class ClaudeStreamClient extends EventEmitter {
             const delta = getRecord(event?.delta);
             if (delta?.type === "text_delta" && typeof delta.text === "string") {
               params.onDelta?.(delta.text);
+            } else if (delta?.type === "thinking_delta" && typeof delta.thinking === "string" && delta.thinking) {
+              params.onThinkingDelta?.(delta.thinking);
             }
             return;
           }
@@ -701,6 +741,7 @@ export class ClaudeStreamClient extends EventEmitter {
     baseAllowedTools = DEFAULT_ALLOWED_TOOLS,
     webSearchEnabled = false,
     reasoningEffort?: string | null,
+    thinkingDisplay?: string,
   ): string[] {
     // Web検索が有効な turn では WebSearch / WebFetch を許可リストへ追加し、不許可リスト
     // から取り除く。baseAllowedTools / this.disallowedTools はこのturn用に解決済みで、
@@ -736,6 +777,9 @@ export class ClaudeStreamClient extends EventEmitter {
     args.push("--model", model);
     if (reasoningEffort?.trim()) {
       args.push("--effort", reasoningEffort.trim());
+    }
+    if (thinkingDisplay) {
+      args.push("--thinking-display", thinkingDisplay);
     }
     if (resumeSessionId) {
       args.push("--resume", resumeSessionId);
@@ -932,7 +976,7 @@ function isAuthErrorMessage(text: string): boolean {
 }
 
 export function parseClaudeModelAliasesFromHelp(help: string): string[] {
-  const modelOption = help.match(/--model\s+<model>[\s\S]{0,900}?Provide an alias[\s\S]{0,500}?or a model's full name/i)?.[0] ?? "";
+  const modelOption = help.match(/--model\s+<model>[\s\S]{0,900}?Provide\s+an\s+alias[\s\S]{0,500}?or\s+a\s+model's\s+full\s+name/i)?.[0] ?? "";
   const aliases = [...modelOption.matchAll(/['"`]([a-z][a-z0-9-]*)['"`]/gi)]
     .map((match) => match[1].toLowerCase())
     .filter((alias) => !alias.startsWith("claude-"));

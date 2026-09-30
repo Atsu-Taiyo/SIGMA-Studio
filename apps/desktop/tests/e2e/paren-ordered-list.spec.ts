@@ -114,7 +114,7 @@ test("enables center alignment inside a (1) item and persists it", async ({ page
   await openEditor(page, documentWithParenList());
 
   await page.locator('[data-sigma-doc-id="li_1"]').first().click();
-  const alignButton = page.getByRole("button", { name: /^文字揃え:/ });
+  const alignButton = page.locator(".editor-menubar").getByRole("button", { name: /^文字揃え:/ });
   await expect(alignButton).toBeEnabled();
   await alignButton.click();
   await page.getByRole("menuitemradio", { name: "中央揃え", exact: true }).click();
@@ -136,7 +136,7 @@ test("aligns three paragraphs independently under one (1) marker", async ({ page
   await page.keyboard.press("Shift+Enter");
   await page.keyboard.type("中央の行");
 
-  const alignButton = page.getByRole("button", { name: /^文字揃え:/ });
+  const alignButton = page.locator(".editor-menubar").getByRole("button", { name: /^文字揃え:/ });
   await alignButton.click();
   await page.getByRole("menuitemradio", { name: "中央揃え", exact: true }).click();
 

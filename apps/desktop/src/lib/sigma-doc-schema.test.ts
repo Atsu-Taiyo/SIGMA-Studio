@@ -1382,6 +1382,46 @@ describe("SigmaDoc schema", () => {
     expect(problem.frame?.enabled).toBe(true);
   });
 
+  describe("custom problem frame", () => {
+    const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="80" height="50" viewBox="0 0 80 50"><rect x="1" y="1" width="78" height="48" fill="none" stroke="#123456"/></svg>';
+    const custom = { svg, width: 80, height: 50, slice: 12, borderPx: 16, paddingPx: 12 };
+    const withFrame = (frame: unknown) => ({
+      ...sampleDocument,
+      content: [{
+        type: "problem",
+        id: "problem_custom_frame",
+        tags: [],
+        lead: [],
+        prompt: [],
+        solution: [],
+        hints: [],
+        frame,
+      }],
+    });
+
+    it("keeps a hand-drawn frame through save and reload", () => {
+      const frame = { enabled: true, styleId: "custom", custom };
+      const parsed = parseSigmaDocument(JSON.parse(JSON.stringify(withFrame(frame))));
+      expect(parsed.content[0]).toMatchObject({ type: "problem", frame });
+    });
+
+    it("keeps the TikZ source so the frame can be edited again", () => {
+      const tikz = { source: "\\begin{tikzpicture}\\draw (0,0) rectangle (1,1);\\end{tikzpicture}", environment: { packages: "", libraries: "", preamble: "" } };
+      const parsed = parseSigmaDocument(withFrame({ enabled: true, styleId: "custom", custom: { ...custom, tikz } }));
+      expect(parsed.content[0]).toMatchObject({ frame: { custom: { tikz } } });
+    });
+
+    it.each([
+      ["markup that is not in canonical form", { ...custom, svg: '<svg viewBox="0 0 80 50"><rect/></svg>' }],
+      ["a script in the drawing", { ...custom, svg: svg.replace("<rect", "<script>alert(1)</script><rect") }],
+      ["corners that meet in the middle", { ...custom, slice: 25 }],
+      ["a frame thicker than supported", { ...custom, borderPx: 400 }],
+      ["a padding written as CSS", { ...custom, paddingPx: "1px;position:fixed" }],
+    ])("rejects %s", (_name, badCustom) => {
+      expect(() => parseSigmaDocument(withFrame({ enabled: true, styleId: "custom", custom: badCustom }))).toThrow();
+    });
+  });
+
   it("rejects negative problem area minimum heights", () => {
     expect(() =>
       parseSigmaDocument({

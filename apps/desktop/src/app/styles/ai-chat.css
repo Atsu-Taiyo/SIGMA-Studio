@@ -4,6 +4,8 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
+  /* 親はgridなので、長い会話名がそのまま幅を押し広げないよう縮められるようにする。 */
+  min-width: 0;
   min-height: 30px;
   gap: var(--space-sm);
   color: var(--text-muted);
@@ -62,8 +64,19 @@
   white-space: nowrap;
 }
 
+/* 名前が付いた会話は、見出しに会話名をそのまま出す。まだ名前が無い会話は上の
+   「チャット」の小さな見出しのまま。 */
+.ai-chat-room-section-label[data-titled="true"] {
+  flex: 1 1 auto;
+  color: var(--text-primary);
+  font-size: 12.5px;
+  font-weight: 650;
+  line-height: 1.3;
+}
+
 .ai-chat-room-actions {
   display: inline-flex;
+  flex: 0 0 auto;
   gap: var(--space-xs);
   align-items: center;
   justify-content: flex-end;
@@ -263,6 +276,18 @@
   text-align: center;
 }
 
+/* 幅と高さが同じアイコンは真円にする (design-rules)。会話の入口を静かに示すだけの印。 */
+.ai-chat-empty-mark {
+  display: inline-grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  margin: 0 auto var(--space-xs);
+  border-radius: var(--radius-round);
+  background: var(--surface-muted);
+  color: var(--text-secondary);
+}
+
 .ai-chat-empty h3 {
   margin: 0;
   color: var(--text-primary);
@@ -327,9 +352,38 @@
   width: 100%;
 }
 
-.ai-chat-empty-preset {
+/* クイック操作: 線画アイコン + 短いラベルの同じ形のタイル。Button のトーン規則より強くするため
+   属性つきで指定する。選択中の色ではなく、薄い面の差だけで反応を示す。 */
+.ai-chat-empty-presets-grid .ai-chat-empty-preset[data-preset] {
   width: 100%;
   justify-content: flex-start;
+  gap: var(--space-sm);
+  border-color: var(--border-subtle);
+  background: var(--background);
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.ai-chat-empty-presets-grid .ai-chat-empty-preset[data-preset]:hover:not(:disabled) {
+  border-color: var(--border);
+  background: var(--surface-soft);
+}
+
+.ai-chat-empty-preset svg {
+  flex: 0 0 auto;
+  color: var(--text-muted);
+  transition: color 140ms ease;
+}
+
+.ai-chat-empty-preset:hover svg,
+.ai-chat-empty-preset:focus-visible svg {
+  color: var(--text-primary);
+}
+
+.ai-chat-empty-preset span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .ai-edit-panel[data-gated="true"] {
@@ -883,6 +937,21 @@
   padding-left: 18px;
 }
 
+/* 返答の中の引用と区切り線。表は共通の MarkdownTable が持つ。 */
+.ai-stream-render blockquote {
+  margin: var(--space-sm) 0 0;
+  padding: 0 0 0 var(--space-md);
+  border-left: 2px solid var(--border);
+  color: var(--text-secondary);
+}
+
+.ai-stream-render hr {
+  height: 0;
+  margin: var(--space-md) 0;
+  border: 0;
+  border-top: 1px solid var(--border-subtle);
+}
+
 /*
  * Shared rich inline content (comments + AI chat). Inline math is scoped to the
  * body font size so equations match the document body even when the surrounding
@@ -898,6 +967,50 @@
   display: grid;
   gap: var(--space-md);
   min-width: 0;
+}
+
+/* 返答の道具(コピー)。ターンの右上、実行時間の行と同じ高さへ重ねる。ふだんは見えず、
+   カーソルを置く/キーボードで触れたときだけ現れる。重ねて置くので、現れても行はずれず、
+   返答と次の要素の間隔も増えない。 */
+.ai-chat-turn.assistant {
+  position: relative;
+}
+
+.ai-chat-result-tools {
+  position: absolute;
+  top: -2px; /* 実行時間の行の中心に合わせる光学補正 */
+  right: 0;
+  display: flex;
+  align-items: center;
+  opacity: 0;
+  transition: opacity 140ms ease;
+}
+
+.ai-chat-turn.assistant:hover .ai-chat-result-tools,
+.ai-chat-turn.assistant:focus-within .ai-chat-result-tools,
+.ai-chat-result-tools:has([data-copied="true"]) {
+  opacity: 1;
+}
+
+/* Button の寸法規則 (属性つき) より強くして、24pxの小さな真円にする。 */
+.ai-chat-result-tools .ai-chat-copy-button[data-icon-only="true"][data-size="sm"] {
+  width: 24px;
+  min-height: 24px;
+  color: var(--text-muted);
+}
+
+.ai-chat-result-tools .ai-chat-copy-button:hover {
+  color: var(--text-primary);
+}
+
+.ai-chat-result-tools .ai-chat-copy-button[data-copied="true"] {
+  color: var(--text-primary);
+}
+
+@media (hover: none) {
+  .ai-chat-result-tools {
+    opacity: 1;
+  }
 }
 
 .ai-chat-result-proposal {

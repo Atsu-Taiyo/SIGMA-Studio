@@ -31,6 +31,7 @@ describe("workspace menu targets", () => {
     const onSwitchWorkspace = vi.fn(), onOpenFile = vi.fn(), setFolderFilter = vi.fn();
     const onWorkspaceContextMenu = vi.fn(), onFolderContextMenu = vi.fn(), onFileContextMenu = vi.fn();
     const props: ComponentProps<typeof WorkspaceSidebar> = {
+      collapsed: false, panel: "files", commentsAvailable: false, mentionCount: 0, onSelectPanel: vi.fn(),
       visibleWorkspaces: [workspace, { ...workspace, id: "other", name: "別の授業" }], activeWorkspaceId: "w",
       workspaceTreeExpanded: true, setWorkspaceTreeExpanded: vi.fn(), expandedFolderIds: new Set(["f"]), setExpandedFolderIds: vi.fn(),
       folders: [folder], files: [file, { ...file, fileId: "nested", title: "小問", folderId: "f" }], rootFolders: [folder], rootFiles: [file],
@@ -48,14 +49,31 @@ describe("workspace menu targets", () => {
     expect(onSwitchWorkspace).not.toHaveBeenCalled(); expect(onOpenFile).not.toHaveBeenCalled(); expect(setFolderFilter).not.toHaveBeenCalled();
   });
   for (const mode of ["list", "grid"] as const) it(`${mode} folder/file menus do not select/open the row`, async () => {
-    const onItemClick = vi.fn(), onOpenFolder = vi.fn(), onOpenFile = vi.fn(), onFolderContextMenu = vi.fn(), onOpenFileActionMenu = vi.fn();
+    const onItemClick = vi.fn(), onOpenFolder = vi.fn(), onOpenFile = vi.fn(), onFolderContextMenu = vi.fn(), onOpenFileActionMenu = vi.fn(), onToggleBookmark = vi.fn();
     const common = { folders: [folder], files: [file], sortKey: "name" as const, sortDirection: "asc" as const, emptyVariant: "root" as const,
       dragItem: null, dropTarget: null, dragProps: () => ({ onDragStart: vi.fn(), onDragEnd: vi.fn() }), dropProps: () => ({ onDragOver: vi.fn(), onDragLeave: vi.fn(), onDrop: vi.fn() }), selectedKeys: new Set<string>(), focusedKey: null,
       onItemClick, onItemKeyDown: vi.fn(), onOpenFolder, onFolderContextMenu, onOpenFile, savingFileId: null, saving: false, fileActionMenuFileId: null, onOpenFileActionMenu,
-      onCreateDocument: vi.fn(), onClearSearch: vi.fn(), isRenameEditing: () => false, onCommitRename: vi.fn(), onCancelRename: vi.fn() };
+      onCreateDocument: vi.fn(), onClearSearch: vi.fn(), isRenameEditing: () => false, onCommitRename: vi.fn(), onCancelRename: vi.fn(),
+      bookmarkedKeys: new Set<string>(["file:d"]), onToggleBookmark };
     act(() => root.render(mode === "grid" ? <WorkspaceItemGrid {...common} /> : <WorkspaceItemList {...common} allFolders={[folder]} workspaceName="授業" onRequestSort={vi.fn()} searchActive={false} />));
     for (const name of ["数学", "問題"]) await click(container.querySelector(`button[aria-label="${name} の操作"]`)!);
     expect(onFolderContextMenu).toHaveBeenCalledOnce(); expect(onOpenFileActionMenu).toHaveBeenCalledOnce();
+    expect(onItemClick).not.toHaveBeenCalled(); expect(onOpenFolder).not.toHaveBeenCalled(); expect(onOpenFile).not.toHaveBeenCalled();
+  });
+  for (const mode of ["list", "grid"] as const) it(`${mode} bookmark buttons toggle only the bookmark and show the current state`, async () => {
+    const onItemClick = vi.fn(), onOpenFolder = vi.fn(), onOpenFile = vi.fn(), onToggleBookmark = vi.fn();
+    const common = { folders: [folder], files: [file], sortKey: "name" as const, sortDirection: "asc" as const, emptyVariant: "root" as const,
+      dragItem: null, dropTarget: null, dragProps: () => ({ onDragStart: vi.fn(), onDragEnd: vi.fn() }), dropProps: () => ({ onDragOver: vi.fn(), onDragLeave: vi.fn(), onDrop: vi.fn() }), selectedKeys: new Set<string>(), focusedKey: null,
+      onItemClick, onItemKeyDown: vi.fn(), onOpenFolder, onFolderContextMenu: vi.fn(), onOpenFile, savingFileId: null, saving: false, fileActionMenuFileId: null, onOpenFileActionMenu: vi.fn(),
+      onCreateDocument: vi.fn(), onClearSearch: vi.fn(), isRenameEditing: () => false, onCommitRename: vi.fn(), onCancelRename: vi.fn(),
+      bookmarkedKeys: new Set<string>(["file:d"]), onToggleBookmark };
+    act(() => root.render(mode === "grid" ? <WorkspaceItemGrid {...common} /> : <WorkspaceItemList {...common} allFolders={[folder]} workspaceName="授業" onRequestSort={vi.fn()} searchActive={false} />));
+    const removeFile = container.querySelector('button[aria-label="問題 のブックマークを外す"]')!;
+    expect(removeFile.getAttribute("aria-pressed")).toBe("true");
+    expect(container.querySelector('button[aria-label="数学 をブックマークに追加"]')!.getAttribute("aria-pressed")).toBe("false");
+    await click(container.querySelector('button[aria-label="数学 をブックマークに追加"]')!);
+    await click(removeFile);
+    expect(onToggleBookmark.mock.calls).toEqual([["folder", "f"], ["file", "d"]]);
     expect(onItemClick).not.toHaveBeenCalled(); expect(onOpenFolder).not.toHaveBeenCalled(); expect(onOpenFile).not.toHaveBeenCalled();
   });
   it("menu arrows skip disabled actions and restores trigger focus", () => {

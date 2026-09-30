@@ -19,7 +19,7 @@ export interface CatalogSessionsPort {
   has(fileId: string): boolean;
   open(fileId: string, sharedDocumentId: string): Promise<SigmaDocument>;
   previewVersion?(fileId: string): string | undefined;
-  preview?(fileId: string, sharedDocumentId: string): Promise<SigmaDocument>;
+  preview?(fileId: string, sharedDocumentId: string, options?: { assets?: boolean }): Promise<SigmaDocument>;
   initialize(fileId: string, sharedDocumentId: string, operationId: string, document: SigmaDocument, staged?: boolean): Promise<void>;
   activate(fileIds: string[]): Promise<void>;
   start(fileId: string, document: SigmaDocument): Promise<unknown>;
@@ -230,12 +230,12 @@ export class DesktopSharedCatalog {
     const version = this.sessions.previewVersion?.(fileId) ?? "unopened";
     return { scope, token: `${scope}:${version}`, opened: this.cache!.data.mappings[node.id]?.bodyCached ?? false };
   }
-  async preview(fileId: string): Promise<SigmaDocument | null> {
+  async preview(fileId: string, options?: { assets?: boolean }): Promise<SigmaDocument | null> {
     await this.account();
     const node = this.find(fileId, "document");
     if (!node || node.state !== "active" || !node.sharedDocumentId || !this.sessions.preview) return null;
     const cache = this.cache!;
-    const document = await this.sessions.preview(fileId, node.sharedDocumentId);
+    const document = options ? await this.sessions.preview(fileId, node.sharedDocumentId, options) : await this.sessions.preview(fileId, node.sharedDocumentId);
     this.checkAccount(cache);
     const current = this.find(fileId, "document");
     if (current?.state !== "active" || current.id !== node.id || current.sharedDocumentId !== node.sharedDocumentId) return null;
