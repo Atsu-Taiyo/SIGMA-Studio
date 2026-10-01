@@ -1,4 +1,5 @@
-import { app, ipcMain, dialog, shell, BrowserWindow, type OpenDialogOptions } from "electron";
+import { ipcMain } from "../trusted-ipc";
+import { app, dialog, shell, BrowserWindow, type OpenDialogOptions } from "electron";
 import path from "node:path";
 import { createCurrentLocaleTranslator } from "@/lib/i18n";
 

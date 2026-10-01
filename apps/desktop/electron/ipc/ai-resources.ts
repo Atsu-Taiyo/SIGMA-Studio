@@ -1,4 +1,4 @@
-import { ipcMain } from "electron";
+import { ipcMain } from "../trusted-ipc";
 
 import { cancelAiSkillDraftCodexRun, generateAiSkillDraft, type AiSkillDraftRequest } from "../ai-skill-draft";
 import { LocalAiResourceStore } from "../ai-resource-store";

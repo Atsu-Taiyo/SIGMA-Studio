@@ -55,7 +55,6 @@ import  {
   useRef,
   useState,
 } from "react";
-import { flushSync } from "react-dom";
 
 import { attachLayoutColumnResizeHandle } from "./layout-column-resize";
 import { BlockEditor } from "@/components/editor/BlockEditor";
@@ -281,7 +280,6 @@ import  {
   focusUnderlyingEditorAtPoint,
   selectUnderlyingEditorRange,
   type ClientPoint,
-  type OverlayPreviewPointerHandoff,
 } from "./page-canvas/caret-focus";
 import  {
   getColumnBreakBeforeBlockIdForContextMenu,
@@ -399,6 +397,7 @@ import type  {
   RunningRegionEdge,
   RunningRegionKind,
 } from "./page-canvas/types";
+import { useOverlayPreviewHandoff } from "./page-canvas/use-overlay-preview-handoff";
 import { useBlockDrag } from "./page-canvas/use-block-drag";
 import { publishLayoutSnapshot, type PageLayoutSnapshot } from "./page-canvas/layout-snapshot";
 import { isTextFlowMeasurementReady, TEXT_FLOW_MEASUREMENT_READY } from "./text-flow/measurement-revision";
@@ -952,7 +951,6 @@ function PageCanvasEditorImpl({
   const pageDoubleTapRef = useRef<PageDoubleTapCandidate | null>(null);
   const selectPointRequestIdRef = useRef(0);
   const lastPagePointerPointRef = useRef<OverlayPoint | null>(null);
-  const overlayPreviewPointerHandoffRef = useRef<OverlayPreviewPointerHandoff | null>(null);
   const hasOverlayRequest = !!overlayCommandRequest || !!overlayImageRequest || !!overlayActionRequest;
   // ホワイトボードには本文面がない。preview から editor へ押下を引き継ぐのではなく、
   // 常設の編集面が図形と空白の pointer interaction を直接所有する。
@@ -3226,69 +3224,11 @@ function PageCanvasEditorImpl({
     });
   }, [isWhiteboard, metrics, nextSelectPointRequestId, whiteboardPanX, whiteboardPanY, zoom]);
 
-  const startOverlayPreviewPointerHandoff = useCallback((
-    event: ReactPointerEvent<HTMLDivElement>,
-    bounds: DOMRect,
-    targetShapeId?: string,
-  ) => {
-    event.preventDefault();
-    event.stopPropagation();
-    const start = { x: event.clientX, y: event.clientY };
-    const handoff: OverlayPreviewPointerHandoff = {
-      pointerId: event.pointerId,
-      pointerType: event.pointerType,
-      start,
-      latest: start,
-      cleanup: () => undefined,
-    };
-
-    const finish = () => {
-      window.removeEventListener("pointermove", handleWindowPointerMove, true);
-      window.removeEventListener("pointerup", handleWindowPointerUp, true);
-      window.removeEventListener("pointercancel", handleWindowPointerUp, true);
-      if (overlayPreviewPointerHandoffRef.current === handoff) {
-        overlayPreviewPointerHandoffRef.current = null;
-      }
-    };
-    const forwardPointerUp = (nativeEvent: PointerEvent) => {
-      handoff.latest = { x: nativeEvent.clientX, y: nativeEvent.clientY };
-      requestOverlayPreviewSelection(bounds, handoff.start.x, handoff.start.y, false, true, false, handoff.latest, targetShapeId);
-      nativeEvent.preventDefault();
-      nativeEvent.stopPropagation();
-      finish();
-    };
-    const isHandoffPointerEvent = (nativeEvent: PointerEvent) => (
-      nativeEvent.pointerId === handoff.pointerId ||
-      (nativeEvent.pointerType === "mouse" && handoff.pointerType === "mouse")
-    );
-    function handleWindowPointerMove(nativeEvent: PointerEvent) {
-      if (!isHandoffPointerEvent(nativeEvent)) {
-        return;
-      }
-
-      handoff.latest = { x: nativeEvent.clientX, y: nativeEvent.clientY };
-      nativeEvent.preventDefault();
-      nativeEvent.stopPropagation();
-    }
-    function handleWindowPointerUp(nativeEvent: PointerEvent) {
-      if (!isHandoffPointerEvent(nativeEvent)) {
-        return;
-      }
-
-      forwardPointerUp(nativeEvent);
-    }
-
-    handoff.cleanup = finish;
-    overlayPreviewPointerHandoffRef.current?.cleanup();
-    overlayPreviewPointerHandoffRef.current = handoff;
-    window.addEventListener("pointermove", handleWindowPointerMove, true);
-    window.addEventListener("pointerup", handleWindowPointerUp, true);
-    window.addEventListener("pointercancel", handleWindowPointerUp, true);
-
-    flushSync(() => {
-      setOverlayEditing(true);
-    });
+  const completeOverlayPreviewHandoff = useCallback((bounds: DOMRect, start: ClientPoint, end: ClientPoint, targetShapeId?: string) => {
+    requestOverlayPreviewSelection(bounds, start.x, start.y, false, true, false, end, targetShapeId);
   }, [requestOverlayPreviewSelection]);
+  const activateBodyOverlayEditing = useCallback(() => setOverlayEditing(true), []);
+  const startOverlayPreviewPointerHandoff = useOverlayPreviewHandoff(completeOverlayPreviewHandoff, activateBodyOverlayEditing);
 
   /**
    * 紙面の本文モードでは到達しない。図形を掴む経路は `handlePagePointerDownCapture` の
@@ -7685,7 +7625,6 @@ function RunningRegionDirectEditor({
   const [selectedRunningBlockId, setSelectedRunningBlockId] = useState<string | null>(null);
   const [runningSelectPointRequest, setRunningSelectPointRequest] = useState<OverlaySelectPointRequest | null>(null);
   const runningSelectPointRequestIdRef = useRef(0);
-  const runningOverlayPreviewPointerHandoffRef = useRef<OverlayPreviewPointerHandoff | null>(null);
   const blocks = useMemo(() => pageRunningRegionToTextFlowBlocks(region, kind), [kind, region]);
   // The interactive layer sits above the running text at `z-index: 3` with `pointer-events: auto`,
   // so mounting it for a shapeless header would swallow every click meant for the text editor. The
@@ -7715,10 +7654,6 @@ function RunningRegionDirectEditor({
     return () => window.cancelAnimationFrame(frame);
   }, [focusRequest, overlayEditing]);
 
-  useEffect(() => () => {
-    runningOverlayPreviewPointerHandoffRef.current?.cleanup();
-    runningOverlayPreviewPointerHandoffRef.current = null;
-  }, []);
 
   useLayoutEffect(() => {
     if (overlayEditing) {
@@ -7772,68 +7707,11 @@ function RunningRegionDirectEditor({
     });
   }, [nextRunningSelectPointRequestId, onOverlayEditingChange, overlayHeight, overlayWidth]);
 
-  const startRunningRegionOverlayPreviewPointerHandoff = useCallback((
-    event: ReactPointerEvent<HTMLDivElement>,
-    bounds: DOMRect,
-  ) => {
-    event.preventDefault();
-    event.stopPropagation();
-    const start = { x: event.clientX, y: event.clientY };
-    const handoff: OverlayPreviewPointerHandoff = {
-      pointerId: event.pointerId,
-      pointerType: event.pointerType,
-      start,
-      latest: start,
-      cleanup: () => undefined,
-    };
-
-    const finish = () => {
-      window.removeEventListener("pointermove", handleWindowPointerMove, true);
-      window.removeEventListener("pointerup", handleWindowPointerUp, true);
-      window.removeEventListener("pointercancel", handleWindowPointerUp, true);
-      if (runningOverlayPreviewPointerHandoffRef.current === handoff) {
-        runningOverlayPreviewPointerHandoffRef.current = null;
-      }
-    };
-    const forwardPointerUp = (nativeEvent: PointerEvent) => {
-      handoff.latest = { x: nativeEvent.clientX, y: nativeEvent.clientY };
-      requestRunningRegionOverlaySelection(bounds, handoff.start.x, handoff.start.y, false, handoff.latest);
-      nativeEvent.preventDefault();
-      nativeEvent.stopPropagation();
-      finish();
-    };
-    const isHandoffPointerEvent = (nativeEvent: PointerEvent) => (
-      nativeEvent.pointerId === handoff.pointerId ||
-      (nativeEvent.pointerType === "mouse" && handoff.pointerType === "mouse")
-    );
-    function handleWindowPointerMove(nativeEvent: PointerEvent) {
-      if (!isHandoffPointerEvent(nativeEvent)) {
-        return;
-      }
-
-      handoff.latest = { x: nativeEvent.clientX, y: nativeEvent.clientY };
-      nativeEvent.preventDefault();
-      nativeEvent.stopPropagation();
-    }
-    function handleWindowPointerUp(nativeEvent: PointerEvent) {
-      if (!isHandoffPointerEvent(nativeEvent)) {
-        return;
-      }
-
-      forwardPointerUp(nativeEvent);
-    }
-
-    handoff.cleanup = finish;
-    runningOverlayPreviewPointerHandoffRef.current?.cleanup();
-    runningOverlayPreviewPointerHandoffRef.current = handoff;
-    window.addEventListener("pointermove", handleWindowPointerMove, true);
-    window.addEventListener("pointerup", handleWindowPointerUp, true);
-    window.addEventListener("pointercancel", handleWindowPointerUp, true);
-
-    flushSync(() => {
-      onOverlayEditingChange(true);
-    });
-  }, [onOverlayEditingChange, requestRunningRegionOverlaySelection]);
+  const completeRunningPreviewHandoff = useCallback((bounds: DOMRect, start: ClientPoint, end: ClientPoint) => {
+    requestRunningRegionOverlaySelection(bounds, start.x, start.y, false, end);
+  }, [requestRunningRegionOverlaySelection]);
+  const activateRunningOverlayEditing = useCallback(() => onOverlayEditingChange(true), [onOverlayEditingChange]);
+  const startRunningRegionOverlayPreviewPointerHandoff = useOverlayPreviewHandoff(completeRunningPreviewHandoff, activateRunningOverlayEditing);
 
   const handleRunningRegionOverlayPreviewPointerDown = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
     if (event.button !== 0 || event.defaultPrevented) {

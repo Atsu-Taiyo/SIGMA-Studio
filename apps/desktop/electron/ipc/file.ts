@@ -1,4 +1,5 @@
-import { app, ipcMain, dialog, BrowserWindow, shell, type WebContents } from "electron";
+import { ipcMain } from "../trusted-ipc";
+import { app, dialog, BrowserWindow, shell, type WebContents } from "electron";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { createCurrentLocaleTranslator } from "@/lib/i18n";

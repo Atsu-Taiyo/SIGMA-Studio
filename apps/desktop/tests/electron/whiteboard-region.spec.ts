@@ -108,7 +108,10 @@ test("empty whiteboard region comments survive real Electron storage and restart
     await expect(page.locator('[data-retained-region="true"]')).toHaveCount(0);
     await expect(page.getByRole("dialog", { name: "表を挿入" })).toHaveCount(0);
     await page.mouse.move(restoredBox.x + 100, restoredBox.y + 420);
-    await expect(page.locator("[data-table-placement-preview] tr")).toHaveCount(2);
+    const tablePreview = page.locator("[data-table-placement-preview] .overlay-insert-preview-shape");
+    await expect(tablePreview).toBeVisible();
+    await expect(tablePreview).toHaveAttribute("data-table-preview-rows", "2");
+    await expect(tablePreview).toHaveAttribute("data-table-preview-columns", "2");
     await page.mouse.click(restoredBox.x + 100, restoredBox.y + 420);
     const table = page.locator(".overlay-table-shape");
     await expect(table.locator("tr")).toHaveCount(2);
