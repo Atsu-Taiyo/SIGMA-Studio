@@ -754,9 +754,19 @@ border を引く、running region のリストは region スコープ、静的�
   通知する前にキャッシュを無効化する。設定ごとの検証と保存失敗時の方針は各設定に残す。
 - Electronの `cli-child-env.ts` は環境変数の選別とPATH構築を共有する。
   認証を上書きする変数の禁止やプロバイダ固有の追加変数は各clientに残す。
+- `EditorShell` の正本文書・revision・Undo/Redo・commitは一つの所有者に保つ。
+  復旧読込は `use-document-recovery.ts`、埋め込みhostの反響判定は `use-embedded-document-sync.ts`、
+  終了時の保存と再試行は `use-window-close-boundary.ts` が所有する。遅延読込、timer、close要求の
+  世代を各ownerが管理し、unmountや後続のキャンセル後に古い完了通知を採用しない。
+  workspace初期化・教材移動・タブ協調、書式購読、検索、印刷、設定dialogは対応する
+  `editor-shell/use-*.ts` に置き、正本の読取と変更は明示したgetter・commit・保存portへ返す。
+  `use-overlay-settings-controller.tsx` がグラフ・表設定の選択、購読、失効を扱い、
+  `use-mcp-proposal-controller.ts` が提案一覧の取得・debounce・引用と表示の派生を扱う。
+  提案の意味付けには注入済みhost serviceを使い、汎用editorからAI実装への直接依存を増やさない。
 - `editor-shell/use-document-save-boundary.ts` は保存と教材切替前の境界処理を所有する。
   EditorShellが所有する文書・revisionの参照とeditor-stateのsetterを受け取り、
-  保存中の教材切替、保存失敗、競合を従来と同じ順序で処理する。
+  保存中の教材切替、保存失敗、競合を従来と同じ順序で処理する。自動保存の予約・完了反映も
+  このownerで扱い、別の書込経路や保存状態を作らない。
 - `editor-shell/document-storage-sync.ts`は外部通知の購読・解除、連続する保存の完了待ち、
   通知の世代と教材切替の確認、分類・マージ・退避の順序を所有する。
   正本の採用・Undo履歴・保存はhostへ返し、embeddedでの無効化とeffectの依存境界はshellに保つ。
