@@ -1,4 +1,5 @@
 import { retryDelay } from "./transport";
+import { validateCatalogDelta } from "./response-validation";
 import { normalizeWorkspaceLayout } from "@/lib/workspace-tab-groups";
 import { createCurrentLocaleTranslator } from "@/lib/i18n";
 import { shell } from "electron";
@@ -168,6 +169,8 @@ export class DesktopSharedCatalog {
         this.local.getLocalLibrarySnapshot(),
       ]);
       if (generation !== this.generation || cache.data.actorId !== this.sessions.actorId()) { await this.account(); return this.status(); }
+      // A malformed later batch must not partially mutate or persist the cache.
+      for (const delta of deltas) validateCatalogDelta(delta);
       for (const delta of deltas) cache.apply(delta);
       const localFiles = new Map(localOverview.files.map(f => [f.fileId, f]));
       const nodeByDocument = new Map<string, CatalogNode>();

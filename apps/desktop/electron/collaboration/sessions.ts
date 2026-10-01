@@ -34,6 +34,7 @@ import type { SharedApproval } from "../../src/features/collaboration/model/appr
 import { CollaborationAuth, collaborationConfig } from "./auth";
 import { CollaborationHttpError, readResponseBytes, readResponseJson, responseError, retryDelay } from "./transport";
 import { durableWrite, SharedDocumentJournal } from "./journal";
+import { isRemoteId, validateAcknowledgements, validateApproval, validateDocumentIdentity, validateSnapshot, validateSync } from "./response-validation";
 
 interface Session {
   journal: SharedDocumentJournal;
@@ -326,6 +327,7 @@ export class CollaborationSessions {
       "/documents",
       { operationId },
     );
+    validateDocumentIdentity(created);
     const directory = path.join(this.directory, "documents", created.id);
     let journal: SharedDocumentJournal;
     try {
@@ -557,6 +559,7 @@ export class CollaborationSessions {
     let document: SigmaDocument;
     try {
       const snapshot = await this.request<{ state: string; epoch: number }>(`/documents/${sharedDocumentId}/snapshot`);
+      validateSnapshot(snapshot, sharedDocumentId, false);
       let shared = new SharedDocument(fromBase64(snapshot.state, MAX_DOCUMENT_BYTES));
       useLocal = canUseLocal && session!.journal.binding.epoch === snapshot.epoch;
       try {
@@ -646,6 +649,7 @@ export class CollaborationSessions {
       return this.project(fileId)!;
     }
     const snapshot = await this.request<{ state: string; role: MemberRole; epoch: number }>(`/documents/${sharedDocumentId}/snapshot`);
+    validateSnapshot(snapshot, sharedDocumentId);
     if (actorId !== this.actorId()) throw new Error("ACCOUNT_CHANGED");
     const journalDirectory = `${sharedDocumentId}-${actorId}-epoch-${snapshot.epoch}`;
     const directory = path.join(this.directory, "documents", journalDirectory);
@@ -670,6 +674,7 @@ export class CollaborationSessions {
     const { sharedDocumentId } = await this.request<{
       sharedDocumentId: string;
     }>("/invitations/accept", { token });
+    if (!isRemoteId(sharedDocumentId)) throw new Error("INVALID_DOCUMENT_RESPONSE");
     const existing = Object.entries(this.registry.files).find(
       ([, value]) => value.sharedDocumentId === sharedDocumentId,
     );
@@ -679,6 +684,7 @@ export class CollaborationSessions {
       role: MemberRole;
       epoch: number;
     }>(`/documents/${sharedDocumentId}/snapshot`);
+    validateSnapshot(snapshot, sharedDocumentId);
     const journalDirectory = snapshot.epoch === 1 ? sharedDocumentId : `${sharedDocumentId}-epoch-${snapshot.epoch}`;
     const directory = path.join(this.directory, "documents", journalDirectory);
     let journal: SharedDocumentJournal;
@@ -852,6 +858,7 @@ export class CollaborationSessions {
         vector: toBase64(session.journal.document.vector()),
       },
     );
+    validateSync(result, session.journal.binding.epoch);
     session.role = result.role;
     if (entry.role !== result.role) {
       entry.role = result.role;
@@ -884,15 +891,9 @@ export class CollaborationSessions {
           update: item.update,
         })),
       });
-      if (!Array.isArray(result.acks) || result.acks.length !== pending.length)
-        throw new Error("INVALID_ACK");
+      validateAcknowledgements(result, pending.map(item => item.identity.operationId));
       for (let index = 0; index < pending.length; index++) {
         const ack = result.acks[index];
-        if (
-          ack.operationId !== pending[index].identity.operationId ||
-          !Number.isSafeInteger(ack.seq)
-        )
-          throw new Error("INVALID_ACK");
         await session.journal.acknowledge(ack.operationId);
       }
     }
@@ -1040,6 +1041,7 @@ export class CollaborationSessions {
       `/documents/${session.journal.binding.sharedDocumentId}/approve`,
       { ...prepared, protocol: 1, epoch: session.journal.binding.epoch },
     );
+    validateApproval(result, approval.operationId);
     await this.receive(fileId, result.update, {
       operationId: result.operationId,
       actorId: this.registry.files[fileId].actorId,
@@ -1103,6 +1105,7 @@ export class CollaborationSessions {
       role: MemberRole;
       epoch: number;
     }>(fileId, "snapshot");
+    validateSnapshot(snapshot, previous.journal.binding.sharedDocumentId);
     if (snapshot.epoch === previous.journal.binding.epoch) {
       await this.flush(fileId, true);
       return;
@@ -1537,6 +1540,7 @@ export class CollaborationSessions {
     if (this.retry) clearInterval(this.retry);
     for (const session of this.sessions.values()) {
       session.socket?.close();
+      await session.syncing?.catch(() => {});
       await session.tail;
       await session.journal.compact();
     }
