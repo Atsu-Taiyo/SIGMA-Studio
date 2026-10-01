@@ -727,6 +727,12 @@ border を引く、running region のリストは region スコープ、静的�
   取り込み中は空canvasを維持する。完了時の配置情報、選択・履歴・保存への反映はcontrollerが供給する。
 - 公開Editor/Viewerのバンドル設定は各`packages/*/scripts/build-options.mjs`を唯一の入口にする。
   本番buildとpackage-boundary testが同じalias・external・asset loaderを使い、テスト側では出力先への書込だけを止める。
+- `AiEditPanel` は会話store・実行要求と表示部品を接続する。入力の下書き、添付・参照候補、
+  ファイル読込と遅延focusは `ai-edit/application/use-ai-chat-composer.ts` が所有し、
+  `use-ai-composer-lifetime.ts` が教材切替・下書きreset・unmount時に進行中の読込と予約処理を無効化する。
+  共有契約はapplication側へ置き、`AiChatComposer`、`AiChatHistory`、`AiChatTurn`、
+  `AiChatActivity`、`AiChatInlineSurface` は表示と明示的な操作callbackを受け取る。
+  提案の承認・保存は既存のhost callbackとstoreを経由し、表示部品は文書の正本を所有しない。
 - `AiModelMenuContents` はモデル／推論強度メニューの表示とキーボード操作を所有し、
   選択値の保存とプロバイダ固有の補正は呼び出し側が所有する。
 - 設定値の購読は `subscribe-storage-preference.ts` で共有し、同一タブ・別タブの変更を
