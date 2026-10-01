@@ -687,9 +687,11 @@ describe("rendering feature dependency boundary", () => {
       + " 戻り値をそのまま入れる (構造的な型なので型システムでは縛れていない)";
 
     const REVIEWED_INJECTIONS: Record<string, ReviewedInjection[]> = {
-      "components/editor/AiEditPanel.tsx": [
+      "features/ai-edit/view/AiChatPreviewImages.tsx": [
         { expression: "preview.svg", reason: `${SHAPE_PREVIEW_REASON}。ここは props で受け取る` },
         { expression: "preview.svg", reason: `${SHAPE_PREVIEW_REASON}。ここは props で受け取る` },
+      ],
+      "features/ai-edit/view/AiChatTurn.tsx": [
         { expression: "preview.svg", reason: `${SHAPE_PREVIEW_REASON}。ここは props で受け取る` },
       ],
       "components/editor/EditorSettings.tsx": [
@@ -883,9 +885,25 @@ describe("rendering feature dependency boundary", () => {
       expect(unaccounted).toEqual([]);
     });
 
-    it("requires every injecting file to import an approved generator", () => {
+    it("requires a generator or an explicitly reviewed generated-preview prop", () => {
+      // These leaf views moved the same three preview.svg sinks out of AiEditPanel.
+      // They receive the generated preview, while the application owns generation.
+      // Pin the exact consumers, type source and expressions; do not make every
+      // reviewed expression an exemption from generator ownership.
+      const generatedPreviewPropSites = [
+        "features/ai-edit/view/AiChatPreviewImages.tsx",
+        "features/ai-edit/view/AiChatTurn.tsx",
+      ];
+      for (const file of generatedPreviewPropSites) {
+        expect(injectionSiteFiles()).toContain(file);
+        expect(importSpecifiers(readDesktopSource(file))).toContain("@/lib/ai/ai-edit-shape-preview");
+        expect(readDesktopSource(file)).toMatch(/preview\??: AiEditShapeOnlyPreview/);
+        expect(REVIEWED_INJECTIONS[file].every(({ expression, reason }) =>
+          expression === "preview.svg" && reason.startsWith(SHAPE_PREVIEW_REASON))).toBe(true);
+      }
       const unaccounted = injectionSiteFiles()
         .filter((file) => !CONSTANT_MARKUP_SITES[file])
+        .filter((file) => !generatedPreviewPropSites.includes(file))
         .filter((file) => approvedGeneratorNames(parseSource(file)).size === 0);
 
       expect(unaccounted).toEqual([]);
@@ -1011,12 +1029,13 @@ describe("rendering feature dependency boundary", () => {
 
     it("pins every surface that writes a generated HTML string into the DOM", () => {
       expect(injectionSiteFiles()).toEqual([
-        "components/editor/AiEditPanel.tsx",
         "components/editor/EditorSettings.tsx",
         "components/editor/MaterialPreview.tsx",
         "components/print/PrintPreview.tsx",
         "components/tiptap/url-detection-extension.tsx",
         "features/ai-edit/view/AiAppliedDocumentDiff.tsx",
+        "features/ai-edit/view/AiChatPreviewImages.tsx",
+        "features/ai-edit/view/AiChatTurn.tsx",
         "features/ai-edit/view/AiEditInlinePreviewCard.tsx",
         "features/rendering/adapters/inline-math-dom.ts",
         "features/rendering/adapters/react/Graph2DPreview.tsx",
