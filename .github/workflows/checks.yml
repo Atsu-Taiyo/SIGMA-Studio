@@ -70,6 +70,22 @@ jobs:
       - run: npm exec --workspace @sigma-studio/desktop -- playwright install --with-deps chromium
       - name: Build the static desktop renderer and actual main/preload
         run: npm --workspace @sigma-studio/desktop run electron:prepare
+      - name: Allow the installed Electron binary to create its Linux sandbox
+        # Ubuntu restricts unprivileged user namespaces by executable path. The
+        # npm runtime has no system package profile; keep the host restriction
+        # and permit only this job's Electron, as packaged Electron apps do.
+        run: |
+          electron_binary="$(node -p "require('electron')")"
+          test -x "$electron_binary"
+          profile="$RUNNER_TEMP/sigma-electron.apparmor"
+          cat > "$profile" <<EOF
+          abi <abi/4.0>,
+          include <tunables/global>
+          profile sigma-electron-ci "$electron_binary" flags=(unconfined) {
+            userns,
+          }
+          EOF
+          sudo apparmor_parser --replace "$profile"
       - name: Exercise native import, editing, saving, and reload through real IPC
         run: xvfb-run --auto-servernum npm run test:e2e:electron -- tests/electron/open-document.spec.ts tests/electron/ipc-sender-security.spec.ts
       - uses: actions/upload-artifact@v6

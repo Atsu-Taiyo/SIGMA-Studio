@@ -10,8 +10,9 @@ test("real Electron IPC rejects other windows, subframes and navigation while st
   const env = Object.fromEntries(Object.entries(process.env).filter((entry): entry is [string, string] => entry[1] !== undefined));
   delete env.ELECTRON_RUN_AS_NODE;
   env.SIGMA_STUDIO_USER_DATA_DIR = profile;
-  const app = await electron.launch({ args: [root], cwd: root, env });
+  const app = await electron.launch({ args: [root], cwd: root, env, chromiumSandbox: true });
   try {
+    expect(await app.evaluate(({ app }) => app.commandLine.hasSwitch("no-sandbox"))).toBe(false);
     const page = await app.firstWindow();
     await page.waitForFunction(() => Boolean(window.desktopAPI?.storage));
     const mainUrl = page.url();
