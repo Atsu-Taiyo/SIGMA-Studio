@@ -128,6 +128,12 @@ drawingからrendering coreへの依存は公開入口の純粋なhelperに限�
 - 本文系editorに共通するTiptap書式commandとtoolbar stateの変換は`components/tiptap/text-format-controller.ts`に集約し、`TextFlowEditor`と`RichTextEditor`は対象selectionとblock種別だけを渡します。このcontrollerはReact、AI、editor compositionを参照しません。
 - 本文のTiptap属性、段組・container node、ID修復は`components/tiptap/sigma-doc-text-attributes.ts`、`sigma-doc-container-extensions.ts`、`sigma-doc-text-identity.ts`が所有します。ProseMirror node照会は`node-queries.ts`で共有し、schema利用者やそのテストがReactの`TextFlowEditor`をimportする必要をなくします。旧controllerからのexportは互換入口として維持します。
 - `PageCanvasEditor.tsx`はpage compositionとDOM測定・event wiringに限定し、TextFlow編集結果のSigmaDocへの調停、再帰的なID正規化、問題エリアやrunning regionの遷移、inline contentの区間構成は`components/editor/page-canvas/`の純粋modelへ置きます。
+  計測のlifecycleは `use-page-canvas-measurement.ts`、可視範囲は `use-page-canvas-viewport.ts`、
+  選択は `use-page-canvas-selection.ts`、running regionと余白のpointer処理は `use-page-canvas-regions.ts`、
+  コメント座標は `use-page-canvas-comments.ts` が所有します。計測ownerはcontent・geometry・surface・spaceAfterの
+  portを受け取り、既存のprobe→build→place→plan→adoptを一度だけ実行します。observer・frame・font通知と
+  drag listenerは文書切替・unmount時に無効化し、純粋modelやPDF用の別ページ割りを作りません。
+
 - overlayのread-only shape rendererとinteractive shape editorは別moduleにします。`shape-renderer.tsx`、`text-shape-editor.tsx`、`table-shape-editor.tsx`から`OverlayCanvasEditorClient.tsx`への逆importは禁止し、canvas controllerだけが各Viewを組み立てます。
 - 3D spec・cameraの更新、preview hashの検査、配置更新、設定パネルへの選択通知の発行と終了時クリアは`overlay-canvas/use-graph3d-controller.ts`が所有します。canvasから最新snapshotのrefと保存・履歴callbackを受け、camera操作と派生previewを同じUndo区間に保ちます。
 - `EditorShell.tsx`はcomposition rootとして残し、素材取得、toolbar正規化、page navigation、workspace request、ブロックスタイル変換など単独で検証できるapplication logicは`components/editor/editor-shell/`へ切り出します。

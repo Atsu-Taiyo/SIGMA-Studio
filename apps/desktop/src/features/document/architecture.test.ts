@@ -392,7 +392,9 @@ describe("document feature dependency boundary", () => {
       (source) => !source.includes("./running-region-math"),
     )).toBe(true);
     expect(pageCanvas).toContain('from "@/features/document"');
-    expect(pageCanvas).toContain('from "./page-canvas/page-layout-format"');
+    const chrome = readFileSync(new URL("../../components/editor/page-canvas/page-chrome.tsx", import.meta.url), "utf8");
+    expect(importSpecifiers(pageCanvas)).toContain("./page-canvas/page-chrome");
+    expect(importSpecifiers(chrome)).toContain("./page-layout-format");
 
     expect(legacyEnablePageRunningRegion).toBe(enablePageRunningRegion);
     expect(legacyGetRunningRegionBoundsMm).toBe(getRunningRegionBoundsMm);

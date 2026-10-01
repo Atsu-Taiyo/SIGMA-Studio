@@ -42,7 +42,7 @@ function sourceFiles(directory: URL): string[] {
 describe("independent column rendering", () => {
   it("shares grid geometry between the body, nested editor and output adapters", () => {
     for (const path of [
-      "../../components/editor/PageCanvasEditor.tsx",
+      "../../components/editor/page-canvas/layout-section-view.tsx",
       "../../components/tiptap/layout-section-extension.ts",
       "../../components/print/print-static-blocks.tsx",
     ]) {
@@ -89,7 +89,7 @@ function desktopSourcePath(file: string): string {
 
 describe("rendering feature dependency boundary", () => {
   it("owns browser zoom notifications in a narrow adapter shared by publisher and canvas", () => {
-    const pageCanvas = readFileSync(new URL("../../components/editor/PageCanvasEditor.tsx", import.meta.url), "utf8");
+    const pageCanvas = readFileSync(new URL("../../components/editor/page-canvas/use-page-canvas-measurement.ts", import.meta.url), "utf8");
     const graphPreview = readFileSync(new URL("./adapters/react/Graph3DPreview.tsx", import.meta.url), "utf8");
     const core = readFileSync(new URL("./core/index.ts", import.meta.url), "utf8");
 
@@ -332,8 +332,13 @@ describe("rendering feature dependency boundary", () => {
       /import\s*\{([^}]*)\}\s*from\s*["']@\/features\/rendering\/core["']/,
     );
     expect(pageCanvasCoreImport?.[1]).toContain("getVisibleOverlayShapes");
-    expect(pageCanvasCoreImport?.[1]).toContain("OverlayPreviewStackLayer");
-    expect(pageCanvasCoreImport?.[1]).toContain("TextFlowColumnBlockLayout");
+    for (const [owner, symbol] of [["overlay-preview.tsx", "OverlayPreviewStackLayer"], ["use-page-canvas-measurement.ts", "TextFlowColumnBlockLayout"]]) {
+      const ownerSource = readFileSync(new URL(`../../components/editor/page-canvas/${owner}`, import.meta.url), "utf8");
+      expect(importSpecifiers(pageCanvas)).toContain(`./page-canvas/${owner.replace(/\.tsx?$/, "")}`);
+      const coreImport = ownerSource.match(/import\s*\{([^}]*)\}\s*from\s*["']@\/features\/rendering\/core["']/);
+      expect(coreImport?.[1]).toContain(symbol);
+      expect(ownerSource).not.toMatch(/import[^;]*\b(?:getVisibleOverlayShapes|OverlayPreviewStackLayer)\b[^;]*from\s*["'][^"']*view-cache["']/);
+    }
     expect(viewCacheImport?.[1]).not.toContain("getVisibleOverlayShapes");
     expect(viewCacheImport?.[1]).not.toContain("OverlayPreviewStackLayer");
   });
