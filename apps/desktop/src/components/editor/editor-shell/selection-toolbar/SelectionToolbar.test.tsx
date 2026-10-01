@@ -104,6 +104,14 @@ describe("TextSelectionTools", () => {
     expect(html).toContain('aria-label="フォントサイズ"');
   });
 
+  it("leaves an unresolved size blank and disables only its steppers", () => {
+    const html = render(<TextSelectionTools text={{ ...text, fontSize: null }} />);
+    expect(html).toMatch(/class="selection-toolbar-size-value"[^>]*><\/button>/);
+    expect(html).not.toContain("nullpt");
+    expect(html).not.toContain("12pt");
+    expect(html.match(/disabled=""/g)).toHaveLength(2);
+  });
+
   it("shows a mixed font size as a dash and disables the steppers with the toolbar", () => {
     const html = render(<TextSelectionTools text={{ ...text, enabled: false, fontSizeMixed: true }} />);
     expect(html).toContain(">–<");
