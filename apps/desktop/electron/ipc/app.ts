@@ -1,4 +1,5 @@
-import { app, ipcMain, dialog, shell, type BrowserWindow, type OpenDialogOptions } from "electron";
+import { ipcMain } from "../trusted-ipc";
+import { app, dialog, shell, type BrowserWindow, type OpenDialogOptions } from "electron";
 import crypto from "node:crypto";
 import { existsSync } from "node:fs";
 import fs from "node:fs/promises";

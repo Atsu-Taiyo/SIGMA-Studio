@@ -1,4 +1,4 @@
-import { ipcMain } from "electron";
+import { ipcMain } from "../trusted-ipc";
 
 import { LocalMaterialStore } from "../local-material-store";
 import { LocalTemplateStore } from "../local-template-store";

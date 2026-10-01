@@ -1,4 +1,5 @@
-import { dialog, ipcMain, shell, type BrowserWindow, type OpenDialogOptions } from "electron";
+import { ipcMain } from "./trusted-ipc";
+import { dialog, shell, type BrowserWindow, type OpenDialogOptions } from "electron";
 
 import { assertUsableCliBinPath } from "./cli-spawn";
 import { createCurrentLocaleTranslator } from "@/lib/i18n";

@@ -256,3 +256,6 @@ describe("hidden PDF route", () => {
     expect(resolveHiddenPdfDocumentUrl("file:///tmp/out/index.html?x=1#page")).toBe("file:///tmp/out/print.html");
   });
 });
+
+// These tests isolate handler behavior; sender authorization is tested in trusted-ipc.test.ts.
+vi.mock("../trusted-ipc", async () => ({ ipcMain: (await import("electron")).ipcMain }));
