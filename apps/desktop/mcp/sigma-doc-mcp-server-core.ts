@@ -2997,7 +2997,11 @@ const toolProfile = options.toolProfile ?? (process.env[MCP_TOOL_PROFILE_ENV] ==
 const profileGuidance = toolProfile === "app" ? appMcpToolGuidance : (text: string) => text;
 const renderVisualPreviewDeps = options.renderVisualPreviewDeps ?? createDefaultRenderVisualPreviewDeps();
 const storeContext = createStore();
-void createProposalStore().warmIndex();
+void createProposalStore().warmIndex().catch(() => {
+  // Warmup is optional; the next proposal read retries the real index. A removed
+  // profile or an unavailable disk must not become an unhandled rejection.
+  console.warn("[sigma:mcp] Proposal index warmup failed; the next read will retry.");
+});
 const server = new McpServer(
   {
     name: "sigma-studio-local",
