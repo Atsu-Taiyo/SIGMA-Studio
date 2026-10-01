@@ -1,3 +1,5 @@
+import { fileURLToPath } from "node:url";
+import { readOwnedSourceGraph } from "../../../tests/helpers/owned-source-graph";
 import { describe, expect, it } from "vitest";
 import { readStylesheet as readFileSync } from "../../../tests/helpers/read-stylesheet";
 
@@ -8,9 +10,14 @@ import { createTranslator } from "@/lib/i18n";
  * (`design-tokens.test.ts` と同じ手法)。DOM を伴う振る舞いは e2e が担保する。
  */
 const panelSource = readFileSync(new URL("./GraphSettingsPanel.tsx", import.meta.url), "utf8");
-const editorShellSource = readFileSync(new URL("./EditorShell.tsx", import.meta.url), "utf8");
+const editorShellSource = [...readOwnedSourceGraph(
+  fileURLToPath(new URL("./EditorShell.tsx", import.meta.url)),
+  fileURLToPath(new URL("./editor-shell/", import.meta.url)),
+  fileURLToPath(new URL("../../", import.meta.url)),
+).values()].join("\n");
 const editorSettingsSource = readFileSync(new URL("./EditorSettings.tsx", import.meta.url), "utf8");
-const overlayCanvasSource = readFileSync(new URL("./OverlayCanvasEditorClient.tsx", import.meta.url), "utf8");
+const overlayKeyboardSource = readFileSync(new URL("./overlay-canvas/use-keyboard-controller.ts", import.meta.url), "utf8");
+const overlayKeyboardModel = readFileSync(new URL("./overlay-canvas/selection-command-model.ts", import.meta.url), "utf8");
 const placementSource = readFileSync(new URL("./graph-settings-panel-placement.ts", import.meta.url), "utf8");
 const globalCss = readFileSync(new URL("../../app/globals.css", import.meta.url), "utf8");
 
@@ -58,8 +65,8 @@ describe("GraphSettingsPanel contract", () => {
   it("exempts the panel from the canvas keyboard handler so Delete cannot destroy the graph", () => {
     // backdrop が無いので、パネル内にフォーカスがあるまま Delete / 矢印キーを押すと
     // キャンバスのハンドラに届いて図形が消える・動く。
-    expect(overlayCanvasSource).toContain("keyboardTarget?.closest(NON_MODAL_KEYBOARD_SURFACE_SELECTOR)");
-    expect(overlayCanvasSource).toContain('NON_MODAL_KEYBOARD_SURFACE_SELECTOR = "[data-non-modal-surface], [data-toolbar-popover]"');
+    expect(overlayKeyboardSource).toContain("keyboardTarget?.closest(NON_MODAL_KEYBOARD_SURFACE_SELECTOR)");
+    expect(overlayKeyboardModel).toContain('NON_MODAL_KEYBOARD_SURFACE_SELECTOR = "[data-non-modal-surface], [data-toolbar-popover]"');
   });
 
   it("escapes focus to the panel before a menu item deletes its own anchor", () => {
