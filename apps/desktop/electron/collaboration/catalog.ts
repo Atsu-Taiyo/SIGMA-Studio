@@ -1,3 +1,4 @@
+import { retryDelay } from "./transport";
 import { normalizeWorkspaceLayout } from "@/lib/workspace-tab-groups";
 import { createCurrentLocaleTranslator } from "@/lib/i18n";
 import { shell } from "electron";
@@ -56,7 +57,9 @@ export class DesktopSharedCatalog {
   private operationTail: Promise<unknown> = Promise.resolve();
   private visible = false;
   private visibilityGeneration = 0;
-  private timer?: ReturnType<typeof setInterval>;
+  private timer?: ReturnType<typeof setTimeout>;
+  private pollDelay = 5000;
+  private pollFailures = 0;
   private capabilities?: { value: ServerCollaborationCapabilities; at: number };
   private lastEmitted = "";
   private publish(): void {
@@ -73,6 +76,8 @@ export class DesktopSharedCatalog {
     this.actor = actor;
     this.refreshPending = undefined;
     this.capabilities = undefined;
+    this.pollDelay = 5000;
+    this.pollFailures = 0;
     const generation = ++this.generation;
     this.cache = undefined;
     this.current = { state: actor ? "loading" : "signed-out", actorId: actor, revision: 0 };
@@ -107,14 +112,23 @@ export class DesktopSharedCatalog {
   async setVisible(visible: boolean): Promise<void> {
     const generation = ++this.visibilityGeneration;
     this.visible = visible;
-    if (this.timer) clearInterval(this.timer);
+    if (this.timer) clearTimeout(this.timer);
     this.timer = undefined;
     if (visible) {
+      this.pollDelay = 5000;
       await this.refresh();
       if (!this.visible || generation !== this.visibilityGeneration) return;
-      this.timer = setInterval(() => { if (this.visible) void this.refresh(); }, 5000);
-      this.timer.unref();
+      this.schedulePoll(generation);
     }
+  }
+  private schedulePoll(generation: number): void {
+    this.timer = setTimeout(() => {
+      if (!this.visible || generation !== this.visibilityGeneration) return;
+      void this.refresh().catch(() => {}).finally(() => {
+        if (this.visible && generation === this.visibilityGeneration) this.schedulePoll(generation);
+      });
+    }, Math.min(this.pollDelay, 2_147_483_647));
+    this.timer.unref();
   }
   /** `force` bypasses the short-lived capability cache (explicit refresh, or after a change that can alter entitlements). */
   async refresh(options: { force?: boolean } = {}): Promise<SharedCatalogStatus> {
@@ -141,6 +155,7 @@ export class DesktopSharedCatalog {
     if (!cache) return this.status();
     const generation = this.generation;
     try {
+      const previousRevision = cache.data.revision;
       const known = Object.keys(cache.data.nodes);
       // Capabilities, every delta batch and the local library snapshot are independent
       // reads, so one refresh costs one network round trip instead of one per request.
@@ -172,9 +187,12 @@ export class DesktopSharedCatalog {
       for (const op of Object.values(cache.data.operations)) if (!op.complete) for (const item of op.items) if (item.sharedDocumentId) allowed.set(item.sharedDocumentId as import("@/features/collaboration/model/catalog").SharedDocumentId, "owner");
       for (const intent of Object.values(cache.data.creates)) if (!intent.complete && intent.sharedDocumentId) allowed.set(intent.sharedDocumentId as import("@/features/collaboration/model/catalog").SharedDocumentId, "editor");
       this.sessions.restrict(allowed);
+      this.pollDelay = force || cache.data.revision !== previousRevision || this.pollFailures ? 5000 : Math.min(30_000, this.pollDelay * 2);
+      this.pollFailures = 0;
       this.current = { state: "ready", actorId: cache.data.actorId, revision: cache.data.revision, capabilities };
     } catch (error) {
       if (generation !== this.generation || cache.data.actorId !== this.sessions.actorId()) { await this.account(); return this.status(); }
+      this.pollDelay = retryDelay(++this.pollFailures, error);
       this.current = { ...this.current, state: "offline", error: error instanceof Error ? error.message : String(error) };
     }
     this.publish();
@@ -381,7 +399,7 @@ export class DesktopSharedCatalog {
       }
     });
   }
-  close(): void { ++this.visibilityGeneration; this.visible = false; if (this.timer) clearInterval(this.timer); ++this.generation; }
+  close(): void { ++this.visibilityGeneration; this.visible = false; if (this.timer) clearTimeout(this.timer); ++this.generation; }
   async start(source: LocalSharingTarget): Promise<CatalogSharingDetails> {
     const target = await this.mutate(async cache => {
       const existing = cache.nodeForLocal(source);
