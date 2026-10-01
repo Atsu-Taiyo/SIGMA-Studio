@@ -1,8 +1,10 @@
 "use client";
+import { useEditorHost } from "./editor-shell/editor-host";
+import type { AiEditPreviewState, AiEditReference, AiEditShapeOnlyPreview, AiProposalApplyOutcome, AiDisplayMode, AiSurfaceState } from "./editor-shell/editor-host-contracts";
 import { sessionReadOnlyExtensions } from "./editor-shell/session-read-only-extensions";
 import type { DocumentSessionHost } from "@/features/document-session/contracts";
 import { DocumentSessionContext, DocumentWritableContext } from "./document-session-context";
-import { EMPTY_AI_LOCKED_TARGETS } from "@/features/ai-edit";
+
 import { MaterialLibraryDialogs } from "./editor-shell/material-library-dialogs";
 import { useMaterialLibraryController } from "./editor-shell/use-material-library-controller";
 import { useWorkspaceDocumentCommands } from "./editor-shell/use-workspace-document-commands";
@@ -39,9 +41,9 @@ import  {
 } from "react";
 
 import { APP_READY_EVENT } from "@/components/StartupSplash";
-import { AiEditPanel } from "@/components/editor/AiEditPanel";
-import { AiSettingsDialog } from "@/components/editor/AiSettingsDialog";
-import { AiTaskDock } from "@/components/editor/AiTaskDock";
+
+
+
 import { ChartSettingsPanel } from "@/components/editor/ChartSettingsPanel";
 import { CommandPalette } from "@/components/editor/CommandPalette";
 import { CommandSettingsDialog } from "@/components/editor/CommandSettingsDialog";
@@ -72,9 +74,7 @@ import { VersionHistoryPanel } from "@/components/editor/VersionHistoryPanel";
 import { WorkspaceTabGroupGrid, type WorkspacePaneHandoff, type WorkspacePaneView } from "@/components/editor/WorkspaceTabGroupGrid";
 import { WorkspaceTabStrip } from "@/components/editor/WorkspaceTabStrip";
 import { WindowCloseSaveDialog } from "@/components/editor/WindowCloseSaveDialog";
-import  {
-  AI_INLINE_ANCHOR_OFFSET_Y,
-} from "@/components/editor/ai-inline-placement";
+
 import { HeldBodySelectionOverlay } from "@/components/editor/editor-shell/HeldBodySelectionOverlay";
 import type { EditorChromeValue } from "@/components/editor/editor-shell/chrome/chrome-types";
 import { SelectionToolbarProvider, type SelectionToolbarBinding } from "@/components/editor/editor-shell/selection-toolbar/binding";
@@ -194,34 +194,7 @@ import {
   RIGHT_DOCK_DEFAULT_WIDTH,
   type RightDockState,
 } from "@/features/right-dock/model/right-dock-state";
-import  {
-  AiEditorHost,
-  AI_REFERENCE_TEXT_RANGE_EVENT,
-  aiDocumentWriteInProgressMessage,
-  AiPageCanvasEditor,
-  buildAppliedTurnChangesByTurnId,
-  buildInsertedShapePreviewsByTurnId,
-  buildRestorableProposalsByTurnId,
-  buildSourceReferencesByTurnId,
-  deriveAiProposalPresentation,
-  deriveAiReferenceRequestPlan,
-  deriveAiRunStartTransition,
-  describeAiLockedTargets,
-  findAiLockedTargetsTouched,
-  groupMcpProposalsForPreview,
-  hasAiLockedTargetsTouched,
-  isAiLockedBlock,
-  isAiLockedShapeSelection,
-  useAiLockedTargets,
-  useAiPinnedReferences,
-  useAiWorkspaceTabTitles,
-  useAiProposalActions,
-  useCommentAiRun,
-  type AiEditPreviewState,
-  type AiEditReference,
-  type AiEditShapeOnlyPreview,
-  type AiProposalApplyOutcome,
-} from "@/features/ai-edit";
+
 import  {
   diffDeletedContentIds,
   DocumentHistoryController,
@@ -284,22 +257,13 @@ import  {
   decideAiApprovedDocument,
   trackInFlightSave,
 } from "@/lib/ai-run-applier";
-import { useAiConnection, useClaudeConnection, useGeminiConnection } from "@/lib/ai/ai-connection";
-import { DEFAULT_CLAUDE_AI_EDIT_MODEL, DEFAULT_GEMINI_AI_EDIT_MODEL } from "@/lib/ai/ai-providers";
-import { isAiRunStatusActive, useAiRunSessions } from "@/lib/ai/ai-run-session-store";
-import { deleteAiDataForDocument } from "@/lib/ai/ai-run-controller";
-import { focusSourceReferenceInDocument, resolveSourceReferenceNavigationTarget } from "@/lib/ai/ai-source-reference-navigation";
-import  {
-  closeSurface,
-  isInlineToggleShortcut,
-  openInline,
-  promoteToSidebar,
-  resolveAiSurface,
-  toggleSurface,
-  type AiDisplayMode,
-  type AiSurfaceState,
-} from "@/lib/ai/ai-surface";
-import { runAiEditViaDesktopRuntime } from "@/lib/ai/codex-ai-edit-client";
+
+
+
+
+
+
+
 import { DEFAULT_AI_EDIT_MODEL, DEFAULT_AI_EDIT_REASONING_EFFORT } from "@/lib/ai/sigma-doc-edit-schema";
 import { getAppRouteHref } from "@/lib/app-navigation";
 import { createEmptyEditorDocument } from "@/lib/blank-document";
@@ -738,6 +702,52 @@ function canScrollWithin(
 }
 
 function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, renderSelectionActions, accountAction, commentIdentity, loadCommentMentionCandidates, editorStore }: EditorShellProps & { editorStore: EditorStore }) {
+  const {
+    EMPTY_AI_LOCKED_TARGETS,
+    AiEditPanel,
+    AiSettingsDialog,
+    AiTaskDock,
+    AI_INLINE_ANCHOR_OFFSET_Y,
+    AiEditorHost,
+    AI_REFERENCE_TEXT_RANGE_EVENT,
+    aiDocumentWriteInProgressMessage,
+    AiPageCanvasEditor,
+    buildAppliedTurnChangesByTurnId,
+    buildInsertedShapePreviewsByTurnId,
+    buildRestorableProposalsByTurnId,
+    buildSourceReferencesByTurnId,
+    deriveAiProposalPresentation,
+    deriveAiReferenceRequestPlan,
+    deriveAiRunStartTransition,
+    describeAiLockedTargets,
+    findAiLockedTargetsTouched,
+    groupMcpProposalsForPreview,
+    hasAiLockedTargetsTouched,
+    isAiLockedBlock,
+    isAiLockedShapeSelection,
+    useAiLockedTargets,
+    useAiPinnedReferences,
+    useAiWorkspaceTabTitles,
+    useAiProposalActions,
+    useCommentAiRun,
+    useAiConnection,
+    useClaudeConnection,
+    useGeminiConnection,
+    DEFAULT_CLAUDE_AI_EDIT_MODEL,
+    DEFAULT_GEMINI_AI_EDIT_MODEL,
+    isAiRunStatusActive,
+    useAiRunSessions,
+    deleteAiDataForDocument,
+    focusSourceReferenceInDocument,
+    resolveSourceReferenceNavigationTarget,
+    closeSurface,
+    isInlineToggleShortcut,
+    openInline,
+    promoteToSidebar,
+    resolveAiSurface,
+    toggleSurface,
+    runAiEditViaDesktopRuntime
+  } = useEditorHost().assistance;
   countPerformanceEvent("EditorShell.render");
   // クロームの文言。`renderEditorChrome` は hook を呼べないので、ここで解決して
   // `chrome.shared.t` から配る。同一ロケール内では参照が変わらない。
@@ -1056,7 +1066,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
       left: viewportAnchor.left,
       top: viewportAnchor.top + AI_INLINE_ANCHOR_OFFSET_Y,
     }, pageCanvasRef.current));
-  }, []);
+  }, [AI_INLINE_ANCHOR_OFFSET_Y]);
 
   const handleInlineRunAnchorChange = useCallback((anchor: { left: number; top: number } | null) => {
     setAiInlineRunAnchor(anchor);
@@ -1105,7 +1115,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
   );
   const mcpProposalPreview = useMemo(
     () => groupMcpProposalsForPreview(mcpEditProposals, activeFileId, activeDocumentRevision, tAi),
-    [mcpEditProposals, activeFileId, activeDocumentRevision],
+    [groupMcpProposalsForPreview, mcpEditProposals, activeFileId, activeDocumentRevision],
   );
   const aiRunSessions = useAiRunSessions();
   const aiProposalPresentation = useMemo(
@@ -1115,7 +1125,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
       activeFileId,
       isAiRunStatusActive,
     ),
-    [activeFileId, aiRunSessions, mcpProposalPreview.groups],
+    [activeFileId, aiRunSessions, deriveAiProposalPresentation, isAiRunStatusActive, mcpProposalPreview.groups],
   );
   // AI編集のロックは対象単位。live run が握っている anchor (ユーザーが依頼時に明示的に
   // 渡したブロック/図形) と、pending提案が実際に書き換える対象だけが読み取り専用になり、
@@ -1185,7 +1195,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
         selection?.removeAllRanges();
       }
     });
-  }, [activeFileId, aiRunSessions, clearAiEditPinnedReferences]);
+  }, [activeFileId, aiRunSessions, clearAiEditPinnedReferences, deriveAiRunStartTransition, isAiRunStatusActive]);
   // 決定B: baseRevision一致の pending proposal は runId (帰属不明なら "unattributed")
   // ごとに独立したプレビュー単位になる。各グループが自分の apply/dismiss を持つ。
   // AI run が書き込みtoolを複数回呼ぶ途中では、proposal watcherが同じカードを何度も
@@ -1205,13 +1215,13 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
   // の sourceReferences を集約・重複排除する。適用後もチップを残すため pending 専用にしない。
   const sourceReferencesByTurnId = useMemo(
     () => buildSourceReferencesByTurnId(mcpProposalCitations),
-    [mcpProposalCitations],
+    [buildSourceReferencesByTurnId, mcpProposalCitations],
   );
   const insertedShapePreviewsByTurnId = useMemo(
     () => buildInsertedShapePreviewsByTurnId(
       mcpProposalCitations.filter((proposal) => proposal.fileId === activeFileId),
     ),
-    [activeFileId, mcpProposalCitations],
+    [activeFileId, buildInsertedShapePreviewsByTurnId, mcpProposalCitations],
   );
   // AIチャット履歴の各 assistant turn に「復元」ボタンを出すかどうかの判定。turnId ごとに
   // 最新の提案が rejected/reverted のときだけ復元可能 (pending/approvedのターンは対象外)。
@@ -1219,7 +1229,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
   // だけ追加する)。
   const restorableProposalsByTurnId = useMemo(
     () => buildRestorableProposalsByTurnId(mcpProposalCitations),
-    [mcpProposalCitations],
+    [buildRestorableProposalsByTurnId, mcpProposalCitations],
   );
   const appliedChangesByTurnId = useMemo(
     () => buildAppliedTurnChangesByTurnId(
@@ -1229,7 +1239,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
       document.pageLayout?.overlay?.overlaySnapshot?.shapes ?? [],
       tAi,
     ),
-    [activeDocumentRevision, activeFileId, document.pageLayout?.overlay?.overlaySnapshot?.shapes, mcpProposalCitations],
+    [activeDocumentRevision, activeFileId, buildAppliedTurnChangesByTurnId, document.pageLayout?.overlay?.overlaySnapshot?.shapes, mcpProposalCitations],
   );
   const commentAnchorCandidate = useStore(editorStore, (state) => state.commentAnchorCandidate);
   const pendingCommentAnchor = useStore(editorStore, (state) => state.pendingCommentAnchor);
@@ -2176,7 +2186,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
       editorTabViewStateByFileIdRef.current.delete(fileId);
     }
     return { ok: true };
-  }, [sessionHost]);
+  }, [deleteAiDataForDocument, sessionHost]);
 
   const finishWindowCloseSave = useCallback(async (action: "ready" | "cancel") => {
     const desktopApp = getDesktopBridge()?.app;
@@ -2457,22 +2467,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
     } finally {
       setLoadingFileId(null);
     }
-  }, [
-    enterDocumentOpenFailureState,
-    loadWorkspaceDocument,
-    openFileIds,
-    refreshDocumentMetadatas,
-    rememberLeavingEditorTabViewState,
-    resetEditorDocument,
-    saveWorkspaceState,
-    saveCurrentDocumentBeforeReplacement,
-    setSaveState,
-    setSelectedId,
-    setSelectedInlineMath,
-    setStatusMessage,
-    showRecordedDocumentOpenFailure,
-    workspaceReady,
-  ]);
+  }, [openFileIds, focusSourceReferenceInDocument, setSelectedInlineMath, setSelectedId, setStatusMessage, workspaceReady, rememberLeavingEditorTabViewState, loadWorkspaceDocument, resolveSourceReferenceNavigationTarget, resetEditorDocument, saveWorkspaceState, refreshDocumentMetadatas, setSaveState, saveCurrentDocumentBeforeReplacement, showRecordedDocumentOpenFailure, enterDocumentOpenFailureState]);
 
   /**
    * ズームの唯一の入口。リボンの ±/選択、⌘+/⌘-、ホイール、右下コントロールが全部ここを通る。
@@ -2920,7 +2915,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
       setPendingDeletion({ revision: deletionSeqRef.current, deletedIds });
     }
     return true;
-  }), [documentHistory, setStatusMessage, t]);
+  }), [aiDocumentWriteInProgressMessage, describeAiLockedTargets, documentHistory, findAiLockedTargetsTouched, hasAiLockedTargetsTouched, setStatusMessage, t]);
 
   const materialLibrary = useMaterialLibraryController({
     documentRef,
@@ -3148,7 +3143,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
       return;
     }
     setStatusMessage(direction === "undo" ? tEditor("status.undone") : tEditor("status.redone"));
-  }, [documentHistory, refreshMcpEditProposals, setActiveCommentThreadId, setCommentAnchorCandidate, setPendingCommentAnchor, setSelectedId, setSelectedInlineMath, setStatusMessage, t]);
+  }, [aiDocumentWriteInProgressMessage, describeAiLockedTargets, documentHistory, findAiLockedTargetsTouched, hasAiLockedTargetsTouched, refreshMcpEditProposals, setActiveCommentThreadId, setCommentAnchorCandidate, setPendingCommentAnchor, setSelectedId, setSelectedInlineMath, setStatusMessage, t]);
 
   const undoDocumentChange = useCallback(() => {
     restoreDocumentHistory("undo");
@@ -5977,7 +5972,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
     // re-showing a prior turn's result) each time it is opened.
     setAiInlineSessionId((current) => current + 1);
     applyAiSurface(openInline());
-  }, [applyAiSurface, isDesktopApp, setVersionHistoryOpen]);
+  }, [applyAiSurface, isDesktopApp, openInline, setVersionHistoryOpen]);
 
   const promoteAiToSidebar = useCallback(() => {
     if (!isDesktopApp) {
@@ -5988,7 +5983,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
     setAiInlineRunAnchorCanvas(null);
     // 会話があっても、本文と同じ大きさのタブにはしない。右のサイドバーに開いて、本文と並べて使う。
     applyAiSurface(promoteToSidebar());
-  }, [applyAiSurface, isDesktopApp, setVersionHistoryOpen]);
+  }, [applyAiSurface, isDesktopApp, promoteToSidebar, setVersionHistoryOpen]);
 
   // サイドバーを開く。開いていたページに戻り、無ければ Hub を出す。版履歴と同じ列を使うので、開くときは版履歴を閉じる。
   const openRightDockSurface = useCallback(() => {
@@ -6028,7 +6023,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
     setVersionHistoryOpen(false);
     setAiFocusRoomRequest({ roomId, seq: Date.now() });
     applyAiSurface(promoteToSidebar());
-  }, [applyAiSurface, setVersionHistoryOpen]);
+  }, [applyAiSurface, promoteToSidebar, setVersionHistoryOpen]);
 
   // AIタスクDockの「他のドキュメント」行: その教材へ移り、部屋があればAIチャットでも開く。
   // 移動に失敗した (保存できない・読み込めない) ときは、元の教材でチャットを開かない。
@@ -6074,7 +6069,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
         clearAiEditPreview();
       }
     }
-  }, [aiDisplayMode, aiInlineOpen, applyAiSurface, clearAiEditPinnedReferences, clearAiEditPreview]);
+  }, [aiDisplayMode, aiInlineOpen, applyAiSurface, clearAiEditPinnedReferences, clearAiEditPreview, closeSurface]);
 
   // サイドバー右上の ×。開いているページは残したまま、サイドバーだけを閉じる (開き直すと同じページに戻る)。
   const collapseRightDock = useCallback(() => setRightDock(closeRightDock), [setRightDock]);
@@ -6132,7 +6127,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
     return () => {
       window.dispatchEvent(new CustomEvent(AI_REFERENCE_TEXT_RANGE_EVENT, { detail: { anchors: [] } }));
     };
-  }, [aiEditPinnedReferences, aiReferenceHighlightActive]);
+  }, [AI_REFERENCE_TEXT_RANGE_EVENT, aiEditPinnedReferences, aiReferenceHighlightActive]);
 
   // ピン留めした textSelection の textRange は、pinした時点のブロック内容に対する文字
   // オフセットのスナップショット。このコードベースには、編集トランザクションに合わせて
@@ -6183,7 +6178,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
       setSelectedId(requestPlan.selectionAction.targetId);
     }
     setStatusMessage(requestPlan.statusMessage);
-  }, [aiDisplayMode, aiInlineOpen, aiSidebarOpen, openAiInline, pinAiEditPinnedReference, setSelectedId, setStatusMessage]);
+  }, [aiDisplayMode, aiInlineOpen, aiSidebarOpen, deriveAiReferenceRequestPlan, openAiInline, pinAiEditPinnedReference, setSelectedId, setStatusMessage]);
 
   const updateAiEditReferenceCandidate = useCallback((reference: AiEditReference | null) => {
     if (!reference && pinAiTextSelectionReference) {
@@ -6337,28 +6332,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
     };
     window.addEventListener("keydown", handleInlineShortcut, true);
     return () => window.removeEventListener("keydown", handleInlineShortcut, true);
-  }, [
-    aiDisplayMode,
-    aiSidebarOpen,
-    aiInlineOpen,
-    applyAiSurface,
-    closeAiSurface,
-    openAiInline,
-    commandSettingsOpen,
-    texCommandReferenceOpen,
-    commandSettingsError,
-    commandSettingsLoaded,
-    pageSettingsOpen,
-    documentListOpen,
-    previewOpen,
-    aiSettingsOpen,
-    desktopSettingsOpen,
-    materialLibraryOpen,
-    ribbonBackstageOpen,
-    commandPaletteOpen,
-    customCommands,
-    shortcutOverrides,
-  ]);
+  }, [aiDisplayMode, aiSidebarOpen, aiInlineOpen, applyAiSurface, closeAiSurface, openAiInline, commandSettingsOpen, texCommandReferenceOpen, commandSettingsError, commandSettingsLoaded, pageSettingsOpen, documentListOpen, previewOpen, aiSettingsOpen, desktopSettingsOpen, materialLibraryOpen, ribbonBackstageOpen, commandPaletteOpen, customCommands, shortcutOverrides, isInlineToggleShortcut, toggleSurface]);
 
   // 導出は毎回新しい配列を作るので、useMemo の中で 1 回だけ呼ぶ。裸で呼ぶと本文と無関係な
   // 再レンダー (メニュー・選択・フォーカス) のたびに nodes の参照が変わり、タイトル・タブ・

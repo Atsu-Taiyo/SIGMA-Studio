@@ -1,20 +1,15 @@
 import { useCallback, useEffect, type RefObject } from "react";
-import type { InlineNode, SigmaCommentAnchor } from "@sigma-studio/viewer";
+import type { InlineNode, SigmaCommentAnchor } from "@/features/document";
 
-import { PageCanvasEditor } from "@sigma-studio/editor-internal/page-canvas-editor";
+import { createCurrentLocaleTranslator } from "@/lib/i18n";
+import { PageCanvasEditor } from "../PageCanvasEditor";
+import type { EditorAssistanceServices, EditorHostServices } from "./editor-host-contracts";
 
 const EMPTY_ARRAY: never[] = [];
 const EMPTY_MAP = new Map();
 export function useAiWorkspaceTabTitles(): ReadonlyMap<string, string> { return EMPTY_MAP; }
 
-// Workspace tabs can inspect this store even when the embedded tab UI is hidden.
-// Keep its snapshot stable and never initialize desktop persistence or providers.
-export const aiChatRoomsStore = {
-  subscribe: (_listener: () => void): (() => void) => () => undefined,
-  getSnapshot: (): never[] => EMPTY_ARRAY,
-  getActiveRoomId: (_documentIdentityKey: string): null => null,
-};
-export async function deleteAiDataForDocument(_documentIdentityKey: string): Promise<void> {
+export async function deleteAiDataForDocument(): Promise<void> {
   return undefined;
 }
 
@@ -26,7 +21,8 @@ const EMPTY_LOCKED_TARGETS = {
   runShapeIds: new Set<string>(),
 };
 export const EMPTY_AI_LOCKED_TARGETS = EMPTY_LOCKED_TARGETS;
-const AI_UNAVAILABLE_REASON = "AI編集は公開Editorに含まれていません";
+const tAi = createCurrentLocaleTranslator("ai");
+const unavailableReason = () => tAi("host.unavailable");
 const EMPTY_PREVIEW_CLEAR_REQUEST = { seq: 0, outcome: "dismissed" as const };
 
 type CommentSubmissionHandler = (threadId: string, body: InlineNode[], anchor: SigmaCommentAnchor) => void;
@@ -40,7 +36,7 @@ const clearDisabledAiPreview: (
 ) => void = () => undefined;
 
 const unavailableProposalOperation: (proposalIds: string | string[]) => Promise<{ ok: false; reason: string }> = async () => (
-  { ok: false, reason: AI_UNAVAILABLE_REASON }
+  { ok: false, reason: unavailableReason() }
 );
 
 const ignoreProposalOperation: (proposalIds?: string[], reason?: string) => Promise<void> = async () => undefined;
@@ -58,21 +54,13 @@ const DISABLED_PROPOSAL_ACTIONS = {
   restoreProposalFromHistory: unavailableProposalOperation,
   revertAppliedProposals: unavailableProposalOperation,
 };
-
-export const AI_APPLY_ADD_FLASH_MS = 0;
-export const AI_APPLY_REMOVE_ANIMATION_MS = 0;
 // AI 無効ビルドではロック自体が起きないので空文字。**関数形なのは本体に合わせるため**
 // (本体は表示直前のロケールで解決する — `features/ai-edit/adapters/tiptap/edit-lock-adapter.ts`)。
 export function aiDocumentWriteInProgressMessage(): string {
   return "";
 }
 export const AI_REFERENCE_TEXT_RANGE_EVENT = "sigma-editor:disabled-reference";
-export const AI_SIDEBAR_WIDTH = 0;
 export const AI_INLINE_ANCHOR_OFFSET_Y = 0;
-export const AI_INLINE_DEFAULT_LEFT_PX = 0;
-export const AI_INLINE_DEFAULT_TOP_PX = 0;
-export const DEFAULT_AI_EDIT_MODEL = "";
-export const DEFAULT_AI_EDIT_REASONING_EFFORT = "medium";
 export const DEFAULT_CLAUDE_AI_EDIT_MODEL = "";
 export const DEFAULT_GEMINI_AI_EDIT_MODEL = "";
 
@@ -80,7 +68,7 @@ export function AiEditPanel() {
   return null;
 }
 
-export const AiEditorHost: (props: Record<string, unknown>) => null = () => null;
+export const AiEditorHost: EditorAssistanceServices["AiEditorHost"] = () => null;
 
 export function AiTaskDock() {
   return null;
@@ -90,31 +78,14 @@ export function AiSettingsDialog() {
   return null;
 }
 
-export function AiPageCanvasEditor({
-  aiEnabled: _aiEnabled,
-  aiEditPreviewGroups: _aiEditPreviewGroups,
-  aiEditPreviewApplying: _aiEditPreviewApplying,
-  aiApplyAnimation: _aiApplyAnimation,
-  onAiReferenceRequest: _onAiReferenceRequest,
-  onAiReferenceCandidateChange: _onAiReferenceCandidateChange,
-  onAiEditPreviewApply: _onAiEditPreviewApply,
-  onAiEditPreviewDismiss: _onAiEditPreviewDismiss,
-  onOpenSourceDocument: _onOpenSourceDocument,
-  pinAiTextSelectionReference: _pinAiTextSelectionReference,
-  onInlineRunPortalReady: _onInlineRunPortalReady,
-  documentIdentityKey: _documentIdentityKey,
-  aiDocumentEditLockReason: _aiDocumentEditLockReason,
-  documentWorkspaceId: _documentWorkspaceId,
-  onFocusAiSession: _onFocusAiSession,
-  ...pageCanvasProps
-}: Record<string, unknown>) {
-  return <PageCanvasEditor {...pageCanvasProps} />;
-}
+const AiPageCanvasEditor: EditorAssistanceServices["AiPageCanvasEditor"] = (props) => (
+  <PageCanvasEditor {...props} />
+);
 
 export function useAiPinnedReferences() {
   const clear = useCallback(() => undefined, []);
   const pin = useCallback(() => ({
-    outcome: "unavailable",
+    outcome: "limit" as const,
     referenceKey: "",
     references: EMPTY_ARRAY,
   }), []);
@@ -179,7 +150,7 @@ export function isAiRunStatusActive() {
 export function useAiConnection() {
   return {
     status: null,
-    state: resolveAiConnectionState(null),
+    state: resolveAiConnectionState(),
     loading: false,
     busy: false,
     pendingLogin: false,
@@ -193,11 +164,11 @@ export function useAiConnection() {
 export const useClaudeConnection = useAiConnection;
 export const useGeminiConnection = useAiConnection;
 
-export function resolveAiConnectionState(_status?: unknown) {
+export function resolveAiConnectionState() {
   return {
-    kind: "unavailable",
-    tone: "muted",
-    label: "公開Editorでは利用できません",
+    kind: "unavailable" as const,
+    tone: "muted" as const,
+    label: unavailableReason(),
     accountLabel: null,
   };
 }
@@ -249,21 +220,17 @@ export function buildAppliedTurnChangesByTurnId() {
   return new Map();
 }
 
-export function normalizeAiProposalIds(ids: string[] = []) {
-  return [...new Set(ids.filter(Boolean))];
-}
-
 export function resolveAiSurface() {
   return {
     hostVisible: false,
-    hostClassName: "ai-chat-host--inline",
+    hostClassName: "ai-chat-host--inline" as const,
     gridHasAiColumn: false,
     catcherVisible: false,
   };
 }
 
 export function closeSurface() {
-  return { displayMode: "inline", aiSidebarOpen: false, aiInlineOpen: false };
+  return { displayMode: "inline" as const, aiSidebarOpen: false, aiInlineOpen: false };
 }
 
 export const openInline = closeSurface;
@@ -274,103 +241,12 @@ export function isInlineToggleShortcut() {
   return false;
 }
 
-export function getAiInlineDragPosition(position: { left: number; top: number }) {
-  return position;
-}
-
-export const getAiInlineHostPosition = getAiInlineDragPosition;
-
-export function getAiInlineTopBoundary() {
-  return 0;
-}
-
-export function deriveAiEditPreviewDiff() {
-  return { addedIds: EMPTY_ARRAY, removedIds: EMPTY_ARRAY, changedIds: EMPTY_ARRAY };
-}
-
-export function buildAiProposalApplyContext() {
-  return null;
-}
-
-export function deriveAiProposalApplyDecision() {
-  return {
-    appliedProposalIds: EMPTY_ARRAY,
-    failedProposalIds: EMPTY_ARRAY,
-    highlightIds: EMPTY_ARRAY,
-  };
-}
-
-export function deriveAiProposalBusyGuardFeedback(
-  busy: boolean,
-  statusMessage: string,
-  notify: (message: string) => void,
-) {
-  if (!busy) {
-    return null;
-  }
-  notify(statusMessage);
-  return {
-    statusMessage,
-    outcome: { ok: false, reason: "他の操作が進行中です" },
-  };
-}
-
-export function deriveAiProposalApprovedFileFeedback({
-  activeDocumentStatusMessage = "",
-}: {
-  activeDocumentStatusMessage?: string;
-} = {}) {
-  return {
-    kind: "paint-active-document",
-    statusMessage: activeDocumentStatusMessage,
-  };
-}
-
-export function deriveAiProposalDismissEffects() {
-  return EMPTY_ARRAY;
-}
-
-export function deriveAiStaleProposalDiscardEffects() {
-  return EMPTY_ARRAY;
-}
-
-export function deriveAiProposalResolutionTargets() {
-  return EMPTY_ARRAY;
-}
-
 export function deriveAiReferenceRequestPlan() {
-  return { shouldOpenInline: false, shouldFocusComposer: false };
+  return { surfaceAction: "keepActiveSurface" as const, inlineAnchor: null, selectionAction: { type: "preserve" as const, selectedId: null }, statusMessage: "" };
 }
 
-export function buildCommentAiRunRequestPlan() {
-  return null;
-}
-
-export function deriveCommentAiRunEligibility() {
-  return { eligible: false, reason: "AI編集は公開Editorに含まれていません" };
-}
-
-export function derivePostApplyHighlightIds() {
-  return EMPTY_ARRAY;
-}
-
-export function findAiProposalGroupByIds() {
-  return undefined;
-}
-
-export function selectPrimaryAiProposalIdForRevert() {
-  return null;
-}
-
-export function selectSequentialAiRevertProposalIds(
-  _proposals: unknown,
-  proposalIds: string[] = [],
-) {
-  return proposalIds.length > 0 ? [proposalIds[0]] : [];
-}
-
-export async function runAiEditViaDesktopRuntime() {
-  throw new Error(AI_UNAVAILABLE_REASON);
+export async function runAiEditViaDesktopRuntime(): Promise<never> {
+  throw new Error(unavailableReason());
 }
 
 export function focusSourceReferenceInDocument() {
@@ -378,9 +254,57 @@ export function focusSourceReferenceInDocument() {
 }
 
 export function resolveSourceReferenceNavigationTarget() {
-  return { selectionId: null };
+  return { selectionId: null, highlightId: null, highlightKind: "block" as const };
 }
 
-export function submitRejectionFeedback() {
-  return undefined;
-}
+const disabledAssistance: EditorAssistanceServices = {
+  EMPTY_AI_LOCKED_TARGETS,
+  AiEditPanel,
+  AiSettingsDialog,
+  AiTaskDock,
+  AI_INLINE_ANCHOR_OFFSET_Y,
+  AiEditorHost,
+  AI_REFERENCE_TEXT_RANGE_EVENT,
+  aiDocumentWriteInProgressMessage,
+  AiPageCanvasEditor,
+  buildAppliedTurnChangesByTurnId,
+  buildInsertedShapePreviewsByTurnId,
+  buildRestorableProposalsByTurnId,
+  buildSourceReferencesByTurnId,
+  deriveAiProposalPresentation,
+  deriveAiReferenceRequestPlan,
+  deriveAiRunStartTransition,
+  describeAiLockedTargets,
+  findAiLockedTargetsTouched,
+  groupMcpProposalsForPreview,
+  hasAiLockedTargetsTouched,
+  isAiLockedBlock,
+  isAiLockedShapeSelection,
+  useAiLockedTargets,
+  useAiPinnedReferences,
+  useAiWorkspaceTabTitles,
+  useAiProposalActions,
+  useCommentAiRun,
+  useAiConnection,
+  useClaudeConnection,
+  useGeminiConnection,
+  DEFAULT_CLAUDE_AI_EDIT_MODEL,
+  DEFAULT_GEMINI_AI_EDIT_MODEL,
+  isAiRunStatusActive,
+  useAiRunSessions,
+  deleteAiDataForDocument,
+  focusSourceReferenceInDocument,
+  resolveSourceReferenceNavigationTarget,
+  closeSurface,
+  isInlineToggleShortcut,
+  openInline,
+  promoteToSidebar,
+  resolveAiSurface,
+  toggleSurface,
+  runAiEditViaDesktopRuntime,
+  resolveAiConnectionState,
+  resolveClaudeConnectionState,
+  resolveGeminiConnectionState,
+};
+
+export const DEFAULT_EDITOR_HOST: EditorHostServices = { assistance: disabledAssistance };

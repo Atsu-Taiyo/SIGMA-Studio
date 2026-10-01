@@ -7,6 +7,9 @@ import type { DocumentSession, DocumentSessionHost } from "@/features/document-s
 import type { DocumentMetadata } from "@/lib/storage";
 import { aiWorkspaceTab, createSingleGroupWorkspaceLayout, documentWorkspaceTab } from "@/lib/workspace-tab-groups";
 import { DocumentSessionContext, DocumentWritableContext, useDocumentSession, useDocumentWritable } from "./document-session-context";
+import { EditorHostProvider } from "./editor-shell/editor-host";
+import { DEFAULT_EDITOR_HOST } from "./editor-shell/editor-host-defaults";
+import { AiEditPanel } from "./AiEditPanel";
 import { WorkspaceTabGroupGrid } from "./WorkspaceTabGroupGrid";
 
 const bridge = vi.hoisted(() => ({ load: vi.fn(), listeners: new Set<(event: { type: string; fileId: string }) => void>() }));
@@ -51,9 +54,9 @@ async function render(host?: DocumentSessionHost, ai = false, metadata: Document
   const tab = ai ? aiWorkspaceTab("room", "target") : documentWorkspaceTab("target");
   layout.groups[0].tabs = [tab]; layout.groups[0].activeTabId = tab.id;
   await act(async () => root.render(
-    <DocumentSessionContext.Provider value={fixture().session}><DocumentWritableContext.Provider value={true}>
+    <EditorHostProvider services={{ assistance: { ...DEFAULT_EDITOR_HOST.assistance, AiEditPanel } }}><DocumentSessionContext.Provider value={fixture().session}><DocumentWritableContext.Provider value={true}>
       <WorkspaceTabGroupGrid layout={layout} metadata={metadata} activeFileId="other" sessionHost={host} paneView={paneView} onFocusGroup={onFocusGroup} onMoveTab={vi.fn()} onSplitTab={vi.fn()} onResizeSplit={vi.fn()}><div>active editor</div></WorkspaceTabGroupGrid>
-    </DocumentWritableContext.Provider></DocumentSessionContext.Provider>,
+    </DocumentWritableContext.Provider></DocumentSessionContext.Provider></EditorHostProvider>,
   ));
 }
 it("denies detached viewer AI despite writable active document context and reacts to authority", async () => {
