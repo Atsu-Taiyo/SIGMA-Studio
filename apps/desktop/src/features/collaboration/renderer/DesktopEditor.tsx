@@ -5,6 +5,8 @@ import {
   EditorShell,
   type EditorShellProps,
 } from "@/components/editor/EditorShell";
+import { EditorHostProvider } from "@/components/editor/editor-shell/editor-host";
+import { DESKTOP_EDITOR_HOST } from "@/components/editor/editor-shell/desktop-editor-host";
 import { getDesktopBridge } from "@/lib/desktop-bridge";
 import { RendererDocumentSession } from "./session";
 import { SelectionLinkButton } from "./SelectionLinkButton";
@@ -182,6 +184,7 @@ export function DesktopEditor() {
   if (bootError) throw bootError;
   if (!info) return null;
   return (
+    <EditorHostProvider services={DESKTOP_EDITOR_HOST}>
     <EditorShell
       sessionHost={host}
       commentIdentity={commentIdentity}
@@ -191,5 +194,6 @@ export function DesktopEditor() {
         ? <SelectionLinkButton key={`${fileId}:${JSON.stringify(anchor)}`} target={metadata.sharing.target} anchor={anchor} title={document.metadata.title} /> : null}
       accountAction={<CollaborationAccountControl info={info} refresh={refresh} />}
     />
+    </EditorHostProvider>
   );
 }

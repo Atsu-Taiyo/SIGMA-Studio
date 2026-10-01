@@ -3,6 +3,7 @@ import type { TranslationsOf } from "../types";
 
 /** 対応する日本語 namespace と同時に埋める。詳細は `../ja/ai.ts` を参照。 */
 export const ai = {
+  host: { unavailable: "AI editing is unavailable in the public Editor" },
   problemSearch: {
     loginRequired: "Sign in to Sigma Studio to search problems.",
     invalidQuery: "The search parameters are invalid.",

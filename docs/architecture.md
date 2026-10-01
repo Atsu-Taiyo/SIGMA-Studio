@@ -60,7 +60,7 @@ AI編集toolの拡張計画は `docs/ai-edit-tool-roadmap.md` に置きます。
 
 共有AIは本人のローカルMCPがmainの現在の投影を読み、private proposalを既存UIへ返す。承認時はサーバーで権限・対象と参照元のハッシュ・冪等操作IDを検証する。共有中は従来の長時間予約と自動rebase/自動承認を使用しない。UndoはYjsの選択的履歴へ接続する。
 
-共有カタログの読み取りはElectron mainの`DesktopSharedCatalog`が所有する。表示中は5秒ごとに差分を取得し、能力情報・差分・ローカル走査は同時に読む。能力情報は30秒だけキャッシュし、明示的な更新と変更操作の後にだけ再取得する。共有者の取得は同期と並列に行い、キャッシュ済みの対象が同期中に失効した場合は同期後の状態で判定し直す。フォルダ・ワークスペースの共有は、親を先に確定できるようフォルダを順に、教材の本文アップロードは最大4件を並列に処理する。ローカルのカタログキャッシュは内容が変わったときだけ`fsync`付きで書く。
+共有カタログの読み取りはElectron mainの`DesktopSharedCatalog`が所有する。表示中の初回差分取得は5秒後で、revisionが変わらなければ間隔を倍増して最大30秒にする。revision更新の観測と明示的な再取得では5秒に戻す。失敗時はequal-jitter付き指数バックオフを最大60秒まで使い、`Retry-After`があればその最小待機時間も守る。画面が非表示の間は次の取得を予約しない。能力情報・差分・ローカル走査は同時に読む。能力情報は30秒だけキャッシュし、明示的な更新と変更操作の後にだけ再取得する。共有者の取得は同期と並列に行い、キャッシュ済みの対象が同期中に失効した場合は同期後の状態で判定し直す。フォルダ・ワークスペースの共有は、親を先に確定できるようフォルダを順に、教材の本文アップロードは最大4件を並列に処理する。ローカルのカタログキャッシュは内容が変わったときだけ`fsync`付きで書く。
 
 共同編集の利用方法は [共同編集ガイド](collaboration-user-guide.md) を参照。
 
@@ -190,7 +190,7 @@ clockと状態書込先を受け取るprocess共通のinstanceを使い、tool h
 4. HTML・React・SVGなど出力先ごとの必要最小限のadapter。React adapterでは本文・図中文字・印刷の静的数式／本文描画を共有
 5. selection・history・snapshot操作など、UIから段階的に移すheadless application logic
 
-Electron、workspace保存、ローカルMCP、AI provider、proposal承認、認証は公開描画engineに含めません。`@sigma-studio/viewer`と`@sigma-studio/editor`は公開境界として固定し、Editorはデスクトップ`EditorShell`と汎用editor componentを再利用します。ただしAI編集はデスクトップ専用拡張とし、公開Editorのbuildでは`features/ai-edit`、`lib/ai`、AI UI componentへの依存を無効なadapterへ差し替えます。esbuildの入力一覧にデスクトップ専用AI moduleが現れた場合はbuildを失敗させ、UIを非表示にするだけで実装moduleを公開bundleへ残す構成を許可しません。一方、UI非依存で個別利用できるheadless drawing/editor coreは、リポジトリ内のimport境界とcharacterization testでAPI候補を安定させてから切り出します。旧Tiptap形式のoverlay rich textは読み込みmigrationだけでsemantic形式へ変換する互換層であり、公開coreや保存データへ戻しません。
+Electron、workspace保存、ローカルMCP、AI provider、proposal承認、認証は公開描画engineに含めません。`@sigma-studio/viewer`と`@sigma-studio/editor`は公開境界として固定し、Editorはデスクトップ`EditorShell`と汎用editor componentを再利用します。AI編集はデスクトップ専用拡張です。EditorShellと設定・背景ペインは`editor-shell/editor-host.tsx`のhost servicesを読み、DesktopEditorが`desktop-editor-host.ts`の実装を明示的に注入します。公開Editorはproviderを渡さず、安定した空snapshot、書き込みを行わないproposal action、描画しないAI viewを既定hostとして使います。AI moduleを公開buildのaliasで差し替える構成は使いません。hostはmount時に確定し、hook実装の異なるhostへの切替にはremountが必要です。現在の`EditorAssistanceServices`はUI application境界の移行契約で、既存のAI関数の入力・出力型をtype-onlyで参照しています。provider/controllerをまとめた小さな契約への整理は残っています。文書model、描画core、基底canvas/editorの汎用契約からこの移行契約を参照してはいけません。esbuildの入力一覧にデスクトップ専用AI moduleが現れた場合はbuildを失敗させ、UIを非表示にするだけで実装moduleを公開bundleへ残す構成を許可しません。一方、UI非依存で個別利用できるheadless drawing/editor coreは、リポジトリ内のimport境界とcharacterization testでAPI候補を安定させてから切り出します。旧Tiptap形式のoverlay rich textは読み込みmigrationだけでsemantic形式へ変換する互換層であり、公開coreや保存データへ戻しません。
 
 ## Design Principles
 

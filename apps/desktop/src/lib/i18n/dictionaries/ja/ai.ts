@@ -10,6 +10,7 @@
  * (WI-4 で実測)。
  */
 export const ai = {
+  host: { unavailable: "AI編集は公開Editorに含まれていません" },
   problemSearch: {
     loginRequired: "問題を検索するにはSigma Studioにログインしてください。",
     invalidQuery: "検索条件が不正です。",

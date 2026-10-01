@@ -2,7 +2,7 @@
 
 import { type ReactNode, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
-import { AiEditPanel } from "@/components/editor/AiEditPanel";
+import { useEditorHost } from "./editor-shell/editor-host";
 import type { CommentPanelAuthor } from "@/components/editor/CommentThreadsPanel";
 import { DocumentSessionContext, DocumentWritableContext } from "./document-session-context";
 import { BASE_EDITOR_FONT_SIZE, EMPTY_OVERLAY_SELECTION } from "@/components/editor/editor-shell/constants";
@@ -248,6 +248,7 @@ function BackgroundTabContent({
   onOpenAiSettings?: () => void;
 }) {
   const t = useT("editor");
+  const { AiEditPanel } = useEditorHost().assistance;
   const fileId = tab.kind === "document" ? tab.fileId : tab.documentFileId;
   const [document, setDocument] = useState<SigmaDocument | null>(null);
   const [writable, setWritable] = useState(false);
