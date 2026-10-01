@@ -69,8 +69,12 @@ describe("resolveOverlayCommitOptions", () => {
  * 掴み直しが挟む保存やテスト自身の遅さに隠れてしまう。**変異を当てて赤くなる形**として
  * 残せたのはソースの構造なので、そこを名指しで固定する。
  */
-const overlaySource = readFileSync(
-  fileURLToPath(new URL("./OverlayCanvasEditorClient.tsx", import.meta.url)),
+const overlaySaveSource = readFileSync(
+  fileURLToPath(new URL("./overlay-canvas/use-overlay-save-effects.ts", import.meta.url)),
+  "utf8",
+);
+const overlayClipboardSource = readFileSync(
+  fileURLToPath(new URL("./overlay-canvas/use-overlay-clipboard.ts", import.meta.url)),
   "utf8",
 );
 const textFlowSource = readFileSync(
@@ -90,19 +94,12 @@ function sliceOf(source: string, from: string, to: string): string {
   return source.slice(start, end);
 }
 
-function sliceBetween(from: string, to: string): string {
-  const start = overlaySource.indexOf(from);
-  expect(start, `${from} が見つからない`).toBeGreaterThan(0);
-  const end = overlaySource.indexOf(to, start);
-  expect(end, `${to} が見つからない`).toBeGreaterThan(start);
-  return overlaySource.slice(start, end);
-}
 
 describe("overlay history group carrier", () => {
   it("reads and clears the key before the effect's early returns", () => {
     // ガードの後ろで読むと、早期 return したときにキーが取り残され、次の無関係な
     // 図形編集がそれを継承して単独では戻せなくなる。**読んだら必ず消す**。
-    const effect = sliceBetween("    if (!mountedRef.current) {", "  }, [assets, commitOverlayChangeNow");
+    const effect = sliceOf(overlaySaveSource, "    if (!mountedRef.current) {", "  }, [assets, commitOverlayChangeNow");
     const read = effect.indexOf("pendingOverlaySaveHistoryGroupRef.current = null;");
     const firstGuard = effect.indexOf("explicitlySavedShapeStatesRef.current.delete(shapes)");
     expect(read).toBeGreaterThan(0);
@@ -113,7 +110,7 @@ describe("overlay history group carrier", () => {
   it("commits a keyed save immediately instead of debouncing it", () => {
     // debounce すると 250ms 窓の**後ろ側を縛るものが無く**、続けて起きた無関係な図形編集まで
     // 同じ undo エントリへ畳まれる。混在クリップボード操作は離散イベントなので待つ理由が無い。
-    const effect = sliceBetween("    if (!mountedRef.current) {", "  }, [assets, commitOverlayChangeNow");
+    const effect = sliceOf(overlaySaveSource, "    if (!mountedRef.current) {", "  }, [assets, commitOverlayChangeNow");
     const keyedBranch = effect.slice(effect.indexOf("if (historyGroup) {"));
     expect(keyedBranch).toContain("commitOverlayChangeNow({ historyGroup })");
     expect(keyedBranch.slice(0, keyedBranch.indexOf("return;"))).not.toContain("queueOverlaySave");
@@ -122,7 +119,7 @@ describe("overlay history group carrier", () => {
   it("only stashes the cut key when a shape will actually be deleted", () => {
     // 選択が全てロック / 編集ポリシー禁止だと `deleteSelectedShapes` は何もせずに戻る。
     // それでもキーを置くと `setShapes` が走らず、誰も消費しないまま次の編集へ継承される。
-    const handleCut = sliceBetween("    const handleCut = (event: ClipboardEvent) => {", "    const handlePaste =");
+    const handleCut = sliceOf(overlayClipboardSource, "    const handleCut = (event: ClipboardEvent) => {", "    const handlePaste =");
     const check = handleCut.indexOf("getRemovableSelectedShapeIds()");
     const stash = handleCut.indexOf("pendingOverlaySaveHistoryGroupRef.current =");
     expect(check).toBeGreaterThan(0);
@@ -133,7 +130,7 @@ describe("overlay history group carrier", () => {
   it("lets an overlay instance that will not write the clipboard keep its hands off the cut mark", () => {
     // `takeBodyTextCut` の印は 1 回しか取れない。オーバーレイは複数マウントされうるので、
     // 書き出さないインスタンスが先に食うと、切り取った図形を持つ側に本文もキーも届かない。
-    const handleCut = sliceBetween("    const handleCut = (event: ClipboardEvent) => {", "    const handlePaste =");
+    const handleCut = sliceOf(overlayClipboardSource, "    const handleCut = (event: ClipboardEvent) => {", "    const handlePaste =");
     const guard = handleCut.indexOf("if (!canWriteShapeClipboard(event)) {");
     const take = handleCut.indexOf("takeBodyTextCut(event)");
     expect(guard).toBeGreaterThan(0);
@@ -146,13 +143,13 @@ describe("overlay history group carrier", () => {
 
   it("asks the same question the clipboard writer asks", () => {
     // **条件は 1 箇所で持つ。** 2 箇所に書くと、片方だけ増えた瞬間にまた印が食い逃げされる。
-    const predicate = sliceBetween(
+    const predicate = sliceOf(overlayClipboardSource,
       "    const canWriteShapeClipboard = (event: ClipboardEvent): boolean => {",
       "    /**\n     * 選択中の図形をクリップボードへ",
     );
     expect(predicate).toContain("activeTextEditorRef.current?.isFocused || !event.clipboardData");
     expect(predicate).toContain("getSelectedShapesForClipboard(shapesRef.current, selectedIdsRef.current).length > 0");
-    const writer = sliceBetween(
+    const writer = sliceOf(overlayClipboardSource,
       "    const writeShapeClipboard = (",
       "    const handleCopy = (event: ClipboardEvent) => {",
     );

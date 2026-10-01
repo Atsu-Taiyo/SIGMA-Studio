@@ -722,6 +722,15 @@ border を引く、running region のリストは region スコープ、静的�
 - 下余白dragの操作世代、保存後の描画待ち、再計測の保留は`page-canvas/space-after-drag-session.ts`が扱う。
   `space-after-commit-paint.ts`は保存結果がDOMに現れるまでの監視と期限、古い監視のcleanupを所有する。
   PageCanvasはpointer、プレビューのDOM更新、React stateを接続し、描画完了までpaginationの凍結を続ける。
+- `OverlayCanvasEditorClient` は図形編集の接続と描画を担当する。
+  `use-overlay-snapshot-state.ts` が派生編集snapshotを所有し、`use-document-snapshot-sync.ts` が
+  外部更新・Undo・自分の保存の反響を区別する。保存は `use-overlay-save-controller.ts` の一つの
+  出口へ集め、`use-overlay-save-effects.ts` が変更通知とunmount時のflushを所有する。
+  混在clipboard操作の履歴キーは読んだ時点で消費し、無関係な次の編集へ引き継がない。
+  `use-pointer-session.ts` はpointer capture・修飾キー・スクロールとその後始末を所有し、
+  開始・変形・確定の各controllerは `pointer-contracts.ts` のgeometry・selection・editing等のportで接続する。
+  画像取込、グラフ操作、テキスト編集、clipboard、keyboard、context menuはそれぞれ専用ownerを使う。
+  正本への更新とUndoの確定は引き続きhostの既存窓口へ返す。
 - 画像のFileReader・Imageによるdecodeは`overlay-canvas/image-file.ts`、寸法と横並び配置は
   `features/drawing/image-insertion.ts`が扱う。canvasごとの`image-import-session.ts`が重複requestと完了通知を管理し、
   取り込み中は空canvasを維持する。完了時の配置情報、選択・履歴・保存への反映はcontrollerが供給する。
