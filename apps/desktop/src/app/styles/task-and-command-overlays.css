@@ -236,18 +236,23 @@
   line-height: 1.45;
 }
 
+/* 一覧の本体。この教材の一覧と「他のドキュメント」を1つのスクロール領域に積む。
+   以前は両方の一覧が自分で `overflow-y: auto` を持つ縦flexの兄弟だった。flexの縮み量は
+   元の高さに比例するので、他の教材が数百件あると、あふれた分のほぼ全部を下段が引き受け、
+   上段(この教材の提案)が数pxまで潰れて見えなくなっていた。各一覧は縮まず、ここだけが縮む。 */
+.ai-task-dock-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+}
+
 .ai-task-dock-list {
   display: grid;
   gap: 2px;
   padding: 6px;
-  overflow-y: auto;
 }
 
 .ai-task-dock-others {
-  display: flex;
-  flex: 0 1 auto;
-  flex-direction: column;
-  min-height: 0;
   border-top: 1px solid var(--border-subtle);
 }
 
