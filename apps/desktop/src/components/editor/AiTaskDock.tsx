@@ -478,36 +478,38 @@ export function AiTaskDockPanel({
           onDismissProposal={() => onDismissGroup([WEB_MCP_PROPOSAL_ID])}
         />
       )}
-      <div className="ai-task-dock-list">
-        {rows.length === 0 && otherDocumentRows.length === 0 ? (
-          <p className="ai-task-dock-empty">{t("dock.empty")}</p>
-        ) : (
-          rows.map((row) => (
-            <AiTaskDockRow
-              key={row.key}
-              row={row}
-              busy={busy}
-              onApplyGroup={onApplyGroup}
-              onDismissGroup={onDismissGroup}
-              onRebaseGroup={onRebaseGroup}
-              onForceApplyGroup={onForceApplyGroup}
-              onRevertProposal={onRevertProposal}
-              onRestoreProposal={onRestoreProposal}
-              onFocusSession={onFocusSession}
-            />
-          ))
+      <div className="ai-task-dock-body">
+        <div className="ai-task-dock-list">
+          {rows.length === 0 && otherDocumentRows.length === 0 ? (
+            <p className="ai-task-dock-empty">{t("dock.empty")}</p>
+          ) : (
+            rows.map((row) => (
+              <AiTaskDockRow
+                key={row.key}
+                row={row}
+                busy={busy}
+                onApplyGroup={onApplyGroup}
+                onDismissGroup={onDismissGroup}
+                onRebaseGroup={onRebaseGroup}
+                onForceApplyGroup={onForceApplyGroup}
+                onRevertProposal={onRevertProposal}
+                onRestoreProposal={onRestoreProposal}
+                onFocusSession={onFocusSession}
+              />
+            ))
+          )}
+        </div>
+        {otherDocumentRows.length > 0 && onOpenOtherDocument && (
+          <section className="ai-task-dock-others" aria-label={t("dock.otherDocuments")}>
+            <h3 className="ai-task-dock-others-title">{t("dock.otherDocuments")}</h3>
+            <div className="ai-task-dock-list">
+              {otherDocumentRows.map((row) => (
+                <AiTaskDockOtherDocumentRow key={row.key} row={row} onOpen={onOpenOtherDocument} />
+              ))}
+            </div>
+          </section>
         )}
       </div>
-      {otherDocumentRows.length > 0 && onOpenOtherDocument && (
-        <section className="ai-task-dock-others" aria-label={t("dock.otherDocuments")}>
-          <h3 className="ai-task-dock-others-title">{t("dock.otherDocuments")}</h3>
-          <div className="ai-task-dock-list">
-            {otherDocumentRows.map((row) => (
-              <AiTaskDockOtherDocumentRow key={row.key} row={row} onOpen={onOpenOtherDocument} />
-            ))}
-          </div>
-        </section>
-      )}
     </div>
   );
 }
