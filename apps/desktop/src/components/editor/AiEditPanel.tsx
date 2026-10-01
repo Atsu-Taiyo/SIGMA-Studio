@@ -779,39 +779,19 @@ export function AiEditPanel({
     () => currentOverlaySnapshot?.shapes ?? EMPTY_OVERLAY_SHAPES,
     [currentOverlaySnapshot],
   );
-  // 承認前のpending差分(derivePendingDocumentDiff)はブロックツリーを辿るLCS/Intl.Segmenter計算を
-  // 伴うため、コンポーザーへの1打鍵ごとに再計算されては困る。(document, currentOverlayShapes)が
-  // 変わらない間は proposal オブジェクト自体をキーにキャッシュする — レンダー中にWeakMapへ
-  // 書き込むのは同じ入力に対して同じ結果を書くだけなので冪等で安全。ファクトリ自体は
-  // document/currentOverlayShapesを読まない(新しい空WeakMapを作るだけ)が、それらが変わった
-  // 「タイミングで」古いキャッシュを丸ごと捨てたいので、意図的に依存配列へ入れている。
-  const pendingDiffCache = useMemo(
-    () => new WeakMap<AiEditPreviewState, AiAppliedDocumentDiff>(),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [document, currentOverlayShapes],
-  );
-  const getPendingProposalDiff = (candidate: AiEditPreviewState): AiAppliedDocumentDiff => {
-    const cached = pendingDiffCache.get(candidate);
-    if (cached) {
-      return cached;
+  // Build proposal diffs once per input change. The render path only reads the map.
+  const pendingDiffs = useMemo(() => {
+    const diffs = new Map<AiEditPreviewState, AiAppliedDocumentDiff>();
+    for (const candidate of previewGroups) {
+      const postStateShapesById = new Map(
+        deriveAiEditPreviewOverlayShapes(candidate, currentOverlayShapes).map((shape) => [shape.id, shape]),
+      );
+      diffs.set(candidate, derivePendingDocumentDiff(
+        [candidate.draft], document, currentOverlayShapes, postStateShapesById, candidate.shapeReplacements,
+      ));
     }
-    // updateOverlayShape/alignOverlayShapes/図形置換の追加側には、適用後の実際の姿を見せたい
-    // (でないと削除側と全く同じプレビューが2つ並ぶだけで「何が変わったか分からない」に逆戻りする)。
-    // deriveAiEditPreviewOverlayShapesはmutation解決/置換配置の保持まで含むその後状態を
-    // 計算済みなので、ここではid引きのMapへ変換して渡すだけでよい。
-    const postStateShapesById = new Map(
-      deriveAiEditPreviewOverlayShapes(candidate, currentOverlayShapes).map((shape) => [shape.id, shape]),
-    );
-    const diff = derivePendingDocumentDiff(
-      [candidate.draft],
-      document,
-      currentOverlayShapes,
-      postStateShapesById,
-      candidate.shapeReplacements,
-    );
-    pendingDiffCache.set(candidate, diff);
-    return diff;
-  };
+    return diffs;
+  }, [previewGroups, document, currentOverlayShapes]);
 
   const latestAssistant = useMemo<AssistantTurn | null>(() => {
     for (let i = visibleTurns.length - 1; i >= 0; i -= 1) {
@@ -901,6 +881,16 @@ export function AiEditPanel({
     };
   }, [documentIdentityKey, mentionQuery, mentionedDocuments, t]);
 
+  const [pickerSession, setPickerSession] = useState({ open: contextMenuOpen, documentIdentityKey });
+  if (pickerSession.open !== contextMenuOpen || pickerSession.documentIdentityKey !== documentIdentityKey) {
+    setPickerSession({ open: contextMenuOpen, documentIdentityKey });
+    if (contextMenuOpen) {
+      setContextPickerQuery("");
+      setContextPickerActiveIndex(0);
+      setContextPickerDocLoading(Boolean(getDesktopBridge()?.storage));
+    }
+  }
+
   // 統一コンテキストピッカー: 開いた瞬間に1回だけドキュメント候補一覧を読み込む。検索語
   // (contextPickerQuery) はここのdepsに入れない — 入力のたびにIPC (listFiles) を叩き直さない
   // ため。絞り込みは読み込んだ一覧に対する useMemo (contextPickerDocCandidates) で行う。
@@ -916,7 +906,6 @@ export function AiEditPanel({
     }
 
     let cancelled = false;
-    setContextPickerDocLoading(true);
     desktop.storage.listFiles()
       .then((files) => {
         if (cancelled) return;
@@ -942,8 +931,6 @@ export function AiEditPanel({
     if (!contextMenuOpen) {
       return;
     }
-    setContextPickerQuery("");
-    setContextPickerActiveIndex(0);
     const frame = window.requestAnimationFrame(() => contextPickerSearchRef.current?.focus());
     return () => window.cancelAnimationFrame(frame);
   }, [contextMenuOpen]);
@@ -1130,7 +1117,7 @@ export function AiEditPanel({
     }
   }, []);
 
-  const runEdit = async () => {
+  const runEdit = useCallback(async () => {
     const runRoom = activeRoom;
     if (historyLoading || !runRoom) {
       return;
@@ -1206,7 +1193,9 @@ export function AiEditPanel({
     if (variant === "inline" && overlaySelectionContext) {
       onCloseInline?.();
     }
-  };
+  }, [activeRoom, historyLoading, instruction, attachments.length, hasAttachableSelectedImages,
+    t, buildRunParams, model, claudeModel, geminiModel, documentIdentityKey,
+    clearComposerAfterSubmit, variant, overlaySelectionContext, onCloseInline, inlineAnchor, onInlineRunAnchorChange]);
 
   const dismissTurn = useCallback((turnId: string) => {
     const roomId = activeRoom?.id ?? null;
@@ -1836,6 +1825,8 @@ export function AiEditPanel({
             }
             if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
               event.preventDefault();
+              // This callback is invoked only by the composer key event, never during render.
+              // eslint-disable-next-line react-hooks/refs
               void runEdit();
             }
           }}
@@ -2478,7 +2469,7 @@ export function AiEditPanel({
             // (承認後の適用済みカードと全く同じ見た目にすることで、「見た目で分かって
             // 承認できる」体験にする)。キャッシュ経由なので、コンポーザーへの入力など
             // 無関係な再レンダーではproposal/document/shapesが同じ限り再計算されない。
-            const proposalDiff = proposal ? getPendingProposalDiff(proposal) : undefined;
+            const proposalDiff = proposal ? pendingDiffs.get(proposal) : undefined;
             return (
               <AssistantTurnView
                 key={turn.id}
