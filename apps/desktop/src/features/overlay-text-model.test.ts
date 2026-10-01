@@ -99,7 +99,7 @@ const EXEMPTIONS = new Map<string, Exemption>([
     reason: "a local: the outline pane's width clamp",
     lines: /const maxWidth = Math\.min|Math\.min\(maxWidth,/,
   }],
-  ["src/components/editor/AiEditPanel.tsx", {
+  ["src/features/ai-edit/view/AiChatPreviewImages.tsx", {
     reason: "the CSS property, and a local scaling a preview thumbnail",
     lines: /maxWidth: "100%"|const maxWidth = \d+;|maxWidth \/ safeWidth/,
   }],
