@@ -27,10 +27,20 @@ jobs:
           node-version: '24'
           cache: npm
       - run: npm ci
+      - name: Install Japanese supplemental fonts
+        timeout-minutes: 5
+        run: |
+          $fontCapability = 'Language.Fonts.Jpan~~~und-JPAN~0.0.1.0'
+          Add-WindowsCapability -Online -Name $fontCapability -ErrorAction Stop
+          if ((Get-WindowsCapability -Online -Name $fontCapability).State -ne 'Installed') {
+            throw 'Japanese supplemental fonts are unavailable.'
+          }
       - name: Build the static desktop application
         run: npm --workspace @sigma-studio/desktop run electron:prepare
       - name: Verify sizes, native copy/paste, persistence, and app restart
         run: npm --workspace @sigma-studio/desktop run test:e2e:electron -- font-size.spec.ts font-size-copy-pages.spec.ts --reporter=list,html
+        env:
+          SIGMA_STUDIO_E2E_REQUIRE_JAPANESE_FONTS: '1'
       - uses: actions/upload-artifact@v4
         if: always()
         with:

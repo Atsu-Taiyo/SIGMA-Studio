@@ -96,6 +96,10 @@ test("B5 page 14 and A4 page 2 keep 11/12pt typography through native cross-file
         });
         fonts.push(await cdp.send("CSS.getPlatformFontsForNode", { nodeId }));
       }
+      if (process.env.SIGMA_STUDIO_E2E_REQUIRE_JAPANESE_FONTS === "1") {
+        expect(fonts[1].fonts.map(font => font.familyName)).toContain("Yu Mincho");
+        expect(fonts[2].fonts.map(font => font.familyName)).toContain("MS PMincho");
+      }
       platformFonts.push(fonts);
     }
     expect(measurements[0]).toEqual(measurements[1]);
