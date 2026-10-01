@@ -62,6 +62,10 @@ test("B5 page 14 and A4 page 2 keep 11/12pt typography through native cross-file
     await page.reload();
     await expect(page.locator("[data-startup-splash]")).toBeHidden();
     const measurements: unknown[] = [];
+    const platformFonts: unknown[] = [];
+    const cdp = await page.context().newCDPSession(page);
+    await cdp.send("DOM.enable");
+    await cdp.send("CSS.enable");
     for (const [index, { rows }] of fixtures.entries()) {
       await page.locator(`[data-tab-id="document:${ids[index]}"]`).getByRole("tab").click();
       await expect(page.locator("[data-page-count]").first()).toHaveAttribute("data-page-count", index === 0 ? "14" : "2");
@@ -84,8 +88,22 @@ test("B5 page 14 and A4 page 2 keep 11/12pt typography through native cross-file
         expect(runs[1].size).toBeCloseTo(44 / 3, 3);
       }
       measurements.push(sizes);
+      const { root } = await cdp.send("DOM.getDocument");
+      const fonts = [];
+      for (const row of rows) {
+        const { nodeId } = await cdp.send("DOM.querySelector", {
+          nodeId: root.nodeId, selector: `.page-flow [data-sigma-doc-id="${row.id}"]`,
+        });
+        fonts.push(await cdp.send("CSS.getPlatformFontsForNode", { nodeId }));
+      }
+      platformFonts.push(fonts);
     }
     expect(measurements[0]).toEqual(measurements[1]);
+    await testInfo.attach("rendered-fonts.json", {
+      body: JSON.stringify({ platform: process.platform, measurements, platformFonts }, null, 2),
+      contentType: "application/json",
+    });
+    await cdp.detach();
 
     await page.locator(`[data-tab-id="document:${ids[0]}"]`).getByRole("tab").click();
     const rows = fixtures[0].rows;
@@ -111,7 +129,7 @@ test("B5 page 14 and A4 page 2 keep 11/12pt typography through native cross-file
     await page.mouse.up();
     await page.keyboard.press("ControlOrMeta+c");
     const expectedText = rows.map(row => row.children.map(child => child.type === "text" ? child.text : "").join("")).join("\n");
-    await expect.poll(() => app.evaluate(({ clipboard }) => clipboard.readText())).toBe(expectedText);
+    await expect.poll(async () => (await app.evaluate(({ clipboard }) => clipboard.readText())).replace(/\r\n/g, "\n")).toBe(expectedText);
     await page.locator(`[data-tab-id="document:${ids[1]}"]`).getByRole("tab").click();
     await page.locator('[data-sigma-doc-id="A4_paste"]').first().click();
     await page.keyboard.press("ControlOrMeta+v");
