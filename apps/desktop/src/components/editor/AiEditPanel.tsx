@@ -119,9 +119,9 @@ import  {
   formatReasoningEffortLabel,
   getProviderReasoningEfforts,
   resolveAiModelOptions,
-  resolveCatalogSelection,
 } from "@/lib/ai/ai-model-catalog";
-import { getAiModelPreferences, saveAiModelPreferences } from "@/lib/ai/ai-model-preferences";
+import { saveAiModelPreferences } from "@/lib/ai/ai-model-preferences";
+import { useAiChatModelController } from "@/features/ai-edit/application/use-ai-chat-model-controller";
 import  {
   aiProviderLabel,
   claudeModelLabel,
@@ -165,7 +165,6 @@ import { createTranslator, getAppLocale, type Translate } from "@/lib/i18n";
 import { useT } from "@/lib/i18n/react";
 import type  {
   DesktopAiEditChatAttachmentSummary,
-  DesktopAiModelCatalog,
   DesktopAiResourceManifestEntry,
   DesktopAiSourceReference,
   DesktopDocumentMetadata,
@@ -430,15 +429,14 @@ export function AiEditPanel({
   const t = useT("ai");
   const tEditor = useT("editor");
   const tCommon = useT("common");
-  const initialModelPreferences = useMemo(() => getAiModelPreferences(), []);
   const connection = useAiConnection();
   const claudeConnection = useClaudeConnection();
   const geminiConnection = useGeminiConnection();
-  const [provider, setProvider] = useState<AiProvider>(initialModelPreferences.provider);
-  const [model, setModel] = useState<AiEditModel>(initialModelPreferences.model);
-  const [claudeModel, setClaudeModel] = useState<string>(initialModelPreferences.claudeModel);
-  const [geminiModel, setGeminiModel] = useState<string>(initialModelPreferences.geminiModel);
-  const [reasoningEffort, setReasoningEffort] = useState<AiEditReasoningEffort>(initialModelPreferences.reasoningEffort);
+  const {
+    provider, setProvider, model, setModel, claudeModel, setClaudeModel,
+    geminiModel, setGeminiModel, reasoningEffort, setReasoningEffort,
+    runtimeModelCatalogs, modelCatalogLoadingProvider, modelCatalogErrors, refreshRuntimeModels,
+  } = useAiChatModelController();
   const [instruction, setInstruction] = useState("");
   // R5: rooms and the active-room selection live in the module-level
   // controller store (ai-run-controller.ts), not component state, so an
@@ -474,9 +472,6 @@ export function AiEditPanel({
   const [contextPickerActiveIndex, setContextPickerActiveIndex] = useState(0);
   const [modelMenuOpen, setModelMenuOpen] = useState(false);
   const [modelFlyout, setModelFlyout] = useState<"model" | "effort" | null>(null);
-  const [runtimeModelCatalogs, setRuntimeModelCatalogs] = useState<Partial<Record<AiProvider, DesktopAiModelCatalog>>>({});
-  const [modelCatalogLoadingProvider, setModelCatalogLoadingProvider] = useState<AiProvider | null>(null);
-  const [modelCatalogErrors, setModelCatalogErrors] = useState<Partial<Record<AiProvider, string>>>({});
   const [dismissedReferenceKey, setDismissedReferenceKey] = useState<string | null>(null);
   const [clockNow, setClockNow] = useState(() => Date.now());
   // The turn id present when the inline editor was (re)opened. The inline editor
@@ -499,72 +494,6 @@ export function AiEditPanel({
   const userTurnElementsRef = useRef(new Map<string, HTMLDivElement>());
   const pendingSubmittedUserTurnIdRef = useRef<string | null>(null);
   const lastRoomAutoScrolledRef = useRef<string | null>(null);
-  const modelCatalogRequestSeqRef = useRef(0);
-  const modelPreferencesRef = useRef({ model, claudeModel, geminiModel, reasoningEffort });
-  modelPreferencesRef.current = { model, claudeModel, geminiModel, reasoningEffort };
-
-  useEffect(() => {
-    saveAiModelPreferences({ provider, model, claudeModel, geminiModel, reasoningEffort });
-  }, [provider, model, claudeModel, geminiModel, reasoningEffort]);
-
-  const refreshRuntimeModels = useCallback(async (targetProvider: AiProvider) => {
-    const desktop = getDesktopBridge();
-    const section = targetProvider === "claude"
-      ? desktop?.claude
-      : targetProvider === "antigravity"
-        ? desktop?.gemini
-        : desktop?.codex;
-    if (!section?.listModels) {
-      setModelCatalogErrors((current) => ({ ...current, [targetProvider]: t("composer.modelCatalogUnavailable") }));
-      return;
-    }
-
-    const requestSeq = modelCatalogRequestSeqRef.current + 1;
-    modelCatalogRequestSeqRef.current = requestSeq;
-    setModelCatalogLoadingProvider(targetProvider);
-    setModelCatalogErrors((current) => ({ ...current, [targetProvider]: undefined }));
-    try {
-      const catalog = await section.listModels();
-      if (modelCatalogRequestSeqRef.current !== requestSeq) return;
-      const options = resolveAiModelOptions(targetProvider, catalog);
-      setRuntimeModelCatalogs((current) => ({ ...current, [targetProvider]: catalog }));
-
-      const currentPreferences = modelPreferencesRef.current;
-      if (targetProvider === "chatgpt") {
-        const selection = resolveCatalogSelection({
-          models: options,
-          model: currentPreferences.model,
-          reasoningEffort: currentPreferences.reasoningEffort,
-        });
-        setModel(selection.model as AiEditModel);
-        setReasoningEffort(selection.reasoningEffort);
-      } else if (targetProvider === "claude") {
-        const selection = resolveCatalogSelection({
-          models: options,
-          model: currentPreferences.claudeModel,
-          reasoningEffort: currentPreferences.reasoningEffort,
-        });
-        setClaudeModel(selection.model);
-        setReasoningEffort(selection.reasoningEffort);
-      } else {
-        const nextModel = options.some((option) => option.id === currentPreferences.geminiModel)
-          ? currentPreferences.geminiModel
-          : options.find((option) => option.isDefault)?.id ?? options[0]?.id;
-        if (nextModel) setGeminiModel(nextModel);
-      }
-    } catch (error) {
-      if (modelCatalogRequestSeqRef.current !== requestSeq) return;
-      setModelCatalogErrors((current) => ({
-        ...current,
-        [targetProvider]: error instanceof Error ? error.message : t("composer.modelCatalogFailed"),
-      }));
-    } finally {
-      if (modelCatalogRequestSeqRef.current === requestSeq) {
-        setModelCatalogLoadingProvider(null);
-      }
-    }
-  }, [t]);
-
   useEffect(() => {
     documentTitleRef.current = resolvedDocumentTitle;
   }, [resolvedDocumentTitle]);
@@ -586,9 +515,7 @@ export function AiEditPanel({
     selectChatRoomInStore(documentIdentityKey, focusRoomRequest.roomId);
   }, [documentIdentityKey, focusRoomRequest]);
 
-  useEffect(() => {
-    void refreshRuntimeModels(provider);
-  }, [provider, refreshRuntimeModels]);
+
 
   const clearInlineRunAnchor = useCallback(() => {
     setInlineRunTurnId(null);
