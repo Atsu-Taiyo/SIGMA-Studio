@@ -487,6 +487,58 @@ describe("AiTaskDockPanel (expanded panel content)", () => {
     expect(anchorMissingHtml).toContain("提案の再生成が必要です");
     expect(anchorMissingHtml).not.toContain("AIの提案で上書き");
   });
+
+  // 回帰: 他の教材の提案が数百件あると、この教材の一覧が数pxに潰れて見えなくなった。
+  // 2つの一覧が縦flexの兄弟として縮み合い、縮み量が元の高さに比例して下段に集中したため。
+  it("stacks this document's list and the other documents in one scroll body", () => {
+    const html = renderToStaticMarkup(
+      createElement(AiTaskDockPanel, {
+        rows: [makeRow({ key: "room_1", label: "図形の追加", status: "proposal", proposalIds: ["proposal_1"] })],
+        otherDocumentRows: [{
+          key: "other_1",
+          fileId: "file_2",
+          roomId: null,
+          runId: null,
+          provider: null,
+          status: "proposal",
+          label: "AI編集",
+          documentTitle: "1999 京都大学 前期 文系",
+        }],
+        onOpenOtherDocument: noop,
+        busy: false,
+        onApplyGroup: applySuccess,
+        onDismissGroup: noop,
+        onRebaseGroup: noopAsync,
+        onRevertProposal: noop,
+      }),
+    );
+
+    expect(html.match(/ai-task-dock-body/g)).toHaveLength(1);
+    const body = html.slice(html.indexOf("ai-task-dock-body"));
+    expect(body).toContain("図形の追加");
+    expect(body).toContain("ai-task-dock-others");
+    expect(body).toContain("1999 京都大学 前期 文系");
+    // ヘッダーは固定のまま、スクロール領域の外に置く。
+    expect(html.indexOf("ai-task-dock-header")).toBeLessThan(html.indexOf("ai-task-dock-body"));
+  });
+
+  it("lets only the dock body shrink and scroll, so neither list can collapse", () => {
+    const css = readFileSync(
+      fileURLToPath(new URL("../../app/styles/task-and-command-overlays.css", import.meta.url)),
+      "utf8",
+    );
+    const rule = (selector: string) => {
+      const match = css.match(new RegExp(`(?:^|\\n)${selector.replace(".", "\\.")} \\{([^}]*)\\}`));
+      expect(match, `${selector} rule`).not.toBeNull();
+      return match?.[1] ?? "";
+    };
+
+    expect(rule(".ai-task-dock-body")).toMatch(/overflow-y:\s*auto/);
+    expect(rule(".ai-task-dock-body")).toMatch(/min-height:\s*0/);
+    for (const selector of [".ai-task-dock-list", ".ai-task-dock-others"]) {
+      expect(rule(selector), selector).not.toMatch(/overflow|flex/);
+    }
+  });
 });
 
 
