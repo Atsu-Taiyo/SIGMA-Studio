@@ -260,7 +260,7 @@ import  {
   type TextAlign,
 } from "@/features/document";
 import { readRenderedTextFontSize, type SelectionFontSize } from "@/components/tiptap/text-format-font-size";
-import { getTextShapeFontSizePt, type MeasuredBlock } from "@/features/drawing";
+import type { MeasuredBlock } from "@/features/drawing";
 import { DocumentTitleText, MathEnvironmentProvider } from "@/features/rendering/adapters/react";
 import { parseDocumentTitleInlineNodes } from "@/features/rendering/core";
 import  {
@@ -795,10 +795,10 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
     setSaveState("warning");
     setStatusMessage(message);
   }, [setSaveState, setStatusMessage, tE]);
-  /** `null` = run 自身の指定なし。ツールバーは「自動」と出し、見出しの大きさを潰さない。 */
-  const [textFontSize, setTextFontSize] = useState<number | null>(BASE_EDITOR_FONT_SIZE);
+  /** `null` = 現在の選択の実効サイズが未取得。推測の値を表示しない。 */
+  const [textFontSize, setTextFontSize] = useState<number | null>(null);
   const [textFontSizeMixed, setTextFontSizeMixed] = useState(false);
-  const [fontSizeInput, setFontSizeInput] = useState(String(BASE_EDITOR_FONT_SIZE));
+  const [fontSizeInput, setFontSizeInput] = useState("");
   const [boxedTextPaddingY, setBoxedTextPaddingY] = useState(0);
   const [boxedTextActive, setBoxedTextActive] = useState(false);
   // B/I/U mirror the caret: the editors publish isActive() for each mark on every
@@ -1660,6 +1660,11 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
     }
     selectedIdRef.current = selected;
     textSelectionBookmarkRef.current = null;
+    // Toolbar measurements belong to the outgoing editor, not the incoming document.
+    // Leave the size unknown until its restored caret or a new selection reports it.
+    setTextFontSize(null);
+    setTextFontSizeMixed(false);
+    setFontSizeInput("");
     pendingTextHistorySelectionRef.current = undefined;
     materialBlockSelectionRef.current = null;
     measuredBodyBlockRectsRef.current = new Map();
@@ -2635,9 +2640,9 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
         setFontFamily(normalizeToolbarFontFamily(detail.fontFamily));
       }
       setTextFontSizeMixed(detail.fontSizeMixed === true);
-      if (typeof detail.fontSize === "number" && Number.isFinite(detail.fontSize)) {
+      if (typeof detail.fontSize === "number" && Number.isFinite(detail.fontSize) && detail.fontSize > 0) {
         setTextFontSize(detail.fontSize);
-      } else if (detail.fontSize === null) {
+      } else {
         setTextFontSize(null);
       }
       if (typeof detail.color === "string") {
@@ -4041,16 +4046,16 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
   // A measurement belongs to this exact shape revision, never the previously selected shape.
   const wholeTextShapeSize = wholeTextShapeMeasurement?.shape === wholeTextShape
     ? wholeTextShapeMeasurement?.size : null;
-  const activeTextFontSize = wholeTextShape
-    ? wholeTextShapeSize?.fontSize ?? getTextShapeFontSizePt(wholeTextShape)
-    : textFontSize ?? BASE_EDITOR_FONT_SIZE;
+  const activeTextFontSize = !canUseTextToolbar ? null : wholeTextShape
+    ? wholeTextShapeSize?.fontSize ?? null
+    : textFontSize;
   const activeTextFontSizeMixed = wholeTextShape ? wholeTextShapeSize?.fontSizeMixed === true : textFontSizeMixed;
   useLayoutEffect(() => {
     // Sync before paint so a newly selected shape never displays the old size.
     // Keep the inline field in sync with the selection without replacing a value
     // while the user is in the middle of editing it.
     if (fontSizeInputRef.current === window.document.activeElement) return;
-    setFontSizeInput(String(activeTextFontSize));
+    setFontSizeInput(activeTextFontSize === null ? "" : String(activeTextFontSize));
   }, [activeTextFontSize]);
   const canUseTextBlockStyle = textToolbar.canUseTextBlockStyle;
   /**
