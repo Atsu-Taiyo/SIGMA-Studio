@@ -26,6 +26,7 @@ const CHROME_SOURCES = [
   // shell から移した処理も chrome の翻訳関数を受け取るため、使用・未定義の両検査に含める。
   "src/components/editor/editor-shell/use-workspace-document-commands.ts",
   "src/components/editor/editor-shell/use-document-save-boundary.ts",
+  "src/components/editor/editor-shell/use-line-height-control.ts",
   "src/features/ai-edit/application/use-ai-proposal-actions.ts",
   "src/components/editor/VersionHistoryPanel.tsx",
   // クロームと語彙を共有する面。線種・文字揃えの語は `chrome.format.*` が唯一の出典なので、
