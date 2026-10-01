@@ -544,3 +544,23 @@ it("resolves shared links to each account's location and rejects revoked targets
   await expect(f.catalog.openLink(ref(document))).rejects.toThrow("TARGET_UNAVAILABLE");
   expect(f.open).not.toHaveBeenCalled();
 });
+
+it("slows unchanged visible polls, resets on explicit refresh, and stops when hidden", async () => {
+  const f = await fixture();
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
+  await f.catalog.setVisible(true);
+  const scheduled = () => (f.catalog as unknown as { pollDelay: number }).pollDelay;
+  expect(scheduled()).toBe(5000);
+  await f.catalog.refresh();
+  expect(scheduled()).toBe(10000);
+  await f.catalog.refresh();
+  expect(scheduled()).toBe(20000);
+  await f.catalog.refresh();
+  expect(scheduled()).toBe(30000);
+  await f.catalog.refresh({ force: true });
+  expect(scheduled()).toBe(5000);
+  await f.catalog.setVisible(false);
+  const count = f.request.mock.calls.length;
+  await vi.advanceTimersByTimeAsync(120_000);
+  expect(f.request).toHaveBeenCalledTimes(count);
+});

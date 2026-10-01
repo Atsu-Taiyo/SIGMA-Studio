@@ -9,12 +9,14 @@ import type { ObjectValue } from "../../src/features/collaboration/model/value";
 import { LocalSigmaDocStore } from "../local-sigma-doc-store";
 import { SharedDocumentJournal } from "./journal";
 import { CollaborationSessions } from "./sessions";
+import { CollaborationHttpError } from "./transport";
 
 vi.mock("electron", () => ({ safeStorage: {} }));
 const directories: string[] = [];
 const instances: CollaborationSessions[] = [];
 afterEach(async () => {
   vi.useRealTimers();
+  vi.restoreAllMocks();
   for (const instance of instances.splice(0)) await instance.close();
   vi.unstubAllEnvs();
   await Promise.all(directories.splice(0).map((directory) => fs.rm(directory, { recursive: true, force: true })));
@@ -97,6 +99,7 @@ it("retries a disconnected visible session and durable uploads even when the doc
 });
 it("retries hidden durable outbox operations until acknowledged", async () => {
   const { sessions, session } = await setup();
+  vi.spyOn(Math, "random").mockReturnValue(0);
   const before = session.journal.document.project();
   const after = structuredClone(before);
   (after.metadata as ObjectValue).title = "offline edit";
@@ -136,4 +139,28 @@ it("retains only mounted detached previews and closes their socket on release", 
   flush.mockClear();
   await vi.advanceTimersByTimeAsync(120_000);
   expect(flush).toHaveBeenCalledTimes(2);
+});
+
+it("honors Retry-After across background polls without dropping the durable outbox", async () => {
+  const { sessions, session } = await setup();
+  const before = session.journal.document.project();
+  const after = structuredClone(before);
+  (after.metadata as ObjectValue).title = "retry safely";
+  const remote = new SharedDocument(session.journal.document.snapshot());
+  const vector = remote.vector();
+  remote.change(before, after);
+  await session.journal.append(remote.difference(vector), { operationId: crypto.randomUUID(), actorId: "actor", kind: "manual" }, true);
+  remote.destroy();
+  const request = vi.spyOn(sessions, "request").mockRejectedValue(new CollaborationHttpError("RATE_LIMIT", 429, 120_000));
+  const flush = vi.spyOn(sessions, "flush");
+  await vi.advanceTimersByTimeAsync(5000);
+  await flush.mock.results.at(-1)?.value.catch(() => {});
+  expect(request).toHaveBeenCalledOnce();
+  await vi.advanceTimersByTimeAsync(115_000);
+  expect(request).toHaveBeenCalledOnce();
+  expect(session.journal.outbox()).toHaveLength(1);
+  await vi.advanceTimersByTimeAsync(5000);
+  await flush.mock.results.at(-1)?.value.catch(() => {});
+  expect(request).toHaveBeenCalledTimes(2);
+  expect(session.journal.outbox()).toHaveLength(1);
 });

@@ -27,6 +27,23 @@ it("does not persist a late Google login response after sign-out", async () => {
   expect(auth.user()).toBeNull();
   await expect(fs.access(path.join(directory, "auth.enc"))).rejects.toThrow();
 });
+it("aborts old account requests at sign-out and starts a fresh request lifetime", async () => {
+  const { auth } = await fixture();
+  const before = auth.accountSignal();
+  await auth.signOut();
+  expect(before.aborted).toBe(true);
+  expect(auth.accountSignal().aborted).toBe(false);
+  expect(auth.accountSignal()).not.toBe(before);
+});
+
+it("does not follow credential-bearing token redirects and limits token response bytes", async () => {
+  const { auth } = await fixture();
+  const request = vi.fn(async () => Response.json({ padding: "x".repeat(300_000) }));
+  vi.stubGlobal("fetch", request);
+  await expect(auth.signInWithGoogle()).rejects.toThrow("RESPONSE_LIMIT");
+  expect(request).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({ redirect: "error" }));
+  expect(auth.user()).toBeNull();
+});
 it("accepts only public identity keys and secure production endpoints", () => {
   vi.stubEnv("NODE_ENV", "production");
   vi.stubEnv("SIGMA_COLLABORATION_URL", "https://sync.example.test");
