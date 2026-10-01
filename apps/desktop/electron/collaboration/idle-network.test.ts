@@ -141,6 +141,41 @@ it("retains only mounted detached previews and closes their socket on release", 
   expect(flush).toHaveBeenCalledTimes(2);
 });
 
+it("retains the complete durable batch when a later ACK is invalid", async () => {
+  const { sessions, session } = await setup();
+  const ids: string[] = [];
+  for (const title of ["first", "second"]) {
+    const remote = new SharedDocument(session.journal.document.snapshot());
+    const vector = remote.vector(), before = remote.project(), after = structuredClone(before);
+    (after.metadata as ObjectValue).title = title;
+    remote.change(before, after);
+    const operationId = crypto.randomUUID(); ids.push(operationId);
+    await session.journal.append(remote.difference(vector), { operationId, actorId: "actor", kind: "manual" }, true);
+    remote.destroy();
+  }
+  vi.spyOn(sessions, "request").mockImplementation(async route => route.endsWith("/sync")
+    ? { update: "AAA=", role: "editor" }
+    : { acks: [{ operationId: ids[0], seq: 1 }, { operationId: ids[1], seq: -1 }] });
+  await expect(sessions.flush("file", true)).rejects.toThrow("INVALID_ACK");
+  expect(session.journal.outbox().map(item => item.identity.operationId)).toEqual(ids);
+  await session.journal.flush();
+  const restarted = await SharedDocumentJournal.open(session.journal.directory);
+  expect(restarted.outbox().map(item => item.identity.operationId)).toEqual(ids);
+  restarted.document.destroy();
+});
+it("waits for an active synchronization to settle before close compacts the journal", async () => {
+  const { sessions, session } = await setup();
+  const pending = Promise.withResolvers<void>();
+  const internal = session as unknown as { syncing: Promise<void> };
+  internal.syncing = pending.promise;
+  const compact = vi.spyOn(session.journal, "compact");
+  const closed = sessions.close();
+  await Promise.resolve();
+  expect(compact).not.toHaveBeenCalled();
+  pending.resolve(); await closed;
+  expect(compact).toHaveBeenCalledOnce();
+});
+
 it("honors Retry-After across background polls without dropping the durable outbox", async () => {
   const { sessions, session } = await setup();
   const before = session.journal.document.project();
