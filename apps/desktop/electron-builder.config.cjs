@@ -11,6 +11,8 @@
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports -- electron-builder loads this configuration as CommonJS.
 const { windowsStoreMessages } = require("./scripts/windows-store-messages.cjs");
+// eslint-disable-next-line @typescript-eslint/no-require-imports -- electron-builder loads its runtime manifest as CommonJS.
+const desktopPackage = require("./package.json");
 
 // macOS code-signing is enabled only when a certificate is supplied via CSC_LINK
 // (a base64-encoded .p12 or a file path). Local package checks may still build
@@ -62,7 +64,8 @@ if (
 module.exports = {
   appId: "com.atsutaiyo.sigmastudio",
   productName: "Sigma Studio",
-  electronVersion: "34.5.8",
+  // Use the same exact runtime as development and Electron smoke tests.
+  electronVersion: desktopPackage.devDependencies.electron,
   npmRebuild: false,
   afterPack: "./scripts/check-native-lock-package.cjs",
   directories: {
