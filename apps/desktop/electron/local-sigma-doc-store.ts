@@ -3,6 +3,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { createHash, randomUUID } from "node:crypto";
 import { AsyncLocalStorage } from "node:async_hooks";
+import { atomicRename } from "./atomic-rename";
 
 import {
   parseSigmaDocument,
@@ -905,7 +906,7 @@ export class LocalSigmaDocStore {
       } finally {
         await handle.close();
       }
-      await fs.rename(temporaryPath, targetPath);
+      await atomicRename(temporaryPath, targetPath);
     } catch (error) {
       await fs.rm(temporaryPath, { force: true }).catch(() => undefined);
       throw error;
