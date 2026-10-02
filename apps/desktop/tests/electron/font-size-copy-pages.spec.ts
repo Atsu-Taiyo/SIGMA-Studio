@@ -48,6 +48,7 @@ test("B5 page 14 and A4 page 2 keep 11/12pt typography through native cross-file
   try {
     const page = await app.firstWindow();
     await page.waitForFunction(() => Boolean(window.desktopAPI?.storage));
+    await expect(page.locator(".page-flow .ProseMirror").first()).toBeVisible();
     await expect(page.locator("[data-startup-splash]")).toBeHidden();
     const fixtures = [comparisonDocument("B5", 14), comparisonDocument("A4", 2)];
     const ids = await page.evaluate(async (documents) => {
