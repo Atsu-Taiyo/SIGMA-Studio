@@ -1,6 +1,6 @@
 "use client";
 
-import { BASE_EDITOR_FONT_SIZE,BASE_EDITOR_LINE_HEIGHT,BASE_EDITOR_TEXT_COLOR,DEFAULT_FONT_FAMILY_VALUE,TEXT_FORMAT_STATE_EVENT } from "@/components/editor/editor-shell/constants";
+import { BASE_EDITOR_LINE_HEIGHT,BASE_EDITOR_TEXT_COLOR,DEFAULT_FONT_FAMILY_VALUE,TEXT_FORMAT_STATE_EVENT } from "@/components/editor/editor-shell/constants";
 import { EMPTY_BLOCK_STYLE_TOOLBAR_STATE,nextBlockStyleToolbarState,normalizeBoxedTextVariant,normalizeToolbarFontFamily,type BlockStyleToolbarState } from "@/components/editor/editor-shell/toolbar-formatting";
 import { isMultiEditorTextRunSpan,subscribeTextRunSpan } from "@/components/editor/text-flow/text-run-span";
 import { isTextFormatTargetNodeType,type TextFormatStateContext } from "@/components/tiptap/text-format-controller";
@@ -9,10 +9,10 @@ import { getDesktopBridge } from "@/lib/desktop-bridge";
 import { useCallback,useEffect,useRef,useState } from "react";
 
 export function useTextFormattingState() {
-  /** `null` = run 自身の指定なし。ツールバーは「自動」と出し、見出しの大きさを潰さない。 */
-  const [textFontSize, setTextFontSize] = useState<number | null>(BASE_EDITOR_FONT_SIZE);
+  /** `null` = 現在の選択の実効サイズが未取得。推測の値を表示しない。 */
+  const [textFontSize, setTextFontSize] = useState<number | null>(null);
   const [textFontSizeMixed, setTextFontSizeMixed] = useState(false);
-  const [fontSizeInput, setFontSizeInput] = useState(String(BASE_EDITOR_FONT_SIZE));
+  const [fontSizeInput, setFontSizeInput] = useState("");
   const [boxedTextPaddingY, setBoxedTextPaddingY] = useState(0);
   const [boxedTextActive, setBoxedTextActive] = useState(false);
   // B/I/U mirror the caret: the editors publish isActive() for each mark on every
@@ -131,9 +131,9 @@ export function useTextFormattingState() {
         setFontFamily(normalizeToolbarFontFamily(detail.fontFamily));
       }
       setTextFontSizeMixed(detail.fontSizeMixed === true);
-      if (typeof detail.fontSize === "number" && Number.isFinite(detail.fontSize)) {
+      if (typeof detail.fontSize === "number" && Number.isFinite(detail.fontSize) && detail.fontSize > 0) {
         setTextFontSize(detail.fontSize);
-      } else if (detail.fontSize === null) {
+      } else {
         setTextFontSize(null);
       }
       if (typeof detail.color === "string") {
