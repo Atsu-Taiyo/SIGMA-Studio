@@ -81,7 +81,7 @@
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
     "@types/three": "^0.185.4",
-    "cross-env": "^7.0.3",
+    "cross-env": "^10.1.0",
     "electron": "44.5.1",
     "electron-builder": "^26.15.3",
     "esbuild": "^0.28.2",
