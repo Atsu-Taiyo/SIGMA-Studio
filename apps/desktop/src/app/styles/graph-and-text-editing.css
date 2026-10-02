@@ -2600,6 +2600,13 @@ button.ai-source-ref-chip--document:focus-visible {
   color: inherit;
 }
 
+/* 囲み (.boxed-run-framed) は枠を自前の層で描き、枠内の背景を透明にする。選択色を持つ数式アトムは
+   その枠の計測対象と同じ要素なので、上の規則 (詳細度が低い) では透明に負けて、囲んだ数式だけ
+   選択しても色が付かない。囲みの中でも本文と同じ選択色を載せる。 */
+:where(.ProseMirror-focused, [data-text-run-span], [data-held-body-selection]) .boxed-text .inline-math-node:is(.selected, .ProseMirror-selectednode, .text-selected)[data-boxed-run-height-target="true"] {
+  background-color: var(--editor-selection-background);
+}
+
 /* `color: inherit` (not `--text-primary`): the styledText mark that carries 文字色 renders as a
    wrapping `<span style="color: …">` around the math node view, so pinning a color here repainted
    every colored formula black for as long as it was being edited — the formula changed color when

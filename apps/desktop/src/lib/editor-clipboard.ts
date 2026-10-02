@@ -64,13 +64,6 @@ export type EditorClipboardPayload =
   | {
       type: typeof EDITOR_CLIPBOARD_TYPE;
       version: typeof EDITOR_CLIPBOARD_VERSION;
-      kind: "tiptapSlice";
-      slice: unknown;
-      text: string;
-    }
-  | {
-      type: typeof EDITOR_CLIPBOARD_TYPE;
-      version: typeof EDITOR_CLIPBOARD_VERSION;
       kind: "textFlowBlocks";
       blocks: ClipboardTextFlowBlock[];
     }
@@ -110,19 +103,6 @@ export function createInlineMathClipboardPayload(tex: string): Extract<EditorCli
     version: EDITOR_CLIPBOARD_VERSION,
     kind: "inlineMath",
     tex,
-  };
-}
-
-export function createTiptapSliceClipboardPayload(
-  slice: unknown,
-  text: string,
-): Extract<EditorClipboardPayload, { kind: "tiptapSlice" }> {
-  return {
-    type: EDITOR_CLIPBOARD_TYPE,
-    version: EDITOR_CLIPBOARD_VERSION,
-    kind: "tiptapSlice",
-    slice,
-    text,
   };
 }
 
@@ -406,10 +386,6 @@ export function parseEditorClipboardPayload(serialized: string): EditorClipboard
     return parsed as EditorClipboardPayload;
   }
 
-  if (parsed.kind === "tiptapSlice" && typeof parsed.text === "string" && isRecord(parsed.slice)) {
-    return parsed as EditorClipboardPayload;
-  }
-
   if (parsed.kind === "textFlowBlocks" && Array.isArray(parsed.blocks)) {
     const blocks = parseClipboardBlocks(parsed.blocks, isTextFlowClipboardBlock);
     return blocks ? ({ ...parsed, blocks } as EditorClipboardPayload) : null;
@@ -503,10 +479,6 @@ export function parseEditorClipboardHtml(html: string): EditorClipboardPayload |
 export function getEditorClipboardPlainText(payload: EditorClipboardPayload): string {
   if (payload.kind === "inlineMath") {
     return `$${payload.tex}$`;
-  }
-
-  if (payload.kind === "tiptapSlice") {
-    return payload.text;
   }
 
   if (payload.kind === "textAndShapes") {
