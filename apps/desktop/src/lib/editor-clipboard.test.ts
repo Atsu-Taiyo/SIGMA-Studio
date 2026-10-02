@@ -27,7 +27,6 @@ import {
   createEditorClipboardHtml,
   createInlineMathClipboardPayload,
   createOverlayClipboardPayload,
-  createTiptapSliceClipboardPayload,
   createTextAndShapesClipboardPayload,
   createTextFlowClipboardPayload,
   getEditorClipboardPlainText,
@@ -334,22 +333,16 @@ describe("editor clipboard", () => {
     expect(cloneTextFlowBlocksForPaste(blocks)[0]).toMatchObject({ markerStyle: "paren" });
   });
 
-  it("round-trips a Tiptap slice payload for mixed text and inline math selections", () => {
-    const payload = createTiptapSliceClipboardPayload(
-      {
-        content: [
-          {
-            type: "paragraph",
-            content: [
-              { type: "text", text: "本文 " },
-              { type: "mathInline", attrs: { id: "math_source", tex: "x^2+1" } },
-              { type: "text", text: " の確認" },
-            ],
-          },
-        ],
-      },
-      "本文 $x^2+1$ の確認",
-    );
+  it("round-trips mixed text and boxed inline math as SigmaDoc blocks", () => {
+    const payload = createTextFlowClipboardPayload([{
+      type: "paragraph",
+      id: "p_source",
+      children: [
+        { type: "text", text: "本文 " },
+        { type: "mathInline", id: "math_source", tex: "x^2+1", display: "inline", marks: ["boxed"], semanticRole: "expression" },
+        { type: "text", text: " の確認", marks: ["boxed"] },
+      ],
+    }]);
 
     expect(parseEditorClipboardPayload(serializeEditorClipboardPayload(payload))).toEqual(payload);
     expect(parseEditorClipboardHtml(createEditorClipboardHtml(payload))).toEqual(payload);

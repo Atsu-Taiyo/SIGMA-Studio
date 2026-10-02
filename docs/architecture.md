@@ -701,6 +701,9 @@ border を引く、running region のリストは region スコープ、静的�
 - ネイティブclipboardのイベント所有権と転送は`editor-shell/clipboard-events.ts`が扱う。
   copyのbubble、pasteのcapture、複数editorにまたがる置換の遅延順序を維持し、SigmaDocの変更・履歴・選択はshell側のportへ返す。
 - 本文clipboardのcopy・cut・貼付経路と編集面ごとの履歴キーは`text-flow/clipboard-transactions.ts`が扱う。
+  図中テキストも同じ`copyEditorSelection`・`pasteIntoEditorSurface`を通し、編集面ごとの独自のcopy・paste分岐を持たない。
+  payloadを持たない貼付はスキーマ自身のHTML往復（`renderHTML`→`parseHTML`）で戻すので、markの`parseHTML`は
+  自分の印を持つ要素だけを受ける（MISS.md R16）。
   `manual-break-transactions.ts`は改ページを跨ぐ置換の準備とProseMirror transactionの受理を確認し、
   受理できた本文変更だけが図形貼付へ進む結果を返す。拒否時もnative pasteを止め、
   図形の遅延保存まで同じUndo区間を保持する。SigmaDocだけで決まる遷移はtext-editing featureに残す。
