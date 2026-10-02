@@ -63,12 +63,12 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
-    "@types/react": "^19.2.14",
+    "@types/react": "^19.3.0",
     "@types/react-dom": "^19.2.3",
     "esbuild": "^0.28.2",
     "happy-dom": "^20.11.0",
     "postcss": "^8.5.28",
-    "react": "^19.2.6",
+    "react": "^19.3.0",
     "react-dom": "^19.2.6",
     "typescript": "^5.9.3",
     "vitest": "^4.1.11"
