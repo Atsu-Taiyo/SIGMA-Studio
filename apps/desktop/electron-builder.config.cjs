@@ -117,7 +117,8 @@ module.exports = {
     gatekeeperAssess: false,
     entitlements: "build/entitlements.mac.plist",
     entitlementsInherit: "build/entitlements.mac.plist",
-    notarize: canNotarize ? { teamId: process.env.APPLE_TEAM_ID.trim() } : false,
+    // electron-builder reads the notarization credentials and team from the environment.
+    notarize: canNotarize,
   },
   dmg: {
     contents: [
