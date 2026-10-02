@@ -187,6 +187,9 @@ test("font size stays blank until resolved and does not leak across files", asyn
   try {
     let page = await app.firstWindow();
     await page.waitForFunction(() => Boolean(window.desktopAPI));
+    // Let startup finish reading/persisting preferences before the fixture changes locale.
+    await expect(page.locator(".page-flow .ProseMirror").first()).toBeVisible();
+    await expect(page.locator(".startup-splash")).toBeHidden();
     const ids = await page.evaluate(async (base) => {
       localStorage.setItem("sigma-studio:ui-layout-preference", JSON.stringify({ mode: "docs", onboardingCompleted: true }));
       await window.desktopAPI!.settings!.setUiLocale!("ja");
