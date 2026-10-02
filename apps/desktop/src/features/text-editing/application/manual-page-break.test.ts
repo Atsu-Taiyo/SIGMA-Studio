@@ -36,9 +36,9 @@ describe("manual page-break application model", () => {
       { type: "problem", id: "problem", tags: [], lead: [], prompt: [paragraph("text", "abcdef")], hints: [], solution: [] },
     ] };
     const result = resolveManualTextPageBreakBlocks([box], "text", true, { blockId: "text", offset: 3 }, { createId: deterministicIdFactory() });
-    expect(result).toMatchObject({ blocks: [{ ...box, blocks: [expect.objectContaining({ prompt: [
+    expect(result).toMatchObject({ blocks: [{ ...box, blocks: [{ prompt: [
       paragraph("text", "abc"), { ...paragraph("p_generated_1", "def"), pagination: { break: true } },
-    ] })] }], focusBlockId: "p_generated_1" });
+    ] }] }], focusBlockId: "p_generated_1" });
     const removed = resolveManualTextPageBreakBlocks(result!.blocks, result!.focusBlockId, false);
     expect(removed?.blocks).toMatchObject([{ type: "boxBlock", blocks: [{ type: "problem", prompt: [
       paragraph("text", "abc"), { ...paragraph("p_generated_1", "def"), pagination: undefined },

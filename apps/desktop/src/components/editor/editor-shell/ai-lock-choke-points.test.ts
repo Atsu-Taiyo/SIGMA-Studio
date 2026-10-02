@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
 import { describe, expect, it } from "vitest";
+import ts from "typescript";
 
 /**
  * **文書を書き換える choke point は 2 つあり、AI ロックの読み方は同じでなければならない。**
@@ -49,12 +50,25 @@ describe("AI lock reads at both document choke points", () => {
   it("keeps the AI state out of the dependency array", () => {
     // deps に入れると、保存のたびに動く提案プレビュー由来で識別子が変わり、ぶら下がる
     // 全コールバック → memo 済み本文ユニット全部が描き直される。
-    const deps = bodyOf(
-      "  }, [documentHistory, refreshMcpEditProposals, setActiveCommentThreadId,",
-      "  const undoDocumentChange = useCallback(() => {",
-    );
-    expect(deps).not.toContain("aiDocumentWriteInProgress");
-    expect(deps).not.toContain("aiLockedTargets");
+    const source = ts.createSourceFile("EditorShell.tsx", shellSource, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+    let dependencyNames: string[] | undefined;
+    const visit = (node: ts.Node): void => {
+      if (ts.isVariableDeclaration(node) && node.name.getText(source) === "restoreDocumentHistory"
+        && node.initializer && ts.isCallExpression(node.initializer)) {
+        const array = node.initializer.arguments[1];
+        expect(array && ts.isArrayLiteralExpression(array)).toBe(true);
+        if (array && ts.isArrayLiteralExpression(array)) dependencyNames = array.elements.map((element) => element.getText(source));
+      }
+      ts.forEachChild(node, visit);
+    };
+    visit(source);
+    expect(dependencyNames).toBeDefined();
+    // Stable host functions are dependencies; mutable AI state still comes only from refs.
+    expect(dependencyNames).not.toContain("aiDocumentWriteInProgress");
+    expect(dependencyNames).not.toContain("aiLockedTargets");
+    expect(dependencyNames).not.toContain("mcpPreviewBusy");
+    expect(dependencyNames).toContain("aiDocumentWriteInProgressMessage");
+    expect(dependencyNames).toContain("findAiLockedTargetsTouched");
   });
 
   it("guards on both the flag and the locked set before touching the stacks", () => {

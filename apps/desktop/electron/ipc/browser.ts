@@ -1,4 +1,5 @@
-import { app, ipcMain, type BrowserWindow, type IpcMainInvokeEvent } from "electron";
+import { ipcMain } from "../trusted-ipc";
+import { app, type BrowserWindow, type IpcMainInvokeEvent } from "electron";
 
 import type { InAppBrowserOpenRequest, InAppBrowserViewport } from "@/lib/browser/in-app-browser-contract";
 import { InAppBrowser } from "../browser/in-app-browser";

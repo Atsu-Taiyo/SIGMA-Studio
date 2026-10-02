@@ -64,7 +64,8 @@ export default function PrintPage() {
 
         if (renderId) {
           const bridge = getDesktopBridge();
-          const renderDocument = (await bridge?.aiRender?.getRenderDocument(renderId)) ?? null;
+          const renderDocument = (await (window.sigmaPreviewAPI?.getRenderDocument(renderId)
+            ?? bridge?.aiRender?.getRenderDocument(renderId))) ?? null;
           if (cancelled) {
             return;
           }

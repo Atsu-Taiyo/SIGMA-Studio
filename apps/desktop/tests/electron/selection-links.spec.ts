@@ -66,7 +66,14 @@ test("shared selections copy rich links, paste, and reopen the exact range witho
     await selectText(page); await expect(copy).toBeVisible();
     await page.screenshot({ path: testInfo.outputPath("selection-link-button.png") });
     await copy.click();
-    const clipboard = await app.evaluate(({ clipboard }) => ({ text: clipboard.readText(), html: clipboard.readHTML() }));
+    const clipboard = await app.evaluate(async ({ clipboard }) => {
+      const items = await clipboard.read();
+      const item = items.find((candidate) => candidate.types.includes("text/html"));
+      return {
+        text: await clipboard.readText(),
+        html: item ? await (await item.getType("text/html")).text() : "",
+      };
+    });
     expect(parseShareLink(clipboard.text)).toMatchObject({ target: { kind: "document" }, location: { type: "textRange", start: { blockId: "linked-paragraph", offset: 2 }, end: { blockId: "linked-paragraph", offset: 6 } } });
     expect(clipboard.html).toContain("選択箇所</a>");
 

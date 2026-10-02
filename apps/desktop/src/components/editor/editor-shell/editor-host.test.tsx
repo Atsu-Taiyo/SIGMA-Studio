@@ -1,9 +1,14 @@
+// @vitest-environment happy-dom
 import { act, useLayoutEffect } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { InlineNode, SigmaCommentAnchor } from "@sigma-studio/viewer";
+import type { InlineNode, SigmaCommentAnchor } from "@/features/document";
 
-import { aiChatRoomsStore, deleteAiDataForDocument, AiEditorHost, useAiProposalActions, useCommentAiRun } from "./desktop-ai-disabled";
+import { DEFAULT_EDITOR_HOST, useAiWorkspaceTabTitles, deleteAiDataForDocument, AiEditorHost, useAiProposalActions, useCommentAiRun } from "./editor-host-defaults";
+
+(globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+
+import { EditorHostProvider, useEditorHost } from "./editor-host";
 
 let mounted: { root: Root; container: HTMLDivElement } | undefined;
 
@@ -16,15 +21,11 @@ afterEach(() => {
 
 describe("public Editor disabled AI hooks", () => {
   it("keeps workspace AI snapshots stable and cleanup inert", async () => {
-    const listener = vi.fn();
-    const snapshot = aiChatRoomsStore.getSnapshot();
-    const unsubscribe = aiChatRoomsStore.subscribe(listener);
-    expect(snapshot).toEqual([]);
-    expect(aiChatRoomsStore.getActiveRoomId("document")).toBeNull();
-    await deleteAiDataForDocument("document");
-    expect(aiChatRoomsStore.getSnapshot()).toBe(snapshot);
-    expect(listener).not.toHaveBeenCalled();
-    unsubscribe();
+    const snapshot = useAiWorkspaceTabTitles();
+    expect(snapshot.size).toBe(0);
+    await deleteAiDataForDocument();
+    expect(useAiWorkspaceTabTitles()).toBe(snapshot);
+
   });
 
   it("keeps the AI host and its children absent without subscribing to interactions", () => {
@@ -35,8 +36,14 @@ describe("public Editor disabled AI hooks", () => {
       useLayoutEffect(mountPanel, []);
       return <textarea aria-label="private AI input" />;
     }
-    render(<AiEditorHost enabled inlineSessionId={1} onClose={close}><PanelProbe /></AiEditorHost>);
-    render(<AiEditorHost enabled inlineSessionId={2} onClose={close}><PanelProbe /></AiEditorHost>);
+    const props = {
+      enabled: true, displayMode: "inline" as const,
+      surface: { hostVisible: true, hostClassName: "ai-chat-host--inline" as const, gridHasAiColumn: false, catcherVisible: false },
+      inlineOpen: true, inlineClosing: false, inlineAnchor: null, inlineRunAnchor: null,
+      editorCanvasRef: { current: null }, onClose: close,
+    };
+    render(<AiEditorHost {...props} inlineSessionId={1}><PanelProbe /></AiEditorHost>);
+    render(<AiEditorHost {...props} inlineSessionId={2}><PanelProbe /></AiEditorHost>);
     expect(document.querySelector(".ai-sidebar-panel")).toBeNull();
     expect(document.querySelector("textarea[aria-label='private AI input']")).toBeNull();
     expect(mountPanel).not.toHaveBeenCalled();
@@ -108,6 +115,23 @@ describe("public Editor disabled AI hooks", () => {
     expect(host.editCommentMessage).not.toHaveBeenCalled();
     expect(host.runAiEdit).not.toHaveBeenCalled();
   });
+  it("keeps host services fixed until the editor remounts, including hook implementations", () => {
+    const firstTitles = new Map([["room", "First"]]);
+    const secondTitles = new Map([["room", "Second"]]);
+    const first = { assistance: { ...DEFAULT_EDITOR_HOST.assistance, useAiWorkspaceTabTitles: () => firstTitles } };
+    const second = { assistance: { ...DEFAULT_EDITOR_HOST.assistance, useAiWorkspaceTabTitles: () => secondTitles } };
+    function Probe() {
+      const { useAiWorkspaceTabTitles: useTitles } = useEditorHost().assistance;
+      return <span>{useTitles().get("room")}</span>;
+    }
+    render(<EditorHostProvider services={first}><Probe /></EditorHostProvider>);
+    expect(mounted!.container.textContent).toBe("First");
+    render(<EditorHostProvider services={second}><Probe /></EditorHostProvider>);
+    expect(mounted!.container.textContent).toBe("First");
+    render(<EditorHostProvider key="new-host" services={second}><Probe /></EditorHostProvider>);
+    expect(mounted!.container.textContent).toBe("Second");
+  });
+
 });
 
 function render(element: React.ReactElement) {

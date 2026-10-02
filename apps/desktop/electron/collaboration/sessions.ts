@@ -32,7 +32,9 @@ import type {
 } from "../../src/features/collaboration/model/bridge";
 import type { SharedApproval } from "../../src/features/collaboration/model/approval";
 import { CollaborationAuth, collaborationConfig } from "./auth";
+import { CollaborationHttpError, readResponseBytes, readResponseJson, responseError, retryDelay } from "./transport";
 import { durableWrite, SharedDocumentJournal } from "./journal";
+import { isRemoteId, validateAcknowledgements, validateApproval, validateDocumentIdentity, validateSnapshot, validateSync } from "./response-validation";
 
 interface Session {
   journal: SharedDocumentJournal;
@@ -48,6 +50,8 @@ interface Session {
   clientId?: string;
   connectionGeneration?: number;
   lastSynchronizedAt?: number;
+  retryFailures?: number;
+  retryAt?: number;
   presenceSocket?: WebSocket;
   presencePayload?: string;
   pendingAssetRevision?: number;
@@ -76,6 +80,7 @@ export class CollaborationSessions {
   private sessions = new Map<string, Session>();
   private registryTail: Promise<void> = Promise.resolve();
   private retry?: ReturnType<typeof setInterval>;
+  private readonly lifetime = new AbortController();
   private viewedFileId: string | null = null;
   private visibleFileIds = new Set<string>();
   private readonly approverWindow = new AsyncLocalStorage<number>();
@@ -204,13 +209,14 @@ export class CollaborationSessions {
         if (this.auth?.user())
           for (const [fileId, session] of this.sessions)
             if (this.needsRetry(fileId, session))
-              void this.flush(fileId, true).catch(() => {});
+              void this.backgroundFlush(fileId);
       }, 5000);
       this.retry.unref();
     }
   }
   private needsRetry(fileId: string, session: Session): boolean {
     const entry = this.registry.files[fileId];
+    if (Date.now() < (session.retryAt ?? 0)) return false;
     if (session.stopped || session.failed || entry.staged || entry.actorId !== this.auth?.user()?.id) return false;
     if (!entry.initialized || session.journal.outbox().length ||
       (session.pendingAssetRevision ?? 0) !== (session.uploadedAssetRevision ?? 0)) return true;
@@ -322,6 +328,7 @@ export class CollaborationSessions {
       "/documents",
       { operationId },
     );
+    validateDocumentIdentity(created);
     const directory = path.join(this.directory, "documents", created.id);
     let journal: SharedDocumentJournal;
     try {
@@ -377,7 +384,7 @@ export class CollaborationSessions {
       viewing: (this.viewedFileId === fileId || this.visibleFileIds.has(fileId)),
     });
     await this.loadAssets(fileId, false);
-    void this.flush(fileId, true).catch(() => {});
+    void this.backgroundFlush(fileId);
     return this.describe(fileId);
   }
   private recoveryTail: Promise<unknown> = Promise.resolve();
@@ -402,7 +409,7 @@ export class CollaborationSessions {
             const id = value.slice(20);
             if (!/^[A-Za-z0-9_-]{1,180}$/.test(id)) throw new Error("INVALID_ASSET");
             const response = await this.requestRaw(`/documents/${item.id}/recovery/assets/${id}`);
-            const source = `data:${response.headers.get("Content-Type")};base64,${Buffer.from(await response.arrayBuffer()).toString("base64")}`;
+            const source = `data:${response.headers.get("Content-Type")};base64,${Buffer.from(await readResponseBytes(response, MAX_ASSET_BYTES)).toString("base64")}`;
             this.parseImage(source);
             return source;
           }
@@ -553,6 +560,7 @@ export class CollaborationSessions {
     let document: SigmaDocument;
     try {
       const snapshot = await this.request<{ state: string; epoch: number }>(`/documents/${sharedDocumentId}/snapshot`);
+      validateSnapshot(snapshot, sharedDocumentId, false);
       let shared = new SharedDocument(fromBase64(snapshot.state, MAX_DOCUMENT_BYTES));
       useLocal = canUseLocal && session!.journal.binding.epoch === snapshot.epoch;
       try {
@@ -567,7 +575,7 @@ export class CollaborationSessions {
     } catch (error) {
       // Offline access keeps the same account's already-opened document available.
       // Authorization failures must never use this fallback.
-      const offline = error instanceof TypeError || (error instanceof Error && (error.name === "TimeoutError" || /^(NETWORK_UNAVAILABLE|HTTP_5\d\d|fetch failed)$/.test(error.message)));
+      const offline = (error instanceof CollaborationHttpError && error.status >= 500) || error instanceof TypeError || (error instanceof Error && (error.name === "TimeoutError" || /^(NETWORK_UNAVAILABLE|HTTP_5\d\d|fetch failed)$/.test(error.message)));
       if (!canUseLocal || !offline) throw error;
       useLocal = true;
       document = this.project(fileId)!;
@@ -642,6 +650,7 @@ export class CollaborationSessions {
       return this.project(fileId)!;
     }
     const snapshot = await this.request<{ state: string; role: MemberRole; epoch: number }>(`/documents/${sharedDocumentId}/snapshot`);
+    validateSnapshot(snapshot, sharedDocumentId);
     if (actorId !== this.actorId()) throw new Error("ACCOUNT_CHANGED");
     const journalDirectory = `${sharedDocumentId}-${actorId}-epoch-${snapshot.epoch}`;
     const directory = path.join(this.directory, "documents", journalDirectory);
@@ -666,6 +675,7 @@ export class CollaborationSessions {
     const { sharedDocumentId } = await this.request<{
       sharedDocumentId: string;
     }>("/invitations/accept", { token });
+    if (!isRemoteId(sharedDocumentId)) throw new Error("INVALID_DOCUMENT_RESPONSE");
     const existing = Object.entries(this.registry.files).find(
       ([, value]) => value.sharedDocumentId === sharedDocumentId,
     );
@@ -675,6 +685,7 @@ export class CollaborationSessions {
       role: MemberRole;
       epoch: number;
     }>(`/documents/${sharedDocumentId}/snapshot`);
+    validateSnapshot(snapshot, sharedDocumentId);
     const journalDirectory = snapshot.epoch === 1 ? sharedDocumentId : `${sharedDocumentId}-epoch-${snapshot.epoch}`;
     const directory = path.join(this.directory, "documents", journalDirectory);
     let journal: SharedDocumentJournal;
@@ -756,13 +767,18 @@ export class CollaborationSessions {
         await session.journal.append(update, identity, true);
         this.emit({ type: "update", fileId, epoch: session.journal.binding.epoch, update: encoded, identity });
         this.status(fileId, "local-saved");
-        void this.flush(fileId, true).catch(() => {});
+        void this.backgroundFlush(fileId);
       } catch (error) {
         session.failed = true;
         this.status(fileId, "save-error");
         throw error;
       }
     });
+  }
+  private async backgroundFlush(fileId: string): Promise<void> {
+    const session = this.sessions.get(fileId);
+    if (!session || Date.now() < (session.retryAt ?? 0)) return;
+    await this.flush(fileId, true).catch(() => {});
   }
   async flush(fileId: string, online = false): Promise<void> {
     const session = this.require(fileId);
@@ -775,12 +791,15 @@ export class CollaborationSessions {
     if (session.stopped) throw new Error("DOCUMENT_UNAVAILABLE");
     if (session.syncing) return session.syncing;
     session.syncing = this.synchronize(fileId)
+      .then(() => { session.retryFailures = 0; session.retryAt = 0; })
       .catch((error) => {
+        session.retryFailures = (session.retryFailures ?? 0) + 1;
+        session.retryAt = Date.now() + retryDelay(session.retryFailures, error);
         this.status(
           fileId,
           /EPOCH/.test(String(error))
             ? "epoch-error"
-            : /ACCESS|MEMBERSHIP|READ_ONLY|UNAVAILABLE|AUTH_REQUIRED/.test(
+            : (error instanceof CollaborationHttpError && [401, 403].includes(error.status)) || /ACCESS|MEMBERSHIP|READ_ONLY|DOCUMENT_UNAVAILABLE|AUTH_REQUIRED|ACCOUNT_CHANGED/.test(
                   String(error),
                 )
               ? "permission-error"
@@ -840,6 +859,7 @@ export class CollaborationSessions {
         vector: toBase64(session.journal.document.vector()),
       },
     );
+    validateSync(result, session.journal.binding.epoch);
     session.role = result.role;
     if (entry.role !== result.role) {
       entry.role = result.role;
@@ -872,15 +892,9 @@ export class CollaborationSessions {
           update: item.update,
         })),
       });
-      if (!Array.isArray(result.acks) || result.acks.length !== pending.length)
-        throw new Error("INVALID_ACK");
+      validateAcknowledgements(result, pending.map(item => item.identity.operationId));
       for (let index = 0; index < pending.length; index++) {
         const ack = result.acks[index];
-        if (
-          ack.operationId !== pending[index].identity.operationId ||
-          !Number.isSafeInteger(ack.seq)
-        )
-          throw new Error("INVALID_ACK");
         await session.journal.acknowledge(ack.operationId);
       }
     }
@@ -1028,6 +1042,7 @@ export class CollaborationSessions {
       `/documents/${session.journal.binding.sharedDocumentId}/approve`,
       { ...prepared, protocol: 1, epoch: session.journal.binding.epoch },
     );
+    validateApproval(result, approval.operationId);
     await this.receive(fileId, result.update, {
       operationId: result.operationId,
       actorId: this.registry.files[fileId].actorId,
@@ -1091,6 +1106,7 @@ export class CollaborationSessions {
       role: MemberRole;
       epoch: number;
     }>(fileId, "snapshot");
+    validateSnapshot(snapshot, previous.journal.binding.sharedDocumentId);
     if (snapshot.epoch === previous.journal.binding.epoch) {
       await this.flush(fileId, true);
       return;
@@ -1293,7 +1309,7 @@ export class CollaborationSessions {
       `/documents/${session.journal.binding.sharedDocumentId}/assets/${assetId}`,
     );
     const type = response.headers.get("Content-Type");
-    const value = `data:${type};base64,${Buffer.from(await response.arrayBuffer()).toString("base64")}`;
+    const value = `data:${type};base64,${Buffer.from(await readResponseBytes(response, MAX_ASSET_BYTES)).toString("base64")}`;
     this.parseImage(value);
     await durableWrite(
       path.join(folder, `${assetId}.json`),
@@ -1478,24 +1494,30 @@ export class CollaborationSessions {
     options: RequestInit = {},
   ): Promise<Response> {
     if (!this.auth) throw new Error("COLLABORATION_NOT_CONFIGURED");
+    const actor = this.auth.user()?.id;
+    const accountSignal = this.auth.accountSignal();
+    const authorization = await this.auth.authorization();
+    if (accountSignal.aborted || actor !== this.auth.user()?.id) throw new Error("ACCOUNT_CHANGED");
+    const headers = new Headers(options.headers);
+    headers.set("Authorization", authorization);
     const response = await fetch(new URL(route, this.auth.config.apiUrl), {
-      ...options,
-      headers: {
-        ...options.headers,
-        Authorization: await this.auth.authorization(),
-      },
-      signal: AbortSignal.timeout(20_000),
+      ...options, headers,
+      signal: AbortSignal.any([AbortSignal.timeout(20_000), accountSignal, this.lifetime.signal, ...(options.signal ? [options.signal] : [])]),
       redirect: "error",
+    }).catch(error => {
+      if (accountSignal.aborted) throw new Error("ACCOUNT_CHANGED");
+      throw error;
     });
-    if (!response.ok) {
-      const error = (await response.json().catch(() => ({}))) as {
-        error?: string;
-      };
-      throw new Error(error.error ?? `HTTP_${response.status}`);
+    if (accountSignal.aborted || actor !== this.auth.user()?.id) {
+      await response.body?.cancel();
+      throw new Error("ACCOUNT_CHANGED");
     }
+    if (!response.ok) throw await responseError(response);
     return response;
   }
   async request<T>(route: string, body?: unknown): Promise<T> {
+    const actor = this.auth?.user()?.id;
+    const accountSignal = this.auth?.accountSignal();
     const response = await this.requestRaw(
       route,
       body === undefined
@@ -1506,13 +1528,20 @@ export class CollaborationSessions {
             body: JSON.stringify(body),
           },
     );
-    return response.json() as Promise<T>;
+    const value = await readResponseJson<T>(response, Math.ceil(MAX_DOCUMENT_BYTES * 4 / 3) + 1024 * 1024).catch(error => {
+      if (accountSignal?.aborted) throw new Error("ACCOUNT_CHANGED");
+      throw error;
+    });
+    if (accountSignal?.aborted || actor !== this.auth?.user()?.id) throw new Error("ACCOUNT_CHANGED");
+    return value;
   }
   async close(): Promise<void> {
+    this.lifetime.abort();
     this.auth?.cancelSignIn();
     if (this.retry) clearInterval(this.retry);
     for (const session of this.sessions.values()) {
       session.socket?.close();
+      await session.syncing?.catch(() => {});
       await session.tail;
       await session.journal.compact();
     }

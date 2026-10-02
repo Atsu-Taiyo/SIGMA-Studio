@@ -243,10 +243,10 @@ describe("overlay text projects the same DOM through Tiptap and the static rende
 
   it("gives every drawn boxed fragment its own measurement identity, as the editor does", () => {
     // The measurement channel is the one thing the two sides build differently (see the file
-    // comment), so what has to agree is how many things there are to measure. A `\n` inside boxed
-    // text draws a frame on each line and ProseMirror sees two document targets, because the mark
-    // span closes at its `hardBreak`; the static side splits its text node the same way and so has
-    // to hand out two segment ids, not the entry's one. Sharing an id collapsed the two frames into
+    // comment), so every drawn piece must have a distinct identity and the same text coverage.
+    // A `\n` inside boxed text draws a frame on each line. ProseMirror normalizes adjacent text
+    // with identical marks into one node; the static projection keeps the source fragments. The
+    // static side must still hand out two line ids, not the entry's one. Sharing an id collapsed two frames into
     // one entry of the alignment map and left the first line's frame stretched to the second's.
     const richText: OverlayTextBlock[] = [{
         type: "paragraph", id: "inline_dom_parity_test_12",
@@ -265,7 +265,11 @@ describe("overlay text projects the same DOM through Tiptap and the static rende
       "inline_dom_parity_test_12-boxed-run-0-segment-0-0-line-1",
       "inline_dom_parity_test_12-boxed-run-0-segment-1-1",
     ]);
-    expect(editorTargets).toHaveLength(3);
+    // fromJSON merges "い" + "う", but never merges across the hard break. Assert the
+    // measured positions and text, rather than the pre-normalization source node count.
+    expect(editorTargets.map(({ from, to }) => ({
+      from, to, text: block!.textBetween(from! - 1, to! - 1),
+    }))).toEqual([{ from: 1, to: 2, text: "あ" }, { from: 3, to: 5, text: "いう" }]);
     // Only the fragment that really has a neighbour on its line claims the joint.
     expect(boxedRunConnections(renderStaticHtml(richText))).toEqual([
       { left: false, right: false },

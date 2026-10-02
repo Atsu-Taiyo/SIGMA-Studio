@@ -1,13 +1,14 @@
+import { authorizePreviewSender, configureTrustedIpc, ipcMain, isTrustedRendererUrl } from "./trusted-ipc";
 import { fetchProblemSearch } from "./problem-search-client";
-import { app, BrowserWindow, ipcMain, Menu, nativeImage, shell, protocol } from "electron";
+import { app, BrowserWindow, Menu, nativeImage, shell, protocol } from "electron";
 import crypto from "node:crypto";
 import { fetchProblemSolution } from "./problem-solution-client";
 import { createInterface } from "node:readline";
-import { resolveDevServerUrl, isDevServerNavigation } from "./dev-server";
+import { resolveDevServerUrl } from "./dev-server";
 import http from "node:http";
 import path from "node:path";
 import { existsSync, readFileSync, watch, type FSWatcher } from "node:fs";
-import { fileURLToPath } from "node:url";
+import { pathToFileURL } from "node:url";
 
 import { LocalAiEditChatRoomStore } from "./ai-edit-chat-room-store";
 import { LocalAiEditRunContextStore, sweepOrphanPerRunContextFiles } from "./ai-edit-run-context";
@@ -116,6 +117,7 @@ if (!hasSingleInstanceLock) {
   } else app.exit(0);
 }
 let mainWindow: BrowserWindow | null = null;
+configureTrustedIpc({ getMainWebContents: () => mainWindow?.webContents ?? null, rendererDirectory: DIST_RENDERER_DIR, devServerUrl: DEV_SERVER_URL });
 const shareLinkQueue = new ShareLinkQueue(() => {
   if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send("share-link:available");
 });
@@ -400,20 +402,6 @@ function isMissingFile(error: unknown): boolean {
     (error as { code?: unknown }).code === "ENOENT";
 }
 
-function isRendererFileUrl(url: string): boolean {
-  try {
-    const parsed = new URL(url);
-    if (parsed.protocol !== "file:") {
-      return false;
-    }
-
-    const filePath = path.resolve(fileURLToPath(parsed));
-    const rendererRoot = path.resolve(DIST_RENDERER_DIR);
-    return filePath === rendererRoot || filePath.startsWith(`${rendererRoot}${path.sep}`);
-  } catch {
-    return false;
-  }
-}
 
 function openExternalUrl(url: string): void {
   try {
@@ -433,7 +421,7 @@ function getAppIconPath(): string | undefined {
 function applyDockIcon(): void {
   const iconPath = getAppIconPath();
   if (process.platform === "darwin" && iconPath) {
-    app.dock.setIcon(iconPath);
+    app.dock?.setIcon(iconPath);
   }
 }
 
@@ -455,7 +443,7 @@ function createWindow() {
       preload: path.join(__dirname, "preload.cjs"),
       nodeIntegration: false,
       contextIsolation: true,
-      sandbox: false,
+      sandbox: true,
     },
   });
   mainWindow = win;
@@ -486,7 +474,7 @@ function createWindow() {
   });
 
   win.webContents.on("will-navigate", (event, url) => {
-    if (DEV_SERVER_URL ? isDevServerNavigation(url, DEV_SERVER_URL) : isRendererFileUrl(url)) {
+    if (isTrustedRendererUrl(url, DIST_RENDERER_DIR, DEV_SERVER_URL)) {
       return;
     }
     event.preventDefault();
@@ -497,7 +485,7 @@ function createWindow() {
   });
 
   win.webContents.on("will-redirect", (event, url) => {
-    if (DEV_SERVER_URL && !isDevServerNavigation(url, DEV_SERVER_URL)) {
+    if (!isTrustedRendererUrl(url, DIST_RENDERER_DIR, DEV_SERVER_URL)) {
       event.preventDefault();
     }
   });
@@ -732,27 +720,25 @@ async function renderAiPageContextPng(request: RenderPageContextRequest): Promis
     height: RENDER_WINDOW_HEIGHT_PX,
     show: false,
     webPreferences: {
-      preload: path.join(__dirname, "preload.cjs"),
+      preload: path.join(__dirname, "preview-preload.cjs"),
       nodeIntegration: false,
       contextIsolation: true,
-      sandbox: false,
+      sandbox: true,
     },
   });
 
-  renderWindow.webContents.setWindowOpenHandler(({ url }) => {
-    openExternalUrl(url);
-    return { action: "deny" };
-  });
+  const query = { renderId, profile: request.profile ?? "teacher" };
+  const previewUrl = DEV_SERVER_URL ? new URL("/print", DEV_SERVER_URL) : pathToFileURL(path.join(DIST_RENDERER_DIR, "print.html"));
+  previewUrl.search = new URLSearchParams(query).toString();
+  const revokePreview = authorizePreviewSender(renderWindow.webContents, renderId, previewUrl.href);
+  renderWindow.once("closed", revokePreview);
+  renderWindow.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
+  // Generated documents never navigate this privileged document-fetch surface.
+  renderWindow.webContents.on("will-navigate", (event) => event.preventDefault());
+  renderWindow.webContents.on("will-redirect", (event) => event.preventDefault());
 
   try {
-    const query = { renderId, profile: request.profile ?? "teacher" };
-    if (DEV_SERVER_URL) {
-      const url = new URL("/print", DEV_SERVER_URL);
-      url.search = new URLSearchParams(query).toString();
-      await renderWindow.loadURL(url.toString());
-    } else {
-      await renderWindow.loadFile(path.join(DIST_RENDERER_DIR, "print.html"), { query });
-    }
+    await renderWindow.loadURL(previewUrl.href);
     await waitForPrintPreviewReady(renderWindow);
 
     // First measure without scrolling: if the target page already fits
@@ -866,6 +852,7 @@ async function renderAiPageContextPng(request: RenderPageContextRequest): Promis
   } catch (error) {
     return { ok: false, error: error instanceof Error ? error.message : te("electron.preview.renderFailed") };
   } finally {
+    revokePreview();
     if (!renderWindow.isDestroyed()) {
       renderWindow.close();
     }

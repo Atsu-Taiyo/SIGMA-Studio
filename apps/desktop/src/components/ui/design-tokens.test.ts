@@ -142,7 +142,7 @@ describe("design tokens", () => {
     for (const path of [
       "../editor/PageSettingsDialog.tsx",
       "../editor/TableSettingsDialog.tsx",
-      "../editor/EditorShell.tsx",
+      "../editor/editor-shell/editor-outline-dialog.tsx",
       "../editor/editor-shell/material-dialogs.tsx",
       "../templates/TemplateGallery.tsx",
       "../print/PdfExportSuccessDialog.tsx",

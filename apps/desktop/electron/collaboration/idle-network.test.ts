@@ -10,12 +10,14 @@ import type { ObjectValue } from "../../src/features/collaboration/model/value";
 import { LocalSigmaDocStore } from "../local-sigma-doc-store";
 import { SharedDocumentJournal } from "./journal";
 import { CollaborationSessions } from "./sessions";
+import { CollaborationHttpError } from "./transport";
 
 vi.mock("electron", () => ({ safeStorage: {} }));
 const directories: string[] = [];
 const instances: CollaborationSessions[] = [];
 afterEach(async () => {
   vi.useRealTimers();
+  vi.restoreAllMocks();
   for (const instance of instances.splice(0)) await instance.close();
   vi.restoreAllMocks();
   vi.unstubAllEnvs();
@@ -99,6 +101,7 @@ it("retries a disconnected visible session and durable uploads even when the doc
 });
 it("retries hidden durable outbox operations until acknowledged", async () => {
   const { sessions, session } = await setup();
+  vi.spyOn(Math, "random").mockReturnValue(0);
   const before = session.journal.document.project();
   const after = structuredClone(before);
   (after.metadata as ObjectValue).title = "offline edit";
@@ -168,4 +171,63 @@ it("keeps restored clean journals idle, catches up when reopened, and persists t
   expect(restored.outbox()).toHaveLength(0);
   restored.document.destroy();
   remote.destroy();
+});
+
+it("retains the complete durable batch when a later ACK is invalid", async () => {
+  const { sessions, session } = await setup();
+  const ids: string[] = [];
+  for (const title of ["first", "second"]) {
+    const remote = new SharedDocument(session.journal.document.snapshot());
+    const vector = remote.vector(), before = remote.project(), after = structuredClone(before);
+    (after.metadata as ObjectValue).title = title;
+    remote.change(before, after);
+    const operationId = crypto.randomUUID(); ids.push(operationId);
+    await session.journal.append(remote.difference(vector), { operationId, actorId: "actor", kind: "manual" }, true);
+    remote.destroy();
+  }
+  vi.spyOn(sessions, "request").mockImplementation(async route => route.endsWith("/sync")
+    ? { update: "AAA=", role: "editor" }
+    : { acks: [{ operationId: ids[0], seq: 1 }, { operationId: ids[1], seq: -1 }] });
+  await expect(sessions.flush("file", true)).rejects.toThrow("INVALID_ACK");
+  expect(session.journal.outbox().map(item => item.identity.operationId)).toEqual(ids);
+  await session.journal.flush();
+  const restarted = await SharedDocumentJournal.open(session.journal.directory);
+  expect(restarted.outbox().map(item => item.identity.operationId)).toEqual(ids);
+  restarted.document.destroy();
+});
+it("waits for an active synchronization to settle before close compacts the journal", async () => {
+  const { sessions, session } = await setup();
+  const pending = Promise.withResolvers<void>();
+  const internal = session as unknown as { syncing: Promise<void> };
+  internal.syncing = pending.promise;
+  const compact = vi.spyOn(session.journal, "compact");
+  const closed = sessions.close();
+  await Promise.resolve();
+  expect(compact).not.toHaveBeenCalled();
+  pending.resolve(); await closed;
+  expect(compact).toHaveBeenCalledOnce();
+});
+
+it("honors Retry-After across background polls without dropping the durable outbox", async () => {
+  const { sessions, session } = await setup();
+  const before = session.journal.document.project();
+  const after = structuredClone(before);
+  (after.metadata as ObjectValue).title = "retry safely";
+  const remote = new SharedDocument(session.journal.document.snapshot());
+  const vector = remote.vector();
+  remote.change(before, after);
+  await session.journal.append(remote.difference(vector), { operationId: crypto.randomUUID(), actorId: "actor", kind: "manual" }, true);
+  remote.destroy();
+  const request = vi.spyOn(sessions, "request").mockRejectedValue(new CollaborationHttpError("RATE_LIMIT", 429, 120_000));
+  const flush = vi.spyOn(sessions, "flush");
+  await vi.advanceTimersByTimeAsync(5000);
+  await flush.mock.results.at(-1)?.value.catch(() => {});
+  expect(request).toHaveBeenCalledOnce();
+  await vi.advanceTimersByTimeAsync(115_000);
+  expect(request).toHaveBeenCalledOnce();
+  expect(session.journal.outbox()).toHaveLength(1);
+  await vi.advanceTimersByTimeAsync(5000);
+  await flush.mock.results.at(-1)?.value.catch(() => {});
+  expect(request).toHaveBeenCalledTimes(2);
+  expect(session.journal.outbox()).toHaveLength(1);
 });

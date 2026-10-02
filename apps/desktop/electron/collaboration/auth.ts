@@ -3,6 +3,7 @@ import { promises as fs } from "node:fs";
 import path from "node:path";
 import { durableWrite } from "./journal";
 import { googleAuthorization } from "./oauth";
+import { readResponseJson } from "./transport";
 
 export interface CollaborationConfig {
   apiUrl: string;
@@ -75,6 +76,8 @@ export class CollaborationAuth {
   private refreshTask?: Promise<void>;
   private login?: AbortController;
   private generation = 0;
+  private account = new AbortController();
+  accountSignal(): AbortSignal { return this.account.signal; }
   private persistence: Promise<void> = Promise.resolve();
   constructor(
     private readonly directory: string,
@@ -144,6 +147,8 @@ export class CollaborationAuth {
   async signOut(): Promise<void> {
     this.cancelSignIn();
     this.generation++;
+    this.account.abort();
+    this.account = new AbortController();
     const authorization = this.tokens?.access_token;
     this.tokens = undefined;
     await this.persistence.catch(() => {});
@@ -156,6 +161,7 @@ export class CollaborationAuth {
           Authorization: `Bearer ${authorization}`,
         },
         signal: AbortSignal.timeout(5000),
+        redirect: "error",
       }).catch(() => {});
   }
   private async authRequest(route: string, body: unknown): Promise<unknown> {
@@ -166,13 +172,16 @@ export class CollaborationAuth {
         "Content-Type": "application/json",
       },
       body: JSON.stringify(body),
-      signal: AbortSignal.timeout(15_000),
+      signal: AbortSignal.any([AbortSignal.timeout(15_000), this.account.signal, ...(this.login ? [this.login.signal] : [])]),
+      redirect: "error",
     });
-    if (!response.ok)
+    if (!response.ok) {
+      await response.body?.cancel();
       throw new Error(
         response.status === 429 ? "AUTH_RATE_LIMIT" : "AUTH_FAILED",
       );
-    return response.json();
+    }
+    return readResponseJson(response, 256 * 1024);
   }
   private store(tokens: Tokens, generation: number, signal?: AbortSignal): Promise<void> {
     const next = this.persistence.then(async () => {
@@ -207,7 +216,13 @@ export class CollaborationAuth {
         await fs.rm(path.join(this.directory, "auth.enc"), { force: true });
         throw new Error("AUTH_CANCELLED");
       }
-      if (generation === this.generation) this.tokens = tokens;
+      if (generation === this.generation) {
+        if (this.tokens && this.tokens.user.id !== tokens.user.id) {
+          this.account.abort();
+          this.account = new AbortController();
+        }
+        this.tokens = tokens;
+      }
     });
     this.persistence = next.catch(() => {});
     return next;

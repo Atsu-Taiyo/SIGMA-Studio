@@ -76,3 +76,6 @@ Object.assign(globalThis, {
 });
 
 HTMLElement.prototype.scrollIntoView = () => undefined;
+
+// Happy DOM does not implement the native print dialog; tests spy on this boundary.
+Object.defineProperty(window, "print", { configurable: true, writable: true, value: () => undefined });

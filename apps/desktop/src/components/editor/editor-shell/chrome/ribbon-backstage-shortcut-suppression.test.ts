@@ -12,6 +12,7 @@ const source = readFileSync(
   new URL("../../EditorShell.tsx", import.meta.url),
   "utf8",
 );
+const chromeControllerSource = readFileSync(new URL("../use-editor-chrome-controller.ts", import.meta.url), "utf8");
 const routingSource = readFileSync(new URL("../use-editor-command-routing.ts", import.meta.url), "utf8");
 
 // window の capture リスナーは「同じ window に付いた別の capture リスナー」を
@@ -75,9 +76,10 @@ describe("EditorShell の Backstage 中のキー入力抑止", () => {
     // capture は window → target → bubble の順なので、window の capture で止めれば
     // bubble 側の handleOverlayKeyboard には届かない。preventDefault はしない
     // （Tab によるフォーカス移動を殺さないため）。
-    const start = source.indexOf("const guardBackstageKeys = (");
+    expect(source).toContain("useEditorChromeController({");
+    const start = chromeControllerSource.indexOf("const guardBackstageKeys = (");
     expect(start).toBeGreaterThan(-1);
-    const guard = source.slice(start, source.indexOf("]);", start));
+    const guard = chromeControllerSource.slice(start, chromeControllerSource.indexOf("]);", start));
     expect(guard).toContain('event.key === "Escape"');
     expect(guard).toContain("event.stopPropagation()");
     expect(guard).not.toContain("preventDefault");

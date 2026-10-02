@@ -60,7 +60,7 @@ AI編集toolの拡張計画は `docs/ai-edit-tool-roadmap.md` に置きます。
 
 共有AIは本人のローカルMCPがmainの現在の投影を読み、private proposalを既存UIへ返す。承認時はサーバーで権限・対象と参照元のハッシュ・冪等操作IDを検証する。共有中は従来の長時間予約と自動rebase/自動承認を使用しない。UndoはYjsの選択的履歴へ接続する。
 
-共有カタログの読み取りはElectron mainの`DesktopSharedCatalog`が所有する。表示中は5秒ごとに差分を取得し、能力情報・差分・ローカル走査は同時に読む。能力情報は30秒だけキャッシュし、明示的な更新と変更操作の後にだけ再取得する。共有者の取得は同期と並列に行い、キャッシュ済みの対象が同期中に失効した場合は同期後の状態で判定し直す。フォルダ・ワークスペースの共有は、親を先に確定できるようフォルダを順に、教材の本文アップロードは最大4件を並列に処理する。ローカルのカタログキャッシュは内容が変わったときだけ`fsync`付きで書く。
+共有カタログの読み取りはElectron mainの`DesktopSharedCatalog`が所有する。表示中の初回差分取得は5秒後で、revisionが変わらなければ間隔を倍増して最大30秒にする。revision更新の観測と明示的な再取得では5秒に戻す。失敗時はequal-jitter付き指数バックオフを最大60秒まで使い、`Retry-After`があればその最小待機時間も守る。画面が非表示の間は次の取得を予約しない。能力情報・差分・ローカル走査は同時に読む。能力情報は30秒だけキャッシュし、明示的な更新と変更操作の後にだけ再取得する。共有者の取得は同期と並列に行い、キャッシュ済みの対象が同期中に失効した場合は同期後の状態で判定し直す。フォルダ・ワークスペースの共有は、親を先に確定できるようフォルダを順に、教材の本文アップロードは最大4件を並列に処理する。ローカルのカタログキャッシュは内容が変わったときだけ`fsync`付きで書く。
 
 共同編集の利用方法は [共同編集ガイド](collaboration-user-guide.md) を参照。
 
@@ -128,6 +128,12 @@ drawingからrendering coreへの依存は公開入口の純粋なhelperに限�
 - 本文系editorに共通するTiptap書式commandとtoolbar stateの変換は`components/tiptap/text-format-controller.ts`に集約し、`TextFlowEditor`と`RichTextEditor`は対象selectionとblock種別だけを渡します。このcontrollerはReact、AI、editor compositionを参照しません。
 - 本文のTiptap属性、段組・container node、ID修復は`components/tiptap/sigma-doc-text-attributes.ts`、`sigma-doc-container-extensions.ts`、`sigma-doc-text-identity.ts`が所有します。ProseMirror node照会は`node-queries.ts`で共有し、schema利用者やそのテストがReactの`TextFlowEditor`をimportする必要をなくします。旧controllerからのexportは互換入口として維持します。
 - `PageCanvasEditor.tsx`はpage compositionとDOM測定・event wiringに限定し、TextFlow編集結果のSigmaDocへの調停、再帰的なID正規化、問題エリアやrunning regionの遷移、inline contentの区間構成は`components/editor/page-canvas/`の純粋modelへ置きます。
+  計測のlifecycleは `use-page-canvas-measurement.ts`、可視範囲は `use-page-canvas-viewport.ts`、
+  選択は `use-page-canvas-selection.ts`、running regionと余白のpointer処理は `use-page-canvas-regions.ts`、
+  コメント座標は `use-page-canvas-comments.ts` が所有します。計測ownerはcontent・geometry・surface・spaceAfterの
+  portを受け取り、既存のprobe→build→place→plan→adoptを一度だけ実行します。observer・frame・font通知と
+  drag listenerは文書切替・unmount時に無効化し、純粋modelやPDF用の別ページ割りを作りません。
+
 - overlayのread-only shape rendererとinteractive shape editorは別moduleにします。`shape-renderer.tsx`、`text-shape-editor.tsx`、`table-shape-editor.tsx`から`OverlayCanvasEditorClient.tsx`への逆importは禁止し、canvas controllerだけが各Viewを組み立てます。
 - 3D spec・cameraの更新、preview hashの検査、配置更新、設定パネルへの選択通知の発行と終了時クリアは`overlay-canvas/use-graph3d-controller.ts`が所有します。canvasから最新snapshotのrefと保存・履歴callbackを受け、camera操作と派生previewを同じUndo区間に保ちます。
 - `EditorShell.tsx`はcomposition rootとして残し、素材取得、toolbar正規化、page navigation、workspace request、ブロックスタイル変換など単独で検証できるapplication logicは`components/editor/editor-shell/`へ切り出します。
@@ -190,7 +196,7 @@ clockと状態書込先を受け取るprocess共通のinstanceを使い、tool h
 4. HTML・React・SVGなど出力先ごとの必要最小限のadapter。React adapterでは本文・図中文字・印刷の静的数式／本文描画を共有
 5. selection・history・snapshot操作など、UIから段階的に移すheadless application logic
 
-Electron、workspace保存、ローカルMCP、AI provider、proposal承認、認証は公開描画engineに含めません。`@sigma-studio/viewer`と`@sigma-studio/editor`は公開境界として固定し、Editorはデスクトップ`EditorShell`と汎用editor componentを再利用します。ただしAI編集はデスクトップ専用拡張とし、公開Editorのbuildでは`features/ai-edit`、`lib/ai`、AI UI componentへの依存を無効なadapterへ差し替えます。esbuildの入力一覧にデスクトップ専用AI moduleが現れた場合はbuildを失敗させ、UIを非表示にするだけで実装moduleを公開bundleへ残す構成を許可しません。一方、UI非依存で個別利用できるheadless drawing/editor coreは、リポジトリ内のimport境界とcharacterization testでAPI候補を安定させてから切り出します。旧Tiptap形式のoverlay rich textは読み込みmigrationだけでsemantic形式へ変換する互換層であり、公開coreや保存データへ戻しません。
+Electron、workspace保存、ローカルMCP、AI provider、proposal承認、認証は公開描画engineに含めません。`@sigma-studio/viewer`と`@sigma-studio/editor`は公開境界として固定し、Editorはデスクトップ`EditorShell`と汎用editor componentを再利用します。AI編集はデスクトップ専用拡張です。EditorShellと設定・背景ペインは`editor-shell/editor-host.tsx`のhost servicesを読み、DesktopEditorが`desktop-editor-host.ts`の実装を明示的に注入します。公開Editorはproviderを渡さず、安定した空snapshot、書き込みを行わないproposal action、描画しないAI viewを既定hostとして使います。AI moduleを公開buildのaliasで差し替える構成は使いません。hostはmount時に確定し、hook実装の異なるhostへの切替にはremountが必要です。現在の`EditorAssistanceServices`はUI application境界の移行契約で、既存のAI関数の入力・出力型をtype-onlyで参照しています。provider/controllerをまとめた小さな契約への整理は残っています。文書model、描画core、基底canvas/editorの汎用契約からこの移行契約を参照してはいけません。esbuildの入力一覧にデスクトップ専用AI moduleが現れた場合はbuildを失敗させ、UIを非表示にするだけで実装moduleを公開bundleへ残す構成を許可しません。一方、UI非依存で個別利用できるheadless drawing/editor coreは、リポジトリ内のimport境界とcharacterization testでAPI候補を安定させてから切り出します。旧Tiptap形式のoverlay rich textは読み込みmigrationだけでsemantic形式へ変換する互換層であり、公開coreや保存データへ戻しません。
 
 ## Design Principles
 
@@ -722,20 +728,45 @@ border を引く、running region のリストは region スコープ、静的�
 - 下余白dragの操作世代、保存後の描画待ち、再計測の保留は`page-canvas/space-after-drag-session.ts`が扱う。
   `space-after-commit-paint.ts`は保存結果がDOMに現れるまでの監視と期限、古い監視のcleanupを所有する。
   PageCanvasはpointer、プレビューのDOM更新、React stateを接続し、描画完了までpaginationの凍結を続ける。
+- `OverlayCanvasEditorClient` は図形編集の接続と描画を担当する。
+  `use-overlay-snapshot-state.ts` が派生編集snapshotを所有し、`use-document-snapshot-sync.ts` が
+  外部更新・Undo・自分の保存の反響を区別する。保存は `use-overlay-save-controller.ts` の一つの
+  出口へ集め、`use-overlay-save-effects.ts` が変更通知とunmount時のflushを所有する。
+  混在clipboard操作の履歴キーは読んだ時点で消費し、無関係な次の編集へ引き継がない。
+  `use-pointer-session.ts` はpointer capture・修飾キー・スクロールとその後始末を所有し、
+  開始・変形・確定の各controllerは `pointer-contracts.ts` のgeometry・selection・editing等のportで接続する。
+  画像取込、グラフ操作、テキスト編集、clipboard、keyboard、context menuはそれぞれ専用ownerを使う。
+  正本への更新とUndoの確定は引き続きhostの既存窓口へ返す。
 - 画像のFileReader・Imageによるdecodeは`overlay-canvas/image-file.ts`、寸法と横並び配置は
   `features/drawing/image-insertion.ts`が扱う。canvasごとの`image-import-session.ts`が重複requestと完了通知を管理し、
   取り込み中は空canvasを維持する。完了時の配置情報、選択・履歴・保存への反映はcontrollerが供給する。
 - 公開Editor/Viewerのバンドル設定は各`packages/*/scripts/build-options.mjs`を唯一の入口にする。
   本番buildとpackage-boundary testが同じalias・external・asset loaderを使い、テスト側では出力先への書込だけを止める。
+- `AiEditPanel` は会話store・実行要求と表示部品を接続する。入力の下書き、添付・参照候補、
+  ファイル読込と遅延focusは `ai-edit/application/use-ai-chat-composer.ts` が所有し、
+  `use-ai-composer-lifetime.ts` が教材切替・下書きreset・unmount時に進行中の読込と予約処理を無効化する。
+  共有契約はapplication側へ置き、`AiChatComposer`、`AiChatHistory`、`AiChatTurn`、
+  `AiChatActivity`、`AiChatInlineSurface` は表示と明示的な操作callbackを受け取る。
+  提案の承認・保存は既存のhost callbackとstoreを経由し、表示部品は文書の正本を所有しない。
 - `AiModelMenuContents` はモデル／推論強度メニューの表示とキーボード操作を所有し、
   選択値の保存とプロバイダ固有の補正は呼び出し側が所有する。
 - 設定値の購読は `subscribe-storage-preference.ts` で共有し、同一タブ・別タブの変更を
   通知する前にキャッシュを無効化する。設定ごとの検証と保存失敗時の方針は各設定に残す。
 - Electronの `cli-child-env.ts` は環境変数の選別とPATH構築を共有する。
   認証を上書きする変数の禁止やプロバイダ固有の追加変数は各clientに残す。
+- `EditorShell` の正本文書・revision・Undo/Redo・commitは一つの所有者に保つ。
+  復旧読込は `use-document-recovery.ts`、埋め込みhostの反響判定は `use-embedded-document-sync.ts`、
+  終了時の保存と再試行は `use-window-close-boundary.ts` が所有する。遅延読込、timer、close要求の
+  世代を各ownerが管理し、unmountや後続のキャンセル後に古い完了通知を採用しない。
+  workspace初期化・教材移動・タブ協調、書式購読、検索、印刷、設定dialogは対応する
+  `editor-shell/use-*.ts` に置き、正本の読取と変更は明示したgetter・commit・保存portへ返す。
+  `use-overlay-settings-controller.tsx` がグラフ・表設定の選択、購読、失効を扱い、
+  `use-mcp-proposal-controller.ts` が提案一覧の取得・debounce・引用と表示の派生を扱う。
+  提案の意味付けには注入済みhost serviceを使い、汎用editorからAI実装への直接依存を増やさない。
 - `editor-shell/use-document-save-boundary.ts` は保存と教材切替前の境界処理を所有する。
   EditorShellが所有する文書・revisionの参照とeditor-stateのsetterを受け取り、
-  保存中の教材切替、保存失敗、競合を従来と同じ順序で処理する。
+  保存中の教材切替、保存失敗、競合を従来と同じ順序で処理する。自動保存の予約・完了反映も
+  このownerで扱い、別の書込経路や保存状態を作らない。
 - `editor-shell/document-storage-sync.ts`は外部通知の購読・解除、連続する保存の完了待ち、
   通知の世代と教材切替の確認、分類・マージ・退避の順序を所有する。
   正本の採用・Undo履歴・保存はhostへ返し、embeddedでの無効化とeffectの依存境界はshellに保つ。
