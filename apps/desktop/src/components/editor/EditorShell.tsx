@@ -1166,7 +1166,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
     clearAiEditPinnedReferences();
     setVersionHistoryPreviewState(null);
     setVersionHistoryRestoreError(null);
-  }, [documentHistory, setSelectedId, setSelectedInlineMath, closeGraphSettings, setSelectedOverlayGraph, closeChartSettings, setSelectedOverlayChart, closeGraph3DSettings, setCommentAnchorCandidate, setPendingCommentAnchor, clearCommentReplyDrafts, setActiveCommentThreadId, setHighlightedCommentThreadId, clearAiEditPinnedReferences]);
+  }, [documentHistory, setFontSizeInput, setTextFontSize, setTextFontSizeMixed, setSelectedId, setSelectedInlineMath, closeGraphSettings, setSelectedOverlayGraph, closeChartSettings, setSelectedOverlayChart, closeGraph3DSettings, setCommentAnchorCandidate, setPendingCommentAnchor, clearCommentReplyDrafts, setActiveCommentThreadId, setHighlightedCommentThreadId, clearAiEditPinnedReferences]);
 
   const rememberLeavingEditorTabViewState = useCallback((leavingFileId: string | null, nextFileId: string) => {
     if (!leavingFileId || leavingFileId === nextFileId) {
