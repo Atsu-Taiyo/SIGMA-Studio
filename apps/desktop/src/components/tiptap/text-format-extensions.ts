@@ -129,10 +129,10 @@ export const BoxedTextExtension = Mark.create({
   },
 
   parseHTML() {
-    // Above the default 50 so these are tried before `styledText`'s catch-all `<span>` rule. Mark
-    // *priority* decides nesting, and it puts styledText's rule first in the schema's rule list;
-    // since that rule cannot decline a match, the box would be parsed away as an attribute-less
-    // styling mark — a copied boxed word came back unboxed on paste.
+    // Above the default 50 so these are tried before `styledText`'s `<span>` rule. Mark *priority*
+    // decides nesting, and it puts styledText's rule first in the schema's rule list; a rule consumes
+    // the element it matches, so a box that also carries inline text styling would be parsed away
+    // as a styling mark — a copied boxed word came back unboxed on paste.
     return [
       { priority: 60, tag: `span.${BOXED_TEXT_CLASS_NAME}` },
       { priority: 60, tag: "span[data-sigma-doc-boxed-text]" },
@@ -236,7 +236,14 @@ export const StyledTextExtension = Mark.create({
   },
 
   parseHTML() {
-    return [{ tag: "span" }];
+    // 文字の装飾を持つ span だけを受ける。どの span でも受けると、ProseMirror は同じ優先度で
+    // mark の規則を node の規則より先に評価するので、数式 (`span[data-sigma-doc-math-inline]`) や
+    // 他の mark の入れ物が「装飾の無い styledText」として食われ、貼り付けで数式が KaTeX の
+    // 文字列へ崩れる。
+    return [{
+      tag: "span",
+      getAttrs: (element) => (element instanceof HTMLElement && hasTextStyleDeclaration(element) ? null : false),
+    }];
   },
 
   renderHTML({ HTMLAttributes, mark }) {
@@ -460,6 +467,11 @@ function inlineNodeAllowsMark(parentAllowsMark: boolean | undefined, nodeAllowsM
 
 function normalizeFontSize(value: unknown): number | null {
   return parseCssFontSizeToPt(value) ?? null;
+}
+
+function hasTextStyleDeclaration(element: HTMLElement): boolean {
+  const { backgroundColor, color, fontFamily, fontSize } = element.style;
+  return Boolean(color || backgroundColor || fontFamily || normalizeFontSize(fontSize));
 }
 
 function asNonEmptyString(value: unknown): string | undefined {

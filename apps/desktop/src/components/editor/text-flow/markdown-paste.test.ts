@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { parsePastedMarkdown } from "./markdown-paste";
+import { parsePastedMarkdown, parsePastedMarkdownFromClipboard } from "./markdown-paste";
 
 describe("parsePastedMarkdown", () => {
   it("creates a code block from pasted fenced Markdown without storing the fence", () => {
@@ -243,5 +243,31 @@ describe("parsePastedMarkdown", () => {
         }],
       },
     ]);
+  });
+});
+
+describe("parsePastedMarkdownFromClipboard", () => {
+  const clipboard = (types: { html?: string; text: string }) => ({
+    getData: (type: string) => (type === "text/html" ? types.html ?? "" : type === "text/plain" ? types.text : ""),
+  });
+
+  it("reads plain text as Markdown when nothing richer is on the clipboard", () => {
+    expect(parsePastedMarkdownFromClipboard(clipboard({ text: "## 見出し\n$x^2$ です" }))?.[0])
+      .toMatchObject({ type: "heading" });
+  });
+
+  it("keeps preferring Markdown over the HTML of an external page", () => {
+    expect(parsePastedMarkdownFromClipboard(clipboard({
+      html: "<p><span class=\"katex\">x</span></p>",
+      text: "$x^2$ です",
+    }))).not.toBeNull();
+  });
+
+  it("leaves the HTML of our own editors alone, so a frame around math survives a cut", () => {
+    // 切り取りは payload を持たず、HTML (枠付きの数式) とプレーンテキスト (`$tex$`) だけが残る。
+    expect(parsePastedMarkdownFromClipboard(clipboard({
+      html: "<p data-pm-slice=\"1 1 []\">は明らか. <span class=\"boxed-text\"></span></p>",
+      text: "は明らか. $0<|x|<1$",
+    }))).toBeNull();
   });
 });

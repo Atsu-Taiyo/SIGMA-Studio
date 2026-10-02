@@ -34,6 +34,8 @@ const FORMULAS = [
   String.raw`1,\dots,n+\frac{a}{b}`,
   // Sigma 自前の囲みマクロ。マクロを渡さないと KaTeX へ落ちていた (経路 D)。
   String.raw`\thickboxed{\sum_{i=1}^n i}`,
+  // 表のセルは TeX が textstyle に戻す。セルごとの前置が冪等で、組版スタイルで描き分けられること。
+  String.raw`\begin{pmatrix}\sum_{i=1}^n i & \frac{a}{b}\\ 1 & 2\end{pmatrix}`,
 ];
 
 describe("static math rendering carries one typeset style", () => {
@@ -67,6 +69,52 @@ describe("static math rendering carries one typeset style", () => {
 
     expect(html).toContain("katex");
     expect(html).toContain("large-op");
+  });
+});
+
+/**
+ * TeX は `array` / `matrix` 系 / `cases` のセルを textstyle に戻すので、先頭の `\displaystyle` だけでは
+ * セル内の `\sum` の上下端が横に付いたまま (分数は `\dfrac` で大きいのに和だけ小さい)。
+ * セルごとに前置が届くことを、MathLive 経路と KaTeX 経路の両方で確かめる。
+ */
+describe("static math rendering reaches the cells of table environments", () => {
+  const LARGE_OPERATOR = /ML__large-op|\blarge-op\b/;
+  const SMALL_OPERATOR = /ML__small-op|\bsmall-op\b/;
+  const CELLS = [
+    ["array", String.raw`\begin{array}{ll}\sum_{k=0}^{\infty} x^k=\dfrac{1}{1-x} & \sum_{k=0}^{\infty} kx^k\end{array}`],
+    ["pmatrix", String.raw`\begin{pmatrix}\sum_{k=0}^{n} k & 1\\ 2 & 3\end{pmatrix}`],
+    ["cases", String.raw`\begin{cases}\sum_{k=0}^{n} k & (n>0)\\ 0 & (n=0)\end{cases}`],
+    // `\dots` は MathLive が描けないので KaTeX へ落ちる。KaTeX も表のセルは textstyle。
+    ["KaTeX fallback", String.raw`\begin{pmatrix}\sum_{k=0}^{n} k & \dots\end{pmatrix}`],
+  ] as const;
+
+  it.each(CELLS)("sets big operators large inside %s cells", (label, tex) => {
+    const html = renderMathHtml(tex, DISPLAYSTYLE_ENVIRONMENT);
+
+    expect(html).toMatch(LARGE_OPERATOR);
+    expect(html).not.toMatch(SMALL_OPERATOR);
+    expect(label === "KaTeX fallback" ? html.includes("katex") : !html.includes("katex")).toBe(true);
+  });
+
+  it.each(CELLS)("keeps the TeX default (small) cells in a texDefault document: %s", (_label, tex) => {
+    const html = renderMathHtml(tex, TEXTSTYLE_ENVIRONMENT);
+
+    expect(html).toMatch(SMALL_OPERATOR);
+    expect(html).not.toMatch(LARGE_OPERATOR);
+  });
+
+  it("matches an author who wrote the cell style by hand", () => {
+    const written = String.raw`\begin{pmatrix}\displaystyle\sum_{k=0}^{n} k & \displaystyle 1\end{pmatrix}`;
+    const plain = String.raw`\begin{pmatrix}\sum_{k=0}^{n} k & 1\end{pmatrix}`;
+
+    expect(renderMathHtml(plain, DISPLAYSTYLE_ENVIRONMENT))
+      .toBe(renderMathHtml(written, DISPLAYSTYLE_ENVIRONMENT));
+  });
+
+  it("leaves smallmatrix small on purpose", () => {
+    const html = renderMathHtml(String.raw`\begin{smallmatrix}\sum_{k=0}^{n} k & 1\end{smallmatrix}`, DISPLAYSTYLE_ENVIRONMENT);
+
+    expect(html).toMatch(SMALL_OPERATOR);
   });
 });
 
