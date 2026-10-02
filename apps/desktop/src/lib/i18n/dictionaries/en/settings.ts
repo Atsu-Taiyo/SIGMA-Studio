@@ -236,6 +236,7 @@ export const settings = {
         doubleDiamond: "Double rule, diamonds",
         softRound: "Soft rounded",
         notched: "Notched corners",
+        scoopedDotted: "Scooped corners, dotted rule",
       },
       sourceAria: "How to make the border",
       tabSvg: "SVG",

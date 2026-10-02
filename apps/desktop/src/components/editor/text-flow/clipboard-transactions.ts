@@ -22,7 +22,8 @@ import { createMixedClipboardHistoryGroup, markBodyCutHistoryGroup, MIXED_CLIPBO
 import { finishCaretKeeperWindow, flushPendingCaret, getCaretSurfaceByViewDom, requestCaret, startCaretKeeperWindow } from "./caret-router";
 import { localClipboardPayloadMatchesPlainText } from "./large-text-paste";
 import { consumeRejectedManualBreakPaste, deleteManualBreakSpanningSelection, dispatchPreparedManualBreakPaste, dropLeadingPastedBreakAtContainerStart, resolveManualBreakPasteContent, selectionCrossesManualBreak, transferManualBreakToPastedBlocksAtOwnerStart, transferManualBreakToPastedSliceAtOwnerStart } from "./manual-break-transactions";
-import { parsePastedMarkdown } from "./markdown-paste";
+import { pasteAsInlineContent } from "./inline-block-paste";
+import { parsePastedMarkdownFromClipboard } from "./markdown-paste";
 import { insertTextSliceWithFreshBlockIds, requestOverlayShapesPaste, resolveTextRunSpanAnchorBlockIdMap } from "./text-and-shapes-clipboard";
 import { plainTextToTextFlowParagraphs, sliceToTextFlowBlocks } from "./text-run-slice";
 import { copyActiveTextRunSpan, isMultiEditorTextRunSpan, replaceActiveTextRunSpan } from "./text-run-span";
@@ -109,13 +110,22 @@ export function copyTextFlowSelection(view: EditorView, event: ClipboardEvent, p
     event.preventDefault();
     return true;
   }
-  if (event.clipboardData && !view.state.selection.empty) {
-    if (writeTextFlowSelectionClipboard(view, event.clipboardData, previousBlocks)) {
-      event.preventDefault();
-      return true;
-    }
+  return copyEditorSelection(view, event, previousBlocks);
+}
+
+/**
+ * 1 編集面の範囲コピー。本文も図中テキストも、SigmaDoc ブロックの payload・HTML・プレーン
+ * テキストを同じ形で書く。貼り付け先が別の編集面でも、数式や枠は payload から元の形で戻る。
+ */
+export function copyEditorSelection(view: EditorView, event: ClipboardEvent, previousBlocks: TextFlowBlock[]): boolean {
+  if (!event.clipboardData || view.state.selection.empty) {
+    return false;
   }
-  return false;
+  if (!writeTextFlowSelectionClipboard(view, event.clipboardData, previousBlocks)) {
+    return false;
+  }
+  event.preventDefault();
+  return true;
 }
 
 /** clipboard を書いてから切り取る。跨ぎ選択は overlay の実測後の task へ削除を送る。 */
@@ -207,7 +217,7 @@ export function pasteAcrossTextFlowSelection(view: EditorView, event: ClipboardE
     // チャンク境界の有無で「# 見出し」「**太字**」の貼り付け結果が変わってしまう。
     const markdownBlocks = spanPayload
       ? null
-      : parsePastedMarkdown(event.clipboardData.getData("text/plain"));
+      : parsePastedMarkdownFromClipboard(event.clipboardData);
     if (markdownBlocks && markdownBlocks.length > 0) {
       replaceActiveTextRunSpan(markdownBlocks);
       return true;
@@ -255,12 +265,34 @@ export function pasteAcrossTextFlowSelection(view: EditorView, event: ClipboardE
   return false;
 }
 
+/**
+ * 跨ぎ選択・図形との混在・大量貼り付けを持たない 1 編集面 (図中テキスト) の貼り付け。
+ * 本文と同じ部品を同じ順で通すので、数式・枠・Markdown・コードブロックの扱いは本文と一致する。
+ */
+export function pasteIntoEditorSurface(
+  session: TextFlowClipboardSession,
+  view: EditorView,
+  event: ClipboardEvent,
+  slice: Slice,
+): boolean {
+  const request = session.beginPaste();
+  if (!request) {
+    return false;
+  }
+  if (pasteAsInlineContent(view, event, slice)) {
+    return true;
+  }
+  return request.literalPasteRequested
+    ? session.pasteLiteral(view, event)
+    : pasteTextFlowBlocksFromClipboard(view, event, slice);
+}
+
 export function pasteTextFlowBlocksFromClipboard(
   view: EditorView,
   event: ClipboardEvent,
   parsedSlice: Slice,
-  onSelect: (blockId: string) => void,
-  refreshSelectedTextBlock: (view: EditorView) => void,
+  onSelect?: (blockId: string) => void,
+  refreshSelectedTextBlock?: (view: EditorView) => void,
 ): boolean {
   const clipboardData = event.clipboardData;
   if (!clipboardData) {
@@ -276,7 +308,7 @@ export function pasteTextFlowBlocksFromClipboard(
     return false;
   } else {
     const plainText = clipboardData.getData("text/plain");
-    const markdownBlocks = parsePastedMarkdown(plainText);
+    const markdownBlocks = parsePastedMarkdownFromClipboard(clipboardData);
     if (markdownBlocks) {
       pastedBlocks = markdownBlocks;
       // 見出し・リスト等の明示的な Markdown は独立したブロックとして挿入する。
@@ -359,8 +391,8 @@ export function pasteTextFlowBlocksFromClipboard(
 
   const selectedId = pasteInline ? view.state.selection.$head.parent.attrs.sigmaDocId : nextSelectedId;
   if (selectedId) {
-    onSelect(selectedId);
-    refreshSelectedTextBlock(view);
+    onSelect?.(selectedId);
+    refreshSelectedTextBlock?.(view);
   }
   if (caretAfterPaste) {
     // 空段落の置換などで編集面が作り直されても、続きは貼り付け末尾へ入力できるようにする。
