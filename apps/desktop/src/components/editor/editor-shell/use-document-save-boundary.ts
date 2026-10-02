@@ -1,23 +1,36 @@
 "use client";
 import { type DocumentOpenFailure } from "@/components/editor/editor-shell/document-open-failure";
-import  {
-  recordSuccessfulDocumentSave,
-  saveBeforeDocumentReplacement,
-  type SuccessfulDocumentSave,
+import {
+recordSuccessfulDocumentSave,
+saveBeforeDocumentReplacement,
+type SuccessfulDocumentSave,
 } from "@/components/editor/editor-shell/document-state-sync";
-import { getDocumentBoundarySkipReason, type DocumentBoundarySkipReason } from "@/components/editor/editor-shell/workspace-request";
+import { getDocumentBoundarySkipReason,uniqueStringIds,type DocumentBoundarySkipReason } from "@/components/editor/editor-shell/workspace-request";
 import { type SigmaDocument } from "@/features/document";
-import type { EditorSaveState, EditorStateUpdate } from "@/features/editor-state/types";
+import type { DocumentSession } from "@/features/document-session/contracts";
+import type { EditorSaveState,EditorStateUpdate } from "@/features/editor-state/types";
 import { trackInFlightSave } from "@/lib/ai-run-applier";
 import type { DocumentVersion } from "@/lib/document-version-history";
 import { type Translate } from "@/lib/i18n";
-import { captureDocumentVersion, createObservedDocumentWrite, saveDocumentRecord } from "@/lib/storage";
-import type { Dispatch, RefObject, SetStateAction } from "react";
-import { useCallback } from "react";
-import type { DocumentStorageChangeEvent, EmbeddedEditorHost } from "./document-lifecycle-types";
-import type { DocumentSession } from "@/features/document-session/contracts";
+import { captureDocumentVersion,createObservedDocumentWrite,saveDocumentRecord,type StorageResult } from "@/lib/storage";
+import type { Dispatch,RefObject,SetStateAction } from "react";
+import { useCallback,useEffect,useRef,useState } from "react";
+import type { DocumentStorageChangeEvent,EmbeddedEditorHost } from "./document-lifecycle-types";
 
 interface Dependencies {
+  autosave: {
+    activeFileId: string;
+    document: SigmaDocument;
+    documentSession?: DocumentSession;
+    workspaceReady: boolean;
+    blocked: boolean;
+    isDesktopApp: boolean;
+    openFileIds: string[];
+    setOpenFileIds: (ids: string[]) => void;
+    saveWorkspaceState: (state: { openFileIds: string[]; activeFileId: string }) => Promise<StorageResult>;
+    refreshDocumentMetadatas: () => Promise<void>;
+  };
+
   documentSessionRef?: RefObject<DocumentSession | undefined>;
   setVersionHistoryWarnings: Dispatch<SetStateAction<Record<string, string>>>;
   t: Translate<"chrome">;
@@ -67,13 +80,41 @@ export function useDocumentSaveBoundary({
   setSaveState,
   setStatusMessage,
   dispatchDocumentStorageChange,
+  autosave,
 }: Dependencies) {
 
 
+
+  const { activeFileId, document, documentSession, workspaceReady, blocked: ledgerFailure, isDesktopApp, openFileIds, setOpenFileIds, saveWorkspaceState, refreshDocumentMetadatas } = autosave;
+  const disposedRef = useRef(false);
+  useEffect(() => {
+    disposedRef.current = false;
+    return () => { disposedRef.current = true; };
+  }, []);
+  const [autosaveRetry, setAutosaveRetry] = useState(0);
+  const autosaveRetryTimerRef = useRef<number | null>(null);
+  const cancelPendingAutosaveRef = useRef<() => void>(() => undefined);
+
+  const scheduleAutosaveRetry = useCallback(() => {
+    if (autosaveRetryTimerRef.current !== null) {
+      return;
+    }
+    autosaveRetryTimerRef.current = window.setTimeout(() => {
+      autosaveRetryTimerRef.current = null;
+      setAutosaveRetry((current) => current + 1);
+    }, 300);
+  }, []);
+  useEffect(() => () => {
+    if (autosaveRetryTimerRef.current !== null) {
+      window.clearTimeout(autosaveRetryTimerRef.current);
+      autosaveRetryTimerRef.current = null;
+    }
+  }, []);
   const updateVersionHistoryCaptureStatus = useCallback((fileId: string, result: {
     ok: boolean;
     versionCaptureError?: string;
   }) => {
+    if (disposedRef.current) return;
     if (result.versionCaptureError) {
       setVersionHistoryWarnings((current) => ({
         ...current,
@@ -239,5 +280,221 @@ export function useDocumentSaveBoundary({
   const attemptBoundarySave = useCallback((origin: "tab-switch" | "app-close") => {
     return saveCurrentDocumentBoundary(origin);
   }, [saveCurrentDocumentBoundary]);
-  return { updateVersionHistoryCaptureStatus, saveCurrentDocumentRecord, saveCurrentDocumentBeforeReplacement, attemptBoundarySave };
+  useEffect(() => {
+    if (!workspaceReady || ledgerFailure) {
+      return;
+    }
+    if (documentSession) {
+      let cancelled = false;
+      void documentSession.flush().then(() => {
+        if (cancelled || activeFileIdRef.current !== activeFileId) return;
+        lastSavedDocumentRef.current = documentSession.project();
+        lastSavedDirtyRevisionRef.current = documentDirtyRevisionRef.current;
+      }).catch(() => { if (!cancelled) setSaveState("error"); });
+      return () => { cancelled = true; };
+    }
+
+    // 開けなかった教材がアクティブな間は自動保存しない (saveCurrentDocumentRecord と同じ理由)。
+    if (documentOpenFailureRef.current?.fileId === activeFileId) {
+      return;
+    }
+
+    // documentはeffectのデバウンス起点。保存時点ではdocumentRefから最新内容を取り直し、
+    // 承認後に古いrender snapshotをIPCへ渡さない。
+    void document;
+    const saveRevision = documentDirtyRevisionRef.current;
+    // A clean document has nothing to persist; skipping keeps the save indicator
+    // quiet (no saving→saved flicker) when switching tabs or opening documents.
+    // Use a numeric dirty revision here so typing does not stringify the whole
+    // SigmaDoc on every document state update.
+    if (saveRevision <= lastSavedDirtyRevisionRef.current) {
+      return;
+    }
+
+    if (isEmbedded) {
+      let cancelled = false;
+      const timeoutId = window.setTimeout(() => {
+        const host = embeddedHostRef.current;
+        setSaveState("saving");
+        Promise.resolve(host?.onSave?.(document))
+          .then(() => {
+            if (cancelled) {
+              return;
+            }
+            lastSavedDocumentRef.current = document;
+            lastSavedDirtyRevisionRef.current = saveRevision;
+            lastSyncedDocumentRef.current = document;
+            setSaveState("saved");
+            setStatusMessage(host?.onSave ? tEditor("status.hostAutosaved") : tEditor("status.hostSynced"));
+          })
+          .catch((error) => {
+            if (cancelled) {
+              return;
+            }
+            setSaveState("error");
+            setStatusMessage(error instanceof Error ? error.message : tEditor("status.saveFailed"));
+          });
+      }, 450);
+
+      const cancelAutosave = () => {
+        cancelled = true;
+        window.clearTimeout(timeoutId);
+      };
+      cancelPendingAutosaveRef.current = cancelAutosave;
+      return () => {
+        cancelAutosave();
+        if (cancelPendingAutosaveRef.current === cancelAutosave) {
+          cancelPendingAutosaveRef.current = () => undefined;
+        }
+      };
+    }
+
+    let cancelled = false;
+    const savingTimeoutId = window.setTimeout(() => {
+      if (
+        externalChangeFileIdsRef.current.has(activeFileId)
+        || mcpPreviewBusyRef.current
+      ) {
+        scheduleAutosaveRetry();
+        return;
+      }
+      setSaveState("saving");
+    }, 0);
+    const timeoutId = window.setTimeout(async () => {
+      // 直列化: 進行中の保存が終わるまで次を送らない。
+      //
+      // 重ねて投げると 2 本目は 1 本目が確定させる前の observedRevision で CAS に入るため、
+      // 中身が競合していなくても revision-mismatch になり「他の変更を読み込んでいます」に落ちる。
+      // 待ってから下の判定と snapshot を作ることが重要 — 待った後に revision だけ取り直すと、
+      // 古い document に新しい revision を貸すことになり `ObservedDocumentWrite` が
+      // 防いでいる lost update そのものになる。ここでは本文も revision も待機後に読む。
+      // 1 回待つだけでは足りない: 待っている間に明示保存 (AI 承認前の flush 等) が
+      // 始まると `.current` が差し替わり、結局それと重なって走ってしまう。
+      while (inFlightSavePromiseRef.current) {
+        await inFlightSavePromiseRef.current.catch(() => undefined);
+        if (cancelled) {
+          return;
+        }
+      }
+      // 明示save（AI提案承認前のflush/save等）がこのtimerより先に同revisionを保存した
+      // 場合、古いdocument snapshotで後から上書きしない。timer作成時の判定だけでは、
+      // 承認IPC中に450msを跨いだときstale autosaveがAI適用結果の後へ並ぶraceが残る。
+      if (saveRevision <= lastSavedDirtyRevisionRef.current) {
+        return;
+      }
+      if (
+        externalChangeFileIdsRef.current.has(activeFileId)
+        || mcpPreviewBusyRef.current
+      ) {
+        scheduleAutosaveRetry();
+        return;
+      }
+      const revisionToSave = documentDirtyRevisionRef.current;
+      if (revisionToSave <= lastSavedDirtyRevisionRef.current) {
+        return;
+      }
+      const nextDocument = {
+        ...documentRef.current,
+        updatedAt: new Date().toISOString(),
+      };
+      const observedRevision = documentObservedRevisionRef.current;
+      if (observedRevision === null) {
+        setSaveState("error");
+        setStatusMessage(tEditor("status.saveRevisionUnknown"));
+        return;
+      }
+      const write = createObservedDocumentWrite({
+        fileId: activeFileId,
+        document: nextDocument,
+        observedRevision,
+      });
+      const saveTask = saveDocumentRecord(write)
+        .then(async (result) => {
+          updateVersionHistoryCaptureStatus(activeFileId, result);
+          if (result.ok) {
+            const savedFileIsActive = recordSuccessfulDocumentSave({
+              savedByFileId: successfulDocumentSavesRef.current,
+              save: {
+                fileId: activeFileId,
+                document: nextDocument,
+                revision: result.revision ?? observedRevision + 1,
+                dirtyRevision: revisionToSave,
+              },
+              activeFileId: activeFileIdRef.current,
+              observedRevisionRef: documentObservedRevisionRef,
+              lastSavedDocumentRef,
+              lastSavedDirtyRevisionRef,
+              lastSyncedDocumentRef,
+            });
+            // Effect cleanup means its UI snapshot is stale, not that the completed
+            // write did not happen. Same-file refs above must advance even when a
+            // newer keystroke has already created the next autosave effect.
+            if (cancelled || !savedFileIsActive) {
+              return;
+            }
+            if (!openFileIds.includes(activeFileId)) {
+              const nextOpenFileIds = uniqueStringIds([...openFileIds, activeFileId]);
+              setOpenFileIds(nextOpenFileIds);
+              await saveWorkspaceState({ openFileIds: nextOpenFileIds, activeFileId });
+            }
+            await refreshDocumentMetadatas();
+            if (cancelled) {
+              return;
+            }
+            setSaveState(result.versionCaptureError ? "warning" : "saved");
+            setStatusMessage(result.versionCaptureError
+              ? t("versionHistory.captureWarning")
+              : result.error
+                ? tEditor("status.localAutosavedWith", { reason: result.error })
+                : isDesktopApp
+                  ? tEditor("status.localAutosavedThisPc")
+                  : tEditor("status.localAutosaved"));
+          } else if (result.code === "revision-mismatch") {
+            // queued済みの古いpayloadは一切mergeせず破棄する。metadataだけを読み直して
+            // revisionを進めると同じstale payloadがCASを通るため、documentRefを外部変更
+            // 取り込みで更新できるまでは再保存しない。
+            if (activeFileIdRef.current === activeFileId) {
+              dispatchDocumentStorageChange({
+                type: "document",
+                fileId: activeFileId,
+                change: "changed",
+                timestamp: Date.now(),
+              });
+              if (!cancelled) {
+                setSaveState("error");
+                setStatusMessage(tEditor("status.reloadingOtherChanges"));
+              }
+            }
+          } else {
+            if (!cancelled && activeFileIdRef.current === activeFileId) {
+              setSaveState("error");
+              setStatusMessage(result.error ?? tEditor("status.saveFailedShort"));
+            }
+          }
+        })
+        .catch((error) => {
+          if (cancelled) {
+            return;
+          }
+          setSaveState("error");
+          setStatusMessage(error instanceof Error ? error.message : tEditor("status.saveFailedShort"));
+        });
+      void trackInFlightSave(inFlightSavePromiseRef, saveTask);
+    }, 450);
+
+    const cancelAutosave = () => {
+      cancelled = true;
+      window.clearTimeout(savingTimeoutId);
+      window.clearTimeout(timeoutId);
+    };
+    cancelPendingAutosaveRef.current = cancelAutosave;
+    return () => {
+      cancelAutosave();
+      if (cancelPendingAutosaveRef.current === cancelAutosave) {
+        cancelPendingAutosaveRef.current = () => undefined;
+      }
+    };
+  }, [activeFileId, documentSession, autosaveRetry, dispatchDocumentStorageChange, document, isDesktopApp, isEmbedded, ledgerFailure, openFileIds, refreshDocumentMetadatas, scheduleAutosaveRetry, saveWorkspaceState, setSaveState, setStatusMessage, t, updateVersionHistoryCaptureStatus, workspaceReady, documentOpenFailureRef, documentDirtyRevisionRef, lastSavedDirtyRevisionRef, activeFileIdRef, lastSavedDocumentRef, embeddedHostRef, lastSyncedDocumentRef, tEditor, externalChangeFileIdsRef, mcpPreviewBusyRef, inFlightSavePromiseRef, documentRef, documentObservedRevisionRef, successfulDocumentSavesRef, setOpenFileIds]);
+
+  return { cancelPendingAutosaveRef, scheduleAutosaveRetry, updateVersionHistoryCaptureStatus, saveCurrentDocumentRecord, saveCurrentDocumentBeforeReplacement, attemptBoundarySave };
 }

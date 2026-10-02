@@ -479,21 +479,30 @@ describe("renderMathHtml stored XSS surface", () => {
   });
 
   it("still blocks the payload when TeX never spells the angle bracket out", () => {
-    // 上のコーパス 23-26 が空振りしていないことの裏取り。TeX ソースに `<` は 1 文字も無いのに、
-    // 無害化前の markup には**生きた** `<img src=x onerror=alert(1)>` が立っている
-    // (= 入口で危険文字を弾いても防げない。だから出口の許可リストで守る)。
+    // 旧MathLiveではTeXの文字参照から生きたimgが生成された。修正版の出力にも、
+    // アプリの出口にも実行可能な要素がないことを確認する。サニタイザ単体には
+    // 下で旧出力そのものを渡し、依存ライブラリの修正に関係なく防御を検証する。
     for (const tex of [
       String.raw`\text{\char"3Cimg src=x onerror=alert(1)\char"3E}`,
       String.raw`\text{\unicode{"3C}img src=x onerror=alert(1)\unicode{"3E}}`,
     ]) {
       expect(tex).not.toContain("<");
       const rawAudit = auditMathMarkup(convertLatexToMarkupCached(tex, DEFAULT_MATH_RENDER_ENVIRONMENT));
-      expect(rawAudit.disallowedTags, tex).toContain("img");
-      expect(rawAudit.eventHandlerAttributes, tex).toContain("onerror");
+      expect(rawAudit.disallowedTags, tex).toEqual([]);
+      expect(rawAudit.eventHandlerAttributes, tex).toEqual([]);
 
       expect(renderMathHtml(tex, DEFAULT_MATH_RENDER_ENVIRONMENT), tex).toContain("&lt;img");
       expect(renderMathHtml(tex, DEFAULT_MATH_RENDER_ENVIRONMENT), tex).not.toContain("data-math-unrendered");
     }
+  });
+
+  it("sanitizes legacy MathLive injection output independently of the installed version", () => {
+    const html = sanitizeMathMarkup('<span class="ML__cmr"><img src=x onerror=alert(1)></span>').html;
+    const audit = auditMathMarkup(html);
+    expect(audit.disallowedTags).toEqual([]);
+    expect(audit.eventHandlerAttributes).toEqual([]);
+    expect(audit.urlBearingElements).toEqual([]);
+    expect(html).toContain("&lt;img");
   });
 
   it("never throws, even for TeX whose markup generation fails", () => {
@@ -630,12 +639,11 @@ describe("math markup allow-list gatekeeper", () => {
     }
   });
 
-  it("repairs the markup MathLive already emitted as invalid", () => {
-    // `a<b` の生 markup は `<span class="ML__cmr"><</span>` で、ブラウザはこの `<` を
-    // タグの開始として読んでしまう (= 生 markup の時点で DOM が壊れている)。
-    // 無害化後はテキストの `<` になり、`<foreignObject>` に埋めても XML として妥当。
+  it("preserves literal angle brackets from the fixed MathLive renderer", () => {
+    // 修正版は生markupの段階で角括弧をescapeする。出口の無害化でもその文字を保つ。
+    expect(domSnapshot(sanitizeMathMarkup('<span class="ML__cmr"><</span>').html)).toContain('"<"');
     for (const tex of RAW_MARKUP_BROKEN_CORPUS) {
-      expect(domSnapshot(convertLatexToMarkupCached(tex, DEFAULT_MATH_RENDER_ENVIRONMENT)), tex).toContain("<< ");
+      expect(domSnapshot(convertLatexToMarkupCached(tex, DEFAULT_MATH_RENDER_ENVIRONMENT)), tex).not.toContain("<< ");
       expect(domSnapshot(renderMathHtml(tex, DEFAULT_MATH_RENDER_ENVIRONMENT)), tex).not.toContain("<< ");
       expect(domSnapshot(renderMathHtml(tex, DEFAULT_MATH_RENDER_ENVIRONMENT)), tex).toContain('"<"');
     }

@@ -1,4 +1,4 @@
-import { ipcMain } from "electron";
+import { ipcMain } from "../trusted-ipc";
 import { renderTikz } from "../tikz-renderer";
 
 export function registerTikzIpc(): void {

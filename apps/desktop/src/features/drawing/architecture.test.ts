@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, expectTypeOf, it } from "vitest";
 
 import { getModuleSpecifiers as importSpecifiers, getSourceDependencies } from "../../../tests/helpers/source-dependencies";
+import { readOwnedSourceGraph } from "../../../tests/helpers/owned-source-graph";
 
 import type {
   OverlayInteractionMode as LegacyOverlayInteractionMode,
@@ -127,6 +128,20 @@ function productionSourceFiles(directory: URL): string[] {
       ? [fileURLToPath(entryUrl)]
       : [];
   });
+}
+
+/** Inspect an owner only when the live overlay entry actually reaches it. */
+function readOverlayOwnerSource(owner: string): string {
+  const directory = new URL("../../components/editor/overlay-canvas/", import.meta.url);
+  const graph = readOwnedSourceGraph(
+    fileURLToPath(new URL("../../components/editor/OverlayCanvasEditorClient.tsx", import.meta.url)),
+    fileURLToPath(directory),
+    fileURLToPath(new URL("../../", import.meta.url)),
+  );
+  const source = graph.get(fileURLToPath(new URL(owner, directory)));
+  expect(source, `${owner} must remain reachable from the overlay entry`).toBeDefined();
+  expect(importSpecifiers(source!)).toContain("@/features/drawing");
+  return source!;
 }
 
 function resolutionFor(sourceFile: string) {
@@ -429,10 +444,7 @@ describe("drawing feature dependency boundary", () => {
   });
 
   it("keeps pointer-to-rotation resolution behind the public headless drawing boundary", () => {
-    const clientSource = readFileSync(fileURLToPath(new URL(
-      "../../components/editor/OverlayCanvasEditorClient.tsx",
-      import.meta.url,
-    )), "utf8");
+    const clientSource = readOverlayOwnerSource("use-pointer-lifecycle.ts");
 
     expectTypeOf(resolveRotatePointerDelta).toBeFunction();
     expect(clientSource).toContain("resolveRotatePointerDelta(interaction, point, modifiers.shiftKey)");
@@ -440,10 +452,7 @@ describe("drawing feature dependency boundary", () => {
   });
 
   it("keeps pointer-to-resize resolution behind the public headless drawing boundary", () => {
-    const clientSource = readFileSync(fileURLToPath(new URL(
-      "../../components/editor/OverlayCanvasEditorClient.tsx",
-      import.meta.url,
-    )), "utf8");
+    const clientSource = readOverlayOwnerSource("use-pointer-transforms.ts");
 
     expectTypeOf(resolveResizePointer).toBeFunction();
     expect(clientSource).toContain("resolveResizePointer(interaction, point, modifiers)");
@@ -478,10 +487,7 @@ describe("drawing feature dependency boundary", () => {
       "./shape-arrangement.ts",
       import.meta.url,
     )), "utf8");
-    const clientSource = readFileSync(fileURLToPath(new URL(
-      "../../components/editor/OverlayCanvasEditorClient.tsx",
-      import.meta.url,
-    )), "utf8");
+    const clientSource = readOverlayOwnerSource("use-selection-commands.ts");
     const reorderSource = readFileSync(fileURLToPath(new URL(
       "../../components/editor/overlay-canvas/reorder-shapes.ts",
       import.meta.url,

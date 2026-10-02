@@ -14,7 +14,7 @@ const external = [
   "electron",
   // mathlive / i18next は main.cjs へ束ねる。external のままだと実行時に node_modules を
   // 要求し、electron-builder の `files` に載っていないパッケージング事故になる。
-  // unused-filename はESM専用で、Electron 34 (Node 20) の require では読めないため同じく束ねる。
+  // unused-filename はESM専用なので、配布用CJSへの同梱方針を維持する。
   ...Object.keys(pkg.dependencies ?? {}).filter((name) => name !== "mathlive" && name !== "i18next" && name !== "unused-filename"),
   ...Object.keys(pkg.devDependencies ?? {}),
 ];
@@ -24,7 +24,7 @@ const common = {
   bundle: true,
   platform: "node",
   format: "cjs",
-  target: "node20",
+  target: "node24",
   sourcemap: emitSourceMaps,
   external,
   logLevel: "info",
@@ -42,6 +42,7 @@ export async function buildElectron({ watch = false, onBuilt } = {}) {
     entryPoints: {
       main: path.join(root, "electron/main.ts"),
       preload: path.join(root, "electron/preload.ts"),
+      "preview-preload": path.join(root, "electron/preview-preload.ts"),
       "tikz-worker": path.join(root, "electron/tikz-worker.ts"),
       "sigma-doc-mcp-server": path.join(root, "mcp/sigma-doc-mcp-server.ts"),
     },
@@ -69,6 +70,7 @@ export async function buildElectron({ watch = false, onBuilt } = {}) {
     await Promise.all([
       rm(path.join(root, "dist-electron/main.cjs.map"), { force: true }),
       rm(path.join(root, "dist-electron/preload.cjs.map"), { force: true }),
+      rm(path.join(root, "dist-electron/preview-preload.cjs.map"), { force: true }),
     ]);
   }
 

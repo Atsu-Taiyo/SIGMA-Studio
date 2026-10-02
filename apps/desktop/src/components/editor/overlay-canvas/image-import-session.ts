@@ -23,13 +23,16 @@ interface OverlayImageImportPorts {
  */
 export function createOverlayImageImportSession() {
   let handledRequestId: number | null = null;
+  let generation = 0;
 
   return {
+    cancel(): void { generation++; handledRequestId = null; },
     async handle(request: OverlayImageImportRequest, ports: OverlayImageImportPorts): Promise<void> {
       if (handledRequestId === request.id) {
         return;
       }
       handledRequestId = request.id;
+      const requestGeneration = generation;
 
       if (request.files.length === 0) {
         ports.onHandled(request.id);
@@ -41,7 +44,7 @@ export function createOverlayImageImportSession() {
           w: ports.areaSize.w,
           h: ports.areaSize.h,
         })));
-        if (entries.length === 0) {
+        if (requestGeneration !== generation || entries.length === 0) {
           return;
         }
         const nextShapes = normalizeOverlayGroups(placeOverlayImageEntries(entries, {
@@ -57,7 +60,7 @@ export function createOverlayImageImportSession() {
       } finally {
         // An image request also keeps an empty canvas mounted. Releasing it before
         // decode/insert completes unmounts that editor and loses the first image.
-        ports.onHandled(request.id);
+        if (requestGeneration === generation) ports.onHandled(request.id);
       }
     },
   };

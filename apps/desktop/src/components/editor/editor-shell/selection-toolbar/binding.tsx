@@ -22,7 +22,8 @@ export interface SelectionToolbarTextBinding {
   canBlockStyle: boolean;
   canBlockStructure: boolean;
   canAlign: boolean;
-  fontSize: number;
+  /** null until the current selection has supplied its effective size. */
+  fontSize: number | null;
   fontSizeMixed: boolean;
   /** `paragraph` / `h1`〜`h3`。段落スタイルの対象でなければ空文字。 */
   blockStyle: string;

@@ -110,8 +110,8 @@ export interface EditorChromeFormat {
   ActiveTextAlignIcon: LucideIcon;
   activeFontFamilyLabel: string;
   activeTextAlignOption: { value: TextAlign; icon: LucideIcon; };
-  /** 現在の実効サイズ。混在選択では先頭のサイズ。 */
-  activeTextFontSize: number;
+  /** 現在の実効サイズ。未取得は null、混在選択では先頭のサイズ。 */
+  activeTextFontSize: number | null;
   activeTextFontSizeMixed: boolean;
   applyBoxedTextPaddingY: (paddingY: number) => void;
   applyInlineFormat: (command: "color" | "backgroundColor" | "fontFamily" | "fontSize" | "lineHeight" | "boxedPaddingY" | "boxedVariant", value: string) => void;

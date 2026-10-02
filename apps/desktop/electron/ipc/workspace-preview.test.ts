@@ -86,3 +86,6 @@ describe("workspace-preview ipc", () => {
     await fs.rm(userDataPath, { recursive: true, force: true });
   });
 });
+
+// These tests isolate handler behavior; sender authorization is tested in trusted-ipc.test.ts.
+vi.mock("../trusted-ipc", async () => ({ ipcMain: (await import("electron")).ipcMain }));

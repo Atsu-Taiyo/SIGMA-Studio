@@ -286,7 +286,6 @@ describe("overlay shape renderer dependency boundary", () => {
     // where, did not.
     const shell = readSiblingSource("../editor-shell/chrome/editor-chrome.tsx");
     const editorShell = readSiblingSource("../EditorShell.tsx");
-    const controller = readSiblingSource("../OverlayCanvasEditorClient.tsx");
     const legacyConstants = readSiblingSource("../editor-shell/constants.ts");
     const movedLegacyNames = [
       "AI_APPLY_ADD_FLASH_MS",
@@ -321,8 +320,8 @@ describe("overlay shape renderer dependency boundary", () => {
       .toBe("@/components/editor/overlay-canvas/shape-gallery");
     expect(namedImportSource(shell, "isShapeMenuCommand"))
       .toBe("@/components/editor/overlay-canvas/shape-gallery");
-    expect(namedImportSource(controller, "buildShapeTypeChangeSections"))
-      .toBe("./overlay-canvas/shape-gallery");
+    expect(namedImportSource(readSiblingSource("./context-menu.tsx"), "buildShapeTypeChangeSections"))
+      .toBe("./shape-gallery");
     expect(legacyProductionConsumers).toEqual([]);
     expect(legacyConstants).toContain('from "@/components/editor/overlay-canvas/shape-gallery"');
     expect(legacyConstants).not.toContain("AI_APPLY_REMOVE_ANIMATION_MS");

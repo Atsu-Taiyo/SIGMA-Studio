@@ -42,7 +42,7 @@ function sourceFiles(directory: URL): string[] {
 describe("independent column rendering", () => {
   it("shares grid geometry between the body, nested editor and output adapters", () => {
     for (const path of [
-      "../../components/editor/PageCanvasEditor.tsx",
+      "../../components/editor/page-canvas/layout-section-view.tsx",
       "../../components/tiptap/layout-section-extension.ts",
       "../../components/print/print-static-blocks.tsx",
     ]) {
@@ -89,7 +89,7 @@ function desktopSourcePath(file: string): string {
 
 describe("rendering feature dependency boundary", () => {
   it("owns browser zoom notifications in a narrow adapter shared by publisher and canvas", () => {
-    const pageCanvas = readFileSync(new URL("../../components/editor/PageCanvasEditor.tsx", import.meta.url), "utf8");
+    const pageCanvas = readFileSync(new URL("../../components/editor/page-canvas/use-page-canvas-measurement.ts", import.meta.url), "utf8");
     const graphPreview = readFileSync(new URL("./adapters/react/Graph3DPreview.tsx", import.meta.url), "utf8");
     const core = readFileSync(new URL("./core/index.ts", import.meta.url), "utf8");
 
@@ -332,8 +332,13 @@ describe("rendering feature dependency boundary", () => {
       /import\s*\{([^}]*)\}\s*from\s*["']@\/features\/rendering\/core["']/,
     );
     expect(pageCanvasCoreImport?.[1]).toContain("getVisibleOverlayShapes");
-    expect(pageCanvasCoreImport?.[1]).toContain("OverlayPreviewStackLayer");
-    expect(pageCanvasCoreImport?.[1]).toContain("TextFlowColumnBlockLayout");
+    for (const [owner, symbol] of [["overlay-preview.tsx", "OverlayPreviewStackLayer"], ["use-page-canvas-measurement.ts", "TextFlowColumnBlockLayout"]]) {
+      const ownerSource = readFileSync(new URL(`../../components/editor/page-canvas/${owner}`, import.meta.url), "utf8");
+      expect(importSpecifiers(pageCanvas)).toContain(`./page-canvas/${owner.replace(/\.tsx?$/, "")}`);
+      const coreImport = ownerSource.match(/import\s*\{([^}]*)\}\s*from\s*["']@\/features\/rendering\/core["']/);
+      expect(coreImport?.[1]).toContain(symbol);
+      expect(ownerSource).not.toMatch(/import[^;]*\b(?:getVisibleOverlayShapes|OverlayPreviewStackLayer)\b[^;]*from\s*["'][^"']*view-cache["']/);
+    }
     expect(viewCacheImport?.[1]).not.toContain("getVisibleOverlayShapes");
     expect(viewCacheImport?.[1]).not.toContain("OverlayPreviewStackLayer");
   });
@@ -687,9 +692,11 @@ describe("rendering feature dependency boundary", () => {
       + " 戻り値をそのまま入れる (構造的な型なので型システムでは縛れていない)";
 
     const REVIEWED_INJECTIONS: Record<string, ReviewedInjection[]> = {
-      "components/editor/AiEditPanel.tsx": [
+      "features/ai-edit/view/AiChatPreviewImages.tsx": [
         { expression: "preview.svg", reason: `${SHAPE_PREVIEW_REASON}。ここは props で受け取る` },
         { expression: "preview.svg", reason: `${SHAPE_PREVIEW_REASON}。ここは props で受け取る` },
+      ],
+      "features/ai-edit/view/AiChatTurn.tsx": [
         { expression: "preview.svg", reason: `${SHAPE_PREVIEW_REASON}。ここは props で受け取る` },
       ],
       "components/editor/EditorSettings.tsx": [
@@ -883,9 +890,25 @@ describe("rendering feature dependency boundary", () => {
       expect(unaccounted).toEqual([]);
     });
 
-    it("requires every injecting file to import an approved generator", () => {
+    it("requires a generator or an explicitly reviewed generated-preview prop", () => {
+      // These leaf views moved the same three preview.svg sinks out of AiEditPanel.
+      // They receive the generated preview, while the application owns generation.
+      // Pin the exact consumers, type source and expressions; do not make every
+      // reviewed expression an exemption from generator ownership.
+      const generatedPreviewPropSites = [
+        "features/ai-edit/view/AiChatPreviewImages.tsx",
+        "features/ai-edit/view/AiChatTurn.tsx",
+      ];
+      for (const file of generatedPreviewPropSites) {
+        expect(injectionSiteFiles()).toContain(file);
+        expect(importSpecifiers(readDesktopSource(file))).toContain("@/lib/ai/ai-edit-shape-preview");
+        expect(readDesktopSource(file)).toMatch(/preview\??: AiEditShapeOnlyPreview/);
+        expect(REVIEWED_INJECTIONS[file].every(({ expression, reason }) =>
+          expression === "preview.svg" && reason.startsWith(SHAPE_PREVIEW_REASON))).toBe(true);
+      }
       const unaccounted = injectionSiteFiles()
         .filter((file) => !CONSTANT_MARKUP_SITES[file])
+        .filter((file) => !generatedPreviewPropSites.includes(file))
         .filter((file) => approvedGeneratorNames(parseSource(file)).size === 0);
 
       expect(unaccounted).toEqual([]);
@@ -1011,12 +1034,13 @@ describe("rendering feature dependency boundary", () => {
 
     it("pins every surface that writes a generated HTML string into the DOM", () => {
       expect(injectionSiteFiles()).toEqual([
-        "components/editor/AiEditPanel.tsx",
         "components/editor/EditorSettings.tsx",
         "components/editor/MaterialPreview.tsx",
         "components/print/PrintPreview.tsx",
         "components/tiptap/url-detection-extension.tsx",
         "features/ai-edit/view/AiAppliedDocumentDiff.tsx",
+        "features/ai-edit/view/AiChatPreviewImages.tsx",
+        "features/ai-edit/view/AiChatTurn.tsx",
         "features/ai-edit/view/AiEditInlinePreviewCard.tsx",
         "features/rendering/adapters/inline-math-dom.ts",
         "features/rendering/adapters/react/Graph2DPreview.tsx",

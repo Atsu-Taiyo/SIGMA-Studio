@@ -953,7 +953,7 @@ export function renderEditorChrome(chrome: EditorChromeValue) {
   const commitFontSizeInput = (value: string) => {
     const parsedSize = Number(value);
     if (!value.trim() || !Number.isFinite(parsedSize) || parsedSize <= 0) {
-      setFontSizeInput(String(activeTextFontSize));
+      setFontSizeInput(activeTextFontSize === null ? "" : String(activeTextFontSize));
       return;
     }
     const size = Math.round(parsedSize * 1000) / 1000;
@@ -967,6 +967,7 @@ export function renderEditorChrome(chrome: EditorChromeValue) {
     const baseSize = fontSizeInput.trim() && Number.isFinite(parsedInput) && parsedInput > 0
       ? parsedInput
       : activeTextFontSize;
+    if (baseSize === null) return;
     const size = Math.max(0.1, Math.round((baseSize + delta) * 1000) / 1000);
     setTextFontSize(size);
     setFontSizeInput(String(size));
@@ -976,14 +977,14 @@ export function renderEditorChrome(chrome: EditorChromeValue) {
   const fontSizeSelect = (
     <div
       className="toolbar-font-size-control"
-      title={activeTextFontSizeMixed ? t("format.fontSize.mixedHelp") : `${activeTextFontSize}pt`}
+      title={activeTextFontSizeMixed ? t("format.fontSize.mixedHelp") : activeTextFontSize === null ? t("format.fontSize.aria") : `${activeTextFontSize}pt`}
     >
       <button
         type="button"
         className="toolbar-font-size-step"
         aria-label={t("format.fontSize.decrease")}
         title={t("format.fontSize.decrease")}
-        disabled={!canUseTextToolbar}
+        disabled={!canUseTextToolbar || activeTextFontSize === null}
         onMouseDown={(event) => event.preventDefault()}
         onClick={() => adjustFontSize(-1)}
       >
@@ -1026,7 +1027,7 @@ export function renderEditorChrome(chrome: EditorChromeValue) {
             event.preventDefault();
             event.stopPropagation();
             fontSizeSkipBlurRef.current = true;
-            setFontSizeInput(String(activeTextFontSize));
+            setFontSizeInput(activeTextFontSize === null ? "" : String(activeTextFontSize));
             event.currentTarget.blur();
           } else if (event.key === "ArrowUp" || event.key === "ArrowDown") {
             event.preventDefault();
@@ -1040,7 +1041,7 @@ export function renderEditorChrome(chrome: EditorChromeValue) {
         className="toolbar-font-size-step"
         aria-label={t("format.fontSize.increase")}
         title={t("format.fontSize.increase")}
-        disabled={!canUseTextToolbar}
+        disabled={!canUseTextToolbar || activeTextFontSize === null}
         onMouseDown={(event) => event.preventDefault()}
         onClick={() => adjustFontSize(1)}
       >

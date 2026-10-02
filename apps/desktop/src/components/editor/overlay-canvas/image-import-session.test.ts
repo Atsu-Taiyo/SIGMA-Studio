@@ -141,3 +141,11 @@ describe("overlay image import session", () => {
     expect(h.ports.insert.mock.calls[0][1]).toEqual({ asset_first: entry("first").asset });
   });
 });
+
+it("invalidates decoding on document switch or disposal without inserting or acknowledging the stale request", async () => {
+  const h = harness(); const pending = deferred<OverlayImageEntry>(); h.ports.decodeFile.mockReturnValueOnce(pending.promise);
+  const session = createOverlayImageImportSession(); const inserting = session.handle({ id: 1, files: [file("old")] }, h.ports);
+  session.cancel(); pending.resolve(entry("old")); await inserting;
+  expect(h.ports.insert).not.toHaveBeenCalled(); expect(h.ports.onHandled).not.toHaveBeenCalled();
+  await session.handle({ id: 1, files: [file("new")] }, h.ports); expect(h.ports.insert.mock.calls[0][0][0].id).toBe("new"); expect(h.ports.onHandled).toHaveBeenCalledOnce();
+});

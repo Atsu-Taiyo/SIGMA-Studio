@@ -15,3 +15,6 @@ it("allows cleanup cancellation without configuration, while sign-in still fails
   expect(handler("cancel-sign-in")).not.toThrow();
   await expect(handler("sign-in-google")()).rejects.toThrow("COLLABORATION_NOT_CONFIGURED");
 });
+
+// These tests isolate handler behavior; sender authorization is tested in trusted-ipc.test.ts.
+vi.mock("../trusted-ipc", async () => ({ ipcMain: (await import("electron")).ipcMain }));

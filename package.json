@@ -1,6 +1,6 @@
 {
   "name": "sigma-studio-workspace",
-  "version": "0.503.1",
+  "version": "0.503.2",
   "private": true,
   "workspaces": [
     "apps/desktop",
@@ -45,9 +45,11 @@
     "electron:dist:win": "npm --workspace @sigma-studio/desktop run electron:dist:win",
     "electron:dist:store": "npm --workspace @sigma-studio/desktop run electron:dist:store",
     "collaboration:desktop": "node --env-file=.env.collaboration.local scripts/collaboration-desktop.mjs",
-    "collaboration:benchmark": "node scripts/collaboration-benchmark.mjs"
+    "collaboration:benchmark": "node scripts/collaboration-benchmark.mjs",
+    "dependencies:check": "node scripts/check-desktop-dependencies.mjs",
+    "security:audit": "npm audit --audit-level=high"
   },
   "overrides": {
-    "postcss": "^8.5.14"
+    "postcss": "^8.5.28"
   }
 }

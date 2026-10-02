@@ -8,6 +8,8 @@ export function savedFormula(document: SigmaDocument | null) {
   const graph = shapes.find((shape) => shape.type === "graph2dShape");
   if (graph?.type !== "graph2dShape") return null;
   const curve = graph.props.spec.curves[0];
+  // The native file store may still contain the newly inserted blank graph during autosave.
+  if (!curve) return null;
   const label = shapes.find((shape) => shape.id === graph.props.labelTextShapeIdsByCurveId?.[curve?.id]);
   return {
     curve,

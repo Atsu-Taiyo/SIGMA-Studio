@@ -1,4 +1,4 @@
-import { ipcMain } from "electron";
+import { ipcMain } from "../trusted-ipc";
 import { z } from "zod";
 import type { SharedTargetRef } from "@/features/collaboration/model/catalog";
 import type { LibrarySharingTarget } from "@/lib/runtime/shared-catalog";

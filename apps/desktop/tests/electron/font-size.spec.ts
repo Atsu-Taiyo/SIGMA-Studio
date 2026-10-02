@@ -132,7 +132,7 @@ test("font sizes use the real Electron bridge and survive an app restart", async
       return observation.samples;
     });
     expect(switchSamples.length).toBeGreaterThan(0);
-    expect(new Set(switchSamples)).toEqual(new Set(["12"]));
+    expect(switchSamples.every((size) => size === "" || size === "12")).toBe(true);
     await up().click();
     await expect(sizeInput()).toHaveValue("13");
     await down().click();
@@ -168,6 +168,85 @@ test("font sizes use the real Electron bridge and survive an app restart", async
     const onDisk = JSON.parse(readFileSync(documentPath, "utf8")) as SigmaDocument;
     expect(onDisk.content[0]).toEqual(source.content[0]);
     expect(onDisk.content[1]).toMatchObject({ children: [{ text: "前 " }, { text: "注記", fontSize: 7.5 }, { text: " 後" }] });
+  } finally {
+    await app.close();
+    rmSync(userData, { recursive: true, force: true });
+  }
+});
+
+test("font size stays blank until resolved and does not leak across files", async ({}, testInfo) => {
+  test.skip(!existsSync(path.join(APP_ROOT, "dist-electron/main.cjs")), "Run npm run electron:build first");
+  test.skip(!devUrl && !existsSync(path.join(APP_ROOT, "out/index.html")), "Start a private dev server or build the renderer");
+  const userData = mkdtempSync(path.join(tmpdir(), "sigma-font-size-tabs-"));
+  const env: Record<string, string> = Object.fromEntries(Object.entries(process.env).filter((entry): entry is [string, string] => entry[1] !== undefined));
+  env.SIGMA_STUDIO_USER_DATA_DIR = userData;
+  delete env.ELECTRON_RUN_AS_NODE;
+  if (devUrl) env.SIGMA_STUDIO_DEV_SERVER_URL = devUrl;
+  const launch = () => electron.launch({ args: [APP_ROOT, `--user-data-dir=${userData}`], cwd: APP_ROOT, env });
+  let app = await launch();
+  try {
+    let page = await app.firstWindow();
+    await page.waitForFunction(() => Boolean(window.desktopAPI));
+    // Let startup finish reading/persisting preferences before the fixture changes locale.
+    await expect(page.locator(".page-flow .ProseMirror").first()).toBeVisible();
+    await expect(page.locator(".startup-splash")).toBeHidden();
+    const ids = await page.evaluate(async (base) => {
+      localStorage.setItem("sigma-studio:ui-layout-preference", JSON.stringify({ mode: "docs", onboardingCompleted: true }));
+      await window.desktopAPI!.settings!.setUiLocale!("ja");
+      const storage = window.desktopAPI!.storage;
+      const ids: string[] = [];
+      for (const size of [11, 12]) {
+        const created = await storage.createFileFromDocument({ document: {
+          ...base,
+          version: "2.0", docId: `font_tab_${size}`,
+          metadata: { title: `サイズ検証${size}`, styleUnits: { fontSize: "pt" } },
+          content: [{ type: "paragraph", id: `body_${size}`, children: [
+            { type: "text", text: "同じ書体の文字", fontSize: size },
+          ] }],
+        } });
+        ids.push(created.file.fileId);
+      }
+      await storage.saveWorkspace({ openFileIds: ids, activeFileId: ids[0] });
+      return ids;
+    }, sampleDocument);
+    await page.reload();
+    await expect(page.locator('[data-sigma-doc-id="body_11"]').first()).toBeVisible();
+    const sizeInput = () => page.getByRole("textbox", { name: "フォントサイズ", exact: true });
+    const up = () => page.locator(QUICK_TOOLBAR).getByRole("button", { name: "フォントサイズを大きく", exact: true });
+    await expect(sizeInput()).toHaveValue("");
+    await expect(up()).toBeDisabled();
+    await selectBody(page, "body_11", 1, 1);
+    await expect(sizeInput()).toHaveValue("11");
+    await expect(up()).toBeEnabled();
+    await expect(page.locator('[data-sigma-doc-id="body_11"] [style*="font-size"]').first()).toHaveCSS("font-size", "14.6667px");
+
+    await page.locator(`[data-tab-id="document:${ids[1]}"]`).getByRole("tab").click();
+    await expect(page.locator('[data-sigma-doc-id="body_12"]').first()).toBeVisible();
+    await expect(sizeInput()).toHaveValue("");
+    await expect(up()).toBeDisabled();
+    await sizeInput().fill("bad");
+    await sizeInput().press("Enter");
+    await expect(sizeInput()).toHaveValue("");
+    await selectBody(page, "body_12", 1, 1);
+    await expect(sizeInput()).toHaveValue("12");
+    await expect(page.locator('[data-sigma-doc-id="body_12"] [style*="font-size"]').first()).toHaveCSS("font-size", "16px");
+    await page.locator(`[data-tab-id="document:${ids[0]}"]`).getByRole("tab").click();
+    await expect(sizeInput()).toHaveValue("11");
+    await sizeInput().fill("18");
+    await sizeInput().press("Escape");
+    await expect(sizeInput()).toHaveValue("11");
+    await page.screenshot({ path: testInfo.outputPath("font-size-file-selection.png") });
+    for (const [index, id] of ids.entries()) {
+      const saved = await page.evaluate((fileId) => window.desktopAPI!.storage.loadDocument(fileId), id);
+      expect(saved?.content[0]).toMatchObject({ children: [{ fontSize: index === 0 ? 11 : 12 }] });
+    }
+    await app.close();
+    app = await launch();
+    page = await app.firstWindow();
+    await expect(page.locator('[data-sigma-doc-id="body_11"]').first()).toBeVisible();
+    await expect(sizeInput()).toHaveValue("");
+    await selectBody(page, "body_11", 1, 1);
+    await expect(sizeInput()).toHaveValue("11");
   } finally {
     await app.close();
     rmSync(userData, { recursive: true, force: true });
