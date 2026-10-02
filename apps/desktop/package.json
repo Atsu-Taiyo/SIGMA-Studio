@@ -1,6 +1,6 @@
 {
   "name": "@sigma-studio/desktop",
-  "version": "0.503.2",
+  "version": "0.503.3",
   "description": "数式と図形を扱う教材エディタ / A teaching-material editor for mathematics and diagrams",
   "private": true,
   "main": "dist-electron/main.cjs",
