@@ -23,6 +23,8 @@ test("font sizes use the real Electron bridge and survive an app restart", async
   try {
     let page = await app.firstWindow();
     await page.waitForFunction(() => Boolean(window.desktopAPI));
+    await expect(page.locator(".page-flow .ProseMirror").first()).toBeVisible();
+    await expect(page.locator(".startup-splash")).toBeHidden();
     await page.evaluate(async () => {
       localStorage.setItem("sigma-studio:ui-layout-preference", JSON.stringify({ mode: "docs", onboardingCompleted: true }));
       await window.desktopAPI!.settings!.setUiLocale!("ja");
