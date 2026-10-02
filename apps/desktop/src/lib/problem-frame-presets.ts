@@ -39,6 +39,21 @@ const RAW_PRESETS = [
   <path d="M20 8H140L152 20V80L140 92H20L8 80V20Z" fill="none" stroke="#d97706" stroke-width="1"/>
 </svg>`,
   },
+  // The notches are quarter circles centred on the drawing's corners. Their ends stop 1.5 units
+  // short of the slice line so the stroke stays inside the corner piece instead of being
+  // stretched along with the edge. The dotted rule is round dots in the corners, but along the
+  // edges the piece is stretched, so there it is drawn as dashes short enough to still read as dots.
+  {
+    id: "scooped-dotted",
+    labelKey: "problem.custom.presets.scoopedDotted",
+    svg: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 100">
+  <path d="M22.5 1.5H137.5A21 21 0 0 0 158.5 22.5V77.5A21 21 0 0 0 137.5 98.5H22.5A21 21 0 0 0 1.5 77.5V22.5A21 21 0 0 0 22.5 1.5Z" fill="none" stroke="#111827" stroke-width="2.4"/>
+  <g fill="none" stroke="#111827" stroke-width="1.8">
+    <path d="M22.5 8.5H8.5V22.5M137.5 8.5H151.5V22.5M22.5 91.5H8.5V77.5M137.5 91.5H151.5V77.5" stroke-linecap="round" stroke-dasharray="0 7"/>
+    <path d="M24 8.5H136M24 91.5H136M8.5 24V76M151.5 24V76" stroke-dasharray="0.35 0.65"/>
+  </g>
+</svg>`,
+  },
 ] as const;
 
 export const PROBLEM_FRAME_PRESETS = RAW_PRESETS.map((preset) => {
