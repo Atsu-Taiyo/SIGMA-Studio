@@ -8,7 +8,8 @@ const require = createRequire(new URL("../apps/desktop/package.json", import.met
 const builderRequire = createRequire(require.resolve("electron-builder/package.json"));
 const packagePath = builderRequire.resolve("app-builder-lib/package.json");
 const { version } = JSON.parse(await readFile(packagePath, "utf8"));
-if (version !== "25.1.8") {
+// Both reviewed releases still pass the certificate password to keychain ACL setup.
+if (!["25.1.8", "26.15.3"].includes(version)) {
   throw new Error(`Review the keychain backport before using app-builder-lib ${version}`);
 }
 const sourcePath = path.join(path.dirname(packagePath), "out/codeSign/macCodeSign.js");
