@@ -31,7 +31,7 @@ jobs:
         run: npm --workspace @sigma-studio/desktop run electron:prepare
       - name: Verify sizes, native copy/paste, persistence, and app restart
         run: npm --workspace @sigma-studio/desktop run test:e2e:electron -- font-size.spec.ts font-size-copy-pages.spec.ts --reporter=list,html
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: windows-font-and-clipboard-results
