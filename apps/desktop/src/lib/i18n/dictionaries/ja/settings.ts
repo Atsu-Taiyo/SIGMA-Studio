@@ -234,6 +234,7 @@ export const settings = {
         doubleDiamond: "二重線とひし形",
         softRound: "やさしい丸角",
         notched: "切り欠き角",
+        scoopedDotted: "くり抜き角と点線",
       },
       sourceAria: "枠の作り方",
       tabSvg: "SVG",

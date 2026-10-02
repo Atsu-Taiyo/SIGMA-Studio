@@ -2,8 +2,8 @@
 
 import { mergeAttributes, Node, nodeInputRule, nodePasteRule, type Editor, type JSONContent } from "@tiptap/core";
 import { chainCommands, deleteSelection, joinBackward, selectNodeBackward } from "@tiptap/pm/commands";
-import { Fragment, Slice, type Node as ProseMirrorNode, type NodeType, type ResolvedPos } from "@tiptap/pm/model";
-import { NodeSelection, Plugin, TextSelection, type EditorState, type Selection, type Transaction } from "@tiptap/pm/state";
+import { Fragment, Slice, type Node as ProseMirrorNode, type NodeType } from "@tiptap/pm/model";
+import { Plugin, TextSelection, type EditorState, type Selection, type Transaction } from "@tiptap/pm/state";
 import { Decoration, DecorationSet, type EditorView } from "@tiptap/pm/view";
 import type { NodeView } from "@tiptap/pm/view";
 import type { NodeViewProps } from "@tiptap/react";
@@ -24,12 +24,7 @@ import {
 } from "@/features/rendering/adapters";
 import { InlineMathTexEditor } from "@/components/tiptap/inline-math-tex-editor";
 import { getDesktopBridge } from "@/lib/desktop-bridge";
-import {
-  createInlineMathClipboardPayload,
-  createTiptapSliceClipboardPayload,
-  readEditorClipboardPayload,
-  writeEditorClipboardData,
-} from "@/lib/editor-clipboard";
+import { readEditorClipboardPayload } from "@/lib/editor-clipboard";
 import { createId } from "@/lib/id";
 import { countPerformanceEvent } from "@/lib/performance";
 import { getInlineMathInputMode, useInlineMathInputMode } from "@/lib/inline-math-mode";
@@ -2101,6 +2096,8 @@ export const InlineMathExtension = Node.create<MathNodeOptions>({
             return true;
           },
           transformPasted: (slice) => refreshMathInlineIdsInSlice(slice),
+          // 数式 1 つだけの貼り付け。範囲コピーは本文と同じ payload / HTML で往復するので、ここは
+          // 数式単独 (`inlineMath` payload と、プレーンテキストの `$tex$` 1 つ) だけを受ける。
           handlePaste: (view, event) => {
             const clipboardData = event.clipboardData;
             if (!clipboardData) {
@@ -2108,20 +2105,6 @@ export const InlineMathExtension = Node.create<MathNodeOptions>({
             }
 
             const payload = readEditorClipboardPayload(clipboardData);
-            if (payload?.kind === "tiptapSlice") {
-              try {
-                const slice = refreshMathInlineIdsInSlice(Slice.fromJSON(view.state.schema, payload.slice));
-                const transaction = shouldInsertClosedBlockSliceAfterCurrentBlock(slice)
-                  ? view.state.tr.insert(topLevelInsertPosition(view.state.selection.$from), slice.content)
-                  : view.state.tr.replaceSelection(slice);
-                event.preventDefault();
-                view.dispatch(transaction.scrollIntoView());
-                return true;
-              } catch {
-                return false;
-              }
-            }
-
             const tex = payload?.kind === "inlineMath"
               ? payload.tex
               : extractSingleInlineMathText(clipboardData.getData("text/plain"));
@@ -2133,38 +2116,6 @@ export const InlineMathExtension = Node.create<MathNodeOptions>({
             const node = this.type.create({ id: createId("m_inline"), tex });
             view.dispatch(view.state.tr.replaceSelectionWith(node).scrollIntoView());
             return true;
-          },
-          handleDOMEvents: {
-            copy: (view, event) => {
-              const clipboardEvent = event as ClipboardEvent;
-              const { selection } = view.state;
-              if (!clipboardEvent.clipboardData) {
-                return false;
-              }
-
-              if (selection instanceof NodeSelection && selection.node.type.name === this.name) {
-                const tex = String(selection.node.attrs.tex ?? "");
-                clipboardEvent.preventDefault();
-                writeEditorClipboardData(clipboardEvent.clipboardData, createInlineMathClipboardPayload(tex));
-                return true;
-              }
-
-              if (selection.empty) {
-                return false;
-              }
-
-              const slice = selection.content();
-              if (slice.content.size === 0 || !sliceHasMathInline(slice)) {
-                return false;
-              }
-
-              clipboardEvent.preventDefault();
-              writeEditorClipboardData(
-                clipboardEvent.clipboardData,
-                createTiptapSliceClipboardPayload(slice.toJSON(), sliceTextForClipboard(slice)),
-              );
-              return true;
-            },
           },
         },
       }),
@@ -2692,37 +2643,6 @@ function refreshMathInlineIdsInNode(node: ProseMirrorNode): ProseMirrorNode {
   }
 
   return content === node.content ? node : node.copy(content);
-}
-
-function shouldInsertClosedBlockSliceAfterCurrentBlock(slice: Slice): boolean {
-  return (
-    slice.openStart === 0 &&
-    slice.openEnd === 0 &&
-    slice.content.childCount > 0 &&
-    Boolean(slice.content.firstChild?.isBlock)
-  );
-}
-
-function topLevelInsertPosition($from: ResolvedPos): number {
-  return $from.depth > 0 ? $from.after(1) : $from.pos;
-}
-
-function sliceHasMathInline(slice: Slice): boolean {
-  return fragmentHasMathInline(slice.content);
-}
-
-function fragmentHasMathInline(fragment: Fragment): boolean {
-  let hasMath = false;
-  fragment.forEach((node) => {
-    if (!hasMath && nodeHasMathInline(node)) {
-      hasMath = true;
-    }
-  });
-  return hasMath;
-}
-
-function nodeHasMathInline(node: ProseMirrorNode): boolean {
-  return node.type.name === "mathInline" || (node.content.size > 0 && fragmentHasMathInline(node.content));
 }
 
 export function sliceTextForClipboard(slice: Slice): string {

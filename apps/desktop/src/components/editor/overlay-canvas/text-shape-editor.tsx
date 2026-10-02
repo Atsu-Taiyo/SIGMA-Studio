@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useLayoutEffect, useRef } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { EditorContent, useEditor } from "@tiptap/react";
 import type { Editor as TiptapEditor } from "@tiptap/core";
 
@@ -14,6 +14,12 @@ import {
   getTextShapeRenderedLineHeightPx,
   MIN_TEXT_SHAPE_WIDTH,
 } from "@/features/drawing";
+import {
+  copyEditorSelection,
+  isLiteralPasteShortcut,
+  pasteIntoEditorSurface,
+  TextFlowClipboardSession,
+} from "@/components/editor/text-flow/clipboard-transactions";
 import {
   overlayTextBlocksToTiptapDoc,
   tiptapDocToOverlayTextBlocks,
@@ -61,6 +67,8 @@ export function OverlayTextShapeEditor({
   const contentRef = useRef(shape.props.blocks);
   const previousExternalRevisionRef = useRef(externalRevision);
   const mathEnvironment = useMathEnvironment();
+  // コピー・貼り付けは本文と同じ関数を通す。図中テキストだけの特別な経路は持たない。
+  const [clipboardSession] = useState(() => new TextFlowClipboardSession());
   const editor = useEditor({
     extensions: createRichTextEngineExtensions({
       // Block identity has to survive the round trip, or every keystroke renames every block.
@@ -93,6 +101,9 @@ export function OverlayTextShapeEditor({
         class: "overlay-text-shape-content",
       },
       handleKeyDown: (_view, event) => {
+        if (isLiteralPasteShortcut(event)) {
+          clipboardSession.requestLiteralPaste();
+        }
         if (event.key !== "Escape") {
           return false;
         }
@@ -101,6 +112,10 @@ export function OverlayTextShapeEditor({
         onCancel(shape.id);
         return true;
       },
+      handleDOMEvents: {
+        copy: (view, event) => copyEditorSelection(view, event, contentRef.current),
+      },
+      handlePaste: (view, event, slice) => pasteIntoEditorSurface(clipboardSession, view, event, slice),
     },
     // 図中テキストも本文と同じツールバーボタンを使うので、B/I/U の点灯状態を
     // 同じイベントで流す。storedMarks だけが変わる折り返しキャレットの切り替えも

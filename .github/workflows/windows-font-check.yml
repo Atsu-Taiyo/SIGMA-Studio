@@ -21,8 +21,8 @@ jobs:
     env:
       NODE_OPTIONS: --max-old-space-size=4096
     steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-node@v6
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: '24'
           cache: npm
@@ -31,7 +31,7 @@ jobs:
         run: npm --workspace @sigma-studio/desktop run electron:prepare
       - name: Verify sizes, native copy/paste, persistence, and app restart
         run: npm --workspace @sigma-studio/desktop run test:e2e:electron -- font-size.spec.ts font-size-copy-pages.spec.ts --reporter=list,html
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: windows-font-and-clipboard-results

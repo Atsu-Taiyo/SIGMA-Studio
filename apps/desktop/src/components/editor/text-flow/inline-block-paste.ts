@@ -96,18 +96,7 @@ export function pasteAsSingleBlockInlineContent(
     return false;
   }
 
-  // 数式を含むコピーは PM の HTML ではなく private MIME の slice が正本。text/html は
-  // 空の payload div なので、ここで読まないと `$x^2$` という素のテキストに落ちる。
-  let pastedSlice = slice;
-  if (payload?.kind === "tiptapSlice") {
-    try {
-      pastedSlice = Slice.fromJSON(view.state.schema, payload.slice as Parameters<typeof Slice.fromJSON>[1]);
-    } catch {
-      pastedSlice = slice;
-    }
-  }
-
-  const content = inlinePasteContent(view.state.schema, $from.parent, clipboardData, pastedSlice);
+  const content = inlinePasteContent(view.state.schema, $from.parent, clipboardData, slice);
   if (!content) {
     return false;
   }
