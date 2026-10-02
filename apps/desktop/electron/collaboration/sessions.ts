@@ -214,11 +214,12 @@ export class CollaborationSessions {
     if (session.stopped || session.failed || entry.staged || entry.actorId !== this.auth?.user()?.id) return false;
     if (!entry.initialized || session.journal.outbox().length ||
       (session.pendingAssetRevision ?? 0) !== (session.uploadedAssetRevision ?? 0)) return true;
-    // Previously opened documents keep synchronizing in the background even
-    // after leaving the editor. Unopened catalog entries never create sessions.
-    return Boolean((session.viewing && session.socket?.readyState !== WebSocket.OPEN) ||
-      Date.now() - (session.lastSynchronizedAt ?? 0) >= 60_000);
-
+    // Closed, clean documents catch up when viewed again. Only mounted views
+    // need periodic reconciliation; durable pending work is retried above.
+    return Boolean(session.viewing && (
+      session.socket?.readyState !== WebSocket.OPEN ||
+      Date.now() - (session.lastSynchronizedAt ?? 0) >= 60_000
+    ));
   }
   private async recoverPendingAssets(fileId: string): Promise<void> {
     const session = this.require(fileId);
