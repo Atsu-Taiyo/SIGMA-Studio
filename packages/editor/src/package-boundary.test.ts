@@ -50,7 +50,9 @@ describe("Editor package boundary", () => {
     );
     expect(unexpectedAiModules).toEqual([]);
     expect(inputs.some((input) => /\/components\/editor\/(?:Ai|ai-)/u.test(input))).toBe(false);
-    expect(inputs.some((input) => input.endsWith("src/desktop-ai-disabled.tsx"))).toBe(true);
+    expect(inputs.some((input) => input.endsWith("editor-shell/editor-host-defaults.tsx"))).toBe(true);
+    expect(inputs.some((input) => input.endsWith("editor-shell/desktop-editor-host.ts"))).toBe(false);
+    expect(Object.keys(createBuildOptions().alias ?? {}).some((name) => name.includes("ai-edit") || name.includes("/Ai"))).toBe(false);
     expect(bundledJavaScript).not.toMatch(
       /from\s*["'](?:electron|next(?:\/|["']))|process\.env/u,
     );

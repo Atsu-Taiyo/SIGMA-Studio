@@ -31,6 +31,16 @@ describe("resolveOverlayBleed", () => {
       new URL("../OverlayCanvasEditorClient.tsx", import.meta.url),
       "utf8",
     );
+    const pointerStartSource = readFileSync(
+      new URL("../overlay-canvas/use-pointer-start.ts", import.meta.url), "utf8",
+    );
+    const pointerLifecycleSource = readFileSync(
+      new URL("../overlay-canvas/use-pointer-lifecycle.ts", import.meta.url), "utf8",
+    );
+    const pointerSessionSource = readFileSync(
+      new URL("../overlay-canvas/use-pointer-session.ts", import.meta.url), "utf8",
+    );
+    const interactionSource = [editorSource, pointerStartSource, pointerLifecycleSource, pointerSessionSource].join("\n");
     const styles = readFileSync(
       new URL("../../../app/globals.css", import.meta.url),
       "utf8",
@@ -70,8 +80,8 @@ describe("resolveOverlayBleed", () => {
     expect(canvasProps).toContain('currentTool.kind === "insert" ? "inserting" : ""');
     expect(canvasProps).not.toContain("onPointerDown=");
     expect(editorSource).not.toContain("overlay-page-coordinate-space");
-    expect(editorSource).not.toContain("canvasRef.current?.setPointerCapture");
-    expect(editorSource).toContain("bleedSurfaceRef.current?.setPointerCapture");
+    expect(interactionSource).not.toContain("canvasRef.current?.setPointerCapture");
+    expect(pointerSessionSource).toContain("bleedSurfaceRef.current?.setPointerCapture");
     expect(pagePointSource).toContain("* canvasWidthRef.current");
     expect(pagePointSource).toContain("* canvasHeightRef.current");
     expect(pagePointSource).not.toContain("bleedValues");

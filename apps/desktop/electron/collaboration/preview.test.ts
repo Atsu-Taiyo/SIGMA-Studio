@@ -22,7 +22,7 @@ async function fixture() {
   const shared = new SharedDocument(); shared.initialize(JSON.parse(JSON.stringify(document)) as ObjectValue, { sharedDocumentId: "shared", epoch: 1 });
   const state = toBase64(shared.snapshot()); shared.destroy();
   const sessions = new CollaborationSessions(directory, new LocalSigmaDocStore(directory), vi.fn());
-  Object.defineProperty(sessions, "auth", { value: { user: () => ({ id: "actor" }), config: { apiUrl: "https://sync.example.test" }, authorization: async () => "Bearer fixture" } });
+  Object.defineProperty(sessions, "auth", { value: { user: () => ({ id: "actor" }), config: { apiUrl: "https://sync.example.test" }, accountSignal: () => new AbortController().signal, authorization: async () => "Bearer fixture" } });
   const actor = vi.spyOn(sessions, "actorId").mockReturnValue("actor");
   const request = vi.spyOn(sessions, "request").mockResolvedValue({ state, epoch: 1 });
   vi.stubGlobal("fetch", vi.fn(async () => new Response(Buffer.from("iVBORw0KGgo=", "base64"), { headers: { "Content-Type": "image/png" } })));

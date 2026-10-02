@@ -102,6 +102,25 @@ it("blocks offline hierarchy mutations without loading a body or changing local 
   await expect(f.local.deleteFile(file.fileId)).rejects.toThrow("CATALOG_OFFLINE");
   expect(f.open).not.toHaveBeenCalled(); expect((await f.local.listFiles()).find(item => item.fileId === file.fileId)?.title).toBe("document");
 });
+it.each(["revision", "role", "capability"])("rejects malformed catalog %s without changing the saved cursor or node authority", async field => {
+  const f = await fixture(); const document = node("document");
+  f.setNodes([document]); await f.catalog.refresh();
+  const before = await CatalogCache.open(f.directory, "participant");
+  const contents = await fs.readFile(before.file, "utf8");
+  const prior = f.sessions.request;
+  f.sessions.request = async (route, body) => {
+    if (route !== "/catalog/delta") return prior(route, body);
+    return { revision: field === "revision" ? "invalid" : 2, tombstones: [], nodes: [{ ...document,
+      revision: 2, role: field === "role" ? "superuser" : "viewer",
+      capabilities: { ...document.capabilities, editDocument: field === "capability" ? "yes" : false },
+    }] } as never;
+  };
+  expect(await f.catalog.refresh()).toMatchObject({ state: "offline", error: "INVALID_CATALOG_RESPONSE" });
+  expect(await fs.readFile(before.file, "utf8")).toBe(contents);
+  const restarted = await CatalogCache.open(f.directory, "participant");
+  expect(restarted.data.revision).toBe(1);
+  expect(restarted.data.nodes[document.id].role).toBe("editor");
+});
 it("keeps new descendants of a standalone shared folder in the owner's hierarchy after restart", async () => {
   const f = await fixture();
   const workspaceId = (await f.local.getLocalLibrarySnapshot()).activeWorkspaceId;
@@ -543,4 +562,24 @@ it("resolves shared links to each account's location and rejects revoked targets
   f.setNodes([]);
   await expect(f.catalog.openLink(ref(document))).rejects.toThrow("TARGET_UNAVAILABLE");
   expect(f.open).not.toHaveBeenCalled();
+});
+
+it("slows unchanged visible polls, resets on explicit refresh, and stops when hidden", async () => {
+  const f = await fixture();
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
+  await f.catalog.setVisible(true);
+  const scheduled = () => (f.catalog as unknown as { pollDelay: number }).pollDelay;
+  expect(scheduled()).toBe(5000);
+  await f.catalog.refresh();
+  expect(scheduled()).toBe(10000);
+  await f.catalog.refresh();
+  expect(scheduled()).toBe(20000);
+  await f.catalog.refresh();
+  expect(scheduled()).toBe(30000);
+  await f.catalog.refresh({ force: true });
+  expect(scheduled()).toBe(5000);
+  await f.catalog.setVisible(false);
+  const count = f.request.mock.calls.length;
+  await vi.advanceTimersByTimeAsync(120_000);
+  expect(f.request).toHaveBeenCalledTimes(count);
 });

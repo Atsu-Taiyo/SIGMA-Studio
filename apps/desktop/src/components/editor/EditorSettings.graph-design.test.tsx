@@ -1,3 +1,5 @@
+import { fileURLToPath } from "node:url";
+import { readOwnedSourceGraph } from "../../../tests/helpers/owned-source-graph";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import { readStylesheet as readFileSync } from "../../../tests/helpers/read-stylesheet";
@@ -191,7 +193,11 @@ describe("Graph settings design system", () => {
 
   it("shows card action triggers on hover without mounting graph hover actions on the canvas", () => {
     const css = readFileSync(new URL("../../app/globals.css", import.meta.url), "utf8");
-    const canvasSource = readFileSync(new URL("./OverlayCanvasEditorClient.tsx", import.meta.url), "utf8");
+    const canvasSource = [...readOwnedSourceGraph(
+      fileURLToPath(new URL("./OverlayCanvasEditorClient.tsx", import.meta.url)),
+      fileURLToPath(new URL("./overlay-canvas/", import.meta.url)),
+      fileURLToPath(new URL("../../", import.meta.url)),
+    ).values()].join("\n");
 
     expect(css).toContain(".graph-curve-editor:hover .graph-item-actions-trigger");
     expect(css).toContain('.graph-item-actions-menu[data-placement="right"]');

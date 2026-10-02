@@ -1,48 +1,72 @@
 "use client";
-import { sessionReadOnlyExtensions } from "./editor-shell/session-read-only-extensions";
 import type { DocumentSessionHost } from "@/features/document-session/contracts";
-import { DocumentSessionContext, DocumentWritableContext } from "./document-session-context";
-import { EMPTY_AI_LOCKED_TARGETS } from "@/features/ai-edit";
+import { DocumentSessionContext,DocumentWritableContext } from "./document-session-context";
+import { DOCUMENT_BLOCK_OPERATION_PORTS } from "./editor-shell/document-operation-ports";
+import { scheduleEditorBlockFocus } from "./editor-shell/editor-focus";
+import { useEditorHost } from "./editor-shell/editor-host";
+import type { AiEditPreviewState,AiEditReference,AiEditShapeOnlyPreview,AiProposalApplyOutcome } from "./editor-shell/editor-host-contracts";
+import { EditorOutlineDialog } from "./editor-shell/editor-outline-dialog";
+import { EditorPrintPreview } from "./editor-shell/editor-print-preview";
+import { tAi,tEditor,tShape,tWorkspace } from "./editor-shell/editor-translations";
+import { sessionReadOnlyExtensions } from "./editor-shell/session-read-only-extensions";
+import { useAiInlineGeometry } from "./editor-shell/use-ai-inline-geometry";
+import { useAiSurfaceController } from "./editor-shell/use-ai-surface-controller";
+import { useCommandSettingsController } from "./editor-shell/use-command-settings-controller";
+import { useDesktopUpdateController } from "./editor-shell/use-desktop-update-controller";
+import { useDocumentBodyCommands } from "./editor-shell/use-document-body-commands";
+import { useDocumentPrintController } from "./editor-shell/use-document-print-controller";
+import { useDocumentRecovery } from "./editor-shell/use-document-recovery";
+import { useDocumentSearchCommands,useDocumentSearchState } from "./editor-shell/use-document-search";
+import { useEditorChromeController } from "./editor-shell/use-editor-chrome-controller";
+import { useEditorDialogState } from "./editor-shell/use-editor-dialog-state";
+import { useEmbeddedDocumentSync } from "./editor-shell/use-embedded-document-sync";
+import { useLineHeightControl } from "./editor-shell/use-line-height-control";
+import { useMcpProposalController } from "./editor-shell/use-mcp-proposal-controller";
+import { useOverlaySettingsController } from "./editor-shell/use-overlay-settings-controller";
+import { useTextFormattingState } from "./editor-shell/use-text-formatting-state";
+import { useWindowCloseBoundary } from "./editor-shell/use-window-close-boundary";
+import { useWorkspaceDocumentNavigation } from "./editor-shell/use-workspace-document-navigation";
+import { useWorkspaceInitialization } from "./editor-shell/use-workspace-initialization";
+import { useWorkspaceTabCoordination } from "./editor-shell/use-workspace-tab-coordination";
+
+import { registerEditorClipboardEvents } from "./editor-shell/clipboard-events";
+import type { DocumentStorageChangeEvent,EmbeddedEditorHost } from "./editor-shell/document-lifecycle-types";
+import { registerDocumentStorageSynchronization } from "./editor-shell/document-storage-sync";
+import { type DocumentTabOpenOptions } from "./editor-shell/document-tab-commands";
 import { MaterialLibraryDialogs } from "./editor-shell/material-library-dialogs";
+import { useCommandPalette } from "./editor-shell/use-command-palette";
+import { useCommentActions } from "./editor-shell/use-comment-actions";
+import { useDesktopMenuActions } from "./editor-shell/use-desktop-menu-actions";
+import { useDocumentFileCommands } from "./editor-shell/use-document-file-commands";
+import { useDocumentSaveBoundary } from "./editor-shell/use-document-save-boundary";
+import { useEditorCommandRouting } from "./editor-shell/use-editor-command-routing";
+import { useExternalDocumentOpen } from "./editor-shell/use-external-document-open";
 import { useMaterialLibraryController } from "./editor-shell/use-material-library-controller";
 import { useWorkspaceDocumentCommands } from "./editor-shell/use-workspace-document-commands";
-import { useDocumentFileCommands } from "./editor-shell/use-document-file-commands";
-import { useExternalDocumentOpen } from "./editor-shell/use-external-document-open";
-import { useDesktopMenuActions } from "./editor-shell/use-desktop-menu-actions";
-import { useEditorCommandRouting } from "./editor-shell/use-editor-command-routing";
-import { useCommandPalette } from "./editor-shell/use-command-palette";
-import { registerDocumentStorageSynchronization } from "./editor-shell/document-storage-sync";
-import { useCommentActions } from "./editor-shell/use-comment-actions";
-import type { DocumentStorageChangeEvent, EmbeddedEditorHost } from "./editor-shell/document-lifecycle-types";
-import { registerEditorClipboardEvents } from "./editor-shell/clipboard-events";
-import { type DocumentTabOpenOptions } from "./editor-shell/document-tab-commands";
-import { useDocumentSaveBoundary } from "./editor-shell/use-document-save-boundary";
 export type { EmbeddedEditorHost } from "./editor-shell/document-lifecycle-types";
 
-import  {
-  Loader2,
-  PanelLeft,
-  RotateCcw,
-  X,
+import {
+Loader2,
+PanelLeft,
+RotateCcw,
+X,
 } from "lucide-react";
-import type { CSSProperties, MouseEvent, PointerEvent as ReactPointerEvent, SetStateAction, ReactNode } from "react";
-import  {
-  startTransition,
-  useCallback,
-  useEffect,
-  useId,
-  useLayoutEffect,
-  useMemo,
-  useRef,
-  useState,
-  useSyncExternalStore,
+import type { CSSProperties,MouseEvent,ReactNode,SetStateAction } from "react";
+import {
+startTransition,
+useCallback,
+useEffect,
+useLayoutEffect,
+useMemo,
+useRef,
+useState,
+useSyncExternalStore
 } from "react";
 
 import { APP_READY_EVENT } from "@/components/StartupSplash";
-import { AiEditPanel } from "@/components/editor/AiEditPanel";
-import { AiSettingsDialog } from "@/components/editor/AiSettingsDialog";
-import { AiTaskDock } from "@/components/editor/AiTaskDock";
-import { ChartSettingsPanel } from "@/components/editor/ChartSettingsPanel";
+
+
+
 import { CommandPalette } from "@/components/editor/CommandPalette";
 import { CommandSettingsDialog } from "@/components/editor/CommandSettingsDialog";
 import { CommentDock } from "@/components/editor/CommentDock";
@@ -50,467 +74,286 @@ import type { CommentPanelAuthor } from "@/components/editor/CommentThreadsPanel
 import { DesktopSettingsModal } from "@/components/editor/DesktopSettingsModal";
 import { DocumentLibraryDialog } from "@/components/editor/DocumentLibraryDialog";
 import { DocumentOpenFailurePanel } from "@/components/editor/DocumentOpenFailurePanel";
-import { DocumentTextCopyDialog, DocumentTextImportDialog } from "@/components/editor/DocumentTextTransferDialog";
-import  {
-  OPEN_OVERLAY_CHART_SETTINGS_EVENT,
-  OPEN_OVERLAY_GRAPH_SETTINGS_EVENT,
-  SELECT_OVERLAY_CHART_EVENT,
-  SELECT_OVERLAY_GRAPH_EVENT,
-  type SelectedInlineMath,
-  type SelectedOverlayChart,
-  type SelectedOverlayGraph,
+import { DocumentTextCopyDialog,DocumentTextImportDialog } from "@/components/editor/DocumentTextTransferDialog";
+import {
+type SelectedInlineMath
 } from "@/components/editor/EditorSettings";
-import { Graph3DSettingsPanelHost, OPEN_OVERLAY_GRAPH3D_SETTINGS_EVENT } from "@/components/editor/Graph3DSettingsPanel";
-import { GraphSettingsPanel } from "@/components/editor/GraphSettingsPanel";
-import { viewportToCanvasAnchor } from "@/components/editor/PageCanvasEditor";
+import { Graph3DSettingsPanelHost } from "@/components/editor/Graph3DSettingsPanel";
 import { PageSettingsDialog } from "@/components/editor/PageSettingsDialog";
 import { TexCommandReferenceDialog } from "@/components/editor/TexCommandReferenceDialog";
-import { useTikzEditor } from "./tikz/use-tikz-editor";
-import { OverlayImagePreviewContext } from "./overlay-canvas/image-preview-context";
 import { TexEnvironmentSettingsDialog } from "@/components/editor/TexEnvironmentSettingsDialog";
 import { VersionHistoryPanel } from "@/components/editor/VersionHistoryPanel";
-import { WorkspaceTabGroupGrid, type WorkspacePaneHandoff, type WorkspacePaneView } from "@/components/editor/WorkspaceTabGroupGrid";
-import { WorkspaceTabStrip } from "@/components/editor/WorkspaceTabStrip";
 import { WindowCloseSaveDialog } from "@/components/editor/WindowCloseSaveDialog";
-import  {
-  AI_INLINE_ANCHOR_OFFSET_Y,
-} from "@/components/editor/ai-inline-placement";
+import { WorkspaceTabGroupGrid,type WorkspacePaneHandoff,type WorkspacePaneView } from "@/components/editor/WorkspaceTabGroupGrid";
+import { WorkspaceTabStrip } from "@/components/editor/WorkspaceTabStrip";
+import { OverlayImagePreviewContext } from "./overlay-canvas/image-preview-context";
+import { useTikzEditor } from "./tikz/use-tikz-editor";
+
 import { HeldBodySelectionOverlay } from "@/components/editor/editor-shell/HeldBodySelectionOverlay";
 import type { EditorChromeValue } from "@/components/editor/editor-shell/chrome/chrome-types";
-import { SelectionToolbarProvider, type SelectionToolbarBinding } from "@/components/editor/editor-shell/selection-toolbar/binding";
+import { renderEditorChrome } from "@/components/editor/editor-shell/chrome/editor-chrome";
+import { NO_COLUMN_COMMAND,resolveColumnCommandState } from "@/components/editor/editor-shell/chrome/layout-commands";
+import {
+BASE_EDITOR_FONT_SIZE,
+DEFAULT_OUTLINE_WIDTH,
+EMPTY_OVERLAY_SELECTION,
+filterFontFamilyGroups,
+FONT_FAMILY_OPTION_VALUES,
+FONT_FAMILY_OPTIONS,
+FORMAT_TEXT_EVENT,
+INSERT_INLINE_MATH_EVENT,
+MAX_DOCUMENT_HISTORY,
+MAX_OUTLINE_WIDTH,
+MIN_EDITOR_WIDTH_WHILE_RESIZING_OUTLINE,
+MIN_OUTLINE_WIDTH,
+PAGE_NAVIGATOR_MAX_SCALE,
+PAGE_NAVIGATOR_MIN_SCALE,
+PAGE_NAVIGATOR_PRINT_PAGE_HEIGHT_PX,
+PAGE_NAVIGATOR_PRINT_PAGE_WIDTH_PX,
+PAGE_NAVIGATOR_SCALE_GUTTER_PX,
+REPORT_ISSUE_FORM_URL,
+TEXT_ALIGN_OPTIONS,
+ZOOM_PRESETS
+} from "@/components/editor/editor-shell/constants";
+import { type DocumentOpenFailure } from "@/components/editor/editor-shell/document-open-failure";
+import { formatDocumentRecoveryStatus } from "@/components/editor/editor-shell/recovery-status";
+import { SelectionToolbarProvider,type SelectionToolbarBinding } from "@/components/editor/editor-shell/selection-toolbar/binding";
 import { createSelectionToolbarExtension } from "@/components/editor/editor-shell/selection-toolbar/extension";
 import { planShapeTools } from "@/components/editor/editor-shell/selection-toolbar/model";
-import { renderEditorChrome } from "@/components/editor/editor-shell/chrome/editor-chrome";
-import { NO_COLUMN_COMMAND, resolveColumnCommandState } from "@/components/editor/editor-shell/chrome/layout-commands";
-import type { BackstageSectionId } from "@/components/editor/editor-shell/chrome/ribbon-backstage";
-import  {
-  closeBackstage as closeBackstageState,
-  DEFAULT_BACKSTAGE_STATE,
-  resolveBackstageStateForLayout,
-  ribbonBackstagePanelId,
-  selectBackstageSection as selectBackstageSectionState,
-  toggleBackstage as toggleBackstageState,
-} from "@/components/editor/editor-shell/chrome/ribbon-backstage";
-import type { RibbonCollapseState, RibbonPanelTabId } from "@/components/editor/editor-shell/chrome/ribbon-tabs";
-import  {
-  closeRibbonOverlay,
-  DEFAULT_RIBBON_TAB_STATE,
-  resolveRibbonTabState,
-  resolveTabClickWhileCollapsed,
-  ribbonTabElementId,
-  selectRibbonTab as selectRibbonTabState,
-  toggleRibbonCollapse as toggleRibbonCollapseState,
-} from "@/components/editor/editor-shell/chrome/ribbon-tabs";
-import  {
-  BASE_EDITOR_FONT_SIZE,
-  BASE_EDITOR_LINE_HEIGHT,
-  BASE_EDITOR_TEXT_COLOR,
-  DEFAULT_FONT_FAMILY_VALUE,
-  DEFAULT_OUTLINE_WIDTH,
-  EMPTY_OVERLAY_SELECTION,
-  filterFontFamilyGroups,
-  FONT_FAMILY_OPTION_VALUES,
-  FONT_FAMILY_OPTIONS,
-  FORMAT_TEXT_EVENT,
-  INSERT_INLINE_MATH_EVENT,
-  MAX_DOCUMENT_HISTORY,
-  MAX_OUTLINE_WIDTH,
-  MIN_EDITOR_WIDTH_WHILE_RESIZING_OUTLINE,
-  MIN_OUTLINE_WIDTH,
-  PAGE_NAVIGATOR_MAX_SCALE,
-  PAGE_NAVIGATOR_MIN_SCALE,
-  PAGE_NAVIGATOR_PRINT_PAGE_HEIGHT_PX,
-  PAGE_NAVIGATOR_PRINT_PAGE_WIDTH_PX,
-  PAGE_NAVIGATOR_SCALE_GUTTER_PX,
-  REPORT_ISSUE_FORM_URL,
-  SEARCH_QUERY_EVENT,
-  TEXT_ALIGN_OPTIONS,
-  TEXT_FORMAT_STATE_EVENT,
-  ZOOM_PRESETS,
-} from "@/components/editor/editor-shell/constants";
-import { toDocumentOpenFailure, type DocumentOpenFailure } from "@/components/editor/editor-shell/document-open-failure";
-import { formatDocumentRecoveryStatus } from "@/components/editor/editor-shell/recovery-status";
-import type { ColorStylePanel, DocumentChange, DocumentChangeOptions, EditorMenu } from "@/components/editor/editor-shell/types";
-import { buildLineToolItems, buildShapeGallerySections, isLineToolCommand } from "@/components/editor/overlay-canvas/shape-gallery";
+import type { DocumentChange,DocumentChangeOptions } from "@/components/editor/editor-shell/types";
+import { buildLineToolItems,buildShapeGallerySections,isLineToolCommand } from "@/components/editor/overlay-canvas/shape-gallery";
 import type { ShapeTypeChangeCommand } from "@/components/editor/overlay-canvas/shape-type-change";
-import type { OverlayPoint, OverlayTool } from "@/components/editor/overlay-canvas/types";
-import  {
-  FLUSH_OVERLAY_CHANGES_EVENT,
-  type OverlayActionRequest,
-  type OverlayActionRequestInput,
-  type OverlayArrangeAction,
-  type OverlayChangeOptions,
-  type OverlayCommand,
-  type OverlayCommandRequest,
-  type OverlayImageRequest,
-  type OverlayModeStatus,
-  type OverlaySelectionStylePatch,
-  type OverlaySelectionSummary,
-  type PageLayoutChangeOptions,
+import type { OverlayPoint,OverlayTool } from "@/components/editor/overlay-canvas/types";
+import {
+FLUSH_OVERLAY_CHANGES_EVENT,
+type OverlayActionRequest,
+type OverlayActionRequestInput,
+type OverlayArrangeAction,
+type OverlayChangeOptions,
+type OverlayCommand,
+type OverlayCommandRequest,
+type OverlayImageRequest,
+type OverlayModeStatus,
+type OverlaySelectionStylePatch,
+type OverlaySelectionSummary,
+type PageLayoutChangeOptions,
 } from "@/components/editor/page-overlay-types";
-import  {
-  BODY_SELECTION_SHAPES_REQUEST_EVENT,
-  type BodySelectionShapesRequestDetail,
+import {
+BODY_SELECTION_SHAPES_REQUEST_EVENT,
+type BodySelectionShapesRequestDetail,
 } from "@/components/editor/text-flow/body-shape-selection";
-import { TEXT_FLOW_CHANGE_START_EVENT, TEXT_FLOW_SELECTION_BOOKMARK_EVENT } from "@/components/editor/text-flow/caret-bookmark-events";
-import { deliverCaret, requestCaret } from "@/components/editor/text-flow/caret-router";
-import { scrollElementIntoCanvasView } from "@/components/editor/text-flow/caret-scroll";
-import { OVERLAY_SHAPES_PASTE_REQUEST_EVENT, type OverlayShapesPasteRequestDetail } from "@/components/editor/text-flow/text-and-shapes-clipboard";
-import { isMultiEditorTextRunSpan, subscribeTextRunSpan } from "@/components/editor/text-flow/text-run-span";
-import type { TextFlowChangeContext, TextFlowReplaceOptions } from "@/components/editor/text-flow/types";
-import { WebMcpBridge, type WebMcpBridgeHandle } from "@/components/editor/webmcp/WebMcpBridge";
+import { TEXT_FLOW_CHANGE_START_EVENT,TEXT_FLOW_SELECTION_BOOKMARK_EVENT } from "@/components/editor/text-flow/caret-bookmark-events";
+import { deliverCaret,requestCaret } from "@/components/editor/text-flow/caret-router";
+import { OVERLAY_SHAPES_PASTE_REQUEST_EVENT,type OverlayShapesPasteRequestDetail } from "@/components/editor/text-flow/text-and-shapes-clipboard";
+import type { TextFlowChangeContext,TextFlowReplaceOptions } from "@/components/editor/text-flow/types";
+import { WebMcpBridge,type WebMcpBridgeHandle } from "@/components/editor/webmcp/WebMcpBridge";
 import type { WebMcpHistoryEntry } from "@/components/editor/webmcp/webmcp-history";
 import { LedgerSchemaFailurePanel } from "@/components/ledger/LedgerSchemaFailurePanel";
 import { PdfExportSuccessDialog } from "@/components/print/PdfExportSuccessDialog";
 import { PrintPreviewPageNavigator } from "@/components/print/PrintPreview";
-import  {
-  PrintPreviewToolbar,
-  resolveDrawerExportUnavailableReason,
-  shouldOfferExternalPrintWindow,
-} from "@/components/print/PrintPreviewToolbar";
-import { PagedRenderSurface, type PagedRenderStateSnapshot } from "@/components/print/paged-render/PagedRenderSurface";
+import { PagedRenderSurface } from "@/components/print/paged-render/PagedRenderSurface";
 import { TemplateGallery } from "@/components/templates/TemplateGallery";
-import { SELECT_INLINE_MATH_EVENT, updateInlineMathDraft } from "@/components/tiptap/inline-math-extension";
-import { NATIVE_HISTORY_COMMAND_EVENT, type NativeHistoryCommandDetail } from "@/components/tiptap/native-history-guard";
-import { resolveTextToolbarTarget } from "./editor-shell/text-toolbar-target";
-import { isTextFormatTargetNodeType, type TextFormatStateContext } from "@/components/tiptap/text-format-controller";
-import { QR_CODE_REQUEST_EVENT, type QrCodeRequestDetail } from "@/components/tiptap/url-detection-extension";
+import { SELECT_INLINE_MATH_EVENT,updateInlineMathDraft } from "@/components/tiptap/inline-math-extension";
+import { NATIVE_HISTORY_COMMAND_EVENT,type NativeHistoryCommandDetail } from "@/components/tiptap/native-history-guard";
+import { QR_CODE_REQUEST_EVENT,type QrCodeRequestDetail } from "@/components/tiptap/url-detection-extension";
 import { Tooltip } from "@/components/ui/Tooltip";
+import {
+closeRightDock
+} from "@/features/right-dock/model/right-dock-state";
+import { FilesPanel } from "@/features/right-dock/view/FilesPanel";
 import { RightDockToggle } from "@/features/right-dock/view/RightDock";
 import { RightDockHost } from "@/features/right-dock/view/RightDockHost";
-import { FilesPanel } from "@/features/right-dock/view/FilesPanel";
+import { resolveTextToolbarTarget } from "./editor-shell/text-toolbar-target";
+
+import { readRenderedTextFontSize,type SelectionFontSize } from "@/components/tiptap/text-format-font-size";
 import {
-  readRightDockPreference,
-  saveRightDockPreference,
-} from "@/features/right-dock/model/right-dock-preference";
-import {
-  closeRightDock,
-  closeRightDockPage,
-  closeRightDockToolIfShowing,
-  INITIAL_RIGHT_DOCK_STATE,
-  isRightDockShowing,
-  openRightDock,
-  openRightDockTool,
-  RIGHT_DOCK_DEFAULT_WIDTH,
-  type RightDockState,
-} from "@/features/right-dock/model/right-dock-state";
-import  {
-  AiEditorHost,
-  AI_REFERENCE_TEXT_RANGE_EVENT,
-  aiDocumentWriteInProgressMessage,
-  AiPageCanvasEditor,
-  buildAppliedTurnChangesByTurnId,
-  buildInsertedShapePreviewsByTurnId,
-  buildRestorableProposalsByTurnId,
-  buildSourceReferencesByTurnId,
-  deriveAiProposalPresentation,
-  deriveAiReferenceRequestPlan,
-  deriveAiRunStartTransition,
-  describeAiLockedTargets,
-  findAiLockedTargetsTouched,
-  groupMcpProposalsForPreview,
-  hasAiLockedTargetsTouched,
-  isAiLockedBlock,
-  isAiLockedShapeSelection,
-  useAiLockedTargets,
-  useAiPinnedReferences,
-  useAiWorkspaceTabTitles,
-  useAiProposalActions,
-  useCommentAiRun,
-  type AiEditPreviewState,
-  type AiEditReference,
-  type AiEditShapeOnlyPreview,
-  type AiProposalApplyOutcome,
-} from "@/features/ai-edit";
-import  {
-  diffDeletedContentIds,
-  DocumentHistoryController,
-  ensurePageLayout,
-  getPageMetrics,
-  MM_TO_PX,
-  expandMarginsForRunningRegions,
-  getPageLayoutIssues,
-  inlineNodesToPlainText,
-  insertTopLevelDocumentBlocks,
-  insertTopLevelDocumentBlocksBefore,
-  isWhiteboardPageLayout,
-  MAX_LINE_HEIGHT,
-  MIN_LINE_HEIGHT,
-  MIN_PAGE_BODY_HEIGHT_MM,
-  normalizeLineHeight,
-  normalizePageLayout,
-  repairDuplicateTopLevelIds,
-  stepLineHeight,
-  type BoxedVariant,
-  type CommentMutationPorts,
-  type DocumentBlockClock,
-  type DocumentBlockIdFactory,
-  type InlineNode,
-  type LineHeight,
-  type OverlayShape,
-  type PageLayout,
-  type PageOverlay,
-  type ProblemAreaKind,
-  type RichBlock,
-  type SigmaBlock,
-  type SigmaCommentAnchor,
-  type SigmaCommentThread,
-  type SigmaDocument,
-  type SigmaTextRangeCommentAnchor,
-  type TextAlign,
+diffDeletedContentIds,
+DocumentHistoryController,
+ensurePageLayout,
+expandMarginsForRunningRegions,
+getPageLayoutIssues,
+getPageMetrics,
+inlineNodesToPlainText,
+insertTopLevelDocumentBlocks,
+isWhiteboardPageLayout,
+MIN_PAGE_BODY_HEIGHT_MM,
+MM_TO_PX,
+normalizePageLayout,
+repairDuplicateTopLevelIds,
+type BoxedVariant,
+type CommentMutationPorts,
+type InlineNode,
+type OverlayShape,
+type PageLayout,
+type PageOverlay,
+type ProblemAreaKind,
+type RichBlock,
+type SigmaBlock,
+type SigmaCommentAnchor,
+type SigmaCommentThread,
+type SigmaDocument,
+type SigmaTextRangeCommentAnchor,
+type TextAlign
 } from "@/features/document";
-import { readRenderedTextFontSize, type SelectionFontSize } from "@/components/tiptap/text-format-font-size";
-import { getTextShapeFontSizePt, type MeasuredBlock } from "@/features/drawing";
-import { DocumentTitleText, MathEnvironmentProvider } from "@/features/rendering/adapters/react";
+import type { MeasuredBlock } from "@/features/drawing";
+import { MathEnvironmentProvider } from "@/features/rendering/adapters/react";
 import { parseDocumentTitleInlineNodes } from "@/features/rendering/core";
-import  {
-  convertBlockStyle,
-  countTextMatches,
-  findFirstBlockWithText,
-  getLayoutSectionColumns,
-  getLayoutSectionColumnWidths,
-  insertTopLevelTextFlowBlocks,
-  replaceInDocument,
-  replaceTopLevelTextFlowBlocks,
-  removeLeadingEmptyPageBreaks,
-  setBlockSpaceAfter,
-  setLayoutSectionColumnCount,
-  setLayoutSectionColumns,
-  updateInlineMathTexInDocument,
-  type TextFlowBlock,
-  type TextFlowSelectionBookmark,
+import {
+convertBlockStyle,
+insertTopLevelTextFlowBlocks,
+replaceTopLevelTextFlowBlocks,
+setLayoutSectionColumnCount,
+updateInlineMathTexInDocument,
+type TextFlowBlock,
+type TextFlowSelectionBookmark
 } from "@/features/text-editing";
-import  {
-  decideAiApprovedDocument,
-  trackInFlightSave,
+import {
+decideAiApprovedDocument
 } from "@/lib/ai-run-applier";
-import { useAiConnection, useClaudeConnection, useGeminiConnection } from "@/lib/ai/ai-connection";
-import { DEFAULT_CLAUDE_AI_EDIT_MODEL, DEFAULT_GEMINI_AI_EDIT_MODEL } from "@/lib/ai/ai-providers";
-import { isAiRunStatusActive, useAiRunSessions } from "@/lib/ai/ai-run-session-store";
-import { deleteAiDataForDocument } from "@/lib/ai/ai-run-controller";
-import { focusSourceReferenceInDocument, resolveSourceReferenceNavigationTarget } from "@/lib/ai/ai-source-reference-navigation";
-import  {
-  closeSurface,
-  isInlineToggleShortcut,
-  openInline,
-  promoteToSidebar,
-  resolveAiSurface,
-  toggleSurface,
-  type AiDisplayMode,
-  type AiSurfaceState,
-} from "@/lib/ai/ai-surface";
-import { runAiEditViaDesktopRuntime } from "@/lib/ai/codex-ai-edit-client";
-import { DEFAULT_AI_EDIT_MODEL, DEFAULT_AI_EDIT_REASONING_EFFORT } from "@/lib/ai/sigma-doc-edit-schema";
-import { getAppRouteHref } from "@/lib/app-navigation";
+
+
+
+
+
+
+
+import { isUntouchedNewDocument } from "@/components/editor/editor-shell/new-document-draft";
+import { DEFAULT_AI_EDIT_MODEL,DEFAULT_AI_EDIT_REASONING_EFFORT } from "@/lib/ai/sigma-doc-edit-schema";
 import { createEmptyEditorDocument } from "@/lib/blank-document";
-import { availableDocumentTitle } from "@/lib/library-ledger";
-import { isPristineUntitledDocument, isUntouchedNewDocument } from "@/components/editor/editor-shell/new-document-draft";
-import { moveBlocksByDrag, moveUnitsByStep, type BlockDragMoveRequest } from "@/lib/block-drag-move";
-import  {
-  DEFAULT_COMMENT_COLOR,
-  visibleCommentThreads,
+import {
+DEFAULT_COMMENT_COLOR,
+visibleCommentThreads,
 } from "@/lib/comments";
 import { getDesktopBridge } from "@/lib/desktop-bridge";
-import { areSigmaDocumentsEquivalent, comparableDocumentValue } from "@/lib/document-equivalence";
-import  {
-  DEFAULT_DOCUMENT_TITLE,
-  documentTitleInputValue,
-  isDocumentTitleExplicit,
-  resolveDocumentTitle,
-  resolveDocumentTitleContent,
+import { areSigmaDocumentsEquivalent } from "@/lib/document-equivalence";
+import {
+documentTitleInputValue,
+isDocumentTitleExplicit,
+resolveDocumentTitle,
+resolveDocumentTitleContent
 } from "@/lib/document-title";
-import  {
-  addRichBlockToProblem,
-  collectOutline,
-  createBlock,
-  createParagraph,
-  deleteBlocksFromDocument,
-  duplicateTopLevelBlock,
-  ensureBodyBlockAfterProblem,
-  ensureEditableBody,
-  findBlock,
-  findContainingLayoutSection,
-  insertBlockAtSelection,
-  isEmptyTopLevelTextFlowBlock,
-  moveTopLevelBlock,
-  removeBlockFromDocument,
-  unwrapLayoutSection,
-  updateBlockInDocument,
-  wrapTextFlowBlocksInLayoutSection,
-  type EditableBlock,
+import {
+addRichBlockToProblem,
+collectOutline,
+createParagraph,
+duplicateTopLevelBlock,
+ensureEditableBody,
+findBlock,
+moveTopLevelBlock,
+updateBlockInDocument
 } from "@/lib/document-tree";
 import type { DocumentVersion } from "@/lib/document-version-history";
-import  {
-  cloneDocumentBlocksForPaste,
-  createDocumentBlocksClipboardPayload,
-  getLocalEditorClipboardPayload,
-  writeEditorPayloadToSystemClipboard,
-} from "@/lib/editor-clipboard";
-import  {
-  detectEditorShortcutPlatform,
-  findCommandByShortcut,
-  loadEditorCustomCommands,
-  loadEditorShortcutOverrides,
-  parseEditorCustomCommands,
-  parseEditorShortcutOverrides,
-  saveEditorCustomCommands,
-  saveEditorShortcutOverrides,
-  type EditorCommandId,
-  type EditorCustomCommandDefinition,
-  type EditorShortcutOverrides,
+import {
+detectEditorShortcutPlatform,
+findCommandByShortcut,
+type EditorCommandId
 } from "@/lib/editor-command-shortcuts";
 import { DEFAULT_FILL_OPACITY } from "@/lib/fill-opacity";
 import type { Graph2DPreset } from "@/lib/graph2d";
 import { getHeadingNumberMap } from "@/lib/heading-numbering";
-import  {
-  createCurrentLocaleTranslator,
-  createTranslator,
-  getAppLocale,
-  normalizeLocale,
-  setAppLocale,
-  type AppLocale,
-  type Translate,
+import {
+getAppLocale
 } from "@/lib/i18n";
 import { useT } from "@/lib/i18n/react";
 import { createId } from "@/lib/id";
+import { availableDocumentTitle } from "@/lib/library-ledger";
 import type { LedgerSchemaFailure } from "@/lib/library-schema";
 import { getSupportedOverlayImageFiles } from "@/lib/overlay-image-files";
-import { countPerformanceEvent, measurePerformance } from "@/lib/performance";
+import { countPerformanceEvent,measurePerformance } from "@/lib/performance";
 import { generateQrPngFile } from "@/lib/qr-code";
-import { isPersistentRuntime } from "@/lib/runtime";
 import type { SigmaDocumentRecoveryIssue } from "@/lib/sigma-doc-schema";
-import  {
-  captureDocumentVersion,
-  createDocumentFromSigmaDocument,
-  createNewDocument,
-  createObservedDocumentWrite,
-  deleteDocument,
-  initializeDocumentWorkspace,
-  listSavedDocuments,
-  loadDocumentByFileIdWithRecovery,
-  saveDocumentRecord,
-  saveWorkspaceState as persistWorkspaceState,
-  type DocumentLoadResult,
-  type DocumentMetadata,
-} from "@/lib/storage";
 import {
-  closeWorkspaceTabInLayout,
-  createSingleGroupWorkspaceLayout,
-  focusWorkspaceTab,
-  moveWorkspaceTab,
-  normalizeWorkspaceLayout,
-  reconcileWorkspaceLayoutDocuments,
-  splitWorkspaceGroupWithTab,
-  updateWorkspaceSplitRatio,
-  workspaceLayoutOpenFileIds,
-  type WorkspaceDropEdge,
-  type WorkspaceLayoutV2,
-  type WorkspaceTab,
-} from "@/lib/workspace-tab-groups";
+captureDocumentVersion,
+createDocumentFromSigmaDocument,
+createNewDocument,
+createObservedDocumentWrite,
+deleteDocument,
+listSavedDocuments,
+loadDocumentByFileIdWithRecovery,
+saveWorkspaceState as persistWorkspaceState,
+type DocumentMetadata
+} from "@/lib/storage";
 import { templateInsertContent } from "@/lib/templates";
 import { useUiLayoutPreference } from "@/lib/ui-layout-preference";
 import { useCustomFonts } from "@/lib/use-custom-fonts";
 import { formatSigmaValidationCode } from "@/lib/validation-text";
-import type { DesktopMcpEditProposalSummary, DesktopUpdateState } from "@/types/desktop";
+import {
+reconcileWorkspaceLayoutDocuments,
+workspaceLayoutOpenFileIds
+} from "@/lib/workspace-tab-groups";
 import type { TemplateItem } from "@/types/template";
 import { useStore } from "zustand";
 
-import  {
-  deliverHistoryShortcutToFocusedSurface,
-  isCompositionStillActive,
-  shouldEndCompositionForEvent,
+import {
+deliverHistoryShortcutToFocusedSurface,
+isCompositionStillActive,
+shouldEndCompositionForEvent,
 } from "@/components/editor/editor-shell/command-shortcut-targets";
-import  {
-  areGraphSpecsEqual,
-  areSelectedOverlayChartsEqual,
-  areSelectedOverlayGraphsEqual,
-  getDefaultDocumentSelectionId,
-  sameDocumentMetadatas,
-  sameOverlaySelectionSummary,
+import {
+getDefaultDocumentSelectionId,
+sameDocumentMetadatas,
+sameOverlaySelectionSummary
 } from "@/components/editor/editor-shell/document-helpers";
-import  {
-  queueLatestDocumentChange,
-  recordSuccessfulDocumentSave,
-  syncDocumentRefWhenStateIsCurrent,
-  takeLatestDocumentChange,
-  type SuccessfulDocumentSave,
+import {
+queueLatestDocumentChange,
+syncDocumentRefWhenStateIsCurrent,
+takeLatestDocumentChange,
+type SuccessfulDocumentSave
 } from "@/components/editor/editor-shell/document-state-sync";
-import  {
-  isDocumentVersionRestoreContextCurrent,
-  runDocumentVersionRestore,
-  type DocumentVersionRestoreResult,
+import {
+isDocumentVersionRestoreContextCurrent,
+runDocumentVersionRestore,
+type DocumentVersionRestoreResult,
 } from "@/components/editor/editor-shell/document-version-restore";
-import  {
-  captureEditorTabViewState,
-  placeCaretAtPointWhenReady,
-  resolveEditorTabViewState,
-  scheduleEditorTabViewRestore,
-  type EditorTabViewState,
-  type ResolvedEditorTabViewState,
+import {
+captureEditorTabViewState,
+placeCaretAtPointWhenReady,
+resolveEditorTabViewState,
+scheduleEditorTabViewRestore,
+type EditorTabViewState,
+type ResolvedEditorTabViewState,
 } from "@/components/editor/editor-shell/editor-tab-view-state";
-import { suggestedPdfFileName } from "@/components/editor/editor-shell/formatting-icons";
 import { handleHeadingCommandAutoNumbering } from "@/components/editor/editor-shell/heading-command";
-import { beginTablePlacementFeedback, cancelTablePlacementFeedback, trackTablePlacementPointer } from "./overlay-canvas/table-placement-feedback";
-import  {
-  applyOverlayGraphAxisLabelEdit,
-  mergeOverlayGraphDetailWithPending,
-  recordPendingOverlayGraphAxisLabelEdit,
-  recordPendingOverlayGraphSpecEdit,
-  type PendingOverlayGraphEdits,
-} from "@/components/editor/editor-shell/overlay-graph-pending-edits";
-import  {
-  convertOverlayToWhiteboard,
-  createOverlaySelectionCommentAnchor,
-  ensureOverlayAnchorOffsets,
-  getSharedOverlayLineDash,
-  getSharedOverlayLineSize,
+import {
+convertOverlayToWhiteboard,
+createOverlaySelectionCommentAnchor,
+ensureOverlayAnchorOffsets,
+getSharedOverlayLineDash,
+getSharedOverlayLineSize,
 } from "@/components/editor/editor-shell/overlay-helpers";
-import { getVisibleEditorPageNumber, scrollEditorCanvasToPage } from "@/components/editor/editor-shell/page-navigation";
-import  {
-  clampBoxedTextPaddingY,
-  EMPTY_BLOCK_STYLE_TOOLBAR_STATE,
-  getFontFamilyLabel,
-  nextBlockStyleToolbarState,
-  normalizeBoxedTextVariant,
-  normalizeToolbarFontFamily,
-  type BlockStyleCommandValue,
-  type BlockStyleToolbarState,
+import { getVisibleEditorPageNumber,scrollEditorCanvasToPage } from "@/components/editor/editor-shell/page-navigation";
+import {
+clampBoxedTextPaddingY,
+getFontFamilyLabel,
+normalizeBoxedTextVariant,
+type BlockStyleCommandValue
 } from "@/components/editor/editor-shell/toolbar-formatting";
-import  {
-  getScrollForZoomAnchor,
-  panCamera,
-  resetCamera,
-  resolveNextZoom,
-  resolveWheelIntent,
-  WHEEL_LINE_HEIGHT_PX,
-  zoomCameraAt,
-} from "@/components/editor/editor-shell/whiteboard-camera";
-import  {
-  describeWindowCloseSkipReason,
-  resolveWindowCloseOutcome,
-  shouldUsePageVisibilityBoundaryEvents,
-} from "@/components/editor/editor-shell/window-close-save";
-import  {
-  clearRequestedFileId,
-  createUnsavedEditBackupTitle,
-  getRequestedFileId,
-  uniqueStringIds,
-  type DegradedWatcherScope,
-} from "@/components/editor/editor-shell/workspace-request";
-import { useRequestedDocumentLocation } from "@/components/editor/editor-shell/use-requested-document-location";
 import { useRequestedCommentThread } from "@/components/editor/editor-shell/use-requested-comment-thread";
+import { useRequestedDocumentLocation } from "@/components/editor/editor-shell/use-requested-document-location";
+import {
+getScrollForZoomAnchor,
+panCamera,
+resetCamera,
+resolveNextZoom,
+resolveWheelIntent,
+WHEEL_LINE_HEIGHT_PX,
+zoomCameraAt,
+} from "@/components/editor/editor-shell/whiteboard-camera";
+import {
+createUnsavedEditBackupTitle,
+uniqueStringIds,
+type DegradedWatcherScope
+} from "@/components/editor/editor-shell/workspace-request";
 import { createBlockCommentAnchor } from "@/components/editor/page-canvas/popover-anchors";
-import { shouldDispatchSearchQuery } from "@/components/editor/search-query-dispatch";
-import type  {
-  TextFlowBodyBlockCommandRequest,
-  TextFlowHeadingCommandRequest,
-  TextFlowMaterialInsertRequest,
-  TextFlowProblemCommandRequest,
+import type {
+TextFlowBodyBlockCommandRequest,
+TextFlowHeadingCommandRequest,
+TextFlowMaterialInsertRequest,
+TextFlowProblemCommandRequest,
 } from "@/components/editor/text-flow/types";
-import { setLatestSearchQuery } from "@/components/tiptap/search-highlight-extension";
-import { createEditorStore, EditorStoreProvider, type EditorStore } from "@/features/editor-state";
+import { createEditorStore,EditorStoreProvider,type EditorStore } from "@/features/editor-state";
 import { useStableCallback } from "@/lib/react/use-stable-callback";
-import { applyRememberedBoxFrame } from "@/lib/remembered-box-style";
+import { beginTablePlacementFeedback,cancelTablePlacementFeedback,trackTablePlacementPointer } from "./overlay-canvas/table-placement-feedback";
 /**
  * コメントの既定の作者。
  *
@@ -539,71 +382,7 @@ const COMMENT_AUTHOR: CommentPanelAuthor = {
  * 画面 (JSX) から呼んだ場合も正しい言語になる: `EditorShell` は `useT` を
  * 経由してロケールストアを購読しているので、言語を切り替えれば再描画される。
  */
-const editorTextCache: { locale: AppLocale | null; translate: Translate<"editor"> | null } = {
-  locale: null,
-  translate: null,
-};
-
-function resolveEditorTranslate(): Translate<"editor"> {
-  const locale = getAppLocale();
-  if (editorTextCache.locale !== locale || !editorTextCache.translate) {
-    editorTextCache.locale = locale;
-    editorTextCache.translate = createTranslator(locale, "editor");
-  }
-  return editorTextCache.translate;
-}
-
-// `TFunction` は補間の型を鍵ごとに推論するオーバーロードの塊で、可変長引数を
-// そのまま通すと型が合わない。ここは「同じ引数をそのまま渡す」だけなので
-// 二段キャストで包む (キーと補間の検査は呼び出し側で効いたままになる)。
-const tEditor = ((key: string, options?: Record<string, unknown>) =>
-  resolveEditorTranslate()(key as never, options as never)) as unknown as Translate<"editor">;
-
-/** ワークスペース / 素材面の文言 (`workspace` namespace)。解決の仕方は `tEditor` と同じ。 */
-const tWorkspace = createCurrentLocaleTranslator("workspace");
-
-/**
- * 起動時の状態表示。**保存先がこのセッション限りのときは、その事実を先に出す。**
- * ブラウザがサイトデータを拒む (プライベートウィンドウ等) と編集自体はできてしまうので、
- * 「準備完了」とだけ出すとタブを閉じた時に黙って消える。
- */
-const storageWarningOrStatus = (status: string): string =>
-  isPersistentRuntime() ? status : tWorkspace("error.browserStorageUnavailable");
-
-/** 図形 / グラフ面の文言 (`shape` namespace)。解決の仕方は `tEditor` と同じ。 */
-const shapeTextCache: { locale: AppLocale | null; translate: Translate<"shape"> | null } = {
-  locale: null,
-  translate: null,
-};
-
-const tShape = ((key: string, options?: Record<string, unknown>) => {
-  const locale = getAppLocale();
-  if (shapeTextCache.locale !== locale || !shapeTextCache.translate) {
-    shapeTextCache.locale = locale;
-    shapeTextCache.translate = createTranslator(locale, "shape");
-  }
-  return shapeTextCache.translate(key as never, options as never);
-}) as unknown as Translate<"shape">;
-/**
- * AI 編集面の文言 (`ai` namespace)。**フックではなく module 直下**なのは、ここから
- * 呼ぶ AI ヘルパが `useMemo` / `useCallback` の中にいて、フック値を足すと依存配列が
- * 軒並み動くため (`tEditor` / `tShape` と同じ理由)。解決は呼び出し時のロケール。
- */
-const tAi = createCurrentLocaleTranslator("ai");
-
-const LINE_HEIGHT_LONG_PRESS_DELAY_MS = 400;
-const LINE_HEIGHT_LONG_PRESS_INTERVAL_MS = 120;
-const MCP_PROPOSAL_REFRESH_DEBOUNCE_MS = 75;
-type McpProposalRefreshBatch = {
-  promise: Promise<void>;
-  resolve: () => void;
-  reject: (reason: unknown) => void;
-};
 const COMMENT_MUTATION_PORTS: CommentMutationPorts = {
-  now: () => new Date().toISOString(),
-  createId,
-};
-const DOCUMENT_BLOCK_OPERATION_PORTS: DocumentBlockClock & DocumentBlockIdFactory = {
   now: () => new Date().toISOString(),
   createId,
 };
@@ -738,6 +517,52 @@ function canScrollWithin(
 }
 
 function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, renderSelectionActions, accountAction, commentIdentity, loadCommentMentionCandidates, editorStore }: EditorShellProps & { editorStore: EditorStore }) {
+  const {
+    EMPTY_AI_LOCKED_TARGETS,
+    AiEditPanel,
+    AiSettingsDialog,
+    AiTaskDock,
+    AI_INLINE_ANCHOR_OFFSET_Y,
+    AiEditorHost,
+    AI_REFERENCE_TEXT_RANGE_EVENT,
+    aiDocumentWriteInProgressMessage,
+    AiPageCanvasEditor,
+    buildAppliedTurnChangesByTurnId,
+    buildInsertedShapePreviewsByTurnId,
+    buildRestorableProposalsByTurnId,
+    buildSourceReferencesByTurnId,
+    deriveAiProposalPresentation,
+    deriveAiReferenceRequestPlan,
+    deriveAiRunStartTransition,
+    describeAiLockedTargets,
+    findAiLockedTargetsTouched,
+    groupMcpProposalsForPreview,
+    hasAiLockedTargetsTouched,
+    isAiLockedBlock,
+    isAiLockedShapeSelection,
+    useAiLockedTargets,
+    useAiPinnedReferences,
+    useAiWorkspaceTabTitles,
+    useAiProposalActions,
+    useCommentAiRun,
+    useAiConnection,
+    useClaudeConnection,
+    useGeminiConnection,
+    DEFAULT_CLAUDE_AI_EDIT_MODEL,
+    DEFAULT_GEMINI_AI_EDIT_MODEL,
+    isAiRunStatusActive,
+    useAiRunSessions,
+    deleteAiDataForDocument,
+    focusSourceReferenceInDocument,
+    resolveSourceReferenceNavigationTarget,
+    closeSurface,
+    isInlineToggleShortcut,
+    openInline,
+    promoteToSidebar,
+    resolveAiSurface,
+    toggleSurface,
+    runAiEditViaDesktopRuntime
+  } = useEditorHost().assistance;
   countPerformanceEvent("EditorShell.render");
   // クロームの文言。`renderEditorChrome` は hook を呼べないので、ここで解決して
   // `chrome.shared.t` から配る。同一ロケール内では参照が変わらない。
@@ -766,6 +591,8 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
   }, [embeddedHost]);
   // 埋め込みホストから本文が空の文書を渡されても、最初の描画から入力できる状態で始める。
   const [document, setDocument] = useState<SigmaDocument>(() => ensureEditableBody(initialDocument).document);
+  const documentRef = useRef(document);
+  const getCurrentSessionDocument = useCallback(() => documentRef.current, []);
   const isWhiteboardDocument = isWhiteboardPageLayout(normalizePageLayout(document.pageLayout));
   const [documentStateStamp, setDocumentStateStamp] = useState(0);
   // action だけを購読する。通常の state 更新では識別子が変わらないので再描画せず、
@@ -795,37 +622,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
     setSaveState("warning");
     setStatusMessage(message);
   }, [setSaveState, setStatusMessage, tE]);
-  /** `null` = run 自身の指定なし。ツールバーは「自動」と出し、見出しの大きさを潰さない。 */
-  const [textFontSize, setTextFontSize] = useState<number | null>(BASE_EDITOR_FONT_SIZE);
-  const [textFontSizeMixed, setTextFontSizeMixed] = useState(false);
-  const [fontSizeInput, setFontSizeInput] = useState(String(BASE_EDITOR_FONT_SIZE));
-  const [boxedTextPaddingY, setBoxedTextPaddingY] = useState(0);
-  const [boxedTextActive, setBoxedTextActive] = useState(false);
-  // B/I/U mirror the caret: the editors publish isActive() for each mark on every
-  // transaction, so the buttons light up while the caret sits inside a bold run.
-  const [boldActive, setBoldActive] = useState(false);
-  const [italicActive, setItalicActive] = useState(false);
-  const [underlineActive, setUnderlineActive] = useState(false);
-  // ブロック種別のトグル (箇条書き / 番号付き / 引用 / コード)。B/I/U と同じで、キャレットが
-  // そのブロックの中にいる間ボタンが点く。
-  const [blockStyleState, setBlockStyleState] = useState<BlockStyleToolbarState>(
-    EMPTY_BLOCK_STYLE_TOOLBAR_STATE,
-  );
-  const [documentTextFormatTarget, setDocumentTextFormatTarget] = useState<TextFormatStateContext | null>(null);
-  // チャンクを跨ぐ本文選択 (text-run-span) の有無。跨ぎドラッグは mousedown/mouseup の
-  // ターゲットが別エディタになるため、selectedId だけではリボンの書式ボタンの enable を
-  // 表しきれない場面がある (⌘A 直後など)。span が生きている間は書式適用先が確実にあるので、
-  // enable 判定へ直接効かせる。同値 setState は React が bail するので、ドラッグ中の
-  // span 通知が毎フレーム来ても再レンダーは跨ぎ選択の開始/終了時しか起きない。
-  const [hasMultiEditorTextRunSpan, setHasMultiEditorTextRunSpan] = useState(false);
-  useEffect(() => subscribeTextRunSpan(() => {
-    setHasMultiEditorTextRunSpan(isMultiEditorTextRunSpan());
-  }), []);
-  const [boxedTextVariant, setBoxedTextVariant] = useState<BoxedVariant>("frame");
-  // The toolbar variant/padding state mirrors the current selection (reset to
-  // frame/0 when an unboxed range is selected), so it can't carry "last used".
-  // This ref persists the last format the user applied and seeds the next insert.
-  const lastBoxedFormatRef = useRef<{ paddingY: number; variant: BoxedVariant }>({ paddingY: 0, variant: "frame" });
+  const { textFontSize, setTextFontSize, textFontSizeMixed, setTextFontSizeMixed, fontSizeInput, setFontSizeInput, boxedTextPaddingY, setBoxedTextPaddingY, boxedTextActive, boldActive, italicActive, underlineActive, blockStyleState, documentTextFormatTarget, hasMultiEditorTextRunSpan, boxedTextVariant, setBoxedTextVariant, textColor, setTextColor, textBackgroundColor, setTextBackgroundColor, strokeColor, setStrokeColor, fontFamily, setFontFamily, lineHeight, setLineHeight, lineHeightInput, setLineHeightInput, lineHeightInputError, setLineHeightInputError, lineHeightCustomOpen, setLineHeightCustomOpen, getLastBoxedFormat, rememberBoxedFormat, saveEditorFontFamilyPreference } = useTextFormattingState();
   const zoom = useStore(editorStore, (state) => state.zoom);
   // パンは倍率と同じストアに置く (理由は EditorToolbarSlice の宣言のコメント)。
   const whiteboardPan = useStore(editorStore, (state) => state.whiteboardPan);
@@ -834,44 +631,14 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
   const handleWhiteboardViewportChange = useCallback((element: HTMLDivElement | null) => {
     whiteboardViewportRef.current = element;
   }, []);
-  const [previewOpen, setPreviewOpen] = useState(false);
-  const [pdfExporting, setPdfExporting] = useState(false);
-  const [exportedPdfPath, setExportedPdfPath] = useState<string | null>(null);
-  const [printPreviewRenderState, setPrintPreviewRenderState] = useState<PagedRenderStateSnapshot>({
-    state: "pending",
-    surfaceId: "",
-    revision: 0,
-    pageCount: 0,
-    pageWidthMm: 0,
-    pageHeightMm: 0,
-  });
-  const [pageSettingsOpen, setPageSettingsOpen] = useState(false);
-  const [commandSettingsOpen, setCommandSettingsOpen] = useState(false);
-  const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
-  // パレットから設定項目を選んだとき、開いたダイアログのどこを見せるか
-  // (`settings-catalog.ts` の id)。ダイアログを閉じたら捨てる。
-  const [settingsFocusEntryId, setSettingsFocusEntryId] = useState<string | undefined>(undefined);
-  const [texCommandReferenceOpen, setTexCommandReferenceOpen] = useState(false);
-  const [texEnvironmentSettingsOpen, setTexEnvironmentSettingsOpen] = useState(false);
-  const [documentListOpen, setDocumentListOpen] = useState(false);
+  const { pageSettingsOpen, setPageSettingsOpen, commandSettingsOpen, setCommandSettingsOpen, commandPaletteOpen, setCommandPaletteOpen, settingsFocusEntryId, setSettingsFocusEntryId, texCommandReferenceOpen, setTexCommandReferenceOpen, texEnvironmentSettingsOpen, setTexEnvironmentSettingsOpen, documentListOpen, setDocumentListOpen, desktopSettingsOpen, setDesktopSettingsOpen, desktopSettingsUpdateCheckRequest, setDesktopSettingsUpdateCheckRequest, openDesktopSettingsFromChrome } = useEditorDialogState();
   const [workspaceReady, setWorkspaceReady] = useState(isEmbedded);
   const [ledgerFailure, setLedgerFailure] = useState<LedgerSchemaFailure | null>(null);
   const [workspaceReloadNonce, setWorkspaceReloadNonce] = useState(0);
   const [loadingFileId, setLoadingFileId] = useState<string | null>(null);
   // 教材の中身 (壊れたJSON / スキーマ違反) が原因で本文を組み立てられなかった教材。
   // その教材がアクティブな間だけ、編集キャンバスの代わりに原因と修復プロンプトを出す。
-  const [documentOpenFailure, setDocumentOpenFailure] = useState<DocumentOpenFailure | null>(null);
-  const documentOpenFailureRef = useRef<DocumentOpenFailure | null>(null);
-  // 直前の読み込みで観測した失敗の一時置き場。開く判断をした呼び出し側だけが
-  // showRecordedDocumentOpenFailure で受け取る (候補を読み飛ばす経路では捨てる)。
-  const pendingDocumentOpenFailureRef = useRef<DocumentOpenFailure | null>(null);
   const [documentMetadatas, setDocumentMetadatas] = useState<DocumentMetadata[]>([]);
-  const [mcpEditProposals, setMcpEditProposals] = useState<DesktopMcpEditProposalSummary[]>([]);
-  // チャット turn の参照元チップ・挿入図形サムネイル用。pending プレビューとは別に
-  // 全 status の proposal を保持し、適用/却下後も派生表示を turn 下に残す。
-  const [mcpProposalCitations, setMcpProposalCitations] = useState<DesktopMcpEditProposalSummary[]>([]);
-  const [appUpdateState, setAppUpdateState] = useState<DesktopUpdateState | null>(null);
-  const [appUpdateActionBusy, setAppUpdateActionBusy] = useState(false);
   const [openFileIds, setOpenFileIds] = useState<string[]>(() => [initialDocument.docId]);
   const [activeFileId, setActiveFileId] = useState(initialDocument.docId);
   const cameraByFileIdRef = useRef(new Map<string, { zoom: number; panX: number; panY: number }>());
@@ -903,56 +670,27 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
   );
   const sessionWritableRef = useRef(sessionWritable);
   useLayoutEffect(() => { sessionWritableRef.current = sessionWritable; }, [sessionWritable]);
-  const [workspaceLayout, setWorkspaceLayout] = useState<WorkspaceLayoutV2>(() => (
-    createSingleGroupWorkspaceLayout([initialDocument.docId], initialDocument.docId)
-  ));
-  const [shortcutOverrides, setShortcutOverrides] = useState<EditorShortcutOverrides>(() => (
-    getDesktopBridge()?.settings ? {} : loadEditorShortcutOverrides()
-  ));
-  const [customCommands, setCustomCommands] = useState<EditorCustomCommandDefinition[]>(() => (
-    getDesktopBridge()?.settings ? [] : loadEditorCustomCommands()
-  ));
-  const [commandSettingsLoaded, setCommandSettingsLoaded] = useState(() => !getDesktopBridge()?.settings);
-  const [commandSettingsError, setCommandSettingsError] = useState<string | null>(null);
-  const [textColor, setTextColor] = useState("#111111");
-  const [textBackgroundColor, setTextBackgroundColor] = useState<string | null>("#fff3c2");
-  const [strokeColor, setStrokeColor] = useState<string | null>("#000000");
-  const [fontFamily, setFontFamily] = useState(DEFAULT_FONT_FAMILY_VALUE);
+  const activeFileIdRef = useRef(activeFileId);
+  const openFileIdsRef = useRef(openFileIds);
+  const pendingPaneCaretRef = useRef<{ fileId: string; x: number; y: number } | null>(null);
+  const editorTabViewStateByFileIdRef = useRef(new Map<string, EditorTabViewState>());
+  const getActiveWorkspaceFileId = useCallback(() => activeFileIdRef.current, []);
+  const installOpenWorkspaceFileIds = useCallback((ids: string[]) => { openFileIdsRef.current = ids; setOpenFileIds(ids); }, []);
+  const workspaceDocumentActionsRef = useRef<{ open: (fileId: string, options?: DocumentTabOpenOptions) => Promise<void>; close: (fileId: string) => Promise<void> } | null>(null);
+  const requestOpenWorkspaceDocument = useCallback((fileId: string, options?: DocumentTabOpenOptions) => workspaceDocumentActionsRef.current?.open(fileId, options) ?? Promise.resolve(), []);
+  const requestCloseWorkspaceDocument = useCallback((fileId: string) => workspaceDocumentActionsRef.current?.close(fileId) ?? Promise.resolve(), []);
+  const rememberWorkspacePaneHandoff = useCallback((fileId: string, handoff: WorkspacePaneHandoff) => {
+    const saved = editorTabViewStateByFileIdRef.current.get(fileId);
+    editorTabViewStateByFileIdRef.current.set(fileId, { selectedId: saved?.selectedId ?? null, textSelection: handoff.point ? null : saved?.textSelection ?? null, scrollTop: handoff.scrollTop, scrollLeft: handoff.scrollLeft });
+    pendingPaneCaretRef.current = handoff.point ? { fileId, ...handoff.point } : null;
+  }, []);
+  const { workspaceLayout, getWorkspaceLayout, setWorkspaceLayout, activateWorkspaceGroupTab, moveWorkspaceGroupTab, splitWorkspaceGroupTab, closeWorkspaceGroupTab, resizeWorkspaceGroupSplit, focusWorkspaceGroup } = useWorkspaceTabCoordination({ initialDocumentId: initialDocument.docId, getActiveFileId: getActiveWorkspaceFileId, setOpenFileIds: installOpenWorkspaceFileIds, openDocumentInWorkspace: requestOpenWorkspaceDocument, closeDocumentTab: requestCloseWorkspaceDocument, rememberPaneHandoff: rememberWorkspacePaneHandoff });
+  const { shortcutOverrides, setShortcutOverrides, customCommands, setCustomCommands, commandSettingsLoaded, commandSettingsError, openCommandSettings } = useCommandSettingsController(setCommandSettingsOpen, setStatusMessage);
   const { customFonts, reloadCustomFonts } = useCustomFonts();
-  const preferredFontFamilyRef = useRef(DEFAULT_FONT_FAMILY_VALUE);
-  const [lineHeight, setLineHeight] = useState<LineHeight>("1.75");
-  const [lineHeightInput, setLineHeightInput] = useState("1.75");
-  const [lineHeightInputError, setLineHeightInputError] = useState<string | null>(null);
-  const lineHeightStepDelayTimerRef = useRef<number | null>(null);
-  const lineHeightStepRepeatTimerRef = useRef<number | null>(null);
-  const lineHeightStepCurrentRef = useRef<LineHeight | null>(null);
-  const [lineHeightCustomOpen, setLineHeightCustomOpen] = useState(false);
-  const [searchOpen, setSearchOpen] = useState(false);
-  const [replaceOpen, setReplaceOpen] = useState(false);
+  const { searchOpen, setSearchOpen, replaceOpen, setReplaceOpen, searchQuery, setSearchQuery, replaceText, setReplaceText } = useDocumentSearchState();
   const [templateGalleryOpen, setTemplateGalleryOpen] = useState(false);
   const [canPasteProblem, setCanPasteProblem] = useState(false);
-  const [shapeMenuOpen, setShapeMenuOpen] = useState(false);
-  const [lineToolMenuOpen, setLineToolMenuOpen] = useState(false);
-  const [inlineMathMenuOpen, setInlineMathMenuOpen] = useState(false);
-  const [fontFamilyMenuOpen, setFontFamilyMenuOpen] = useState(false);
   const [fontFamilyQuery, setFontFamilyQuery] = useState("");
-  const [blockStyleMenuOpen, setBlockStyleMenuOpen] = useState(false);
-  const [boxedTextMenuOpen, setBoxedTextMenuOpen] = useState(false);
-  const [lineHeightMenuOpen, setLineHeightMenuOpen] = useState(false);
-  const [textAlignMenuOpen, setTextAlignMenuOpen] = useState(false);
-  const [orderedListMenuOpen, setOrderedListMenuOpen] = useState(false);
-  const [moreBlocksMenuOpen, setMoreBlocksMenuOpen] = useState(false);
-  const [lineDashMenuOpen, setLineDashMenuOpen] = useState(false);
-  const [lineWidthMenuOpen, setLineWidthMenuOpen] = useState(false);
-  const [colorStylePanel, setColorStylePanel] = useState<ColorStylePanel>(null);
-  const [lineEndpointMenu, setLineEndpointMenu] = useState<"start" | "end" | null>(null);
-  const [activeMenu, setActiveMenu] = useState<EditorMenu>(null);
-  const [newDocMenuOpen, setNewDocMenuOpen] = useState(false);
-  const [exportMenuOpen, setExportMenuOpen] = useState(false);
-  const [searchQuery, setSearchQuery] = useState("");
-  /** 直近に検索ハイライトへ通知した検索語 (未通知なら null)。 */
-  const lastDispatchedSearchQueryRef = useRef<string | null>(null);
-  const [replaceText, setReplaceText] = useState("");
   const outlineOpen = useStore(editorStore, (state) => state.outlineOpen);
   const outlineWidth = useStore(editorStore, (state) => state.outlineWidth);
   // 一旦、左側の印刷プレビュー（ページナビゲータ）は非表示にする。true に戻せば復活する。
@@ -963,37 +701,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
   // prop で上げてもらう（DOM の data-page-count から読み戻すのは派生の逆流）。
   const [editorPageCount, setEditorPageCount] = useState(1);
   const selectedInlineMath = useStore(editorStore, (state) => state.selectedInlineMath);
-  const [selectedOverlayGraph, setSelectedOverlayGraph] = useState<SelectedOverlayGraph | null>(null);
-  const [selectedOverlayChart, setSelectedOverlayChart] = useState<SelectedOverlayChart | null>(null);
-  const pendingOverlayGraphEditsRef = useRef<PendingOverlayGraphEdits | null>(null);
-  const recordPendingAxisLabelEdit = useCallback((
-    shapeId: string,
-    key: Parameters<typeof recordPendingOverlayGraphAxisLabelEdit>[2],
-    edit: Parameters<typeof recordPendingOverlayGraphAxisLabelEdit>[3],
-  ) => {
-    pendingOverlayGraphEditsRef.current = recordPendingOverlayGraphAxisLabelEdit(
-      pendingOverlayGraphEditsRef.current,
-      shapeId,
-      key,
-      edit,
-    );
-  }, []);
-  const recordPendingSpecEdit = useCallback((
-    shapeId: string,
-    spec: Parameters<typeof recordPendingOverlayGraphSpecEdit>[2],
-  ) => {
-    pendingOverlayGraphEditsRef.current = recordPendingOverlayGraphSpecEdit(
-      pendingOverlayGraphEditsRef.current,
-      shapeId,
-      spec,
-    );
-  }, []);
-  const [graphSettingsShapeId, setGraphSettingsShapeId] = useState<string | null>(null);
-  const [graph3DSettingsShapeId, setGraph3DSettingsShapeId] = useState<string | null>(null);
-  const graphSettingsShapeIdRef = useRef<string | null>(null);
-  const [chartSettingsShapeId, setChartSettingsShapeId] = useState<string | null>(null);
-  const chartSettingsShapeIdRef = useRef<string | null>(null);
-  const graphSettingsShapeWasInDocumentRef = useRef(false);
+  const { setSelectedOverlayGraph, setSelectedOverlayChart, closeGraphSettings, closeChartSettings, closeGraph3DSettings, graph3DSettingsShapeId, overlayGraphSettingsDialog, overlayChartSettingsDialog } = useOverlaySettingsController(document, getCurrentSessionDocument);
   const [aiEditReference, setAiEditReference] = useState<AiEditReference | null>(null);
   // ワンドボタン「AIに追加」で明示的に積んだ参照 (複数)。本文選択だけの暗黙候補
   // (aiEditReference) とは別管理で、ブロック選択が移っても消えない。
@@ -1007,10 +715,6 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
   } = useAiPinnedReferences();
   // キャンバス右のサイドバー (開いているページのタブ列。ファイル / ブラウザ / サイドチャットは Hub から選ぶ)。
   // AIのサイドチャットが開いている状態は「ドックがチャットを見せている」ことそのもの (状態を二重に持たない)。
-  const [rightDock, setRightDock] = useState<RightDockState>(INITIAL_RIGHT_DOCK_STATE);
-  const [rightDockWidth, setRightDockWidth] = useState(RIGHT_DOCK_DEFAULT_WIDTH);
-  const rightDockPreferenceLoadedRef = useRef(false);
-  const aiSidebarOpen = isRightDockShowing(rightDock, "chat");
   const [versionHistoryOpen, setVersionHistoryOpen] = useState(false);
   const [versionHistoryPreviewState, setVersionHistoryPreviewState] = useState<{
     fileId: string;
@@ -1023,75 +727,12 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
   const [versionHistoryRestoreError, setVersionHistoryRestoreError] = useState<string | null>(null);
   const [versionHistoryRestoring, setVersionHistoryRestoring] = useState(false);
   const [versionHistoryWarnings, setVersionHistoryWarnings] = useState<Record<string, string>>({});
-  const [windowCloseSaveDialog, setWindowCloseSaveDialog] = useState<{
-    error: string;
-    saving: boolean;
-  } | null>(null);
-  const windowCloseAttemptGenerationRef = useRef(0);
-  const windowCloseResolvedRef = useRef(false);
-
   const versionHistoryWarning = versionHistoryWarnings[activeFileId] ?? null;
-  const [aiDisplayMode, setAiDisplayMode] = useState<AiDisplayMode>("inline");
-  const [aiInlineOpen, setAiInlineOpen] = useState(false);
-  const [aiInlineAnchor, setAiInlineAnchor] = useState<{ left: number; top: number } | null>(null);
-  const [aiInlineRunAnchor, setAiInlineRunAnchor] = useState<{ left: number; top: number } | null>(null);
-  const [aiInlineRunAnchorCanvas, setAiInlineRunAnchorCanvas] = useState<{ left: number; top: number } | null>(null);
-  const [aiInlineRunPortal, setAiInlineRunPortal] = useState<HTMLElement | null>(null);
-  const pageCanvasRef = useRef<HTMLElement | null>(null);
   const measuredBodyBlockRectsRef = useRef<ReadonlyMap<string, MeasuredBlock>>(new Map());
   const captureMeasuredBodyBlockRects = useCallback((blockRects: ReadonlyMap<string, MeasuredBlock>) => {
     measuredBodyBlockRectsRef.current = blockRects;
   }, []);
-  const aiInlineRunAnchorRef = useRef<{ left: number; top: number } | null>(null);
-  useEffect(() => {
-    aiInlineRunAnchorRef.current = aiInlineRunAnchor;
-  }, [aiInlineRunAnchor]);
-
-  const syncInlineRunAnchorCanvas = useCallback((viewportAnchor: { left: number; top: number } | null) => {
-    if (!viewportAnchor || !pageCanvasRef.current) {
-      setAiInlineRunAnchorCanvas(null);
-      return;
-    }
-    setAiInlineRunAnchorCanvas(viewportToCanvasAnchor({
-      left: viewportAnchor.left,
-      top: viewportAnchor.top + AI_INLINE_ANCHOR_OFFSET_Y,
-    }, pageCanvasRef.current));
-  }, []);
-
-  const handleInlineRunAnchorChange = useCallback((anchor: { left: number; top: number } | null) => {
-    setAiInlineRunAnchor(anchor);
-    syncInlineRunAnchorCanvas(anchor);
-  }, [syncInlineRunAnchorCanvas]);
-
-  useEffect(() => {
-    syncInlineRunAnchorCanvas(aiInlineRunAnchor);
-  }, [aiInlineRunAnchor, syncInlineRunAnchorCanvas, zoom]);
-
-  useEffect(() => {
-    if (!aiInlineRunAnchor) {
-      return;
-    }
-    const handleViewportChange = () => syncInlineRunAnchorCanvas(aiInlineRunAnchor);
-    window.addEventListener("resize", handleViewportChange);
-    return () => window.removeEventListener("resize", handleViewportChange);
-  }, [aiInlineRunAnchor, syncInlineRunAnchorCanvas]);
-
-  // Stable identity so PageCanvasEditor's portal-ready effect (which fires this
-  // as a cleanup/setup pair keyed on this callback) doesn't re-run on every
-  // EditorShell render — an inline arrow here previously caused an infinite
-  // setState(null)/setState(portal) render loop once an inline run started.
-  const handleInlineRunPortalReady = useCallback((portal: HTMLElement | null) => {
-    setAiInlineRunPortal(portal);
-    if (portal) {
-      pageCanvasRef.current = portal.closest<HTMLElement>(".page-canvas");
-    } else {
-      pageCanvasRef.current = null;
-    }
-    syncInlineRunAnchorCanvas(aiInlineRunAnchorRef.current);
-  }, [syncInlineRunAnchorCanvas]);
-  const [aiInlineSessionId, setAiInlineSessionId] = useState(0);
-  const [aiInlineClosing, setAiInlineClosing] = useState(false);
-  const [aiSettingsOpen, setAiSettingsOpen] = useState(false);
+  const { aiInlineRunAnchor, setAiInlineRunAnchor, aiInlineRunAnchorCanvas, setAiInlineRunAnchorCanvas, aiInlineRunPortal, aiInlineRunAnchorRef, handleInlineRunAnchorChange, handleInlineRunPortalReady } = useAiInlineGeometry(zoom, AI_INLINE_ANCHOR_OFFSET_Y);
   const metadataByFileId = useMemo(() => {
     return new Map(documentMetadatas.map((metadata) => [metadata.fileId, metadata]));
   }, [documentMetadatas]);
@@ -1103,20 +744,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
     () => activeDocumentMetadata?.revision ?? null,
     [activeDocumentMetadata],
   );
-  const mcpProposalPreview = useMemo(
-    () => groupMcpProposalsForPreview(mcpEditProposals, activeFileId, activeDocumentRevision, tAi),
-    [mcpEditProposals, activeFileId, activeDocumentRevision],
-  );
-  const aiRunSessions = useAiRunSessions();
-  const aiProposalPresentation = useMemo(
-    () => deriveAiProposalPresentation(
-      mcpProposalPreview.groups,
-      aiRunSessions,
-      activeFileId,
-      isAiRunStatusActive,
-    ),
-    [activeFileId, aiRunSessions, mcpProposalPreview.groups],
-  );
+  const { mcpEditProposals, mcpProposalCitations, aiRunSessions, aiProposalPresentation, aiEditPreviewGroups, staleProposalGroups, resolvedMcpEditProposals, sourceReferencesByTurnId, insertedShapePreviewsByTurnId, restorableProposalsByTurnId, appliedChangesByTurnId, refreshMcpEditProposals, locallyResolvedProposalIdsRef } = useMcpProposalController({ activeFileId, activeDocumentRevision, overlayShapes: document.pageLayout?.overlay?.overlaySnapshot?.shapes ?? EMPTY_OVERLAY_SHAPES, getActiveFileId: getActiveWorkspaceFileId, services: { groupMcpProposalsForPreview, useAiRunSessions, deriveAiProposalPresentation, isAiRunStatusActive, buildSourceReferencesByTurnId, buildInsertedShapePreviewsByTurnId, buildRestorableProposalsByTurnId, buildAppliedTurnChangesByTurnId } });
   // AI編集のロックは対象単位。live run が握っている anchor (ユーザーが依頼時に明示的に
   // 渡したブロック/図形) と、pending提案が実際に書き換える対象だけが読み取り専用になり、
   // それ以外は人間が編集できる。他の場所への人手編集は per-block の内容ハッシュ鮮度判定で
@@ -1185,52 +813,13 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
         selection?.removeAllRanges();
       }
     });
-  }, [activeFileId, aiRunSessions, clearAiEditPinnedReferences]);
+  }, [activeFileId, aiRunSessions, clearAiEditPinnedReferences, deriveAiRunStartTransition, isAiRunStatusActive]);
   // 決定B: baseRevision一致の pending proposal は runId (帰属不明なら "unattributed")
   // ごとに独立したプレビュー単位になる。各グループが自分の apply/dismiss を持つ。
   // AI run が書き込みtoolを複数回呼ぶ途中では、proposal watcherが同じカードを何度も
   // 増補して見せてしまう。roomに紐づくrunが完了するまではcanvas/本文プレビューだけを
   // 抑止し、完了後に集約済みグループを一度表示する。room帰属のない外部MCP提案は、
   // 対応するrun状態を特定できないため従来どおり即時表示する。
-  const aiEditPreviewGroups = aiProposalPresentation.previewGroups;
-  const staleProposalGroups = mcpProposalPreview.stale;
-  const resolvedMcpEditProposals = useMemo(
-    () => mcpProposalCitations.filter(
-      (proposal) => proposal.fileId === activeFileId && proposal.status !== "pending",
-    ),
-    [activeFileId, mcpProposalCitations],
-  );
-  // Phase 1: Agentic RAG。チャットサイドバーの各 assistant turn の下に「参照したドキュメント」
-  // を出すため、turnId ごとに proposal (pending / approved / rejected / reverted すべて)
-  // の sourceReferences を集約・重複排除する。適用後もチップを残すため pending 専用にしない。
-  const sourceReferencesByTurnId = useMemo(
-    () => buildSourceReferencesByTurnId(mcpProposalCitations),
-    [mcpProposalCitations],
-  );
-  const insertedShapePreviewsByTurnId = useMemo(
-    () => buildInsertedShapePreviewsByTurnId(
-      mcpProposalCitations.filter((proposal) => proposal.fileId === activeFileId),
-    ),
-    [activeFileId, mcpProposalCitations],
-  );
-  // AIチャット履歴の各 assistant turn に「復元」ボタンを出すかどうかの判定。turnId ごとに
-  // 最新の提案が rejected/reverted のときだけ復元可能 (pending/approvedのターンは対象外)。
-  // 全件を渡さず最小限のMapだけをAiEditPanelへ渡す (不要な情報は表示せず、必要になった時
-  // だけ追加する)。
-  const restorableProposalsByTurnId = useMemo(
-    () => buildRestorableProposalsByTurnId(mcpProposalCitations),
-    [mcpProposalCitations],
-  );
-  const appliedChangesByTurnId = useMemo(
-    () => buildAppliedTurnChangesByTurnId(
-      mcpProposalCitations,
-      activeFileId,
-      activeDocumentRevision,
-      document.pageLayout?.overlay?.overlaySnapshot?.shapes ?? [],
-      tAi,
-    ),
-    [activeDocumentRevision, activeFileId, document.pageLayout?.overlay?.overlaySnapshot?.shapes, mcpProposalCitations],
-  );
   const commentAnchorCandidate = useStore(editorStore, (state) => state.commentAnchorCandidate);
   const pendingCommentAnchor = useStore(editorStore, (state) => state.pendingCommentAnchor);
   const [pendingCommentDraft, setPendingCommentDraft] = useState<InlineNode[]>([]);
@@ -1305,8 +894,6 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
   // Ctrl+F1 のリスナーは毎レンダー張り替えたくないので、ハンドラは ref 越しに読む
   // (runShortcutCommandRef と同じ手)。
   const toggleRibbonCollapseRef = useRef<() => void>(() => undefined);
-  const documentRef = useRef(document);
-  const getCurrentSessionDocument = useCallback(() => documentRef.current, []);
   // Revision observed at the boundary where documentRef.current was adopted.
   // Metadata refreshes deliberately never mutate this value: a newer catalog
   // revision must not be attached to an older in-memory payload.
@@ -1316,14 +903,9 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
   const pendingTextHistorySelectionRef = useRef<TextFlowSelectionBookmark | null | undefined>(undefined);
   const materialBlockSelectionRef = useRef<string | null>(null);
   // 教材タブごとの選択・キャレット・スクロール。切替で document を差し替えても戻せるようにする。
-  const editorTabViewStateByFileIdRef = useRef(new Map<string, EditorTabViewState>());
   const untouchedNewDocumentsRef = useRef(new Map<string, SigmaDocument>());
   const pendingEditorTabViewRestoreRef = useRef<ResolvedEditorTabViewState | null>(null);
   // 編集していなかったペインを押した点。その教材が編集面に載ったらキャレットを置く。
-  const pendingPaneCaretRef = useRef<{ fileId: string; x: number; y: number } | null>(null);
-  const activeFileIdRef = useRef(activeFileId);
-  const openFileIdsRef = useRef(openFileIds);
-  const workspaceLayoutRef = useRef(workspaceLayout);
   const workspaceReadyRef = useRef(workspaceReady);
   const lastSavedDocumentRef = useRef<SigmaDocument>(document);
   // 「rendererが最後にディスクと同期した時点の文書」全体。lastSavedDocumentRef はdirty判定用、
@@ -1341,21 +923,15 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
   // 非同期loadを追い越してもAI適用の履歴情報を失わないよう、active file分だけ別に保持する。
   const pendingAutoAppliedProposalIdsByFileRef = useRef(new Map<string, string[]>());
   const documentStorageChangeProcessorRef = useRef<((event: DocumentStorageChangeEvent) => void) | null>(null);
-  const [autosaveRetry, setAutosaveRetry] = useState(0);
-  const autosaveRetryTimerRef = useRef<number | null>(null);
-  const cancelPendingAutosaveRef = useRef<() => void>(() => undefined);
-  const workspaceLayoutSaveTimerRef = useRef<number | null>(null);
-
   const saveWorkspaceState = useCallback(async (state: { openFileIds: string[]; activeFileId: string }) => {
     const layout = reconcileWorkspaceLayoutDocuments(
-      workspaceLayoutRef.current,
+      getWorkspaceLayout(),
       state.openFileIds,
       state.activeFileId,
     );
-    workspaceLayoutRef.current = layout;
     setWorkspaceLayout(layout);
     return persistWorkspaceState({ ...state, layout });
-  }, []);
+  }, [getWorkspaceLayout, setWorkspaceLayout]);
 
   const finishMcpPreviewBusy = useCallback(() => {
     mcpPreviewBusyRef.current = false;
@@ -1403,78 +979,8 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
       window.removeEventListener(TEXT_FLOW_CHANGE_START_EVENT, captureChangeStart);
     };
   }, []);
-  const closeGraphSettings = useCallback(() => {
-    pendingOverlayGraphEditsRef.current = null;
-    graphSettingsShapeIdRef.current = null;
-    graphSettingsShapeWasInDocumentRef.current = false;
-    setGraphSettingsShapeId(null);
-  }, []);
-  const openGraphSettings = useCallback((shapeId: string) => {
-    graphSettingsShapeIdRef.current = shapeId;
-    graphSettingsShapeWasInDocumentRef.current = Boolean(
-      documentRef.current.pageLayout?.overlay?.overlaySnapshot?.shapes.some(
-        (shape) => shape.id === shapeId && shape.type === "graph2dShape",
-      ),
-    );
-    setGraphSettingsShapeId(shapeId);
-  }, []);
-  const closeChartSettings = useCallback(() => {
-    chartSettingsShapeIdRef.current = null;
-    setChartSettingsShapeId(null);
-  }, []);
-  const openChartSettings = useCallback((shapeId: string) => {
-    chartSettingsShapeIdRef.current = shapeId;
-    setChartSettingsShapeId(shapeId);
-  }, []);
-  const closeGraph3DSettings = useCallback(() => {
-    setGraph3DSettingsShapeId(null);
-  }, []);
-  const openGraph3DSettings = useCallback((shapeId: string) => {
-    setGraph3DSettingsShapeId(shapeId);
-  }, []);
-
-  useEffect(() => {
-    if (!graphSettingsShapeId) {
-      return;
-    }
-
-    const shapeExists = Boolean(
-      document.pageLayout?.overlay?.overlaySnapshot?.shapes.some(
-        (shape) => shape.id === graphSettingsShapeId && shape.type === "graph2dShape",
-      ),
-    );
-    if (shapeExists) {
-      graphSettingsShapeWasInDocumentRef.current = true;
-      return;
-    }
-    if (!graphSettingsShapeWasInDocumentRef.current) {
-      return;
-    }
-
-    closeGraphSettings();
-    setSelectedOverlayGraph((current) => (
-      current?.shapeId === graphSettingsShapeId ? null : current
-    ));
-  }, [closeGraphSettings, document.pageLayout?.overlay?.overlaySnapshot?.shapes, graphSettingsShapeId]);
-
-  const scheduleAutosaveRetry = useCallback(() => {
-    if (autosaveRetryTimerRef.current !== null) {
-      return;
-    }
-    autosaveRetryTimerRef.current = window.setTimeout(() => {
-      autosaveRetryTimerRef.current = null;
-      setAutosaveRetry((current) => current + 1);
-    }, 300);
-  }, []);
-  useEffect(() => () => {
-    if (autosaveRetryTimerRef.current !== null) {
-      window.clearTimeout(autosaveRetryTimerRef.current);
-      autosaveRetryTimerRef.current = null;
-    }
-  }, []);
   const [pendingDeletion, setPendingDeletion] = useState<{ revision: number; deletedIds: string[] } | null>(null);
   const deletionSeqRef = useRef(0);
-  const appUpdateAutoCheckStartedRef = useRef(false);
   const isDesktopApp = useSyncExternalStore(
     useCallback(() => () => undefined, []),
     useCallback(() => Boolean(getDesktopBridge()), []),
@@ -1482,18 +988,14 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
   );
   /** Web版 = ブラウザで直接開かれたアプリ。Electronでも埋め込みSDKでもないときだけ
    * WebMCPのツール登録とAI面 (キャンバス左上のdock) を出す。 */
+  const { appUpdateState, showTitleUpdateButton, titleUpdateButtonDisabled, handleTitleUpdateAction } = useDesktopUpdateController(isDesktopApp, setStatusMessage);
   const webMcpEnabled = !isDesktopApp && !isEmbedded;
-  const [desktopSettingsOpen, setDesktopSettingsOpen] = useState(false);
-  const [desktopSettingsUpdateCheckRequest, setDesktopSettingsUpdateCheckRequest] = useState(0);
-  /**
-   * クロームのメニュー/ツールバーから「アプリ設定」を開く経路。素の setter を渡すと、
-   * Help > Check for Updates… 由来の更新チェック要求が残ったままになり、普通に設定を
-   * 開いただけで更新チェックが走ってしまう。開閉のたびに要求を落としておく。
-   */
-  const openDesktopSettingsFromChrome = useCallback((value: SetStateAction<boolean>) => {
-    setDesktopSettingsUpdateCheckRequest(0);
-    setDesktopSettingsOpen(value);
-  }, []);
+  const dismissVersionHistory = useCallback(() => setVersionHistoryOpen(false), []);
+  const clearInlineRunAnchor = useCallback(() => { setAiInlineRunAnchor(null); setAiInlineRunAnchorCanvas(null); }, [setAiInlineRunAnchor, setAiInlineRunAnchorCanvas]);
+  const hasInlineRunAnchor = useCallback(() => aiInlineRunAnchorRef.current !== null, [aiInlineRunAnchorRef]);
+  const surfacePreviewClearRef = useRef<() => void>(() => {});
+  const clearSurfacePreview = useCallback(() => surfacePreviewClearRef.current(), []);
+  const { rightDock, setRightDock, rightDockWidth, setRightDockWidth, aiSidebarOpen, aiDisplayMode, aiInlineOpen, aiInlineAnchor, aiInlineSessionId, aiInlineClosing, aiSettingsOpen, setAiSettingsOpen, applyAiSurface, openAiInline, promoteAiToSidebar, openRightDockSurface, closeAiSurface, collapseRightDock, closeRightDockChat } = useAiSurfaceController({ isDesktopApp, transitions: { openInline, promoteToSidebar, closeSurface }, dismissVersionHistory, clearRunAnchor: clearInlineRunAnchor, hasRunAnchor: hasInlineRunAnchor, clearAiEditPinnedReferences, clearAiEditPreview: clearSurfacePreview });
   const [storedUiLayoutPreference, updateUiLayoutPreference] = useUiLayoutPreference();
   // Word風リボンは再検討まで露出しない。保存済み設定は消さず、表示時だけ既定UIへ倒す。
   const uiLayoutPreference = useMemo(() => (
@@ -1501,51 +1003,9 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
       ? storedUiLayoutPreference
       : { ...storedUiLayoutPreference, mode: "docs" as const }
   ), [storedUiLayoutPreference]);
-  const [ribbonTabState, setRibbonTabState] = useState(DEFAULT_RIBBON_TAB_STATE);
-  // ファイルタブ = Backstage（編集画面を覆う全画面）。リボンのタブ状態とは混ぜない
-  // ので、閉じれば自動的に「直前に自分で選んだタブ」へ戻る。
-  const [ribbonBackstage, setRibbonBackstage] = useState(DEFAULT_BACKSTAGE_STATE);
-  // 折りたたみは永続 (ui-layout-preference)、浮かせている状態は一時。
-  // 2つを1つの純関数へ渡すために、レンダーのたびに組で作る。
-  const [ribbonOverlayOpen, setRibbonOverlayOpen] = useState(false);
-  const ribbonContextualWasVisibleRef = useRef(false);
-  // SDK は EditorShell を埋め込むので、1ページに2つ載っても id が衝突しないようにする。
-  const ribbonIdPrefix = useId();
-  const saveEditorFontFamilyPreference = useCallback((nextFontFamily: string) => {
-    preferredFontFamilyRef.current = nextFontFamily;
-    const bridge = getDesktopBridge();
-    if (!bridge?.app.saveEditorPreferences) {
-      return;
-    }
-    bridge.app.saveEditorPreferences({ fontFamily: nextFontFamily }).catch((error) => {
-      console.warn("Failed to save editor font preference", error);
-    });
-  }, []);
-
-  useEffect(() => {
-    const bridge = getDesktopBridge();
-    if (!bridge?.app.getEditorPreferences) {
-      return;
-    }
-
-    let canceled = false;
-    bridge.app.getEditorPreferences()
-      .then((preferences) => {
-        if (!canceled && typeof preferences.fontFamily === "string") {
-          const nextFontFamily = normalizeToolbarFontFamily(preferences.fontFamily);
-          preferredFontFamilyRef.current = nextFontFamily;
-          setFontFamily(nextFontFamily);
-        }
-      })
-      .catch((error) => {
-        console.warn("Failed to load editor font preference", error);
-      });
-
-    return () => {
-      canceled = true;
-    };
-  }, []);
-
+  const materialMenuCloseRef = useRef<() => void>(() => {});
+  const closeMaterialMenu = useCallback(() => materialMenuCloseRef.current(), []);
+  const { shapeMenuOpen, setShapeMenuOpen, lineToolMenuOpen, setLineToolMenuOpen, inlineMathMenuOpen, setInlineMathMenuOpen, fontFamilyMenuOpen, setFontFamilyMenuOpen, blockStyleMenuOpen, setBlockStyleMenuOpen, boxedTextMenuOpen, setBoxedTextMenuOpen, lineHeightMenuOpen, setLineHeightMenuOpen, textAlignMenuOpen, setTextAlignMenuOpen, orderedListMenuOpen, setOrderedListMenuOpen, moreBlocksMenuOpen, setMoreBlocksMenuOpen, lineDashMenuOpen, setLineDashMenuOpen, lineWidthMenuOpen, setLineWidthMenuOpen, colorStylePanel, setColorStylePanel, lineEndpointMenu, setLineEndpointMenu, activeMenu, setActiveMenu, newDocMenuOpen, setNewDocMenuOpen, exportMenuOpen, setExportMenuOpen, ribbonTabState, ribbonBackstageState, ribbonBackstageOpen, ribbonCollapse, ribbonContextualTabVisible, ribbonIdPrefix, selectRibbonTab, toggleRibbonCollapse, toggleRibbonBackstage, closeRibbonBackstage, selectRibbonBackstageSection, toggleMenu } = useEditorChromeController({ contextualVisible: overlaySelection.selectedCount > 0, uiLayoutPreference, updateUiLayoutPreference, closeMaterialMenu, setSearchOpen });
   const shortcutPlatform = useMemo(() => detectEditorShortcutPlatform(), []);
   const visibleCommentThreadsForPanel = useMemo(
     () => visibleCommentThreads(document.comments, {
@@ -1660,6 +1120,11 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
     }
     selectedIdRef.current = selected;
     textSelectionBookmarkRef.current = null;
+    // Toolbar measurements belong to the outgoing editor, not the incoming document.
+    // Leave the size unknown until its restored caret or a new selection reports it.
+    setTextFontSize(null);
+    setTextFontSizeMixed(false);
+    setFontSizeInput("");
     pendingTextHistorySelectionRef.current = undefined;
     materialBlockSelectionRef.current = null;
     measuredBodyBlockRectsRef.current = new Map();
@@ -1701,7 +1166,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
     clearAiEditPinnedReferences();
     setVersionHistoryPreviewState(null);
     setVersionHistoryRestoreError(null);
-  }, [setCommentsPanelOpen, clearAiEditPinnedReferences, closeChartSettings, closeGraph3DSettings, closeGraphSettings, documentHistory, clearCommentReplyDrafts, setActiveCommentThreadId, setCommentAnchorCandidate, setHighlightedCommentThreadId, setPendingCommentAnchor, setSelectedId, setSelectedInlineMath, setVersionHistoryPreviewState, setVersionHistoryRestoreError]);
+  }, [documentHistory, setFontSizeInput, setTextFontSize, setTextFontSizeMixed, setSelectedId, setSelectedInlineMath, closeGraphSettings, setSelectedOverlayGraph, closeChartSettings, setSelectedOverlayChart, closeGraph3DSettings, setCommentAnchorCandidate, setPendingCommentAnchor, clearCommentReplyDrafts, setActiveCommentThreadId, setHighlightedCommentThreadId, clearAiEditPinnedReferences]);
 
   const rememberLeavingEditorTabViewState = useCallback((leavingFileId: string | null, nextFileId: string) => {
     if (!leavingFileId || leavingFileId === nextFileId) {
@@ -1931,135 +1396,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
   // 再取得が (書き込み完了前に読んだ) 「まだ pending」のリストを返すことがあり、確定済みの
   // 提案カードが一瞬 pending に戻って見えるレースがあった。ここに載っているIDはプレビュー
   // 集合へ戻さず、ディスク上で pending でなくなったことを確認できた時点で自動的に掃除する。
-  const locallyResolvedProposalIdsRef = useRef(new Set<string>());
-  const mcpProposalRefreshTimerRef = useRef<number | null>(null);
-  const mcpProposalRefreshBatchRef = useRef<McpProposalRefreshBatch | null>(null);
-  const mcpProposalRefreshInFlightRef = useRef<Promise<void> | null>(null);
-
-  const performMcpEditProposalsRefresh = useCallback(async () => {
-    const storage = getDesktopBridge()?.storage;
-    // pendingは全教材分を維持し、解決済み履歴だけ現在の教材に絞って一度に取得する。
-    const all = await storage?.listMcpEditProposals({
-      status: "all",
-      fileId: activeFileIdRef.current,
-    });
-    const allList = all ?? [];
-    const pendingList = allList.filter((proposal) => proposal.status === "pending");
-    const locallyResolved = locallyResolvedProposalIdsRef.current;
-    if (locallyResolved.size > 0) {
-      for (const proposalId of [...locallyResolved]) {
-        if (!pendingList.some((proposal) => proposal.proposalId === proposalId)) {
-          locallyResolved.delete(proposalId);
-        }
-      }
-    }
-    setMcpEditProposals(
-      locallyResolved.size > 0
-        ? pendingList.filter((proposal) => !locallyResolved.has(proposal.proposalId))
-        : pendingList,
-    );
-    setMcpProposalCitations(allList);
-  }, []);
-
-  // proposal書き込みはwatcher通知と明示refreshが近接して届く。75msのtrailing debounceで
-  // 1回へまとめ、すでに取得中ならその完了後に最大1回だけ追従取得する。各呼び出しは自分を
-  // 含むbatchの完了Promiseを共有するため、承認後のawaitも最新一覧の反映まで待機できる。
-  const refreshMcpEditProposals = useCallback((): Promise<void> => {
-    let batch = mcpProposalRefreshBatchRef.current;
-    if (!batch) {
-      let resolve!: () => void;
-      let reject!: (reason: unknown) => void;
-      const promise = new Promise<void>((resolvePromise, rejectPromise) => {
-        resolve = resolvePromise;
-        reject = rejectPromise;
-      });
-      batch = { promise, resolve, reject };
-      mcpProposalRefreshBatchRef.current = batch;
-    }
-
-    if (mcpProposalRefreshTimerRef.current !== null) {
-      window.clearTimeout(mcpProposalRefreshTimerRef.current);
-    }
-    mcpProposalRefreshTimerRef.current = window.setTimeout(() => {
-      mcpProposalRefreshTimerRef.current = null;
-      const scheduledBatch = mcpProposalRefreshBatchRef.current;
-      mcpProposalRefreshBatchRef.current = null;
-      if (!scheduledBatch) {
-        return;
-      }
-
-      const precedingRefresh = mcpProposalRefreshInFlightRef.current;
-      const refresh = (async () => {
-        await precedingRefresh?.catch(() => undefined);
-        await performMcpEditProposalsRefresh();
-      })();
-      mcpProposalRefreshInFlightRef.current = refresh;
-      void refresh.then(scheduledBatch.resolve, scheduledBatch.reject).finally(() => {
-        if (mcpProposalRefreshInFlightRef.current === refresh) {
-          mcpProposalRefreshInFlightRef.current = null;
-        }
-      });
-    }, MCP_PROPOSAL_REFRESH_DEBOUNCE_MS);
-
-    return batch.promise;
-  }, [performMcpEditProposalsRefresh]);
-
-  useEffect(() => () => {
-    if (mcpProposalRefreshTimerRef.current !== null) {
-      window.clearTimeout(mcpProposalRefreshTimerRef.current);
-      mcpProposalRefreshTimerRef.current = null;
-    }
-    mcpProposalRefreshBatchRef.current?.resolve();
-    mcpProposalRefreshBatchRef.current = null;
-  }, []);
-
-  const applyDocumentOpenFailure = useCallback((failure: DocumentOpenFailure | null) => {
-    documentOpenFailureRef.current = failure;
-    setDocumentOpenFailure(failure);
-  }, []);
-
-  /** 直前に記録した失敗を破棄する。同じ教材が読めるようになった時だけ呼ぶ。 */
-  const clearDocumentOpenFailure = useCallback((fileId: string) => {
-    if (documentOpenFailureRef.current?.fileId === fileId) {
-      applyDocumentOpenFailure(null);
-    }
-    pendingDocumentOpenFailureRef.current = null;
-  }, [applyDocumentOpenFailure]);
-
-  /**
-   * 読み込み失敗のうち「教材の中身が原因」のものだけを保留に置く。実際に画面へ
-   * 出すかは呼び出し側 (その教材をアクティブにするかどうか) が決める。
-   */
-  const recordDocumentOpenFailure = useCallback((
-    fileId: string,
-    result: Extract<DocumentLoadResult, { ok: false }>,
-    fallbackTitle?: string,
-  ) => {
-    pendingDocumentOpenFailureRef.current = toDocumentOpenFailure(
-      fileId,
-      result,
-      fallbackTitle?.trim() || DEFAULT_DOCUMENT_TITLE,
-    );
-  }, []);
-
-  /** 直前の読み込みで記録された失敗を、その教材のものに限り画面へ出す。 */
-  const showRecordedDocumentOpenFailure = useCallback((fileId: string): DocumentOpenFailure | null => {
-    const pending = pendingDocumentOpenFailureRef.current;
-    if (!pending || pending.fileId !== fileId) {
-      return null;
-    }
-    pendingDocumentOpenFailureRef.current = null;
-    applyDocumentOpenFailure(pending);
-    return pending;
-  }, [applyDocumentOpenFailure]);
-
-  /**
-   * 開けなかった教材を「タブは開いたまま、本文の代わりに原因を中央へ出す」状態にする。
-   * 本文は空の下書きへ差し替えるが resetEditorDocument が clean 扱いにするため
-   * 自動保存は走らない。加えて documentOpenFailureRef を見る保存側のガードで、
-   * この空の下書きが壊れた教材へ書き戻ることを二重に防いでいる。
-   */
-  const enterDocumentOpenFailureState = useCallback(async (
+  const activateFailedDocument = useCallback(async (
     failure: DocumentOpenFailure,
     nextOpenFileIds: string[],
   ) => {
@@ -2077,35 +1414,15 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
     setStatusMessage(tEditor("status.openFailedWithReason"));
   }, [refreshDocumentMetadatas, resetEditorDocument, saveWorkspaceState, setSaveState, setStatusMessage]);
 
-  const loadWorkspaceDocument = useCallback(async (fileId: string): Promise<{
-    document: SigmaDocument;
-    observedRevision: number;
-  } | null> => {
-    const localResult = await loadDocumentByFileIdWithRecovery(fileId);
-    if (localResult.ok) {
-      if (isPristineUntitledDocument(localResult.document, localResult.revision)) {
-        untouchedNewDocumentsRef.current.set(fileId, localResult.document);
-      }
-      clearDocumentOpenFailure(fileId);
-      if (localResult.recoveryIssues.length > 0) {
-        window.setTimeout(() => announceRecovery(localResult.recoveryIssues, localResult.recoveryBackupPath), 0);
-      }
-      return { document: localResult.document, observedRevision: localResult.revision };
-    }
-
-    const metadata = await listSavedDocuments();
-    const target = metadata.find((item) => item.fileId === fileId);
-    // 教材の中身が原因で組み立てられなかった場合は、黙って別教材へ切り替えず
-    // 「開いたまま原因を出す」ために失敗内容を記録しておく (呼び出し側が
-    // openDocumentOpenFailure で拾う)。
-    recordDocumentOpenFailure(fileId, localResult, target?.title);
-    return null;
-  }, [announceRecovery, clearDocumentOpenFailure, recordDocumentOpenFailure]);
+  const rememberPristineDraft = useCallback((fileId: string, initial: SigmaDocument) => { untouchedNewDocumentsRef.current.set(fileId, initial); }, []);
+  const { documentOpenFailure, documentOpenFailureRef, showRecordedDocumentOpenFailure, enterDocumentOpenFailureState, loadWorkspaceDocument } = useDocumentRecovery({ announceRecovery, rememberPristineDraft, activateFailedDocument });
 
   const isCurrentDocumentDirty = useCallback(() => {
     return !areSigmaDocumentsEquivalent(documentRef.current, lastSavedDocumentRef.current);
   }, []);
   const {
+    cancelPendingAutosaveRef,
+    scheduleAutosaveRetry,
     updateVersionHistoryCaptureStatus,
     saveCurrentDocumentRecord,
     saveCurrentDocumentBeforeReplacement,
@@ -2134,6 +1451,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
     setSaveState,
     setStatusMessage,
     dispatchDocumentStorageChange,
+    autosave: { activeFileId, document, documentSession, workspaceReady, blocked: Boolean(ledgerFailure), isDesktopApp, openFileIds, setOpenFileIds, saveWorkspaceState, refreshDocumentMetadatas },
   });
 
   const createUnsavedEditBackup = useCallback(async (source: SigmaDocument) => {
@@ -2176,117 +1494,9 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
       editorTabViewStateByFileIdRef.current.delete(fileId);
     }
     return { ok: true };
-  }, [sessionHost]);
+  }, [deleteAiDataForDocument, sessionHost]);
 
-  const finishWindowCloseSave = useCallback(async (action: "ready" | "cancel") => {
-    const desktopApp = getDesktopBridge()?.app;
-    windowCloseAttemptGenerationRef.current += 1;
-    windowCloseResolvedRef.current = action === "ready";
-    const request = action === "ready"
-      ? desktopApp?.notifyCloseReady?.()
-      : desktopApp?.cancelCloseRequest?.();
-    try {
-      const succeeded = await request;
-      if (succeeded) {
-        setWindowCloseSaveDialog(null);
-        return;
-      }
-    } catch (error) {
-      console.warn(`Failed to report app-close ${action}.`, error);
-    }
-    setWindowCloseSaveDialog({
-      error: tE("windowCloseSave.responseFailed"),
-      saving: false,
-    });
-  }, [tE]);
-
-  const attemptWindowCloseSave = useCallback(async () => {
-    const attemptGeneration = ++windowCloseAttemptGenerationRef.current;
-    setWindowCloseSaveDialog((current) => current ? { ...current, saving: true } : current);
-    let timeoutId: number | undefined;
-    let timedOut = false;
-    let saveResult: Awaited<ReturnType<typeof attemptBoundarySave>> = { ok: false };
-    try {
-      saveResult = await Promise.race([
-        attemptBoundarySave("app-close"),
-        new Promise<Awaited<ReturnType<typeof attemptBoundarySave>>>((resolve) => {
-          timeoutId = window.setTimeout(() => {
-            timedOut = true;
-            resolve({ ok: false, error: tE("windowCloseSave.timedOut") });
-          }, 15_000);
-        }),
-      ]);
-    } catch (error) {
-      saveResult = {
-        ok: false,
-        error: error instanceof Error ? error.message : tE("windowCloseSave.unknownError"),
-      };
-    } finally {
-      if (timeoutId !== undefined) window.clearTimeout(timeoutId);
-    }
-    if (attemptGeneration !== windowCloseAttemptGenerationRef.current) return;
-
-    const outcome = resolveWindowCloseOutcome({
-      saveOk: saveResult.ok,
-      saveError: saveResult.error,
-      timedOut,
-      dirty: isCurrentDocumentDirty(),
-      skipped: saveResult.skipped === true,
-      skippedReason: saveResult.skippedReason,
-    });
-    if (outcome === "ready") {
-      const cleanup = await cleanupUntouchedDraftsBeforeClose();
-      if (!cleanup.ok) {
-        setWindowCloseSaveDialog({ error: cleanup.error ?? tE("windowCloseSave.unknownError"), saving: false });
-        return;
-      }
-      await finishWindowCloseSave("ready");
-      return;
-    }
-    const skippedReasonKey = describeWindowCloseSkipReason(saveResult.skippedReason);
-    setWindowCloseSaveDialog({
-      error: saveResult.error
-        ?? (skippedReasonKey ? tE(skippedReasonKey) : tE("windowCloseSave.unknownError")),
-      saving: false,
-    });
-  }, [attemptBoundarySave, cleanupUntouchedDraftsBeforeClose, finishWindowCloseSave, isCurrentDocumentDirty, tE]);
-
-  const attemptWindowClose = useCallback(() => {
-    const desktopApp = getDesktopBridge()?.app;
-    if (!desktopApp?.notifyCloseReady) return;
-    const acknowledgement = desktopApp.acknowledgeCloseRequest?.();
-    void acknowledgement?.catch((error) => {
-      console.warn("Failed to acknowledge the app-close request.", error);
-    });
-    void attemptWindowCloseSave();
-  }, [attemptWindowCloseSave]);
-
-  useEffect(() => {
-    const desktopApp = getDesktopBridge()?.app;
-    const handleVisibilityChange = () => {
-      if (windowCloseResolvedRef.current) return;
-      if (window.document.visibilityState === "hidden") {
-        void attemptBoundarySave("tab-switch").catch(() => undefined);
-      }
-    };
-    const handlePageHide = () => {
-      if (windowCloseResolvedRef.current) return;
-      void attemptBoundarySave("app-close").catch(() => undefined);
-    };
-    if (shouldUsePageVisibilityBoundaryEvents(Boolean(desktopApp))) {
-      window.document.addEventListener("visibilitychange", handleVisibilityChange);
-      window.addEventListener("pagehide", handlePageHide);
-    }
-
-    const unsubscribeClose = desktopApp?.onCloseRequested?.(() => {
-      void attemptWindowClose();
-    });
-    return () => {
-      window.document.removeEventListener("visibilitychange", handleVisibilityChange);
-      window.removeEventListener("pagehide", handlePageHide);
-      unsubscribeClose?.();
-    };
-  }, [attemptBoundarySave, attemptWindowClose]);
+  const { windowCloseSaveDialog, attemptWindowCloseSave, finishWindowCloseSave } = useWindowCloseBoundary({ attemptBoundarySave, isCurrentDocumentDirty, cleanupUntouchedDraftsBeforeClose, tE });
 
   const switchAwayFromDeletedFile = useCallback(async (deletedFileId: string) => {
     const backup = await saveUnsavedEditBackup();
@@ -2326,71 +1536,8 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
       : tEditor("status.deletedDocSwitched"));
   }, [loadWorkspaceDocument, refreshDocumentMetadatas, resetEditorDocument, saveUnsavedEditBackup, saveWorkspaceState, setSaveState, setStatusMessage]);
 
-  const openDocumentInWorkspace = useCallback(async (
-    fileId: string,
-    options?: DocumentTabOpenOptions,
-  ) => {
-    const nextOpenFileIds = uniqueStringIds([...(options?.nextOpenFileIds ?? openFileIds), fileId]);
-
-    setLoadingFileId(fileId);
-    try {
-      if (workspaceReady && options?.saveCurrent !== false) {
-        if (!(await saveCurrentDocumentBeforeReplacement())) {
-          return;
-        }
-      }
-
-      // 読み込み成否に関わらず、今の教材から離れる直前の位置を残す。
-      rememberLeavingEditorTabViewState(activeFileIdRef.current, fileId);
-
-      const loaded = await loadWorkspaceDocument(fileId);
-      if (!loaded) {
-        // 教材の中身が原因なら、別教材へ切り替えずタブを開いて原因を表示する。
-        const failure = showRecordedDocumentOpenFailure(fileId);
-        if (failure) {
-          await enterDocumentOpenFailureState(failure, nextOpenFileIds);
-          return;
-        }
-        setSaveState("error");
-        setStatusMessage(tEditor("status.loadFailed"));
-        await refreshDocumentMetadatas();
-        return;
-      }
-
-      const migrated = repairDuplicateTopLevelIds(
-        ensurePageLayout(loaded.document),
-        DOCUMENT_BLOCK_OPERATION_PORTS,
-      );
-      const restoredView = prepareIncomingEditorTabViewState(migrated, fileId);
-      resetEditorDocument(migrated, restoredView.selectedId, loaded.observedRevision);
-      if (restoredView.textSelection) {
-        textSelectionBookmarkRef.current = restoredView.textSelection;
-      }
-      setOpenFileIds(nextOpenFileIds);
-      setActiveFileId(fileId);
-      options?.onOpened?.();
-      await saveWorkspaceState({ openFileIds: nextOpenFileIds, activeFileId: fileId });
-      await refreshDocumentMetadatas();
-      setSaveState("saved");
-      setStatusMessage(options?.status ?? tEditor("status.opened"));
-    } finally {
-      setLoadingFileId(null);
-    }
-  }, [
-    enterDocumentOpenFailureState,
-    loadWorkspaceDocument,
-    openFileIds,
-    prepareIncomingEditorTabViewState,
-    refreshDocumentMetadatas,
-    rememberLeavingEditorTabViewState,
-    resetEditorDocument,
-    saveWorkspaceState,
-    saveCurrentDocumentBeforeReplacement,
-    setSaveState,
-    setStatusMessage,
-    showRecordedDocumentOpenFailure,
-    workspaceReady,
-  ]);
+  const restoreWorkspaceTextSelection = useCallback((selection: TextFlowSelectionBookmark) => { textSelectionBookmarkRef.current = selection; }, []);
+  const openDocumentInWorkspace = useWorkspaceDocumentNavigation({ openFileIds, workspaceReady, getActiveFileId: getActiveWorkspaceFileId, setLoadingFileId, saveCurrentDocumentBeforeReplacement, rememberLeavingEditorTabViewState, loadWorkspaceDocument, showRecordedDocumentOpenFailure, enterDocumentOpenFailureState, prepareIncomingEditorTabViewState, resetEditorDocument, restoreTextSelection: restoreWorkspaceTextSelection, setOpenFileIds, setActiveFileId, saveWorkspaceState, refreshDocumentMetadatas, setSaveState, setStatusMessage });
 
   const openSourceReferenceDocument = useCallback(async (params: { fileId: string; blockId?: string }) => {
     const { fileId, blockId } = params;
@@ -2457,22 +1604,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
     } finally {
       setLoadingFileId(null);
     }
-  }, [
-    enterDocumentOpenFailureState,
-    loadWorkspaceDocument,
-    openFileIds,
-    refreshDocumentMetadatas,
-    rememberLeavingEditorTabViewState,
-    resetEditorDocument,
-    saveWorkspaceState,
-    saveCurrentDocumentBeforeReplacement,
-    setSaveState,
-    setSelectedId,
-    setSelectedInlineMath,
-    setStatusMessage,
-    showRecordedDocumentOpenFailure,
-    workspaceReady,
-  ]);
+  }, [openFileIds, focusSourceReferenceInDocument, setSelectedInlineMath, setSelectedId, setStatusMessage, workspaceReady, rememberLeavingEditorTabViewState, loadWorkspaceDocument, resolveSourceReferenceNavigationTarget, resetEditorDocument, saveWorkspaceState, refreshDocumentMetadatas, setSaveState, saveCurrentDocumentBeforeReplacement, showRecordedDocumentOpenFailure, enterDocumentOpenFailureState]);
 
   /**
    * ズームの唯一の入口。リボンの ±/選択、⌘+/⌘-、ホイール、右下コントロールが全部ここを通る。
@@ -2591,78 +1723,6 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
   }, [editorStore]);
 
   useEffect(() => {
-    const handleTextFormatState = (event: Event) => {
-      const detail = event instanceof CustomEvent ? event.detail : null;
-      if (!detail) {
-        return;
-      }
-
-      if (detail.target === "document") {
-        const nodeType = detail.nodeType;
-        const blockId = typeof detail.blockId === "string" ? detail.blockId : null;
-        const nextTarget =
-          detail.enabled === true &&
-          isTextFormatTargetNodeType(nodeType)
-            ? { enabled: true as const, nodeType, blockId }
-            : null;
-        setDocumentTextFormatTarget((current) => (
-          current?.enabled === nextTarget?.enabled &&
-          current?.nodeType === nextTarget?.nodeType &&
-          current?.blockId === nextTarget?.blockId
-            ? current
-            : nextTarget
-        ));
-      }
-      setBoldActive(detail.bold === true);
-      setItalicActive(detail.italic === true);
-      setUnderlineActive(detail.underline === true);
-      setBoxedTextActive(detail.boxed === true);
-      setBoldActive(detail.bold === true);
-      setItalicActive(detail.italic === true);
-      setUnderlineActive(detail.underline === true);
-      if (typeof detail.boxedPaddingY === "number" && Number.isFinite(detail.boxedPaddingY)) {
-        setBoxedTextPaddingY(detail.boxedPaddingY);
-      }
-      setBoxedTextVariant(normalizeBoxedTextVariant(detail.boxedVariant) ?? "frame");
-      setBlockStyleState((current) => nextBlockStyleToolbarState(current, detail));
-      // The toolbar shows the font this position is actually drawn with. It used to fall back to
-      // `preferredFontFamilyRef` — the last font picked from the dropdown, persisted in settings —
-      // which is a different thing entirely the moment the caret moves somewhere the user did not
-      // set by hand. That preference is still kept, just no longer used as the displayed value.
-      if (detail.fontFamilyMixed === true) {
-        setFontFamily("");
-      } else if (typeof detail.fontFamily === "string") {
-        setFontFamily(normalizeToolbarFontFamily(detail.fontFamily));
-      }
-      setTextFontSizeMixed(detail.fontSizeMixed === true);
-      if (typeof detail.fontSize === "number" && Number.isFinite(detail.fontSize)) {
-        setTextFontSize(detail.fontSize);
-      } else if (detail.fontSize === null) {
-        setTextFontSize(null);
-      }
-      if (typeof detail.color === "string") {
-        setTextColor(detail.color);
-      } else if (detail.color === null) {
-        setTextColor(BASE_EDITOR_TEXT_COLOR);
-      }
-      if (typeof detail.backgroundColor === "string") {
-        setTextBackgroundColor(detail.backgroundColor);
-      } else if (detail.backgroundColor === null) {
-        setTextBackgroundColor(null);
-      }
-      const nextLineHeight = normalizeLineHeight(detail.lineHeight);
-      if (nextLineHeight) {
-        setLineHeight(nextLineHeight);
-      } else if (detail.lineHeight === null) {
-        setLineHeight(BASE_EDITOR_LINE_HEIGHT);
-      }
-    };
-
-    window.addEventListener(TEXT_FORMAT_STATE_EVENT, handleTextFormatState);
-    return () => window.removeEventListener(TEXT_FORMAT_STATE_EVENT, handleTextFormatState);
-  }, []);
-
-  useEffect(() => {
     const scroller = editorCanvasElement;
     if (!scroller) {
       return;
@@ -2742,86 +1802,10 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
   }, [applyZoom, editorCanvasElement, isWhiteboardDocument, panWhiteboardBy]);
 
   useEffect(() => {
-    const bridge = getDesktopBridge();
-    if (!bridge?.settings) {
-      return;
-    }
-
-    let canceled = false;
-    void bridge.settings.get().then((settings) => {
-      if (canceled) {
-        return;
-      }
-      // settings.json が表示言語の正本。未設定 (null) の初回起動だけは、ストア側の
-      // OSロケール検出結果を採用したうえで settings.json へ書き戻す。書き戻さないと
-      // main / MCP プロセスが日本語、画面だけ英語という食い違いが残り続ける。
-      const desktopLocale = normalizeLocale(settings.uiLocale ?? null);
-      setAppLocale(desktopLocale ?? getAppLocale());
-      if (!desktopLocale) {
-        void bridge.settings?.setUiLocale?.(getAppLocale());
-      }
-      const storedShortcutOverrides = parseEditorShortcutOverrides(JSON.stringify(settings.commandShortcuts ?? {}));
-      const storedCustomCommands = parseEditorCustomCommands(JSON.stringify(settings.customCommands ?? []));
-      const legacyShortcutOverrides = settings.hasCommandShortcuts ? {} : loadEditorShortcutOverrides();
-      const legacyCustomCommands = settings.hasCustomCommands ? [] : loadEditorCustomCommands();
-      setShortcutOverrides(Object.keys(storedShortcutOverrides).length > 0 ? storedShortcutOverrides : legacyShortcutOverrides);
-      setCustomCommands(storedCustomCommands.length > 0 ? storedCustomCommands : legacyCustomCommands);
-      setCommandSettingsError(null);
-      setCommandSettingsLoaded(true);
-    }).catch(() => {
-      if (!canceled) {
-        setCommandSettingsError(tEditor("status.shortcutsLoadFailed"));
-      }
-    });
-
-    return () => {
-      canceled = true;
-    };
-  }, []);
-
-  useEffect(() => {
-    if (!commandSettingsLoaded || commandSettingsError) {
-      return;
-    }
-
-    const bridge = getDesktopBridge();
-    if (bridge?.settings) {
-      void bridge.settings.setCommandConfig({
-        commandShortcuts: Object.keys(shortcutOverrides).length > 0 ? shortcutOverrides : null,
-        customCommands,
-      }).then((result) => {
-        if (!result.ok) {
-          setCommandSettingsError(result.error ?? tEditor("status.shortcutsSaveFailed"));
-        }
-      }).catch(() => {
-        setCommandSettingsError(tEditor("status.shortcutsSaveFailed"));
-      });
-      return;
-    }
-
-    saveEditorShortcutOverrides(shortcutOverrides);
-    saveEditorCustomCommands(customCommands);
-  }, [commandSettingsError, commandSettingsLoaded, customCommands, shortcutOverrides]);
-
-  useEffect(() => {
     if (workspaceReady) {
       window.dispatchEvent(new Event(APP_READY_EVENT));
     }
   }, [workspaceReady]);
-
-  /** 開けたら true。パレットは開けたときだけ focus 対象を覚える。 */
-  const openCommandSettings = useCallback(() => {
-    if (!commandSettingsLoaded) {
-      setStatusMessage(commandSettingsError ?? tEditor("status.shortcutsLoading"));
-      return false;
-    }
-    if (commandSettingsError) {
-      setStatusMessage(commandSettingsError);
-      return false;
-    }
-    setCommandSettingsOpen(true);
-    return true;
-  }, [commandSettingsError, commandSettingsLoaded, setStatusMessage, setCommandSettingsOpen]);
 
   useLayoutEffect(() => {
     if (!documentSession) return;
@@ -2920,7 +1904,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
       setPendingDeletion({ revision: deletionSeqRef.current, deletedIds });
     }
     return true;
-  }), [documentHistory, setStatusMessage, t]);
+  }), [aiDocumentWriteInProgressMessage, describeAiLockedTargets, documentHistory, findAiLockedTargetsTouched, hasAiLockedTargetsTouched, setStatusMessage, t]);
 
   const materialLibrary = useMaterialLibraryController({
     documentRef,
@@ -2948,6 +1932,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
     insertMaterialAt,
   } = materialLibrary;
 
+  useLayoutEffect(() => { materialMenuCloseRef.current = () => setMaterialActionMenu(null); }, [setMaterialActionMenu]);
   const restoreDocumentVersion = async (version: DocumentVersion): Promise<DocumentVersionRestoreResult> => {
     if (documentSessionRef.current) return { ok: false, error: t("collaboration.useSharedBackup") };
     const fileId = activeFileIdRef.current;
@@ -3148,7 +2133,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
       return;
     }
     setStatusMessage(direction === "undo" ? tEditor("status.undone") : tEditor("status.redone"));
-  }, [documentHistory, refreshMcpEditProposals, setActiveCommentThreadId, setCommentAnchorCandidate, setPendingCommentAnchor, setSelectedId, setSelectedInlineMath, setStatusMessage, t]);
+  }, [aiDocumentWriteInProgressMessage, describeAiLockedTargets, documentHistory, findAiLockedTargetsTouched, hasAiLockedTargetsTouched, refreshMcpEditProposals, setActiveCommentThreadId, setCommentAnchorCandidate, setPendingCommentAnchor, setSelectedId, setSelectedInlineMath, setStatusMessage, t]);
 
   const undoDocumentChange = useCallback(() => {
     restoreDocumentHistory("undo");
@@ -3170,239 +2155,24 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
     selectedIdRef.current = selectedId;
     activeFileIdRef.current = activeFileId;
     openFileIdsRef.current = openFileIds;
-    workspaceLayoutRef.current = workspaceLayout;
     workspaceReadyRef.current = workspaceReady;
   }, [activeFileId, document, documentStateStamp, openFileIds, selectedId, workspaceLayout, workspaceReady]);
 
-  const lastEmbeddedInputRef = useRef(embeddedHost?.document);
-  const lastEmittedEmbeddedDocumentRef = useRef(document);
-  // ホストのonSaveがawait後に古いスナップショットをonChange経由で送り返す(エコー)
-  // ことがある。それを外部更新と誤認してresetEditorDocumentを呼ぶと、再度dirty化
-  // →自動保存→再エコー…と自走するループになる(スピナーが止まらない/入力が
-  // フリッカーする不具合の原因)。ここではエディタ自身がembeddedHost.onChangeへ
-  // 渡した文書のdocumentHistoryKeyを直近MAX_EMBEDDED_ECHO_KEYS件だけ覚えておき、
-  // 同じdocId内でそのキーが戻ってきたらエコーとして無視する。docIdが変わる本物の
-  // ドキュメント切替はこの記録に関わらず常に受け入れる。
-  const MAX_EMBEDDED_ECHO_KEYS = 50;
-  const emittedEchoKeysRef = useRef<Set<string>>(
-    new Set(embeddedHost ? [documentHistoryKey(initialDocument)] : []),
-  );
-  const rememberEmittedEchoKey = useCallback((key: string) => {
-    const seen = emittedEchoKeysRef.current;
-    if (seen.has(key)) {
-      return;
-    }
-    seen.add(key);
-    if (seen.size > MAX_EMBEDDED_ECHO_KEYS) {
-      const oldest = seen.values().next().value;
-      if (oldest !== undefined) {
-        seen.delete(oldest);
-      }
-    }
-  }, []);
-
-  useEffect(() => {
-    const nextInput = embeddedHost?.document;
-    if (!nextInput || nextInput === lastEmbeddedInputRef.current) {
-      return;
-    }
-    lastEmbeddedInputRef.current = nextInput;
-
-    // ホストが本文の空な文書を送り続けても往復しないよう、比較は「直したあと」で行う
-    // (`ensureEditableBody` は冪等・id 固定なので、直した結果は毎回同じ値になる)。
-    const nextDocument = ensureEditableBody(nextInput).document;
-    if (
-      nextDocument === documentRef.current
-      || areSigmaDocumentsEquivalent(nextDocument, documentRef.current)
-    ) {
-      return;
-    }
-
-    const isGenuineDocumentSwitch = nextInput.docId !== documentRef.current.docId;
-    if (!isGenuineDocumentSwitch && emittedEchoKeysRef.current.has(documentHistoryKey(nextInput))) {
-      return;
-    }
-
-    lastEmittedEmbeddedDocumentRef.current = nextInput;
+  const acceptEmbeddedDocument = useCallback((nextDocument: SigmaDocument) => {
     resetEditorDocument(nextDocument, undefined, null);
     setOpenFileIds([nextDocument.docId]);
     setActiveFileId(nextDocument.docId);
     setStatusMessage(tEditor("status.hostUpdated"));
-  }, [embeddedHost?.document, resetEditorDocument, setStatusMessage]);
+  }, [resetEditorDocument, setStatusMessage]);
+  useEmbeddedDocumentSync({ embeddedHost, document, initialDocument, currentDocument: getCurrentSessionDocument, acceptDocument: acceptEmbeddedDocument });
 
-  useEffect(() => {
-    if (!embeddedHost || document === lastEmittedEmbeddedDocumentRef.current) {
-      return;
-    }
-    lastEmittedEmbeddedDocumentRef.current = document;
-    rememberEmittedEchoKey(documentHistoryKey(document));
-    embeddedHost.onChange(document);
-  }, [document, embeddedHost, rememberEmittedEchoKey]);
-
-  useEffect(() => {
-    if (isEmbedded) {
-      return;
-    }
-
-    let cancelled = false;
-
-    const timeoutId = window.setTimeout(() => {
-      initializeDocumentWorkspace()
-        .then(async (workspace) => {
-          if (cancelled) {
-            return;
-          }
-          if (!workspace.ok) {
-            setLedgerFailure(workspace.ledgerError);
-            setWorkspaceReady(true);
-            return;
-          }
-
-          const metadata = await listSavedDocuments();
-          const requestedFileId = getRequestedFileId();
-          const availableFileIds = new Set(metadata.map((item) => item.fileId));
-          const layoutDocumentIds = new Set(
-            workspace.state.layout?.groups.flatMap((group) => group.tabs.flatMap((tab) => (
-              tab.kind === "ai" ? [tab.documentFileId] : []
-            ))) ?? [],
-          );
-          let availableRoomIds: Set<string> | undefined;
-          const listChatRooms = getDesktopBridge()?.aiEdit?.listChatRooms;
-          if (listChatRooms && layoutDocumentIds.size > 0) {
-            try {
-              const rooms = await Promise.all(Array.from(layoutDocumentIds, (fileId) => listChatRooms(fileId)));
-              availableRoomIds = new Set(rooms.flat().map((room) => room.id));
-            } catch {
-              // A transient chat-store read failure must not discard restorable AI tabs.
-              availableRoomIds = undefined;
-            }
-          }
-          const restoredLayout = normalizeWorkspaceLayout(
-            workspace.state.layout,
-            workspace.state.openFileIds,
-            workspace.state.activeFileId,
-            availableFileIds,
-            availableRoomIds,
-          );
-          workspaceLayoutRef.current = restoredLayout;
-          setWorkspaceLayout(restoredLayout);
-          const firstLocalFileId = metadata[0]?.fileId;
-          const candidateFileIds = uniqueStringIds([
-            ...(requestedFileId ? [requestedFileId] : []),
-            ...(availableFileIds.has(workspace.state.activeFileId) ? [workspace.state.activeFileId] : []),
-            ...(metadata[0] ? [metadata[0].fileId] : []),
-            ...(firstLocalFileId ? [firstLocalFileId] : []),
-          ]);
-          if (candidateFileIds.length === 0) {
-            throw new Error(tEditor("status.noSavedDocuments"));
-          }
-
-          // ローカルの候補を順に開き、読み込めない候補は読み飛ばす。
-          let nextActiveFileId: string | null = null;
-          let activeDocument: { document: SigmaDocument; observedRevision: number } | null = null;
-          let openFailure: DocumentOpenFailure | null = null;
-          for (const candidateFileId of candidateFileIds) {
-            const candidate = await loadWorkspaceDocument(candidateFileId);
-            if (cancelled) {
-              return;
-            }
-            if (candidate) {
-              nextActiveFileId = candidateFileId;
-              activeDocument = candidate;
-              break;
-            }
-            // 教材の中身 (壊れたJSON / スキーマ違反) が原因の失敗は読み飛ばさない。
-            // 黙って別教材が開くと「Sigma Studioが開けない」ように見えるため、
-            // その教材を開いたまま原因と修復プロンプトを出す。
-            openFailure = showRecordedDocumentOpenFailure(candidateFileId);
-            if (openFailure) {
-              break;
-            }
-          }
-
-          if (openFailure) {
-            const nextOpenFileIds = uniqueStringIds([
-              ...workspace.state.openFileIds.filter((fileId) => availableFileIds.has(fileId)),
-              openFailure.fileId,
-            ]);
-            await refreshDocumentMetadatas();
-            setWorkspaceReady(true);
-            await enterDocumentOpenFailureState(openFailure, nextOpenFileIds);
-            if (requestedFileId) {
-              clearRequestedFileId();
-            }
-            return;
-          }
-
-          if (activeDocument && nextActiveFileId) {
-            const migrated = repairDuplicateTopLevelIds(
-              ensurePageLayout(activeDocument.document),
-              DOCUMENT_BLOCK_OPERATION_PORTS,
-            );
-            const nextOpenFileIds = uniqueStringIds([
-              ...workspace.state.openFileIds.filter((fileId) => availableFileIds.has(fileId)),
-              nextActiveFileId,
-            ]);
-            resetEditorDocument(
-              migrated,
-              undefined,
-              activeDocument.observedRevision,
-            );
-            setOpenFileIds(nextOpenFileIds);
-            setActiveFileId(nextActiveFileId);
-            await refreshDocumentMetadatas();
-            setWorkspaceReady(true);
-            await saveWorkspaceState({ openFileIds: nextOpenFileIds, activeFileId: nextActiveFileId });
-            if (requestedFileId) {
-              clearRequestedFileId();
-            }
-            setStatusMessage(storageWarningOrStatus(requestedFileId && nextActiveFileId !== requestedFileId
-              ? tEditor("status.fallbackDocument")
-              : tEditor("status.ready")));
-            return;
-          }
-
-          const fallback = await createNewDocument();
-          if (cancelled) {
-            return;
-          }
-
-          resetEditorDocument(fallback.document, undefined, fallback.metadata.revision);
-          setOpenFileIds([fallback.fileId]);
-          setActiveFileId(fallback.fileId);
-          await refreshDocumentMetadatas();
-          setWorkspaceReady(true);
-          if (requestedFileId) {
-            clearRequestedFileId();
-          }
-          setStatusMessage(storageWarningOrStatus(tEditor("status.documentCreated")));
-        })
-        .catch((error) => {
-          if (cancelled) {
-            return;
-          }
-          setSaveState("error");
-          setStatusMessage(error instanceof Error ? error.message : tEditor("status.restoreFailed"));
-          setWorkspaceReady(true);
-        });
-    }, 0);
-
-    return () => {
-      cancelled = true;
-      window.clearTimeout(timeoutId);
-    };
-  }, [
-    enterDocumentOpenFailureState,
-    isEmbedded,
-    loadWorkspaceDocument,
-    refreshDocumentMetadatas,
-    resetEditorDocument,
-    saveWorkspaceState,
-    setSaveState,
-    setStatusMessage,
-    showRecordedDocumentOpenFailure,
-    workspaceReloadNonce,
-  ]);
+  const installWorkspaceLayout = setWorkspaceLayout;
+  const activateWorkspaceDocument = useCallback((nextDocument: SigmaDocument, fileId: string, fileIds: string[], revision: number) => {
+    resetEditorDocument(nextDocument, undefined, revision);
+    setOpenFileIds(fileIds);
+    setActiveFileId(fileId);
+  }, [resetEditorDocument]);
+  useWorkspaceInitialization({ isEmbedded, workspaceReloadNonce, loadWorkspaceDocument, showRecordedDocumentOpenFailure, enterDocumentOpenFailureState, activateDocument: activateWorkspaceDocument, installLayout: installWorkspaceLayout, refreshDocumentMetadatas, saveWorkspaceState, setLedgerFailure, setWorkspaceReady, setSaveState, setStatusMessage });
 
   useEffect(() => {
     if (!isDesktopApp || !workspaceReady) {
@@ -3414,258 +2184,6 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
     }, 0);
     return () => window.clearTimeout(timeoutId);
   }, [activeFileId, isDesktopApp, refreshMcpEditProposals, workspaceReady]);
-
-  useEffect(() => {
-    if (!workspaceReady || ledgerFailure) {
-      return;
-    }
-    if (documentSession) {
-      void documentSession.flush().then(() => {
-        lastSavedDocumentRef.current = documentSession.project();
-        lastSavedDirtyRevisionRef.current = documentDirtyRevisionRef.current;
-      }).catch(() => setSaveState("error"));
-      return;
-    }
-
-    // 開けなかった教材がアクティブな間は自動保存しない (saveCurrentDocumentRecord と同じ理由)。
-    if (documentOpenFailureRef.current?.fileId === activeFileId) {
-      return;
-    }
-
-    // documentはeffectのデバウンス起点。保存時点ではdocumentRefから最新内容を取り直し、
-    // 承認後に古いrender snapshotをIPCへ渡さない。
-    void document;
-    const saveRevision = documentDirtyRevisionRef.current;
-    // A clean document has nothing to persist; skipping keeps the save indicator
-    // quiet (no saving→saved flicker) when switching tabs or opening documents.
-    // Use a numeric dirty revision here so typing does not stringify the whole
-    // SigmaDoc on every document state update.
-    if (saveRevision <= lastSavedDirtyRevisionRef.current) {
-      return;
-    }
-
-    if (isEmbedded) {
-      let cancelled = false;
-      const timeoutId = window.setTimeout(() => {
-        const host = embeddedHostRef.current;
-        setSaveState("saving");
-        Promise.resolve(host?.onSave?.(document))
-          .then(() => {
-            if (cancelled) {
-              return;
-            }
-            lastSavedDocumentRef.current = document;
-            lastSavedDirtyRevisionRef.current = saveRevision;
-            lastSyncedDocumentRef.current = document;
-            setSaveState("saved");
-            setStatusMessage(host?.onSave ? tEditor("status.hostAutosaved") : tEditor("status.hostSynced"));
-          })
-          .catch((error) => {
-            if (cancelled) {
-              return;
-            }
-            setSaveState("error");
-            setStatusMessage(error instanceof Error ? error.message : tEditor("status.saveFailed"));
-          });
-      }, 450);
-
-      const cancelAutosave = () => {
-        cancelled = true;
-        window.clearTimeout(timeoutId);
-      };
-      cancelPendingAutosaveRef.current = cancelAutosave;
-      return () => {
-        cancelAutosave();
-        if (cancelPendingAutosaveRef.current === cancelAutosave) {
-          cancelPendingAutosaveRef.current = () => undefined;
-        }
-      };
-    }
-
-    let cancelled = false;
-    const savingTimeoutId = window.setTimeout(() => {
-      if (
-        externalChangeFileIdsRef.current.has(activeFileId)
-        || mcpPreviewBusyRef.current
-      ) {
-        scheduleAutosaveRetry();
-        return;
-      }
-      setSaveState("saving");
-    }, 0);
-    const timeoutId = window.setTimeout(async () => {
-      // 直列化: 進行中の保存が終わるまで次を送らない。
-      //
-      // 重ねて投げると 2 本目は 1 本目が確定させる前の observedRevision で CAS に入るため、
-      // 中身が競合していなくても revision-mismatch になり「他の変更を読み込んでいます」に落ちる。
-      // 待ってから下の判定と snapshot を作ることが重要 — 待った後に revision だけ取り直すと、
-      // 古い document に新しい revision を貸すことになり `ObservedDocumentWrite` が
-      // 防いでいる lost update そのものになる。ここでは本文も revision も待機後に読む。
-      // 1 回待つだけでは足りない: 待っている間に明示保存 (AI 承認前の flush 等) が
-      // 始まると `.current` が差し替わり、結局それと重なって走ってしまう。
-      while (inFlightSavePromiseRef.current) {
-        await inFlightSavePromiseRef.current.catch(() => undefined);
-        if (cancelled) {
-          return;
-        }
-      }
-      // 明示save（AI提案承認前のflush/save等）がこのtimerより先に同revisionを保存した
-      // 場合、古いdocument snapshotで後から上書きしない。timer作成時の判定だけでは、
-      // 承認IPC中に450msを跨いだときstale autosaveがAI適用結果の後へ並ぶraceが残る。
-      if (saveRevision <= lastSavedDirtyRevisionRef.current) {
-        return;
-      }
-      if (
-        externalChangeFileIdsRef.current.has(activeFileId)
-        || mcpPreviewBusyRef.current
-      ) {
-        scheduleAutosaveRetry();
-        return;
-      }
-      const revisionToSave = documentDirtyRevisionRef.current;
-      if (revisionToSave <= lastSavedDirtyRevisionRef.current) {
-        return;
-      }
-      const nextDocument = {
-        ...documentRef.current,
-        updatedAt: new Date().toISOString(),
-      };
-      const observedRevision = documentObservedRevisionRef.current;
-      if (observedRevision === null) {
-        setSaveState("error");
-        setStatusMessage(tEditor("status.saveRevisionUnknown"));
-        return;
-      }
-      const write = createObservedDocumentWrite({
-        fileId: activeFileId,
-        document: nextDocument,
-        observedRevision,
-      });
-      const saveTask = saveDocumentRecord(write)
-        .then(async (result) => {
-          updateVersionHistoryCaptureStatus(activeFileId, result);
-          if (result.ok) {
-            const savedFileIsActive = recordSuccessfulDocumentSave({
-              savedByFileId: successfulDocumentSavesRef.current,
-              save: {
-                fileId: activeFileId,
-                document: nextDocument,
-                revision: result.revision ?? observedRevision + 1,
-                dirtyRevision: revisionToSave,
-              },
-              activeFileId: activeFileIdRef.current,
-              observedRevisionRef: documentObservedRevisionRef,
-              lastSavedDocumentRef,
-              lastSavedDirtyRevisionRef,
-              lastSyncedDocumentRef,
-            });
-            // Effect cleanup means its UI snapshot is stale, not that the completed
-            // write did not happen. Same-file refs above must advance even when a
-            // newer keystroke has already created the next autosave effect.
-            if (cancelled || !savedFileIsActive) {
-              return;
-            }
-            if (!openFileIds.includes(activeFileId)) {
-              const nextOpenFileIds = uniqueStringIds([...openFileIds, activeFileId]);
-              setOpenFileIds(nextOpenFileIds);
-              await saveWorkspaceState({ openFileIds: nextOpenFileIds, activeFileId });
-            }
-            await refreshDocumentMetadatas();
-            if (cancelled) {
-              return;
-            }
-            setSaveState(result.versionCaptureError ? "warning" : "saved");
-            setStatusMessage(result.versionCaptureError
-              ? t("versionHistory.captureWarning")
-              : result.error
-                ? tEditor("status.localAutosavedWith", { reason: result.error })
-                : isDesktopApp
-                  ? tEditor("status.localAutosavedThisPc")
-                  : tEditor("status.localAutosaved"));
-          } else if (result.code === "revision-mismatch") {
-            // queued済みの古いpayloadは一切mergeせず破棄する。metadataだけを読み直して
-            // revisionを進めると同じstale payloadがCASを通るため、documentRefを外部変更
-            // 取り込みで更新できるまでは再保存しない。
-            if (activeFileIdRef.current === activeFileId) {
-              dispatchDocumentStorageChange({
-                type: "document",
-                fileId: activeFileId,
-                change: "changed",
-                timestamp: Date.now(),
-              });
-              if (!cancelled) {
-                setSaveState("error");
-                setStatusMessage(tEditor("status.reloadingOtherChanges"));
-              }
-            }
-          } else {
-            if (!cancelled && activeFileIdRef.current === activeFileId) {
-              setSaveState("error");
-              setStatusMessage(result.error ?? tEditor("status.saveFailedShort"));
-            }
-          }
-        })
-        .catch((error) => {
-          if (cancelled) {
-            return;
-          }
-          setSaveState("error");
-          setStatusMessage(error instanceof Error ? error.message : tEditor("status.saveFailedShort"));
-        });
-      void trackInFlightSave(inFlightSavePromiseRef, saveTask);
-    }, 450);
-
-    const cancelAutosave = () => {
-      cancelled = true;
-      window.clearTimeout(savingTimeoutId);
-      window.clearTimeout(timeoutId);
-    };
-    cancelPendingAutosaveRef.current = cancelAutosave;
-    return () => {
-      cancelAutosave();
-      if (cancelPendingAutosaveRef.current === cancelAutosave) {
-        cancelPendingAutosaveRef.current = () => undefined;
-      }
-    };
-  }, [
-    activeFileId,
-    documentSession,
-    autosaveRetry,
-    dispatchDocumentStorageChange,
-    document,
-    isDesktopApp,
-    isEmbedded,
-    ledgerFailure,
-    openFileIds,
-    refreshDocumentMetadatas,
-    scheduleAutosaveRetry,
-    saveWorkspaceState,
-    setSaveState,
-    setStatusMessage,
-    t,
-    updateVersionHistoryCaptureStatus,
-    workspaceReady,
-  ]);
-
-  useEffect(() => {
-    // これから生まれるエディタが初期 state に使う「現在の検索語」はシェルが宣言する
-    // (マウント時の空文字も含めて必ず通るので、前のシェルの検索語を引きずらない)。
-    setLatestSearchQuery(searchQuery);
-
-    // 通知は検索語が変わった時だけ。文書は deps に入れない — ハイライトは各エディタの
-    // プラグイン state に入った検索語と doc から毎回導出されるので、打鍵のたびに通知し直すと
-    // 本文ユニット数だけ ProseMirror の transaction が増えるだけで表示は変わらない。
-    if (!shouldDispatchSearchQuery(lastDispatchedSearchQueryRef.current, searchQuery)) {
-      return;
-    }
-
-    // Debounced so per-keystroke highlight updates don't re-render the document.
-    const timeoutId = window.setTimeout(() => {
-      lastDispatchedSearchQueryRef.current = searchQuery;
-      window.dispatchEvent(new CustomEvent(SEARCH_QUERY_EVENT, { detail: { query: searchQuery } }));
-    }, searchQuery ? 150 : 0);
-    return () => window.clearTimeout(timeoutId);
-  }, [searchQuery]);
 
   useEffect(() => {
     const selectInlineMath = (event: Event) => {
@@ -3719,121 +2237,6 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
     window.addEventListener(SELECT_INLINE_MATH_EVENT, selectInlineMath);
     return () => window.removeEventListener(SELECT_INLINE_MATH_EVENT, selectInlineMath);
   }, [setSelectedId, setSelectedInlineMath]);
-
-  useEffect(() => {
-    const handleOverlayGraphSelect = (event: Event) => {
-      const detail = event instanceof CustomEvent ? (event.detail as SelectedOverlayGraph | null) : null;
-      if (!detail) {
-        pendingOverlayGraphEditsRef.current = null;
-      }
-      if (!detail && graphSettingsShapeIdRef.current) {
-        // パネル自体は非モーダルなので、その内部を操作してもグラフ選択は維持される。
-        // 本文・空白・別図形へ選択が移り detail が null になった時だけ閉じる。
-        closeGraphSettings();
-      }
-      if (detail && graphSettingsShapeIdRef.current && detail.shapeId !== graphSettingsShapeIdRef.current) {
-        // 別のグラフへ選択が移ったら閉じる。閉じないと state だけ残り、
-        // 元のグラフを選び直したときにパネルが独りでに復活する。
-        closeGraphSettings();
-      }
-
-      const merged = detail
-        ? mergeOverlayGraphDetailWithPending(detail, pendingOverlayGraphEditsRef.current)
-        : { detail: null, pending: null };
-      pendingOverlayGraphEditsRef.current = merged.pending;
-      setSelectedOverlayGraph((current) => (
-        areSelectedOverlayGraphsEqual(current, merged.detail) ? current : merged.detail
-      ));
-    };
-
-    window.addEventListener(SELECT_OVERLAY_GRAPH_EVENT, handleOverlayGraphSelect);
-    return () => window.removeEventListener(SELECT_OVERLAY_GRAPH_EVENT, handleOverlayGraphSelect);
-  }, [closeGraphSettings]);
-
-  useEffect(() => {
-    const handleOverlayChartSelect = (event: Event) => {
-      const detail = event instanceof CustomEvent ? (event.detail as SelectedOverlayChart | null) : null;
-      if (chartSettingsShapeIdRef.current && (!detail || detail.shapeId !== chartSettingsShapeIdRef.current)) {
-        // Selection left this chart: close, or the panel state lingers and the panel reappears by
-        // itself the next time the same chart is selected.
-        closeChartSettings();
-      }
-      // The canvas re-dispatches on every commit, so an equal payload must not call `setState` —
-      // that is the shell/canvas re-render loop the graph panel already guards against.
-      setSelectedOverlayChart((current) => (
-        areSelectedOverlayChartsEqual(current, detail) ? current : detail
-      ));
-    };
-
-    window.addEventListener(SELECT_OVERLAY_CHART_EVENT, handleOverlayChartSelect);
-    return () => window.removeEventListener(SELECT_OVERLAY_CHART_EVENT, handleOverlayChartSelect);
-  }, [closeChartSettings]);
-
-  useEffect(() => {
-    const handleOpenOverlayChartSettings = (event: Event) => {
-      const detail = event instanceof CustomEvent ? event.detail as { shapeId?: unknown } | null : null;
-      if (typeof detail?.shapeId === "string") {
-        openChartSettings(detail.shapeId);
-      }
-    };
-
-    window.addEventListener(OPEN_OVERLAY_CHART_SETTINGS_EVENT, handleOpenOverlayChartSettings);
-    return () => window.removeEventListener(OPEN_OVERLAY_CHART_SETTINGS_EVENT, handleOpenOverlayChartSettings);
-  }, [openChartSettings]);
-
-  useEffect(() => {
-    const handleOpenOverlayGraphSettings = (event: Event) => {
-      const detail = event instanceof CustomEvent ? event.detail as { shapeId?: unknown } | null : null;
-      if (typeof detail?.shapeId === "string") {
-        openGraphSettings(detail.shapeId);
-      }
-    };
-
-    window.addEventListener(OPEN_OVERLAY_GRAPH_SETTINGS_EVENT, handleOpenOverlayGraphSettings);
-    return () => window.removeEventListener(OPEN_OVERLAY_GRAPH_SETTINGS_EVENT, handleOpenOverlayGraphSettings);
-  }, [openGraphSettings]);
-
-  useEffect(() => {
-    const handleOpenOverlayGraph3DSettings = (event: Event) => {
-      const detail = event instanceof CustomEvent
-        ? event.detail as { shapeId?: unknown } | null
-        : null;
-      if (typeof detail?.shapeId === "string") openGraph3DSettings(detail.shapeId);
-    };
-    window.addEventListener(OPEN_OVERLAY_GRAPH3D_SETTINGS_EVENT, handleOpenOverlayGraph3DSettings);
-    return () => window.removeEventListener(OPEN_OVERLAY_GRAPH3D_SETTINGS_EVENT, handleOpenOverlayGraph3DSettings);
-  }, [openGraph3DSettings]);
-
-  useEffect(() => {
-    const closeTransientUi = (event: KeyboardEvent) => {
-      if (event.key !== "Escape") {
-        return;
-      }
-
-      setActiveMenu(null);
-      setExportMenuOpen(false);
-      setShapeMenuOpen(false);
-      setLineToolMenuOpen(false);
-      setFontFamilyMenuOpen(false);
-      setBlockStyleMenuOpen(false);
-      setBoxedTextMenuOpen(false);
-      setLineHeightMenuOpen(false);
-      setTextAlignMenuOpen(false);
-      setLineDashMenuOpen(false);
-      setLineWidthMenuOpen(false);
-      setLineEndpointMenu(null);
-      setColorStylePanel(null);
-      setSearchOpen(false);
-      setMaterialActionMenu(null);
-      // Word風の Backstage も Esc で閉じる（capture ガードは Escape だけ通す）。
-      setRibbonBackstage((current) => closeBackstageState(current));
-      // 折りたたみ中に浮かせているリボン本体も畳む（折りたたみ自体は解除しない）。
-      setRibbonOverlayOpen(false);
-    };
-
-    window.addEventListener("keydown", closeTransientUi);
-    return () => window.removeEventListener("keydown", closeTransientUi);
-  }, [setMaterialActionMenu]);
 
   const tikzEditor = useTikzEditor({
     document, fileId: activeFileId, writable: sessionWritable, commit: commitDocumentChange,
@@ -4041,17 +2444,17 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
   // A measurement belongs to this exact shape revision, never the previously selected shape.
   const wholeTextShapeSize = wholeTextShapeMeasurement?.shape === wholeTextShape
     ? wholeTextShapeMeasurement?.size : null;
-  const activeTextFontSize = wholeTextShape
-    ? wholeTextShapeSize?.fontSize ?? getTextShapeFontSizePt(wholeTextShape)
-    : textFontSize ?? BASE_EDITOR_FONT_SIZE;
+  const activeTextFontSize = !canUseTextToolbar ? null : wholeTextShape
+    ? wholeTextShapeSize?.fontSize ?? null
+    : textFontSize;
   const activeTextFontSizeMixed = wholeTextShape ? wholeTextShapeSize?.fontSizeMixed === true : textFontSizeMixed;
   useLayoutEffect(() => {
     // Sync before paint so a newly selected shape never displays the old size.
     // Keep the inline field in sync with the selection without replacing a value
     // while the user is in the middle of editing it.
     if (fontSizeInputRef.current === window.document.activeElement) return;
-    setFontSizeInput(String(activeTextFontSize));
-  }, [activeTextFontSize]);
+    setFontSizeInput(activeTextFontSize === null ? "" : String(activeTextFontSize));
+  }, [activeTextFontSize, setFontSizeInput]);
   const canUseTextBlockStyle = textToolbar.canUseTextBlockStyle;
   /**
    * ブロックのボタン (箇条書き・番号付き・引用・コード・区切り線) を押せるか。
@@ -4166,85 +2569,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
 
     const timeoutId = window.setTimeout(() => setInlineMathMenuOpen(false), 0);
     return () => window.clearTimeout(timeoutId);
-  }, [selectedInlineMath]);
-  const selectedOverlayGraphForSettings = useMemo((): SelectedOverlayGraph | null => {
-    if (!selectedOverlayGraph) {
-      return null;
-    }
-
-    return {
-      ...selectedOverlayGraph,
-      onAxisLabelChange: (key, visible) => {
-        recordPendingAxisLabelEdit(
-          selectedOverlayGraph.shapeId,
-          key,
-          { visible },
-        );
-        setSelectedOverlayGraph((current) => {
-          if (!current || current.shapeId !== selectedOverlayGraph.shapeId) {
-            return current;
-          }
-
-          return applyOverlayGraphAxisLabelEdit(current, key, { visible });
-        });
-        selectedOverlayGraph.onAxisLabelChange(key, visible);
-      },
-      onAxisLabelTextChange: (key, text) => {
-        const edit = {
-          visible: Boolean(text.trim()),
-          text,
-        };
-        recordPendingAxisLabelEdit(
-          selectedOverlayGraph.shapeId,
-          key,
-          edit,
-        );
-        setSelectedOverlayGraph((current) => {
-          if (!current || current.shapeId !== selectedOverlayGraph.shapeId) {
-            return current;
-          }
-
-          return applyOverlayGraphAxisLabelEdit(current, key, edit);
-        });
-        selectedOverlayGraph.onAxisLabelTextChange(key, text);
-      },
-      onSpecChange: (nextSpec) => {
-        recordPendingSpecEdit(
-          selectedOverlayGraph.shapeId,
-          nextSpec,
-        );
-        setSelectedOverlayGraph((current) => {
-          if (!current || current.shapeId !== selectedOverlayGraph.shapeId) {
-            return current;
-          }
-
-          return areGraphSpecsEqual(current.spec, nextSpec) ? current : { ...current, spec: nextSpec };
-        });
-        selectedOverlayGraph.onSpecChange(nextSpec);
-      },
-    };
-  }, [recordPendingAxisLabelEdit, recordPendingSpecEdit, selectedOverlayGraph]);
-  // The ref-backed callbacks on this value run only from panel events, never while rendering.
-  const overlayGraphSettingsDialog = graphSettingsShapeId
-    // eslint-disable-next-line react-hooks/refs
-    && selectedOverlayGraphForSettings?.shapeId === graphSettingsShapeId
-    ? (
-        <GraphSettingsPanel
-          selectedOverlayGraph={selectedOverlayGraphForSettings}
-          onClose={closeGraphSettings}
-        />
-      )
-    : null;
-  const overlayChartSettingsDialog = chartSettingsShapeId
-    && selectedOverlayChart?.shapeId === chartSettingsShapeId
-    ? (
-        <ChartSettingsPanel
-          chart={selectedOverlayChart}
-          onClose={closeChartSettings}
-          onSpecChange={(_shapeId, spec) => selectedOverlayChart.onSpecChange(spec)}
-        />
-      )
-    : null;
+  }, [selectedInlineMath, setInlineMathMenuOpen]);
   // spec の購読はホスト側に閉じている。ここで持つとリボンごと再レンダーされる。
   const overlayGraph3DSettingsDialog = (
     <Graph3DSettingsPanelHost
@@ -4279,211 +2604,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
     window.dispatchEvent(new CustomEvent(FLUSH_OVERLAY_CHANGES_EVENT));
   };
 
-  const openPrintPreview = () => {
-    flushOverlayChanges();
-    setPreviewOpen(true);
-  };
-
-  const printEmbeddedPreview = async () => {
-    try {
-      setSaveState("saving");
-      setStatusMessage(tEditor("status.preparingPrint"));
-      const saveResult = await saveCurrentDocumentRecord();
-      if (!saveResult.ok) {
-        setSaveState("error");
-        setStatusMessage(saveResult.error ?? tEditor("status.saveFailed"));
-        return;
-      }
-      setSaveState("saved");
-      setStatusMessage(tEditor("status.browserPrintOpened"));
-      window.print();
-    } catch (error) {
-      setSaveState("error");
-      setStatusMessage(error instanceof Error ? error.message : tEditor("status.printOpenFailed"));
-    }
-  };
-
-  const exportPdf = async () => {
-    setPdfExporting(true);
-    if (isEmbedded) {
-      await printEmbeddedPreview();
-      setPdfExporting(false);
-      return;
-    }
-
-    const bridge = getDesktopBridge();
-    if (!isDesktopApp || !bridge?.file.exportPdf) {
-      openPrintPreview();
-      setStatusMessage(tEditor("status.pdfDesktopOnly"));
-      setPdfExporting(false);
-      return;
-    }
-
-    try {
-      if (printPreviewRenderState.state !== "ready") {
-        setStatusMessage(tEditor("status.pdfPreviewNotReady"));
-        return;
-      }
-      setSaveState("saving");
-      setStatusMessage(tEditor("status.pdfExporting"));
-      const saveResult = await saveCurrentDocumentRecord();
-      if (!saveResult.ok) {
-        setSaveState("error");
-        setStatusMessage(saveResult.error ?? tEditor("status.saveFailed"));
-        return;
-      }
-
-      const result = await bridge.file.exportPdf({
-        suggestedName: suggestedPdfFileName(resolveDocumentTitle(documentRef.current)),
-        surfaceId: printPreviewRenderState.surfaceId,
-        revision: printPreviewRenderState.revision,
-        pageCount: printPreviewRenderState.pageCount,
-        pageWidthMm: printPreviewRenderState.pageWidthMm,
-        pageHeightMm: printPreviewRenderState.pageHeightMm,
-      });
-      if (result) {
-        setSaveState("saved");
-        setStatusMessage(tEditor("status.pdfExported", { path: result.filePath }));
-        setExportedPdfPath(result.filePath);
-      } else {
-        setSaveState("saved");
-        setStatusMessage(tEditor("status.pdfExportCancelled"));
-      }
-    } catch (error) {
-      setSaveState("error");
-      setStatusMessage(error instanceof Error ? error.message : tEditor("status.pdfExportFailed"));
-    } finally {
-      setPdfExporting(false);
-    }
-  };
-
-  const openPrintWindow = async () => {
-    flushOverlayChanges();
-    if (isEmbedded) {
-      await printEmbeddedPreview();
-      return;
-    }
-
-    if (isDesktopApp) {
-      setPreviewOpen(true);
-      setStatusMessage(tEditor("status.pdfPreviewOpened"));
-      return;
-    }
-    await saveCurrentDocumentRecord();
-    window.open(
-      getAppRouteHref("/print", { fileId: activeFileIdRef.current, profile: "teacher" }),
-      "_blank",
-      "noopener,noreferrer",
-    );
-  };
-
-  const addBlock = (type: SigmaBlock["type"]) => {
-    // 箱は「前に決めた見た目」で入る (設定ダイアログで変えた色や罫がそのまま次にも効く)。
-    const block = applyRememberedBoxFrame(createBlock(type, tEditor));
-    let insertedBodyBlockId: string | null = null;
-    commitDocumentChange((current) => {
-      const next = insertBlockAtSelection(current, block, selectedId, { replaceEmpty: block.type === "problem" });
-      if (block.type !== "problem") {
-        return next;
-      }
-
-      const result = ensureBodyBlockAfterProblem(next, block.id);
-      insertedBodyBlockId = result.bodyBlock?.id ?? null;
-      return result.document;
-    });
-    setSelectedInlineMath(null);
-    const nextSelectedId = insertedBodyBlockId ?? block.id;
-    selectedIdRef.current = nextSelectedId;
-    setSelectedId(nextSelectedId);
-    if (insertedBodyBlockId) {
-      scheduleEditorBlockFocus(insertedBodyBlockId);
-      return;
-    }
-    if (block.type === "heading" || block.type === "paragraph" || block.type === "section") {
-      scheduleEditorBlockFocus(block.id);
-    }
-  };
-
-  // 本文の /problem コマンドから問題を差し込む。memo 済みユニットへ渡るコールバックの
-  // 依存に入るので、識別子を安定させる (中身は documentRef / 安定コールバックしか読まない)。
-  const insertProblemFromTextFlowCommand = useCallback((triggerBlockId: string): boolean => {
-    if (!findBlock(documentRef.current, triggerBlockId)) {
-      return false;
-    }
-
-    const problem = createBlock("problem", tEditor);
-    window.setTimeout(() => {
-      let insertedBodyBlockId: string | null = null;
-      commitDocumentChange((current) => {
-        if (!findBlock(current, triggerBlockId)) {
-          return current;
-        }
-        const next = insertBlockAtSelection(current, problem, triggerBlockId, { replaceEmpty: true });
-        const result = ensureBodyBlockAfterProblem(next, problem.id);
-        insertedBodyBlockId = result.bodyBlock?.id ?? null;
-        return result.document;
-      });
-      setSelectedInlineMath(null);
-      const nextSelectedId = insertedBodyBlockId ?? problem.id;
-      selectedIdRef.current = nextSelectedId;
-      setSelectedId(nextSelectedId);
-      if (insertedBodyBlockId) {
-        scheduleEditorBlockFocus(insertedBodyBlockId);
-      }
-      setStatusMessage(tEditor("status.problemInserted"));
-    }, 0);
-    return true;
-  }, [commitDocumentChange, setSelectedId, setSelectedInlineMath, setStatusMessage]);
-
-  const wrapBlockInColumns = (blockIds: string[], columnCount: number) => {
-    const focusBlockId = blockIds[0] ?? null;
-    if (!focusBlockId) {
-      return;
-    }
-    commitDocumentChange((current) => wrapTextFlowBlocksInLayoutSection(current, blockIds, columnCount));
-    setSelectedInlineMath(null);
-    selectedIdRef.current = focusBlockId;
-    setSelectedId(focusBlockId);
-    scheduleEditorBlockFocus(focusBlockId);
-  };
-
-  const unwrapColumns = (sectionId: string) => {
-    const section = findContainingLayoutSection(documentRef.current, sectionId);
-    const focusBlockId = section?.children[0]?.id ?? selectedIdRef.current;
-    commitDocumentChange((current) => unwrapLayoutSection(current, sectionId));
-    setSelectedInlineMath(null);
-    selectedIdRef.current = focusBlockId;
-    setSelectedId(focusBlockId);
-    if (focusBlockId) {
-      scheduleEditorBlockFocus(focusBlockId);
-    }
-  };
-
-  const resizeLayoutColumns = (sectionId: string, dividerIndex: number, leftWidth: number, rightWidth: number) => {
-    commitDocumentChange((current) => {
-      let shouldUnwrap = false;
-      const updated = updateBlockInDocument(current, sectionId, (block) => {
-        if (block.type !== "layoutSection") return block;
-        const columns = getLayoutSectionColumns(block);
-        const widths = getLayoutSectionColumnWidths(block, columns.length);
-        if (!columns[dividerIndex] || !columns[dividerIndex + 1]) return block;
-        if (leftWidth <= 0 || rightWidth <= 0) {
-          const merged = [...columns[dividerIndex], ...columns[dividerIndex + 1]];
-          const nextColumns = [...columns.slice(0, dividerIndex), merged, ...columns.slice(dividerIndex + 2)];
-          const nextWidths = [...widths.slice(0, dividerIndex), widths[dividerIndex] + widths[dividerIndex + 1], ...widths.slice(dividerIndex + 2)];
-          shouldUnwrap = nextColumns.length === 1;
-          return setLayoutSectionColumns(block, nextColumns, nextWidths);
-        }
-        const pairTotal = widths[dividerIndex] + widths[dividerIndex + 1];
-        const pixelTotal = leftWidth + rightWidth;
-        const nextWidths = [...widths];
-        nextWidths[dividerIndex] = Math.round(pairTotal * leftWidth / pixelTotal);
-        nextWidths[dividerIndex + 1] = pairTotal - nextWidths[dividerIndex];
-        return setLayoutSectionColumns(block, columns, nextWidths);
-      });
-      return shouldUnwrap ? unwrapLayoutSection(updated, sectionId) : updated;
-    });
-  };
+  const { previewOpen, setPreviewOpen, pdfExporting, exportedPdfPath, setExportedPdfPath, printPreviewRenderState, setPrintPreviewRenderState, openPrintPreview, exportPdf, openPrintWindow } = useDocumentPrintController({ isDesktopApp, isEmbedded, getDocument: getCurrentSessionDocument, getActiveFileId: getActiveWorkspaceFileId, flushOverlayChanges, saveCurrentDocumentRecord, setSaveState, setStatusMessage });
 
   const getActiveTextTarget = (): "document" | "overlay" | "comment" => {
     if (typeof window !== "undefined" && window.document.activeElement?.closest(".comment-thread-panel")) {
@@ -4536,211 +2657,14 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
   };
 
   // memo 済みの本文ユニットへ渡るので識別子を固定する (中身は commitDocumentChange だけを読む)。
-  const updateBlock = useCallback((
-    blockId: string,
-    updater: (block: SigmaBlock | RichBlock) => SigmaBlock | RichBlock,
-    context?: TextFlowChangeContext,
-  ) => {
-    commitDocumentChange(
-      (current) => updateBlockInDocument(
-        current,
-        blockId,
-        (block: EditableBlock) => block.type === "listItem" ? block : updater(block),
-      ),
-      context?.historyGroup ? { historyGroup: context.historyGroup } : undefined,
-    );
-  }, [commitDocumentChange]);
-
-  const updateBlockSpaceAfter = useCallback((blockId: string, spaceAfterPx: number) => {
-    commitDocumentChange((current) => updateBlockInDocument(
-      current,
-      blockId,
-      (block) => setBlockSpaceAfter(block, spaceAfterPx),
-    ));
-  }, [commitDocumentChange]);
-
-  /**
-   * 本文を空にした削除は、補われた空段落へキャレットを連れて行く。空段落があっても焦点が
-   * 無ければ「消したら打っても何も出ない」ままなので、削除の続きにそのまま書ける Word と
-   * 同じ手触りにする。書き込みが AI ロックで弾かれたときは補いも起きないので、実際に文書へ
-   * 入ったことを確かめてから焦点を移す。
-   */
-  const focusBodyFallback = (fallbackBlockId: string | null) => {
-    if (!fallbackBlockId || !findBlock(documentRef.current, fallbackBlockId)) {
-      return;
-    }
-    selectedIdRef.current = fallbackBlockId;
-    setSelectedId(fallbackBlockId);
-    scheduleEditorBlockFocus(fallbackBlockId);
-  };
-
-  const removeBlock = (blockId: string) => {
-    let fallbackBlockId: string | null = null;
-    commitDocumentChange((current) => {
-      const ensured = ensureEditableBody(removeBlockFromDocument(current, blockId));
-      fallbackBlockId = ensured.bodyBlock?.id ?? null;
-      return { ...ensured.document, content: removeLeadingEmptyPageBreaks(ensured.document.content) };
-    });
-    setSelectedId((current) => (current === blockId ? null : current));
-    focusBodyFallback(fallbackBlockId);
-  };
-
-  /**
-   * Deletes body blocks outright, without first emptying their text. Anything the user can
-   * point at is fair game — top-level blocks, blocks inside a column section or a box, and
-   * the blocks of a problem area — so the caller does not have to know where a block lives.
-   */
-  const removeBlocks = (blockIds: string[]) => {
-    const removableIds = blockIds.filter((id) => !!findBlock(documentRef.current, id));
-    if (removableIds.length === 0) {
-      return;
-    }
-
-    let fallbackBlockId: string | null = null;
-    commitDocumentChange((current) => {
-      // リストの項目はブロック単位の一括削除が受け付けない (項目はリストの一部)。1 つずつ落とす —
-      // 項目が全部消えたリストは `removeBlockFromDocument` が一緒に落とす。
-      const itemIds = removableIds.filter((id) => findBlock(current, id)?.type === "listItem");
-      const blockOnlyIds = removableIds.filter((id) => !itemIds.includes(id));
-      let next = blockOnlyIds.length > 0 ? deleteBlocksFromDocument(current, blockOnlyIds) : current;
-      for (const itemId of itemIds) {
-        if (findBlock(next, itemId)) {
-          next = removeBlockFromDocument(next, itemId);
-        }
-      }
-      const ensured = ensureEditableBody(next);
-      fallbackBlockId = ensured.bodyBlock?.id ?? null;
-      return { ...ensured.document, content: removeLeadingEmptyPageBreaks(ensured.document.content) };
-    });
-    setSelectedInlineMath(null);
-    setSelectedId((current) => (current && removableIds.includes(current) ? null : current));
-    focusBodyFallback(fallbackBlockId);
-    setStatusMessage(removableIds.length > 1 ? tEditor("status.bodyDeleted") : tEditor("status.blockDeleted"));
-  };
-
-  /**
-   * グリップのドラッグで落とした結果を 1 手で書く。動かした先頭のブロックへ焦点を移す
-   * (段組化・リストの分割でも、掴んだブロックの id は変わらない)。
-   */
-  const moveBlocksByDragRequest = (request: BlockDragMoveRequest) => {
-    const before = documentRef.current;
-    commitDocumentChange((current) => moveBlocksByDrag(current, request));
-    if (documentRef.current === before) {
-      return;
-    }
-    const focusBlockId = request.unitIds[0] ?? null;
-    setSelectedInlineMath(null);
-    if (focusBlockId && findBlock(documentRef.current, focusBlockId)) {
-      selectedIdRef.current = focusBlockId;
-      setSelectedId(focusBlockId);
-      scheduleEditorBlockFocus(focusBlockId);
-    }
-    setStatusMessage(tEditor("status.blockMoved"));
-  };
-
-  /** ⌥⇧↑/↓。キャレットは同じブロック・同じ位置に留める (ブロックごと動くので id は同じ)。 */
-  const moveBlocksByStepRequest = (unitIds: string[], direction: "up" | "down") => {
-    const before = documentRef.current;
-    const caret = textSelectionBookmarkRef.current;
-    commitDocumentChange((current) => moveUnitsByStep(current, unitIds, direction));
-    if (documentRef.current === before) {
-      return;
-    }
-    setSelectedInlineMath(null);
-    if (caret && unitIds.includes(caret.anchor.blockId)) {
-      requestCaret(caret);
-      return;
-    }
-    const focusBlockId = unitIds[0] ?? null;
-    if (focusBlockId && findBlock(documentRef.current, focusBlockId)) {
-      const hasFocus = window.document.activeElement instanceof HTMLElement
-        && window.document.activeElement.isContentEditable;
-      if (hasFocus) {
-        selectedIdRef.current = focusBlockId;
-        setSelectedId(focusBlockId);
-        scheduleEditorBlockFocus(focusBlockId);
-      }
-    }
-  };
-
-  /** Adds an empty paragraph next to `anchorBlockId`, or at the end when it is null. */
-  const insertBodyBlockAt = (anchorBlockId: string | null, position: "before" | "after") => {
-    // Clicking the blank strip under the text repeatedly must not stack empty paragraphs:
-    // if the document already ends in one, that is the spot the user is asking for.
-    if (anchorBlockId === null && position === "after") {
-      const lastBlock = documentRef.current.content.at(-1);
-      if (lastBlock && isEmptyTopLevelTextFlowBlock(lastBlock)) {
-        selectedIdRef.current = lastBlock.id;
-        setSelectedId(lastBlock.id);
-        scheduleEditorBlockFocus(lastBlock.id);
-        return;
-      }
-    }
-
-    const block = createBlock("paragraph", tEditor);
-    commitDocumentChange((current) => (
-      position === "before"
-        ? insertTopLevelDocumentBlocksBefore(current, anchorBlockId, [block], DOCUMENT_BLOCK_OPERATION_PORTS)
-        : insertTopLevelDocumentBlocks(current, anchorBlockId, [block], DOCUMENT_BLOCK_OPERATION_PORTS)
-    ));
-    setSelectedInlineMath(null);
-    selectedIdRef.current = block.id;
-    setSelectedId(block.id);
-    scheduleEditorBlockFocus(block.id);
-  };
-
-  const copyBlockToClipboard = (blockId: string) => {
-    const block = findBlock(documentRef.current, blockId);
-    if (!block || block.type === "listItem") {
-      return;
-    }
-
-    void writeEditorPayloadToSystemClipboard(createDocumentBlocksClipboardPayload([block])).then((copied) => {
-      setCanPasteProblem(copied && block.type === "problem");
-      setStatusMessage(copied
-        ? block.type === "problem"
-          ? tEditor("status.problemCopied")
-          : block.type === "boxBlock" ? tEditor("status.boxCopied") : tEditor("status.blockCopied")
-        : tEditor("status.copyFailed"));
-    });
-  };
-
-  const pasteBlockFromClipboard = useCallback((blockId: string, position: "before" | "after") => {
-    const payload = getLocalEditorClipboardPayload();
-    if (payload?.kind !== "documentBlocks") {
-      setStatusMessage(tEditor("status.nothingToPaste"));
-      return;
-    }
-
-    const pastedBlocks = cloneDocumentBlocksForPaste(payload.blocks);
-    if (pastedBlocks.length === 0) {
-      setStatusMessage(tEditor("status.nothingToPaste"));
-      return;
-    }
-
-    commitDocumentChange((current) => (
-      position === "before"
-        ? insertTopLevelDocumentBlocksBefore(
-            current,
-            blockId,
-            pastedBlocks,
-            DOCUMENT_BLOCK_OPERATION_PORTS,
-          )
-        : insertTopLevelDocumentBlocks(
-            current,
-            blockId,
-            pastedBlocks,
-            DOCUMENT_BLOCK_OPERATION_PORTS,
-          )
-    ));
-    const nextSelectedId = pastedBlocks[pastedBlocks.length - 1]?.id ?? null;
-    selectedIdRef.current = nextSelectedId;
-    setSelectedId(nextSelectedId);
-    setSelectedInlineMath(null);
-    setStatusMessage(pastedBlocks.length === 1 && pastedBlocks[0]?.type === "problem"
-      ? tEditor("status.problemPasted")
-      : tEditor("status.blockPasted"));
-  }, [commitDocumentChange, setSelectedId, setSelectedInlineMath, setStatusMessage]);
+  const getSelectedBlockId = useCallback(() => selectedIdRef.current, []);
+  const getBodySelectionBookmark = useCallback(() => textSelectionBookmarkRef.current, []);
+  const selectBodyBlock = useCallback((value: SetStateAction<string | null>) => {
+    const next = typeof value === "function" ? value(selectedIdRef.current) : value;
+    selectedIdRef.current = next;
+    setSelectedId(next);
+  }, [setSelectedId]);
+  const { addBlock, insertProblemFromTextFlowCommand, wrapBlockInColumns, unwrapColumns, resizeLayoutColumns, updateBlock, updateBlockSpaceAfter, removeBlock, removeBlocks, moveBlocksByDragRequest, moveBlocksByStepRequest, insertBodyBlockAt, copyBlockToClipboard, pasteBlockFromClipboard } = useDocumentBodyCommands({ getDocument: getCurrentSessionDocument, selectedId, getSelectedId: getSelectedBlockId, setSelectedId: selectBodyBlock, setSelectedInlineMath, getSelectionBookmark: getBodySelectionBookmark, commitDocumentChange, setCanPasteProblem, setStatusMessage });
 
   const insertTemplate = useCallback((template: TemplateItem) => {
     insertContentAt(templateInsertContent(template), null, { x: 24, y: 24 }, tEditor("status.templateInserted"));
@@ -4753,7 +2677,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
       newDocMenuCloseTimerRef.current = null;
     }
     setNewDocMenuOpen(true);
-  }, []);
+  }, [setNewDocMenuOpen]);
 
   const scheduleCloseNewDocMenu = useCallback(() => {
     if (newDocMenuCloseTimerRef.current !== null) {
@@ -4763,7 +2687,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
       setNewDocMenuOpen(false);
       newDocMenuCloseTimerRef.current = null;
     }, 140);
-  }, []);
+  }, [setNewDocMenuOpen]);
 
   const applyTextStyle = (style: string) => {
     if (!canUseTextBlockStyle) {
@@ -4866,227 +2790,10 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
     window.dispatchEvent(new CustomEvent(FORMAT_TEXT_EVENT, { detail: { command, target: textToolbar.target } }));
   };
 
-  const toggleMenu = (menu: NonNullable<EditorMenu>) => {
-    setExportMenuOpen(false);
-    setShapeMenuOpen(false);
-    setLineToolMenuOpen(false);
-    setFontFamilyMenuOpen(false);
-    setBlockStyleMenuOpen(false);
-    setBoxedTextMenuOpen(false);
-    setLineHeightMenuOpen(false);
-    setTextAlignMenuOpen(false);
-    setOrderedListMenuOpen(false);
-    setMoreBlocksMenuOpen(false);
-    setLineDashMenuOpen(false);
-    setLineWidthMenuOpen(false);
-    setColorStylePanel(null);
-    setLineEndpointMenu(null);
-    setActiveMenu((current) => (current === menu ? null : menu));
-  };
-
-  // --- Word風リボン ---------------------------------------------------------
-  // 状態の所有者は変えない。リボンは EditorShell が持つこの state と既存ハンドラを読むだけ。
-
-  // 図形が「選択されている」ことだけを条件にする。overlayEditing まで含めると、
-  // 図形ツールを選んだ瞬間 (まだ図形が無い) にタブを奪われ、しかもそのタブは
-  // 全コントロールが disabled (canUseStrokeStyleControls 等はすべて
-  // hasOverlaySelection を要求する) という行き止まりになる。選択解除で消えて
-  // 直前のタブへ戻る、という仕様ともこちらの条件でしか両立しない。
-  const ribbonContextualTabVisible = hasOverlaySelection;
-
-  useEffect(() => {
-    const justAppeared = ribbonContextualTabVisible && !ribbonContextualWasVisibleRef.current;
-    ribbonContextualWasVisibleRef.current = ribbonContextualTabVisible;
-    // resolveRibbonTabState は変化が無ければ同じオブジェクトを返すので、ここで
-    // 無駄な再レンダーは起きない（アイドル時のループ防止）。
-    setRibbonTabState((current) => resolveRibbonTabState(current, {
-      contextualVisible: ribbonContextualTabVisible,
-      contextualJustAppeared: justAppeared,
-    }));
-  }, [ribbonContextualTabVisible]);
-
-  // タブを切り替えるとポップオーバーのアンカーになっているボタンが unmount し、
-  // ToolbarPopover は anchorRef.current === null で top:-9999px へ飛んで見えなくなる。
-  // 先に全部閉じる。閉じる集合は toggleMenu と揃え、リボンのタブ内にしか
-  // アンカーが無いもの（検索置換・数式・新規教材）も含める。Backstage の開閉でも
-  // リボン本体ごと unmount するので、同じ集合を閉じる。
-  const closeRibbonAnchoredPopovers = () => {
-    setExportMenuOpen(false);
-    setShapeMenuOpen(false);
-    setLineToolMenuOpen(false);
-    setFontFamilyMenuOpen(false);
-    setBlockStyleMenuOpen(false);
-    setBoxedTextMenuOpen(false);
-    setLineHeightMenuOpen(false);
-    setTextAlignMenuOpen(false);
-    setOrderedListMenuOpen(false);
-    setMoreBlocksMenuOpen(false);
-    setLineDashMenuOpen(false);
-    setLineWidthMenuOpen(false);
-    setColorStylePanel(null);
-    setLineEndpointMenu(null);
-    setActiveMenu(null);
-    setSearchOpen(false);
-    setInlineMathMenuOpen(false);
-    setNewDocMenuOpen(false);
-  };
-
-  // collapsed は永続 (ui-layout-preference)、overlayOpen は一時。純関数へ渡すために組で作る。
-  // docs では折りたたみの概念が無いので必ず展開扱いにする。
-  const ribbonCollapsed = uiLayoutPreference.mode === "word" && uiLayoutPreference.ribbonCollapsed;
-  // 浮かせた本体は折りたたみ中にしか存在しない。展開したり docs へ移ったりしたら
-  // 一時状態を畳む — 残しておくと「docs へ行って word に戻ったら、何も押していないのに
-  // 本体が浮いている」になる。effect ではなくレンダー中に補正する (Backstage と同じ形)。
-  const resolvedRibbonOverlayOpen = ribbonCollapsed && ribbonOverlayOpen;
-  if (resolvedRibbonOverlayOpen !== ribbonOverlayOpen) {
-    setRibbonOverlayOpen(resolvedRibbonOverlayOpen);
-  }
-  const ribbonCollapse: RibbonCollapseState = {
-    collapsed: ribbonCollapsed,
-    overlayOpen: resolvedRibbonOverlayOpen,
-  };
-
-  const selectRibbonTab = (tab: RibbonPanelTabId) => {
-    closeRibbonAnchoredPopovers();
-    // Backstage を開いたままタブを押したら、そのタブを開いて Backstage を閉じる
-    // （Word と同じ）。閉じないとタブ行だけが反応しない行き止まりになる。
-    setRibbonBackstage((current) => closeBackstageState(current));
-    // 折りたたみ中は本体を «浮かせて» 出す。同じタブをもう一度押したら閉じる。
-    // 比較先は «実際に選択として描かれているタブ»。コンテキストタブが消えた直後の
-    // 1レンダーだけ state の active は不可視の shapeFormat のままで、クロームは
-    // lastExplicit を選択として描いている（editor-chrome.tsx の activeRibbonTab と同じ導出）。
-    const renderedActiveTab = ribbonTabState.active === "shapeFormat" && !ribbonContextualTabVisible
-      ? ribbonTabState.lastExplicit
-      : ribbonTabState.active;
-    const nextCollapse = resolveTabClickWhileCollapsed(ribbonCollapse, {
-      sameTab: renderedActiveTab === tab,
-    });
-    setRibbonOverlayOpen(nextCollapse.overlayOpen);
-    setRibbonTabState((current) => selectRibbonTabState(current, tab));
-  };
-
-  const toggleRibbonCollapse = () => {
-    closeRibbonAnchoredPopovers();
-    const next = toggleRibbonCollapseState(ribbonCollapse);
-    // collapsed だけ永続する。overlayOpen を永続すると、次回起動時に本体が
-    // 浮いたまま出てしまう。
-    updateUiLayoutPreference({ ribbonCollapsed: next.collapsed });
-    setRibbonOverlayOpen(next.overlayOpen);
-  };
-
-  const closeRibbonOverlayNow = () => {
-    setRibbonOverlayOpen((current) => closeRibbonOverlay({
-      collapsed: true,
-      overlayOpen: current,
-    }).overlayOpen);
-  };
-
-  const toggleRibbonBackstage = () => {
-    closeRibbonAnchoredPopovers();
-    // Backstage は本文もリボンも覆うので、浮かせた本体は畳んでおく。残すと
-    // Backstage を閉じた先に、誰も呼んでいない本体が浮いたまま出てくる
-    // （キーボードだけで操作すると pointerdown が出ないのでこの経路に入る）。
-    setRibbonOverlayOpen(false);
-    setRibbonBackstage((current) => toggleBackstageState(current));
-  };
-
-  const closeRibbonBackstage = () => {
-    setRibbonBackstage((current) => closeBackstageState(current));
-  };
-
-  const selectRibbonBackstageSection = (section: BackstageSectionId) => {
-    setRibbonBackstage((current) => selectBackstageSectionState(current, section));
-  };
-
-  // レイアウトが Word風を離れたら Backstage を畳む。これが無いと docs へ切り替えて
-  // 戻ってきた瞬間に全画面が残ったまま出る。
-  // effect ではなくレンダー中に補正する（React 公式の「変化に合わせて state を調整する」形）。
-  // resolveBackstageStateForLayout は変化が無ければ同じ参照を返すので、通常のレンダーでは
-  // 何も起きない。以降は補正後の値だけを読む。
-  const ribbonBackstageState = resolveBackstageStateForLayout(ribbonBackstage, uiLayoutPreference.mode);
-  if (ribbonBackstageState !== ribbonBackstage) {
-    setRibbonBackstage(ribbonBackstageState);
-  }
-
-  const ribbonBackstageOpen = ribbonBackstageState.open;
-
-  // Backstage 表示中は本文・図形へキーを届かせない。
-  // OverlayCanvasEditorClient の handleOverlayKeyboard は window の bubble リスナーで、
-  // 「入力欄かどうか」しか見ない = Backstage のボタンにフォーカスがあると Delete や
-  // 矢印キーが図形へ素通りする。window の capture で止めれば bubble まで降りない。
-  // preventDefault はしないので Tab によるフォーカス移動は生きる。Escape だけは
-  // 通して closeTransientUi に閉じさせる。
-  useEffect(() => {
-    if (!ribbonBackstageOpen) {
-      return;
-    }
-    const guardBackstageKeys = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        return;
-      }
-      event.stopPropagation();
-    };
-    window.addEventListener("keydown", guardBackstageKeys, true);
-    return () => window.removeEventListener("keydown", guardBackstageKeys, true);
-  }, [ribbonBackstageOpen]);
-
-  // Ctrl+F1 のリスナーは毎レンダー張り替えたくないので、最新のハンドラを ref に写す
-  // (runShortcutCommandRef と同じ手。レンダー中の ref 書き換えは禁止なので effect で)。
-  useEffect(() => {
-    toggleRibbonCollapseRef.current = toggleRibbonCollapse;
-  });
-
-  // 浮かせたリボン本体は外側クリックで閉じる（ToolbarPopover と同じ形: document の
-  // pointerdown + contains 判定）。タブ行の中は「外側」に含めない — タブを押したときの
-  // 開閉は resolveTabClickWhileCollapsed が決めるので、ここで先に閉じると打ち消し合う。
-  useEffect(() => {
-    if (!ribbonOverlayOpen) {
-      return;
-    }
-    const handlePointerDown = (event: PointerEvent) => {
-      const target = event.target as Node | null;
-      if (!target) {
-        return;
-      }
-      // SDK は1ページに EditorShell を2つ載せうるので、querySelector(".app-shell") で
-      // «最初の» シェルを掴まない。自分のタブ行 (useId 由来の id) から辿る。
-      const root = window.document
-        .getElementById(ribbonTabElementId(ribbonIdPrefix, "file"))
-        ?.closest(".app-shell");
-      if (!root?.contains(target)) {
-        return;
-      }
-      // 「外側」から外すのはタブそのものだけ。タブ行右端のコメント / AIチャット /
-      // 展開ボタンを押したら、その結果が浮いた本体に隠れないよう畳む。
-      if (target instanceof Element && target.closest(".ribbon-body, .ribbon-tabs")) {
-        return;
-      }
-      closeRibbonOverlayNow();
-    };
-    window.document.addEventListener("pointerdown", handlePointerDown);
-    return () => window.document.removeEventListener("pointerdown", handlePointerDown);
-    // closeRibbonOverlayNow は setter しか呼ばないので、識別子が毎レンダー変わっても
-    // 張り替える必要が無い（張り替えると pointerdown を取りこぼす）。
-  }, [ribbonOverlayOpen, ribbonIdPrefix]);
-
-  // 開いたら Backstage の先頭要素へ、閉じたらファイルタブへフォーカスを戻す。
-  // クロームの JSX は1関数・1 render pass で作る規約なので ref を配れない。
-  // id は ribbon-tabs.ts / ribbon-backstage.ts が組み立てを持っている（useId 由来の
-  // 接頭辞なので、SDK が1ページに2つ埋め込んでも他方を掴まない）。
-  useEffect(() => {
-    if (!ribbonBackstageOpen) {
-      return;
-    }
-    const panel = window.document.getElementById(ribbonBackstagePanelId(ribbonIdPrefix));
-    panel?.querySelector<HTMLElement>("button:not(:disabled)")?.focus();
-    return () => {
-      window.document.getElementById(ribbonTabElementId(ribbonIdPrefix, "file"))?.focus();
-    };
-  }, [ribbonBackstageOpen, ribbonIdPrefix]);
-
   // 文書を1本走査するので、実際にボタンが描かれるレイアウトタブを開いている
   // ときだけ計算する。docs では段組みコマンドが画面に無く、word でも他のタブでは
   // 読まれないため、毎キーストロークの走査を丸ごと省ける。
+  useEffect(() => { toggleRibbonCollapseRef.current = toggleRibbonCollapse; });
   const ribbonRibbonBodyVisible = !ribbonCollapse.collapsed || ribbonCollapse.overlayOpen;
   const ribbonColumnCommand = uiLayoutPreference.mode === "word" && ribbonTabState.active === "layout" && !ribbonBackstageOpen && ribbonRibbonBodyVisible
     ? resolveColumnCommandState(document, selectedId)
@@ -5188,7 +2895,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
     setStatusMessage(imageFiles.length === 1
       ? tEditor("status.addImageToPage")
       : tEditor("status.addImagesToPage", { images: imageFiles.length }));
-  }, [captureMaterialBlockSelectionFromDom, setSaveState, setStatusMessage]);
+  }, [captureMaterialBlockSelectionFromDom, setLineDashMenuOpen, setLineToolMenuOpen, setLineWidthMenuOpen, setSaveState, setShapeMenuOpen, setStatusMessage]);
 
   // Turn a URL detected in the flow editor into a QR code, inserted on the page
   // as an overlay image (the same pipeline as pasted/imported images).
@@ -5245,7 +2952,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
     setTextAlignMenuOpen(false);
     setColorStylePanel(null);
     setLineEndpointMenu(null);
-  }, []);
+  }, [setActiveMenu, setBlockStyleMenuOpen, setBoxedTextMenuOpen, setColorStylePanel, setExportMenuOpen, setFontFamilyMenuOpen, setLineEndpointMenu, setLineHeightMenuOpen, setLineToolMenuOpen, setShapeMenuOpen, setTextAlignMenuOpen]);
 
   /**
    * IME 変換中か。**メニュー経路には `event.isComposing` が無い**ので自前で追う。
@@ -5450,7 +3157,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
       // started on.
       setColorStylePanel((current) => (current === "fill" ? null : current));
     }
-  }, []);
+  }, [setColorStylePanel, setLineDashMenuOpen, setLineWidthMenuOpen]);
 
   const applyInlineFormat = (command: "color" | "backgroundColor" | "fontFamily" | "fontSize" | "lineHeight" | "boxedPaddingY" | "boxedVariant", value: string) => {
     if (!canUseTextToolbar) {
@@ -5460,87 +3167,12 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
     window.dispatchEvent(new CustomEvent(FORMAT_TEXT_EVENT, { detail: { command, value, target: textToolbar.target } }));
   };
 
-  const applyLineHeight = (nextLineHeightValue: string, options: { updateInput?: boolean } = {}): boolean => {
-    if (!canUseLineHeight) {
-      return false;
-    }
-
-    const nextLineHeight = normalizeLineHeight(nextLineHeightValue);
-    if (!nextLineHeight) {
-      setLineHeightInputError(t("format.lineHeight.inputError", { min: MIN_LINE_HEIGHT, max: MAX_LINE_HEIGHT }));
-      return false;
-    }
-
-    setLineHeight(nextLineHeight);
-    if (options.updateInput !== false) {
-      setLineHeightInput(nextLineHeight);
-    }
-    setLineHeightInputError(null);
-    applyInlineFormat("lineHeight", nextLineHeight);
-    return true;
-  };
-
-  const stopLineHeightStepping = useCallback(() => {
-    if (lineHeightStepDelayTimerRef.current !== null) {
-      window.clearTimeout(lineHeightStepDelayTimerRef.current);
-      lineHeightStepDelayTimerRef.current = null;
-    }
-    if (lineHeightStepRepeatTimerRef.current !== null) {
-      window.clearInterval(lineHeightStepRepeatTimerRef.current);
-      lineHeightStepRepeatTimerRef.current = null;
-    }
-    lineHeightStepCurrentRef.current = null;
-  }, []);
-
-  const applyLineHeightStep = (direction: "increase" | "decrease"): boolean => {
-    const currentLineHeight = lineHeightStepCurrentRef.current ?? lineHeight;
-    const nextLineHeight = stepLineHeight(currentLineHeight, direction);
-    if (nextLineHeight === currentLineHeight) {
-      stopLineHeightStepping();
-      return false;
-    }
-    lineHeightStepCurrentRef.current = nextLineHeight;
-    return applyLineHeight(nextLineHeight);
-  };
-
-  const startLineHeightStepping = (event: ReactPointerEvent<HTMLButtonElement>, direction: "increase" | "decrease") => {
-    if (!event.isPrimary || event.button !== 0) {
-      return;
-    }
-    event.preventDefault();
-    stopLineHeightStepping();
-    if (!applyLineHeightStep(direction)) {
-      return;
-    }
-    lineHeightStepDelayTimerRef.current = window.setTimeout(() => {
-      lineHeightStepDelayTimerRef.current = null;
-      if (!applyLineHeightStep(direction)) {
-        return;
-      }
-      lineHeightStepRepeatTimerRef.current = window.setInterval(() => {
-        applyLineHeightStep(direction);
-      }, LINE_HEIGHT_LONG_PRESS_INTERVAL_MS);
-    }, LINE_HEIGHT_LONG_PRESS_DELAY_MS);
-  };
-
-  const handleLineHeightStepClick = (event: MouseEvent<HTMLButtonElement>, direction: "increase" | "decrease") => {
-    if (event.detail === 0) {
-      applyLineHeightStep(direction);
-    }
-  };
-
-  useEffect(() => stopLineHeightStepping, [stopLineHeightStepping]);
-
-  useEffect(() => {
-    if (!lineHeightMenuOpen || !lineHeightCustomOpen) {
-      stopLineHeightStepping();
-    }
-  }, [lineHeightCustomOpen, lineHeightMenuOpen, stopLineHeightStepping]);
+  const { applyLineHeight, startLineHeightStepping, handleLineHeightStepClick, stopLineHeightStepping } = useLineHeightControl({ enabled: canUseLineHeight, lineHeight, menuOpen: lineHeightMenuOpen, customOpen: lineHeightCustomOpen, setLineHeight, setLineHeightInput, setLineHeightInputError, applyFormat: applyInlineFormat, t });
 
   const applyBoxedTextPaddingY = (paddingY: number) => {
     const nextPaddingY = clampBoxedTextPaddingY(paddingY);
     setBoxedTextPaddingY(nextPaddingY);
-    lastBoxedFormatRef.current = { ...lastBoxedFormatRef.current, paddingY: nextPaddingY };
+    rememberBoxedFormat({ paddingY: nextPaddingY });
     applyInlineFormat("boxedPaddingY", String(nextPaddingY));
   };
 
@@ -5555,11 +3187,11 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
       // Insert reusing the last applied format + padding (not a reset to a plain 0pt
       // frame). boxedVariant/boxedPaddingY both use "set" mode, which adds the boxed
       // mark and merges the attrs, so the new box matches the previous insert.
-      const variant = normalizeBoxedTextVariant(lastBoxedFormatRef.current.variant) ?? "frame";
+      const variant = normalizeBoxedTextVariant(getLastBoxedFormat().variant) ?? "frame";
       if (variant !== "frame") {
         applyInlineFormat("boxedVariant", variant);
       }
-      applyInlineFormat("boxedPaddingY", String(clampBoxedTextPaddingY(lastBoxedFormatRef.current.paddingY)));
+      applyInlineFormat("boxedPaddingY", String(clampBoxedTextPaddingY(getLastBoxedFormat().paddingY)));
     }
     setBoxedTextMenuOpen(false);
   };
@@ -5577,58 +3209,11 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
       return;
     }
 
-    lastBoxedFormatRef.current = { ...lastBoxedFormatRef.current, variant: nextVariant };
+    rememberBoxedFormat({ variant: nextVariant });
     applyInlineFormat("boxedVariant", nextVariant);
   };
 
-  const findNext = () => {
-    const match = findFirstBlockWithText(document.content, searchQuery, selectedId, "next");
-    if (!match) {
-      setStatusMessage(tEditor("status.noSearchResults"));
-      return;
-    }
-
-    setSelectedId(match.id);
-    window.document.getElementById(match.id)?.scrollIntoView({ block: "center", behavior: "smooth" });
-    setStatusMessage(tEditor("status.searchResultSelected"));
-  };
-
-  const findPrevious = () => {
-    const match = findFirstBlockWithText(document.content, searchQuery, selectedId, "previous");
-    if (!match) {
-      setStatusMessage(tEditor("status.noSearchResults"));
-      return;
-    }
-
-    setSelectedId(match.id);
-    window.document.getElementById(match.id)?.scrollIntoView({ block: "center", behavior: "smooth" });
-    setStatusMessage(tEditor("status.searchResultSelected"));
-  };
-
-  const replaceNext = () => {
-    const match = findFirstBlockWithText(document.content, searchQuery, selectedId, "next");
-    if (!match) {
-      setStatusMessage(tEditor("status.nothingToReplace"));
-      return;
-    }
-
-    commitDocumentChange((current) => replaceInDocument(current, searchQuery, replaceText, false));
-    setSelectedId(match.id);
-    setStatusMessage(tEditor("status.replacedOne"));
-  };
-
-  const replaceAll = () => {
-    const count = countTextMatches(document.content, searchQuery);
-    if (count === 0) {
-      setStatusMessage(tEditor("status.nothingToReplace"));
-      return;
-    }
-
-    commitDocumentChange((current) => replaceInDocument(current, searchQuery, replaceText, true));
-    setStatusMessage(tEditor("status.replacedMany", { matches: count }));
-  };
-
-  const searchMatchCount = useMemo(() => countTextMatches(document.content, searchQuery), [document.content, searchQuery]);
+  const { findNext, findPrevious, replaceNext, replaceAll, searchMatchCount } = useDocumentSearchCommands({ document, selectedId, searchQuery, replaceText, setSelectedId, setStatusMessage, commitDocumentChange });
 
   const replaceTextFlow = useCallback((
     previousIds: string[],
@@ -5742,6 +3327,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
     tEditor
   });
 
+  useLayoutEffect(() => { workspaceDocumentActionsRef.current = { open: openDocumentInWorkspace, close: closeDocumentTab }; }, [closeDocumentTab, openDocumentInWorkspace]);
   useExternalDocumentOpen(isDesktopApp && workspaceReady, openExternalDocument, (error) => {
     setStatusMessage(error instanceof Error ? error.message : tEditor("status.fileOpenFailed"));
   });
@@ -5758,41 +3344,6 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
     setDesktopSettingsUpdateCheckRequest,
     setDesktopSettingsOpen
   });
-
-  useEffect(() => {
-    if (!isDesktopApp) {
-      return;
-    }
-
-    const bridge = getDesktopBridge();
-    if (!bridge?.updater) {
-      return;
-    }
-    const { updater } = bridge;
-
-    let cancelled = false;
-    const applyUpdateState = (state: DesktopUpdateState) => {
-      if (!cancelled) {
-        setAppUpdateState(state);
-      }
-    };
-
-    updater.getStatus().then((state) => {
-      applyUpdateState(state);
-      if (!state.supported || state.phase !== "idle" || appUpdateAutoCheckStartedRef.current) {
-        return;
-      }
-
-      appUpdateAutoCheckStartedRef.current = true;
-      void updater.checkForUpdates().then(applyUpdateState).catch(() => undefined);
-    }).catch(() => undefined);
-
-    const unsubscribe = updater.onStatusChange(applyUpdateState);
-    return () => {
-      cancelled = true;
-      unsubscribe();
-    };
-  }, [isDesktopApp]);
 
   useEffect(() => {
     if (isEmbedded) {
@@ -5955,50 +3506,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
     t,
   });
 
-  const applyAiSurface = useCallback((next: AiSurfaceState) => {
-    setAiDisplayMode(next.displayMode);
-    setRightDock((current) => (
-      next.aiSidebarOpen ? openRightDockTool(current, "chat") : closeRightDockToolIfShowing(current, "chat")
-    ));
-    setAiInlineOpen(next.aiInlineOpen);
-  }, [setRightDock]);
-
-  const openAiInline = useCallback((anchor: { left: number; top: number } | null) => {
-    // Web版にAIチャット面は無い (AI面はキャンバス左上のAiTaskDock一本)。⌘Kや
-    // コマンドパレットからこの経路に入っても、空のパネルを開かせない。
-    if (!isDesktopApp) {
-      return;
-    }
-    setVersionHistoryOpen(false);
-    // Reset the anchor unconditionally: a null anchor (⌘K with no selection) must
-    // fall back to the CSS default position rather than reuse a stale selection rect.
-    setAiInlineAnchor(anchor);
-    // Bump the session id so the inline editor starts on a fresh input (rather than
-    // re-showing a prior turn's result) each time it is opened.
-    setAiInlineSessionId((current) => current + 1);
-    applyAiSurface(openInline());
-  }, [applyAiSurface, isDesktopApp, setVersionHistoryOpen]);
-
-  const promoteAiToSidebar = useCallback(() => {
-    if (!isDesktopApp) {
-      return;
-    }
-    setVersionHistoryOpen(false);
-    setAiInlineRunAnchor(null);
-    setAiInlineRunAnchorCanvas(null);
-    // 会話があっても、本文と同じ大きさのタブにはしない。右のサイドバーに開いて、本文と並べて使う。
-    applyAiSurface(promoteToSidebar());
-  }, [applyAiSurface, isDesktopApp, setVersionHistoryOpen]);
-
-  // サイドバーを開く。開いていたページに戻り、無ければ Hub を出す。版履歴と同じ列を使うので、開くときは版履歴を閉じる。
-  const openRightDockSurface = useCallback(() => {
-    if (!isDesktopApp) {
-      return;
-    }
-    setVersionHistoryOpen(false);
-    setRightDock(openRightDock);
-  }, [isDesktopApp, setRightDock, setVersionHistoryOpen]);
-
+  useLayoutEffect(() => { surfacePreviewClearRef.current = clearAiEditPreview; }, [clearAiEditPreview]);
   const openVersionHistory = () => {
     if (versionHistoryRestoring) return;
     if (versionHistoryOpen) {
@@ -6028,7 +3536,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
     setVersionHistoryOpen(false);
     setAiFocusRoomRequest({ roomId, seq: Date.now() });
     applyAiSurface(promoteToSidebar());
-  }, [applyAiSurface, setVersionHistoryOpen]);
+  }, [applyAiSurface, promoteToSidebar, setVersionHistoryOpen]);
 
   // AIタスクDockの「他のドキュメント」行: その教材へ移り、部屋があればAIチャットでも開く。
   // 移動に失敗した (保存できない・読み込めない) ときは、元の教材でチャットを開かない。
@@ -6043,64 +3551,6 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
     resolveDocumentTitle: (fileId: string) => metadataByFileId.get(fileId)?.title || tE("shell.untitledDocument"),
     onOpen: (fileId: string, roomId: string | null) => { void openAiTaskDocument(fileId, roomId); },
   }), [mcpEditProposals, metadataByFileId, openAiTaskDocument, tE]);
-
-  const closeAiSurface = useCallback(() => {
-    // Closing the inline editor discards a single-shot result, so drop the floating
-    // body preview it left behind (clearAiEditPreview also dismisses the pending
-    // turn) and the references pinned during that inline session. Closing the
-    // docked sidebar must stay non-destructive: just hide the panel and leave any
-    // unapplied proposal AND pinned references recoverable on reopen.
-    if (aiDisplayMode === "inline" && aiInlineOpen) {
-      setAiInlineClosing(true);
-      window.setTimeout(() => {
-        const closingInline = aiDisplayMode === "inline";
-        applyAiSurface(closeSurface());
-        setAiInlineClosing(false);
-        if (closingInline) {
-          clearAiEditPinnedReferences();
-          if (!aiInlineRunAnchorRef.current) {
-            clearAiEditPreview();
-          }
-        }
-      }, 140);
-      return;
-    }
-
-    const closingInline = aiDisplayMode === "inline";
-    applyAiSurface(closeSurface());
-    if (closingInline) {
-      clearAiEditPinnedReferences();
-      if (!aiInlineRunAnchorRef.current) {
-        clearAiEditPreview();
-      }
-    }
-  }, [aiDisplayMode, aiInlineOpen, applyAiSurface, clearAiEditPinnedReferences, clearAiEditPreview]);
-
-  // サイドバー右上の ×。開いているページは残したまま、サイドバーだけを閉じる (開き直すと同じページに戻る)。
-  const collapseRightDock = useCallback(() => setRightDock(closeRightDock), [setRightDock]);
-
-  // チャットのタブの ×。見せているときはAI面の閉じ方 (未適用の提案を残す) に揃え、見せていなければタブだけを外す。
-  const closeRightDockChat = useCallback(() => {
-    if (isRightDockShowing(rightDock, "chat")) {
-      closeAiSurface();
-      return;
-    }
-    setRightDock((current) => closeRightDockPage(current, "chat"));
-  }, [closeAiSurface, rightDock, setRightDock]);
-
-  // 開閉と開いていたページは引き継がず、幅だけを次回へ引き継ぐ。読む前に書かない。
-  useEffect(() => {
-    const preference = readRightDockPreference();
-    // 保存済みの好みは hydration の後でしか読めない (SSR の初回描画と一致させるため)。
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    setRightDockWidth(preference.width);
-    rightDockPreferenceLoadedRef.current = true;
-  }, []);
-  useEffect(() => {
-    if (rightDockPreferenceLoadedRef.current) {
-      saveRightDockPreference({ width: rightDockWidth });
-    }
-  }, [rightDockWidth]);
 
   // AIパネル(inline/sidebar)が参照ハイライトを表示すべき状態か。
   const aiReferenceHighlightActive = useMemo(
@@ -6132,7 +3582,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
     return () => {
       window.dispatchEvent(new CustomEvent(AI_REFERENCE_TEXT_RANGE_EVENT, { detail: { anchors: [] } }));
     };
-  }, [aiEditPinnedReferences, aiReferenceHighlightActive]);
+  }, [AI_REFERENCE_TEXT_RANGE_EVENT, aiEditPinnedReferences, aiReferenceHighlightActive]);
 
   // ピン留めした textSelection の textRange は、pinした時点のブロック内容に対する文字
   // オフセットのスナップショット。このコードベースには、編集トランザクションに合わせて
@@ -6183,7 +3633,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
       setSelectedId(requestPlan.selectionAction.targetId);
     }
     setStatusMessage(requestPlan.statusMessage);
-  }, [aiDisplayMode, aiInlineOpen, aiSidebarOpen, openAiInline, pinAiEditPinnedReference, setSelectedId, setStatusMessage]);
+  }, [aiDisplayMode, aiInlineOpen, aiSidebarOpen, deriveAiReferenceRequestPlan, openAiInline, pinAiEditPinnedReference, setSelectedId, setStatusMessage]);
 
   const updateAiEditReferenceCandidate = useCallback((reference: AiEditReference | null) => {
     if (!reference && pinAiTextSelectionReference) {
@@ -6337,28 +3787,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
     };
     window.addEventListener("keydown", handleInlineShortcut, true);
     return () => window.removeEventListener("keydown", handleInlineShortcut, true);
-  }, [
-    aiDisplayMode,
-    aiSidebarOpen,
-    aiInlineOpen,
-    applyAiSurface,
-    closeAiSurface,
-    openAiInline,
-    commandSettingsOpen,
-    texCommandReferenceOpen,
-    commandSettingsError,
-    commandSettingsLoaded,
-    pageSettingsOpen,
-    documentListOpen,
-    previewOpen,
-    aiSettingsOpen,
-    desktopSettingsOpen,
-    materialLibraryOpen,
-    ribbonBackstageOpen,
-    commandPaletteOpen,
-    customCommands,
-    shortcutOverrides,
-  ]);
+  }, [aiDisplayMode, aiSidebarOpen, aiInlineOpen, applyAiSurface, closeAiSurface, openAiInline, commandSettingsOpen, texCommandReferenceOpen, commandSettingsError, commandSettingsLoaded, pageSettingsOpen, documentListOpen, previewOpen, aiSettingsOpen, desktopSettingsOpen, materialLibraryOpen, ribbonBackstageOpen, commandPaletteOpen, customCommands, shortcutOverrides, isInlineToggleShortcut, toggleSurface]);
 
   // 導出は毎回新しい配列を作るので、useMemo の中で 1 回だけ呼ぶ。裸で呼ぶと本文と無関係な
   // 再レンダー (メニュー・選択・フォーカス) のたびに nodes の参照が変わり、タイトル・タブ・
@@ -6406,7 +3835,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
       saveCurrent: false,
       status: tEditor("status.reopened"),
     });
-  }, [openDocumentInWorkspace]);
+  }, [documentOpenFailureRef, openDocumentInWorkspace]);
 
   const openDocumentTabs = useMemo(() => {
     return openFileIds.map((fileId) => {
@@ -6426,94 +3855,6 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
       };
     });
   }, [activeFileId, document, metadataByFileId, openFileIds, resolvedDocumentTitle, tE]);
-
-  const persistTabGroupLayout = useCallback((layout: WorkspaceLayoutV2) => {
-    workspaceLayoutRef.current = layout;
-    setWorkspaceLayout(layout);
-    const nextOpenFileIds = workspaceLayoutOpenFileIds(layout);
-    setOpenFileIds(nextOpenFileIds);
-    openFileIdsRef.current = nextOpenFileIds;
-    void persistWorkspaceState({
-      openFileIds: nextOpenFileIds,
-      activeFileId: layout.lastDocumentFileId,
-      layout,
-    });
-  }, []);
-
-  const activateWorkspaceGroupTab = useCallback((groupId: string, tab: WorkspaceTab) => {
-    const nextLayout = focusWorkspaceTab(workspaceLayoutRef.current, groupId, tab.id);
-    if (tab.kind === "document" && tab.fileId !== activeFileIdRef.current) {
-      void openDocumentInWorkspace(tab.fileId, { nextOpenFileIds: workspaceLayoutOpenFileIds(nextLayout), onOpened: () => persistTabGroupLayout(nextLayout) });
-      return;
-    }
-    persistTabGroupLayout(nextLayout);
-  }, [openDocumentInWorkspace, persistTabGroupLayout]);
-
-  const moveWorkspaceGroupTab = useCallback((tabId: string, targetGroupId: string, targetIndex?: number) => {
-    const nextLayout = moveWorkspaceTab(workspaceLayoutRef.current, tabId, targetGroupId, targetIndex);
-    const tab = nextLayout.groups.flatMap((group) => group.tabs).find((candidate) => candidate.id === tabId);
-    if (tab?.kind === "document" && tab.fileId !== activeFileIdRef.current) {
-      void openDocumentInWorkspace(tab.fileId, { nextOpenFileIds: workspaceLayoutOpenFileIds(nextLayout), onOpened: () => persistTabGroupLayout(nextLayout) });
-    } else {
-      persistTabGroupLayout(nextLayout);
-    }
-  }, [openDocumentInWorkspace, persistTabGroupLayout]);
-
-  const splitWorkspaceGroupTab = useCallback((tabId: string, targetGroupId: string, edge: WorkspaceDropEdge) => {
-    const nextLayout = splitWorkspaceGroupWithTab(
-      workspaceLayoutRef.current,
-      tabId,
-      targetGroupId,
-      edge,
-      createId("tab-group"),
-      createId("tab-split"),
-    );
-    const tab = nextLayout.groups.flatMap((group) => group.tabs).find((candidate) => candidate.id === tabId);
-    if (tab?.kind === "document" && tab.fileId !== activeFileIdRef.current) {
-      void openDocumentInWorkspace(tab.fileId, { nextOpenFileIds: workspaceLayoutOpenFileIds(nextLayout), onOpened: () => persistTabGroupLayout(nextLayout) });
-    } else {
-      persistTabGroupLayout(nextLayout);
-    }
-  }, [openDocumentInWorkspace, persistTabGroupLayout]);
-
-  const closeWorkspaceGroupTab = useCallback((_groupId: string, tab: WorkspaceTab) => {
-    const nextLayout = closeWorkspaceTabInLayout(workspaceLayoutRef.current, tab.id);
-    if (nextLayout === workspaceLayoutRef.current) return;
-    if (tab.kind === "document") {
-      void closeDocumentTab(tab.fileId);
-      return;
-    }
-    persistTabGroupLayout(nextLayout);
-  }, [closeDocumentTab, persistTabGroupLayout]);
-
-  const resizeWorkspaceGroupSplit = useCallback((splitId: string, ratio: number) => {
-    const nextLayout = updateWorkspaceSplitRatio(workspaceLayoutRef.current, splitId, ratio);
-    workspaceLayoutRef.current = nextLayout;
-    setWorkspaceLayout(nextLayout);
-    if (workspaceLayoutSaveTimerRef.current !== null) window.clearTimeout(workspaceLayoutSaveTimerRef.current);
-    workspaceLayoutSaveTimerRef.current = window.setTimeout(() => {
-      persistTabGroupLayout(workspaceLayoutRef.current);
-      workspaceLayoutSaveTimerRef.current = null;
-    }, 160);
-  }, [persistTabGroupLayout]);
-  const focusWorkspaceGroup = useCallback((groupId: string, handoff?: WorkspacePaneHandoff) => {
-    const group = workspaceLayoutRef.current.groups.find((candidate) => candidate.id === groupId);
-    const tab = group?.tabs.find((candidate) => candidate.id === group.activeTabId) ?? group?.tabs[0];
-    if (!group || !tab) return;
-    // 読み取り専用で描いていた紙面の位置を、そのまま編集面の復元位置にする。
-    // 押した点があればキャレットはそこへ置くので、前回のキャレットは戻さない。
-    if (handoff && tab.kind === "document" && tab.fileId !== activeFileIdRef.current) {
-      const saved = editorTabViewStateByFileIdRef.current.get(tab.fileId);
-      editorTabViewStateByFileIdRef.current.set(tab.fileId, {
-        selectedId: saved?.selectedId ?? null,
-        textSelection: handoff.point ? null : saved?.textSelection ?? null,
-        scrollTop: handoff.scrollTop,
-        scrollLeft: handoff.scrollLeft,
-      });
-      pendingPaneCaretRef.current = handoff.point ? { fileId: tab.fileId, ...handoff.point } : null;
-    }
-    activateWorkspaceGroupTab(group.id, tab);
-  }, [activateWorkspaceGroupTab]);
 
   const readPaneZoom = useCallback((fileId: string) => cameraByFileIdRef.current.get(fileId)?.zoom ?? 100, []);
   const readPaneScroll = useCallback((fileId: string) => editorTabViewStateByFileIdRef.current.get(fileId), []);
@@ -6582,39 +3923,6 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
     },
     runShortcutCommandRef,
   });
-  const titleUpdatePhase = appUpdateState?.phase;
-  const showTitleUpdateButton = titleUpdatePhase === "available" || titleUpdatePhase === "downloading" || titleUpdatePhase === "downloaded";
-  const titleUpdateButtonDisabled = appUpdateActionBusy || titleUpdatePhase === "downloading";
-  const handleTitleUpdateAction = async () => {
-    const bridge = getDesktopBridge();
-    if (!bridge?.updater || !appUpdateState) {
-      return;
-    }
-
-    setAppUpdateActionBusy(true);
-    try {
-      if (appUpdateState.phase === "downloaded") {
-        const result = await bridge.updater.quitAndInstall();
-        if (!result.ok) {
-          setStatusMessage(result.error);
-        }
-        return;
-      }
-
-      setStatusMessage(tEditor("status.updateDownloading"));
-      const result = await bridge.updater.downloadUpdate();
-      setAppUpdateState(result);
-      if (result.phase === "downloaded") {
-        setStatusMessage(tEditor("status.updateReady"));
-      } else if (result.phase === "error") {
-        setStatusMessage(result.error ?? tEditor("status.updateDownloadFailed"));
-      }
-    } catch (error) {
-      setStatusMessage(error instanceof Error ? error.message : tEditor("status.updateStartFailed"));
-    } finally {
-      setAppUpdateActionBusy(false);
-    }
-  };
   // AI 提案の適用/破棄は文書・提案・実行状態を跨いで書き換える処理なので、依存を全部
   // useCallback へ畳み込むのは現実的でない。呼び出し口だけ identity を固定する
   // (紙面の AI 拡張オブジェクトがこの 2 つを掴んでおり、動くと紙面が毎打鍵で描き直される)。
@@ -7511,76 +4819,9 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
         />
       )}
 
-      {outlineDialogOpen && (
-        <div className="outline-dialog-backdrop" data-modal-backdrop="" role="presentation" onPointerDown={() => setOutlineDialogOpen(false)}>
-          <section
-            className="outline-dialog"
-            role="dialog"
-            aria-modal="true"
-            aria-label={tE("outline.title")}
-            onPointerDown={(event) => event.stopPropagation()}
-          >
-            <header className="outline-dialog-header">
-              <div>
-                <h2>{tE("outline.title")}</h2>
-                <p title={resolvedDocumentTitle}><DocumentTitleText title={resolvedDocumentTitle} nodes={documentTitle.nodes} /></p>
-              </div>
-              <button type="button" className="icon-button" title={tE("common.close")} aria-label={tE("common.close")} onClick={() => setOutlineDialogOpen(false)}>
-                <X size={16} />
-              </button>
-            </header>
-            <nav className="outline-dialog-list">
-              {outline.length === 0 ? (
-                <p className="outline-dialog-empty">{tE("outline.empty")}</p>
-              ) : outline.map((item) => (
-                <button
-                  key={item.id}
-                  type="button"
-                  className={selectedId === item.id ? "selected" : ""}
-                  onClick={() => selectOutlineItem(item.id)}
-                >
-                  <span>
-                    {(item.type === "section" || item.type === "heading") && outlineHeadingNumbers.get(item.id) ? (
-                      <span className="heading-number-prefix">
-                        {outlineHeadingNumbers.get(item.id)}{" "}
-                      </span>
-                    ) : null}
-                    {item.title}
-                  </span>
-                  <code>{item.type}</code>
-                </button>
-              ))}
-            </nav>
-          </section>
-        </div>
-      )}
+      <EditorOutlineDialog outlineDialogOpen={outlineDialogOpen} resolvedDocumentTitle={resolvedDocumentTitle} titleNodes={documentTitle.nodes} outline={outline} outlineHeadingNumbers={outlineHeadingNumbers} selectedId={selectedId} selectOutlineItem={selectOutlineItem} onClose={() => setOutlineDialogOpen(false)} tE={tE} />
 
-      {previewOpen && (
-        <div className="preview-drawer" role="dialog" aria-modal="true" aria-label={tE("aria.pdfPreview")}>
-          <PrintPreviewToolbar
-            renderState={printPreviewRenderState.state}
-            pageCount={printPreviewRenderState.pageCount}
-            isExporting={pdfExporting}
-            exportUnavailableReason={resolveDrawerExportUnavailableReason({
-              isDesktopApp,
-              isEmbedded,
-              hasDesktopExportBridge: Boolean(getDesktopBridge()?.file.exportPdf),
-            })}
-            onOpenExternal={shouldOfferExternalPrintWindow({ isDesktopApp, isEmbedded })
-              ? () => void openPrintWindow()
-              : undefined}
-            onExport={() => void exportPdf()}
-            onClose={() => setPreviewOpen(false)}
-          />
-          <div className="preview-scroll">
-            <PagedRenderSurface
-              document={document}
-              profile="teacher"
-              onRenderStateChange={setPrintPreviewRenderState}
-            />
-          </div>
-        </div>
-      )}
+      <EditorPrintPreview previewOpen={previewOpen} document={document} renderState={printPreviewRenderState} pdfExporting={pdfExporting} isDesktopApp={isDesktopApp} isEmbedded={isEmbedded} onRenderStateChange={setPrintPreviewRenderState} onExport={() => void exportPdf()} onOpenExternal={() => void openPrintWindow()} onClose={() => setPreviewOpen(false)} tE={tE} />
 
       {exportedPdfPath && <PdfExportSuccessDialog filePath={exportedPdfPath} onClose={() => setExportedPdfPath(null)} />}
 
@@ -7655,138 +4896,6 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
     </MathEnvironmentProvider>
     </DocumentWritableContext.Provider>
     </DocumentSessionContext.Provider>
-  );
-}
-
-interface EditorBlockFocusOptions {
-  /**
-   * ブロック全体を選ぶのではなく、末尾へキャレットを畳む。
-   *
-   * 既定 (false) は「いま作った空ブロックへ入る」向き。既にある文章のブロックへ焦点を戻す
-   * ときに全選択のままにすると、次の 1 打鍵でその文章が消える (引用ボタンで実際に踏んだ)。
-   */
-  collapseToEnd?: boolean;
-  /**
-   * 焦点がどこにも無いときだけ当てる。
-   *
-   * ブロック操作の後始末に使う。remount で焦点が飛んだときは戻したいが、飛んでいないなら
-   * PM のコマンドが置いたキャレットがそのまま正しいので、触ってはいけない。
-   */
-  onlyIfLost?: boolean;
-}
-
-function scheduleEditorBlockFocus(
-  blockId: string,
-  options: EditorBlockFocusOptions = {},
-  attempt = 0,
-) {
-  window.requestAnimationFrame(() => {
-    window.requestAnimationFrame(() => {
-      if (options.onlyIfLost && !hasLostEditorFocus()) {
-        // まだどこかが焦点を持っている。remount は次のフレームには間に合わないことがあるので、
-        // すぐ諦めずに「失われたか」をもう一度だけ見に行く。
-        if (attempt < FOCUS_RESTORE_ATTEMPTS) {
-          window.setTimeout(
-            () => scheduleEditorBlockFocus(blockId, options, attempt + 1),
-            FOCUS_RESTORE_VERIFY_MS,
-          );
-        }
-        return;
-      }
-
-      const selector = `[data-sigma-doc-id="${CSS.escape(blockId)}"], #${CSS.escape(blockId)}`;
-      const blockElement = window.document.querySelector<HTMLElement>(selector);
-      const editorElement = blockElement?.closest<HTMLElement>("[contenteditable='true']");
-      const selection = window.getSelection();
-      if (!blockElement || !editorElement || !selection) {
-        if (attempt < 8) {
-          window.setTimeout(() => scheduleEditorBlockFocus(blockId, options, attempt + 1), 30);
-        }
-        return;
-      }
-
-      editorElement.focus({ preventScroll: true });
-      const range = window.document.createRange();
-      range.selectNodeContents(blockElement);
-      // **畳んでから**張る。全選択のまま残すと、次に打った文字がブロックごと置き換わる
-      // (`docs/caret-behavior-spec.md` が禁止する回帰そのもの)。`collapseToEnd` の指定が
-      // 無ければ先頭へ畳む。
-      range.collapse(!options.collapseToEnd);
-      selection.removeAllRanges();
-      selection.addRange(range);
-      // `scrollIntoView` は祖先のスクロール可能な箱 (断片の viewport) まで動かしてしまう。
-      // 動かすのは紙面のスクローラーだけにする。
-      scrollElementIntoCanvasView(blockElement);
-
-      // 当てた焦点が定着したかを、少し置いてから確かめる。
-      //
-      // ブロックの入れ物を作り替える操作 (引用でくるむ・段組にする・リストにする) は本文ランの
-      // **先頭ブロック id** を変える。ランの React キーはその id なので (`render-units.ts` の
-      // `id: chunk[0].id`)、React がランごと unmount → remount し、ここで当てた焦点はその
-      // commit で外れる。実機では「引用ボタンを押した直後に打った文字が引用の外へ行く」という
-      // 形で出た。remount は次のフレームには間に合わないことがあるので、rAF ではなく待つ。
-      //
-      // 焦点が **どこにも無い** ときだけ戻す。ユーザーが自分で別のコントロールへ移ったなら、
-      // それを奪い返してはいけない。
-      if (attempt < FOCUS_RESTORE_ATTEMPTS) {
-        window.setTimeout(() => {
-          if (hasLostEditorFocus()) {
-            scheduleEditorBlockFocus(blockId, options, attempt + 1);
-          }
-        }, FOCUS_RESTORE_VERIFY_MS);
-      }
-    });
-  });
-}
-
-/**
- * 本文ランの先頭ブロック id を変えうるコマンド。押した後に焦点を当て直す必要がある。
- * (`render-units.ts` がランの id を `chunk[0].id` にしているため、React キーが変わる)
- */
-/**
- * 焦点が「どこにも無い」か。
- *
- * ユーザーが自分で別のコントロールへ移ったのなら、それを奪い返してはいけない。だから
- * body (＝誰も持っていない) のときだけを「失われた」とみなす。
- */
-function hasLostEditorFocus(): boolean {
-  const active = window.document.activeElement;
-  return !active || active === window.document.body;
-}
-
-/** 焦点が外れていたら当て直す回数と間隔。remount 1 回ぶんを吸収できれば十分。 */
-const FOCUS_RESTORE_ATTEMPTS = 3;
-const FOCUS_RESTORE_VERIFY_MS = 120;
-
-/**
- * 埋め込みホストのエコー判定用に「文書の内容そのもの」をキー化する。
- * (使い方は emittedEchoKeysRef のコメントを参照)
- *
- * sigma-doc-block-hash.ts の hashSigmaNode は使えない: あれは node:crypto 依存で
- * main process / mcp 専用であり、このファイルは renderer と npm SDK の両方で
- * ブラウザにバンドルされる。そのためハッシュではなく正規化JSON文字列をキーにする。
- *
- * キーを再帰的にソートし undefined を落とすのは hashSigmaNode と同じ規約。内容が
- * 同じでも Tiptap を往復するとキー順が入れ替わるため、素の JSON.stringify では
- * エコーを取り逃がし、無視したいはずのループが再発する。
- */
-function documentHistoryKey(document: SigmaDocument): string {
-  return JSON.stringify(canonicalizeDocumentValue(comparableDocumentValue(document)));
-}
-
-function canonicalizeDocumentValue(value: unknown): unknown {
-  if (value === null || typeof value !== "object") {
-    return value;
-  }
-  if (Array.isArray(value)) {
-    return value.map(canonicalizeDocumentValue);
-  }
-  const record = value as Record<string, unknown>;
-  return Object.fromEntries(
-    Object.keys(record)
-      .filter((key) => record[key] !== undefined)
-      .sort()
-      .map((key) => [key, canonicalizeDocumentValue(record[key])]),
   );
 }
 

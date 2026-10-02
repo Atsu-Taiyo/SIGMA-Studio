@@ -1,4 +1,4 @@
-import { ipcMain } from "electron";
+import { ipcMain } from "../trusted-ipc";
 import { createCurrentLocaleTranslator, setAppLocale } from "@/lib/i18n";
 
 const te = createCurrentLocaleTranslator("error");

@@ -1,4 +1,4 @@
-import { ipcMain } from "electron";
+import { ipcMain } from "../trusted-ipc";
 import { z } from "zod";
 import { parseSigmaDocument } from "@/lib/sigma-doc-schema";
 import type { CollaborationSessions } from "./sessions";

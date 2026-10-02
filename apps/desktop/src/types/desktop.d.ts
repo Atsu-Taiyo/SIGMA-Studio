@@ -933,5 +933,6 @@ export interface DesktopAPI {
 declare global {
   interface Window {
     desktopAPI?: DesktopAPI;
+    sigmaPreviewAPI?: { getRenderDocument(renderId: string): Promise<SigmaDocument | null> };
   }
 }

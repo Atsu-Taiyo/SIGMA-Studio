@@ -2,6 +2,7 @@
 
 import { FileText, Globe, Package, Search } from "lucide-react";
 
+import type { AiSourceReferenceOpenDocumentParams } from "../application/ai-source-reference-contracts";
 import type { Translate } from "@/lib/i18n";
 import { useT } from "@/lib/i18n/react";
 import { getDesktopBridge } from "@/lib/desktop-bridge";
@@ -49,11 +50,7 @@ function sourceReferenceKey(reference: DesktopAiSourceReference, index: number):
   return `web:${reference.url}:${index}`;
 }
 
-export interface AiSourceReferenceOpenDocumentParams {
-  fileId: string;
-  blockId?: string;
-  title?: string;
-}
+export type { AiSourceReferenceOpenDocumentParams } from "../application/ai-source-reference-contracts";
 
 /** Compact horizontal row of source-reference chips for one proposal group / assistant
  * turn's `sourceReferences` (Phase 1: Agentic RAG). Document chips open the
