@@ -5,6 +5,7 @@ import path from "node:path";
 import WebSocket from "ws";
 import { createBlankDocument } from "@/lib/blank-document";
 import { SharedDocument } from "../../src/features/collaboration/model/shared-document";
+import { toBase64 } from "../../src/features/collaboration/model/protocol";
 import type { ObjectValue } from "../../src/features/collaboration/model/value";
 import { LocalSigmaDocStore } from "../local-sigma-doc-store";
 import { SharedDocumentJournal } from "./journal";
@@ -16,6 +17,7 @@ const instances: CollaborationSessions[] = [];
 afterEach(async () => {
   vi.useRealTimers();
   for (const instance of instances.splice(0)) await instance.close();
+  vi.restoreAllMocks();
   vi.unstubAllEnvs();
   await Promise.all(directories.splice(0).map((directory) => fs.rm(directory, { recursive: true, force: true })));
 });
@@ -51,9 +53,9 @@ async function setup(pendingAsset = false) {
   const socket = { readyState: WebSocket.OPEN, send: vi.fn(), ping: vi.fn(), close: vi.fn() };
   session.socket = socket as unknown as WebSocket;
   session.lastSynchronizedAt = Date.now();
-  return { sessions, session, socket };
+  return { sessions, session, socket, directory };
 }
-it("does not poll healthy idle sockets every five seconds, reconciles once a minute, and synchronizes previously opened sessions in the background", async () => {
+it("reconciles visible sessions once a minute and leaves closed clean sessions idle", async () => {
   const { sessions, session } = await setup();
   session.viewing = true;
   const flush = vi.spyOn(sessions, "flush").mockImplementation(async () => { session.lastSynchronizedAt = Date.now(); });
@@ -63,7 +65,7 @@ it("does not poll healthy idle sockets every five seconds, reconciles once a min
   expect(flush).toHaveBeenCalledTimes(1);
   session.viewing = false;
   await vi.advanceTimersByTimeAsync(120_000);
-  expect(flush).toHaveBeenCalledTimes(3);
+  expect(flush).toHaveBeenCalledTimes(1);
 });
 it("uses protocol ping for unchanged presence but sends transitions and resends on a new socket", async () => {
   const { sessions, session, socket } = await setup();
@@ -118,7 +120,7 @@ it("retries hidden durable outbox operations until acknowledged", async () => {
   await flush.mock.results.at(-1)?.value;
   expect(session.journal.outbox()).toHaveLength(0);
   expect(request.mock.calls.map(([route]) => route)).toEqual(["/documents/shared/sync", "/documents/shared/sync", "/documents/shared/updates"]);
-  await vi.advanceTimersByTimeAsync(5_000);
+  await vi.advanceTimersByTimeAsync(120_000);
   expect(flush).toHaveBeenCalledTimes(2);
 });
 it("retains only mounted detached previews and closes their socket on release", async () => {
@@ -135,5 +137,35 @@ it("retains only mounted detached previews and closes their socket on release", 
   expect(socket.close).toHaveBeenCalledWith(1000, "VIEW_CHANGED");
   flush.mockClear();
   await vi.advanceTimersByTimeAsync(120_000);
-  expect(flush).toHaveBeenCalledTimes(2);
+  expect(flush).not.toHaveBeenCalled();
+});
+
+it("keeps restored clean journals idle, catches up when reopened, and persists the received change", async () => {
+  const { sessions, session, socket, directory } = await setup();
+  // Startup has no successful sync timestamp, even when its durable journal is clean.
+  session.lastSynchronizedAt = 0;
+  const remote = new SharedDocument(session.journal.document.snapshot());
+  const before = remote.project();
+  const after = structuredClone(before);
+  (after.metadata as ObjectValue).title = "Changed while closed";
+  remote.change(before, after);
+  const request = vi.spyOn(sessions, "request").mockImplementation(async (_route, body) => ({
+    update: toBase64(remote.difference(Buffer.from((body as { vector: string }).vector, "base64"))),
+    role: "editor",
+  }));
+  await vi.advanceTimersByTimeAsync(120_000);
+  expect(request).not.toHaveBeenCalled();
+  await sessions.view("file");
+  expect(request).toHaveBeenCalledTimes(1);
+  expect(sessions.project("file")?.metadata.title).toBe("Changed while closed");
+  await sessions.view(null);
+  expect(socket.close).toHaveBeenCalledWith(1000, "VIEW_CHANGED");
+  await vi.advanceTimersByTimeAsync(120_000);
+  expect(request).toHaveBeenCalledTimes(1);
+  await sessions.close();
+  const restored = await SharedDocumentJournal.open(path.join(directory, "collaboration-v1", "documents", "shared"));
+  expect((restored.document.project().metadata as ObjectValue).title).toBe("Changed while closed");
+  expect(restored.outbox()).toHaveLength(0);
+  restored.document.destroy();
+  remote.destroy();
 });
