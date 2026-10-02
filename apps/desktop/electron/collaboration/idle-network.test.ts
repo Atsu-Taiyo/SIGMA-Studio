@@ -19,7 +19,6 @@ afterEach(async () => {
   vi.useRealTimers();
   vi.restoreAllMocks();
   for (const instance of instances.splice(0)) await instance.close();
-  vi.restoreAllMocks();
   vi.unstubAllEnvs();
   await Promise.all(directories.splice(0).map((directory) => fs.rm(directory, { recursive: true, force: true })));
 });

@@ -86,7 +86,7 @@ export function TextSelectionTools({
   const styleLabel = text.blockStyle === "h1" || text.blockStyle === "h2" || text.blockStyle === "h3" || text.blockStyle === "paragraph"
     ? t(`format.blockStyle.${text.blockStyle}`)
     : structureLabel ?? t("format.blockStyle.placeholder");
-  const sizeLabel = text.fontSizeMixed ? "–" : String(text.fontSize);
+  const sizeLabel = text.fontSizeMixed ? "–" : text.fontSize === null ? "" : String(text.fontSize);
   const activeAlign = TEXT_ALIGN_OPTIONS.find((option) => option.value === text.textAlign) ?? TEXT_ALIGN_OPTIONS[0];
   const ActiveAlignIcon = activeAlign.icon;
   const inBody = scope === "body";
@@ -171,16 +171,17 @@ export function TextSelectionTools({
       <ToolDivider /></>}
 
       {/* フォントサイズ: − 12 ＋。数字を押すと候補の一覧。入力欄は置かない (フォーカスが移ると選択が外れる)。 */}
-      <div className="selection-toolbar-size" title={text.fontSizeMixed ? t("format.fontSize.mixedHelp") : `${text.fontSize}pt`}>
+      <div className="selection-toolbar-size" title={text.fontSizeMixed ? t("format.fontSize.mixedHelp") : text.fontSize === null ? t("format.fontSize.aria") : `${text.fontSize}pt`}>
         <button
           type="button"
           className="selection-toolbar-step"
           aria-label={t("format.fontSize.decrease")}
           title={t("format.fontSize.decrease")}
-          disabled={!text.enabled}
+          disabled={!text.enabled || text.fontSize === null}
           onMouseDown={(event) => event.preventDefault()}
           onClick={(event) => {
             event.stopPropagation();
+            if (text.fontSize === null) return;
             text.setFontSize(stepFontSize(text.fontSize, -1));
           }}
         >
@@ -207,10 +208,11 @@ export function TextSelectionTools({
           className="selection-toolbar-step"
           aria-label={t("format.fontSize.increase")}
           title={t("format.fontSize.increase")}
-          disabled={!text.enabled}
+          disabled={!text.enabled || text.fontSize === null}
           onMouseDown={(event) => event.preventDefault()}
           onClick={(event) => {
             event.stopPropagation();
+            if (text.fontSize === null) return;
             text.setFontSize(stepFontSize(text.fontSize, 1));
           }}
         >

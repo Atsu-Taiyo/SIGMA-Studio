@@ -195,7 +195,7 @@ type SigmaDocument,
 type SigmaTextRangeCommentAnchor,
 type TextAlign
 } from "@/features/document";
-import { getTextShapeFontSizePt,type MeasuredBlock } from "@/features/drawing";
+import type { MeasuredBlock } from "@/features/drawing";
 import { MathEnvironmentProvider } from "@/features/rendering/adapters/react";
 import { parseDocumentTitleInlineNodes } from "@/features/rendering/core";
 import {
@@ -622,7 +622,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
     setSaveState("warning");
     setStatusMessage(message);
   }, [setSaveState, setStatusMessage, tE]);
-  const { textFontSize, setTextFontSize, textFontSizeMixed, fontSizeInput, setFontSizeInput, boxedTextPaddingY, setBoxedTextPaddingY, boxedTextActive, boldActive, italicActive, underlineActive, blockStyleState, documentTextFormatTarget, hasMultiEditorTextRunSpan, boxedTextVariant, setBoxedTextVariant, textColor, setTextColor, textBackgroundColor, setTextBackgroundColor, strokeColor, setStrokeColor, fontFamily, setFontFamily, lineHeight, setLineHeight, lineHeightInput, setLineHeightInput, lineHeightInputError, setLineHeightInputError, lineHeightCustomOpen, setLineHeightCustomOpen, getLastBoxedFormat, rememberBoxedFormat, saveEditorFontFamilyPreference } = useTextFormattingState();
+  const { textFontSize, setTextFontSize, textFontSizeMixed, setTextFontSizeMixed, fontSizeInput, setFontSizeInput, boxedTextPaddingY, setBoxedTextPaddingY, boxedTextActive, boldActive, italicActive, underlineActive, blockStyleState, documentTextFormatTarget, hasMultiEditorTextRunSpan, boxedTextVariant, setBoxedTextVariant, textColor, setTextColor, textBackgroundColor, setTextBackgroundColor, strokeColor, setStrokeColor, fontFamily, setFontFamily, lineHeight, setLineHeight, lineHeightInput, setLineHeightInput, lineHeightInputError, setLineHeightInputError, lineHeightCustomOpen, setLineHeightCustomOpen, getLastBoxedFormat, rememberBoxedFormat, saveEditorFontFamilyPreference } = useTextFormattingState();
   const zoom = useStore(editorStore, (state) => state.zoom);
   // パンは倍率と同じストアに置く (理由は EditorToolbarSlice の宣言のコメント)。
   const whiteboardPan = useStore(editorStore, (state) => state.whiteboardPan);
@@ -1120,6 +1120,11 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
     }
     selectedIdRef.current = selected;
     textSelectionBookmarkRef.current = null;
+    // Toolbar measurements belong to the outgoing editor, not the incoming document.
+    // Leave the size unknown until its restored caret or a new selection reports it.
+    setTextFontSize(null);
+    setTextFontSizeMixed(false);
+    setFontSizeInput("");
     pendingTextHistorySelectionRef.current = undefined;
     materialBlockSelectionRef.current = null;
     measuredBodyBlockRectsRef.current = new Map();
@@ -2439,16 +2444,16 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
   // A measurement belongs to this exact shape revision, never the previously selected shape.
   const wholeTextShapeSize = wholeTextShapeMeasurement?.shape === wholeTextShape
     ? wholeTextShapeMeasurement?.size : null;
-  const activeTextFontSize = wholeTextShape
-    ? wholeTextShapeSize?.fontSize ?? getTextShapeFontSizePt(wholeTextShape)
-    : textFontSize ?? BASE_EDITOR_FONT_SIZE;
+  const activeTextFontSize = !canUseTextToolbar ? null : wholeTextShape
+    ? wholeTextShapeSize?.fontSize ?? null
+    : textFontSize;
   const activeTextFontSizeMixed = wholeTextShape ? wholeTextShapeSize?.fontSizeMixed === true : textFontSizeMixed;
   useLayoutEffect(() => {
     // Sync before paint so a newly selected shape never displays the old size.
     // Keep the inline field in sync with the selection without replacing a value
     // while the user is in the middle of editing it.
     if (fontSizeInputRef.current === window.document.activeElement) return;
-    setFontSizeInput(String(activeTextFontSize));
+    setFontSizeInput(activeTextFontSize === null ? "" : String(activeTextFontSize));
   }, [activeTextFontSize, setFontSizeInput]);
   const canUseTextBlockStyle = textToolbar.canUseTextBlockStyle;
   /**
