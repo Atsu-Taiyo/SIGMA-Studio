@@ -31,7 +31,7 @@ export async function renderAttachedPdfPages(
     cMapPacked: true,
     standardFontDataUrl: path.join(packageRoot, "standard_fonts") + path.sep,
     wasmUrl: path.join(packageRoot, "wasm") + path.sep,
-    isEvalSupported: false,
+    // PDF.js 6 renders without generated JavaScript; no viewer or scripting manager is used.
     verbosity: 0,
   });
   try {

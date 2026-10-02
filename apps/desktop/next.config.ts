@@ -5,6 +5,7 @@ const isDesktopBuild = process.env.NEXT_PUBLIC_TARGET === "desktop";
 
 const nextConfig: NextConfig = {
   reactStrictMode: true,
+  agentRules: false,
   allowedDevOrigins: ["127.0.0.1"],
   output: process.env.SIGMA_STUDIO_DEV_SESSION ? undefined : "export",
   distDir: process.env.SIGMA_STUDIO_DEV_SESSION ? ".next-electron" : ".next",

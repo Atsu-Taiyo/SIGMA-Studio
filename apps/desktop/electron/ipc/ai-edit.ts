@@ -1,5 +1,6 @@
+import { ipcMain, registerPreviewDocumentIpc } from "../trusted-ipc";
 import { CodexGeneratedImageStore } from "../codex-generated-images";
-import { app, ipcMain } from "electron";
+import { app } from "electron";
 
 import type { AiEditRunEvent } from "@/lib/ai/ai-edit-runtime";
 import { toAiResourceProvider } from "@/lib/ai/ai-providers";
@@ -420,7 +421,7 @@ export function registerAiEditIpc(deps: RegisterAiEditIpcDeps): void {
     }
   });
 
-  ipcMain.handle("ai-render:get-document", async (_event, renderId: unknown) => {
+  registerPreviewDocumentIpc(async (_event, renderId: unknown) => {
     if (typeof renderId !== "string") {
       return null;
     }

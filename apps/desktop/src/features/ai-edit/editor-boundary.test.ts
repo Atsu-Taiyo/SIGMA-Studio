@@ -3,7 +3,7 @@ import { fileURLToPath } from "node:url";
 
 import { describe, expect, it } from "vitest";
 
-import { getModuleSpecifiers as importSpecifiers } from "../../../tests/helpers/source-dependencies";
+import { getModuleSpecifiers as importSpecifiers, getSourceDependencies } from "../../../tests/helpers/source-dependencies";
 
 const reusableEditorFiles = [
   "../../components/editor/TextFlowEditor.tsx",
@@ -38,6 +38,8 @@ const legacyAiViewFacades = canonicalAiViewFiles.map((relativePath) => {
 const aiCompositionEditorFiles = new Set([
   "DesktopSettingsModal.tsx",
   "EditorShell.tsx",
+  "editor-shell/desktop-editor-host.ts",
+  "editor-shell/editor-host-contracts.ts",
   "ai-edit-preview-types.ts",
   "ai-model-menu-contents.tsx",
   "ai-run-anchor-layer.tsx",
@@ -114,6 +116,20 @@ describe("AI editor extension boundary", () => {
     ));
 
     expect(invalidImports).toEqual([]);
+  });
+
+  it("keeps host contract references type-only and defaults independent from provider implementations", () => {
+    const contract = readSource("../../components/editor/editor-shell/editor-host-contracts.ts");
+    expect(getSourceDependencies(contract).every((dependency) => dependency.typeOnly)).toBe(true);
+    for (const file of ["editor-host.tsx", "editor-host-defaults.tsx"]) {
+      const source = readSource(`../../components/editor/editor-shell/${file}`);
+      expect(importSpecifiers(source).filter((specifier) => (
+        specifier.includes("desktop-editor-host") || specifier.startsWith("@/features/ai-edit") || specifier.startsWith("@/lib/ai/")
+      ))).toEqual([]);
+    }
+    for (const file of [...reusableEditorFiles, ...reusablePageCanvasFiles]) {
+      expect(importSpecifiers(readSource(file)).filter((specifier) => specifier.includes("editor-host"))).toEqual([]);
+    }
   });
 
   it.each(reusableEditorFiles)("keeps %s independent from AI stores and feature internals", (relativePath) => {
@@ -224,23 +240,26 @@ describe("AI editor extension boundary", () => {
     expect(alias).not.toContain("@/components/");
   });
 
-  it("keeps the application shell on the AI feature's public entrypoint", () => {
+  it("keeps the application shell on explicit host services and the desktop adapter on the AI public entrypoint", () => {
     const source = readSource("../../components/editor/EditorShell.tsx");
 
-    expect(source).toContain('from "@/features/ai-edit"');
-    expect(source).not.toMatch(/from\s+["']@\/features\/ai-edit\//);
+    expect(source).toContain('from "./editor-shell/editor-host"');
+    expect(source).not.toMatch(/from\s+["']@\/features\/ai-edit/);
+    const adapter = readSource("../../components/editor/editor-shell/desktop-editor-host.ts");
+    expect(adapter).toContain('from "@/features/ai-edit"');
+    expect(adapter).not.toMatch(/from\s+["']@\/features\/ai-edit\//);
     expect(source).not.toContain("useAiEditorExtensions");
     // Shared-session guards use the generic extension contract; AI extensions remain inside the feature.
     expect(source.match(/editorExtensions=\{([^}]+)\}/g)).toEqual(["editorExtensions={sessionEditExtensions}"]);
-    expect(namedImportSource(source, "useAiPinnedReferences")).toBe("@/features/ai-edit");
-    expect(namedImportSource(source, "useAiProposalActions")).toBe("@/features/ai-edit");
-    expect(namedImportSource(source, "useCommentAiRun")).toBe("@/features/ai-edit");
-    expect(namedImportSource(source, "AiEditReference")).toBe("@/features/ai-edit");
-    expect(namedImportSource(source, "AiEditShapeOnlyPreview")).toBe("@/features/ai-edit");
-    expect(namedImportSource(source, "groupMcpProposalsForPreview")).toBe("@/features/ai-edit");
-    expect(namedImportSource(source, "deriveAiProposalPresentation")).toBe("@/features/ai-edit");
-    expect(namedImportSource(source, "deriveAiReferenceRequestPlan")).toBe("@/features/ai-edit");
-    expect(namedImportSource(source, "deriveAiRunStartTransition")).toBe("@/features/ai-edit");
+    expect(namedImportSource(adapter, "useAiPinnedReferences")).toBe("@/features/ai-edit");
+    expect(namedImportSource(adapter, "useAiProposalActions")).toBe("@/features/ai-edit");
+    expect(namedImportSource(adapter, "useCommentAiRun")).toBe("@/features/ai-edit");
+    expect(namedImportSource(source, "AiEditReference")).toBe("./editor-shell/editor-host-contracts");
+    expect(namedImportSource(source, "AiEditShapeOnlyPreview")).toBe("./editor-shell/editor-host-contracts");
+    expect(namedImportSource(adapter, "groupMcpProposalsForPreview")).toBe("@/features/ai-edit");
+    expect(namedImportSource(adapter, "deriveAiProposalPresentation")).toBe("@/features/ai-edit");
+    expect(namedImportSource(adapter, "deriveAiReferenceRequestPlan")).toBe("@/features/ai-edit");
+    expect(namedImportSource(adapter, "deriveAiRunStartTransition")).toBe("@/features/ai-edit");
     expect(source).not.toContain("@/components/editor/ai-edit-preview-types");
     expect(source).not.toContain("@/lib/ai/comment-mention");
     expect(source).not.toContain("sameProposalIdSet");

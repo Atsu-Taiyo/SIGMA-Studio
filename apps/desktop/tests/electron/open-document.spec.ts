@@ -41,7 +41,10 @@ test("opens startup/second-instance/macOS files through real storage and preserv
   env.SIGMA_STUDIO_USER_DATA_DIR = path.join(root, "profile");
   let app: ElectronApplication | undefined;
   try {
-    app = await electron.launch({ args: [APP_ROOT, first, first, ordinary], cwd: APP_ROOT, env });
+    // Playwright otherwise adds --no-sandbox on Linux. CI grants this exact
+    // Electron executable userns permission so both real processes use it.
+    app = await electron.launch({ args: [APP_ROOT, first, first, ordinary], cwd: APP_ROOT, env, chromiumSandbox: true });
+    expect(await app.evaluate(({ app }) => app.commandLine.hasSwitch("no-sandbox"))).toBe(false);
     const page = await app.firstWindow();
     await expect(page.locator(BODY).first()).toContainText("STARTUP_CONTENT", { timeout: 90_000 });
     await expect(page.locator("[data-startup-splash]")).toHaveCount(0, { timeout: 30_000 });
@@ -62,14 +65,17 @@ test("opens startup/second-instance/macOS files through real storage and preserv
     const executable = await app.evaluate(() => process.execPath);
     await new Promise<void>((resolve, reject) => {
       const child = spawn(executable, [APP_ROOT, second, third], {
-        cwd: root, env: { ...env, NODE_ENV: process.env.NODE_ENV }, stdio: "ignore",
+        cwd: root, env: { ...env, NODE_ENV: process.env.NODE_ENV }, stdio: ["ignore", "ignore", "pipe"],
       });
-      const timer = setTimeout(() => { child.kill(); reject(new Error("Secondary launch did not exit")); }, 30_000);
+      let stderr = "";
+      child.stderr.setEncoding("utf8");
+      child.stderr.on("data", (chunk: string) => { stderr = (stderr + chunk).slice(-16_384); });
+      const timer = setTimeout(() => { child.kill(); reject(new Error(`Secondary launch did not exit\n${stderr}`)); }, 30_000);
       child.once("error", (error) => { clearTimeout(timer); reject(error); });
-      child.once("exit", (code) => {
+      child.once("close", (code, signal) => {
         clearTimeout(timer);
         if (code === 0) resolve();
-        else reject(new Error(`Secondary exit ${code}`));
+        else reject(new Error(`Secondary exit ${code}, signal ${signal}\n${stderr}`));
       });
     });
     await expect(page.locator(BODY).first()).toContainText("THIRD_CONTENT");

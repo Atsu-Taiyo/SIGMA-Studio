@@ -4,6 +4,8 @@ import { fileURLToPath } from "node:url";
 
 import { describe, expect, it } from "vitest";
 
+import { readOwnedSourceGraph } from "../../../tests/helpers/owned-source-graph";
+
 import { createTranslator } from "@/lib/i18n";
 import {
   buildLineToolItems,
@@ -37,6 +39,32 @@ const SURFACES = {
   "src/components/editor/PageCanvasEditor.tsx": { t: "editor", tEditor: "editor", tEditorText: "editor", tSettings: "settings" },
 } as const;
 
+// Include moved owners through real import edges, so extracting a view cannot remove
+// its translation keys from this contract. Keep namespaces explicit per family.
+const surfaceFiles: Record<string, Record<string, string>> = { ...SURFACES };
+for (const [entry, directory] of [
+  ["OverlayCanvasEditorClient.tsx", "overlay-canvas"],
+  ["PageCanvasEditor.tsx", "page-canvas"],
+] as const) {
+  const entryFile = `src/components/editor/${entry}`;
+  const known = surfaceFiles[entryFile];
+  for (const file of readOwnedSourceGraph(
+    path.join(desktopRoot, entryFile),
+    path.join(desktopRoot, "src/components/editor", directory),
+    path.join(desktopRoot, "src"),
+  ).keys()) {
+    surfaceFiles[path.relative(desktopRoot, file)] = known;
+  }
+}
+
+Object.assign(surfaceFiles, {
+  "src/components/editor/overlay-canvas/table-shape-editor.tsx": {
+    t: "chrome", tChrome: "chrome", tShape: "shape", tSettings: "settings",
+  },
+  "src/components/editor/overlay-canvas/shapes/table-editor-model.ts": { t: "settings" },
+  "src/components/editor/page-canvas/WhiteboardBackgroundControl.tsx": { t: "shape" },
+});
+
 type Reference = { file: string; fn: string; ns: string; key: string };
 
 function read(file: string): string {
@@ -45,7 +73,7 @@ function read(file: string): string {
 
 function referencesIn(file: string): Reference[] {
   const source = read(file);
-  const known = SURFACES[file as keyof typeof SURFACES] as Record<string, string>;
+  const known = surfaceFiles[file];
   const out: Reference[] = [];
   for (const match of source.matchAll(/(?<![A-Za-z0-9_])(t[A-Za-z0-9_]*)\(\s*"([a-zA-Z0-9_.]+)"/gu)) {
     const fn = match[1] ?? "";
@@ -58,21 +86,23 @@ function referencesIn(file: string): Reference[] {
   return out;
 }
 
-const REFERENCES = Object.keys(SURFACES).flatMap(referencesIn);
+const REFERENCES = Object.keys(surfaceFiles).flatMap(referencesIn);
 
 describe("shape, graph, math and page surfaces in English", () => {
   it("collects a meaningful number of references (a broken scan must not pass silently)", () => {
     expect(REFERENCES.length).toBeGreaterThan(180);
-    for (const file of Object.keys(SURFACES)) {
+    for (const file of Object.keys(SURFACES).filter((file) => !file.endsWith("CanvasEditor.tsx") && !file.endsWith("CanvasEditorClient.tsx"))) {
       expect(referencesIn(file).length, file).toBeGreaterThan(2);
     }
+    expect(REFERENCES.filter(({ file }) => file.includes("overlay-canvas/")).length).toBeGreaterThan(30);
+    expect(REFERENCES.filter(({ file }) => file.includes("PageCanvasEditor") || file.includes("page-canvas/")).length).toBeGreaterThan(20);
   });
 
   it("declares every translator the surfaces actually use", () => {
     // `useT("…")` を足したのに上の対応表へ書き忘れると、そのフックのキーが検査から
     // 丸ごと漏れる。宣言の側から突き合わせて、漏れをここで落とす。
     const undeclared: string[] = [];
-    for (const [file, known] of Object.entries(SURFACES)) {
+    for (const [file, known] of Object.entries(surfaceFiles)) {
       for (const match of read(file).matchAll(/const\s+(t[A-Za-z0-9_]*)\s*=\s*useT\(\s*"([a-z]+)"/gu)) {
         const fn = match[1] ?? "";
         const ns = match[2] ?? "";

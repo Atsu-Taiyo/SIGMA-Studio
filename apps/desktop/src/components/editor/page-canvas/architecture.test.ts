@@ -33,18 +33,19 @@ describe("page canvas pure-model dependency boundary", () => {
     expect(probe).not.toMatch(/\b(?:useState|useRef|useEffect|requestAnimationFrame|ResizeObserver)\b/);
 
     const pageCanvas = readSiblingSource("../PageCanvasEditor.tsx");
-    const measure = pageCanvas.indexOf("probeFlow(flow, {");
-    const build = pageCanvas.indexOf("buildFlowModel(tree,", measure);
-    const place = pageCanvas.indexOf("placeFlow(built.model,", build);
-    const plan = pageCanvas.indexOf("planFlowRender(built, placement", place);
-    const adopt = pageCanvas.indexOf("setLayoutViewState(", plan);
+    const measurement = readSiblingSource("./use-page-canvas-measurement.ts");
+    const measure = measurement.indexOf("probeFlow(flow, {");
+    const build = measurement.indexOf("buildFlowModel(tree,", measure);
+    const place = measurement.indexOf("placeFlow(built.model,", build);
+    const plan = measurement.indexOf("planFlowRender(built, placement", place);
+    const adopt = measurement.indexOf("setLayoutViewState(", plan);
     expect(measure).toBeGreaterThan(-1);
     expect(build).toBeGreaterThan(measure);
     expect(place).toBeGreaterThan(build);
     expect(plan).toBeGreaterThan(place);
     expect(adopt).toBeGreaterThan(plan);
     // 閉ループ (隙間を入れた DOM の再計測・振動ガード・凍結) を二度と持ち込まない。
-    expect(pageCanvas).not.toMatch(/detectGapOscillation|frozenPaginationGaps|MAX_PAGINATION_PASSES|buildAppliedGapIndex|readAppliedGapPx/);
+    expect(pageCanvas + measurement).not.toMatch(/detectGapOscillation|frozenPaginationGaps|MAX_PAGINATION_PASSES|buildAppliedGapIndex|readAppliedGapPx/);
   });
 
   it("keeps page models independent from UI and AI", () => {
@@ -115,48 +116,55 @@ describe("page canvas pure-model dependency boundary", () => {
     expect(pageCanvas).toContain('from "./page-canvas/inline-content-composition"');
     expect(pageCanvas).toContain('from "./page-canvas/pointer-model"');
     expect(pageCanvas).toContain('from "./page-canvas/problem-area-model"');
-    expect(pageCanvas).toContain('from "./page-canvas/running-region-text-model"');
+    const regions = readSiblingSource("./use-page-canvas-regions.ts");
+    const viewport = readSiblingSource("./use-page-canvas-viewport.ts");
+    const measurement = readSiblingSource("./use-page-canvas-measurement.ts");
+    expect(importSpecifiers(pageCanvas)).toContain("./page-canvas/use-page-canvas-regions");
+    expect(importSpecifiers(pageCanvas)).toContain("./page-canvas/use-page-canvas-viewport");
+    expect(importSpecifiers(pageCanvas)).toContain("./page-canvas/use-page-canvas-measurement");
+    expect(importSpecifiers(regions)).toContain("./running-region-text-model");
     expect(pageCanvas).toContain('from "./page-canvas/virtualization"');
-    expect(pageCanvas).toContain('from "./page-canvas/flow-probe"');
+    expect(importSpecifiers(measurement)).toContain("./flow-probe");
     expect(pageCanvas).toContain('from "./page-canvas/space-after-preview"');
+    const controllers = pageCanvas + regions + viewport + measurement;
     // ドラッグ中の換算と追従集合はページ制御側で書き直さない (純関数側の 1 箇所だけ)。
-    expect(pageCanvas).not.toMatch(/\bfunction resolveSpaceAfterDragPx\s*\(/);
-    expect(pageCanvas).not.toMatch(/\bfunction resolveSpaceAfterPreviewCohort\s*\(/);
+    expect(controllers).not.toMatch(/\bfunction resolveSpaceAfterDragPx\s*\(/);
+    expect(controllers).not.toMatch(/\bfunction resolveSpaceAfterPreviewCohort\s*\(/);
     // 関数宣言だけを見張っても、インラインで書き直されたら気付けない。換算に要る材料を
     // ページ制御側が握っていないことまで見る (クランプの上限を持ち込んだ瞬間に落ちる)。
     // ページの刻みは他の用途でも使うので、ここでは見張らない。
-    expect(pageCanvas).not.toContain("MAX_BLOCK_SPACE_AFTER_PX");
-    expect(pageCanvas).not.toMatch(/Math\.round\([^)]*startPx/);
-    expect(pageCanvas).not.toContain('from "./page-canvas/reconciliation"');
-    expect(pageCanvas).not.toMatch(/\bfunction collectReservedProblemAreaIds\s*\(/);
-    expect(pageCanvas).not.toMatch(/\bfunction collectReservedLayoutSectionIds\s*\(/);
-    expect(pageCanvas).not.toMatch(/\bfunction replaceProblemAreaRichBlocks\s*\(/);
-    expect(pageCanvas).not.toMatch(/\bfunction replaceLayoutSectionChildren\s*\(/);
-    expect(pageCanvas).not.toMatch(/\bfunction getPageDoubleTapHit\s*\(/);
+    expect(controllers).not.toContain("MAX_BLOCK_SPACE_AFTER_PX");
+    expect(controllers).not.toMatch(/Math\.round\([^)]*startPx/);
+    expect(controllers).not.toContain('from "./page-canvas/reconciliation"');
+    expect(controllers).not.toMatch(/\bfunction collectReservedProblemAreaIds\s*\(/);
+    expect(controllers).not.toMatch(/\bfunction collectReservedLayoutSectionIds\s*\(/);
+    expect(controllers).not.toMatch(/\bfunction replaceProblemAreaRichBlocks\s*\(/);
+    expect(controllers).not.toMatch(/\bfunction replaceLayoutSectionChildren\s*\(/);
+    expect(controllers).not.toMatch(/\bfunction getPageDoubleTapHit\s*\(/);
     // ページ割りの判定と gap の読み戻しは純関数モジュール側にしか置かない。
-    expect(pageCanvas).not.toMatch(/\bfunction decidePagination\s*\(/);
-    expect(pageCanvas).not.toMatch(/\bfunction gapMapSignature\s*\(/);
-    expect(pageCanvas).not.toMatch(/\bfunction detectGapOscillation\s*\(/);
-    expect(pageCanvas).not.toMatch(/\bfunction buildAppliedGapIndex\s*\(/);
-    expect(pageCanvas).not.toMatch(/\bfunction measureAppliedGapPx\s*\(/);
-    expect(pageCanvas).not.toMatch(/\bfunction arePageDoubleTapHitsEqual\s*\(/);
-    expect(pageCanvas).not.toMatch(/\bfunction pageRunningRegionToTextFlowBlocks\s*\(/);
-    expect(pageCanvas).not.toMatch(/\bfunction textFlowBlocksToRunningBlocks\s*\(/);
-    expect(pageCanvas).not.toMatch(/\bfunction getHiddenOptionalProblemAreas\s*\(/);
-    expect(pageCanvas).not.toMatch(/\bfunction ensureOptionalProblemArea\s*\(/);
-    expect(pageCanvas).not.toMatch(/\bfunction clearOptionalProblemArea\s*\(/);
-    expect(pageCanvas).not.toMatch(/\bfunction setProblemAreaMinHeight\s*\(/);
-    expect(pageCanvas).not.toMatch(/\bfunction splitTextFlowBlocksByInlineContent\s*\(/);
-    expect(pageCanvas).not.toMatch(/\btype TextFlowExtensionPart\b/);
-    expect(pageCanvas).not.toMatch(/\bconst PAGE_WINDOW_OVERSCAN\s*=/);
-    expect(pageCanvas).not.toMatch(/\bconst PAGE_WINDOW_FAST_SCROLL_OVERSCAN\s*=/);
-    expect(pageCanvas).not.toMatch(/\bconst scrollSpeed\s*=/);
-    expect(pageCanvas).toContain("createInitialVisiblePageRange()");
-    expect(pageCanvas).toContain("resolvePageVisibilityWindow({");
+    expect(controllers).not.toMatch(/\bfunction decidePagination\s*\(/);
+    expect(controllers).not.toMatch(/\bfunction gapMapSignature\s*\(/);
+    expect(controllers).not.toMatch(/\bfunction detectGapOscillation\s*\(/);
+    expect(controllers).not.toMatch(/\bfunction buildAppliedGapIndex\s*\(/);
+    expect(controllers).not.toMatch(/\bfunction measureAppliedGapPx\s*\(/);
+    expect(controllers).not.toMatch(/\bfunction arePageDoubleTapHitsEqual\s*\(/);
+    expect(controllers).not.toMatch(/\bfunction pageRunningRegionToTextFlowBlocks\s*\(/);
+    expect(controllers).not.toMatch(/\bfunction textFlowBlocksToRunningBlocks\s*\(/);
+    expect(controllers).not.toMatch(/\bfunction getHiddenOptionalProblemAreas\s*\(/);
+    expect(controllers).not.toMatch(/\bfunction ensureOptionalProblemArea\s*\(/);
+    expect(controllers).not.toMatch(/\bfunction clearOptionalProblemArea\s*\(/);
+    expect(controllers).not.toMatch(/\bfunction setProblemAreaMinHeight\s*\(/);
+    expect(controllers).not.toMatch(/\bfunction splitTextFlowBlocksByInlineContent\s*\(/);
+    expect(controllers).not.toMatch(/\btype TextFlowExtensionPart\b/);
+    expect(controllers).not.toMatch(/\bconst PAGE_WINDOW_OVERSCAN\s*=/);
+    expect(controllers).not.toMatch(/\bconst PAGE_WINDOW_FAST_SCROLL_OVERSCAN\s*=/);
+    expect(controllers).not.toMatch(/\bconst scrollSpeed\s*=/);
+    expect(viewport).toContain("createInitialVisiblePageRange()");
+    expect(viewport).toContain("resolvePageVisibilityWindow({");
 
-    const runningRegionUpdate = pageCanvas.slice(
-      pageCanvas.indexOf("const updateRunningRegionBlocks"),
-      pageCanvas.indexOf("const resizeRunningRegionForContent"),
+    const runningRegionUpdate = regions.slice(
+      regions.indexOf("const updateRunningRegionBlocks"),
+      regions.indexOf("const resizeRunningRegionForContent"),
     );
     expect(runningRegionUpdate).toMatch(
       /onPageLayoutChange\(nextLayout\);\s*setPageLayoutDraft\(null\);\s*pageLayoutDraftRef\.current = null;/,
@@ -181,10 +189,8 @@ describe("page canvas pure-model dependency boundary", () => {
       /clearProblemArea\([^;]+;\s*setProblemContextMenu\(null\);/,
     );
 
-    const problemAreaView = pageCanvas.slice(
-      pageCanvas.indexOf("function ProblemAreaFlowUnit"),
-      pageCanvas.indexOf("function problemAreaSideLabel"),
-    );
+    const problemAreaView = readSiblingSource("./problem-area-view.tsx");
+    expect(importSpecifiers(pageCanvas)).toContain("./page-canvas/problem-area-view");
     const textFlowIndex = problemAreaView.indexOf("<TextFlowWithInlineContent");
     const afterContentIndex = problemAreaView.indexOf(
       "{afterInlineContent.length > 0",
@@ -196,7 +202,7 @@ describe("page canvas pure-model dependency boundary", () => {
     expect(afterContentIndex).toBeGreaterThan(textFlowIndex);
     expect(resizeHandleIndex).toBeGreaterThan(afterContentIndex);
 
-    expect(pageCanvas).toContain(
+    expect(viewport).toContain(
       'scroller.addEventListener("scroll", scheduleUpdate, { passive: true })',
     );
     // 可視ページ範囲は page canvas が 1 箇所で決めて配る (受け手が各自で数え直さない)。

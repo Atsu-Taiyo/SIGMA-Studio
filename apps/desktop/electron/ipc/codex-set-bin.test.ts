@@ -141,3 +141,6 @@ describe("codex:set-bin input validation", () => {
     expect(setCodexBin).not.toHaveBeenCalled();
   });
 });
+
+// These tests isolate handler behavior; sender authorization is tested in trusted-ipc.test.ts.
+vi.mock("../trusted-ipc", async () => ({ ipcMain: (await import("electron")).ipcMain }));

@@ -61,7 +61,7 @@ test("initial graph origin follows the click and survives reload", async ({}, te
     await page.screenshot({ path: testInfo.outputPath("graph-origin.png") });
   } finally {
     await app.close();
-    rmSync(profile, { recursive: true, force: true });
+    rmSync(profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
     expect(existsSync(profile)).toBe(false);
   }
 });

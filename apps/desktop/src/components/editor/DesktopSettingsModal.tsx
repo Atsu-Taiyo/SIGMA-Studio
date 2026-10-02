@@ -17,7 +17,7 @@ import type { Translate } from "@/lib/i18n";
 import { setAppLocale, useAppLocale, useT } from "@/lib/i18n/react";
 
 import { useSettingsEntryFocus } from "./settings-entry-focus";
-import { resolveAiConnectionState, resolveClaudeConnectionState, resolveGeminiConnectionState } from "@/lib/ai/ai-connection";
+import { useEditorHost } from "./editor-shell/editor-host";
 import type { DesktopAppInfo, DesktopClaudeStatus, DesktopCodexStatus, DesktopCustomFont, DesktopGeminiStatus, DesktopUpdateState } from "@/types/desktop";
 
 interface DesktopSettingsModalProps {
@@ -189,6 +189,7 @@ function DesktopSettingsBody({
   mode: "app" | "ai";
   embedded: boolean;
 }) {
+  const { resolveAiConnectionState, resolveClaudeConnectionState, resolveGeminiConnectionState } = useEditorHost().assistance;
   const [appInfo, setAppInfo] = useState<DesktopAppInfo | null>(null);
   const [codexStatus, setCodexStatus] = useState<DesktopCodexStatus | null>(null);
   const [claudeStatus, setClaudeStatus] = useState<DesktopClaudeStatus | null>(null);
