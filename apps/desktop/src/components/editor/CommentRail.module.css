@@ -162,5 +162,11 @@
 .collapse {
   display: flex;
   justify-content: flex-end;
-  padding-bottom: var(--space-xs);
+  /* 下のカードの操作バーと閉じるボタンを同じ場所に重ねない。 */
+  padding-bottom: calc(var(--space-xs) + 34px);
+}
+
+.list:has(.collapse) {
+  /* 操作バーの余白は閉じるボタンの下で確保する。 */
+  padding-top: var(--space-sm);
 }
