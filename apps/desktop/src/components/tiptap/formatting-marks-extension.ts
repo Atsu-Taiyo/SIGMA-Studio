@@ -31,6 +31,23 @@ export function createFormattingMarkDecorations(
   const marks: Decoration[] = [];
   const placeholder = getPlaceholder();
   const mark = (pos: number, kind: "paragraph" | "line") => {
+    // Chromium は書式付きの非編集 atom と改行の間でキャレットを描けない。
+    // ProseMirror の末尾補助 IMG は改行記号の「後」に付くため、この境目には届かない。
+    // 数式と同じ marks の内側へ編集可能な空 IMG を置き、ネイティブの挿入位置を作る。
+    // side: 0 で入力は補助要素より前、改行記号 (side: 1) もその後ろに保つ。
+    // decoration なので本文・クリップボード・保存データへは混入しない。
+    const before = doc.resolve(pos).nodeBefore;
+    if (before?.type.name === "mathInline") {
+      marks.push(Decoration.widget(pos, () => {
+        const img = document.createElement("img");
+        img.alt = "";
+        img.className = "ProseMirror-separator";
+        img.contentEditable = "true";
+        img.setAttribute("aria-hidden", "true");
+        img.dataset.mathCaretBuffer = "";
+        return img;
+      }, { side: 0, marks: before.marks, key: `math-caret-${pos}` }));
+    }
     // 入力は記号より前に置く。side: -1 だと末尾への打鍵が記号の後ろへ入り、
     // 次の装飾更新が合成中のDOMを分断して IME 確定や矢印移動を妨げる。
     marks.push(Decoration.widget(pos, () => {
