@@ -56,8 +56,14 @@ test("desktop comments select collaborators and retain recipients after shared r
     }, session);
     await page.reload();
     await expect(page.locator(".startup-splash")).toBeHidden({ timeout: 60_000 });
-    await page.locator(".comment-dock-toggle").click();
-    const dock = page.locator(".comment-dock");
+    await page.getByRole("button", { name: "設定", exact: true }).click();
+    const showComments = page.getByRole("menuitemcheckbox", { name: "コメント表示", exact: true });
+    if (await showComments.getAttribute("aria-checked") === "false") await showComments.click();
+    else await page.keyboard.press("Escape");
+    const dock = page.locator("[data-comment-rail]");
+    if (await dock.getAttribute("data-compact") === "true") {
+      await dock.getByRole("button", { name: /^コメントを開く:/ }).click();
+    }
     await dock.getByRole("button", { name: "返信する", exact: true }).click();
     const input = dock.locator(".comment-reply-composer .comment-rich-text-editor");
     await input.fill("@coll");
@@ -67,7 +73,7 @@ test("desktop comments select collaborators and retain recipients after shared r
     await expect(input.locator('[data-comment-mention="recipient"]')).toHaveText("@collaborator@example.test");
     await input.pressSequentially(" 確認をお願いします");
     await dock.getByRole("button", { name: "返信", exact: true }).click();
-    await expect(dock.locator('.rich-inline-content [data-comment-mention="recipient"]')).toHaveText("@collaborator@example.test");
+    await expect(dock.locator('.rich-inline-content [data-comment-mention="recipient"] .comment-mention-label')).toHaveText("@collaborator@example.test");
     await expect.poll(async () => app.evaluate(() => (globalThis as unknown as { mentionTest: { updates: string[] } }).mentionTest.updates.length)).toBeGreaterThan(0);
     const updates = await app.evaluate(() => (globalThis as unknown as { mentionTest: { updates: string[] } }).mentionTest.updates);
     updates.forEach((update) => shared.applyUpdate(fromBase64(update)));
@@ -82,10 +88,11 @@ test("desktop comments select collaborators and retain recipients after shared r
     }, toBase64(shared.snapshot()));
     await page.reload();
     await expect(page.locator(".startup-splash")).toBeHidden({ timeout: 60_000 });
-    await expect(page.locator(".comment-dock-mention-badge")).toHaveText("@1");
-    await page.locator(".comment-dock-toggle").click();
+    const mentions = page.getByRole("button", { name: "あなたへのメンション", exact: true });
+    await expect(mentions).toHaveText("@1");
+    await mentions.click();
     await dock.locator(".comment-reply-summary").click();
-    await expect(dock.locator('.comment-mention.is-self')).toHaveText("@collaborator@example.test");
+    await expect(dock.locator('.comment-mention.is-self .comment-mention-label')).toHaveText("@collaborator@example.test");
     await page.screenshot({ path: testInfo.outputPath("comment-mention-desktop.png") });
     const memberFiles = await app.evaluate(() => (globalThis as unknown as { mentionTest: { memberFiles: string[] } }).mentionTest.memberFiles);
     expect(memberFiles).toEqual([fileId]);

@@ -12,8 +12,8 @@ import type { SigmaDocument } from "@/features/document";
 import { useT } from "@/lib/i18n/react";
 import styles from "./CommentRail.module.css";
 
-/** 追従で、先頭のカードを一覧の上端から離す距離 (一覧の余白 + 影のぶん)。 */
-const FOLLOW_TOP_OFFSET_PX = 8;
+/** 一覧の余白 (8px) とカードの上に出る操作バー (34px) を追従中も確保する。 */
+const FOLLOW_TOP_OFFSET_PX = 42;
 /** アイコンの並びに出すコメントの数。これを超えたぶんは「+N」にまとめる。 */
 const COMPACT_THREAD_LIMIT = 6;
 
@@ -50,6 +50,9 @@ export function CommentRail({ document, panel, open, whiteboard, onPeekHostChang
   const canvasRef = useRef<HTMLElement | null>(null);
   const [expanded, setExpanded] = useState(false);
   const hasComments = open && (panel.threads.length > 0 || Boolean(panel.pendingAnchor));
+  const mentionedThreads = (document.comments ?? []).filter(thread => !thread.resolved
+    && thread.messages.some(message => message.body.some(node => node.type === "text"
+      && node.mentionUserId && node.mentionUserId === panel.currentUserId)));
 
   // 本文のキャンバスは、画面に1つだけ。描き直しのたびに探さず、文書が替わったときに引き直す。
   useLayoutEffect(() => {
@@ -145,6 +148,17 @@ export function CommentRail({ document, panel, open, whiteboard, onPeekHostChang
       data-comment-rail="true"
     >
       <div className={styles.peekSlot} ref={onPeekHostChange} />
+      {mentionedThreads.length > 0 && (
+        <button
+          type="button"
+          className={styles.mentionButton}
+          aria-label={t("comment.mentionsYou")}
+          title={t("comment.mentionsYou")}
+          onClick={() => openThread(mentionedThreads[0].id)}
+        >
+          @{mentionedThreads.length}
+        </button>
+      )}
       {hasComments && compactActive && (
         <div className={styles.compactList}>
           {compactThreads.map((thread) => {

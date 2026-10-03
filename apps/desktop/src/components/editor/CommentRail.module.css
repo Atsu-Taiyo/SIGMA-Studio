@@ -33,13 +33,26 @@
   display: none;
 }
 
+.mentionButton {
+  align-self: flex-end;
+  flex: 0 0 auto;
+  padding: var(--space-xs) var(--space-sm);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-round);
+  color: var(--text-primary);
+  background: var(--background);
+  box-shadow: var(--shadow-floating);
+  cursor: pointer;
+  pointer-events: auto;
+}
+
 .list {
   min-height: 0;
   flex: 0 1 auto;
   overflow-x: hidden;
   overflow-y: auto;
-  /* カードの影が一覧の縁で切れないだけの余白。 */
-  padding: var(--space-sm) var(--space-sm) var(--space-lg);
+  /* 上に出る操作バー (34px) もスクロール領域に含め、先頭カードで切らない。 */
+  padding: calc(var(--space-sm) + 34px) var(--space-sm) var(--space-lg);
   scrollbar-width: thin;
   overscroll-behavior: contain;
   pointer-events: auto;

@@ -1,5 +1,6 @@
 import nextVitals from "eslint-config-next/core-web-vitals";
 import nextTypescript from "eslint-config-next/typescript";
+import { fixupConfigRules } from "@eslint/compat";
 
 // ひらがな / カタカナ / CJK 統合漢字。コード中に直書きされた日本語を拾う。
 const JAPANESE_CHARACTER = "[\\u3040-\\u309f\\u30a0-\\u30ff\\u4e00-\\u9fff]";
@@ -14,8 +15,8 @@ const noUntranslatedJapaneseLiteral = [
 ];
 
 const eslintConfig = [
-  ...nextVitals,
-  ...nextTypescript,
+  // Next's React rules still use context methods removed by ESLint 10.
+  ...fixupConfigRules([...nextVitals, ...nextTypescript]),
   {
     ignores: [
       ".next/**",
