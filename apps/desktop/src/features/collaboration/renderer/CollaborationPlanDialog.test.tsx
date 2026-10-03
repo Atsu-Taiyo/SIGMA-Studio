@@ -124,7 +124,7 @@ describe("account menu plan entry", () => {
     expect(document.body.textContent).toContain("チームで共同編集するなら、Proプランがおすすめです。");
   });
 
-  it("shows a Pro badge beside the avatar and account name without a plan-view action", async () => {
+  it("overlays a Pro badge on the avatar and shows it by the account name without a plan-view action", async () => {
     mockCatalog({ state: "ready", actorId: "owner", revision: 1, capabilities: {
       canStartDocumentShare: true, documentShareSource: "entitlement", hierarchySharingEnabled: true,
       canStartHierarchyShare: true, hierarchyShareSource: "entitlement", participantLimit: 15,
