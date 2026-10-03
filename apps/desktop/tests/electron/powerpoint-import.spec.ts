@@ -42,7 +42,7 @@ test("PowerPoint imports through the desktop renderer and survives native save a
     const saved = (await page.evaluate(id => window.desktopAPI!.storage.loadDocument(id), file.fileId))!;
     expect(saved.metadata.source).toMatchObject({ format: "powerpoint", slideCount: 1 });
     expect(saved.pageLayout!.overlay!.overlaySnapshot!.shapes).toHaveLength(1);
-    await page.screenshot({ path: testInfo.outputPath("powerpoint-import.png") });
+    await page.screenshot({ animations: "disabled", path: testInfo.outputPath("powerpoint-import.png") });
     await app.close();
     app = await launch();
     page = await app.firstWindow();
