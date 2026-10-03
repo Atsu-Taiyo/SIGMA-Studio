@@ -76,6 +76,8 @@ export function AiEditorHost({
         <div
           className={`ai-inline-catcher${inlineClosing ? " ai-inline-catcher--closing" : ""}`.trim()}
           role="presentation"
+          // 透明な幕。開いたまま、下の紙面から範囲スクリーンショットを始められるようにする。
+          data-region-capture-passthrough="true"
           onMouseDown={onClose}
           onWheel={(event) => {
             const scroller = editorCanvasRef.current;

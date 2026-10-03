@@ -8,6 +8,7 @@ import {
 import { AiConnectionGate, ClaudeConnectionGate, GeminiConnectionGate } from "@/components/editor/AiConnectionGate";
 import { AiStaleProposalNotice } from "@/components/editor/AiStaleProposalNotice";
 import type { OverlayShape } from "@/components/editor/overlay-canvas/types";
+import type { AiEditAttachment } from "@/lib/ai/sigma-doc-agent-tools";
 import { useAiConnection, useClaudeConnection, useGeminiConnection } from "@/lib/ai/ai-connection";
 import { type AiEditReference } from "@/lib/ai/ai-edit-reference";
 import { getAttachmentDefaultInstruction } from "@/lib/ai/ai-edit-runtime";
@@ -54,6 +55,7 @@ import { AiChatInlineSurface } from "@/features/ai-edit/view/AiChatInlineSurface
 const EMPTY_PINNED_REFERENCES: AiEditReference[] = [];
 const EMPTY_PINNED_REFERENCE_PREVIEWS: ReadonlyMap<string, AiEditShapeOnlyPreview> = new Map();
 const EMPTY_OVERLAY_SHAPES: OverlayShape[] = [];
+const EMPTY_PENDING_ATTACHMENTS: AiEditAttachment[] = [];
 
 export function findActiveRoomPreview(
   previewGroups: AiEditPreviewState[],
@@ -78,6 +80,9 @@ export function AiEditPanel({
   pinnedReferences = EMPTY_PINNED_REFERENCES,
   pinnedReferencePreviews = EMPTY_PINNED_REFERENCE_PREVIEWS,
   onRemovePinnedReference,
+  pendingAttachments = EMPTY_PENDING_ATTACHMENTS,
+  onRemovePendingAttachment,
+  onPendingAttachmentsSent,
   overlaySelection,
   variant = "sidebar",
   inlineSessionId = 0,
@@ -114,7 +119,7 @@ export function AiEditPanel({
   const geminiConnection = useGeminiConnection();
   const models = useAiChatModelController();
   const { provider, setProvider, model, claudeModel, geminiModel, reasoningEffort } = models;
-  const composer = useAiChatComposer({ document, documentIdentityKey, documentWorkspaceId, selectedId, reference, pinnedReferences, pinnedReferencePreviews, overlaySelection, provider, refreshRuntimeModels: models.refreshRuntimeModels });
+  const composer = useAiChatComposer({ document, documentIdentityKey, documentWorkspaceId, selectedId, reference, pinnedReferences, pinnedReferencePreviews, pendingAttachments, onRemovePendingAttachment, onPendingAttachmentsSent, overlaySelection, provider, refreshRuntimeModels: models.refreshRuntimeModels });
   const {
     instruction,
     attachments,

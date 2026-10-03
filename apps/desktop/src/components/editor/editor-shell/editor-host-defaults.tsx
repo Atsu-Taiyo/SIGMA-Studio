@@ -102,6 +102,13 @@ export function useAiPinnedReferences() {
   };
 }
 
+export function useAiPendingAttachments() {
+  const add = useCallback(() => undefined, []);
+  const remove = useCallback(() => undefined, []);
+  const clear = useCallback(() => undefined, []);
+  return { attachments: EMPTY_ARRAY, add, remove, clear };
+}
+
 // 公開Editorには提案の保存・承認経路を持ち込まない。hostの文書やbusy stateには触れない。
 export const useAiProposalActions: (options?: unknown) => typeof DISABLED_PROPOSAL_ACTIONS = () => DISABLED_PROPOSAL_ACTIONS;
 
@@ -282,6 +289,7 @@ const disabledAssistance: EditorAssistanceServices = {
   isAiLockedShapeSelection,
   useAiLockedTargets,
   useAiPinnedReferences,
+  useAiPendingAttachments,
   useAiWorkspaceTabTitles,
   useAiProposalActions,
   useCommentAiRun,

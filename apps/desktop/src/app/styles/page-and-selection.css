@@ -75,7 +75,7 @@ code {
 
 .document-paper {
   width: min(100%, 920px);
-  min-height: calc(100vh - var(--editor-chrome-height) - var(--editor-statusbar-height));
+  min-height: calc(100vh - var(--editor-chrome-height) - var(--editor-pocket-height) - var(--editor-statusbar-height));
   margin: 0 auto;
   padding: 36px 62px 72px;
   border-left: 1px solid var(--border);
@@ -98,7 +98,7 @@ code {
    * of this box, so a wider box makes a wider stack makes a wider box. The height cannot
    * do that — the stack is absolutely positioned, so this box's height never reaches it. */
   min-height: max(
-    calc(100vh - var(--editor-chrome-height) - var(--editor-statusbar-height)),
+    calc(100vh - var(--editor-chrome-height) - var(--editor-pocket-height) - var(--editor-statusbar-height)),
     calc(var(--page-stack-natural-height, 0px) * var(--editor-zoom, 1))
   );
 }

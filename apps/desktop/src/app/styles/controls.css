@@ -32,6 +32,10 @@
      --editor-chrome-height と同じ理由で :root に置く（派生トークンを :root に
      作ってしまうと、.app-shell 側の word 上書きが calc に反映されない）。 */
   --editor-statusbar-height: 0px;
+  /* クロームと紙面の間にあるポケットの高さ。閉じているときは 0px で、`.app-shell[data-pocket]`
+     が開閉に合わせて上書きする。`--editor-statusbar-height` と同じ理由で :root に既定を置く
+     (`.app-shell` の外へ出た DOM の calc() を無効化しない)。紙面の高さの計算はこれを引く。 */
+  --editor-pocket-height: 0px;
   /* Word風のステータスバーの実寸。--editor-statusbar-height は「いまのレイアウトで
      本文が譲るべき高さ」なので docs では 0px になるが、こちらは常に実寸を持つ。
      body へ portal されて `.app-shell` の外に出る浮遊UI（描画ヒント等）が、
@@ -299,9 +303,35 @@ button:disabled {
 
 .app-shell {
   display: grid;
-  grid-template-rows: var(--editor-chrome-height) minmax(0, 1fr) var(--editor-statusbar-height);
+  grid-template-rows:
+    var(--editor-chrome-height)
+    var(--editor-pocket-height)
+    minmax(0, 1fr)
+    var(--editor-statusbar-height);
   min-height: 100vh;
   background: var(--surface-soft);
+}
+
+/* ポケット (クロームと紙面の間の 1 段)。畳んだ帯と開いた並びの高さはここが唯一の出典で、
+   バー自身も `.app-shell` の 2 本目のトラックも同じトークンを読む。 */
+.app-shell[data-pocket="collapsed"] {
+  --editor-pocket-height: 28px;
+}
+
+.app-shell[data-pocket="expanded"] {
+  --editor-pocket-height: 88px;
+}
+
+.app-shell > [data-pocket-root] {
+  grid-row: 2;
+  grid-column: 1;
+}
+
+/* 行を明示する。ポケットを 2 本目に足したので、自動配置のままだと本文が 2 行目 (ポケットの
+   行) へ入ってしまう。ポケットが閉じていても 0px のトラックが残るだけで、見え方は変わらない。 */
+.app-shell > main.workspace {
+  grid-row: 3;
+  grid-column: 1;
 }
 
 .top-toolbar {

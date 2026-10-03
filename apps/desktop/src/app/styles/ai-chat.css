@@ -3435,7 +3435,7 @@
 
 @media (max-width: 820px) {
   .app-shell {
-    grid-template-rows: auto minmax(0, 1fr) var(--editor-statusbar-height);
+    grid-template-rows: auto var(--editor-pocket-height) minmax(0, 1fr) var(--editor-statusbar-height);
     height: 100dvh;
     min-height: 100dvh;
     overflow: hidden;

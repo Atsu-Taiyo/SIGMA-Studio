@@ -22,6 +22,7 @@ export {
   type AiTextFlowEditPolicyInput,
 } from "./adapters/tiptap/edit-lock-adapter";
 export { useAiPinnedReferences, type AiPinnedReferencesController } from "./application/use-ai-pinned-references";
+export { useAiPendingAttachments, type AiPendingAttachmentsController } from "./application/use-ai-pending-attachments";
 export {
   describeAiLockedTargets,
   EMPTY_AI_LOCKED_TARGETS,

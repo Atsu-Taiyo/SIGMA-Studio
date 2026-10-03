@@ -27,6 +27,7 @@ export interface EditorAssistanceServices {
   isAiLockedShapeSelection: typeof import("@/features/ai-edit").isAiLockedShapeSelection;
   useAiLockedTargets: typeof import("@/features/ai-edit").useAiLockedTargets;
   useAiPinnedReferences: typeof import("@/features/ai-edit").useAiPinnedReferences;
+  useAiPendingAttachments: typeof import("@/features/ai-edit").useAiPendingAttachments;
   useAiWorkspaceTabTitles: typeof import("@/features/ai-edit").useAiWorkspaceTabTitles;
   useAiProposalActions: typeof import("@/features/ai-edit").useAiProposalActions;
   useCommentAiRun: typeof import("@/features/ai-edit").useCommentAiRun;
@@ -61,3 +62,4 @@ export type { AiEditShapeOnlyPreview } from "@/features/ai-edit";
 export type { AiProposalApplyOutcome } from "@/features/ai-edit";
 export type { AiDisplayMode } from "@/lib/ai/ai-surface";
 export type { AiSurfaceState } from "@/lib/ai/ai-surface";
+export type { AiEditAttachment } from "@/lib/ai/sigma-doc-agent-tools";
