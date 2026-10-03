@@ -102,6 +102,23 @@ describe("CommentRail", () => {
     expect(cards().every((card) => card.style.top === "")).toBe(true);
   });
 
+  it("keeps self-mention counts accessible while cards are hidden and opens the mentioned thread", () => {
+    const mentioned = thread("mentioned", ["田中"]);
+    mentioned.messages[0].body = [{ type: "text", text: "@木村", mentionUserId: "me" }];
+    const resolved = { ...mentioned, id: "resolved", resolved: true };
+    const other = thread("other", ["佐藤"]);
+    other.messages[0].body = [{ type: "text", text: "@他の人", mentionUserId: "someone-else" }];
+    const base = props([mentioned, resolved, other]);
+    const onSelectThread = vi.fn();
+    render({ ...base, open: false, document: { ...document, comments: [mentioned, resolved, other] },
+      panel: { ...base.panel, currentUserId: "me", onSelectThread } });
+    const button = container.querySelector<HTMLButtonElement>('[aria-label="あなたへのメンション"]')!;
+    expect(button.textContent).toBe("@1");
+    expect(cards()).toHaveLength(0);
+    act(() => button.click());
+    expect(onSelectThread).toHaveBeenCalledWith("mentioned");
+  });
+
   it("shows who spoke on a thread only once two or more people did, fading the third", () => {
     render(props([thread("solo", ["田中"]), thread("pair", ["田中", "佐藤"]), thread("trio", ["田中", "佐藤", "木村", "鈴木"])]));
     const stack = (key: string) => cards().find((card) => card.dataset.commentCardKey === key)!.querySelector<HTMLElement>("[data-participant-count]");

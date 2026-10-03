@@ -30,6 +30,7 @@ describe("Editor package boundary", () => {
     expect(inputs.some((input) => input.endsWith("/apps/desktop/src/lib/tex-import/macros.ts"))).toBe(true);
     expect(inputs.some((input) => input.includes("/node_modules/next/"))).toBe(false);
     expect(inputs.some((input) => input.includes("/node_modules/electron/"))).toBe(false);
+    expect(inputs.some((input) => input.includes("/node_modules/@napi-rs/"))).toBe(false);
     expect(inputs.some((input) => input.includes("/apps/desktop/electron/"))).toBe(false);
     expect(inputs.some((input) => input.includes("/node_modules/@modelcontextprotocol/"))).toBe(false);
     expect(inputs.some((input) => input.includes("/features/ai-edit/"))).toBe(false);
@@ -56,6 +57,7 @@ describe("Editor package boundary", () => {
     expect(bundledJavaScript).not.toMatch(
       /from\s*["'](?:electron|next(?:\/|["']))|process\.env/u,
     );
+    expect(bundledJavaScript).not.toMatch(/import\s*\(["']@napi-rs\/canvas["']/u);
   });
 
   it("generates public declarations without repository-internal source paths", () => {

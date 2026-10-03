@@ -18,6 +18,8 @@ const nextConfig: NextConfig = {
   images: {
     unoptimized: true,
   },
+  // emf-converter reads these raster diagnostic offsets without a browser guard.
+  env: { HDX: "0", HDY: "0" },
   turbopack: {
     // このアプリは `apps/desktop` にあるが、npm の lockfile はリポジトリ直下。
     root: path.join(__dirname, "../.."),

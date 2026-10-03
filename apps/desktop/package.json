@@ -73,6 +73,7 @@
     "zustand": "^5.0.15"
   },
   "devDependencies": {
+    "@eslint/compat": "^2.1.1",
     "@playwright/test": "^1.60.0",
     "@resvg/resvg-js": "^2.6.2",
     "@types/jsdom": "^30.0.0",

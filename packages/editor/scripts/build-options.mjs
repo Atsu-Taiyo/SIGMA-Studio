@@ -31,6 +31,9 @@ export function createBuildOptions() {
     define: {
       "process.env.NODE_ENV": '"production"',
       "process.env.NEXT_PUBLIC_SIGMA_PERF": '"0"',
+      // emf-converter's optional raster alignment diagnostics are Node env reads.
+      "process.env.HDX": '"0"',
+      "process.env.HDY": '"0"',
     },
     entryNames: "[name]",
     external,
@@ -51,6 +54,22 @@ export function createBuildOptions() {
     metafile: true,
     minify: true,
     platform: "browser",
+    plugins: [{
+      name: "browser-optional-native-canvas",
+      setup(build) {
+        // emf-converter uses DOM/OffscreenCanvas in browsers and catches this
+        // optional import on Node. An external import would still make consumers
+        // such as Vite try to bundle the native addon, so preserve the rejection.
+        build.onResolve({ filter: /^@napi-rs\/canvas$/ }, ({ importer }) => {
+          if (!/[\\/]emf-converter[\\/]/.test(importer)) return;
+          return { path: "native-canvas", namespace: "browser-optional-native" };
+        });
+        build.onLoad({ filter: /.*/, namespace: "browser-optional-native" }, () => ({
+          contents: 'throw new Error("Native canvas is unavailable in the browser bundle");',
+          loader: "js",
+        }));
+      },
+    }],
     target: ["es2021"],
   };
 }
