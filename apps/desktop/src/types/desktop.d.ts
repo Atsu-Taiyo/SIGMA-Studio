@@ -429,6 +429,22 @@ export interface DesktopEditorPreferencesSaveResult extends DesktopStorageResult
   preferences: DesktopEditorPreferences;
 }
 
+/** 画面の一部を撮る要求。座標はウィンドウ内容の左上を原点にした CSS px。 */
+export interface DesktopCaptureRegionRequest {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  /** 出力の長辺の上限 (px)。省略時は取得した解像度のまま。 */
+  maxDimension?: number;
+}
+
+export interface DesktopCaptureRegionResult {
+  png: Uint8Array;
+  width: number;
+  height: number;
+}
+
 export interface DesktopAppAPI {
   getInfo(): Promise<DesktopAppInfo>;
   openLatestReleasePage(): Promise<{ ok: boolean; error?: string }>;
@@ -438,6 +454,8 @@ export interface DesktopAppAPI {
   acknowledgeCloseRequest?(): Promise<boolean>;
   notifyCloseReady?(): Promise<boolean>;
   cancelCloseRequest?(): Promise<boolean>;
+  /** 描画済みの画面の一部をPNGで返す。撮れなかったときは null。 */
+  captureRegion?(request: DesktopCaptureRegionRequest): Promise<DesktopCaptureRegionResult | null>;
 }
 
 export type DesktopUpdatePhase =

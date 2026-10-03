@@ -1,0 +1,267 @@
+/* ポケット。編集画面のクローム (メニューバー + ツールバー) の真下に、紙面より前に置く一段。
+   高さは `--editor-pocket-height` (controls.css) が唯一の出典で、ここもそれを読む。
+   紙面の `calc(100vh - …)` と `.app-shell` のグリッド行が同じトークンを引くので、
+   開閉しても紙面の高さの計算がずれない。余白はスペーシングトークンだけを使う。 */
+
+.bar {
+  position: relative;
+  display: flex;
+  min-width: 0;
+  height: var(--editor-pocket-height);
+  align-items: center;
+  gap: var(--space-md);
+  padding: 0 var(--space-md);
+  border-bottom: 1px solid var(--border-subtle);
+  background: var(--surface);
+  color: var(--text-secondary);
+}
+
+/* 畳んだ姿。項目があることを示す細い帯で、押すと開く。 */
+.bar[data-phase="collapsed"] {
+  padding: 0;
+}
+
+.handle {
+  display: flex;
+  width: 100%;
+  height: 100%;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-sm);
+  padding: 0 var(--space-md);
+  border: 0;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 12px;
+  transition: background 140ms ease, color 140ms ease;
+}
+
+.handle:hover {
+  background: var(--surface-muted);
+  color: var(--text-primary);
+}
+
+.handle:focus-visible,
+.card:focus-visible,
+.addCard:focus-visible,
+.remove:focus-visible,
+.undo:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent) 32%, transparent);
+  outline-offset: 2px;
+}
+
+.title {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: var(--space-sm);
+  color: var(--text-primary);
+}
+
+.titleText {
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.count {
+  min-width: 18px;
+  padding: 0 var(--space-xs);
+  border-radius: var(--radius-round);
+  background: var(--surface-strong);
+  color: var(--text-secondary);
+  font-size: 11px;
+  line-height: 18px;
+  text-align: center;
+}
+
+/* カードの並び。溢れたら横にスクロールする。細いスクロールバーだけを出し (マウスだけの環境でも
+   続きがあると分かり、ドラッグでも送れる)、カードの上下の余白 (8px) の中に収める。 */
+.strip {
+  display: flex;
+  min-width: 0;
+  height: 100%;
+  flex: 1 1 auto;
+  align-items: center;
+  gap: var(--space-sm);
+  margin: 0;
+  padding: 0;
+  overflow-x: auto;
+  list-style: none;
+  scrollbar-color: var(--border-strong) transparent;
+  scrollbar-width: thin;
+}
+
+.item {
+  position: relative;
+  flex: 0 0 auto;
+}
+
+.card,
+.addCard {
+  position: relative;
+  display: block;
+  width: 168px;
+  height: 72px;
+  padding: 0;
+  border-radius: var(--radius-control);
+  transition: background 140ms ease, border-color 140ms ease, box-shadow 140ms ease;
+}
+
+.card {
+  overflow: hidden;
+  border: 1px solid var(--border-subtle);
+  background: var(--background);
+  color: var(--text-primary);
+  text-align: left;
+}
+
+.card:hover {
+  border-color: var(--border-strong);
+}
+
+/* 入れた直後だけ、枠を濃くして新しいカードを見つけやすくする。 */
+.card[data-just-added="true"] {
+  border-color: var(--border-strong);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 22%, transparent);
+}
+
+.cardPreview {
+  position: absolute;
+  inset: 0;
+  display: block;
+  padding: var(--space-sm);
+  overflow: hidden;
+}
+
+/* 種類の目印。本文は左上から流れるので、プレビューの邪魔にならない右下に置く。 */
+.badge {
+  position: absolute;
+  right: var(--space-xs);
+  bottom: var(--space-xs);
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 1px var(--space-xs);
+  border-radius: var(--radius-round);
+  background: color-mix(in srgb, var(--background) 86%, transparent);
+  color: var(--text-muted);
+  font-size: 10px;
+  line-height: 14px;
+}
+
+.insertedMark {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: color-mix(in srgb, var(--background) 78%, transparent);
+  color: var(--success);
+}
+
+/* 外す操作はホバー / フォーカスで現れる (常に並べると、カードの絵より目立つ)。 */
+.remove {
+  position: absolute;
+  top: var(--space-xs);
+  right: var(--space-xs);
+  display: grid;
+  width: 20px;
+  height: 20px;
+  place-items: center;
+  padding: 0;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-round);
+  background: var(--background);
+  color: var(--text-secondary);
+  opacity: 0;
+  transition: opacity 140ms ease, background 140ms ease, color 140ms ease, border-color 140ms ease;
+}
+
+.item:hover .remove,
+.item:focus-within .remove {
+  opacity: 1;
+}
+
+.remove:hover {
+  border-color: color-mix(in srgb, var(--danger) 40%, var(--border));
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
+.addCard {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-xs);
+  border: 1px dashed var(--border);
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.addCard:hover {
+  border-color: var(--border-strong);
+  background: var(--surface-muted);
+  color: var(--text-primary);
+}
+
+.empty {
+  min-width: 0;
+  flex: 0 1 auto;
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.side {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: var(--space-xs);
+}
+
+.notice {
+  display: flex;
+  max-width: 320px;
+  align-items: center;
+  gap: var(--space-sm);
+  margin: 0 var(--space-sm) 0 0;
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.notice[data-tone="error"] {
+  color: var(--danger);
+}
+
+.undo {
+  padding: var(--space-xs) var(--space-sm);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  background: var(--background);
+  color: var(--text-primary);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.undo:hover {
+  background: var(--surface-muted);
+}
+
+/* 「すべて外す」は破壊的なので、ホバーで赤くする (design-rules)。元に戻せる。 */
+.dangerOnHover:hover:not(:disabled) {
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .handle,
+  .card,
+  .addCard,
+  .remove {
+    transition: none;
+  }
+}

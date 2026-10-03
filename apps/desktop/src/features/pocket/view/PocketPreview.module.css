@@ -1,0 +1,99 @@
+/* カードの中身。外側の枠 (大きさ・余白・選択) は PocketBar.module.css が持ち、ここは
+   「中身がどう見えるか」だけを決める。操作は受けない (クリックはカードのボタンが受ける)。 */
+
+.blocksViewport {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  pointer-events: none;
+  user-select: none;
+  /* 続きがあることを、下端を薄く消して示す。 */
+  mask-image: linear-gradient(to bottom, #000 62%, transparent);
+}
+
+/* 紙面と同じ静的描画を、組版幅 (224px) のまま描いて 0.66 倍に縮める。
+   224 × 0.66 ≈ 148px がカードの内側の幅で、12pt の文字が約 10.5px になり読める。
+   transform だけで縮めるのは、CSS の zoom が組版を再計算するため (docs/architecture.md)。 */
+.blocksPage {
+  --editor-font-size: 12pt;
+  width: 224px;
+  color: var(--text-primary);
+  font-family: var(--editor-body-font-family);
+  line-height: 1.6;
+  transform: scale(0.66);
+  transform-origin: top left;
+}
+
+.blocksPage > :first-child {
+  margin-top: 0;
+}
+
+/* 見出しは紙面の大きさのままだと 1 ブロックでカードを埋めてしまう。小さな見出しにして、
+   続くブロックの頭まで見せる。詳細度は `h1.print-heading` (0,1,1) より高い (0,2,0)。 */
+.blocksPage :global(.print-heading),
+.blocksPage :global(.print-section) {
+  --sigma-doc-text-base-font-size: calc(var(--editor-font-size, 12pt) * 1.2);
+  margin: 0 0 2px;
+  font-size: var(--sigma-doc-text-base-font-size);
+  line-height: 1.4;
+}
+
+.figure {
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  pointer-events: none;
+  user-select: none;
+}
+
+/* 箱いっぱいに取って縦横比を保つ。max-height の百分率はグリッドの自動トラックでは解決されず、
+   背の高い図形 (表など) がカードからはみ出していた。 */
+.shapes {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.fallbackIcon {
+  color: var(--text-muted);
+}
+
+.mixed {
+  display: grid;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  grid-template-columns: minmax(0, 1fr) 56px;
+  align-items: stretch;
+  gap: var(--space-sm);
+}
+
+.text {
+  display: -webkit-box;
+  margin: 0;
+  overflow: hidden;
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+  pointer-events: none;
+  user-select: none;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 4;
+}
+
+.math {
+  display: grid;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  place-items: center;
+  overflow: hidden;
+  color: var(--text-primary);
+  font-size: 15px;
+  pointer-events: none;
+  user-select: none;
+}

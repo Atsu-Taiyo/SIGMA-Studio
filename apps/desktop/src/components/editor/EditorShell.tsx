@@ -4,7 +4,7 @@ import { DocumentSessionContext,DocumentWritableContext } from "./document-sessi
 import { DOCUMENT_BLOCK_OPERATION_PORTS } from "./editor-shell/document-operation-ports";
 import { scheduleEditorBlockFocus } from "./editor-shell/editor-focus";
 import { useEditorHost } from "./editor-shell/editor-host";
-import type { AiEditPreviewState,AiEditReference,AiEditShapeOnlyPreview,AiProposalApplyOutcome } from "./editor-shell/editor-host-contracts";
+import type { AiEditAttachment,AiEditPreviewState,AiEditReference,AiEditShapeOnlyPreview,AiProposalApplyOutcome } from "./editor-shell/editor-host-contracts";
 import { EditorOutlineDialog } from "./editor-shell/editor-outline-dialog";
 import { EditorPrintPreview } from "./editor-shell/editor-print-preview";
 import { tAi,tEditor,tShape,tWorkspace } from "./editor-shell/editor-translations";
@@ -162,6 +162,7 @@ import { Tooltip } from "@/components/ui/Tooltip";
 import {
 closeRightDock
 } from "@/features/right-dock/model/right-dock-state";
+import { PocketBar, usePocketPhase } from "@/features/pocket";
 import { FilesPanel } from "@/features/right-dock/view/FilesPanel";
 import { RightDockToggle } from "@/features/right-dock/view/RightDock";
 import { RightDockHost } from "@/features/right-dock/view/RightDockHost";
@@ -544,6 +545,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
     isAiLockedShapeSelection,
     useAiLockedTargets,
     useAiPinnedReferences,
+    useAiPendingAttachments,
     useAiWorkspaceTabTitles,
     useAiProposalActions,
     useCommentAiRun,
@@ -723,6 +725,18 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
     remove: removeAiPinnedReference,
     reconcileTextRanges: reconcileAiEditPinnedReferenceTextRanges,
   } = useAiPinnedReferences();
+  // 範囲スクリーンショットの「AIに聞く」で撮った画像。入力欄の下書きとは別に持ち、
+  // 送信するか外すか、インラインのAI面を閉じるまで入力欄へ差し込み続ける。
+  const {
+    attachments: aiPendingAttachments,
+    add: addAiPendingAttachment,
+    remove: removeAiPendingAttachment,
+    clear: clearAiPendingAttachments,
+  } = useAiPendingAttachments();
+  const clearAiInlineSessionContext = useCallback(() => {
+    clearAiEditPinnedReferences();
+    clearAiPendingAttachments();
+  }, [clearAiEditPinnedReferences, clearAiPendingAttachments]);
   // キャンバス右のサイドバー (開いているページのタブ列。ファイル / ブラウザ / サイドチャットは Hub から選ぶ)。
   // AIのサイドチャットが開いている状態は「ドックがチャットを見せている」ことそのもの (状態を二重に持たない)。
   const [versionHistoryOpen, setVersionHistoryOpen] = useState(false);
@@ -1000,7 +1014,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
   const hasInlineRunAnchor = useCallback(() => aiInlineRunAnchorRef.current !== null, [aiInlineRunAnchorRef]);
   const surfacePreviewClearRef = useRef<() => void>(() => {});
   const clearSurfacePreview = useCallback(() => surfacePreviewClearRef.current(), []);
-  const { rightDock, setRightDock, rightDockWidth, setRightDockWidth, aiSidebarOpen, aiDisplayMode, aiInlineOpen, aiInlineAnchor, aiInlineSessionId, aiInlineClosing, aiSettingsOpen, setAiSettingsOpen, applyAiSurface, openAiInline, promoteAiToSidebar, openRightDockSurface, closeAiSurface, collapseRightDock, closeRightDockChat } = useAiSurfaceController({ isDesktopApp, transitions: { openInline, promoteToSidebar, closeSurface }, dismissVersionHistory, clearRunAnchor: clearInlineRunAnchor, hasRunAnchor: hasInlineRunAnchor, clearAiEditPinnedReferences, clearAiEditPreview: clearSurfacePreview });
+  const { rightDock, setRightDock, rightDockWidth, setRightDockWidth, aiSidebarOpen, aiDisplayMode, aiInlineOpen, aiInlineAnchor, aiInlineSessionId, aiInlineClosing, aiSettingsOpen, setAiSettingsOpen, applyAiSurface, openAiInline, promoteAiToSidebar, openRightDockSurface, closeAiSurface, collapseRightDock, closeRightDockChat } = useAiSurfaceController({ isDesktopApp, transitions: { openInline, promoteToSidebar, closeSurface }, dismissVersionHistory, clearRunAnchor: clearInlineRunAnchor, hasRunAnchor: hasInlineRunAnchor, clearAiEditPinnedReferences: clearAiInlineSessionContext, clearAiEditPreview: clearSurfacePreview });
   const [storedUiLayoutPreference, updateUiLayoutPreference] = useUiLayoutPreference();
   // Word風リボンは再検討まで露出しない。保存済み設定は消さず、表示時だけ既定UIへ倒す。
   const uiLayoutPreference = useMemo(() => (
@@ -3646,6 +3660,21 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
     setStatusMessage(requestPlan.statusMessage);
   }, [aiDisplayMode, aiInlineOpen, aiSidebarOpen, deriveAiReferenceRequestPlan, openAiInline, pinAiEditPinnedReference, setSelectedId, setStatusMessage]);
 
+  // 範囲スクリーンショットの「AIに聞く」。撮った画像を入力欄へ添え、AI面がまだ無ければ
+  // 選んだ範囲のそばにインラインで開く。開いていれば添えるだけにして、打ちかけの指示文を消さない
+  // (openAiInline は会話の入力欄を作り直す)。
+  const requestAiEditWithScreenshot = useCallback((
+    attachment: AiEditAttachment,
+    anchor: { left: number; top: number },
+  ) => {
+    addAiPendingAttachment(attachment);
+    const activeSurfaceOpen = (aiDisplayMode === "inline" && aiInlineOpen)
+      || (aiDisplayMode === "sidebar" && aiSidebarOpen);
+    if (!activeSurfaceOpen) {
+      openAiInline(anchor);
+    }
+  }, [addAiPendingAttachment, aiDisplayMode, aiInlineOpen, aiSidebarOpen, openAiInline]);
+
   const updateAiEditReferenceCandidate = useCallback((reference: AiEditReference | null) => {
     if (!reference && pinAiTextSelectionReference) {
       return;
@@ -3912,6 +3941,11 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
     "--page-nav-item-height": `${pageNavigatorItemHeight}px`,
   } as CSSProperties;
   const aiSurface = resolveAiSurface({ displayMode: aiDisplayMode, aiSidebarOpen, aiInlineOpen });
+
+  // ポケットは Backstage が全画面で覆っている間と、埋め込みでは出さない。紙面の高さは
+  // `.app-shell[data-pocket]` が `--editor-pocket-height` として全画面の計算へ配る。
+  const pocketVisible = !isEmbedded && !ribbonBackstageOpen;
+  const pocketPhase = usePocketPhase();
 
   const workspaceClassName = [
     "workspace",
@@ -4347,6 +4381,9 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
       pinnedReferences={aiEditPinnedReferences}
       pinnedReferencePreviews={aiEditPinnedReferencePreviews}
       onRemovePinnedReference={removeAiPinnedReference}
+      pendingAttachments={aiPendingAttachments}
+      onRemovePendingAttachment={removeAiPendingAttachment}
+      onPendingAttachmentsSent={clearAiPendingAttachments}
       overlaySelection={overlaySelection}
       variant={aiDisplayMode}
       inlineSessionId={aiInlineSessionId}
@@ -4393,6 +4430,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
       data-ui-layout={uiLayoutPreference.mode}
       data-backstage-open={ribbonBackstageOpen ? "true" : undefined}
       data-ribbon-collapsed={ribbonCollapse.collapsed ? "true" : undefined}
+      data-pocket={pocketVisible && pocketPhase !== "hidden" ? pocketPhase : undefined}
       data-ai-sidebar-open={aiDisplayMode === "sidebar" && aiSidebarOpen ? "true" : undefined}
       data-right-dock-open={isDesktopApp && !isEmbedded && rightDock.open ? "true" : undefined}
       data-tab-groups={!isEmbedded ? "true" : undefined}
@@ -4461,6 +4499,8 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
       {/* ヘッダーはリボン UI (`editor-shell/chrome`) が描く。保存状態のバッジとタブの点は
           リボンの中で葉が購読するので、ここで saveState を読む必要はない。 */}
       {renderEditorChrome(chrome)}
+
+      {pocketVisible && <PocketBar addShortcut={commandTooltip("", "edit.pocketAdd").shortcut} />}
 
       <main
         className={workspaceClassName}
@@ -4686,6 +4726,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
             onCommentThreadSelect={selectCommentThread}
             onAiReferenceRequest={isDesktopApp ? requestAiEditWithReference : undefined}
             onAiReferenceCandidateChange={isDesktopApp ? updateAiEditReferenceCandidate : undefined}
+            onAiScreenshotRequest={isDesktopApp ? requestAiEditWithScreenshot : undefined}
             onAiEditPreviewApply={stableApplyVisibleAiEditPreviewGroup}
             onAiEditPreviewDismiss={stableDismissVisibleAiEditPreviewGroup}
             onOpenSourceDocument={openSourceReferenceDocument}

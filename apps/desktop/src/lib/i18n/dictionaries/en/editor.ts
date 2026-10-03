@@ -53,6 +53,57 @@ export const editor = {
     lock: "Lock",
     unlock: "Unlock",
   },
+  /** Region screenshot (hold Option/Alt + Shift and drag). */
+  regionCapture: {
+    toolbar: "Screenshot",
+    copy: "Copy screenshot",
+    copied: "Copied",
+    save: "Save as image",
+    saved: "Saved to Downloads",
+    failed: "Couldn't capture the screenshot",
+    armed: "Drag to select an area (Esc to cancel)",
+    command: "Screenshot a region",
+    commandHint: "Hold Option/Alt + Shift and drag",
+  },
+  /**
+   * Pocket: a temporary shelf above the editing area. It carries exactly what copy and paste would,
+   * several at a time and as often as needed, to another page or material. It is never saved with
+   * the material and stays invisible to collaborators.
+   */
+  pocket: {
+    title: "Pocket",
+    region: "Pocket",
+    handle: "Pocket · {{items}}",
+    open: "Open the pocket",
+    close: "Close the pocket",
+    add: "Put selection in",
+    addToPocket: "Put in the pocket",
+    addTooltip: "Put the selected text, shapes or blocks in the pocket",
+    list: "Pocket contents",
+    insert: "Insert {{summary}}",
+    insertHint: "Click to insert at the caret (shapes go on the page)",
+    remove: "Remove from the pocket",
+    clear: "Remove all",
+    removed: "Removed {{items}}",
+    undo: "Undo",
+    empty: "Keep selected text or shapes here to carry them to another page or material",
+    announceAdded: "Put in the pocket. {{items}} items",
+    announceInserted: "Inserted from the pocket",
+    summary: {
+      blocks: "Body text, {{blocks}} blocks",
+      shapes: "{{shapes}} shapes",
+      mixed: "Text and {{shapes}} shapes",
+      math: "Formula",
+      text: "Text",
+    },
+    notice: {
+      nothing: "Nothing is selected. Select text, shapes or a block first",
+      full: "The pocket is full. Remove something you are done with",
+      tooLarge: "That is too large for the pocket",
+      unsupported: "The pocket is not available here",
+      rejected: "Can't insert here. Click where you want it first",
+    },
+  },
   pageCanvas: {
     selectBlock: "Select the block",
     selectBlockHint: "Click to select (Delete removes it), drag to move (drop at the sides for columns)",

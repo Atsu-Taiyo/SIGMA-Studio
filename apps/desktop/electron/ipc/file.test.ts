@@ -234,6 +234,18 @@ describe("file:save-to-downloads", () => {
       .rejects.toThrow("この形式のファイルは保存できません。");
   });
 
+  it("accepts a screenshot only when the bytes really are a PNG", async () => {
+    const png = Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), Buffer.from("rest")]);
+    const result = await save({ fileName: "screenshot-20261003-142530.png", dataBase64: png.toString("base64") });
+    expect(result).toEqual({ filePath: "/Users/test/Downloads/screenshot-20261003-142530.png" });
+    expect(mocks.writeFile).toHaveBeenCalledWith("/Users/test/Downloads/screenshot-20261003-142530.png", png);
+
+    mocks.writeFile.mockClear();
+    await expect(save({ fileName: "fake.png", dataBase64: Buffer.from("#!/bin/sh").toString("base64") }))
+      .rejects.toThrow("この形式のファイルは保存できません。");
+    expect(mocks.writeFile).not.toHaveBeenCalled();
+  });
+
   it("adds a suffix instead of replacing a file that is already there", async () => {
     const taken = Object.assign(new Error("exists"), { code: "EEXIST" });
     mocks.open.mockRejectedValueOnce(taken).mockResolvedValueOnce({ close: vi.fn().mockResolvedValue(undefined) });

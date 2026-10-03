@@ -16,6 +16,7 @@
 @import "./styles/ai-chat.css";
 @import "./styles/math-and-comments.css";
 @import "./styles/task-and-command-overlays.css";
+@import "./styles/region-capture.css";
 
 @media print {
   .text-formatting-mark { display: none; }

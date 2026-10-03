@@ -8,6 +8,7 @@ import { pathToFileURL } from "node:url";
 import { createCurrentLocaleTranslator } from "@/lib/i18n";
 
 import type { AppUpdateController } from "../app-updater";
+import { parseCaptureRegionRequest, planCaptureDownscale } from "../capture-region";
 import {
   normalizeEditorFontFamily,
   readDesktopEditorPreferences,
@@ -221,5 +222,24 @@ export function registerAppIpc(deps: RegisterAppIpcDeps): void {
 
   ipcMain.handle("app:print", async () => {
     getMainWindow()?.webContents.send("menu:action", "print-document");
+  });
+
+  // 画面の選択範囲をPNGにする。描画済みの画面そのものを写すので、数式・図・画像・TikZも見たまま入る。
+  // 呼び出し側が自分の選択枠などを隠してから呼ぶ。取得できなかったとき (最小化中など) は null。
+  ipcMain.handle("app:capture-region", async (event, request: unknown) => {
+    if (event.sender !== getMainWindow()?.webContents) return null;
+    const region = parseCaptureRegionRequest(request);
+    if (!region) return null;
+    const image = await event.sender.capturePage({
+      x: region.x,
+      y: region.y,
+      width: region.width,
+      height: region.height,
+    });
+    if (image.isEmpty()) return null;
+    const downscale = planCaptureDownscale(image.getSize(), region.maxDimension);
+    const output = downscale ? image.resize({ ...downscale, quality: "best" }) : image;
+    const { width, height } = output.getSize();
+    return { png: output.toPNG(), width, height };
   });
 }

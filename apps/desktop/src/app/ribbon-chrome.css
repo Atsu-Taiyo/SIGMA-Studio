@@ -37,7 +37,7 @@
 /* 列も明示する。行だけ決めて列を auto にすると、同じ行を Backstage が
    先に取っているせいで暗黙の2列目へ逃げ、本文が右半分に押しやられる。 */
 .app-shell[data-ui-layout="word"] main.workspace {
-  grid-row: 2;
+  grid-row: 3;
   grid-column: 1;
 }
 
@@ -48,10 +48,10 @@ body:has(.app-shell[data-ui-layout="word"]) .overlay-drawing-hint {
   bottom: calc(24px + var(--ribbon-statusbar-height));
 }
 
-/* 3本目のトラック。行を明示しないと、DOM 順 (header → backstage → statusbar → main)
-   のまま自動配置され、本文が下へ押し出される。 */
+/* 4本目のトラック (2本目はポケット)。行を明示しないと、DOM 順 (header → backstage →
+   statusbar → main) のまま自動配置され、本文が下へ押し出される。 */
 .app-shell[data-ui-layout="word"] .ribbon-statusbar {
-  grid-row: 3;
+  grid-row: 4;
   grid-column: 1;
   display: flex;
   align-items: center;
@@ -102,10 +102,10 @@ body:has(.app-shell[data-ui-layout="word"]) .overlay-drawing-hint {
    採寸をやり直させることになる。クロームの行を auto にすれば、トークンを
    据え置いたまま実寸だけが縮む（本文は覆われているので位置だけ上がる）。 */
 .app-shell[data-ui-layout="word"][data-backstage-open="true"] {
-  /* 3本目 (ステータスバー) は Backstage 中に描かれないが、トラックは残しておく。
-     ここだけ2本にすると、将来ステータスバーを Backstage 中も出す判断をしたときに
-     暗黙の行へ落ちて本文の下へ潜り込む。 */
-  grid-template-rows: auto minmax(0, 1fr) var(--editor-statusbar-height);
+  /* ステータスバーとポケットは Backstage 中に描かれないが、トラックは残しておく。
+     ここだけ減らすと、将来 Backstage 中も出す判断をしたときに暗黙の行へ落ちて
+     本文の下へ潜り込む。 */
+  grid-template-rows: auto var(--editor-pocket-height) minmax(0, 1fr) var(--editor-statusbar-height);
 }
 
 .app-shell[data-ui-layout="word"][data-backstage-open="true"] .editor-menubar {

@@ -268,6 +268,10 @@ export const ai = {
     set: "AI編集の参照対象をセットしました",
     limit: "参照は最大{{max}}件までです",
   },
+  /** 範囲スクリーンショットから「AIに聞く」。 */
+  screenshot: {
+    ask: "AIに聞く",
+  },
   /** 出典チップ。 */
   source: {
     title: "参照元",
