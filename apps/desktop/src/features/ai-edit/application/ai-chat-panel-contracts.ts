@@ -11,6 +11,7 @@ import { type AiEditReference } from "@/lib/ai/ai-edit-reference";
 import { type AiEditShapeOnlyPreview } from "@/lib/ai/ai-edit-shape-preview";
 import type { AiDisplayMode } from "@/lib/ai/ai-surface";
 import type { EditableBlock } from "@/lib/document-tree";
+import type { AiEditAttachment } from "@/lib/ai/sigma-doc-agent-tools";
 import type { DesktopAiSourceReference } from "@/types/desktop";
 
 export interface AiEditPanelProps {
@@ -31,6 +32,15 @@ export interface AiEditPanelProps {
   pinnedReferencePreviews?: ReadonlyMap<string, AiEditShapeOnlyPreview>;
   /** ピン留め参照のチップ × (getAiEditReferenceKey のキーで指定)。 */
   onRemovePinnedReference?: (referenceKey: string) => void;
+  /**
+   * 入力欄の外で用意された添付 (範囲スクリーンショットの「AIに聞く」)。入力欄の下書きは会話の
+   * 切り替えやパネルの開き直しで作り直されるので、その中ではなくここから差し込む。
+   */
+  pendingAttachments?: AiEditAttachment[];
+  /** 差し込まれた添付の × (添付の id で指定)。 */
+  onRemovePendingAttachment?: (attachmentId: string) => void;
+  /** 送信で差し込んだ添付を使い切った。 */
+  onPendingAttachmentsSent?: () => void;
   overlaySelection: OverlaySelectionSummary;
   variant?: AiDisplayMode;
   inlineSessionId?: number;

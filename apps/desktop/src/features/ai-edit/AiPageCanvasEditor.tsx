@@ -62,7 +62,10 @@ import { buildShapesSvgPreview, type AiEditShapeOnlyPreview } from "@/lib/ai/ai-
 import { PAGE_GAP_PX } from "@/features/document";
 import { mergeEditorExtensionSets } from "@/components/editor/webmcp/webmcp-editor-extensions";
 
+import { RegionCaptureLayer } from "@/components/editor/region-capture/RegionCaptureLayer";
+
 import { useAiEditorExtensions } from "./editor-extensions";
+import { AiScreenshotAskButton, type AiScreenshotRequestHandler } from "./view/AiScreenshotAskButton";
 import { ProblemFrameChatNotices } from "./view/ProblemFrameChatNotices";
 import type { AiProposalApplyOutcome } from "./application/proposal-action-model";
 
@@ -92,6 +95,8 @@ export interface AiPageCanvasEditorProps extends Omit<PageCanvasEditorProps, "pa
     overlayPreview?: AiEditShapeOnlyPreview,
   ) => void;
   onAiReferenceCandidateChange?: (reference: AiEditReference | null) => void;
+  /** 範囲スクリーンショットの「AIに聞く」。撮った画像と、パネルを出す基準の位置が届く。 */
+  onAiScreenshotRequest?: AiScreenshotRequestHandler;
   onAiEditPreviewApply?: (proposalIds: string[]) => Promise<AiProposalApplyOutcome>;
   onAiEditPreviewDismiss?: (proposalIds: string[], reason?: string) => void;
   onOpenSourceDocument?: (params: AiSourceReferenceOpenDocumentParams) => void;
@@ -129,6 +134,7 @@ function AiEnabledPageCanvasEditor({
   aiApplyAnimation = null,
   onAiReferenceRequest,
   onAiReferenceCandidateChange,
+  onAiScreenshotRequest,
   onAiEditPreviewApply,
   onAiEditPreviewDismiss,
   onOpenSourceDocument,
@@ -171,6 +177,11 @@ function AiEnabledPageCanvasEditor({
     onFocusSession: onFocusAiSession,
   });
 
+  const screenshotActions = useMemo(
+    () => onAiScreenshotRequest ? <AiScreenshotAskButton onRequest={onAiScreenshotRequest} /> : undefined,
+    [onAiScreenshotRequest],
+  );
+
   return (
     <>
       <PageCanvasEditor
@@ -178,6 +189,7 @@ function AiEnabledPageCanvasEditor({
         editorExtensions={editorExtensions}
         pageExtension={extension}
       />
+      <RegionCaptureLayer actions={screenshotActions} />
       <ProblemFrameChatNotices
         documentIdentityKey={documentIdentityKey}
         document={pageEditorProps.document}

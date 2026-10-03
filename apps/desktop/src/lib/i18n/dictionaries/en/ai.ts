@@ -238,6 +238,10 @@ export const ai = {
     set: "Set the AI edit reference",
     limit: "You can pin at most {{max}} references",
   },
+  /** "Ask AI" from a region screenshot. */
+  screenshot: {
+    ask: "Ask AI",
+  },
   source: {
     title: "Sources",
     webSearch: "Web search: {{query}}",

@@ -1732,7 +1732,7 @@ nav.app-menu-list[inert] *,
   position: relative;
   isolation: isolate;
   min-height: 0;
-  height: calc(100vh - var(--editor-chrome-height) - var(--editor-statusbar-height));
+  height: calc(100vh - var(--editor-chrome-height) - var(--editor-pocket-height) - var(--editor-statusbar-height));
   transition: grid-template-columns 160ms ease;
 }
 

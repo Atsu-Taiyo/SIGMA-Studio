@@ -1,0 +1,127 @@
+/* 範囲スクリーンショット (⌥⇧ + ドラッグ)。枠と操作バーは撮る瞬間に隠すので、写り込まない。 */
+
+/* 押しているあいだ・撮影待ちのあいだは、どこでも十字カーソルにして「範囲を選べる」ことを示す。 */
+html[data-region-capture-ready] body,
+html[data-region-capture-ready] body * {
+  cursor: crosshair !important;
+  user-select: none !important;
+}
+
+/* 範囲を出しているあいだは、本文の選択ポップオーバーを退かせる。撮る瞬間は AI のインライン面も隠す。 */
+html[data-region-capture-open] .selection-action-popover,
+html[data-region-capturing] .selection-action-popover,
+html[data-region-capturing] .ai-chat-host--inline {
+  visibility: hidden !important;
+}
+
+.region-capture-root {
+  position: fixed;
+  inset: 0;
+  z-index: 190;
+  pointer-events: none;
+}
+
+.region-capture-hint {
+  position: fixed;
+  top: 16px;
+  left: 50%;
+  padding: 8px 12px;
+  border: 1px solid #dadada;
+  border-radius: 999px;
+  color: #555555;
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.12);
+  font-size: 12px;
+  transform: translateX(-50%);
+}
+
+/* 枠の外を薄く暗くして、撮る範囲を見せる。 */
+.region-capture-frame {
+  position: fixed;
+  box-sizing: border-box;
+  border: 1px solid #111111;
+  border-radius: 2px;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.85), 0 0 0 100vmax rgba(17, 17, 17, 0.22);
+}
+
+.region-capture-frame[data-phase="dragging"] {
+  border-style: dashed;
+}
+
+.region-capture-bar {
+  position: fixed;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 4px 5px;
+  border: 1px solid #dadada;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.16);
+  pointer-events: auto;
+  animation: region-capture-bar-in 120ms ease-out;
+}
+
+@keyframes region-capture-bar-in {
+  from { opacity: 0; transform: translateY(2px); }
+  to { opacity: 1; transform: none; }
+}
+
+.region-capture-bar button {
+  display: inline-flex;
+  min-width: 30px;
+  height: 30px;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  padding: 0 9px;
+  border: 0;
+  border-radius: 999px;
+  color: #111111;
+  background: transparent;
+  cursor: pointer;
+}
+
+.region-capture-bar button:hover:not(:disabled),
+.region-capture-bar button:focus-visible {
+  background: #f1f1f1;
+  outline: none;
+}
+
+.region-capture-bar button:disabled {
+  color: #b0b0b0;
+  cursor: default;
+}
+
+.region-capture-bar button[data-state="done"] {
+  color: #111111;
+  background: #e9e9e9;
+}
+
+/* 文字ラベル付きの操作 (AIに聞く)。アイコンだけでは何が起きるか分からないので言葉を添える。 */
+.region-capture-bar .region-capture-labeled {
+  padding: 0 11px 0 9px;
+  font-size: 13px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.region-capture-divider {
+  width: 1px;
+  height: 18px;
+  margin: 0 4px;
+  background: #dadada;
+}
+
+.region-capture-error {
+  padding: 0 8px;
+  color: #b42318;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .region-capture-bar {
+    animation: none;
+  }
+}

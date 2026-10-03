@@ -1,4 +1,5 @@
 import type { TextAlign } from "@/features/document";
+import { addSelectionToPocket, togglePocketExpanded } from "@/features/pocket";
 import type {
   CustomBlockStyleValue,
   EditorCommandId,
@@ -7,6 +8,7 @@ import type {
 } from "@/lib/editor-command-shortcuts";
 import type { Translate } from "@/lib/i18n";
 
+import { REGION_CAPTURE_ARM_EVENT } from "../region-capture/region-capture-events";
 import { SELECT_BODY_WITH_SHAPES_EVENT } from "../text-flow/body-shape-selection";
 import { INSERT_MANUAL_BREAK_EVENT } from "../text-flow/manual-break-command";
 import type { OverlayActionRequestInput, OverlayCommand, OverlaySelectionStylePatch } from "../page-overlay-types";
@@ -243,6 +245,12 @@ export function createEditorCommandRunner(
       window.dispatchEvent(new CustomEvent(SELECT_BODY_WITH_SHAPES_EVENT));
       return;
     }
+    if (commandId === "edit.pocketAdd") {
+      // 選択中のものを、コピーと同じ受け手に書かせてポケットへ入れる (クリップボードは触らない)。
+      // うまくいかなかった理由はポケットが自分で出す。
+      addSelectionToPocket();
+      return;
+    }
     if (commandId === "edit.bold") {
       runEditCommand("bold");
       return;
@@ -290,6 +298,15 @@ export function createEditorCommandRunner(
     }
     if (commandId === "view.outlineDialog") {
       setOutlineDialogOpen(true);
+      return;
+    }
+    if (commandId === "view.pocket") {
+      togglePocketExpanded();
+      return;
+    }
+    if (commandId === "view.regionCapture") {
+      // 次の 1 回のドラッグを撮影範囲にする。撮影層 (RegionCaptureLayer) が受け取る。
+      window.dispatchEvent(new Event(REGION_CAPTURE_ARM_EVENT));
       return;
     }
     if (commandId === "document.new") {

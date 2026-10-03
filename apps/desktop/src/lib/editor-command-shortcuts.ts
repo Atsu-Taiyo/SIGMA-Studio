@@ -118,6 +118,8 @@ export const EDITOR_COMMAND_SHORTCUTS: readonly EditorCommandShortcutDefinition[
   { id: "edit.redo", categoryId: "edit", defaultBinding: { primary: true, shift: true, key: "z" }, targetPolicy: "editHistory" },
   { id: "edit.search", categoryId: "edit", defaultBinding: { primary: true, key: "f" } },
   { id: "edit.selectAllWithShapes", categoryId: "edit", defaultBinding: { primary: true, shift: true, key: "a" } },
+  // コピー (⌘C) の兄弟。クリップボードではなくポケットへ入れる。
+  { id: "edit.pocketAdd", categoryId: "edit", defaultBinding: { primary: true, shift: true, key: "c" } },
   { id: "edit.bold", categoryId: "textFormat", defaultBinding: null },
   { id: "edit.italic", categoryId: "textFormat", defaultBinding: { primary: true, key: "i" } },
   { id: "edit.underline", categoryId: "textFormat", defaultBinding: { primary: true, key: "u" } },
@@ -130,6 +132,8 @@ export const EDITOR_COMMAND_SHORTCUTS: readonly EditorCommandShortcutDefinition[
   { id: "view.printPreview", categoryId: "view", defaultBinding: PRINT_PREVIEW_BINDING },
   { id: "view.comments", categoryId: "view", defaultBinding: null },
   { id: "view.outlineDialog", categoryId: "view", defaultBinding: null },
+  { id: "view.regionCapture", categoryId: "view", defaultBinding: null },
+  { id: "view.pocket", categoryId: "view", defaultBinding: null },
   { id: "document.new", categoryId: "document", defaultBinding: { primary: true, key: "n" } },
   { id: "document.library", categoryId: "document", defaultBinding: null },
   { id: "document.duplicate", categoryId: "document", defaultBinding: null },
