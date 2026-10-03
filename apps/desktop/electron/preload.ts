@@ -99,6 +99,9 @@ const desktopAPI = {
     cancelCloseRequest(): Promise<boolean> {
       return ipcRenderer.invoke("app:close-cancel");
     },
+    captureRegion(request: unknown): Promise<unknown> {
+      return ipcRenderer.invoke("app:capture-region", request);
+    },
   },
 
   updater: {

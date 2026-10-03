@@ -56,16 +56,22 @@ import {
   createAiEditAttachmentFromFile,
 } from "@/features/ai-edit/application/ai-chat-attachments";
 import type { AiEditPanelProps } from "@/features/ai-edit/application/ai-chat-panel-contracts";
-export type AiChatComposerOptions = Pick<AiEditPanelProps, "document" | "documentIdentityKey" | "documentWorkspaceId" | "selectedId" | "reference" | "pinnedReferences" | "pinnedReferencePreviews" | "overlaySelection"> & { provider: AiProvider; refreshRuntimeModels: ReturnType<typeof useAiChatModelController>["refreshRuntimeModels"] };
+export type AiChatComposerOptions = Pick<AiEditPanelProps, "document" | "documentIdentityKey" | "documentWorkspaceId" | "selectedId" | "reference" | "pinnedReferences" | "pinnedReferencePreviews" | "pendingAttachments" | "onRemovePendingAttachment" | "onPendingAttachmentsSent" | "overlaySelection"> & { provider: AiProvider; refreshRuntimeModels: ReturnType<typeof useAiChatModelController>["refreshRuntimeModels"] };
 const EMPTY_PINNED_REFERENCES: AiEditReference[]=[];
+const EMPTY_PENDING_ATTACHMENTS: AiEditAttachment[]=[];
 const EMPTY_PINNED_REFERENCE_PREVIEWS: ReadonlyMap<string, AiEditShapeOnlyPreview>=new Map();
 /** Owns one unsent draft, references, picker IO and its lifetime; runs stay in the global controller. */
-export function useAiChatComposer({document,documentIdentityKey,documentWorkspaceId=null,selectedId,reference,pinnedReferences=EMPTY_PINNED_REFERENCES,pinnedReferencePreviews=EMPTY_PINNED_REFERENCE_PREVIEWS,overlaySelection,provider,refreshRuntimeModels}: AiChatComposerOptions) {
+export function useAiChatComposer({document,documentIdentityKey,documentWorkspaceId=null,selectedId,reference,pinnedReferences=EMPTY_PINNED_REFERENCES,pinnedReferencePreviews=EMPTY_PINNED_REFERENCE_PREVIEWS,pendingAttachments=EMPTY_PENDING_ATTACHMENTS,onRemovePendingAttachment,onPendingAttachmentsSent,overlaySelection,provider,refreshRuntimeModels}: AiChatComposerOptions) {
   const t=useT("ai");
   const { invalidate, capture, defer } = useAiComposerLifetime(documentIdentityKey);
   const [instruction, setInstruction] = useState("");
   const [composerError, setComposerError] = useState<string | null>(null);
-  const [attachments, setAttachments] = useState<AiEditAttachment[]>([]);
+  const [ownAttachments, setAttachments] = useState<AiEditAttachment[]>([]);
+  // 入力欄の外で用意された添付 (範囲スクリーンショット) を先頭に並べる。下書きの作り直しでは消えない。
+  const attachments = useMemo(
+    () => [...pendingAttachments, ...ownAttachments].slice(0, MAX_AI_EDIT_ATTACHMENTS),
+    [ownAttachments, pendingAttachments],
+  );
   const [mentionedDocuments, setMentionedDocuments] = useState<AiEditMentionedDocumentContext[]>([]);
   const [mentionQuery, setMentionQuery] = useState<ActiveMentionQuery | null>(null);
   const [mentionCandidates, setMentionCandidates] = useState<DesktopDocumentMetadata[]>([]);
@@ -367,6 +373,7 @@ export function useAiChatComposer({document,documentIdentityKey,documentWorkspac
     setComposerError(null);
     setInstruction("");
     setAttachments([]);
+    onPendingAttachmentsSent?.();
     setMentionedDocuments([]);
     setMentionQuery(null);
     setMentionCandidates([]);
@@ -383,7 +390,7 @@ export function useAiChatComposer({document,documentIdentityKey,documentWorkspac
     if (mediaInputRef.current) {
       mediaInputRef.current.value = "";
     }
-  }, [invalidate]);
+  }, [invalidate, onPendingAttachmentsSent]);
 
   const addFileAttachments = async (
     files: File[],
@@ -459,6 +466,10 @@ export function useAiChatComposer({document,documentIdentityKey,documentWorkspac
   }, []);
 
   const removeAttachment = (id: string) => {
+    if (pendingAttachments.some((attachment) => attachment.id === id)) {
+      onRemovePendingAttachment?.(id);
+      return;
+    }
     setAttachments((current) => current.filter((attachment) => attachment.id !== id));
   };
 
@@ -689,6 +700,14 @@ export function useAiChatComposer({document,documentIdentityKey,documentWorkspac
     [activeAiResourceProvider, aiResources, selectedAiResourceIds],
   );
   const focus = useCallback(() => defer(() => composerRef.current?.focus()), [defer]);
+  // 範囲スクリーンショットが届いたら、すぐ質問を打てるよう入力欄へ焦点を移す。
+  const pendingAttachmentCountRef = useRef(0);
+  useEffect(() => {
+    if (pendingAttachments.length > pendingAttachmentCountRef.current) {
+      focus();
+    }
+    pendingAttachmentCountRef.current = pendingAttachments.length;
+  }, [focus, pendingAttachments.length]);
 
   return {
     draft: { instruction, attachments, mentionedDocuments, selectedAiResourceIds, aiResources, overlayComposerPreviews, activeReferenceKey, hasAttachableSelectedImages, turnReferences, aiTargetId, overlaySelectionContext },

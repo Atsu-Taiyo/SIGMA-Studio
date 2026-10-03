@@ -53,7 +53,9 @@ function parsePdfOutputSession(payload: ExportPdfPayload): PdfOutputSessionExpec
  * may write is pinned here rather than taken from the caller: an executable or a script would be
  * a very different thing to leave in someone's Downloads.
  */
-const DOWNLOADABLE_EXTENSIONS = new Set(["mp4", "webm"]);
+const DOWNLOADABLE_EXTENSIONS = new Set(["mp4", "webm", "png"]);
+/** 名前が png なら中身も PNG であること (範囲スクリーンショットの保存)。拡張子だけの偽装を通さない。 */
+const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
 /** Well past any figure animation; a bound, not a target. */
 const MAX_DOWNLOAD_BYTES = 256 * 1024 * 1024;
 
@@ -221,6 +223,9 @@ export function registerFileIpc(deps: RegisterFileIpcDeps): void {
     const data = Buffer.from(dataBase64, "base64");
     if (data.byteLength === 0) {
       throw new Error(te("electron.file.downloadContentEmpty"));
+    }
+    if (extension === "png" && !data.subarray(0, PNG_SIGNATURE.length).equals(PNG_SIGNATURE)) {
+      throw new Error(te("electron.file.downloadFormatUnsupported"));
     }
     if (data.byteLength > MAX_DOWNLOAD_BYTES) {
       throw new Error(te("electron.file.downloadFileTooLarge"));

@@ -1,9 +1,11 @@
 "use client";
 
 import type { PageCanvasSelectionExtension } from "@/components/editor/page-canvas/editor-extension";
+import { addSelectionToPocket, PocketIcon } from "@/features/pocket";
+import { useT } from "@/lib/i18n/react";
 
 import { useSelectionToolbarBinding } from "./binding";
-import { ToolDivider } from "./controls";
+import { TOOLBAR_ICON_SIZE, ToolDivider, ToolIconButton } from "./controls";
 import { ShapeSelectionTools } from "./ShapeSelectionTools";
 import { TextSelectionTools } from "./TextSelectionTools";
 
@@ -34,6 +36,19 @@ export function createSelectionToolbarExtension(): PageCanvasSelectionExtension 
   };
 }
 
+/**
+ * 選んでいる文章・図形をポケットへ入れる。押しても選択は動かない (ボタンが焦点を奪わない) ので、
+ * 続けて別のものを選んで入れられる。入れ方は ⌘⇧C と同じ。
+ */
+function PocketAddTool() {
+  const t = useT("editor");
+  return (
+    <ToolIconButton label={t("pocket.addToPocket")} onClick={() => { addSelectionToPocket(); }}>
+      <PocketIcon size={TOOLBAR_ICON_SIZE} />
+    </ToolIconButton>
+  );
+}
+
 function TextToolsHost() {
   const binding = useSelectionToolbarBinding();
   if (!binding || !binding.text.enabled) {
@@ -42,6 +57,7 @@ function TextToolsHost() {
   return (
     <>
       <TextSelectionTools text={binding.text} />
+      <PocketAddTool />
       <ToolDivider />
     </>
   );
@@ -55,6 +71,7 @@ function ShapeToolsHost() {
   return (
     <>
       <ShapeSelectionTools shape={binding.shape} text={binding.text} />
+      <PocketAddTool />
       <ToolDivider />
     </>
   );

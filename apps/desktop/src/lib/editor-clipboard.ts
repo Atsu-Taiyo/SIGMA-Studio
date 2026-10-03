@@ -366,6 +366,22 @@ function setLocalEditorClipboardPayload(payload: EditorClipboardPayload): void {
   localEditorClipboardPayload = structuredClone(payload);
 }
 
+/**
+ * `run` の間に起きた `writeEditorClipboardData` が「最後の Sigma コピー」の記憶を書き換えても、
+ * 終わったら元へ戻す。
+ *
+ * 記憶は OS のクリップボードに payload が無いときの貼り付けの代わりに読まれる。クリップボードへ
+ * 出さないコピー (ポケットへ入れる) がこれを上書きすると、次の ⌘V が別のものを貼ってしまう。
+ */
+export function preserveLocalEditorClipboardPayload<T>(run: () => T): T {
+  const previous = localEditorClipboardPayload;
+  try {
+    return run();
+  } finally {
+    localEditorClipboardPayload = previous;
+  }
+}
+
 export function parseEditorClipboardPayload(serialized: string): EditorClipboardPayload | null {
   if (!serialized) {
     return null;

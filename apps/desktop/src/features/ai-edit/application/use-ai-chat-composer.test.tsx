@@ -143,3 +143,40 @@ it("keeps only the latest resource refresh and workspace/provider eligible skill
   expect(composer.draft.aiResources.map(item => item.id)).toEqual(["global", "local"]);
   expect(composer.view.contextPickerSkillCandidates.map(item => item.id)).toEqual(["global", "local"]);
 });
+
+const screenshot = (id: string) => ({ id, name: `${id}.png`, mimeType: "image/png", dataUrl: "data:image/png;base64,AA", width: 400, height: 200 });
+
+it("shows attachments prepared outside the composer, and a draft reset does not drop them", async () => {
+  await act(async () => mount(options({ pendingAttachments: [screenshot("shot-1")] })));
+  expect(composer.draft.attachments.map((attachment) => attachment.id)).toEqual(["shot-1"]);
+  expect(composer.view.attachments.map((attachment) => attachment.id)).toEqual(["shot-1"]);
+  // 会話の切り替えや開き直しの下書き作り直し。範囲スクリーンショットはここを通っても残る。
+  await act(async () => composer.actions.resetComposerState());
+  expect(composer.draft.attachments.map((attachment) => attachment.id)).toEqual(["shot-1"]);
+});
+
+it("puts outside attachments first and counts them against the attachment limit", async () => {
+  await act(async () => mount(options({ pendingAttachments: [screenshot("shot-1"), screenshot("shot-2"), screenshot("shot-3")] })));
+  await act(async () => selectFile());
+  await act(async () => pendingReaders[0].finish());
+  expect(composer.draft.attachments.map((attachment) => attachment.id).slice(0, 3)).toEqual(["shot-1", "shot-2", "shot-3"]);
+  expect(composer.draft.attachments).toHaveLength(4);
+  // 4 枚目まで埋まったので、これ以上は足せない。
+  await act(async () => selectFile());
+  expect(pendingReaders).toHaveLength(1);
+  expect(composer.composerError).not.toBeNull();
+});
+
+it("removes an outside attachment through its owner, not from the draft", async () => {
+  const onRemovePendingAttachment = vi.fn();
+  await act(async () => mount(options({ pendingAttachments: [screenshot("shot-1")], onRemovePendingAttachment })));
+  await act(async () => composer.view.removeAttachment("shot-1"));
+  expect(onRemovePendingAttachment).toHaveBeenCalledWith("shot-1");
+});
+
+it("tells the owner the outside attachments were used up when the draft is submitted", async () => {
+  const onPendingAttachmentsSent = vi.fn();
+  await act(async () => mount(options({ pendingAttachments: [screenshot("shot-1")], onPendingAttachmentsSent })));
+  await act(async () => composer.actions.clearComposerAfterSubmit());
+  expect(onPendingAttachmentsSent).toHaveBeenCalledTimes(1);
+});
