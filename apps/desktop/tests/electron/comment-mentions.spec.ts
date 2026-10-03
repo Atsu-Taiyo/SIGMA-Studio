@@ -95,7 +95,9 @@ test("desktop comments select collaborators and retain recipients after shared r
     await expect(dock.locator('.comment-mention.is-self .comment-mention-label')).toHaveText("@collaborator@example.test");
     await page.screenshot({ path: testInfo.outputPath("comment-mention-desktop.png") });
     const memberFiles = await app.evaluate(() => (globalThis as unknown as { mentionTest: { memberFiles: string[] } }).mentionTest.memberFiles);
-    expect(memberFiles).toEqual([fileId]);
+    // Saved mention chips also resolve avatars after remount/reload. Every
+    // lookup must still be scoped to this document, never another file.
+    expect([...new Set(memberFiles)]).toEqual([fileId]);
   } finally {
     await app.close();
     rmSync(profile, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
