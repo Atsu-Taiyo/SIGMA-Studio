@@ -626,6 +626,25 @@ button:disabled {
   gap: var(--space-sm);
 }
 
+/* 右のサイドバーを開いて本文の列が狭くなったとき (use-compact-chrome.ts が印を付ける)、
+   タイトル行の補助アクションは文字を省いてアイコンだけにし、列の間隔も詰める。名前は title と aria-label に残る。
+   サイドバーを開いていない狭い画面 (≤820px) は従来の並びのままにする。 */
+@media (min-width: 821px) {
+  .app-shell[data-right-dock-open="true"][data-chrome-compact="true"] :is(.workspace-open-button, .version-history-button, .report-issue-button) > span {
+    display: none;
+  }
+
+  .app-shell[data-right-dock-open="true"][data-chrome-compact="true"] .menubar-row {
+    column-gap: var(--space-xs);
+  }
+
+  /* 保存状態の列 (4列目) は上限が 220px 固定なので、余った幅を中身が無くても共有ボタンと等分してしまう。
+     狭いときは中身の幅までにして、共有ボタンが本来の幅を取れるようにする。 */
+  .app-shell[data-ui-layout="docs"][data-right-dock-open="true"][data-chrome-compact="true"] .menubar-row {
+    grid-template-columns: 42px max-content minmax(0, 1fr) minmax(0, auto) auto auto auto max-content;
+  }
+}
+
 .menubar-right-actions .document-tab-actions {
   grid-column: 8;
   grid-row: 2;

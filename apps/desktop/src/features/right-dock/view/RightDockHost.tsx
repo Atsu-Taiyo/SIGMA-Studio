@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import type { ReactNode } from "react";
 
 import { useT } from "@/lib/i18n/react";
@@ -18,6 +19,7 @@ import {
 import { BrowserPanel } from "./BrowserPanel";
 import { RightDock, type RightDockTabItem } from "./RightDock";
 import { RightDockHub } from "./RightDockHub";
+import { RightDockPeek } from "./RightDockPeek";
 import { useInAppBrowser } from "./use-in-app-browser";
 
 export interface RightDockHostProps {
@@ -33,14 +35,23 @@ export interface RightDockHostProps {
   onCloseChat(): void;
   /** 右上の ×。タブは残したままサイドバーだけを閉じる。 */
   onCollapse(): void;
+  /** サイドバーを開く。版履歴を閉じるなど、開く側の約束ごとを含む。閉じたまま内容を見せるカードが使う。 */
+  onOpen?(): void;
+  /** カードを出してよい場面か (読み込み中・版履歴の表示中などは出さない)。 */
+  peekEnabled?: boolean;
+  /** カードを差し込む場所 (コメントのカードの並びの先頭)。無ければ、固定位置に出す。 */
+  peekHost?: HTMLElement | null;
+  /** カードを差し込む並びが小さなアイコンだけのとき。 */
+  peekCompact?: boolean;
 }
 
 /**
  * サイドバーの合成。ブラウザのタブはメインプロセスが正本なので、ここでその一覧を購読して
  * ページの並びへ映し (タブ列は1本)、ファイル・チャットの面は呼び出し側から受け取る。
+ * 閉じている間にウェブのページが開いていれば、その一覧のカードも出す。
  */
 export function RightDockHost({
-  state, onStateChange, width, onResize, files, chat, onOpenChat, onCloseChat, onCollapse,
+  state, onStateChange, width, onResize, files, chat, onOpenChat, onCloseChat, onCollapse, onOpen, peekEnabled = false, peekHost = null, peekCompact = false,
 }: RightDockHostProps) {
   const t = useT("chrome");
   const { bridge, state: browser, loaded } = useInAppBrowser(true);
@@ -49,6 +60,8 @@ export function RightDockHost({
   const adoptRef = useRef(false);
   const knownTabIdsRef = useRef<ReadonlySet<string>>(new Set());
   const [notice, setNotice] = useState<string | null>(null);
+  // カードを閉じたときのウェブページの顔ぶれ。ページが増減すれば、また出す。
+  const [dismissedPeekKey, setDismissedPeekKey] = useState<string | null>(null);
 
   useEffect(() => {
     if (!loaded) return;
@@ -120,29 +133,58 @@ export function RightDockHost({
     onStateChange(openRightDockHub);
   }, [onStateChange]);
 
-  return (
-    <RightDock
-      open={state.open}
-      items={items}
-      activeId={state.activeId}
-      width={width}
-      hub={(
-        <RightDockHub
-          browserAvailable={Boolean(bridge)}
-          onChoose={choose}
-          onOpenSite={openBrowser}
-          loadSiteIcon={loadSiteIcon}
-          notice={notice}
-        />
-      )}
-      files={files}
-      browser={<BrowserPanel active={state.open && browserTabId !== null} tabId={browserTabId} bridge={bridge} state={browser} loaded={loaded} />}
-      chat={chat}
-      onSelect={select}
-      onClosePage={closePage}
-      onNewTab={newTab}
-      onCollapse={onCollapse}
-      onResize={onResize}
+  const peekItems = useMemo(() => items.filter((item) => item.kind !== "hub"), [items]);
+  const peekKey = peekItems.filter((item) => item.kind === "browser").map((item) => item.id).join("\n");
+  const showPeek = peekEnabled && !state.open && peekKey !== "" && dismissedPeekKey !== peekKey;
+
+  // カードから開くときは、状態の遷移でページを見せたうえで、開く側の約束ごと (版履歴を閉じるなど) も済ませる。
+  const openPeekPage = useCallback((id: string) => {
+    select(id);
+    onOpen?.();
+  }, [onOpen, select]);
+  const openPeekHub = useCallback(() => {
+    newTab();
+    onOpen?.();
+  }, [newTab, onOpen]);
+
+  const peekCard = showPeek ? (
+    <RightDockPeek
+      items={peekItems}
+      onOpenPage={openPeekPage}
+      onNewWebPage={openPeekHub}
+      onShowAll={() => onOpen?.()}
+      onDismiss={() => setDismissedPeekKey(peekKey)}
+      docked={peekHost !== null}
+      compact={peekHost !== null && peekCompact}
     />
+  ) : null;
+
+  return (
+    <>
+      <RightDock
+        open={state.open}
+        items={items}
+        activeId={state.activeId}
+        width={width}
+        hub={(
+          <RightDockHub
+            browserAvailable={Boolean(bridge)}
+            onChoose={choose}
+            onOpenSite={openBrowser}
+            loadSiteIcon={loadSiteIcon}
+            notice={notice}
+          />
+        )}
+        files={files}
+        browser={<BrowserPanel active={state.open && browserTabId !== null} tabId={browserTabId} bridge={bridge} state={browser} loaded={loaded} />}
+        chat={chat}
+        onSelect={select}
+        onClosePage={closePage}
+        onNewTab={newTab}
+        onCollapse={onCollapse}
+        onResize={onResize}
+      />
+      {peekHost ? (peekCard && createPortal(peekCard, peekHost)) : peekCard}
+    </>
   );
 }

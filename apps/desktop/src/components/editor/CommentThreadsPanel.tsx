@@ -5,7 +5,9 @@ import type { CSSProperties, ReactNode } from "react";
 import { Check, MessageSquarePlus, MoreHorizontal, Pencil, Reply, RotateCcw, Search, Smile, Trash2 } from "lucide-react";
 
 import { CommentAuthorAvatar } from "@/components/editor/CommentAuthorAvatar";
+import { CommentParticipantStack } from "@/components/editor/CommentParticipantStack";
 import { CommentRichTextEditor } from "@/components/editor/CommentRichTextEditor";
+import { getCommentThreadParticipants } from "@/components/editor/comment-participants";
 import { renderInlineContent } from "@/features/rendering/adapters/react";
 import {
   COMMENT_REACTION_USAGE_STORAGE_KEY,
@@ -61,6 +63,8 @@ export interface CommentThreadsPanelProps {
   panelHeight?: number;
   pendingTop?: number | null;
   threadPositions?: Record<string, number>;
+  /** 見出しに、そのスレッドで発言した人の重ねアバターを出す (2人以上のとき)。 */
+  showParticipants?: boolean;
   threads: SigmaCommentThread[];
   onAddThread: () => void;
   onCancelPending: () => void;
@@ -94,6 +98,7 @@ export function CommentThreadsPanel({
   panelHeight,
   pendingTop = null,
   threadPositions,
+  showParticipants = false,
   threads,
   onAddThread,
   onCancelPending,
@@ -293,6 +298,7 @@ export function CommentThreadsPanel({
             >
               <div className="comment-thread-card-header">
                 <CommentAuthorLine author={cardAuthor} timestamp={firstMessage?.createdAt} />
+                {showParticipants && <ThreadParticipants thread={thread} author={author} />}
                 <button
                   type="button"
                   className={`comment-thread-resolve-button${thread.resolved ? " is-resolved" : ""}`}
@@ -789,6 +795,12 @@ function CommentReactionPickerButton({
  * 差出人の 1 行。**名前と時刻は同じ行に置く** (Figma と同じ)。縦積みにすると
  * 1 スレッドあたりの高さが増え、右のガターに並ぶカード数が目に見えて減る。
  */
+/** 2人以上が発言したスレッドだけ、発言者の重ねアバターを出す (1人なら見出しの名前で足りる)。 */
+function ThreadParticipants({ thread, author }: { thread: SigmaCommentThread; author: CommentPanelAuthor }) {
+  const participants = useMemo(() => getCommentThreadParticipants(thread, author), [thread, author]);
+  return participants.length >= 2 ? <CommentParticipantStack participants={participants} /> : null;
+}
+
 function CommentAuthorLine({ author, timestamp }: { author: CommentPanelAuthor; timestamp?: string }) {
   const locale = useAppLocale();
   return (

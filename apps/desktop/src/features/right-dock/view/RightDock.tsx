@@ -1,6 +1,6 @@
 "use client";
 
-import { Globe, LayoutGrid, PanelRight, Plus, X } from "lucide-react";
+import { Globe, LayoutGrid, PanelRightOpen, Plus, X } from "lucide-react";
 import { useCallback, useRef, useState } from "react";
 import type { KeyboardEvent, PointerEvent, ReactNode } from "react";
 
@@ -211,24 +211,15 @@ export interface RightDockToggleProps {
   onOpen(): void;
 }
 
-/** キャンバス右上の入口。ドックを開いている間は、ドック自身の閉じるボタンに任せて出さない。 */
+/**
+ * サイドバーを引き出す入口。サイドバーはウィンドウの最上端から始まるので、入口もタイトル行の右端に置く
+ * (クロームが差し込む)。開いている間は、サイドバー自身の閉じるボタンに任せて出さない。
+ */
 export function RightDockToggle({ onOpen }: RightDockToggleProps) {
   const t = useT("chrome");
   return (
-    <div
-      className={styles.toggleRoot}
-      onClick={(event) => event.stopPropagation()}
-      onPointerDown={(event) => event.stopPropagation()}
-    >
-      <button
-        type="button"
-        className={styles.toggle}
-        aria-label={t("rightDock.open")}
-        title={t("rightDock.open")}
-        onClick={onOpen}
-      >
-        <PanelRight size={16} aria-hidden="true" />
-      </button>
-    </div>
+    <IconButton label={t("rightDock.open")} tone="ghost" size="sm" onClick={onOpen}>
+      <PanelRightOpen size={16} aria-hidden="true" />
+    </IconButton>
   );
 }

@@ -521,6 +521,14 @@ export const chrome = {
     tabs: "Sidebar tabs",
     newTab: "Open a new tab",
     closeTab: "Close tab",
+    peek: {
+      aria: "Sidebar contents",
+      title: "Sidebar",
+      dismiss: "Dismiss",
+      web: "Web",
+      compact: "Open sidebar: {{count}} web pages",
+      showAll: "Show all",
+    },
     tab: {
       hub: "New tab",
       files: "Files",
