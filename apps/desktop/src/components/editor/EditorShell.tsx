@@ -4841,7 +4841,6 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
       {pageSettingsOpen && (
         <PageSettingsDialog
           layout={document.pageLayout}
-          mathFractionSizing={document.metadata.mathFractionSizing}
           headingNumbering={document.metadata.headingNumbering}
           focusEntryId={settingsFocusEntryId}
           hasContent={hasMeaningfulBodyContent(document.content)}
@@ -4849,10 +4848,9 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
             setPageSettingsOpen(false);
             setSettingsFocusEntryId(undefined);
           }}
-          onChange={(layout, mathFractionSizing, headingNumbering) => {
+          onChange={(layout, headingNumbering) => {
             updatePageLayoutAndMetadata(layout, {
               ...document.metadata,
-              mathFractionSizing,
               headingNumbering,
             });
           }}

@@ -1,6 +1,6 @@
 import type { TikzEnvironment } from "./tikz";
 
-/** Controls whether inline fractions keep TeX sizing or use display-style fractions. */
+/** @deprecated Legacy metadata values; ignored by rendering. */
 export type MathFractionSizing = "uniform" | "texDefault";
 
 export type HeadingNumberingStyle = "decimal" | "sectionSign" | "chapterJa";
@@ -17,6 +17,7 @@ export interface SigmaMetadata {
   title: string;
   source?: SigmaDocumentSourceMetadata;
   styleUnits?: SigmaDocumentStyleUnits;
+  /** @deprecated 読み取り互換のみ。通常は displaystyle、明示的な TeX のスタイル指定を優先。 */
   mathFractionSizing?: MathFractionSizing;
   /** Display-only hierarchical numbering derived from document-order headings. */
   headingNumbering?: HeadingNumberingConfig;
