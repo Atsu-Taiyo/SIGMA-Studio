@@ -506,6 +506,7 @@ export function renderEditorChrome(chrome: EditorChromeValue) {
             <span>{t("actions.workspace")}</span>
           </button>
           {chrome.shared.accountAction}
+          {chrome.shared.rightDockToggle}
         </>}
       </div>
 
@@ -653,6 +654,7 @@ export function renderEditorChrome(chrome: EditorChromeValue) {
             <span>{t("actions.workspace")}</span>
           </button>
           {chrome.shared.accountAction}
+          {chrome.shared.rightDockToggle}
         </div>
       )}
     </div>

@@ -132,14 +132,6 @@ export const SETTINGS_ENTRIES: readonly SettingsEntryDefinition[] = [
     labelKey: "page.footer",
     keywordsKey: "catalog.keywords.footer",
   },
-  {
-    id: "settings.page.math",
-    surface: "page",
-    anchorId: "page-settings-math",
-    labelKey: "page.math",
-    descriptionKey: "page.fractionSameSize",
-    keywordsKey: "catalog.keywords.math",
-  },
   // --- ショートカット設定 (CommandSettingsDialog) ---
   {
     id: "settings.commands.shortcuts",

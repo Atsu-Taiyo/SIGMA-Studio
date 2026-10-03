@@ -27,7 +27,7 @@ import type { MathFractionSizing } from "@/features/document";
  */
 export type MathTypesetStyle = "displaystyle" | "textstyle";
 
-/** 用紙設定が無い文書の組版スタイル。印刷/静的表示の現行既定 (displaystyle) に合わせる。 */
+/** 通常の数式の組版スタイル。小さく組む場合は TeX で明示する。 */
 export const DEFAULT_MATH_TYPESET_STYLE: MathTypesetStyle = "displaystyle";
 
 /** 静的レンダラ (MathLive / KaTeX) に組版スタイルを伝える TeX コマンド。 */
@@ -43,11 +43,12 @@ const MATH_FIELD_DEFAULT_MODE: Readonly<Record<MathTypesetStyle, "inline-math" |
 };
 
 /**
- * 用紙設定「分数を常に同じ大きさで表示」(`metadata.mathFractionSizing`) を組版スタイルへ写す。
- * `uniform` (既定) = displaystyle、`texDefault` = TeX 既定のインライン組版 = textstyle。
+ * 旧教材・公開 API の引数は読み取り互換のため受け付けるが、表示には使わない。
+ * 通常は displaystyle。小さく組む場合は TeX 本文の明示的な \textstyle 等を尊重する。
  */
-export function resolveMathTypesetStyle(fractionSizing?: MathFractionSizing | null): MathTypesetStyle {
-  return fractionSizing === "texDefault" ? "textstyle" : DEFAULT_MATH_TYPESET_STYLE;
+export function resolveMathTypesetStyle(_legacyFractionSizing?: MathFractionSizing | null): MathTypesetStyle {
+  void _legacyFractionSizing; // Legacy callers may still pass this value.
+  return DEFAULT_MATH_TYPESET_STYLE;
 }
 
 /**
@@ -107,7 +108,9 @@ export function displayStyleTabularCells(tex: string): string {
       break;
     }
 
-    result += tex.slice(copied, bodyStart) + styleTabularBody(tex.slice(bodyStart, close.start));
+    const body = tex.slice(bodyStart, close.start);
+    result += tex.slice(copied, bodyStart)
+      + (hasExplicitSmallStyleBefore(tex, begin.start) ? body : styleTabularBody(body));
     copied = close.start;
     searchFrom = close.end;
   }
@@ -118,15 +121,50 @@ export function displayStyleTabularCells(tex: string): string {
 function findTextstyleCellEnvironment(
   tex: string,
   from: number,
-): { end: number; name: string } | null {
+): { start: number; end: number; name: string } | null {
   const pattern = new RegExp(ENVIRONMENT_TOKEN.source, "g");
   pattern.lastIndex = from;
   for (let match = pattern.exec(tex); match; match = pattern.exec(tex)) {
     if (match[1] === "begin" && TEXTSTYLE_CELL_ENVIRONMENT.test(match[2] ?? "")) {
-      return { end: match.index + match[0].length, name: match[2] ?? "" };
+      return { start: match.index, end: match.index + match[0].length, name: match[2] ?? "" };
     }
   }
   return null;
+}
+
+/** 著者のスタイル指定はグループ内だけに効く。先行する別の環境からは漏らさない。 */
+function hasExplicitSmallStyleBefore(tex: string, end: number): boolean {
+  let small = false;
+  const groups: boolean[] = [];
+  for (let index = 0; index < end;) {
+    if (tex[index] === "%") {
+      const newline = tex.indexOf("\n", index);
+      index = newline < 0 ? end : newline + 1;
+    } else if (tex[index] === "{") {
+      groups.push(small);
+      index++;
+    } else if (tex[index] === "}") {
+      small = groups.pop() ?? false;
+      index++;
+    } else if (tex[index] === "\\") {
+      const environment = /^\\begin\{([^}]+)\}/.exec(tex.slice(index));
+      if (environment) {
+        const close = findEnvironmentEnd(tex, index + environment[0].length, environment[1]);
+        if (close && close.end <= end) {
+          index = close.end;
+          continue;
+        }
+      }
+      const command = /^\\([A-Za-z]+|[^])/u.exec(tex.slice(index));
+      if (!command) break;
+      if (command[1] === "displaystyle") small = false;
+      else if (/^(?:text|script|scriptscript)style$/.test(command[1])) small = true;
+      index += command[0].length;
+    } else {
+      index++;
+    }
+  }
+  return small;
 }
 
 /** `\begin{name}` の対応する `\end{name}`。入れ子は種類を問わず数え、名前が合わなければ null。 */

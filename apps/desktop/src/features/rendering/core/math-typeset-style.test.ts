@@ -25,10 +25,10 @@ describe("applyMathTypesetStyle", () => {
     expect(displayStyleTabularCells(once)).toBe(once);
   });
 
-  it("maps the fraction sizing option onto the typeset style", () => {
+  it("ignores legacy fraction sizing metadata", () => {
     expect(resolveMathTypesetStyle(undefined)).toBe("displaystyle");
     expect(resolveMathTypesetStyle("uniform")).toBe("displaystyle");
-    expect(resolveMathTypesetStyle("texDefault")).toBe("textstyle");
+    expect(resolveMathTypesetStyle("texDefault")).toBe("displaystyle");
   });
 });
 
@@ -75,6 +75,13 @@ describe("displayStyleTabularCells", () => {
   it("respects an explicit style the author wrote at the start of a cell", () => {
     expect(displayStyleTabularCells(String.raw`\begin{array}{cc}\textstyle a & \scriptstyle b\end{array}`))
       .toBe(String.raw`\begin{array}{cc}\textstyle a & \scriptstyle b\end{array}`);
+  });
+
+  it("respects explicit small style around a table without leaking out of a group", () => {
+    const table = String.raw`\begin{pmatrix}\sum_k k\end{pmatrix}`;
+    expect(displayStyleTabularCells(String.raw`\textstyle ${table}`)).toBe(String.raw`\textstyle ${table}`);
+    expect(displayStyleTabularCells(String.raw`{\textstyle ${table}} ${table}`))
+      .toBe(String.raw`{\textstyle ${table}} \begin{pmatrix}${D} \sum_k k\end{pmatrix}`);
   });
 
   it("handles table environments embedded in a larger formula", () => {

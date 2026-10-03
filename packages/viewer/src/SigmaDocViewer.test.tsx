@@ -64,6 +64,20 @@ describe("SigmaDocViewer", () => {
       .not.toContain("@page");
   });
 
+  it.each(["uniform", "texDefault", undefined] as const)("ignores legacy math sizing while respecting explicit textstyle (%s)", async (legacy) => {
+    const document = createDocument({ bodyText: "MATH_STYLES" });
+    document.metadata.mathFractionSizing = legacy;
+    document.content = [{ type: "paragraph", id: "math_styles", children: [
+      { type: "mathInline", id: "normal_math", tex: String.raw`\int_0^1 x\,dx`, display: "inline" },
+      { type: "mathInline", id: "small_math", tex: String.raw`\textstyle \sum_{i=1}^n i`, display: "inline" },
+    ] }];
+    const before = structuredClone(document);
+    const { container } = await renderViewer(<SigmaDocViewer document={document} />);
+    expect(container.querySelector('[data-id="normal_math"] .ML__large-op')).not.toBeNull();
+    expect(container.querySelector('[data-id="small_math"] .ML__small-op')).not.toBeNull();
+    expect(document).toEqual(before);
+  });
+
   it("renders an accessible fallback and reports an invalid SigmaDoc", async () => {
     const onError = vi.fn<(error: SigmaDocViewerError) => void>();
     const invalidDocument = {

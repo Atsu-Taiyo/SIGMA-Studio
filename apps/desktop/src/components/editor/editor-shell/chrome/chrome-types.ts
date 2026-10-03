@@ -70,6 +70,8 @@ export interface EditorChromeToolbarMenus {
 export interface EditorChromeShared {
   documentActions?: ReactNode;
   accountAction?: ReactNode;
+  /** 右サイドバーを引き出す入口。サイドバーが閉じていて出せるときだけ渡る。タイトル行の右端に置く。 */
+  rightDockToggle?: ReactNode;
   hasDocumentSession?: boolean;
   activeMenu: EditorMenu;
   /**
