@@ -128,7 +128,7 @@ button:disabled {
   pointer-events: none;
 }
 
-/* ∀ と Sigma Studio ロゴは同じセルに重ね、同じ中心で入れ替わる。 */
+/* ∀ と Sigma Studio ロゴは同じセルに重ね、同じ中心に置く。 */
 .startup-splash-stage {
   display: grid;
   place-items: center;
@@ -139,7 +139,7 @@ button:disabled {
 }
 
 /*
- * 基準のスタイルは「入れ替わった後」(∀ は見えず、ロゴだけが居る)。
+ * 基準のスタイルは「描き終わった後」(∀ は見えず、ロゴだけが居る)。
  * 時間軸のアニメーションはそこへ向かう途中を描くだけなので、`animation: none`
  * (動きを減らす設定) ではロゴが直接出る。
  */
@@ -152,29 +152,98 @@ button:disabled {
   user-select: none;
   animation:
     startup-mark-in var(--splash-mark-in) cubic-bezier(0.22, 1, 0.36, 1) forwards,
-    startup-mark-spin var(--splash-turn) cubic-bezier(0.65, 0, 0.35, 1)
-      calc(var(--splash-mark-in) + var(--splash-mark-hold)) forwards,
-    startup-mark-fade calc(var(--splash-turn) * 0.6) linear
-      calc(var(--splash-mark-in) + var(--splash-mark-hold)) forwards;
+    startup-mark-out var(--splash-mark-out-for) linear var(--splash-mark-out-at) forwards;
 }
 
-.startup-splash-logo {
-  display: block;
-  width: min(54vw, 340px);
-  max-width: calc(100vw - 48px);
-  height: auto;
-  user-select: none;
-  /* 画面が開くときに少し膨らみながら消える。アニメーションの後に効く。 */
+/*
+ * ロゴは斜めの筆 3 本で現す。筆ごとに傾き・太さ・長さ・速さが違う (長い・中くらい・短い)。
+ * 筆の跡 (毛先のマスク付きの窓 .startup-splash-sweep) を、その傾きに沿って transform だけで動かし、
+ * 中の画像を逆向きに同じ量だけ動かして、画像そのものは画面上で動かさない。
+ * transform だけなので、重い処理で main thread が詰まってもなめらかに進む。
+ * 窓は枠より大きい (左右に 0.75、上下に 0.5 はみ出す) 矩形で、マスクはその座標で描いてある。
+ */
+.startup-splash-logo-frame {
+  --logo-size: min(54vw, 340px);
+  --stroke-ease: cubic-bezier(0.3, 0.3, 0.6, 0.9);
+  position: relative;
+  width: var(--logo-size);
+  aspect-ratio: 1;
+  /* 画面が開くときに少し膨らみながら消える。 */
   transition: transform var(--splash-fade-out, 260ms) ease;
-  animation:
-    startup-logo-spin var(--splash-turn) cubic-bezier(0.65, 0, 0.35, 1)
-      calc(var(--splash-mark-in) + var(--splash-mark-hold)) backwards,
-    startup-logo-fade calc(var(--splash-turn) * 0.65) linear
-      calc(var(--splash-mark-in) + var(--splash-mark-hold) + var(--splash-turn) * 0.2) backwards;
 }
 
-.startup-splash.is-leaving .startup-splash-logo {
+.startup-splash.is-leaving .startup-splash-logo-frame {
   transform: scale(1.04);
+}
+
+/*
+ * 全面のロゴは筆の下に居て、描き終わる少し前から現れる。筆が届かなかった端 (かすれの隙間) は
+ * これで埋まり、筆が塗った所は同じ絵なので変わって見えない。
+ */
+.startup-splash-logo {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+  user-select: none;
+  animation: startup-logo-settle 160ms ease-out calc(var(--splash-reveal-end) - 60ms) backwards;
+}
+
+.startup-splash-stroke {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+}
+
+.startup-splash-sweep {
+  position: absolute;
+  top: calc(var(--logo-size) * -0.5);
+  left: calc(var(--logo-size) * -0.75);
+  width: calc(var(--logo-size) * 2.5);
+  height: calc(var(--logo-size) * 2);
+  mask-image: var(--brush);
+  mask-size: 100% 100%;
+  mask-repeat: no-repeat;
+  will-change: transform;
+  animation: startup-sweep-in var(--for) var(--stroke-ease) var(--at) backwards;
+}
+
+.startup-splash-sweep img {
+  position: absolute;
+  top: calc(var(--logo-size) * 0.5);
+  left: calc(var(--logo-size) * 0.75);
+  display: block;
+  width: var(--logo-size);
+  height: var(--logo-size);
+  user-select: none;
+  will-change: transform;
+  animation: startup-sweep-counter var(--for) var(--stroke-ease) var(--at) backwards;
+}
+
+/* --sx / --sy: 筆の跡の初期位置 (ロゴの 1 辺を 1 とした、描き終わった位置からのずれ)。 */
+.startup-splash-stroke.is-first {
+  --brush: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 2500 2000' preserveAspectRatio='none'%3E%3Cpath d='M31.4 788.4L1963.2 270.8L2082.3 715.1L150.4 1232.7ZM1944.4 277.9L2077.7 242.2Q2108.1 239.8 2109.5 245.2Q2111 250.6 2083.5 263.8L1950.2 299.5ZM1951.2 303.4L2159.5 247.5Q2190.1 245.8 2191.7 251.8Q2193.4 257.8 2166 271.6L1957.7 327.4ZM1958.7 331.3L2112.8 290Q2142.3 284.3 2142.9 286.3Q2143.4 288.4 2115 298.2L1960.9 339.5ZM1962 343.4L2114 302.7Q2144.3 299.8 2145.6 304.7Q2147 309.7 2119.3 322.4L1967.2 363.1ZM1968.3 367L2168.1 313.4Q2198.3 310.4 2199.5 315.1Q2200.8 319.8 2173.1 332.2L1973.3 385.8ZM1974.3 389.6L2085.5 359.8Q2115.2 354.8 2115.9 357.5Q2116.6 360.1 2088.4 370.6L1977.2 400.4ZM1980.5 412.7L2183 358.4Q2213.2 355 2214.3 359.4Q2215.5 363.8 2187.7 375.9L1985.2 430.1ZM1989.1 444.8L2174.9 395Q2205.4 393.2 2207 399.1Q2208.6 405 2181.2 418.6L1995.5 468.4ZM1996.5 472.3L2265 400.3Q2296.1 400.2 2298.1 407.9Q2300.2 415.6 2273.3 431L2004.7 503ZM2005.8 506.8L2186.5 458.4Q2217.1 456.9 2218.8 463.2Q2220.5 469.4 2193.2 483.5L2012.5 531.9ZM2016.8 548.2L2227.2 491.8Q2258.6 493.1 2261 502.1Q2263.4 511.1 2236.9 527.8L2026.5 584.2ZM2030.9 600.6L2310.7 525.6Q2340.8 521.9 2341.9 526.1Q2343 530.2 2315.2 542.1L2035.3 617.1ZM2036.3 621L2247.8 564.3Q2278.9 564.5 2281.1 572.5Q2283.2 580.5 2256.4 596.2L2044.9 652.9ZM2045.9 656.7L2320.7 583.1Q2351.8 583.1 2353.8 590.9Q2355.9 598.7 2329 614.3L2054.3 687.9ZM2056.6 696.5L2369.1 612.8Q2399.5 610.5 2401 615.9Q2402.5 621.4 2374.9 634.6L2062.4 718.4Z'/%3E%3C/svg%3E");
+  --sx: -1.862;
+  --sy: 0.499;
+  --at: var(--splash-stroke-1-at);
+  --for: var(--splash-stroke-1-for);
+}
+
+.startup-splash-stroke.is-second {
+  --brush: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 2500 2000' preserveAspectRatio='none'%3E%3Cpath d='M2388.4 625.4L842.2 898L929 1390.5L2475.2 1117.8ZM862.3 896.5L747.6 916.8Q718.9 926.6 719.7 931.3Q720.6 935.9 750.9 935.4L865.5 915.2ZM867.3 925L737.5 947.9Q709.4 961.2 710.8 969.2Q712.2 977.2 743.2 980L872.9 957.1ZM874.5 966.1L722.8 992.9Q694.2 1003.3 695.1 1008.5Q696 1013.7 726.5 1013.7L878.2 986.9ZM878.9 990.9L739.1 1015.5Q710.5 1026.2 711.5 1031.8Q712.5 1037.3 743 1037.6L882.8 1013ZM883.5 1016.9L796.5 1032.3Q767.5 1040.6 768 1043.7Q768.6 1046.8 798.7 1044.7L885.7 1029.3ZM886.4 1033.3L726.5 1061.5Q697.7 1070.9 698.5 1075.1Q699.2 1079.4 729.5 1078.4L889.3 1050.2ZM890 1054.1L769.1 1075.5Q740.7 1087 741.8 1093.3Q742.9 1099.6 773.5 1100.7L894.5 1079.4ZM895.2 1083.3L732.3 1112.1Q703.4 1120.7 704 1124.2Q704.6 1127.7 734.8 1126L897.6 1097.3ZM899.7 1109.1L812.6 1124.4Q783.6 1132.5 784.1 1135.3Q784.6 1138.2 814.7 1135.9L901.7 1120.5ZM904.4 1135.8L811 1152.2Q782.6 1164.1 783.8 1170.8Q785 1177.5 815.7 1178.9L909.1 1162.4ZM909.8 1166.4L766.8 1191.6Q737.7 1199.5 738.2 1202.2Q738.6 1204.9 768.7 1202.4L911.7 1177.1ZM912.4 1181.1L812.3 1198.7Q783.4 1207.9 784.1 1211.9Q784.8 1215.9 815.1 1214.7L915.2 1197ZM915.9 1201L846.9 1213.1Q818.1 1222.8 818.9 1227.3Q819.7 1231.7 850 1230.9L919.1 1218.8ZM921.9 1235.1L854.9 1246.9Q826.7 1259.4 827.9 1266.7Q829.2 1274 860.1 1276.1L927.1 1264.3ZM927.8 1268.2L874.2 1277.6Q845.8 1289.7 847 1296.5Q848.2 1303.3 879 1304.8L932.6 1295.4ZM933.3 1299.3L881.7 1308.4Q852.6 1316.2 853 1318.7Q853.5 1321.2 883.4 1318.6L935.1 1309.5ZM935.8 1313.4L820.9 1333.7Q791.7 1340.5 792 1342.2Q792.3 1343.9 822.1 1340.3L936.9 1320.1ZM937.6 1324L850.1 1339.4Q821.4 1349 822.1 1353.4Q822.9 1357.7 853.2 1356.9L940.7 1341.4ZM942.4 1351L903 1358Q883.9 1365.1 884.6 1368.7Q885.2 1372.3 905.5 1372.4L944.9 1365.5ZM945.6 1369.4L897.2 1378Q869.1 1386.9 869.8 1390.8Q870.5 1394.7 899.9 1393.6L948.4 1385Z'/%3E%3C/svg%3E");
+  --sx: 1.191;
+  --sy: -0.21;
+  --at: var(--splash-stroke-2-at);
+  --for: var(--splash-stroke-2-for);
+}
+
+.startup-splash-stroke.is-third {
+  --brush: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 2500 2000' preserveAspectRatio='none'%3E%3Cpath d='M1065.2 1232.7L1897.3 946.2L2021 1305.5L1188.9 1592ZM1879 954.6L1948.7 930.6Q1980.2 929.8 1983.3 938.8Q1986.4 947.8 1961.1 966.5L1891.4 990.5ZM1047 1241.1L986.5 1261.9L998.8 1297.8L1059.3 1277ZM1894.2 998.8L1944.8 981.4Q1975.6 978.7 1978 985.7Q1980.4 992.8 1954.5 1009.6L1904 1027ZM1062.2 1285.3L1054.3 1288L1064 1316.2L1071.9 1313.5ZM1905.3 1030.8L2000.5 998Q2029.9 991 2030.9 993.9Q2031.9 996.7 2004.5 1009.4L1909.2 1042.2ZM1073.2 1317.3L976.3 1350.6L980.2 1362.1L1077.1 1328.7ZM1910.5 1046L2042.8 1000.4Q2071.8 992.5 2072.5 994.3Q2073.1 996.2 2045.4 1007.8L1913 1053.4ZM1078.4 1332.5L1046.8 1343.3L1049.4 1350.7L1081 1339.9ZM1914.3 1057.1L2094.6 995.1Q2125.2 992 2127.5 998.6Q2129.8 1005.3 2103.8 1021.7L1923.5 1083.8ZM1082.3 1343.6L976.1 1380.2L985.3 1406.8L1091.5 1370.3ZM1926.3 1092L2074.1 1041.1Q2105.4 1039.8 2108.3 1048.3Q2111.2 1056.8 2085.8 1075.1L1938 1126ZM1094.3 1378.5L1022.5 1403.2L1034.2 1437.2L1106 1412.5ZM1939.3 1129.7L2148.7 1057.6Q2179.7 1055.5 2182.4 1063.1Q2185 1070.7 2159.2 1088.1L1949.8 1160.2ZM1107.3 1416.2L1036.4 1440.6L1046.9 1471.1L1117.8 1446.7ZM1951.1 1164L2158 1092.7Q2187.5 1086.3 2188.7 1089.6Q2189.8 1092.9 2162.6 1106L1955.7 1177.2ZM1119.1 1450.5L1092.3 1459.7L1096.9 1473L1123.6 1463.7ZM1961.5 1194.2L2173.7 1121.1Q2204.8 1119.2 2207.5 1127.1Q2210.2 1135 2184.5 1152.6L1972.4 1225.7ZM1129.5 1480.7L1026.5 1516.1L1037.3 1547.6L1140.3 1512.2ZM1973.7 1229.4L2278.3 1124.5Q2309.2 1122.2 2311.8 1129.6Q2314.3 1137 2288.5 1154.2L1983.9 1259.1ZM1141.6 1515.9L1079.1 1537.4L1089.3 1567.1L1151.8 1545.6ZM1985.2 1262.9L2184.4 1194.3Q2214 1188.2 2215.3 1191.9Q2216.5 1195.6 2189.4 1209L1990.2 1277.6ZM1153.1 1549.4L1062.5 1580.6L1067.6 1595.3L1158.2 1564.1ZM1994.1 1288.8L2283.3 1189.3Q2313.4 1184.8 2315.3 1190.1Q2317.1 1195.4 2290.5 1210.4L2001.4 1310ZM1162.1 1575.3L1071 1606.7L1078.3 1627.9L1169.3 1596.5Z'/%3E%3C/svg%3E");
+  --sx: -1.542;
+  --sy: 0.531;
+  --at: var(--splash-stroke-3-at);
+  --for: var(--splash-stroke-3-for);
 }
 
 /* ∀ が現れる。 */
@@ -189,17 +258,8 @@ button:disabled {
   }
 }
 
-/* 180° 回りながら縮み、消える。Boost の起動画面と同じ向きと量。 */
-@keyframes startup-mark-spin {
-  from {
-    transform: rotate(0deg) scale(1);
-  }
-  to {
-    transform: rotate(180deg) scale(0.8);
-  }
-}
-
-@keyframes startup-mark-fade {
+/* 2 本目の筆が上を通る間に、下から消える。 */
+@keyframes startup-mark-out {
   from {
     opacity: 1;
   }
@@ -208,22 +268,30 @@ button:disabled {
   }
 }
 
-/* 逆向きに 180° 回りながら正位置へ戻る。 */
-@keyframes startup-logo-spin {
-  from {
-    transform: rotate(-180deg) scale(0.8);
-  }
-  to {
-    transform: rotate(0deg) scale(1);
-  }
-}
-
-@keyframes startup-logo-fade {
+@keyframes startup-logo-settle {
   from {
     opacity: 0;
   }
   to {
     opacity: 1;
+  }
+}
+
+@keyframes startup-sweep-in {
+  from {
+    transform: translate(calc(var(--logo-size) * var(--sx)), calc(var(--logo-size) * var(--sy)));
+  }
+  to {
+    transform: translate(0, 0);
+  }
+}
+
+@keyframes startup-sweep-counter {
+  from {
+    transform: translate(calc(var(--logo-size) * var(--sx) * -1), calc(var(--logo-size) * var(--sy) * -1));
+  }
+  to {
+    transform: translate(0, 0);
   }
 }
 

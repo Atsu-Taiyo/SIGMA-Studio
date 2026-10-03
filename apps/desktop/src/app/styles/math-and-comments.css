@@ -1671,7 +1671,10 @@
 @media (prefers-reduced-motion: reduce) {
   .startup-splash,
   .startup-splash-mark,
+  .startup-splash-logo-frame,
   .startup-splash-logo,
+  .startup-splash-sweep,
+  .startup-splash-sweep img,
   .app-menu,
   .app-menu-submenu-panel,
   .shape-menu,
