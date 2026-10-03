@@ -166,7 +166,7 @@ describe("RightDock frame", () => {
 });
 
 describe("RightDockToggle", () => {
-  it("opens the dock from the canvas corner", () => {
+  it("opens the dock from the title bar", () => {
     const onOpen = vi.fn();
     act(() => root.render(<RightDockToggle onOpen={onOpen} />));
     act(() => container.querySelector<HTMLButtonElement>('button[aria-label="サイドバーを開く"]')!.click());

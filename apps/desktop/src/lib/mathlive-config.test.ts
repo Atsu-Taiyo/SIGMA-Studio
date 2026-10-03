@@ -65,11 +65,10 @@ describe("MathLive config", () => {
     expect(mathField.executeCommand).toHaveBeenCalledWith("hideVirtualKeyboard");
   });
 
-  // 編集中の組版スタイルは静的側と同じ 1 つの出典から来る。ここを直値に戻すと
-  // 「用紙設定を変えても math-field だけ変わらない」が再発する (経路 A)。
+  // 旧教材の設定が残っていても、静的描画と同じ displaystyle を使う。
   it.each([
     ["uniform", "displaystyle"],
-    ["texDefault", "textstyle"],
+    ["texDefault", "displaystyle"],
   ] as Array<["uniform" | "texDefault", MathTypesetStyle]>)(
     "derives the field mode from the document typeset style (%s)",
     (mathFractionSizing, typesetStyle) => {

@@ -74,7 +74,6 @@ export const settings = {
     regionFirstPage: "1ページ目にも表示",
     regionHint: "内容はページ上のヘッダー/フッター領域を直接クリックして編集します。",
     math: "数式",
-    fractionSameSize: "分数を常に同じ大きさで表示",
     headingNumbers: "見出し番号",
     headingNumbersDescription: "見出しの階層に合わせて番号を自動で振り直します。",
     headingNumbersShow: "見出し番号を表示",

@@ -55,7 +55,7 @@ test("empty whiteboard region comments survive real Electron storage and restart
     expect(bounds.x).toBeLessThan(0);
     expect(bounds.y).toBeLessThan(0);
     await page.locator('.selection-action-popover button[aria-label="コメントを追加"]').click();
-    const dock = page.locator(".comment-dock");
+    const dock = page.locator("[data-comment-rail]");
     await dock.locator(".comment-rich-text-editor").fill("実ファイルへ保存する領域コメント");
     await dock.getByRole("button", { name: "追加", exact: true }).click();
     await expect.poll(() => page.evaluate(async (id) => (await window.desktopAPI!.storage.loadDocument(id))?.comments?.length, fileId)).toBe(1);
@@ -69,7 +69,14 @@ test("empty whiteboard region comments survive real Electron storage and restart
     page = await app.firstWindow();
     await expect(page.locator(".startup-splash")).toBeHidden({ timeout: 60_000 });
     await expect(page.locator(".whiteboard-page-canvas")).toBeVisible();
-    await page.locator(".comment-dock-toggle").click();
+    await page.getByRole("button", { name: "設定", exact: true }).click();
+    const showComments = page.getByRole("menuitemcheckbox", { name: "コメント表示", exact: true });
+    if (await showComments.getAttribute("aria-checked") === "false") await showComments.click();
+    else await page.keyboard.press("Escape");
+    const restoredRail = page.locator("[data-comment-rail]");
+    if (await restoredRail.getAttribute("data-compact") === "true") {
+      await restoredRail.getByRole("button", { name: /^コメントを開く:/ }).click();
+    }
     const card = page.locator(".comment-thread-card");
     await expect(card).toContainText("実ファイルへ保存する領域コメント");
     await card.locator(".comment-anchor-label").click();
@@ -97,7 +104,6 @@ test("empty whiteboard region comments survive real Electron storage and restart
     await expect(marker).toHaveCount(0);
     await expect.poll(() => page.evaluate(async (id) => (await window.desktopAPI!.storage.loadDocument(id))?.comments ?? [], fileId)).toEqual([]);
     expect(JSON.parse(readFileSync(diskPath, "utf8")).comments ?? []).toEqual([]);
-    await page.locator(".comment-dock").getByRole("button", { name: "コメントを閉じる" }).click();
     const restoredBox = (await page.locator(".whiteboard-page-canvas").boundingBox())!;
     await page.mouse.move(restoredBox.x + 280, restoredBox.y + 220);
     await page.mouse.down();

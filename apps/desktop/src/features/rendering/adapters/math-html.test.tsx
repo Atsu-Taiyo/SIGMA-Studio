@@ -22,7 +22,7 @@ import { exportOverlaySvg } from "./svg";
 
 const PREAMBLE = String.raw`\newcommand{\RR}{\mathbb{R}}`;
 const DISPLAYSTYLE_ENVIRONMENT = createMathRenderEnvironment("", "uniform");
-const TEXTSTYLE_ENVIRONMENT = createMathRenderEnvironment("", "texDefault");
+const TEXTSTYLE_ENVIRONMENT: MathRenderEnvironment = { ...DISPLAYSTYLE_ENVIRONMENT, typesetStyle: "textstyle" };
 const PREAMBLE_ENVIRONMENT = createMathRenderEnvironment(PREAMBLE, "uniform");
 
 /** 現在の経路が MathLive / KaTeX どちらでも、組版スタイルが効いていなければ落ちる式を並べる。 */
@@ -53,6 +53,15 @@ describe("static math rendering carries one typeset style", () => {
     // 前置が「効いていない」実装 (旧 KaTeX 既定 / 旧 MathLive 既定) ならここが同一になる。
     expect(renderMathHtml(tex, TEXTSTYLE_ENVIRONMENT))
       .not.toBe(renderMathHtml(tex, DISPLAYSTYLE_ENVIRONMENT));
+  });
+
+  it.each([undefined, "uniform", "texDefault"] as const)("ignores old metadata and respects explicit TeX (%s)", (legacy) => {
+    const environment = createMathRenderEnvironment("", legacy);
+    const tex = String.raw`\int_0^{\frac{\pi}{2}} x\,dx`;
+    expect(renderMathHtml(tex, environment)).toBe(renderMathHtml(tex, DISPLAYSTYLE_ENVIRONMENT));
+    expect(renderMathHtml(tex, environment)).toContain("ML__large-op");
+    expect(renderMathHtml(String.raw`\textstyle ${tex}`, environment)).toContain("ML__small-op");
+    expect(renderMathHtml(String.raw`\tfrac{a}{b}`, environment)).not.toBe(renderMathHtml(String.raw`\frac{a}{b}`, environment));
   });
 
   it("renders the built-in box macros without falling back to KaTeX", () => {
@@ -96,7 +105,7 @@ describe("static math rendering reaches the cells of table environments", () => 
     expect(label === "KaTeX fallback" ? html.includes("katex") : !html.includes("katex")).toBe(true);
   });
 
-  it.each(CELLS)("keeps the TeX default (small) cells in a texDefault document: %s", (_label, tex) => {
+  it.each(CELLS)("keeps small cells when textstyle is explicitly requested: %s", (_label, tex) => {
     const html = renderMathHtml(tex, TEXTSTYLE_ENVIRONMENT);
 
     expect(html).toMatch(SMALL_OPERATOR);
@@ -146,7 +155,7 @@ describe("the document macros reach every static outlet", () => {
 
   it.each([
     ["displaystyle", PREAMBLE_ENVIRONMENT],
-    ["textstyle", createMathRenderEnvironment(PREAMBLE, "texDefault")],
+    ["textstyle", { ...PREAMBLE_ENVIRONMENT, typesetStyle: "textstyle" }],
   ] as Array<[string, MathRenderEnvironment]>)(
     "produces identical markup from every outlet (%s)",
     (_label, environment) => {

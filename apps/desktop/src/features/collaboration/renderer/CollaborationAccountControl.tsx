@@ -119,7 +119,7 @@ export function CollaborationAccountControl({ info, refresh }: {
       <button
         ref={accountButton}
         type="button"
-        className={styles.accountButton}
+        className={plan === "pro" ? `${styles.accountButton} ${styles.accountButtonPro}` : styles.accountButton}
         title={name}
         aria-label={t("collaboration.accountLabel", { name })}
         aria-expanded={open}
@@ -129,13 +129,13 @@ export function CollaborationAccountControl({ info, refresh }: {
         }}
       >
         <CollaborationProfileAvatar profile={info.user} label={name} />
-        {plan === "pro" && <span className={styles.proBadge}>{t("collaboration.plan.menuLabel.pro")}</span>}
+        {plan === "pro" && <span className={styles.accountProBadge}>{t("collaboration.plan.menuLabel.pro")}</span>}
       </button>
       {open && (
         <div className={styles.accountMenu} role="dialog" aria-label={t("collaboration.accountLabel", { name })}>
           <div className={styles.accountNameRow}>
             <strong>{name}</strong>
-            {plan === "pro" && <span className={styles.proBadge}>{t("collaboration.plan.menuLabel.pro")}</span>}
+            {plan === "pro" && <span className={styles.accountMenuProBadge}>{t("collaboration.plan.menuLabel.pro")}</span>}
           </div>
           {capabilities?.paymentWarning && <p role="alert">{t("collaboration.plan.paymentWarning")}</p>}
           {locked && locked.actorId === actorId && locked.count > 0 && <Button tone="ghost" disabled={busy} onClick={() => {

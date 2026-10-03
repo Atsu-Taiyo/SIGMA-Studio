@@ -44,6 +44,13 @@
 .account {
   position: relative;
   display: inline-flex;
+  /* Pro is the one place the monochrome UI takes colour: polished gold, on the
+     avatar ring and the badge only. */
+  --pro-gold-deep: #8a6212;
+  --pro-gold: #c9a13b;
+  --pro-gold-light: #f2dc92;
+  --pro-gold-shine: #fff7d6;
+  --pro-gold-ink: #2b1d03;
 }
 .accountControl {
   position: relative;
@@ -64,6 +71,7 @@
   font-size: 12px;
 }
 .accountButton {
+  position: relative;
   display: inline-flex;
   align-items: center;
   gap: var(--space-xs);
@@ -76,6 +84,59 @@
 .accountButton:focus-visible {
   outline: 2px solid var(--text);
   outline-offset: 2px;
+}
+/* The ring is the button's own padding, pulled back by the same margin so a Pro
+   account takes exactly the room a free one does and the ring grows outward. */
+.accountButtonPro {
+  margin: -3px;
+  padding: 3px;
+  background: conic-gradient(
+    from 200deg,
+    var(--pro-gold-deep),
+    var(--pro-gold-light) 14%,
+    var(--pro-gold-shine) 24%,
+    var(--pro-gold) 40%,
+    var(--pro-gold-deep) 58%,
+    var(--pro-gold-light) 78%,
+    var(--pro-gold-shine) 88%,
+    var(--pro-gold-deep)
+  );
+  box-shadow: 0 0 0 1px rgb(138 98 18 / 0.35), 0 2px 6px rgb(138 98 18 / 0.3);
+}
+.accountButtonPro .avatar {
+  border-width: 2px;
+}
+/* Sits on the avatar's lower edge; the paper-coloured border cuts it out of the photo. */
+.accountProBadge {
+  position: absolute;
+  bottom: -5px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 0 5px;
+  border: 1.5px solid var(--background);
+  font-size: 9px;
+  font-weight: 800;
+  line-height: 12px;
+  pointer-events: none;
+}
+.accountProBadge,
+.accountMenu .accountMenuProBadge {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  border-radius: var(--radius-round);
+  background: linear-gradient(135deg, var(--pro-gold-light), var(--pro-gold) 55%, var(--pro-gold-deep));
+  color: var(--pro-gold-ink);
+  letter-spacing: 0.06em;
+  text-shadow: 0 1px 0 rgb(255 255 255 / 0.45);
+  white-space: nowrap;
+}
+.accountMenu .accountMenuProBadge {
+  padding: 0 6px;
+  border: 1px solid rgb(138 98 18 / 0.5);
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 16px;
 }
 .accountMenu {
   position: absolute;
@@ -106,8 +167,7 @@
 .accountNameRow strong {
   min-width: 0;
 }
-.proBadge,
-.accountMenu .proBadge {
+.proBadge {
   display: inline-flex;
   flex: 0 0 auto;
   align-items: center;

@@ -26,7 +26,7 @@ export const DEFAULT_MATH_RENDER_ENVIRONMENT: MathRenderEnvironment = {
   typesetStyle: DEFAULT_MATH_TYPESET_STYLE,
 };
 
-/** `metadata.texPreamble` と `metadata.mathFractionSizing` から描画環境を作る。 */
+/** 前文から描画環境を作る。旧 mathFractionSizing 引数は読み取り互換のみ。 */
 export function createMathRenderEnvironment(
   preamble?: string,
   mathFractionSizing?: MathFractionSizing | null,

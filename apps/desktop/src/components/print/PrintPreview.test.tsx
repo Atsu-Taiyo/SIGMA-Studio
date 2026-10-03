@@ -56,10 +56,8 @@ describe("PrintPreview layout modes", () => {
     expect(html).toContain('class="column-rule-separator"');
   });
 
-  // 仕様変更: `mathFractionSizing` は「静的側だけ `\frac` を `\dfrac` へ書き換える」設定ではなく、
-  // **文書の組版スタイル** (uniform=displaystyle / texDefault=textstyle) になった。静的側と
-  // 編集中の math-field が同じ 1 つの出典から組版を導くので、片方だけ変わることがない。
-  it("applies the document typeset style to print output without rewriting the stored TeX", () => {
+  // 旧教材の設定は無視し、すべての出力面で同じ組版にする。
+  it("ignores legacy sizing in print output without rewriting the stored TeX", () => {
     const tex = String.raw`\frac{x^{\frac{1}{2}}}{\frac{a}{b}}`;
     const fractionDocument = documentWithColumns(1, [{
       type: "paragraph",
@@ -81,7 +79,7 @@ describe("PrintPreview layout modes", () => {
 
     expect(uniformHtml).toContain(renderMathHtml(tex, createMathRenderEnvironment(undefined, "uniform")));
     expect(texDefaultHtml).toContain(renderMathHtml(tex, createMathRenderEnvironment(undefined, "texDefault")));
-    expect(uniformHtml).not.toBe(texDefaultHtml);
+    expect(uniformHtml).toBe(texDefaultHtml);
     // 保存される TeX はどちらの設定でも書き換わらない。
     expect(uniformHtml).toContain('data-tex="\\frac{x^{\\frac{1}{2}}}{\\frac{a}{b}}"');
     expect(texDefaultHtml).toContain('data-tex="\\frac{x^{\\frac{1}{2}}}{\\frac{a}{b}}"');

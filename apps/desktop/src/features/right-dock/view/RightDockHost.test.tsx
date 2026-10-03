@@ -68,7 +68,7 @@ function createFakeBrowser() {
   return { bridge, seed: (...urls: string[]) => { urls.forEach((url) => { const tab = make(url); tabs = [...tabs, tab]; activeTabId = tab.id; }); } };
 }
 
-function Harness({ initial, onOpenChat, onCloseChat }: { initial: RightDockState; onOpenChat(): void; onCloseChat(): void }) {
+function Harness({ initial, onOpenChat, onCloseChat, peekEnabled = true }: { initial: RightDockState; onOpenChat(): void; onCloseChat(): void; peekEnabled?: boolean }) {
   const [state, setState] = useState(initial);
   useEffect(() => {
     latest = state;
@@ -84,13 +84,15 @@ function Harness({ initial, onOpenChat, onCloseChat }: { initial: RightDockState
       onOpenChat={onOpenChat}
       onCloseChat={onCloseChat}
       onCollapse={() => setState(closeRightDock)}
+      onOpen={() => setState(openRightDock)}
+      peekEnabled={peekEnabled}
     />
   );
 }
 
-async function mount(initial: RightDockState, browser: ReturnType<typeof createFakeBrowser> | null, handlers = { onOpenChat: vi.fn(), onCloseChat: vi.fn() }) {
+async function mount(initial: RightDockState, browser: ReturnType<typeof createFakeBrowser> | null, handlers = { onOpenChat: vi.fn(), onCloseChat: vi.fn() }, options: { peekEnabled?: boolean } = {}) {
   (window as unknown as { desktopAPI?: unknown }).desktopAPI = browser ? { browser: browser.bridge as unknown as DesktopBrowserAPI } : undefined;
-  await act(async () => root.render(<Harness initial={initial} {...handlers} />));
+  await act(async () => root.render(<Harness initial={initial} {...handlers} {...options} />));
   await act(async () => {});
   return handlers;
 }
@@ -215,5 +217,90 @@ describe("RightDockHost", () => {
     await mount(INITIAL_RIGHT_DOCK_STATE, browser);
     expect(latest.open).toBe(false);
     expect(labels()).toEqual(["page 1"]);
+  });
+
+  describe("peek card", () => {
+    const peek = () => container.querySelector<HTMLElement>('[data-right-dock-peek="true"]');
+    // 状態は Harness が持つので、場面ごとに描き直して初期状態から始める。
+    const fresh = async () => {
+      await act(async () => root.unmount());
+      root = createRoot(container);
+    };
+    const peekRows = () => [...(peek()?.querySelectorAll<HTMLButtonElement>("button[data-kind]") ?? [])].map((row) => row.textContent);
+
+    it("lists the open web pages while the dock is closed", async () => {
+      const browser = createFakeBrowser();
+      browser.seed("https://a.example", "https://b.example");
+      await mount(INITIAL_RIGHT_DOCK_STATE, browser);
+      expect(latest.open).toBe(false);
+      expect(peekRows()).toEqual(["page 1", "page 2"]);
+    });
+
+    it("stays away when there is no web page, while the dock is open, or when the shell says not now", async () => {
+      await mount(INITIAL_RIGHT_DOCK_STATE, createFakeBrowser());
+      expect(peek()).toBeNull();
+
+      await fresh();
+      const withTabs = createFakeBrowser();
+      withTabs.seed("https://a.example");
+      await mount(openRightDock(INITIAL_RIGHT_DOCK_STATE), withTabs);
+      expect(peek()).toBeNull();
+
+      await fresh();
+      const blocked = createFakeBrowser();
+      blocked.seed("https://a.example");
+      await mount(INITIAL_RIGHT_DOCK_STATE, blocked, undefined, { peekEnabled: false });
+      expect(peek()).toBeNull();
+    });
+
+    it("also lists the files and chat pages, but never the hub", async () => {
+      const browser = createFakeBrowser();
+      browser.seed("https://a.example");
+      await mount(closeRightDock(openRightDockTool(openRightDockTool(openRightDock(INITIAL_RIGHT_DOCK_STATE), "files"), "chat")), browser);
+      expect(peekRows()).toEqual(["ファイル", "サイドチャット", "page 1"]);
+    });
+
+    it("opens the dock on the page that was picked", async () => {
+      const browser = createFakeBrowser();
+      browser.seed("https://a.example", "https://b.example");
+      await mount(INITIAL_RIGHT_DOCK_STATE, browser);
+      await act(async () => peek()!.querySelectorAll<HTMLButtonElement>("button[data-kind]")[0].click());
+      expect(latest.open).toBe(true);
+      expect(latest.activeId).toBe("tab-1");
+      expect(peek()).toBeNull();
+    });
+
+    it("asks the AI surface, not the state, to show the side chat", async () => {
+      const browser = createFakeBrowser();
+      browser.seed("https://a.example");
+      const handlers = await mount(closeRightDock(openRightDockTool(openRightDock(INITIAL_RIGHT_DOCK_STATE), "chat")), browser);
+      await act(async () => peek()!.querySelector<HTMLButtonElement>('button[data-kind="chat"]')!.click());
+      expect(handlers.onOpenChat).toHaveBeenCalledOnce();
+    });
+
+    it("opens the dock on the last viewed page from 'show all', and on a new tab from the plus", async () => {
+      const browser = createFakeBrowser();
+      browser.seed("https://a.example");
+      await mount(INITIAL_RIGHT_DOCK_STATE, browser);
+      await act(async () => [...peek()!.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent === "すべて表示")!.click());
+      expect(latest.open).toBe(true);
+      expect(latest.activeId).toBe("tab-1");
+
+      await fresh();
+      await mount(INITIAL_RIGHT_DOCK_STATE, browser);
+      await act(async () => peek()!.querySelector<HTMLButtonElement>('button[aria-label="新しいタブを開く"]')!.click());
+      expect(latest.open).toBe(true);
+      expect(latest.activeId).toBe("hub");
+    });
+
+    it("can be dismissed, and comes back when the set of web pages changes", async () => {
+      const browser = createFakeBrowser();
+      browser.seed("https://a.example");
+      await mount(INITIAL_RIGHT_DOCK_STATE, browser);
+      await act(async () => peek()!.querySelector<HTMLButtonElement>('button[aria-label="閉じる"]')!.click());
+      expect(peek()).toBeNull();
+      await act(async () => { await browser.bridge.openTab({ input: "https://b.example" }); });
+      expect(peekRows()).toEqual(["page 1", "page 2"]);
+    });
   });
 });
