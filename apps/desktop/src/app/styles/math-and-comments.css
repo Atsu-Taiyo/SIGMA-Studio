@@ -1670,6 +1670,7 @@
 
 @media (prefers-reduced-motion: reduce) {
   .startup-splash,
+  .startup-splash-mark,
   .startup-splash-logo,
   .app-menu,
   .app-menu-submenu-panel,
