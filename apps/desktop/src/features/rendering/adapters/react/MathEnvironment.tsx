@@ -3,11 +3,9 @@
 import { createContext, useContext, useMemo, type ReactNode } from "react";
 
 import type { MathFractionSizing } from "@/features/document";
-import { resolveMathTypesetStyle } from "@/features/rendering/core";
 import {
   createMathRenderEnvironment,
   DEFAULT_MATH_RENDER_ENVIRONMENT,
-  withMathTypesetStyle,
   type MathRenderEnvironment,
 } from "@/lib/math-environment";
 
@@ -19,16 +17,16 @@ const MathEnvironmentContext = createContext<MathRenderEnvironment>(DEFAULT_MATH
  */
 export function MathEnvironmentProvider({
   children,
-  mathFractionSizing,
   preamble,
 }: {
   children: ReactNode;
+  /** @deprecated Accepted for compatibility; ignored. */
   mathFractionSizing?: MathFractionSizing | null;
   preamble?: string;
 }) {
   const value = useMemo(
-    () => createMathRenderEnvironment(preamble, mathFractionSizing),
-    [mathFractionSizing, preamble],
+    () => createMathRenderEnvironment(preamble),
+    [preamble],
   );
   return <MathEnvironmentValueProvider environment={value}>{children}</MathEnvironmentValueProvider>;
 }
@@ -51,18 +49,10 @@ export function useMathEnvironment(): MathRenderEnvironment {
   return useContext(MathEnvironmentContext);
 }
 
-/**
- * 組版設定を prop で受け取る面のための解決口。文書メタデータは prop でも context でも届くので、
- * **prop が明示されていればそれを、無ければ context を**使って 1 つの環境に畳む
- * (両方を別々に読むと、片方だけ差し替わったときに静的と編集中が食い違う)。
- */
+/** 旧 prop は互換性のため受け付けるだけで、数式の描画環境には影響しない。 */
 export function useMathRenderEnvironment(
-  mathFractionSizing?: MathFractionSizing | null,
+  _legacyFractionSizing?: MathFractionSizing | null,
 ): MathRenderEnvironment {
-  const environment = useMathEnvironment();
-  return useMemo(() => (
-    mathFractionSizing === undefined || mathFractionSizing === null
-      ? environment
-      : withMathTypesetStyle(environment, resolveMathTypesetStyle(mathFractionSizing))
-  ), [environment, mathFractionSizing]);
+  void _legacyFractionSizing; // Keep the legacy call signature without changing context.
+  return useMathEnvironment();
 }

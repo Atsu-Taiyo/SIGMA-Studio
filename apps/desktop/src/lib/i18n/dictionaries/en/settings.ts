@@ -78,7 +78,6 @@ export const settings = {
     regionFirstPage: "Show on the first page too",
     regionHint: "Edit the contents by clicking the header/footer area on the page itself.",
     math: "Equations",
-    fractionSameSize: "Always render fractions at the same size",
     headingNumbers: "Heading numbers",
     headingNumbersDescription: "Renumber headings automatically to match their hierarchy.",
     headingNumbersShow: "Show heading numbers",

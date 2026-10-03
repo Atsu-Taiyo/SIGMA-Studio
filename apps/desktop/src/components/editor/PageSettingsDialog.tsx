@@ -27,13 +27,11 @@ import { formatSigmaValidationCode } from "@/lib/validation-text";
 
 interface PageSettingsDialogProps {
   layout?: PageLayout;
-  mathFractionSizing?: "uniform" | "texDefault";
   headingNumbering?: HeadingNumberingConfig;
   hasContent?: boolean;
   onClose: () => void;
   onChange: (
     layout: PageLayout,
-    mathFractionSizing: "uniform" | "texDefault",
     headingNumbering: HeadingNumberingConfig,
   ) => void;
   /** 設定パレットから開いたときに見せたい項目 (`settings-catalog.ts` の id)。 */
@@ -60,7 +58,6 @@ interface PageSettingsDraft {
   footerHeightMm: number;
   footerOffsetMm: number;
   footerShowOnFirstPage: boolean;
-  mathFractionSizing: "uniform" | "texDefault";
   headingNumberingEnabled: boolean;
   headingNumberingStyle: HeadingNumberingStyle;
   headingNumberingDepth: 1 | 2 | 3;
@@ -80,7 +77,6 @@ const COLUMN_COUNT_OPTIONS = [1, 2, 3, 4] as const;
 
 export function PageSettingsDialog({
   layout,
-  mathFractionSizing,
   headingNumbering,
   onClose,
   onChange,
@@ -93,7 +89,7 @@ export function PageSettingsDialog({
   useSettingsEntryFocus(focusEntryId);
   const normalizedLayout = useMemo(() => normalizePageLayout(layout), [layout]);
   const [draft, setDraft] = useState<PageSettingsDraft>(() =>
-    layoutToDraft(normalizedLayout, mathFractionSizing, headingNumbering),
+    layoutToDraft(normalizedLayout, headingNumbering),
   );
   const [showWhiteboardConfirm, setShowWhiteboardConfirm] = useState(false);
   const presetOptions = isWhiteboardPageLayout(normalizedLayout)
@@ -195,7 +191,7 @@ export function PageSettingsDialog({
       ...nextLayout,
       preset: "whiteboard",
       pageSize: { widthMm: draft.widthMm, heightMm: draft.heightMm },
-    }), draft.mathFractionSizing, {
+    }), {
       enabled: draft.headingNumberingEnabled,
       style: draft.headingNumberingStyle,
       depth: draft.headingNumberingDepth,
@@ -223,7 +219,7 @@ export function PageSettingsDialog({
     if (!canApply) {
       return;
     }
-    onChange(normalizedNextLayout, draft.mathFractionSizing, {
+    onChange(normalizedNextLayout, {
       enabled: draft.headingNumberingEnabled,
       style: draft.headingNumberingStyle,
       depth: draft.headingNumberingDepth,
@@ -374,20 +370,6 @@ export function PageSettingsDialog({
               />
             </>
           )}
-
-          <section id="page-settings-math" className="page-settings-section" aria-label={t("page.math")}>
-            <h3>{t("page.math")}</h3>
-            <label className="page-settings-checkbox">
-              <input
-                type="checkbox"
-                checked={draft.mathFractionSizing !== "texDefault"}
-                onChange={(event) =>
-                  updateDraft("mathFractionSizing", event.target.checked ? "uniform" : "texDefault")
-                }
-              />
-              <span>{t("page.fractionSameSize")}</span>
-            </label>
-          </section>
 
           <SettingsSection
             id="page-settings-heading-numbering"
@@ -557,7 +539,6 @@ function NumberField({
 
 function layoutToDraft(
   layout: PageLayout,
-  mathFractionSizing?: "uniform" | "texDefault",
   headingNumbering?: HeadingNumberingConfig,
 ): PageSettingsDraft {
   return {
@@ -580,7 +561,6 @@ function layoutToDraft(
     footerHeightMm: layout.footer?.heightMm ?? 8,
     footerOffsetMm: layout.footer?.offsetMm ?? 5,
     footerShowOnFirstPage: layout.footer?.showOnFirstPage ?? true,
-    mathFractionSizing: mathFractionSizing ?? "uniform",
     headingNumberingEnabled: headingNumbering?.enabled ?? false,
     headingNumberingStyle: headingNumbering?.style ?? "decimal",
     headingNumberingDepth: headingNumbering?.depth ?? 3,
