@@ -34,6 +34,8 @@ export interface WorkspacePaneView {
   zoom: number;
   zoomFor?(fileId: string): number;
   showComments: boolean;
+  /** コメントは右上に浮かぶカード (CommentRail) で見せるので、ペイン自身の右横の欄は描かない。 */
+  commentsInRail?: boolean;
   showResolvedComments: boolean;
   commentAuthor: CommentPanelAuthor;
   /** そのタブを最後に編集していたときのスクロール位置。 */
@@ -360,7 +362,7 @@ function PassiveDocumentPane({
     () => visibleCommentThreads(document.comments, { showResolved: view.showResolvedComments }),
     [document.comments, view.showResolvedComments],
   );
-  const commentPanel = useMemo(() => (view.showComments && !isWhiteboard ? {
+  const commentPanel = useMemo(() => (view.showComments && !view.commentsInRail && !isWhiteboard ? {
     activeThreadId: null,
     author: view.commentAuthor,
     candidateAnchor: null,
@@ -384,7 +386,7 @@ function PassiveDocumentPane({
     onShowResolvedChange: noop,
     onStartThread: noop,
     onToggleReaction: noop,
-  } : undefined), [isWhiteboard, noop, threads, view.commentAuthor, view.showComments, view.showResolvedComments]);
+  } : undefined), [isWhiteboard, noop, threads, view.commentAuthor, view.commentsInRail, view.showComments, view.showResolvedComments]);
 
   // 最後に編集していた位置から見せる。紙面は計測のあとで伸びるので、届くまで数回当て直す。
   const { scrollFor } = view;

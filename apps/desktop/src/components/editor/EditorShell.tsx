@@ -12,6 +12,7 @@ import { sessionReadOnlyExtensions } from "./editor-shell/session-read-only-exte
 import { useAiInlineGeometry } from "./editor-shell/use-ai-inline-geometry";
 import { useAiSurfaceController } from "./editor-shell/use-ai-surface-controller";
 import { useCommandSettingsController } from "./editor-shell/use-command-settings-controller";
+import { useCompactChrome } from "./editor-shell/use-compact-chrome";
 import { useDesktopUpdateController } from "./editor-shell/use-desktop-update-controller";
 import { useDocumentBodyCommands } from "./editor-shell/use-document-body-commands";
 import { useDocumentPrintController } from "./editor-shell/use-document-print-controller";
@@ -70,6 +71,7 @@ import { APP_READY_EVENT } from "@/components/StartupSplash";
 import { CommandPalette } from "@/components/editor/CommandPalette";
 import { CommandSettingsDialog } from "@/components/editor/CommandSettingsDialog";
 import { CommentDock } from "@/components/editor/CommentDock";
+import { CommentRail } from "@/components/editor/CommentRail";
 import type { CommentPanelAuthor } from "@/components/editor/CommentThreadsPanel";
 import { DesktopSettingsModal } from "@/components/editor/DesktopSettingsModal";
 import { DocumentLibraryDialog } from "@/components/editor/DocumentLibraryDialog";
@@ -585,6 +587,14 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
     [embeddedHost],
   );
   const isEmbedded = Boolean(embeddedHost);
+  const isDesktopApp = useSyncExternalStore(
+    useCallback(() => () => undefined, []),
+    useCallback(() => Boolean(getDesktopBridge()), []),
+    useCallback(() => false, []),
+  );
+  // コメントは、デスクトップ版では右上に浮かぶカードで見せる (本文の右横の欄・ホワイトボードのパネルは使わない)。
+  // ホワイトボードも同じ並びで、通常の教材と同じく開いた状態から始まる。
+  const commentsInRail = isDesktopApp && !isEmbedded;
   const embeddedHostRef = useRef(embeddedHost);
   useEffect(() => {
     embeddedHostRef.current = embeddedHost;
@@ -981,11 +991,6 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
   }, []);
   const [pendingDeletion, setPendingDeletion] = useState<{ revision: number; deletedIds: string[] } | null>(null);
   const deletionSeqRef = useRef(0);
-  const isDesktopApp = useSyncExternalStore(
-    useCallback(() => () => undefined, []),
-    useCallback(() => Boolean(getDesktopBridge()), []),
-    useCallback(() => false, []),
-  );
   /** Web版 = ブラウザで直接開かれたアプリ。Electronでも埋め込みSDKでもないときだけ
    * WebMCPのツール登録とAI面 (キャンバス左上のdock) を出す。 */
   const { appUpdateState, showTitleUpdateButton, titleUpdateButtonDisabled, handleTitleUpdateAction } = useDesktopUpdateController(isDesktopApp, setStatusMessage);
@@ -1003,6 +1008,12 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
       ? storedUiLayoutPreference
       : { ...storedUiLayoutPreference, mode: "docs" as const }
   ), [storedUiLayoutPreference]);
+  const appShellRef = useRef<HTMLDivElement>(null);
+  useCompactChrome(appShellRef, uiLayoutPreference.mode);
+  // サイドバーの内容のカードを差し込む場所 (キャンバス右上に浮かぶカードの並びの先頭)。
+  const [rightDockPeekHost, setRightDockPeekHost] = useState<HTMLElement | null>(null);
+  // その並びが小さなアイコンだけのとき、サイドバーの内容のカードも同じ大きさに合わせる。
+  const [commentRailCompact, setCommentRailCompact] = useState(false);
   const materialMenuCloseRef = useRef<() => void>(() => {});
   const closeMaterialMenu = useCallback(() => materialMenuCloseRef.current(), []);
   const { shapeMenuOpen, setShapeMenuOpen, lineToolMenuOpen, setLineToolMenuOpen, inlineMathMenuOpen, setInlineMathMenuOpen, fontFamilyMenuOpen, setFontFamilyMenuOpen, blockStyleMenuOpen, setBlockStyleMenuOpen, boxedTextMenuOpen, setBoxedTextMenuOpen, lineHeightMenuOpen, setLineHeightMenuOpen, textAlignMenuOpen, setTextAlignMenuOpen, orderedListMenuOpen, setOrderedListMenuOpen, moreBlocksMenuOpen, setMoreBlocksMenuOpen, lineDashMenuOpen, setLineDashMenuOpen, lineWidthMenuOpen, setLineWidthMenuOpen, colorStylePanel, setColorStylePanel, lineEndpointMenu, setLineEndpointMenu, activeMenu, setActiveMenu, newDocMenuOpen, setNewDocMenuOpen, exportMenuOpen, setExportMenuOpen, ribbonTabState, ribbonBackstageState, ribbonBackstageOpen, ribbonCollapse, ribbonContextualTabVisible, ribbonIdPrefix, selectRibbonTab, toggleRibbonCollapse, toggleRibbonBackstage, closeRibbonBackstage, selectRibbonBackstageSection, toggleMenu } = useEditorChromeController({ contextualVisible: overlaySelection.selectedCount > 0, uiLayoutPreference, updateUiLayoutPreference, closeMaterialMenu, setSearchOpen });
@@ -1152,7 +1163,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
     clearCommentReplyDrafts();
     setActiveCommentThreadId(null);
     setHighlightedCommentThreadId(null);
-    setCommentsPanelOpen(!isWhiteboardPageLayout(normalizePageLayout(nextDocument.pageLayout)));
+    setCommentsPanelOpen(commentsInRail || !isWhiteboardPageLayout(normalizePageLayout(nextDocument.pageLayout)));
     setHistoryRevision((current) => current + 1);
     // A full authoritative replacement (tab switch, external reload, AI
     // revert) must also discard editor-engine state. Reusing a focused Tiptap
@@ -1166,7 +1177,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
     clearAiEditPinnedReferences();
     setVersionHistoryPreviewState(null);
     setVersionHistoryRestoreError(null);
-  }, [documentHistory, setFontSizeInput, setTextFontSize, setTextFontSizeMixed, setSelectedId, setSelectedInlineMath, closeGraphSettings, setSelectedOverlayGraph, closeChartSettings, setSelectedOverlayChart, closeGraph3DSettings, setCommentAnchorCandidate, setPendingCommentAnchor, clearCommentReplyDrafts, setActiveCommentThreadId, setHighlightedCommentThreadId, clearAiEditPinnedReferences]);
+  }, [documentHistory, setFontSizeInput, setTextFontSize, setTextFontSizeMixed, setSelectedId, setSelectedInlineMath, closeGraphSettings, setSelectedOverlayGraph, closeChartSettings, setSelectedOverlayChart, closeGraph3DSettings, setCommentAnchorCandidate, setPendingCommentAnchor, clearCommentReplyDrafts, setActiveCommentThreadId, setHighlightedCommentThreadId, clearAiEditPinnedReferences, commentsInRail, setCommentsPanelOpen]);
 
   const rememberLeavingEditorTabViewState = useCallback((leavingFileId: string | null, nextFileId: string) => {
     if (!leavingFileId || leavingFileId === nextFileId) {
@@ -3447,7 +3458,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
         updatedAt: new Date().toISOString(),
       };
     });
-    if (isWhiteboardPageLayout(normalizedLayout) && !isWhiteboardDocument) {
+    if (!commentsInRail && isWhiteboardPageLayout(normalizedLayout) && !isWhiteboardDocument) {
       setCommentsPanelOpen(false);
     }
   };
@@ -3669,7 +3680,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
       // running region (ヘッダ / フッタ) の overlay もここを通る。`writeOverlay` と
       // 同じ解決を使わないと、そちらに属する図形を含む混在操作だけ 2 エントリになる。
     }, resolveOverlayCommitOptions(options));
-    if (isWhiteboardPageLayout(normalizedLayout) && !isWhiteboardDocument) {
+    if (!commentsInRail && isWhiteboardPageLayout(normalizedLayout) && !isWhiteboardDocument) {
       setCommentsPanelOpen(false);
     }
     if (options?.silent) {
@@ -3861,11 +3872,12 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
   const workspacePaneView = useMemo<WorkspacePaneView>(() => ({
     zoom,
     showComments: commentsPanelOpen,
+    commentsInRail: isDesktopApp && !isEmbedded,
     showResolvedComments,
     commentAuthor,
     scrollFor: readPaneScroll,
     zoomFor: readPaneZoom,
-  }), [commentAuthor, commentsPanelOpen, readPaneScroll, readPaneZoom, showResolvedComments, zoom]);
+  }), [commentAuthor, commentsPanelOpen, isDesktopApp, isEmbedded, readPaneScroll, readPaneZoom, showResolvedComments, zoom]);
 
   const aiRoomTitles = useAiWorkspaceTabTitles();
   const workspaceTabsRow = isEmbedded ? null : (
@@ -3905,7 +3917,8 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
     "workspace",
     showPageNavigator ? "" : "outline-hidden",
     outlineOpen ? "" : "outline-collapsed",
-    (isDesktopApp && !isEmbedded && rightDock.open) || versionHistoryOpen ? "ai-sidebar-open" : "",
+    // 版履歴だけが右の列を使う。右サイドバーは .app-shell の右の列で、本文の列には入らない。
+    versionHistoryOpen ? "ai-sidebar-open" : "",
   ].filter(Boolean).join(" ");
 
   const {
@@ -4201,6 +4214,12 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
     },
   };
 
+  // 右サイドバーの入口 (タイトル行の右端の開くボタン / 閉じている間にウェブのページを見せるカード)。
+  // どちらも、本文を操作できる状態のときだけ出す。
+  const rightDockAvailable = !versionHistoryPreviewActive && workspaceReady && isDesktopApp && !isEmbedded && !activeDocumentOpenFailure;
+  // 版履歴は同じ右端を使うので、見ている間はカードを出さない。コメントは同じ並びの中でカードの下に積む。
+  const rightDockPeekEnabled = rightDockAvailable && !versionHistoryOpen;
+
   // クロームへ渡す値。**useMemo は使わない**: 依存配列が200個近くになり、1つ漏らすだけで
   // 「押しても光らないボタン」という無音の腐敗になる。EditorShell はもともと毎レンダー全体が
   // 再構築されるので、素の object literal なら挙動は現行と厳密に同一。同じ理由でグループ部品に
@@ -4218,6 +4237,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
     shared: {
       documentActions: renderDocumentActions ? <DocumentActionsSlot render={renderDocumentActions} context={{ fileId: activeFileId, document, getDocument: getCurrentSessionDocument, flush: saveCurrentDocumentRecord }} /> : null,
       accountAction,
+      rightDockToggle: rightDockAvailable && !rightDock.open ? <RightDockToggle onOpen={openRightDockSurface} /> : undefined,
       hasDocumentSession: Boolean(documentSession),
       activeMenu, aiDocumentWriteInProgress, colorStylePanel, document, getActiveTextTarget,
       imageInputRef, insertInlineMath, isDesktopApp, isEmbedded, runEditCommand, runOverlayCommand,
@@ -4368,6 +4388,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
     >
     {/* ribbon-chrome.css のセレクタはすべてこの属性から始まる。docs では "docs"。 */}
     <div
+      ref={appShellRef}
       className="app-shell"
       data-ui-layout={uiLayoutPreference.mode}
       data-backstage-open={ribbonBackstageOpen ? "true" : undefined}
@@ -4560,10 +4581,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
               webMcpHistory={webMcpEnabled ? webMcpHistory : undefined}
             />
           )}
-          {!versionHistoryPreviewActive && !rightDock.open && workspaceReady && isDesktopApp && !isEmbedded && !activeDocumentOpenFailure && (
-            <RightDockToggle onOpen={openRightDockSurface} />
-          )}
-          {!versionHistoryPreviewActive && workspaceReady && isWhiteboardDocument && (
+          {!versionHistoryPreviewActive && workspaceReady && isWhiteboardDocument && !commentsInRail && (
             <CommentDock
               document={document}
               open={commentsPanelOpen}
@@ -4604,7 +4622,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
             activeCommentThreadId={activeCommentThreadId}
             highlightedCommentThreadId={highlightedCommentThreadId}
             showComments={commentsPanelOpen}
-            commentPanel={isWhiteboardDocument ? undefined : commentPanelProps}
+            commentPanel={isWhiteboardDocument || commentsInRail ? undefined : commentPanelProps}
             overlaySelection={overlaySelection}
             overlayCommentAnchor={currentOverlayCommentAnchor}
             aiDocumentWriteInProgress={mcpPreviewBusy}
@@ -4742,27 +4760,6 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
         >
           {aiEditPanelElement}
         </AiEditorHost>
-        {!isEmbedded && isDesktopApp && (
-          <RightDockHost
-            state={rightDock}
-            onStateChange={setRightDock}
-            width={rightDockWidth}
-            onResize={setRightDockWidth}
-            files={(
-              <FilesPanel
-                documents={documentMetadatas}
-                activeFileId={activeFileId}
-                openFileIds={workspaceLayoutOpenFileIds(workspaceLayout)}
-                onOpenFile={(fileId) => void openDocumentInWorkspace(fileId)}
-                onOpenWorkspaces={openWorkspaceScreen}
-              />
-            )}
-            chat={aiDisplayMode === "sidebar" ? aiEditPanelElement : null}
-            onOpenChat={promoteAiToSidebar}
-            onCloseChat={closeRightDockChat}
-            onCollapse={collapseRightDock}
-          />
-        )}
         {versionHistoryOpen && (
           <VersionHistoryPanel
             key={activeFileId}
@@ -4779,6 +4776,44 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
           />
         )}
       </main>
+
+      {/* 右サイドバーは本文の列ではなく .app-shell の右の列に置く。ウィンドウの最上端から最下端まで、
+          タイトル・メニュー・本文・ステータスバーの縦の並びと横に並ぶ。 */}
+      {!isEmbedded && isDesktopApp && (
+        <RightDockHost
+          state={rightDock}
+          onStateChange={setRightDock}
+          width={rightDockWidth}
+          onResize={setRightDockWidth}
+          files={(
+            <FilesPanel
+              documents={documentMetadatas}
+              activeFileId={activeFileId}
+              openFileIds={workspaceLayoutOpenFileIds(workspaceLayout)}
+              onOpenFile={(fileId) => void openDocumentInWorkspace(fileId)}
+              onOpenWorkspaces={openWorkspaceScreen}
+            />
+          )}
+          chat={aiDisplayMode === "sidebar" ? aiEditPanelElement : null}
+          onOpenChat={promoteAiToSidebar}
+          onCloseChat={closeRightDockChat}
+          onCollapse={collapseRightDock}
+          onOpen={openRightDockSurface}
+          peekEnabled={rightDockPeekEnabled}
+          peekHost={rightDockPeekHost}
+          peekCompact={commentRailCompact}
+        />
+      )}
+      {commentsInRail && (
+        <CommentRail
+          document={document}
+          panel={commentPanelProps}
+          open={commentsPanelOpen && rightDockAvailable && !versionHistoryOpen}
+          whiteboard={isWhiteboardDocument}
+          onPeekHostChange={setRightDockPeekHost}
+          onCompactChange={setCommentRailCompact}
+        />
+      )}
 
       {windowCloseSaveDialog && (
         <WindowCloseSaveDialog
@@ -4841,7 +4876,6 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
       {pageSettingsOpen && (
         <PageSettingsDialog
           layout={document.pageLayout}
-          mathFractionSizing={document.metadata.mathFractionSizing}
           headingNumbering={document.metadata.headingNumbering}
           focusEntryId={settingsFocusEntryId}
           hasContent={hasMeaningfulBodyContent(document.content)}
@@ -4849,10 +4883,9 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
             setPageSettingsOpen(false);
             setSettingsFocusEntryId(undefined);
           }}
-          onChange={(layout, mathFractionSizing, headingNumbering) => {
+          onChange={(layout, headingNumbering) => {
             updatePageLayoutAndMetadata(layout, {
               ...document.metadata,
-              mathFractionSizing,
               headingNumbering,
             });
           }}

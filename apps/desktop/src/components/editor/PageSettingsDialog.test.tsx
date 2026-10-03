@@ -29,6 +29,12 @@ afterEach(async () => {
 });
 
 describe("PageSettingsDialog", () => {
+  it("does not offer the retired fraction sizing setting", () => {
+    const html = renderToStaticMarkup(<PageSettingsDialog onClose={vi.fn()} onChange={vi.fn()} />);
+    expect(html).not.toContain("分数を常に同じ大きさで表示");
+    expect(html).not.toContain("page-settings-math");
+  });
+
   it("英語UIではホワイトボードの説明と操作を英語で表示する", async () => {
     await act(async () => {
       root.render(

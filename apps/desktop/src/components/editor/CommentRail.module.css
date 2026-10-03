@@ -1,0 +1,152 @@
+/* キャンバスの右上に浮かぶカードの並び。サイドバーの内容のカードの下に、コメントを積む。
+   余白はスペーシングトークンだけを使う。サイドバーを開いている間は、その左へ避ける。 */
+.rail {
+  position: fixed;
+  top: calc(var(--editor-chrome-height) + var(--space-md));
+  right: calc(var(--right-dock-column, 0px) + var(--space-lg));
+  bottom: calc(var(--editor-statusbar-height) + var(--space-md));
+  z-index: 92;
+  display: flex;
+  width: 300px;
+  max-width: calc(100vw - var(--space-2xl));
+  flex-direction: column;
+  gap: var(--space-sm);
+  /* 空いている所は本文の操作をさえぎらない。カードだけが操作を受ける。 */
+  pointer-events: none;
+}
+
+/* ホワイトボードは右下にズームの操作があるので、カードの一覧がそこへ被らないよう下を空ける。 */
+.rail[data-whiteboard="true"] {
+  bottom: calc(var(--editor-statusbar-height) + var(--space-md) + 56px);
+}
+
+.peekSlot {
+  flex: 0 0 auto;
+  padding-inline: var(--space-sm);
+}
+
+.peekSlot > * {
+  pointer-events: auto;
+}
+
+.peekSlot:empty {
+  display: none;
+}
+
+.list {
+  min-height: 0;
+  flex: 0 1 auto;
+  overflow-x: hidden;
+  overflow-y: auto;
+  /* カードの影が一覧の縁で切れないだけの余白。 */
+  padding: var(--space-sm) var(--space-sm) var(--space-lg);
+  scrollbar-width: thin;
+  overscroll-behavior: contain;
+  pointer-events: auto;
+}
+
+/* 一覧が窓の外へ続いているときは、その縁を薄れさせて続きがあることを知らせる。 */
+.list[data-more-below="true"] {
+  -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 32px), transparent);
+  mask-image: linear-gradient(to bottom, #000 calc(100% - 32px), transparent);
+}
+
+.list[data-more-above="true"] {
+  -webkit-mask-image: linear-gradient(to top, #000 calc(100% - 16px), transparent);
+  mask-image: linear-gradient(to top, #000 calc(100% - 16px), transparent);
+}
+
+.list[data-more-above="true"][data-more-below="true"] {
+  -webkit-mask-image: linear-gradient(to bottom, transparent, #000 16px, #000 calc(100% - 32px), transparent);
+  mask-image: linear-gradient(to bottom, transparent, #000 16px, #000 calc(100% - 32px), transparent);
+}
+
+/* 既存のコメントのカード (CommentThreadsPanel) を、位置指定ではなく縦の並びで置く。
+   空の案内カードは、閉じる所の無い浮かぶ面では出さない (コメントは選択から始める)。 */
+.list :global(.comment-thread-panel) {
+  display: flex;
+  width: 100%;
+  flex-direction: column;
+  gap: var(--space-md);
+}
+
+.list :global(.comment-thread-panel-body) {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+}
+
+.list :global(.comment-compose-card),
+.list :global(.comment-thread-card) {
+  position: relative;
+  flex: 0 0 auto;
+}
+
+.list :global(.comment-empty-state) {
+  display: none;
+}
+
+.list :global(.comment-thread-panel-footer) {
+  position: sticky;
+  bottom: 0;
+  top: auto;
+}
+
+/* 用紙の右に置く余白が足りないとき: 幅をアイコン1つぶんにし、カードの代わりに小さな丸ボタンを縦に並べる。 */
+.rail[data-compact="true"] {
+  width: 40px;
+  align-items: flex-end;
+}
+
+.rail[data-compact="true"] .peekSlot {
+  padding-inline: 0;
+}
+
+.compactList {
+  display: flex;
+  flex: 0 1 auto;
+  min-height: 0;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-sm);
+  padding-block: var(--space-xs);
+  pointer-events: auto;
+}
+
+.threadButton {
+  display: grid;
+  width: 36px;
+  height: 36px;
+  flex: 0 0 auto;
+  padding: 0;
+  place-items: center;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-round);
+  background: var(--background);
+  box-shadow: var(--shadow-floating);
+  cursor: pointer;
+  transition: border-color 140ms ease, opacity 140ms ease;
+}
+
+.threadButton:hover,
+.threadButton:focus-visible {
+  border-color: var(--border-strong);
+  outline: none;
+}
+
+.threadButton[data-resolved="true"] {
+  opacity: 0.55;
+}
+
+.moreButton {
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+/* 広げたカードをたたむボタン。一覧の右上に置き、カードの上に被せない。 */
+.collapse {
+  display: flex;
+  justify-content: flex-end;
+  padding-bottom: var(--space-xs);
+}
