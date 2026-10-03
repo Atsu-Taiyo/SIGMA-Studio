@@ -53,6 +53,7 @@
   overflow-y: auto;
   /* 上に出る操作バー (34px) もスクロール領域に含め、先頭カードで切らない。 */
   padding: calc(var(--space-sm) + 34px) var(--space-sm) var(--space-lg);
+  scroll-padding-top: calc(var(--space-sm) + 34px);
   scrollbar-width: thin;
   overscroll-behavior: contain;
   pointer-events: auto;

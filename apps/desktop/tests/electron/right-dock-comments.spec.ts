@@ -57,7 +57,7 @@ test("full-height sidebar and compact comment cards keep document and browser st
     await expect(dock).toBeHidden();
     const peek = page.locator("[data-right-dock-peek]");
     await expect(peek).toBeVisible();
-    await page.screenshot({ path: testInfo.outputPath("wide-comments-and-browser.png") });
+    await page.screenshot({ animations: "disabled", path: testInfo.outputPath("wide-comments-and-browser.png") });
     await peek.locator('[data-kind="browser"]').click();
     await expect(dock).toHaveAttribute("data-page", "browser");
     await dock.getByRole("button", { name: "サイドバーを閉じる", exact: true }).click();
@@ -66,7 +66,7 @@ test("full-height sidebar and compact comment cards keep document and browser st
     await expect(rail).toHaveAttribute("data-compact", "true");
     await rail.getByRole("button", { name: /^コメントを開く:/ }).click();
     await expect(rail.locator(".comment-thread-card")).toBeVisible();
-    await page.screenshot({ path: testInfo.outputPath("compact-expanded-comments.png") });
+    await page.screenshot({ animations: "disabled", path: testInfo.outputPath("compact-expanded-comments.png") });
     await rail.getByRole("button", { name: "コメントをたたむ", exact: true }).click();
     await expect(rail.locator(".comment-thread-card")).toHaveCount(0);
     await page.reload();
