@@ -58,7 +58,7 @@
     "react-dom": ">=18.2.0 <20"
   },
   "dependencies": {
-    "katex": "^0.16.45",
+    "katex": "^0.18.9",
     "mathlive": "^0.111.0",
     "zod": "^4.4.3"
   },
