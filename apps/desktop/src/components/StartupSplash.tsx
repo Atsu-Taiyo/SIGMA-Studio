@@ -13,8 +13,9 @@ export const SPLASH_MARKER_ATTRIBUTE = "data-startup-splash";
 
 /**
  * 起動の流れは「∀ (Turn A) が現れる → 斜めの筆 3 本で Sigma Studio ロゴが現れる」。
- * ∀ は Boost の起動画面と同じ字形。筆は傾き・太さ・長さ・速さが 1 本ずつ違い (長い・中くらい・短い)、
- * 形は CSS の `.startup-splash-stroke.is-*` が持つ。ここが持つのは時間だけ。
+ * ∀ は Boost の起動画面と同じ字形。筆は傾き・太さ・速さが 1 本ずつ違い (細い・太い・細い)、3 本とも
+ * ロゴの外から外まで通り抜けて、筆先がロゴの中に残らない。形は CSS の `.startup-splash-stroke.is-*` が持つ。
+ * ここが持つのは時間だけ。
  * 区間の長さの出どころはここだけで、`--splash-*` として CSS (`.startup-splash-*`) に渡す。
  *
  * 配布版は教材が開けるまで 0.1〜0.5 秒なので、表示時間はほぼこの演出の長さで決まる。
@@ -23,11 +24,11 @@ export const SPLASH_MARKER_ATTRIBUTE = "data-startup-splash";
  */
 const MARK_IN_MS = 260;
 const MARK_HOLD_MS = 300;
-/** 筆ごとの開始 (筆の開始時刻からの遅れ) と長さ。2 本目だけ右から左へ進み、一番ゆっくり。 */
+/** 筆ごとの開始 (筆の開始時刻からの遅れ) と長さ。2 本目だけ右から左へ進み、太くて一番ゆっくり。 */
 const STROKES = [
-  { name: "first", startMs: 0, durationMs: 300 },
-  { name: "second", startMs: 250, durationMs: 380 },
-  { name: "third", startMs: 560, durationMs: 260 },
+  { name: "first", startMs: 0, durationMs: 340 },
+  { name: "second", startMs: 240, durationMs: 420 },
+  { name: "third", startMs: 500, durationMs: 300 },
 ] as const;
 const STROKES_BEGIN_MS = MARK_IN_MS + MARK_HOLD_MS;
 const REVEAL_END_MS = STROKES_BEGIN_MS + Math.max(...STROKES.map(({ startMs, durationMs }) => startMs + durationMs));
