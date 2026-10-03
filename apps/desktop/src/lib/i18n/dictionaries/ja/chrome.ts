@@ -528,6 +528,14 @@ export const chrome = {
     tabs: "サイドバーのタブ",
     newTab: "新しいタブを開く",
     closeTab: "タブを閉じる",
+    peek: {
+      aria: "サイドバーの内容",
+      title: "サイドバー",
+      dismiss: "閉じる",
+      web: "ウェブ",
+      compact: "サイドバーを開く: ウェブ {{count}}件",
+      showAll: "すべて表示",
+    },
     tab: {
       hub: "新しいタブ",
       files: "ファイル",

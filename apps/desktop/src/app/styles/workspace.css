@@ -2113,12 +2113,40 @@ nav.app-menu-list[inert] *,
   display: none;
 }
 
-/* 右のサイドバー (ファイル / ブラウザ / サイドチャット)。既存のAI列と同じグリッド位置・重なりを使い、
-   中の並びは features/right-dock 側が決める。旧AIサイドバーの32pxヘッダー行だけを外す。 */
+/* 右のサイドバー (ファイル / ブラウザ / サイドチャット)。中の並びは features/right-dock 側が決める。
+   旧AIサイドバーの32pxヘッダー行だけを外す。
+   .app-shell を「左の列 (タイトル・メニュー・本文・ステータスバー) + 右のサイドバー」の2列にし、
+   サイドバーはウィンドウの最上端から最下端まで全高で右の列に置く。本文の列 (.workspace) には入らない。 */
 .ai-sidebar-panel.right-dock {
+  --workspace-sidebar-z: 130;
   display: flex;
   flex-direction: column;
   grid-template-rows: none;
+}
+
+/* 狭い画面ではサイドバーを出さない (ai-chat.css)。2列にするのはそれより広いときだけ。 */
+@media (min-width: 821px) {
+  .app-shell[data-right-dock-open="true"] {
+    /* 本文の列には、タイトル行が文字を省いても収まる幅 (540px) を必ず残す。
+       狭いウィンドウでは、保存してある幅より右のサイドバーを細くする。
+       キャンバス右上に浮かぶカード (CommentRail) も、この幅だけ左へ避ける。 */
+    --right-dock-column: clamp(320px, var(--ai-sidebar-width), max(320px, calc(100vw - 540px)));
+    grid-template-columns: minmax(0, 1fr) var(--right-dock-column);
+  }
+
+  /* 列を明示しないと、行ごとの自動配置で本文が右の列へ回り込む。 */
+  .app-shell[data-right-dock-open="true"] > .editor-menubar,
+  .app-shell[data-right-dock-open="true"] > main.workspace,
+  .app-shell[data-right-dock-open="true"] > .ribbon-statusbar {
+    grid-column: 1;
+  }
+
+  .app-shell > .ai-sidebar-panel.right-dock {
+    grid-column: 2;
+    grid-row: 1 / -1;
+    /* 中身 (長い会話やファイル一覧) の高さで左の列の行を押し広げない。高さは行の合計 = ウィンドウの全高から決まる。 */
+    contain: size;
+  }
 }
 
 .ai-sidebar-panel.right-dock.is-hidden {

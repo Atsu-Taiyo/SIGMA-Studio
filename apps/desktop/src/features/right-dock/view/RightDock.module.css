@@ -1,5 +1,6 @@
-/* ドック本体。外側の <aside> は既存のグリッド列 (.workspace.ai-sidebar-open) にそのまま載るので、
-   ここでは中身の並びだけを決める。余白はスペーシングトークンだけを使う。 */
+/* ドック本体。外側の <aside> は .app-shell の右の列に、最上端から最下端まで全高で載る
+   (workspace.css の .ai-sidebar-panel.right-dock)。ここでは中身の並びだけを決める。
+   余白はスペーシングトークンだけを使う。 */
 .dock {
   position: relative;
   display: flex;
@@ -234,47 +235,4 @@
 .chatPanel > :global(.ai-edit-panel) {
   flex: 1 1 auto;
   min-height: 0;
-}
-
-/* 右上の入口: AIタスクDockと対になる、キャンバスの角の小さな丸ボタン。 */
-.toggleRoot {
-  position: sticky;
-  top: var(--space-md);
-  z-index: 92;
-  display: flex;
-  height: 0;
-  padding-right: var(--space-md);
-  justify-content: flex-end;
-  overflow: visible;
-  pointer-events: none;
-}
-
-/* ホワイトボードには同じ角にコメントDockがあるので、その内側へ並べる。 */
-:global(.editor-canvas[data-whiteboard="true"]) .toggleRoot {
-  padding-right: calc(var(--space-lg) + 32px + var(--space-sm));
-}
-
-.toggle {
-  position: relative;
-  display: grid;
-  width: 32px;
-  height: 32px;
-  flex: 0 0 auto;
-  padding: 0;
-  place-items: center;
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-round);
-  background: var(--background);
-  color: var(--text-secondary);
-  box-shadow: 0 8px 20px -12px rgb(15 23 42 / 0.35);
-  cursor: pointer;
-  pointer-events: auto;
-  transition: border-color 140ms ease, color 140ms ease;
-}
-
-.toggle:hover,
-.toggle:focus-visible {
-  border-color: var(--border);
-  color: var(--text-primary);
-  outline: none;
 }
