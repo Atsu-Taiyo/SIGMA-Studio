@@ -3,6 +3,7 @@ import type { AiProvider } from "@/lib/ai/ai-providers";
 import type { AiEditPlanStep, AiEditRunEvent, AiEditRunResult } from "@/lib/ai/ai-edit-runtime";
 import type { AiEditSessionDraft } from "@/lib/ai/sigma-doc-edit-schema";
 import type { AiAppliedDocumentDiff } from "@/lib/ai/applied-document-diff";
+import type { ProposalMergeBasis, ProposalMergeReport } from "@/lib/ai/proposal-merge-basis";
 import type { SigmaDocument } from "@/features/document";
 import type { LedgerSchemaFailure } from "@/lib/library-schema";
 import type { SigmaDocumentRecoveryIssue, SigmaDocumentSchemaFailure } from "@/lib/sigma-doc-schema";
@@ -712,6 +713,11 @@ export interface DesktopMcpEditProposalSummary {
   };
   invalidReason?: string;
   history?: DesktopMcpEditProposalHistoryEntry[];
+  // electron/proposals/contracts.ts の mergeBasis。上書きする単位の、AIが最初に触った時点の内容。
+  // 承認・自動追従はこれをbaseにした三者マージで人間の編集を残す (旧レコードには存在しない)。
+  mergeBasis?: ProposalMergeBasis;
+  // status === "approved" のとき、承認時の合成replayの判断 (監査用)。
+  mergeReport?: ProposalMergeReport;
 }
 
 export interface DesktopWorkspaceOverview {
@@ -740,6 +746,8 @@ export type DesktopMcpEditProposalActionResult =
       proposal: unknown;
       file?: DesktopDocumentMetadata;
       document?: SigmaDocument;
+      /** 承認時の合成replayの判断。rendererがフォールバック件数を数える (MISS R3)。 */
+      mergeReport?: ProposalMergeReport;
     }
   | {
       ok: false;
@@ -758,6 +766,8 @@ export type DesktopMcpEditProposalsActionResult =
       document?: SigmaDocument;
       versionCaptured?: boolean;
       versionCaptureError?: string;
+      /** 承認した提案すべての合成replayの判断をまとめたもの (フォールバック計測用)。 */
+      mergeReport?: ProposalMergeReport;
       /** Proposals that failed to (re-)apply during a batch approve and were left pending. */
       failed?: {
         proposalId: string;

@@ -35,6 +35,7 @@ import {
 } from "../model/preview";
 import type { AiProposalPresentationState } from "../model/proposal-presentation-model";
 import { AI_APPLY_ADD_FLASH_MS, AI_APPLY_REMOVE_ANIMATION_MS } from "./proposal-feedback";
+import { countProposalMergeFallbacks } from "./proposal-merge-metrics";
 import {
   buildAiProposalApplyContext,
   deriveAiProposalApplyDecision,
@@ -289,6 +290,8 @@ export function useAiProposalActions({
         setAiApplyAnimation(null);
         return { ok: false, reason: message };
       }
+      // 承認時の合成replayが取ったフォールバック (退避・旧レコード等) を数える (MISS R3)。
+      countProposalMergeFallbacks(result.mergeReport);
       // 一部が failed で pending に残った場合、それらは確定していない — 楽観的除去(Issue 2)と
       // undoエントリ(Issue 3)には実際に適用されたIDだけを記録する。
       const applyDecision = deriveAiProposalApplyDecision(

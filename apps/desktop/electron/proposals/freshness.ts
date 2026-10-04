@@ -5,6 +5,12 @@ import {
   type AiEditSessionDraft,
 } from "@/lib/ai/sigma-doc-edit-schema";
 import { isOverlayAnchorSupportDraft } from "@/lib/ai/applied-document-diff";
+import { type ProposalMergeBasis } from "@/lib/ai/proposal-merge-basis";
+import {
+  ProposalMergeReplayError,
+  replayProposalDraftMerging,
+  type ProposalMergeReplayResult,
+} from "@/lib/ai/proposal-replay";
 import { computeDocumentBlockHashes } from "@/lib/sigma-doc-block-hash";
 import { type EditableBlock } from "@/lib/document-tree";
 import { normalizeOverlaySnapshot, type SigmaDocument } from "@/features/document";
@@ -287,7 +293,7 @@ export function findRequestSelectionConflictIds(
  * フォールバックする。空配列 = 衝突なし (そのままreplay/自動追従してよい)。
  */
 export function findProposalFreshnessConflictIds(
-  proposal: Pick<LocalMcpEditProposal, "requestSelection" | "touchedBlocks" | "baseRevision" | "invalidReason"> & {
+  proposal: Pick<LocalMcpEditProposal, "requestSelection" | "touchedBlocks" | "baseRevision" | "invalidReason" | "mergeBasis"> & {
     draft?: AiEditSessionDraft;
   },
   currentHashes: Record<string, string>,
@@ -303,7 +309,7 @@ export function findProposalFreshnessConflictIds(
 }
 
 export function findProposalFreshnessConflict(
-  proposal: Pick<LocalMcpEditProposal, "requestSelection" | "touchedBlocks" | "baseRevision" | "invalidReason"> & {
+  proposal: Pick<LocalMcpEditProposal, "requestSelection" | "touchedBlocks" | "baseRevision" | "invalidReason" | "mergeBasis"> & {
     draft?: AiEditSessionDraft;
   },
   currentHashes: Record<string, string>,
@@ -312,6 +318,22 @@ export function findProposalFreshnessConflict(
 ): ProposalFreshnessConflict | null {
   if (proposal.invalidReason) {
     return { blockIds: [], reason: "replay-failed" };
+  }
+  // base (mergeBasis) を持つ提案は、上書き対象が変わっていても三者マージで人間の編集を残して
+  // 追従できる。内容ハッシュ (content-stale)・アンカー消失・asset ID衝突のうち、合成replayが
+  // 解決できるものは競合にせず、解決できないもの (対象の消失・ID占有・合成後もAI側も検証不能)
+  // だけを返す。旧レコードは下の従来判定のまま。
+  if (proposal.mergeBasis && proposal.draft) {
+    if (!currentDocument) {
+      const missingIds = Object.keys(proposal.mergeBasis.entities).filter((id) => currentHashes[id] === undefined);
+      return missingIds.length > 0 ? { blockIds: missingIds, reason: "anchor-missing" } : null;
+    }
+    const replay = replayMergeableProposal(
+      { draft: proposal.draft, mergeBasis: proposal.mergeBasis },
+      currentDocument,
+      currentHashes,
+    );
+    return replay.ok ? null : replay.conflict;
   }
   // 部分段組みだけの提案は本文内容を変更しない。選択箇所の文章が変わっていても、現在の
   // 開始〜終了範囲を包めれば安全なので、内容ハッシュでは競合にしない。アンカー削除・移動などの
@@ -392,6 +414,38 @@ export function findProposalFreshnessConflict(
       : null;
   }
   return null;
+}
+
+export type MergeableProposalReplay =
+  | { ok: true; result: ProposalMergeReplayResult }
+  | { ok: false; conflict: ProposalFreshnessConflict };
+
+/**
+ * base (mergeBasis) を持つ提案を現在の文書へ合成replayする。解決できない場合は、その理由を
+ * 従来と同じ競合の種類で返す: 対象・アンカーの消失は anchor-missing、挿入IDの占有や合成後の
+ * 検証失敗 (AI側の採用でも解決できないもの) は replay-failed。
+ */
+export function replayMergeableProposal(
+  proposal: { draft: AiEditSessionDraft; mergeBasis: ProposalMergeBasis },
+  currentDocument: SigmaDocument,
+  currentHashes: Record<string, string> = computeDocumentBlockHashes(currentDocument),
+): MergeableProposalReplay {
+  try {
+    return { ok: true, result: replayProposalDraftMerging(currentDocument, proposal.draft, proposal.mergeBasis) };
+  } catch (error) {
+    if (error instanceof ProposalMergeReplayError) {
+      return { ok: false, conflict: { blockIds: error.ids, reason: error.reason } };
+    }
+    const missing = classifyProposalReplayFailure(proposal, currentDocument);
+    if (missing.reason === "anchor-missing") {
+      return { ok: false, conflict: missing };
+    }
+    const occupiedIds = collectOccupiedInsertIds(proposal.draft, currentHashes);
+    return {
+      ok: false,
+      conflict: occupiedIds.length > 0 ? { blockIds: occupiedIds, reason: "replay-failed" } : missing,
+    };
+  }
 }
 
 export function classifyProposalReplayFailure(

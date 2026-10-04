@@ -259,6 +259,7 @@ export const error = {
       validationFailed: "提案の検証に失敗しました。",
       saveFailed: "MCP編集提案を保存できませんでした。",
       autoApproved: "検証済みのため自動承認しました。",
+      autoApplyNeedsReview: "提案後の編集と合わせて適用する必要があるため、自動承認せずに確認待ちのままにしました。",
       desktopApproved: "デスクトップアプリで承認しました。",
       desktopBatchApproved: "デスクトップアプリで一括承認しました。",
       desktopRejected: "デスクトップアプリで却下しました。",
