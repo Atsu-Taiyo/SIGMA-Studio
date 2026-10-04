@@ -2,8 +2,10 @@ import { isDeepStrictEqual } from "node:util";
 
 import type { SigmaDocument } from "@/features/document";
 import {
+  combineProposalMergeReports,
   createEmptyProposalMergeReport,
   isProposalMergeQuiet,
+  usableProposalMergeBasis,
   type ProposalMergeReport,
 } from "@/lib/ai/proposal-merge-basis";
 import { createAiEditSessionDocumentDraft } from "@/lib/ai/sigma-doc-edit-schema";
@@ -20,6 +22,7 @@ import type {
 import {
   canForceApplyProposalConflict,
   classifyProposalReplayFailure,
+  computeMergeAttentionSignature,
   findProposalFreshnessConflict,
   replayMergeableProposal,
 } from "./proposals/freshness";
@@ -136,8 +139,9 @@ export function createProposalApprovalCoordinator({
       const currentHashes = computeDocumentBlockHashes(revertDocument);
       // base (mergeBasis) を持つ提案は鮮度確認と適用を1回の合成replayで行う: 人間の編集を残して
       // 合成できれば競合にせず、できない理由 (対象の消失など) だけを従来の競合として返す。
-      const mergeable = claimedProposal.mergeBasis && !claimedProposal.invalidReason
-        ? { draft: claimedProposal.draft, mergeBasis: claimedProposal.mergeBasis, touchedBlocks: claimedProposal.touchedBlocks }
+      const mergeBasis = claimedProposal.invalidReason ? undefined : usableProposalMergeBasis(claimedProposal.mergeBasis);
+      const mergeable = mergeBasis
+        ? { draft: claimedProposal.draft, mergeBasis, touchedBlocks: claimedProposal.touchedBlocks }
         : null;
       let merged = mergeable ? replayMergeableProposal(mergeable, revertDocument, currentHashes) : null;
       const conflict = merged
@@ -192,17 +196,25 @@ export function createProposalApprovalCoordinator({
         }
       }
 
-      if (options.autoApplied && merged?.ok && !isProposalMergeQuiet(merged.result.report)) {
+      // 同じroomの後ターンで前ターンを載せ替えたときの合成 (mergeCarry) も、この承認の合成に含める。
+      const mergeReport: ProposalMergeReport = merged?.ok
+        ? (claimedProposal.mergeCarry
+          ? combineProposalMergeReports([claimedProposal.mergeCarry, merged.result.report])
+          : merged.result.report)
+        : { ...createEmptyProposalMergeReport(), legacyNoBase: 1 };
+      if (options.autoApplied && mergeable && merged?.ok && !isProposalMergeQuiet(mergeReport)) {
         // 自動承認は「人間の編集と重ならない」提案だけ。合成が起きた提案はpendingのまま残し、
-        // 人間が内容を見て承認する。文書のrevisionが変わるまで再試行しないよう記録する。
-        await localMcpProposalStore.recordAutoApplyDeferred(claimedProposal.proposalId, file.revision, merged.result.report);
+        // 人間が内容を見て承認する。依存する対象が変わるまで再試行しないよう署名と一緒に記録する。
+        await localMcpProposalStore.recordAutoApplyDeferred(
+          claimedProposal.proposalId,
+          file.revision,
+          mergeReport,
+          computeMergeAttentionSignature(mergeable, [], currentHashes),
+        );
         return { ok: false, error: te("electron.proposal.autoApplyNeedsReview"), code: "merge-review" };
       }
 
       let nextDocument: SigmaDocument = revertDocument;
-      const mergeReport: ProposalMergeReport = merged?.ok
-        ? merged.result.report
-        : { ...createEmptyProposalMergeReport(), legacyNoBase: 1 };
       try {
         nextDocument = merged?.ok
           ? merged.result.nextDocument
@@ -226,7 +238,7 @@ export function createProposalApprovalCoordinator({
           parseSigmaDocument(revertDocument),
           nextDocument,
           claimedProposal.draft,
-          merged?.ok ? claimedProposal.mergeBasis : undefined,
+          merged?.ok ? mergeBasis : undefined,
         );
       } catch (error) {
         const replayConflict = classifyProposalReplayFailure(claimedProposal, revertDocument);
@@ -428,7 +440,7 @@ export function createProposalApprovalCoordinator({
               parseSigmaDocument(revertDocument),
               parseSigmaDocument(individualNextDocument),
               proposal.draft,
-              proposal.mergeBasis,
+              usableProposalMergeBasis(proposal.mergeBasis),
             );
           } catch (error) {
             validationFailedIds.add(proposalId);

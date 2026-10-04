@@ -12,6 +12,7 @@ import {
 import {
   combineProposalMergeReports,
   createEmptyProposalMergeReport,
+  usableProposalMergeBasis,
   type ProposalMergeBasis,
   type ProposalMergeReport,
 } from "@/lib/ai/proposal-merge-basis";
@@ -41,16 +42,21 @@ export interface MergeProposalDraftsResult {
 }
 
 /**
- * Replays one proposal of a batch: with a merge basis through the merging replay (the human's edits
- * since the base are kept), otherwise through the legacy replay, counted as `legacyNoBase`.
+ * Replays one proposal of a batch: with a usable merge basis through the merging replay (the
+ * human's edits since the base are kept), otherwise through the legacy replay, counted as
+ * `legacyNoBase`. The report includes what the room's earlier turns merged (`mergeCarry`).
  */
 export function replayProposalForApproval(
   document: SigmaDocument,
-  proposal: { draft: AiEditSessionDraft; mergeBasis?: ProposalMergeBasis },
+  proposal: { draft: AiEditSessionDraft; mergeBasis?: ProposalMergeBasis; mergeCarry?: ProposalMergeReport },
 ): { nextDocument: SigmaDocument; report: ProposalMergeReport } {
-  if (proposal.mergeBasis) {
-    const merged = replayProposalDraftMerging(document, proposal.draft, proposal.mergeBasis);
-    return { nextDocument: merged.nextDocument, report: merged.report };
+  const mergeBasis = usableProposalMergeBasis(proposal.mergeBasis);
+  if (mergeBasis) {
+    const merged = replayProposalDraftMerging(document, proposal.draft, mergeBasis);
+    return {
+      nextDocument: merged.nextDocument,
+      report: proposal.mergeCarry ? combineProposalMergeReports([proposal.mergeCarry, merged.report]) : merged.report,
+    };
   }
   return {
     nextDocument: replayProposalDraft(document, proposal.draft).nextDocument,
@@ -77,6 +83,7 @@ export function mergeProposalDraftsIntoDocument(
     groupId?: string;
     groupPosition?: number;
     mergeBasis?: ProposalMergeBasis;
+    mergeCarry?: ProposalMergeReport;
   }>,
 ): MergeProposalDraftsResult {
   // グループ各レコードは、どのmemberを単体承認しても全操作を適用できるよう同じ累積draftを持つ。

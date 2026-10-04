@@ -304,7 +304,8 @@ function findMissingShapeInsertAnchors(document: SigmaDocument, draft: AiEditSes
       continue;
     }
     if (operation.operation === "insertAfter") {
-      createdIds.add(operation.insertedBlock.id);
+      // The inserted block's nested blocks (a problem's paragraphs...) are created too.
+      countContentIds(operation.insertedBlock).forEach((_, id) => createdIds.add(id));
       continue;
     }
     const shape = operation.operation === "insertOverlayShape" ? operation.overlayShape : operation.tableShape;
@@ -348,8 +349,8 @@ interface MergeUnitPlan<T> {
 /** An outermost replaced block the human edited, with the indexes of the replace ops inside it. */
 type BlockUnitPlan = MergeUnitPlan<EditableBlock> & { operationIndexes: number[] };
 
-/** An updated shape the human edited, with the current shape its patch is computed from. */
-type ShapeUnitPlan = MergeUnitPlan<OverlayShape> & { ours: OverlayShape };
+/** An updated shape the human edited. */
+type ShapeUnitPlan = MergeUnitPlan<OverlayShape>;
 
 interface MergingReplayPlan {
   rewrites: boolean;
@@ -560,7 +561,6 @@ function planShapeUnits(
       outcome: valid ? "merged" : "invalid",
       value: valid ? merge.value : theirs,
       theirs,
-      ours,
       usesMerged: valid && !isSameContent(merge.value, theirs),
       kernel: merge.report,
     });
@@ -574,16 +574,19 @@ function planDeletions(
   plan: MergingReplayPlan,
 ): void {
   const currentShapes = normalizeOverlaySnapshot(document.pageLayout?.overlay?.overlaySnapshot).shapes;
-  const editedSinceBase = (id: string): boolean => {
+  const stateSinceBase = (id: string): "edited" | "gone" | "unchanged" => {
     const entity = mergeBasis.entities[id];
     if (!entity) {
-      return false;
+      return "unchanged";
     }
     const current = entity.kind === "block"
       ? findBlock(document, id)
       : currentShapes.find((shape) => shape.id === id);
-    // A target the human deleted too is left to the replay (it reports the missing target).
-    return current !== null && current !== undefined && !isSameContent(entity.value, current);
+    if (current === null || current === undefined) {
+      // The human deleted it too: both sides want it gone, so this part of the deletion is done.
+      return "gone";
+    }
+    return isSameContent(entity.value, current) ? "unchanged" : "edited";
   };
   (draft.mutationOperations ?? []).forEach((mutation, index) => {
     const ids = mutation.operation === "deleteBlocks"
@@ -592,11 +595,12 @@ function planDeletions(
     if (!ids) {
       return;
     }
-    const kept = ids.filter(editedSinceBase);
-    if (kept.length === 0) {
+    const states = new Map(ids.map((id) => [id, stateSinceBase(id)]));
+    const kept = ids.filter((id) => states.get(id) === "edited");
+    if (ids.every((id) => states.get(id) === "unchanged")) {
       return;
     }
-    plan.deleteRewrites.set(index, ids.filter((id) => !kept.includes(id)));
+    plan.deleteRewrites.set(index, ids.filter((id) => states.get(id) === "unchanged"));
     appendUnique(plan.keptDeletions, kept);
   });
 }
@@ -630,7 +634,7 @@ function planAnchorRelocations(
         plan.anchorRewrites.set(entry.index, relocated);
       }
     }
-    createdIds.add(operation.insertedBlock.id);
+    countContentIds(operation.insertedBlock).forEach((_, id) => createdIds.add(id));
   }
 }
 
@@ -719,11 +723,13 @@ function buildRewrittenDraft(
     return operation;
   });
 
+  const lastWriters = lastShapePatchWriters(draft, plan);
   const mutationOperations = draft.mutationOperations?.map((mutation, index): SigmaDocMutationOp => {
     if (mutation.operation === "updateOverlayShape") {
       const unit = plan.shapeUnits.get(mutation.shapeId);
       if (unit) {
-        return { ...mutation, patch: shapePatch(unit.ours, fallBack.has(unit.id) ? unit.theirs : unit.value) };
+        const value = fallBack.has(unit.id) ? unit.theirs : unit.value;
+        return { ...mutation, patch: mergedShapePatch(mutation.patch, value, index, lastWriters) };
       }
       const renames = plan.assetRenames.get(mutation.shapeId);
       if (renames) {
@@ -822,25 +828,57 @@ function replayRewrittenDraft(
   return replay;
 }
 
-/** The fields to patch onto `from` (the current shape) so it becomes `to`. */
-function shapePatch(from: OverlayShape, to: OverlayShape): Record<string, unknown> {
-  const fromRecord = from as unknown as Record<string, unknown>;
-  const toRecord = to as unknown as Record<string, unknown>;
-  const patch: Record<string, unknown> = {};
-  for (const key of new Set([...Object.keys(fromRecord), ...Object.keys(toRecord)])) {
-    if (key !== "id" && key !== "type" && key !== "props" && !isSameContent(fromRecord[key], toRecord[key])) {
-      patch[key] = toRecord[key];
+/**
+ * For each merged shape, which update operation (mutation index) writes each field last
+ * (`x`, `props.color`...), in the order the draft runs.
+ */
+function lastShapePatchWriters(draft: AiEditSessionDraft, plan: MergingReplayPlan): Map<string, number> {
+  const writers = new Map<string, number>();
+  for (const entry of resolveAiEditSessionOperationOrder(draft)) {
+    const mutation = entry.kind === "mutation" ? draft.mutationOperations?.[entry.index] : undefined;
+    if (mutation?.operation !== "updateOverlayShape" || !plan.shapeUnits.has(mutation.shapeId)) {
+      continue;
+    }
+    for (const key of shapePatchKeys(mutation.patch)) {
+      writers.set(`${mutation.shapeId}\0${key}`, entry.index);
     }
   }
-  const fromProps = isPlainRecord(fromRecord.props) ? fromRecord.props : {};
-  const toProps = isPlainRecord(toRecord.props) ? toRecord.props : {};
-  const props: Record<string, unknown> = {};
-  for (const key of new Set([...Object.keys(fromProps), ...Object.keys(toProps)])) {
-    if (!isSameContent(fromProps[key], toProps[key])) {
-      props[key] = toProps[key];
+  return writers;
+}
+
+function shapePatchKeys(patch: Record<string, unknown>): string[] {
+  const keys = Object.keys(patch).filter((key) => key !== "id" && key !== "type" && key !== "props");
+  const props = isPlainRecord(patch.props) ? Object.keys(patch.props).map((key) => `props.${key}`) : [];
+  return [...keys, ...props];
+}
+
+/**
+ * An update of a merged shape keeps the fields it writes, and the operation that writes a field
+ * last carries the merged value of that field. Earlier writes stay as the AI made them, so an
+ * alignment between two updates still sees (and keeps) the positions the AI meant; fields the AI
+ * never writes stay the human's.
+ */
+function mergedShapePatch(
+  patch: Record<string, unknown>,
+  merged: OverlayShape,
+  mutationIndex: number,
+  lastWriters: ReadonlyMap<string, number>,
+): Record<string, unknown> {
+  const mergedRecord = merged as unknown as Record<string, unknown>;
+  const mergedProps = isPlainRecord(mergedRecord.props) ? mergedRecord.props : {};
+  const shapeId = mergedRecord.id as string;
+  const isLastWrite = (key: string) => lastWriters.get(`${shapeId}\0${key}`) === mutationIndex;
+  const next: Record<string, unknown> = {};
+  for (const key of Object.keys(patch)) {
+    if (key === "props" && isPlainRecord(patch.props)) {
+      next.props = Object.fromEntries(Object.entries(patch.props).map(([propKey, value]) => (
+        [propKey, isLastWrite(`props.${propKey}`) ? mergedProps[propKey] : value]
+      )));
+    } else {
+      next[key] = key !== "id" && key !== "type" && isLastWrite(key) ? mergedRecord[key] : patch[key];
     }
   }
-  return Object.keys(props).length > 0 ? { ...patch, props } : patch;
+  return next;
 }
 
 const ASSET_REFERENCE_PROPS = ["assetId", "previewAssetId"] as const;

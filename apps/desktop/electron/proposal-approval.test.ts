@@ -454,8 +454,9 @@ describe("proposal approval application", () => {
   it.each(modes)("%s does not double a human edit the AI saw and rewrote in a later turn", async (mode) => {
     const second = await twoTurnsOverAHumanEdit("The huge cat sat!");
 
+    // Turn 2 merged H1 when it rebased turn 1 (carried); the approval itself merges nothing new.
     await expect(fixture.approve(mode, second.proposalId)).resolves.toMatchObject({
-      ok: true, mergeReport: createEmptyProposalMergeReport(),
+      ok: true, mergeReport: { ...createEmptyProposalMergeReport(), humanEditedUnits: ["p_1"] },
     });
     expect(await fixture.readTextsFromFreshStore()).toEqual(["The huge cat sat!", "p_2"]);
   });
@@ -475,6 +476,40 @@ describe("proposal approval application", () => {
       ok: true, mergeReport: { humanEditedUnits: ["p_1"], overlaps: [] },
     });
     expect(await fixture.readTextsFromFreshStore()).toEqual(["Yes. The huge cat sat!", "p_2"]);
+  });
+
+  it("carries what a later turn's rebase merged into the approval, so it is not auto-applied as quiet", async () => {
+    const room = { roomId: "room_carry", runId: "run_carry" };
+    await fixture.proposals.upsertCurrentProposal({ ...fixture.proposalInput(replaceParagraphDraft("p_1", "AI first")), ...room });
+    // The human turns p_1 into a heading: the kernel keeps the human's node and the AI's edit is lost.
+    const human = await fixture.saveHumanEdit((document) => parseSigmaDocument(updateBlockInDocument(document, "p_1", (block) => ({
+      type: "heading", id: block.id, level: 2, children: (block as ParagraphNode).children,
+    }) as never)));
+    const humanDocument = parseSigmaDocument(await fixture.documents.loadDocument(fixture.file.fileId));
+    const aggregate: AiEditSessionDraft = {
+      ...replaceParagraphDraft("p_2", "AI second"),
+      operations: [...replaceParagraphDraft("p_1", "AI first").operations, ...replaceParagraphDraft("p_2", "AI second").operations],
+    };
+    const second = await fixture.proposals.upsertCurrentProposal({
+      ...fixture.proposalInput(aggregate), baseRevision: human.revision, baseDocument: humanDocument,
+      nextDocument: humanDocument, ...room,
+    });
+    expect(second.mergeCarry).toMatchObject({ overlaps: ["#p_1"], humanEditedUnits: ["p_1"] });
+
+    await expect(fixture.coordinator.approveSingleProposal(second.proposalId, { autoApplied: true }))
+      .resolves.toMatchObject({ ok: false, code: "merge-review" });
+    await expect(fixture.approve("single", second.proposalId)).resolves.toMatchObject({
+      ok: true, mergeReport: { overlaps: ["#p_1"], humanEditedUnits: ["p_1"] },
+    });
+  });
+
+  it.each(modes)("%s approves a deletion the human already made as done", async (mode) => {
+    const proposal = await fixture.createProposal(deleteBlockDraft("p_1"));
+    await fixture.saveHumanEdit((document) => parseSigmaDocument(deleteBlocksFromDocument(document, ["p_1"])));
+
+    await expect(fixture.approve(mode, proposal.proposalId)).resolves.toMatchObject({ ok: true });
+    expect(await fixture.readTextsFromFreshStore()).toEqual(["p_2"]);
+    expect((await fixture.proposals.loadProposal(proposal.proposalId))?.status).toBe("approved");
   });
 
   it("records a deferred automatic approval, skips it at that revision and logs it", async () => {

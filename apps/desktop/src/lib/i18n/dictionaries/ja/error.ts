@@ -279,6 +279,7 @@ export const error = {
       columnsRangeNotFound: "AI編集: 2段組み範囲を現在の教材で特定できません（{{startBlockId}}〜{{endBlockId}}）。",
       currentDocumentRebaseFailed: "現在の教材を読み込めないため再適用できませんでした。",
       processedCannotRebase: "処理済みの提案は再適用(rebase)できません。",
+      rebaseContentChanged: "提案が上書きする対象が提案後に変更されていて、合成で追従できません: {{ids}}",
       processedGroupCannotRebase: "処理済みの提案グループは再適用(rebase)できません。",
       missingRichContentTargets: "更新対象の本文ブロックが削除されているため再適用できません: {{ids}}",
       targetMismatch: "対象ブロックが見つかりません。現在の教材と内容が合わないため再適用できませんでした。",

@@ -720,6 +720,8 @@ export interface DesktopMcpEditProposalSummary {
   mergeReport?: ProposalMergeReport;
   // 人間の編集との合成が必要なため検証済み自動承認を見送った文書revision (その間は再試行しない)。
   autoApplyDeferredAtRevision?: number;
+  // 同じroomの後ターンで前ターンを保存文書へ載せ替えたときの合成の判断の累積 (承認時のreportに足される)。
+  mergeCarry?: ProposalMergeReport;
 }
 
 export interface DesktopWorkspaceOverview {

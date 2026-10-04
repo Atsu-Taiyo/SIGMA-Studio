@@ -594,6 +594,94 @@ describe("replayProposalDraftMerging", () => {
     expect(result.report.invalidAfterMerge).toBe(0);
   });
 
+  it("counts the nested blocks of an inserted problem as created, so a shape anchored inside it is not missing", () => {
+    const base = ensurePageLayout(documentOf([paragraph("p_1", "one")]));
+    const draft: AiEditSessionDraft = {
+      summary: "問題と図",
+      plan: ["問題と図"],
+      operations: [
+        {
+          operation: "insertAfter",
+          summary: "問題",
+          targetId: "p_1",
+          insertedBlock: { type: "problem", id: "problem_new", tags: [], lead: [], prompt: [paragraph("prompt_new", "問題文")], solution: [], hints: [] },
+        },
+        {
+          operation: "insertOverlayShape",
+          summary: "図",
+          targetId: "prompt_new",
+          overlayShape: { ...geoShape("shape_new", 10, 10), anchor: { type: "block", blockId: "prompt_new", dx: 0, dy: 0 } },
+          assets: {},
+        },
+      ],
+      warnings: [],
+    };
+    const basis = computeProposalMergeBasis(draft, base);
+
+    const result = replayProposalDraftMerging(base, draft, basis);
+
+    expect(normalizeOverlaySnapshot(result.nextDocument.pageLayout?.overlay?.overlaySnapshot).shapes.map((shape) => shape.id))
+      .toEqual(["shape_new"]);
+  });
+
+  it("keeps an alignment made between two updates of the same shape", () => {
+    const base = withShapes(ensurePageLayout(documentOf([paragraph("p_1", "one")])), [geoShape("shape_s", 10, 10), geoShape("shape_t", 50, 10)]);
+    const draft: AiEditSessionDraft = {
+      summary: "図形",
+      plan: ["図形"],
+      operations: [],
+      mutationOperations: [
+        { operation: "updateOverlayShape", summary: "移動", shapeId: "shape_s", patch: { x: 100 } },
+        { operation: "alignOverlayShapes", summary: "整列", shapeIds: ["shape_s", "shape_t"], mode: "left" },
+        { operation: "updateOverlayShape", summary: "色", shapeId: "shape_s", patch: { props: { color: "red" } } },
+      ],
+      warnings: [],
+    };
+    const basis = computeProposalMergeBasis(draft, base);
+    // The human moved S down, so S is merged.
+    const current = withShapes(base, [{ ...geoShape("shape_s", 10, 10), y: 40 }, geoShape("shape_t", 50, 10)]);
+
+    const result = replayProposalDraftMerging(current, draft, basis);
+    const shapes = normalizeOverlaySnapshot(result.nextDocument.pageLayout?.overlay?.overlaySnapshot).shapes;
+
+    expect(shapes.find((shape) => shape.id === "shape_s")).toMatchObject({ x: 50, y: 40, props: { color: "red" } });
+    expect(shapes.find((shape) => shape.id === "shape_t")).toMatchObject({ x: 50 });
+  });
+
+  it("treats deleting a block the human already deleted as done, and applies the AI's other changes", () => {
+    const base = documentOf([paragraph("p_1", "one"), paragraph("p_2", "two")]);
+    const draft: AiEditSessionDraft = {
+      summary: "編集",
+      plan: ["編集"],
+      operations: [{ operation: "replace", summary: "r", targetId: "p_2", replacementBlock: paragraph("p_2", "TWO") }],
+      mutationOperations: [{ operation: "deleteBlocks", summary: "d", blockIds: ["p_1"] }],
+      warnings: [],
+    };
+    const basis = computeProposalMergeBasis(draft, base);
+    const current = documentOf([paragraph("p_2", "two")]);
+
+    const result = replayProposalDraftMerging(current, draft, basis);
+
+    expect(result.nextDocument.content.map((block) => block.id)).toEqual(["p_2"]);
+    expect(paragraphText(result.nextDocument, "p_2")).toBe("TWO");
+    expect(result.report.editBeatsDelete).toEqual([]);
+  });
+
+  it("leaves the document as it is when every block the AI deletes is already gone", () => {
+    const base = documentOf([paragraph("p_1", "one"), paragraph("p_2", "two")]);
+    const draft: AiEditSessionDraft = {
+      summary: "削除",
+      plan: ["削除"],
+      operations: [],
+      mutationOperations: [{ operation: "deleteBlocks", summary: "d", blockIds: ["p_1"] }],
+      warnings: [],
+    };
+    const basis = computeProposalMergeBasis(draft, base);
+    const current = documentOf([paragraph("p_2", "two")]);
+
+    expect(withoutUpdatedAt(replayProposalDraftMerging(current, draft, basis).nextDocument)).toEqual(withoutUpdatedAt(current));
+  });
+
   it("never changes the persisted draft or the current document", () => {
     const base = documentOf([paragraph("p_1", "The cat sat.")]);
     const draft = replaceDraft(paragraph("p_1", "The dog sat."));

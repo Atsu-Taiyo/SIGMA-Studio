@@ -968,3 +968,48 @@ describe("shouldAutoApplyProposal after an automatic approval was deferred", () 
     expect(shouldAutoApplyProposal({ settingEnabled: true, proposal: { ...proposal, baseRevision: 4 }, currentRevision: 4 })).toBe(true);
   });
 });
+
+describe("created blocks and already-done deletions", () => {
+  it("counts the nested blocks of an inserted problem as created anchors", () => {
+    const draft: AiEditSessionDraft = {
+      summary: "問題と図",
+      plan: ["問題と図"],
+      operations: [
+        {
+          operation: "insertAfter",
+          summary: "問題",
+          targetId: "p_1",
+          insertedBlock: {
+            type: "problem", id: "problem_new", tags: [], lead: [],
+            prompt: [{ type: "paragraph", id: "prompt_new", children: [{ type: "text", text: "問題文" }] }],
+            solution: [], hints: [],
+          } satisfies ProblemNode,
+        },
+        {
+          operation: "insertOverlayShape",
+          summary: "図",
+          targetId: "prompt_new",
+          overlayShape: {
+            id: "shape_new", type: "geo", x: 10, y: 10,
+            anchor: { type: "block", blockId: "prompt_new", dx: 0, dy: 0 },
+            props: { w: 80, h: 30, geo: "rectangle", fill: "none", color: "black", labelColor: "black", dash: "solid", size: "m" },
+          },
+          assets: {},
+        },
+      ],
+      warnings: [],
+    };
+    const current = ensurePageLayout(paragraphDocument(["p_1"]));
+
+    expect(findProposalFreshnessConflict({ baseRevision: 1, draft }, computeDocumentBlockHashes(current), 2, current)).toBeNull();
+  });
+
+  it("does not report a deletion target the human already deleted", () => {
+    const base = paragraphDocument(["p_1", "p_2"]);
+    const draft = deleteBlockDraft("p_1");
+    const proposal = { baseRevision: 1, draft, touchedBlocks: computeTouchedBlocks(draft, base), mergeBasis: computeProposalMergeBasis(draft, base) };
+    const current = paragraphDocument(["p_2"]);
+
+    expect(findProposalFreshnessConflict(proposal, computeDocumentBlockHashes(current), 2, current)).toBeNull();
+  });
+});
