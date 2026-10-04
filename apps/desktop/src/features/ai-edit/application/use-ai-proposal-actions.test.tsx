@@ -244,6 +244,23 @@ describe("AI proposal action controller", () => {
     expect(h.reset).not.toHaveBeenCalled();
   });
 
+  it("tells the user when the approval replaced a value typed during the approval", async () => {
+    const base = documentWithText("段落の本文");
+    const withAlign = (align: "center" | "right"): SigmaDocument => ({
+      ...base,
+      content: [{ id: "paragraph", type: "paragraph", align, children: [{ type: "text", text: "段落の本文" }] }],
+    });
+    const h = await mount({ lastSyncedDocumentRef: { current: base } });
+    h.approve.mockResolvedValueOnce({ ...h.approvalResult, document: withAlign("right") });
+    h.adopt.mockImplementationOnce((params) => decideAiApprovedDocument({ ...params, currentDocument: withAlign("center") }));
+
+    await act(async () => { await h.read().applyAiEditPreviewGroup(["proposal"]); });
+
+    expect(h.status).toHaveBeenLastCalledWith(createCurrentLocaleTranslator("editor")("status.aiMergedPreferringAi"));
+    expect(vi.mocked(countPerformanceEvent).mock.calls.map(([name]) => name))
+      .toContain("AiProposalMerge.adoption.droppedHumanEdits");
+  });
+
   it("rejects overlapping decisions synchronously until the original action finishes", async () => {
     const h = await mount();
     const response = deferred(h.approvalResult);

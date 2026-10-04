@@ -80,6 +80,8 @@ describe("countAdoptionMergeFallbacks", () => {
       reidentified: 2,
       editBeatsDelete: ["#p_2"],
       invalidAfterMerge: 1,
+      droppedHumanEdits: ["#p_1.align", "#p_3"],
+      droppedAiEdits: ["#p_2"],
     }, count);
 
     const counted = count.mock.calls.map(([name]) => name);
@@ -89,12 +91,16 @@ describe("countAdoptionMergeFallbacks", () => {
     expect(counted.filter((name) => name === AI_PROPOSAL_ADOPTION_MERGE_COUNTERS.reidentified)).toHaveLength(2);
     expect(counted.filter((name) => name === AI_PROPOSAL_ADOPTION_MERGE_COUNTERS.editBeatsDelete)).toHaveLength(1);
     expect(counted.filter((name) => name === AI_PROPOSAL_ADOPTION_MERGE_COUNTERS.invalidAfterMerge)).toHaveLength(1);
-    expect(counted).toHaveLength(8);
+    expect(counted.filter((name) => name === AI_PROPOSAL_ADOPTION_MERGE_COUNTERS.droppedHumanEdits)).toHaveLength(2);
+    expect(counted.filter((name) => name === AI_PROPOSAL_ADOPTION_MERGE_COUNTERS.droppedAiEdits)).toHaveLength(1);
+    expect(counted).toHaveLength(11);
   });
 
   it("names the counters under AiProposalMerge.adoption, apart from the approval's", () => {
     expect(Object.values(AI_PROPOSAL_ADOPTION_MERGE_COUNTERS).sort()).toEqual([
       "AiProposalMerge.adoption.capped",
+      "AiProposalMerge.adoption.droppedAiEdits",
+      "AiProposalMerge.adoption.droppedHumanEdits",
       "AiProposalMerge.adoption.editBeatsDelete",
       "AiProposalMerge.adoption.invalidAfterMerge",
       "AiProposalMerge.adoption.mergedUnits",

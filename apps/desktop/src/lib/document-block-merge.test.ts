@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { mergeExternalDocumentChange } from "./document-block-merge";
+import { createEmptyDocumentMergeReport, mergeExternalDocumentChange } from "./document-block-merge";
 import { ensurePageLayout } from "@/lib/page-layout";
 import { normalizeOverlaySnapshot } from "@/features/document";
 import type {
@@ -416,6 +416,21 @@ describe("mergeExternalDocumentChange", () => {
     }
   });
 
+  it("does not reconcile a block one side moved and the other edited, under prefer-theirs", () => {
+    // prefer-theirs は単位ごとの規則のまま (他者の書き込みの取り込み)。id の重複を解く規則は
+    // merge-both だけが持つ。
+    const base = withContent(baseDocument(), [quote("q", [paragraph("x", "引用")]), paragraph("y", "移す段落")]);
+    const mine = withContent(base, [quote("q", [paragraph("x", "引用"), paragraph("y", "移す段落")])]);
+    const theirs = withContent(base, [quote("q", [paragraph("x", "引用")]), paragraph("y", "AIが直した段落")]);
+
+    const result = mergeExternalDocumentChange(base, mine, theirs, { resolution: "prefer-theirs" });
+
+    expect(result.ok && result.merged.content).toEqual([
+      quote("q", [paragraph("x", "引用"), paragraph("y", "移す段落")]),
+      paragraph("y", "AIが直した段落"),
+    ]);
+  });
+
   it("keeps the human's block move while adopting the AI's insertion", () => {
     const base = baseDocument();
     const mine = insertBlock(removeBlock(base, "p3"), 0, paragraph("p3", "3番目の段落"));
@@ -460,6 +475,10 @@ describe("mergeExternalDocumentChange with merge-both", () => {
 
     expect(paragraphText(result.merged, "p1")).toBe("段落の説明内容");
     expect(result.report?.overlaps).toEqual(["#p1.children"]);
+    // 両方の文字が残ったので、どちらの入力も落ちていない。
+    expect(result.report?.droppedHumanEdits).toEqual([]);
+    expect(result.report?.droppedAiEdits).toEqual([]);
+    expect(result.resolvedConflicts).toBeUndefined();
   });
 
   it("puts the human's text before the AI's when both insert at the same position", () => {
@@ -490,6 +509,8 @@ describe("mergeExternalDocumentChange with merge-both", () => {
       editBeatsDelete: [],
       duplicateIds: [],
       invalidAfterMerge: 0,
+      droppedHumanEdits: [],
+      droppedAiEdits: [],
     });
   });
 
@@ -533,6 +554,8 @@ describe("mergeExternalDocumentChange with merge-both", () => {
 
     expect(shapesOf(result.merged)).toEqual([geoShape("shape_1", { color: "#ff0000" })]);
     expect(result.report?.overlaps).toEqual(["#shape_1.props.color"]);
+    expect(result.report?.droppedHumanEdits).toEqual(["#shape_1.props.color"]);
+    expect(result.resolvedConflicts).toHaveLength(1);
   });
 
   it("keeps the human's edit of a block the AI deleted", () => {
@@ -545,7 +568,9 @@ describe("mergeExternalDocumentChange with merge-both", () => {
     expect(result.merged.content.map((block) => block.id)).toEqual(["p1", "p2", "p3"]);
     expect(paragraphText(result.merged, "p2")).toBe("人間が入力中");
     expect(result.report?.editBeatsDelete).toEqual(["#p2"]);
-    expect(result.resolvedConflicts).toBeUndefined();
+    // 承認したAIの削除は反映されなかったので、黙らずに記録する。
+    expect(result.report?.droppedAiEdits).toEqual(["#p2"]);
+    expect(result.resolvedConflicts).toHaveLength(1);
   });
 
   it("keeps the AI's edit of a block the human deleted, as a conflict resolved for the AI", () => {
@@ -557,6 +582,7 @@ describe("mergeExternalDocumentChange with merge-both", () => {
 
     expect(paragraphText(result.merged, "p2")).toBe("AIが書き換えた段落");
     expect(result.report?.editBeatsDelete).toEqual(["#p2"]);
+    expect(result.report?.droppedHumanEdits).toEqual(["#p2"]);
     expect(result.resolvedConflicts).toHaveLength(1);
   });
 
@@ -582,6 +608,7 @@ describe("mergeExternalDocumentChange with merge-both", () => {
 
     expect(result.merged.content.map((block) => block.id)).toEqual(["p_human", "p3", "p1", "p2"]);
     expect(result.report?.overlaps).toEqual(["$.content"]);
+    expect(result.report?.droppedHumanEdits).toEqual(["$.content"]);
     expect(result.resolvedConflicts).toHaveLength(1);
   });
 
@@ -600,11 +627,13 @@ describe("mergeExternalDocumentChange with merge-both", () => {
     expect(paragraphText(result.merged, "p1")).toBe("新しい段落の本文です");
     expect(result.report?.invalidAfterMerge).toBe(1);
     expect(result.report?.mergedUnits).toEqual(["p1"]);
+    expect(result.report?.droppedHumanEdits).toEqual(["#quote"]);
     expect(result.resolvedConflicts).toHaveLength(1);
   });
 
-  it("takes the AI's version of a block whose merge repeats an id inside it", () => {
-    // AIが設問 q1 を解答へ移し、人間は設問のまま q1 を直した。合成すると q1 が2か所に入る。
+  it("keeps the AI's move inside a block and merges the human's edit into the moved block", () => {
+    // AIが設問 q1 を解答へ移し、人間は設問のまま q1 を直した。合成すると q1 が2か所に入るので、
+    // 移した側 (AI) の位置に1つだけ残し、人間の直した文を合成する。
     const base = withContent(baseDocument(), [
       problem("prob", [paragraph("q1", "設問")], [paragraph("s1", "解答")]),
     ]);
@@ -613,15 +642,19 @@ describe("mergeExternalDocumentChange with merge-both", () => {
 
     const result = mergeBoth(base, mine, theirs);
 
-    expect(result.merged.content).toEqual(theirs.content);
+    expect(result.merged.content).toEqual([
+      problem("prob", [], [paragraph("s1", "解答"), paragraph("q1", "設問を直した")]),
+    ]);
     expect(result.report?.duplicateIds).toEqual(["q1"]);
-    expect(result.report?.invalidAfterMerge).toBe(1);
-    expect(result.report?.mergedUnits).toEqual([]);
+    expect(result.report?.invalidAfterMerge).toBe(0);
+    expect(result.report?.mergedUnits).toEqual(["prob", "q1"]);
+    expect(result.report?.editBeatsDelete).toEqual([]);
+    expect(result.resolvedConflicts).toBeUndefined();
   });
 
-  it("takes the AI's version of a block whose merge repeats an id held elsewhere in the document", () => {
+  it("keeps the human's move into a merged block and merges the AI's edit of the moved block", () => {
     // 人間が段落 y を引用の中へ移し、AIは引用の中身と y をそれぞれ直した。合成した引用に y を
-    // 入れると、AIの直した y (本文の直下) と2か所になる。
+    // 入れると、AIの直した y (本文の直下) と2か所になる。人間が移した位置に1つだけ残す。
     const base = withContent(baseDocument(), [quote("quote", [paragraph("x", "引用")]), paragraph("y", "移す段落")]);
     const mine = withContent(base, [quote("quote", [paragraph("x", "引用"), paragraph("y", "移す段落")])]);
     const theirs = withContent(base, [
@@ -631,8 +664,13 @@ describe("mergeExternalDocumentChange with merge-both", () => {
 
     const result = mergeBoth(base, mine, theirs);
 
-    expect(result.merged.content).toEqual(theirs.content);
-    expect(result.report?.invalidAfterMerge).toBe(1);
+    expect(result.merged.content).toEqual([
+      quote("quote", [paragraph("x", "AIが直した引用"), paragraph("y", "AIが直した段落")]),
+    ]);
+    expect(result.report?.duplicateIds).toEqual(["y"]);
+    expect(result.report?.invalidAfterMerge).toBe(0);
+    expect(result.report?.editBeatsDelete).toEqual([]);
+    expect(result.resolvedConflicts).toBeUndefined();
   });
 
   it("takes the AI's version of a shape whose merge does not validate", () => {
@@ -645,6 +683,7 @@ describe("mergeExternalDocumentChange with merge-both", () => {
 
     expect(shapesOf(result.merged)).toEqual(shapesOf(theirs));
     expect(result.report?.invalidAfterMerge).toBe(1);
+    expect(result.report?.droppedHumanEdits).toEqual(["#table"]);
     expect(result.resolvedConflicts).toHaveLength(1);
   });
 
@@ -679,6 +718,8 @@ describe("mergeExternalDocumentChange with merge-both", () => {
 
     expect(result.merged.metadata.title).toBe("AIが変更したタイトル");
     expect(result.report?.overlaps).toEqual(["$.metadata.title"]);
+    expect(result.report?.droppedHumanEdits).toEqual(["$.metadata.title"]);
+    expect(result.resolvedConflicts).toHaveLength(1);
   });
 
   it("takes the AI's settings when the merged settings do not validate", () => {
@@ -694,6 +735,7 @@ describe("mergeExternalDocumentChange with merge-both", () => {
 
     expect(result.merged.metadata).toEqual(theirs.metadata);
     expect(result.report?.invalidAfterMerge).toBe(1);
+    expect(result.report?.droppedHumanEdits).toEqual(["$.metadata"]);
     expect(result.resolvedConflicts).toHaveLength(1);
   });
 
@@ -720,18 +762,22 @@ describe("mergeExternalDocumentChange with merge-both", () => {
     expect(result.report?.invalidAfterMerge).toBe(0);
   });
 
-  it("drops the human's edit of a block the AI moved elsewhere rather than keeping it twice", () => {
-    // AIが段落 y を引用の中へ移し、人間は元の場所の y を直した。編集を残すと y が2か所になる。
+  it("keeps the AI's move and merges the human's edit of the moved block", () => {
+    // AIが段落 y を引用の中へ移し、人間は元の場所の y を直した。編集を残すと y が2か所になるので、
+    // 移した側 (AI) の位置に1つだけ残し、人間の直した文を合成する。
     const base = withContent(baseDocument(), [quote("quote", [paragraph("x", "引用")]), paragraph("y", "移す段落")]);
     const mine = withContent(base, [quote("quote", [paragraph("x", "引用")]), paragraph("y", "人間が直した段落")]);
     const theirs = withContent(base, [quote("quote", [paragraph("x", "引用"), paragraph("y", "移す段落")])]);
 
     const result = mergeBoth(base, mine, theirs);
 
-    expect(result.merged.content).toEqual(theirs.content);
-    expect(result.report?.invalidAfterMerge).toBe(1);
+    expect(result.merged.content).toEqual([
+      quote("quote", [paragraph("x", "引用"), paragraph("y", "人間が直した段落")]),
+    ]);
+    expect(result.report?.duplicateIds).toEqual(["y"]);
+    expect(result.report?.invalidAfterMerge).toBe(0);
     expect(result.report?.editBeatsDelete).toEqual([]);
-    expect(result.resolvedConflicts).toHaveLength(1);
+    expect(result.resolvedConflicts).toBeUndefined();
   });
 
   it("takes the AI's block whole when the AI changed its kind", () => {
@@ -747,7 +793,190 @@ describe("mergeExternalDocumentChange with merge-both", () => {
     expect(result.merged.content[0]).toEqual(theirs.content[0]);
     expect(result.report?.overlaps).toEqual(["#p1"]);
     expect(result.report?.mergedUnits).toEqual([]);
+    expect(result.report?.droppedHumanEdits).toEqual(["#p1"]);
     expect(result.resolvedConflicts).toHaveLength(1);
+  });
+
+  it("records the AI's edit as dropped when the human changed the block's kind", () => {
+    const base = replaceParagraphText(baseDocument(), "p1", "段落の本文");
+    const mine = withContent(base, [
+      { type: "heading", id: "p1", level: 2, children: [{ type: "text", text: "段落の本文" }] },
+      ...base.content.slice(1),
+    ]);
+    const theirs = replaceParagraphText(base, "p1", "新しい段落の本文");
+
+    const result = mergeBoth(base, mine, theirs);
+
+    expect(result.merged.content[0]).toEqual(mine.content[0]);
+    expect(result.report?.droppedAiEdits).toEqual(["#p1"]);
+    expect(result.report?.droppedHumanEdits).toEqual([]);
+    expect(result.resolvedConflicts).toHaveLength(1);
+  });
+
+  it("takes the AI's value and records the human's input as dropped when both set an attribute differently", () => {
+    const base = baseDocument();
+    const mine = withContent(base, [{ ...paragraph("p1", "最初の段落"), align: "center" }, ...base.content.slice(1)]);
+    const theirs = withContent(base, [{ ...paragraph("p1", "最初の段落"), align: "right" }, ...base.content.slice(1)]);
+
+    const result = mergeBoth(base, mine, theirs);
+
+    expect(result.merged.content[0]).toEqual({ ...paragraph("p1", "最初の段落"), align: "right" });
+    expect(result.report?.droppedHumanEdits).toEqual(["#p1.align"]);
+    expect(result.resolvedConflicts).toHaveLength(1);
+  });
+
+  it("keeps the human's move when the AI edited the moved block where it was", () => {
+    // 人間が段落 y を引用 q の中へ移し、AIは元の場所の y を直した (q はAI側で無変更)。
+    const base = withContent(baseDocument(), [quote("q", [paragraph("x", "引用")]), paragraph("y", "移す段落")]);
+    const mine = withContent(base, [quote("q", [paragraph("x", "引用"), paragraph("y", "移す段落")])]);
+    const theirs = withContent(base, [quote("q", [paragraph("x", "引用")]), paragraph("y", "AIが直した段落")]);
+
+    const result = mergeBoth(base, mine, theirs);
+
+    expect(result.merged.content).toEqual([quote("q", [paragraph("x", "引用"), paragraph("y", "AIが直した段落")])]);
+    expect(repeatedNodeIds(result.merged.content)).toEqual([]);
+    expect(result.report?.duplicateIds).toEqual(["y"]);
+    expect(result.report?.mergedUnits).toEqual(["y"]);
+    expect(result.report?.editBeatsDelete).toEqual([]);
+    expect(result.resolvedConflicts).toBeUndefined();
+  });
+
+  it("keeps the human's move of a nested block between two blocks the AI edited it in", () => {
+    // 人間が入れ子の段落 L を引用 X から Y へ移し、AIは X の中の L を直した。
+    const base = withContent(baseDocument(), [
+      quote("X", [paragraph("L", "移す段落"), paragraph("M", "残る段落")]),
+      quote("Y", [paragraph("N", "移し先")]),
+    ]);
+    const mine = withContent(base, [
+      quote("X", [paragraph("M", "残る段落")]),
+      quote("Y", [paragraph("N", "移し先"), paragraph("L", "移す段落")]),
+    ]);
+    const theirs = withContent(base, [
+      quote("X", [paragraph("L", "AIが直した段落"), paragraph("M", "残る段落")]),
+      quote("Y", [paragraph("N", "移し先")]),
+    ]);
+
+    const result = mergeBoth(base, mine, theirs);
+
+    expect(result.merged.content).toEqual([
+      quote("X", [paragraph("M", "残る段落")]),
+      quote("Y", [paragraph("N", "移し先"), paragraph("L", "AIが直した段落")]),
+    ]);
+    expect(repeatedNodeIds(result.merged.content)).toEqual([]);
+    expect(result.report?.invalidAfterMerge).toBe(0);
+    expect(result.report?.duplicateIds).toEqual(["L"]);
+    expect(result.resolvedConflicts).toBeUndefined();
+  });
+
+  it("records the human's value as dropped when the moved block's attribute was also set by the AI", () => {
+    // 人間が y を引用の中へ移して中央揃えにし、AIは元の場所の y を右揃えにした。
+    const base = withContent(baseDocument(), [quote("q", [paragraph("x", "引用")]), paragraph("y", "移す段落")]);
+    const mine = withContent(base, [quote("q", [paragraph("x", "引用"), { ...paragraph("y", "移す段落"), align: "center" }])]);
+    const theirs = withContent(base, [quote("q", [paragraph("x", "引用")]), { ...paragraph("y", "移す段落"), align: "right" }]);
+
+    const result = mergeBoth(base, mine, theirs);
+
+    expect(result.merged.content).toEqual([
+      quote("q", [paragraph("x", "引用"), { ...paragraph("y", "移す段落"), align: "right" }]),
+    ]);
+    expect(result.report?.droppedHumanEdits).toEqual(["#y.align"]);
+    expect(result.resolvedConflicts).toHaveLength(1);
+  });
+
+  it("keeps the AI's place and merges both edits when both sides moved the same block", () => {
+    const base = withContent(baseDocument(), [
+      quote("q1", [paragraph("a", "引用1")]),
+      quote("q2", [paragraph("b", "引用2")]),
+      paragraph("y", "移す段落"),
+    ]);
+    const mine = withContent(base, [
+      quote("q1", [paragraph("a", "引用1"), paragraph("y", "移す段落")]),
+      quote("q2", [paragraph("b", "引用2")]),
+    ]);
+    const theirs = withContent(base, [
+      quote("q1", [paragraph("a", "引用1")]),
+      quote("q2", [paragraph("b", "引用2"), paragraph("y", "AIが直した段落")]),
+    ]);
+
+    const result = mergeBoth(base, mine, theirs);
+
+    expect(result.merged.content).toEqual(theirs.content);
+    expect(result.report?.overlaps).toEqual(["#y"]);
+    expect(result.report?.droppedHumanEdits).toEqual(["#y"]);
+    expect(result.resolvedConflicts).toHaveLength(1);
+  });
+
+  it("keeps the moved block as the human left it when the AI's edit of it cannot be merged in", () => {
+    // 人間が引用 Qd を設問へ移して a を消し、AIは元の場所の Qd から b を消した。合成すると引用が
+    // 空になる (引用は1ブロック以上が必要) ので、移した先の人間の Qd を残し、AIの編集は落ちる。
+    const base = withContent(baseDocument(), [
+      problem("prob", [], [paragraph("s1", "解答")]),
+      quote("Qd", [paragraph("a", "引用1"), paragraph("b", "引用2")]),
+    ]);
+    const mine = withContent(base, [
+      problem("prob", [quote("Qd", [paragraph("b", "引用2")]) as unknown as ParagraphNode], [paragraph("s1", "解答")]),
+    ]);
+    const theirs = withContent(base, [
+      problem("prob", [], [paragraph("s1", "解答")]),
+      quote("Qd", [paragraph("a", "引用1")]),
+    ]);
+
+    const result = mergeBoth(base, mine, theirs);
+
+    expect(result.merged.content).toEqual(mine.content);
+    expect(result.report?.duplicateIds).toEqual(["Qd"]);
+    expect(result.report?.droppedAiEdits).toEqual(["#Qd"]);
+    expect(result.report?.droppedHumanEdits).toEqual([]);
+    expect(result.resolvedConflicts).toHaveLength(1);
+  });
+
+  it("adopts the AI's whole document only when the ids cannot be made unique", () => {
+    // 人間が a を Y へ移し、AIは b を消した。合成した引用 Q は空で検証を通らず AI 側へ戻るが、
+    // AI 側の Q は a を持つ。a を Q から外すと Q が空になるので、文書全体をAI側にする。
+    const base = withContent(baseDocument(), [
+      quote("Q", [paragraph("a", "移す段落"), paragraph("b", "消す段落")]),
+      quote("Y", [paragraph("n", "移し先")]),
+    ]);
+    const mine = withContent(base, [
+      quote("Q", [paragraph("b", "消す段落")]),
+      quote("Y", [paragraph("n", "移し先"), paragraph("a", "移す段落")]),
+    ]);
+    const theirs = withContent(base, [
+      quote("Q", [paragraph("a", "移す段落")]),
+      quote("Y", [paragraph("n", "移し先")]),
+    ]);
+
+    const result = mergeBoth(base, mine, theirs);
+
+    expect(result.merged).toBe(theirs);
+    expect(result.report).toEqual({
+      ...createEmptyDocumentMergeReport(),
+      invalidAfterMerge: 1,
+      droppedHumanEdits: ["$"],
+    });
+    expect(result.resolvedConflicts).toHaveLength(1);
+  });
+
+  it("keeps the human's reorder when the AI edited a block the human deleted", () => {
+    const base = baseDocument();
+    const mine = withContent(base, [paragraph("p3", "3番目の段落"), paragraph("p2", "2番目の段落")]);
+    const theirs = replaceParagraphText(base, "p1", "AIが直した段落");
+
+    const result = mergeBoth(base, mine, theirs);
+
+    expect(result.merged.content.map((block) => block.id)).toEqual(["p1", "p3", "p2"]);
+    expect(paragraphText(result.merged, "p1")).toBe("AIが直した段落");
+  });
+
+  it("keeps the AI's reorder when the human edited a block the AI deleted", () => {
+    const base = baseDocument();
+    const mine = replaceParagraphText(base, "p1", "人間が直した段落");
+    const theirs = withContent(base, [paragraph("p3", "3番目の段落"), paragraph("p2", "2番目の段落")]);
+
+    const result = mergeBoth(base, mine, theirs);
+
+    expect(result.merged.content.map((block) => block.id)).toEqual(["p1", "p3", "p2"]);
+    expect(paragraphText(result.merged, "p1")).toBe("人間が直した段落");
   });
 
   it("does not change its inputs", () => {
@@ -767,6 +996,28 @@ function paragraphText(document: SigmaDocument, id: string): string | undefined 
   return block?.type === "paragraph"
     ? block.children.map((child) => (child.type === "text" ? child.text : "")).join("")
     : undefined;
+}
+
+/** 同じノードid (`id` と `type` を持つもの) が2回以上現れるもの。 */
+function repeatedNodeIds(value: unknown): string[] {
+  const seen = new Set<string>();
+  const repeated = new Set<string>();
+  const visit = (current: unknown) => {
+    if (Array.isArray(current)) {
+      current.forEach(visit);
+      return;
+    }
+    if (typeof current !== "object" || current === null) {
+      return;
+    }
+    const record = current as Record<string, unknown>;
+    if (typeof record.id === "string" && typeof record.type === "string") {
+      (seen.has(record.id) ? repeated : seen).add(record.id);
+    }
+    Object.values(record).forEach(visit);
+  };
+  visit(value);
+  return [...repeated];
 }
 
 function withContent(document: SigmaDocument, content: SigmaDocument["content"]): SigmaDocument {

@@ -62,7 +62,7 @@ describe("decideAiApprovedDocument", () => {
     });
 
     // MISS R3: 重なりの無い採用では、合成も退避も起きていない。
-    expect(decision.kind === "merge" && decision.mergeReport).toEqual(createEmptyProposalMergeReport());
+    expect(decision.kind === "merge" && decision.mergeReport).toEqual(emptyAdoptionReport());
     expect(decision.kind === "merge" && decision.resolvedConflicts).toEqual([]);
   });
 
@@ -87,7 +87,7 @@ describe("decideAiApprovedDocument", () => {
     expect(decision.adoptedDocumentMatchesDisk).toBe(false);
     expect(decision.kind === "merge" && decision.resolvedConflicts).toEqual([]);
     expect(decision.kind === "merge" && decision.mergeReport).toEqual({
-      ...createEmptyProposalMergeReport(),
+      ...emptyAdoptionReport(),
       humanEditedUnits: ["p_1"],
     });
   });
@@ -125,7 +125,51 @@ describe("decideAiApprovedDocument", () => {
     expect(decision.document.content).toEqual(approved.content);
     expect(decision.adoptedDocumentMatchesDisk).toBe(true);
     expect(decision.kind === "merge" && decision.mergeReport.invalidAfterMerge).toBe(1);
+    expect(decision.kind === "merge" && decision.mergeReport.droppedHumanEdits).toEqual(["#quote"]);
     expect(decision.kind === "merge" && decision.resolvedConflicts).toHaveLength(1);
+  });
+
+  it("reports the approval as overriding the typing when both set the same attribute differently", () => {
+    const base = createDocument();
+    const current = withContent(base, [{ ...paragraph("p_1", "本文1"), align: "center" }, base.content[1]!]);
+    const approved = withContent(base, [{ ...paragraph("p_1", "本文1"), align: "right" }, base.content[1]!]);
+
+    const decision = decideAiApprovedDocument({
+      documentAtApprovalStart: base,
+      currentDocument: current,
+      diskDocument: approved,
+      normalizedApprovedDocument: approved,
+    });
+
+    // 人間の入力がAIの値で置き換わったので、黙らずに競合として伝える (従来の通知が出る)。
+    expect(decision.document.content[0]).toEqual({ ...paragraph("p_1", "本文1"), align: "right" });
+    expect(decision.kind === "merge" && decision.resolvedConflicts).toHaveLength(1);
+    expect(decision.kind === "merge" && decision.mergeReport.droppedHumanEdits).toEqual(["#p_1.align"]);
+    expect(decision.kind === "merge" && decision.mergeReport.droppedAiEdits).toEqual([]);
+  });
+
+  it("keeps every block id once when the human moved a block the AI edited where it was", () => {
+    const base = withContent(createDocument(), [
+      { type: "quote", id: "q", blocks: [paragraph("x", "引用")] },
+      paragraph("y", "移す段落"),
+    ]);
+    const current = withContent(base, [{ type: "quote", id: "q", blocks: [paragraph("x", "引用"), paragraph("y", "移す段落")] }]);
+    const approved = withContent(base, [
+      { type: "quote", id: "q", blocks: [paragraph("x", "引用")] },
+      paragraph("y", "AIが直した段落"),
+    ]);
+
+    const decision = decideAiApprovedDocument({
+      documentAtApprovalStart: base,
+      currentDocument: current,
+      diskDocument: approved,
+      normalizedApprovedDocument: approved,
+    });
+
+    expect(decision.document.content).toEqual([
+      { type: "quote", id: "q", blocks: [paragraph("x", "引用"), paragraph("y", "AIが直した段落")] },
+    ]);
+    expect(decision.kind === "merge" && decision.mergeReport.duplicateIds).toEqual(["y"]);
   });
 
   it("adopts the approved document and counts one fallback when the merge gives up", () => {
@@ -146,7 +190,7 @@ describe("decideAiApprovedDocument", () => {
       document: approved,
       adoptedDocumentMatchesDisk: true,
       resolvedConflicts: ["合成できません"],
-      mergeReport: { ...createEmptyProposalMergeReport(), invalidAfterMerge: 1 },
+      mergeReport: { ...emptyAdoptionReport(), invalidAfterMerge: 1, droppedHumanEdits: ["$"] },
     });
   });
 
@@ -287,6 +331,11 @@ function paragraphText(document: SigmaDocument, id: string): string | undefined 
   return block?.type === "paragraph"
     ? block.children.map((child) => (child.type === "text" ? child.text : "")).join("")
     : undefined;
+}
+
+/** 採用マージの報告で、何も起きなかったときの形。 */
+function emptyAdoptionReport() {
+  return { ...createEmptyProposalMergeReport(), droppedHumanEdits: [], droppedAiEdits: [] };
 }
 
 function paragraph(id: string, text: string): ParagraphNode {
