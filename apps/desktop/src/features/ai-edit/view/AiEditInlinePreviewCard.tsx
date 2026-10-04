@@ -1,7 +1,7 @@
 "use client";
 
 import { useId, useState } from "react";
-import type { CSSProperties, ReactNode } from "react";
+import type { CSSProperties } from "react";
 
 import { useIsFlowExtensionReplica } from "@/components/editor/page-canvas/flow-extension-replica";
 import { AiProposalDecisionBar } from "@/components/ui/ai";
@@ -223,6 +223,16 @@ export function getAiProposalTitle(preview: AiEditPreviewState, t: Translate<"ai
 }
 
 /**
+ * 承認バーに添える一言: 提案の内容が、提案の後に人が直した対象を承認と同じ三者マージで合わせた
+ * ものであること (`resolveProposalMergePreview` の `humanEditedUnits` が空でない)。紙面のカード・
+ * 図形のそばのバー・サイドバー・⌘K のパネルで同じ文言を出す。
+ */
+export function AiProposalMergeNotice() {
+  const t = useT("ai");
+  return <span data-ai-proposal-merge-notice="">{t("card.mergedWithYourEdits")}</span>;
+}
+
+/**
  * 表示状態を、持ち主 (紙面の拡張) から受け取るか自分で持つか。どちらでも同じ形で読み書きする。
  * 紙面のカードは改ページで切れると続きの複製が別のインスタンスで描かれるので、持ち主が持つ
  * (`model/proposal-display-state.ts`)。単独で描くとき (テストなど) は自分で持つ。
@@ -285,8 +295,8 @@ export interface AiEditInlinePreviewCardProps {
   onDisplayStateChange?: (patch: Partial<AiProposalDisplayState>) => void;
   /** 本文と一緒に図形の変更前/変更後もある提案。バーに「変更前を隠す」を出す。 */
   hasBeforeShapes?: boolean;
-  /** バーの見出しの下に添える一言 (`AiProposalDecisionBar.notice`)。 */
-  notice?: ReactNode;
+  /** 内容が人の編集と合成したもの。バーの下に一言を添える (`AiProposalMergeNotice`)。 */
+  mergedWithHumanEdits?: boolean;
 }
 
 /**
@@ -313,7 +323,7 @@ export function AiEditInlinePreviewCard({
   displayState,
   onDisplayStateChange,
   hasBeforeShapes = false,
-  notice,
+  mergedWithHumanEdits = false,
 }: AiEditInlinePreviewCardProps) {
   const t = useT("ai");
   const replica = useIsFlowExtensionReplica();
@@ -349,7 +359,7 @@ export function AiEditInlinePreviewCard({
         title={title}
         applying={applying}
         replica={replica}
-        notice={notice}
+        notice={mergedWithHumanEdits ? <AiProposalMergeNotice /> : undefined}
         references={sourceReferences && sourceReferences.length > 0 && (
           <AiSourceReferenceChips sourceReferences={sourceReferences} onOpenDocument={onOpenSourceDocument} />
         )}
@@ -383,7 +393,8 @@ export interface AiEditOverlayApprovalWidgetProps {
   onDisplayStateChange?: (patch: Partial<AiProposalDisplayState>) => void;
   /** 変更前/変更後が両方描かれる図形がある (更新・整列・置き換え)。バーに「変更前を隠す」を出す。 */
   hasBeforeShapes?: boolean;
-  notice?: ReactNode;
+  /** 内容が人の編集と合成したもの (本文も変える提案)。バーの下に一言を添える。 */
+  mergedWithHumanEdits?: boolean;
 }
 
 /**
@@ -404,7 +415,7 @@ export function AiEditOverlayApprovalWidget({
   displayState,
   onDisplayStateChange,
   hasBeforeShapes = false,
-  notice,
+  mergedWithHumanEdits = false,
 }: AiEditOverlayApprovalWidgetProps) {
   const t = useT("ai");
   const contentId = useId();
@@ -428,7 +439,7 @@ export function AiEditOverlayApprovalWidget({
         surface="overlay"
         title={title}
         applying={applying}
-        notice={notice}
+        notice={mergedWithHumanEdits ? <AiProposalMergeNotice /> : undefined}
         dismissReasonPlaceholder={t("card.dismissReasonExampleShape")}
         onOpenConversation={onOpenConversation}
         onApply={onApply}

@@ -391,6 +391,7 @@ const COMMENT_MUTATION_PORTS: CommentMutationPorts = {
 };
 /** 図形の無い文書でも参照が変わらないよう固定 (memo依存の無駄な再計算を避ける)。 */
 const EMPTY_OVERLAY_SHAPES: OverlayShape[] = [];
+const EMPTY_PROPOSAL_ID_SET: ReadonlySet<string> = new Set();
 /** コメントの無い文書でも参照が変わらないよう固定 (装飾更新の再 dispatch を避ける)。 */
 const EMPTY_COMMENT_THREADS: SigmaCommentThread[] = [];
 
@@ -863,6 +864,8 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
   const [overlayActionRequest, setOverlayActionRequest] = useState<OverlayActionRequest | null>(null);
   const [overlaySelection, setOverlaySelection] = useState<OverlaySelectionSummary>(EMPTY_OVERLAY_SELECTION);
   const [webMcpPreviewGroups, setWebMcpPreviewGroups] = useState<AiEditPreviewState[]>([]);
+  // 紙面がカード (先頭に承認バー) を出した提案の id (紙面が知らせる)。⌘K の結果パネルはその提案のバーを出さない。
+  const [pageCardProposalIds, setPageCardProposalIds] = useState<ReadonlySet<string>>(EMPTY_PROPOSAL_ID_SET);
   const [webMcpHistory, setWebMcpHistory] = useState<WebMcpHistoryEntry[]>([]);
   const webMcpBridgeRef = useRef<WebMcpBridgeHandle | null>(null);
   const visibleAiEditPreviewGroups = useMemo(
@@ -4394,6 +4397,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
       inlineRunPortalTarget={aiInlineRunPortal}
       previewClearRequest={aiEditPreviewClearRequest}
       previewGroups={aiEditPreviewGroups}
+      pageCardProposalIds={pageCardProposalIds}
       busy={mcpPreviewBusy}
       onApplyGroup={applyAiEditPreviewGroup}
       onDismissGroup={dismissAiEditPreviewGroup}
@@ -4738,6 +4742,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
             documentIdentityKey={activeFileId}
             documentWorkspaceId={activeDocumentMetadata?.workspaceId ?? null}
             onFocusAiSession={focusAiSession}
+            onAiPageCardProposalIdsChange={setPageCardProposalIds}
           /></OverlayImagePreviewContext.Provider></SelectionToolbarProvider>}
           {versionHistoryPreview && (
             <div className="version-history-preview" data-version-history-preview="true">

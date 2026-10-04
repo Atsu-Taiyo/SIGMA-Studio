@@ -17,7 +17,6 @@ import {
 } from "@/lib/ai/applied-document-diff";
 import { diffInlineNodeRanges, type InlineChangeRange } from "@/lib/ai/inline-diff";
 import {
-  createAiEditSessionDocumentDraft,
   primarySigmaDocMutationOpTargetId,
   resolveAiEditSessionOperationOrder,
   type AiEditSessionDraft,
@@ -30,6 +29,7 @@ import {
 } from "@/lib/document-tree";
 import { getHeadingNumberMap } from "@/lib/heading-numbering";
 import { getProblemNumberMap } from "@/lib/problem-numbering";
+import { areStructurallyEqual } from "@/lib/structural-equality";
 
 import {
   deriveAiEditPreviewOverlayShapes,
@@ -39,6 +39,7 @@ import {
   resolveMutationOpAssets,
   type AiEditPreviewState,
 } from "./preview";
+import { resolveProposalMergePreview } from "./proposal-merge-preview";
 
 /**
  * 提案の「内容」の唯一のモデル。本文カード (紙面)・サイドバー・⌘K パネル・チャットの図形サムネは
@@ -47,8 +48,8 @@ import {
  *
  * 作り方は 2 つ:
  * - 保留中の提案から (`buildPendingProposalContent`)。削除側は今の文書、追加側は**渡された
- *   適用後の文書**から読む。今は draft をそのまま適用した文書を渡す
- *   (`resolvePendingProposalAfterDocument`)。人間の編集と合成した文書を渡せば、合成後の内容が出る。
+ *   適用後の文書**から読む。渡すのは承認と同じ合成 replay の結果 (`resolveProposalMergePreview`)
+ *   なので、提案の後に人が対象を直していれば、その編集と AI の変更の両方が入った内容になる。
  * - 適用済みの差分から (`buildAppliedProposalContent`)。承認時に保存した `AiAppliedDocumentDiff`
  *   (旧レコードを含む) をそのまま読む。
  */
@@ -110,6 +111,8 @@ export interface AiProposalContent {
 export interface AiProposalAnchorCard {
   preview: AiEditPreviewState;
   content: AiProposalContent;
+  /** 内容が人の編集と合成したものか (承認バーに一言を添える)。 */
+  mergedWithHumanEdits: boolean;
 }
 
 /**
@@ -236,40 +239,6 @@ function numberingOf(document: SigmaDocument): AiProposalNumbering {
   };
 }
 
-/**
- * 提案ごとに直近の 1 件だけを覚える (今の文書 → 適用後の文書)。紙面とサイドバーは同じ文書で
- * 引くのでここで共有でき、文書が変わったら置き換える。文書をキーにすると、取り消し履歴が古い文書を
- * 持つ間その適用後の文書 (構造を共有しない全体のコピー) も解放されず、提案の数だけ積み上がる。
- */
-const afterDocumentCache = new WeakMap<AiEditPreviewState, { document: SigmaDocument; afterDocument: SigmaDocument | null }>();
-
-/**
- * 保留中の提案を今の文書へ適用した文書。本文を変えない提案 (図形だけ) は使わないので `null`。
- * 古くなって適用できない提案も `null` (内容は draft の中身で代わりに描く)。
- *
- * 紙面とサイドバーが同じ文書・同じ提案で呼ぶので、提案ごとに直近の文書の分を 1 つだけ覚えて共有する。
- */
-export function resolvePendingProposalAfterDocument(
-  current: SigmaDocument,
-  preview: AiEditPreviewState,
-): SigmaDocument | null {
-  if (!hasBodyAiEditChanges(preview)) {
-    return null;
-  }
-  const cached = afterDocumentCache.get(preview);
-  if (cached && cached.document === current) {
-    return cached.afterDocument;
-  }
-  let afterDocument: SigmaDocument | null;
-  try {
-    afterDocument = createAiEditSessionDocumentDraft(current, null, preview.draft).nextDocument;
-  } catch {
-    afterDocument = null;
-  }
-  afterDocumentCache.set(preview, { document: current, afterDocument });
-  return afterDocument;
-}
-
 function operationOrder(draft: AiEditSessionDraft): ReturnType<typeof resolveAiEditSessionOperationOrder> {
   try {
     return resolveAiEditSessionOperationOrder(draft);
@@ -387,6 +356,16 @@ function buildPendingHunks(
       hunk.added.set(block.id, presentBlock(block, afterIndex ?? currentIndex));
     }
   };
+  // AI が消すブロックを人が直していれば、合成はそのブロックを残す (編集は削除に勝つ)。適用後の
+  // 文書に今と同じ内容で残るブロックは、消える側に出さない。同じ draft が同じ id を挿入し直す
+  // (置き換え・移動) ときは従来どおり消える側にも出す。
+  const isKeptByMerge = (blockId: string): boolean => {
+    if (!afterBlocks || insertedIdToTarget.has(blockId)) {
+      return false;
+    }
+    const kept = afterBlocks.get(blockId);
+    return kept !== undefined && areStructurallyEqual(kept, currentBlocks.get(blockId));
+  };
   const addCurrent = (hunk: HunkDraft, blockId: string) => {
     const block = currentBlocks.get(blockId);
     if (block) {
@@ -425,7 +404,9 @@ function buildPendingHunks(
     hunk.notes.push(mutationSummary(op));
     // 位置や段組みだけを変える操作は中身が変わらないので、ブロックは並べない (要約だけ)。
     if (op.operation === "deleteBlocks") {
-      op.blockIds.forEach((blockId) => addCurrent(hunk, blockId));
+      op.blockIds
+        .filter((blockId) => !isKeptByMerge(blockId))
+        .forEach((blockId) => addCurrent(hunk, blockId));
     }
   }
 
@@ -608,13 +589,14 @@ export function groupPendingProposalContentByAnchor(
       continue;
     }
     placeable ??= new Set(indexDocumentFlow(document).flowAnchorById.values());
-    const afterDocument = resolvePendingProposalAfterDocument(document, preview);
-    for (const hunk of buildPendingHunks(document, afterDocument, preview)) {
+    const merged = resolveProposalMergePreview(document, preview);
+    const mergedWithHumanEdits = merged.humanEditedUnits.length > 0;
+    for (const hunk of buildPendingHunks(document, merged.afterDocument, preview)) {
       if (!placeable.has(hunk.anchorBlockId)) {
         continue;
       }
       const cards = cardsByAnchorId.get(hunk.anchorBlockId) ?? [];
-      cards.push({ preview, content: { hunks: [hunk], shapes: [] } });
+      cards.push({ preview, content: { hunks: [hunk], shapes: [] }, mergedWithHumanEdits });
       cardsByAnchorId.set(hunk.anchorBlockId, cards);
     }
   }

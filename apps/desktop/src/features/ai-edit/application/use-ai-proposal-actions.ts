@@ -44,6 +44,7 @@ import {
   deriveAiProposalDismissEffects,
   deriveAiProposalResolutionTargets,
   deriveAiStaleProposalDiscardEffects,
+  describeAiAdoptionMergeStatus,
   findAiProposalGroupByIds,
   normalizeAiProposalIds,
   selectSequentialAiRevertProposalIds,
@@ -358,13 +359,14 @@ export function useAiProposalActions({
           // 承認待ちの間の入力とAI結果の合成が、両方の変えた単位を合成・退避した回数を数える
           // (MISS R3)。重なりの無い採用ではどのカウンタも動かない。
           countAdoptionMergeFallbacks(adoption.mergeReport);
-        }
-        if (adoption.kind === "merge" && adoption.resolvedConflicts.length > 0) {
-          // 承認待ちの間の入力とAIの変更が同じ対象で食い違った場合も、教材ファイルは増やさず
-          // この1ファイルの中で解決する — 競合した単位だけ承認された内容を採る。直前の入力は
-          // applyAiApprovedDocument が積んだundoエントリ (Ctrl+Z) から戻せる。
-          console.warn(tEditor("status.aiMergedPreferringAi"), adoption.resolvedConflicts);
-          approvedDocumentWarning = tEditor("status.aiMergedPreferringAi");
+          // 承認待ちの間の入力とAIの変更が同じ対象に重なっても、教材ファイルは増やさずこの1ファイルの
+          // 中で三者マージする (両方残す)。片方が結果に入らなかった単位だけを記録し、お知らせを
+          // 合成の report から出し分ける。直前の入力は applyAiApprovedDocument が積んだundoエントリ
+          // (Ctrl+Z) から戻せる。
+          approvedDocumentWarning = describeAiAdoptionMergeStatus(adoption.mergeReport, tEditor);
+          if (adoption.resolvedConflicts.length > 0) {
+            console.warn(approvedDocumentWarning, adoption.resolvedConflicts);
+          }
         }
         if (approvedDocumentStayedDirty) {
           scheduleAutosaveRetry();

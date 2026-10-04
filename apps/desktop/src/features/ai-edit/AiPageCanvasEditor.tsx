@@ -30,6 +30,7 @@ import { readAiProposalDisplayState, type AiProposalDisplayState } from "./model
 import { useAiProposalDisplayStates } from "./application/use-ai-proposal-display-states";
 import { useStableIdSet } from "./application/use-stable-id-set";
 import { groupPendingProposalContentByAnchor, type AiProposalAnchorCard } from "./model/proposal-content";
+import { resolveProposalMergePreview } from "./model/proposal-merge-preview";
 import { AiRunAnchorLayer, type AiRunCardOpenRequest } from "@/components/editor/ai-run-anchor-layer";
 import {
   getNarrowColumnBounds,
@@ -111,6 +112,11 @@ export interface AiPageCanvasEditorProps extends Omit<PageCanvasEditorProps, "pa
   aiDocumentWriteInProgress?: boolean;
   documentWorkspaceId?: string | null;
   onFocusAiSession?: (roomId: string) => void;
+  /**
+   * 紙面の本文フローにカード (先頭に承認バー) を出した提案の id。変わったとき (描く前) と、紙面が
+   * 消えるとき (空) に呼ぶ。⌘K の結果パネルがその提案のバーを出さないのに使う。
+   */
+  onAiPageCardProposalIdsChange?: (proposalIds: ReadonlySet<string>) => void;
 }
 
 function AiPageCanvasEditorImpl(props: AiPageCanvasEditorProps) {
@@ -148,6 +154,7 @@ function AiEnabledPageCanvasEditor({
   aiDocumentWriteInProgress = false,
   documentWorkspaceId = null,
   onFocusAiSession,
+  onAiPageCardProposalIdsChange,
   ...pageEditorProps
 }: AiPageCanvasEditorProps) {
   const documentShapes = useMemo(
@@ -175,6 +182,7 @@ function AiEnabledPageCanvasEditor({
     documentIdentityKey,
     documentWorkspaceId,
     onFocusSession: onFocusAiSession,
+    onCardProposalIdsChange: onAiPageCardProposalIdsChange,
   });
   // 利用者がバーで隠した変更前の図形は、選べず編集もできない (見えない図形を動かさない)。
   const beforeHiddenExtensions = useMemo(
@@ -226,10 +234,12 @@ interface UseAiPageCanvasExtensionOptions {
   documentIdentityKey?: string;
   documentWorkspaceId: string | null;
   onFocusSession?: AiPageCanvasEditorProps["onFocusAiSession"];
+  onCardProposalIdsChange?: AiPageCanvasEditorProps["onAiPageCardProposalIdsChange"];
 }
 
 /** 提案が無いときに配り回す固定の空コレクション (identity を動かさないため)。 */
 const EMPTY_PREVIEW_CARDS_BY_TARGET_ID: ReadonlyMap<string, AiProposalAnchorCard[]> = new Map();
+const EMPTY_PROPOSAL_IDS: ReadonlySet<string> = new Set();
 const EMPTY_INLINE_CONTENT: ReadonlyMap<string, PageCanvasInlineContent[]> = new Map();
 
 function useAiPageCanvasExtension({
@@ -247,6 +257,7 @@ function useAiPageCanvasExtension({
   documentIdentityKey,
   documentWorkspaceId,
   onFocusSession,
+  onCardProposalIdsChange,
 }: UseAiPageCanvasExtensionOptions): { extension: PageCanvasEditorExtension; beforeHiddenShapeIds: ReadonlySet<string> } {
   const t = useT("ai");
   const inlinePreviewGroups = useMemo(
@@ -267,6 +278,20 @@ function useAiPageCanvasExtension({
     const previewsWithCards = new Set([...previewCardsByTargetId.values()].flat().map((card) => card.preview));
     return selectAiFloatingDecisionPreviews(previewGroups, previewsWithCards);
   }, [previewCardsByTargetId, previewGroups]);
+  // 浮かぶバーの提案のうち、本文の内容を人の編集と合成したもの (バーに一言を添える)。図形だけの
+  // 提案は合成のプレビューを作らないので入らない。提案ごとに覚えた結果を引くだけなので打鍵では軽い。
+  const mergedFloatingKeys = useStableIdSet(floatingPreviewGroups.flatMap((preview) => (
+    resolveProposalMergePreview(document, preview).humanEditedUnits.length > 0
+      ? [getAiProposalConversationKey(preview)]
+      : []
+  )));
+  // 紙面にカードを出した提案を持ち主へ知らせる (⌘K のパネルはその提案のバーを出さない)。描く前に
+  // 知らせて、パネルとカードに同じバーが並ぶ瞬間を作らない。紙面が消えるときは空に戻す。
+  const cardProposalIds = useStableIdSet(collectAiPageCardProposalIds(previewCardsByTargetId));
+  useLayoutEffect(() => {
+    onCardProposalIdsChange?.(cardProposalIds);
+  }, [cardProposalIds, onCardProposalIdsChange]);
+  useLayoutEffect(() => () => onCardProposalIdsChange?.(EMPTY_PROPOSAL_IDS), [onCardProposalIdsChange]);
   const roomIdsWithCards = useMemo(
     () => new Set(previewGroups.flatMap((preview) => preview.roomId ? [preview.roomId] : [])),
     [previewGroups],
@@ -338,6 +363,7 @@ function useAiPageCanvasExtension({
                 }
               }}
               hasBeforeShapes={getAiEditPreviewBeforeShapeIds(preview).length > 0}
+              mergedWithHumanEdits={card.mergedWithHumanEdits}
               onOpenConversation={preview.roomId
                 ? (anchorElement) => openProposalConversation(preview, anchorElement)
                 : undefined}
@@ -466,6 +492,7 @@ function useAiPageCanvasExtension({
           displayState={displayState}
           onDisplayStateChange={(patch) => updateDisplayState(conversationKey, preview.proposalIds, patch)}
           hasBeforeShapes={getAiEditPreviewBeforeShapeIds(preview).length > 0}
+          mergedWithHumanEdits={mergedFloatingKeys.has(conversationKey)}
           onOpenConversation={preview.roomId
             ? (anchorElement) => openProposalConversation(preview, anchorElement)
             : undefined}
@@ -479,7 +506,7 @@ function useAiPageCanvasExtension({
       ghostShapes: resolvedGhostShapes,
       floatingContent: widgets,
     };
-  }, [applying, displayStates, floatingPreviewGroups, onApply, onDismiss, openProposalConversation, previewDiff, previewGroups, t, updateDisplayState]);
+  }, [applying, displayStates, floatingPreviewGroups, mergedFloatingKeys, onApply, onDismiss, openProposalConversation, previewDiff, previewGroups, t, updateDisplayState]);
 
   // 参照系のコールバックは ref 経由で最新を読む。identity を deps に入れると、親が 1 回
   // 描画するたびに selection 拡張が作り直され、PageCanvasEditor 側の選択 effect が再 arm
@@ -755,6 +782,7 @@ export function getAiProposalCardMeasureRevision(
       mathFractionSizing ?? "",
       card.preview.sourceReferences ?? [],
       card.content.hunks,
+      card.mergedWithHumanEdits,
       displayState?.contentHidden ?? false,
       displayState?.applyError ?? null,
     ],
@@ -831,6 +859,23 @@ export function buildAiBeforeHiddenEditorExtensions(
       unselectableShapeIds: beforeHiddenShapeIds,
     },
   };
+}
+
+/**
+ * 紙面の本文フローにカード (先頭に承認バー) を出した提案の id。⌘K の結果パネルはこの提案のバーを
+ * 出さない: パネルは実行を始めた本文の位置に浮かぶので、同じ提案のカードのバーに重なり、決定の面が
+ * 二重になる。カードの無い提案 (図形のそばに浮かぶバーだけ) はパネルにもバーを残す。図形を選んだ
+ * まま ⌘K を終えると、浮かぶバーは図形の選択のポップオーバーとパネルの下になり、押せるバーが
+ * パネルにしか無いため。
+ */
+export function collectAiPageCardProposalIds(
+  cardsByAnchorId: ReadonlyMap<string, readonly AiProposalAnchorCard[]>,
+): string[] {
+  const ids = new Set<string>();
+  for (const cards of cardsByAnchorId.values()) {
+    cards.forEach((card) => card.preview.proposalIds.forEach((id) => ids.add(id)));
+  }
+  return [...ids];
 }
 
 export function selectAiFloatingDecisionPreviews(

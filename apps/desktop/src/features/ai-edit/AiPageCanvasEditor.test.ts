@@ -5,6 +5,7 @@ import type { AiProposalAnchorCard, AiProposalContentHunk } from "./model/propos
 
 import {
   buildAiBeforeHiddenEditorExtensions,
+  collectAiPageCardProposalIds,
   deriveAiOverlayShapeClassNames,
   estimateFloatingDecisionBarHeight,
   placeFloatingDecisionBars,
@@ -84,9 +85,10 @@ describe("AI proposal cards in the page flow", () => {
       added: { problems: new Map([["problem-1", 2]]), headings: new Map() },
     },
   });
-  const card = (text: string, proposalIds = ["proposal-1"]): AiProposalAnchorCard => ({
+  const card = (text: string, proposalIds = ["proposal-1"], mergedWithHumanEdits = false): AiProposalAnchorCard => ({
     preview: roomPreview(proposalIds),
     content: { hunks: [hunk(text)], shapes: [] },
+    mergedWithHumanEdits,
   });
 
   it("keeps a card's key when a follow-up turn in the same room adds a proposal", () => {
@@ -132,6 +134,9 @@ describe("AI proposal cards in the page flow", () => {
       ...DEFAULT_AI_PROPOSAL_DISPLAY_STATE,
       applyError: "失敗",
     })).not.toBe(base);
+    // 「あなたの編集と合わせた内容です」の一言はバーの下の行を足す。
+    expect(getAiProposalCardMeasureRevision(card("提案の本文", ["proposal-1"], true), "uniform", DEFAULT_AI_PROPOSAL_DISPLAY_STATE))
+      .not.toBe(base);
     // 破棄理由のポップオーバーは紙面の外 (body) に出るので、カードの高さは変わらない。
     expect(getAiProposalCardMeasureRevision(card("提案の本文"), "uniform", {
       ...DEFAULT_AI_PROPOSAL_DISPLAY_STATE,
@@ -276,6 +281,20 @@ describe("floating decision bars (proposals without a page card)", () => {
       [shapeOnly, mixedWithoutCard, layoutOnly, bodyWithCard, mixedWithCard],
       new Set([bodyWithCard, mixedWithCard]),
     )).toEqual([shapeOnly, mixedWithoutCard, layoutOnly]);
+  });
+
+  it("reports the proposals that have a card (with its decision bar) in the page flow, not the floating ones", () => {
+    const bodyWithCard = withOps("p-body", [replaceLeft]);
+    const room = { ...withOps("p-room-1", [replaceLeft]), proposalIds: ["p-room-1", "p-room-2"] };
+    const cards = new Map<string, AiProposalAnchorCard[]>([
+      ["left", [
+        { preview: bodyWithCard, content: { hunks: [], shapes: [] }, mergedWithHumanEdits: false },
+        { preview: room, content: { hunks: [], shapes: [] }, mergedWithHumanEdits: false },
+      ]],
+    ]);
+
+    expect([...collectAiPageCardProposalIds(cards)].sort()).toEqual(["p-body", "p-room-1", "p-room-2"]);
+    expect([...collectAiPageCardProposalIds(new Map())]).toEqual([]);
   });
 
   const frame = { pageWidthPx: 800, pageHeightPx: 1100, pageStridePx: 1124, desiredWidthPx: 320, gapPx: 8, marginPx: 12 };
