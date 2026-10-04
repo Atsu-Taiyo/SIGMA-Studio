@@ -145,6 +145,26 @@
   transform-origin: top left;
 }
 
+/* 紙面では、本文の編集面 (`.text-flow-shell`: 左右 margin -10px・padding 12px) と同じく段の幅の
+   左右 2px 内側で組む。適用後の本文と同じ幅・同じ折り返しにするため。 */
+.content[data-surface="page"] .paper {
+  padding-inline: 2px;
+}
+
+/* 紙面では区分の名前を内容の上に置く (横に並べると内容の幅が段幅より狭くなり、折り返しが変わる)。 */
+.content[data-surface="page"] .hunk[data-problem-area] {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.content[data-surface="page"] .hunk[data-problem-area] .areaLabel {
+  padding: 2px 2px 0;
+  border-right: 0;
+}
+
+.content[data-surface="page"] .hunk[data-problem-area] .hunkBody {
+  padding-left: 0;
+}
+
 .paper > :first-child {
   margin-top: 0;
 }
@@ -180,14 +200,11 @@
   height: auto;
 }
 
-/* サイドバーの図形は従来どおり高さを抑える (紙面の上限撤廃とは別に WI-6 で見直す)。 */
-.content[data-surface="panel"] .shapeStage {
-  max-height: 160px;
-  overflow: hidden;
-}
-
+/* パネルの図形は、段幅で組んだ本文と同じく幅に合わせて縮めて全体を見せる。切り取らない
+   (縦に長い図は縦横比を保ったまま枠に収まる)。 */
 .content[data-surface="panel"] .shapeStage svg {
-  max-height: 140px;
+  width: auto;
+  max-height: min(240px, 40vh);
 }
 
 .caption {

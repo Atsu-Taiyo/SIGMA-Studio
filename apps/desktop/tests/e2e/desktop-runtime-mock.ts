@@ -1347,6 +1347,12 @@ export async function installDesktopRuntimeMock(
           return { ok: true, proposal: structuredClone(proposal), file: metadata(), document: cloneDocument() };
         },
         approveMcpEditProposals: async (proposalIds: string[]) => {
+          // 実IPCと同じ形の失敗を 1 回だけ返す (提案は pending のまま残る)。適用エラーの表示と再試行を見る spec 用。
+          const failure = (window as unknown as { __sigmaFailNextMcpApproval?: string }).__sigmaFailNextMcpApproval;
+          if (failure) {
+            delete (window as unknown as { __sigmaFailNextMcpApproval?: string }).__sigmaFailNextMcpApproval;
+            return { ok: false, error: failure };
+          }
           const revertDocument = cloneDocument();
           const approvedProposals: DesktopMcpEditProposalSummary[] = [];
           for (const proposalId of proposalIds) {

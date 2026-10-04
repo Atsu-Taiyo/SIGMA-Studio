@@ -548,7 +548,6 @@
 .paged-render .page-break-marker,
 .paged-render .overlay-comment-marker,
 .paged-render .block-comment-marker,
-.paged-render .ai-overlay-approval-widget,
 .paged-render .ai-inline-catcher {
   visibility: hidden;
 }

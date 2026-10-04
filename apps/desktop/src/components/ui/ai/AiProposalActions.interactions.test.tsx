@@ -14,6 +14,8 @@ vi.mock("react", async () => {
     ...actual,
     useCallback: <Value,>(value: Value) => value,
     useEffect: (effect: () => void | (() => void)) => hooks.effects.push(effect),
+    // ポップオーバーの置き場 (body) と位置は描画後に決める。この spec は開閉の判断だけを見る。
+    useLayoutEffect: () => {},
     useId: () => "dismiss-reason-popover",
     useRef: () => hooks.refs.shift(),
     useState: <Value,>(initialValue: Value) => {

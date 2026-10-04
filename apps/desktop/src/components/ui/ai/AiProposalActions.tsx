@@ -1,7 +1,8 @@
 "use client";
 
 import { MessageSquarePlus, X } from "lucide-react";
-import { useCallback, useEffect, useId, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type CSSProperties } from "react";
+import { createPortal } from "react-dom";
 
 import { Button, IconButton } from "@/components/ui/Button";
 import { Shimmer } from "@/components/ui/Shimmer";
@@ -21,11 +22,44 @@ export interface AiProposalActionsProps {
   actionClassName?: string;
   showApply?: boolean;
   showDismiss?: boolean;
+  /**
+   * 破棄理由のポップオーバーが開いているか。渡すと持ち主の状態になる (描き直しや作り直しで
+   * 閉じない)。渡さなければこの部品が自分で持つ。
+   */
+  dismissReasonOpen?: boolean;
+  onDismissReasonOpenChange?: (open: boolean) => void;
+  /** 見た目だけの複製。操作の結果 (ポップオーバー) を描かない。 */
+  replica?: boolean;
 }
 
 function normalizeDismissReason(rawReason: string): string | undefined {
   const trimmed = rawReason.trim();
   return trimmed.length > 0 ? trimmed : undefined;
+}
+
+const POPOVER_GAP_PX = 8;
+const VIEWPORT_MARGIN_PX = 8;
+const OFFSCREEN_STYLE: CSSProperties = { position: "fixed", top: -9999, left: -9999, visibility: "hidden" };
+
+/**
+ * 破棄理由のポップオーバーの位置。紙面のカードは改ページで切り取られ (clip-path)、パネルは
+ * スクロールで切れるので、ポップオーバーは body に出して画面の座標で置く。破棄ボタンの下を
+ * 優先し、入らなければ上に出す。右端はボタンに揃え、画面の内側へ寄せる。
+ */
+export function placeDismissReasonPopover(
+  trigger: { top: number; bottom: number; right: number },
+  popover: { width: number; height: number },
+  viewport: { width: number; height: number },
+): { top: number; left: number } {
+  const below = trigger.bottom + POPOVER_GAP_PX;
+  const above = trigger.top - POPOVER_GAP_PX - popover.height;
+  const fitsBelow = below + popover.height <= viewport.height - VIEWPORT_MARGIN_PX;
+  const top = fitsBelow || above < VIEWPORT_MARGIN_PX
+    ? Math.max(VIEWPORT_MARGIN_PX, Math.min(below, viewport.height - VIEWPORT_MARGIN_PX - popover.height))
+    : above;
+  const maxLeft = viewport.width - VIEWPORT_MARGIN_PX - popover.width;
+  const left = Math.max(VIEWPORT_MARGIN_PX, Math.min(trigger.right - popover.width, maxLeft));
+  return { top, left };
 }
 
 /**
@@ -42,22 +76,40 @@ export function AiProposalActions({
   actionClassName = "ai-inline-preview-action",
   showApply = true,
   showDismiss = true,
+  dismissReasonOpen,
+  onDismissReasonOpenChange,
+  replica = false,
 }: AiProposalActionsProps) {
   const t = useT("ai");
   // 「閉じる」は汎用語 (`common.actions.*` が唯一の出典)。
   const tCommon = useT("common");
-  const [reasonOpen, setReasonOpen] = useState(false);
+  const [ownReasonOpen, setOwnReasonOpen] = useState(false);
   const [reason, setReason] = useState("");
+  const [modalHost, setModalHost] = useState<HTMLElement | null>(null);
+  const [popoverStyle, setPopoverStyle] = useState<CSSProperties | null>(null);
   const dismissTriggerRef = useRef<HTMLButtonElement | null>(null);
   const reasonPopoverRef = useRef<HTMLDivElement | null>(null);
   const reasonPopoverId = useId();
+  const controlled = dismissReasonOpen !== undefined;
+  const reasonOpen = (controlled ? dismissReasonOpen : ownReasonOpen) && !replica;
+  // 開いている間は body (ダイアログの中ならその背景) へ出す。
+  const portalHost = reasonOpen && typeof document !== "undefined" ? modalHost ?? document.body ?? null : null;
+
+  const setReasonOpen = useCallback((open: boolean) => {
+    if (onDismissReasonOpenChange) {
+      onDismissReasonOpenChange(open);
+    }
+    if (!controlled) {
+      setOwnReasonOpen(open);
+    }
+  }, [controlled, onDismissReasonOpenChange]);
 
   const closeReasonPopover = useCallback((restoreTriggerFocus: boolean) => {
     setReasonOpen(false);
     if (restoreTriggerFocus) {
       dismissTriggerRef.current?.focus();
     }
-  }, []);
+  }, [setReasonOpen]);
 
   useEffect(() => {
     if (!reasonOpen) {
@@ -91,6 +143,42 @@ export function AiProposalActions({
     };
   }, [closeReasonPopover, reasonOpen]);
 
+  useLayoutEffect(() => {
+    if (!reasonOpen || !portalHost) {
+      return;
+    }
+    const update = () => {
+      const trigger = dismissTriggerRef.current;
+      const popover = reasonPopoverRef.current;
+      if (!trigger || !popover) {
+        return;
+      }
+      const { top, left } = placeDismissReasonPopover(
+        trigger.getBoundingClientRect(),
+        { width: popover.offsetWidth, height: popover.offsetHeight },
+        { width: window.innerWidth, height: window.innerHeight },
+      );
+      setPopoverStyle((previous) => (
+        previous?.top === top && previous?.left === left ? previous : { position: "fixed", top, left }
+      ));
+    };
+    update();
+    window.addEventListener("scroll", update, true);
+    window.addEventListener("resize", update);
+    return () => {
+      window.removeEventListener("scroll", update, true);
+      window.removeEventListener("resize", update);
+    };
+  }, [portalHost, reasonOpen]);
+
+  // 置いてから入力欄へフォーカスする (仮の位置では見えないので focus が効かない)。
+  const positioned = popoverStyle !== null;
+  useLayoutEffect(() => {
+    if (reasonOpen && positioned) {
+      reasonPopoverRef.current?.querySelector<HTMLTextAreaElement>("textarea")?.focus({ preventScroll: true });
+    }
+  }, [positioned, reasonOpen]);
+
   const confirmDismiss = () => {
     onDismiss?.(normalizeDismissReason(reason));
     setReasonOpen(false);
@@ -102,12 +190,57 @@ export function AiProposalActions({
       if (reasonOpen) {
         closeReasonPopover(true);
       } else {
+        setModalHost(dismissTriggerRef.current?.closest<HTMLElement>("[data-modal-backdrop]") ?? null);
         setReasonOpen(true);
       }
       return;
     }
     onDismiss?.();
   };
+
+  const reasonPopover = reasonOpen && dismissReasonPlaceholder && portalHost
+    ? createPortal(
+      <div
+        ref={reasonPopoverRef}
+        id={reasonPopoverId}
+        className="ai-inline-preview-reason-popover"
+        role="group"
+        aria-label={t("proposal.dismissReason")}
+        style={popoverStyle ?? OFFSCREEN_STYLE}
+        // 紙面やパネルの操作 (選択・ドラッグ) に拾わせない。
+        onPointerDown={(event) => event.stopPropagation()}
+        onMouseDown={(event) => event.stopPropagation()}
+        onClick={(event) => event.stopPropagation()}
+      >
+        <div className="ai-inline-preview-reason-head">
+          <span>{t("proposal.dismissReasonOptional")}</span>
+          <IconButton
+            label={tCommon("actions.close")}
+            tone="ghost"
+            size="sm"
+            className="ai-inline-preview-reason-close"
+            onClick={() => closeReasonPopover(true)}
+          >
+            <X size={12} aria-hidden="true" />
+          </IconButton>
+        </div>
+        <textarea
+          className="ai-inline-preview-reason-textarea"
+          value={reason}
+          maxLength={200}
+          placeholder={dismissReasonPlaceholder}
+          aria-label={t("proposal.dismissReasonOptional")}
+          onChange={(event) => setReason(event.target.value)}
+        />
+        <Inline className="ai-inline-preview-reason-actions" justify="end">
+          <Button tone="primary" size="sm" className="ai-inline-preview-reason-submit" onClick={confirmDismiss}>
+            {t("proposal.dismiss")}
+          </Button>
+        </Inline>
+      </div>,
+      portalHost,
+    )
+    : null;
 
   return (
     <Inline
@@ -131,42 +264,7 @@ export function AiProposalActions({
             aria-controls={dismissReasonPlaceholder && reasonOpen ? reasonPopoverId : undefined}
             onClick={requestDismiss}
           />
-          {reasonOpen && dismissReasonPlaceholder && (
-            <div
-              ref={reasonPopoverRef}
-              id={reasonPopoverId}
-              className="ai-inline-preview-reason-popover"
-              role="group"
-              aria-label={t("proposal.dismissReason")}
-            >
-              <div className="ai-inline-preview-reason-head">
-                <span>{t("proposal.dismissReasonOptional")}</span>
-                <IconButton
-                  label={tCommon("actions.close")}
-                  tone="ghost"
-                  size="sm"
-                  className="ai-inline-preview-reason-close"
-                  onClick={() => closeReasonPopover(true)}
-                >
-                  <X size={12} aria-hidden="true" />
-                </IconButton>
-              </div>
-              <textarea
-                className="ai-inline-preview-reason-textarea"
-                value={reason}
-                maxLength={200}
-                placeholder={dismissReasonPlaceholder}
-                aria-label={t("proposal.dismissReasonOptional")}
-                onChange={(event) => setReason(event.target.value)}
-                autoFocus
-              />
-              <Inline className="ai-inline-preview-reason-actions" justify="end">
-                <Button tone="primary" size="sm" className="ai-inline-preview-reason-submit" onClick={confirmDismiss}>
-                  {t("proposal.dismiss")}
-                </Button>
-              </Inline>
-            </div>
-          )}
+          {reasonPopover}
         </div>
       )}
       {onOpenConversation && (

@@ -5,6 +5,11 @@ import { installDesktopRuntimeMock } from "./desktop-runtime-mock";
 import { getDefaultPageLayout } from "@/lib/page-layout";
 import type { ParagraphNode, SigmaBlock, SigmaDocument } from "@/types/sigma-doc";
 
+/** 図形だけの提案の承認バー (図形のそばに付く)。紙面のカードと同じ `AiProposalDecisionBar` を持つ。 */
+const OVERLAY_PROPOSAL_BAR = '[data-ai-proposal-card="overlay"]';
+/** 本文フローの中の提案カードの正本。 */
+const PAGE_PROPOSAL_CARD = '[data-flow-extension-node-id] > [data-ai-proposal-card="page"]';
+
 // Regression harness for the AI edit proposal's overlay-shape approval preview.
 // Overlay proposals must render their decision UI in the overlay layer rather
 // than inserting an approval card into the measured body flow. Reuses the
@@ -140,6 +145,14 @@ async function readAiDiffOpacity(
       after: afterElement ? window.getComputedStyle(afterElement).opacity : "missing",
     };
   }, { beforeSelector, afterSelector });
+}
+
+/** 変更前と変更後が両方見えたまま、時間がたっても切り替わらない。 */
+async function expectBothDiffStatesSteady(page: Page, beforeSelector: string, afterSelector: string): Promise<void> {
+  await expect.poll(() => readAiDiffOpacity(page, beforeSelector, afterSelector)).toEqual({ before: "1", after: "1" });
+  // 以前の点滅は 2.4 秒周期 (1.2 秒ごとに入れ替わり) だった。それより長く見ても変わらない。
+  await page.waitForTimeout(1_500);
+  expect(await readAiDiffOpacity(page, beforeSelector, afterSelector)).toEqual({ before: "1", after: "1" });
 }
 
 async function selectParagraphText(page: Page, blockId: string): Promise<void> {
@@ -283,7 +296,7 @@ test("a selected whiteboard shape can start an AI edit proposal without a body b
     overlaySelection: { selectedShapeIds: ["whiteboard_shape_1"] },
   });
 
-  await expect(page.locator(".whiteboard-canvas .ai-overlay-approval-widget")).toBeVisible({ timeout: 20_000 });
+  await expect(page.locator(`.whiteboard-canvas ${OVERLAY_PROPOSAL_BAR}`)).toBeVisible({ timeout: 20_000 });
   await expect(page.locator('.whiteboard-canvas .overlay-shape.ai-diff-ghost-shape[data-overlay-shape-id="whiteboard_shape_1"]')).toBeVisible();
 });
 
@@ -320,15 +333,15 @@ test("a shape run removes the nearby icon and opens its AI card from the shape h
   await expect(card).toBeVisible();
 });
 
-test("a shape-mutation proposal shows a contextual overlay approval widget and canvas diff ghost", async ({ page }) => {
+test("a shape-mutation proposal shows the shared bar beside the shape and a canvas diff ghost", async ({ page }) => {
   await setup(page);
 
   await startInlineRun(page, "para_a", "PROPOSAL SHAPE 図形を右に移動して");
 
-  const approvalWidget = page.locator(".ai-overlay-approval-widget");
+  const approvalWidget = page.locator(OVERLAY_PROPOSAL_BAR);
   await expect(approvalWidget).toBeVisible({ timeout: 20_000 });
   await expect(approvalWidget).toContainText("AI図形の変更案");
-  await expect(page.locator(".ai-inline-preview-dialog")).toHaveCount(0);
+  await expect(page.locator(PAGE_PROPOSAL_CARD)).toHaveCount(0);
 
   // Dismiss the floating inline result card (and its full-viewport outside-click
   // catcher) so it does not intercept clicks meant for the overlay widget below.
@@ -375,19 +388,16 @@ test("a shape-mutation proposal shows a contextual overlay approval widget and c
   await expect(ghostShape).toHaveClass(/ai-diff-after-shape/);
   await expect(ghostShape).toHaveCSS("outline-width", "3px");
   await expect(ghostShape).toHaveCSS("outline-style", "dashed");
-  // The before/after phases used to be one clock on `.page-canvas` driving custom properties.
-  // PR #350 moved them onto the shapes themselves (`ai-overlay-diff-before-phase` /
-  // `-after-phase`), because the live shape and its ghost can live in different overlay layers and
-  // a remount of one desynchronised the pair. The sibling test at the bottom of this file was
-  // updated then; this one kept asserting the retired shared clock and a static `opacity: 1`,
-  // which an alternating phase can never satisfy.
-  await expect(ghostShape).toHaveCSS("animation-name", "ai-overlay-diff-after-phase");
+  // 変更前と変更後は常に両方見える。時間でも hover でも切り替えない (以前の 2.4 秒の点滅は廃止)。
+  await expect(ghostShape).toHaveCSS("animation-name", "none");
+  await expect(ghostShape).toHaveCSS("opacity", "1");
   const liveShape = page.locator('.overlay-shape.ai-diff-modified-shape[data-overlay-shape-id="e2e_shape_1"]');
   await expect(liveShape).toBeVisible();
   await expect(liveShape).toHaveClass(/ai-diff-before-shape/);
   await expect(liveShape).toHaveCSS("outline-width", "3px");
   await expect(liveShape).toHaveCSS("outline-style", "dashed");
-  await expect(liveShape).toHaveCSS("animation-name", "ai-overlay-diff-before-phase");
+  await expect(liveShape).toHaveCSS("animation-name", "none");
+  await expect(liveShape).toHaveCSS("opacity", "1");
 
   // The run has completed, but the touched shape remains locked until the
   // human resolves the proposal. Selection is allowed; moving it is not.
@@ -441,11 +451,11 @@ test("a shape-mutation proposal shows a contextual overlay approval widget and c
   })).toBe(160);
 });
 
-test("a shape proposal keeps its alternating before/after diff after selecting the target", async ({ page }) => {
+test("a shape proposal keeps both its before and after states visible after selecting the target", async ({ page }) => {
   await setup(page);
   await startShapeRun(page, "e2e_shape_1", "PROPOSAL SHAPE 図形を右に移動して");
 
-  await expect(page.locator(".ai-overlay-approval-widget")).toBeVisible({ timeout: 20_000 });
+  await expect(page.locator(OVERLAY_PROPOSAL_BAR)).toBeVisible({ timeout: 20_000 });
   const selectedShape = page.locator('.overlay-shape.selected.ai-edit-locked-shape[data-overlay-shape-id="e2e_shape_1"]');
   const ghostShape = page.locator('.overlay-shape.ai-diff-ghost-shape[data-overlay-shape-id="e2e_shape_1"]');
   // Starting from a selected target keeps the live interactive canvas mounted.
@@ -457,15 +467,19 @@ test("a shape proposal keeps its alternating before/after diff after selecting t
   await expect(ghostShape).toHaveCount(1);
   await expect(ghostShape).toHaveClass(/ai-diff-after-shape/);
   await expect(ghostShape).toHaveCSS("outline-width", "3px");
-  await expect(selectedShape).toHaveCSS("animation-name", "ai-overlay-diff-before-phase");
-  await expect(ghostShape).toHaveCSS("animation-name", "ai-overlay-diff-after-phase");
+  await expect(selectedShape).toHaveCSS("animation-name", "none");
+  await expect(ghostShape).toHaveCSS("animation-name", "none");
 
   const beforeSelector = '.overlay-shape.ai-diff-before-shape[data-overlay-shape-id="e2e_shape_1"]';
   const afterSelector = '.overlay-shape.ai-diff-after-shape[data-overlay-shape-id="e2e_shape_1"]';
-  await expect.poll(() => readAiDiffOpacity(page, beforeSelector, afterSelector))
-    .toEqual({ before: "1", after: "0" });
-  await expect.poll(() => readAiDiffOpacity(page, beforeSelector, afterSelector))
-    .toEqual({ before: "0", after: "0.76" });
+  await expectBothDiffStatesSteady(page, beforeSelector, afterSelector);
+
+  // 重なって見づらいときは、図形のそばのバーから変更前だけを隠せる (選んだ面でも効く)。
+  const bar = page.locator(OVERLAY_PROPOSAL_BAR);
+  await bar.getByRole("button", { name: "変更前を隠す", exact: true }).click();
+  await expect.poll(() => readAiDiffOpacity(page, beforeSelector, afterSelector)).toEqual({ before: "0", after: "1" });
+  await bar.getByRole("button", { name: "変更前を表示", exact: true }).click();
+  await expect.poll(() => readAiDiffOpacity(page, beforeSelector, afterSelector)).toEqual({ before: "1", after: "1" });
 });
 
 test("an inserted overlay shape keeps its approval widget out of body flow", async ({ page }) => {
@@ -476,11 +490,11 @@ test("an inserted overlay shape keeps its approval widget out of body flow", asy
 
   await startInlineRun(page, "para_a", "PROPOSAL SHAPE INSERT 図形を挿入して");
 
-  const approvalWidget = page.locator(".ai-overlay-approval-widget");
+  const approvalWidget = page.locator(OVERLAY_PROPOSAL_BAR);
   await expect(approvalWidget).toBeVisible({ timeout: 20_000 });
   await expect(approvalWidget).toContainText("AI図形の挿入案");
   await expect(approvalWidget.locator(".ai-proposal-provider-identity")).toHaveCount(0);
-  await expect(page.locator(".ai-inline-preview-dialog")).toHaveCount(0);
+  await expect(page.locator(PAGE_PROPOSAL_CARD)).toHaveCount(0);
   await expect(page.locator('.overlay-shape.ai-diff-added-shape.ai-diff-ghost-shape[data-overlay-shape-id="e2e_inserted_shape_1"]'))
     .toBeVisible();
 
@@ -511,11 +525,11 @@ test("a deleted overlay shape stays visible with the red removal treatment until
 
   await startInlineRun(page, "para_a", "PROPOSAL SHAPE DELETE 図形を削除して");
 
-  const approvalWidget = page.locator(".ai-overlay-approval-widget");
+  const approvalWidget = page.locator(OVERLAY_PROPOSAL_BAR);
   await expect(approvalWidget).toBeVisible({ timeout: 20_000 });
   await expect(approvalWidget).toContainText("AI図形の削除案");
   await expect(approvalWidget.locator(".ai-proposal-provider-identity")).toHaveCount(0);
-  await expect(page.locator(".ai-inline-preview-dialog")).toHaveCount(0);
+  await expect(page.locator(PAGE_PROPOSAL_CARD)).toHaveCount(0);
 
   const removedShape = page.locator(
     '.overlay-shape.ai-diff-removed-shape[data-overlay-shape-id="e2e_shape_1"]',
@@ -542,7 +556,7 @@ test("a same-run shape deletion and insertion share one replacement approval at 
 
   await startInlineRun(page, "para_a", "PROPOSAL SHAPE REPLACE 図形を置き換えて");
 
-  const approvalWidget = page.locator(".ai-overlay-approval-widget");
+  const approvalWidget = page.locator(OVERLAY_PROPOSAL_BAR);
   await expect(approvalWidget).toHaveCount(1);
   await expect(approvalWidget).toBeVisible({ timeout: 20_000 });
   await expect(approvalWidget).toContainText("AI図形の置き換え案");
@@ -567,28 +581,31 @@ test("a same-run shape deletion and insertion share one replacement approval at 
 
   const beforeSelector = '.overlay-shape.ai-diff-before-shape[data-overlay-shape-id="e2e_shape_1"]';
   const afterSelector = '.overlay-shape.ai-diff-after-shape[data-overlay-shape-id="e2e_shape_1"]';
-  await expect.poll(() => readAiDiffOpacity(page, beforeSelector, afterSelector))
-    .toEqual({ before: "1", after: "0" });
-  await expect.poll(() => readAiDiffOpacity(page, beforeSelector, afterSelector))
-    .toEqual({ before: "0", after: "0.76" });
+  await expectBothDiffStatesSteady(page, beforeSelector, afterSelector);
 });
 
-test("a background shape replacement alternates across separate overlay layers", async ({ page }) => {
+test("a background shape replacement shows both states across separate overlay layers and hides the before from the bar", async ({ page }) => {
   await setup(page, createBackgroundShapeDocument());
 
   await startInlineRun(page, "para_a", "PROPOSAL SHAPE REPLACE 背景図形を置き換えて");
 
-  await expect(page.locator(".ai-overlay-approval-widget")).toBeVisible({ timeout: 20_000 });
+  await expect(page.locator(OVERLAY_PROPOSAL_BAR)).toBeVisible({ timeout: 20_000 });
   const beforeSelector = '.page-overlay-background-layer .overlay-shape.ai-diff-before-shape[data-overlay-shape-id="e2e_shape_1"]';
   const afterSelector = '.page-overlay-layer .overlay-shape.ai-diff-after-shape[data-overlay-shape-id="e2e_shape_1"]';
   await expect(page.locator(beforeSelector)).toHaveCount(1);
   await expect(page.locator(afterSelector)).toHaveCount(1);
-  await expect(page.locator(beforeSelector)).toHaveCSS("animation-name", "ai-overlay-diff-before-phase");
-  await expect(page.locator(afterSelector)).toHaveCSS("animation-name", "ai-overlay-diff-after-phase");
-  await expect.poll(() => readAiDiffOpacity(page, beforeSelector, afterSelector))
-    .toEqual({ before: "1", after: "0" });
-  await expect.poll(() => readAiDiffOpacity(page, beforeSelector, afterSelector))
-    .toEqual({ before: "0", after: "0.76" });
+  await expect(page.locator(beforeSelector)).toHaveCSS("animation-name", "none");
+  await expect(page.locator(afterSelector)).toHaveCSS("animation-name", "none");
+  await expectBothDiffStatesSteady(page, beforeSelector, afterSelector);
+  // 変更前と変更後は別の層にあるが、バーの切り替えは変更前の層だけに効く。
+  // (⌘K の結果の面とその外側を拾う幕を閉じてから、図形のそばのバーを押す。)
+  const inlineResultClose = page.locator(".ai-chat-host--inline").getByRole("button", { name: "閉じる" });
+  if (await inlineResultClose.count()) {
+    await inlineResultClose.first().click();
+    await expect(inlineResultClose).toBeHidden();
+  }
+  await page.locator(OVERLAY_PROPOSAL_BAR).getByRole("button", { name: "変更前を隠す", exact: true }).click();
+  await expect.poll(() => readAiDiffOpacity(page, beforeSelector, afterSelector)).toEqual({ before: "0", after: "1" });
 });
 
 test("a plain replace proposal uses color-only diff treatment without symbol markers", async ({ page }) => {
@@ -596,7 +613,7 @@ test("a plain replace proposal uses color-only diff treatment without symbol mar
 
   await startInlineRun(page, "para_a", "PROPOSAL この段落を書き換えて");
 
-  const previewDialog = page.locator(".ai-inline-preview-dialog");
+  const previewDialog = page.locator(PAGE_PROPOSAL_CARD);
   await expect(previewDialog).toBeVisible({ timeout: 20_000 });
   await expect(previewDialog.locator('[data-change="added"]')).toHaveCount(1);
   await expect(previewDialog.locator('[data-change="removed"]')).toHaveCount(0);
@@ -635,7 +652,7 @@ test("an AI proposal reserves only its own target, leaving the rest of the body 
   await page.keyboard.insertText("実行中の追記");
   await expect(unrelatedParagraph).toContainText("実行中の追記");
 
-  const previewDialog = page.locator(".ai-inline-preview-dialog");
+  const previewDialog = page.locator(PAGE_PROPOSAL_CARD);
   await expect(previewDialog).toBeVisible({ timeout: 20_000 });
 
   // Once the proposal is pending, its own target is read-only (without a stop

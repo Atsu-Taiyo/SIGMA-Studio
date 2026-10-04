@@ -34,6 +34,7 @@ import type { CSSProperties,ReactElement } from "react";
 import { createContext,useContext,useEffect,useMemo,useRef,useState } from "react";
 import { hasBreakBefore } from "./block-ops";
 import type { PageCanvasInlineContent } from "./editor-extension";
+import { FlowExtensionReplicaContext } from "./flow-extension-replica";
 import { getFlowDisplacementProps,getNodeDisplacementsKey,pickUnitNodeDisplacements } from "./flow-presentation";
 import {
   FLOW_EXTENSION_NODE_ATTRIBUTE,
@@ -441,6 +442,7 @@ function FlowExtensionNode({
 /**
  * ページ・段の境目で切れた拡張ノードの続き。同じ `content` をもう一度描き、次のページの帯で切る。
  * 操作は最初の帯 (正本) にだけ置く前提なので、続きは `inert` で触れず、支援技術にも読ませない。
+ * 中身には `useIsFlowExtensionReplica()` で複製であることを知らせる。
  * 正本の id (`data-flow-extension-node-id`) は持たない — 計測も e2e も正本だけを拾う。
  */
 export function FlowExtensionFragmentPreview({
@@ -468,7 +470,9 @@ export function FlowExtensionFragmentPreview({
         className="page-flow-extension-fragment-content"
         style={{ position: "relative", top: `${-fragment.sourceOffsetY}px`, width: `${fragment.width}px` }}
       >
-        {item.content}
+        <FlowExtensionReplicaContext.Provider value>
+          {item.content}
+        </FlowExtensionReplicaContext.Provider>
       </div>
     </div>
   );

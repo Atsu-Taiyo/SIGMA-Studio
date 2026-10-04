@@ -334,6 +334,12 @@ export const ai = {
     summaryMore: "ほか{{count}}件",
     dismissReasonExampleText: "例: 数式が元の問題と合っていない",
     dismissReasonExampleShape: "例: 図の配置が本文と合っていない",
+    /** 承認バーの切り替え。内容 (紙面のカード・サイドバーの差分) を隠してバーだけ残す。 */
+    hideContent: "内容を隠す",
+    showContent: "内容を表示",
+    /** 図形の変更前 (赤の破線) と変更後 (緑) が重なって読みにくいときに、変更前だけを隠す。 */
+    hideBefore: "変更前を隠す",
+    showBefore: "変更前を表示",
   },
   /** 指示入力欄。 */
   composer: {

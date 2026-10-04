@@ -4,12 +4,15 @@ import type { AiEditPreviewState } from "./model/preview";
 import type { AiProposalAnchorCard, AiProposalContentHunk } from "./model/proposal-content";
 
 import {
+  deriveAiOverlayShapeClassNames,
   getAiProposalCardKey,
   getAiProposalCardMeasureRevision,
   getAiProposalConversationKey,
   getOverlayInsertionAnchorBlockId,
   resolveAiEditGhostShapes,
 } from "./AiPageCanvasEditor";
+import { deriveAiEditPreviewDiff } from "./model/preview";
+import { DEFAULT_AI_PROPOSAL_DISPLAY_STATE } from "./model/proposal-display-state";
 import type { MeasuredBlock } from "@/features/drawing";
 import type { OverlayGeoShape, OverlayShape, OverlayTextShape } from "@/features/document";
 
@@ -112,6 +115,63 @@ describe("AI proposal cards in the page flow", () => {
     const renumbered = card("提案の本文");
     renumbered.content.hunks[0].numbering.added = { problems: new Map([["problem-1", 3]]), headings: new Map() };
     expect(getAiProposalCardMeasureRevision(renumbered, "uniform")).not.toBe(base);
+  });
+
+  it("re-measures when the card's display state changes its height (content hidden, apply error)", () => {
+    const base = getAiProposalCardMeasureRevision(card("提案の本文"), "uniform", DEFAULT_AI_PROPOSAL_DISPLAY_STATE);
+    expect(getAiProposalCardMeasureRevision(card("提案の本文"), "uniform")).toBe(base);
+    expect(getAiProposalCardMeasureRevision(card("提案の本文"), "uniform", {
+      ...DEFAULT_AI_PROPOSAL_DISPLAY_STATE,
+      contentHidden: true,
+    })).not.toBe(base);
+    expect(getAiProposalCardMeasureRevision(card("提案の本文"), "uniform", {
+      ...DEFAULT_AI_PROPOSAL_DISPLAY_STATE,
+      applyError: "失敗",
+    })).not.toBe(base);
+    // 破棄理由のポップオーバーは紙面の外 (body) に出るので、カードの高さは変わらない。
+    expect(getAiProposalCardMeasureRevision(card("提案の本文"), "uniform", {
+      ...DEFAULT_AI_PROPOSAL_DISPLAY_STATE,
+      dismissReasonOpen: true,
+    })).toBe(base);
+  });
+});
+
+describe("deriveAiOverlayShapeClassNames", () => {
+  const shapeUpdate = (proposalId: string, shapeId: string): AiEditPreviewState => ({
+    ...preview([]),
+    proposalIds: [proposalId],
+    draft: {
+      summary: "図形",
+      plan: [],
+      warnings: [],
+      operations: [],
+      mutationOperations: [{ operation: "updateOverlayShape", summary: "移動", shapeId, patch: { x: 10 } }],
+    },
+  });
+
+  it("marks the live shape of an update as the before state, without any time-based alternation class", () => {
+    const groups = [shapeUpdate("proposal-1", "shape-1")];
+    const classNames = deriveAiOverlayShapeClassNames({
+      previewGroups: groups,
+      previewDiff: deriveAiEditPreviewDiff(groups, []),
+      applyAnimation: null,
+      beforeHiddenShapeIds: new Set(),
+    });
+
+    expect(classNames.get("shape-1")).toBe("ai-diff-modified-shape ai-diff-before-shape");
+  });
+
+  it("hides only the before states the user chose to hide", () => {
+    const groups = [shapeUpdate("proposal-1", "shape-1"), shapeUpdate("proposal-2", "shape-2")];
+    const classNames = deriveAiOverlayShapeClassNames({
+      previewGroups: groups,
+      previewDiff: deriveAiEditPreviewDiff(groups, []),
+      applyAnimation: null,
+      beforeHiddenShapeIds: new Set(["shape-2"]),
+    });
+
+    expect(classNames.get("shape-1")).not.toContain("ai-diff-before-hidden");
+    expect(classNames.get("shape-2")).toBe("ai-diff-modified-shape ai-diff-before-shape ai-diff-before-hidden");
   });
 });
 
