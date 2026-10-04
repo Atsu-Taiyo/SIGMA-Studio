@@ -1,3 +1,6 @@
+import { readFileSync } from "node:fs";
+import path from "node:path";
+
 import { Window } from "happy-dom";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
@@ -211,13 +214,96 @@ describe("AiProposalContentView", () => {
     const previewBefore = structuredClone(preview);
 
     const html = render(pending(document, preview), "panel");
-    const painted = (side: string) => [...html.matchAll(new RegExp(`<span[^>]*background-color:var\\(--ai-proposal-word-${side}\\)[^>]*>([^<]*)</span>`, "g"))]
+    const painted = (side: string) => [...html.matchAll(new RegExp(`<span[^>]*background-color:var\\(--ai-proposal-word-${side}-mark, transparent\\)[^>]*>([^<]*)</span>`, "g"))]
       .map((match) => match[1]);
 
     expect(painted("removed")).toEqual(["前"]);
     expect(painted("added")).toEqual(["後"]);
     expect(document).toEqual(documentBefore);
     expect(preview).toEqual(previewBefore);
+  });
+
+  it("keeps a marker color under the highlight and lays the highlight over it as a separate layer", () => {
+    const document = documentOf([{ id: "p1", type: "paragraph", children: [{ type: "text", text: "強調", backgroundColor: "#fff59d" }] }]);
+    const html = render(pending(document, previewOf([{
+      operation: "replace",
+      summary: "マーカーの色を変える",
+      targetId: "p1",
+      replacementBlock: { id: "p1", type: "paragraph", children: [{ type: "text", text: "強調", backgroundColor: "#f8bbd0" }] } as never,
+    }])), "panel");
+    const css = readFileSync(path.join(import.meta.dirname, "AiProposalContentView.module.css"), "utf8");
+
+    // 描かれる背景色は元のマーカー色のまま (印の変数は定義しないので既定値が使われる)。
+    expect(html).toContain("background-color:var(--ai-proposal-word-removed-mark, #fff59d)");
+    expect(html).toContain("background-color:var(--ai-proposal-word-added-mark, #f8bbd0)");
+    // 差分の色は background-image として重ねる (半透明なので元の色が透ける)。背景色は上書きしない。
+    for (const side of ["removed", "added"]) {
+      const rule = new RegExp(`\\[style\\*="--ai-proposal-word-${side}-mark"\\][^{]*\\{([^}]*)\\}`).exec(css)?.[1] ?? "";
+      expect(rule).toContain(`background-image: linear-gradient(var(--ai-proposal-word-${side}), var(--ai-proposal-word-${side}))`);
+      expect(rule).not.toContain("background-color");
+    }
+  });
+
+  it.each([
+    ["子の項目", "子の項目を直した", {
+      type: "listItem",
+      id: "li_1",
+      children: [{ type: "text", text: "親の項目" }],
+      nested: [{ id: "nested_1", type: "list", listType: "bullet", items: [{ type: "listItem", id: "li_1a", children: [{ type: "text", text: "子の項目を直した" }] }] }],
+    }],
+    ["続きの段落", "続きの段落を直した", {
+      type: "listItem",
+      id: "li_1",
+      children: [{ type: "text", text: "親の項目" }],
+      continuations: [{ id: "cont_1", type: "paragraph", children: [{ type: "text", text: "続きの段落を直した" }] }],
+    }],
+  ] as const)("draws a list item's %s, and paints the changed words on the line that is actually drawn", (_label, changedText, replacement) => {
+    const document = documentOf([{
+      id: "list_1",
+      type: "list",
+      listType: "ordered",
+      items: [
+        { type: "listItem", id: "li_0", children: [{ type: "text", text: "前の項目" }] },
+        {
+          type: "listItem",
+          id: "li_1",
+          children: [{ type: "text", text: "親の項目" }],
+          nested: [{ id: "nested_1", type: "list", listType: "bullet", items: [{ type: "listItem", id: "li_1a", children: [{ type: "text", text: "子の項目" }] }] }],
+          continuations: [{ id: "cont_1", type: "paragraph", children: [{ type: "text", text: "続きの段落" }] }],
+        },
+      ],
+    } as SigmaBlock]);
+    const preview = previewOf([{
+      operation: "replace",
+      summary: "項目を直す",
+      targetId: "li_1",
+      replacementBlock: {
+        nested: [{ id: "nested_1", type: "list", listType: "bullet", items: [{ type: "listItem", id: "li_1a", children: [{ type: "text", text: "子の項目" }] }] }],
+        continuations: [{ id: "cont_1", type: "paragraph", children: [{ type: "text", text: "続きの段落" }] }],
+        ...replacement,
+      } as never,
+    }]);
+    const content = pending(document, preview);
+
+    for (const surface of ["page", "panel"] as const) {
+      const { container, close } = parse(render(content, surface));
+      const added = container.querySelector('[data-change="added"]');
+      expect(added?.textContent).toContain("親の項目");
+      expect(added?.textContent).toContain(changedText);
+      // 塗りは変わった単語 (「直し」「た」) にだけ付き、変わらない親の行には付かない。
+      const painted = Array.from(added?.querySelectorAll('[style*="--ai-proposal-word-added-mark"]') ?? [])
+        .map((element) => element.textContent).join("");
+      expect(painted.length).toBeGreaterThan(0);
+      expect(changedText).toContain(painted.replace(/\s/g, "").slice(0, 2));
+      expect(painted).not.toContain("親の項目");
+      // 番号はリストの中の位置のまま (2 番目の項目)。
+      expect(added?.querySelector("ol")?.getAttribute("start")).toBe("2");
+      if (surface === "panel") {
+        const removed = container.querySelector('[data-change="removed"]');
+        expect(removed?.textContent).toContain(changedText.replace("を直した", ""));
+      }
+      close();
+    }
   });
 
   it("labels an edit inside a problem with the area and the applied problem number", () => {
@@ -279,7 +365,7 @@ describe("AiProposalContentView", () => {
     const pendingContent = pending(documentOf(BASE_CONTENT), previewOf([PROPOSALS[0][1]]));
 
     expect(addedPaperClassSequence(render(applied, "panel"))).toEqual(addedPaperClassSequence(render(pendingContent, "panel")));
-    expect(render(applied, "panel")).toContain("background-color:var(--ai-proposal-word-added)");
+    expect(render(applied, "panel")).toContain("background-color:var(--ai-proposal-word-added-mark, transparent)");
   });
 
   it("lays the panel out at the page's column width before shrinking it", () => {

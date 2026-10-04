@@ -66,7 +66,9 @@
   opacity: 0.7;
 }
 
-/* 変わった単語の色は、ここで決めた変数を表示用のコピーが `background-color: var(...)` で引く。 */
+/* 変わった単語の色。表示用のコピーは背景色を `var(--ai-proposal-word-*-mark, <元の背景色>)` にして
+   印を付けるだけで (印の変数は定義しないので元の色のまま描かれる)、差分の色は下の規則が
+   background-image として半透明で重ねる。マーカー色そのものを変えた提案でも、元の色が透けて見える。 */
 .side,
 .shapeGroup {
   --ai-proposal-word-removed: color-mix(in srgb, var(--danger, #b42318) 28%, transparent);
@@ -75,6 +77,18 @@
   grid-template-columns: minmax(0, 1fr);
   min-width: 0;
   margin: 0;
+}
+
+.side [style*="--ai-proposal-word-removed-mark"] {
+  background-image: linear-gradient(var(--ai-proposal-word-removed), var(--ai-proposal-word-removed));
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
+}
+
+.side [style*="--ai-proposal-word-added-mark"] {
+  background-image: linear-gradient(var(--ai-proposal-word-added), var(--ai-proposal-word-added));
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
 }
 
 .side[data-change="removed"],

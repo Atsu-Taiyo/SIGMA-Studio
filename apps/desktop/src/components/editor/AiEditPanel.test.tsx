@@ -935,8 +935,8 @@ describe("AssistantTurnView", () => {
     // 単語単位の差分では"変更"と"の問題文"は共通のまま残り、"前"→"後"だけが塗られる。
     expect(html).toContain("変更");
     expect(html).toContain("の問題文");
-    expect(html).toContain('<span style="background-color:var(--ai-proposal-word-removed)">前</span>');
-    expect(html).toContain('<span style="background-color:var(--ai-proposal-word-added)">後</span>');
+    expect(html).toContain('<span style="background-color:var(--ai-proposal-word-removed-mark, transparent)">前</span>');
+    expect(html).toContain('<span style="background-color:var(--ai-proposal-word-added-mark, transparent)">後</span>');
     expect(html).toContain("−1行");
     expect(html).toContain("+1行");
     expect(html).not.toContain("本文を更新");

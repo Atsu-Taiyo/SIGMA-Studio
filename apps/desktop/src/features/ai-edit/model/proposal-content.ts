@@ -1,6 +1,8 @@
 import {
   PROBLEM_AREA_ORDER,
   type InlineNode,
+  type ListItemNode,
+  type ListNode,
   type OverlayAsset,
   type OverlayShape,
   type ProblemAreaKind,
@@ -117,12 +119,14 @@ export interface AiProposalAnchorCard {
 export const AI_PROPOSAL_PREVIEW_ID_PREFIX = "ai-proposal-preview:";
 
 /**
- * 変わった単語に塗る色。値は CSS 変数で、色そのものは描画部品の側 (削除側・追加側の入れ物) が
- * 決める。保存される文書には書かない (表示専用のコピーにだけ載せる)。
+ * 変わった単語に付ける印 (CSS 変数の名前)。表示用のコピーの `backgroundColor` を
+ * `var(<印>, <元の背景色>)` にする。印の変数はどこにも定義しないので、描かれる背景色は元のまま
+ * (マーカー色を変えた提案でも、どの色からどの色に変わるかが見える)。差分の色は描画部品の CSS が
+ * この印を手がかりに `background-image` として半透明で重ねる。保存される文書には書かない。
  */
 export const AI_PROPOSAL_WORD_HIGHLIGHT = {
-  removed: "var(--ai-proposal-word-removed)",
-  added: "var(--ai-proposal-word-added)",
+  removed: "--ai-proposal-word-removed-mark",
+  added: "--ai-proposal-word-added-mark",
 } as const;
 
 const EMPTY_NUMBERING: AiProposalNumbering = { problems: new Map(), headings: new Map() };
@@ -132,6 +136,8 @@ interface DocumentFlowIndex {
   flowAnchorById: Map<string, string>;
   /** 文書順 (深さ優先。問題のエリアは紙面の並び)。 */
   orderById: Map<string, number>;
+  /** リスト項目 id → その項目を持つリストと、リストの中の位置。 */
+  listOfItem: Map<string, { list: ListNode; index: number }>;
 }
 
 type FlowWalkBlock = SigmaBlock | EditableBlock;
@@ -139,6 +145,7 @@ type FlowWalkBlock = SigmaBlock | EditableBlock;
 function indexDocumentFlow(document: SigmaDocument): DocumentFlowIndex {
   const flowAnchorById = new Map<string, string>();
   const orderById = new Map<string, number>();
+  const listOfItem = new Map<string, { list: ListNode; index: number }>();
   let order = 0;
 
   const record = (id: string, anchor: string) => {
@@ -175,9 +182,10 @@ function indexDocumentFlow(document: SigmaDocument): DocumentFlowIndex {
         }
         return;
       case "list":
-        for (const item of block.items) {
+        block.items.forEach((item, index) => {
+          listOfItem.set(item.id, { list: block, index });
           visit(item, false, anchor);
-        }
+        });
         return;
       case "listItem":
         for (const continuation of block.continuations ?? []) {
@@ -195,7 +203,30 @@ function indexDocumentFlow(document: SigmaDocument): DocumentFlowIndex {
   for (const block of document.content) {
     visit(block, true, null);
   }
-  return { flowAnchorById, orderById };
+  return { flowAnchorById, orderById, listOfItem };
+}
+
+/**
+ * リスト項目は、その項目だけを持つリストとして見せる。項目の文だけを段落にすると、子の項目
+ * (`nested`) と続きの段落 (`continuations`) が落ち、そこだけを直した提案が「変わらない親の行が
+ * 2 回並ぶ」表示になる。番号付きのリストは元の位置の番号から始める。id は項目のものを使うので、
+ * 置き換えの両側は同じ id で組になる。所属が分からない (文書が無い) ときは箇条書きにする。
+ */
+function presentListItem(item: ListItemNode, owner?: { list: ListNode; index: number }): ListNode {
+  const list = owner?.list;
+  const ordered = list?.listType === "ordered";
+  return {
+    id: item.id,
+    type: "list",
+    listType: list?.listType ?? "bullet",
+    ...(ordered && list?.markerStyle ? { markerStyle: list.markerStyle } : {}),
+    ...(ordered ? { start: (list?.start ?? 1) + (owner?.index ?? 0) } : {}),
+    items: [item],
+  };
+}
+
+function presentBlock(block: EditableBlock, index: DocumentFlowIndex | null): EditableBlock {
+  return block.type === "listItem" ? presentListItem(block, index?.listOfItem.get(block.id)) : block;
 }
 
 function numberingOf(document: SigmaDocument): AiProposalNumbering {
@@ -205,13 +236,18 @@ function numberingOf(document: SigmaDocument): AiProposalNumbering {
   };
 }
 
-const afterDocumentCache = new WeakMap<SigmaDocument, WeakMap<AiEditPreviewState, SigmaDocument | null>>();
+/**
+ * 提案ごとに直近の 1 件だけを覚える (今の文書 → 適用後の文書)。紙面とサイドバーは同じ文書で
+ * 引くのでここで共有でき、文書が変わったら置き換える。文書をキーにすると、取り消し履歴が古い文書を
+ * 持つ間その適用後の文書 (構造を共有しない全体のコピー) も解放されず、提案の数だけ積み上がる。
+ */
+const afterDocumentCache = new WeakMap<AiEditPreviewState, { document: SigmaDocument; afterDocument: SigmaDocument | null }>();
 
 /**
  * 保留中の提案を今の文書へ適用した文書。本文を変えない提案 (図形だけ) は使わないので `null`。
  * 古くなって適用できない提案も `null` (内容は draft の中身で代わりに描く)。
  *
- * 紙面とサイドバーが同じ文書・同じ提案で呼ぶので、文書と提案の組ごとに 1 回だけ計算する。
+ * 紙面とサイドバーが同じ文書・同じ提案で呼ぶので、提案ごとに直近の文書の分を 1 つだけ覚えて共有する。
  */
 export function resolvePendingProposalAfterDocument(
   current: SigmaDocument,
@@ -220,13 +256,9 @@ export function resolvePendingProposalAfterDocument(
   if (!hasBodyAiEditChanges(preview)) {
     return null;
   }
-  let byPreview = afterDocumentCache.get(current);
-  if (!byPreview) {
-    byPreview = new WeakMap();
-    afterDocumentCache.set(current, byPreview);
-  }
-  if (byPreview.has(preview)) {
-    return byPreview.get(preview) ?? null;
+  const cached = afterDocumentCache.get(preview);
+  if (cached && cached.document === current) {
+    return cached.afterDocument;
   }
   let afterDocument: SigmaDocument | null;
   try {
@@ -234,7 +266,7 @@ export function resolvePendingProposalAfterDocument(
   } catch {
     afterDocument = null;
   }
-  byPreview.set(preview, afterDocument);
+  afterDocumentCache.set(preview, { document: current, afterDocument });
   return afterDocument;
 }
 
@@ -352,13 +384,13 @@ function buildPendingHunks(
     // 適用後の文書があればそこから読む。無い id は同じ draft の後の操作が消したもの。
     const block = afterBlocks ? afterBlocks.get(draftBlock.id) : draftBlock;
     if (block) {
-      hunk.added.set(block.id, block);
+      hunk.added.set(block.id, presentBlock(block, afterIndex ?? currentIndex));
     }
   };
   const addCurrent = (hunk: HunkDraft, blockId: string) => {
     const block = currentBlocks.get(blockId);
     if (block) {
-      hunk.removed.set(block.id, block);
+      hunk.removed.set(block.id, presentBlock(block, currentIndex));
     }
   };
 
@@ -527,8 +559,8 @@ export function buildAppliedProposalContent(
     }
     hunks.push({
       anchorBlockId: id,
-      removed: removed ? [removed] : [],
-      added: added ? [added] : [],
+      removed: removed ? [presentBlock(removed, null)] : [],
+      added: added ? [presentBlock(added, null)] : [],
       notes: [],
       operations: [removed && added ? "replace" : removed ? "deleteBlocks" : "insertAfter"],
       numbering: { removed: EMPTY_NUMBERING, added: EMPTY_NUMBERING },
@@ -585,7 +617,12 @@ export function groupPendingProposalContentByAnchor(
 /** 描画部品に渡す塊。ブロックは塗り分けと id の付け替えを済ませた**表示専用のコピー**。 */
 export type AiProposalDisplayHunk = AiProposalContentHunk;
 
-function paintRanges(nodes: InlineNode[], ranges: InlineChangeRange[], color: string): InlineNode[] {
+/** 元の背景色 (無ければ透明) を既定値に持つ印付きの値。描かれる背景色は元のまま。 */
+function markedBackground(mark: string, node: InlineNode): string {
+  return `var(${mark}, ${node.backgroundColor ?? "transparent"})`;
+}
+
+function paintRanges(nodes: InlineNode[], ranges: InlineChangeRange[], mark: string): InlineNode[] {
   const rangesByNode = new Map<number, InlineChangeRange[]>();
   for (const range of ranges) {
     const list = rangesByNode.get(range.nodeIndex) ?? [];
@@ -598,7 +635,7 @@ function paintRanges(nodes: InlineNode[], ranges: InlineChangeRange[], color: st
       return [node];
     }
     if (node.type === "mathInline") {
-      return [{ ...node, backgroundColor: color }];
+      return [{ ...node, backgroundColor: markedBackground(mark, node) }];
     }
     const pieces: InlineNode[] = [];
     let cursor = 0;
@@ -607,7 +644,11 @@ function paintRanges(nodes: InlineNode[], ranges: InlineChangeRange[], color: st
         pieces.push({ ...node, text: node.text.slice(cursor, range.start) });
       }
       if (range.end > Math.max(cursor, range.start)) {
-        pieces.push({ ...node, text: node.text.slice(Math.max(cursor, range.start), range.end), backgroundColor: color });
+        pieces.push({
+          ...node,
+          text: node.text.slice(Math.max(cursor, range.start), range.end),
+          backgroundColor: markedBackground(mark, node),
+        });
       }
       cursor = Math.max(cursor, range.end);
     }
@@ -618,8 +659,8 @@ function paintRanges(nodes: InlineNode[], ranges: InlineChangeRange[], color: st
   });
 }
 
-function paintAll(nodes: InlineNode[], color: string): InlineNode[] {
-  return nodes.map((node) => ({ ...node, backgroundColor: color }));
+function paintAll(nodes: InlineNode[], mark: string): InlineNode[] {
+  return nodes.map((node) => ({ ...node, backgroundColor: markedBackground(mark, node) }));
 }
 
 /**

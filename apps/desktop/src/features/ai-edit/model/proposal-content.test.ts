@@ -9,6 +9,7 @@ import type {
   SigmaDocument,
 } from "@/features/document";
 import type { AiEditDraft, SigmaDocMutationOp } from "@/lib/ai/sigma-doc-edit-schema";
+import { buildAppliedDiffRows } from "@/lib/ai/applied-diff-lines";
 import { parseSigmaDocument } from "@/lib/sigma-doc-schema";
 
 import type { AiEditPreviewState } from "./preview";
@@ -186,6 +187,44 @@ describe("buildPendingProposalContent", () => {
     expect(content.hunks[0].added.map((block) => block.id)).toEqual(["box_p"]);
   });
 
+  it("presents a list item inside a one-item list that keeps its nested items and its number", () => {
+    const document = documentOf([{
+      id: "list_1",
+      type: "list",
+      listType: "ordered",
+      start: 3,
+      items: [
+        { type: "listItem", id: "li_0", children: [{ type: "text", text: "前" }] },
+        {
+          type: "listItem",
+          id: "li_1",
+          children: [{ type: "text", text: "親" }],
+          nested: [{ id: "nested_1", type: "list", listType: "bullet", items: [{ type: "listItem", id: "li_1a", children: [{ type: "text", text: "子" }] }] }],
+        },
+      ],
+    } as SigmaBlock]);
+    const content = pending(document, previewOf([{
+      operation: "replace",
+      summary: "子の項目を直す",
+      targetId: "li_1",
+      replacementBlock: {
+        type: "listItem",
+        id: "li_1",
+        children: [{ type: "text", text: "親" }],
+        nested: [{ id: "nested_1", type: "list", listType: "bullet", items: [{ type: "listItem", id: "li_1a", children: [{ type: "text", text: "子を直した" }] }] }],
+      } as never,
+    }]));
+
+    const [hunk] = content.hunks;
+    expect(hunk.anchorBlockId).toBe("list_1");
+    for (const block of [...hunk.removed, ...hunk.added]) {
+      expect(block).toMatchObject({ id: "li_1", type: "list", listType: "ordered", start: 4 });
+    }
+    // 件数は変わった子の行だけ (変わらない親の行は数えない)。
+    expect(buildAppliedDiffRows(proposalContentToAppliedDiff(content)).filter((row) => row.type !== "context").map((row) => [row.type, row.key]))
+      .toEqual([["removed", "li_1a"], ["added", "li_1a"]]);
+  });
+
   it("uses the proposed numbering setting, including a hidden number", () => {
     const document = baseDocument();
     const current = document.content[1] as Extract<SigmaBlock, { type: "problem" }>;
@@ -356,6 +395,21 @@ describe("resolvePendingProposalAfterDocument", () => {
     ]))).toBeNull();
   });
 
+  it("keeps only the latest after-document per proposal, so older documents in the undo history are not pinned", () => {
+    const preview = previewOf([replace("p1", "変更後")]);
+    const first = baseDocument();
+    const afterFirst = resolvePendingProposalAfterDocument(first, preview);
+    resolvePendingProposalAfterDocument(baseDocument(), preview);
+    resolvePendingProposalAfterDocument(baseDocument(), preview);
+
+    // 3 回差し替えた後に最初の文書で引き直すと、作り直しになる (最初の結果は持ち続けていない)。
+    const again = resolvePendingProposalAfterDocument(first, preview);
+    expect(again).not.toBeNull();
+    expect(again).not.toBe(afterFirst);
+    // 同じ文書のままなら、紙面とサイドバーで同じ結果を共有する。
+    expect(resolvePendingProposalAfterDocument(first, preview)).toBe(again);
+  });
+
   it("returns null instead of throwing when a stale proposal no longer replays", () => {
     expect(resolvePendingProposalAfterDocument(baseDocument(), previewOf([replace("missing", "x")]))).toBeNull();
   });
@@ -426,15 +480,49 @@ describe("toDisplayProposalHunk", () => {
 
     const removedNodes = (display.removed[0] as { children: InlineNode[] }).children;
     const addedNodes = (display.added[0] as { children: InlineNode[] }).children;
-    expect(removedNodes.filter((node) => node.backgroundColor === AI_PROPOSAL_WORD_HIGHLIGHT.removed).map(texts1))
+    expect(removedNodes.filter((node) => node.backgroundColor === `var(${AI_PROPOSAL_WORD_HIGHLIGHT.removed}, transparent)`).map(texts1))
       .toEqual(["前"]);
-    expect(addedNodes.filter((node) => node.backgroundColor === AI_PROPOSAL_WORD_HIGHLIGHT.added).map(texts1))
+    expect(addedNodes.filter((node) => node.backgroundColor === `var(${AI_PROPOSAL_WORD_HIGHLIGHT.added}, transparent)`).map(texts1))
       .toEqual(["後"]);
     expect(texts(addedNodes)).toBe("変更後の問題文");
     expect(display.added[0].id).toBe(`${AI_PROPOSAL_PREVIEW_ID_PREFIX}p1`);
     expect(display.removed[0].id).toBe(`${AI_PROPOSAL_PREVIEW_ID_PREFIX}p1`);
     expect(content).toEqual(sourceBefore);
     expect(document).toEqual(documentBefore);
+  });
+
+  it("keeps a marker color under the highlight, so a marker-only change shows which color it becomes", () => {
+    const document = documentOf([{ id: "p1", type: "paragraph", children: [
+      { type: "text", text: "前と同じ" },
+      { type: "text", text: "強調", backgroundColor: "#fff59d" },
+    ] }]);
+    const preview = previewOf([{
+      operation: "replace",
+      summary: "マーカーの色を変える",
+      targetId: "p1",
+      replacementBlock: { id: "p1", type: "paragraph", children: [
+        { type: "text", text: "前と同じ" },
+        { type: "text", text: "強調", backgroundColor: "#f8bbd0" },
+      ] } as never,
+    }]);
+    const sourceBefore = structuredClone(preview);
+    const content = pending(document, preview);
+
+    const display = toDisplayProposalHunk(content.hunks[0]);
+    const removedNodes = (display.removed[0] as { children: InlineNode[] }).children;
+    const addedNodes = (display.added[0] as { children: InlineNode[] }).children;
+
+    // 元の色は残し (CSS 変数の既定値として)、差分の印は別の変数で付ける。印の色は部品の CSS が
+    // background-image として重ねる。
+    expect(removedNodes.map((node) => node.backgroundColor)).toEqual([
+      undefined,
+      `var(${AI_PROPOSAL_WORD_HIGHLIGHT.removed}, #fff59d)`,
+    ]);
+    expect(addedNodes.map((node) => node.backgroundColor)).toEqual([
+      undefined,
+      `var(${AI_PROPOSAL_WORD_HIGHLIGHT.added}, #f8bbd0)`,
+    ]);
+    expect(preview).toEqual(sourceBefore);
   });
 
   it("does not paint a pure insertion word by word", () => {
