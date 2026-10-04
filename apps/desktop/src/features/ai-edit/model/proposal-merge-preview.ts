@@ -23,7 +23,9 @@ import { hasBodyAiEditChanges, type AiEditPreviewState } from "./preview";
  *   それもできなければ `null` (内容は draft の中身で代わりに描く)。どちらの代わりの経路も数える
  *   (`AI_PROPOSAL_PREVIEW_COUNTERS`、MISS R3)。承認が文書を差し替えている間は数えない
  *   (承認済みの提案が一覧の再取得まで承認後の文書に重ねて描かれ、挿入の id が既にあるなどで必ず失敗する)。
- * - 本文を変えない提案 (図形だけ) は使わないので replay しない。
+ * - 本文を変えない提案 (図形だけ) も、base を持てば合成 replay する。図形は紙面に draft から描くが、AI が
+ *   消す図形を人が直したときに合成で残るかどうか (`collectShapesKeptByMerge`) と、人の編集と合わせた
+ *   単位はこの結果から読む。base を持たない図形だけの提案は使わないので replay しない。
  * - 図形の変更は 250ms 遅れて文書に入る (overlay の debounce)。プレビューはその後の文書で更新され、
  *   承認は直前に flush するので、承認の内容とは食い違わない。
  */
@@ -77,7 +79,7 @@ export function resolveProposalMergePreview(
   preview: AiEditPreviewState,
   options: ResolveProposalMergePreviewOptions = {},
 ): AiProposalMergePreview {
-  if (!hasBodyAiEditChanges(preview)) {
+  if (!hasBodyAiEditChanges(preview) && !preview.mergeSources?.length) {
     return NO_PREVIEW;
   }
   const cached = previewCache.get(preview);

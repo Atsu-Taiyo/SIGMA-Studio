@@ -181,6 +181,29 @@ describe("deriveAiOverlayShapeClassNames", () => {
     expect(classNames.get("shape-1")).not.toContain("ai-diff-before-hidden");
     expect(classNames.get("shape-2")).toBe("ai-diff-modified-shape ai-diff-before-shape ai-diff-before-hidden");
   });
+
+  it("draws the red removal only on deleted shapes the merge does not keep (the human edited the kept one)", () => {
+    const deletion: AiEditPreviewState = {
+      ...preview([]),
+      draft: {
+        summary: "図形",
+        plan: [],
+        warnings: [],
+        operations: [],
+        mutationOperations: [{ operation: "deleteOverlayShapes", summary: "削除", shapeIds: ["shape-kept", "shape-gone"] }],
+      },
+    };
+    const classNames = deriveAiOverlayShapeClassNames({
+      previewGroups: [deletion],
+      previewDiff: deriveAiEditPreviewDiff([deletion], []),
+      applyAnimation: null,
+      beforeHiddenShapeIds: new Set(),
+      mergeKeptShapeIds: new Set(["shape-kept"]),
+    });
+
+    expect(classNames.get("shape-gone")).toBe("ai-diff-removed-shape");
+    expect(classNames.has("shape-kept")).toBe(false);
+  });
 });
 
 describe("resolveAiEditGhostShapes", () => {

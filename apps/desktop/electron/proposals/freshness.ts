@@ -6,6 +6,7 @@ import {
 } from "@/lib/ai/sigma-doc-edit-schema";
 import { isOverlayAnchorSupportDraft } from "@/lib/ai/applied-document-diff";
 import {
+  collectNonMergeableSensitiveIds,
   collectReinsertedDeletionIds,
   findBlockContainer,
   usableProposalMergeBasis,
@@ -434,22 +435,9 @@ export interface MergeableProposal {
   touchedBlocks?: LocalMcpEditProposalTouchedBlock[];
 }
 
-/**
- * Overwritten targets the merging replay does not merge: shapes the draft aligns and partial
- * column sections it reconfigures are operation-based, so a human change to them is still a
- * content conflict (compared with the base hashes) unless the same target is also a merged unit.
- */
-export function collectNonMergeableSensitiveIds(draft: AiEditSessionDraft, mergeBasis: ProposalMergeBasis): string[] {
-  const ids = new Set<string>();
-  for (const operation of draft.mutationOperations ?? []) {
-    if (operation.operation === "alignOverlayShapes") {
-      operation.shapeIds.forEach((id) => ids.add(id));
-    } else if (operation.operation === "updateLayoutSection") {
-      ids.add(operation.sectionId);
-    }
-  }
-  return [...ids].filter((id) => mergeBasis.entities[id] === undefined);
-}
+// The renderer locks exactly these targets while the proposal is pending, so the rule lives next to
+// the merge basis (`src/lib`), which both sides can import.
+export { collectNonMergeableSensitiveIds };
 
 function findNonMergeableContentStale(
   proposal: MergeableProposal,
