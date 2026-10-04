@@ -696,6 +696,11 @@ code {
   max-width: 100%;
 }
 
+/* ページ・段の境目で切れた拡張ノードの正本。box fragment と同じく、見せる帯を上端からの高さで決める。 */
+.page-flow-extension-node[data-flow-extension-fragment-source] {
+  clip-path: inset(0 0 max(0px, 100% - var(--flow-extension-visible-height, 100%)) 0);
+}
+
 /*
  * ページ・段の境目で切れた拡張ノードの続き。同じ中身の複製を次のページの帯で切って見せる。
  * 操作は正本 (最初の帯) にだけ置くので、続きは `inert` で触れない。継承する字の大きさは本文フロー

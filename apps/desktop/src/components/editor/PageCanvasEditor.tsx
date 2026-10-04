@@ -161,7 +161,7 @@ import {
   getFlowUnitPlacementStyle,
   mergeFlowUnitStyle,
 } from "./page-canvas/flow-presentation";
-import { getFlowExtensionNodeId,getProblemAfterInlineContent } from "./page-canvas/inline-content-composition";
+import { getFlowExtensionNodeId,getProblemAfterContentUnitIds,getProblemAfterInlineContent } from "./page-canvas/inline-content-composition";
 import { calculateReserveSpaceGaps } from "./page-canvas/layout-measure";
 import { LayoutSectionFlowUnit } from "./page-canvas/layout-section-view";
 import { publishLayoutSnapshot } from "./page-canvas/layout-snapshot";
@@ -872,6 +872,8 @@ const {
   useLayoutEffect(() => {
     onMeasuredBlockRectsChange?.(blockRects);
   }, [blockRects, onMeasuredBlockRectsChange]);
+  // 問題そのものを対象にした差し込みは、問題ごとに 1 つのユニットの後ろにだけ描く。
+  const problemAfterContentUnitIds = useMemo(() => getProblemAfterContentUnitIds(units), [units]);
   // 拡張ノードが読むページ割りの答え。編集面は自分のブロックの分だけを props で受けるので、
   // この値が変わって描き直されるのは拡張ノードだけ。
   const flowExtensionLayout = useMemo(
@@ -3297,7 +3299,7 @@ const { candidateCommentTop, pendingCommentTop, commentThreadPositions } = usePa
                   inlineContentByTargetId={inlineContentByTargetId}
                   afterInlineContent={getProblemAfterInlineContent(
                     unit.problem.id,
-                    unit.isLastProblemArea,
+                    problemAfterContentUnitIds.has(unit.id),
                     inlineContentByTargetId,
                   )}
                   commentThreads={displayedCommentThreads}

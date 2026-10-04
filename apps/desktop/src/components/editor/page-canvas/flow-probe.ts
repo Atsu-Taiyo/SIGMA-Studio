@@ -154,8 +154,9 @@ export function probeFlow(flow: HTMLElement, options: FlowProbeOptions): ProbeTr
     const acc = { dx: unitAcc.dx + own.dx, dy: unitAcc.dy + own.dy };
     const rect = toRect(element.getBoundingClientRect(), acc);
     const height = rect.bottom - rect.top;
-    // 閉じた (中身の無い) 拡張ノードは行を持たない。
-    if (isExtension && height <= 0.5) return null;
+    // 閉じた (中身の無い) 拡張ノードは行を持たない。同じ id の 2 つ目は測らない: 行キー・変位・断片が
+    // id で引かれるので、2 つあると上書きし合い、片方が他方の位置に描かれる (描く側が 1 か所にする)。
+    if (isExtension && (height <= 0.5 || seenNodeIds.has(id))) return null;
     seenNodeIds.add(id);
     // 編集面の版は面 (ProseMirror) が、拡張ノードの版は要素自身が持つ。
     const revision = (isExtension

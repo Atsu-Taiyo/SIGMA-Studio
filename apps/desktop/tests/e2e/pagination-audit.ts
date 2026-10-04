@@ -121,8 +121,14 @@ export async function auditPagination(page: Page, options: PaginationAuditOption
         top = Math.max(top, rect.top);
         bottom = Math.min(bottom, rect.bottom);
       }
-      if (element instanceof HTMLElement && element.classList.contains("text-flow-box-fragment-source")) {
-        const visible = Number.parseFloat(element.style.getPropertyValue("--text-flow-box-fragment-visible-height"));
+      // 切れたブロック・拡張ノードの正本は、見せる帯を上端からの高さ (CSS 変数) で切る。
+      const visibleBandProperty = element instanceof HTMLElement
+        ? element.classList.contains("text-flow-box-fragment-source")
+          ? "--text-flow-box-fragment-visible-height"
+          : element.hasAttribute("data-flow-extension-fragment-source") ? "--flow-extension-visible-height" : null
+        : null;
+      if (element instanceof HTMLElement && visibleBandProperty) {
+        const visible = Number.parseFloat(element.style.getPropertyValue(visibleBandProperty));
         if (Number.isFinite(visible)) {
           bottom = Math.min(bottom, rect.top + visible * scale);
         }
