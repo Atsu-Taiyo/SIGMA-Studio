@@ -84,9 +84,10 @@ describe("AI proposal cards in the page flow", () => {
       added: { problems: new Map([["problem-1", 2]]), headings: new Map() },
     },
   });
-  const card = (text: string, proposalIds = ["proposal-1"]): AiProposalAnchorCard => ({
+  const card = (text: string, proposalIds = ["proposal-1"], mergedWithHumanEdits = false): AiProposalAnchorCard => ({
     preview: roomPreview(proposalIds),
     content: { hunks: [hunk(text)], shapes: [] },
+    mergedWithHumanEdits,
   });
 
   it("keeps a card's key when a follow-up turn in the same room adds a proposal", () => {
@@ -132,6 +133,9 @@ describe("AI proposal cards in the page flow", () => {
       ...DEFAULT_AI_PROPOSAL_DISPLAY_STATE,
       applyError: "失敗",
     })).not.toBe(base);
+    // 「あなたの編集と合わせた内容です」の一言はバーの下の行を足す。
+    expect(getAiProposalCardMeasureRevision(card("提案の本文", ["proposal-1"], true), "uniform", DEFAULT_AI_PROPOSAL_DISPLAY_STATE))
+      .not.toBe(base);
     // 破棄理由のポップオーバーは紙面の外 (body) に出るので、カードの高さは変わらない。
     expect(getAiProposalCardMeasureRevision(card("提案の本文"), "uniform", {
       ...DEFAULT_AI_PROPOSAL_DISPLAY_STATE,

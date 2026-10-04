@@ -50,9 +50,9 @@ import { AiChatComposer } from "@/features/ai-edit/view/AiChatComposer";
 import { AiChatInlineSurface } from "@/features/ai-edit/view/AiChatInlineSurface";
 import {
   buildPendingProposalContent,
-  resolvePendingProposalAfterDocument,
   type AiProposalContent,
 } from "@/features/ai-edit/model/proposal-content";
+import { resolveProposalMergePreview } from "@/features/ai-edit/model/proposal-merge-preview";
 import { getPageMetrics, type OverlayAsset } from "@/features/document";
 
 const EMPTY_PINNED_REFERENCES: AiEditReference[] = [];
@@ -302,19 +302,25 @@ export function AiEditPanel({
   // 提案内容はこの段幅で組んでからパネルの幅へ縮める (紙面と同じ改行で読める)。
   const paperWidthPx = useMemo(() => getPageMetrics(document.pageLayout).flow.columnWidthPx, [document.pageLayout]);
   // Build proposal contents once per input change. The render path only reads the map. The
-  // after-document is shared with the page cards (memoized per document and proposal), so the
-  // composer's keystrokes and the page do not replay the same proposal twice.
+  // after-document is the approval's merging replay, shared with the page cards (remembered per
+  // proposal and the units it touches), so the composer's keystrokes and the page do not replay the
+  // same proposal twice.
   const pendingContents = useMemo(() => {
-    const contents = new Map<AiEditPreviewState, AiProposalContent>();
+    const contents = new Map<AiEditPreviewState, { content: AiProposalContent; mergedWithHumanEdits: boolean }>();
     for (const candidate of previewGroups) {
-      contents.set(candidate, buildPendingProposalContent(
-        document,
-        resolvePendingProposalAfterDocument(document, candidate),
-        candidate,
-      ));
+      // 承認が文書を差し替えている間 (busy) は、プレビューの代わりの経路を数えない。
+      const merged = resolveProposalMergePreview(document, candidate, { countFallbacks: !busy });
+      contents.set(candidate, {
+        content: buildPendingProposalContent(document, merged.afterDocument, candidate),
+        mergedWithHumanEdits: merged.humanEditedUnits.length > 0,
+      });
     }
     return contents;
-  }, [previewGroups, document]);
+  }, [busy, previewGroups, document]);
+  const isMergedWithHumanEdits = useCallback(
+    (preview: AiEditPreviewState) => pendingContents.get(preview)?.mergedWithHumanEdits ?? false,
+    [pendingContents],
+  );
 
   const latestAssistant = useMemo<AssistantTurn | null>(() => {
     for (let i = visibleTurns.length - 1; i >= 0; i -= 1) {
@@ -744,7 +750,7 @@ export function AiEditPanel({
     return <AiChatInlineSurface
       surface={{inlineOpen,inlineAnchor,inlineRunAnchor,inlineRunAnchorCanvas,inlineRunPortalTarget,onPromoteToSidebar,onCloseInline}}
       conversation={{provider,lockedProvider,visibleTurns,latestAssistant,activeRoomId,inlineRunTurnId,inlineBaselineTurnId,isRunning,clockNow}}
-      proposals={{previewGroups,busy,onApplyGroup,onDismissGroup,insertedShapePreviewsByTurnId,activeRoomPreview}}
+      proposals={{previewGroups,busy,onApplyGroup,onDismissGroup,insertedShapePreviewsByTurnId,activeRoomPreview,isMergedWithHumanEdits}}
       composer={renderComposer("inline")} composerError={composerError} hasOpenMenu={composer.hasOpenMenu}
       retryTurn={retryTurn} dismissTurn={dismissTurn}
     />;
@@ -788,7 +794,7 @@ export function AiEditPanel({
             // 承認する前に「何が消えて何が足されるのか」を、承認後の適用済みカードと同じ
             // 部品で先出しする (「見た目で分かって承認できる」体験にする)。キャッシュ経由なので、
             // コンポーザーへの入力など無関係な再レンダーではproposal/documentが同じ限り再計算されない。
-            const proposalContent = proposal ? pendingContents.get(proposal) : undefined;
+            const pending = proposal ? pendingContents.get(proposal) : undefined;
             return (
               <AssistantTurnView
                 key={turn.id}
@@ -802,7 +808,8 @@ export function AiEditPanel({
                 restorable={restorableProposalsByTurnId?.get(turn.id)}
                 onRestoreProposal={onRestoreProposal}
                 proposal={proposal}
-                proposalContent={proposalContent}
+                proposalContent={pending?.content}
+                proposalMergedWithHumanEdits={pending?.mergedWithHumanEdits ?? false}
                 proposalBusy={busy}
                 onApplyProposal={onApplyGroup}
                 onDismissProposal={onDismissGroup}

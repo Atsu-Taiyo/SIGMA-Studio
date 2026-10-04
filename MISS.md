@@ -12,7 +12,7 @@ R1. **教材の「中身が変わったか」の比較に、書き込み時刻�
 `updatedAt` / `pageLayout.overlay.updatedAt` は内容ではない。保存経路も打鍵も `{...doc, updatedAt: now}` という別コピーを作り、そのコピーだけを保存済みの姿として覚えるので、画面の文書とディスク基準の時刻は**常にズレている**。比較は `apps/desktop/src/lib/document-equivalence.ts` の `areSigmaDocumentsEquivalent` / `comparableDocumentValue` を通す。新しい比較・ハッシュ・鮮度判定を足すときも同じ射影を使う。
 
 R2. **AI編集の承認は、いま開いている 1 ファイルの中だけで解決する。**
-競合を理由に教材ファイルを増やさない。競合した単位は承認された内容を採り、採用前の文書を undo エントリへ積んで Ctrl+Z で戻せるようにする。新しい教材ファイルを作ってよいのは、書き戻す先が消えた場合 (`switchAwayFromDeletedFile`) だけ。
+競合を理由に教材ファイルを増やさない。提案の後に人が対象を直していても、競合した単位は三者マージで両方残す: 提案が作成時に保存した元の内容 (`mergeBasis`)・今の文書・提案を合成する (承認の合成 replay `replayProposalDraftMerging`)。承認待ちの間に入った打鍵も承認された文書と三者マージする (`decideAiApprovedDocument`)。同じ値を両側が別の値にした・合成結果が検証を通らないなど、重なって片方が落ちる場合は記録して数え (R3)、お知らせで知らせる。採用前の文書を undo エントリへ積んで Ctrl+Z で戻せるようにする。合成で解決できない提案 (対象の消失など) と `mergeBasis` を持たない旧レコードだけを競合として通知する。新しい教材ファイルを作ってよいのは、書き戻す先が消えた場合 (`switchAwayFromDeletedFile`) だけ。
 
 R3. **「安全側に倒すフォールバック」は、必ず数えられるようにする。**
 退避・全文リロード・提案の再生成のような重い救済経路は、成功扱いで静かに走ると常時発火していても誰も気づかない。フォールバックを書くときは (a) 発火が e2e から観測できること、(b) 正常系のテストで発火回数 0 を期待すること、をセットにする。
@@ -55,5 +55,14 @@ R15. **手動改ページは「本文の流れの中の一点」として扱い�
 
 R16. **クリップボードの HTML は、スキーマ自身の直列化と解析の往復として成り立たせる。mark に「どの span でも受ける」規則を置かない。**
 SigmaDoc の payload を持たない貼り付け (本文 → 図中テキスト、切り取り → 貼り付け、別の編集面からのコピー) は、ProseMirror が HTML を `parseHTML` で読み戻す。ProseMirror は同じ優先度なら mark の規則を node の規則より先に評価するので、`styledText` が `{ tag: "span" }` を無条件に受けていた間は、数式 (`span[data-sigma-doc-math-inline]`) が「装飾の無い文字」に食われ、KaTeX の描画文字 (`∣x∣=1+h1​`) へ崩れた。枠で囲んだ数式は特に目立ったが、囲みの有無とは無関係。本文 → 本文は payload で運ぶので壊れず、経路ごとに結果が割れていたことが発見を遅らせた。(1) mark の parse rule は、自分の印 (class・data 属性・装飾の style) を持つ要素だけを受ける。(2) payload を持たない自分たちの HTML (`data-pm-slice`) を、プレーンテキストの Markdown 解釈で上書きしない — 数式は戻るが枠や色が落ちる。(3) 図中テキストを含む単一編集面は、本文と同じ `copyEditorSelection` / `pasteIntoEditorSurface` (`text-flow/clipboard-transactions.ts`) を通す。編集面ごとに独自の copy / paste 分岐 (旧 `tiptapSlice` payload) を足すと、書き手と読み手が別々の形式を持ち、片方向だけ壊れる。検証は `html-clipboard-roundtrip.test.ts` (数式を包む mark の組み合わせ × 直列化→解析) と `tests/e2e/boxed-math-clipboard.spec.ts` (コピー・切り取り × 本文・図中テキスト)。
+
+R17. **提案のプレビューは承認と同じ合成 replay から作り、第二の差分計算を持たない。**
+紙面のカード・サイドバー・⌘K のパネルが見せる「承認したら入る内容」は、一括承認と同じ `mergeProposalDraftsIntoDocument` (提案ごとに `replayProposalForApproval`。base を持つ提案は三者マージの replay。適用できない提案だけを飛ばす) を今の文書へ当てた結果から作る (`features/ai-edit/model/proposal-merge-preview.ts`)。draft をそのまま適用した文書を見せていた間は、提案の後に人が直した箇所がプレビューから消え、承認後に保存される内容 (両方残る) と食い違っていた。表示の都合で差分を別に計算すると、承認の規則 (挿入の付け替え・削除より編集・図形の置き換え) を二重に持つことになり、片方だけが変わって再び食い違う。打鍵のたびの replay を避けるのは、計算を変えることではなく「提案が読む単位が同じなら作り直さない」キャッシュで行う。検証は `proposal-merge-preview.test.ts` (同じ入力で `replayProposalDraftMerging` の結果と等しい) と `tests/electron/ai-proposal-merge.spec.ts` (紙面に見せた内容がそのまま保存される)。
+
+R18. **提案のカードは本文フローの拡張ノードとしてページ割りに載せ、寸法の上限や内部スクロールで隠さない (R14)。**
+カードを計測しない浮動の箱にして高さの上限で収めると、紙面の下端からはみ出した分を隠しているだけになり、適用後と違う幅・組版で見える。カードは `PageCanvasInlineContent` として段幅の自然フローに置き、ページ割りが行として計測・配置する。承認バーはカードの最初の行に置く (ページ境目で切れても、操作は押せる最初の帯に残る)。
+
+R19. **三者マージの退避は数える (R3)。**
+承認の合成 replay と採用マージが、重なった箇所で片側を採った・合成結果の代わりに AI 側を採った・旧レコードとして従来の replay に落とした回数は、renderer の `AiProposalMerge.*` カウンタと main の ledger (`proposal-merge-fallback`) に出す。重なりの無い通常の承認ではどれも 0 であることを e2e で確かめる (`tests/electron/ai-proposal-merge.spec.ts`)。退避を成功として黙って走らせると、常時発火していても気づけない。
 
 ---

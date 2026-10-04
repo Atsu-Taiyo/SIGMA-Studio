@@ -35,7 +35,7 @@ import { buildStoredOverlaySelectionPreview, isImageAttachment } from "../applic
 import { UserAttachmentImage, UserOverlaySelectionImage } from "./AiChatPreviewImages";
 import { AssistantActivity } from "./AiChatActivity";
 import { AiProposalDiffStats } from "./AiAppliedDocumentDiff";
-import { getAiProposalTitle } from "./AiEditInlinePreviewCard";
+import { AiProposalMergeNotice, getAiProposalTitle } from "./AiEditInlinePreviewCard";
 import { AiProposalContentView } from "./AiProposalContentView";
 export function UserTurnView({
   turn,
@@ -167,6 +167,7 @@ export function AiTurnProposalDecision({
   onApplyProposal,
   onDismissProposal,
   content,
+  mergedWithHumanEdits = false,
 }: {
   proposal: AiEditPreviewState;
   surface: Extract<AiProposalDecisionBarSurface, "panel" | "inline">;
@@ -175,6 +176,8 @@ export function AiTurnProposalDecision({
   onDismissProposal?: (proposalIds: string[]) => void;
   /** バーの下に描く内容。無ければバーだけ。 */
   content?: ReactNode;
+  /** 内容が人の編集と合成したもの。バーの下に一言を添える (`AiProposalMergeNotice`)。 */
+  mergedWithHumanEdits?: boolean;
 }) {
   const t = useT("ai");
   const contentId = useId();
@@ -188,6 +191,7 @@ export function AiTurnProposalDecision({
         onApply={onApplyProposal ? () => onApplyProposal(proposal.proposalIds) : undefined}
         showApply={Boolean(onApplyProposal)}
         onDismiss={onDismissProposal ? () => onDismissProposal(proposal.proposalIds) : undefined}
+        notice={mergedWithHumanEdits ? <AiProposalMergeNotice /> : undefined}
         {...(content
           ? { contentHidden, onContentHiddenChange: setContentHidden, contentId }
           : {})}
@@ -214,6 +218,7 @@ export function AssistantTurnView({
   onRestoreProposal,
   proposal,
   proposalContent,
+  proposalMergedWithHumanEdits = false,
   proposalBusy = false,
   onApplyProposal,
   onDismissProposal,
@@ -238,9 +243,11 @@ export function AssistantTurnView({
   onRestoreProposal?: (proposalIds: string | string[]) => Promise<{ ok: true } | { ok: false; reason: string }>;
   proposal?: AiEditPreviewState | null;
   /** 承認前に「適用したら何が消えて何が足されるか」を、適用済みと同じ部品で先に見せる内容
-   * (see buildPendingProposalContent)。まだ承認されていないので、これが実際の適用後と
-   * 一致する保証はない(人手の編集やAIの後続提案で状況が変わりうる)。 */
+   * (see buildPendingProposalContent)。承認と同じ合成 replay から作るので、提案の後に人が対象を
+   * 直していても承認後に保存される内容と同じになる (AIの後続提案が来れば作り直される)。 */
   proposalContent?: AiProposalContent;
+  /** `proposalContent` が人の編集と合成したもの。バーの下に一言を添える。 */
+  proposalMergedWithHumanEdits?: boolean;
   proposalBusy?: boolean;
   onApplyProposal?: (proposalIds: string[]) => Promise<AiProposalApplyOutcome>;
   onDismissProposal?: (proposalIds: string[]) => void;
@@ -325,6 +332,7 @@ export function AssistantTurnView({
                 proposalBusy={proposalBusy}
                 onApplyProposal={onApplyProposal}
                 onDismissProposal={onDismissProposal}
+                mergedWithHumanEdits={proposalMergedWithHumanEdits}
                 content={proposalContent && !isProposalContentEmpty(proposalContent)
                   ? <AiTurnProposalContent content={proposalContent} {...contentDisplay} />
                   : undefined}

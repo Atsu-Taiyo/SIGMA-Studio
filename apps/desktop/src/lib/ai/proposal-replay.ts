@@ -25,11 +25,13 @@ import { createCurrentLocaleTranslator } from "@/lib/i18n";
 import {
   blockContainsId,
   collectReinsertedDeletionIds,
+  combineProposalMergeReports,
   createEmptyProposalMergeReport,
   findBlockContainer,
   insertedIdOf,
   findBlockWithin,
   replaceDescendant,
+  usableProposalMergeBasis,
   type ProposalMergeBasis,
   type ProposalMergeReport,
 } from "./proposal-merge-basis";
@@ -234,6 +236,32 @@ export function replayProposalDraftMerging(
     const { replay, fallBack } = retryWithFailingUnitsOnTheAiSide(plan, attempt, error);
     return { ...replay, report: assembleReport(plan, fallBack) };
   }
+}
+
+/**
+ * Replays one proposal the way its approval does: with a usable merge basis through the merging
+ * replay (the human's edits since the base are kept), otherwise through the legacy replay, counted
+ * as `legacyNoBase`. The report includes what the room's earlier turns merged (`mergeCarry`).
+ *
+ * The approval (main) and the renderer's preview of a pending proposal both call this, so the
+ * preview shows exactly what an approval would save.
+ */
+export function replayProposalForApproval(
+  document: SigmaDocument,
+  proposal: { draft: AiEditSessionDraft; mergeBasis?: ProposalMergeBasis; mergeCarry?: ProposalMergeReport },
+): { nextDocument: SigmaDocument; report: ProposalMergeReport } {
+  const mergeBasis = usableProposalMergeBasis(proposal.mergeBasis);
+  if (mergeBasis) {
+    const merged = replayProposalDraftMerging(document, proposal.draft, mergeBasis);
+    return {
+      nextDocument: merged.nextDocument,
+      report: proposal.mergeCarry ? combineProposalMergeReports([proposal.mergeCarry, merged.report]) : merged.report,
+    };
+  }
+  return {
+    nextDocument: replayProposalDraft(document, proposal.draft).nextDocument,
+    report: { ...createEmptyProposalMergeReport(), legacyNoBase: 1 },
+  };
 }
 
 type MergedReplay = Omit<ProposalMergeReplayResult, "report">;
