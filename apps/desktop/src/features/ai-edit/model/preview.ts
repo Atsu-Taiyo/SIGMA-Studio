@@ -70,7 +70,7 @@ export interface AiEditPreviewState {
 }
 
 /**
- * 提案 1 件を承認と同じ手順で replay するのに要るもの (`replayProposalForApproval` の入力)。
+ * 提案 1 件を承認と同じ手順で replay するのに要るもの (`mergeProposalDraftsIntoDocument` の入力)。
  * `mergeBasis` は invalidReason を持つ提案には付けない (承認もその base を使わない)。
  */
 export interface AiProposalMergeSource {
@@ -78,6 +78,8 @@ export interface AiProposalMergeSource {
   createdAt: string;
   draft: AiEditSessionDraft;
   requestedShapeId?: string;
+  groupId?: string;
+  groupPosition?: number;
   mergeBasis?: ProposalMergeBasis;
   mergeCarry?: ProposalMergeReport;
 }
@@ -374,6 +376,8 @@ function toMergeSource(proposal: DesktopMcpEditProposalSummary): AiProposalMerge
     createdAt: proposal.createdAt,
     draft: proposal.draft,
     ...(proposal.requestedShapeId ? { requestedShapeId: proposal.requestedShapeId } : {}),
+    ...(proposal.groupId ? { groupId: proposal.groupId } : {}),
+    ...(proposal.groupPosition !== undefined ? { groupPosition: proposal.groupPosition } : {}),
     ...(proposal.mergeBasis ? { mergeBasis: proposal.mergeBasis } : {}),
     ...(proposal.mergeCarry ? { mergeCarry: proposal.mergeCarry } : {}),
   };

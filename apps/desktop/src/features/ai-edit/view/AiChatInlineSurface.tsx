@@ -16,7 +16,7 @@ import type { ChatTurn } from "@/lib/ai/ai-run-controller";
 export interface AiChatInlineSurfaceProps {
  surface: Pick<AiEditPanelProps, "inlineOpen" | "inlineAnchor" | "inlineRunAnchor" | "inlineRunAnchorCanvas" | "inlineRunPortalTarget" | "onPromoteToSidebar" | "onCloseInline">;
  conversation: {provider: AiProvider; lockedProvider: AiProvider | null; visibleTurns: ChatTurn[]; latestAssistant: AssistantTurn | null; activeRoomId: string | null; inlineRunTurnId: string | null; inlineBaselineTurnId: string | null; isRunning: boolean; clockNow: number};
- proposals: Pick<AiEditPanelProps, "previewGroups" | "busy" | "onApplyGroup" | "onDismissGroup" | "insertedShapePreviewsByTurnId" | "pageCardProposalIds"> & {
+ proposals: Pick<AiEditPanelProps, "previewGroups" | "busy" | "onApplyGroup" | "onDismissGroup" | "insertedShapePreviewsByTurnId"> & {
   activeRoomPreview: AiEditPreviewState | null;
   /** 提案の内容が人の編集と合成したものか (バーに一言を添える)。 */
   isMergedWithHumanEdits?: (preview: AiEditPreviewState) => boolean;
@@ -32,7 +32,7 @@ export function AiChatInlineSurface({surface,conversation,proposals,composer,com
  const {inlineOpen=false,inlineAnchor=null,inlineRunAnchor=null,inlineRunAnchorCanvas=null,inlineRunPortalTarget=null,onPromoteToSidebar,onCloseInline}=surface;
  const {provider,lockedProvider,visibleTurns,latestAssistant,activeRoomId,inlineRunTurnId,inlineBaselineTurnId,isRunning,clockNow}=conversation;
  const latestAssistantId=latestAssistant?.id??null;
- const {previewGroups=[],busy=false,onApplyGroup,onDismissGroup,insertedShapePreviewsByTurnId,activeRoomPreview,pageCardProposalIds,isMergedWithHumanEdits}=proposals;
+ const {previewGroups=[],busy=false,onApplyGroup,onDismissGroup,insertedShapePreviewsByTurnId,activeRoomPreview,isMergedWithHumanEdits}=proposals;
     const inlineProvider = lockedProvider ?? provider;
     const activeRunTurnId = inlineRunAnchor ? inlineRunTurnId : null;
     const runTurn = activeRunTurnId
@@ -77,10 +77,8 @@ export function AiChatInlineSurface({surface,conversation,proposals,composer,com
         preview.roomId === activeRoomId && preview.turnId === turn.id
       )) ?? (turn.id === latestAssistantId && !activeRoomPreview?.turnId ? activeRoomPreview : null);
       if (!proposal || turn.applied || turn.dismissed) return null;
-      // 同じ提案のカードが紙面にあれば、決定はカードの先頭のバー 1 か所に任せる。パネルにも出すと、
-      // 実行開始位置に浮かぶこのパネルがカードのバーに重なり、同じ操作が二重になる。カードの無い
-      // 提案 (図形のそばに浮かぶバーだけ) はここにもバーを残す (`collectAiPageCardProposalIds`)。
-      if (proposal.proposalIds.some((proposalId) => pageCardProposalIds?.has(proposalId))) return null;
+      // パネルは実行を始めた位置 (多くは紙面のカードの上) に浮かぶので、紙面にカードやバーがあっても
+      // ここにも承認バーを置く (パネルを開いている間も適用・破棄が届く。重なりの見た目は課題として残す)。
       // 内容は紙面のカード (またはこの上の図形のサムネ) が見せているので、ここはバーだけ。
       return (
         <AiTurnProposalDecision

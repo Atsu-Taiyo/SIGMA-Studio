@@ -5,7 +5,6 @@ import type { AiProposalAnchorCard, AiProposalContentHunk } from "./model/propos
 
 import {
   buildAiBeforeHiddenEditorExtensions,
-  collectAiPageCardProposalIds,
   deriveAiOverlayShapeClassNames,
   estimateFloatingDecisionBarHeight,
   placeFloatingDecisionBars,
@@ -281,20 +280,6 @@ describe("floating decision bars (proposals without a page card)", () => {
       [shapeOnly, mixedWithoutCard, layoutOnly, bodyWithCard, mixedWithCard],
       new Set([bodyWithCard, mixedWithCard]),
     )).toEqual([shapeOnly, mixedWithoutCard, layoutOnly]);
-  });
-
-  it("reports the proposals that have a card (with its decision bar) in the page flow, not the floating ones", () => {
-    const bodyWithCard = withOps("p-body", [replaceLeft]);
-    const room = { ...withOps("p-room-1", [replaceLeft]), proposalIds: ["p-room-1", "p-room-2"] };
-    const cards = new Map<string, AiProposalAnchorCard[]>([
-      ["left", [
-        { preview: bodyWithCard, content: { hunks: [], shapes: [] }, mergedWithHumanEdits: false },
-        { preview: room, content: { hunks: [], shapes: [] }, mergedWithHumanEdits: false },
-      ]],
-    ]);
-
-    expect([...collectAiPageCardProposalIds(cards)].sort()).toEqual(["p-body", "p-room-1", "p-room-2"]);
-    expect([...collectAiPageCardProposalIds(new Map())]).toEqual([]);
   });
 
   const frame = { pageWidthPx: 800, pageHeightPx: 1100, pageStridePx: 1124, desiredWidthPx: 320, gapPx: 8, marginPx: 12 };

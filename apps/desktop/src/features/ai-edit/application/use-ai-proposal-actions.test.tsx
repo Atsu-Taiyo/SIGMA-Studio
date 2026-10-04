@@ -324,6 +324,22 @@ describe("AI proposal action controller", () => {
     expect(h.adopt).toHaveBeenCalledWith(expect.objectContaining({ diskDocument: recovered, approvedRevision: 7 }));
   });
 
+  it("keeps the partial failure notice when the typing during the approval was merged keeping both", async () => {
+    const base = documentWithText("段落の本文");
+    const h = await mount({
+      lastSyncedDocumentRef: { current: base },
+      aiEditPreviewGroups: [preview(["a"], "a-room"), preview(["b"], "b-room")],
+    });
+    h.approve.mockResolvedValueOnce({ ...h.approvalResult, document: documentWithText("段落の新しい本文"), failed: [{ proposalId: "b", error: "競合" }] });
+    h.adopt.mockImplementationOnce((params) => decideAiApprovedDocument({ ...params, currentDocument: documentWithText("段落の短い本文") }));
+
+    await act(async () => { await h.read().applyAiEditPreviewGroup(["a", "b"]); });
+
+    const message = String(h.status.mock.lastCall?.[0] ?? "");
+    expect(message).toContain(createCurrentLocaleTranslator("editor")("status.aiMergedKeepingBoth"));
+    expect(message).toContain("競合");
+  });
+
   it("resolves only successful proposals and retains failed groups after partial approval", async () => {
     const h = await mount({ aiEditPreviewGroups: [preview(["a"], "a-room"), preview(["b"], "b-room")] });
     h.approve.mockResolvedValue({ ...h.approvalResult, ok: true, failed: [{ proposalId: "b", error: "競合" }] });

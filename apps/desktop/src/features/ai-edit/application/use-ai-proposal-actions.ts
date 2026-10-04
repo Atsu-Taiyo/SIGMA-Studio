@@ -43,6 +43,7 @@ import {
   deriveAiProposalBusyGuardFeedback,
   deriveAiProposalDismissEffects,
   deriveAiProposalResolutionTargets,
+  composeAiApprovalStatusMessage,
   deriveAiStaleProposalDiscardEffects,
   describeAiAdoptionMergeStatus,
   findAiProposalGroupByIds,
@@ -395,7 +396,7 @@ export function useAiProposalActions({
         approvedDocumentTitle,
         activeDocumentStatusMessage: result.versionCaptureError
           ? t("versionHistory.captureWarning")
-          : approvedDocumentWarning ?? applyDecision.statusMessage,
+          : composeAiApprovalStatusMessage(approvedDocumentWarning, applyDecision),
         t: tAi,
         tEditor,
       });

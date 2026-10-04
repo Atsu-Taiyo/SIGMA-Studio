@@ -63,20 +63,14 @@ function renderSurface(proposals: Partial<AiChatInlineSurfaceProps["proposals"]>
 }
 
 describe("AiChatInlineSurface result", () => {
-  it("shows the decision bar for a proposal that has no card on the page (shapes only: its floating bar may be covered)", () => {
-    const html = renderSurface({ pageCardProposalIds: new Set(["other-proposal"]) });
+  it("always offers the decision bar in the result panel, also for a proposal with a card on the page", () => {
+    // パネルは実行開始位置 (多くはカードの上) に浮かぶので、ここに承認操作が無いとパネルを閉じるまで
+    // 適用・破棄できない。紙面のカードのバーとの重なりは見た目の課題として残す (操作が届くことを優先)。
+    const html = renderSurface();
     expect(html).toContain("ai-inline-result");
     expect(html).toContain('data-ai-proposal-bar=""');
     expect(html).toContain('aria-label="適用"');
-  });
-
-  it("does not repeat the decision bar while the same proposal has a card (with the bar) on the page", () => {
-    const html = renderSurface({ pageCardProposalIds: new Set(["proposal-1"]) });
-    // 要約と「閉じる」は残し、決定 (適用・破棄) は紙面のカードのバー 1 か所だけにする。
-    expect(html).toContain("ai-inline-result");
-    expect(html).toContain("本文を直しました");
-    expect(html).not.toContain('data-ai-proposal-bar=""');
-    expect(html).not.toContain('aria-label="適用"');
+    expect(html).toContain('aria-label="破棄"');
   });
 
   it("adds the merge notice to its bar when the proposal content is merged with the human's edits", () => {
