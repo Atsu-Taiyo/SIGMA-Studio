@@ -21,10 +21,10 @@ test("renaming a new material retains it and saves the name immediately", async 
   await expect(page.locator(".document-tab")).toHaveCount(2);
   await page.getByLabel("教材タイトル").fill("残す教材");
   await page.getByLabel("教材タイトル").press("Tab");
-  await expect(page.getByLabel("教材タイトル")).toHaveValue("残す教材 2");
-  await page.getByLabel("残す教材 2 のタブを閉じる").click();
+  await expect(page.getByLabel("教材タイトル")).toHaveValue("残す教材-2");
+  await page.getByLabel("残す教材-2 のタブを閉じる").click();
   await expect(page.locator(".document-tab")).toHaveCount(1);
-  await expect.poll(() => page.evaluate(async () => (await window.desktopAPI!.storage.listFiles()).map((file) => file.title))).toEqual(["残す教材", "残す教材 2"]);
+  await expect.poll(() => page.evaluate(async () => (await window.desktopAPI!.storage.listFiles()).map((file) => file.title))).toEqual(["残す教材", "残す教材-2"]);
 });
 
 test("a material remains after writing and undoing its content", async ({ page }) => {

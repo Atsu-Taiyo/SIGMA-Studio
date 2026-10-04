@@ -182,7 +182,7 @@ describe("MCP document and preview caches", () => {
       arguments: { fileId, detail: "full" },
     }));
     const afterDocument = after.document as typeof sampleDocument;
-    expect(afterDocument.metadata.title).toBe(nextTitle);
+    expect(afterDocument.metadata.title).toBe("revision-2-のキャッシュ検証教材");
     expect(afterDocument.metadata.title).not.toBe(beforeDocument.metadata.title);
     expect(getMcpRunStats().counters).toMatchObject({
       documentDiskLoads: 2,

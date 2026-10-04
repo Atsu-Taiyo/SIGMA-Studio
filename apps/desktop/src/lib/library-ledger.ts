@@ -1,3 +1,4 @@
+import { spaceFreeFileName, splitFileName } from "@/lib/file-name";
 import { LIBRARY_VERSION } from "@/lib/library-schema";
 import type {
   DocumentMetadata,
@@ -121,15 +122,16 @@ export function availableDocumentTitle(
     && file.fileId !== location.excludeFileId
     && file.workspaceId === location.workspaceId
     && (file.folderId ?? null) === (location.folderId ?? null)).map((file) => file.title.trim()));
-  const requested = title.trim();
+  const requested = spaceFreeFileName(title);
   if (!names.has(requested)) return requested;
-  const match = /^(.*) ([1-9]\d*)$/.exec(requested);
+  const { stem, extension } = splitFileName(requested);
+  const match = /^(.*)-([1-9]\d*)$/.exec(stem);
   const numbered = match && Number(match[2]) >= 2 && Number.isSafeInteger(Number(match[2])) && Number(match[2]) < Number.MAX_SAFE_INTEGER - files.length
     ? match : null;
-  const base = numbered?.[1] ?? requested;
+  const base = numbered?.[1] ?? stem;
   let number = numbered ? Number(numbered[2]) + 1 : 2;
-  while (names.has(`${base} ${number}`)) number += 1;
-  return `${base} ${number}`;
+  while (names.has(`${base}-${number}${extension}`)) number += 1;
+  return `${base}-${number}${extension}`;
 }
 
 export function visibleWorkspaces(library: LibraryRecord): LibraryWorkspaceRow[] {

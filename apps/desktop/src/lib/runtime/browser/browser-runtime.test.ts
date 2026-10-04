@@ -73,8 +73,37 @@ describe("browser runtime", () => {
     const first = await runtime.library.createDocument({ title: "教材" });
     const second = await runtime.library.createDocument({ title: "教材" });
     expect(first.metadata.title).toBe("教材");
-    expect(second.metadata.title).toBe("教材 2");
+    expect(second.metadata.title).toBe("教材-2");
     expect(second.document.metadata.title).toBe(second.metadata.title);
+  });
+
+  it("normalizes newly assigned names while preserving legacy names on save and reopen", async () => {
+    await runtime.library.initializeWorkspace();
+    const created = await runtime.library.createFileFromDocument({ document: createBlankDocument("数学 演習.sigma") });
+    expect(created.metadata.title).toBe("数学-演習.sigma");
+    const second = await runtime.library.createDocument({ title: "数学\u3000演習.sigma" });
+    expect(second.metadata.title).toBe("数学-演習-2.sigma");
+    const duplicate = await runtime.library.duplicateFile(created.fileId);
+    expect(duplicate.metadata.title).toBe("数学-演習-のコピー.sigma");
+    const result = await runtime.library.saveDocument(second.fileId, { ...second.document, metadata: { title: "新しい 名前" } }, { expectedRevision: second.metadata.revision });
+    expect(result.ok).toBe(true);
+    expect((await runtime.library.loadDocument(second.fileId))?.metadata.title).toBe("新しい-名前");
+    await backend.write(["library", "documents"], async tx => {
+      const { readLibrary, writeLibrary } = await import("./browser-library");
+      const record = await readLibrary(tx);
+      record.files.find(file => file.fileId === created.fileId)!.title = "既存 名前 2";
+      await writeLibrary(tx, record);
+      await tx.put("documents", created.fileId, { fileId: created.fileId, document: { ...created.document, metadata: { title: "既存 名前 2" } }, updatedAt: created.document.updatedAt });
+    });
+    const reopened = createRuntime(backend);
+    const loaded = await reopened.library.loadDocumentWithRecovery(created.fileId);
+    if (!loaded.ok) throw new Error(loaded.error);
+    expect(loaded.document.metadata.title).toBe("既存 名前 2");
+    expect((await reopened.library.saveDocument(created.fileId, loaded.document, { expectedRevision: loaded.revision })).ok).toBe(true);
+    expect((await reopened.library.listFiles()).find(file => file.fileId === created.fileId)?.title).toBe("既存 名前 2");
+    const copy = await reopened.library.duplicateFile(created.fileId);
+    expect(copy.metadata.title).not.toMatch(/\s/u);
+    expect((await createRuntime(backend).library.loadDocument(created.fileId))?.metadata.title).toBe("既存 名前 2");
   });
 
   it("retains a draft changed after the close operation inspected it", async () => {
@@ -97,7 +126,7 @@ describe("browser runtime", () => {
     const result = await runtime.workspace.listSearchOverview!();
     if (result.state !== "ready") throw new Error();
     expect(result.overview.folders.some(folder => folder.name === "Search folder")).toBe(true);
-    expect(result.overview.files.some(file => file.title === "Search document")).toBe(true);
+    expect(result.overview.files.some(file => file.title === "Search-document")).toBe(true);
     const reloaded = await createRuntime(backend).workspace.listOverview();
     expect(reloaded.state === "ready" && reloaded.overview.activeWorkspaceId).toBe(first.overview.activeWorkspaceId);
   });
@@ -117,8 +146,8 @@ describe("browser runtime", () => {
     expect(initialized.ok).toBe(true);
     const files = await runtime.library.listFiles();
     expect(files.map((file) => file.title)).toEqual([
-      "Sigma Studio basics",
-      "Math Test – Calculator Questions",
+      "Sigma-Studio-basics",
+      "Math-Test-–-Calculator-Questions",
     ]);
     expect(initialized.ok && initialized.state.openFileIds).toEqual(files.map((file) => file.fileId));
     expect(initialized.ok && initialized.state.activeFileId).toBe(files[0].fileId);
@@ -145,7 +174,7 @@ describe("browser runtime", () => {
     const initialized = await runtime.library.initializeWorkspace();
     expect(initialized.ok).toBe(true);
     const files = await runtime.library.listFiles();
-    const mathFile = files.find((file) => file.title === "Math Test – Calculator Questions");
+    const mathFile = files.find((file) => file.title === "Math-Test-–-Calculator-Questions");
     expect(mathFile).toBeDefined();
 
     const current = await runtime.library.loadDocumentWithRecovery(mathFile!.fileId);
@@ -159,7 +188,7 @@ describe("browser runtime", () => {
             children: [],
           }],
         }
-      : createBlankDocument("Math Test – Calculator Questions");
+      : createBlankDocument("Math-Test-–-Calculator-Questions");
     await backend.write(["documents"], (tx) => tx.put("documents", mathFile!.fileId, {
       fileId: mathFile!.fileId,
       document: legacy,
@@ -174,6 +203,23 @@ describe("browser runtime", () => {
     expect(migrated.ok && migrated.revision).toBe(2);
     expect(migrated.ok && migrated.document.content[0]?.id).toBe("ai3_sat_title");
     expect(migrated.ok && JSON.stringify(migrated.document)).toContain("ai_coord_problem_retry");
+  });
+
+  it("recognizes pre-existing spaced pinned names without renaming or creating more files", async () => {
+    await runtime.library.initializeWorkspace();
+    await backend.write(["library", "documents"], async tx => {
+      const { readLibrary, writeLibrary } = await import("./browser-library");
+      const record = await readLibrary(tx);
+      for (const file of record.files) {
+        const title = file.title.replaceAll("-", " ");
+        file.title = title;
+        const stored = await tx.get<{ document: typeof sampleDocument }>("documents", file.fileId);
+        if (stored) await tx.put("documents", file.fileId, { ...stored, document: { ...stored.document, metadata: { ...stored.document.metadata, title } } });
+      }
+      await writeLibrary(tx, record);
+    });
+    await createRuntime(backend).library.initializeWorkspace();
+    expect((await runtime.library.listFiles()).map(file => file.title)).toEqual(["Sigma Studio basics", "Math Test – Calculator Questions"]);
   });
 
   it("restores the two pinned tabs on every start without closing the current tab", async () => {
@@ -198,8 +244,8 @@ describe("browser runtime", () => {
     const files = await runtime.library.listFiles();
 
     expect(files.map((file) => file.title)).toEqual([
-      "Sigma Studio basics",
-      "Math Test – Calculator Questions",
+      "Sigma-Studio-basics",
+      "Math-Test-–-Calculator-Questions",
     ]);
     expect(restored.ok && restored.state.openFileIds).toHaveLength(2);
     expect(restored.ok && restored.state.openFileIds[0]).not.toBe(deletedFileId);

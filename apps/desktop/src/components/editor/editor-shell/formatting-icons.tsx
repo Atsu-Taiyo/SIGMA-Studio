@@ -290,7 +290,7 @@ export function suggestedPdfFileName(title: string): string {
   const stem = title
     .trim()
     .replace(/[<>:"/\\|?*\u0000-\u001F]/g, "_")
-    .replace(/\s+/g, " ")
+    .replace(/\s+/g, "-")
     .slice(0, MAX_EXPORT_FILE_STEM_LENGTH)
     .trim() || "lesson";
   return `${stem}.pdf`;
