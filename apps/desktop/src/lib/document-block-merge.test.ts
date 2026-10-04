@@ -3,7 +3,14 @@ import { describe, expect, it } from "vitest";
 import { mergeExternalDocumentChange } from "./document-block-merge";
 import { ensurePageLayout } from "@/lib/page-layout";
 import { normalizeOverlaySnapshot } from "@/features/document";
-import type { OverlayGeoShape } from "@/features/document";
+import type {
+  OverlayGeoShape,
+  OverlayShape,
+  OverlaySnapshot,
+  OverlayTableShape,
+  ProblemNode,
+  QuoteBlockNode,
+} from "@/features/document";
 import type { ParagraphNode, SigmaDocument } from "@/types/sigma-doc";
 
 function paragraph(id: string, text: string): ParagraphNode {
@@ -45,7 +52,7 @@ function geoShape(id: string, propsOverrides: Partial<OverlayGeoShape["props"]> 
   };
 }
 
-function withShapes(document: SigmaDocument, shapes: OverlayGeoShape[]): SigmaDocument {
+function withShapes(document: SigmaDocument, shapes: OverlayShape[]): SigmaDocument {
   const overlaySnapshot = normalizeOverlaySnapshot(document.pageLayout?.overlay?.overlaySnapshot);
   return ensurePageLayout({
     ...document,
@@ -421,3 +428,436 @@ describe("mergeExternalDocumentChange", () => {
     }
   });
 });
+
+describe("mergeExternalDocumentChange with merge-both", () => {
+  const mergeBoth = (base: SigmaDocument, mine: SigmaDocument, theirs: SigmaDocument) => {
+    const result = mergeExternalDocumentChange(base, mine, theirs, { resolution: "merge-both" });
+    if (!result.ok) {
+      throw new Error(`merge-both must not fail: ${result.reason}`);
+    }
+    return result;
+  };
+
+  it("keeps both edits when the human and the AI edit different places of the same paragraph", () => {
+    const base = replaceParagraphText(baseDocument(), "p1", "段落の本文");
+    const mine = replaceParagraphText(base, "p1", "段落の本文です");
+    const theirs = replaceParagraphText(base, "p1", "新しい段落の本文");
+
+    const result = mergeBoth(base, mine, theirs);
+
+    expect(paragraphText(result.merged, "p1")).toBe("新しい段落の本文です");
+    expect(result.report?.mergedUnits).toEqual(["p1"]);
+    expect(result.report?.overlaps).toEqual([]);
+    expect(result.resolvedConflicts).toBeUndefined();
+  });
+
+  it("keeps both replacements of the same range, the human's first", () => {
+    const base = replaceParagraphText(baseDocument(), "p1", "段落の本文");
+    const mine = replaceParagraphText(base, "p1", "段落の説明");
+    const theirs = replaceParagraphText(base, "p1", "段落の内容");
+
+    const result = mergeBoth(base, mine, theirs);
+
+    expect(paragraphText(result.merged, "p1")).toBe("段落の説明内容");
+    expect(result.report?.overlaps).toEqual(["#p1.children"]);
+  });
+
+  it("puts the human's text before the AI's when both insert at the same position", () => {
+    const base = replaceParagraphText(baseDocument(), "p1", "段落の本文");
+    const mine = replaceParagraphText(base, "p1", "段落の本文（手入力）");
+    const theirs = replaceParagraphText(base, "p1", "段落の本文【AI】");
+
+    const result = mergeBoth(base, mine, theirs);
+
+    expect(paragraphText(result.merged, "p1")).toBe("段落の本文（手入力）【AI】");
+  });
+
+  it("keeps the edits of different blocks and leaves an untouched document report empty", () => {
+    const base = baseDocument();
+    const mine = replaceParagraphText(base, "p1", "人間が入力中の段落X");
+    const theirs = replaceParagraphText(base, "p2", "AIが書き換えた段落Y");
+
+    const result = mergeBoth(base, mine, theirs);
+
+    expect(paragraphText(result.merged, "p1")).toBe("人間が入力中の段落X");
+    expect(paragraphText(result.merged, "p2")).toBe("AIが書き換えた段落Y");
+    expect(result.report).toEqual({
+      mergedUnits: [],
+      overlaps: [],
+      capped: false,
+      cappedPaths: [],
+      reidentified: 0,
+      editBeatsDelete: [],
+      duplicateIds: [],
+      invalidAfterMerge: 0,
+    });
+  });
+
+  it("orders blocks both sides inserted at the same place human first, then AI", () => {
+    const base = baseDocument();
+    const mine = insertBlock(base, 1, paragraph("p_human", "人間が追加した段落"));
+    const theirs = insertBlock(base, 1, paragraph("p_ai", "AIが追加した段落"));
+
+    const result = mergeBoth(base, mine, theirs);
+
+    expect(result.merged.content.map((block) => block.id)).toEqual(["p1", "p_human", "p_ai", "p2", "p3"]);
+  });
+
+  it("orders shapes both sides added human first, then AI", () => {
+    const base = withShapes(baseDocument(), [geoShape("shape_1")]);
+    const mine = withShapes(base, [geoShape("shape_1"), geoShape("shape_human")]);
+    const theirs = withShapes(base, [geoShape("shape_1"), geoShape("shape_ai")]);
+
+    const result = mergeBoth(base, mine, theirs);
+
+    expect(shapesOf(result.merged).map((shape) => shape.id)).toEqual(["shape_1", "shape_human", "shape_ai"]);
+  });
+
+  it("merges a shape both sides changed key by key", () => {
+    const base = withShapes(baseDocument(), [geoShape("shape_1")]);
+    const mine = withShapes(base, [geoShape("shape_1", { fill: "solid" })]);
+    const theirs = withShapes(base, [geoShape("shape_1", { color: "#ff0000" })]);
+
+    const result = mergeBoth(base, mine, theirs);
+
+    expect(shapesOf(result.merged)).toEqual([geoShape("shape_1", { fill: "solid", color: "#ff0000" })]);
+    expect(result.report?.mergedUnits).toEqual(["shape_1"]);
+  });
+
+  it("takes the AI's value where both set the same shape property differently", () => {
+    const base = withShapes(baseDocument(), [geoShape("shape_1")]);
+    const mine = withShapes(base, [geoShape("shape_1", { color: "#00ff00" })]);
+    const theirs = withShapes(base, [geoShape("shape_1", { color: "#ff0000" })]);
+
+    const result = mergeBoth(base, mine, theirs);
+
+    expect(shapesOf(result.merged)).toEqual([geoShape("shape_1", { color: "#ff0000" })]);
+    expect(result.report?.overlaps).toEqual(["#shape_1.props.color"]);
+  });
+
+  it("keeps the human's edit of a block the AI deleted", () => {
+    const base = baseDocument();
+    const mine = replaceParagraphText(base, "p2", "人間が入力中");
+    const theirs = removeBlock(base, "p2");
+
+    const result = mergeBoth(base, mine, theirs);
+
+    expect(result.merged.content.map((block) => block.id)).toEqual(["p1", "p2", "p3"]);
+    expect(paragraphText(result.merged, "p2")).toBe("人間が入力中");
+    expect(result.report?.editBeatsDelete).toEqual(["#p2"]);
+    expect(result.resolvedConflicts).toBeUndefined();
+  });
+
+  it("keeps the AI's edit of a block the human deleted, as a conflict resolved for the AI", () => {
+    const base = baseDocument();
+    const mine = removeBlock(base, "p2");
+    const theirs = replaceParagraphText(base, "p2", "AIが書き換えた段落");
+
+    const result = mergeBoth(base, mine, theirs);
+
+    expect(paragraphText(result.merged, "p2")).toBe("AIが書き換えた段落");
+    expect(result.report?.editBeatsDelete).toEqual(["#p2"]);
+    expect(result.resolvedConflicts).toHaveLength(1);
+  });
+
+  it("merges a block both sides added under the same id instead of giving up", () => {
+    const base = baseDocument();
+    const mine = insertBlock(base, 0, paragraph("p_new", "人間"));
+    const theirs = insertBlock(base, 3, paragraph("p_new", "AI"));
+
+    const result = mergeBoth(base, mine, theirs);
+
+    expect(result.merged.content.map((block) => block.id)).toEqual(["p_new", "p1", "p2", "p3"]);
+    expect(paragraphText(result.merged, "p_new")).toBe("人間AI");
+    expect(result.report?.mergedUnits).toEqual(["p_new"]);
+  });
+
+  it("follows the AI's order when both sides reordered differently, keeping both insertions", () => {
+    const base = baseDocument();
+    const [p1, p2, p3] = base.content;
+    const mine = withContent(base, [paragraph("p_human", "人間が追加した段落"), p2!, p1!, p3!]);
+    const theirs = withContent(base, [p3!, p1!, p2!]);
+
+    const result = mergeBoth(base, mine, theirs);
+
+    expect(result.merged.content.map((block) => block.id)).toEqual(["p_human", "p3", "p1", "p2"]);
+    expect(result.report?.overlaps).toEqual(["$.content"]);
+    expect(result.resolvedConflicts).toHaveLength(1);
+  });
+
+  it("takes the AI's version of a block whose merge does not validate, keeping the other merges", () => {
+    // 人間が x を、AIが z を消すと、合成した引用は空になり (引用は1ブロック以上が必要) 検証を通らない。
+    const base = withContent(baseDocument(), [
+      quote("quote", [paragraph("x", "引用1"), paragraph("z", "引用2")]),
+      paragraph("p1", "段落の本文"),
+    ]);
+    const mine = withContent(base, [quote("quote", [paragraph("z", "引用2")]), paragraph("p1", "段落の本文です")]);
+    const theirs = withContent(base, [quote("quote", [paragraph("x", "引用1")]), paragraph("p1", "新しい段落の本文")]);
+
+    const result = mergeBoth(base, mine, theirs);
+
+    expect(result.merged.content[0]).toEqual(quote("quote", [paragraph("x", "引用1")]));
+    expect(paragraphText(result.merged, "p1")).toBe("新しい段落の本文です");
+    expect(result.report?.invalidAfterMerge).toBe(1);
+    expect(result.report?.mergedUnits).toEqual(["p1"]);
+    expect(result.resolvedConflicts).toHaveLength(1);
+  });
+
+  it("takes the AI's version of a block whose merge repeats an id inside it", () => {
+    // AIが設問 q1 を解答へ移し、人間は設問のまま q1 を直した。合成すると q1 が2か所に入る。
+    const base = withContent(baseDocument(), [
+      problem("prob", [paragraph("q1", "設問")], [paragraph("s1", "解答")]),
+    ]);
+    const mine = withContent(base, [problem("prob", [paragraph("q1", "設問を直した")], [paragraph("s1", "解答")])]);
+    const theirs = withContent(base, [problem("prob", [], [paragraph("s1", "解答"), paragraph("q1", "設問")])]);
+
+    const result = mergeBoth(base, mine, theirs);
+
+    expect(result.merged.content).toEqual(theirs.content);
+    expect(result.report?.duplicateIds).toEqual(["q1"]);
+    expect(result.report?.invalidAfterMerge).toBe(1);
+    expect(result.report?.mergedUnits).toEqual([]);
+  });
+
+  it("takes the AI's version of a block whose merge repeats an id held elsewhere in the document", () => {
+    // 人間が段落 y を引用の中へ移し、AIは引用の中身と y をそれぞれ直した。合成した引用に y を
+    // 入れると、AIの直した y (本文の直下) と2か所になる。
+    const base = withContent(baseDocument(), [quote("quote", [paragraph("x", "引用")]), paragraph("y", "移す段落")]);
+    const mine = withContent(base, [quote("quote", [paragraph("x", "引用"), paragraph("y", "移す段落")])]);
+    const theirs = withContent(base, [
+      quote("quote", [paragraph("x", "AIが直した引用")]),
+      paragraph("y", "AIが直した段落"),
+    ]);
+
+    const result = mergeBoth(base, mine, theirs);
+
+    expect(result.merged.content).toEqual(theirs.content);
+    expect(result.report?.invalidAfterMerge).toBe(1);
+  });
+
+  it("takes the AI's version of a shape whose merge does not validate", () => {
+    // AIが2行目を消し、人間は2行目のセルを直した。セルが消えた行を指すので表として成り立たない。
+    const base = withShapes(baseDocument(), [tableShape("table", ["r1", "r2"], { c1: "上", c2: "下" })]);
+    const mine = withShapes(base, [tableShape("table", ["r1", "r2"], { c1: "上", c2: "下を直した" })]);
+    const theirs = withShapes(base, [tableShape("table", ["r1"], { c1: "上" })]);
+
+    const result = mergeBoth(base, mine, theirs);
+
+    expect(shapesOf(result.merged)).toEqual(shapesOf(theirs));
+    expect(result.report?.invalidAfterMerge).toBe(1);
+    expect(result.resolvedConflicts).toHaveLength(1);
+  });
+
+  it("merges document settings both sides changed, keeping the AI's write timestamp", () => {
+    const base = { ...baseDocument(), updatedAt: "2024-01-01T00:00:00.000Z" };
+    const mine = {
+      ...base,
+      metadata: { ...base.metadata, title: "人間が変えた題名" },
+      updatedAt: "2024-01-01T00:00:01.000Z",
+    };
+    const theirs = {
+      ...base,
+      outputProfiles: { ...base.outputProfiles, student: { includeAnswers: false } },
+      updatedAt: "2024-01-01T00:00:09.000Z",
+    };
+
+    const result = mergeBoth(base, mine, theirs);
+
+    expect(result.merged.metadata.title).toBe("人間が変えた題名");
+    expect(result.merged.outputProfiles.student).toEqual({ includeAnswers: false });
+    expect(result.merged.updatedAt).toBe("2024-01-01T00:00:09.000Z");
+    expect(result.report?.mergedUnits).toEqual(["$"]);
+    expect(result.resolvedConflicts).toBeUndefined();
+  });
+
+  it("takes the AI's setting where both changed the same one", () => {
+    const base = baseDocument();
+    const mine: SigmaDocument = { ...base, metadata: { ...base.metadata, title: "人間が変更したタイトル" } };
+    const theirs: SigmaDocument = { ...base, metadata: { ...base.metadata, title: "AIが変更したタイトル" } };
+
+    const result = mergeBoth(base, mine, theirs);
+
+    expect(result.merged.metadata.title).toBe("AIが変更したタイトル");
+    expect(result.report?.overlaps).toEqual(["$.metadata.title"]);
+  });
+
+  it("takes the AI's settings when the merged settings do not validate", () => {
+    // 安全網の確認: 合成した教材全体の情報が検証を通らなければ、AI側の情報を採る。
+    const base = baseDocument();
+    const mine = {
+      ...base,
+      metadata: { ...base.metadata, styleUnits: "壊れた値" },
+    } as unknown as SigmaDocument;
+    const theirs: SigmaDocument = { ...base, metadata: { ...base.metadata, title: "AIが変更したタイトル" } };
+
+    const result = mergeBoth(base, mine, theirs);
+
+    expect(result.merged.metadata).toEqual(theirs.metadata);
+    expect(result.report?.invalidAfterMerge).toBe(1);
+    expect(result.resolvedConflicts).toHaveLength(1);
+  });
+
+  it("keeps the overlay assets both sides added", () => {
+    const base = withShapes(baseDocument(), [geoShape("shape_1")]);
+    const mine = withAssets(withShapes(base, [geoShape("shape_1"), imageShape("image_human", "asset_human")]), ["asset_human"]);
+    const theirs = withAssets(withShapes(base, [geoShape("shape_1"), imageShape("image_ai", "asset_ai")]), ["asset_ai"]);
+
+    const result = mergeBoth(base, mine, theirs);
+
+    const snapshot = normalizeOverlaySnapshot(result.merged.pageLayout?.overlay?.overlaySnapshot);
+    expect(Object.keys(snapshot.assets).sort()).toEqual(["asset_ai", "asset_human"]);
+    expect(snapshot.shapes.map((shape) => shape.id)).toEqual(["shape_1", "image_human", "image_ai"]);
+  });
+
+  it("returns the AI's document with an empty report when the human changed nothing", () => {
+    const base = baseDocument();
+    const theirs = replaceParagraphText(base, "p1", "AIが書き換えた段落");
+
+    const result = mergeBoth(base, base, theirs);
+
+    expect(result.merged).toBe(theirs);
+    expect(result.report?.mergedUnits).toEqual([]);
+    expect(result.report?.invalidAfterMerge).toBe(0);
+  });
+
+  it("drops the human's edit of a block the AI moved elsewhere rather than keeping it twice", () => {
+    // AIが段落 y を引用の中へ移し、人間は元の場所の y を直した。編集を残すと y が2か所になる。
+    const base = withContent(baseDocument(), [quote("quote", [paragraph("x", "引用")]), paragraph("y", "移す段落")]);
+    const mine = withContent(base, [quote("quote", [paragraph("x", "引用")]), paragraph("y", "人間が直した段落")]);
+    const theirs = withContent(base, [quote("quote", [paragraph("x", "引用"), paragraph("y", "移す段落")])]);
+
+    const result = mergeBoth(base, mine, theirs);
+
+    expect(result.merged.content).toEqual(theirs.content);
+    expect(result.report?.invalidAfterMerge).toBe(1);
+    expect(result.report?.editBeatsDelete).toEqual([]);
+    expect(result.resolvedConflicts).toHaveLength(1);
+  });
+
+  it("takes the AI's block whole when the AI changed its kind", () => {
+    const base = replaceParagraphText(baseDocument(), "p1", "段落の本文");
+    const mine = replaceParagraphText(base, "p1", "段落の本文です");
+    const theirs = withContent(base, [
+      { type: "heading", id: "p1", level: 2, children: [{ type: "text", text: "段落の本文" }] },
+      ...base.content.slice(1),
+    ]);
+
+    const result = mergeBoth(base, mine, theirs);
+
+    expect(result.merged.content[0]).toEqual(theirs.content[0]);
+    expect(result.report?.overlaps).toEqual(["#p1"]);
+    expect(result.report?.mergedUnits).toEqual([]);
+    expect(result.resolvedConflicts).toHaveLength(1);
+  });
+
+  it("does not change its inputs", () => {
+    const base = replaceParagraphText(baseDocument(), "p1", "段落の本文");
+    const mine = replaceParagraphText(base, "p1", "段落の本文です");
+    const theirs = replaceParagraphText(base, "p1", "新しい段落の本文");
+    const snapshots = [structuredClone(base), structuredClone(mine), structuredClone(theirs)];
+
+    mergeBoth(deepFreeze(base), deepFreeze(mine), deepFreeze(theirs));
+
+    expect([base, mine, theirs]).toEqual(snapshots);
+  });
+});
+
+function paragraphText(document: SigmaDocument, id: string): string | undefined {
+  const block = document.content.find((candidate) => candidate.id === id);
+  return block?.type === "paragraph"
+    ? block.children.map((child) => (child.type === "text" ? child.text : "")).join("")
+    : undefined;
+}
+
+function withContent(document: SigmaDocument, content: SigmaDocument["content"]): SigmaDocument {
+  return { ...document, content };
+}
+
+function quote(id: string, blocks: ParagraphNode[]): QuoteBlockNode {
+  return { type: "quote", id, blocks };
+}
+
+function problem(id: string, prompt: ParagraphNode[], solution: ParagraphNode[]): ProblemNode {
+  return { type: "problem", id, tags: [], lead: [], prompt, solution, hints: [] };
+}
+
+function tableShape(id: string, rowIds: string[], cellTexts: Record<string, string>): OverlayTableShape {
+  const cellRows: Record<string, string> = { c1: "r1", c2: "r2" };
+  return {
+    id,
+    type: "tableShape",
+    x: 0,
+    y: 0,
+    props: {
+      w: 120,
+      h: 60,
+      table: {
+        version: 1,
+        kind: "plain",
+        columns: [{ id: "col1", width: { mode: "fr", value: 1 } }],
+        rows: rowIds.map((rowId) => ({ id: rowId, height: { mode: "auto" } })),
+        cells: Object.entries(cellTexts).map(([cellId, text]) => ({
+          id: cellId,
+          rowId: cellRows[cellId]!,
+          columnId: "col1",
+          content: [{ id: `${cellId}_p`, type: "paragraph", children: [{ type: "text", text }] }],
+        })),
+        grid: {
+          borderColor: "#111827",
+          borderWidth: 1,
+          borderStyle: "solid",
+          showOuterBorder: true,
+          showInnerBorders: true,
+        },
+        defaultCellStyle: {
+          align: "center",
+          verticalAlign: "middle",
+          paddingX: 8,
+          paddingY: 5,
+          color: "#111827",
+          fontSize: 15,
+          fontWeight: "normal",
+        },
+      },
+    },
+  };
+}
+
+function imageShape(id: string, assetId: string): OverlayShape {
+  return { id, type: "image", x: 0, y: 0, props: { w: 40, h: 40, assetId } } as OverlayShape;
+}
+
+function withAssets(document: SigmaDocument, assetIds: string[]): SigmaDocument {
+  const overlaySnapshot = normalizeOverlaySnapshot(document.pageLayout?.overlay?.overlaySnapshot);
+  const assets = Object.fromEntries(assetIds.map((assetId) => [assetId, {
+    id: assetId,
+    type: "image",
+    props: {
+      name: `${assetId}.png`,
+      src: `sigma-doc-storage://${assetId}.png`,
+      w: 40,
+      h: 40,
+      mimeType: "image/png",
+      isAnimated: false,
+      fileSize: 100,
+    },
+  }]));
+  return {
+    ...document,
+    pageLayout: {
+      ...document.pageLayout!,
+      overlay: {
+        ...document.pageLayout?.overlay,
+        overlaySnapshot: { ...overlaySnapshot, assets: { ...overlaySnapshot.assets, ...assets } } as OverlaySnapshot,
+      },
+    },
+  };
+}
+
+function deepFreeze<T>(value: T): T {
+  if (typeof value === "object" && value !== null && !Object.isFrozen(value)) {
+    Object.freeze(value);
+    Object.values(value).forEach(deepFreeze);
+  }
+  return value;
+}

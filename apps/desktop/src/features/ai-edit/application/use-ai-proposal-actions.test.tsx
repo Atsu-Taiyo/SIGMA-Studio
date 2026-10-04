@@ -209,6 +209,41 @@ describe("AI proposal action controller", () => {
     expect(mergeCounters()).toEqual(["AiProposalMerge.editBeatsDelete", "AiProposalMerge.legacyNoBase"]);
   });
 
+  it("counts the adoption merge only when typing during the approval overlapped the AI's change", async () => {
+    const base = documentWithText("段落の本文");
+    const h = await mount({ lastSyncedDocumentRef: { current: base } });
+    const adoptionCounters = () => vi.mocked(countPerformanceEvent).mock.calls
+      .map(([name]) => name)
+      .filter((name) => name.startsWith("AiProposalMerge.adoption."))
+      .sort();
+    const approveWithAiText = (text: string) => h.approve.mockResolvedValueOnce({ ...h.approvalResult, document: documentWithText(text) });
+    const typeDuringApproval = (current: SigmaDocument) => h.adopt.mockImplementationOnce((params) => {
+      h.events.push("adopt");
+      return decideAiApprovedDocument({ ...params, currentDocument: current });
+    });
+
+    // 別のブロックへの入力: 合成は起きないので、どのカウンタも動かない (MISS R3)。
+    approveWithAiText("段落の新しい本文");
+    typeDuringApproval({
+      ...base,
+      content: [...base.content, { id: "typed", type: "paragraph", children: [{ type: "text", text: "入力" }] }],
+    });
+    let outcome: unknown;
+    await act(async () => { outcome = await h.read().applyAiEditPreviewGroup(["proposal"]); });
+    expect(outcome).toEqual({ ok: true });
+    expect(adoptionCounters()).toEqual([]);
+
+    // AIが変えた段落の同じ位置への入力: 合成して両方残し、合成と重なりを数える。
+    approveWithAiText("段落の新しい本文");
+    typeDuringApproval(documentWithText("段落の短い本文"));
+    await act(async () => { outcome = await h.read().applyAiEditPreviewGroup(["proposal"]); });
+    expect(outcome).toEqual({ ok: true });
+    expect(adoptionCounters()).toEqual(["AiProposalMerge.adoption.mergedUnits", "AiProposalMerge.adoption.overlaps"]);
+    // 合成しても教材を増やさず、undoできる1手として採用する (全文差し替えはしない)。
+    expect(h.adopt).toHaveBeenCalledTimes(2);
+    expect(h.reset).not.toHaveBeenCalled();
+  });
+
   it("rejects overlapping decisions synchronously until the original action finishes", async () => {
     const h = await mount();
     const response = deferred(h.approvalResult);
