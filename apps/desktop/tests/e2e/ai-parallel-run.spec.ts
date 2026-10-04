@@ -272,6 +272,13 @@ async function closeInlineSurface(page: Page): Promise<void> {
   await expect(page.locator(".ai-chat-composer--inline")).toBeHidden();
 }
 
+/**
+ * 本文フローの中の提案カード (対象の段落の後ろの拡張ノード)。続き (複製) ではなく正本だけを引く。
+ */
+function proposalCard(page: Page, targetId: string): Locator {
+  return page.locator(`.page-flow [data-flow-extension-node-id^="extension:ai-proposal:${targetId}:"]`);
+}
+
 function sidebarComposer(page: Page): Locator {
   return page.locator(".ai-chat-composer:not(.ai-chat-composer--inline)");
 }
@@ -857,7 +864,7 @@ test("two-column AI activity stays inside the target column", async ({ page }) =
   expect(rightCardBox!.x + rightCardBox!.width).toBeLessThanOrEqual(rightBlockBox!.x + rightBlockBox!.width + 2);
 });
 
-test("two-column body replacement proposal keeps its standard width and can be closed", async ({ page }) => {
+test("two-column body replacement proposal sits in the target column's flow and can be closed", async ({ page }) => {
   await setup(page, createTwoColumnAiDocument());
   await expect.poll(async () => page.locator(".page-column-guides span").count()).toBeGreaterThan(0);
 
@@ -866,14 +873,15 @@ test("two-column body replacement proposal keeps its standard width and can be c
   expect(leftBlockBox).not.toBeNull();
 
   await startInlineRun(page, "column_left", "PROPOSAL 左段の本文を更新して");
-  const replacement = page.locator('.ai-column-preview-anchor[data-ai-preview-target-id="column_left"]');
+  const replacement = proposalCard(page, "column_left");
   await expect(replacement).toBeVisible({ timeout: 20_000 });
   await expect(replacement).toContainText("E2E提案で書き換えた本文");
   const dialog = replacement.locator('.ai-inline-preview-dialog');
-  await expect(dialog).toHaveCSS("width", "440px");
   const replacementBox = await dialog.boundingBox();
   expect(replacementBox).not.toBeNull();
+  // カードは本文フローの中 (対象の段落の下) に置かれ、対象の段の幅に収まる。
   expect(replacementBox!.x).toBeGreaterThanOrEqual(leftBlockBox!.x - 2);
+  expect(replacementBox!.x + replacementBox!.width).toBeLessThanOrEqual(leftBlockBox!.x + leftBlockBox!.width + 2);
   expect(replacementBox!.y).toBeGreaterThanOrEqual(leftBlockBox!.y + leftBlockBox!.height - 2);
   const applyButtonBox = await replacement.locator('.ai-inline-preview-action.apply[aria-label="適用"]').boundingBox();
   expect(applyButtonBox).not.toBeNull();
@@ -913,7 +921,7 @@ test("two-column math replacement is visible immediately after approval", async 
   await expect(math).toHaveAttribute("data-tex", originalTex);
 
   await startSidebarRun(page, "column_left_math", "PROPOSAL MATH_BREAK 数式を2行にして");
-  const replacement = page.locator('.ai-column-preview-anchor[data-ai-preview-target-id="column_left_math"]');
+  const replacement = proposalCard(page, "column_left_math");
   await expect(replacement).toBeVisible({ timeout: 20_000 });
   expect(lifecycleWarnings).toEqual([]);
   await replacement.locator('.ai-inline-preview-action.apply[aria-label="適用"]').click();
@@ -932,7 +940,7 @@ test("two-column body and overlay insertion proposals stay in their target colum
   expect(leftBlockBox).not.toBeNull();
 
   await startInlineRun(page, "column_left", "PROPOSAL CHAIN 左段に説明を挿入して");
-  const bodyInsertion = page.locator('.ai-column-preview-anchor[data-ai-preview-target-id="column_left"]');
+  const bodyInsertion = proposalCard(page, "column_left");
   await expect(bodyInsertion).toBeVisible({ timeout: 20_000 });
   const bodyInsertionBox = await bodyInsertion.boundingBox();
   expect(bodyInsertionBox).not.toBeNull();
@@ -960,11 +968,11 @@ test("two-column body and overlay insertion proposals stay in their target colum
 
 test("local layout-section columns keep AI activity and body insertion in their own columns", async ({ page }) => {
   await setup(page, createLocalColumnAiDocument());
-  const section = page.locator('[data-layout-section-id="local_ai_columns"]');
+  // 列幅のつまみも同じ data 属性を持つので、段組みのユニット (section) に絞る。
+  const section = page.locator('section[data-layout-section-id="local_ai_columns"]');
   await expect(section).toBeVisible();
-  await expect.poll(async () => section.locator(".text-flow-shell").first().evaluate(
-    (element) => getComputedStyle(element).columnCount,
-  )).toBe("2");
+  // 部分段組みの各列は独立した編集面 (列ごとに本文が流れる)。
+  await expect(section.locator(".layout-section-independent-column")).toHaveCount(2);
 
   const targets = await section.locator('[data-sigma-doc-id^="local_col_"]').evaluateAll((elements) => (
     elements.map((element) => {
@@ -985,7 +993,7 @@ test("local layout-section columns keep AI activity and body insertion in their 
   expect(leftBadgeCenterX).toBeGreaterThanOrEqual(leftTarget.x);
   expect(leftBadgeCenterX).toBeLessThanOrEqual(leftTarget.x + leftTarget.width);
 
-  const bodyInsertion = page.locator(`.ai-column-preview-anchor[data-ai-preview-target-id="${leftTarget.id}"]`);
+  const bodyInsertion = proposalCard(page, leftTarget.id);
   await expect(bodyInsertion).toBeVisible({ timeout: 20_000 });
   const bodyInsertionBox = await bodyInsertion.boundingBox();
   expect(bodyInsertionBox).not.toBeNull();

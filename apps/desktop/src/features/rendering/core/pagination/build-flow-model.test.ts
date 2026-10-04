@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
 
 import { buildFlowModel, groupInkIntoBands } from "./build-flow-model";
-import type { ProbeInnerBreak } from "./probe-types";
+import type { FlowLine, PageGeometry } from "./model";
+import { placeFlow } from "./place-flow";
+import { planFlowRender } from "./plan-render";
+import type { ProbeInk, ProbeInnerBreak, ProbeNode, ProbeTree } from "./probe-types";
 
 describe("groupInkIntoBands", () => {
   it("keeps tightly spaced lines apart even when their glyph boxes overlap", () => {
@@ -53,7 +56,6 @@ describe("manual breaks inside a top-level block (quote, box)", () => {
       breakBefore: unitBreak,
       nodes: [quoteNode(innerBreaks)],
       attachments: [],
-      objects: [],
     }],
   });
 
@@ -76,5 +78,93 @@ describe("manual breaks inside a top-level block (quote, box)", () => {
     // ユニットの区切りと重ねて二重に数えない。
     expect(buildFlowModel(tree([{ top: 0, contentEnd: 0 }], true), { breakTarget: "page" }).model.sections[0].items
       .filter((item) => item.kind === "break")).toHaveLength(1);
+  });
+});
+
+describe("extension nodes (feature content placed after a body block)", () => {
+  // 段落 a (0〜20) → 拡張ノード (30〜130、中身の行は 3 本) → 段落 b (140〜160)。
+  const textNode = (id: string, top: number): ProbeNode => ({
+    id,
+    rect: { top, bottom: top + 20, left: 0, width: 400 },
+    ink: [{ top, bottom: top + 20, kind: "text" }],
+    chrome: [],
+    breakBefore: false,
+  });
+  const extensionNode: ProbeNode = {
+    id: "extension:card",
+    kind: "extension",
+    rect: { top: 30, bottom: 130, left: 0, width: 400 },
+    ink: [
+      { top: 40, bottom: 60, kind: "text" },
+      { top: 70, bottom: 90, kind: "text" },
+      { top: 100, bottom: 115, kind: "text" },
+    ],
+    chrome: [],
+    breakBefore: false,
+  };
+  const tree = (attachments: ProbeInk[] = []): ProbeTree => ({
+    units: [{
+      id: "unit",
+      rect: { top: 0, bottom: 160, left: 0, width: 400 },
+      span: "column",
+      breakBefore: false,
+      nodes: [textNode("a", 0), extensionNode, textNode("b", 140)],
+      attachments,
+    }],
+  });
+  const extensionLines = (built: ReturnType<typeof buildFlowModel>): FlowLine[] => (
+    built.units[0].nodes.find((node) => node.id === extensionNode.id)?.lineKeys
+      .map((key) => built.lines.get(key)!) ?? []
+  );
+  // 領域 0 = [0, 120]、領域 1 = [160, 280]。
+  const geometry: PageGeometry = {
+    pageHeight: 140, pageGap: 20, contentTop: 0, contentHeight: 120,
+    contentLeft: 0, contentWidth: 400, columnCount: 1, columnWidth: 400, columnGap: 0,
+  };
+
+  it("makes each row of the node its own line between the surrounding blocks, in document order", () => {
+    const built = buildFlowModel(tree(), { breakTarget: "page" });
+    expect(built.model.sections[0].items.map((item) => item.key)).toEqual([
+      "a#0", "extension:card#0", "extension:card#1", "extension:card#2", "b#0",
+    ]);
+  });
+
+  it("glues the node's own edges to its first and last line", () => {
+    const lines = extensionLines(buildFlowModel(tree(), { breakTarget: "page" }));
+    expect(lines.map((line) => [line.top, line.fitBottom])).toEqual([[30, 60], [65, 90], [95, 130]]);
+    expect(lines[0].opens).toEqual(["extension:card"]);
+    expect(lines[2].closes).toEqual(["extension:card"]);
+  });
+
+  it("never absorbs a unit attachment (problem number) into the node", () => {
+    const built = buildFlowModel(tree([{ top: 42, bottom: 58, kind: "atom" }]), { breakTarget: "page" });
+    expect(extensionLines(built).map((line) => line.fitBottom)).toEqual([60, 90, 130]);
+    expect(built.units[0].ownLineKeys).toEqual(["unit#attachment0"]);
+  });
+
+  it("moves only the overflowing row (with the closing edge) to the next page and continues the node there", () => {
+    const built = buildFlowModel(tree(), { breakTarget: "page" });
+    const placement = placeFlow(built.model, geometry);
+    expect(["extension:card#0", "extension:card#1", "extension:card#2", "b#0"].map((key) => placement.lines.get(key)?.y))
+      .toEqual([30, 65, 160, 205]);
+    const plan = planFlowRender(built, placement);
+    // 正本は 2 行目の後で切り、続きは次のページの頭から 3 行目以降を描く。
+    expect(plan.fragmentSources["extension:card"]).toEqual({
+      visibleHeight: 65,
+      origin: { x: 0, y: 30, width: 400 },
+      totalHeight: 100,
+    });
+    expect(plan.fragmentReplicas["extension:card"]).toEqual([{
+      blockId: "extension:card",
+      fragmentIndex: 1,
+      sourceOffsetY: 65,
+      height: 35,
+      x: 0,
+      y: 160,
+      width: 400,
+      totalHeight: 100,
+    }]);
+    expect(plan.nodeDisplacements["extension:card"]).toEqual({ dx: 0, dy: 0 });
+    expect(plan.nodeDisplacements.b).toEqual({ dx: 0, dy: 65 });
   });
 });

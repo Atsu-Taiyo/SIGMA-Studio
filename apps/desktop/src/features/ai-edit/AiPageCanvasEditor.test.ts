@@ -1,8 +1,15 @@
 import { describe, expect, it } from "vitest";
 
 import type { AiEditPreviewState } from "./model/preview";
+import type { AiProposalAnchorCard, AiProposalContentHunk } from "./model/proposal-content";
 
-import { getOverlayInsertionAnchorBlockId, resolveAiEditGhostShapes } from "./AiPageCanvasEditor";
+import {
+  getAiProposalCardKey,
+  getAiProposalCardMeasureRevision,
+  getAiProposalConversationKey,
+  getOverlayInsertionAnchorBlockId,
+  resolveAiEditGhostShapes,
+} from "./AiPageCanvasEditor";
 import type { MeasuredBlock } from "@/features/drawing";
 import type { OverlayGeoShape, OverlayShape, OverlayTextShape } from "@/features/document";
 
@@ -49,6 +56,62 @@ describe("AI page canvas extension", () => {
       ...insertion,
       shapeReplacements: [{ removedShapeId: "old", addedShapeId: "shape-1" }],
     })).toBeNull();
+  });
+});
+
+describe("AI proposal cards in the page flow", () => {
+  const roomPreview = (proposalIds: string[], roomId = "room-1"): AiEditPreviewState => ({
+    ...preview([]),
+    proposalIds,
+    roomId,
+    runId: `run-${proposalIds.length}`,
+  });
+  const hunk = (text: string): AiProposalContentHunk => ({
+    anchorBlockId: "left",
+    removed: [],
+    added: [{ id: "added-1", type: "paragraph", children: [{ type: "text", text }] }],
+    notes: [],
+    operations: ["insertAfter"],
+    numbering: {
+      removed: { problems: new Map(), headings: new Map() },
+      added: { problems: new Map([["problem-1", 2]]), headings: new Map() },
+    },
+  });
+  const card = (text: string, proposalIds = ["proposal-1"]): AiProposalAnchorCard => ({
+    preview: roomPreview(proposalIds),
+    content: { hunks: [hunk(text)], shapes: [] },
+  });
+
+  it("keeps a card's key when a follow-up turn in the same room adds a proposal", () => {
+    expect(getAiProposalCardKey("left", roomPreview(["proposal-1", "proposal-2"])))
+      .toBe(getAiProposalCardKey("left", roomPreview(["proposal-1"])));
+    expect(getAiProposalConversationKey(roomPreview(["proposal-1", "proposal-2"])))
+      .toBe(getAiProposalConversationKey(roomPreview(["proposal-1"])));
+  });
+
+  it("separates cards of different rooms, anchors, runs and unattributed proposals", () => {
+    const keys = [
+      getAiProposalCardKey("left", roomPreview(["proposal-1"], "room-1")),
+      getAiProposalCardKey("left", roomPreview(["proposal-2"], "room-2")),
+      getAiProposalCardKey("right", roomPreview(["proposal-1"], "room-1")),
+      getAiProposalCardKey("left", { ...preview([]), proposalIds: ["proposal-3"], runId: "run-a" }),
+      getAiProposalCardKey("left", { ...preview([]), proposalIds: ["proposal-4", "proposal-5"] }),
+    ];
+    expect(new Set(keys).size).toBe(keys.length);
+    // 帰属の無い提案は最初の提案で決まる (後から足されても変わらない)。
+    expect(getAiProposalCardKey("left", { ...preview([]), proposalIds: ["proposal-4"] }))
+      .toBe(keys[4]);
+  });
+
+  it("changes the measure revision only when the card's content changes", () => {
+    const base = getAiProposalCardMeasureRevision(card("提案の本文"), "uniform");
+    expect(base).not.toBe("");
+    expect(getAiProposalCardMeasureRevision(card("提案の本文", ["proposal-1", "proposal-2"]), "uniform")).toBe(base);
+    expect(getAiProposalCardMeasureRevision(card("提案の本文を書き換えた"), "uniform")).not.toBe(base);
+    expect(getAiProposalCardMeasureRevision(card("提案の本文"), "texDefault")).not.toBe(base);
+    const renumbered = card("提案の本文");
+    renumbered.content.hunks[0].numbering.added = { problems: new Map([["problem-1", 3]]), headings: new Map() };
+    expect(getAiProposalCardMeasureRevision(renumbered, "uniform")).not.toBe(base);
   });
 });
 

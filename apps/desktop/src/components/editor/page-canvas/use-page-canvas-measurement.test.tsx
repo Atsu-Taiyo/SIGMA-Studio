@@ -90,3 +90,17 @@ it("keeps a frozen baseline refresh pending until thaw and measures the latest d
   session.cancel(); await act(async () => owner.thawSpaceAfterRecompute()); await flushFrames();
   expect(owner.layoutViewState.input?.documentId).toBe("after-drag");
 });
+
+it("re-measures once when an extension node's measure key changes without a document change", async () => {
+  inputs = { ...inputs, content: { ...inputs.content, extensionMeasureKey: "card:r1" } };
+  await act(async () => render()); await flushFrames();
+  expect(frames.size).toBe(0);
+  // 文書もユニットも同じ。拡張ノードの中身だけが (同じ高さで) 変わった。
+  inputs = { ...inputs, content: { ...inputs.content, extensionMeasureKey: "card:r2" } };
+  await act(async () => render());
+  expect(frames.size).toBe(1);
+  await flushFrames();
+  inputs = { ...inputs, content: { ...inputs.content } };
+  await act(async () => render());
+  expect(frames.size).toBe(0);
+});
