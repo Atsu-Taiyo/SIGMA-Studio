@@ -252,9 +252,9 @@ export const ai = {
     providerEdit: "{{provider}} edit",
   },
   diff: {
-    title: "Actual diff",
     statsAria: "Diff summary",
-    collapsed: "{{count}} more unchanged lines",
+    before: "Before",
+    after: "After",
     stat: "{{sign}}{{count}} {{noun}}",
     noun: {
       line_one: "line",
@@ -290,11 +290,8 @@ export const ai = {
     dialogAria: "AI edit: {{title}}",
     overlayDialogAria: "AI overlay edit: {{title}}",
     proposedChanges: "Proposed changes",
-    insertShapePreview: "Preview of the shape to insert",
-    updatedShapePreview: "Preview of the updated shape",
     applyFailed: "Could not apply the edit",
     summaryMore: "{{count}} more",
-    insertsShape: "Inserts {{noun}}",
     dismissReasonExampleText: "e.g. the formula does not match the original problem",
     dismissReasonExampleShape: "e.g. the figure does not sit well with the text",
   },

@@ -696,9 +696,6 @@ describe("rendering feature dependency boundary", () => {
         { expression: "preview.svg", reason: `${SHAPE_PREVIEW_REASON}。ここは props で受け取る` },
         { expression: "preview.svg", reason: `${SHAPE_PREVIEW_REASON}。ここは props で受け取る` },
       ],
-      "features/ai-edit/view/AiChatTurn.tsx": [
-        { expression: "preview.svg", reason: `${SHAPE_PREVIEW_REASON}。ここは props で受け取る` },
-      ],
       "components/editor/EditorSettings.tsx": [
         {
           expression: "renderMathTemplateButtonHtml(template.tex, mathEnvironment)",
@@ -722,10 +719,6 @@ describe("rendering feature dependency boundary", () => {
           expression: "foregroundSvg",
           reason: "`backgroundSvg` と同じ形で、`stackLayer` だけが違う",
         },
-      ],
-      "features/ai-edit/view/AiEditInlinePreviewCard.tsx": [
-        { expression: "shapeOnlyPreview.svg", reason: `${SHAPE_PREVIEW_REASON}。ここは \`useMemo\` 越し` },
-        { expression: "afterPreview.svg", reason: `${SHAPE_PREVIEW_REASON}。ここは \`useMemo\` 越し` },
       ],
       "features/rendering/adapters/react/Graph2DPreview.tsx": [
         {
@@ -891,13 +884,13 @@ describe("rendering feature dependency boundary", () => {
     });
 
     it("requires a generator or an explicitly reviewed generated-preview prop", () => {
-      // These leaf views moved the same three preview.svg sinks out of AiEditPanel.
-      // They receive the generated preview, while the application owns generation.
+      // This leaf view moved the preview.svg sinks out of AiEditPanel. It receives the
+      // generated preview, while the application owns generation. (The chat's inserted-shape
+      // thumbnail now draws through AiProposalContentView, which calls the generator itself.)
       // Pin the exact consumers, type source and expressions; do not make every
       // reviewed expression an exemption from generator ownership.
       const generatedPreviewPropSites = [
         "features/ai-edit/view/AiChatPreviewImages.tsx",
-        "features/ai-edit/view/AiChatTurn.tsx",
       ];
       for (const file of generatedPreviewPropSites) {
         expect(injectionSiteFiles()).toContain(file);
@@ -1038,10 +1031,8 @@ describe("rendering feature dependency boundary", () => {
         "components/editor/MaterialPreview.tsx",
         "components/print/PrintPreview.tsx",
         "components/tiptap/url-detection-extension.tsx",
-        "features/ai-edit/view/AiAppliedDocumentDiff.tsx",
         "features/ai-edit/view/AiChatPreviewImages.tsx",
-        "features/ai-edit/view/AiChatTurn.tsx",
-        "features/ai-edit/view/AiEditInlinePreviewCard.tsx",
+        "features/ai-edit/view/AiProposalContentView.tsx",
         "features/rendering/adapters/inline-math-dom.ts",
         "features/rendering/adapters/react/Graph2DPreview.tsx",
         "features/rendering/adapters/react/MathPreview.tsx",

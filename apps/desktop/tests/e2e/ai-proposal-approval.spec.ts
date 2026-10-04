@@ -207,8 +207,8 @@ test("problem and solution proposals keep their page-area layout in the preview"
   await closeInlineSurface(page);
   let previewDialog = page.locator(".ai-inline-preview-dialog");
   await expect(previewDialog).toBeVisible({ timeout: 20_000 });
-  await expect(previewDialog.locator('.ai-inline-preview-operation[data-problem-area="prompt"]')).toBeVisible();
-  await expect(previewDialog.locator(".ai-inline-preview-problem-area-label")).toHaveText("問7 問題文");
+  await expect(previewDialog.locator('[data-ai-proposal-hunk][data-problem-area="prompt"]')).toBeVisible();
+  await expect(previewDialog.locator("[data-ai-proposal-area-label]")).toHaveText("問7 問題文");
   await previewDialog.locator('.ai-inline-preview-action.apply[aria-label="適用"]').click();
   await expect(previewDialog).toBeHidden();
 
@@ -216,8 +216,8 @@ test("problem and solution proposals keep their page-area layout in the preview"
   await closeInlineSurface(page);
   previewDialog = page.locator(".ai-inline-preview-dialog");
   await expect(previewDialog).toBeVisible({ timeout: 20_000 });
-  await expect(previewDialog.locator('.ai-inline-preview-operation[data-problem-area="solution"]')).toBeVisible();
-  await expect(previewDialog.locator(".ai-inline-preview-problem-area-label")).toHaveText("解答");
+  await expect(previewDialog.locator('[data-ai-proposal-hunk][data-problem-area="solution"]')).toBeVisible();
+  await expect(previewDialog.locator("[data-ai-proposal-area-label]")).toHaveText("解答");
 });
 
 test("問題挿入プレビューが問題番号と枠線付きで描かれる", async ({ page }) => {
@@ -454,8 +454,12 @@ test("a formatting-only proposal remains visible as a real pending diff", async 
   await expect(proposal).toBeVisible({ timeout: 20_000 });
   await expect(proposal).toContainText("−1行");
   await expect(proposal).toContainText("+1行");
-  await expect(proposal.locator('[data-change="removed"] mark')).toContainText("一次関数のグラフは直線");
-  await expect(proposal.locator('[data-change="added"] mark strong')).toContainText("一次関数のグラフは直線");
+  // 装飾だけが変わった単語は、両側とも表示用のコピーの背景色で塗られる (文書には書かない)。
+  await expect(proposal.locator('[data-change="removed"] [style*="--ai-proposal-word-removed"]').first())
+    .toContainText("一次関数のグラフは直線");
+  await expect(proposal.locator('[data-change="added"] [style*="--ai-proposal-word-added"]').first())
+    .toContainText("一次関数のグラフは直線");
+  await expect(proposal.locator('[data-change="added"] strong').first()).toContainText("一次関数のグラフは直線");
 });
 
 test("a shape replacement pending diff uses the preserved rotation and opacity", async ({ page }) => {

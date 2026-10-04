@@ -1923,28 +1923,6 @@ body.page-block-dragging .layout-section-column-resize-knob {
   min-width: 0;
 }
 
-.ai-inline-preview-placeholder {
-  margin: 0;
-  color: var(--text-secondary);
-  font-size: 12px;
-  line-height: 1.5;
-}
-
-.ai-inline-preview-operation-list {
-  display: grid;
-  /* No inter-block gap: consecutive inserted blocks should read as one
-     continuous run, identical to how they look once applied to the body. */
-  gap: 0;
-}
-
-.ai-inline-preview-paper {
-  background: #ffffff;
-  color: #111111;
-  font-family: "Yu Gothic", "Hiragino Sans", "Meiryo", system-ui, sans-serif;
-  font-size: var(--editor-font-size, 12pt);
-  line-height: 1.78;
-}
-
 /* 「提案された変更」見出し。サイドバーの .ai-chat-result-proposal-diff-heading と
    同じ値で、本文内カードとサイドバーの提案が同じ読み口になるようにする。 */
 .ai-inline-preview-diff-heading {
@@ -1954,8 +1932,8 @@ body.page-block-dragging .layout-section-column-resize-knob {
   font-weight: 700;
 }
 
-/* サイドバーの差分ブロック (AiAppliedDocumentDiff.module.css の .body) と同じ
-   「一段沈んだ枠」。padding は縦を最小に留め、本文のページ計測への影響を抑える。 */
+/* カードの外枠のうち、内容 (AiProposalContentView) を囲む「一段沈んだ枠」。
+   padding は縦を最小に留め、本文のページ計測への影響を抑える。上限と内部スクロールは WI-6 で外す。 */
 .ai-inline-preview-scroll {
   min-height: 0;
   overflow-y: auto;
@@ -2016,99 +1994,6 @@ button.ai-source-ref-chip--document:focus-visible {
   background: var(--surface-muted);
   color: var(--text-primary);
   outline: none;
-}
-
-.ai-inline-preview-mutation {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 8px 9px;
-  border: 1px solid var(--border-subtle);
-  border-radius: 5px;
-  background: var(--background);
-  color: var(--text-secondary);
-}
-
-.ai-inline-preview-mutation svg {
-  flex: 0 0 auto;
-  opacity: 0.7;
-}
-
-.ai-inline-preview-mutation-summary {
-  margin: 0;
-  font-size: 12px;
-  line-height: 1.5;
-}
-
-.ai-inline-preview-operation {
-  display: grid;
-  gap: 5px;
-  padding: 0;
-  border: 0;
-  background: transparent;
-}
-
-.ai-inline-preview-content {
-  padding: 0;
-  border: 0;
-  border-radius: 0;
-  background: transparent;
-}
-
-.ai-inline-preview-content:not(.text-flow-editor) {
-  padding: 8px 9px;
-  border: 1px solid var(--border-subtle);
-  border-radius: 5px;
-  background: var(--background);
-}
-
-/* Non-text candidates (shapes/tables) are boxed, so keep a little space between
-   consecutive ones. Body-flow text candidates flow continuously (gap: 0). */
-.ai-inline-preview-operation + .ai-inline-preview-operation .ai-inline-preview-content:not(.text-flow-editor) {
-  margin-top: 10px;
-}
-
-.ai-inline-preview-content.text-flow-editor {
-  min-height: auto;
-  padding: 2px 0;
-  font-size: var(--editor-font-size, 12pt);
-  line-height: 1.78;
-}
-
-.ai-inline-preview-problem-area-row {
-  display: grid;
-  grid-template-columns: minmax(58px, 76px) minmax(0, 1fr);
-  align-items: stretch;
-  min-width: 0;
-}
-
-.ai-inline-preview-problem-area-label {
-  display: flex;
-  align-items: flex-start;
-  min-width: 0;
-  padding: 3px var(--space-sm) 3px 0;
-  border-right: 1px solid color-mix(in srgb, var(--border-strong) 62%, transparent);
-  color: var(--text-muted);
-  font-size: 10px;
-  font-weight: 700;
-  line-height: 1.35;
-}
-
-.ai-inline-preview-problem-area-label.continuation {
-  padding-top: 0;
-}
-
-.ai-inline-preview-problem-area-body {
-  min-width: 0;
-  padding: 2px 0 2px var(--space-sm);
-}
-
-.ai-inline-preview-problem-area-body > :first-child {
-  margin-top: 0;
-}
-
-.ai-inline-preview-problem-area-body > :last-child {
-  margin-bottom: 0;
 }
 
 .ai-inline-preview-actions {
@@ -2181,27 +2066,8 @@ button.ai-source-ref-chip--document:focus-visible {
    GitHub-style diff coloring for pending AI proposals: pale red = will be
    removed/replaced, pale green = will be added. Kept low-alpha (color-mix)
    per design rule — never a saturated fill. After the approved document is
-   visible, newly written content briefly flashes pale green. */
-
-.ai-inline-preview-diff-removed,
-.ai-inline-preview-diff-added {
-  position: relative;
-}
-
-.ai-inline-preview-diff-removed {
-  background: color-mix(in srgb, var(--danger, #b42318) 8%, transparent);
-  border-color: color-mix(in srgb, var(--danger, #b42318) 35%, var(--border-subtle));
-}
-
-.ai-inline-preview-diff-added {
-  background: color-mix(in srgb, var(--success, #247a3d) 8%, transparent);
-  border-color: color-mix(in srgb, var(--success, #247a3d) 35%, var(--border-subtle));
-}
-
-.ai-inline-preview-mutation.ai-inline-preview-diff-modified {
-  background: color-mix(in srgb, var(--warning, #9a6700) 8%, transparent);
-  border-color: color-mix(in srgb, var(--warning, #9a6700) 35%, var(--border-subtle));
-}
+   visible, newly written content briefly flashes pale green. The proposal
+   content itself (AiProposalContentView.module.css) uses the same tints. */
 
 /* Body text flow: pending-diff background + apply-animation decorations.
    The AI feature projects these states into the generic text-flow change

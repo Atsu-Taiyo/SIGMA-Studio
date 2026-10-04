@@ -598,9 +598,10 @@ test("a plain replace proposal uses color-only diff treatment without symbol mar
 
   const previewDialog = page.locator(".ai-inline-preview-dialog");
   await expect(previewDialog).toBeVisible({ timeout: 20_000 });
-  await expect(previewDialog.locator(".ai-inline-preview-diff-added")).toHaveCount(1);
-  await expect(previewDialog.locator(".ai-inline-preview-diff-removed")).toHaveCount(0);
-  await expect(previewDialog.locator(".ai-inline-preview-diff-marker")).toHaveCount(0);
+  await expect(previewDialog.locator('[data-change="added"]')).toHaveCount(1);
+  await expect(previewDialog.locator('[data-change="removed"]')).toHaveCount(0);
+  // 紙面のカードは +/− の印を描かない (印は両側が並ぶサイドバーだけ)。
+  await expect(previewDialog.locator('[data-ai-proposal-content] [aria-hidden="true"]', { hasText: /^[+−]$/ })).toHaveCount(0);
 });
 
 test("an AI proposal reserves only its own target, leaving the rest of the body editable", async ({ page }) => {
