@@ -29,6 +29,7 @@ import {
   overlayShapeNounId,
 } from "./preview";
 import { buildShapesSvgPreview } from "@/lib/ai/ai-edit-shape-preview";
+import { computeProposalMergeBasis, type ProposalMergeBasis } from "@/lib/ai/proposal-merge-basis";
 import type { AiEditDraft, AiEditSessionDraft, SigmaDocMutationOp } from "@/lib/ai/sigma-doc-edit-schema";
 import type { OverlayAsset, OverlayShape } from "@/features/document";
 import type { DesktopMcpEditProposalProvider, DesktopMcpEditProposalSummary } from "@/types/desktop";
@@ -1300,14 +1301,143 @@ describe("deriveAiEditPreviewDiff", () => {
   });
 });
 
+/** 提案が上書きする単位を持つ文書 (`computeProposalMergeBasis` がここから元の内容を写す)。 */
+function lockTargetDocument(): SigmaDocument {
+  const paragraphBlock = (id: string) => ({ id, type: "paragraph", children: [{ type: "text", text: `段落 ${id}` }] });
+  const rectangle = (id: string, x: number) => ({
+    id,
+    type: "geo",
+    x,
+    y: 0,
+    props: {
+      w: 40, h: 20, geo: "rectangle", fill: "none", color: "#111111", fillColor: "#ffffff",
+      labelColor: "#111111", dash: "solid", size: "m",
+    },
+  });
+  return {
+    version: "2.0",
+    docId: "doc_1",
+    metadata: { title: "ロック" },
+    outputProfiles: { student: {}, teacher: {}, answerBook: {} },
+    content: [
+      ...["b1", "b4", "b5", "b6"].map(paragraphBlock),
+      { id: "sec1", type: "layoutSection", columns: 2, children: [paragraphBlock("sec1_p")] },
+    ],
+    pageLayout: {
+      overlay: {
+        overlaySnapshot: {
+          version: 1,
+          shapes: ["s3", "s4", "s5", "s6"].map((id, index) => rectangle(id, index * 60)),
+          assets: {},
+        },
+      },
+    },
+  } as unknown as SigmaDocument;
+}
+
+const updateLayoutSectionOp: SigmaDocMutationOp = {
+  operation: "updateLayoutSection",
+  summary: "段組みを3段に",
+  sectionId: "sec1",
+  columnCount: 3,
+};
+
+/** 実際の提案ストアと同じく、作成時の文書から `mergeBasis` を持たせた保留中の提案のプレビュー。 */
+function lockPreview(proposals: Array<{ draft: Partial<AiEditSessionDraft>; mergeBasis?: "computed" | ProposalMergeBasis }>): AiEditPreviewState {
+  const summaries = proposals.map(({ draft, mergeBasis }, index) => {
+    const summary = makeProposal({
+      proposalId: `lock_${index}`,
+      fileId: "file_1",
+      targetId: "b1",
+      runId: "run_lock",
+      createdAt: `2026-06-27T00:00:0${index}.000Z`,
+      draftOverrides: { operations: [], ...draft },
+    });
+    return mergeBasis === undefined
+      ? summary
+      : { ...summary, mergeBasis: mergeBasis === "computed" ? computeProposalMergeBasis(summary.draft, lockTargetDocument()) : mergeBasis };
+  });
+  const { groups } = groupMcpProposalsForPreview(summaries, "file_1", 1);
+  expect(groups).toHaveLength(1);
+  return groups[0]!;
+}
+
 describe("derivePendingAiProposalLockTargets", () => {
+  // 三者マージで人の編集に追従できる対象はロックしない。ロックが残るのは合成できない対象だけ:
+  // base (mergeBasis) を持たない旧レコードの全対象と、整列・段組み設定の更新の対象。
+  it("leaves every target a merge-capable proposal can follow editable", () => {
+    const locks = derivePendingAiProposalLockTargets([lockPreview([{
+      mergeBasis: "computed",
+      draft: {
+        operations: [replaceDraft, insertAfterDraft],
+        mutationOperations: [deleteBlocksOp, moveBlocksOp, updateOverlayShapeOp, deleteOverlayShapesOp],
+      },
+    }])]);
+
+    expect(locks.blockIds).toEqual(new Set());
+    expect(locks.shapeIds).toEqual(new Set());
+  });
+
+  it("keeps the targets the merge cannot follow locked: aligned shapes and a reconfigured column section", () => {
+    const locks = derivePendingAiProposalLockTargets([lockPreview([{
+      mergeBasis: "computed",
+      draft: { operations: [replaceDraft], mutationOperations: [alignOverlayShapesOp, updateLayoutSectionOp] },
+    }])]);
+
+    expect(locks.blockIds).toEqual(new Set(["sec1"]));
+    expect(locks.shapeIds).toEqual(new Set(["s4", "s5"]));
+  });
+
+  it("does not lock an aligned shape the same proposal also merges as a unit", () => {
+    const locks = derivePendingAiProposalLockTargets([lockPreview([{
+      mergeBasis: "computed",
+      draft: { mutationOperations: [{ ...updateOverlayShapeOp, shapeId: "s4" }, alignOverlayShapesOp] },
+    }])]);
+
+    expect(locks.shapeIds).toEqual(new Set(["s5"]));
+  });
+
+  it("locks only the proposals of a group that have no usable merge basis", () => {
+    const locks = derivePendingAiProposalLockTargets([lockPreview([
+      { mergeBasis: "computed", draft: { operations: [replaceDraft] } },
+      { draft: { mutationOperations: [deleteBlocksOp, deleteOverlayShapesOp] } },
+    ])]);
+
+    expect(locks.blockIds).toEqual(new Set(["b4", "b5"]));
+    expect(locks.shapeIds).toEqual(new Set(["s6"]));
+  });
+
+  it("treats a proposal whose merge basis cannot be read as a legacy record", () => {
+    const broken: ProposalMergeBasis = {
+      version: 1,
+      entities: { b1: { kind: "block", value: { id: "b1", type: "paragraph" } as never } },
+    };
+    const locks = derivePendingAiProposalLockTargets([lockPreview([
+      { mergeBasis: broken, draft: { operations: [replaceDraft] } },
+      // 同じまとまりに base を持つ提案があっても (mergeSources が付いても)、壊れた base の提案は旧レコード。
+      { mergeBasis: "computed", draft: { mutationOperations: [updateOverlayShapeOp] } },
+    ])]);
+
+    expect(locks.blockIds).toEqual(new Set(["b1"]));
+    expect(locks.shapeIds).toEqual(new Set());
+  });
+
+  it("does not lock the old shape of a replacement a merge-capable proposal makes", () => {
+    const preview = {
+      ...lockPreview([{ mergeBasis: "computed", draft: { mutationOperations: [deleteOverlayShapesOp] } }]),
+      shapeReplacements: [{ removedShapeId: "s6", addedShapeId: "s6_new" }],
+    };
+
+    expect(derivePendingAiProposalLockTargets([preview]).shapeIds).toEqual(new Set());
+  });
+
   it("does not reserve the text of a body insertion anchor or move destination", () => {
     const insertion = derivePendingAiProposalLockTargets([makePreview({ operations: [insertAfterDraft] })]);
     expect(insertion.blockIds.size).toBe(0);
     const move = derivePendingAiProposalLockTargets([makePreview({ operations: [], mutationOperations: [moveBlocksOp] })]);
     expect(move.blockIds).toEqual(new Set(moveBlocksOp.blockIds));
   });
-  it("keeps existing body and overlay targets locked until the proposal is resolved", () => {
+  it("keeps every existing target of a legacy record (no merge basis) locked until the proposal is resolved", () => {
     const locks = derivePendingAiProposalLockTargets([
       makePreview({
         operations: [replaceDraft, insertAfterDraft],
@@ -1329,8 +1459,9 @@ describe("derivePendingAiProposalLockTargets", () => {
   });
 
   it("allows an explicitly editable web proposal target to change before its freshness check", () => {
+    // WebMCP のプレビューは mergeSources を持たないが、旧レコードとしてロックしてはいけない。
     const locks = derivePendingAiProposalLockTargets([
-      makePreview({ operations: [replaceDraft], lockTargets: false }),
+      makePreview({ operations: [replaceDraft], mutationOperations: [alignOverlayShapesOp], lockTargets: false }),
     ]);
 
     expect(locks.blockIds.size).toBe(0);

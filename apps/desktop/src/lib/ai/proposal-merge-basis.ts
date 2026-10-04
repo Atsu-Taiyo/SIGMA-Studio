@@ -259,6 +259,25 @@ export function collectProposalMergeUnits(draft: AiEditSessionDraft): ProposalMe
 }
 
 /**
+ * Overwritten targets the merging replay does not merge: shapes the draft aligns and partial
+ * column sections it reconfigures are operation-based, so a human change to them is still a
+ * content conflict (compared with the base hashes) unless the same target is also a merged unit.
+ * The approval reports that conflict (`electron/proposals/freshness.ts`), and the editor keeps
+ * exactly these targets locked while the proposal is pending (`derivePendingAiProposalLockTargets`).
+ */
+export function collectNonMergeableSensitiveIds(draft: AiEditSessionDraft, mergeBasis: ProposalMergeBasis): string[] {
+  const ids = new Set<string>();
+  for (const operation of draft.mutationOperations ?? []) {
+    if (operation.operation === "alignOverlayShapes") {
+      operation.shapeIds.forEach((id) => ids.add(id));
+    } else if (operation.operation === "updateLayoutSection") {
+      ids.add(operation.sectionId);
+    }
+  }
+  return [...ids].filter((id) => mergeBasis.entities[id] === undefined);
+}
+
+/**
  * Computes the merge basis of `draft` from `baseDocument`: the saved document the AI's working
  * document was built from when it produced the draft's replacements.
  *

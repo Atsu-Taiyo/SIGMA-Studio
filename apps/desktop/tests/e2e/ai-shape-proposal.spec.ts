@@ -399,24 +399,33 @@ test("a shape-mutation proposal shows the shared bar beside the shape and a canv
   await expect(liveShape).toHaveCSS("animation-name", "none");
   await expect(liveShape).toHaveCSS("opacity", "1");
 
-  // The run has completed, but the touched shape remains locked until the
-  // human resolves the proposal. Selection is allowed; moving it is not.
-  const beforeSelectionBox = await liveShape.boundingBox();
-  expect(beforeSelectionBox).not.toBeNull();
+  // The run has completed. The approval merges a human's edit of the target with the AI's change,
+  // so the pending proposal does not lock the shape: the human can select it and move it.
+  const savedShape = () => page.evaluate(() => {
+    const saved = JSON.parse(window.localStorage.getItem("sigma-studio:e2e-document") ?? "null");
+    return saved?.pageLayout?.overlay?.overlaySnapshot?.shapes
+      ?.find((shape: { id?: string }) => shape.id === "e2e_shape_1") ?? null;
+  });
   // 本文モードでは未選択の図形が透過するので、明示操作で掴む。
   await grabShapeFromBody(page, liveShape);
-  const lockedSelectedShape = page.locator('.overlay-shape.selected.ai-edit-locked-shape[data-overlay-shape-id="e2e_shape_1"]');
-  await expect(lockedSelectedShape).toBeVisible();
-  const beforeDragBox = await lockedSelectedShape.boundingBox();
+  const selectedShape = page.locator('.overlay-canvas-editor .overlay-shape.selected[data-overlay-shape-id="e2e_shape_1"]');
+  await expect(selectedShape).toBeVisible();
+  await expect(selectedShape).not.toHaveClass(/ai-edit-locked-shape/);
+  const beforeDragBox = await selectedShape.boundingBox();
   expect(beforeDragBox).not.toBeNull();
+  // 縦にだけ動かす (AI は横位置を変える。重ならない編集なので承認は両方を残す)。
   await page.mouse.move(beforeDragBox!.x + beforeDragBox!.width / 2, beforeDragBox!.y + beforeDragBox!.height / 2);
   await page.mouse.down();
-  await page.mouse.move(beforeDragBox!.x + beforeDragBox!.width / 2 + 80, beforeDragBox!.y + beforeDragBox!.height / 2 + 20);
+  await page.mouse.move(beforeDragBox!.x + beforeDragBox!.width / 2, beforeDragBox!.y + beforeDragBox!.height / 2 + 30, { steps: 6 });
   await page.mouse.up();
-  const afterDragBox = await lockedSelectedShape.boundingBox();
-  expect(afterDragBox).not.toBeNull();
-  expect(Math.abs(afterDragBox!.x - beforeDragBox!.x)).toBeLessThan(1);
-  expect(Math.abs(afterDragBox!.y - beforeDragBox!.y)).toBeLessThan(1);
+  await expect.poll(async () => (await selectedShape.boundingBox())?.y ?? beforeDragBox!.y).toBeGreaterThan(beforeDragBox!.y + 10);
+  // 縦位置は y か anchor.dy に入る。人が動かした値が保存されるまで待つ。
+  const verticalPlacement = (shape: { y?: number; anchor?: { dy?: number } } | null) => `${shape?.y}:${shape?.anchor?.dy}`;
+  const originalPlacement = "40:0";
+  await expect.poll(async () => verticalPlacement(await savedShape())).not.toBe(originalPlacement);
+  const humanPlacement = verticalPlacement(await savedShape());
+  // 変更後のゴーストは残る (承認で入る姿は、人の移動に AI の横移動を重ねたもの)。
+  await expect(ghostShape).toBeVisible();
 
   // The left task row has no redundant "提案あり" label. Clicking the row
   // jumps to the owning chat, where the AI summary is immediately followed by
@@ -441,14 +450,12 @@ test("a shape-mutation proposal shows the shared bar beside the shape and a canv
   await expect(sidebarDismiss).toHaveCSS("color", "rgb(85, 85, 85)");
   await expect(sidebarApply).toHaveCSS("color", "rgb(255, 255, 255)");
 
-  // Applying from the sidebar resolves every mirrored proposal surface.
+  // Applying from the sidebar resolves every mirrored proposal surface. Both edits are saved: the
+  // AI's horizontal move and the human's vertical one.
   await sidebarApply.click();
   await expect(approvalWidget).toBeHidden();
-  await expect.poll(async () => page.evaluate(() => {
-    const saved = JSON.parse(window.localStorage.getItem("sigma-studio:e2e-document") ?? "null");
-    return saved?.pageLayout?.overlay?.overlaySnapshot?.shapes
-      ?.find((shape: { id?: string }) => shape.id === "e2e_shape_1")?.x ?? null;
-  })).toBe(160);
+  await expect.poll(async () => (await savedShape())?.x ?? null).toBe(160);
+  expect(verticalPlacement(await savedShape())).toBe(humanPlacement);
 });
 
 test("a shape proposal keeps both its before and after states visible after selecting the target", async ({ page }) => {
@@ -456,11 +463,13 @@ test("a shape proposal keeps both its before and after states visible after sele
   await startShapeRun(page, "e2e_shape_1", "PROPOSAL SHAPE 図形を右に移動して");
 
   await expect(page.locator(OVERLAY_PROPOSAL_BAR)).toBeVisible({ timeout: 20_000 });
-  const selectedShape = page.locator('.overlay-shape.selected.ai-edit-locked-shape[data-overlay-shape-id="e2e_shape_1"]');
+  const selectedShape = page.locator('.overlay-shape.selected[data-overlay-shape-id="e2e_shape_1"]:not(.ai-diff-ghost-shape)');
   const ghostShape = page.locator('.overlay-shape.ai-diff-ghost-shape[data-overlay-shape-id="e2e_shape_1"]');
   // Starting from a selected target keeps the live interactive canvas mounted.
-  // The same before/after diff must remain visible on that surface.
+  // The same before/after diff must remain visible on that surface. The pending
+  // proposal does not lock its target (the approval merges a human edit of it).
   await expect(selectedShape).toHaveCount(1);
+  await expect(selectedShape).not.toHaveClass(/ai-edit-locked-shape/);
   await expect(selectedShape).toHaveClass(/ai-diff-modified-shape/);
   await expect(selectedShape).toHaveClass(/ai-diff-before-shape/);
   await expect(selectedShape).toHaveCSS("outline-width", "3px");
@@ -621,7 +630,35 @@ test("a plain replace proposal uses color-only diff treatment without symbol mar
   await expect(previewDialog.locator('[data-ai-proposal-content] [aria-hidden="true"]', { hasText: /^[+−]$/ })).toHaveCount(0);
 });
 
-test("an AI proposal reserves only its own target, leaving the rest of the body editable", async ({ page }) => {
+/** 本文の段落の末尾にキャレットを置く (macOS の合成キーで行末へ動かすのは当てにならない)。 */
+async function placeCaretAtParagraphEnd(page: Page, blockId: string): Promise<void> {
+  await page.evaluate((targetBlockId) => {
+    const target = Array.from(document.querySelectorAll<HTMLElement>(
+      `.text-flow-editor [data-sigma-doc-id="${targetBlockId}"]`,
+    )).find((element) => element.getClientRects().length > 0);
+    if (!target) {
+      throw new Error(`caret target not found: ${targetBlockId}`);
+    }
+    const walker = document.createTreeWalker(target, NodeFilter.SHOW_TEXT);
+    let last: Text | null = null;
+    for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+      last = node as Text;
+    }
+    if (!last) {
+      throw new Error(`caret text not found: ${targetBlockId}`);
+    }
+    target.closest<HTMLElement>('[contenteditable="true"]')?.focus({ preventScroll: true });
+    const range = document.createRange();
+    range.setStart(last, last.data.length);
+    range.collapse(true);
+    const selection = window.getSelection();
+    selection?.removeAllRanges();
+    selection?.addRange(range);
+    document.dispatchEvent(new Event("selectionchange"));
+  }, blockId);
+}
+
+test("an AI proposal reserves only its own target while it runs, and its pending target stays editable", async ({ page }) => {
   await setup(page);
 
   const unrelatedParagraph = page.locator(
@@ -630,8 +667,9 @@ test("an AI proposal reserves only its own target, leaving the rest of the body 
   const targetParagraph = page.locator('.text-flow-editor [data-sigma-doc-id="para_a"]').first();
   const originalText = await unrelatedParagraph.textContent();
   expect(originalText).not.toBeNull();
+  const originalTargetText = (await targetParagraph.textContent()) ?? "";
 
-  await startInlineRun(page, "para_a", "PROPOSAL この段落を書き換えて");
+  await startInlineRun(page, "para_a", "PROPOSAL PREPEND この段落の前に一文足して");
 
   // The run owns para_a from the moment it starts. Proposal applicability is
   // checked per block by content hash at approval time, so an unrelated
@@ -655,23 +693,89 @@ test("an AI proposal reserves only its own target, leaving the rest of the body 
   const previewDialog = page.locator(PAGE_PROPOSAL_CARD);
   await expect(previewDialog).toBeVisible({ timeout: 20_000 });
 
-  // Once the proposal is pending, its own target is read-only (without a stop
-  // button, since there is no run left to stop) while the rest still is not.
-  await expect(targetParagraph).toHaveClass(/ai-edit-readonly-block/);
-  await expect(unrelatedParagraph).not.toHaveClass(/ai-edit-readonly-block/);
-  await unrelatedParagraph.click();
-  await page.keyboard.insertText("確認待ち中の追記");
-  await expect(unrelatedParagraph).toContainText("確認待ち中の追記");
-
-  await expect(page.locator(".ai-inline-catcher")).toHaveCount(0);
-  await previewDialog.locator('.ai-inline-preview-action.apply[aria-label="適用"]').click({ force: true });
-  await expect(previewDialog).toBeHidden();
+  // Once the proposal is pending, the run's reservation is gone and the proposal does not reserve
+  // its target either: the approval merges a human edit of it with the AI's change.
   await expect(targetParagraph).not.toHaveClass(/ai-edit-readonly-block/);
+  await expect(targetParagraph).not.toHaveClass(/ai-edit-locked-block/);
+  await expect(page.locator(".ai-inline-catcher")).toHaveCount(0);
+  await placeCaretAtParagraphEnd(page, "para_a");
+  await page.keyboard.insertText("確認待ち中の追記");
+  await expect(targetParagraph).toContainText(`${originalTargetText}確認待ち中の追記`);
 
-  // The human edits made alongside the run survive the approval write, which
-  // replays the draft onto the current document rather than the run's base.
+  // The card now previews what the approval will save: the AI's sentence and the human's typing.
+  const mergedText = `AIの前置き。${originalTargetText}確認待ち中の追記`;
+  await expect(previewDialog.locator("[data-ai-proposal-content]")).toContainText(mergedText);
+  await expect(previewDialog.locator("[data-ai-proposal-bar-details] [data-ai-proposal-merge-notice]"))
+    .toHaveText("あなたの編集と合わせた内容です");
+  // The red "will be replaced" underlay stays on the target: its content is replaced by the merge.
+  await expect(targetParagraph).toHaveClass(/text-flow-change-before/);
+  // The ⌘K result and the side chat show the same merged proposal. Moving the result to the side
+  // chat also gets it off the card's bar.
+  const inlineResult = page.locator(".ai-inline-result");
+  await expect(inlineResult).toContainText("あなたの編集と合わせた内容です");
+  await inlineResult.locator(".ai-inline-result-actions").getByRole("button", { name: "サイドチャットで開く" }).click();
+  await expect(inlineResult).toHaveCount(0);
+  const sidebarProposal = page.locator('.ai-edit-panel[data-variant="sidebar"] .ai-chat-result-proposal');
+  await expect(sidebarProposal).toContainText(mergedText);
+  await expect(sidebarProposal).toContainText("あなたの編集と合わせた内容です");
+
+  await previewDialog.locator('.ai-inline-preview-action.apply[aria-label="適用"]').click();
+  await expect(previewDialog).toBeHidden();
+  await expect(targetParagraph).toHaveText(mergedText);
+  await expect.poll(async () => page.evaluate(() => {
+    const saved = JSON.parse(window.localStorage.getItem("sigma-studio:e2e-document") ?? "null");
+    const block = saved?.content?.find((candidate: { id?: string }) => candidate.id === "para_a");
+    return (block?.children ?? []).map((child: { text?: string }) => child.text ?? "").join("");
+  })).toBe(mergedText);
+
+  // The human edit made alongside the run survives the approval write too.
   await expect(unrelatedParagraph).toContainText("実行中の追記");
-  await expect(unrelatedParagraph).toContainText("確認待ち中の追記");
+  // No preview had to fall back from the merge (MISS R3).
+  expect(await page.evaluate(() => Object.keys(
+    (window as unknown as { __SIGMA_STUDIO_PERFORMANCE__?: { counters: Record<string, number> } })
+      .__SIGMA_STUDIO_PERFORMANCE__?.counters ?? {},
+  ).filter((name) => name.startsWith("AiProposalMerge.")))).toEqual([]);
+});
+
+test("a shape the AI deletes stays without the red removal once the human moves it, and the approval keeps it", async ({ page }) => {
+  await setup(page);
+  await startInlineRun(page, "para_a", "PROPOSAL SHAPE DELETE 図形を削除して");
+
+  const approvalWidget = page.locator(OVERLAY_PROPOSAL_BAR);
+  await expect(approvalWidget).toBeVisible({ timeout: 20_000 });
+  const inlineResultClose = page.locator(".ai-chat-host--inline").getByRole("button", { name: "閉じる" });
+  if (await inlineResultClose.count()) {
+    await inlineResultClose.first().click();
+    await expect(inlineResultClose).toBeHidden();
+  }
+  const removedShape = page.locator('.overlay-shape.ai-diff-removed-shape[data-overlay-shape-id="e2e_shape_1"]');
+  await expect(removedShape).toBeVisible();
+  await expect(approvalWidget.locator("[data-ai-proposal-merge-notice]")).toHaveCount(0);
+
+  // The pending deletion does not lock the shape. Moving it is an edit, and an edit beats a delete.
+  await grabShapeFromBody(page, removedShape);
+  const selectedShape = page.locator('.overlay-canvas-editor .overlay-shape.selected[data-overlay-shape-id="e2e_shape_1"]');
+  await expect(selectedShape).toBeVisible();
+  await expect(selectedShape).not.toHaveClass(/ai-edit-locked-shape/);
+  const box = await selectedShape.boundingBox();
+  expect(box).not.toBeNull();
+  await page.mouse.move(box!.x + box!.width / 2, box!.y + box!.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(box!.x + box!.width / 2 + 60, box!.y + box!.height / 2 + 30, { steps: 6 });
+  await page.mouse.up();
+
+  // The merge keeps the moved shape, so the page no longer marks it as removed, and the bar says the
+  // proposal was combined with the human's edit.
+  await expect(page.locator('.overlay-shape.ai-diff-removed-shape[data-overlay-shape-id="e2e_shape_1"]')).toHaveCount(0);
+  await expect(approvalWidget.locator("[data-ai-proposal-merge-notice]")).toHaveText("あなたの編集と合わせた内容です");
+
+  await approvalWidget.locator('.ai-inline-preview-action.apply[aria-label="適用"]').click();
+  await expect(approvalWidget).toBeHidden();
+  await expect.poll(async () => page.evaluate(() => {
+    const saved = JSON.parse(window.localStorage.getItem("sigma-studio:e2e-document") ?? "null");
+    return saved?.pageLayout?.overlay?.overlaySnapshot?.shapes
+      ?.some((shape: { id?: string }) => shape.id === "e2e_shape_1") ?? false;
+  })).toBe(true);
 });
 
 for (const kind of ["SVG", "SHAPE", "PROBLEM"]) {

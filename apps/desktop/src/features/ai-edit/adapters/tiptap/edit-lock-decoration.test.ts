@@ -6,9 +6,11 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   type AiEditLockInfo,
+  buildAiTextFlowEditPolicy,
   createAiEditLockDecorations,
   handleAiEditLockStopButtonClick,
 } from "./edit-lock-adapter";
+import { createEditGuardDecorations } from "@/components/tiptap/edit-guard-extension";
 import { InlineMathExtension } from "@/components/tiptap/inline-math-extension";
 
 const SigmaDocIdAttrs = Extension.create({
@@ -103,17 +105,16 @@ describe("createAiEditLockDecorations", () => {
     expect(decorations).toHaveLength(0);
   });
 
-  it("keeps a pending proposal block read-only without rendering a nonexistent stop action", () => {
-    const doc = createDoc([{ id: "p1", text: "ab" }]);
-    const locks = new Map<string, AiEditLockInfo>([["p1", {
-      blockId: "p1",
-      runId: "pending-proposal",
-      sessionLabel: null,
-      isPrimaryAnchor: false,
-      pendingProposal: true,
-    }]]);
+  // 保留中の提案のうち合成できない対象 (旧レコード・整列・段組み設定) は、編集方針の読み取り専用ガードで守る。
+  function decorationsOfPolicy(doc: ProseMirrorNode, liveLocks: AiEditLockInfo[], pendingBlockIds: string[]) {
+    const policy = buildAiTextFlowEditPolicy({ liveLocks, pendingBlockIds, onRequestStop: vi.fn() });
+    return createEditGuardDecorations(doc, new Map(policy.guards.map((guard) => [guard.blockId, guard]))).find();
+  }
 
-    const decorations = createAiEditLockDecorations(doc, locks, { onRequestStop: vi.fn() }).find();
+  it("keeps a non-mergeable pending target read-only without rendering a nonexistent stop action", () => {
+    const doc = createDoc([{ id: "p1", text: "ab" }]);
+
+    const decorations = decorationsOfPolicy(doc, [], ["p1"]);
     expect(decorations.some((decoration) => decorationInfo(decoration).attrs?.class === "ai-edit-readonly-block")).toBe(true);
     expect(decorations.some((decoration) => decorationInfo(decoration).attrs?.class === "ai-edit-lock-char")).toBe(false);
     expect(decorations.filter((decoration) => decorationInfo(decoration).spec?.key)).toHaveLength(0);
@@ -124,25 +125,14 @@ describe("createAiEditLockDecorations", () => {
       { id: "p1", text: "abcd" },
       { id: "p2", text: "efgh" },
     ]);
-    const locks = new Map<string, AiEditLockInfo>([
-      ["p1", {
-        blockId: "p1",
-        runId: "run-1",
-        sessionLabel: "会話A",
-        isPrimaryAnchor: true,
-        blockShimmerScopes: [{ kind: "text", blockId: "p1", from: 1, to: 2 }],
-      }],
-      ["p2", {
-        blockId: "p2",
-        runId: "pending-proposal",
-        sessionLabel: null,
-        isPrimaryAnchor: false,
-        pendingProposal: true,
-        blockShimmerScopes: [],
-      }],
-    ]);
 
-    const decorations = createAiEditLockDecorations(doc, locks, { onRequestStop: vi.fn() }).find();
+    const decorations = decorationsOfPolicy(doc, [{
+      blockId: "p1",
+      runId: "run-1",
+      sessionLabel: "会話A",
+      isPrimaryAnchor: true,
+      blockShimmerScopes: [{ kind: "text", blockId: "p1", from: 1, to: 2 }],
+    }], ["p2"]);
     const targetBlocks = decorations.filter(
       (decoration) => decorationInfo(decoration).attrs?.class?.split(" ").includes("ai-edit-locked-block"),
     );

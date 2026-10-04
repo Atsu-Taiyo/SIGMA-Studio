@@ -466,9 +466,11 @@ function buildPendingShapeChanges(
 
   const removed = new Map<string, OverlayShape>();
   const added = new Map<string, OverlayShape>();
+  // AI が消す図形を人が直していれば、合成はその図形を残す (編集は削除に勝つ)。消える側に出さない。
+  const keptByMerge = collectShapesKeptByMerge(current, afterDocument, preview);
   const pushRemoved = (shapeId: string) => {
     const shape = currentById.get(shapeId);
-    if (shape && !removed.has(shapeId)) {
+    if (shape && !removed.has(shapeId) && !keptByMerge.has(shapeId)) {
       removed.set(shapeId, shape);
     }
   };
@@ -606,6 +608,60 @@ export function groupPendingProposalContentByAnchor(
     }
   }
   return cardsByAnchorId;
+}
+
+/**
+ * 紙面の本文に「消える (置き換わる)」印 (赤い下地) を付けるブロック。カードの削除側 (`hunk.removed`) と
+ * 同じ id なので、AI が消すブロックを人が直して合成で残る場合 (編集は削除に勝つ) は入らない。draft から
+ * 別に数えると、承認の規則を二重に持つことになる (MISS R17)。
+ */
+export function collectPendingRemovedBlockIds(
+  cardsByAnchorId: ReadonlyMap<string, readonly AiProposalAnchorCard[]>,
+): string[] {
+  const ids = new Set<string>();
+  for (const cards of cardsByAnchorId.values()) {
+    for (const card of cards) {
+      for (const hunk of card.content.hunks) {
+        hunk.removed.forEach((block) => ids.add(block.id));
+      }
+    }
+  }
+  return [...ids];
+}
+
+/**
+ * 提案が消す図形のうち、承認の合成で残るもの: 人が直した図形は、合成後の文書に今と同じ姿で残る
+ * (編集は削除に勝つ)。紙面の赤い削除表示と、内容のモデルの削除側から外す。同じ draft が同じ id で
+ * 挿入し直す図形 (置き換え) は消える側のまま。合成後の文書が無い (旧レコード) ときは空。
+ */
+export function collectShapesKeptByMerge(
+  current: SigmaDocument,
+  afterDocument: SigmaDocument | null,
+  preview: AiEditPreviewState,
+): Set<string> {
+  const kept = new Set<string>();
+  if (!afterDocument) {
+    return kept;
+  }
+  const reinsertedIds = new Set(preview.draft.operations.flatMap((operation) => (
+    operation.operation === "insertOverlayShape"
+      ? [operation.overlayShape.id]
+      : operation.operation === "insertTableShape" ? [operation.tableShape.id] : []
+  )));
+  const currentById = new Map((current.pageLayout?.overlay?.overlaySnapshot?.shapes ?? []).map((shape) => [shape.id, shape]));
+  const afterById = new Map((afterDocument.pageLayout?.overlay?.overlaySnapshot?.shapes ?? []).map((shape) => [shape.id, shape]));
+  for (const operation of preview.draft.mutationOperations ?? []) {
+    if (operation.operation !== "deleteOverlayShapes") {
+      continue;
+    }
+    for (const shapeId of operation.shapeIds) {
+      const after = afterById.get(shapeId);
+      if (!reinsertedIds.has(shapeId) && after !== undefined && areStructurallyEqual(after, currentById.get(shapeId))) {
+        kept.add(shapeId);
+      }
+    }
+  }
+  return kept;
 }
 
 // --- 表示用のコピー ---------------------------------------------------------

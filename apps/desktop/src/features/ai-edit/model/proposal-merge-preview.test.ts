@@ -157,8 +157,19 @@ describe("resolveProposalMergePreview", () => {
     expect(merged.humanEditedUnits).toEqual([]);
   });
 
-  it("does not replay a proposal that changes no body block (shapes only)", () => {
-    const base = documentOf([paragraph("p_1", BASE_TEXT)]);
+  it("replays a shapes-only proposal only when it has a base: whether the merge keeps a shape the human edited", () => {
+    const shape = {
+      id: "shape_1",
+      type: "geo",
+      x: 40,
+      y: 40,
+      props: { w: 80, h: 40, geo: "rectangle", fill: "none", color: "#111111", fillColor: "#ffffff", labelColor: "#111111", dash: "solid", size: "m" },
+    };
+    const withShape = (x: number): SigmaDocument => ({
+      ...documentOf([paragraph("p_1", BASE_TEXT)]),
+      pageLayout: { overlay: { overlaySnapshot: { version: 1, shapes: [{ ...shape, x }], assets: {} } } },
+    } as unknown as SigmaDocument);
+    const base = withShape(40);
     const draft: AiEditSessionDraft = {
       summary: "図形を消す",
       plan: [],
@@ -166,9 +177,19 @@ describe("resolveProposalMergePreview", () => {
       mutationOperations: [{ operation: "deleteOverlayShapes", summary: "消す", shapeIds: ["shape_1"] } as SigmaDocMutationOp],
       warnings: [],
     };
-    const preview = previewFor(summaryOf(draft, { mergeBasis: { version: 1, entities: {} } }));
+    const counted: string[] = [];
+    const count = (name: string) => counted.push(name);
 
-    expect(resolveProposalMergePreview(base, preview)).toEqual({ afterDocument: null, humanEditedUnits: [] });
+    // base を持たない図形だけの提案は、本文の内容も合成も使わないので replay しない。
+    expect(resolveProposalMergePreview(base, previewFor(summaryOf(draft)), { count })).toEqual({ afterDocument: null, humanEditedUnits: [] });
+
+    const preview = previewFor(summaryOf(draft, { mergeBasis: computeProposalMergeBasis(draft, base) }));
+    expect(resolveProposalMergePreview(base, preview, { count }).afterDocument?.pageLayout?.overlay?.overlaySnapshot?.shapes).toEqual([]);
+    // 人が消される図形を動かした: 承認は人の図形を残す (編集は削除に勝つ)。
+    const moved = resolveProposalMergePreview(withShape(90), preview, { count });
+    expect(moved.afterDocument?.pageLayout?.overlay?.overlaySnapshot?.shapes).toEqual([{ ...shape, x: 90 }]);
+    expect(moved.humanEditedUnits).toEqual(["shape_1"]);
+    expect(counted).toEqual([]);
   });
 
   it("previews nothing (instead of throwing) when neither the merge nor the plain replay can apply", () => {

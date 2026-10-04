@@ -15,8 +15,9 @@ import { sampleDocument } from "@/lib/sample-document";
  * 承認・保存、実際のローカル MCP サーバー、renderer のプレビュー) で、作成 → 人の編集 → 紙面の
  * プレビュー → 承認 → 保存 → Undo/Redo → 再起動 (R4) までを通す。
  *
- * - 人の編集は保存 IPC で入れる (保留中の提案の対象は紙面ではロックされる。外部の変更・別の窓の
- *   保存と同じく、提案の後に対象が変わった状態を作る)。
+ * - 人の編集は紙面への打鍵 (保留中の提案の対象はロックしない) と保存 IPC (外部の変更・別の窓の
+ *   保存と同じ) の両方で入れ、提案の後に対象が変わった状態を作る。合成できない対象 (base を持たない
+ *   旧レコードの対象) だけは、従来どおり紙面で読み取り専用になる。
  * - 重なりの無い通常の承認では、合成のフォールバックの印 (renderer の `AiProposalMerge.*` と main の
  *   ledger の `proposal-merge-fallback`) が 0 (R3)。renderer の印は計測が有効なビルド (next dev) で
  *   だけ読めるので、静的ビルドでは main の ledger だけを見る。
@@ -73,6 +74,7 @@ test("an approval merges the human's edit made after the proposal, survives a re
     const source = ensurePageLayout({ ...sampleDocument, docId: "ai_proposal_merge", metadata: { title: "提案の合成" }, content: [
       { type: "paragraph", id: "p_quiet", children: [text("Quiet target paragraph.")] },
       { type: "paragraph", id: "p_diff", children: [text(BASE_TEXT)] },
+      { type: "paragraph", id: "p_typed", children: [text(BASE_TEXT)] },
       { type: "paragraph", id: "p_same", children: [text(BASE_TEXT)] },
       { type: "paragraph", id: "p_legacy", children: [text("Legacy target paragraph.")] },
     ] });
@@ -123,6 +125,27 @@ test("an approval merges the human's edit made after the proposal, survives a re
       await expect(page.locator('[data-sigma-doc-id="p_diff"]').first()).toBeVisible();
     };
     const pageCard = (blockId: string) => page.locator(`.page-flow [data-flow-extension-node-id^="extension:ai-proposal:${blockId}:"] > [data-ai-proposal-card="page"]`);
+    const bodyParagraph = (blockId: string) => page.locator(`.text-flow-editor [data-sigma-doc-id="${blockId}"]`).first();
+    /** 紙面の段落の末尾にキャレットを置いて打鍵する (人の編集を実際の編集面から入れる)。 */
+    const typeAtParagraphEnd = async (blockId: string, value: string) => {
+      await page.evaluate((targetBlockId) => {
+        const target = Array.from(document.querySelectorAll<HTMLElement>(`.text-flow-editor [data-sigma-doc-id="${targetBlockId}"]`))
+          .find((element) => element.getClientRects().length > 0);
+        const walker = target ? document.createTreeWalker(target, NodeFilter.SHOW_TEXT) : null;
+        let last: Text | null = null;
+        for (let node = walker?.nextNode(); node; node = walker?.nextNode()) last = node as Text;
+        if (!target || !last) throw new Error(`caret target not found: ${targetBlockId}`);
+        target.scrollIntoView({ block: "center" });
+        target.closest<HTMLElement>('[contenteditable="true"]')?.focus({ preventScroll: true });
+        const range = document.createRange();
+        range.setStart(last, last.data.length);
+        range.collapse(true);
+        window.getSelection()?.removeAllRanges();
+        window.getSelection()?.addRange(range);
+        document.dispatchEvent(new Event("selectionchange"));
+      }, blockId);
+      await page.keyboard.insertText(value);
+    };
     const approveOnPage = async (blockId: string) => {
       await pageCard(blockId).getByRole("button", { name: "適用", exact: true }).click();
       await expect.poll(async () => (await pendingProposals()).filter((item) => item.fileId === fileId).length).toBe(0);
@@ -175,6 +198,24 @@ test("an approval merges the human's edit made after the proposal, survives a re
     expect(await mergeCounters()).toEqual([]);
     expect(readLedger()).not.toContain("proposal-merge-fallback");
 
+    // 2b. 保留中の提案の対象は紙面でロックしない: 人がその段落へ打鍵すると、カードは合成後の内容に
+    //     なり、承認は人の打鍵と AI の変更の両方を保存する。
+    await propose("p_typed", "cat", "dog");
+    await reload();
+    const typedCard = pageCard("p_typed");
+    await expect(typedCard).toBeVisible();
+    await expect(bodyParagraph("p_typed")).not.toHaveClass(/ai-edit-readonly-block/);
+    await typeAtParagraphEnd("p_typed", " Typed by hand.");
+    await expect(bodyParagraph("p_typed")).toContainText(`${BASE_TEXT} Typed by hand.`);
+    await expect(typedCard.locator("[data-ai-proposal-content]")).toContainText("The dog sat on the mat. Typed by hand.");
+    await expect(typedCard.locator("[data-ai-proposal-bar-details] [data-ai-proposal-merge-notice]")).toHaveText("あなたの編集と合わせた内容です");
+    await typedCard.screenshot({ path: testInfo.outputPath("typed-merged-card.png") });
+    await approveOnPage("p_typed");
+    expect(paragraphText(await saved(), "p_typed")).toBe("The dog sat on the mat. Typed by hand.");
+    await expect(bodyParagraph("p_typed")).toHaveText("The dog sat on the mat. Typed by hand.");
+    expect(await mergeCounters()).toEqual([]);
+    expect(readLedger()).not.toContain("proposal-merge-fallback");
+
     // 3. 人と AI が同じ語を直す: 同じ範囲も両方を残す (文字単位で、人 → AI の順)。人の語は base の
     //    文字を含まないものにする (含むと、その文字は人が残し AI が消した文字として扱われる)。
     await propose("p_same", "cat", "dog");
@@ -207,7 +248,9 @@ test("an approval merges the human's edit made after the proposal, survives a re
     await expect(page.locator(".startup-splash")).toBeHidden();
     await expect(page.locator('[data-sigma-doc-id="p_diff"]').first()).toContainText("The dog sat on the red mat.");
     await expect(page.locator('[data-sigma-doc-id="p_same"]').first()).toContainText(approvedText);
+    await expect(page.locator('[data-sigma-doc-id="p_typed"]').first()).toHaveText("The dog sat on the mat. Typed by hand.");
     expect(paragraphText(await saved(), "p_diff")).toBe("The dog sat on the red mat.");
+    expect(paragraphText(await saved(), "p_typed")).toBe("The dog sat on the mat. Typed by hand.");
     expect(paragraphText(await saved(), "p_same")).toBe(approvedText);
     await connect();
 
@@ -222,6 +265,14 @@ test("an approval merges the human's edit made after the proposal, survives a re
     expect(record.mergeBasis).toBeDefined();
     delete record.mergeBasis;
     writeFileSync(legacyFile!, JSON.stringify(record, null, 2));
+    // 合成できない旧レコードの対象は、従来どおり紙面で読み取り専用。打鍵は断られ、理由を知らせる。
+    await reload();
+    await expect(bodyParagraph("p_legacy")).toHaveClass(/ai-edit-readonly-block/);
+    await typeAtParagraphEnd("p_legacy", " refused");
+    await expect(page.locator(".text-flow-edit-guard-notice")).toHaveText(
+      "この箇所は、あなたの編集と合わせられないAI提案の確認待ちです。適用または破棄を選ぶと編集できます。",
+    );
+    await expect(bodyParagraph("p_legacy")).toHaveText("Legacy target paragraph.");
     await saveHumanEdit("p_legacy", "Legacy target paragraph, edited by hand.");
     await reload();
     await expect.poll(async () => (await pendingProposals()).find((item) => item.proposalId === legacy.proposalId)?.conflict?.reason)
