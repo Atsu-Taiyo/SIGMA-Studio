@@ -540,6 +540,60 @@ describe("replayProposalDraftMerging", () => {
     expect(snapshot.shapes.find((shape) => shape.id === "shape_image")).toMatchObject({ props: { assetId: "asset_shared-2", w: 60 } });
   });
 
+  it("falls back only the unit whose merged result the replay cannot apply, keeping the other unit's human edit", () => {
+    const box = (blocks: ParagraphNode[]): BoxBlockNode => ({ type: "boxBlock", id: "box", styleId: "plain", blocks });
+    const base = documentOf([paragraph("p_a", "alpha"), box([paragraph("c", "c"), paragraph("d", "d")]), paragraph("tail", "tail")]);
+    const draft: AiEditSessionDraft = {
+      summary: "編集",
+      plan: ["編集"],
+      operations: [
+        { operation: "replace", summary: "a", targetId: "p_a", replacementBlock: paragraph("p_a", "ALPHA") },
+        { operation: "replace", summary: "b", targetId: "box", replacementBlock: box([paragraph("c", "c"), paragraph("d", "d by AI")]) },
+      ],
+      mutationOperations: [{ operation: "moveBlocks", summary: "m", blockIds: ["c"], targetId: "tail", position: "after" }],
+      warnings: [],
+    };
+    const basis = computeProposalMergeBasis(draft, base);
+    // The human appends to p_a and removes c, which the AI moves out of the box.
+    const current = documentOf([paragraph("p_a", "alpha (human)"), box([paragraph("d", "d")]), paragraph("tail", "tail")]);
+
+    const result = replayProposalDraftMerging(current, draft, basis);
+
+    expect(paragraphText(result.nextDocument, "p_a")).toBe("ALPHA (human)");
+    expect(result.nextDocument.content.map((block) => block.id)).toEqual(["p_a", "box", "tail", "c"]);
+    expect(findBlock(result.nextDocument, "box")).toMatchObject({ blocks: [{ id: "d", children: [{ text: "d by AI" }] }] });
+    expect(result.report.invalidAfterMerge).toBe(1);
+    expect(result.report.humanEditedUnits).toEqual(["p_a"]);
+  });
+
+  it("returns the draft with the merged contents written in, which rebases the proposal onto the document", () => {
+    const base = documentOf([paragraph("p_1", "The cat sat.")]);
+    const draft = replaceDraft(paragraph("p_1", "The cat sat!"));
+    const basis = computeProposalMergeBasis(draft, base);
+    const current = withParagraph(base, "p_1", "The big cat sat.");
+
+    const result = replayProposalDraftMerging(current, draft, basis);
+
+    expect(result.rebasedDraft.operations).toEqual([
+      expect.objectContaining({ targetId: "p_1", replacementBlock: paragraph("p_1", "The big cat sat!") }),
+    ]);
+    expect(draft.operations[0]).toMatchObject({ replacementBlock: paragraph("p_1", "The cat sat!") });
+  });
+
+  it("reports a nested type change the kernel took whole as an overlap of the unit", () => {
+    const box = (child: SigmaBlock): BoxBlockNode => ({ type: "boxBlock", id: "box", styleId: "plain", blocks: [child as ParagraphNode] });
+    const base = documentOf([box(paragraph("c", "c"))]);
+    const draft = replaceDraft(box({ type: "heading", id: "c", level: 2, children: [text("C")] } as SigmaBlock));
+    const basis = computeProposalMergeBasis(draft, base);
+    const current = documentOf([box(paragraph("c", "c by human"))]);
+
+    const result = replayProposalDraftMerging(current, draft, basis);
+
+    expect(findBlock(result.nextDocument, "c")).toMatchObject({ type: "heading" });
+    expect(result.report.overlaps).toEqual(["#box.blocks[#c]"]);
+    expect(result.report.invalidAfterMerge).toBe(0);
+  });
+
   it("never changes the persisted draft or the current document", () => {
     const base = documentOf([paragraph("p_1", "The cat sat.")]);
     const draft = replaceDraft(paragraph("p_1", "The dog sat."));

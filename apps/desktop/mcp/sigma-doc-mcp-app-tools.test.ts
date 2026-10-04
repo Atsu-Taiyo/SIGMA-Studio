@@ -268,6 +268,48 @@ describe("app MCP body tool profile", () => {
       .toEqual(["After text", "AI paragraph"]);
   });
 
+  it("does not double a human edit a later turn of the room saw and rewrote", async () => {
+    const client = await connect("app");
+    await call(client, "edit_text", { edit: { action: "patch", operations: [
+      { op: "replace_text", target: { type: "text", blockId: "p_1", text: "Before" }, replacement: "After" },
+    ] } });
+    const saved = parseSigmaDocument(await store.loadDocument(fileId));
+    const humanDocument = parseSigmaDocument(updateBlockInDocument(saved, "p_1", (block) => ({
+      ...block,
+      children: (block as { children: InlineNode[] }).children.map((node) => (
+        node.type === "text" ? { ...node, text: "Before text big" } : node
+      )),
+    } as typeof block)));
+    expect(await store.saveDocument(fileId, humanDocument, { expectedRevision: 1 })).toMatchObject({ ok: true, revision: 2 });
+
+    // The second turn sees "After text big" and rewrites the human's word.
+    await call(client, "edit_text", { expectedRevision: 2, edit: { action: "patch", operations: [
+      { op: "replace_text", target: { type: "text", blockId: "p_1", text: "big" }, replacement: "huge" },
+    ] } });
+
+    const proposal = await pending();
+    const latest = parseSigmaDocument(await store.loadDocument(fileId));
+    const replayed = replayProposalDraftMerging(latest, proposal.draft, proposal.mergeBasis!);
+    expect(inlineNodesToPlainText((findBlock(replayed.nextDocument, "p_1") as { children: InlineNode[] }).children)).toBe("After text huge");
+    expect(replayed.report.overlaps).toEqual([]);
+  });
+
+  it("previews the room's proposal with the same merging replay as the approval", async () => {
+    const client = await connect("app");
+    await call(client, "insert_content", { targetId: "p_2", content: { format: "blocks", blocks: ["AI paragraph"] } });
+    const saved = parseSigmaDocument(await store.loadDocument(fileId));
+    await store.saveDocument(fileId, parseSigmaDocument(deleteBlocksFromDocument(saved, ["p_2"])), { expectedRevision: 1 });
+
+    for (const [name, args] of [
+      ["render_block_context", { blockId: "p_1" }],
+      ["render_page", { blockId: "p_1" }],
+    ] as const) {
+      const result = await client.callTool({ name, arguments: { fileId, runId: "run_a", currentProposal: true, ...args } });
+      // Without a render bridge the preview itself degrades; replaying the proposal must not fail.
+      expect(JSON.stringify(result.structuredContent), name).not.toContain("NOT_FOUND");
+    }
+  });
+
   it("does not publish a partially successful patch batch", async () => {
     const client = await connect("app");
     const savedBefore = await store.loadDocument(fileId);

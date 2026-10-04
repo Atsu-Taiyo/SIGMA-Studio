@@ -226,6 +226,11 @@ export interface LocalMcpEditProposal extends LocalMcpEditProposalAttribution {
   mergeBasis?: ProposalMergeBasis;
   /** approved のみ: 承認時の合成replayが下した判断 (重なり・退避件数)。監査とフォールバック計測用。 */
   mergeReport?: ProposalMergeReport;
+  /**
+   * 検証済み自動承認が「人間の編集との合成が必要」として見送られた文書revision。文書がこの
+   * revisionの間は自動承認を再試行しない (保存のたびに合成をやり直さないため)。
+   */
+  autoApplyDeferredAtRevision?: number;
 }
 
 /**
@@ -277,6 +282,7 @@ export interface LocalMcpEditProposalSummary extends LocalMcpEditProposalAttribu
   // rendererが提案内容を「人間の編集と合わせた形」で描くための base (LocalMcpEditProposal 参照)。
   mergeBasis?: ProposalMergeBasis;
   mergeReport?: ProposalMergeReport;
+  autoApplyDeferredAtRevision?: number;
   // revertDocument はサイズが大きく、renderer には不要なため summary からは意図的に除外する
   // (electron側の main.ts が revert 実行時に loadProposal() 経由でフル版から読む)。
 }

@@ -32,7 +32,10 @@ import {
 export interface ProposalApprovalPorts {
   sharedProposalApprover?: (proposals: LocalMcpEditProposal[]) => Promise<ApproveProposalResult | undefined>;
   localSigmaDocStore: Pick<LocalSigmaDocStore, "runExclusive" | "listFiles" | "loadDocument" | "saveDocument">;
-  localMcpProposalStore: Pick<LocalMcpEditProposalStore, "loadProposal" | "runExclusive" | "recordProposalConflict" | "resolveProposal">;
+  localMcpProposalStore: Pick<
+    LocalMcpEditProposalStore,
+    "loadProposal" | "runExclusive" | "recordProposalConflict" | "recordAutoApplyDeferred" | "resolveProposal"
+  >;
   broadcastLocalStoreChange: (event: LocalStoreChangeEvent | LocalMcpEditProposalChangeEvent) => void;
   runPostSaveHooks: (fileId: string, document: SigmaDocument, revision: number) => Promise<void>;
   translate: Translate<"error">;
@@ -133,13 +136,10 @@ export function createProposalApprovalCoordinator({
       const currentHashes = computeDocumentBlockHashes(revertDocument);
       // base (mergeBasis) を持つ提案は鮮度確認と適用を1回の合成replayで行う: 人間の編集を残して
       // 合成できれば競合にせず、できない理由 (対象の消失など) だけを従来の競合として返す。
-      const merged = claimedProposal.mergeBasis && !claimedProposal.invalidReason
-        ? replayMergeableProposal(
-            { draft: claimedProposal.draft, mergeBasis: claimedProposal.mergeBasis },
-            revertDocument,
-            currentHashes,
-          )
+      const mergeable = claimedProposal.mergeBasis && !claimedProposal.invalidReason
+        ? { draft: claimedProposal.draft, mergeBasis: claimedProposal.mergeBasis, touchedBlocks: claimedProposal.touchedBlocks }
         : null;
+      let merged = mergeable ? replayMergeableProposal(mergeable, revertDocument, currentHashes) : null;
       const conflict = merged
         ? (merged.ok ? null : merged.conflict)
         : findProposalFreshnessConflict(
@@ -171,9 +171,31 @@ export function createProposalApprovalCoordinator({
           };
       }
 
+      if (mergeable && merged && !merged.ok) {
+        // 合成対象外の操作の対象が変わっていた (content-stale) のを force で越えた場合も、上書き
+        // する単位は合成replayで人間の編集を残す。
+        merged = replayMergeableProposal(mergeable, revertDocument, currentHashes, { allowContentStale: true });
+        if (!merged.ok) {
+          await localMcpProposalStore.recordProposalConflict(
+            claimedProposal.proposalId,
+            merged.conflict.blockIds,
+            file.revision,
+            merged.conflict.reason,
+          );
+          return {
+            ok: false,
+            error: te("electron.proposal.applyFailed"),
+            code: "conflict",
+            conflictBlockIds: merged.conflict.blockIds,
+            conflictReason: merged.conflict.reason,
+          };
+        }
+      }
+
       if (options.autoApplied && merged?.ok && !isProposalMergeQuiet(merged.result.report)) {
         // 自動承認は「人間の編集と重ならない」提案だけ。合成が起きた提案はpendingのまま残し、
-        // 人間が内容を見て承認する。
+        // 人間が内容を見て承認する。文書のrevisionが変わるまで再試行しないよう記録する。
+        await localMcpProposalStore.recordAutoApplyDeferred(claimedProposal.proposalId, file.revision, merged.result.report);
         return { ok: false, error: te("electron.proposal.autoApplyNeedsReview"), code: "merge-review" };
       }
 
