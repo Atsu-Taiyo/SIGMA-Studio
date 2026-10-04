@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  filterSelectableShapeIds,
   getOverlayActionTargetShapeIds,
+  isOverlayShapeUnselectable,
   isOverlayActionBlockedByEditPolicy,
   isOverlaySelectionBlockedByEditPolicy,
 } from "./edit-policy";
@@ -209,5 +211,19 @@ describe("isOverlaySelectionBlockedByEditPolicy", () => {
       ["a"],
       new Set(),
     )).toBe(false);
+  });
+});
+
+describe("unselectable shapes", () => {
+  it("drops shapes the feature hid from a hit or a marquee, and keeps the rest in order", () => {
+    expect(filterSelectableShapeIds(["a", "hidden", "b"], new Set(["hidden"]))).toEqual(["a", "b"]);
+    expect(filterSelectableShapeIds(["a", "b"], new Set())).toEqual(["a", "b"]);
+    expect(filterSelectableShapeIds(["a"], undefined)).toEqual(["a"]);
+  });
+
+  it("tells a hit test to skip a hidden shape", () => {
+    expect(isOverlayShapeUnselectable("hidden", new Set(["hidden"]))).toBe(true);
+    expect(isOverlayShapeUnselectable("a", new Set(["hidden"]))).toBe(false);
+    expect(isOverlayShapeUnselectable("a", undefined)).toBe(false);
   });
 });

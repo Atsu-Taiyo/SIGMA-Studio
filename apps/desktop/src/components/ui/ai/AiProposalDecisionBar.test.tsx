@@ -232,6 +232,154 @@ describe("AiProposalDecisionBar", () => {
     expect(document.querySelectorAll('[aria-label="破棄する理由"]')).toHaveLength(0);
   });
 
+  it("is a single row: references, a notice and the apply error sit under the bar, not inside it", () => {
+    const html = renderBar({
+      references: <span>参照元のチップ</span>,
+      notice: <span>あなたの編集と合わせた内容です</span>,
+      applyError: "対象が更新されました",
+      onApplyErrorChange: () => {},
+      onApply: async () => ({ ok: true }),
+      onDismiss: () => {},
+    });
+    const barStart = html.indexOf("data-ai-proposal-bar=");
+    const detailsStart = html.indexOf("data-ai-proposal-bar-details=");
+    expect(barStart).toBeGreaterThanOrEqual(0);
+    expect(detailsStart).toBeGreaterThan(barStart);
+    // バーの中には見出し・切り替え・判断操作だけ。
+    const barHtml = html.slice(barStart, detailsStart);
+    expect(barHtml).toContain("提案された変更");
+    expect(barHtml).toContain('aria-label="適用"');
+    expect(barHtml).not.toContain("参照元のチップ");
+    expect(barHtml).not.toContain("対象が更新されました");
+    const detailsHtml = html.slice(detailsStart);
+    expect(detailsHtml).toContain("参照元のチップ");
+    expect(detailsHtml).toContain("あなたの編集と合わせた内容です");
+    expect(detailsHtml).toContain("対象が更新されました");
+  });
+
+  it("shows the references and the error on a continuation replica too, as a picture only", async () => {
+    await mount(
+      <AiProposalDecisionBar
+        title="AI編集案"
+        surface="page"
+        applying={false}
+        replica
+        references={<span className="chips">参照元のチップ</span>}
+        applyError="対象が更新されました"
+        onApplyErrorChange={() => {}}
+        onApply={async () => ({ ok: true })}
+      />,
+    );
+    const details = container.querySelector<HTMLElement>("[data-ai-proposal-bar-details]");
+    expect(details?.textContent).toContain("参照元のチップ");
+    expect(details?.textContent).toContain("対象が更新されました");
+    expect(details?.hasAttribute("data-replica")).toBe(false);
+    expect(container.querySelector("[data-ai-proposal-bar]")?.hasAttribute("data-replica")).toBe(true);
+  });
+
+  it("leaves out 適用 when the surface cannot apply", () => {
+    const html = renderBar({ showApply: false, onDismiss: () => {} });
+    expect(html).not.toContain('aria-label="適用"');
+    expect(html).toContain('aria-label="破棄"');
+  });
+
+  it("keeps the reason being typed in the owner's state and does not steal focus when the bar is re-created", async () => {
+    function Owner({ generation }: { generation: number }) {
+      const [open, setOpen] = useState(false);
+      const [reason, setReason] = useState("");
+      return (
+        <>
+          <input aria-label="ほかの入力欄" />
+          <AiProposalDecisionBar
+            key={generation}
+            title="AI編集案"
+            surface="page"
+            applying={false}
+            dismissReasonPlaceholder="例"
+            dismissReasonOpen={open}
+            onDismissReasonOpenChange={setOpen}
+            dismissReason={reason}
+            onDismissReasonChange={setReason}
+            onDismiss={() => {}}
+          />
+        </>
+      );
+    }
+    await mount(<Owner generation={1} />);
+    await act(async () => button("破棄").click());
+    const textarea = document.querySelector<HTMLTextAreaElement>('[aria-label="破棄する理由"] textarea')!;
+    expect(document.activeElement).toBe(textarea);
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(textarea, "図が違う");
+      textarea.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+
+    // 別の場所で作業している最中に、カードが作り直された。
+    const other = container.querySelector<HTMLInputElement>('input[aria-label="ほかの入力欄"]')!;
+    other.focus();
+    await mount(<Owner generation={2} />);
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 50)));
+
+    const reopened = document.querySelector<HTMLTextAreaElement>('[aria-label="破棄する理由"] textarea');
+    expect(reopened?.value).toBe("図が違う");
+    expect(document.activeElement).toBe(other);
+  });
+
+  it("follows the dismiss button while the reason is open (the card can move without a scroll)", async () => {
+    await mount(
+      <AiProposalDecisionBar title="AI編集案" surface="page" applying={false} dismissReasonPlaceholder="例" onDismiss={() => {}} />,
+    );
+    const trigger = button("破棄");
+    let top = 100;
+    trigger.getBoundingClientRect = () => ({
+      top, bottom: top + 28, left: 560, right: 600, width: 40, height: 28, x: 560, y: top, toJSON: () => ({}),
+    });
+    await act(async () => trigger.click());
+    const popover = () => document.querySelector<HTMLElement>('[aria-label="破棄する理由"]')!;
+    const firstTop = popover().style.top;
+
+    top = 300;
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 80)));
+    expect(popover().style.top).not.toBe(firstTop);
+    expect(popover().style.top).toBe(`${300 + 28 + 8}px`);
+  });
+
+  it("keeps Tab inside the reason popover and gives focus back to 破棄 when it closes", async () => {
+    const onDismiss = vi.fn();
+    await mount(
+      <AiProposalDecisionBar title="AI編集案" surface="page" applying={false} dismissReasonPlaceholder="例" onDismiss={onDismiss} />,
+    );
+    await act(async () => button("破棄").click());
+    const popover = document.querySelector<HTMLElement>('[aria-label="破棄する理由"]')!;
+    const focusables = [...popover.querySelectorAll<HTMLElement>("button, textarea")];
+    const first = focusables[0];
+    const last = focusables[focusables.length - 1];
+    const press = async (target: HTMLElement, shiftKey = false) => {
+      await act(async () => {
+        target.dispatchEvent(new KeyboardEvent("keydown", { key: "Tab", shiftKey, bubbles: true, cancelable: true }));
+      });
+    };
+
+    last.focus();
+    await press(last);
+    expect(document.activeElement).toBe(first);
+    await press(first, true);
+    expect(document.activeElement).toBe(last);
+
+    await act(async () => {
+      document.activeElement!.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
+    });
+    expect(document.querySelector('[aria-label="破棄する理由"]')).toBeNull();
+    expect(document.activeElement).toBe(button("破棄"));
+
+    await act(async () => button("破棄").click());
+    const submit = [...document.querySelectorAll<HTMLButtonElement>('[aria-label="破棄する理由"] button')]
+      .find((candidate) => candidate.textContent === "破棄")!;
+    await act(async () => submit.click());
+    expect(onDismiss).toHaveBeenCalledOnce();
+    expect(document.activeElement).toBe(button("破棄"));
+  });
+
   it("resolves every new label in English", () => {
     const t = createTranslator("en", "ai");
     const keys = ["card.hideContent", "card.showContent", "card.hideBefore", "card.showBefore"] as const;

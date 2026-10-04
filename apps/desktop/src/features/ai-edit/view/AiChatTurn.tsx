@@ -186,6 +186,7 @@ export function AiTurnProposalDecision({
         title={getAiProposalTitle(proposal, t)}
         applying={proposalBusy}
         onApply={onApplyProposal ? () => onApplyProposal(proposal.proposalIds) : undefined}
+        showApply={Boolean(onApplyProposal)}
         onDismiss={onDismissProposal ? () => onDismissProposal(proposal.proposalIds) : undefined}
         {...(content
           ? { contentHidden, onContentHiddenChange: setContentHidden, contentId }

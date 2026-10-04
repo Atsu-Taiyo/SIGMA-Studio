@@ -87,8 +87,24 @@ describe("proposal card styles", () => {
     expect(diffRules.filter(({ selector }) => selector.includes(":hover")).map(({ selector }) => selector)).toEqual([]);
   });
 
-  it("hides a before shape only when the user asks for it from the bar", () => {
+  it("hides a before shape only when the user asks for it from the bar, and the hidden shape takes no clicks", () => {
     const hidden = rules(FEATURE_CSS).find(({ selector }) => selector.includes("ai-diff-before-hidden"));
     expect(hidden?.body).toMatch(/opacity\s*:\s*0/);
+    // 見えない図形が押されて選ばれ・動かされないように。
+    expect(hidden?.body).toMatch(/pointer-events\s*:\s*none/);
+    expect(hidden?.body).toMatch(/user-select\s*:\s*none/);
+  });
+
+  it("keeps the decision bar on one line (never wraps its controls onto a second line)", () => {
+    const barRules = rules(BAR_CSS);
+    const bar = barRules.find(({ selector }) => selector === ".bar");
+    expect(bar?.body).toMatch(/flex-wrap\s*:\s*nowrap/);
+    expect(barRules.find(({ selector }) => selector === ".controls")?.body).toMatch(/flex\s*:\s*0 0 auto/);
+    const heading = barRules.find(({ selector }) => selector === ".heading")?.body ?? "";
+    expect(heading).toMatch(/min-width\s*:\s*0/);
+    expect(heading).toMatch(/white-space\s*:\s*nowrap/);
+    expect(barRules.find(({ selector }) => selector === ".title")?.body).toMatch(/text-overflow\s*:\s*ellipsis/);
+    // 行が増えるもの (参照元・失敗の理由) を入れる場所はバーの外。
+    expect(barRules.some(({ selector }) => selector === ".details")).toBe(true);
   });
 });

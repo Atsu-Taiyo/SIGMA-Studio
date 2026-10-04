@@ -866,6 +866,31 @@ describe("AssistantTurnView", () => {
     expect(html.match(/data-ai-proposal-content=""/g)).toHaveLength(1);
   });
 
+  it("leaves out 適用 when the surface only lets the proposal be discarded", () => {
+    const proposal: AiEditPreviewState = {
+      targetId: "p1",
+      roomId: "room1",
+      turnId: "a1",
+      proposalIds: ["proposal-1"],
+      baseRevision: 1,
+      providers: ["chatgpt"],
+      createdAt: 0,
+      draft: { summary: "移動のみ", plan: [], warnings: [], operations: [] },
+    };
+    const html = renderToStaticMarkup(
+      <AssistantTurnView
+        turn={makeAssistantTurn({ result: minimalResult })}
+        clockNow={0}
+        proposal={proposal}
+        proposalContent={{ hunks: [], shapes: [] }}
+        onDismissProposal={() => {}}
+      />,
+    );
+
+    expect(html).toContain('aria-label="破棄"');
+    expect(html).not.toContain('aria-label="適用"');
+  });
+
   it("keeps only the bar (no content block, no content toggle) when the pending proposal has no visible body/shape change", () => {
     const proposal: AiEditPreviewState = {
       targetId: "p1",

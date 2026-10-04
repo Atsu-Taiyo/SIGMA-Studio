@@ -16,6 +16,8 @@ export interface AiProposalDisplayState {
   applyError: string | null;
   /** 破棄理由のポップオーバーが開いているか。 */
   dismissReasonOpen: boolean;
+  /** 破棄理由の入力中の文 (カードが作り直されても残す)。 */
+  dismissReason: string;
   /** 図形の変更前 (赤の破線) を隠しているか。 */
   beforeHidden: boolean;
 }
@@ -24,6 +26,7 @@ export const DEFAULT_AI_PROPOSAL_DISPLAY_STATE: Readonly<AiProposalDisplayState>
   contentHidden: false,
   applyError: null,
   dismissReasonOpen: false,
+  dismissReason: "",
   beforeHidden: false,
 });
 

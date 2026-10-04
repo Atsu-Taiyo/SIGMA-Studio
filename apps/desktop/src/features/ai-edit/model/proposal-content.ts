@@ -592,18 +592,27 @@ export function isProposalContentEmpty(content: AiProposalContent): boolean {
 /**
  * 紙面のカード用に、保留中の提案の本文の塊をアンカーごとに分ける。同じブロックに 2 つの
  * 提案があればカードは 2 枚 (承認・破棄は提案ごとに独立)。図形はキャンバスで決めるので含めない。
+ *
+ * アンカーが本文に無い塊 (文書に無いブロック・ヘッダーの中など) は、紙面が後ろに置けないので
+ * カードにしない。カードが 1 枚もできない提案は、紙面がそのそばに浮かぶバーで決める
+ * (`AiPageCanvasEditor`)。
  */
 export function groupPendingProposalContentByAnchor(
   previews: AiEditPreviewState[],
   document: SigmaDocument,
 ): Map<string, AiProposalAnchorCard[]> {
   const cardsByAnchorId = new Map<string, AiProposalAnchorCard[]>();
+  let placeable: ReadonlySet<string> | null = null;
   for (const preview of previews) {
     if (!hasBodyAiEditChanges(preview)) {
       continue;
     }
+    placeable ??= new Set(indexDocumentFlow(document).flowAnchorById.values());
     const afterDocument = resolvePendingProposalAfterDocument(document, preview);
     for (const hunk of buildPendingHunks(document, afterDocument, preview)) {
+      if (!placeable.has(hunk.anchorBlockId)) {
+        continue;
+      }
       const cards = cardsByAnchorId.get(hunk.anchorBlockId) ?? [];
       cards.push({ preview, content: { hunks: [hunk], shapes: [] } });
       cardsByAnchorId.set(hunk.anchorBlockId, cards);

@@ -127,9 +127,60 @@ function bodyAndShape(): DesktopMcpEditProposalSummary {
   }, ["para_target", "bar_shape"]);
 }
 
-async function open(page: Page, proposals: DesktopMcpEditProposalSummary[]): Promise<void> {
+function pageLayoutOnly(): DesktopMcpEditProposalSummary {
+  return proposal("proposal_layout", {
+    summary: "上の余白を広げます",
+    plan: ["余白を変える"],
+    warnings: [],
+    operations: [],
+    mutationOperations: [{ operation: "updatePageLayout", summary: "上の余白を広げる", patch: { marginsMm: { top: 20 } } } as never],
+  }, []);
+}
+
+function shapeAndLayout(): DesktopMcpEditProposalSummary {
+  return proposal("proposal_shape_layout", {
+    summary: "図形を動かして余白を広げます",
+    plan: ["図形を動かし、余白を変える"],
+    warnings: [],
+    operations: [],
+    mutationOperations: [
+      { operation: "updateOverlayShape", summary: "図形を右へ移動", shapeId: "bar_shape", patch: { x: 220 } },
+      { operation: "updatePageLayout", summary: "上の余白を広げる", patch: { marginsMm: { top: 20 } } } as never,
+    ],
+  }, ["bar_shape"]);
+}
+
+function missingAnchor(): DesktopMcpEditProposalSummary {
+  return proposal("proposal_missing", {
+    summary: "見つからない段落の書き換え",
+    plan: ["段落を書き換える"],
+    warnings: [],
+    operations: [{
+      operation: "replace",
+      summary: "段落を置き換え",
+      targetId: "not_in_document",
+      replacementBlock: paragraph("not_in_document", "どこにも置けない本文") as never,
+    }],
+  }, ["not_in_document"]);
+}
+
+function secondShapeMove(): DesktopMcpEditProposalSummary {
+  return { ...proposal("proposal_shape_2", {
+    summary: "図形をもう一度動かす",
+    plan: ["図形を下へ移動する"],
+    warnings: [],
+    operations: [],
+    mutationOperations: [{ operation: "updateOverlayShape", summary: "図形を下へ移動", shapeId: "bar_shape", patch: { y: 60 } }],
+  }, ["bar_shape"]), sessionLabel: "図形の整理" } as DesktopMcpEditProposalSummary;
+}
+
+async function open(
+  page: Page,
+  proposals: DesktopMcpEditProposalSummary[],
+  document: SigmaDocument = createDocument(),
+): Promise<void> {
   await page.setViewportSize({ width: 1500, height: 950 });
-  await installDesktopRuntimeMock(page, createDocument(), { ai: { enabled: true, initialProposals: proposals } });
+  await installDesktopRuntimeMock(page, document, { ai: { enabled: true, initialProposals: proposals } });
   await page.goto("/");
   await expect(page.locator(".text-flow-editor").first()).toBeVisible();
   await expect(page.locator(".startup-splash")).toBeHidden();
@@ -215,7 +266,8 @@ test("an apply failure is shown on the bar and the proposal can be applied again
     (window as unknown as { __sigmaFailNextMcpApproval?: string }).__sigmaFailNextMcpApproval = "E2Eで承認を失敗させました";
   });
   await card.getByRole("button", { name: "適用", exact: true }).click();
-  await expect(card.locator("[data-ai-proposal-bar]")).toContainText("E2Eで承認を失敗させました");
+  // 失敗の理由はバーのすぐ下の行 (バーは折り返さない 1 行のまま)。
+  await expect(card.locator("[data-ai-proposal-bar] + [data-ai-proposal-bar-details]")).toContainText("E2Eで承認を失敗させました");
 
   await card.getByRole("button", { name: "適用", exact: true }).click();
   await expect(pageCard(page, "para_target")).toHaveCount(0);
@@ -301,4 +353,120 @@ test("a shape-only proposal attaches the same bar beside the shape and never alt
 
   await widget.getByRole("button", { name: "適用", exact: true }).click();
   await expect(widget).toHaveCount(0);
+});
+
+/** その要素の中心を押したら、本当にその要素に届くか (覆われていない・切り取られていない)。 */
+async function expectHittable(target: Locator): Promise<void> {
+  await target.scrollIntoViewIfNeeded();
+  const reached = await target.evaluate((element) => {
+    const rect = element.getBoundingClientRect();
+    const hit = document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2);
+    return Boolean(hit && (hit === element || element.contains(hit)));
+  });
+  expect(reached).toBe(true);
+}
+
+for (const [label, proposals] of [
+  ["a shape change plus a page-layout change", () => [shapeAndLayout()]],
+  ["a page-layout change only", () => [pageLayoutOnly()]],
+  ["a body change whose block is not on the page", () => [missingAnchor()]],
+] as const) {
+  test(`a proposal with no card in the page flow still gets one usable bar: ${label}`, async ({ page }) => {
+    await open(page, proposals());
+    await expect(page.locator(".page-flow [data-ai-proposal-card]")).toHaveCount(0);
+    const bar = page.locator('[data-ai-proposal-card="overlay"]');
+    await expect(bar).toHaveCount(1);
+    const apply = bar.getByRole("button", { name: "適用", exact: true });
+    await expect(apply).toBeEnabled();
+    await expectHittable(apply);
+    await expectHittable(bar.getByRole("button", { name: "破棄", exact: true }));
+  });
+}
+
+test("a shape-and-layout proposal without a card puts its bar beside the shape", async ({ page }) => {
+  await open(page, [shapeAndLayout()]);
+  const bar = page.locator('[data-ai-proposal-card="overlay"]');
+  await expect(bar).toContainText("図形を動かして余白を広げます");
+  const shape = page.locator('.overlay-shape.ai-diff-after-shape[data-overlay-shape-id="bar_shape"]').first();
+  const [barBox, shapeBox] = [await bar.boundingBox(), await shape.boundingBox()];
+  expect(barBox && shapeBox).toBeTruthy();
+  // 図形のすぐ上か下にあり、横は図形にかかる。
+  const verticalGap = Math.min(Math.abs(barBox!.y + barBox!.height - shapeBox!.y), Math.abs(barBox!.y - (shapeBox!.y + shapeBox!.height)));
+  expect(verticalGap).toBeLessThanOrEqual(80);
+  expect(barBox!.x).toBeLessThan(shapeBox!.x + shapeBox!.width);
+  expect(barBox!.x + barBox!.width).toBeGreaterThan(shapeBox!.x);
+});
+
+test("bars of two shape-only proposals for the same shape never cover each other", async ({ page }) => {
+  await open(page, [shapeMove(), secondShapeMove()]);
+  const bars = page.locator('[data-ai-proposal-card="overlay"]');
+  await expect(bars).toHaveCount(2);
+  const [first, second] = [await bars.nth(0).boundingBox(), await bars.nth(1).boundingBox()];
+  const overlap = Math.min(first!.y + first!.height, second!.y + second!.height) - Math.max(first!.y, second!.y);
+  const horizontalOverlap = Math.min(first!.x + first!.width, second!.x + second!.width) - Math.max(first!.x, second!.x);
+  expect(horizontalOverlap > 0 && overlap > 0).toBe(false);
+  for (const index of [0, 1]) {
+    await expectHittable(bars.nth(index).getByRole("button", { name: "適用", exact: true }));
+    await expectHittable(bars.nth(index).getByRole("button", { name: "破棄", exact: true }));
+  }
+});
+
+test("a hidden before shape can be neither picked nor dragged", async ({ page }) => {
+  await open(page, [shapeMove()]);
+  const bar = page.locator('[data-ai-proposal-card="overlay"]');
+  const before = page.locator('.overlay-shape.ai-diff-before-shape[data-overlay-shape-id="bar_shape"]').first();
+  const box = (await before.boundingBox())!;
+  await bar.getByRole("button", { name: "変更前を隠す", exact: true }).click();
+  await expect(before).toHaveCSS("pointer-events", "none");
+  const center = { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+
+  // 本文から図形を掴む操作 (Ctrl/Cmd+クリック → クリック) でも、見えない変更前は選ばれない。
+  await page.keyboard.down("ControlOrMeta");
+  await page.mouse.click(center.x, center.y);
+  await page.keyboard.up("ControlOrMeta");
+  await page.mouse.click(center.x, center.y);
+  await expect(page.locator('.overlay-shape.selected[data-overlay-shape-id="bar_shape"]')).toHaveCount(0);
+  await page.mouse.move(center.x, center.y);
+  await page.mouse.down();
+  await page.mouse.move(center.x + 80, center.y + 40, { steps: 6 });
+  await page.mouse.up();
+  await expect.poll(async () => page.evaluate(() => {
+    const saved = JSON.parse(window.localStorage.getItem("sigma-studio:e2e-document") ?? "null");
+    return saved?.pageLayout?.overlay?.overlaySnapshot?.shapes?.find((shape: { id?: string }) => shape.id === "bar_shape")?.x ?? 60;
+  })).toBe(60);
+});
+
+test("the decision bar stays one line and is never split by a page boundary", async ({ page }) => {
+  // 用紙を低くし、提案カードの始まる位置をずらしながら、ページ境目がカードの頭に来る配置を作る。
+  const referencing = { ...longInsertion(12), sourceReferences: [
+    { type: "document", fileId: "file_reference", title: "参照した教材のとても長い名前の例" },
+    { type: "web", url: "https://example.com/very/long/reference/path" },
+  ] } as DesktopMcpEditProposalSummary;
+  for (const filler of [6, 7, 8, 9, 10]) {
+    const document = createDocument();
+    document.content = [
+      ...Array.from({ length: filler }, (_, index) => paragraph(`filler_${index}`, `前置きの本文 ${index}`)),
+      ...document.content,
+    ];
+    document.pageLayout = {
+      ...document.pageLayout,
+      preset: "custom",
+      orientation: "portrait",
+      pageSize: { widthMm: 150, heightMm: 120 },
+      marginsMm: { top: 12, right: 12, bottom: 12, left: 12 },
+    } as SigmaDocument["pageLayout"];
+    await open(page, [referencing], document);
+    const card = pageCard(page, "para_target").locator("[data-ai-proposal-card]");
+    await expect(card).toHaveCount(1);
+    const bar = card.locator("[data-ai-proposal-bar]");
+    const barBox = (await bar.boundingBox())!;
+    // 折り返さない 1 行 (操作ボタン 1 つ分の高さ)。
+    expect(barBox.height, `filler=${filler}`).toBeLessThanOrEqual(40);
+    // バーの操作は切り取られずに押せる (切れ目がバーの中に来ない)。
+    for (const name of ["破棄", "適用", "内容を隠す"]) {
+      await expectHittable(card.getByRole("button", { name, exact: true }));
+    }
+    // 参照元はバーの外 (すぐ下の行)。続きの複製に回っても見た目は出る。
+    await expect(page.locator(".page-flow").getByText("参照した教材のとても長い名前の例").first()).toBeVisible();
+  }
 });

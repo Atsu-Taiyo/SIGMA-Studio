@@ -75,8 +75,9 @@ describe("AiEditInlinePreviewCard on its own", () => {
     await act(async () => button("適用").click());
 
     expect(onApply).toHaveBeenCalledOnce();
-    const bar = container.querySelector("[data-ai-proposal-bar]");
-    expect(bar?.querySelector('[role="alert"]')?.textContent).toBe(reason);
+    // 失敗の理由はバーのすぐ下の行 (バーは 1 行のまま)。
+    expect(container.querySelector('[data-ai-proposal-bar] + [data-ai-proposal-bar-details] [role="alert"]')?.textContent)
+      .toBe(reason);
     expect(container.querySelector('[data-ai-proposal-card="page"]')).not.toBeNull();
     expect(button("適用").disabled).toBe(false);
   });

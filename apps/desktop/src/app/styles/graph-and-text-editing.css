@@ -1805,6 +1805,11 @@ body.page-block-dragging .layout-section-column-resize-knob {
   background: var(--surface-soft);
 }
 
+/* バーのすぐ下の行 (参照元・失敗の理由)。続きの複製にも見た目だけ出る。 */
+.ai-proposal-card--page > [data-ai-proposal-bar-details] {
+  padding: var(--space-xs) var(--space-sm) 0;
+}
+
 .ai-proposal-card--page[data-content-hidden] > [data-ai-proposal-bar] {
   border-bottom: 0;
   border-radius: var(--radius-control);
@@ -2284,9 +2289,17 @@ button.ai-source-ref-chip--document:focus-visible {
 /* An update/replacement has both a real "before" shape (red dashed) and a
    proposed "after" ghost (green dashed). Both stay visible all the time — no
    alternation over time or on hover. When they overlap too much to read, the
-   proposal's bar hides the before state (`ai-diff-before-hidden`). */
-.overlay-shape.ai-diff-before-hidden {
+   proposal's bar hides the before state (`ai-diff-before-hidden`). A hidden
+   shape must not take clicks either: an invisible live shape would otherwise
+   be picked and moved. The overlay canvas also skips it in hit testing
+   (`OverlayEditPolicy.unselectableShapeIds`). */
+/* 詳細度は `.page-overlay-preview .overlay-shape.ai-edit-locked-shape` (ロック中の図形はポインタを
+   受ける) と同じにし、後から読まれるこちらを勝たせる。 */
+.overlay-shape.ai-diff-before-shape.ai-diff-before-hidden,
+.overlay-shape.ai-diff-before-shape.ai-diff-before-hidden * {
   opacity: 0;
+  pointer-events: none;
+  user-select: none;
 }
 
 .overlay-shape.ai-apply-added-shape {

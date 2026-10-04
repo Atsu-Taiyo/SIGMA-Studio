@@ -61,3 +61,21 @@ export function isOverlaySelectionBlockedByEditPolicy(
     return shape ? isShapeEditPolicyLockedInTree(shapes, shape, lockedShapeIds) : false;
   });
 }
+
+/**
+ * 機能が見えなくした図形 (`OverlayEditPolicy.unselectableShapeIds`) は、当たり判定でも
+ * 囲み選択でも選ばない。見えない図形が選ばれて動かされると、利用者の知らないうちに文書が変わる。
+ */
+export function isOverlayShapeUnselectable(
+  id: OverlayShapeId,
+  unselectable: ReadonlySet<OverlayShapeId> | undefined,
+): boolean {
+  return unselectable?.has(id) ?? false;
+}
+
+export function filterSelectableShapeIds(
+  ids: OverlayShapeId[],
+  unselectable: ReadonlySet<OverlayShapeId> | undefined,
+): OverlayShapeId[] {
+  return unselectable && unselectable.size > 0 ? ids.filter((id) => !unselectable.has(id)) : ids;
+}

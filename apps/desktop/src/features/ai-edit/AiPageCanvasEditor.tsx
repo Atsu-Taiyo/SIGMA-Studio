@@ -6,6 +6,8 @@ import { memo, useCallback, useLayoutEffect, useMemo, useRef, useState } from "r
 import {
   AiEditInlinePreviewCard,
   AiEditOverlayApprovalWidget,
+  getAiProposalSessionLabel,
+  OVERLAY_SUMMARY_MAX_LINES,
   type AiSourceReferenceOpenDocumentParams,
 } from "./view";
 import {
@@ -24,13 +26,8 @@ import {
   type AiEditPreviewDiff,
   type AiEditPreviewState,
 } from "./model/preview";
-import {
-  patchAiProposalDisplayState,
-  pruneAiProposalDisplayStates,
-  readAiProposalDisplayState,
-  type AiProposalDisplayState,
-  type AiProposalDisplayStates,
-} from "./model/proposal-display-state";
+import { readAiProposalDisplayState, type AiProposalDisplayState } from "./model/proposal-display-state";
+import { useAiProposalDisplayStates } from "./application/use-ai-proposal-display-states";
 import { groupPendingProposalContentByAnchor, type AiProposalAnchorCard } from "./model/proposal-content";
 import { AiRunAnchorLayer, type AiRunCardOpenRequest } from "@/components/editor/ai-run-anchor-layer";
 import {
@@ -71,6 +68,7 @@ import { getSelectionActionKey } from "./selection-action-key";
 import { buildShapesSvgPreview, type AiEditShapeOnlyPreview } from "@/lib/ai/ai-edit-shape-preview";
 import { PAGE_GAP_PX } from "@/features/document";
 import { mergeEditorExtensionSets } from "@/components/editor/webmcp/webmcp-editor-extensions";
+import type { EditorExtensionContextValue } from "@/components/editor/editor-extension-context";
 
 import { RegionCaptureLayer } from "@/components/editor/region-capture/RegionCaptureLayer";
 
@@ -79,10 +77,8 @@ import { AiScreenshotAskButton, type AiScreenshotRequestHandler } from "./view/A
 import { ProblemFrameChatNotices } from "./view/ProblemFrameChatNotices";
 import type { AiProposalApplyOutcome } from "./application/proposal-action-model";
 
-/** 図形のそばのバーの幅。見出しと操作が 1 行に並ぶ幅 (段が狭ければ段に収める)。 */
+/** 浮かぶバーの幅。見出しと操作が 1 行に並ぶ幅 (段が狭ければ段に収める)。 */
 const OVERLAY_APPROVAL_WIDGET_WIDTH = 320;
-/** 上に置けるかの判定に使う高さの見積もり (バー + 要約 3 行)。 */
-const OVERLAY_APPROVAL_WIDGET_ESTIMATED_HEIGHT = 96;
 const OVERLAY_APPROVAL_WIDGET_GAP = 8;
 const OVERLAY_APPROVAL_WIDGET_MARGIN = 12;
 
@@ -163,11 +159,7 @@ function AiEnabledPageCanvasEditor({
     documentWriteInProgress: aiDocumentWriteInProgress,
     shapes: documentShapes,
   });
-  const editorExtensions = useMemo(
-    () => mergeEditorExtensionSets(aiEditorExtensions, pageEditorProps.editorExtensions),
-    [aiEditorExtensions, pageEditorProps.editorExtensions],
-  );
-  const extension = useAiPageCanvasExtension({
+  const { extension, beforeHiddenShapeIds } = useAiPageCanvasExtension({
     document: pageEditorProps.document,
     previewGroups: aiEditPreviewGroups,
     applying: aiEditPreviewApplying,
@@ -183,6 +175,18 @@ function AiEnabledPageCanvasEditor({
     documentWorkspaceId,
     onFocusSession: onFocusAiSession,
   });
+  // 利用者がバーで隠した変更前の図形は、選べず編集もできない (見えない図形を動かさない)。
+  const beforeHiddenExtensions = useMemo(
+    () => buildAiBeforeHiddenEditorExtensions(beforeHiddenShapeIds),
+    [beforeHiddenShapeIds],
+  );
+  const editorExtensions = useMemo(
+    () => mergeEditorExtensionSets(
+      mergeEditorExtensionSets(aiEditorExtensions, beforeHiddenExtensions),
+      pageEditorProps.editorExtensions,
+    ),
+    [aiEditorExtensions, beforeHiddenExtensions, pageEditorProps.editorExtensions],
+  );
 
   const screenshotActions = useMemo(
     () => onAiScreenshotRequest ? <AiScreenshotAskButton onRequest={onAiScreenshotRequest} /> : undefined,
@@ -226,32 +230,6 @@ interface UseAiPageCanvasExtensionOptions {
 /** 提案が無いときに配り回す固定の空コレクション (identity を動かさないため)。 */
 const EMPTY_PREVIEW_CARDS_BY_TARGET_ID: ReadonlyMap<string, AiProposalAnchorCard[]> = new Map();
 const EMPTY_INLINE_CONTENT: ReadonlyMap<string, PageCanvasInlineContent[]> = new Map();
-const EMPTY_DISPLAY_STATES: AiProposalDisplayStates = new Map();
-
-/**
- * 提案の表示状態 (内容を隠した・適用の失敗・破棄理由・変更前を隠した) をカードの外に持つ。
- * 紙面のカードは改ページで切れると続きが別のインスタンスで描かれ、key は会話単位で固定なので、
- * カードの state にすると食い違ったり追加ターンに残ったりする (`model/proposal-display-state.ts`)。
- *
- * 場所の key: 紙面のカードはカードの key、図形のそばのバーと「変更前を隠す」は会話の key。
- * 状態は提案 id の組と一緒に覚え、今の場所・提案に無いものは書き換えのたびに捨てる。
- */
-function useAiProposalDisplayStates(live: ReadonlyMap<string, readonly string[]>) {
-  const [states, setStates] = useState<AiProposalDisplayStates>(EMPTY_DISPLAY_STATES);
-  const liveRef = useRef(live);
-  useLayoutEffect(() => {
-    liveRef.current = live;
-  }, [live]);
-  const update = useCallback((key: string, proposalIds: readonly string[], patch: Partial<AiProposalDisplayState>) => {
-    setStates((previous) => patchAiProposalDisplayState(
-      pruneAiProposalDisplayStates(previous, liveRef.current),
-      key,
-      proposalIds,
-      patch,
-    ));
-  }, []);
-  return [states, update] as const;
-}
 
 function useAiPageCanvasExtension({
   document,
@@ -268,13 +246,8 @@ function useAiPageCanvasExtension({
   documentIdentityKey,
   documentWorkspaceId,
   onFocusSession,
-}: UseAiPageCanvasExtensionOptions): PageCanvasEditorExtension {
+}: UseAiPageCanvasExtensionOptions): { extension: PageCanvasEditorExtension; beforeHiddenShapeIds: ReadonlySet<string> } {
   const t = useT("ai");
-  // 図形のそばにバーを付けるのは図形だけの提案。本文も変える提案はカードのバー 1 本で決める。
-  const overlayPreviewGroups = useMemo(
-    () => previewGroups.filter(isOverlayOnlyAiEditPreview),
-    [previewGroups],
-  );
   const inlinePreviewGroups = useMemo(
     () => previewGroups.filter(hasBodyAiEditChanges),
     [previewGroups],
@@ -287,6 +260,12 @@ function useAiPageCanvasExtension({
       : groupPendingProposalContentByAnchor(inlinePreviewGroups, document),
     [document, inlinePreviewGroups],
   );
+  // カードが 1 枚も無い提案 (図形だけ・本文を置ける場所が無い) は、紙面に浮かぶバーで決める。
+  // カードのある提案はカードのバー 1 本で決める (図形の変更があっても浮かべない)。
+  const floatingPreviewGroups = useMemo(() => {
+    const previewsWithCards = new Set([...previewCardsByTargetId.values()].flat().map((card) => card.preview));
+    return selectAiFloatingDecisionPreviews(previewGroups, previewsWithCards);
+  }, [previewCardsByTargetId, previewGroups]);
   const roomIdsWithCards = useMemo(
     () => new Set(previewGroups.flatMap((preview) => preview.roomId ? [preview.roomId] : [])),
     [previewGroups],
@@ -435,71 +414,54 @@ function useAiPageCanvasExtension({
       return source ? [{ ...source, shape }] : [];
     });
 
-    const pageStride = context.pageHeightPx + PAGE_GAP_PX;
-    const collisionCounts = new Map<string, number>();
-    const widgets = overlayPreviewGroups.flatMap((preview) => {
-      const affectedShapes = deriveAiEditPreviewOverlayShapes(preview, context.overlayShapes);
-      if (affectedShapes.length === 0) {
-        return [];
-      }
-      const shapesById = new Map(context.overlayShapes.map((shape) => [shape.id, shape]));
-      affectedShapes.forEach((shape) => shapesById.set(shape.id, shape));
-      const resolvedById = new Map(
-        resolveShapesPosition([...shapesById.values()], context.blockRects, context.blockGaps)
-          .map((shape) => [shape.id, shape]),
-      );
-      const bounds = getShapesSelectionBounds(affectedShapes.flatMap((shape) => {
-        const resolved = resolvedById.get(shape.id);
-        return resolved ? [resolved] : [];
-      }));
-      if (!bounds) {
-        return [];
-      }
-
-      const pageIndex = Math.max(0, Math.floor(bounds.y / pageStride));
-      const pageTop = pageIndex * pageStride;
-      const roomAbove = bounds.y - pageTop;
-      const placement = roomAbove >= OVERLAY_APPROVAL_WIDGET_ESTIMATED_HEIGHT + OVERLAY_APPROVAL_WIDGET_GAP
-        ? "above" as const
-        : "below" as const;
+    const pageBounds = { left: 0, right: context.pageWidthPx, width: context.pageWidthPx };
+    const floating = floatingPreviewGroups.map((preview) => {
+      const conversationKey = getAiProposalConversationKey(preview);
+      const displayState = readAiProposalDisplayState(displayStates, conversationKey, preview.proposalIds);
+      const changeLines = summarizeAiEditPreviewChanges(preview, context.overlayShapes, t);
+      // 本文も変える提案は、図形の要約だけでは何の提案か分からない (余白の変更など) ので、AI の要約を先に添える。
+      const draftSummary = preview.draft.summary.trim();
+      const summaryLines = !isOverlayOnlyAiEditPreview(preview) && draftSummary
+        ? [draftSummary, ...changeLines]
+        : changeLines;
       const insertionAnchorBlockId = getOverlayInsertionAnchorBlockId(preview);
       const insertionColumnBounds = insertionAnchorBlockId
         ? getNarrowColumnBounds(context.blockRects.get(insertionAnchorBlockId), context.contentWidthPx)
         : null;
-      const horizontalBounds = insertionColumnBounds ?? {
-        left: 0,
-        right: context.pageWidthPx,
-        width: context.pageWidthPx,
+      const request: FloatingDecisionBarRequest = {
+        key: conversationKey,
+        bounds: resolveAiProposalShapeBounds(preview, context),
+        horizontalBounds: insertionColumnBounds ?? pageBounds,
+        heightPx: estimateFloatingDecisionBarHeight({
+          summaryLineCount: Math.min(summaryLines.length, OVERLAY_SUMMARY_MAX_LINES) + (summaryLines.length > OVERLAY_SUMMARY_MAX_LINES ? 1 : 0),
+          hasSessionLabel: Boolean(getAiProposalSessionLabel(preview)),
+          hasApplyError: Boolean(displayState.applyError),
+        }),
       };
-      const widgetPlacement = placeCenteredWidget(
-        bounds.x + bounds.w / 2,
-        OVERLAY_APPROVAL_WIDGET_WIDTH,
-        horizontalBounds,
-        OVERLAY_APPROVAL_WIDGET_MARGIN,
-      );
-      const left = widgetPlacement.center;
-      const baseTop = placement === "above"
-        ? bounds.y - OVERLAY_APPROVAL_WIDGET_GAP
-        : bounds.y + bounds.h + OVERLAY_APPROVAL_WIDGET_GAP;
-      const collisionKey = `${placement}:${Math.round(left / 24)}:${Math.round(baseTop / 24)}`;
-      const stackIndex = collisionCounts.get(collisionKey) ?? 0;
-      collisionCounts.set(collisionKey, stackIndex + 1);
-      const stackOffset = stackIndex * (OVERLAY_APPROVAL_WIDGET_ESTIMATED_HEIGHT + 4);
-      const conversationKey = getAiProposalConversationKey(preview);
-
-      return [(
+      return { preview, conversationKey, displayState, summaryLines, request };
+    });
+    const placements = placeFloatingDecisionBars(floating.map((entry) => entry.request), {
+      pageWidthPx: context.pageWidthPx,
+      pageStridePx: context.pageHeightPx + PAGE_GAP_PX,
+      desiredWidthPx: OVERLAY_APPROVAL_WIDGET_WIDTH,
+      gapPx: OVERLAY_APPROVAL_WIDGET_GAP,
+      marginPx: OVERLAY_APPROVAL_WIDGET_MARGIN,
+    });
+    const widgets = floating.map(({ preview, conversationKey, displayState, summaryLines }, index) => {
+      const placement = placements[index];
+      return (
         <AiEditOverlayApprovalWidget
           key={conversationKey}
           preview={preview}
           applying={applying}
-          placement={placement}
+          placement={placement.placement}
           style={{
-            left: `${left}px`,
-            top: `${placement === "above" ? baseTop - stackOffset : baseTop + stackOffset}px`,
-            width: `${widgetPlacement.width}px`,
+            left: `${placement.left}px`,
+            top: `${placement.top}px`,
+            width: `${placement.width}px`,
           }}
-          changeSummaryLines={summarizeAiEditPreviewChanges(preview, context.overlayShapes, t)}
-          displayState={readAiProposalDisplayState(displayStates, conversationKey, preview.proposalIds)}
+          changeSummaryLines={summaryLines}
+          displayState={displayState}
           onDisplayStateChange={(patch) => updateDisplayState(conversationKey, preview.proposalIds, patch)}
           hasBeforeShapes={getAiEditPreviewBeforeShapeIds(preview).length > 0}
           onOpenConversation={preview.roomId
@@ -508,14 +470,14 @@ function useAiPageCanvasExtension({
           onApply={onApply ? () => onApply(preview.proposalIds) : undefined}
           onDismiss={onDismiss ? (reason) => onDismiss(preview.proposalIds, reason) : undefined}
         />
-      )];
+      );
     });
 
     return {
       ghostShapes: resolvedGhostShapes,
       floatingContent: widgets,
     };
-  }, [applying, displayStates, onApply, onDismiss, openProposalConversation, overlayPreviewGroups, previewDiff, previewGroups, t, updateDisplayState]);
+  }, [applying, displayStates, floatingPreviewGroups, onApply, onDismiss, openProposalConversation, previewDiff, previewGroups, t, updateDisplayState]);
 
   // 参照系のコールバックは ref 経由で最新を読む。identity を deps に入れると、親が 1 回
   // 描画するたびに selection 拡張が作り直され、PageCanvasEditor 側の選択 effect が再 arm
@@ -587,7 +549,7 @@ function useAiPageCanvasExtension({
     onReady: onPortalReady,
   }), [onPortalReady]);
 
-  return useMemo(() => ({
+  const extension = useMemo<PageCanvasEditorExtension>(() => ({
     inlineContentByTargetId,
     textFlowChangeDecorationState,
     overlayShapeClassNames,
@@ -604,6 +566,7 @@ function useAiPageCanvasExtension({
     selection,
     textFlowChangeDecorationState,
   ]);
+  return { extension, beforeHiddenShapeIds };
 }
 
 function createSelectionAction({
@@ -710,6 +673,27 @@ function createSelectionAction({
       </button>
     ),
   };
+}
+
+/** 提案が触れる図形 (適用後の姿) の囲み。図形に触れない提案や、位置が決まらないときは null。 */
+function resolveAiProposalShapeBounds(
+  preview: AiEditPreviewState,
+  context: PageCanvasOverlayPresentationContext,
+): { x: number; y: number; w: number; h: number } | null {
+  const affectedShapes = deriveAiEditPreviewOverlayShapes(preview, context.overlayShapes);
+  if (affectedShapes.length === 0) {
+    return null;
+  }
+  const shapesById = new Map(context.overlayShapes.map((shape) => [shape.id, shape]));
+  affectedShapes.forEach((shape) => shapesById.set(shape.id, shape));
+  const resolvedById = new Map(
+    resolveShapesPosition([...shapesById.values()], context.blockRects, context.blockGaps)
+      .map((shape) => [shape.id, shape]),
+  );
+  return getShapesSelectionBounds(affectedShapes.flatMap((shape) => {
+    const resolved = resolvedById.get(shape.id);
+    return resolved ? [resolved] : [];
+  })) ?? null;
 }
 
 /**
@@ -820,6 +804,140 @@ export function deriveAiOverlayShapeClassNames({
     result.set(id, "ai-apply-added-shape");
   }
   return result;
+}
+
+/**
+ * 紙面に浮かぶバーで決める提案: 本文フローにカードが 1 枚も無い提案すべて。図形だけの提案に限らず、
+ * 本文の変更が置けない場所 (文書に無いブロック・対象ブロックを持たない操作など) にしかない提案も
+ * ここに入る。そうしないと紙面のどこにも承認・破棄の操作が出ない。カードがある提案はカードの
+ * バー 1 本で決める (図形の変更があっても浮かべない)。
+ */
+/**
+ * 利用者がバーで隠した変更前の図形 (`ai-diff-before-hidden`) を、紙面で選べず編集もできない図形にする。
+ * 見えないまま選ばれて動かされると、利用者の知らないうちに文書が変わる (提案の対象を鍵で守らない
+ * 提案 (WebMCP) でも同じ)。
+ */
+export function buildAiBeforeHiddenEditorExtensions(
+  beforeHiddenShapeIds: ReadonlySet<string>,
+): EditorExtensionContextValue | undefined {
+  if (beforeHiddenShapeIds.size === 0) {
+    return undefined;
+  }
+  return {
+    overlayEditPolicy: {
+      lockedShapeIds: beforeHiddenShapeIds,
+      unselectableShapeIds: beforeHiddenShapeIds,
+    },
+  };
+}
+
+export function selectAiFloatingDecisionPreviews(
+  previewGroups: readonly AiEditPreviewState[],
+  previewsWithCards: ReadonlySet<AiEditPreviewState>,
+): AiEditPreviewState[] {
+  return previewGroups.filter((preview) => !previewsWithCards.has(preview));
+}
+
+/** 浮かぶバーの高さの見積もりに使う寸法 (CSS の値に合わせる)。 */
+const FLOATING_BAR_ROW_PX = 30; // 操作ボタン (sm) 1 行
+const FLOATING_BAR_CHROME_PX = 2 * 8 + 2; // 上下の padding (--space-sm) と枠線
+const FLOATING_BAR_ROW_GAP_PX = 4; // 行の間 (--space-xs)
+const FLOATING_BAR_LABEL_LINE_PX = 13; // セッション名 (10px × 1.3)
+const FLOATING_BAR_SUMMARY_LINE_PX = 15; // 要約 1 行 (11px × 1.35)
+const FLOATING_BAR_SUMMARY_MARGIN_PX = 2;
+const FLOATING_BAR_ERROR_PX = 18 + 3 * 19; // 失敗の理由 (padding と枠線 + 3 行まで)
+/** 重ねて置くときのバーの間。 */
+const FLOATING_BAR_STACK_GAP_PX = 4;
+
+/**
+ * 浮かぶバーの高さの見積もり (実際の高さ以上)。バーは 1 行で折り返さないので、その下に並ぶ行
+ * (セッション名・要約・失敗の理由) の数で決まる。重ね置きで隣のバーを覆わないために使う。
+ */
+export function estimateFloatingDecisionBarHeight({
+  summaryLineCount,
+  hasSessionLabel,
+  hasApplyError,
+}: {
+  summaryLineCount: number;
+  hasSessionLabel: boolean;
+  hasApplyError: boolean;
+}): number {
+  let height = FLOATING_BAR_CHROME_PX + FLOATING_BAR_ROW_PX;
+  if (hasApplyError) {
+    height += FLOATING_BAR_ROW_GAP_PX + FLOATING_BAR_ERROR_PX;
+  }
+  if (hasSessionLabel || summaryLineCount > 0) {
+    height += FLOATING_BAR_ROW_GAP_PX
+      + (hasSessionLabel ? FLOATING_BAR_LABEL_LINE_PX : 0)
+      + (summaryLineCount > 0 ? FLOATING_BAR_SUMMARY_MARGIN_PX + summaryLineCount * FLOATING_BAR_SUMMARY_LINE_PX : 0);
+  }
+  return Math.ceil(height);
+}
+
+export interface FloatingDecisionBarRequest {
+  key: string;
+  /** バーを添える図形の囲み (紙面の座標)。無ければ 1 ページ目の上端に置く。 */
+  bounds: { x: number; y: number; w: number; h: number } | null;
+  /** 横に収める範囲 (段組みの段など)。 */
+  horizontalBounds: { left: number; right: number; width: number };
+  heightPx: number;
+}
+
+export interface FloatingDecisionBarPlacement {
+  key: string;
+  /** `above`: `top` がバーの下端 (図形の上に置く)。`below`: `top` がバーの上端。 */
+  placement: "above" | "below";
+  /** バーの横の中心。 */
+  left: number;
+  top: number;
+  width: number;
+}
+
+/**
+ * 浮かぶバーを置く。図形の上に余白があれば上、無ければ下。図形が無ければ 1 ページ目の上端の右寄せ
+ * (本文の先頭のブロックの選択ポップオーバーは中央に出るので、それと重ならない側)。
+ * 先に置いたバーと重なるときは、見積もった高さで重ならないところまで (上に置くものは上へ、
+ * 下に置くものは下へ) ずらす。
+ */
+export function placeFloatingDecisionBars(
+  requests: readonly FloatingDecisionBarRequest[],
+  frame: { pageWidthPx: number; pageStridePx: number; desiredWidthPx: number; gapPx: number; marginPx: number },
+): FloatingDecisionBarPlacement[] {
+  const placedRects: Array<{ left: number; right: number; top: number; bottom: number }> = [];
+  return requests.map((request) => {
+    const { bounds, heightPx } = request;
+    const horizontal = placeCenteredWidget(
+      bounds ? bounds.x + bounds.w / 2 : request.horizontalBounds.right - frame.marginPx - frame.desiredWidthPx / 2,
+      frame.desiredWidthPx,
+      request.horizontalBounds,
+      frame.marginPx,
+    );
+    let placement: "above" | "below" = "below";
+    let top = frame.marginPx;
+    if (bounds) {
+      const pageTop = Math.max(0, Math.floor(bounds.y / frame.pageStridePx)) * frame.pageStridePx;
+      placement = bounds.y - pageTop >= heightPx + frame.gapPx ? "above" : "below";
+      top = placement === "above" ? bounds.y - frame.gapPx : bounds.y + bounds.h + frame.gapPx;
+    }
+    const rectAt = (nextTop: number) => ({
+      left: horizontal.center - horizontal.width / 2,
+      right: horizontal.center + horizontal.width / 2,
+      top: placement === "above" ? nextTop - heightPx : nextTop,
+      bottom: placement === "above" ? nextTop : nextTop + heightPx,
+    });
+    for (let attempt = 0; attempt <= placedRects.length; attempt += 1) {
+      const rect = rectAt(top);
+      const blocker = placedRects.find((other) => (
+        rect.left < other.right && other.left < rect.right && rect.top < other.bottom && other.top < rect.bottom
+      ));
+      if (!blocker) {
+        break;
+      }
+      top = placement === "above" ? blocker.top - FLOATING_BAR_STACK_GAP_PX : blocker.bottom + FLOATING_BAR_STACK_GAP_PX;
+    }
+    placedRects.push(rectAt(top));
+    return { key: request.key, placement, left: horizontal.center, top, width: horizontal.width };
+  });
 }
 
 export function getOverlayInsertionAnchorBlockId(preview: AiEditPreviewState): string | null {
