@@ -6,6 +6,7 @@ import {
   AiEditOverlayApprovalWidget,
   getAiEditInlinePreviewTitleId,
   getAiEditOverlayApprovalTitle,
+  getAiProposalTitleId,
   resolveDismissReason,
 } from "./AiEditInlinePreviewCard";
 import type { AiEditPreviewState } from "../model/preview";
@@ -191,24 +192,26 @@ describe("AiEditInlinePreviewCard", () => {
 
     expect(html).toContain("候補0");
     expect(html).toContain("候補1");
-    expect(html).toContain("ai-inline-preview-scroll");
+    expect(html).toContain('data-ai-proposal-card="page"');
     expect(html).toContain('data-ai-proposal-content=""');
     expect(html).toContain('data-surface="page"');
     expect(html).not.toContain("ai-proposal-provider-identity");
     expect(html).not.toContain(">ChatGPT<");
-    expect(html).toContain('aria-label="閉じる"');
+    // 「閉じる」は内容を隠してバーだけ残す切り替え。
+    expect(html).toContain('aria-label="内容を隠す"');
+    expect(html).not.toContain('aria-label="閉じる"');
     expect(html).not.toContain("件の変更");
     expect(html).not.toContain("ai-inline-preview-operation-title");
   });
 
-  it("uses the sidebar's 提案された変更 heading so both surfaces read the same", () => {
+  it("uses the shared bar's 提案された変更 heading so every surface reads the same", () => {
     const html = renderCard(replaceContent());
 
-    expect(html).toContain("ai-inline-preview-diff-heading");
+    expect(html).toContain('data-ai-proposal-bar=""');
     expect(html.match(/提案された変更/g)).toHaveLength(1);
   });
 
-  it("orders the card like the sidebar proposal: heading → diff → 参照元 → actions", () => {
+  it("leads with the decision bar (heading → 参照元 → actions) and puts the content after it", () => {
     const html = renderCard(replaceContent(), {
       sourceReferences: [{ type: "document", fileId: "file_1", title: "参照した教材" }],
       onOpenConversation: () => {},
@@ -216,15 +219,46 @@ describe("AiEditInlinePreviewCard", () => {
       onDismiss: () => {},
     });
 
-    const headingIndex = html.indexOf("ai-inline-preview-diff-heading");
-    const scrollIndex = html.indexOf("ai-inline-preview-scroll");
+    const barIndex = html.indexOf("data-ai-proposal-bar");
+    const headingIndex = html.indexOf("提案された変更");
     const chipsIndex = html.indexOf("ai-source-ref-row");
-    const actionsIndex = html.indexOf("ai-inline-preview-actions");
+    const actionsIndex = html.indexOf('aria-label="適用"');
+    const contentIndex = html.indexOf("data-ai-proposal-content");
 
-    expect(headingIndex).toBeGreaterThanOrEqual(0);
-    expect(headingIndex).toBeLessThan(scrollIndex);
-    expect(scrollIndex).toBeLessThan(chipsIndex);
+    expect(barIndex).toBeGreaterThanOrEqual(0);
+    // カードの最初の要素がバー: 改ページで切れても、操作は最初の帯 (正本) に残る。
+    expect(html.indexOf("<", html.indexOf(">") + 1)).toBe(html.lastIndexOf("<", barIndex));
+    expect(barIndex).toBeLessThan(headingIndex);
+    expect(headingIndex).toBeLessThan(chipsIndex);
     expect(chipsIndex).toBeLessThan(actionsIndex);
+    expect(actionsIndex).toBeLessThan(contentIndex);
+  });
+
+  it("hides the content but keeps the bar when the owner's state says so", () => {
+    const html = renderCard(replaceContent(), {
+      displayState: { contentHidden: true, applyError: null, dismissReasonOpen: false, beforeHidden: false },
+      onDisplayStateChange: () => {},
+    });
+
+    expect(html).toContain('data-ai-proposal-bar=""');
+    expect(html).toContain('aria-label="内容を表示"');
+    expect(html).toMatch(/<div[^>]*hidden=""[^>]*>[\s\S]*data-ai-proposal-content/);
+  });
+
+  it("shows the owner's apply error on the bar", () => {
+    const html = renderCard(replaceContent(), {
+      onApply: async () => ({ ok: true }),
+      displayState: { contentHidden: false, applyError: "対象が更新されました", dismissReasonOpen: false, beforeHidden: false },
+      onDisplayStateChange: () => {},
+    });
+
+    expect(html).toContain('role="alert"');
+    expect(html).toContain("対象が更新されました");
+  });
+
+  it("offers the before-shape toggle only for a proposal whose shapes have a before and after", () => {
+    expect(renderCard(replaceContent())).not.toContain("変更前を隠す");
+    expect(renderCard(replaceContent(), { hasBeforeShapes: true })).toContain('aria-label="変更前を隠す"');
   });
 
   it("keeps the title information available to assistive tech via aria-label", () => {
@@ -234,7 +268,7 @@ describe("AiEditInlinePreviewCard", () => {
   });
 
   it("renders discard and apply actions", () => {
-    const html = renderCard(replaceContent());
+    const html = renderCard(replaceContent(), { onApply: async () => ({ ok: true }), onDismiss: () => {} });
 
     expect(html).toContain("ai-inline-preview-action discard");
     expect(html).toContain("ai-inline-preview-action apply");
@@ -373,7 +407,7 @@ describe("AiEditInlinePreviewCard", () => {
     expect(renderCard({ hunks: [], shapes: [] })).toBe("");
   });
 
-  it("renders overlay-only decisions as a compact canvas widget without a duplicate shape preview", () => {
+  it("renders overlay-only decisions as the shared bar beside the shape, without a duplicate shape preview", () => {
     const preview = previewState([{
       operation: "insertOverlayShape",
       summary: "長方形を挿入",
@@ -392,7 +426,7 @@ describe("AiEditInlinePreviewCard", () => {
       />,
     );
 
-    expect(html).toContain("ai-overlay-approval-widget");
+    expect(html).toContain('data-ai-proposal-card="overlay"');
     expect(html).toContain('data-placement="above"');
     expect(html).toContain("グラフ作成");
     expect(html).not.toContain("ai-proposal-provider-identity");
@@ -402,9 +436,34 @@ describe("AiEditInlinePreviewCard", () => {
     expect(html).toContain("ai-inline-preview-action apply");
     expect(html).not.toContain("data-ai-proposal-content");
     expect(html).not.toContain("data-proposal-ids");
-    // The canvas widget stays a compact toolbar: the sidebar's diff heading
-    // belongs to the body-flow card, not here.
-    expect(html).not.toContain("ai-inline-preview-diff-heading");
+    // 紙面のカードと同じバー (見出し・種類・操作) を図形に付ける。
+    expect(html).toContain('data-ai-proposal-bar=""');
+    expect(html).toContain('data-surface="overlay"');
+    expect(html.match(/提案された変更/g)).toHaveLength(1);
+    // 挿入には変更前が無いので、変更前の切り替えは出さない。
+    expect(html).not.toContain("変更前を隠す");
+  });
+
+  it("lets a shape update hide its before state from the bar", () => {
+    const preview = previewState([], {}, [
+      { operation: "updateOverlayShape", summary: "図形を右へ移動", shapeId: "shape_1", patch: { x: 120 } },
+    ]);
+    const html = renderToStaticMarkup(
+      <AiEditOverlayApprovalWidget
+        preview={preview}
+        applying={false}
+        placement="below"
+        style={{ left: 120, top: 80 }}
+        hasBeforeShapes
+        displayState={{ contentHidden: false, applyError: null, dismissReasonOpen: false, beforeHidden: true }}
+        onDisplayStateChange={() => {}}
+        onApply={async () => ({ ok: true })}
+        onDismiss={() => {}}
+      />,
+    );
+
+    expect(html).toContain('aria-label="変更前を表示"');
+    expect(html).toContain('aria-pressed="true"');
   });
 
   it("renders up to 3 change-summary lines plus a ほかN件 remainder, and the 続けて修正 action", () => {
@@ -488,6 +547,32 @@ describe("getAiEditInlinePreviewTitleId", () => {
     expect(getAiEditInlinePreviewTitleId(of("deleteBlocks", "moveBlocks"))).toBe("edit");
     expect(getAiEditInlinePreviewTitleId(of("wrapBlocksInColumns"))).toBe("edit");
     expect(getAiEditInlinePreviewTitleId({ hunks: [], shapes: [] })).toBe("edit");
+  });
+});
+
+describe("getAiProposalTitleId (the bar's title on the sidebar and the ⌘K panel)", () => {
+  const shapeInsert: AiEditDraft = {
+    operation: "insertOverlayShape",
+    summary: "長方形を挿入",
+    targetId: "p1",
+    overlayShape: rectangleShape("shape_1"),
+    assets: {},
+  };
+
+  it("names a body or mixed proposal by its body operations, like the page card", () => {
+    expect(getAiProposalTitleId(previewState([replace("p1", paragraph("p1", "新"))]))).toBe("edit");
+    expect(getAiProposalTitleId(previewState([insertAfter("p1", "a", "A"), insertAfter("a", "b", "B")]))).toBe("insert");
+    expect(getAiProposalTitleId(previewState([], {}, [
+      { operation: "deleteBlocks", summary: "削除", blockIds: ["b1"] },
+    ]))).toBe("delete");
+    expect(getAiProposalTitleId(previewState([insertAfter("p1", "a", "A"), shapeInsert]))).toBe("insert");
+  });
+
+  it("names a shape-only proposal like the bar beside the shape", () => {
+    expect(getAiProposalTitleId(previewState([shapeInsert]))).toBe("insertShape");
+    expect(getAiProposalTitleId(previewState([], {}, [
+      { operation: "updateOverlayShape", summary: "移動", shapeId: "shape_1", patch: {} },
+    ]))).toBe("updateShape");
   });
 });
 

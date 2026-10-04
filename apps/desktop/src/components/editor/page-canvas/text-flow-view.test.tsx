@@ -17,6 +17,7 @@ import {
   TextFlowWithInlineContent,
   type FlowExtensionLayout,
 } from "./text-flow-view";
+import { useIsFlowExtensionReplica } from "./flow-extension-replica";
 
 let container: HTMLDivElement;
 let root: Root;
@@ -128,6 +129,24 @@ describe("flow extension nodes", () => {
     expect(content.querySelector(".content-a")).not.toBeNull();
     // 正本と同じ id を持たない (計測・e2e が正本だけを拾う)。
     expect(container.querySelector("[data-flow-extension-node-id]")).toBeNull();
+  });
+
+  it("tells the content whether it is drawn as the continuation copy, so operations live only on the source", async () => {
+    function Probe() {
+      return <span className="replica-probe" data-replica={String(useIsFlowExtensionReplica())} />;
+    }
+    const item: PageCanvasInlineContent = { key: "a", content: <Probe /> };
+    await render(
+      <>
+        {withLayout({}, <InlineContentStack items={[item]} />)}
+        <FlowExtensionFragmentPreview
+          item={item}
+          fragment={{ blockId: "extension:a", fragmentIndex: 1, sourceOffsetY: 65, height: 35, x: 10, y: 160, width: 400, totalHeight: 100 }}
+        />
+      </>,
+    );
+    expect(extensionNode("extension:a").querySelector(".replica-probe")?.getAttribute("data-replica")).toBe("false");
+    expect(container.querySelector('[data-flow-extension-replica] .replica-probe')?.getAttribute("data-replica")).toBe("true");
   });
 });
 

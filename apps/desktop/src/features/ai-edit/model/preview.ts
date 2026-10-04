@@ -595,9 +595,29 @@ export function hasBodyAiEditChanges(preview: AiEditPreviewState): boolean {
 }
 
 /**
- * Overlay-only proposals get a canvas-native approval widget instead of an
- * inline body card. Mixed proposals intentionally stay inline: one decision
- * must continue to describe both their body and overlay changes together.
+ * 変更前と変更後の両方が紙面に描かれる図形 (今の図形 = 変更前の赤い破線、ゴースト = 変更後)。
+ * 更新・整列の対象と、置き換えの元の図形。挿入と削除は片側しか描かれないので含めない。
+ * 承認バーの「変更前を隠す」はこれらだけを隠す。
+ */
+export function getAiEditPreviewBeforeShapeIds(preview: AiEditPreviewState): string[] {
+  const ids = new Set<string>();
+  for (const op of preview.draft.mutationOperations ?? []) {
+    if (op.operation === "updateOverlayShape") {
+      ids.add(op.shapeId);
+    } else if (op.operation === "alignOverlayShapes") {
+      op.shapeIds.forEach((id) => ids.add(id));
+    }
+  }
+  for (const pair of preview.shapeReplacements ?? []) {
+    ids.add(pair.removedShapeId);
+  }
+  return [...ids];
+}
+
+/**
+ * 図形だけの提案 (本文を変えない)。本文フローが無いので、承認バーを図形のそばに付ける。
+ * 本文と図形の両方を変える提案は紙面のカード (本文フローの中) の 1 本のバーだけで決め、図形のそばには
+ * バーを出さない (同じ提案の判断を 2 か所に置かない)。図形の変更前/変更後は、どちらの場合も紙面に描く。
  */
 export function isOverlayOnlyAiEditPreview(preview: AiEditPreviewState): boolean {
   const operations = preview.draft.operations;

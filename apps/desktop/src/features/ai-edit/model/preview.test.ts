@@ -13,6 +13,7 @@ import {
   derivePendingAiProposalLockTargets,
   derivePostApplyHighlightIds,
   describeRevertBlockedReason,
+  getAiEditPreviewBeforeShapeIds,
   formatAiProposalProviderLabel,
   groupMcpProposalsForPreview,
   hasBodyAiEditChanges,
@@ -1187,6 +1188,27 @@ describe("isOverlayOnlyAiEditPreview", () => {
     const preview = makePreview({ operations: [replaceDraft, insertOverlayShapeDraft] });
     expect(hasOverlayAiEditChanges(preview)).toBe(true);
     expect(hasBodyAiEditChanges(preview)).toBe(true);
+  });
+});
+
+describe("getAiEditPreviewBeforeShapeIds", () => {
+  it("lists the live shapes that have a proposed after state (updates, alignments, replacements)", () => {
+    const preview = {
+      ...makePreview({
+        operations: [replaceDraft, insertOverlayShapeDraft],
+        mutationOperations: [updateOverlayShapeOp, alignOverlayShapesOp, deleteOverlayShapesOp],
+      }),
+      shapeReplacements: [{ removedShapeId: "old_table", addedShapeId: "new_table" }],
+    };
+
+    expect(getAiEditPreviewBeforeShapeIds(preview)).toEqual(["s3", "s4", "s5", "old_table"]);
+  });
+
+  it("has nothing to hide for pure inserts, deletions or body edits (only one side is drawn)", () => {
+    expect(getAiEditPreviewBeforeShapeIds(makePreview({
+      operations: [replaceDraft, insertOverlayShapeDraft],
+      mutationOperations: [deleteOverlayShapesOp],
+    }))).toEqual([]);
   });
 });
 

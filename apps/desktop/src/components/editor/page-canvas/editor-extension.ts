@@ -18,7 +18,8 @@ import type { SelectionActionPopoverPosition } from "./popover-anchors";
  * - 矩形 (border box) は見える縁として最初と最後の行に付く。見えない余白は margin で取る
  *   (最上位の要素の外側の margin は矩形に入らない)。
  * - 続き (2 ページ目以降の帯) は同じ `content` をもう一度描いた複製で、`inert` かつ支援技術から隠す。
- *   操作は最初の帯にだけ置き、表示の状態は `content` の外 (props) に持つ。
+ *   操作は最初の帯にだけ置き、表示の状態は `content` の外 (props) に持つ。中身は
+ *   `useIsFlowExtensionReplica()` (`flow-extension-replica.ts`) で複製として描かれているかを知る。
  */
 export interface PageCanvasInlineContent {
   /** ページ全体で一意。拡張ノードの id (`getFlowExtensionNodeId`) と React の key になる。 */

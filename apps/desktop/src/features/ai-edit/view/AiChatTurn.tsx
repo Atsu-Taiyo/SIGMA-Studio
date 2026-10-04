@@ -2,14 +2,14 @@
 
 import { AiEditPlanList } from "./AiChatPlan";
 import { Check, Copy, File as FileIcon, FileText, RotateCcw } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useId, useMemo, useState, type ReactNode } from "react";
 import {
   dedupeAiSourceReferences,
   describeRevertBlockedReason,
   type AiAppliedTurnChange,
   type AiEditPreviewState,
 } from "@/features/ai-edit/model/preview";
-import { AiAppliedChangeCard, AiProposalActions } from "@/components/ui/ai";
+import { AiAppliedChangeCard, AiProposalDecisionBar, type AiProposalDecisionBarSurface } from "@/components/ui/ai";
 import { IconButton } from "@/components/ui/Button";
 import { Shimmer } from "@/components/ui/Shimmer";
 import type { AiProposalApplyOutcome } from "@/features/ai-edit";
@@ -35,6 +35,7 @@ import { buildStoredOverlaySelectionPreview, isImageAttachment } from "../applic
 import { UserAttachmentImage, UserOverlaySelectionImage } from "./AiChatPreviewImages";
 import { AssistantActivity } from "./AiChatActivity";
 import { AiProposalDiffStats } from "./AiAppliedDocumentDiff";
+import { getAiProposalTitle } from "./AiEditInlinePreviewCard";
 import { AiProposalContentView } from "./AiProposalContentView";
 export function UserTurnView({
   turn,
@@ -154,47 +155,47 @@ export function UserTurnView({
   );
 }
 
-/** インライン会話とサイドバーで共通の承認・破棄操作。 */
-export function AiTurnProposalActions({
+/**
+ * サイドバーと ⌘K パネルの提案。紙面と同じ承認バー (`AiProposalDecisionBar`) を先頭に置き、内容が
+ * あればその下に縮めて描く (`AiProposalContentView` の `panel`)。内容はバーで隠せる。適用の実行と
+ * 失敗の表示はバーが持つ。
+ */
+export function AiTurnProposalDecision({
   proposal,
+  surface,
   proposalBusy,
   onApplyProposal,
   onDismissProposal,
+  content,
 }: {
   proposal: AiEditPreviewState;
+  surface: Extract<AiProposalDecisionBarSurface, "panel" | "inline">;
   proposalBusy: boolean;
   onApplyProposal?: (proposalIds: string[]) => Promise<AiProposalApplyOutcome>;
   onDismissProposal?: (proposalIds: string[]) => void;
+  /** バーの下に描く内容。無ければバーだけ。 */
+  content?: ReactNode;
 }) {
   const t = useT("ai");
-  const [applyError, setApplyError] = useState<string | null>(null);
-  const runApply = async () => {
-    if (!onApplyProposal || !proposal) {
-      return;
-    }
-    setApplyError(null);
-    try {
-      const result = await onApplyProposal(proposal.proposalIds);
-      if (!result.ok) {
-        setApplyError(result.reason);
-      }
-    } catch (error) {
-      setApplyError(error instanceof Error ? error.message : t("card.applyFailed"));
-    }
-  };
-
+  const contentId = useId();
+  const [contentHidden, setContentHidden] = useState(false);
   return (
     <>
-      <AiProposalActions
+      <AiProposalDecisionBar
+        surface={surface}
+        title={getAiProposalTitle(proposal, t)}
         applying={proposalBusy}
-        className="ai-chat-result-proposal-actions"
-        actionClassName="ai-chat-result-proposal-action"
-        showDismiss={Boolean(onDismissProposal)}
-        showApply={Boolean(onApplyProposal)}
+        onApply={onApplyProposal ? () => onApplyProposal(proposal.proposalIds) : undefined}
         onDismiss={onDismissProposal ? () => onDismissProposal(proposal.proposalIds) : undefined}
-        onApply={onApplyProposal ? () => void runApply() : undefined}
+        {...(content
+          ? { contentHidden, onContentHiddenChange: setContentHidden, contentId }
+          : {})}
       />
-      {applyError && <p className="ai-chat-error">{applyError}</p>}
+      {content && (
+        <div id={contentId} className="ai-chat-result-proposal-diff" hidden={contentHidden}>
+          {content}
+        </div>
+      )}
     </>
   );
 }
@@ -316,17 +317,16 @@ export function AssistantTurnView({
 
           {proposal && (onApplyProposal || onDismissProposal) && (
             <div className="ai-chat-result-proposal" aria-label={t("panel.proposalActionsAria")}>
-              {proposalContent && !isProposalContentEmpty(proposalContent) && (
-                <div className="ai-chat-result-proposal-diff" aria-label={t("card.proposedChanges")}>
-                  <p className="ai-chat-result-proposal-diff-heading">{t("card.proposedChanges")}</p>
-                  <AiTurnProposalContent content={proposalContent} {...contentDisplay} />
-                </div>
-              )}
-              <AiTurnProposalActions
+              <AiTurnProposalDecision
+                key={proposal.proposalIds.join(",")}
                 proposal={proposal}
+                surface="panel"
                 proposalBusy={proposalBusy}
                 onApplyProposal={onApplyProposal}
                 onDismissProposal={onDismissProposal}
+                content={proposalContent && !isProposalContentEmpty(proposalContent)
+                  ? <AiTurnProposalContent content={proposalContent} {...contentDisplay} />
+                  : undefined}
               />
             </div>
           )}

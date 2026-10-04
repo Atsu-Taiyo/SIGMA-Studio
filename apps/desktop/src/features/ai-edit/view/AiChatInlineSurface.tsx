@@ -6,7 +6,7 @@ import { type AiEditPreviewState } from "@/features/ai-edit/model/preview";
 import { AiStreamRenderer } from "@/features/ai-edit/view";
 import { type AssistantTurn } from "@/lib/ai/ai-run-controller";
 import { useT } from "@/lib/i18n/react";
-import { AiTurnProposalActions, AiTurnShapeContent } from "@/features/ai-edit/view/AiChatTurn";
+import { AiTurnProposalDecision, AiTurnShapeContent } from "@/features/ai-edit/view/AiChatTurn";
 import { AssistantActivity } from "@/features/ai-edit/view/AiChatActivity";
 import { AiEditPlanList } from "@/features/ai-edit/view/AiChatPlan";
 import type { AiEditPanelProps } from "@/features/ai-edit/application/ai-chat-panel-contracts";
@@ -73,10 +73,12 @@ export function AiChatInlineSurface({surface,conversation,proposals,composer,com
         preview.roomId === activeRoomId && preview.turnId === turn.id
       )) ?? (turn.id === latestAssistantId && !activeRoomPreview?.turnId ? activeRoomPreview : null);
       if (!proposal || turn.applied || turn.dismissed) return null;
+      // 内容は紙面のカード (またはこの上の図形のサムネ) が見せているので、ここはバーだけ。
       return (
-        <AiTurnProposalActions
+        <AiTurnProposalDecision
           key={proposal.proposalIds.join(",")}
           proposal={proposal}
+          surface="inline"
           proposalBusy={busy}
           onApplyProposal={onApplyGroup}
           onDismissProposal={onDismissGroup}

@@ -294,6 +294,10 @@ export const ai = {
     summaryMore: "{{count}} more",
     dismissReasonExampleText: "e.g. the formula does not match the original problem",
     dismissReasonExampleShape: "e.g. the figure does not sit well with the text",
+    hideContent: "Hide details",
+    showContent: "Show details",
+    hideBefore: "Hide original",
+    showBefore: "Show original",
   },
   composer: {
     modelCatalogUnavailable: "The runtime cannot provide the model list.",
