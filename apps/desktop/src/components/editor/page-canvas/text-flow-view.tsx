@@ -30,12 +30,17 @@ import {
 } from "@/features/text-editing";
 import { cornerBoxReferenceHeightStyleVars } from "@/lib/box-blocks";
 import type { MaterialItem } from "@/types/material";
-import type { CSSProperties } from "react";
-import { Fragment,useEffect,useMemo,useRef,useState } from "react";
+import type { CSSProperties,ReactElement } from "react";
+import { createContext,useContext,useEffect,useMemo,useRef,useState } from "react";
 import { hasBreakBefore } from "./block-ops";
 import type { PageCanvasInlineContent } from "./editor-extension";
-import { getNodeDisplacementsKey,pickUnitNodeDisplacements } from "./flow-presentation";
-import { splitTextFlowBlocksByInlineContent } from "./inline-content-composition";
+import { getFlowDisplacementProps,getNodeDisplacementsKey,pickUnitNodeDisplacements } from "./flow-presentation";
+import {
+  FLOW_EXTENSION_NODE_ATTRIBUTE,
+  FLOW_EXTENSION_REPLICA_ATTRIBUTE,
+  FLOW_MEASURE_REVISION_ATTRIBUTE,
+} from "./flow-probe";
+import { getFlowExtensionNodeId,splitTextFlowBlocksByInlineContent } from "./inline-content-composition";
 import {
   pickTextFlowBoxFragmentSourceLayouts,
   pickTextFlowColumnBlockLayouts,
@@ -43,6 +48,21 @@ import {
   pickUnitCommentThreads,
 } from "./render-units";
 import type { EditorBoxBlockFragmentLayout } from "./types";
+
+/**
+ * フロー内の拡張ノードの配置 (ページ割りの答え)。紙面がフローの外側で配り、拡張ノードだけが読む
+ * (編集面は自分のブロックの分だけを props で受け取るので、ここが変わっても描き直されない)。
+ */
+export interface FlowExtensionLayout {
+  /** 拡張ノード id → ユニットからの相対の変位。 */
+  nodeDisplacements: Readonly<Record<string, FlowDisplacement>>;
+  /** ページ・段の境目で切れた拡張ノードの、正本に見せる帯。 */
+  fragmentSources: Readonly<Record<string, TextFlowBoxFragmentSourceLayout>>;
+}
+
+const EMPTY_FLOW_EXTENSION_LAYOUT: FlowExtensionLayout = { nodeDisplacements: {}, fragmentSources: {} };
+
+export const FlowExtensionLayoutContext = createContext<FlowExtensionLayout>(EMPTY_FLOW_EXTENSION_LAYOUT);
 
 /**
  * 最上位ブロックの手動改ページを付け外す編集か。描いている文書の区切りの集合 (`breakBeforeIds`) と
@@ -251,58 +271,11 @@ export function TextFlowWithInlineContent({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const stableNodeDisplacements = useMemo(() => unitNodeDisplacements, [unitNodeDisplacementsKey]);
 
-  if (parts.length === 1 && parts[0].type === "blocks") {
-    return (
-      <TextFlowEditor
-        blocks={blocks}
-        selectedId={selectedId}
-        mathFractionSizing={mathFractionSizing}
-        placeholder={placeholder}
-        showPlaceholder={showPlaceholder}
-        singleBlock={singleBlock}
-        historyRevision={historyRevision}
-        breakGaps={stableBreakGaps}
-        nodeDisplacements={stableNodeDisplacements}
-        paginationBeforeIds={stablePaginationBeforeIds}
-        paginationMarkerKind={paginationMarkerKind}
-        paginationMarkerKinds={stablePaginationMarkerKinds}
-        paginationMarkerLayouts={stablePaginationMarkerLayouts}
-        leadingManualBreak={leadingManualBreak}
-        trailingManualBreak={trailingManualBreak}
-        onManualBreakCommand={onManualBreakCommand}
-        columnFlowBlockLayouts={stableColumnFlowBlockLayouts}
-        boxFragmentSourceLayouts={stableBoxFragmentSourceLayouts}
-        headingNumbers={headingNumbers}
-        syncFocusedContent={syncFocusedContent}
-        commentThreads={stableCommentThreads}
-        activeCommentThreadId={activeCommentThreadId}
-        highlightedCommentThreadId={highlightedCommentThreadId}
-        onCommentThreadSelect={onCommentThreadSelect}
-        onFocusChange={onFocusChange}
-        onSelect={onSelect}
-        onChange={onChange}
-        onBoundaryDelete={onBoundaryDelete}
-        materials={materials}
-        onMaterialInsert={onMaterialInsert}
-        enableSelectionFormatMenu={enableSelectionFormatMenu}
-        enableBoxCommands={enableBoxCommands}
-        enableProblemCommands={enableProblemCommands}
-        onProblemCommand={onProblemCommand}
-        onBodyBlockCommand={onBodyBlockCommand}
-        enableHeadingCommands={enableHeadingCommands}
-        onHeadingCommand={onHeadingCommand}
-        changeDecorationState={changeDecorationState}
-        editPolicy={textFlowEditPolicy}
-        textRunGroupId={textRunGroupId}
-        textRunOrder={(textRunOrder ?? 0) * 1000}
-        textRunUnitId={`${textRunUnitId ?? blocks[0]?.id ?? textRunGroupId}:0`}
-        textRunScopeId={textRunScopeId}
-        textRunScopeContainer={textRunScopeContainer}
-        textRunPreserveEmpty={textRunPreserveEmpty}
-      />
-    );
-  }
-
+  // 差し込みの有無で木の形を変えない: 編集面は常に同じ並びの中に置き、先頭の範囲は差し込みが
+  // 現れても同じ key のまま (`splitTextFlowBlocksByInlineContent`)。差し込みの直前の面が作り直されると、
+  // 取り消し履歴・選択・IME 入力が失われる。範囲が 1 つのときは、このユニットの値を同じ参照で配る。
+  const whole = parts.length === 1;
+  const lastBlocksIndex = parts.reduce((last, part, index) => (part.type === "blocks" ? index : last), -1);
   return (
     <>
       {parts.map((part, index) =>
@@ -318,15 +291,23 @@ export function TextFlowWithInlineContent({
             historyRevision={historyRevision}
             breakGaps={stableBreakGaps}
             nodeDisplacements={stableNodeDisplacements}
-            paginationBeforeIds={paginationBeforeIds?.filter((id) => part.blocks.some((block) => bodyTextFlowBlockContainsId(block, id)))}
+            paginationBeforeIds={whole
+              ? stablePaginationBeforeIds
+              : paginationBeforeIds?.filter((id) => part.blocks.some((block) => bodyTextFlowBlockContainsId(block, id)))}
             paginationMarkerKind={paginationMarkerKind}
-            paginationMarkerKinds={paginationMarkerKinds}
-            paginationMarkerLayouts={pickTextFlowColumnBlockLayouts(part.blocks, paginationMarkerLayouts)}
+            paginationMarkerKinds={whole ? stablePaginationMarkerKinds : paginationMarkerKinds}
+            paginationMarkerLayouts={whole
+              ? stablePaginationMarkerLayouts
+              : pickTextFlowColumnBlockLayouts(part.blocks, paginationMarkerLayouts)}
             leadingManualBreak={leadingManualBreak && index === 0}
-            trailingManualBreak={trailingManualBreak && index === parts.length - 1}
+            trailingManualBreak={trailingManualBreak && index === lastBlocksIndex}
             onManualBreakCommand={onManualBreakCommand}
-            columnFlowBlockLayouts={pickTextFlowColumnBlockLayouts(part.blocks, columnFlowBlockLayouts)}
-            boxFragmentSourceLayouts={pickTextFlowBoxFragmentSourceLayouts(part.blocks, boxFragmentSourceLayouts)}
+            columnFlowBlockLayouts={whole
+              ? stableColumnFlowBlockLayouts
+              : pickTextFlowColumnBlockLayouts(part.blocks, columnFlowBlockLayouts)}
+            boxFragmentSourceLayouts={whole
+              ? stableBoxFragmentSourceLayouts
+              : pickTextFlowBoxFragmentSourceLayouts(part.blocks, boxFragmentSourceLayouts)}
             headingNumbers={headingNumbers}
             syncFocusedContent={syncFocusedContent}
             commentThreads={stableCommentThreads}
@@ -350,7 +331,7 @@ export function TextFlowWithInlineContent({
             editPolicy={textFlowEditPolicy}
             textRunGroupId={textRunGroupId}
             textRunOrder={(textRunOrder ?? 0) * 1000 + index}
-            textRunUnitId={`${textRunUnitId ?? part.key}:${index}`}
+            textRunUnitId={`${textRunUnitId ?? part.blocks[0]?.id ?? textRunGroupId ?? part.key}:${index}`}
             textRunScopeId={textRunScopeId}
             textRunScopeContainer={textRunScopeContainer}
             textRunPreserveEmpty={textRunPreserveEmpty}
@@ -359,7 +340,7 @@ export function TextFlowWithInlineContent({
           <InlineContentStack
             key={part.key}
             items={part.items}
-            displacement={precedingBlockDisplacement(parts, index, stableNodeDisplacements)}
+            fallbackDisplacement={precedingBlockDisplacement(parts, index, stableNodeDisplacements)}
           />
         ),
       )}
@@ -368,9 +349,8 @@ export function TextFlowWithInlineContent({
 }
 
 /**
- * 本文の間に挟む差し込み (AI の差分プレビューなど) は、直前のブロックと同じだけずらして描く。
- * ブロックはページ・段へずらして描かれるので、差し込みだけ自然配置のままだと別のページに
- * 描かれ、ずらした本文と重なる。値の無いブロックは前のブロックの値を継ぐ。
+ * まだ配置の無い差し込みが継ぐ変位: 直前のブロックの値。ブロックはページ・段へずらして描かれるので、
+ * 現れた直後の差し込みだけ自然配置のままだと別のページに描かれ、ずらした本文と重なる。
  */
 export function precedingBlockDisplacement(
   parts: readonly ({ type: "blocks"; blocks: readonly TextFlowBlock[] } | { type: string })[],
@@ -389,22 +369,107 @@ export function precedingBlockDisplacement(
   return undefined;
 }
 
+/**
+ * 本文の間に挟む差し込み (AI の提案など) を、フロー内の拡張ノードとして描く。
+ *
+ * 差し込み 1 つが拡張ノード 1 つ (`data-flow-extension-node-id`)。ページ割りは本文と同じく自然配置で
+ * 測って行の間で切る (`flow-probe.ts`)。描くときはページ割りが**その拡張ノード自身に**与えた変位で
+ * ずらし、同じ量を `data-flow-dx/dy` に書く (計測はそれを差し引く。書かないと、ずらしを二重に数える)。
+ * 配置の無い拡張ノード (現れた直後) は直前の値を継ぐ。ページの境目で切れたら、正本は最初の帯だけを
+ * 見せ (clip-path は寸法を変えない)、続きは `FlowExtensionFragmentPreview` が次のページに描く。
+ */
 export function InlineContentStack({
   items,
-  displacement,
+  fallbackDisplacement,
 }: {
   items: readonly PageCanvasInlineContent[];
-  displacement?: FlowDisplacement;
+  fallbackDisplacement?: FlowDisplacement;
 }) {
-  // 包みは常に置く (変位の有無で木の形を変えると、差し込みの中身が作り直されて状態を失う)。
+  const layout = useContext(FlowExtensionLayoutContext);
+  const nodes: ReactElement[] = [];
+  let inherited = fallbackDisplacement;
+  for (const item of items) {
+    const nodeId = getFlowExtensionNodeId(item.key);
+    const displacement = layout.nodeDisplacements[nodeId] ?? inherited;
+    inherited = displacement;
+    nodes.push(
+      <FlowExtensionNode
+        key={item.key}
+        nodeId={nodeId}
+        item={item}
+        displacement={displacement}
+        fragmentSource={layout.fragmentSources[nodeId]}
+      />,
+    );
+  }
+  return <>{nodes}</>;
+}
+
+function FlowExtensionNode({
+  nodeId,
+  item,
+  displacement,
+  fragmentSource,
+}: {
+  nodeId: string;
+  item: PageCanvasInlineContent;
+  displacement: FlowDisplacement | undefined;
+  fragmentSource: TextFlowBoxFragmentSourceLayout | undefined;
+}) {
+  const { style, attributes } = getFlowDisplacementProps(displacement);
+  // 見せる帯は上端からの高さで決める (CSS が clip-path にする。box fragment と同じ)。隠す量で切ると、
+  // 中身が伸びてからページ割りが追いつくまでの間、伸びた分だけ帯が下へ伸びてページ下端をはみ出す。
+  const split = !!fragmentSource && fragmentSource.totalHeight > fragmentSource.visibleHeight + 0.5;
   return (
     <div
-      className="text-flow-inline-content"
-      style={displacement && (displacement.dx !== 0 || displacement.dy !== 0)
-        ? { position: "relative", top: displacement.dy, left: displacement.dx }
-        : undefined}
+      className="page-flow-extension-node"
+      {...{
+        [FLOW_EXTENSION_NODE_ATTRIBUTE]: nodeId,
+        [FLOW_MEASURE_REVISION_ATTRIBUTE]: item.measureRevision,
+      }}
+      data-flow-extension-fragment-source={split ? "" : undefined}
+      {...attributes}
+      style={split
+        ? { ...style, "--flow-extension-visible-height": `${fragmentSource.visibleHeight}px` } as CSSProperties
+        : style}
     >
-      {items.map((item) => <Fragment key={item.key}>{item.content}</Fragment>)}
+      {item.content}
+    </div>
+  );
+}
+
+/**
+ * ページ・段の境目で切れた拡張ノードの続き。同じ `content` をもう一度描き、次のページの帯で切る。
+ * 操作は最初の帯 (正本) にだけ置く前提なので、続きは `inert` で触れず、支援技術にも読ませない。
+ * 正本の id (`data-flow-extension-node-id`) は持たない — 計測も e2e も正本だけを拾う。
+ */
+export function FlowExtensionFragmentPreview({
+  item,
+  fragment,
+}: {
+  item: PageCanvasInlineContent;
+  fragment: EditorBoxBlockFragmentLayout;
+}) {
+  return (
+    <div
+      className="page-flow-extension-fragment"
+      {...{ [FLOW_EXTENSION_REPLICA_ATTRIBUTE]: fragment.blockId }}
+      data-flow-extension-fragment-index={fragment.fragmentIndex}
+      inert
+      aria-hidden="true"
+      style={{
+        left: `${fragment.x}px`,
+        top: `${fragment.y}px`,
+        width: `${fragment.width}px`,
+        height: `${fragment.height}px`,
+      }}
+    >
+      <div
+        className="page-flow-extension-fragment-content"
+        style={{ position: "relative", top: `${-fragment.sourceOffsetY}px`, width: `${fragment.width}px` }}
+      >
+        {item.content}
+      </div>
     </div>
   );
 }

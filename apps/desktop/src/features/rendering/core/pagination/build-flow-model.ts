@@ -155,8 +155,10 @@ export function buildFlowModel(tree: ProbeTree, options: BuildFlowModelOptions):
       };
     });
     nodeLines.forEach((line, index) => inkTopOf.set(line, bands[index].top));
-    // 見える縁の接着。入れ子の箱も外側から順に同じ規則で。
-    const chrome = [...node.chrome].sort((a, b) => a.top - b.top || b.bottom - a.bottom);
+    // 見える縁の接着。入れ子の箱も外側から順に同じ規則で。拡張ノードは中身を知らない部品
+    // (操作の帯・枠・余白) を持つので、自分の矩形全体を縁として扱い、中身の最初と最後の行に付ける。
+    const ownEdge = node.kind === "extension" ? [{ id: node.id, top: node.rect.top, bottom: node.rect.bottom }] : [];
+    const chrome = [...ownEdge, ...node.chrome].sort((a, b) => a.top - b.top || b.bottom - a.bottom);
     for (const box of chrome) {
       const inside = nodeLines.filter((line) => line.fitBottom > box.top + 0.5 && line.top < box.bottom - 0.5);
       if (inside.length === 0) continue;
@@ -212,6 +214,8 @@ export function buildFlowModel(tree: ProbeTree, options: BuildFlowModelOptions):
     const unitLines: FlowLine[] = [];
     let pendingAttachments = [...unit.attachments];
     const takeAttachments = (node: ProbeNode) => {
+      // 拡張ノードはどの入れ物にも属さない独立した行。問題番号を吸い込まない。
+      if (node.kind === "extension") return [];
       const nodeBands = groupInkIntoBands(node.ink);
       const overlapping = pendingAttachments.filter((attachment) => nodeBands.some((band) => (
         attachment.top < band.bottom - OVERLAP_TOLERANCE_PX && attachment.bottom > band.top + OVERLAP_TOLERANCE_PX

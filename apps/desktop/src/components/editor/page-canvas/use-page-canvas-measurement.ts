@@ -35,7 +35,7 @@ import {
   sameColumnRulePieces,
   sameDisplacementMap,
 } from "./flow-presentation";
-import { createFlowProbeCache,probeFlow } from "./flow-probe";
+import { createFlowProbeCache,FLOW_EXTENSION_NODE_ATTRIBUTE,probeFlow } from "./flow-probe";
 import {
   canMeasureIncrementally,
   MAX_CONSECUTIVE_INCREMENTAL_MEASURES,
@@ -81,6 +81,11 @@ interface MeasurementDocument {
   overlaySource: PageOverlay | undefined;
   pendingDeletion: { revision: number; deletedIds: string[] } | null;
   onReanchorOverlay: (overlay: PageOverlay) => void;
+  /**
+   * フロー内の拡張ノードの並びと中身の版 (`PageCanvasInlineContent.measureRevision`)。拡張ノードは
+   * 文書ではないので、中身が同じ高さで変わっても文書の変化・ResizeObserver のどちらも鳴らない。
+   */
+  extensionMeasureKey?: string;
 }
 interface MeasurementGeometry {
   metrics: PageMetrics;
@@ -108,7 +113,7 @@ interface PageCanvasMeasurementInputs {
 
 /** Owns the one flow measurement/pagination session and all its asynchronous resources. */
 export function usePageCanvasMeasurement({ content, geometry, surface, spaceAfter }: PageCanvasMeasurementInputs) {
-  const { pageDocument, units, historyRevision, overlay, overlaySource, pendingDeletion, onReanchorOverlay } = content;
+  const { pageDocument, units, historyRevision, overlay, overlaySource, pendingDeletion, onReanchorOverlay, extensionMeasureKey = "" } = content;
   const { metrics, zoom, fontSize, isWhiteboard, isPagedRender } = geometry;
   const { flowRef, canvasRef, flowElement } = surface;
   const { spaceAfterSessionRef, setSpaceAfterDrag, setBlockAffordance } = spaceAfter;
@@ -253,7 +258,9 @@ export function usePageCanvasMeasurement({ content, geometry, surface, spaceAfte
       return;
     }
     const observed = observedFlowUnitsRef.current;
-    const present = new Set<Element>(flow.querySelectorAll("[data-flow-unit-id]"));
+    // 拡張ノード (本文の後ろの差し込み) も見張る: 最小高さのあるユニットの中では、差し込みの高さが
+    // 変わってもユニットの寸法が変わらず、ユニットの通知だけでは測り直されない。
+    const present = new Set<Element>(flow.querySelectorAll(`[data-flow-unit-id], [${FLOW_EXTENSION_NODE_ATTRIBUTE}]`));
     for (const element of present) {
       if (!observed.has(element)) {
         observer.observe(element);
@@ -682,6 +689,15 @@ export function usePageCanvasMeasurement({ content, geometry, surface, spaceAfte
     scheduleRecomputeRef.current = scheduleRecompute;
   }, [scheduleRecompute]);
 
+  // 拡張ノードの中身が変わったら 1 回測り直す。行の計測キャッシュは要素の版 (`data-flow-measure-revision`)
+  // で捨てるので、高さが同じでも行の位置を読み直す。
+  const lastExtensionMeasureKeyRef = useRef(extensionMeasureKey);
+  useLayoutEffect(() => {
+    if (lastExtensionMeasureKeyRef.current === extensionMeasureKey) return;
+    lastExtensionMeasureKeyRef.current = extensionMeasureKey;
+    scheduleRecomputeRef.current();
+  }, [extensionMeasureKey]);
+
   // 変位はレイアウトに影響しないので ResizeObserver は鳴らない。配置が変わったコミットの後に
   // 1 回測り直して、図形のアンカー・キャレット・つまみが使う表示位置を新しい配置に揃える
   // (自然配置は変わらないので、測り直しても配置は同じ答えになる)。
@@ -958,7 +974,10 @@ export function usePageCanvasMeasurement({ content, geometry, surface, spaceAfte
           }
           continue;
         }
-        markUnitMeasureDirty(target.getAttribute("data-flow-unit-id"));
+        markUnitMeasureDirty(
+          target.getAttribute("data-flow-unit-id")
+            ?? target.closest("[data-flow-unit-id]")?.getAttribute("data-flow-unit-id"),
+        );
       }
       scheduleRecomputeRef.current();
     });
@@ -973,10 +992,10 @@ export function usePageCanvasMeasurement({ content, geometry, surface, spaceAfte
     };
   }, [flowElement, markFullMeasureDirty, markUnitMeasureDirty, syncObservedFlowUnits]);
 
-  // ユニットの増減にだけ反応して差分を observe/unobserve する。
+  // ユニット・拡張ノードの増減にだけ反応して差分を observe/unobserve する。
   useEffect(() => {
     syncObservedFlowUnits();
-  }, [syncObservedFlowUnits, units]);
+  }, [extensionMeasureKey, syncObservedFlowUnits, units]);
 
   // 保留中の recompute を取り消すのは unmount のときだけ。ResizeObserver の cleanup に
   // 相乗りさせていたときは、`units` が変わるたびに保留 rAF が巻き添えで消えていた。
