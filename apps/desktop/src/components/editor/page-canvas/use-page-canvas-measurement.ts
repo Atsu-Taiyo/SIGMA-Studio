@@ -35,7 +35,7 @@ import {
   sameColumnRulePieces,
   sameDisplacementMap,
 } from "./flow-presentation";
-import { createFlowProbeCache,probeFlow } from "./flow-probe";
+import { createFlowProbeCache,FLOW_EXTENSION_NODE_ATTRIBUTE,probeFlow } from "./flow-probe";
 import {
   canMeasureIncrementally,
   MAX_CONSECUTIVE_INCREMENTAL_MEASURES,
@@ -258,7 +258,9 @@ export function usePageCanvasMeasurement({ content, geometry, surface, spaceAfte
       return;
     }
     const observed = observedFlowUnitsRef.current;
-    const present = new Set<Element>(flow.querySelectorAll("[data-flow-unit-id]"));
+    // 拡張ノード (本文の後ろの差し込み) も見張る: 最小高さのあるユニットの中では、差し込みの高さが
+    // 変わってもユニットの寸法が変わらず、ユニットの通知だけでは測り直されない。
+    const present = new Set<Element>(flow.querySelectorAll(`[data-flow-unit-id], [${FLOW_EXTENSION_NODE_ATTRIBUTE}]`));
     for (const element of present) {
       if (!observed.has(element)) {
         observer.observe(element);
@@ -972,7 +974,10 @@ export function usePageCanvasMeasurement({ content, geometry, surface, spaceAfte
           }
           continue;
         }
-        markUnitMeasureDirty(target.getAttribute("data-flow-unit-id"));
+        markUnitMeasureDirty(
+          target.getAttribute("data-flow-unit-id")
+            ?? target.closest("[data-flow-unit-id]")?.getAttribute("data-flow-unit-id"),
+        );
       }
       scheduleRecomputeRef.current();
     });
@@ -987,10 +992,10 @@ export function usePageCanvasMeasurement({ content, geometry, surface, spaceAfte
     };
   }, [flowElement, markFullMeasureDirty, markUnitMeasureDirty, syncObservedFlowUnits]);
 
-  // ユニットの増減にだけ反応して差分を observe/unobserve する。
+  // ユニット・拡張ノードの増減にだけ反応して差分を observe/unobserve する。
   useEffect(() => {
     syncObservedFlowUnits();
-  }, [syncObservedFlowUnits, units]);
+  }, [extensionMeasureKey, syncObservedFlowUnits, units]);
 
   // 保留中の recompute を取り消すのは unmount のときだけ。ResizeObserver の cleanup に
   // 相乗りさせていたときは、`units` が変わるたびに保留 rAF が巻き添えで消えていた。

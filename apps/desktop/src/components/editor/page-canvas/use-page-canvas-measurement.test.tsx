@@ -104,3 +104,26 @@ it("re-measures once when an extension node's measure key changes without a docu
   await act(async () => render());
   expect(frames.size).toBe(0);
 });
+
+it("observes extension nodes so a card resized inside an unchanged unit is re-measured once", async () => {
+  // 最小高さのある問題のエリアなど、ユニットの寸法はそのままで差し込みの高さだけが変わる。
+  const unit = document.createElement("div"); unit.setAttribute("data-flow-unit-id", "unit");
+  const card = document.createElement("div"); card.setAttribute("data-flow-extension-node-id", "extension:card");
+  unit.append(card); flow.append(unit);
+  inputs = { ...inputs, content: { ...inputs.content, extensionMeasureKey: "extension:card\u0000r1" } };
+  await act(async () => render()); await flushFrames();
+  const live = observers.find(observer => !observer.disconnected)!;
+  expect(live.observe).toHaveBeenCalledWith(card);
+  const resized = [{ target: card, contentRect: new DOMRect(0, 0, 500, 40) }] as unknown as ResizeObserverEntry[];
+  await act(async () => live.callback(resized, live as unknown as ResizeObserver));
+  expect(frames.size).toBe(1);
+  // 版の変化と寸法の変化が重なっても、測り直しは 1 回にまとまる。
+  inputs = { ...inputs, content: { ...inputs.content, extensionMeasureKey: "extension:card\u0000r2" } };
+  await act(async () => render());
+  expect(frames.size).toBe(1);
+  await flushFrames();
+  card.remove();
+  inputs = { ...inputs, content: { ...inputs.content, extensionMeasureKey: "" } };
+  await act(async () => render()); await flushFrames();
+  expect(live.unobserve).toHaveBeenCalledWith(card);
+});

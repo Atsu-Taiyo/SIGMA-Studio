@@ -112,16 +112,40 @@ export function splitTextFlowBlocksByInlineContent<T>(
   return parts;
 }
 
+interface ProblemAfterContentUnit {
+  type: string;
+  id: string;
+  problem?: { id: string };
+  isLastProblemArea?: boolean;
+}
+
 /**
- * Problem-level content belongs after the final rendered problem area, rather
- * than inside any area's TextFlow boundary.
+ * 問題そのものを対象にした差し込みを描くユニット (問題ごとに 1 つ): 最後のエリアの最後の本文
+ * ユニット。最後のエリアが「本文 → 部分段組み → 本文」と分かれても 1 か所だけに描く — 同じ拡張
+ * ノードが 2 つあると、計測と配置が同じ id で上書きし合い、片方が他方の位置に描かれる。最後の
+ * エリアに本文のユニットが無ければ、その問題の最後の本文ユニット。
+ */
+export function getProblemAfterContentUnitIds(units: readonly ProblemAfterContentUnit[]): ReadonlySet<string> {
+  const lastAreaUnitByProblem = new Map<string, string>();
+  const lastUnitByProblem = new Map<string, string>();
+  for (const unit of units) {
+    if (unit.type !== "problemArea" || !unit.problem) continue;
+    lastUnitByProblem.set(unit.problem.id, unit.id);
+    if (unit.isLastProblemArea) lastAreaUnitByProblem.set(unit.problem.id, unit.id);
+  }
+  return new Set([...lastUnitByProblem].map(([problemId, unitId]) => lastAreaUnitByProblem.get(problemId) ?? unitId));
+}
+
+/**
+ * Problem-level content belongs after the problem's final body unit
+ * (`getProblemAfterContentUnitIds`), rather than inside any area's TextFlow boundary.
  */
 export function getProblemAfterInlineContent<T>(
   problemId: string,
-  isLastProblemArea: boolean,
+  hostsProblemAfterContent: boolean,
   contentByTargetId: ReadonlyMap<string, readonly T[]>,
 ): readonly T[] {
-  if (!isLastProblemArea) {
+  if (!hostsProblemAfterContent) {
     return [];
   }
 

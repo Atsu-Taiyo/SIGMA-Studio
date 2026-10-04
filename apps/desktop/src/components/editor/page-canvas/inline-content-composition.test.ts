@@ -1,11 +1,15 @@
 import { describe, expect, it } from "vitest";
 
+import type { ProblemNode } from "@/features/document";
+
 import type { TextFlowBlock } from "../text-flow/types";
 import {
   getFlowExtensionNodeId,
+  getProblemAfterContentUnitIds,
   getProblemAfterInlineContent,
   splitTextFlowBlocksByInlineContent,
 } from "./inline-content-composition";
+import { problemToAreaUnits } from "./render-units";
 
 describe("inline content composition", () => {
   it("preserves block and anchor order without creating empty TextFlow ranges", () => {
@@ -169,6 +173,43 @@ describe("inline content composition", () => {
     expect(
       getProblemAfterInlineContent("missing", true, content),
     ).toEqual([]);
+  });
+
+  it("draws problem-level content in exactly one unit when the last area is split around a column section", () => {
+    const problem = {
+      type: "problem",
+      id: "problem",
+      tags: [],
+      lead: [],
+      prompt: [paragraph("prompt")],
+      solution: [
+        paragraph("solution-before"),
+        { type: "layoutSection", id: "columns", layout: { columnCount: 2 }, children: [paragraph("left"), paragraph("right")] },
+        paragraph("solution-after"),
+      ],
+      hints: [],
+    } as unknown as ProblemNode;
+    const units = problemToAreaUnits(problem);
+    const solutionUnits = units.filter((unit) => "area" in unit && unit.area === "solution");
+    // 最後のエリアが「本文 → 部分段組み → 本文」の 3 ユニットに分かれている。
+    expect(solutionUnits.map((unit) => unit.type)).toEqual(["problemArea", "problemLayoutSection", "problemArea"]);
+    const hosts = getProblemAfterContentUnitIds(units);
+    expect([...hosts]).toEqual([solutionUnits[2].id]);
+  });
+
+  it("falls back to the last body unit of the problem when its last area has no body unit", () => {
+    const problem = {
+      type: "problem",
+      id: "problem",
+      tags: [],
+      lead: [],
+      prompt: [paragraph("prompt")],
+      solution: [{ type: "layoutSection", id: "columns", layout: { columnCount: 2 }, children: [paragraph("left"), paragraph("right")] }],
+      hints: [],
+    } as unknown as ProblemNode;
+    const units = problemToAreaUnits(problem);
+    const promptUnit = units.find((unit) => "area" in unit && unit.area === "prompt");
+    expect([...getProblemAfterContentUnitIds(units)]).toEqual([promptUnit?.id]);
   });
 
   it("derives a flow extension node id that cannot collide with a block id", () => {

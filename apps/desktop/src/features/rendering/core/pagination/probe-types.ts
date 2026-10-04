@@ -39,8 +39,8 @@ export interface ProbeChromeBox {
 
 export interface ProbeNode {
   /**
-   * 編集面の最上位ブロック (ProseMirror の直下) の sigmaDocId。拡張ノードは
-   * `data-flow-extension-node-id` の値。
+   * 編集面の最上位ブロック (ProseMirror の直下) の sigmaDocId。拡張ノードは、その要素に付く
+   * 拡張ノードの id 属性の値。
    */
   id: string;
   /**

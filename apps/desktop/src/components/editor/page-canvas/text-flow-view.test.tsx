@@ -86,14 +86,27 @@ describe("flow extension nodes", () => {
   });
 
   it("clips a node split at a page boundary to the band its first page shows, without changing its height", async () => {
-    await render(withLayout(
-      { fragmentSources: { "extension:a": { visibleHeight: 65, totalHeight: 100, origin: { x: 0, y: 30, width: 400 } } } },
-      <InlineContentStack items={[card("a")]} />,
-    ));
+    const source = (totalHeight: number) => ({ visibleHeight: 65, totalHeight, origin: { x: 0, y: 30, width: 400 } });
+    await render(withLayout({ fragmentSources: { "extension:a": source(100) } }, <InlineContentStack items={[card("a")]} />));
     const node = extensionNode("extension:a");
-    expect(node.style.clipPath.replace(/\s+/g, " ")).toBe("inset(0 0 35px 0)");
+    // 見せる帯は上端からの高さで決める (box fragment と同じ)。隠す量で切ると、中身が伸びてから
+    // ページ割りが追いつくまでの間、伸びた分だけ帯が下へ伸びてページ下端をはみ出す。
+    expect(node.hasAttribute("data-flow-extension-fragment-source")).toBe(true);
+    expect(node.style.getPropertyValue("--flow-extension-visible-height")).toBe("65px");
+    expect(node.style.clipPath).toBe("");
     expect(node.style.height).toBe("");
     expect(node.hasAttribute("data-flow-dy")).toBe(false);
+    const clippedStyle = node.getAttribute("style");
+    // 中身が伸びて全高が変わっても、切り取りの指定は同じ (全高に依存しない)。
+    await render(withLayout({ fragmentSources: { "extension:a": source(140) } }, <InlineContentStack items={[card("a")]} />));
+    expect(extensionNode("extension:a").getAttribute("style")).toBe(clippedStyle);
+  });
+
+  it("does not clip a node that is not split", async () => {
+    await render(withLayout({}, <InlineContentStack items={[card("a")]} />));
+    const node = extensionNode("extension:a");
+    expect(node.hasAttribute("data-flow-extension-fragment-source")).toBe(false);
+    expect(node.style.getPropertyValue("--flow-extension-visible-height")).toBe("");
   });
 
   it("draws the continuation on the next page as an inert copy that assistive tech skips", async () => {

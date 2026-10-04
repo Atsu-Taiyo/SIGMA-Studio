@@ -417,9 +417,9 @@ function FlowExtensionNode({
   fragmentSource: TextFlowBoxFragmentSourceLayout | undefined;
 }) {
   const { style, attributes } = getFlowDisplacementProps(displacement);
-  const hiddenBottom = fragmentSource && fragmentSource.totalHeight > fragmentSource.visibleHeight + 0.5
-    ? Math.round((fragmentSource.totalHeight - fragmentSource.visibleHeight) * 100) / 100
-    : 0;
+  // 見せる帯は上端からの高さで決める (CSS が clip-path にする。box fragment と同じ)。隠す量で切ると、
+  // 中身が伸びてからページ割りが追いつくまでの間、伸びた分だけ帯が下へ伸びてページ下端をはみ出す。
+  const split = !!fragmentSource && fragmentSource.totalHeight > fragmentSource.visibleHeight + 0.5;
   return (
     <div
       className="page-flow-extension-node"
@@ -427,8 +427,11 @@ function FlowExtensionNode({
         [FLOW_EXTENSION_NODE_ATTRIBUTE]: nodeId,
         [FLOW_MEASURE_REVISION_ATTRIBUTE]: item.measureRevision,
       }}
+      data-flow-extension-fragment-source={split ? "" : undefined}
       {...attributes}
-      style={hiddenBottom > 0 ? { ...style, clipPath: `inset(0 0 ${hiddenBottom}px 0)` } : style}
+      style={split
+        ? { ...style, "--flow-extension-visible-height": `${fragmentSource.visibleHeight}px` } as CSSProperties
+        : style}
     >
       {item.content}
     </div>

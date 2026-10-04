@@ -175,6 +175,15 @@ describe("probeFlow extension nodes", () => {
     expect(probeFlow(flow, OPTIONS).units[0].attachments).toEqual([]);
   });
 
+  it("measures an extension node id only once even if a feature draws it twice", () => {
+    const { flow, card } = cardFlow();
+    const duplicate = card.cloneNode(true) as HTMLElement;
+    find(flow, '[data-sigma-doc-id="p2"]').closest(".ProseMirror")!.after(duplicate);
+    place(duplicate, { top: 170, bottom: 190 });
+    const ids = probeFlow(flow, OPTIONS).units[0].nodes.map((node) => node.id);
+    expect(ids).toEqual(["p1", "extension:card", "p2"]);
+  });
+
   it("starts a problem area's reserved space after an extension node placed below the area body", () => {
     const flow = html(`
       <section data-flow-unit-id="area" style="min-height: 300px">
