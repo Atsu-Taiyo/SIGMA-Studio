@@ -65,6 +65,13 @@ export interface ProposalMergeReport {
   legacyNoBase: number;
   /** Units the human had edited since the base: the result contains the human's change too. */
   humanEditedUnits: string[];
+  /**
+   * Only on the renderer's adoption merge (typing during the approval round trip): places where the
+   * human's input was replaced by the AI's content (`$` is the whole document).
+   */
+  droppedHumanEdits?: string[];
+  /** Only on the renderer's adoption merge: places where the approved AI edit is not in the result. */
+  droppedAiEdits?: string[];
 }
 
 const validatedBases = new WeakMap<ProposalMergeBasis, boolean>();
