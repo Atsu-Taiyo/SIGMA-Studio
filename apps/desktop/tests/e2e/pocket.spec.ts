@@ -1,6 +1,6 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Locator, type Page } from "@playwright/test";
 
-import type { OverlayShape } from "@/features/document";
+import { getDefaultPageLayout, type OverlayShape } from "@/features/document";
 import type { SigmaDocument } from "@/types/sigma-doc";
 
 import { grabShapeFromBody } from "./body-overlay-entry";
@@ -333,13 +333,13 @@ test("keeps the page inside the window with the pocket open", async ({ page }) =
 test("puts the selection in the pocket from the selection toolbar and keeps the selection", async ({ page }) => {
   await openEditor(page);
   await selectSourceLine(page);
-  await page.getByRole("button", { name: "ポケットに入れる" }).click();
+  await page.getByRole("button", { name: "ポケットに追加" }).click();
   await expect(cards(page)).toHaveCount(1);
   // 押しても選択は動かない。続けて別のものを選んで入れられる。
   expect(await page.evaluate(() => window.getSelection()?.toString() ?? "")).toContain("です");
 
   await selectRectangle(page);
-  await page.getByRole("button", { name: "ポケットに入れる" }).click();
+  await page.getByRole("button", { name: "ポケットに追加" }).click();
   await expect(cards(page)).toHaveCount(2);
   await expect(cards(page).nth(1)).toHaveAttribute("data-kind", "shapes");
 });
@@ -353,4 +353,247 @@ test("runs from the command palette without a keyboard shortcut", async ({ page 
 
   await expect(cards(page)).toHaveCount(1);
   await expect(cards(page).first()).toHaveAttribute("data-kind", "blocks");
+});
+
+/** カードを掴んで画面の (x, y) まで運んで離す。本物のマウス操作なので、ブラウザの drag & drop が走る。 */
+async function dragChipTo(page: Page, chip: Locator, x: number, y: number): Promise<void> {
+  const box = await chip.boundingBox();
+  if (!box) throw new Error("card is not visible");
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(box.x + box.width / 2 + 12, box.y + box.height / 2 + 12, { steps: 4 });
+  await page.mouse.move(x, y, { steps: 16 });
+  await page.mouse.up();
+}
+
+test("shows the closed pocket as a small chip at the top, not a full-width band", async ({ page }) => {
+  await openEditor(page);
+  await selectSourceLine(page);
+  await page.keyboard.press("ControlOrMeta+Shift+KeyC");
+  await expect(cards(page)).toHaveCount(1);
+
+  await pocket(page).getByRole("button", { name: "ポケットを閉じる" }).click();
+  const handle = pocket(page).getByRole("button", { name: /ポケット 1件/ });
+  await expect(handle).toBeVisible();
+
+  const bar = (await pocket(page).boundingBox())!;
+  const chip = (await handle.boundingBox())!;
+  // 帯いっぱいに広がらず、文字の幅ぶんだけの小さなチップ。
+  expect(chip.width).toBeLessThan(bar.width / 4);
+  expect(chip.height).toBeLessThanOrEqual(28);
+  // 丸い (端が半円)。
+  const radius = await handle.evaluate((element) => parseFloat(getComputedStyle(element).borderTopLeftRadius));
+  expect(radius).toBeGreaterThanOrEqual(chip.height / 2 - 1);
+  // 上部 (クロームの直下) にあり、帯そのものには枠も背景も無い。
+  expect(chip.y).toBeGreaterThanOrEqual(bar.y);
+  expect(chip.y + chip.height).toBeLessThanOrEqual(bar.y + bar.height);
+  const band = await pocket(page).evaluate((element) => {
+    const style = getComputedStyle(element);
+    return { background: style.backgroundColor, borderBottom: style.borderBottomColor };
+  });
+  expect(band.background).toBe("rgba(0, 0, 0, 0)");
+  expect(band.borderBottom).toBe("rgba(0, 0, 0, 0)");
+  expect((await pageFitsViewport(page)).overflow).toBeLessThanOrEqual(0);
+
+  // 開くと、中身のカードが元のとおり並ぶ。
+  await handle.click();
+  await expect(cards(page)).toHaveCount(1);
+});
+
+test("drags a text card into the body and drops it at the pointer", async ({ page }) => {
+  await openEditor(page);
+  await selectSourceLine(page);
+  await page.keyboard.press("ControlOrMeta+Shift+KeyC");
+  await expect(cards(page)).toHaveCount(1);
+
+  const other = page.locator('[data-sigma-doc-id="pocket_other"]').first();
+  const box = await other.boundingBox();
+  // 段落の左端 (「別の」の前) へ落とす。
+  await dragChipTo(page, cards(page).first(), box!.x + 2, box!.y + box!.height / 2);
+
+  await expect(other).toContainText(SOURCE_TEXT);
+  const text = (await other.innerText()).replace(/\s+/g, "");
+  // 落とした位置 (段落の頭) に入る。末尾ではない。
+  expect(text.indexOf(SOURCE_TEXT.replace(/\s+/g, ""))).toBeLessThan(text.indexOf("別の段落"));
+  // 元の本文はそのまま、ポケットの項目も減らない。
+  await expect(page.locator('[data-sigma-doc-id="pocket_body"]').first()).toContainText(SOURCE_TEXT);
+  await expect(cards(page)).toHaveCount(1);
+});
+
+test("drops at the end of a paragraph when dropped at its end", async ({ page }) => {
+  await openEditor(page);
+  await selectSourceLine(page);
+  await page.keyboard.press("ControlOrMeta+Shift+KeyC");
+
+  const other = page.locator('[data-sigma-doc-id="pocket_other"]').first();
+  const box = await other.boundingBox();
+  await dragChipTo(page, cards(page).first(), box!.x + box!.width - 3, box!.y + box!.height / 2);
+
+  await expect(other).toContainText(SOURCE_TEXT);
+  const text = (await other.innerText()).replace(/\s+/g, "");
+  expect(text.indexOf("別の段落")).toBeLessThan(text.indexOf(SOURCE_TEXT.replace(/\s+/g, "")));
+});
+
+test("drops a shape card on the page, centred on the pointer", async ({ page }) => {
+  await openEditor(page);
+  await selectRectangle(page);
+  await page.keyboard.press("ControlOrMeta+Shift+KeyC");
+  await expect(cards(page)).toHaveCount(1);
+  await deselectShapes(page);
+
+  const target = { x: 700, y: 640 };
+  await dragChipTo(page, cards(page).first(), target.x, target.y);
+
+  await expect.poll(() => shapeIds(page)).toHaveLength(2);
+  const dropped = (await shapeIds(page)).find((id) => id !== "pocket_rect")!;
+  const box = (await page.locator(`.overlay-shape[data-overlay-shape-id="${dropped}"]`).first().boundingBox())!;
+  expect(Math.abs(box.x + box.width / 2 - target.x)).toBeLessThanOrEqual(8);
+  expect(Math.abs(box.y + box.height / 2 - target.y)).toBeLessThanOrEqual(8);
+});
+
+test("drops text into the body even while a shape is selected and the figures cover the page", async ({ page }) => {
+  await openEditor(page);
+  await selectSourceLine(page);
+  await page.keyboard.press("ControlOrMeta+Shift+KeyC");
+  await expect(cards(page)).toHaveCount(1);
+  // 図形を選ぶと、図形のレイヤーが本文の手前を覆う (オーバーレイ編集)。
+  await selectRectangle(page);
+  await expect(page.locator(".page-mode").first()).toHaveAttribute("data-overlay-editing", "true");
+
+  const other = page.locator('[data-sigma-doc-id="pocket_other"]').first();
+  const box = await other.boundingBox();
+  // 「別の」と「段落」の間あたり。
+  await dragChipTo(page, cards(page).first(), box!.x + 30, box!.y + box!.height / 2);
+
+  await expect(other).toContainText(SOURCE_TEXT);
+  const text = (await other.innerText()).replace(/\s+/g, "");
+  expect(text.indexOf("別の")).toBeLessThan(text.indexOf("ポケットへ入れる文章"));
+  expect(text.indexOf("ポケットへ入れる文章")).toBeLessThan(text.indexOf("段落"));
+});
+
+test("ignores a drop on the chrome: nothing is inserted and the pocket is kept", async ({ page }) => {
+  await openEditor(page);
+  await selectSourceLine(page);
+  await page.keyboard.press("ControlOrMeta+Shift+KeyC");
+  await expect(cards(page)).toHaveCount(1);
+
+  // 紙面の外 (メニューバー) には落とせない。何も増えず、ポケットはそのまま。
+  await dragChipTo(page, cards(page).first(), 400, 20);
+  await expect(page.locator('[data-sigma-doc-id="pocket_other"]').first()).not.toContainText(SOURCE_TEXT);
+  await expect(cards(page)).toHaveCount(1);
+});
+
+test("tells the user when text is dropped where there is no text to put it in", async ({ page }) => {
+  await openEditor(page);
+  await selectSourceLine(page);
+  await page.keyboard.press("ControlOrMeta+Shift+KeyC");
+  await expect(cards(page)).toHaveCount(1);
+
+  // 紙面の空白 (本文のない場所)。図形なら置けるが、文章を入れる先が無い。
+  await dragChipTo(page, cards(page).first(), 600, 820);
+
+  await expect(pocket(page)).toContainText("ここには挿入できません");
+  await expect(page.locator('[data-sigma-doc-id="pocket_other"]').first()).not.toContainText(SOURCE_TEXT);
+  await expect(cards(page)).toHaveCount(1);
+});
+
+function whiteboardDocument(): SigmaDocument {
+  const source = sourceDocument();
+  return {
+    ...source,
+    docId: "doc_pocket_whiteboard",
+    metadata: { title: "ホワイトボード" },
+    content: [],
+    pageLayout: {
+      ...getDefaultPageLayout("whiteboard"),
+      overlay: { overlaySnapshot: { version: 1, shapes: [], assets: {} } },
+    },
+  } as SigmaDocument;
+}
+
+async function openWhiteboardTab(page: Page): Promise<void> {
+  await exitOverlayEditing(page);
+  await page.getByRole("button", { name: "新規教材", exact: true }).click();
+  await expect(page.locator(".document-tab")).toHaveCount(2);
+  await expect(page.locator(".whiteboard-page-canvas")).toBeVisible();
+}
+
+async function openEditorWithWhiteboardAsSecondTab(page: Page): Promise<void> {
+  await page.setViewportSize({ width: 1400, height: 1000 });
+  await installDocumentTabMock(page, sourceDocument(), whiteboardDocument());
+  await page.goto("/", { waitUntil: "domcontentloaded" });
+  await expect(page.getByLabel("教材タイトル")).toBeVisible();
+  await expect(page.locator(".startup-splash")).toBeHidden();
+}
+
+const overlayTextShapes = (page: Page) => page.locator(".overlay-shape", { hasText: SOURCE_TEXT });
+
+test("whiteboard: a click puts copied body text on the board as an overlay text shape", async ({ page }) => {
+  await openEditorWithWhiteboardAsSecondTab(page);
+  await selectSourceLine(page);
+  await page.keyboard.press("ControlOrMeta+Shift+KeyC");
+  await expect(cards(page)).toHaveCount(1);
+  await openWhiteboardTab(page);
+  await expect(overlayTextShapes(page)).toHaveCount(0);
+
+  await cards(page).first().click();
+
+  await expect(overlayTextShapes(page)).toHaveCount(1);
+  // 見えている範囲の中に置かれ、そのまま選ばれている (数式も含めて図形の中身として描かれる)。
+  const viewport = (await page.locator(".whiteboard-page-canvas").boundingBox())!;
+  const shape = (await overlayTextShapes(page).first().boundingBox())!;
+  expect(shape.x).toBeGreaterThanOrEqual(viewport.x);
+  expect(shape.x + shape.width).toBeLessThanOrEqual(viewport.x + viewport.width);
+  expect(shape.y).toBeGreaterThanOrEqual(viewport.y);
+  expect(shape.y + shape.height).toBeLessThanOrEqual(viewport.y + viewport.height);
+  await expect(overlayTextShapes(page).first().locator(".inline-math-node").first()).toBeVisible();
+  // 何度でも入れられる。
+  await page.mouse.click(viewport.x + 40, viewport.y + viewport.height - 40);
+  await cards(page).first().click();
+  await expect(overlayTextShapes(page)).toHaveCount(2);
+});
+
+test("whiteboard: a dropped body copy becomes an overlay text shape under the pointer", async ({ page }) => {
+  await openEditorWithWhiteboardAsSecondTab(page);
+  await selectSourceLine(page);
+  await page.keyboard.press("ControlOrMeta+Shift+KeyC");
+  await openWhiteboardTab(page);
+
+  const viewport = (await page.locator(".whiteboard-page-canvas").boundingBox())!;
+  const target = { x: viewport.x + 420, y: viewport.y + 300 };
+  await dragChipTo(page, cards(page).first(), target.x, target.y);
+
+  await expect(overlayTextShapes(page)).toHaveCount(1);
+  const shape = (await overlayTextShapes(page).first().boundingBox())!;
+  // 左右は中心がポインタの下、上下はポインタが図形の高さの中に入る (高さは描画のあとで決まる)。
+  expect(Math.abs(shape.x + shape.width / 2 - target.x)).toBeLessThanOrEqual(8);
+  expect(shape.y).toBeLessThanOrEqual(target.y);
+  expect(shape.y + shape.height).toBeGreaterThanOrEqual(target.y);
+});
+
+test("whiteboard: a dropped shape lands centred on the pointer", async ({ page }) => {
+  await openEditorWithWhiteboardAsSecondTab(page);
+  await selectRectangle(page);
+  await page.keyboard.press("ControlOrMeta+Shift+KeyC");
+  await openWhiteboardTab(page);
+
+  const viewport = (await page.locator(".whiteboard-page-canvas").boundingBox())!;
+  const target = { x: viewport.x + 500, y: viewport.y + 350 };
+  await dragChipTo(page, cards(page).first(), target.x, target.y);
+
+  await expect.poll(() => shapeIds(page)).toHaveLength(1);
+  const box = (await page.locator(".overlay-shape").first().boundingBox())!;
+  expect(Math.abs(box.x + box.width / 2 - target.x)).toBeLessThanOrEqual(8);
+  expect(Math.abs(box.y + box.height / 2 - target.y)).toBeLessThanOrEqual(8);
+});
+
+test("selection toolbar: the pocket button says what it does, next to the AI button's style", async ({ page }) => {
+  await openEditor(page);
+  await selectSourceLine(page);
+
+  const button = page.locator(".selection-action-popover").getByRole("button", { name: "ポケットに追加" });
+  await expect(button).toBeVisible();
+  // アイコンだけではなく、文字も見えている。
+  await expect(button).toContainText("ポケットに追加");
+  await expect(button.locator("svg")).toHaveCount(1);
 });

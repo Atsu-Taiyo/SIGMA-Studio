@@ -57,7 +57,7 @@ import { createOverlayGroupId } from "./ids";
 import {
   type OverlayInteractionAction
 } from "./interaction-mode";
-import { prepareOverlayShapesForPaste } from "./paste-shapes";
+import { prepareOverlayShapesForPaste, type ApplyPastedOverlayShapesOptions } from "./paste-shapes";
 import {
   reanchorShapesByPosition
 } from "./reanchor-model";
@@ -454,7 +454,7 @@ export function useOverlaySelectionCommands({
    */
   const applyPastedOverlayShapes = useCallback((
     payload: Extract<EditorClipboardPayload, { kind: "overlayShapes" }>,
-    options: { anchorBlockIdMap?: Record<string, string>; historyGroup?: string } = {},
+    options: ApplyPastedOverlayShapesOptions = {},
   ): boolean => {
     const prepared = prepareOverlayShapesForPaste({
       payload,
@@ -462,6 +462,7 @@ export function useOverlaySelectionCommands({
       canvasHeight: canvasHeightRef.current,
       targetDocId: documentIdRef.current,
       anchorBlockIdMap: options.anchorBlockIdMap,
+      centerAt: options.centerAt,
     });
     if (prepared.shapes.length === 0) {
       return false;

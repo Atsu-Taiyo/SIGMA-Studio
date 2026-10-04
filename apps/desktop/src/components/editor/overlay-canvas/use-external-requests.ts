@@ -39,6 +39,7 @@ import {
 import {
   reanchorShapesByPosition
 } from "./reanchor-model";
+import type { ApplyPastedOverlayShapesOptions } from "./paste-shapes";
 import { readRememberedShapeStyle } from "./remembered-shape-style";
 import { type OverlayArrangeAction } from "./reorder-shapes";
 import { getStyleTargetIds } from "./selection-command-model";
@@ -69,7 +70,7 @@ interface Dependencies {
   solidEdgeRef: RefObject<OverlaySolidEdgeSelection | null>;
   learnShapeStyleDefaults: (next: OverlayShapeStyleDefaults) => void;
   applyStyleToSelectedShapes: (style: OverlaySelectionStylePatch) => void;
-  applyPastedOverlayShapes: (payload: Extract<EditorClipboardPayload, { kind: "overlayShapes"; }>, options?: { anchorBlockIdMap?: Record<string, string>; historyGroup?: string; }) => boolean;
+  applyPastedOverlayShapes: (payload: Extract<EditorClipboardPayload, { kind: "overlayShapes"; }>, options?: ApplyPastedOverlayShapesOptions) => boolean;
   setFocusedGroupId: Dispatch<SetStateAction<string | null>>;
   setSelectedShapeIds: (ids: OverlayShapeId[]) => void;
   refreshAnchorMeasurements: () => AnchorMeasurements;
@@ -177,6 +178,7 @@ export function useOverlayExternalRequests({
       applyPastedOverlayShapes(request.payload, {
         anchorBlockIdMap: request.anchorBlockIdMap,
         historyGroup: request.historyGroup,
+        centerAt: request.centerAt,
       });
     } else if (request.type === "selectShapesForBlocks") {
       // フォーカスは本文に残したまま選択だけ立てる。`focusOverlayCanvas` を呼ぶと本文の

@@ -5,8 +5,21 @@ import {
   type OverlayShape,
   type OverlayShapeId,
 } from "@/features/document";
-import { fitShapesWithinPage } from "@/features/drawing";
+import { fitShapesWithinPage, getShapesSelectionBounds } from "@/features/drawing";
 import { cloneOverlayShapesForPaste, type EditorClipboardPayload } from "@/lib/editor-clipboard";
+
+/** 図形の貼り付けを紙面へ適用するときの追加の指定。 */
+export interface ApplyPastedOverlayShapesOptions {
+  /** コピー元ブロック id → 貼り付けで生まれたブロック id。 */
+  anchorBlockIdMap?: Record<string, string>;
+  /** 本文と 1 つの undo エントリに畳むためのコアレスキー。 */
+  historyGroup?: string;
+  /**
+   * 貼り付けた図形全体の中心をここへ置く (ポケットのドロップ・ホワイトボードへの挿入)。
+   * 無いときは、元の位置から少しずらして重ねる (⌘V の貼り付け)。
+   */
+  centerAt?: OverlayPoint;
+}
 
 export interface PrepareOverlayShapesForPasteInput {
   payload: Extract<EditorClipboardPayload, { kind: "overlayShapes" }>;
@@ -26,6 +39,8 @@ export interface PrepareOverlayShapesForPasteInput {
   targetDocId?: string;
   /** コピー元ブロック id → 貼り付けで生まれたブロック id。 */
   anchorBlockIdMap?: Readonly<Record<string, string>>;
+  /** 貼り付けた図形全体の中心を置く場所。`offset` より優先する。 */
+  centerAt?: OverlayPoint;
 }
 
 export interface PreparedOverlayPaste {
@@ -49,10 +64,17 @@ export function prepareOverlayShapesForPaste({
   offset = { x: 20, y: 20 },
   targetDocId,
   anchorBlockIdMap,
+  centerAt,
 }: PrepareOverlayShapesForPasteInput): PreparedOverlayPaste {
   const isSameDocument = Boolean(targetDocId) && payload.sourceDocId === targetDocId;
-  const pasted = cloneOverlayShapesForPaste(payload, offset, {
-    dropBlockAnchors: !isSameDocument,
+  const bounds = centerAt ? getShapesSelectionBounds(payload.shapes) : null;
+  const placement = centerAt && bounds
+    ? { x: centerAt.x - (bounds.x + bounds.w / 2), y: centerAt.y - (bounds.y + bounds.h / 2) }
+    : offset;
+  const pasted = cloneOverlayShapesForPaste(payload, placement, {
+    // 置き場所を指定したものは、元のブロックから切り離して置いた場所に留める
+    // (ブロックに掛かったままだと、解決のときに元の相対位置へ引き戻される)。
+    dropBlockAnchors: !isSameDocument || Boolean(centerAt && bounds),
     anchorBlockIdMap,
   });
   if (pasted.shapes.length === 0) {
