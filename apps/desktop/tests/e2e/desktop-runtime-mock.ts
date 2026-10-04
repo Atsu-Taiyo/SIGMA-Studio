@@ -55,6 +55,12 @@ export interface DesktopRuntimeMockAiOptions {
   /** Simulates a compatible bridge that returns the approved document without
    * the optional file metadata in the batch-approval result. */
   omitBatchApproveFileMetadata?: boolean;
+  /**
+   * Proposals that already exist when the app opens (as if an earlier run had
+   * left them pending). They belong to the mocked file (`file_e2e_document`)
+   * at revision 1. Used to lay out a proposal card without driving a run.
+   */
+  initialProposals?: DesktopMcpEditProposalSummary[];
 }
 
 /**
@@ -119,13 +125,14 @@ export async function installDesktopRuntimeMock(
   document: SigmaDocument,
   options: DesktopRuntimeMockOptions = {},
 ): Promise<void> {
-  await page.addInitScript(({ initialDocument, initialMaterials, initialTemplates, aiEnabled, generatedImageFixture, omitBatchApproveFileMetadata, storageLoadDelayMs, runtimePlatform, preserveAiModelPreferences, preserveStorageKeys, initialUiLayout, initialDocumentLoadFailure, initialLedgerSchemaFailure, emitWatcherEventOnSave }: {
+  await page.addInitScript(({ initialDocument, initialMaterials, initialTemplates, aiEnabled, generatedImageFixture, omitBatchApproveFileMetadata, initialProposals, storageLoadDelayMs, runtimePlatform, preserveAiModelPreferences, preserveStorageKeys, initialUiLayout, initialDocumentLoadFailure, initialLedgerSchemaFailure, emitWatcherEventOnSave }: {
     initialDocument: SigmaDocument;
     initialMaterials: MaterialItem[];
     initialTemplates: TemplateItem[];
     aiEnabled: boolean;
     generatedImageFixture: DesktopRuntimeMockAiOptions["generatedImageFixture"] | null;
     omitBatchApproveFileMetadata: boolean;
+    initialProposals: DesktopMcpEditProposalSummary[];
     storageLoadDelayMs: number;
     runtimePlatform: NodeJS.Platform;
     preserveAiModelPreferences: boolean;
@@ -453,7 +460,7 @@ export async function installDesktopRuntimeMock(
     };
 
     let chatRooms: DesktopAiEditChatRoom[] = [];
-    let mcpProposals: DesktopMcpEditProposalSummary[] = [];
+    let mcpProposals: DesktopMcpEditProposalSummary[] = structuredClone(initialProposals);
     // Real proposal files keep a private revertDocument that is intentionally
     // omitted from DesktopMcpEditProposalSummary. Mirror it out-of-band here so
     // the chat's revision-gated rollback button can be exercised end to end.
@@ -1444,6 +1451,7 @@ export async function installDesktopRuntimeMock(
     aiEnabled: options.ai?.enabled ?? false,
     generatedImageFixture: options.ai?.generatedImageFixture ?? null,
     omitBatchApproveFileMetadata: options.ai?.omitBatchApproveFileMetadata ?? false,
+    initialProposals: options.ai?.initialProposals ?? [],
     storageLoadDelayMs: options.storageLoadDelayMs ?? 0,
     runtimePlatform: options.platform ?? "darwin",
     preserveAiModelPreferences: options.preserveAiModelPreferences ?? false,

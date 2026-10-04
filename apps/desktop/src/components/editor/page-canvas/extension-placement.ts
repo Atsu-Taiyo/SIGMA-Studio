@@ -8,11 +8,10 @@ export interface ColumnBounds {
   width: number;
 }
 
-export interface ColumnContentAnchor extends ColumnBounds {
-  top: number;
-}
-
-/** Returns a measured block's column-sized bounds, or null for full-width content. */
+/**
+ * Returns a measured block's column-sized bounds, or null for full-width content.
+ * Used to keep floating widgets (not flow content) inside the target column.
+ */
 export function getNarrowColumnBounds(
   block: MeasuredBlock | undefined,
   pageContentWidth: number,
@@ -35,23 +34,6 @@ export function getNarrowColumnBounds(
     left: block.left,
     right: block.left + block.width,
     width: block.width,
-  };
-}
-
-/** Places extension content directly below its measured target column. */
-export function getColumnContentAnchor(
-  block: MeasuredBlock | undefined,
-  pageContentWidth: number,
-  gap = 4,
-): ColumnContentAnchor | null {
-  const bounds = getNarrowColumnBounds(block, pageContentWidth);
-  if (!bounds || !block || typeof block.height !== "number" || !Number.isFinite(block.height)) {
-    return null;
-  }
-
-  return {
-    ...bounds,
-    top: Math.max(0, block.top + block.height + gap),
   };
 }
 

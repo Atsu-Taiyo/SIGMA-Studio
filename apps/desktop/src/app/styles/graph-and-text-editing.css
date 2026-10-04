@@ -1798,22 +1798,6 @@ body.page-block-dragging .layout-section-column-resize-knob {
   gap: var(--space-sm);
 }
 
-/* Column bounds locate the proposal; the review UI keeps its standard width. */
-.ai-column-preview-anchor {
-  position: absolute;
-  z-index: 13;
-  pointer-events: none;
-}
-
-.ai-column-preview-anchor .ai-inline-preview-dialog {
-  width: min(440px, 84vw);
-  margin: 0;
-  border-radius: 10px;
-  background: color-mix(in srgb, var(--background) 97%, transparent);
-  box-shadow: 0 12px 28px -22px rgb(15 23 42 / 0.48);
-  pointer-events: auto;
-}
-
 /* Overlay-only AI proposals use a contextual decision toolbar beside the
    proposed shape. It is absolutely positioned inside `.page-overlay-layer`,
    so showing it never changes body flow, page breaks, or anchor measurement. */

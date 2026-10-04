@@ -154,7 +154,6 @@ import {
   toCanvasPoint,
 } from "./page-canvas/editor-dom-commands";
 import type { PageCanvasInlineContent } from "./page-canvas/editor-extension";
-import { getColumnContentAnchor,type ColumnContentAnchor } from "./page-canvas/extension-placement";
 import {
   EMPTY_SPACE_AFTER_FOLLOWER_UNITS,
   getFlowDisplacementProps,
@@ -162,7 +161,7 @@ import {
   getFlowUnitPlacementStyle,
   mergeFlowUnitStyle,
 } from "./page-canvas/flow-presentation";
-import { getProblemAfterInlineContent } from "./page-canvas/inline-content-composition";
+import { getFlowExtensionNodeId,getProblemAfterContentUnitIds,getProblemAfterInlineContent } from "./page-canvas/inline-content-composition";
 import { calculateReserveSpaceGaps } from "./page-canvas/layout-measure";
 import { LayoutSectionFlowUnit } from "./page-canvas/layout-section-view";
 import { publishLayoutSnapshot } from "./page-canvas/layout-snapshot";
@@ -221,8 +220,9 @@ import {
   changesTopLevelManualBreaks,
   DeferredLargePasteTextFlowUnit,
   EditorBoxBlockFragmentPreview,
+  FlowExtensionFragmentPreview,
+  FlowExtensionLayoutContext,
   hasNewTopLevelBlockIds,
-  InlineContentStack,
   TextFlowWithInlineContent,
 } from "./page-canvas/text-flow-view";
 import {
@@ -559,6 +559,22 @@ const {
     () => new Set(inlineContentByTargetId.keys()),
     [inlineContentByTargetId],
   );
+  /**
+   * フロー内の拡張ノード (差し込み) の id → 中身。ページの境目で切れた拡張ノードの続きを、同じ中身の
+   * 複製として描くために引く。並びと版はページ割りの測り直しの合図にもなる (`extensionMeasureKey`)。
+   */
+  const { extensionContentByNodeId, extensionMeasureKey } = useMemo(() => {
+    const byNodeId = new Map<string, PageCanvasInlineContent>();
+    const keys: string[] = [];
+    for (const items of inlineContentByTargetId.values()) {
+      for (const item of items) {
+        const nodeId = getFlowExtensionNodeId(item.key);
+        byNodeId.set(nodeId, item);
+        keys.push(`${nodeId}\u0000${item.measureRevision ?? ""}`);
+      }
+    }
+    return { extensionContentByNodeId: byNodeId, extensionMeasureKey: keys.join("\u0001") };
+  }, [inlineContentByTargetId]);
   const textFlowChangeDecorationState = pageExtension?.textFlowChangeDecorationState;
   const overlayShapeClassNames = pageExtension?.overlayShapeClassNames;
   const resolveOverlayPresentation = pageExtension?.resolveOverlayPresentation;
@@ -821,7 +837,7 @@ const {
     markFullMeasureDirty,
     bleed
   } = usePageCanvasMeasurement({
-    content: { pageDocument, units, historyRevision, overlay, overlaySource: document.pageLayout?.overlay, pendingDeletion, onReanchorOverlay },
+    content: { pageDocument, units, historyRevision, overlay, overlaySource: document.pageLayout?.overlay, pendingDeletion, onReanchorOverlay, extensionMeasureKey },
     geometry: { metrics, zoom, fontSize, isWhiteboard, isPagedRender },
     surface: { flowRef, canvasRef, flowElement },
     spaceAfter: { spaceAfterSessionRef, setSpaceAfterDrag, setBlockAffordance },
@@ -856,33 +872,14 @@ const {
   useLayoutEffect(() => {
     onMeasuredBlockRectsChange?.(blockRects);
   }, [blockRects, onMeasuredBlockRectsChange]);
-  const {
-    flowInlineContentByTargetId,
-    columnInlineContentAnchors,
-  } = useMemo(() => {
-    const flowContent = new Map<string, readonly PageCanvasInlineContent[]>();
-    const columnContent: Array<ColumnContentAnchor & {
-      targetId: string;
-      items: readonly PageCanvasInlineContent[];
-    }> = [];
-
-    for (const [targetId, items] of inlineContentByTargetId) {
-      const anchor = getColumnContentAnchor(blockRects.get(targetId), metrics.content.widthPx);
-      if (!anchor) {
-        flowContent.set(targetId, items);
-        continue;
-      }
-
-      // Extension content inserted as a sibling into a CSS column flow can be
-      // laid out at the start of the next column, so host it in page coordinates.
-      columnContent.push({ ...anchor, targetId, items });
-    }
-
-    return {
-      flowInlineContentByTargetId: flowContent,
-      columnInlineContentAnchors: columnContent,
-    };
-  }, [blockRects, inlineContentByTargetId, metrics.content.widthPx]);
+  // 問題そのものを対象にした差し込みは、問題ごとに 1 つのユニットの後ろにだけ描く。
+  const problemAfterContentUnitIds = useMemo(() => getProblemAfterContentUnitIds(units), [units]);
+  // 拡張ノードが読むページ割りの答え。編集面は自分のブロックの分だけを props で受けるので、
+  // この値が変わって描き直されるのは拡張ノードだけ。
+  const flowExtensionLayout = useMemo(
+    () => ({ nodeDisplacements, fragmentSources: boxFragmentSourceLayouts }),
+    [boxFragmentSourceLayouts, nodeDisplacements],
+  );
   const boxBlocksById = useMemo(() => collectBoxBlocksById(pageDocument.content), [pageDocument.content]);
   // Top-level text blocks (paragraphs, headings, lists) can also be split into
   // clipped fragments when they are taller than a page/column, so their
@@ -3165,6 +3162,7 @@ const { candidateCommentTop, pendingCommentTop, commentThreadPositions } = usePa
             })}
           </div>
 
+          <FlowExtensionLayoutContext.Provider value={flowExtensionLayout}>
           <div
             className={`page-flow ${isColumnPage ? "page-columns" : ""}`}
             ref={setFlowRef}
@@ -3227,7 +3225,7 @@ const { candidateCommentTop, pendingCommentTop, commentThreadPositions } = usePa
                         onBodyBlockCommand={onBodyBlockCommand}
                         enableHeadingCommands
                         onHeadingCommand={onHeadingCommand}
-                        inlineContentByTargetId={flowInlineContentByTargetId}
+                        inlineContentByTargetId={inlineContentByTargetId}
                         changeDecorationState={textFlowChangeDecorationState}
                       />
                     )}
@@ -3268,7 +3266,7 @@ const { candidateCommentTop, pendingCommentTop, commentThreadPositions } = usePa
                   materials={materials}
                   onMaterialInsert={handleMaterialInsert}
                   onHeadingCommand={onHeadingCommand}
-                  inlineContentByTargetId={flowInlineContentByTargetId}
+                  inlineContentByTargetId={inlineContentByTargetId}
                   changeDecorationState={textFlowChangeDecorationState}
                 />
               ) : unit.type === "problemArea" ? (
@@ -3298,11 +3296,11 @@ const { candidateCommentTop, pendingCommentTop, commentThreadPositions } = usePa
                   onRemoveBreak={markerRemoveHandler}
                   onResizeStart={startProblemAreaResize}
                   onActionMenuOpen={openProblemActionMenu}
-                  inlineContentByTargetId={flowInlineContentByTargetId}
+                  inlineContentByTargetId={inlineContentByTargetId}
                   afterInlineContent={getProblemAfterInlineContent(
                     unit.problem.id,
-                    unit.isLastProblemArea,
-                    flowInlineContentByTargetId,
+                    problemAfterContentUnitIds.has(unit.id),
+                    inlineContentByTargetId,
                   )}
                   commentThreads={displayedCommentThreads}
                   activeCommentThreadId={activeCommentThreadId}
@@ -3344,6 +3342,7 @@ const { candidateCommentTop, pendingCommentTop, commentThreadPositions } = usePa
               ),
             )}
           </div>
+          </FlowExtensionLayoutContext.Provider>
 
           {/*
             下端つまみのドラッグ中、この層に印は付かない。断片は「ページ (段) をまたいだ続き」
@@ -3353,6 +3352,17 @@ const { candidateCommentTop, pendingCommentTop, commentThreadPositions } = usePa
           {editorBoxBlockFragments.length > 0 && (
             <div className="page-box-fragment-layer">
               {editorBoxBlockFragments.map((fragment) => {
+                // フロー内の拡張ノードの続きは、同じ中身の操作できない複製で描く。
+                const extensionContent = extensionContentByNodeId.get(fragment.blockId);
+                if (extensionContent) {
+                  return (
+                    <FlowExtensionFragmentPreview
+                      key={`${fragment.blockId}:${fragment.fragmentIndex}`}
+                      item={extensionContent}
+                      fragment={fragment}
+                    />
+                  );
+                }
                 const problemAreaSource = problemAreaFlowBlocksById.get(fragment.blockId);
                 const block = boxBlocksById.get(fragment.blockId)
                   ?? topLevelTextBlocksById.get(fragment.blockId)
@@ -3624,20 +3634,6 @@ const { candidateCommentTop, pendingCommentTop, commentThreadPositions } = usePa
               />
             )}
             {!isPagedRender && <RemoteOverlayPresenceLayer shapes={overlayView.shapes} />}
-            {columnInlineContentAnchors.map((anchor) => (
-              <div
-                key={`${pageExtension?.columnAnchor?.keyPrefix ?? "column-extension"}-${anchor.targetId}`}
-                className={pageExtension?.columnAnchor?.className}
-                {...pageExtension?.columnAnchor?.getDataAttributes?.(anchor.targetId)}
-                style={{
-                  left: `${anchor.left}px`,
-                  top: `${anchor.top}px`,
-                  width: `${anchor.width}px`,
-                }}
-              >
-                <InlineContentStack items={anchor.items} />
-              </div>
-            ))}
             {overlayPresentation?.floatingContent}
           </div>
           {showComments && commentPanel && (
