@@ -82,7 +82,21 @@ function blankDocument(): SigmaDocument {
   } as SigmaDocument;
 }
 
+/**
+ * 開閉と「飛んでいく」の動きを止める。動きの最中は、ポケットが開く分だけ紙面や本文の座標が動き続けるので、
+ * 座標を測って押すテストは、動きを減らす設定で走らせる。動きそのもののテストだけ、あとから有効にする
+ * (`enableMotion`)。
+ */
+async function reduceMotion(page: Page): Promise<void> {
+  await page.emulateMedia({ reducedMotion: "reduce" });
+}
+
+async function enableMotion(page: Page): Promise<void> {
+  await page.emulateMedia({ reducedMotion: "no-preference" });
+}
+
 async function openEditor(page: Page): Promise<void> {
+  await reduceMotion(page);
   await page.setViewportSize({ width: 1400, height: 1000 });
   await installDocumentTabMock(page, sourceDocument(), blankDocument());
   await page.goto("/", { waitUntil: "domcontentloaded" });
@@ -288,19 +302,30 @@ test("says so when nothing is selected, instead of silently doing nothing", asyn
   await expect(cards(page)).toHaveCount(0);
 });
 
-test("collapses to a thin handle that still shows the count, and reopens", async ({ page }) => {
+/** 畳んだポケットの上部 (段の上端から少し下) へマウスを持っていく。チップが現れる。 */
+async function hoverClosedPocketTop(page: Page): Promise<void> {
+  const bar = (await pocket(page).boundingBox())!;
+  await page.mouse.move(40, bar.y + 200);
+  await page.mouse.move(700, bar.y + 12, { steps: 4 });
+}
+
+test("collapses without taking any room, and reopens from the chip", async ({ page }) => {
   await openEditor(page);
   await selectSourceLine(page);
   await page.keyboard.press("ControlOrMeta+Shift+KeyC");
   await expect(cards(page)).toHaveCount(1);
   const expanded = await pocket(page).boundingBox();
+  const paperTopOpen = (await page.locator('[data-sigma-doc-id="pocket_body"]').first().boundingBox())!.y;
 
   await pocket(page).getByRole("button", { name: "ポケットを閉じる" }).click();
-  await expect(pocket(page).getByRole("button", { name: /ポケット 1件/ })).toBeVisible();
   const collapsed = await pocket(page).boundingBox();
   expect(collapsed!.height).toBeLessThan(expanded!.height / 2);
+  // 畳むと、紙面はポケットの分だけ上へ戻る (ポケットが無いときと同じ位置)。
+  const paperTopClosed = (await page.locator('[data-sigma-doc-id="pocket_body"]').first().boundingBox())!.y;
+  expect(paperTopClosed).toBeLessThan(paperTopOpen - expanded!.height / 2);
   expect((await pageFitsViewport(page)).overflow).toBeLessThanOrEqual(0);
 
+  await hoverClosedPocketTop(page);
   await pocket(page).getByRole("button", { name: /ポケット 1件/ }).click();
   await expect(cards(page)).toHaveCount(1);
 });
@@ -366,38 +391,221 @@ async function dragChipTo(page: Page, chip: Locator, x: number, y: number): Prom
   await page.mouse.up();
 }
 
-test("shows the closed pocket as a small chip at the top, not a full-width band", async ({ page }) => {
+test("shows the closed pocket as a small chip at the top centre, only while the pointer is up there", async ({ page }) => {
   await openEditor(page);
+  await enableMotion(page);
   await selectSourceLine(page);
   await page.keyboard.press("ControlOrMeta+Shift+KeyC");
   await expect(cards(page)).toHaveCount(1);
 
   await pocket(page).getByRole("button", { name: "ポケットを閉じる" }).click();
   const handle = pocket(page).getByRole("button", { name: /ポケット 1件/ });
-  await expect(handle).toBeVisible();
+  const opacity = () => handle.evaluate((element) => parseFloat(getComputedStyle(element).opacity));
 
+  // マウスが上にいないあいだは見えず、その下の紙面を操作できる (チップはマウスを受けない)。
   const bar = (await pocket(page).boundingBox())!;
+  await page.mouse.move(700, bar.y + 300);
+  await expect.poll(opacity).toBe(0);
+  expect(await handle.evaluate((element) => getComputedStyle(element).pointerEvents)).toBe("none");
+
+  // 上部へマウスを持っていくと現れる。
+  await page.mouse.move(700, bar.y + 12, { steps: 4 });
+  await expect.poll(opacity).toBe(1);
   const chip = (await handle.boundingBox())!;
-  // 帯いっぱいに広がらず、文字の幅ぶんだけの小さなチップ。
-  expect(chip.width).toBeLessThan(bar.width / 4);
+  const viewport = page.viewportSize()!;
+  // 上部の真ん中。丸い小さなチップで、帯いっぱいには広がらない。
+  expect(Math.abs(chip.x + chip.width / 2 - viewport.width / 2)).toBeLessThanOrEqual(2);
+  expect(chip.width).toBeLessThan(viewport.width / 4);
   expect(chip.height).toBeLessThanOrEqual(28);
-  // 丸い (端が半円)。
   const radius = await handle.evaluate((element) => parseFloat(getComputedStyle(element).borderTopLeftRadius));
   expect(radius).toBeGreaterThanOrEqual(chip.height / 2 - 1);
-  // 上部 (クロームの直下) にあり、帯そのものには枠も背景も無い。
-  expect(chip.y).toBeGreaterThanOrEqual(bar.y);
-  expect(chip.y + chip.height).toBeLessThanOrEqual(bar.y + bar.height);
+  // 帯そのものには枠も背景も無い。
   const band = await pocket(page).evaluate((element) => {
     const style = getComputedStyle(element);
-    return { background: style.backgroundColor, borderBottom: style.borderBottomColor };
+    return { background: style.backgroundColor, borderBottom: style.borderBottomWidth };
   });
   expect(band.background).toBe("rgba(0, 0, 0, 0)");
-  expect(band.borderBottom).toBe("rgba(0, 0, 0, 0)");
-  expect((await pageFitsViewport(page)).overflow).toBeLessThanOrEqual(0);
+  expect(band.borderBottom).toBe("0px");
+
+  // 離れると、少しして引っ込む。
+  await page.mouse.move(700, bar.y + 300, { steps: 4 });
+  await expect.poll(opacity).toBe(0);
 
   // 開くと、中身のカードが元のとおり並ぶ。
+  await page.mouse.move(700, bar.y + 12, { steps: 4 });
+  await expect.poll(opacity).toBe(1);
   await handle.click();
   await expect(cards(page)).toHaveCount(1);
+});
+
+/** 動いている間の、バーの高さと紙面の上端を、フレームごとに記録する。 */
+async function sampleFrames(page: Page, run: () => Promise<void>, ms = 700): Promise<Array<{ t: number; bar: number; barBottom: number; paper: number }>> {
+  await page.evaluate(() => {
+    const frames: Array<{ t: number; bar: number; barBottom: number; paper: number }> = [];
+    (window as unknown as { __frames: typeof frames; __sampling: boolean }).__frames = frames;
+    (window as unknown as { __sampling: boolean }).__sampling = true;
+    const start = performance.now();
+    const tick = () => {
+      const bar = window.document.querySelector("[data-pocket-root]")?.getBoundingClientRect();
+      const workspace = window.document.querySelector("main.workspace")?.getBoundingClientRect();
+      frames.push({
+        t: performance.now() - start,
+        bar: bar?.height ?? 0,
+        barBottom: bar?.bottom ?? 0,
+        paper: workspace?.top ?? 0,
+      });
+      if ((window as unknown as { __sampling: boolean }).__sampling) window.requestAnimationFrame(tick);
+    };
+    window.requestAnimationFrame(tick);
+  });
+  await run();
+  await page.waitForTimeout(ms);
+  return page.evaluate(() => {
+    (window as unknown as { __sampling: boolean }).__sampling = false;
+    return (window as unknown as { __frames: Array<{ t: number; bar: number; barBottom: number; paper: number }> }).__frames;
+  });
+}
+
+test("opens by growing from the top, and the page moves down with it frame by frame", async ({ page }) => {
+  await openEditor(page);
+  await enableMotion(page);
+  await selectSourceLine(page);
+  const paperBefore = (await page.locator("main.workspace").boundingBox())!.y;
+
+  const frames = await sampleFrames(page, () => page.keyboard.press("ControlOrMeta+Shift+KeyC"));
+
+  const heights = frames.map((frame) => frame.bar);
+  const final = heights[heights.length - 1]!;
+  // 開き切ると 88px。途中の高さを通っていて (一瞬で切り替わらない)、縮まずに増え続ける。
+  expect(final).toBe(88);
+  expect(heights.some((height) => height > 8 && height < 80)).toBe(true);
+  for (let index = 1; index < heights.length; index += 1) {
+    expect(heights[index]!).toBeGreaterThanOrEqual(heights[index - 1]! - 0.5);
+  }
+  // バーの下端と紙面の上端は、どのフレームでも一致する (紙面がバーに押されて同じ速さで下がる)。
+  for (const frame of frames) {
+    expect(Math.abs(frame.barBottom - frame.paper)).toBeLessThanOrEqual(1);
+  }
+  expect(frames[frames.length - 1]!.paper - paperBefore).toBe(88);
+  // 動きの最中に、画面全体が引っかかるほど長いフレームが無い (高さを動かしても重くならない)。
+  const gaps = frames.slice(1).map((frame, index) => frame.t - frames[index]!.t);
+  expect(Math.max(...gaps)).toBeLessThan(200);
+});
+
+test("folds up when it is closed, then leaves only the chip", async ({ page }) => {
+  await openEditor(page);
+  await selectSourceLine(page);
+  await page.keyboard.press("ControlOrMeta+Shift+KeyC");
+  await expect(cards(page)).toHaveCount(1);
+  await enableMotion(page);
+  await page.waitForTimeout(500);
+
+  const frames = await sampleFrames(page, () => pocket(page).getByRole("button", { name: "ポケットを閉じる" }).click());
+
+  const heights = frames.map((frame) => frame.bar);
+  expect(heights[heights.length - 1]).toBe(0);
+  expect(heights.some((height) => height > 8 && height < 80)).toBe(true);
+  for (let index = 1; index < heights.length; index += 1) {
+    expect(heights[index]!).toBeLessThanOrEqual(heights[index - 1]! + 0.5);
+  }
+  for (const frame of frames) {
+    expect(Math.abs(frame.barBottom - frame.paper)).toBeLessThanOrEqual(1);
+  }
+  // 畳み終わると、カードは消えて、普段は見えないチップだけが残る。
+  await expect(pocket(page)).toHaveAttribute("data-phase", "collapsed");
+  await expect(cards(page)).toHaveCount(0);
+});
+
+test("opens and closes at once for someone who asked for less motion", async ({ page }) => {
+  await openEditor(page);
+  await selectSourceLine(page);
+
+  // 途中の高さを通らない: 閉じている (0) か開いている (88) かのどちらかしか無い。
+  const opening = await sampleFrames(page, () => page.keyboard.press("ControlOrMeta+Shift+KeyC"), 300);
+  expect(opening.every((frame) => frame.bar === 0 || frame.bar === 88)).toBe(true);
+  expect(opening[opening.length - 1]!.bar).toBe(88);
+  await expect(page.locator("[data-pocket-flyer]")).toHaveCount(0);
+
+  const closing = await sampleFrames(page, () => pocket(page).getByRole("button", { name: "ポケットを閉じる" }).click(), 300);
+  expect(closing.every((frame) => frame.bar === 0 || frame.bar === 88)).toBe(true);
+  expect(closing[closing.length - 1]!.bar).toBe(0);
+  await expect(pocket(page)).toHaveAttribute("data-phase", "collapsed");
+});
+
+test("the card flies in only after the pocket has finished opening", async ({ page }) => {
+  await openEditor(page);
+  await enableMotion(page);
+  await selectSourceLine(page);
+
+  await page.getByRole("button", { name: "ポケットに追加" }).click();
+
+  // 開く動きの最中 (まだ高さが伸びている) は飛ばさない。開き切ってから、着く先の位置が決まった状態で飛ぶ。
+  const flyer = page.locator("[data-pocket-flyer]");
+  const heightWhenFlyerAppears = await (async () => {
+    await expect(flyer).toBeVisible();
+    return pocket(page).evaluate((element) => element.getBoundingClientRect().height);
+  })();
+  expect(heightWhenFlyerAppears).toBe(88);
+  await expect(flyer).toHaveCount(0);
+});
+
+test("the chip is reachable from the keyboard even while it is out of sight", async ({ page }) => {
+  await openEditor(page);
+  await selectSourceLine(page);
+  await page.keyboard.press("ControlOrMeta+Shift+KeyC");
+  await pocket(page).getByRole("button", { name: "ポケットを閉じる" }).click();
+  const handle = pocket(page).getByRole("button", { name: /ポケット 1件/ });
+
+  await handle.focus();
+
+  // 焦点が来ると現れ、Enter で開く。
+  await expect.poll(() => handle.evaluate((element) => parseFloat(getComputedStyle(element).opacity))).toBe(1);
+  await page.keyboard.press("Enter");
+  await expect(cards(page)).toHaveCount(1);
+});
+
+test("the selected part flies into the pocket when it is put in, and the card lands", async ({ page }) => {
+  await openEditor(page);
+  await enableMotion(page);
+  await selectSourceLine(page);
+
+  await page.getByRole("button", { name: "ポケットに追加" }).click();
+
+  // 選んでいた場所から飛んでいく。着くまで、本物のカードは隠れている。
+  const flyer = page.locator("[data-pocket-flyer]");
+  await expect(flyer).toBeVisible();
+  await expect(cards(page).first()).toHaveAttribute("data-flying", "true");
+  const flying = (await flyer.boundingBox())!;
+  const source = (await page.locator('[data-sigma-doc-id="pocket_body"]').first().boundingBox())!;
+  // 出発は本文 (選んでいた行) の近く。着く先のカードは上部にある。
+  const card = (await cards(page).first().boundingBox())!;
+  expect(card.y).toBeLessThan(source.y);
+
+  // 着いたら、飛ぶものは消えて、カードが現れる。
+  await expect(flyer).toHaveCount(0);
+  await expect(cards(page).first()).not.toHaveAttribute("data-flying", "true");
+  expect(parseFloat(await cards(page).first().evaluate((element) => getComputedStyle(element).opacity))).toBe(1);
+  // 着いたあと、はずむ動きが終われば、カードの大きさのまま (縮んだまま残らず) 落ち着く。
+  await expect(cards(page).first()).not.toHaveAttribute("data-landed", "true");
+  const landed = (await cards(page).first().boundingBox())!;
+  expect(Math.abs(landed.width - card.width)).toBeLessThanOrEqual(1);
+  expect(flying.width).toBeGreaterThan(0);
+});
+
+test("the part flies in for a shape too, and for the add button in the pocket", async ({ page }) => {
+  await openEditor(page);
+  await enableMotion(page);
+  await selectRectangle(page);
+  await page.keyboard.press("ControlOrMeta+Shift+KeyC");
+  await expect(page.locator("[data-pocket-flyer]")).toBeVisible();
+  await expect(page.locator("[data-pocket-flyer]")).toHaveCount(0);
+  await expect(cards(page)).toHaveCount(1);
+
+  // 選んだまま、ポケットの「選んだものを入れる」からも同じ動き。
+  await pocket(page).getByRole("button", { name: "選んだものを入れる" }).click();
+  await expect(page.locator("[data-pocket-flyer]")).toBeVisible();
+  await expect(page.locator("[data-pocket-flyer]")).toHaveCount(0);
+  await expect(cards(page)).toHaveCount(2);
 });
 
 test("drags a text card into the body and drops it at the pointer", async ({ page }) => {
@@ -519,6 +727,7 @@ async function openWhiteboardTab(page: Page): Promise<void> {
 }
 
 async function openEditorWithWhiteboardAsSecondTab(page: Page): Promise<void> {
+  await reduceMotion(page);
   await page.setViewportSize({ width: 1400, height: 1000 });
   await installDocumentTabMock(page, sourceDocument(), whiteboardDocument());
   await page.goto("/", { waitUntil: "domcontentloaded" });

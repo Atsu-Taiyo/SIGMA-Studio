@@ -2,7 +2,7 @@
 
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { OverlayShape, ParagraphNode } from "@/features/document";
 import { setAppLocale } from "@/lib/i18n";
@@ -12,6 +12,7 @@ import {
   writeEditorClipboardData,
 } from "@/lib/editor-clipboard";
 
+import { registerPocketPageHost } from "../application/pocket-drag";
 import {
   addToPocket,
   getPocketState,
@@ -72,6 +73,11 @@ function buttonByLabel(label: string | RegExp): HTMLButtonElement {
 }
 
 const cards = () => [...container.querySelectorAll<HTMLButtonElement>("[data-pocket-item] button[data-kind]")];
+
+/** 開閉の動き (280ms) が終わるのを待つ。 */
+const afterTransition = () => act(async () => {
+  await new Promise((resolve) => setTimeout(resolve, 360));
+});
 
 describe("PocketBar", () => {
   beforeEach(async () => {
@@ -310,11 +316,71 @@ describe("PocketBar", () => {
     await render();
 
     await act(async () => buttonByLabel("ポケットを閉じる").click());
+    await afterTransition();
     expect(cards()).toHaveLength(0);
     expect(buttonByLabel(/ポケット 2件/)).toBeDefined();
 
     await act(async () => buttonByLabel(/ポケット 2件/).click());
     expect(cards()).toHaveLength(2);
+  });
+
+  it("keeps drawing the open pocket while it folds away, out of reach, then switches to the chip", async () => {
+    await act(async () => {
+      putBlocks();
+    });
+    await render();
+    const bar = () => container.querySelector<HTMLElement>("[data-pocket-root]");
+
+    await act(async () => buttonByLabel("ポケットを閉じる").click());
+
+    // 畳む動きの最中: 中身はまだあるが、押せない (畳まれていく途中の押し間違いを避ける)。
+    expect(getPocketState().expanded).toBe(false);
+    expect(cards()).toHaveLength(1);
+    expect(bar()?.dataset.phase).toBe("expanded");
+    expect(bar()?.dataset.closing).toBe("true");
+
+    await afterTransition();
+
+    expect(bar()?.dataset.phase).toBe("collapsed");
+    expect(bar()?.dataset.closing).toBeUndefined();
+    expect(cards()).toHaveLength(0);
+  });
+
+  it("stays open if it is opened again while it is still folding away", async () => {
+    await act(async () => {
+      putBlocks();
+    });
+    await render();
+    await act(async () => buttonByLabel("ポケットを閉じる").click());
+    expect(container.querySelector<HTMLElement>("[data-pocket-root]")?.dataset.closing).toBe("true");
+
+    await act(async () => {
+      setPocketExpanded(true);
+    });
+    await afterTransition();
+
+    const bar = container.querySelector<HTMLElement>("[data-pocket-root]");
+    expect(bar?.dataset.phase).toBe("expanded");
+    expect(bar?.dataset.closing).toBeUndefined();
+    expect(cards()).toHaveLength(1);
+  });
+
+  it("folds away at once for someone who asked for less motion", async () => {
+    const matchMedia = window.matchMedia;
+    window.matchMedia = ((query: string) => ({ matches: query.includes("reduce"), media: query } as MediaQueryList)) as typeof window.matchMedia;
+    try {
+      await act(async () => {
+        putBlocks();
+      });
+      await render();
+
+      await act(async () => buttonByLabel("ポケットを閉じる").click());
+
+      expect(container.querySelector<HTMLElement>("[data-pocket-root]")?.dataset.phase).toBe("collapsed");
+      expect(cards()).toHaveLength(0);
+    } finally {
+      window.matchMedia = matchMedia;
+    }
   });
 
   it("shows an empty pocket's hint and the reason a put-in failed", async () => {
@@ -367,5 +433,265 @@ describe("PocketBar", () => {
     });
 
     expect(container.innerHTML).toBe("");
+  });
+
+  describe("the part that was put in flies into the pocket", () => {
+    interface FakeAnimation {
+      keyframes: Array<Record<string, unknown>>;
+      options: { duration: number };
+      finish: () => void;
+      cancel: ReturnType<typeof vi.fn>;
+    }
+    let animations: FakeAnimation[];
+    let original: typeof Element.prototype.animate;
+    let disposers: Array<() => void>;
+
+    const settle = (ms = 40) => act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, ms));
+    });
+
+    beforeEach(() => {
+      animations = [];
+      disposers = [];
+      original = Element.prototype.animate;
+      Element.prototype.animate = function animate(this: Element, keyframes: unknown, options: unknown) {
+        let finish = () => {};
+        const finished = new Promise<void>((resolve) => { finish = resolve; });
+        const cancel = vi.fn();
+        animations.push({ keyframes: keyframes as FakeAnimation["keyframes"], options: options as FakeAnimation["options"], finish, cancel });
+        return { finished, cancel } as unknown as Animation;
+      } as typeof Element.prototype.animate;
+    });
+
+    afterEach(() => {
+      Element.prototype.animate = original;
+      disposers.forEach((dispose) => dispose());
+    });
+
+    it("hides the card while the part flies, then lets it land with a bounce", async () => {
+      disposers.push(registerPocketPageHost({
+        placeOnPage: () => false,
+        // 幅はカード (168) の 2 倍。出発の大きさはこの比 (2 倍) になる。
+        getSelectionRect: () => ({ left: 100, top: 300, width: 336, height: 20 }),
+      }));
+      // happy-dom は座標を持たないので、着く先のカードの位置を決める: 中心 (484, 156)。
+      const rect = vi.spyOn(Element.prototype, "getBoundingClientRect").mockReturnValue(
+        { left: 400, top: 120, width: 168, height: 72, right: 568, bottom: 192, x: 400, y: 120, toJSON: () => ({}) },
+      );
+      disposers.push(() => rect.mockRestore());
+      await render();
+
+      await act(async () => {
+        putBlocks();
+      });
+      await settle(400);
+
+      // 着く先のカードと同じ姿のものが飛び、本物のカードは着くまで隠れている。
+      const flyer = document.querySelector("[data-pocket-flyer]");
+      expect(flyer).not.toBeNull();
+      expect(flyer?.querySelector("[class*='cardPreview']")).not.toBeNull();
+      expect(cards()[0]?.dataset.flying).toBe("true");
+      expect(animations).toHaveLength(1);
+      const [first, , middle, last] = animations[0]!.keyframes;
+      // 選択の中心 (268, 310) から始まり、真ん中で持ち上がり、カードの位置 (移動 0) で終わる。
+      expect(first?.transform).toBe("translate(-216px, 154px) scale(2)");
+      expect(String(middle?.transform)).toContain("translate(-108px, 41px)");
+      expect(last?.transform).toBe("translate(0px, 0px) scale(1)");
+      expect(animations[0]?.options.duration).toBeGreaterThan(300);
+
+      await act(async () => {
+        animations[0]!.finish();
+        await Promise.resolve();
+      });
+
+      expect(document.querySelector("[data-pocket-flyer]")).toBeNull();
+      expect(cards()[0]?.dataset.flying).toBeUndefined();
+      expect(cards()[0]?.dataset.landed).toBe("true");
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 450));
+      });
+      expect(cards()[0]?.dataset.landed).toBeUndefined();
+    });
+
+    it("shows no flight when the page cannot say where the selection was", async () => {
+      disposers.push(registerPocketPageHost({ placeOnPage: () => false, getSelectionRect: () => null }));
+      await render();
+
+      await act(async () => {
+        putBlocks();
+      });
+      await settle(400);
+
+      expect(document.querySelector("[data-pocket-flyer]")).toBeNull();
+      expect(animations).toHaveLength(0);
+      expect(cards()[0]?.dataset.flying).toBeUndefined();
+    });
+
+    it("shows no flight for someone who asked for less motion", async () => {
+      disposers.push(registerPocketPageHost({
+        placeOnPage: () => false,
+        getSelectionRect: () => ({ left: 100, top: 300, width: 200, height: 20 }),
+      }));
+      const matchMedia = window.matchMedia;
+      window.matchMedia = ((query: string) => ({ matches: query.includes("reduce"), media: query } as MediaQueryList)) as typeof window.matchMedia;
+      try {
+        await render();
+        await act(async () => {
+          putBlocks();
+        });
+        await settle(400);
+
+        expect(document.querySelector("[data-pocket-flyer]")).toBeNull();
+        expect(cards()[0]?.dataset.flying).toBeUndefined();
+      } finally {
+        window.matchMedia = matchMedia;
+      }
+    });
+
+    it("waits for the pocket to finish opening before it flies, because the card is still moving", async () => {
+      disposers.push(registerPocketPageHost({
+        placeOnPage: () => false,
+        getSelectionRect: () => ({ left: 100, top: 300, width: 200, height: 20 }),
+      }));
+      await render();
+
+      await act(async () => {
+        putBlocks();
+      });
+      await settle(120);
+      // 開く動きの最中: カードはもう並んでいるが、まだ飛ばさない。
+      expect(cards()).toHaveLength(1);
+      expect(document.querySelector("[data-pocket-flyer]")).toBeNull();
+      expect(animations).toHaveLength(0);
+
+      await settle(260);
+      expect(document.querySelector("[data-pocket-flyer]")).not.toBeNull();
+    });
+
+    it("flies at once when the pocket was already open", async () => {
+      disposers.push(registerPocketPageHost({
+        placeOnPage: () => false,
+        getSelectionRect: () => ({ left: 100, top: 300, width: 200, height: 20 }),
+      }));
+      await render();
+      await act(async () => {
+        putBlocks();
+      });
+      await settle(400);
+      await act(async () => {
+        animations[0]!.finish();
+        await Promise.resolve();
+      });
+      expect(document.querySelector("[data-pocket-flyer]")).toBeNull();
+
+      await act(async () => {
+        putShapes();
+      });
+      await settle(60);
+
+      expect(document.querySelector("[data-pocket-flyer]")).not.toBeNull();
+      expect(animations).toHaveLength(2);
+    });
+
+    it("throws the flight away when the pocket is closed mid-air, so it does not start again on reopening", async () => {
+      disposers.push(registerPocketPageHost({
+        placeOnPage: () => false,
+        getSelectionRect: () => ({ left: 100, top: 300, width: 200, height: 20 }),
+      }));
+      await render();
+      await act(async () => {
+        putBlocks();
+      });
+      await settle(400);
+      expect(document.querySelector("[data-pocket-flyer]")).not.toBeNull();
+
+      await act(async () => buttonByLabel("ポケットを閉じる").click());
+      await afterTransition();
+      await act(async () => buttonByLabel(/ポケット 1件/).click());
+      await settle();
+
+      expect(document.querySelector("[data-pocket-flyer]")).toBeNull();
+      expect(animations[0]?.cancel).toHaveBeenCalled();
+    });
+  });
+
+  describe("the closed pocket's chip", () => {
+    const move = (y: number) => window.dispatchEvent(new PointerEvent("pointermove", { bubbles: true, clientX: 600, clientY: y }));
+    const bar = () => container.querySelector<HTMLElement>('[data-phase="collapsed"]');
+
+    beforeEach(() => {
+      vi.useFakeTimers();
+    });
+
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    async function renderClosed(): Promise<void> {
+      await act(async () => {
+        putBlocks();
+        setPocketExpanded(false);
+      });
+      await render();
+      expect(bar()).not.toBeNull();
+    }
+
+    it("stays out of sight until the pointer goes to the top, then appears", async () => {
+      await renderClosed();
+      expect(bar()?.dataset.revealed).toBeUndefined();
+
+      // 段の上端 (ここでは 0) から下の帯へマウスが入って、少し留まると出る。
+      await act(async () => {
+        move(20);
+        vi.advanceTimersByTime(60);
+      });
+      expect(bar()?.dataset.revealed).toBeUndefined();
+      await act(async () => {
+        vi.advanceTimersByTime(100);
+      });
+      expect(bar()?.dataset.revealed).toBe("true");
+    });
+
+    it("does not flash when the pointer only passes through on its way to the toolbar", async () => {
+      await renderClosed();
+
+      await act(async () => {
+        move(20);
+        vi.advanceTimersByTime(60);
+        move(300);
+        vi.advanceTimersByTime(1000);
+      });
+
+      expect(bar()?.dataset.revealed).toBeUndefined();
+    });
+
+    it("goes away again a moment after the pointer leaves the top", async () => {
+      await renderClosed();
+      await act(async () => {
+        move(20);
+        vi.advanceTimersByTime(200);
+      });
+      expect(bar()?.dataset.revealed).toBe("true");
+
+      await act(async () => {
+        move(400);
+        vi.advanceTimersByTime(200);
+      });
+      expect(bar()?.dataset.revealed).toBe("true");
+      await act(async () => {
+        vi.advanceTimersByTime(400);
+      });
+      expect(bar()?.dataset.revealed).toBeUndefined();
+    });
+
+    it("stays reachable from the keyboard while it is out of sight, and opens the pocket", async () => {
+      await renderClosed();
+
+      const handle = buttonByLabel(/ポケット 1件/);
+      expect(handle.tabIndex).toBe(0);
+      await act(async () => handle.click());
+
+      expect(getPocketState().expanded).toBe(true);
+    });
   });
 });

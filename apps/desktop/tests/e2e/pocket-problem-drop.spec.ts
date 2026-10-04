@@ -3,7 +3,10 @@ import { expect, test, type Locator, type Page } from "@playwright/test";
 import { sampleDocument } from "@/lib/sample-document";
 import type { SigmaDocument } from "@/types/sigma-doc";
 
+import { getDefaultPageLayout } from "@/features/document";
+
 import { installDesktopRuntimeMock } from "./desktop-runtime-mock";
+import { installDocumentTabMock } from "./document-tab-mock";
 
 interface SavedBlock {
   id: string;
@@ -117,4 +120,46 @@ test("drops a range holding a problem at the drop point, leaving the original ra
   expect(pasted?.solution?.length).toBe(1);
   // ポケットの項目は減らない。
   await expect(page.locator("[data-pocket-item]")).toHaveCount(1);
+});
+
+test("a problem copied into the pocket lands on a whiteboard as separate paragraphs, in page order", async ({ page }) => {
+  await page.setViewportSize({ width: 1400, height: 1200 });
+  await page.addInitScript(() => window.localStorage.clear());
+  const whiteboard = {
+    ...createDocument(),
+    docId: "doc_e2e_pocket_problem_whiteboard",
+    metadata: { title: "ホワイトボード" },
+    content: [],
+    pageLayout: {
+      ...getDefaultPageLayout("whiteboard"),
+      overlay: { overlaySnapshot: { version: 1, shapes: [], assets: {} } },
+    },
+  } as SigmaDocument;
+  await installDocumentTabMock(page, createDocument(), whiteboard);
+  await page.goto("/");
+  await page.locator(".startup-splash").waitFor({ state: "hidden", timeout: 15_000 });
+  await expect(page.locator('[data-sigma-doc-id="prob_prompt"]').first()).toBeVisible();
+
+  await dragSelectRange(page, "p_before", "p_after");
+  await page.keyboard.press("ControlOrMeta+Shift+KeyC");
+  const card = page.locator("[data-pocket-item] button[data-kind]").first();
+  await expect(card).toHaveAttribute("data-kind", "blocks");
+
+  await page.mouse.click(700, 1100);
+  await page.getByRole("button", { name: "新規教材", exact: true }).click();
+  await expect(page.locator(".whiteboard-page-canvas")).toBeVisible();
+  await card.click();
+
+  // 問題の領域は、1 つに連結されず、紙面の並び (導入文 → 問題文 → ヒント → 解答) で段落のまま入る。
+  const shape = page.locator(".overlay-shape", { hasText: "導入文です。" });
+  await expect(shape).toHaveCount(1);
+  const lines = (await shape.first().innerText()).split("\n").map((line) => line.trim()).filter(Boolean);
+  expect(lines).toEqual([
+    "問題の前の段落です。",
+    "導入文です。",
+    "問題文です。",
+    "ヒントです。",
+    "解答です。",
+    "問題の後の段落です。",
+  ]);
 });

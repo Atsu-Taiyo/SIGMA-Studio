@@ -1,4 +1,11 @@
-import type { InlineNode, OverlayShape, OverlayTextBlock, OverlayTextShape } from "@/features/document";
+import {
+  PROBLEM_AREA_ORDER,
+  type InlineNode,
+  type OverlayShape,
+  type OverlayTextBlock,
+  type OverlayTextShape,
+  type SigmaBlock,
+} from "@/features/document";
 import {
   DEFAULT_TEXT_SHAPE_WIDTH,
   getShapesSelectionBounds,
@@ -82,11 +89,32 @@ function inlineMathParagraph(tex: string): OverlayTextBlock {
 }
 
 /**
+ * 本文のブロックを、図形に入れられるブロックの並びへ直す。
+ *
+ * 図形は段落・見出し・リスト・引用・コード・区切り線までしか持てない。問題・囲み枠・段組は、
+ * 中のブロックを**ブロックのまま順に**並べて持ち込む (段落やリストの区切り、数式、書式を保つ)。
+ * 問題は紙面に並ぶ順 (導入文 → 問題文 → ヒント → 解答) で、番号・枠・タグは図形に持てないので落ちる。
+ * 節は見出しの文字だけを段落にする。
+ */
+function toOverlayTextBlocks(block: SigmaBlock | Parameters<typeof toOverlayTextBlock>[0]): OverlayTextBlock[] {
+  switch (block.type) {
+    case "problem":
+      return PROBLEM_AREA_ORDER.flatMap((area) => (block[area] as SigmaBlock[]).flatMap(toOverlayTextBlocks));
+    case "boxBlock":
+      return (block.blocks as SigmaBlock[]).flatMap(toOverlayTextBlocks);
+    case "layoutSection":
+      return (block.children as SigmaBlock[]).flatMap(toOverlayTextBlocks);
+    default:
+      return [toOverlayTextBlock(block as Parameters<typeof toOverlayTextBlock>[0])];
+  }
+}
+
+/**
  * コピーが書いた内容から、文章の図形に入れるブロックを作る。作れるものが無ければ空。
  *
  * SigmaDoc の payload (ブロック・数式) を最優先し、無いときは本文の範囲コピーの slice、
  * それも無いときだけプレーンテキストを使う。図形に入れられないブロック (問題など) は、
- * 含んでいる文章だけを段落にして持ち込む — 捨てると、ポケットに入れた中身が消えてしまうため。
+ * 中のブロックを順に並べて持ち込む — 捨てると、ポケットに入れた中身が消えてしまうため。
  */
 function textBlocksFromClipboard(
   clip: Readonly<Record<string, string>>,
@@ -97,11 +125,10 @@ function textBlocksFromClipboard(
     return payload.tex.trim() ? [inlineMathParagraph(payload.tex)] : [];
   }
   if (payload?.kind === "textFlowBlocks" || payload?.kind === "documentBlocks") {
-    // `toOverlayTextBlock` は図形に入れられない入れ物 (問題・箱・段組・節) を、含んでいる文章の
-    // 段落へ直す。文章を持たないブロック (画像・表) は、ここでは持ち込まない。
+    // 文章を持たないブロック (画像・表) は、ここでは持ち込まない。
     const blocks: OverlayTextBlock[] = payload.blocks
       .filter((block) => payload.kind === "textFlowBlocks" || block.type === "problem" || isTextFlowClipboardBlock(block))
-      .map((block) => toOverlayTextBlock(block as Parameters<typeof toOverlayTextBlock>[0]));
+      .flatMap((block) => toOverlayTextBlocks(block));
     return blocks.length > 0 ? blocks : paragraphsFromPlainText(plain);
   }
   if (payload?.kind === "textAndShapes") {

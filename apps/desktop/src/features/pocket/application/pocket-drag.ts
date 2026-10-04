@@ -23,6 +23,14 @@ export interface PocketPagePoint {
   readonly y: number;
 }
 
+/** 画面の座標での矩形。入れたものが飛んでいく元の位置に使う。 */
+export interface PocketScreenRect {
+  readonly left: number;
+  readonly top: number;
+  readonly width: number;
+  readonly height: number;
+}
+
 /**
  * 紙面 (オーバーレイ) へ項目を置く役。紙面の座標系と図形の追加を知っているのは編集画面なので、
  * ポケットはその窓口だけを持ち、実装は `EditorShell` が登録する。
@@ -40,6 +48,11 @@ export interface PocketPageHost {
    * 落とした位置ではなく、その選択を置き換える形で入ってしまう。
    */
   beforePlaceCaret?(): void;
+  /**
+   * いま選ばれているもの (文章の範囲・図形) の、画面での位置。ポケットへ入れたとき、その部分が
+   * ポケットへ飛んでいく動きの出発点になる。選択の位置が分からないときは null (動きは出さない)。
+   */
+  getSelectionRect?(): PocketScreenRect | null;
 }
 
 export function beginPocketDrag(dataTransfer: DataTransfer, id: string): void {
