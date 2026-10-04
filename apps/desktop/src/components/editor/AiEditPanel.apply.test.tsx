@@ -54,13 +54,14 @@ describe("AssistantTurnView apply failure", () => {
         <AssistantTurnView turn={turn} clockNow={0} proposal={proposal}
           proposalBusy={false} onApplyProposal={onApplyProposal} />,
       ));
-      const applyButton = container.querySelector<HTMLButtonElement>(".ai-chat-result-proposal-actions button");
+      const applySelector = '.ai-chat-result-proposal [data-ai-proposal-bar] button[aria-label="適用"]';
+      const applyButton = container.querySelector<HTMLButtonElement>(applySelector);
       expect(applyButton).not.toBeNull();
       await act(async () => applyButton!.click());
       expect(onApplyProposal).toHaveBeenCalledWith(["proposal-1"]);
-      expect(container.querySelector(".ai-chat-error")?.textContent).toBe(reason);
+      expect(container.querySelector('.ai-chat-result-proposal [data-ai-proposal-bar] + [data-ai-proposal-bar-details] [role="alert"]')?.textContent).toBe(reason);
       expect(container.querySelector(".ai-chat-result-proposal")).not.toBeNull();
-      expect(container.querySelector(".ai-chat-result-proposal-actions button")).not.toBeNull();
+      expect(container.querySelector(applySelector)).not.toBeNull();
     } finally {
       await act(async () => root.unmount());
       container.remove();

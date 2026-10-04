@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  filterSelectableShapeIds,
+  pruneUnselectableSelection,
   getOverlayActionTargetShapeIds,
+  isOverlayShapeUnselectable,
   isOverlayActionBlockedByEditPolicy,
   isOverlaySelectionBlockedByEditPolicy,
 } from "./edit-policy";
@@ -209,5 +212,39 @@ describe("isOverlaySelectionBlockedByEditPolicy", () => {
       ["a"],
       new Set(),
     )).toBe(false);
+  });
+});
+
+describe("unselectable shapes", () => {
+  it("drops shapes the feature hid from a hit or a marquee, and keeps the rest in order", () => {
+    expect(filterSelectableShapeIds(["a", "hidden", "b"], new Set(["hidden"]))).toEqual(["a", "b"]);
+    expect(filterSelectableShapeIds(["a", "b"], new Set())).toEqual(["a", "b"]);
+    expect(filterSelectableShapeIds(["a"], undefined)).toEqual(["a"]);
+  });
+
+  it("tells a hit test to skip a hidden shape", () => {
+    expect(isOverlayShapeUnselectable("hidden", new Set(["hidden"]))).toBe(true);
+    expect(isOverlayShapeUnselectable("a", new Set(["hidden"]))).toBe(false);
+    expect(isOverlayShapeUnselectable("a", undefined)).toBe(false);
+  });
+});
+
+describe("unselectable shapes inside groups and the current selection", () => {
+  const shapes = normalizeOverlayGroups([
+    group("group"),
+    rect("member_hidden", "group"),
+    rect("member_visible", "group"),
+    rect("lone"),
+  ]);
+
+  it("does not select a group that holds a hidden shape (⌘A, select-all from the body, marquee)", () => {
+    expect(filterSelectableShapeIds(["group", "lone"], new Set(["member_hidden"]), shapes)).toEqual(["lone"]);
+    expect(filterSelectableShapeIds(["group", "lone"], new Set(), shapes)).toEqual(["group", "lone"]);
+  });
+
+  it("drops shapes that became unselectable from the current selection, and leaves it alone otherwise", () => {
+    expect(pruneUnselectableSelection(["lone", "group"], shapes, new Set(["member_hidden"]))).toEqual(["lone"]);
+    expect(pruneUnselectableSelection(["lone"], shapes, new Set(["member_hidden"]))).toBeNull();
+    expect(pruneUnselectableSelection(["lone"], shapes, undefined)).toBeNull();
   });
 });

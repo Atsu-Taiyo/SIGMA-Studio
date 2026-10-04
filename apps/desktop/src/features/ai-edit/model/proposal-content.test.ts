@@ -467,6 +467,17 @@ describe("groupPendingProposalContentByAnchor", () => {
     // 紙面のカードは本文だけを描く。図形はキャンバス上で決める。
     expect(cards.every((card) => card.content.shapes.length === 0)).toBe(true);
   });
+
+  it("makes no card where the page has nothing to place it after (the decision falls back to a floating bar)", () => {
+    const document = baseDocument();
+    // 文書に無いブロック (ヘッダーの中など) を対象にした置き換えと、対象ブロックを持たない操作。
+    const missingAnchor = previewOf([replace("not_in_document", "どこにも置けない")], [], { proposalIds: ["p-missing"] });
+    const layoutOnly = previewOf([], [
+      { operation: "updatePageLayout", summary: "余白を広げる", patch: { marginsMm: { top: 20 } } } as unknown as SigmaDocMutationOp,
+    ], { proposalIds: ["p-layout"] });
+
+    expect(groupPendingProposalContentByAnchor([missingAnchor, layoutOnly], document).size).toBe(0);
+  });
 });
 
 describe("toDisplayProposalHunk", () => {

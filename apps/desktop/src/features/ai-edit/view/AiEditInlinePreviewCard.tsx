@@ -1,10 +1,10 @@
 "use client";
 
-import { X } from "lucide-react";
-import { useState } from "react";
-import type { CSSProperties } from "react";
+import { useId, useState } from "react";
+import type { CSSProperties, ReactNode } from "react";
 
-import { AiProposalActions } from "@/components/ui/ai";
+import { useIsFlowExtensionReplica } from "@/components/editor/page-canvas/flow-extension-replica";
+import { AiProposalDecisionBar } from "@/components/ui/ai";
 import type { MathFractionSizing } from "@/features/document";
 import { createCurrentLocaleTranslator, type Translate } from "@/lib/i18n";
 import { useT } from "@/lib/i18n/react";
@@ -12,16 +12,23 @@ import type { SigmaDocMutationOp } from "@/lib/ai/sigma-doc-edit-schema";
 import type { DesktopAiSourceReference } from "@/types/desktop";
 import {
   formatAiProposalProviderLabel,
+  isOverlayOnlyAiEditPreview,
+  isOverlayOwnedAiEditDraft,
+  isOverlaySigmaDocMutationOp,
   type AiEditPreviewState,
   type McpEditProposalProvider,
 } from "../model/preview";
-import type { AiProposalContent, AiProposalOperationKind } from "../model/proposal-content";
+import type { AiProposalContent, AiProposalContentHunk, AiProposalOperationKind } from "../model/proposal-content";
+import { DEFAULT_AI_PROPOSAL_DISPLAY_STATE, type AiProposalDisplayState } from "../model/proposal-display-state";
 import type { AiProposalApplyOutcome } from "../application/proposal-action-model";
 import { AiProposalContentView } from "./AiProposalContentView";
 import {
   AiSourceReferenceChips,
   type AiSourceReferenceOpenDocumentParams,
 } from "./AiSourceReferenceChips";
+
+/** 浮かぶバーの要約は 3 行まで。残りは「ほかn件」の 1 行にまとめる。 */
+export const OVERLAY_SUMMARY_MAX_LINES = 3;
 
 /** Splits an overlay widget's compact change list into visible rows and remainder. */
 function splitChangeSummaryLines(lines: string[], maxLines: number): { shown: string[]; moreCount: number } {
@@ -162,7 +169,8 @@ export function getAiEditOverlayApprovalTitle(
   return t(`card.title.${getAiEditOverlayApprovalTitleId(preview)}` as never) as unknown as string;
 }
 
-function getAiProposalSessionLabel({
+/** 浮かぶバーに出すセッション名 (プロバイダ名と同じなら出さない)。 */
+export function getAiProposalSessionLabel({
   providers,
   sessionLabel,
 }: {
@@ -175,26 +183,88 @@ function getAiProposalSessionLabel({
 }
 
 /**
- * 本文フローに属するAI編集案を、適用後の内容と共通判断操作を備えたカードとして示す。
- * 内容は `AiProposalContentView` (`surface="page"`) が描き、ここはカードの外枠だけを持つ。
- * オーバーレイ専用案はここへ混ぜず (内容に本文の塊が無ければ何も出さない)、本文のページ計測を守る。
- *
- * 情報構造はサイドバーの提案カード (`.ai-chat-result-proposal`) を踏襲する:
- * 「提案された変更」見出し → 変更内容 → 参照元チップ → 判断アクション。プロバイダ名や
- * セッションラベルは意図的に出さない (サイドバー側が持つ帰属情報をここで二重に出さない)。
- * 適用後は本カード自体が消えるため、適用済みの差分・参照元・「元に戻す」といった
- * 事後情報はすべて会話側 (`AssistantTurnView`) に集約する — 「続けて修正」がその導線。
+ * 紙面のカードとサイドバー・⌘K のバーに出す見出しの id を、提案の操作から決める。
+ * 図形だけの提案は図形のそばのバーと同じ名前 (`getAiEditOverlayApprovalTitleId`)、本文を含む提案は
+ * 本文の操作の種類で決める (紙面のカードの `getAiEditInlinePreviewTitleId` と同じ規則)。
  */
-export function AiEditInlinePreviewCard({
-  content,
-  applying,
-  mathFractionSizing,
-  sourceReferences,
-  onOpenConversation,
-  onOpenSourceDocument,
-  onApply,
-  onDismiss,
-}: {
+export function getAiProposalTitleId(preview: AiEditPreviewState): AiPreviewTitleId {
+  if (isOverlayOnlyAiEditPreview(preview)) {
+    return getAiEditOverlayApprovalTitleId(preview);
+  }
+  const operations = preview.draft.operations;
+  const kinds: AiProposalOperationKind[] = [
+    ...operations
+      .filter((operation) => !isOverlayOwnedAiEditDraft(operation, operations))
+      .map((operation): AiProposalOperationKind => (operation.operation === "insertAfter" ? "insertAfter" : "replace")),
+    ...(preview.draft.mutationOperations ?? [])
+      .filter((operation) => !isOverlaySigmaDocMutationOp(operation))
+      .map((operation): AiProposalOperationKind => {
+        const kind = (operation as { operation?: unknown }).operation;
+        return kind === "deleteBlocks" || kind === "moveBlocks" ? kind : "other";
+      }),
+  ];
+  return getAiEditInlinePreviewTitleId({ hunks: [{ ...EMPTY_TITLE_HUNK, operations: kinds }], shapes: [] });
+}
+
+const EMPTY_TITLE_HUNK: AiProposalContentHunk = {
+  anchorBlockId: "",
+  removed: [],
+  added: [],
+  notes: [],
+  operations: [],
+  numbering: {
+    removed: { problems: new Map(), headings: new Map() },
+    added: { problems: new Map(), headings: new Map() },
+  },
+};
+
+export function getAiProposalTitle(preview: AiEditPreviewState, t: Translate<"ai"> = DEFAULT_AI_TRANSLATE): string {
+  return t(`card.title.${getAiProposalTitleId(preview)}` as never) as unknown as string;
+}
+
+/**
+ * 表示状態を、持ち主 (紙面の拡張) から受け取るか自分で持つか。どちらでも同じ形で読み書きする。
+ * 紙面のカードは改ページで切れると続きの複製が別のインスタンスで描かれるので、持ち主が持つ
+ * (`model/proposal-display-state.ts`)。単独で描くとき (テストなど) は自分で持つ。
+ */
+function useProposalDisplayState(
+  displayState: AiProposalDisplayState | undefined,
+  onDisplayStateChange: ((patch: Partial<AiProposalDisplayState>) => void) | undefined,
+): [AiProposalDisplayState, (patch: Partial<AiProposalDisplayState>) => void] {
+  const [ownState, setOwnState] = useState<AiProposalDisplayState>(DEFAULT_AI_PROPOSAL_DISPLAY_STATE);
+  if (displayState && onDisplayStateChange) {
+    return [displayState, onDisplayStateChange];
+  }
+  return [ownState, (patch) => setOwnState((previous) => ({ ...previous, ...patch }))];
+}
+
+/** 表示状態をバーの props へ写す (内容を隠す・失敗の理由・破棄理由・変更前を隠す)。 */
+function decisionBarStateProps(
+  state: AiProposalDisplayState,
+  update: (patch: Partial<AiProposalDisplayState>) => void,
+  options: { hasContent: boolean; hasBeforeShapes: boolean; contentId?: string },
+) {
+  return {
+    ...(options.hasContent
+      ? {
+        contentHidden: state.contentHidden,
+        onContentHiddenChange: (contentHidden: boolean) => update({ contentHidden }),
+        contentId: options.contentId,
+      }
+      : {}),
+    ...(options.hasBeforeShapes
+      ? { beforeHidden: state.beforeHidden, onBeforeHiddenChange: (beforeHidden: boolean) => update({ beforeHidden }) }
+      : {}),
+    applyError: state.applyError,
+    onApplyErrorChange: (applyError: string | null) => update({ applyError }),
+    dismissReasonOpen: state.dismissReasonOpen,
+    onDismissReasonOpenChange: (dismissReasonOpen: boolean) => update({ dismissReasonOpen }),
+    dismissReason: state.dismissReason,
+    onDismissReasonChange: (dismissReason: string) => update({ dismissReason }),
+  };
+}
+
+export interface AiEditInlinePreviewCardProps {
   /** このアンカーに置く本文の塊 (`groupPendingProposalContentByAnchor`)。図形は描かない。 */
   content: AiProposalContent;
   applying: boolean;
@@ -210,86 +280,117 @@ export function AiEditInlinePreviewCard({
   /** Reason is the (optional, ≤200 chars) text the user typed in the discard
    * popover before confirming — undefined for a reason-less discard. */
   onDismiss?: (reason?: string) => void;
-}) {
+  /** 表示状態 (カードの外に持つ)。`onDisplayStateChange` と一緒に渡す。省略時はカードが自分で持つ。 */
+  displayState?: AiProposalDisplayState;
+  onDisplayStateChange?: (patch: Partial<AiProposalDisplayState>) => void;
+  /** 本文と一緒に図形の変更前/変更後もある提案。バーに「変更前を隠す」を出す。 */
+  hasBeforeShapes?: boolean;
+  /** バーの見出しの下に添える一言 (`AiProposalDecisionBar.notice`)。 */
+  notice?: ReactNode;
+}
+
+/**
+ * 本文フローに置く AI 編集案のカード。先頭の行が承認バー (`AiProposalDecisionBar`)、その下に
+ * 提案の内容を紙面と同じ段幅・同じ組版で描く (`AiProposalContentView` の `page`)。カードは幅も
+ * 高さも上限を持たず、内部でスクロールしない (長ければページ割りが次のページへ続ける)。
+ *
+ * - バーを最初の行に置くので、改ページで切れても操作は最初の帯 (正本) に残る。続きの複製では
+ *   バーを同じ寸法で描くが見せない (`useIsFlowExtensionReplica`)。
+ * - 「内容を隠す」は内容だけを隠してバーを残す。表示状態は持ち主から受け取る。
+ * - 図形は描かない (紙面に変更前/変更後を直接描く)。本文の塊が無ければ何も出さない。
+ * - プロバイダ名やセッションラベルは出さない (会話側が持つ帰属情報を二重に出さない)。適用後は
+ *   カードごと消え、適用済みの差分・「元に戻す」は会話側 (`AssistantTurnView`) が持つ。
+ */
+export function AiEditInlinePreviewCard({
+  content,
+  applying,
+  mathFractionSizing,
+  sourceReferences,
+  onOpenConversation,
+  onOpenSourceDocument,
+  onApply,
+  onDismiss,
+  displayState,
+  onDisplayStateChange,
+  hasBeforeShapes = false,
+  notice,
+}: AiEditInlinePreviewCardProps) {
   const t = useT("ai");
-  const tCommon = useT("common");
-  const [applyError, setApplyError] = useState<string | null>(null);
-  const [closed, setClosed] = useState(false);
-  const runApply = async () => {
-    if (!onApply) {
-      return;
-    }
-    setApplyError(null);
-    try {
-      const result = await onApply();
-      if (!result.ok) {
-        setApplyError(result.reason);
-      }
-    } catch (error) {
-      setApplyError(error instanceof Error ? error.message : t("card.applyFailed"));
-    }
-  };
+  const replica = useIsFlowExtensionReplica();
+  const contentId = useId();
+  const [state, update] = useProposalDisplayState(displayState, onDisplayStateChange);
 
   // 本文の塊が無い (図形だけの) 内容はキャンバス側で決める。本文カードは出さない。
-  if (closed || content.hunks.length === 0) {
+  if (content.hunks.length === 0) {
     return null;
   }
 
   const bodyContent: AiProposalContent = content.shapes.length === 0 ? content : { hunks: content.hunks, shapes: [] };
   const title = getAiEditInlinePreviewTitle(bodyContent, t);
+  // 複製は同じ id を持たない (支援技術・aria-controls が正本だけを指す)。
+  const ownContentId = replica ? undefined : contentId;
   return (
     <section
-      className="ai-inline-preview-dialog"
-      role="dialog"
-      aria-modal="false"
+      className="ai-proposal-card ai-proposal-card--page"
+      data-ai-proposal-card="page"
+      data-content-hidden={state.contentHidden ? "" : undefined}
       aria-label={t("card.dialogAria", { replace: { title } })}
       onMouseDown={(event) => event.stopPropagation()}
       onClick={(event) => event.stopPropagation()}
       onKeyDown={(event) => {
-        if (event.key === "Escape" && !event.defaultPrevented) {
+        if (event.key === "Escape" && !event.defaultPrevented && !state.contentHidden) {
           event.stopPropagation();
-          setClosed(true);
+          update({ contentHidden: true });
         }
       }}
     >
-      <div className="ai-inline-preview-header">
-        <p className="ai-inline-preview-diff-heading">{t("card.proposedChanges")}</p>
-        <button
-          type="button"
-          className="ai-inline-card-icon"
-          aria-label={tCommon("actions.close")}
-          title={tCommon("actions.close")}
-          onClick={() => setClosed(true)}
-        >
-          <X size={15} />
-        </button>
-      </div>
-      <div className="ai-inline-preview-scroll" aria-label={title}>
-        <AiProposalContentView content={bodyContent} surface="page" mathFractionSizing={mathFractionSizing} />
-      </div>
-      {sourceReferences && (
-        <AiSourceReferenceChips
-          sourceReferences={sourceReferences}
-          onOpenDocument={onOpenSourceDocument}
-        />
-      )}
-      <AiProposalActions
+      <AiProposalDecisionBar
+        surface="page"
+        title={title}
         applying={applying}
-        className="ai-inline-preview-actions"
+        replica={replica}
+        notice={notice}
+        references={sourceReferences && sourceReferences.length > 0 && (
+          <AiSourceReferenceChips sourceReferences={sourceReferences} onOpenDocument={onOpenSourceDocument} />
+        )}
         dismissReasonPlaceholder={t("card.dismissReasonExampleText")}
         onOpenConversation={onOpenConversation}
-        onApply={onApply ? () => void runApply() : undefined}
+        onApply={onApply}
         onDismiss={onDismiss}
+        {...decisionBarStateProps(state, update, { hasContent: true, hasBeforeShapes, contentId: ownContentId })}
       />
-      {applyError && <p className="ai-chat-error">{applyError}</p>}
+      <div id={ownContentId} className="ai-proposal-card-content" hidden={state.contentHidden}>
+        <AiProposalContentView content={bodyContent} surface="page" mathFractionSizing={mathFractionSizing} />
+      </div>
     </section>
   );
 }
 
+export interface AiEditOverlayApprovalWidgetProps {
+  preview: AiEditPreviewState;
+  applying: boolean;
+  /** 図形の上に置くか下に置くか (上に余白があれば上)。 */
+  placement: "above" | "below";
+  style: CSSProperties;
+  /** Short "what changed" lines (see `summarizeAiEditPreviewChanges`) — up to 3
+   * render verbatim, with any rest folded into "ほかn件". */
+  changeSummaryLines?: string[];
+  /** Opens this proposal's room in the shared floating conversation card. */
+  onOpenConversation?: (anchorElement: HTMLElement) => void;
+  onApply?: () => Promise<AiProposalApplyOutcome>;
+  onDismiss?: (reason?: string) => void;
+  displayState?: AiProposalDisplayState;
+  onDisplayStateChange?: (patch: Partial<AiProposalDisplayState>) => void;
+  /** 変更前/変更後が両方描かれる図形がある (更新・整列・置き換え)。バーに「変更前を隠す」を出す。 */
+  hasBeforeShapes?: boolean;
+  notice?: ReactNode;
+}
+
 /**
- * Compact decision toolbar for proposals that live wholly in the overlay
- * layer. Its parent positions it beside the proposed shape, so it never takes
- * part in body-flow measurement or pagination.
+ * 図形だけの提案の承認バー。本文フローを持たない (ホワイトボードにはそもそも無い) ので、紙面の
+ * カードと同じバーを図形の囲みのそばに付ける。親が overlay 層の中で絶対配置するので、本文の計測や
+ * 改ページには加わらない。変更前 (赤い破線) と変更後 (緑) は紙面に常に描かれ、時間では切り替わらない。
+ * 重なって読みにくいときはバーの「変更前を隠す」で出し分ける。
  */
 export function AiEditOverlayApprovalWidget({
   preview,
@@ -300,77 +401,55 @@ export function AiEditOverlayApprovalWidget({
   onOpenConversation,
   onApply,
   onDismiss,
-}: {
-  preview: AiEditPreviewState;
-  applying: boolean;
-  placement: "above" | "below";
-  style: CSSProperties;
-  /** Short "what changed" lines (see `summarizeAiEditPreviewChanges`) — the
-   * widget has no other surface to describe the change, so up to 3 render
-   * verbatim, with any rest folded into "ほかn件". */
-  changeSummaryLines?: string[];
-  /** Opens this proposal's room in the shared floating conversation card. */
-  onOpenConversation?: (anchorElement: HTMLElement) => void;
-  onApply?: () => Promise<AiProposalApplyOutcome>;
-  onDismiss?: (reason?: string) => void;
-}) {
+  displayState,
+  onDisplayStateChange,
+  hasBeforeShapes = false,
+  notice,
+}: AiEditOverlayApprovalWidgetProps) {
   const t = useT("ai");
-  const [applyError, setApplyError] = useState<string | null>(null);
-  const visibleSessionLabel = getAiProposalSessionLabel({
-    providers: preview.providers,
-    sessionLabel: preview.sessionLabel,
-  });
-  const title = getAiEditOverlayApprovalTitle(preview, t);
-  const { shown: summaryShown, moreCount: summaryMoreCount } = splitChangeSummaryLines(changeSummaryLines ?? [], 3);
-  const runApply = async () => {
-    if (!onApply) {
-      return;
-    }
-    setApplyError(null);
-    try {
-      const result = await onApply();
-      if (!result.ok) {
-        setApplyError(result.reason);
-      }
-    } catch (error) {
-      setApplyError(error instanceof Error ? error.message : t("card.applyFailed"));
-    }
-  };
+  const contentId = useId();
+  const [state, update] = useProposalDisplayState(displayState, onDisplayStateChange);
+  const visibleSessionLabel = getAiProposalSessionLabel(preview);
+  const title = getAiProposalTitle(preview, t);
+  const { shown: summaryShown, moreCount: summaryMoreCount } = splitChangeSummaryLines(changeSummaryLines ?? [], OVERLAY_SUMMARY_MAX_LINES);
+  const hasContent = Boolean(visibleSessionLabel) || summaryShown.length > 0;
   return (
     <section
-      className="ai-overlay-approval-widget"
+      className="ai-proposal-card ai-proposal-card--overlay"
+      data-ai-proposal-card="overlay"
       data-placement={placement}
       style={style}
-      role="dialog"
-      aria-modal="false"
       aria-label={t("card.overlayDialogAria", { replace: { title } })}
       onPointerDown={(event) => event.stopPropagation()}
       onMouseDown={(event) => event.stopPropagation()}
       onClick={(event) => event.stopPropagation()}
     >
-      <div className="ai-overlay-approval-copy">
-        {visibleSessionLabel && <span className="ai-overlay-approval-label">{visibleSessionLabel}</span>}
-        <span className="ai-overlay-approval-title">{title}</span>
-        {summaryShown.length > 0 && (
-          <ul className="ai-overlay-approval-summary-list">
-            {summaryShown.map((line, index) => (
-              <li key={index}>{line}</li>
-            ))}
-            {summaryMoreCount > 0 && (
-              <li className="ai-overlay-approval-summary-more">{t("card.summaryMore", { replace: { count: summaryMoreCount } })}</li>
-            )}
-          </ul>
-        )}
-      </div>
-      <AiProposalActions
+      <AiProposalDecisionBar
+        surface="overlay"
+        title={title}
         applying={applying}
-        className="ai-overlay-approval-actions"
+        notice={notice}
         dismissReasonPlaceholder={t("card.dismissReasonExampleShape")}
         onOpenConversation={onOpenConversation}
-        onApply={onApply ? () => void runApply() : undefined}
+        onApply={onApply}
         onDismiss={onDismiss}
+        {...decisionBarStateProps(state, update, { hasContent, hasBeforeShapes, contentId })}
       />
-      {applyError && <p className="ai-chat-error">{applyError}</p>}
+      {hasContent && (
+        <div id={contentId} className="ai-overlay-approval-copy" hidden={state.contentHidden}>
+          {visibleSessionLabel && <span className="ai-overlay-approval-label">{visibleSessionLabel}</span>}
+          {summaryShown.length > 0 && (
+            <ul className="ai-overlay-approval-summary-list">
+              {summaryShown.map((line, index) => (
+                <li key={index}>{line}</li>
+              ))}
+              {summaryMoreCount > 0 && (
+                <li className="ai-overlay-approval-summary-more">{t("card.summaryMore", { replace: { count: summaryMoreCount } })}</li>
+              )}
+            </ul>
+          )}
+        </div>
+      )}
     </section>
   );
 }

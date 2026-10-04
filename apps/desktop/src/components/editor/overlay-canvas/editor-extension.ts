@@ -17,6 +17,11 @@ export interface OverlayShapeDecoration {
  */
 export interface OverlayEditPolicy {
   lockedShapeIds: ReadonlySet<OverlayShapeId>;
+  /**
+   * 選べない図形 (機能が見えなくしたもの)。当たり判定・囲み選択の対象にしない。編集の禁止は
+   * `lockedShapeIds` で別に与える。
+   */
+  unselectableShapeIds?: ReadonlySet<OverlayShapeId>;
   blockedMessage?: string;
   blockedNoticeClassName?: string;
 }
