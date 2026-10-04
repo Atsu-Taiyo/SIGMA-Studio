@@ -4,7 +4,11 @@ import type { AiEditPreviewState } from "./model/preview";
 import type { AiProposalAnchorCard, AiProposalContentHunk } from "./model/proposal-content";
 
 import {
+  buildAiBeforeHiddenEditorExtensions,
   deriveAiOverlayShapeClassNames,
+  estimateFloatingDecisionBarHeight,
+  placeFloatingDecisionBars,
+  selectAiFloatingDecisionPreviews,
   getAiProposalCardKey,
   getAiProposalCardMeasureRevision,
   getAiProposalConversationKey,
@@ -244,5 +248,102 @@ describe("resolveAiEditGhostShapes", () => {
 
     expect(resolveAiEditGhostShapes([hidden, visible], [], blockRects, {}).map((shape) => shape.id))
       .toEqual(["visible"]);
+  });
+});
+
+describe("floating decision bars (proposals without a page card)", () => {
+  const withOps = (
+    proposalId: string,
+    operations: AiEditPreviewState["draft"]["operations"],
+    mutationOperations: NonNullable<AiEditPreviewState["draft"]["mutationOperations"]> = [],
+  ): AiEditPreviewState => ({
+    ...preview(operations),
+    proposalIds: [proposalId],
+    draft: { summary: "提案", plan: [], warnings: [], operations, mutationOperations },
+  });
+  const shapeMove = { operation: "updateOverlayShape" as const, summary: "移動", shapeId: "shape-1", patch: { x: 10 } };
+  const layout = { operation: "updatePageLayout", summary: "余白", patch: { marginsMm: { top: 20 } } } as never;
+  const replaceLeft = { operation: "replace" as const, summary: "置換", targetId: "left", replacementBlock: { id: "left", type: "paragraph", children: [] } as never };
+
+  it("gives a floating bar to every proposal that has no card in the page flow, whatever it changes", () => {
+    const shapeOnly = withOps("p-shape", [], [shapeMove]);
+    const mixedWithoutCard = withOps("p-mixed", [], [shapeMove, layout]);
+    const layoutOnly = withOps("p-layout", [], [layout]);
+    const bodyWithCard = withOps("p-body", [replaceLeft]);
+    const mixedWithCard = withOps("p-mixed-card", [replaceLeft], [shapeMove]);
+
+    expect(selectAiFloatingDecisionPreviews(
+      [shapeOnly, mixedWithoutCard, layoutOnly, bodyWithCard, mixedWithCard],
+      new Set([bodyWithCard, mixedWithCard]),
+    )).toEqual([shapeOnly, mixedWithoutCard, layoutOnly]);
+  });
+
+  const frame = { pageWidthPx: 800, pageHeightPx: 1100, pageStridePx: 1124, desiredWidthPx: 320, gapPx: 8, marginPx: 12 };
+  const page = { left: 0, right: 800, width: 800 };
+  const rectOf = (placement: ReturnType<typeof placeFloatingDecisionBars>[number], height: number) => ({
+    left: placement.left - placement.width / 2,
+    right: placement.left + placement.width / 2,
+    top: placement.placement === "above" ? placement.top - height : placement.top,
+    bottom: placement.placement === "above" ? placement.top : placement.top + height,
+  });
+  const overlaps = (a: ReturnType<typeof rectOf>, b: ReturnType<typeof rectOf>) => (
+    a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom
+  );
+
+  it("puts the bar above the shapes when there is room on the page, else below", () => {
+    const [above, below] = placeFloatingDecisionBars([
+      { key: "a", bounds: { x: 300, y: 400, w: 100, h: 50 }, horizontalBounds: page, heightPx: 80 },
+      { key: "b", bounds: { x: 300, y: 20, w: 100, h: 50 }, horizontalBounds: page, heightPx: 80 },
+    ], frame);
+
+    expect(above).toMatchObject({ key: "a", placement: "above", left: 350, top: 392 });
+    expect(below).toMatchObject({ key: "b", placement: "below", top: 78 });
+  });
+
+  it("stacks bars for the same shapes by their real heights so none covers another", () => {
+    const requests = [
+      { key: "a", bounds: { x: 300, y: 400, w: 100, h: 50 }, horizontalBounds: page, heightPx: 140 },
+      { key: "b", bounds: { x: 300, y: 400, w: 100, h: 50 }, horizontalBounds: page, heightPx: 60 },
+      { key: "c", bounds: { x: 320, y: 404, w: 100, h: 50 }, horizontalBounds: page, heightPx: 90 },
+    ];
+    const placements = placeFloatingDecisionBars(requests, frame);
+    const rects = placements.map((placement, index) => rectOf(placement, requests[index].heightPx));
+
+    for (let i = 0; i < rects.length; i += 1) {
+      for (let j = i + 1; j < rects.length; j += 1) {
+        expect(overlaps(rects[i], rects[j]), `${i} vs ${j}`).toBe(false);
+      }
+    }
+  });
+
+  it("places a proposal with nothing to point at near the top right of the first page", () => {
+    const [placement] = placeFloatingDecisionBars([
+      { key: "layout", bounds: null, horizontalBounds: page, heightPx: 60 },
+    ], frame);
+
+    expect(placement).toMatchObject({ placement: "below", left: 800 - 12 - 160, top: 12 });
+  });
+
+  it("estimates a taller bar for every extra line under it", () => {
+    const bare = estimateFloatingDecisionBarHeight({ summaryLineCount: 0, hasSessionLabel: false, hasApplyError: false });
+    const withSummary = estimateFloatingDecisionBarHeight({ summaryLineCount: 3, hasSessionLabel: true, hasApplyError: false });
+    const withError = estimateFloatingDecisionBarHeight({ summaryLineCount: 3, hasSessionLabel: true, hasApplyError: true });
+
+    expect(bare).toBeGreaterThanOrEqual(46);
+    expect(withSummary).toBeGreaterThan(bare + 3 * 14);
+    expect(withError).toBeGreaterThan(withSummary);
+  });
+});
+
+describe("buildAiBeforeHiddenEditorExtensions", () => {
+  it("makes a hidden before shape neither selectable nor editable", () => {
+    const extensions = buildAiBeforeHiddenEditorExtensions(new Set(["shape-1"]));
+
+    expect([...extensions!.overlayEditPolicy!.unselectableShapeIds!]).toEqual(["shape-1"]);
+    expect([...extensions!.overlayEditPolicy!.lockedShapeIds]).toEqual(["shape-1"]);
+  });
+
+  it("adds nothing while no before shape is hidden", () => {
+    expect(buildAiBeforeHiddenEditorExtensions(new Set())).toBeUndefined();
   });
 });

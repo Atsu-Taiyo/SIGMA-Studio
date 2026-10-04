@@ -80,7 +80,7 @@ import {
   resolveShapesPosition,
   type MeasuredBlock
 } from "./overlay-canvas/anchor";
-import { isOverlayActionBlockedByEditPolicy } from "./overlay-canvas/edit-policy";
+import { isOverlayActionBlockedByEditPolicy, isOverlayShapeUnselectable } from "./overlay-canvas/edit-policy";
 import { EMPTY_OVERLAY_EDIT_POLICY, type OverlayEditPolicy, type OverlayShapeDecoration } from "./overlay-canvas/editor-extension";
 import { focusOverlaySurface } from "./overlay-canvas/focus-overlay-surface";
 import {
@@ -480,6 +480,11 @@ export default function OverlayCanvasEditorClient({
   useEffect(() => {
     editPolicyLockedShapeIdsRef.current = editPolicyLockedShapeIds;
   }, [editPolicyLockedShapeIds]);
+  const editPolicyUnselectableShapeIds = editPolicy.unselectableShapeIds;
+  const editPolicyUnselectableShapeIdsRef = useRef(editPolicyUnselectableShapeIds);
+  useEffect(() => {
+    editPolicyUnselectableShapeIdsRef.current = editPolicyUnselectableShapeIds;
+  }, [editPolicyUnselectableShapeIds]);
   const [editPolicyNotice, setEditPolicyNotice] = useState<string | null>(null);
   const editPolicyNoticeTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const notifyEditPolicyBlocked = useCallback(() => {
@@ -1058,6 +1063,9 @@ export default function OverlayCanvasEditorClient({
 
   const getShapeAtPoint = useCallback((point: OverlayPoint, margin = 8): OverlayShape | undefined => {
     for (const shape of getRenderableShapesInReverseVisualStackOrder(shapesRef.current)) {
+      if (isOverlayShapeUnselectable(shape.id, editPolicyUnselectableShapeIdsRef.current)) {
+        continue;
+      }
       if (hitTestShape(shape, point, margin)) {
         return shape;
       }
@@ -1068,7 +1076,7 @@ export default function OverlayCanvasEditorClient({
 
   const getOpenStrokeShapeAtPoint = useCallback((point: OverlayPoint): OverlayShape | undefined => {
     for (const shape of getRenderableShapesInReverseVisualStackOrder(shapesRef.current)) {
-      if (!isOpenStrokeShape(shape)) {
+      if (!isOpenStrokeShape(shape) || isOverlayShapeUnselectable(shape.id, editPolicyUnselectableShapeIdsRef.current)) {
         continue;
       }
       if (hitTestShape(shape, point, OPEN_STROKE_POINTER_HIT_MARGIN)) {
@@ -1137,6 +1145,7 @@ export default function OverlayCanvasEditorClient({
     setSelectedShapesHidden,
     setPreview,
     editPolicyLockedShapeIdsRef,
+    editPolicyUnselectableShapeIdsRef,
     solidEdgeRef,
     learnShapeStyleDefaults,
     applyStyleToSelectedShapes,
@@ -1221,6 +1230,7 @@ export default function OverlayCanvasEditorClient({
     shapesRef,
     updateShape,
     editPolicyLockedShapeIdsRef,
+    editPolicyUnselectableShapeIdsRef,
     notifyEditPolicyBlocked,
     setShapes,
     assetsRef,

@@ -27,6 +27,9 @@ import {
   type AiSourceReferenceOpenDocumentParams,
 } from "./AiSourceReferenceChips";
 
+/** 浮かぶバーの要約は 3 行まで。残りは「ほかn件」の 1 行にまとめる。 */
+export const OVERLAY_SUMMARY_MAX_LINES = 3;
+
 /** Splits an overlay widget's compact change list into visible rows and remainder. */
 function splitChangeSummaryLines(lines: string[], maxLines: number): { shown: string[]; moreCount: number } {
   if (lines.length <= maxLines) {
@@ -166,7 +169,8 @@ export function getAiEditOverlayApprovalTitle(
   return t(`card.title.${getAiEditOverlayApprovalTitleId(preview)}` as never) as unknown as string;
 }
 
-function getAiProposalSessionLabel({
+/** 浮かぶバーに出すセッション名 (プロバイダ名と同じなら出さない)。 */
+export function getAiProposalSessionLabel({
   providers,
   sessionLabel,
 }: {
@@ -255,6 +259,8 @@ function decisionBarStateProps(
     onApplyErrorChange: (applyError: string | null) => update({ applyError }),
     dismissReasonOpen: state.dismissReasonOpen,
     onDismissReasonOpenChange: (dismissReasonOpen: boolean) => update({ dismissReasonOpen }),
+    dismissReason: state.dismissReason,
+    onDismissReasonChange: (dismissReason: string) => update({ dismissReason }),
   };
 }
 
@@ -344,7 +350,7 @@ export function AiEditInlinePreviewCard({
         applying={applying}
         replica={replica}
         notice={notice}
-        references={sourceReferences && (
+        references={sourceReferences && sourceReferences.length > 0 && (
           <AiSourceReferenceChips sourceReferences={sourceReferences} onOpenDocument={onOpenSourceDocument} />
         )}
         dismissReasonPlaceholder={t("card.dismissReasonExampleText")}
@@ -403,12 +409,9 @@ export function AiEditOverlayApprovalWidget({
   const t = useT("ai");
   const contentId = useId();
   const [state, update] = useProposalDisplayState(displayState, onDisplayStateChange);
-  const visibleSessionLabel = getAiProposalSessionLabel({
-    providers: preview.providers,
-    sessionLabel: preview.sessionLabel,
-  });
-  const title = getAiEditOverlayApprovalTitle(preview, t);
-  const { shown: summaryShown, moreCount: summaryMoreCount } = splitChangeSummaryLines(changeSummaryLines ?? [], 3);
+  const visibleSessionLabel = getAiProposalSessionLabel(preview);
+  const title = getAiProposalTitle(preview, t);
+  const { shown: summaryShown, moreCount: summaryMoreCount } = splitChangeSummaryLines(changeSummaryLines ?? [], OVERLAY_SUMMARY_MAX_LINES);
   const hasContent = Boolean(visibleSessionLabel) || summaryShown.length > 0;
   return (
     <section

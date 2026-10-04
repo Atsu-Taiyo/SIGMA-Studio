@@ -33,6 +33,7 @@ import {
 import {
   normalizeOverlayGroups
 } from "./grouping";
+import { filterSelectableShapeIds } from "./edit-policy";
 import { getAnchorDragPosition, isDragAutoScrollInteraction, pickAnchorForHandleDrop } from "./interaction-geometry";
 import {
   isInteractionMode,
@@ -76,7 +77,7 @@ interface Dependencies {
     | "advanceInteractionFromClientRef"
     | "dragAutoScrollerRef"
   >;
-  editing: Pick<OverlayPointerEditingPort, "shapesRef" | "setShapes" | "editPolicyLockedShapeIdsRef">;
+  editing: Pick<OverlayPointerEditingPort, "shapesRef" | "setShapes" | "editPolicyLockedShapeIdsRef" | "editPolicyUnselectableShapeIdsRef">;
   selection: Pick<OverlayPointerSelectionPort, "selectedIdsRef" | "focusedGroupIdRef" | "setSelectedShapeIds" | "selectShape">;
   geometry: Pick<OverlayPointerGeometryPort,
     "pagePointFromClient"
@@ -154,7 +155,7 @@ export function useOverlayPointerLifecycle({
     advanceInteractionFromClientRef,
     dragAutoScrollerRef,
   } = session;
-  const { shapesRef, setShapes, editPolicyLockedShapeIdsRef } = editing;
+  const { shapesRef, setShapes, editPolicyLockedShapeIdsRef, editPolicyUnselectableShapeIdsRef } = editing;
   const { selectedIdsRef, focusedGroupIdRef, setSelectedShapeIds, selectShape } = selection;
   const {
     pagePointFromClient,
@@ -550,13 +551,13 @@ export function useOverlayPointerLifecycle({
           onRequestTextMode({ x: event.clientX, y: event.clientY });
         }
       } else {
-        const marqueeIds = getMarqueeSelectionIds({
+        const marqueeIds = filterSelectableShapeIds(getMarqueeSelectionIds({
           shapes: shapesRef.current,
           marquee: marqueeBounds,
           focusedGroupId: focusedGroupIdRef.current,
           currentIds: selectedIdsRef.current,
           additive: interaction.additive,
-        });
+        }), editPolicyUnselectableShapeIdsRef?.current);
         setSelectedShapeIds(marqueeIds);
         if (retainEmptySelection && marqueeIds.length === 0 && !interaction.additive &&
           marqueeBounds.w > 0 && marqueeBounds.h > 0) {
@@ -633,7 +634,7 @@ export function useOverlayPointerLifecycle({
     } else if (shouldSaveOverlay) {
       queueOverlaySave();
     }
-  }, [dragPointerRef, stopDragAutoScroll, modeRef, pagePointFromClient, clearSnapGuides, bleedSurfaceRef, transitionMode, refreshAnchorMeasurements, shapesRef, setShapes, queueOverlaySave, editPolicyLockedShapeIdsRef, documentId, getShapeAtPoint, getOpenStrokeShapeAtPoint, selectShape, setSelectedShapeIds, onRequestTextMode, focusedGroupIdRef, selectedIdsRef, retainEmptySelection, setRegionSelection, externalRevision, onRequestTextSelection, clientPointFromPage, getSnappedInsertDragPoint, createShapeFromInsertDrag, queueDirtyImageCropSave]);
+  }, [dragPointerRef, stopDragAutoScroll, modeRef, pagePointFromClient, clearSnapGuides, bleedSurfaceRef, transitionMode, refreshAnchorMeasurements, shapesRef, setShapes, queueOverlaySave, editPolicyLockedShapeIdsRef, editPolicyUnselectableShapeIdsRef, documentId, getShapeAtPoint, getOpenStrokeShapeAtPoint, selectShape, setSelectedShapeIds, onRequestTextMode, focusedGroupIdRef, selectedIdsRef, retainEmptySelection, setRegionSelection, externalRevision, onRequestTextSelection, clientPointFromPage, getSnappedInsertDragPoint, createShapeFromInsertDrag, queueDirtyImageCropSave]);
   // Layout cleanup restores a transient preview before passive save cleanup can flush it.
   // External snapshot adoption remains the owner of the next document's shapes/selection.
   useLayoutEffect(() => {

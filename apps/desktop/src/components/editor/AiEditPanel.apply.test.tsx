@@ -59,7 +59,7 @@ describe("AssistantTurnView apply failure", () => {
       expect(applyButton).not.toBeNull();
       await act(async () => applyButton!.click());
       expect(onApplyProposal).toHaveBeenCalledWith(["proposal-1"]);
-      expect(container.querySelector('.ai-chat-result-proposal [data-ai-proposal-bar] [role="alert"]')?.textContent).toBe(reason);
+      expect(container.querySelector('.ai-chat-result-proposal [data-ai-proposal-bar] + [data-ai-proposal-bar-details] [role="alert"]')?.textContent).toBe(reason);
       expect(container.querySelector(".ai-chat-result-proposal")).not.toBeNull();
       expect(container.querySelector(applySelector)).not.toBeNull();
     } finally {

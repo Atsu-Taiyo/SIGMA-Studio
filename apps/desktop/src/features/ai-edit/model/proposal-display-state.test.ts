@@ -17,6 +17,7 @@ describe("proposal display state (kept outside the card content)", () => {
       contentHidden: false,
       applyError: null,
       dismissReasonOpen: false,
+      dismissReason: "",
       beforeHidden: false,
     });
     expect(DEFAULT_AI_PROPOSAL_DISPLAY_STATE.contentHidden).toBe(false);

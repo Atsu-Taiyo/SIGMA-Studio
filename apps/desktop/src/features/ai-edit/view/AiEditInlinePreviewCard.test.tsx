@@ -211,7 +211,7 @@ describe("AiEditInlinePreviewCard", () => {
     expect(html.match(/提案された変更/g)).toHaveLength(1);
   });
 
-  it("leads with the decision bar (heading → 参照元 → actions) and puts the content after it", () => {
+  it("leads with the one-line decision bar (heading → actions), then 参照元 under it, then the content", () => {
     const html = renderCard(replaceContent(), {
       sourceReferences: [{ type: "document", fileId: "file_1", title: "参照した教材" }],
       onOpenConversation: () => {},
@@ -229,14 +229,16 @@ describe("AiEditInlinePreviewCard", () => {
     // カードの最初の要素がバー: 改ページで切れても、操作は最初の帯 (正本) に残る。
     expect(html.indexOf("<", html.indexOf(">") + 1)).toBe(html.lastIndexOf("<", barIndex));
     expect(barIndex).toBeLessThan(headingIndex);
-    expect(headingIndex).toBeLessThan(chipsIndex);
-    expect(chipsIndex).toBeLessThan(actionsIndex);
-    expect(actionsIndex).toBeLessThan(contentIndex);
+    expect(headingIndex).toBeLessThan(actionsIndex);
+    // 参照元はバーの外 (バーの下の行)。バーは折り返さない 1 行なので、行が増えるものを入れない。
+    expect(actionsIndex).toBeLessThan(html.indexOf("data-ai-proposal-bar-details"));
+    expect(html.indexOf("data-ai-proposal-bar-details")).toBeLessThan(chipsIndex);
+    expect(chipsIndex).toBeLessThan(contentIndex);
   });
 
   it("hides the content but keeps the bar when the owner's state says so", () => {
     const html = renderCard(replaceContent(), {
-      displayState: { contentHidden: true, applyError: null, dismissReasonOpen: false, beforeHidden: false },
+      displayState: { contentHidden: true, applyError: null, dismissReasonOpen: false, dismissReason: "", beforeHidden: false },
       onDisplayStateChange: () => {},
     });
 
@@ -248,7 +250,7 @@ describe("AiEditInlinePreviewCard", () => {
   it("shows the owner's apply error on the bar", () => {
     const html = renderCard(replaceContent(), {
       onApply: async () => ({ ok: true }),
-      displayState: { contentHidden: false, applyError: "対象が更新されました", dismissReasonOpen: false, beforeHidden: false },
+      displayState: { contentHidden: false, applyError: "対象が更新されました", dismissReasonOpen: false, dismissReason: "", beforeHidden: false },
       onDisplayStateChange: () => {},
     });
 
@@ -455,7 +457,7 @@ describe("AiEditInlinePreviewCard", () => {
         placement="below"
         style={{ left: 120, top: 80 }}
         hasBeforeShapes
-        displayState={{ contentHidden: false, applyError: null, dismissReasonOpen: false, beforeHidden: true }}
+        displayState={{ contentHidden: false, applyError: null, dismissReasonOpen: false, dismissReason: "", beforeHidden: true }}
         onDisplayStateChange={() => {}}
         onApply={async () => ({ ok: true })}
         onDismiss={() => {}}
