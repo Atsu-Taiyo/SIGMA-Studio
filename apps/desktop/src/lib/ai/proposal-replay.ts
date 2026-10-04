@@ -164,11 +164,15 @@ export class ProposalMergeReplayError extends Error {
 }
 
 export interface ProposalMergeReplayResult {
-  /**
-   * The draft that was actually replayed: it carries the merged contents, so it must never be
-   * persisted as the proposal's draft (the proposal keeps the AI's own draft and its base).
-   */
+  /** The normalized draft the replay applied (merged contents written in). Never persist it. */
   draft: AiEditSessionDraft;
+  /**
+   * The given draft with the merged contents written in, before the replay's normalization (the
+   * same operations, minus those the merge superseded). Persisting it together with a basis taken
+   * from `document` rebases the proposal onto `document`: what the human had changed becomes part
+   * of the base, and the replacements hold what the AI was shown on top of it.
+   */
+  rebasedDraft: AiEditSessionDraft;
   nextDocument: SigmaDocument;
   report: ProposalMergeReport;
 }
@@ -188,10 +192,10 @@ export interface ProposalMergeReplayResult {
  *   basis remembers in the same container; without one it fails as before.
  * - An inserted image asset whose id is now taken by a different image is renamed (`<id>-<n>`) and
  *   the inserted shape (and the draft's later updates of it) point to the new id.
- * - A merged unit that fails validation (schema, type, an id the merge repeats or that collides
- *   with the rest of the document) is replaced by the AI's version (`invalidAfterMerge`); when the
- *   replay itself fails with merged units, it is retried with the AI's versions. When even that
- *   fails the error is thrown: the conflict cannot be resolved.
+ * - A merged unit that fails validation (schema, an id the merge repeats or that collides with the
+ *   rest of the document) is replaced by the AI's version (`invalidAfterMerge`). When the replay
+ *   fails with the merged units, only the units whose merged contents cannot be applied fall back
+ *   to the AI's version. When even that fails the error is thrown: the conflict cannot be resolved.
  * - Moves, layout changes and the legacy normalizations stay the plain replay's.
  *
  * When nothing deviates from the plain replay (no unit was edited by the human, nothing had to be
@@ -208,28 +212,78 @@ export function replayProposalDraftMerging(
   if (missingAnchors.length > 0) {
     throw new ProposalMergeReplayError(te("electron.proposal.regenerateMissingTarget"), "anchor-missing", missingAnchors);
   }
-  const report = createEmptyProposalMergeReport();
-  const plan = planMergingReplay(document, draft, mergeBasis, report);
+  const plan = planMergingReplay(document, draft, mergeBasis);
   if (!plan.rewrites) {
     const replay = replayProposalDraft(document, draft);
-    return { draft: replay.draft, nextDocument: replay.nextDocument, report };
+    return { ...replay, rebasedDraft: draft, report: assembleReport(plan, new Set()) };
   }
+  const attempt = (fallBack: ReadonlySet<string>): MergedReplay => {
+    const rebasedDraft = buildRewrittenDraft(document, draft, plan, fallBack);
+    return { rebasedDraft, ...replayRewrittenDraft(document, rebasedDraft) };
+  };
   try {
-    return { ...replayRewrittenDraft(document, buildRewrittenDraft(document, draft, plan, "merged")), report };
+    return { ...attempt(new Set()), report: assembleReport(plan, new Set()) };
   } catch (error) {
-    const mergedUnits = [...plan.blockUnits.values(), ...plan.shapeUnits.values()].filter((unit) => unit.usesMerged);
-    if (mergedUnits.length === 0) {
-      throw error;
-    }
-    let fallback: { draft: AiEditSessionDraft; nextDocument: SigmaDocument };
-    try {
-      fallback = replayRewrittenDraft(document, buildRewrittenDraft(document, draft, plan, "theirs"));
-    } catch {
-      throw error;
-    }
-    report.invalidAfterMerge += mergedUnits.length;
-    return { ...fallback, report };
+    const { replay, fallBack } = retryWithFailingUnitsOnTheAiSide(plan, attempt, error);
+    return { ...replay, report: assembleReport(plan, fallBack) };
   }
+}
+
+type MergedReplay = Omit<ProposalMergeReplayResult, "report">;
+
+/**
+ * The replay failed with the merged units. Each merged unit is tried alone (the others on the AI's
+ * side) to find the ones whose merged contents cannot be applied, and only those fall back to the
+ * AI's version, so the other units keep the human's edits. If that combination still fails, every
+ * merged unit falls back; if even that fails, the original error is rethrown.
+ */
+function retryWithFailingUnitsOnTheAiSide(
+  plan: MergingReplayPlan,
+  attempt: (fallBack: ReadonlySet<string>) => MergedReplay,
+  error: unknown,
+): { replay: MergedReplay; fallBack: ReadonlySet<string> } {
+  const mergedIds = [...plan.blockUnits.values(), ...plan.shapeUnits.values()]
+    .filter((unit) => unit.usesMerged)
+    .map((unit) => unit.id);
+  const tryAttempt = (fallBack: ReadonlySet<string>): MergedReplay | null => {
+    try {
+      return attempt(fallBack);
+    } catch {
+      return null;
+    }
+  };
+  const failing = mergedIds.filter((id) => tryAttempt(new Set(mergedIds.filter((other) => other !== id))) === null);
+  for (const fallBack of [new Set(failing), new Set(mergedIds)]) {
+    if (fallBack.size === 0) {
+      continue;
+    }
+    const replay = tryAttempt(fallBack);
+    if (replay) {
+      return { replay, fallBack };
+    }
+  }
+  throw error;
+}
+
+/** The report of what was actually replayed, given the units that fell back to the AI's side. */
+function assembleReport(plan: MergingReplayPlan, fallBack: ReadonlySet<string>): ProposalMergeReport {
+  const report = createEmptyProposalMergeReport();
+  for (const unit of [...plan.blockUnits.values(), ...plan.shapeUnits.values()]) {
+    if (unit.outcome === "invalid" || fallBack.has(unit.id)) {
+      report.invalidAfterMerge += 1;
+      appendUnique(report.duplicateIds, unit.kernel.duplicateIds);
+      continue;
+    }
+    addKernelReport(report, unit.kernel, unit.id);
+    if (unit.outcome === "merged") {
+      report.humanEditedUnits.push(unit.id);
+    }
+  }
+  appendUnique(report.editBeatsDelete, plan.keptDeletions.map((id) => `#${id}`));
+  appendUnique(report.humanEditedUnits, plan.keptDeletions);
+  report.anchorRelocated = plan.anchorRewrites.size;
+  report.reidentified += plan.renamedAssetCount;
+  return report;
 }
 
 /** The whiteboard insertion target (`createAiEditDocumentDraft` validates it itself). */
@@ -275,12 +329,20 @@ function findMissingShapeInsertAnchors(document: SigmaDocument, draft: AiEditSes
 
 interface MergeUnitPlan<T> {
   id: string;
-  /** The value to replay: the merged unit, or the AI's version when the merge was invalid. */
+  /**
+   * merged: the merged unit is replayed. invalid: the merge failed validation, so the AI's version
+   * is replayed. typeAdopted: the sides disagree on the unit's node type and the kernel took the
+   * AI's node whole; the human's edits of it are lost, which the kernel reports as an overlap.
+   */
+  outcome: "merged" | "invalid" | "typeAdopted";
+  /** The value to replay unless the unit falls back to the AI's version. */
   value: T;
   /** The AI's version (base + the draft's own edits of this unit). */
   theirs: T;
-  /** Whether `value` is a merge that differs from `theirs` (what a retry falls back from). */
+  /** Whether `value` differs from `theirs` (a fallback would change the result). */
   usesMerged: boolean;
+  /** What the kernel decided; it counts only when the merged value is what gets replayed. */
+  kernel: ThreeWayMergeReport;
 }
 
 /** An outermost replaced block the human edited, with the indexes of the replace ops inside it. */
@@ -295,32 +357,36 @@ interface MergingReplayPlan {
   shapeUnits: Map<string, ShapeUnitPlan>;
   /** Mutation index → ids a delete op still deletes (the others were edited by the human). */
   deleteRewrites: Map<number, string[]>;
+  /** Blocks and shapes the AI deletes that are kept because the human edited them. */
+  keptDeletions: string[];
   /** Operation index → new insertAfter anchor. */
   anchorRewrites: Map<number, string>;
   /** Shape id → (old asset id → new asset id) for inserted images whose asset id was taken. */
   assetRenames: Map<string, Map<string, string>>;
+  renamedAssetCount: number;
 }
 
 function planMergingReplay(
   document: SigmaDocument,
   draft: AiEditSessionDraft,
   mergeBasis: ProposalMergeBasis,
-  report: ProposalMergeReport,
 ): MergingReplayPlan {
   const plan: MergingReplayPlan = {
     rewrites: false,
     blockUnits: new Map(),
     shapeUnits: new Map(),
     deleteRewrites: new Map(),
+    keptDeletions: [],
     anchorRewrites: new Map(),
     assetRenames: new Map(),
+    renamedAssetCount: 0,
   };
   const documentIds = countContentIds(document.content);
-  planBlockUnits(document, draft, mergeBasis, report, plan, documentIds);
-  planShapeUnits(document, draft, mergeBasis, report, plan);
-  planDeletions(document, draft, mergeBasis, report, plan);
-  planAnchorRelocations(document, draft, mergeBasis, report, plan);
-  planAssetRenames(document, draft, report, plan);
+  planBlockUnits(document, draft, mergeBasis, plan, documentIds);
+  planShapeUnits(document, draft, mergeBasis, plan);
+  planDeletions(document, draft, mergeBasis, plan);
+  planAnchorRelocations(document, draft, mergeBasis, plan);
+  planAssetRenames(document, draft, plan);
   plan.rewrites = plan.blockUnits.size > 0
     || plan.shapeUnits.size > 0
     || plan.deleteRewrites.size > 0
@@ -333,7 +399,6 @@ function planBlockUnits(
   document: SigmaDocument,
   draft: AiEditSessionDraft,
   mergeBasis: ProposalMergeBasis,
-  report: ProposalMergeReport,
   plan: MergingReplayPlan,
   documentIds: Map<string, number>,
 ): void {
@@ -353,22 +418,23 @@ function planBlockUnits(
       base,
       operationIndexes.map((index) => draft.operations[index] as ReplaceOperation),
     );
-    report.humanEditedUnits.push(unitId);
     const merge = mergeEntity3(base, structuredClone(ours), structuredClone(theirs));
-    const valid = merge.report.duplicateIds.length === 0
-      && isValidMergedBlock(merge.value, ours, unitId, documentIds);
-    if (!valid) {
-      report.invalidAfterMerge += 1;
-      appendUnique(report.duplicateIds, merge.report.duplicateIds);
-      plan.blockUnits.set(unitId, { id: unitId, value: theirs, theirs, usesMerged: false, operationIndexes });
+    if (merge.value.type !== ours.type) {
+      // The kernel's type rule took the AI's node whole (the human's type would have kept ours).
+      plan.blockUnits.set(unitId, {
+        id: unitId, outcome: "typeAdopted", value: merge.value, theirs, usesMerged: false, kernel: merge.report, operationIndexes,
+      });
       continue;
     }
-    addKernelReport(report, merge.report, unitId);
+    const valid = merge.report.duplicateIds.length === 0
+      && isValidMergedBlock(merge.value, ours, documentIds);
     plan.blockUnits.set(unitId, {
       id: unitId,
-      value: merge.value,
+      outcome: valid ? "merged" : "invalid",
+      value: valid ? merge.value : theirs,
       theirs,
-      usesMerged: !isSameContent(merge.value, theirs),
+      usesMerged: valid && !isSameContent(merge.value, theirs),
+      kernel: merge.report,
       operationIndexes,
     });
   }
@@ -432,10 +498,9 @@ function applyReplacementsToBlock(
 function isValidMergedBlock(
   value: EditableBlock,
   ours: EditableBlock,
-  unitId: string,
   documentIds: Map<string, number>,
 ): boolean {
-  if (!isPlainRecord(value) || value.id !== unitId || value.type !== ours.type) {
+  if (!isPlainRecord(value) || value.id !== ours.id) {
     return false;
   }
   if (!EditableBlockSchema.safeParse(value).success) {
@@ -458,7 +523,6 @@ function planShapeUnits(
   document: SigmaDocument,
   draft: AiEditSessionDraft,
   mergeBasis: ProposalMergeBasis,
-  report: ProposalMergeReport,
   plan: MergingReplayPlan,
 ): void {
   const updatesByShape = new Map<string, Extract<SigmaDocMutationOp, { operation: "updateOverlayShape" }>[]>();
@@ -485,26 +549,20 @@ function planShapeUnits(
     } catch {
       continue;
     }
-    report.humanEditedUnits.push(shapeId);
     const merge = mergeEntity3(base, structuredClone(ours), structuredClone(theirs));
     const valid = merge.report.duplicateIds.length === 0
       && isPlainRecord(merge.value)
       && merge.value.id === shapeId
       && merge.value.type === ours.type
       && isOverlayShape(merge.value);
-    if (!valid) {
-      report.invalidAfterMerge += 1;
-      appendUnique(report.duplicateIds, merge.report.duplicateIds);
-      plan.shapeUnits.set(shapeId, { id: shapeId, value: theirs, theirs, ours, usesMerged: false });
-      continue;
-    }
-    addKernelReport(report, merge.report, shapeId);
     plan.shapeUnits.set(shapeId, {
       id: shapeId,
-      value: merge.value,
+      outcome: valid ? "merged" : "invalid",
+      value: valid ? merge.value : theirs,
       theirs,
       ours,
-      usesMerged: !isSameContent(merge.value, theirs),
+      usesMerged: valid && !isSameContent(merge.value, theirs),
+      kernel: merge.report,
     });
   }
 }
@@ -513,7 +571,6 @@ function planDeletions(
   document: SigmaDocument,
   draft: AiEditSessionDraft,
   mergeBasis: ProposalMergeBasis,
-  report: ProposalMergeReport,
   plan: MergingReplayPlan,
 ): void {
   const currentShapes = normalizeOverlaySnapshot(document.pageLayout?.overlay?.overlaySnapshot).shapes;
@@ -540,8 +597,7 @@ function planDeletions(
       return;
     }
     plan.deleteRewrites.set(index, ids.filter((id) => !kept.includes(id)));
-    appendUnique(report.editBeatsDelete, kept.map((id) => `#${id}`));
-    appendUnique(report.humanEditedUnits, kept);
+    appendUnique(plan.keptDeletions, kept);
   });
 }
 
@@ -549,7 +605,6 @@ function planAnchorRelocations(
   document: SigmaDocument,
   draft: AiEditSessionDraft,
   mergeBasis: ProposalMergeBasis,
-  report: ProposalMergeReport,
   plan: MergingReplayPlan,
 ): void {
   const createdIds = new Set<string>();
@@ -573,7 +628,6 @@ function planAnchorRelocations(
       ));
       if (relocated) {
         plan.anchorRewrites.set(entry.index, relocated);
-        report.anchorRelocated += 1;
       }
     }
     createdIds.add(operation.insertedBlock.id);
@@ -584,7 +638,6 @@ function planAnchorRelocations(
 function planAssetRenames(
   document: SigmaDocument,
   draft: AiEditSessionDraft,
-  report: ProposalMergeReport,
   plan: MergingReplayPlan,
 ): void {
   const assets: Record<string, unknown> = {
@@ -612,7 +665,7 @@ function planAssetRenames(
       const renames = plan.assetRenames.get(operation.overlayShape.id) ?? new Map<string, string>();
       renames.set(assetId, renamedId);
       plan.assetRenames.set(operation.overlayShape.id, renames);
-      report.reidentified += 1;
+      plan.renamedAssetCount += 1;
     }
   }
 }
@@ -621,7 +674,7 @@ function buildRewrittenDraft(
   document: SigmaDocument,
   draft: AiEditSessionDraft,
   plan: MergingReplayPlan,
-  choice: "merged" | "theirs",
+  fallBack: ReadonlySet<string>,
 ): AiEditSessionDraft {
   const unitByOperation = new Map<number, BlockUnitPlan>();
   for (const unit of plan.blockUnits.values()) {
@@ -633,7 +686,7 @@ function buildRewrittenDraft(
   const operations = draft.operations.map((operation, index): AiEditDraft => {
     const unit = unitByOperation.get(index);
     if (unit && isReplaceOperation(operation)) {
-      const value = choice === "merged" ? unit.value : unit.theirs;
+      const value = fallBack.has(unit.id) ? unit.theirs : unit.value;
       const replacement = operation.targetId === unit.id
         ? value
         : findBlockWithin(document, value, operation.targetId);
@@ -670,7 +723,7 @@ function buildRewrittenDraft(
     if (mutation.operation === "updateOverlayShape") {
       const unit = plan.shapeUnits.get(mutation.shapeId);
       if (unit) {
-        return { ...mutation, patch: shapePatch(unit.ours, choice === "merged" ? unit.value : unit.theirs) };
+        return { ...mutation, patch: shapePatch(unit.ours, fallBack.has(unit.id) ? unit.theirs : unit.value) };
       }
       const renames = plan.assetRenames.get(mutation.shapeId);
       if (renames) {
@@ -850,28 +903,14 @@ function countContentIds(value: unknown): Map<string, number> {
   return counts;
 }
 
-/** Structural equality that ignores `updatedAt` at any depth (MISS R1) and explicit undefined. */
+/**
+ * Content equality of two units (blocks, overlay shapes). This is `areStructurallyEqual`, the
+ * equality `areSigmaDocumentsEquivalent` uses (MISS R1); `comparableDocumentValue` itself is not
+ * needed because it only removes document-level write timestamps (`updatedAt` of the document and
+ * the overlay), and block and shape values carry none.
+ */
 function isSameContent(left: unknown, right: unknown): boolean {
-  if (Object.is(left, right)) {
-    return true;
-  }
-  if (Array.isArray(left) || Array.isArray(right)) {
-    return Array.isArray(left)
-      && Array.isArray(right)
-      && left.length === right.length
-      && left.every((value, index) => isSameContent(value, right[index]));
-  }
-  if (!isPlainRecord(left) || !isPlainRecord(right)) {
-    return false;
-  }
-  const keys = (record: Record<string, unknown>) => Object.keys(record)
-    .filter((key) => key !== "updatedAt" && record[key] !== undefined);
-  const leftKeys = keys(left);
-  const rightKeys = keys(right);
-  return leftKeys.length === rightKeys.length
-    && leftKeys.every((key) => (
-      Object.prototype.hasOwnProperty.call(right, key) && isSameContent(left[key], right[key])
-    ));
+  return areStructurallyEqual(left, right);
 }
 
 function isPlainRecord(value: unknown): value is Record<string, unknown> {

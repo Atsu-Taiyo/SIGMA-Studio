@@ -89,6 +89,21 @@ export function isProposalMergeQuiet(report: ProposalMergeReport): boolean {
     && report.humanEditedUnits.length === 0;
 }
 
+/** Counts of a report, for logs (paths and ids are left out). */
+export function summarizeProposalMergeReport(report: ProposalMergeReport): Record<string, number | boolean> {
+  return {
+    overlaps: report.overlaps.length,
+    capped: report.capped,
+    reidentified: report.reidentified,
+    editBeatsDelete: report.editBeatsDelete.length,
+    duplicateIds: report.duplicateIds.length,
+    invalidAfterMerge: report.invalidAfterMerge,
+    anchorRelocated: report.anchorRelocated,
+    legacyNoBase: report.legacyNoBase,
+    humanEditedUnits: report.humanEditedUnits.length,
+  };
+}
+
 export function combineProposalMergeReports(reports: readonly ProposalMergeReport[]): ProposalMergeReport {
   const combined = createEmptyProposalMergeReport();
   const appendUnique = (target: string[], values: readonly string[]) => {
@@ -165,13 +180,19 @@ export function collectProposalMergeUnits(draft: AiEditSessionDraft): ProposalMe
 }
 
 /**
- * Computes the merge basis of `draft` from `baseDocument` (the document the AI's tools ran on).
+ * Computes the merge basis of `draft` from `baseDocument`: the saved document the AI's working
+ * document was built from when it produced the draft's replacements.
  *
- * With `previous` (the basis already stored for the same room's proposal), the snapshot of an
- * entity the draft already touched is kept as it was when it was first touched — its replacement
- * in the draft was derived from that version, not from the latest saved document — and only newly
- * touched entities are read from `baseDocument`. A newly touched block that contains an entity
- * touched earlier carries that earlier snapshot inside it.
+ * Rule: base = the unit as it was in the saved document the AI last worked from, theirs = the AI's
+ * final block, ours = the unit at approval. A room's later turn therefore does not keep its first
+ * base: the store rebases the earlier turns' operations onto the new saved document (their
+ * replacements become the merged contents the AI was shown) and recomputes the whole basis from it
+ * (`rebaseRoomDraft` in the proposal store). A human edit the AI saw (H1) is then part of the base,
+ * not merged in a second time, and only the edits made after the AI's turn (H2) are merged.
+ *
+ * `previous` is only for a draft whose earlier turns cannot be told apart from its new ones: the
+ * snapshot of an entity the previous basis already had is kept, and a newly touched block that
+ * contains such an entity carries that snapshot inside it.
  */
 export function computeProposalMergeBasis(
   draft: AiEditSessionDraft,

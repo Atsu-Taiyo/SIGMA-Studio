@@ -26,6 +26,8 @@ import { computeDocumentBlockHashes } from "@/lib/sigma-doc-block-hash";
 import {
   computeProposalMergeBasis,
   createEmptyProposalMergeReport,
+  isProposalMergeQuiet,
+  summarizeProposalMergeReport,
   type ProposalMergeBasis,
   type ProposalMergeBasisAnchor,
   type ProposalMergeBasisEntity,
@@ -53,6 +55,7 @@ import {
   type LocalMcpEditProposalSummary,
   type LocalMcpEditProposalChangeEvent,
   type LocalMcpEditProposalCreateInput,
+  type ProposalFreshnessConflict,
   resolveProposalAttribution,
   type RebaseProposalResult,
   type ResolveProposalExtra,
@@ -68,7 +71,9 @@ import {
   computeTouchedBlocks,
   findProposalFreshnessConflictIds,
   findProposalFreshnessConflict,
+  findMergeableProposalStructuralConflict,
   collectLocalColumnRangeAnchorIds,
+  replayMergeableProposal,
 } from "./proposals/freshness";
 import {
   replayProposalDraft,
@@ -121,6 +126,7 @@ export {
   findProposalFreshnessConflictIds,
   findProposalFreshnessConflict,
   classifyProposalReplayFailure,
+  replayMergeableProposal,
 } from "./proposals/freshness";
 export {
   type MergeProposalDraftsResult,
@@ -391,16 +397,15 @@ export class LocalMcpEditProposalStore {
     if (isSameRun) {
       const now = new Date().toISOString();
       const baseDocument = parseSigmaDocument(input.baseDocument);
-      const combinedDraft = appendProposalDraft(current.draft, inputDraft);
-      // 前ターンのreplacementBlockは前ターンのbaseから作られている。最新の保存文書へ素のまま
-      // replayするとターン間の人間の編集を黙って上書きするので、base を引き継いだ合成replayにする。
-      // 保存するdraftはAI自身のもの (合成済みのdraftを保存するとbaseとの対応が崩れる)。
-      const mergeBasis = current.mergeBasis
-        ? computeProposalMergeBasis(combinedDraft, baseDocument, current.mergeBasis)
-        : undefined;
-      const replay = mergeBasis
-        ? { ...replayProposalDraftMerging(baseDocument, combinedDraft, mergeBasis), draft: combinedDraft }
-        : replayProposalDraft(baseDocument, combinedDraft);
+      // baseを持つ部屋は、前ターンまでの操作を今回の作業文書の元になった保存文書へ載せ替え
+      // (rebaseRoomDraft)、今回の操作を足す。旧レコードは従来どおり素のreplay。
+      const rebasedRoom = current.mergeBasis
+        ? this.rebaseRoomDraft(current, current.mergeBasis, inputDraft, baseDocument, "same-run")
+        : null;
+      const replay = rebasedRoom
+        ? { ...replayProposalDraftMerging(baseDocument, rebasedRoom.draft, rebasedRoom.mergeBasis), draft: rebasedRoom.draft }
+        : replayProposalDraft(baseDocument, appendProposalDraft(current.draft, inputDraft));
+      const mergeBasis = rebasedRoom?.mergeBasis;
       const nextDocument = parseSigmaDocument(replay.nextDocument);
       assertAiOverlayAssetsInDocument(nextDocument);
       const groupId = current.groupId ?? createId("mcp_proposal_group");
@@ -464,16 +469,18 @@ export class LocalMcpEditProposalStore {
 
     const now = new Date().toISOString();
     const baseDocument = parseSigmaDocument(input.baseDocument);
-    // 集約draftの前ターン分は最初に触れた時点のbaseを引き継ぎ、今回新しく触れた単位だけ
-    // baseDocumentから取る。作業文書 (nextDocument) も合成replayで人間の編集を残した形にする。
-    const mergeBasis = current.mergeBasis
-      ? computeProposalMergeBasis(inputDraft, baseDocument, current.mergeBasis)
-      : undefined;
-    const nextDocument = parseSigmaDocument(mergeBasis
-      ? mergedNextDocumentOr(input.nextDocument, baseDocument, inputDraft, mergeBasis)
+    // 同じ部屋の別run。前ターンまでの操作を保存文書へ載せ替えて今回の操作を足し、作業文書も
+    // その合成結果にする (同じrunの経路と同じ規則)。
+    const rebasedRoom = current.mergeBasis
+      ? this.rebaseRoomDraft(current, current.mergeBasis, inputDraft, baseDocument, "different-run")
+      : null;
+    const mergeBasis = rebasedRoom?.mergeBasis;
+    const roomDraft = rebasedRoom?.draft ?? inputDraft;
+    const nextDocument = parseSigmaDocument(rebasedRoom
+      ? this.mergedWorkingDocumentOr(input.nextDocument, baseDocument, rebasedRoom, current.proposalId)
       : input.nextDocument);
     assertAiOverlayAssetsInDocument(nextDocument);
-    const touchedBlocks = computeTouchedBlocks(inputDraft, baseDocument);
+    const touchedBlocks = computeTouchedBlocks(roomDraft, baseDocument);
     const history = [
       ...(current.history ?? []),
       {
@@ -495,7 +502,7 @@ export class LocalMcpEditProposalStore {
       changedIds: normalizeStringArray(input.changedIds),
       provider: input.provider,
       source: input.source,
-      draft: inputDraft,
+      draft: roomDraft,
       nextDocument,
       updatedAt: now,
       history,
@@ -508,6 +515,84 @@ export class LocalMcpEditProposalStore {
     };
     await this.writeProposal(nextProposal);
     return nextProposal;
+  }
+
+  /**
+   * Rebases a room's earlier turns onto `baseDocument` (the saved document the AI's new turn worked
+   * from) and appends the new turn's operations.
+   *
+   * The AI's next turn sees the saved document with the earlier turns merged in, so its operations
+   * already contain the human edits made before it (H1). The earlier operations are therefore
+   * rewritten to the merged contents the AI was shown, and the base of every unit is retaken from
+   * `baseDocument`: base = the document the AI saw, theirs = the AI's final block. A human edit the
+   * AI saw is absorbed into the base instead of being merged in a second time, and only the edits
+   * made after this turn (H2) are the human's side at approval. Keeping each unit's first-touched
+   * base instead would count H1 on both sides (doubling it, or undoing a removal the AI made).
+   *
+   * The new turn is the part of `incoming` after the stored draft (MCP passes the aggregate); a
+   * same-run caller may also pass only the new operations. When a different-run aggregate does not
+   * start with the stored draft (the MCP dropped a cancelled insert/delete pair), the turns cannot
+   * be told apart: the aggregate keeps the earlier bases of the units it already had (logged).
+   */
+  private rebaseRoomDraft(
+    current: LocalMcpEditProposal,
+    currentBasis: ProposalMergeBasis,
+    incoming: AiEditSessionDraft,
+    baseDocument: SigmaDocument,
+    mode: "same-run" | "different-run",
+  ): { draft: AiEditSessionDraft; mergeBasis: ProposalMergeBasis } {
+    const appended = splitAppendedDraft(current.draft, incoming)
+      ?? (mode === "same-run" ? (startsWithDraft(current.draft, incoming) ? emptyDraftLike(incoming) : incoming) : null);
+    if (!appended) {
+      this.recordMergeFallback("upsert-unaligned-aggregate", { proposalId: current.proposalId });
+      return { draft: incoming, mergeBasis: computeProposalMergeBasis(incoming, baseDocument, currentBasis) };
+    }
+    const hasOperations = current.draft.operations.length > 0 || (current.draft.mutationOperations?.length ?? 0) > 0;
+    const rebased = hasOperations
+      ? replayProposalDraftMerging(baseDocument, current.draft, currentBasis).rebasedDraft
+      : current.draft;
+    const draft = parseAiEditSessionDraft(concatenateDrafts(rebased, appended));
+    return { draft, mergeBasis: computeProposalMergeBasis(draft, baseDocument) };
+  }
+
+  /** The merged working document of a rebased room draft, or the caller's when it cannot be built. */
+  private mergedWorkingDocumentOr(
+    fallback: SigmaDocument,
+    baseDocument: SigmaDocument,
+    room: { draft: AiEditSessionDraft; mergeBasis: ProposalMergeBasis },
+    proposalId: string,
+  ): SigmaDocument {
+    try {
+      return replayProposalDraftMerging(baseDocument, room.draft, room.mergeBasis).nextDocument;
+    } catch {
+      this.recordMergeFallback("upsert-working-document", { proposalId });
+      return fallback;
+    }
+  }
+
+  /**
+   * Records that an automatic approval was skipped because the replay had to merge the human's
+   * edits: the proposal is not retried until the document's revision changes (MISS R3: logged).
+   */
+  async recordAutoApplyDeferred(proposalId: string, revision: number, report: ProposalMergeReport): Promise<void> {
+    const proposal = await this.loadProposal(proposalId);
+    if (!proposal || proposal.status !== "pending") {
+      return;
+    }
+    const members = await this.loadProposalGroup(proposal);
+    // updatedAt is left alone: a manual approval clicked meanwhile must not fail its claim.
+    await Promise.all(members.map((member) => this.writeProposal({ ...member, autoApplyDeferredAtRevision: revision })));
+    logLedgerEvent(this.dataDir, "proposal-merge-auto-apply-deferred", {
+      proposalId,
+      fileId: proposal.fileId,
+      revision,
+      ...summarizeProposalMergeReport(report),
+    });
+  }
+
+  /** Logs a fallback a merging replay path took outside the approval report (MISS R3). */
+  recordMergeFallback(site: string, fields: Record<string, unknown> = {}): void {
+    logLedgerEvent(this.dataDir, "proposal-merge-fallback", { site, ...fields });
   }
 
   async withdrawCurrentProposal(params: {
@@ -780,6 +865,10 @@ export class LocalMcpEditProposalStore {
       } : {}),
     }));
     await Promise.all(nextMembers.map((member) => this.writeProposal(member)));
+    if (status === "approved" && extra.autoApplied && extra.mergeReport && !isProposalMergeQuiet(extra.mergeReport)) {
+      // 自動承認の結果はrendererのカウンタに届かないので、台帳ログで数える (旧レコードの legacyNoBase など)。
+      this.recordMergeFallback("auto-apply", { proposalId, ...summarizeProposalMergeReport(extra.mergeReport) });
+    }
     return nextMembers.find((member) => member.proposalId === proposalId) ?? nextMembers.at(-1)!;
   }
 
@@ -954,7 +1043,9 @@ export class LocalMcpEditProposalStore {
       // touchedBlocks の baseHash は「(旧)baseDocument 時点のハッシュ」だったので、rebase後は
       // 新しい base (= currentDocument) に対して取り直す。取り直さないと次回のrebase/承認時に
       // 古い base のハッシュのまま比較してしまい、誤って「変更あり」と判定してしまう。
-      ...(members.some((candidate) => candidate.touchedBlocks) ? { touchedBlocks: sharedTouchedBlocks } : {}),
+      // base (mergeBasis) を持つ提案は取り直さない: 人間の編集後の文書で取り直すと、baseが
+      // 読めなくなったとき従来判定がその編集を検出できず上書きしてしまう。
+      ...(members.some((candidate) => candidate.touchedBlocks) && !mergeBasis ? { touchedBlocks: sharedTouchedBlocks } : {}),
       // rebase成功 = 検出されていた競合(あれば)は解消済み。
       conflict: undefined,
       updatedAt: now,
@@ -1020,7 +1111,7 @@ export class LocalMcpEditProposalStore {
       baseDocId: normalizedCurrentDocument.docId,
       draft: replayDraft,
       nextDocument: parseSigmaDocument(nextDocument),
-      touchedBlocks: computeTouchedBlocks(replayDraft, normalizedCurrentDocument),
+      touchedBlocks: proposal.mergeBasis ? proposal.touchedBlocks : computeTouchedBlocks(replayDraft, normalizedCurrentDocument),
       conflict: undefined,
       updatedAt: now,
       history: [...(proposal.history ?? []), { action: "reproposed", at: now }],
@@ -1052,7 +1143,7 @@ export class LocalMcpEditProposalStore {
           baseDocId: normalizedCurrentDocument.docId,
           draft: replayDraft,
           nextDocument: parseSigmaDocument(nextDocument),
-          touchedBlocks: computeTouchedBlocks(replayDraft, normalizedCurrentDocument),
+          touchedBlocks: member.mergeBasis ? member.touchedBlocks : computeTouchedBlocks(replayDraft, normalizedCurrentDocument),
           conflict: undefined,
           updatedAt: now,
           history: [...(member.history ?? []), { action: "reproposed", at: now }],
@@ -1119,7 +1210,6 @@ export class LocalMcpEditProposalStore {
           normalizedCurrentDocument,
           currentHashes,
           currentRevision,
-          changedBlockIds,
         );
         if (outcome === "rebased") {
           rebased.push(candidate.proposalId);
@@ -1216,12 +1306,15 @@ export class LocalMcpEditProposalStore {
   }
 
   /**
-   * base (mergeBasis) を持つ提案の自動追従。上書き対象が人間に編集されていても承認時の合成replayで
-   * 両方を残すので content-stale にはしない。draft と base は書き換えず revision だけを進める。
+   * base (mergeBasis) を持つ提案の自動追従。保存のたびに走るので、文書全体のreplayはしない
+   * (提案の対象の中で打鍵するたびに全提案を合成し直すと自動保存が遅くなる)。上書き対象が人間に
+   * 編集されていても承認時の合成replayで両方を残すので content-stale にはしない。ハッシュだけで
+   * 分かる解決不能 (合成対象外の操作の対象の変更・対象やアンカーの消失・挿入IDの占有) だけを
+   * 競合にし、それ以外は revision だけを進める。draft・base・touchedBlocks・nextDocument は
+   * 書き換えない (作業文書はMCP・承認・プレビューが必要なときに合成し直す)。
    *
-   * 直前revisionからの変更が上書き対象・挿入アンカーと交わらなければ、replayせずに revision だけを
-   * 進める (保存のたびに全提案をreplayしない)。交わる場合は合成replayで解決できるかを確かめ、
-   * できれば作業文書 (nextDocument) を取り直して進め、できなければ理由つきで競合を記録する。
+   * 競合が記録済みの提案だけは、その競合を解消できるかを合成replayで確かめる: 合成できれば解消し、
+   * できなければ記録済みの対象IDを保つ (新しい理由が対象IDを持つならそれに更新する)。
    * 操作の無いdraftは追従するものが無いので触らない。
    */
   private async autoRebaseMergeableProposal(
@@ -1229,42 +1322,30 @@ export class LocalMcpEditProposalStore {
     currentDocument: SigmaDocument,
     currentHashes: Record<string, string>,
     currentRevision: number,
-    changedBlockIds: Set<string> | undefined,
   ): Promise<"rebased" | "conflicted" | "skipped"> {
-    const mergeBasis = candidate.mergeBasis!;
     if (candidate.draft.operations.length === 0 && (candidate.draft.mutationOperations?.length ?? 0) === 0) {
       return "skipped";
     }
-    const insertAnchorIds = collectRequiredInsertAnchorBlockIds(candidate.draft);
-    const sensitiveIds = new Set([
-      ...collectConflictSensitiveBlockIds(candidate.draft),
-      ...insertAnchorIds,
-      ...collectLocalColumnRangeAnchorIds(candidate.draft),
-      ...Object.keys(mergeBasis.entities),
-    ]);
-    // 構造の不整合 (挿入IDの占有・挿入アンカーの消失) はハッシュだけで分かる。その場合は早道に
-    // 乗せず、合成replayで付け替えられるか (アンカー) / 解決できないか (占有) を確かめる。
-    const structurallyChanged = collectOccupiedInsertIds(candidate.draft, currentHashes).length > 0
-      || insertAnchorIds.some((id) => currentHashes[id] === undefined);
-    if (
-      changedBlockIds
-      && candidate.baseRevision === currentRevision - 1
-      && !candidate.conflict
-      && !structurallyChanged
-      && !hasSetIntersection(changedBlockIds, sensitiveIds)
-    ) {
-      return await this.advanceProposalBaseRevisionWithoutReplay(candidate.proposalId, currentDocument.docId, currentRevision)
-        ? "rebased"
-        : "skipped";
+    const mergeable = { draft: candidate.draft, mergeBasis: candidate.mergeBasis!, touchedBlocks: candidate.touchedBlocks };
+    let conflict: ProposalFreshnessConflict | null;
+    if (candidate.conflict) {
+      const replay = replayMergeableProposal(mergeable, currentDocument, currentHashes);
+      conflict = replay.ok
+        ? null
+        : {
+            reason: replay.conflict.reason,
+            blockIds: replay.conflict.blockIds.length > 0 ? replay.conflict.blockIds : candidate.conflict.blockIds,
+          };
+    } else {
+      conflict = findMergeableProposalStructuralConflict(mergeable, currentHashes, currentDocument);
     }
-    const result = await this.rebaseProposal(candidate.proposalId, currentDocument, currentRevision);
-    if (result.ok) {
-      return "rebased";
+    if (conflict) {
+      await this.markConflict(candidate.proposalId, conflict.blockIds, currentRevision, conflict.reason);
+      return "conflicted";
     }
-    const conflict = findProposalFreshnessConflict(candidate, currentHashes, currentRevision, currentDocument)
-      ?? { blockIds: [], reason: "replay-failed" as const };
-    await this.markConflict(candidate.proposalId, conflict.blockIds, currentRevision, conflict.reason);
-    return "conflicted";
+    return await this.advanceProposalBaseRevisionWithoutReplay(candidate.proposalId, currentDocument.docId, currentRevision)
+      ? "rebased"
+      : "skipped";
   }
 
   private async readDocumentBlockHashes(
@@ -1907,6 +1988,9 @@ export class LocalMcpEditProposalStore {
           const mergeReport = parseProposalMergeReport(value.mergeReport);
           return mergeReport ? { mergeReport } : {};
         })(),
+        ...(typeof value.autoApplyDeferredAtRevision === "number"
+          ? { autoApplyDeferredAtRevision: value.autoApplyDeferredAtRevision }
+          : {}),
       };
     } catch {
       return null;
@@ -2139,20 +2223,62 @@ function parseProposalMergeReport(value: unknown): ProposalMergeReport | null {
 }
 
 /**
- * 同じroomの別runが渡す集約案の作業文書を、合成replayで人間の編集込みに取り直す。合成できない
- * 場合はMCPが計算した作業文書のまま (従来どおり) にする: 承認時の判定は別途行われる。
+ * The operations `incoming` adds after `existing` (with their recorded order re-indexed from 0), or
+ * null when `incoming` does not start with `existing`'s operations.
  */
-function mergedNextDocumentOr(
-  fallback: SigmaDocument,
-  baseDocument: SigmaDocument,
-  draft: AiEditSessionDraft,
-  mergeBasis: ProposalMergeBasis,
-): SigmaDocument {
-  try {
-    return replayProposalDraftMerging(baseDocument, draft, mergeBasis).nextDocument;
-  } catch {
-    return fallback;
+function splitAppendedDraft(existing: AiEditSessionDraft, incoming: AiEditSessionDraft): AiEditSessionDraft | null {
+  const existingMutations = existing.mutationOperations ?? [];
+  const incomingMutations = incoming.mutationOperations ?? [];
+  if (!startsWithItems(incoming.operations, existing.operations) || !startsWithItems(incomingMutations, existingMutations)) {
+    return null;
   }
+  const operationOffset = existing.operations.length;
+  const mutationOffset = existingMutations.length;
+  return {
+    summary: incoming.summary,
+    plan: startsWithItems(incoming.plan, existing.plan) ? incoming.plan.slice(existing.plan.length) : incoming.plan,
+    warnings: startsWithItems(incoming.warnings, existing.warnings) ? incoming.warnings.slice(existing.warnings.length) : incoming.warnings,
+    operations: incoming.operations.slice(operationOffset),
+    mutationOperations: incomingMutations.slice(mutationOffset),
+    operationOrder: resolveAiEditSessionOperationOrder(incoming).flatMap((entry) => {
+      const offset = entry.kind === "operation" ? operationOffset : mutationOffset;
+      return entry.index >= offset ? [{ kind: entry.kind, index: entry.index - offset }] : [];
+    }),
+  };
+}
+
+/** Whether `existing` already contains all of `incoming` as its leading operations. */
+function startsWithDraft(existing: AiEditSessionDraft, incoming: AiEditSessionDraft): boolean {
+  return startsWithItems(existing.operations, incoming.operations)
+    && startsWithItems(existing.mutationOperations ?? [], incoming.mutationOperations ?? []);
+}
+
+function emptyDraftLike(draft: AiEditSessionDraft): AiEditSessionDraft {
+  return { summary: draft.summary, plan: [], warnings: [], operations: [], mutationOperations: [], operationOrder: [] };
+}
+
+function startsWithItems<T>(items: readonly T[], prefix: readonly T[]): boolean {
+  return items.length >= prefix.length && prefix.every((item, index) => isDeepStrictEqual(item, items[index]));
+}
+
+/** `first` then `second`, with `second`'s recorded order shifted past `first`'s operations. */
+function concatenateDrafts(first: AiEditSessionDraft, second: AiEditSessionDraft): AiEditSessionDraft {
+  const operationOffset = first.operations.length;
+  const mutationOffset = first.mutationOperations?.length ?? 0;
+  return {
+    summary: second.summary || first.summary,
+    plan: [...first.plan, ...second.plan],
+    warnings: [...first.warnings, ...second.warnings],
+    operations: [...first.operations, ...second.operations],
+    mutationOperations: [...(first.mutationOperations ?? []), ...(second.mutationOperations ?? [])],
+    operationOrder: [
+      ...resolveAiEditSessionOperationOrder(first),
+      ...resolveAiEditSessionOperationOrder(second).map((entry) => ({
+        kind: entry.kind,
+        index: entry.index + (entry.kind === "operation" ? operationOffset : mutationOffset),
+      })),
+    ],
+  };
 }
 
 // blockIds が空配列でも有効なスナップショット (「選択なしの依頼 = 衝突なし」の明示) なので、
@@ -2269,6 +2395,7 @@ function summarizeProposal(proposal: LocalMcpEditProposal): LocalMcpEditProposal
     ...(proposal.history?.length ? { history: proposal.history } : {}),
     ...(proposal.mergeBasis ? { mergeBasis: proposal.mergeBasis } : {}),
     ...(proposal.mergeReport ? { mergeReport: proposal.mergeReport } : {}),
+    ...(proposal.autoApplyDeferredAtRevision !== undefined ? { autoApplyDeferredAtRevision: proposal.autoApplyDeferredAtRevision } : {}),
     // revertDocument は意図的に含めない (LocalMcpEditProposalSummary のコメント参照)。
   };
 }
@@ -2316,6 +2443,7 @@ function summarizeProposalMeta(meta: LocalMcpEditProposalMeta): LocalMcpEditProp
     ...(meta.history?.length ? { history: meta.history } : {}),
     ...(meta.mergeBasis ? { mergeBasis: meta.mergeBasis } : {}),
     ...(meta.mergeReport ? { mergeReport: meta.mergeReport } : {}),
+    ...(meta.autoApplyDeferredAtRevision !== undefined ? { autoApplyDeferredAtRevision: meta.autoApplyDeferredAtRevision } : {}),
   };
 }
 

@@ -718,6 +718,8 @@ export interface DesktopMcpEditProposalSummary {
   mergeBasis?: ProposalMergeBasis;
   // status === "approved" のとき、承認時の合成replayの判断 (監査用)。
   mergeReport?: ProposalMergeReport;
+  // 人間の編集との合成が必要なため検証済み自動承認を見送った文書revision (その間は再試行しない)。
+  autoApplyDeferredAtRevision?: number;
 }
 
 export interface DesktopWorkspaceOverview {

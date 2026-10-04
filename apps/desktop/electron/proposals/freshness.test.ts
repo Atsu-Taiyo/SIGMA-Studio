@@ -919,3 +919,52 @@ describe("findProposalFreshnessConflict with a merge basis", () => {
     expect(findProposalFreshnessConflict(proposal, computeDocumentBlockHashes(current), 2, current)).toBeNull();
   });
 });
+
+describe("merge-capable proposals with operations the merge does not cover", () => {
+  const geo = (id: string, x: number) => ({
+    id,
+    type: "geo" as const,
+    x,
+    y: 10,
+    props: { w: 80, h: 30, geo: "rectangle" as const, fill: "none" as const, color: "black", labelColor: "black", dash: "solid" as const, size: "m" as const },
+  });
+  function withShapes(document: SigmaDocument, shapes: ReturnType<typeof geo>[]): SigmaDocument {
+    const layout = ensurePageLayout(document);
+    return { ...layout, pageLayout: { ...layout.pageLayout!, overlay: { overlaySnapshot: { version: 1, shapes, assets: {} } } } };
+  }
+
+  it("keeps content-stale for a shape the AI aligns when the human moved it", () => {
+    const base = withShapes(paragraphDocument(["p_1"]), [geo("shape_1", 10), geo("shape_2", 50)]);
+    const draft: AiEditSessionDraft = {
+      summary: "整列",
+      plan: ["整列"],
+      operations: [],
+      mutationOperations: [{ operation: "alignOverlayShapes", summary: "整列", shapeIds: ["shape_1", "shape_2"], mode: "top" }],
+      warnings: [],
+    };
+    const proposal = {
+      baseRevision: 1,
+      draft,
+      touchedBlocks: computeTouchedBlocks(draft, base),
+      mergeBasis: computeProposalMergeBasis(draft, base),
+    };
+    const current = withShapes(paragraphDocument(["p_1"]), [geo("shape_1", 99), geo("shape_2", 50)]);
+
+    expect(findProposalFreshnessConflict(proposal, computeDocumentBlockHashes(current), 2, current))
+      .toEqual({ blockIds: ["shape_1"], reason: "content-stale" });
+  });
+});
+
+describe("shouldAutoApplyProposal after an automatic approval was deferred", () => {
+  const proposal = {
+    status: "pending" as const,
+    verification: { validationOk: true },
+    baseRevision: 3,
+    autoApplyDeferredAtRevision: 3,
+  };
+
+  it("does not retry at the revision it was deferred at, and retries once the document changed", () => {
+    expect(shouldAutoApplyProposal({ settingEnabled: true, proposal, currentRevision: 3 })).toBe(false);
+    expect(shouldAutoApplyProposal({ settingEnabled: true, proposal: { ...proposal, baseRevision: 4 }, currentRevision: 4 })).toBe(true);
+  });
+});
