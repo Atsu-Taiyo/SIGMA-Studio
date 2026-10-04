@@ -16,27 +16,32 @@
   color: var(--text-secondary);
 }
 
-/* 畳んだ姿。項目があることを示す細い帯で、押すと開く。 */
+/* 畳んだ姿。項目があることを示す、上部のチップ。帯や枠は無く、押すと開く。
+   丸い小さなボタンだけを紙面の上に置くので、畳んでいる間は紙面の邪魔をしない。 */
 .bar[data-phase="collapsed"] {
-  padding: 0;
+  padding: 0 var(--space-md);
+  border-bottom-color: transparent;
+  background: transparent;
 }
 
 .handle {
-  display: flex;
-  width: 100%;
-  height: 100%;
+  display: inline-flex;
+  height: 24px;
   align-items: center;
-  justify-content: center;
-  gap: var(--space-sm);
-  padding: 0 var(--space-md);
-  border: 0;
-  background: transparent;
+  gap: var(--space-xs);
+  padding: 0 var(--space-sm);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-round);
+  background: var(--background);
   color: var(--text-secondary);
   font-size: 12px;
-  transition: background 140ms ease, color 140ms ease;
+  line-height: 1;
+  white-space: nowrap;
+  transition: background 140ms ease, border-color 140ms ease, color 140ms ease;
 }
 
 .handle:hover {
+  border-color: var(--border-strong);
   background: var(--surface-muted);
   color: var(--text-primary);
 }
@@ -113,6 +118,13 @@
   background: var(--background);
   color: var(--text-primary);
   text-align: left;
+  /* 掴めると分かる手の形。押すと挿入、ドラッグすると落とした場所へ入る。 */
+  cursor: grab;
+}
+
+/* ドラッグ中の元のカードは薄くして、運んでいることが分かるようにする。 */
+.card[data-dragging="true"] {
+  opacity: 0.5;
 }
 
 .card:hover {
@@ -156,6 +168,43 @@
   place-items: center;
   background: color-mix(in srgb, var(--background) 78%, transparent);
   color: var(--success);
+}
+
+/* ドラッグしているカードのゴースト。ポインタに付いて動く小さなチップで、ドロップを受けない場所では薄くする。 */
+.ghost {
+  position: fixed;
+  z-index: 300;
+  display: inline-flex;
+  max-width: 220px;
+  height: 28px;
+  align-items: center;
+  gap: var(--space-xs);
+  padding: 0 var(--space-md) 0 var(--space-sm);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-round);
+  background: var(--background);
+  box-shadow: var(--shadow-floating);
+  color: var(--text-primary);
+  font-size: 12px;
+  line-height: 1;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.ghost[data-accepted="false"] {
+  border-color: var(--border);
+  opacity: 0.6;
+}
+
+.ghostIcon {
+  flex: 0 0 auto;
+  color: var(--text-muted);
+}
+
+.ghostText {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 /* 外す操作はホバー / フォーカスで現れる (常に並べると、カードの絵より目立つ)。 */
@@ -264,4 +313,11 @@
   .remove {
     transition: none;
   }
+}
+
+/* ドラッグ中は、どこを指していても「掴んでいる」カーソルにして、文字の選択も始めない。 */
+:global([data-pocket-dragging]),
+:global([data-pocket-dragging]) * {
+  cursor: grabbing !important;
+  user-select: none !important;
 }

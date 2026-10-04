@@ -363,6 +363,7 @@ function PageCanvasEditorImpl({
   onCommentThreadSelect,
   suppressSelectionActions = false,
   selectionTools,
+  externalDrop,
   presentation = "edit",
   publishesSessionPresence: publishesSessionPresenceProp,
 }: PageCanvasEditorProps) {
@@ -1789,17 +1790,31 @@ const { candidateCommentTop, pendingCommentTop, commentThreadPositions } = usePa
   }, [requestBodyOverlayImages, runningRegionEditKind]);
 
   const handlePageDragOver = useCallback((event: ReactDragEvent<HTMLDivElement>) => {
-    if (runningRegionEditKind || !hasSupportedOverlayImageData(event.dataTransfer)) {
+    if (runningRegionEditKind) {
+      return;
+    }
+    if (!externalDrop?.accepts(event.dataTransfer) && !hasSupportedOverlayImageData(event.dataTransfer)) {
       return;
     }
 
     event.preventDefault();
     event.stopPropagation();
     event.dataTransfer.dropEffect = "copy";
-  }, [runningRegionEditKind]);
+  }, [externalDrop, runningRegionEditKind]);
 
   const handlePageDrop = useCallback((event: ReactDragEvent<HTMLDivElement>) => {
     if (runningRegionEditKind) {
+      return;
+    }
+
+    if (externalDrop?.accepts(event.dataTransfer)) {
+      event.preventDefault();
+      event.stopPropagation();
+      externalDrop.drop(event.dataTransfer, {
+        clientX: event.clientX,
+        clientY: event.clientY,
+        pagePoint: getOverlayPointFromClient(event.clientX, event.clientY),
+      });
       return;
     }
 
@@ -1811,7 +1826,7 @@ const { candidateCommentTop, pendingCommentTop, commentThreadPositions } = usePa
     event.preventDefault();
     event.stopPropagation();
     requestBodyOverlayImages(files, getOverlayPointFromClient(event.clientX, event.clientY) ?? undefined);
-  }, [getOverlayPointFromClient, requestBodyOverlayImages, runningRegionEditKind]);
+  }, [externalDrop, getOverlayPointFromClient, requestBodyOverlayImages, runningRegionEditKind]);
 
   const requestOverlayPreviewSelection = useCallback((
     bounds: DOMRect,

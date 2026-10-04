@@ -111,6 +111,117 @@ describe("PocketBar", () => {
     expect(cards()[1]?.querySelector("img")?.parentElement?.querySelector("svg")).toBeNull();
   });
 
+  it("drags a card with the pointer: a ghost follows, and an accepted drop is confirmed on the card", async () => {
+    let id = "";
+    await act(async () => {
+      id = putBlocks();
+    });
+    await render();
+    const card = cards()[0]!;
+    // ドロップを受ける場所。受けた印に dragover / drop を preventDefault する。
+    const zone = document.body.appendChild(document.createElement("div"));
+    const dropped: string[] = [];
+    zone.addEventListener("dragover", (event) => event.preventDefault());
+    zone.addEventListener("drop", (event) => {
+      event.preventDefault();
+      dropped.push(event.type);
+    });
+    document.elementFromPoint = () => zone;
+
+    await act(async () => {
+      card.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, button: 0, isPrimary: true, clientX: 50, clientY: 20 }));
+    });
+    // 動かす前は、まだドラッグではない (ふつうのクリックのまま)。
+    expect(document.querySelector("[data-accepted]")).toBeNull();
+
+    await act(async () => {
+      window.dispatchEvent(new PointerEvent("pointermove", { bubbles: true, clientX: 200, clientY: 300 }));
+    });
+    const ghost = document.querySelector("[data-accepted]") as HTMLElement | null;
+    expect(card.dataset.dragging).toBe("true");
+    expect(ghost?.dataset.accepted).toBe("true");
+    expect(ghost?.textContent).toBe("ポケットの本文");
+    // ゴーストはポインタのすぐ右下に付いてくる。
+    expect(ghost?.style.left).toBe("214px");
+    expect(ghost?.style.top).toBe("314px");
+    // 並びは動かさず、項目は減らない。
+    expect(getPocketState().items.map((item) => item.id)).toEqual([id]);
+
+    await act(async () => {
+      window.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, clientX: 200, clientY: 300 }));
+    });
+
+    expect(dropped).toEqual(["drop"]);
+    expect(document.querySelector("[data-accepted]")).toBeNull();
+    expect(card.dataset.dragging).toBeUndefined();
+    expect(container.querySelector('[data-inserted="true"]')).not.toBeNull();
+    expect(container.querySelector('[role="status"]')?.textContent).toBe("ポケットから挿入しました");
+  });
+
+  it("says nothing for a drop that nobody took, and keeps the item", async () => {
+    await act(async () => {
+      putBlocks();
+    });
+    await render();
+    const card = cards()[0]!;
+    document.elementFromPoint = () => document.body;
+
+    await act(async () => {
+      card.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, button: 0, isPrimary: true, clientX: 50, clientY: 20 }));
+      window.dispatchEvent(new PointerEvent("pointermove", { bubbles: true, clientX: 200, clientY: 300 }));
+    });
+    expect((document.querySelector("[data-accepted]") as HTMLElement | null)?.dataset.accepted).toBe("false");
+    await act(async () => {
+      window.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, clientX: 200, clientY: 300 }));
+    });
+
+    expect(container.querySelector('[data-inserted="true"]')).toBeNull();
+    expect(cards()).toHaveLength(1);
+  });
+
+  it("does not insert twice when a drag is released over the card it came from", async () => {
+    let pastes = 0;
+    const onPaste = (event: ClipboardEvent) => {
+      pastes += 1;
+      event.preventDefault();
+    };
+    window.addEventListener("paste", onPaste);
+    await act(async () => {
+      putBlocks();
+    });
+    await render();
+    const card = cards()[0]!;
+    document.elementFromPoint = () => card;
+
+    await act(async () => {
+      card.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, button: 0, isPrimary: true, clientX: 50, clientY: 20 }));
+      window.dispatchEvent(new PointerEvent("pointermove", { bubbles: true, clientX: 90, clientY: 40 }));
+      window.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, clientX: 90, clientY: 40 }));
+      // ブラウザは、同じ要素の上で押して離したので click も送る。
+      card.click();
+    });
+    window.removeEventListener("paste", onPaste);
+
+    expect(pastes).toBe(0);
+  });
+
+  it("starts no drag from a secondary button", async () => {
+    await act(async () => {
+      putBlocks();
+    });
+    await render();
+    const card = cards()[0]!;
+    document.elementFromPoint = () => document.body;
+
+    await act(async () => {
+      card.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, button: 2, isPrimary: true, clientX: 50, clientY: 20 }));
+      window.dispatchEvent(new PointerEvent("pointermove", { bubbles: true, clientX: 200, clientY: 300 }));
+    });
+
+    expect(card.dataset.dragging).toBeUndefined();
+    expect(document.querySelector("[data-accepted]")).toBeNull();
+  });
+
   it("inserts when a card is pressed, and keeps the card", async () => {
     let pastes = 0;
     const onPaste = (event: ClipboardEvent) => {

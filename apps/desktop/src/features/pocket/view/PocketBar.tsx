@@ -1,7 +1,8 @@
 "use client";
 
 import { Check, ChevronDown, ChevronUp, Plus, Shapes, Sigma, Trash2, Type, X } from "lucide-react";
-import { useEffect, useRef, useState, type KeyboardEvent, type MouseEvent } from "react";
+import { useEffect, useRef, useState, type KeyboardEvent, type MouseEvent, type PointerEvent } from "react";
+import { createPortal } from "react-dom";
 
 import { IconButton } from "@/components/ui/Button";
 import { Tooltip } from "@/components/ui/Tooltip";
@@ -18,6 +19,8 @@ import {
   undoPocketRemoval,
   usePocketState,
 } from "../application/pocket-store";
+import { usePocketDragState } from "../application/pocket-drag-state";
+import { consumePocketDragClick, startPocketPointerDrag, type PocketDragOutcome } from "../application/pocket-pointer-drag";
 import { addSelectionToPocket, insertPocketItem, POCKET_ROOT_ATTRIBUTE } from "../application/pocket-transfer";
 import type { PocketItem } from "../model/pocket-items";
 import type { PocketPreview } from "../model/pocket-preview";
@@ -67,22 +70,28 @@ function previewSummary(preview: PocketPreview, t: Translate<"editor">): string 
 }
 
 /** カードの読み上げ名と、ホバーで出る説明に使う、中身の頭の部分。 */
-function previewSnippet(preview: PocketPreview): string {
+function previewSnippet(preview: PocketPreview, length = 60): string {
   const text = preview.kind === "blocks" || preview.kind === "mixed" || preview.kind === "text"
     ? preview.text
     : preview.kind === "math" ? preview.tex : "";
-  return text.length > 60 ? `${text.slice(0, 60)}…` : text;
+  return text.length > length ? `${text.slice(0, length)}…` : text;
+}
+
+/** 種類の目印のアイコン。カードの隅とドラッグ中のゴーストで同じものを使う。 */
+function PreviewKindIcon({ preview, size, className }: { preview: PocketPreview; size: number; className?: string }) {
+  if (preview.kind === "shapes" || preview.kind === "mixed") {
+    return <Shapes className={className} size={size} />;
+  }
+  return preview.kind === "math" ? <Sigma className={className} size={size} /> : <Type className={className} size={size} />;
 }
 
 /** カードの隅の目印。種類がひと目で分かり、複数個あるときだけ数を添える。 */
 function PreviewBadge({ preview }: { preview: PocketPreview }) {
   const count = preview.kind === "blocks" ? preview.blockCount
     : preview.kind === "shapes" || preview.kind === "mixed" ? preview.shapeCount : 1;
-  const Icon = preview.kind === "shapes" || preview.kind === "mixed" ? Shapes
-    : preview.kind === "math" ? Sigma : Type;
   return (
     <span className={styles.badge} aria-hidden="true">
-      <Icon size={11} />
+      <PreviewKindIcon preview={preview} size={11} />
       {count > 1 && <span>{count}</span>}
     </span>
   );
@@ -92,13 +101,17 @@ function PocketCard({
   item,
   inserted,
   justAdded,
+  dragging,
   onInsert,
+  onDragStateChange,
   t,
 }: {
   item: PocketItem;
   inserted: boolean;
   justAdded: boolean;
+  dragging: boolean;
   onInsert: (id: string) => void;
+  onDragStateChange: (id: string, state: "start" | PocketDragOutcome) => void;
   t: Translate<"editor">;
 }) {
   const summary = previewSummary(item.preview, t);
@@ -112,6 +125,24 @@ function PocketCard({
     }
   };
 
+  // 押した位置から動かすとドラッグになる。動かさずに離せば、ふつうのクリック (挿入)。
+  const handlePointerDown = (event: PointerEvent<HTMLButtonElement>) => {
+    if (event.button !== 0 || !event.isPrimary) {
+      return;
+    }
+    startPocketPointerDrag(item.id, event, {
+      onStart: () => onDragStateChange(item.id, "start"),
+      onEnd: (outcome) => onDragStateChange(item.id, outcome),
+    });
+  };
+
+  const handleClick = () => {
+    // ドラッグの終わりをカードの上で離したときの click は、挿入として扱わない。
+    if (!consumePocketDragClick()) {
+      onInsert(item.id);
+    }
+  };
+
   return (
     <li className={styles.item} data-pocket-item={item.id}>
       <button
@@ -122,8 +153,10 @@ function PocketCard({
         data-kind={item.preview.kind}
         data-just-added={justAdded ? "true" : undefined}
         data-inserted={inserted ? "true" : undefined}
-        onClick={() => onInsert(item.id)}
+        data-dragging={dragging ? "true" : undefined}
+        onClick={handleClick}
         onKeyDown={handleKeyDown}
+        onPointerDown={handlePointerDown}
       >
         <span className={styles.cardPreview}>
           <PocketItemPreview preview={item.preview} />
@@ -149,10 +182,35 @@ function PocketCard({
 }
 
 /**
+ * ドラッグしているカードのゴースト。ポインタに付いて動き、指している場所がドロップを受けないときは
+ * 薄くなる。ポインタの動きで描き直すのはここだけ (並びは動かさない)。
+ */
+function PocketDragGhost({ items, t }: { items: readonly PocketItem[]; t: Translate<"editor"> }) {
+  const drag = usePocketDragState();
+  const item = drag ? items.find((candidate) => candidate.id === drag.id) : undefined;
+  if (!drag || !item) {
+    return null;
+  }
+  return createPortal(
+    <div
+      className={styles.ghost}
+      data-accepted={drag.accepted ? "true" : "false"}
+      style={{ left: drag.x + 14, top: drag.y + 14 }}
+      aria-hidden="true"
+    >
+      <PreviewKindIcon preview={item.preview} size={14} className={styles.ghostIcon} />
+      <span className={styles.ghostText}>{previewSnippet(item.preview, 24) || previewSummary(item.preview, t)}</span>
+    </div>,
+    document.body,
+  );
+}
+
+/**
  * 編集画面の上にある、一時的な置き場。
  *
  * 選んだ文章・図形・ブロックをコピーと同じ内容で入れておき、別のページや別の教材へ何度でも
- * 挿入できる。中身はこのアプリの作業台で、教材には保存されず、共有しても相手には見えない。
+ * 挿入できる。カードは押すとキャレットの位置へ、ドラッグすると落とした場所へ入る。畳んでいる間は
+ * 上部に件数だけの小さなチップを出す。中身はこのアプリの作業台で、教材には保存されず、共有しても相手には見えない。
  * 押してもキャレットと選択を動かさない (ボタンの mousedown で焦点を奪わない) ので、
  * 本文を選んだまま「入れる」、キャレットを置いたまま「挿入する」ができる。
  */
@@ -162,6 +220,7 @@ export function PocketBar({ addShortcut }: { addShortcut?: string | null }) {
   const phase = getPocketPhase(state);
   const stripRef = useRef<HTMLUListElement | null>(null);
   const [insertedId, setInsertedId] = useState<string | null>(null);
+  const [draggingId, setDraggingId] = useState<string | null>(null);
   const [announcement, setAnnouncement] = useState("");
 
   const { removal, notice, justAdded } = state;
@@ -224,10 +283,22 @@ export function PocketBar({ addShortcut }: { addShortcut?: string | null }) {
     return null;
   }
 
+  const flashInserted = (id: string) => {
+    setInsertedId(id);
+    setAnnouncement(t("pocket.announceInserted"));
+  };
+
   const insert = (id: string) => {
     if (insertPocketItem(id) === "inserted") {
-      setInsertedId(id);
-      setAnnouncement(t("pocket.announceInserted"));
+      flashInserted(id);
+    }
+  };
+
+  const handleDragStateChange = (id: string, state: "start" | PocketDragOutcome) => {
+    setDraggingId(state === "start" ? id : null);
+    // 受けた場所があったときだけ、挿入できたことを知らせる (受けない場所では何も言わない)。
+    if (state === "dropped") {
+      flashInserted(id);
     }
   };
 
@@ -284,7 +355,9 @@ export function PocketBar({ addShortcut }: { addShortcut?: string | null }) {
             item={item}
             inserted={insertedId === item.id}
             justAdded={justAdded?.id === item.id}
+            dragging={draggingId === item.id}
             onInsert={insert}
+            onDragStateChange={handleDragStateChange}
             t={t}
           />
         ))}
@@ -325,6 +398,7 @@ export function PocketBar({ addShortcut }: { addShortcut?: string | null }) {
         </IconButton>
       </div>
       {liveRegion}
+      <PocketDragGhost items={state.items} t={t} />
     </section>
   );
 }

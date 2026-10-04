@@ -315,7 +315,7 @@ button:disabled {
 /* ポケット (クロームと紙面の間の 1 段)。畳んだ帯と開いた並びの高さはここが唯一の出典で、
    バー自身も `.app-shell` の 2 本目のトラックも同じトークンを読む。 */
 .app-shell[data-pocket="collapsed"] {
-  --editor-pocket-height: 28px;
+  --editor-pocket-height: 32px;
 }
 
 .app-shell[data-pocket="expanded"] {

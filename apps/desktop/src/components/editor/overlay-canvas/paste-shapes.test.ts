@@ -184,4 +184,66 @@ describe("prepareOverlayShapesForPaste", () => {
     expect(prepareOverlayShapesForPaste({ payload, ...CANVAS }).shapes).toEqual([]);
     expect(prepareOverlayShapesForPaste({ payload, ...CANVAS }).selectedIds).toEqual([]);
   });
+
+  describe("centerAt (a drop, or an insert into the whiteboard)", () => {
+    it("centres the whole selection on the point, keeping the shapes' relative positions", () => {
+      // 2 つの図形の外接矩形: x 100..280, y 200..300 → 中心 (190, 250)。
+      const payload = createOverlayClipboardPayload([geo("a", 100, 200), geo("b", 200, 260)], {}, "doc_a");
+
+      const prepared = prepareOverlayShapesForPaste({ payload, ...CANVAS, centerAt: { x: 400, y: 500 } });
+
+      const [a, b] = prepared.shapes;
+      expect({ x: a.x, y: a.y, bx: b.x, by: b.y }).toEqual({ x: 310, y: 450, bx: 410, by: 510 });
+      expect(b.x - a.x).toBe(100);
+      expect(b.y - a.y).toBe(60);
+    });
+
+    it("takes the place of the usual 20px nudge", () => {
+      const payload = createOverlayClipboardPayload([geo("a", 100, 100)], {}, "doc_a");
+
+      const nudged = prepareOverlayShapesForPaste({ payload, ...CANVAS }).shapes[0];
+      const placed = prepareOverlayShapesForPaste({ payload, ...CANVAS, centerAt: { x: 140, y: 120 } }).shapes[0];
+
+      expect({ x: nudged.x, y: nudged.y }).toEqual({ x: 120, y: 120 });
+      // 80x40 の図形の中心が (140, 120) になる。
+      expect({ x: placed.x, y: placed.y }).toEqual({ x: 100, y: 100 });
+    });
+
+    it("lets go of the block anchor, so the shape stays where it was dropped", () => {
+      const anchored: OverlayShape = {
+        ...geo("shape_1", 10, 10),
+        anchor: { type: "block", blockId: "p_1", dy: 8 },
+      };
+      const payload = createOverlayClipboardPayload([anchored], {}, "doc_a");
+
+      const [pasted] = prepareOverlayShapesForPaste({
+        payload, ...CANVAS, targetDocId: "doc_a", centerAt: { x: 300, y: 300 },
+      }).shapes;
+
+      expect(pasted.anchor).toEqual({ type: "page" });
+    });
+
+    it("moves a group and its children together", () => {
+      // 保存済みのグループは子にぴったり合っている (子 2 つの外接矩形: x 10..120, y 10..50)。
+      const tight: OverlayShape = { id: "group_1", type: "group", x: 10, y: 10, props: { w: 110, h: 40 } };
+      // 子が 1 つのグループは貼り付けで解消されるので、子は 2 つ。
+      const payload = createOverlayClipboardPayload(
+        [tight, geo("child_a", 10, 10, "group_1"), geo("child_b", 40, 10, "group_1")],
+        {},
+        "doc_a",
+      );
+
+      const prepared = prepareOverlayShapesForPaste({ payload, ...CANVAS, centerAt: { x: 300, y: 300 } });
+
+      const grouped = prepared.shapes.find((shape) => shape.type === "group");
+      const children = prepared.shapes.filter((shape) => shape.parentId === grouped?.id);
+      expect(grouped).toBeDefined();
+      expect(children.map((child) => ({ dx: child.x - grouped!.x, dy: child.y - grouped!.y }))).toEqual([
+        { dx: 0, dy: 0 },
+        { dx: 30, dy: 0 },
+      ]);
+      // グループの中心が置いた点に来る。
+      expect({ x: grouped!.x + 55, y: grouped!.y + 20 }).toEqual({ x: 300, y: 300 });
+    });
+  });
 });
