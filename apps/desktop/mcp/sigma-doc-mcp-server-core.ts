@@ -126,6 +126,7 @@ import {
   type SigmaDocMutationOp,
 } from "@/lib/ai/sigma-doc-edit-schema";
 import { replayProposalDraftMerging } from "@/lib/ai/proposal-replay";
+import { usableProposalMergeBasis } from "@/lib/ai/proposal-merge-basis";
 import { searchSigmaDocument } from "@/lib/ai/sigma-doc-search";
 import { searchSigmaDocLibrary } from "@/lib/ai/sigma-doc-library-search";
 import { createId } from "@/lib/id";
@@ -2331,23 +2332,22 @@ function buildChangeSummary(
 function resolveRoomWorkingDocument(
   proposal: LocalMcpEditProposal,
   document: SigmaDocument,
-): { ok: true; document: SigmaDocument } | { ok: false; conflictIds: string[] } {
-  if (!proposal.mergeBasis) {
+): { ok: true; document: SigmaDocument; rebasedDraft?: AiEditSessionDraft } | { ok: false; conflictIds: string[] } {
+  const mergeBasis = usableProposalMergeBasis(proposal.mergeBasis);
+  if (!mergeBasis) {
     return { ok: true, document: proposal.nextDocument };
   }
-  const merged = replayMergeableProposal(
-    { draft: proposal.draft, mergeBasis: proposal.mergeBasis, touchedBlocks: proposal.touchedBlocks },
-    document,
-  );
+  const merged = replayMergeableProposal({ draft: proposal.draft, mergeBasis, touchedBlocks: proposal.touchedBlocks }, document);
   return merged.ok
-    ? { ok: true, document: merged.result.nextDocument }
+    ? { ok: true, document: merged.result.nextDocument, rebasedDraft: merged.result.rebasedDraft }
     : { ok: false, conflictIds: merged.conflict.blockIds };
 }
 
 /** A pending proposal replayed onto `document` for a preview: the same replay as its approval. */
 function replayProposalForPreview(proposal: LocalMcpEditProposal, document: SigmaDocument): SigmaDocument {
-  return proposal.mergeBasis
-    ? replayProposalDraftMerging(document, proposal.draft, proposal.mergeBasis).nextDocument
+  const mergeBasis = usableProposalMergeBasis(proposal.mergeBasis);
+  return mergeBasis
+    ? replayProposalDraftMerging(document, proposal.draft, mergeBasis).nextDocument
     : createAiEditSessionDocumentDraft(document, null, proposal.draft).nextDocument;
 }
 
@@ -2616,7 +2616,7 @@ async function runSessionTool(
   // まだ保存されていないinsert_shapeを後続のupdate_shape/delete_shapesが参照できる。
   // 保存済みSigmaDocが進んでいた場合は、既存案が無競合でrebaseできた場合だけ継続する。
   // base (mergeBasis) を持つ案はrebaseせず、下で保存済みSigmaDocへ合成し直す (upsertがrevisionを進める)。
-  if (currentRoomProposal && !currentRoomProposal.mergeBasis && currentRoomProposal.baseRevision !== file.revision) {
+  if (currentRoomProposal && !usableProposalMergeBasis(currentRoomProposal.mergeBasis) && currentRoomProposal.baseRevision !== file.revision) {
     const conflictIds = findProposalFreshnessConflictIds(
       currentRoomProposal,
       computeDocumentBlockHashes(document),
@@ -2641,6 +2641,8 @@ async function runSessionTool(
     currentRoomProposal = null;
   }
   let workingDocument = document;
+  // base を持つ案は保存済みSigmaDocへ載せ替えたdraftを持つ (store が upsert で同じ載せ替えをする)。
+  let roomDraft = currentRoomProposal?.draft;
   if (currentRoomProposal) {
     const working = resolveRoomWorkingDocument(currentRoomProposal, document);
     if (!working.ok) {
@@ -2652,6 +2654,7 @@ async function runSessionTool(
       };
     }
     workingDocument = working.document;
+    roomDraft = working.rebasedDraft ?? roomDraft;
   }
 
   // revisionチェックはセッション実行後(このtool呼び出しが実際に何を触るかが分かってから)に
@@ -2752,7 +2755,12 @@ async function runSessionTool(
       ...collectUsedSourceReferences(ledgerRunId, request.fileId),
       ...(request.sourceReferences ?? []),
     ]);
-    const aggregateDraft = mergeRoomProposalDraft(currentRoomProposal, draft.draft);
+    // 過去ターンは作業文書に合わせて載せ替えたdraftから集約する: 集約が正規化 (相殺された
+    // 図形の挿入/削除の除去) されて保存済みdraftと先頭が揃わなくても、そのまま置き換えられる。
+    const aggregateDraft = mergeRoomProposalDraft(
+      currentRoomProposal && roomDraft ? { ...currentRoomProposal, draft: roomDraft } : currentRoomProposal,
+      draft.draft,
+    );
     const aggregateChangedIds = Array.from(new Set([
       ...(currentRoomProposal?.changedIds ?? []),
       ...draft.changedIds,
@@ -2766,7 +2774,7 @@ async function runSessionTool(
     ]).slice(0, MAX_PERSISTED_SOURCE_REFERENCES);
     const aggregateNextDocument = aggregateDraft.operations.length === 0 && (aggregateDraft.mutationOperations?.length ?? 0) === 0
       ? document
-      : currentRoomProposal?.mergeBasis
+      : usableProposalMergeBasis(currentRoomProposal?.mergeBasis)
         // The session ran on the merged working document, so its result already is the room's
         // aggregate applied to the saved document (the store recomputes it the same way).
         ? draft.nextDocument
@@ -4497,7 +4505,7 @@ registerTool("get_image_reference", {
   const { document, file } = await loadDocumentForFile(storeContext.store, fileId);
   const pending = await createProposalStore().findCurrentPendingProposal({ fileId, roomId: context.roomId, runId });
   let working = document;
-  if (pending && !pending.invalidReason && (pending.mergeBasis || pending.baseRevision === file.revision)) {
+  if (pending && !pending.invalidReason && (usableProposalMergeBasis(pending.mergeBasis) || pending.baseRevision === file.revision)) {
     const resolved = resolveRoomWorkingDocument(pending, document);
     if (resolved.ok) {
       working = resolved.document;
@@ -5181,7 +5189,7 @@ registerTool(
       roomId: visualWriteContext.attribution.roomId,
       runId: visualWriteContext.attribution.runId,
     });
-    if (currentRoomProposal && !currentRoomProposal.mergeBasis && currentRoomProposal.baseRevision !== file.revision) {
+    if (currentRoomProposal && !usableProposalMergeBasis(currentRoomProposal.mergeBasis) && currentRoomProposal.baseRevision !== file.revision) {
       const conflicts = findProposalFreshnessConflictIds(
         currentRoomProposal,
         computeDocumentBlockHashes(document),

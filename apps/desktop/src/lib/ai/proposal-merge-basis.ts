@@ -1,7 +1,17 @@
-import { normalizeOverlaySnapshot, type OverlayShape, type SigmaBlock, type SigmaDocument } from "@/features/document";
+import {
+  isOverlayShape,
+  normalizeOverlaySnapshot,
+  type OverlayShape,
+  type SigmaBlock,
+  type SigmaDocument,
+} from "@/features/document";
 import { findBlock, updateBlockInDocument, type EditableBlock } from "@/lib/document-tree";
 import { isOverlayAnchorSupportDraft } from "@/lib/ai/applied-document-diff";
-import { resolveAiEditSessionOperationOrder, type AiEditSessionDraft } from "@/lib/ai/sigma-doc-edit-schema";
+import {
+  EditableBlockSchema,
+  resolveAiEditSessionOperationOrder,
+  type AiEditSessionDraft,
+} from "@/lib/ai/sigma-doc-edit-schema";
 
 /**
  * What a proposal overwrites, as it was when the AI first touched it. The merging replay compares
@@ -55,6 +65,33 @@ export interface ProposalMergeReport {
   legacyNoBase: number;
   /** Units the human had edited since the base: the result contains the human's change too. */
   humanEditedUnits: string[];
+}
+
+const validatedBases = new WeakMap<ProposalMergeBasis, boolean>();
+
+/**
+ * The basis when every snapshot in it is a valid block or overlay shape, else undefined: the
+ * proposal then follows the legacy rules (content-stale on a changed target) instead of merging
+ * against a partial base. Reading a proposal record only checks the basis' shape, so listings stay
+ * cheap; the full schema check runs here, where the basis is used, once per basis object.
+ */
+export function usableProposalMergeBasis(basis: ProposalMergeBasis | undefined): ProposalMergeBasis | undefined {
+  if (!basis) {
+    return undefined;
+  }
+  let valid = validatedBases.get(basis);
+  if (valid === undefined) {
+    valid = basis.version === 1 && Object.entries(basis.entities).every(([id, entity]) => (
+      typeof entity.value === "object"
+      && entity.value !== null
+      && entity.value.id === id
+      && (entity.kind === "block"
+        ? EditableBlockSchema.safeParse(entity.value).success
+        : entity.kind === "shape" && isOverlayShape(entity.value))
+    ));
+    validatedBases.set(basis, valid);
+  }
+  return valid ? basis : undefined;
 }
 
 /** How many preceding siblings an insert anchor remembers. */

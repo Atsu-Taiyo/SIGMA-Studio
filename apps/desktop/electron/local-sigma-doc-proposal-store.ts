@@ -10,7 +10,6 @@ import { readBlockHashRevisions } from "./block-hash-sidecar";
 import { createId } from "@/lib/id";
 import {
   assertAiOverlayAssetsInDocument,
-  EditableBlockSchema,
   isAllowedAiOverlayAssetSource,
   isAdditiveInsertOnlyDraft,
   parseAiEditSessionDraft,
@@ -21,20 +20,21 @@ import {
 import { deriveAppliedDocumentDiff, type AiAppliedDocumentDiff } from "@/lib/ai/applied-document-diff";
 import { resolveAiOverlayShapeReplacementRequestedId } from "@/lib/ai/overlay-shape-replacement";
 import { resolveDocumentTitle } from "@/lib/document-title";
-import { type EditableBlock } from "@/lib/document-tree";
 import { computeDocumentBlockHashes } from "@/lib/sigma-doc-block-hash";
 import {
+  combineProposalMergeReports,
   computeProposalMergeBasis,
   createEmptyProposalMergeReport,
   isProposalMergeQuiet,
   summarizeProposalMergeReport,
+  usableProposalMergeBasis,
   type ProposalMergeBasis,
   type ProposalMergeBasisAnchor,
   type ProposalMergeBasisEntity,
   type ProposalMergeReport,
 } from "@/lib/ai/proposal-merge-basis";
 import { replayProposalDraftMerging } from "@/lib/ai/proposal-replay";
-import { isOverlayShape, type SigmaDocument } from "@/features/document";
+import { type SigmaDocument } from "@/features/document";
 import { logLedgerEvent } from "./ledger-log";
 import { createCurrentLocaleTranslator } from "@/lib/i18n";
 import {
@@ -73,6 +73,7 @@ import {
   findProposalFreshnessConflict,
   findMergeableProposalStructuralConflict,
   collectLocalColumnRangeAnchorIds,
+  computeMergeAttentionSignature,
   replayMergeableProposal,
 } from "./proposals/freshness";
 import {
@@ -399,8 +400,9 @@ export class LocalMcpEditProposalStore {
       const baseDocument = parseSigmaDocument(input.baseDocument);
       // baseを持つ部屋は、前ターンまでの操作を今回の作業文書の元になった保存文書へ載せ替え
       // (rebaseRoomDraft)、今回の操作を足す。旧レコードは従来どおり素のreplay。
-      const rebasedRoom = current.mergeBasis
-        ? this.rebaseRoomDraft(current, current.mergeBasis, inputDraft, baseDocument, "same-run")
+      const currentBasis = usableProposalMergeBasis(current.mergeBasis);
+      const rebasedRoom = currentBasis
+        ? this.rebaseRoomDraft(current, currentBasis, inputDraft, baseDocument, "same-run")
         : null;
       const replay = rebasedRoom
         ? { ...replayProposalDraftMerging(baseDocument, rebasedRoom.draft, rebasedRoom.mergeBasis), draft: rebasedRoom.draft }
@@ -447,6 +449,10 @@ export class LocalMcpEditProposalStore {
         requestSelection: input.requestSelection ?? current.requestSelection,
         conflict: undefined,
         mergeBasis,
+        mergeCarry: rebasedRoom ? rebasedRoom.mergeCarry : current.mergeCarry,
+        // 改訂された案は改めて自動承認の判定を受ける (見送りは前の案についての判断)。
+        autoApplyDeferredAtRevision: undefined,
+        autoApplyDeferredSignature: undefined,
       } satisfies Partial<LocalMcpEditProposal>;
       const updatedMembers = existingMembers.map((member, index): LocalMcpEditProposal => ({
         ...member,
@@ -471,8 +477,9 @@ export class LocalMcpEditProposalStore {
     const baseDocument = parseSigmaDocument(input.baseDocument);
     // 同じ部屋の別run。前ターンまでの操作を保存文書へ載せ替えて今回の操作を足し、作業文書も
     // その合成結果にする (同じrunの経路と同じ規則)。
-    const rebasedRoom = current.mergeBasis
-      ? this.rebaseRoomDraft(current, current.mergeBasis, inputDraft, baseDocument, "different-run")
+    const currentBasis = usableProposalMergeBasis(current.mergeBasis);
+    const rebasedRoom = currentBasis
+      ? this.rebaseRoomDraft(current, currentBasis, inputDraft, baseDocument, "different-run")
       : null;
     const mergeBasis = rebasedRoom?.mergeBasis;
     const roomDraft = rebasedRoom?.draft ?? inputDraft;
@@ -512,6 +519,9 @@ export class LocalMcpEditProposalStore {
       requestSelection: input.requestSelection ?? current.requestSelection,
       conflict: undefined,
       mergeBasis,
+      mergeCarry: rebasedRoom ? rebasedRoom.mergeCarry : current.mergeCarry,
+      autoApplyDeferredAtRevision: undefined,
+      autoApplyDeferredSignature: undefined,
     };
     await this.writeProposal(nextProposal);
     return nextProposal;
@@ -519,7 +529,7 @@ export class LocalMcpEditProposalStore {
 
   /**
    * Rebases a room's earlier turns onto `baseDocument` (the saved document the AI's new turn worked
-   * from) and appends the new turn's operations.
+   * from) and adds the new turn's operations.
    *
    * The AI's next turn sees the saved document with the earlier turns merged in, so its operations
    * already contain the human edits made before it (H1). The earlier operations are therefore
@@ -529,10 +539,19 @@ export class LocalMcpEditProposalStore {
    * made after this turn (H2) are the human's side at approval. Keeping each unit's first-touched
    * base instead would count H1 on both sides (doubling it, or undoing a removal the AI made).
    *
-   * The new turn is the part of `incoming` after the stored draft (MCP passes the aggregate); a
-   * same-run caller may also pass only the new operations. When a different-run aggregate does not
-   * start with the stored draft (the MCP dropped a cancelled insert/delete pair), the turns cannot
-   * be told apart: the aggregate keeps the earlier bases of the units it already had (logged).
+   * What that rebase merged (human edits, overlaps, units that fell back to the AI's side) is baked
+   * into the draft and invisible to the approval's merge, so it is carried (`mergeCarry`) and added
+   * to the approval's report: the approval is then not "quiet", is not applied automatically, and
+   * the fallbacks are counted (MISS R3).
+   *
+   * How the incoming draft relates to the stored one:
+   * - it starts with the rebased draft (the MCP builds the aggregate from it) or with the stored
+   *   draft: the rest is the new turn;
+   * - it shares operations with them without starting with them, or is a shortened copy: it is an
+   *   aggregate the MCP normalized (a cancelled insert/delete pair was dropped), so it replaces the
+   *   stored draft as a whole (logged);
+   * - otherwise (a same-run caller passing only the new operations) it is appended. A different
+   *   run's input replaces the stored draft, as before.
    */
   private rebaseRoomDraft(
     current: LocalMcpEditProposal,
@@ -540,19 +559,32 @@ export class LocalMcpEditProposalStore {
     incoming: AiEditSessionDraft,
     baseDocument: SigmaDocument,
     mode: "same-run" | "different-run",
-  ): { draft: AiEditSessionDraft; mergeBasis: ProposalMergeBasis } {
-    const appended = splitAppendedDraft(current.draft, incoming)
-      ?? (mode === "same-run" ? (startsWithDraft(current.draft, incoming) ? emptyDraftLike(incoming) : incoming) : null);
-    if (!appended) {
-      this.recordMergeFallback("upsert-unaligned-aggregate", { proposalId: current.proposalId });
-      return { draft: incoming, mergeBasis: computeProposalMergeBasis(incoming, baseDocument, currentBasis) };
-    }
+  ): { draft: AiEditSessionDraft; mergeBasis: ProposalMergeBasis; mergeCarry: ProposalMergeReport | undefined } {
     const hasOperations = current.draft.operations.length > 0 || (current.draft.mutationOperations?.length ?? 0) > 0;
-    const rebased = hasOperations
-      ? replayProposalDraftMerging(baseDocument, current.draft, currentBasis).rebasedDraft
-      : current.draft;
-    const draft = parseAiEditSessionDraft(concatenateDrafts(rebased, appended));
-    return { draft, mergeBasis: computeProposalMergeBasis(draft, baseDocument) };
+    const rebase = hasOperations ? replayProposalDraftMerging(baseDocument, current.draft, currentBasis) : null;
+    const rebased = rebase?.rebasedDraft ?? current.draft;
+    const mergeCarry = rebase && !isProposalMergeQuiet(rebase.report)
+      ? combineProposalMergeReports([current.mergeCarry ?? createEmptyProposalMergeReport(), rebase.report])
+      : current.mergeCarry;
+
+    const newTurn = splitAppendedDraft(rebased, incoming) ?? splitAppendedDraft(current.draft, incoming);
+    let draft: AiEditSessionDraft;
+    if (newTurn) {
+      draft = concatenateDrafts(rebased, newTurn);
+    } else if (
+      mode === "different-run"
+      || sharesOperations(incoming, rebased)
+      || sharesOperations(incoming, current.draft)
+      || startsWithDraft(rebased, incoming)
+      || startsWithDraft(current.draft, incoming)
+    ) {
+      this.recordMergeFallback("upsert-unaligned-aggregate", { proposalId: current.proposalId, mode });
+      draft = incoming;
+    } else {
+      draft = concatenateDrafts(rebased, incoming);
+    }
+    draft = parseAiEditSessionDraft(draft);
+    return { draft, mergeBasis: computeProposalMergeBasis(draft, baseDocument), mergeCarry };
   }
 
   /** The merged working document of a rebased room draft, or the caller's when it cannot be built. */
@@ -574,14 +606,23 @@ export class LocalMcpEditProposalStore {
    * Records that an automatic approval was skipped because the replay had to merge the human's
    * edits: the proposal is not retried until the document's revision changes (MISS R3: logged).
    */
-  async recordAutoApplyDeferred(proposalId: string, revision: number, report: ProposalMergeReport): Promise<void> {
+  async recordAutoApplyDeferred(
+    proposalId: string,
+    revision: number,
+    report: ProposalMergeReport,
+    signature?: string,
+  ): Promise<void> {
     const proposal = await this.loadProposal(proposalId);
     if (!proposal || proposal.status !== "pending") {
       return;
     }
     const members = await this.loadProposalGroup(proposal);
     // updatedAt is left alone: a manual approval clicked meanwhile must not fail its claim.
-    await Promise.all(members.map((member) => this.writeProposal({ ...member, autoApplyDeferredAtRevision: revision })));
+    await Promise.all(members.map((member) => this.writeProposal({
+      ...member,
+      autoApplyDeferredAtRevision: revision,
+      autoApplyDeferredSignature: signature,
+    })));
     logLedgerEvent(this.dataDir, "proposal-merge-auto-apply-deferred", {
       proposalId,
       fileId: proposal.fileId,
@@ -1003,7 +1044,22 @@ export class LocalMcpEditProposalStore {
     // base (mergeBasis) を持つ提案は、draftとbaseを書き換えずrevisionだけを進める。追従は承認時の
     // 合成replayが担う。nextDocument (MCPの次ターンが作業文書に使う派生データ) だけは、人間の
     // 編集を残した合成結果で取り直す — 古いままだと次ターンで新しく触る単位のbaseと食い違う。
-    const mergeBasis = representative.mergeBasis;
+    const mergeBasis = usableProposalMergeBasis(representative.mergeBasis);
+    if (mergeBasis) {
+      const merged = replayMergeableProposal(
+        { draft: representative.draft, mergeBasis, touchedBlocks: representative.touchedBlocks },
+        normalizedCurrentDocument,
+      );
+      if (!merged.ok && merged.conflict.reason === "content-stale") {
+        // 合成の対象外の操作 (整列・部分段組み) の対象が変わっていると、追従しても次の保存で
+        // 競合に戻る。成功とは返さず、競合を残して「AIの提案で上書き/破棄」の判断に回す。
+        await this.writeGroupConflict(members, merged.conflict.blockIds, currentRevision, "content-stale");
+        return {
+          ok: false,
+          reason: te("electron.proposalStore.rebaseContentChanged", { ids: merged.conflict.blockIds.join(", ") }),
+        };
+      }
+    }
     let nextDocument: SigmaDocument;
     let replayDraft = representative.draft;
     try {
@@ -1045,7 +1101,9 @@ export class LocalMcpEditProposalStore {
       // 古い base のハッシュのまま比較してしまい、誤って「変更あり」と判定してしまう。
       // base (mergeBasis) を持つ提案は取り直さない: 人間の編集後の文書で取り直すと、baseが
       // 読めなくなったとき従来判定がその編集を検出できず上書きしてしまう。
-      ...(members.some((candidate) => candidate.touchedBlocks) && !mergeBasis ? { touchedBlocks: sharedTouchedBlocks } : {}),
+      ...(members.some((candidate) => candidate.touchedBlocks) && !representative.mergeBasis ? { touchedBlocks: sharedTouchedBlocks } : {}),
+      autoApplyDeferredAtRevision: undefined,
+      autoApplyDeferredSignature: undefined,
       // rebase成功 = 検出されていた競合(あれば)は解消済み。
       conflict: undefined,
       updatedAt: now,
@@ -1091,9 +1149,10 @@ export class LocalMcpEditProposalStore {
     let nextDocument: SigmaDocument;
     let replayDraft = proposal.draft;
     try {
-      if (proposal.mergeBasis) {
+      const restoreBasis = usableProposalMergeBasis(proposal.mergeBasis);
+      if (restoreBasis) {
         // AI自身のdraftとbaseはそのまま残し、復活時点の人間の編集を合成した作業文書だけ作り直す。
-        nextDocument = replayProposalDraftMerging(normalizedCurrentDocument, proposal.draft, proposal.mergeBasis).nextDocument;
+        nextDocument = replayProposalDraftMerging(normalizedCurrentDocument, proposal.draft, restoreBasis).nextDocument;
       } else {
         const replay = replayProposalDraft(normalizedCurrentDocument, proposal.draft);
         replayDraft = replay.draft;
@@ -1131,6 +1190,8 @@ export class LocalMcpEditProposalStore {
     delete nextProposal.appliedDiff;
     delete nextProposal.autoApplied;
     delete nextProposal.mergeReport;
+    delete nextProposal.autoApplyDeferredAtRevision;
+    delete nextProposal.autoApplyDeferredSignature;
 
     // If this proposal is part of a group, restore all members atomically
     if (proposal.groupId) {
@@ -1160,6 +1221,8 @@ export class LocalMcpEditProposalStore {
           delete member.appliedDiff;
           delete member.autoApplied;
           delete member.mergeReport;
+          delete member.autoApplyDeferredAtRevision;
+          delete member.autoApplyDeferredSignature;
         });
         await Promise.all(updatedMembers.map((member) => this.writeProposal(member)));
         return { ok: true, proposal: summarizeProposal(updatedMembers.find((m) => m.proposalId === proposalId) ?? updatedMembers[0]) };
@@ -1204,9 +1267,11 @@ export class LocalMcpEditProposalStore {
     const conflicted: string[] = [];
 
     for (const candidate of candidates) {
-      if (candidate.mergeBasis && !candidate.invalidReason) {
+      const candidateBasis = candidate.invalidReason ? undefined : usableProposalMergeBasis(candidate.mergeBasis);
+      if (candidateBasis) {
         const outcome = await this.autoRebaseMergeableProposal(
           candidate,
+          candidateBasis,
           normalizedCurrentDocument,
           currentHashes,
           currentRevision,
@@ -1319,6 +1384,7 @@ export class LocalMcpEditProposalStore {
    */
   private async autoRebaseMergeableProposal(
     candidate: LocalMcpEditProposalMeta,
+    mergeBasis: ProposalMergeBasis,
     currentDocument: SigmaDocument,
     currentHashes: Record<string, string>,
     currentRevision: number,
@@ -1326,9 +1392,14 @@ export class LocalMcpEditProposalStore {
     if (candidate.draft.operations.length === 0 && (candidate.draft.mutationOperations?.length ?? 0) === 0) {
       return "skipped";
     }
-    const mergeable = { draft: candidate.draft, mergeBasis: candidate.mergeBasis!, touchedBlocks: candidate.touchedBlocks };
+    const mergeable = { draft: candidate.draft, mergeBasis, touchedBlocks: candidate.touchedBlocks };
+    const signatureOf = (extraIds: readonly string[]) => computeMergeAttentionSignature(mergeable, extraIds, currentHashes);
     let conflict: ProposalFreshnessConflict | null;
     if (candidate.conflict) {
+      if (candidate.conflict.signature !== undefined && candidate.conflict.signature === signatureOf(candidate.conflict.blockIds)) {
+        // Nothing the conflict depends on changed: re-evaluating would reach the same answer.
+        return "conflicted";
+      }
       const replay = replayMergeableProposal(mergeable, currentDocument, currentHashes);
       conflict = replay.ok
         ? null
@@ -1340,10 +1411,19 @@ export class LocalMcpEditProposalStore {
       conflict = findMergeableProposalStructuralConflict(mergeable, currentHashes, currentDocument);
     }
     if (conflict) {
-      await this.markConflict(candidate.proposalId, conflict.blockIds, currentRevision, conflict.reason);
+      await this.markConflict(candidate.proposalId, conflict.blockIds, currentRevision, conflict.reason, signatureOf(conflict.blockIds));
       return "conflicted";
     }
-    return await this.advanceProposalBaseRevisionWithoutReplay(candidate.proposalId, currentDocument.docId, currentRevision)
+    // A deferred automatic approval stays deferred while nothing the proposal depends on changed
+    // (the merge would need review again); otherwise it is retried at the new revision.
+    const keepDeferral = candidate.autoApplyDeferredSignature !== undefined
+      && candidate.autoApplyDeferredSignature === signatureOf([]);
+    return await this.advanceProposalBaseRevisionWithoutReplay(
+      candidate.proposalId,
+      currentDocument.docId,
+      currentRevision,
+      keepDeferral ? { revision: currentRevision, signature: candidate.autoApplyDeferredSignature! } : undefined,
+    )
       ? "rebased"
       : "skipped";
   }
@@ -1375,6 +1455,7 @@ export class LocalMcpEditProposalStore {
     proposalId: string,
     baseDocId: string,
     currentRevision: number,
+    autoApplyDeferral?: { revision: number; signature: string },
   ): Promise<boolean> {
     const proposal = await this.loadProposal(proposalId);
     if (!proposal || proposal.status !== "pending") {
@@ -1392,6 +1473,8 @@ export class LocalMcpEditProposalStore {
       baseDocId,
       rebasedFrom: member.baseRevision,
       conflict: undefined,
+      autoApplyDeferredAtRevision: autoApplyDeferral?.revision,
+      autoApplyDeferredSignature: autoApplyDeferral?.signature,
       updatedAt: now,
     })));
     return true;
@@ -1402,12 +1485,13 @@ export class LocalMcpEditProposalStore {
     blockIds: string[],
     detectedAtRevision: number,
     reason: LocalMcpEditProposalConflictReason,
+    signature?: string,
   ): Promise<void> {
     const proposal = await this.loadProposal(proposalId);
     if (!proposal || proposal.status !== "pending" || proposal.invalidReason) {
       return;
     }
-    await this.writeGroupConflict(await this.loadProposalGroup(proposal), blockIds, detectedAtRevision, reason);
+    await this.writeGroupConflict(await this.loadProposalGroup(proposal), blockIds, detectedAtRevision, reason, signature);
   }
 
   private async markConflict(
@@ -1415,8 +1499,9 @@ export class LocalMcpEditProposalStore {
     blockIds: string[],
     detectedAtRevision: number,
     reason: LocalMcpEditProposalConflictReason,
+    signature?: string,
   ): Promise<void> {
-    await this.recordProposalConflict(proposalId, blockIds, detectedAtRevision, reason);
+    await this.recordProposalConflict(proposalId, blockIds, detectedAtRevision, reason, signature);
   }
 
   /**
@@ -1991,6 +2076,13 @@ export class LocalMcpEditProposalStore {
         ...(typeof value.autoApplyDeferredAtRevision === "number"
           ? { autoApplyDeferredAtRevision: value.autoApplyDeferredAtRevision }
           : {}),
+        ...(typeof value.autoApplyDeferredSignature === "string"
+          ? { autoApplyDeferredSignature: value.autoApplyDeferredSignature }
+          : {}),
+        ...(() => {
+          const mergeCarry = parseProposalMergeReport(value.mergeCarry);
+          return mergeCarry ? { mergeCarry } : {};
+        })(),
       };
     } catch {
       return null;
@@ -2087,11 +2179,12 @@ export class LocalMcpEditProposalStore {
     blockIds: string[],
     detectedAtRevision: number,
     reason: LocalMcpEditProposalConflictReason,
+    signature?: string,
   ): Promise<void> {
     const updatedAt = new Date().toISOString();
     await Promise.all(members.map((member) => this.writeProposal({
       ...member,
-      conflict: { blockIds, detectedAtRevision, reason },
+      conflict: { blockIds, detectedAtRevision, reason, ...(signature ? { signature } : {}) },
       updatedAt,
     })));
   }
@@ -2160,9 +2253,11 @@ function parseTouchedBlocks(value: unknown): LocalMcpEditProposalTouchedBlock[] 
 }
 
 /**
- * mergeBasis の緩い読み込み。旧レコード (フィールドなし) は null。1つでも読めない実体があれば
- * base全体を捨てて null にする: 一部だけ欠けたbaseで合成すると、欠けた単位を素のreplayで
- * 上書きしてしまう。null の提案は従来の内容ハッシュ比較 (content-stale) で安全側に倒れる。
+ * mergeBasis の緩い読み込み。旧レコード (フィールドなし) は null。読み込みでは形だけを見る
+ * (version・entities・各項目の kind と id の一致)。スナップショット全体のスキーマ検証は、base を
+ * 使う所 (承認・合成replay・追従) で usableProposalMergeBasis が1回だけ行い、1つでも読めない
+ * 実体があれば base 全体を無かったことにする (一部だけ欠けたbaseで合成すると、欠けた単位を
+ * 素のreplayで上書きしてしまう)。一覧や自動保存のたびの読み込みでは全文を検証しない。
  * アンカーは付け替えの手掛かりにすぎないので、読めない項目だけ落とす。
  */
 function parseProposalMergeBasis(value: unknown): ProposalMergeBasis | null {
@@ -2171,16 +2266,10 @@ function parseProposalMergeBasis(value: unknown): ProposalMergeBasis | null {
   }
   const entities: Record<string, ProposalMergeBasisEntity> = {};
   for (const [id, entity] of Object.entries(value.entities)) {
-    if (!isRecord(entity) || !isRecord(entity.value) || entity.value.id !== id) {
+    if (!isRecord(entity) || !isRecord(entity.value) || entity.value.id !== id || (entity.kind !== "block" && entity.kind !== "shape")) {
       return null;
     }
-    if (entity.kind === "block" && EditableBlockSchema.safeParse(entity.value).success) {
-      entities[id] = { kind: "block", value: entity.value as unknown as EditableBlock };
-    } else if (entity.kind === "shape" && isOverlayShape(entity.value)) {
-      entities[id] = { kind: "shape", value: entity.value as unknown as Extract<ProposalMergeBasisEntity, { kind: "shape" }>["value"] };
-    } else {
-      return null;
-    }
+    entities[id] = entity as unknown as ProposalMergeBasisEntity;
   }
   const anchors: Record<string, ProposalMergeBasisAnchor> = {};
   if (isRecord(value.anchors) && !Array.isArray(value.anchors)) {
@@ -2247,14 +2336,18 @@ function splitAppendedDraft(existing: AiEditSessionDraft, incoming: AiEditSessio
   };
 }
 
+/** Whether the two drafts have an operation (or mutation) in common. */
+function sharesOperations(left: AiEditSessionDraft, right: AiEditSessionDraft): boolean {
+  return left.operations.some((operation) => right.operations.some((other) => isDeepStrictEqual(operation, other)))
+    || (left.mutationOperations ?? []).some((operation) => (
+      (right.mutationOperations ?? []).some((other) => isDeepStrictEqual(operation, other))
+    ));
+}
+
 /** Whether `existing` already contains all of `incoming` as its leading operations. */
 function startsWithDraft(existing: AiEditSessionDraft, incoming: AiEditSessionDraft): boolean {
   return startsWithItems(existing.operations, incoming.operations)
     && startsWithItems(existing.mutationOperations ?? [], incoming.mutationOperations ?? []);
-}
-
-function emptyDraftLike(draft: AiEditSessionDraft): AiEditSessionDraft {
-  return { summary: draft.summary, plan: [], warnings: [], operations: [], mutationOperations: [], operationOrder: [] };
 }
 
 function startsWithItems<T>(items: readonly T[], prefix: readonly T[]): boolean {
@@ -2304,7 +2397,12 @@ function parseConflict(value: unknown): LocalMcpEditProposalConflict | null {
   const blockIds = value.blockIds.filter((id): id is string => typeof id === "string");
   const reason = isProposalFreshnessConflictReason(value.reason) ? value.reason : undefined;
   return blockIds.length > 0 || reason === "replay-failed"
-    ? { blockIds, detectedAtRevision: value.detectedAtRevision, ...(reason ? { reason } : {}) }
+    ? {
+        blockIds,
+        detectedAtRevision: value.detectedAtRevision,
+        ...(reason ? { reason } : {}),
+        ...(typeof value.signature === "string" ? { signature: value.signature } : {}),
+      }
     : null;
 }
 
@@ -2395,6 +2493,7 @@ function summarizeProposal(proposal: LocalMcpEditProposal): LocalMcpEditProposal
     ...(proposal.history?.length ? { history: proposal.history } : {}),
     ...(proposal.mergeBasis ? { mergeBasis: proposal.mergeBasis } : {}),
     ...(proposal.mergeReport ? { mergeReport: proposal.mergeReport } : {}),
+    ...(proposal.mergeCarry ? { mergeCarry: proposal.mergeCarry } : {}),
     ...(proposal.autoApplyDeferredAtRevision !== undefined ? { autoApplyDeferredAtRevision: proposal.autoApplyDeferredAtRevision } : {}),
     // revertDocument は意図的に含めない (LocalMcpEditProposalSummary のコメント参照)。
   };
@@ -2443,6 +2542,7 @@ function summarizeProposalMeta(meta: LocalMcpEditProposalMeta): LocalMcpEditProp
     ...(meta.history?.length ? { history: meta.history } : {}),
     ...(meta.mergeBasis ? { mergeBasis: meta.mergeBasis } : {}),
     ...(meta.mergeReport ? { mergeReport: meta.mergeReport } : {}),
+    ...(meta.mergeCarry ? { mergeCarry: meta.mergeCarry } : {}),
     ...(meta.autoApplyDeferredAtRevision !== undefined ? { autoApplyDeferredAtRevision: meta.autoApplyDeferredAtRevision } : {}),
   };
 }

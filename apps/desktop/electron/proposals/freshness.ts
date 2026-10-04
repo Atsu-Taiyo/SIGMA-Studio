@@ -5,7 +5,11 @@ import {
   type AiEditSessionDraft,
 } from "@/lib/ai/sigma-doc-edit-schema";
 import { isOverlayAnchorSupportDraft } from "@/lib/ai/applied-document-diff";
-import { findBlockContainer, type ProposalMergeBasis } from "@/lib/ai/proposal-merge-basis";
+import {
+  findBlockContainer,
+  usableProposalMergeBasis,
+  type ProposalMergeBasis,
+} from "@/lib/ai/proposal-merge-basis";
 import {
   ProposalMergeReplayError,
   replayProposalDraftMerging,
@@ -88,7 +92,8 @@ export function collectRequiredInsertAnchorBlockIds(draft: AiEditSessionDraft): 
       }
     }
     if (operation.operation === "insertAfter") {
-      createdIds.add(operation.insertedBlock.id);
+      // The inserted block's nested blocks (a problem's paragraphs...) are created too.
+      collectEditableBlockTreeIds(operation.insertedBlock).forEach((id) => createdIds.add(id));
     } else if (operation.operation === "insertTableShape") {
       createdIds.add(operation.tableShape.id);
     } else {
@@ -325,11 +330,12 @@ export function findProposalFreshnessConflict(
   // 追従できる。内容ハッシュ (content-stale)・アンカー消失・asset ID衝突のうち、合成replayが
   // 解決できるものは競合にせず、解決できないもの (対象の消失・ID占有・合成後もAI側も検証不能)
   // だけを返す。旧レコードは下の従来判定のまま。
-  if (proposal.mergeBasis && proposal.draft) {
-    const mergeable = { draft: proposal.draft, mergeBasis: proposal.mergeBasis, touchedBlocks: proposal.touchedBlocks };
+  const mergeBasis = usableProposalMergeBasis(proposal.mergeBasis);
+  if (mergeBasis && proposal.draft) {
+    const mergeable = { draft: proposal.draft, mergeBasis, touchedBlocks: proposal.touchedBlocks };
     if (!currentDocument) {
       return findNonMergeableContentStale(mergeable, currentHashes)
-        ?? findMissingMergeUnits(mergeable.mergeBasis, currentHashes);
+        ?? findMissingMergeUnits(mergeable, currentHashes);
     }
     const replay = replayMergeableProposal(mergeable, currentDocument, currentHashes);
     return replay.ok ? null : replay.conflict;
@@ -454,12 +460,55 @@ function findNonMergeableContentStale(
   return conflictIds.length > 0 ? { blockIds: conflictIds, reason: "content-stale" } : null;
 }
 
+/**
+ * Merged units the human deleted. A unit the draft itself deletes is not missing: both sides want it
+ * gone, so the merging replay treats that part of the deletion as done.
+ */
 function findMissingMergeUnits(
-  mergeBasis: ProposalMergeBasis,
+  proposal: Pick<MergeableProposal, "draft" | "mergeBasis">,
   currentHashes: Record<string, string>,
 ): ProposalFreshnessConflict | null {
-  const missingIds = Object.keys(mergeBasis.entities).filter((id) => currentHashes[id] === undefined);
+  const deletedByDraft = new Set((proposal.draft.mutationOperations ?? []).flatMap((operation) => (
+    operation.operation === "deleteBlocks"
+      ? operation.blockIds
+      : operation.operation === "deleteOverlayShapes" ? operation.shapeIds : []
+  )));
+  const missingIds = Object.keys(proposal.mergeBasis.entities)
+    .filter((id) => currentHashes[id] === undefined && !deletedByDraft.has(id));
   return missingIds.length > 0 ? { blockIds: missingIds, reason: "anchor-missing" } : null;
+}
+
+/**
+ * A short signature of the current contents of everything a merge-capable proposal depends on
+ * (its merged units, every id the draft touches, and `extraIds` such as a conflict's targets).
+ * While it is unchanged, re-evaluating the proposal after a save would reach the same answer, so a
+ * recorded conflict or a deferred automatic approval is kept as it is without replaying.
+ */
+export function computeMergeAttentionSignature(
+  proposal: Pick<MergeableProposal, "draft"> & { mergeBasis?: ProposalMergeBasis },
+  extraIds: readonly string[],
+  currentHashes: Record<string, string>,
+): string {
+  const ids = [...new Set([
+    ...Object.keys(proposal.mergeBasis?.entities ?? {}),
+    ...collectTouchedBlockIds(proposal.draft),
+    ...extraIds,
+  ])].sort();
+  return hashString(ids.map((id) => `${id}=${currentHashes[id] ?? "-"}`).join("\n"));
+}
+
+/** cyrb53: a fast 53-bit string hash (not cryptographic; collisions only cost a re-evaluation). */
+function hashString(value: string): string {
+  let h1 = 0xdeadbeef;
+  let h2 = 0x41c6ce57;
+  for (let index = 0; index < value.length; index += 1) {
+    const code = value.charCodeAt(index);
+    h1 = Math.imul(h1 ^ code, 2654435761);
+    h2 = Math.imul(h2 ^ code, 1597334677);
+  }
+  h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507) ^ Math.imul(h2 ^ (h2 >>> 13), 3266489909);
+  h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909);
+  return (4294967296 * (2097151 & h2) + (h1 >>> 0)).toString(36);
 }
 
 /**
@@ -478,7 +527,7 @@ export function findMergeableProposalStructuralConflict(
   if (contentStale) {
     return contentStale;
   }
-  const missingUnits = findMissingMergeUnits(proposal.mergeBasis, currentHashes);
+  const missingUnits = findMissingMergeUnits(proposal, currentHashes);
   if (missingUnits) {
     return missingUnits;
   }
