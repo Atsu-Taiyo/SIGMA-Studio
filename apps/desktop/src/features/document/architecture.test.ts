@@ -18,6 +18,8 @@ import {
   getRunningRegionBoundsMm,
   insertTopLevelDocumentBlocks,
   insertTopLevelDocumentBlocksBefore,
+  mergeEntity3,
+  mergeInline3,
   normalizeOverlaySnapshot,
   patchShape,
   removeCommentReplyMessage,
@@ -33,6 +35,10 @@ import {
   updateCommentThreadBody,
   upsertShape,
 } from ".";
+import {
+  mergeEntity3 as kernelMergeEntity3,
+  mergeInline3 as kernelMergeInline3,
+} from "./application/three-way-merge";
 import {
   alignMarginToRunningRegionBoundary as legacyAlignMarginToRunningRegionBoundary,
   enablePageRunningRegion as legacyEnablePageRunningRegion,
@@ -359,6 +365,21 @@ describe("document feature dependency boundary", () => {
     expect(editorShellSource + bodyCommandsSource).not.toContain(
       "@/features/document/application/document-block-operations",
     );
+  });
+
+  it("owns the three-way merge kernel as a pure module behind the public document boundary", () => {
+    // Proposal approval (Electron main), its preview (renderer) and the run adoption merge all call
+    // this kernel, so it may depend on nothing but the canonical model — no Yjs, AI or editor code.
+    const kernelSource = readFileSync(fileURLToPath(new URL(
+      "./application/three-way-merge.ts",
+      import.meta.url,
+    )), "utf8");
+
+    expect(importSpecifiers(kernelSource)).toEqual(["../model"]);
+    expect(kernelSource).not.toContain("new Date");
+    expect(kernelSource).not.toContain("Math.random");
+    expect(mergeInline3).toBe(kernelMergeInline3);
+    expect(mergeEntity3).toBe(kernelMergeEntity3);
   });
 
   it("owns interactive page resize math behind the public document boundary", () => {
