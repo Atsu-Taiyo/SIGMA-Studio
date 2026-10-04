@@ -1,0 +1,187 @@
+/* AI 提案の内容 (AiProposalContentView)。外枠 (見出し・操作・余白) は置く側が持ち、ここは
+   「内容がどう見えるか」だけを決める。紙面 (page) は寸法の上限も内部スクロールも持たない。 */
+
+.content {
+  display: grid;
+  gap: var(--space-xs);
+  min-width: 0;
+  margin: 0;
+}
+
+.content[data-outcome="dismissed"] {
+  opacity: 0.62;
+}
+
+.hunk {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  min-width: 0;
+}
+
+/* 問題のエリア (導入文/問題文/コメント/解答) の中の変更は、左に区分の名前を立てる。 */
+.hunk[data-problem-area] {
+  grid-template-columns: minmax(58px, 76px) minmax(0, 1fr);
+  align-items: stretch;
+}
+
+.areaLabel {
+  display: flex;
+  align-items: flex-start;
+  min-width: 0;
+  padding: 3px var(--space-sm) 3px 0;
+  border-right: 1px solid color-mix(in srgb, var(--border-strong) 62%, transparent);
+  color: var(--text-muted);
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1.35;
+}
+
+.hunkBody {
+  display: grid;
+  gap: var(--space-xs);
+  min-width: 0;
+}
+
+.hunk[data-problem-area] .hunkBody {
+  padding-left: var(--space-sm);
+}
+
+/* 本文の中身を持たない操作 (移動・削除など) の要約。 */
+.note {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  padding: 6px 8px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-control);
+  background: var(--background);
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.note svg {
+  flex: 0 0 auto;
+  opacity: 0.7;
+}
+
+/* 変わった単語の色は、ここで決めた変数を表示用のコピーが `background-color: var(...)` で引く。 */
+.side,
+.shapeGroup {
+  --ai-proposal-word-removed: color-mix(in srgb, var(--danger, #b42318) 28%, transparent);
+  --ai-proposal-word-added: color-mix(in srgb, var(--success, #247a3d) 28%, transparent);
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  min-width: 0;
+  margin: 0;
+}
+
+.side[data-change="removed"],
+.shapeGroup[data-change="removed"] {
+  background: color-mix(in srgb, var(--danger, #b42318) 8%, transparent);
+}
+
+.side[data-change="added"],
+.shapeGroup[data-change="added"] {
+  background: color-mix(in srgb, var(--success, #247a3d) 8%, transparent);
+}
+
+.content[data-surface="panel"] .side,
+.content[data-surface="panel"] .shapeGroup {
+  grid-template-columns: 22px minmax(0, 1fr);
+  overflow: hidden;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-control);
+}
+
+/* +/− の印。両側が並ぶパネルだけで描く。 */
+.gutter {
+  display: grid;
+  place-items: start center;
+  padding-top: 6px;
+  border-right: 1px solid var(--border-subtle);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  font-size: 11px;
+  line-height: 1.4;
+  user-select: none;
+}
+
+.content[data-surface="panel"] [data-change="removed"] > .gutter {
+  background: color-mix(in srgb, var(--danger, #b42318) 12%, transparent);
+  color: var(--danger, #b42318);
+}
+
+.content[data-surface="panel"] [data-change="added"] > .gutter {
+  background: color-mix(in srgb, var(--success, #247a3d) 12%, transparent);
+  color: var(--success, #247a3d);
+}
+
+/* 紙。紙面と同じ書体・字の大きさ・行送りで組む (`text-flow-editor` と併用)。横の余白は持たない
+   (パネルでは段幅ちょうどで組むため。余白は外側の窓が持つ)。 */
+.paper {
+  min-width: 0;
+  padding: 2px 0;
+  font-family: var(--editor-body-font-family);
+  font-size: var(--editor-font-size, 12pt);
+  line-height: 1.78;
+}
+
+.content[data-surface="panel"] .paper {
+  transform-origin: top left;
+}
+
+.paper > :first-child {
+  margin-top: 0;
+}
+
+.paper > :last-child {
+  margin-bottom: 0;
+}
+
+/* 段幅で組んだ紙を縮めて収める窓。縮めた後の高さは部品が実測して与える。余白は margin で取る
+   (padding だと実測する幅 `clientWidth` に入ってしまう)。 */
+.panelViewport {
+  min-width: 0;
+  margin: 4px 8px;
+  overflow: hidden;
+}
+
+.shapes {
+  display: grid;
+  gap: var(--space-xs);
+  min-width: 0;
+}
+
+.shapeStage {
+  display: grid;
+  place-items: center;
+  min-width: 0;
+  padding: var(--space-sm);
+}
+
+.shapeStage svg {
+  display: block;
+  max-width: 100%;
+  height: auto;
+}
+
+/* サイドバーの図形は従来どおり高さを抑える (紙面の上限撤廃とは別に WI-6 で見直す)。 */
+.content[data-surface="panel"] .shapeStage {
+  max-height: 160px;
+  overflow: hidden;
+}
+
+.content[data-surface="panel"] .shapeStage svg {
+  max-height: 140px;
+}
+
+.caption {
+  overflow: hidden;
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 1.3;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

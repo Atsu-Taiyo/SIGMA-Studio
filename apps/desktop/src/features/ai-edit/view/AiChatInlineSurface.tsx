@@ -6,7 +6,7 @@ import { type AiEditPreviewState } from "@/features/ai-edit/model/preview";
 import { AiStreamRenderer } from "@/features/ai-edit/view";
 import { type AssistantTurn } from "@/lib/ai/ai-run-controller";
 import { useT } from "@/lib/i18n/react";
-import { AiTurnProposalActions, AiChatShapeArtifact } from "@/features/ai-edit/view/AiChatTurn";
+import { AiTurnProposalActions, AiTurnShapeContent } from "@/features/ai-edit/view/AiChatTurn";
 import { AssistantActivity } from "@/features/ai-edit/view/AiChatActivity";
 import { AiEditPlanList } from "@/features/ai-edit/view/AiChatPlan";
 import type { AiEditPanelProps } from "@/features/ai-edit/application/ai-chat-panel-contracts";
@@ -133,10 +133,12 @@ export function AiChatInlineSurface({surface,conversation,proposals,composer,com
                 <span className="ai-inline-logo" aria-hidden="true">{renderProviderMark(inlineProvider, { size: 15 })}</span>
                 <AiStreamRenderer className="ai-inline-summary" text={turn.result.draft.summary} />
               </div>
-              <AiChatShapeArtifact
-                preview={insertedShapePreviewsByTurnId?.get(turn.id)}
-                outcome={turn.applied ? "applied" : turn.dismissed ? "dismissed" : "pending"}
-              />
+              {insertedShapePreviewsByTurnId?.get(turn.id) && (
+                <AiTurnShapeContent
+                  content={insertedShapePreviewsByTurnId.get(turn.id)!}
+                  outcome={turn.applied ? "applied" : turn.dismissed ? "dismissed" : "pending"}
+                />
+              )}
               {turn.events.some((event) => event.images?.some((image) => image.generatedImage)) && (
                 <AssistantActivity turn={turn} clockNow={clockNow} />
               )}
@@ -233,10 +235,12 @@ export function AiChatInlineSurface({surface,conversation,proposals,composer,com
                 <span className="ai-inline-logo" aria-hidden="true">{renderProviderMark(inlineProvider, { size: 15 })}</span>
                 <AiStreamRenderer className="ai-inline-summary" text={inlineResultTurn.result!.draft.summary} />
               </div>
-              <AiChatShapeArtifact
-                preview={insertedShapePreviewsByTurnId?.get(inlineResultTurn.id)}
-                outcome={inlineResultTurn.applied ? "applied" : inlineResultTurn.dismissed ? "dismissed" : "pending"}
-              />
+              {insertedShapePreviewsByTurnId?.get(inlineResultTurn.id) && (
+                <AiTurnShapeContent
+                  content={insertedShapePreviewsByTurnId.get(inlineResultTurn.id)!}
+                  outcome={inlineResultTurn.applied ? "applied" : inlineResultTurn.dismissed ? "dismissed" : "pending"}
+                />
+              )}
               {inlineResultTurn.events.some((event) => event.images?.some((image) => image.generatedImage)) && (
                 <AssistantActivity turn={inlineResultTurn} clockNow={clockNow} />
               )}

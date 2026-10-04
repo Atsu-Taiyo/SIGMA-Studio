@@ -27,6 +27,7 @@ import {
   overlayShapeNoun,
   overlayShapeNounId,
 } from "./preview";
+import { buildShapesSvgPreview } from "@/lib/ai/ai-edit-shape-preview";
 import type { AiEditDraft, AiEditSessionDraft, SigmaDocMutationOp } from "@/lib/ai/sigma-doc-edit-schema";
 import type { OverlayAsset, OverlayShape } from "@/features/document";
 import type { DesktopMcpEditProposalProvider, DesktopMcpEditProposalSummary } from "@/types/desktop";
@@ -715,9 +716,46 @@ describe("buildInsertedShapePreviewsByTurnId", () => {
     ]);
 
     expect(result.size).toBe(1);
-    expect(result.get("turn_1")?.svg).toContain("図1");
-    expect(result.get("turn_1")?.svg).toContain("図2");
-    expect(result.get("turn_1")?.width).toBeGreaterThan(300);
+    // サムネは他の面と同じ提案内容のモデルで持ち、作成順に図形を並べる。
+    expect(result.get("turn_1")?.hunks).toEqual([]);
+    expect(result.get("turn_1")?.shapes.map((entry) => [entry.change, entry.shape.id])).toEqual([
+      ["added", "shape_1"],
+      ["added", "shape_2"],
+    ]);
+    const preview = buildShapesSvgPreview(
+      result.get("turn_1")!.shapes.map((entry) => entry.shape),
+      result.get("turn_1")!.shapes[0]!.assets as Record<string, OverlayAsset>,
+    );
+    expect(preview?.svg).toContain("図1");
+    expect(preview?.svg).toContain("図2");
+    expect(preview?.width).toBeGreaterThan(300);
+  });
+
+  it("carries the assets an inserted image needs, so the thumbnail draws the picture", () => {
+    const asset: OverlayAsset = {
+      id: "asset_1",
+      type: "image",
+      props: { w: 40, h: 30, name: "図.png", isAnimated: false, mimeType: "image/png", src: "data:image/png;base64,AA==", fileSize: 1 },
+    };
+    const result = buildInsertedShapePreviewsByTurnId([
+      makeProposal({
+        proposalId: "p1",
+        fileId: "f1",
+        targetId: "b1",
+        turnId: "turn_1",
+        draftOverrides: {
+          operations: [{
+            operation: "insertOverlayShape",
+            summary: "画像を挿入",
+            targetId: "b1",
+            overlayShape: { id: "img_1", type: "image", x: 0, y: 0, rotation: 0, props: { assetId: "asset_1", w: 40, h: 30 } },
+            assets: { asset_1: asset },
+          }],
+        },
+      }),
+    ]);
+
+    expect(result.get("turn_1")?.shapes[0]?.assets.asset_1).toEqual(asset);
   });
 
   it("skips unattributed and non-shape proposals", () => {

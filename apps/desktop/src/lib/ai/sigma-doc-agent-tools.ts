@@ -194,7 +194,8 @@ export interface SigmaDocAgentSession {
   /**
    * Block, column-layout, and overlay operations committed via `commitSigmaDocMutation`. Kept
    * separate from `operations` (AiEditDraft[])
-   * because that array is rendered directly by AiEditInlinePreviewCard, which assumes every entry
+   * because that array is read directly by the proposal content model
+   * (features/ai-edit/model/proposal-content.ts), which assumes every entry
    * carries a replacementBlock/insertedBlock/overlayShape/tableShape.
    */
   mutationOperations: SigmaDocMutationOp[];

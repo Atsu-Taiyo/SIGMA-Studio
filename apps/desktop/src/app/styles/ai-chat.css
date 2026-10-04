@@ -857,48 +857,6 @@
   white-space: nowrap;
 }
 
-.ai-chat-shape-artifact {
-  display: grid;
-  gap: 4px;
-  width: min(148px, 100%);
-  margin: 4px 0 0;
-  min-width: 0;
-}
-
-.ai-chat-shape-artifact-stage {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 100%;
-  height: 104px;
-  padding: 8px;
-  overflow: hidden;
-  border: 1px solid var(--border-subtle);
-  border-radius: 8px;
-  background: #ffffff;
-}
-
-.ai-chat-shape-artifact-stage svg {
-  display: block;
-  width: auto;
-  max-width: 100%;
-  height: auto;
-  max-height: 100%;
-}
-
-.ai-chat-shape-artifact figcaption {
-  overflow: hidden;
-  color: var(--text-muted);
-  font-size: 11px;
-  line-height: 1.3;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.ai-chat-shape-artifact[data-outcome="dismissed"] {
-  opacity: 0.62;
-}
-
 .ai-chat-user-text {
   margin: 0;
   color: var(--text-primary);
@@ -1034,6 +992,13 @@
   color: var(--text-muted);
   font-size: 11px;
   font-weight: 700;
+}
+
+/* 会話の中の提案内容: 件数 (+n/−n) と AiProposalContentView。 */
+.ai-chat-proposal-content {
+  display: grid;
+  gap: var(--space-sm);
+  min-width: 0;
 }
 
 .ai-chat-result-proposal-actions {
@@ -2445,12 +2410,6 @@
   background: var(--border-subtle);
 }
 
-.ai-inline-preview-placeholder {
-  margin: 0;
-  color: var(--text-secondary);
-  font-size: 12px;
-}
-
 .ai-edit-message {
   margin: 9px 0 0;
   color: var(--danger);
@@ -2738,31 +2697,6 @@
   color: var(--danger);
   font-size: 12px;
   line-height: 1.5;
-}
-
-.ai-edit-shape-preview-viewport {
-  display: flex;
-  justify-content: center;
-  max-height: 430px;
-  overflow: auto;
-  padding: 12px;
-  border: 1px solid var(--border-subtle);
-  border-radius: 6px;
-  background: #eef1f5;
-}
-
-.ai-edit-shape-preview-stage {
-  max-width: 100%;
-}
-
-.ai-edit-shape-preview-stage svg {
-  display: block;
-  max-width: 100%;
-  height: auto;
-  background: #ffffff;
-  border: 1px solid #d8dde6;
-  border-radius: 4px;
-  box-shadow: 0 6px 18px rgba(15, 23, 42, 0.12);
 }
 
 .ai-edit-summary {

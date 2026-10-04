@@ -1,13 +1,11 @@
 "use client";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  deriveAiEditPreviewOverlayShapes,
   type AiEditPreviewState,
   type StaleMcpProposalGroup,
 } from "@/components/editor/ai-edit-preview-types";
 import { AiConnectionGate, ClaudeConnectionGate, GeminiConnectionGate } from "@/components/editor/AiConnectionGate";
 import { AiStaleProposalNotice } from "@/components/editor/AiStaleProposalNotice";
-import type { OverlayShape } from "@/components/editor/overlay-canvas/types";
 import type { AiEditAttachment } from "@/lib/ai/sigma-doc-agent-tools";
 import { useAiConnection, useClaudeConnection, useGeminiConnection } from "@/lib/ai/ai-connection";
 import { type AiEditReference } from "@/lib/ai/ai-edit-reference";
@@ -36,7 +34,6 @@ import {
   type UserTurn,
 } from "@/lib/ai/ai-run-controller";
 import { aiRunSessionStore, isAiRunStatusActive, useAiRunSessions } from "@/lib/ai/ai-run-session-store";
-import { derivePendingDocumentDiff, type AiAppliedDocumentDiff } from "@/lib/ai/applied-document-diff";
 import { type AiEditModel } from "@/lib/ai/sigma-doc-edit-schema";
 import { getDesktopBridge } from "@/lib/desktop-bridge";
 import { resolveDocumentTitle } from "@/lib/document-title";
@@ -51,10 +48,16 @@ import { tAiNow } from "@/features/ai-edit/application/ai-chat-translator";
 import { useAiChatComposer } from "@/features/ai-edit/application/use-ai-chat-composer";
 import { AiChatComposer } from "@/features/ai-edit/view/AiChatComposer";
 import { AiChatInlineSurface } from "@/features/ai-edit/view/AiChatInlineSurface";
+import {
+  buildPendingProposalContent,
+  resolvePendingProposalAfterDocument,
+  type AiProposalContent,
+} from "@/features/ai-edit/model/proposal-content";
+import { getPageMetrics, type OverlayAsset } from "@/features/document";
 
 const EMPTY_PINNED_REFERENCES: AiEditReference[] = [];
 const EMPTY_PINNED_REFERENCE_PREVIEWS: ReadonlyMap<string, AiEditShapeOnlyPreview> = new Map();
-const EMPTY_OVERLAY_SHAPES: OverlayShape[] = [];
+const EMPTY_OVERLAY_ASSETS: Readonly<Record<string, OverlayAsset>> = {};
 const EMPTY_PENDING_ATTACHMENTS: AiEditAttachment[] = [];
 
 export function findActiveRoomPreview(
@@ -294,28 +297,24 @@ export function AiEditPanel({
     setProvider(lockedProvider);
   }
   const visibleTurns = useMemo(() => activeRoom?.turns ?? [], [activeRoom]);
-  const currentOverlaySnapshot = document.pageLayout?.overlay?.overlaySnapshot;
-  // `currentOverlaySnapshot?.shapes ?? []` would mint a brand-new empty array every render
-  // whenever there's no overlay snapshot yet; memoizing keeps its identity stable across the
-  // composer-keystroke re-renders that don't touch the overlay, which pendingDiffCache below
-  // depends on to avoid recomputing every pending proposal's diff on every keystroke.
-  const currentOverlayShapes = useMemo(
-    () => currentOverlaySnapshot?.shapes ?? EMPTY_OVERLAY_SHAPES,
-    [currentOverlaySnapshot],
-  );
-  // Build proposal diffs once per input change. The render path only reads the map.
-  const pendingDiffs = useMemo(() => {
-    const diffs = new Map<AiEditPreviewState, AiAppliedDocumentDiff>();
+  // 適用済みの図形は今の文書の画像で描く (渡さないと画像・3D の絵が欠ける)。
+  const currentOverlayAssets = document.pageLayout?.overlay?.overlaySnapshot?.assets ?? EMPTY_OVERLAY_ASSETS;
+  // 提案内容はこの段幅で組んでからパネルの幅へ縮める (紙面と同じ改行で読める)。
+  const paperWidthPx = useMemo(() => getPageMetrics(document.pageLayout).flow.columnWidthPx, [document.pageLayout]);
+  // Build proposal contents once per input change. The render path only reads the map. The
+  // after-document is shared with the page cards (memoized per document and proposal), so the
+  // composer's keystrokes and the page do not replay the same proposal twice.
+  const pendingContents = useMemo(() => {
+    const contents = new Map<AiEditPreviewState, AiProposalContent>();
     for (const candidate of previewGroups) {
-      const postStateShapesById = new Map(
-        deriveAiEditPreviewOverlayShapes(candidate, currentOverlayShapes).map((shape) => [shape.id, shape]),
-      );
-      diffs.set(candidate, derivePendingDocumentDiff(
-        [candidate.draft], document, currentOverlayShapes, postStateShapesById, candidate.shapeReplacements,
+      contents.set(candidate, buildPendingProposalContent(
+        document,
+        resolvePendingProposalAfterDocument(document, candidate),
+        candidate,
       ));
     }
-    return diffs;
-  }, [previewGroups, document, currentOverlayShapes]);
+    return contents;
+  }, [previewGroups, document]);
 
   const latestAssistant = useMemo<AssistantTurn | null>(() => {
     for (let i = visibleTurns.length - 1; i >= 0; i -= 1) {
@@ -786,28 +785,30 @@ export function AiEditPanel({
             ));
             const proposal = exactPreview
               ?? (turn.id === latestAssistantId && !activeRoomPreview?.turnId ? activeRoomPreview : null);
-            // 承認する前に「何が消えて何が足されるのか」を同じGitHub風差分で先出しする
-            // (承認後の適用済みカードと全く同じ見た目にすることで、「見た目で分かって
-            // 承認できる」体験にする)。キャッシュ経由なので、コンポーザーへの入力など
-            // 無関係な再レンダーではproposal/document/shapesが同じ限り再計算されない。
-            const proposalDiff = proposal ? pendingDiffs.get(proposal) : undefined;
+            // 承認する前に「何が消えて何が足されるのか」を、承認後の適用済みカードと同じ
+            // 部品で先出しする (「見た目で分かって承認できる」体験にする)。キャッシュ経由なので、
+            // コンポーザーへの入力など無関係な再レンダーではproposal/documentが同じ限り再計算されない。
+            const proposalContent = proposal ? pendingContents.get(proposal) : undefined;
             return (
               <AssistantTurnView
                 key={turn.id}
                 turn={turn}
                 clockNow={clockNow}
                 sourceReferences={sourceReferencesByTurnId?.get(turn.id)}
-                shapePreview={insertedShapePreviewsByTurnId?.get(turn.id)}
+                shapeContent={insertedShapePreviewsByTurnId?.get(turn.id)}
                 appliedChange={appliedChangesByTurnId?.get(turn.id)}
                 onRevertAppliedChange={onRevertAppliedChange}
                 onOpenSourceDocument={onOpenSourceDocument}
                 restorable={restorableProposalsByTurnId?.get(turn.id)}
                 onRestoreProposal={onRestoreProposal}
                 proposal={proposal}
-                proposalDiff={proposalDiff}
+                proposalContent={proposalContent}
                 proposalBusy={busy}
                 onApplyProposal={onApplyGroup}
                 onDismissProposal={onDismissGroup}
+                overlayAssets={currentOverlayAssets}
+                paperWidthPx={paperWidthPx}
+                mathFractionSizing={document.metadata.mathFractionSizing}
               />
             );
           })
@@ -847,7 +848,7 @@ export { ChatEmptyState } from "@/features/ai-edit/view/AiChatEmptyState";
 
 export { MentionedDocumentChip, AiResourceChip, SigmaDocMentionPopover, AiResourceSlashPopover, AttachmentPreview } from "@/features/ai-edit/view/AiChatComposerParts";
 
-export { UserTurnView, AssistantTurnView, AiChatShapeArtifact } from "@/features/ai-edit/view/AiChatTurn";
+export { UserTurnView, AssistantTurnView, AiTurnShapeContent } from "@/features/ai-edit/view/AiChatTurn";
 
 export { AssistantActivity } from "@/features/ai-edit/view/AiChatActivity";
 

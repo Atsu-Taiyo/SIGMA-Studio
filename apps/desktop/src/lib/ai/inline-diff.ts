@@ -338,3 +338,98 @@ export function diffInlineNodes(before: InlineNode[], after: InlineNode[]): Inli
     changed: true,
   };
 }
+
+/**
+ * 変わった範囲。**元のノード列の位置**で表す (`nodes[nodeIndex]` の `text` の `start`〜`end`)。
+ * 数式は分けられない 1 個の部品なので `start === end === 0` で「そのノード全体」を指す。
+ */
+export interface InlineChangeRange {
+  nodeIndex: number;
+  start: number;
+  end: number;
+}
+
+export interface InlineDiffChangeRanges {
+  changed: boolean;
+  removed: InlineChangeRange[];
+  added: InlineChangeRange[];
+}
+
+interface SourcedInlineToken {
+  token: InlineDiffToken;
+  range: InlineChangeRange;
+}
+
+const LINE_BREAK = /\r?\n/u;
+
+/**
+ * トークンに「元のどのノードの何文字目か」を付ける。`tokenizeInlineNodes` と同じ切り方を
+ * ノードごとに行い、その文字列を元のテキストの先頭から順に探して位置を決める
+ * (改行トークンは `\n` 1 文字だが、元は `\r\n` のことがあるので改行だけは正規表現で測る)。
+ */
+function tokenizeWithSources(nodes: InlineNode[]): SourcedInlineToken[] {
+  return nodes.flatMap((node, nodeIndex): SourcedInlineToken[] => {
+    const tokens = tokenizeInlineNodes([node]);
+    if (node.type === "mathInline") {
+      return tokens.map((token) => ({ token, range: { nodeIndex, start: 0, end: 0 } }));
+    }
+    let offset = 0;
+    return tokens.map((token) => {
+      if (token.kind === "math") {
+        // 文字のノードからは数式トークンは出ない (型を絞るための枝)。
+        return { token, range: { nodeIndex, start: offset, end: offset } };
+      }
+      let start = offset;
+      let length = token.text.length;
+      if (token.kind === "newline") {
+        const match = LINE_BREAK.exec(node.text.slice(offset));
+        start = match ? offset + match.index : offset;
+        length = match ? match[0].length : length;
+      } else {
+        const found = node.text.indexOf(token.text, offset);
+        start = found >= 0 ? found : offset;
+      }
+      offset = start + length;
+      return { token, range: { nodeIndex, start, end: offset } };
+    });
+  });
+}
+
+/** 同じノードの中で隣り合う範囲は 1 つにまとめる (数式は 1 ノード 1 範囲)。 */
+function mergeAdjacentRanges(ranges: InlineChangeRange[]): InlineChangeRange[] {
+  const merged: InlineChangeRange[] = [];
+  for (const range of ranges) {
+    const last = merged.at(-1);
+    if (last && last.nodeIndex === range.nodeIndex && last.end === range.start) {
+      last.end = range.end;
+      continue;
+    }
+    merged.push({ ...range });
+  }
+  return merged;
+}
+
+/**
+ * `diffInlineNodes` と同じ単語/数式単位の比較を行い、変わった範囲を**元のノード列の位置**で返す。
+ * 表示側はこの範囲だけに色を塗ったコピーを作れる。`diffInlineNodes` と違ってノードを
+ * 組み立て直さないので、リンクや表示形式などトークンに載らない属性を落とさない。
+ */
+export function diffInlineNodeRanges(before: InlineNode[], after: InlineNode[]): InlineDiffChangeRanges {
+  const beforeTokens = tokenizeWithSources(before);
+  const afterTokens = tokenizeWithSources(after);
+  const ops = diffArrays(beforeTokens, afterTokens, (sourced) => sourced.token.key);
+  const removed: InlineChangeRange[] = [];
+  const added: InlineChangeRange[] = [];
+  for (const op of ops) {
+    if (op.type === "remove" && op.a) {
+      removed.push(op.a.range);
+    } else if (op.type === "add" && op.b) {
+      added.push(op.b.range);
+    }
+  }
+  return {
+    changed: removed.length > 0 || added.length > 0,
+    removed: mergeAdjacentRanges(removed),
+    added: mergeAdjacentRanges(added),
+  };
+}

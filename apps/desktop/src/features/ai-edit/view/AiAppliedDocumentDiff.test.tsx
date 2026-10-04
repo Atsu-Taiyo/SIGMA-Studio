@@ -4,66 +4,52 @@ import { describe, expect, it } from "vitest";
 import { createTranslator } from "@/lib/i18n";
 
 import type { AiAppliedDocumentDiff } from "@/lib/ai/applied-document-diff";
-import { AiAppliedDocumentDiffView, buildAppliedDiffStats } from "./AiAppliedDocumentDiff";
+import { buildAppliedProposalContent } from "../model/proposal-content";
+import { AiProposalDiffStats, buildAppliedDiffStats } from "./AiAppliedDocumentDiff";
 
-describe("AiAppliedDocumentDiffView", () => {
-  it("shows an unchanged context line plainly and wraps only the changed word in <mark>", () => {
+describe("AiProposalDiffStats", () => {
+  const rectangle = {
+    id: "shape_1",
+    type: "geo",
+    x: 0,
+    y: 0,
+    rotation: 0,
+    props: {
+      w: 120,
+      h: 80,
+      geo: "rectangle",
+      fill: "none",
+      color: "#111111",
+      fillColor: "#ffffff",
+      labelColor: "#111111",
+      dash: "solid",
+      size: "m",
+    },
+  } as const;
+
+  it("counts the changed lines and shapes of the content the panel draws", () => {
     const diff: AiAppliedDocumentDiff = {
       body: [
-        {
-          change: "removed",
-          block: { id: "p1", type: "paragraph", children: [{ type: "text", text: "変更前" }] },
-        },
-        {
-          change: "added",
-          block: { id: "p1", type: "paragraph", children: [{ type: "text", text: "変更後" }] },
-        },
+        { change: "removed", block: { id: "p1", type: "paragraph", children: [{ type: "text", text: "変更前" }] } },
+        { change: "added", block: { id: "p1", type: "paragraph", children: [{ type: "text", text: "変更後" }] } },
       ],
-      shapes: [{
-        change: "added",
-        shape: {
-          id: "shape_1",
-          type: "geo",
-          x: 0,
-          y: 0,
-          rotation: 0,
-          props: {
-            w: 120,
-            h: 80,
-            geo: "rectangle",
-            fill: "none",
-            color: "#111111",
-            fillColor: "#ffffff",
-            labelColor: "#111111",
-            dash: "solid",
-            size: "m",
-          },
-        },
-      }],
+      shapes: [{ change: "added", shape: rectangle }],
     };
-    const html = renderToStaticMarkup(<AiAppliedDocumentDiffView diff={diff} />);
+    const html = renderToStaticMarkup(<AiProposalDiffStats content={buildAppliedProposalContent(diff)} />);
 
-    // 変更前/変更後は"変更"を共有する単語("変更"+"前"/"後")なので、共通の"変更"はcontextの
-    // まま強調されず、"前"→"後"だけが<mark>で強調される。
-    const markBlocks = [...html.matchAll(/<mark[^>]*>([\s\S]*?)<\/mark>/g)].map((match) => match[1]);
-    expect(markBlocks.length).toBeGreaterThan(0);
-    expect(markBlocks.some((block) => block.includes("前"))).toBe(true);
-    expect(markBlocks.some((block) => block.includes("後"))).toBe(true);
-    expect(markBlocks.some((block) => block.includes("変更"))).toBe(false);
-    expect(html).toContain("変更");
     expect(html).toContain("+1行");
     expect(html).toContain("−1行");
     expect(html).toContain("+1図形");
     expect(html).toContain('data-change="removed"');
     expect(html).toContain('data-change="added"');
+    expect(html).toContain('aria-label="差分集計"');
   });
 
-  it("returns null when the diff is empty", () => {
-    const html = renderToStaticMarkup(<AiAppliedDocumentDiffView diff={{ body: [], shapes: [] }} />);
-    expect(html).toBe("");
+  it("renders nothing when the content has nothing to count", () => {
+    expect(renderToStaticMarkup(<AiProposalDiffStats content={{ hunks: [], shapes: [] }} />)).toBe("");
   });
 
-  it("renders a quiet collapsed-row control for long unchanged runs", () => {
+  it("does not count an unchanged line next to the changed one", () => {
     const items = Array.from({ length: 7 }, (_, i) => ({
       id: `item_${i}`,
       type: "listItem" as const,
@@ -72,18 +58,21 @@ describe("AiAppliedDocumentDiffView", () => {
     const changedItems = items.map((item, i) => (
       i === 0 ? { ...item, children: [{ type: "text" as const, text: "変更後の行" }] } : item
     ));
-    const diff: AiAppliedDocumentDiff = {
+    const content = buildAppliedProposalContent({
       body: [
         { change: "removed", block: { id: "list_1", type: "list", listType: "bullet", items } },
         { change: "added", block: { id: "list_1", type: "list", listType: "bullet", items: changedItems } },
       ],
       shapes: [],
-    };
+    });
 
-    const html = renderToStaticMarkup(<AiAppliedDocumentDiffView diff={diff} />);
-    expect(html).toContain("他4行は変更なし");
+    const html = renderToStaticMarkup(<AiProposalDiffStats content={content} />);
+    expect(html).toContain("+1行");
+    expect(html).toContain("−1行");
   });
+});
 
+describe("buildAppliedDiffStats", () => {
   it("counts graph shapes separately from generic shapes", () => {
     const stats = buildAppliedDiffStats({
       body: [],
