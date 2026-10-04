@@ -7,12 +7,11 @@ import {
   collectReplaceTargetIds,
   orderItemsByReplacementAncestry,
   replayProposalDraft,
-  replayProposalDraftMerging,
+  replayProposalForApproval,
 } from "@/lib/ai/proposal-replay";
 import {
   combineProposalMergeReports,
   createEmptyProposalMergeReport,
-  usableProposalMergeBasis,
   type ProposalMergeBasis,
   type ProposalMergeReport,
 } from "@/lib/ai/proposal-merge-basis";
@@ -27,6 +26,7 @@ export {
   assertAppliedProposalHasRealChanges,
   collectReplaceTargetIds,
   replayProposalDraft,
+  replayProposalForApproval,
 };
 
 const te = createCurrentLocaleTranslator("error");
@@ -39,29 +39,6 @@ export interface MergeProposalDraftsResult {
   reports: Record<string, ProposalMergeReport>;
   /** All applied proposals' reports combined (what the approval returns for counting). */
   report: ProposalMergeReport;
-}
-
-/**
- * Replays one proposal of a batch: with a usable merge basis through the merging replay (the
- * human's edits since the base are kept), otherwise through the legacy replay, counted as
- * `legacyNoBase`. The report includes what the room's earlier turns merged (`mergeCarry`).
- */
-export function replayProposalForApproval(
-  document: SigmaDocument,
-  proposal: { draft: AiEditSessionDraft; mergeBasis?: ProposalMergeBasis; mergeCarry?: ProposalMergeReport },
-): { nextDocument: SigmaDocument; report: ProposalMergeReport } {
-  const mergeBasis = usableProposalMergeBasis(proposal.mergeBasis);
-  if (mergeBasis) {
-    const merged = replayProposalDraftMerging(document, proposal.draft, mergeBasis);
-    return {
-      nextDocument: merged.nextDocument,
-      report: proposal.mergeCarry ? combineProposalMergeReports([proposal.mergeCarry, merged.report]) : merged.report,
-    };
-  }
-  return {
-    nextDocument: replayProposalDraft(document, proposal.draft).nextDocument,
-    report: { ...createEmptyProposalMergeReport(), legacyNoBase: 1 },
-  };
 }
 
 // 一括承認 (approve-mcp-edit-proposals) の中核ロジック: 作成順に並んだ複数提案の draft を、

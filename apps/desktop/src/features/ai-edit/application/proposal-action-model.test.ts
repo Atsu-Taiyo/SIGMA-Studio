@@ -12,12 +12,15 @@ import {
   deriveAiProposalDismissEffects,
   deriveAiProposalResolutionTargets,
   deriveAiStaleProposalDiscardEffects,
+  describeAiAdoptionMergeStatus,
   normalizeAiProposalIds,
   sameProposalIdSet,
   selectPrimaryAiProposalIdForRevert,
   selectSequentialAiRevertProposalIds,
 } from "./proposal-action-model";
 import { aiDocumentWriteInProgressMessage } from "../adapters/tiptap/edit-lock-adapter";
+import { createEmptyProposalMergeReport } from "@/lib/ai/proposal-merge-basis";
+import { createTranslator } from "@/lib/i18n";
 
 function previewGroup(
   proposalIds: string[],
@@ -398,5 +401,46 @@ describe("selectSequentialAiRevertProposalIds", () => {
     )).toEqual(["legacy"]);
     expect(selectSequentialAiRevertProposalIds([], ["unknown"], 5)).toEqual(["unknown"]);
     expect(selectSequentialAiRevertProposalIds([], [], 5)).toEqual([]);
+  });
+});
+
+describe("describeAiAdoptionMergeStatus", () => {
+  const tEditor = createTranslator("ja", "editor");
+  const tEditorEn = createTranslator("en", "editor");
+  const report = (overrides: { humanEditedUnits?: string[]; droppedHumanEdits?: string[]; droppedAiEdits?: string[] } = {}) => ({
+    ...createEmptyProposalMergeReport(),
+    droppedHumanEdits: [],
+    droppedAiEdits: [],
+    ...overrides,
+  });
+
+  it("says nothing extra when the typing during the approval did not touch what the AI changed", () => {
+    expect(describeAiAdoptionMergeStatus(report(), tEditor)).toBeNull();
+  });
+
+  it("says both were kept when the typing and the AI's change were merged without losing either", () => {
+    expect(describeAiAdoptionMergeStatus(report({ humanEditedUnits: ["p_1"] }), tEditor))
+      .toBe(tEditor("status.aiMergedKeepingBoth"));
+  });
+
+  it("says some typing was replaced by the AI's content when the human's input was dropped", () => {
+    expect(describeAiAdoptionMergeStatus(report({ humanEditedUnits: ["p_1"], droppedHumanEdits: ["#p_1.children"] }), tEditor))
+      .toBe(tEditor("status.aiMergedHumanEditsReplaced"));
+  });
+
+  it("says part of the AI's change was not applied when only the AI's edit was dropped", () => {
+    expect(describeAiAdoptionMergeStatus(report({ droppedAiEdits: ["#p_2"] }), tEditor))
+      .toBe(tEditor("status.aiMergedAiEditsSkipped"));
+  });
+
+  it("tells about the replaced typing first when both sides lost something", () => {
+    expect(describeAiAdoptionMergeStatus(report({ droppedHumanEdits: ["$"], droppedAiEdits: ["#p_2"] }), tEditor))
+      .toBe(tEditor("status.aiMergedHumanEditsReplaced"));
+  });
+
+  it("reads the English dictionary for the English UI", () => {
+    const message = describeAiAdoptionMergeStatus(report({ humanEditedUnits: ["p_1"] }), tEditorEn);
+    expect(message).toBe(tEditorEn("status.aiMergedKeepingBoth"));
+    expect(message).not.toMatch(/[぀-ヿ一-鿿]/u);
   });
 });

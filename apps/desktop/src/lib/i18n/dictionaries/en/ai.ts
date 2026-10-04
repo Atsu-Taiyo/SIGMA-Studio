@@ -298,6 +298,7 @@ export const ai = {
     showContent: "Show details",
     hideBefore: "Hide original",
     showBefore: "Show original",
+    mergedWithYourEdits: "Combined with your edits",
   },
   composer: {
     modelCatalogUnavailable: "The runtime cannot provide the model list.",

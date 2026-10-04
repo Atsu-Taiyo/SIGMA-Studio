@@ -232,6 +232,13 @@ describe("AI proposal action controller", () => {
     await act(async () => { outcome = await h.read().applyAiEditPreviewGroup(["proposal"]); });
     expect(outcome).toEqual({ ok: true });
     expect(adoptionCounters()).toEqual([]);
+    const tEditor = createCurrentLocaleTranslator("editor");
+    const mergeMessages = [
+      tEditor("status.aiMergedKeepingBoth"),
+      tEditor("status.aiMergedHumanEditsReplaced"),
+      tEditor("status.aiMergedAiEditsSkipped"),
+    ];
+    expect(mergeMessages).not.toContain(h.status.mock.lastCall?.[0]);
 
     // AIが変えた段落の同じ位置への入力: 合成して両方残し、合成と重なりを数える。
     approveWithAiText("段落の新しい本文");
@@ -239,6 +246,8 @@ describe("AI proposal action controller", () => {
     await act(async () => { outcome = await h.read().applyAiEditPreviewGroup(["proposal"]); });
     expect(outcome).toEqual({ ok: true });
     expect(adoptionCounters()).toEqual(["AiProposalMerge.adoption.mergedUnits", "AiProposalMerge.adoption.overlaps"]);
+    // 両方残したことを知らせる (「AIの内容にしています」とは言わない)。
+    expect(h.status).toHaveBeenLastCalledWith(tEditor("status.aiMergedKeepingBoth"));
     // 合成しても教材を増やさず、undoできる1手として採用する (全文差し替えはしない)。
     expect(h.adopt).toHaveBeenCalledTimes(2);
     expect(h.reset).not.toHaveBeenCalled();
@@ -256,7 +265,7 @@ describe("AI proposal action controller", () => {
 
     await act(async () => { await h.read().applyAiEditPreviewGroup(["proposal"]); });
 
-    expect(h.status).toHaveBeenLastCalledWith(createCurrentLocaleTranslator("editor")("status.aiMergedPreferringAi"));
+    expect(h.status).toHaveBeenLastCalledWith(createCurrentLocaleTranslator("editor")("status.aiMergedHumanEditsReplaced"));
     expect(vi.mocked(countPerformanceEvent).mock.calls.map(([name]) => name))
       .toContain("AiProposalMerge.adoption.droppedHumanEdits");
   });

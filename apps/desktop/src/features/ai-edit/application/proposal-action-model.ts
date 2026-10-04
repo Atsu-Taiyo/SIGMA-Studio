@@ -413,3 +413,25 @@ export function selectPrimaryAiProposalIdForRevert(
     ?? approvedProposals[0]
   )?.proposalId ?? proposalIds[0];
 }
+
+/**
+ * 承認待ちの間の入力と AI の結果を合成して採用したとき (`decideAiApprovedDocument` の merge) の
+ * お知らせ。合成の report から出し分ける。入力が AI の変更と重ならなかったときは `null`
+ * (通常の適用のお知らせのまま)。
+ */
+export function describeAiAdoptionMergeStatus(
+  report: { humanEditedUnits: readonly string[]; droppedHumanEdits?: readonly string[]; droppedAiEdits?: readonly string[] },
+  tEditor: Translate<"editor"> = DEFAULT_EDITOR_TRANSLATE,
+): string | null {
+  // 入力が消えた (AI の内容に置き換わった) ことを先に知らせる。Ctrl+Z で承認前に戻せる。
+  if ((report.droppedHumanEdits?.length ?? 0) > 0) {
+    return tEditor("status.aiMergedHumanEditsReplaced");
+  }
+  if ((report.droppedAiEdits?.length ?? 0) > 0) {
+    return tEditor("status.aiMergedAiEditsSkipped");
+  }
+  if (report.humanEditedUnits.length > 0) {
+    return tEditor("status.aiMergedKeepingBoth");
+  }
+  return null;
+}

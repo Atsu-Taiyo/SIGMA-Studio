@@ -43,6 +43,8 @@ const SURFACES = {
   "src/features/ai-edit/editor-extensions.tsx": { t: "ai" },
   "src/features/ai-edit/AiPageCanvasEditor.tsx": { t: "ai" },
   "src/features/ai-edit/application/proposal-action-model.ts": { t: "ai", tEditor: "editor" },
+  "src/features/ai-edit/application/use-ai-proposal-actions.ts": { t: "chrome", tAi: "ai", tEditor: "editor" },
+  "src/features/ai-edit/view/AiChatInlineSurface.tsx": { t: "ai", tCommon: "common" },
   "src/features/ai-edit/application/run-request-model.ts": { t: "ai" },
   "src/features/ai-edit/adapters/tiptap/edit-lock-adapter.ts": { t: "ai" },
   "src/features/ai-edit/model/preview.ts": { t: "ai" },
@@ -181,6 +183,7 @@ const MUST_PASS_TRANSLATOR = [
   "deriveAiProposalApprovedFileFeedback",
   "deriveAiProposalDismissEffects",
   "deriveAiStaleProposalDiscardEffects",
+  "describeAiAdoptionMergeStatus",
   "deriveAiReferenceRequestPlan",
   "buildAiOverlayEditorExtensions",
 ] as const;

@@ -21,6 +21,7 @@ import {
   type AiOverlayShapeReplacementPair,
 } from "@/lib/ai/overlay-shape-replacement";
 import { getVisualShapesFromOperations } from "@/lib/ai/ai-edit-shape-preview";
+import type { ProposalMergeBasis, ProposalMergeReport } from "@/lib/ai/proposal-merge-basis";
 import type { AiProposalContent } from "./proposal-content";
 import {
   deriveAppliedDraftFallback,
@@ -60,6 +61,25 @@ export interface AiEditPreviewState {
   sourceReferences?: DesktopAiSourceReference[];
   /** A delete + insert sequence that represents one logical shape replacement. */
   shapeReplacements?: AiOverlayShapeReplacementPair[];
+  /**
+   * 承認と同じ合成 replay でプレビューを作るための、まとめた提案それぞれの元 (作成順)。
+   * どれかが base (`mergeBasis`) を持つときだけ付く。無ければ従来どおり、まとめた draft を
+   * そのまま今の文書へ適用した内容を見せる (`resolveProposalMergePreview`)。
+   */
+  mergeSources?: AiProposalMergeSource[];
+}
+
+/**
+ * 提案 1 件を承認と同じ手順で replay するのに要るもの (`replayProposalForApproval` の入力)。
+ * `mergeBasis` は invalidReason を持つ提案には付けない (承認もその base を使わない)。
+ */
+export interface AiProposalMergeSource {
+  proposalId: string;
+  createdAt: string;
+  draft: AiEditSessionDraft;
+  requestedShapeId?: string;
+  mergeBasis?: ProposalMergeBasis;
+  mergeCarry?: ProposalMergeReport;
 }
 
 /**
@@ -127,11 +147,14 @@ export function describeRevertBlockedReason(
 //   従来どおり手動の「作り直し」に頼る。
 export type StaleMcpProposalKind = "conflict" | "manual-rebase" | "pending-auto-rebase";
 
-/** stale (baseRevisionが古い) pending提案1件を上記3種に分類する。 */
+/**
+ * stale (baseRevisionが古い) pending提案1件を上記3種に分類する。保存済みのdraftが壊れている提案
+ * (`invalidReason`) は、mainが競合を記録する前でも適用できないので "conflict" (replay-failed) にする。
+ */
 export function classifyStaleMcpProposal(
-  proposal: Pick<DesktopMcpEditProposalSummary, "conflict" | "touchedBlocks">,
+  proposal: Pick<DesktopMcpEditProposalSummary, "conflict" | "touchedBlocks" | "invalidReason">,
 ): StaleMcpProposalKind {
-  if (proposal.conflict) {
+  if (proposal.conflict || proposal.invalidReason) {
     return "conflict";
   }
   if (proposal.touchedBlocks && proposal.touchedBlocks.length > 0) {
@@ -345,6 +368,17 @@ export function dedupeAiSourceReferences(references: DesktopAiSourceReference[])
   return result;
 }
 
+function toMergeSource(proposal: DesktopMcpEditProposalSummary): AiProposalMergeSource {
+  return {
+    proposalId: proposal.proposalId,
+    createdAt: proposal.createdAt,
+    draft: proposal.draft,
+    ...(proposal.requestedShapeId ? { requestedShapeId: proposal.requestedShapeId } : {}),
+    ...(proposal.mergeBasis ? { mergeBasis: proposal.mergeBasis } : {}),
+    ...(proposal.mergeCarry ? { mergeCarry: proposal.mergeCarry } : {}),
+  };
+}
+
 function resolveGroupTargetId(
   operations: AiEditSessionDraft["operations"],
   mutationOperations: NonNullable<AiEditSessionDraft["mutationOperations"]>,
@@ -362,9 +396,13 @@ function resolveGroupTargetId(
 // (帰属不明なら "unattributed") ごとに1つのプレビュー単位へまとめられ、それぞれが自分の
 // apply/dismiss を持つ (決定B)。baseRevision はプレビュー分割に使わない — run 途中で人手編集や
 // 別提案の適用で revision が進んでも、同一 run の提案は1カードのまま (承認時に現在docへ順に
-// replay される)。stale 扱いになるのは (a) 自動rebaseが実上書き対象の変更、またはreplay不能を
-// 検出して conflict を立てた提案と、(b) requestSelection を持たないレガシー提案が baseRevision の
-// 古いまま残っているケースだけ。
+// replay される)。競合通知 (stale) へ回すのは、合成で解決できない提案だけ:
+// (a) main が解決できない競合を記録した提案 (conflict。base を持つ提案では対象の消失・合成後の
+//     検証失敗・合成しない操作の対象の変更だけが記録される)、
+// (b) 保存済みの draft が壊れている提案 (invalidReason)、
+// (c) base (mergeBasis) も requestSelection も持たない上書き系の旧提案が baseRevision の古いまま
+//     残っているケース。base を持つ提案は対象が変わっていても承認時の三者マージで人の編集を
+//     残せるので、revision が進んだだけでは競合にしない。
 export function groupMcpProposalsForPreview(
   proposals: DesktopMcpEditProposalSummary[],
   fileId: string,
@@ -383,10 +421,11 @@ export function groupMcpProposalsForPreview(
   const currentProposals: DesktopMcpEditProposalSummary[] = [];
   const staleProposals: DesktopMcpEditProposalSummary[] = [];
   for (const proposal of pending) {
-    if (proposal.conflict) {
+    if (proposal.conflict || proposal.invalidReason) {
       staleProposals.push(proposal);
     } else if (
       !proposal.requestSelection
+      && !proposal.mergeBasis
       && proposal.baseRevision !== currentRevision
       && !isAdditiveInsertOnlyDraft(proposal.draft)
     ) {
@@ -414,7 +453,9 @@ export function groupMcpProposalsForPreview(
   }>();
   for (const proposal of staleProposals) {
     const kind = classifyStaleMcpProposal(proposal);
-    const conflictReason = kind === "conflict" ? proposal.conflict?.reason : undefined;
+    const conflictReason = kind === "conflict"
+      ? proposal.conflict?.reason ?? (proposal.invalidReason ? "replay-failed" : undefined)
+      : undefined;
     const invalidReason = proposal.invalidReason;
     const key = `${proposal.baseRevision}::${kind}::${conflictReason ?? "unclassified"}::${invalidReason ?? "valid"}`;
     const bucket = staleByKey.get(key);
@@ -499,6 +540,10 @@ export function groupMcpProposalsForPreview(
     const runId = latestFirst.map((proposal) => proposal.runId).find((id) => !!id);
     const sourceReferences = dedupeAiSourceReferences(ordered.flatMap((proposal) => proposal.sourceReferences ?? []));
     const shapeReplacements = deriveAiOverlayShapeReplacementPairs(ordered);
+    // 承認と同じ合成 replay でプレビューを作る材料。base を持つ提案が無ければ従来どおり。
+    const mergeSources = ordered.some((proposal) => proposal.mergeBasis)
+      ? ordered.map(toMergeSource)
+      : undefined;
 
     groups.push({
       targetId: resolveGroupTargetId(operations, mutationOperations, ordered),
@@ -522,6 +567,7 @@ export function groupMcpProposalsForPreview(
       sessionLabel,
       ...(sourceReferences.length > 0 ? { sourceReferences } : {}),
       ...(shapeReplacements.length > 0 ? { shapeReplacements } : {}),
+      ...(mergeSources ? { mergeSources } : {}),
     });
   }
 
