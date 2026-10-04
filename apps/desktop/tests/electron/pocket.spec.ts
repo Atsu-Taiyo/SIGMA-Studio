@@ -285,3 +285,68 @@ test("dragging a card lands it where it is dropped, on the page and on a whitebo
     rmSync(userData, { recursive: true, force: true });
   }
 });
+
+test("the selected part flies into the pocket, and the closed pocket is a chip at the top centre, in the real app", async ({}, testInfo) => {
+  test.skip(!existsSync(path.join(APP_ROOT, "dist-electron/main.cjs")), "Run npm run electron:build first");
+  test.skip(!devUrl && !existsSync(path.join(APP_ROOT, "out/index.html")), "Start a private dev server or build the renderer");
+  const userData = mkdtempSync(path.join(tmpdir(), "sigma-pocket-fly-"));
+  const env: Record<string, string> = Object.fromEntries(Object.entries(process.env).filter((entry): entry is [string, string] => entry[1] !== undefined));
+  env.SIGMA_STUDIO_USER_DATA_DIR = userData;
+  delete env.ELECTRON_RUN_AS_NODE;
+  if (devUrl) env.SIGMA_STUDIO_DEV_SERVER_URL = devUrl;
+  const app = await electron.launch({ args: [APP_ROOT, `--user-data-dir=${userData}`], cwd: APP_ROOT, env });
+  try {
+    const page = await prepare(app);
+    await page.evaluate((document) => window.desktopAPI!.storage.createFileFromDocument({ document }), sourceDocument());
+    await page.reload();
+    await expect(page.locator('.text-flow-editor [data-sigma-doc-id="body_carried"]')).toBeVisible();
+    const cards = () => page.locator("[data-pocket-item] button[data-kind]");
+
+    await selectBody(page, "body_carried", 0, CARRIED_TEXT.length);
+    // 入れると、ポケットが上から開く。高さが途中の値を通って 88px になる (一瞬で切り替わらない)。
+    await page.evaluate(() => {
+      const heights: number[] = [];
+      (window as unknown as { __pocketHeights: number[] }).__pocketHeights = heights;
+      // 開き切って少し経つまで記録する (クリックまでの間も、上限までは待つ)。
+      let settled = 0;
+      const tick = () => {
+        const height = document.querySelector("[data-pocket-root]")?.getBoundingClientRect().height ?? 0;
+        heights.push(height);
+        settled = height === 88 ? settled + 1 : 0;
+        if (settled < 10 && heights.length < 1200) window.requestAnimationFrame(tick);
+      };
+      window.requestAnimationFrame(tick);
+    });
+    await page.getByRole("button", { name: "ポケットに追加" }).click();
+
+    // 選んでいた部分が、ポケットのカードへ飛んでいく。飛ぶ間は本物のカードは隠れ、着くと現れる。
+    const flyer = page.locator("[data-pocket-flyer]");
+    await expect(flyer).toBeVisible();
+    await expect(cards().first()).toHaveAttribute("data-flying", "true");
+    await page.screenshot({ path: testInfo.outputPath("pocket-flying.png") });
+    await expect(flyer).toHaveCount(0);
+    await expect(cards().first()).not.toHaveAttribute("data-flying", "true");
+    const heights = await page.evaluate(() => (window as unknown as { __pocketHeights: number[] }).__pocketHeights);
+    expect(heights.some((height) => height > 8 && height < 80)).toBe(true);
+    expect(heights[heights.length - 1]).toBe(88);
+
+    // 畳むと、チップは普段は見えない。上部へマウスを持っていくと、上部の真ん中に現れる。
+    await page.locator("[data-pocket-root]").getByRole("button", { name: "ポケットを閉じる" }).click();
+    const handle = page.locator("[data-pocket-root]").getByRole("button", { name: /ポケット 1件/ });
+    const opacity = () => handle.evaluate((element) => parseFloat(getComputedStyle(element).opacity));
+    const bar = (await page.locator("[data-pocket-root]").boundingBox())!;
+    await page.mouse.move(700, bar.y + 300);
+    await expect.poll(opacity).toBe(0);
+    await page.mouse.move(700, bar.y + 12, { steps: 4 });
+    await expect.poll(opacity).toBe(1);
+    const chip = (await handle.boundingBox())!;
+    const width = await page.evaluate(() => window.innerWidth);
+    expect(Math.abs(chip.x + chip.width / 2 - width / 2)).toBeLessThanOrEqual(2);
+    await page.screenshot({ path: testInfo.outputPath("pocket-closed-chip.png") });
+    await handle.click();
+    await expect(cards()).toHaveCount(1);
+  } finally {
+    await closeApp(app);
+    rmSync(userData, { recursive: true, force: true });
+  }
+});

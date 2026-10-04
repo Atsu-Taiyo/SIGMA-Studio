@@ -12,6 +12,7 @@ import {
   registerPocketPageHost,
   type PocketItem,
   type PocketPagePoint,
+  type PocketScreenRect,
 } from "@/features/pocket";
 
 /**
@@ -24,6 +25,28 @@ export const POCKET_PAGE_DROP: PageCanvasExternalDrop = {
     void dropPocketItem(dataTransfer, location);
   },
 };
+
+/**
+ * いま選ばれている図形と文章の範囲の、画面での外接矩形。ポケットへ入れた部分が飛んでいく元の位置。
+ * 図形は選ばれた印 (`.selected`) のある要素、文章は DOM の選択範囲から取る。どちらも無ければ null。
+ */
+export function measureSelectionRect(): PocketScreenRect | null {
+  const rects: DOMRect[] = Array.from(document.querySelectorAll<HTMLElement>(".overlay-shape.selected"))
+    .map((element) => element.getBoundingClientRect());
+  const selection = window.getSelection();
+  if (selection && !selection.isCollapsed && selection.rangeCount > 0) {
+    rects.push(selection.getRangeAt(0).getBoundingClientRect());
+  }
+  const visible = rects.filter((rect) => rect.width > 0 && rect.height > 0);
+  if (visible.length === 0) {
+    return null;
+  }
+  const left = Math.min(...visible.map((rect) => rect.left));
+  const top = Math.min(...visible.map((rect) => rect.top));
+  const right = Math.max(...visible.map((rect) => rect.right));
+  const bottom = Math.max(...visible.map((rect) => rect.bottom));
+  return { left, top, width: right - left, height: bottom - top };
+}
 
 interface PocketPageHostPorts {
   /** 本文を持たない紙面 (ホワイトボード) か。本文のコピーを貼る場所が無いので、図形として置く。 */
@@ -65,5 +88,6 @@ export function usePocketPageHost(ports: PocketPageHostPorts): void {
     // 落とした位置は、そこをクリックしたのと同じ扱いにする。複数のブロックにまたがる選択が残っていると、
     // 貼り付けは落とした位置ではなく、その選択を置き換える形で入ってしまう。
     beforePlaceCaret: clearTextRunSpanOnOutsidePointerDown,
+    getSelectionRect: measureSelectionRect,
   }), []);
 }

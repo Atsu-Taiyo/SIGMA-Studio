@@ -10,7 +10,7 @@ export type { PocketPhase } from "./application/pocket-store";
 export { addSelectionToPocket, dropPocketItem, insertPocketItem } from "./application/pocket-transfer";
 export type { PocketAddResult, PocketInsertResult } from "./application/pocket-transfer";
 export { isPocketDrag, registerPocketPageHost } from "./application/pocket-drag";
-export type { PocketDropLocation, PocketPageHost, PocketPagePoint } from "./application/pocket-drag";
+export type { PocketDropLocation, PocketPageHost, PocketPagePoint, PocketScreenRect } from "./application/pocket-drag";
 export type { PocketItem } from "./model/pocket-items";
 export type { PocketPreview } from "./model/pocket-preview";
 export { POCKET_CLIPBOARD_TYPES } from "./model/pocket-items";

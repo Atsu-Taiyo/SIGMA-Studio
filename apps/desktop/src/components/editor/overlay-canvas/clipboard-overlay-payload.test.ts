@@ -16,7 +16,9 @@ import {
   createOverlayClipboardPayload,
   createTextAndShapesClipboardPayload,
   createTextFlowClipboardPayload,
+  EDITOR_CLIPBOARD_MIME,
   EDITOR_TEXT_SLICE_MIME,
+  parseEditorClipboardPayload,
   writeEditorClipboardData,
   type EditorClipboardPayload,
 } from "@/lib/editor-clipboard";
@@ -42,6 +44,17 @@ function clipOf(payload: EditorClipboardPayload, extra: Record<string, string> =
   const data = new DataTransfer();
   writeEditorClipboardData(data, payload);
   return { ...Object.fromEntries([...data.types].map((type) => [type, data.getData(type)])), ...extra };
+}
+
+/**
+ * コピーの bag が、プレーンテキストへ落ちずに SigmaDoc の payload として読み戻せること。
+ * 作ったブロックが検証に弾かれると、変換はプレーンテキストの段落へ静かに落ちて、構造を見るテストが
+ * 見かけだけ通ってしまう。
+ */
+function clipOfBlocks(payload: EditorClipboardPayload): Record<string, string> {
+  const clip = clipOf(payload);
+  expect(parseEditorClipboardPayload(clip[EDITOR_CLIPBOARD_MIME] ?? "")?.kind).toBe(payload.kind);
+  return clip;
 }
 
 function onlyTextShape(shapes: readonly OverlayShape[]): OverlayTextShape {
@@ -73,14 +86,53 @@ describe("createOverlayPayloadFromClipboard", () => {
     const box: SigmaBlock = {
       type: "boxBlock",
       id: "box_1",
+      styleId: "plain",
       blocks: [paragraph],
     } as unknown as SigmaBlock;
 
-    const payload = createOverlayPayloadFromClipboard(clipOf(createDocumentBlocksClipboardPayload([box])));
+    const payload = createOverlayPayloadFromClipboard(clipOfBlocks(createDocumentBlocksClipboardPayload([box])));
 
     const text = onlyTextShape(payload!.shapes);
     expect(text.props.blocks).toHaveLength(1);
     expect(text.props.blocks[0]).toMatchObject({ type: "paragraph", children: [{ type: "text", text: "一段落目" }] });
+  });
+
+  it("keeps the areas of a problem as separate blocks, in the order they are laid out on the page", () => {
+    const text = (id: string, value: string): ParagraphNode => ({ type: "paragraph", id, children: [{ type: "text", text: value }] });
+    const problem = {
+      type: "problem",
+      id: "prob_1",
+      tags: ["代数"],
+      lead: [text("lead", "導入文")],
+      prompt: [text("prompt_a", "問題文その1"), text("prompt_b", "問題文その2")],
+      // 宣言順は solution が先だが、紙面の順 (hints → solution) で持ち込む。
+      solution: [text("solution", "解答")],
+      hints: [text("hint", "ヒント")],
+    } as unknown as SigmaBlock;
+
+    const payload = createOverlayPayloadFromClipboard(clipOfBlocks(createDocumentBlocksClipboardPayload([problem])));
+
+    const blocks = onlyTextShape(payload!.shapes).props.blocks;
+    expect(blocks.map((block) => block.type)).toEqual(["paragraph", "paragraph", "paragraph", "paragraph", "paragraph"]);
+    expect(blocks.map((block) => block.type === "paragraph" ? block.children.map((child) => child.type === "text" ? child.text : "") .join("") : "")).toEqual([
+      "導入文", "問題文その1", "問題文その2", "ヒント", "解答",
+    ]);
+  });
+
+  it("keeps the blocks inside a box as blocks, not one merged paragraph", () => {
+    const box = {
+      type: "boxBlock",
+      id: "box_1",
+      styleId: "plain",
+      blocks: [
+        { type: "paragraph", id: "b1", children: [{ type: "text", text: "一つ目" }] },
+        { type: "heading", id: "b2", level: 2, children: [{ type: "text", text: "二つ目" }] },
+      ],
+    } as unknown as SigmaBlock;
+
+    const payload = createOverlayPayloadFromClipboard(clipOfBlocks(createDocumentBlocksClipboardPayload([box])));
+
+    expect(onlyTextShape(payload!.shapes).props.blocks.map((block) => block.type)).toEqual(["paragraph", "heading"]);
   });
 
   it("turns a copied formula into a paragraph holding the formula", () => {
