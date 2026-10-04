@@ -1,6 +1,13 @@
 import { isDeepStrictEqual } from "node:util";
 
 import type { SigmaDocument } from "@/features/document";
+import {
+  combineProposalMergeReports,
+  createEmptyProposalMergeReport,
+  isProposalMergeQuiet,
+  usableProposalMergeBasis,
+  type ProposalMergeReport,
+} from "@/lib/ai/proposal-merge-basis";
 import { createAiEditSessionDocumentDraft } from "@/lib/ai/sigma-doc-edit-schema";
 import type { Translate } from "@/lib/i18n";
 import { computeDocumentBlockHashes } from "@/lib/sigma-doc-block-hash";
@@ -15,29 +22,49 @@ import type {
 import {
   canForceApplyProposalConflict,
   classifyProposalReplayFailure,
+  computeMergeAttentionSignature,
   findProposalFreshnessConflict,
+  replayMergeableProposal,
 } from "./proposals/freshness";
 import {
   assertAppliedProposalHasRealChanges,
   mergeProposalDraftsIntoDocument,
-  replayProposalDraft,
+  replayProposalForApproval,
 } from "./proposals/replay";
 
 export interface ProposalApprovalPorts {
   sharedProposalApprover?: (proposals: LocalMcpEditProposal[]) => Promise<ApproveProposalResult | undefined>;
   localSigmaDocStore: Pick<LocalSigmaDocStore, "runExclusive" | "listFiles" | "loadDocument" | "saveDocument">;
-  localMcpProposalStore: Pick<LocalMcpEditProposalStore, "loadProposal" | "runExclusive" | "recordProposalConflict" | "resolveProposal">;
+  localMcpProposalStore: Pick<
+    LocalMcpEditProposalStore,
+    "loadProposal" | "runExclusive" | "recordProposalConflict" | "recordAutoApplyDeferred" | "resolveProposal"
+  >;
   broadcastLocalStoreChange: (event: LocalStoreChangeEvent | LocalMcpEditProposalChangeEvent) => void;
   runPostSaveHooks: (fileId: string, document: SigmaDocument, revision: number) => Promise<void>;
   translate: Translate<"error">;
 }
 
 export type ApproveProposalResult =
-  | { ok: true; proposal: LocalMcpEditProposal; file: Awaited<ReturnType<LocalSigmaDocStore["listFiles"]>>[number]; document: SigmaDocument }
+  | {
+      ok: true;
+      proposal: LocalMcpEditProposal;
+      file: Awaited<ReturnType<LocalSigmaDocStore["listFiles"]>>[number];
+      document: SigmaDocument;
+      /**
+       * What the merging replay decided; the renderer counts its fallbacks (MISS R3). Absent for a
+       * shared document's approval, which does not go through the local replay.
+       */
+      mergeReport?: ProposalMergeReport;
+    }
   | {
       ok: false;
       error: string;
-      code?: "conflict";
+      /**
+       * conflict: the proposal could not be replayed onto the current document.
+       * merge-review: an automatic approval was skipped because the replay merged the human's
+       * edits; the proposal stays pending for a manual decision.
+       */
+      code?: "conflict" | "merge-review";
       conflictBlockIds?: string[];
       conflictReason?: LocalMcpEditProposalConflictReason;
     };
@@ -110,12 +137,21 @@ export function createProposalApprovalCoordinator({
       // insert系は選択範囲やアンカー本文が変わっていても競合にせず、最新SigmaDocへのreplayを試す。
       // 精密判定できない旧提案だけrequestSelection/touchedBlocksへフォールバックする。
       const currentHashes = computeDocumentBlockHashes(revertDocument);
-      const conflict = findProposalFreshnessConflict(
-        claimedProposal,
-        currentHashes,
-        file.revision,
-        revertDocument,
-      );
+      // base (mergeBasis) を持つ提案は鮮度確認と適用を1回の合成replayで行う: 人間の編集を残して
+      // 合成できれば競合にせず、できない理由 (対象の消失など) だけを従来の競合として返す。
+      const mergeBasis = claimedProposal.invalidReason ? undefined : usableProposalMergeBasis(claimedProposal.mergeBasis);
+      const mergeable = mergeBasis
+        ? { draft: claimedProposal.draft, mergeBasis, touchedBlocks: claimedProposal.touchedBlocks }
+        : null;
+      let merged = mergeable ? replayMergeableProposal(mergeable, revertDocument, currentHashes) : null;
+      const conflict = merged
+        ? (merged.ok ? null : merged.conflict)
+        : findProposalFreshnessConflict(
+            claimedProposal,
+            currentHashes,
+            file.revision,
+            revertDocument,
+          );
       if (conflict && (!options.force || !canForceApplyProposalConflict(conflict))) {
           await localMcpProposalStore.recordProposalConflict(
             claimedProposal.proposalId,
@@ -139,9 +175,50 @@ export function createProposalApprovalCoordinator({
           };
       }
 
+      if (mergeable && merged && !merged.ok) {
+        // 合成対象外の操作の対象が変わっていた (content-stale) のを force で越えた場合も、上書き
+        // する単位は合成replayで人間の編集を残す。
+        merged = replayMergeableProposal(mergeable, revertDocument, currentHashes, { allowContentStale: true });
+        if (!merged.ok) {
+          await localMcpProposalStore.recordProposalConflict(
+            claimedProposal.proposalId,
+            merged.conflict.blockIds,
+            file.revision,
+            merged.conflict.reason,
+          );
+          return {
+            ok: false,
+            error: te("electron.proposal.applyFailed"),
+            code: "conflict",
+            conflictBlockIds: merged.conflict.blockIds,
+            conflictReason: merged.conflict.reason,
+          };
+        }
+      }
+
+      // 同じroomの後ターンで前ターンを載せ替えたときの合成 (mergeCarry) も、この承認の合成に含める。
+      const mergeReport: ProposalMergeReport = merged?.ok
+        ? (claimedProposal.mergeCarry
+          ? combineProposalMergeReports([claimedProposal.mergeCarry, merged.result.report])
+          : merged.result.report)
+        : { ...createEmptyProposalMergeReport(), legacyNoBase: 1 };
+      if (options.autoApplied && mergeable && merged?.ok && !isProposalMergeQuiet(mergeReport)) {
+        // 自動承認は「人間の編集と重ならない」提案だけ。合成が起きた提案はpendingのまま残し、
+        // 人間が内容を見て承認する。依存する対象が変わるまで再試行しないよう署名と一緒に記録する。
+        await localMcpProposalStore.recordAutoApplyDeferred(
+          claimedProposal.proposalId,
+          file.revision,
+          mergeReport,
+          computeMergeAttentionSignature(mergeable, [], currentHashes, revertDocument),
+        );
+        return { ok: false, error: te("electron.proposal.autoApplyNeedsReview"), code: "merge-review" };
+      }
+
       let nextDocument: SigmaDocument = revertDocument;
       try {
-        nextDocument = createAiEditSessionDocumentDraft(nextDocument, null, claimedProposal.draft).nextDocument;
+        nextDocument = merged?.ok
+          ? merged.result.nextDocument
+          : createAiEditSessionDocumentDraft(nextDocument, null, claimedProposal.draft).nextDocument;
       } catch {
         const replayConflict = classifyProposalReplayFailure(claimedProposal, revertDocument);
         await localMcpProposalStore.recordProposalConflict(
@@ -161,6 +238,7 @@ export function createProposalApprovalCoordinator({
           parseSigmaDocument(revertDocument),
           nextDocument,
           claimedProposal.draft,
+          merged?.ok ? mergeBasis : undefined,
         );
       } catch (error) {
         const replayConflict = classifyProposalReplayFailure(claimedProposal, revertDocument);
@@ -201,6 +279,7 @@ export function createProposalApprovalCoordinator({
           revertDocument,
           appliedDocument: nextDocument,
           autoApplied: options.autoApplied,
+          mergeReport,
         },
       );
       await runPostSaveHooks(claimedProposal.fileId, nextDocument, saveResult.revision ?? savedFile.revision);
@@ -218,7 +297,7 @@ export function createProposalApprovalCoordinator({
         timestamp: Date.now(),
         ...(options.autoApplied ? { autoAppliedProposalIds: [proposalId] } : {}),
       });
-      return { ok: true, proposal: resolved, file: savedFile, document: nextDocument };
+      return { ok: true, proposal: resolved, file: savedFile, document: nextDocument, mergeReport };
       });
     });
   }
@@ -354,11 +433,14 @@ export function createProposalApprovalCoordinator({
             // not against the aggregate nextDocument (which includes other proposals' changes).
             // This prevents no-op proposals from incorrectly passing validation when other
             // proposals change the same block.
-            const individualReplayResult = replayProposalDraft(revertDocument, proposal.draft);
+            // base を持つ提案は「AIがbaseから変えたか」で判定する (人間が同じ変更を先にしていても
+            // 誤って失敗にしない)。旧レコードは従来どおり単独replayの実差分で判定する。
+            const individualNextDocument = replayProposalForApproval(revertDocument, proposal).nextDocument;
             assertAppliedProposalHasRealChanges(
               parseSigmaDocument(revertDocument),
-              parseSigmaDocument(individualReplayResult.nextDocument),
+              parseSigmaDocument(individualNextDocument),
               proposal.draft,
+              usableProposalMergeBasis(proposal.mergeBasis),
             );
           } catch (error) {
             validationFailedIds.add(proposalId);
@@ -370,6 +452,8 @@ export function createProposalApprovalCoordinator({
         }
       }
       let appliedIds = mergedAppliedIds.filter((proposalId) => !validationFailedIds.has(proposalId));
+      let mergeReports = merged.reports;
+      let mergeReport = merged.report;
       // Rebuild nextDocument with only approved proposals to prevent rejected proposals from being persisted
       if (appliedIds.length > 0 && appliedIds.length < ordered.length) {
         const approvedProposals = ordered.filter((p) => appliedIds.includes(p.proposalId));
@@ -378,6 +462,8 @@ export function createProposalApprovalCoordinator({
         nextDocument = rebuiltResult.document;
         // Also update appliedIds from the rebuilding in case there were any merge failures
         appliedIds = rebuiltResult.appliedIds;
+        mergeReports = rebuiltResult.reports;
+        mergeReport = rebuiltResult.report;
       }
       const failed = [...conflicted, ...mergeFailed, ...validationFailed];
       for (const replayFailure of mergeFailed) {
@@ -437,6 +523,7 @@ export function createProposalApprovalCoordinator({
           appliedRevision: savedFile.revision,
           revertDocument,
           appliedDocument: nextDocument,
+          ...(mergeReports[proposalId] ? { mergeReport: mergeReports[proposalId] } : {}),
         });
         resolvedProposalIds.push(proposalId);
       }
@@ -451,6 +538,7 @@ export function createProposalApprovalCoordinator({
         document: nextDocument,
         versionCaptured: saveResult.versionCaptured,
         versionCaptureError: saveResult.versionCaptureError,
+        mergeReport,
         ...(failed.length > 0 ? { failed } : {}),
       };
       });

@@ -1,6 +1,14 @@
 import { type AiEditSessionDocumentDraft, type AiEditSessionDraft } from "@/lib/ai/sigma-doc-edit-schema";
 import { type AiAppliedDocumentDiff } from "@/lib/ai/applied-document-diff";
+import { type ProposalMergeBasis, type ProposalMergeReport } from "@/lib/ai/proposal-merge-basis";
 import { type SigmaDocument } from "@/features/document";
+
+export type {
+  ProposalMergeBasis,
+  ProposalMergeBasisAnchor,
+  ProposalMergeBasisEntity,
+  ProposalMergeReport,
+} from "@/lib/ai/proposal-merge-basis";
 
 // "reverted" は承認済み提案を revertDocument で巻き戻した後の終端状態
 // (resolveProposal の approved/rejected とは別経路の markReverted() で設定される)。
@@ -119,6 +127,11 @@ export interface LocalMcpEditProposalConflict {
   blockIds: string[];
   detectedAtRevision: number;
   reason?: LocalMcpEditProposalConflictReason;
+  /**
+   * base を持つ提案: 競合を記録したときの、提案が依存する対象の内容の署名
+   * (computeMergeAttentionSignature)。変わらない間は保存のたびに再評価しない。
+   */
+  signature?: string;
 }
 
 export interface ProposalFreshnessConflict {
@@ -209,6 +222,28 @@ export interface LocalMcpEditProposal extends LocalMcpEditProposalAttribution {
   invalidReason?: string;
   /** 却下後の復活や同一room内での修正を、現在statusと独立して監査できる履歴。 */
   history?: LocalMcpEditProposalHistoryEntry[];
+  /**
+   * draftが上書きする単位 (最も外側の置換ブロック・削除するブロック・更新/削除する図形) の、
+   * AIが最初に触った時点の内容と、insertAfterアンカーの直前の兄弟。承認・鮮度判定・rebaseは
+   * これをbaseにした三者マージで人間のその後の編集を残す。旧レコードには無く、無いレコードは
+   * 従来どおり touchedBlocks のハッシュ比較で content-stale を競合にする。
+   */
+  mergeBasis?: ProposalMergeBasis;
+  /** approved のみ: 承認時の合成replayが下した判断 (重なり・退避件数)。監査とフォールバック計測用。 */
+  mergeReport?: ProposalMergeReport;
+  /**
+   * 同じroomの後ターンで前ターンの操作を保存文書へ載せ替えたときの合成の判断の累積。載せ替えで
+   * 人間の編集・重なり・AI側への退避はdraftに焼き込まれ、承認時の合成からは見えなくなるので、
+   * 承認時はこれを足して「合成が起きたか」(自動承認の可否・計測) を判断する。
+   */
+  mergeCarry?: ProposalMergeReport;
+  /**
+   * 検証済み自動承認が「人間の編集との合成が必要」として見送られた文書revision。文書がこの
+   * revisionの間は自動承認を再試行しない (保存のたびに合成をやり直さないため)。
+   */
+  autoApplyDeferredAtRevision?: number;
+  /** 自動承認を見送ったときの、提案が依存する対象の内容の署名。変わらない間は見送りを保つ。 */
+  autoApplyDeferredSignature?: string;
 }
 
 /**
@@ -257,6 +292,11 @@ export interface LocalMcpEditProposalSummary extends LocalMcpEditProposalAttribu
   conflict?: LocalMcpEditProposalConflict;
   invalidReason?: string;
   history?: LocalMcpEditProposalHistoryEntry[];
+  // rendererが提案内容を「人間の編集と合わせた形」で描くための base (LocalMcpEditProposal 参照)。
+  mergeBasis?: ProposalMergeBasis;
+  mergeReport?: ProposalMergeReport;
+  mergeCarry?: ProposalMergeReport;
+  autoApplyDeferredAtRevision?: number;
   // revertDocument はサイズが大きく、renderer には不要なため summary からは意図的に除外する
   // (electron側の main.ts が revert 実行時に loadProposal() 経由でフル版から読む)。
 }
@@ -350,6 +390,8 @@ export interface ResolveProposalExtra {
   appliedDocument?: SigmaDocument;
   /** approved のみ: 検証ゲート付き自動承認によるものであれば true。 */
   autoApplied?: boolean;
+  /** approved のみ: 承認時の合成replayの判断。提案レコードへ監査用に残す。 */
+  mergeReport?: ProposalMergeReport;
   /** rejected のみ: 却下理由。 */
   rejectedReason?: string;
 }
@@ -367,6 +409,8 @@ export type RevertPlanResult =
 export interface SelectiveRevertBatchDraft {
   proposalId: string;
   draft: AiEditSessionDraft;
+  /** 承認時と同じ合成replayで「承認直後の状態」を再現するための base。 */
+  mergeBasis?: ProposalMergeBasis;
   createdAt?: string;
   source?: { toolName: string; toolArgs: unknown };
   groupId?: string;
