@@ -35,7 +35,7 @@ import {
 } from "../model/preview";
 import type { AiProposalPresentationState } from "../model/proposal-presentation-model";
 import { AI_APPLY_ADD_FLASH_MS, AI_APPLY_REMOVE_ANIMATION_MS } from "./proposal-feedback";
-import { countProposalMergeFallbacks } from "./proposal-merge-metrics";
+import { countAdoptionMergeFallbacks, countProposalMergeFallbacks } from "./proposal-merge-metrics";
 import {
   buildAiProposalApplyContext,
   deriveAiProposalApplyDecision,
@@ -354,6 +354,11 @@ export function useAiProposalActions({
           approvedRevision,
         });
         approvedDocumentStayedDirty = !adoption.adoptedDocumentMatchesDisk;
+        if (adoption.kind === "merge") {
+          // 承認待ちの間の入力とAI結果の合成が、両方の変えた単位を合成・退避した回数を数える
+          // (MISS R3)。重なりの無い採用ではどのカウンタも動かない。
+          countAdoptionMergeFallbacks(adoption.mergeReport);
+        }
         if (adoption.kind === "merge" && adoption.resolvedConflicts.length > 0) {
           // 承認待ちの間の入力とAIの変更が同じ対象で食い違った場合も、教材ファイルは増やさず
           // この1ファイルの中で解決する — 競合した単位だけ承認された内容を採る。直前の入力は
