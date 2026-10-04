@@ -11,6 +11,17 @@ import type { InlineNode } from "../model";
  *
  * Pure: the module depends on the canonical model types only (no Yjs, AI or editor code), so main
  * and renderer can both run it.
+ *
+ * What the kernel deliberately leaves to the caller:
+ * - Validity of the result. The kernel is generic and knows no schema: references between arrays
+ *   (a cell's `rowId` pointing at a row the other side deleted) and ids the result holds in more
+ *   than one place (`report.duplicateIds`, e.g. the AI moved a paragraph into a box while the
+ *   human edited it where it was) are not resolved here. The caller validates the merged entity
+ *   and falls back to the AI's version of that entity when it is invalid.
+ * - Document-level equivalence. Values are compared structurally with `updatedAt` ignored at any
+ *   depth; `lib/document-equivalence.ts` (`comparableDocumentValue`) is outside this feature and is
+ *   not needed, because callers merge the units a proposal touches (a block, a shape), not whole
+ *   documents.
  */
 
 /** What the merge had to decide, so callers can count fallbacks (MISS R3) without re-diffing. */
@@ -32,6 +43,12 @@ export interface ThreeWayMergeReport {
   reidentified: number;
   /** Identified elements one side deleted and the other edited; they were kept with the edit. */
   editBeatsDelete: string[];
+  /**
+   * Ids of array elements (blocks, shapes, rows...) that the merged value holds in more than one
+   * place. Not resolved by the kernel: the caller treats the entity as invalid after the merge.
+   * Formula ids are never listed here; they are renamed to stay unique instead.
+   */
+  duplicateIds: string[];
 }
 
 export interface ThreeWayMergeResult<T> {
@@ -58,12 +75,24 @@ const VOLATILE_KEY = "updatedAt";
 interface MergeContext {
   report: ThreeWayMergeReport;
   maxEditDistance: number;
+  /** Formula nodes that came from ours (input references and nodes rebuilt from ours' tokens). */
+  oursMathNodes: Set<object>;
 }
 
-function createContext(options: ThreeWayMergeOptions): MergeContext {
+function createContext(options: ThreeWayMergeOptions, ours: unknown): MergeContext {
+  const oursMathNodes = new Set<object>();
+  visitMathNodes(ours, (node) => oursMathNodes.add(node));
   return {
-    report: { overlaps: [], capped: false, cappedPaths: [], reidentified: 0, editBeatsDelete: [] },
+    report: {
+      overlaps: [],
+      capped: false,
+      cappedPaths: [],
+      reidentified: 0,
+      editBeatsDelete: [],
+      duplicateIds: [],
+    },
     maxEditDistance: options.maxEditDistance ?? DEFAULT_MAX_EDIT_DISTANCE,
+    oursMathNodes,
   };
 }
 
@@ -173,7 +202,11 @@ function sameToken(left: InlineToken, right: InlineToken): boolean {
   return tokenKey(left) === tokenKey(right) && isEqual(left.attrs, right.attrs);
 }
 
-function tokensToNodes(tokens: readonly InlineToken[]): InlineNode[] {
+function tokensToNodes(
+  tokens: readonly InlineToken[],
+  fromTheirs: ReadonlySet<number>,
+  context: MergeContext,
+): InlineNode[] {
   const nodes: InlineNode[] = [];
   let run: { text: string; attrs: Attributes } | null = null;
   const flush = () => {
@@ -182,11 +215,15 @@ function tokensToNodes(tokens: readonly InlineToken[]): InlineNode[] {
     }
     run = null;
   };
-  for (const token of tokens) {
+  tokens.forEach((token, index) => {
     if (token.kind === "math") {
       flush();
-      nodes.push({ type: "mathInline", id: token.id, tex: token.tex, ...token.attrs } as InlineNode);
-      continue;
+      const node = { type: "mathInline", id: token.id, tex: token.tex, ...token.attrs } as InlineNode;
+      if (!fromTheirs.has(index)) {
+        context.oursMathNodes.add(node);
+      }
+      nodes.push(node);
+      return;
     }
     if (run && isEqual(run.attrs, token.attrs)) {
       run.text += token.char;
@@ -194,7 +231,7 @@ function tokensToNodes(tokens: readonly InlineToken[]): InlineNode[] {
       flush();
       run = { text: token.char, attrs: token.attrs };
     }
-  }
+  });
   flush();
   return nodes;
 }
@@ -298,6 +335,10 @@ function myersMiddle(
   if (n === 0 || m === 0) {
     return true;
   }
+  if (Math.abs(n - m) > maxEditDistance) {
+    // The edit distance is at least the length difference: the bound is exceeded before searching.
+    return false;
+  }
   const limit = Math.min(n + m, maxEditDistance);
   const offset = limit + 1;
   const frontier = new Int32Array(2 * limit + 3);
@@ -368,15 +409,82 @@ function isSpacedWordCharacter(token: InlineToken): boolean {
     && !UNSPACED_SCRIPT_CHARACTER.test(token.char);
 }
 
+/** For each base gap, the first and last index of the side's tokens inserted there (or -1). */
+interface GapInsertions {
+  first: Int32Array;
+  last: Int32Array;
+}
+
+function insertionsByGap(match: SequenceMatch, baseLength: number): GapInsertions {
+  const first = new Int32Array(baseLength + 1).fill(-1);
+  const last = new Int32Array(baseLength + 1).fill(-1);
+  let gap = 0;
+  for (let index = 0; index < match.sideToBase.length; index += 1) {
+    const baseIndex = match.sideToBase[index];
+    if (baseIndex >= 0) {
+      gap = baseIndex + 1;
+      continue;
+    }
+    if (first[gap] < 0) {
+      first[gap] = index;
+    }
+    last[gap] = index;
+  }
+  return { first, last };
+}
+
+type WordEdit = "none" | "extended" | "replaced";
+
 /**
- * Treats a space-delimited word that a side edited inside as replaced as a whole.
+ * How a side edited the base word `[start, end)`: "replaced" when it removed one of its letters,
+ * "extended" when it only inserted letters inside the word or glued to its edges. An insertion
+ * that ends (or starts) with a space or punctuation next to the word is a separate word, not an
+ * edit of this one.
+ */
+function wordEditOf(
+  side: readonly InlineToken[],
+  match: SequenceMatch,
+  insertions: GapInsertions,
+  start: number,
+  end: number,
+): WordEdit {
+  for (let index = start; index < end; index += 1) {
+    if (match.baseToSide[index] < 0) {
+      return "replaced";
+    }
+  }
+  for (let gap = start + 1; gap < end; gap += 1) {
+    if (insertions.first[gap] >= 0) {
+      return "extended";
+    }
+  }
+  const before = insertions.last[start];
+  const after = insertions.first[end];
+  return (before >= 0 && isSpacedWordCharacter(side[before]))
+    || (after >= 0 && isSpacedWordCharacter(side[after]))
+    ? "extended"
+    : "none";
+}
+
+/**
+ * Treats a space-delimited word that both sides edited, at least one of them by removing letters,
+ * as replaced as a whole by each side.
  *
  * A character diff aligns stray letters ("cat" -> "cow" keeps the "c"), and when the other side
  * replaced the same word, the deletion of that shared letter would cut it out of the other side's
- * word ("dog" + "ow"). Unlinking the word's remaining letters turns the edit into "delete the word,
- * insert the new word", so both words survive intact.
+ * word ("dog" + "ow"). Unlinking the word's letters on both sides turns both edits into "delete the
+ * word, insert my word", so both words survive intact, ours first. A word only one side touched,
+ * or that both sides only extended, stays character-level so the edits interleave normally.
  */
-function expandEditsToWords(base: readonly InlineToken[], match: SequenceMatch): void {
+function expandEditsToWords(
+  base: readonly InlineToken[],
+  ours: readonly InlineToken[],
+  oursMatch: SequenceMatch,
+  theirs: readonly InlineToken[],
+  theirsMatch: SequenceMatch,
+): void {
+  const oursInsertions = insertionsByGap(oursMatch, base.length);
+  const theirsInsertions = insertionsByGap(theirsMatch, base.length);
   let start = 0;
   while (start < base.length) {
     if (!isSpacedWordCharacter(base[start])) {
@@ -387,31 +495,33 @@ function expandEditsToWords(base: readonly InlineToken[], match: SequenceMatch):
     while (end < base.length && isSpacedWordCharacter(base[end])) {
       end += 1;
     }
-    if (isWordEdited(match, start, end)) {
-      for (let index = start; index < end; index += 1) {
-        const sideIndex = match.baseToSide[index];
-        if (sideIndex >= 0) {
-          match.sideToBase[sideIndex] = -1;
-          match.baseToSide[index] = -1;
-        }
-      }
+    const oursEdit = wordEditOf(ours, oursMatch, oursInsertions, start, end);
+    const theirsEdit = wordEditOf(theirs, theirsMatch, theirsInsertions, start, end);
+    if (oursEdit !== "none" && theirsEdit !== "none" && (oursEdit === "replaced" || theirsEdit === "replaced")) {
+      unlinkRange(oursMatch, start, end);
+      unlinkRange(theirsMatch, start, end);
     }
     start = end;
   }
 }
 
-/** A letter of the word was removed, or something was inserted between two of its letters. */
-function isWordEdited(match: SequenceMatch, start: number, end: number): boolean {
+function unlinkRange(match: SequenceMatch, start: number, end: number): void {
   for (let index = start; index < end; index += 1) {
     const sideIndex = match.baseToSide[index];
-    if (sideIndex < 0 || (index > start && sideIndex !== match.baseToSide[index - 1] + 1)) {
-      return true;
+    if (sideIndex >= 0) {
+      match.sideToBase[sideIndex] = -1;
+      match.baseToSide[index] = -1;
     }
   }
-  return false;
 }
 
 // ----- inline merge -----
+
+interface MergedTokens {
+  tokens: InlineToken[];
+  /** Positions in `tokens` holding theirs' own insertions (the only tokens that carry theirs' ids). */
+  fromTheirs: Set<number>;
+}
 
 function mergeInlineTokens(
   base: readonly InlineToken[],
@@ -419,7 +529,7 @@ function mergeInlineTokens(
   theirs: readonly InlineToken[],
   path: string,
   context: MergeContext,
-): InlineToken[] {
+): MergedTokens {
   const oursMathIds = mathIds(ours);
   const theirsMathIds = mathIds(theirs);
   const pinnedMathIds = new Set([...mathIds(base)].filter((id) => oursMathIds.has(id) && theirsMathIds.has(id)));
@@ -430,11 +540,9 @@ function mergeInlineTokens(
   if (oursMatch.capped || theirsMatch.capped) {
     reportCapped(path, context);
   }
-  expandEditsToWords(base, oursMatch);
-  expandEditsToWords(base, theirsMatch);
+  expandEditsToWords(base, ours, oursMatch, theirs, theirsMatch);
 
   const merged: InlineToken[] = [];
-  /** Positions in `merged` holding theirs' own insertions (the only tokens that carry theirs' ids). */
   const fromTheirs = new Set<number>();
   let overlapped = false;
   const noteReidentified = (oursToken: InlineToken, theirsToken: InlineToken) => {
@@ -519,45 +627,7 @@ function mergeInlineTokens(
   if (overlapped) {
     addPath(context.report.overlaps, path);
   }
-  ensureUniqueMathIds(merged, fromTheirs, [base, ours, theirs], context);
-  return merged;
-}
-
-/**
- * Both sides can carry the same formula id into the result — typically when both rewrote one
- * formula and both versions are kept. Ours keeps the id (comments anchor to it); theirs' copy gets
- * the first free `<id>-<n>`.
- */
-function ensureUniqueMathIds(
-  merged: InlineToken[],
-  fromTheirs: ReadonlySet<number>,
-  inputs: readonly (readonly InlineToken[])[],
-  context: MergeContext,
-): void {
-  const taken = new Set<string>();
-  merged.forEach((token, index) => {
-    if (token.kind === "math" && !fromTheirs.has(index)) {
-      taken.add(token.id);
-    }
-  });
-  const known = new Set(inputs.flatMap((tokens) => [...mathIds(tokens)]));
-  merged.forEach((token, index) => {
-    if (token.kind !== "math" || !fromTheirs.has(index)) {
-      return;
-    }
-    if (!taken.has(token.id)) {
-      taken.add(token.id);
-      return;
-    }
-    let suffix = 2;
-    while (taken.has(`${token.id}-${suffix}`) || known.has(`${token.id}-${suffix}`)) {
-      suffix += 1;
-    }
-    const id = `${token.id}-${suffix}`;
-    taken.add(id);
-    merged[index] = { ...token, id };
-    context.report.reidentified += 1;
-  });
+  return { tokens: merged, fromTheirs };
 }
 
 /** "Only one side changed it → that value; both changed it differently → theirs (AI)." */
@@ -705,13 +775,16 @@ function insertionRuns(
 /**
  * Three-way merges two edits of the same inline run, character by character.
  *
+ * - If only one side changed the run, that side's run is returned as it is.
  * - Text is compared per code point and each formula as one token matched by its TeX, so a
  *   formula the MCP tools re-emitted under a new id still counts as kept, and keeps ours' id.
  * - A base token either side deleted is deleted. Insertions into the same gap are emitted ours
  *   first, then theirs; an identical insertion on both sides is emitted once.
- * - A space-delimited word edited inside (Latin, digits...) is replaced as a whole, so two
- *   different replacements of one word keep both words intact.
+ * - A space-delimited word (Latin, digits...) that both sides edited, at least one by removing
+ *   letters, is replaced as a whole by each side, so two replacements of one word keep both words.
  * - Formatting is merged per character and per key; each mark is its own key.
+ * - Formula ids are unique within the result: a copy that would repeat an id gets `<id>-<n>`,
+ *   theirs' copy rather than ours'.
  */
 export function mergeInline3(
   base: readonly InlineNode[],
@@ -719,8 +792,9 @@ export function mergeInline3(
   theirs: readonly InlineNode[],
   options: ThreeWayMergeOptions = {},
 ): ThreeWayMergeResult<InlineNode[]> {
-  const context = createContext(options);
-  const value = mergeInlineValue(base, ours, theirs, ROOT_PATH, context);
+  const context = createContext(options, ours);
+  const merged = mergeInlineValue(base, ours, theirs, ROOT_PATH, context);
+  const value = finalizeIdentities(merged, [base, ours, theirs], context);
   return { value, report: context.report };
 }
 
@@ -734,30 +808,42 @@ function mergeInlineValue(
   if (isEqual(ours, theirs) || isEqual(theirs, base)) {
     return [...ours];
   }
+  if (isEqual(ours, base)) {
+    return [...theirs];
+  }
   const byCharacter = [base, ours, theirs].every((run) => textLength(run) <= MAX_CHARACTER_ALIGNED_LENGTH);
-  if (!byCharacter && !isEqual(ours, base)) {
+  if (!byCharacter) {
     reportCapped(path, context);
   }
-  return tokensToNodes(mergeInlineTokens(
+  const merged = mergeInlineTokens(
     tokenize(base, byCharacter),
     tokenize(ours, byCharacter),
     tokenize(theirs, byCharacter),
     path,
     context,
-  ));
+  );
+  return tokensToNodes(merged.tokens, merged.fromTheirs, context);
 }
 
 /**
  * Three-way merges one entity (a block, a shape, any JSON value) key by key.
  *
+ * - If only one side changed a value, that side's value is returned as it is (at any depth).
  * - Inline runs (`InlineNode[]`) go through `mergeInline3`.
  * - Arrays whose elements all carry a unique string `id` are merged as identified elements: the
  *   order follows the side that reordered (theirs if both did), insertions are anchored after the
  *   preceding kept element (ours before theirs at the same anchor), and an element one side deleted
  *   while the other edited it is kept with the edit.
- * - Everything else is a value: the side that changed it wins; if both changed it differently,
- *   theirs (AI) wins and the path is reported in `overlaps`.
- * - `updatedAt` is never compared (MISS R1); the result keeps ours' timestamp.
+ * - Other arrays of equal length on all three sides are merged element by element; arrays whose
+ *   length changed are values.
+ * - A key both sides added is merged against an empty object / empty identified array.
+ * - A node one side changed the `type` of is taken whole from that side (theirs if both changed it
+ *   differently); keys of two kinds of node are never mixed.
+ * - Everything else is a value: if both sides changed it differently, theirs (AI) wins and the path
+ *   is reported in `overlaps`.
+ * - `updatedAt` is never compared (MISS R1); where keys are merged, ours' timestamp is kept.
+ * - Formula ids are unique within the whole result (see `mergeInline3`); other duplicated ids are
+ *   only reported (`duplicateIds`).
  *
  * The result may share unchanged sub-objects with the inputs; treat all of them as immutable.
  */
@@ -767,8 +853,9 @@ export function mergeEntity3<T>(
   theirs: T,
   options: ThreeWayMergeOptions = {},
 ): ThreeWayMergeResult<T> {
-  const context = createContext(options);
-  const value = mergeValue(base, ours, theirs, ROOT_PATH, context) as T;
+  const context = createContext(options, ours);
+  const merged = mergeValue(base, ours, theirs, ROOT_PATH, context) as T;
+  const value = finalizeIdentities(merged, [base, ours, theirs], context);
   return { value, report: context.report };
 }
 
@@ -776,17 +863,72 @@ function mergeValue(base: unknown, ours: unknown, theirs: unknown, path: string,
   if (isEqual(ours, theirs) || isEqual(theirs, base)) {
     return ours;
   }
-  if (Array.isArray(base) && Array.isArray(ours) && Array.isArray(theirs)) {
-    if (isInlineRun(base) && isInlineRun(ours) && isInlineRun(theirs)) {
-      return mergeInlineValue(base, ours, theirs, path, context);
+  if (isEqual(ours, base)) {
+    return theirs;
+  }
+  if (Array.isArray(ours) && Array.isArray(theirs)) {
+    const merged = mergeArrays(base, ours, theirs, path, context);
+    if (merged) {
+      return merged;
     }
-    if (isIdentifiedArray(base) && isIdentifiedArray(ours) && isIdentifiedArray(theirs)) {
-      return mergeIdentifiedArray(base, ours, theirs, path, context);
-    }
-  } else if (isPlainObject(base) && isPlainObject(ours) && isPlainObject(theirs)) {
-    return mergeObject(base, ours, theirs, path, context);
+  } else if (isPlainObject(ours) && isPlainObject(theirs) && (base === undefined || isPlainObject(base))) {
+    return mergeNode(base ?? {}, ours, theirs, path, context);
   }
   return mergeLeaf(base, ours, theirs, () => addPath(context.report.overlaps, path));
+}
+
+/** Returns undefined when the arrays have to be treated as a single value. */
+function mergeArrays(
+  base: unknown,
+  ours: readonly unknown[],
+  theirs: readonly unknown[],
+  path: string,
+  context: MergeContext,
+): unknown[] | undefined {
+  if (isInlineRun(ours) && isInlineRun(theirs)) {
+    return Array.isArray(base) && isInlineRun(base)
+      ? mergeInlineValue(base, ours, theirs, path, context)
+      : undefined;
+  }
+  if (isIdentifiedArray(ours) && isIdentifiedArray(theirs)) {
+    if (base === undefined) {
+      return mergeIdentifiedArray([], ours, theirs, path, context);
+    }
+    if (Array.isArray(base) && isIdentifiedArray(base)) {
+      return mergeIdentifiedArray(base, ours, theirs, path, context);
+    }
+  }
+  if (Array.isArray(base) && base.length === ours.length && ours.length === theirs.length) {
+    return base.map((element, index) => (
+      mergeValue(element, ours[index], theirs[index], `${path}[${index}]`, context)
+    ));
+  }
+  return undefined;
+}
+
+function nodeType(record: Record<string, unknown>): string | undefined {
+  return typeof record.type === "string" ? record.type : undefined;
+}
+
+/**
+ * Both sides changed this object. Keys are merged one by one unless the two sides disagree on
+ * what kind of node it is: mixing them would leave e.g. a `list` with a paragraph's `children`.
+ */
+function mergeNode(
+  base: Record<string, unknown>,
+  ours: Record<string, unknown>,
+  theirs: Record<string, unknown>,
+  path: string,
+  context: MergeContext,
+): Record<string, unknown> {
+  const oursType = nodeType(ours);
+  const theirsType = nodeType(theirs);
+  if (oursType === theirsType) {
+    return mergeObject(base, ours, theirs, path, context);
+  }
+  // The structural change wins whole; the other side's edits to this node are dropped.
+  addPath(context.report.overlaps, path);
+  return theirsType === nodeType(base) ? ours : theirs;
 }
 
 function mergeObject(
@@ -806,6 +948,124 @@ function mergeObject(
     }
   }
   return merged;
+}
+
+// ----- ids across the whole result -----
+
+function isMathNode(value: unknown): value is Record<string, unknown> & { id: string } {
+  return isPlainObject(value) && value.type === "mathInline" && typeof value.id === "string";
+}
+
+/** Visits formula nodes depth-first: array elements in order, object keys in insertion order. */
+function visitMathNodes(value: unknown, visit: (node: Record<string, unknown> & { id: string }) => void): void {
+  if (Array.isArray(value)) {
+    for (const element of value) {
+      visitMathNodes(element, visit);
+    }
+    return;
+  }
+  if (!isPlainObject(value)) {
+    return;
+  }
+  if (isMathNode(value)) {
+    visit(value);
+    return;
+  }
+  for (const key of Object.keys(value)) {
+    visitMathNodes(value[key], visit);
+  }
+}
+
+/**
+ * Makes formula ids unique across the whole merged value and lists other ids held more than once.
+ *
+ * For each repeated formula id, the first occurrence that came from ours keeps it (comments anchor
+ * to ours' ids); without one, the first occurrence keeps it. Every other occurrence gets the first
+ * `<id>-<n>` unused by the inputs and the result.
+ */
+function finalizeIdentities<T>(value: T, inputs: readonly unknown[], context: MergeContext): T {
+  const occurrences: Array<{ id: string; fromOurs: boolean }> = [];
+  visitMathNodes(value, (node) => {
+    occurrences.push({ id: node.id, fromOurs: context.oursMathNodes.has(node) });
+  });
+  collectDuplicateElementIds(value, context.report.duplicateIds);
+
+  const keeperById = new Map<string, number>();
+  occurrences.forEach((occurrence, index) => {
+    const keeper = keeperById.get(occurrence.id);
+    if (keeper === undefined || (!occurrences[keeper].fromOurs && occurrence.fromOurs)) {
+      keeperById.set(occurrence.id, index);
+    }
+  });
+  const known = new Set(occurrences.map((occurrence) => occurrence.id));
+  for (const input of inputs) {
+    visitMathNodes(input, (node) => known.add(node.id));
+  }
+  const renamed = new Map<number, string>();
+  occurrences.forEach((occurrence, index) => {
+    if (keeperById.get(occurrence.id) === index) {
+      return;
+    }
+    let suffix = 2;
+    while (known.has(`${occurrence.id}-${suffix}`)) {
+      suffix += 1;
+    }
+    const id = `${occurrence.id}-${suffix}`;
+    known.add(id);
+    renamed.set(index, id);
+  });
+  if (renamed.size === 0) {
+    return value;
+  }
+  context.report.reidentified += renamed.size;
+
+  let cursor = 0;
+  const rebuild = (current: unknown): unknown => {
+    if (Array.isArray(current)) {
+      const next = current.map(rebuild);
+      return next.some((element, index) => element !== current[index]) ? next : current;
+    }
+    if (!isPlainObject(current)) {
+      return current;
+    }
+    if (isMathNode(current)) {
+      const id = renamed.get(cursor);
+      cursor += 1;
+      return id === undefined ? current : { ...current, id };
+    }
+    let changed = false;
+    const next: Record<string, unknown> = {};
+    for (const key of Object.keys(current)) {
+      next[key] = rebuild(current[key]);
+      changed ||= next[key] !== current[key];
+    }
+    return changed ? next : current;
+  };
+  return rebuild(value) as T;
+}
+
+function collectDuplicateElementIds(value: unknown, duplicates: string[]): void {
+  const counts = new Map<string, number>();
+  const visit = (current: unknown) => {
+    if (Array.isArray(current)) {
+      for (const element of current) {
+        if (isPlainObject(element) && typeof element.id === "string" && !isMathNode(element)) {
+          counts.set(element.id, (counts.get(element.id) ?? 0) + 1);
+        }
+        visit(element);
+      }
+    } else if (isPlainObject(current) && !isMathNode(current)) {
+      for (const key of Object.keys(current)) {
+        visit(current[key]);
+      }
+    }
+  };
+  visit(value);
+  for (const [id, count] of counts) {
+    if (count > 1) {
+      duplicates.push(id);
+    }
+  }
 }
 
 function isInlineRun(values: readonly unknown[]): values is InlineNode[] {

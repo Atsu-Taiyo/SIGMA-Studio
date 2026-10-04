@@ -89,6 +89,22 @@ describe("mergeInline3", () => {
     expect(plain(mergeInline3(base, ours, theirs).value)).toBe("the dogcow sat");
   });
 
+  it("does not treat a word placed before an edited word as an edit of that word", () => {
+    const base = [text("the cat sat")];
+    const ours = [text("the cot sat")];
+    const theirs = [text("the big cat sat")];
+
+    expect(plain(mergeInline3(base, ours, theirs).value)).toBe("the big cot sat");
+  });
+
+  it("keeps a word extended by the human and replaced by the AI as the human word then the AI word", () => {
+    const base = [text("I run fast")];
+    const ours = [text("I running fast")];
+    const theirs = [text("I walk fast")];
+
+    expect(plain(mergeInline3(base, ours, theirs).value)).toBe("I runningwalk fast");
+  });
+
   it("keeps word edits on both sides of a sentence", () => {
     const base = [text("the quick brown fox")];
     const ours = [text("the quick black fox")];
@@ -129,6 +145,23 @@ describe("mergeInline3", () => {
       expect(merged.value).toEqual(theirs);
     });
 
+    it("returns a long AI rewrite of a run the human did not touch without the cap", () => {
+      const original = [text("あいうえお".repeat(600))];
+      const rewritten = [text("かきくけこ".repeat(600))];
+
+      const merged = mergeInline3(original, original, rewritten);
+
+      expect(merged.report.capped).toBe(false);
+      expect(merged.value).toEqual(rewritten);
+    });
+
+    it("reports the cap when the length difference alone exceeds the edit distance bound", () => {
+      const merged = mergeInline3([text("一二三四")], [text("一甲乙丙丁戊四")], [text("一二三四五")], { maxEditDistance: 2 });
+
+      expect(merged.report.capped).toBe(true);
+      expect(plain(merged.value)).toBe("一甲乙丙丁戊四五");
+    });
+
     it("does not report the cap for an ordinary edit", () => {
       const merged = mergeInline3(base, ours, theirs);
 
@@ -150,14 +183,14 @@ describe("mergeInline3", () => {
       expect(merged.report.reidentified).toBe(1);
     });
 
-    it("keeps ours' id even when only the AI changed the run", () => {
+    it("returns the AI run as it is when the human did not touch it", () => {
       const base = [math("m1", "a"), text("と"), math("m2", "b")];
       const theirs = [math("n1", "a"), text("または"), math("n2", "b")];
 
       const merged = mergeInline3(base, base, theirs);
 
-      expect(merged.value).toEqual([math("m1", "a"), text("または"), math("m2", "b")]);
-      expect(merged.report.reidentified).toBe(2);
+      expect(merged.value).toEqual(theirs);
+      expect(merged.report.reidentified).toBe(0);
     });
 
     it("collapses the same formula inserted by both sides and keeps ours' id", () => {
@@ -173,9 +206,15 @@ describe("mergeInline3", () => {
 
     it("pairs a formula with the same id before pairing it by TeX, so no id is emitted twice", () => {
       const base = [math("m21", "x")];
+      const ours = [math("m21", "x"), text("です")];
       const theirs = [math("m54", "x"), text("と"), math("m21", "x")];
 
-      expect(mergeInline3(base, base, theirs).value).toEqual(theirs);
+      expect(mergeInline3(base, ours, theirs).value).toEqual([
+        math("m54", "x"),
+        text("と"),
+        math("m21", "x"),
+        text("です"),
+      ]);
     });
 
     it("keeps a formula the human repeated exactly as often as the human wrote it", () => {
@@ -302,15 +341,90 @@ describe("mergeEntity3", () => {
     expect(mergeEntity3(base, ours, theirs).value).toEqual({ ...shape, rotation: 90 });
   });
 
-  it("ignores updatedAt when comparing and keeps ours' timestamp", () => {
-    const base = { ...shape, updatedAt: "2026-01-01T00:00:00.000Z", meta: { updatedAt: "A" } };
-    const ours = { ...shape, updatedAt: "2026-02-02T00:00:00.000Z", meta: { updatedAt: "B" } };
-    const theirs = { ...shape, x: 5, updatedAt: "2026-03-03T00:00:00.000Z", meta: { updatedAt: "C" } };
+  it("ignores updatedAt when comparing and keeps ours' timestamp when keys are merged", () => {
+    const base = { ...shape, updatedAt: "2026-01-01T00:00:00.000Z", meta: { updatedAt: "A", note: "n" } };
+    const ours = { ...shape, y: 7, updatedAt: "2026-02-02T00:00:00.000Z", meta: { updatedAt: "B", note: "n" } };
+    const theirs = { ...shape, x: 5, updatedAt: "2026-03-03T00:00:00.000Z", meta: { updatedAt: "C", note: "n" } };
 
     const merged = mergeEntity3(base, ours, theirs);
 
-    expect(merged.value).toEqual({ ...shape, x: 5, updatedAt: "2026-02-02T00:00:00.000Z", meta: { updatedAt: "B" } });
+    expect(merged.value).toEqual({
+      ...shape,
+      x: 5,
+      y: 7,
+      updatedAt: "2026-02-02T00:00:00.000Z",
+      meta: { updatedAt: "B", note: "n" },
+    });
     expect(merged.report.overlaps).toEqual([]);
+  });
+
+  it("returns the AI entity as it is when the human changed only timestamps", () => {
+    const base = { ...shape, updatedAt: "A" };
+    const ours = { ...shape, updatedAt: "B" };
+    const theirs = { ...shape, x: 5, updatedAt: "C" };
+
+    expect(mergeEntity3(base, ours, theirs).value).toEqual(theirs);
+  });
+
+  it("returns a long AI rewrite of a paragraph the human did not touch without the cap", () => {
+    const original = paragraph("p1", "あいうえお".repeat(600));
+    const rewritten = paragraph("p1", "かきくけこ".repeat(600));
+
+    const merged = mergeEntity3(original, original, rewritten);
+
+    expect(merged.report.capped).toBe(false);
+    expect(merged.value).toEqual(rewritten);
+  });
+
+  it("merges keys both sides added under a key base did not have", () => {
+    const base: Record<string, unknown> = { id: "doc" };
+    const ours = {
+      id: "doc",
+      pageLayout: { overlay: { shapes: [{ id: "human", type: "rect" }] } },
+      comments: [{ id: "c-human" }],
+    };
+    const theirs = {
+      id: "doc",
+      pageLayout: { overlay: { shapes: [{ id: "ai", type: "image" }] } },
+      comments: [{ id: "c-ai" }],
+    };
+
+    const merged = mergeEntity3(base, ours, theirs);
+
+    expect(merged.value).toEqual({
+      id: "doc",
+      pageLayout: { overlay: { shapes: [{ id: "human", type: "rect" }, { id: "ai", type: "image" }] } },
+      comments: [{ id: "c-human" }, { id: "c-ai" }],
+    });
+    expect(merged.report.overlaps).toEqual([]);
+  });
+
+  describe("a node whose type changed", () => {
+    const base = paragraph("p1", "項目");
+    const edited = paragraph("p1", "項目です");
+    const list = { id: "p1", type: "list", listType: "bullet", items: [{ id: "i1", type: "listItem", children: [text("項目")] }] };
+    const heading = { id: "p1", type: "heading", level: 2, children: [text("項目")] };
+
+    it("takes the AI node as it is when only the AI changed the type", () => {
+      const merged = mergeEntity3<object>(base, edited, list);
+
+      expect(merged.value).toEqual(list);
+      expect(merged.report.overlaps).toEqual(["$"]);
+    });
+
+    it("takes the human node as it is when only the human changed the type", () => {
+      const merged = mergeEntity3<object>(base, list, edited);
+
+      expect(merged.value).toEqual(list);
+      expect(merged.report.overlaps).toEqual(["$"]);
+    });
+
+    it("takes the AI node when both sides changed the type differently", () => {
+      const merged = mergeEntity3<object>(base, heading, list);
+
+      expect(merged.value).toEqual(list);
+      expect(merged.report.overlaps).toEqual(["$"]);
+    });
   });
 
   it("takes the AI value for a key both sides added differently", () => {
@@ -320,7 +434,18 @@ describe("mergeEntity3", () => {
     expect(merged.report.overlaps).toEqual(["$.label"]);
   });
 
-  it("treats arrays without unique ids as single values", () => {
+  it("merges equal-length arrays without ids element by element", () => {
+    const base = { tags: ["a", "b"], lineOverrides: [{ width: 1 }, { width: 1 }] };
+    const ours = { tags: ["a", "c"], lineOverrides: [{ width: 2 }, { width: 1 }] };
+    const theirs = { tags: ["d", "e"], lineOverrides: [{ width: 1 }, { width: 3 }] };
+
+    const merged = mergeEntity3(base, ours, theirs);
+
+    expect(merged.value).toEqual({ tags: ["d", "e"], lineOverrides: [{ width: 2 }, { width: 3 }] });
+    expect(merged.report.overlaps).toEqual(["$.tags[1]"]);
+  });
+
+  it("treats arrays without unique ids of different lengths as single values", () => {
     const base = { tags: ["a", "b"], points: [{ id: "x" }, { id: "x" }] };
     const ours = { tags: ["a", "b", "c"], points: [{ id: "x" }] };
     const theirs = { tags: ["b"], points: [{ id: "x" }, { id: "x" }, { id: "y" }] };
@@ -456,7 +581,34 @@ describe("mergeEntity3", () => {
       const merged = mergeEntity3(base, ours, theirs);
 
       expect(texts(merged.value)).toEqual(["p1:一", "p2:二", "p3:三", "n1:新しい"]);
-      expect(merged.report.overlaps).toEqual(["$[#n1]"]);
+      expect(merged.report.overlaps).toEqual(["$[#n1].children"]);
+    });
+
+    it("keeps formula ids unique across the whole result, renaming the AI side", () => {
+      const withFormula = (id: string, value: string) => ({ id, type: "paragraph" as const, children: [text(value), math("m1", "x")] });
+      const merged = mergeEntity3(
+        [withFormula("p1", "一")],
+        [withFormula("p1", "一です")],
+        [withFormula("p0", "AI"), withFormula("p1", "一")],
+      );
+
+      expect(merged.value).toEqual([
+        { id: "p0", type: "paragraph", children: [text("AI"), math("m1-2", "x")] },
+        withFormula("p1", "一です"),
+      ]);
+      expect(merged.report.reidentified).toBe(1);
+    });
+
+    it("lists ids that the merged result holds in more than one place", () => {
+      const box = { id: "box", type: "box", blocks: [paragraph("p1", "一")] };
+      const merged = mergeEntity3<Array<{ id: string }>>(
+        base,
+        [paragraph("p1", "壱"), paragraph("p2", "二"), paragraph("p3", "三")],
+        [box, paragraph("p2", "二"), paragraph("p3", "三")],
+      );
+
+      expect(merged.value.map((element) => element.id)).toEqual(["box", "p1", "p2", "p3"]);
+      expect(merged.report.duplicateIds).toEqual(["p1"]);
     });
 
     it("merges nested identified arrays and inline runs inside them", () => {

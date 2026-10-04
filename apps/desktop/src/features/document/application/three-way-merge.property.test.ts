@@ -11,7 +11,7 @@ import { mergeEntity3, mergeInline3 } from "./three-way-merge";
  * M3 どちらかの側が消した base のトークンは現れない。両側が残したトークンはちょうど 1 回現れる。
  * M4 各側のトークンの相対順序が保たれる。
  * M5 書式は「1文字×1キー」: 片側だけ変えたらその値、両側が違う値にしたら theirs。
- * M6 数式の id は ours を残す。
+ * M6 数式の id は ours を残す (人間が触っていない列は AI の列がそのまま返る)。
  * M7 決定的で、入力を書き換えない。
  *
  * M2〜M6 は「どのトークンが残ったか」で判定するので、トークンを一意な文字 (漢字) と一意な TeX で作る。
@@ -173,15 +173,6 @@ function flatten(nodes: readonly InlineNode[]): FlatToken[] {
   });
 }
 
-function withoutMathIds(nodes: readonly InlineNode[]): unknown[] {
-  return nodes.map((node) => node.type === "mathInline" ? { ...node, id: "" } : node);
-}
-
-function hasUniqueMathIds(nodes: readonly InlineNode[]): boolean {
-  const ids = nodes.flatMap((node) => node.type === "mathInline" ? [node.id] : []);
-  return new Set(ids).size === ids.length;
-}
-
 function count(tokens: readonly FlatToken[], identity: string): number {
   return tokens.filter((token) => token.identity === identity).length;
 }
@@ -226,7 +217,7 @@ describe("mergeInline3 properties", () => {
     }
   });
 
-  it("M1 holds through the full merge when the sides differ only by re-issued math ids", () => {
+  it("M1 holds with repeated letters and formulas, and when the sides differ only by re-issued math ids", () => {
     for (const seed of SEEDS) {
       const random = mulberry32(seed);
       const alphabet = repetitiveAlphabet(random);
@@ -238,13 +229,14 @@ describe("mergeInline3 properties", () => {
       ));
       const [b, o, t] = [toNodes(base), toNodes(ours), toNodes(theirs)];
 
-      // 同じ TeX が何度も出ると「AI が消して別の所に足した数式」と「id を振り直しただけの数式」を
-      // 区別できないので、id だけは ours (=base) のものが残りうる。中身と id の一意性を確かめる。
-      const onlyTheirs = mergeInline3(b, b, t).value;
-      expect(withoutMathIds(onlyTheirs), `seed ${seed}`).toEqual(withoutMathIds(t));
-      expect(hasUniqueMathIds(onlyTheirs), `seed ${seed}`).toBe(true);
-      expect(mergeInline3(b, o, toNodes(reissued(base))).value, `seed ${seed}`).toEqual(o);
-      expect(mergeInline3(b, o, toNodes(reissued(ours))).value, `seed ${seed}`).toEqual(o);
+      expect(mergeInline3(b, b, t).value, `seed ${seed}`).toEqual(t);
+      // 人間が触っていなければ AI の列がそのまま返る (id も AI のもの)。触っていれば、id の振り直し
+      // だけの AI の列は人間の列を変えない。同じ TeX が何度も出ても、並びの取り違えで重複しない。
+      const reissuedBase = toNodes(reissued(base));
+      const reissuedOurs = toNodes(reissued(ours));
+      const untouched = JSON.stringify(o) === JSON.stringify(b);
+      expect(mergeInline3(b, o, reissuedBase).value, `seed ${seed}`).toEqual(untouched ? reissuedBase : o);
+      expect(mergeInline3(b, o, reissuedOurs).value, `seed ${seed}`).toEqual(untouched ? reissuedOurs : o);
     }
   });
 
@@ -283,6 +275,8 @@ describe("mergeInline3 properties", () => {
     for (const seed of SEEDS) {
       const { base, ours, theirs } = scenario(seed, true);
       const merged = flatten(mergeInline3(toNodes(base), toNodes(ours), toNodes(theirs)).value);
+      // 人間が触っていない列は AI の列がそのまま返るので、id も AI のもの。
+      const untouched = JSON.stringify(toNodes(ours)) === JSON.stringify(toNodes(base));
       const byIdentity = (tokens: readonly GeneratedToken[]) => new Map(tokens.map((token) => [token.identity, token]));
       const oursById = byIdentity(ours);
       const theirsById = byIdentity(theirs);
@@ -299,7 +293,7 @@ describe("mergeInline3 properties", () => {
         expect(token.color, `seed ${seed} color ${baseToken.identity}`)
           .toBe(expectedValue(baseToken.color, oursToken.color, theirsToken.color));
         if (baseToken.kind === "math") {
-          expect(token.id, `seed ${seed} id ${baseToken.identity}`).toBe(oursToken.id);
+          expect(token.id, `seed ${seed} id ${baseToken.identity}`).toBe(untouched ? theirsToken.id : oursToken.id);
         }
       }
     }
@@ -390,6 +384,7 @@ describe("mergeEntity3 properties over identified arrays", () => {
       const [baseById, oursById, theirsById, mergedById] = [byId(base), byId(ours), byId(theirs), byId(merged.value)];
 
       expect(new Set(ids).size, `seed ${seed} unique`).toBe(ids.length);
+      expect(merged.report.duplicateIds, `seed ${seed} duplicates`).toEqual([]);
       for (const element of [...ours, ...theirs]) {
         if (!baseById.has(element.id)) {
           expect(mergedById.get(element.id), `seed ${seed} inserted ${element.id}`).toEqual(element);
