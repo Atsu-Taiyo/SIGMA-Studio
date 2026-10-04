@@ -22,6 +22,16 @@ import type { InlineNode } from "../model";
  *   depth; `lib/document-equivalence.ts` (`comparableDocumentValue`) is outside this feature and is
  *   not needed, because callers merge the units a proposal touches (a block, a shape), not whole
  *   documents.
+ *
+ * Known limits:
+ * - Inputs are serialized values (as after IPC / JSON): base, ours and theirs share no objects.
+ *   Whether a formula came from ours is told by object identity.
+ * - When one side's diff of a huge run hits `maxEditDistance`, that side's whole differing middle
+ *   counts as replaced, so the other side's insertions inside it land after the replacement text.
+ *   The run is listed in `cappedPaths`.
+ * - An insertion both sides made is emitted once when each side's other edits leave a few
+ *   characters around it untouched. An edit glued to it on one side makes that side's change one
+ *   replacement, which is merged as a conflict (both kept).
  */
 
 /** What the merge had to decide, so callers can count fallbacks (MISS R3) without re-diffing. */
@@ -38,15 +48,15 @@ export interface ThreeWayMergeReport {
   cappedPaths: string[];
   /**
    * Formulas whose id was rewritten: ours' id kept for a formula theirs re-emitted under a new id,
-   * or theirs' copy renamed to `<id>-<n>` because ours already uses that id.
+   * or a copy renamed to `<id>-<n>` because the merge repeated that id.
    */
   reidentified: number;
   /** Identified elements one side deleted and the other edited; they were kept with the edit. */
   editBeatsDelete: string[];
   /**
-   * Ids of array elements (blocks, shapes, rows...) that the merged value holds in more than one
-   * place. Not resolved by the kernel: the caller treats the entity as invalid after the merge.
-   * Formula ids are never listed here; they are renamed to stay unique instead.
+   * Ids of array elements (blocks, shapes, rows...) that the merge made appear in more places than
+   * in any input. Not resolved by the kernel: the caller treats the entity as invalid after the
+   * merge. Formula ids are never listed here; they are renamed instead.
    */
   duplicateIds: string[];
 }
@@ -398,121 +408,123 @@ function backtrack(
   }
 }
 
-// Letters of space-delimited scripts (Latin, Greek, Cyrillic, Hangul, digits...). Japanese and
-// Chinese characters are words on their own, so they stay character-level.
-const WORD_CHARACTER = /^[\p{L}\p{N}\p{M}_]$/u;
-const UNSPACED_SCRIPT_CHARACTER = /^[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}]$/u;
+// ----- canonical edit scripts -----
 
-function isSpacedWordCharacter(token: InlineToken): boolean {
-  return token.kind === "char"
-    && WORD_CHARACTER.test(token.char)
-    && !UNSPACED_SCRIPT_CHARACTER.test(token.char);
+/** Two tokens either side of an alignment could be swapped for without changing anything. */
+function interchangeable(left: InlineToken, right: InlineToken): boolean {
+  return left === right || (
+    sameToken(left, right)
+    && (left.kind !== "math" || (right.kind === "math" && left.id === right.id))
+  );
 }
-
-/** For each base gap, the first and last index of the side's tokens inserted there (or -1). */
-interface GapInsertions {
-  first: Int32Array;
-  last: Int32Array;
-}
-
-function insertionsByGap(match: SequenceMatch, baseLength: number): GapInsertions {
-  const first = new Int32Array(baseLength + 1).fill(-1);
-  const last = new Int32Array(baseLength + 1).fill(-1);
-  let gap = 0;
-  for (let index = 0; index < match.sideToBase.length; index += 1) {
-    const baseIndex = match.sideToBase[index];
-    if (baseIndex >= 0) {
-      gap = baseIndex + 1;
-      continue;
-    }
-    if (first[gap] < 0) {
-      first[gap] = index;
-    }
-    last[gap] = index;
-  }
-  return { first, last };
-}
-
-type WordEdit = "none" | "extended" | "replaced";
 
 /**
- * How a side edited the base word `[start, end)`: "replaced" when it removed one of its letters,
- * "extended" when it only inserted letters inside the word or glued to its edges. An insertion
- * that ends (or starts) with a space or punctuation next to the word is a separate word, not an
- * edit of this one.
+ * Rewrites a side's alignment into one canonical form, so the same edit made by both sides is
+ * represented the same way on both: each run of inserted (or deleted) tokens is slid to the leftmost
+ * of its equivalent positions.
+ *
+ * Inserting "と最小値" after "最大値" and inserting "値と最小" after "最大" give the same text, and a
+ * diff picks either depending on what else the side changed. Left as they are, the two sides'
+ * identical insertions land in different gaps and the merge keeps both.
+ *
+ * This is git's hunk compaction (`xdl_change_compact`), applied to the inserted tokens of the side
+ * and to the deleted tokens of base independently: a run slides by one when the token it uncovers
+ * is interchangeable with the one it covers, and runs that touch merge. Each run is first slid up
+ * and down until it stops growing (which joins pieces of one insertion that the diff split), then
+ * moved to its leftmost position. Unchanged tokens still pair up in order, so the alignment stays
+ * valid.
  */
-function wordEditOf(
+function canonicalizeAlignment(
+  base: readonly InlineToken[],
   side: readonly InlineToken[],
   match: SequenceMatch,
-  insertions: GapInsertions,
-  start: number,
-  end: number,
-): WordEdit {
-  for (let index = start; index < end; index += 1) {
-    if (match.baseToSide[index] < 0) {
-      return "replaced";
-    }
-  }
-  for (let gap = start + 1; gap < end; gap += 1) {
-    if (insertions.first[gap] >= 0) {
-      return "extended";
-    }
-  }
-  const before = insertions.last[start];
-  const after = insertions.first[end];
-  return (before >= 0 && isSpacedWordCharacter(side[before]))
-    || (after >= 0 && isSpacedWordCharacter(side[after]))
-    ? "extended"
-    : "none";
-}
-
-/**
- * Treats a space-delimited word that both sides edited, at least one of them by removing letters,
- * as replaced as a whole by each side.
- *
- * A character diff aligns stray letters ("cat" -> "cow" keeps the "c"), and when the other side
- * replaced the same word, the deletion of that shared letter would cut it out of the other side's
- * word ("dog" + "ow"). Unlinking the word's letters on both sides turns both edits into "delete the
- * word, insert my word", so both words survive intact, ours first. A word only one side touched,
- * or that both sides only extended, stays character-level so the edits interleave normally.
- */
-function expandEditsToWords(
-  base: readonly InlineToken[],
-  ours: readonly InlineToken[],
-  oursMatch: SequenceMatch,
-  theirs: readonly InlineToken[],
-  theirsMatch: SequenceMatch,
 ): void {
-  const oursInsertions = insertionsByGap(oursMatch, base.length);
-  const theirsInsertions = insertionsByGap(theirsMatch, base.length);
-  let start = 0;
-  while (start < base.length) {
-    if (!isSpacedWordCharacter(base[start])) {
-      start += 1;
-      continue;
+  const deleted = Uint8Array.from(match.baseToSide, (sideIndex) => (sideIndex < 0 ? 1 : 0));
+  const inserted = Uint8Array.from(match.sideToBase, (baseIndex) => (baseIndex < 0 ? 1 : 0));
+  compactChanges(base, deleted);
+  compactChanges(side, inserted);
+  match.baseToSide.fill(-1);
+  match.sideToBase.fill(-1);
+  let baseIndex = 0;
+  let sideIndex = 0;
+  for (;;) {
+    while (baseIndex < base.length && deleted[baseIndex]) {
+      baseIndex += 1;
     }
-    let end = start + 1;
-    while (end < base.length && isSpacedWordCharacter(base[end])) {
-      end += 1;
+    while (sideIndex < side.length && inserted[sideIndex]) {
+      sideIndex += 1;
     }
-    const oursEdit = wordEditOf(ours, oursMatch, oursInsertions, start, end);
-    const theirsEdit = wordEditOf(theirs, theirsMatch, theirsInsertions, start, end);
-    if (oursEdit !== "none" && theirsEdit !== "none" && (oursEdit === "replaced" || theirsEdit === "replaced")) {
-      unlinkRange(oursMatch, start, end);
-      unlinkRange(theirsMatch, start, end);
+    if (baseIndex >= base.length || sideIndex >= side.length) {
+      return;
     }
-    start = end;
+    match.baseToSide[baseIndex] = sideIndex;
+    match.sideToBase[sideIndex] = baseIndex;
+    baseIndex += 1;
+    sideIndex += 1;
   }
 }
 
-function unlinkRange(match: SequenceMatch, start: number, end: number): void {
-  for (let index = start; index < end; index += 1) {
-    const sideIndex = match.baseToSide[index];
-    if (sideIndex >= 0) {
-      match.sideToBase[sideIndex] = -1;
-      match.baseToSide[index] = -1;
+function compactChanges(tokens: readonly InlineToken[], changed: Uint8Array): void {
+  const group = { start: 0, end: 0 };
+  const slideUp = (): boolean => {
+    if (group.start === 0 || !interchangeable(tokens[group.start - 1], tokens[group.end - 1])) {
+      return false;
     }
-  }
+    group.start -= 1;
+    group.end -= 1;
+    changed[group.start] = 1;
+    changed[group.end] = 0;
+    while (group.start > 0 && changed[group.start - 1]) {
+      group.start -= 1;
+    }
+    return true;
+  };
+  const slideDown = (): boolean => {
+    if (group.end === tokens.length || !interchangeable(tokens[group.start], tokens[group.end])) {
+      return false;
+    }
+    changed[group.start] = 0;
+    changed[group.end] = 1;
+    group.start += 1;
+    group.end += 1;
+    while (group.end < tokens.length && changed[group.end]) {
+      group.end += 1;
+    }
+    return true;
+  };
+  const forEachGroup = (compact: () => void) => {
+    let start = 0;
+    while (start < tokens.length) {
+      if (!changed[start]) {
+        start += 1;
+        continue;
+      }
+      group.start = start;
+      group.end = start;
+      while (group.end < tokens.length && changed[group.end]) {
+        group.end += 1;
+      }
+      compact();
+      start = group.end;
+    }
+  };
+  forEachGroup(() => {
+    let size: number;
+    do {
+      size = group.end - group.start;
+      while (slideUp()) {
+        // keep sliding
+      }
+      while (slideDown()) {
+        // keep sliding
+      }
+    } while (size !== group.end - group.start);
+  });
+  forEachGroup(() => {
+    while (slideUp()) {
+      // keep sliding
+    }
+  });
 }
 
 // ----- inline merge -----
@@ -540,7 +552,8 @@ function mergeInlineTokens(
   if (oursMatch.capped || theirsMatch.capped) {
     reportCapped(path, context);
   }
-  expandEditsToWords(base, ours, oursMatch, theirs, theirsMatch);
+  canonicalizeAlignment(base, ours, oursMatch);
+  canonicalizeAlignment(base, theirs, theirsMatch);
 
   const merged: InlineToken[] = [];
   const fromTheirs = new Set<number>();
@@ -779,12 +792,13 @@ function insertionRuns(
  * - Text is compared per code point and each formula as one token matched by its TeX, so a
  *   formula the MCP tools re-emitted under a new id still counts as kept, and keeps ours' id.
  * - A base token either side deleted is deleted. Insertions into the same gap are emitted ours
- *   first, then theirs; an identical insertion on both sides is emitted once.
- * - A space-delimited word (Latin, digits...) that both sides edited, at least one by removing
- *   letters, is replaced as a whole by each side, so two replacements of one word keep both words.
+ *   first, then theirs; an identical insertion on both sides is emitted once, also when the two
+ *   diffs placed it at different but equivalent positions (see `canonicalizeAlignment`).
+ * - Words are not special: two different replacements of one word merge character by character
+ *   (`cat` → `dog` / `cow` gives `dogow`), like a CRDT; nothing is duplicated or dropped.
  * - Formatting is merged per character and per key; each mark is its own key.
- * - Formula ids are unique within the result: a copy that would repeat an id gets `<id>-<n>`,
- *   theirs' copy rather than ours'.
+ * - A formula id the merge repeats gets `<id>-<n>` on theirs' copy; ids the inputs already repeat
+ *   are left alone.
  */
 export function mergeInline3(
   base: readonly InlineNode[],
@@ -834,16 +848,19 @@ function mergeInlineValue(
  *   order follows the side that reordered (theirs if both did), insertions are anchored after the
  *   preceding kept element (ours before theirs at the same anchor), and an element one side deleted
  *   while the other edited it is kept with the edit.
- * - Other arrays of equal length on all three sides are merged element by element; arrays whose
- *   length changed are values.
- * - A key both sides added is merged against an empty object / empty identified array.
- * - A node one side changed the `type` of is taken whole from that side (theirs if both changed it
- *   differently); keys of two kinds of node are never mixed.
+ * - Other arrays of equal length on all three sides are merged element by element when the two
+ *   sides changed different positions; otherwise (a length change, or a position both changed)
+ *   they are values.
+ * - A key both sides added is merged against an empty object / identified array / inline run, so
+ *   both inline texts are kept; other values (plain strings...) take theirs.
+ * - A node one side changed the `type` or `kind` of is taken whole from that side (theirs if both
+ *   changed it differently); keys of two kinds of node are never mixed.
  * - Everything else is a value: if both sides changed it differently, theirs (AI) wins and the path
  *   is reported in `overlaps`.
  * - `updatedAt` is never compared (MISS R1); where keys are merged, ours' timestamp is kept.
- * - Formula ids are unique within the whole result (see `mergeInline3`); other duplicated ids are
- *   only reported (`duplicateIds`).
+ * - A formula id the merge repeats anywhere in the result is renamed on theirs' copy (see
+ *   `mergeInline3`); other ids the merge repeats are only reported (`duplicateIds`). Ids the inputs
+ *   already repeat are left alone and not reported.
  *
  * The result may share unchanged sub-objects with the inputs; treat all of them as immutable.
  */
@@ -886,6 +903,10 @@ function mergeArrays(
   context: MergeContext,
 ): unknown[] | undefined {
   if (isInlineRun(ours) && isInlineRun(theirs)) {
+    if (base === undefined) {
+      // Both sides added the run: both texts are kept, ours first.
+      return mergeInlineValue([], ours, theirs, path, context);
+    }
     return Array.isArray(base) && isInlineRun(base)
       ? mergeInlineValue(base, ours, theirs, path, context)
       : undefined;
@@ -899,20 +920,34 @@ function mergeArrays(
     }
   }
   if (Array.isArray(base) && base.length === ours.length && ours.length === theirs.length) {
-    return base.map((element, index) => (
-      mergeValue(element, ours[index], theirs[index], `${path}[${index}]`, context)
-    ));
+    // Element by element only when the sides changed different positions. Positions both changed
+    // (a swap on one side, an edit on the other) only mean something together, so the array is
+    // then a single value.
+    const oursChanged = changedPositions(base, ours);
+    if (!changedPositions(base, theirs).some((index) => oursChanged.includes(index))) {
+      return base.map((element, index) => (
+        mergeValue(element, ours[index], theirs[index], `${path}[${index}]`, context)
+      ));
+    }
   }
   return undefined;
 }
 
-function nodeType(record: Record<string, unknown>): string | undefined {
-  return typeof record.type === "string" ? record.type : undefined;
+function changedPositions(base: readonly unknown[], side: readonly unknown[]): number[] {
+  return base.flatMap((element, index) => (isEqual(element, side[index]) ? [] : [index]));
+}
+
+/** Keys whose string value says what kind of node an object is (block `type`, Graph3D `kind`...). */
+const DISCRIMINATOR_KEYS = ["type", "kind"] as const;
+
+function nodeKind(record: Record<string, unknown>): Array<string | undefined> {
+  return DISCRIMINATOR_KEYS.map((key) => (typeof record[key] === "string" ? record[key] : undefined));
 }
 
 /**
  * Both sides changed this object. Keys are merged one by one unless the two sides disagree on
- * what kind of node it is: mixing them would leave e.g. a `list` with a paragraph's `children`.
+ * what kind of node it is: mixing them would leave e.g. a `list` with a paragraph's `children`,
+ * or a Graph3D `segment` with a point's `radius`.
  */
 function mergeNode(
   base: Record<string, unknown>,
@@ -921,14 +956,13 @@ function mergeNode(
   path: string,
   context: MergeContext,
 ): Record<string, unknown> {
-  const oursType = nodeType(ours);
-  const theirsType = nodeType(theirs);
-  if (oursType === theirsType) {
+  const theirsKind = nodeKind(theirs);
+  if (isEqual(nodeKind(ours), theirsKind)) {
     return mergeObject(base, ours, theirs, path, context);
   }
   // The structural change wins whole; the other side's edits to this node are dropped.
   addPath(context.report.overlaps, path);
-  return theirsType === nodeType(base) ? ours : theirs;
+  return isEqual(theirsKind, nodeKind(base)) ? ours : theirs;
 }
 
 function mergeObject(
@@ -977,45 +1011,62 @@ function visitMathNodes(value: unknown, visit: (node: Record<string, unknown> & 
 }
 
 /**
- * Makes formula ids unique across the whole merged value and lists other ids held more than once.
+ * Fixes ids that the merge itself repeated: the inputs' own repeats are left as they are, so a side
+ * returned unchanged stays exactly that side.
  *
- * For each repeated formula id, the first occurrence that came from ours keeps it (comments anchor
- * to ours' ids); without one, the first occurrence keeps it. Every other occurrence gets the first
- * `<id>-<n>` unused by the inputs and the result.
+ * A formula id the result holds more often than any input does is renamed on the surplus
+ * occurrences: occurrences that came from ours keep it first (comments anchor to ours' ids), then
+ * the earliest others; each renamed one gets the first `<id>-<n>` unused by the inputs and the
+ * result. Other element ids held more often than in any input are only listed in `duplicateIds`.
  */
 function finalizeIdentities<T>(value: T, inputs: readonly unknown[], context: MergeContext): T {
+  const inputElementCounts = inputs.map(countElementIds);
+  for (const [id, count] of countElementIds(value)) {
+    if (count > 1 && count > Math.max(...inputElementCounts.map((counts) => counts.get(id) ?? 0))) {
+      context.report.duplicateIds.push(id);
+    }
+  }
+
   const occurrences: Array<{ id: string; fromOurs: boolean }> = [];
   visitMathNodes(value, (node) => {
     occurrences.push({ id: node.id, fromOurs: context.oursMathNodes.has(node) });
   });
-  collectDuplicateElementIds(value, context.report.duplicateIds);
-
-  const keeperById = new Map<string, number>();
+  const inputMathCounts = inputs.map(countMathIds);
+  const positionsById = new Map<string, number[]>();
   occurrences.forEach((occurrence, index) => {
-    const keeper = keeperById.get(occurrence.id);
-    if (keeper === undefined || (!occurrences[keeper].fromOurs && occurrence.fromOurs)) {
-      keeperById.set(occurrence.id, index);
-    }
+    positionsById.set(occurrence.id, [...(positionsById.get(occurrence.id) ?? []), index]);
   });
+  const surplus: number[] = [];
+  for (const [id, positions] of positionsById) {
+    const allowed = Math.max(1, ...inputMathCounts.map((counts) => counts.get(id) ?? 0));
+    if (positions.length <= allowed) {
+      continue;
+    }
+    const kept = new Set([
+      ...positions.filter((position) => occurrences[position].fromOurs),
+      ...positions.filter((position) => !occurrences[position].fromOurs),
+    ].slice(0, allowed));
+    surplus.push(...positions.filter((position) => !kept.has(position)));
+  }
+  if (surplus.length === 0) {
+    return value;
+  }
   const known = new Set(occurrences.map((occurrence) => occurrence.id));
-  for (const input of inputs) {
-    visitMathNodes(input, (node) => known.add(node.id));
+  for (const counts of inputMathCounts) {
+    for (const id of counts.keys()) {
+      known.add(id);
+    }
   }
   const renamed = new Map<number, string>();
-  occurrences.forEach((occurrence, index) => {
-    if (keeperById.get(occurrence.id) === index) {
-      return;
-    }
+  for (const position of surplus.sort((left, right) => left - right)) {
+    const original = occurrences[position].id;
     let suffix = 2;
-    while (known.has(`${occurrence.id}-${suffix}`)) {
+    while (known.has(`${original}-${suffix}`)) {
       suffix += 1;
     }
-    const id = `${occurrence.id}-${suffix}`;
+    const id = `${original}-${suffix}`;
     known.add(id);
-    renamed.set(index, id);
-  });
-  if (renamed.size === 0) {
-    return value;
+    renamed.set(position, id);
   }
   context.report.reidentified += renamed.size;
 
@@ -1044,7 +1095,14 @@ function finalizeIdentities<T>(value: T, inputs: readonly unknown[], context: Me
   return rebuild(value) as T;
 }
 
-function collectDuplicateElementIds(value: unknown, duplicates: string[]): void {
+function countMathIds(value: unknown): Map<string, number> {
+  const counts = new Map<string, number>();
+  visitMathNodes(value, (node) => counts.set(node.id, (counts.get(node.id) ?? 0) + 1));
+  return counts;
+}
+
+/** How often each id appears on an array element (formulas excluded) anywhere in the value. */
+function countElementIds(value: unknown): Map<string, number> {
   const counts = new Map<string, number>();
   const visit = (current: unknown) => {
     if (Array.isArray(current)) {
@@ -1061,11 +1119,7 @@ function collectDuplicateElementIds(value: unknown, duplicates: string[]): void 
     }
   };
   visit(value);
-  for (const [id, count] of counts) {
-    if (count > 1) {
-      duplicates.push(id);
-    }
-  }
+  return counts;
 }
 
 function isInlineRun(values: readonly unknown[]): values is InlineNode[] {
