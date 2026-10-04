@@ -6,7 +6,6 @@ import { memo, useCallback, useLayoutEffect, useMemo, useRef, useState, type Rea
 import {
   AiEditInlinePreviewCard,
   AiEditOverlayApprovalWidget,
-  groupAiEditPreviewEntries,
   type AiSourceReferenceOpenDocumentParams,
 } from "./view";
 import {
@@ -23,6 +22,7 @@ import {
   type AiApplyAnimationState,
   type AiEditPreviewState,
 } from "./model/preview";
+import { groupPendingProposalContentByAnchor, type AiProposalAnchorCard } from "./model/proposal-content";
 import { AiRunAnchorLayer, type AiRunCardOpenRequest } from "@/components/editor/ai-run-anchor-layer";
 import {
   getNarrowColumnBounds,
@@ -217,8 +217,7 @@ interface UseAiPageCanvasExtensionOptions {
 }
 
 /** 提案が無いときに配り回す固定の空コレクション (identity を動かさないため)。 */
-type AiEditPreviewCards = ReturnType<typeof groupAiEditPreviewEntries> extends Map<string, infer TCards> ? TCards : never;
-const EMPTY_PREVIEW_CARDS_BY_TARGET_ID: ReadonlyMap<string, AiEditPreviewCards> = new Map();
+const EMPTY_PREVIEW_CARDS_BY_TARGET_ID: ReadonlyMap<string, AiProposalAnchorCard[]> = new Map();
 const EMPTY_INLINE_CONTENT: ReadonlyMap<string, Array<{ key: string; content: ReactNode }>> = new Map();
 
 function useAiPageCanvasExtension({
@@ -251,7 +250,7 @@ function useAiPageCanvasExtension({
   const previewCardsByTargetId = useMemo(
     () => inlinePreviewGroups.length === 0
       ? EMPTY_PREVIEW_CARDS_BY_TARGET_ID
-      : groupAiEditPreviewEntries(inlinePreviewGroups, document),
+      : groupPendingProposalContentByAnchor(inlinePreviewGroups, document),
     [document, inlinePreviewGroups],
   );
   const roomIdsWithCards = useMemo(
@@ -288,10 +287,8 @@ function useAiPageCanvasExtension({
         key: card.preview.proposalIds.join(","),
         content: (
           <AiEditInlinePreviewCard
-            entries={card.entries}
-            providers={card.preview.providers}
+            content={card.content}
             mathFractionSizing={document.metadata.mathFractionSizing}
-            sessionLabel={card.preview.sessionLabel}
             sourceReferences={card.preview.sourceReferences}
             applying={applying}
             onOpenConversation={card.preview.roomId

@@ -10,10 +10,13 @@ import type {
   ProblemNode,
   SectionNode,
 } from "@/types/sigma-doc";
+import type { InlineNode } from "@/features/document";
 import {
   buildAppliedDiffRows,
   countAppliedDiffLines,
   flattenBlockLines,
+  mapBlockLineNodes,
+  pairBlockLines,
 } from "./applied-diff-lines";
 
 function paragraph(id: string, text: string): ParagraphNode {
@@ -169,7 +172,7 @@ describe("buildAppliedDiffRows", () => {
     ))).toBe(true);
   });
 
-  it("collapses runs of more than 4 consecutive context lines, keeping one edge line visible on each side", () => {
+  it("keeps every unchanged line of a modification pair as a context row and counts only the changed lines", () => {
     const removedItems = Array.from({ length: 7 }, (_, i) => ({
       id: `item_${i}`,
       type: "listItem" as const,
@@ -187,20 +190,109 @@ describe("buildAppliedDiffRows", () => {
     };
 
     const rows = buildAppliedDiffRows(diff);
-    expect(rows[0].type).toBe("removed");
-    expect(rows[1].type).toBe("added");
-    // 残り6件のcontext行のうち、両端1件ずつは見えたまま、間の4件は折りたたまれる。
-    expect(rows[2].type).toBe("context");
-    const collapsed = rows[3];
-    expect(collapsed.type).toBe("collapsed");
-    if (collapsed.type === "collapsed") {
-      expect(collapsed.count).toBe(4);
-    }
-    expect(rows[4].type).toBe("context");
-    expect(rows).toHaveLength(5);
+    // 行を画面に並べる描画はもう無いので、変わらない行は折りたたまずにそのまま残す。
+    expect(rows.map((row) => row.type)).toEqual(["removed", "added", "context", "context", "context", "context", "context", "context"]);
+    expect(countAppliedDiffLines(rows)).toEqual({ added: 1, removed: 1 });
+  });
+});
 
-    const { added, removed } = countAppliedDiffLines(rows);
-    expect(added).toBe(1);
-    expect(removed).toBe(1);
+describe("mapBlockLineNodes", () => {
+  const tag = (key: string, nodes: InlineNode[]): InlineNode[] => [...nodes, { type: "text", text: `<${key}>` }];
+
+  const problem: ProblemNode = {
+    id: "problem_1",
+    type: "problem",
+    tags: [],
+    lead: [paragraph("lead_1", "導入")],
+    prompt: [{
+      id: "prompt_list",
+      type: "list",
+      listType: "bullet",
+      items: [{
+        id: "item_1",
+        type: "listItem",
+        children: [{ type: "text", text: "項目" }],
+        continuations: [paragraph("cont_1", "続き"), { id: "div_1", type: "divider" }],
+        nested: [{
+          id: "nested_list",
+          type: "list",
+          listType: "bullet",
+          items: [{ id: "nested_item", type: "listItem", children: [{ type: "text", text: "子" }] }],
+        }],
+      }],
+    }],
+    hints: [{
+      id: "box_1",
+      type: "boxBlock",
+      styleId: "itembox",
+      title: [{ type: "text", text: "要点" }],
+      blocks: [paragraph("box_p", "箱の本文")],
+    }],
+    solution: [{
+      id: "layout_1",
+      type: "layoutSection",
+      layout: { columnCount: 2 },
+      children: [paragraph("col_1", "左"), { id: "quote_1", type: "quote", blocks: [paragraph("quote_p", "引用")] }],
+    }],
+  };
+
+  it("visits every line flattenBlockLines produces, with the same keys and in the same order", () => {
+    const visited: string[] = [];
+    mapBlockLineNodes(problem, (key) => {
+      visited.push(key);
+      return undefined;
+    });
+
+    expect(visited).toEqual(flattenBlockLines(problem).map((line) => line.key));
+  });
+
+  it("writes the mapped nodes back to the same line, which flattenBlockLines then reads", () => {
+    const mapped = mapBlockLineNodes(problem, tag);
+    // 区切り線 (div_1) は文章を持たないので、書き戻す先が無い。
+    const lines = flattenBlockLines(mapped).filter((line) => line.key !== "div_1");
+
+    expect(lines.map((line) => line.key)).toEqual(["lead_1", "item_1", "cont_1", "nested_item", "box_1:title", "box_p", "col_1", "quote_p"]);
+    for (const line of lines) {
+      expect(line.nodes.at(-1)).toEqual({ type: "text", text: `<${line.key}>` });
+    }
+  });
+
+  it("returns a copy and never mutates the block it was given", () => {
+    const before = structuredClone(problem);
+    const mapped = mapBlockLineNodes(problem, tag);
+
+    expect(problem).toEqual(before);
+    expect(mapped).not.toBe(problem);
+  });
+
+  it("leaves a section title (plain string) untouched", () => {
+    const section: SectionNode = { id: "s1", type: "section", title: "第1章" };
+
+    expect(mapBlockLineNodes(section, tag)).toEqual(section);
+  });
+});
+
+describe("pairBlockLines", () => {
+  it("pairs equal and rewritten lines by position and leaves unmatched lines single", () => {
+    const removed: ListNode = {
+      id: "list_1",
+      type: "list",
+      listType: "bullet",
+      items: [
+        { id: "a", type: "listItem", children: [{ type: "text", text: "そのまま" }] },
+        { id: "b", type: "listItem", children: [{ type: "text", text: "変更前" }] },
+      ],
+    };
+    const added: ListNode = {
+      ...removed,
+      items: [
+        removed.items[0]!,
+        { id: "b", type: "listItem", children: [{ type: "text", text: "変更後" }] },
+        { id: "c", type: "listItem", children: [{ type: "text", text: "追加" }] },
+      ],
+    };
+
+    expect(pairBlockLines(removed, added).map((pair) => [pair.removed?.key ?? null, pair.added?.key ?? null]))
+      .toEqual([["a", "a"], ["b", "b"], [null, "c"]]);
   });
 });

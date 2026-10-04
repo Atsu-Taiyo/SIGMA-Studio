@@ -20,7 +20,8 @@ import {
   preserveOverlayShapePlacementForReplacement,
   type AiOverlayShapeReplacementPair,
 } from "@/lib/ai/overlay-shape-replacement";
-import { buildShapeOnlyPreview, type AiEditShapeOnlyPreview } from "@/lib/ai/ai-edit-shape-preview";
+import { getVisualShapesFromOperations } from "@/lib/ai/ai-edit-shape-preview";
+import type { AiProposalContent } from "./proposal-content";
 import {
   deriveAppliedDraftFallback,
   isOverlayAnchorSupportDraft,
@@ -222,13 +223,15 @@ export function buildSourceReferencesByTurnId(
 /**
  * Builds one stable, shape-only chat thumbnail for every assistant turn that
  * created overlay insertion proposals. Proposal drafts remain the native
- * SigmaDoc source of truth; this SVG is only a derived chat representation.
- * Using proposals from every status keeps the thumbnail available after the
- * user approves or rejects the insertion and after chat history is restored.
+ * SigmaDoc source of truth; the thumbnail is the same proposal content model
+ * every other surface draws (`AiProposalContentView`), holding only the
+ * inserted shapes and the assets their drafts carry. Using proposals from every
+ * status keeps the thumbnail available after the user approves or rejects the
+ * insertion and after chat history is restored.
  */
 export function buildInsertedShapePreviewsByTurnId(
   proposals: Pick<DesktopMcpEditProposalSummary, "turnId" | "createdAt" | "draft">[],
-): Map<string, AiEditShapeOnlyPreview> {
+): Map<string, AiProposalContent> {
   const proposalsByTurnId = new Map<string, typeof proposals>();
   for (const proposal of proposals) {
     if (!proposal.turnId) {
@@ -242,17 +245,26 @@ export function buildInsertedShapePreviewsByTurnId(
     }
   }
 
-  const result = new Map<string, AiEditShapeOnlyPreview>();
+  const result = new Map<string, AiProposalContent>();
   for (const [turnId, turnProposals] of proposalsByTurnId) {
     const visualOperations = turnProposals
       .slice()
       .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
       .flatMap((proposal) => proposal.draft.operations)
       .filter((operation) => operation.operation === "insertOverlayShape" || operation.operation === "insertTableShape");
-    const preview = buildShapeOnlyPreview(visualOperations);
-    if (preview) {
-      result.set(turnId, preview);
+    if (visualOperations.length === 0) {
+      continue;
     }
+    let assets: Record<string, OverlayAsset> = {};
+    for (const operation of visualOperations) {
+      if (operation.operation === "insertOverlayShape") {
+        assets = { ...assets, ...(operation.assets ?? {}) };
+      }
+    }
+    result.set(turnId, {
+      hunks: [],
+      shapes: getVisualShapesFromOperations(visualOperations).map((shape) => ({ change: "added", shape, assets })),
+    });
   }
   return result;
 }

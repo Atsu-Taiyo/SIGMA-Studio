@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { InlineNode } from "@/types/sigma-doc";
-import { diffArrays, diffInlineNodes, tokenizeInlineNodes } from "./inline-diff";
+import { diffArrays, diffInlineNodeRanges, diffInlineNodes, tokenizeInlineNodes } from "./inline-diff";
 
 function text(value: string, extra: Partial<InlineNode> = {}): InlineNode {
   return { type: "text", text: value, ...extra } as InlineNode;
@@ -122,5 +122,54 @@ describe("diffArrays", () => {
     expect(ops.every((op) => op.type === "remove" || op.type === "add")).toBe(true);
     expect(ops.filter((op) => op.type === "remove")).toHaveLength(600);
     expect(ops.filter((op) => op.type === "add")).toHaveLength(600);
+  });
+});
+
+describe("diffInlineNodeRanges", () => {
+  it("reports no ranges when nothing changed", () => {
+    expect(diffInlineNodeRanges([text("変更前")], [text("変更前")])).toEqual({
+      changed: false,
+      removed: [],
+      added: [],
+    });
+  });
+
+  it("locates only the changed word inside the original text node", () => {
+    // 「変更」「の問題文」は両側で同じ。変わった「前」/「後」だけが範囲になる。
+    const result = diffInlineNodeRanges([text("変更前の問題文")], [text("変更後の問題文")]);
+
+    expect(result.changed).toBe(true);
+    expect(result.removed).toEqual([{ nodeIndex: 0, start: 2, end: 3 }]);
+    expect(result.added).toEqual([{ nodeIndex: 0, start: 2, end: 3 }]);
+  });
+
+  it("points at the source node of each change, including a changed math atom", () => {
+    const result = diffInlineNodeRanges(
+      [text("値は "), math("x^2", "m1"), text(" です")],
+      [text("値は "), math("x^3", "m9"), text(" です")],
+    );
+
+    expect(result.removed).toEqual([{ nodeIndex: 1, start: 0, end: 0 }]);
+    expect(result.added).toEqual([{ nodeIndex: 1, start: 0, end: 0 }]);
+  });
+
+  it("ignores a math atom whose id was renumbered but whose tex is unchanged", () => {
+    const result = diffInlineNodeRanges([math("x", "m1")], [math("x", "m2")]);
+
+    expect(result.changed).toBe(false);
+  });
+
+  it("keeps CRLF offsets exact and leaves the unchanged space between two changed words out", () => {
+    const result = diffInlineNodeRanges([text("a\r\nb c")], [text("a\r\nX Y")]);
+
+    // "a" と改行 (2 文字) は同じ。b→X と c→Y の間の空白は変わっていないので範囲に入らない。
+    expect(result.removed).toEqual([{ nodeIndex: 0, start: 3, end: 4 }, { nodeIndex: 0, start: 5, end: 6 }]);
+    expect(result.added).toEqual([{ nodeIndex: 0, start: 3, end: 4 }, { nodeIndex: 0, start: 5, end: 6 }]);
+  });
+
+  it("merges consecutive changed tokens of one node into a single range", () => {
+    const result = diffInlineNodeRanges([text("同じ abc")], [text("同じ xyz!")]);
+
+    expect(result.added).toEqual([{ nodeIndex: 0, start: 3, end: 7 }]);
   });
 });

@@ -10,6 +10,7 @@ import type { SigmaDocument } from "@/features/document";
 import { type AiEditReference } from "@/lib/ai/ai-edit-reference";
 import { type AiEditShapeOnlyPreview } from "@/lib/ai/ai-edit-shape-preview";
 import type { AiDisplayMode } from "@/lib/ai/ai-surface";
+import type { AiProposalContent } from "../model/proposal-content";
 import type { EditableBlock } from "@/lib/document-tree";
 import type { AiEditAttachment } from "@/lib/ai/sigma-doc-agent-tools";
 import type { DesktopAiSourceReference } from "@/types/desktop";
@@ -69,7 +70,8 @@ export interface AiEditPanelProps {
   sourceReferencesByTurnId?: Map<string, DesktopAiSourceReference[]>;
   /** Native overlay insertion drafts rendered as compact chat thumbnails. Derived
    * from proposals of every status, so they remain after apply/dismiss and restore. */
-  insertedShapePreviewsByTurnId?: Map<string, AiEditShapeOnlyPreview>;
+  /** turn ごとの、挿入した図形のサムネの内容 (`buildInsertedShapePreviewsByTurnId`)。 */
+  insertedShapePreviewsByTurnId?: Map<string, AiProposalContent>;
   /** Approved proposal records reduced to the post-apply change widget shown
    * under their assistant turn. The map is derived from proposal history, so
    * it remains accurate after chat-room persistence is restored. */

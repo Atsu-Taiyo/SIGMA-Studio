@@ -285,9 +285,10 @@ export const ai = {
   },
   /** 適用後の実差分。 */
   diff: {
-    title: "実際の差分",
     statsAria: "差分集計",
-    collapsed: "他{{count}}行は変更なし",
+    /** 提案内容の削除側/追加側 (読み上げと図形のまとまりの名前)。 */
+    before: "変更前",
+    after: "変更後",
     /** `{{sign}}{{count}}{{noun}}` の並び。英語だけ数と語の間に空白が要る。 */
     stat: "{{sign}}{{count}}{{noun}}",
     /**
@@ -329,11 +330,8 @@ export const ai = {
     dialogAria: "AIの編集案: {{title}}",
     overlayDialogAria: "AIのオーバーレイ編集案: {{title}}",
     proposedChanges: "提案された変更",
-    insertShapePreview: "挿入する図形のプレビュー",
-    updatedShapePreview: "変更後の図形のプレビュー",
     applyFailed: "編集案を適用できませんでした",
     summaryMore: "ほか{{count}}件",
-    insertsShape: "{{noun}}を挿入します",
     dismissReasonExampleText: "例: 数式が元の問題と合っていない",
     dismissReasonExampleShape: "例: 図の配置が本文と合っていない",
   },
