@@ -981,17 +981,15 @@
   background: var(--surface-soft);
 }
 
+/* 承認バー (AiProposalDecisionBar) の下の内容。バーの「内容を隠す」で隠す。 */
 .ai-chat-result-proposal-diff {
   display: grid;
   gap: var(--space-xs);
   min-width: 0;
 }
 
-.ai-chat-result-proposal-diff-heading {
-  margin: 0;
-  color: var(--text-muted);
-  font-size: 11px;
-  font-weight: 700;
+.ai-chat-result-proposal-diff[hidden] {
+  display: none;
 }
 
 /* 会話の中の提案内容: 件数 (+n/−n) と AiProposalContentView。 */
@@ -1001,13 +999,6 @@
   min-width: 0;
 }
 
-.ai-chat-result-proposal-actions {
-  min-width: 0;
-}
-
-.ai-chat-result-proposal-action {
-  flex: 0 0 auto;
-}
 
 .ai-chat-thread .ai-agent-activity {
   display: none;

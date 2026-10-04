@@ -35,7 +35,7 @@ const SURFACES = {
   "src/components/editor/ai-run-card-composer.tsx": { t: "ai" },
   "src/components/editor/ai-run-anchor-layer.tsx": { t: "ai", tCommon: "common" },
   "src/components/editor/ChatPromptField.tsx": { t: "ai" },
-  "src/features/ai-edit/view/AiEditInlinePreviewCard.tsx": { t: "ai", tCommon: "common" },
+  "src/features/ai-edit/view/AiEditInlinePreviewCard.tsx": { t: "ai" },
   "src/features/ai-edit/view/AiAppliedDocumentDiff.tsx": { t: "ai", tEditor: "editor" },
   "src/features/ai-edit/view/AiProposalContentView.tsx": { t: "ai", tEditor: "editor" },
   "src/features/ai-edit/view/AiChatTurn.tsx": { t: "ai", tEditor: "editor" },
@@ -53,6 +53,7 @@ const SURFACES = {
   "src/lib/ai/ai-edit-reference.ts": { t: "ai", tEditor: "editor" },
   "src/lib/ai/applied-diff-lines.ts": { t: "editor" },
   "src/components/ui/ai/AiProposalActions.tsx": { t: "ai", tCommon: "common" },
+  "src/components/ui/ai/AiProposalDecisionBar.tsx": { t: "ai" },
   "src/components/ui/ai/AiProposalDecisionButton.tsx": { t: "ai" },
   "src/components/ui/ai/AiAppliedChangeCard.tsx": { t: "ai" },
   /**

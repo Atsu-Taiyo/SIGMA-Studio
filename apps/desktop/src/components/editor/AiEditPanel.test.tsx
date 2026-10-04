@@ -849,7 +849,12 @@ describe("AssistantTurnView", () => {
     );
 
     expect(html.indexOf("ai-chat-assistant-text")).toBeLessThan(html.indexOf("ai-chat-result-proposal"));
-    expect(html).toContain("提案された変更");
+    // 紙面と同じ承認バーが先頭、その下に内容。
+    expect(html).toContain('data-ai-proposal-bar="" data-surface="panel"');
+    expect(html.indexOf("data-ai-proposal-bar")).toBeLessThan(html.indexOf("ai-chat-result-proposal-diff"));
+    expect(html.match(/提案された変更/g)).toHaveLength(1);
+    expect(html).toContain("AI図形の挿入案");
+    expect(html).toContain('aria-label="内容を隠す"');
     expect(html).toContain("ai-chat-result-proposal-diff");
     expect(html).toContain("+1図形");
     expect(html).toContain("<rect");
@@ -861,7 +866,32 @@ describe("AssistantTurnView", () => {
     expect(html.match(/data-ai-proposal-content=""/g)).toHaveLength(1);
   });
 
-  it("omits the proposal diff heading when the pending proposal has no visible body/shape change (still shows apply/dismiss)", () => {
+  it("leaves out 適用 when the surface only lets the proposal be discarded", () => {
+    const proposal: AiEditPreviewState = {
+      targetId: "p1",
+      roomId: "room1",
+      turnId: "a1",
+      proposalIds: ["proposal-1"],
+      baseRevision: 1,
+      providers: ["chatgpt"],
+      createdAt: 0,
+      draft: { summary: "移動のみ", plan: [], warnings: [], operations: [] },
+    };
+    const html = renderToStaticMarkup(
+      <AssistantTurnView
+        turn={makeAssistantTurn({ result: minimalResult })}
+        clockNow={0}
+        proposal={proposal}
+        proposalContent={{ hunks: [], shapes: [] }}
+        onDismissProposal={() => {}}
+      />,
+    );
+
+    expect(html).toContain('aria-label="破棄"');
+    expect(html).not.toContain('aria-label="適用"');
+  });
+
+  it("keeps only the bar (no content block, no content toggle) when the pending proposal has no visible body/shape change", () => {
     const proposal: AiEditPreviewState = {
       targetId: "p1",
       roomId: "room1",
@@ -883,7 +913,9 @@ describe("AssistantTurnView", () => {
       />,
     );
 
-    expect(html).not.toContain("提案された変更");
+    expect(html).toContain('data-ai-proposal-bar=""');
+    expect(html).not.toContain("ai-chat-result-proposal-diff");
+    expect(html).not.toContain("内容を隠す");
     expect(html).toContain('aria-label="破棄"');
     expect(html).toContain('aria-label="適用"');
   });
