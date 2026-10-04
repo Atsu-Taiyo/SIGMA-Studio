@@ -87,8 +87,23 @@ describe("mergeInline3", () => {
       .toBe("on the soft mat");
   });
 
+  it("deletes a repeated character once when one side's deletion is glued to another edit", () => {
+    expect(plain(mergeInline3([text("1000円")], [text("100円")], [text("100")]).value)).toBe("100");
+    expect(plain(mergeInline3([text("1000円")], [text("100")], [text("100円")]).value)).toBe("100");
+    expect(plain(mergeInline3([text("the the cat")], [text("the cat")], [text("the dog")]).value)).toBe("the dog");
+    expect(plain(mergeInline3([text("ありがとうう。")], [text("ありがとう。")], [text("ありがとう!")]).value))
+      .toBe("ありがとう!");
+  });
+
   it("deletes a repeated character once when both sides deleted the same one", () => {
     expect(plain(mergeInline3([text("ああいう")], [text("あいう")], [text("Xあいう")]).value)).toBe("Xあいう");
+  });
+
+  it("keeps text both sides inserted once when one side added more right next to it", () => {
+    expect(plain(mergeInline3([text("答え: 。")], [text("答え: 12。")], [text("答え: 12 です。")]).value))
+      .toBe("答え: 12 です。");
+    expect(plain(mergeInline3([text("答え: 。")], [text("答え: およそ12。")], [text("答え: 12。")]).value))
+      .toBe("答え: およそ12。");
   });
 
   it("collapses the exact same insertion made by both sides", () => {
@@ -454,15 +469,15 @@ describe("mergeEntity3", () => {
       expect(merged.report.overlaps).toEqual(["$"]);
     });
 
-    it("treats a changed kind like a changed type", () => {
-      const point = { id: "o1", kind: "point", position: { x: "0", y: "0", z: "0" } };
-      const moved = { ...point, position: { x: "1", y: "0", z: "0" }, radius: 2 };
-      const segment = { id: "o1", kind: "segment", from: { x: "0", y: "0", z: "0" }, to: { x: "1", y: "1", z: "1" } };
+    it("merges a changed kind like any other setting", () => {
+      const line = { id: "l1", type: "line", props: { kind: "polyline", color: "#000000", points: [0, 0, 10, 10] } };
+      const curved = { ...line, props: { ...line.props, kind: "curve" } };
+      const recolored = { ...line, props: { ...line.props, color: "#ff0000", points: [0, 0, 20, 20] } };
 
-      const merged = mergeEntity3<object>(point, moved, segment);
+      const merged = mergeEntity3<object>(line, curved, recolored);
 
-      expect(merged.value).toEqual(segment);
-      expect(merged.report.overlaps).toEqual(["$"]);
+      expect(merged.value).toEqual({ ...line, props: { kind: "curve", color: "#ff0000", points: [0, 0, 20, 20] } });
+      expect(merged.report.overlaps).toEqual([]);
     });
 
     it("takes the AI node when both sides changed the type differently", () => {
@@ -471,6 +486,31 @@ describe("mergeEntity3", () => {
       expect(merged.value).toEqual(list);
       expect(merged.report.overlaps).toEqual(["$"]);
     });
+  });
+
+  it("keeps a value one side edited while the other side removed its key", () => {
+    const box = { id: "b1", type: "box", title: "導入", blocks: [] };
+    const untitled = { id: "b1", type: "box", blocks: [] };
+
+    const humanEdited = mergeEntity3<Record<string, unknown>>(box, { ...box, title: "はじめに" }, untitled);
+    expect(humanEdited.value).toEqual({ ...box, title: "はじめに" });
+    expect(humanEdited.report.editBeatsDelete).toEqual(["$.title"]);
+
+    const aiEdited = mergeEntity3<Record<string, unknown>>(box, untitled, { ...box, title: "まとめ" });
+    expect(aiEdited.value).toEqual({ ...box, title: "まとめ" });
+    expect(aiEdited.report.editBeatsDelete).toEqual(["$.title"]);
+  });
+
+  it("removes a key one side removed when the other side left it unchanged or removed it too", () => {
+    const box = { id: "b1", type: "box", title: "導入", label: "A", blocks: [] };
+    const merged = mergeEntity3<Record<string, unknown>>(
+      box,
+      { id: "b1", type: "box", label: "B", blocks: [] },
+      { id: "b1", type: "box", blocks: [] },
+    );
+
+    expect(merged.value).toEqual({ id: "b1", type: "box", label: "B", blocks: [] });
+    expect(merged.report.editBeatsDelete).toEqual(["$.label"]);
   });
 
   it("keeps both inline titles added under a key base did not have", () => {
@@ -653,8 +693,9 @@ describe("mergeEntity3", () => {
 
       const merged = mergeEntity3(base, ours, theirs);
 
-      // The element is merged against an empty one: its inline run keeps both texts, ours first.
-      expect(texts(merged.value)).toEqual(["p1:一", "p2:二", "p3:三", "n1:新新しい"]);
+      // The element is merged against an empty one: its inline run keeps both texts, and the text
+      // they share ("新") once.
+      expect(texts(merged.value)).toEqual(["p1:一", "p2:二", "p3:三", "n1:新しい"]);
       expect(merged.report.overlaps).toEqual(["$[#n1].children"]);
     });
 

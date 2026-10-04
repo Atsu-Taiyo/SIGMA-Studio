@@ -29,9 +29,17 @@ import type { InlineNode } from "../model";
  * - When one side's diff of a huge run hits `maxEditDistance`, that side's whole differing middle
  *   counts as replaced, so the other side's insertions inside it land after the replacement text.
  *   The run is listed in `cappedPaths`.
- * - An insertion both sides made is emitted once when each side's other edits leave a few
- *   characters around it untouched. An edit glued to it on one side makes that side's change one
- *   replacement, which is merged as a conflict (both kept).
+ * - Text both sides inserted is emitted once when it lands in one gap (also when one side glued
+ *   an edit of its own to it). Where repeated characters let a diff read "insert `aba`, delete the
+ *   `a` before it" as "insert `ab`", the two sides' edits no longer look alike and text may be kept
+ *   twice. The merge prefers keeping text twice to deleting it twice: a deletion both sides made is
+ *   placed on the same characters whenever its run can slide there.
+ * - Only `type` tells node kinds apart. A Graph3D object switched from `point` to `segment`
+ *   (`kind`) by one side while the other edits it is merged key by key and may mix both kinds.
+ * - `editBeatsDelete` counts any change as an edit, including values the editor re-measures and
+ *   writes back (a text shape's height); the kernel knows no derived values.
+ * - Values merge per key: base `{x: 0, y: 0}`, ours `{x: 10, y: 10}`, theirs `{x: 5, y: 0}` give
+ *   `{x: 5, y: 10}`. Nothing is lost, but coupled keys (x/y, w/h) can combine both sides.
  */
 
 /** What the merge had to decide, so callers can count fallbacks (MISS R3) without re-diffing. */
@@ -51,7 +59,10 @@ export interface ThreeWayMergeReport {
    * or a copy renamed to `<id>-<n>` because the merge repeated that id.
    */
   reidentified: number;
-  /** Identified elements one side deleted and the other edited; they were kept with the edit. */
+  /**
+   * Values one side deleted and the other edited, kept with the edit: identified elements
+   * (`$[#id]`) and object keys (`$.title`).
+   */
   editBeatsDelete: string[];
   /**
    * Ids of array elements (blocks, shapes, rows...) that the merge made appear in more places than
@@ -419,42 +430,74 @@ function interchangeable(left: InlineToken, right: InlineToken): boolean {
 }
 
 /**
- * Rewrites a side's alignment into one canonical form, so the same edit made by both sides is
- * represented the same way on both: each run of inserted (or deleted) tokens is slid to the leftmost
- * of its equivalent positions.
+ * Rewrites both sides' alignments so that the same edit made by both sides is represented the same
+ * way on both. Without this, a repeated character makes one edit look like another:
  *
- * Inserting "と最小値" after "最大値" and inserting "値と最小" after "最大" give the same text, and a
- * diff picks either depending on what else the side changed. Left as they are, the two sides'
- * identical insertions land in different gaps and the merge keeps both.
+ * - Inserting "と最小値" after "最大値" and inserting "値と最小" after "最大" give the same text; a
+ *   diff picks either depending on what else the side changed, and the two identical insertions
+ *   would land in different gaps and both be kept.
+ * - Deleting one "0" of "1000" can be any of the three; if one side's deletion is glued to another
+ *   edit ("0円" removed together) and the other side's is not, the two would remove different
+ *   zeros and the merge would remove both.
  *
- * This is git's hunk compaction (`xdl_change_compact`), applied to the inserted tokens of the side
- * and to the deleted tokens of base independently: a run slides by one when the token it uncovers
- * is interchangeable with the one it covers, and runs that touch merge. Each run is first slid up
- * and down until it stops growing (which joins pieces of one insertion that the diff split), then
- * moved to its leftmost position. Unchanged tokens still pair up in order, so the alignment stays
- * valid.
+ * Runs of changed tokens are first compacted like git's hunks (`xdl_change_compact`): a run slides
+ * by one when the token it uncovers is interchangeable with the one it covers, runs that touch
+ * merge, and each run slides up and down until it stops growing (this joins pieces of one edit that
+ * the diff split). Then each run is placed within the positions it can slide to:
+ * - an inserted run at its leftmost position (insertions are per side, so a fixed rule makes equal
+ *   insertions coincide);
+ * - a deleted run where it overlaps the other side's deletions the most, else leftmost. Deletions
+ *   live on the same base, so a run that can move goes to where the other side deleted — also when
+ *   the other side's run is glued in place.
+ * Unchanged tokens still pair up in order, so each alignment stays valid.
  */
-function canonicalizeAlignment(
+function canonicalizeAlignments(
   base: readonly InlineToken[],
-  side: readonly InlineToken[],
-  match: SequenceMatch,
+  ours: readonly InlineToken[],
+  oursMatch: SequenceMatch,
+  theirs: readonly InlineToken[],
+  theirsMatch: SequenceMatch,
 ): void {
-  const deleted = Uint8Array.from(match.baseToSide, (sideIndex) => (sideIndex < 0 ? 1 : 0));
-  const inserted = Uint8Array.from(match.sideToBase, (baseIndex) => (baseIndex < 0 ? 1 : 0));
-  compactChanges(base, deleted);
-  compactChanges(side, inserted);
+  const changedFlags = (links: Int32Array) => Uint8Array.from(links, (link) => (link < 0 ? 1 : 0));
+  const oursInserted = changedFlags(oursMatch.sideToBase);
+  const theirsInserted = changedFlags(theirsMatch.sideToBase);
+  const oursDeleted = changedFlags(oursMatch.baseToSide);
+  const theirsDeleted = changedFlags(theirsMatch.baseToSide);
+  for (const [tokens, inserted] of [[ours, oursInserted], [theirs, theirsInserted]] as const) {
+    compactChanges(tokens, inserted);
+    placeChanges(tokens, inserted, () => 0);
+  }
+  compactChanges(base, oursDeleted);
+  compactChanges(base, theirsDeleted);
+  const overlapWith = (other: Uint8Array) => (start: number, end: number) => {
+    let overlap = 0;
+    for (let index = start; index < end; index += 1) {
+      overlap += other[index];
+    }
+    return overlap;
+  };
+  // Ours goes where theirs could delete (theirs has not been placed yet), then theirs goes where
+  // ours did delete.
+  placeChanges(base, oursDeleted, overlapWith(reachOf(base, theirsDeleted)));
+  placeChanges(base, theirsDeleted, overlapWith(oursDeleted));
+  relink(oursMatch, oursDeleted, oursInserted);
+  relink(theirsMatch, theirsDeleted, theirsInserted);
+}
+
+/** Pairs the unchanged base tokens with the unchanged side tokens in order. */
+function relink(match: SequenceMatch, deleted: Uint8Array, inserted: Uint8Array): void {
   match.baseToSide.fill(-1);
   match.sideToBase.fill(-1);
   let baseIndex = 0;
   let sideIndex = 0;
   for (;;) {
-    while (baseIndex < base.length && deleted[baseIndex]) {
+    while (baseIndex < deleted.length && deleted[baseIndex]) {
       baseIndex += 1;
     }
-    while (sideIndex < side.length && inserted[sideIndex]) {
+    while (sideIndex < inserted.length && inserted[sideIndex]) {
       sideIndex += 1;
     }
-    if (baseIndex >= base.length || sideIndex >= side.length) {
+    if (baseIndex >= deleted.length || sideIndex >= inserted.length) {
       return;
     }
     match.baseToSide[baseIndex] = sideIndex;
@@ -464,6 +507,7 @@ function canonicalizeAlignment(
   }
 }
 
+/** git's compaction: each run ends at the bottom of its range, merged with every run it can reach. */
 function compactChanges(tokens: readonly InlineToken[], changed: Uint8Array): void {
   const group = { start: 0, end: 0 };
   const slideUp = (): boolean => {
@@ -492,23 +536,17 @@ function compactChanges(tokens: readonly InlineToken[], changed: Uint8Array): vo
     }
     return true;
   };
-  const forEachGroup = (compact: () => void) => {
-    let start = 0;
-    while (start < tokens.length) {
-      if (!changed[start]) {
-        start += 1;
-        continue;
-      }
-      group.start = start;
-      group.end = start;
-      while (group.end < tokens.length && changed[group.end]) {
-        group.end += 1;
-      }
-      compact();
-      start = group.end;
+  let start = 0;
+  while (start < tokens.length) {
+    if (!changed[start]) {
+      start += 1;
+      continue;
     }
-  };
-  forEachGroup(() => {
+    group.start = start;
+    group.end = start;
+    while (group.end < tokens.length && changed[group.end]) {
+      group.end += 1;
+    }
     let size: number;
     do {
       size = group.end - group.start;
@@ -519,12 +557,73 @@ function compactChanges(tokens: readonly InlineToken[], changed: Uint8Array): vo
         // keep sliding
       }
     } while (size !== group.end - group.start);
-  });
-  forEachGroup(() => {
-    while (slideUp()) {
-      // keep sliding
+    start = group.end;
+  }
+}
+
+/** Every token some run could cover at some position of its range. */
+function reachOf(tokens: readonly InlineToken[], changed: Uint8Array): Uint8Array {
+  const reach = Uint8Array.from(changed);
+  let start = 0;
+  while (start < tokens.length) {
+    if (!changed[start]) {
+      start += 1;
+      continue;
     }
-  });
+    let end = start;
+    while (end < tokens.length && changed[end]) {
+      end += 1;
+    }
+    for (
+      let top = start, bottom = end;
+      top > 0 && !changed[top - 1] && interchangeable(tokens[top - 1], tokens[bottom - 1]);
+    ) {
+      top -= 1;
+      bottom -= 1;
+      reach[top] = 1;
+    }
+    start = end;
+  }
+  return reach;
+}
+
+/**
+ * Moves each run (sitting at the bottom of its range after `compactChanges`) to the position in
+ * its range with the highest score; ties go to the leftmost position.
+ */
+function placeChanges(
+  tokens: readonly InlineToken[],
+  changed: Uint8Array,
+  score: (start: number, end: number) => number,
+): void {
+  let start = 0;
+  while (start < tokens.length) {
+    if (!changed[start]) {
+      start += 1;
+      continue;
+    }
+    let end = start;
+    while (end < tokens.length && changed[end]) {
+      end += 1;
+    }
+    let best = start;
+    let bestScore = score(start, end);
+    for (
+      let top = start, bottom = end;
+      top > 0 && !changed[top - 1] && interchangeable(tokens[top - 1], tokens[bottom - 1]);
+    ) {
+      top -= 1;
+      bottom -= 1;
+      const value = score(top, bottom);
+      if (value >= bestScore) {
+        best = top;
+        bestScore = value;
+      }
+    }
+    changed.fill(0, start, end);
+    changed.fill(1, best, best + end - start);
+    start = end;
+  }
 }
 
 // ----- inline merge -----
@@ -552,8 +651,7 @@ function mergeInlineTokens(
   if (oursMatch.capped || theirsMatch.capped) {
     reportCapped(path, context);
   }
-  canonicalizeAlignment(base, ours, oursMatch);
-  canonicalizeAlignment(base, theirs, theirsMatch);
+  canonicalizeAlignments(base, ours, oursMatch, theirs, theirsMatch);
 
   const merged: InlineToken[] = [];
   const fromTheirs = new Set<number>();
@@ -569,6 +667,46 @@ function mergeInlineTokens(
       noteReidentified(ours[oursStart + offset], theirs[theirsStart + offset]);
       merged.push(ours[oursStart + offset]);
     }
+  };
+  const emitTheirs = (start: number, end: number) => {
+    for (let index = start; index < end; index += 1) {
+      fromTheirs.add(merged.length);
+      merged.push(theirs[index]);
+    }
+  };
+  /**
+   * Both sides inserted into the same gap. Identical text is emitted once. When one side's text
+   * starts or ends with the other side's (the same insertion, plus an edit of its own right next to
+   * it), the shared part is emitted once too. Otherwise ours, then theirs.
+   */
+  const emitInsertionsInOneGap = ([oursStart, oursEnd]: [number, number], [theirsStart, theirsEnd]: [number, number]) => {
+    const oursLength = oursEnd - oursStart;
+    const theirsLength = theirsEnd - theirsStart;
+    if (oursLength >= theirsLength) {
+      if (sameRange(ours, oursStart, oursStart + theirsLength, theirs, theirsStart, theirsEnd)) {
+        keepOursRange(oursStart, oursStart + theirsLength, theirsStart);
+        merged.push(...ours.slice(oursStart + theirsLength, oursEnd));
+        return;
+      }
+      if (sameRange(ours, oursEnd - theirsLength, oursEnd, theirs, theirsStart, theirsEnd)) {
+        merged.push(...ours.slice(oursStart, oursEnd - theirsLength));
+        keepOursRange(oursEnd - theirsLength, oursEnd, theirsStart);
+        return;
+      }
+    } else {
+      if (sameRange(ours, oursStart, oursEnd, theirs, theirsStart, theirsStart + oursLength)) {
+        keepOursRange(oursStart, oursEnd, theirsStart);
+        emitTheirs(theirsStart + oursLength, theirsEnd);
+        return;
+      }
+      if (sameRange(ours, oursStart, oursEnd, theirs, theirsEnd - oursLength, theirsEnd)) {
+        emitTheirs(theirsStart, theirsEnd - oursLength);
+        keepOursRange(oursStart, oursEnd, theirsEnd - oursLength);
+        return;
+      }
+    }
+    merged.push(...ours.slice(oursStart, oursEnd));
+    emitTheirs(theirsStart, theirsEnd);
   };
 
   const emitChunk = (
@@ -594,18 +732,15 @@ function mergeInlineTokens(
     for (let gap = 0; gap <= baseEnd - baseStart; gap += 1) {
       const oursRun = oursRuns[gap];
       const theirsRun = theirsRuns[gap];
-      if (oursRun && theirsRun && sameRange(ours, oursRun[0], oursRun[1], theirs, theirsRun[0], theirsRun[1])) {
-        keepOursRange(oursRun[0], oursRun[1], theirsRun[0]);
+      if (oursRun && theirsRun) {
+        emitInsertionsInOneGap(oursRun, theirsRun);
         continue;
       }
       if (oursRun) {
         merged.push(...ours.slice(oursRun[0], oursRun[1]));
       }
       if (theirsRun) {
-        for (let index = theirsRun[0]; index < theirsRun[1]; index += 1) {
-          fromTheirs.add(merged.length);
-          merged.push(theirs[index]);
-        }
+        emitTheirs(theirsRun[0], theirsRun[1]);
       }
     }
   };
@@ -788,12 +923,14 @@ function insertionRuns(
 /**
  * Three-way merges two edits of the same inline run, character by character.
  *
- * - If only one side changed the run, that side's run is returned as it is.
- * - Text is compared per code point and each formula as one token matched by its TeX, so a
- *   formula the MCP tools re-emitted under a new id still counts as kept, and keeps ours' id.
+ * - If only one side changed the run, that side's run is returned as it is: in a run ours did not
+ *   change, theirs' formula ids pass through.
+ * - Text is compared per code point and each formula as one token matched by its TeX, so in a run
+ *   both sides changed, a formula the MCP tools re-emitted under a new id still counts as kept and
+ *   keeps ours' id.
  * - A base token either side deleted is deleted. Insertions into the same gap are emitted ours
  *   first, then theirs; an identical insertion on both sides is emitted once, also when the two
- *   diffs placed it at different but equivalent positions (see `canonicalizeAlignment`).
+ *   diffs placed it at different but equivalent positions (see `canonicalizeAlignments`).
  * - Words are not special: two different replacements of one word merge character by character
  *   (`cat` → `dog` / `cow` gives `dogow`), like a CRDT; nothing is duplicated or dropped.
  * - Formatting is merged per character and per key; each mark is its own key.
@@ -855,6 +992,8 @@ function mergeInlineValue(
  *   both inline texts are kept; other values (plain strings...) take theirs.
  * - A node one side changed the `type` or `kind` of is taken whole from that side (theirs if both
  *   changed it differently); keys of two kinds of node are never mixed.
+ * - A value one side removed (key or root) and the other changed is kept with the change
+ *   (`editBeatsDelete`); removed by one side and untouched by the other, it is removed.
  * - Everything else is a value: if both sides changed it differently, theirs (AI) wins and the path
  *   is reported in `overlaps`.
  * - `updatedAt` is never compared (MISS R1); where keys are merged, ours' timestamp is kept.
@@ -882,6 +1021,12 @@ function mergeValue(base: unknown, ours: unknown, theirs: unknown, path: string,
   }
   if (isEqual(ours, base)) {
     return theirs;
+  }
+  if (base !== undefined && (ours === undefined) !== (theirs === undefined)) {
+    // One side removed the value, the other changed it: keep the change, like an edited element
+    // one side deleted from an identified array.
+    context.report.editBeatsDelete.push(path);
+    return ours ?? theirs;
   }
   if (Array.isArray(ours) && Array.isArray(theirs)) {
     const merged = mergeArrays(base, ours, theirs, path, context);
@@ -937,8 +1082,12 @@ function changedPositions(base: readonly unknown[], side: readonly unknown[]): n
   return base.flatMap((element, index) => (isEqual(element, side[index]) ? [] : [index]));
 }
 
-/** Keys whose string value says what kind of node an object is (block `type`, Graph3D `kind`...). */
-const DISCRIMINATOR_KEYS = ["type", "kind"] as const;
+/**
+ * Keys whose string value says what kind of node an object is. Only `type`: `kind` is mostly a
+ * setting (a line's polyline/curve, an arc's arc/sector, a chart's bar/line) that one side may
+ * change while the other edits the rest.
+ */
+const DISCRIMINATOR_KEYS = ["type"] as const;
 
 function nodeKind(record: Record<string, unknown>): Array<string | undefined> {
   return DISCRIMINATOR_KEYS.map((key) => (typeof record[key] === "string" ? record[key] : undefined));
@@ -946,8 +1095,7 @@ function nodeKind(record: Record<string, unknown>): Array<string | undefined> {
 
 /**
  * Both sides changed this object. Keys are merged one by one unless the two sides disagree on
- * what kind of node it is: mixing them would leave e.g. a `list` with a paragraph's `children`,
- * or a Graph3D `segment` with a point's `radius`.
+ * what kind of node it is: mixing them would leave e.g. a `list` with a paragraph's `children`.
  */
 function mergeNode(
   base: Record<string, unknown>,
