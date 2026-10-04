@@ -40,10 +40,23 @@ vi.mock("@/lib/i18n/react", async () => {
   return { useT: (namespace: string) => createTranslator("ja", namespace as "ai") };
 });
 
-import {
-  AiEditInlinePreviewCard,
-  type AiEditInlinePreviewEntry,
-} from "./AiEditInlinePreviewCard";
+import { AiEditInlinePreviewCard } from "./AiEditInlinePreviewCard";
+import type { AiProposalContent } from "../model/proposal-content";
+
+function replaceContent(text: string): AiProposalContent {
+  const emptyNumbering = { problems: new Map(), headings: new Map() };
+  return {
+    hunks: [{
+      anchorBlockId: "p1",
+      removed: [{ id: "p1", type: "paragraph", children: [{ type: "text", text: "書き換え前" }] }],
+      added: [{ id: "p1", type: "paragraph", children: text ? [{ type: "text", text }] : [] }],
+      notes: [],
+      operations: ["replace"],
+      numbering: { removed: emptyNumbering, added: emptyNumbering },
+    }],
+    shapes: [],
+  };
+}
 
 function findElement(
   node: ReactNode,
@@ -74,19 +87,7 @@ describe("AiEditInlinePreviewCard apply failure", () => {
     const onApply = vi.fn();
     const onDismiss = vi.fn();
     const props = {
-      entries: [{
-        kind: "operation" as const,
-        draft: {
-          operation: "replace" as const,
-          summary: "本文を書き換え",
-          targetId: "p1",
-          replacementBlock: { id: "p1", type: "paragraph" as const, children: [] },
-        },
-        operationIndex: 0,
-        operationCount: 1,
-        sessionSummary: "本文を書き換えます",
-      }],
-      providers: ["chatgpt" as const],
+      content: replaceContent(""),
       applying: false,
       onApply,
       onDismiss,
@@ -103,26 +104,9 @@ describe("AiEditInlinePreviewCard apply failure", () => {
 
   it("renders the failed reason beside the actions and keeps the inline card pending", async () => {
     const reason = "別の操作が完了してから、もう一度お試しください";
-    const entries: AiEditInlinePreviewEntry[] = [{
-      kind: "operation",
-      draft: {
-        operation: "replace",
-        summary: "本文を書き換え",
-        targetId: "p1",
-        replacementBlock: {
-          id: "p1",
-          type: "paragraph",
-          children: [{ type: "text", text: "書き換え後" }],
-        },
-      },
-      operationIndex: 0,
-      operationCount: 1,
-      sessionSummary: "本文を書き換えます",
-    }];
     const onApply = vi.fn(async () => ({ ok: false as const, reason }));
     const props = {
-      entries,
-      providers: ["chatgpt" as const],
+      content: replaceContent("書き換え後"),
       applying: false,
       onApply,
     };

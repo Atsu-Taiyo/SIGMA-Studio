@@ -13,7 +13,7 @@ import  {
 } from "@/components/editor/page-canvas/render-units";
 import type { RenderUnit } from "@/components/editor/page-canvas/types";
 import { calculateVisiblePageRange, getVisiblePageIndexes } from "@/components/editor/page-canvas/virtualization";
-import { groupAiEditPreviewEntries } from "@/features/ai-edit";
+import { groupPendingProposalContentByAnchor } from "@/features/ai-edit";
 import { isFlowBlockFragmentable } from "@/features/rendering/core";
 import { BUILTIN_BOX_STYLES, createBoxBlock } from "@/lib/box-blocks";
 import { collectBlocksById } from "@/lib/document-tree";
@@ -272,7 +272,7 @@ describe("getSelectionActionPopoverPosition", () => {
   });
 });
 
-describe("groupAiEditPreviewEntries", () => {
+describe("groupPendingProposalContentByAnchor", () => {
   it("keeps overlay-shape insertions out of body flow and available to the overlay approval path", () => {
     const preview: AiEditPreviewState = {
       targetId: "p_target",
@@ -296,7 +296,14 @@ describe("groupAiEditPreviewEntries", () => {
       },
     };
 
-    const grouped = groupAiEditPreviewEntries([preview]);
+    const document = {
+      version: "2.0",
+      docId: "doc_overlay_only",
+      metadata: { title: "図形" },
+      content: [paragraph("p_target", "本文")],
+      outputProfiles: { student: {}, teacher: {}, answerBook: {} },
+    } as SigmaDocument;
+    const grouped = groupPendingProposalContentByAnchor([preview], document);
 
     expect(grouped.size).toBe(0);
     expect(hasOverlayAiEditChanges(preview)).toBe(true);

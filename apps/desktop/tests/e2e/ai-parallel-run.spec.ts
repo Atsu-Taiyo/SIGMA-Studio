@@ -1222,7 +1222,8 @@ test("a chained insertion proposal shows every candidate in one preview card", a
   const previewDialog = page.locator(".ai-inline-preview-dialog");
   await expect(previewDialog).toBeVisible({ timeout: 20_000 });
 
-  const operations = previewDialog.locator(".ai-inline-preview-operation");
+  // 連鎖した 3 つの操作は 1 か所の内容にまとまり、紙面と同じ静的描画のブロックが 3 つ並ぶ。
+  const operations = previewDialog.locator('[data-change="added"] .text-flow-editor > [data-sigma-doc-id]');
   await expect(operations).toHaveCount(3);
   await expect(previewDialog).toContainText("E2E提案で書き換えた本文");
   await expect(previewDialog).toContainText("連鎖挿入1: 初項aの説明");

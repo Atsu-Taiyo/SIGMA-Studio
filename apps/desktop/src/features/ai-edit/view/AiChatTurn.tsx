@@ -14,21 +14,28 @@ import { IconButton } from "@/components/ui/Button";
 import { Shimmer } from "@/components/ui/Shimmer";
 import type { AiProposalApplyOutcome } from "@/features/ai-edit";
 import {
-  AiAppliedDocumentDiffView,
   AiSourceReferenceChips,
   AiStreamRenderer,
   type AiSourceReferenceOpenDocumentParams,
 } from "@/features/ai-edit/view";
+import {
+  buildAppliedProposalContent,
+  isProposalContentEmpty,
+  type AiProposalContent,
+} from "@/features/ai-edit/model/proposal-content";
+import type { MathFractionSizing, OverlayAsset } from "@/features/document";
 import { SELECTED_SHAPES_ATTACHMENT_PREFIX } from "@/lib/ai/ai-edit-attachment-names";
 import { getAiEditReferenceKey, getReferenceDisplayLabel } from "@/lib/ai/ai-edit-reference";
-import { type AiEditShapeOnlyPreview } from "@/lib/ai/ai-edit-shape-preview";
 import { type AssistantTurn, type UserTurn } from "@/lib/ai/ai-run-controller";
-import { deriveAppliedDraftFallback, type AiAppliedDocumentDiff } from "@/lib/ai/applied-document-diff";
+import { deriveAppliedDraftFallback } from "@/lib/ai/applied-document-diff";
+import type { Translate } from "@/lib/i18n";
 import { useT } from "@/lib/i18n/react";
 import type { DesktopAiSourceReference } from "@/types/desktop";
 import { buildStoredOverlaySelectionPreview, isImageAttachment } from "../application/ai-chat-attachments";
 import { UserAttachmentImage, UserOverlaySelectionImage } from "./AiChatPreviewImages";
 import { AssistantActivity } from "./AiChatActivity";
+import { AiProposalDiffStats } from "./AiAppliedDocumentDiff";
+import { AiProposalContentView } from "./AiProposalContentView";
 export function UserTurnView({
   turn,
   turnRef,
@@ -197,17 +204,20 @@ export function AssistantTurnView({
   turn,
   clockNow,
   sourceReferences,
-  shapePreview,
+  shapeContent,
   appliedChange,
   onRevertAppliedChange,
   onOpenSourceDocument,
   restorable,
   onRestoreProposal,
   proposal,
-  proposalDiff,
+  proposalContent,
   proposalBusy = false,
   onApplyProposal,
   onDismissProposal,
+  overlayAssets,
+  paperWidthPx,
+  mathFractionSizing,
 }: {
   turn: AssistantTurn;
   clockNow: number;
@@ -215,7 +225,8 @@ export function AssistantTurnView({
    * view dedupes again defensively since it's cheap and the invariant isn't
    * guaranteed across all future callers. */
   sourceReferences?: DesktopAiSourceReference[];
-  shapePreview?: AiEditShapeOnlyPreview;
+  /** この turn が挿入した図形 (提案の状態を問わず残すサムネ)。 */
+  shapeContent?: AiProposalContent;
   appliedChange?: AiAppliedTurnChange;
   onRevertAppliedChange?: (proposalIds: string[]) => Promise<{ ok: true } | { ok: false; reason: string }>;
   onOpenSourceDocument?: (params: AiSourceReferenceOpenDocumentParams) => void;
@@ -224,23 +235,33 @@ export function AssistantTurnView({
   restorable?: { proposalIds: string[] };
   onRestoreProposal?: (proposalIds: string | string[]) => Promise<{ ok: true } | { ok: false; reason: string }>;
   proposal?: AiEditPreviewState | null;
-  /** 承認前に「適用したら何が消えて何が足されるか」を同じGitHub風差分表示で見せるための
-   * pending diff (see derivePendingDocumentDiff)。まだ承認されていないので、これが実際の
-   * 適用後差分と一致する保証はない(人手の編集やAIの後続提案で状況が変わりうる)。 */
-  proposalDiff?: AiAppliedDocumentDiff;
+  /** 承認前に「適用したら何が消えて何が足されるか」を、適用済みと同じ部品で先に見せる内容
+   * (see buildPendingProposalContent)。まだ承認されていないので、これが実際の適用後と
+   * 一致する保証はない(人手の編集やAIの後続提案で状況が変わりうる)。 */
+  proposalContent?: AiProposalContent;
   proposalBusy?: boolean;
   onApplyProposal?: (proposalIds: string[]) => Promise<AiProposalApplyOutcome>;
   onDismissProposal?: (proposalIds: string[]) => void;
+  /** 適用済みの図形を描く画像 (ふつうは今の文書の画像)。渡さないと画像・3D の絵が欠ける。 */
+  overlayAssets?: Readonly<Record<string, OverlayAsset>>;
+  /** 紙面の段幅 (px)。内容はこの幅で組んでからパネルの幅へ縮める。 */
+  paperWidthPx?: number;
+  mathFractionSizing?: MathFractionSizing;
 }) {
   const t = useT("ai");
   const [restoring, setRestoring] = useState(false);
   const [restoreError, setRestoreError] = useState<string | null>(null);
   const [reverting, setReverting] = useState(false);
   const [revertError, setRevertError] = useState<string | null>(null);
-  const fallbackAppliedDiff = useMemo(
-    () => deriveAppliedDraftFallback(turn.result ? [turn.result.draft] : []),
-    [turn.result],
+  const appliedDiff = appliedChange?.diff;
+  const appliedContent = useMemo(
+    () => buildAppliedProposalContent(
+      appliedDiff ?? deriveAppliedDraftFallback(turn.result ? [turn.result.draft] : []),
+      overlayAssets,
+    ),
+    [appliedDiff, overlayAssets, turn.result],
   );
+  const contentDisplay = { paperWidthPx, mathFractionSizing };
 
   const runRestore = async () => {
     if (!onRestoreProposal || !restorable) {
@@ -295,10 +316,10 @@ export function AssistantTurnView({
 
           {proposal && (onApplyProposal || onDismissProposal) && (
             <div className="ai-chat-result-proposal" aria-label={t("panel.proposalActionsAria")}>
-              {proposalDiff && (proposalDiff.body.length > 0 || proposalDiff.shapes.length > 0) && (
+              {proposalContent && !isProposalContentEmpty(proposalContent) && (
                 <div className="ai-chat-result-proposal-diff" aria-label={t("card.proposedChanges")}>
                   <p className="ai-chat-result-proposal-diff-heading">{t("card.proposedChanges")}</p>
-                  <AiAppliedDocumentDiffView diff={proposalDiff} />
+                  <AiTurnProposalContent content={proposalContent} {...contentDisplay} />
                 </div>
               )}
               <AiTurnProposalActions
@@ -310,9 +331,9 @@ export function AssistantTurnView({
             </div>
           )}
 
-          {!proposal && !showAppliedChange && (
-            <AiChatShapeArtifact
-              preview={shapePreview}
+          {!proposal && !showAppliedChange && shapeContent && (
+            <AiTurnShapeContent
+              content={shapeContent}
               outcome={restorable && turn.applied
                 ? "reverted"
                 : turn.applied
@@ -345,7 +366,7 @@ export function AssistantTurnView({
                 : undefined}
               onRevert={onRevertAppliedChange && appliedChange ? () => void runRevert() : undefined}
             >
-              <AiAppliedDocumentDiffView diff={appliedChange?.diff ?? fallbackAppliedDiff} />
+              <AiTurnProposalContent content={appliedContent} {...contentDisplay} />
             </AiAppliedChangeCard>
           )}
           {sourceReferences && sourceReferences.length > 0 && (
@@ -413,34 +434,60 @@ function AiCopyTextButton({ text }: { text: string }) {
   );
 }
 
-export function AiChatShapeArtifact({
-  preview,
-  outcome,
+/**
+ * 会話の中の提案内容: 件数 (+n/−n) と、紙面と同じ静的描画を縮めた内容。保留中と適用済みで
+ * 同じ部品を使う。
+ */
+function AiTurnProposalContent({
+  content,
+  paperWidthPx,
+  mathFractionSizing,
 }: {
-  preview?: AiEditShapeOnlyPreview;
-  outcome: "pending" | "applied" | "dismissed" | "reverted";
+  content: AiProposalContent;
+  paperWidthPx?: number;
+  mathFractionSizing?: MathFractionSizing;
 }) {
-  const t = useT("ai");
-  if (!preview) {
+  if (isProposalContentEmpty(content)) {
     return null;
   }
-  const label = outcome === "applied"
-    ? t("panel.insertedShapes")
-    : outcome === "reverted"
-      ? t("panel.revertedShapes")
-    : outcome === "dismissed"
-      ? t("panel.discardedShapes")
-      : t("panel.shapesToInsert");
   return (
-    <figure className="ai-chat-shape-artifact" data-outcome={outcome}>
-      <div
-        className="ai-chat-shape-artifact-stage"
-        role="img"
-        aria-label={label}
-        dangerouslySetInnerHTML={{ __html: preview.svg }}
+    <div className="ai-chat-proposal-content">
+      <AiProposalDiffStats content={content} />
+      <AiProposalContentView
+        content={content}
+        surface="panel"
+        paperWidthPx={paperWidthPx}
+        mathFractionSizing={mathFractionSizing}
       />
-      <figcaption>{label}</figcaption>
-    </figure>
+    </div>
   );
 }
 
+export type AiTurnShapeOutcome = "pending" | "applied" | "dismissed" | "reverted";
+
+/** 図形のサムネに添える、提案がどうなったかの一言。 */
+export function aiTurnShapeOutcomeLabel(outcome: AiTurnShapeOutcome, t: Translate<"ai">): string {
+  return outcome === "applied"
+    ? t("panel.insertedShapes")
+    : outcome === "reverted"
+      ? t("panel.revertedShapes")
+      : outcome === "dismissed"
+        ? t("panel.discardedShapes")
+        : t("panel.shapesToInsert");
+}
+
+/**
+ * turn が挿入した図形のサムネ。提案の内容と同じ部品で描き、提案がどうなったかを添える
+ * (承認・破棄の後も、会話の履歴として残す)。
+ */
+export function AiTurnShapeContent({ content, outcome }: { content: AiProposalContent; outcome: AiTurnShapeOutcome }) {
+  const t = useT("ai");
+  return (
+    <AiProposalContentView
+      content={content}
+      surface="panel"
+      outcome={outcome}
+      caption={aiTurnShapeOutcomeLabel(outcome, t)}
+    />
+  );
+}

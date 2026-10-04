@@ -832,18 +832,17 @@ describe("AssistantTurnView", () => {
         }],
       },
     };
-    const proposalDiff = { body: [], shapes: [{ change: "added" as const, shape: selectedRectangleShape }] };
+    const proposalContent = {
+      hunks: [],
+      shapes: [{ change: "added" as const, shape: selectedRectangleShape, assets: {} }],
+    };
     const html = renderToStaticMarkup(
       <AssistantTurnView
         turn={makeAssistantTurn({ result: minimalResult })}
         clockNow={0}
         proposal={proposal}
-        proposalDiff={proposalDiff}
-        shapePreview={{
-          svg: '<svg xmlns="http://www.w3.org/2000/svg"><rect width="120" height="80" /></svg>',
-          width: 120,
-          height: 80,
-        }}
+        proposalContent={proposalContent}
+        shapeContent={proposalContent}
         onApplyProposal={async () => ({ ok: true })}
         onDismissProposal={() => {}}
       />,
@@ -857,7 +856,9 @@ describe("AssistantTurnView", () => {
     expect(html).toContain('aria-label="破棄"');
     expect(html).toContain('aria-label="適用"');
     expect(html).toContain("lucide-check");
-    expect(html).not.toContain("ai-chat-shape-artifact");
+    // 図形のサムネは提案の内容と重ねて出さない (内容の方にもう描いてある)。
+    expect(html).not.toContain("挿入する図形");
+    expect(html.match(/data-ai-proposal-content=""/g)).toHaveLength(1);
   });
 
   it("omits the proposal diff heading when the pending proposal has no visible body/shape change (still shows apply/dismiss)", () => {
@@ -876,7 +877,7 @@ describe("AssistantTurnView", () => {
         turn={makeAssistantTurn({ result: minimalResult })}
         clockNow={0}
         proposal={proposal}
-        proposalDiff={{ body: [], shapes: [] }}
+        proposalContent={{ hunks: [], shapes: [] }}
         onApplyProposal={async () => ({ ok: true })}
         onDismissProposal={() => {}}
       />,
@@ -931,11 +932,11 @@ describe("AssistantTurnView", () => {
       />,
     );
 
-    // 単語単位の差分では"変更"と"の問題文"は共通contextとして残り、"前"→"後"だけが強調される。
+    // 単語単位の差分では"変更"と"の問題文"は共通のまま残り、"前"→"後"だけが塗られる。
     expect(html).toContain("変更");
     expect(html).toContain("の問題文");
-    expect(html).toMatch(/<mark[^>]*>[\s\S]*?前[\s\S]*?<\/mark>/);
-    expect(html).toMatch(/<mark[^>]*>[\s\S]*?後[\s\S]*?<\/mark>/);
+    expect(html).toContain('<span style="background-color:var(--ai-proposal-word-removed-mark, transparent)">前</span>');
+    expect(html).toContain('<span style="background-color:var(--ai-proposal-word-added-mark, transparent)">後</span>');
     expect(html).toContain("−1行");
     expect(html).toContain("+1行");
     expect(html).not.toContain("本文を更新");
@@ -1011,16 +1012,54 @@ describe("AssistantTurnView", () => {
           autoApplied: false,
           canRevert: false,
         }}
-        shapePreview={{
-          svg: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 80"><rect width="120" height="80" /></svg>',
-          width: 120,
-          height: 80,
+        shapeContent={{ hunks: [], shapes: [{ change: "added", shape: insertedShape, assets: {} }] }}
+      />,
+    );
+
+    expect(html).not.toContain("挿入した図形");
+    expect(html.match(/data-ai-proposal-content=""/g)).toHaveLength(1);
+    expect(html).toContain("+1図形");
+    expect(html).toContain("<rect");
+  });
+
+  it("draws an applied image with the document's own assets instead of an empty picture", () => {
+    const asset: OverlayAsset = {
+      id: "asset_1",
+      type: "image",
+      props: { w: 40, h: 30, name: "図.png", isAnimated: false, mimeType: "image/png", src: "data:image/png;base64,AA==", fileSize: 1 },
+    };
+    const image = { id: "img_1", type: "image" as const, x: 0, y: 0, rotation: 0, props: { assetId: "asset_1", w: 40, h: 30 } };
+    const html = renderToStaticMarkup(
+      <AssistantTurnView
+        turn={makeAssistantTurn({ result: minimalResult, applied: true })}
+        clockNow={0}
+        overlayAssets={{ asset_1: asset }}
+        appliedChange={{
+          proposalIds: ["proposal-1"],
+          revertProposalIds: [],
+          providers: ["chatgpt"],
+          diff: { body: [], shapes: [{ change: "removed", shape: image }, { change: "added", shape: { ...image, x: 80 } }] },
+          autoApplied: false,
+          canRevert: false,
         }}
       />,
     );
 
-    expect(html).not.toContain("ai-chat-shape-artifact");
-    expect(html).toContain("+1図形");
+    expect(html.match(/href="data:image\/png;base64,AA=="/g)).toHaveLength(2);
+  });
+
+  it("keeps a turn's inserted-shape thumbnail with what became of the proposal", () => {
+    const html = renderToStaticMarkup(
+      <AssistantTurnView
+        turn={makeAssistantTurn({ result: minimalResult, dismissed: true })}
+        clockNow={0}
+        shapeContent={{ hunks: [], shapes: [{ change: "added", shape: selectedRectangleShape, assets: {} }] }}
+      />,
+    );
+
+    expect(html).toMatch(/<figure[^>]*data-outcome="dismissed"/);
+    expect(html).toContain("<figcaption");
+    expect(html).toContain("破棄した図形案");
     expect(html).toContain("<rect");
   });
 

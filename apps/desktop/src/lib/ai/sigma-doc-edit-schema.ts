@@ -164,9 +164,9 @@ export type AiEditDraft = z.infer<typeof AiEditDraftSchema>;
 // --- Additional block/layout/overlay/page-layout mutation operations ---
 //
 // These are intentionally NOT part of AiEditDraftSchema/AiEditDraft above: that union is
-// rendered directly by features/ai-edit/view/AiEditInlinePreviewCard.tsx, which narrows on
-// `draft.operation` and assumes every non-insert variant carries a `replacementBlock`. Adding
-// members here would break that (out of scope) component. These mutation ops are applied via
+// read directly by features/ai-edit/model/proposal-content.ts (the proposal content every preview
+// surface draws), which narrows on `draft.operation` and assumes every non-insert variant carries a
+// `replacementBlock`. Adding members here would break that model. These mutation ops are applied via
 // their own `applySigmaDocMutationOp` below and summarized via sigma-doc-agent-tools.ts's
 // `summarizeSigmaDocMutationOps`, independent of the AiEditDraft/session-draft pipeline.
 
@@ -555,8 +555,8 @@ export const AiEditSessionDraftSchema = z.object({
   // Block/layout/overlay/page-layout operations (see SigmaDocMutationOpSchema above), kept in a
   // separate array from `operations`
   // for the same reason session.mutationOperations is separate from session.operations (see the
-  // comment on that field in sigma-doc-agent-tools.ts): the AiEditDraft union is rendered
-  // directly by AiEditInlinePreviewCard, which assumes every entry carries a
+  // comment on that field in sigma-doc-agent-tools.ts): the AiEditDraft union is read
+  // directly by the proposal content model (features/ai-edit/model/proposal-content.ts), which assumes every entry carries a
   // replacementBlock/insertedBlock/overlayShape/tableShape. Persisted MCP edit proposals
   // (LocalMcpEditProposal.draft) may carry this alongside `operations`; re-applying a persisted
   // draft (see createAiEditSessionDocumentDraft below) executes legacy records as `operations`
