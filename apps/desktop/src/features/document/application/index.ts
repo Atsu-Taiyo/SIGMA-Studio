@@ -9,3 +9,4 @@ export * from "./line-height";
 export * from "./page-layout";
 export * from "./page-layout-resize";
 export * from "./page-running-region-layout";
+export * from "./three-way-merge";
