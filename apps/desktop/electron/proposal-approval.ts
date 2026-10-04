@@ -209,7 +209,7 @@ export function createProposalApprovalCoordinator({
           claimedProposal.proposalId,
           file.revision,
           mergeReport,
-          computeMergeAttentionSignature(mergeable, [], currentHashes),
+          computeMergeAttentionSignature(mergeable, [], currentHashes, revertDocument),
         );
         return { ok: false, error: te("electron.proposal.autoApplyNeedsReview"), code: "merge-review" };
       }

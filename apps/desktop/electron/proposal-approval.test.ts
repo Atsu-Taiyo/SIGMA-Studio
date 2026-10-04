@@ -11,7 +11,7 @@ import { parseSigmaDocument } from "@/lib/sigma-doc-schema";
 import { createEmptyProposalMergeReport } from "@/lib/ai/proposal-merge-basis";
 import { deleteBlocksFromDocument, updateBlockInDocument } from "@/lib/document-tree";
 import { areSigmaDocumentsEquivalent } from "@/lib/document-equivalence";
-import type { ParagraphNode } from "@/features/document";
+import { ensurePageLayout, type ParagraphNode } from "@/features/document";
 import { deleteBlockDraft, paragraphDocument, replaceParagraphDraft } from "../tests/fixtures/proposal-document";
 import { LocalMcpEditProposalStore } from "./local-sigma-doc-proposal-store";
 import { LocalSigmaDocStore } from "./local-sigma-doc-store";
@@ -510,6 +510,58 @@ describe("proposal approval application", () => {
     await expect(fixture.approve(mode, proposal.proposalId)).resolves.toMatchObject({ ok: true });
     expect(await fixture.readTextsFromFreshStore()).toEqual(["p_2"]);
     expect((await fixture.proposals.loadProposal(proposal.proposalId))?.status).toBe("approved");
+  });
+
+  it.each(modes)("%s approves an edit of a paragraph inside a quote after a save elsewhere", async (mode) => {
+    const quoted = await fixture.saveHumanEdit((document) => ({
+      ...document,
+      content: [{ type: "quote", id: "quote_1", blocks: [document.content[0] as ParagraphNode] }, ...document.content.slice(1)],
+    }));
+    const quotedDocument = parseSigmaDocument(await fixture.documents.loadDocument(fixture.file.fileId));
+    const draft = replaceParagraphDraft("p_1", "AI quoted");
+    const proposal = await fixture.proposals.createProposal({
+      ...fixture.proposalInput(draft), baseRevision: quoted.revision, baseDocument: quotedDocument,
+      nextDocument: replayProposalDraft(quotedDocument, draft).nextDocument,
+    });
+    const elsewhere = await fixture.saveHumanEdit((document) => withParagraph(document, "p_2", "p_2 human"));
+    await fixture.proposals.autoRebaseProposalsForFile(
+      fixture.file.fileId, parseSigmaDocument(await fixture.documents.loadDocument(fixture.file.fileId)), elsewhere.revision,
+    );
+    expect((await fixture.proposals.loadProposal(proposal.proposalId))?.conflict).toBeUndefined();
+
+    await expect(fixture.approve(mode, proposal.proposalId)).resolves.toMatchObject({ ok: true });
+  });
+
+  it.each(modes)("%s keeps the human's move and the AI's style when the AI replaces a shape under the same id", async (mode) => {
+    const shape = {
+      id: "shape_x", type: "geo" as const, x: 10, y: 10,
+      props: { w: 80, h: 30, geo: "rectangle" as const, fill: "none" as const, color: "black", labelColor: "black", dash: "solid" as const, size: "m" as const },
+    };
+    const withShape = (document: SigmaDocument, x: number): SigmaDocument => {
+      const layout = ensurePageLayout(document);
+      return { ...layout, pageLayout: { ...layout.pageLayout!, overlay: { overlaySnapshot: { version: 1, shapes: [{ ...shape, x }], assets: {} } } } };
+    };
+    const seeded = await fixture.saveHumanEdit((document) => withShape(document, 10));
+    const seededDocument = parseSigmaDocument(await fixture.documents.loadDocument(fixture.file.fileId));
+    const draft: AiEditSessionDraft = {
+      summary: "図形を置き換え", plan: ["図形を置き換え"], warnings: [],
+      operations: [{ operation: "insertOverlayShape", summary: "再挿入", targetId: "p_1", overlayShape: { ...shape, props: { ...shape.props, color: "red" } }, assets: {} }],
+      mutationOperations: [{ operation: "deleteOverlayShapes", summary: "削除", shapeIds: ["shape_x"] }],
+      operationOrder: [{ kind: "mutation", index: 0 }, { kind: "operation", index: 0 }],
+    };
+    const proposal = await fixture.proposals.createProposal({
+      fileId: fixture.file.fileId, baseRevision: seeded.revision, baseDocument: seededDocument,
+      summary: draft.summary, plan: draft.plan, provider: null,
+      source: { toolName: "insert_shape", toolArgs: {} }, draft,
+      nextDocument: replayProposalDraft(seededDocument, draft).nextDocument,
+    });
+    await fixture.saveHumanEdit((document) => withShape(document, 40));
+
+    await expect(fixture.approve(mode, proposal.proposalId)).resolves.toMatchObject({ ok: true });
+    const saved = parseSigmaDocument(await new LocalSigmaDocStore(userDataDir).loadDocument(fixture.file.fileId));
+    expect(saved.pageLayout?.overlay?.overlaySnapshot?.shapes).toEqual([
+      expect.objectContaining({ id: "shape_x", x: 40, props: expect.objectContaining({ color: "red" }) }),
+    ]);
   });
 
   it("records a deferred automatic approval, skips it at that revision and logs it", async () => {
