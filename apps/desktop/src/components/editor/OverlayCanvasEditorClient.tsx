@@ -80,7 +80,7 @@ import {
   resolveShapesPosition,
   type MeasuredBlock
 } from "./overlay-canvas/anchor";
-import { isOverlayActionBlockedByEditPolicy, isOverlayShapeUnselectable } from "./overlay-canvas/edit-policy";
+import { isOverlayActionBlockedByEditPolicy, isOverlayShapeUnselectable, pruneUnselectableSelection } from "./overlay-canvas/edit-policy";
 import { EMPTY_OVERLAY_EDIT_POLICY, type OverlayEditPolicy, type OverlayShapeDecoration } from "./overlay-canvas/editor-extension";
 import { focusOverlaySurface } from "./overlay-canvas/focus-overlay-surface";
 import {
@@ -791,6 +791,7 @@ export default function OverlayCanvasEditorClient({
     selectedIdsRef,
     setSelectedIds,
     onSelectedCountChange,
+    unselectableShapeIdsRef: editPolicyUnselectableShapeIdsRef,
     focusedGroupIdRef,
     transitionMode,
     modeRef,
@@ -801,6 +802,14 @@ export default function OverlayCanvasEditorClient({
     queueOverlaySave,
     anchorMeasurementsRef
   });
+  // 図形が選べなくなったら (機能が見えなくした)、今の選択から外す。見えない図形に選択の枠と
+  // ツールバーを残さない。選択は文書でも編集履歴でもないので、ここで外しても何も保存されない。
+  useEffect(() => {
+    const pruned = pruneUnselectableSelection(selectedIdsRef.current, shapesRef.current, editPolicyUnselectableShapeIds);
+    if (pruned) {
+      setSelectedShapeIds(pruned);
+    }
+  }, [editPolicyUnselectableShapeIds, selectedIdsRef, setSelectedShapeIds, shapesRef]);
   const {
     imageReplacementInputRef,
     startImageCrop,

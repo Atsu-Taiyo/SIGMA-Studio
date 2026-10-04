@@ -51,8 +51,13 @@ describe("AiProposalActions dismiss reason popover", () => {
   beforeEach(() => {
     hooks.effects = [];
     hooks.reasonOpen = true;
-    // 破棄ボタン・ポップオーバー・「開いた直後だけフォーカスを移す」印の順。
-    hooks.refs = [{ current: trigger }, { current: popover }, { current: false }];
+    // 破棄ボタン・ポップオーバー・「開いた直後だけフォーカスを移す」印・最新の入力の順。
+    hooks.refs = [
+      { current: trigger },
+      { current: popover },
+      { current: false },
+      { current: { draft: "", adopted: undefined, onChange: undefined } },
+    ];
     hooks.stateCall = 0;
     hooks.setReasonOpen.mockReset();
     trigger.contains.mockReset().mockReturnValue(false);

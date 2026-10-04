@@ -28,6 +28,7 @@ import {
 } from "./model/preview";
 import { readAiProposalDisplayState, type AiProposalDisplayState } from "./model/proposal-display-state";
 import { useAiProposalDisplayStates } from "./application/use-ai-proposal-display-states";
+import { useStableIdSet } from "./application/use-stable-id-set";
 import { groupPendingProposalContentByAnchor, type AiProposalAnchorCard } from "./model/proposal-content";
 import { AiRunAnchorLayer, type AiRunCardOpenRequest } from "@/components/editor/ai-run-anchor-layer";
 import {
@@ -363,11 +364,12 @@ function useAiPageCanvasExtension({
       ? undefined
       : { removedIds, removingIds, addedIds };
   }, [applyAnimation, previewDiff]);
-  const beforeHiddenShapeIds = useMemo(() => new Set(previewGroups.flatMap((preview) => (
+  // 中身が同じなら同じ集合 (図形の印・編集の方針・紙面の拡張を作り直さない)。
+  const beforeHiddenShapeIds = useStableIdSet(previewGroups.flatMap((preview) => (
     readAiProposalDisplayState(displayStates, getAiProposalConversationKey(preview), preview.proposalIds).beforeHidden
       ? getAiEditPreviewBeforeShapeIds(preview)
       : []
-  ))), [displayStates, previewGroups]);
+  )));
   const overlayShapeClassNames = useMemo(
     () => deriveAiOverlayShapeClassNames({ previewGroups, previewDiff, applyAnimation, beforeHiddenShapeIds }),
     [applyAnimation, beforeHiddenShapeIds, previewDiff, previewGroups],

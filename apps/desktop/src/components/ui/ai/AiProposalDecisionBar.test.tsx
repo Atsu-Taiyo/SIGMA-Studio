@@ -325,6 +325,75 @@ describe("AiProposalDecisionBar", () => {
     expect(document.activeElement).toBe(other);
   });
 
+  it("keeps the typing to itself: the owner hears the reason only after a pause, on close, or when the bar goes away", async () => {
+    const onDismissReasonChange = vi.fn();
+    function Owner({ show }: { show: boolean }) {
+      const [open, setOpen] = useState(false);
+      return show ? (
+        <AiProposalDecisionBar
+          title="AI編集案"
+          surface="page"
+          applying={false}
+          dismissReasonPlaceholder="例"
+          dismissReasonOpen={open}
+          onDismissReasonOpenChange={setOpen}
+          dismissReason=""
+          onDismissReasonChange={onDismissReasonChange}
+          onDismiss={() => {}}
+        />
+      ) : null;
+    }
+    const type = async (text: string) => {
+      const textarea = document.querySelector<HTMLTextAreaElement>('[aria-label="破棄する理由"] textarea')!;
+      await act(async () => {
+        Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(textarea, text);
+        textarea.dispatchEvent(new Event("input", { bubbles: true }));
+      });
+    };
+    await mount(<Owner show />);
+    await act(async () => button("破棄").click());
+
+    await type("図");
+    expect(onDismissReasonChange).not.toHaveBeenCalled();
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 350)));
+    expect(onDismissReasonChange).toHaveBeenLastCalledWith("図");
+
+    await type("図が");
+    const closeButton = document.querySelector<HTMLButtonElement>('[aria-label="破棄する理由"] button[aria-label="閉じる"]')!;
+    await act(async () => closeButton.click());
+    expect(onDismissReasonChange).toHaveBeenLastCalledWith("図が");
+
+    await act(async () => button("破棄").click());
+    await type("図が違う");
+    await mount(<Owner show={false} />);
+    expect(onDismissReasonChange).toHaveBeenLastCalledWith("図が違う");
+  });
+
+  it("closes the reason when the dismiss button scrolls out of view, and brings the typing back when reopened", async () => {
+    await mount(
+      <AiProposalDecisionBar title="AI編集案" surface="page" applying={false} dismissReasonPlaceholder="例" onDismiss={() => {}} />,
+    );
+    const trigger = button("破棄");
+    let top = 100;
+    trigger.getBoundingClientRect = () => ({
+      top, bottom: top + 28, left: 560, right: 600, width: 40, height: 28, x: 560, y: top, toJSON: () => ({}),
+    });
+    await act(async () => trigger.click());
+    const textarea = document.querySelector<HTMLTextAreaElement>('[aria-label="破棄する理由"] textarea')!;
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(textarea, "配置が違う");
+      textarea.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+
+    top = -400;
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 80)));
+    expect(document.querySelector('[aria-label="破棄する理由"]')).toBeNull();
+
+    top = 100;
+    await act(async () => trigger.click());
+    expect(document.querySelector<HTMLTextAreaElement>('[aria-label="破棄する理由"] textarea')?.value).toBe("配置が違う");
+  });
+
   it("follows the dismiss button while the reason is open (the card can move without a scroll)", async () => {
     await mount(
       <AiProposalDecisionBar title="AI編集案" surface="page" applying={false} dismissReasonPlaceholder="例" onDismiss={() => {}} />,

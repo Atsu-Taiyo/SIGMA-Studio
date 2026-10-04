@@ -37,7 +37,11 @@ export interface AiProposalActionsProps {
    */
   dismissReasonOpen?: boolean;
   onDismissReasonOpenChange?: (open: boolean) => void;
-  /** 入力中の破棄理由。渡すと持ち主の状態になる (作り直されても入力が残る)。 */
+  /**
+   * 破棄理由の入力を持ち主にも残す (作り直されても入力が残る)。打鍵ごとには知らせない: 入力は
+   * この部品が持ち、止まってから (300ms)・閉じたとき・この部品が消えるときにだけ書き戻す
+   * (持ち主の状態は紙面全体の描き直しにつながるため)。
+   */
   dismissReason?: string;
   onDismissReasonChange?: (reason: string) => void;
   /** 見た目だけの複製。操作の結果 (ポップオーバー) を描かない。 */
@@ -50,6 +54,8 @@ function normalizeDismissReason(rawReason: string): string | undefined {
 }
 
 const POPOVER_GAP_PX = 8;
+/** 入力が止まってから持ち主へ書き戻すまでの間。 */
+const DISMISS_REASON_WRITE_BACK_MS = 300;
 const VIEWPORT_MARGIN_PX = 8;
 const OFFSCREEN_STYLE: CSSProperties = { position: "fixed", top: -9999, left: -9999, visibility: "hidden" };
 const FOCUSABLE_IN_POPOVER = "button:not([disabled]), textarea:not([disabled]), input:not([disabled]), [tabindex]:not([tabindex='-1'])";
@@ -99,7 +105,8 @@ export function AiProposalActions({
   // 「閉じる」は汎用語 (`common.actions.*` が唯一の出典)。
   const tCommon = useT("common");
   const [ownReasonOpen, setOwnReasonOpen] = useState(false);
-  const [ownReason, setOwnReason] = useState("");
+  const [draft, setDraft] = useState(dismissReason ?? "");
+  const [adoptedReason, setAdoptedReason] = useState(dismissReason);
   const [modalHost, setModalHost] = useState<HTMLElement | null>(null);
   const [popoverStyle, setPopoverStyle] = useState<CSSProperties | null>(null);
   const dismissTriggerRef = useRef<HTMLButtonElement | null>(null);
@@ -107,27 +114,43 @@ export function AiProposalActions({
   // 入力欄へフォーカスを移すのは、利用者が破棄を押して開いた直後だけ。持ち主の状態で開いたまま
   // 作り直されたとき (カードの再生成・ページ割りの描き直し) は、別の場所の作業からフォーカスを奪わない。
   const focusOnOpenRef = useRef(false);
+  // 書き戻しは時間がたってから・消えるときにも走るので、最新の入力と書き戻し先を ref で読む。
+  const latestReasonRef = useRef({ draft, adopted: adoptedReason, onChange: onDismissReasonChange });
   const reasonPopoverId = useId();
-  const reason = dismissReason ?? ownReason;
-  const setReason = (next: string) => {
-    onDismissReasonChange?.(next);
-    if (dismissReason === undefined) {
-      setOwnReason(next);
+  // 持ち主の値が外から変わったら (作り直したときに前の入力が書き戻された、など) 取り込む。
+  // 自分が書き戻した値は `adoptedReason` と同じなので取り込み直さない。
+  if (dismissReason !== undefined && dismissReason !== adoptedReason) {
+    setAdoptedReason(dismissReason);
+    setDraft(dismissReason);
+  }
+  useLayoutEffect(() => {
+    latestReasonRef.current = { draft, adopted: adoptedReason, onChange: onDismissReasonChange };
+  });
+  const writeBackReason = useCallback((value: string) => {
+    const { adopted, onChange } = latestReasonRef.current;
+    if (!onChange || value === adopted) {
+      return;
     }
-  };
+    latestReasonRef.current = { ...latestReasonRef.current, adopted: value };
+    setAdoptedReason(value);
+    onChange(value);
+  }, []);
   const controlled = dismissReasonOpen !== undefined;
   const reasonOpen = (controlled ? dismissReasonOpen : ownReasonOpen) && !replica;
   // 開いている間は body (ダイアログの中ならその背景) へ出す。
   const portalHost = reasonOpen && typeof document !== "undefined" ? modalHost ?? document.body ?? null : null;
 
   const setReasonOpen = useCallback((open: boolean) => {
+    if (!open) {
+      writeBackReason(latestReasonRef.current.draft);
+    }
     if (onDismissReasonOpenChange) {
       onDismissReasonOpenChange(open);
     }
     if (!controlled) {
       setOwnReasonOpen(open);
     }
-  }, [controlled, onDismissReasonOpenChange]);
+  }, [controlled, onDismissReasonOpenChange, writeBackReason]);
 
   const closeReasonPopover = useCallback((restoreTriggerFocus: boolean) => {
     setReasonOpen(false);
@@ -168,6 +191,21 @@ export function AiProposalActions({
     };
   }, [closeReasonPopover, reasonOpen]);
 
+  // 入力が止まったら持ち主へ書き戻す。
+  useEffect(() => {
+    if (!onDismissReasonChange || draft === adoptedReason) {
+      return;
+    }
+    const timer = window.setTimeout(() => writeBackReason(draft), DISMISS_REASON_WRITE_BACK_MS);
+    return () => window.clearTimeout(timer);
+  }, [adoptedReason, draft, onDismissReasonChange, writeBackReason]);
+
+  // 消える直前 (カードの作り直し・承認で消える) に、まだ書き戻していない入力を残す。
+  useEffect(() => {
+    const latest = latestReasonRef;
+    return () => writeBackReason(latest.current.draft);
+  }, [writeBackReason]);
+
   useLayoutEffect(() => {
     if (!reasonOpen || !portalHost) {
       return;
@@ -178,8 +216,18 @@ export function AiProposalActions({
       if (!trigger || !popover) {
         return;
       }
+      const triggerRect = trigger.getBoundingClientRect();
+      // 破棄ボタンが画面の外へ出たら (スクロールなど)、ポップオーバーを画面の端に押し込まずに閉じる。
+      // 入力は残るので、もう一度開けば続きから書ける。
+      if (
+        triggerRect.bottom < 0 || triggerRect.top > window.innerHeight
+        || triggerRect.right < 0 || triggerRect.left > window.innerWidth
+      ) {
+        closeReasonPopover(false);
+        return;
+      }
       const { top, left } = placeDismissReasonPopover(
-        trigger.getBoundingClientRect(),
+        triggerRect,
         { width: popover.offsetWidth, height: popover.offsetHeight },
         { width: window.innerWidth, height: window.innerHeight },
       );
@@ -213,7 +261,7 @@ export function AiProposalActions({
       window.removeEventListener("scroll", update, true);
       window.removeEventListener("resize", update);
     };
-  }, [portalHost, reasonOpen]);
+  }, [closeReasonPopover, portalHost, reasonOpen]);
 
   // 置いてから入力欄へフォーカスする (仮の位置では見えないので focus が効かない)。
   const positioned = popoverStyle !== null;
@@ -225,9 +273,10 @@ export function AiProposalActions({
   }, [positioned, reasonOpen]);
 
   const confirmDismiss = () => {
-    onDismiss?.(normalizeDismissReason(reason));
+    onDismiss?.(normalizeDismissReason(draft));
+    setDraft("");
+    latestReasonRef.current = { ...latestReasonRef.current, draft: "" };
     setReasonOpen(false);
-    setReason("");
     dismissTriggerRef.current?.focus();
   };
 
@@ -295,11 +344,11 @@ export function AiProposalActions({
         </div>
         <textarea
           className="ai-inline-preview-reason-textarea"
-          value={reason}
+          value={draft}
           maxLength={200}
           placeholder={dismissReasonPlaceholder}
           aria-label={t("proposal.dismissReasonOptional")}
-          onChange={(event) => setReason(event.target.value)}
+          onChange={(event) => setDraft(event.target.value)}
         />
         <Inline className="ai-inline-preview-reason-actions" justify="end">
           <Button tone="primary" size="sm" className="ai-inline-preview-reason-submit" onClick={confirmDismiss}>
