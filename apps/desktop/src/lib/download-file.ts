@@ -1,3 +1,4 @@
+import { spaceFreeFileName } from "@/lib/file-name";
 import { getDesktopBridge } from "./desktop-bridge";
 import { createCurrentLocaleTranslator } from "@/lib/i18n";
 
@@ -18,6 +19,7 @@ export interface DownloadedFile {
 }
 
 export async function downloadGeneratedFile(blob: Blob, fileName: string): Promise<DownloadedFile> {
+  fileName = spaceFreeFileName(fileName);
   const saveToDownloads = getDesktopBridge()?.file.saveToDownloads;
   if (saveToDownloads) {
     const dataBase64 = await blobToBase64(blob);

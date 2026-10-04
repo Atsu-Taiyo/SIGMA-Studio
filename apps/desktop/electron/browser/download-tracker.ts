@@ -1,6 +1,7 @@
+import { spaceFreeFileName, splitFileName } from "@/lib/file-name";
 import { randomUUID } from "node:crypto";
 import path from "node:path";
-import { unusedFilenameSync } from "unused-filename";
+import { existsSync } from "node:fs";
 
 import type { InAppBrowserDownload } from "@/lib/browser/in-app-browser-contract";
 
@@ -56,7 +57,13 @@ export class DownloadTracker {
   track(item: DownloadItemLike): InAppBrowserDownload {
     const id = randomUUID();
     const filename = safeFilename(item.getFilename());
-    const savePath = unusedFilenameSync(path.join(this.options.downloadsDir(), filename));
+    const directory = this.options.downloadsDir();
+    const { stem, extension } = splitFileName(filename);
+    let savePath = path.join(directory, filename);
+    let number = 2;
+    while (existsSync(savePath) || this.downloads.some(download => download.savePath === savePath)) {
+      savePath = path.join(directory, `${stem}-${number++}${extension}`);
+    }
     item.setSavePath(savePath);
     const download: InAppBrowserDownload = {
       id,
@@ -157,6 +164,6 @@ export class DownloadTracker {
 
 /** Chromium が付けた名前でも、パス区切りや制御文字を含まない単一のファイル名に整える。 */
 export function safeFilename(name: string): string {
-  const base = path.basename(name.replace(/\\/g, "/")).replace(/[\u0000-\u001f<>:"|?*]/g, "_").trim();
+  const base = spaceFreeFileName(path.basename(name.replace(/\\/g, "/"))).replace(/[\u0000-\u001f<>:"|?*]/g, "_").trim();
   return base && base !== "." && base !== ".." ? base.slice(0, 200) : "download";
 }

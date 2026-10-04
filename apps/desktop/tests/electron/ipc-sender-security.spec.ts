@@ -25,7 +25,7 @@ test("real Electron IPC rejects other windows, subframes and navigation while st
     }, { expectedRevision: revision }), { id: created.file.fileId, document: load.document, revision: load.revision });
     expect(saved.ok).toBe(true);
     await page.reload();
-    expect((await page.evaluate(id => window.desktopAPI!.storage.loadDocument(id), created.file.fileId))?.metadata.title).toBe("IPC persistence verified");
+    expect((await page.evaluate(id => window.desktopAPI!.storage.loadDocument(id), created.file.fileId))?.metadata.title).toBe("IPC-persistence-verified");
 
     // A full real preload in another window on the same renderer URL must not gain editor privileges.
     const siblingId = await app.evaluate(async ({ BrowserWindow }, { url, preload }) => {

@@ -61,8 +61,40 @@ describe("LocalSigmaDocStore", () => {
   it("numbers simultaneous new materials and stores the same titles in the documents and ledger", async () => {
     await store.initializeWorkspace({ initialDocument: sampleDocument });
     const created = await Promise.all([store.createDocument({ title: "教材" }), store.createDocument({ title: "教材" }), store.createDocument({ title: "教材" })]);
-    expect(created.map((record) => record.document.metadata.title).sort()).toEqual(["教材", "教材 2", "教材 3"]);
+    expect(created.map((record) => record.document.metadata.title).sort()).toEqual(["教材", "教材-2", "教材-3"]);
     for (const record of created) expect(record.file.title).toBe(record.document.metadata.title);
+  });
+
+  it("normalizes create/import/duplicate/rename names and preserves legacy names through save and restart", async () => {
+    await store.initializeWorkspace({ initialDocument: sampleDocument });
+    const created = await store.createFileFromDocument({ document: createBlankDocument(" 数学\u3000演習.sigmadoc.json ") });
+    expect(created.file.title).toBe("数学-演習.sigmadoc.json");
+    const imported = await store.createFileFromDocument({ document: createBlankDocument("数学 演習.sigmadoc.json") });
+    expect(imported.file.title).toBe("数学-演習-2.sigmadoc.json");
+    const duplicate = await store.duplicateFile(created.file.fileId);
+    expect(duplicate.file.title).toBe("数学-演習-のコピー.sigmadoc.json");
+    const renamed = { ...created.document, metadata: { title: "数学 演習.sigmadoc.json" } };
+    expect((await store.saveDocument(created.file.fileId, renamed, { expectedRevision: 1 })).ok).toBe(true);
+    expect((await store.loadDocument(created.file.fileId))?.metadata.title).toBe("数学-演習.sigmadoc.json");
+
+    // Seed a pre-change on-disk document and ledger, rather than creating it through the new naming policy.
+    const libraryPath = path.join(userDataDir, "data/library.json");
+    const ledger = JSON.parse(await fs.readFile(libraryPath, "utf8")) as LibraryFixture;
+    const row = ledger.files.find(file => file.fileId === created.file.fileId)!;
+    row.title = "既存 名前 2";
+    const legacy = { ...created.document, metadata: { title: row.title } };
+    await fs.writeFile(path.join(userDataDir, "data", row.documentPath!), JSON.stringify(legacy));
+    await fs.writeFile(libraryPath, JSON.stringify(ledger));
+    const restarted = new LocalSigmaDocStore(userDataDir);
+    const loaded = await restarted.loadDocumentWithRecovery(row.fileId);
+    if (!loaded.ok) throw new Error(loaded.error);
+    expect(loaded.document.metadata.title).toBe("既存 名前 2");
+    const saved = await restarted.saveDocument(row.fileId, loaded.document, { expectedRevision: loaded.revision });
+    expect(saved.ok).toBe(true);
+    expect((await restarted.listFiles()).find(file => file.fileId === row.fileId)?.title).toBe("既存 名前 2");
+    const copy = await restarted.duplicateFile(row.fileId);
+    expect(copy.document.metadata.title).not.toMatch(/\s/u);
+    expect((await new LocalSigmaDocStore(userDataDir).loadDocument(row.fileId))?.metadata.title).toBe("既存 名前 2");
   });
 
   it("does not discard a blank draft if another writer saved content after it was inspected", async () => {

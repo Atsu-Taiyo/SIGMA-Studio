@@ -49,9 +49,9 @@ test("opens startup/second-instance/macOS files through real storage and preserv
     await expect(page.locator(BODY).first()).toContainText("STARTUP_CONTENT", { timeout: 90_000 });
     await expect(page.locator("[data-startup-splash]")).toHaveCount(0, { timeout: 30_000 });
     const filesBefore = await page.evaluate(() => window.desktopAPI!.storage.listFiles());
-    expect(filesBefore.filter((file) => file.title === "起動 数学")).toHaveLength(1);
+    expect(filesBefore.filter((file) => file.title === "起動-数学")).toHaveLength(1);
     expect(filesBefore.some((file) => file.title.includes("ordinary"))).toBe(false);
-    const imported = filesBefore.find((file) => file.title === "起動 数学")!;
+    const imported = filesBefore.find((file) => file.title === "起動-数学")!;
     expect(imported.docId).not.toBe("shared-source-id");
     const userData = await app.evaluate(({ app }) => app.getPath("userData"));
     expect(userData).toBe(env.SIGMA_STUDIO_USER_DATA_DIR);
@@ -80,12 +80,12 @@ test("opens startup/second-instance/macOS files through real storage and preserv
     });
     await expect(page.locator(BODY).first()).toContainText("THIRD_CONTENT");
     const files = await page.evaluate(() => window.desktopAPI!.storage.listFiles());
-    expect(files.filter((file) => ["既存 教材", "追加 教材"].includes(file.title))).toHaveLength(2);
+    expect(files.filter((file) => ["既存-教材", "追加-教材"].includes(file.title))).toHaveLength(2);
     const savedFirst = await page.evaluate((fileId) => window.desktopAPI!.storage.loadDocument(fileId), imported.fileId);
     expect(JSON.stringify(savedFirst)).toContain("EDIT_BEFORE_OPEN");
     const dataDir = await page.evaluate(() => window.desktopAPI!.storage.getDataDir());
     const workspace = JSON.parse(readFileSync(path.join(dataDir.path, "workspace.json"), "utf8"));
-    for (const file of files.filter((file) => ["起動 数学", "既存 教材", "追加 教材"].includes(file.title))) {
+    for (const file of files.filter((file) => ["起動-数学", "既存-教材", "追加-教材"].includes(file.title))) {
       expect(workspace.openFileIds).toContain(file.fileId);
     }
 
