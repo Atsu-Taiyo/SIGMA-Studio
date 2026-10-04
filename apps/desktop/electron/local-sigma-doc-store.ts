@@ -1695,12 +1695,15 @@ export class LocalSigmaDocStore {
     ) {
       const now = new Date().toISOString();
       const document = createInitialDocument(initialDocument);
+      const requestedTitle = resolveDocumentTitle(document, "サンプル教材");
+      const title = availableDocumentTitle(requestedTitle, library.files, { workspaceId: activeWorkspaceId });
+      if (title !== requestedTitle) document.metadata = { ...document.metadata, title };
       const file: LocalFileRecord = {
         fileId: createId("file"),
         workspaceId: activeWorkspaceId,
         folderId: null,
         docId: document.docId,
-        title: resolveDocumentTitle(document, "サンプル教材"),
+        title,
         documentPath: "",
         revision: 1,
         createdAt: document.updatedAt ?? now,
