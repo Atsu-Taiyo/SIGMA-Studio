@@ -3,8 +3,8 @@ import { createBlankDocument } from "@/lib/blank-document";
 import { isPristineUntitledDocument, isUntouchedNewDocument } from "./new-document-draft";
 
 describe("untouched new documents", () => {
-  it("recognizes workspace-created drafts but retains saved or customized materials", () => {
-    const blank = createBlankDocument("無題の教材 2");
+  it.each(["無題の教材 2", "無題の教材-2"])("recognizes workspace-created draft %s but retains saved or customized materials", title => {
+    const blank = createBlankDocument(title);
     expect(isPristineUntitledDocument(blank, 1)).toBe(true);
     expect(isPristineUntitledDocument(blank, 2)).toBe(false);
     expect(isPristineUntitledDocument(createBlankDocument("残す教材"), 1)).toBe(false);
