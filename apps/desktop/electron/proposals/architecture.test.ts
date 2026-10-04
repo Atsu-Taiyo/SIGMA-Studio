@@ -74,6 +74,7 @@ describe("proposal domain boundaries", () => {
       findProposalFreshnessConflictIds: freshness.findProposalFreshnessConflictIds,
       findProposalFreshnessConflict: freshness.findProposalFreshnessConflict,
       classifyProposalReplayFailure: freshness.classifyProposalReplayFailure,
+      replayMergeableProposal: freshness.replayMergeableProposal,
       mergeProposalDraftsIntoDocument: replay.mergeProposalDraftsIntoDocument,
       replayProposalDraft: replay.replayProposalDraft,
       assertAppliedProposalHasRealChanges: replay.assertAppliedProposalHasRealChanges,

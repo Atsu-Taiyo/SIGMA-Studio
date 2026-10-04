@@ -9,6 +9,8 @@ import { decideAiApprovedDocument } from "@/lib/ai-run-applier";
 import { submitRejectionFeedback } from "@/lib/ai/ai-run-controller";
 import { createBlankDocument } from "@/lib/blank-document";
 import { getDesktopBridge } from "@/lib/desktop-bridge";
+import { createEmptyProposalMergeReport } from "@/lib/ai/proposal-merge-basis";
+import { countPerformanceEvent } from "@/lib/performance";
 import { createCurrentLocaleTranslator } from "@/lib/i18n";
 import type {
   DesktopAPI,
@@ -24,6 +26,7 @@ import { useAiProposalActions, type AiProposalActionsDependencies } from "./use-
 
 vi.mock("@/lib/desktop-bridge", () => ({ getDesktopBridge: vi.fn() }));
 vi.mock("@/lib/ai/ai-run-controller", () => ({ submitRejectionFeedback: vi.fn() }));
+vi.mock("@/lib/performance", () => ({ countPerformanceEvent: vi.fn(), measurePerformance: (_name: string, task: () => unknown) => task() }));
 
 const cleanups: Array<() => void | Promise<void>> = [];
 const pendingOperations: Promise<unknown>[] = [];
@@ -186,6 +189,24 @@ describe("AI proposal action controller", () => {
     expect(h.reset).not.toHaveBeenCalled();
     expect(h.read().aiEditPreviewClearRequest).toMatchObject({ outcome: "applied", targets: [{ roomId: "room", turnId: "room-turn" }] });
     expect(h.deps.mcpPreviewBusyRef.current).toBe(false);
+  });
+
+  it("counts the merge fallbacks the approval IPC reports, and none for a quiet merge", async () => {
+    const h = await mount();
+    const mergeCounters = () => vi.mocked(countPerformanceEvent).mock.calls
+      .map(([name]) => name)
+      .filter((name) => name.startsWith("AiProposalMerge."));
+
+    h.approve.mockResolvedValueOnce({ ...h.approvalResult, mergeReport: createEmptyProposalMergeReport() });
+    await act(async () => { await h.read().applyAiEditPreviewGroup(["proposal"]); });
+    expect(mergeCounters()).toEqual([]);
+
+    h.approve.mockResolvedValueOnce({
+      ...h.approvalResult,
+      mergeReport: { ...createEmptyProposalMergeReport(), editBeatsDelete: ["#paragraph"], legacyNoBase: 1 },
+    });
+    await act(async () => { await h.read().applyAiEditPreviewGroup(["proposal"]); });
+    expect(mergeCounters()).toEqual(["AiProposalMerge.editBeatsDelete", "AiProposalMerge.legacyNoBase"]);
   });
 
   it("rejects overlapping decisions synchronously until the original action finishes", async () => {

@@ -44,7 +44,10 @@ export type LedgerEvent =
   | "file-rehomed"
   | "file-body-missing"
   | "file-body-unreadable-by-reconcile"
-  | "file-soft-deleted-by-reconcile";
+  | "file-soft-deleted-by-reconcile"
+  // AI編集提案の三者マージ (MISS R3: mainとMCPの退避もここで数える)。
+  | "proposal-merge-auto-apply-deferred"
+  | "proposal-merge-fallback";
 
 export function getLogsDir(dataDir: string): string {
   return path.join(dataDir, LOGS_DIR_NAME);
