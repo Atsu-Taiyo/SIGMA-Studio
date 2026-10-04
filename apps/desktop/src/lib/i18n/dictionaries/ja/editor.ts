@@ -481,6 +481,8 @@ export const editor = {
     aiMergedKeepingBoth: "AIの編集を取り込みました。承認を待つ間の入力も残しています（Ctrl+Zで戻せます）。",
     /** 合成で、承認を待つ間の入力の一部が AI の内容に置き換わったとき。 */
     aiMergedHumanEditsReplaced: "AIの編集を取り込みました。同じ箇所への入力の一部はAIの内容に置き換わっています（Ctrl+Zで戻せます）。",
+    /** 合成で、入力の一部が AI の内容に置き換わり、AI の変更の一部も入らなかったとき (両方の事実)。 */
+    aiMergedHumanAndAiEditsDropped: "AIの編集を取り込みました。同じ箇所への入力の一部はAIの内容に置き換わり、入力と食い違ったAIの変更の一部は反映していません（Ctrl+Zで戻せます）。",
     /** 合成で、承認した AI の変更の一部が入力と食い違って入らなかったとき。 */
     aiMergedAiEditsSkipped: "AIの編集を取り込みました。入力と食い違った箇所は入力を残し、AIの変更の一部は反映していません（Ctrl+Zで戻せます）。",
     externalLoadedSetAside: "外部変更を読み込み、アプリ内編集は別教材へ退避しました",

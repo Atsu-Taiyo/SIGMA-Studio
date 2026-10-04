@@ -12,6 +12,7 @@ import {
   deriveAiProposalDismissEffects,
   deriveAiProposalResolutionTargets,
   deriveAiStaleProposalDiscardEffects,
+  composeAiApprovalStatusMessage,
   describeAiAdoptionMergeStatus,
   normalizeAiProposalIds,
   sameProposalIdSet,
@@ -433,14 +434,43 @@ describe("describeAiAdoptionMergeStatus", () => {
       .toBe(tEditor("status.aiMergedAiEditsSkipped"));
   });
 
-  it("tells about the replaced typing first when both sides lost something", () => {
-    expect(describeAiAdoptionMergeStatus(report({ droppedHumanEdits: ["$"], droppedAiEdits: ["#p_2"] }), tEditor))
-      .toBe(tEditor("status.aiMergedHumanEditsReplaced"));
+  it("tells both facts when the typing was partly replaced and part of the AI's change was not applied", () => {
+    const message = describeAiAdoptionMergeStatus(report({ droppedHumanEdits: ["$"], droppedAiEdits: ["#p_2"] }), tEditor);
+    expect(message).toBe(tEditor("status.aiMergedHumanAndAiEditsDropped"));
+    expect(message).not.toBe(tEditor("status.aiMergedHumanEditsReplaced"));
+    expect(createTranslator("en", "editor")("status.aiMergedHumanAndAiEditsDropped")).not.toMatch(/[぀-ヿ一-鿿]/u);
   });
 
   it("reads the English dictionary for the English UI", () => {
     const message = describeAiAdoptionMergeStatus(report({ humanEditedUnits: ["p_1"] }), tEditorEn);
     expect(message).toBe(tEditorEn("status.aiMergedKeepingBoth"));
     expect(message).not.toMatch(/[぀-ヿ一-鿿]/u);
+  });
+});
+
+describe("composeAiApprovalStatusMessage", () => {
+  const t = createTranslator("ja", "ai");
+  const tEditor = createTranslator("ja", "editor");
+  const applied = (failures: Array<{ proposalId: string; error: string }> = []) => deriveAiProposalApplyDecision(
+    ["a", "b"],
+    failures,
+    { requestedGroups: [] },
+    {},
+    t,
+  );
+
+  it("uses the approval's own message when the adoption merged nothing", () => {
+    expect(composeAiApprovalStatusMessage(null, applied())).toBe(t("proposal.applied"));
+  });
+
+  it("uses the adoption merge message when every proposal was applied", () => {
+    expect(composeAiApprovalStatusMessage(tEditor("status.aiMergedKeepingBoth"), applied())).toBe(tEditor("status.aiMergedKeepingBoth"));
+  });
+
+  it("keeps the partial failure next to the merge message (a merge that kept both must not hide it)", () => {
+    const decision = applied([{ proposalId: "b", error: "競合" }]);
+    const message = composeAiApprovalStatusMessage(tEditor("status.aiMergedKeepingBoth"), decision);
+    expect(message).toContain(tEditor("status.aiMergedKeepingBoth"));
+    expect(message).toContain(decision.statusMessage);
   });
 });

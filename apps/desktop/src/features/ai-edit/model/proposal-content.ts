@@ -39,7 +39,7 @@ import {
   resolveMutationOpAssets,
   type AiEditPreviewState,
 } from "./preview";
-import { resolveProposalMergePreview } from "./proposal-merge-preview";
+import { resolveProposalMergePreview, type ResolveProposalMergePreviewOptions } from "./proposal-merge-preview";
 
 /**
  * 提案の「内容」の唯一のモデル。本文カード (紙面)・サイドバー・⌘K パネル・チャットの図形サムネは
@@ -111,7 +111,7 @@ export interface AiProposalContent {
 export interface AiProposalAnchorCard {
   preview: AiEditPreviewState;
   content: AiProposalContent;
-  /** 内容が人の編集と合成したものか (承認バーに一言を添える)。 */
+  /** このカードの内容 (アンカーの単位) が人の編集と合成したものか (承認バーに一言を添える)。 */
   mergedWithHumanEdits: boolean;
 }
 
@@ -581,22 +581,27 @@ export function isProposalContentEmpty(content: AiProposalContent): boolean {
 export function groupPendingProposalContentByAnchor(
   previews: AiEditPreviewState[],
   document: SigmaDocument,
+  options: ResolveProposalMergePreviewOptions = {},
 ): Map<string, AiProposalAnchorCard[]> {
   const cardsByAnchorId = new Map<string, AiProposalAnchorCard[]>();
+  let flowAnchorById: ReadonlyMap<string, string> | null = null;
   let placeable: ReadonlySet<string> | null = null;
   for (const preview of previews) {
     if (!hasBodyAiEditChanges(preview)) {
       continue;
     }
-    placeable ??= new Set(indexDocumentFlow(document).flowAnchorById.values());
-    const merged = resolveProposalMergePreview(document, preview);
-    const mergedWithHumanEdits = merged.humanEditedUnits.length > 0;
+    flowAnchorById ??= indexDocumentFlow(document).flowAnchorById;
+    placeable ??= new Set(flowAnchorById.values());
+    const merged = resolveProposalMergePreview(document, preview, options);
+    // 合成した単位 (人が直した単位) が流れるアンカー。その単位のカードにだけ一言を添える (直して
+    // いない単位のカードの高さを変えない)。
+    const mergedAnchors = new Set(merged.humanEditedUnits.map((unitId) => flowAnchorById!.get(unitId) ?? unitId));
     for (const hunk of buildPendingHunks(document, merged.afterDocument, preview)) {
       if (!placeable.has(hunk.anchorBlockId)) {
         continue;
       }
       const cards = cardsByAnchorId.get(hunk.anchorBlockId) ?? [];
-      cards.push({ preview, content: { hunks: [hunk], shapes: [] }, mergedWithHumanEdits });
+      cards.push({ preview, content: { hunks: [hunk], shapes: [] }, mergedWithHumanEdits: mergedAnchors.has(hunk.anchorBlockId) });
       cardsByAnchorId.set(hunk.anchorBlockId, cards);
     }
   }

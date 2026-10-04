@@ -681,23 +681,9 @@ for (const kind of ["SVG", "SHAPE", "PROBLEM"]) {
       ? "PROPOSAL PROBLEM 問題を挿入して"
       : `PROPOSAL SHAPE INSERT ${kind} 挿入して`);
     const inline = page.locator('.ai-chat-host--inline .ai-inline-result');
-    let apply = inline.getByRole("button", { name: "適用", exact: true });
-    if (kind === "PROBLEM") {
-      // 本文の挿入は紙面のカードの先頭のバー 1 か所で決める。⌘K の結果パネルは要約と「閉じる」だけで、
-      // 同じ提案の適用・破棄を重ねて出さない (カードのバーに重なっていた)。
-      const card = page.locator('.page-flow [data-flow-extension-node-id] > [data-ai-proposal-card="page"]').first();
-      apply = card.getByRole("button", { name: "適用", exact: true });
-      await expect(apply).toBeVisible({ timeout: 20_000 });
-      await expect(card.getByRole("button", { name: "破棄", exact: true })).toBeVisible();
-      await expect(inline).toBeVisible();
-      await expect(inline.locator("[data-ai-proposal-bar]")).toHaveCount(0);
-      await inline.getByRole("button", { name: "閉じる", exact: true }).click();
-    } else {
-      // 図形の挿入は紙面にカードを持たず、図形のそばのバーは選択のポップオーバーやこのパネルの下に
-      // なりうるので、パネルにもバーを残す。
-      await expect(apply).toBeVisible({ timeout: 20_000 });
-      await expect(inline.getByRole("button", { name: "破棄", exact: true })).toBeVisible();
-    }
+    const apply = inline.getByRole("button", { name: "適用", exact: true });
+    await expect(apply).toBeVisible({ timeout: 20_000 });
+    await expect(inline.getByRole("button", { name: "破棄", exact: true })).toBeVisible();
     await expect(page.locator('.ai-chat-host--sidebar')).toHaveCount(0);
     await apply.click();
     await expect(apply).toBeHidden();

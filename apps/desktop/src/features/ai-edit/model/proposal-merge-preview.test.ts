@@ -1,16 +1,17 @@
 import { describe, expect, it } from "vitest";
 
-import type { InlineNode, ParagraphNode, SigmaBlock, SigmaDocument } from "@/features/document";
+import type { InlineNode, ListItemNode, ListNode, ParagraphNode, SigmaBlock, SigmaDocument } from "@/features/document";
 import type { AiEditSessionDraft, SigmaDocMutationOp } from "@/lib/ai/sigma-doc-edit-schema";
+import { mergeProposalDraftsIntoDocument } from "@/lib/ai/proposal-batch-replay";
 import { computeProposalMergeBasis } from "@/lib/ai/proposal-merge-basis";
 import { replayProposalDraftMerging } from "@/lib/ai/proposal-replay";
-import { findBlock, updateBlockInDocument } from "@/lib/document-tree";
+import { deleteBlocksFromDocument, findBlock, updateBlockInDocument } from "@/lib/document-tree";
 import { parseSigmaDocument } from "@/lib/sigma-doc-schema";
 import type { DesktopMcpEditProposalSummary } from "@/types/desktop";
 
 import { groupMcpProposalsForPreview, type AiEditPreviewState } from "./preview";
 import { buildPendingProposalContent, groupPendingProposalContentByAnchor } from "./proposal-content";
-import { resolveProposalMergePreview } from "./proposal-merge-preview";
+import { AI_PROPOSAL_PREVIEW_COUNTERS, resolveProposalMergePreview } from "./proposal-merge-preview";
 
 function text(value: string): InlineNode {
   return { type: "text", text: value };
@@ -246,6 +247,153 @@ describe("resolveProposalMergePreview", () => {
       expect(after.afterDocument).not.toBe(before.afterDocument);
       expect(findBlock(after.afterDocument!, "q_0")).not.toBeNull();
     });
+  });
+});
+
+describe("resolveProposalMergePreview follows the approval's batch rules", () => {
+  it("skips only the proposal that cannot be replayed and still merges the others, as the approval does", () => {
+    const base = documentOf([paragraph("p_a", BASE_TEXT), paragraph("p_b", "Bee text."), paragraph("p_c", "残す")]);
+    const draftA = replaceDraft("p_a", AI_TEXT);
+    const draftB = replaceDraft("p_b", "Bee text changed by AI.");
+    const proposalA = summaryOf(draftA, { proposalId: "proposal_a", mergeBasis: computeProposalMergeBasis(draftA, base) });
+    const proposalB = summaryOf(draftB, {
+      proposalId: "proposal_b",
+      createdAt: "2026-10-05T00:00:01.000Z",
+      updatedAt: "2026-10-05T00:00:01.000Z",
+      mergeBasis: computeProposalMergeBasis(draftB, base),
+    });
+    // 人が A の対象を直し、B の対象を消した (B は承認なら競合として保留に残る)。
+    const current = deleteBlocksFromDocument(typeInto(base, "p_a", HUMAN_TEXT), ["p_b"]);
+    const { groups } = groupMcpProposalsForPreview([proposalA, proposalB], "file_1", 1);
+    expect(groups).toHaveLength(1);
+    const preview = groups[0]!;
+
+    const merged = resolveProposalMergePreview(current, preview);
+
+    const approval = mergeProposalDraftsIntoDocument(current, [proposalA, proposalB]);
+    expect(approval.failed.map((failure) => failure.proposalId)).toEqual(["proposal_b"]);
+    expect(merged.afterDocument?.content).toEqual(approval.document.content);
+    expect(paragraphText(findBlock(merged.afterDocument!, "p_a"))).toBe(MERGED_TEXT);
+    expect(merged.humanEditedUnits).toEqual(["p_a"]);
+    expect(groupPendingProposalContentByAnchor([preview], current).get("p_a")?.[0]?.mergedWithHumanEdits).toBe(true);
+  });
+
+  it("puts the merge notice only on the card whose unit the human edited", () => {
+    const base = documentOf([paragraph("p_1", BASE_TEXT), paragraph("p_2", "間"), paragraph("p_5", BASE_TEXT)]);
+    const draft: AiEditSessionDraft = {
+      summary: "2 か所を書き換え",
+      plan: [],
+      operations: [
+        { operation: "replace", summary: "1", targetId: "p_1", replacementBlock: paragraph("p_1", AI_TEXT) },
+        { operation: "replace", summary: "5", targetId: "p_5", replacementBlock: paragraph("p_5", AI_TEXT) },
+      ],
+      warnings: [],
+    };
+    const preview = previewFor(summaryOf(draft, { mergeBasis: computeProposalMergeBasis(draft, base) }));
+    const current = typeInto(base, "p_1", HUMAN_TEXT);
+
+    const cards = groupPendingProposalContentByAnchor([preview], current);
+
+    expect(cards.get("p_1")?.[0]?.mergedWithHumanEdits).toBe(true);
+    expect(cards.get("p_5")?.[0]?.mergedWithHumanEdits).toBe(false);
+  });
+});
+
+describe("resolveProposalMergePreview counts its fallbacks (MISS R3)", () => {
+  function conflicting() {
+    const base = documentOf([paragraph("p_1", BASE_TEXT), paragraph("p_2", "残す")]);
+    const draft = replaceDraft("p_1", AI_TEXT);
+    const preview = previewFor(summaryOf(draft, { mergeBasis: computeProposalMergeBasis(draft, base) }));
+    return { preview, current: deleteBlocksFromDocument(base, ["p_1"]) };
+  }
+
+  it("counts a preview that could not use the merging replay and one that shows nothing", () => {
+    const { preview, current } = conflicting();
+    const counted: string[] = [];
+
+    resolveProposalMergePreview(current, preview, { count: (name) => counted.push(name) });
+
+    expect(counted).toEqual([AI_PROPOSAL_PREVIEW_COUNTERS.fallback, AI_PROPOSAL_PREVIEW_COUNTERS.noPreview]);
+  });
+
+  it("counts nothing for a proposal that merges or applies normally", () => {
+    const base = documentOf([paragraph("p_1", BASE_TEXT), paragraph("p_2", "別の段落")]);
+    const draft = replaceDraft("p_1", AI_TEXT);
+    const preview = previewFor(summaryOf(draft, { mergeBasis: computeProposalMergeBasis(draft, base) }));
+    const counted: string[] = [];
+
+    resolveProposalMergePreview(typeInto(base, "p_1", HUMAN_TEXT), preview, { count: (name) => counted.push(name) });
+
+    expect(counted).toEqual([]);
+  });
+
+  it("does not count while an approval is replacing the document (the old proposals are drawn over the result)", () => {
+    const { preview, current } = conflicting();
+    const counted: string[] = [];
+
+    resolveProposalMergePreview(current, preview, { countFallbacks: false, count: (name) => counted.push(name) });
+
+    expect(counted).toEqual([]);
+  });
+});
+
+describe("resolveProposalMergePreview cache and the structure around the units", () => {
+  const item = (id: string, text: string): ListItemNode => ({ type: "listItem", id, children: [{ type: "text", text }] });
+
+  it("replays again when an item is added before the replaced list item (its number changes)", () => {
+    const list: ListNode = { id: "list_1", type: "list", listType: "ordered", items: [item("li_a", "一"), item("li_b", "二"), item("li_c", "三")] };
+    const base = documentOf([list as SigmaBlock]);
+    const draft: AiEditSessionDraft = {
+      summary: "項目を直す",
+      plan: [],
+      operations: [{ operation: "replace", summary: "直す", targetId: "li_b", replacementBlock: item("li_b", "二を直した") }],
+      warnings: [],
+    };
+    const preview = previewFor(summaryOf(draft, { mergeBasis: computeProposalMergeBasis(draft, base) }));
+    resolveProposalMergePreview(base, preview);
+    const withItem = updateBlockInDocument(base, "list_1", (block) => {
+      const current = block as ListNode;
+      return { ...current, items: [current.items[0]!, item("li_x", "足した"), ...current.items.slice(1)] };
+    });
+
+    const content = buildPendingProposalContent(withItem, resolveProposalMergePreview(withItem, preview).afterDocument, preview);
+
+    expect(content.hunks[0]?.removed[0]).toMatchObject({ type: "list", start: 3 });
+    expect(content.hunks[0]?.added[0]).toMatchObject({ type: "list", start: 3 });
+  });
+
+  it("replays again when a block an insertion would move after (the anchor is gone) changes", () => {
+    const base = documentOf([paragraph("p_0", "最初"), paragraph("p_1", "前"), paragraph("p_anchor", "目印"), paragraph("p_3", "後")]);
+    const draft: AiEditSessionDraft = {
+      summary: "挿入",
+      plan: [],
+      operations: [{ operation: "insertAfter", summary: "足す", targetId: "p_anchor", insertedBlock: paragraph("p_new", "AI が足した段落") }],
+      warnings: [],
+    };
+    const preview = previewFor(summaryOf(draft, { mergeBasis: computeProposalMergeBasis(draft, base) }));
+    const withoutAnchor = deleteBlocksFromDocument(base, ["p_anchor"]);
+    const first = resolveProposalMergePreview(withoutAnchor, preview);
+    expect(first.afterDocument?.content.map((block) => block.id)).toEqual(["p_0", "p_1", "p_new", "p_3"]);
+
+    const withoutPreceding = deleteBlocksFromDocument(withoutAnchor, ["p_1"]);
+    const second = resolveProposalMergePreview(withoutPreceding, preview);
+
+    expect(second.afterDocument?.content.map((block) => block.id)).toEqual(["p_0", "p_new", "p_3"]);
+  });
+
+  it("still keeps the result while the human types in a block the proposal does not touch", () => {
+    const list: ListNode = { id: "list_1", type: "list", listType: "ordered", items: [item("li_a", "一"), item("li_b", "二")] };
+    const base = documentOf([paragraph("p_0", "本文"), list as SigmaBlock]);
+    const draft: AiEditSessionDraft = {
+      summary: "項目を直す",
+      plan: [],
+      operations: [{ operation: "replace", summary: "直す", targetId: "li_b", replacementBlock: item("li_b", "二を直した") }],
+      warnings: [],
+    };
+    const preview = previewFor(summaryOf(draft, { mergeBasis: computeProposalMergeBasis(draft, base) }));
+    const before = resolveProposalMergePreview(base, preview);
+
+    expect(resolveProposalMergePreview(typeInto(base, "p_0", "本文に打鍵"), preview).afterDocument).toBe(before.afterDocument);
   });
 });
 

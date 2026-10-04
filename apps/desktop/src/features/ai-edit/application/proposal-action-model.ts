@@ -423,15 +423,36 @@ export function describeAiAdoptionMergeStatus(
   report: { humanEditedUnits: readonly string[]; droppedHumanEdits?: readonly string[]; droppedAiEdits?: readonly string[] },
   tEditor: Translate<"editor"> = DEFAULT_EDITOR_TRANSLATE,
 ): string | null {
-  // 入力が消えた (AI の内容に置き換わった) ことを先に知らせる。Ctrl+Z で承認前に戻せる。
-  if ((report.droppedHumanEdits?.length ?? 0) > 0) {
+  // 片側が落ちた箇所は、どちらが落ちたかを両方知らせる (片方だけを選んで他方を隠さない)。
+  // Ctrl+Z で承認前に戻せる。
+  const droppedHuman = (report.droppedHumanEdits?.length ?? 0) > 0;
+  const droppedAi = (report.droppedAiEdits?.length ?? 0) > 0;
+  if (droppedHuman && droppedAi) {
+    return tEditor("status.aiMergedHumanAndAiEditsDropped");
+  }
+  if (droppedHuman) {
     return tEditor("status.aiMergedHumanEditsReplaced");
   }
-  if ((report.droppedAiEdits?.length ?? 0) > 0) {
+  if (droppedAi) {
     return tEditor("status.aiMergedAiEditsSkipped");
   }
   if (report.humanEditedUnits.length > 0) {
     return tEditor("status.aiMergedKeepingBoth");
   }
   return null;
+}
+
+/**
+ * 承認後のお知らせ。採用マージのお知らせ (`describeAiAdoptionMergeStatus`) があればそれを出すが、
+ * 一部の提案を適用できなかったお知らせは隠さず後ろに続ける (AI の変更の一部が入らなかったことを
+ * 必ず伝える)。
+ */
+export function composeAiApprovalStatusMessage(
+  adoptionMessage: string | null,
+  decision: Pick<AiProposalApplyDecision, "statusMessage" | "failedProposalIds">,
+): string {
+  if (!adoptionMessage) {
+    return decision.statusMessage;
+  }
+  return decision.failedProposalIds.size > 0 ? `${adoptionMessage} ${decision.statusMessage}` : adoptionMessage;
 }

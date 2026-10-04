@@ -437,6 +437,7 @@ export const editor = {
     aiMerged: "Merged the AI edit",
     aiMergedKeepingBoth: "Merged the AI edit and kept what you typed while it was waiting for approval (undo with Ctrl+Z).",
     aiMergedHumanEditsReplaced: "Merged the AI edit. Some of what you typed in the same place was replaced by the AI's version (undo with Ctrl+Z).",
+    aiMergedHumanAndAiEditsDropped: "Merged the AI edit. Some of what you typed in the same place was replaced by the AI's version, and part of the AI's change that clashed with your input was not applied (undo with Ctrl+Z).",
     aiMergedAiEditsSkipped: "Merged the AI edit. Where it clashed with what you typed, your input was kept and part of the AI's change was not applied (undo with Ctrl+Z).",
     externalLoadedSetAside: "Loaded the external changes and set your in-app edits aside in another document",
     externalLoaded: "Loaded the external changes",

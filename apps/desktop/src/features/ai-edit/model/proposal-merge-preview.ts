@@ -1,30 +1,28 @@
-import type { SigmaDocument } from "@/features/document";
-import { rewriteAiOverlayShapeReplacementDrafts } from "@/lib/ai/overlay-shape-replacement";
-import { combineProposalMergeReports, type ProposalMergeReport } from "@/lib/ai/proposal-merge-basis";
-import {
-  collectReplaceTargetIds,
-  orderItemsByReplacementAncestry,
-  replayProposalForApproval,
-} from "@/lib/ai/proposal-replay";
+import { PROBLEM_AREA_ORDER, type SigmaBlock, type SigmaDocument } from "@/features/document";
+import { mergeProposalDraftsIntoDocument } from "@/lib/ai/proposal-batch-replay";
 import { createAiEditSessionDocumentDraft, type AiEditSessionDraft } from "@/lib/ai/sigma-doc-edit-schema";
 import { collectBlocksById } from "@/lib/document-tree";
 import { getHeadingNumberMap } from "@/lib/heading-numbering";
+import { countPerformanceEvent } from "@/lib/performance";
 import { getProblemNumberMap } from "@/lib/problem-numbering";
 
-import { hasBodyAiEditChanges, type AiEditPreviewState, type AiProposalMergeSource } from "./preview";
+import { hasBodyAiEditChanges, type AiEditPreviewState } from "./preview";
 
 /**
  * 保留中の提案を「承認したら保存される内容」で見せるための文書。紙面のカード・サイドバー・⌘K の
  * パネルはどれもこれを `buildPendingProposalContent` に渡す (同じ提案・同じ文書なら同じ結果を共有する)。
  *
- * 作り方は承認と同じ: まとめた提案を作成順 (置き換えの親子は親が先) に、それぞれ
- * `replayProposalForApproval` で今の文書へ replay する。base (`mergeBasis`) を持つ提案は三者マージの
+ * 作り方は一括承認と同じ関数 (`mergeProposalDraftsIntoDocument`): まとめた提案を作成順 (置き換えの
+ * 親子は親が先) に、それぞれ `replayProposalForApproval` で今の文書へ replay し、適用できない提案だけを
+ * 飛ばす (承認ならその提案は競合として保留に残る)。base (`mergeBasis`) を持つ提案は三者マージの
  * replay なので、提案の後に人が対象を直していれば、その編集と AI の変更の両方が入った内容になる。
  * 第二の差分計算は持たない。
  *
  * - base を持たない旧レコードだけのまとまりは、従来どおり draft をそのまま今の文書へ適用する。
- * - 合成 replay が適用できないとき (対象の消失など。承認なら競合になる) も、従来どおりの適用を試し、
- *   それもできなければ `null` (内容は draft の中身で代わりに描く)。
+ * - どの提案も合成 replay で適用できないとき (承認ならまとまり全体が競合) は、従来どおりの適用を試し、
+ *   それもできなければ `null` (内容は draft の中身で代わりに描く)。どちらの代わりの経路も数える
+ *   (`AI_PROPOSAL_PREVIEW_COUNTERS`、MISS R3)。承認が文書を差し替えている間は数えない
+ *   (承認済みの提案が一覧の再取得まで承認後の文書に重ねて描かれ、挿入の id が既にあるなどで必ず失敗する)。
  * - 本文を変えない提案 (図形だけ) は使わないので replay しない。
  * - 図形の変更は 250ms 遅れて文書に入る (overlay の debounce)。プレビューはその後の文書で更新され、
  *   承認は直前に flush するので、承認の内容とは食い違わない。
@@ -41,11 +39,27 @@ export interface AiProposalMergePreview {
 
 const NO_PREVIEW: AiProposalMergePreview = Object.freeze({ afterDocument: null, humanEditedUnits: Object.freeze([]) });
 
+/** プレビューが合成 replay を使えなかった回数 (正常な操作では 0。`proposal-merge-metrics.ts` と同じ流儀)。 */
+export const AI_PROPOSAL_PREVIEW_COUNTERS = {
+  /** 合成 replay で 1 件も適用できず、draft をそのまま適用した内容で見せた。 */
+  fallback: "AiProposalMerge.previewFallback",
+  /** どの経路でも適用できず、内容を draft の中身で代わりに描いた。 */
+  noPreview: "AiProposalMerge.previewNoPreview",
+} as const;
+
+export interface ResolveProposalMergePreviewOptions {
+  /** 代わりの経路を数えるか。承認が文書を差し替えている間 (`applying`) は false を渡す。既定は true。 */
+  countFallbacks?: boolean;
+  /** 数える先 (テスト用)。既定は `countPerformanceEvent`。 */
+  count?: (name: string) => void;
+}
+
 /**
  * 提案ごとに直近の 1 件だけを覚える。文書をキーにすると、取り消し履歴が古い文書を持つ間その適用後の
  * 文書 (構造を共有しない全体のコピー) も解放されず、提案の数だけ積み上がる。
  *
- * 文書が変わっても、提案が読む単位 (対象のブロック・図形・番号) が同じものなら replay し直さない。
+ * 文書が変わっても、提案が読む単位 (対象のブロック・図形とその入れ物、挿入の付け替え先、番号) が
+ * 同じものなら replay し直さない。
  * 打鍵 1 回の手間は「提案の数 × 対象の数」の参照の比較で済む。適用後の文書のうち、内容のモデルが
  * 読むのは対象の単位と番号だけなので、古い文書から作った適用後の文書を使い回しても描く内容は同じ。
  */
@@ -61,6 +75,7 @@ const dependencyIdsCache = new WeakMap<AiEditPreviewState, DependencyIds>();
 export function resolveProposalMergePreview(
   current: SigmaDocument,
   preview: AiEditPreviewState,
+  options: ResolveProposalMergePreviewOptions = {},
 ): AiProposalMergePreview {
   if (!hasBodyAiEditChanges(preview)) {
     return NO_PREVIEW;
@@ -74,48 +89,31 @@ export function resolveProposalMergePreview(
     previewCache.set(preview, { ...cached, document: current });
     return cached.result;
   }
-  const result = computeMergePreview(current, preview);
+  const count = options.countFallbacks === false ? undefined : options.count ?? countPerformanceEvent;
+  const result = computeMergePreview(current, preview, count);
   previewCache.set(preview, { document: current, dependencies, result });
   return result;
 }
 
-function computeMergePreview(current: SigmaDocument, preview: AiEditPreviewState): AiProposalMergePreview {
+function computeMergePreview(
+  current: SigmaDocument,
+  preview: AiEditPreviewState,
+  count: ((name: string) => void) | undefined,
+): AiProposalMergePreview {
   if (preview.mergeSources && preview.mergeSources.length > 0) {
-    try {
-      const { afterDocument, report } = replayLikeApproval(current, preview.mergeSources);
-      return { afterDocument, humanEditedUnits: report.humanEditedUnits };
-    } catch {
-      // 承認なら競合になる提案。内容は従来どおりの適用で見せ、競合は承認・保存時の判定に任せる。
+    const merged = mergeProposalDraftsIntoDocument(current, preview.mergeSources);
+    if (merged.appliedIds.length > 0) {
+      return { afterDocument: merged.document, humanEditedUnits: merged.report.humanEditedUnits };
     }
+    // 承認ならまとまり全体が競合になる。内容は従来どおりの適用で見せ、競合は承認・保存時の判定に任せる。
+    count?.(AI_PROPOSAL_PREVIEW_COUNTERS.fallback);
   }
   try {
     return { afterDocument: createAiEditSessionDocumentDraft(current, null, preview.draft).nextDocument, humanEditedUnits: [] };
   } catch {
+    count?.(AI_PROPOSAL_PREVIEW_COUNTERS.noPreview);
     return NO_PREVIEW;
   }
-}
-
-/**
- * 一括承認 (`mergeProposalDraftsIntoDocument`) と同じ順序で replay する: 図形の置き換えの組があれば
- * その書き換えをしてから、無ければ置き換えの親子を親が先になるように並べる。1 件でも適用できなければ
- * 投げる (承認ならその提案は保留のまま競合になる)。
- */
-function replayLikeApproval(
-  current: SigmaDocument,
-  sources: readonly AiProposalMergeSource[],
-): { afterDocument: SigmaDocument; report: ProposalMergeReport } {
-  const replacement = rewriteAiOverlayShapeReplacementDrafts(current, [...sources]);
-  const ordered = replacement.pairs.length > 0
-    ? replacement.proposals
-    : orderItemsByReplacementAncestry(current, [...sources], (source) => collectReplaceTargetIds(source.draft));
-  let document = current;
-  const reports: ProposalMergeReport[] = [];
-  for (const source of ordered) {
-    const replayed = replayProposalForApproval(document, source);
-    document = replayed.nextDocument;
-    reports.push(replayed.report);
-  }
-  return { afterDocument: document, report: combineProposalMergeReports(reports) };
 }
 
 // --- 提案が読む単位 ---------------------------------------------------------
@@ -181,7 +179,11 @@ function dependencyIdsOf(preview: AiEditPreviewState): DependencyIds {
     for (const [id, entity] of Object.entries(source.mergeBasis?.entities ?? {})) {
       (entity.kind === "block" ? blockIds : shapeIds).add(id);
     }
-    Object.keys(source.mergeBasis?.anchors ?? {}).forEach((id) => blockIds.add(id));
+    // 挿入のアンカーが消えたときの付け替え先 (直前にあった兄弟) も読む。
+    for (const [id, anchor] of Object.entries(source.mergeBasis?.anchors ?? {})) {
+      blockIds.add(id);
+      anchor.precedingIds.forEach((precedingId) => blockIds.add(precedingId));
+    }
   }
   const ids: DependencyIds = {
     blockIds: [...blockIds].sort(),
@@ -197,15 +199,66 @@ function dependencyIdsOf(preview: AiEditPreviewState): DependencyIds {
 let lastIndex: {
   document: SigmaDocument;
   blocks: ReadonlyMap<string, unknown>;
+  containers: ReadonlyMap<string, unknown>;
   shapes: ReadonlyMap<string, unknown>;
   numbering: string;
 } | null = null;
+
+/**
+ * 入れ子のブロック id → それを持つ入れ物の値。リストの項目はリスト自身 (種類・開始番号・項目の並びで
+ * 番号が決まる)、それ以外は兄弟の配列 (問題の区分・箱・引用・段組みの段)。最上位のブロックは入れない
+ * (本文全体の配列は打鍵のたびに作り直される)。
+ */
+function indexContainers(content: readonly SigmaBlock[]): Map<string, unknown> {
+  const containers = new Map<string, unknown>();
+  const visitChildren = (children: unknown, container: unknown) => {
+    if (!Array.isArray(children)) {
+      return;
+    }
+    for (const child of children) {
+      if (isRecord(child) && typeof child.id === "string") {
+        containers.set(child.id, container);
+        visit(child);
+      }
+    }
+  };
+  const visit = (block: Record<string, unknown>) => {
+    switch (block.type) {
+      case "problem":
+        PROBLEM_AREA_ORDER.forEach((area) => visitChildren(block[area], block[area]));
+        return;
+      case "layoutSection":
+        visitChildren(block.children, block.children);
+        return;
+      case "boxBlock":
+      case "quote":
+        visitChildren(block.blocks, block.blocks);
+        return;
+      case "list":
+        visitChildren(block.items, block);
+        return;
+      case "listItem":
+        visitChildren(block.continuations, block.continuations);
+        visitChildren(block.nested, block.nested);
+        return;
+      default:
+        return;
+    }
+  };
+  content.forEach((block) => visit(block as unknown as Record<string, unknown>));
+  return containers;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
 
 function indexOf(document: SigmaDocument) {
   if (lastIndex?.document !== document) {
     lastIndex = {
       document,
       blocks: collectBlocksById(document.content),
+      containers: indexContainers(document.content),
       shapes: new Map((document.pageLayout?.overlay?.overlaySnapshot?.shapes ?? []).map((shape) => [shape.id, shape])),
       numbering: JSON.stringify([
         [...getProblemNumberMap(document.content)],
@@ -217,8 +270,10 @@ function indexOf(document: SigmaDocument) {
 }
 
 /**
- * 提案の replay と内容が読むものの今の値。ブロック・図形は参照 (打鍵は触っていないブロックの参照を
- * 保つ) で、番号は値で比べる (適用後の番号を、別の場所の問題・見出しの増減が変える)。
+ * 提案の replay と内容が読むものの今の値。ブロック・図形とその入れ物は参照 (打鍵は触っていない
+ * ブロックの参照を保つ) で、番号は値で比べる (適用後の番号を、別の場所の問題・見出しの増減が変える)。
+ * 入れ物を読むのは、適用後の文書から読むリストの番号や区分の位置が、対象そのものが同じでも兄弟の
+ * 増減で変わるため。
  */
 function readDependencies(document: SigmaDocument, ids: DependencyIds): unknown[] {
   const index = indexOf(document);
@@ -226,7 +281,7 @@ function readDependencies(document: SigmaDocument, ids: DependencyIds): unknown[
     index.numbering,
     ids.readsPageLayout ? document.pageLayout : null,
     ids.readsAssets ? document.pageLayout?.overlay?.overlaySnapshot?.assets : null,
-    ...ids.blockIds.map((id) => index.blocks.get(id)),
+    ...ids.blockIds.flatMap((id) => [index.blocks.get(id), index.containers.get(id)]),
     ...ids.shapeIds.map((id) => index.shapes.get(id)),
   ];
 }

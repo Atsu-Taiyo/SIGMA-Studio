@@ -112,11 +112,6 @@ export interface AiPageCanvasEditorProps extends Omit<PageCanvasEditorProps, "pa
   aiDocumentWriteInProgress?: boolean;
   documentWorkspaceId?: string | null;
   onFocusAiSession?: (roomId: string) => void;
-  /**
-   * 紙面の本文フローにカード (先頭に承認バー) を出した提案の id。変わったとき (描く前) と、紙面が
-   * 消えるとき (空) に呼ぶ。⌘K の結果パネルがその提案のバーを出さないのに使う。
-   */
-  onAiPageCardProposalIdsChange?: (proposalIds: ReadonlySet<string>) => void;
 }
 
 function AiPageCanvasEditorImpl(props: AiPageCanvasEditorProps) {
@@ -154,7 +149,6 @@ function AiEnabledPageCanvasEditor({
   aiDocumentWriteInProgress = false,
   documentWorkspaceId = null,
   onFocusAiSession,
-  onAiPageCardProposalIdsChange,
   ...pageEditorProps
 }: AiPageCanvasEditorProps) {
   const documentShapes = useMemo(
@@ -182,7 +176,6 @@ function AiEnabledPageCanvasEditor({
     documentIdentityKey,
     documentWorkspaceId,
     onFocusSession: onFocusAiSession,
-    onCardProposalIdsChange: onAiPageCardProposalIdsChange,
   });
   // 利用者がバーで隠した変更前の図形は、選べず編集もできない (見えない図形を動かさない)。
   const beforeHiddenExtensions = useMemo(
@@ -234,12 +227,10 @@ interface UseAiPageCanvasExtensionOptions {
   documentIdentityKey?: string;
   documentWorkspaceId: string | null;
   onFocusSession?: AiPageCanvasEditorProps["onFocusAiSession"];
-  onCardProposalIdsChange?: AiPageCanvasEditorProps["onAiPageCardProposalIdsChange"];
 }
 
 /** 提案が無いときに配り回す固定の空コレクション (identity を動かさないため)。 */
 const EMPTY_PREVIEW_CARDS_BY_TARGET_ID: ReadonlyMap<string, AiProposalAnchorCard[]> = new Map();
-const EMPTY_PROPOSAL_IDS: ReadonlySet<string> = new Set();
 const EMPTY_INLINE_CONTENT: ReadonlyMap<string, PageCanvasInlineContent[]> = new Map();
 
 function useAiPageCanvasExtension({
@@ -257,7 +248,6 @@ function useAiPageCanvasExtension({
   documentIdentityKey,
   documentWorkspaceId,
   onFocusSession,
-  onCardProposalIdsChange,
 }: UseAiPageCanvasExtensionOptions): { extension: PageCanvasEditorExtension; beforeHiddenShapeIds: ReadonlySet<string> } {
   const t = useT("ai");
   const inlinePreviewGroups = useMemo(
@@ -266,11 +256,13 @@ function useAiPageCanvasExtension({
   );
   // 提案が 1 つも無いときは文書が変わっても結果は空。ここで毎回新しい Map を作ると
   // その先の `inlineContentByTargetId` → `pageExtension` まで打鍵ごとに新品になる。
+  // 承認が文書を差し替えている間 (applying) は、承認済みの提案が承認後の文書に重ねて描かれるので、
+  // プレビューの代わりの経路を数えない。
   const previewCardsByTargetId = useMemo(
     () => inlinePreviewGroups.length === 0
       ? EMPTY_PREVIEW_CARDS_BY_TARGET_ID
-      : groupPendingProposalContentByAnchor(inlinePreviewGroups, document),
-    [document, inlinePreviewGroups],
+      : groupPendingProposalContentByAnchor(inlinePreviewGroups, document, { countFallbacks: !applying }),
+    [applying, document, inlinePreviewGroups],
   );
   // カードが 1 枚も無い提案 (図形だけ・本文を置ける場所が無い) は、紙面に浮かぶバーで決める。
   // カードのある提案はカードのバー 1 本で決める (図形の変更があっても浮かべない)。
@@ -281,17 +273,10 @@ function useAiPageCanvasExtension({
   // 浮かぶバーの提案のうち、本文の内容を人の編集と合成したもの (バーに一言を添える)。図形だけの
   // 提案は合成のプレビューを作らないので入らない。提案ごとに覚えた結果を引くだけなので打鍵では軽い。
   const mergedFloatingKeys = useStableIdSet(floatingPreviewGroups.flatMap((preview) => (
-    resolveProposalMergePreview(document, preview).humanEditedUnits.length > 0
+    resolveProposalMergePreview(document, preview, { countFallbacks: !applying }).humanEditedUnits.length > 0
       ? [getAiProposalConversationKey(preview)]
       : []
   )));
-  // 紙面にカードを出した提案を持ち主へ知らせる (⌘K のパネルはその提案のバーを出さない)。描く前に
-  // 知らせて、パネルとカードに同じバーが並ぶ瞬間を作らない。紙面が消えるときは空に戻す。
-  const cardProposalIds = useStableIdSet(collectAiPageCardProposalIds(previewCardsByTargetId));
-  useLayoutEffect(() => {
-    onCardProposalIdsChange?.(cardProposalIds);
-  }, [cardProposalIds, onCardProposalIdsChange]);
-  useLayoutEffect(() => () => onCardProposalIdsChange?.(EMPTY_PROPOSAL_IDS), [onCardProposalIdsChange]);
   const roomIdsWithCards = useMemo(
     () => new Set(previewGroups.flatMap((preview) => preview.roomId ? [preview.roomId] : [])),
     [previewGroups],
@@ -859,23 +844,6 @@ export function buildAiBeforeHiddenEditorExtensions(
       unselectableShapeIds: beforeHiddenShapeIds,
     },
   };
-}
-
-/**
- * 紙面の本文フローにカード (先頭に承認バー) を出した提案の id。⌘K の結果パネルはこの提案のバーを
- * 出さない: パネルは実行を始めた本文の位置に浮かぶので、同じ提案のカードのバーに重なり、決定の面が
- * 二重になる。カードの無い提案 (図形のそばに浮かぶバーだけ) はパネルにもバーを残す。図形を選んだ
- * まま ⌘K を終えると、浮かぶバーは図形の選択のポップオーバーとパネルの下になり、押せるバーが
- * パネルにしか無いため。
- */
-export function collectAiPageCardProposalIds(
-  cardsByAnchorId: ReadonlyMap<string, readonly AiProposalAnchorCard[]>,
-): string[] {
-  const ids = new Set<string>();
-  for (const cards of cardsByAnchorId.values()) {
-    cards.forEach((card) => card.preview.proposalIds.forEach((id) => ids.add(id)));
-  }
-  return [...ids];
 }
 
 export function selectAiFloatingDecisionPreviews(

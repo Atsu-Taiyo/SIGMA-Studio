@@ -60,12 +60,6 @@ export interface AiEditPanelProps {
   /** Pending proposal groups are mirrored here so the active room can expose
    * its decision controls without replacing or hiding the composer. */
   previewGroups?: AiEditPreviewState[];
-  /**
-   * 紙面の本文フローにカード (先頭に承認バー) が出ている提案の id。⌘K の結果パネルはその提案の
-   * バーを出さない (同じ提案の決定の面を紙面とパネルで二重にしない)。サイドバーは別の領域なので
-   * 常にバーを持つ。
-   */
-  pageCardProposalIds?: ReadonlySet<string>;
   busy?: boolean;
   onApplyGroup?: (proposalIds: string[]) => Promise<AiProposalApplyOutcome>;
   onDismissGroup?: (proposalIds: string[]) => void;

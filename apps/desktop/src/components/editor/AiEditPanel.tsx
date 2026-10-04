@@ -96,7 +96,6 @@ export function AiEditPanel({
   inlineRunPortalTarget = null,
   previewClearRequest = { seq: 0, outcome: "dismissed" },
   previewGroups = [],
-  pageCardProposalIds,
   busy = false,
   onApplyGroup,
   onDismissGroup,
@@ -309,14 +308,15 @@ export function AiEditPanel({
   const pendingContents = useMemo(() => {
     const contents = new Map<AiEditPreviewState, { content: AiProposalContent; mergedWithHumanEdits: boolean }>();
     for (const candidate of previewGroups) {
-      const merged = resolveProposalMergePreview(document, candidate);
+      // 承認が文書を差し替えている間 (busy) は、プレビューの代わりの経路を数えない。
+      const merged = resolveProposalMergePreview(document, candidate, { countFallbacks: !busy });
       contents.set(candidate, {
         content: buildPendingProposalContent(document, merged.afterDocument, candidate),
         mergedWithHumanEdits: merged.humanEditedUnits.length > 0,
       });
     }
     return contents;
-  }, [previewGroups, document]);
+  }, [busy, previewGroups, document]);
   const isMergedWithHumanEdits = useCallback(
     (preview: AiEditPreviewState) => pendingContents.get(preview)?.mergedWithHumanEdits ?? false,
     [pendingContents],
@@ -750,7 +750,7 @@ export function AiEditPanel({
     return <AiChatInlineSurface
       surface={{inlineOpen,inlineAnchor,inlineRunAnchor,inlineRunAnchorCanvas,inlineRunPortalTarget,onPromoteToSidebar,onCloseInline}}
       conversation={{provider,lockedProvider,visibleTurns,latestAssistant,activeRoomId,inlineRunTurnId,inlineBaselineTurnId,isRunning,clockNow}}
-      proposals={{previewGroups,busy,onApplyGroup,onDismissGroup,insertedShapePreviewsByTurnId,activeRoomPreview,pageCardProposalIds,isMergedWithHumanEdits}}
+      proposals={{previewGroups,busy,onApplyGroup,onDismissGroup,insertedShapePreviewsByTurnId,activeRoomPreview,isMergedWithHumanEdits}}
       composer={renderComposer("inline")} composerError={composerError} hasOpenMenu={composer.hasOpenMenu}
       retryTurn={retryTurn} dismissTurn={dismissTurn}
     />;
