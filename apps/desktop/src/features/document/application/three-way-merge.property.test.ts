@@ -203,6 +203,7 @@ function scenario(seed: number, reidentify: boolean): Scenario {
 }
 
 const SEEDS = Array.from({ length: 400 }, (_, index) => index + 1);
+const MIXED_SEEDS = Array.from({ length: 5000 }, (_, index) => index + 1);
 
 describe("mergeInline3 properties", () => {
   it("M1 returns the changed side when only one side changed, and an identical change once", () => {
@@ -396,6 +397,207 @@ describe("mergeInline3 with the same insertion on both sides", () => {
 
       expect(plainText(mergeInline3(run(base), run(ours), run(theirs)).value), `seed ${seed}`).toBe(expected);
       expect(plainText(mergeInline3(run(base), run(theirs), run(ours)).value), `seed ${seed} swapped`).toBe(expected);
+    }
+  });
+});
+
+/**
+ * 同じ文字が続く所での、両側の同じ削除と、挿入・削除・置換の混在 (D2・D3)。
+ *
+ * 文書は `aaab`、`000円`、`the the cat` のような繰り返しの多い区間を一意な区切り (3 文字) で並べたもの。
+ * 編集はすべて「base の何文字目から何文字消し、その位置に何を入れるか」で持つので、期待する結果は
+ * 編集を 1 回ずつ当てた文字列として組み立てられる (両側の同じ編集も 1 回)。各側だけの挿入には
+ * 一意な文字を使うので「ちょうど 1 回現れる」も文字を数えて確かめられる。
+ *
+ * D3 (混在) は期待する文字列との一致までは求めない。同じ挿入の隣を片側が消す・書き換えると、差分は
+ * それを「もっと小さな挿入」と見ることがあり (`aaaab` に `aba` を足して先頭の `a` を消す = `ab` を足す)、
+ * どの文字が誰の編集かは差分から一意に決まらない。代わりに、データを消さないこと (期待する結果の
+ * 文字はすべて、その数以上残る)、各側だけの挿入がちょうど 1 回、決定的であることを確かめる。
+ * 一致しない場合は二重化 (同じ文字が余分に残る) で、5,000 シード×両方向の約 22%。正準化しないと
+ * 不一致は約 46% に増え、約 1 割の実行で文字が消える。
+ */
+const UNITS = ["a", "0", "う", "the ", "ab", "とう"];
+const TAILS = ["", "b", "円", "。", "cat", "!"];
+
+interface Placed {
+  segment: number;
+  edit: SegmentEdit;
+}
+
+interface EditScenario {
+  base: string;
+  ours: string;
+  theirs: string;
+  expected: string;
+  /** Characters only one side inserted; each must appear exactly once. */
+  ownInsertions: string[];
+}
+
+/** Applies edits given against base positions: insertions go before `at`, removals drop `[at, at+remove)`. */
+function applyEdits(segment: string, edits: readonly SegmentEdit[]): string {
+  const chars = Array.from(segment);
+  const removed = new Set<number>();
+  for (const edit of edits) {
+    for (let index = edit.at; index < edit.at + edit.remove; index += 1) {
+      removed.add(index);
+    }
+  }
+  let result = "";
+  for (let index = 0; index <= chars.length; index += 1) {
+    for (const edit of edits) {
+      if (edit.at === index) {
+        result += edit.insert;
+      }
+    }
+    if (index < chars.length && !removed.has(index)) {
+      result += chars[index];
+    }
+  }
+  return result;
+}
+
+function editScenario(seed: number, mode: "shared-deletion" | "mixed"): EditScenario {
+  const random = mulberry32(seed);
+  const pick = <T>(items: readonly T[]) => items[Math.floor(random() * items.length)];
+  const between = (min: number, max: number) => min + Math.floor(random() * (max - min + 1));
+  let unique = 0;
+  const uniqueText = (length: number) => Array.from({ length }, () => String.fromCodePoint(0xAC00 + (unique += 1))).join("");
+  const units = Array.from({ length: between(3, 6) }, () => ({ unit: pick(UNITS), reps: between(1, 4), tail: pick(TAILS) }));
+  const segments = units.map(({ unit, reps, tail }) => unit.repeat(reps) + tail);
+  const fence = (index: number) => Array.from({ length: 3 }, (_, offset) => String.fromCodePoint(0x3400 + index * 3 + offset)).join("");
+  const lengthOf = (index: number) => Array.from(segments[index]).length;
+
+  const ours: Placed[] = [];
+  const theirs: Placed[] = [];
+  const both = (placed: Placed) => {
+    ours.push(placed);
+    theirs.push(placed);
+  };
+  /** A side's own edit right before or right after `[start, end)` of the segment, if there is room. */
+  const adjacentEdit = (segment: number, start: number, end: number): SegmentEdit | undefined => {
+    const length = lengthOf(segment);
+    const after = random() < 0.5;
+    const room = after ? length - end : start;
+    const roll = random();
+    if (roll < 0.35 && room > 0) {
+      const remove = between(1, Math.min(2, room));
+      return { at: after ? end : start - remove, remove, insert: "" };
+    }
+    if (roll < 0.7 && room > 0) {
+      return after ? { at: end, remove: 1, insert: uniqueText(1) } : { at: start - 1, remove: 1, insert: uniqueText(1) };
+    }
+    // Inserting right before the removed range would put the text at `start`, where the shared
+    // edit's own insertion goes too; keep own insertions after the range.
+    return { at: end, remove: 0, insert: uniqueText(between(1, 2)) };
+  };
+  const ownEdit = (segment: number): SegmentEdit => {
+    const length = lengthOf(segment);
+    const at = between(0, length);
+    const remove = at < length && random() < 0.6 ? between(1, Math.min(2, length - at)) : 0;
+    return { at, remove, insert: remove > 0 && random() < 0.5 ? "" : uniqueText(between(1, 2)) };
+  };
+  const sharedRemoval = (segment: number): SegmentEdit => {
+    const { unit, reps } = units[segment];
+    const repeated = Array.from(unit).length * reps;
+    const remove = Math.min(repeated, random() < 0.5 ? 1 : Array.from(unit).length);
+    return { at: between(0, repeated - remove), remove, insert: "" };
+  };
+  const sharedInsertion = (segment: number): SegmentEdit => ({
+    at: between(0, lengthOf(segment)),
+    remove: 0,
+    insert: Array.from({ length: between(1, 3) }, () => pick(Array.from(segments[segment]))).join(""),
+  });
+
+  const order = segments.map((_, index) => index).sort(() => random() - 0.5);
+  if (mode === "shared-deletion") {
+    const [shared, ...rest] = order;
+    const removal = sharedRemoval(shared);
+    both({ segment: shared, edit: removal });
+    const adjacent = adjacentEdit(shared, removal.at, removal.at + removal.remove);
+    if (adjacent) {
+      (random() < 0.5 ? ours : theirs).push({ segment: shared, edit: adjacent });
+    }
+    for (const segment of rest) {
+      const roll = random();
+      if (roll < 0.3 && ours.length < 3) {
+        ours.push({ segment, edit: ownEdit(segment) });
+      } else if (roll < 0.6 && theirs.length < 3) {
+        theirs.push({ segment, edit: ownEdit(segment) });
+      }
+    }
+  } else {
+    for (const segment of order) {
+      const roll = random();
+      if (roll < 0.45) {
+        const shared = roll < 0.15
+          ? sharedInsertion(segment)
+          : roll < 0.3
+            ? sharedRemoval(segment)
+            : { ...sharedRemoval(segment), insert: pick(UNITS) };
+        both({ segment, edit: shared });
+        if (random() < 0.5) {
+          const adjacent = adjacentEdit(segment, shared.at, shared.at + shared.remove);
+          if (adjacent && !(adjacent.remove === 0 && adjacent.at === shared.at)) {
+            (random() < 0.5 ? ours : theirs).push({ segment, edit: adjacent });
+          }
+        }
+      } else if (roll < 0.7) {
+        ours.push({ segment, edit: ownEdit(segment) });
+      } else if (roll < 0.95) {
+        theirs.push({ segment, edit: ownEdit(segment) });
+      }
+    }
+  }
+
+  const build = (...sides: readonly Placed[][]) => segments.map((segment, index) => {
+    const edits = [...new Set(sides.flat())].filter((placed) => placed.segment === index).map((placed) => placed.edit);
+    return applyEdits(segment, edits) + fence(index);
+  }).join("");
+  // Only one side's own edits insert these characters; the shared edits use the segments' letters.
+  const ownInsertions = [...ours, ...theirs].flatMap(({ edit }) => Array.from(edit.insert))
+    .filter((char) => char.codePointAt(0)! >= 0xAC00);
+  return { base: build(), ours: build(ours), theirs: build(theirs), expected: build(ours, theirs), ownInsertions };
+}
+
+describe("mergeInline3 with the same deletion on both sides and mixed edits", () => {
+  const run = (value: string): InlineNode[] => [{ type: "text", text: value }];
+  const plainText = (nodes: readonly InlineNode[]) => nodes.map((node) => node.type === "text" ? node.text : "").join("");
+  const countOf = (value: string) => {
+    const counts = new Map<string, number>();
+    for (const char of value) {
+      counts.set(char, (counts.get(char) ?? 0) + 1);
+    }
+    return counts;
+  };
+  /** Nothing the merge should keep is lost; own insertions appear once; the result is stable. */
+  const checkSafe = (scenario: EditScenario, base: string, ours: string, theirs: string, label: string) => {
+    const merged = plainText(mergeInline3(run(base), run(ours), run(theirs)).value);
+    const mergedCounts = countOf(merged);
+    for (const [char, count] of countOf(scenario.expected)) {
+      expect(mergedCounts.get(char) ?? 0, `${label} keeps ${char}`).toBeGreaterThanOrEqual(count);
+    }
+    for (const char of scenario.ownInsertions) {
+      expect(mergedCounts.get(char), `${label} inserts ${char} once`).toBe(1);
+    }
+    expect(plainText(mergeInline3(run(base), run(ours), run(theirs)).value), `${label} again`).toBe(merged);
+    return merged;
+  };
+
+  it("D2 deletes a character both sides deleted once, next to another edit on one side", () => {
+    for (const seed of SEEDS) {
+      const scenario = editScenario(seed, "shared-deletion");
+      const { base, ours, theirs, expected } = scenario;
+      expect(checkSafe(scenario, base, ours, theirs, `seed ${seed}`), `seed ${seed}`).toBe(expected);
+      expect(checkSafe(scenario, base, theirs, ours, `seed ${seed} swapped`), `seed ${seed} swapped`).toBe(expected);
+    }
+  });
+
+  it("D3 never loses text when shared and own insertions, deletions and replacements mix", () => {
+    for (const seed of MIXED_SEEDS) {
+      const scenario = editScenario(seed, "mixed");
+      const { base, ours, theirs } = scenario;
+      checkSafe(scenario, base, ours, theirs, `seed ${seed}`);
+      checkSafe(scenario, base, theirs, ours, `seed ${seed} swapped`);
     }
   });
 });
