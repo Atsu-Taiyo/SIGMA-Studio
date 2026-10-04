@@ -16,7 +16,7 @@ import {
   type LocalMcpEditProposal,
 } from "./local-sigma-doc-proposal-store";
 import { sampleDocument } from "@/lib/sample-document";
-import { deleteBlocksFromDocument, updateBlockInDocument } from "@/lib/document-tree";
+import { deleteBlocksFromDocument, findBlock, updateBlockInDocument } from "@/lib/document-tree";
 import { parseSigmaDocument } from "@/lib/sigma-doc-schema";
 import { ensurePageLayout } from "@/lib/page-layout";
 import { computeDocumentBlockHashes } from "@/lib/sigma-doc-block-hash";
@@ -55,6 +55,14 @@ function fractionTex(document: SigmaDocument): string | undefined {
   return block?.type === "paragraph"
     ? block.children.find((child) => child.type === "mathInline")?.tex
     : undefined;
+}
+
+/** Turns a stored proposal into a record written before merge bases existed (legacy freshness rules). */
+async function stripMergeBasis(store: LocalMcpEditProposalStore, proposalId: string): Promise<void> {
+  const filePath = path.join(store.getProposalsDir(), `${encodeURIComponent(proposalId)}.proposal.json`);
+  const raw = JSON.parse(await fs.readFile(filePath, "utf8")) as Record<string, unknown>;
+  delete raw.mergeBasis;
+  await fs.writeFile(filePath, JSON.stringify(raw, null, 2), "utf8");
 }
 
 function withParagraphText(document: SigmaDocument, blockId: string, text: string): SigmaDocument {
@@ -2129,7 +2137,7 @@ describe("LocalMcpEditProposalStore#autoRebaseProposalsForFile", () => {
     ]);
   });
 
-  it("blocks auto-rebase when a newly occupied asset ID would overwrite the proposal asset", async () => {
+  it("blocks auto-rebase of a legacy record when a newly occupied asset ID would overwrite the proposal asset", async () => {
     const baseDocument = ensurePageLayout(sampleDocument);
     const previousHashes = computeDocumentBlockHashes(parseSigmaDocument(baseDocument));
     store = new LocalMcpEditProposalStore(userDataDir, {
@@ -2177,6 +2185,7 @@ describe("LocalMcpEditProposalStore#autoRebaseProposalsForFile", () => {
       draft,
       nextDocument: replayProposalDraft(baseDocument, draft).nextDocument,
     });
+    await stripMergeBasis(store, proposal.proposalId);
     const currentDocument: SigmaDocument = {
       ...baseDocument,
       pageLayout: {
@@ -2246,7 +2255,7 @@ describe("LocalMcpEditProposalStore#autoRebaseProposalsForFile", () => {
     ]);
   });
 
-  it("autoRebaseProposalsForFile: human edit overlaps proposal sensitive blocks → conflicted", async () => {
+  it("autoRebaseProposalsForFile: human edit overlaps a legacy record's sensitive blocks → conflicted", async () => {
     const baseDocument = paragraphDocument(["blockA", "blockB"]);
     const previousHashes = computeDocumentBlockHashes(parseSigmaDocument(baseDocument));
     store = new LocalMcpEditProposalStore(userDataDir, {
@@ -2264,6 +2273,7 @@ describe("LocalMcpEditProposalStore#autoRebaseProposalsForFile", () => {
       draft,
       nextDocument: replayProposalDraft(baseDocument, draft).nextDocument,
     });
+    await stripMergeBasis(store, proposal.proposalId);
     const currentDocument = withParagraphText(baseDocument, "blockA", "human A");
 
     const result = await store.autoRebaseProposalsForFile("file_1", currentDocument, 2);
@@ -2276,7 +2286,7 @@ describe("LocalMcpEditProposalStore#autoRebaseProposalsForFile", () => {
     });
   });
 
-  it("autoRebaseProposalsForFile: human deletes an insert-anchor block → conflicted", async () => {
+  it("autoRebaseProposalsForFile: human deletes a legacy record's insert-anchor block → conflicted", async () => {
     const baseDocument = paragraphDocument(["blockA", "blockX", "blockC"]);
     const previousHashes = computeDocumentBlockHashes(parseSigmaDocument(baseDocument));
     store = new LocalMcpEditProposalStore(userDataDir, {
@@ -2308,6 +2318,7 @@ describe("LocalMcpEditProposalStore#autoRebaseProposalsForFile", () => {
       draft,
       nextDocument: replayProposalDraft(baseDocument, draft).nextDocument,
     });
+    await stripMergeBasis(store, proposal.proposalId);
     const currentDocument = parseSigmaDocument(deleteBlocksFromDocument(baseDocument, ["blockX"]));
 
     const result = await store.autoRebaseProposalsForFile("file_1", currentDocument, 2);
@@ -2524,9 +2535,11 @@ describe("LocalMcpEditProposalStore#autoRebaseProposalsForFile", () => {
     const reloaded = await store.loadProposal(proposal.proposalId);
     expect(reloaded?.baseRevision).toBe(2);
     expect(reloaded?.conflict).toBeUndefined();
+    // The AI's draft is never rewritten for a record with a merge basis: the range is resolved from
+    // its first and last anchors on every replay, as the working document below shows.
     expect(reloaded?.draft.mutationOperations?.[0]).toMatchObject({
       operation: "wrapBlocksInColumns",
-      blockIds: ["range_start", "inserted_after_proposal", "range_end"],
+      blockIds: ["range_start", "range_end"],
     });
     expect(reloaded?.nextDocument.content[1]).toMatchObject({
       type: "layoutSection",
@@ -2542,8 +2555,9 @@ describe("LocalMcpEditProposalStore#autoRebaseProposalsForFile", () => {
     });
   });
 
-  it("flags a conflict instead of rebasing when a touched block was itself edited by a human", async () => {
+  it("flags a conflict on a legacy record instead of rebasing when a touched block was itself edited by a human", async () => {
     const proposal = await createTouchingProposal();
+    await stripMergeBasis(store, proposal.proposalId);
     // 人間が提案の対象ブロック(p_yotte)そのものを編集した状態を再現する。
     const currentDocument = withParagraphText(sampleDocument, P_YOTTE_ID, "人間が書き換えた本文");
 
@@ -2563,8 +2577,9 @@ describe("LocalMcpEditProposalStore#autoRebaseProposalsForFile", () => {
     });
   });
 
-  it("clears a previously detected conflict once the touched block matches again on a later rebase attempt", async () => {
+  it("clears a legacy record's previously detected conflict once the touched block matches again on a later rebase attempt", async () => {
     const proposal = await createTouchingProposal();
+    await stripMergeBasis(store, proposal.proposalId);
     const conflictingDocument = withParagraphText(sampleDocument, P_YOTTE_ID, "人間が書き換えた本文");
     await store.autoRebaseProposalsForFile("file_1", conflictingDocument, 2);
     expect((await store.loadProposal(proposal.proposalId))?.conflict).toBeDefined();
@@ -2579,11 +2594,116 @@ describe("LocalMcpEditProposalStore#autoRebaseProposalsForFile", () => {
     expect(reloaded?.conflict).toBeUndefined();
   });
 
+  it("follows a human edit of the overwritten block: advances the revision, keeps the draft and base, merges the working document", async () => {
+    const proposal = await createTouchingProposal();
+    // The human appends to the paragraph the AI rewrites.
+    const currentDocument = parseSigmaDocument(updateBlockInDocument(sampleDocument, P_YOTTE_ID, (block) => ({
+      ...(block as ParagraphNode),
+      children: [...(block as ParagraphNode).children, { type: "text", text: "人間が書き換えた追記" }],
+    })));
+
+    const result = await store.autoRebaseProposalsForFile("file_1", currentDocument, 2);
+
+    expect(result).toEqual({ rebased: [proposal.proposalId], conflicted: [] });
+    const reloaded = await store.loadProposal(proposal.proposalId);
+    expect(reloaded).toMatchObject({ status: "pending", baseRevision: 2, rebasedFrom: 1 });
+    expect(reloaded?.conflict).toBeUndefined();
+    expect(reloaded?.draft).toEqual(proposal.draft);
+    expect(reloaded?.mergeBasis).toEqual(proposal.mergeBasis);
+    const workingText = JSON.stringify(findBlock(reloaded!.nextDocument, P_YOTTE_ID));
+    expect(workingText).toContain("AIによる新しい本文");
+    expect(workingText).toContain("人間が書き換えた");
+  });
+
+  it("records anchor-missing instead of reviving a block the human deleted", async () => {
+    const proposal = await createTouchingProposal();
+    const currentDocument = parseSigmaDocument(deleteBlocksFromDocument(sampleDocument, [P_YOTTE_ID]));
+
+    const result = await store.autoRebaseProposalsForFile("file_1", currentDocument, 2);
+
+    expect(result).toEqual({ rebased: [], conflicted: [proposal.proposalId] });
+    expect((await store.loadProposal(proposal.proposalId))?.conflict).toEqual({
+      blockIds: [P_YOTTE_ID],
+      detectedAtRevision: 2,
+      reason: "anchor-missing",
+    });
+  });
+
+  it("re-anchors an insertion after the preceding block when the human deleted its anchor", async () => {
+    const baseDocument = paragraphDocument(["blockA", "blockX", "blockC"]);
+    const draft: AiEditSessionDraft = {
+      summary: "blockXの後へ追記しました。",
+      plan: ["blockXの後へ追記しました。"],
+      operations: [{
+        operation: "insertAfter",
+        summary: "追記しました。",
+        targetId: "blockX",
+        insertedBlock: { type: "paragraph", id: "blockInserted", children: [{ type: "text", text: "AI insert" }] },
+      }],
+      warnings: [],
+    };
+    const proposal = await store.createProposal({
+      fileId: "file_1",
+      baseRevision: 1,
+      baseDocument,
+      summary: draft.summary,
+      plan: draft.plan,
+      provider: null,
+      source: { toolName: "draft_insert_body_content", toolArgs: {} },
+      draft,
+      nextDocument: replayProposalDraft(baseDocument, draft).nextDocument,
+    });
+    const currentDocument = parseSigmaDocument(deleteBlocksFromDocument(baseDocument, ["blockX"]));
+
+    const result = await store.autoRebaseProposalsForFile("file_1", currentDocument, 2);
+
+    expect(result).toEqual({ rebased: [proposal.proposalId], conflicted: [] });
+    expect((await store.loadProposal(proposal.proposalId))?.nextDocument.content.map((block) => block.id))
+      .toEqual(["blockA", "blockInserted", "blockC"]);
+  });
+
+  it("restores a rejected proposal over a human edit of its target without rewriting its draft or base", async () => {
+    const proposal = await createTouchingProposal();
+    await store.rejectSingleProposal(proposal.proposalId, "あとで");
+    const currentDocument = parseSigmaDocument(updateBlockInDocument(sampleDocument, P_YOTTE_ID, (block) => ({
+      ...(block as ParagraphNode),
+      children: [...(block as ParagraphNode).children, { type: "text", text: "人間の追記" }],
+    })));
+
+    const restored = await store.restoreResolvedProposal(proposal.proposalId, currentDocument, 4);
+
+    expect(restored).toMatchObject({ ok: true, proposal: { status: "pending", baseRevision: 4 } });
+    const reloaded = await store.loadProposal(proposal.proposalId);
+    expect(reloaded?.draft).toEqual(proposal.draft);
+    expect(reloaded?.mergeBasis).toEqual(proposal.mergeBasis);
+    const workingText = JSON.stringify(findBlock(reloaded!.nextDocument, P_YOTTE_ID));
+    expect(workingText).toContain("AIによる新しい本文");
+    expect(workingText).toContain("人間の追記");
+  });
+
+  it("treats a stored merge basis it cannot read as absent, so the legacy conflict rules apply", async () => {
+    const proposal = await createTouchingProposal();
+    const filePath = path.join(store.getProposalsDir(), `${encodeURIComponent(proposal.proposalId)}.proposal.json`);
+    const raw = JSON.parse(await fs.readFile(filePath, "utf8")) as { mergeBasis: { entities: Record<string, { value: unknown }> } };
+    raw.mergeBasis.entities[P_YOTTE_ID]!.value = { id: P_YOTTE_ID, type: "not-a-block" };
+    await fs.writeFile(filePath, JSON.stringify(raw), "utf8");
+
+    expect((await store.loadProposal(proposal.proposalId))?.mergeBasis).toBeUndefined();
+    const result = await store.autoRebaseProposalsForFile(
+      "file_1",
+      withParagraphText(sampleDocument, P_YOTTE_ID, "人間が書き換えた本文"),
+      2,
+    );
+    expect(result).toEqual({ rebased: [], conflicted: [proposal.proposalId] });
+    expect((await store.loadProposal(proposal.proposalId))?.conflict?.reason).toBe("content-stale");
+  });
+
   it("leaves a legacy proposal without touchedBlocks untouched (falls back to manual rebase)", async () => {
     const proposal = await createTouchingProposal();
     const filePath = path.join(store.getProposalsDir(), `${encodeURIComponent(proposal.proposalId)}.proposal.json`);
     const raw = JSON.parse(await fs.readFile(filePath, "utf8")) as Record<string, unknown>;
     delete raw.touchedBlocks;
+    delete raw.mergeBasis;
     await fs.writeFile(filePath, JSON.stringify(raw, null, 2), "utf8");
 
     const currentDocument = withParagraphText(sampleDocument, P_SOURCE_NOTE_ID, "無関係な変更");
@@ -2616,8 +2736,9 @@ describe("LocalMcpEditProposalStore#autoRebaseProposalsForFile", () => {
     });
   }
 
-  it("flags a conflict when the actual overwrite target changed, even if the request selection did not", async () => {
+  it("flags a conflict on a legacy record when the actual overwrite target changed, even if the request selection did not", async () => {
     const proposal = await createSelectionProposal(P_SOURCE_NOTE_ID);
+    await stripMergeBasis(store, proposal.proposalId);
     const currentDocument = withParagraphText(sampleDocument, P_YOTTE_ID, "人間が書き換えた本文");
 
     const result = await store.autoRebaseProposalsForFile("file_1", currentDocument, 2);
@@ -2632,8 +2753,9 @@ describe("LocalMcpEditProposalStore#autoRebaseProposalsForFile", () => {
     });
   });
 
-  it("flags a conflict when the requested selection itself changed", async () => {
+  it("flags a conflict on a legacy record when the requested selection itself changed", async () => {
     const proposal = await createSelectionProposal(P_YOTTE_ID);
+    await stripMergeBasis(store, proposal.proposalId);
     const currentDocument = withParagraphText(sampleDocument, P_YOTTE_ID, "人間が書き換えた本文");
 
     const result = await store.autoRebaseProposalsForFile("file_1", currentDocument, 2);

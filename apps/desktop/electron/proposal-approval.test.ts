@@ -8,7 +8,11 @@ import type { SigmaDocument } from "@/features/document";
 import type { AiEditSessionDraft } from "@/lib/ai/sigma-doc-edit-schema";
 import { createCurrentLocaleTranslator } from "@/lib/i18n";
 import { parseSigmaDocument } from "@/lib/sigma-doc-schema";
-import { paragraphDocument, replaceParagraphDraft } from "../tests/fixtures/proposal-document";
+import { createEmptyProposalMergeReport } from "@/lib/ai/proposal-merge-basis";
+import { deleteBlocksFromDocument, updateBlockInDocument } from "@/lib/document-tree";
+import { areSigmaDocumentsEquivalent } from "@/lib/document-equivalence";
+import type { ParagraphNode } from "@/features/document";
+import { deleteBlockDraft, paragraphDocument, replaceParagraphDraft } from "../tests/fixtures/proposal-document";
 import { LocalMcpEditProposalStore } from "./local-sigma-doc-proposal-store";
 import { LocalSigmaDocStore } from "./local-sigma-doc-store";
 import { createProposalApprovalCoordinator, type ProposalApprovalPorts } from "./proposal-approval";
@@ -244,8 +248,8 @@ describe("proposal approval application", () => {
     expect(await fixture.readTexts()).toEqual(["AI", "p_2"]);
   });
 
-  it.each(modes)("%s records content conflicts and force applies against the latest revert document", async (mode) => {
-    const proposal = await fixture.createProposal(replaceParagraphDraft("p_1", "AI"));
+  it.each(modes)("%s records content conflicts of a legacy record and force applies against the latest revert document", async (mode) => {
+    const proposal = await fixture.createLegacyProposal(replaceParagraphDraft("p_1", "AI"));
     const humanDocument = replayProposalDraft(fixture.baseDocument, replaceParagraphDraft("p_1", "human")).nextDocument;
     await fixture.documents.saveDocument(fixture.file.fileId, humanDocument, { expectedRevision: fixture.file.revision });
     const latestDocument = await fixture.documents.loadDocument(fixture.file.fileId);
@@ -263,8 +267,8 @@ describe("proposal approval application", () => {
     expect(await fixture.readTexts()).toEqual(["AI", "p_2"]);
   });
 
-  it.each(modes)("%s preserves a human append around an AI target instead of applying a stale block replacement", async (mode) => {
-    const proposal = await fixture.createProposal(replaceParagraphDraft("p_1", "AI"));
+  it.each(modes)("%s preserves a human append around a legacy record's target instead of applying a stale block replacement", async (mode) => {
+    const proposal = await fixture.createLegacyProposal(replaceParagraphDraft("p_1", "AI"));
     const humanDocument = replayProposalDraft(fixture.baseDocument, replaceParagraphDraft("p_1", "p_1 — human append")).nextDocument;
     await fixture.documents.saveDocument(fixture.file.fileId, humanDocument, { expectedRevision: fixture.file.revision });
 
@@ -276,8 +280,8 @@ describe("proposal approval application", () => {
     expect((await fixture.proposals.loadProposal(proposal.proposalId))?.status).toBe("pending");
   });
 
-  it("saves a batch's applicable proposals while returning and retaining its conflicts", async () => {
-    const stale = await fixture.createProposal(replaceParagraphDraft("p_1", "stale"));
+  it("saves a batch's applicable proposals while returning and retaining a legacy record's conflicts", async () => {
+    const stale = await fixture.createLegacyProposal(replaceParagraphDraft("p_1", "stale"));
     const applicable = await fixture.createProposal(replaceParagraphDraft("p_2", "applicable"));
     const humanDocument = replayProposalDraft(fixture.baseDocument, replaceParagraphDraft("p_1", "human")).nextDocument;
     await fixture.documents.saveDocument(fixture.file.fileId, humanDocument, { expectedRevision: fixture.file.revision });
@@ -290,6 +294,180 @@ describe("proposal approval application", () => {
     expect((await fixture.proposals.loadProposal(stale.proposalId))?.status).toBe("pending");
     expect((await fixture.proposals.loadProposal(applicable.proposalId))?.status).toBe("approved");
     expect(fixture.saveDocument).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(modes)("%s keeps a human edit of another paragraph, saves both, and counts no fallback", async (mode) => {
+    const proposal = await fixture.createProposal(replaceParagraphDraft("p_1", "AI"));
+    await fixture.saveHumanEdit((document) => withParagraph(document, "p_2", "p_2 human"));
+
+    const result = await fixture.approve(mode, proposal.proposalId);
+
+    expect(result).toMatchObject({ ok: true, mergeReport: createEmptyProposalMergeReport() });
+    expect(await fixture.readTexts()).toEqual(["AI", "p_2 human"]);
+    expect(await fixture.readTextsFromFreshStore()).toEqual(["AI", "p_2 human"]);
+    expect((await fixture.proposals.loadProposal(proposal.proposalId))?.mergeReport).toEqual(createEmptyProposalMergeReport());
+  });
+
+  it.each(modes)("%s merges a human edit of the AI's own target instead of reporting a conflict", async (mode) => {
+    const proposal = await fixture.createProposal(replaceParagraphDraft("p_1", "The dog sat."));
+    // The base paragraph text is "p_1"; the human rewrites it before the AI's proposal is approved.
+    await fixture.saveHumanEdit((document) => withParagraph(document, "p_1", "p_1 — human append"));
+
+    const result = await fixture.approve(mode, proposal.proposalId);
+
+    expect(result).toMatchObject({ ok: true, mergeReport: { humanEditedUnits: ["p_1"] } });
+    const [merged] = await fixture.readTextsFromFreshStore();
+    expect(merged).toContain("The dog sat.");
+    expect(merged).toContain(" — human append");
+    expect((await fixture.proposals.loadProposal(proposal.proposalId))).toMatchObject({
+      status: "approved",
+      mergeReport: { humanEditedUnits: ["p_1"] },
+    });
+  });
+
+  it.each(modes)("%s keeps a block the AI deletes when the human edited it, and counts editBeatsDelete", async (mode) => {
+    const proposal = await fixture.createProposal(deleteBlockDraft("p_1"));
+    await fixture.saveHumanEdit((document) => withParagraph(document, "p_1", "p_1 edited"));
+
+    const result = await fixture.approve(mode, proposal.proposalId);
+
+    expect(result).toMatchObject({ ok: true, mergeReport: { editBeatsDelete: ["#p_1"] } });
+    expect(await fixture.readTextsFromFreshStore()).toEqual(["p_1 edited", "p_2"]);
+  });
+
+  it.each(modes)("%s reports the usual conflict instead of reviving a target the human deleted", async (mode) => {
+    const proposal = await fixture.createProposal(replaceParagraphDraft("p_1", "AI"));
+    await fixture.saveHumanEdit((document) => parseSigmaDocument(deleteBlocksFromDocument(document, ["p_1"])));
+
+    await expect(fixture.approve(mode, proposal.proposalId)).resolves.toMatchObject({
+      ok: false, code: "conflict", conflictReason: "anchor-missing", conflictBlockIds: ["p_1"],
+    });
+    expect(fixture.saveDocument).not.toHaveBeenCalled();
+    expect(await fixture.readTexts()).toEqual(["p_2"]);
+    expect((await fixture.proposals.loadProposal(proposal.proposalId))).toMatchObject({
+      status: "pending", conflict: { reason: "anchor-missing", blockIds: ["p_1"] },
+    });
+  });
+
+  it.each(modes)("%s counts a legacy record without a merge basis as legacyNoBase", async (mode) => {
+    const proposal = await fixture.createLegacyProposal(replaceParagraphDraft("p_1", "AI"));
+
+    await expect(fixture.approve(mode, proposal.proposalId)).resolves.toMatchObject({
+      ok: true, mergeReport: { legacyNoBase: 1 },
+    });
+  });
+
+  it.each(modes)("%s keeps a human edit made between two turns of the same room", async (mode) => {
+    const room = { roomId: "room_turns", runId: "run_turns" };
+    await fixture.proposals.upsertCurrentProposal({ ...fixture.proposalInput(replaceParagraphDraft("p_1", "AI first")), ...room });
+    const humanFile = await fixture.saveHumanEdit((document) => withParagraph(document, "p_1", "p_1 human"));
+    const humanDocument = parseSigmaDocument(await fixture.documents.loadDocument(fixture.file.fileId));
+    // The MCP server aggregates the room's draft and passes the latest saved document as the base.
+    const aggregate: AiEditSessionDraft = {
+      ...replaceParagraphDraft("p_2", "AI second"),
+      operations: [
+        ...replaceParagraphDraft("p_1", "AI first").operations,
+        ...replaceParagraphDraft("p_2", "AI second").operations,
+      ],
+    };
+    const second = await fixture.proposals.upsertCurrentProposal({
+      ...fixture.proposalInput(aggregate),
+      baseRevision: humanFile.revision,
+      baseDocument: humanDocument,
+      nextDocument: replayProposalDraft(humanDocument, aggregate).nextDocument,
+      ...room,
+    });
+
+    await expect(fixture.approve(mode, second.proposalId)).resolves.toMatchObject({ ok: true });
+
+    const [first, secondText] = await fixture.readTextsFromFreshStore();
+    expect(first).toContain("AI first");
+    expect(first).toContain(" human");
+    expect(secondText).toBe("AI second");
+  });
+
+  it.each(modes)("%s keeps a human edit made before a later run of the same room adds to the draft", async (mode) => {
+    await fixture.proposals.upsertCurrentProposal({
+      ...fixture.proposalInput(replaceParagraphDraft("p_1", "AI first")),
+      roomId: "room_runs", runId: "run_first",
+    });
+    const humanFile = await fixture.saveHumanEdit((document) => withParagraph(document, "p_1", "p_1 human"));
+    const humanDocument = parseSigmaDocument(await fixture.documents.loadDocument(fixture.file.fileId));
+    const aggregate: AiEditSessionDraft = {
+      ...replaceParagraphDraft("p_2", "AI second"),
+      operations: [
+        ...replaceParagraphDraft("p_1", "AI first").operations,
+        ...replaceParagraphDraft("p_2", "AI second").operations,
+      ],
+    };
+    const second = await fixture.proposals.upsertCurrentProposal({
+      ...fixture.proposalInput(aggregate),
+      baseRevision: humanFile.revision,
+      baseDocument: humanDocument,
+      nextDocument: replayProposalDraft(humanDocument, aggregate).nextDocument,
+      roomId: "room_runs",
+      runId: "run_second",
+    });
+    expect(second.mergeBasis?.entities.p_1?.value).toMatchObject({ children: [{ text: "p_1" }] });
+
+    await expect(fixture.approve(mode, second.proposalId)).resolves.toMatchObject({ ok: true });
+
+    const [first, secondText] = await fixture.readTextsFromFreshStore();
+    expect(first).toContain("AI first");
+    expect(first).toContain(" human");
+    expect(secondText).toBe("AI second");
+  });
+
+  it.each(modes)("%s undoes a merged approval selectively after a later unrelated edit", async (mode) => {
+    const proposal = await fixture.createProposal(replaceParagraphDraft("p_1", "The dog sat."));
+    await fixture.saveHumanEdit((document) => withParagraph(document, "p_1", "p_1 — human append"));
+    const beforeApproval = parseSigmaDocument(await fixture.documents.loadDocument(fixture.file.fileId));
+    await expect(fixture.approve(mode, proposal.proposalId)).resolves.toMatchObject({ ok: true });
+    const later = await fixture.saveHumanEdit((document) => withParagraph(document, "p_2", "p_2 later"));
+
+    const plan = await fixture.proposals.getRevertPlan(
+      proposal.proposalId,
+      later.revision,
+      parseSigmaDocument(await fixture.documents.loadDocument(fixture.file.fileId)),
+    );
+
+    expect(plan).toMatchObject({ ok: true, mode: "selective" });
+    expect(plan.ok && documentTexts(plan.document)).toEqual([documentTexts(beforeApproval)[0], "p_2 later"]);
+  });
+
+  it.each(modes)("%s can be undone back to the document before a merged approval", async (mode) => {
+    const proposal = await fixture.createProposal(replaceParagraphDraft("p_1", "The dog sat."));
+    await fixture.saveHumanEdit((document) => withParagraph(document, "p_1", "p_1 — human append"));
+    const beforeApproval = parseSigmaDocument(await fixture.documents.loadDocument(fixture.file.fileId));
+
+    await expect(fixture.approve(mode, proposal.proposalId)).resolves.toMatchObject({ ok: true });
+
+    const resolved = await fixture.proposals.loadProposal(proposal.proposalId);
+    expect(areSigmaDocumentsEquivalent(resolved!.revertDocument!, beforeApproval)).toBe(true);
+    const savedFile = (await fixture.documents.listFiles())[0];
+    const plan = await fixture.proposals.getRevertPlan(
+      proposal.proposalId,
+      savedFile.revision,
+      parseSigmaDocument(await fixture.documents.loadDocument(fixture.file.fileId)),
+    );
+    expect(plan).toMatchObject({ ok: true, mode: "full" });
+    expect(plan.ok && areSigmaDocumentsEquivalent(plan.document, beforeApproval)).toBe(true);
+  });
+
+  it("does not auto-apply a proposal whose replay merged the human's edits", async () => {
+    const proposal = await fixture.createProposal(replaceParagraphDraft("p_1", "AI"));
+    await fixture.saveHumanEdit((document) => withParagraph(document, "p_1", "p_1 human"));
+    await fixture.proposals.rebaseProposal(
+      proposal.proposalId,
+      parseSigmaDocument(await fixture.documents.loadDocument(fixture.file.fileId)),
+      fixture.file.revision + 1,
+    );
+
+    await expect(fixture.coordinator.approveSingleProposal(proposal.proposalId, { autoApplied: true }))
+      .resolves.toMatchObject({ ok: false, code: "merge-review" });
+    expect(fixture.saveDocument).not.toHaveBeenCalled();
+    expect((await fixture.proposals.loadProposal(proposal.proposalId))?.status).toBe("pending");
+    expect(await fixture.readTexts()).toEqual(["p_1 human", "p_2"]);
   });
 
   it.each(modes)("%s resolves all members of the real proposal group with the same saved revision", async (mode) => {
@@ -386,11 +564,39 @@ async function createFixture(userDataDir: string) {
     loadProposal, resolveProposal, loadDocument, saveDocument, runPostSaveHooks, broadcastLocalStoreChange,
     proposalInput,
     createProposal: (draft: AiEditSessionDraft): Promise<LocalMcpEditProposal> => proposals.createProposal(proposalInput(draft)),
+    /** A record written before merge bases existed: same proposal, without `mergeBasis`. */
+    createLegacyProposal: async (draft: AiEditSessionDraft): Promise<LocalMcpEditProposal> => {
+      const created = await proposals.createProposal(proposalInput(draft));
+      const recordPath = path.join(proposals.getProposalsDir(), `${encodeURIComponent(created.proposalId)}.proposal.json`);
+      const legacy: Partial<LocalMcpEditProposal> = JSON.parse(await fs.readFile(recordPath, "utf8"));
+      delete legacy.mergeBasis;
+      await fs.writeFile(recordPath, JSON.stringify(legacy), "utf8");
+      return (await proposals.loadProposal(created.proposalId))!;
+    },
+    /** Saves a human edit as the renderer would (CAS on the current revision). */
+    saveHumanEdit: async (edit: (document: SigmaDocument) => SigmaDocument) => {
+      const current = (await documents.listFiles())[0];
+      const document = parseSigmaDocument(await documents.loadDocument(current.fileId));
+      const saved = await documents.saveDocument(current.fileId, edit(document), { expectedRevision: current.revision });
+      if (!saved.ok) throw new Error(saved.error);
+      return (await documents.listFiles())[0];
+    },
+    readTextsFromFreshStore: async () => {
+      const reopened = new LocalSigmaDocStore(userDataDir);
+      return documentTexts(parseSigmaDocument(await reopened.loadDocument(file.fileId)));
+    },
     approve: (mode: ApprovalMode, proposalId: string, options: { force?: boolean } = {}) => (
       mode === "single" ? coordinator.approveSingleProposal(proposalId, options) : coordinator.approveProposals([proposalId], options)
     ),
     readTexts: async () => documentTexts(parseSigmaDocument(await documents.loadDocument(file.fileId))),
   };
+}
+
+function withParagraph(document: SigmaDocument, blockId: string, text: string): SigmaDocument {
+  return parseSigmaDocument(updateBlockInDocument(document, blockId, (block) => ({
+    ...(block as ParagraphNode),
+    children: [{ type: "text", text }],
+  })));
 }
 
 function documentTexts(document: SigmaDocument): string[] {

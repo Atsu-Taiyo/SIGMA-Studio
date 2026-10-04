@@ -11,6 +11,7 @@ describe("proposal approval application boundary", () => {
     expect(dependencies.filter((dependency) => !dependency.typeOnly).map((dependency) => dependency.specifier).sort()).toEqual([
       "./proposals/freshness",
       "./proposals/replay",
+      "@/lib/ai/proposal-merge-basis",
       "@/lib/ai/sigma-doc-edit-schema",
       "@/lib/sigma-doc-block-hash",
       "@/lib/sigma-doc-schema",

@@ -8,6 +8,7 @@ import {
   canForceApplyProposalConflict,
   collectConflictSensitiveBlockIds,
   collectTouchedBlockIds,
+  computeTouchedBlocks,
   findConflictingBlockIds,
   findProposalFreshnessConflict,
   findProposalFreshnessConflictIds,
@@ -15,6 +16,7 @@ import {
   shouldAutoApplyProposal,
 } from "./freshness";
 import { replayProposalDraft } from "./replay";
+import { computeProposalMergeBasis } from "@/lib/ai/proposal-merge-basis";
 import {
   SOLE_BLOCK_ID,
   deleteBlockDraft,
@@ -827,5 +829,93 @@ describe("shouldAutoApplyProposal (conflict gate)", () => {
         currentRevision: 3,
       }),
     ).toBe(false);
+  });
+});
+
+describe("findProposalFreshnessConflict with a merge basis", () => {
+  const base = paragraphDocument(["p_1", "p_2"]);
+
+  function mergeableProposal(draft: AiEditSessionDraft) {
+    return {
+      baseRevision: 1,
+      draft,
+      touchedBlocks: computeTouchedBlocks(draft, base),
+      mergeBasis: computeProposalMergeBasis(draft, base),
+    };
+  }
+
+  function withText(document: SigmaDocument, blockId: string, text: string): SigmaDocument {
+    return replayProposalDraft(document, replaceParagraphDraft(blockId, text)).nextDocument;
+  }
+
+  it("does not report content-stale for a target the human edited, while a legacy record still does", () => {
+    const proposal = mergeableProposal(replaceParagraphDraft("p_1", "AI"));
+    const current = withText(base, "p_1", "p_1 human");
+    const hashes = computeDocumentBlockHashes(current);
+
+    expect(findProposalFreshnessConflict(proposal, hashes, 2, current)).toBeNull();
+    // The same record written before merge bases existed.
+    expect(findProposalFreshnessConflict({ ...proposal, mergeBasis: undefined }, hashes, 2, current)).toEqual({ blockIds: ["p_1"], reason: "content-stale" });
+  });
+
+  it("reports anchor-missing when the human deleted the target", () => {
+    const proposal = mergeableProposal(replaceParagraphDraft("p_1", "AI"));
+    const current = paragraphDocument(["p_2"]);
+
+    expect(findProposalFreshnessConflict(proposal, computeDocumentBlockHashes(current), 2, current))
+      .toEqual({ blockIds: ["p_1"], reason: "anchor-missing" });
+  });
+
+  it("reports a block id the draft would insert but that is now taken as unresolvable", () => {
+    const draft: AiEditSessionDraft = {
+      summary: "挿入",
+      plan: ["挿入"],
+      operations: [{
+        operation: "insertAfter",
+        summary: "挿入",
+        targetId: "p_1",
+        insertedBlock: { type: "paragraph", id: "p_taken", children: [{ type: "text", text: "AI" }] } satisfies ParagraphNode,
+      }],
+      warnings: [],
+    };
+    const proposal = mergeableProposal(draft);
+    const current = paragraphDocument(["p_1", "p_2", "p_taken"]);
+
+    expect(findProposalFreshnessConflict(proposal, computeDocumentBlockHashes(current), 2, current))
+      .toEqual({ blockIds: ["p_taken"], reason: "replay-failed" });
+  });
+
+  it("does not report an image asset collision the merging replay renames", () => {
+    const withLayout = ensurePageLayout(base);
+    const asset = (marker: string) => ({
+      id: "asset_shared",
+      type: "image" as const,
+      props: {
+        w: 120, h: 80, name: `${marker}.png`, isAnimated: false as const, mimeType: "image/png",
+        src: `data:image/png;base64,iVBORw0KGgo${marker}`, fileSize: 3,
+      },
+    });
+    const draft: AiEditSessionDraft = {
+      summary: "画像",
+      plan: ["画像"],
+      operations: [{
+        operation: "insertOverlayShape",
+        summary: "画像",
+        targetId: "p_1",
+        overlayShape: { id: "shape_new", type: "image", x: 10, y: 10, props: { assetId: "asset_shared", w: 120, h: 80 } },
+        assets: { asset_shared: asset("NEW") },
+      }],
+      warnings: [],
+    };
+    const proposal = { ...mergeableProposal(draft), mergeBasis: computeProposalMergeBasis(draft, withLayout) };
+    const current: SigmaDocument = {
+      ...withLayout,
+      pageLayout: {
+        ...withLayout.pageLayout!,
+        overlay: { ...withLayout.pageLayout?.overlay, overlaySnapshot: { version: 1, shapes: [], assets: { asset_shared: asset("OLD") } } },
+      },
+    };
+
+    expect(findProposalFreshnessConflict(proposal, computeDocumentBlockHashes(current), 2, current)).toBeNull();
   });
 });
