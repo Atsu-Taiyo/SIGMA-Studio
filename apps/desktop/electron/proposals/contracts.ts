@@ -425,19 +425,9 @@ export type RestoreProposalResult =
   | { ok: true; proposal: LocalMcpEditProposalSummary }
   | { ok: false; reason: string };
 
-export function selectGroupRepresentatives<T extends { groupId?: string; groupPosition?: number }>(proposals: T[]): T[] {
-  const latestPositions = new Map<string, number>();
-  for (const proposal of proposals) {
-    if (proposal.groupId) {
-      latestPositions.set(
-        proposal.groupId,
-        Math.max(latestPositions.get(proposal.groupId) ?? -1, proposal.groupPosition ?? 0),
-      );
-    }
-  }
-  return proposals.filter((proposal) =>
-    !proposal.groupId || (proposal.groupPosition ?? 0) === latestPositions.get(proposal.groupId));
-}
+// The batch replay (`lib/ai/proposal-batch-replay.ts`) owns the representative rule so the renderer's
+// preview and the approval collapse groups the same way; re-exported for the store's entry points.
+export { selectGroupRepresentatives } from "@/lib/ai/proposal-batch-replay";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;

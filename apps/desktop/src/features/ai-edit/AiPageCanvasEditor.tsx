@@ -30,6 +30,7 @@ import { readAiProposalDisplayState, type AiProposalDisplayState } from "./model
 import { useAiProposalDisplayStates } from "./application/use-ai-proposal-display-states";
 import { useStableIdSet } from "./application/use-stable-id-set";
 import { groupPendingProposalContentByAnchor, type AiProposalAnchorCard } from "./model/proposal-content";
+import { resolveProposalMergePreview } from "./model/proposal-merge-preview";
 import { AiRunAnchorLayer, type AiRunCardOpenRequest } from "@/components/editor/ai-run-anchor-layer";
 import {
   getNarrowColumnBounds,
@@ -255,11 +256,13 @@ function useAiPageCanvasExtension({
   );
   // 提案が 1 つも無いときは文書が変わっても結果は空。ここで毎回新しい Map を作ると
   // その先の `inlineContentByTargetId` → `pageExtension` まで打鍵ごとに新品になる。
+  // 承認が文書を差し替えている間 (applying) は、承認済みの提案が承認後の文書に重ねて描かれるので、
+  // プレビューの代わりの経路を数えない。
   const previewCardsByTargetId = useMemo(
     () => inlinePreviewGroups.length === 0
       ? EMPTY_PREVIEW_CARDS_BY_TARGET_ID
-      : groupPendingProposalContentByAnchor(inlinePreviewGroups, document),
-    [document, inlinePreviewGroups],
+      : groupPendingProposalContentByAnchor(inlinePreviewGroups, document, { countFallbacks: !applying }),
+    [applying, document, inlinePreviewGroups],
   );
   // カードが 1 枚も無い提案 (図形だけ・本文を置ける場所が無い) は、紙面に浮かぶバーで決める。
   // カードのある提案はカードのバー 1 本で決める (図形の変更があっても浮かべない)。
@@ -267,6 +270,13 @@ function useAiPageCanvasExtension({
     const previewsWithCards = new Set([...previewCardsByTargetId.values()].flat().map((card) => card.preview));
     return selectAiFloatingDecisionPreviews(previewGroups, previewsWithCards);
   }, [previewCardsByTargetId, previewGroups]);
+  // 浮かぶバーの提案のうち、本文の内容を人の編集と合成したもの (バーに一言を添える)。図形だけの
+  // 提案は合成のプレビューを作らないので入らない。提案ごとに覚えた結果を引くだけなので打鍵では軽い。
+  const mergedFloatingKeys = useStableIdSet(floatingPreviewGroups.flatMap((preview) => (
+    resolveProposalMergePreview(document, preview, { countFallbacks: !applying }).humanEditedUnits.length > 0
+      ? [getAiProposalConversationKey(preview)]
+      : []
+  )));
   const roomIdsWithCards = useMemo(
     () => new Set(previewGroups.flatMap((preview) => preview.roomId ? [preview.roomId] : [])),
     [previewGroups],
@@ -338,6 +348,7 @@ function useAiPageCanvasExtension({
                 }
               }}
               hasBeforeShapes={getAiEditPreviewBeforeShapeIds(preview).length > 0}
+              mergedWithHumanEdits={card.mergedWithHumanEdits}
               onOpenConversation={preview.roomId
                 ? (anchorElement) => openProposalConversation(preview, anchorElement)
                 : undefined}
@@ -466,6 +477,7 @@ function useAiPageCanvasExtension({
           displayState={displayState}
           onDisplayStateChange={(patch) => updateDisplayState(conversationKey, preview.proposalIds, patch)}
           hasBeforeShapes={getAiEditPreviewBeforeShapeIds(preview).length > 0}
+          mergedWithHumanEdits={mergedFloatingKeys.has(conversationKey)}
           onOpenConversation={preview.roomId
             ? (anchorElement) => openProposalConversation(preview, anchorElement)
             : undefined}
@@ -479,7 +491,7 @@ function useAiPageCanvasExtension({
       ghostShapes: resolvedGhostShapes,
       floatingContent: widgets,
     };
-  }, [applying, displayStates, floatingPreviewGroups, onApply, onDismiss, openProposalConversation, previewDiff, previewGroups, t, updateDisplayState]);
+  }, [applying, displayStates, floatingPreviewGroups, mergedFloatingKeys, onApply, onDismiss, openProposalConversation, previewDiff, previewGroups, t, updateDisplayState]);
 
   // 参照系のコールバックは ref 経由で最新を読む。identity を deps に入れると、親が 1 回
   // 描画するたびに selection 拡張が作り直され、PageCanvasEditor 側の選択 effect が再 arm
@@ -755,6 +767,7 @@ export function getAiProposalCardMeasureRevision(
       mathFractionSizing ?? "",
       card.preview.sourceReferences ?? [],
       card.content.hunks,
+      card.mergedWithHumanEdits,
       displayState?.contentHidden ?? false,
       displayState?.applyError ?? null,
     ],

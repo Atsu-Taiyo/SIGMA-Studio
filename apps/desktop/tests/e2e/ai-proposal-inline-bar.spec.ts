@@ -1,6 +1,7 @@
 import { expect, test, type Locator, type Page } from "@playwright/test";
 
 import type { OverlayShape, SigmaBlock, SigmaDocument } from "@/features/document";
+import type { ProposalMergeBasis } from "@/lib/ai/proposal-merge-basis";
 import type { DesktopMcpEditProposalSummary } from "@/types/desktop";
 import { grabShapeFromBody } from "./body-overlay-entry";
 import { installDesktopRuntimeMock } from "./desktop-runtime-mock";
@@ -510,4 +511,59 @@ test("select-all on the canvas leaves a hidden before shape out", async ({ page 
   await page.keyboard.press("ControlOrMeta+A");
   await expect(selectedShape(page, "other_shape")).toHaveCount(1);
   await expect(selectedShape(page, "bar_shape")).toHaveCount(0);
+});
+
+/**
+ * 提案が上書きする段落の、AI が書いた時点の内容 (提案ストアが保存する `mergeBasis` と同じ形)。
+ * スキーマ (と数式の描画器) をテストの Node 側へ読み込まないよう、ストアの計算は使わず書く。
+ */
+function basisOf(block: SigmaBlock): ProposalMergeBasis {
+  return { version: 1, entities: { [block.id]: { kind: "block", value: block as never } } };
+}
+
+test("a proposal whose target the human edited previews the merged content and says so on its bar", async ({ page }) => {
+  // 提案の後に人が対象の別の位置を直した教材。承認と同じ三者マージの replay で、紙面のカードは
+  // 人の編集 (red) と AI の変更 (dog) の両方を含む内容を見せ、バーに一言を添える。合成の正しさ
+  // そのもの (保存・再読込) は tests/electron/ai-proposal-merge.spec.ts が実アプリで確かめる。
+  const withTarget = (text: string): SigmaDocument => {
+    const document = createDocument();
+    return { ...document, content: [paragraph("para_target", text), ...document.content.slice(1)] };
+  };
+  const draft: DesktopMcpEditProposalSummary["draft"] = {
+    summary: "語を直す",
+    plan: ["語を直す"],
+    warnings: [],
+    operations: [{
+      operation: "replace",
+      summary: "段落を置き換え",
+      targetId: "para_target",
+      replacementBlock: paragraph("para_target", "The dog sat on the mat.") as never,
+    }],
+  };
+  const merged = { ...proposal("proposal_merged", draft, ["para_target"]), mergeBasis: basisOf(paragraph("para_target", "The cat sat on the mat.")) };
+  await open(page, [merged], withTarget("The cat sat on the red mat."));
+
+  const card = pageCard(page, "para_target").locator("[data-ai-proposal-card]");
+  await expect(card.locator("[data-ai-proposal-content]")).toContainText("The dog sat on the red mat.");
+  await expect(card.locator("[data-ai-proposal-bar-details] [data-ai-proposal-merge-notice]")).toHaveText("あなたの編集と合わせた内容です");
+  // 合成で解決できる変更なので、競合の通知 (破棄・上書き・作り直し) は出さない。
+  await expect(page.locator(".ai-stale-proposals")).toHaveCount(0);
+});
+
+test("a proposal nobody edited around carries no merge notice", async ({ page }) => {
+  const draft: DesktopMcpEditProposalSummary["draft"] = {
+    summary: "段落を直す",
+    plan: ["段落を直す"],
+    warnings: [],
+    operations: [{
+      operation: "replace",
+      summary: "段落を置き換え",
+      targetId: "para_target",
+      replacementBlock: paragraph("para_target", "提案で直した段落です。") as never,
+    }],
+  };
+  await open(page, [{ ...proposal("proposal_plain", draft, ["para_target"]), mergeBasis: basisOf(paragraph("para_target", "提案を受ける段落です。")) }]);
+  const card = pageCard(page, "para_target").locator("[data-ai-proposal-card]");
+  await expect(card.locator("[data-ai-proposal-content]")).toContainText("提案で直した段落です。");
+  await expect(card.locator("[data-ai-proposal-merge-notice]")).toHaveCount(0);
 });

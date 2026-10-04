@@ -21,9 +21,14 @@ import {
   groupPendingProposalContentByAnchor,
   isProposalContentEmpty,
   proposalContentToAppliedDiff,
-  resolvePendingProposalAfterDocument,
   toDisplayProposalHunk,
 } from "./proposal-content";
+import { resolveProposalMergePreview } from "./proposal-merge-preview";
+
+/** 承認と同じ replay で作る、保留中の提案の適用後の文書。 */
+function resolvePendingProposalAfterDocument(document: SigmaDocument, preview: AiEditPreviewState): SigmaDocument | null {
+  return resolveProposalMergePreview(document, preview).afterDocument;
+}
 
 function paragraph(id: string, text: string): SigmaBlock {
   return { id, type: "paragraph", children: [{ type: "text", text }] };
@@ -382,7 +387,7 @@ describe("buildPendingProposalContent", () => {
   });
 });
 
-describe("resolvePendingProposalAfterDocument", () => {
+describe("resolveProposalMergePreview (after-document of a pending proposal)", () => {
   it("replays the draft once per document and preview, and skips overlay-only proposals", () => {
     const document = baseDocument();
     const preview = previewOf([replace("p1", "変更後")]);

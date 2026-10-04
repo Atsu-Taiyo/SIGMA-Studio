@@ -15,9 +15,9 @@ import {
   AI_PROPOSAL_PREVIEW_ID_PREFIX,
   buildAppliedProposalContent,
   buildPendingProposalContent,
-  resolvePendingProposalAfterDocument,
   type AiProposalContent,
 } from "../model/proposal-content";
+import { resolveProposalMergePreview } from "../model/proposal-merge-preview";
 import { AiProposalContentView } from "./AiProposalContentView";
 
 function paragraph(id: string, text: string): SigmaBlock {
@@ -67,7 +67,7 @@ function previewOf(operations: AiEditDraft[], mutationOperations: SigmaDocMutati
 }
 
 function pending(document: SigmaDocument, preview: AiEditPreviewState): AiProposalContent {
-  return buildPendingProposalContent(document, resolvePendingProposalAfterDocument(document, preview), preview);
+  return buildPendingProposalContent(document, resolveProposalMergePreview(document, preview).afterDocument, preview);
 }
 
 const BASE_CONTENT: SigmaBlock[] = [
