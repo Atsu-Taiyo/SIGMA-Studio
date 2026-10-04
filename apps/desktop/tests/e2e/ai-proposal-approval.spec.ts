@@ -454,7 +454,7 @@ test("a formatting-only proposal remains visible as a real pending diff", async 
   await expect(proposal).toBeVisible({ timeout: 20_000 });
   await expect(proposal).toContainText("−1行");
   await expect(proposal).toContainText("+1行");
-  // 装飾だけが変わった単語は、両側とも表示用のコピーの背景色で塗られる (文書には書かない)。
+  // 装飾だけが変わった単語は、両側とも表示用のコピーに差分の印が付く (元の背景色は残し、文書には書かない)。
   await expect(proposal.locator('[data-change="removed"] [style*="--ai-proposal-word-removed"]').first())
     .toContainText("一次関数のグラフは直線");
   await expect(proposal.locator('[data-change="added"] [style*="--ai-proposal-word-added"]').first())

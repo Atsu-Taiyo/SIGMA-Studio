@@ -109,9 +109,10 @@ function ProposalBlock({
     );
   }
 
-  // リスト項目だけが対象のときは、その項目の文を段落として描く (マーカーは親のリストが持つ)。
+  // リスト項目はモデルがリストに包んで渡す (`presentListItem`)。包まれずに来ても、子の項目と
+  // 続きの段落を落とさないよう 1 項目の箇条書きとして描く。
   const printable: SigmaBlock = block.type === "listItem"
-    ? { id: block.id, type: "paragraph", children: block.children, align: block.align }
+    ? { id: block.id, type: "list", listType: "bullet", items: [block] }
     : block as SigmaBlock;
   return (
     <PrintBlock
