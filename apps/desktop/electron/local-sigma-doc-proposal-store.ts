@@ -1393,7 +1393,9 @@ export class LocalMcpEditProposalStore {
       return "skipped";
     }
     const mergeable = { draft: candidate.draft, mergeBasis, touchedBlocks: candidate.touchedBlocks };
-    const signatureOf = (extraIds: readonly string[]) => computeMergeAttentionSignature(mergeable, extraIds, currentHashes);
+    const signatureOf = (extraIds: readonly string[]) => (
+      computeMergeAttentionSignature(mergeable, extraIds, currentHashes, currentDocument)
+    );
     let conflict: ProposalFreshnessConflict | null;
     if (candidate.conflict) {
       if (candidate.conflict.signature !== undefined && candidate.conflict.signature === signatureOf(candidate.conflict.blockIds)) {

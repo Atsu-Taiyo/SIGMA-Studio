@@ -165,6 +165,41 @@ export function combineProposalMergeReports(reports: readonly ProposalMergeRepor
   return combined;
 }
 
+/**
+ * Ids the draft deletes and then inserts again under the same id (a replacement: a shape replaced
+ * by a new one, a block moved by delete + insert). The merge treats the pair as one replacement:
+ * the deletion runs, and the inserted value is merged with the human's edits of the old one.
+ */
+export function collectReinsertedDeletionIds(draft: AiEditSessionDraft): Set<string> {
+  const deleted = new Set<string>();
+  const reinserted = new Set<string>();
+  for (const entry of resolveAiEditSessionOperationOrder(draft)) {
+    if (entry.kind === "mutation") {
+      const mutation = draft.mutationOperations?.[entry.index];
+      if (mutation?.operation === "deleteBlocks") {
+        mutation.blockIds.forEach((id) => deleted.add(id));
+      } else if (mutation?.operation === "deleteOverlayShapes") {
+        mutation.shapeIds.forEach((id) => deleted.add(id));
+      }
+      continue;
+    }
+    const insertedId = insertedIdOf(draft.operations[entry.index]!);
+    if (insertedId && deleted.has(insertedId)) {
+      reinserted.add(insertedId);
+    }
+  }
+  return reinserted;
+}
+
+/** The id an insert operation creates at the top (block, overlay shape or table), else null. */
+export function insertedIdOf(operation: AiEditSessionDraft["operations"][number]): string | null {
+  return operation.operation === "insertAfter"
+    ? operation.insertedBlock.id
+    : operation.operation === "insertOverlayShape"
+      ? operation.overlayShape.id
+      : operation.operation === "insertTableShape" ? operation.tableShape.id : null;
+}
+
 export interface ProposalMergeUnits {
   /** Whole-block replacements (legacy overlay-anchor support replacements are normalized instead). */
   replaceTargetIds: string[];

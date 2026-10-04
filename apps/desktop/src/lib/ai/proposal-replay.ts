@@ -24,8 +24,10 @@ import {
 import { createCurrentLocaleTranslator } from "@/lib/i18n";
 import {
   blockContainsId,
+  collectReinsertedDeletionIds,
   createEmptyProposalMergeReport,
   findBlockContainer,
+  insertedIdOf,
   findBlockWithin,
   replaceDescendant,
   type ProposalMergeBasis,
@@ -185,7 +187,12 @@ export interface ProposalMergeReplayResult {
  *   basis, ours = the block in `document` (the human's side), theirs = the base with the draft's
  *   replacements applied. The merged block then becomes the replacement for the plain replay.
  *   Updated overlay shapes are merged the same way and replayed as a patch from the current shape.
- * - A block or shape the AI deletes is kept when the human edited it (`editBeatsDelete`).
+ * - A block or shape the AI deletes is kept when the human edited it (`editBeatsDelete`), and
+ *   deleting one the human already deleted is done. When the draft deletes an id and inserts it
+ *   again (a replacement under the same id), the deletion runs and the inserted value is merged
+ *   with the human's edits of the old one (base = its snapshot). A replacement under a temporary
+ *   id (the batch approval's delete + insert pairs) is two separate operations: the edited old one
+ *   is kept and the new one added.
  * - A block or shape the human deleted is not revived: its replacement fails as before, so the
  *   caller reports the usual conflict (`anchor-missing`).
  * - An `insertAfter` whose anchor the human deleted moves after the nearest preceding sibling the
@@ -242,7 +249,7 @@ function retryWithFailingUnitsOnTheAiSide(
   attempt: (fallBack: ReadonlySet<string>) => MergedReplay,
   error: unknown,
 ): { replay: MergedReplay; fallBack: ReadonlySet<string> } {
-  const mergedIds = [...plan.blockUnits.values(), ...plan.shapeUnits.values()]
+  const mergedIds = allUnits(plan)
     .filter((unit) => unit.usesMerged)
     .map((unit) => unit.id);
   const tryAttempt = (fallBack: ReadonlySet<string>): MergedReplay | null => {
@@ -268,7 +275,7 @@ function retryWithFailingUnitsOnTheAiSide(
 /** The report of what was actually replayed, given the units that fell back to the AI's side. */
 function assembleReport(plan: MergingReplayPlan, fallBack: ReadonlySet<string>): ProposalMergeReport {
   const report = createEmptyProposalMergeReport();
-  for (const unit of [...plan.blockUnits.values(), ...plan.shapeUnits.values()]) {
+  for (const unit of allUnits(plan)) {
     if (unit.outcome === "invalid" || fallBack.has(unit.id)) {
       report.invalidAfterMerge += 1;
       appendUnique(report.duplicateIds, unit.kernel.duplicateIds);
@@ -352,10 +359,18 @@ type BlockUnitPlan = MergeUnitPlan<EditableBlock> & { operationIndexes: number[]
 /** An updated shape the human edited. */
 type ShapeUnitPlan = MergeUnitPlan<OverlayShape>;
 
+/** A block or shape the draft deletes and inserts again under the same id, edited by the human. */
+type ReinsertUnitPlan = MergeUnitPlan<EditableBlock | OverlayShape> & { operationIndex: number };
+
+function allUnits(plan: MergingReplayPlan): Array<MergeUnitPlan<unknown> & { id: string }> {
+  return [...plan.blockUnits.values(), ...plan.shapeUnits.values(), ...plan.reinsertUnits.values()];
+}
+
 interface MergingReplayPlan {
   rewrites: boolean;
   blockUnits: Map<string, BlockUnitPlan>;
   shapeUnits: Map<string, ShapeUnitPlan>;
+  reinsertUnits: Map<string, ReinsertUnitPlan>;
   /** Mutation index → ids a delete op still deletes (the others were edited by the human). */
   deleteRewrites: Map<number, string[]>;
   /** Blocks and shapes the AI deletes that are kept because the human edited them. */
@@ -376,6 +391,7 @@ function planMergingReplay(
     rewrites: false,
     blockUnits: new Map(),
     shapeUnits: new Map(),
+    reinsertUnits: new Map(),
     deleteRewrites: new Map(),
     keptDeletions: [],
     anchorRewrites: new Map(),
@@ -386,10 +402,12 @@ function planMergingReplay(
   planBlockUnits(document, draft, mergeBasis, plan, documentIds);
   planShapeUnits(document, draft, mergeBasis, plan);
   planDeletions(document, draft, mergeBasis, plan);
+  planReinsertions(document, draft, mergeBasis, plan, documentIds);
   planAnchorRelocations(document, draft, mergeBasis, plan);
   planAssetRenames(document, draft, plan);
   plan.rewrites = plan.blockUnits.size > 0
     || plan.shapeUnits.size > 0
+    || plan.reinsertUnits.size > 0
     || plan.deleteRewrites.size > 0
     || plan.anchorRewrites.size > 0
     || plan.assetRenames.size > 0;
@@ -574,9 +592,12 @@ function planDeletions(
   plan: MergingReplayPlan,
 ): void {
   const currentShapes = normalizeOverlaySnapshot(document.pageLayout?.overlay?.overlaySnapshot).shapes;
+  // A deletion followed by an insertion of the same id is a replacement (planReinsertions): it runs
+  // as written. If the human deleted the target, the replay then fails as for any replaced target.
+  const reinserted = collectReinsertedDeletionIds(draft);
   const stateSinceBase = (id: string): "edited" | "gone" | "unchanged" => {
     const entity = mergeBasis.entities[id];
-    if (!entity) {
+    if (!entity || reinserted.has(id)) {
       return "unchanged";
     }
     const current = entity.kind === "block"
@@ -602,6 +623,62 @@ function planDeletions(
     }
     plan.deleteRewrites.set(index, ids.filter((id) => states.get(id) === "unchanged"));
     appendUnique(plan.keptDeletions, kept);
+  });
+}
+
+function planReinsertions(
+  document: SigmaDocument,
+  draft: AiEditSessionDraft,
+  mergeBasis: ProposalMergeBasis,
+  plan: MergingReplayPlan,
+  documentIds: Map<string, number>,
+): void {
+  const reinserted = collectReinsertedDeletionIds(draft);
+  if (reinserted.size === 0) {
+    return;
+  }
+  const currentShapes = normalizeOverlaySnapshot(document.pageLayout?.overlay?.overlaySnapshot).shapes;
+  draft.operations.forEach((operation, operationIndex) => {
+    const id = insertedIdOf(operation);
+    const entity = id ? mergeBasis.entities[id] : undefined;
+    if (!id || !entity || !reinserted.has(id) || plan.reinsertUnits.has(id)) {
+      return;
+    }
+    const insertsBlock = operation.operation === "insertAfter";
+    if ((entity.kind === "block") !== insertsBlock) {
+      return;
+    }
+    const ours = entity.kind === "block" ? findBlock(document, id) : currentShapes.find((shape) => shape.id === id);
+    if (!ours || isSameContent(entity.value, ours)) {
+      return;
+    }
+    const theirs: EditableBlock | OverlayShape = operation.operation === "insertAfter"
+      ? operation.insertedBlock
+      : operation.operation === "insertOverlayShape" ? operation.overlayShape : (operation as { tableShape: OverlayShape }).tableShape;
+    const merge = mergeEntity3<EditableBlock | OverlayShape>(
+      structuredClone(entity.value),
+      structuredClone(ours),
+      structuredClone(theirs),
+    );
+    if (merge.value.type !== theirs.type) {
+      // The sides disagree on the node type and the kernel kept the human's: the AI's node wins.
+      plan.reinsertUnits.set(id, {
+        id, outcome: "typeAdopted", value: theirs, theirs, usesMerged: false, kernel: merge.report, operationIndex,
+      });
+      return;
+    }
+    const valid = merge.report.duplicateIds.length === 0 && (insertsBlock
+      ? isValidMergedBlock(merge.value as EditableBlock, ours as EditableBlock, documentIds)
+      : isPlainRecord(merge.value) && merge.value.id === id && isOverlayShape(merge.value));
+    plan.reinsertUnits.set(id, {
+      id,
+      outcome: valid ? "merged" : "invalid",
+      value: valid ? merge.value : theirs,
+      theirs,
+      usesMerged: valid && !isSameContent(merge.value, theirs),
+      kernel: merge.report,
+      operationIndex,
+    });
   });
 }
 
@@ -687,7 +764,21 @@ function buildRewrittenDraft(
   const removedOperations = new Set<number>();
   const removedMutations = new Set<number>();
 
+  const reinsertByOperation = new Map([...plan.reinsertUnits.values()].map((unit) => [unit.operationIndex, unit]));
   const operations = draft.operations.map((operation, index): AiEditDraft => {
+    const reinsert = reinsertByOperation.get(index);
+    if (reinsert) {
+      const value = structuredClone(fallBack.has(reinsert.id) ? reinsert.theirs : reinsert.value);
+      if (operation.operation === "insertAfter") {
+        return { ...operation, insertedBlock: value as EditableBlock };
+      }
+      if (operation.operation === "insertOverlayShape") {
+        return { ...operation, overlayShape: value as OverlayShape };
+      }
+      if (operation.operation === "insertTableShape") {
+        return { ...operation, tableShape: value as typeof operation.tableShape };
+      }
+    }
     const unit = unitByOperation.get(index);
     if (unit && isReplaceOperation(operation)) {
       const value = fallBack.has(unit.id) ? unit.theirs : unit.value;

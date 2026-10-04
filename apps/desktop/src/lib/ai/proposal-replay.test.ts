@@ -682,6 +682,54 @@ describe("replayProposalDraftMerging", () => {
     expect(withoutUpdatedAt(replayProposalDraftMerging(current, draft, basis).nextDocument)).toEqual(withoutUpdatedAt(current));
   });
 
+  it("merges a shape the AI deletes and inserts again under the same id with the human's edit", () => {
+    const base = withShapes(ensurePageLayout(documentOf([paragraph("p_1", "one")])), [geoShape("shape_x", 10, 10)]);
+    const draft: AiEditSessionDraft = {
+      summary: "置き換え",
+      plan: ["置き換え"],
+      operations: [{
+        operation: "insertOverlayShape",
+        summary: "再挿入",
+        targetId: "p_1",
+        overlayShape: { ...geoShape("shape_x", 10, 10), props: { ...geoShape("shape_x", 10, 10).props, color: "red" } } as OverlayShape,
+        assets: {},
+      }],
+      mutationOperations: [{ operation: "deleteOverlayShapes", summary: "削除", shapeIds: ["shape_x"] }],
+      operationOrder: [{ kind: "mutation", index: 0 }, { kind: "operation", index: 0 }],
+      warnings: [],
+    };
+    const basis = computeProposalMergeBasis(draft, base);
+    // The human moved X a little.
+    const current = withShapes(base, [{ ...geoShape("shape_x", 10, 10), x: 40 }]);
+
+    const result = replayProposalDraftMerging(current, draft, basis);
+    const shapes = normalizeOverlaySnapshot(result.nextDocument.pageLayout?.overlay?.overlaySnapshot).shapes;
+
+    expect(shapes).toHaveLength(1);
+    expect(shapes[0]).toMatchObject({ id: "shape_x", x: 40, props: { color: "red" } });
+    expect(result.report.humanEditedUnits).toEqual(["shape_x"]);
+    expect(result.report.editBeatsDelete).toEqual([]);
+  });
+
+  it("merges a block the AI deletes and inserts again under the same id with the human's edit", () => {
+    const base = documentOf([paragraph("p_1", "The cat sat."), paragraph("p_2", "two")]);
+    const draft: AiEditSessionDraft = {
+      summary: "移動",
+      plan: ["移動"],
+      operations: [{ operation: "insertAfter", summary: "再挿入", targetId: "p_2", insertedBlock: paragraph("p_1", "The cat sat!") }],
+      mutationOperations: [{ operation: "deleteBlocks", summary: "削除", blockIds: ["p_1"] }],
+      operationOrder: [{ kind: "mutation", index: 0 }, { kind: "operation", index: 0 }],
+      warnings: [],
+    };
+    const basis = computeProposalMergeBasis(draft, base);
+    const current = withParagraph(base, "p_1", "Yes. The cat sat.");
+
+    const result = replayProposalDraftMerging(current, draft, basis);
+
+    expect(result.nextDocument.content.map((block) => block.id)).toEqual(["p_2", "p_1"]);
+    expect(paragraphText(result.nextDocument, "p_1")).toBe("Yes. The cat sat!");
+  });
+
   it("never changes the persisted draft or the current document", () => {
     const base = documentOf([paragraph("p_1", "The cat sat.")]);
     const draft = replaceDraft(paragraph("p_1", "The dog sat."));

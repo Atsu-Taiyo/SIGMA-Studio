@@ -6,10 +6,12 @@ import {
 } from "@/lib/ai/sigma-doc-edit-schema";
 import { isOverlayAnchorSupportDraft } from "@/lib/ai/applied-document-diff";
 import {
+  collectReinsertedDeletionIds,
   findBlockContainer,
   usableProposalMergeBasis,
   type ProposalMergeBasis,
 } from "@/lib/ai/proposal-merge-basis";
+import { collectBlocksById } from "@/lib/document-tree";
 import {
   ProposalMergeReplayError,
   replayProposalDraftMerging,
@@ -461,20 +463,36 @@ function findNonMergeableContentStale(
 }
 
 /**
+ * Looks ids up in the document tree the way the AI tools resolve targets (`findBlock` walks into
+ * quotes, which the block hashes skip) and among the overlay shapes. Existence must not be read
+ * from the hashes: a paragraph inside a quote has no hash but is there.
+ */
+function indexDocumentIds(document: SigmaDocument): (id: string) => unknown {
+  const blocks = collectBlocksById(document.content);
+  const shapes = new Map(normalizeOverlaySnapshot(document.pageLayout?.overlay?.overlaySnapshot).shapes
+    .map((shape) => [shape.id, shape]));
+  return (id) => blocks.get(id) ?? shapes.get(id);
+}
+
+/**
  * Merged units the human deleted. A unit the draft itself deletes is not missing: both sides want it
- * gone, so the merging replay treats that part of the deletion as done.
+ * gone, so the merging replay treats that part of the deletion as done (unless the draft inserts the
+ * same id again: that is a replacement of a unit the human deleted).
  */
 function findMissingMergeUnits(
   proposal: Pick<MergeableProposal, "draft" | "mergeBasis">,
   currentHashes: Record<string, string>,
+  currentDocument?: SigmaDocument,
 ): ProposalFreshnessConflict | null {
+  const reinserted = collectReinsertedDeletionIds(proposal.draft);
   const deletedByDraft = new Set((proposal.draft.mutationOperations ?? []).flatMap((operation) => (
     operation.operation === "deleteBlocks"
       ? operation.blockIds
       : operation.operation === "deleteOverlayShapes" ? operation.shapeIds : []
-  )));
+  )).filter((id) => !reinserted.has(id)));
+  const lookup = currentDocument ? indexDocumentIds(currentDocument) : (id: string) => currentHashes[id];
   const missingIds = Object.keys(proposal.mergeBasis.entities)
-    .filter((id) => currentHashes[id] === undefined && !deletedByDraft.has(id));
+    .filter((id) => lookup(id) === undefined && !deletedByDraft.has(id));
   return missingIds.length > 0 ? { blockIds: missingIds, reason: "anchor-missing" } : null;
 }
 
@@ -488,13 +506,19 @@ export function computeMergeAttentionSignature(
   proposal: Pick<MergeableProposal, "draft"> & { mergeBasis?: ProposalMergeBasis },
   extraIds: readonly string[],
   currentHashes: Record<string, string>,
+  currentDocument?: SigmaDocument,
 ): string {
   const ids = [...new Set([
     ...Object.keys(proposal.mergeBasis?.entities ?? {}),
     ...collectTouchedBlockIds(proposal.draft),
     ...extraIds,
   ])].sort();
-  return hashString(ids.map((id) => `${id}=${currentHashes[id] ?? "-"}`).join("\n"));
+  // Blocks the hashes skip (inside quotes) are fingerprinted from the document itself.
+  const lookup = currentDocument ? indexDocumentIds(currentDocument) : () => undefined;
+  return hashString(ids.map((id) => {
+    const value = currentHashes[id] ?? lookup(id);
+    return `${id}=${value === undefined ? "-" : typeof value === "string" ? value : hashString(JSON.stringify(value))}`;
+  }).join("\n"));
 }
 
 /** cyrb53: a fast 53-bit string hash (not cryptographic; collisions only cost a re-evaluation). */
@@ -527,20 +551,21 @@ export function findMergeableProposalStructuralConflict(
   if (contentStale) {
     return contentStale;
   }
-  const missingUnits = findMissingMergeUnits(proposal, currentHashes);
+  const missingUnits = findMissingMergeUnits(proposal, currentHashes, currentDocument);
   if (missingUnits) {
     return missingUnits;
   }
+  const lookup = indexDocumentIds(currentDocument);
   const insertAfterTargets = new Set(proposal.draft.operations.flatMap((operation) => (
     operation.operation === "insertAfter" ? [operation.targetId] : []
   )));
   const missingAnchors = collectRequiredInsertAnchorBlockIds(proposal.draft).filter((id) => {
-    if (id === WHITEBOARD_CANVAS_TARGET_ID || currentHashes[id] !== undefined) {
+    if (id === WHITEBOARD_CANVAS_TARGET_ID || lookup(id) !== undefined) {
       return false;
     }
     const anchor = proposal.mergeBasis.anchors?.[id];
     return !(insertAfterTargets.has(id) && anchor?.precedingIds.some((precedingId) => (
-      currentHashes[precedingId] !== undefined && findBlockContainer(currentDocument, precedingId) === anchor.container
+      lookup(precedingId) !== undefined && findBlockContainer(currentDocument, precedingId) === anchor.container
     )));
   });
   if (missingAnchors.length > 0) {

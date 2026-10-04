@@ -2772,13 +2772,32 @@ describe("LocalMcpEditProposalStore#autoRebaseProposalsForFile", () => {
     });
   });
 
+  it("finds a target inside a quote, so a save elsewhere does not report it missing", async () => {
+    const paragraph = (id: string, text: string): ParagraphNode => ({ type: "paragraph", id, children: [{ type: "text", text }] });
+    const baseDocument: SigmaDocument = {
+      ...paragraphDocument([]),
+      content: [{ type: "quote", id: "quote_1", blocks: [paragraph("q_1", "quoted")] }, paragraph("p_2", "p_2")],
+    };
+    const draft = replaceParagraphDraft("q_1", "AI quoted");
+    const proposal = await store.createProposal({
+      fileId: "file_1", baseRevision: 1, baseDocument, summary: draft.summary, plan: draft.plan, provider: null,
+      source: { toolName: "draft_update_rich_content", toolArgs: {} }, draft,
+      nextDocument: replayProposalDraft(baseDocument, draft).nextDocument,
+    });
+
+    const result = await store.autoRebaseProposalsForFile("file_1", withParagraphText(baseDocument, "p_2", "human"), 2);
+
+    expect(result).toEqual({ rebased: [proposal.proposalId], conflicted: [] });
+    expect((await store.loadProposal(proposal.proposalId))?.conflict).toBeUndefined();
+  });
+
   it("keeps a deferred automatic approval across a save that does not touch the proposal, and drops it when it does", async () => {
     const proposal = await createTouchingProposal();
     const humanEdited = withParagraphText(sampleDocument, P_YOTTE_ID, "人間が書き換えた本文");
     await store.autoRebaseProposalsForFile("file_1", humanEdited, 2);
     await store.recordAutoApplyDeferred(
       proposal.proposalId, 2, createEmptyProposalMergeReport(),
-      computeMergeAttentionSignature(proposal, [], computeDocumentBlockHashes(humanEdited)),
+      computeMergeAttentionSignature(proposal, [], computeDocumentBlockHashes(humanEdited), humanEdited),
     );
 
     const unrelated = withParagraphText(humanEdited, P_SOURCE_NOTE_ID, "無関係な注記");
