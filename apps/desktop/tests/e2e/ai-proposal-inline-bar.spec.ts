@@ -2,6 +2,7 @@ import { expect, test, type Locator, type Page } from "@playwright/test";
 
 import type { OverlayShape, SigmaBlock, SigmaDocument } from "@/features/document";
 import type { DesktopMcpEditProposalSummary } from "@/types/desktop";
+import { grabShapeFromBody } from "./body-overlay-entry";
 import { installDesktopRuntimeMock } from "./desktop-runtime-mock";
 
 /**
@@ -469,4 +470,44 @@ test("the decision bar stays one line and is never split by a page boundary", as
     // 参照元はバーの外 (すぐ下の行)。続きの複製に回っても見た目は出る。
     await expect(page.locator(".page-flow").getByText("参照した教材のとても長い名前の例").first()).toBeVisible();
   }
+});
+
+function withSecondShape(): SigmaDocument {
+  const document = createDocument();
+  const snapshot = document.pageLayout!.overlay!.overlaySnapshot!;
+  return {
+    ...document,
+    pageLayout: {
+      ...document.pageLayout,
+      overlay: {
+        ...document.pageLayout!.overlay,
+        overlaySnapshot: { ...snapshot, shapes: [...snapshot.shapes, { ...rectangle("other_shape", "para_target"), x: 420 }] },
+      },
+    },
+  } as SigmaDocument;
+}
+
+const selectedShape = (page: Page, id: string) => page.locator(`.overlay-canvas-editor .overlay-shape.selected[data-overlay-shape-id="${id}"]`);
+
+test("hiding the before state drops the hidden shape from the current selection", async ({ page }) => {
+  await open(page, [shapeMove()]);
+  const before = page.locator('.overlay-shape.ai-diff-before-shape[data-overlay-shape-id="bar_shape"]').first();
+  await grabShapeFromBody(page, before);
+  await expect(selectedShape(page, "bar_shape")).toHaveCount(1);
+
+  await page.locator('[data-ai-proposal-card="overlay"]').getByRole("button", { name: "変更前を隠す", exact: true }).click();
+  await expect(selectedShape(page, "bar_shape")).toHaveCount(0);
+  await expect(page.locator(".overlay-canvas-editor .overlay-shape.selected")).toHaveCount(0);
+});
+
+test("select-all on the canvas leaves a hidden before shape out", async ({ page }) => {
+  await open(page, [shapeMove()], withSecondShape());
+  await page.locator('[data-ai-proposal-card="overlay"]').getByRole("button", { name: "変更前を隠す", exact: true }).click();
+  const other = page.locator('.page-overlay-preview .overlay-shape[data-overlay-shape-id="other_shape"]').first();
+  await grabShapeFromBody(page, other);
+  await expect(selectedShape(page, "other_shape")).toHaveCount(1);
+
+  await page.keyboard.press("ControlOrMeta+A");
+  await expect(selectedShape(page, "other_shape")).toHaveCount(1);
+  await expect(selectedShape(page, "bar_shape")).toHaveCount(0);
 });

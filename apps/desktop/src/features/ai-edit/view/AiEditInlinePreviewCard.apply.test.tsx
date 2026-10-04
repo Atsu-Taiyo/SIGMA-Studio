@@ -1,10 +1,11 @@
 // @vitest-environment happy-dom
-import { act } from "react";
+import { act, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { AiEditInlinePreviewCard } from "./AiEditInlinePreviewCard";
 import type { AiProposalContent } from "../model/proposal-content";
+import { DEFAULT_AI_PROPOSAL_DISPLAY_STATE, type AiProposalDisplayState } from "../model/proposal-display-state";
 
 function replaceContent(text: string): AiProposalContent {
   const emptyNumbering = { problems: new Map(), headings: new Map() };
@@ -63,6 +64,41 @@ describe("AiEditInlinePreviewCard on its own", () => {
     expect(content.hidden).toBe(false);
     expect(onApply).not.toHaveBeenCalled();
     expect(onDismiss).not.toHaveBeenCalled();
+  });
+
+  it("does not touch the page's display state on every keystroke of the dismiss reason", async () => {
+    const onDisplayStateChange = vi.fn();
+    function Page() {
+      const [state, setState] = useState<AiProposalDisplayState>(DEFAULT_AI_PROPOSAL_DISPLAY_STATE);
+      return (
+        <AiEditInlinePreviewCard
+          content={replaceContent("書き換え後")}
+          applying={false}
+          onDismiss={() => {}}
+          displayState={state}
+          onDisplayStateChange={(patch) => {
+            onDisplayStateChange(patch);
+            setState((previous) => ({ ...previous, ...patch }));
+          }}
+        />
+      );
+    }
+    await act(async () => root.render(<Page />));
+    await act(async () => button("破棄").click());
+    onDisplayStateChange.mockClear();
+
+    const textarea = document.querySelector<HTMLTextAreaElement>('[aria-label="破棄する理由"] textarea')!;
+    for (const text of ["数", "数式", "数式が"]) {
+      await act(async () => {
+        Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(textarea, text);
+        textarea.dispatchEvent(new Event("input", { bubbles: true }));
+      });
+    }
+    // 紙面の表示状態 (紙面全体の描き直しにつながる) は打鍵では変わらない。
+    expect(onDisplayStateChange).not.toHaveBeenCalled();
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 350)));
+    expect(onDisplayStateChange).toHaveBeenCalledTimes(1);
+    expect(onDisplayStateChange).toHaveBeenCalledWith({ dismissReason: "数式が" });
   });
 
   it("renders the failed reason on the bar and keeps the inline card pending", async () => {

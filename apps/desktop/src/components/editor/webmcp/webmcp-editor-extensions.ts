@@ -70,11 +70,15 @@ export function mergeEditorExtensionSets(
       : decoration);
   }
 
+  // 片方しか持たない部分は、持っている側のオブジェクトをそのまま渡す。本文の編集方針や図形の飾りを
+  // 作り直すと、その props を読む本文ユニット・図形が全部描き直される。
   return {
-    textFlowEditPolicy: {
-      guards: [...guardsByBlockId.values()],
-      lockAll: second.textFlowEditPolicy?.lockAll ?? first.textFlowEditPolicy?.lockAll,
-    },
+    textFlowEditPolicy: !first.textFlowEditPolicy || !second.textFlowEditPolicy
+      ? first.textFlowEditPolicy ?? second.textFlowEditPolicy
+      : {
+          guards: [...guardsByBlockId.values()],
+          lockAll: second.textFlowEditPolicy.lockAll ?? first.textFlowEditPolicy.lockAll,
+        },
     overlayEditPolicy: firstOverlay || secondOverlay
       ? {
           lockedShapeIds: new Set([
@@ -89,7 +93,11 @@ export function mergeEditorExtensionSets(
           blockedNoticeClassName: secondOverlay?.blockedNoticeClassName ?? firstOverlay?.blockedNoticeClassName,
         }
       : undefined,
-    overlayShapeDecorations: decorations,
+    overlayShapeDecorations: !first.overlayShapeDecorations || !second.overlayShapeDecorations
+      ? first.overlayShapeDecorations ?? second.overlayShapeDecorations
+      : decorations,
+    // 問題の枠の描き直し (枠エディタの AI タブ) は 1 つの機能だけが差し込む。どちらかが持っていれば残す。
+    problemFrameDrawing: second.problemFrameDrawing ?? first.problemFrameDrawing,
     auxiliarySurfaceExtensions: mergeEditorExtensionSets(
       first.auxiliarySurfaceExtensions,
       second.auxiliarySurfaceExtensions,
