@@ -1,7 +1,8 @@
 import { expect, test, type Page } from "@playwright/test";
 import type { SigmaBlock, SigmaDocument } from "@/features/document";
 import { createBoxBlock } from "@/lib/box-blocks";
-import { installDesktopRuntimeMock } from "./desktop-runtime-mock";
+import type { DesktopMcpEditProposalSummary } from "@/types/desktop";
+import { installDesktopRuntimeMock, type DesktopRuntimeMockOptions } from "./desktop-runtime-mock";
 import { auditPagination, findUnderfilledBreaks } from "./pagination-audit";
 
 /**
@@ -165,10 +166,10 @@ function breaksScenario(filler: number): SigmaBlock[] {
   ];
 }
 
-async function openDoc(page: Page, document: SigmaDocument) {
+async function openDoc(page: Page, document: SigmaDocument, mockOptions: DesktopRuntimeMockOptions = {}) {
   // 全ページを描かせる (紙面は表示範囲だけ描かれる)。
   await page.setViewportSize({ width: 1500, height: 4000 });
-  await installDesktopRuntimeMock(page, document);
+  await installDesktopRuntimeMock(page, document, mockOptions);
   await page.goto("/");
   await expect(page.locator(".startup-splash")).toBeHidden();
   await page.evaluate(() => window.document.fonts.ready);
@@ -180,7 +181,8 @@ async function openDoc(page: Page, document: SigmaDocument) {
       const flow = window.document.querySelector<HTMLElement>(".page-flow");
       const displacements = Array.from(window.document.querySelectorAll("[data-flow-dy]"))
         .map((element) => element.getAttribute("data-flow-dy")).join(",");
-      return `${canvas?.dataset.pageCount}:${flow?.getBoundingClientRect().height}:${window.document.querySelectorAll(".editor-box-fragment-viewport").length}:${displacements}`;
+      const extensions = window.document.querySelectorAll("[data-flow-extension-node-id], [data-flow-extension-replica]").length;
+      return `${canvas?.dataset.pageCount}:${flow?.getBoundingClientRect().height}:${window.document.querySelectorAll(".editor-box-fragment-viewport").length}:${extensions}:${displacements}`;
     });
     stable = signature === previous ? stable + 1 : 0;
     previous = signature;
@@ -197,7 +199,14 @@ function breakIdsOf(content: readonly SigmaBlock[]): string[] {
   return ids;
 }
 
-async function auditScenario(page: Page, content: SigmaBlock[], heightMm: number, columnCount: number): Promise<string[]> {
+async function auditScenario(
+  page: Page,
+  content: SigmaBlock[],
+  heightMm: number,
+  columnCount: number,
+  mockOptions: DesktopRuntimeMockOptions = {},
+  afterOpen: (page: Page) => Promise<void> = async () => {},
+): Promise<string[]> {
   const columnGeometry = {
     marginLeftMm: MARGIN_MM,
     columnCount,
@@ -205,9 +214,11 @@ async function auditScenario(page: Page, content: SigmaBlock[], heightMm: number
     columnGapMm: COLUMN_GAP_MM,
   };
   const withoutBreaks = JSON.parse(JSON.stringify(content, (key, value) => (key === "pagination" ? undefined : value))) as SigmaBlock[];
-  await openDoc(page, doc(withoutBreaks, 3000, columnCount));
+  await openDoc(page, doc(withoutBreaks, 3000, columnCount), mockOptions);
+  await afterOpen(page);
   const natural = await auditPagination(page, { marginTopMm: MARGIN_MM, marginBottomMm: MARGIN_MM, pageHeightMm: 3000, ...columnGeometry });
-  await openDoc(page, doc(content, heightMm, columnCount));
+  await openDoc(page, doc(content, heightMm, columnCount), mockOptions);
+  await afterOpen(page);
   const paged = await auditPagination(page, {
     marginTopMm: MARGIN_MM, marginBottomMm: MARGIN_MM, pageHeightMm: heightMm, ...columnGeometry,
     manualBreakBlockIds: breakIdsOf(content),
@@ -248,6 +259,84 @@ for (const columnCount of [1, 2]) {
       expect(failures).toEqual([]);
     });
   }
+}
+
+/**
+ * 本文ブロックの後ろに差し込まれる拡張ノード (AI の提案カード) も本文と同じ行として改ページする。
+ * カードはページ下端に来ても行の間で切れ、続きは次のページ (段) に描かれる。対象の段落の位置を
+ * ずらして、カードがページ (段) の境目をまたぐ配置を作る。
+ */
+function proposalCardScenario(filler: number): SigmaBlock[] {
+  return [
+    ...Array.from({ length: filler }, (_, index) => text(`fill_${index}`, `本文${index}`)),
+    text("proposal_target", "提案の対象の段落"),
+    ...Array.from({ length: 6 }, (_, index) => text(`tail_${index}`, `後続${index}`)),
+  ];
+}
+
+const PROPOSAL_ROWS = 7;
+
+/** 対象の段落の後ろに段落を連ねて挿入する提案 (カードの中身は挿入される行)。 */
+function pendingInsertionProposal(targetId: string): DesktopMcpEditProposalSummary {
+  const createdAt = "2026-01-01T00:00:00.000Z";
+  return {
+    proposalId: "proposal_corpus",
+    fileId: "file_e2e_document",
+    baseRevision: 1,
+    baseDocId: "pagination_corpus",
+    title: "改ページ受入の提案",
+    summary: "提案カード",
+    plan: ["段落を挿入する"],
+    warnings: [],
+    changedIds: [targetId],
+    provider: "chatgpt",
+    runId: "run_corpus",
+    roomId: "room_corpus",
+    draft: {
+      summary: "提案カード",
+      plan: ["段落を挿入する"],
+      warnings: [],
+      operations: Array.from({ length: PROPOSAL_ROWS }, (_, index) => ({
+        operation: "insertAfter" as const,
+        summary: "段落を挿入",
+        targetId: index === 0 ? targetId : `proposal_row_${index - 1}`,
+        insertedBlock: {
+          id: `proposal_row_${index}`,
+          type: "paragraph" as const,
+          children: [{ type: "text" as const, text: `提案で足す行${index}` }],
+        },
+      })),
+    },
+    status: "pending",
+    createdAt,
+    updatedAt: createdAt,
+  };
+}
+
+for (const columnCount of [1, 2]) {
+  test(`moves only overflowing lines: proposal card at the page bottom, ${columnCount} column(s)`, async ({ page }) => {
+    test.setTimeout(300_000);
+    const mockOptions: DesktopRuntimeMockOptions = {
+      ai: { enabled: true, initialProposals: [pendingInsertionProposal("proposal_target")] },
+    };
+    const waitForCard = async (current: Page) => {
+      const card = current.locator('.page-flow [data-flow-extension-node-id^="extension:ai-proposal:proposal_target:"]');
+      await expect(card).toHaveCount(1);
+      await expect(card).toContainText(`提案で足す行${PROPOSAL_ROWS - 1}`);
+    };
+    const failures: string[] = [];
+    let splitCards = 0;
+    for (const heightMm of PAGE_HEIGHTS_MM) {
+      for (const filler of FILLERS) {
+        const violations = await auditScenario(page, proposalCardScenario(filler), heightMm, columnCount, mockOptions, waitForCard);
+        failures.push(...violations.map((violation) => `h=${heightMm} filler=${filler}: ${violation}`));
+        splitCards += await page.locator("[data-flow-extension-replica]").count();
+      }
+    }
+    expect(failures).toEqual([]);
+    // 少なくとも 1 つの配置でカードがページ (段) の境目をまたぎ、続きが描かれている。
+    expect(splitCards).toBeGreaterThan(0);
+  });
 }
 
 test("columns use the same spacing as a single column", async ({ page }) => {

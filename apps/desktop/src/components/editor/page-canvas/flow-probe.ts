@@ -24,6 +24,21 @@ export const FLOW_DX_ATTRIBUTE = "data-flow-dx";
 export const FLOW_DY_ATTRIBUTE = "data-flow-dy";
 export const FLOW_BREAK_BEFORE_ATTRIBUTE = "data-flow-break-before";
 export const FLOW_SPAN_ATTRIBUTE = "data-flow-span";
+/**
+ * 本文ブロックの後ろに機能が差し込む要素 (フロー内の拡張ノード)。値はページ全体で一意な id。
+ * 本文と同じく行として測り、ページ・段の境目では行の間で切る。
+ */
+export const FLOW_EXTENSION_NODE_ATTRIBUTE = "data-flow-extension-node-id";
+/** 拡張ノードの中身の版。高さが同じでも、これが変われば行を測り直す。 */
+export const FLOW_MEASURE_REVISION_ATTRIBUTE = "data-flow-measure-revision";
+/**
+ * ページ・段の境目で切れた拡張ノードの続き (複製) が持つ、元の拡張ノードの id。複製はフローの外の
+ * 層にあり、計測は読まない (正本だけが `FLOW_EXTENSION_NODE_ATTRIBUTE` を持つ)。
+ */
+export const FLOW_EXTENSION_REPLICA_ATTRIBUTE = "data-flow-extension-replica";
+
+const BODY_NODE_SELECTOR = `.ProseMirror > [data-sigma-doc-id], [${FLOW_EXTENSION_NODE_ATTRIBUTE}]`;
+const EXTENSION_NODE_SELECTOR = `[${FLOW_EXTENSION_NODE_ATTRIBUTE}]`;
 
 /** 紙面に出ない編集用の要素。行として数えない。 */
 const EDITOR_ONLY_SELECTOR = [
@@ -39,6 +54,21 @@ const EDITOR_ONLY_SELECTOR = [
   "[data-editor-only]",
   "button",
 ].join(",");
+
+/**
+ * 拡張ノードの中で行に数えないもの。拡張ノードは紙面に描かれる部品 (操作のボタンなど) も
+ * 中身なので、編集面の飾りを除く規則 (`EDITOR_ONLY_SELECTOR`) は使わない。
+ */
+const EXTENSION_EXCLUDED_SELECTOR = [".katex-mathml", "[data-editor-only]"].join(",");
+
+interface ContentMeasureRules {
+  excluded: string;
+  /** スクロール・クリップする子孫の外にはみ出した描画を数えない (拡張ノードだけ。style を引くので重い)。 */
+  clipToOverflow: boolean;
+}
+
+const BLOCK_CONTENT_RULES: ContentMeasureRules = { excluded: EDITOR_ONLY_SELECTOR, clipToOverflow: false };
+const EXTENSION_CONTENT_RULES: ContentMeasureRules = { excluded: EXTENSION_EXCLUDED_SELECTOR, clipToOverflow: true };
 
 /** 分割できない行内要素。子孫の矩形ではなく全体を 1 つの矩形として読む。 */
 const INLINE_ATOM_SELECTOR = ".inline-math-node, .boxed-run-frame, .math-preview";
@@ -112,14 +142,25 @@ export function probeFlow(flow: HTMLElement, options: FlowProbeOptions): ProbeTr
   const toY = (clientY: number, acc: Displacement) => (clientY - flowRect.top) / zoom - acc.dy;
 
   const probeNode = (element: HTMLElement, unitAcc: Displacement): ProbeNode | null => {
-    const id = element.getAttribute("data-sigma-doc-id");
+    if (element.parentElement?.closest(EXTENSION_NODE_SELECTOR)) {
+      // 拡張ノードの中身 (表示用のコピーなど) は拡張ノードの行として測る。本文のブロックではない。
+      return null;
+    }
+    const extensionId = element.getAttribute(FLOW_EXTENSION_NODE_ATTRIBUTE);
+    const isExtension = extensionId !== null;
+    const id = isExtension ? extensionId : element.getAttribute("data-sigma-doc-id");
     if (!id) return null;
-    seenNodeIds.add(id);
     const own = readFlowDisplacement(element);
     const acc = { dx: unitAcc.dx + own.dx, dy: unitAcc.dy + own.dy };
     const rect = toRect(element.getBoundingClientRect(), acc);
     const height = rect.bottom - rect.top;
-    const revision = element.closest<HTMLElement>(".ProseMirror")?.dataset.flowMeasureRevision ?? "0";
+    // 閉じた (中身の無い) 拡張ノードは行を持たない。
+    if (isExtension && height <= 0.5) return null;
+    seenNodeIds.add(id);
+    // 編集面の版は面 (ProseMirror) が、拡張ノードの版は要素自身が持つ。
+    const revision = (isExtension
+      ? element.getAttribute(FLOW_MEASURE_REVISION_ATTRIBUTE)
+      : element.closest<HTMLElement>(".ProseMirror")?.dataset.flowMeasureRevision) ?? "0";
     const cached = cache?.nodes.get(id);
     let inkRelative: ProbeInk[];
     let chromeRelative: ProbeChromeBox[];
@@ -133,28 +174,35 @@ export function probeFlow(flow: HTMLElement, options: FlowProbeOptions): ProbeTr
       inkRelative = cached.ink;
       chromeRelative = cached.chrome;
     } else {
-      const measured = measureNodeContent(element, (clientY) => toY(clientY, acc) - rect.top);
+      const measured = measureNodeContent(
+        element,
+        (clientY) => toY(clientY, acc) - rect.top,
+        isExtension ? EXTENSION_CONTENT_RULES : BLOCK_CONTENT_RULES,
+      );
       inkRelative = measured.ink;
       chromeRelative = measured.chrome;
       cache?.nodes.set(id, { element, revision, width: rect.width, height, ink: inkRelative, chrome: chromeRelative });
     }
-    const innerBreaks = TEXT_LEAF_TAGS.has(element.tagName.toUpperCase())
+    const innerBreaks = isExtension
+      || TEXT_LEAF_TAGS.has(element.tagName.toUpperCase())
       || (options.breakHostIds !== undefined && !options.breakHostIds.has(id))
       ? []
       : measureInnerBreaks(element, options.breakIds, (clientY) => toY(clientY, acc));
     return {
       id,
+      ...(isExtension ? { kind: "extension" as const } : {}),
       rect,
       ink: inkRelative.map((ink) => ({ ...ink, top: ink.top + rect.top, bottom: ink.bottom + rect.top })),
       chrome: chromeRelative.map((box) => ({ ...box, top: box.top + rect.top, bottom: box.bottom + rect.top })),
-      breakBefore: options.breakIds.has(id),
+      breakBefore: !isExtension && options.breakIds.has(id),
       ...(innerBreaks.length > 0 ? { innerBreaks } : {}),
     };
   };
 
+  /** 編集面の最上位ブロックと拡張ノードを文書順に。 */
   const probeEditorNodes = (root: Element, unitAcc: Displacement): ProbeNode[] => {
     const nodes: ProbeNode[] = [];
-    root.querySelectorAll<HTMLElement>(".ProseMirror > [data-sigma-doc-id]").forEach((element) => {
+    root.querySelectorAll<HTMLElement>(BODY_NODE_SELECTOR).forEach((element) => {
       const node = probeNode(element, unitAcc);
       if (node) nodes.push(node);
     });
@@ -171,7 +219,7 @@ export function probeFlow(flow: HTMLElement, options: FlowProbeOptions): ProbeTr
     const breakBefore = unitElement.getAttribute(FLOW_BREAK_BEFORE_ATTRIBUTE) === "true";
 
     if (unitElement.querySelector("[data-large-paste-deferred]")) {
-      units.push({ id, rect, span, breakBefore, nodes: [], attachments: [], objects: [], placeholder: true });
+      units.push({ id, rect, span, breakBefore, nodes: [], attachments: [], placeholder: true });
       return;
     }
 
@@ -194,6 +242,8 @@ export function probeFlow(flow: HTMLElement, options: FlowProbeOptions): ProbeTr
 
     const attachments: ProbeInk[] = [];
     unitElement.querySelectorAll<HTMLElement>(".problem-number-marker").forEach((marker) => {
+      // 拡張ノードの中身は拡張ノードの行。ユニットの付属物にしない。
+      if (marker.closest(EXTENSION_NODE_SELECTOR)) return;
       const markerRect = marker.getBoundingClientRect();
       if (markerRect.height > 0.5) {
         attachments.push({ top: toY(markerRect.top, acc), bottom: toY(markerRect.bottom, acc), kind: "atom" });
@@ -222,7 +272,11 @@ export function probeFlow(flow: HTMLElement, options: FlowProbeOptions): ProbeTr
         ":scope > .problem-area-paper-content, :scope > .layout-section-paper-body",
       );
       if (contentElement) {
-        const contentBottom = toY(contentElement.getBoundingClientRect().bottom, acc);
+        // 中身の下に置かれた拡張ノード (問題の後ろの差し込み) も中身。予約はその下から。
+        const contentBottom = Math.max(
+          toY(contentElement.getBoundingClientRect().bottom, acc),
+          ...nodes.filter((node) => node.kind === "extension").map((node) => node.rect.bottom),
+        );
         const style = getComputedStyle(unitElement);
         const closing = (Number.parseFloat(style.paddingBottom) || 0) + (Number.parseFloat(style.borderBottomWidth) || 0);
         const reservationBottom = rect.bottom - (frame?.last ? closing : 0);
@@ -240,7 +294,6 @@ export function probeFlow(flow: HTMLElement, options: FlowProbeOptions): ProbeTr
       nodes,
       ...(columns ? { columns } : {}),
       attachments,
-      objects: [],
       ...(frame ? { frame } : {}),
       ...(reservation ? { reservation } : {}),
     });
@@ -290,25 +343,46 @@ function measureInnerBreaks(
 function measureNodeContent(
   element: HTMLElement,
   toRelativeY: (clientY: number) => number,
+  rules: ContentMeasureRules,
 ): { ink: ProbeInk[]; chrome: ProbeChromeBox[] } {
   const ink: ProbeInk[] = [];
   const chrome: ProbeChromeBox[] = [];
   const range = element.ownerDocument.createRange();
-  const pushRect = (rect: DOMRect | DOMRectReadOnly, kind: ProbeInk["kind"]) => {
+  const view = element.ownerDocument.defaultView;
+  const ownerId = element.getAttribute("data-sigma-doc-id") ?? element.getAttribute(FLOW_EXTENSION_NODE_ATTRIBUTE);
+  /** client 座標の縦の可視範囲。スクロール・クリップする子孫の外の描画は紙面に見えない。 */
+  interface Clip { top: number; bottom: number }
+  const NO_CLIP: Clip = { top: Number.NEGATIVE_INFINITY, bottom: Number.POSITIVE_INFINITY };
+  const visibleSpan = (rect: DOMRect | DOMRectReadOnly, clip: Clip) => {
+    const top = Math.max(rect.top, clip.top);
+    const bottom = Math.min(rect.bottom, clip.bottom);
+    return bottom - top > 0.5 ? { top, bottom } : null;
+  };
+  const pushRect = (rect: DOMRect | DOMRectReadOnly, kind: ProbeInk["kind"], clip: Clip) => {
     if (rect.height <= 0.5) return;
-    ink.push({ top: toRelativeY(rect.top), bottom: toRelativeY(rect.bottom), kind });
+    const span = visibleSpan(rect, clip);
+    if (!span) return;
+    ink.push({ top: toRelativeY(span.top), bottom: toRelativeY(span.bottom), kind });
+  };
+  const clipOf = (current: Element, clip: Clip): Clip => {
+    if (!rules.clipToOverflow || current === element || !view) return clip;
+    const style = view.getComputedStyle(current);
+    const overflow = style.overflowY || style.overflow;
+    if (!overflow || overflow === "visible") return clip;
+    const rect = current.getBoundingClientRect();
+    return { top: Math.max(clip.top, rect.top), bottom: Math.min(clip.bottom, rect.bottom) };
   };
 
-  const visit = (current: Element) => {
+  const visit = (current: Element, parentClip: Clip) => {
     // display:none の要素は矩形を持たないので、ここで style を引く必要は無い (打鍵ごとの計測を重くしない)。
-    if (current !== element && current.matches(EDITOR_ONLY_SELECTOR)) return;
+    if (current !== element && current.matches(rules.excluded)) return;
     if (current.matches(CHROME_SELECTOR)) {
-      const rect = current.getBoundingClientRect();
-      if (rect.height > 0.5) {
+      const span = visibleSpan(current.getBoundingClientRect(), parentClip);
+      if (span) {
         chrome.push({
-          id: current.getAttribute("data-sigma-doc-id") ?? `${element.getAttribute("data-sigma-doc-id")}:chrome:${chrome.length}`,
-          top: toRelativeY(rect.top),
-          bottom: toRelativeY(rect.bottom),
+          id: current.getAttribute("data-sigma-doc-id") ?? `${ownerId}:chrome:${chrome.length}`,
+          top: toRelativeY(span.top),
+          bottom: toRelativeY(span.bottom),
         });
       }
     }
@@ -317,32 +391,29 @@ function measureNodeContent(
       return;
     }
     if (current !== element && current.matches(INLINE_ATOM_SELECTOR)) {
-      for (const rect of Array.from(current.getClientRects())) pushRect(rect, "atom");
+      for (const rect of Array.from(current.getClientRects())) pushRect(rect, "atom", parentClip);
       return;
     }
-    if (current !== element && OBJECT_TAGS.has(current.tagName.toUpperCase())) {
-      pushRect(current.getBoundingClientRect(), "object");
+    if (OBJECT_TAGS.has(current.tagName.toUpperCase())) {
+      pushRect(current.getBoundingClientRect(), "object", parentClip);
       return;
     }
-    if (current === element && OBJECT_TAGS.has(current.tagName.toUpperCase())) {
-      pushRect(current.getBoundingClientRect(), "object");
-      return;
-    }
+    const clip = clipOf(current, parentClip);
     for (const child of Array.from(current.childNodes)) {
       if (child.nodeType === Node.TEXT_NODE) {
         if (!(child.textContent ?? "").trim()) continue;
         range.selectNodeContents(child);
-        for (const rect of Array.from(range.getClientRects())) pushRect(rect, "text");
+        for (const rect of Array.from(range.getClientRects())) pushRect(rect, "text", clip);
         continue;
       }
       if (child instanceof HTMLBRElement) {
         range.selectNode(child);
-        pushRect(range.getBoundingClientRect(), "empty");
+        pushRect(range.getBoundingClientRect(), "empty", clip);
         continue;
       }
-      if (child instanceof Element) visit(child);
+      if (child instanceof Element) visit(child, clip);
     }
   };
-  visit(element);
+  visit(element, NO_CLIP);
   return { ink, chrome };
 }

@@ -1,7 +1,7 @@
 "use client";
 
 import { WandSparkles } from "lucide-react";
-import { memo, useCallback, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { memo, useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 import {
   AiEditInlinePreviewCard,
@@ -42,6 +42,7 @@ import type { OverlayShape } from "@/features/document";
 import type {
   PageCanvasEditorExtension,
   PageCanvasGhostShape,
+  PageCanvasInlineContent,
   PageCanvasOverlayPresentation,
   PageCanvasOverlayPresentationContext,
   PageCanvasSelectionAction,
@@ -73,11 +74,6 @@ const OVERLAY_APPROVAL_WIDGET_WIDTH = 272;
 const OVERLAY_APPROVAL_WIDGET_ESTIMATED_HEIGHT = 48;
 const OVERLAY_APPROVAL_WIDGET_GAP = 8;
 const OVERLAY_APPROVAL_WIDGET_MARGIN = 12;
-const AI_COLUMN_ANCHOR = {
-  className: "ai-column-preview-anchor",
-  keyPrefix: "ai-column-preview",
-  getDataAttributes: (targetId: string) => ({ "data-ai-preview-target-id": targetId }),
-};
 
 export interface AiPageCanvasEditorProps extends Omit<PageCanvasEditorProps, "pageExtension"> {
   /**
@@ -218,7 +214,7 @@ interface UseAiPageCanvasExtensionOptions {
 
 /** 提案が無いときに配り回す固定の空コレクション (identity を動かさないため)。 */
 const EMPTY_PREVIEW_CARDS_BY_TARGET_ID: ReadonlyMap<string, AiProposalAnchorCard[]> = new Map();
-const EMPTY_INLINE_CONTENT: ReadonlyMap<string, Array<{ key: string; content: ReactNode }>> = new Map();
+const EMPTY_INLINE_CONTENT: ReadonlyMap<string, PageCanvasInlineContent[]> = new Map();
 
 function useAiPageCanvasExtension({
   document,
@@ -281,10 +277,11 @@ function useAiPageCanvasExtension({
     if (previewCardsByTargetId.size === 0) {
       return EMPTY_INLINE_CONTENT;
     }
-    const result = new Map<string, Array<{ key: string; content: ReactNode }>>();
+    const result = new Map<string, PageCanvasInlineContent[]>();
     for (const [targetId, cards] of previewCardsByTargetId) {
       result.set(targetId, cards.map((card) => ({
-        key: card.preview.proposalIds.join(","),
+        key: getAiProposalCardKey(targetId, card.preview),
+        measureRevision: getAiProposalCardMeasureRevision(card, document.metadata.mathFractionSizing),
         content: (
           <AiEditInlinePreviewCard
             content={card.content}
@@ -432,7 +429,7 @@ function useAiPageCanvasExtension({
 
       return [(
         <AiEditOverlayApprovalWidget
-          key={preview.proposalIds.join(",")}
+          key={getAiProposalConversationKey(preview)}
           preview={preview}
           applying={applying}
           placement={placement}
@@ -532,7 +529,6 @@ function useAiPageCanvasExtension({
     textFlowChangeDecorationState,
     overlayShapeClassNames,
     resolveOverlayPresentation,
-    columnAnchor: AI_COLUMN_ANCHOR,
     selection,
     renderCanvasLayer,
     portal,
@@ -677,6 +673,43 @@ export function resolveAiEditGhostShapes<T extends OverlayShape>(
     blockGaps,
   );
   return getRenderableShapes(resolved).filter((shape): shape is T => ghostIds.has(shape.id));
+}
+
+/**
+ * 提案のまとまり (プレビュー) の名前。同じ部屋の追加ターンは同じまとまりに足される
+ * (`groupMcpProposalsForPreview`) ので、提案 id の並びではなく部屋 → run → 最初の提案で決める。
+ * これを key にすれば、追加ターンでカードやウィジェットが作り直されない。
+ */
+export function getAiProposalConversationKey(preview: AiEditPreviewState): string {
+  if (preview.roomId) return `room:${preview.roomId}`;
+  if (preview.runId) return `run:${preview.runId}`;
+  return `proposal:${preview.proposalIds[0] ?? ""}`;
+}
+
+/** 紙面のカード (フロー内の拡張ノード) の key。ページ全体で一意: 対象 × まとまり。 */
+export function getAiProposalCardKey(anchorBlockId: string, preview: AiEditPreviewState): string {
+  return `ai-proposal:${anchorBlockId}:${getAiProposalConversationKey(preview)}`;
+}
+
+/**
+ * カードの中身の版 (`PageCanvasInlineContent.measureRevision`)。中身が同じなら同じ値で、高さが
+ * 変わらない書き換え (行の位置だけが変わる) でも値が変わり、紙面が行を測り直す。
+ */
+export function getAiProposalCardMeasureRevision(
+  card: AiProposalAnchorCard,
+  mathFractionSizing: string | undefined,
+): string {
+  const source = JSON.stringify(
+    [mathFractionSizing ?? "", card.preview.sourceReferences ?? [], card.content.hunks],
+    (_key, value: unknown) => (value instanceof Map ? [...value.entries()] : value),
+  );
+  // FNV-1a (32bit)。属性に載せるので短い印にする。
+  let hash = 0x811c9dc5;
+  for (let index = 0; index < source.length; index += 1) {
+    hash ^= source.charCodeAt(index);
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return `${source.length.toString(36)}-${(hash >>> 0).toString(36)}`;
 }
 
 export function getOverlayInsertionAnchorBlockId(preview: AiEditPreviewState): string | null {

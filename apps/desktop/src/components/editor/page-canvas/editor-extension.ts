@@ -8,10 +8,27 @@ import type { SigmaCommentAnchor, SigmaDocument } from "@/features/document";
 
 import type { SelectionActionPopoverPosition } from "./popover-anchors";
 
-/** A feature-owned element inserted immediately after a body block. */
+/**
+ * A feature-owned element inserted immediately after a body block (a flow extension node).
+ *
+ * 紙面はこれを本文と同じ行としてページ割りに載せる: 段の幅で自然配置に置いて測り、ページ・段の
+ * 境目に当たれば行の間で切って、続きを次のページに描く。
+ * - 対象は境界の最上位ブロック。入れ子の対象 (箱・引用・リストの中) はそれを含む最上位ブロックの後ろ。
+ *   問題の id を対象にすると、その問題の最後のエリアの後ろ。
+ * - 矩形 (border box) は見える縁として最初と最後の行に付く。見えない余白は margin で取る
+ *   (最上位の要素の外側の margin は矩形に入らない)。
+ * - 続き (2 ページ目以降の帯) は同じ `content` をもう一度描いた複製で、`inert` かつ支援技術から隠す。
+ *   操作は最初の帯にだけ置き、表示の状態は `content` の外 (props) に持つ。
+ */
 export interface PageCanvasInlineContent {
+  /** ページ全体で一意。拡張ノードの id (`getFlowExtensionNodeId`) と React の key になる。 */
   key: string;
   content: ReactNode;
+  /**
+   * 中身の版。高さが変わらない内容の変化 (行の位置だけが変わる) はこれを変えて知らせる。
+   * 省略時は、高さが同じなら行を測り直さない。
+   */
+  measureRevision?: string;
 }
 
 /** Read-only shape state rendered over the persisted overlay view. */
@@ -92,11 +109,6 @@ export interface PageCanvasEditorExtension {
   resolveOverlayPresentation?: (
     context: PageCanvasOverlayPresentationContext,
   ) => PageCanvasOverlayPresentation;
-  columnAnchor?: {
-    className?: string;
-    keyPrefix?: string;
-    getDataAttributes?: (targetId: string) => Record<`data-${string}`, string>;
-  };
   selection?: PageCanvasSelectionExtension;
   renderCanvasLayer?: (context: PageCanvasLayerContext) => ReactNode;
   portal?: {

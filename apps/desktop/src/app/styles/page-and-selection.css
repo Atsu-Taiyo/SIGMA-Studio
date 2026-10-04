@@ -687,6 +687,34 @@ code {
 }
 
 /*
+ * フロー内の拡張ノード (本文ブロックの後ろの差し込み)。段の幅の自然フローに置かれ、本文と同じく
+ * 行としてページ割りされる。中身は段の幅を越えない (越えると隣の段・余白に描かれ、測った行と
+ * 見えている行がずれる)。
+ */
+.page-flow-extension-node > *,
+.page-flow-extension-fragment-content > * {
+  max-width: 100%;
+}
+
+/*
+ * ページ・段の境目で切れた拡張ノードの続き。同じ中身の複製を次のページの帯で切って見せる。
+ * 操作は正本 (最初の帯) にだけ置くので、続きは `inert` で触れない。継承する字の大きさは本文フロー
+ * (`.page-flow`) と同じにし、正本と同じ折り返しで組む。正本では最上位の要素の外側の margin は
+ * 拡張ノードの矩形の外に相殺されるので、複製の原点もその margin を除いた border box に合わせる。
+ */
+.page-flow-extension-fragment {
+  position: absolute;
+  overflow: clip;
+  pointer-events: none;
+  font-size: var(--editor-font-size, 12pt);
+}
+
+/* 中身自身の margin 指定 (後から読まれる機能の CSS) より強くする。負けると複製だけ margin 分ずれる。 */
+.page-flow-extension-fragment > .page-flow-extension-fragment-content > * {
+  margin-block: 0;
+}
+
+/*
  * A continuation fragment is part of the same logical box as its source, which
  * carries no selection outline — so the fragment must not draw one either, or the
  * continuation reads as a separate, closed box. Selection is conveyed by the caret

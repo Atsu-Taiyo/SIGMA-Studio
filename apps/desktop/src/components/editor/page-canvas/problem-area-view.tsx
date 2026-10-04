@@ -292,7 +292,7 @@ export function ProblemAreaFlowUnit({
       {afterInlineContent.length > 0 && (
         <InlineContentStack
           items={afterInlineContent}
-          displacement={precedingBlockDisplacement([{ type: "blocks", blocks: unit.blocks }], 1, nodeDisplacements)}
+          fallbackDisplacement={precedingBlockDisplacement([{ type: "blocks", blocks: unit.blocks }], 1, nodeDisplacements)}
         />
       )}
       {area !== "lead" && (
