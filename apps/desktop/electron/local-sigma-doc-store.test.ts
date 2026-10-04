@@ -58,6 +58,14 @@ describe("LocalSigmaDocStore", () => {
     await fs.rm(userDataDir, { recursive: true, force: true });
   });
 
+  it("assigns a space-free name to the first document without changing the source", async () => {
+    const source = createBlankDocument("最初の 教材.sigma");
+    const workspace = await store.initializeWorkspace({ initialDocument: source });
+    expect((await store.listFiles()).map(file => file.title)).toEqual(["最初の-教材.sigma"]);
+    expect((await store.loadDocument(workspace.activeFileId))?.metadata.title).toBe("最初の-教材.sigma");
+    expect(source.metadata.title).toBe("最初の 教材.sigma");
+  });
+
   it("numbers simultaneous new materials and stores the same titles in the documents and ledger", async () => {
     await store.initializeWorkspace({ initialDocument: sampleDocument });
     const created = await Promise.all([store.createDocument({ title: "教材" }), store.createDocument({ title: "教材" }), store.createDocument({ title: "教材" })]);
