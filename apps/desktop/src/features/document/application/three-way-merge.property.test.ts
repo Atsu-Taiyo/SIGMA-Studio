@@ -15,7 +15,6 @@ import { mergeEntity3, mergeInline3 } from "./three-way-merge";
  * M7 決定的で、入力を書き換えない。
  *
  * M2〜M6 は「どのトークンが残ったか」で判定するので、トークンを一意な文字 (漢字) と一意な TeX で作る。
- * 漢字は 1 文字ずつ比較する文字種なので、英単語をまとめて置き換える扱いはここでは効かない。
  */
 
 function mulberry32(seed: number): () => number {
@@ -310,6 +309,93 @@ describe("mergeInline3 properties", () => {
 
       expect(second, `seed ${seed}`).toEqual(first);
       expect(inputs, `seed ${seed}`).toEqual(snapshot);
+    }
+  });
+});
+
+/**
+ * 両側が同じ挿入をし、それぞれ別の所も直した場合 (D1)。
+ *
+ * 同じ文字が続く所への挿入は、前後どちらに入れても同じ文字列になる (「最大値」の後ろに「と最小値」=
+ * 「最大」の後ろに「値と最小」)。各側の差分が別々の位置を選んでも、同じ挿入はちょうど 1 回だけ入る。
+ * 文書は、繰り返しの多い文字で作った区間を一意な区切り (3 文字) で並べたもの。編集は区間ごとに
+ * 1 つだけなので、期待する結果を区間ごとに組み立てられる。同じ挿入のすぐ隣を片側が消すと、その側の
+ * 変更は 1 つの置き換えになり (どちらの位置合わせも同じ手数)、競合として両方残る。それはここでは扱わない。
+ */
+const REPEATING = ["あ", "い", "と", "値", "最", "s", "o", " "];
+
+interface SegmentEdit {
+  at: number;
+  remove: number;
+  insert: string;
+}
+
+function applySegmentEdit(segment: string, edit: SegmentEdit | undefined): string {
+  if (!edit) {
+    return segment;
+  }
+  const chars = Array.from(segment);
+  chars.splice(edit.at, edit.remove, ...Array.from(edit.insert));
+  return chars.join("");
+}
+
+function sharedInsertionScenario(seed: number): { base: string; ours: string; theirs: string; expected: string } {
+  const random = mulberry32(seed);
+  const pick = <T>(items: readonly T[]) => items[Math.floor(random() * items.length)];
+  let unique = 0;
+  const uniqueText = (length: number) => Array.from({ length }, () => String.fromCodePoint(0xAC00 + (unique += 1))).join("");
+  const segments = Array.from({ length: 3 + Math.floor(random() * 4) }, () => (
+    Array.from({ length: 1 + Math.floor(random() * 6) }, () => pick(REPEATING)).join("")
+  ));
+  // Three distinct characters between segments: deleting and re-inserting a separator to pair
+  // letters across it would cost more than any edit here saves, so every alignment keeps the
+  // segments apart and each segment's edit stays one change.
+  const fence = (index: number) => Array.from({ length: 3 }, (_, offset) => String.fromCodePoint(0x3400 + index * 3 + offset)).join("");
+  const otherEdit = (segment: string): SegmentEdit => {
+    const length = Array.from(segment).length;
+    const at = Math.floor(random() * (length + 1));
+    const remove = at < length && random() < 0.6 ? 1 + Math.floor(random() * Math.min(2, length - at)) : 0;
+    return { at, remove, insert: remove > 0 && random() < 0.5 ? "" : uniqueText(1 + Math.floor(random() * 2)) };
+  };
+
+  // Each segment holds at most one edit: the shared insertion, or one side's own edit.
+  const order = segments.map((_, index) => index).sort(() => random() - 0.5);
+  const sharedIndex = order[0];
+  const shared: SegmentEdit = {
+    at: Math.floor(random() * (Array.from(segments[sharedIndex]).length + 1)),
+    remove: 0,
+    insert: Array.from({ length: 1 + Math.floor(random() * 3) }, () => pick(REPEATING)).join(""),
+  };
+  const oursEdits = new Map<number, SegmentEdit>([[sharedIndex, shared]]);
+  const theirsEdits = new Map<number, SegmentEdit>([[sharedIndex, shared]]);
+  for (const index of order.slice(1)) {
+    const roll = random();
+    if (roll < 0.35 && oursEdits.size < 3) {
+      oursEdits.set(index, otherEdit(segments[index]));
+    } else if (roll < 0.7 && theirsEdits.size < 3) {
+      theirsEdits.set(index, otherEdit(segments[index]));
+    }
+  }
+  const build = (edits: ReadonlyMap<number, SegmentEdit>[]) => segments.map((segment, index) => (
+    applySegmentEdit(segment, edits.map((side) => side.get(index)).find(Boolean)) + fence(index)
+  )).join("");
+  return {
+    base: build([]),
+    ours: build([oursEdits]),
+    theirs: build([theirsEdits]),
+    expected: build([oursEdits, theirsEdits]),
+  };
+}
+
+describe("mergeInline3 with the same insertion on both sides", () => {
+  it("D1 keeps an insertion both sides made exactly once, whatever else each side changed", () => {
+    const run = (value: string): InlineNode[] => [{ type: "text", text: value }];
+    const plainText = (nodes: readonly InlineNode[]) => nodes.map((node) => node.type === "text" ? node.text : "").join("");
+    for (const seed of SEEDS) {
+      const { base, ours, theirs, expected } = sharedInsertionScenario(seed);
+
+      expect(plainText(mergeInline3(run(base), run(ours), run(theirs)).value), `seed ${seed}`).toBe(expected);
+      expect(plainText(mergeInline3(run(base), run(theirs), run(ours)).value), `seed ${seed} swapped`).toBe(expected);
     }
   });
 });
