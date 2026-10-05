@@ -198,6 +198,21 @@ describe("prepareOverlayShapesForPaste", () => {
       expect(b.y - a.y).toBe(60);
     });
 
+    it("puts the shapes on the point even where the page does not reach, when the canvas has no edge", () => {
+      // ホワイトボードは、パンで原点より左上も見える。見えている点 (-1000, -500) へ置く。
+      const payload = createOverlayClipboardPayload([geo("a", 100, 100)], {}, "doc_a");
+
+      const bounded = prepareOverlayShapesForPaste({ payload, canvasWidth: 20000, canvasHeight: 20000, centerAt: { x: -1000, y: -500 } }).shapes[0];
+      const free = prepareOverlayShapesForPaste({
+        payload, canvasWidth: 20000, canvasHeight: 20000, centerAt: { x: -1000, y: -500 }, unbounded: true,
+      }).shapes[0];
+
+      // 既定 (紙の上) は、紙の中へ引き戻す。
+      expect({ x: bounded.x, y: bounded.y }).toEqual({ x: 0, y: 0 });
+      // 80x40 の図形の中心が (-1000, -500) になる。
+      expect({ x: free.x, y: free.y }).toEqual({ x: -1040, y: -520 });
+    });
+
     it("takes the place of the usual 20px nudge", () => {
       const payload = createOverlayClipboardPayload([geo("a", 100, 100)], {}, "doc_a");
 

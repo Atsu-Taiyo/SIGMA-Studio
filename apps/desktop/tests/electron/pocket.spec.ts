@@ -350,3 +350,85 @@ test("the selected part flies into the pocket, and the closed pocket is a chip a
     rmSync(userData, { recursive: true, force: true });
   }
 });
+
+test("text copied across blocks pastes onto a new whiteboard as one text shape, through the real clipboard", async ({}, testInfo) => {
+  test.skip(!existsSync(path.join(APP_ROOT, "dist-electron/main.cjs")), "Run npm run electron:build first");
+  test.skip(!devUrl && !existsSync(path.join(APP_ROOT, "out/index.html")), "Start a private dev server or build the renderer");
+  const userData = mkdtempSync(path.join(tmpdir(), "sigma-wb-paste-"));
+  const env: Record<string, string> = Object.fromEntries(Object.entries(process.env).filter((entry): entry is [string, string] => entry[1] !== undefined));
+  env.SIGMA_STUDIO_USER_DATA_DIR = userData;
+  delete env.ELECTRON_RUN_AS_NODE;
+  if (devUrl) env.SIGMA_STUDIO_DEV_SERVER_URL = devUrl;
+  const app = await electron.launch({ args: [APP_ROOT, `--user-data-dir=${userData}`], cwd: APP_ROOT, env });
+  // OS のクリップボードを実際に使うので、終わったら元の文字へ戻す。
+  const clipboardBefore = await app.evaluate(({ clipboard }) => clipboard.readText());
+  try {
+    const page = await prepare(app);
+    await page.evaluate((document) => window.desktopAPI!.storage.createFileFromDocument({ document }), sourceDocument());
+    await page.reload();
+    await expect(page.locator('.text-flow-editor [data-sigma-doc-id="body_carried"]')).toBeVisible();
+
+    // 2 つのブロックにまたがる範囲を選んで、ふつうにコピーする。
+    await page.evaluate(() => {
+      const first = document.querySelector('[data-sigma-doc-id="body_carried"]')!;
+      const second = document.querySelector('[data-sigma-doc-id="body_pocket_only"]')!;
+      first.closest<HTMLElement>(".ProseMirror")!.focus();
+      const start = document.createTreeWalker(first, NodeFilter.SHOW_TEXT).nextNode()!;
+      const end = document.createTreeWalker(second, NodeFilter.SHOW_TEXT).nextNode()!;
+      const range = document.createRange();
+      range.setStart(start, 0);
+      range.setEnd(end, end.textContent!.length);
+      const selection = window.getSelection()!;
+      selection.removeAllRanges();
+      selection.addRange(range);
+      document.dispatchEvent(new Event("selectionchange"));
+    });
+    await page.keyboard.press("ControlOrMeta+C");
+
+    await page.getByRole("button", { name: "新規教材" }).hover();
+    await page.getByRole("menuitem", { name: "ホワイトボード", exact: true }).click();
+    const canvas = page.locator(".whiteboard-page-canvas");
+    await expect(canvas).toBeVisible();
+    const viewport = (await canvas.boundingBox())!;
+    await page.mouse.click(viewport.x + 80, viewport.y + viewport.height - 80);
+    await expect(page.locator(".overlay-shape")).toHaveCount(0);
+
+    await page.keyboard.press("ControlOrMeta+V");
+
+    // 本文は貼る場所が無いので、テキスト部分が文章の図形 1 つになり、見えている範囲の中央に置かれる。
+    const shape = page.locator(".overlay-shape", { hasText: CARRIED_TEXT });
+    await expect(shape).toHaveCount(1);
+    await expect(shape.first()).toContainText(POCKET_ONLY_TEXT);
+    const box = (await shape.first().boundingBox())!;
+    expect(Math.abs(box.x + box.width / 2 - (viewport.x + viewport.width / 2))).toBeLessThanOrEqual(40);
+    expect(Math.abs(box.y + box.height / 2 - (viewport.y + viewport.height / 2))).toBeLessThanOrEqual(60);
+    await page.screenshot({ path: testInfo.outputPath("whiteboard-body-paste.png") });
+
+    // パンとズームのあと (原点より左上の負の座標を見ている) でも、見えている場所へ貼られる。
+    // 紙の範囲へ押し戻すと、画面の外へ出て、貼れたのに何も見えなくなる。
+    await page.mouse.move(viewport.x + viewport.width / 2, viewport.y + viewport.height / 2);
+    await page.mouse.wheel(-1500, -900);
+    await page.keyboard.down("Control");
+    await page.mouse.wheel(0, 200);
+    await page.keyboard.up("Control");
+    await expect.poll(() => canvas.evaluate((element) => parseFloat(getComputedStyle(element).getPropertyValue("--whiteboard-pan-x")))).toBeGreaterThan(500);
+    await page.mouse.click(viewport.x + 60, viewport.y + viewport.height - 60);
+
+    await page.keyboard.press("ControlOrMeta+V");
+
+    await expect(page.locator(".overlay-shape", { hasText: CARRIED_TEXT })).toHaveCount(2);
+    const panned = await page.locator(".overlay-shape", { hasText: CARRIED_TEXT }).evaluateAll((elements) => elements.map((element) => {
+      const rect = element.getBoundingClientRect();
+      return { x: rect.x, y: rect.y, right: rect.right, bottom: rect.bottom };
+    }));
+    const inView = panned.filter((rect) => rect.x >= viewport.x - 1 && rect.y >= viewport.y - 1
+      && rect.right <= viewport.x + viewport.width + 1 && rect.bottom <= viewport.y + viewport.height + 1);
+    // 最初に貼った 1 つはパンで画面の外へ出ている。あとから貼った 1 つだけが、見えている範囲にある。
+    expect(inView).toHaveLength(1);
+    await page.screenshot({ path: testInfo.outputPath("whiteboard-body-paste-panned.png") });
+  } finally {
+    await app.evaluate(({ clipboard }, text) => clipboard.writeText(text), clipboardBefore).catch(() => undefined);
+    await closeApp(app);
+    rmSync(userData, { recursive: true, force: true });
+  }
+});

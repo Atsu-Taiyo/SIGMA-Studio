@@ -310,3 +310,123 @@ describe("editor paste ownership", () => {
     expect(ports.getSelectedBlock).not.toHaveBeenCalled();
   });
 });
+
+describe("pasting body text onto a whiteboard (no body to paste into)", () => {
+  const center = { x: 480, y: 320 };
+
+  function whiteboard(overrides: Partial<Ports> = {}) {
+    return install({ bodyless: true, getBodylessPasteCenter: () => center, ...overrides });
+  }
+
+  /** 貼られた図形 (payload) から、文章の図形のブロックを取り出す。 */
+  function textShapeBlocks(ports: ReturnType<typeof install>) {
+    const [payload] = vi.mocked(ports.pasteShapes).mock.calls[0]!;
+    const shapes = payload.shapes.filter((shape) => shape.type === "text");
+    expect(shapes).toHaveLength(1);
+    return shapes[0]!.type === "text" ? shapes[0]!.props.blocks : [];
+  }
+
+  it("pastes a copied problem as its text only, at the centre of what is in view", () => {
+    const target = mount();
+    const ports = whiteboard();
+    const full: SigmaBlock = {
+      type: "problem",
+      id: "source_problem",
+      tags: ["代数"],
+      lead: [{ type: "paragraph", id: "lead", children: [{ type: "text", text: "導入文" }] }],
+      prompt: [{ type: "paragraph", id: "prompt", children: [{ type: "text", text: "問題文" }] }],
+      hints: [{ type: "paragraph", id: "hint", children: [{ type: "text", text: "コメント" }] }],
+      solution: [{ type: "paragraph", id: "solution", children: [{ type: "text", text: "解答" }] }],
+      frame: { enabled: true },
+    } as unknown as SigmaBlock;
+
+    const event = dispatch(target, "paste", clipboardData(createDocumentBlocksClipboardPayload([full])));
+
+    expect(event.defaultPrevented).toBe(true);
+    expect(ports.pasteShapes).toHaveBeenCalledTimes(1);
+    // 紙の範囲へ押し戻さない (パンで負の座標が見えていても、見えている中央へ置く)。
+    expect(vi.mocked(ports.pasteShapes).mock.calls[0]![1]).toEqual({ centerAt: center, unbounded: true });
+    // テキスト部分だけ: 紙面の並び (導入文 → 問題文 → コメント → 解答) の段落。番号・枠・タグは付かない。
+    const blocks = textShapeBlocks(ports);
+    expect(blocks.map((block) => block.type)).toEqual(["paragraph", "paragraph", "paragraph", "paragraph"]);
+    expect(JSON.stringify(blocks)).not.toMatch(/frame|numbering|tags|problem/);
+    expect(blocks.map((block) => block.type === "paragraph" ? block.children.map((child) => child.type === "text" ? child.text : "").join("") : "")).toEqual([
+      "導入文", "問題文", "コメント", "解答",
+    ]);
+    // 本文には何も入れない (ホワイトボードに本文は無い)。
+    expect(ports.insertBlocks).not.toHaveBeenCalled();
+    expect(ports.setStatusMessage).toHaveBeenCalledWith(t("status.bodyPastedAsTextShape"));
+  });
+
+  it("pastes copied body blocks and a copied formula as text shapes too", () => {
+    const blocksPorts = whiteboard();
+    dispatch(mount(), "paste", clipboardData(createTextFlowClipboardPayload([structuredClone(paragraph)])));
+    expect(textShapeBlocks(blocksPorts)).toMatchObject([{ type: "paragraph", children: [{ type: "text", text: "本文" }] }]);
+
+    cleanups.splice(0).forEach((cleanup) => cleanup());
+    vi.clearAllMocks();
+    const mathPorts = whiteboard();
+    dispatch(mount(), "paste", clipboardData(createInlineMathClipboardPayload("x^2")));
+    expect(textShapeBlocks(mathPorts)).toMatchObject([{ type: "paragraph", children: [{ type: "mathInline", tex: "x^2" }] }]);
+  });
+
+  it("falls back to no centre when the view cannot say where the middle is", () => {
+    const ports = whiteboard({ getBodylessPasteCenter: () => null });
+
+    dispatch(mount(), "paste", clipboardData(createTextFlowClipboardPayload([structuredClone(paragraph)])));
+
+    expect(vi.mocked(ports.pasteShapes).mock.calls[0]![1]).toBeUndefined();
+  });
+
+  it("leaves a paper page alone: there the body takes the paste as before", () => {
+    const ports = install({ getBodylessPasteCenter: () => center });
+    const target = mount();
+
+    dispatch(target, "paste", clipboardData(createDocumentBlocksClipboardPayload([problem])));
+
+    expect(ports.pasteShapes).not.toHaveBeenCalled();
+    expect(ports.insertBlocks).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    ["a text shape being edited", '<div contenteditable="true" data-target></div>'],
+    ["a text field", "<textarea data-target></textarea>"],
+    ["a dialog", '<div role="dialog"><div data-target></div></div>'],
+  ])("leaves a paste into %s to that surface", (_name, html) => {
+    const ports = whiteboard();
+    const target = mount(html);
+
+    dispatch(target, "paste", clipboardData(createDocumentBlocksClipboardPayload([problem])));
+
+    expect(ports.pasteShapes).not.toHaveBeenCalled();
+  });
+
+  it("leaves a paste to the material dialog while it is open", () => {
+    const ports = whiteboard({ isMaterialEditing: vi.fn(() => true) });
+
+    dispatch(mount(), "paste", clipboardData(createDocumentBlocksClipboardPayload([problem])));
+
+    expect(ports.pasteShapes).not.toHaveBeenCalled();
+  });
+
+  it("does not turn text from another app into a shape", () => {
+    const ports = whiteboard();
+    const data = clipboardData();
+    data.setData("text/plain", "他のアプリの文章");
+
+    const event = dispatch(mount(), "paste", data);
+
+    expect(event.defaultPrevented).toBe(false);
+    expect(ports.pasteShapes).not.toHaveBeenCalled();
+  });
+
+  it("keeps pasting shapes the way it did", () => {
+    const ports = whiteboard();
+    const payload = createOverlayClipboardPayload([shape], {}, "source_doc");
+
+    dispatch(mount(), "paste", clipboardData(payload));
+
+    expect(ports.pasteShapes).toHaveBeenCalledWith(payload);
+    expect(ports.setStatusMessage).toHaveBeenCalledWith(t("status.shapesPasted"));
+  });
+});

@@ -463,6 +463,7 @@ export function useOverlaySelectionCommands({
       targetDocId: documentIdRef.current,
       anchorBlockIdMap: options.anchorBlockIdMap,
       centerAt: options.centerAt,
+      unbounded: options.unbounded,
     });
     if (prepared.shapes.length === 0) {
       return false;

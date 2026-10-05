@@ -163,3 +163,59 @@ test("a problem copied into the pocket lands on a whiteboard as separate paragra
     "問題の後の段落です。",
   ]);
 });
+
+test("a problem copied with Cmd+C and pasted on a whiteboard becomes its text only", async ({ page }) => {
+  await page.setViewportSize({ width: 1400, height: 1200 });
+  await page.addInitScript(() => window.localStorage.clear());
+  const whiteboard = {
+    ...createDocument(),
+    docId: "doc_e2e_whiteboard_paste",
+    metadata: { title: "ホワイトボード" },
+    content: [],
+    pageLayout: {
+      ...getDefaultPageLayout("whiteboard"),
+      overlay: { overlaySnapshot: { version: 1, shapes: [], assets: {} } },
+    },
+  } as SigmaDocument;
+  await installDocumentTabMock(page, createDocument(), whiteboard);
+  await page.goto("/");
+  await page.locator(".startup-splash").waitFor({ state: "hidden", timeout: 15_000 });
+  await expect(page.locator('[data-sigma-doc-id="prob_prompt"]').first()).toBeVisible();
+
+  // ポケットを使わない、ふつうのコピー。
+  await dragSelectRange(page, "p_before", "p_after");
+  await page.keyboard.press("ControlOrMeta+C");
+
+  await page.mouse.click(700, 1100);
+  await page.getByRole("button", { name: "新規教材", exact: true }).click();
+  const canvas = page.locator(".whiteboard-page-canvas");
+  await expect(canvas).toBeVisible();
+  const viewport = (await canvas.boundingBox())!;
+  await page.mouse.click(viewport.x + 80, viewport.y + viewport.height - 80);
+  await expect(page.locator(".overlay-shape")).toHaveCount(0);
+
+  await page.keyboard.press("ControlOrMeta+V");
+
+  // テキスト部分だけが、文章の図形として 1 つ貼られる。問題の領域は紙面の並びの段落のまま、番号や枠は付かない。
+  const shape = page.locator(".overlay-shape", { hasText: "導入文です。" });
+  await expect(shape).toHaveCount(1);
+  const lines = (await shape.first().innerText()).split("\n").map((line) => line.trim()).filter(Boolean);
+  expect(lines).toEqual([
+    "問題の前の段落です。",
+    "導入文です。",
+    "問題文です。",
+    "ヒントです。",
+    "解答です。",
+    "問題の後の段落です。",
+  ]);
+  await expect(page.locator(".overlay-shape .problem-frame, .overlay-shape [data-problem-id]")).toHaveCount(0);
+  // 見えている範囲の中央あたりに置かれる。
+  const box = (await shape.first().boundingBox())!;
+  expect(Math.abs(box.x + box.width / 2 - (viewport.x + viewport.width / 2))).toBeLessThanOrEqual(40);
+  expect(Math.abs(box.y + box.height / 2 - (viewport.y + viewport.height / 2))).toBeLessThanOrEqual(60);
+  await expect(page.locator(".save-state").first()).toContainText("ホワイトボードに文章の図形として貼り付けました");
+
+  // もう一度貼ると、もう 1 つ貼れる (何度でも)。
+  await page.keyboard.press("ControlOrMeta+V");
+  await expect(page.locator(".overlay-shape", { hasText: "導入文です。" })).toHaveCount(2);
+});
