@@ -3,6 +3,7 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import { mkdirSync, watch, type FSWatcher, type WatchEventType } from "node:fs";
 import fs from "node:fs/promises";
 import path from "node:path";
+import { hasSharedBinding } from "./collaboration/local-bridge";
 import { captureSharedProposal, readSharedApprovalRecord, restoreSharedApprovalRecord } from "./collaboration/proposal-context";
 import { isDeepStrictEqual } from "node:util";
 import { parseSigmaDocument } from "@/lib/sigma-doc-schema";
@@ -694,11 +695,15 @@ export class LocalMcpEditProposalStore {
         && proposal.fileId === normalizedFileId
         && proposal.roomId === normalizedRoomId,
       ));
+    // Only a shared document's proposals have approval records; a local document's run never reads them.
+    const shared = proposals.length > 0 && await hasSharedBinding(this.userDataDir(), normalizedFileId);
     this.runSnapshots.set(snapshotId, {
       roomId: normalizedRoomId,
       fileId: normalizedFileId,
       proposals: structuredClone(proposals),
-      sharedApprovals: await Promise.all(proposals.map((proposal) => readSharedApprovalRecord(this.userDataDir(), proposal.proposalId))),
+      sharedApprovals: shared
+        ? await Promise.all(proposals.map((proposal) => readSharedApprovalRecord(this.userDataDir(), proposal.proposalId)))
+        : proposals.map(() => null),
     });
     return snapshotId;
   }
