@@ -349,6 +349,33 @@ describe("AI proposal action controller", () => {
     expect(h.read().aiEditPreviewClearRequest.targets).toEqual([{ roomId: "a-room", turnId: "a-room-turn" }]);
   });
 
+  it("fades out only what the approval's merge removes: a block the human edited after the AI deleted it stays", async () => {
+    vi.useFakeTimers();
+    const deletion = (): AiEditPreviewState => {
+      const group = preview();
+      group.draft.mutationOperations = [{ operation: "deleteBlocks", summary: "削除", blockIds: ["paragraph"] }];
+      group.mergeSources = [{
+        proposalId: "proposal",
+        createdAt: "2026-09-09T00:00:00Z",
+        draft: group.draft,
+        mergeBasis: { version: 1, entities: { paragraph: { kind: "block", value: { id: "paragraph", type: "paragraph", children: [{ type: "text", text: "AIが見た本文" }] } } } },
+      }];
+      return group;
+    };
+
+    // 文書の段落 ("変更前") は base ("AIが見た本文") から人が直したもの。合成は段落を残す (編集は削除に勝つ)。
+    const edited = await mount({ aiEditPreviewGroups: [deletion()] });
+    await act(async () => { track(edited.read().applyAiEditPreviewGroup(["proposal"])); });
+    expect(edited.read().aiApplyAnimation?.removingBlockIds ?? []).toEqual([]);
+    await act(async () => { await vi.runAllTimersAsync(); });
+    await edited.unmount();
+
+    // 人が直していなければ、従来どおり消えるアニメーションを付ける。
+    const untouched = await mount({ aiEditPreviewGroups: [deletion()], document: documentWithText("AIが見た本文") });
+    await act(async () => { track(untouched.read().applyAiEditPreviewGroup(["proposal"])); });
+    expect(untouched.read().aiApplyAnimation?.removingBlockIds).toEqual(["paragraph"]);
+  });
+
   it("holds removal feedback until approval and cleans the added-content flash timer on unmount", async () => {
     vi.useFakeTimers();
     const group = preview();

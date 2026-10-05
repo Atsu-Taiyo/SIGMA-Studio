@@ -27,12 +27,12 @@ import type { DesktopMcpEditProposalSummary } from "@/types/desktop";
 
 import { aiDocumentWriteInProgressMessage } from "../adapters/tiptap/edit-lock-adapter";
 import {
-  deriveAiEditPreviewDiff,
   derivePostApplyHighlightIds,
   type AiApplyAnimationState,
   type AiEditPreviewState,
   type StaleMcpProposalGroup,
 } from "../model/preview";
+import { collectProposalRemovals } from "../model/proposal-content";
 import type { AiProposalPresentationState } from "../model/proposal-presentation-model";
 import { AI_APPLY_ADD_FLASH_MS, AI_APPLY_REMOVE_ANIMATION_MS } from "./proposal-feedback";
 import { countAdoptionMergeFallbacks, countProposalMergeFallbacks } from "./proposal-merge-metrics";
@@ -233,9 +233,10 @@ export function useAiProposalActions({
     // resetEditorDocument による同期的な全文書差し替えより前に、まだ画面に
     // 残っている旧内容に対して再生する必要がある — 差し替え後では対象がもう存在しない。
     if (group) {
-      const diff = deriveAiEditPreviewDiff([group]);
-      const removingBlockIds = [...diff.removedBlockIds];
-      const removingShapeIds = [...diff.removedShapeIds];
+      // 消える対象は承認の合成後の内容で決める (人が直して合成で残るブロック・図形は消えない)。
+      const removals = collectProposalRemovals([group], document, { countFallbacks: false });
+      const removingBlockIds = removals.blockIds;
+      const removingShapeIds = removals.shapeIds;
       if (removingBlockIds.length > 0 || removingShapeIds.length > 0) {
         setAiApplyAnimation({ removingBlockIds, removingShapeIds, addedBlockIds: [], addedShapeIds: [] });
         await new Promise((resolve) => setTimeout(resolve, AI_APPLY_REMOVE_ANIMATION_MS));

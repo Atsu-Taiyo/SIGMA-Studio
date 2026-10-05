@@ -31,8 +31,8 @@ import { useAiProposalDisplayStates } from "./application/use-ai-proposal-displa
 import { useStableIdSet } from "./application/use-stable-id-set";
 import {
   collectPendingRemovedBlockIds,
-  collectShapesKeptByMerge,
   groupPendingProposalContentByAnchor,
+  resolveShapesKeptByMerge,
   type AiProposalAnchorCard,
 } from "./model/proposal-content";
 import { resolveProposalMergePreview } from "./model/proposal-merge-preview";
@@ -386,13 +386,13 @@ function useAiPageCanvasExtension({
       ? undefined
       : { removedIds, removingIds, addedIds };
   }, [applyAnimation, removedBlockIds]);
-  // 図形の赤い削除表示も同じく、合成で残る図形 (人が直した図形) には付けない。提案ごとに覚えた合成の
-  // 結果を引くだけなので打鍵では軽い。
-  const mergeKeptShapeIds = useStableIdSet(previewGroups.flatMap((preview) => [...collectShapesKeptByMerge(
-    document,
-    resolveProposalMergePreview(document, preview, { countFallbacks: !applying }).afterDocument,
-    preview,
-  )]));
+  // 図形の赤い削除表示も同じく、合成で残る図形 (人が直した図形) には付けない。図形を消す提案だけが、
+  // 提案ごとに覚えた結果を引く (合成と図形の並びが同じなら作り直さない)。
+  const mergeKeptShapeIdList = useMemo(
+    () => previewGroups.flatMap((preview) => [...resolveShapesKeptByMerge(document, preview, { countFallbacks: !applying })]),
+    [applying, document, previewGroups],
+  );
+  const mergeKeptShapeIds = useStableIdSet(mergeKeptShapeIdList);
   // 中身が同じなら同じ集合 (図形の印・編集の方針・紙面の拡張を作り直さない)。
   const beforeHiddenShapeIds = useStableIdSet(previewGroups.flatMap((preview) => (
     readAiProposalDisplayState(displayStates, getAiProposalConversationKey(preview), preview.proposalIds).beforeHidden
