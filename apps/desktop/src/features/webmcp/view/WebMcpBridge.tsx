@@ -2,7 +2,7 @@
 
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from "react";
 
-import type { SigmaDocument } from "@/features/document";
+import type { DocumentChangeOrigin, SigmaDocument } from "@/features/document";
 import type { AiProposalApplyOutcome } from "@/features/ai-edit/application/proposal-action-model";
 import type { AiEditPreviewState } from "@/features/ai-edit/model/preview";
 import { blockToReferenceText } from "@/lib/ai/ai-edit-reference";
@@ -48,7 +48,7 @@ export interface WebMcpBridgeProps {
   enabled: boolean;
   instructionScopeId: string;
   /** `origin: "ai-approval"`: applying an approved proposal, not a human edit (a display toggle does not stop it). */
-  commitDocumentChange(change: (current: SigmaDocument) => SigmaDocument, options?: { origin?: "ai-approval" }): unknown;
+  commitDocumentChange(change: (current: SigmaDocument) => SigmaDocument, options?: { origin?: DocumentChangeOrigin }): unknown;
   getDocument: SigmaWebMcpPorts["getDocument"];
   getRevision: SigmaWebMcpPorts["getRevision"];
   getSelectedBlockId: SigmaWebMcpPorts["getSelectedBlockId"];
