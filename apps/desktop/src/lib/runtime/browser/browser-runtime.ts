@@ -1,7 +1,9 @@
+import { spaceFreeFileName } from "@/lib/file-name";
 import { createCurrentLocaleTranslator } from "@/lib/i18n";
 import { createId } from "@/lib/id";
 import {
   applyDocumentSave,
+  availableDocumentTitle,
   buildWorkspaceOverview,
   createFolderRow,
   createWorkspaceRow,
@@ -268,7 +270,7 @@ export function createBrowserRuntime(options: BrowserRuntimeOptions): AppRuntime
           const stored = await tx.get<WorkspaceState>("workspaceState", WORKSPACE_STATE_KEY);
           const pinnedFileIds: string[] = [];
           for (const title of PINNED_BROWSER_DOCUMENT_TITLES) {
-            const existing = visibleFiles(record).find((file) => file.title === title);
+            const existing = visibleFiles(record).find((file) => (file.title === title || file.title === spaceFreeFileName(title)));
             if (existing) {
               const storedDocument = await tx.get<StoredDocumentRecord>("documents", existing.fileId);
               if (storedDocument && isLegacyPinnedBrowserDocument(title, storedDocument.document)) {
@@ -276,10 +278,11 @@ export function createBrowserRuntime(options: BrowserRuntimeOptions): AppRuntime
                   ...createPinnedBrowserDocument(title, now),
                   docId: storedDocument.document.docId,
                 };
+                replacement.metadata = { ...replacement.metadata, title: existing.title };
                 const outcome = applyDocumentSave(record, existing.fileId, {
                   expectedRevision: existing.revision,
                   docId: replacement.docId,
-                  title,
+                  title: existing.title,
                   updatedAt: now,
                   now,
                 });
@@ -378,10 +381,15 @@ export function createBrowserRuntime(options: BrowserRuntimeOptions): AppRuntime
             ...document,
             updatedAt: document.updatedAt ?? now,
           }));
+          const file = findVisibleFile(record, fileId);
+          const requestedTitle = resolveDocumentTitle(normalized);
+          const title = file && requestedTitle !== file.title
+            ? availableDocumentTitle(requestedTitle, record.files, { ...file, excludeFileId: fileId }) : requestedTitle;
+          if (title !== requestedTitle) normalized.metadata = { ...normalized.metadata, title };
           const outcome = applyDocumentSave(record, fileId, {
             expectedRevision: saveOptions.expectedRevision,
             docId: normalized.docId,
-            title: resolveDocumentTitle(normalized),
+            title,
             updatedAt: normalized.updatedAt ?? now,
             now,
           });

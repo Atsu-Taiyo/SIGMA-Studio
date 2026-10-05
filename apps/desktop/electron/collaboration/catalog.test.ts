@@ -196,8 +196,8 @@ it("routes all shared library operations through authority and renames without J
   const f = await fixture(); const workspace = node("workspace"); const folder = node("folder", workspace.id); const doc = node("document", folder.id); f.setNodes([workspace, folder, doc]); await f.catalog.refresh();
   const file = (await f.local.listFiles()).find(file => file.sharing)!;
   const save = vi.spyOn(f.local, "saveDocument");
-  await f.catalog.renameDocument(file.workspaceId, file.fileId, "Renamed");
-  expect((await f.local.listFiles()).find(item => item.fileId === file.fileId)?.title).toBe("Renamed");
+  await f.catalog.renameDocument(file.workspaceId, file.fileId, "Renamed Document");
+  expect((await f.local.listFiles()).find(item => item.fileId === file.fileId)?.title).toBe("Renamed-Document");
   expect(save).not.toHaveBeenCalled(); expect(f.open).not.toHaveBeenCalled();
   const raw = await f.local.getLocalLibrarySnapshot();
   await expect(f.local.moveFileToWorkspace(file.fileId, raw.activeWorkspaceId)).rejects.toThrow("OWNER_REQUIRED");
@@ -279,7 +279,7 @@ it("resumes a partially staged hierarchy, freezes structure, and captures later 
   const restarted = new DesktopSharedCatalog(f.directory, f.local, f.sessions, vi.fn());
   await restarted.recoverPending();
   expect(operationIds).toEqual([operationIds[0], operationIds[0]]);
-  expect(f.sessions.initialize).toHaveBeenCalledWith(file.fileId, remote.sharedDocumentId, operationIds[0], expect.objectContaining({ metadata: expect.objectContaining({ title: "latest body title" }) }), true);
+  expect(f.sessions.initialize).toHaveBeenCalledWith(file.fileId, remote.sharedDocumentId, operationIds[0], expect.objectContaining({ metadata: expect.objectContaining({ title: "latest-body-title" }) }), true);
   const persisted = await CatalogCache.open(f.directory, "participant");
   expect(Object.values(persisted.data.operations)[0].complete).toBe(true);
   expect(persisted.data.mappings[remote.id].local).toEqual({ kind: "document", fileId: file.fileId });
@@ -318,6 +318,7 @@ it("does not coalesce separate same-title document creates after a lost ACK", as
   for (const document of [first, second, first]) {
     await expect(f.local.createFileFromDocument({ document, workspaceId: `catalog_${parent.id}` })).rejects.toThrow("ACK_LOST");
   }
+  expect(Object.values((await CatalogCache.open(f.directory, "participant")).data.creates).map(item => [item.name, item.document?.metadata.title])).toEqual([["same-title", "same-title"], ["same-title-2", "same-title-2"]]);
   expect(operations[0]).not.toBe(operations[1]); expect(operations[2]).toBe(operations[0]);
   const persisted = await CatalogCache.open(f.directory, "participant");
   expect(Object.values(persisted.data.creates).map(item => item.document?.docId)).toEqual([first.docId, second.docId]);

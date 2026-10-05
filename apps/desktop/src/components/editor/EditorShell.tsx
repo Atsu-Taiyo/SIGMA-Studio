@@ -3468,7 +3468,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
     const fileId = activeFileIdRef.current;
     const current = documentRef.current;
     const file = documentMetadatas.find((item) => item.fileId === fileId);
-    if (file && isDocumentTitleExplicit(current.metadata.title)) {
+    if (file && current.metadata.title !== file.title && isDocumentTitleExplicit(current.metadata.title)) {
       const title = availableDocumentTitle(current.metadata.title, documentMetadatas, { ...file, excludeFileId: fileId });
       if (title !== current.metadata.title) updateMetadata({ ...current.metadata, title });
     }

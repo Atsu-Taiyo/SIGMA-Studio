@@ -25,7 +25,7 @@ export function isUntouchedNewDocument(initial: SigmaDocument, current: SigmaDoc
 /** Recognize a blank created on the workspace screen before this editor mounted. */
 export function isPristineUntitledDocument(document: SigmaDocument, revision: number): boolean {
   if (revision !== 1 || document.content.length !== 1) return false;
-  const baseTitle = document.metadata.title.replace(/ [1-9]\d*$/, "");
+  const baseTitle = document.metadata.title.replace(/[ -][1-9]\d*$/, "");
   if (isDocumentTitleExplicit(baseTitle)) return false;
   const blank = createBlankDocument(document.metadata.title);
   return isUntouchedNewDocument({

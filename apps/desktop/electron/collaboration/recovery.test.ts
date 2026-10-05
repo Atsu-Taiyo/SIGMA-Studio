@@ -33,7 +33,7 @@ async function fixture(remoteImage = false) {
       if (route === "/documents/shared/recovery") return { state } as T;
       if (route === "/documents/shared/delete") {
         const files = await recovered(); expect(files).toHaveLength(1);
-        expect((await local.loadDocument(files[0].fileId))?.metadata.title).toBe("recover me");
+        expect((await local.loadDocument(files[0].fileId))?.metadata.title).toBe("recover-me");
         if (server.failDelete) throw new Error("NETWORK_ERROR");
         server.locked = false; return {} as T;
       }
