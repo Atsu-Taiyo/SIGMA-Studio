@@ -1,7 +1,7 @@
 import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import ts from "typescript";
+import ts from "typescript-compiler-api";
 
 const canonicalRoot = fileURLToPath(new URL("../../../apps/desktop/src/features/document/", import.meta.url));
 const output = fileURLToPath(new URL("../src/types.ts", import.meta.url));

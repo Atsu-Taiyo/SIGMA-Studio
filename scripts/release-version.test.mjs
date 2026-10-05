@@ -13,6 +13,7 @@ const paths = [
   "packages/viewer/package.json",
   "packages/editor/package.json",
   "examples/editor-react18/package.json",
+  "examples/editor-react19/package.json",
   "package-lock.json",
 ];
 
@@ -29,6 +30,9 @@ function manifests(version) {
     "examples/editor-react18/package.json": {
       name: "example", version: "0.0.0", private: true, dependencies: { ...editorDependency },
     },
+    "examples/editor-react19/package.json": {
+      name: "example19", version: "0.0.0", private: true, dependencies: { ...editorDependency },
+    },
     "package-lock.json": {
       name: "workspace", version, lockfileVersion: 3, requires: true,
       packages: {
@@ -37,6 +41,7 @@ function manifests(version) {
         "packages/viewer": { name: "@sigma-studio/viewer", version },
         "packages/editor": { version, dependencies: { ...viewerDependency } },
         "examples/editor-react18": { version: "0.0.0", dependencies: { ...editorDependency } },
+        "examples/editor-react19": { version: "0.0.0", dependencies: { ...editorDependency } },
         "node_modules/unrelated": { version: "7.8.9", integrity: "unchanged" },
       },
     },
@@ -101,7 +106,7 @@ test("check reports every stale package/dependency without writing; sync preserv
   const before = await repo.snapshot();
   const check = await repo.run("sync-public-package-versions.mjs", "--check");
   assert.equal(check.code, 1);
-  assert.equal(check.stderr.split("\n").filter((line) => line.startsWith("- ")).length, 11);
+  assert.equal(check.stderr.split("\n").filter((line) => line.startsWith("- ")).length, 13);
   assert.deepEqual(await repo.snapshot(), before);
 
   const sync = await repo.run("sync-public-package-versions.mjs");

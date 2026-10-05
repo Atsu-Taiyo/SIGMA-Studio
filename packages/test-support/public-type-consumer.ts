@@ -1,6 +1,6 @@
 import path from "node:path";
 
-import ts from "typescript";
+import ts from "typescript-compiler-api";
 
 /** Compile an external consumer against this package's freshly emitted declarations. */
 export function checkPublicTypeConsumer(

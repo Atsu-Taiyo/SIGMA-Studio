@@ -61,10 +61,12 @@ jobs:
           npm run viewer:test
           npm --workspace @sigma-studio/editor run test
           npm --workspace @sigma-studio/editor-react18-example run build
+          npm --workspace @sigma-studio/editor-react19-example run build
       - name: Verify React 18 integration
         run: |
           npm exec --workspace @sigma-studio/desktop -- playwright install --with-deps chromium
           npm run test:public-browser
+          npm run test:public-browser:react19
 
       - name: Pack the tested output
         shell: bash

@@ -1,7 +1,7 @@
 import path from "node:path";
 
 import { build } from "esbuild";
-import ts from "typescript";
+import ts from "typescript-compiler-api";
 import { describe, expect, it } from "vitest";
 
 import { createBuildOptions } from "../scripts/build-options.mjs";

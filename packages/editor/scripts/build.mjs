@@ -1,5 +1,5 @@
 import { build } from "esbuild";
-import { rename } from "node:fs/promises";
+import { copyFile, rename } from "node:fs/promises";
 
 import { createBuildOptions } from "./build-options.mjs";
 
@@ -41,3 +41,5 @@ await rename(
   new URL("../dist/index.css", import.meta.url),
   new URL("../dist/styles.css", import.meta.url),
 );
+
+await copyFile(new URL("../src/styles.css.d.ts", import.meta.url), new URL("../dist/styles.css.d.ts", import.meta.url));

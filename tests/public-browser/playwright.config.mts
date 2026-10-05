@@ -3,6 +3,7 @@ import { defineConfig, devices } from "@playwright/test";
 
 export default defineConfig({
   testDir: ".",
+  projects: [{ name: "react18" }],
   outputDir: fileURLToPath(new URL("../../test-results/public-browser/", import.meta.url)),
   timeout: 60_000,
   expect: { timeout: 10_000 },
