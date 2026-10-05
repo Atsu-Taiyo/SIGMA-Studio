@@ -586,6 +586,7 @@ function useAiPageCanvasExtension({
     // 選んだ図形の操作 (選択ポップオーバーと回転ハンドル) は覆わない。
     const placements = placeFloatingDecisionBars(floating.map((entry) => entry.request), {
       pageWidthPx: context.pageWidthPx,
+      pageHeightPx: context.pageHeightPx,
       pageStridePx: context.pageHeightPx + PAGE_GAP_PX,
       desiredWidthPx: OVERLAY_APPROVAL_WIDGET_WIDTH,
       gapPx: OVERLAY_APPROVAL_WIDGET_GAP,
@@ -1228,13 +1229,14 @@ const findOverlappingRect = (rect: FloatingBarRect, others: readonly FloatingBar
 /**
  * 浮かぶバーを置く。図形の上に余白があれば上、無ければ下。図形が無ければ 1 ページ目の上端の右寄せ
  * (本文の先頭のブロックの選択ポップオーバーは中央に出るので、それと重ならない側)。
- * 障害物 (選んだ図形の上に出る選択の操作) にかかる側は避けて反対側に置く。そのあと先に置いたバーか
- * 障害物と重なるときは、見積もった高さで重ならないところまで (上に置くものは上へ、下に置くものは
- * 下へ) ずらす。
+ * 障害物 (選んだ図形の上に出る選択の操作) にかかる側は避けて反対側を先に試す。先に置いたバーか障害物と
+ * 重なるときは、見積もった高さで重ならないところまで (上に置くものは上へ、下に置くものは下へ) ずらす。
+ * ずらした先は図形のあるページに収める: 収まる側を選び、どちらも収まらなければ重なってもページの中に
+ * 置く (押せることを優先する)。
  */
 export function placeFloatingDecisionBars(
   requests: readonly FloatingDecisionBarRequest[],
-  frame: { pageWidthPx: number; pageStridePx: number; desiredWidthPx: number; gapPx: number; marginPx: number },
+  frame: { pageWidthPx: number; pageHeightPx: number; pageStridePx: number; desiredWidthPx: number; gapPx: number; marginPx: number },
   obstacles: readonly FloatingBarBounds[] = [],
 ): FloatingDecisionBarPlacement[] {
   const obstacleRects: FloatingBarRect[] = obstacles.map((obstacle) => ({
@@ -1258,23 +1260,34 @@ export function placeFloatingDecisionBars(
       top: side === "above" ? nextTop - heightPx : nextTop,
       bottom: side === "above" ? nextTop : nextTop + heightPx,
     });
-    let placement: "above" | "below" = "below";
-    let top = frame.marginPx;
-    if (bounds) {
-      const pageTop = Math.max(0, Math.floor(bounds.y / frame.pageStridePx)) * frame.pageStridePx;
-      const topOf = (side: "above" | "below") => side === "above" ? bounds.y - frame.gapPx : bounds.y + bounds.h + frame.gapPx;
-      const sides: Array<"above" | "below"> = bounds.y - pageTop >= heightPx + frame.gapPx ? ["above", "below"] : ["below"];
-      placement = sides.find((side) => !findOverlappingRect(rectAt(side, topOf(side)), obstacleRects)) ?? sides[0];
-      top = topOf(placement);
-    }
+    const pageTop = bounds ? Math.max(0, Math.floor(bounds.y / frame.pageStridePx)) * frame.pageStridePx : 0;
+    const pageBottom = pageTop + frame.pageHeightPx;
+    const topOf = (side: "above" | "below") => (
+      !bounds ? frame.marginPx : side === "above" ? bounds.y - frame.gapPx : bounds.y + bounds.h + frame.gapPx
+    );
+    const sides: Array<"above" | "below"> = bounds && bounds.y - pageTop >= heightPx + frame.gapPx ? ["above", "below"] : ["below"];
+    const freeOfObstacles = (side: "above" | "below") => !findOverlappingRect(rectAt(side, topOf(side)), obstacleRects);
     const blockers = [...obstacleRects, ...placedRects];
-    for (let attempt = 0; attempt <= blockers.length; attempt += 1) {
-      const blocker = findOverlappingRect(rectAt(placement, top), blockers);
-      if (!blocker) {
-        break;
+    const candidates = [...sides.filter(freeOfObstacles), ...sides.filter((side) => !freeOfObstacles(side))].map((side) => {
+      let top = topOf(side);
+      for (let attempt = 0; attempt <= blockers.length; attempt += 1) {
+        const blocker = findOverlappingRect(rectAt(side, top), blockers);
+        if (!blocker) {
+          break;
+        }
+        top = side === "above" ? blocker.top - FLOATING_BAR_STACK_GAP_PX : blocker.bottom + FLOATING_BAR_STACK_GAP_PX;
       }
-      top = placement === "above" ? blocker.top - FLOATING_BAR_STACK_GAP_PX : blocker.bottom + FLOATING_BAR_STACK_GAP_PX;
-    }
+      return { side, top };
+    });
+    const onPage = ({ side, top }: { side: "above" | "below"; top: number }) => {
+      const rect = rectAt(side, top);
+      return rect.top >= pageTop && rect.bottom <= pageBottom;
+    };
+    const fallback = candidates[0];
+    const lowest = fallback.side === "above" ? pageTop + heightPx : pageTop;
+    const highest = Math.max(lowest, fallback.side === "above" ? pageBottom : pageBottom - heightPx);
+    const { side: placement, top } = candidates.find(onPage)
+      ?? { side: fallback.side, top: Math.min(Math.max(fallback.top, lowest), highest) };
     placedRects.push(rectAt(placement, top));
     return { key: request.key, placement, left: horizontal.center, top, width: horizontal.width };
   });

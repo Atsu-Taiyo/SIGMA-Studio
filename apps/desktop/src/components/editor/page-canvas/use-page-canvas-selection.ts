@@ -21,6 +21,7 @@ import {
   createTextCommentAnchorFromRange,
   getClosestBlockId,
   getOverlaySelectionActionPopoverPosition,
+  getOverlaySelectionControlsCanvasRect,
   getOverlaySelectionTargetBlockId,
   getRangeScreenRect,
   getRangeTargetBlockId,
@@ -51,10 +52,12 @@ interface Inputs {
   renderSelectionActions: ((anchor: SigmaCommentAnchor) => React.ReactNode) | undefined;
   selectedInlineMath: { id: string; tex: string; blockId?: string; } | null;
   totalHeight: number;
+  /** 描いた図形の選択ポップオーバーの幅 (画面の px)。測る前は見積もり。 */
+  overlayPopoverWidthPx?: number;
 }
 
 const TEXT_SELECTION_ACTION_DEBOUNCE_MS = 120;
-export function usePageCanvasSelectionActions({ overlaySelection, suppressSelectionActions, pageOverlayEditing, selectionExtension, selectedId, document, bodyOverlayModeStatus, overlayCommentAnchor, canvasRef, zoom, isWhiteboard, whiteboardPanX, whiteboardPanY, onCommentAnchorCandidateChange, isOverlayEditing, onCommentAnchorRequest, renderSelectionActions, selectedInlineMath, totalHeight }: Inputs) {
+export function usePageCanvasSelectionActions({ overlaySelection, suppressSelectionActions, pageOverlayEditing, selectionExtension, selectedId, document, bodyOverlayModeStatus, overlayCommentAnchor, canvasRef, zoom, isWhiteboard, whiteboardPanX, whiteboardPanY, onCommentAnchorCandidateChange, isOverlayEditing, onCommentAnchorRequest, renderSelectionActions, selectedInlineMath, totalHeight, overlayPopoverWidthPx }: Inputs) {
 
   const [extensionTextSelectionPopover, setExtensionTextSelectionPopover] = useState<ExtensionActionPopoverState | null>(null);
 
@@ -120,6 +123,24 @@ export function usePageCanvasSelectionActions({ overlaySelection, suppressSelect
     : null;
 
   const selectionActionPopover = bodySelectionActionPopover ?? overlaySelectionActionPopover;
+
+  // 図形の選択ポップオーバーが実際に出ている間だけ、選択の操作 (ポップオーバー・回転ハンドル・選択枠) を
+  // 紙面に浮かべる部品が避ける矩形にする (紙面の座標)。出ていなければ `null`。
+  const overlaySelectionPopoverShown = !bodySelectionActionPopover && overlaySelectionActionPopover !== null;
+  const selectionControls = useMemo(
+    () => overlaySelectionPopoverShown
+      ? getOverlaySelectionControlsCanvasRect(overlaySelection, zoom, overlayPopoverWidthPx)
+      : null,
+    [overlayPopoverWidthPx, overlaySelection, overlaySelectionPopoverShown, zoom],
+  );
+  // 値が同じなら同じ矩形を渡す (選択の要約が作り直されても、紙面の浮かぶ部品を作り直さない)。
+  const [controlsX, controlsY, controlsW, controlsH] = selectionControls
+    ? [selectionControls.x, selectionControls.y, selectionControls.w, selectionControls.h]
+    : [Number.NaN, Number.NaN, Number.NaN, Number.NaN];
+  const selectionControlsRect = useMemo(
+    () => Number.isNaN(controlsX) ? null : { x: controlsX, y: controlsY, w: controlsW, h: controlsH },
+    [controlsH, controlsW, controlsX, controlsY],
+  );
 
   useLayoutEffect(() => {
     if (!pageOverlayEditing || (overlaySelection.selectedCount === 0 && !overlaySelection.region)) {
@@ -430,5 +451,5 @@ export function usePageCanvasSelectionActions({ overlaySelection, suppressSelect
 
     return () => window.cancelAnimationFrame(frame);
   }, [commentAnchorOwnershipRevision, document, hasCommentAnchorRequest, isOverlayEditing, selectionExtension, selectedId, selectedInlineMath, totalHeight, zoom, canvasRef]);
-  return { overlaySelectionKey, selectionActionPopover };
+  return { overlaySelectionKey, selectionActionPopover, selectionControlsRect };
 }
