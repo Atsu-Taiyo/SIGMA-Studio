@@ -23,6 +23,8 @@ import {
 import {
   assertAppliedProposalHasRealChanges,
   replayProposalDraft,
+  assertNoRepeatedContentIds,
+  ProposalReplayRepeatedIdError,
   replayProposalDraftMerging,
   rewriteProposalDraftMerging,
 } from "./proposal-replay";
@@ -782,23 +784,51 @@ describe("rewriteProposalDraftMerging (the merge for an owner that replays draft
     expect(isProposalMergeQuiet(merged.report)).toBe(true);
   });
 
-  it("puts only the unit the owner's replay cannot apply back on the AI's side, and counts it", () => {
+  /** The owner's replay: it cannot apply the merged p_1 (a merge failure, as the approval's replay error). */
+  const replayRejectingMergedP1 = (replays: AiEditSessionDraft[], error: () => Error) => (rewrite: { draft: AiEditSessionDraft }) => {
+    replays.push(rewrite.draft);
+    const p1 = rewrite.draft.operations[0];
+    if (p1 && "replacementBlock" in p1 && JSON.stringify(p1.replacementBlock).includes("big")) {
+      throw error();
+    }
+    return replayProposalDraft(current, rewrite.draft);
+  };
+
+  it("puts only the unit whose merged contents fail the owner's replay back on the AI's side, and counts it", () => {
     const basis = computeProposalMergeBasis(editAndDelete, base);
     const replays: AiEditSessionDraft[] = [];
 
-    const merged = rewriteProposalDraftMerging(current, editAndDelete, basis, (rewrite) => {
-      replays.push(rewrite.draft);
-      const p1 = rewrite.draft.operations[0];
-      if (p1 && "replacementBlock" in p1 && JSON.stringify(p1.replacementBlock).includes("big")) {
-        throw new Error("the owner cannot apply the merged p_1");
-      }
-      return replayProposalDraft(current, rewrite.draft);
-    });
+    const merged = rewriteProposalDraftMerging(current, editAndDelete, basis, replayRejectingMergedP1(replays, () => new ProposalReplayRepeatedIdError(["p_1"])));
 
     expect(paragraphText(merged.result.nextDocument, "p_1")).toBe("The dog sat.");
     expect(paragraphText(merged.result.nextDocument, "p_2")).toBe("two by human");
     expect(merged.report.invalidAfterMerge).toBe(1);
     expect(replays.length).toBeGreaterThan(1);
+  });
+
+  it("rethrows the owner's own rejection at once instead of dropping the human's edit to get past it", () => {
+    const basis = computeProposalMergeBasis(editAndDelete, base);
+    const replays: AiEditSessionDraft[] = [];
+    class OwnerRejection extends Error {}
+
+    expect(() => rewriteProposalDraftMerging(
+      current,
+      editAndDelete,
+      basis,
+      replayRejectingMergedP1(replays, () => new OwnerRejection("stale move")),
+      (error) => !(error instanceof OwnerRejection),
+    )).toThrow(OwnerRejection);
+    expect(replays).toHaveLength(1);
+  });
+});
+
+describe("assertNoRepeatedContentIds", () => {
+  it("rejects a replay that leaves an id more often than before, and keeps what the document already repeats", () => {
+    const before = documentOf([paragraph("p_1", "one"), paragraph("p_2", "two")]);
+
+    expect(() => assertNoRepeatedContentIds(before, documentOf([paragraph("p_1", "one"), paragraph("p_2", "two"), paragraph("p_3", "new")]))).not.toThrow();
+    expect(() => assertNoRepeatedContentIds(before, { ...before, content: [...before.content, paragraph("p_1", "copy")] }))
+      .toThrow(expect.objectContaining({ name: "ProposalReplayRepeatedIdError", ids: ["p_1"] }));
   });
 });
 

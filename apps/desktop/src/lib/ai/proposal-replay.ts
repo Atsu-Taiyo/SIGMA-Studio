@@ -260,12 +260,18 @@ export interface ProposalDraftRewrite {
  * merged contents cannot be applied fall back to the AI's version (counted as `invalidAfterMerge`), as
  * in the approval; when even that fails, `replay`'s first error is thrown. Without anything to merge,
  * `replay` gets the draft unchanged and the report is empty.
+ *
+ * `isMergeFailure` tells the merge failures (what the approval falls back on: a replay error, an id
+ * the merge repeats, `assertNoRepeatedContentIds`) from the owner's own rejections. An owner's
+ * rejection (WebMCP's stale checks of a move, a column range or an implicit id) is thrown at once:
+ * putting units back on the AI's side would only make its check pass by dropping the human's edit.
  */
 export function rewriteProposalDraftMerging<T>(
   document: SigmaDocument,
   draft: AiEditSessionDraft,
   mergeBasis: ProposalMergeBasis,
   replay: (rewrite: ProposalDraftRewrite) => T,
+  isMergeFailure: (error: unknown) => boolean = () => true,
 ): { rewrite: ProposalDraftRewrite; result: T; report: ProposalMergeReport } {
   const plan = planMergingReplay(document, draft, mergeBasis);
   const attempt = (fallBack: ReadonlySet<string>) => {
@@ -276,8 +282,31 @@ export function rewriteProposalDraftMerging<T>(
     return { ...attempt(new Set()), report: assembleReport(plan, new Set()) };
   } catch (error) {
     // Without merged units (nothing to rewrite) this rethrows `replay`'s error at once.
-    const { replay: merged, fallBack } = retryWithFailingUnitsOnTheAiSide(plan, attempt, error);
+    const { replay: merged, fallBack } = retryWithFailingUnitsOnTheAiSide(plan, attempt, error, isMergeFailure);
     return { ...merged, report: assembleReport(plan, fallBack) };
+  }
+}
+
+/** The replay left ids more often in the document than before (a merged unit repeated them). */
+export class ProposalReplayRepeatedIdError extends Error {
+  constructor(readonly ids: string[]) {
+    super(te("electron.proposal.regenerateReplayFailed"));
+    this.name = "ProposalReplayRepeatedIdError";
+  }
+}
+
+/**
+ * The check a plain replay never needed: replaying a rewritten (merged) draft must not leave an id
+ * more often in the document than before (a unit the merge could not keep apart, replayed on the AI's
+ * side next to the human's copy). The approval (`replayRewrittenDraft`) and WebMCP's replay share it.
+ */
+export function assertNoRepeatedContentIds(before: SigmaDocument, after: SigmaDocument): void {
+  const counts = countContentIds(before.content);
+  const repeated = [...countContentIds(after.content)]
+    .filter(([id, count]) => count > Math.max(1, counts.get(id) ?? 0))
+    .map(([id]) => id);
+  if (repeated.length > 0) {
+    throw new ProposalReplayRepeatedIdError(repeated);
   }
 }
 
@@ -313,20 +342,28 @@ type MergedReplay = Omit<ProposalMergeReplayResult, "report">;
  * The replay failed with the merged units. Each merged unit is tried alone (the others on the AI's
  * side) to find the ones whose merged contents cannot be applied, and only those fall back to the
  * AI's version, so the other units keep the human's edits. If that combination still fails, every
- * merged unit falls back; if even that fails, the original error is rethrown.
+ * merged unit falls back; if even that fails, the original error is rethrown. An error that is not a
+ * merge failure (`isMergeFailure`) is rethrown at once, whichever attempt it comes from.
  */
 function retryWithFailingUnitsOnTheAiSide<R extends object>(
   plan: MergingReplayPlan,
   attempt: (fallBack: ReadonlySet<string>) => R,
   error: unknown,
+  isMergeFailure: (error: unknown) => boolean = () => true,
 ): { replay: R; fallBack: ReadonlySet<string> } {
+  if (!isMergeFailure(error)) {
+    throw error;
+  }
   const mergedIds = allUnits(plan)
     .filter((unit) => unit.usesMerged)
     .map((unit) => unit.id);
   const tryAttempt = (fallBack: ReadonlySet<string>): R | null => {
     try {
       return attempt(fallBack);
-    } catch {
+    } catch (attemptError) {
+      if (!isMergeFailure(attemptError)) {
+        throw attemptError;
+      }
       return null;
     }
   };
@@ -985,12 +1022,7 @@ function replayRewrittenDraft(
     return { draft, nextDocument: parseSigmaDocument(document) };
   }
   const replay = replayProposalDraft(document, draft);
-  const before = countContentIds(document.content);
-  for (const [id, count] of countContentIds(replay.nextDocument.content)) {
-    if (count > Math.max(1, before.get(id) ?? 0)) {
-      throw new Error(te("electron.proposal.regenerateReplayFailed"));
-    }
-  }
+  assertNoRepeatedContentIds(document, replay.nextDocument);
   return replay;
 }
 
