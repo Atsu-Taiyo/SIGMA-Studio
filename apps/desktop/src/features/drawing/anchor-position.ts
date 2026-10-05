@@ -46,6 +46,12 @@ export interface MeasuredBlock {
    * the body from SigmaDoc — the print/PDF path included — drops the figure.
    */
   derived?: boolean;
+  /**
+   * Not drawn right now (a feature folded it out of the page). Kept at its last measured place so
+   * figures anchored to it, and re-anchoring after a deletion, do not change with a display toggle;
+   * never offered as a new anchor picked from a point or a shape's position (nothing is visible there).
+   */
+  undrawn?: boolean;
 }
 
 export interface BlockExtent {
