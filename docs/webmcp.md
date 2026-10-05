@@ -25,7 +25,9 @@ WebMCP用の別文書はありません。SigmaDocが唯一の正本です。読
 - 人間が対象を消した: 置換・更新する対象 (`collectMissingMergeUnitIds`)、挿入のアンカー、移動・段組みにする範囲のブロック
 - 合成しない対象を人間が変えた: 図形の整列・段組みの設定の更新の対象、削除・更新する図形が連れて行く図形 (groupとそのメンバー・固定された図形)、グラフとそのラベル。どれが合成できないかはデスクトップのロック・承認と同じ `collectNonMergeableTargets` の1か所で決めます
 - 合成の対象外: 更新・整列・削除する画像の中身、ページ設定、文書全体の段組み、別の教材 (docId)
-- 挿入するIDが人間の追加と重なった、移動元・移動先・段組みにする範囲の並びが人間の編集で変わった
+- 挿入するIDが人間の追加と重なった、合成してもAI側の版に戻しても同じIDが文書に増える (人間が中のブロックを入れ物の外へ出した、など)、移動元・移動先・段組みにする範囲の並びが人間の編集で変わった
+
+合成で人の編集をAI側の版に戻す退避 (合成後の内容が検証を通らない・同じIDを増やす) は、デスクトップと同じ規則 (`rewriteProposalDraftMerging`・`assertNoRepeatedContentIds`) で行い、WebMCPの位置確認による `STALE_DRAFT` は退避で回避せずそのまま止めます。WebMCPは公開Editorにも入るので、合成のmodule (`lib/ai/proposal-merge-basis.ts`・`proposal-replay.ts`・`applied-document-diff.ts`・`proposal-merge-metrics.ts`) は `packages/editor/scripts/build.mjs` の許可リストに載せています (`features/ai-edit/` は使いません)。
 
 `edit_text` の引用・範囲と、各overlay更新ツールの完全な `expectedShape` は、書き込みの時点で対象単位に照合します (`STALE_TARGET`)。エージェントは再読取後に `withdraw_pending_proposal` で古いドラフトを破棄して作り直します。合成の退避 (重なり・AI側の採用・削除より編集を残した) は適用時にデスクトップと同じ `AiProposalMerge.*` で数え、合成できずに `STALE_DRAFT` になった回数 (その状態に入った回数) は `window.__sigmaWebMcpHeavyFallbackCount` で数えます。重なりの無い通常の適用ではどちらも0です。
 
