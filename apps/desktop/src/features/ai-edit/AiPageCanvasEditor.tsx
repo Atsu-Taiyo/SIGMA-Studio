@@ -1,7 +1,7 @@
 "use client";
 
 import { WandSparkles } from "lucide-react";
-import { memo, useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 import {
   AiEditInlinePreviewCard,
@@ -37,7 +37,7 @@ import {
   withMergedShapes,
   type AiProposalAnchorCard,
 } from "./model/proposal-content";
-import { resolveProposalMergePreview } from "./model/proposal-merge-preview";
+import { resolveProposalMergePreview, retainProposalMergePreviewFallbacks } from "./model/proposal-merge-preview";
 import { AiRunAnchorLayer, type AiRunCardOpenRequest } from "@/components/editor/ai-run-anchor-layer";
 import {
   getNarrowColumnBounds,
@@ -258,6 +258,10 @@ function useAiPageCanvasExtension({
   onFocusSession,
 }: UseAiPageCanvasExtensionOptions): { extension: PageCanvasEditorExtension; beforeHiddenShapeIds: ReadonlySet<string> } {
   const t = useT("ai");
+  // 承認・破棄で保留中でなくなった提案の、退避を数え済みという記録を捨てる (MISS R3)。
+  useEffect(() => {
+    retainProposalMergePreviewFallbacks(previewGroups);
+  }, [previewGroups]);
   const inlinePreviewGroups = useMemo(
     () => previewGroups.filter(hasBodyAiEditChanges),
     [previewGroups],
@@ -401,7 +405,7 @@ function useAiPageCanvasExtension({
     () => collectMergedUpdatedShapes(previewGroups, document, { countFallbacks: !applying }),
     [applying, document, previewGroups],
   );
-  const mergedUpdatedShapesKey = JSON.stringify(mergedUpdatedShapeList);
+  const mergedUpdatedShapesKey = useMemo(() => JSON.stringify(mergedUpdatedShapeList), [mergedUpdatedShapeList]);
   const mergedUpdatedShapes = useMemo<ReadonlyMap<string, OverlayShape>>(
     () => new Map(mergedUpdatedShapeList.map((shape) => [shape.id, shape])),
     // eslint-disable-next-line react-hooks/exhaustive-deps

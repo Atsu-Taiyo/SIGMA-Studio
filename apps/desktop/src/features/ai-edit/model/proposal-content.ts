@@ -34,7 +34,6 @@ import { areStructurallyEqual } from "@/lib/structural-equality";
 import {
   deriveAiEditPreviewDiff,
   deriveAiEditPreviewOverlayShapes,
-  deriveAiEditPreviewShapeUpdates,
   type AiEditPreviewShapeUpdate,
   hasBodyAiEditChanges,
   isOverlayAiEditDraft,
@@ -730,23 +729,10 @@ export function collectProposalRemovals(
 }
 
 /**
- * 紙面に描く図形の変更後の姿 (ゴースト)。base を持つ提案は、承認の合成後の文書にあるその図形で描く:
- * draft の patch を今の図形に当てた姿は、人が直した値を patch の (元のままの) 値で塗り替えることがあり、
- * 保存される内容と食い違う (MISS R17)。base を持たない提案と、合成後の文書に無い図形は従来どおり。
+ * base を持つ提案が更新・整列する図形の、承認の合成後の姿。紙面のゴースト (変更後の姿) は draft の patch を
+ * 今の図形に当てた姿をこれで置き換えて描く (`withMergedShapes`): patch の (元のままの) 値が人の直した値を
+ * 塗り替えると、保存される内容と食い違う (MISS R17)。base を持たない提案と、合成後の文書に無い図形は従来どおり。
  */
-export function resolveMergedShapeUpdates(
-  previews: AiEditPreviewState[],
-  document: SigmaDocument,
-  currentShapes: OverlayShape[],
-  options: ResolveProposalMergePreviewOptions = {},
-): AiEditPreviewShapeUpdate[] {
-  return withMergedShapes(
-    deriveAiEditPreviewShapeUpdates(previews, currentShapes),
-    new Map(collectMergedUpdatedShapes(previews, document, options).map((shape) => [shape.id, shape])),
-  );
-}
-
-/** base を持つ提案が更新・整列する図形の、承認の合成後の姿。 */
 export function collectMergedUpdatedShapes(
   previews: AiEditPreviewState[],
   document: SigmaDocument,

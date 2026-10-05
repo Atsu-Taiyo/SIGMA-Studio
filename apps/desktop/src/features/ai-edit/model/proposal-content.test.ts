@@ -13,7 +13,7 @@ import { buildAppliedDiffRows } from "@/lib/ai/applied-diff-lines";
 import { computeProposalMergeBasis } from "@/lib/ai/proposal-merge-basis";
 import { parseSigmaDocument } from "@/lib/sigma-doc-schema";
 
-import type { AiEditPreviewState } from "./preview";
+import { deriveAiEditPreviewShapeUpdates, type AiEditPreviewState } from "./preview";
 import {
   AI_PROPOSAL_PREVIEW_ID_PREFIX,
   AI_PROPOSAL_WORD_HIGHLIGHT,
@@ -24,7 +24,8 @@ import {
   collectShapesKeptByMerge,
   groupPendingProposalContentByAnchor,
   isProposalContentEmpty,
-  resolveMergedShapeUpdates,
+  collectMergedUpdatedShapes,
+  withMergedShapes,
   proposalContentToAppliedDiff,
   toDisplayProposalHunk,
 } from "./proposal-content";
@@ -591,7 +592,10 @@ describe("shapes a pending proposal deletes but the merge keeps", () => {
     const current = overlayDocument([{ ...imageShape(), x: 90 }]);
     const currentShapes = current.pageLayout!.overlay!.overlaySnapshot!.shapes;
 
-    const after = resolveMergedShapeUpdates([preview], current, currentShapes).find((entry) => entry.shapeId === "img_1")?.after;
+    // 紙面と同じ組み合わせ: draft から作った変更後の姿を、合成後の姿で置き換える。
+    const merged = new Map(collectMergedUpdatedShapes([preview], current).map((shape) => [shape.id, shape]));
+    const after = withMergedShapes(deriveAiEditPreviewShapeUpdates([preview], currentShapes), merged)
+      .find((entry) => entry.shapeId === "img_1")?.after;
 
     expect(after).toMatchObject({ x: 90, props: { w: 60 } });
   });
