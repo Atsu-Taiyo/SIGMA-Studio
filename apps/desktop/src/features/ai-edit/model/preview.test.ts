@@ -1181,7 +1181,6 @@ describe("isOverlayOnlyAiEditPreview", () => {
     expect(isOverlayOnlyAiEditPreview(preview)).toBe(true);
     expect(hasOverlayAiEditChanges(preview)).toBe(true);
     expect(hasBodyAiEditChanges(preview)).toBe(false);
-    expect(deriveAiEditPreviewDiff([preview]).removedBlockIds).toEqual(new Set());
     expect(derivePostApplyHighlightIds(preview).blockIds).toEqual([]);
   });
 
@@ -1214,22 +1213,10 @@ describe("getAiEditPreviewBeforeShapeIds", () => {
 });
 
 describe("deriveAiEditPreviewDiff", () => {
-  it("marks a replace op's target as removed", () => {
-    const diff = deriveAiEditPreviewDiff([makePreview({ operations: [replaceDraft] })]);
-    expect(diff.removedBlockIds).toEqual(new Set(["b1"]));
+  it("derives nothing for body operations (the removed blocks come from the merged result)", () => {
+    const diff = deriveAiEditPreviewDiff([makePreview({ operations: [replaceDraft, legacyReplaceDraft, insertAfterDraft] })]);
     expect(diff.removedShapeIds.size).toBe(0);
     expect(diff.modifiedShapeIds.size).toBe(0);
-    expect(diff.addedShapes).toEqual([]);
-  });
-
-  it("treats a legacy replace draft (no `operation` field) the same as an explicit replace", () => {
-    const diff = deriveAiEditPreviewDiff([makePreview({ operations: [legacyReplaceDraft] })]);
-    expect(diff.removedBlockIds).toEqual(new Set(["b2"]));
-  });
-
-  it("does not mark an insertAfter op's target as removed", () => {
-    const diff = deriveAiEditPreviewDiff([makePreview({ operations: [insertAfterDraft] })]);
-    expect(diff.removedBlockIds.size).toBe(0);
     expect(diff.addedShapes).toEqual([]);
   });
 
@@ -1266,35 +1253,33 @@ describe("deriveAiEditPreviewDiff", () => {
     expect(diff.addedShapes[0].shape).toEqual(anchoredShape);
   });
 
-  it("maps deleteBlocks/deleteOverlayShapes to removed ids, and updateOverlayShape/alignOverlayShapes to modified ids", () => {
+  it("maps deleteOverlayShapes to removed ids, and updateOverlayShape/alignOverlayShapes to modified ids", () => {
     const diff = deriveAiEditPreviewDiff([
       makePreview({
         mutationOperations: [deleteBlocksOp, updateOverlayShapeOp, alignOverlayShapesOp, deleteOverlayShapesOp],
       }),
     ]);
-    expect(diff.removedBlockIds).toEqual(new Set(["b4", "b5"]));
     expect(diff.removedShapeIds).toEqual(new Set(["s6"]));
     expect(diff.modifiedShapeIds).toEqual(new Set(["s3", "s4", "s5"]));
   });
 
   it("does not derive any diff treatment from moveBlocks (position-only change)", () => {
     const diff = deriveAiEditPreviewDiff([makePreview({ mutationOperations: [moveBlocksOp] })]);
-    expect(diff.removedBlockIds.size).toBe(0);
+    expect(diff.removedShapeIds.size).toBe(0);
     expect(diff.modifiedShapeIds.size).toBe(0);
   });
 
   it("merges diff sets across multiple preview groups", () => {
     const diff = deriveAiEditPreviewDiff([
-      makePreview({ operations: [replaceDraft] }),
+      makePreview({ mutationOperations: [updateOverlayShapeOp] }),
       makePreview({ mutationOperations: [deleteOverlayShapesOp] }),
     ]);
-    expect(diff.removedBlockIds).toEqual(new Set(["b1"]));
+    expect(diff.modifiedShapeIds).toEqual(new Set(["s3"]));
     expect(diff.removedShapeIds).toEqual(new Set(["s6"]));
   });
 
   it("returns empty sets for an empty preview list", () => {
     const diff = deriveAiEditPreviewDiff([]);
-    expect(diff.removedBlockIds.size).toBe(0);
     expect(diff.removedShapeIds.size).toBe(0);
     expect(diff.modifiedShapeIds.size).toBe(0);
     expect(diff.addedShapes).toEqual([]);
