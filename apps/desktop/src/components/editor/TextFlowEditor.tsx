@@ -419,8 +419,11 @@ interface ChangeDecorationOptions {
 
 /** Renders host-supplied before/applying/after states as node decorations,
  * keyed by `sigmaDocId` exactly like `SelectedTextBlockExtension` above.
- * `removingIds`/`addedIds` take priority over the static `removedIds` so an
- * in-flight transition is not fought by its static before-state background. */
+ * A folded block (`collapsedIds`) stays folded through every other state: the
+ * host shows its replacement elsewhere, so un-folding it to play a transition
+ * would flash the hidden before-state. Otherwise `removingIds`/`addedIds` take
+ * priority over the static `removedIds` so an in-flight transition is not
+ * fought by its static before-state background. */
 const ChangeDecorationExtension = Extension.create<ChangeDecorationOptions>({
   name: "textFlowChangeDecoration",
 
@@ -446,7 +449,8 @@ const ChangeDecorationExtension = Extension.create<ChangeDecorationOptions>({
             const removedIds = diffState.removedIds;
             const removingIds = diffState.removingIds;
             const addedIds = diffState.addedIds;
-            if (!removedIds?.length && !removingIds?.length && !addedIds?.length) {
+            const collapsedIds = diffState.collapsedIds;
+            if (!removedIds?.length && !removingIds?.length && !addedIds?.length && !collapsedIds?.length) {
               return DecorationSet.empty;
             }
 
@@ -457,13 +461,15 @@ const ChangeDecorationExtension = Extension.create<ChangeDecorationOptions>({
                 return;
               }
 
-              const className = removingIds?.includes(id)
-                ? "text-flow-change-removing"
-                : addedIds?.includes(id)
-                  ? "text-flow-change-added"
-                  : removedIds?.includes(id)
-                    ? "text-flow-change-before"
-                    : null;
+              const className = collapsedIds?.includes(id)
+                ? "text-flow-change-collapsed"
+                : removingIds?.includes(id)
+                  ? "text-flow-change-removing"
+                  : addedIds?.includes(id)
+                    ? "text-flow-change-added"
+                    : removedIds?.includes(id)
+                      ? "text-flow-change-before"
+                      : null;
               if (!className) {
                 return;
               }

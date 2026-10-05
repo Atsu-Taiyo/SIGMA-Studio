@@ -27,6 +27,7 @@ import {
   findProblemAreaBlockLocation,
   type EditableBlock,
 } from "@/lib/document-tree";
+import { isTextFlowBlock } from "@/features/text-editing";
 import { getHeadingNumberMap } from "@/lib/heading-numbering";
 import { getProblemNumberMap } from "@/lib/problem-numbering";
 import { areStructurallyEqual } from "@/lib/structural-equality";
@@ -109,12 +110,29 @@ export interface AiProposalContent {
   shapes: AiProposalShapeChange[];
 }
 
+/**
+ * カードの内容を「適用後の姿だけ」で見せるときの組み方。削除側・足される側は合成後の内容
+ * (`buildPendingHunks`) のものをそのまま使い、別に差分を数えない (MISS R17)。
+ */
+export interface AiProposalResultLayout {
+  /** 本文から畳む変更前: 削除側 (`hunk.removed`) のうち、紙面の編集面の最上位に並ぶブロック。 */
+  collapsedBlockIds: string[];
+  /**
+   * 変更前を畳んで足される側をカードに置けば、適用後の紙面と同じ並びになるか。畳めない変更前 (箱・
+   * リストの中、問題・段組みそのもの)、適用後に流れの単位にならない足される側 (箱の中への挿入など)、
+   * 中身を持たない操作 (移動・段組み) を含む塊では組めない (カードに注記を添える)。
+   */
+  complete: boolean;
+}
+
 /** 紙面の 1 か所に置くカード 1 枚分: どの提案の、どの内容か。 */
 export interface AiProposalAnchorCard {
   preview: AiEditPreviewState;
   content: AiProposalContent;
   /** このカードの内容 (アンカーの単位) が人の編集と合成したものか (承認バーに一言を添える)。 */
   mergedWithHumanEdits: boolean;
+  /** 適用後だけを見せるときの組み方。 */
+  resultLayout: AiProposalResultLayout;
 }
 
 /**
@@ -305,6 +323,20 @@ function buildPendingHunks(
   afterDocument: SigmaDocument | null,
   preview: AiEditPreviewState,
 ): AiProposalContentHunk[] {
+  return collectPendingHunks(current, afterDocument, preview).hunks;
+}
+
+interface PendingHunks {
+  hunks: AiProposalContentHunk[];
+  currentIndex: DocumentFlowIndex;
+  afterIndex: DocumentFlowIndex | null;
+}
+
+function collectPendingHunks(
+  current: SigmaDocument,
+  afterDocument: SigmaDocument | null,
+  preview: AiEditPreviewState,
+): PendingHunks {
   const { draft } = preview;
   const operations = draft.operations;
   const mutationOperations = draft.mutationOperations ?? [];
@@ -416,7 +448,7 @@ function buildPendingHunks(
     }
   }
 
-  return [...hunks.values()]
+  const ordered = [...hunks.values()]
     .map((hunk, index) => ({
       index,
       order: currentIndex.orderById.get(hunk.anchorBlockId) ?? Number.POSITIVE_INFINITY,
@@ -432,6 +464,33 @@ function buildPendingHunks(
     }))
     .sort((a, b) => a.order - b.order || a.index - b.index)
     .map(({ hunk }) => hunk);
+  return { hunks: ordered, currentIndex, afterIndex };
+}
+
+/** 中身のブロックを置き換える・足す・消すだけの操作。ほか (移動・段組み) は適用後の位置をカードに組めない。 */
+const RESULT_LAYOUT_OPERATIONS: ReadonlySet<AiProposalOperationKind> = new Set(["replace", "insertAfter", "deleteBlocks"]);
+
+/**
+ * 紙面の編集面の最上位に並ぶブロックか (本文の装飾で畳める)。流れのブロックのうち、編集面に本文として並ぶ
+ * もの (`isTextFlowBlock`。紙面のユニット分け `buildRenderUnits` と同じ判定)。問題と段組みそのものはエリア・段
+ * ごとの編集面に分かれて描かれ、1 つのブロックとしては並ばない。
+ */
+function isPageEditorTopLevelBlock(block: EditableBlock, index: DocumentFlowIndex): boolean {
+  return index.flowAnchorById.get(block.id) === block.id && block.type !== "listItem" && isTextFlowBlock(block);
+}
+
+function resultLayoutOf(hunk: AiProposalContentHunk, built: PendingHunks): AiProposalResultLayout {
+  const collapsedBlockIds = hunk.removed
+    .filter((block) => isPageEditorTopLevelBlock(block, built.currentIndex))
+    .map((block) => block.id);
+  const { afterIndex } = built;
+  const addedInFlow = hunk.added.every((block) => afterIndex?.flowAnchorById.get(block.id) === block.id);
+  return {
+    collapsedBlockIds,
+    complete: collapsedBlockIds.length === hunk.removed.length
+      && addedInFlow
+      && hunk.operations.every((operation) => RESULT_LAYOUT_OPERATIONS.has(operation)),
+  };
 }
 
 function buildPendingShapeChanges(
@@ -604,12 +663,18 @@ export function groupPendingProposalContentByAnchor(
     // 合成した単位 (人が直した単位) が流れるアンカー。その単位のカードにだけ一言を添える (直して
     // いない単位のカードの高さを変えない)。
     const mergedAnchors = new Set(merged.humanEditedUnits.map((unitId) => flowAnchorById!.get(unitId) ?? unitId));
-    for (const hunk of buildPendingHunks(document, merged.afterDocument, preview)) {
+    const built = collectPendingHunks(document, merged.afterDocument, preview);
+    for (const hunk of built.hunks) {
       if (!placeable.has(hunk.anchorBlockId)) {
         continue;
       }
       const cards = cardsByAnchorId.get(hunk.anchorBlockId) ?? [];
-      cards.push({ preview, content: { hunks: [hunk], shapes: [] }, mergedWithHumanEdits: mergedAnchors.has(hunk.anchorBlockId) });
+      cards.push({
+        preview,
+        content: { hunks: [hunk], shapes: [] },
+        mergedWithHumanEdits: mergedAnchors.has(hunk.anchorBlockId),
+        resultLayout: resultLayoutOf(hunk, built),
+      });
       cardsByAnchorId.set(hunk.anchorBlockId, cards);
     }
   }
@@ -906,15 +971,18 @@ function rekeyNumbering(numbering: AiProposalNumbering, blocks: EditableBlock[])
 
 /**
  * 描画用のコピーを作る。(1) 同じ id の置き換えは変わった単語/数式だけを塗る (丸ごとの挿入・削除は
- * 塗らない — 入れ物の地の色で分かる)。(2) すべての id に接頭辞を付け、紙面の本物と同じ
- * `data-sigma-doc-id` を出さない。番号の表も付け替えた id で引けるようにする。
- * 元の塊・ブロック・文書は変えない。
+ * 塗らない — 入れ物の地の色で分かる)。適用後だけを見せるとき (`markChanges: false`) は塗らない。
+ * (2) すべての id に接頭辞を付け、紙面の本物と同じ `data-sigma-doc-id` を出さない (塗らないときも)。
+ * 番号の表も付け替えた id で引けるようにする。元の塊・ブロック・文書は変えない。
  */
-export function toDisplayProposalHunk(hunk: AiProposalContentHunk): AiProposalDisplayHunk {
+export function toDisplayProposalHunk(
+  hunk: AiProposalContentHunk,
+  { markChanges = true }: { markChanges?: boolean } = {},
+): AiProposalDisplayHunk {
   const removedById = new Map(hunk.removed.map((block) => [block.id, block]));
   const paintedRemoved = new Map<string, EditableBlock>();
   const added = hunk.added.map((block) => {
-    const counterpart = removedById.get(block.id);
+    const counterpart = markChanges ? removedById.get(block.id) : undefined;
     if (!counterpart) {
       return block;
     }

@@ -465,7 +465,7 @@ test("the decision bar stays one line and is never split by a page boundary", as
     // 折り返さない 1 行 (操作ボタン 1 つ分の高さ)。
     expect(barBox.height, `filler=${filler}`).toBeLessThanOrEqual(40);
     // バーの操作は切り取られずに押せる (切れ目がバーの中に来ない)。
-    for (const name of ["破棄", "適用", "内容を隠す"]) {
+    for (const name of ["破棄", "適用", "内容を隠す", "適用後だけを表示"]) {
       await expectHittable(card.getByRole("button", { name, exact: true }));
     }
     // 参照元はバーの外 (すぐ下の行)。続きの複製に回っても見た目は出る。
@@ -566,4 +566,178 @@ test("a proposal nobody edited around carries no merge notice", async ({ page })
   const card = pageCard(page, "para_target").locator("[data-ai-proposal-card]");
   await expect(card.locator("[data-ai-proposal-content]")).toContainText("提案で直した段落です。");
   await expect(card.locator("[data-ai-proposal-merge-notice]")).toHaveCount(0);
+});
+
+/**
+ * 「適用後だけを表示」: 差分の装飾を外し、本文の変更前を畳んで、承認後の紙面の姿だけを組む。既定は差分の表示。
+ * 状態はカードの外 (紙面の拡張) にあるので、改ページで切れたカードの続きも同じ表示になる。
+ */
+function replaceWithRows(rows: number, targetId = "para_target"): DesktopMcpEditProposalSummary {
+  const original = createDocument().content.find((block) => block.id === targetId)!;
+  return { ...proposal("proposal_result", {
+    summary: "段落を書き換えて行を足す",
+    plan: ["段落を書き換える", "行を足す"],
+    warnings: [],
+    operations: [
+      {
+        operation: "replace" as const,
+        summary: "段落を置き換え",
+        targetId,
+        replacementBlock: paragraph(targetId, "提案で書き換えた段落です。") as never,
+      },
+      ...Array.from({ length: rows }, (_, index) => ({
+        operation: "insertAfter" as const,
+        summary: "段落を挿入",
+        targetId: index === 0 ? targetId : `result_row_${index - 1}`,
+        insertedBlock: paragraph(`result_row_${index}`, `適用後に並ぶ行${index}`) as never,
+      })),
+    ],
+  }, [targetId]), mergeBasis: basisOf(original) };
+}
+
+const RESULT_ONLY_COUNTER = "AiProposalResultOnly.notLaidOut";
+
+async function counter(page: Page, name: string): Promise<number> {
+  return page.evaluate((counterName) => (
+    (window as unknown as { __SIGMA_STUDIO_PERFORMANCE__?: { counters: Record<string, number> } })
+      .__SIGMA_STUDIO_PERFORMANCE__?.counters?.[counterName] ?? 0
+  ), name);
+}
+
+async function savedContent(page: Page): Promise<unknown> {
+  return page.evaluate(() => JSON.parse(window.localStorage.getItem("sigma-studio:e2e-document") ?? "null")?.content ?? null);
+}
+
+test("showing only the result folds the before text and drops every change mark, on the continuation too, and switching back restores the diff", async ({ page }) => {
+  await open(page, [replaceWithRows(LONG_ROWS)]);
+  const card = pageCard(page, "para_target").locator("[data-ai-proposal-card]");
+  const before = page.locator('.page-flow [data-sigma-doc-id="para_target"]').first();
+  const content = card.locator("[data-ai-proposal-content]");
+  const replica = page.locator("[data-flow-extension-replica]").first();
+
+  // 既定は差分の表示: 本文の変更前は薄い赤、カードは変わった単語の印と追加側の下地。
+  await expect(before).toHaveClass(/text-flow-change-before/);
+  await expect(before).toBeVisible();
+  await expect(content).toHaveAttribute("data-presentation", "diff");
+  await expect(content.locator('[style*="--ai-proposal-word-added-mark"]').first()).toBeAttached();
+  await expect(content.locator('[data-change="added"]')).toHaveCount(1);
+  await expect(replica).toBeAttached();
+  await expect(replica.locator('[data-change="added"]').first()).toBeAttached();
+  const diffCardTop = (await card.boundingBox())!.y;
+  const beforeTop = (await before.boundingBox())!.y;
+
+  await card.getByRole("button", { name: "適用後だけを表示", exact: true }).click();
+
+  // 変更前の本文は畳まれ (描画矩形を持たない)、カードがその位置に上がる。
+  await expect(before).toHaveClass(/text-flow-change-collapsed/);
+  await expect(before).toBeHidden();
+  await expect.poll(async () => (await card.boundingBox())!.y).toBeLessThan(diffCardTop);
+  expect((await card.boundingBox())!.y).toBeGreaterThanOrEqual(beforeTop - 24);
+  // カードは印も下地も無い適用後の内容だけ。
+  await expect(content).toHaveAttribute("data-presentation", "after");
+  await expect(content).toContainText("提案で書き換えた段落です。");
+  await expect(content.locator('[style*="--ai-proposal-word-"]')).toHaveCount(0);
+  await expect(content.locator("[data-change]")).toHaveCount(0);
+  await expect(card.getByRole("button", { name: "変更箇所を表示", exact: true })).toHaveAttribute("aria-pressed", "true");
+  // 改ページで切れた続き (複製) も同じ表示。
+  await expect(replica).toBeAttached();
+  await expect(replica.locator('[data-ai-proposal-content][data-presentation="after"]').first()).toBeAttached();
+  await expect(replica.locator("[data-change]")).toHaveCount(0);
+  await expect(replica).toContainText(`適用後に並ぶ行${LONG_ROWS - 1}`);
+  // バーは 1 行のまま、操作は押せる。
+  expect((await card.locator("[data-ai-proposal-bar]").boundingBox())!.height).toBeLessThanOrEqual(40);
+  for (const name of ["破棄", "適用", "内容を隠す", "変更箇所を表示"]) {
+    await expectHittable(card.getByRole("button", { name, exact: true }));
+  }
+  // ふつうの置き換え・挿入は適用後の姿に組めるので、注記の代わりの経路は通らない。
+  expect(await counter(page, RESULT_ONLY_COUNTER)).toBe(0);
+  await expect(card.locator("[data-ai-proposal-result-notice]")).toHaveCount(0);
+
+  await card.getByRole("button", { name: "変更箇所を表示", exact: true }).click();
+
+  await expect(before).toBeVisible();
+  await expect(before).toHaveClass(/text-flow-change-before/);
+  await expect(content).toHaveAttribute("data-presentation", "diff");
+  await expect(content.locator('[style*="--ai-proposal-word-added-mark"]').first()).toBeAttached();
+  await expect.poll(async () => Math.abs((await card.boundingBox())!.y - diffCardTop)).toBeLessThanOrEqual(1);
+});
+
+test("the applied result is the same whether or not only the result is shown", async ({ page }) => {
+  await open(page, [replaceWithRows(3)]);
+  const card = pageCard(page, "para_target").locator("[data-ai-proposal-card]");
+  await card.getByRole("button", { name: "適用", exact: true }).click();
+  await expect(pageCard(page, "para_target")).toHaveCount(0);
+  const appliedFromDiff = await savedContent(page);
+
+  await open(page, [replaceWithRows(3)]);
+  const resultCard = pageCard(page, "para_target").locator("[data-ai-proposal-card]");
+  await resultCard.getByRole("button", { name: "適用後だけを表示", exact: true }).click();
+  await expect(page.locator('.page-flow [data-sigma-doc-id="para_target"]').first()).toBeHidden();
+  await resultCard.getByRole("button", { name: "適用", exact: true }).click();
+  await expect(pageCard(page, "para_target")).toHaveCount(0);
+
+  expect(await savedContent(page)).toEqual(appliedFromDiff);
+  // 適用後の本文は畳まれずに描かれる (畳む印は提案と一緒に消える)。
+  const applied = page.locator('.page-flow [data-sigma-doc-id="para_target"]').first();
+  await expect(applied).toBeVisible();
+  await expect(applied).toContainText("提案で書き換えた段落です。");
+  await expect(page.locator(".page-flow .text-flow-change-collapsed")).toHaveCount(0);
+});
+
+test("a folded before block takes no edit while only the result is shown", async ({ page }) => {
+  await open(page, [replaceWithRows(1, "para_pad_1")]);
+  const card = pageCard(page, "para_pad_1").locator("[data-ai-proposal-card]");
+  await card.getByRole("button", { name: "適用後だけを表示", exact: true }).click();
+  const folded = page.locator('.page-flow [data-sigma-doc-id="para_pad_1"]').first();
+  await expect(folded).toBeHidden();
+  const previous = page.locator('.page-flow [data-sigma-doc-id="para_pad_0"]').first();
+  await previous.click();
+  // 直前の段落の末尾で Delete: 畳んだ変更前を結合しようとする編集は通らない。
+  await previous.evaluate((element) => {
+    const text = element.querySelector("p, h1, h2, h3") ?? element;
+    const walker = document.createTreeWalker(text, NodeFilter.SHOW_TEXT);
+    let last: Text | null = null;
+    for (let node = walker.nextNode(); node; node = walker.nextNode()) last = node as Text;
+    const selection = window.getSelection()!;
+    selection.collapse(last ?? text, last ? last.length : 0);
+  });
+  await page.keyboard.press("Delete");
+  await expect(page.locator(".text-flow-edit-guard-notice").first())
+    .toHaveText("適用後だけを表示している間は、変更前の本文を編集できません。「変更箇所を表示」に戻すと編集できます。");
+  await page.keyboard.type("X");
+
+  const saved = () => page.evaluate(() => {
+    const document = JSON.parse(window.localStorage.getItem("sigma-studio:e2e-document") ?? "null");
+    const textOf = (id: string) => document?.content?.find((block: { id: string }) => block.id === id)
+      ?.children?.map((node: { text?: string }) => node.text ?? "").join("");
+    return { pad0: textOf("para_pad_0"), pad1: textOf("para_pad_1") };
+  });
+  // 前の段落には打てる (畳んだブロックだけが守られる)。
+  await expect.poll(async () => (await saved()).pad0).toBe("続きの本文 1X");
+  expect((await saved()).pad1).toBe("続きの本文 2");
+  await expect(card).toBeVisible();
+  await expect(folded).toBeHidden();
+});
+
+test("showing only the result hides the before shape and draws the proposed shape without its outline", async ({ page }) => {
+  await open(page, [bodyAndShape()]);
+  const card = pageCard(page, "para_target").locator("[data-ai-proposal-card]");
+  const beforeShape = page.locator('.overlay-shape.ai-diff-before-shape[data-overlay-shape-id="bar_shape"]').first();
+  await expect(beforeShape).toHaveCSS("opacity", "1");
+  await expect(card.getByRole("button", { name: "変更前を隠す", exact: true })).toBeVisible();
+
+  await card.getByRole("button", { name: "適用後だけを表示", exact: true }).click();
+
+  await expect(beforeShape).toHaveCSS("opacity", "0");
+  await expect(beforeShape).toHaveCSS("pointer-events", "none");
+  const resultShape = page.locator('.overlay-shape.ai-result-only-shape[data-overlay-shape-id="bar_shape"]').first();
+  await expect(resultShape).toBeVisible();
+  await expect(resultShape).toHaveCSS("outline-style", "none");
+  await expect(page.locator('.overlay-shape.ai-diff-after-shape[data-overlay-shape-id="bar_shape"]')).toHaveCount(0);
+  // 変更前は隠れているので「変更前を隠す」は出さない。
+  await expect(card.getByRole("button", { name: "変更前を隠す", exact: true })).toHaveCount(0);
+
+  await card.getByRole("button", { name: "変更箇所を表示", exact: true }).click();
+  await expect(beforeShape).toHaveCSS("opacity", "1");
+  await expect(page.locator('.overlay-shape.ai-diff-after-shape[data-overlay-shape-id="bar_shape"]').first()).toBeVisible();
 });

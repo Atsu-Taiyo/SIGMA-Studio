@@ -479,6 +479,47 @@ describe("groupPendingProposalContentByAnchor", () => {
     expect(cards.every((card) => card.content.shapes.length === 0)).toBe(true);
   });
 
+  describe("what a card folds out of the page body to show only the result", () => {
+    const cardAt = (preview: AiEditPreviewState, anchorId: string, document = baseDocument()) => {
+      const card = groupPendingProposalContentByAnchor([preview], document).get(anchorId)?.[0];
+      if (!card) throw new Error(`no card at ${anchorId}`);
+      return card;
+    };
+
+    it.each([
+      ["a replaced top-level block", previewOf([replace("p1", "変更後")]), "p1", ["p1"]],
+      ["an insertion after a block (nothing to fold)", previewOf([insertAfter("p1", "ins", "追加")]), "p1", []],
+      ["deleted blocks", previewOf([], [{ operation: "deleteBlocks", summary: "削除", blockIds: ["p_last"] }]), "p_last", ["p_last"]],
+      ["a block directly in a problem area", previewOf([replace("prompt_1", "新しい問題文")]), "prompt_1", ["prompt_1"]],
+    ] as const)("folds %s and lays the card's content out in its place", (_label, preview, anchorId, collapsed) => {
+      expect(cardAt(preview, anchorId).resultLayout).toEqual({ collapsedBlockIds: collapsed, complete: true });
+    });
+
+    it.each([
+      // 箱の中の段落は紙面の最上位に並ばないので畳めない (入れ子は注記に回す)。
+      ["a block inside a box", previewOf([replace("box_p", "直した箱の本文")]), "box_1"],
+      // 箱の中への挿入は、カードの位置 (箱の後ろ) と適用後の位置 (箱の中) が違う。
+      ["an insertion inside a box", previewOf([insertAfter("box_p", "box_ins", "箱に足す")]), "box_1"],
+      // 問題そのものはエリアごとの編集面に分かれて描かれ、1 つのブロックとして畳めない。
+      ["a whole problem", previewOf([{ operation: "replace", summary: "問題", targetId: "problem_1", replacementBlock: problem() as never }]), "problem_1"],
+      // 移動は中身を持たないので、カードは適用後の位置を組めない。
+      ["a move", previewOf([], [{ operation: "moveBlocks", summary: "移動", blockIds: ["p_last"], targetId: "p1", position: "before" }]), "p_last"],
+    ] as const)("does not claim the result is laid out for %s", (_label, preview, anchorId) => {
+      const card = cardAt(preview, anchorId);
+      expect(card.resultLayout.complete).toBe(false);
+      // 畳めるのは紙面の最上位に並ぶブロックだけ (問題・箱そのものや、その中は畳まない)。
+      expect(card.resultLayout.collapsedBlockIds).toEqual([]);
+    });
+
+    it("folds only what the merged content removes: a block the human's edit keeps stays on the page", () => {
+      const base = baseDocument();
+      const preview = mergeablePreviewOf(base, [], [{ operation: "deleteBlocks", summary: "削除", blockIds: ["p1", "p_last"] }]);
+      const current = withParagraph(base, "p_last", "人が直した最後の段落");
+
+      expect(cardAt(preview, "p1", current).resultLayout).toEqual({ collapsedBlockIds: ["p1"], complete: true });
+    });
+  });
+
   it("makes no card where the page has nothing to place it after (the decision falls back to a floating bar)", () => {
     const document = baseDocument();
     // 文書に無いブロック (ヘッダーの中など) を対象にした置き換えと、対象ブロックを持たない操作。
@@ -674,6 +715,19 @@ describe("toDisplayProposalHunk", () => {
     const display = toDisplayProposalHunk(content.hunks[0]);
 
     expect((display.added[0] as { children: InlineNode[] }).children.some((node) => node.backgroundColor)).toBe(false);
+  });
+
+  it("can leave every word unpainted (the result only) and still renames every id", () => {
+    const content = pending(baseDocument(), previewOf([replace("p1", "変更後の問題文")]));
+
+    const display = toDisplayProposalHunk(content.hunks[0], { markChanges: false });
+
+    expect(display.added.map((block) => block.id)).toEqual([`${AI_PROPOSAL_PREVIEW_ID_PREFIX}p1`]);
+    expect(display.removed.map((block) => block.id)).toEqual([`${AI_PROPOSAL_PREVIEW_ID_PREFIX}p1`]);
+    for (const block of [...display.added, ...display.removed]) {
+      expect((block as { children: InlineNode[] }).children.some((node) => node.backgroundColor)).toBe(false);
+    }
+    expect(texts((display.added[0] as { children: InlineNode[] }).children)).toBe("変更後の問題文");
   });
 
   it("re-keys the numbering to the renamed ids so headings and problems keep their numbers", () => {

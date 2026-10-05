@@ -136,6 +136,7 @@ const EDITOR_CHROME_CLASSES = new Set([
   "text-flow-box-fragment-source",
   "text-flow-change-added",
   "text-flow-change-before",
+  "text-flow-change-collapsed",
   "text-flow-change-removing",
   "text-flow-commented-line",
   "text-flow-edit-guard-notice",

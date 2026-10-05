@@ -86,6 +86,11 @@ export function aiPendingProposalBlockedMessage(t: Translate<"ai"> = resolveLock
   return t("lock.pendingProposal");
 }
 
+/** 適用後だけを見せている提案の、本文から畳んだ変更前に入力しようとしたとき。 */
+export function aiResultOnlyBlockedMessage(t: Translate<"ai"> = resolveLockTranslate()): string {
+  return t("lock.resultOnly");
+}
+
 /** The only document-wide lock left: the approval write itself replaces the
  * whole document, so a keystroke landing inside that window would be lost. */
 export function aiDocumentWriteInProgressMessage(t: Translate<"ai"> = resolveLockTranslate()): string {
@@ -198,15 +203,17 @@ export function createAiTextFlowEditGuard(
 
 /**
  * 保留中の提案の、合成できない対象 (旧レコードの対象・整列・段組み設定) の読み取り専用ガード。
+ * 適用後だけを見せている間に本文から畳んだ変更前にも使う (`guardIdPrefix: "ai-result-only"`)。
  * 止める run が無いので、停止の操作も光る印も持たない。
  */
 export function createAiReadOnlyTextFlowEditGuard(
   blockId: string,
   blockedMessage: string,
+  guardIdPrefix = "ai-pending",
 ): TextFlowEditGuard {
   return {
     blockId,
-    guardId: `ai-pending-${blockId}`,
+    guardId: `${guardIdPrefix}-${blockId}`,
     isPrimaryActionTarget: false,
     blockedMessage,
     presentation: AI_EDIT_GUARD_PRESENTATION,

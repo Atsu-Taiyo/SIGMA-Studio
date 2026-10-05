@@ -377,6 +377,44 @@ describe("AiProposalContentView", () => {
     expect(render(content, "page")).not.toMatch(/text-flow-editor[^"]*" style="width/);
   });
 
+  it("shows only the result, without any change mark, when the page asks for the result only", () => {
+    const replaced = pending(documentOf(BASE_CONTENT), previewOf([PROPOSALS[0][1]]));
+    const inProblem = pending(documentOf(BASE_CONTENT), previewOf([{
+      operation: "insertAfter",
+      summary: "問題文を追加",
+      targetId: "problem_1_prompt",
+      insertedBlock: paragraph("next_prompt", "新しい問題文") as never,
+    }]));
+    const moved = pending(documentOf(BASE_CONTENT), previewOf([], [
+      { operation: "moveBlocks", summary: "箱を先頭へ移動", blockIds: ["box_1"], targetId: "p1", position: "before" },
+    ]));
+    const after = (content: AiProposalContent) => renderToStaticMarkup(
+      <AiProposalContentView content={content} surface="page" presentation="after" />,
+    );
+
+    // 差分の表示では、単語の印・区分の名前・操作の要約・追加側の下地が出る。
+    expect(render(replaced, "page")).toContain("--ai-proposal-word-added-mark");
+    expect(render(replaced, "page")).toContain('data-change="added"');
+    expect(render(inProblem, "page")).toContain("data-ai-proposal-area-label");
+    expect(render(moved, "page")).toContain("data-ai-proposal-note");
+
+    const html = after(replaced);
+    expect(html).toContain("変更後の問題文");
+    expect(html).not.toContain("--ai-proposal-word-");
+    expect(html).not.toContain("data-change=");
+    expect(html).toContain('data-presentation="after"');
+    expect(after(inProblem)).toContain("新しい問題文");
+    expect(after(inProblem)).not.toContain("data-ai-proposal-area-label");
+    expect(after(moved)).not.toContain("data-ai-proposal-note");
+    expect(after(moved)).not.toContain("箱を先頭へ移動");
+    // 紙面の本物と同じ id は出さない (付け替えた id のまま)。
+    for (const content of [replaced, inProblem]) {
+      const ids = sigmaDocIds(after(content));
+      expect(ids.length).toBeGreaterThan(0);
+      expect(ids.every((id) => id.startsWith(AI_PROPOSAL_PREVIEW_ID_PREFIX))).toBe(true);
+    }
+  });
+
   it("renders nothing for empty content", () => {
     expect(render({ hunks: [], shapes: [] }, "panel")).toBe("");
   });
