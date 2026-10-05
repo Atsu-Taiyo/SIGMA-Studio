@@ -388,14 +388,14 @@ describe("PocketBar", () => {
       setPocketExpanded(true);
     });
     await render();
-    expect(container.textContent).toContain("選んだ文章や図形を入れておくと");
+    expect(container.textContent).toContain("選んだ文章や図形を追加しておくと");
 
     await act(async () => {
       showPocketNotice("nothing");
     });
-    expect(container.textContent).toContain("入れるものが選ばれていません");
+    expect(container.textContent).toContain("追加するものが選ばれていません");
     // 理由が出ている間は、同じ場所の説明を重ねない。
-    expect(container.textContent).not.toContain("選んだ文章や図形を入れておくと");
+    expect(container.textContent).not.toContain("選んだ文章や図形を追加しておくと");
   });
 
   it("does not take focus from the page when it is pressed, so the caret and selection stay", async () => {

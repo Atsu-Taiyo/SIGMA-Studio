@@ -298,7 +298,7 @@ test("says so when nothing is selected, instead of silently doing nothing", asyn
   await page.keyboard.press("ControlOrMeta+Shift+KeyC");
 
   await expect(pocket(page)).toBeVisible();
-  await expect(pocket(page)).toContainText("入れるものが選ばれていません");
+  await expect(pocket(page)).toContainText("追加するものが選ばれていません");
   await expect(cards(page)).toHaveCount(0);
 });
 
@@ -374,7 +374,7 @@ test("runs from the command palette without a keyboard shortcut", async ({ page 
   await selectSourceLine(page);
   await page.keyboard.press("ControlOrMeta+KeyP");
   await page.getByPlaceholder("コマンドや設定を検索").fill("ポケット");
-  await page.getByRole("option", { name: /選んだものをポケットに入れる/ }).click();
+  await page.getByRole("option", { name: /選んだものをポケットに追加/ }).click();
 
   await expect(cards(page)).toHaveCount(1);
   await expect(cards(page).first()).toHaveAttribute("data-kind", "blocks");
@@ -601,8 +601,8 @@ test("the part flies in for a shape too, and for the add button in the pocket", 
   await expect(page.locator("[data-pocket-flyer]")).toHaveCount(0);
   await expect(cards(page)).toHaveCount(1);
 
-  // 選んだまま、ポケットの「選んだものを入れる」からも同じ動き。
-  await pocket(page).getByRole("button", { name: "選んだものを入れる" }).click();
+  // 選んだまま、ポケットの「選んだものを追加」からも同じ動き。
+  await pocket(page).getByRole("button", { name: "選んだものを追加" }).click();
   await expect(page.locator("[data-pocket-flyer]")).toBeVisible();
   await expect(page.locator("[data-pocket-flyer]")).toHaveCount(0);
   await expect(cards(page)).toHaveCount(2);
@@ -794,6 +794,66 @@ test("whiteboard: a dropped shape lands centred on the pointer", async ({ page }
   const box = (await page.locator(".overlay-shape").first().boundingBox())!;
   expect(Math.abs(box.x + box.width / 2 - target.x)).toBeLessThanOrEqual(8);
   expect(Math.abs(box.y + box.height / 2 - target.y)).toBeLessThanOrEqual(8);
+});
+
+/** ホワイトボードの視点を、原点より左上 (負の座標) が見える所までパンする。 */
+async function panWhiteboardToNegativeSide(page: Page): Promise<void> {
+  const canvas = page.locator(".whiteboard-page-canvas");
+  const box = (await canvas.boundingBox())!;
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await page.mouse.wheel(-1500, -900);
+  await expect.poll(() => canvas.evaluate((element) => parseFloat(getComputedStyle(element).getPropertyValue("--whiteboard-pan-x")))).toBeGreaterThan(1000);
+  await expect.poll(() => canvas.evaluate((element) => parseFloat(getComputedStyle(element).getPropertyValue("--whiteboard-pan-y")))).toBeGreaterThan(500);
+}
+
+async function expectInsideViewport(page: Page, locator: Locator): Promise<void> {
+  const viewport = (await page.locator(".whiteboard-page-canvas").boundingBox())!;
+  const box = (await locator.boundingBox())!;
+  expect(box.x).toBeGreaterThanOrEqual(viewport.x - 1);
+  expect(box.y).toBeGreaterThanOrEqual(viewport.y - 1);
+  expect(box.x + box.width).toBeLessThanOrEqual(viewport.x + viewport.width + 1);
+  expect(box.y + box.height).toBeLessThanOrEqual(viewport.y + viewport.height + 1);
+}
+
+test("whiteboard: after panning to the top-left, what is put in still appears where you are looking", async ({ page }) => {
+  await openEditorWithWhiteboardAsSecondTab(page);
+  await selectSourceLine(page);
+  await page.keyboard.press("ControlOrMeta+Shift+KeyC");
+  await selectRectangle(page);
+  await page.keyboard.press("ControlOrMeta+Shift+KeyC");
+  await expect(cards(page)).toHaveCount(2);
+  await openWhiteboardTab(page);
+  await panWhiteboardToNegativeSide(page);
+  const viewport = (await page.locator(".whiteboard-page-canvas").boundingBox())!;
+
+  // クリックで入れる: 見えている範囲の中央 (負の座標) に置かれ、原点へ押し戻されない。
+  await cards(page).nth(0).click();
+  await expect(overlayTextShapes(page)).toHaveCount(1);
+  await expectInsideViewport(page, overlayTextShapes(page).first());
+
+  // ドロップ: 落とした点に置かれる。
+  const target = { x: viewport.x + 300, y: viewport.y + 200 };
+  await dragChipTo(page, cards(page).nth(1), target.x, target.y);
+  await expect.poll(() => shapeIds(page)).toHaveLength(2);
+  const dropped = page.locator(".overlay-shape:not(:has-text('ポケット'))").last();
+  const box = (await dropped.boundingBox())!;
+  expect(Math.abs(box.x + box.width / 2 - target.x)).toBeLessThanOrEqual(8);
+  expect(Math.abs(box.y + box.height / 2 - target.y)).toBeLessThanOrEqual(8);
+});
+
+test("whiteboard: Cmd+V after panning to the top-left also lands in view", async ({ page }) => {
+  await openEditorWithWhiteboardAsSecondTab(page);
+  await selectSourceLine(page);
+  await page.keyboard.press("ControlOrMeta+C");
+  await openWhiteboardTab(page);
+  await panWhiteboardToNegativeSide(page);
+  const viewport = (await page.locator(".whiteboard-page-canvas").boundingBox())!;
+  await page.mouse.click(viewport.x + 60, viewport.y + viewport.height - 60);
+
+  await page.keyboard.press("ControlOrMeta+V");
+
+  await expect(overlayTextShapes(page)).toHaveCount(1);
+  await expectInsideViewport(page, overlayTextShapes(page).first());
 });
 
 test("selection toolbar: the pocket button says what it does, next to the AI button's style", async ({ page }) => {

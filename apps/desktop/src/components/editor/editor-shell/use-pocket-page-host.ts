@@ -82,7 +82,14 @@ export function usePocketPageHost(ports: PocketPageHostPorts): void {
       if (!payload || !centerAt) {
         return false;
       }
-      requestOverlayAction({ type: "pasteShapes", payload, centerAt: { x: centerAt.x, y: centerAt.y } });
+      // ホワイトボードは、パンで原点より左上 (負の座標) も見える。見えている場所へ置いたものを紙の範囲へ
+      // 押し戻すと画面の外へ出るので、ホワイトボードでは押し戻さない (紙の上へ落としたときは従来どおり)。
+      requestOverlayAction({
+        type: "pasteShapes",
+        payload,
+        centerAt: { x: centerAt.x, y: centerAt.y },
+        unbounded: bodyless,
+      });
       return true;
     },
     // 落とした位置は、そこをクリックしたのと同じ扱いにする。複数のブロックにまたがる選択が残っていると、

@@ -179,6 +179,7 @@ export function useOverlayExternalRequests({
         anchorBlockIdMap: request.anchorBlockIdMap,
         historyGroup: request.historyGroup,
         centerAt: request.centerAt,
+        unbounded: request.unbounded,
       });
     } else if (request.type === "selectShapesForBlocks") {
       // フォーカスは本文に残したまま選択だけ立てる。`focusOverlayCanvas` を呼ぶと本文の
