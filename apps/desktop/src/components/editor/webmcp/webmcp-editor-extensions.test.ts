@@ -15,6 +15,14 @@ import { sampleDocument } from "@/lib/sample-document";
 import { WEB_MCP_PROPOSAL_ID, type WebMcpToolDefinition } from "@/lib/webmcp-tools";
 
 import {
+  aiLockedTargetsForOrigin,
+  EMPTY_AI_LOCKED_TARGETS,
+  findAiLockedTargetsTouched,
+  hasAiLockedTargetsTouched,
+  withAiResultOnlyTargets,
+} from "@/features/ai-edit";
+
+import {
   buildWebMcpEditorExtensions,
   mergeEditorExtensionSets,
 } from "./webmcp-editor-extensions";
@@ -76,6 +84,18 @@ describe("WebMCP editor extensions", () => {
     });
     expect([...extensions.overlayEditPolicy!.lockedShapeIds]).toEqual(["shape_1", "shape_2"]);
     expect(extensions.overlayShapeDecorations?.get("shape_1")?.className).toBe("webmcp-edit-target-shape");
+  });
+
+  it("keeps a block whole-guarded when a later set reserves only a fragment of it", () => {
+    const presentation = { highlightedBlockClassName: "a", readOnlyBlockClassName: "b", characterClassName: "c", atomClassName: "d" };
+    const whole = { blockId: "x", guardId: "result-only-x", isPrimaryActionTarget: false, blockedMessage: "隠している", presentation, highlight: false };
+    const partial = { ...whole, guardId: "run-x", blockedMessage: "AI編集中", contentReservations: [{ baselineText: "x", ranges: [{ from: 0, to: 1 }], inlineMathIds: [] }] };
+
+    const merged = mergeEditorExtensionSets({ textFlowEditPolicy: { guards: [whole] } }, { textFlowEditPolicy: { guards: [partial] } });
+
+    const [guard] = merged!.textFlowEditPolicy!.guards;
+    expect(guard).toMatchObject({ guardId: "run-x" });
+    expect(guard.contentReservations).toBeUndefined();
   });
 
   it("unions WebMCP locks with desktop AI editor extensions", () => {
@@ -250,6 +270,77 @@ describe("WebMCP editor extensions", () => {
       await act(async () => { root.unmount(); });
       container.remove();
       consoleError.mockRestore();
+      Reflect.deleteProperty(window.document, "modelContext");
+    }
+  });
+
+  it("applies an approved proposal whose target is folded away to show only its result (the fold stops human edits only)", async () => {
+    (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+    let currentDocument: SigmaDocument = {
+      ...structuredClone(sampleDocument),
+      docId: "doc_webmcp_result_only_apply_test",
+      content: [{ type: "paragraph", id: "p_target", children: [{ type: "text", text: "Original" }] }],
+    };
+    let revision = 0;
+    const registeredTools: WebMcpToolDefinition[] = [];
+    Object.defineProperty(window.document, "modelContext", {
+      configurable: true,
+      value: {
+        registerTool: async (tool: WebMcpToolDefinition) => { registeredTools.push(tool); },
+        provideContext: () => {},
+      },
+    });
+    // EditorShell の変更口と同じ規則: 紙面のカードが「適用後だけ」で畳んだ p_target は、人の編集だけを断る。
+    const held = withAiResultOnlyTargets(EMPTY_AI_LOCKED_TARGETS, { blockIds: new Set(["p_target"]), shapeIds: new Set() });
+    const commitDocumentChange = (change: (document: SigmaDocument) => SigmaDocument, options?: { origin?: "ai-approval" }) => {
+      const next = change(currentDocument);
+      if (hasAiLockedTargetsTouched(findAiLockedTargetsTouched(currentDocument, next, aiLockedTargetsForOrigin(held, options?.origin ?? "human-edit")))) {
+        return false;
+      }
+      currentDocument = next;
+      revision += 1;
+      return true;
+    };
+    const container = window.document.createElement("div");
+    window.document.body.append(container);
+    const root = createRoot(container);
+    const bridgeRef = createRef<WebMcpBridgeHandle>();
+    try {
+      await act(async () => {
+        root.render(createElement(WebMcpBridge, {
+          ref: bridgeRef,
+          enabled: true,
+          instructionScopeId: "doc_webmcp_result_only_apply_test",
+          commitDocumentChange,
+          getDocument: () => currentDocument,
+          getRevision: () => revision,
+          getSelectedBlockId: () => "p_target",
+          getSelection: () => ({ blockId: "p_target", textRange: null, inlineMath: null, overlayShapes: [] }),
+          navigateToTarget: () => {},
+          onPreviewGroupsChange: () => {},
+          onHistoryChange: () => {},
+        }));
+        await Promise.resolve();
+      });
+      const updateTool = registeredTools.find((tool) => tool.name === "edit_text");
+      if (!updateTool) throw new Error("edit_text was not registered");
+      await act(async () => {
+        await updateTool.execute({
+          expectedRevision: 0,
+          operations: [{ op: "replace_text", target: { type: "block", blockId: "p_target" }, replacement: "Agent edit" }],
+        });
+      });
+
+      let applied: Awaited<ReturnType<WebMcpBridgeHandle["applyProposalIds"]>> = null;
+      await act(async () => {
+        applied = await bridgeRef.current!.applyProposalIds([WEB_MCP_PROPOSAL_ID]);
+      });
+
+      expect(applied).toEqual({ ok: true });
+      expect(blockToReferenceText(findBlock(currentDocument, "p_target")!)).toBe("Agent edit");
+    } finally {
+      await act(async () => root.unmount());
+      container.remove();
       Reflect.deleteProperty(window.document, "modelContext");
     }
   });

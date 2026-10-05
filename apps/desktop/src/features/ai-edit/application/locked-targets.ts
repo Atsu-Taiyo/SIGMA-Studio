@@ -57,12 +57,22 @@ export interface AiLockedTargets {
   /** Only these fragments are reserved; ids absent here retain whole-block protection. */
   contentReservations?: ReadonlyMap<string, readonly TextContentReservation[]>;
   /**
-   * The subset folded out of the page while a proposal shows only its result
-   * (`withAiResultOnlyBlocks`). Not visible, so not editable either; released by
-   * switching the proposal back to its changes.
+   * The subsets hidden from the page while a proposal shows only its result: blocks folded out
+   * of the body and shapes whose before state is hidden (`withAiResultOnlyTargets`). Not visible,
+   * so a human must not edit them; released by switching the proposal back to its changes.
    */
   resultOnlyBlockIds?: ReadonlySet<string>;
+  resultOnlyShapeIds?: ReadonlySet<string>;
+  /** The same holds without the result-only subsets (what non-human changes are checked against). */
+  withoutResultOnly?: AiLockedTargets;
 }
+
+/**
+ * Where a document change comes from. The result-only hold stops only what a human does to things
+ * they cannot see; an AI approval being applied, a version restore and an external replacement are
+ * not edits of the hidden content and must not be blocked by a display toggle.
+ */
+export type AiDocumentChangeOrigin = "human-edit" | "ai-approval" | "history-restore" | "external";
 
 export const EMPTY_AI_LOCKED_TARGETS: AiLockedTargets = {
   blockIds: new Set<string>(),
@@ -101,28 +111,40 @@ export function mergeAiLockedTargets(
 }
 
 /**
- * Adds the blocks a page card folds away to show only its proposal's result. The page extension
- * decides them once (`collectResultOnlyCollapsedBlockIds`): the same set folds the blocks, guards
- * them in the editing surfaces, refuses cross-surface joins into them, and -- through this union --
- * refuses every commit and history restore that would change them while they cannot be seen
- * (search & replace, boundary deletes, undo). A folded block is protected whole, even where a live
- * run reserved only a fragment of it.
+ * Adds what a page card hides to show only its proposal's result: the blocks it folds out of the
+ * body and the shapes whose before state it hides. The page extension decides them once
+ * (`collectResultOnlyCollapsedBlockIds` / `deriveAiResultOnlyShapeIds`): the same sets fold and
+ * hide them, guard them in the editing surfaces, refuse cross-surface joins into them, and --
+ * through this union -- refuse every human commit and history restore that would change them while
+ * they cannot be seen (search & replace, boundary deletes, undo, delayed overlay commits). A folded
+ * block is protected whole, even where a live run reserved only a fragment of it.
  */
-export function withAiResultOnlyBlocks(
+export function withAiResultOnlyTargets(
   targets: AiLockedTargets,
-  resultOnlyBlockIds: ReadonlySet<string>,
+  resultOnly: { blockIds: ReadonlySet<string>; shapeIds: ReadonlySet<string> },
 ): AiLockedTargets {
-  if (resultOnlyBlockIds.size === 0) {
+  if (resultOnly.blockIds.size === 0 && resultOnly.shapeIds.size === 0) {
     return targets;
   }
   const contentReservations = new Map(targets.contentReservations ?? []);
-  resultOnlyBlockIds.forEach((id) => contentReservations.delete(id));
+  resultOnly.blockIds.forEach((id) => contentReservations.delete(id));
   return {
     ...targets,
-    blockIds: new Set([...targets.blockIds, ...resultOnlyBlockIds]),
+    blockIds: new Set([...targets.blockIds, ...resultOnly.blockIds]),
+    shapeIds: new Set([...targets.shapeIds, ...resultOnly.shapeIds]),
     contentReservations,
-    resultOnlyBlockIds,
+    resultOnlyBlockIds: resultOnly.blockIds,
+    resultOnlyShapeIds: resultOnly.shapeIds,
+    withoutResultOnly: targets,
   };
+}
+
+/**
+ * The holds a change from `origin` is checked against: everything for a human edit, everything
+ * but the result-only subsets otherwise. The one place that tells the two apart.
+ */
+export function aiLockedTargetsForOrigin(targets: AiLockedTargets, origin: AiDocumentChangeOrigin): AiLockedTargets {
+  return origin === "human-edit" ? targets : targets.withoutResultOnly ?? targets;
 }
 
 export function useAiLockedTargets(
@@ -195,6 +217,7 @@ export function describeAiLockedTargets(
     return aiActiveRunBlockedMessage();
   }
   return touched.blockIds.some((id) => targets.resultOnlyBlockIds?.has(id))
+    || touched.shapeIds.some((id) => targets.resultOnlyShapeIds?.has(id))
     ? aiResultOnlyBlockedMessage()
     : aiPendingProposalBlockedMessage();
 }

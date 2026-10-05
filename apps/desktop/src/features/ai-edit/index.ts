@@ -30,7 +30,9 @@ export {
   isAiLockedShapeSelection,
   mergeAiLockedTargets,
   useAiLockedTargets,
-  withAiResultOnlyBlocks,
+  withAiResultOnlyTargets,
+  aiLockedTargetsForOrigin,
+  type AiDocumentChangeOrigin,
   type AiLockedTargets,
 } from "./application/locked-targets";
 export {

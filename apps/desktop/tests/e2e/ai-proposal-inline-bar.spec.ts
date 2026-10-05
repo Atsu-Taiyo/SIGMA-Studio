@@ -703,7 +703,7 @@ test("a folded before block takes no edit while only the result is shown", async
   });
   await page.keyboard.press("Delete");
   await expect(page.locator(".text-flow-edit-guard-notice").first())
-    .toHaveText("適用後だけを表示している間は、変更前の本文を編集できません。「変更箇所を表示」に戻すと編集できます。");
+    .toHaveText("適用後だけを表示している間は、隠している変更前を編集できません。「変更箇所を表示」に戻すと編集できます。");
   await page.keyboard.type("X");
 
   const saved = () => page.evaluate(() => {
@@ -742,7 +742,7 @@ test("showing only the result hides the before shape and draws the proposed shap
   await expect(page.locator('.overlay-shape.ai-diff-after-shape[data-overlay-shape-id="bar_shape"]').first()).toBeVisible();
 });
 
-const RESULT_ONLY_LOCK = "適用後だけを表示している間は、変更前の本文を編集できません。「変更箇所を表示」に戻すと編集できます。";
+const RESULT_ONLY_LOCK = "適用後だけを表示している間は、隠している変更前を編集できません。「変更箇所を表示」に戻すと編集できます。";
 
 /** 保存された段落の文字。 */
 async function savedText(page: Page, id: string): Promise<string | undefined> {
@@ -857,4 +857,89 @@ test("search does not find text in a folded block, and replacing cannot rewrite 
     await page.getByRole("button", { name: "検索置換", exact: true }).click();
   }
   await expect(widget.locator(".find-count")).toHaveText("4 件");
+});
+
+test("Backspace inside the same editor after a folded block is refused, and the page shows what is saved", async ({ page }) => {
+  // para_pad_1 と para_pad_2 を消す提案: カードは para_pad_1 の後ろ。para_pad_2 は次の編集面の先頭に畳まれ、
+  // para_pad_3 は同じ編集面でその直後にある (面の中の結合になる)。
+  const original = createDocument().content;
+  const block = (id: string) => original.find((candidate) => candidate.id === id)!;
+  const deletion: DesktopMcpEditProposalSummary = {
+    ...proposal("proposal_delete", {
+      summary: "段落を消す",
+      plan: ["段落を消す"],
+      warnings: [],
+      operations: [],
+      mutationOperations: [{ operation: "deleteBlocks", summary: "段落を削除", blockIds: ["para_pad_1", "para_pad_2"] }],
+    }, ["para_pad_1", "para_pad_2"]),
+    mergeBasis: { version: 1, entities: {
+      para_pad_1: { kind: "block", value: block("para_pad_1") as never },
+      para_pad_2: { kind: "block", value: block("para_pad_2") as never },
+    } },
+  };
+  await open(page, [deletion]);
+  const card = pageCard(page, "para_pad_1").locator("[data-ai-proposal-card]");
+  await card.getByRole("button", { name: "適用後だけを表示", exact: true }).click();
+  const folded = page.locator('.page-flow [data-sigma-doc-id="para_pad_2"]').first();
+  await expect(folded).toBeHidden();
+  const following = page.locator('.page-flow [data-sigma-doc-id="para_pad_3"]').first();
+
+  await placeCaret(page, "para_pad_3", "start");
+  await page.keyboard.press("Backspace");
+  await expect(page.locator(".text-flow-edit-guard-notice").first()).toHaveText(RESULT_ONLY_LOCK);
+
+  // 画面にも保存にも para_pad_3 はそのまま残り、畳んだ段落も変わらない。
+  await expect(following).toBeVisible();
+  await expect(following).toHaveText("続きの本文 4");
+  expect(await savedText(page, "para_pad_3")).toBe("続きの本文 4");
+  expect(await savedText(page, "para_pad_2")).toBe("続きの本文 3");
+  // 以後もその面で打てる (変更口が断り続ける状態にならない)。
+  await page.keyboard.type("Z");
+  await expect.poll(() => savedText(page, "para_pad_3")).toBe("Z続きの本文 4");
+});
+
+test("undo cannot move a shape whose before state is hidden while only the result is shown", async ({ page }) => {
+  const document = createDocument();
+  const shape = document.pageLayout!.overlay!.overlaySnapshot!.shapes[0]!;
+  const target = document.content.find((block) => block.id === "para_target")!;
+  await open(page, [{ ...bodyAndShape(), mergeBasis: { version: 1, entities: {
+    para_target: { kind: "block", value: target as never },
+    bar_shape: { kind: "shape", value: shape as never },
+  } } }], document);
+  const savedX = () => page.evaluate(() => {
+    const saved = JSON.parse(window.localStorage.getItem("sigma-studio:e2e-document") ?? "null");
+    return saved?.pageLayout?.overlay?.overlaySnapshot?.shapes?.find((candidate: { id?: string }) => candidate.id === "bar_shape")?.x ?? null;
+  });
+  // 差分の表示のまま、人が図形を動かす (保留中の対象はロックしない)。
+  const before = page.locator('.overlay-shape.ai-diff-before-shape[data-overlay-shape-id="bar_shape"]').first();
+  await grabShapeFromBody(page, before);
+  const box = (await before.boundingBox())!;
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(box.x + box.width / 2 + 60, box.y + box.height / 2, { steps: 6 });
+  await page.mouse.up();
+  await expect.poll(savedX).not.toBe(60);
+  const moved = await savedX();
+  // 図形の編集を抜けてから紙面のカードを押す (編集中の図形の層が上に重なる): Escape で選択を外し、本文を押す。
+  await page.keyboard.press("Escape");
+  const body = page.locator('.page-flow [data-sigma-doc-id="para_pad_0"]').first();
+  const bodyBox = (await body.boundingBox())!;
+  await page.mouse.click(bodyBox.x + 40, bodyBox.y + bodyBox.height / 2);
+  await expect(page.locator('[data-overlay-editing="true"]')).toHaveCount(0);
+
+  const card = pageCard(page, "para_target").locator("[data-ai-proposal-card]");
+  await card.getByRole("button", { name: "適用後だけを表示", exact: true }).click();
+  await expect(before).toHaveCSS("opacity", "0");
+  const undo = page.getByRole("button", { name: "元に戻す", exact: true });
+  await undo.click();
+  await expect(page.locator(".save-state").first()).toContainText(RESULT_ONLY_LOCK);
+  expect(await savedX()).toBe(moved);
+
+  // 差分の表示に戻せば巻き戻せる (図形の編集の後の 1 回目の取り消しは見た目の変化が無いことがある。learnings 参照)。
+  await card.getByRole("button", { name: "変更箇所を表示", exact: true }).click();
+  for (let attempt = 0; attempt < 2 && await savedX() !== 60; attempt += 1) {
+    await undo.click();
+    await expect.poll(savedX, { timeout: 3_000 }).toBe(60).catch(() => undefined);
+  }
+  expect(await savedX()).toBe(60);
 });

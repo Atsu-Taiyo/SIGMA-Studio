@@ -47,7 +47,8 @@ async function waitForWebMcpModelContext(signal: AbortSignal): Promise<WebMcpMod
 export interface WebMcpBridgeProps {
   enabled: boolean;
   instructionScopeId: string;
-  commitDocumentChange(change: (current: SigmaDocument) => SigmaDocument): void;
+  /** `origin: "ai-approval"`: applying an approved proposal, not a human edit (a display toggle does not stop it). */
+  commitDocumentChange(change: (current: SigmaDocument) => SigmaDocument, options?: { origin?: "ai-approval" }): unknown;
   getDocument: SigmaWebMcpPorts["getDocument"];
   getRevision: SigmaWebMcpPorts["getRevision"];
   getSelectedBlockId: SigmaWebMcpPorts["getSelectedBlockId"];
@@ -213,7 +214,7 @@ export const WebMcpBridge = forwardRef<WebMcpBridgeHandle, WebMcpBridgeProps>(fu
     }
     try {
       const before = getDocument();
-      commitDocumentChange((current) => SigmaDocumentSchema.parse(proposal.apply(current).document));
+      commitDocumentChange((current) => SigmaDocumentSchema.parse(proposal.apply(current).document), { origin: "ai-approval" });
       if (getDocument() === before) {
         return { ok: false, reason: t("webMcpProposal.applyRejected") };
       }

@@ -428,7 +428,7 @@ describe("buildAiHiddenTargetEditorExtensions", () => {
     expect(extensions!.overlayEditPolicy).toBeUndefined();
     const [guard] = extensions!.textFlowEditPolicy!.guards;
     expect(guard).toMatchObject({ blockId: "block-1", highlight: false });
-    expect(guard.blockedMessage).toBe("適用後だけを表示している間は、変更前の本文を編集できません。「変更箇所を表示」に戻すと編集できます。");
+    expect(guard.blockedMessage).toBe("適用後だけを表示している間は、隠している変更前を編集できません。「変更箇所を表示」に戻すと編集できます。");
     expect(extensions!.textFlowEditPolicy!.lockAll).toBeUndefined();
   });
 
@@ -532,5 +532,26 @@ describe("composeAiPageEditorExtensions", () => {
     const guards = new Map(composed!.textFlowEditPolicy!.guards.map((guard) => [guard.blockId, guard]));
     expect(guards.get("block-1")).toBe(runGuard);
     expect(guards.get("block-2")?.guardId).toBe("ai-result-only-block-2");
+  });
+
+  it("guards a folded block whole even where a live run reserves only a fragment of it (as the commit point does)", () => {
+    const partialRun = {
+      blockId: "block-1",
+      guardId: "run-1",
+      isPrimaryActionTarget: true,
+      blockedMessage: "AI編集中です。",
+      presentation: { highlightedBlockClassName: "a", readOnlyBlockClassName: "b", characterClassName: "c", atomClassName: "d" },
+      highlight: true,
+      contentReservations: [{ baselineText: "本文", ranges: [{ from: 0, to: 1 }], inlineMathIds: [] }],
+    };
+    const composed = composeAiPageEditorExtensions(
+      { textFlowEditPolicy: { guards: [partialRun] } },
+      buildAiHiddenTargetEditorExtensions(new Set(), new Set(["block-1"])),
+      undefined,
+    );
+
+    const [guard] = composed!.textFlowEditPolicy!.guards;
+    expect(guard).toMatchObject({ blockId: "block-1", guardId: "run-1" });
+    expect(guard.contentReservations).toBeUndefined();
   });
 });

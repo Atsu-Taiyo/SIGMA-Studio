@@ -130,7 +130,11 @@ export function useAiLockedTargets() {
   return EMPTY_LOCKED_TARGETS;
 }
 
-export function withAiResultOnlyBlocks<T>(targets: T): T {
+export function withAiResultOnlyTargets<T>(targets: T): T {
+  return targets;
+}
+
+export function aiLockedTargetsForOrigin<T>(targets: T): T {
   return targets;
 }
 
@@ -292,7 +296,8 @@ const disabledAssistance: EditorAssistanceServices = {
   isAiLockedBlock,
   isAiLockedShapeSelection,
   useAiLockedTargets,
-  withAiResultOnlyBlocks,
+  withAiResultOnlyTargets,
+  aiLockedTargetsForOrigin,
   useAiPinnedReferences,
   useAiPendingAttachments,
   useAiWorkspaceTabTitles,

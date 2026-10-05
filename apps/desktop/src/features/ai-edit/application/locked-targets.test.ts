@@ -6,12 +6,13 @@ import type { AiEditSessionDraft } from "@/lib/ai/sigma-doc-edit-schema";
 
 import { findAiLockedTargetsTouched } from "./locked-target-diff";
 import {
+  aiLockedTargetsForOrigin,
   describeAiLockedTargets,
   EMPTY_AI_LOCKED_TARGETS,
   isAiLockedBlock,
   isAiLockedShapeSelection,
   mergeAiLockedTargets,
-  withAiResultOnlyBlocks,
+  withAiResultOnlyTargets,
 } from "./locked-targets";
 import {
   aiActiveRunBlockedMessage,
@@ -212,7 +213,7 @@ describe("blocks folded away while a proposal shows only its result", () => {
   const before = makeDocument([paragraph("folded", "変更前"), paragraph("next", "次の段落")]);
 
   it("refuses at the commit choke point (and for undo) any change to a folded block, with the result-only wording", () => {
-    const targets = withAiResultOnlyBlocks(EMPTY_AI_LOCKED_TARGETS, new Set(["folded"]));
+    const targets = withAiResultOnlyTargets(EMPTY_AI_LOCKED_TARGETS, { blockIds: new Set(["folded"]), shapeIds: new Set() });
     // 次の段落の先頭で Backspace: 次の段落が畳んだ変更前へ結合される。
     const joined = makeDocument([paragraph("folded", "変更前次の段落")]);
     // 検索の置換: 畳んだ変更前の文字が見えないまま書き換わる。
@@ -229,7 +230,7 @@ describe("blocks folded away while a proposal shows only its result", () => {
 
   it("guards a folded block as a whole, even where a live run reserved only a fragment of it", () => {
     const base = mergeAiLockedTargets(["folded"], [], { blockIds: [], shapeIds: [] }, [], new Map([["folded", [{ baselineText: "変更前", ranges: [{ from: 0, to: 1 }], inlineMathIds: [] }]]]));
-    const targets = withAiResultOnlyBlocks(base, new Set(["folded"]));
+    const targets = withAiResultOnlyTargets(base, { blockIds: new Set(["folded"]), shapeIds: new Set() });
 
     expect(targets.contentReservations?.has("folded")).toBe(false);
     expect(isAiLockedBlock(targets, "folded")).toBe(true);
@@ -238,6 +239,45 @@ describe("blocks folded away while a proposal shows only its result", () => {
   });
 
   it("changes nothing while nothing is folded", () => {
-    expect(withAiResultOnlyBlocks(EMPTY_AI_LOCKED_TARGETS, new Set())).toBe(EMPTY_AI_LOCKED_TARGETS);
+    expect(withAiResultOnlyTargets(EMPTY_AI_LOCKED_TARGETS, { blockIds: new Set(), shapeIds: new Set() })).toBe(EMPTY_AI_LOCKED_TARGETS);
+  });
+});
+
+describe("who a result-only fold stops: only human edits", () => {
+  const before = makeDocument([paragraph("folded", "変更前"), paragraph("next", "次の段落")]);
+  const changed = makeDocument([paragraph("folded", "AIの変更後"), paragraph("next", "次の段落")]);
+  const folded = withAiResultOnlyTargets(EMPTY_AI_LOCKED_TARGETS, { blockIds: new Set(["folded"]), shapeIds: new Set() });
+
+  it("refuses a human edit of a folded block but lets an AI approval and a version restore through", () => {
+    expect(findAiLockedTargetsTouched(before, changed, aiLockedTargetsForOrigin(folded, "human-edit")).blockIds).toEqual(["folded"]);
+    // WebMCP の承認・版の復元・外からの差し替えは、表示の切り替えで止めない。
+    for (const origin of ["ai-approval", "history-restore", "external"] as const) {
+      expect(findAiLockedTargetsTouched(before, changed, aiLockedTargetsForOrigin(folded, origin)).blockIds).toEqual([]);
+    }
+  });
+
+  it("keeps every other AI hold for any origin (a live run still refuses an approval touching its anchor)", () => {
+    const run = withAiResultOnlyTargets(
+      mergeAiLockedTargets(["folded"], [], { blockIds: [], shapeIds: [] }),
+      { blockIds: new Set(["folded"]), shapeIds: new Set() },
+    );
+    expect(findAiLockedTargetsTouched(before, changed, aiLockedTargetsForOrigin(run, "ai-approval")).blockIds).toEqual(["folded"]);
+  });
+
+  it("guards hidden shapes the same way as folded blocks", () => {
+    const shape = (x: number) => ({ id: "hidden_shape", type: "geo", x, y: 0, props: {} });
+    const withShape = (x: number) => ({ content: [], pageLayout: { overlay: { overlaySnapshot: { version: 1, shapes: [shape(x)], assets: {} } } } }) as unknown as SigmaDocument;
+    const hidden = withAiResultOnlyTargets(EMPTY_AI_LOCKED_TARGETS, { blockIds: new Set(), shapeIds: new Set(["hidden_shape"]) });
+
+    const touched = findAiLockedTargetsTouched(withShape(10), withShape(90), aiLockedTargetsForOrigin(hidden, "human-edit"));
+
+    expect(touched.shapeIds).toEqual(["hidden_shape"]);
+    expect(describeAiLockedTargets(hidden, touched)).toBe(aiResultOnlyBlockedMessage());
+    expect(findAiLockedTargetsTouched(withShape(10), withShape(90), aiLockedTargetsForOrigin(hidden, "ai-approval")).shapeIds).toEqual([]);
+  });
+
+  it("treats a restore it cannot look at in advance (a shared session's undo) as touching what is hidden", () => {
+    expect(findAiLockedTargetsTouched(before, undefined, folded)).toEqual({ blockIds: ["folded"], shapeIds: [] });
+    expect(findAiLockedTargetsTouched(before, undefined, EMPTY_AI_LOCKED_TARGETS)).toEqual({ blockIds: [], shapeIds: [] });
   });
 });

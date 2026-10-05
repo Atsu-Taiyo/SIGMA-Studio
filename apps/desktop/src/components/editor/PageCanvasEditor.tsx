@@ -32,7 +32,7 @@ import {
   type TextFlowMaterialInsertRequest,
   type TextPageBreakRequestDetail,
 } from "@/components/editor/TextFlowEditor";
-import { findHiddenBoundaryDeleteBlockId } from "@/components/editor/page-canvas/boundary-delete-guard";
+import { resolveVisibleBoundaryDelete } from "@/components/editor/page-canvas/boundary-delete-guard";
 import {
   BLOCK_SPACE_AFTER_FOLLOWER_CLASS,
   blockSpaceAfterPx,
@@ -2166,16 +2166,20 @@ const { candidateCommentTop, pendingCommentTop, commentThreadPositions } = usePa
   }, [horizontalMarginEditPageNumber, runningRegionEditKind, setHorizontalMarginEditPageNumber, setRunningRegionEditKind, setRunningRegionOverlayEditing]);
 
   const handleTextFlowBoundaryDelete = useCallback((request: TextFlowBoundaryDeleteRequest): TextFlowBoundaryDeleteOutcome => {
-    const deletion = resolveTextFlowBoundaryDelete(pageContentRef.current, request);
-    if (!deletion) {
+    // 面をまたぐ結合・削除は面のガードを通らない。畳んだ (描かれていない) ブロックを書き換える変更は
+    // ここで断ってガードの案内を出し (文書の変更口も同じ集合で断る)、キャレットは見えるブロックへ置く。
+    const outcome = resolveVisibleBoundaryDelete(
+      request,
+      (input) => resolveTextFlowBoundaryDelete(pageContentRef.current, input),
+      collapsedBlockIdsRef.current,
+    );
+    if (!outcome) {
       return false;
     }
-    // 面をまたぐ結合・削除は面のガードを通らない。畳んだ (描かれていない) ブロックを書き換える・その中へ
-    // キャレットを置く変更は、ここで断ってガードの案内を出す (文書の変更口も同じ集合で断る)。
-    const hiddenBlockId = findHiddenBoundaryDeleteBlockId(deletion, collapsedBlockIdsRef.current);
-    if (hiddenBlockId) {
-      return { blockedBlockId: hiddenBlockId };
+    if ("blockedBlockId" in outcome) {
+      return outcome;
     }
+    const { deletion } = outcome;
 
     if (deletion.previousIds.length > 0 || deletion.nextBlocks.length > 0) {
       // 境界の削除は 2 つのユニットを繋ぐので、上流側の高さも変わる。「打った場所より下だけ」
