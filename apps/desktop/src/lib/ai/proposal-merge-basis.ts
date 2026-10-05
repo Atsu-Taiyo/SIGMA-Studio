@@ -5,6 +5,7 @@ import {
   type SigmaBlock,
   type SigmaDocument,
 } from "@/features/document";
+import { getGraphOwnedLabelShapeIds } from "@/features/drawing";
 import { collectBlocksById, findBlock, updateBlockInDocument, type EditableBlock } from "@/lib/document-tree";
 import { isOverlayAnchorSupportDraft } from "@/lib/ai/applied-document-diff";
 import {
@@ -271,13 +272,15 @@ export interface ProposalTargets {
  * (content-stale, `electron/proposals/freshness.ts`), and the editor keeps exactly these locked while
  * the proposals are pending (`derivePendingAiProposalLockTargets`).
  *
- * - A proposal without a usable merge basis (a legacy record): every existing block it replaces,
- *   deletes or moves and every shape it updates, aligns or deletes (its approval compares hashes).
+ * - A proposal without a usable merge basis (a legacy record): every existing block it replaces or
+ *   deletes, every column section it reconfigures and every shape it updates, aligns or deletes (its
+ *   approval compares their hashes: `collectConflictSensitiveBlockIds` reads this same definition).
  * - A proposal with a basis: what the merging replay leaves to the plain replay (`replayProposalDraft
  *   Merging`) — a replaced block outside every basis block, a deleted block or shape and an updated
  *   shape without a snapshot — and the targets of operations it never merges (aligned shapes, a
- *   reconfigured column section) unless the same target is a merged unit. Moves only change where a
- *   block is, so the replay keeps a human's edit of the moved block.
+ *   reconfigured column section) unless the same target is a merged unit. A graph it updates, aligns
+ *   or deletes stays out of the merge with the labels it owns.
+ * - Moves only change where a block is, so the replay keeps a human's edit of the moved block.
  * - The old shape of a replacement pair (`replacements`, a deletion and a later insertion requesting
  *   its id in the same group): a human's edit would keep the old shape and the replacement could not
  *   take its id, so the whole group would fail.
@@ -308,24 +311,34 @@ export function collectNonMergeableTargets(
         blockIds.add(operation.targetId);
       }
     }
+    // A graph's labels are separate shapes the graph owns. The AI re-lays them out with the graph (and
+    // replaces them when it relabels it), so merging a human's edit of one leaves an orphaned label next
+    // to its replacement: the graph and every label it owns stay out of the merge.
+    const addShape = (id: string) => {
+      const snapshot = mergeBasis?.entities[id];
+      if (snapshot?.kind !== "shape") {
+        shapeIds.add(id);
+      } else if (snapshot.value.type === "graph2dShape") {
+        shapeIds.add(id);
+        getGraphOwnedLabelShapeIds(snapshot.value).forEach((labelId) => shapeIds.add(labelId));
+      }
+    };
+    // Moves only change where a block is (the replay keeps a human's edit of the moved block), so even a
+    // legacy record's approval does not compare them.
     for (const operation of draft.mutationOperations ?? []) {
       switch (operation.operation) {
         case "deleteBlocks":
           operation.blockIds.filter((id) => !hasSnapshot(id, "block")).forEach((id) => blockIds.add(id));
           break;
-        case "moveBlocks":
-          if (!mergeBasis) operation.blockIds.forEach((id) => blockIds.add(id));
-          break;
         case "updateLayoutSection":
-          // A legacy record keeps its historical lock set, which never included the section.
-          if (mergeBasis && !hasSnapshot(operation.sectionId, "block")) blockIds.add(operation.sectionId);
+          if (!hasSnapshot(operation.sectionId, "block")) blockIds.add(operation.sectionId);
           break;
         case "updateOverlayShape":
-          if (!hasSnapshot(operation.shapeId, "shape")) shapeIds.add(operation.shapeId);
+          addShape(operation.shapeId);
           break;
         case "alignOverlayShapes":
         case "deleteOverlayShapes":
-          operation.shapeIds.filter((id) => !hasSnapshot(id, "shape")).forEach((id) => shapeIds.add(id));
+          operation.shapeIds.forEach(addShape);
           break;
         default:
           break;
