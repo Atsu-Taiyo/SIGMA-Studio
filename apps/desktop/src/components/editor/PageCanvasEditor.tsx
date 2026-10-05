@@ -192,7 +192,7 @@ import {
   getSelectionScopedBlockIds,
   hitTestTopLevelBlock,
 } from "./page-canvas/pointer-targets";
-import { getClosestBlockId,getContextMenuPosition } from "./page-canvas/popover-anchors";
+import { getClosestBlockId,getContextMenuPosition,getOverlaySelectionControlsCanvasRect } from "./page-canvas/popover-anchors";
 import {
   getHiddenOptionalProblemAreas,
   getOptionalProblemAreaBlockIdPrefix,
@@ -1065,6 +1065,15 @@ const { candidateCommentTop, pendingCommentTop, commentThreadPositions } = usePa
     )),
     [blockRects, isWhiteboard, layoutViewState.revision, overlay, overlayIdentityCache, pageHeightPx, pageWidthPx, reserveSpaceGaps, totalHeight],
   );
+  // 選択ポップオーバーと回転ハンドルは、図形を選んでいる編集面にだけ出る。ポップオーバーの幅は中身で
+  // 変わるので、描いた実寸を使う。
+  const [selectionPopoverWidthPx, setSelectionPopoverWidthPx] = useState<number | undefined>(undefined);
+  const selectionControlsRect = useMemo(
+    () => pageOverlayEditing
+      ? getOverlaySelectionControlsCanvasRect(overlaySelection, zoom, selectionPopoverWidthPx)
+      : null,
+    [overlaySelection, pageOverlayEditing, selectionPopoverWidthPx, zoom],
+  );
   const overlayPresentation = useMemo(
     () => resolveOverlayPresentation?.({
       overlayShapes: overlay.overlaySnapshot?.shapes ?? [],
@@ -1074,8 +1083,9 @@ const { candidateCommentTop, pendingCommentTop, commentThreadPositions } = usePa
       contentWidthPx: metrics.content.widthPx,
       pageWidthPx,
       pageHeightPx,
+      selectionControlsRect,
     }),
-    [blockRects, metrics.content.widthPx, overlay.overlaySnapshot?.assets, overlay.overlaySnapshot?.shapes, pageHeightPx, pageWidthPx, reserveSpaceGaps, resolveOverlayPresentation],
+    [blockRects, metrics.content.widthPx, overlay.overlaySnapshot?.assets, overlay.overlaySnapshot?.shapes, pageHeightPx, pageWidthPx, reserveSpaceGaps, resolveOverlayPresentation, selectionControlsRect],
   );
   const pinnedOverlayShapeIds = overlaySelection.selectedShapeIds;
   const visibleBodyHitShapes = useMemo(
@@ -2991,6 +3001,7 @@ const { candidateCommentTop, pendingCommentTop, commentThreadPositions } = usePa
             popover={selectionActionPopover}
             onCommentAnchorRequest={onCommentAnchorRequest}
             renderSelectionActions={renderSelectionActions}
+            onWidthChange={setSelectionPopoverWidthPx}
           />
         )}
       </section>
@@ -3681,6 +3692,7 @@ const { candidateCommentTop, pendingCommentTop, commentThreadPositions } = usePa
           popover={selectionActionPopover}
           onCommentAnchorRequest={onCommentAnchorRequest}
             renderSelectionActions={renderSelectionActions}
+          onWidthChange={setSelectionPopoverWidthPx}
         />
       )}
       {problemContextMenu && (
