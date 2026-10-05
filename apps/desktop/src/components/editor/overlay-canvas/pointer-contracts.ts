@@ -9,6 +9,8 @@ export interface OverlayPointerEditingPort {
   shapesRef: RefObject<OverlayShape[]>;
   updateShape: (patch: OverlayShapePatch, options?: { commit?: boolean; history?: OverlayChangeHistory; }) => void;
   editPolicyLockedShapeIdsRef: RefObject<ReadonlySet<string>>;
+  /** 選べない図形 (`OverlayEditPolicy.unselectableShapeIds`)。囲み選択から外す。 */
+  editPolicyUnselectableShapeIdsRef?: RefObject<ReadonlySet<string> | undefined>;
   notifyEditPolicyBlocked: () => void;
   setShapes: Dispatch<SetStateAction<OverlayShape[]>>;
   assetsRef: RefObject<Record<string, OverlayAsset>>;

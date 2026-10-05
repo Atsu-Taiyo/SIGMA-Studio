@@ -5,7 +5,7 @@ import { addSelectionToPocket, PocketIcon } from "@/features/pocket";
 import { useT } from "@/lib/i18n/react";
 
 import { useSelectionToolbarBinding } from "./binding";
-import { TOOLBAR_ICON_SIZE, ToolDivider, ToolIconButton } from "./controls";
+import { TOOLBAR_ICON_SIZE, ToolDivider, ToolLabelButton } from "./controls";
 import { ShapeSelectionTools } from "./ShapeSelectionTools";
 import { TextSelectionTools } from "./TextSelectionTools";
 
@@ -39,13 +39,14 @@ export function createSelectionToolbarExtension(): PageCanvasSelectionExtension 
 /**
  * 選んでいる文章・図形をポケットへ入れる。押しても選択は動かない (ボタンが焦点を奪わない) ので、
  * 続けて別のものを選んで入れられる。入れ方は ⌘⇧C と同じ。
+ * アイコンだけでは「何が起きるか」が読み取れないので、AI への依頼やコメントと同じく言葉を添える。
  */
 function PocketAddTool() {
   const t = useT("editor");
   return (
-    <ToolIconButton label={t("pocket.addToPocket")} onClick={() => { addSelectionToPocket(); }}>
+    <ToolLabelButton label={t("pocket.addToPocket")} onClick={() => { addSelectionToPocket(); }}>
       <PocketIcon size={TOOLBAR_ICON_SIZE} />
-    </ToolIconButton>
+    </ToolLabelButton>
   );
 }
 

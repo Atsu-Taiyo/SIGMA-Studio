@@ -96,7 +96,7 @@ test("WebMCP converts Markdown math, previews it, and applies one draft", async 
     });
   });
   expect(result).toMatchObject({ ok: true, status: "pending_approval", operationCount: 1 });
-  const preview = page.locator(".ai-inline-preview-dialog").filter({ hasText: "式" });
+  const preview = page.locator('[data-flow-extension-node-id] > [data-ai-proposal-card="page"]').filter({ hasText: "式" });
   const liveBlock = page.locator(".editor-canvas [data-sigma-doc-type=\"paragraph\"]")
     .filter({ hasText: "金額は $5" })
     .last();
@@ -389,7 +389,7 @@ test("WebMCP on a whiteboard rejects body text, previews proposed shapes as ghos
   });
   expect(proposal).toMatchObject({ ok: true, status: "pending_approval", operationCount: 2 });
 
-  // 適用前: キャンバス上に破線ゴーストと承認ウィジェットが見える。実図形はまだ無い。
+  // 適用前: キャンバス上に破線ゴーストと図形のそばの承認バーが見える。実図形はまだ無い。
   const canvas = page.locator(".whiteboard-canvas");
   const textGhost = canvas.locator('.overlay-shape.ai-diff-ghost-shape[data-overlay-shape-id="webmcp_wb_text"]');
   const rectGhost = canvas.locator('.overlay-shape.ai-diff-ghost-shape[data-overlay-shape-id="webmcp_wb_rect"]');
@@ -398,7 +398,7 @@ test("WebMCP on a whiteboard rejects body text, previews proposed shapes as ghos
   await expect(textGhost).toContainText("円の方程式");
   await expect(textGhost).toContainText("中心は");
   await expect(textGhost.locator('.inline-math-node[data-tex="x^2+y^2=1"]')).toBeVisible();
-  await expect(canvas.locator(".ai-overlay-approval-widget")).toBeVisible();
+  await expect(canvas.locator('[data-ai-proposal-card="overlay"]')).toBeVisible();
   await expect(page.locator('.overlay-canvas-editor [data-overlay-shape-id="webmcp_wb_rect"]')).toHaveCount(0);
 
   const taskDock = page.locator(".ai-task-dock-root");

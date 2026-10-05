@@ -18,7 +18,19 @@ browser agent
 
 WebMCP用の別文書はありません。SigmaDocが唯一の正本です。読み取りは現在の文書を参照し、書き込みは共有実行層の `SigmaDocAgentSession` に操作を追加します。エージェントが複数回write toolを呼んでも独立した変更案は増えず、1つの作業ドラフトが更新されます。紙面上の既存AI差分カードでライブプレビューし、デスクトップ版と共通のキャンバス左上「AIタスク」をホバー展開して適用または破棄します。適用は `commitDocumentChange` を1回だけ通るため、1回のUndoで戻せます。
 
-ドラフト開始時のWeb revisionとSigmaDocを保持します。次のwriteまたは人間の適用時に本文ブロック、問題内ブロック、overlay図形、ページ設定を比較し、前提が変わっていれば `STALE_DRAFT` と変更IDを返します。`edit_text` の引用・範囲と、各overlay更新ツールの完全な `expectedShape` も対象単位で照合します。エージェントは再読取後に `withdraw_pending_proposal` で古いドラフトを破棄して作り直します。
+ドラフト開始時のWeb revisionとSigmaDocを保持します。ドラフトの後に人間が対象を直していても、プレビューの更新・人間の適用・エージェントの次のwriteのたびに、デスクトップの提案の承認と同じ三者マージ (元のSigmaDoc → 今の文書 (人間の編集) と、元のSigmaDoc → ドラフト (AIの変更)) で両方を残して再生します。合成の元 (デスクトップの提案の `mergeBasis` と同じもの) はメモリにある元のSigmaDocから再生のたびに作り、保存しません。合成するのは置換するブロック・削除するブロック・更新/削除する図形で、同じ段落の別の位置の編集は両方残り、AIが消す対象を人間が直していれば直した内容を残します (編集は削除に勝つ)。AIが消す対象を人間も消していれば、その削除は済んだものとして扱います。挿入位置の追跡・移動の位置の確認・問題などで暗黙に作るIDの固定は、合成した内容を書き込んだドラフトに対してWebMCPの手順のまま行います。紙面のカードは合成した内容をそのまま見せ (適用と同じ内容)、人間の編集と合わせたカードには「あなたの編集と合わせた内容です」を添えます。エージェントの次のwriteでは、合成した内容をドラフトに書き込み、今の文書を新しい元のSigmaDocにします (エージェントがこの後読むのは人間の編集を合わせた文書なので)。
+
+`STALE_DRAFT` と変更IDを返すのは、合成で解決できないときだけです。
+
+- 人間が対象を消した: 置換・更新する対象 (`collectMissingMergeUnitIds`)、挿入のアンカー、移動・段組みにする範囲のブロック
+- 合成しない対象を人間が変えた: 図形の整列・段組みの設定の更新の対象、削除・更新する図形が連れて行く図形 (groupとそのメンバー・固定された図形)、グラフとそのラベル。どれが合成できないかはデスクトップのロック・承認と同じ `collectNonMergeableTargets` の1か所で決めます
+- 合成の対象外: 更新・整列・削除する画像の中身、ページ設定、文書全体の段組み、別の教材 (docId)
+- 合成した内容が検証を通らない (同じIDが文書に増える、など。人間が中のブロックを入れ物の外へ出した、ドラフトが外のブロックを入れ物へ移して入れ物も書き換えた)
+- 挿入するIDが人間の追加と重なった、移動元・移動先・段組みにする範囲の並びが人間の編集で変わった
+
+合成が検証を通らない場合も `STALE_DRAFT` です。デスクトップの承認はその単位をAI側の版に戻して適用し、数えてお知らせで知らせますが、WebMCPでは人間に知らせる場が無く、エージェントが読み直して作り直せるので、AI側の版に戻さず止めます (`rewriteProposalDraftMerging` の `"throw"`。人間の編集を黙って捨てない)。合成のあとの普通の再生の失敗 (挿入のアンカーが無いなど) も、そのまま `STALE_DRAFT` です。WebMCPは公開Editorにも入るので、合成のmodule (`lib/ai/proposal-merge-basis.ts`・`proposal-replay.ts`・`applied-document-diff.ts`・`proposal-merge-metrics.ts`) は `packages/editor/scripts/build.mjs` の許可リストに載せています (`features/ai-edit/` は使いません)。
+
+`edit_text` の引用・範囲と、各overlay更新ツールの完全な `expectedShape` は、書き込みの時点で対象単位に照合します (`STALE_TARGET`)。エージェントは再読取後に `withdraw_pending_proposal` で古いドラフトを破棄して作り直します。合成の退避 (重なり・削除より編集を残した) は適用時にデスクトップと同じ `AiProposalMerge.*` で数え、合成できずに `STALE_DRAFT` になった回数 (その状態に入った回数) は `window.__sigmaWebMcpHeavyFallbackCount` で数えます。重なりの無い通常の適用ではどちらも0です。
 
 主な実装箇所:
 
@@ -31,7 +43,7 @@ WebMCP用の別文書はありません。SigmaDocが唯一の正本です。読
 - `apps/desktop/src/components/editor/EditorShell.tsx`: Web限定gate、既存`AiTaskDock`へのpreview統合、1 undo単位のcommit
 - `apps/desktop/src/lib/webmcp-tools.test.ts`: ツール意味論と単一ドラフトのユニットテスト
 - `apps/desktop/tests/e2e/webmcp.spec.ts`: Web上の登録、Markdown数式変換、プレビュー、承認、reference UI非表示
-- `apps/desktop/tests/e2e/webmcp-challenge.spec.ts`: 1エージェントと人間編集のstaleシナリオ
+- `apps/desktop/tests/e2e/webmcp-challenge.spec.ts`: 1エージェントのドラフトと人間の編集が両方残るシナリオと、人間が対象を消したときの `STALE_DRAFT`
 
 ## Registered tools
 
@@ -130,7 +142,7 @@ Web版のAI面は**キャンバス左上の`AiTaskDock`ひとつだけ**です�
 
 `apps/desktop/public/demo/webmcp-challenge.sigmadoc.json` は、本文・本文中数式・通常図形・2Dグラフ・表を1ページに含むデモ教材です。fixture自体はWebMCPツール刷新では変更しません。
 
-`pdf-parity.spec.ts` はこのfixtureを通常の編集面とdesktop PDF用の `PagedRenderSurface` の両方で描画し、本文・数式・3種類のoverlayについてページ番号とページ内のx/y/w/hを0.5 CSS px以内で比較します。WebMCP Challenge E2Eは、単一エージェントがドラフトを作った後に人間が本文を編集し、適用と次のwriteの両方でstale guardが働く流れを確認します。
+`pdf-parity.spec.ts` はこのfixtureを通常の編集面とdesktop PDF用の `PagedRenderSurface` の両方で描画し、本文・数式・3種類のoverlayについてページ番号とページ内のx/y/w/hを0.5 CSS px以内で比較します。WebMCP Challenge E2Eは、単一エージェントがドラフトを作った後に人間が同じ段落の別の位置を編集し、適用と再読込のあとも両方が残る流れと、人間が対象の段落を消すと適用と次のwriteの両方で `STALE_DRAFT` が働く流れを確認します。
 
 ## Local testing
 

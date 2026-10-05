@@ -38,6 +38,7 @@ import { type TopLevelBlockBox } from "./block-affordances";
 import type {
   PageCanvasEditorExtension,
   PageCanvasSelectionAction,
+  PageCanvasExternalDrop,
   PageCanvasSelectionExtension,
 } from "./editor-extension";
 
@@ -159,6 +160,8 @@ export interface PageCanvasEditorProps {
    * 何を並べるかは呼び出し側が決め、紙面は選択の測定と配置だけを持つ。
    */
   selectionTools?: PageCanvasSelectionExtension;
+  /** ポケットのように、紙面の外から運ばれてきたドラッグを受ける。 */
+  externalDrop?: PageCanvasExternalDrop;
   /**
    * `"paged"` renders the canvas for output rather than for editing: every page is
    * materialized (no windowing) and the editing chrome is suppressed in CSS. The

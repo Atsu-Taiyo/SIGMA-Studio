@@ -65,7 +65,7 @@ async function main() {
     `Sigma Studio ${currentVersion} -> ${version} へ更新しました。`,
     "  package.json / apps/desktop/package.json",
     "  packages/viewer/package.json / packages/editor/package.json",
-    "  examples/editor-react18/package.json / package-lock.json",
+    "  examples/editor-react18/package.json / examples/editor-react19/package.json / package-lock.json",
     "",
     "次の手順:",
     `  git commit -am "Bump version to ${version}"`,

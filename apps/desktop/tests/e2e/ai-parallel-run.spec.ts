@@ -272,6 +272,25 @@ async function closeInlineSurface(page: Page): Promise<void> {
   await expect(page.locator(".ai-chat-composer--inline")).toBeHidden();
 }
 
+/**
+ * 閉じた ⌘K の面は、実行が終わると結果 (要約と同じ承認バー) を実行を始めた位置に浮かべる。紙面の
+ * カードの承認バーはカードの先頭 (対象の段落のすぐ下) にあるので、その結果の面と重なる。紙面の
+ * カードから決める spec は、結果の面を閉じてからバーを押す (結果の面のバーでも同じ判断ができる)。
+ */
+async function closeInlineResult(page: Page): Promise<void> {
+  const close = page.locator(".ai-inline-result").getByRole("button", { name: "閉じる", exact: true }).first();
+  await expect(close).toBeVisible({ timeout: 20_000 });
+  await close.click();
+  await expect(page.locator(".ai-inline-result")).toHaveCount(0);
+}
+
+/**
+ * 本文フローの中の提案カード (対象の段落の後ろの拡張ノード)。続き (複製) ではなく正本だけを引く。
+ */
+function proposalCard(page: Page, targetId: string): Locator {
+  return page.locator(`.page-flow [data-flow-extension-node-id^="extension:ai-proposal:${targetId}:"]`);
+}
+
 function sidebarComposer(page: Page): Locator {
   return page.locator(".ai-chat-composer:not(.ai-chat-composer--inline)");
 }
@@ -857,7 +876,7 @@ test("two-column AI activity stays inside the target column", async ({ page }) =
   expect(rightCardBox!.x + rightCardBox!.width).toBeLessThanOrEqual(rightBlockBox!.x + rightBlockBox!.width + 2);
 });
 
-test("two-column body replacement proposal keeps its standard width and can be closed", async ({ page }) => {
+test("two-column body replacement proposal sits in the target column's flow and can hide its content", async ({ page }) => {
   await setup(page, createTwoColumnAiDocument());
   await expect.poll(async () => page.locator(".page-column-guides span").count()).toBeGreaterThan(0);
 
@@ -866,31 +885,43 @@ test("two-column body replacement proposal keeps its standard width and can be c
   expect(leftBlockBox).not.toBeNull();
 
   await startInlineRun(page, "column_left", "PROPOSAL 左段の本文を更新して");
-  const replacement = page.locator('.ai-column-preview-anchor[data-ai-preview-target-id="column_left"]');
+  const replacement = proposalCard(page, "column_left");
   await expect(replacement).toBeVisible({ timeout: 20_000 });
   await expect(replacement).toContainText("E2E提案で書き換えた本文");
-  const dialog = replacement.locator('.ai-inline-preview-dialog');
-  await expect(dialog).toHaveCSS("width", "440px");
+  const dialog = replacement.locator('[data-ai-proposal-card="page"]');
   const replacementBox = await dialog.boundingBox();
   expect(replacementBox).not.toBeNull();
+  // カードは本文フローの中 (対象の段落の下) に置かれ、対象の段の幅に収まる (段の幅より狭めない)。
   expect(replacementBox!.x).toBeGreaterThanOrEqual(leftBlockBox!.x - 2);
+  expect(replacementBox!.x + replacementBox!.width).toBeLessThanOrEqual(leftBlockBox!.x + leftBlockBox!.width + 2);
+  expect(replacementBox!.width).toBeGreaterThanOrEqual(leftBlockBox!.width - 2);
   expect(replacementBox!.y).toBeGreaterThanOrEqual(leftBlockBox!.y + leftBlockBox!.height - 2);
+  // 承認バーはカードの最初の行。
+  const barBox = await dialog.locator("[data-ai-proposal-bar]").boundingBox();
+  expect(barBox).not.toBeNull();
+  expect(barBox!.y).toBeLessThanOrEqual(replacementBox!.y + 8);
   const applyButtonBox = await replacement.locator('.ai-inline-preview-action.apply[aria-label="適用"]').boundingBox();
   expect(applyButtonBox).not.toBeNull();
   expect(applyButtonBox!.x + applyButtonBox!.width).toBeLessThanOrEqual(
     replacementBox!.x + replacementBox!.width + 2,
   );
-  const close = dialog.getByRole("button", { name: "閉じる", exact: true });
-  const closeBox = await close.boundingBox();
-  expect(closeBox!.x).toBeGreaterThan(replacementBox!.x + replacementBox!.width / 2);
+  expect(applyButtonBox!.y + applyButtonBox!.height).toBeLessThanOrEqual(barBox!.y + barBox!.height + 1);
+  const hide = dialog.getByRole("button", { name: "内容を隠す", exact: true });
+  const hideBox = await hide.boundingBox();
+  expect(hideBox!.x).toBeGreaterThan(replacementBox!.x + replacementBox!.width / 2);
   // The completion summary is a separate floating surface above the body card.
   const summary = page.locator('.ai-chat-host--inline .ai-inline-result');
   await expect(summary).toBeVisible();
   await summary.getByRole("button", { name: "閉じる", exact: true }).click();
   await expect(summary).toBeHidden();
-  await close.click();
-  await expect(dialog).toBeHidden();
+  // 「内容を隠す」は内容だけを隠し、バー (と判断操作) を残す。もう一度押すと戻る。
+  await hide.click();
+  await expect(dialog.locator("[data-ai-proposal-content]")).toBeHidden();
+  await expect(dialog.locator("[data-ai-proposal-bar]")).toBeVisible();
+  await expect(dialog.locator('.ai-inline-preview-action.apply[aria-label="適用"]')).toBeVisible();
   await expect(leftBlock).not.toContainText("E2E提案で書き換えた本文");
+  await dialog.getByRole("button", { name: "内容を表示", exact: true }).click();
+  await expect(dialog.locator("[data-ai-proposal-content]")).toContainText("E2E提案で書き換えた本文");
 });
 
 test("two-column math replacement is visible immediately after approval", async ({ page }) => {
@@ -913,7 +944,7 @@ test("two-column math replacement is visible immediately after approval", async 
   await expect(math).toHaveAttribute("data-tex", originalTex);
 
   await startSidebarRun(page, "column_left_math", "PROPOSAL MATH_BREAK 数式を2行にして");
-  const replacement = page.locator('.ai-column-preview-anchor[data-ai-preview-target-id="column_left_math"]');
+  const replacement = proposalCard(page, "column_left_math");
   await expect(replacement).toBeVisible({ timeout: 20_000 });
   expect(lifecycleWarnings).toEqual([]);
   await replacement.locator('.ai-inline-preview-action.apply[aria-label="適用"]').click();
@@ -932,7 +963,7 @@ test("two-column body and overlay insertion proposals stay in their target colum
   expect(leftBlockBox).not.toBeNull();
 
   await startInlineRun(page, "column_left", "PROPOSAL CHAIN 左段に説明を挿入して");
-  const bodyInsertion = page.locator('.ai-column-preview-anchor[data-ai-preview-target-id="column_left"]');
+  const bodyInsertion = proposalCard(page, "column_left");
   await expect(bodyInsertion).toBeVisible({ timeout: 20_000 });
   const bodyInsertionBox = await bodyInsertion.boundingBox();
   expect(bodyInsertionBox).not.toBeNull();
@@ -941,6 +972,7 @@ test("two-column body and overlay insertion proposals stay in their target colum
   expect(bodyInsertionBox!.y).toBeGreaterThanOrEqual(leftBlockBox!.y + leftBlockBox!.height - 2);
 
   await closeInlineSurface(page);
+  await closeInlineResult(page);
   await bodyInsertion.locator('.ai-inline-preview-action.apply[aria-label="適用"]').click();
   await expect(bodyInsertion).toBeHidden();
 
@@ -948,8 +980,10 @@ test("two-column body and overlay insertion proposals stay in their target colum
   const rightBlockBox = await rightBlock.boundingBox();
   expect(rightBlockBox).not.toBeNull();
   await startInlineRun(page, "column_right", "PROPOSAL SHAPE INSERT 右段に図形を挿入して");
-  const overlayInsertion = page.locator(".ai-overlay-approval-widget");
-  await expect(overlayInsertion).toBeVisible({ timeout: 20_000 });
+  // 判断は結果の面のバー 1 本。結果を閉じると、図形のそばのバーで決める。
+  await closeInlineResult(page);
+  const overlayInsertion = page.locator('[data-ai-proposal-card="overlay"]');
+  await expect(overlayInsertion).toBeVisible();
   const overlayInsertionBox = await overlayInsertion.boundingBox();
   expect(overlayInsertionBox).not.toBeNull();
   expect(overlayInsertionBox!.x).toBeGreaterThanOrEqual(rightBlockBox!.x - 2);
@@ -960,11 +994,11 @@ test("two-column body and overlay insertion proposals stay in their target colum
 
 test("local layout-section columns keep AI activity and body insertion in their own columns", async ({ page }) => {
   await setup(page, createLocalColumnAiDocument());
-  const section = page.locator('[data-layout-section-id="local_ai_columns"]');
+  // 列幅のつまみも同じ data 属性を持つので、段組みのユニット (section) に絞る。
+  const section = page.locator('section[data-layout-section-id="local_ai_columns"]');
   await expect(section).toBeVisible();
-  await expect.poll(async () => section.locator(".text-flow-shell").first().evaluate(
-    (element) => getComputedStyle(element).columnCount,
-  )).toBe("2");
+  // 部分段組みの各列は独立した編集面 (列ごとに本文が流れる)。
+  await expect(section.locator(".layout-section-independent-column")).toHaveCount(2);
 
   const targets = await section.locator('[data-sigma-doc-id^="local_col_"]').evaluateAll((elements) => (
     elements.map((element) => {
@@ -985,7 +1019,7 @@ test("local layout-section columns keep AI activity and body insertion in their 
   expect(leftBadgeCenterX).toBeGreaterThanOrEqual(leftTarget.x);
   expect(leftBadgeCenterX).toBeLessThanOrEqual(leftTarget.x + leftTarget.width);
 
-  const bodyInsertion = page.locator(`.ai-column-preview-anchor[data-ai-preview-target-id="${leftTarget.id}"]`);
+  const bodyInsertion = proposalCard(page, leftTarget.id);
   await expect(bodyInsertion).toBeVisible({ timeout: 20_000 });
   const bodyInsertionBox = await bodyInsertion.boundingBox();
   expect(bodyInsertionBox).not.toBeNull();
@@ -993,6 +1027,7 @@ test("local layout-section columns keep AI activity and body insertion in their 
   expect(bodyInsertionBox!.x + bodyInsertionBox!.width).toBeLessThanOrEqual(leftTarget.x + leftTarget.width + 2);
 
   await closeInlineSurface(page);
+  await closeInlineResult(page);
   await bodyInsertion.locator('.ai-inline-preview-action.apply[aria-label="適用"]').click();
   await expect(bodyInsertion).toBeHidden();
 
@@ -1178,7 +1213,7 @@ test("a run that produces a proposal shows the redesigned inline preview card", 
 
   await startInlineRun(page, "para_a", "PROPOSAL この段落を提案付きで書き換えて");
 
-  const previewDialog = page.locator(".ai-inline-preview-dialog");
+  const previewDialog = page.locator('[data-flow-extension-node-id] > [data-ai-proposal-card="page"]');
   await expect(previewDialog).toBeVisible({ timeout: 20_000 });
   await expect(previewDialog).toContainText("E2E提案で書き換えた本文");
 
@@ -1219,10 +1254,11 @@ test("a chained insertion proposal shows every candidate in one preview card", a
   // what applying will insert.
   await startInlineRun(page, "para_a", "PROPOSAL CHAIN 公式をまとめて挿入して");
 
-  const previewDialog = page.locator(".ai-inline-preview-dialog");
+  const previewDialog = page.locator('[data-flow-extension-node-id] > [data-ai-proposal-card="page"]');
   await expect(previewDialog).toBeVisible({ timeout: 20_000 });
 
-  const operations = previewDialog.locator(".ai-inline-preview-operation");
+  // 連鎖した 3 つの操作は 1 か所の内容にまとまり、紙面と同じ静的描画のブロックが 3 つ並ぶ。
+  const operations = previewDialog.locator('[data-change="added"] .text-flow-editor > [data-sigma-doc-id]');
   await expect(operations).toHaveCount(3);
   await expect(previewDialog).toContainText("E2E提案で書き換えた本文");
   await expect(previewDialog).toContainText("連鎖挿入1: 初項aの説明");

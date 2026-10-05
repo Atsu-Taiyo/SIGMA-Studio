@@ -1114,7 +1114,7 @@ function isVisibleTextBreak(text: string): boolean {
 function isIgnorableElement(element: HTMLElement): boolean {
   return element.matches(IGNORABLE_ELEMENT_SELECTOR) ||
     element.getAttribute("aria-hidden") === "true" ||
-    element.hidden;
+    Boolean(element.hidden);
 }
 
 function hasVisibleContent(element: HTMLElement): boolean {

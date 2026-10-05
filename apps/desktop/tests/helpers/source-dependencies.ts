@@ -1,6 +1,6 @@
 import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
 
-import ts from "typescript";
+import ts from "typescript-compiler-api";
 
 export interface SourceDependency {
   kind: "import" | "export" | "dynamic-import" | "require" | "import-equals" | "import-type";

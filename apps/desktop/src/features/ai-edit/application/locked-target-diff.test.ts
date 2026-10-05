@@ -172,6 +172,9 @@ describe("findAiLockedTargetsTouched", () => {
  * pending 提案のロックは「決めるまで」の予約。**解決したら外れる**ことが、
  * `restoreDocumentHistory` が ref から読む価値の裏づけになる —— ロック集合は
  * 提案の解決に合わせて動くので、⌘Z のたびに**その時点の集合**を読まなければならない。
+ *
+ * 予約が残るのは合成できない対象だけ。ここでは base (`mergeBasis`) を持たない旧レコード
+ * (`mergeSources` の無いプレビュー) で確かめる。base を持つ提案の対象は予約しない (下)。
  */
 function previewHolding(targetIds: string[]): AiEditPreviewState {
   return {
@@ -186,11 +189,39 @@ function previewHolding(targetIds: string[]): AiEditPreviewState {
   } as unknown as AiEditPreviewState;
 }
 
+/** 同じ書き換えを、作成時の元の内容 (`mergeBasis`) とともに持つ提案。 */
+function mergeablePreviewHolding(targetIds: string[]): AiEditPreviewState {
+  const legacy = previewHolding(targetIds);
+  return {
+    ...legacy,
+    mergeSources: [{
+      proposalId: "proposal_mergeable",
+      createdAt: "2026-10-05T00:00:00.000Z",
+      draft: legacy.draft,
+      mergeBasis: {
+        version: 1,
+        entities: Object.fromEntries(targetIds.map((id) => [id, { kind: "block", value: paragraph(id, "元") as never }])),
+      },
+    }],
+  };
+}
+
 function lockedByPreviews(previews: AiEditPreviewState[]) {
   return mergeAiLockedTargets([], [], derivePendingAiProposalLockTargets(previews));
 }
 
-describe("a pending proposal's reservation", () => {
+describe("a merge-capable pending proposal", () => {
+  it("does not refuse an undo of what it overwrites: the approval merges with the human's side", () => {
+    const before = makeDocument([paragraph("p1", "元"), paragraph("p2", "別")]);
+    const undoOfP1 = makeDocument([paragraph("p1", "戻した"), paragraph("p2", "別")]);
+    const targets = lockedByPreviews([mergeablePreviewHolding(["p1"])]);
+
+    expect(hasAiLockedTargetsTouched(findAiLockedTargetsTouched(before, undoOfP1, targets)))
+      .toBe(false);
+  });
+});
+
+describe("a legacy pending proposal's reservation", () => {
   const before = makeDocument([paragraph("p1", "元"), paragraph("p2", "別")]);
   const undoOfP1 = makeDocument([paragraph("p1", "戻した"), paragraph("p2", "別")]);
 

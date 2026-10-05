@@ -1,3 +1,5 @@
+import { spaceFreeFileName, splitFileName } from "@/lib/file-name";
+import { availableDocumentTitle } from "@/lib/library-ledger";
 import { retryDelay } from "./transport";
 import { validateCatalogDelta } from "./response-validation";
 import { normalizeWorkspaceLayout } from "@/lib/workspace-tab-groups";
@@ -525,7 +527,12 @@ export class DesktopSharedCatalog {
     return this.overview(workspaceId);
   }
   private async rename(id: string, name: string): Promise<void> {
-    await this.mutate(async () => { const node = this.find(id); if (!node) throw new Error("TARGET_UNAVAILABLE"); await this.sessions.request(`/catalog/nodes/${node.id}/rename`, { name }); });
+    await this.mutate(async cache => {
+      const node = this.find(id);
+      if (!node) throw new Error("TARGET_UNAVAILABLE");
+      const assignedName = node.kind === "document" ? this.availableName(cache, node.parentId, name, node.id) : name;
+      await this.sessions.request(`/catalog/nodes/${node.id}/rename`, { name: assignedName });
+    });
   }
   private async remove(id: string): Promise<void> {
     await this.mutate(async () => { const node = this.find(id); if (!node) throw new Error("TARGET_UNAVAILABLE"); await this.sessions.request(`/catalog/nodes/${node.id}/${node.isShareRoot && node.role === "owner" ? "stop" : "delete"}`, node.isShareRoot && node.role === "owner" ? { delete: true } : {}); });
@@ -658,7 +665,8 @@ export class DesktopSharedCatalog {
         await this.account(); const node = this.find(fileId, "document"); if (!node) return undefined;
         const source = await this.read(fileId); if (!source) throw new Error("TARGET_UNAVAILABLE");
         const location = this.cache!.location(node);
-        return this.local.createFileFromDocument({ ...location, document: { ...source, docId: createBlankDocument().docId, metadata: { ...source.metadata, title: createCurrentLocaleTranslator("workspace")("duplicatedTitle", { title: node.name }) } } });
+        const { stem, extension } = splitFileName(node.name);
+        return this.local.createFileFromDocument({ ...location, document: { ...source, docId: createBlankDocument().docId, metadata: { ...source.metadata, title: `${createCurrentLocaleTranslator("workspace")("duplicatedTitle", { title: stem })}${extension}` } } });
       },
     };
   }
@@ -669,13 +677,33 @@ export class DesktopSharedCatalog {
       if (ids.some(id => protectedIds.includes(id))) throw new Error("HIERARCHY_SHARE_IN_PROGRESS");
     }
   }
+  private availableName(cache: CatalogCache, parentId: CatalogNodeId | null, name: string, excludeId?: string): string {
+    const siblings = Object.values(cache.data.nodes)
+      .filter(node => node.kind === "document" && node.state === "active" && node.parentId === parentId)
+      .map(node => ({ fileId: node.id as string, workspaceId: "siblings", title: node.name }));
+    for (const intent of Object.values(cache.data.creates)) {
+      if (!intent.complete && intent.kind === "document" && intent.parentId === parentId) {
+        siblings.push({ fileId: intent.operationId, workspaceId: "siblings", title: intent.name });
+      }
+    }
+    return availableDocumentTitle(name, siblings, { workspaceId: "siblings", excludeFileId: excludeId });
+  }
+
   private async createNode(cache: CatalogCache, parent: CatalogNode, kind: "folder" | "document", name: string, document?: SigmaDocument): Promise<PendingCatalogCreate> {
     // mutate() refreshed authority after the caller captured its parent.
     const currentParent = cache.data.nodes[parent.id];
     if (!currentParent || currentParent.state !== "active") throw new Error("TARGET_UNAVAILABLE");
     if (!currentParent.capabilities.createChildren) throw new Error("FORBIDDEN");
-    let intent = Object.values(cache.data.creates).find(item => !item.complete && item.parentId === parent.id && item.kind === kind && item.name === name && (kind !== "document" || item.document?.docId === document?.docId));
+    if (kind === "document") {
+      name = spaceFreeFileName(name);
+      if (document) document = { ...document, metadata: { ...document.metadata, title: name } };
+    }
+    let intent = Object.values(cache.data.creates).find(item => !item.complete && item.parentId === parent.id && item.kind === kind && (kind === "document" ? item.document?.docId === document?.docId : item.name === name));
     if (!intent) {
+      if (kind === "document") {
+        name = this.availableName(cache, parent.id, name);
+        if (document) document = { ...document, metadata: { ...document.metadata, title: name } };
+      }
       intent = { operationId: randomUUID(), parentId: parent.id, kind, name, complete: false, ...(document ? { document: structuredClone(document), fileId: `file_${randomUUID()}` } : {}) };
       cache.data.creates[intent.operationId] = intent;
       await cache.save();

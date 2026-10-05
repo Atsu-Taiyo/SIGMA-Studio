@@ -1,3 +1,4 @@
+import { spaceFreeFileName } from "@/lib/file-name";
 import { getAppRuntime } from "@/lib/runtime";
 import { createCurrentLocaleTranslator } from "@/lib/i18n";
 import type {
@@ -122,12 +123,12 @@ export async function renameDocumentInWorkspace(
   name: string,
 ): Promise<WorkspaceOverviewResult> {
   const runtime = getAppRuntime();
-  if (runtime.workspace.renameDocument) return runtime.workspace.renameDocument(workspaceId, fileId, name);
+  if (runtime.workspace.renameDocument) return runtime.workspace.renameDocument(workspaceId, fileId, spaceFreeFileName(name));
   const files = await runtime.library.listFiles();
   const target = files.find((file) => file.fileId === fileId);
   const title = target
     ? availableDocumentTitle(name, files, { ...target, excludeFileId: fileId })
-    : name.trim();
+    : spaceFreeFileName(name);
   for (let attempt = 0; attempt < 2; attempt += 1) {
     // 教材名変更も本文全体を読み書きするため、AI承認と競合したら最新docへタイトルだけを
     // 付け直す。古い本文を無条件保存してAI変更を消さないため、mismatch時だけ1回読み直す。

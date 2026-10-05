@@ -25,7 +25,6 @@ export interface AiEditLockInfo {
   runId: string;
   sessionLabel: string | null;
   isPrimaryAnchor: boolean;
-  pendingProposal?: boolean;
   blockShimmerScopes?: readonly TextFlowGuardHighlightScope[];
   blockLockText?: string;
 }
@@ -85,6 +84,11 @@ export function aiActiveRunBlockedMessage(t: Translate<"ai"> = resolveLockTransl
 
 export function aiPendingProposalBlockedMessage(t: Translate<"ai"> = resolveLockTranslate()): string {
   return t("lock.pendingProposal");
+}
+
+/** 適用後だけを見せている提案の、本文から畳んだ変更前に入力しようとしたとき。 */
+export function aiResultOnlyBlockedMessage(t: Translate<"ai"> = resolveLockTranslate()): string {
+  return t("lock.resultOnly");
 }
 
 /** The only document-wide lock left: the approval write itself replaces the
@@ -173,8 +177,7 @@ export function createAiTextFlowEditGuard(
   options: { blockedMessage?: string; t?: Translate<"ai"> } = {},
 ): TextFlowEditGuard {
   const t = options.t ?? resolveLockTranslate();
-  const highlight = !lock.pendingProposal
-    && (lock.blockShimmerScopes === undefined || lock.blockShimmerScopes.length > 0);
+  const highlight = lock.blockShimmerScopes === undefined || lock.blockShimmerScopes.length > 0;
   const label = t("lock.stopAndEdit");
   const reservation = getAiTextContentReservation(lock);
   return {
@@ -186,27 +189,31 @@ export function createAiTextFlowEditGuard(
     highlight,
     highlightScopes: lock.blockShimmerScopes,
     contentReservations: reservation ? [reservation] : undefined,
-    action: lock.pendingProposal
-      ? undefined
-      : {
-          label,
-          busyLabel: t("lock.stopping"),
-          failureTitle: t("lock.stopFailed"),
-          buttonClassName: "ai-edit-lock-stop-button",
-          iconClassName: "ai-edit-lock-stop-icon",
-          title: lock.sessionLabel ? `${label}(${lock.sessionLabel})` : label,
-          request: () => onRequestStop(lock),
-        },
+    action: {
+      label,
+      busyLabel: t("lock.stopping"),
+      failureTitle: t("lock.stopFailed"),
+      buttonClassName: "ai-edit-lock-stop-button",
+      iconClassName: "ai-edit-lock-stop-icon",
+      title: lock.sessionLabel ? `${label}(${lock.sessionLabel})` : label,
+      request: () => onRequestStop(lock),
+    },
   };
 }
 
+/**
+ * 保留中の提案の、合成できない対象 (旧レコードの対象・整列・段組み設定) の読み取り専用ガード。
+ * 適用後だけを見せている間に本文から畳んだ変更前にも使う (`guardIdPrefix: "ai-result-only"`)。
+ * 止める run が無いので、停止の操作も光る印も持たない。
+ */
 export function createAiReadOnlyTextFlowEditGuard(
   blockId: string,
   blockedMessage: string,
+  guardIdPrefix = "ai-pending",
 ): TextFlowEditGuard {
   return {
     blockId,
-    guardId: `ai-pending-${blockId}`,
+    guardId: `${guardIdPrefix}-${blockId}`,
     isPrimaryActionTarget: false,
     blockedMessage,
     presentation: AI_EDIT_GUARD_PRESENTATION,
@@ -216,6 +223,7 @@ export function createAiReadOnlyTextFlowEditGuard(
 
 export interface AiTextFlowEditPolicyInput {
   liveLocks: readonly AiEditLockInfo[];
+  /** 保留中の提案のうち、三者マージで合成できない対象 (`derivePendingAiProposalLockTargets`)。 */
   pendingBlockIds: Iterable<string>;
   /** True only while an approval/dismissal IPC is replacing the whole document. */
   documentWriteInProgress?: boolean;
@@ -224,8 +232,9 @@ export interface AiTextFlowEditPolicyInput {
 
 /**
  * Projects AI run/proposal ownership onto the generic text-flow edit policy.
- * A live run retains its stop action; a pending replacement widens protection
- * to the whole block even when the live run references only a fragment.
+ * A live run retains its stop action; a pending proposal's target the merge
+ * cannot follow widens protection to the whole block even when the live run
+ * references only a fragment. Targets the merge follows are not passed in.
  *
  * Guards are indexed by block, with fragment reservations for text/math runs.
  * Unrelated content stays editable. `lockAll`

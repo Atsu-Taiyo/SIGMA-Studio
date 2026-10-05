@@ -1,6 +1,6 @@
 {
   "name": "@sigma-studio/desktop",
-  "version": "0.506.0",
+  "version": "0.507.0",
   "description": "数式と図形を扱う教材エディタ / A teaching-material editor for mathematics and diagrams",
   "private": true,
   "main": "dist-electron/main.cjs",
@@ -89,7 +89,7 @@
     "eslint": "^10.11.0",
     "eslint-config-next": "^16.3.8",
     "happy-dom": "^20.11.0",
-    "typescript": "^5.9.3",
+    "typescript": "^7.0.2",
     "vitest": "^5.0.2"
   },
   "overrides": {

@@ -30,6 +30,8 @@ export {
   isAiLockedShapeSelection,
   mergeAiLockedTargets,
   useAiLockedTargets,
+  withAiResultOnlyTargets,
+  aiLockedTargetsForOrigin,
   type AiLockedTargets,
 } from "./application/locked-targets";
 export {
@@ -81,6 +83,17 @@ export {
   deriveAiProposalPresentation,
   type AiProposalPresentationState,
 } from "./model/proposal-presentation-model";
+export {
+  buildAppliedProposalContent,
+  buildPendingProposalContent,
+  groupPendingProposalContentByAnchor,
+  isProposalContentEmpty,
+  type AiProposalAnchorCard,
+  type AiProposalContent,
+  type AiProposalContentHunk,
+  type AiProposalShapeChange,
+} from "./model/proposal-content";
+export { resolveProposalMergePreview, type AiProposalMergePreview } from "./model/proposal-merge-preview";
 export { AI_REFERENCE_TEXT_RANGE_EVENT } from "./text-range-highlight";
 export { MAX_AI_EDIT_REFERENCES, type AiEditReference } from "@/lib/ai/ai-edit-reference";
 export type { AiEditShapeOnlyPreview } from "@/lib/ai/ai-edit-shape-preview";

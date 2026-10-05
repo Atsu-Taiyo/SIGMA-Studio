@@ -211,8 +211,9 @@ export function removeShapes(
   return shapes.filter((shape) => !idSet.has(shape.id));
 }
 
-function collectShapeAnchorRemovalIds(
-  shapes: OverlayShape[],
+/** `ids` plus every shape anchored (`anchor.type === "shape"`) to one of them, transitively. */
+export function collectShapeAnchorRemovalIds(
+  shapes: readonly OverlayShape[],
   ids: readonly OverlayShapeId[],
 ): Set<OverlayShapeId> {
   const idSet = new Set(ids);

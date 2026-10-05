@@ -3,7 +3,8 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import { mkdirSync, watch, type FSWatcher, type WatchEventType } from "node:fs";
 import fs from "node:fs/promises";
 import path from "node:path";
-import { captureSharedProposal } from "./collaboration/proposal-context";
+import { hasSharedBinding } from "./collaboration/local-bridge";
+import { captureSharedProposal, readSharedApprovalRecord, restoreSharedApprovalRecord } from "./collaboration/proposal-context";
 import { isDeepStrictEqual } from "node:util";
 import { parseSigmaDocument } from "@/lib/sigma-doc-schema";
 import { readBlockHashRevisions } from "./block-hash-sidecar";
@@ -21,6 +22,19 @@ import { deriveAppliedDocumentDiff, type AiAppliedDocumentDiff } from "@/lib/ai/
 import { resolveAiOverlayShapeReplacementRequestedId } from "@/lib/ai/overlay-shape-replacement";
 import { resolveDocumentTitle } from "@/lib/document-title";
 import { computeDocumentBlockHashes } from "@/lib/sigma-doc-block-hash";
+import {
+  combineProposalMergeReports,
+  computeProposalMergeBasis,
+  createEmptyProposalMergeReport,
+  isProposalMergeQuiet,
+  summarizeProposalMergeReport,
+  usableProposalMergeBasis,
+  type ProposalMergeBasis,
+  type ProposalMergeBasisAnchor,
+  type ProposalMergeBasisEntity,
+  type ProposalMergeReport,
+} from "@/lib/ai/proposal-merge-basis";
+import { replayProposalDraftMerging } from "@/lib/ai/proposal-replay";
 import { type SigmaDocument } from "@/features/document";
 import { logLedgerEvent } from "./ledger-log";
 import { createCurrentLocaleTranslator } from "@/lib/i18n";
@@ -42,6 +56,7 @@ import {
   type LocalMcpEditProposalSummary,
   type LocalMcpEditProposalChangeEvent,
   type LocalMcpEditProposalCreateInput,
+  type ProposalFreshnessConflict,
   resolveProposalAttribution,
   type RebaseProposalResult,
   type ResolveProposalExtra,
@@ -57,13 +72,17 @@ import {
   computeTouchedBlocks,
   findProposalFreshnessConflictIds,
   findProposalFreshnessConflict,
+  findMergeableProposalStructuralConflict,
   collectLocalColumnRangeAnchorIds,
+  computeMergeAttentionSignature,
+  replayMergeableProposal,
 } from "./proposals/freshness";
 import {
   replayProposalDraft,
   collectReplaceTargetIds,
   findMissingUpdateRichContentTargetIds,
   assertAppliedProposalHasRealChanges,
+  replayProposalForApproval,
 } from "./proposals/replay";
 import { buildSelectiveRevertDocument } from "./proposals/selective-revert";
 
@@ -109,6 +128,7 @@ export {
   findProposalFreshnessConflictIds,
   findProposalFreshnessConflict,
   classifyProposalReplayFailure,
+  replayMergeableProposal,
 } from "./proposals/freshness";
 export {
   type MergeProposalDraftsResult,
@@ -200,6 +220,8 @@ export class LocalMcpEditProposalStore {
     roomId: string;
     fileId: string;
     proposals: LocalMcpEditProposal[];
+    /** Each proposal's shared approval record as it was (null without one), put back on rollback. */
+    sharedApprovals: (string | null)[];
   }>();
 
   constructor(userDataPath: string, options: LocalMcpEditProposalStoreOptions = {}) {
@@ -267,6 +289,8 @@ export class LocalMcpEditProposalStore {
     const baseDocument = parseSigmaDocument(input.baseDocument);
     const attribution = resolveProposalAttribution(input);
     const touchedBlocks = computeTouchedBlocks(draft, baseDocument);
+    // 上書きする単位のbaseを残す。承認・rebaseは、作成後の人間の編集を三者マージで残せる。
+    const mergeBasis = computeProposalMergeBasis(draft, baseDocument);
     const proposal: LocalMcpEditProposal = {
       version: 1,
       proposalId: createId("mcp_proposal"),
@@ -290,6 +314,7 @@ export class LocalMcpEditProposalStore {
       ...(input.sourceReferences?.length ? { sourceReferences: input.sourceReferences } : {}),
       ...(touchedBlocks.length > 0 ? { touchedBlocks } : {}),
       ...(input.requestSelection ? { requestSelection: input.requestSelection } : {}),
+      mergeBasis,
     };
     await this.writeProposal(proposal, baseDocument);
     return proposal;
@@ -376,8 +401,16 @@ export class LocalMcpEditProposalStore {
     if (isSameRun) {
       const now = new Date().toISOString();
       const baseDocument = parseSigmaDocument(input.baseDocument);
-      const combinedDraft = appendProposalDraft(current.draft, inputDraft);
-      const replay = replayProposalDraft(baseDocument, combinedDraft);
+      // baseを持つ部屋は、前ターンまでの操作を今回の作業文書の元になった保存文書へ載せ替え
+      // (rebaseRoomDraft)、今回の操作を足す。旧レコードは従来どおり素のreplay。
+      const currentBasis = usableProposalMergeBasis(current.mergeBasis);
+      const rebasedRoom = currentBasis
+        ? this.rebaseRoomDraft(current, currentBasis, inputDraft, baseDocument, "same-run")
+        : null;
+      const replay = rebasedRoom
+        ? { ...replayProposalDraftMerging(baseDocument, rebasedRoom.draft, rebasedRoom.mergeBasis), draft: rebasedRoom.draft }
+        : replayProposalDraft(baseDocument, appendProposalDraft(current.draft, inputDraft));
+      const mergeBasis = rebasedRoom?.mergeBasis;
       const nextDocument = parseSigmaDocument(replay.nextDocument);
       assertAiOverlayAssetsInDocument(nextDocument);
       const groupId = current.groupId ?? createId("mcp_proposal_group");
@@ -418,6 +451,11 @@ export class LocalMcpEditProposalStore {
         touchedBlocks: touchedBlocks.length > 0 ? touchedBlocks : undefined,
         requestSelection: input.requestSelection ?? current.requestSelection,
         conflict: undefined,
+        mergeBasis,
+        mergeCarry: rebasedRoom ? rebasedRoom.mergeCarry : current.mergeCarry,
+        // 改訂された案は改めて自動承認の判定を受ける (見送りは前の案についての判断)。
+        autoApplyDeferredAtRevision: undefined,
+        autoApplyDeferredSignature: undefined,
       } satisfies Partial<LocalMcpEditProposal>;
       const updatedMembers = existingMembers.map((member, index): LocalMcpEditProposal => ({
         ...member,
@@ -434,15 +472,26 @@ export class LocalMcpEditProposalStore {
         groupPosition: groupMemberIds.length - 1,
         history: [...(current.history ?? []), historyEntry],
       };
-      await Promise.all([...updatedMembers, nextProposal].map((proposal) => this.writeProposal(proposal)));
+      // The revised draft's shared approval record is taken from the same base as its touched blocks.
+      await Promise.all([...updatedMembers, nextProposal].map((proposal) => this.writeProposal(proposal, baseDocument)));
       return nextProposal;
     }
 
     const now = new Date().toISOString();
     const baseDocument = parseSigmaDocument(input.baseDocument);
-    const nextDocument = parseSigmaDocument(input.nextDocument);
+    // 同じ部屋の別run。前ターンまでの操作を保存文書へ載せ替えて今回の操作を足し、作業文書も
+    // その合成結果にする (同じrunの経路と同じ規則)。
+    const currentBasis = usableProposalMergeBasis(current.mergeBasis);
+    const rebasedRoom = currentBasis
+      ? this.rebaseRoomDraft(current, currentBasis, inputDraft, baseDocument, "different-run")
+      : null;
+    const mergeBasis = rebasedRoom?.mergeBasis;
+    const roomDraft = rebasedRoom?.draft ?? inputDraft;
+    const nextDocument = parseSigmaDocument(rebasedRoom
+      ? this.mergedWorkingDocumentOr(input.nextDocument, baseDocument, rebasedRoom, current.proposalId)
+      : input.nextDocument);
     assertAiOverlayAssetsInDocument(nextDocument);
-    const touchedBlocks = computeTouchedBlocks(inputDraft, baseDocument);
+    const touchedBlocks = computeTouchedBlocks(roomDraft, baseDocument);
     const history = [
       ...(current.history ?? []),
       {
@@ -464,7 +513,7 @@ export class LocalMcpEditProposalStore {
       changedIds: normalizeStringArray(input.changedIds),
       provider: input.provider,
       source: input.source,
-      draft: inputDraft,
+      draft: roomDraft,
       nextDocument,
       updatedAt: now,
       history,
@@ -473,9 +522,122 @@ export class LocalMcpEditProposalStore {
       touchedBlocks: touchedBlocks.length > 0 ? touchedBlocks : undefined,
       requestSelection: input.requestSelection ?? current.requestSelection,
       conflict: undefined,
+      mergeBasis,
+      mergeCarry: rebasedRoom ? rebasedRoom.mergeCarry : current.mergeCarry,
+      autoApplyDeferredAtRevision: undefined,
+      autoApplyDeferredSignature: undefined,
     };
-    await this.writeProposal(nextProposal);
+    await this.writeProposal(nextProposal, baseDocument);
     return nextProposal;
+  }
+
+  /**
+   * Rebases a room's earlier turns onto `baseDocument` (the saved document the AI's new turn worked
+   * from) and adds the new turn's operations.
+   *
+   * The AI's next turn sees the saved document with the earlier turns merged in, so its operations
+   * already contain the human edits made before it (H1). The earlier operations are therefore
+   * rewritten to the merged contents the AI was shown, and the base of every unit is retaken from
+   * `baseDocument`: base = the document the AI saw, theirs = the AI's final block. A human edit the
+   * AI saw is absorbed into the base instead of being merged in a second time, and only the edits
+   * made after this turn (H2) are the human's side at approval. Keeping each unit's first-touched
+   * base instead would count H1 on both sides (doubling it, or undoing a removal the AI made).
+   *
+   * What that rebase merged (human edits, overlaps, units that fell back to the AI's side) is baked
+   * into the draft and invisible to the approval's merge, so it is carried (`mergeCarry`) and added
+   * to the approval's report: the approval is then not "quiet", is not applied automatically, and
+   * the fallbacks are counted (MISS R3).
+   *
+   * How the incoming draft relates to the stored one:
+   * - it starts with the rebased draft (the MCP builds the aggregate from it) or with the stored
+   *   draft: the rest is the new turn;
+   * - it shares operations with them without starting with them, or is a shortened copy: it is an
+   *   aggregate the MCP normalized (a cancelled insert/delete pair was dropped), so it replaces the
+   *   stored draft as a whole (logged);
+   * - otherwise (a same-run caller passing only the new operations) it is appended. A different
+   *   run's input replaces the stored draft, as before.
+   */
+  private rebaseRoomDraft(
+    current: LocalMcpEditProposal,
+    currentBasis: ProposalMergeBasis,
+    incoming: AiEditSessionDraft,
+    baseDocument: SigmaDocument,
+    mode: "same-run" | "different-run",
+  ): { draft: AiEditSessionDraft; mergeBasis: ProposalMergeBasis; mergeCarry: ProposalMergeReport | undefined } {
+    const hasOperations = current.draft.operations.length > 0 || (current.draft.mutationOperations?.length ?? 0) > 0;
+    const rebase = hasOperations ? replayProposalDraftMerging(baseDocument, current.draft, currentBasis) : null;
+    const rebased = rebase?.rebasedDraft ?? current.draft;
+    const mergeCarry = rebase && !isProposalMergeQuiet(rebase.report)
+      ? combineProposalMergeReports([current.mergeCarry ?? createEmptyProposalMergeReport(), rebase.report])
+      : current.mergeCarry;
+
+    const newTurn = splitAppendedDraft(rebased, incoming) ?? splitAppendedDraft(current.draft, incoming);
+    let draft: AiEditSessionDraft;
+    if (newTurn) {
+      draft = concatenateDrafts(rebased, newTurn);
+    } else if (
+      mode === "different-run"
+      || sharesOperations(incoming, rebased)
+      || sharesOperations(incoming, current.draft)
+      || startsWithDraft(rebased, incoming)
+      || startsWithDraft(current.draft, incoming)
+    ) {
+      this.recordMergeFallback("upsert-unaligned-aggregate", { proposalId: current.proposalId, mode });
+      draft = incoming;
+    } else {
+      draft = concatenateDrafts(rebased, incoming);
+    }
+    draft = parseAiEditSessionDraft(draft);
+    return { draft, mergeBasis: computeProposalMergeBasis(draft, baseDocument), mergeCarry };
+  }
+
+  /** The merged working document of a rebased room draft, or the caller's when it cannot be built. */
+  private mergedWorkingDocumentOr(
+    fallback: SigmaDocument,
+    baseDocument: SigmaDocument,
+    room: { draft: AiEditSessionDraft; mergeBasis: ProposalMergeBasis },
+    proposalId: string,
+  ): SigmaDocument {
+    try {
+      return replayProposalDraftMerging(baseDocument, room.draft, room.mergeBasis).nextDocument;
+    } catch {
+      this.recordMergeFallback("upsert-working-document", { proposalId });
+      return fallback;
+    }
+  }
+
+  /**
+   * Records that an automatic approval was skipped because the replay had to merge the human's
+   * edits: the proposal is not retried until the document's revision changes (MISS R3: logged).
+   */
+  async recordAutoApplyDeferred(
+    proposalId: string,
+    revision: number,
+    report: ProposalMergeReport,
+    signature?: string,
+  ): Promise<void> {
+    const proposal = await this.loadProposal(proposalId);
+    if (!proposal || proposal.status !== "pending") {
+      return;
+    }
+    const members = await this.loadProposalGroup(proposal);
+    // updatedAt is left alone: a manual approval clicked meanwhile must not fail its claim.
+    await Promise.all(members.map((member) => this.writeProposal({
+      ...member,
+      autoApplyDeferredAtRevision: revision,
+      autoApplyDeferredSignature: signature,
+    })));
+    logLedgerEvent(this.dataDir, "proposal-merge-auto-apply-deferred", {
+      proposalId,
+      fileId: proposal.fileId,
+      revision,
+      ...summarizeProposalMergeReport(report),
+    });
+  }
+
+  /** Logs a fallback a merging replay path took outside the approval report (MISS R3). */
+  recordMergeFallback(site: string, fields: Record<string, unknown> = {}): void {
+    logLedgerEvent(this.dataDir, "proposal-merge-fallback", { site, ...fields });
   }
 
   async withdrawCurrentProposal(params: {
@@ -533,10 +695,15 @@ export class LocalMcpEditProposalStore {
         && proposal.fileId === normalizedFileId
         && proposal.roomId === normalizedRoomId,
       ));
+    // Only a shared document's proposals have approval records; a local document's run never reads them.
+    const shared = proposals.length > 0 && await hasSharedBinding(this.userDataDir(), normalizedFileId);
     this.runSnapshots.set(snapshotId, {
       roomId: normalizedRoomId,
       fileId: normalizedFileId,
       proposals: structuredClone(proposals),
+      sharedApprovals: shared
+        ? await Promise.all(proposals.map((proposal) => readSharedApprovalRecord(this.userDataDir(), proposal.proposalId)))
+        : proposals.map(() => null),
     });
     return snapshotId;
   }
@@ -566,8 +733,14 @@ export class LocalMcpEditProposalStore {
       await Promise.all(current
         .filter((proposal) => !snapshotIds.has(proposal.proposalId))
         .map((proposal) => this.deleteProposalFile(proposal.proposalId)));
-      for (const proposal of snapshot.proposals) {
+      for (const [index, proposal] of snapshot.proposals.entries()) {
         await this.writeProposal(proposal);
+        // Rewriting the restored draft takes its shared approval record again without the base it was
+        // made from (the base hashes of the targets the approval cannot merge): put back the record.
+        const sharedApproval = snapshot.sharedApprovals[index];
+        if (sharedApproval) {
+          await restoreSharedApprovalRecord(this.userDataDir(), proposal.proposalId, sharedApproval);
+        }
       }
       return true;
     } finally {
@@ -716,7 +889,7 @@ export class LocalMcpEditProposalStore {
     if (status === "approved" && proposal.groupId && revertDocument) {
       try {
         const representative = members.at(-1) ?? proposal;
-        appliedDocument = replayProposalDraft(revertDocument, representative.draft).nextDocument;
+        appliedDocument = replayProposalForApproval(revertDocument, representative).nextDocument;
       } catch {
         throw new Error(te("electron.proposalStore.groupApplyFailed"));
       }
@@ -737,6 +910,7 @@ export class LocalMcpEditProposalStore {
         ? { appliedDiff: deriveAppliedDocumentDiff(revertDocument, appliedDocument, [member.draft]) }
         : {}),
       ...(status === "approved" && extra.autoApplied ? { autoApplied: true } : {}),
+      ...(status === "approved" && extra.mergeReport ? { mergeReport: extra.mergeReport } : {}),
       ...(status === "rejected" ? { rejectedAt: now, ...(extra.rejectedReason ? { rejectedReason: extra.rejectedReason } : {}) } : {}),
       ...(status === "rejected" ? {
         history: [...(member.history ?? []), {
@@ -747,6 +921,10 @@ export class LocalMcpEditProposalStore {
       } : {}),
     }));
     await Promise.all(nextMembers.map((member) => this.writeProposal(member)));
+    if (status === "approved" && extra.autoApplied && extra.mergeReport && !isProposalMergeQuiet(extra.mergeReport)) {
+      // 自動承認の結果はrendererのカウンタに届かないので、台帳ログで数える (旧レコードの legacyNoBase など)。
+      this.recordMergeFallback("auto-apply", { proposalId, ...summarizeProposalMergeReport(extra.mergeReport) });
+    }
     return nextMembers.find((member) => member.proposalId === proposalId) ?? nextMembers.at(-1)!;
   }
 
@@ -878,18 +1056,41 @@ export class LocalMcpEditProposalStore {
       };
     }
 
+    // base (mergeBasis) を持つ提案は、draftとbaseを書き換えずrevisionだけを進める。追従は承認時の
+    // 合成replayが担う。nextDocument (MCPの次ターンが作業文書に使う派生データ) だけは、人間の
+    // 編集を残した合成結果で取り直す — 古いままだと次ターンで新しく触る単位のbaseと食い違う。
+    const mergeBasis = usableProposalMergeBasis(representative.mergeBasis);
+    if (mergeBasis) {
+      const merged = replayMergeableProposal(
+        { draft: representative.draft, mergeBasis, touchedBlocks: representative.touchedBlocks },
+        normalizedCurrentDocument,
+      );
+      if (!merged.ok && merged.conflict.reason === "content-stale") {
+        // 合成の対象外の操作 (整列・部分段組み) の対象が変わっていると、追従しても次の保存で
+        // 競合に戻る。成功とは返さず、競合を残して「AIの提案で上書き/破棄」の判断に回す。
+        await this.writeGroupConflict(members, merged.conflict.blockIds, currentRevision, "content-stale");
+        return {
+          ok: false,
+          reason: te("electron.proposalStore.rebaseContentChanged", { ids: merged.conflict.blockIds.join(", ") }),
+        };
+      }
+    }
     let nextDocument: SigmaDocument;
     let replayDraft = representative.draft;
     try {
-      const replay = replayProposalDraft(normalizedCurrentDocument, representative.draft);
-      nextDocument = replay.nextDocument;
-      replayDraft = replay.draft;
+      if (mergeBasis) {
+        nextDocument = replayProposalDraftMerging(normalizedCurrentDocument, representative.draft, mergeBasis).nextDocument;
+      } else {
+        const replay = replayProposalDraft(normalizedCurrentDocument, representative.draft);
+        nextDocument = replay.nextDocument;
+        replayDraft = replay.draft;
+      }
     } catch {
       return { ok: false, reason: te("electron.proposalStore.targetMismatch") };
     }
 
     try {
-      assertAppliedProposalHasRealChanges(normalizedCurrentDocument, nextDocument, replayDraft);
+      assertAppliedProposalHasRealChanges(normalizedCurrentDocument, nextDocument, replayDraft, mergeBasis);
     } catch (error) {
       const blockIds = collectReplaceTargetIds(replayDraft);
       if (blockIds.length > 0) {
@@ -913,7 +1114,11 @@ export class LocalMcpEditProposalStore {
       // touchedBlocks の baseHash は「(旧)baseDocument 時点のハッシュ」だったので、rebase後は
       // 新しい base (= currentDocument) に対して取り直す。取り直さないと次回のrebase/承認時に
       // 古い base のハッシュのまま比較してしまい、誤って「変更あり」と判定してしまう。
-      ...(members.some((candidate) => candidate.touchedBlocks) ? { touchedBlocks: sharedTouchedBlocks } : {}),
+      // base (mergeBasis) を持つ提案は取り直さない: 人間の編集後の文書で取り直すと、baseが
+      // 読めなくなったとき従来判定がその編集を検出できず上書きしてしまう。
+      ...(members.some((candidate) => candidate.touchedBlocks) && !representative.mergeBasis ? { touchedBlocks: sharedTouchedBlocks } : {}),
+      autoApplyDeferredAtRevision: undefined,
+      autoApplyDeferredSignature: undefined,
       // rebase成功 = 検出されていた競合(あれば)は解消済み。
       conflict: undefined,
       updatedAt: now,
@@ -959,9 +1164,15 @@ export class LocalMcpEditProposalStore {
     let nextDocument: SigmaDocument;
     let replayDraft = proposal.draft;
     try {
-      const replay = replayProposalDraft(normalizedCurrentDocument, proposal.draft);
-      replayDraft = replay.draft;
-      nextDocument = replay.nextDocument;
+      const restoreBasis = usableProposalMergeBasis(proposal.mergeBasis);
+      if (restoreBasis) {
+        // AI自身のdraftとbaseはそのまま残し、復活時点の人間の編集を合成した作業文書だけ作り直す。
+        nextDocument = replayProposalDraftMerging(normalizedCurrentDocument, proposal.draft, restoreBasis).nextDocument;
+      } else {
+        const replay = replayProposalDraft(normalizedCurrentDocument, proposal.draft);
+        replayDraft = replay.draft;
+        nextDocument = replay.nextDocument;
+      }
     } catch {
       return { ok: false, reason: te("electron.proposalStore.restoreReplayFailed") };
     }
@@ -974,7 +1185,7 @@ export class LocalMcpEditProposalStore {
       baseDocId: normalizedCurrentDocument.docId,
       draft: replayDraft,
       nextDocument: parseSigmaDocument(nextDocument),
-      touchedBlocks: computeTouchedBlocks(replayDraft, normalizedCurrentDocument),
+      touchedBlocks: proposal.mergeBasis ? proposal.touchedBlocks : computeTouchedBlocks(replayDraft, normalizedCurrentDocument),
       conflict: undefined,
       updatedAt: now,
       history: [...(proposal.history ?? []), { action: "reproposed", at: now }],
@@ -993,6 +1204,9 @@ export class LocalMcpEditProposalStore {
     delete nextProposal.revertDocument;
     delete nextProposal.appliedDiff;
     delete nextProposal.autoApplied;
+    delete nextProposal.mergeReport;
+    delete nextProposal.autoApplyDeferredAtRevision;
+    delete nextProposal.autoApplyDeferredSignature;
 
     // If this proposal is part of a group, restore all members atomically
     if (proposal.groupId) {
@@ -1005,7 +1219,7 @@ export class LocalMcpEditProposalStore {
           baseDocId: normalizedCurrentDocument.docId,
           draft: replayDraft,
           nextDocument: parseSigmaDocument(nextDocument),
-          touchedBlocks: computeTouchedBlocks(replayDraft, normalizedCurrentDocument),
+          touchedBlocks: member.mergeBasis ? member.touchedBlocks : computeTouchedBlocks(replayDraft, normalizedCurrentDocument),
           conflict: undefined,
           updatedAt: now,
           history: [...(member.history ?? []), { action: "reproposed", at: now }],
@@ -1021,15 +1235,19 @@ export class LocalMcpEditProposalStore {
           delete member.revertDocument;
           delete member.appliedDiff;
           delete member.autoApplied;
+          delete member.mergeReport;
+          delete member.autoApplyDeferredAtRevision;
+          delete member.autoApplyDeferredSignature;
         });
-        await Promise.all(updatedMembers.map((member) => this.writeProposal(member)));
+        // A shared approval record taken again reads its base from the document the draft was replayed on.
+        await Promise.all(updatedMembers.map((member) => this.writeProposal(member, normalizedCurrentDocument)));
         return { ok: true, proposal: summarizeProposal(updatedMembers.find((m) => m.proposalId === proposalId) ?? updatedMembers[0]) };
       } catch (error) {
         return { ok: false, reason: error instanceof Error ? error.message : te("electron.proposalStore.groupRestoreFailed") };
       }
     }
 
-    await this.writeProposal(nextProposal);
+    await this.writeProposal(nextProposal, normalizedCurrentDocument);
     return { ok: true, proposal: summarizeProposal(nextProposal) };
   }
 
@@ -1065,6 +1283,22 @@ export class LocalMcpEditProposalStore {
     const conflicted: string[] = [];
 
     for (const candidate of candidates) {
+      const candidateBasis = candidate.invalidReason ? undefined : usableProposalMergeBasis(candidate.mergeBasis);
+      if (candidateBasis) {
+        const outcome = await this.autoRebaseMergeableProposal(
+          candidate,
+          candidateBasis,
+          normalizedCurrentDocument,
+          currentHashes,
+          currentRevision,
+        );
+        if (outcome === "rebased") {
+          rebased.push(candidate.proposalId);
+        } else if (outcome === "conflicted") {
+          conflicted.push(candidate.proposalId);
+        }
+        continue;
+      }
       const insertAnchorIds = collectRequiredInsertAnchorBlockIds(candidate.draft);
       const conflictSensitiveIds = collectConflictSensitiveBlockIds(candidate.draft);
       if (
@@ -1152,6 +1386,66 @@ export class LocalMcpEditProposalStore {
     return { rebased, conflicted };
   }
 
+  /**
+   * base (mergeBasis) を持つ提案の自動追従。保存のたびに走るので、文書全体のreplayはしない
+   * (提案の対象の中で打鍵するたびに全提案を合成し直すと自動保存が遅くなる)。上書き対象が人間に
+   * 編集されていても承認時の合成replayで両方を残すので content-stale にはしない。ハッシュだけで
+   * 分かる解決不能 (合成対象外の操作の対象の変更・対象やアンカーの消失・挿入IDの占有) だけを
+   * 競合にし、それ以外は revision だけを進める。draft・base・touchedBlocks・nextDocument は
+   * 書き換えない (作業文書はMCP・承認・プレビューが必要なときに合成し直す)。
+   *
+   * 競合が記録済みの提案だけは、その競合を解消できるかを合成replayで確かめる: 合成できれば解消し、
+   * できなければ記録済みの対象IDを保つ (新しい理由が対象IDを持つならそれに更新する)。
+   * 操作の無いdraftは追従するものが無いので触らない。
+   */
+  private async autoRebaseMergeableProposal(
+    candidate: LocalMcpEditProposalMeta,
+    mergeBasis: ProposalMergeBasis,
+    currentDocument: SigmaDocument,
+    currentHashes: Record<string, string>,
+    currentRevision: number,
+  ): Promise<"rebased" | "conflicted" | "skipped"> {
+    if (candidate.draft.operations.length === 0 && (candidate.draft.mutationOperations?.length ?? 0) === 0) {
+      return "skipped";
+    }
+    const mergeable = { draft: candidate.draft, mergeBasis, touchedBlocks: candidate.touchedBlocks };
+    const signatureOf = (extraIds: readonly string[]) => (
+      computeMergeAttentionSignature(mergeable, extraIds, currentHashes, currentDocument)
+    );
+    let conflict: ProposalFreshnessConflict | null;
+    if (candidate.conflict) {
+      if (candidate.conflict.signature !== undefined && candidate.conflict.signature === signatureOf(candidate.conflict.blockIds)) {
+        // Nothing the conflict depends on changed: re-evaluating would reach the same answer.
+        return "conflicted";
+      }
+      const replay = replayMergeableProposal(mergeable, currentDocument, currentHashes);
+      conflict = replay.ok
+        ? null
+        : {
+            reason: replay.conflict.reason,
+            blockIds: replay.conflict.blockIds.length > 0 ? replay.conflict.blockIds : candidate.conflict.blockIds,
+          };
+    } else {
+      conflict = findMergeableProposalStructuralConflict(mergeable, currentHashes, currentDocument);
+    }
+    if (conflict) {
+      await this.markConflict(candidate.proposalId, conflict.blockIds, currentRevision, conflict.reason, signatureOf(conflict.blockIds));
+      return "conflicted";
+    }
+    // A deferred automatic approval stays deferred while nothing the proposal depends on changed
+    // (the merge would need review again); otherwise it is retried at the new revision.
+    const keepDeferral = candidate.autoApplyDeferredSignature !== undefined
+      && candidate.autoApplyDeferredSignature === signatureOf([]);
+    return await this.advanceProposalBaseRevisionWithoutReplay(
+      candidate.proposalId,
+      currentDocument.docId,
+      currentRevision,
+      keepDeferral ? { revision: currentRevision, signature: candidate.autoApplyDeferredSignature! } : undefined,
+    )
+      ? "rebased"
+      : "skipped";
+  }
+
   private async readDocumentBlockHashes(
     fileId: string,
     revision: number,
@@ -1179,6 +1473,7 @@ export class LocalMcpEditProposalStore {
     proposalId: string,
     baseDocId: string,
     currentRevision: number,
+    autoApplyDeferral?: { revision: number; signature: string },
   ): Promise<boolean> {
     const proposal = await this.loadProposal(proposalId);
     if (!proposal || proposal.status !== "pending") {
@@ -1196,6 +1491,8 @@ export class LocalMcpEditProposalStore {
       baseDocId,
       rebasedFrom: member.baseRevision,
       conflict: undefined,
+      autoApplyDeferredAtRevision: autoApplyDeferral?.revision,
+      autoApplyDeferredSignature: autoApplyDeferral?.signature,
       updatedAt: now,
     })));
     return true;
@@ -1206,12 +1503,13 @@ export class LocalMcpEditProposalStore {
     blockIds: string[],
     detectedAtRevision: number,
     reason: LocalMcpEditProposalConflictReason,
+    signature?: string,
   ): Promise<void> {
     const proposal = await this.loadProposal(proposalId);
     if (!proposal || proposal.status !== "pending" || proposal.invalidReason) {
       return;
     }
-    await this.writeGroupConflict(await this.loadProposalGroup(proposal), blockIds, detectedAtRevision, reason);
+    await this.writeGroupConflict(await this.loadProposalGroup(proposal), blockIds, detectedAtRevision, reason, signature);
   }
 
   private async markConflict(
@@ -1219,8 +1517,9 @@ export class LocalMcpEditProposalStore {
     blockIds: string[],
     detectedAtRevision: number,
     reason: LocalMcpEditProposalConflictReason,
+    signature?: string,
   ): Promise<void> {
-    await this.recordProposalConflict(proposalId, blockIds, detectedAtRevision, reason);
+    await this.recordProposalConflict(proposalId, blockIds, detectedAtRevision, reason, signature);
   }
 
   /**
@@ -1288,6 +1587,7 @@ export class LocalMcpEditProposalStore {
       source: candidate.source,
       groupId: candidate.groupId,
       groupPosition: candidate.groupPosition,
+      ...(candidate.mergeBasis ? { mergeBasis: candidate.mergeBasis } : {}),
     }));
     const selective = buildSelectiveRevertDocument({
       revertDocument: proposal.revertDocument,
@@ -1783,6 +2083,24 @@ export class LocalMcpEditProposalStore {
           const history = parseProposalHistory(value.history);
           return history.length > 0 ? { history } : {};
         })(),
+        ...(() => {
+          const mergeBasis = parseProposalMergeBasis(value.mergeBasis);
+          return mergeBasis ? { mergeBasis } : {};
+        })(),
+        ...(() => {
+          const mergeReport = parseProposalMergeReport(value.mergeReport);
+          return mergeReport ? { mergeReport } : {};
+        })(),
+        ...(typeof value.autoApplyDeferredAtRevision === "number"
+          ? { autoApplyDeferredAtRevision: value.autoApplyDeferredAtRevision }
+          : {}),
+        ...(typeof value.autoApplyDeferredSignature === "string"
+          ? { autoApplyDeferredSignature: value.autoApplyDeferredSignature }
+          : {}),
+        ...(() => {
+          const mergeCarry = parseProposalMergeReport(value.mergeCarry);
+          return mergeCarry ? { mergeCarry } : {};
+        })(),
       };
     } catch {
       return null;
@@ -1879,17 +2197,23 @@ export class LocalMcpEditProposalStore {
     blockIds: string[],
     detectedAtRevision: number,
     reason: LocalMcpEditProposalConflictReason,
+    signature?: string,
   ): Promise<void> {
     const updatedAt = new Date().toISOString();
     await Promise.all(members.map((member) => this.writeProposal({
       ...member,
-      conflict: { blockIds, detectedAtRevision, reason },
+      conflict: { blockIds, detectedAtRevision, reason, ...(signature ? { signature } : {}) },
       updatedAt,
     })));
   }
 
+  /** The app's user data directory (holding the shared documents' approval records). */
+  private userDataDir(): string {
+    return path.dirname(path.dirname(this.getProposalsDir()));
+  }
+
   private async writeProposal(proposal: LocalMcpEditProposal, baseDocument?: SigmaDocument): Promise<void> {
-    await captureSharedProposal(path.dirname(path.dirname(this.getProposalsDir())), proposal, baseDocument);
+    await captureSharedProposal(this.userDataDir(), proposal, baseDocument);
     await this.ensureBaseDirs();
     const data = JSON.stringify(proposal);
     if (Buffer.byteLength(data, "utf8") > MAX_MCP_PROPOSAL_FILE_BYTES) {
@@ -1951,6 +2275,128 @@ function parseTouchedBlocks(value: unknown): LocalMcpEditProposalTouchedBlock[] 
   return items.length > 0 ? items : null;
 }
 
+/**
+ * mergeBasis の緩い読み込み。旧レコード (フィールドなし) は null。読み込みでは形だけを見る
+ * (version・entities・各項目の kind と id の一致)。スナップショット全体のスキーマ検証は、base を
+ * 使う所 (承認・合成replay・追従) で usableProposalMergeBasis が1回だけ行い、1つでも読めない
+ * 実体があれば base 全体を無かったことにする (一部だけ欠けたbaseで合成すると、欠けた単位を
+ * 素のreplayで上書きしてしまう)。一覧や自動保存のたびの読み込みでは全文を検証しない。
+ * アンカーは付け替えの手掛かりにすぎないので、読めない項目だけ落とす。
+ */
+function parseProposalMergeBasis(value: unknown): ProposalMergeBasis | null {
+  if (!isRecord(value) || value.version !== 1 || !isRecord(value.entities) || Array.isArray(value.entities)) {
+    return null;
+  }
+  const entities: Record<string, ProposalMergeBasisEntity> = {};
+  for (const [id, entity] of Object.entries(value.entities)) {
+    if (!isRecord(entity) || !isRecord(entity.value) || entity.value.id !== id || (entity.kind !== "block" && entity.kind !== "shape")) {
+      return null;
+    }
+    entities[id] = entity as unknown as ProposalMergeBasisEntity;
+  }
+  const anchors: Record<string, ProposalMergeBasisAnchor> = {};
+  if (isRecord(value.anchors) && !Array.isArray(value.anchors)) {
+    for (const [id, anchor] of Object.entries(value.anchors)) {
+      if (
+        isRecord(anchor)
+        && (anchor.container === null || typeof anchor.container === "string")
+        && Array.isArray(anchor.precedingIds)
+      ) {
+        anchors[id] = {
+          container: anchor.container,
+          precedingIds: anchor.precedingIds.filter((item): item is string => typeof item === "string"),
+        };
+      }
+    }
+  }
+  return { version: 1, entities, ...(Object.keys(anchors).length > 0 ? { anchors } : {}) };
+}
+
+/** 承認時に保存した mergeReport の緩い読み込み (監査表示用。欠けた値は0/空として扱う)。 */
+function parseProposalMergeReport(value: unknown): ProposalMergeReport | null {
+  if (!isRecord(value) || Array.isArray(value)) {
+    return null;
+  }
+  const strings = (field: unknown) => (Array.isArray(field) ? field.filter((item): item is string => typeof item === "string") : []);
+  const count = (field: unknown) => (typeof field === "number" && Number.isFinite(field) && field >= 0 ? field : 0);
+  return {
+    ...createEmptyProposalMergeReport(),
+    overlaps: strings(value.overlaps),
+    capped: value.capped === true,
+    cappedPaths: strings(value.cappedPaths),
+    reidentified: count(value.reidentified),
+    editBeatsDelete: strings(value.editBeatsDelete),
+    duplicateIds: strings(value.duplicateIds),
+    invalidAfterMerge: count(value.invalidAfterMerge),
+    anchorRelocated: count(value.anchorRelocated),
+    legacyNoBase: count(value.legacyNoBase),
+    humanEditedUnits: strings(value.humanEditedUnits),
+  };
+}
+
+/**
+ * The operations `incoming` adds after `existing` (with their recorded order re-indexed from 0), or
+ * null when `incoming` does not start with `existing`'s operations.
+ */
+function splitAppendedDraft(existing: AiEditSessionDraft, incoming: AiEditSessionDraft): AiEditSessionDraft | null {
+  const existingMutations = existing.mutationOperations ?? [];
+  const incomingMutations = incoming.mutationOperations ?? [];
+  if (!startsWithItems(incoming.operations, existing.operations) || !startsWithItems(incomingMutations, existingMutations)) {
+    return null;
+  }
+  const operationOffset = existing.operations.length;
+  const mutationOffset = existingMutations.length;
+  return {
+    summary: incoming.summary,
+    plan: startsWithItems(incoming.plan, existing.plan) ? incoming.plan.slice(existing.plan.length) : incoming.plan,
+    warnings: startsWithItems(incoming.warnings, existing.warnings) ? incoming.warnings.slice(existing.warnings.length) : incoming.warnings,
+    operations: incoming.operations.slice(operationOffset),
+    mutationOperations: incomingMutations.slice(mutationOffset),
+    operationOrder: resolveAiEditSessionOperationOrder(incoming).flatMap((entry) => {
+      const offset = entry.kind === "operation" ? operationOffset : mutationOffset;
+      return entry.index >= offset ? [{ kind: entry.kind, index: entry.index - offset }] : [];
+    }),
+  };
+}
+
+/** Whether the two drafts have an operation (or mutation) in common. */
+function sharesOperations(left: AiEditSessionDraft, right: AiEditSessionDraft): boolean {
+  return left.operations.some((operation) => right.operations.some((other) => isDeepStrictEqual(operation, other)))
+    || (left.mutationOperations ?? []).some((operation) => (
+      (right.mutationOperations ?? []).some((other) => isDeepStrictEqual(operation, other))
+    ));
+}
+
+/** Whether `existing` already contains all of `incoming` as its leading operations. */
+function startsWithDraft(existing: AiEditSessionDraft, incoming: AiEditSessionDraft): boolean {
+  return startsWithItems(existing.operations, incoming.operations)
+    && startsWithItems(existing.mutationOperations ?? [], incoming.mutationOperations ?? []);
+}
+
+function startsWithItems<T>(items: readonly T[], prefix: readonly T[]): boolean {
+  return items.length >= prefix.length && prefix.every((item, index) => isDeepStrictEqual(item, items[index]));
+}
+
+/** `first` then `second`, with `second`'s recorded order shifted past `first`'s operations. */
+function concatenateDrafts(first: AiEditSessionDraft, second: AiEditSessionDraft): AiEditSessionDraft {
+  const operationOffset = first.operations.length;
+  const mutationOffset = first.mutationOperations?.length ?? 0;
+  return {
+    summary: second.summary || first.summary,
+    plan: [...first.plan, ...second.plan],
+    warnings: [...first.warnings, ...second.warnings],
+    operations: [...first.operations, ...second.operations],
+    mutationOperations: [...(first.mutationOperations ?? []), ...(second.mutationOperations ?? [])],
+    operationOrder: [
+      ...resolveAiEditSessionOperationOrder(first),
+      ...resolveAiEditSessionOperationOrder(second).map((entry) => ({
+        kind: entry.kind,
+        index: entry.index + (entry.kind === "operation" ? operationOffset : mutationOffset),
+      })),
+    ],
+  };
+}
+
 // blockIds が空配列でも有効なスナップショット (「選択なしの依頼 = 衝突なし」の明示) なので、
 // touchedBlocks と違い空でも捨てずに残す。
 function parseRequestSelection(value: unknown): LocalMcpEditProposalRequestSelection | null {
@@ -1974,7 +2420,12 @@ function parseConflict(value: unknown): LocalMcpEditProposalConflict | null {
   const blockIds = value.blockIds.filter((id): id is string => typeof id === "string");
   const reason = isProposalFreshnessConflictReason(value.reason) ? value.reason : undefined;
   return blockIds.length > 0 || reason === "replay-failed"
-    ? { blockIds, detectedAtRevision: value.detectedAtRevision, ...(reason ? { reason } : {}) }
+    ? {
+        blockIds,
+        detectedAtRevision: value.detectedAtRevision,
+        ...(reason ? { reason } : {}),
+        ...(typeof value.signature === "string" ? { signature: value.signature } : {}),
+      }
     : null;
 }
 
@@ -2063,6 +2514,10 @@ function summarizeProposal(proposal: LocalMcpEditProposal): LocalMcpEditProposal
     ...(proposal.conflict ? { conflict: proposal.conflict } : {}),
     ...(proposal.invalidReason ? { invalidReason: proposal.invalidReason } : {}),
     ...(proposal.history?.length ? { history: proposal.history } : {}),
+    ...(proposal.mergeBasis ? { mergeBasis: proposal.mergeBasis } : {}),
+    ...(proposal.mergeReport ? { mergeReport: proposal.mergeReport } : {}),
+    ...(proposal.mergeCarry ? { mergeCarry: proposal.mergeCarry } : {}),
+    ...(proposal.autoApplyDeferredAtRevision !== undefined ? { autoApplyDeferredAtRevision: proposal.autoApplyDeferredAtRevision } : {}),
     // revertDocument は意図的に含めない (LocalMcpEditProposalSummary のコメント参照)。
   };
 }
@@ -2108,6 +2563,10 @@ function summarizeProposalMeta(meta: LocalMcpEditProposalMeta): LocalMcpEditProp
     ...(meta.conflict ? { conflict: meta.conflict } : {}),
     ...(meta.invalidReason ? { invalidReason: meta.invalidReason } : {}),
     ...(meta.history?.length ? { history: meta.history } : {}),
+    ...(meta.mergeBasis ? { mergeBasis: meta.mergeBasis } : {}),
+    ...(meta.mergeReport ? { mergeReport: meta.mergeReport } : {}),
+    ...(meta.mergeCarry ? { mergeCarry: meta.mergeCarry } : {}),
+    ...(meta.autoApplyDeferredAtRevision !== undefined ? { autoApplyDeferredAtRevision: meta.autoApplyDeferredAtRevision } : {}),
   };
 }
 

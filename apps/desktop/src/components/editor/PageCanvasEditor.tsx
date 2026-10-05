@@ -26,11 +26,13 @@ import { TextRunSelectionOverlay } from "@/components/editor/text-flow/TextRunSe
 import {
   REQUEST_BOX_SETTINGS_EVENT,
   REQUEST_TEXT_PAGE_BREAK_EVENT,
+  type TextFlowBoundaryDeleteOutcome,
   type TextFlowBoundaryDeleteRequest,
   type TextFlowChangeContext,
   type TextFlowMaterialInsertRequest,
   type TextPageBreakRequestDetail,
 } from "@/components/editor/TextFlowEditor";
+import { resolveVisibleBoundaryDelete } from "@/components/editor/page-canvas/boundary-delete-guard";
 import {
   BLOCK_SPACE_AFTER_FOLLOWER_CLASS,
   blockSpaceAfterPx,
@@ -154,7 +156,6 @@ import {
   toCanvasPoint,
 } from "./page-canvas/editor-dom-commands";
 import type { PageCanvasInlineContent } from "./page-canvas/editor-extension";
-import { getColumnContentAnchor,type ColumnContentAnchor } from "./page-canvas/extension-placement";
 import {
   EMPTY_SPACE_AFTER_FOLLOWER_UNITS,
   getFlowDisplacementProps,
@@ -162,7 +163,7 @@ import {
   getFlowUnitPlacementStyle,
   mergeFlowUnitStyle,
 } from "./page-canvas/flow-presentation";
-import { getProblemAfterInlineContent } from "./page-canvas/inline-content-composition";
+import { getFlowExtensionNodeId,getProblemAfterContentUnitIds,getProblemAfterInlineContent } from "./page-canvas/inline-content-composition";
 import { calculateReserveSpaceGaps } from "./page-canvas/layout-measure";
 import { LayoutSectionFlowUnit } from "./page-canvas/layout-section-view";
 import { publishLayoutSnapshot } from "./page-canvas/layout-snapshot";
@@ -221,8 +222,9 @@ import {
   changesTopLevelManualBreaks,
   DeferredLargePasteTextFlowUnit,
   EditorBoxBlockFragmentPreview,
+  FlowExtensionFragmentPreview,
+  FlowExtensionLayoutContext,
   hasNewTopLevelBlockIds,
-  InlineContentStack,
   TextFlowWithInlineContent,
 } from "./page-canvas/text-flow-view";
 import {
@@ -363,6 +365,7 @@ function PageCanvasEditorImpl({
   onCommentThreadSelect,
   suppressSelectionActions = false,
   selectionTools,
+  externalDrop,
   presentation = "edit",
   publishesSessionPresence: publishesSessionPresenceProp,
 }: PageCanvasEditorProps) {
@@ -559,7 +562,28 @@ const {
     () => new Set(inlineContentByTargetId.keys()),
     [inlineContentByTargetId],
   );
+  /**
+   * フロー内の拡張ノード (差し込み) の id → 中身。ページの境目で切れた拡張ノードの続きを、同じ中身の
+   * 複製として描くために引く。並びと版はページ割りの測り直しの合図にもなる (`extensionMeasureKey`)。
+   */
+  const { extensionContentByNodeId, extensionMeasureKey } = useMemo(() => {
+    const byNodeId = new Map<string, PageCanvasInlineContent>();
+    const keys: string[] = [];
+    for (const items of inlineContentByTargetId.values()) {
+      for (const item of items) {
+        const nodeId = getFlowExtensionNodeId(item.key);
+        byNodeId.set(nodeId, item);
+        keys.push(`${nodeId}\u0000${item.measureRevision ?? ""}`);
+      }
+    }
+    return { extensionContentByNodeId: byNodeId, extensionMeasureKey: keys.join("\u0001") };
+  }, [inlineContentByTargetId]);
   const textFlowChangeDecorationState = pageExtension?.textFlowChangeDecorationState;
+  // 畳んだブロック (`collapsedIds`) は境界の削除から読む。イベントの時点の値を ref で引く。
+  const collapsedBlockIdsRef = useRef(textFlowChangeDecorationState?.collapsedIds);
+  useLayoutEffect(() => {
+    collapsedBlockIdsRef.current = textFlowChangeDecorationState?.collapsedIds;
+  }, [textFlowChangeDecorationState]);
   const overlayShapeClassNames = pageExtension?.overlayShapeClassNames;
   const resolveOverlayPresentation = pageExtension?.resolveOverlayPresentation;
   const featureSelectionExtension = pageExtension?.selection;
@@ -821,7 +845,7 @@ const {
     markFullMeasureDirty,
     bleed
   } = usePageCanvasMeasurement({
-    content: { pageDocument, units, historyRevision, overlay, overlaySource: document.pageLayout?.overlay, pendingDeletion, onReanchorOverlay },
+    content: { pageDocument, units, historyRevision, overlay, overlaySource: document.pageLayout?.overlay, pendingDeletion, onReanchorOverlay, extensionMeasureKey, preservedShapeIds: editorExtensions?.overlayEditPolicy?.preservedShapeIds },
     geometry: { metrics, zoom, fontSize, isWhiteboard, isPagedRender },
     surface: { flowRef, canvasRef, flowElement },
     spaceAfter: { spaceAfterSessionRef, setSpaceAfterDrag, setBlockAffordance },
@@ -843,7 +867,9 @@ const {
     sideNoteLabelYs,
     markerDisplacements,
   } = layoutViewState;
-  const { overlaySelectionKey, selectionActionPopover } = usePageCanvasSelectionActions({ overlaySelection, suppressSelectionActions, pageOverlayEditing, selectionExtension, selectedId, document, bodyOverlayModeStatus, overlayCommentAnchor, canvasRef, zoom, isWhiteboard, whiteboardPanX, whiteboardPanY, onCommentAnchorCandidateChange, isOverlayEditing, onCommentAnchorRequest, renderSelectionActions, selectedInlineMath, totalHeight });
+  // 図形の選択ポップオーバーの描いた幅 (中身で変わる)。紙面に浮かべる部品が避ける矩形に使う。
+  const [overlayPopoverWidthPx, setOverlayPopoverWidthPx] = useState<number | undefined>(undefined);
+  const { overlaySelectionKey, selectionActionPopover, selectionControlsRect } = usePageCanvasSelectionActions({ overlaySelection, suppressSelectionActions, pageOverlayEditing, selectionExtension, selectedId, document, bodyOverlayModeStatus, overlayCommentAnchor, canvasRef, zoom, isWhiteboard, whiteboardPanX, whiteboardPanY, onCommentAnchorCandidateChange, isOverlayEditing, onCommentAnchorRequest, renderSelectionActions, selectedInlineMath, totalHeight, overlayPopoverWidthPx });
   useLayoutEffect(() => {
     requestCaretKeeperReanchor();
   }, [layoutViewState]);
@@ -856,33 +882,14 @@ const {
   useLayoutEffect(() => {
     onMeasuredBlockRectsChange?.(blockRects);
   }, [blockRects, onMeasuredBlockRectsChange]);
-  const {
-    flowInlineContentByTargetId,
-    columnInlineContentAnchors,
-  } = useMemo(() => {
-    const flowContent = new Map<string, readonly PageCanvasInlineContent[]>();
-    const columnContent: Array<ColumnContentAnchor & {
-      targetId: string;
-      items: readonly PageCanvasInlineContent[];
-    }> = [];
-
-    for (const [targetId, items] of inlineContentByTargetId) {
-      const anchor = getColumnContentAnchor(blockRects.get(targetId), metrics.content.widthPx);
-      if (!anchor) {
-        flowContent.set(targetId, items);
-        continue;
-      }
-
-      // Extension content inserted as a sibling into a CSS column flow can be
-      // laid out at the start of the next column, so host it in page coordinates.
-      columnContent.push({ ...anchor, targetId, items });
-    }
-
-    return {
-      flowInlineContentByTargetId: flowContent,
-      columnInlineContentAnchors: columnContent,
-    };
-  }, [blockRects, inlineContentByTargetId, metrics.content.widthPx]);
+  // 問題そのものを対象にした差し込みは、問題ごとに 1 つのユニットの後ろにだけ描く。
+  const problemAfterContentUnitIds = useMemo(() => getProblemAfterContentUnitIds(units), [units]);
+  // 拡張ノードが読むページ割りの答え。編集面は自分のブロックの分だけを props で受けるので、
+  // この値が変わって描き直されるのは拡張ノードだけ。
+  const flowExtensionLayout = useMemo(
+    () => ({ nodeDisplacements, fragmentSources: boxFragmentSourceLayouts }),
+    [boxFragmentSourceLayouts, nodeDisplacements],
+  );
   const boxBlocksById = useMemo(() => collectBoxBlocksById(pageDocument.content), [pageDocument.content]);
   // Top-level text blocks (paragraphs, headings, lists) can also be split into
   // clipped fragments when they are taller than a page/column, so their
@@ -1045,6 +1052,8 @@ const { candidateCommentTop, pendingCommentTop, commentThreadPositions } = usePa
     ),
     [overlay.overlaySnapshot],
   );
+  // ホワイトボードにページは無い。図形の層は 1 枚の面 (20000px) として扱う。
+  const overlayPageHeightPx = isWhiteboard ? 20000 : pageHeightPx;
   const overlayView = useMemo(
     () => measurePerformance("PageCanvasEditor.createResolvedOverlayView", () => createResolvedOverlayView(
       overlay,
@@ -1053,13 +1062,13 @@ const { candidateCommentTop, pendingCommentTop, commentThreadPositions } = usePa
         canvasHeight: isWhiteboard ? 20000 : totalHeight,
         canvasWidth: isWhiteboard ? 20000 : pageWidthPx,
         pageGapPx: isWhiteboard ? 0 : PAGE_GAP_PX,
-        pageHeightPx: isWhiteboard ? 20000 : pageHeightPx,
+        pageHeightPx: overlayPageHeightPx,
         revision: layoutViewState.revision,
         reserveSpaceGaps,
       },
       overlayIdentityCache,
     )),
-    [blockRects, isWhiteboard, layoutViewState.revision, overlay, overlayIdentityCache, pageHeightPx, pageWidthPx, reserveSpaceGaps, totalHeight],
+    [blockRects, isWhiteboard, layoutViewState.revision, overlay, overlayIdentityCache, overlayPageHeightPx, pageWidthPx, reserveSpaceGaps, totalHeight],
   );
   const overlayPresentation = useMemo(
     () => resolveOverlayPresentation?.({
@@ -1069,9 +1078,10 @@ const { candidateCommentTop, pendingCommentTop, commentThreadPositions } = usePa
       blockGaps: reserveSpaceGaps,
       contentWidthPx: metrics.content.widthPx,
       pageWidthPx,
-      pageHeightPx,
+      pageHeightPx: overlayPageHeightPx,
+      selectionControlsRect,
     }),
-    [blockRects, metrics.content.widthPx, overlay.overlaySnapshot?.assets, overlay.overlaySnapshot?.shapes, pageHeightPx, pageWidthPx, reserveSpaceGaps, resolveOverlayPresentation],
+    [blockRects, metrics.content.widthPx, overlay.overlaySnapshot?.assets, overlay.overlaySnapshot?.shapes, overlayPageHeightPx, pageWidthPx, reserveSpaceGaps, resolveOverlayPresentation, selectionControlsRect],
   );
   const pinnedOverlayShapeIds = overlaySelection.selectedShapeIds;
   const visibleBodyHitShapes = useMemo(
@@ -1789,17 +1799,31 @@ const { candidateCommentTop, pendingCommentTop, commentThreadPositions } = usePa
   }, [requestBodyOverlayImages, runningRegionEditKind]);
 
   const handlePageDragOver = useCallback((event: ReactDragEvent<HTMLDivElement>) => {
-    if (runningRegionEditKind || !hasSupportedOverlayImageData(event.dataTransfer)) {
+    if (runningRegionEditKind) {
+      return;
+    }
+    if (!externalDrop?.accepts(event.dataTransfer) && !hasSupportedOverlayImageData(event.dataTransfer)) {
       return;
     }
 
     event.preventDefault();
     event.stopPropagation();
     event.dataTransfer.dropEffect = "copy";
-  }, [runningRegionEditKind]);
+  }, [externalDrop, runningRegionEditKind]);
 
   const handlePageDrop = useCallback((event: ReactDragEvent<HTMLDivElement>) => {
     if (runningRegionEditKind) {
+      return;
+    }
+
+    if (externalDrop?.accepts(event.dataTransfer)) {
+      event.preventDefault();
+      event.stopPropagation();
+      externalDrop.drop(event.dataTransfer, {
+        clientX: event.clientX,
+        clientY: event.clientY,
+        pagePoint: getOverlayPointFromClient(event.clientX, event.clientY),
+      });
       return;
     }
 
@@ -1811,7 +1835,7 @@ const { candidateCommentTop, pendingCommentTop, commentThreadPositions } = usePa
     event.preventDefault();
     event.stopPropagation();
     requestBodyOverlayImages(files, getOverlayPointFromClient(event.clientX, event.clientY) ?? undefined);
-  }, [getOverlayPointFromClient, requestBodyOverlayImages, runningRegionEditKind]);
+  }, [externalDrop, getOverlayPointFromClient, requestBodyOverlayImages, runningRegionEditKind]);
 
   const requestOverlayPreviewSelection = useCallback((
     bounds: DOMRect,
@@ -2161,11 +2185,21 @@ const { candidateCommentTop, pendingCommentTop, commentThreadPositions } = usePa
 
   }, [horizontalMarginEditPageNumber, runningRegionEditKind, setHorizontalMarginEditPageNumber, setRunningRegionEditKind, setRunningRegionOverlayEditing]);
 
-  const handleTextFlowBoundaryDelete = useCallback((request: TextFlowBoundaryDeleteRequest) => {
-    const deletion = resolveTextFlowBoundaryDelete(pageContentRef.current, request);
-    if (!deletion) {
+  const handleTextFlowBoundaryDelete = useCallback((request: TextFlowBoundaryDeleteRequest): TextFlowBoundaryDeleteOutcome => {
+    // 面をまたぐ結合・削除は面のガードを通らない。畳んだ (描かれていない) ブロックを書き換える変更は
+    // ここで断ってガードの案内を出し (文書の変更口も同じ集合で断る)、キャレットは見えるブロックへ置く。
+    const outcome = resolveVisibleBoundaryDelete(
+      request,
+      (input) => resolveTextFlowBoundaryDelete(pageContentRef.current, input),
+      collapsedBlockIdsRef.current,
+    );
+    if (!outcome) {
       return false;
     }
+    if ("blockedBlockId" in outcome) {
+      return outcome;
+    }
+    const { deletion } = outcome;
 
     if (deletion.previousIds.length > 0 || deletion.nextBlocks.length > 0) {
       // 境界の削除は 2 つのユニットを繋ぐので、上流側の高さも変わる。「打った場所より下だけ」
@@ -2532,6 +2566,7 @@ const { candidateCommentTop, pendingCommentTop, commentThreadPositions } = usePa
       pointerOverBodyText: hitShape && !(hitShape.type === "image" && hitShape.props.tikz)
         ? !!findEditableElementUnderPoint({ x: event.clientX, y: event.clientY })
         : false,
+      pointerOnLink: !!target?.closest(".url-detected"),
       modifiers: {
         alt: event.altKey,
         ctrl: event.ctrlKey,
@@ -2623,7 +2658,9 @@ const { candidateCommentTop, pendingCommentTop, commentThreadPositions } = usePa
       }
     }
 
-    if (event.ctrlKey || event.metaKey) {
+    // Ctrl/Cmd は経路が "overlayShape" のときだけ図形側へ渡す。リンクの上 (図形に当たっていない) では
+    // 本文へ落とし、本文の拡張 (url-detection) がクリックでリンクを開く。
+    if ((event.ctrlKey || event.metaKey) && bodyPointerRoute === "overlayShape") {
       const canvas = canvasRef.current;
       if (!canvas) {
         return;
@@ -2977,6 +3014,7 @@ const { candidateCommentTop, pendingCommentTop, commentThreadPositions } = usePa
             popover={selectionActionPopover}
             onCommentAnchorRequest={onCommentAnchorRequest}
             renderSelectionActions={renderSelectionActions}
+            onWidthChange={selectionControlsRect ? setOverlayPopoverWidthPx : undefined}
           />
         )}
       </section>
@@ -3165,6 +3203,7 @@ const { candidateCommentTop, pendingCommentTop, commentThreadPositions } = usePa
             })}
           </div>
 
+          <FlowExtensionLayoutContext.Provider value={flowExtensionLayout}>
           <div
             className={`page-flow ${isColumnPage ? "page-columns" : ""}`}
             ref={setFlowRef}
@@ -3227,7 +3266,7 @@ const { candidateCommentTop, pendingCommentTop, commentThreadPositions } = usePa
                         onBodyBlockCommand={onBodyBlockCommand}
                         enableHeadingCommands
                         onHeadingCommand={onHeadingCommand}
-                        inlineContentByTargetId={flowInlineContentByTargetId}
+                        inlineContentByTargetId={inlineContentByTargetId}
                         changeDecorationState={textFlowChangeDecorationState}
                       />
                     )}
@@ -3268,7 +3307,7 @@ const { candidateCommentTop, pendingCommentTop, commentThreadPositions } = usePa
                   materials={materials}
                   onMaterialInsert={handleMaterialInsert}
                   onHeadingCommand={onHeadingCommand}
-                  inlineContentByTargetId={flowInlineContentByTargetId}
+                  inlineContentByTargetId={inlineContentByTargetId}
                   changeDecorationState={textFlowChangeDecorationState}
                 />
               ) : unit.type === "problemArea" ? (
@@ -3298,11 +3337,11 @@ const { candidateCommentTop, pendingCommentTop, commentThreadPositions } = usePa
                   onRemoveBreak={markerRemoveHandler}
                   onResizeStart={startProblemAreaResize}
                   onActionMenuOpen={openProblemActionMenu}
-                  inlineContentByTargetId={flowInlineContentByTargetId}
+                  inlineContentByTargetId={inlineContentByTargetId}
                   afterInlineContent={getProblemAfterInlineContent(
                     unit.problem.id,
-                    unit.isLastProblemArea,
-                    flowInlineContentByTargetId,
+                    problemAfterContentUnitIds.has(unit.id),
+                    inlineContentByTargetId,
                   )}
                   commentThreads={displayedCommentThreads}
                   activeCommentThreadId={activeCommentThreadId}
@@ -3344,6 +3383,7 @@ const { candidateCommentTop, pendingCommentTop, commentThreadPositions } = usePa
               ),
             )}
           </div>
+          </FlowExtensionLayoutContext.Provider>
 
           {/*
             下端つまみのドラッグ中、この層に印は付かない。断片は「ページ (段) をまたいだ続き」
@@ -3353,6 +3393,17 @@ const { candidateCommentTop, pendingCommentTop, commentThreadPositions } = usePa
           {editorBoxBlockFragments.length > 0 && (
             <div className="page-box-fragment-layer">
               {editorBoxBlockFragments.map((fragment) => {
+                // フロー内の拡張ノードの続きは、同じ中身の操作できない複製で描く。
+                const extensionContent = extensionContentByNodeId.get(fragment.blockId);
+                if (extensionContent) {
+                  return (
+                    <FlowExtensionFragmentPreview
+                      key={`${fragment.blockId}:${fragment.fragmentIndex}`}
+                      item={extensionContent}
+                      fragment={fragment}
+                    />
+                  );
+                }
                 const problemAreaSource = problemAreaFlowBlocksById.get(fragment.blockId);
                 const block = boxBlocksById.get(fragment.blockId)
                   ?? topLevelTextBlocksById.get(fragment.blockId)
@@ -3624,20 +3675,6 @@ const { candidateCommentTop, pendingCommentTop, commentThreadPositions } = usePa
               />
             )}
             {!isPagedRender && <RemoteOverlayPresenceLayer shapes={overlayView.shapes} />}
-            {columnInlineContentAnchors.map((anchor) => (
-              <div
-                key={`${pageExtension?.columnAnchor?.keyPrefix ?? "column-extension"}-${anchor.targetId}`}
-                className={pageExtension?.columnAnchor?.className}
-                {...pageExtension?.columnAnchor?.getDataAttributes?.(anchor.targetId)}
-                style={{
-                  left: `${anchor.left}px`,
-                  top: `${anchor.top}px`,
-                  width: `${anchor.width}px`,
-                }}
-              >
-                <InlineContentStack items={anchor.items} />
-              </div>
-            ))}
             {overlayPresentation?.floatingContent}
           </div>
           {showComments && commentPanel && (
@@ -3668,6 +3705,8 @@ const { candidateCommentTop, pendingCommentTop, commentThreadPositions } = usePa
           popover={selectionActionPopover}
           onCommentAnchorRequest={onCommentAnchorRequest}
             renderSelectionActions={renderSelectionActions}
+          // 幅を測るのは図形の選択ポップオーバーだけ (出ている間は避ける矩形がある)。
+          onWidthChange={selectionControlsRect ? setOverlayPopoverWidthPx : undefined}
         />
       )}
       {problemContextMenu && (

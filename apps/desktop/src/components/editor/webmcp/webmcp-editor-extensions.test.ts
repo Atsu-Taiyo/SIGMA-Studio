@@ -9,10 +9,19 @@ import { WebMcpBridge, type WebMcpBridgeHandle, type WebMcpUiStatus } from "@/co
 import { WebMcpDockSection } from "@/components/editor/webmcp/WebMcpDockSection";
 import type { WebMcpHistoryEntry } from "@/components/editor/webmcp/webmcp-history";
 import type { SigmaDocument } from "@/features/document";
+import type { AiEditPreviewState } from "@/features/ai-edit/model/preview";
 import { blockToReferenceText } from "@/lib/ai/ai-edit-reference";
 import { findBlock } from "@/lib/document-tree";
 import { sampleDocument } from "@/lib/sample-document";
 import { WEB_MCP_PROPOSAL_ID, type WebMcpToolDefinition } from "@/lib/webmcp-tools";
+
+import {
+  aiLockedTargetsForOrigin,
+  EMPTY_AI_LOCKED_TARGETS,
+  findAiLockedTargetsTouched,
+  hasAiLockedTargetsTouched,
+  withAiResultOnlyTargets,
+} from "@/features/ai-edit";
 
 import {
   buildWebMcpEditorExtensions,
@@ -78,6 +87,18 @@ describe("WebMCP editor extensions", () => {
     expect(extensions.overlayShapeDecorations?.get("shape_1")?.className).toBe("webmcp-edit-target-shape");
   });
 
+  it("keeps a block whole-guarded when a later set reserves only a fragment of it", () => {
+    const presentation = { highlightedBlockClassName: "a", readOnlyBlockClassName: "b", characterClassName: "c", atomClassName: "d" };
+    const whole = { blockId: "x", guardId: "result-only-x", isPrimaryActionTarget: false, blockedMessage: "隠している", presentation, highlight: false };
+    const partial = { ...whole, guardId: "run-x", blockedMessage: "AI編集中", contentReservations: [{ baselineText: "x", ranges: [{ from: 0, to: 1 }], inlineMathIds: [] }] };
+
+    const merged = mergeEditorExtensionSets({ textFlowEditPolicy: { guards: [whole] } }, { textFlowEditPolicy: { guards: [partial] } });
+
+    const [guard] = merged!.textFlowEditPolicy!.guards;
+    expect(guard).toMatchObject({ guardId: "run-x" });
+    expect(guard.contentReservations).toBeUndefined();
+  });
+
   it("unions WebMCP locks with desktop AI editor extensions", () => {
     const aiExtensions: EditorExtensionContextValue = {
       textFlowEditPolicy: {
@@ -112,16 +133,49 @@ describe("WebMCP editor extensions", () => {
     );
   });
 
+  it("keeps the first set's frame drawing, body policy and decorations when the second only locks shapes", () => {
+    const problemFrameDrawing = { renderPanel: () => null };
+    const textFlowEditPolicy = { guards: [] };
+    const overlayShapeDecorations = new Map([["shape_ai", { className: "ai-shape" }]]);
+    const first: EditorExtensionContextValue = {
+      textFlowEditPolicy,
+      overlayEditPolicy: { lockedShapeIds: new Set(["shape_ai"]) },
+      overlayShapeDecorations,
+      problemFrameDrawing,
+    };
+    const shapeOnly: EditorExtensionContextValue = {
+      overlayEditPolicy: { lockedShapeIds: new Set(["hidden"]), unselectableShapeIds: new Set(["hidden"]) },
+    };
+
+    const merged = mergeEditorExtensionSets(first, shapeOnly)!;
+
+    // 枠の AI タブ (問題設定の枠エディタ) が消えない。
+    expect(merged.problemFrameDrawing).toBe(problemFrameDrawing);
+    // 本文の編集面の方針と図形の飾りは同じオブジェクトのまま (本文ユニットを描き直させない)。
+    expect(merged.textFlowEditPolicy).toBe(textFlowEditPolicy);
+    expect(merged.overlayShapeDecorations).toBe(overlayShapeDecorations);
+    expect([...merged.overlayEditPolicy!.unselectableShapeIds!]).toEqual(["hidden"]);
+    // 2 つ目が飾りを持つなら、2 つ目の frame drawing より 1 つ目のものも引き継ぐ。
+    expect(mergeEditorExtensionSets(shapeOnly, first)!.problemFrameDrawing).toBe(problemFrameDrawing);
+  });
+
   it("publishes refresh conflicts, blocks apply, and recovers after the human edit is undone", async () => {
     (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+    // 段組みの設定の更新は合成しない操作なので、人がその段組みの中を直すと STALE_DRAFT になる。
     const original: SigmaDocument = {
       ...structuredClone(sampleDocument),
       docId: "doc_webmcp_bridge_test",
-      content: [
-        { type: "paragraph", id: "p_target", children: [{ type: "text", text: "Original" }] },
-        { type: "paragraph", id: "p_other", children: [{ type: "text", text: "Other" }] },
-      ],
-    };
+      content: [{
+        type: "layoutSection",
+        id: "sec_target",
+        layout: { columnCount: 2, columnGapMm: 8 },
+        children: [
+          { type: "paragraph", id: "p_target", children: [{ type: "text", text: "Original" }] },
+          { type: "paragraph", id: "p_other", children: [{ type: "text", text: "Other" }] },
+        ],
+      }],
+    } as SigmaDocument;
+    const heavyFallbackCount = () => (window as typeof window & { __sigmaWebMcpHeavyFallbackCount?: number }).__sigmaWebMcpHeavyFallbackCount;
     let currentDocument = structuredClone(original);
     let revision = 0;
     let commitCount = 0;
@@ -172,42 +226,45 @@ describe("WebMCP editor extensions", () => {
 
     try {
       await renderBridge();
-      const updateTool = registeredTools.find((tool) => tool.name === "edit_text");
-      if (!updateTool) throw new Error("edit_text was not registered");
+      const layoutTool = registeredTools.find((tool) => tool.name === "update_layout");
+      if (!layoutTool) throw new Error("update_layout was not registered");
       await act(async () => {
-        await updateTool.execute({
-          expectedRevision: 0,
-          operations: [{
-            op: "replace_text",
-            target: { type: "block", blockId: "p_target" },
-            replacement: "Agent edit",
-          }],
-        });
+        await layoutTool.execute({ expectedRevision: 0, action: "update_section", sectionId: "sec_target", columnCount: 3 });
       });
+      const fallbacksBefore = heavyFallbackCount() ?? 0;
 
+      const section = currentDocument.content[0] as Extract<SigmaDocument["content"][number], { type: "layoutSection" }>;
       currentDocument = {
         ...currentDocument,
-        content: [
-          { type: "paragraph", id: "p_target", children: [{ type: "text", text: "検収用段落その一。競合後も内容を確認できます。" }] },
-          currentDocument.content[1]!,
-        ],
+        content: [{
+          ...section,
+          children: [
+            { type: "paragraph", id: "p_target", children: [{ type: "text", text: "検収用段落その一。競合後も内容を確認できます。" }] },
+            section.children[1]!,
+          ],
+        }],
       };
       revision += 1;
       await renderBridge();
       const conflictedStatus = (window as typeof window & { __sigmaWebMcpStatus?: WebMcpUiStatus }).__sigmaWebMcpStatus;
-      expect(conflictedStatus?.conflictTargetIds).toEqual(["p_target"]);
+      expect(conflictedStatus?.conflictTargetIds).toEqual(["sec_target"]);
       expect(conflictedStatus?.conflictTargets).toBe("検収用段落その一。競合後も内容を確認でき…");
       const dockConflict = container.querySelector(".ai-task-dock-webmcp-conflict");
       expect(dockConflict?.textContent).toContain("検収用段落その一。競合後も内容を確認でき…");
-      expect(dockConflict?.textContent).not.toContain("p_target");
+      expect(dockConflict?.textContent).not.toContain("sec_target");
       const bridgeStatus = container.querySelector(".webmcp-proposal-status");
       expect(bridgeStatus?.textContent).toContain("検収用段落その一。競合後も内容を確認でき…");
-      expect(bridgeStatus?.textContent).not.toContain("p_target");
+      expect(bridgeStatus?.textContent).not.toContain("sec_target");
       expect(consoleError).not.toHaveBeenCalled();
+      // 合成できずに STALE_DRAFT になった (MISS R3)。競合のまま描き直しても数え直さない。
+      expect(heavyFallbackCount()).toBe(fallbacksBefore + 1);
+      revision += 1;
+      await renderBridge();
+      expect(heavyFallbackCount()).toBe(fallbacksBefore + 1);
 
       const blockedApply = await bridgeRef.current!.applyProposalIds([WEB_MCP_PROPOSAL_ID]);
       expect(blockedApply).toMatchObject({ ok: false, reason: expect.stringContaining("検収用段落その一。競合後も内容を確認でき…") });
-      expect(blockedApply?.ok === false ? blockedApply.reason : "").not.toContain("p_target");
+      expect(blockedApply?.ok === false ? blockedApply.reason : "").not.toContain("sec_target");
       expect(commitCount).toBe(0);
 
       currentDocument = structuredClone(original);
@@ -219,11 +276,164 @@ describe("WebMCP editor extensions", () => {
       const applied = await bridgeRef.current!.applyProposalIds([WEB_MCP_PROPOSAL_ID]);
       expect(applied).toEqual({ ok: true });
       expect(commitCount).toBe(1);
-      expect(blockToReferenceText(findBlock(currentDocument, "p_target")!)).toBe("Agent edit");
+      expect(findBlock(currentDocument, "sec_target")).toMatchObject({ layout: { columnCount: 3 } });
+      expect(heavyFallbackCount()).toBe(fallbacksBefore + 1);
     } finally {
       await act(async () => { root.unmount(); });
       container.remove();
       consoleError.mockRestore();
+      Reflect.deleteProperty(window.document, "modelContext");
+    }
+  });
+
+  it("previews and applies a draft merged with the human's edit, and counts the merge's fallbacks", async () => {
+    (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+    const original: SigmaDocument = {
+      ...structuredClone(sampleDocument),
+      docId: "doc_webmcp_merge_bridge_test",
+      content: [
+        { type: "paragraph", id: "p_keep", children: [{ type: "text", text: "Keep" }] },
+        { type: "paragraph", id: "p_delete", children: [{ type: "text", text: "Delete me" }] },
+      ],
+    };
+    let currentDocument = structuredClone(original);
+    let revision = 0;
+    let previewGroups: AiEditPreviewState[] = [];
+    const registeredTools: WebMcpToolDefinition[] = [];
+    Object.defineProperty(window.document, "modelContext", {
+      configurable: true,
+      value: {
+        registerTool: async (tool: WebMcpToolDefinition) => { registeredTools.push(tool); },
+        provideContext: () => {},
+      },
+    });
+    const container = window.document.createElement("div");
+    window.document.body.append(container);
+    const root = createRoot(container);
+    const bridgeRef = createRef<WebMcpBridgeHandle>();
+    const counters = () => window.__SIGMA_STUDIO_PERFORMANCE__?.counters ?? {};
+    const heavyFallbackCount = () => (window as typeof window & { __sigmaWebMcpHeavyFallbackCount?: number }).__sigmaWebMcpHeavyFallbackCount ?? 0;
+    const renderBridge = async () => {
+      await act(async () => {
+        root.render(createElement(WebMcpBridge, {
+          ref: bridgeRef,
+          enabled: true,
+          instructionScopeId: "doc_webmcp_merge_bridge_test",
+          commitDocumentChange: (change: (document: SigmaDocument) => SigmaDocument) => {
+            currentDocument = change(currentDocument);
+            revision += 1;
+          },
+          getDocument: () => currentDocument,
+          getRevision: () => revision,
+          getSelectedBlockId: () => "p_keep",
+          getSelection: () => ({ blockId: "p_keep", textRange: null, inlineMath: null, overlayShapes: [] }),
+          navigateToTarget: () => {},
+          onPreviewGroupsChange: (groups: AiEditPreviewState[]) => { previewGroups = groups; },
+          onHistoryChange: () => {},
+        }));
+        await Promise.resolve();
+      });
+    };
+    try {
+      await renderBridge();
+      const organize = registeredTools.find((tool) => tool.name === "organize_blocks");
+      if (!organize) throw new Error("organize_blocks was not registered");
+      await act(async () => {
+        await organize.execute({ expectedRevision: 0, action: "delete", blockIds: ["p_delete"], expectedBlocks: [original.content[1]] });
+      });
+      expect(previewGroups[0]?.ownerMergedHumanEditedUnits).toBeUndefined();
+      const editBeatsDeleteBefore = counters()["AiProposalMerge.editBeatsDelete"] ?? 0;
+      const heavyFallbacksBefore = heavyFallbackCount();
+
+      currentDocument = { ...currentDocument, content: [currentDocument.content[0]!, { type: "paragraph", id: "p_delete", children: [{ type: "text", text: "Delete me? No, a human kept me" }] }] };
+      revision += 1;
+      await renderBridge();
+      // 合成した draft はもう p_delete を消さず、カードには「あなたの編集と合わせた内容です」の単位が渡る。
+      expect(previewGroups[0]?.draft.mutationOperations ?? []).toEqual([]);
+      expect(previewGroups[0]?.ownerMergedHumanEditedUnits).toEqual(["p_delete"]);
+
+      let applied: Awaited<ReturnType<WebMcpBridgeHandle["applyProposalIds"]>> = null;
+      await act(async () => {
+        applied = await bridgeRef.current!.applyProposalIds([WEB_MCP_PROPOSAL_ID]);
+      });
+      expect(applied).toEqual({ ok: true });
+      expect(blockToReferenceText(findBlock(currentDocument, "p_delete")!)).toBe("Delete me? No, a human kept me");
+      expect(counters()["AiProposalMerge.editBeatsDelete"]).toBe(editBeatsDeleteBefore + 1);
+      expect(heavyFallbackCount()).toBe(heavyFallbacksBefore);
+    } finally {
+      await act(async () => root.unmount());
+      container.remove();
+      Reflect.deleteProperty(window.document, "modelContext");
+    }
+  });
+
+  it("applies an approved proposal whose target is folded away to show only its result (the fold stops human edits only)", async () => {
+    (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+    let currentDocument: SigmaDocument = {
+      ...structuredClone(sampleDocument),
+      docId: "doc_webmcp_result_only_apply_test",
+      content: [{ type: "paragraph", id: "p_target", children: [{ type: "text", text: "Original" }] }],
+    };
+    let revision = 0;
+    const registeredTools: WebMcpToolDefinition[] = [];
+    Object.defineProperty(window.document, "modelContext", {
+      configurable: true,
+      value: {
+        registerTool: async (tool: WebMcpToolDefinition) => { registeredTools.push(tool); },
+        provideContext: () => {},
+      },
+    });
+    // EditorShell の変更口と同じ規則: 紙面のカードが「適用後だけ」で畳んだ p_target は、人の編集だけを断る。
+    const held = withAiResultOnlyTargets(EMPTY_AI_LOCKED_TARGETS, { blockIds: new Set(["p_target"]), shapeIds: new Set() });
+    const commitDocumentChange = (change: (document: SigmaDocument) => SigmaDocument, options?: { origin?: "ai-approval" }) => {
+      const next = change(currentDocument);
+      if (hasAiLockedTargetsTouched(findAiLockedTargetsTouched(currentDocument, next, aiLockedTargetsForOrigin(held, options?.origin ?? "human-edit")))) {
+        return false;
+      }
+      currentDocument = next;
+      revision += 1;
+      return true;
+    };
+    const container = window.document.createElement("div");
+    window.document.body.append(container);
+    const root = createRoot(container);
+    const bridgeRef = createRef<WebMcpBridgeHandle>();
+    try {
+      await act(async () => {
+        root.render(createElement(WebMcpBridge, {
+          ref: bridgeRef,
+          enabled: true,
+          instructionScopeId: "doc_webmcp_result_only_apply_test",
+          commitDocumentChange,
+          getDocument: () => currentDocument,
+          getRevision: () => revision,
+          getSelectedBlockId: () => "p_target",
+          getSelection: () => ({ blockId: "p_target", textRange: null, inlineMath: null, overlayShapes: [] }),
+          navigateToTarget: () => {},
+          onPreviewGroupsChange: () => {},
+          onHistoryChange: () => {},
+        }));
+        await Promise.resolve();
+      });
+      const updateTool = registeredTools.find((tool) => tool.name === "edit_text");
+      if (!updateTool) throw new Error("edit_text was not registered");
+      await act(async () => {
+        await updateTool.execute({
+          expectedRevision: 0,
+          operations: [{ op: "replace_text", target: { type: "block", blockId: "p_target" }, replacement: "Agent edit" }],
+        });
+      });
+
+      let applied: Awaited<ReturnType<WebMcpBridgeHandle["applyProposalIds"]>> = null;
+      await act(async () => {
+        applied = await bridgeRef.current!.applyProposalIds([WEB_MCP_PROPOSAL_ID]);
+      });
+
+      expect(applied).toEqual({ ok: true });
+      expect(blockToReferenceText(findBlock(currentDocument, "p_target")!)).toBe("Agent edit");
+    } finally {
+      await act(async () => root.unmount());
+      container.remove();
       Reflect.deleteProperty(window.document, "modelContext");
     }
   });

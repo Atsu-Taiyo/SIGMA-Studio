@@ -1,12 +1,13 @@
 "use client";
 
 import { WandSparkles } from "lucide-react";
-import { memo, useCallback, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 import {
   AiEditInlinePreviewCard,
   AiEditOverlayApprovalWidget,
-  groupAiEditPreviewEntries,
+  getAiProposalSessionLabel,
+  OVERLAY_SUMMARY_MAX_LINES,
   type AiSourceReferenceOpenDocumentParams,
 } from "./view";
 import {
@@ -17,17 +18,38 @@ import {
   deriveAiEditPreviewDiff,
   deriveAiEditPreviewOverlayShapes,
   deriveAiEditPreviewShapeUpdates,
+  getAiEditPreviewBeforeShapeIds,
   hasBodyAiEditChanges,
-  hasOverlayAiEditChanges,
+  isOverlayOnlyAiEditPreview,
   summarizeAiEditPreviewChanges,
   type AiApplyAnimationState,
+  type AiEditPreviewDiff,
   type AiEditPreviewState,
 } from "./model/preview";
+import {
+  readAiProposalCardDisplayState,
+  readAiProposalDisplayState,
+  routeAiProposalCardDisplayPatch,
+  type AiProposalCardDisplayKeys,
+  type AiProposalDisplayState,
+} from "./model/proposal-display-state";
+import { useAiProposalDisplayStates } from "./application/use-ai-proposal-display-states";
+import { useStableIdSet } from "./application/use-stable-id-set";
+import {
+  collectMergedUpdatedShapes,
+  collectPendingRemovedBlockIds,
+  groupPendingProposalContentByAnchor,
+  resolveShapesKeptByMerge,
+  withMergedShapes,
+  type AiProposalAnchorCard,
+} from "./model/proposal-content";
+import { resolveProposalMergePreview, retainProposalMergePreviewFallbacks } from "./model/proposal-merge-preview";
 import { AiRunAnchorLayer, type AiRunCardOpenRequest } from "@/components/editor/ai-run-anchor-layer";
 import {
   getNarrowColumnBounds,
   placeCenteredWidget,
 } from "@/components/editor/page-canvas/extension-placement";
+import { buildRenderUnits } from "@/components/editor/page-canvas/render-units";
 import {
   getShapesSelectionBounds,
   resolveShapesPosition,
@@ -38,10 +60,11 @@ import { getRenderableShapes } from "@/features/rendering/core";
 import type { Translate } from "@/lib/i18n";
 import { useT } from "@/lib/i18n/react";
 import { countPerformanceEvent } from "@/lib/performance";
-import type { OverlayShape } from "@/features/document";
+import type { OverlayShape, SigmaBlock } from "@/features/document";
 import type {
   PageCanvasEditorExtension,
   PageCanvasGhostShape,
+  PageCanvasInlineContent,
   PageCanvasOverlayPresentation,
   PageCanvasOverlayPresentationContext,
   PageCanvasSelectionAction,
@@ -61,23 +84,20 @@ import { getSelectionActionKey } from "./selection-action-key";
 import { buildShapesSvgPreview, type AiEditShapeOnlyPreview } from "@/lib/ai/ai-edit-shape-preview";
 import { PAGE_GAP_PX } from "@/features/document";
 import { mergeEditorExtensionSets } from "@/components/editor/webmcp/webmcp-editor-extensions";
+import type { EditorExtensionContextValue } from "@/components/editor/editor-extension-context";
 
 import { RegionCaptureLayer } from "@/components/editor/region-capture/RegionCaptureLayer";
 
 import { useAiEditorExtensions } from "./editor-extensions";
+import { aiResultOnlyBlockedMessage, createAiReadOnlyTextFlowEditGuard } from "./adapters/tiptap/edit-lock-adapter";
 import { AiScreenshotAskButton, type AiScreenshotRequestHandler } from "./view/AiScreenshotAskButton";
 import { ProblemFrameChatNotices } from "./view/ProblemFrameChatNotices";
 import type { AiProposalApplyOutcome } from "./application/proposal-action-model";
 
-const OVERLAY_APPROVAL_WIDGET_WIDTH = 272;
-const OVERLAY_APPROVAL_WIDGET_ESTIMATED_HEIGHT = 48;
+/** 浮かぶバーの幅。見出しと操作が 1 行に並ぶ幅 (段が狭ければ段に収める)。 */
+const OVERLAY_APPROVAL_WIDGET_WIDTH = 320;
 const OVERLAY_APPROVAL_WIDGET_GAP = 8;
 const OVERLAY_APPROVAL_WIDGET_MARGIN = 12;
-const AI_COLUMN_ANCHOR = {
-  className: "ai-column-preview-anchor",
-  keyPrefix: "ai-column-preview",
-  getDataAttributes: (targetId: string) => ({ "data-ai-preview-target-id": targetId }),
-};
 
 export interface AiPageCanvasEditorProps extends Omit<PageCanvasEditorProps, "pageExtension"> {
   /**
@@ -107,6 +127,17 @@ export interface AiPageCanvasEditorProps extends Omit<PageCanvasEditorProps, "pa
   aiDocumentWriteInProgress?: boolean;
   documentWorkspaceId?: string | null;
   onFocusAiSession?: (roomId: string) => void;
+  /**
+   * 「適用後だけ」で隠したもの: 本文から畳んだブロックと、変更前を隠した図形 (紙面の拡張が決める唯一の
+   * 定義)。文書の変更口と履歴の巻き戻し・検索が同じ集合を読み、人が見えないものを変える変更を断る。
+   * 外したときは空の集合。
+   */
+  onAiResultOnlyTargetsChange?: (targets: { blockIds: ReadonlySet<string>; shapeIds: ReadonlySet<string> }) => void;
+  /**
+   * ⌘K のパネルが判断 (承認バー) を出している提案の id。その提案は紙面に浮かぶバーを出さない
+   * (1 つの提案に見える承認バーは 1 本)。
+   */
+  aiPanelDecisionProposalIds?: ReadonlySet<string>;
 }
 
 function AiPageCanvasEditorImpl(props: AiPageCanvasEditorProps) {
@@ -144,6 +175,8 @@ function AiEnabledPageCanvasEditor({
   aiDocumentWriteInProgress = false,
   documentWorkspaceId = null,
   onFocusAiSession,
+  onAiResultOnlyTargetsChange,
+  aiPanelDecisionProposalIds = EMPTY_ID_SET,
   ...pageEditorProps
 }: AiPageCanvasEditorProps) {
   const documentShapes = useMemo(
@@ -156,11 +189,7 @@ function AiEnabledPageCanvasEditor({
     documentWriteInProgress: aiDocumentWriteInProgress,
     shapes: documentShapes,
   });
-  const editorExtensions = useMemo(
-    () => mergeEditorExtensionSets(aiEditorExtensions, pageEditorProps.editorExtensions),
-    [aiEditorExtensions, pageEditorProps.editorExtensions],
-  );
-  const extension = useAiPageCanvasExtension({
+  const { extension, hiddenShapeIds, collapsedBlockIds, resultOnlyHiddenShapeIds } = useAiPageCanvasExtension({
     document: pageEditorProps.document,
     previewGroups: aiEditPreviewGroups,
     applying: aiEditPreviewApplying,
@@ -175,7 +204,30 @@ function AiEnabledPageCanvasEditor({
     documentIdentityKey,
     documentWorkspaceId,
     onFocusSession: onFocusAiSession,
+    panelDecisionProposalIds: aiPanelDecisionProposalIds,
   });
+  // 畳んだブロックと隠した図形は文書の変更口 (EditorShell) にも渡す。面のガード・図形の編集方針と同じ集合で断る。
+  const resultOnlyTargets = useMemo(
+    () => ({ blockIds: collapsedBlockIds, shapeIds: resultOnlyHiddenShapeIds }),
+    [collapsedBlockIds, resultOnlyHiddenShapeIds],
+  );
+  useLayoutEffect(() => {
+    onAiResultOnlyTargetsChange?.(resultOnlyTargets);
+  }, [onAiResultOnlyTargetsChange, resultOnlyTargets]);
+  useLayoutEffect(
+    () => () => onAiResultOnlyTargetsChange?.({ blockIds: EMPTY_ID_SET, shapeIds: EMPTY_ID_SET }),
+    [onAiResultOnlyTargetsChange],
+  );
+  // 隠した変更前 (バーで隠した図形・適用後だけで隠した図形と畳んだ本文) は、選べず編集もできない
+  // (見えないものを動かさない・書き換えない)。
+  const hiddenTargetExtensions = useMemo(
+    () => buildAiHiddenTargetEditorExtensions(hiddenShapeIds, collapsedBlockIds, resultOnlyHiddenShapeIds),
+    [collapsedBlockIds, hiddenShapeIds, resultOnlyHiddenShapeIds],
+  );
+  const editorExtensions = useMemo(
+    () => composeAiPageEditorExtensions(aiEditorExtensions, hiddenTargetExtensions, pageEditorProps.editorExtensions),
+    [aiEditorExtensions, hiddenTargetExtensions, pageEditorProps.editorExtensions],
+  );
 
   const screenshotActions = useMemo(
     () => onAiScreenshotRequest ? <AiScreenshotAskButton onRequest={onAiScreenshotRequest} /> : undefined,
@@ -214,12 +266,13 @@ interface UseAiPageCanvasExtensionOptions {
   documentIdentityKey?: string;
   documentWorkspaceId: string | null;
   onFocusSession?: AiPageCanvasEditorProps["onFocusAiSession"];
+  panelDecisionProposalIds: ReadonlySet<string>;
 }
 
 /** 提案が無いときに配り回す固定の空コレクション (identity を動かさないため)。 */
-type AiEditPreviewCards = ReturnType<typeof groupAiEditPreviewEntries> extends Map<string, infer TCards> ? TCards : never;
-const EMPTY_PREVIEW_CARDS_BY_TARGET_ID: ReadonlyMap<string, AiEditPreviewCards> = new Map();
-const EMPTY_INLINE_CONTENT: ReadonlyMap<string, Array<{ key: string; content: ReactNode }>> = new Map();
+const EMPTY_PREVIEW_CARDS_BY_TARGET_ID: ReadonlyMap<string, AiProposalAnchorCard[]> = new Map();
+const EMPTY_ID_SET: ReadonlySet<string> = new Set();
+const EMPTY_INLINE_CONTENT: ReadonlyMap<string, PageCanvasInlineContent[]> = new Map();
 
 function useAiPageCanvasExtension({
   document,
@@ -236,28 +289,84 @@ function useAiPageCanvasExtension({
   documentIdentityKey,
   documentWorkspaceId,
   onFocusSession,
-}: UseAiPageCanvasExtensionOptions): PageCanvasEditorExtension {
+  panelDecisionProposalIds,
+}: UseAiPageCanvasExtensionOptions): {
+  extension: PageCanvasEditorExtension;
+  hiddenShapeIds: ReadonlySet<string>;
+  collapsedBlockIds: ReadonlySet<string>;
+  resultOnlyHiddenShapeIds: ReadonlySet<string>;
+} {
   const t = useT("ai");
-  const overlayPreviewGroups = useMemo(
-    () => previewGroups.filter(hasOverlayAiEditChanges),
-    [previewGroups],
-  );
+  // 承認・破棄で保留中でなくなった提案の、退避を数え済みという記録を捨てる (MISS R3)。
+  useEffect(() => {
+    retainProposalMergePreviewFallbacks(previewGroups);
+  }, [previewGroups]);
   const inlinePreviewGroups = useMemo(
     () => previewGroups.filter(hasBodyAiEditChanges),
     [previewGroups],
   );
   // 提案が 1 つも無いときは文書が変わっても結果は空。ここで毎回新しい Map を作ると
   // その先の `inlineContentByTargetId` → `pageExtension` まで打鍵ごとに新品になる。
+  // 承認が文書を差し替えている間 (applying) は、承認済みの提案が承認後の文書に重ねて描かれるので、
+  // プレビューの代わりの経路を数えない。
+  // 適用後だけで畳めるのは、紙面の編集面の最上位に並ぶブロックだけ (本文の変更装飾が付く単位)。
+  const pageEditorBlockIds = useMemo(
+    () => inlinePreviewGroups.length === 0 ? EMPTY_ID_SET : collectPageEditorBlockIds(document.content),
+    [document.content, inlinePreviewGroups.length],
+  );
   const previewCardsByTargetId = useMemo(
     () => inlinePreviewGroups.length === 0
       ? EMPTY_PREVIEW_CARDS_BY_TARGET_ID
-      : groupAiEditPreviewEntries(inlinePreviewGroups, document),
-    [document, inlinePreviewGroups],
+      : groupPendingProposalContentByAnchor(inlinePreviewGroups, document, { countFallbacks: !applying, pageEditorBlockIds }),
+    [applying, document, inlinePreviewGroups, pageEditorBlockIds],
   );
+  const previewsWithCards = useMemo(
+    () => new Set([...previewCardsByTargetId.values()].flat().map((card) => card.preview)),
+    [previewCardsByTargetId],
+  );
+  // 同じ提案 (会話) の紙面のカードの key。適用後だけ・図形の変更前を隠すは会話ごとに切り替える。
+  const cardKeysByConversation = useMemo(() => {
+    const keys = new Map<string, string[]>();
+    for (const [targetId, cards] of previewCardsByTargetId) {
+      for (const { preview } of cards) {
+        const conversationKey = getAiProposalConversationKey(preview);
+        keys.set(conversationKey, [...(keys.get(conversationKey) ?? []), getAiProposalCardKey(targetId, preview)]);
+      }
+    }
+    return keys;
+  }, [previewCardsByTargetId]);
+  // カードが 1 枚も無い提案 (図形だけ・本文を置ける場所が無い) は、紙面に浮かぶバーで決める。
+  // カードのある提案はカードのバー 1 本で決める (図形の変更があっても浮かべない)。⌘K のパネルが
+  // 判断を出している間は、パネルのバー 1 本で決める。
+  const floatingPreviewGroups = useMemo(
+    () => selectAiFloatingDecisionPreviews(previewGroups, previewsWithCards, panelDecisionProposalIds),
+    [panelDecisionProposalIds, previewGroups, previewsWithCards],
+  );
+  // 浮かぶバーの提案のうち、内容を人の編集と合成したもの (バーに一言を添える)。図形だけの提案も、
+  // base を持てば合成のプレビューを作るので、人が直した図形があれば入る。提案ごとに覚えた結果を
+  // 引くだけなので打鍵では軽い。
+  const mergedFloatingKeys = useStableIdSet(floatingPreviewGroups.flatMap((preview) => (
+    resolveProposalMergePreview(document, preview, { countFallbacks: !applying }).humanEditedUnits.length > 0
+      ? [getAiProposalConversationKey(preview)]
+      : []
+  )));
   const roomIdsWithCards = useMemo(
     () => new Set(previewGroups.flatMap((preview) => preview.roomId ? [preview.roomId] : [])),
     [previewGroups],
   );
+  const liveDisplayKeys = useMemo(() => {
+    const live = new Map<string, readonly string[]>();
+    for (const preview of previewGroups) {
+      live.set(getAiProposalConversationKey(preview), preview.proposalIds);
+    }
+    for (const [targetId, cards] of previewCardsByTargetId) {
+      for (const card of cards) {
+        live.set(getAiProposalCardKey(targetId, card.preview), card.preview.proposalIds);
+      }
+    }
+    return live;
+  }, [previewCardsByTargetId, previewGroups]);
+  const [displayStates, updateDisplayState] = useAiProposalDisplayStates(liveDisplayKeys);
   const runCardRequestIdRef = useRef(0);
   const [runCardOpenRequest, setRunCardOpenRequest] = useState<AiRunCardOpenRequest | null>(null);
   const openProposalConversation = useCallback((preview: AiEditPreviewState, anchorElement: HTMLElement) => {
@@ -282,64 +391,125 @@ function useAiPageCanvasExtension({
     if (previewCardsByTargetId.size === 0) {
       return EMPTY_INLINE_CONTENT;
     }
-    const result = new Map<string, Array<{ key: string; content: ReactNode }>>();
+    const result = new Map<string, PageCanvasInlineContent[]>();
     for (const [targetId, cards] of previewCardsByTargetId) {
-      result.set(targetId, cards.map((card) => ({
-        key: card.preview.proposalIds.join(","),
-        content: (
-          <AiEditInlinePreviewCard
-            entries={card.entries}
-            providers={card.preview.providers}
-            mathFractionSizing={document.metadata.mathFractionSizing}
-            sessionLabel={card.preview.sessionLabel}
-            sourceReferences={card.preview.sourceReferences}
-            applying={applying}
-            onOpenConversation={card.preview.roomId
-              ? (anchorElement) => openProposalConversation(card.preview, anchorElement)
-              : undefined}
-            onOpenSourceDocument={onOpenSourceDocument}
-            onApply={onApply ? () => onApply(card.preview.proposalIds) : undefined}
-            onDismiss={onDismiss ? (reason) => onDismiss(card.preview.proposalIds, reason) : undefined}
-          />
-        ),
-      })));
+      result.set(targetId, cards.map((card) => {
+        const { preview } = card;
+        const keys = cardDisplayKeysOf(targetId, preview, cardKeysByConversation);
+        // カードの状態に、提案ごとの「変更前を隠す」「適用後だけ」(同じ提案のカードと図形すべてに効く) を重ねる。
+        const displayState = readAiProposalCardDisplayState(displayStates, keys, preview.proposalIds);
+        return {
+          key: keys.cardKey,
+          measureRevision: getAiProposalCardMeasureRevision(card, document.metadata.mathFractionSizing, displayState),
+          content: (
+            <AiEditInlinePreviewCard
+              content={card.content}
+              mathFractionSizing={document.metadata.mathFractionSizing}
+              sourceReferences={preview.sourceReferences}
+              applying={applying}
+              displayState={displayState}
+              onDisplayStateChange={(patch) => {
+                if (patch.afterOnly === true) {
+                  countResultOnlyNotLaidOut(cardsOfConversation(previewCardsByTargetId, keys.conversationKey));
+                }
+                for (const [stateKey, part] of routeAiProposalCardDisplayPatch(patch, keys)) {
+                  updateDisplayState(stateKey, preview.proposalIds, part);
+                }
+              }}
+              hasBeforeShapes={getAiEditPreviewBeforeShapeIds(preview).length > 0}
+              mergedWithHumanEdits={card.mergedWithHumanEdits}
+              resultLaidOut={card.resultLayout.complete}
+              onOpenConversation={preview.roomId
+                ? (anchorElement) => openProposalConversation(preview, anchorElement)
+                : undefined}
+              onOpenSourceDocument={onOpenSourceDocument}
+              onApply={onApply ? () => onApply(preview.proposalIds) : undefined}
+              onDismiss={onDismiss ? (reason) => onDismiss(preview.proposalIds, reason) : undefined}
+            />
+          ),
+        };
+      }));
     }
     return result;
-  }, [applying, document.metadata.mathFractionSizing, onApply, onDismiss, onOpenSourceDocument, openProposalConversation, previewCardsByTargetId]);
+  }, [applying, cardKeysByConversation, displayStates, document.metadata.mathFractionSizing, onApply, onDismiss, onOpenSourceDocument, openProposalConversation, previewCardsByTargetId, updateDisplayState]);
 
   const previewDiff = useMemo(
     () => deriveAiEditPreviewDiff(previewGroups, document.pageLayout?.overlay?.overlaySnapshot?.shapes ?? []),
     [document.pageLayout?.overlay?.overlaySnapshot?.shapes, previewGroups],
   );
+  // 本文の赤い下地は、カードの削除側と同じ合成後の内容から作る。AI が消すブロックを人が直して合成で
+  // 残るなら塗らない (draft から数えると承認の規則を二重に持つ。MISS R17)。カードは打鍵のたびに
+  // 作り直されるので、中身が同じなら同じ集合を使う (各本文ユニットの props を動かさない)。
+  const removedBlockIds = useStableIdSet(collectPendingRemovedBlockIds(previewCardsByTargetId));
+  // 適用後だけを見せているカードの変更前は本文から畳む。同じ合成後の内容 (カードの削除側) から決める。
+  const collapsedBlockIdList = useMemo(() => collectResultOnlyCollapsedBlockIds(
+    previewCardsByTargetId,
+    (targetId, card) => readAiProposalCardDisplayState(
+      displayStates,
+      cardDisplayKeysOf(targetId, card.preview, cardKeysByConversation),
+      card.preview.proposalIds,
+    ),
+  ), [cardKeysByConversation, displayStates, previewCardsByTargetId]);
+  const collapsedBlockIds = useStableIdSet(collapsedBlockIdList);
   const textFlowChangeDecorationState = useMemo(() => {
-    const removedIds = [...previewDiff.removedBlockIds];
+    const removedIds = [...removedBlockIds];
+    const collapsedIds = [...collapsedBlockIds];
     const removingIds = applyAnimation?.removingBlockIds ?? [];
     const addedIds = applyAnimation?.addedBlockIds ?? [];
-    return removedIds.length === 0 && removingIds.length === 0 && addedIds.length === 0
+    return removedIds.length === 0 && collapsedIds.length === 0 && removingIds.length === 0 && addedIds.length === 0
       ? undefined
-      : { removedIds, removingIds, addedIds };
-  }, [applyAnimation, previewDiff]);
-  const overlayShapeClassNames = useMemo(() => {
-    const result = new Map<string, string>();
-    const replacementShapeIds = new Set(
-      previewGroups.flatMap((preview) => (preview.shapeReplacements ?? []).map((pair) => pair.removedShapeId)),
-    );
-    for (const id of previewDiff.modifiedShapeIds) {
-      result.set(id, "ai-diff-modified-shape ai-diff-before-shape");
-    }
-    for (const id of previewDiff.removedShapeIds) {
-      result.set(id, replacementShapeIds.has(id)
-        ? "ai-diff-removed-shape ai-diff-before-shape"
-        : "ai-diff-removed-shape");
-    }
-    for (const id of applyAnimation?.removingShapeIds ?? []) {
-      result.set(id, "ai-apply-removing-shape");
-    }
-    for (const id of applyAnimation?.addedShapeIds ?? []) {
-      result.set(id, "ai-apply-added-shape");
-    }
-    return result;
-  }, [applyAnimation, previewDiff, previewGroups]);
+      : { removedIds, removingIds, addedIds, collapsedIds };
+  }, [applyAnimation, collapsedBlockIds, removedBlockIds]);
+  // 図形の赤い削除表示も同じく、合成で残る図形 (人が直した図形) には付けない。図形を消す提案だけが、
+  // 提案ごとに覚えた結果を引く (合成と図形の並びが同じなら作り直さない)。
+  const mergeKeptShapeIdList = useMemo(
+    () => previewGroups.flatMap((preview) => [...resolveShapesKeptByMerge(document, preview, { countFallbacks: !applying })]),
+    [applying, document, previewGroups],
+  );
+  const mergeKeptShapeIds = useStableIdSet(mergeKeptShapeIdList);
+  // 図形の変更後の姿 (ゴースト) も、base を持つ提案は合成後の文書の図形で描く (MISS R17)。提案ごとに
+  // 覚えた合成を引くので、中身が同じなら同じ Map を配る (紙面の拡張を打鍵のたびに作り直さない)。
+  const mergedUpdatedShapeList = useMemo(
+    () => collectMergedUpdatedShapes(previewGroups, document, { countFallbacks: !applying }),
+    [applying, document, previewGroups],
+  );
+  const mergedUpdatedShapesKey = useMemo(() => JSON.stringify(mergedUpdatedShapeList), [mergedUpdatedShapeList]);
+  const mergedUpdatedShapes = useMemo<ReadonlyMap<string, OverlayShape>>(
+    () => new Map(mergedUpdatedShapeList.map((shape) => [shape.id, shape])),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [mergedUpdatedShapesKey],
+  );
+  // 適用後だけを見せている提案の図形: 変更前 (と合成で残らない削除) を隠し、変更後を印なしで描く。カードの
+  // ある提案だけ (カードが無くなった提案に残った状態は、切り替えが出ないので効かせない)。
+  const resultOnlyShapes = useMemo(() => deriveAiResultOnlyShapeIds(
+    previewGroups.filter((preview) => previewsWithCards.has(preview)
+      && readAiProposalDisplayState(displayStates, getAiProposalConversationKey(preview), preview.proposalIds).afterOnly),
+    mergeKeptShapeIds,
+  ), [displayStates, mergeKeptShapeIds, previewGroups, previewsWithCards]);
+  const resultOnlyGhostShapeIds = useStableIdSet(resultOnlyShapes.ghostShapeIds);
+  const resultOnlyHiddenShapeIds = useStableIdSet(resultOnlyShapes.hiddenShapeIds);
+  // 隠した変更前の図形 (バーで隠したもの・適用後だけのもの)。中身が同じなら同じ集合 (図形の印・編集の方針・
+  // 紙面の拡張を作り直さない)。
+  const hiddenShapeIdList = useMemo(() => [
+    ...previewGroups.flatMap((preview) => (
+      readAiProposalDisplayState(displayStates, getAiProposalConversationKey(preview), preview.proposalIds).beforeHidden
+        ? getAiEditPreviewBeforeShapeIds(preview)
+        : []
+    )),
+    ...resultOnlyHiddenShapeIds,
+  ], [displayStates, previewGroups, resultOnlyHiddenShapeIds]);
+  const hiddenShapeIds = useStableIdSet(hiddenShapeIdList);
+  const overlayShapeClassNames = useMemo(
+    () => deriveAiOverlayShapeClassNames({
+      previewGroups,
+      previewDiff,
+      applyAnimation,
+      beforeHiddenShapeIds: hiddenShapeIds,
+      mergeKeptShapeIds,
+      resultOnlyHiddenShapeIds,
+    }),
+    [applyAnimation, hiddenShapeIds, mergeKeptShapeIds, previewDiff, previewGroups, resultOnlyHiddenShapeIds],
+  );
 
   const resolveOverlayPresentation = useCallback((
     context: PageCanvasOverlayPresentationContext,
@@ -348,7 +518,8 @@ function useAiPageCanvasExtension({
       previewGroups.flatMap((preview) => (preview.shapeReplacements ?? []).map((pair) => pair.removedShapeId)),
     );
     const finalShapeUpdates = new Map(
-      deriveAiEditPreviewShapeUpdates(previewGroups, context.overlayShapes).map((update) => [update.shapeId, update]),
+      withMergedShapes(deriveAiEditPreviewShapeUpdates(previewGroups, context.overlayShapes), mergedUpdatedShapes)
+        .map((update) => [update.shapeId, update]),
     );
     const addedShapeIds = new Set(previewDiff.addedShapes.map((entry) => entry.shape.id));
     const unresolvedGhosts: PageCanvasGhostShape[] = [
@@ -356,9 +527,11 @@ function useAiPageCanvasExtension({
         key: `ai-diff-ghost-${entry.shape.id}`,
         shape: entry.shape,
         assets: entry.assets,
-        className: replacementShapeIds.has(entry.shape.id)
-          ? "ai-diff-added-shape ai-diff-after-shape ai-diff-ghost-shape"
-          : "ai-diff-added-shape ai-diff-ghost-shape",
+        className: resultOnlyGhostShapeIds.has(entry.shape.id)
+          ? AI_RESULT_ONLY_GHOST_CLASS_NAME
+          : replacementShapeIds.has(entry.shape.id)
+            ? "ai-diff-added-shape ai-diff-after-shape ai-diff-ghost-shape"
+            : "ai-diff-added-shape ai-diff-ghost-shape",
       })),
       ...[...finalShapeUpdates.values()].filter((update) => !addedShapeIds.has(update.shapeId)).map((update) => ({
         key: `ai-diff-ghost-${update.after.id}`,
@@ -368,7 +541,9 @@ function useAiPageCanvasExtension({
         assets: update.replacedAssets
           ? { ...context.overlayAssets, ...update.replacedAssets }
           : context.overlayAssets,
-        className: "ai-diff-after-shape ai-diff-ghost-shape",
+        className: resultOnlyGhostShapeIds.has(update.shapeId)
+          ? AI_RESULT_ONLY_GHOST_CLASS_NAME
+          : "ai-diff-after-shape ai-diff-ghost-shape",
       })),
     ];
     const ghostEntriesById = new Map(unresolvedGhosts.map((entry) => [entry.shape.id, entry]));
@@ -382,83 +557,73 @@ function useAiPageCanvasExtension({
       return source ? [{ ...source, shape }] : [];
     });
 
-    const pageStride = context.pageHeightPx + PAGE_GAP_PX;
-    const collisionCounts = new Map<string, number>();
-    const widgets = overlayPreviewGroups.flatMap((preview) => {
-      const affectedShapes = deriveAiEditPreviewOverlayShapes(preview, context.overlayShapes);
-      if (affectedShapes.length === 0) {
-        return [];
-      }
-      const shapesById = new Map(context.overlayShapes.map((shape) => [shape.id, shape]));
-      affectedShapes.forEach((shape) => shapesById.set(shape.id, shape));
-      const resolvedById = new Map(
-        resolveShapesPosition([...shapesById.values()], context.blockRects, context.blockGaps)
-          .map((shape) => [shape.id, shape]),
-      );
-      const bounds = getShapesSelectionBounds(affectedShapes.flatMap((shape) => {
-        const resolved = resolvedById.get(shape.id);
-        return resolved ? [resolved] : [];
-      }));
-      if (!bounds) {
-        return [];
-      }
-
-      const pageIndex = Math.max(0, Math.floor(bounds.y / pageStride));
-      const pageTop = pageIndex * pageStride;
-      const roomAbove = bounds.y - pageTop;
-      const placement = roomAbove >= OVERLAY_APPROVAL_WIDGET_ESTIMATED_HEIGHT + OVERLAY_APPROVAL_WIDGET_GAP
-        ? "above" as const
-        : "below" as const;
+    const pageBounds = { left: 0, right: context.pageWidthPx, width: context.pageWidthPx };
+    const floating = floatingPreviewGroups.map((preview) => {
+      const conversationKey = getAiProposalConversationKey(preview);
+      const displayState = readAiProposalDisplayState(displayStates, conversationKey, preview.proposalIds);
+      const changeLines = summarizeAiEditPreviewChanges(preview, context.overlayShapes, t, mergeKeptShapeIds);
+      // 本文も変える提案は、図形の要約だけでは何の提案か分からない (余白の変更など) ので、AI の要約を先に添える。
+      const draftSummary = preview.draft.summary.trim();
+      const summaryLines = !isOverlayOnlyAiEditPreview(preview) && draftSummary
+        ? [draftSummary, ...changeLines]
+        : changeLines;
       const insertionAnchorBlockId = getOverlayInsertionAnchorBlockId(preview);
       const insertionColumnBounds = insertionAnchorBlockId
         ? getNarrowColumnBounds(context.blockRects.get(insertionAnchorBlockId), context.contentWidthPx)
         : null;
-      const horizontalBounds = insertionColumnBounds ?? {
-        left: 0,
-        right: context.pageWidthPx,
-        width: context.pageWidthPx,
+      const request: FloatingDecisionBarRequest = {
+        key: conversationKey,
+        bounds: resolveAiProposalShapeBounds(preview, context),
+        horizontalBounds: insertionColumnBounds ?? pageBounds,
+        heightPx: estimateFloatingDecisionBarHeight({
+          summaryLineCount: Math.min(summaryLines.length, OVERLAY_SUMMARY_MAX_LINES) + (summaryLines.length > OVERLAY_SUMMARY_MAX_LINES ? 1 : 0),
+          hasSessionLabel: Boolean(getAiProposalSessionLabel(preview)),
+          hasApplyError: Boolean(displayState.applyError),
+        }),
       };
-      const widgetPlacement = placeCenteredWidget(
-        bounds.x + bounds.w / 2,
-        OVERLAY_APPROVAL_WIDGET_WIDTH,
-        horizontalBounds,
-        OVERLAY_APPROVAL_WIDGET_MARGIN,
-      );
-      const left = widgetPlacement.center;
-      const baseTop = placement === "above"
-        ? bounds.y - OVERLAY_APPROVAL_WIDGET_GAP
-        : bounds.y + bounds.h + OVERLAY_APPROVAL_WIDGET_GAP;
-      const collisionKey = `${placement}:${Math.round(left / 24)}:${Math.round(baseTop / 24)}`;
-      const stackIndex = collisionCounts.get(collisionKey) ?? 0;
-      collisionCounts.set(collisionKey, stackIndex + 1);
-      const stackOffset = stackIndex * (OVERLAY_APPROVAL_WIDGET_ESTIMATED_HEIGHT + 4);
-
-      return [(
+      return { preview, conversationKey, displayState, summaryLines, request };
+    });
+    // 選んだ図形の操作 (選択ポップオーバーと回転ハンドル) は覆わない。
+    const placements = placeFloatingDecisionBars(floating.map((entry) => entry.request), {
+      pageWidthPx: context.pageWidthPx,
+      pageHeightPx: context.pageHeightPx,
+      pageStridePx: context.pageHeightPx + PAGE_GAP_PX,
+      desiredWidthPx: OVERLAY_APPROVAL_WIDGET_WIDTH,
+      gapPx: OVERLAY_APPROVAL_WIDGET_GAP,
+      marginPx: OVERLAY_APPROVAL_WIDGET_MARGIN,
+    }, context.selectionControlsRect ? [context.selectionControlsRect] : []);
+    const widgets = floating.map(({ preview, conversationKey, displayState, summaryLines }, index) => {
+      const placement = placements[index];
+      return (
         <AiEditOverlayApprovalWidget
-          key={preview.proposalIds.join(",")}
+          key={conversationKey}
           preview={preview}
           applying={applying}
-          placement={placement}
+          placement={placement.placement}
           style={{
-            left: `${left}px`,
-            top: `${placement === "above" ? baseTop - stackOffset : baseTop + stackOffset}px`,
-            width: `${widgetPlacement.width}px`,
+            left: `${placement.left}px`,
+            top: `${placement.top}px`,
+            width: `${placement.width}px`,
           }}
-          changeSummaryLines={summarizeAiEditPreviewChanges(preview, context.overlayShapes, t)}
+          changeSummaryLines={summaryLines}
+          displayState={displayState}
+          onDisplayStateChange={(patch) => updateDisplayState(conversationKey, preview.proposalIds, patch)}
+          hasBeforeShapes={getAiEditPreviewBeforeShapeIds(preview).length > 0}
+          mergedWithHumanEdits={mergedFloatingKeys.has(conversationKey)}
           onOpenConversation={preview.roomId
             ? (anchorElement) => openProposalConversation(preview, anchorElement)
             : undefined}
           onApply={onApply ? () => onApply(preview.proposalIds) : undefined}
           onDismiss={onDismiss ? (reason) => onDismiss(preview.proposalIds, reason) : undefined}
         />
-      )];
+      );
     });
 
     return {
       ghostShapes: resolvedGhostShapes,
       floatingContent: widgets,
     };
-  }, [applying, onApply, onDismiss, openProposalConversation, overlayPreviewGroups, previewDiff, previewGroups, t]);
+  }, [applying, displayStates, floatingPreviewGroups, mergeKeptShapeIds, mergedFloatingKeys, mergedUpdatedShapes, onApply, onDismiss, openProposalConversation, previewDiff, previewGroups, resultOnlyGhostShapeIds, t, updateDisplayState]);
 
   // 参照系のコールバックは ref 経由で最新を読む。identity を deps に入れると、親が 1 回
   // 描画するたびに selection 拡張が作り直され、PageCanvasEditor 側の選択 effect が再 arm
@@ -530,12 +695,11 @@ function useAiPageCanvasExtension({
     onReady: onPortalReady,
   }), [onPortalReady]);
 
-  return useMemo(() => ({
+  const extension = useMemo<PageCanvasEditorExtension>(() => ({
     inlineContentByTargetId,
     textFlowChangeDecorationState,
     overlayShapeClassNames,
     resolveOverlayPresentation,
-    columnAnchor: AI_COLUMN_ANCHOR,
     selection,
     renderCanvasLayer,
     portal,
@@ -548,6 +712,25 @@ function useAiPageCanvasExtension({
     selection,
     textFlowChangeDecorationState,
   ]);
+  return { extension, hiddenShapeIds, collapsedBlockIds, resultOnlyHiddenShapeIds };
+}
+
+/** 紙面のカードの状態を持つ場所 (カードの key・会話の key・同じ会話のカードの key)。 */
+function cardDisplayKeysOf(
+  targetId: string,
+  preview: AiEditPreviewState,
+  cardKeysByConversation: ReadonlyMap<string, readonly string[]>,
+): AiProposalCardDisplayKeys {
+  const cardKey = getAiProposalCardKey(targetId, preview);
+  const conversationKey = getAiProposalConversationKey(preview);
+  return { cardKey, conversationKey, conversationCardKeys: cardKeysByConversation.get(conversationKey) ?? [cardKey] };
+}
+
+function cardsOfConversation(
+  cardsByTargetId: ReadonlyMap<string, readonly AiProposalAnchorCard[]>,
+  conversationKey: string,
+): AiProposalAnchorCard[] {
+  return [...cardsByTargetId.values()].flat().filter((card) => getAiProposalConversationKey(card.preview) === conversationKey);
 }
 
 function createSelectionAction({
@@ -656,6 +839,27 @@ function createSelectionAction({
   };
 }
 
+/** 提案が触れる図形 (適用後の姿) の囲み。図形に触れない提案や、位置が決まらないときは null。 */
+function resolveAiProposalShapeBounds(
+  preview: AiEditPreviewState,
+  context: PageCanvasOverlayPresentationContext,
+): { x: number; y: number; w: number; h: number } | null {
+  const affectedShapes = deriveAiEditPreviewOverlayShapes(preview, context.overlayShapes);
+  if (affectedShapes.length === 0) {
+    return null;
+  }
+  const shapesById = new Map(context.overlayShapes.map((shape) => [shape.id, shape]));
+  affectedShapes.forEach((shape) => shapesById.set(shape.id, shape));
+  const resolvedById = new Map(
+    resolveShapesPosition([...shapesById.values()], context.blockRects, context.blockGaps)
+      .map((shape) => [shape.id, shape]),
+  );
+  return getShapesSelectionBounds(affectedShapes.flatMap((shape) => {
+    const resolved = resolvedById.get(shape.id);
+    return resolved ? [resolved] : [];
+  })) ?? null;
+}
+
 /**
  * 提案プレビューのゴースト図形を、適用後とまったく同じ経路で解決する。
  *
@@ -680,6 +884,421 @@ export function resolveAiEditGhostShapes<T extends OverlayShape>(
     blockGaps,
   );
   return getRenderableShapes(resolved).filter((shape): shape is T => ghostIds.has(shape.id));
+}
+
+/**
+ * 提案のまとまり (プレビュー) の名前。同じ部屋の追加ターンは同じまとまりに足される
+ * (`groupMcpProposalsForPreview`) ので、提案 id の並びではなく部屋 → run → 最初の提案で決める。
+ * これを key にすれば、追加ターンでカードやウィジェットが作り直されない。
+ */
+export function getAiProposalConversationKey(preview: AiEditPreviewState): string {
+  if (preview.roomId) return `room:${preview.roomId}`;
+  if (preview.runId) return `run:${preview.runId}`;
+  return `proposal:${preview.proposalIds[0] ?? ""}`;
+}
+
+/** 紙面のカード (フロー内の拡張ノード) の key。ページ全体で一意: 対象 × まとまり。 */
+export function getAiProposalCardKey(anchorBlockId: string, preview: AiEditPreviewState): string {
+  return `ai-proposal:${anchorBlockId}:${getAiProposalConversationKey(preview)}`;
+}
+
+/**
+ * カードの中身の版 (`PageCanvasInlineContent.measureRevision`)。中身が同じなら同じ値で、高さが
+ * 変わらない書き換え (行の位置だけが変わる) でも値が変わり、紙面が行を測り直す。カードの高さを
+ * 変える表示状態 (内容を隠した・適用の失敗・適用後だけ (注記・区分の名前が消え、組めなければ一言が付く))
+ * も含める。
+ */
+export function getAiProposalCardMeasureRevision(
+  card: AiProposalAnchorCard,
+  mathFractionSizing: string | undefined,
+  displayState?: Partial<AiProposalDisplayState>,
+): string {
+  const source = JSON.stringify(
+    [
+      mathFractionSizing ?? "",
+      card.preview.sourceReferences ?? [],
+      card.content.hunks,
+      card.mergedWithHumanEdits,
+      card.resultLayout.complete,
+      displayState?.contentHidden ?? false,
+      displayState?.applyError ?? null,
+      displayState?.afterOnly ?? false,
+    ],
+    (_key, value: unknown) => (value instanceof Map ? [...value.entries()] : value),
+  );
+  // FNV-1a (32bit)。属性に載せるので短い印にする。
+  let hash = 0x811c9dc5;
+  for (let index = 0; index < source.length; index += 1) {
+    hash ^= source.charCodeAt(index);
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return `${source.length.toString(36)}-${(hash >>> 0).toString(36)}`;
+}
+
+/**
+ * 紙面の図形に付ける提案の印。変更前 (今の図形) は赤い破線、変更後はゴースト (`resolveOverlayPresentation`)。
+ * どちらも常に描き、時間では切り替えない。隠した変更前 (バーで隠したもの・適用後だけの提案の変更前と
+ * 消える図形) だけ `ai-diff-before-hidden` を足す。
+ */
+export function deriveAiOverlayShapeClassNames({
+  previewGroups,
+  previewDiff,
+  applyAnimation,
+  beforeHiddenShapeIds,
+  mergeKeptShapeIds = EMPTY_ID_SET,
+  resultOnlyHiddenShapeIds = EMPTY_ID_SET,
+}: {
+  previewGroups: readonly AiEditPreviewState[];
+  previewDiff: AiEditPreviewDiff;
+  applyAnimation: AiApplyAnimationState | null;
+  /** 隠した変更前の図形 (バーで隠したもの・適用後だけの提案のもの)。消える図形も隠す。 */
+  beforeHiddenShapeIds: ReadonlySet<string>;
+  /** AI が消す図形のうち、人が直したので承認の合成で残るもの (`collectShapesKeptByMerge`)。削除の印を付けない。 */
+  mergeKeptShapeIds?: ReadonlySet<string>;
+  /**
+   * 適用後だけを見せている提案で隠した変更前の図形。承認の「消える」演出でも出し直さない (本文の畳んだ
+   * 変更前と同じく、隠した変更前が一瞬見えてしまう)。
+   */
+  resultOnlyHiddenShapeIds?: ReadonlySet<string>;
+}): Map<string, string> {
+  const result = new Map<string, string>();
+  const replacementShapeIds = new Set(
+    previewGroups.flatMap((preview) => (preview.shapeReplacements ?? []).map((pair) => pair.removedShapeId)),
+  );
+  const beforeClassName = (id: string, base: string) => (
+    beforeHiddenShapeIds.has(id) ? `${base} ai-diff-before-hidden` : base
+  );
+  for (const id of previewDiff.modifiedShapeIds) {
+    result.set(id, beforeClassName(id, "ai-diff-modified-shape ai-diff-before-shape"));
+  }
+  for (const id of previewDiff.removedShapeIds) {
+    if (mergeKeptShapeIds.has(id)) {
+      continue;
+    }
+    result.set(id, replacementShapeIds.has(id) || beforeHiddenShapeIds.has(id)
+      ? beforeClassName(id, "ai-diff-removed-shape ai-diff-before-shape")
+      : "ai-diff-removed-shape");
+  }
+  for (const id of applyAnimation?.removingShapeIds ?? []) {
+    if (!resultOnlyHiddenShapeIds.has(id)) {
+      result.set(id, "ai-apply-removing-shape");
+    }
+  }
+  for (const id of applyAnimation?.addedShapeIds ?? []) {
+    result.set(id, "ai-apply-added-shape");
+  }
+  return result;
+}
+
+/**
+ * 紙面に浮かぶバーで決める提案: 本文フローにカードが 1 枚も無い提案すべて。図形だけの提案に限らず、
+ * 本文の変更が置けない場所 (文書に無いブロック・対象ブロックを持たない操作など) にしかない提案も
+ * ここに入る。そうしないと紙面のどこにも承認・破棄の操作が出ない。カードがある提案はカードの
+ * バー 1 本で決める (図形の変更があっても浮かべない)。
+ */
+/**
+ * 隠した変更前を、紙面で選べず編集もできないものにする。図形 (`ai-diff-before-hidden`) は選べず動かせず、
+ * 適用後だけを見せている間に本文から畳んだ変更前 (`collapsedBlockIds`) にはキャレットも入力も入らない
+ * (読み取り専用のガード)。見えないまま選ばれて動かされる・書き換えられると、利用者の知らないうちに文書が
+ * 変わる (提案の対象を鍵で守らない提案 (WebMCP) でも同じ)。
+ */
+export function buildAiHiddenTargetEditorExtensions(
+  hiddenShapeIds: ReadonlySet<string>,
+  collapsedBlockIds: ReadonlySet<string> = EMPTY_ID_SET,
+  /**
+   * `hiddenShapeIds` のうち「適用後だけ」で隠した図形。文書の変更口が人の編集を断るので、保存時の付け替えの
+   * ような派生の書き換えからも外す (`preservedShapeIds`)。バーで隠しただけの図形は変更口が断らないので含めない。
+   */
+  resultOnlyHiddenShapeIds: ReadonlySet<string> = EMPTY_ID_SET,
+): EditorExtensionContextValue | undefined {
+  if (hiddenShapeIds.size === 0 && collapsedBlockIds.size === 0) {
+    return undefined;
+  }
+  return {
+    ...(collapsedBlockIds.size > 0
+      ? {
+        textFlowEditPolicy: {
+          guards: [...collapsedBlockIds].map((blockId) => (
+            createAiReadOnlyTextFlowEditGuard(blockId, aiResultOnlyBlockedMessage(), "ai-result-only")
+          )),
+        },
+      }
+      : {}),
+    ...(hiddenShapeIds.size > 0
+      ? {
+        overlayEditPolicy: {
+          lockedShapeIds: hiddenShapeIds,
+          unselectableShapeIds: hiddenShapeIds,
+          ...(resultOnlyHiddenShapeIds.size > 0 ? { preservedShapeIds: resultOnlyHiddenShapeIds } : {}),
+        },
+      }
+      : {}),
+  };
+}
+
+/**
+ * 紙面の編集面の最上位に並ぶブロック: 紙面のユニット分け (`buildRenderUnits`) が各編集面に渡すブロック。
+ * 本文の変更装飾 (`TextFlowChangeDecorationState`) は各編集面の最上位ノードにだけ付くので、適用後だけで
+ * 畳めるのはこの中だけ (問題・段組みそのものや、箱・リスト・入れ子の問題の中は畳めない)。
+ */
+export function collectPageEditorBlockIds(content: SigmaBlock[]): ReadonlySet<string> {
+  const ids = new Set<string>();
+  for (const unit of buildRenderUnits(content)) {
+    if (unit.type !== "block") {
+      unit.blocks.forEach((block) => ids.add(block.id));
+    }
+  }
+  return ids;
+}
+
+/**
+ * 紙面に渡す編集の拡張。同じブロックのガードは後から重ねたものが勝つ (`mergeEditorExtensionSets`) ので、
+ * 実行中の run・合成できない提案のガード (止める操作と理由を持つ) を、隠した変更前の読み取り専用ガードの
+ * 後に重ねる (畳んだブロックが実行中でも「AIを停止して編集」を置き換えない)。どれも編集を断る。
+ */
+export function composeAiPageEditorExtensions(
+  aiEditorExtensions: EditorExtensionContextValue | undefined,
+  hiddenTargetExtensions: EditorExtensionContextValue | undefined,
+  pageEditorExtensions: EditorExtensionContextValue | undefined,
+): EditorExtensionContextValue | undefined {
+  return mergeEditorExtensionSets(
+    mergeEditorExtensionSets(hiddenTargetExtensions, aiEditorExtensions),
+    pageEditorExtensions,
+  );
+}
+
+/** 適用後だけの提案の変更後の図形 (ゴースト)。差分の枠を付けず、承認後と同じ見た目で描く。 */
+const AI_RESULT_ONLY_GHOST_CLASS_NAME = "ai-result-only-shape";
+
+/**
+ * 適用後だけを見せている提案の図形。隠す変更前 (更新・整列・置き換えの元と、合成で残らない削除) と、印なしで
+ * 描く変更後 (ゴースト)。紙面の差分の表示 (`deriveAiOverlayShapeClassNames` とゴースト) と同じ集合から決める。
+ */
+export function deriveAiResultOnlyShapeIds(
+  previews: readonly AiEditPreviewState[],
+  mergeKeptShapeIds: ReadonlySet<string>,
+): { hiddenShapeIds: string[]; ghostShapeIds: string[] } {
+  const hidden = new Set<string>();
+  const ghosts = new Set<string>();
+  for (const preview of previews) {
+    const ids = resultOnlyShapeIdsOf(preview);
+    ids.before.forEach((id) => hidden.add(id));
+    ids.removed.forEach((id) => {
+      if (!mergeKeptShapeIds.has(id)) hidden.add(id);
+    });
+    ids.ghosts.forEach((id) => ghosts.add(id));
+  }
+  return { hiddenShapeIds: [...hidden], ghostShapeIds: [...ghosts] };
+}
+
+/** 提案が触れる図形の id (変更前・消す・変更後)。draft だけで決まり今の図形には依らないので、提案ごとに覚える。 */
+const resultOnlyShapeIdsCache = new WeakMap<AiEditPreviewState, { before: string[]; removed: string[]; ghosts: string[] }>();
+
+function resultOnlyShapeIdsOf(preview: AiEditPreviewState): { before: string[]; removed: string[]; ghosts: string[] } {
+  const cached = resultOnlyShapeIdsCache.get(preview);
+  if (cached) {
+    return cached;
+  }
+  const diff = deriveAiEditPreviewDiff([preview]);
+  const ids = {
+    before: getAiEditPreviewBeforeShapeIds(preview),
+    removed: [...diff.removedShapeIds],
+    ghosts: [...diff.modifiedShapeIds, ...diff.addedShapes.map(({ shape }) => shape.id)],
+  };
+  resultOnlyShapeIdsCache.set(preview, ids);
+  return ids;
+}
+
+/**
+ * 本文から畳むブロック: 適用後だけを見せているカードの変更前 (`AiProposalResultLayout.collapsedBlockIds`)。
+ * ほかのカードの変更前は差分の表示のまま (適用後だけと内容を隠すは排他。`routeAiProposalCardDisplayPatch`)。
+ */
+export function collectResultOnlyCollapsedBlockIds(
+  cardsByTargetId: ReadonlyMap<string, readonly AiProposalAnchorCard[]>,
+  readCardState: (targetId: string, card: AiProposalAnchorCard) => AiProposalDisplayState,
+): string[] {
+  const ids = new Set<string>();
+  for (const [targetId, cards] of cardsByTargetId) {
+    for (const card of cards) {
+      if (readCardState(targetId, card).afterOnly) {
+        card.resultLayout.collapsedBlockIds.forEach((id) => ids.add(id));
+      }
+    }
+  }
+  return [...ids];
+}
+
+/**
+ * 適用後だけを選んだときに、その姿を紙面に組めず注記で代えたカード (`AiProposalResultLayout.complete` が偽)
+ * の数 (MISS R3)。変更前を本文から畳めないもの・移動のように組めない変更だけで増え、ふつうの置き換え・挿入・
+ * 削除では 0。
+ */
+export const AI_PROPOSAL_RESULT_ONLY_COUNTERS = {
+  notLaidOut: "AiProposalResultOnly.notLaidOut",
+} as const;
+
+export function countResultOnlyNotLaidOut(
+  cards: readonly AiProposalAnchorCard[],
+  count: (name: string) => void = countPerformanceEvent,
+): void {
+  for (const card of cards) {
+    if (!card.resultLayout.complete) {
+      count(AI_PROPOSAL_RESULT_ONLY_COUNTERS.notLaidOut);
+    }
+  }
+}
+
+/**
+ * 紙面に浮かぶバーで決める提案: 紙面にカードが無く、⌘K のパネルも判断を出していないもの。1 つの提案に
+ * 見える承認バーは 1 本 (パネルを閉じれば紙面のバーに戻る)。
+ */
+export function selectAiFloatingDecisionPreviews(
+  previewGroups: readonly AiEditPreviewState[],
+  previewsWithCards: ReadonlySet<AiEditPreviewState>,
+  panelDecisionProposalIds: ReadonlySet<string>,
+): AiEditPreviewState[] {
+  return previewGroups.filter((preview) => (
+    !previewsWithCards.has(preview)
+    && !preview.proposalIds.some((proposalId) => panelDecisionProposalIds.has(proposalId))
+  ));
+}
+
+/** 浮かぶバーの高さの見積もりに使う寸法 (CSS の値に合わせる)。 */
+const FLOATING_BAR_ROW_PX = 30; // 操作ボタン (sm) 1 行
+const FLOATING_BAR_CHROME_PX = 2 * 8 + 2; // 上下の padding (--space-sm) と枠線
+const FLOATING_BAR_ROW_GAP_PX = 4; // 行の間 (--space-xs)
+const FLOATING_BAR_LABEL_LINE_PX = 13; // セッション名 (10px × 1.3)
+const FLOATING_BAR_SUMMARY_LINE_PX = 15; // 要約 1 行 (11px × 1.35)
+const FLOATING_BAR_SUMMARY_MARGIN_PX = 2;
+const FLOATING_BAR_ERROR_PX = 18 + 3 * 19; // 失敗の理由 (padding と枠線 + 3 行まで)
+/** 重ねて置くときのバーの間。 */
+const FLOATING_BAR_STACK_GAP_PX = 4;
+
+/**
+ * 浮かぶバーの高さの見積もり (実際の高さ以上)。バーは 1 行で折り返さないので、その下に並ぶ行
+ * (セッション名・要約・失敗の理由) の数で決まる。重ね置きで隣のバーを覆わないために使う。
+ */
+export function estimateFloatingDecisionBarHeight({
+  summaryLineCount,
+  hasSessionLabel,
+  hasApplyError,
+}: {
+  summaryLineCount: number;
+  hasSessionLabel: boolean;
+  hasApplyError: boolean;
+}): number {
+  let height = FLOATING_BAR_CHROME_PX + FLOATING_BAR_ROW_PX;
+  if (hasApplyError) {
+    height += FLOATING_BAR_ROW_GAP_PX + FLOATING_BAR_ERROR_PX;
+  }
+  if (hasSessionLabel || summaryLineCount > 0) {
+    height += FLOATING_BAR_ROW_GAP_PX
+      + (hasSessionLabel ? FLOATING_BAR_LABEL_LINE_PX : 0)
+      + (summaryLineCount > 0 ? FLOATING_BAR_SUMMARY_MARGIN_PX + summaryLineCount * FLOATING_BAR_SUMMARY_LINE_PX : 0);
+  }
+  return Math.ceil(height);
+}
+
+type FloatingBarBounds = { x: number; y: number; w: number; h: number };
+
+export interface FloatingDecisionBarRequest {
+  key: string;
+  /** バーを添える図形の囲み (紙面の座標)。無ければ 1 ページ目の上端に置く。 */
+  bounds: FloatingBarBounds | null;
+  /** 横に収める範囲 (段組みの段など)。 */
+  horizontalBounds: { left: number; right: number; width: number };
+  heightPx: number;
+}
+
+export interface FloatingDecisionBarPlacement {
+  key: string;
+  /** `above`: `top` がバーの下端 (図形の上に置く)。`below`: `top` がバーの上端。 */
+  placement: "above" | "below";
+  /** バーの横の中心。 */
+  left: number;
+  top: number;
+  width: number;
+}
+
+type FloatingBarRect = { left: number; right: number; top: number; bottom: number };
+
+const findOverlappingRect = (rect: FloatingBarRect, others: readonly FloatingBarRect[]) => others.find((other) => (
+  rect.left < other.right && other.left < rect.right && rect.top < other.bottom && other.top < rect.bottom
+));
+
+/**
+ * 浮かぶバーを置く。図形の上に余白があれば上、無ければ下。図形が無ければ 1 ページ目の上端の右寄せ
+ * (本文の先頭のブロックの選択ポップオーバーは中央に出るので、それと重ならない側)。
+ * 障害物 (選んだ図形の上に出る選択の操作) にかかる側は避けて反対側を先に試す。先に置いたバーか障害物と
+ * 重なるときは、見積もった高さで重ならないところまで (上に置くものは上へ、下に置くものは下へ) ずらす。
+ * ずらした先は図形のあるページに収める: 収まる側を選び、どちらも収まらなければページの中へ戻してから、
+ * 先に置いたバーと障害物に重ならないよう上か下へ積む (重ならず押せることを、ページに収めることより優先する)。
+ */
+export function placeFloatingDecisionBars(
+  requests: readonly FloatingDecisionBarRequest[],
+  frame: { pageWidthPx: number; pageHeightPx: number; pageStridePx: number; desiredWidthPx: number; gapPx: number; marginPx: number },
+  obstacles: readonly FloatingBarBounds[] = [],
+): FloatingDecisionBarPlacement[] {
+  const obstacleRects: FloatingBarRect[] = obstacles.map((obstacle) => ({
+    left: obstacle.x,
+    right: obstacle.x + obstacle.w,
+    top: obstacle.y,
+    bottom: obstacle.y + obstacle.h,
+  }));
+  const placedRects: FloatingBarRect[] = [];
+  return requests.map((request) => {
+    const { bounds, heightPx } = request;
+    const horizontal = placeCenteredWidget(
+      bounds ? bounds.x + bounds.w / 2 : request.horizontalBounds.right - frame.marginPx - frame.desiredWidthPx / 2,
+      frame.desiredWidthPx,
+      request.horizontalBounds,
+      frame.marginPx,
+    );
+    const rectAt = (side: "above" | "below", nextTop: number): FloatingBarRect => ({
+      left: horizontal.center - horizontal.width / 2,
+      right: horizontal.center + horizontal.width / 2,
+      top: side === "above" ? nextTop - heightPx : nextTop,
+      bottom: side === "above" ? nextTop : nextTop + heightPx,
+    });
+    const pageTop = bounds ? Math.max(0, Math.floor(bounds.y / frame.pageStridePx)) * frame.pageStridePx : 0;
+    const pageBottom = pageTop + frame.pageHeightPx;
+    const topOf = (side: "above" | "below") => (
+      !bounds ? frame.marginPx : side === "above" ? bounds.y - frame.gapPx : bounds.y + bounds.h + frame.gapPx
+    );
+    const sides: Array<"above" | "below"> = bounds && bounds.y - pageTop >= heightPx + frame.gapPx ? ["above", "below"] : ["below"];
+    const freeOfObstacles = (side: "above" | "below") => !findOverlappingRect(rectAt(side, topOf(side)), obstacleRects);
+    const blockers = [...obstacleRects, ...placedRects];
+    // `startTop` から、障害物と先に置いたバーに重ならないところまで上か下へ送る。
+    const pushPast = (side: "above" | "below", startTop: number, direction: "up" | "down") => {
+      let top = startTop;
+      for (let attempt = 0; attempt <= blockers.length; attempt += 1) {
+        const blocker = findOverlappingRect(rectAt(side, top), blockers);
+        if (!blocker) {
+          break;
+        }
+        const rectTop = direction === "up" ? blocker.top - FLOATING_BAR_STACK_GAP_PX - heightPx : blocker.bottom + FLOATING_BAR_STACK_GAP_PX;
+        top = side === "above" ? rectTop + heightPx : rectTop;
+      }
+      return { side, top };
+    };
+    const onPage = ({ side, top }: { side: "above" | "below"; top: number }) => {
+      const rect = rectAt(side, top);
+      return rect.top >= pageTop && rect.bottom <= pageBottom;
+    };
+    const candidates = [...sides.filter(freeOfObstacles), ...sides.filter((side) => !freeOfObstacles(side))]
+      .map((side) => pushPast(side, topOf(side), side === "above" ? "up" : "down"));
+    // どの側もページに収まらなければ、最初の側をページの中へ戻し、そこから重ならないところまで上か下へ積む。
+    // ページに収まる向きを選び、どちらも収まらなければ下へ送る (ページの中より、重ならず押せることを優先)。
+    const fallback = candidates[0];
+    const lowest = fallback.side === "above" ? pageTop + heightPx : pageTop;
+    const highest = Math.max(lowest, fallback.side === "above" ? pageBottom : pageBottom - heightPx);
+    const stacked = (["up", "down"] as const).map((direction) => (
+      pushPast(fallback.side, Math.min(Math.max(fallback.top, lowest), highest), direction)
+    ));
+    const { side: placement, top } = candidates.find(onPage) ?? stacked.find(onPage) ?? stacked[1];
+    placedRects.push(rectAt(placement, top));
+    return { key: request.key, placement, left: horizontal.center, top, width: horizontal.width };
+  });
 }
 
 export function getOverlayInsertionAnchorBlockId(preview: AiEditPreviewState): string | null {

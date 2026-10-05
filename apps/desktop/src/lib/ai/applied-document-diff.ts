@@ -3,7 +3,6 @@ import type {
   SigmaDocument,
 } from "@/features/document";
 import { findBlock, type EditableBlock } from "@/lib/document-tree";
-import type { AiOverlayShapeReplacementPair } from "@/lib/ai/overlay-shape-replacement";
 import type { AiEditDraft, AiEditSessionDraft } from "@/lib/ai/sigma-doc-edit-schema";
 
 export type AiAppliedDiffChange = "added" | "removed";
@@ -219,131 +218,6 @@ export function deriveAppliedDraftFallback(
         pushShape(currentShapesById.get(operation.shapeId));
       } else if (operation.operation === "alignOverlayShapes") {
         operation.shapeIds.forEach((id) => pushShape(currentShapesById.get(id)));
-      }
-    }
-  }
-
-  return { body, shapes };
-}
-
-/**
- * 承認前のpending提案から、承認したら何が起きるかをGitHub風差分として先出しする。
- * before(after)文書はまだ存在しないので、削除側は「今のドキュメント」から、追加側は
- * draftの中身(replacementBlock/insertedBlock/overlayShape/tableShape)から直接組み立てる。
- * moveBlocks/wrapBlocksInColumns/updateLayoutSectionは位置・レイアウトだけの変更で
- * 中身の差分が無いため、ここでは対象にしない(deriveAiEditPreviewDiffのmoveBlocks除外と同じ判断)。
- *
- * `postStateShapesById` は updateOverlayShape/alignOverlayShapes と図形置換の追加側に使う、
- * patch/置換適用後(実際に承認したら反映される)の姿。呼び出し側がai-edit-preview-types.tsの
- * deriveAiEditPreviewOverlayShapes/resolveMutationOpShapeResultsで計算して渡す
- * (このモジュールはai-edit-preview-types.tsから読まれる側なので、循環importを避けるために
- * ここでは計算しない)。省略時はupdate/alignなら「今の図形」、置換ならドラフト内の図形へ
- * フォールバックする。
- *
- * `shapeReplacements` は insertOverlayShape/insertTableShape が実は「置き換え」である
- * (図形を削除して新しい図形を挿入する2ステップとして表現された)ケースを、削除前の図形も
- * 一緒に見せるためのペア一覧 (AiEditPreviewState.shapeReplacements)。
- */
-export function derivePendingDocumentDiff(
-  drafts: AiEditSessionDraft[],
-  document: SigmaDocument,
-  currentShapes: OverlayShape[] = [],
-  postStateShapesById?: ReadonlyMap<string, OverlayShape>,
-  shapeReplacements: AiOverlayShapeReplacementPair[] = [],
-): AiAppliedDocumentDiff {
-  const body: AiAppliedBodyDiffEntry[] = [];
-  const shapes: AiAppliedShapeDiffEntry[] = [];
-  const removedBodySeen = new Set<string>();
-  const addedBodySeen = new Set<string>();
-  const removedShapeSeen = new Set<string>();
-  const addedShapeSeen = new Set<string>();
-  const currentShapesById = new Map(currentShapes.map((shape) => [shape.id, shape]));
-  const replacedShapeIdByAddedId = new Map(
-    shapeReplacements.map((pair) => [pair.addedShapeId, pair.removedShapeId]),
-  );
-
-  const pushRemovedBody = (id: string) => {
-    if (removedBodySeen.has(id)) {
-      return;
-    }
-    const block = findBlock(document, id);
-    if (block) {
-      removedBodySeen.add(id);
-      body.push({ change: "removed", block });
-    }
-  };
-  const pushAddedBody = (block: EditableBlock) => {
-    if (addedBodySeen.has(block.id)) {
-      return;
-    }
-    addedBodySeen.add(block.id);
-    body.push({ change: "added", block });
-  };
-  const pushRemovedShape = (id: string) => {
-    if (removedShapeSeen.has(id)) {
-      return;
-    }
-    const shape = currentShapesById.get(id);
-    if (shape) {
-      removedShapeSeen.add(id);
-      shapes.push({ change: "removed", shape });
-    }
-  };
-  const pushAddedShape = (shape: OverlayShape | undefined) => {
-    if (!shape || addedShapeSeen.has(shape.id)) {
-      return;
-    }
-    addedShapeSeen.add(shape.id);
-    shapes.push({ change: "added", shape });
-  };
-
-  for (const draft of drafts) {
-    for (const operation of draft.operations) {
-      if (isOverlayAnchorSupportDraft(operation, draft.operations)) {
-        continue;
-      }
-      if (operation.operation === undefined || operation.operation === "replace") {
-        pushRemovedBody(operation.targetId);
-        pushAddedBody(operation.replacementBlock);
-      } else if (operation.operation === "insertAfter") {
-        pushAddedBody(operation.insertedBlock);
-      } else if (operation.operation === "insertOverlayShape") {
-        const replacedShapeId = replacedShapeIdByAddedId.get(operation.overlayShape.id);
-        if (replacedShapeId) {
-          pushRemovedShape(replacedShapeId);
-        }
-        pushAddedShape(
-          (replacedShapeId ? postStateShapesById?.get(replacedShapeId) : undefined)
-            ?? operation.overlayShape,
-        );
-      } else if (operation.operation === "insertTableShape") {
-        const replacedShapeId = replacedShapeIdByAddedId.get(operation.tableShape.id);
-        if (replacedShapeId) {
-          pushRemovedShape(replacedShapeId);
-        }
-        pushAddedShape(
-          (replacedShapeId ? postStateShapesById?.get(replacedShapeId) : undefined)
-            ?? operation.tableShape,
-        );
-      }
-    }
-
-    for (const operation of draft.mutationOperations ?? []) {
-      if (operation.operation === "deleteBlocks") {
-        operation.blockIds.forEach(pushRemovedBody);
-      } else if (operation.operation === "updateOverlayShape") {
-        pushRemovedShape(operation.shapeId);
-        // 追加側は可能な限りpatch適用後の実際の姿(postStateShapesById)を見せる。呼び出し側が
-        // 計算できなかった場合だけ、削除側と同じ「今の図形」にフォールバックする
-        // (deriveAppliedDraftFallbackと同じ割り切り — 区別は付かないが「触った」ことは分かる)。
-        pushAddedShape(postStateShapesById?.get(operation.shapeId) ?? currentShapesById.get(operation.shapeId));
-      } else if (operation.operation === "alignOverlayShapes") {
-        operation.shapeIds.forEach((id) => {
-          pushRemovedShape(id);
-          pushAddedShape(postStateShapesById?.get(id) ?? currentShapesById.get(id));
-        });
-      } else if (operation.operation === "deleteOverlayShapes") {
-        operation.shapeIds.forEach(pushRemovedShape);
       }
     }
   }

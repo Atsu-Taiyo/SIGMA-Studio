@@ -1,3 +1,4 @@
+import { spaceFreeFileName } from "@/lib/file-name";
 import { ipcMain } from "../trusted-ipc";
 import { app, dialog, BrowserWindow, shell, type WebContents } from "electron";
 import fs from "node:fs/promises";
@@ -72,7 +73,7 @@ interface SaveToDownloadsPayload {
  * and a title with a slash in it should still export.
  */
 function sanitizeDownloadFileName(rawName: string): { base: string; extension: string } {
-  const leaf = rawName.split(/[\\/]/).pop() ?? "";
+  const leaf = spaceFreeFileName(rawName.split(/[\\/]/).pop() ?? "");
   const cleaned = leaf
     .replace(/[\u0000-\u001f\u007f<>:"|?*]/gu, "")
     .replace(/^\.+/u, "")
@@ -130,7 +131,7 @@ export function registerFileIpc(deps: RegisterFileIpcDeps): void {
     const saveDialogOptions = {
       title: te("electron.file.exportPdf"),
       defaultPath: typeof payload.suggestedName === "string" && payload.suggestedName.trim()
-        ? payload.suggestedName
+        ? spaceFreeFileName(payload.suggestedName)
         : "document.pdf",
       filters: [{ name: "PDF", extensions: ["pdf"] }],
     };
@@ -203,7 +204,7 @@ export function registerFileIpc(deps: RegisterFileIpcDeps): void {
   ipcMain.handle("file:save-sigma-doc", async (_event, payload: { suggestedName?: string; data: string }) => {
     const result = await dialog.showSaveDialog({
       title: te("electron.file.saveSigmaDoc"),
-      defaultPath: payload.suggestedName ?? "document.sigma",
+      defaultPath: spaceFreeFileName(payload.suggestedName ?? "document.sigma"),
       filters: [{ name: "SigmaDoc", extensions: ["sigma"] }, { name: "JSON", extensions: ["json"] }],
     });
     if (result.canceled || !result.filePath) {

@@ -30,6 +30,12 @@ export interface TextFlowBoundaryDeleteRequest {
   emptyBlock: boolean;
 }
 
+/**
+ * The host's answer to a boundary delete: handled (`true`), not handled (`false`), or refused because
+ * it would change or move the caret into a guarded block. A refusal shows that block's guard notice.
+ */
+export type TextFlowBoundaryDeleteOutcome = boolean | { blockedBlockId: string };
+
 export interface TextFlowChangeContext {
   /** Consecutive Tiptap changes that should restore as one SigmaDoc undo event. */
   historyGroup: string;
@@ -153,7 +159,7 @@ export interface TextFlowEditorProps {
     activeBlockId?: string | null,
     context?: TextFlowChangeContext,
   ) => void;
-  onBoundaryDelete?: (request: TextFlowBoundaryDeleteRequest) => boolean;
+  onBoundaryDelete?: (request: TextFlowBoundaryDeleteRequest) => TextFlowBoundaryDeleteOutcome;
   materials?: MaterialItem[];
   onMaterialInsert?: (request: TextFlowMaterialInsertRequest) => void;
   enableSelectionFormatMenu?: boolean;

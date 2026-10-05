@@ -1,7 +1,7 @@
 import path from "node:path";
 
 import { build } from "esbuild";
-import ts from "typescript";
+import ts from "typescript-compiler-api";
 import { describe, expect, it } from "vitest";
 
 import { createBuildOptions } from "../scripts/build-options.mjs";
@@ -39,6 +39,10 @@ describe("Editor package boundary", () => {
       "ai-edit-attachment-names.ts",
       "ai-edit-reference.ts",
       "ai-overlay-placement.ts",
+      "applied-document-diff.ts",
+      "proposal-merge-basis.ts",
+      "proposal-merge-metrics.ts",
+      "proposal-replay.ts",
       "sigma-doc-agent-tools.ts",
       "sigma-doc-edit-schema.ts",
       "sigma-doc-search.ts",

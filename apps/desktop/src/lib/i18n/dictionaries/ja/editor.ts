@@ -98,18 +98,18 @@ export const editor = {
     handle: "ポケット {{items}}件",
     open: "ポケットを開く",
     close: "ポケットを閉じる",
-    add: "選んだものを入れる",
-    addToPocket: "ポケットに入れる",
-    addTooltip: "選んだ文章・図形・ブロックをポケットに入れる",
+    add: "選んだものを追加",
+    addToPocket: "ポケットに追加",
+    addTooltip: "選んだ文章・図形・ブロックをポケットに追加する",
     list: "ポケットの中身",
     insert: "{{summary}}を挿入",
-    insertHint: "クリックでキャレットの位置 (図形は紙面) に挿入",
+    insertHint: "クリックでキャレットの位置 (図形は紙面) に挿入・ドラッグで落とした場所に挿入",
     remove: "ポケットから外す",
     clear: "すべて外す",
     removed: "{{items}}件を外しました",
     undo: "元に戻す",
-    empty: "選んだ文章や図形を入れておくと、別のページや教材へ持っていけます",
-    announceAdded: "ポケットに入れました。{{items}}件",
+    empty: "選んだ文章や図形を追加しておくと、別のページや教材へ持っていけます",
+    announceAdded: "ポケットに追加しました。{{items}}件",
     announceInserted: "ポケットから挿入しました",
     summary: {
       blocks: "本文 {{blocks}}ブロック",
@@ -119,9 +119,9 @@ export const editor = {
       text: "文章",
     },
     notice: {
-      nothing: "入れるものが選ばれていません。文章・図形・ブロックを選んでください",
+      nothing: "追加するものが選ばれていません。文章・図形・ブロックを選んでください",
       full: "ポケットがいっぱいです。使い終わったものを外してください",
-      tooLarge: "大きすぎてポケットに入れられません",
+      tooLarge: "大きすぎてポケットに追加できません",
       unsupported: "この環境ではポケットを使えません",
       rejected: "ここには挿入できません。入れたい場所をクリックして選んでください",
     },
@@ -268,9 +268,15 @@ export const editor = {
       aliases: "heading3 h3 小見出し",
     },
   },
-  /** 本文中の URL 装飾。 */
+  /** 本文中の URL 装飾と、ホバーで出るリンクの操作カード。 */
   url: {
     makeQrCode: "このURLをQRコードにする",
+    cardLabel: "リンクの操作",
+    qrLabel: "QRコード",
+    browserLabel: "ブラウザで開く",
+    browserTitle: "既定のブラウザで開く（{{key}}クリック）",
+    sigmaLabel: "Sigmaで開く",
+    sigmaTitle: "Sigma内のブラウザで開く（{{key}}+Shiftクリック）",
   },
   /** インライン数式の編集ポップオーバー。 */
   math: {
@@ -403,6 +409,7 @@ export const editor = {
     problemCopied: "問題をコピーしました",
     bodyBlockCopied: "本文ブロックをコピーしました",
     shapesPasted: "図形を貼り付けました",
+    bodyPastedAsTextShape: "ホワイトボードに文章の図形として貼り付けました",
     shapesPastedBodyHint: "図形を貼り付けました。本文は貼り付け先にカーソルを置いてから貼り付けてください",
     mathPasted: "インライン数式を貼り付けました",
     problemPasted: "問題を貼り付けました",
@@ -444,6 +451,7 @@ export const editor = {
     addImageToPage: "ページ上に画像を追加します",
     qrAdded: "URLのQRコードをページに追加しました",
     qrFailed: "QRコードを生成できませんでした",
+    linkOpenFailed: "リンクを開けませんでした",
     bodyAndShapesPasted: "本文と図形を貼り付けました",
     noSearchResults: "検索結果がありません",
     searchResultSelected: "検索結果を選択しました",
@@ -477,7 +485,14 @@ export const editor = {
     documentTextCopied: "教材をテキストでコピーしました",
     externalLoadFailed: "外部変更を読み込めませんでした",
     aiMerged: "AIの編集を取り込みました",
-    aiMergedPreferringAi: "AIの編集を取り込みました。同じ箇所への入力と食い違った部分はAIの内容にしています（Ctrl+Zで戻せます）。",
+    /** 承認を待つ間の入力と AI の変更を合成して取り込んだとき (どちらも残った)。 */
+    aiMergedKeepingBoth: "AIの編集を取り込みました。承認を待つ間の入力も残しています（Ctrl+Zで戻せます）。",
+    /** 合成で、承認を待つ間の入力の一部が AI の内容に置き換わったとき。 */
+    aiMergedHumanEditsReplaced: "AIの編集を取り込みました。同じ箇所への入力の一部はAIの内容に置き換わっています（Ctrl+Zで戻せます）。",
+    /** 合成で、入力の一部が AI の内容に置き換わり、AI の変更の一部も入らなかったとき (両方の事実)。 */
+    aiMergedHumanAndAiEditsDropped: "AIの編集を取り込みました。同じ箇所への入力の一部はAIの内容に置き換わり、入力と食い違ったAIの変更の一部は反映していません（Ctrl+Zで戻せます）。",
+    /** 合成で、承認した AI の変更の一部が入力と食い違って入らなかったとき。 */
+    aiMergedAiEditsSkipped: "AIの編集を取り込みました。入力と食い違った箇所は入力を残し、AIの変更の一部は反映していません（Ctrl+Zで戻せます）。",
     externalLoadedSetAside: "外部変更を読み込み、アプリ内編集は別教材へ退避しました",
     externalLoaded: "外部変更を読み込みました",
     applyFailed: "編集案を適用できませんでした",

@@ -262,6 +262,7 @@ const claudeStreamClient = new ClaudeStreamClient({
     uiLocale: startupPromptLocale,
   }),
   claudeBin: process.env.SIGMA_STUDIO_CLAUDE_BIN?.trim() || usablePersistedBin(desktopSettings.claudeBin),
+  ledgerDataDir: SIGMA_STUDIO_DATA_PATH,
 });
 const geminiAgentWorkspaceDir = path.join(SIGMA_STUDIO_DATA_PATH, "antigravity-agent-workspace");
 const geminiHeadlessClient = new GeminiHeadlessClient({
@@ -1329,7 +1330,8 @@ async function runAutoApplyCheck(): Promise<void> {
     autoApplyInFlight.add(proposal.proposalId);
     try {
       const result = await approveSingleProposal(proposal.proposalId, { autoApplied: true });
-      if (!result.ok) {
+      // merge-review は失敗ではない: 人間の編集と合成が必要な提案を、手動確認のためpendingに残した。
+      if (!result.ok && result.code !== "merge-review") {
         // 失敗しても提案はpendingのまま残る (approveSingleProposal は失敗時にレコードを変更しない)。
         // 次回の変更検知でまた条件を満たせば再試行される。
         console.warn(`検証済み編集案の自動承認に失敗しました (${proposal.proposalId}): ${result.error}`);

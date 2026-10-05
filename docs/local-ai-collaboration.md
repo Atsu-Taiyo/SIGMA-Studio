@@ -68,7 +68,7 @@ MCPツール呼び出しの承認プロンプトはプロバイダごとに無�
 
 アプリ内AI編集中は、明示した本文の文字範囲・インライン数式・ブロック・overlay図形をロックし、対象外は編集できます。文字範囲を渡した場合は同じ段落の範囲外も入力・書式変更できます。開始時の本文を一時的な基準として範囲を追跡し、ProseMirrorの変更位置とSigmaDocへの確定時の内容比較の両方で保護します。基準を持たない旧形式のrunやブロック全体への依頼はブロック単位です。図形グループのメンバーやグラフの所有ラベルは、その図形と一緒に保護します。
 
-pending proposalは実際に置換・削除・変更するブロックや図形を適用・破棄までロックします。本文や図形を挿入するだけの案、および移動先として参照するだけの本文はロックしません。文書全体の編集停止は、承認などで文書を差し替える書き込み中だけです。提案の競合判定は引き続きブロック・図形単位で行うため、同じ段落の範囲外を人間が編集した場合も古い置換案は競合になりえます。その場合は通常の適用を止め、人間の編集を黙って上書きしません。
+pending proposalの対象 (置換・削除・移動するブロック、更新・削除する図形) はロックしません。提案は作成時に上書きする単位の元の内容 (`mergeBasis`) を保存しており、人間が保留中の対象を直しても、承認は元の内容・今の文書・提案の三者マージで人間の編集とAIの変更の両方を残します (下の「提案の三者マージ」)。紙面のカード・サイドバー・⌘Kのパネルのプレビューも、直すたびに同じ合成の結果へ更新されます。適用・破棄までロックするのは、人間が直すと承認が競合になる合成できない対象だけです: `mergeBasis` を持たない旧レコードの対象 (置換・削除・段組み設定の更新・図形の更新/整列/削除。移動は中身を上書きしないので含めない)、`mergeBasis` に元の内容が無い対象、図形の整列・段組み設定の更新の対象 (合成後の単位に操作が素のまま当たり、人の値を上書きするため。同じ提案がその単位を合成していても)、提案が削除・更新・整列する図形が連れて行く図形 (group とそのメンバー、group のメンバー、その図形に固定された図形。削除と同じ連鎖 `collectOverlayShapeDeletionIds` で辿る)、提案が更新・整列・削除するグラフとそのグラフが持つラベル (ラベルは別の図形なので、合成するとラベルを作り直す提案で古いラベルが持ち主なしで残る)、図形の置き換え (削除と、その id を求める挿入の組) の元の図形。段組み設定の更新を含む提案は、その段組みブロック全体を適用・破棄までロックします (承認は段組み全体の内容hashを比べるため)。この判定は `collectNonMergeableTargets` の 1 か所にあり、承認も同じ対象を内容hashで比べて、人間の変更があれば競合として知らせます。これらを編集しようとすると「あなたの編集と合わせられないAI提案の確認待ち」と知らせます。本文や図形を挿入するだけの案、および移動先として参照するだけの本文はロックしません。実行中のrunが握る範囲のロック (上の段落) は変わりません。文書全体の編集停止は、承認などで文書を差し替える書き込み中だけです。人間の編集を黙って上書きせず、合成で解決できないときだけ通常の適用を止めて競合として知らせます。
 
 Antigravity CLI (`agy --print`) は実機確認で以下の癖があり、`GeminiHeadlessClient` / `gemini-edit.ts` はこれを前提に組んでいます(詳細は `docs/mcp-local-app.md` の「Antigravity CLI (`agy --print`) 実行時の注意」を参照)。
 
@@ -106,11 +106,23 @@ MCPの書き込み系ツールは、既定では教材を直接保存しませ�
 4. 通常は `writeMode` を省略してpending proposalを作る。
 5. 検証だけしたい場合は `writeMode: "dryRun"` にする。
 
-MCPから教材本体へ直接commitする経路はありません。標準運用ではproposalを作り、デスクトップ側の承認UIで反映します。承認時、提案は現在の教材へ再適用されます。対象ブロック自体が削除・変更されて適用できない場合は、最新の `revision` と対象IDを読んで作り直します。
+MCPから教材本体へ直接commitする経路はありません。標準運用ではproposalを作り、デスクトップ側の承認UIで反映します。承認時、提案は現在の教材へ再適用されます。提案の後に対象が変更されていても、作成時の元の内容 (`mergeBasis`) との三者マージで人間の編集を残して適用します。対象ブロック自体が削除された・合成後の内容が検証を通らないなど、合成で解決できずに適用できない場合だけ、最新の `revision` と対象IDを読んで作り直します。
 
 教材本文の更新は、rendererの自動保存・名前変更・提案承認・revertを含めて `LocalSigmaDocStore.saveDocument` のCASを必須とします。rendererは文書payloadと「そのpayloadを組み立てた時点で観測したrevision」を `ObservedDocumentWrite` として同時に保持し、保存直前の一覧再取得で新しいrevisionへ差し替えません。CAS不一致のpayloadは破棄し、最新SigmaDocを読み込んで `documentRef` を更新できるまでは再保存しません。提案承認中は承認IPCの返す文書を正本として、`documentRef` と観測revisionを更新してから延期中の自動保存を解放します。
 
-insertだけの提案は選択範囲やアンカー本文のhash差分を競合理由にしません。同じ提案内で作られない外部アンカーが現在のSigmaDocに存在することだけを鮮度契約とし、アンカーが消えていれば競合、存在すれば最新文書へのreplayを試します。既存内容を置換・削除・更新する提案は、引き続き実際の対象IDだけを内容hashで比較します。
+insertだけの提案は選択範囲やアンカー本文のhash差分を競合理由にしません。同じ提案内で作られない外部アンカーが現在のSigmaDocに存在することだけを鮮度契約とし、アンカーが消えていれば競合、存在すれば最新文書へのreplayを試します (`mergeBasis` を持つ提案は、消えたアンカーの直前にあったブロックへ付け替えます)。既存内容を置換・削除・更新する提案は、`mergeBasis` を持てば内容hashの違いを競合にせず三者マージで合成し、持たない旧レコードだけが引き続き実際の対象IDを内容hashで比較します。
+
+### 提案の三者マージ
+
+- 提案は作成時 (同じ会話の後のターンでは、前のターンを保存文書へ載せ替えた時点) の、上書きする単位の内容を `mergeBasis` として保存します。教材全体は保存しません。
+- 承認 (単体・一括・検証済み自動承認) は、単位ごとに「元の内容 → 今の文書 (人間の編集)」と「元の内容 → 提案 (AIの変更)」を三者マージした内容を保存します。同じ段落の別の位置の編集は両方残り、同じ範囲の編集も文字単位で両方残ります (人間 → AI の順)。AIが削除する対象を人間が直していれば、直した内容を残します (編集は削除に勝つ)。表・図形の属性など同じ値を両側が別の値にしたときはAIの値を採り、記録します。結果は決定的で、保存・再読込後も同じです。
+- 承認IPCの往復中に入った打鍵も、承認された文書と三者マージして同じ1ファイルの中で両方残します。採用前の文書はUndoに積むので、Ctrl+Zで承認前と同じ内容に戻せます。お知らせは合成の結果で出し分けます (両方残した / 入力の一部がAIの内容に置き換わった / AIの変更の一部を反映しなかった / その両方)。一部の提案を適用できなかったお知らせは、合成のお知らせで隠さず続けて出します。
+- 保留中の提案のプレビュー (紙面のカード・サイドバー・⌘Kのパネル) は、一括承認と同じ関数・同じ順序の合成replayの結果から作ります (適用できない提案だけを飛ばし、承認ならその提案は競合として保留に残ります)。人間の編集と合わせた内容を見せているカード (人間が直した単位のカード) には、承認バーに「あなたの編集と合わせた内容です」を添えます。紙面のカードの承認バーには「適用後だけを表示」の切り替えもあり (既定は差分の表示)、同じ合成後の内容から、本文の変更前を畳み差分の印を外した承認後の紙面の姿だけを見せます。
+- 競合として知らせる (`AiStaleProposalNotice` の破棄・AIの提案で上書き・作り直し) のは、合成で解決できない提案だけです: 対象の消失、合成後の検証失敗、合成しない操作 (図形の整列・段組みの設定の更新) の対象と `mergeBasis` に元の内容が無い対象の変更 (`collectNonMergeableTargets`)、保存済みのdraftが壊れている提案、`mergeBasis` を持たない旧レコードの対象の変更。
+- 検証済み自動承認は、人間の編集と重ならない (合成が何も起きない) 提案だけを適用し、合成が要る提案は保留のまま人間の確認を待ちます。
+- 合成が退避した回数 (重なり・AI側の採用・旧レコード) は数えられ、重なりの無い通常の承認では0です (MISS R3)。
+- Web版のWebMCPの作業ドラフトも同じ合成で適用します (`docs/webmcp.md`)。元の内容はブラウザのメモリにある元の文書から再生のたびに作り (保存しない)、合成できない対象 (`collectNonMergeableTargets`) と人間が消した単位だけを `STALE_DRAFT` で止めます。
+- 共有教材の提案も同じ合成で承認します (`electron/collaboration/proposal-approval.ts`)。承認の直前に同期して今の共有文書を読み、一括承認と同じ順で合成し、合成で書き換えたdraftと作り直した事前条件を同期サーバーへ送ります: 合成した単位・挿入の付け替え先・書き換えたdraftが上書きする対象と挿入の目印 (とそれを含む・その中にあるブロック。AIが問題を読んでから中の段落を書き換えた場合など) は今のハッシュ、合成できない対象 (提案が消す図形が連れて行くgroupのメンバー・固定された図形・グラフのラベルを含む。提案の記録時に元のハッシュを残す) とAIが参照として読んだ資料は元のハッシュのまま確かめます。承認の記録 (`collaboration-v1/proposals/*.json`) の形式は変えず、`mergeBasis` を持たない旧レコードは記録どおりに送ります。共有教材にはロックが無く別の参加者には人間向けのお知らせも届かないので、合成が検証を通らない単位をAI側の版に戻すことはせず、対象の消失・合成できない対象の変更とあわせて `PROPOSAL_CONFLICT` (承認できない) のままにします。合成で操作が全部不要になったときは送らずに承認済みにします。書き換えた承認の操作IDは記録の操作IDと送る内容から決まるので、同じ文書の状態からの再試行は同じ操作になります。ただし、`mergeBasis` を持つ提案の承認 (書き換えたものも記録どおりのものも) をサーバーが適用したのに応答が届かなかった後の再試行は、適用済みの文書の上で合成し直すので別の操作になります。挿入を含む提案はAI自身の挿入IDで `PROPOSAL_CONFLICT` になって適用済みのまま保留に残り (破棄して片付ける)、置換の提案は2回目が送られ、AI自身の変更が人間の編集として数えられて誤ったお知らせになりえます。同じ操作IDで送り直して冪等なのは `mergeBasis` を持たない旧レコードだけです (冪等な送り直しは今後の課題)。
 
 AI編集で渡す選択ブロックは位置と文脈の手掛かりであり、編集をそのブロック内だけで完結させる境界ではありません。意味やレイアウトを正しくするために必要なら、同じrun/roomの作業案内で既存ブロックの更新と `insert_body_content` / `delete_blocks` / `move_blocks` を組み合わせ、ブロックを分割・追加・削除・移動します。独立した日本語説明を位置合わせ目的で数式の `\text{...}` や `aligned` に残さず、左揃え等の独立paragraphへ分離します。
 
@@ -128,11 +140,11 @@ AI編集で渡す選択ブロックは位置と文脈の手掛かりであり、
 
 保存済み素材は `description`、`usage`、`visualConcepts`、`ports` を持てます。画像や添付資料に近い素材がある場合は、AIが通常の作図toolで作り直す前に `list_materials` / `get_material` で候補を確認し、`insert_material` でexact cloneとして挿入します。
 
-編集提案には作成したプロバイダ(`claude` / `chatgpt` / `antigravity`、環境変数 `SIGMA_STUDIO_MCP_PROVIDER` から解決)が付記され、承認UIのプレビューにも表示されます。同一 `fileId` + `baseRevision` の複数提案は1つのプレビューへ合体し(`groupMcpProposalsForPreview`)、提案作成後に対象教材が別途更新されてrevisionが進んだ場合は、その提案は合体対象から外れて`AiStaleProposalNotice`側に分離表示されます。
+編集提案には作成したプロバイダ(`claude` / `chatgpt` / `antigravity`、環境変数 `SIGMA_STUDIO_MCP_PROVIDER` から解決)が付記され、承認UIのプレビューにも表示されます。同じ会話 (roomId、無ければrunId) の複数提案は1つのプレビューへ合体し(`groupMcpProposalsForPreview`)、revisionが進んでも合体したままにします。`AiStaleProposalNotice`側に分離表示するのは、合成で解決できない競合を記録した提案、保存済みのdraftが壊れている提案、`mergeBasis` も依頼時の選択範囲も持たない旧提案でrevisionが進んだものだけです。
 
-提案には作成元の `runId` / `roomId` / `turnId` / 任意の `sessionLabel` も付記できます(すべて任意。実行コンテキストファイル `ai-run-context/<provider>[-<runId>].run-context.json` 経由でMCPサーバーへ渡り、`resolveProposalAttribution()` でproposalへ写す)。stale化した提案は、作り直させる代わりにその場で `rebaseMcpEditProposal` (IPC: `storage:rebase-mcp-edit-proposal`) を呼ぶと、現在のドキュメントへの再適用を試み、成功すれば `baseRevision`/`nextDocument` をその場で更新して(元のrevisionは `rebasedFrom` に残す)再びプレビュー対象に戻せます。却下は理由つきの一括版 `rejectMcpEditProposals` (IPC: `storage:reject-mcp-edit-proposals`、`{ proposalIds, reason? }`)を使うと `rejectedReason`/`rejectedAt` が記録されます(単体版 `rejectMcpEditProposal` はそのまま後方互換で残る)。
+提案には作成元の `runId` / `roomId` / `turnId` / 任意の `sessionLabel` も付記できます(すべて任意。実行コンテキストファイル `ai-run-context/<provider>[-<runId>].run-context.json` 経由でMCPサーバーへ渡り、`resolveProposalAttribution()` でproposalへ写す)。stale化した提案は、作り直させる代わりにその場で `rebaseMcpEditProposal` (IPC: `storage:rebase-mcp-edit-proposal`) を呼ぶと、現在のドキュメントへの再適用を試み、成功すれば `baseRevision`/`nextDocument` をその場で更新して(元のrevisionは `rebasedFrom` に残す)再びプレビュー対象に戻せます。`mergeBasis` を持つ提案は、保存後の自動追従・rebaseでdraftと元の内容を書き換えず、revisionだけを進めます (合成は承認のたびに今の文書へ行います)。却下は理由つきの一括版 `rejectMcpEditProposals` (IPC: `storage:reject-mcp-edit-proposals`、`{ proposalIds, reason? }`)を使うと `rejectedReason`/`rejectedAt` が記録されます(単体版 `rejectMcpEditProposal` はそのまま後方互換で残る)。
 
-デスクトップ設定 `aiAutoApplyVerifiedProposals` (既定false) をONにすると、MCPサーバーが `verification.validationOk === true` を報告したpending提案は、`baseRevision` が現在のファイルrevisionと一致する限り自動承認されます(承認イベントに `autoApplied: true` が付く)。承認 (手動・自動どちらも) の際、承認直前に読み込んだドキュメントを `revertDocument` として、保存直後のrevisionを `appliedRevision` として提案レコードに保存しておきます。`revertMcpEditProposal` (IPC: `storage:revert-mcp-edit-proposal`) でその承認を取り消す際、現在のファイルrevisionが `appliedRevision` のままなら `revertDocument` をまるごと書き戻します。承認後にさらに教材が変更されていても、その提案 (および同じ1回の保存を共有した承認バッチ) が触ったブロック/overlay図形自体がその後無編集であれば、現在のドキュメントを土台にその範囲だけを選択的に戻します(`local-sigma-doc-proposal-store.ts` の `getRevertPlan`/`buildSelectiveRevertDocument`)。触った範囲へさらに人手の編集が入っている、ブロックの移動やレイアウト変更(`moveBlocks`/`wrapBlocksInColumns`/`updateLayoutSection`)を含む、削除されたブロックが本文直下ではなくネストされた位置にあった、といったケースは安全のため取り消し不可のまま残ります(取り消し後のstatusは共通して `reverted`)。この `verification.validationOk` は、全ての書き込み系MCPツールが変更後のSigmaDocを検証した結果からproposal作成時に埋めます(schemaレベルの検証のみで、page-context previewの見た目は含みません)。ツール呼び出し自体のレスポンスにも同じ検証結果とpreview PNGが `verification` フィールドとして返り、エージェントはcommitを待たずにその場で確認・自己修正できます。既存内容や承認前のproposalのブロック周辺は `render_block_context`、ページ全体と実際のページ割当は `render_page` で確認します。
+デスクトップ設定 `aiAutoApplyVerifiedProposals` (既定false) をONにすると、MCPサーバーが `verification.validationOk === true` を報告したpending提案は、`baseRevision` が現在のファイルrevisionと一致する限り自動承認されます(承認イベントに `autoApplied: true` が付く)。人間の編集との合成が要る提案は自動承認せず、保留のまま残します。承認 (手動・自動どちらも) の際、承認直前に読み込んだドキュメントを `revertDocument` として、保存直後のrevisionを `appliedRevision` として提案レコードに保存しておきます。`revertMcpEditProposal` (IPC: `storage:revert-mcp-edit-proposal`) でその承認を取り消す際、現在のファイルrevisionが `appliedRevision` のままなら `revertDocument` をまるごと書き戻します。承認後にさらに教材が変更されていても、その提案 (および同じ1回の保存を共有した承認バッチ) が触ったブロック/overlay図形自体がその後無編集であれば、現在のドキュメントを土台にその範囲だけを選択的に戻します(`local-sigma-doc-proposal-store.ts` の `getRevertPlan`/`buildSelectiveRevertDocument`)。触った範囲へさらに人手の編集が入っている、ブロックの移動やレイアウト変更(`moveBlocks`/`wrapBlocksInColumns`/`updateLayoutSection`)を含む、削除されたブロックが本文直下ではなくネストされた位置にあった、といったケースは安全のため取り消し不可のまま残ります(取り消し後のstatusは共通して `reverted`)。この `verification.validationOk` は、全ての書き込み系MCPツールが変更後のSigmaDocを検証した結果からproposal作成時に埋めます(schemaレベルの検証のみで、page-context previewの見た目は含みません)。ツール呼び出し自体のレスポンスにも同じ検証結果とpreview PNGが `verification` フィールドとして返り、エージェントはcommitを待たずにその場で確認・自己修正できます。既存内容や承認前のproposalのブロック周辺は `render_block_context`、ページ全体と実際のページ割当は `render_page` で確認します。
 
 ## External File Changes
 
@@ -159,7 +171,8 @@ AI編集で渡す選択ブロックは位置と文脈の手掛かりであり、
 - `local-sigma-doc-proposal-store` のproposal作成・承認・拒否・rebase・revert・検証済み自動承認判定(`shouldAutoApplyProposal`)
 - `sigma-doc-mcp-server` の `expectedRevision` とproposal生成
 - `ai-edit-shared-runner.ts` の `runMcpEditForIpc`、`mcp-edit-prompt.ts` のプロバイダ別プロンプト、プロバイダ付記
-- `groupMcpProposalsForPreview` によるfileId+baseRevision単位のプレビュー合体・stale分離
+- `groupMcpProposalsForPreview` による会話単位のプレビュー合体・stale分離 (合成で解決できる提案を競合に回さない)
+- 三者マージ: カーネル (`three-way-merge.test.ts`)、合成replay (`proposal-replay.test.ts`)、承認と同じreplayから作るプレビュー (`proposal-merge-preview.test.ts`)、作成 → 人間の編集 → 承認 → 保存 → Undo/Redo → 再起動の実アプリ確認 (`tests/electron/ai-proposal-merge.spec.ts`)
 - `parseSigmaDocument` / `getDocumentIssues` による保存前検証
 
 AIやMCPから得た入力は不信頼入力として扱い、SigmaDoc正本へ反映する前に必ずschemaと専用validatorを通します。

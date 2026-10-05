@@ -1,4 +1,4 @@
-import { readFileSync, readdirSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
 import { describe, expect, it } from "vitest";
@@ -19,11 +19,19 @@ const reusablePageCanvasFiles = [
   "../../components/editor/page-canvas/popover-anchors.ts",
 ];
 
+/**
+ * 旧パス (`components/editor/`) に互換の再エクスポートが残っている View。提案内容の描画
+ * (`AiEditInlinePreviewCard` / `AiAppliedDocumentDiff`) は共通部品 `AiProposalContentView` に
+ * まとめたときに旧パスを外したので、ここには載せない (下の it がその不在を確かめる)。
+ */
 const canonicalAiViewFiles = [
-  "./view/AiAppliedDocumentDiff.tsx",
-  "./view/AiEditInlinePreviewCard.tsx",
   "./view/AiSourceReferenceChips.tsx",
   "./view/AiStreamRenderer.tsx",
+];
+
+const removedAiViewFacades = [
+  "../../components/editor/AiEditInlinePreviewCard.tsx",
+  "../../components/editor/AiAppliedDocumentDiff.tsx",
 ];
 
 const legacyAiViewFacades = canonicalAiViewFiles.map((relativePath) => {
@@ -318,6 +326,10 @@ describe("AI editor extension boundary", () => {
     },
   );
 
+  it.each(removedAiViewFacades)("does not bring back the removed proposal-content facade %s", (facadePath) => {
+    expect(existsSync(fileURLToPath(new URL(facadePath, import.meta.url)))).toBe(false);
+  });
+
   it.each([
     ...listProductionTypeScriptFiles("./model"),
     ...listProductionTypeScriptFiles("./application"),
@@ -325,7 +337,7 @@ describe("AI editor extension boundary", () => {
     const source = readSource(relativePath);
 
     expect(source).not.toMatch(/from\s+["'][^"']*\/view(?:\/[^"']*)?["']/);
-    expect(source).not.toMatch(/from\s+["'][^"']*Ai(?:AppliedDocumentDiff|EditInlinePreviewCard|SourceReferenceChips|StreamRenderer)["']/);
+    expect(source).not.toMatch(/from\s+["'][^"']*Ai(?:AppliedDocumentDiff|EditInlinePreviewCard|ProposalContentView|SourceReferenceChips|StreamRenderer)["']/);
   });
 
   it("keeps AI page composition on the feature-local View entrypoint", () => {
@@ -337,6 +349,7 @@ describe("AI editor extension boundary", () => {
 
   it.each([
     "./model/preview.ts",
+    "./model/proposal-content.ts",
     "./model/comment-reference.ts",
     "./model/pinned-reference-model.ts",
     "./model/proposal-presentation-model.ts",

@@ -26,10 +26,19 @@ import {
 const NOW = "2026-01-01T00:00:00.000Z";
 
 describe("availableDocumentTitle", () => {
-  const files = ["教材", "教材 2", "教材 4"].map((title, i) => ({ fileId: `${i}`, workspaceId: "ws", folderId: null, title }));
+  const files = ["教材", "教材-2", "教材-4"].map((title, i) => ({ fileId: `${i}`, workspaceId: "ws", folderId: null, title }));
   it("numbers duplicates and skips existing numbers", () => {
-    expect(availableDocumentTitle("教材", files, { workspaceId: "ws" })).toBe("教材 3");
-    expect(availableDocumentTitle("教材 4", files, { workspaceId: "ws" })).toBe("教材 5");
+    expect(availableDocumentTitle("教材", files, { workspaceId: "ws" })).toBe("教材-3");
+    expect(availableDocumentTitle("教材-4", files, { workspaceId: "ws" })).toBe("教材-5");
+  });
+  it("normalizes only the requested name and preserves extensions and legacy siblings", () => {
+    const names = ["名前 2.sigma", "名前-2.sigma", "名前-3.sigma", "章-題.sigmadoc.json"];
+    const siblings = names.map((title, i) => ({ fileId: `${i}`, workspaceId: "ws", title }));
+    expect(availableDocumentTitle(" 名前\u30002.sigma ", siblings, { workspaceId: "ws" })).toBe("名前-4.sigma");
+    expect(availableDocumentTitle("章\t題.sigmadoc.json", siblings, { workspaceId: "ws" })).toBe("章-題-2.sigmadoc.json");
+    expect(siblings.map(file => file.title)).toEqual(names);
+    expect(availableDocumentTitle(" a\u00a0b ", [], { workspaceId: "ws" })).toBe("a-b");
+    expect(availableDocumentTitle("教材", [{ ...files[0], deletedAt: NOW }], { workspaceId: "ws" })).toBe("教材");
   });
   it("excludes the renamed file and other folders", () => {
     expect(availableDocumentTitle("教材", files, { workspaceId: "ws", excludeFileId: "0" })).toBe("教材");

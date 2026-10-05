@@ -366,7 +366,7 @@ function toBoxedRunRect(rect: DOMRect | DOMRectReadOnly): BoxedRunRect[] {
 }
 
 function isIgnorableElement(element: HTMLElement): boolean {
-  return element.getAttribute("aria-hidden") === "true" || element.hidden;
+  return element.getAttribute("aria-hidden") === "true" || Boolean(element.hidden);
 }
 
 function hasVisibleElementContent(element: HTMLElement): boolean {

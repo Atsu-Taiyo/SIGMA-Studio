@@ -225,6 +225,12 @@ describe("file:save-to-downloads", () => {
     );
   });
 
+  it("normalizes whitespace without changing the download directory or extension", async () => {
+    mocks.getPath.mockReturnValue("/Users/test/My Downloads");
+    const result = await save({ fileName: " 数学\u3000演習.mp4 ", dataBase64: Buffer.from("x").toString("base64") });
+    expect(result).toEqual({ filePath: "/Users/test/My Downloads/数学-演習.mp4" });
+  });
+
   it("never lets the renderer choose the directory or the kind of file", async () => {
     // パスを渡されても葉の名前しか使わない。拡張子は許可リストにあるものだけ。
     await save({ fileName: "../../evil/../3D.mp4", dataBase64: Buffer.from("x").toString("base64") });
