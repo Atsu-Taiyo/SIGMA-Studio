@@ -980,8 +980,10 @@ test("two-column body and overlay insertion proposals stay in their target colum
   const rightBlockBox = await rightBlock.boundingBox();
   expect(rightBlockBox).not.toBeNull();
   await startInlineRun(page, "column_right", "PROPOSAL SHAPE INSERT 右段に図形を挿入して");
+  // 判断は結果の面のバー 1 本。結果を閉じると、図形のそばのバーで決める。
+  await closeInlineResult(page);
   const overlayInsertion = page.locator('[data-ai-proposal-card="overlay"]');
-  await expect(overlayInsertion).toBeVisible({ timeout: 20_000 });
+  await expect(overlayInsertion).toBeVisible();
   const overlayInsertionBox = await overlayInsertion.boundingBox();
   expect(overlayInsertionBox).not.toBeNull();
   expect(overlayInsertionBox!.x).toBeGreaterThanOrEqual(rightBlockBox!.x - 2);
