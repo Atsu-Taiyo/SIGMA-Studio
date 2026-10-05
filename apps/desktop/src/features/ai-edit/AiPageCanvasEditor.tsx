@@ -30,9 +30,11 @@ import { readAiProposalDisplayState, type AiProposalDisplayState } from "./model
 import { useAiProposalDisplayStates } from "./application/use-ai-proposal-display-states";
 import { useStableIdSet } from "./application/use-stable-id-set";
 import {
+  collectMergedUpdatedShapes,
   collectPendingRemovedBlockIds,
   groupPendingProposalContentByAnchor,
   resolveShapesKeptByMerge,
+  withMergedShapes,
   type AiProposalAnchorCard,
 } from "./model/proposal-content";
 import { resolveProposalMergePreview } from "./model/proposal-merge-preview";
@@ -393,6 +395,18 @@ function useAiPageCanvasExtension({
     [applying, document, previewGroups],
   );
   const mergeKeptShapeIds = useStableIdSet(mergeKeptShapeIdList);
+  // 図形の変更後の姿 (ゴースト) も、base を持つ提案は合成後の文書の図形で描く (MISS R17)。提案ごとに
+  // 覚えた合成を引くので、中身が同じなら同じ Map を配る (紙面の拡張を打鍵のたびに作り直さない)。
+  const mergedUpdatedShapeList = useMemo(
+    () => collectMergedUpdatedShapes(previewGroups, document, { countFallbacks: !applying }),
+    [applying, document, previewGroups],
+  );
+  const mergedUpdatedShapesKey = JSON.stringify(mergedUpdatedShapeList);
+  const mergedUpdatedShapes = useMemo<ReadonlyMap<string, OverlayShape>>(
+    () => new Map(mergedUpdatedShapeList.map((shape) => [shape.id, shape])),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [mergedUpdatedShapesKey],
+  );
   // 中身が同じなら同じ集合 (図形の印・編集の方針・紙面の拡張を作り直さない)。
   const beforeHiddenShapeIds = useStableIdSet(previewGroups.flatMap((preview) => (
     readAiProposalDisplayState(displayStates, getAiProposalConversationKey(preview), preview.proposalIds).beforeHidden
@@ -411,7 +425,8 @@ function useAiPageCanvasExtension({
       previewGroups.flatMap((preview) => (preview.shapeReplacements ?? []).map((pair) => pair.removedShapeId)),
     );
     const finalShapeUpdates = new Map(
-      deriveAiEditPreviewShapeUpdates(previewGroups, context.overlayShapes).map((update) => [update.shapeId, update]),
+      withMergedShapes(deriveAiEditPreviewShapeUpdates(previewGroups, context.overlayShapes), mergedUpdatedShapes)
+        .map((update) => [update.shapeId, update]),
     );
     const addedShapeIds = new Set(previewDiff.addedShapes.map((entry) => entry.shape.id));
     const unresolvedGhosts: PageCanvasGhostShape[] = [
@@ -449,7 +464,7 @@ function useAiPageCanvasExtension({
     const floating = floatingPreviewGroups.map((preview) => {
       const conversationKey = getAiProposalConversationKey(preview);
       const displayState = readAiProposalDisplayState(displayStates, conversationKey, preview.proposalIds);
-      const changeLines = summarizeAiEditPreviewChanges(preview, context.overlayShapes, t);
+      const changeLines = summarizeAiEditPreviewChanges(preview, context.overlayShapes, t, mergeKeptShapeIds);
       // 本文も変える提案は、図形の要約だけでは何の提案か分からない (余白の変更など) ので、AI の要約を先に添える。
       const draftSummary = preview.draft.summary.trim();
       const summaryLines = !isOverlayOnlyAiEditPreview(preview) && draftSummary
@@ -509,7 +524,7 @@ function useAiPageCanvasExtension({
       ghostShapes: resolvedGhostShapes,
       floatingContent: widgets,
     };
-  }, [applying, displayStates, floatingPreviewGroups, mergedFloatingKeys, onApply, onDismiss, openProposalConversation, previewDiff, previewGroups, t, updateDisplayState]);
+  }, [applying, displayStates, floatingPreviewGroups, mergeKeptShapeIds, mergedFloatingKeys, mergedUpdatedShapes, onApply, onDismiss, openProposalConversation, previewDiff, previewGroups, t, updateDisplayState]);
 
   // 参照系のコールバックは ref 経由で最新を読む。identity を deps に入れると、親が 1 回
   // 描画するたびに selection 拡張が作り直され、PageCanvasEditor 側の選択 effect が再 arm

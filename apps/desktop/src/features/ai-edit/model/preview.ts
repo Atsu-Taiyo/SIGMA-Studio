@@ -837,6 +837,8 @@ export function summarizeAiEditPreviewChanges(
   preview: AiEditPreviewState,
   currentShapes: OverlayShape[] = [],
   t: Translate<"ai"> = DEFAULT_AI_TRANSLATE,
+  /** AI が消す図形のうち、人が直したので承認の合成で残るもの (`resolveShapesKeptByMerge`)。削除と言わない。 */
+  keptShapeIds: ReadonlySet<string> = new Set(),
 ): string[] {
   const shapesById = new Map(currentShapes.map((shape) => [shape.id, shape]));
   const replacementByAddedId = new Map(
@@ -896,7 +898,7 @@ export function summarizeAiEditPreviewChanges(
       op.shapeIds.forEach((shapeId) => bump("align", overlayShapeNounId(shapesById.get(shapeId))));
     } else if (op.operation === "deleteOverlayShapes") {
       op.shapeIds
-        .filter((shapeId) => !replacementRemovedIds.has(shapeId))
+        .filter((shapeId) => !replacementRemovedIds.has(shapeId) && !keptShapeIds.has(shapeId))
         .forEach((shapeId) => bump("delete", overlayShapeNounId(shapesById.get(shapeId))));
     }
   }

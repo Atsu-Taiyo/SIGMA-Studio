@@ -1898,6 +1898,15 @@ function fixtureTableShape(id: string, rowCount: number, columnCount: number): O
 }
 
 describe("summarizeAiEditPreviewChanges", () => {
+  it("does not call a deleted shape the merge keeps (the human edited it) a deletion", () => {
+    const preview = makePreview({
+      mutationOperations: [{ operation: "deleteOverlayShapes", summary: "削除", shapeIds: ["rect1", "ellipse1"] }],
+    });
+    const currentShapes = [rectShape("rect1", 0, 0), ellipseShape("ellipse1")];
+
+    expect(summarizeAiEditPreviewChanges(preview, currentShapes, undefined, new Set(["rect1"]))).toEqual(["円を削除"]);
+  });
+
   it("summarizes a table insert with its dimensions instead of a count", () => {
     const preview = makePreview({
       operations: [{

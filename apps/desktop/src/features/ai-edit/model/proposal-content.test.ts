@@ -24,6 +24,7 @@ import {
   collectShapesKeptByMerge,
   groupPendingProposalContentByAnchor,
   isProposalContentEmpty,
+  resolveMergedShapeUpdates,
   proposalContentToAppliedDiff,
   toDisplayProposalHunk,
 } from "./proposal-content";
@@ -580,6 +581,19 @@ describe("shapes a pending proposal deletes but the merge keeps", () => {
     const edited = { ...current, content: current.content.map((block) => (block.id === "p_last" ? paragraph("p_last", "人が直した") : block)) };
 
     expect(collectProposalRemovals([preview], edited)).toEqual({ blockIds: ["p1"], shapeIds: ["img_2"] });
+  });
+
+  it("draws the after state of an updated shape from the merged result, keeping what the human changed", () => {
+    const base = overlayDocument([imageShape()]);
+    // The tool's patch repeats the unchanged x next to the size it changes.
+    const update: SigmaDocMutationOp = { operation: "updateOverlayShape", summary: "大きく", shapeId: "img_1", patch: { x: 10, props: { w: 60 } } };
+    const preview = mergeablePreviewOf(base, [], [update]);
+    const current = overlayDocument([{ ...imageShape(), x: 90 }]);
+    const currentShapes = current.pageLayout!.overlay!.overlaySnapshot!.shapes;
+
+    const after = resolveMergedShapeUpdates([preview], current, currentShapes).find((entry) => entry.shapeId === "img_1")?.after;
+
+    expect(after).toMatchObject({ x: 90, props: { w: 60 } });
   });
 
   it("still lists a deleted shape nobody touched as removed", () => {
