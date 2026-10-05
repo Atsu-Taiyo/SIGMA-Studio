@@ -1,7 +1,8 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Locator, type Page } from "@playwright/test";
 
 import { grabShapeFromBody } from "./body-overlay-entry";
 import { installDesktopRuntimeMock } from "./desktop-runtime-mock";
+import { expectHittable } from "./hit-testing";
 import { getDefaultPageLayout } from "@/lib/page-layout";
 import type { ParagraphNode, SigmaBlock, SigmaDocument } from "@/types/sigma-doc";
 
@@ -87,7 +88,7 @@ function createBackgroundShapeDocument(): SigmaDocument {
   } as unknown as SigmaDocument;
 }
 
-function createWhiteboardDocument(): SigmaDocument {
+function createWhiteboardDocument(shapePosition = { x: 180, y: 140 }): SigmaDocument {
   return {
     ...createDocument(),
     docId: "ai_whiteboard_shape_proposal_e2e_doc",
@@ -101,8 +102,7 @@ function createWhiteboardDocument(): SigmaDocument {
           shapes: [{
             id: "whiteboard_shape_1",
             type: "geo",
-            x: 180,
-            y: 140,
+            ...shapePosition,
             props: {
               w: 180,
               h: 100,
@@ -214,6 +214,19 @@ async function insertAndSelectRectangle(page: Page): Promise<void> {
   await expect(page.locator(".overlay-shape-geo.selected")).toHaveCount(1);
 }
 
+/**
+ * ⌘K のパネルが提案の判断を出している間、その提案の承認バーはパネルの 1 本だけ (図形のそばのバーは
+ * 出ない)。パネルの結果を閉じて、図形のそばのバーに戻す。
+ */
+async function closeInlineResultToPageBar(page: Page): Promise<void> {
+  // 結果の面は、実行を始めた位置 (紙面の中の面か、浮かぶ ⌘K の面) に出る。
+  const inlineResult = page.locator(".ai-inline-result");
+  await expect(inlineResult.locator("[data-ai-proposal-bar]")).toBeVisible({ timeout: 20_000 });
+  await expect(page.locator(OVERLAY_PROPOSAL_BAR)).toHaveCount(0);
+  await inlineResult.getByRole("button", { name: "閉じる", exact: true }).click();
+  await expect(inlineResult).toHaveCount(0);
+}
+
 test("a selected overlay shape is kept as a small PNG in the chat turn", async ({ page }) => {
   await setup(page);
   await insertAndSelectRectangle(page);
@@ -296,8 +309,84 @@ test("a selected whiteboard shape can start an AI edit proposal without a body b
     overlaySelection: { selectedShapeIds: ["whiteboard_shape_1"] },
   });
 
-  await expect(page.locator(`.whiteboard-canvas ${OVERLAY_PROPOSAL_BAR}`)).toBeVisible({ timeout: 20_000 });
+  // 判断はパネルのバー 1 本 (図形のそばのバーはパネルを閉じると出る。次のテスト)。
+  await expect(page.locator(".ai-chat-host--inline .ai-inline-result [data-ai-proposal-bar]")).toBeVisible({ timeout: 20_000 });
   await expect(page.locator('.whiteboard-canvas .overlay-shape.ai-diff-ghost-shape[data-overlay-shape-id="whiteboard_shape_1"]')).toBeVisible();
+});
+
+/** 画面の上で重なっている組の名前。 */
+async function overlappingPairs(targets: Record<string, Locator>): Promise<string[]> {
+  const boxes = await Promise.all(Object.entries(targets).map(async ([name, locator]) => ({ name, box: await locator.boundingBox() })));
+  const pairs: string[] = [];
+  for (const [index, a] of boxes.entries()) {
+    for (const b of boxes.slice(index + 1)) {
+      if (!a.box || !b.box) {
+        pairs.push(`${a.name} / ${b.name}: missing`);
+      } else if (
+        a.box.x < b.box.x + b.box.width && b.box.x < a.box.x + a.box.width
+        && a.box.y < b.box.y + b.box.height && b.box.y < a.box.y + a.box.height
+      ) {
+        pairs.push(`${a.name} / ${b.name}`);
+      }
+    }
+  }
+  return pairs;
+}
+
+test("a whiteboard shape's approval bar, ⌘K panel and selection popover never cover each other", async ({ page }) => {
+  await page.setViewportSize({ width: 1500, height: 950 });
+  // 図形は画面の中ほどに置く (ズームは画面の中心を錨にするので、拡大しても図形と操作が画面に残る)。
+  // バーは用紙の幅に収まるので図形の中心から左へずれ、選択ポップオーバー (中身の分だけ幅が広い) の端にかかる。
+  await installDesktopRuntimeMock(page, createWhiteboardDocument({ x: 900, y: 360 }), { ai: { enabled: true } });
+  await page.goto("/");
+  await expect(page.locator(".startup-splash")).toBeHidden();
+
+  const editorShape = page.locator('.overlay-canvas-editor [data-overlay-shape-id="whiteboard_shape_1"]').first();
+  await editorShape.click();
+  const popover = page.locator(".selection-action-popover");
+  const aiButton = popover.getByRole("button", { name: "AIに追加" });
+  await aiButton.click();
+  const composer = page.locator(".ai-chat-composer--inline");
+  await composer.locator("textarea").fill("PROPOSAL SHAPE この図形を右へ移動して");
+  await composer.locator(".ai-chat-send-button").click();
+
+  // パネルが判断を出している間、その提案の承認バーはパネルの 1 本だけ。選択ポップオーバーとも重ならない。
+  const panel = page.locator(".ai-chat-host--inline .ai-inline-result");
+  await expect(panel.locator("[data-ai-proposal-bar]")).toBeVisible({ timeout: 20_000 });
+  const bar = page.locator(`.whiteboard-canvas ${OVERLAY_PROPOSAL_BAR}`);
+  await expect(bar).toHaveCount(0);
+  await expect(popover).toBeVisible();
+  await expect.poll(() => overlappingPairs({ panel, popover })).toEqual([]);
+  for (const name of ["適用", "破棄"]) {
+    await expectHittable(panel.getByRole("button", { name, exact: true }));
+  }
+  await expectHittable(aiButton);
+
+  // パネルを閉じると図形のそばのバーに戻る。図形を選んだままなら、選択の操作 (ポップオーバーと回転
+  // ハンドル) を覆わないよう図形の下に出る。ズームを変えても同じ。
+  await page.locator(".ai-chat-host--inline").getByRole("button", { name: "閉じる" }).click();
+  await expect(panel).toBeHidden();
+  await expect(bar).toBeVisible();
+  await expect(bar).toHaveAttribute("data-placement", "below");
+  const rotateHandle = page.locator(".overlay-canvas-editor .overlay-rotate-handle");
+  const zoomControls = page.locator(".whiteboard-zoom-controls");
+  for (const [zoomButton, clicks, zoom] of [[null, 0, "100%"], ["拡大", 5, "150%"], ["縮小", 10, "50%"]] as const) {
+    for (let click = 0; click < clicks; click += 1) {
+      await zoomControls.getByRole("button", { name: zoomButton!, exact: true }).click();
+    }
+    await expect(zoomControls.locator("output")).toHaveText(zoom);
+    await expect.poll(() => overlappingPairs({ bar, popover }), { message: zoom }).toEqual([]);
+    await expect.poll(() => overlappingPairs({ bar, rotateHandle }), { message: zoom }).toEqual([]);
+    for (const name of ["適用", "破棄"]) {
+      await expectHittable(bar.getByRole("button", { name, exact: true }));
+    }
+    await expectHittable(aiButton);
+  }
+
+  // 選択を外すと元の位置 (図形の上) に戻る。
+  await page.locator(".whiteboard-page-canvas").click({ position: { x: 200, y: 650 } });
+  await expect(popover).toBeHidden();
+  await expect(bar).toHaveAttribute("data-placement", "above");
 });
 
 async function startShapeRun(page: Page, shapeId: string, instruction: string): Promise<void> {
@@ -337,20 +426,12 @@ test("a shape-mutation proposal shows the shared bar beside the shape and a canv
   await setup(page);
 
   await startInlineRun(page, "para_a", "PROPOSAL SHAPE 図形を右に移動して");
+  await closeInlineResultToPageBar(page);
 
   const approvalWidget = page.locator(OVERLAY_PROPOSAL_BAR);
-  await expect(approvalWidget).toBeVisible({ timeout: 20_000 });
+  await expect(approvalWidget).toBeVisible();
   await expect(approvalWidget).toContainText("AI図形の変更案");
   await expect(page.locator(PAGE_PROPOSAL_CARD)).toHaveCount(0);
-
-  // Dismiss the floating inline result card (and its full-viewport outside-click
-  // catcher) so it does not intercept clicks meant for the overlay widget below.
-  const inlineResultClose = page.locator(".ai-chat-host--inline").getByRole("button", { name: "閉じる" });
-  if (await inlineResultClose.count()) {
-    await inlineResultClose.first().click();
-    await expect(inlineResultClose).toBeHidden();
-  }
-  await expect(approvalWidget).toBeVisible();
 
   // Decision buttons are present and enabled.
   const applyButton = approvalWidget.locator('.ai-inline-preview-action.apply[aria-label="適用"]');
@@ -461,8 +542,16 @@ test("a shape-mutation proposal shows the shared bar beside the shape and a canv
 test("a shape proposal keeps both its before and after states visible after selecting the target", async ({ page }) => {
   await setup(page);
   await startShapeRun(page, "e2e_shape_1", "PROPOSAL SHAPE 図形を右に移動して");
+  await closeInlineResultToPageBar(page);
 
-  await expect(page.locator(OVERLAY_PROPOSAL_BAR)).toBeVisible({ timeout: 20_000 });
+  // 紙面でも、選んだ図形のそばのバーは選択の操作 (ポップオーバーと回転ハンドル) を覆わない。
+  const bar = page.locator(OVERLAY_PROPOSAL_BAR);
+  await expect(bar).toBeVisible();
+  await expect(bar).toHaveAttribute("data-placement", "below");
+  const popover = page.locator(".selection-action-popover");
+  await expect.poll(() => overlappingPairs({ bar, popover })).toEqual([]);
+  await expect.poll(() => overlappingPairs({ bar, rotateHandle: page.locator(".overlay-canvas-editor .overlay-rotate-handle") })).toEqual([]);
+  await expectHittable(popover.getByRole("button", { name: "AIに追加" }));
   const selectedShape = page.locator('.overlay-shape.selected[data-overlay-shape-id="e2e_shape_1"]:not(.ai-diff-ghost-shape)');
   const ghostShape = page.locator('.overlay-shape.ai-diff-ghost-shape[data-overlay-shape-id="e2e_shape_1"]');
   // Starting from a selected target keeps the live interactive canvas mounted.
@@ -484,7 +573,6 @@ test("a shape proposal keeps both its before and after states visible after sele
   await expectBothDiffStatesSteady(page, beforeSelector, afterSelector);
 
   // 重なって見づらいときは、図形のそばのバーから変更前だけを隠せる (選んだ面でも効く)。
-  const bar = page.locator(OVERLAY_PROPOSAL_BAR);
   await bar.getByRole("button", { name: "変更前を隠す", exact: true }).click();
   await expect.poll(() => readAiDiffOpacity(page, beforeSelector, afterSelector)).toEqual({ before: "0", after: "1" });
   await bar.getByRole("button", { name: "変更前を表示", exact: true }).click();
@@ -499,22 +587,25 @@ test("an inserted overlay shape keeps its approval widget out of body flow", asy
 
   await startInlineRun(page, "para_a", "PROPOSAL SHAPE INSERT 図形を挿入して");
 
+  // ⌘K のパネルは挿入する図形を見せ、判断はパネルのバー 1 本。
+  const floatingShapeArtifact = page.getByRole("figure", { name: "挿入する図形" });
+  await expect(floatingShapeArtifact).toBeVisible({ timeout: 20_000 });
+  await expect(floatingShapeArtifact.locator("svg")).toBeVisible();
+  await expect(page.locator(".ai-chat-host--inline .ai-inline-result [data-ai-proposal-bar]")).toBeVisible();
   const approvalWidget = page.locator(OVERLAY_PROPOSAL_BAR);
-  await expect(approvalWidget).toBeVisible({ timeout: 20_000 });
-  await expect(approvalWidget).toContainText("AI図形の挿入案");
-  await expect(approvalWidget.locator(".ai-proposal-provider-identity")).toHaveCount(0);
+  await expect(approvalWidget).toHaveCount(0);
   await expect(page.locator(PAGE_PROPOSAL_CARD)).toHaveCount(0);
   await expect(page.locator('.overlay-shape.ai-diff-added-shape.ai-diff-ghost-shape[data-overlay-shape-id="e2e_inserted_shape_1"]'))
     .toBeVisible();
 
-  const floatingShapeArtifact = page.getByRole("figure", { name: "挿入する図形" });
-  await expect(floatingShapeArtifact).toBeVisible();
-  await expect(floatingShapeArtifact.locator("svg")).toBeVisible();
-
   const bodyFlowHeightAfter = await pageFlow.evaluate((element) => element.scrollHeight);
   expect(bodyFlowHeightAfter).toBe(bodyFlowHeightBefore);
 
+  // サイドチャットへ移すと、紙面では図形のそばのバーで決める。
   await page.locator(".ai-chat-host--inline").getByRole("button", { name: "サイドチャットで開く" }).click();
+  await expect(approvalWidget).toBeVisible();
+  await expect(approvalWidget).toContainText("AI図形の挿入案");
+  await expect(approvalWidget.locator(".ai-proposal-provider-identity")).toHaveCount(0);
   const appliedChange = page.locator('.ai-edit-panel[data-variant="sidebar"]')
     .getByRole("region", { name: "適用した変更" });
   await expect(appliedChange).toHaveCount(0);
@@ -533,9 +624,10 @@ test("a deleted overlay shape stays visible with the red removal treatment until
   await setup(page);
 
   await startInlineRun(page, "para_a", "PROPOSAL SHAPE DELETE 図形を削除して");
+  await closeInlineResultToPageBar(page);
 
   const approvalWidget = page.locator(OVERLAY_PROPOSAL_BAR);
-  await expect(approvalWidget).toBeVisible({ timeout: 20_000 });
+  await expect(approvalWidget).toBeVisible();
   await expect(approvalWidget).toContainText("AI図形の削除案");
   await expect(approvalWidget.locator(".ai-proposal-provider-identity")).toHaveCount(0);
   await expect(page.locator(PAGE_PROPOSAL_CARD)).toHaveCount(0);
@@ -546,11 +638,6 @@ test("a deleted overlay shape stays visible with the red removal treatment until
   await expect(removedShape).toBeVisible();
   await expect(removedShape).toHaveCSS("outline-style", "dashed");
   await expect(removedShape).toHaveCSS("outline-color", /(?:rgb|color)\(/);
-  const inlineResultClose = page.locator(".ai-chat-host--inline").getByRole("button", { name: "閉じる" });
-  if (await inlineResultClose.count()) {
-    await inlineResultClose.first().click();
-    await expect(inlineResultClose).toBeHidden();
-  }
   await approvalWidget.locator('.ai-inline-preview-action.apply[aria-label="適用"]').click();
   await expect(approvalWidget).toBeHidden();
   await expect.poll(async () => page.evaluate(() => {
@@ -564,10 +651,11 @@ test("a same-run shape deletion and insertion share one replacement approval at 
   await setup(page);
 
   await startInlineRun(page, "para_a", "PROPOSAL SHAPE REPLACE 図形を置き換えて");
+  await closeInlineResultToPageBar(page);
 
   const approvalWidget = page.locator(OVERLAY_PROPOSAL_BAR);
   await expect(approvalWidget).toHaveCount(1);
-  await expect(approvalWidget).toBeVisible({ timeout: 20_000 });
+  await expect(approvalWidget).toBeVisible();
   await expect(approvalWidget).toContainText("AI図形の置き換え案");
   await expect(approvalWidget).not.toHaveAttribute("data-proposal-ids");
 
@@ -597,8 +685,10 @@ test("a background shape replacement shows both states across separate overlay l
   await setup(page, createBackgroundShapeDocument());
 
   await startInlineRun(page, "para_a", "PROPOSAL SHAPE REPLACE 背景図形を置き換えて");
+  // (⌘K の結果の面とその外側を拾う幕を閉じると、判断は図形のそばのバーに戻る。)
+  await closeInlineResultToPageBar(page);
 
-  await expect(page.locator(OVERLAY_PROPOSAL_BAR)).toBeVisible({ timeout: 20_000 });
+  await expect(page.locator(OVERLAY_PROPOSAL_BAR)).toBeVisible();
   const beforeSelector = '.page-overlay-background-layer .overlay-shape.ai-diff-before-shape[data-overlay-shape-id="e2e_shape_1"]';
   const afterSelector = '.page-overlay-layer .overlay-shape.ai-diff-after-shape[data-overlay-shape-id="e2e_shape_1"]';
   await expect(page.locator(beforeSelector)).toHaveCount(1);
@@ -607,12 +697,6 @@ test("a background shape replacement shows both states across separate overlay l
   await expect(page.locator(afterSelector)).toHaveCSS("animation-name", "none");
   await expectBothDiffStatesSteady(page, beforeSelector, afterSelector);
   // 変更前と変更後は別の層にあるが、バーの切り替えは変更前の層だけに効く。
-  // (⌘K の結果の面とその外側を拾う幕を閉じてから、図形のそばのバーを押す。)
-  const inlineResultClose = page.locator(".ai-chat-host--inline").getByRole("button", { name: "閉じる" });
-  if (await inlineResultClose.count()) {
-    await inlineResultClose.first().click();
-    await expect(inlineResultClose).toBeHidden();
-  }
   await page.locator(OVERLAY_PROPOSAL_BAR).getByRole("button", { name: "変更前を隠す", exact: true }).click();
   await expect.poll(() => readAiDiffOpacity(page, beforeSelector, afterSelector)).toEqual({ before: "0", after: "1" });
 });
@@ -740,14 +824,10 @@ test("an AI proposal reserves only its own target while it runs, and its pending
 test("a shape the AI deletes stays without the red removal once the human moves it, and the approval keeps it", async ({ page }) => {
   await setup(page);
   await startInlineRun(page, "para_a", "PROPOSAL SHAPE DELETE 図形を削除して");
+  await closeInlineResultToPageBar(page);
 
   const approvalWidget = page.locator(OVERLAY_PROPOSAL_BAR);
-  await expect(approvalWidget).toBeVisible({ timeout: 20_000 });
-  const inlineResultClose = page.locator(".ai-chat-host--inline").getByRole("button", { name: "閉じる" });
-  if (await inlineResultClose.count()) {
-    await inlineResultClose.first().click();
-    await expect(inlineResultClose).toBeHidden();
-  }
+  await expect(approvalWidget).toBeVisible();
   const removedShape = page.locator('.overlay-shape.ai-diff-removed-shape[data-overlay-shape-id="e2e_shape_1"]');
   await expect(removedShape).toBeVisible();
   await expect(approvalWidget.locator("[data-ai-proposal-merge-notice]")).toHaveCount(0);
