@@ -29,14 +29,6 @@ import {
 } from "../../src/features/collaboration/model/approval";
 import { stableValue, type ObjectValue } from "../../src/features/collaboration/model/value";
 
-/**
- * The last approval sent for a group of pending proposals (main-process memory, by file and proposal
- * versions), until it is answered. A rewritten approval's operation id follows the document it was
- * merged on, which the approval itself changes, so a retry after a lost answer must not merge again.
- * After a restart this is gone: such a retry then merges again (and stops on the AI's own inserted ids).
- */
-const sentApprovals = new Map<string, { before: SigmaDocument; prepared: PreparedApproval }>();
-
 /** What the approval uses of the shared session. */
 export type SharedProposalSessions = Pick<
   CollaborationSessions,
@@ -84,41 +76,23 @@ export function createSharedProposalApprover(
               ),
             ),
           );
-          const approvalIds = proposals.map((proposal) => proposal.proposalId);
-          const sentKey = [fileId, ...records.map((proposal) => `${proposal.proposalId}@${proposal.updatedAt}`).sort()].join("\0");
-          // A retry first sends again what was sent for these proposals: the server answers an operation it
-          // applied (and whose answer was lost) from its receipt, before checking anything. Only when the
-          // server refuses it (the document moved on) is the approval merged again.
-          let sent = sentApprovals.get(sentKey);
+          // This window's projection only catches up with the other participants on an online
+          // flush; the merge and the rebuilt preconditions must read what the server holds now.
+          await sessions.flush(fileId, true);
+          const before = sessions.project(fileId)!;
+          const prepared = records.some(hasMergeBasis)
+            ? await prepareMergedApproval(before, records, envelopes)
+            : prepareRecordedApproval(records, envelopes);
           let accepted: { seq: number } | undefined;
-          if (sent) {
-            try {
-              accepted = await sessions.approve(fileId, sent.prepared.approval!, approvalIds);
-            } catch (error) {
-              if (!/PROPOSAL_CONFLICT|MISSING_PRECONDITION/.test(String(error))) throw error;
-              sentApprovals.delete(sentKey);
-              sent = undefined;
-            }
+          let document = before;
+          if (prepared.approval) {
+            accepted = await sessions.approve(
+              fileId,
+              prepared.approval,
+              proposals.map((proposal) => proposal.proposalId),
+            );
+            document = sessions.project(fileId)!;
           }
-          if (!sent) {
-            // This window's projection only catches up with the other participants on an online
-            // flush; the merge and the rebuilt preconditions must read what the server holds now.
-            await sessions.flush(fileId, true);
-            const before = sessions.project(fileId)!;
-            sent = {
-              before,
-              prepared: records.some(hasMergeBasis)
-                ? await prepareMergedApproval(before, records, envelopes)
-                : prepareRecordedApproval(records, envelopes),
-            };
-            if (sent.prepared.approval) {
-              sentApprovals.set(sentKey, sent);
-              accepted = await sessions.approve(fileId, sent.prepared.approval, approvalIds);
-            }
-          }
-          sentApprovals.delete(sentKey);
-          const { before, prepared } = sent;
-          const document = accepted ? sessions.project(fileId)! : before;
           // The merged proposals first, so a group is resolved with its replayed member's report.
           let resolved = proposals[0];
           for (const proposalId of new Set([
@@ -354,10 +328,12 @@ function recordedApproval(envelopes: SharedApproval[]): {
  *
  * What the sync server (not in this repository) is relied on for: it answers an operation id it has
  * applied with the same result when the request is the same and refuses it otherwise, and it applies
- * `drafts` in order after checking every precondition. A rewritten approval is not stored; if the
- * server applied one but its answer was lost and the document changed before the retry, the retry is
- * a new operation merged on top of the applied one (the replay then finds the AI's own changes already
- * in the document: inserted ids are taken, deletions done).
+ * `drafts` in order after checking every precondition. A rewritten approval is not stored. Known
+ * risk: when the server applied one but its answer was lost, the application itself changed the
+ * document, so a retry is merged again into a different operation (other preconditions, another id).
+ * A proposal that inserts then stops with PROPOSAL_CONFLICT on the AI's own inserted ids and stays
+ * pending although applied (the person discards it). The recorded approval of an unchanged merge and
+ * of a legacy record is resent as recorded, as before.
  */
 function mergedOperationId(
   envelopes: SharedApproval[],

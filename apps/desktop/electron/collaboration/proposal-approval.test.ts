@@ -21,7 +21,7 @@ import type { LocalMcpEditProposal } from "../proposals/contracts";
 import { collectOccupiedInsertIds } from "../proposals/freshness";
 import { replayProposalDraft } from "../proposals/replay";
 import { createSharedProposalApprover } from "./proposal-approval";
-import { observeSharedRead, readSharedProposal, withSharedReadScope } from "./proposal-context";
+import { approvalFile, observeSharedRead, readSharedProposal, withSharedReadScope } from "./proposal-context";
 
 const te = createCurrentLocaleTranslator("error");
 
@@ -153,7 +153,6 @@ function createSharedSession(userData: string, fileId: string, document: SigmaDo
   const receipts = new Map<string, { body: string; seq: number }>();
   const requests: SharedApproval[] = [];
   let failBeforeServer: Error | null = null;
-  let loseAnswer = false;
   const sessions = {
     directory: path.join(userData, "collaboration-v1"),
     has: (id: string) => id === fileId,
@@ -192,10 +191,6 @@ function createSharedSession(userData: string, fileId: string, document: SigmaDo
       server = parseSigmaDocument(next);
       seq += 1;
       receipts.set(approval.operationId, { body, seq });
-      if (loseAnswer) {
-        loseAnswer = false;
-        throw new Error("network: the answer was lost");
-      }
       local = server;
       return { seq };
     }),
@@ -210,10 +205,6 @@ function createSharedSession(userData: string, fileId: string, document: SigmaDo
     },
     failNextApprovalBeforeTheServer: (error: Error) => {
       failBeforeServer = error;
-    },
-    /** The server applies the next approval, but its answer never arrives. */
-    loseNextApprovalAnswer: () => {
-      loseAnswer = true;
     },
   };
 }
@@ -523,37 +514,6 @@ describe("shared proposal approval", () => {
     await expect(fixture.approve(reproposed, merged)).resolves.toMatchObject({ ok: true });
   });
 
-  it("resolves a merged approval the server applied but whose answer was lost, without applying it twice", async () => {
-    const proposal = await fixture.createProposal(draftOf([
-      replace("p_1", "The dog sat."),
-      { operation: "insertAfter", summary: "挿入", targetId: "p_3", insertedBlock: paragraph("p_new", "AI が足した段落") },
-    ]));
-    fixture.editByAnotherParticipant(editText("p_1", "The big cat sat."));
-    fixture.loseNextApprovalAnswer();
-
-    await expect(fixture.approve(proposal)).resolves.toEqual({ ok: false, code: "conflict", error: te("electron.proposal.applyFailed") });
-    await expect(fixture.approve(proposal)).resolves.toMatchObject({ ok: true });
-
-    expect(await fixture.statusOf(proposal)).toBe("approved");
-    expect(fixture.requests).toHaveLength(2);
-    expect(fixture.requests[1]).toEqual(fixture.requests[0]);
-    expect(fixture.server().content.filter((block) => block.id === "p_new")).toHaveLength(1);
-    expect(textOf(fixture.server(), "p_1")).toBe("The big dog sat.");
-  });
-
-  it("merges again when the approval it sent before is refused because the document moved on", async () => {
-    const proposal = await fixture.createProposal(draftOf([replace("p_1", "The dog sat.")]));
-    fixture.editByAnotherParticipant(editText("p_1", "The big cat sat."));
-    fixture.failNextApprovalBeforeTheServer(new Error("network"));
-    await expect(fixture.approve(proposal)).resolves.toMatchObject({ ok: false });
-    fixture.editByAnotherParticipant(editText("p_1", "The big cat sat down."));
-
-    await expect(fixture.approve(proposal)).resolves.toMatchObject({ ok: true });
-
-    expect(textOf(fixture.server(), "p_1")).toBe("The big dog sat down.");
-    expect(fixture.requests.at(-1)!.operationId).not.toBe(fixture.requests[0].operationId);
-  });
-
   it("resolves the proposal without sending anything when the participant's edits made every operation unnecessary", async () => {
     const proposal = await fixture.createProposal(draftOf([], [{ operation: "deleteBlocks", summary: "削除", blockIds: ["p_3"] }]));
     fixture.editByAnotherParticipant(editText("p_3", "段落 p_3 by another participant"));
@@ -564,6 +524,30 @@ describe("shared proposal approval", () => {
     expect(fixture.requests).toHaveLength(0);
     expect(await fixture.statusOf(proposal)).toBe("approved");
     expect(textOf(fixture.server(), "p_3")).toBe("段落 p_3 by another participant");
+  });
+});
+
+describe("a local document's AI run", () => {
+  it("starts without reading shared approval records (an unreadable one does not stop it)", async () => {
+    const userData = await fs.mkdtemp(path.join(os.tmpdir(), "sigma-local-run-snapshot-"));
+    try {
+      const proposals = new LocalMcpEditProposalStore(userData);
+      const baseDocument = sharedDocument();
+      const draft = draftOf([replace("p_1", "The dog sat.")]);
+      const proposal = await proposals.upsertCurrentProposal({
+        fileId: "file_local", baseRevision: 1, baseDocument, summary: draft.summary, plan: draft.plan, provider: null,
+        source: { toolName: "draft_update_rich_content", toolArgs: {} }, draft, nextDocument: replayProposalDraft(baseDocument, draft).nextDocument,
+        runId: "run_local", roomId: "room_local",
+      });
+      // Not a shared document: no binding, and whatever sits where a shared record would be is not read.
+      await fs.mkdir(approvalFile(userData, proposal.proposalId), { recursive: true });
+
+      const snapshotId = await proposals.beginProposalRunSnapshot("room_local", "file_local");
+
+      await expect(proposals.rollbackProposalRunSnapshot(snapshotId)).resolves.toBe(true);
+    } finally {
+      await fs.rm(userData, { recursive: true, force: true });
+    }
   });
 });
 
