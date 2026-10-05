@@ -5,7 +5,7 @@ import {
   type SigmaBlock,
   type SigmaDocument,
 } from "@/features/document";
-import { findBlock, updateBlockInDocument, type EditableBlock } from "@/lib/document-tree";
+import { collectBlocksById, findBlock, updateBlockInDocument, type EditableBlock } from "@/lib/document-tree";
 import { isOverlayAnchorSupportDraft } from "@/lib/ai/applied-document-diff";
 import {
   EditableBlockSchema,
@@ -258,23 +258,82 @@ export function collectProposalMergeUnits(draft: AiEditSessionDraft): ProposalMe
   return units;
 }
 
+/** Existing blocks and shapes, separately: the editor locks them on different surfaces. */
+export interface ProposalTargets {
+  blockIds: string[];
+  shapeIds: string[];
+}
+
 /**
- * Overwritten targets the merging replay does not merge: shapes the draft aligns and partial
- * column sections it reconfigures are operation-based, so a human change to them is still a
- * content conflict (compared with the base hashes) unless the same target is also a merged unit.
- * The approval reports that conflict (`electron/proposals/freshness.ts`), and the editor keeps
- * exactly these targets locked while the proposal is pending (`derivePendingAiProposalLockTargets`).
+ * The targets of pending proposals the approval cannot merge with a human's edit: changing one makes
+ * the approval report a conflict, or (without this rule) silently lose the human's edit. This is the
+ * one definition both sides read: the approval compares exactly these with their base hashes
+ * (content-stale, `electron/proposals/freshness.ts`), and the editor keeps exactly these locked while
+ * the proposals are pending (`derivePendingAiProposalLockTargets`).
+ *
+ * - A proposal without a usable merge basis (a legacy record): every existing block it replaces,
+ *   deletes or moves and every shape it updates, aligns or deletes (its approval compares hashes).
+ * - A proposal with a basis: what the merging replay leaves to the plain replay (`replayProposalDraft
+ *   Merging`) — a replaced block outside every basis block, a deleted block or shape and an updated
+ *   shape without a snapshot — and the targets of operations it never merges (aligned shapes, a
+ *   reconfigured column section) unless the same target is a merged unit. Moves only change where a
+ *   block is, so the replay keeps a human's edit of the moved block.
+ * - The old shape of a replacement pair (`replacements`, a deletion and a later insertion requesting
+ *   its id in the same group): a human's edit would keep the old shape and the replacement could not
+ *   take its id, so the whole group would fail.
  */
-export function collectNonMergeableSensitiveIds(draft: AiEditSessionDraft, mergeBasis: ProposalMergeBasis): string[] {
-  const ids = new Set<string>();
-  for (const operation of draft.mutationOperations ?? []) {
-    if (operation.operation === "alignOverlayShapes") {
-      operation.shapeIds.forEach((id) => ids.add(id));
-    } else if (operation.operation === "updateLayoutSection") {
-      ids.add(operation.sectionId);
+export function collectNonMergeableTargets(
+  proposals: readonly { draft: AiEditSessionDraft; mergeBasis?: ProposalMergeBasis }[],
+  replacements: readonly { removedShapeId: string }[] = [],
+): ProposalTargets {
+  const blockIds = new Set<string>();
+  const shapeIds = new Set<string>();
+  for (const proposal of proposals) {
+    const mergeBasis = usableProposalMergeBasis(proposal.mergeBasis);
+    const { draft } = proposal;
+    // The replay merges a unit only through its own snapshot (`planDeletions`, `planShapeUnits`), and a
+    // replacement through the outermost snapshot containing it (`groupReplaceOperationsByUnit`).
+    const hasSnapshot = (id: string, kind: ProposalMergeBasisEntity["kind"]) => mergeBasis?.entities[id]?.kind === kind;
+    let blocksInSnapshots: Set<string> | null = null;
+    const insideBlockSnapshot = (id: string) => {
+      blocksInSnapshots ??= new Set(Object.values(mergeBasis?.entities ?? {}).flatMap((entity) => (
+        entity.kind === "block" ? [...collectBlocksById([entity.value as SigmaBlock]).keys()] : []
+      )));
+      return blocksInSnapshots.has(id);
+    };
+    for (const operation of draft.operations) {
+      if ((operation.operation === undefined || operation.operation === "replace")
+        && !isOverlayAnchorSupportDraft(operation, draft.operations)
+        && !insideBlockSnapshot(operation.targetId)) {
+        blockIds.add(operation.targetId);
+      }
+    }
+    for (const operation of draft.mutationOperations ?? []) {
+      switch (operation.operation) {
+        case "deleteBlocks":
+          operation.blockIds.filter((id) => !hasSnapshot(id, "block")).forEach((id) => blockIds.add(id));
+          break;
+        case "moveBlocks":
+          if (!mergeBasis) operation.blockIds.forEach((id) => blockIds.add(id));
+          break;
+        case "updateLayoutSection":
+          // A legacy record keeps its historical lock set, which never included the section.
+          if (mergeBasis && !hasSnapshot(operation.sectionId, "block")) blockIds.add(operation.sectionId);
+          break;
+        case "updateOverlayShape":
+          if (!hasSnapshot(operation.shapeId, "shape")) shapeIds.add(operation.shapeId);
+          break;
+        case "alignOverlayShapes":
+        case "deleteOverlayShapes":
+          operation.shapeIds.filter((id) => !hasSnapshot(id, "shape")).forEach((id) => shapeIds.add(id));
+          break;
+        default:
+          break;
+      }
     }
   }
-  return [...ids].filter((id) => mergeBasis.entities[id] === undefined);
+  replacements.forEach((replacement) => shapeIds.add(replacement.removedShapeId));
+  return { blockIds: [...blockIds], shapeIds: [...shapeIds] };
 }
 
 /**

@@ -22,8 +22,7 @@ import {
 } from "@/lib/ai/overlay-shape-replacement";
 import { getVisualShapesFromOperations } from "@/lib/ai/ai-edit-shape-preview";
 import {
-  collectNonMergeableSensitiveIds,
-  usableProposalMergeBasis,
+  collectNonMergeableTargets,
   type ProposalMergeBasis,
   type ProposalMergeReport,
 } from "@/lib/ai/proposal-merge-basis";
@@ -1108,14 +1107,14 @@ export function deriveAiEditPreviewDiff(
 }
 
 /**
- * 保留中の提案の対象のうち、決めるまで読み取り専用にするもの: 人が直すと承認が必ず競合になる
- * (三者マージで合成できない) 対象だけ。
+ * 保留中の提案の対象のうち、決めるまで読み取り専用にするもの: 人が直すと承認が競合になるか人の編集が
+ * 落ちる (三者マージで合成できない) 対象だけ。どれが合成できないかは承認の競合判定と同じ関数
+ * (`collectNonMergeableTargets`) が決める。ここで draft から別に導かない (MISS R17)。
  *
- * - base (`mergeBasis`) を持つ提案の置換・削除・移動・図形の更新/削除の対象はロックしない。承認の
- *   合成 replay が人の編集を残して追従する (編集は削除に勝つ。対象が消えたときだけ anchor-missing の競合)。
- * - base を持つ提案でも、合成しない操作 (図形の整列・段組み設定の更新) の対象はロックする
- *   (`collectNonMergeableSensitiveIds`。承認はその対象の内容ハッシュを比べる)。
- * - base を持たない (読めない) 旧レコードは、従来どおり上書きする全対象と置き換えの元の図形をロックする。
+ * - base (`mergeBasis`) を持つ提案の置換・削除・移動・図形の更新/削除の対象は、base にその元の内容が
+ *   あればロックしない。承認の合成 replay が人の編集を残して追従する (編集は削除に勝つ)。
+ * - base に元の内容が無い対象、合成しない操作 (図形の整列・段組み設定の更新) の対象、置き換えの組の
+ *   元の図形はロックする。base を持たない (読めない) 旧レコードは従来どおり全対象をロックする。
  *
  * 挿入するだけのブロック・図形はゴーストなのでロックは要らない。WebMCP のプレビュー (`lockTargets:
  * false`) は mergeSources を持たないが、旧レコードではない (鮮度の検査で守る) のでロックしない。
@@ -1131,58 +1130,16 @@ export function derivePendingAiProposalLockTargets(previews: AiEditPreviewState[
     if (preview.lockTargets === false) {
       continue;
     }
-    if (!preview.mergeSources || preview.mergeSources.length === 0) {
-      addLegacyProposalLockTargets(preview.draft, blockIds, shapeIds);
-      preview.shapeReplacements?.forEach((replacement) => shapeIds.add(replacement.removedShapeId));
-      continue;
-    }
-    for (const source of preview.mergeSources) {
-      const mergeBasis = usableProposalMergeBasis(source.mergeBasis);
-      if (!mergeBasis) {
-        addLegacyProposalLockTargets(source.draft, blockIds, shapeIds);
-        continue;
-      }
-      const nonMergeableIds = new Set(collectNonMergeableSensitiveIds(source.draft, mergeBasis));
-      for (const operation of source.draft.mutationOperations ?? []) {
-        if (operation.operation === "alignOverlayShapes") {
-          operation.shapeIds.filter((id) => nonMergeableIds.has(id)).forEach((id) => shapeIds.add(id));
-        } else if (operation.operation === "updateLayoutSection" && nonMergeableIds.has(operation.sectionId)) {
-          blockIds.add(operation.sectionId);
-        }
-      }
-    }
+    // mergeSources が無いまとまりは、どの提案も base を持たない (旧レコード)。
+    const targets = collectNonMergeableTargets(
+      preview.mergeSources?.length ? preview.mergeSources : [{ draft: preview.draft }],
+      preview.shapeReplacements,
+    );
+    targets.blockIds.forEach((id) => blockIds.add(id));
+    targets.shapeIds.forEach((id) => shapeIds.add(id));
   }
 
   return { blockIds, shapeIds };
-}
-
-/** base を持たない旧レコードがロックする対象: 実際に置換・削除・移動・変更する既存のブロックと図形。 */
-function addLegacyProposalLockTargets(draft: AiEditSessionDraft, blockIds: Set<string>, shapeIds: Set<string>): void {
-  const allOperations = draft.operations;
-  for (const operation of allOperations) {
-    if (operation.operation === "insertOverlayShape" || operation.operation === "insertTableShape") {
-      continue;
-    }
-    if (isOverlayAnchorSupportDraft(operation, allOperations)) {
-      continue;
-    }
-    // Insertion only reads the anchor's identity. Its text is not overwritten.
-    if (operation.operation === "replace") blockIds.add(operation.targetId);
-  }
-
-  for (const operation of draft.mutationOperations ?? []) {
-    if (operation.operation === "deleteBlocks") {
-      operation.blockIds.forEach((id) => blockIds.add(id));
-    } else if (operation.operation === "moveBlocks") {
-      operation.blockIds.forEach((id) => blockIds.add(id));
-    } else if (operation.operation === "deleteOverlayShapes") {
-      operation.shapeIds.forEach((id) => shapeIds.add(id));
-    } else if (operation.operation === "updateOverlayShape") {
-      shapeIds.add(operation.shapeId);
-    } else if (operation.operation === "alignOverlayShapes") {
-      operation.shapeIds.forEach((id) => shapeIds.add(id));
-    }
-  }
 }
 
 /**

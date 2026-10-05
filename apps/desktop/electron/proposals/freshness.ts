@@ -6,7 +6,7 @@ import {
 } from "@/lib/ai/sigma-doc-edit-schema";
 import { isOverlayAnchorSupportDraft } from "@/lib/ai/applied-document-diff";
 import {
-  collectNonMergeableSensitiveIds,
+  collectNonMergeableTargets,
   collectReinsertedDeletionIds,
   findBlockContainer,
   usableProposalMergeBasis,
@@ -435,15 +435,17 @@ export interface MergeableProposal {
   touchedBlocks?: LocalMcpEditProposalTouchedBlock[];
 }
 
-// The renderer locks exactly these targets while the proposal is pending, so the rule lives next to
-// the merge basis (`src/lib`), which both sides can import.
-export { collectNonMergeableSensitiveIds };
-
+/**
+ * Overwritten targets the merging replay cannot merge (`collectNonMergeableTargets`, the same rule the
+ * editor locks while the proposal is pending): a human change to one is a content conflict, compared
+ * with the base hashes, instead of being overwritten by the replay.
+ */
 function findNonMergeableContentStale(
   proposal: MergeableProposal,
   currentHashes: Record<string, string>,
 ): ProposalFreshnessConflict | null {
-  const ids = new Set(collectNonMergeableSensitiveIds(proposal.draft, proposal.mergeBasis));
+  const targets = collectNonMergeableTargets([proposal]);
+  const ids = new Set([...targets.blockIds, ...targets.shapeIds]);
   const conflictIds = ids.size > 0
     ? findConflictingBlockIds((proposal.touchedBlocks ?? []).filter((touched) => ids.has(touched.id)), currentHashes)
     : [];

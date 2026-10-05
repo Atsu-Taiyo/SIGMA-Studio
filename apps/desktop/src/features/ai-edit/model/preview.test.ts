@@ -1321,7 +1321,7 @@ function lockTargetDocument(): SigmaDocument {
     outputProfiles: { student: {}, teacher: {}, answerBook: {} },
     content: [
       ...["b1", "b4", "b5", "b6"].map(paragraphBlock),
-      { id: "sec1", type: "layoutSection", columns: 2, children: [paragraphBlock("sec1_p")] },
+      { id: "sec1", type: "layoutSection", layout: { columnCount: 2, columnGapMm: 8 }, children: [paragraphBlock("sec1_p")] },
     ],
     pageLayout: {
       overlay: {
@@ -1343,14 +1343,19 @@ const updateLayoutSectionOp: SigmaDocMutationOp = {
 };
 
 /** 実際の提案ストアと同じく、作成時の文書から `mergeBasis` を持たせた保留中の提案のプレビュー。 */
-function lockPreview(proposals: Array<{ draft: Partial<AiEditSessionDraft>; mergeBasis?: "computed" | ProposalMergeBasis }>): AiEditPreviewState {
-  const summaries = proposals.map(({ draft, mergeBasis }, index) => {
+function lockPreview(proposals: Array<{
+  draft: Partial<AiEditSessionDraft>;
+  mergeBasis?: "computed" | ProposalMergeBasis;
+  requestedShapeId?: string;
+}>): AiEditPreviewState {
+  const summaries = proposals.map(({ draft, mergeBasis, requestedShapeId }, index) => {
     const summary = makeProposal({
       proposalId: `lock_${index}`,
       fileId: "file_1",
       targetId: "b1",
       runId: "run_lock",
       createdAt: `2026-06-27T00:00:0${index}.000Z`,
+      requestedShapeId,
       draftOverrides: { operations: [], ...draft },
     });
     return mergeBasis === undefined
@@ -1422,13 +1427,45 @@ describe("derivePendingAiProposalLockTargets", () => {
     expect(locks.shapeIds).toEqual(new Set());
   });
 
-  it("does not lock the old shape of a replacement a merge-capable proposal makes", () => {
-    const preview = {
-      ...lockPreview([{ mergeBasis: "computed", draft: { mutationOperations: [deleteOverlayShapesOp] } }]),
-      shapeReplacements: [{ removedShapeId: "s6", addedShapeId: "s6_new" }],
+  it("keeps a target locked when the merge basis has no snapshot of it (the replay would overwrite the human's edit)", () => {
+    const sectionBlock = lockTargetDocument().content.find((block) => block.id === "sec1")!;
+    const partial: ProposalMergeBasis = {
+      version: 1,
+      entities: { sec1: { kind: "block", value: structuredClone(sectionBlock) as never } },
     };
+    const replaceNested = { ...replaceDraft, targetId: "sec1_p", replacementBlock: { id: "sec1_p", type: "paragraph", children: [] } } as unknown as AiEditDraft;
+    const locks = derivePendingAiProposalLockTargets([lockPreview([{
+      mergeBasis: partial,
+      draft: {
+        operations: [replaceDraft, replaceNested],
+        mutationOperations: [deleteBlocksOp, moveBlocksOp, updateOverlayShapeOp, deleteOverlayShapesOp],
+      },
+    }])]);
 
-    expect(derivePendingAiProposalLockTargets([preview]).shapeIds).toEqual(new Set());
+    // b1 / b4 / b5 / s3 / s6 have no snapshot. sec1_p sits inside the sec1 snapshot, so it merges with it.
+    expect(locks.blockIds).toEqual(new Set(["b1", "b4", "b5"]));
+    expect(locks.shapeIds).toEqual(new Set(["s3", "s6"]));
+  });
+
+  it("locks the old shape of a replacement pair even when both proposals carry a merge basis", () => {
+    // A deletes s6 and B inserts its replacement under s6 (requestedShapeId). If the human edited s6, A's
+    // merge would keep it and B's insert would collide with it, so the whole group could not be approved.
+    const preview = lockPreview([
+      { mergeBasis: "computed", draft: { mutationOperations: [deleteOverlayShapesOp] } },
+      { mergeBasis: "computed", requestedShapeId: "s6", draft: { operations: [{ ...insertOverlayShapeDraft, overlayShape: { id: "s6_new", type: "geo" } } as unknown as AiEditDraft] } },
+    ]);
+
+    expect(preview.shapeReplacements).toEqual([{ removedShapeId: "s6", addedShapeId: "s6_new" }]);
+    expect(derivePendingAiProposalLockTargets([preview]).shapeIds).toEqual(new Set(["s6"]));
+  });
+
+  it("locks the old shape of a replacement pair whose insertion is a legacy record", () => {
+    const preview = lockPreview([
+      { mergeBasis: "computed", draft: { mutationOperations: [deleteOverlayShapesOp] } },
+      { requestedShapeId: "s6", draft: { operations: [{ ...insertOverlayShapeDraft, overlayShape: { id: "s6_new", type: "geo" } } as unknown as AiEditDraft] } },
+    ]);
+
+    expect(derivePendingAiProposalLockTargets([preview]).shapeIds).toEqual(new Set(["s6"]));
   });
 
   it("does not reserve the text of a body insertion anchor or move destination", () => {
