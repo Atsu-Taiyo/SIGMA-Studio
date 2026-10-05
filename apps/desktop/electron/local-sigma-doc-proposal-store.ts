@@ -469,7 +469,8 @@ export class LocalMcpEditProposalStore {
         groupPosition: groupMemberIds.length - 1,
         history: [...(current.history ?? []), historyEntry],
       };
-      await Promise.all([...updatedMembers, nextProposal].map((proposal) => this.writeProposal(proposal)));
+      // The revised draft's shared approval record is taken from the same base as its touched blocks.
+      await Promise.all([...updatedMembers, nextProposal].map((proposal) => this.writeProposal(proposal, baseDocument)));
       return nextProposal;
     }
 
@@ -523,7 +524,7 @@ export class LocalMcpEditProposalStore {
       autoApplyDeferredAtRevision: undefined,
       autoApplyDeferredSignature: undefined,
     };
-    await this.writeProposal(nextProposal);
+    await this.writeProposal(nextProposal, baseDocument);
     return nextProposal;
   }
 

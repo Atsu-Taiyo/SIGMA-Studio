@@ -2,7 +2,8 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import { createHash, randomUUID } from "node:crypto";
 import { promises as fs } from "node:fs";
 import path from "node:path";
-import type { SigmaDocument } from "@/features/document";
+import { normalizeOverlaySnapshot, type SigmaDocument } from "@/features/document";
+import { collectNonMergeableTargets } from "@/lib/ai/proposal-merge-basis";
 import {
   computeDocumentBlockHashes,
   hashSigmaNode,
@@ -181,6 +182,17 @@ export async function captureSharedProposal(
   for (const item of proposal.touchedBlocks ?? [])
     if (item.baseHash && !conditions.has(item.id))
       conditions.set(item.id, { id: item.id, hash: item.baseHash });
+  if (baseDocument) {
+    // The targets the approval cannot merge an edit of (`collectNonMergeableTargets`) keep their base
+    // hash at approval, including the shapes a deletion reaches that the draft does not name (a
+    // group's members, shapes anchored to a deleted one, a graph's labels). A shared document has no
+    // locks, so these hashes are what stops another participant's edit of one from being dropped.
+    const hashes = computeDocumentBlockHashes(baseDocument);
+    const shapes = normalizeOverlaySnapshot(baseDocument.pageLayout?.overlay?.overlaySnapshot).shapes;
+    const targets = collectNonMergeableTargets([proposal], [], shapes);
+    for (const id of [...targets.blockIds, ...targets.shapeIds])
+      if (hashes[id] && !conditions.has(id)) conditions.set(id, { id, hash: hashes[id] });
+  }
   for (const [id, hash] of Object.entries(
     proposal.requestSelection?.hashes ?? {},
   ))
