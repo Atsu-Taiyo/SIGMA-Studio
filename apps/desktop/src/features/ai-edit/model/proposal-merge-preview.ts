@@ -109,25 +109,39 @@ export function resolveProposalMergePreview(
  * 提案ごとに、いま入っていて数え済みの代わりの経路。プレビューのオブジェクトは一覧の取り直し (自動保存の
  * あとなど) で作り直されるので、提案の id で持つ。数えるのは代わりの経路に「入った」ときだけ: 保留中の
  * 対象は人が直せる (消せる) ので、対象が消えたまま作り直すたびに数えると退避の回数がノイズになる。
- * 数えない呼び出し (承認中・消えるアニメーション) は観測しても記録しないので、そのあと数える呼び出しが
- * 初回として数える。抜けた (数える呼び出しで退避が無かった) ら忘れ、また入れば数える。
+ * 数えない呼び出し (承認中・消えるアニメーション) は退避に入ったことを記録しないので、そのあと数える
+ * 呼び出しが初回として数える。抜けたら (数えない呼び出しで観測しても) 忘れ、また入れば数える。保留中で
+ * なくなった提案の記録は `retainProposalMergePreviewFallbacks` が捨てる。
  */
 const countedFallbacksByProposal = new Map<string, ReadonlySet<string>>();
+
+const fallbackKeyOf = (preview: AiEditPreviewState) => preview.proposalIds.join("\u0000");
+
+/** 保留中でなくなった (承認・破棄された) 提案の数え済みの記録を捨てる。今の保留中のプレビューを渡す。 */
+export function retainProposalMergePreviewFallbacks(previews: readonly AiEditPreviewState[]): void {
+  const live = new Set(previews.map(fallbackKeyOf));
+  for (const key of [...countedFallbacksByProposal.keys()]) {
+    if (!live.has(key)) {
+      countedFallbacksByProposal.delete(key);
+    }
+  }
+}
 
 function noteFallbacks(
   preview: AiEditPreviewState,
   fallbacks: readonly string[],
   options: ResolveProposalMergePreviewOptions,
 ): void {
-  if (options.countFallbacks === false) {
-    return;
-  }
-  const key = preview.proposalIds.join("\u0000");
-  const counted = countedFallbacksByProposal.get(key);
+  const key = fallbackKeyOf(preview);
+  // 退避から戻ったことは、数えない呼び出しで観測しても記録から外す (次にまた入れば数える)。
   if (fallbacks.length === 0) {
     countedFallbacksByProposal.delete(key);
     return;
   }
+  if (options.countFallbacks === false) {
+    return;
+  }
+  const counted = countedFallbacksByProposal.get(key);
   const count = options.count ?? countPerformanceEvent;
   fallbacks.filter((name) => !counted?.has(name)).forEach((name) => count(name));
   countedFallbacksByProposal.set(key, new Set(fallbacks));
