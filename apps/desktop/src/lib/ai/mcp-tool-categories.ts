@@ -200,7 +200,7 @@ const CATEGORY_KEYWORD_PATTERNS: ReadonlyArray<{
  * category to a run that is narrowed anyway; they never take part in deciding to narrow, because
  * 「球」 also matches 地球・球技・電球 and 「立体的に」 is ordinary prose.
  */
-const SOLID_FIGURE_PATTERN = /[3３][dｄ]|[3３三]次元|立体|空間図形|面体|立方体|直方体|錐|角柱|円柱|球|回転体|断面|展開図|three[- ]?dimensional|sphere|cone|cylinder|pyramid|prism|cube|cuboid|hedron|torus|cross[- ]?section/i;
+const SOLID_FIGURE_PATTERN = /[3３][-\s]?[dｄ]|[3３三]次元|立体|空間図形|空間ベクトル|面体|立方体|直方体|錐|[円角]すい|角柱|円柱|柱体|円筒|球|回転体|断面|展開図|three[- ]?dimensional|sphere|cone|cylinder|pyramid|prism|cube|cuboid|hedr(?:on|a)|torus|cross[- ]?section/i;
 
 /** What a selected shape opens when nothing more specific applies (also for unknown types). */
 const SHAPE_CATEGORIES: readonly McpToolCategory[] = ["図形", "visual edit"];
@@ -225,6 +225,9 @@ const SELECTED_SHAPE_CATEGORIES: Readonly<Record<OverlayShape["type"], readonly 
   graph3dShape: ["グラフ", "図形", "visual edit"],
   tableShape: ["表", "図形"],
 };
+
+/** `targetType` of a selected-shape reference (createOverlaySelectionAiEditReference): `overlayShape:<type>`. */
+const OVERLAY_SHAPE_TARGET_TYPE_PREFIX = "overlayShape:";
 
 function selectedShapeCategories(type: string): readonly McpToolCategory[] {
   return Object.hasOwn(SELECTED_SHAPE_CATEGORIES, type)
@@ -326,7 +329,13 @@ export function inferToolCategoriesForRun({
     ].filter(Boolean).join(" "));
 
     const targetType = reference.targetType ?? "";
-    if (/graph[23]d/i.test(targetType)) {
+    if (targetType.startsWith(OVERLAY_SHAPE_TARGET_TYPE_PREFIX)) {
+      // A shape reference keeps its type here even when its overlay selection was dropped.
+      for (const category of selectedShapeCategories(targetType.slice(OVERLAY_SHAPE_TARGET_TYPE_PREFIX.length))) {
+        inferred.add(category);
+      }
+      hasConfidentSignal = true;
+    } else if (/graph2d/i.test(targetType)) {
       inferred.add("グラフ");
       hasConfidentSignal = true;
     } else if (/table/i.test(targetType)) {
@@ -393,7 +402,8 @@ export function inferToolCategoriesForRun({
 
 /**
  * Library management and AI settings act outside the document's proposal flow (deleting files,
- * changing auto-approval), so a refused call never opens them; only the user's instruction does.
+ * changing auto-approval), so a refused call never opens them. They still open as before from the
+ * instruction's keywords, a selected skill, or the all-categories fallback for unclear instructions.
  */
 const NEVER_ALLOWED_AFTER_DENIAL: ReadonlySet<McpToolCategory> = new Set(["教材管理", "AI設定・アプリ文脈"]);
 
