@@ -48,6 +48,7 @@ export async function syncPublicPackageVersions({ checkOnly = false } = {}) {
   const viewerPackage = await readJson("packages/viewer/package.json");
   const editorPackage = await readJson("packages/editor/package.json");
   const examplePackage = await readJson("examples/editor-react18/package.json");
+  const example19Package = await readJson("examples/editor-react19/package.json");
   const packageLock = await readJson("package-lock.json");
 
   const expected = [
@@ -130,6 +131,16 @@ export async function syncPublicPackageVersions({ checkOnly = false } = {}) {
     },
   ];
 
+  expected.push({
+    label: "React 19 exampleからEditorへのdependency",
+    current: example19Package.dependencies?.["@sigma-studio/editor"],
+    apply: () => { example19Package.dependencies["@sigma-studio/editor"] = publicVersion; },
+  }, {
+    label: "package-lock React 19 exampleからEditorへのdependency",
+    current: packageLock.packages?.["examples/editor-react19"]?.dependencies?.["@sigma-studio/editor"],
+    apply: () => { packageLock.packages["examples/editor-react19"].dependencies["@sigma-studio/editor"] = publicVersion; },
+  });
+
   const mismatches = expected.filter(({ current }) => current !== publicVersion);
 
   if (checkOnly) {
@@ -154,6 +165,7 @@ export async function syncPublicPackageVersions({ checkOnly = false } = {}) {
       writeJson("packages/viewer/package.json", viewerPackage),
       writeJson("packages/editor/package.json", editorPackage),
       writeJson("examples/editor-react18/package.json", examplePackage),
+      writeJson("examples/editor-react19/package.json", example19Package),
       writeJson("package-lock.json", packageLock),
     ]);
   }

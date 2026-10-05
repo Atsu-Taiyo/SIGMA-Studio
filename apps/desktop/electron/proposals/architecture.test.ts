@@ -1,6 +1,6 @@
 import { readFileSync, readdirSync } from "node:fs";
 
-import ts from "typescript";
+import ts from "typescript-compiler-api";
 import { describe, expect, it } from "vitest";
 
 import * as legacyStore from "../local-sigma-doc-proposal-store";

@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
-import ts from "typescript";
+import ts from "typescript-compiler-api";
 import { describe, expect, it } from "vitest";
 
 import { getModuleSpecifiers } from "../../../../tests/helpers/source-dependencies";

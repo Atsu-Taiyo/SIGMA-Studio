@@ -1,12 +1,13 @@
 {
   "name": "sigma-studio-workspace",
-  "version": "0.506.0",
+  "version": "0.507.0",
   "private": true,
   "workspaces": [
     "apps/desktop",
     "packages/viewer",
     "packages/editor",
-    "examples/editor-react18"
+    "examples/editor-react18",
+    "examples/editor-react19"
   ],
   "scripts": {
     "postinstall": "node scripts/patch-http-cache-semantics.mjs",
@@ -48,10 +49,12 @@
     "collaboration:desktop": "node --env-file=.env.collaboration.local scripts/collaboration-desktop.mjs",
     "collaboration:benchmark": "node scripts/collaboration-benchmark.mjs",
     "dependencies:check": "node scripts/check-desktop-dependencies.mjs",
-    "security:audit": "node --test scripts/dependency-security.test.mjs && npm audit --audit-level=high"
+    "security:audit": "node --test scripts/dependency-security.test.mjs && npm audit --audit-level=high",
+    "test:public-browser:react19": "npm exec --workspace @sigma-studio/desktop -- playwright test --config ../../tests/public-browser/playwright.react19.config.mts"
   },
   "devDependencies": {
-    "@next/eslint-plugin-next": "16.3.8"
+    "@next/eslint-plugin-next": "16.3.8",
+    "typescript-compiler-api": "npm:typescript@5.9.3"
   },
   "overrides": {
     "postcss": "^8.5.28",

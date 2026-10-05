@@ -6,6 +6,7 @@
     "emitDeclarationOnly": true,
     "noEmit": false,
     "outDir": "./dist",
+    "rootDir": "./src",
     "types": []
   },
   "include": ["src/index.ts", "src/SigmaDocEditor.tsx", "src/internal-runtime.d.ts"]

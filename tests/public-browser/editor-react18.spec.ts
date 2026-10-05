@@ -4,10 +4,11 @@ import sampleDocument from "../../examples/editor-react18/src/sample-document.js
 
 const storageKey = "sigma-sdk-answer-share-document-v2";
 
-test("Viewer display settings preserve SigmaDoc; edits survive host save and reload", async ({ page }) => {
+test("Viewer display settings preserve SigmaDoc; edits survive host save and reload", async ({ page }, testInfo) => {
   const pageErrors: string[] = [];
   page.on("pageerror", (error) => pageErrors.push(error.message));
   await page.goto("/");
+  await expect(page.locator("html")).toHaveAttribute("data-react-version", new RegExp(`^${testInfo.project.name.replace("react", "")}[.]`));
   await expect(page.locator(".viewer-stage")).toBeVisible();
   await expect(page.locator(".viewer-stage")).not.toBeEmpty();
   await expect(page.locator(".viewer-error")).toHaveCount(0);

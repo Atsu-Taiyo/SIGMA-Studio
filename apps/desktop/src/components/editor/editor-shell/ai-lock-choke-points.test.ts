@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
 import { describe, expect, it } from "vitest";
-import ts from "typescript";
+import ts from "typescript-compiler-api";
 
 /**
  * **文書を書き換える choke point は 2 つあり、AI ロックの読み方は同じでなければならない。**
