@@ -222,7 +222,9 @@ async function prepareMergedApproval(
     && stableValue(sortById(preconditions)) === stableValue(sortById(recorded.approval.preconditions));
   return {
     // Nothing to merge: the recorded approval itself. Otherwise a new operation id for the rewritten
-    // approval, derived from it (see `mergedOperationId`).
+    // approval, derived from it (see `mergedOperationId`). This choice is made against the document
+    // read now, so it is not a retry guarantee: once the approval was applied (its answer lost), the
+    // retry merges onto the applied document and is never "nothing to merge" (see `mergedOperationId`).
     approval: drafts.length === 0
       ? null
       : unchanged
@@ -329,11 +331,14 @@ function recordedApproval(envelopes: SharedApproval[]): {
  * What the sync server (not in this repository) is relied on for: it answers an operation id it has
  * applied with the same result when the request is the same and refuses it otherwise, and it applies
  * `drafts` in order after checking every precondition. A rewritten approval is not stored. Known
- * risk: when the server applied one but its answer was lost, the application itself changed the
- * document, so a retry is merged again into a different operation (other preconditions, another id).
- * A proposal that inserts then stops with PROPOSAL_CONFLICT on the AI's own inserted ids and stays
- * pending although applied (the person discards it). The recorded approval of an unchanged merge and
- * of a legacy record is resent as recorded, as before.
+ * risk: when the server applied an approval of a proposal with a merge basis (rewritten or sent as
+ * recorded) but its answer was lost, the application itself changed the document, so a retry is merged
+ * again onto the applied document into a different operation (other preconditions, another id). A
+ * proposal that inserts then stops with PROPOSAL_CONFLICT on the AI's own inserted ids before sending
+ * and stays pending although applied (the person discards it); a replacement is sent a second time and
+ * its report counts the AI's own change as a human edit (a wrong notice). Only a legacy record (no
+ * merge basis, always sent as recorded) is resent under its recorded id, idempotently as before. An
+ * idempotent resend for the others is a follow-up.
  */
 function mergedOperationId(
   envelopes: SharedApproval[],
