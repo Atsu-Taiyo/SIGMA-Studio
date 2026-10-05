@@ -3,7 +3,8 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import { mkdirSync, watch, type FSWatcher, type WatchEventType } from "node:fs";
 import fs from "node:fs/promises";
 import path from "node:path";
-import { captureSharedProposal } from "./collaboration/proposal-context";
+import { hasSharedBinding } from "./collaboration/local-bridge";
+import { captureSharedProposal, readSharedApprovalRecord, restoreSharedApprovalRecord } from "./collaboration/proposal-context";
 import { isDeepStrictEqual } from "node:util";
 import { parseSigmaDocument } from "@/lib/sigma-doc-schema";
 import { readBlockHashRevisions } from "./block-hash-sidecar";
@@ -219,6 +220,8 @@ export class LocalMcpEditProposalStore {
     roomId: string;
     fileId: string;
     proposals: LocalMcpEditProposal[];
+    /** Each proposal's shared approval record as it was (null without one), put back on rollback. */
+    sharedApprovals: (string | null)[];
   }>();
 
   constructor(userDataPath: string, options: LocalMcpEditProposalStoreOptions = {}) {
@@ -469,7 +472,8 @@ export class LocalMcpEditProposalStore {
         groupPosition: groupMemberIds.length - 1,
         history: [...(current.history ?? []), historyEntry],
       };
-      await Promise.all([...updatedMembers, nextProposal].map((proposal) => this.writeProposal(proposal)));
+      // The revised draft's shared approval record is taken from the same base as its touched blocks.
+      await Promise.all([...updatedMembers, nextProposal].map((proposal) => this.writeProposal(proposal, baseDocument)));
       return nextProposal;
     }
 
@@ -523,7 +527,7 @@ export class LocalMcpEditProposalStore {
       autoApplyDeferredAtRevision: undefined,
       autoApplyDeferredSignature: undefined,
     };
-    await this.writeProposal(nextProposal);
+    await this.writeProposal(nextProposal, baseDocument);
     return nextProposal;
   }
 
@@ -691,10 +695,15 @@ export class LocalMcpEditProposalStore {
         && proposal.fileId === normalizedFileId
         && proposal.roomId === normalizedRoomId,
       ));
+    // Only a shared document's proposals have approval records; a local document's run never reads them.
+    const shared = proposals.length > 0 && await hasSharedBinding(this.userDataDir(), normalizedFileId);
     this.runSnapshots.set(snapshotId, {
       roomId: normalizedRoomId,
       fileId: normalizedFileId,
       proposals: structuredClone(proposals),
+      sharedApprovals: shared
+        ? await Promise.all(proposals.map((proposal) => readSharedApprovalRecord(this.userDataDir(), proposal.proposalId)))
+        : proposals.map(() => null),
     });
     return snapshotId;
   }
@@ -724,8 +733,14 @@ export class LocalMcpEditProposalStore {
       await Promise.all(current
         .filter((proposal) => !snapshotIds.has(proposal.proposalId))
         .map((proposal) => this.deleteProposalFile(proposal.proposalId)));
-      for (const proposal of snapshot.proposals) {
+      for (const [index, proposal] of snapshot.proposals.entries()) {
         await this.writeProposal(proposal);
+        // Rewriting the restored draft takes its shared approval record again without the base it was
+        // made from (the base hashes of the targets the approval cannot merge): put back the record.
+        const sharedApproval = snapshot.sharedApprovals[index];
+        if (sharedApproval) {
+          await restoreSharedApprovalRecord(this.userDataDir(), proposal.proposalId, sharedApproval);
+        }
       }
       return true;
     } finally {
@@ -1224,14 +1239,15 @@ export class LocalMcpEditProposalStore {
           delete member.autoApplyDeferredAtRevision;
           delete member.autoApplyDeferredSignature;
         });
-        await Promise.all(updatedMembers.map((member) => this.writeProposal(member)));
+        // A shared approval record taken again reads its base from the document the draft was replayed on.
+        await Promise.all(updatedMembers.map((member) => this.writeProposal(member, normalizedCurrentDocument)));
         return { ok: true, proposal: summarizeProposal(updatedMembers.find((m) => m.proposalId === proposalId) ?? updatedMembers[0]) };
       } catch (error) {
         return { ok: false, reason: error instanceof Error ? error.message : te("electron.proposalStore.groupRestoreFailed") };
       }
     }
 
-    await this.writeProposal(nextProposal);
+    await this.writeProposal(nextProposal, normalizedCurrentDocument);
     return { ok: true, proposal: summarizeProposal(nextProposal) };
   }
 
@@ -2191,8 +2207,13 @@ export class LocalMcpEditProposalStore {
     })));
   }
 
+  /** The app's user data directory (holding the shared documents' approval records). */
+  private userDataDir(): string {
+    return path.dirname(path.dirname(this.getProposalsDir()));
+  }
+
   private async writeProposal(proposal: LocalMcpEditProposal, baseDocument?: SigmaDocument): Promise<void> {
-    await captureSharedProposal(path.dirname(path.dirname(this.getProposalsDir())), proposal, baseDocument);
+    await captureSharedProposal(this.userDataDir(), proposal, baseDocument);
     await this.ensureBaseDirs();
     const data = JSON.stringify(proposal);
     if (Buffer.byteLength(data, "utf8") > MAX_MCP_PROPOSAL_FILE_BYTES) {
