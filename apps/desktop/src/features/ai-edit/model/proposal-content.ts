@@ -34,6 +34,8 @@ import { areStructurallyEqual } from "@/lib/structural-equality";
 import {
   deriveAiEditPreviewDiff,
   deriveAiEditPreviewOverlayShapes,
+  deriveAiEditPreviewShapeUpdates,
+  type AiEditPreviewShapeUpdate,
   hasBodyAiEditChanges,
   isOverlayAiEditDraft,
   isOverlaySigmaDocMutationOp,
@@ -725,6 +727,62 @@ export function collectProposalRemovals(
     blockIds: collectPendingRemovedBlockIds(groupPendingProposalContentByAnchor(previews, document, options)),
     shapeIds: [...shapeIds],
   };
+}
+
+/**
+ * 紙面に描く図形の変更後の姿 (ゴースト)。base を持つ提案は、承認の合成後の文書にあるその図形で描く:
+ * draft の patch を今の図形に当てた姿は、人が直した値を patch の (元のままの) 値で塗り替えることがあり、
+ * 保存される内容と食い違う (MISS R17)。base を持たない提案と、合成後の文書に無い図形は従来どおり。
+ */
+export function resolveMergedShapeUpdates(
+  previews: AiEditPreviewState[],
+  document: SigmaDocument,
+  currentShapes: OverlayShape[],
+  options: ResolveProposalMergePreviewOptions = {},
+): AiEditPreviewShapeUpdate[] {
+  return withMergedShapes(
+    deriveAiEditPreviewShapeUpdates(previews, currentShapes),
+    new Map(collectMergedUpdatedShapes(previews, document, options).map((shape) => [shape.id, shape])),
+  );
+}
+
+/** base を持つ提案が更新・整列する図形の、承認の合成後の姿。 */
+export function collectMergedUpdatedShapes(
+  previews: AiEditPreviewState[],
+  document: SigmaDocument,
+  options: ResolveProposalMergePreviewOptions = {},
+): OverlayShape[] {
+  const mergedById = new Map<string, OverlayShape>();
+  for (const preview of previews) {
+    const updatedIds = new Set((preview.draft.mutationOperations ?? []).flatMap((operation) => (
+      operation.operation === "updateOverlayShape"
+        ? [operation.shapeId]
+        : operation.operation === "alignOverlayShapes" ? operation.shapeIds : []
+    )));
+    if (!preview.mergeSources?.length || updatedIds.size === 0) {
+      continue;
+    }
+    const afterDocument = resolveProposalMergePreview(document, preview, options).afterDocument;
+    for (const shape of afterDocument?.pageLayout?.overlay?.overlaySnapshot?.shapes ?? []) {
+      if (updatedIds.has(shape.id)) {
+        mergedById.set(shape.id, shape);
+      }
+    }
+  }
+  return [...mergedById.values()];
+}
+
+/** draft から作った変更後の姿を、合成後の姿があるものだけ置き換える。 */
+export function withMergedShapes(
+  updates: AiEditPreviewShapeUpdate[],
+  mergedById: ReadonlyMap<string, OverlayShape>,
+): AiEditPreviewShapeUpdate[] {
+  return mergedById.size === 0
+    ? updates
+    : updates.map((update) => {
+      const merged = mergedById.get(update.shapeId);
+      return merged ? { ...update, after: merged } : update;
+    });
 }
 
 // --- 表示用のコピー ---------------------------------------------------------
