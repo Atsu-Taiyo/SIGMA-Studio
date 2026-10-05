@@ -28,6 +28,8 @@ interface LineMeasureCacheEntry {
   width: number;
   height: number;
   relLines: MeasuredLine[];
+  /** 最後に描かれていたときの計測。描かれなくなった (畳んだ) ブロックはこの位置のまま残す。 */
+  block: MeasuredBlock;
 }
 
 export type LineMeasureCache = Map<string, LineMeasureCacheEntry>;
@@ -129,14 +131,23 @@ export function measureFlowBlocks(
     if (!id || seen.has(id)) {
       return;
     }
+    // 先に見つけた要素が勝つ。描かれていない要素でも同じで、後の同じ id の要素 (改ページで割れた
+    // 箱の断片の複製など) をそのブロックの位置として読まない。
+    seen.add(id);
     const rect = el.getBoundingClientRect();
-    // 描かれていないブロック (display: none で畳んだものとその中) は測らない。0 の矩形は紙面の先頭
-    // より上の位置として並び、図形のアンカーやページ割りを狂わせる。`seen` にも入れないので、前回の
-    // 計測を持ち越さず (件数が変わる) 消えたブロックとして扱う。
+    // 描かれていないブロック (display: none で畳んだものとその中) の 0 の矩形は読まない。畳むのは
+    // 表示だけなので、最後に描かれていたときの矩形のまま残す: 図形の固定先・付け替えの候補・前回の
+    // 計測が表示の切り替えで変わらない (保存される内容が変わらない)。一度も描かれていなければ残さない。
     if (isUndrawnElement(el, rect)) {
+      const cachedBlock = cache?.get(id);
+      const kept = previous?.rects.get(id)
+        ?? (cachedBlock && cachedBlock.zoomFactor === zoomFactor ? cachedBlock.block : undefined);
+      if (kept) {
+        measuredBlocks.push(kept);
+        into.push({ block: kept, isFlowUnit });
+      }
       return;
     }
-    seen.add(id);
     const containerId = findMeasurableContainerId(el, id);
     const top = (rect.top - contentOriginY) / zoomFactor + marginTopPx;
     const left = (rect.left - flowRect.left) / zoomFactor;
@@ -147,6 +158,7 @@ export function measureFlowBlocks(
     const contentRevision = el.closest<HTMLElement>(".ProseMirror")?.dataset.flowMeasureRevision ?? "0";
     const cached = cache?.get(id);
     let lines: MeasuredLine[];
+    let freshEntry: Omit<LineMeasureCacheEntry, "block"> | null = null;
     if (
       cached
       && cached.element === el
@@ -166,7 +178,7 @@ export function measureFlowBlocks(
     } else {
       countPerformanceEvent("PageCanvasEditor.lineBoxMeasure");
       lines = measureElementLineBoxes(el, flowRect, 1 / zoomFactor, 1 / zoomFactor);
-      cache?.set(id, {
+      freshEntry = {
         contentRevision,
         element: el,
         zoomFactor,
@@ -179,7 +191,7 @@ export function measureFlowBlocks(
           width: line.width,
           height: line.height,
         })),
-      });
+      };
     }
 
     const measured = {
@@ -192,6 +204,11 @@ export function measureFlowBlocks(
       ...(containerId ? { containerId } : {}),
       ...(isEditorOnlyBlockElement(el, id) ? { derived: true } : {}),
     };
+    if (freshEntry) {
+      cache?.set(id, { ...freshEntry, block: measured });
+    } else if (cached) {
+      cached.block = measured;
+    }
     if (!isSameBlockGeometry(measured, previous?.rects.get(id))) {
       // 位置か高さが変わったブロックが 1 つでもあれば、並びが変わりうる。
       geometryChanged = true;

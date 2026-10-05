@@ -3,9 +3,12 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import type { OverlayShape } from "@/components/editor/overlay-canvas/types";
 
+import { reanchorAfterDeletion } from "@/components/editor/overlay-canvas/anchor";
+
 import {
   calculateReserveSpaceGaps,
   measureFlowBlocks,
+  type LineMeasureCache,
 } from "./layout-measure";
 
 describe("calculateReserveSpaceGaps", () => {
@@ -89,18 +92,76 @@ describe("measureFlowBlocks with blocks that are not drawn", () => {
     expect(measurement.tops.get("b")).toBe(120);
   });
 
-  it("drops a block folded after it was measured, also when only its unit is measured again", () => {
+  it("keeps a block folded after it was measured at its last measured place (whole and incremental passes)", () => {
+    // 畳むのは表示だけ。付け替えの候補・前回の計測・固定した図形の位置が切り替えで変わらないよう、
+    // 最後に描かれていた矩形のまま残す (0 の矩形は読まない)。
     const { flow, find } = flowWithFoldable();
     const previous = measureFlowBlocks(flow, 1, 96);
-    expect(previous.rects.has("x")).toBe(true);
     fold(find("x"));
     fold(find("x_item"));
     place(find("b"), 120, 20);
 
     const incremental = measureFlowBlocks(flow, 1, 96, undefined, { scope: { kind: "dirtyUnit", unitId: "a" }, previous });
+    const whole = measureFlowBlocks(flow, 1, 96, undefined, { previous });
 
-    expect(incremental.ordered.map((block) => block.id)).toEqual(["a", "b"]);
-    expect(incremental.rects.has("x")).toBe(false);
-    expect(incremental.tops.get("b")).toBe(120);
+    for (const measurement of [incremental, whole]) {
+      expect(measurement.rects.get("x")).toEqual(previous.rects.get("x"));
+      expect(measurement.rects.get("x_item")).toEqual(previous.rects.get("x_item"));
+      expect(measurement.anchorable.map((block) => block.id)).toContain("x");
+      expect(measurement.tops.get("b")).toBe(120);
+    }
+  });
+
+  it("keeps the last rect from the line cache when no previous measurement is passed (the deletion re-anchor pass)", () => {
+    const { flow, find } = flowWithFoldable();
+    const cache: LineMeasureCache = new Map();
+    const before = measureFlowBlocks(flow, 1, 96, cache);
+    fold(find("x"));
+    fold(find("x_item"));
+
+    const folded = measureFlowBlocks(flow, 1, 96, cache);
+
+    expect(folded.rects.get("x")?.top).toBe(before.rects.get("x")?.top);
+    expect(folded.anchorable.map((block) => block.id)).toContain("x");
+  });
+
+  it("re-anchors a figure of a deleted block to the same block whether or not its neighbour is folded", () => {
+    const { flow, find } = flowWithFoldable();
+    const cache: LineMeasureCache = new Map();
+    const preDeletion = measureFlowBlocks(flow, 1, 96, cache);
+    // a を消した後: 描かれているブロックの位置は同じにして、候補の違いだけを見る。
+    find("a").remove();
+    const shapes = [{ id: "s", x: 10, y: 0, anchor: { type: "block" as const, blockId: "a", dx: 10, dy: 40 } }];
+    const reanchor = () => reanchorAfterDeletion(
+      shapes,
+      new Set(["a"]),
+      preDeletion.extents,
+      measureFlowBlocks(flow, 1, 96, cache).anchorable,
+    ).shapes[0]?.anchor;
+
+    const shown = reanchor();
+    fold(find("x"));
+    fold(find("x_item"));
+    const folded = reanchor();
+
+    expect(shown?.type === "block" ? ["x", "x_item"] : []).toContain(shown?.type === "block" ? shown.blockId : null);
+    expect(folded).toEqual(shown);
+  });
+
+  it("lets the first element with an id win even when it is not drawn (a later fragment copy is not taken as its place)", () => {
+    const { flow, find } = flowWithFoldable();
+    const copy = document.createElement("div");
+    copy.className = "fragment-copy";
+    copy.innerHTML = '<ul data-sigma-doc-id="x"><li data-sigma-doc-id="x_item">複製</li></ul>';
+    flow.firstElementChild!.append(copy);
+    place(copy.querySelector('[data-sigma-doc-id="x"]')!, 700, 30);
+    place(copy.querySelector('[data-sigma-doc-id="x_item"]')!, 700, 30);
+    const previous = measureFlowBlocks(flow, 1, 96);
+    expect(previous.rects.get("x")?.top).toBe(120);
+    fold(find("x"));
+    fold(find("x_item"));
+
+    expect(measureFlowBlocks(flow, 1, 96).rects.has("x")).toBe(false);
+    expect(measureFlowBlocks(flow, 1, 96, undefined, { previous }).rects.get("x")?.top).toBe(120);
   });
 });
