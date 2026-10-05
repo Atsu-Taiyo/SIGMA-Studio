@@ -9,18 +9,23 @@ import type {
   SigmaBlock,
 } from "@/features/document";
 
+/**
+ * `hiddenBlockIds`: 紙面に描かれていないブロック (畳んだ表示など)。そのブロックと中のすべてを探さず、
+ * 数えない (見えない場所へ選択を動かさない・件数に入れない)。
+ */
 export function findFirstBlockWithText(
   blocks: SigmaBlock[],
   query: string,
   selectedId: string | null,
   direction: "next" | "previous",
+  hiddenBlockIds?: ReadonlySet<string>,
 ): { id: string } | null {
   const normalizedQuery = query.trim();
   if (!normalizedQuery) {
     return null;
   }
 
-  const flat = flattenSearchableBlocks(blocks);
+  const flat = flattenVisibleSearchableBlocks(blocks, hiddenBlockIds);
   const selectedIndex = flat.findIndex((item) => item.id === selectedId);
   const startIndex =
     direction === "next"
@@ -35,14 +40,41 @@ export function findFirstBlockWithText(
   return ordered.find((item) => item.text.includes(normalizedQuery)) ?? null;
 }
 
-export function countTextMatches(blocks: SigmaBlock[], query: string): number {
+export function countTextMatches(blocks: SigmaBlock[], query: string, hiddenBlockIds?: ReadonlySet<string>): number {
   const normalizedQuery = query.trim();
   if (!normalizedQuery) {
     return 0;
   }
 
-  return flattenSearchableBlocks(blocks)
+  return flattenVisibleSearchableBlocks(blocks, hiddenBlockIds)
     .reduce((count, item) => count + item.text.split(normalizedQuery).length - 1, 0);
+}
+
+function flattenVisibleSearchableBlocks(
+  blocks: SigmaBlock[],
+  hiddenBlockIds: ReadonlySet<string> | undefined,
+): Array<{ id: string; text: string }> {
+  const flat = flattenSearchableBlocks(blocks);
+  if (!hiddenBlockIds || hiddenBlockIds.size === 0) {
+    return flat;
+  }
+  const excluded = collectIdsWithin(blocks, hiddenBlockIds);
+  return flat.filter((item) => !excluded.has(item.id));
+}
+
+/** `roots` のブロックと、その中のすべての id (入れ物の種類によらず、id を持つものを辿る)。 */
+function collectIdsWithin(value: unknown, roots: ReadonlySet<string>, inside = false, ids = new Set<string>()): Set<string> {
+  if (Array.isArray(value)) {
+    value.forEach((child) => collectIdsWithin(child, roots, inside, ids));
+  } else if (value && typeof value === "object") {
+    const id = (value as { id?: unknown }).id;
+    const within = inside || (typeof id === "string" && roots.has(id));
+    if (within && typeof id === "string") {
+      ids.add(id);
+    }
+    Object.values(value).forEach((child) => collectIdsWithin(child, roots, within, ids));
+  }
+  return ids;
 }
 
 function flattenSearchableBlocks(blocks: SigmaBlock[]): Array<{ id: string; text: string }> {

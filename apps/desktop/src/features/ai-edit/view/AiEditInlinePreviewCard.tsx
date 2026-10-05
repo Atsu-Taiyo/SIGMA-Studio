@@ -19,7 +19,11 @@ import {
   type McpEditProposalProvider,
 } from "../model/preview";
 import type { AiProposalContent, AiProposalContentHunk, AiProposalOperationKind } from "../model/proposal-content";
-import { DEFAULT_AI_PROPOSAL_DISPLAY_STATE, type AiProposalDisplayState } from "../model/proposal-display-state";
+import {
+  applyAiProposalCardDisplayPatch,
+  DEFAULT_AI_PROPOSAL_DISPLAY_STATE,
+  type AiProposalDisplayState,
+} from "../model/proposal-display-state";
 import type { AiProposalApplyOutcome } from "../application/proposal-action-model";
 import { AiProposalContentView } from "./AiProposalContentView";
 import {
@@ -233,6 +237,15 @@ export function AiProposalMergeNotice() {
 }
 
 /**
+ * 適用後だけを見せている紙面のカードのうち、その姿を紙面に組めないもの (変更前を本文から畳めない・移動など)
+ * に添える一言 (`AiProposalResultLayout.complete`)。
+ */
+function AiProposalResultNotice() {
+  const t = useT("ai");
+  return <span data-ai-proposal-result-notice="">{t("card.resultNotLaidOut")}</span>;
+}
+
+/**
  * 表示状態を、持ち主 (紙面の拡張) から受け取るか自分で持つか。どちらでも同じ形で読み書きする。
  * 紙面のカードは改ページで切れると続きの複製が別のインスタンスで描かれるので、持ち主が持つ
  * (`model/proposal-display-state.ts`)。単独で描くとき (テストなど) は自分で持つ。
@@ -245,16 +258,23 @@ function useProposalDisplayState(
   if (displayState && onDisplayStateChange) {
     return [displayState, onDisplayStateChange];
   }
-  return [ownState, (patch) => setOwnState((previous) => ({ ...previous, ...patch }))];
+  return [ownState, (patch) => setOwnState((previous) => applyAiProposalCardDisplayPatch(previous, patch))];
 }
 
-/** 表示状態をバーの props へ写す (内容を隠す・失敗の理由・破棄理由・変更前を隠す)。 */
+/**
+ * 表示状態をバーの props へ写す (適用後だけ・内容を隠す・失敗の理由・破棄理由・変更前を隠す)。適用後だけは
+ * 紙面のカードだけが出す (`offerAfterOnly`)。その間は変更前の図形も隠れているので「変更前を隠す」は出さない。
+ */
 function decisionBarStateProps(
   state: AiProposalDisplayState,
   update: (patch: Partial<AiProposalDisplayState>) => void,
-  options: { hasContent: boolean; hasBeforeShapes: boolean; contentId?: string },
+  options: { hasContent: boolean; hasBeforeShapes: boolean; offerAfterOnly?: boolean; contentId?: string },
 ) {
+  const afterOnly = Boolean(options.offerAfterOnly) && state.afterOnly;
   return {
+    ...(options.offerAfterOnly
+      ? { afterOnly, onAfterOnlyChange: (next: boolean) => update({ afterOnly: next }) }
+      : {}),
     ...(options.hasContent
       ? {
         contentHidden: state.contentHidden,
@@ -262,7 +282,7 @@ function decisionBarStateProps(
         contentId: options.contentId,
       }
       : {}),
-    ...(options.hasBeforeShapes
+    ...(options.hasBeforeShapes && !afterOnly
       ? { beforeHidden: state.beforeHidden, onBeforeHiddenChange: (beforeHidden: boolean) => update({ beforeHidden }) }
       : {}),
     applyError: state.applyError,
@@ -297,6 +317,11 @@ export interface AiEditInlinePreviewCardProps {
   hasBeforeShapes?: boolean;
   /** 内容が人の編集と合成したもの。バーの下に一言を添える (`AiProposalMergeNotice`)。 */
   mergedWithHumanEdits?: boolean;
+  /**
+   * 適用後だけを見せるとき、変更前を畳んでこの内容を置けば適用後の紙面になるか
+   * (`AiProposalResultLayout.complete`)。組めなければ、その間バーの下に一言を添える。既定は組める。
+   */
+  resultLaidOut?: boolean;
 }
 
 /**
@@ -307,6 +332,8 @@ export interface AiEditInlinePreviewCardProps {
  * - バーを最初の行に置くので、改ページで切れても操作は最初の帯 (正本) に残る。続きの複製では
  *   バーを同じ寸法で描くが見せない (`useIsFlowExtensionReplica`)。
  * - 「内容を隠す」は内容だけを隠してバーを残す。表示状態は持ち主から受け取る。
+ * - 「適用後だけを表示」は内容を印なしで描く (`AiProposalContentView` の `after`)。本文の変更前を畳むのと
+ *   図形の変更前を隠すのは持ち主 (紙面の拡張) が同じ状態から行う。
  * - 図形は描かない (紙面に変更前/変更後を直接描く)。本文の塊が無ければ何も出さない。
  * - プロバイダ名やセッションラベルは出さない (会話側が持つ帰属情報を二重に出さない)。適用後は
  *   カードごと消え、適用済みの差分・「元に戻す」は会話側 (`AssistantTurnView`) が持つ。
@@ -324,6 +351,7 @@ export function AiEditInlinePreviewCard({
   onDisplayStateChange,
   hasBeforeShapes = false,
   mergedWithHumanEdits = false,
+  resultLaidOut = true,
 }: AiEditInlinePreviewCardProps) {
   const t = useT("ai");
   const replica = useIsFlowExtensionReplica();
@@ -339,11 +367,17 @@ export function AiEditInlinePreviewCard({
   const title = getAiEditInlinePreviewTitle(bodyContent, t);
   // 複製は同じ id を持たない (支援技術・aria-controls が正本だけを指す)。
   const ownContentId = replica ? undefined : contentId;
+  const resultOnly = state.afterOnly;
+  const notices = [
+    mergedWithHumanEdits && <AiProposalMergeNotice key="merged" />,
+    resultOnly && !resultLaidOut && <AiProposalResultNotice key="result" />,
+  ].filter(Boolean);
   return (
     <section
       className="ai-proposal-card ai-proposal-card--page"
       data-ai-proposal-card="page"
       data-content-hidden={state.contentHidden ? "" : undefined}
+      data-ai-proposal-result-only={resultOnly ? "" : undefined}
       aria-label={t("card.dialogAria", { replace: { title } })}
       onMouseDown={(event) => event.stopPropagation()}
       onClick={(event) => event.stopPropagation()}
@@ -359,7 +393,7 @@ export function AiEditInlinePreviewCard({
         title={title}
         applying={applying}
         replica={replica}
-        notice={mergedWithHumanEdits ? <AiProposalMergeNotice /> : undefined}
+        notice={notices.length > 0 ? notices : undefined}
         references={sourceReferences && sourceReferences.length > 0 && (
           <AiSourceReferenceChips sourceReferences={sourceReferences} onOpenDocument={onOpenSourceDocument} />
         )}
@@ -367,10 +401,15 @@ export function AiEditInlinePreviewCard({
         onOpenConversation={onOpenConversation}
         onApply={onApply}
         onDismiss={onDismiss}
-        {...decisionBarStateProps(state, update, { hasContent: true, hasBeforeShapes, contentId: ownContentId })}
+        {...decisionBarStateProps(state, update, { hasContent: true, hasBeforeShapes, offerAfterOnly: true, contentId: ownContentId })}
       />
       <div id={ownContentId} className="ai-proposal-card-content" hidden={state.contentHidden}>
-        <AiProposalContentView content={bodyContent} surface="page" mathFractionSizing={mathFractionSizing} />
+        <AiProposalContentView
+          content={bodyContent}
+          surface="page"
+          presentation={resultOnly ? "after" : "diff"}
+          mathFractionSizing={mathFractionSizing}
+        />
       </div>
     </section>
   );

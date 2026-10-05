@@ -91,6 +91,40 @@ describe("AiProposalDecisionBar", () => {
     expect(toggled).toContain('aria-pressed="true"');
   });
 
+  it("offers the result-only toggle only where the surface passes it, as a pressed state in the bar row", () => {
+    expect(renderBar({ onContentHiddenChange: () => {} })).not.toContain("適用後だけを表示");
+
+    const off = renderBar({ onAfterOnlyChange: () => {}, onApply: async () => ({ ok: true }) });
+    expect(off).toContain('aria-label="適用後だけを表示"');
+    expect(off).toMatch(/aria-label="適用後だけを表示"[^>]*aria-pressed="false"|aria-pressed="false"[^>]*aria-label="適用後だけを表示"/);
+    // 切り替えはバーの行の中 (折り返さない 1 行のまま)。
+    const barEnd = off.indexOf('aria-label="適用"');
+    expect(off.indexOf('aria-label="適用後だけを表示"')).toBeLessThan(barEnd);
+
+    const on = renderBar({ afterOnly: true, onAfterOnlyChange: () => {} });
+    expect(on).toContain('aria-label="変更箇所を表示"');
+    expect(on).toMatch(/aria-label="変更箇所を表示"[^>]*aria-pressed="true"|aria-pressed="true"[^>]*aria-label="変更箇所を表示"/);
+  });
+
+  it("toggles the result only through the owner's state", async () => {
+    function Owner() {
+      const [afterOnly, setAfterOnly] = useState(false);
+      return <AiProposalDecisionBar title="AI編集案" surface="page" applying={false} afterOnly={afterOnly} onAfterOnlyChange={setAfterOnly} />;
+    }
+    await mount(<Owner />);
+
+    await act(async () => button("適用後だけを表示").click());
+    expect(button("変更箇所を表示").getAttribute("aria-pressed")).toBe("true");
+    await act(async () => button("変更箇所を表示").click());
+    expect(button("適用後だけを表示").getAttribute("aria-pressed")).toBe("false");
+  });
+
+  it("names the result-only toggle in English too", () => {
+    const t = createTranslator("en", "ai");
+    expect(t("card.showAfterOnly")).toBe("Show result only");
+    expect(t("card.showDiff")).toBe("Show changes");
+  });
+
   it("renders a notice slot under the heading row (e.g. a merged-edit note)", () => {
     expect(renderBar({ notice: <span>あなたの編集と合わせた内容です</span> })).toContain("あなたの編集と合わせた内容です");
   });

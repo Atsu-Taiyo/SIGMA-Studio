@@ -4,8 +4,14 @@ import type { AiEditPreviewState } from "./model/preview";
 import type { AiProposalAnchorCard, AiProposalContentHunk } from "./model/proposal-content";
 
 import {
-  buildAiBeforeHiddenEditorExtensions,
+  AI_PROPOSAL_RESULT_ONLY_COUNTERS,
+  buildAiHiddenTargetEditorExtensions,
+  collectPageEditorBlockIds,
+  collectResultOnlyCollapsedBlockIds,
+  composeAiPageEditorExtensions,
+  countResultOnlyNotLaidOut,
   deriveAiOverlayShapeClassNames,
+  deriveAiResultOnlyShapeIds,
   estimateFloatingDecisionBarHeight,
   placeFloatingDecisionBars,
   selectAiFloatingDecisionPreviews,
@@ -16,7 +22,7 @@ import {
   resolveAiEditGhostShapes,
 } from "./AiPageCanvasEditor";
 import { deriveAiEditPreviewDiff } from "./model/preview";
-import { DEFAULT_AI_PROPOSAL_DISPLAY_STATE } from "./model/proposal-display-state";
+import { DEFAULT_AI_PROPOSAL_DISPLAY_STATE, type AiProposalDisplayState } from "./model/proposal-display-state";
 import type { MeasuredBlock } from "@/features/drawing";
 import type { OverlayGeoShape, OverlayShape, OverlayTextShape } from "@/features/document";
 
@@ -88,6 +94,7 @@ describe("AI proposal cards in the page flow", () => {
     preview: roomPreview(proposalIds),
     content: { hunks: [hunk(text)], shapes: [] },
     mergedWithHumanEdits,
+    resultLayout: { collapsedBlockIds: [], complete: true },
   });
 
   it("keeps a card's key when a follow-up turn in the same room adds a proposal", () => {
@@ -141,6 +148,50 @@ describe("AI proposal cards in the page flow", () => {
       ...DEFAULT_AI_PROPOSAL_DISPLAY_STATE,
       dismissReasonOpen: true,
     })).toBe(base);
+  });
+
+  it("re-measures when the card shows only the result (marks, notes and labels go away), and when that result cannot be laid out", () => {
+    const resultOnly = { ...DEFAULT_AI_PROPOSAL_DISPLAY_STATE, afterOnly: true };
+    const base = getAiProposalCardMeasureRevision(card("提案の本文"), "uniform", DEFAULT_AI_PROPOSAL_DISPLAY_STATE);
+    const shown = getAiProposalCardMeasureRevision(card("提案の本文"), "uniform", resultOnly);
+    expect(shown).not.toBe(base);
+    // 組めない内容には適用後だけの間、バーの下に一言が付く。
+    const notLaidOut = { ...card("提案の本文"), resultLayout: { collapsedBlockIds: [], complete: false } };
+    expect(getAiProposalCardMeasureRevision(notLaidOut, "uniform", resultOnly)).not.toBe(shown);
+  });
+
+  describe("the result only", () => {
+    const resultCard = (proposalId: string, collapsedBlockIds: string[], complete = true): AiProposalAnchorCard => ({
+      ...card("提案の本文", [proposalId]),
+      resultLayout: { collapsedBlockIds, complete },
+    });
+
+    it("folds the before blocks of the cards that show only the result, and of no other card", () => {
+      const cards = new Map([
+        ["left", [resultCard("proposal-1", ["left"]), resultCard("proposal-2", ["left-2"])]],
+        ["right", [resultCard("proposal-3", ["right"])]],
+      ]);
+      const states = new Map<string, AiProposalDisplayState>([
+        ["proposal-1", { ...DEFAULT_AI_PROPOSAL_DISPLAY_STATE, afterOnly: true }],
+        // 内容を隠したカード (適用後だけは解除されている) は畳まない。
+        ["proposal-3", { ...DEFAULT_AI_PROPOSAL_DISPLAY_STATE, contentHidden: true }],
+      ]);
+
+      const collapsed = collectResultOnlyCollapsedBlockIds(cards, (_targetId, entry) => (
+        states.get(entry.preview.proposalIds[0]) ?? DEFAULT_AI_PROPOSAL_DISPLAY_STATE
+      ));
+
+      expect(collapsed).toEqual(["left"]);
+    });
+
+    it("counts the cards whose result could not be laid out when the result only is chosen (0 normally)", () => {
+      const counted: string[] = [];
+      countResultOnlyNotLaidOut([resultCard("proposal-1", ["left"])], (name) => counted.push(name));
+      expect(counted).toEqual([]);
+
+      countResultOnlyNotLaidOut([resultCard("proposal-1", [], false), resultCard("proposal-1", ["left"]), resultCard("proposal-1", [], false)], (name) => counted.push(name));
+      expect(counted).toEqual([AI_PROPOSAL_RESULT_ONLY_COUNTERS.notLaidOut, AI_PROPOSAL_RESULT_ONLY_COUNTERS.notLaidOut]);
+    });
   });
 });
 
@@ -362,15 +413,159 @@ describe("floating decision bars (proposals without a page card)", () => {
   });
 });
 
-describe("buildAiBeforeHiddenEditorExtensions", () => {
+describe("buildAiHiddenTargetEditorExtensions", () => {
   it("makes a hidden before shape neither selectable nor editable", () => {
-    const extensions = buildAiBeforeHiddenEditorExtensions(new Set(["shape-1"]));
+    const extensions = buildAiHiddenTargetEditorExtensions(new Set(["shape-1"]));
 
     expect([...extensions!.overlayEditPolicy!.unselectableShapeIds!]).toEqual(["shape-1"]);
     expect([...extensions!.overlayEditPolicy!.lockedShapeIds]).toEqual(["shape-1"]);
+    expect(extensions!.textFlowEditPolicy).toBeUndefined();
   });
 
-  it("adds nothing while no before shape is hidden", () => {
-    expect(buildAiBeforeHiddenEditorExtensions(new Set())).toBeUndefined();
+  it("keeps the caret and typing out of a before block folded away for the result only", () => {
+    const extensions = buildAiHiddenTargetEditorExtensions(new Set(), new Set(["block-1"]));
+
+    expect(extensions!.overlayEditPolicy).toBeUndefined();
+    const [guard] = extensions!.textFlowEditPolicy!.guards;
+    expect(guard).toMatchObject({ blockId: "block-1", highlight: false });
+    expect(guard.blockedMessage).toBe("適用後だけを表示している間は、隠している変更前を編集できません。「変更箇所を表示」に戻すと編集できます。");
+    expect(extensions!.textFlowEditPolicy!.lockAll).toBeUndefined();
+  });
+
+  it("preserves only the shapes hidden for the result only from derived rewrites (a re-anchor on save)", () => {
+    // バーで隠した変更前・AI の実行中・合成できない提案のロックは派生の書き換えを止めない (従来どおり)。
+    // 止めるのは「適用後だけ」で隠した図形だけ: 人の編集では変えられず、混ざると変更口がコミットごと断る。
+    const composed = composeAiPageEditorExtensions(
+      { overlayEditPolicy: { lockedShapeIds: new Set(["run_shape"]) } },
+      buildAiHiddenTargetEditorExtensions(new Set(["bar_hidden", "result_hidden"]), new Set(), new Set(["result_hidden"])),
+      undefined,
+    );
+
+    expect([...composed!.overlayEditPolicy!.lockedShapeIds].sort()).toEqual(["bar_hidden", "result_hidden", "run_shape"]);
+    expect([...composed!.overlayEditPolicy!.preservedShapeIds ?? []]).toEqual(["result_hidden"]);
+    expect(buildAiHiddenTargetEditorExtensions(new Set(["bar_hidden"]))!.overlayEditPolicy!.preservedShapeIds).toBeUndefined();
+  });
+
+  it("adds nothing while nothing is hidden", () => {
+    expect(buildAiHiddenTargetEditorExtensions(new Set())).toBeUndefined();
+    expect(buildAiHiddenTargetEditorExtensions(new Set(), new Set())).toBeUndefined();
+  });
+});
+
+describe("deriveAiResultOnlyShapeIds (shapes of a proposal shown as its result only)", () => {
+  const withMutations = (mutationOperations: NonNullable<AiEditPreviewState["draft"]["mutationOperations"]>): AiEditPreviewState => ({
+    ...preview([]),
+    draft: { summary: "図形", plan: [], warnings: [], operations: [], mutationOperations },
+  });
+
+  it("hides the before state of an update and draws its after state without marks", () => {
+    const update = withMutations([{ operation: "updateOverlayShape", summary: "移動", shapeId: "shape-1", patch: { x: 10 } }]);
+    expect(deriveAiResultOnlyShapeIds([update], new Set())).toEqual({ hiddenShapeIds: ["shape-1"], ghostShapeIds: ["shape-1"] });
+  });
+
+  it("hides a shape the proposal deletes, unless the merge keeps it (the human edited it)", () => {
+    const deletion = withMutations([{ operation: "deleteOverlayShapes", summary: "削除", shapeIds: ["shape-gone", "shape-kept"] }]);
+    expect(deriveAiResultOnlyShapeIds([deletion], new Set(["shape-kept"]))).toEqual({ hiddenShapeIds: ["shape-gone"], ghostShapeIds: [] });
+  });
+
+  it("draws an inserted shape without marks and hides nothing for it", () => {
+    const insertion = preview([{
+      operation: "insertOverlayShape",
+      summary: "図形を挿入",
+      targetId: "left",
+      overlayShape: { id: "shape-new", type: "geo", x: 0, y: 0, props: { w: 80, h: 40, geo: "rectangle", fill: "none", color: "#111111", fillColor: "#ffffff", labelColor: "#111111", dash: "solid", size: "m" } },
+      assets: {},
+    }]);
+    expect(deriveAiResultOnlyShapeIds([insertion], new Set())).toEqual({ hiddenShapeIds: [], ghostShapeIds: ["shape-new"] });
+  });
+
+  it("keeps a shape hidden for the result only hidden while the approval plays the removal", () => {
+    const deletion = withMutations([{ operation: "deleteOverlayShapes", summary: "削除", shapeIds: ["shape-gone", "shape-other"] }]);
+    const classNames = deriveAiOverlayShapeClassNames({
+      previewGroups: [deletion],
+      previewDiff: deriveAiEditPreviewDiff([deletion], []),
+      applyAnimation: { removingBlockIds: [], removingShapeIds: ["shape-gone", "shape-other"], addedBlockIds: [], addedShapeIds: [] },
+      beforeHiddenShapeIds: new Set(["shape-gone"]),
+      resultOnlyHiddenShapeIds: new Set(["shape-gone"]),
+    });
+    // 適用後だけで隠した図形は消える演出のために出し直さない (隠した変更前が一瞬見える)。
+    expect(classNames.get("shape-gone")).toBe("ai-diff-removed-shape ai-diff-before-shape ai-diff-before-hidden");
+    expect(classNames.get("shape-other")).toBe("ai-apply-removing-shape");
+  });
+
+  it("hides a deleted shape through the same class as a hidden before shape", () => {
+    const deletion = withMutations([{ operation: "deleteOverlayShapes", summary: "削除", shapeIds: ["shape-gone"] }]);
+    const classNames = deriveAiOverlayShapeClassNames({
+      previewGroups: [deletion],
+      previewDiff: deriveAiEditPreviewDiff([deletion], []),
+      applyAnimation: null,
+      beforeHiddenShapeIds: new Set(["shape-gone"]),
+    });
+    expect(classNames.get("shape-gone")).toBe("ai-diff-removed-shape ai-diff-before-shape ai-diff-before-hidden");
+  });
+});
+
+describe("collectPageEditorBlockIds (the blocks the change decoration can fold)", () => {
+  it("lists the top-level nodes of every editing surface the page lays out, and nothing nested in them", () => {
+    const paragraph = (id: string) => ({ id, type: "paragraph", children: [{ type: "text", text: id }] });
+    const content = [
+      paragraph("top"),
+      { id: "box", type: "boxBlock", styleId: "itembox", blocks: [paragraph("box_child")] },
+      { id: "list", type: "list", listType: "bullet", items: [{ id: "item", type: "listItem", children: [] }] },
+      {
+        id: "problem", type: "problem", tags: [], lead: [], hints: [], answer: { type: "math", expected: "" },
+        prompt: [paragraph("prompt"), { id: "area_columns", type: "layoutSection", layout: { columnCount: 2 }, children: [paragraph("area_col")] }],
+        solution: [paragraph("solution")],
+      },
+      { id: "columns", type: "layoutSection", layout: { columnCount: 2 }, children: [paragraph("col_a"), paragraph("col_b")] },
+    ] as unknown as Parameters<typeof collectPageEditorBlockIds>[0];
+
+    const ids = collectPageEditorBlockIds(content);
+
+    // 空の導入文のエリアは、打てるように置く仮の段落 (`problem_lead_empty`) が編集面の最上位に並ぶ。
+    expect([...ids].sort()).toEqual(["area_col", "box", "col_a", "col_b", "list", "problem_lead_empty", "prompt", "solution", "top"]);
+  });
+});
+
+describe("composeAiPageEditorExtensions", () => {
+  it("keeps a live run's guard (with its stop action) on a block that is also folded away", () => {
+    const runGuard = {
+      blockId: "block-1",
+      guardId: "run-1",
+      isPrimaryActionTarget: true,
+      blockedMessage: "AI編集中です。",
+      presentation: { highlightedBlockClassName: "a", readOnlyBlockClassName: "b", characterClassName: "c", atomClassName: "d" },
+      highlight: true,
+    };
+    const composed = composeAiPageEditorExtensions(
+      { textFlowEditPolicy: { guards: [runGuard] } },
+      buildAiHiddenTargetEditorExtensions(new Set(), new Set(["block-1", "block-2"])),
+      undefined,
+    );
+
+    const guards = new Map(composed!.textFlowEditPolicy!.guards.map((guard) => [guard.blockId, guard]));
+    expect(guards.get("block-1")).toBe(runGuard);
+    expect(guards.get("block-2")?.guardId).toBe("ai-result-only-block-2");
+  });
+
+  it("guards a folded block whole even where a live run reserves only a fragment of it (as the commit point does)", () => {
+    const partialRun = {
+      blockId: "block-1",
+      guardId: "run-1",
+      isPrimaryActionTarget: true,
+      blockedMessage: "AI編集中です。",
+      presentation: { highlightedBlockClassName: "a", readOnlyBlockClassName: "b", characterClassName: "c", atomClassName: "d" },
+      highlight: true,
+      contentReservations: [{ baselineText: "本文", ranges: [{ from: 0, to: 1 }], inlineMathIds: [] }],
+    };
+    const composed = composeAiPageEditorExtensions(
+      { textFlowEditPolicy: { guards: [partialRun] } },
+      buildAiHiddenTargetEditorExtensions(new Set(), new Set(["block-1"])),
+      undefined,
+    );
+
+    const [guard] = composed!.textFlowEditPolicy!.guards;
+    expect(guard).toMatchObject({ blockId: "block-1", guardId: "run-1" });
+    expect(guard.contentReservations).toBeUndefined();
   });
 });

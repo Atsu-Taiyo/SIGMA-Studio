@@ -66,6 +66,24 @@ describe("AiEditInlinePreviewCard on its own", () => {
     expect(onDismiss).not.toHaveBeenCalled();
   });
 
+  it("switches to the result only and back, and shows hidden content again when switching", async () => {
+    await act(async () => root.render(
+      <AiEditInlinePreviewCard content={replaceContent("書き換え後")} applying={false} onApply={vi.fn()} onDismiss={vi.fn()} />,
+    ));
+    const content = container.querySelector<HTMLElement>(".ai-proposal-card-content")!;
+    await act(async () => button("内容を隠す").click());
+    expect(content.hidden).toBe(true);
+
+    await act(async () => button("適用後だけを表示").click());
+    expect(content.hidden).toBe(false);
+    expect(button("変更箇所を表示").getAttribute("aria-pressed")).toBe("true");
+    expect(container.querySelector("[data-ai-proposal-content]")?.getAttribute("data-presentation")).toBe("after");
+
+    await act(async () => button("変更箇所を表示").click());
+    expect(button("適用後だけを表示").getAttribute("aria-pressed")).toBe("false");
+    expect(container.querySelector("[data-ai-proposal-content]")?.getAttribute("data-presentation")).toBe("diff");
+  });
+
   it("does not touch the page's display state on every keystroke of the dismiss reason", async () => {
     const onDisplayStateChange = vi.fn();
     function Page() {
