@@ -5,8 +5,8 @@ import {
   type AiEditSessionDraft,
 } from "@/lib/ai/sigma-doc-edit-schema";
 import {
+  collectMissingMergeUnitIds,
   collectNonMergeableTargets,
-  collectReinsertedDeletionIds,
   findBlockContainer,
   usableProposalMergeBasis,
   type ProposalMergeBasis,
@@ -444,24 +444,16 @@ function indexDocumentIds(document: SigmaDocument): (id: string) => unknown {
 }
 
 /**
- * Merged units the human deleted. A unit the draft itself deletes is not missing: both sides want it
- * gone, so the merging replay treats that part of the deletion as done (unless the draft inserts the
- * same id again: that is a replacement of a unit the human deleted).
+ * Merged units the human deleted (`collectMissingMergeUnitIds`, the rule WebMCP's draft replay reads
+ * too). A unit the draft itself deletes is not missing: both sides want it gone.
  */
 function findMissingMergeUnits(
   proposal: Pick<MergeableProposal, "draft" | "mergeBasis">,
   currentHashes: Record<string, string>,
   currentDocument?: SigmaDocument,
 ): ProposalFreshnessConflict | null {
-  const reinserted = collectReinsertedDeletionIds(proposal.draft);
-  const deletedByDraft = new Set((proposal.draft.mutationOperations ?? []).flatMap((operation) => (
-    operation.operation === "deleteBlocks"
-      ? operation.blockIds
-      : operation.operation === "deleteOverlayShapes" ? operation.shapeIds : []
-  )).filter((id) => !reinserted.has(id)));
   const lookup = currentDocument ? indexDocumentIds(currentDocument) : (id: string) => currentHashes[id];
-  const missingIds = Object.keys(proposal.mergeBasis.entities)
-    .filter((id) => lookup(id) === undefined && !deletedByDraft.has(id));
+  const missingIds = collectMissingMergeUnitIds(proposal.draft, proposal.mergeBasis, (id) => lookup(id) !== undefined);
   return missingIds.length > 0 ? { blockIds: missingIds, reason: "anchor-missing" } : null;
 }
 

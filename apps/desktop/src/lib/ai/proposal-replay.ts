@@ -227,7 +227,7 @@ export function replayProposalDraftMerging(
     return { ...replay, rebasedDraft: draft, report: assembleReport(plan, new Set()) };
   }
   const attempt = (fallBack: ReadonlySet<string>): MergedReplay => {
-    const rebasedDraft = buildRewrittenDraft(document, draft, plan, fallBack);
+    const rebasedDraft = rewriteDraft(document, draft, plan, fallBack).draft;
     return { rebasedDraft, ...replayRewrittenDraft(document, rebasedDraft) };
   };
   try {
@@ -235,6 +235,49 @@ export function replayProposalDraftMerging(
   } catch (error) {
     const { replay, fallBack } = retryWithFailingUnitsOnTheAiSide(plan, attempt, error);
     return { ...replay, report: assembleReport(plan, fallBack) };
+  }
+}
+
+/**
+ * A draft rewritten by the merge: the given draft with the merged contents written in, minus the
+ * operations the merge superseded (a deletion of blocks or shapes the human edited or deleted too, a
+ * nested replacement whose target the merged unit no longer holds). The maps give, for each operation
+ * and mutation index of the given draft, its index in `draft`; a superseded one is absent.
+ */
+export interface ProposalDraftRewrite {
+  draft: AiEditSessionDraft;
+  operationIndexes: ReadonlyMap<number, number>;
+  mutationIndexes: ReadonlyMap<number, number>;
+}
+
+/**
+ * The merge of `replayProposalDraftMerging` without its replay, for an owner that replays drafts with
+ * its own procedure (WebMCP keeps its insertion tracking, move checks and the ids it generates
+ * implicitly): writes the merged contents of every unit the human edited since `mergeBasis` into the
+ * draft (the same plan as the approval: replaced blocks, deleted blocks and shapes, updated shapes,
+ * reinsertions, the insertAfter anchors the basis remembers, renamed image assets) and replays the
+ * rewritten draft with `replay`. When `replay` throws with the merged units, only the units whose
+ * merged contents cannot be applied fall back to the AI's version (counted as `invalidAfterMerge`), as
+ * in the approval; when even that fails, `replay`'s first error is thrown. Without anything to merge,
+ * `replay` gets the draft unchanged and the report is empty.
+ */
+export function rewriteProposalDraftMerging<T>(
+  document: SigmaDocument,
+  draft: AiEditSessionDraft,
+  mergeBasis: ProposalMergeBasis,
+  replay: (rewrite: ProposalDraftRewrite) => T,
+): { rewrite: ProposalDraftRewrite; result: T; report: ProposalMergeReport } {
+  const plan = planMergingReplay(document, draft, mergeBasis);
+  const attempt = (fallBack: ReadonlySet<string>) => {
+    const rewrite = plan.rewrites ? rewriteDraft(document, draft, plan, fallBack) : removeDraftEntries(draft, new Set(), new Set());
+    return { rewrite, result: replay(rewrite) };
+  };
+  try {
+    return { ...attempt(new Set()), report: assembleReport(plan, new Set()) };
+  } catch (error) {
+    // Without merged units (nothing to rewrite) this rethrows `replay`'s error at once.
+    const { replay: merged, fallBack } = retryWithFailingUnitsOnTheAiSide(plan, attempt, error);
+    return { ...merged, report: assembleReport(plan, fallBack) };
   }
 }
 
@@ -272,15 +315,15 @@ type MergedReplay = Omit<ProposalMergeReplayResult, "report">;
  * AI's version, so the other units keep the human's edits. If that combination still fails, every
  * merged unit falls back; if even that fails, the original error is rethrown.
  */
-function retryWithFailingUnitsOnTheAiSide(
+function retryWithFailingUnitsOnTheAiSide<R extends object>(
   plan: MergingReplayPlan,
-  attempt: (fallBack: ReadonlySet<string>) => MergedReplay,
+  attempt: (fallBack: ReadonlySet<string>) => R,
   error: unknown,
-): { replay: MergedReplay; fallBack: ReadonlySet<string> } {
+): { replay: R; fallBack: ReadonlySet<string> } {
   const mergedIds = allUnits(plan)
     .filter((unit) => unit.usesMerged)
     .map((unit) => unit.id);
-  const tryAttempt = (fallBack: ReadonlySet<string>): MergedReplay | null => {
+  const tryAttempt = (fallBack: ReadonlySet<string>): R | null => {
     try {
       return attempt(fallBack);
     } catch {
@@ -779,12 +822,12 @@ function planAssetRenames(
   }
 }
 
-function buildRewrittenDraft(
+function rewriteDraft(
   document: SigmaDocument,
   draft: AiEditSessionDraft,
   plan: MergingReplayPlan,
   fallBack: ReadonlySet<string>,
-): AiEditSessionDraft {
+): ProposalDraftRewrite {
   const unitByOperation = new Map<number, BlockUnitPlan>();
   for (const unit of plan.blockUnits.values()) {
     unit.operationIndexes.forEach((index) => unitByOperation.set(index, unit));
@@ -891,10 +934,7 @@ function removeDraftEntries(
   draft: AiEditSessionDraft,
   removedOperations: ReadonlySet<number>,
   removedMutations: ReadonlySet<number>,
-): AiEditSessionDraft {
-  if (removedOperations.size === 0 && removedMutations.size === 0) {
-    return draft;
-  }
+): ProposalDraftRewrite {
   const reindex = (length: number, removed: ReadonlySet<number>) => {
     const map = new Map<number, number>();
     let next = 0;
@@ -906,22 +946,29 @@ function removeDraftEntries(
     }
     return map;
   };
-  const operationIndex = reindex(draft.operations.length, removedOperations);
-  const mutationIndex = reindex(draft.mutationOperations?.length ?? 0, removedMutations);
+  const operationIndexes = reindex(draft.operations.length, removedOperations);
+  const mutationIndexes = reindex(draft.mutationOperations?.length ?? 0, removedMutations);
+  if (removedOperations.size === 0 && removedMutations.size === 0) {
+    return { draft, operationIndexes, mutationIndexes };
+  }
   return {
-    ...draft,
-    operations: draft.operations.filter((_, index) => !removedOperations.has(index)),
-    ...(draft.mutationOperations
-      ? { mutationOperations: draft.mutationOperations.filter((_, index) => !removedMutations.has(index)) }
-      : {}),
-    ...(draft.operationOrder
-      ? {
-          operationOrder: draft.operationOrder.flatMap((entry) => {
-            const index = (entry.kind === "operation" ? operationIndex : mutationIndex).get(entry.index);
-            return index === undefined ? [] : [{ kind: entry.kind, index }];
-          }),
-        }
-      : {}),
+    draft: {
+      ...draft,
+      operations: draft.operations.filter((_, index) => !removedOperations.has(index)),
+      ...(draft.mutationOperations
+        ? { mutationOperations: draft.mutationOperations.filter((_, index) => !removedMutations.has(index)) }
+        : {}),
+      ...(draft.operationOrder
+        ? {
+            operationOrder: draft.operationOrder.flatMap((entry) => {
+              const index = (entry.kind === "operation" ? operationIndexes : mutationIndexes).get(entry.index);
+              return index === undefined ? [] : [{ kind: entry.kind, index }];
+            }),
+          }
+        : {}),
+    },
+    operationIndexes,
+    mutationIndexes,
   };
 }
 

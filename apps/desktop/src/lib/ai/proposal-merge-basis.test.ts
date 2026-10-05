@@ -5,7 +5,7 @@ import type { AiEditSessionDraft, SigmaDocMutationOp } from "@/lib/ai/sigma-doc-
 import { findBlock, updateBlockInDocument } from "@/lib/document-tree";
 import { parseSigmaDocument } from "@/lib/sigma-doc-schema";
 
-import { collectNonMergeableTargets, computeProposalMergeBasis, type ProposalMergeBasis } from "./proposal-merge-basis";
+import { collectMissingMergeUnitIds, collectNonMergeableTargets, computeProposalMergeBasis, type ProposalMergeBasis } from "./proposal-merge-basis";
 import { replayProposalDraftMerging } from "./proposal-replay";
 
 const paragraph = (id: string, text = `段落 ${id}`) => ({ id, type: "paragraph" as const, children: [{ type: "text" as const, text }] });
@@ -165,6 +165,32 @@ describe("collectNonMergeableTargets", () => {
     const mergeBasis = computeProposalMergeBasis(draft, baseDocument());
 
     expect(collectNonMergeableTargets([{ draft, mergeBasis }], [{ removedShapeId: "s_2" }])).toEqual({ blockIds: [], shapeIds: ["s_2"] });
+  });
+});
+
+describe("collectMissingMergeUnitIds", () => {
+  const draft = draftOf([replace("p_1")], [
+    { operation: "deleteBlocks", summary: "削除", blockIds: ["p_2", "p_3"] },
+    { operation: "updateOverlayShape", summary: "更新", shapeId: "s_1", patch: { x: 10 } },
+  ]);
+  const mergeBasis = computeProposalMergeBasis(draft, baseDocument());
+
+  it("returns the merged units the human deleted: a replaced block and an updated shape", () => {
+    const gone = new Set(["p_1", "s_1"]);
+
+    expect(collectMissingMergeUnitIds(draft, mergeBasis, (id) => !gone.has(id))).toEqual(["p_1", "s_1"]);
+  });
+
+  it("treats a block both sides deleted as done, unless the draft inserts its id again", () => {
+    const gone = new Set(["p_2"]);
+    const reinserting: AiEditSessionDraft = {
+      ...draft,
+      operations: [...draft.operations, insertAfter("p_1", "p_2")],
+      operationOrder: [{ kind: "operation", index: 0 }, { kind: "mutation", index: 0 }, { kind: "mutation", index: 1 }, { kind: "operation", index: 1 }],
+    };
+
+    expect(collectMissingMergeUnitIds(draft, mergeBasis, (id) => !gone.has(id))).toEqual([]);
+    expect(collectMissingMergeUnitIds(reinserting, mergeBasis, (id) => !gone.has(id))).toEqual(["p_2"]);
   });
 });
 
