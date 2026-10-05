@@ -96,8 +96,8 @@ describe("measureFlowBlocks with blocks that are not drawn", () => {
   });
 
   it("keeps a block folded after it was measured at its last measured place (whole and incremental passes)", () => {
-    // 畳むのは表示だけ。付け替えの候補・前回の計測・固定した図形の位置が切り替えで変わらないよう、
-    // 最後に描かれていた矩形のまま残す (0 の矩形は読まない)。
+    // 畳むのは表示だけ。前回の計測が切り替えで動かないよう、最後に描かれていた矩形のまま残す
+    // (0 の矩形は読まない)。
     const { flow, find } = flowWithFoldable();
     const previous = measureFlowBlocks(flow, 1, 96);
     fold(find("x"));
@@ -108,7 +108,7 @@ describe("measureFlowBlocks with blocks that are not drawn", () => {
     const whole = measureFlowBlocks(flow, 1, 96, undefined, { previous });
 
     for (const measurement of [incremental, whole]) {
-      // 描かれていない印を付けて残す (付け替えでは候補、点から選ぶ新しい固定先には出さない)。
+      // 描かれていない印を付けて残す (どの経路でも図形の固定先の候補にはしない)。
       expect(measurement.rects.get("x")).toEqual({ ...previous.rects.get("x"), undrawn: true });
       expect(measurement.rects.get("x_item")).toEqual({ ...previous.rects.get("x_item"), undrawn: true });
       expect(measurement.anchorable.map((block) => block.id)).toContain("x");
@@ -143,7 +143,7 @@ describe("measureFlowBlocks with blocks that are not drawn", () => {
     expect(zoomed.rects.get("x")).toMatchObject({ top: before.rects.get("x")?.top, height: before.rects.get("x")?.height, undrawn: true });
   });
 
-  it("re-anchors a figure of a deleted block to the same block whether or not its neighbour is folded", () => {
+  it("never re-anchors a figure of a deleted block onto a folded neighbour", () => {
     const { flow, find } = flowWithFoldable();
     const cache: LineMeasureCache = new Map();
     const preDeletion = measureFlowBlocks(flow, 1, 96, cache);
@@ -163,7 +163,8 @@ describe("measureFlowBlocks with blocks that are not drawn", () => {
     const folded = reanchor();
 
     expect(shown?.type === "block" ? ["x", "x_item"] : []).toContain(shown?.type === "block" ? shown.blockId : null);
-    expect(folded).toEqual(shown);
+    // 畳んだブロックは付け替えの候補にもしない (畳んだブロックに固定された図形を作らない)。
+    expect(folded).toMatchObject({ type: "block", blockId: "b" });
   });
 
   it("lets the first element with an id win even when it is not drawn (a later fragment copy is not taken as its place)", () => {

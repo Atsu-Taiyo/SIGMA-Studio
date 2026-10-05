@@ -844,7 +844,7 @@ const {
     markFullMeasureDirty,
     bleed
   } = usePageCanvasMeasurement({
-    content: { pageDocument, units, historyRevision, overlay, overlaySource: document.pageLayout?.overlay, pendingDeletion, onReanchorOverlay, extensionMeasureKey, lockedShapeIds: editorExtensions?.overlayEditPolicy?.lockedShapeIds },
+    content: { pageDocument, units, historyRevision, overlay, overlaySource: document.pageLayout?.overlay, pendingDeletion, onReanchorOverlay, extensionMeasureKey, preservedShapeIds: editorExtensions?.overlayEditPolicy?.preservedShapeIds },
     geometry: { metrics, zoom, fontSize, isWhiteboard, isPagedRender },
     surface: { flowRef, canvasRef, flowElement },
     spaceAfter: { spaceAfterSessionRef, setSpaceAfterDrag, setBlockAffordance },

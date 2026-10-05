@@ -1,5 +1,5 @@
 import { Schema } from "@tiptap/pm/model";
-import { EditorState, TextSelection } from "@tiptap/pm/state";
+import { AllSelection, EditorState, NodeSelection, TextSelection } from "@tiptap/pm/state";
 import { describe, expect, it } from "vitest";
 
 import { selectionOutsideCollapsedBlocks } from "./collapsed-selection";
@@ -32,8 +32,26 @@ describe("selectionOutsideCollapsedBlocks", () => {
     expect(next?.from).toBe(11);
   });
 
-  it("also moves a range that ends in a folded block", () => {
-    expect(selectionOutsideCollapsedBlocks(stateAt(2, 8), ["b"])?.from).toBe(4);
+  it("moves a range only when both of its ends are inside the same folded block", () => {
+    expect(selectionOutsideCollapsedBlocks(stateAt(6, 8), ["b"])?.from).toBe(4);
+  });
+
+  it("leaves a range across a folded block alone (deleting it is refused by the guard)", () => {
+    expect(selectionOutsideCollapsedBlocks(stateAt(2, 8), ["b"])).toBeNull();
+    expect(selectionOutsideCollapsedBlocks(stateAt(7, 12), ["b"])).toBeNull();
+  });
+
+  it("does not move a selection that only ends where the next (folded) block begins", () => {
+    // 段落 a の中から a と b の境目 (位置 5) まで: 終わりの位置の index(0) は次の b を指すが、選択は b に入っていない。
+    expect(selectionOutsideCollapsedBlocks(stateAt(2, 5), ["b"])).toBeNull();
+  });
+
+  it("leaves a node selection and a select-all alone", () => {
+    const base = stateAt(7);
+    const nodeSelected = base.apply(base.tr.setSelection(NodeSelection.create(base.doc, 5)));
+    const allSelected = base.apply(base.tr.setSelection(new AllSelection(base.doc)));
+    expect(selectionOutsideCollapsedBlocks(nodeSelected, ["b"])).toBeNull();
+    expect(selectionOutsideCollapsedBlocks(allSelected, ["b"])).toBeNull();
   });
 
   it("leaves a selection outside the folded blocks, and one with nowhere visible to go, alone", () => {

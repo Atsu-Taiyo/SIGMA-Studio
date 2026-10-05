@@ -47,9 +47,9 @@ export interface MeasuredBlock {
    */
   derived?: boolean;
   /**
-   * Not drawn right now (a feature folded it out of the page). Kept at its last measured place so
-   * figures anchored to it, and re-anchoring after a deletion, do not change with a display toggle;
-   * never offered as a new anchor picked from a point or a shape's position (nothing is visible there).
+   * Not drawn right now (a feature folded it out of the page). Kept at its last measured place so a
+   * display toggle does not shift the measurement; never a candidate anchor on any path — a new
+   * anchor, a re-anchor after a deletion or on save (`page-canvas/undrawn-blocks.ts`).
    */
   undrawn?: boolean;
 }

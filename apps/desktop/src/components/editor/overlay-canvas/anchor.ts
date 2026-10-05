@@ -142,22 +142,22 @@ export function pickBlockAnchor(
   measuredBlocks: MeasuredBlock[],
   shapeProbeX?: number,
   shapeX?: number,
-  /** Re-anchoring an existing anchor (after a deletion) keeps blocks that are not drawn as candidates. */
-  options: { includeUndrawn?: boolean } = {},
 ): OverlayAnchor {
-  if (measuredBlocks.length === 0) {
+  // A block that is not drawn (folded away) is never a candidate, on any path — a new anchor, the
+  // re-anchor after a deletion, or the re-anchor on save (`undrawn-blocks.ts`): no figure is ever
+  // anchored to a block nobody can see.
+  const drawnBlocks = measuredBlocks.filter((block) => isPickableAnchorBlock(block));
+  if (drawnBlocks.length === 0) {
     return { type: "page" };
   }
 
   // An anchor is stored in the document, so it may only name a block the document has.
   // Editor-only placeholder blocks stay in the measurement (they paginate, and figures already
-  // anchored to them still resolve) but are not offered as a target. Falling back to the full
-  // set when that leaves nothing beats returning a page anchor: losing the block relationship
+  // anchored to them still resolve) but are not offered as a target. Falling back to every drawn
+  // block when that leaves nothing beats returning a page anchor: losing the block relationship
   // stops the figure following text reflow at all.
-  // A block that is not drawn (folded away) is likewise not a new target, except when re-anchoring
-  // after a deletion (`undrawn-blocks.ts`).
-  const documentBlocks = measuredBlocks.filter((block) => !block.derived && isPickableAnchorBlock(block, options));
-  const blocks = documentBlocks.length > 0 ? documentBlocks : measuredBlocks;
+  const documentBlocks = drawnBlocks.filter((block) => !block.derived);
+  const blocks = documentBlocks.length > 0 ? documentBlocks : drawnBlocks;
 
   const anchorColumns = getAnchorColumns(blocks);
   const shapeColumn = Number.isFinite(shapeProbeX)
@@ -510,7 +510,7 @@ export function reanchorAfterDeletion<T extends Pick<OverlayShape, "y" | "anchor
     const fNew = fOld - hDeleted;
     const shapeX = typeof shape.x === "number" ? shape.x : undefined;
     changed = true;
-    const nextAnchor = pickBlockAnchor(fNew, fNew, orderedPost, shapeX, shapeX, { includeUndrawn: true });
+    const nextAnchor = pickBlockAnchor(fNew, fNew, orderedPost, shapeX, shapeX);
     return {
       ...shape,
       y: fNew,
@@ -527,12 +527,6 @@ export interface OverlayBlockMeasurement {
   tops: Map<string, number>;
   rects: Map<string, MeasuredBlock>;
   ordered: MeasuredBlock[];
-  /**
-   * Blocks that are in the page but not drawn (folded away), whether or not their last drawn
-   * geometry was kept in `rects`. Saving re-anchors figures against this measurement, and a figure
-   * on such a block must keep its stored anchor even when nothing is known of where it was.
-   */
-  undrawnIds: Set<string>;
 }
 
 /**
@@ -558,11 +552,10 @@ export function measureBlockTops(
   const tops = new Map<string, number>();
   const rects = new Map<string, MeasuredBlock>();
   const ordered: MeasuredBlock[] = [];
-  const undrawnIds = new Set<string>();
 
   const pageRect = pageRectEl.getBoundingClientRect();
   if (pageRect.height <= 0) {
-    return { tops, rects, ordered, undrawnIds };
+    return { tops, rects, ordered };
   }
 
   const scaleY = coordHeight / pageRect.height;
@@ -576,7 +569,6 @@ export function measureBlockTops(
     seen.add(id);
     const rect = el.getBoundingClientRect();
     if (isUndrawnElement(el, rect)) {
-      undrawnIds.add(id);
       const kept = keepUndrawnBlock(lastDrawn?.get(id));
       if (kept) {
         tops.set(id, kept.top);
@@ -604,7 +596,7 @@ export function measureBlockTops(
   });
 
   ordered.sort((a, b) => a.top - b.top);
-  return { tops, rects, ordered, undrawnIds };
+  return { tops, rects, ordered };
 }
 
 /**

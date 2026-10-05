@@ -537,6 +537,50 @@ describe("groupPendingProposalContentByAnchor", () => {
       expect(cardAt(preview, "p1", restored).resultLayout.collapsedBlockIds).toEqual(["p1"]);
     });
 
+    describe("a block a shape hangs from", () => {
+      const list = (): SigmaBlock => ({
+        id: "list_1",
+        type: "list",
+        listType: "bullet",
+        items: [{ type: "listItem", id: "list_item_1", children: [{ type: "text", text: "項目" }] }],
+      } as SigmaBlock);
+      const rectangle = (id: string, anchor: Record<string, unknown> | undefined, parentId?: string) => ({
+        id, type: "geo", x: 10, y: 20, rotation: 0,
+        ...(anchor ? { anchor } : {}),
+        ...(parentId ? { parentId } : {}),
+        props: { w: 40, h: 30, geo: "rectangle", fill: "solid", color: "#111111", fillColor: "#ffffff", labelColor: "#111111", dash: "solid", size: "m" },
+      });
+      const withShapes = (shapes: unknown[]) => ({
+        ...documentOf([paragraph("p1", "変更前の問題文"), list(), paragraph("p_last", "最後")]),
+        pageLayout: { overlay: { overlaySnapshot: { version: 1, shapes, assets: {} } } },
+      }) as unknown as SigmaDocument;
+      const editorBlocks = new Set(["p1", "list_1", "p_last"]);
+      const replaceList = previewOf([{
+        operation: "replace", summary: "リスト", targetId: "list_1",
+        replacementBlock: { ...list(), items: [{ type: "listItem", id: "list_item_1", children: [{ type: "text", text: "直した項目" }] }] } as never,
+      }]);
+
+      it.each([
+        ["anchored to it", [rectangle("s", { type: "block", blockId: "p1", dx: 0, dy: 4 })], previewOf([replace("p1", "変更後")]), "p1"],
+        ["anchored to one of its lines", [rectangle("s", { type: "block", blockId: "p1", dy: 4, line: { index: 0, dy: 2 } })], previewOf([replace("p1", "変更後")]), "p1"],
+        ["anchored to a block inside it", [rectangle("s", { type: "block", blockId: "list_item_1", dy: 4 })], replaceList, "list_1"],
+        ["in a group anchored to it", [
+          { id: "g", type: "group", x: 0, y: 0, rotation: 0, anchor: { type: "block", blockId: "p1", dy: 4 }, props: { w: 40, h: 30 } },
+          rectangle("member", undefined, "g"),
+        ], previewOf([replace("p1", "変更後")]), "p1"],
+      ] as const)("is not folded when a shape is %s, and the card says the result is not laid out", (_label, shapes, preview, anchorId) => {
+        // 畳んだブロックに固定された図形は、付け替え・保存・変更口のどれにも例外を生む。畳まずに注記へ回す。
+        const card = cardAt(preview, anchorId, withShapes([...shapes]), editorBlocks);
+        expect(card.resultLayout).toEqual({ collapsedBlockIds: [], complete: false });
+      });
+
+      it("still folds a block no shape hangs from", () => {
+        const shapes = [rectangle("s", { type: "block", blockId: "p_last", dy: 4 }), rectangle("free", undefined)];
+        expect(cardAt(previewOf([replace("p1", "変更後")]), "p1", withShapes(shapes), editorBlocks).resultLayout)
+          .toEqual({ collapsedBlockIds: ["p1"], complete: true });
+      });
+    });
+
     it("folds only what the merged content removes: a block the human's edit keeps stays on the page", () => {
       const base = baseDocument();
       const preview = mergeablePreviewOf(base, [], [{ operation: "deleteBlocks", summary: "削除", blockIds: ["p1", "p_last"] }]);

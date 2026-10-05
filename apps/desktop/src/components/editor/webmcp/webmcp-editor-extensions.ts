@@ -95,6 +95,14 @@ export function mergeEditorExtensionSets(
             ...(firstOverlay?.unselectableShapeIds ?? []),
             ...(secondOverlay?.unselectableShapeIds ?? []),
           ]),
+          ...(firstOverlay?.preservedShapeIds || secondOverlay?.preservedShapeIds
+            ? {
+                preservedShapeIds: new Set([
+                  ...(firstOverlay?.preservedShapeIds ?? []),
+                  ...(secondOverlay?.preservedShapeIds ?? []),
+                ]),
+              }
+            : {}),
           blockedMessage: secondOverlay?.blockedMessage ?? firstOverlay?.blockedMessage,
           blockedNoticeClassName: secondOverlay?.blockedNoticeClassName ?? firstOverlay?.blockedNoticeClassName,
         }

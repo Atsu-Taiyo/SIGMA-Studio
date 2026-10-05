@@ -22,6 +22,12 @@ export interface OverlayEditPolicy {
    * `lockedShapeIds` で別に与える。
    */
   unselectableShapeIds?: ReadonlySet<OverlayShapeId>;
+  /**
+   * 人の編集では保存内容を変えられない図形 (機能が隠していて、文書の変更口が変更を断るもの)。派生の書き換え
+   * (削除後の付け替え・保存時の付け替え・固定の補修) もこれを書き換えない (混ざると変更口がそのコミット全体を
+   * 断り、無関係な編集まで保存できなくなる)。
+   */
+  preservedShapeIds?: ReadonlySet<OverlayShapeId>;
   blockedMessage?: string;
   blockedNoticeClassName?: string;
 }

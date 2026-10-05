@@ -33,6 +33,8 @@ export interface Dependencies {
   getBlockAnchorScope: () => ParentNode | null;
   /** The last block measurement in overlay coordinates (where a block now folded away was drawn). */
   getLastDrawnBlockRects: () => ReadonlyMap<string, MeasuredBlock> | null;
+  /** Shapes the save's re-anchor leaves as stored (`OverlayEditPolicy.preservedShapeIds`). */
+  getPreservedShapeIds: () => ReadonlySet<string> | undefined;
   suppressNextSaveRef: RefObject<boolean>;
   setShapes: Dispatch<SetStateAction<OverlayShape[]>>;
   assetsRef: RefObject<Record<string, OverlayAsset>>;
@@ -53,6 +55,7 @@ export function useOverlaySaveController({
   canvasWidthRef,
   getBlockAnchorScope,
   getLastDrawnBlockRects,
+  getPreservedShapeIds,
   suppressNextSaveRef,
   setShapes,
   assetsRef,
@@ -74,6 +77,7 @@ export function useOverlaySaveController({
         canvasWidthRef.current,
         getBlockAnchorScope(),
         getLastDrawnBlockRects(),
+        getPreservedShapeIds(),
       ))
       : normalizeOverlayGroups(shapesRef.current);
     // Refresh chart snapshots at the single point every edit funnels through, rather than hooking
@@ -106,7 +110,7 @@ export function useOverlaySaveController({
       },
     );
     imageCropDirtyRef.current = false;
-  }, [assetsRef, canvasHeightRef, canvasRef, canvasWidthRef, extensionsRef, getBlockAnchorScope, getLastDrawnBlockRects, imageCropDirtyRef, lastEmittedSnapshotRef, onChangeRef, setShapes, shapesRef, suppressNextSaveRef, syncBlockAnchors]);
+  }, [assetsRef, canvasHeightRef, canvasRef, canvasWidthRef, extensionsRef, getBlockAnchorScope, getLastDrawnBlockRects, getPreservedShapeIds, imageCropDirtyRef, lastEmittedSnapshotRef, onChangeRef, setShapes, shapesRef, suppressNextSaveRef, syncBlockAnchors]);
 
   const clearQueuedOverlaySave = useCallback(() => {
     if (saveTimeoutRef.current) {

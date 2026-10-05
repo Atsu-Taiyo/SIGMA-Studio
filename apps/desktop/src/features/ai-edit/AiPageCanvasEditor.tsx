@@ -214,8 +214,8 @@ function AiEnabledPageCanvasEditor({
   // 隠した変更前 (バーで隠した図形・適用後だけで隠した図形と畳んだ本文) は、選べず編集もできない
   // (見えないものを動かさない・書き換えない)。
   const hiddenTargetExtensions = useMemo(
-    () => buildAiHiddenTargetEditorExtensions(hiddenShapeIds, collapsedBlockIds),
-    [collapsedBlockIds, hiddenShapeIds],
+    () => buildAiHiddenTargetEditorExtensions(hiddenShapeIds, collapsedBlockIds, resultOnlyHiddenShapeIds),
+    [collapsedBlockIds, hiddenShapeIds, resultOnlyHiddenShapeIds],
   );
   const editorExtensions = useMemo(
     () => composeAiPageEditorExtensions(aiEditorExtensions, hiddenTargetExtensions, pageEditorProps.editorExtensions),
@@ -993,6 +993,11 @@ export function deriveAiOverlayShapeClassNames({
 export function buildAiHiddenTargetEditorExtensions(
   hiddenShapeIds: ReadonlySet<string>,
   collapsedBlockIds: ReadonlySet<string> = EMPTY_ID_SET,
+  /**
+   * `hiddenShapeIds` のうち「適用後だけ」で隠した図形。文書の変更口が人の編集を断るので、削除後の付け替えの
+   * ような派生の書き換えからも外す (`preservedShapeIds`)。バーで隠しただけの図形は変更口が断らないので含めない。
+   */
+  resultOnlyHiddenShapeIds: ReadonlySet<string> = EMPTY_ID_SET,
 ): EditorExtensionContextValue | undefined {
   if (hiddenShapeIds.size === 0 && collapsedBlockIds.size === 0) {
     return undefined;
@@ -1008,7 +1013,13 @@ export function buildAiHiddenTargetEditorExtensions(
       }
       : {}),
     ...(hiddenShapeIds.size > 0
-      ? { overlayEditPolicy: { lockedShapeIds: hiddenShapeIds, unselectableShapeIds: hiddenShapeIds } }
+      ? {
+        overlayEditPolicy: {
+          lockedShapeIds: hiddenShapeIds,
+          unselectableShapeIds: hiddenShapeIds,
+          ...(resultOnlyHiddenShapeIds.size > 0 ? { preservedShapeIds: resultOnlyHiddenShapeIds } : {}),
+        },
+      }
       : {}),
   };
 }
