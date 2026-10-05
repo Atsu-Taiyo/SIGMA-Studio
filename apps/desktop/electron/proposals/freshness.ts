@@ -420,8 +420,10 @@ export interface MergeableProposal {
 function findNonMergeableContentStale(
   proposal: MergeableProposal,
   currentHashes: Record<string, string>,
+  currentDocument?: SigmaDocument,
 ): ProposalFreshnessConflict | null {
-  const targets = collectNonMergeableTargets([proposal]);
+  const shapes = currentDocument ? normalizeOverlaySnapshot(currentDocument.pageLayout?.overlay?.overlaySnapshot).shapes : [];
+  const targets = collectNonMergeableTargets([proposal], [], shapes);
   const ids = new Set([...targets.blockIds, ...targets.shapeIds]);
   const conflictIds = ids.size > 0
     ? findConflictingBlockIds((proposal.touchedBlocks ?? []).filter((touched) => ids.has(touched.id)), currentHashes)
@@ -514,7 +516,7 @@ export function findMergeableProposalStructuralConflict(
   currentHashes: Record<string, string>,
   currentDocument: SigmaDocument,
 ): ProposalFreshnessConflict | null {
-  const contentStale = findNonMergeableContentStale(proposal, currentHashes);
+  const contentStale = findNonMergeableContentStale(proposal, currentHashes, currentDocument);
   if (contentStale) {
     return contentStale;
   }
@@ -558,7 +560,7 @@ export function replayMergeableProposal(
   currentHashes: Record<string, string> = computeDocumentBlockHashes(currentDocument),
   options: { allowContentStale?: boolean } = {},
 ): MergeableProposalReplay {
-  const contentStale = options.allowContentStale ? null : findNonMergeableContentStale(proposal, currentHashes);
+  const contentStale = options.allowContentStale ? null : findNonMergeableContentStale(proposal, currentHashes, currentDocument);
   if (contentStale) {
     return { ok: false, conflict: contentStale };
   }

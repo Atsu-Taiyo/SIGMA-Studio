@@ -1119,7 +1119,11 @@ export function deriveAiEditPreviewDiff(
  * 挿入するだけのブロック・図形はゴーストなのでロックは要らない。WebMCP のプレビュー (`lockTargets:
  * false`) は mergeSources を持たないが、旧レコードではない (鮮度の検査で守る) のでロックしない。
  */
-export function derivePendingAiProposalLockTargets(previews: AiEditPreviewState[]): {
+export function derivePendingAiProposalLockTargets(
+  previews: AiEditPreviewState[],
+  /** 今の図形。消す・動かす図形が他の図形を連れて行く (group のメンバー・固定された図形) かを読む。 */
+  shapes: readonly OverlayShape[] = [],
+): {
   blockIds: Set<string>;
   shapeIds: Set<string>;
 } {
@@ -1134,6 +1138,7 @@ export function derivePendingAiProposalLockTargets(previews: AiEditPreviewState[
     const targets = collectNonMergeableTargets(
       preview.mergeSources?.length ? preview.mergeSources : [{ draft: preview.draft }],
       preview.shapeReplacements,
+      shapes,
     );
     targets.blockIds.forEach((id) => blockIds.add(id));
     targets.shapeIds.forEach((id) => shapeIds.add(id));
