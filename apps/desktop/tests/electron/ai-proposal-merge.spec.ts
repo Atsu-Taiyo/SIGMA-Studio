@@ -126,8 +126,8 @@ test("an approval merges the human's edit made after the proposal, survives a re
     };
     const pageCard = (blockId: string) => page.locator(`.page-flow [data-flow-extension-node-id^="extension:ai-proposal:${blockId}:"] > [data-ai-proposal-card="page"]`);
     const bodyParagraph = (blockId: string) => page.locator(`.text-flow-editor [data-sigma-doc-id="${blockId}"]`).first();
-    /** 紙面の段落の末尾にキャレットを置いて打鍵する (人の編集を実際の編集面から入れる)。 */
-    const typeAtParagraphEnd = async (blockId: string, value: string) => {
+    /** 紙面の段落の末尾にキャレットを置く (macOS の合成キーで行末へ動かすのは当てにならない)。 */
+    const placeCaretAtParagraphEnd = async (blockId: string) => {
       await page.evaluate((targetBlockId) => {
         const target = Array.from(document.querySelectorAll<HTMLElement>(`.text-flow-editor [data-sigma-doc-id="${targetBlockId}"]`))
           .find((element) => element.getClientRects().length > 0);
@@ -144,6 +144,10 @@ test("an approval merges the human's edit made after the proposal, survives a re
         window.getSelection()?.addRange(range);
         document.dispatchEvent(new Event("selectionchange"));
       }, blockId);
+    };
+    /** 紙面の段落の末尾に打鍵する (人の編集を実際の編集面から入れる)。 */
+    const typeAtParagraphEnd = async (blockId: string, value: string) => {
+      await placeCaretAtParagraphEnd(blockId);
       await page.keyboard.insertText(value);
     };
     const approveOnPage = async (blockId: string) => {
@@ -265,14 +269,17 @@ test("an approval merges the human's edit made after the proposal, survives a re
     expect(record.mergeBasis).toBeDefined();
     delete record.mergeBasis;
     writeFileSync(legacyFile!, JSON.stringify(record, null, 2));
-    // 合成できない旧レコードの対象は、従来どおり紙面で読み取り専用。打鍵は断られ、理由を知らせる。
+    // 合成できない旧レコードの対象は、従来どおり紙面で読み取り専用。前の段落の末尾で Delete を押して
+    // 結合しようとしても断られ、理由を知らせる。
     await reload();
     await expect(bodyParagraph("p_legacy")).toHaveClass(/ai-edit-readonly-block/);
-    await typeAtParagraphEnd("p_legacy", " refused");
+    await placeCaretAtParagraphEnd("p_same");
+    await page.keyboard.press("Delete");
     await expect(page.locator(".text-flow-edit-guard-notice")).toHaveText(
       "この箇所は、あなたの編集と合わせられないAI提案の確認待ちです。適用または破棄を選ぶと編集できます。",
     );
     await expect(bodyParagraph("p_legacy")).toHaveText("Legacy target paragraph.");
+    await expect(bodyParagraph("p_same")).toHaveText(approvedText);
     await saveHumanEdit("p_legacy", "Legacy target paragraph, edited by hand.");
     await reload();
     await expect.poll(async () => (await pendingProposals()).find((item) => item.proposalId === legacy.proposalId)?.conflict?.reason)
