@@ -264,6 +264,7 @@ import { availableDocumentTitle } from "@/lib/library-ledger";
 import type { LedgerSchemaFailure } from "@/lib/library-schema";
 import { getSupportedOverlayImageFiles } from "@/lib/overlay-image-files";
 import { countPerformanceEvent,measurePerformance } from "@/lib/performance";
+import { OPEN_LINK_REQUEST_EVENT, readOpenLinkRequest } from "@/lib/link-open-request";
 import { generateQrPngFile } from "@/lib/qr-code";
 import type { SigmaDocumentRecoveryIssue } from "@/lib/sigma-doc-schema";
 import {
@@ -3001,6 +3002,32 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
     window.addEventListener(QR_CODE_REQUEST_EVENT, handleQrCodeRequest);
     return () => window.removeEventListener(QR_CODE_REQUEST_EVENT, handleQrCodeRequest);
   }, [requestOverlayImages, setSaveState, setStatusMessage]);
+
+  // 本文のリンクを OS の既定のブラウザで開く。デスクトップ版は main の shell ブリッジ (http/https だけ通す)、
+  // ブラウザ版は新しいタブ。Sigma 内で開く方は、タブを採用する右サイドバー (RightDockHost) が受ける。
+  useEffect(() => {
+    const handleOpenLinkRequest = (event: Event) => {
+      const url = readOpenLinkRequest(event, "browser");
+      if (!url) {
+        return;
+      }
+      const shell = getDesktopBridge()?.shell;
+      if (!shell) {
+        window.open(url, "_blank", "noopener,noreferrer");
+        return;
+      }
+      void shell.openExternal(url)
+        .then((result) => {
+          if (!result.ok) {
+            setStatusMessage(result.error || tEditor("status.linkOpenFailed"));
+          }
+        })
+        .catch(() => setStatusMessage(tEditor("status.linkOpenFailed")));
+    };
+
+    window.addEventListener(OPEN_LINK_REQUEST_EVENT, handleOpenLinkRequest);
+    return () => window.removeEventListener(OPEN_LINK_REQUEST_EVENT, handleOpenLinkRequest);
+  }, [setStatusMessage]);
 
   const requestOverlayAction = useCallback((request: OverlayActionRequestInput) => {
     overlayActionRequestIdRef.current += 1;

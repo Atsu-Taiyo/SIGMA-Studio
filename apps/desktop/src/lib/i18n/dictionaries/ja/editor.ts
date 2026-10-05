@@ -268,9 +268,15 @@ export const editor = {
       aliases: "heading3 h3 小見出し",
     },
   },
-  /** 本文中の URL 装飾。 */
+  /** 本文中の URL 装飾と、ホバーで出るリンクの操作カード。 */
   url: {
     makeQrCode: "このURLをQRコードにする",
+    cardLabel: "リンクの操作",
+    qrLabel: "QRコード",
+    browserLabel: "ブラウザで開く",
+    browserTitle: "既定のブラウザで開く（{{key}}クリック）",
+    sigmaLabel: "Sigmaで開く",
+    sigmaTitle: "Sigma内のブラウザで開く（{{key}}+Shiftクリック）",
   },
   /** インライン数式の編集ポップオーバー。 */
   math: {
@@ -445,6 +451,7 @@ export const editor = {
     addImageToPage: "ページ上に画像を追加します",
     qrAdded: "URLのQRコードをページに追加しました",
     qrFailed: "QRコードを生成できませんでした",
+    linkOpenFailed: "リンクを開けませんでした",
     bodyAndShapesPasted: "本文と図形を貼り付けました",
     noSearchResults: "検索結果がありません",
     searchResultSelected: "検索結果を選択しました",

@@ -2566,6 +2566,7 @@ const { candidateCommentTop, pendingCommentTop, commentThreadPositions } = usePa
       pointerOverBodyText: hitShape && !(hitShape.type === "image" && hitShape.props.tikz)
         ? !!findEditableElementUnderPoint({ x: event.clientX, y: event.clientY })
         : false,
+      pointerOnLink: !!target?.closest(".url-detected"),
       modifiers: {
         alt: event.altKey,
         ctrl: event.ctrlKey,
@@ -2657,7 +2658,9 @@ const { candidateCommentTop, pendingCommentTop, commentThreadPositions } = usePa
       }
     }
 
-    if (event.ctrlKey || event.metaKey) {
+    // Ctrl/Cmd は経路が "overlayShape" のときだけ図形側へ渡す。リンクの上 (図形に当たっていない) では
+    // 本文へ落とし、本文の拡張 (url-detection) がクリックでリンクを開く。
+    if ((event.ctrlKey || event.metaKey) && bodyPointerRoute === "overlayShape") {
       const canvas = canvasRef.current;
       if (!canvas) {
         return;

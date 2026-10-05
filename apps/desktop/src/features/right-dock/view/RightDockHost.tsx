@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { ReactNode } from "react";
 
+import { OPEN_LINK_REQUEST_EVENT, readOpenLinkRequest } from "@/lib/link-open-request";
 import { useT } from "@/lib/i18n/react";
 import { tabLabel } from "../model/browser-format";
 import {
@@ -108,6 +109,18 @@ export function RightDockHost({
       setNotice(result.error);
     });
   }, [bridge]);
+
+  // 本文のリンクの「Sigmaで開く」。新しいタブで開き、サイドバーも見せる (閉じていれば開く)。
+  useEffect(() => {
+    const handleOpenLinkRequest = (event: Event) => {
+      const url = readOpenLinkRequest(event, "sigma");
+      if (!url) return;
+      openBrowser(url);
+      onOpen?.();
+    };
+    window.addEventListener(OPEN_LINK_REQUEST_EVENT, handleOpenLinkRequest);
+    return () => window.removeEventListener(OPEN_LINK_REQUEST_EVENT, handleOpenLinkRequest);
+  }, [onOpen, openBrowser]);
 
   const choose = useCallback((tool: RightDockTool) => {
     if (tool === "browser") openBrowser();
