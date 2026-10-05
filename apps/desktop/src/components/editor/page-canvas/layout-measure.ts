@@ -8,6 +8,7 @@ import {
 import type { OverlayShape } from "@/components/editor/overlay-canvas/types";
 import type { TextFlowBoxFragmentSourceLayout } from "@/components/editor/text-flow/types";
 import { countPerformanceEvent } from "@/lib/performance";
+import { isUndrawnElement } from "./flow-probe";
 import {
   canCarrySegments,
   composeFlowMeasurement,
@@ -128,9 +129,15 @@ export function measureFlowBlocks(
     if (!id || seen.has(id)) {
       return;
     }
+    const rect = el.getBoundingClientRect();
+    // 描かれていないブロック (display: none で畳んだものとその中) は測らない。0 の矩形は紙面の先頭
+    // より上の位置として並び、図形のアンカーやページ割りを狂わせる。`seen` にも入れないので、前回の
+    // 計測を持ち越さず (件数が変わる) 消えたブロックとして扱う。
+    if (isUndrawnElement(el, rect)) {
+      return;
+    }
     seen.add(id);
     const containerId = findMeasurableContainerId(el, id);
-    const rect = el.getBoundingClientRect();
     const top = (rect.top - contentOriginY) / zoomFactor + marginTopPx;
     const left = (rect.left - flowRect.left) / zoomFactor;
     const width = rect.width / zoomFactor;
