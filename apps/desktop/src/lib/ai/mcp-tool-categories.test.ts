@@ -176,8 +176,15 @@ describe("MCP tool category inference", () => {
       "十二面体と二十面体の問題を作って",
       "錐体の問題文を直して",
       "展開図の問題を作って",
+      "円すいの問題文を直して",
+      "三角すいの体積の問題を作って",
+      "柱体の問題文を直して",
+      "円筒の問題文を直して",
+      "空間ベクトルの問題文を直して",
+      "3-Dの問題文を直して",
       "Fix the problem about a sphere, a cone and a cylinder",
       "Fix the problem about a tetrahedron, an octahedron and a torus",
+      "Fix the problem about polyhedra and tetrahedra",
     ]) {
       const args = { instruction, references: [], selectedSkillIds: [] };
       // 本文の語で絞り込まれた run でも、立体の語があれば3Dグラフのツールが入る。
@@ -193,6 +200,8 @@ describe("MCP tool category inference", () => {
       .toEqual([...MCP_TOOL_CATEGORIES]);
     expect(inferToolCategoriesForRun({ instruction: "球を3Dで描いて", references: [], selectedSkillIds: [] }))
       .toEqual([...MCP_TOOL_CATEGORIES]);
+    expect(inferToolCategoriesForRun({ instruction: "3-Dで描いて", references: [], selectedSkillIds: [] }))
+      .toEqual([...MCP_TOOL_CATEGORIES]);
     // 探索の語と汎用の変更の語だけの依頼は全カテゴリのまま (立体の語で「探索だけではない」と数えない)。
     expect(inferToolCategoriesForRun({ instruction: "地球の説明を確認して修正して", references: [], selectedSkillIds: [] }))
       .toEqual([...MCP_TOOL_CATEGORIES]);
@@ -205,6 +214,25 @@ describe("MCP tool category inference", () => {
       references: [selectedShapeReference("graph3dShape")],
       selectedSkillIds: [],
     })).toContain("update_graph3d");
+  });
+
+  it("treats a shape reference without its overlay selection like selecting that shape", () => {
+    // withAiEditOverlaySelection(reference, null) で選択の中身が外れても、対象の種類は targetType に残る。
+    // (抜粋の「図形N件」に頼らず、targetType だけで決まることを見る。)
+    expect(allowedAppToolsForRun({
+      instruction: "これを削除して",
+      references: [{ kind: "block", targetType: "overlayShape:graph3dShape" }],
+      selectedSkillIds: [],
+    })).toEqual(expect.arrayContaining(["delete_shapes", "update_graph3d", "update_shape"]));
+
+    for (const [type, tools] of Object.entries(SHAPE_EDITING_TOOLS)) {
+      const allowed = allowedAppToolsForRun({
+        instruction: "これを削除して",
+        references: [{ kind: "block", targetType: `overlayShape:${type}` }],
+        selectedSkillIds: [],
+      });
+      expect(allowed, type).toEqual(expect.arrayContaining([...tools]));
+    }
   });
 
   it("allows every tool that edits the selected shape, for every overlay shape type", () => {
