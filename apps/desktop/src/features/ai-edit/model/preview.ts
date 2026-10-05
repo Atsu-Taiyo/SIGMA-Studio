@@ -21,7 +21,11 @@ import {
   type AiOverlayShapeReplacementPair,
 } from "@/lib/ai/overlay-shape-replacement";
 import { getVisualShapesFromOperations } from "@/lib/ai/ai-edit-shape-preview";
-import type { ProposalMergeBasis, ProposalMergeReport } from "@/lib/ai/proposal-merge-basis";
+import {
+  collectNonMergeableTargets,
+  type ProposalMergeBasis,
+  type ProposalMergeReport,
+} from "@/lib/ai/proposal-merge-basis";
 import type { AiProposalContent } from "./proposal-content";
 import {
   deriveAppliedDraftFallback,
@@ -53,8 +57,10 @@ export interface AiEditPreviewState {
   // グループのラベル (チャットのセッションタイトル、または最初の指示の抜粋)。
   sessionLabel?: string;
   /** Web proposals rely on their revision/content freshness guards and remain
-   * directly editable while their on-page preview is visible. Desktop AI
-   * proposals omit this field and keep the established target reservation. */
+   * directly editable while their on-page preview is visible, even though they
+   * carry no `mergeSources`. Desktop AI proposals omit this field: their targets
+   * stay editable when the approval's merge can follow them, and only the
+   * targets it cannot merge are reserved (`derivePendingAiProposalLockTargets`). */
   lockTargets?: boolean;
   // Phase 1: Agentic RAG。このグループの全提案が参照した過去教材・素材・Webページを
   // 集約・重複排除したもの (存在する場合のみ、空配列にはしない)。
@@ -595,9 +601,12 @@ export interface AiEditPreviewAddedShape {
   assets: Record<string, OverlayAsset>;
 }
 
+/**
+ * The overlay side of a pending proposal's draft. Body blocks that will be replaced or removed are not
+ * here: they come from the merged result (`collectPendingRemovedBlockIds`), which keeps a block the
+ * human edited after the AI deleted it.
+ */
 export interface AiEditPreviewDiff {
-  /** Body blocks that will be overwritten (`replace`) or removed (`deleteBlocks`). */
-  removedBlockIds: Set<string>;
   /** Overlay shapes that will be deleted (`deleteOverlayShapes`). */
   removedShapeIds: Set<string>;
   /** Overlay shapes that will be changed in place (`updateOverlayShape` / `alignOverlayShapes`) — neither purely added nor removed. */
@@ -828,6 +837,8 @@ export function summarizeAiEditPreviewChanges(
   preview: AiEditPreviewState,
   currentShapes: OverlayShape[] = [],
   t: Translate<"ai"> = DEFAULT_AI_TRANSLATE,
+  /** AI が消す図形のうち、人が直したので承認の合成で残るもの (`resolveShapesKeptByMerge`)。削除と言わない。 */
+  keptShapeIds: ReadonlySet<string> = new Set(),
 ): string[] {
   const shapesById = new Map(currentShapes.map((shape) => [shape.id, shape]));
   const replacementByAddedId = new Map(
@@ -887,7 +898,7 @@ export function summarizeAiEditPreviewChanges(
       op.shapeIds.forEach((shapeId) => bump("align", overlayShapeNounId(shapesById.get(shapeId))));
     } else if (op.operation === "deleteOverlayShapes") {
       op.shapeIds
-        .filter((shapeId) => !replacementRemovedIds.has(shapeId))
+        .filter((shapeId) => !replacementRemovedIds.has(shapeId) && !keptShapeIds.has(shapeId))
         .forEach((shapeId) => bump("delete", overlayShapeNounId(shapesById.get(shapeId))));
     }
   }
@@ -1034,16 +1045,15 @@ export function buildAppliedTurnChangesByTurnId(
   return result;
 }
 
-/** Derives the pending-diff id/shape sets for one or more preview groups
+/** Derives the pending-diff shape sets for one or more preview groups
  * (see `AiEditPreviewState`), merging across groups so several concurrent
- * runs' proposals all get diff coloring at once. `moveBlocks` is deliberately
- * not represented here — it changes position, not content, so there is
- * nothing GitHub-diff-shaped to color for it. */
+ * runs' proposals all get diff coloring at once. Body blocks are not derived
+ * here: the removed side comes from the merged result
+ * (`collectPendingRemovedBlockIds`), not from the draft. */
 export function deriveAiEditPreviewDiff(
   previews: AiEditPreviewState[],
   currentShapes: OverlayShape[] = [],
 ): AiEditPreviewDiff {
-  const removedBlockIds = new Set<string>();
   const removedShapeIds = new Set<string>();
   const modifiedShapeIds = new Set<string>();
   const addedShapes: AiEditPreviewAddedShape[] = [];
@@ -1067,16 +1077,12 @@ export function deriveAiEditPreviewDiff(
           const shape = existingShape ? preserveOverlayShapePlacementForReplacement(existingShape, inserted) : inserted;
           addedShapes.push({ shape, assets: operation.operation === "insertOverlayShape" ? operation.assets ?? {} : {} });
           shapeCursor = [...shapeCursor.filter((candidate) => candidate.id !== shape.id), shape];
-        } else if (operation.operation !== "insertAfter" && !isOverlayAnchorSupportDraft(operation, preview.draft.operations)) {
-          removedBlockIds.add(operation.targetId);
         }
         continue;
       }
       const op = preview.draft.mutationOperations?.[entry.index];
       if (!op) continue;
-      if (op.operation === "deleteBlocks") {
-        op.blockIds.forEach((id) => removedBlockIds.add(id));
-      } else if (op.operation === "deleteOverlayShapes") {
+      if (op.operation === "deleteOverlayShapes") {
         op.shapeIds.forEach((id) => removedShapeIds.add(id));
         shapeCursor = shapeCursor.filter((shape) => !op.shapeIds.includes(shape.id));
         for (let index = addedShapes.length - 1; index >= 0; index -= 1) {
@@ -1097,13 +1103,27 @@ export function deriveAiEditPreviewDiff(
     }
   }
 
-  return { removedBlockIds, removedShapeIds, modifiedShapeIds, addedShapes };
+  return { removedShapeIds, modifiedShapeIds, addedShapes };
 }
 
-/** Existing document targets that must remain read-only after a run finishes
- * and while its proposal is still awaiting a human decision. Newly inserted
- * blocks/shapes are ghosts and therefore need no lock of their own. */
-export function derivePendingAiProposalLockTargets(previews: AiEditPreviewState[]): {
+/**
+ * 保留中の提案の対象のうち、決めるまで読み取り専用にするもの: 人が直すと承認が競合になるか人の編集が
+ * 落ちる (三者マージで合成できない) 対象だけ。どれが合成できないかは承認の競合判定と同じ関数
+ * (`collectNonMergeableTargets`) が決める。ここで draft から別に導かない (MISS R17)。
+ *
+ * - base (`mergeBasis`) を持つ提案の置換・削除・移動・図形の更新/削除の対象は、base にその元の内容が
+ *   あればロックしない。承認の合成 replay が人の編集を残して追従する (編集は削除に勝つ)。
+ * - base に元の内容が無い対象、合成しない操作 (図形の整列・段組み設定の更新) の対象、置き換えの組の
+ *   元の図形はロックする。base を持たない (読めない) 旧レコードは従来どおり全対象をロックする。
+ *
+ * 挿入するだけのブロック・図形はゴーストなのでロックは要らない。WebMCP のプレビュー (`lockTargets:
+ * false`) は mergeSources を持たないが、旧レコードではない (鮮度の検査で守る) のでロックしない。
+ */
+export function derivePendingAiProposalLockTargets(
+  previews: AiEditPreviewState[],
+  /** 今の図形。消す・動かす図形が他の図形を連れて行く (group のメンバー・固定された図形) かを読む。 */
+  shapes: readonly OverlayShape[] = [],
+): {
   blockIds: Set<string>;
   shapeIds: Set<string>;
 } {
@@ -1114,33 +1134,14 @@ export function derivePendingAiProposalLockTargets(previews: AiEditPreviewState[
     if (preview.lockTargets === false) {
       continue;
     }
-    const allOperations = preview.draft.operations;
-    for (const operation of allOperations) {
-      if (operation.operation === "insertOverlayShape" || operation.operation === "insertTableShape") {
-        continue;
-      }
-      if (isOverlayAnchorSupportDraft(operation, allOperations)) {
-        continue;
-      }
-      // Insertion only reads the anchor's identity. Its text is not overwritten.
-      if (operation.operation === "replace") blockIds.add(operation.targetId);
-    }
-
-    for (const operation of preview.draft.mutationOperations ?? []) {
-      if (operation.operation === "deleteBlocks") {
-        operation.blockIds.forEach((id) => blockIds.add(id));
-      } else if (operation.operation === "moveBlocks") {
-        operation.blockIds.forEach((id) => blockIds.add(id));
-      } else if (operation.operation === "deleteOverlayShapes") {
-        operation.shapeIds.forEach((id) => shapeIds.add(id));
-      } else if (operation.operation === "updateOverlayShape") {
-        shapeIds.add(operation.shapeId);
-      } else if (operation.operation === "alignOverlayShapes") {
-        operation.shapeIds.forEach((id) => shapeIds.add(id));
-      }
-    }
-
-    preview.shapeReplacements?.forEach((replacement) => shapeIds.add(replacement.removedShapeId));
+    // mergeSources が無いまとまりは、どの提案も base を持たない (旧レコード)。
+    const targets = collectNonMergeableTargets(
+      preview.mergeSources?.length ? preview.mergeSources : [{ draft: preview.draft }],
+      preview.shapeReplacements,
+      shapes,
+    );
+    targets.blockIds.forEach((id) => blockIds.add(id));
+    targets.shapeIds.forEach((id) => shapeIds.add(id));
   }
 
   return { blockIds, shapeIds };

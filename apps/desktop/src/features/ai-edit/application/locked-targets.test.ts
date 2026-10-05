@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import type { OverlayGraphShape } from "@/features/document";
+import type { OverlayGraphShape, ParagraphNode, SigmaDocument } from "@/features/document";
+import type { ProposalMergeBasis } from "@/lib/ai/proposal-merge-basis";
+import type { AiEditSessionDraft } from "@/lib/ai/sigma-doc-edit-schema";
 
+import { findAiLockedTargetsTouched } from "./locked-target-diff";
 import {
   describeAiLockedTargets,
   isAiLockedBlock,
@@ -12,6 +15,15 @@ import {
   aiActiveRunBlockedMessage,
   aiPendingProposalBlockedMessage,
 } from "../adapters/tiptap/edit-lock-adapter";
+import { derivePendingAiProposalLockTargets, type AiEditPreviewState } from "../model/preview";
+
+function paragraph(id: string, text: string): ParagraphNode {
+  return { id, type: "paragraph", children: [{ type: "text", text }] };
+}
+
+function makeDocument(content: ParagraphNode[]): SigmaDocument {
+  return { content } as unknown as SigmaDocument;
+}
 
 describe("mergeAiLockedTargets", () => {
   it("unions live-run targets with pending-proposal reservations", () => {
@@ -95,6 +107,51 @@ describe("isAiLockedBlock / isAiLockedShapeSelection", () => {
     expect(isAiLockedShapeSelection(targets, ["s2", "s1"])).toBe(true);
     expect(isAiLockedShapeSelection(targets, ["s2"])).toBe(false);
     expect(isAiLockedShapeSelection(targets, [])).toBe(false);
+  });
+});
+
+describe("pending proposals and the commit choke point", () => {
+  // 保留中の提案は三者マージで人の編集に追従できるので、その対象への変更は拒否しない。
+  // 拒否するのは実行中の run が握る範囲と、合成できない対象 (旧レコード・整列・段組み設定) だけ。
+  const before = makeDocument([paragraph("p1", "元の本文"), paragraph("p2", "別の段落")]);
+  const humanEdit = makeDocument([paragraph("p1", "元の本文に人が追記"), paragraph("p2", "別の段落")]);
+  const replaceP1: AiEditSessionDraft = {
+    summary: "書き換え",
+    plan: [],
+    operations: [{ operation: "replace", summary: "書き換え", targetId: "p1", replacementBlock: paragraph("p1", "AIの本文") }],
+    warnings: [],
+  };
+  const preview = (mergeBasis?: ProposalMergeBasis): AiEditPreviewState => ({
+    targetId: "p1",
+    draft: replaceP1,
+    createdAt: 0,
+    proposalIds: ["proposal_1"],
+    baseRevision: 1,
+    providers: [],
+    ...(mergeBasis ? { mergeSources: [{ proposalId: "proposal_1", createdAt: "2026-10-05T00:00:00.000Z", draft: replaceP1, mergeBasis }] } : {}),
+  });
+  const basis: ProposalMergeBasis = { version: 1, entities: { p1: { kind: "block", value: paragraph("p1", "元の本文") } } };
+
+  it("lets the human edit what a merge-capable proposal overwrites", () => {
+    const targets = mergeAiLockedTargets([], [], derivePendingAiProposalLockTargets([preview(basis)]));
+
+    expect(findAiLockedTargetsTouched(before, humanEdit, targets)).toEqual({ blockIds: [], shapeIds: [] });
+  });
+
+  it("still refuses an edit inside a live run's anchor, pointing at the stop button", () => {
+    const targets = mergeAiLockedTargets(["p1"], [], derivePendingAiProposalLockTargets([preview(basis)]));
+    const touched = findAiLockedTargetsTouched(before, humanEdit, targets);
+
+    expect(touched.blockIds).toEqual(["p1"]);
+    expect(describeAiLockedTargets(targets, touched)).toBe(aiActiveRunBlockedMessage());
+  });
+
+  it("still refuses an edit to a legacy proposal's target, with the pending-proposal wording", () => {
+    const targets = mergeAiLockedTargets([], [], derivePendingAiProposalLockTargets([preview()]));
+    const touched = findAiLockedTargetsTouched(before, humanEdit, targets);
+
+    expect(touched.blockIds).toEqual(["p1"]);
+    expect(describeAiLockedTargets(targets, touched)).toBe(aiPendingProposalBlockedMessage());
   });
 });
 

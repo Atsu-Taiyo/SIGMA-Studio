@@ -32,7 +32,7 @@ describe("buildAiTextFlowEditPolicy", () => {
     });
     expect(policy.guards[0].contentReservations).toHaveLength(2);
   });
-  it("keeps exact live-run ranges and reserves pending blocks without locking the document", async () => {
+  it("keeps exact live-run ranges and reserves non-mergeable pending blocks without locking the document", async () => {
     const liveLock: AiEditLockInfo = {
       blockId: "body-1",
       runId: "run-1",
@@ -116,7 +116,7 @@ describe("buildAiTextFlowEditPolicy", () => {
     });
   });
 
-  it("reserves only the pending proposal's own blocks while awaiting a decision", () => {
+  it("reserves only the pending proposal's blocks the merge cannot follow while awaiting a decision", () => {
     const policy = buildAiTextFlowEditPolicy({
       liveLocks: [],
       pendingBlockIds: ["body-7"],

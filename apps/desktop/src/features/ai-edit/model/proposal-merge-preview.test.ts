@@ -11,7 +11,7 @@ import type { DesktopMcpEditProposalSummary } from "@/types/desktop";
 
 import { groupMcpProposalsForPreview, type AiEditPreviewState } from "./preview";
 import { buildPendingProposalContent, groupPendingProposalContentByAnchor } from "./proposal-content";
-import { AI_PROPOSAL_PREVIEW_COUNTERS, resolveProposalMergePreview } from "./proposal-merge-preview";
+import { AI_PROPOSAL_PREVIEW_COUNTERS, resolveProposalMergePreview, retainProposalMergePreviewFallbacks } from "./proposal-merge-preview";
 
 function text(value: string): InlineNode {
   return { type: "text", text: value };
@@ -157,8 +157,19 @@ describe("resolveProposalMergePreview", () => {
     expect(merged.humanEditedUnits).toEqual([]);
   });
 
-  it("does not replay a proposal that changes no body block (shapes only)", () => {
-    const base = documentOf([paragraph("p_1", BASE_TEXT)]);
+  it("replays a shapes-only proposal only when it has a base: whether the merge keeps a shape the human edited", () => {
+    const shape = {
+      id: "shape_1",
+      type: "geo",
+      x: 40,
+      y: 40,
+      props: { w: 80, h: 40, geo: "rectangle", fill: "none", color: "#111111", fillColor: "#ffffff", labelColor: "#111111", dash: "solid", size: "m" },
+    };
+    const withShape = (x: number): SigmaDocument => ({
+      ...documentOf([paragraph("p_1", BASE_TEXT)]),
+      pageLayout: { overlay: { overlaySnapshot: { version: 1, shapes: [{ ...shape, x }], assets: {} } } },
+    } as unknown as SigmaDocument);
+    const base = withShape(40);
     const draft: AiEditSessionDraft = {
       summary: "図形を消す",
       plan: [],
@@ -166,9 +177,19 @@ describe("resolveProposalMergePreview", () => {
       mutationOperations: [{ operation: "deleteOverlayShapes", summary: "消す", shapeIds: ["shape_1"] } as SigmaDocMutationOp],
       warnings: [],
     };
-    const preview = previewFor(summaryOf(draft, { mergeBasis: { version: 1, entities: {} } }));
+    const counted: string[] = [];
+    const count = (name: string) => counted.push(name);
 
-    expect(resolveProposalMergePreview(base, preview)).toEqual({ afterDocument: null, humanEditedUnits: [] });
+    // base を持たない図形だけの提案は、本文の内容も合成も使わないので replay しない。
+    expect(resolveProposalMergePreview(base, previewFor(summaryOf(draft)), { count })).toEqual({ afterDocument: null, humanEditedUnits: [] });
+
+    const preview = previewFor(summaryOf(draft, { mergeBasis: computeProposalMergeBasis(draft, base) }));
+    expect(resolveProposalMergePreview(base, preview, { count }).afterDocument?.pageLayout?.overlay?.overlaySnapshot?.shapes).toEqual([]);
+    // 人が消される図形を動かした: 承認は人の図形を残す (編集は削除に勝つ)。
+    const moved = resolveProposalMergePreview(withShape(90), preview, { count });
+    expect(moved.afterDocument?.pageLayout?.overlay?.overlaySnapshot?.shapes).toEqual([{ ...shape, x: 90 }]);
+    expect(moved.humanEditedUnits).toEqual(["shape_1"]);
+    expect(counted).toEqual([]);
   });
 
   it("previews nothing (instead of throwing) when neither the merge nor the plain replay can apply", () => {
@@ -300,20 +321,103 @@ describe("resolveProposalMergePreview follows the approval's batch rules", () =>
 });
 
 describe("resolveProposalMergePreview counts its fallbacks (MISS R3)", () => {
-  function conflicting() {
+  // 数え済みの退避は提案の id ごとに覚えるので、テストごとに別の提案にする。
+  function conflicting(proposalId: string) {
     const base = documentOf([paragraph("p_1", BASE_TEXT), paragraph("p_2", "残す")]);
     const draft = replaceDraft("p_1", AI_TEXT);
-    const preview = previewFor(summaryOf(draft, { mergeBasis: computeProposalMergeBasis(draft, base) }));
+    const preview = previewFor(summaryOf(draft, { proposalId, mergeBasis: computeProposalMergeBasis(draft, base) }));
     return { preview, current: deleteBlocksFromDocument(base, ["p_1"]) };
   }
 
   it("counts a preview that could not use the merging replay and one that shows nothing", () => {
-    const { preview, current } = conflicting();
+    const { preview, current } = conflicting("proposal_counts_both");
     const counted: string[] = [];
 
     resolveProposalMergePreview(current, preview, { count: (name) => counted.push(name) });
 
     expect(counted).toEqual([AI_PROPOSAL_PREVIEW_COUNTERS.fallback, AI_PROPOSAL_PREVIEW_COUNTERS.noPreview]);
+  });
+
+  it("counts a proposal entering the fallback state once, not again while it stays there", () => {
+    const { preview, current } = conflicting("proposal_enters_once");
+    const counted: string[] = [];
+    const count = (name: string) => counted.push(name);
+
+    resolveProposalMergePreview(current, preview, { count });
+    // The human keeps editing what the proposal reads (here: the problem numbering) while its target is gone.
+    resolveProposalMergePreview({ ...current, content: [problem("q_0", "新しい問"), ...current.content] }, preview, { count });
+    expect(counted).toEqual([AI_PROPOSAL_PREVIEW_COUNTERS.fallback, AI_PROPOSAL_PREVIEW_COUNTERS.noPreview]);
+
+    // The target comes back (undo), then is deleted again: that is a new fallback.
+    const restored = documentOf([paragraph("p_1", BASE_TEXT), paragraph("p_2", "残す")]);
+    resolveProposalMergePreview(restored, preview, { count });
+    resolveProposalMergePreview(deleteBlocksFromDocument(restored, ["p_1"]), preview, { count });
+    expect(counted).toEqual([
+      AI_PROPOSAL_PREVIEW_COUNTERS.fallback, AI_PROPOSAL_PREVIEW_COUNTERS.noPreview,
+      AI_PROPOSAL_PREVIEW_COUNTERS.fallback, AI_PROPOSAL_PREVIEW_COUNTERS.noPreview,
+    ]);
+  });
+
+  it("does not count the same fallback again when the proposal list is fetched again (new preview objects)", () => {
+    const base = documentOf([paragraph("p_1", BASE_TEXT), paragraph("p_2", "残す")]);
+    const draft = replaceDraft("p_1", AI_TEXT);
+    const summary = summaryOf(draft, { proposalId: "proposal_refetched", mergeBasis: computeProposalMergeBasis(draft, base) });
+    const current = deleteBlocksFromDocument(base, ["p_1"]);
+    const counted: string[] = [];
+    const count = (name: string) => counted.push(name);
+
+    resolveProposalMergePreview(current, previewFor(summary), { count });
+    // 自動保存のあとなどで一覧を取り直すと、同じ提案のプレビューが新しいオブジェクトで届く。
+    resolveProposalMergePreview(current, previewFor(summary), { count });
+
+    expect(counted).toEqual([AI_PROPOSAL_PREVIEW_COUNTERS.fallback, AI_PROPOSAL_PREVIEW_COUNTERS.noPreview]);
+  });
+
+  it("still counts a fallback first observed while counting was off (approval in progress, removal animation)", () => {
+    const base = documentOf([paragraph("p_1", BASE_TEXT), paragraph("p_2", "残す")]);
+    const draft = replaceDraft("p_1", AI_TEXT);
+    const preview = previewFor(summaryOf(draft, { proposalId: "proposal_observed_quietly", mergeBasis: computeProposalMergeBasis(draft, base) }));
+    const current = deleteBlocksFromDocument(base, ["p_1"]);
+    const counted: string[] = [];
+    const count = (name: string) => counted.push(name);
+
+    resolveProposalMergePreview(current, preview, { countFallbacks: false, count });
+    expect(counted).toEqual([]);
+    resolveProposalMergePreview(current, preview, { count });
+    resolveProposalMergePreview(current, preview, { count });
+
+    expect(counted).toEqual([AI_PROPOSAL_PREVIEW_COUNTERS.fallback, AI_PROPOSAL_PREVIEW_COUNTERS.noPreview]);
+  });
+
+  it("counts the fallback again after a recovery that was only observed while counting was off", () => {
+    const { preview, current } = conflicting("proposal_recovered_quietly");
+    const restored = documentOf([paragraph("p_1", BASE_TEXT), paragraph("p_2", "残す")]);
+    const counted: string[] = [];
+    const count = (name: string) => counted.push(name);
+
+    resolveProposalMergePreview(current, preview, { count });
+    resolveProposalMergePreview(restored, preview, { countFallbacks: false, count });
+    resolveProposalMergePreview(deleteBlocksFromDocument(restored, ["p_1"]), preview, { count });
+
+    expect(counted).toEqual([
+      AI_PROPOSAL_PREVIEW_COUNTERS.fallback, AI_PROPOSAL_PREVIEW_COUNTERS.noPreview,
+      AI_PROPOSAL_PREVIEW_COUNTERS.fallback, AI_PROPOSAL_PREVIEW_COUNTERS.noPreview,
+    ]);
+  });
+
+  it("forgets what it counted for proposals that are no longer pending", () => {
+    const { preview, current } = conflicting("proposal_resolved");
+    const counted: string[] = [];
+    const count = (name: string) => counted.push(name);
+
+    resolveProposalMergePreview(current, preview, { count });
+    retainProposalMergePreviewFallbacks([]);
+    resolveProposalMergePreview(current, previewFor(summaryOf(replaceDraft("p_1", AI_TEXT), {
+      proposalId: "proposal_resolved",
+      mergeBasis: preview.mergeSources![0]!.mergeBasis,
+    })), { count });
+
+    expect(counted).toHaveLength(4);
   });
 
   it("counts nothing for a proposal that merges or applies normally", () => {
@@ -328,7 +432,7 @@ describe("resolveProposalMergePreview counts its fallbacks (MISS R3)", () => {
   });
 
   it("does not count while an approval is replacing the document (the old proposals are drawn over the result)", () => {
-    const { preview, current } = conflicting();
+    const { preview, current } = conflicting("proposal_while_applying");
     const counted: string[] = [];
 
     resolveProposalMergePreview(current, preview, { countFallbacks: false, count: (name) => counted.push(name) });

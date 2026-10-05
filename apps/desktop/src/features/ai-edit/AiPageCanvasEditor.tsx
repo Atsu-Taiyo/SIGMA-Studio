@@ -1,7 +1,7 @@
 "use client";
 
 import { WandSparkles } from "lucide-react";
-import { memo, useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 import {
   AiEditInlinePreviewCard,
@@ -29,8 +29,15 @@ import {
 import { readAiProposalDisplayState, type AiProposalDisplayState } from "./model/proposal-display-state";
 import { useAiProposalDisplayStates } from "./application/use-ai-proposal-display-states";
 import { useStableIdSet } from "./application/use-stable-id-set";
-import { groupPendingProposalContentByAnchor, type AiProposalAnchorCard } from "./model/proposal-content";
-import { resolveProposalMergePreview } from "./model/proposal-merge-preview";
+import {
+  collectMergedUpdatedShapes,
+  collectPendingRemovedBlockIds,
+  groupPendingProposalContentByAnchor,
+  resolveShapesKeptByMerge,
+  withMergedShapes,
+  type AiProposalAnchorCard,
+} from "./model/proposal-content";
+import { resolveProposalMergePreview, retainProposalMergePreviewFallbacks } from "./model/proposal-merge-preview";
 import { AiRunAnchorLayer, type AiRunCardOpenRequest } from "@/components/editor/ai-run-anchor-layer";
 import {
   getNarrowColumnBounds,
@@ -231,6 +238,7 @@ interface UseAiPageCanvasExtensionOptions {
 
 /** 提案が無いときに配り回す固定の空コレクション (identity を動かさないため)。 */
 const EMPTY_PREVIEW_CARDS_BY_TARGET_ID: ReadonlyMap<string, AiProposalAnchorCard[]> = new Map();
+const EMPTY_ID_SET: ReadonlySet<string> = new Set();
 const EMPTY_INLINE_CONTENT: ReadonlyMap<string, PageCanvasInlineContent[]> = new Map();
 
 function useAiPageCanvasExtension({
@@ -250,6 +258,10 @@ function useAiPageCanvasExtension({
   onFocusSession,
 }: UseAiPageCanvasExtensionOptions): { extension: PageCanvasEditorExtension; beforeHiddenShapeIds: ReadonlySet<string> } {
   const t = useT("ai");
+  // 承認・破棄で保留中でなくなった提案の、退避を数え済みという記録を捨てる (MISS R3)。
+  useEffect(() => {
+    retainProposalMergePreviewFallbacks(previewGroups);
+  }, [previewGroups]);
   const inlinePreviewGroups = useMemo(
     () => previewGroups.filter(hasBodyAiEditChanges),
     [previewGroups],
@@ -270,8 +282,9 @@ function useAiPageCanvasExtension({
     const previewsWithCards = new Set([...previewCardsByTargetId.values()].flat().map((card) => card.preview));
     return selectAiFloatingDecisionPreviews(previewGroups, previewsWithCards);
   }, [previewCardsByTargetId, previewGroups]);
-  // 浮かぶバーの提案のうち、本文の内容を人の編集と合成したもの (バーに一言を添える)。図形だけの
-  // 提案は合成のプレビューを作らないので入らない。提案ごとに覚えた結果を引くだけなので打鍵では軽い。
+  // 浮かぶバーの提案のうち、内容を人の編集と合成したもの (バーに一言を添える)。図形だけの提案も、
+  // base を持てば合成のプレビューを作るので、人が直した図形があれば入る。提案ごとに覚えた結果を
+  // 引くだけなので打鍵では軽い。
   const mergedFloatingKeys = useStableIdSet(floatingPreviewGroups.flatMap((preview) => (
     resolveProposalMergePreview(document, preview, { countFallbacks: !applying }).humanEditedUnits.length > 0
       ? [getAiProposalConversationKey(preview)]
@@ -367,14 +380,37 @@ function useAiPageCanvasExtension({
     () => deriveAiEditPreviewDiff(previewGroups, document.pageLayout?.overlay?.overlaySnapshot?.shapes ?? []),
     [document.pageLayout?.overlay?.overlaySnapshot?.shapes, previewGroups],
   );
+  // 本文の赤い下地は、カードの削除側と同じ合成後の内容から作る。AI が消すブロックを人が直して合成で
+  // 残るなら塗らない (draft から数えると承認の規則を二重に持つ。MISS R17)。カードは打鍵のたびに
+  // 作り直されるので、中身が同じなら同じ集合を使う (各本文ユニットの props を動かさない)。
+  const removedBlockIds = useStableIdSet(collectPendingRemovedBlockIds(previewCardsByTargetId));
   const textFlowChangeDecorationState = useMemo(() => {
-    const removedIds = [...previewDiff.removedBlockIds];
+    const removedIds = [...removedBlockIds];
     const removingIds = applyAnimation?.removingBlockIds ?? [];
     const addedIds = applyAnimation?.addedBlockIds ?? [];
     return removedIds.length === 0 && removingIds.length === 0 && addedIds.length === 0
       ? undefined
       : { removedIds, removingIds, addedIds };
-  }, [applyAnimation, previewDiff]);
+  }, [applyAnimation, removedBlockIds]);
+  // 図形の赤い削除表示も同じく、合成で残る図形 (人が直した図形) には付けない。図形を消す提案だけが、
+  // 提案ごとに覚えた結果を引く (合成と図形の並びが同じなら作り直さない)。
+  const mergeKeptShapeIdList = useMemo(
+    () => previewGroups.flatMap((preview) => [...resolveShapesKeptByMerge(document, preview, { countFallbacks: !applying })]),
+    [applying, document, previewGroups],
+  );
+  const mergeKeptShapeIds = useStableIdSet(mergeKeptShapeIdList);
+  // 図形の変更後の姿 (ゴースト) も、base を持つ提案は合成後の文書の図形で描く (MISS R17)。提案ごとに
+  // 覚えた合成を引くので、中身が同じなら同じ Map を配る (紙面の拡張を打鍵のたびに作り直さない)。
+  const mergedUpdatedShapeList = useMemo(
+    () => collectMergedUpdatedShapes(previewGroups, document, { countFallbacks: !applying }),
+    [applying, document, previewGroups],
+  );
+  const mergedUpdatedShapesKey = useMemo(() => JSON.stringify(mergedUpdatedShapeList), [mergedUpdatedShapeList]);
+  const mergedUpdatedShapes = useMemo<ReadonlyMap<string, OverlayShape>>(
+    () => new Map(mergedUpdatedShapeList.map((shape) => [shape.id, shape])),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [mergedUpdatedShapesKey],
+  );
   // 中身が同じなら同じ集合 (図形の印・編集の方針・紙面の拡張を作り直さない)。
   const beforeHiddenShapeIds = useStableIdSet(previewGroups.flatMap((preview) => (
     readAiProposalDisplayState(displayStates, getAiProposalConversationKey(preview), preview.proposalIds).beforeHidden
@@ -382,8 +418,8 @@ function useAiPageCanvasExtension({
       : []
   )));
   const overlayShapeClassNames = useMemo(
-    () => deriveAiOverlayShapeClassNames({ previewGroups, previewDiff, applyAnimation, beforeHiddenShapeIds }),
-    [applyAnimation, beforeHiddenShapeIds, previewDiff, previewGroups],
+    () => deriveAiOverlayShapeClassNames({ previewGroups, previewDiff, applyAnimation, beforeHiddenShapeIds, mergeKeptShapeIds }),
+    [applyAnimation, beforeHiddenShapeIds, mergeKeptShapeIds, previewDiff, previewGroups],
   );
 
   const resolveOverlayPresentation = useCallback((
@@ -393,7 +429,8 @@ function useAiPageCanvasExtension({
       previewGroups.flatMap((preview) => (preview.shapeReplacements ?? []).map((pair) => pair.removedShapeId)),
     );
     const finalShapeUpdates = new Map(
-      deriveAiEditPreviewShapeUpdates(previewGroups, context.overlayShapes).map((update) => [update.shapeId, update]),
+      withMergedShapes(deriveAiEditPreviewShapeUpdates(previewGroups, context.overlayShapes), mergedUpdatedShapes)
+        .map((update) => [update.shapeId, update]),
     );
     const addedShapeIds = new Set(previewDiff.addedShapes.map((entry) => entry.shape.id));
     const unresolvedGhosts: PageCanvasGhostShape[] = [
@@ -431,7 +468,7 @@ function useAiPageCanvasExtension({
     const floating = floatingPreviewGroups.map((preview) => {
       const conversationKey = getAiProposalConversationKey(preview);
       const displayState = readAiProposalDisplayState(displayStates, conversationKey, preview.proposalIds);
-      const changeLines = summarizeAiEditPreviewChanges(preview, context.overlayShapes, t);
+      const changeLines = summarizeAiEditPreviewChanges(preview, context.overlayShapes, t, mergeKeptShapeIds);
       // 本文も変える提案は、図形の要約だけでは何の提案か分からない (余白の変更など) ので、AI の要約を先に添える。
       const draftSummary = preview.draft.summary.trim();
       const summaryLines = !isOverlayOnlyAiEditPreview(preview) && draftSummary
@@ -491,7 +528,7 @@ function useAiPageCanvasExtension({
       ghostShapes: resolvedGhostShapes,
       floatingContent: widgets,
     };
-  }, [applying, displayStates, floatingPreviewGroups, mergedFloatingKeys, onApply, onDismiss, openProposalConversation, previewDiff, previewGroups, t, updateDisplayState]);
+  }, [applying, displayStates, floatingPreviewGroups, mergeKeptShapeIds, mergedFloatingKeys, mergedUpdatedShapes, onApply, onDismiss, openProposalConversation, previewDiff, previewGroups, t, updateDisplayState]);
 
   // 参照系のコールバックは ref 経由で最新を読む。identity を deps に入れると、親が 1 回
   // 描画するたびに selection 拡張が作り直され、PageCanvasEditor 側の選択 effect が再 arm
@@ -791,11 +828,14 @@ export function deriveAiOverlayShapeClassNames({
   previewDiff,
   applyAnimation,
   beforeHiddenShapeIds,
+  mergeKeptShapeIds = EMPTY_ID_SET,
 }: {
   previewGroups: readonly AiEditPreviewState[];
   previewDiff: AiEditPreviewDiff;
   applyAnimation: AiApplyAnimationState | null;
   beforeHiddenShapeIds: ReadonlySet<string>;
+  /** AI が消す図形のうち、人が直したので承認の合成で残るもの (`collectShapesKeptByMerge`)。削除の印を付けない。 */
+  mergeKeptShapeIds?: ReadonlySet<string>;
 }): Map<string, string> {
   const result = new Map<string, string>();
   const replacementShapeIds = new Set(
@@ -808,6 +848,9 @@ export function deriveAiOverlayShapeClassNames({
     result.set(id, beforeClassName(id, "ai-diff-modified-shape ai-diff-before-shape"));
   }
   for (const id of previewDiff.removedShapeIds) {
+    if (mergeKeptShapeIds.has(id)) {
+      continue;
+    }
     result.set(id, replacementShapeIds.has(id)
       ? beforeClassName(id, "ai-diff-removed-shape ai-diff-before-shape")
       : "ai-diff-removed-shape");

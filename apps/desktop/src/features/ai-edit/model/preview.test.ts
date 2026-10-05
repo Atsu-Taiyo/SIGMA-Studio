@@ -29,6 +29,7 @@ import {
   overlayShapeNounId,
 } from "./preview";
 import { buildShapesSvgPreview } from "@/lib/ai/ai-edit-shape-preview";
+import { computeProposalMergeBasis, type ProposalMergeBasis } from "@/lib/ai/proposal-merge-basis";
 import type { AiEditDraft, AiEditSessionDraft, SigmaDocMutationOp } from "@/lib/ai/sigma-doc-edit-schema";
 import type { OverlayAsset, OverlayShape } from "@/features/document";
 import type { DesktopMcpEditProposalProvider, DesktopMcpEditProposalSummary } from "@/types/desktop";
@@ -1180,7 +1181,6 @@ describe("isOverlayOnlyAiEditPreview", () => {
     expect(isOverlayOnlyAiEditPreview(preview)).toBe(true);
     expect(hasOverlayAiEditChanges(preview)).toBe(true);
     expect(hasBodyAiEditChanges(preview)).toBe(false);
-    expect(deriveAiEditPreviewDiff([preview]).removedBlockIds).toEqual(new Set());
     expect(derivePostApplyHighlightIds(preview).blockIds).toEqual([]);
   });
 
@@ -1213,22 +1213,10 @@ describe("getAiEditPreviewBeforeShapeIds", () => {
 });
 
 describe("deriveAiEditPreviewDiff", () => {
-  it("marks a replace op's target as removed", () => {
-    const diff = deriveAiEditPreviewDiff([makePreview({ operations: [replaceDraft] })]);
-    expect(diff.removedBlockIds).toEqual(new Set(["b1"]));
+  it("derives nothing for body operations (the removed blocks come from the merged result)", () => {
+    const diff = deriveAiEditPreviewDiff([makePreview({ operations: [replaceDraft, legacyReplaceDraft, insertAfterDraft] })]);
     expect(diff.removedShapeIds.size).toBe(0);
     expect(diff.modifiedShapeIds.size).toBe(0);
-    expect(diff.addedShapes).toEqual([]);
-  });
-
-  it("treats a legacy replace draft (no `operation` field) the same as an explicit replace", () => {
-    const diff = deriveAiEditPreviewDiff([makePreview({ operations: [legacyReplaceDraft] })]);
-    expect(diff.removedBlockIds).toEqual(new Set(["b2"]));
-  });
-
-  it("does not mark an insertAfter op's target as removed", () => {
-    const diff = deriveAiEditPreviewDiff([makePreview({ operations: [insertAfterDraft] })]);
-    expect(diff.removedBlockIds.size).toBe(0);
     expect(diff.addedShapes).toEqual([]);
   });
 
@@ -1265,57 +1253,231 @@ describe("deriveAiEditPreviewDiff", () => {
     expect(diff.addedShapes[0].shape).toEqual(anchoredShape);
   });
 
-  it("maps deleteBlocks/deleteOverlayShapes to removed ids, and updateOverlayShape/alignOverlayShapes to modified ids", () => {
+  it("maps deleteOverlayShapes to removed ids, and updateOverlayShape/alignOverlayShapes to modified ids", () => {
     const diff = deriveAiEditPreviewDiff([
       makePreview({
         mutationOperations: [deleteBlocksOp, updateOverlayShapeOp, alignOverlayShapesOp, deleteOverlayShapesOp],
       }),
     ]);
-    expect(diff.removedBlockIds).toEqual(new Set(["b4", "b5"]));
     expect(diff.removedShapeIds).toEqual(new Set(["s6"]));
     expect(diff.modifiedShapeIds).toEqual(new Set(["s3", "s4", "s5"]));
   });
 
   it("does not derive any diff treatment from moveBlocks (position-only change)", () => {
     const diff = deriveAiEditPreviewDiff([makePreview({ mutationOperations: [moveBlocksOp] })]);
-    expect(diff.removedBlockIds.size).toBe(0);
+    expect(diff.removedShapeIds.size).toBe(0);
     expect(diff.modifiedShapeIds.size).toBe(0);
   });
 
   it("merges diff sets across multiple preview groups", () => {
     const diff = deriveAiEditPreviewDiff([
-      makePreview({ operations: [replaceDraft] }),
+      makePreview({ mutationOperations: [updateOverlayShapeOp] }),
       makePreview({ mutationOperations: [deleteOverlayShapesOp] }),
     ]);
-    expect(diff.removedBlockIds).toEqual(new Set(["b1"]));
+    expect(diff.modifiedShapeIds).toEqual(new Set(["s3"]));
     expect(diff.removedShapeIds).toEqual(new Set(["s6"]));
   });
 
   it("returns empty sets for an empty preview list", () => {
     const diff = deriveAiEditPreviewDiff([]);
-    expect(diff.removedBlockIds.size).toBe(0);
     expect(diff.removedShapeIds.size).toBe(0);
     expect(diff.modifiedShapeIds.size).toBe(0);
     expect(diff.addedShapes).toEqual([]);
   });
 });
 
+/** 提案が上書きする単位を持つ文書 (`computeProposalMergeBasis` がここから元の内容を写す)。 */
+function lockTargetDocument(): SigmaDocument {
+  const paragraphBlock = (id: string) => ({ id, type: "paragraph", children: [{ type: "text", text: `段落 ${id}` }] });
+  const rectangle = (id: string, x: number) => ({
+    id,
+    type: "geo",
+    x,
+    y: 0,
+    props: {
+      w: 40, h: 20, geo: "rectangle", fill: "none", color: "#111111", fillColor: "#ffffff",
+      labelColor: "#111111", dash: "solid", size: "m",
+    },
+  });
+  return {
+    version: "2.0",
+    docId: "doc_1",
+    metadata: { title: "ロック" },
+    outputProfiles: { student: {}, teacher: {}, answerBook: {} },
+    content: [
+      ...["b1", "b4", "b5", "b6"].map(paragraphBlock),
+      { id: "sec1", type: "layoutSection", layout: { columnCount: 2, columnGapMm: 8 }, children: [paragraphBlock("sec1_p")] },
+    ],
+    pageLayout: {
+      overlay: {
+        overlaySnapshot: {
+          version: 1,
+          shapes: ["s3", "s4", "s5", "s6"].map((id, index) => rectangle(id, index * 60)),
+          assets: {},
+        },
+      },
+    },
+  } as unknown as SigmaDocument;
+}
+
+const updateLayoutSectionOp: SigmaDocMutationOp = {
+  operation: "updateLayoutSection",
+  summary: "段組みを3段に",
+  sectionId: "sec1",
+  columnCount: 3,
+};
+
+/** 実際の提案ストアと同じく、作成時の文書から `mergeBasis` を持たせた保留中の提案のプレビュー。 */
+function lockPreview(proposals: Array<{
+  draft: Partial<AiEditSessionDraft>;
+  mergeBasis?: "computed" | ProposalMergeBasis;
+  requestedShapeId?: string;
+}>): AiEditPreviewState {
+  const summaries = proposals.map(({ draft, mergeBasis, requestedShapeId }, index) => {
+    const summary = makeProposal({
+      proposalId: `lock_${index}`,
+      fileId: "file_1",
+      targetId: "b1",
+      runId: "run_lock",
+      createdAt: `2026-06-27T00:00:0${index}.000Z`,
+      requestedShapeId,
+      draftOverrides: { operations: [], ...draft },
+    });
+    return mergeBasis === undefined
+      ? summary
+      : { ...summary, mergeBasis: mergeBasis === "computed" ? computeProposalMergeBasis(summary.draft, lockTargetDocument()) : mergeBasis };
+  });
+  const { groups } = groupMcpProposalsForPreview(summaries, "file_1", 1);
+  expect(groups).toHaveLength(1);
+  return groups[0]!;
+}
+
 describe("derivePendingAiProposalLockTargets", () => {
-  it("does not reserve the text of a body insertion anchor or move destination", () => {
+  // 三者マージで人の編集に追従できる対象はロックしない。ロックが残るのは合成できない対象だけ:
+  // base (mergeBasis) を持たない旧レコードの全対象と、整列・段組み設定の更新の対象。
+  it("leaves every target a merge-capable proposal can follow editable", () => {
+    const locks = derivePendingAiProposalLockTargets([lockPreview([{
+      mergeBasis: "computed",
+      draft: {
+        operations: [replaceDraft, insertAfterDraft],
+        mutationOperations: [deleteBlocksOp, moveBlocksOp, updateOverlayShapeOp, deleteOverlayShapesOp],
+      },
+    }])]);
+
+    expect(locks.blockIds).toEqual(new Set());
+    expect(locks.shapeIds).toEqual(new Set());
+  });
+
+  it("keeps the targets the merge cannot follow locked: aligned shapes and a reconfigured column section", () => {
+    const locks = derivePendingAiProposalLockTargets([lockPreview([{
+      mergeBasis: "computed",
+      draft: { operations: [replaceDraft], mutationOperations: [alignOverlayShapesOp, updateLayoutSectionOp] },
+    }])]);
+
+    expect(locks.blockIds).toEqual(new Set(["sec1"]));
+    expect(locks.shapeIds).toEqual(new Set(["s4", "s5"]));
+  });
+
+  it("locks an aligned shape even when the same proposal also updates it (the alignment overwrites the merge)", () => {
+    const locks = derivePendingAiProposalLockTargets([lockPreview([{
+      mergeBasis: "computed",
+      draft: { mutationOperations: [{ ...updateOverlayShapeOp, shapeId: "s4" }, alignOverlayShapesOp] },
+    }])]);
+
+    expect(locks.shapeIds).toEqual(new Set(["s4", "s5"]));
+  });
+
+  it("locks only the proposals of a group that have no usable merge basis", () => {
+    const locks = derivePendingAiProposalLockTargets([lockPreview([
+      { mergeBasis: "computed", draft: { operations: [replaceDraft] } },
+      { draft: { mutationOperations: [deleteBlocksOp, deleteOverlayShapesOp] } },
+    ])]);
+
+    expect(locks.blockIds).toEqual(new Set(["b4", "b5"]));
+    expect(locks.shapeIds).toEqual(new Set(["s6"]));
+  });
+
+  it("treats a proposal whose merge basis cannot be read as a legacy record", () => {
+    const broken: ProposalMergeBasis = {
+      version: 1,
+      entities: { b1: { kind: "block", value: { id: "b1", type: "paragraph" } as never } },
+    };
+    const locks = derivePendingAiProposalLockTargets([lockPreview([
+      { mergeBasis: broken, draft: { operations: [replaceDraft] } },
+      // 同じまとまりに base を持つ提案があっても (mergeSources が付いても)、壊れた base の提案は旧レコード。
+      { mergeBasis: "computed", draft: { mutationOperations: [updateOverlayShapeOp] } },
+    ])]);
+
+    expect(locks.blockIds).toEqual(new Set(["b1"]));
+    expect(locks.shapeIds).toEqual(new Set());
+  });
+
+  it("keeps a target locked when the merge basis has no snapshot of it (the replay would overwrite the human's edit)", () => {
+    const sectionBlock = lockTargetDocument().content.find((block) => block.id === "sec1")!;
+    const partial: ProposalMergeBasis = {
+      version: 1,
+      entities: { sec1: { kind: "block", value: structuredClone(sectionBlock) as never } },
+    };
+    const replaceNested = { ...replaceDraft, targetId: "sec1_p", replacementBlock: { id: "sec1_p", type: "paragraph", children: [] } } as unknown as AiEditDraft;
+    const locks = derivePendingAiProposalLockTargets([lockPreview([{
+      mergeBasis: partial,
+      draft: {
+        operations: [replaceDraft, replaceNested],
+        mutationOperations: [deleteBlocksOp, moveBlocksOp, updateOverlayShapeOp, deleteOverlayShapesOp],
+      },
+    }])]);
+
+    // b1 / b4 / b5 / s3 / s6 have no snapshot. sec1_p sits inside the sec1 snapshot, so it merges with it.
+    expect(locks.blockIds).toEqual(new Set(["b1", "b4", "b5"]));
+    expect(locks.shapeIds).toEqual(new Set(["s3", "s6"]));
+  });
+
+  it("locks the old shape of a replacement pair even when both proposals carry a merge basis", () => {
+    // A deletes s6 and B inserts its replacement under s6 (requestedShapeId). If the human edited s6, A's
+    // merge would keep it and B's insert would collide with it, so the whole group could not be approved.
+    const preview = lockPreview([
+      { mergeBasis: "computed", draft: { mutationOperations: [deleteOverlayShapesOp] } },
+      { mergeBasis: "computed", requestedShapeId: "s6", draft: { operations: [{ ...insertOverlayShapeDraft, overlayShape: { id: "s6_new", type: "geo" } } as unknown as AiEditDraft] } },
+    ]);
+
+    expect(preview.shapeReplacements).toEqual([{ removedShapeId: "s6", addedShapeId: "s6_new" }]);
+    expect(derivePendingAiProposalLockTargets([preview]).shapeIds).toEqual(new Set(["s6"]));
+  });
+
+  it("locks a deleted shape with the shapes its deletion takes along (anchored to it), read from the current shapes", () => {
+    const preview = lockPreview([{ mergeBasis: "computed", draft: { mutationOperations: [{ ...deleteOverlayShapesOp, shapeIds: ["s3"] }] } }]);
+    const shapes = (lockTargetDocument().pageLayout!.overlay!.overlaySnapshot!.shapes as OverlayShape[]);
+    const anchored = { ...shapes[0], id: "pinned", anchor: { type: "shape", shapeId: "s3", dx: 0, dy: 20 } } as unknown as OverlayShape;
+
+    expect(derivePendingAiProposalLockTargets([preview], [...shapes, anchored]).shapeIds).toEqual(new Set(["s3", "pinned"]));
+    expect(derivePendingAiProposalLockTargets([preview], shapes).shapeIds).toEqual(new Set());
+  });
+
+  it("locks the old shape of a replacement pair whose insertion is a legacy record", () => {
+    const preview = lockPreview([
+      { mergeBasis: "computed", draft: { mutationOperations: [deleteOverlayShapesOp] } },
+      { requestedShapeId: "s6", draft: { operations: [{ ...insertOverlayShapeDraft, overlayShape: { id: "s6_new", type: "geo" } } as unknown as AiEditDraft] } },
+    ]);
+
+    expect(derivePendingAiProposalLockTargets([preview]).shapeIds).toEqual(new Set(["s6"]));
+  });
+
+  it("does not reserve the text of a body insertion anchor or a moved block, even for a legacy record", () => {
     const insertion = derivePendingAiProposalLockTargets([makePreview({ operations: [insertAfterDraft] })]);
     expect(insertion.blockIds.size).toBe(0);
+    // 移動は中身を上書きしないので、旧レコードの承認も比べない (人の編集は移動先で残る)。
     const move = derivePendingAiProposalLockTargets([makePreview({ operations: [], mutationOperations: [moveBlocksOp] })]);
-    expect(move.blockIds).toEqual(new Set(moveBlocksOp.blockIds));
+    expect(move.blockIds.size).toBe(0);
   });
-  it("keeps existing body and overlay targets locked until the proposal is resolved", () => {
+  it("keeps what a legacy record's approval compares (no merge basis) locked until the proposal is resolved", () => {
     const locks = derivePendingAiProposalLockTargets([
       makePreview({
         operations: [replaceDraft, insertAfterDraft],
-        mutationOperations: [deleteBlocksOp, moveBlocksOp, updateOverlayShapeOp, alignOverlayShapesOp, deleteOverlayShapesOp],
+        mutationOperations: [deleteBlocksOp, moveBlocksOp, updateLayoutSectionOp, updateOverlayShapeOp, alignOverlayShapesOp, deleteOverlayShapesOp],
       }),
     ]);
 
-    expect(locks.blockIds).toEqual(new Set(["b1", "b4", "b5", "b6"]));
+    expect(locks.blockIds).toEqual(new Set(["b1", "b4", "b5", "sec1"]));
     expect(locks.shapeIds).toEqual(new Set(["s3", "s4", "s5", "s6"]));
   });
 
@@ -1329,8 +1491,9 @@ describe("derivePendingAiProposalLockTargets", () => {
   });
 
   it("allows an explicitly editable web proposal target to change before its freshness check", () => {
+    // WebMCP のプレビューは mergeSources を持たないが、旧レコードとしてロックしてはいけない。
     const locks = derivePendingAiProposalLockTargets([
-      makePreview({ operations: [replaceDraft], lockTargets: false }),
+      makePreview({ operations: [replaceDraft], mutationOperations: [alignOverlayShapesOp], lockTargets: false }),
     ]);
 
     expect(locks.blockIds.size).toBe(0);
@@ -1744,6 +1907,15 @@ function fixtureTableShape(id: string, rowCount: number, columnCount: number): O
 }
 
 describe("summarizeAiEditPreviewChanges", () => {
+  it("does not call a deleted shape the merge keeps (the human edited it) a deletion", () => {
+    const preview = makePreview({
+      mutationOperations: [{ operation: "deleteOverlayShapes", summary: "削除", shapeIds: ["rect1", "ellipse1"] }],
+    });
+    const currentShapes = [rectShape("rect1", 0, 0), ellipseShape("ellipse1")];
+
+    expect(summarizeAiEditPreviewChanges(preview, currentShapes, undefined, new Set(["rect1"]))).toEqual(["円を削除"]);
+  });
+
   it("summarizes a table insert with its dimensions instead of a count", () => {
     const preview = makePreview({
       operations: [{
