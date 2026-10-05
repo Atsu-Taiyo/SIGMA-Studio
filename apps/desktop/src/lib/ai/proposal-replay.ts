@@ -209,11 +209,14 @@ export interface ProposalMergeReplayResult {
  *
  * When nothing deviates from the plain replay (no unit was edited by the human, nothing had to be
  * re-anchored or renamed), the result is exactly `replayProposalDraft` and the report is empty.
+ *
+ * `onMergeFailure` is `rewriteProposalDraftMerging`'s: "throw" replays nothing on the AI's side.
  */
 export function replayProposalDraftMerging(
   document: SigmaDocument,
   draft: AiEditSessionDraft,
   mergeBasis: ProposalMergeBasis,
+  onMergeFailure: ProposalMergeFailureRule = "ai-side",
 ): ProposalMergeReplayResult {
   // Only insertAfter anchors can move; a shape inserted against a block or shape the human deleted
   // keeps the legacy contract: the external anchor must still exist.
@@ -221,22 +224,15 @@ export function replayProposalDraftMerging(
   if (missingAnchors.length > 0) {
     throw new ProposalMergeReplayError(te("electron.proposal.regenerateMissingTarget"), "anchor-missing", missingAnchors);
   }
-  const plan = planMergingReplay(document, draft, mergeBasis);
-  if (!plan.rewrites) {
-    const replay = replayProposalDraft(document, draft);
-    return { ...replay, rebasedDraft: draft, report: assembleReport(plan, new Set()) };
-  }
-  const attempt = (fallBack: ReadonlySet<string>): MergedReplay => {
-    const rebasedDraft = rewriteDraft(document, draft, plan, fallBack).draft;
-    return { rebasedDraft, ...replayRewrittenDraft(document, rebasedDraft) };
-  };
-  try {
-    return { ...attempt(new Set()), report: assembleReport(plan, new Set()) };
-  } catch (error) {
-    const { replay, fallBack } = retryWithFailingUnitsOnTheAiSide(plan, attempt, error);
-    return { ...replay, report: assembleReport(plan, fallBack) };
-  }
+  // Without anything to merge the rewrite hands the draft itself, which is replayed as it is.
+  const merged = rewriteProposalDraftMerging(document, draft, mergeBasis, (rewrite) => (
+    rewrite.draft === draft ? replayProposalDraft(document, draft) : replayRewrittenDraft(document, rewrite.draft)
+  ), onMergeFailure);
+  return { ...merged.result, rebasedDraft: merged.rewrite.draft, report: merged.report };
 }
+
+/** What a merge that fails validation or cannot be replayed does (`rewriteProposalDraftMerging`). */
+export type ProposalMergeFailureRule = "ai-side" | "throw";
 
 /**
  * A draft rewritten by the merge: the given draft with the merged contents written in, minus the
@@ -265,16 +261,17 @@ export interface ProposalDraftRewrite {
  *   contents cannot be applied fall back to the AI's version; when even that fails, `replay`'s first
  *   error is thrown. Each fallback is counted (`invalidAfterMerge`) and the person is told.
  * - "throw", for an owner whose person gets no such notice but whose agent re-reads and retries a
- *   stale draft (WebMCP): nothing falls back to the AI's version, so no human edit is dropped. A unit
- *   whose merged contents fail validation throws `ProposalMergeValidationError` with its id, and
- *   `replay`'s error is thrown as it is.
+ *   stale draft (WebMCP), or whose document other people edit too (a shared document's approval):
+ *   nothing falls back to the AI's version, so no human edit is dropped. A unit whose merged contents
+ *   fail validation throws `ProposalMergeValidationError` with its id, and `replay`'s error is thrown
+ *   as it is.
  */
 export function rewriteProposalDraftMerging<T>(
   document: SigmaDocument,
   draft: AiEditSessionDraft,
   mergeBasis: ProposalMergeBasis,
   replay: (rewrite: ProposalDraftRewrite) => T,
-  onMergeFailure: "ai-side" | "throw" = "ai-side",
+  onMergeFailure: ProposalMergeFailureRule = "ai-side",
 ): { rewrite: ProposalDraftRewrite; result: T; report: ProposalMergeReport } {
   const plan = planMergingReplay(document, draft, mergeBasis);
   if (onMergeFailure === "throw") {
@@ -340,26 +337,32 @@ export function assertNoRepeatedContentIds(before: SigmaDocument, after: SigmaDo
  *
  * The approval (main) and the renderer's preview of a pending proposal both call this, so the
  * preview shows exactly what an approval would save.
+ *
+ * `draft` is what to replay plainly (`replayProposalDraft`) onto `document` for `nextDocument`: the
+ * merged contents written in (`rebasedDraft`), or the proposal's own draft without a merge basis. It
+ * has no operations when the human's edits made every one of them unnecessary; `nextDocument` is then
+ * `document`. A shared document's approval sends it to the server, which replays it plainly.
  */
 export function replayProposalForApproval(
   document: SigmaDocument,
   proposal: { draft: AiEditSessionDraft; mergeBasis?: ProposalMergeBasis; mergeCarry?: ProposalMergeReport },
-): { nextDocument: SigmaDocument; report: ProposalMergeReport } {
+  onMergeFailure: ProposalMergeFailureRule = "ai-side",
+): { nextDocument: SigmaDocument; report: ProposalMergeReport; draft: AiEditSessionDraft } {
   const mergeBasis = usableProposalMergeBasis(proposal.mergeBasis);
   if (mergeBasis) {
-    const merged = replayProposalDraftMerging(document, proposal.draft, mergeBasis);
+    const merged = replayProposalDraftMerging(document, proposal.draft, mergeBasis, onMergeFailure);
     return {
       nextDocument: merged.nextDocument,
       report: proposal.mergeCarry ? combineProposalMergeReports([proposal.mergeCarry, merged.report]) : merged.report,
+      draft: merged.rebasedDraft,
     };
   }
   return {
     nextDocument: replayProposalDraft(document, proposal.draft).nextDocument,
     report: { ...createEmptyProposalMergeReport(), legacyNoBase: 1 },
+    draft: proposal.draft,
   };
 }
-
-type MergedReplay = Omit<ProposalMergeReplayResult, "report">;
 
 /**
  * The replay failed with the merged units. Each merged unit is tried alone (the others on the AI's

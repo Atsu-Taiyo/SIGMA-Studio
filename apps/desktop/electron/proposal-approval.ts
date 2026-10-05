@@ -51,8 +51,9 @@ export type ApproveProposalResult =
       file: Awaited<ReturnType<LocalSigmaDocStore["listFiles"]>>[number];
       document: SigmaDocument;
       /**
-       * What the merging replay decided; the renderer counts its fallbacks (MISS R3). Absent for a
-       * shared document's approval, which does not go through the local replay.
+       * What the merging replay decided; the renderer counts its fallbacks (MISS R3). A shared
+       * document's approval merges with the same replay and reports it too (`legacyNoBase` for records
+       * sent as recorded).
        */
       mergeReport?: ProposalMergeReport;
     }

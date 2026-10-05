@@ -292,8 +292,10 @@ export interface ProposalTargets {
  * the approval report a conflict, or (without this rule) silently lose the human's edit. This is the
  * one definition every side reads: the approval compares exactly these with their base hashes
  * (content-stale, `electron/proposals/freshness.ts`), the editor keeps exactly these locked while
- * the proposals are pending (`derivePendingAiProposalLockTargets`), and WebMCP's draft replay makes the
- * draft `STALE_DRAFT` when the human changed one of them (`replayConflictIds` in `webmcp-tools.ts`).
+ * the proposals are pending (`derivePendingAiProposalLockTargets`), WebMCP's draft replay makes the
+ * draft `STALE_DRAFT` when the human changed one of them (`replayConflictIds` in `webmcp-tools.ts`),
+ * and a shared document's approval, which has no locks, records their base hashes and keeps checking
+ * them on the server while the merged units are checked as merged (`electron/collaboration/`).
  *
  * - A proposal without a usable merge basis (a legacy record): every existing block it replaces or
  *   deletes, every column section it reconfigures and every shape it updates, aligns or deletes (its
