@@ -238,6 +238,12 @@ export const editor = {
   },
   url: {
     makeQrCode: "Turn this URL into a QR code",
+    cardLabel: "Link actions",
+    qrLabel: "QR code",
+    browserLabel: "Open in browser",
+    browserTitle: "Open in the default browser ({{key}}-click)",
+    sigmaLabel: "Open in Sigma",
+    sigmaTitle: "Open in Sigma's browser ({{key}}+Shift-click)",
   },
   math: {
     previewAria: "Math preview",
@@ -402,6 +408,7 @@ export const editor = {
     addImageToPage: "Adds an image to the page",
     qrAdded: "Added a QR code for the URL to the page",
     qrFailed: "Could not create the QR code",
+    linkOpenFailed: "Could not open the link",
     bodyAndShapesPasted: "Pasted the body text and shapes",
     noSearchResults: "No matches",
     searchResultSelected: "Selected a match",

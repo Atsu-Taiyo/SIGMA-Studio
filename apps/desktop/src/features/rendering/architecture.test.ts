@@ -740,10 +740,7 @@ describe("rendering feature dependency boundary", () => {
      * 生成器を通さない注入面。根拠は「リテラルだから」の一点なので、免除するのは
      * 生成器 import の要求だけ。「1 個のリテラルであること」は下の it が課したまま。
      */
-    const CONSTANT_MARKUP_SITES: Record<string, string> = {
-      "components/tiptap/url-detection-extension.tsx":
-        "アプリ自身が書いた固定の SVG アイコン。補間も連結も無い単一リテラルなので、文書由来の文字列は 1 つも入らない",
-    };
+    const CONSTANT_MARKUP_SITES: Record<string, string> = {};
 
     /**
      * 注入面の探索から外すディレクトリ。
@@ -1037,7 +1034,6 @@ describe("rendering feature dependency boundary", () => {
         "components/editor/EditorSettings.tsx",
         "components/editor/MaterialPreview.tsx",
         "components/print/PrintPreview.tsx",
-        "components/tiptap/url-detection-extension.tsx",
         "features/ai-edit/view/AiAppliedDocumentDiff.tsx",
         "features/ai-edit/view/AiChatPreviewImages.tsx",
         "features/ai-edit/view/AiChatTurn.tsx",

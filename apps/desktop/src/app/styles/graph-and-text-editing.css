@@ -722,7 +722,8 @@
   display: none;
 }
 
-/* URL detection: subtle link styling plus an inline "make QR code" affordance. */
+/* URL detection: subtle link styling. Hovering a link opens .url-link-card
+   (QR code / open in the browser / open in Sigma); it lives on document.body. */
 .url-detected {
   color: var(--accent, #2563eb);
   text-decoration: underline;
@@ -730,29 +731,41 @@
   text-underline-offset: 2px;
 }
 
-.url-qr-action {
-  display: inline-flex;
+.url-link-card {
+  position: fixed;
+  z-index: var(--z-tooltip);
+  display: flex;
   align-items: center;
-  justify-content: center;
-  vertical-align: baseline;
-  width: 17px;
-  height: 17px;
-  margin: 0 1px 0 3px;
-  padding: 0;
-  border: 1px solid var(--border-strong, #cbd5e1);
-  border-radius: 4px;
-  background: var(--surface, #fff);
-  color: var(--text-secondary, #475569);
-  cursor: pointer;
-  line-height: 0;
+  gap: var(--space-xs);
+  padding: var(--space-xs);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-control);
+  background: var(--surface);
+  box-shadow: var(--shadow-floating);
+  font-size: 12px;
+  line-height: 1;
   user-select: none;
-  transition: background-color 0.12s ease, color 0.12s ease, border-color 0.12s ease;
 }
 
-.url-qr-action:hover {
-  background: var(--accent, #2563eb);
-  border-color: var(--accent, #2563eb);
-  color: #fff;
+.url-link-card-action {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-xs);
+  padding: var(--space-xs) var(--space-sm);
+  border: 0;
+  /* Concentric with the card: its radius minus its padding. */
+  border-radius: calc(var(--radius-control) - var(--space-xs));
+  background: transparent;
+  color: var(--text-secondary);
+  font: inherit;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background-color 0.12s ease, color 0.12s ease;
+}
+
+.url-link-card-action:hover {
+  background: var(--surface-muted);
+  color: var(--text-primary);
 }
 
 .sigma-doc-layout-section-block {
