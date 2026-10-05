@@ -806,19 +806,30 @@ describe("rewriteProposalDraftMerging (the merge for an owner that replays draft
     expect(replays.length).toBeGreaterThan(1);
   });
 
-  it("rethrows the owner's own rejection at once instead of dropping the human's edit to get past it", () => {
+  it("with \"throw\", replays nothing on the AI's side: the owner's replay error comes back as it is", () => {
     const basis = computeProposalMergeBasis(editAndDelete, base);
     const replays: AiEditSessionDraft[] = [];
-    class OwnerRejection extends Error {}
+    const rejection = new Error("the owner cannot apply the merged p_1");
 
-    expect(() => rewriteProposalDraftMerging(
-      current,
-      editAndDelete,
-      basis,
-      replayRejectingMergedP1(replays, () => new OwnerRejection("stale move")),
-      (error) => !(error instanceof OwnerRejection),
-    )).toThrow(OwnerRejection);
+    expect(() => rewriteProposalDraftMerging(current, editAndDelete, basis, replayRejectingMergedP1(replays, () => rejection), "throw"))
+      .toThrow(rejection);
     expect(replays).toHaveLength(1);
+  });
+
+  it("with \"throw\", stops on a unit whose merged contents fail validation instead of replaying the AI's version", () => {
+    const box = (blocks: ParagraphNode[]): BoxBlockNode => ({ type: "boxBlock", id: "box", styleId: "plain", blocks });
+    const boxBase = documentOf([box([paragraph("c", "c"), paragraph("d", "d")]), paragraph("tail", "tail")]);
+    const draft = replaceDraft(box([paragraph("c", "c by AI"), paragraph("d", "d")]));
+    const basis = computeProposalMergeBasis(draft, boxBase);
+    // The person moves c out of the box: the merge (edit beats delete) would keep c in the box as well.
+    const moved = documentOf([box([paragraph("d", "d")]), paragraph("tail", "tail"), paragraph("c", "c")]);
+    let replayed = false;
+
+    expect(() => rewriteProposalDraftMerging(moved, draft, basis, () => { replayed = true; }, "throw"))
+      .toThrow(expect.objectContaining({ name: "ProposalMergeValidationError", ids: ["box"] }));
+    expect(replayed).toBe(false);
+    // The approval's rule replays the AI's box instead and counts it.
+    expect(rewriteProposalDraftMerging(moved, draft, basis, (rewrite) => rewrite).report.invalidAfterMerge).toBe(1);
   });
 });
 

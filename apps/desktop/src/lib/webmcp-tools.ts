@@ -79,7 +79,7 @@ import {
 } from "@/lib/ai/proposal-merge-basis";
 import {
   assertNoRepeatedContentIds,
-  ProposalReplayRepeatedIdError,
+  ProposalMergeValidationError,
   rewriteProposalDraftMerging,
   type ProposalDraftRewrite,
 } from "@/lib/ai/proposal-replay";
@@ -1264,22 +1264,21 @@ export function createSigmaWebMcpTools(
       movePlacements: [...capturedMovePlacements],
       checkpoints: [...capturedCheckpoints],
     };
-    // WebMCP's own stale checks are never retried with units on the AI's side: that would only make the
-    // check pass by dropping the human's edit.
-    const isMergeFailure = (error: unknown) => !(error instanceof WebMcpStaleDraftError);
     try {
+      // A failed merge never falls back to the AI's version here ("throw"): the person sees no notice
+      // of a dropped edit, while the agent can re-read and retry a STALE_DRAFT (the safe side WebMCP
+      // always had). The approval's fallback is for the desktop, where it is counted and announced.
       const merged = rewriteProposalDraftMerging(currentDocument, draft, mergeBasis, (rewrite) => {
         const rewrittenBookkeeping = remapReplayBookkeeping(draft, rewrite, bookkeeping);
         const replayed = replayEntries(base, currentDocument, rewrite.draft, rewrittenBookkeeping);
-        // A merged draft must not repeat an id, as in the approval (a unit put back on the AI's side
-        // next to the human's copy of one of its blocks).
+        // A merged draft must not repeat an id, as in the approval.
         if (rewrite.draft !== draft) assertNoRepeatedContentIds(currentDocument, replayed.nextDocument);
         return { ...replayed, bookkeeping: rewrittenBookkeeping };
-      }, isMergeFailure);
+      }, "throw");
       return { ...merged.result, report: merged.report };
     } catch (error) {
       if (error instanceof WebMcpStaleDraftError) throw error;
-      if (error instanceof ProposalReplayRepeatedIdError) throw formatStaleError(error.ids);
+      if (error instanceof ProposalMergeValidationError) throw formatStaleError(error.ids);
       const ids = replayFailureTargetIds(currentDocument, draft);
       const stale = new WebMcpStaleDraftError(ids.length > 0 ? ids : ["document"]);
       stale.message = `${stale.message} Replay failed: ${error instanceof Error ? error.message : String(error)}`;
