@@ -3692,7 +3692,8 @@ const { candidateCommentTop, pendingCommentTop, commentThreadPositions } = usePa
           popover={selectionActionPopover}
           onCommentAnchorRequest={onCommentAnchorRequest}
             renderSelectionActions={renderSelectionActions}
-          onWidthChange={setSelectionPopoverWidthPx}
+          // 幅を使うのは図形の選択の操作だけ (本文の選択では紙面を描き直さない)。
+          onWidthChange={pageOverlayEditing ? setSelectionPopoverWidthPx : undefined}
         />
       )}
       {problemContextMenu && (
