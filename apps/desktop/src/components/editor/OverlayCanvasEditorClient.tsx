@@ -80,7 +80,7 @@ import {
   resolveShapesPosition,
   type MeasuredBlock
 } from "./overlay-canvas/anchor";
-import { isOverlayActionBlockedByEditPolicy } from "./overlay-canvas/edit-policy";
+import { isOverlayActionBlockedByEditPolicy, isOverlayShapeUnselectable, pruneUnselectableSelection } from "./overlay-canvas/edit-policy";
 import { EMPTY_OVERLAY_EDIT_POLICY, type OverlayEditPolicy, type OverlayShapeDecoration } from "./overlay-canvas/editor-extension";
 import { focusOverlaySurface } from "./overlay-canvas/focus-overlay-surface";
 import {
@@ -480,6 +480,17 @@ export default function OverlayCanvasEditorClient({
   useEffect(() => {
     editPolicyLockedShapeIdsRef.current = editPolicyLockedShapeIds;
   }, [editPolicyLockedShapeIds]);
+  const editPolicyUnselectableShapeIds = editPolicy.unselectableShapeIds;
+  const editPolicyUnselectableShapeIdsRef = useRef(editPolicyUnselectableShapeIds);
+  useEffect(() => {
+    editPolicyUnselectableShapeIdsRef.current = editPolicyUnselectableShapeIds;
+  }, [editPolicyUnselectableShapeIds]);
+  // 機能が人の編集から守っている図形。保存時の付け替え・固定の補修 (派生の書き換え) はこれを書き換えない。
+  const editPolicyPreservedShapeIds = editPolicy.preservedShapeIds;
+  const editPolicyPreservedShapeIdsRef = useRef(editPolicyPreservedShapeIds);
+  useLayoutEffect(() => {
+    editPolicyPreservedShapeIdsRef.current = editPolicyPreservedShapeIds;
+  }, [editPolicyPreservedShapeIds]);
   const [editPolicyNotice, setEditPolicyNotice] = useState<string | null>(null);
   const editPolicyNoticeTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const notifyEditPolicyBlocked = useCallback(() => {
@@ -657,6 +668,9 @@ export default function OverlayCanvasEditorClient({
   useEffect(() => {
     onActiveToolChange?.(mode.tool);
   }, [mode.tool, onActiveToolChange]);
+  // 最後の固定先の計測 (本文側の実測か自前の計測)。畳んだブロックが最後に描かれていた場所の出どころ。
+  const getLastDrawnBlockRects = useCallback(() => anchorMeasurementsRef.current.rects, []);
+  const getPreservedShapeIds = useCallback(() => editPolicyPreservedShapeIdsRef.current, []);
   const { queueOverlaySave, clearQueuedOverlaySave, commitOverlayChangeNow, flushOverlayChange, queueDirtyImageCropSave } = useOverlaySaveController({
     syncBlockAnchors,
     shapesRef,
@@ -664,6 +678,8 @@ export default function OverlayCanvasEditorClient({
     canvasHeightRef,
     canvasWidthRef,
     getBlockAnchorScope,
+    getLastDrawnBlockRects,
+    getPreservedShapeIds,
     suppressNextSaveRef,
     setShapes,
     assetsRef,
@@ -688,6 +704,8 @@ export default function OverlayCanvasEditorClient({
     const anchored = normalizeOverlayGroups(attachUnanchoredShapesToMeasuredBlocks(
       currentShapes,
       orderedBlocks,
+      undefined,
+      editPolicyPreservedShapeIdsRef.current,
     ));
     const currentShapeById = new Map(currentShapes.map((shape) => [shape.id, shape]));
     const anchorsChanged = anchored.some((shape) => (
@@ -765,7 +783,13 @@ export default function OverlayCanvasEditorClient({
     if (!scope) {
       return;
     }
-    const { rects, ordered } = measureBlockTops(el, scope, canvasHeightRef.current, canvasWidthRef.current);
+    const { rects, ordered } = measureBlockTops(
+      el,
+      scope,
+      canvasHeightRef.current,
+      canvasWidthRef.current,
+      anchorMeasurementsRef.current.rects,
+    );
     if (rects.size === 0) {
       return;
     }
@@ -786,6 +810,7 @@ export default function OverlayCanvasEditorClient({
     selectedIdsRef,
     setSelectedIds,
     onSelectedCountChange,
+    unselectableShapeIdsRef: editPolicyUnselectableShapeIdsRef,
     focusedGroupIdRef,
     transitionMode,
     modeRef,
@@ -796,6 +821,14 @@ export default function OverlayCanvasEditorClient({
     queueOverlaySave,
     anchorMeasurementsRef
   });
+  // 図形が選べなくなったら (機能が見えなくした)、今の選択から外す。見えない図形に選択の枠と
+  // ツールバーを残さない。選択は文書でも編集履歴でもないので、ここで外しても何も保存されない。
+  useEffect(() => {
+    const pruned = pruneUnselectableSelection(selectedIdsRef.current, shapesRef.current, editPolicyUnselectableShapeIds);
+    if (pruned) {
+      setSelectedShapeIds(pruned);
+    }
+  }, [editPolicyUnselectableShapeIds, selectedIdsRef, setSelectedShapeIds, shapesRef]);
   const {
     imageReplacementInputRef,
     startImageCrop,
@@ -998,7 +1031,7 @@ export default function OverlayCanvasEditorClient({
     // 違い、混ぜるとリスト項目や枠の中のブロックに付いた図形が無言で追従しなくなる。
     const measured = bodyBlockRects && bodyAnchorableBlocks
       ? { rects: bodyBlockRects, ordered: [...bodyAnchorableBlocks] }
-      : measureBlockTops(el, scope, canvasHeightRef.current, canvasWidthRef.current);
+      : measureBlockTops(el, scope, canvasHeightRef.current, canvasWidthRef.current, anchorMeasurementsRef.current.rects);
     const { rects, ordered } = measured;
     const key = anchorMeasurementKey(ordered);
     if (key === anchorMeasurementKeyRef.current) {
@@ -1058,6 +1091,9 @@ export default function OverlayCanvasEditorClient({
 
   const getShapeAtPoint = useCallback((point: OverlayPoint, margin = 8): OverlayShape | undefined => {
     for (const shape of getRenderableShapesInReverseVisualStackOrder(shapesRef.current)) {
+      if (isOverlayShapeUnselectable(shape.id, editPolicyUnselectableShapeIdsRef.current)) {
+        continue;
+      }
       if (hitTestShape(shape, point, margin)) {
         return shape;
       }
@@ -1068,7 +1104,7 @@ export default function OverlayCanvasEditorClient({
 
   const getOpenStrokeShapeAtPoint = useCallback((point: OverlayPoint): OverlayShape | undefined => {
     for (const shape of getRenderableShapesInReverseVisualStackOrder(shapesRef.current)) {
-      if (!isOpenStrokeShape(shape)) {
+      if (!isOpenStrokeShape(shape) || isOverlayShapeUnselectable(shape.id, editPolicyUnselectableShapeIdsRef.current)) {
         continue;
       }
       if (hitTestShape(shape, point, OPEN_STROKE_POINTER_HIT_MARGIN)) {
@@ -1137,6 +1173,7 @@ export default function OverlayCanvasEditorClient({
     setSelectedShapesHidden,
     setPreview,
     editPolicyLockedShapeIdsRef,
+    editPolicyUnselectableShapeIdsRef,
     solidEdgeRef,
     learnShapeStyleDefaults,
     applyStyleToSelectedShapes,
@@ -1221,6 +1258,7 @@ export default function OverlayCanvasEditorClient({
     shapesRef,
     updateShape,
     editPolicyLockedShapeIdsRef,
+    editPolicyUnselectableShapeIdsRef,
     notifyEditPolicyBlocked,
     setShapes,
     assetsRef,

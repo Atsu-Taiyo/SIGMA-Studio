@@ -27,6 +27,7 @@ import {
   findConflictingBlockIds,
   findProposalFreshnessConflictIds,
   parseMcpProposalProvider,
+  replayMergeableProposal,
   resolveProposalAttribution,
   type AiSourceReference,
   type LocalMcpEditProposal,
@@ -124,6 +125,8 @@ import {
   type AiEditSessionOperationOrderEntry,
   type SigmaDocMutationOp,
 } from "@/lib/ai/sigma-doc-edit-schema";
+import { replayProposalDraftMerging } from "@/lib/ai/proposal-replay";
+import { usableProposalMergeBasis } from "@/lib/ai/proposal-merge-basis";
 import { searchSigmaDocument } from "@/lib/ai/sigma-doc-search";
 import { searchSigmaDocLibrary } from "@/lib/ai/sigma-doc-library-search";
 import { createId } from "@/lib/id";
@@ -2316,6 +2319,38 @@ function buildChangeSummary(
   };
 }
 
+/**
+ * The document a room's next tool call works on: the saved document with the room's pending
+ * proposal applied.
+ *
+ * A proposal with a merge basis is merged onto the saved document on every call (one merging
+ * replay; a save only advances its revision, so its stored nextDocument may be behind). The store
+ * later rebases the earlier turns onto this same saved document, so what the AI is shown here is
+ * exactly the base its new operations are merged against. Returns the conflict when the proposal
+ * cannot be merged (a target the human deleted, a non-merged target the human changed...).
+ */
+function resolveRoomWorkingDocument(
+  proposal: LocalMcpEditProposal,
+  document: SigmaDocument,
+): { ok: true; document: SigmaDocument; rebasedDraft?: AiEditSessionDraft } | { ok: false; conflictIds: string[] } {
+  const mergeBasis = usableProposalMergeBasis(proposal.mergeBasis);
+  if (!mergeBasis) {
+    return { ok: true, document: proposal.nextDocument };
+  }
+  const merged = replayMergeableProposal({ draft: proposal.draft, mergeBasis, touchedBlocks: proposal.touchedBlocks }, document);
+  return merged.ok
+    ? { ok: true, document: merged.result.nextDocument, rebasedDraft: merged.result.rebasedDraft }
+    : { ok: false, conflictIds: merged.conflict.blockIds };
+}
+
+/** A pending proposal replayed onto `document` for a preview: the same replay as its approval. */
+function replayProposalForPreview(proposal: LocalMcpEditProposal, document: SigmaDocument): SigmaDocument {
+  const mergeBasis = usableProposalMergeBasis(proposal.mergeBasis);
+  return mergeBasis
+    ? replayProposalDraftMerging(document, proposal.draft, mergeBasis).nextDocument
+    : createAiEditSessionDocumentDraft(document, null, proposal.draft).nextDocument;
+}
+
 function mergeRoomProposalDraft(
   current: LocalMcpEditProposal | null,
   nextDraft: AiEditSessionDraft,
@@ -2580,7 +2615,8 @@ async function runSessionTool(
   // 同じroomの未承認案を作業SigmaDocとして次のtoolを実行する。これにより、
   // まだ保存されていないinsert_shapeを後続のupdate_shape/delete_shapesが参照できる。
   // 保存済みSigmaDocが進んでいた場合は、既存案が無競合でrebaseできた場合だけ継続する。
-  if (currentRoomProposal && currentRoomProposal.baseRevision !== file.revision) {
+  // base (mergeBasis) を持つ案はrebaseせず、下で保存済みSigmaDocへ合成し直す (upsertがrevisionを進める)。
+  if (currentRoomProposal && !usableProposalMergeBasis(currentRoomProposal.mergeBasis) && currentRoomProposal.baseRevision !== file.revision) {
     const conflictIds = findProposalFreshnessConflictIds(
       currentRoomProposal,
       computeDocumentBlockHashes(document),
@@ -2604,7 +2640,22 @@ async function runSessionTool(
   if (currentRoomProposal?.invalidReason) {
     currentRoomProposal = null;
   }
-  const workingDocument = currentRoomProposal?.nextDocument ?? document;
+  let workingDocument = document;
+  // base を持つ案は保存済みSigmaDocへ載せ替えたdraftを持つ (store が upsert で同じ載せ替えをする)。
+  let roomDraft = currentRoomProposal?.draft;
+  if (currentRoomProposal) {
+    const working = resolveRoomWorkingDocument(currentRoomProposal, document);
+    if (!working.ok) {
+      return {
+        ok: false,
+        error: `現在の作業案と教材が競合しています: ${working.conflictIds.join(", ")}`,
+        file,
+        conflictBlockIds: working.conflictIds,
+      };
+    }
+    workingDocument = working.document;
+    roomDraft = working.rebasedDraft ?? roomDraft;
+  }
 
   // revisionチェックはセッション実行後(このtool呼び出しが実際に何を触るかが分かってから)に
   // 行う: 一致していればそのまま進み、不一致でも触った対象が無変更なら受理する
@@ -2704,7 +2755,12 @@ async function runSessionTool(
       ...collectUsedSourceReferences(ledgerRunId, request.fileId),
       ...(request.sourceReferences ?? []),
     ]);
-    const aggregateDraft = mergeRoomProposalDraft(currentRoomProposal, draft.draft);
+    // 過去ターンは作業文書に合わせて載せ替えたdraftから集約する: 集約が正規化 (相殺された
+    // 図形の挿入/削除の除去) されて保存済みdraftと先頭が揃わなくても、そのまま置き換えられる。
+    const aggregateDraft = mergeRoomProposalDraft(
+      currentRoomProposal && roomDraft ? { ...currentRoomProposal, draft: roomDraft } : currentRoomProposal,
+      draft.draft,
+    );
     const aggregateChangedIds = Array.from(new Set([
       ...(currentRoomProposal?.changedIds ?? []),
       ...draft.changedIds,
@@ -2718,7 +2774,11 @@ async function runSessionTool(
     ]).slice(0, MAX_PERSISTED_SOURCE_REFERENCES);
     const aggregateNextDocument = aggregateDraft.operations.length === 0 && (aggregateDraft.mutationOperations?.length ?? 0) === 0
       ? document
-      : createAiEditSessionDocumentDraft(document, null, aggregateDraft).nextDocument;
+      : usableProposalMergeBasis(currentRoomProposal?.mergeBasis)
+        // The session ran on the merged working document, so its result already is the room's
+        // aggregate applied to the saved document (the store recomputes it the same way).
+        ? draft.nextDocument
+        : createAiEditSessionDocumentDraft(document, null, aggregateDraft).nextDocument;
     const proposalInput = {
       ...writeContext.attribution,
       ...(writeContext.requestSelection ? { requestSelection: writeContext.requestSelection } : {}),
@@ -4444,7 +4504,16 @@ registerTool("get_image_reference", {
   const context = requireImageRun(fileId, runId);
   const { document, file } = await loadDocumentForFile(storeContext.store, fileId);
   const pending = await createProposalStore().findCurrentPendingProposal({ fileId, roomId: context.roomId, runId });
-  const working = pending && !pending.invalidReason && pending.baseRevision === file.revision ? pending.nextDocument : document;
+  let working = document;
+  if (pending && !pending.invalidReason && (usableProposalMergeBasis(pending.mergeBasis) || pending.baseRevision === file.revision)) {
+    const resolved = resolveRoomWorkingDocument(pending, document);
+    if (resolved.ok) {
+      working = resolved.document;
+    } else {
+      // 合成できない作業案の画像は保存済みSigmaDocから引く (退避は台帳ログで数える)。
+      createProposalStore().recordMergeFallback("image-reference-working-document", { proposalId: pending.proposalId });
+    }
+  }
   const snapshot = normalizeOverlaySnapshot(working.pageLayout?.overlay?.overlaySnapshot);
   const shape = snapshot.shapes.find((candidate) => candidate.id === shapeId);
   if (!shape || shape.type !== "image") throw new Error("参照する画像が見つかりません。shapeIdを確認してください。");
@@ -5120,7 +5189,7 @@ registerTool(
       roomId: visualWriteContext.attribution.roomId,
       runId: visualWriteContext.attribution.runId,
     });
-    if (currentRoomProposal && currentRoomProposal.baseRevision !== file.revision) {
+    if (currentRoomProposal && !usableProposalMergeBasis(currentRoomProposal.mergeBasis) && currentRoomProposal.baseRevision !== file.revision) {
       const conflicts = findProposalFreshnessConflictIds(
         currentRoomProposal,
         computeDocumentBlockHashes(document),
@@ -5139,7 +5208,14 @@ registerTool(
     if (currentRoomProposal?.invalidReason) {
       currentRoomProposal = null;
     }
-    const workingDocument = currentRoomProposal?.nextDocument ?? document;
+    let workingDocument = document;
+    if (currentRoomProposal) {
+      const working = resolveRoomWorkingDocument(currentRoomProposal, document);
+      if (!working.ok) {
+        throw new Error(`現在の作業案と教材が競合しています: ${working.conflictIds.join(", ")}`);
+      }
+      workingDocument = working.document;
+    }
     const resolvedTargetId = targetId?.trim() || selectedId?.trim() || null;
     if (!resolvedTargetId) {
       throw new Error(NO_EXPLICIT_TARGET_MESSAGE);
@@ -5861,8 +5937,7 @@ registerTool(
       // 承認時と同じ経路(現在の教材へdraftを再適用)で確認する。proposal.nextDocument
       // (作成時点のスナップショット)ではなく、今の教材に対して再適用した結果を返すことで、
       // 承認前に「今commitしたらどうなるか」を確認できるようにする。
-      const reapplied = createAiEditSessionDocumentDraft(document, null, proposal.draft);
-      targetDocument = reapplied.nextDocument;
+      targetDocument = replayProposalForPreview(proposal, document);
       changedIds = proposal.changedIds;
       pageLayoutFallback = !blockId && changedIds.length === 0 && containsPageLayoutMutation(proposal.draft);
       proposalIdentity = hashPreviewCacheValue({
@@ -5973,7 +6048,7 @@ registerTool(
       if (!proposal) {
         throw new Error("現在の作業案が見つかりません。");
       }
-      targetDocument = createAiEditSessionDocumentDraft(document, null, proposal.draft).nextDocument;
+      targetDocument = replayProposalForPreview(proposal, document);
     }
 
     const resolvedProfile = profile ?? "teacher";

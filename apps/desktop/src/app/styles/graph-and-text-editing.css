@@ -1770,125 +1770,92 @@ body.page-block-dragging .layout-section-column-resize-knob {
   outline-offset: 2px;
 }
 
-/* Body-flow proposal card. Its information structure mirrors the sidebar's
-   proposal card (`.ai-chat-result-proposal`): 見出し → 変更内容 → 参照元 → 操作.
-   Rows: heading (auto) / diff frame (fills the rest and scrolls) / 参照元 +
-   操作 (auto). The card sits inside the measured body flow, so anything that
-   grows it shifts pagination — keep vertical additions small. */
-.ai-inline-preview-dialog {
+/* AI 提案のカード。先頭の行が承認バー (AiProposalDecisionBar)、その下が提案の内容
+   (AiProposalContentView)。
+   - 紙面 (data-ai-proposal-card="page"): 本文フローの中の拡張ノード。対象の段幅のまま、紙面と同じ
+     組版で内容を見せる。幅も高さも上限を持たず、内部でスクロールしない (長ければページ割りが次の
+     ページへ続ける)。内容を段幅ちょうどで組むため、枠は box-shadow で描き、横の padding / border を
+     内容に掛けない。
+   - 図形のそば (data-ai-proposal-card="overlay"): 図形だけの提案。overlay 層の中で絶対配置する
+     (本文フローや改ページに加わらない)。矢印の吹き出しは付けない。 */
+.ai-proposal-card {
   display: grid;
-  width: min(440px, 84vw);
-  grid-template-rows: auto minmax(0, 1fr) auto;
-  gap: var(--space-sm);
-  margin: var(--space-md) 0;
-  padding: var(--space-md);
-  max-height: min(70vh, 640px);
-  min-height: 0;
-  overflow: hidden;
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-panel);
-  background: var(--background);
+  min-width: 0;
   color: var(--text-primary);
 }
 
-.ai-inline-preview-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-sm);
+/* 詳細度はクラス 1 つに留める。続きの複製では汎用の規則 (page-and-selection.css の
+   `.page-flow-extension-fragment > … > *`) が上下の margin を消す前提で帯をずらすので、それに勝つと
+   複製だけが margin の分ずれる。 */
+.ai-proposal-card--page {
+  /* 段組みでは右の段の本文が左へ選択用の余白 (`.text-flow-side-selection-gutter`) を伸ばし、左の段の
+     カードの右端 (バーの操作) に重なる。カードを本文の上に重ねて、操作が押せるようにする。 */
+  position: relative;
+  z-index: 1;
+  margin: var(--space-md) 0;
+  border-radius: var(--radius-control);
+  background: var(--background);
+  box-shadow: 0 0 0 1px var(--border-subtle);
 }
 
-/* Column bounds locate the proposal; the review UI keeps its standard width. */
-.ai-column-preview-anchor {
-  position: absolute;
-  z-index: 13;
-  pointer-events: none;
+.ai-proposal-card--page > [data-ai-proposal-bar] {
+  padding: var(--space-xs) var(--space-sm);
+  border-bottom: 1px solid var(--border-subtle);
+  border-radius: var(--radius-control) var(--radius-control) 0 0;
+  background: var(--surface-soft);
 }
 
-.ai-column-preview-anchor .ai-inline-preview-dialog {
-  width: min(440px, 84vw);
-  margin: 0;
-  border-radius: 10px;
-  background: color-mix(in srgb, var(--background) 97%, transparent);
-  box-shadow: 0 12px 28px -22px rgb(15 23 42 / 0.48);
-  pointer-events: auto;
+/* バーのすぐ下の行 (参照元・失敗の理由)。続きの複製にも見た目だけ出る。 */
+.ai-proposal-card--page > [data-ai-proposal-bar-details] {
+  padding: var(--space-xs) var(--space-sm) 0;
 }
 
-/* Overlay-only AI proposals use a contextual decision toolbar beside the
-   proposed shape. It is absolutely positioned inside `.page-overlay-layer`,
-   so showing it never changes body flow, page breaks, or anchor measurement. */
-.ai-overlay-approval-widget {
+.ai-proposal-card--page[data-content-hidden] > [data-ai-proposal-bar] {
+  border-bottom: 0;
+  border-radius: var(--radius-control);
+}
+
+.ai-proposal-card-content {
+  min-width: 0;
+}
+
+.ai-proposal-card--overlay {
   position: absolute;
   z-index: 14;
-  display: flex;
-  align-items: center;
-  gap: var(--space-sm);
-  width: 272px;
-  min-height: 40px;
+  gap: var(--space-xs);
   padding: var(--space-sm);
   border: 1px solid var(--border);
   border-radius: var(--radius-control);
   background: var(--background);
   box-shadow: var(--shadow-floating);
-  color: var(--text-primary);
   pointer-events: auto;
   transform: translate(-50%, -100%);
 }
 
-.ai-overlay-approval-widget[data-placement="below"] {
+.ai-proposal-card--overlay[data-placement="below"] {
   transform: translate(-50%, 0);
 }
 
-.ai-overlay-approval-widget::after {
-  position: absolute;
-  left: 50%;
-  width: 8px;
-  height: 8px;
-  border-right: 1px solid var(--border);
-  border-bottom: 1px solid var(--border);
-  background: var(--background);
-  content: "";
-}
-
-.ai-overlay-approval-widget[data-placement="above"]::after {
-  bottom: -5px;
-  transform: translateX(-50%) rotate(45deg);
-}
-
-.ai-overlay-approval-widget[data-placement="below"]::after {
-  top: -5px;
-  transform: translateX(-50%) rotate(225deg);
-}
-
+/* 図形だけの提案の内容: セッションの名前と「何を変えたか」の要約 (summarizeAiEditPreviewChanges)。 */
 .ai-overlay-approval-copy {
   display: grid;
-  flex: 1;
   min-width: 0;
   line-height: 1.3;
 }
 
-.ai-overlay-approval-label,
-.ai-overlay-approval-title {
+.ai-overlay-approval-copy[hidden] {
+  display: none;
+}
+
+.ai-overlay-approval-label {
   overflow: hidden;
+  color: var(--text-muted);
+  font-size: 10px;
+  font-weight: 600;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.ai-overlay-approval-label {
-  color: var(--text-muted);
-  font-size: 10px;
-  font-weight: 600;
-}
-
-.ai-overlay-approval-title {
-  color: var(--text-primary);
-  font-size: 11.5px;
-  font-weight: 650;
-}
-
-/* Compact "what changed" bullets (see summarizeAiEditPreviewChanges) — the
-   widget floats over the canvas with no room for a full diff, so this is the
-   only place an overlay-only proposal explains itself before the decision. */
 .ai-overlay-approval-summary-list {
   display: grid;
   gap: 1px;
@@ -1909,60 +1876,6 @@ body.page-block-dragging .layout-section-column-resize-knob {
 
 .ai-overlay-approval-summary-more {
   color: var(--text-muted);
-}
-
-.ai-overlay-approval-actions {
-  flex: none;
-}
-
-.ai-overlay-approval-actions .ui-shimmer-text {
-  font-size: 10px;
-}
-
-.ai-inline-preview-actions {
-  min-width: 0;
-}
-
-.ai-inline-preview-placeholder {
-  margin: 0;
-  color: var(--text-secondary);
-  font-size: 12px;
-  line-height: 1.5;
-}
-
-.ai-inline-preview-operation-list {
-  display: grid;
-  /* No inter-block gap: consecutive inserted blocks should read as one
-     continuous run, identical to how they look once applied to the body. */
-  gap: 0;
-}
-
-.ai-inline-preview-paper {
-  background: #ffffff;
-  color: #111111;
-  font-family: "Yu Gothic", "Hiragino Sans", "Meiryo", system-ui, sans-serif;
-  font-size: var(--editor-font-size, 12pt);
-  line-height: 1.78;
-}
-
-/* 「提案された変更」見出し。サイドバーの .ai-chat-result-proposal-diff-heading と
-   同じ値で、本文内カードとサイドバーの提案が同じ読み口になるようにする。 */
-.ai-inline-preview-diff-heading {
-  margin: 0;
-  color: var(--text-muted);
-  font-size: 11px;
-  font-weight: 700;
-}
-
-/* サイドバーの差分ブロック (AiAppliedDocumentDiff.module.css の .body) と同じ
-   「一段沈んだ枠」。padding は縦を最小に留め、本文のページ計測への影響を抑える。 */
-.ai-inline-preview-scroll {
-  min-height: 0;
-  overflow-y: auto;
-  padding: var(--space-xs) var(--space-sm);
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-control);
-  background: var(--surface-soft);
 }
 
 /* Phase 1: Agentic RAG. 参照元チップの行 (inline preview card / chat sidebar
@@ -2018,103 +1931,6 @@ button.ai-source-ref-chip--document:focus-visible {
   outline: none;
 }
 
-.ai-inline-preview-mutation {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 8px 9px;
-  border: 1px solid var(--border-subtle);
-  border-radius: 5px;
-  background: var(--background);
-  color: var(--text-secondary);
-}
-
-.ai-inline-preview-mutation svg {
-  flex: 0 0 auto;
-  opacity: 0.7;
-}
-
-.ai-inline-preview-mutation-summary {
-  margin: 0;
-  font-size: 12px;
-  line-height: 1.5;
-}
-
-.ai-inline-preview-operation {
-  display: grid;
-  gap: 5px;
-  padding: 0;
-  border: 0;
-  background: transparent;
-}
-
-.ai-inline-preview-content {
-  padding: 0;
-  border: 0;
-  border-radius: 0;
-  background: transparent;
-}
-
-.ai-inline-preview-content:not(.text-flow-editor) {
-  padding: 8px 9px;
-  border: 1px solid var(--border-subtle);
-  border-radius: 5px;
-  background: var(--background);
-}
-
-/* Non-text candidates (shapes/tables) are boxed, so keep a little space between
-   consecutive ones. Body-flow text candidates flow continuously (gap: 0). */
-.ai-inline-preview-operation + .ai-inline-preview-operation .ai-inline-preview-content:not(.text-flow-editor) {
-  margin-top: 10px;
-}
-
-.ai-inline-preview-content.text-flow-editor {
-  min-height: auto;
-  padding: 2px 0;
-  font-size: var(--editor-font-size, 12pt);
-  line-height: 1.78;
-}
-
-.ai-inline-preview-problem-area-row {
-  display: grid;
-  grid-template-columns: minmax(58px, 76px) minmax(0, 1fr);
-  align-items: stretch;
-  min-width: 0;
-}
-
-.ai-inline-preview-problem-area-label {
-  display: flex;
-  align-items: flex-start;
-  min-width: 0;
-  padding: 3px var(--space-sm) 3px 0;
-  border-right: 1px solid color-mix(in srgb, var(--border-strong) 62%, transparent);
-  color: var(--text-muted);
-  font-size: 10px;
-  font-weight: 700;
-  line-height: 1.35;
-}
-
-.ai-inline-preview-problem-area-label.continuation {
-  padding-top: 0;
-}
-
-.ai-inline-preview-problem-area-body {
-  min-width: 0;
-  padding: 2px 0 2px var(--space-sm);
-}
-
-.ai-inline-preview-problem-area-body > :first-child {
-  margin-top: 0;
-}
-
-.ai-inline-preview-problem-area-body > :last-child {
-  margin-bottom: 0;
-}
-
-.ai-inline-preview-actions {
-  padding-top: var(--space-xs);
-}
-
 /* Button / IconButton own the visual treatment; this class only participates in
    the proposal action frame's layout. */
 .ai-inline-preview-action {
@@ -2125,11 +1941,10 @@ button.ai-source-ref-chip--document:focus-visible {
   position: relative;
 }
 
+/* 破棄理由。紙面のカード (改ページで切り取られる) やパネル (スクロールで切れる) の外、body に出し、
+   画面の座標で置く (AiProposalActions が破棄ボタンの下、入らなければ上に置く)。 */
 .ai-inline-preview-reason-popover {
-  position: absolute;
-  right: 0;
-  bottom: calc(100% + var(--space-sm));
-  z-index: 20;
+  z-index: var(--z-modal-nested);
   display: grid;
   gap: var(--space-sm);
   width: 240px;
@@ -2181,27 +1996,8 @@ button.ai-source-ref-chip--document:focus-visible {
    GitHub-style diff coloring for pending AI proposals: pale red = will be
    removed/replaced, pale green = will be added. Kept low-alpha (color-mix)
    per design rule — never a saturated fill. After the approved document is
-   visible, newly written content briefly flashes pale green. */
-
-.ai-inline-preview-diff-removed,
-.ai-inline-preview-diff-added {
-  position: relative;
-}
-
-.ai-inline-preview-diff-removed {
-  background: color-mix(in srgb, var(--danger, #b42318) 8%, transparent);
-  border-color: color-mix(in srgb, var(--danger, #b42318) 35%, var(--border-subtle));
-}
-
-.ai-inline-preview-diff-added {
-  background: color-mix(in srgb, var(--success, #247a3d) 8%, transparent);
-  border-color: color-mix(in srgb, var(--success, #247a3d) 35%, var(--border-subtle));
-}
-
-.ai-inline-preview-mutation.ai-inline-preview-diff-modified {
-  background: color-mix(in srgb, var(--warning, #9a6700) 8%, transparent);
-  border-color: color-mix(in srgb, var(--warning, #9a6700) 35%, var(--border-subtle));
-}
+   visible, newly written content briefly flashes pale green. The proposal
+   content itself (AiProposalContentView.module.css) uses the same tints. */
 
 /* Body text flow: pending-diff background + apply-animation decorations.
    The AI feature projects these states into the generic text-flow change
@@ -2210,6 +2006,13 @@ button.ai-source-ref-chip--document:focus-visible {
 .text-flow-editor .ai-diff-removed {
   background: color-mix(in srgb, var(--danger, #b42318) 10%, transparent);
   border-radius: 3px;
+}
+
+/* A block folded out of the flow while its replacement is shown elsewhere (a proposal shown as its
+   result only). No rendered box, so the page measurement skips it (flow-probe.ts /
+   layout-measure.ts `isUndrawnElement`). */
+.text-flow-editor .text-flow-change-collapsed {
+  display: none;
 }
 
 .text-flow-editor .text-flow-change-removing,
@@ -2490,35 +2293,27 @@ button.ai-source-ref-chip--document:focus-visible {
   outline-offset: 2px;
 }
 
-/* An update/replacement has both a real "before" shape and a proposed
-   "after" ghost. Alternate them so dense or overlapping geometry remains
-   legible: pale red is the current state, pale green is the proposed state.
-   Pure inserts/deletes stay continuously visible because they only have one
-   side of the comparison. Keep the two phases on the shapes themselves: the
-   live shape and its ghost can be rendered in different overlay layers. */
-@media (prefers-reduced-motion: no-preference) {
-  .overlay-shape.ai-diff-before-shape {
-    animation: ai-overlay-diff-before-phase 2400ms steps(1, end) infinite;
-  }
-
-  .overlay-shape.ai-diff-after-shape {
-    animation: ai-overlay-diff-after-phase 2400ms steps(1, end) infinite;
-  }
-
-  .page-canvas:has(.ai-overlay-approval-widget:hover) :is(.ai-diff-before-shape, .ai-diff-after-shape),
-  .page-canvas:has(.ai-overlay-approval-widget:focus-within) :is(.ai-diff-before-shape, .ai-diff-after-shape) {
-    animation-play-state: paused;
-  }
+/* The proposed shape of a proposal shown as its result only: drawn exactly as it will look once
+   applied, without the green outline. Still a non-interactive ghost. */
+.overlay-shape.ai-result-only-shape {
+  pointer-events: none;
+  opacity: 1;
 }
 
-@keyframes ai-overlay-diff-before-phase {
-  0%, 49.999% { opacity: 1; }
-  50%, 100% { opacity: 0; }
-}
-
-@keyframes ai-overlay-diff-after-phase {
-  0%, 49.999% { opacity: 0; }
-  50%, 100% { opacity: 0.76; }
+/* An update/replacement has both a real "before" shape (red dashed) and a
+   proposed "after" ghost (green dashed). Both stay visible all the time — no
+   alternation over time or on hover. When they overlap too much to read, the
+   proposal's bar hides the before state (`ai-diff-before-hidden`). A hidden
+   shape must not take clicks either: an invisible live shape would otherwise
+   be picked and moved. The overlay canvas also skips it in hit testing
+   (`OverlayEditPolicy.unselectableShapeIds`). */
+/* 詳細度は `.page-overlay-preview .overlay-shape.ai-edit-locked-shape` (ロック中の図形はポインタを
+   受ける) と同じにし、後から読まれるこちらを勝たせる。 */
+.overlay-shape.ai-diff-before-shape.ai-diff-before-hidden,
+.overlay-shape.ai-diff-before-shape.ai-diff-before-hidden * {
+  opacity: 0;
+  pointer-events: none;
+  user-select: none;
 }
 
 .overlay-shape.ai-apply-added-shape {

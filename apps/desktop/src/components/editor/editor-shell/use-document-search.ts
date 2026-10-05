@@ -44,13 +44,19 @@ interface SearchCommandPorts {
   selectedId: string | null;
   searchQuery: string;
   replaceText: string;
+  /**
+   * 紙面に描かれていないブロック (畳んだ表示)。探さず数えない。置換はそのまま文書の変更口へ渡し、
+   * 見えないブロックを書き換える変更は変更口が断る (断った理由は変更口が出す)。
+   */
+  hiddenBlockIds?: ReadonlySet<string>;
   setSelectedId: (id: string) => void;
   setStatusMessage: (message: string) => void;
-  commitDocumentChange: (change: DocumentChange) => void;
+  /** 文書を変えたら true。断ったら false (理由は変更口が出しているので、ここでは何も言わない)。 */
+  commitDocumentChange: (change: DocumentChange) => boolean | void;
 }
-export function useDocumentSearchCommands({ document, selectedId, searchQuery, replaceText, setSelectedId, setStatusMessage, commitDocumentChange }: SearchCommandPorts) {
+export function useDocumentSearchCommands({ document, selectedId, searchQuery, replaceText, hiddenBlockIds, setSelectedId, setStatusMessage, commitDocumentChange }: SearchCommandPorts) {
   const findNext = () => {
-    const match = findFirstBlockWithText(document.content, searchQuery, selectedId, "next");
+    const match = findFirstBlockWithText(document.content, searchQuery, selectedId, "next", hiddenBlockIds);
     if (!match) {
       setStatusMessage(tEditor("status.noSearchResults"));
       return;
@@ -62,7 +68,7 @@ export function useDocumentSearchCommands({ document, selectedId, searchQuery, r
   };
 
   const findPrevious = () => {
-    const match = findFirstBlockWithText(document.content, searchQuery, selectedId, "previous");
+    const match = findFirstBlockWithText(document.content, searchQuery, selectedId, "previous", hiddenBlockIds);
     if (!match) {
       setStatusMessage(tEditor("status.noSearchResults"));
       return;
@@ -74,29 +80,36 @@ export function useDocumentSearchCommands({ document, selectedId, searchQuery, r
   };
 
   const replaceNext = () => {
-    const match = findFirstBlockWithText(document.content, searchQuery, selectedId, "next");
+    const match = findFirstBlockWithText(document.content, searchQuery, selectedId, "next", hiddenBlockIds);
     if (!match) {
       setStatusMessage(tEditor("status.nothingToReplace"));
       return;
     }
 
-    commitDocumentChange((current) => replaceInDocument(current, searchQuery, replaceText, false));
+    if (commitDocumentChange((current) => replaceInDocument(current, searchQuery, replaceText, false)) === false) {
+      return;
+    }
     setSelectedId(match.id);
     setStatusMessage(tEditor("status.replacedOne"));
   };
 
   const replaceAll = () => {
-    const count = countTextMatches(document.content, searchQuery);
+    const count = countTextMatches(document.content, searchQuery, hiddenBlockIds);
     if (count === 0) {
       setStatusMessage(tEditor("status.nothingToReplace"));
       return;
     }
 
-    commitDocumentChange((current) => replaceInDocument(current, searchQuery, replaceText, true));
+    if (commitDocumentChange((current) => replaceInDocument(current, searchQuery, replaceText, true)) === false) {
+      return;
+    }
     setStatusMessage(tEditor("status.replacedMany", { matches: count }));
   };
 
-  const searchMatchCount = useMemo(() => countTextMatches(document.content, searchQuery), [document.content, searchQuery]);
+  const searchMatchCount = useMemo(
+    () => countTextMatches(document.content, searchQuery, hiddenBlockIds),
+    [document.content, hiddenBlockIds, searchQuery],
+  );
 
   return { findNext, findPrevious, replaceNext, replaceAll, searchMatchCount };
 }

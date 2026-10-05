@@ -1,6 +1,10 @@
 import type { EditorExtensionContextValue } from "@/components/editor/editor-extension-context";
 import type { OverlayShapeDecoration } from "@/components/editor/overlay-canvas/editor-extension";
-import type { TextFlowEditGuardPresentation } from "@/components/tiptap/edit-guard-extension";
+import {
+  combineTextFlowEditGuards,
+  type TextFlowEditGuard,
+  type TextFlowEditGuardPresentation,
+} from "@/components/tiptap/edit-guard-extension";
 
 export interface WebMcpPendingTargets {
   blockIds: readonly string[];
@@ -51,10 +55,12 @@ export function mergeEditorExtensionSets(
   if (!first) return second;
   if (!second) return first;
 
-  const guardsByBlockId = new Map(
-    [...(first.textFlowEditPolicy?.guards ?? []), ...(second.textFlowEditPolicy?.guards ?? [])]
-      .map((guard) => [guard.blockId, guard]),
-  );
+  // 同じブロックに 2 つのガードがあれば 1 つの規則で合わせる (一部の予約が全体のガードを弱めない)。
+  const guardsByBlockId = new Map<string, TextFlowEditGuard>();
+  for (const guard of [...(first.textFlowEditPolicy?.guards ?? []), ...(second.textFlowEditPolicy?.guards ?? [])]) {
+    const earlier = guardsByBlockId.get(guard.blockId);
+    guardsByBlockId.set(guard.blockId, earlier ? combineTextFlowEditGuards(earlier, guard) : guard);
+  }
   const firstOverlay = first.overlayEditPolicy;
   const secondOverlay = second.overlayEditPolicy;
   const decorations = new Map<string, OverlayShapeDecoration>(first.overlayShapeDecorations ?? []);
@@ -70,22 +76,42 @@ export function mergeEditorExtensionSets(
       : decoration);
   }
 
+  // 片方しか持たない部分は、持っている側のオブジェクトをそのまま渡す。本文の編集方針や図形の飾りを
+  // 作り直すと、その props を読む本文ユニット・図形が全部描き直される。
   return {
-    textFlowEditPolicy: {
-      guards: [...guardsByBlockId.values()],
-      lockAll: second.textFlowEditPolicy?.lockAll ?? first.textFlowEditPolicy?.lockAll,
-    },
+    textFlowEditPolicy: !first.textFlowEditPolicy || !second.textFlowEditPolicy
+      ? first.textFlowEditPolicy ?? second.textFlowEditPolicy
+      : {
+          guards: [...guardsByBlockId.values()],
+          lockAll: second.textFlowEditPolicy.lockAll ?? first.textFlowEditPolicy.lockAll,
+        },
     overlayEditPolicy: firstOverlay || secondOverlay
       ? {
           lockedShapeIds: new Set([
             ...(firstOverlay?.lockedShapeIds ?? []),
             ...(secondOverlay?.lockedShapeIds ?? []),
           ]),
+          unselectableShapeIds: new Set([
+            ...(firstOverlay?.unselectableShapeIds ?? []),
+            ...(secondOverlay?.unselectableShapeIds ?? []),
+          ]),
+          ...(firstOverlay?.preservedShapeIds || secondOverlay?.preservedShapeIds
+            ? {
+                preservedShapeIds: new Set([
+                  ...(firstOverlay?.preservedShapeIds ?? []),
+                  ...(secondOverlay?.preservedShapeIds ?? []),
+                ]),
+              }
+            : {}),
           blockedMessage: secondOverlay?.blockedMessage ?? firstOverlay?.blockedMessage,
           blockedNoticeClassName: secondOverlay?.blockedNoticeClassName ?? firstOverlay?.blockedNoticeClassName,
         }
       : undefined,
-    overlayShapeDecorations: decorations,
+    overlayShapeDecorations: !first.overlayShapeDecorations || !second.overlayShapeDecorations
+      ? first.overlayShapeDecorations ?? second.overlayShapeDecorations
+      : decorations,
+    // 問題の枠の描き直し (枠エディタの AI タブ) は 1 つの機能だけが差し込む。どちらかが持っていれば残す。
+    problemFrameDrawing: second.problemFrameDrawing ?? first.problemFrameDrawing,
     auxiliarySurfaceExtensions: mergeEditorExtensionSets(
       first.auxiliarySurfaceExtensions,
       second.auxiliarySurfaceExtensions,

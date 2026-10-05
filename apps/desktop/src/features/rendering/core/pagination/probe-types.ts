@@ -38,8 +38,18 @@ export interface ProbeChromeBox {
 }
 
 export interface ProbeNode {
-  /** 編集面の最上位ブロック (ProseMirror の直下) の sigmaDocId。 */
+  /**
+   * 編集面の最上位ブロック (ProseMirror の直下) の sigmaDocId。拡張ノードは、その要素に付く
+   * 拡張ノードの id 属性の値。
+   */
   id: string;
+  /**
+   * - `block` (既定): 編集面の最上位ブロック。
+   * - `extension`: 本文ブロックの後ろに機能が差し込む要素 (フロー内の拡張ノード)。どの入れ物にも
+   *   属さない独立した行で、自分の矩形 (border box) を見える縁として最初と最後の行に持つ。
+   *   手動改ページ・付属物 (問題番号) は持たない。
+   */
+  kind?: "block" | "extension";
   rect: ProbeRect;
   ink: readonly ProbeInk[];
   chrome: readonly ProbeChromeBox[];
@@ -75,14 +85,12 @@ export interface ProbeUnit {
   span: "column" | "full";
   /** ユニット単位の手動改ページ (問題そのものに付いた改ページなど)。 */
   breakBefore: boolean;
-  /** 編集面の最上位ブロック (文書順)。 */
+  /** 編集面の最上位ブロックと拡張ノード (文書順)。 */
   nodes: readonly ProbeNode[];
   /** 独立段組 (layoutSection) の各列。あるときは `nodes` は空。 */
   columns?: readonly ProbeColumn[];
   /** ユニットに直接属する付属物 (問題番号)。重なる行に吸収される。 */
   attachments: readonly ProbeInk[];
-  /** 編集面の外にある分割できない中身 (拡張の差し込み等)。 */
-  objects: readonly ProbeInk[];
   /** ユニットの枠 (枠付き問題文)。複数ユニットにまたがる枠は同じ key を持つ。 */
   frame?: {
     key: string;

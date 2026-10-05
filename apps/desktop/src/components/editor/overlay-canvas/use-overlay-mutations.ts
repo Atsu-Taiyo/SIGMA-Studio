@@ -52,12 +52,16 @@ import type {
   OverlayShapePatch
 } from "./types";
 
+import { filterSelectableShapeIds } from "./edit-policy";
+
 interface Dependencies {
   setRegionSelection: Dispatch<SetStateAction<{ documentId: string | undefined; revision: number; bounds: OverlayBounds; } | null>>;
   shapesRef: RefObject<OverlayShape[]>;
   selectedIdsRef: RefObject<string[]>;
   setSelectedIds: Dispatch<SetStateAction<string[]>>;
   onSelectedCountChange: ((count: number) => void) | undefined;
+  /** 選べない図形 (`OverlayEditPolicy.unselectableShapeIds`)。どの経路の選択からも外す。 */
+  unselectableShapeIdsRef?: RefObject<ReadonlySet<string> | undefined>;
   focusedGroupIdRef: RefObject<string | null>;
   transitionMode: (action: OverlayInteractionAction) => void;
   modeRef: RefObject<OverlayInteractionMode>;
@@ -75,6 +79,7 @@ export function useOverlayMutations({
   selectedIdsRef,
   setSelectedIds,
   onSelectedCountChange,
+  unselectableShapeIdsRef,
   focusedGroupIdRef,
   transitionMode,
   modeRef,
@@ -88,14 +93,16 @@ export function useOverlayMutations({
 
   const setSelectedShapeIds = useCallback((ids: OverlayShapeId[]) => {
     setRegionSelection(null);
-    const uniqueIds = orderShapeIdsByVisualStackOrder(shapesRef.current, [...new Set(ids)]);
+    // ⌘A・本文の全選択・本文に結び付いた図形・囲み選択・クリックのどれもここを通る。
+    const selectableIds = filterSelectableShapeIds([...new Set(ids)], unselectableShapeIdsRef?.current, shapesRef.current);
+    const uniqueIds = orderShapeIdsByVisualStackOrder(shapesRef.current, selectableIds);
     if (sameOverlayShapeIds(selectedIdsRef.current, uniqueIds)) {
       return;
     }
     selectedIdsRef.current = uniqueIds;
     setSelectedIds(uniqueIds);
     onSelectedCountChange?.(uniqueIds.length);
-  }, [onSelectedCountChange, selectedIdsRef, setRegionSelection, setSelectedIds, shapesRef]);
+  }, [onSelectedCountChange, selectedIdsRef, setRegionSelection, setSelectedIds, shapesRef, unselectableShapeIdsRef]);
 
   const selectKnownShape = useCallback((shape: OverlayShape, options: { editing?: boolean } = {}) => {
     const nextIds = getShapeSelectionIds(shapesRef.current, shape.id, focusedGroupIdRef.current);

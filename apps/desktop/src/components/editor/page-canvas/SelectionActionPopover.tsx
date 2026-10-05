@@ -28,10 +28,13 @@ export function SelectionActionPopover({
   popover,
   onCommentAnchorRequest,
   renderSelectionActions,
+  onWidthChange,
 }: {
   popover: SelectionActionPopoverState;
   renderSelectionActions?: (anchor: SigmaCommentAnchor) => ReactNode;
   onCommentAnchorRequest?: (anchor: SigmaCommentAnchor) => void;
+  /** 実寸の幅 (画面の px)。紙面に浮かべる部品が、このポップオーバーを避けるのに使う。 */
+  onWidthChange?: (widthPx: number) => void;
 }) {
   const tEditorText = useT("editor");
   const rootRef = useRef<HTMLDivElement>(null);
@@ -45,6 +48,7 @@ export function SelectionActionPopover({
     }
     const place = () => {
       const width = root.offsetWidth;
+      onWidthChange?.(width);
       const center = position.centerX ?? position.left + width / 2;
       const maxLeft = Math.max(SELECTION_ACTION_POPOVER_MARGIN, window.innerWidth - width - SELECTION_ACTION_POPOVER_MARGIN);
       const next = Math.min(maxLeft, Math.max(SELECTION_ACTION_POPOVER_MARGIN, center - width / 2));
@@ -61,7 +65,7 @@ export function SelectionActionPopover({
       observer.disconnect();
       window.removeEventListener("resize", place);
     };
-  }, [position.centerX, position.left]);
+  }, [onWidthChange, position.centerX, position.left]);
 
   const commentLabel = tEditorText("pageCanvas.addComment");
   return (

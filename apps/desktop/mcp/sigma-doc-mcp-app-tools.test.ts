@@ -5,11 +5,13 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { type SigmaDocument, inlineNodesToPlainText } from "@/features/document";
-import { findBlock } from "@/lib/document-tree";
+import { type InlineNode, type SigmaDocument, inlineNodesToPlainText } from "@/features/document";
+import { replayProposalDraftMerging } from "@/lib/ai/proposal-replay";
+import { deleteBlocksFromDocument, findBlock, updateBlockInDocument } from "@/lib/document-tree";
+import { computeDocumentBlockHashes } from "@/lib/sigma-doc-block-hash";
 import { getDefaultPageLayout } from "@/lib/page-layout";
 import { sampleDocument } from "@/lib/sample-document";
-import { SigmaDocumentSchema } from "@/lib/sigma-doc-schema";
+import { parseSigmaDocument, SigmaDocumentSchema } from "@/lib/sigma-doc-schema";
 import { MCP_TOOL_CATEGORIES, MCP_TOOL_CATEGORY_MAP, measureMcpToolExposure, toolNamesForCategories } from "@/lib/ai/mcp-tool-categories";
 import { APP_BODY_TOOL_ROUTES, appMcpToolNames, MCP_TOOL_PROFILE_ENV, type McpToolProfile } from "@/lib/ai/mcp-tool-profile";
 import { LocalAiEditRunContextStore } from "../electron/ai-edit-run-context";
@@ -217,6 +219,95 @@ describe("app MCP body tool profile", () => {
     expect(failed.isError).toBe(true);
     expect(failed.structuredContent).toMatchObject({ ok: false, error: { code: "REVISION_MISMATCH", retryable: true } });
     expect(await proposals.listProposals({ status: "pending" })).toHaveLength(0);
+  });
+
+  it("keeps a human edit saved between two turns of the same room, also after a revision-only auto-rebase", async () => {
+    const client = await connect("app");
+    await call(client, "edit_text", { edit: { action: "patch", operations: [
+      { op: "replace_text", target: { type: "text", blockId: "p_1", text: "Before" }, replacement: "After" },
+    ] } });
+    // The human edits another paragraph and saves; the post-save hook only advances the room's
+    // proposal revision because the change does not touch what the proposal overwrites.
+    const saved = await store.loadDocument(fileId);
+    const previousHashes = computeDocumentBlockHashes(parseSigmaDocument(saved));
+    const humanDocument = parseSigmaDocument(updateBlockInDocument(saved!, "p_2", (block) => ({
+      ...block,
+      children: [{ type: "text", text: "Neighbor edited by human" }],
+    } as typeof block)));
+    const humanSave = await store.saveDocument(fileId, humanDocument, { expectedRevision: 1 });
+    expect(humanSave).toMatchObject({ ok: true, revision: 2 });
+    const hookStore = new LocalMcpEditProposalStore(userDataDir, { readDocumentBlockHashes: async () => previousHashes });
+    expect((await hookStore.autoRebaseProposalsForFile(fileId, humanDocument, 2)).rebased).toHaveLength(1);
+
+    await call(client, "edit_text", { expectedRevision: 2, edit: { action: "patch", operations: [
+      { op: "replace_text", target: { type: "text", blockId: "p_2", text: "Neighbor" }, replacement: "Neighbour" },
+    ] } });
+
+    const proposal = await pending();
+    const latest = parseSigmaDocument(await store.loadDocument(fileId));
+    const replayed = replayProposalDraftMerging(latest, proposal.draft, proposal.mergeBasis!).nextDocument;
+    expect(inlineNodesToPlainText((findBlock(replayed, "p_1") as { children: InlineNode[] }).children)).toBe("After text");
+    expect(inlineNodesToPlainText((findBlock(replayed, "p_2") as { children: InlineNode[] }).children)).toBe("Neighbour edited by human");
+  });
+
+  it("continues a room whose insertion anchor the human deleted, re-anchoring the insertion", async () => {
+    const client = await connect("app");
+    await call(client, "insert_content", { targetId: "p_2", content: { format: "blocks", blocks: ["AI paragraph"] } });
+    const saved = parseSigmaDocument(await store.loadDocument(fileId));
+    const humanSave = await store.saveDocument(fileId, parseSigmaDocument(deleteBlocksFromDocument(saved, ["p_2"])), { expectedRevision: 1 });
+    expect(humanSave).toMatchObject({ ok: true, revision: 2 });
+
+    await call(client, "edit_text", { expectedRevision: 2, edit: { action: "patch", operations: [
+      { op: "replace_text", target: { type: "text", blockId: "p_1", text: "Before" }, replacement: "After" },
+    ] } });
+
+    const proposal = await pending();
+    const latest = parseSigmaDocument(await store.loadDocument(fileId));
+    const replayed = replayProposalDraftMerging(latest, proposal.draft, proposal.mergeBasis!).nextDocument;
+    expect(replayed.content.map((block) => (block.type === "paragraph" ? inlineNodesToPlainText(block.children) : block.type)))
+      .toEqual(["After text", "AI paragraph"]);
+  });
+
+  it("does not double a human edit a later turn of the room saw and rewrote", async () => {
+    const client = await connect("app");
+    await call(client, "edit_text", { edit: { action: "patch", operations: [
+      { op: "replace_text", target: { type: "text", blockId: "p_1", text: "Before" }, replacement: "After" },
+    ] } });
+    const saved = parseSigmaDocument(await store.loadDocument(fileId));
+    const humanDocument = parseSigmaDocument(updateBlockInDocument(saved, "p_1", (block) => ({
+      ...block,
+      children: (block as { children: InlineNode[] }).children.map((node) => (
+        node.type === "text" ? { ...node, text: "Before text big" } : node
+      )),
+    } as typeof block)));
+    expect(await store.saveDocument(fileId, humanDocument, { expectedRevision: 1 })).toMatchObject({ ok: true, revision: 2 });
+
+    // The second turn sees "After text big" and rewrites the human's word.
+    await call(client, "edit_text", { expectedRevision: 2, edit: { action: "patch", operations: [
+      { op: "replace_text", target: { type: "text", blockId: "p_1", text: "big" }, replacement: "huge" },
+    ] } });
+
+    const proposal = await pending();
+    const latest = parseSigmaDocument(await store.loadDocument(fileId));
+    const replayed = replayProposalDraftMerging(latest, proposal.draft, proposal.mergeBasis!);
+    expect(inlineNodesToPlainText((findBlock(replayed.nextDocument, "p_1") as { children: InlineNode[] }).children)).toBe("After text huge");
+    expect(replayed.report.overlaps).toEqual([]);
+  });
+
+  it("previews the room's proposal with the same merging replay as the approval", async () => {
+    const client = await connect("app");
+    await call(client, "insert_content", { targetId: "p_2", content: { format: "blocks", blocks: ["AI paragraph"] } });
+    const saved = parseSigmaDocument(await store.loadDocument(fileId));
+    await store.saveDocument(fileId, parseSigmaDocument(deleteBlocksFromDocument(saved, ["p_2"])), { expectedRevision: 1 });
+
+    for (const [name, args] of [
+      ["render_block_context", { blockId: "p_1" }],
+      ["render_page", { blockId: "p_1" }],
+    ] as const) {
+      const result = await client.callTool({ name, arguments: { fileId, runId: "run_a", currentProposal: true, ...args } });
+      // Without a render bridge the preview itself degrades; replaying the proposal must not fail.
+      expect(JSON.stringify(result.structuredContent), name).not.toContain("NOT_FOUND");
+    }
   });
 
   it("does not publish a partially successful patch batch", async () => {

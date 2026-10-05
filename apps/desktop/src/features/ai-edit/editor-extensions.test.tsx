@@ -164,7 +164,8 @@ describe("buildAiOverlayEditorExtensions", () => {
     );
     expect(labelHtml).toContain("ai-edit-lock-shape-veil");
     expect(labelHtml).not.toContain("AIを停止して編集");
-    // A pending-proposal reservation stays veil-free, on the graph and its label alike.
+    // A pending proposal's reservation (a target the merge cannot follow, such as an aligned
+    // graph) stays veil-free, on the graph and its label alike.
     expect(extensions.overlayShapeDecorations.get("graph-2-label")).toEqual({
       className: "ai-edit-locked-shape",
     });
