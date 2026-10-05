@@ -11,7 +11,7 @@ import type { DesktopMcpEditProposalSummary } from "@/types/desktop";
 
 import { groupMcpProposalsForPreview, type AiEditPreviewState } from "./preview";
 import { buildPendingProposalContent, groupPendingProposalContentByAnchor } from "./proposal-content";
-import { AI_PROPOSAL_PREVIEW_COUNTERS, resolveProposalMergePreview } from "./proposal-merge-preview";
+import { AI_PROPOSAL_PREVIEW_COUNTERS, resolveProposalMergePreview, retainProposalMergePreviewFallbacks } from "./proposal-merge-preview";
 
 function text(value: string): InlineNode {
   return { type: "text", text: value };
@@ -387,6 +387,37 @@ describe("resolveProposalMergePreview counts its fallbacks (MISS R3)", () => {
     resolveProposalMergePreview(current, preview, { count });
 
     expect(counted).toEqual([AI_PROPOSAL_PREVIEW_COUNTERS.fallback, AI_PROPOSAL_PREVIEW_COUNTERS.noPreview]);
+  });
+
+  it("counts the fallback again after a recovery that was only observed while counting was off", () => {
+    const { preview, current } = conflicting("proposal_recovered_quietly");
+    const restored = documentOf([paragraph("p_1", BASE_TEXT), paragraph("p_2", "残す")]);
+    const counted: string[] = [];
+    const count = (name: string) => counted.push(name);
+
+    resolveProposalMergePreview(current, preview, { count });
+    resolveProposalMergePreview(restored, preview, { countFallbacks: false, count });
+    resolveProposalMergePreview(deleteBlocksFromDocument(restored, ["p_1"]), preview, { count });
+
+    expect(counted).toEqual([
+      AI_PROPOSAL_PREVIEW_COUNTERS.fallback, AI_PROPOSAL_PREVIEW_COUNTERS.noPreview,
+      AI_PROPOSAL_PREVIEW_COUNTERS.fallback, AI_PROPOSAL_PREVIEW_COUNTERS.noPreview,
+    ]);
+  });
+
+  it("forgets what it counted for proposals that are no longer pending", () => {
+    const { preview, current } = conflicting("proposal_resolved");
+    const counted: string[] = [];
+    const count = (name: string) => counted.push(name);
+
+    resolveProposalMergePreview(current, preview, { count });
+    retainProposalMergePreviewFallbacks([]);
+    resolveProposalMergePreview(current, previewFor(summaryOf(replaceDraft("p_1", AI_TEXT), {
+      proposalId: "proposal_resolved",
+      mergeBasis: preview.mergeSources![0]!.mergeBasis,
+    })), { count });
+
+    expect(counted).toHaveLength(4);
   });
 
   it("counts nothing for a proposal that merges or applies normally", () => {
