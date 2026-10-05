@@ -13,14 +13,15 @@ import { createAiEditSessionDocumentDraft, type AiEditSessionDraft, type SigmaDo
 import { areSigmaDocumentsEquivalent } from "@/lib/document-equivalence";
 import { deleteBlocksFromDocument, findBlock, updateBlockInDocument } from "@/lib/document-tree";
 import { createCurrentLocaleTranslator } from "@/lib/i18n";
+import { computeDocumentBlockHashes } from "@/lib/sigma-doc-block-hash";
 import { parseSigmaDocument } from "@/lib/sigma-doc-schema";
 import { LocalMcpEditProposalStore } from "../local-sigma-doc-proposal-store";
 import { LocalSigmaDocStore } from "../local-sigma-doc-store";
 import type { LocalMcpEditProposal } from "../proposals/contracts";
-import { collectConflictSensitiveBlockIds, collectOccupiedInsertIds, collectRequiredInsertAnchorBlockIds } from "../proposals/freshness";
+import { collectOccupiedInsertIds } from "../proposals/freshness";
 import { replayProposalDraft } from "../proposals/replay";
 import { createSharedProposalApprover } from "./proposal-approval";
-import { readSharedProposal } from "./proposal-context";
+import { observeSharedRead, readSharedProposal, withSharedReadScope } from "./proposal-context";
 
 const te = createCurrentLocaleTranslator("error");
 
@@ -98,14 +99,52 @@ const textOf = (document: SigmaDocument, id: string) => {
 };
 
 /**
+ * What the sync server requires a precondition on, per draft, enumerated here from its approval's rule
+ * and not with the functions the approval uses (so a drift between the two is caught): every replaced
+ * target, deleted block, updated / aligned / deleted shape and reconfigured section, and every anchor
+ * an insertion names (its target and its shape's block or shape anchor) unless an earlier operation of
+ * the draft created it (a replacement's whole tree, an inserted block, table or shape).
+ */
+function serverRequiredTargets(draft: AiEditSessionDraft): string[] {
+  const required = new Set<string>();
+  const created = new Set<string>();
+  const treeIds = (value: unknown): string[] => {
+    if (Array.isArray(value)) return value.flatMap(treeIds);
+    if (!value || typeof value !== "object") return [];
+    const record = value as Record<string, unknown>;
+    return [...(typeof record.id === "string" && typeof record.type === "string" ? [record.id] : []), ...Object.values(record).flatMap(treeIds)];
+  };
+  for (const operation of draft.operations) {
+    if (operation.operation === undefined || operation.operation === "replace") {
+      required.add(operation.targetId);
+      treeIds(operation.replacementBlock).forEach((id) => created.add(id));
+      continue;
+    }
+    const shape = operation.operation === "insertOverlayShape" ? operation.overlayShape : operation.operation === "insertTableShape" ? operation.tableShape : null;
+    const anchor = shape?.anchor;
+    for (const id of [operation.targetId, anchor?.type === "block" ? anchor.blockId : anchor?.type === "shape" ? anchor.shapeId : null]) {
+      if (id && !created.has(id)) required.add(id);
+    }
+    created.add(operation.operation === "insertAfter" ? operation.insertedBlock.id : shape!.id);
+  }
+  for (const mutation of draft.mutationOperations ?? []) {
+    if (mutation.operation === "deleteBlocks") mutation.blockIds.forEach((id) => required.add(id));
+    else if (mutation.operation === "updateOverlayShape") required.add(mutation.shapeId);
+    else if (mutation.operation === "alignOverlayShapes" || mutation.operation === "deleteOverlayShapes") mutation.shapeIds.forEach((id) => required.add(id));
+    else if (mutation.operation === "updateLayoutSection") required.add(mutation.sectionId);
+  }
+  return [...required];
+}
+
+/**
  * The shared session as the approval reaches it (MISS R5: as strict as the real one). The server holds
  * the shared document; this window's projection only catches up on an online flush (`approve` flushes
- * first, as the real one does). The server's approval does what the sync server's does, with the same
- * shared functions: an operation id it already applied answers the same request again and refuses a
- * different one (`OPERATION_REUSED`); every precondition is checked (`assertReadPreconditions`); each
- * draft needs a precondition on every target it overwrites or anchors to that exists
- * (`MISSING_PRECONDITION`) and must not insert a taken id; the drafts are applied in order
- * (`createAiEditSessionDocumentDraft`) before the document moves on.
+ * first, as the real one does). The server's approval does what the sync server's does: an operation id
+ * it already applied answers the same request again and refuses a different one (`OPERATION_REUSED`);
+ * every precondition is checked (`assertReadPreconditions`); each draft needs a precondition on every
+ * target it overwrites or anchors to that exists (`MISSING_PRECONDITION`, `serverRequiredTargets`) and
+ * must not insert a taken id; the drafts are applied in order (`createAiEditSessionDocumentDraft`)
+ * before the document moves on.
  */
 function createSharedSession(userData: string, fileId: string, document: SigmaDocument) {
   let server = parseSigmaDocument(document);
@@ -114,6 +153,7 @@ function createSharedSession(userData: string, fileId: string, document: SigmaDo
   const receipts = new Map<string, { body: string; seq: number }>();
   const requests: SharedApproval[] = [];
   let failBeforeServer: Error | null = null;
+  let loseAnswer = false;
   const sessions = {
     directory: path.join(userData, "collaboration-v1"),
     has: (id: string) => id === fileId,
@@ -140,8 +180,7 @@ function createSharedSession(userData: string, fileId: string, document: SigmaDo
       const existing = collectIds(before);
       let next = parseSigmaDocument(server);
       for (const draft of (approval.drafts ?? [approval.draft]) as AiEditSessionDraft[]) {
-        const required = [...collectConflictSensitiveBlockIds(draft), ...collectRequiredInsertAnchorBlockIds(draft)];
-        if (required.some((target) => existing.has(target) && !checked.has(target))) throw new Error("MISSING_PRECONDITION");
+        if (serverRequiredTargets(draft).some((target) => existing.has(target) && !checked.has(target))) throw new Error("MISSING_PRECONDITION");
         if (
           draft.mutationOperations?.some((operation) => ["updatePageLayout", "setDocumentColumns"].includes(operation.operation))
           && !checked.has(PAGE_LAYOUT_TARGET)
@@ -153,6 +192,10 @@ function createSharedSession(userData: string, fileId: string, document: SigmaDo
       server = parseSigmaDocument(next);
       seq += 1;
       receipts.set(approval.operationId, { body, seq });
+      if (loseAnswer) {
+        loseAnswer = false;
+        throw new Error("network: the answer was lost");
+      }
       local = server;
       return { seq };
     }),
@@ -167,6 +210,10 @@ function createSharedSession(userData: string, fileId: string, document: SigmaDo
     },
     failNextApprovalBeforeTheServer: (error: Error) => {
       failBeforeServer = error;
+    },
+    /** The server applies the next approval, but its answer never arrives. */
+    loseNextApprovalAnswer: () => {
+      loseAnswer = true;
     },
   };
 }
@@ -202,10 +249,30 @@ async function createFixture(userData: string) {
   const readLedger = () => fs.readFile(path.join(userData, "data", "logs", "ledger.log"), "utf8").catch(() => "");
   return {
     ...shared,
+    fileId: file.fileId,
     proposals,
     approve: async (...records: LocalMcpEditProposal[]) => (await approver(records))!,
     /** A proposal the AI made from the shared document as it is now (its envelope is captured too). */
     createProposal: (draft: AiEditSessionDraft) => proposals.createProposal(proposalInput(draft)),
+    /**
+     * A proposal the AI made after reading `readId` with a tool (the run's reads are recorded as the MCP
+     * server records them), with the request's selection when given.
+     */
+    createProposalAfterReading: async (draft: AiEditSessionDraft, readId: string, selectedIds: string[] = []) => {
+      const runId = `run_${Math.random().toString(36).slice(2)}`;
+      await withSharedReadScope(runId, true, async () => {
+        observeSharedRead(userData, file.fileId, shared.server());
+        return { read: findBlock(shared.server(), readId) ?? shapesOf(shared.server()).find((shape) => shape.id === readId) };
+      });
+      const hashes = computeDocumentBlockHashes(shared.server());
+      return proposals.createProposal({
+        ...proposalInput(draft),
+        runId,
+        ...(selectedIds.length > 0
+          ? { requestSelection: { blockIds: selectedIds, hashes: Object.fromEntries(selectedIds.map((id) => [id, hashes[id]])), capturedRevision: 1 } }
+          : {}),
+      });
+    },
     /** A turn of a room's run: the first creates the proposal, the next ones revise it. */
     upsertProposal: (draft: AiEditSessionDraft) => proposals.upsertCurrentProposal({ ...proposalInput(draft), runId: "run_shared", roomId: "room_shared" }),
     /** A record written before merge bases existed: the same proposal and envelope, without `mergeBasis`. */
@@ -389,6 +456,104 @@ describe("shared proposal approval", () => {
     expect(shapeIn(fixture.server(), "m_1")).toBeUndefined();
   });
 
+  describe("after the AI read what it rewrites", () => {
+    const problemWith = (prompt: ReturnType<typeof paragraph>[]) => ({
+      ...(findBlock(fixture.server(), "problem") as unknown as Record<string, unknown>), prompt,
+    });
+
+    it("keeps an edit of the paragraph it rewrote, though the problem it read holds that paragraph", async () => {
+      const proposal = await fixture.createProposalAfterReading(draftOf([replace("x", "x by AI")]), "problem");
+      const envelope = await fixture.envelopeOf(proposal);
+      fixture.editByAnotherParticipant(editText("x", "edited x"));
+
+      expect(envelope.preconditions.map((condition) => condition.id)).toEqual(expect.arrayContaining(["problem", "x", "y", "s"]));
+      await expect(fixture.approve(proposal)).resolves.toMatchObject({ ok: true });
+      expect(textOf(fixture.server(), "x")).toContain("edited");
+      expect(textOf(fixture.server(), "x")).toContain("by AI");
+    });
+
+    it("keeps an edit inside the problem it read, selected and rewrote", async () => {
+      const proposal = await fixture.createProposalAfterReading(
+        draftOf([{ operation: "replace", summary: "問題", targetId: "problem", replacementBlock: problemWith([paragraph("x", "x"), paragraph("y", "y by AI")]) as never }]),
+        "problem",
+        ["problem"],
+      );
+      fixture.editByAnotherParticipant(editText("x", "x by another participant"));
+
+      await expect(fixture.approve(proposal)).resolves.toMatchObject({ ok: true });
+      expect(textOf(fixture.server(), "x")).toBe("x by another participant");
+      expect(textOf(fixture.server(), "y")).toBe("y by AI");
+    });
+
+    it("still stops when what it only read changed", async () => {
+      const proposal = await fixture.createProposalAfterReading(draftOf([replace("x", "x by AI")]), "problem");
+      fixture.editByAnotherParticipant(editText("y", "y by another participant"));
+
+      await expect(fixture.approve(proposal)).resolves.toEqual({ ok: false, code: "conflict", error: te("electron.proposal.changedBeforeApproval") });
+      expect(textOf(fixture.server(), "y")).toBe("y by another participant");
+    });
+  });
+
+  it("keeps the recorded base hashes when a room's run is rolled back", async () => {
+    const first = await fixture.upsertProposal(draftOf([], [{ operation: "deleteOverlayShapes", summary: "削除", shapeIds: ["g"] }]));
+    const snapshotId = await fixture.proposals.beginProposalRunSnapshot("room_shared", fixture.fileId);
+    await fixture.upsertProposal(draftOf([replace("p_1", "The dog sat.")]));
+    await fixture.proposals.rollbackProposalRunSnapshot(snapshotId);
+    const restored = (await fixture.proposals.loadProposal(first.proposalId))!;
+
+    expect((await fixture.envelopeOf(restored)).preconditions.map((condition) => condition.id)).toEqual(expect.arrayContaining(["g", "m_1", "m_2"]));
+    await expect(fixture.approve(restored)).resolves.toMatchObject({ ok: true });
+    expect(shapeIn(fixture.server(), "m_1")).toBeUndefined();
+    expect(textOf(fixture.server(), "p_1")).toBe("The cat sat.");
+  });
+
+  it("records the base hashes of a legacy record proposed again, approved together with a merged one", async () => {
+    // Proposing again replays a legacy draft and keeps the replay's normalized draft (here the box is
+    // put before its paragraph), so its approval record is taken again.
+    const legacy = await fixture.createLegacyProposal(draftOf([
+      replace("box_p", "段落 box_p by AI"),
+      { operation: "replace", summary: "箱", targetId: "box_1", replacementBlock: { id: "box_1", type: "boxBlock", styleId: "itembox", title: [{ type: "text", text: "要点 by AI" }], blocks: [paragraph("box_p")] } as never },
+    ], [{ operation: "deleteOverlayShapes", summary: "削除", shapeIds: ["g"] }]));
+    await fixture.proposals.rejectSingleProposal(legacy.proposalId);
+    await expect(fixture.proposals.restoreResolvedProposal(legacy.proposalId, fixture.server(), 1)).resolves.toMatchObject({ ok: true });
+    const merged = await fixture.createProposal(draftOf([replace("p_1", "The dog sat.")]));
+    const reproposed = (await fixture.proposals.loadProposal(legacy.proposalId))!;
+
+    expect((await fixture.envelopeOf(reproposed)).preconditions.map((condition) => condition.id)).toEqual(expect.arrayContaining(["g", "m_1", "m_2"]));
+    await expect(fixture.approve(reproposed, merged)).resolves.toMatchObject({ ok: true });
+  });
+
+  it("resolves a merged approval the server applied but whose answer was lost, without applying it twice", async () => {
+    const proposal = await fixture.createProposal(draftOf([
+      replace("p_1", "The dog sat."),
+      { operation: "insertAfter", summary: "挿入", targetId: "p_3", insertedBlock: paragraph("p_new", "AI が足した段落") },
+    ]));
+    fixture.editByAnotherParticipant(editText("p_1", "The big cat sat."));
+    fixture.loseNextApprovalAnswer();
+
+    await expect(fixture.approve(proposal)).resolves.toEqual({ ok: false, code: "conflict", error: te("electron.proposal.applyFailed") });
+    await expect(fixture.approve(proposal)).resolves.toMatchObject({ ok: true });
+
+    expect(await fixture.statusOf(proposal)).toBe("approved");
+    expect(fixture.requests).toHaveLength(2);
+    expect(fixture.requests[1]).toEqual(fixture.requests[0]);
+    expect(fixture.server().content.filter((block) => block.id === "p_new")).toHaveLength(1);
+    expect(textOf(fixture.server(), "p_1")).toBe("The big dog sat.");
+  });
+
+  it("merges again when the approval it sent before is refused because the document moved on", async () => {
+    const proposal = await fixture.createProposal(draftOf([replace("p_1", "The dog sat.")]));
+    fixture.editByAnotherParticipant(editText("p_1", "The big cat sat."));
+    fixture.failNextApprovalBeforeTheServer(new Error("network"));
+    await expect(fixture.approve(proposal)).resolves.toMatchObject({ ok: false });
+    fixture.editByAnotherParticipant(editText("p_1", "The big cat sat down."));
+
+    await expect(fixture.approve(proposal)).resolves.toMatchObject({ ok: true });
+
+    expect(textOf(fixture.server(), "p_1")).toBe("The big dog sat down.");
+    expect(fixture.requests.at(-1)!.operationId).not.toBe(fixture.requests[0].operationId);
+  });
+
   it("resolves the proposal without sending anything when the participant's edits made every operation unnecessary", async () => {
     const proposal = await fixture.createProposal(draftOf([], [{ operation: "deleteBlocks", summary: "削除", blockIds: ["p_3"] }]));
     fixture.editByAnotherParticipant(editText("p_3", "段落 p_3 by another participant"));
@@ -533,14 +698,38 @@ describe("contract: another participant's edit of a target survives a shared app
     },
   ];
 
-  it.each(cases)("$name", async ({ draft, edit, kept }) => {
-    const proposal = await fixture.createProposal(draft);
+  /**
+   * The kinds the merge keeps both sides of: another participant's edit of the target must not stop
+   * them (a conflict here is a regression, not the safe side). The others may stop with a conflict.
+   */
+  const mergedKinds = new Set([
+    "a replaced block", "a replaced block inside a replaced box", "an insertion anchor", "a deleted block",
+    "an updated shape", "a deleted shape",
+  ]);
+  /** What the AI reads with a tool before it proposes (the target, or the container holding it). */
+  const readFirst: Record<string, string> = {
+    "a replaced block": "p_2", "a replaced block inside a replaced box": "box_1", "an insertion anchor": "p_1", "a deleted block": "p_2",
+    "a moved block": "p_3", "a reconfigured column section": "sec_1", "an updated shape": "s_1", "a deleted shape": "s_2",
+    "an aligned shape": "s_2", "an aligned shape the draft also updates": "s_2", "a group the AI deletes": "g",
+    "a member of a group the AI deletes (the deletion cascades to the members)": "m_1", "a shape anchored to a shape the AI deletes": "d",
+    "a shape anchored after the proposal to a shape the AI deletes": "h", "a graph the AI updates": "graph_1",
+    "an owned label of a graph the AI relabels": "label_x",
+  };
+
+  it("names a read for every case", () => {
+    expect(cases.filter(({ name }) => !readFirst[name]).map(({ name }) => name)).toEqual([]);
+  });
+
+  it.each(cases.flatMap((entry) => [{ ...entry, read: false }, { ...entry, read: true }]))("$name (read first: $read)", async ({ name, draft, edit, kept, read }) => {
+    const proposal = read ? await fixture.createProposalAfterReading(draft, readFirst[name]) : await fixture.createProposal(draft);
     fixture.editByAnotherParticipant(edit);
 
     const result = await fixture.approve(proposal);
 
     expect(kept(fixture.server())).toBe(true);
-    if (!result.ok) {
+    if (mergedKinds.has(name)) {
+      expect(result).toMatchObject({ ok: true });
+    } else if (!result.ok) {
       expect(result).toEqual({ ok: false, code: "conflict", error: te("electron.proposal.changedBeforeApproval") });
     }
   });
