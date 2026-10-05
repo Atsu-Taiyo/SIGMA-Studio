@@ -7,6 +7,7 @@ import { OFFICIAL_SKILL_DEFINITIONS } from "../../../electron/ai-resource-store"
 import type { OverlayShape } from "@/features/document";
 import {
   ALWAYS_AVAILABLE_MCP_TOOL_NAMES,
+  categoriesToAllowAfterDenial,
   inferToolCategoriesForRun,
   MCP_TOOL_CATEGORIES,
   MCP_TOOL_CATEGORY_MAP,
@@ -170,7 +171,13 @@ describe("MCP tool category inference", () => {
       "球の体積の問題を作って",
       "回転体の問題を作って",
       "断面の問題を作って",
+      "正八面体の図を入れて",
+      "六面体の問題文を直して",
+      "十二面体と二十面体の問題を作って",
+      "錐体の問題文を直して",
+      "展開図の問題を作って",
       "Fix the problem about a sphere, a cone and a cylinder",
+      "Fix the problem about a tetrahedron, an octahedron and a torus",
     ]) {
       const args = { instruction, references: [], selectedSkillIds: [] };
       // 本文の語で絞り込まれた run でも、立体の語があれば3Dグラフのツールが入る。
@@ -218,6 +225,26 @@ describe("MCP tool category inference", () => {
       .filter((name) => !name.startsWith("insert_"));
 
     expect(editingTools.filter((name) => !tabulated.has(name))).toEqual([]);
+  });
+});
+
+describe("categoriesToAllowAfterDenial", () => {
+  it("allows only the category of the refused tool, by its app-profile or external name", () => {
+    expect(categoriesToAllowAfterDenial(["insert_graph3d"])).toEqual(["グラフ"]);
+    expect(categoriesToAllowAfterDenial(["edit_text", "insert_table"])).toEqual(["本文編集", "表"]);
+    expect(categoriesToAllowAfterDenial(["apply_edits"])).toEqual(["本文編集"]);
+  });
+
+  it("never opens library management or AI settings, and ignores unknown tools", () => {
+    expect(categoriesToAllowAfterDenial(["update_ai_settings", "save_ai_resource", "delete_local_document"])).toEqual([]);
+    expect(categoriesToAllowAfterDenial(["no_such_tool", ""])).toEqual([]);
+
+    for (const category of MCP_TOOL_CATEGORIES) {
+      const expected = category === "教材管理" || category === "AI設定・アプリ文脈" ? [] : [category];
+      for (const name of appMcpToolNames(MCP_TOOL_CATEGORY_MAP[category])) {
+        expect(categoriesToAllowAfterDenial([name]), name).toEqual(expected);
+      }
+    }
   });
 });
 

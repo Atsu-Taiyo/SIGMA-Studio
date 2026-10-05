@@ -1,3 +1,4 @@
+import type { OverlayShape } from "@/features/document";
 import { appMcpToolNames, type McpToolProfile } from "./mcp-tool-profile";
 
 export const MCP_TOOL_CATEGORIES = [
@@ -199,20 +200,37 @@ const CATEGORY_KEYWORD_PATTERNS: ReadonlyArray<{
  * category to a run that is narrowed anyway; they never take part in deciding to narrow, because
  * 「球」 also matches 地球・球技・電球 and 「立体的に」 is ordinary prose.
  */
-const SOLID_FIGURE_PATTERN = /[3３][dｄ]|[3３三]次元|立体|空間図形|多面体|四面体|立方体|直方体|角錐|円錐|角柱|円柱|球|回転体|断面|three[- ]?dimensional|sphere|cone|cylinder|pyramid|prism|cube|cuboid|polyhedron|cross[- ]?section/i;
+const SOLID_FIGURE_PATTERN = /[3３][dｄ]|[3３三]次元|立体|空間図形|面体|立方体|直方体|錐|角柱|円柱|球|回転体|断面|展開図|three[- ]?dimensional|sphere|cone|cylinder|pyramid|prism|cube|cuboid|hedron|torus|cross[- ]?section/i;
+
+/** What a selected shape opens when nothing more specific applies (also for unknown types). */
+const SHAPE_CATEGORIES: readonly McpToolCategory[] = ["図形", "visual edit"];
 
 /**
  * Categories a selected overlay shape opens: the ones holding every tool that edits a shape of that
- * type (its own update tool, plus update_shape / delete_shapes / align_shapes in 図形). The contract
- * test in mcp-tool-categories.test.ts checks each type against the tools that edit it.
+ * type (its own update tool, plus update_shape / delete_shapes / align_shapes in 図形). Every shape
+ * type needs an entry, so a new one fails the typecheck here; the contract test in
+ * mcp-tool-categories.test.ts checks each type against the tools that edit it.
  */
-const SELECTED_SHAPE_CATEGORIES: ReadonlyMap<string, readonly McpToolCategory[]> = new Map([
-  ["graph2dShape", ["グラフ", "図形"]],
-  ["graph3dShape", ["グラフ", "図形", "visual edit"]],
-  ["tableShape", ["表", "図形"]],
-  ["image", ["素材", "図形", "visual edit"]],
-]);
-const OTHER_SELECTED_SHAPE_CATEGORIES: readonly McpToolCategory[] = ["図形", "visual edit"];
+const SELECTED_SHAPE_CATEGORIES: Readonly<Record<OverlayShape["type"], readonly McpToolCategory[]>> = {
+  group: SHAPE_CATEGORIES,
+  geo: SHAPE_CATEGORIES,
+  arc: SHAPE_CATEGORIES,
+  arrow: SHAPE_CATEGORIES,
+  line: SHAPE_CATEGORIES,
+  text: SHAPE_CATEGORIES,
+  callout: SHAPE_CATEGORIES,
+  chartShape: SHAPE_CATEGORIES,
+  image: ["素材", "図形", "visual edit"],
+  graph2dShape: ["グラフ", "図形"],
+  graph3dShape: ["グラフ", "図形", "visual edit"],
+  tableShape: ["表", "図形"],
+};
+
+function selectedShapeCategories(type: string): readonly McpToolCategory[] {
+  return Object.hasOwn(SELECTED_SHAPE_CATEGORIES, type)
+    ? SELECTED_SHAPE_CATEGORIES[type as OverlayShape["type"]]
+    : SHAPE_CATEGORIES;
+}
 
 const DOCUMENT_EXPLORATION_PATTERN = /探して|検索|調べ|確認|読み取|読んで|一覧|概要|構成|どこ|find|search|inspect|read|list|outline/i;
 const GENERIC_MUTATION_PATTERN = /直して|修正|変更|編集|追加|作成|挿入|削除|移動|置換|更新|edit|fix|change|add|create|insert|delete|move|replace|update/i;
@@ -326,7 +344,7 @@ export function inferToolCategoriesForRun({
       if (!shape.type) {
         continue;
       }
-      for (const category of SELECTED_SHAPE_CATEGORIES.get(shape.type) ?? OTHER_SELECTED_SHAPE_CATEGORIES) {
+      for (const category of selectedShapeCategories(shape.type)) {
         inferred.add(category);
       }
       hasConfidentSignal = true;
@@ -371,6 +389,27 @@ export function inferToolCategoriesForRun({
     inferred.add("グラフ");
   }
   return MCP_TOOL_CATEGORIES.filter((category) => inferred.has(category));
+}
+
+/**
+ * Library management and AI settings act outside the document's proposal flow (deleting files,
+ * changing auto-approval), so a refused call never opens them; only the user's instruction does.
+ */
+const NEVER_ALLOWED_AFTER_DENIAL: ReadonlySet<McpToolCategory> = new Set(["教材管理", "AI設定・アプリ文脈"]);
+
+/**
+ * Categories a conversation may additionally allow after the narrowed permissions refused these
+ * tools: the categories that own them (by app-profile or external name). Unknown names open nothing.
+ */
+export function categoriesToAllowAfterDenial(deniedToolNames: readonly string[]): McpToolCategory[] {
+  const denied = new Set(deniedToolNames);
+  return MCP_TOOL_CATEGORIES.filter((category) => {
+    if (NEVER_ALLOWED_AFTER_DENIAL.has(category)) {
+      return false;
+    }
+    const names = MCP_TOOL_CATEGORY_MAP[category];
+    return [...names, ...appMcpToolNames(names)].some((name) => denied.has(name));
+  });
 }
 
 /** Always adds document exploration and proposal/verification tools. */
