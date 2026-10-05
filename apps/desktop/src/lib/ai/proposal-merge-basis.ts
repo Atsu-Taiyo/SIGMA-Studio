@@ -200,6 +200,27 @@ export function collectReinsertedDeletionIds(draft: AiEditSessionDraft): Set<str
   return reinserted;
 }
 
+/**
+ * Merged units (`mergeBasis.entities`) the document no longer holds, so the merging replay cannot keep
+ * the human's side of them: the human deleted a block the draft replaces or a shape it updates. A unit
+ * the draft itself deletes is not missing: both sides want it gone, so the merging replay treats that
+ * part of the deletion as done (unless the draft inserts the same id again: that is a replacement of a
+ * unit the human deleted). The approval reports these as `anchor-missing`, WebMCP as `STALE_DRAFT`.
+ */
+export function collectMissingMergeUnitIds(
+  draft: AiEditSessionDraft,
+  mergeBasis: ProposalMergeBasis,
+  exists: (id: string) => boolean,
+): string[] {
+  const reinserted = collectReinsertedDeletionIds(draft);
+  const deletedByDraft = new Set((draft.mutationOperations ?? []).flatMap((operation) => (
+    operation.operation === "deleteBlocks"
+      ? operation.blockIds
+      : operation.operation === "deleteOverlayShapes" ? operation.shapeIds : []
+  )).filter((id) => !reinserted.has(id)));
+  return Object.keys(mergeBasis.entities).filter((id) => !exists(id) && !deletedByDraft.has(id));
+}
+
 /** The id an insert operation creates at the top (block, overlay shape or table), else null. */
 export function insertedIdOf(operation: AiEditSessionDraft["operations"][number]): string | null {
   return operation.operation === "insertAfter"
@@ -269,9 +290,10 @@ export interface ProposalTargets {
 /**
  * The targets of pending proposals the approval cannot merge with a human's edit: changing one makes
  * the approval report a conflict, or (without this rule) silently lose the human's edit. This is the
- * one definition both sides read: the approval compares exactly these with their base hashes
- * (content-stale, `electron/proposals/freshness.ts`), and the editor keeps exactly these locked while
- * the proposals are pending (`derivePendingAiProposalLockTargets`).
+ * one definition every side reads: the approval compares exactly these with their base hashes
+ * (content-stale, `electron/proposals/freshness.ts`), the editor keeps exactly these locked while
+ * the proposals are pending (`derivePendingAiProposalLockTargets`), and WebMCP's draft replay makes the
+ * draft `STALE_DRAFT` when the human changed one of them (`replayConflictIds` in `webmcp-tools.ts`).
  *
  * - A proposal without a usable merge basis (a legacy record): every existing block it replaces or
  *   deletes, every column section it reconfigures and every shape it updates, aligns or deletes (its
