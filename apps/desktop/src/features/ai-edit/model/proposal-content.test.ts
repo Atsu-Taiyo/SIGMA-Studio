@@ -10,16 +10,22 @@ import type {
 } from "@/features/document";
 import type { AiEditDraft, SigmaDocMutationOp } from "@/lib/ai/sigma-doc-edit-schema";
 import { buildAppliedDiffRows } from "@/lib/ai/applied-diff-lines";
+import { computeProposalMergeBasis } from "@/lib/ai/proposal-merge-basis";
 import { parseSigmaDocument } from "@/lib/sigma-doc-schema";
 
-import type { AiEditPreviewState } from "./preview";
+import { deriveAiEditPreviewShapeUpdates, type AiEditPreviewState } from "./preview";
 import {
   AI_PROPOSAL_PREVIEW_ID_PREFIX,
   AI_PROPOSAL_WORD_HIGHLIGHT,
   buildAppliedProposalContent,
   buildPendingProposalContent,
+  collectPendingRemovedBlockIds,
+  collectProposalRemovals,
+  collectShapesKeptByMerge,
   groupPendingProposalContentByAnchor,
   isProposalContentEmpty,
+  collectMergedUpdatedShapes,
+  withMergedShapes,
   proposalContentToAppliedDiff,
   toDisplayProposalHunk,
 } from "./proposal-content";
@@ -482,6 +488,127 @@ describe("groupPendingProposalContentByAnchor", () => {
     ], { proposalIds: ["p-layout"] });
 
     expect(groupPendingProposalContentByAnchor([missingAnchor, layoutOnly], document).size).toBe(0);
+  });
+});
+
+/** 作成時の文書から元の内容 (`mergeBasis`) を持たせた提案 (承認と同じ合成 replay でプレビューする)。 */
+function mergeablePreviewOf(
+  base: SigmaDocument,
+  operations: AiEditDraft[],
+  mutationOperations: SigmaDocMutationOp[] = [],
+): AiEditPreviewState {
+  const preview = previewOf(operations, mutationOperations);
+  return {
+    ...preview,
+    mergeSources: [{
+      proposalId: "proposal_1",
+      createdAt: "2026-10-05T00:00:00.000Z",
+      draft: preview.draft,
+      mergeBasis: computeProposalMergeBasis(preview.draft, base),
+    }],
+  };
+}
+
+function withParagraph(document: SigmaDocument, id: string, text: string): SigmaDocument {
+  return { ...document, content: document.content.map((block) => (block.id === id ? paragraph(id, text) : block)) };
+}
+
+describe("collectPendingRemovedBlockIds (the red underlay on the page body)", () => {
+  it("marks the blocks a pending proposal replaces or deletes, as the cards list them", () => {
+    const document = baseDocument();
+    const preview = previewOf([replace("p1", "変更後")], [{ operation: "deleteBlocks", summary: "削除", blockIds: ["p_last"] }]);
+
+    const cards = groupPendingProposalContentByAnchor([preview], document);
+
+    expect(collectPendingRemovedBlockIds(cards).sort()).toEqual(["p1", "p_last"]);
+  });
+
+  it("keeps the card of a multi-block deletion when the human already deleted its first block", () => {
+    const base = documentOf([paragraph("p1", "一"), paragraph("p2", "二"), paragraph("p3", "三"), paragraph("p_last", "最後")]);
+    const preview = previewOf([], [{ operation: "deleteBlocks", summary: "削除", blockIds: ["p1", "p2", "p3"] }]);
+    const current = { ...base, content: base.content.filter((block) => block.id !== "p1") };
+
+    const cards = groupPendingProposalContentByAnchor([preview], current);
+
+    expect([...cards.keys()]).toEqual(["p2"]);
+    expect(collectPendingRemovedBlockIds(cards)).toEqual(["p2", "p3"]);
+  });
+
+  it("leaves out a block the AI deletes when the human's edit keeps it (an edit beats a delete)", () => {
+    const base = baseDocument();
+    const preview = mergeablePreviewOf(base, [replace("p1", "変更後")], [
+      { operation: "deleteBlocks", summary: "削除", blockIds: ["p_last"] },
+    ]);
+    const current = withParagraph(base, "p_last", "人が直した最後の段落");
+
+    const cards = groupPendingProposalContentByAnchor([preview], current);
+
+    expect(collectPendingRemovedBlockIds(cards)).toEqual(["p1"]);
+  });
+});
+
+describe("shapes a pending proposal deletes but the merge keeps", () => {
+  const deleteImage: SigmaDocMutationOp = { operation: "deleteOverlayShapes", summary: "画像を削除", shapeIds: ["img_1"] };
+
+  it("does not list a deleted shape the human moved as removed: the approval keeps the human's shape", () => {
+    const base = overlayDocument([imageShape()]);
+    const preview = mergeablePreviewOf(base, [], [deleteImage]);
+    const current = overlayDocument([{ ...imageShape(), x: 90 }]);
+
+    const merged = resolveProposalMergePreview(current, preview);
+
+    expect(merged.afterDocument?.pageLayout?.overlay?.overlaySnapshot?.shapes.map((shape) => shape.id)).toEqual(["img_1"]);
+    expect(merged.humanEditedUnits).toEqual(["img_1"]);
+    expect(collectShapesKeptByMerge(current, merged.afterDocument, preview)).toEqual(new Set(["img_1"]));
+    expect(buildPendingProposalContent(current, merged.afterDocument, preview).shapes).toEqual([]);
+  });
+
+  it("does not count the old shape of a replacement pair as kept: its replacement takes its id at approval", () => {
+    const base = overlayDocument([imageShape()]);
+    const preview = { ...mergeablePreviewOf(base, [], [deleteImage]), shapeReplacements: [{ removedShapeId: "img_1", addedShapeId: "img_new" }] };
+    const current = overlayDocument([{ ...imageShape(), x: 90 }]);
+
+    expect(collectShapesKeptByMerge(current, resolveProposalMergePreview(current, preview).afterDocument, preview)).toEqual(new Set());
+  });
+
+  it("gives the approval and the page the same removals, decided by the merged result", () => {
+    const base = { ...overlayDocument([imageShape(), { ...imageShape(), id: "img_2" }]) };
+    const preview = mergeablePreviewOf(base, [], [
+      { operation: "deleteBlocks", summary: "削除", blockIds: ["p1", "p_last"] },
+      { operation: "deleteOverlayShapes", summary: "削除", shapeIds: ["img_1", "img_2"] },
+    ]);
+    // 人が p_last と img_1 を直した。合成はその 2 つを残す。
+    const current = overlayDocument([{ ...imageShape(), x: 90 }, { ...imageShape(), id: "img_2" }]);
+    const edited = { ...current, content: current.content.map((block) => (block.id === "p_last" ? paragraph("p_last", "人が直した") : block)) };
+
+    expect(collectProposalRemovals([preview], edited)).toEqual({ blockIds: ["p1"], shapeIds: ["img_2"] });
+  });
+
+  it("draws the after state of an updated shape from the merged result, keeping what the human changed", () => {
+    const base = overlayDocument([imageShape()]);
+    // The tool's patch repeats the unchanged x next to the size it changes.
+    const update: SigmaDocMutationOp = { operation: "updateOverlayShape", summary: "大きく", shapeId: "img_1", patch: { x: 10, props: { w: 60 } } };
+    const preview = mergeablePreviewOf(base, [], [update]);
+    const current = overlayDocument([{ ...imageShape(), x: 90 }]);
+    const currentShapes = current.pageLayout!.overlay!.overlaySnapshot!.shapes;
+
+    // 紙面と同じ組み合わせ: draft から作った変更後の姿を、合成後の姿で置き換える。
+    const merged = new Map(collectMergedUpdatedShapes([preview], current).map((shape) => [shape.id, shape]));
+    const after = withMergedShapes(deriveAiEditPreviewShapeUpdates([preview], currentShapes), merged)
+      .find((entry) => entry.shapeId === "img_1")?.after;
+
+    expect(after).toMatchObject({ x: 90, props: { w: 60 } });
+  });
+
+  it("still lists a deleted shape nobody touched as removed", () => {
+    const base = overlayDocument([imageShape()]);
+    const preview = mergeablePreviewOf(base, [], [deleteImage]);
+
+    const merged = resolveProposalMergePreview(base, preview);
+
+    expect(collectShapesKeptByMerge(base, merged.afterDocument, preview)).toEqual(new Set());
+    expect(buildPendingProposalContent(base, merged.afterDocument, preview).shapes.map((entry) => [entry.change, entry.shape.id]))
+      .toEqual([["removed", "img_1"]]);
   });
 });
 

@@ -150,8 +150,8 @@ export function useAiEditorExtensions({
   const liveBlockLocks = useAiEditingBlockLocks(documentIdentityKey);
   const liveShapeLocks = useAiEditingShapeLocks(documentIdentityKey);
   const pendingTargets = useMemo(
-    () => derivePendingAiProposalLockTargets([...previewGroups]),
-    [previewGroups],
+    () => derivePendingAiProposalLockTargets([...previewGroups], shapes),
+    [previewGroups, shapes],
   );
 
   const builtTextFlowEditPolicy = useMemo(() => buildAiTextFlowEditPolicy({

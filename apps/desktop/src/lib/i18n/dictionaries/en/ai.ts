@@ -210,7 +210,7 @@ export const ai = {
   },
   lock: {
     activeRun: "The AI is editing this block. Hover the block and use the \u201cStop the AI and edit\u201d button to take over.",
-    pendingProposal: "This spot is waiting on an AI proposal. Apply or discard it to edit.",
+    pendingProposal: "This spot is waiting on an AI proposal that can’t be combined with your edits. Apply or discard it to edit.",
     documentWrite: "Applying the AI's edit.",
     shape: "This shape is locked for an AI edit. Stop the AI while it runs, or apply or discard the proposal once it arrives.",
     editing: "An AI edit is in progress.",

@@ -20,10 +20,13 @@ import { hasBodyAiEditChanges, type AiEditPreviewState } from "./preview";
  *
  * - base を持たない旧レコードだけのまとまりは、従来どおり draft をそのまま今の文書へ適用する。
  * - どの提案も合成 replay で適用できないとき (承認ならまとまり全体が競合) は、従来どおりの適用を試し、
- *   それもできなければ `null` (内容は draft の中身で代わりに描く)。どちらの代わりの経路も数える
- *   (`AI_PROPOSAL_PREVIEW_COUNTERS`、MISS R3)。承認が文書を差し替えている間は数えない
+ *   それもできなければ `null` (内容は draft の中身で代わりに描く)。どちらの代わりの経路も、提案がその
+ *   状態に入ったときに 1 回数える (`AI_PROPOSAL_PREVIEW_COUNTERS`、MISS R3。同じ状態のまま作り直しても
+ *   数え直さない)。承認が文書を差し替えている間は数えない
  *   (承認済みの提案が一覧の再取得まで承認後の文書に重ねて描かれ、挿入の id が既にあるなどで必ず失敗する)。
- * - 本文を変えない提案 (図形だけ) は使わないので replay しない。
+ * - 本文を変えない提案 (図形だけ) も、base を持てば合成 replay する。図形は紙面に draft から描くが、AI が
+ *   消す図形を人が直したときに合成で残るかどうか (`collectShapesKeptByMerge`) と、人の編集と合わせた
+ *   単位はこの結果から読む。base を持たない図形だけの提案は使わないので replay しない。
  * - 図形の変更は 250ms 遅れて文書に入る (overlay の debounce)。プレビューはその後の文書で更新され、
  *   承認は直前に flush するので、承認の内容とは食い違わない。
  */
@@ -39,7 +42,10 @@ export interface AiProposalMergePreview {
 
 const NO_PREVIEW: AiProposalMergePreview = Object.freeze({ afterDocument: null, humanEditedUnits: Object.freeze([]) });
 
-/** プレビューが合成 replay を使えなかった回数 (正常な操作では 0。`proposal-merge-metrics.ts` と同じ流儀)。 */
+/**
+ * プレビューが合成 replay を使えない状態に入った回数 (正常な操作では 0。`proposal-merge-metrics.ts` と
+ * 同じ流儀)。その状態のまま作り直しても数え直さず、抜けてからまた入れば数える。
+ */
 export const AI_PROPOSAL_PREVIEW_COUNTERS = {
   /** 合成 replay で 1 件も適用できず、draft をそのまま適用した内容で見せた。 */
   fallback: "AiProposalMerge.previewFallback",
@@ -67,6 +73,8 @@ interface CacheEntry {
   document: SigmaDocument;
   dependencies: readonly unknown[];
   result: AiProposalMergePreview;
+  /** この結果を作るのに通った代わりの経路 (`AI_PROPOSAL_PREVIEW_COUNTERS`)。 */
+  fallbacks: readonly string[];
 }
 
 const previewCache = new WeakMap<AiEditPreviewState, CacheEntry>();
@@ -77,42 +85,89 @@ export function resolveProposalMergePreview(
   preview: AiEditPreviewState,
   options: ResolveProposalMergePreviewOptions = {},
 ): AiProposalMergePreview {
-  if (!hasBodyAiEditChanges(preview)) {
+  if (!hasBodyAiEditChanges(preview) && !preview.mergeSources?.length) {
     return NO_PREVIEW;
   }
   const cached = previewCache.get(preview);
   if (cached?.document === current) {
+    noteFallbacks(preview, cached.fallbacks, options);
     return cached.result;
   }
   const dependencies = readDependencies(current, dependencyIdsOf(preview));
   if (cached && sameDependencies(cached.dependencies, dependencies)) {
     previewCache.set(preview, { ...cached, document: current });
+    noteFallbacks(preview, cached.fallbacks, options);
     return cached.result;
   }
-  const count = options.countFallbacks === false ? undefined : options.count ?? countPerformanceEvent;
-  const result = computeMergePreview(current, preview, count);
-  previewCache.set(preview, { document: current, dependencies, result });
+  const { result, fallbacks } = computeMergePreview(current, preview);
+  previewCache.set(preview, { document: current, dependencies, result, fallbacks });
+  noteFallbacks(preview, fallbacks, options);
   return result;
+}
+
+/**
+ * 提案ごとに、いま入っていて数え済みの代わりの経路。プレビューのオブジェクトは一覧の取り直し (自動保存の
+ * あとなど) で作り直されるので、提案の id で持つ。数えるのは代わりの経路に「入った」ときだけ: 保留中の
+ * 対象は人が直せる (消せる) ので、対象が消えたまま作り直すたびに数えると退避の回数がノイズになる。
+ * 数えない呼び出し (承認中・消えるアニメーション) は退避に入ったことを記録しないので、そのあと数える
+ * 呼び出しが初回として数える。抜けたら (数えない呼び出しで観測しても) 忘れ、また入れば数える。保留中で
+ * なくなった提案の記録は `retainProposalMergePreviewFallbacks` が捨てる。
+ */
+const countedFallbacksByProposal = new Map<string, ReadonlySet<string>>();
+
+const fallbackKeyOf = (preview: AiEditPreviewState) => preview.proposalIds.join("\u0000");
+
+/** 保留中でなくなった (承認・破棄された) 提案の数え済みの記録を捨てる。今の保留中のプレビューを渡す。 */
+export function retainProposalMergePreviewFallbacks(previews: readonly AiEditPreviewState[]): void {
+  const live = new Set(previews.map(fallbackKeyOf));
+  for (const key of [...countedFallbacksByProposal.keys()]) {
+    if (!live.has(key)) {
+      countedFallbacksByProposal.delete(key);
+    }
+  }
+}
+
+function noteFallbacks(
+  preview: AiEditPreviewState,
+  fallbacks: readonly string[],
+  options: ResolveProposalMergePreviewOptions,
+): void {
+  const key = fallbackKeyOf(preview);
+  // 退避から戻ったことは、数えない呼び出しで観測しても記録から外す (次にまた入れば数える)。
+  if (fallbacks.length === 0) {
+    countedFallbacksByProposal.delete(key);
+    return;
+  }
+  if (options.countFallbacks === false) {
+    return;
+  }
+  const counted = countedFallbacksByProposal.get(key);
+  const count = options.count ?? countPerformanceEvent;
+  fallbacks.filter((name) => !counted?.has(name)).forEach((name) => count(name));
+  countedFallbacksByProposal.set(key, new Set(fallbacks));
 }
 
 function computeMergePreview(
   current: SigmaDocument,
   preview: AiEditPreviewState,
-  count: ((name: string) => void) | undefined,
-): AiProposalMergePreview {
+): { result: AiProposalMergePreview; fallbacks: string[] } {
+  const fallbacks: string[] = [];
   if (preview.mergeSources && preview.mergeSources.length > 0) {
     const merged = mergeProposalDraftsIntoDocument(current, preview.mergeSources);
     if (merged.appliedIds.length > 0) {
-      return { afterDocument: merged.document, humanEditedUnits: merged.report.humanEditedUnits };
+      return { result: { afterDocument: merged.document, humanEditedUnits: merged.report.humanEditedUnits }, fallbacks };
     }
     // 承認ならまとまり全体が競合になる。内容は従来どおりの適用で見せ、競合は承認・保存時の判定に任せる。
-    count?.(AI_PROPOSAL_PREVIEW_COUNTERS.fallback);
+    fallbacks.push(AI_PROPOSAL_PREVIEW_COUNTERS.fallback);
   }
   try {
-    return { afterDocument: createAiEditSessionDocumentDraft(current, null, preview.draft).nextDocument, humanEditedUnits: [] };
+    return {
+      result: { afterDocument: createAiEditSessionDocumentDraft(current, null, preview.draft).nextDocument, humanEditedUnits: [] },
+      fallbacks,
+    };
   } catch {
-    count?.(AI_PROPOSAL_PREVIEW_COUNTERS.noPreview);
-    return NO_PREVIEW;
+    fallbacks.push(AI_PROPOSAL_PREVIEW_COUNTERS.noPreview);
+    return { result: NO_PREVIEW, fallbacks };
   }
 }
 

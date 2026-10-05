@@ -770,9 +770,9 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
   );
   const { mcpEditProposals, mcpProposalCitations, aiRunSessions, aiProposalPresentation, aiEditPreviewGroups, staleProposalGroups, resolvedMcpEditProposals, sourceReferencesByTurnId, insertedShapePreviewsByTurnId, restorableProposalsByTurnId, appliedChangesByTurnId, refreshMcpEditProposals, locallyResolvedProposalIdsRef } = useMcpProposalController({ activeFileId, activeDocumentRevision, overlayShapes: document.pageLayout?.overlay?.overlaySnapshot?.shapes ?? EMPTY_OVERLAY_SHAPES, getActiveFileId: getActiveWorkspaceFileId, services: { groupMcpProposalsForPreview, useAiRunSessions, deriveAiProposalPresentation, isAiRunStatusActive, buildSourceReferencesByTurnId, buildInsertedShapePreviewsByTurnId, buildRestorableProposalsByTurnId, buildAppliedTurnChangesByTurnId } });
   // AI編集のロックは対象単位。live run が握っている anchor (ユーザーが依頼時に明示的に
-  // 渡したブロック/図形) と、pending提案が実際に書き換える対象だけが読み取り専用になり、
-  // それ以外は人間が編集できる。他の場所への人手編集は per-block の内容ハッシュ鮮度判定で
-  // 吸収されるため、提案をstaleにしない。
+  // 渡したブロック/図形) と、pending提案の対象のうち三者マージで合成できないもの (base を
+  // 持たない旧レコードの対象・図形の整列・段組み設定) だけが読み取り専用になり、それ以外は
+  // 人間が編集できる。保留中の提案の対象を直しても、承認は人の編集と AI の変更を合成する。
   // グラフのラベルはグラフの兄弟図形なので、ロック集合はラベルまで広げる (locked-targets.ts)。
   const localAiLockedTargets = useAiLockedTargets(
     activeFileId,
@@ -3494,6 +3494,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
     revertAppliedProposals,
   } = useAiProposalActions({
     document,
+    getDocument: getCurrentSessionDocument,
     activeFileId,
     activeDocumentRevision,
     activeFileIdRef,

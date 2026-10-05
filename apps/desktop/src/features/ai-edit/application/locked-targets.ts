@@ -28,11 +28,14 @@ import { expandShapeIdsWithAiLockOwnership } from "./shape-lock-ownership";
  * - live runs -- `AiRunAnchor.blockIds` / `shapeIds`, i.e. exactly the context
  *   the user handed to the AI when they submitted the request. NOT what the run
  *   happens to read or write afterwards: a run that edits outside its anchor
- *   leaves those targets editable, and the resulting conflict is resolved by
- *   the per-block content-hash freshness check at approval time
- *   (`findProposalFreshnessConflictIds`) plus the stale-proposal UI.
- * - pending proposals -- the targets a finished run's draft actually rewrites,
- *   reserved until the human applies or discards it.
+ *   leaves those targets editable, and the approval reconciles them (below).
+ * - pending proposals -- only the targets a finished run's draft rewrites that
+ *   the approval's three-way merge cannot follow, reserved until the human
+ *   applies or discards it (`derivePendingAiProposalLockTargets`): every target
+ *   of a legacy record without a merge basis, and the shapes it aligns or the
+ *   column section it reconfigures. Everything else a pending proposal rewrites
+ *   stays editable: the approval merges the human's edit with the AI's change
+ *   (`replayProposalDraftMerging`, MISS R2), and the previews show that merge.
  *
  * Both sources are then expanded through shape ownership
  * (`expandShapeIdsWithAiLockOwnership`): a graph's axis, point, annotation and formula labels are
@@ -45,9 +48,9 @@ export interface AiLockedTargets {
   blockIds: ReadonlySet<string>;
   shapeIds: ReadonlySet<string>;
   /** The subset held by a live run, which the user can release by stopping it.
-   * Everything else is a pending-proposal reservation, released by applying or
-   * discarding the proposal. Only the wording of the blocked-edit message
-   * differs -- both are equally read-only. */
+   * Everything else is a pending proposal's non-mergeable target, released by
+   * applying or discarding the proposal. Only the wording of the blocked-edit
+   * message differs -- both are equally read-only. */
   runBlockIds: ReadonlySet<string>;
   runShapeIds: ReadonlySet<string>;
   /** Only these fragments are reserved; ids absent here retain whole-block protection. */
@@ -98,8 +101,8 @@ export function useAiLockedTargets(
   const liveBlockLocks = useAiEditingBlockLocks(documentIdentityKey);
   const liveShapeLocks = useAiEditingShapeLocks(documentIdentityKey);
   const pendingTargets = useMemo(
-    () => derivePendingAiProposalLockTargets([...previewGroups]),
-    [previewGroups],
+    () => derivePendingAiProposalLockTargets([...previewGroups], shapes),
+    [previewGroups, shapes],
   );
 
   return useMemo(
