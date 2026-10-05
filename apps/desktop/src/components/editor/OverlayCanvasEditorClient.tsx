@@ -485,6 +485,12 @@ export default function OverlayCanvasEditorClient({
   useEffect(() => {
     editPolicyUnselectableShapeIdsRef.current = editPolicyUnselectableShapeIds;
   }, [editPolicyUnselectableShapeIds]);
+  // 機能が人の編集から守っている図形。保存時の付け替え・固定の補修 (派生の書き換え) はこれを書き換えない。
+  const editPolicyPreservedShapeIds = editPolicy.preservedShapeIds;
+  const editPolicyPreservedShapeIdsRef = useRef(editPolicyPreservedShapeIds);
+  useLayoutEffect(() => {
+    editPolicyPreservedShapeIdsRef.current = editPolicyPreservedShapeIds;
+  }, [editPolicyPreservedShapeIds]);
   const [editPolicyNotice, setEditPolicyNotice] = useState<string | null>(null);
   const editPolicyNoticeTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const notifyEditPolicyBlocked = useCallback(() => {
@@ -664,6 +670,7 @@ export default function OverlayCanvasEditorClient({
   }, [mode.tool, onActiveToolChange]);
   // 最後の固定先の計測 (本文側の実測か自前の計測)。畳んだブロックが最後に描かれていた場所の出どころ。
   const getLastDrawnBlockRects = useCallback(() => anchorMeasurementsRef.current.rects, []);
+  const getPreservedShapeIds = useCallback(() => editPolicyPreservedShapeIdsRef.current, []);
   const { queueOverlaySave, clearQueuedOverlaySave, commitOverlayChangeNow, flushOverlayChange, queueDirtyImageCropSave } = useOverlaySaveController({
     syncBlockAnchors,
     shapesRef,
@@ -672,6 +679,7 @@ export default function OverlayCanvasEditorClient({
     canvasWidthRef,
     getBlockAnchorScope,
     getLastDrawnBlockRects,
+    getPreservedShapeIds,
     suppressNextSaveRef,
     setShapes,
     assetsRef,
@@ -696,6 +704,8 @@ export default function OverlayCanvasEditorClient({
     const anchored = normalizeOverlayGroups(attachUnanchoredShapesToMeasuredBlocks(
       currentShapes,
       orderedBlocks,
+      undefined,
+      editPolicyPreservedShapeIdsRef.current,
     ));
     const currentShapeById = new Map(currentShapes.map((shape) => [shape.id, shape]));
     const anchorsChanged = anchored.some((shape) => (

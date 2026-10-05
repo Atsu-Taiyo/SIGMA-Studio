@@ -159,11 +159,14 @@ function hasChanged(previous: unknown, next: unknown): boolean {
 
 /**
  * A shape compares by what a person sets on it -- its anchor, size, content, existence -- and not by
- * the coordinates its anchor resolves to. The page re-resolves those whenever the body reflows (a
- * folded block takes its height out of the page, say) and the next save carries them, so comparing
- * them would refuse an unrelated edit. A move of an anchored shape still shows up: it rewrites the
- * anchor's offsets. A dangling anchor (its block or shape is gone) resolves nothing, so there the
- * coordinates are the shape's own and are compared.
+ * what the page derives from its anchor:
+ * - the coordinates its anchor resolves to. The page re-resolves those whenever the body reflows (a
+ *   folded block takes its height out of the page, say) and the next save carries them, so comparing
+ *   them would refuse an unrelated edit. A move of an anchored shape still shows up: it rewrites the
+ *   anchor's offsets.
+ * - an anchor whose block or shape is gone from the document. Saving picks the anchor again from the
+ *   shape's position (and a human deleted the block, not the shape), so the anchor and the position
+ *   are derived there too. Moving the anchor of a shape whose anchor is still there is compared.
  */
 function hasShapeChanged(
   previous: OverlayShape,
@@ -174,13 +177,37 @@ function hasShapeChanged(
   if (next === undefined) {
     return true;
   }
-  return previous !== next
-    && !deepEquals(withoutAnchorDerivedPosition(previous, before), withoutAnchorDerivedPosition(next, after));
+  if (previous === next) {
+    return false;
+  }
+  if (!anchorTargetExists(previous.anchor, after)) {
+    return !deepEquals(withoutAnchorAndPosition(previous), withoutAnchorAndPosition(next));
+  }
+  return !deepEquals(withoutAnchorDerivedPosition(previous, before), withoutAnchorDerivedPosition(next, after));
 }
 
 interface AnchorTargets {
   document: SigmaDocument;
   shapes: ReadonlyMap<string, OverlayShape>;
+}
+
+/** Whether the block or shape an anchor names is in the document (a page anchor or none: nothing to lose). */
+function anchorTargetExists(anchor: OverlayShape["anchor"], targets: AnchorTargets): boolean {
+  if (anchor?.type === "block") {
+    return findBlock(targets.document, anchor.blockId) !== null;
+  }
+  if (anchor?.type === "shape") {
+    return targets.shapes.has(anchor.shapeId);
+  }
+  return true;
+}
+
+function withoutAnchorAndPosition(shape: OverlayShape): Record<string, unknown> {
+  const rest: Record<string, unknown> = { ...shape };
+  delete rest.x;
+  delete rest.y;
+  delete rest.anchor;
+  return rest;
 }
 
 /** The shape without the coordinates its anchor determines (block: y, and x when it keeps dx; shape: both). */

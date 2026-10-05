@@ -115,7 +115,7 @@ describe("a folded block measured by every body measurement", () => {
     expect(overlay.ordered.map((block) => block.id).sort()).toEqual(pageCanvas.anchorable.map((block) => block.id).sort());
   });
 
-  it("is left out of both anchor measurements when it was never drawn, and the overlay still names it", () => {
+  it("is left out of both anchor measurements when it was never drawn", () => {
     const { flow, foldX } = surface();
     foldX();
 
@@ -126,14 +126,14 @@ describe("a folded block measured by every body measurement", () => {
       expect(pageCanvas.rects.has(id)).toBe(false);
       expect(overlay.rects.has(id)).toBe(false);
     }
-    // 計測から外しても「在るが描かれていない」は分かる: 保存時の付け替えが固定先を選び直さないため。
-    expect([...overlay.undrawnIds]).toEqual(["x", "x_item"]);
     expect(overlay.ordered.map((block) => block.id)).toEqual(["a", "b"]);
   });
 });
 
 describe("saving the overlay while a block is folded", () => {
-  it("keeps the stored anchor of a figure on the folded block, with or without its last drawn geometry", () => {
+  it("never keeps or picks the folded block as an anchor, with or without its last drawn geometry", () => {
+    // 機能は図形が固定されたブロックを畳まない (AI の「適用後だけ」は注記に回す)。それでも畳んだブロックに
+    // 固定された図形があれば、保存時の付け替えは描かれているブロックから位置で選び直す (位置は変えない)。
     const { flow, foldX } = surface();
     const lastDrawn = measureBlockTops(flow, flow, COORD_HEIGHT, COORD_WIDTH).rects;
     const onFolded = anchoredRectangle("on_folded", "x", 130, 10);
@@ -142,8 +142,11 @@ describe("saving the overlay while a block is folded", () => {
 
     for (const known of [lastDrawn, undefined]) {
       const saved = reanchorShapesAgainstCanvas([onFolded, onDrawn], flow, COORD_HEIGHT, COORD_WIDTH, flow, known);
-      // 無関係な図形を動かして保存しても、畳んだブロックに固定された図形の保存内容は変わらない。
-      expect(saved.find((shape) => shape.id === "on_folded")).toEqual(onFolded);
+      expect(saved.find((shape) => shape.id === "on_folded")).toMatchObject({
+        x: 84,
+        y: 130,
+        anchor: { type: "block", blockId: "b", dx: 60, dy: 10 },
+      });
       expect(saved.find((shape) => shape.id === "on_drawn")?.anchor).toMatchObject(onDrawn.anchor!);
     }
   });

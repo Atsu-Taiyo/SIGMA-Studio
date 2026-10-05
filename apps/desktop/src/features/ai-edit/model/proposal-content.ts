@@ -116,13 +116,14 @@ export interface AiProposalContent {
 export interface AiProposalResultLayout {
   /**
    * 本文から畳む変更前: 削除側 (`hunk.removed`) のうち、紙面の編集面の最上位に並ぶブロック
-   * (`GroupPendingProposalContentOptions.pageEditorBlockIds`。本文の変更装飾が付くのと同じ単位)。
+   * (`GroupPendingProposalContentOptions.pageEditorBlockIds`。本文の変更装飾が付くのと同じ単位) で、
+   * 図形が 1 つも固定されていないもの (そのブロックか中のブロックに、直接・行・グループの固定で)。
    */
   collapsedBlockIds: string[];
   /**
    * 変更前を畳んで足される側をカードに置けば、適用後の紙面と同じ並びになるか。畳めない変更前 (箱・
-   * リストの中、問題・段組みそのもの)、適用後に流れの単位にならない足される側 (箱の中への挿入など)、
-   * 中身を持たない操作 (移動・段組み) を含む塊では組めない (カードに注記を添える)。
+   * リストの中、問題・段組みそのもの、図形が固定されたブロック)、適用後に流れの単位にならない足される側
+   * (箱の中への挿入など)、中身を持たない操作 (移動・段組み) を含む塊では組めない (カードに注記を添える)。
    */
   complete: boolean;
 }
@@ -475,9 +476,12 @@ function resultLayoutOf(
   hunk: AiProposalContentHunk,
   built: PendingHunks,
   pageEditorBlockIds: ReadonlySet<string>,
+  shapeAnchorBlockIds: ReadonlySet<string>,
 ): AiProposalResultLayout {
+  // 図形が固定されたブロックは畳まない: 畳んだブロックに固定された図形は、付け替え・保存・文書の変更口の
+  // どれにも例外を生む (描かれていない固定先から位置を読めない)。畳まずに注記へ回す。
   const collapsedBlockIds = hunk.removed
-    .filter((block) => pageEditorBlockIds.has(block.id))
+    .filter((block) => pageEditorBlockIds.has(block.id) && !holdsAnchoredShape(block, shapeAnchorBlockIds))
     .map((block) => block.id);
   const { afterIndex } = built;
   const addedInFlow = hunk.added.every((block) => afterIndex?.flowAnchorById.get(block.id) === block.id);
@@ -487,6 +491,39 @@ function resultLayoutOf(
       && addedInFlow
       && hunk.operations.every((operation) => RESULT_LAYOUT_OPERATIONS.has(operation)),
   };
+}
+
+/** 図形が固定されているブロック (行への固定を含む。グループの中の図形はグループの固定に従う)。 */
+function collectShapeAnchorBlockIds(...documents: ReadonlyArray<SigmaDocument | null>): ReadonlySet<string> {
+  const ids = new Set<string>();
+  for (const document of documents) {
+    for (const shape of document?.pageLayout?.overlay?.overlaySnapshot?.shapes ?? []) {
+      if (shape.anchor?.type === "block") {
+        ids.add(shape.anchor.blockId);
+      }
+    }
+  }
+  return ids;
+}
+
+/** ブロックか、その中のブロックに図形が固定されているか。 */
+function holdsAnchoredShape(block: EditableBlock, shapeAnchorBlockIds: ReadonlySet<string>): boolean {
+  if (shapeAnchorBlockIds.size === 0) {
+    return false;
+  }
+  if (shapeAnchorBlockIds.has(block.id)) {
+    return true;
+  }
+  // リストの項目は、その下の続きの段落と入れ子のリストを持つ。
+  const inner: readonly SigmaBlock[] = block.type === "listItem"
+    ? [...(block.continuations ?? []), ...(block.nested ?? [])] as SigmaBlock[]
+    : [block as SigmaBlock];
+  for (const id of collectBlocksById(inner).keys()) {
+    if (shapeAnchorBlockIds.has(id)) {
+      return true;
+    }
+  }
+  return false;
 }
 
 function buildPendingShapeChanges(
@@ -670,6 +707,8 @@ export function groupPendingProposalContentByAnchor(
     // いない単位のカードの高さを変えない)。
     const mergedAnchors = new Set(merged.humanEditedUnits.map((unitId) => flowAnchorById!.get(unitId) ?? unitId));
     const built = collectPendingHunks(document, merged.afterDocument, preview);
+    // 今の文書と、承認後の文書 (提案が足す・動かす図形) のどちらかで図形が固定されているブロックは畳まない。
+    const shapeAnchorBlockIds = collectShapeAnchorBlockIds(document, merged.afterDocument);
     for (const hunk of built.hunks) {
       if (!placeable.has(hunk.anchorBlockId)) {
         continue;
@@ -679,7 +718,7 @@ export function groupPendingProposalContentByAnchor(
         preview,
         content: { hunks: [hunk], shapes: [] },
         mergedWithHumanEdits: mergedAnchors.has(hunk.anchorBlockId),
-        resultLayout: resultLayoutOf(hunk, built, options.pageEditorBlockIds ?? NO_PAGE_EDITOR_BLOCKS),
+        resultLayout: resultLayoutOf(hunk, built, options.pageEditorBlockIds ?? NO_PAGE_EDITOR_BLOCKS, shapeAnchorBlockIds),
       });
       cardsByAnchorId.set(hunk.anchorBlockId, cards);
     }

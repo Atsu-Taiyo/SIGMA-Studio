@@ -13,7 +13,8 @@ import {
   getShapeVisualBounds,
   getShapesVisualBounds,
 } from "@/features/drawing";
-import { isUndrawnAnchorBlock } from "../page-canvas/undrawn-blocks";
+import { isPickableAnchorBlock } from "../page-canvas/undrawn-blocks";
+import { isShapeEditPolicyLockedInTree } from "./grouping";
 import type { OverlayAnchor, OverlayBounds, OverlayShape, OverlayShapeId } from "./types";
 
 const MAX_AUTOMATICALLY_ANCHORED_SHAPES = 64;
@@ -232,12 +233,40 @@ export function areOverlayAnchorsEqual(
     left.line?.dy === right.line?.dy;
 }
 
+/**
+ * `next` のうち、機能が人の編集から守っている図形 (`OverlayEditPolicy.preservedShapeIds` とそのグループの中) を
+ * `original` のまま戻したもの。保存時の付け替え・固定の補修のような派生の書き換えは、守っている図形の保存内容を
+ * 変えない (変えると文書の変更口がそのコミット全体を断り、無関係な編集まで保存できなくなる)。
+ */
+export function keepPreservedShapes(
+  original: OverlayShape[],
+  next: OverlayShape[],
+  preservedShapeIds?: ReadonlySet<OverlayShapeId>,
+): OverlayShape[] {
+  if (next === original || !preservedShapeIds || preservedShapeIds.size === 0) {
+    return next;
+  }
+  const kept = new Map(original
+    .filter((shape) => isShapeEditPolicyLockedInTree(original, shape, preservedShapeIds))
+    .map((shape) => [shape.id, shape]));
+  if (kept.size === 0) {
+    return next;
+  }
+  let differs = next.length !== original.length;
+  const restored = next.map((shape, index) => {
+    const result = kept.get(shape.id) ?? shape;
+    differs ||= result !== original[index];
+    return result;
+  });
+  return differs ? restored : original;
+}
+
 export function reanchorShapesAgainstMeasuredBlocks(
   shapes: OverlayShape[],
   orderedBlocks: MeasuredBlock[],
   reserveSpaceGaps: OverlayBlockGapMap = {},
-  /** Blocks in the page that are not drawn, including ones left out of `orderedBlocks` (`measureBlockTops`). */
-  undrawnIds?: ReadonlySet<string>,
+  /** 書き換えない図形 (`keepPreservedShapes`)。 */
+  preservedShapeIds?: ReadonlySet<OverlayShapeId>,
 ): OverlayShape[] {
   if (orderedBlocks.length === 0) {
     return shapes;
@@ -273,15 +302,12 @@ export function reanchorShapesAgainstMeasuredBlocks(
     const existingBlock = existingBlockId
       ? anchorBlocks.find((block) => block.id === existingBlockId)
       : undefined;
-    // A figure on a block that is folded away keeps its stored anchor: the block's place cannot be
-    // read, so neither dx/dy nor the block is worked out again (`undrawn-blocks.ts`).
-    if (existingBlockId && isUndrawnAnchorBlock(existingBlockId, existingBlock, undrawnIds)) {
-      return shape;
-    }
     // A block that exists only in the editor is not a target this pass may keep: re-picking from
     // every block is what migrates a document that already carries such an anchor onto a real one.
+    // Nor is a block that is not drawn (`undrawn-blocks.ts`): the figure re-picks a drawn block.
     const canKeepExistingBlockAnchor = existingBlock &&
       !existingBlock.derived &&
+      isPickableAnchorBlock(existingBlock) &&
       (!existingBlockAnchor?.line || anchorLineExistsInBlock(existingBlockAnchor, existingBlock));
     const anchor = canKeepExistingBlockAnchor
       ? pickBlockAnchor(bounds.y, shape.y, [existingBlock], bounds.x + bounds.w / 2, shape.x)
@@ -299,11 +325,11 @@ export function reanchorShapesAgainstMeasuredBlocks(
     return { ...shape, anchor: nextAnchor };
   });
 
-  return resolveShapeAnchorPositions(inheritGroupAnchorsForMembers(
+  return keepPreservedShapes(shapes, resolveShapeAnchorPositions(inheritGroupAnchorsForMembers(
     changed ? blockAnchored : shapes,
     orderedBlocks,
     reserveSpaceGaps,
-  ));
+  )), preservedShapeIds);
 }
 
 /**
@@ -314,6 +340,8 @@ export function attachUnanchoredShapesToMeasuredBlocks(
   shapes: OverlayShape[],
   orderedBlocks: MeasuredBlock[],
   pageStridePx: number = ANCHOR_PAGE_STRIDE_PX,
+  /** 書き換えない図形 (`keepPreservedShapes`)。 */
+  preservedShapeIds?: ReadonlySet<OverlayShapeId>,
 ): OverlayShape[] {
   const unanchoredShapeCount = shapes.reduce(
     (count, shape) => count + (shape.anchor === undefined ? 1 : 0),
@@ -359,10 +387,10 @@ export function attachUnanchoredShapesToMeasuredBlocks(
     return { ...shape, anchor } as OverlayShape;
   });
 
-  return resolveShapeAnchorPositions(inheritGroupAnchorsForMembers(
+  return keepPreservedShapes(shapes, resolveShapeAnchorPositions(inheritGroupAnchorsForMembers(
     changed ? next : shapes,
     orderedBlocks,
-  ));
+  )), preservedShapeIds);
 }
 
 export function reanchorShapesByPosition(
@@ -448,7 +476,8 @@ export function syncMovedOverlayShapeAnchor<T extends OverlayShape>(
   }
 
   const block = blockRects.get(anchor.blockId);
-  if (!block) {
+  // A block that is not drawn is no anchor to keep (`undrawn-blocks.ts`): saving re-picks a drawn one.
+  if (!block || !isPickableAnchorBlock(block)) {
     return nextShape;
   }
 

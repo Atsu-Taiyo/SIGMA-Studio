@@ -309,9 +309,36 @@ describe("who a result-only fold stops: only human edits", () => {
     expect(touched(onBlock, hiddenShape(onBlock, 84, 130, 200))).toEqual(["hidden_shape"]);
     expect(touched(onBlock, null)).toEqual(["hidden_shape"]);
     expect(touched(undefined, hiddenShape(undefined, 84, 100))).toEqual(["hidden_shape"]);
-    // 固定先が無い (ぶら下がった) 固定は何も解かないので、座標は図形自身のもの。
-    const dangling = { type: "block", blockId: "gone", dx: 60, dy: 10 };
-    expect(touched(dangling, hiddenShape(dangling, 84, 100))).toEqual(["hidden_shape"]);
+    // 人が固定先を別の (在る) ブロックへ変えるのは断る。
+    expect(touched(onBlock, hiddenShape({ ...onBlock, blockId: "other_block" }, 84, 130))).toEqual(["hidden_shape"]);
+  });
+
+  it("does not refuse the anchor a save picks again for a hidden shape whose block the human deleted", () => {
+    // 提案が更新する図形 S (適用後だけで隠れている) の固定先を人が消した後、無関係な図形 T を動かして保存する。
+    // 保存時の付け替えは S の固定を位置から選び直す: 消えた固定先からの選び直しは導出なので比べない。
+    type Anchor = Record<string, unknown>;
+    const shape = (anchor: Anchor, x: number, y: number) => ({ id: "hidden_shape", type: "geo", x, y, anchor, props: { w: 120, h: 60 } });
+    const other = (x: number) => ({ id: "other_shape", type: "geo", x, y: 0, props: { w: 40, h: 40 } });
+    const saved = (hidden: ReturnType<typeof shape> | null, otherX: number) => ({
+      content: [
+        { id: "kept", type: "paragraph", children: [{ type: "text", text: "残った段落" }] },
+        { id: "also_kept", type: "paragraph", children: [{ type: "text", text: "もう一つ" }] },
+      ],
+      pageLayout: { overlay: { overlaySnapshot: { version: 1, shapes: [...(hidden ? [hidden] : []), other(otherX)], assets: {} } } },
+    }) as unknown as SigmaDocument;
+    const hidden = aiLockedTargetsForOrigin(
+      withAiResultOnlyTargets(EMPTY_AI_LOCKED_TARGETS, { blockIds: new Set(), shapeIds: new Set(["hidden_shape"]) }),
+      "human-edit",
+    );
+    const onDeleted = { type: "block", blockId: "deleted_block", dx: 60, dy: 24 };
+    const before = saved(shape(onDeleted, 84, 130), 0);
+
+    const repicked = { type: "block", blockId: "kept", dx: 60, dy: 40, line: { index: 0, dy: 38 } };
+    expect(findAiLockedTargetsTouched(before, saved(shape(repicked, 84, 130), 40), hidden).shapeIds).toEqual([]);
+    // 消えた固定先でも、大きさ・中身・削除は人の編集として断る。
+    expect(findAiLockedTargetsTouched(before, saved({ ...shape(repicked, 84, 130), props: { w: 200, h: 60 } }, 40), hidden).shapeIds)
+      .toEqual(["hidden_shape"]);
+    expect(findAiLockedTargetsTouched(before, saved(null, 40), hidden).shapeIds).toEqual(["hidden_shape"]);
   });
 
   it("treats a restore it cannot look at in advance (a shared session's undo) as touching what is hidden", () => {

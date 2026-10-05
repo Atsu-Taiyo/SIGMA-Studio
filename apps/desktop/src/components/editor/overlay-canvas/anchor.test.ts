@@ -143,23 +143,24 @@ describe("reanchorAfterDeletion", () => {
     expect(anchor).toMatchObject({ type: "block", blockId: "real" });
   });
 
-  it("does not offer a block that is not drawn (folded away) as a new anchor, but keeps it for re-anchoring", () => {
-    // 畳んだ変更前は最後に描かれていた矩形のまま計測に残る (`undrawn`)。図形を落とす・描くときの
-    // 新しい固定先には選ばない (見えないブロックへ付けない)。
+  it("never offers a block that is not drawn (folded away) as an anchor, not even when re-anchoring after a deletion", () => {
+    // 畳んだ変更前は最後に描かれていた矩形のまま計測に残る (`undrawn`)。図形を落とす・描くときも、消した
+    // ブロックの図形を付け替えるときも、見えないブロックへは付けない (畳んだブロックに固定された図形を作らない)。
     const blocks: MeasuredBlock[] = [
       { id: "shown", top: 60, left: 40, width: 400, height: 30 },
       { id: "folded", top: 100, left: 40, width: 400, height: 30, undrawn: true },
     ];
     expect(pickBlockAnchor(130, 130, blocks, 240, 200)).toMatchObject({ type: "block", blockId: "shown" });
     expect(pickAnchorBoundaryAtPoint({ x: 240, y: 131 }, blocks, 130)?.blockId).toBe("shown");
-    // 消したブロックの図形の付け替え (既存の固定先の再計算) では候補に残す (表示の切り替えで保存結果を変えない)。
     const [reanchored] = reanchorAfterDeletion(
       [{ id: "s", x: 200, y: 140, anchor: { type: "block", blockId: "deleted", dy: 40 } }],
       new Set(["deleted"]),
       new Map([["deleted", { top: 100, height: 0 }]]),
       blocks,
     ).shapes;
-    expect(reanchored.anchor).toMatchObject({ type: "block", blockId: "folded" });
+    expect(reanchored.anchor).toMatchObject({ type: "block", blockId: "shown" });
+    // 描かれているブロックが 1 つも無ければ、ページに固定する (畳んだブロックへは逃がさない)。
+    expect(pickBlockAnchor(130, 130, [blocks[1]], 240, 200)).toEqual({ type: "page" });
   });
 
   it("still uses an editor-only block when it is the only measurement there is", () => {

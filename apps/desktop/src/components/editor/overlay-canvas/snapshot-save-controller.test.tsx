@@ -22,7 +22,7 @@ function harness() {
   function Harness({ source, revision = 0 }: { source: PageOverlay; revision?: number }) {
     const state = useOverlaySnapshotState({ overlay: source, canvasWidth: 800, canvasHeight: 600, documentId: "doc", externalRevision: revision, onChange: changed });
     const canvasRef = useRef<HTMLDivElement | null>(null);
-    const save = useOverlaySaveController({ ...state, canvasRef, syncBlockAnchors: false, getBlockAnchorScope: useCallback(() => null, []), getLastDrawnBlockRects: useCallback(() => null, []) });
+    const save = useOverlaySaveController({ ...state, canvasRef, syncBlockAnchors: false, getBlockAnchorScope: useCallback(() => null, []), getLastDrawnBlockRects: useCallback(() => null, []), getPreservedShapeIds: useCallback(() => undefined, []) });
     const [mode, setMode] = useState(createInitialOverlayInteractionMode); const modeRef = useRef(mode);
     const transitionMode = useCallback((action: OverlayInteractionAction) => { modeRef.current = overlayInteractionModeReducer(modeRef.current, action); setMode(modeRef.current); }, []);
     const [selectedIds, setSelectedIds] = useState<string[]>([]); const selectedIdsRef = useRef(selectedIds);

@@ -13,10 +13,11 @@ import type { MeasuredBlock } from "@/features/drawing";
  *   幾何を知っていれば印 (`undrawn`) を付けて残し、知らなければ計測から外す (`keepUndrawnBlock`)。
  * - 計測の比較 (`isSameBlockGeometry`・`sameMeasuredBlockMap`・`anchorMeasurementKey`): 印の有無も差に
  *   する。畳んでも戻しても他が 1px も動かないことがあり、比べないと下流に古い印が残る (`isSameDrawState`)。
- * - 新しい固定先 (点や図形の位置から選ぶもの): 選ばない。見えないブロックに付けない。削除後の付け替えだけは
- *   候補に含め、結果を表示の切り替えに依らせない (`isPickableAnchorBlock`)。
- * - 既に固定されている図形: 固定先が描かれていなければ、固定先も dx/dy も書き換えない。位置を読めないので
- *   逆算しない (`isUndrawnAnchorBlock`)。
+ * - 固定先の候補: どの経路 (点や図形の位置から選ぶ新しい固定先・削除後の付け替え・保存時の付け替え・図形の
+ *   移動) でも選ばない (`isPickableAnchorBlock`)。描かれていないブロックに固定された図形を作らない。
+ *
+ * 機能は図形が固定されたブロックを畳まない (AI の「適用後だけ」は、図形が固定されたブロックを畳まずに注記へ
+ * 回す)。畳んだブロックに固定された図形が無いので、付け替え・保存・変更口のどれにも例外を持たない。
  */
 
 /**
@@ -44,19 +45,7 @@ export function isSameDrawState(a: MeasuredBlock, b: MeasuredBlock): boolean {
   return (a.undrawn === true) === (b.undrawn === true);
 }
 
-/** 点や図形の位置から新しく選ぶ固定先に出してよいか。`includeUndrawn` は削除後の付け替えだけが使う。 */
-export function isPickableAnchorBlock(block: MeasuredBlock, options: { includeUndrawn?: boolean } = {}): boolean {
-  return options.includeUndrawn === true || block.undrawn !== true;
-}
-
-/**
- * 図形の固定先が、在るが描かれていないブロックか。計測が残した印 (`measured.undrawn`) か、幾何を知らずに
- * 計測から外した id (`undrawnIds`) のどちらかで分かる。真なら保存済みの固定をそのまま残す。
- */
-export function isUndrawnAnchorBlock(
-  blockId: string,
-  measured: MeasuredBlock | undefined,
-  undrawnIds?: ReadonlySet<string>,
-): boolean {
-  return measured?.undrawn === true || undrawnIds?.has(blockId) === true;
+/** 図形の固定先の候補にしてよいか (描かれていないブロックは、どの経路でも候補にしない)。 */
+export function isPickableAnchorBlock(block: MeasuredBlock): boolean {
+  return block.undrawn !== true;
 }

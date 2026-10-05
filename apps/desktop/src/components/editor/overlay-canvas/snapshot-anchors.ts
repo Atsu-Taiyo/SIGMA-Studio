@@ -18,13 +18,15 @@ export function reanchorShapesAgainstCanvas(
   blockAnchorScope: ParentNode | null = null,
   /** The last block measurement in overlay coordinates: where a block now folded away was drawn. */
   lastDrawn?: ReadonlyMap<string, MeasuredBlock> | null,
+  /** Shapes this derived rewrite leaves as stored (`OverlayEditPolicy.preservedShapeIds`). */
+  preservedShapeIds?: ReadonlySet<string>,
 ): OverlayShape[] {
   if (!canvasEl) {
     return shapes;
   }
 
   const scope = blockAnchorScope ?? canvasEl.closest(".page-canvas") ?? canvasEl.ownerDocument;
-  const { ordered, undrawnIds } = measureBlockTops(canvasEl, scope, coordHeight, coordWidth, lastDrawn);
+  const { ordered } = measureBlockTops(canvasEl, scope, coordHeight, coordWidth, lastDrawn);
   if (ordered.length === 0) {
     return shapes;
   }
@@ -33,7 +35,7 @@ export function reanchorShapesAgainstCanvas(
     shapes,
     ordered,
     calculateReserveSpaceGaps(shapes),
-    undrawnIds,
+    preservedShapeIds,
   );
 }
 

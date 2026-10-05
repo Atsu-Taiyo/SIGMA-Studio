@@ -966,17 +966,60 @@ async function savedShape(page: Page, id: string): Promise<{ x?: number; anchor?
   }, id);
 }
 
-test("moving another shape while only the result is shown keeps the saved anchor of a shape on the folded block", async ({ page }) => {
-  await open(page, [replaceWithRows(1)], withShapes(
-    { id: "folded_shape", anchorBlockId: "para_target", x: 60 },
-    { id: "other_shape", anchorBlockId: "para_pad_2", x: 420 },
-  ));
+test("a paragraph a shape hangs from is not folded for the result only, and moving the shape saves its anchor", async ({ page }) => {
+  await open(page, [replaceWithRows(1)], withShapes({ id: "anchored_shape", anchorBlockId: "para_target", x: 60 }));
+  const card = pageCard(page, "para_target").locator("[data-ai-proposal-card]");
+  const target = page.locator('.page-flow [data-sigma-doc-id="para_target"]').first();
+  await card.getByRole("button", { name: "適用後だけを表示", exact: true }).click();
+
+  // 畳んだブロックに固定された図形を作らない: 図形が固定された段落は畳まず、カードに注記を添えて数える。
+  await expect(card.locator("[data-ai-proposal-content]")).toHaveAttribute("data-presentation", "after");
+  await expect(card.locator("[data-ai-proposal-result-notice]")).toBeVisible();
+  await expect(target).toBeVisible();
+  await expect(target).not.toHaveClass(/text-flow-change-collapsed/);
+  expect(await counter(page, RESULT_ONLY_COUNTER)).toBeGreaterThan(0);
+
+  // 適用後だけのまま図形を動かすと、保存される固定も動かした位置に合わせて更新される。
+  const preview = page.locator('.page-overlay-preview .overlay-shape[data-overlay-shape-id="anchored_shape"]').first();
+  await grabShapeFromBody(page, preview);
+  const box = (await page.locator('.overlay-canvas-editor .overlay-shape[data-overlay-shape-id="anchored_shape"]').first().boundingBox())!;
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(box.x + box.width / 2 + 80, box.y + box.height / 2, { steps: 6 });
+  await page.mouse.up();
+  await expect.poll(async () => (await savedShape(page, "anchored_shape"))?.anchor?.dx ?? 60).toBeGreaterThan(100);
+  const moved = await savedShape(page, "anchored_shape");
+  expect(moved?.anchor?.blockId).toBe("para_target");
+
+  // 図形の編集を抜けてから切り替えを戻す (編集中の図形の層が上に重なる)。位置も保存も変わらない。
+  await page.keyboard.press("Escape");
+  const body = page.locator('.page-flow [data-sigma-doc-id="para_pad_0"]').first();
+  const bodyBox = (await body.boundingBox())!;
+  await page.mouse.click(bodyBox.x + 40, bodyBox.y + bodyBox.height / 2);
+  await expect(page.locator('[data-overlay-editing="true"]')).toHaveCount(0);
+  const shown = page.locator('.page-overlay-preview .overlay-shape[data-overlay-shape-id="anchored_shape"]').first();
+  const beforeToggle = (await shown.boundingBox())!;
+  await card.getByRole("button", { name: "変更箇所を表示", exact: true }).click();
+  await expect(card.locator("[data-ai-proposal-content]")).toHaveAttribute("data-presentation", "diff");
+  await expect.poll(async () => Math.abs((await shown.boundingBox())!.x - beforeToggle.x)).toBeLessThanOrEqual(1);
+  expect(Math.abs((await shown.boundingBox())!.y - beforeToggle.y)).toBeLessThanOrEqual(1);
+  expect((await savedShape(page, "anchored_shape"))?.anchor).toEqual(moved?.anchor);
+});
+
+test("moving another shape while only the result is shown is saved even when a hidden shape hangs from a shown paragraph", async ({ page }) => {
+  const document = withShapes({ id: "other_shape", anchorBlockId: "para_pad_0", x: 420 });
+  const shape = document.pageLayout!.overlay!.overlaySnapshot!.shapes[0]!;
+  const target = document.content.find((block) => block.id === "para_target")!;
+  await open(page, [{ ...bodyAndShape(), mergeBasis: { version: 1, entities: {
+    para_target: { kind: "block", value: target as never },
+    bar_shape: { kind: "shape", value: shape as never },
+  } } }], document);
   const card = pageCard(page, "para_target").locator("[data-ai-proposal-card]");
   await card.getByRole("button", { name: "適用後だけを表示", exact: true }).click();
-  await expect(page.locator('.page-flow [data-sigma-doc-id="para_target"]').first()).toBeHidden();
+  await expect(page.locator('.overlay-shape.ai-diff-before-shape[data-overlay-shape-id="bar_shape"]').first()).toHaveCSS("opacity", "0");
 
-  // 畳んだ段落とは無関係な図形を動かして保存する。保存時の付け替えは、畳んだ段落に固定された図形の固定を
-  // 描かれていない 0 の矩形から逆算し直さない。
+  // 保存時の付け替えは、隠した図形 (bar_shape) の保存済みの固定を測り直して書き換えない (書き換えると
+  // 変更口が保存全体を断る)。
   const other = page.locator('.page-overlay-preview .overlay-shape[data-overlay-shape-id="other_shape"]').first();
   await grabShapeFromBody(page, other);
   const box = (await page.locator('.overlay-canvas-editor .overlay-shape[data-overlay-shape-id="other_shape"]').first().boundingBox())!;
@@ -984,9 +1027,9 @@ test("moving another shape while only the result is shown keeps the saved anchor
   await page.mouse.down();
   await page.mouse.move(box.x + box.width / 2 + 60, box.y + box.height / 2, { steps: 6 });
   await page.mouse.up();
-  await expect.poll(async () => (await savedShape(page, "other_shape"))?.x ?? 420).not.toBe(420);
-
-  expect((await savedShape(page, "folded_shape"))?.anchor).toEqual({ type: "block", blockId: "para_target", dx: 60, dy: 24 });
+  await expect.poll(async () => (await savedShape(page, "other_shape"))?.x ?? 420).toBeGreaterThan(450);
+  expect((await savedShape(page, "bar_shape"))?.anchor).toEqual({ type: "block", blockId: "para_shape_anchor", dx: 60, dy: 24 });
+  await expect(page.locator(".save-state").first()).not.toContainText(RESULT_ONLY_LOCK);
 });
 
 test("deleting a block while only the result is shown re-anchors the other shapes and leaves the hidden before shape as saved", async ({ page }) => {
@@ -1013,5 +1056,17 @@ test("deleting a block while only the result is shown re-anchors the other shape
 
   await expect.poll(async () => (await savedShape(page, "other_shape"))?.anchor?.blockId ?? "para_shape_anchor").not.toBe("para_shape_anchor");
   expect((await savedShape(page, "bar_shape"))?.anchor).toEqual({ type: "block", blockId: "para_shape_anchor", dx: 60, dy: 24 });
+  await expect(page.locator(".save-state").first()).not.toContainText(RESULT_ONLY_LOCK);
+
+  // 固定先を消された隠した図形があっても、無関係な図形の移動は保存できる (保存時の付け替えが隠した図形の
+  // 固定を選び直すのは導出で、変更口はそれで保存全体を断らない)。
+  const other = page.locator('.page-overlay-preview .overlay-shape[data-overlay-shape-id="other_shape"]').first();
+  await grabShapeFromBody(page, other);
+  const box = (await page.locator('.overlay-canvas-editor .overlay-shape[data-overlay-shape-id="other_shape"]').first().boundingBox())!;
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(box.x + box.width / 2 + 60, box.y + box.height / 2, { steps: 6 });
+  await page.mouse.up();
+  await expect.poll(async () => (await savedShape(page, "other_shape"))?.x ?? 420).toBeGreaterThan(450);
   await expect(page.locator(".save-state").first()).not.toContainText(RESULT_ONLY_LOCK);
 });
