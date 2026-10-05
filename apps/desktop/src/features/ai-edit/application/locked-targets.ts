@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 
-import type { OverlayShape } from "@/features/document";
+import type { DocumentChangeOrigin, OverlayShape } from "@/features/document";
 import type { TextContentReservation } from "@/features/text-editing";
 import {
   useAiEditingBlockLocks,
@@ -10,6 +10,7 @@ import {
 import {
   aiActiveRunBlockedMessage,
   aiPendingProposalBlockedMessage,
+  aiResultOnlyBlockedMessage,
   getAiTextContentReservation,
 } from "../adapters/tiptap/edit-lock-adapter";
 import { derivePendingAiProposalLockTargets, type AiEditPreviewState } from "../model/preview";
@@ -28,11 +29,14 @@ import { expandShapeIdsWithAiLockOwnership } from "./shape-lock-ownership";
  * - live runs -- `AiRunAnchor.blockIds` / `shapeIds`, i.e. exactly the context
  *   the user handed to the AI when they submitted the request. NOT what the run
  *   happens to read or write afterwards: a run that edits outside its anchor
- *   leaves those targets editable, and the resulting conflict is resolved by
- *   the per-block content-hash freshness check at approval time
- *   (`findProposalFreshnessConflictIds`) plus the stale-proposal UI.
- * - pending proposals -- the targets a finished run's draft actually rewrites,
- *   reserved until the human applies or discards it.
+ *   leaves those targets editable, and the approval reconciles them (below).
+ * - pending proposals -- only the targets a finished run's draft rewrites that
+ *   the approval's three-way merge cannot follow, reserved until the human
+ *   applies or discards it (`derivePendingAiProposalLockTargets`): every target
+ *   of a legacy record without a merge basis, and the shapes it aligns or the
+ *   column section it reconfigures. Everything else a pending proposal rewrites
+ *   stays editable: the approval merges the human's edit with the AI's change
+ *   (`replayProposalDraftMerging`, MISS R2), and the previews show that merge.
  *
  * Both sources are then expanded through shape ownership
  * (`expandShapeIdsWithAiLockOwnership`): a graph's axis, point, annotation and formula labels are
@@ -45,13 +49,22 @@ export interface AiLockedTargets {
   blockIds: ReadonlySet<string>;
   shapeIds: ReadonlySet<string>;
   /** The subset held by a live run, which the user can release by stopping it.
-   * Everything else is a pending-proposal reservation, released by applying or
-   * discarding the proposal. Only the wording of the blocked-edit message
-   * differs -- both are equally read-only. */
+   * Everything else is a pending proposal's non-mergeable target, released by
+   * applying or discarding the proposal. Only the wording of the blocked-edit
+   * message differs -- both are equally read-only. */
   runBlockIds: ReadonlySet<string>;
   runShapeIds: ReadonlySet<string>;
   /** Only these fragments are reserved; ids absent here retain whole-block protection. */
   contentReservations?: ReadonlyMap<string, readonly TextContentReservation[]>;
+  /**
+   * The subsets hidden from the page while a proposal shows only its result: blocks folded out
+   * of the body and shapes whose before state is hidden (`withAiResultOnlyTargets`). Not visible,
+   * so a human must not edit them; released by switching the proposal back to its changes.
+   */
+  resultOnlyBlockIds?: ReadonlySet<string>;
+  resultOnlyShapeIds?: ReadonlySet<string>;
+  /** The same holds without the result-only subsets (what non-human changes are checked against). */
+  withoutResultOnly?: AiLockedTargets;
 }
 
 export const EMPTY_AI_LOCKED_TARGETS: AiLockedTargets = {
@@ -90,6 +103,43 @@ export function mergeAiLockedTargets(
   };
 }
 
+/**
+ * Adds what a page card hides to show only its proposal's result: the blocks it folds out of the
+ * body and the shapes whose before state it hides. The page extension decides them once
+ * (`collectResultOnlyCollapsedBlockIds` / `deriveAiResultOnlyShapeIds`): the same sets fold and
+ * hide them, guard them in the editing surfaces, refuse cross-surface joins into them, and --
+ * through this union -- refuse every human commit and history restore that would change them while
+ * they cannot be seen (search & replace, boundary deletes, undo, delayed overlay commits). A folded
+ * block is protected whole, even where a live run reserved only a fragment of it.
+ */
+export function withAiResultOnlyTargets(
+  targets: AiLockedTargets,
+  resultOnly: { blockIds: ReadonlySet<string>; shapeIds: ReadonlySet<string> },
+): AiLockedTargets {
+  if (resultOnly.blockIds.size === 0 && resultOnly.shapeIds.size === 0) {
+    return targets;
+  }
+  const contentReservations = new Map(targets.contentReservations ?? []);
+  resultOnly.blockIds.forEach((id) => contentReservations.delete(id));
+  return {
+    ...targets,
+    blockIds: new Set([...targets.blockIds, ...resultOnly.blockIds]),
+    shapeIds: new Set([...targets.shapeIds, ...resultOnly.shapeIds]),
+    contentReservations,
+    resultOnlyBlockIds: resultOnly.blockIds,
+    resultOnlyShapeIds: resultOnly.shapeIds,
+    withoutResultOnly: targets,
+  };
+}
+
+/**
+ * The holds a change from `origin` is checked against: everything for a human edit, everything
+ * but the result-only subsets otherwise. The one place that tells the two apart.
+ */
+export function aiLockedTargetsForOrigin(targets: AiLockedTargets, origin: DocumentChangeOrigin): AiLockedTargets {
+  return origin === "human-edit" ? targets : targets.withoutResultOnly ?? targets;
+}
+
 export function useAiLockedTargets(
   documentIdentityKey: string | null | undefined,
   previewGroups: readonly AiEditPreviewState[],
@@ -98,8 +148,8 @@ export function useAiLockedTargets(
   const liveBlockLocks = useAiEditingBlockLocks(documentIdentityKey);
   const liveShapeLocks = useAiEditingShapeLocks(documentIdentityKey);
   const pendingTargets = useMemo(
-    () => derivePendingAiProposalLockTargets([...previewGroups]),
-    [previewGroups],
+    () => derivePendingAiProposalLockTargets([...previewGroups], shapes),
+    [previewGroups, shapes],
   );
 
   return useMemo(
@@ -156,5 +206,11 @@ export function describeAiLockedTargets(
 ): string {
   const heldByRun = touched.blockIds.some((id) => targets.runBlockIds.has(id))
     || touched.shapeIds.some((id) => targets.runShapeIds.has(id));
-  return heldByRun ? aiActiveRunBlockedMessage() : aiPendingProposalBlockedMessage();
+  if (heldByRun) {
+    return aiActiveRunBlockedMessage();
+  }
+  return touched.blockIds.some((id) => targets.resultOnlyBlockIds?.has(id))
+    || touched.shapeIds.some((id) => targets.resultOnlyShapeIds?.has(id))
+    ? aiResultOnlyBlockedMessage()
+    : aiPendingProposalBlockedMessage();
 }

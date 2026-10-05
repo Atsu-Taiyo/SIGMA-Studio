@@ -61,3 +61,44 @@ export function isOverlaySelectionBlockedByEditPolicy(
     return shape ? isShapeEditPolicyLockedInTree(shapes, shape, lockedShapeIds) : false;
   });
 }
+
+/**
+ * 機能が見えなくした図形 (`OverlayEditPolicy.unselectableShapeIds`) は、当たり判定でも
+ * 囲み選択でも選ばない。見えない図形が選ばれて動かされると、利用者の知らないうちに文書が変わる。
+ */
+export function isOverlayShapeUnselectable(
+  id: OverlayShapeId,
+  unselectable: ReadonlySet<OverlayShapeId> | undefined,
+): boolean {
+  return unselectable?.has(id) ?? false;
+}
+
+/**
+ * 選択の候補から、選べない図形を外す。グループは選べない図形を中に持てば選ばない (グループを
+ * 選ぶと中の見えない図形も一緒に動き・消え・コピーされる)。⌘A・本文の全選択・本文に結び付いた
+ * 図形・囲み選択・クリックのどれも、選択を立てる 1 か所 (`setSelectedShapeIds`) でここを通る。
+ */
+export function filterSelectableShapeIds(
+  ids: OverlayShapeId[],
+  unselectable: ReadonlySet<OverlayShapeId> | undefined,
+  shapes: OverlayShape[] = [],
+): OverlayShapeId[] {
+  if (!unselectable || unselectable.size === 0) {
+    return ids;
+  }
+  return ids.filter((id) => (
+    !unselectable.has(id)
+    && !getIdsWithDescendants(shapes, [id], { includeGroups: true }).some((descendantId) => unselectable.has(descendantId))
+  ));
+}
+
+/** 選べなくなった図形を今の選択から外した選択。何も外れなければ null (選択を書き換えない)。 */
+export function pruneUnselectableSelection(
+  selectedIds: OverlayShapeId[],
+  shapes: OverlayShape[],
+  unselectable: ReadonlySet<OverlayShapeId> | undefined,
+): OverlayShapeId[] | null {
+  const kept = filterSelectableShapeIds(selectedIds, unselectable, shapes);
+  return kept.length === selectedIds.length ? null : kept;
+}
+

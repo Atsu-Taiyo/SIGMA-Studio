@@ -1,160 +1,138 @@
-import {
-  Children,
-  isValidElement,
-  type ReactElement,
-  type ReactNode,
-} from "react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+// @vitest-environment happy-dom
+import { act, useState } from "react";
+import { createRoot, type Root } from "react-dom/client";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const hookState = vi.hoisted(() => ({
-  callIndex: 0,
-  values: [] as unknown[],
-}));
+import { AiEditInlinePreviewCard } from "./AiEditInlinePreviewCard";
+import type { AiProposalContent } from "../model/proposal-content";
+import { DEFAULT_AI_PROPOSAL_DISPLAY_STATE, type AiProposalDisplayState } from "../model/proposal-display-state";
 
-vi.mock("react", async () => {
-  const actual = await vi.importActual<typeof import("react")>("react");
+function replaceContent(text: string): AiProposalContent {
+  const emptyNumbering = { problems: new Map(), headings: new Map() };
   return {
-    ...actual,
-    useMemo: <Value,>(factory: () => Value) => factory(),
-    useState: <Value,>(initialValue: Value) => {
-      const index = hookState.callIndex++;
-      if (hookState.values[index] === undefined) {
-        hookState.values[index] = initialValue;
-      }
-      const setValue = (next: Value | ((current: Value) => Value)) => {
-        const current = hookState.values[index] as Value;
-        hookState.values[index] = typeof next === "function"
-          ? (next as (value: Value) => Value)(current)
-          : next;
-      };
-      return [hookState.values[index] as Value, setValue] as const;
-    },
+    hunks: [{
+      anchorBlockId: "p1",
+      removed: [{ id: "p1", type: "paragraph", children: [{ type: "text", text: "書き換え前" }] }],
+      added: [{ id: "p1", type: "paragraph", children: text ? [{ type: "text", text }] : [] }],
+      notes: [],
+      operations: ["replace"],
+      numbering: { removed: emptyNumbering, added: emptyNumbering },
+    }],
+    shapes: [],
   };
-});
-
-// この spec はコンポーネントを関数として直接呼び、react の hook を差し替えて
-// 適用失敗時の描画だけを見る。`useT` は `useSyncExternalStore` を使うので、実物のままだと
-// レンダラの外で dispatcher が null になって落ちる。翻訳はこの spec の関心ではない。
-vi.mock("@/lib/i18n/react", async () => {
-  const { createTranslator } = await vi.importActual<typeof import("@/lib/i18n")>("@/lib/i18n");
-  return { useT: (namespace: string) => createTranslator("ja", namespace as "ai") };
-});
-
-import {
-  AiEditInlinePreviewCard,
-  type AiEditInlinePreviewEntry,
-} from "./AiEditInlinePreviewCard";
-
-function findElement(
-  node: ReactNode,
-  predicate: (element: ReactElement<Record<string, unknown>>) => boolean,
-): ReactElement<Record<string, unknown>> | null {
-  if (!isValidElement<Record<string, unknown>>(node)) {
-    return null;
-  }
-  if (predicate(node)) {
-    return node;
-  }
-  for (const child of Children.toArray(node.props.children as ReactNode)) {
-    const found = findElement(child, predicate);
-    if (found) {
-      return found;
-    }
-  }
-  return null;
 }
 
-describe("AiEditInlinePreviewCard apply failure", () => {
-  beforeEach(() => {
-    hookState.callIndex = 0;
-    hookState.values = [];
-  });
+let container: HTMLDivElement;
+let root: Root;
 
-  it("closes the preview without applying or discarding the proposal", () => {
+beforeEach(() => {
+  vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+  container = document.createElement("div");
+  document.body.append(container);
+  root = createRoot(container);
+});
+
+afterEach(async () => {
+  await act(async () => root.unmount());
+  container.remove();
+  vi.unstubAllGlobals();
+});
+
+function button(name: string): HTMLButtonElement {
+  const found = container.querySelector<HTMLButtonElement>(`button[aria-label="${name}"]`);
+  if (!found) {
+    throw new Error(`no button named ${name}`);
+  }
+  return found;
+}
+
+describe("AiEditInlinePreviewCard on its own", () => {
+  it("hides the content behind the bar without applying or discarding, and shows it again", async () => {
     const onApply = vi.fn();
     const onDismiss = vi.fn();
-    const props = {
-      entries: [{
-        kind: "operation" as const,
-        draft: {
-          operation: "replace" as const,
-          summary: "本文を書き換え",
-          targetId: "p1",
-          replacementBlock: { id: "p1", type: "paragraph" as const, children: [] },
-        },
-        operationIndex: 0,
-        operationCount: 1,
-        sessionSummary: "本文を書き換えます",
-      }],
-      providers: ["chatgpt" as const],
-      applying: false,
-      onApply,
-      onDismiss,
-    };
-    const card = AiEditInlinePreviewCard(props);
-    const close = findElement(card, (element) => element.props["aria-label"] === "閉じる");
-    expect(close).not.toBeNull();
-    (close!.props.onClick as () => void)();
-    hookState.callIndex = 0;
-    expect(AiEditInlinePreviewCard(props)).toBeNull();
+    await act(async () => root.render(
+      <AiEditInlinePreviewCard content={replaceContent("書き換え後")} applying={false} onApply={onApply} onDismiss={onDismiss} />,
+    ));
+    const content = container.querySelector<HTMLElement>(".ai-proposal-card-content")!;
+
+    await act(async () => button("内容を隠す").click());
+    expect(content.hidden).toBe(true);
+    expect(container.querySelector("[data-ai-proposal-bar]")).not.toBeNull();
+    expect(button("内容を表示").getAttribute("aria-controls")).toBe(content.id);
+
+    await act(async () => button("内容を表示").click());
+    expect(content.hidden).toBe(false);
     expect(onApply).not.toHaveBeenCalled();
     expect(onDismiss).not.toHaveBeenCalled();
   });
 
-  it("renders the failed reason beside the actions and keeps the inline card pending", async () => {
+  it("switches to the result only and back, and shows hidden content again when switching", async () => {
+    await act(async () => root.render(
+      <AiEditInlinePreviewCard content={replaceContent("書き換え後")} applying={false} onApply={vi.fn()} onDismiss={vi.fn()} />,
+    ));
+    const content = container.querySelector<HTMLElement>(".ai-proposal-card-content")!;
+    await act(async () => button("内容を隠す").click());
+    expect(content.hidden).toBe(true);
+
+    await act(async () => button("適用後だけを表示").click());
+    expect(content.hidden).toBe(false);
+    expect(button("変更箇所を表示").getAttribute("aria-pressed")).toBe("true");
+    expect(container.querySelector("[data-ai-proposal-content]")?.getAttribute("data-presentation")).toBe("after");
+
+    await act(async () => button("変更箇所を表示").click());
+    expect(button("適用後だけを表示").getAttribute("aria-pressed")).toBe("false");
+    expect(container.querySelector("[data-ai-proposal-content]")?.getAttribute("data-presentation")).toBe("diff");
+  });
+
+  it("does not touch the page's display state on every keystroke of the dismiss reason", async () => {
+    const onDisplayStateChange = vi.fn();
+    function Page() {
+      const [state, setState] = useState<AiProposalDisplayState>(DEFAULT_AI_PROPOSAL_DISPLAY_STATE);
+      return (
+        <AiEditInlinePreviewCard
+          content={replaceContent("書き換え後")}
+          applying={false}
+          onDismiss={() => {}}
+          displayState={state}
+          onDisplayStateChange={(patch) => {
+            onDisplayStateChange(patch);
+            setState((previous) => ({ ...previous, ...patch }));
+          }}
+        />
+      );
+    }
+    await act(async () => root.render(<Page />));
+    await act(async () => button("破棄").click());
+    onDisplayStateChange.mockClear();
+
+    const textarea = document.querySelector<HTMLTextAreaElement>('[aria-label="破棄する理由"] textarea')!;
+    for (const text of ["数", "数式", "数式が"]) {
+      await act(async () => {
+        Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(textarea, text);
+        textarea.dispatchEvent(new Event("input", { bubbles: true }));
+      });
+    }
+    // 紙面の表示状態 (紙面全体の描き直しにつながる) は打鍵では変わらない。
+    expect(onDisplayStateChange).not.toHaveBeenCalled();
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 350)));
+    expect(onDisplayStateChange).toHaveBeenCalledTimes(1);
+    expect(onDisplayStateChange).toHaveBeenCalledWith({ dismissReason: "数式が" });
+  });
+
+  it("renders the failed reason on the bar and keeps the inline card pending", async () => {
     const reason = "別の操作が完了してから、もう一度お試しください";
-    const entries: AiEditInlinePreviewEntry[] = [{
-      kind: "operation",
-      draft: {
-        operation: "replace",
-        summary: "本文を書き換え",
-        targetId: "p1",
-        replacementBlock: {
-          id: "p1",
-          type: "paragraph",
-          children: [{ type: "text", text: "書き換え後" }],
-        },
-      },
-      operationIndex: 0,
-      operationCount: 1,
-      sessionSummary: "本文を書き換えます",
-    }];
     const onApply = vi.fn(async () => ({ ok: false as const, reason }));
-    const props = {
-      entries,
-      providers: ["chatgpt" as const],
-      applying: false,
-      onApply,
-    };
+    await act(async () => root.render(
+      <AiEditInlinePreviewCard content={replaceContent("書き換え後")} applying={false} onApply={onApply} />,
+    ));
 
-    const firstRender = AiEditInlinePreviewCard(props);
-    const applyActions = findElement(
-      firstRender,
-      (element) => element.props.className === "ai-inline-preview-actions",
-    );
-    expect(applyActions).not.toBeNull();
-
-    (applyActions?.props.onApply as (() => void) | undefined)?.();
-    await Promise.resolve();
-    await Promise.resolve();
+    await act(async () => button("適用").click());
 
     expect(onApply).toHaveBeenCalledOnce();
-    expect(hookState.values[0]).toBe(reason);
-
-    hookState.callIndex = 0;
-    const failedRender = AiEditInlinePreviewCard(props);
-    const error = findElement(
-      failedRender,
-      (element) => element.type === "p" && element.props.className === "ai-chat-error",
-    );
-    expect(error?.props.children).toBe(reason);
-    expect(findElement(
-      failedRender,
-      (element) => element.type === "section" && element.props.className === "ai-inline-preview-dialog",
-    )).not.toBeNull();
-    expect(findElement(
-      failedRender,
-      (element) => element.props.className === "ai-inline-preview-actions",
-    )).not.toBeNull();
+    // 失敗の理由はバーのすぐ下の行 (バーは 1 行のまま)。
+    expect(container.querySelector('[data-ai-proposal-bar] + [data-ai-proposal-bar-details] [role="alert"]')?.textContent)
+      .toBe(reason);
+    expect(container.querySelector('[data-ai-proposal-card="page"]')).not.toBeNull();
+    expect(button("適用").disabled).toBe(false);
   });
 });

@@ -391,6 +391,59 @@ describe("runClaudeEditForIpc", () => {
     }
   });
 
+  it("resumes the denied turn's session in the run's continuation, which is what widens its tool permissions", async () => {
+    const userDataPath = await fs.mkdtemp(path.join(os.tmpdir(), "sigma-claude-denied-continuation-"));
+    const runId = "run_claude_denied_continuation";
+    const statusFile = path.join(runContextDirPath(userDataPath), visualSessionsFileName("claude", runId));
+    await fs.mkdir(path.dirname(statusFile), { recursive: true });
+    await fs.writeFile(statusFile, JSON.stringify({
+      version: 1,
+      updatedAt: new Date().toISOString(),
+      sessions: [{
+        sessionId: "visual_incomplete",
+        targetId: "block_1",
+        operationCount: 1,
+        revision: 1,
+        lastReviewPassed: false,
+        proposed: false,
+        discarded: false,
+      }],
+    }), "utf8");
+
+    try {
+      const turns: ClaudeRunTurnParams[] = [];
+      const fake = createFakeClaude({
+        emitToolUse: true,
+        turn: {
+          sessionId: "sess_denied",
+          permissionDenials: [{
+            tool_name: "mcp__sigma-studio-local__insert_graph3d",
+            tool_use_id: "toolu_denied",
+            tool_input: {},
+          }],
+        },
+        onTurn: async (params, turnNumber) => {
+          turns.push(params);
+          if (turnNumber === 2) {
+            await fs.writeFile(statusFile, JSON.stringify({ version: 1, updatedAt: new Date().toISOString(), sessions: [] }), "utf8");
+          }
+        },
+      });
+
+      await runClaudeEditForIpc({ locale: "ja",
+        claude: fake.client,
+        payload: { instruction: "3dで三角錐と円柱の共通部分を可視化して", fileId: "file_1", document: FAKE_DOCUMENT },
+        onEvent: () => undefined,
+        runId,
+        userDataPath,
+      });
+
+      expect(turns.map((turn) => turn.resumeSessionId ?? null)).toEqual([null, "sess_denied"]);
+    } finally {
+      await fs.rm(userDataPath, { recursive: true, force: true });
+    }
+  });
+
   it("returns status answer (not draft) when only read-only MCP tools were used", async () => {
     const { client } = createFakeClaude({
       toolUseNames: [

@@ -6,17 +6,21 @@ import { type AiEditPreviewState } from "@/features/ai-edit/model/preview";
 import { AiStreamRenderer } from "@/features/ai-edit/view";
 import { type AssistantTurn } from "@/lib/ai/ai-run-controller";
 import { useT } from "@/lib/i18n/react";
-import { AiTurnProposalActions, AiChatShapeArtifact } from "@/features/ai-edit/view/AiChatTurn";
+import { AiTurnProposalDecision, AiTurnShapeContent } from "@/features/ai-edit/view/AiChatTurn";
 import { AssistantActivity } from "@/features/ai-edit/view/AiChatActivity";
 import { AiEditPlanList } from "@/features/ai-edit/view/AiChatPlan";
 import type { AiEditPanelProps } from "@/features/ai-edit/application/ai-chat-panel-contracts";
-import type { ReactNode } from "react";
+import { useLayoutEffect, type ReactNode } from "react";
 import type { AiProvider } from "@/lib/ai/ai-providers";
 import type { ChatTurn } from "@/lib/ai/ai-run-controller";
 export interface AiChatInlineSurfaceProps {
  surface: Pick<AiEditPanelProps, "inlineOpen" | "inlineAnchor" | "inlineRunAnchor" | "inlineRunAnchorCanvas" | "inlineRunPortalTarget" | "onPromoteToSidebar" | "onCloseInline">;
  conversation: {provider: AiProvider; lockedProvider: AiProvider | null; visibleTurns: ChatTurn[]; latestAssistant: AssistantTurn | null; activeRoomId: string | null; inlineRunTurnId: string | null; inlineBaselineTurnId: string | null; isRunning: boolean; clockNow: number};
- proposals: Pick<AiEditPanelProps, "previewGroups" | "busy" | "onApplyGroup" | "onDismissGroup" | "insertedShapePreviewsByTurnId"> & {activeRoomPreview: AiEditPreviewState | null};
+ proposals: Pick<AiEditPanelProps, "previewGroups" | "busy" | "onApplyGroup" | "onDismissGroup" | "insertedShapePreviewsByTurnId" | "onInlineDecisionShownChange"> & {
+  activeRoomPreview: AiEditPreviewState | null;
+  /** 提案の内容が人の編集と合成したものか (バーに一言を添える)。 */
+  isMergedWithHumanEdits?: (preview: AiEditPreviewState) => boolean;
+ };
  composer: ReactNode;
  composerError: string | null;
  hasOpenMenu: boolean;
@@ -28,7 +32,7 @@ export function AiChatInlineSurface({surface,conversation,proposals,composer,com
  const {inlineOpen=false,inlineAnchor=null,inlineRunAnchor=null,inlineRunAnchorCanvas=null,inlineRunPortalTarget=null,onPromoteToSidebar,onCloseInline}=surface;
  const {provider,lockedProvider,visibleTurns,latestAssistant,activeRoomId,inlineRunTurnId,inlineBaselineTurnId,isRunning,clockNow}=conversation;
  const latestAssistantId=latestAssistant?.id??null;
- const {previewGroups=[],busy=false,onApplyGroup,onDismissGroup,insertedShapePreviewsByTurnId,activeRoomPreview}=proposals;
+ const {previewGroups=[],busy=false,onApplyGroup,onDismissGroup,insertedShapePreviewsByTurnId,activeRoomPreview,isMergedWithHumanEdits,onInlineDecisionShownChange}=proposals;
     const inlineProvider = lockedProvider ?? provider;
     const activeRunTurnId = inlineRunAnchor ? inlineRunTurnId : null;
     const runTurn = activeRunTurnId
@@ -73,14 +77,21 @@ export function AiChatInlineSurface({surface,conversation,proposals,composer,com
         preview.roomId === activeRoomId && preview.turnId === turn.id
       )) ?? (turn.id === latestAssistantId && !activeRoomPreview?.turnId ? activeRoomPreview : null);
       if (!proposal || turn.applied || turn.dismissed) return null;
+      // パネルは実行を始めた位置 (多くは紙面のカードの上) に浮かぶので、紙面にカードがあってもここにも
+      // 承認バーを置く (パネルを開いている間も適用・破棄が届く。カードのバーとの重なりは残る課題)。
+      // 紙面に浮かぶバー (カードの無い提案) は、ここが判断を出している間は出さない (1 本にする)。
+      // 内容は紙面のカード (またはこの上の図形のサムネ) が見せているので、ここはバーだけ。
       return (
-        <AiTurnProposalActions
-          key={proposal.proposalIds.join(",")}
-          proposal={proposal}
-          proposalBusy={busy}
-          onApplyProposal={onApplyGroup}
-          onDismissProposal={onDismissGroup}
-        />
+        <InlineDecisionShown key={proposal.proposalIds.join(",")} proposalIds={proposal.proposalIds} onChange={onInlineDecisionShownChange}>
+          <AiTurnProposalDecision
+            proposal={proposal}
+            surface="inline"
+            proposalBusy={busy}
+            onApplyProposal={onApplyGroup}
+            onDismissProposal={onDismissGroup}
+            mergedWithHumanEdits={isMergedWithHumanEdits?.(proposal) ?? false}
+          />
+        </InlineDecisionShown>
       );
     };
 
@@ -133,10 +144,12 @@ export function AiChatInlineSurface({surface,conversation,proposals,composer,com
                 <span className="ai-inline-logo" aria-hidden="true">{renderProviderMark(inlineProvider, { size: 15 })}</span>
                 <AiStreamRenderer className="ai-inline-summary" text={turn.result.draft.summary} />
               </div>
-              <AiChatShapeArtifact
-                preview={insertedShapePreviewsByTurnId?.get(turn.id)}
-                outcome={turn.applied ? "applied" : turn.dismissed ? "dismissed" : "pending"}
-              />
+              {insertedShapePreviewsByTurnId?.get(turn.id) && (
+                <AiTurnShapeContent
+                  content={insertedShapePreviewsByTurnId.get(turn.id)!}
+                  outcome={turn.applied ? "applied" : turn.dismissed ? "dismissed" : "pending"}
+                />
+              )}
               {turn.events.some((event) => event.images?.some((image) => image.generatedImage)) && (
                 <AssistantActivity turn={turn} clockNow={clockNow} />
               )}
@@ -233,10 +246,12 @@ export function AiChatInlineSurface({surface,conversation,proposals,composer,com
                 <span className="ai-inline-logo" aria-hidden="true">{renderProviderMark(inlineProvider, { size: 15 })}</span>
                 <AiStreamRenderer className="ai-inline-summary" text={inlineResultTurn.result!.draft.summary} />
               </div>
-              <AiChatShapeArtifact
-                preview={insertedShapePreviewsByTurnId?.get(inlineResultTurn.id)}
-                outcome={inlineResultTurn.applied ? "applied" : inlineResultTurn.dismissed ? "dismissed" : "pending"}
-              />
+              {insertedShapePreviewsByTurnId?.get(inlineResultTurn.id) && (
+                <AiTurnShapeContent
+                  content={insertedShapePreviewsByTurnId.get(inlineResultTurn.id)!}
+                  outcome={inlineResultTurn.applied ? "applied" : inlineResultTurn.dismissed ? "dismissed" : "pending"}
+                />
+              )}
               {inlineResultTurn.events.some((event) => event.images?.some((image) => image.generatedImage)) && (
                 <AssistantActivity turn={inlineResultTurn} clockNow={clockNow} />
               )}
@@ -260,4 +275,23 @@ export function AiChatInlineSurface({surface,conversation,proposals,composer,com
         </div>
       </>
     );
+}
+
+/**
+ * 判断 (承認バー) を出している間だけ、その提案を親に知らせる。提案の作り直しで配列が別物になっても、
+ * 同じ id なら知らせ直さない。
+ */
+function InlineDecisionShown({ proposalIds, onChange, children }: {
+  proposalIds: readonly string[];
+  onChange?: (proposalIds: readonly string[], shown: boolean) => void;
+  children: ReactNode;
+}) {
+  const idsKey = proposalIds.join("\n");
+  useLayoutEffect(() => {
+    if (!onChange) return;
+    const ids = idsKey.split("\n");
+    onChange(ids, true);
+    return () => onChange(ids, false);
+  }, [idsKey, onChange]);
+  return children;
 }

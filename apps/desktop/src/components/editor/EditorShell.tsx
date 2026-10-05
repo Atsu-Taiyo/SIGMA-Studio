@@ -122,7 +122,7 @@ import { formatDocumentRecoveryStatus } from "@/components/editor/editor-shell/r
 import { SelectionToolbarProvider,type SelectionToolbarBinding } from "@/components/editor/editor-shell/selection-toolbar/binding";
 import { createSelectionToolbarExtension } from "@/components/editor/editor-shell/selection-toolbar/extension";
 import { planShapeTools } from "@/components/editor/editor-shell/selection-toolbar/model";
-import type { DocumentChange,DocumentChangeOptions } from "@/components/editor/editor-shell/types";
+import type { DocumentChange,DocumentChangeOptions,HiddenDocumentTargets } from "@/components/editor/editor-shell/types";
 import { buildLineToolItems,buildShapeGallerySections,isLineToolCommand } from "@/components/editor/overlay-canvas/shape-gallery";
 import type { ShapeTypeChangeCommand } from "@/components/editor/overlay-canvas/shape-type-change";
 import type { OverlayPoint,OverlayTool } from "@/components/editor/overlay-canvas/types";
@@ -391,6 +391,8 @@ const COMMENT_MUTATION_PORTS: CommentMutationPorts = {
 };
 /** 図形の無い文書でも参照が変わらないよう固定 (memo依存の無駄な再計算を避ける)。 */
 const EMPTY_OVERLAY_SHAPES: OverlayShape[] = [];
+const EMPTY_RESULT_ONLY_TARGETS: HiddenDocumentTargets = { blockIds: new Set(), shapeIds: new Set() };
+const EMPTY_PROPOSAL_IDS: ReadonlySet<string> = new Set();
 /** コメントの無い文書でも参照が変わらないよう固定 (装飾更新の再 dispatch を避ける)。 */
 const EMPTY_COMMENT_THREADS: SigmaCommentThread[] = [];
 
@@ -544,6 +546,8 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
     isAiLockedBlock,
     isAiLockedShapeSelection,
     useAiLockedTargets,
+    withAiResultOnlyTargets,
+    aiLockedTargetsForOrigin,
     useAiPinnedReferences,
     useAiPendingAttachments,
     useAiWorkspaceTabTitles,
@@ -770,16 +774,38 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
   );
   const { mcpEditProposals, mcpProposalCitations, aiRunSessions, aiProposalPresentation, aiEditPreviewGroups, staleProposalGroups, resolvedMcpEditProposals, sourceReferencesByTurnId, insertedShapePreviewsByTurnId, restorableProposalsByTurnId, appliedChangesByTurnId, refreshMcpEditProposals, locallyResolvedProposalIdsRef } = useMcpProposalController({ activeFileId, activeDocumentRevision, overlayShapes: document.pageLayout?.overlay?.overlaySnapshot?.shapes ?? EMPTY_OVERLAY_SHAPES, getActiveFileId: getActiveWorkspaceFileId, services: { groupMcpProposalsForPreview, useAiRunSessions, deriveAiProposalPresentation, isAiRunStatusActive, buildSourceReferencesByTurnId, buildInsertedShapePreviewsByTurnId, buildRestorableProposalsByTurnId, buildAppliedTurnChangesByTurnId } });
   // AI編集のロックは対象単位。live run が握っている anchor (ユーザーが依頼時に明示的に
-  // 渡したブロック/図形) と、pending提案が実際に書き換える対象だけが読み取り専用になり、
-  // それ以外は人間が編集できる。他の場所への人手編集は per-block の内容ハッシュ鮮度判定で
-  // 吸収されるため、提案をstaleにしない。
+  // 渡したブロック/図形) と、pending提案の対象のうち三者マージで合成できないもの (base を
+  // 持たない旧レコードの対象・図形の整列・段組み設定) だけが読み取り専用になり、それ以外は
+  // 人間が編集できる。保留中の提案の対象を直しても、承認は人の編集と AI の変更を合成する。
   // グラフのラベルはグラフの兄弟図形なので、ロック集合はラベルまで広げる (locked-targets.ts)。
   const localAiLockedTargets = useAiLockedTargets(
     activeFileId,
     aiProposalPresentation.previewGroups,
     document.pageLayout?.overlay?.overlaySnapshot?.shapes ?? EMPTY_OVERLAY_SHAPES,
   );
-  const aiLockedTargets = documentSession ? EMPTY_AI_LOCKED_TARGETS : localAiLockedTargets;
+  // 紙面のカードが「適用後だけ」で隠した変更前 (本文から畳んだブロックと、隠した図形)。見えないので、人の
+  // 編集は文書の変更口と履歴の巻き戻し (共有セッションも) で同じ集合を使って断る (紙面の拡張が 1 か所で
+  // 決め、ガード・面をまたぐ削除・検索と共有する)。AI の承認の適用・版の復元は止めない (`origin`)。
+  const [aiResultOnlyTargets, setAiResultOnlyTargets] = useState<HiddenDocumentTargets>(EMPTY_RESULT_ONLY_TARGETS);
+  const aiLockedTargets = useMemo(
+    () => withAiResultOnlyTargets(documentSession ? EMPTY_AI_LOCKED_TARGETS : localAiLockedTargets, aiResultOnlyTargets),
+    [EMPTY_AI_LOCKED_TARGETS, aiResultOnlyTargets, documentSession, localAiLockedTargets, withAiResultOnlyTargets],
+  );
+  // ⌘K のパネルが判断 (承認バー) を出している提案。紙面はその提案の浮かぶバーを出さない (1 本にする)。
+  const [aiPanelDecisionProposalIds, setAiPanelDecisionProposalIds] = useState<ReadonlySet<string>>(EMPTY_PROPOSAL_IDS);
+  const handleInlineDecisionShownChange = useCallback((proposalIds: readonly string[], shown: boolean) => {
+    setAiPanelDecisionProposalIds((current) => {
+      if (proposalIds.every((proposalId) => current.has(proposalId) === shown)) {
+        return current;
+      }
+      const next = new Set(current);
+      for (const proposalId of proposalIds) {
+        if (shown) next.add(proposalId);
+        else next.delete(proposalId);
+      }
+      return next;
+    });
+  }, []);
   // MCP プレビューの apply/dismiss の二重実行を防ぐ (承認済み提案への再実行で error 表示に
   // なるのを回避)。承認は文書を丸ごと差し替えるので、この窓だけは唯一の文書全体ロックも兼ねる
   // (途中の打鍵が黙って失われるため)。commitDocumentChange から参照するのでここで宣言する。
@@ -1856,7 +1882,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
     // AI 側の状態は ref から読む (上の `aiLockedTargetsRef` のコメント参照)。書き込み中は
     // state のミラーではなく、書き込み開始と同時に立つ `mcpPreviewBusyRef` を直接見る。
     const aiDocumentWriteInProgress = mcpPreviewBusyRef.current;
-    const aiLockedTargets = aiLockedTargetsRef.current;
+    const aiLockedTargets = aiLockedTargetsForOrigin(aiLockedTargetsRef.current, options?.origin ?? "human-edit");
     if (aiDocumentWriteInProgress) {
       setStatusMessage(sessionWritableRef.current ? aiDocumentWriteInProgressMessage() : t("collaboration.readOnlyDocument"));
       return false;
@@ -1929,7 +1955,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
       setPendingDeletion({ revision: deletionSeqRef.current, deletedIds });
     }
     return true;
-  }), [aiDocumentWriteInProgressMessage, describeAiLockedTargets, documentHistory, findAiLockedTargetsTouched, hasAiLockedTargetsTouched, setStatusMessage, t]);
+  }), [aiDocumentWriteInProgressMessage, aiLockedTargetsForOrigin, describeAiLockedTargets, documentHistory, findAiLockedTargetsTouched, hasAiLockedTargetsTouched, setStatusMessage, t]);
 
   const materialLibrary = useMaterialLibraryController({
     documentRef,
@@ -1984,7 +2010,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
           document: documentRef.current,
         },
       ),
-      applyVersion: () => commitDocumentChange(structuredClone(version.document)),
+      applyVersion: () => commitDocumentChange(structuredClone(version.document), { origin: "history-restore" }),
       saveRestoredDocument: saveCurrentDocumentRecord,
       applyRejectedError: t("versionHistory.restoreApplyRejected"),
       saveAppliedError: t("versionHistory.restoreAppliedSaveFailed"),
@@ -2052,6 +2078,14 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
   const restoreDocumentHistory = useCallback((direction: "undo" | "redo") => {
     const session = documentSessionRef.current;
     if (session) {
+      // 共有セッションの巻き戻しは結果を先に覗けない。人が見えないもの (「適用後だけ」で隠した変更前) を
+      // 変えうる間は、通常の巻き戻しと同じ判定で断る (結果が分からない = 隠したものに触れうる)。
+      const aiLockedTargets = aiLockedTargetsForOrigin(aiLockedTargetsRef.current, "human-edit");
+      const touchedHidden = findAiLockedTargetsTouched(documentRef.current, undefined, aiLockedTargets);
+      if (hasAiLockedTargetsTouched(touchedHidden)) {
+        setStatusMessage(describeAiLockedTargets(aiLockedTargets, touchedHidden));
+        return;
+      }
       window.dispatchEvent(new CustomEvent(FLUSH_OVERLAY_CHANGES_EVENT));
       const next = session.restore(direction);
       if (next) {
@@ -2070,7 +2104,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
     // 片方だけ state のミラーを読むと、書き込みが始まった直後の 1 手 —— つまり**いちばん
     // 危ない瞬間の ⌘Z** —— だけがすり抜ける。state はレンダー 1 回ぶん遅れて届く。
     const aiDocumentWriteInProgress = mcpPreviewBusyRef.current;
-    const aiLockedTargets = aiLockedTargetsRef.current;
+    const aiLockedTargets = aiLockedTargetsForOrigin(aiLockedTargetsRef.current, "human-edit");
     if (aiDocumentWriteInProgress) {
       setStatusMessage(sessionWritableRef.current ? aiDocumentWriteInProgressMessage() : t("collaboration.readOnlyDocument"));
       return;
@@ -2158,7 +2192,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
       return;
     }
     setStatusMessage(direction === "undo" ? tEditor("status.undone") : tEditor("status.redone"));
-  }, [aiDocumentWriteInProgressMessage, describeAiLockedTargets, documentHistory, findAiLockedTargetsTouched, hasAiLockedTargetsTouched, refreshMcpEditProposals, setActiveCommentThreadId, setCommentAnchorCandidate, setPendingCommentAnchor, setSelectedId, setSelectedInlineMath, setStatusMessage, t]);
+  }, [aiDocumentWriteInProgressMessage, aiLockedTargetsForOrigin, describeAiLockedTargets, documentHistory, findAiLockedTargetsTouched, hasAiLockedTargetsTouched, refreshMcpEditProposals, setActiveCommentThreadId, setCommentAnchorCandidate, setPendingCommentAnchor, setSelectedId, setSelectedInlineMath, setStatusMessage, t]);
 
   const undoDocumentChange = useCallback(() => {
     restoreDocumentHistory("undo");
@@ -3238,7 +3272,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
     applyInlineFormat("boxedVariant", nextVariant);
   };
 
-  const { findNext, findPrevious, replaceNext, replaceAll, searchMatchCount } = useDocumentSearchCommands({ document, selectedId, searchQuery, replaceText, setSelectedId, setStatusMessage, commitDocumentChange });
+  const { findNext, findPrevious, replaceNext, replaceAll, searchMatchCount } = useDocumentSearchCommands({ document, selectedId, searchQuery, replaceText, hiddenBlockIds: aiResultOnlyTargets.blockIds, setSelectedId, setStatusMessage, commitDocumentChange });
 
   const replaceTextFlow = useCallback((
     previousIds: string[],
@@ -3460,7 +3494,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
         && !isWhiteboardPageLayout(withLayout.pageLayout);
       const preparedDocument = switchingToWhiteboard
         ? convertOverlayToWhiteboard(withLayout, measuredBodyBlockRectsRef.current)
-        : ensureOverlayAnchorOffsets(withLayout);
+        : ensureOverlayAnchorOffsets(withLayout, aiLockedTargetsRef.current.resultOnlyShapeIds);
       const overlay = preparedDocument.pageLayout?.overlay ?? normalizedLayout.overlay;
       return {
         ...preparedDocument,
@@ -3494,6 +3528,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
     revertAppliedProposals,
   } = useAiProposalActions({
     document,
+    getDocument: getCurrentSessionDocument,
     activeFileId,
     activeDocumentRevision,
     activeFileIdRef,
@@ -3696,7 +3731,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
       const switchingToWhiteboard = isWhiteboardPageLayout(normalizedLayout) && !isWhiteboardPageLayout(normalizePageLayout(withLayout.pageLayout));
       const preparedDocument = switchingToWhiteboard
         ? convertOverlayToWhiteboard(withLayout, measuredBodyBlockRectsRef.current)
-        : ensureOverlayAnchorOffsets(withLayout);
+        : ensureOverlayAnchorOffsets(withLayout, aiLockedTargetsRef.current.resultOnlyShapeIds);
       const overlay = preparedDocument.pageLayout?.overlay ?? normalizedLayout.overlay;
       return {
         ...preparedDocument,
@@ -4397,6 +4432,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
       busy={mcpPreviewBusy}
       onApplyGroup={applyAiEditPreviewGroup}
       onDismissGroup={dismissAiEditPreviewGroup}
+      onInlineDecisionShownChange={handleInlineDecisionShownChange}
       staleProposalGroups={staleProposalGroups}
       sourceReferencesByTurnId={sourceReferencesByTurnId}
       insertedShapePreviewsByTurnId={insertedShapePreviewsByTurnId}
@@ -4666,6 +4702,8 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
             overlaySelection={overlaySelection}
             overlayCommentAnchor={currentOverlayCommentAnchor}
             aiDocumentWriteInProgress={mcpPreviewBusy}
+            onAiResultOnlyTargetsChange={setAiResultOnlyTargets}
+            aiPanelDecisionProposalIds={aiPanelDecisionProposalIds}
             editorExtensions={sessionEditExtensions}
             aiEditPreviewGroups={visibleAiEditPreviewGroups}
             aiEditPreviewApplying={mcpPreviewBusy}

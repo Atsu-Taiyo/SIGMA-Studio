@@ -26,6 +26,12 @@ export interface DesktopRuntimeMockAiOptions {
    *   content plus a bold mark, exercising a formatting-only pending diff.
    * - "PROPOSAL PROBLEM" → inserts a framed problem with prompt and solution
    *   after the selected block, exercising the shared paper/print preview path.
+   * - Add "PREPEND" to "PROPOSAL" to put "AIの前置き。" before the selected
+   *   paragraph's text (an AI change that a human edit elsewhere in the same
+   *   paragraph does not overlap, so the approval merge keeps both).
+   * - Every proposal carries a `mergeBasis` like the real proposal store's, and
+   *   the approval keeps a human's edit of a target (a text-only paragraph edit
+   *   at another position, or a shape the AI deletes) the way the merge does.
    * - Add "MATH_BREAK" to "PROPOSAL" to replace the selected paragraph with
    *   the same inline-math id but a two-line `aligned` expression. This covers
    *   authoritative AI updates to an already-mounted math node view.
@@ -55,6 +61,12 @@ export interface DesktopRuntimeMockAiOptions {
   /** Simulates a compatible bridge that returns the approved document without
    * the optional file metadata in the batch-approval result. */
   omitBatchApproveFileMetadata?: boolean;
+  /**
+   * Proposals that already exist when the app opens (as if an earlier run had
+   * left them pending). They belong to the mocked file (`file_e2e_document`)
+   * at revision 1. Used to lay out a proposal card without driving a run.
+   */
+  initialProposals?: DesktopMcpEditProposalSummary[];
 }
 
 /**
@@ -119,13 +131,14 @@ export async function installDesktopRuntimeMock(
   document: SigmaDocument,
   options: DesktopRuntimeMockOptions = {},
 ): Promise<void> {
-  await page.addInitScript(({ initialDocument, initialMaterials, initialTemplates, aiEnabled, generatedImageFixture, omitBatchApproveFileMetadata, storageLoadDelayMs, runtimePlatform, preserveAiModelPreferences, preserveStorageKeys, initialUiLayout, initialDocumentLoadFailure, initialLedgerSchemaFailure, emitWatcherEventOnSave }: {
+  await page.addInitScript(({ initialDocument, initialMaterials, initialTemplates, aiEnabled, generatedImageFixture, omitBatchApproveFileMetadata, initialProposals, storageLoadDelayMs, runtimePlatform, preserveAiModelPreferences, preserveStorageKeys, initialUiLayout, initialDocumentLoadFailure, initialLedgerSchemaFailure, emitWatcherEventOnSave }: {
     initialDocument: SigmaDocument;
     initialMaterials: MaterialItem[];
     initialTemplates: TemplateItem[];
     aiEnabled: boolean;
     generatedImageFixture: DesktopRuntimeMockAiOptions["generatedImageFixture"] | null;
     omitBatchApproveFileMetadata: boolean;
+    initialProposals: DesktopMcpEditProposalSummary[];
     storageLoadDelayMs: number;
     runtimePlatform: NodeJS.Platform;
     preserveAiModelPreferences: boolean;
@@ -229,18 +242,101 @@ export async function installDesktopRuntimeMock(
     const saveSnapshot = () => {
       window.localStorage.setItem("sigma-studio:e2e-document", JSON.stringify(currentDocument));
     };
+    /** 鍵の順序に依らない比較 (保存の往復で鍵の並びが変わっても「人の編集」と取り違えない)。 */
+    const stableJson = (value: unknown): string => JSON.stringify(value, (_key, item: unknown) => (
+      item && typeof item === "object" && !Array.isArray(item)
+        ? Object.fromEntries(Object.entries(item as Record<string, unknown>).sort(([a], [b]) => a.localeCompare(b)))
+        : item
+    ));
+    /**
+     * 実際の提案ストアと同じく、作成時の文書から上書きする単位の元の内容 (`mergeBasis`) を持たせる
+     * (`computeProposalMergeBasis` の写し。モックの提案は最上位の段落と図形しか触らない)。
+     */
+    const computeMockMergeBasis = (draft: DesktopMcpEditProposalSummary["draft"], doc: SigmaDocument): NonNullable<DesktopMcpEditProposalSummary["mergeBasis"]> => {
+      const entities: Record<string, { kind: "block" | "shape"; value: never }> = {};
+      const anchors: Record<string, { container: null; precedingIds: string[] }> = {};
+      const createdIds = new Set<string>();
+      for (const operation of draft.operations as Array<Record<string, unknown>>) {
+        const targetId = operation.targetId as string;
+        if (operation.operation === "replace") {
+          const block = doc.content.find((candidate) => candidate.id === targetId);
+          if (block) entities[block.id] = { kind: "block", value: structuredClone(block) as never };
+        } else if (operation.operation === "insertAfter") {
+          const index = doc.content.findIndex((block) => block.id === targetId);
+          if (!createdIds.has(targetId) && index >= 0) {
+            anchors[targetId] = {
+              container: null,
+              precedingIds: doc.content.slice(Math.max(0, index - 16), index).map((block) => block.id).reverse(),
+            };
+          }
+          createdIds.add((operation.insertedBlock as { id: string }).id);
+        }
+      }
+      const shapes = doc.pageLayout?.overlay?.overlaySnapshot?.shapes ?? [];
+      for (const operation of (draft.mutationOperations ?? []) as Array<Record<string, unknown>>) {
+        const shapeIds = operation.operation === "updateOverlayShape"
+          ? [operation.shapeId as string]
+          : operation.operation === "deleteOverlayShapes" ? operation.shapeIds as string[] : [];
+        for (const shapeId of shapeIds) {
+          const shape = shapes.find((candidate) => candidate.id === shapeId);
+          if (shape && !entities[shapeId]) entities[shapeId] = { kind: "shape", value: structuredClone(shape) as never };
+        }
+      }
+      return { version: 1, entities, ...(Object.keys(anchors).length > 0 ? { anchors } : {}) };
+    };
+    /**
+     * 承認の三者マージ (`replayProposalDraftMerging`) の、文字だけの段落についての写し: 人と AI が
+     * 別の位置を直していれば両方を残す (同じ位置への挿入は人 → AI の順)。重なれば AI の内容を採る。
+     */
+    const mergeMockParagraph = (base: unknown, ours: unknown, theirs: unknown): unknown => {
+      const plainText = (block: unknown): string | null => {
+        const record = block as { type?: string; children?: Array<Record<string, unknown>> } | undefined;
+        if (record?.type !== "paragraph" || !record.children?.every((child) => child.type === "text" && Object.keys(child).every((key) => key === "type" || key === "text"))) {
+          return null;
+        }
+        return record.children.map((child) => child.text as string).join("");
+      };
+      const [baseText, ourText, theirText] = [plainText(base), plainText(ours), plainText(theirs)];
+      if (baseText === null || ourText === null || theirText === null || ourText === baseText) {
+        return theirs;
+      }
+      const hunkOf = (side: string) => {
+        let start = 0;
+        while (start < baseText.length && start < side.length && baseText[start] === side[start]) start += 1;
+        let end = 0;
+        while (end < baseText.length - start && end < side.length - start
+          && baseText[baseText.length - 1 - end] === side[side.length - 1 - end]) end += 1;
+        return { from: start, to: baseText.length - end, text: side.slice(start, side.length - end) };
+      };
+      const human = hunkOf(ourText);
+      const ai = hunkOf(theirText);
+      const [first, second] = human.from <= ai.from ? [human, ai] : [ai, human];
+      if (theirText !== baseText && first.to > second.from) {
+        return theirs;
+      }
+      const merged = theirText === baseText
+        ? ourText
+        : baseText.slice(0, first.from) + first.text + baseText.slice(first.to, second.from) + second.text + baseText.slice(second.to);
+      return { ...(theirs as Record<string, unknown>), children: merged ? [{ type: "text", text: merged }] : [] };
+    };
     const applyProposalDraft = (proposal: DesktopMcpEditProposalSummary) => {
       const draft = proposal.draft as {
         operations?: Array<Record<string, unknown>>;
         mutationOperations?: Array<Record<string, unknown>>;
       };
+      const basisEntity = (id: string) => (proposal.mergeBasis?.entities as Record<string, { kind: string; value: unknown }> | undefined)?.[id];
       for (const operation of draft.operations ?? []) {
         if (operation.operation === "replace") {
-          const replacement = operation.replacementBlock as { id: string };
+          const targetId = operation.targetId as string;
+          const base = basisEntity(targetId);
+          const current = currentDocument.content.find((block) => block.id === targetId);
+          const replacement = base?.kind === "block" && current
+            ? mergeMockParagraph(base.value, current, operation.replacementBlock)
+            : operation.replacementBlock;
           currentDocument = {
             ...currentDocument,
             content: currentDocument.content.map((block) =>
-              block.id === (operation.targetId as string) ? (replacement as never) : block),
+              block.id === targetId ? (replacement as never) : block),
           } as SigmaDocument;
         } else if (operation.operation === "insertAfter") {
           const index = currentDocument.content.findIndex((block) => block.id === (operation.targetId as string));
@@ -274,7 +370,12 @@ export async function installDesktopRuntimeMock(
           continue;
         }
         if (operation.operation === "deleteOverlayShapes") {
-          const deletedIds = new Set((operation.shapeIds as string[] | undefined) ?? []);
+          // 承認の合成と同じく、AI が消す図形を人が直していれば残す (編集は削除に勝つ)。
+          const deletedIds = new Set(((operation.shapeIds as string[] | undefined) ?? []).filter((shapeId) => {
+            const base = basisEntity(shapeId);
+            const current = snapshot.shapes.find((shape) => shape.id === shapeId);
+            return !(base?.kind === "shape" && current && stableJson(current) !== stableJson(base.value));
+          }));
           currentDocument = {
             ...currentDocument,
             pageLayout: {
@@ -453,7 +554,7 @@ export async function installDesktopRuntimeMock(
     };
 
     let chatRooms: DesktopAiEditChatRoom[] = [];
-    let mcpProposals: DesktopMcpEditProposalSummary[] = [];
+    let mcpProposals: DesktopMcpEditProposalSummary[] = structuredClone(initialProposals);
     // Real proposal files keep a private revertDocument that is intentionally
     // omitted from DesktopMcpEditProposalSummary. Mirror it out-of-band here so
     // the chat's revision-gated rollback button can be exercised end to end.
@@ -600,6 +701,7 @@ export async function installDesktopRuntimeMock(
             const wantsShapeDeletion = wantsShapeProposal && instruction.includes("DELETE");
             const wantsShapeReplacement = wantsShapeProposal && instruction.includes("REPLACE");
             const wantsMathLineBreak = instruction.includes("MATH_BREAK");
+            const wantsPrepend = instruction.includes("PREPEND");
             const overlayShape = currentDocument.pageLayout?.overlay?.overlaySnapshot?.shapes?.[0];
             const shapeChangedId = overlayShape?.id ?? "e2e_shape_1";
             const insertedShapeId = `e2e_inserted_shape_${runIndex}`;
@@ -782,6 +884,13 @@ export async function installDesktopRuntimeMock(
                             type: "paragraph",
                             children: wantsFormattingProposal
                               ? formattingChildren
+                              : wantsPrepend
+                              ? [{
+                                  type: "text",
+                                  text: `AIの前置き。${targetBlock?.type === "paragraph"
+                                    ? targetBlock.children.map((child) => (child.type === "text" ? child.text : "")).join("")
+                                    : ""}`,
+                                }]
                               : wantsMathLineBreak
                               ? [
                                   { type: "text", text: "式：" },
@@ -871,6 +980,10 @@ export async function installDesktopRuntimeMock(
                   },
                 ]
               : [proposal];
+            // 実際の提案ストアは新しい提案にいつも元の内容を持たせる (旧レコードだけが持たない)。
+            proposalsToAdd.forEach((createdProposal) => {
+              createdProposal.mergeBasis = computeMockMergeBasis(createdProposal.draft, currentDocument);
+            });
             mcpProposals = [...mcpProposals, ...proposalsToAdd];
             proposalsToAdd.forEach((createdProposal) => {
               emitStorageChange({
@@ -1340,6 +1453,12 @@ export async function installDesktopRuntimeMock(
           return { ok: true, proposal: structuredClone(proposal), file: metadata(), document: cloneDocument() };
         },
         approveMcpEditProposals: async (proposalIds: string[]) => {
+          // 実IPCと同じ形の失敗を 1 回だけ返す (提案は pending のまま残る)。適用エラーの表示と再試行を見る spec 用。
+          const failure = (window as unknown as { __sigmaFailNextMcpApproval?: string }).__sigmaFailNextMcpApproval;
+          if (failure) {
+            delete (window as unknown as { __sigmaFailNextMcpApproval?: string }).__sigmaFailNextMcpApproval;
+            return { ok: false, error: failure };
+          }
           const revertDocument = cloneDocument();
           const approvedProposals: DesktopMcpEditProposalSummary[] = [];
           for (const proposalId of proposalIds) {
@@ -1444,6 +1563,7 @@ export async function installDesktopRuntimeMock(
     aiEnabled: options.ai?.enabled ?? false,
     generatedImageFixture: options.ai?.generatedImageFixture ?? null,
     omitBatchApproveFileMetadata: options.ai?.omitBatchApproveFileMetadata ?? false,
+    initialProposals: options.ai?.initialProposals ?? [],
     storageLoadDelayMs: options.storageLoadDelayMs ?? 0,
     runtimePlatform: options.platform ?? "darwin",
     preserveAiModelPreferences: options.preserveAiModelPreferences ?? false,

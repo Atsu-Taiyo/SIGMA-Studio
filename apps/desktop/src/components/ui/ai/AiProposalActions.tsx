@@ -1,7 +1,17 @@
 "use client";
 
 import { MessageSquarePlus, X } from "lucide-react";
-import { useCallback, useEffect, useId, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useId,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+  type KeyboardEvent as ReactKeyboardEvent,
+} from "react";
+import { createPortal } from "react-dom";
 
 import { Button, IconButton } from "@/components/ui/Button";
 import { Shimmer } from "@/components/ui/Shimmer";
@@ -21,11 +31,54 @@ export interface AiProposalActionsProps {
   actionClassName?: string;
   showApply?: boolean;
   showDismiss?: boolean;
+  /**
+   * 破棄理由のポップオーバーが開いているか。渡すと持ち主の状態になる (描き直しや作り直しで
+   * 閉じない)。渡さなければこの部品が自分で持つ。
+   */
+  dismissReasonOpen?: boolean;
+  onDismissReasonOpenChange?: (open: boolean) => void;
+  /**
+   * 破棄理由の入力を持ち主にも残す (作り直されても入力が残る)。打鍵ごとには知らせない: 入力は
+   * この部品が持ち、止まってから (300ms)・閉じたとき・この部品が消えるときにだけ書き戻す
+   * (持ち主の状態は紙面全体の描き直しにつながるため)。
+   */
+  dismissReason?: string;
+  onDismissReasonChange?: (reason: string) => void;
+  /** 見た目だけの複製。操作の結果 (ポップオーバー) を描かない。 */
+  replica?: boolean;
 }
 
 function normalizeDismissReason(rawReason: string): string | undefined {
   const trimmed = rawReason.trim();
   return trimmed.length > 0 ? trimmed : undefined;
+}
+
+const POPOVER_GAP_PX = 8;
+/** 入力が止まってから持ち主へ書き戻すまでの間。 */
+const DISMISS_REASON_WRITE_BACK_MS = 300;
+const VIEWPORT_MARGIN_PX = 8;
+const OFFSCREEN_STYLE: CSSProperties = { position: "fixed", top: -9999, left: -9999, visibility: "hidden" };
+const FOCUSABLE_IN_POPOVER = "button:not([disabled]), textarea:not([disabled]), input:not([disabled]), [tabindex]:not([tabindex='-1'])";
+
+/**
+ * 破棄理由のポップオーバーの位置。紙面のカードは改ページで切り取られ (clip-path)、パネルは
+ * スクロールで切れるので、ポップオーバーは body に出して画面の座標で置く。破棄ボタンの下を
+ * 優先し、入らなければ上に出す。右端はボタンに揃え、画面の内側へ寄せる。
+ */
+export function placeDismissReasonPopover(
+  trigger: { top: number; bottom: number; right: number },
+  popover: { width: number; height: number },
+  viewport: { width: number; height: number },
+): { top: number; left: number } {
+  const below = trigger.bottom + POPOVER_GAP_PX;
+  const above = trigger.top - POPOVER_GAP_PX - popover.height;
+  const fitsBelow = below + popover.height <= viewport.height - VIEWPORT_MARGIN_PX;
+  const top = fitsBelow || above < VIEWPORT_MARGIN_PX
+    ? Math.max(VIEWPORT_MARGIN_PX, Math.min(below, viewport.height - VIEWPORT_MARGIN_PX - popover.height))
+    : above;
+  const maxLeft = viewport.width - VIEWPORT_MARGIN_PX - popover.width;
+  const left = Math.max(VIEWPORT_MARGIN_PX, Math.min(trigger.right - popover.width, maxLeft));
+  return { top, left };
 }
 
 /**
@@ -42,22 +95,69 @@ export function AiProposalActions({
   actionClassName = "ai-inline-preview-action",
   showApply = true,
   showDismiss = true,
+  dismissReasonOpen,
+  onDismissReasonOpenChange,
+  dismissReason,
+  onDismissReasonChange,
+  replica = false,
 }: AiProposalActionsProps) {
   const t = useT("ai");
   // 「閉じる」は汎用語 (`common.actions.*` が唯一の出典)。
   const tCommon = useT("common");
-  const [reasonOpen, setReasonOpen] = useState(false);
-  const [reason, setReason] = useState("");
+  const [ownReasonOpen, setOwnReasonOpen] = useState(false);
+  const [draft, setDraft] = useState(dismissReason ?? "");
+  const [adoptedReason, setAdoptedReason] = useState(dismissReason);
+  const [modalHost, setModalHost] = useState<HTMLElement | null>(null);
+  const [popoverStyle, setPopoverStyle] = useState<CSSProperties | null>(null);
   const dismissTriggerRef = useRef<HTMLButtonElement | null>(null);
   const reasonPopoverRef = useRef<HTMLDivElement | null>(null);
+  // 入力欄へフォーカスを移すのは、利用者が破棄を押して開いた直後だけ。持ち主の状態で開いたまま
+  // 作り直されたとき (カードの再生成・ページ割りの描き直し) は、別の場所の作業からフォーカスを奪わない。
+  const focusOnOpenRef = useRef(false);
+  // 書き戻しは時間がたってから・消えるときにも走るので、最新の入力と書き戻し先を ref で読む。
+  const latestReasonRef = useRef({ draft, adopted: adoptedReason, onChange: onDismissReasonChange });
   const reasonPopoverId = useId();
+  // 持ち主の値が外から変わったら (作り直したときに前の入力が書き戻された、など) 取り込む。
+  // 自分が書き戻した値は `adoptedReason` と同じなので取り込み直さない。
+  if (dismissReason !== undefined && dismissReason !== adoptedReason) {
+    setAdoptedReason(dismissReason);
+    setDraft(dismissReason);
+  }
+  useLayoutEffect(() => {
+    latestReasonRef.current = { draft, adopted: adoptedReason, onChange: onDismissReasonChange };
+  });
+  const writeBackReason = useCallback((value: string) => {
+    const { adopted, onChange } = latestReasonRef.current;
+    if (!onChange || value === adopted) {
+      return;
+    }
+    latestReasonRef.current = { ...latestReasonRef.current, adopted: value };
+    setAdoptedReason(value);
+    onChange(value);
+  }, []);
+  const controlled = dismissReasonOpen !== undefined;
+  const reasonOpen = (controlled ? dismissReasonOpen : ownReasonOpen) && !replica;
+  // 開いている間は body (ダイアログの中ならその背景) へ出す。
+  const portalHost = reasonOpen && typeof document !== "undefined" ? modalHost ?? document.body ?? null : null;
+
+  const setReasonOpen = useCallback((open: boolean) => {
+    if (!open) {
+      writeBackReason(latestReasonRef.current.draft);
+    }
+    if (onDismissReasonOpenChange) {
+      onDismissReasonOpenChange(open);
+    }
+    if (!controlled) {
+      setOwnReasonOpen(open);
+    }
+  }, [controlled, onDismissReasonOpenChange, writeBackReason]);
 
   const closeReasonPopover = useCallback((restoreTriggerFocus: boolean) => {
     setReasonOpen(false);
     if (restoreTriggerFocus) {
       dismissTriggerRef.current?.focus();
     }
-  }, []);
+  }, [setReasonOpen]);
 
   useEffect(() => {
     if (!reasonOpen) {
@@ -91,10 +191,114 @@ export function AiProposalActions({
     };
   }, [closeReasonPopover, reasonOpen]);
 
+  // 入力が止まったら持ち主へ書き戻す。
+  useEffect(() => {
+    if (!onDismissReasonChange || draft === adoptedReason) {
+      return;
+    }
+    const timer = window.setTimeout(() => writeBackReason(draft), DISMISS_REASON_WRITE_BACK_MS);
+    return () => window.clearTimeout(timer);
+  }, [adoptedReason, draft, onDismissReasonChange, writeBackReason]);
+
+  // 消える直前 (カードの作り直し・承認で消える) に、まだ書き戻していない入力を残す。
+  useEffect(() => {
+    const latest = latestReasonRef;
+    return () => writeBackReason(latest.current.draft);
+  }, [writeBackReason]);
+
+  useLayoutEffect(() => {
+    if (!reasonOpen || !portalHost) {
+      return;
+    }
+    const update = () => {
+      const trigger = dismissTriggerRef.current;
+      const popover = reasonPopoverRef.current;
+      if (!trigger || !popover) {
+        return;
+      }
+      const triggerRect = trigger.getBoundingClientRect();
+      // 破棄ボタンが画面の外へ出たら (スクロールなど)、ポップオーバーを画面の端に押し込まずに閉じる。
+      // 入力は残るので、もう一度開けば続きから書ける。
+      if (
+        triggerRect.bottom < 0 || triggerRect.top > window.innerHeight
+        || triggerRect.right < 0 || triggerRect.left > window.innerWidth
+      ) {
+        closeReasonPopover(false);
+        return;
+      }
+      const { top, left } = placeDismissReasonPopover(
+        triggerRect,
+        { width: popover.offsetWidth, height: popover.offsetHeight },
+        { width: window.innerWidth, height: window.innerHeight },
+      );
+      setPopoverStyle((previous) => (
+        previous?.top === top && previous?.left === left ? previous : { position: "fixed", top, left }
+      ));
+    };
+    update();
+    // 破棄ボタンはスクロールが無くても動く (測り直し・並んだ別のカードの出現・失敗の行・ズーム)。
+    // 開いている間だけ毎フレーム位置を比べて追いかける。
+    let frame = 0;
+    let last = "";
+    const follow = () => {
+      const trigger = dismissTriggerRef.current;
+      const popover = reasonPopoverRef.current;
+      if (trigger && popover) {
+        const rect = trigger.getBoundingClientRect();
+        const signature = `${rect.top}:${rect.bottom}:${rect.right}:${popover.offsetWidth}:${popover.offsetHeight}`;
+        if (signature !== last) {
+          last = signature;
+          update();
+        }
+      }
+      frame = window.requestAnimationFrame(follow);
+    };
+    frame = window.requestAnimationFrame(follow);
+    window.addEventListener("scroll", update, true);
+    window.addEventListener("resize", update);
+    return () => {
+      window.cancelAnimationFrame(frame);
+      window.removeEventListener("scroll", update, true);
+      window.removeEventListener("resize", update);
+    };
+  }, [closeReasonPopover, portalHost, reasonOpen]);
+
+  // 置いてから入力欄へフォーカスする (仮の位置では見えないので focus が効かない)。
+  const positioned = popoverStyle !== null;
+  useLayoutEffect(() => {
+    if (reasonOpen && positioned && focusOnOpenRef.current) {
+      focusOnOpenRef.current = false;
+      reasonPopoverRef.current?.querySelector<HTMLTextAreaElement>("textarea")?.focus({ preventScroll: true });
+    }
+  }, [positioned, reasonOpen]);
+
   const confirmDismiss = () => {
-    onDismiss?.(normalizeDismissReason(reason));
+    onDismiss?.(normalizeDismissReason(draft));
+    setDraft("");
+    latestReasonRef.current = { ...latestReasonRef.current, draft: "" };
     setReasonOpen(false);
-    setReason("");
+    dismissTriggerRef.current?.focus();
+  };
+
+  // ポップオーバーは body の末尾にあるので、Tab で外 (紙面の続き) へ抜けないよう中で回す。
+  const trapFocus = (event: ReactKeyboardEvent<HTMLDivElement>) => {
+    if (event.key !== "Tab") {
+      return;
+    }
+    const focusables = [...event.currentTarget.querySelectorAll<HTMLElement>(FOCUSABLE_IN_POPOVER)];
+    if (focusables.length === 0) {
+      return;
+    }
+    const first = focusables[0];
+    const last = focusables[focusables.length - 1];
+    const active = document.activeElement;
+    if (event.shiftKey && (active === first || !event.currentTarget.contains(active))) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && (active === last || !event.currentTarget.contains(active))) {
+      event.preventDefault();
+      first.focus();
+    }
   };
 
   const requestDismiss = () => {
@@ -102,12 +306,59 @@ export function AiProposalActions({
       if (reasonOpen) {
         closeReasonPopover(true);
       } else {
+        setModalHost(dismissTriggerRef.current?.closest<HTMLElement>("[data-modal-backdrop]") ?? null);
+        focusOnOpenRef.current = true;
         setReasonOpen(true);
       }
       return;
     }
     onDismiss?.();
   };
+
+  const reasonPopover = reasonOpen && dismissReasonPlaceholder && portalHost
+    ? createPortal(
+      <div
+        ref={reasonPopoverRef}
+        id={reasonPopoverId}
+        className="ai-inline-preview-reason-popover"
+        role="group"
+        aria-label={t("proposal.dismissReason")}
+        style={popoverStyle ?? OFFSCREEN_STYLE}
+        // 紙面やパネルの操作 (選択・ドラッグ) に拾わせない。
+        onPointerDown={(event) => event.stopPropagation()}
+        onMouseDown={(event) => event.stopPropagation()}
+        onClick={(event) => event.stopPropagation()}
+        onKeyDown={trapFocus}
+      >
+        <div className="ai-inline-preview-reason-head">
+          <span>{t("proposal.dismissReasonOptional")}</span>
+          <IconButton
+            label={tCommon("actions.close")}
+            tone="ghost"
+            size="sm"
+            className="ai-inline-preview-reason-close"
+            onClick={() => closeReasonPopover(true)}
+          >
+            <X size={12} aria-hidden="true" />
+          </IconButton>
+        </div>
+        <textarea
+          className="ai-inline-preview-reason-textarea"
+          value={draft}
+          maxLength={200}
+          placeholder={dismissReasonPlaceholder}
+          aria-label={t("proposal.dismissReasonOptional")}
+          onChange={(event) => setDraft(event.target.value)}
+        />
+        <Inline className="ai-inline-preview-reason-actions" justify="end">
+          <Button tone="primary" size="sm" className="ai-inline-preview-reason-submit" onClick={confirmDismiss}>
+            {t("proposal.dismiss")}
+          </Button>
+        </Inline>
+      </div>,
+      portalHost,
+    )
+    : null;
 
   return (
     <Inline
@@ -131,42 +382,7 @@ export function AiProposalActions({
             aria-controls={dismissReasonPlaceholder && reasonOpen ? reasonPopoverId : undefined}
             onClick={requestDismiss}
           />
-          {reasonOpen && dismissReasonPlaceholder && (
-            <div
-              ref={reasonPopoverRef}
-              id={reasonPopoverId}
-              className="ai-inline-preview-reason-popover"
-              role="group"
-              aria-label={t("proposal.dismissReason")}
-            >
-              <div className="ai-inline-preview-reason-head">
-                <span>{t("proposal.dismissReasonOptional")}</span>
-                <IconButton
-                  label={tCommon("actions.close")}
-                  tone="ghost"
-                  size="sm"
-                  className="ai-inline-preview-reason-close"
-                  onClick={() => closeReasonPopover(true)}
-                >
-                  <X size={12} aria-hidden="true" />
-                </IconButton>
-              </div>
-              <textarea
-                className="ai-inline-preview-reason-textarea"
-                value={reason}
-                maxLength={200}
-                placeholder={dismissReasonPlaceholder}
-                aria-label={t("proposal.dismissReasonOptional")}
-                onChange={(event) => setReason(event.target.value)}
-                autoFocus
-              />
-              <Inline className="ai-inline-preview-reason-actions" justify="end">
-                <Button tone="primary" size="sm" className="ai-inline-preview-reason-submit" onClick={confirmDismiss}>
-                  {t("proposal.dismiss")}
-                </Button>
-              </Inline>
-            </div>
-          )}
+          {reasonPopover}
         </div>
       )}
       {onOpenConversation && (

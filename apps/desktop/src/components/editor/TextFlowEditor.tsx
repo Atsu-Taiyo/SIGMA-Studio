@@ -7,6 +7,7 @@ import { SessionPresenceExtension, sessionPresenceKey } from "@/components/tipta
 
 import { acknowledgeTextFlowContent, expectTextFlowContent } from "./text-flow/measurement-revision";
 import { getFragmentEditSession } from "./text-flow/fragment-edit-session";
+import { selectionOutsideCollapsedBlocks } from "./text-flow/collapsed-selection";
 import { caretAddressAtBlockEdge, indexTextFlowBlocksById } from "@/features/text-editing";
 import  {
   BoxActionDialog,
@@ -247,6 +248,7 @@ import  {
 } from "./text-flow/text-run-span";
 import { textFlowToTiptap, tiptapToTextFlow } from "./text-flow/tiptap-document-adapter";
 import type  {
+  TextFlowBoundaryDeleteOutcome,
   TextFlowBoundaryDeleteRequest,
   TextFlowBoxFragmentSourceLayout,
   TextFlowColumnBlockLayout,
@@ -269,6 +271,7 @@ ManualTextPageBreakResult,
 ManualTextPageBreakSelection,
 TextFlowBlock,
 TextFlowBodyBlockCommandRequest,
+TextFlowBoundaryDeleteOutcome,
 TextFlowBoundaryDeleteRequest,
 TextFlowBoxCommandRequest,
 TextFlowBoxFragmentSourceLayout,
@@ -419,8 +422,11 @@ interface ChangeDecorationOptions {
 
 /** Renders host-supplied before/applying/after states as node decorations,
  * keyed by `sigmaDocId` exactly like `SelectedTextBlockExtension` above.
- * `removingIds`/`addedIds` take priority over the static `removedIds` so an
- * in-flight transition is not fought by its static before-state background. */
+ * A folded block (`collapsedIds`) stays folded through every other state: the
+ * host shows its replacement elsewhere, so un-folding it to play a transition
+ * would flash the hidden before-state. Otherwise `removingIds`/`addedIds` take
+ * priority over the static `removedIds` so an in-flight transition is not
+ * fought by its static before-state background. */
 const ChangeDecorationExtension = Extension.create<ChangeDecorationOptions>({
   name: "textFlowChangeDecoration",
 
@@ -446,7 +452,8 @@ const ChangeDecorationExtension = Extension.create<ChangeDecorationOptions>({
             const removedIds = diffState.removedIds;
             const removingIds = diffState.removingIds;
             const addedIds = diffState.addedIds;
-            if (!removedIds?.length && !removingIds?.length && !addedIds?.length) {
+            const collapsedIds = diffState.collapsedIds;
+            if (!removedIds?.length && !removingIds?.length && !addedIds?.length && !collapsedIds?.length) {
               return DecorationSet.empty;
             }
 
@@ -457,13 +464,15 @@ const ChangeDecorationExtension = Extension.create<ChangeDecorationOptions>({
                 return;
               }
 
-              const className = removingIds?.includes(id)
-                ? "text-flow-change-removing"
-                : addedIds?.includes(id)
-                  ? "text-flow-change-added"
-                  : removedIds?.includes(id)
-                    ? "text-flow-change-before"
-                    : null;
+              const className = collapsedIds?.includes(id)
+                ? "text-flow-change-collapsed"
+                : removingIds?.includes(id)
+                  ? "text-flow-change-removing"
+                  : addedIds?.includes(id)
+                    ? "text-flow-change-added"
+                    : removedIds?.includes(id)
+                      ? "text-flow-change-before"
+                      : null;
               if (!className) {
                 return;
               }
@@ -859,6 +868,17 @@ function TextFlowEditorImpl({
     editGuardNoticeTimeoutRef.current = setTimeout(() => setEditGuardNotice(null), 6000);
   }, []);
   const onEditGuardBlockedAttemptRef = useRef(handleEditGuardBlockedAttempt);
+  /**
+   * 境界の削除を持ち主が断ったとき (見えない・守られたブロックを変える) は、そのブロックのガードの
+   * 案内を出して、キーは消費する (面の中の既定の削除へ落とさない)。
+   */
+  const handleBoundaryDeleteOutcome = (outcome: TextFlowBoundaryDeleteOutcome): boolean => {
+    if (typeof outcome === "object") {
+      onEditGuardBlockedAttemptRef.current(outcome.blockedBlockId);
+      return true;
+    }
+    return outcome;
+  };
   const slashCommandCandidatesRef = useRef<SlashCommandCandidate[]>([]);
   const slashCommandActiveIndexRef = useRef(0);
   const lastTextSelectionRef = useRef<{ blockId: string; from: number; to: number } | null>(null);
@@ -1382,7 +1402,7 @@ function TextFlowEditorImpl({
           const emptyOwnerRequest = manualBreakDirection === "backward"
             ? getEmptyManualBreakOwnerDeleteRequest(view.state, blocksRef.current)
             : null;
-          if (emptyOwnerRequest && onBoundaryDeleteRef.current?.(emptyOwnerRequest)) {
+          if (emptyOwnerRequest && handleBoundaryDeleteOutcome(onBoundaryDeleteRef.current?.(emptyOwnerRequest) ?? false)) {
             return true;
           }
           if (!moveCaretHorizontally(view.dom, manualBreakDirection)) {
@@ -1415,7 +1435,7 @@ function TextFlowEditorImpl({
           return false;
         }
 
-        const handled = onBoundaryDeleteRef.current?.(request) ?? false;
+        const handled = handleBoundaryDeleteOutcome(onBoundaryDeleteRef.current?.(request) ?? false);
         if (handled) {
           event.preventDefault();
         }
@@ -1871,6 +1891,15 @@ function TextFlowEditorImpl({
     changeDecorationStateRef.current = changeDecorationState;
     if (editor && !editor.isDestroyed) {
       requestSyncDecorationRefresh("changes");
+      // 畳んだブロックに残った選択は見えず、打鍵も通らない。見えるブロックへ移す (履歴には積まない)。
+      // 紙面の選択を持っている編集面だけ: 他の面の既定の選択を動かすと、紙面の選択ブロックを奪う。
+      const ownsSelection = editor.isFocused || getSelectedTextBlockId(editor) === selectedIdRef.current;
+      const visible = ownsSelection
+        ? selectionOutsideCollapsedBlocks(editor.state, changeDecorationState?.collapsedIds)
+        : null;
+      if (visible) {
+        editor.view.dispatch(editor.state.tr.setSelection(visible).setMeta("addToHistory", false));
+      }
     }
   }, [changeDecorationState, editor, requestSyncDecorationRefresh]);
 

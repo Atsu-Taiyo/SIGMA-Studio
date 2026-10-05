@@ -27,14 +27,15 @@ import type { DesktopMcpEditProposalSummary } from "@/types/desktop";
 
 import { aiDocumentWriteInProgressMessage } from "../adapters/tiptap/edit-lock-adapter";
 import {
-  deriveAiEditPreviewDiff,
   derivePostApplyHighlightIds,
   type AiApplyAnimationState,
   type AiEditPreviewState,
   type StaleMcpProposalGroup,
 } from "../model/preview";
+import { collectProposalRemovals } from "../model/proposal-content";
 import type { AiProposalPresentationState } from "../model/proposal-presentation-model";
 import { AI_APPLY_ADD_FLASH_MS, AI_APPLY_REMOVE_ANIMATION_MS } from "./proposal-feedback";
+import { countAdoptionMergeFallbacks, countProposalMergeFallbacks } from "@/lib/ai/proposal-merge-metrics";
 import {
   buildAiProposalApplyContext,
   deriveAiProposalApplyDecision,
@@ -42,7 +43,9 @@ import {
   deriveAiProposalBusyGuardFeedback,
   deriveAiProposalDismissEffects,
   deriveAiProposalResolutionTargets,
+  composeAiApprovalStatusMessage,
   deriveAiStaleProposalDiscardEffects,
+  describeAiAdoptionMergeStatus,
   findAiProposalGroupByIds,
   normalizeAiProposalIds,
   selectSequentialAiRevertProposalIds,
@@ -60,6 +63,8 @@ interface ApprovedDocumentAdoption {
 
 export interface AiProposalActionsDependencies {
   document: SigmaDocument;
+  /** 今の文書 (`flushOverlayChanges` が反映した後の値を同期で返す)。 */
+  getDocument(): SigmaDocument;
   activeFileId: string;
   activeDocumentRevision: number | null;
   activeFileIdRef: RefObject<string>;
@@ -106,6 +111,7 @@ const DOCUMENT_BLOCK_OPERATION_PORTS: DocumentBlockClock & DocumentBlockIdFactor
  */
 export function useAiProposalActions({
   document,
+  getDocument,
   activeFileId,
   activeDocumentRevision,
   activeFileIdRef,
@@ -230,9 +236,14 @@ export function useAiProposalActions({
     // resetEditorDocument による同期的な全文書差し替えより前に、まだ画面に
     // 残っている旧内容に対して再生する必要がある — 差し替え後では対象がもう存在しない。
     if (group) {
-      const diff = deriveAiEditPreviewDiff([group]);
-      const removingBlockIds = [...diff.removedBlockIds];
-      const removingShapeIds = [...diff.removedShapeIds];
+      // 消える対象は承認の合成後の内容で決める (人が直して合成で残るブロック・図形は消えない)。図形の
+      // 編集は 250ms 遅れて文書に入るので、図形を消す提案は先に流し込んでから今の文書で決める。
+      if (group.draft.mutationOperations?.some((operation) => operation.operation === "deleteOverlayShapes")) {
+        flushOverlayChanges();
+      }
+      const removals = collectProposalRemovals([group], getDocument(), { countFallbacks: false });
+      const removingBlockIds = removals.blockIds;
+      const removingShapeIds = removals.shapeIds;
       if (removingBlockIds.length > 0 || removingShapeIds.length > 0) {
         setAiApplyAnimation({ removingBlockIds, removingShapeIds, addedBlockIds: [], addedShapeIds: [] });
         await new Promise((resolve) => setTimeout(resolve, AI_APPLY_REMOVE_ANIMATION_MS));
@@ -289,6 +300,8 @@ export function useAiProposalActions({
         setAiApplyAnimation(null);
         return { ok: false, reason: message };
       }
+      // 承認時の合成replayが取ったフォールバック (退避・旧レコード等) を数える (MISS R3)。
+      countProposalMergeFallbacks(result.mergeReport);
       // 一部が failed で pending に残った場合、それらは確定していない — 楽観的除去(Issue 2)と
       // undoエントリ(Issue 3)には実際に適用されたIDだけを記録する。
       const applyDecision = deriveAiProposalApplyDecision(
@@ -351,12 +364,18 @@ export function useAiProposalActions({
           approvedRevision,
         });
         approvedDocumentStayedDirty = !adoption.adoptedDocumentMatchesDisk;
-        if (adoption.kind === "merge" && adoption.resolvedConflicts.length > 0) {
-          // 承認待ちの間の入力とAIの変更が同じ対象で食い違った場合も、教材ファイルは増やさず
-          // この1ファイルの中で解決する — 競合した単位だけ承認された内容を採る。直前の入力は
-          // applyAiApprovedDocument が積んだundoエントリ (Ctrl+Z) から戻せる。
-          console.warn(tEditor("status.aiMergedPreferringAi"), adoption.resolvedConflicts);
-          approvedDocumentWarning = tEditor("status.aiMergedPreferringAi");
+        if (adoption.kind === "merge") {
+          // 承認待ちの間の入力とAI結果の合成が、両方の変えた単位を合成・退避した回数を数える
+          // (MISS R3)。重なりの無い採用ではどのカウンタも動かない。
+          countAdoptionMergeFallbacks(adoption.mergeReport);
+          // 承認待ちの間の入力とAIの変更が同じ対象に重なっても、教材ファイルは増やさずこの1ファイルの
+          // 中で三者マージする (両方残す)。片方が結果に入らなかった単位だけを記録し、お知らせを
+          // 合成の report から出し分ける。直前の入力は applyAiApprovedDocument が積んだundoエントリ
+          // (Ctrl+Z) から戻せる。
+          approvedDocumentWarning = describeAiAdoptionMergeStatus(adoption.mergeReport, tEditor);
+          if (adoption.resolvedConflicts.length > 0) {
+            console.warn(approvedDocumentWarning, adoption.resolvedConflicts);
+          }
         }
         if (approvedDocumentStayedDirty) {
           scheduleAutosaveRetry();
@@ -385,7 +404,7 @@ export function useAiProposalActions({
         approvedDocumentTitle,
         activeDocumentStatusMessage: result.versionCaptureError
           ? t("versionHistory.captureWarning")
-          : approvedDocumentWarning ?? applyDecision.statusMessage,
+          : composeAiApprovalStatusMessage(approvedDocumentWarning, applyDecision),
         t: tAi,
         tEditor,
       });

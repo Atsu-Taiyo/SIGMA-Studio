@@ -4,10 +4,12 @@ import { type AiEditSessionDraft } from "@/lib/ai/sigma-doc-edit-schema";
 import type { OverlayTableShape } from "@/features/document";
 import type { ParagraphNode, ProblemNode, SigmaDocument } from "@/features/document";
 import { mergeProposalDraftsIntoDocument, replayProposalDraft } from "./replay";
+import { computeProposalMergeBasis } from "@/lib/ai/proposal-merge-basis";
 import {
   deleteBlockDraft,
   wrapBlocksInColumnsDraft,
   paragraphDocument,
+  replaceParagraphDraft,
 } from "../../tests/fixtures/proposal-document";
 
 describe("replayProposalDraft input ownership", () => {
@@ -520,5 +522,33 @@ describe("replayProposalDraft legacy overlay anchor support", () => {
       prompt: currentProblem.prompt,
       solution: [{ id: "answer_anchor", type: "paragraph", children: [] }],
     });
+  });
+});
+
+describe("mergeProposalDraftsIntoDocument with merge bases", () => {
+  function paragraphText(document: SigmaDocument, id: string): string {
+    const block = document.content.find((candidate) => candidate.id === id);
+    return block?.type === "paragraph"
+      ? block.children.map((node) => (node.type === "text" ? node.text : "")).join("")
+      : "";
+  }
+
+  it("merges each proposal with the human's edits and reports per proposal; a legacy record counts as legacyNoBase", () => {
+    const base = paragraphDocument(["p_1", "p_2"]);
+    const mergeable = replaceParagraphDraft("p_1", "p_1 by AI");
+    const legacy = replaceParagraphDraft("p_2", "p_2 by AI");
+    const current = replayProposalDraft(base, replaceParagraphDraft("p_1", "p_1 human")).nextDocument;
+
+    const result = mergeProposalDraftsIntoDocument(current, [
+      { proposalId: "mergeable", draft: mergeable, mergeBasis: computeProposalMergeBasis(mergeable, base) },
+      { proposalId: "legacy", draft: legacy },
+    ]);
+
+    expect(result.appliedIds).toEqual(["mergeable", "legacy"]);
+    expect(paragraphText(result.document, "p_1")).toBe("p_1 human by AI");
+    expect(paragraphText(result.document, "p_2")).toBe("p_2 by AI");
+    expect(result.reports.mergeable).toMatchObject({ humanEditedUnits: ["p_1"], legacyNoBase: 0 });
+    expect(result.reports.legacy).toMatchObject({ humanEditedUnits: [], legacyNoBase: 1 });
+    expect(result.report).toMatchObject({ humanEditedUnits: ["p_1"], legacyNoBase: 1 });
   });
 });

@@ -315,7 +315,12 @@ describe("storage:approve-mcp-edit-proposals conflict persistence", () => {
         },
         nextDocument: baseDocument,
       });
-      const currentDocument = paragraphDocument("human edit");
+      // The human replaced the paragraph the group overwrites and anchors to: a merge cannot
+      // bring it back, so the approval reports the usual typed conflict.
+      const currentDocument: SigmaDocument = {
+        ...paragraphDocument("human edit"),
+        content: [{ type: "paragraph", id: "p_human", children: [{ type: "text", text: "human edit" }] }],
+      };
       const localSigmaDocStore = {
         runExclusive: async (_fileId: string, task: () => Promise<unknown>) => task(),
         listFiles: vi.fn(async () => [{ fileId: "file_1", revision: 2 }]),
@@ -335,7 +340,7 @@ describe("storage:approve-mcp-edit-proposals conflict persistence", () => {
       await expect(handler({}, [second.proposalId], {})).resolves.toMatchObject({
         ok: false,
         code: "conflict",
-        conflictReason: "content-stale",
+        conflictReason: "anchor-missing",
         conflictBlockIds: ["p_1"],
       });
       expect(localSigmaDocStore.saveDocument).not.toHaveBeenCalled();
@@ -344,14 +349,14 @@ describe("storage:approve-mcp-edit-proposals conflict persistence", () => {
       expect((await refreshedStore.loadProposal(first.proposalId))?.conflict).toEqual({
         blockIds: ["p_1"],
         detectedAtRevision: 2,
-        reason: "content-stale",
+        reason: "anchor-missing",
       });
       expect((await refreshedStore.loadProposal(second.proposalId))?.conflict).toEqual({
         blockIds: ["p_1"],
         detectedAtRevision: 2,
-        reason: "content-stale",
+        reason: "anchor-missing",
       });
-      expect((await refreshedStore.listProposals({ status: "pending" }))[0]?.conflict?.reason).toBe("content-stale");
+      expect((await refreshedStore.listProposals({ status: "pending" }))[0]?.conflict?.reason).toBe("anchor-missing");
     } finally {
       await fs.rm(userDataDir, { recursive: true, force: true });
     }
