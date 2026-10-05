@@ -194,6 +194,26 @@ const CATEGORY_KEYWORD_PATTERNS: ReadonlyArray<{
   },
 ];
 
+/**
+ * Solids are drawn with insert_graph3d / update_graph3d (graph category). These words only add that
+ * category to a run that is narrowed anyway; they never take part in deciding to narrow, because
+ * 「球」 also matches 地球・球技・電球 and 「立体的に」 is ordinary prose.
+ */
+const SOLID_FIGURE_PATTERN = /[3３][dｄ]|[3３三]次元|立体|空間図形|多面体|四面体|立方体|直方体|角錐|円錐|角柱|円柱|球|回転体|断面|three[- ]?dimensional|sphere|cone|cylinder|pyramid|prism|cube|cuboid|polyhedron|cross[- ]?section/i;
+
+/**
+ * Categories a selected overlay shape opens: the ones holding every tool that edits a shape of that
+ * type (its own update tool, plus update_shape / delete_shapes / align_shapes in 図形). The contract
+ * test in mcp-tool-categories.test.ts checks each type against the tools that edit it.
+ */
+const SELECTED_SHAPE_CATEGORIES: ReadonlyMap<string, readonly McpToolCategory[]> = new Map([
+  ["graph2dShape", ["グラフ", "図形"]],
+  ["graph3dShape", ["グラフ", "図形", "visual edit"]],
+  ["tableShape", ["表", "図形"]],
+  ["image", ["素材", "図形", "visual edit"]],
+]);
+const OTHER_SELECTED_SHAPE_CATEGORIES: readonly McpToolCategory[] = ["図形", "visual edit"];
+
 const DOCUMENT_EXPLORATION_PATTERN = /探して|検索|調べ|確認|読み取|読んで|一覧|概要|構成|どこ|find|search|inspect|read|list|outline/i;
 const GENERIC_MUTATION_PATTERN = /直して|修正|変更|編集|追加|作成|挿入|削除|移動|置換|更新|edit|fix|change|add|create|insert|delete|move|replace|update/i;
 
@@ -288,7 +308,7 @@ export function inferToolCategoriesForRun({
     ].filter(Boolean).join(" "));
 
     const targetType = reference.targetType ?? "";
-    if (/graph2d/i.test(targetType)) {
+    if (/graph[23]d/i.test(targetType)) {
       inferred.add("グラフ");
       hasConfidentSignal = true;
     } else if (/table/i.test(targetType)) {
@@ -303,19 +323,13 @@ export function inferToolCategoriesForRun({
     }
 
     for (const shape of reference.overlaySelection?.shapes ?? []) {
-      if (shape.type === "graph2dShape") {
-        inferred.add("グラフ");
-      } else if (shape.type === "tableShape") {
-        inferred.add("表");
-      } else if (shape.type === "image") {
-        inferred.add("素材");
-        inferred.add("図形");
-        inferred.add("visual edit");
-      } else if (shape.type) {
-        inferred.add("図形");
-        inferred.add("visual edit");
+      if (!shape.type) {
+        continue;
       }
-      hasConfidentSignal = hasConfidentSignal || Boolean(shape.type);
+      for (const category of SELECTED_SHAPE_CATEGORIES.get(shape.type) ?? OTHER_SELECTED_SHAPE_CATEGORIES) {
+        inferred.add(category);
+      }
+      hasConfidentSignal = true;
     }
   }
 
@@ -352,6 +366,9 @@ export function inferToolCategoriesForRun({
   const ambiguousMutation = hasOnlyExploration && GENERIC_MUTATION_PATTERN.test(searchableText);
   if (!hasConfidentSignal || hasUnknownSelectedSkill || ambiguousMutation) {
     return [...MCP_TOOL_CATEGORIES];
+  }
+  if (SOLID_FIGURE_PATTERN.test(searchableText)) {
+    inferred.add("グラフ");
   }
   return MCP_TOOL_CATEGORIES.filter((category) => inferred.has(category));
 }

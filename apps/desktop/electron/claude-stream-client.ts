@@ -9,6 +9,7 @@ import {
   readClaudeModelCatalog,
 } from "./claude-model-catalog";
 import { buildCliChildEnv, getProcessPathEnv } from "./cli-child-env";
+import { logLedgerEvent } from "./ledger-log";
 
 import { resolveBareBinNames, resolveCliBinForSpawn, spawnCliProcess, type CliChildProcess } from "./cli-spawn";
 
@@ -79,6 +80,8 @@ export interface ClaudeStreamClientOptions {
   cancelGraceMs?: number;
   /** Claude Code が取得したモデル一覧の置き場。テストでは実ホームを読まないよう差し替える。 */
   modelCatalogDir?: string;
+  /** data dir whose ledger counts turns run with widened tool permissions (MISS R3). Omitted: not recorded. */
+  ledgerDataDir?: string;
 }
 
 export interface ClaudeAccountSummary {
@@ -185,8 +188,10 @@ export interface ClaudeTurnResult {
 // 委ねる(claude --help / 実バイナリのstrings確認: ビルトインtool名は "Skill"。SKILL.md
 // 本体はSkillツールが読むが、supporting files(references/等)を読ませるためReadも許可する)。
 const DEFAULT_ALLOWED_TOOLS = "Skill Read";
-const FULL_EXPOSURE_ALLOWED_TOOLS = "mcp__sigma-studio-local__* Skill Read";
 const SIGMA_MCP_TOOL_PREFIX = "mcp__sigma-studio-local__";
+// The only wider set any turn gets (gating off, or a conversation whose narrowed turn was refused a
+// sigma-studio-local tool): every sigma-studio-local tool, plus what a narrowed turn already allows.
+const FULL_EXPOSURE_ALLOWED_TOOLS = `${SIGMA_MCP_TOOL_PREFIX}* ${DEFAULT_ALLOWED_TOOLS}`;
 const DEFAULT_DISALLOWED_TOOLS = ["Bash", "Write", "Edit", "WebFetch", "WebSearch", "Task"];
 const DEFAULT_MODEL = "sonnet";
 
@@ -255,6 +260,12 @@ export class ClaudeStreamClient extends EventEmitter {
   private readonly turnMaxTimeoutMs: number;
   private readonly cancelGraceMs: number;
   private readonly modelCatalogDir: string;
+  private readonly ledgerDataDir: string | null;
+  // session id -> the sigma-studio-local tools a turn of that session was refused because the
+  // narrowed --allowedTools did not list them. Every later turn resuming the session (the run's
+  // continuation and the conversation's next message) is allowed every sigma-studio-local tool, so a
+  // narrowing miss never dead-ends the conversation (see allowedToolsForRun).
+  private readonly deniedLocalToolsBySession = new Map<string, string[]>();
 
   constructor(options: ClaudeStreamClientOptions) {
     super();
@@ -270,6 +281,7 @@ export class ClaudeStreamClient extends EventEmitter {
     this.turnMaxTimeoutMs = options.turnMaxTimeoutMs ?? TURN_MAX_TIMEOUT_MS;
     this.cancelGraceMs = options.cancelGraceMs ?? DEFAULT_CANCEL_GRACE_MS;
     this.modelCatalogDir = options.modelCatalogDir ?? defaultClaudeModelCatalogDir();
+    this.ledgerDataDir = options.ledgerDataDir ?? null;
   }
 
   getConfiguredClaudeBin(): string | null {
@@ -634,13 +646,18 @@ export class ClaudeStreamClient extends EventEmitter {
             } else if (!result.is_error) {
               this.authError = null;
             }
+            const permissionDenials = Array.isArray(result.permission_denials) ? result.permission_denials : [];
+            const deniedLocalTools = deniedSigmaMcpToolNames(permissionDenials);
+            if (sessionId && deniedLocalTools.length > 0 && !this.deniedLocalToolsBySession.has(sessionId)) {
+              this.deniedLocalToolsBySession.set(sessionId, deniedLocalTools);
+            }
             finish(() =>
               resolve({
                 sessionId,
                 finalText: resolvedText,
                 isError: Boolean(result.is_error),
                 numTurns: typeof result.num_turns === "number" ? result.num_turns : 0,
-                permissionDenials: Array.isArray(result.permission_denials) ? result.permission_denials : [],
+                permissionDenials,
                 totalCostUsd: typeof result.total_cost_usd === "number" ? result.total_cost_usd : null,
               }),
             );
@@ -792,6 +809,21 @@ export class ClaudeStreamClient extends EventEmitter {
       return this.allowedToolsOverride;
     }
     if (process.env.SIGMA_AI_TOOL_GATING?.trim().toLowerCase() === "off") {
+      return FULL_EXPOSURE_ALLOWED_TOOLS;
+    }
+    // The conversation already hit a sigma-studio-local tool the narrowing left out: stop narrowing
+    // it. This widens to the sigma-studio-local wildcard only; buildSpawnArgs still refuses the
+    // built-ins and decides web search from the setting, exactly as for a narrowed turn.
+    const deniedLocalTools = params.resumeSessionId
+      ? this.deniedLocalToolsBySession.get(params.resumeSessionId)
+      : undefined;
+    if (deniedLocalTools) {
+      if (this.ledgerDataDir) {
+        logLedgerEvent(this.ledgerDataDir, "claude-tool-permission-widened", {
+          sessionId: params.resumeSessionId,
+          deniedTools: deniedLocalTools,
+        });
+      }
       return FULL_EXPOSURE_ALLOWED_TOOLS;
     }
     const categories = inferToolCategoriesForRun({
@@ -973,6 +1005,18 @@ export function buildClaudeChildEnv(): ClaudeChildEnv {
 
 function isAuthErrorMessage(text: string): boolean {
   return /not logged in|\/login|please log ?in|unauthorized|authenticate|invalid api key|credit balance/i.test(text);
+}
+
+/**
+ * The sigma-studio-local tools among a result's `permission_denials` ({ tool_name, tool_use_id,
+ * tool_input } each). Matched by the server's tool-name prefix, so a built-in, another server's
+ * tool, or a name that merely contains the prefix never counts.
+ */
+function deniedSigmaMcpToolNames(permissionDenials: readonly unknown[]): string[] {
+  const names = permissionDenials
+    .map((denial) => getRecord(denial)?.tool_name)
+    .filter((name): name is string => typeof name === "string" && name.startsWith(SIGMA_MCP_TOOL_PREFIX));
+  return [...new Set(names)];
 }
 
 export function parseClaudeModelAliasesFromHelp(help: string): string[] {

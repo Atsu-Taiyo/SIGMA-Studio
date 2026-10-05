@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { MCP_TOOL_CATEGORIES, toolNamesForCategories } from "@/lib/ai/mcp-tool-categories";
 import { appMcpToolNames } from "@/lib/ai/mcp-tool-profile";
 import { ClaudeStreamClient, parseClaudeModelAliasesFromHelp } from "./claude-stream-client";
+import { getLedgerLogPath } from "./ledger-log";
 
 const tempDirs: string[] = [];
 
@@ -15,6 +16,7 @@ interface ClientFixture {
   dir: string;
   claudeConfigDir: string;
   fakeClaudeBin: string;
+  ledgerDataDir: string;
 }
 
 interface FakeCapture {
@@ -500,6 +502,65 @@ describe("ClaudeStreamClient", () => {
     }
   });
 
+  it("allows every sigma-studio-local tool on the later turns of a conversation where one was denied", async () => {
+    const { client, dir, ledgerDataDir } = createClient();
+
+    const denied = await client.runTurn({ instruction: "DENY_LOCAL_TOOL", userInstruction: "二次関数のグラフを追加して" });
+    expect(allowedToolsOf(readFakeCapture(dir))).not.toContain("mcp__sigma-studio-local__*");
+
+    // The continuation of the run and the next message both resume the denied turn's session.
+    await client.runTurn({ instruction: "続けて", userInstruction: "本文を直して", resumeSessionId: denied.sessionId });
+    const widened = readFakeCapture(dir);
+    await client.runTurn({
+      instruction: "続けて",
+      userInstruction: "本文を直して",
+      resumeSessionId: denied.sessionId,
+      webSearchEnabled: true,
+    });
+    const widenedWithWeb = readFakeCapture(dir);
+    client.dispose();
+
+    // Only the sigma-studio-local wildcard is added; the built-ins stay refused and web search
+    // follows its own setting exactly as on a narrowed turn.
+    expect(allowedToolsOf(widened)).toBe("mcp__sigma-studio-local__* Skill Read");
+    expect(disallowedToolsOf(widened)).toEqual(["Bash", "Write", "Edit", "WebFetch", "WebSearch", "Task"]);
+    expect(allowedToolsOf(widenedWithWeb)).toBe("mcp__sigma-studio-local__* Skill Read WebSearch WebFetch");
+    expect(disallowedToolsOf(widenedWithWeb)).toEqual(["Bash", "Write", "Edit", "Task"]);
+    expect(widenedToolPermissionEvents(ledgerDataDir)).toEqual([
+      expect.objectContaining({ sessionId: denied.sessionId, deniedTools: ["mcp__sigma-studio-local__insert_graph3d"] }),
+      expect.objectContaining({ sessionId: denied.sessionId, deniedTools: ["mcp__sigma-studio-local__insert_graph3d"] }),
+    ]);
+  });
+
+  it("keeps narrowing after turns without a sigma-studio-local denial and in other conversations", async () => {
+    const { client, dir, ledgerDataDir } = createClient();
+
+    const plain = await client.runTurn({ instruction: "plain", userInstruction: "二次関数のグラフを追加して" });
+    await client.runTurn({ instruction: "next", userInstruction: "二次関数のグラフを追加して", resumeSessionId: plain.sessionId });
+    const afterPlain = readFakeCapture(dir);
+
+    // Built-in, web, and other servers' denials (including names that merely contain the prefix).
+    const otherDenials = await client.runTurn({ instruction: "DENY_OTHER_TOOLS", userInstruction: "二次関数のグラフを追加して" });
+    expect(otherDenials.permissionDenials).toHaveLength(4);
+    await client.runTurn({ instruction: "next", userInstruction: "二次関数のグラフを追加して", resumeSessionId: otherDenials.sessionId });
+    const afterOtherDenials = readFakeCapture(dir);
+
+    // A denial in one conversation does not widen another one.
+    await client.runTurn({ instruction: "DENY_LOCAL_TOOL", userInstruction: "二次関数のグラフを追加して" });
+    await client.runTurn({ instruction: "fresh", userInstruction: "二次関数のグラフを追加して" });
+    const freshConversation = readFakeCapture(dir);
+    await client.runTurn({ instruction: "next", userInstruction: "二次関数のグラフを追加して", resumeSessionId: plain.sessionId });
+    const otherConversation = readFakeCapture(dir);
+    client.dispose();
+
+    for (const capture of [afterPlain, afterOtherDenials, freshConversation, otherConversation]) {
+      expect(allowedToolsOf(capture)).toContain("mcp__sigma-studio-local__insert_graph");
+      expect(allowedToolsOf(capture)).not.toContain("mcp__sigma-studio-local__*");
+      expect(allowedToolsOf(capture)).not.toContain("mcp__sigma-studio-local__insert_table");
+    }
+    expect(widenedToolPermissionEvents(ledgerDataDir)).toEqual([]);
+  });
+
   it("uses a per-turn mcpConfig override instead of the constructor default when provided", async () => {
     const { client, dir } = createClient();
     const perRunConfig = {
@@ -666,6 +727,7 @@ function createClient(binSource = FAKE_CLAUDE_BIN): ClientFixture {
   const fakeClaudeBin = path.join(dir, "claude");
   const claudeConfigDir = path.join(dir, "claude-home");
   const modelCatalogDir = path.join(dir, "model-catalog");
+  const ledgerDataDir = path.join(dir, "data");
   writeFileSync(fakeClaudeBin, binSource, "utf8");
   chmodSync(fakeClaudeBin, 0o755);
 
@@ -674,6 +736,7 @@ function createClient(binSource = FAKE_CLAUDE_BIN): ClientFixture {
     claudeConfigDir,
     fakeClaudeBin,
     modelCatalogDir,
+    ledgerDataDir,
     client: new ClaudeStreamClient({
       claudeConfigDir,
       // 実ホームの ~/.claude を読まない。
@@ -682,12 +745,34 @@ function createClient(binSource = FAKE_CLAUDE_BIN): ClientFixture {
       claudeBin: fakeClaudeBin,
       defaultModel: "claude-opus-4-8",
       availabilityProbeTimeoutMs: 10_000,
+      ledgerDataDir,
     }),
   };
 }
 
 function readFakeCapture(dir: string): FakeCapture {
   return JSON.parse(readFileSync(path.join(dir, "fake-capture.json"), "utf8")) as FakeCapture;
+}
+
+function allowedToolsOf(capture: FakeCapture): string {
+  return capture.argv[capture.argv.indexOf("--allowedTools") + 1];
+}
+
+function disallowedToolsOf(capture: FakeCapture): string[] {
+  return capture.argv.slice(capture.argv.indexOf("--disallowedTools") + 1, capture.argv.indexOf("--model"));
+}
+
+/** The MISS R3 count of widened turns, as main records it in data/logs/ledger.log. */
+function widenedToolPermissionEvents(ledgerDataDir: string): Array<Record<string, unknown>> {
+  let text: string;
+  try {
+    text = readFileSync(getLedgerLogPath(ledgerDataDir), "utf8");
+  } catch {
+    return [];
+  }
+  return text.split("\n").filter(Boolean)
+    .map((line) => JSON.parse(line) as Record<string, unknown>)
+    .filter((record) => record.event === "claude-tool-permission-widened");
 }
 
 function restoreEnv(key: string, value: string | undefined): void {
@@ -726,7 +811,21 @@ fs.writeFileSync(capturePath, JSON.stringify({
 }, null, 2));
 
 function send(message) { process.stdout.write(JSON.stringify(message) + "\\n"); }
-const sessionId = "sess_" + process.pid;
+// Like the real CLI without --fork-session, --resume keeps the resumed session's id.
+const resumeIndex = process.argv.indexOf("--resume");
+const sessionId = resumeIndex >= 0 ? process.argv[resumeIndex + 1] : "sess_" + process.pid;
+
+// The real result's permission_denials entries: { tool_name, tool_use_id, tool_input }.
+function permissionDenials(text) {
+  if (text.includes("DENY_LOCAL_TOOL")) {
+    return [{ tool_name: "mcp__sigma-studio-local__insert_graph3d", tool_use_id: "toolu_denied", tool_input: { fileId: "file_1" } }];
+  }
+  if (text.includes("DENY_OTHER_TOOLS")) {
+    return ["Bash", "WebFetch", "mcp__sigma-studio-local-shadow__insert_graph3d", "mcp__other__mcp__sigma-studio-local__insert_graph3d"]
+      .map((name, index) => ({ tool_name: name, tool_use_id: "toolu_other_" + index, tool_input: {} }));
+  }
+  return [];
+}
 
 let initSent = false;
 const rl = readline.createInterface({ input: process.stdin });
@@ -777,7 +876,7 @@ rl.on("line", (line) => {
     });
   }
   send({ type: "assistant", message: { role: "assistant", content: [{ type: "text", text: "ECHO:" + text }] }, session_id: sessionId });
-  send({ type: "result", subtype: "success", is_error: false, result: "ECHO:" + text, session_id: sessionId, total_cost_usd: 0.01, num_turns: 1, permission_denials: [] });
+  send({ type: "result", subtype: "success", is_error: false, result: "ECHO:" + text, session_id: sessionId, total_cost_usd: 0.01, num_turns: 1, permission_denials: permissionDenials(text) });
 });
 `;
 

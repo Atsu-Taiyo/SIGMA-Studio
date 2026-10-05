@@ -47,7 +47,9 @@ export type LedgerEvent =
   | "file-soft-deleted-by-reconcile"
   // AI編集提案の三者マージ (MISS R3: mainとMCPの退避もここで数える)。
   | "proposal-merge-auto-apply-deferred"
-  | "proposal-merge-fallback";
+  | "proposal-merge-fallback"
+  // Claudeのツール許可の絞り込みが外れ、拒否の後の turn で sigma-studio-local のツールを全部許可した (MISS R3)。
+  | "claude-tool-permission-widened";
 
 export function getLogsDir(dataDir: string): string {
   return path.join(dataDir, LOGS_DIR_NAME);
