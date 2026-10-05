@@ -2008,6 +2008,13 @@ button.ai-source-ref-chip--document:focus-visible {
   border-radius: 3px;
 }
 
+/* A block folded out of the flow while its replacement is shown elsewhere (a proposal shown as its
+   result only). No rendered box, so the page measurement skips it (flow-probe.ts /
+   layout-measure.ts `isUndrawnElement`). */
+.text-flow-editor .text-flow-change-collapsed {
+  display: none;
+}
+
 .text-flow-editor .text-flow-change-removing,
 .text-flow-editor .ai-apply-removing {
   animation: ai-apply-remove 280ms ease-in forwards;
@@ -2284,6 +2291,13 @@ button.ai-source-ref-chip--document:focus-visible {
   opacity: 1;
   outline: 3px dashed var(--success, #247a3d);
   outline-offset: 2px;
+}
+
+/* The proposed shape of a proposal shown as its result only: drawn exactly as it will look once
+   applied, without the green outline. Still a non-interactive ghost. */
+.overlay-shape.ai-result-only-shape {
+  pointer-events: none;
+  opacity: 1;
 }
 
 /* An update/replacement has both a real "before" shape (red dashed) and a

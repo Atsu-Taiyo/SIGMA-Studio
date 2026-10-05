@@ -70,7 +70,10 @@
   min-width: 0;
 }
 
+/* 一言は 1 行に 1 つ (人の編集と合わせた内容・適用後の姿に組めない、など)。 */
 .notice {
+  display: grid;
+  gap: var(--space-xs);
   color: var(--text-secondary);
   font-size: 11px;
   line-height: 1.45;

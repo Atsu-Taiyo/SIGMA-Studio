@@ -26,7 +26,14 @@ import {
   type AiEditPreviewDiff,
   type AiEditPreviewState,
 } from "./model/preview";
-import { readAiProposalDisplayState, type AiProposalDisplayState } from "./model/proposal-display-state";
+import {
+  readAiProposalCardDisplayState,
+  readAiProposalDisplayState,
+  routeAiProposalCardDisplayPatch,
+  showsAiProposalResultOnly,
+  type AiProposalCardDisplayKeys,
+  type AiProposalDisplayState,
+} from "./model/proposal-display-state";
 import { useAiProposalDisplayStates } from "./application/use-ai-proposal-display-states";
 import { useStableIdSet } from "./application/use-stable-id-set";
 import {
@@ -82,6 +89,7 @@ import type { EditorExtensionContextValue } from "@/components/editor/editor-ext
 import { RegionCaptureLayer } from "@/components/editor/region-capture/RegionCaptureLayer";
 
 import { useAiEditorExtensions } from "./editor-extensions";
+import { aiResultOnlyBlockedMessage, createAiReadOnlyTextFlowEditGuard } from "./adapters/tiptap/edit-lock-adapter";
 import { AiScreenshotAskButton, type AiScreenshotRequestHandler } from "./view/AiScreenshotAskButton";
 import { ProblemFrameChatNotices } from "./view/ProblemFrameChatNotices";
 import type { AiProposalApplyOutcome } from "./application/proposal-action-model";
@@ -168,7 +176,7 @@ function AiEnabledPageCanvasEditor({
     documentWriteInProgress: aiDocumentWriteInProgress,
     shapes: documentShapes,
   });
-  const { extension, beforeHiddenShapeIds } = useAiPageCanvasExtension({
+  const { extension, hiddenShapeIds, collapsedBlockIds } = useAiPageCanvasExtension({
     document: pageEditorProps.document,
     previewGroups: aiEditPreviewGroups,
     applying: aiEditPreviewApplying,
@@ -184,17 +192,18 @@ function AiEnabledPageCanvasEditor({
     documentWorkspaceId,
     onFocusSession: onFocusAiSession,
   });
-  // 利用者がバーで隠した変更前の図形は、選べず編集もできない (見えない図形を動かさない)。
-  const beforeHiddenExtensions = useMemo(
-    () => buildAiBeforeHiddenEditorExtensions(beforeHiddenShapeIds),
-    [beforeHiddenShapeIds],
+  // 隠した変更前 (バーで隠した図形・適用後だけで隠した図形と畳んだ本文) は、選べず編集もできない
+  // (見えないものを動かさない・書き換えない)。
+  const hiddenTargetExtensions = useMemo(
+    () => buildAiHiddenTargetEditorExtensions(hiddenShapeIds, collapsedBlockIds),
+    [collapsedBlockIds, hiddenShapeIds],
   );
   const editorExtensions = useMemo(
     () => mergeEditorExtensionSets(
-      mergeEditorExtensionSets(aiEditorExtensions, beforeHiddenExtensions),
+      mergeEditorExtensionSets(aiEditorExtensions, hiddenTargetExtensions),
       pageEditorProps.editorExtensions,
     ),
-    [aiEditorExtensions, beforeHiddenExtensions, pageEditorProps.editorExtensions],
+    [aiEditorExtensions, hiddenTargetExtensions, pageEditorProps.editorExtensions],
   );
 
   const screenshotActions = useMemo(
@@ -256,7 +265,11 @@ function useAiPageCanvasExtension({
   documentIdentityKey,
   documentWorkspaceId,
   onFocusSession,
-}: UseAiPageCanvasExtensionOptions): { extension: PageCanvasEditorExtension; beforeHiddenShapeIds: ReadonlySet<string> } {
+}: UseAiPageCanvasExtensionOptions): {
+  extension: PageCanvasEditorExtension;
+  hiddenShapeIds: ReadonlySet<string>;
+  collapsedBlockIds: ReadonlySet<string>;
+} {
   const t = useT("ai");
   // 承認・破棄で保留中でなくなった提案の、退避を数え済みという記録を捨てる (MISS R3)。
   useEffect(() => {
@@ -276,12 +289,27 @@ function useAiPageCanvasExtension({
       : groupPendingProposalContentByAnchor(inlinePreviewGroups, document, { countFallbacks: !applying }),
     [applying, document, inlinePreviewGroups],
   );
+  const previewsWithCards = useMemo(
+    () => new Set([...previewCardsByTargetId.values()].flat().map((card) => card.preview)),
+    [previewCardsByTargetId],
+  );
+  // 同じ提案 (会話) の紙面のカードの key。適用後だけ・図形の変更前を隠すは会話ごとに切り替える。
+  const cardKeysByConversation = useMemo(() => {
+    const keys = new Map<string, string[]>();
+    for (const [targetId, cards] of previewCardsByTargetId) {
+      for (const { preview } of cards) {
+        const conversationKey = getAiProposalConversationKey(preview);
+        keys.set(conversationKey, [...(keys.get(conversationKey) ?? []), getAiProposalCardKey(targetId, preview)]);
+      }
+    }
+    return keys;
+  }, [previewCardsByTargetId]);
   // カードが 1 枚も無い提案 (図形だけ・本文を置ける場所が無い) は、紙面に浮かぶバーで決める。
   // カードのある提案はカードのバー 1 本で決める (図形の変更があっても浮かべない)。
-  const floatingPreviewGroups = useMemo(() => {
-    const previewsWithCards = new Set([...previewCardsByTargetId.values()].flat().map((card) => card.preview));
-    return selectAiFloatingDecisionPreviews(previewGroups, previewsWithCards);
-  }, [previewCardsByTargetId, previewGroups]);
+  const floatingPreviewGroups = useMemo(
+    () => selectAiFloatingDecisionPreviews(previewGroups, previewsWithCards),
+    [previewGroups, previewsWithCards],
+  );
   // 浮かぶバーの提案のうち、内容を人の編集と合成したもの (バーに一言を添える)。図形だけの提案も、
   // base を持てば合成のプレビューを作るので、人が直した図形があれば入る。提案ごとに覚えた結果を
   // 引くだけなので打鍵では軽い。
@@ -335,15 +363,11 @@ function useAiPageCanvasExtension({
     for (const [targetId, cards] of previewCardsByTargetId) {
       result.set(targetId, cards.map((card) => {
         const { preview } = card;
-        const key = getAiProposalCardKey(targetId, preview);
-        const conversationKey = getAiProposalConversationKey(preview);
-        // カードの状態と、提案ごとの「変更前を隠す」(同じ提案の図形すべてに効く) を合わせて渡す。
-        const displayState: AiProposalDisplayState = {
-          ...readAiProposalDisplayState(displayStates, key, preview.proposalIds),
-          beforeHidden: readAiProposalDisplayState(displayStates, conversationKey, preview.proposalIds).beforeHidden,
-        };
+        const keys = cardDisplayKeysOf(targetId, preview, cardKeysByConversation);
+        // カードの状態に、提案ごとの「変更前を隠す」「適用後だけ」(同じ提案のカードと図形すべてに効く) を重ねる。
+        const displayState = readAiProposalCardDisplayState(displayStates, keys, preview.proposalIds);
         return {
-          key,
+          key: keys.cardKey,
           measureRevision: getAiProposalCardMeasureRevision(card, document.metadata.mathFractionSizing, displayState),
           content: (
             <AiEditInlinePreviewCard
@@ -352,16 +376,17 @@ function useAiPageCanvasExtension({
               sourceReferences={preview.sourceReferences}
               applying={applying}
               displayState={displayState}
-              onDisplayStateChange={({ beforeHidden, ...cardPatch }) => {
-                if (beforeHidden !== undefined) {
-                  updateDisplayState(conversationKey, preview.proposalIds, { beforeHidden });
+              onDisplayStateChange={(patch) => {
+                if (patch.afterOnly === true) {
+                  countResultOnlyNotLaidOut(cardsOfConversation(previewCardsByTargetId, keys.conversationKey));
                 }
-                if (Object.keys(cardPatch).length > 0) {
-                  updateDisplayState(key, preview.proposalIds, cardPatch);
+                for (const [stateKey, part] of routeAiProposalCardDisplayPatch(patch, keys)) {
+                  updateDisplayState(stateKey, preview.proposalIds, part);
                 }
               }}
               hasBeforeShapes={getAiEditPreviewBeforeShapeIds(preview).length > 0}
               mergedWithHumanEdits={card.mergedWithHumanEdits}
+              resultLaidOut={card.resultLayout.complete}
               onOpenConversation={preview.roomId
                 ? (anchorElement) => openProposalConversation(preview, anchorElement)
                 : undefined}
@@ -374,7 +399,7 @@ function useAiPageCanvasExtension({
       }));
     }
     return result;
-  }, [applying, displayStates, document.metadata.mathFractionSizing, onApply, onDismiss, onOpenSourceDocument, openProposalConversation, previewCardsByTargetId, updateDisplayState]);
+  }, [applying, cardKeysByConversation, displayStates, document.metadata.mathFractionSizing, onApply, onDismiss, onOpenSourceDocument, openProposalConversation, previewCardsByTargetId, updateDisplayState]);
 
   const previewDiff = useMemo(
     () => deriveAiEditPreviewDiff(previewGroups, document.pageLayout?.overlay?.overlaySnapshot?.shapes ?? []),
@@ -384,14 +409,24 @@ function useAiPageCanvasExtension({
   // 残るなら塗らない (draft から数えると承認の規則を二重に持つ。MISS R17)。カードは打鍵のたびに
   // 作り直されるので、中身が同じなら同じ集合を使う (各本文ユニットの props を動かさない)。
   const removedBlockIds = useStableIdSet(collectPendingRemovedBlockIds(previewCardsByTargetId));
+  // 適用後だけを見せているカードの変更前は本文から畳む。同じ合成後の内容 (カードの削除側) から決める。
+  const collapsedBlockIds = useStableIdSet(collectResultOnlyCollapsedBlockIds(
+    previewCardsByTargetId,
+    (targetId, card) => readAiProposalCardDisplayState(
+      displayStates,
+      cardDisplayKeysOf(targetId, card.preview, cardKeysByConversation),
+      card.preview.proposalIds,
+    ),
+  ));
   const textFlowChangeDecorationState = useMemo(() => {
     const removedIds = [...removedBlockIds];
+    const collapsedIds = [...collapsedBlockIds];
     const removingIds = applyAnimation?.removingBlockIds ?? [];
     const addedIds = applyAnimation?.addedBlockIds ?? [];
-    return removedIds.length === 0 && removingIds.length === 0 && addedIds.length === 0
+    return removedIds.length === 0 && collapsedIds.length === 0 && removingIds.length === 0 && addedIds.length === 0
       ? undefined
-      : { removedIds, removingIds, addedIds };
-  }, [applyAnimation, removedBlockIds]);
+      : { removedIds, removingIds, addedIds, collapsedIds };
+  }, [applyAnimation, collapsedBlockIds, removedBlockIds]);
   // 図形の赤い削除表示も同じく、合成で残る図形 (人が直した図形) には付けない。図形を消す提案だけが、
   // 提案ごとに覚えた結果を引く (合成と図形の並びが同じなら作り直さない)。
   const mergeKeptShapeIdList = useMemo(
@@ -411,15 +446,37 @@ function useAiPageCanvasExtension({
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [mergedUpdatedShapesKey],
   );
-  // 中身が同じなら同じ集合 (図形の印・編集の方針・紙面の拡張を作り直さない)。
-  const beforeHiddenShapeIds = useStableIdSet(previewGroups.flatMap((preview) => (
-    readAiProposalDisplayState(displayStates, getAiProposalConversationKey(preview), preview.proposalIds).beforeHidden
-      ? getAiEditPreviewBeforeShapeIds(preview)
-      : []
-  )));
+  // 適用後だけを見せている提案の図形: 変更前 (と合成で残らない削除) を隠し、変更後を印なしで描く。カードの
+  // ある提案だけ (カードが無くなった提案に残った状態は、切り替えが出ないので効かせない)。
+  const currentShapes = document.pageLayout?.overlay?.overlaySnapshot?.shapes;
+  const resultOnlyShapes = useMemo(() => deriveAiResultOnlyShapeIds(
+    previewGroups.filter((preview) => previewsWithCards.has(preview)
+      && readAiProposalDisplayState(displayStates, getAiProposalConversationKey(preview), preview.proposalIds).afterOnly),
+    currentShapes ?? [],
+    mergeKeptShapeIds,
+  ), [currentShapes, displayStates, mergeKeptShapeIds, previewGroups, previewsWithCards]);
+  const resultOnlyGhostShapeIds = useStableIdSet(resultOnlyShapes.ghostShapeIds);
+  const resultOnlyHiddenShapeIds = useStableIdSet(resultOnlyShapes.hiddenShapeIds);
+  // 隠した変更前の図形 (バーで隠したもの・適用後だけのもの)。中身が同じなら同じ集合 (図形の印・編集の方針・
+  // 紙面の拡張を作り直さない)。
+  const hiddenShapeIds = useStableIdSet([
+    ...previewGroups.flatMap((preview) => (
+      readAiProposalDisplayState(displayStates, getAiProposalConversationKey(preview), preview.proposalIds).beforeHidden
+        ? getAiEditPreviewBeforeShapeIds(preview)
+        : []
+    )),
+    ...resultOnlyHiddenShapeIds,
+  ]);
   const overlayShapeClassNames = useMemo(
-    () => deriveAiOverlayShapeClassNames({ previewGroups, previewDiff, applyAnimation, beforeHiddenShapeIds, mergeKeptShapeIds }),
-    [applyAnimation, beforeHiddenShapeIds, mergeKeptShapeIds, previewDiff, previewGroups],
+    () => deriveAiOverlayShapeClassNames({
+      previewGroups,
+      previewDiff,
+      applyAnimation,
+      beforeHiddenShapeIds: hiddenShapeIds,
+      mergeKeptShapeIds,
+      resultOnlyHiddenShapeIds,
+    }),
+    [applyAnimation, hiddenShapeIds, mergeKeptShapeIds, previewDiff, previewGroups, resultOnlyHiddenShapeIds],
   );
 
   const resolveOverlayPresentation = useCallback((
@@ -438,9 +495,11 @@ function useAiPageCanvasExtension({
         key: `ai-diff-ghost-${entry.shape.id}`,
         shape: entry.shape,
         assets: entry.assets,
-        className: replacementShapeIds.has(entry.shape.id)
-          ? "ai-diff-added-shape ai-diff-after-shape ai-diff-ghost-shape"
-          : "ai-diff-added-shape ai-diff-ghost-shape",
+        className: resultOnlyGhostShapeIds.has(entry.shape.id)
+          ? AI_RESULT_ONLY_GHOST_CLASS_NAME
+          : replacementShapeIds.has(entry.shape.id)
+            ? "ai-diff-added-shape ai-diff-after-shape ai-diff-ghost-shape"
+            : "ai-diff-added-shape ai-diff-ghost-shape",
       })),
       ...[...finalShapeUpdates.values()].filter((update) => !addedShapeIds.has(update.shapeId)).map((update) => ({
         key: `ai-diff-ghost-${update.after.id}`,
@@ -450,7 +509,9 @@ function useAiPageCanvasExtension({
         assets: update.replacedAssets
           ? { ...context.overlayAssets, ...update.replacedAssets }
           : context.overlayAssets,
-        className: "ai-diff-after-shape ai-diff-ghost-shape",
+        className: resultOnlyGhostShapeIds.has(update.shapeId)
+          ? AI_RESULT_ONLY_GHOST_CLASS_NAME
+          : "ai-diff-after-shape ai-diff-ghost-shape",
       })),
     ];
     const ghostEntriesById = new Map(unresolvedGhosts.map((entry) => [entry.shape.id, entry]));
@@ -528,7 +589,7 @@ function useAiPageCanvasExtension({
       ghostShapes: resolvedGhostShapes,
       floatingContent: widgets,
     };
-  }, [applying, displayStates, floatingPreviewGroups, mergeKeptShapeIds, mergedFloatingKeys, mergedUpdatedShapes, onApply, onDismiss, openProposalConversation, previewDiff, previewGroups, t, updateDisplayState]);
+  }, [applying, displayStates, floatingPreviewGroups, mergeKeptShapeIds, mergedFloatingKeys, mergedUpdatedShapes, onApply, onDismiss, openProposalConversation, previewDiff, previewGroups, resultOnlyGhostShapeIds, t, updateDisplayState]);
 
   // 参照系のコールバックは ref 経由で最新を読む。identity を deps に入れると、親が 1 回
   // 描画するたびに selection 拡張が作り直され、PageCanvasEditor 側の選択 effect が再 arm
@@ -617,7 +678,25 @@ function useAiPageCanvasExtension({
     selection,
     textFlowChangeDecorationState,
   ]);
-  return { extension, beforeHiddenShapeIds };
+  return { extension, hiddenShapeIds, collapsedBlockIds };
+}
+
+/** 紙面のカードの状態を持つ場所 (カードの key・会話の key・同じ会話のカードの key)。 */
+function cardDisplayKeysOf(
+  targetId: string,
+  preview: AiEditPreviewState,
+  cardKeysByConversation: ReadonlyMap<string, readonly string[]>,
+): AiProposalCardDisplayKeys {
+  const cardKey = getAiProposalCardKey(targetId, preview);
+  const conversationKey = getAiProposalConversationKey(preview);
+  return { cardKey, conversationKey, conversationCardKeys: cardKeysByConversation.get(conversationKey) ?? [cardKey] };
+}
+
+function cardsOfConversation(
+  cardsByTargetId: ReadonlyMap<string, readonly AiProposalAnchorCard[]>,
+  conversationKey: string,
+): AiProposalAnchorCard[] {
+  return [...cardsByTargetId.values()].flat().filter((card) => getAiProposalConversationKey(card.preview) === conversationKey);
 }
 
 function createSelectionAction({
@@ -792,7 +871,8 @@ export function getAiProposalCardKey(anchorBlockId: string, preview: AiEditPrevi
 /**
  * カードの中身の版 (`PageCanvasInlineContent.measureRevision`)。中身が同じなら同じ値で、高さが
  * 変わらない書き換え (行の位置だけが変わる) でも値が変わり、紙面が行を測り直す。カードの高さを
- * 変える表示状態 (内容を隠した・適用の失敗) も含める。
+ * 変える表示状態 (内容を隠した・適用の失敗・適用後だけ (注記・区分の名前が消え、組めなければ一言が付く))
+ * も含める。
  */
 export function getAiProposalCardMeasureRevision(
   card: AiProposalAnchorCard,
@@ -805,8 +885,10 @@ export function getAiProposalCardMeasureRevision(
       card.preview.sourceReferences ?? [],
       card.content.hunks,
       card.mergedWithHumanEdits,
+      card.resultLayout.complete,
       displayState?.contentHidden ?? false,
       displayState?.applyError ?? null,
+      displayState?.afterOnly ?? false,
     ],
     (_key, value: unknown) => (value instanceof Map ? [...value.entries()] : value),
   );
@@ -821,7 +903,8 @@ export function getAiProposalCardMeasureRevision(
 
 /**
  * 紙面の図形に付ける提案の印。変更前 (今の図形) は赤い破線、変更後はゴースト (`resolveOverlayPresentation`)。
- * どちらも常に描き、時間では切り替えない。利用者がバーで隠した変更前だけ `ai-diff-before-hidden` を足す。
+ * どちらも常に描き、時間では切り替えない。隠した変更前 (バーで隠したもの・適用後だけの提案の変更前と
+ * 消える図形) だけ `ai-diff-before-hidden` を足す。
  */
 export function deriveAiOverlayShapeClassNames({
   previewGroups,
@@ -829,13 +912,20 @@ export function deriveAiOverlayShapeClassNames({
   applyAnimation,
   beforeHiddenShapeIds,
   mergeKeptShapeIds = EMPTY_ID_SET,
+  resultOnlyHiddenShapeIds = EMPTY_ID_SET,
 }: {
   previewGroups: readonly AiEditPreviewState[];
   previewDiff: AiEditPreviewDiff;
   applyAnimation: AiApplyAnimationState | null;
+  /** 隠した変更前の図形 (バーで隠したもの・適用後だけの提案のもの)。消える図形も隠す。 */
   beforeHiddenShapeIds: ReadonlySet<string>;
   /** AI が消す図形のうち、人が直したので承認の合成で残るもの (`collectShapesKeptByMerge`)。削除の印を付けない。 */
   mergeKeptShapeIds?: ReadonlySet<string>;
+  /**
+   * 適用後だけを見せている提案で隠した変更前の図形。承認の「消える」演出でも出し直さない (本文の畳んだ
+   * 変更前と同じく、隠した変更前が一瞬見えてしまう)。
+   */
+  resultOnlyHiddenShapeIds?: ReadonlySet<string>;
 }): Map<string, string> {
   const result = new Map<string, string>();
   const replacementShapeIds = new Set(
@@ -851,12 +941,14 @@ export function deriveAiOverlayShapeClassNames({
     if (mergeKeptShapeIds.has(id)) {
       continue;
     }
-    result.set(id, replacementShapeIds.has(id)
+    result.set(id, replacementShapeIds.has(id) || beforeHiddenShapeIds.has(id)
       ? beforeClassName(id, "ai-diff-removed-shape ai-diff-before-shape")
       : "ai-diff-removed-shape");
   }
   for (const id of applyAnimation?.removingShapeIds ?? []) {
-    result.set(id, "ai-apply-removing-shape");
+    if (!resultOnlyHiddenShapeIds.has(id)) {
+      result.set(id, "ai-apply-removing-shape");
+    }
   }
   for (const id of applyAnimation?.addedShapeIds ?? []) {
     result.set(id, "ai-apply-added-shape");
@@ -871,22 +963,97 @@ export function deriveAiOverlayShapeClassNames({
  * バー 1 本で決める (図形の変更があっても浮かべない)。
  */
 /**
- * 利用者がバーで隠した変更前の図形 (`ai-diff-before-hidden`) を、紙面で選べず編集もできない図形にする。
- * 見えないまま選ばれて動かされると、利用者の知らないうちに文書が変わる (提案の対象を鍵で守らない
- * 提案 (WebMCP) でも同じ)。
+ * 隠した変更前を、紙面で選べず編集もできないものにする。図形 (`ai-diff-before-hidden`) は選べず動かせず、
+ * 適用後だけを見せている間に本文から畳んだ変更前 (`collapsedBlockIds`) にはキャレットも入力も入らない
+ * (読み取り専用のガード)。見えないまま選ばれて動かされる・書き換えられると、利用者の知らないうちに文書が
+ * 変わる (提案の対象を鍵で守らない提案 (WebMCP) でも同じ)。
  */
-export function buildAiBeforeHiddenEditorExtensions(
-  beforeHiddenShapeIds: ReadonlySet<string>,
+export function buildAiHiddenTargetEditorExtensions(
+  hiddenShapeIds: ReadonlySet<string>,
+  collapsedBlockIds: ReadonlySet<string> = EMPTY_ID_SET,
 ): EditorExtensionContextValue | undefined {
-  if (beforeHiddenShapeIds.size === 0) {
+  if (hiddenShapeIds.size === 0 && collapsedBlockIds.size === 0) {
     return undefined;
   }
   return {
-    overlayEditPolicy: {
-      lockedShapeIds: beforeHiddenShapeIds,
-      unselectableShapeIds: beforeHiddenShapeIds,
-    },
+    ...(collapsedBlockIds.size > 0
+      ? {
+        textFlowEditPolicy: {
+          guards: [...collapsedBlockIds].map((blockId) => (
+            createAiReadOnlyTextFlowEditGuard(blockId, aiResultOnlyBlockedMessage(), "ai-result-only")
+          )),
+        },
+      }
+      : {}),
+    ...(hiddenShapeIds.size > 0
+      ? { overlayEditPolicy: { lockedShapeIds: hiddenShapeIds, unselectableShapeIds: hiddenShapeIds } }
+      : {}),
   };
+}
+
+/** 適用後だけの提案の変更後の図形 (ゴースト)。差分の枠を付けず、承認後と同じ見た目で描く。 */
+const AI_RESULT_ONLY_GHOST_CLASS_NAME = "ai-result-only-shape";
+
+/**
+ * 適用後だけを見せている提案の図形。隠す変更前 (更新・整列・置き換えの元と、合成で残らない削除) と、印なしで
+ * 描く変更後 (ゴースト)。紙面の差分の表示 (`deriveAiOverlayShapeClassNames` とゴースト) と同じ集合から決める。
+ */
+export function deriveAiResultOnlyShapeIds(
+  previews: readonly AiEditPreviewState[],
+  currentShapes: OverlayShape[],
+  mergeKeptShapeIds: ReadonlySet<string>,
+): { hiddenShapeIds: string[]; ghostShapeIds: string[] } {
+  const hidden = new Set<string>();
+  const ghosts = new Set<string>();
+  for (const preview of previews) {
+    const diff = deriveAiEditPreviewDiff([preview], currentShapes);
+    getAiEditPreviewBeforeShapeIds(preview).forEach((id) => hidden.add(id));
+    diff.removedShapeIds.forEach((id) => {
+      if (!mergeKeptShapeIds.has(id)) hidden.add(id);
+    });
+    diff.modifiedShapeIds.forEach((id) => ghosts.add(id));
+    diff.addedShapes.forEach(({ shape }) => ghosts.add(shape.id));
+  }
+  return { hiddenShapeIds: [...hidden], ghostShapeIds: [...ghosts] };
+}
+
+/**
+ * 本文から畳むブロック: 適用後だけを見せているカード (内容を隠していないもの) の変更前
+ * (`AiProposalResultLayout.collapsedBlockIds`)。ほかのカードの変更前は差分の表示のまま。
+ */
+export function collectResultOnlyCollapsedBlockIds(
+  cardsByTargetId: ReadonlyMap<string, readonly AiProposalAnchorCard[]>,
+  readCardState: (targetId: string, card: AiProposalAnchorCard) => AiProposalDisplayState,
+): string[] {
+  const ids = new Set<string>();
+  for (const [targetId, cards] of cardsByTargetId) {
+    for (const card of cards) {
+      if (showsAiProposalResultOnly(readCardState(targetId, card))) {
+        card.resultLayout.collapsedBlockIds.forEach((id) => ids.add(id));
+      }
+    }
+  }
+  return [...ids];
+}
+
+/**
+ * 適用後だけを選んだときに、その姿を紙面に組めず注記で代えたカード (`AiProposalResultLayout.complete` が偽)
+ * の数 (MISS R3)。変更前を本文から畳めないもの・移動のように組めない変更だけで増え、ふつうの置き換え・挿入・
+ * 削除では 0。
+ */
+export const AI_PROPOSAL_RESULT_ONLY_COUNTERS = {
+  notLaidOut: "AiProposalResultOnly.notLaidOut",
+} as const;
+
+export function countResultOnlyNotLaidOut(
+  cards: readonly AiProposalAnchorCard[],
+  count: (name: string) => void = countPerformanceEvent,
+): void {
+  for (const card of cards) {
+    if (!card.resultLayout.complete) {
+      count(AI_PROPOSAL_RESULT_ONLY_COUNTERS.notLaidOut);
+    }
+  }
 }
 
 export function selectAiFloatingDecisionPreviews(

@@ -1,6 +1,6 @@
 "use client";
 
-import { ChevronDown, ChevronUp, Eye, EyeOff } from "lucide-react";
+import { ChevronDown, ChevronUp, Eye, EyeOff, FileCheck, FileDiff } from "lucide-react";
 import { useState, type ReactNode } from "react";
 
 import { IconButton } from "@/components/ui/Button";
@@ -50,6 +50,12 @@ export interface AiProposalDecisionBarProps {
   beforeHidden?: boolean;
   onBeforeHiddenChange?: (hidden: boolean) => void;
   /**
+   * 適用後の姿だけを見せているか (差分の装飾を外す)。`onAfterOnlyChange` を渡したときだけ切り替えを出す
+   * (紙面のカードだけが渡す)。
+   */
+  afterOnly?: boolean;
+  onAfterOnlyChange?: (afterOnly: boolean) => void;
+  /**
    * 適用の失敗の理由。渡すと持ち主の状態になる (バーが作り直されても残る)。渡さなければバーが持つ。
    */
   applyError?: string | null;
@@ -93,6 +99,8 @@ export function AiProposalDecisionBar({
   contentId,
   beforeHidden = false,
   onBeforeHiddenChange,
+  afterOnly = false,
+  onAfterOnlyChange,
   applyError,
   onApplyErrorChange,
   dismissReasonOpen,
@@ -128,6 +136,7 @@ export function AiProposalDecisionBar({
 
   const contentLabel = t(contentHidden ? "card.showContent" : "card.hideContent");
   const beforeLabel = t(beforeHidden ? "card.showBefore" : "card.hideBefore");
+  const afterOnlyLabel = t(afterOnly ? "card.showDiff" : "card.showAfterOnly");
 
   const hasDetails = Boolean(references) || Boolean(notice) || Boolean(shownApplyError);
   return (
@@ -144,6 +153,18 @@ export function AiProposalDecisionBar({
           <span className={styles.title}>{title}</span>
         </p>
         <div className={styles.controls}>
+          {onAfterOnlyChange && (
+            <IconButton
+              label={afterOnlyLabel}
+              tone="ghost"
+              size="sm"
+              className={styles.toggle}
+              aria-pressed={afterOnly}
+              onClick={() => onAfterOnlyChange(!afterOnly)}
+            >
+              {afterOnly ? <FileDiff size={15} aria-hidden="true" /> : <FileCheck size={15} aria-hidden="true" />}
+            </IconButton>
+          )}
           {onBeforeHiddenChange && (
             <IconButton
               label={beforeLabel}

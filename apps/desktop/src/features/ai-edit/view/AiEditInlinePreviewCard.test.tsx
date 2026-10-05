@@ -9,7 +9,9 @@ import {
   getAiProposalTitleId,
   resolveDismissReason,
 } from "./AiEditInlinePreviewCard";
+import { FlowExtensionReplicaContext } from "@/components/editor/page-canvas/flow-extension-replica";
 import type { AiEditPreviewState } from "../model/preview";
+import { DEFAULT_AI_PROPOSAL_DISPLAY_STATE } from "../model/proposal-display-state";
 import {
   groupPendingProposalContentByAnchor,
   type AiProposalContent,
@@ -238,7 +240,7 @@ describe("AiEditInlinePreviewCard", () => {
 
   it("hides the content but keeps the bar when the owner's state says so", () => {
     const html = renderCard(replaceContent(), {
-      displayState: { contentHidden: true, applyError: null, dismissReasonOpen: false, dismissReason: "", beforeHidden: false },
+      displayState: { contentHidden: true, applyError: null, dismissReasonOpen: false, dismissReason: "", beforeHidden: false, afterOnly: false },
       onDisplayStateChange: () => {},
     });
 
@@ -250,7 +252,7 @@ describe("AiEditInlinePreviewCard", () => {
   it("shows the owner's apply error on the bar", () => {
     const html = renderCard(replaceContent(), {
       onApply: async () => ({ ok: true }),
-      displayState: { contentHidden: false, applyError: "対象が更新されました", dismissReasonOpen: false, dismissReason: "", beforeHidden: false },
+      displayState: { contentHidden: false, applyError: "対象が更新されました", dismissReasonOpen: false, dismissReason: "", beforeHidden: false, afterOnly: false },
       onDisplayStateChange: () => {},
     });
 
@@ -268,6 +270,61 @@ describe("AiEditInlinePreviewCard", () => {
   it("offers the before-shape toggle only for a proposal whose shapes have a before and after", () => {
     expect(renderCard(replaceContent())).not.toContain("変更前を隠す");
     expect(renderCard(replaceContent(), { hasBeforeShapes: true })).toContain('aria-label="変更前を隠す"');
+  });
+
+  describe("the result-only toggle (page cards only)", () => {
+    const resultOnly = { ...DEFAULT_AI_PROPOSAL_DISPLAY_STATE, afterOnly: true };
+
+    it("is offered on the page card's bar, off by default (the diff view)", () => {
+      const html = renderCard(replaceContent());
+      expect(html).toMatch(/aria-label="適用後だけを表示"[^>]*aria-pressed="false"|aria-pressed="false"[^>]*aria-label="適用後だけを表示"/);
+      expect(html).toContain('data-presentation="diff"');
+      expect(html).toContain("--ai-proposal-word-added-mark");
+    });
+
+    it("lays out the proposed content without change marks while it is on, and offers the way back", () => {
+      const html = renderCard(replaceContent(), { displayState: resultOnly, onDisplayStateChange: () => {} });
+
+      expect(html).toMatch(/aria-label="変更箇所を表示"[^>]*aria-pressed="true"|aria-pressed="true"[^>]*aria-label="変更箇所を表示"/);
+      expect(html).toContain('data-presentation="after"');
+      expect(html).toContain("data-ai-proposal-result-only");
+      expect(html).not.toContain("--ai-proposal-word-");
+      expect(textOf(html)).toContain("書き換え後のテキスト");
+    });
+
+    it("does not offer hiding the before shapes while only the result is shown", () => {
+      expect(renderCard(replaceContent(), { hasBeforeShapes: true })).toContain("変更前を隠す");
+      expect(renderCard(replaceContent(), { hasBeforeShapes: true, displayState: resultOnly, onDisplayStateChange: () => {} }))
+        .not.toContain("変更前を隠す");
+    });
+
+    it("says under the bar when the result cannot be laid out here, only while the result only is shown", () => {
+      const notLaidOut = renderCard(replaceContent(), { resultLaidOut: false, displayState: resultOnly, onDisplayStateChange: () => {} });
+      expect(notLaidOut).toMatch(/data-ai-proposal-bar-details=""[^>]*>[\s\S]*data-ai-proposal-result-notice=""[^>]*>この変更は適用後の姿で表示できません。/);
+      expect(renderCard(replaceContent(), { resultLaidOut: false })).not.toContain("data-ai-proposal-result-notice");
+      expect(renderCard(replaceContent(), { displayState: resultOnly, onDisplayStateChange: () => {} }))
+        .not.toContain("data-ai-proposal-result-notice");
+    });
+
+    it("draws the same result-only content on a continuation replica, whose bar cannot be pressed", () => {
+      const html = renderToStaticMarkup(
+        <FlowExtensionReplicaContext.Provider value>
+          <AiEditInlinePreviewCard content={replaceContent()} applying={false} displayState={resultOnly} onDisplayStateChange={() => {}} />
+        </FlowExtensionReplicaContext.Provider>,
+      );
+      expect(html).toContain('data-presentation="after"');
+      expect(html).toMatch(/data-ai-proposal-bar=""[^>]*data-replica=""[^>]*aria-hidden="true"/);
+    });
+
+    it("is not offered on a floating bar beside a shape", () => {
+      const preview = previewState([], {}, [{ operation: "updateOverlayShape", summary: "移動", shapeId: "shape_1", patch: { x: 10 } }]);
+      const html = renderToStaticMarkup(
+        <AiEditOverlayApprovalWidget preview={preview} applying={false} placement="above" style={{}} hasBeforeShapes displayState={resultOnly} onDisplayStateChange={() => {}} />,
+      );
+      expect(html).not.toContain("適用後だけを表示");
+      expect(html).not.toContain("変更箇所を表示");
+      expect(html).toContain("変更前を隠す");
+    });
   });
 
   it("keeps the title information available to assistive tech via aria-label", () => {
@@ -473,7 +530,7 @@ describe("AiEditInlinePreviewCard", () => {
         placement="below"
         style={{ left: 120, top: 80 }}
         hasBeforeShapes
-        displayState={{ contentHidden: false, applyError: null, dismissReasonOpen: false, dismissReason: "", beforeHidden: true }}
+        displayState={{ contentHidden: false, applyError: null, dismissReasonOpen: false, dismissReason: "", beforeHidden: true, afterOnly: false }}
         onDisplayStateChange={() => {}}
         onApply={async () => ({ ok: true })}
         onDismiss={() => {}}
