@@ -77,7 +77,12 @@ import {
   type ProposalMergeBasis,
   type ProposalMergeReport,
 } from "@/lib/ai/proposal-merge-basis";
-import { rewriteProposalDraftMerging, type ProposalDraftRewrite } from "@/lib/ai/proposal-replay";
+import {
+  assertNoRepeatedContentIds,
+  ProposalReplayRepeatedIdError,
+  rewriteProposalDraftMerging,
+  type ProposalDraftRewrite,
+} from "@/lib/ai/proposal-replay";
 
 export const END_OF_DOCUMENT_TARGET = "END_OF_DOCUMENT";
 export const WEB_MCP_PROPOSAL_ID = "webmcp_single_draft";
@@ -718,10 +723,14 @@ function remapReplayBookkeeping(
       const mutationIndex = rewrite.mutationIndexes.get(placement.mutationIndex);
       return mutationIndex === undefined ? [] : [{ ...placement, mutationIndex }];
     }),
-    checkpoints: bookkeeping.checkpoints.map((checkpoint) => ({
-      ...checkpoint,
-      operationOrderLength: order.slice(0, checkpoint.operationOrderLength).filter(kept).length,
-    })),
+    // A checkpoint whose own operation (the last one it consumed) was superseded is dropped, not moved
+    // onto an earlier operation (it would meet another checkpoint's length or ids it does not generate).
+    checkpoints: bookkeeping.checkpoints.flatMap((checkpoint) => {
+      const last = order[checkpoint.operationOrderLength - 1];
+      return last && kept(last)
+        ? [{ ...checkpoint, operationOrderLength: order.slice(0, checkpoint.operationOrderLength).filter(kept).length }]
+        : [];
+    }),
   };
 }
 
@@ -1255,14 +1264,22 @@ export function createSigmaWebMcpTools(
       movePlacements: [...capturedMovePlacements],
       checkpoints: [...capturedCheckpoints],
     };
+    // WebMCP's own stale checks are never retried with units on the AI's side: that would only make the
+    // check pass by dropping the human's edit.
+    const isMergeFailure = (error: unknown) => !(error instanceof WebMcpStaleDraftError);
     try {
       const merged = rewriteProposalDraftMerging(currentDocument, draft, mergeBasis, (rewrite) => {
         const rewrittenBookkeeping = remapReplayBookkeeping(draft, rewrite, bookkeeping);
-        return { ...replayEntries(base, currentDocument, rewrite.draft, rewrittenBookkeeping), bookkeeping: rewrittenBookkeeping };
-      });
+        const replayed = replayEntries(base, currentDocument, rewrite.draft, rewrittenBookkeeping);
+        // A merged draft must not repeat an id, as in the approval (a unit put back on the AI's side
+        // next to the human's copy of one of its blocks).
+        if (rewrite.draft !== draft) assertNoRepeatedContentIds(currentDocument, replayed.nextDocument);
+        return { ...replayed, bookkeeping: rewrittenBookkeeping };
+      }, isMergeFailure);
       return { ...merged.result, report: merged.report };
     } catch (error) {
       if (error instanceof WebMcpStaleDraftError) throw error;
+      if (error instanceof ProposalReplayRepeatedIdError) throw formatStaleError(error.ids);
       const ids = replayFailureTargetIds(currentDocument, draft);
       const stale = new WebMcpStaleDraftError(ids.length > 0 ? ids : ["document"]);
       stale.message = `${stale.message} Replay failed: ${error instanceof Error ? error.message : String(error)}`;

@@ -1401,6 +1401,49 @@ function mergeDocument(): SigmaDocument {
   } as SigmaDocument;
 }
 
+type Block = SigmaDocument["content"][number];
+const textParagraph = (id: string, text: string): Block => ({ type: "paragraph", id, children: [{ type: "text", text }] });
+
+/** A paragraph before a problem whose prompt holds prompt_a and prompt_b. */
+function problemDocument(): SigmaDocument {
+  return {
+    ...baseDocument(),
+    content: [
+      textParagraph("p_existing", "Original text"),
+      {
+        id: "q_1", type: "problem", tags: [], lead: [], hints: [], solution: [], answer: { type: "math", expected: "" },
+        prompt: [textParagraph("prompt_a", "First prompt"), textParagraph("prompt_b", "Second prompt")],
+      } as Block,
+    ],
+  };
+}
+
+/** Rewrites the prompt of q_1 in the document (the human's edit inside the problem). */
+function withPrompt(document: SigmaDocument, edit: (prompt: Block[]) => Block[]): SigmaDocument {
+  return {
+    ...document,
+    content: document.content.map((block) => (block.id === "q_1" && block.type === "problem" ? { ...block, prompt: edit(block.prompt as Block[]) } as Block : block)),
+  };
+}
+
+/** Every node id of the document with how often it appears (a merged result must not repeat one). */
+function repeatedIds(document: SigmaDocument): string[] {
+  const counts = new Map<string, number>();
+  const visit = (value: unknown): void => {
+    if (Array.isArray(value)) { value.forEach(visit); return; }
+    if (!value || typeof value !== "object") return;
+    const record = value as Record<string, unknown>;
+    if (typeof record.id === "string" && typeof record.type === "string") counts.set(record.id, (counts.get(record.id) ?? 0) + 1);
+    Object.values(record).forEach(visit);
+  };
+  visit(document.content);
+  return [...counts].filter(([, count]) => count > 1).map(([id]) => id);
+}
+
+async function rewriteProblemLead(harness: ReturnType<typeof createHarness>): Promise<void> {
+  await harness.tool("update_problem_content").execute({ expectedRevision: 0, targetId: "q_1", expectedProblem: findBlock(harness.getDocument(), "q_1"), lead: "AIが足した導入" });
+}
+
 function editShape(id: string, patch: Partial<OverlayShape>) {
   return (document: SigmaDocument): SigmaDocument => ({
     ...document,
@@ -1543,6 +1586,29 @@ describe("WebMCP draft merged with the human's edits", () => {
     expect(blockToReferenceText(findBlock(harness.getDocument(), "p_existing")!)).toBe("Agent text by a human");
   });
 
+  it("stops at STALE_DRAFT instead of repeating an id when the merged problem falls back to the agent's version", async () => {
+    const harness = createHarness(problemDocument());
+    await rewriteProblemLead(harness);
+    await harness.tool("apply_edits").execute({ expectedRevision: 0, operations: [{ op: "replace_text", target: { type: "text", blockId: "prompt_a", text: "First" }, replacement: "AIの最初" }] });
+    const pending = harness.getProposal()!;
+    // The person moves prompt_a out of the problem and adds a paragraph to the problem.
+    const moved = withPrompt(harness.getDocument(), (prompt) => [textParagraph("prompt_h", "人が足した段落"), ...prompt.filter((block) => block.id !== "prompt_a")]);
+    harness.humanEdit({ ...moved, content: [...moved.content, textParagraph("prompt_a", "First prompt")] });
+
+    expect(() => pending.apply(harness.getDocument())).toThrow(/STALE_DRAFT.*prompt_a/);
+    expect(() => harness.getProposal()!.apply(harness.getDocument())).toThrow(/STALE_DRAFT.*prompt_a/);
+  });
+
+  it("stops at STALE_DRAFT instead of dropping the human's paragraph to make a move's placement check pass", async () => {
+    const harness = createHarness(problemDocument());
+    await rewriteProblemLead(harness);
+    await harness.tool("move_blocks").execute({ expectedRevision: 0, blockIds: ["prompt_a"], targetId: "prompt_b", position: "after" });
+    // The person adds a paragraph between prompt_a and prompt_b: the move was made with prompt_b next to prompt_a.
+    harness.humanEdit(withPrompt(harness.getDocument(), ([first, ...rest]) => [first!, textParagraph("prompt_h", "人が足した段落"), ...rest]));
+
+    expect(() => harness.getProposal()!.apply(harness.getDocument())).toThrow(/STALE_DRAFT.*prompt_a/);
+  });
+
   it("keeps STALE_DRAFT for the targets the merge cannot keep a human edit of", async () => {
     const harness = createHarness(mergeDocument());
     await harness.tool("align_shapes").execute({ expectedRevision: 0, shapeIds: ["s_1", "s_2"], expectedShapes: [await outlineShape(harness, "s_1"), await outlineShape(harness, "s_2")], mode: "top" });
@@ -1671,6 +1737,92 @@ describe("contract: a human edit of a WebMCP draft's target survives the approva
     let outcome: "kept" | "stale" | "lost";
     try {
       outcome = kept(harness.getProposal()!.apply(harness.getDocument()).document) ? "kept" : "lost";
+    } catch (error) {
+      if (!(error instanceof Error) || !error.message.startsWith("STALE_DRAFT:")) throw error;
+      outcome = "stale";
+    }
+
+    expect(outcome).not.toBe("lost");
+    expect(outcome).toBe(expected);
+  });
+
+  /**
+   * A container the draft rewrites (the problem) with the draft's edit, move or deletion inside it, and the
+   * person editing, moving out or adding next to that inner block. Neither an id the merge repeats nor the
+   * person's paragraph or edit may silently disappear: the approval keeps it or the draft is STALE_DRAFT.
+   */
+  const innerOperations: Array<{ name: string; target: string; propose: (harness: Harness) => unknown }> = [
+    {
+      name: "edits",
+      target: "prompt_a",
+      propose: (harness) => harness.tool("apply_edits").execute({ expectedRevision: 0, operations: [{ op: "replace_text", target: { type: "text", blockId: "prompt_a", text: "First" }, replacement: "AIの最初" }] }),
+    },
+    {
+      name: "moves",
+      target: "prompt_a",
+      propose: (harness) => harness.tool("move_blocks").execute({ expectedRevision: 0, blockIds: ["prompt_a"], targetId: "prompt_b", position: "after" }),
+    },
+    {
+      name: "deletes",
+      target: "prompt_b",
+      propose: (harness) => harness.tool("delete_blocks").execute({ expectedRevision: 0, blockIds: ["prompt_b"], expectedBlocks: [findBlock(harness.getDocument(), "prompt_b")] }),
+    },
+  ];
+  const humanActions: Array<{
+    name: string;
+    edit: (document: SigmaDocument, target: string) => SigmaDocument;
+    kept: (result: SigmaDocument, target: string, deletedByDraft: boolean) => boolean;
+  }> = [
+    {
+      name: "edits that block",
+      edit: (document, target) => withPrompt(document, (prompt) => prompt.map((block) => (block.id === target ? textParagraph(target, "人が直した段落") : block))),
+      kept: (result, target) => blockToReferenceText(findBlock(result, target) ?? textParagraph("none", "")).includes("人が直した"),
+    },
+    {
+      name: "moves that block out of the problem",
+      edit: (document, target) => {
+        const moved = findBlock(document, target)!;
+        const without = withPrompt(document, (prompt) => prompt.filter((block) => block.id !== target));
+        return { ...without, content: [...without.content, moved as Block] };
+      },
+      // A deletion is content-targeted: it removes the moved block wherever it is (the preview shows it).
+      kept: (result, target, deletedByDraft) => result.content.some((block) => block.id === target) || (deletedByDraft && findBlock(result, target) === null),
+    },
+    {
+      name: "adds a paragraph next to that block",
+      edit: (document) => withPrompt(document, ([first, ...rest]) => [first!, textParagraph("prompt_h", "人が足した段落"), ...rest]),
+      kept: (result) => findBlock(result, "prompt_h") !== null,
+    },
+  ];
+  // What each combination does now: the merge keeps the person's edit, or a check stops the draft (the merged
+  // problem would repeat the moved-out block; the move was made with other neighbours).
+  const expectedContainerOutcomes: Record<string, "kept" | "stale"> = {
+    "edits/edits that block": "kept",
+    "edits/moves that block out of the problem": "stale",
+    "edits/adds a paragraph next to that block": "kept",
+    "moves/edits that block": "kept",
+    "moves/moves that block out of the problem": "stale",
+    "moves/adds a paragraph next to that block": "stale",
+    "deletes/edits that block": "kept",
+    "deletes/moves that block out of the problem": "kept",
+    "deletes/adds a paragraph next to that block": "kept",
+  };
+  const containerCases = innerOperations.flatMap((inner) => humanActions.map((human) => ({
+    inner,
+    human,
+    expected: expectedContainerOutcomes[`${inner.name}/${human.name}`]!,
+    name: `the problem rewritten while the draft ${inner.name} ${inner.target} and the person ${human.name}`,
+  })));
+
+  it.each(containerCases)("$name", async ({ inner, human, expected }) => {
+    const harness = createHarness(problemDocument());
+    await rewriteProblemLead(harness);
+    await inner.propose(harness);
+    harness.humanEdit(human.edit(harness.getDocument(), inner.target));
+    let outcome: "kept" | "stale" | "lost";
+    try {
+      const result = harness.getProposal()!.apply(harness.getDocument()).document;
+      outcome = repeatedIds(result).length === 0 && human.kept(result, inner.target, inner.name === "deletes") ? "kept" : "lost";
     } catch (error) {
       if (!(error instanceof Error) || !error.message.startsWith("STALE_DRAFT:")) throw error;
       outcome = "stale";
