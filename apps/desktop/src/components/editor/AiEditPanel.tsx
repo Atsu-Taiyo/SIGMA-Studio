@@ -99,6 +99,7 @@ export function AiEditPanel({
   busy = false,
   onApplyGroup,
   onDismissGroup,
+  onInlineDecisionShownChange,
   staleProposalGroups,
   sourceReferencesByTurnId,
   insertedShapePreviewsByTurnId,
@@ -750,7 +751,7 @@ export function AiEditPanel({
     return <AiChatInlineSurface
       surface={{inlineOpen,inlineAnchor,inlineRunAnchor,inlineRunAnchorCanvas,inlineRunPortalTarget,onPromoteToSidebar,onCloseInline}}
       conversation={{provider,lockedProvider,visibleTurns,latestAssistant,activeRoomId,inlineRunTurnId,inlineBaselineTurnId,isRunning,clockNow}}
-      proposals={{previewGroups,busy,onApplyGroup,onDismissGroup,insertedShapePreviewsByTurnId,activeRoomPreview,isMergedWithHumanEdits}}
+      proposals={{previewGroups,busy,onApplyGroup,onDismissGroup,insertedShapePreviewsByTurnId,activeRoomPreview,isMergedWithHumanEdits,onInlineDecisionShownChange}}
       composer={renderComposer("inline")} composerError={composerError} hasOpenMenu={composer.hasOpenMenu}
       retryTurn={retryTurn} dismissTurn={dismissTurn}
     />;

@@ -133,6 +133,11 @@ export interface AiPageCanvasEditorProps extends Omit<PageCanvasEditorProps, "pa
    * 外したときは空の集合。
    */
   onAiResultOnlyTargetsChange?: (targets: { blockIds: ReadonlySet<string>; shapeIds: ReadonlySet<string> }) => void;
+  /**
+   * ⌘K のパネルが判断 (承認バー) を出している提案の id。その提案は紙面に浮かぶバーを出さない
+   * (1 つの提案に見える承認バーは 1 本)。
+   */
+  aiPanelDecisionProposalIds?: ReadonlySet<string>;
 }
 
 function AiPageCanvasEditorImpl(props: AiPageCanvasEditorProps) {
@@ -171,6 +176,7 @@ function AiEnabledPageCanvasEditor({
   documentWorkspaceId = null,
   onFocusAiSession,
   onAiResultOnlyTargetsChange,
+  aiPanelDecisionProposalIds = EMPTY_ID_SET,
   ...pageEditorProps
 }: AiPageCanvasEditorProps) {
   const documentShapes = useMemo(
@@ -198,6 +204,7 @@ function AiEnabledPageCanvasEditor({
     documentIdentityKey,
     documentWorkspaceId,
     onFocusSession: onFocusAiSession,
+    panelDecisionProposalIds: aiPanelDecisionProposalIds,
   });
   // 畳んだブロックと隠した図形は文書の変更口 (EditorShell) にも渡す。面のガード・図形の編集方針と同じ集合で断る。
   const resultOnlyTargets = useMemo(
@@ -259,6 +266,7 @@ interface UseAiPageCanvasExtensionOptions {
   documentIdentityKey?: string;
   documentWorkspaceId: string | null;
   onFocusSession?: AiPageCanvasEditorProps["onFocusAiSession"];
+  panelDecisionProposalIds: ReadonlySet<string>;
 }
 
 /** 提案が無いときに配り回す固定の空コレクション (identity を動かさないため)。 */
@@ -281,6 +289,7 @@ function useAiPageCanvasExtension({
   documentIdentityKey,
   documentWorkspaceId,
   onFocusSession,
+  panelDecisionProposalIds,
 }: UseAiPageCanvasExtensionOptions): {
   extension: PageCanvasEditorExtension;
   hiddenShapeIds: ReadonlySet<string>;
@@ -327,10 +336,11 @@ function useAiPageCanvasExtension({
     return keys;
   }, [previewCardsByTargetId]);
   // カードが 1 枚も無い提案 (図形だけ・本文を置ける場所が無い) は、紙面に浮かぶバーで決める。
-  // カードのある提案はカードのバー 1 本で決める (図形の変更があっても浮かべない)。
+  // カードのある提案はカードのバー 1 本で決める (図形の変更があっても浮かべない)。⌘K のパネルが
+  // 判断を出している間は、パネルのバー 1 本で決める。
   const floatingPreviewGroups = useMemo(
-    () => selectAiFloatingDecisionPreviews(previewGroups, previewsWithCards),
-    [previewGroups, previewsWithCards],
+    () => selectAiFloatingDecisionPreviews(previewGroups, previewsWithCards, panelDecisionProposalIds),
+    [panelDecisionProposalIds, previewGroups, previewsWithCards],
   );
   // 浮かぶバーの提案のうち、内容を人の編集と合成したもの (バーに一言を添える)。図形だけの提案も、
   // base を持てば合成のプレビューを作るので、人が直した図形があれば入る。提案ごとに覚えた結果を
@@ -573,13 +583,15 @@ function useAiPageCanvasExtension({
       };
       return { preview, conversationKey, displayState, summaryLines, request };
     });
+    // 選んだ図形の操作 (選択ポップオーバーと回転ハンドル) は覆わない。
     const placements = placeFloatingDecisionBars(floating.map((entry) => entry.request), {
       pageWidthPx: context.pageWidthPx,
+      pageHeightPx: context.pageHeightPx,
       pageStridePx: context.pageHeightPx + PAGE_GAP_PX,
       desiredWidthPx: OVERLAY_APPROVAL_WIDGET_WIDTH,
       gapPx: OVERLAY_APPROVAL_WIDGET_GAP,
       marginPx: OVERLAY_APPROVAL_WIDGET_MARGIN,
-    });
+    }, context.selectionControlsRect ? [context.selectionControlsRect] : []);
     const widgets = floating.map(({ preview, conversationKey, displayState, summaryLines }, index) => {
       const placement = placements[index];
       return (
@@ -1136,11 +1148,19 @@ export function countResultOnlyNotLaidOut(
   }
 }
 
+/**
+ * 紙面に浮かぶバーで決める提案: 紙面にカードが無く、⌘K のパネルも判断を出していないもの。1 つの提案に
+ * 見える承認バーは 1 本 (パネルを閉じれば紙面のバーに戻る)。
+ */
 export function selectAiFloatingDecisionPreviews(
   previewGroups: readonly AiEditPreviewState[],
   previewsWithCards: ReadonlySet<AiEditPreviewState>,
+  panelDecisionProposalIds: ReadonlySet<string>,
 ): AiEditPreviewState[] {
-  return previewGroups.filter((preview) => !previewsWithCards.has(preview));
+  return previewGroups.filter((preview) => (
+    !previewsWithCards.has(preview)
+    && !preview.proposalIds.some((proposalId) => panelDecisionProposalIds.has(proposalId))
+  ));
 }
 
 /** 浮かぶバーの高さの見積もりに使う寸法 (CSS の値に合わせる)。 */
@@ -1179,10 +1199,12 @@ export function estimateFloatingDecisionBarHeight({
   return Math.ceil(height);
 }
 
+type FloatingBarBounds = { x: number; y: number; w: number; h: number };
+
 export interface FloatingDecisionBarRequest {
   key: string;
   /** バーを添える図形の囲み (紙面の座標)。無ければ 1 ページ目の上端に置く。 */
-  bounds: { x: number; y: number; w: number; h: number } | null;
+  bounds: FloatingBarBounds | null;
   /** 横に収める範囲 (段組みの段など)。 */
   horizontalBounds: { left: number; right: number; width: number };
   heightPx: number;
@@ -1198,17 +1220,32 @@ export interface FloatingDecisionBarPlacement {
   width: number;
 }
 
+type FloatingBarRect = { left: number; right: number; top: number; bottom: number };
+
+const findOverlappingRect = (rect: FloatingBarRect, others: readonly FloatingBarRect[]) => others.find((other) => (
+  rect.left < other.right && other.left < rect.right && rect.top < other.bottom && other.top < rect.bottom
+));
+
 /**
  * 浮かぶバーを置く。図形の上に余白があれば上、無ければ下。図形が無ければ 1 ページ目の上端の右寄せ
  * (本文の先頭のブロックの選択ポップオーバーは中央に出るので、それと重ならない側)。
- * 先に置いたバーと重なるときは、見積もった高さで重ならないところまで (上に置くものは上へ、
- * 下に置くものは下へ) ずらす。
+ * 障害物 (選んだ図形の上に出る選択の操作) にかかる側は避けて反対側を先に試す。先に置いたバーか障害物と
+ * 重なるときは、見積もった高さで重ならないところまで (上に置くものは上へ、下に置くものは下へ) ずらす。
+ * ずらした先は図形のあるページに収める: 収まる側を選び、どちらも収まらなければページの中へ戻してから、
+ * 先に置いたバーと障害物に重ならないよう上か下へ積む (重ならず押せることを、ページに収めることより優先する)。
  */
 export function placeFloatingDecisionBars(
   requests: readonly FloatingDecisionBarRequest[],
-  frame: { pageWidthPx: number; pageStridePx: number; desiredWidthPx: number; gapPx: number; marginPx: number },
+  frame: { pageWidthPx: number; pageHeightPx: number; pageStridePx: number; desiredWidthPx: number; gapPx: number; marginPx: number },
+  obstacles: readonly FloatingBarBounds[] = [],
 ): FloatingDecisionBarPlacement[] {
-  const placedRects: Array<{ left: number; right: number; top: number; bottom: number }> = [];
+  const obstacleRects: FloatingBarRect[] = obstacles.map((obstacle) => ({
+    left: obstacle.x,
+    right: obstacle.x + obstacle.w,
+    top: obstacle.y,
+    bottom: obstacle.y + obstacle.h,
+  }));
+  const placedRects: FloatingBarRect[] = [];
   return requests.map((request) => {
     const { bounds, heightPx } = request;
     const horizontal = placeCenteredWidget(
@@ -1217,30 +1254,49 @@ export function placeFloatingDecisionBars(
       request.horizontalBounds,
       frame.marginPx,
     );
-    let placement: "above" | "below" = "below";
-    let top = frame.marginPx;
-    if (bounds) {
-      const pageTop = Math.max(0, Math.floor(bounds.y / frame.pageStridePx)) * frame.pageStridePx;
-      placement = bounds.y - pageTop >= heightPx + frame.gapPx ? "above" : "below";
-      top = placement === "above" ? bounds.y - frame.gapPx : bounds.y + bounds.h + frame.gapPx;
-    }
-    const rectAt = (nextTop: number) => ({
+    const rectAt = (side: "above" | "below", nextTop: number): FloatingBarRect => ({
       left: horizontal.center - horizontal.width / 2,
       right: horizontal.center + horizontal.width / 2,
-      top: placement === "above" ? nextTop - heightPx : nextTop,
-      bottom: placement === "above" ? nextTop : nextTop + heightPx,
+      top: side === "above" ? nextTop - heightPx : nextTop,
+      bottom: side === "above" ? nextTop : nextTop + heightPx,
     });
-    for (let attempt = 0; attempt <= placedRects.length; attempt += 1) {
-      const rect = rectAt(top);
-      const blocker = placedRects.find((other) => (
-        rect.left < other.right && other.left < rect.right && rect.top < other.bottom && other.top < rect.bottom
-      ));
-      if (!blocker) {
-        break;
+    const pageTop = bounds ? Math.max(0, Math.floor(bounds.y / frame.pageStridePx)) * frame.pageStridePx : 0;
+    const pageBottom = pageTop + frame.pageHeightPx;
+    const topOf = (side: "above" | "below") => (
+      !bounds ? frame.marginPx : side === "above" ? bounds.y - frame.gapPx : bounds.y + bounds.h + frame.gapPx
+    );
+    const sides: Array<"above" | "below"> = bounds && bounds.y - pageTop >= heightPx + frame.gapPx ? ["above", "below"] : ["below"];
+    const freeOfObstacles = (side: "above" | "below") => !findOverlappingRect(rectAt(side, topOf(side)), obstacleRects);
+    const blockers = [...obstacleRects, ...placedRects];
+    // `startTop` から、障害物と先に置いたバーに重ならないところまで上か下へ送る。
+    const pushPast = (side: "above" | "below", startTop: number, direction: "up" | "down") => {
+      let top = startTop;
+      for (let attempt = 0; attempt <= blockers.length; attempt += 1) {
+        const blocker = findOverlappingRect(rectAt(side, top), blockers);
+        if (!blocker) {
+          break;
+        }
+        const rectTop = direction === "up" ? blocker.top - FLOATING_BAR_STACK_GAP_PX - heightPx : blocker.bottom + FLOATING_BAR_STACK_GAP_PX;
+        top = side === "above" ? rectTop + heightPx : rectTop;
       }
-      top = placement === "above" ? blocker.top - FLOATING_BAR_STACK_GAP_PX : blocker.bottom + FLOATING_BAR_STACK_GAP_PX;
-    }
-    placedRects.push(rectAt(top));
+      return { side, top };
+    };
+    const onPage = ({ side, top }: { side: "above" | "below"; top: number }) => {
+      const rect = rectAt(side, top);
+      return rect.top >= pageTop && rect.bottom <= pageBottom;
+    };
+    const candidates = [...sides.filter(freeOfObstacles), ...sides.filter((side) => !freeOfObstacles(side))]
+      .map((side) => pushPast(side, topOf(side), side === "above" ? "up" : "down"));
+    // どの側もページに収まらなければ、最初の側をページの中へ戻し、そこから重ならないところまで上か下へ積む。
+    // ページに収まる向きを選び、どちらも収まらなければ下へ送る (ページの中より、重ならず押せることを優先)。
+    const fallback = candidates[0];
+    const lowest = fallback.side === "above" ? pageTop + heightPx : pageTop;
+    const highest = Math.max(lowest, fallback.side === "above" ? pageBottom : pageBottom - heightPx);
+    const stacked = (["up", "down"] as const).map((direction) => (
+      pushPast(fallback.side, Math.min(Math.max(fallback.top, lowest), highest), direction)
+    ));
+    const { side: placement, top } = candidates.find(onPage) ?? stacked.find(onPage) ?? stacked[1];
+    placedRects.push(rectAt(placement, top));
     return { key: request.key, placement, left: horizontal.center, top, width: horizontal.width };
   });
 }

@@ -23,6 +23,7 @@ import {
 } from "./AiPageCanvasEditor";
 import { deriveAiEditPreviewDiff } from "./model/preview";
 import { DEFAULT_AI_PROPOSAL_DISPLAY_STATE, type AiProposalDisplayState } from "./model/proposal-display-state";
+import { getOverlaySelectionControlsCanvasRect } from "@/components/editor/page-canvas/popover-anchors";
 import type { MeasuredBlock } from "@/features/drawing";
 import type { OverlayGeoShape, OverlayShape, OverlayTextShape } from "@/features/document";
 
@@ -353,7 +354,16 @@ describe("floating decision bars (proposals without a page card)", () => {
     expect(selectAiFloatingDecisionPreviews(
       [shapeOnly, mixedWithoutCard, layoutOnly, bodyWithCard, mixedWithCard],
       new Set([bodyWithCard, mixedWithCard]),
+      new Set(),
     )).toEqual([shapeOnly, mixedWithoutCard, layoutOnly]);
+  });
+
+  it("leaves out the proposal whose decision the ⌘K panel shows, and gives it back when the panel stops", () => {
+    const shown = withOps("p-shown", [], [shapeMove]);
+    const other = withOps("p-other", [], [shapeMove]);
+
+    expect(selectAiFloatingDecisionPreviews([shown, other], new Set(), new Set(["p-shown"]))).toEqual([other]);
+    expect(selectAiFloatingDecisionPreviews([shown, other], new Set(), new Set())).toEqual([shown, other]);
   });
 
   const frame = { pageWidthPx: 800, pageHeightPx: 1100, pageStridePx: 1124, desiredWidthPx: 320, gapPx: 8, marginPx: 12 };
@@ -392,6 +402,108 @@ describe("floating decision bars (proposals without a page card)", () => {
         expect(overlaps(rects[i], rects[j]), `${i} vs ${j}`).toBe(false);
       }
     }
+  });
+
+  // 選んだ図形の上に出る選択の操作 (ポップオーバーと回転ハンドルの帯)。
+  const selectionChrome = { x: 245, y: 320, w: 210, h: 80 };
+  const rectOfBounds = (bounds: { x: number; y: number; w: number; h: number }) => ({
+    left: bounds.x, right: bounds.x + bounds.w, top: bounds.y, bottom: bounds.y + bounds.h,
+  });
+
+  it("puts the bar below the shapes when the selection's controls take the space above", () => {
+    const [placement] = placeFloatingDecisionBars([
+      { key: "a", bounds: { x: 300, y: 400, w: 100, h: 50 }, horizontalBounds: page, heightPx: 80 },
+    ], frame, [selectionChrome]);
+
+    expect(placement).toMatchObject({ key: "a", placement: "below", left: 350, top: 458 });
+    expect(overlaps(rectOf(placement, 80), rectOfBounds(selectionChrome))).toBe(false);
+  });
+
+  it("keeps the bar above when the selection's controls are elsewhere", () => {
+    const [placement] = placeFloatingDecisionBars([
+      { key: "a", bounds: { x: 300, y: 400, w: 100, h: 50 }, horizontalBounds: page, heightPx: 80 },
+    ], frame, [{ x: 600, y: 320, w: 150, h: 80 }]);
+
+    expect(placement).toMatchObject({ placement: "above", top: 392 });
+  });
+
+  it("moves bars past the selection's controls and each other when both sides are taken", () => {
+    const requests = [
+      { key: "a", bounds: { x: 300, y: 400, w: 100, h: 50 }, horizontalBounds: page, heightPx: 80 },
+      { key: "b", bounds: { x: 300, y: 400, w: 100, h: 50 }, horizontalBounds: page, heightPx: 60 },
+    ];
+    const below = { x: 200, y: 450, w: 300, h: 40 };
+    const placements = placeFloatingDecisionBars(requests, frame, [selectionChrome, below]);
+    const rects = placements.map((placement, index) => rectOf(placement, requests[index].heightPx));
+
+    for (const [index, rect] of rects.entries()) {
+      expect(overlaps(rect, rectOfBounds(selectionChrome)), `${index} vs controls`).toBe(false);
+      expect(overlaps(rect, rectOfBounds(below)), `${index} vs below`).toBe(false);
+    }
+    expect(overlaps(rects[0], rects[1])).toBe(false);
+  });
+
+  it("keeps the bar on the page when a low shape near the page top has the selected shape's controls on both sides", () => {
+    // 見出しのような背の低い図形の上は 1 ページ目の上端。すぐ下の図形を選ぶと、その操作の帯が上下の両方にかかる。
+    const controls = { x: 245, y: 60, w: 210, h: 80 };
+    const [placement] = placeFloatingDecisionBars([
+      { key: "heading", bounds: { x: 300, y: 100, w: 100, h: 20 }, horizontalBounds: page, heightPx: 80 },
+    ], frame, [controls]);
+    const rect = rectOf(placement, 80);
+
+    expect(rect.top).toBeGreaterThanOrEqual(0);
+    expect(rect.bottom).toBeLessThanOrEqual(frame.pageHeightPx);
+    expect(overlaps(rect, rectOfBounds(controls))).toBe(false);
+  });
+
+  it("keeps the bar on the page near the page bottom instead of running into the gap or the next page", () => {
+    const shape = { x: 300, y: 1000, w: 100, h: 50 };
+    const placements = placeFloatingDecisionBars([
+      { key: "bottom", bounds: shape, horizontalBounds: page, heightPx: 80 },
+    ], frame, [{ x: 245, y: 920, w: 210, h: 80 }]);
+    const tall = placeFloatingDecisionBars([
+      { key: "tall", bounds: { x: 300, y: 20, w: 100, h: 1060 }, horizontalBounds: page, heightPx: 80 },
+    ], frame);
+
+    for (const placement of [...placements, ...tall]) {
+      const rect = rectOf(placement, 80);
+      expect(rect.top, placement.key).toBeGreaterThanOrEqual(0);
+      expect(rect.bottom, placement.key).toBeLessThanOrEqual(frame.pageHeightPx);
+    }
+    expect(overlaps(rectOf(placements[0], 80), rectOfBounds({ x: 245, y: 920, w: 210, h: 80 }))).toBe(false);
+  });
+
+  it("stacks bars that cannot fit on the page without covering each other or the selection's controls", () => {
+    // 上にも下にも余白が無い図形 (全面の枠など) の提案が 2 件。どちらもページの中へ戻すと同じ位置になる。
+    const fullPage = { x: 300, y: 20, w: 100, h: 1060 };
+    const requests = [
+      { key: "a", bounds: fullPage, horizontalBounds: page, heightPx: 80 },
+      { key: "b", bounds: fullPage, horizontalBounds: page, heightPx: 80 },
+    ];
+    const controls = { x: 245, y: 1000, w: 210, h: 80 };
+    for (const obstacles of [[], [controls]]) {
+      const rects = placeFloatingDecisionBars(requests, frame, obstacles).map((placement) => rectOf(placement, 80));
+
+      expect(overlaps(rects[0], rects[1]), `with ${obstacles.length} obstacles`).toBe(false);
+      for (const rect of rects) {
+        expect(rect.top).toBeGreaterThanOrEqual(0);
+        for (const obstacle of obstacles) {
+          expect(overlaps(rect, rectOfBounds(obstacle))).toBe(false);
+        }
+      }
+    }
+  });
+
+  it("leaves a bar inside a selected group where it is when it is outside the selection's controls", () => {
+    const member = (id: string, y: number) => ({ id, type: "geo", x: 300, y, props: { w: 100, h: 50, geo: "rectangle" } }) as unknown as OverlayShape;
+    // グループ (y 200〜900) を選んでいる。その中の y=700 の図形の提案のバーは、選択の操作の帯 (グループの上) の外。
+    const controls = getOverlaySelectionControlsCanvasRect(
+      { selectedCount: 2, selectedShapeIds: ["top", "bottom"], selectedShapes: [member("top", 200), member("bottom", 850)] } as never,
+      100,
+    )!;
+    const request = { key: "inner", bounds: { x: 300, y: 700, w: 100, h: 50 }, horizontalBounds: page, heightPx: 80 };
+
+    expect(placeFloatingDecisionBars([request], frame, [controls])).toEqual(placeFloatingDecisionBars([request], frame));
   });
 
   it("places a proposal with nothing to point at near the top right of the first page", () => {
