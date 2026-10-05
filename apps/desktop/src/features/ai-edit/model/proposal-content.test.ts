@@ -521,6 +521,17 @@ describe("collectPendingRemovedBlockIds (the red underlay on the page body)", ()
     expect(collectPendingRemovedBlockIds(cards).sort()).toEqual(["p1", "p_last"]);
   });
 
+  it("keeps the card of a multi-block deletion when the human already deleted its first block", () => {
+    const base = documentOf([paragraph("p1", "一"), paragraph("p2", "二"), paragraph("p3", "三"), paragraph("p_last", "最後")]);
+    const preview = previewOf([], [{ operation: "deleteBlocks", summary: "削除", blockIds: ["p1", "p2", "p3"] }]);
+    const current = { ...base, content: base.content.filter((block) => block.id !== "p1") };
+
+    const cards = groupPendingProposalContentByAnchor([preview], current);
+
+    expect([...cards.keys()]).toEqual(["p2"]);
+    expect(collectPendingRemovedBlockIds(cards)).toEqual(["p2", "p3"]);
+  });
+
   it("leaves out a block the AI deletes when the human's edit keeps it (an edit beats a delete)", () => {
     const base = baseDocument();
     const preview = mergeablePreviewOf(base, [replace("p1", "変更後")], [
