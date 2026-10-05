@@ -35,7 +35,7 @@ import {
 import { collectProposalRemovals } from "../model/proposal-content";
 import type { AiProposalPresentationState } from "../model/proposal-presentation-model";
 import { AI_APPLY_ADD_FLASH_MS, AI_APPLY_REMOVE_ANIMATION_MS } from "./proposal-feedback";
-import { countAdoptionMergeFallbacks, countProposalMergeFallbacks } from "./proposal-merge-metrics";
+import { countAdoptionMergeFallbacks, countProposalMergeFallbacks } from "@/lib/ai/proposal-merge-metrics";
 import {
   buildAiProposalApplyContext,
   deriveAiProposalApplyDecision,

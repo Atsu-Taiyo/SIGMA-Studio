@@ -23,7 +23,10 @@ import {
 import {
   assertAppliedProposalHasRealChanges,
   replayProposalDraft,
+  assertNoRepeatedContentIds,
+  ProposalReplayRepeatedIdError,
   replayProposalDraftMerging,
+  rewriteProposalDraftMerging,
 } from "./proposal-replay";
 
 function text(value: string): InlineNode {
@@ -740,6 +743,103 @@ describe("replayProposalDraftMerging", () => {
     replayProposalDraftMerging(current, draft, basis);
 
     expect({ draft, basis, current }).toEqual(snapshots);
+  });
+});
+
+describe("rewriteProposalDraftMerging (the merge for an owner that replays drafts itself)", () => {
+  const editAndDelete: AiEditSessionDraft = {
+    summary: "編集",
+    plan: ["編集"],
+    operations: [{ operation: "replace", summary: "a", targetId: "p_1", replacementBlock: paragraph("p_1", "The dog sat.") }],
+    mutationOperations: [
+      { operation: "deleteBlocks", summary: "d", blockIds: ["p_2"] },
+      { operation: "deleteBlocks", summary: "d", blockIds: ["p_3"] },
+    ],
+    operationOrder: [{ kind: "mutation", index: 0 }, { kind: "operation", index: 0 }, { kind: "mutation", index: 1 }],
+    warnings: [],
+  };
+  const base = documentOf([paragraph("p_1", "The cat sat."), paragraph("p_2", "two"), paragraph("p_3", "three")]);
+  const current = withParagraph(withParagraph(base, "p_1", "The big cat sat."), "p_2", "two by human");
+
+  it("hands the owner's replay the draft the approval's merge would replay, with the superseded operations dropped", () => {
+    const basis = computeProposalMergeBasis(editAndDelete, base);
+
+    const merged = rewriteProposalDraftMerging(current, editAndDelete, basis, (rewrite) => replayProposalDraft(current, rewrite.draft));
+
+    expect(withoutUpdatedAt(merged.result.nextDocument)).toEqual(withoutUpdatedAt(replayProposalDraftMerging(current, editAndDelete, basis).nextDocument));
+    expect(merged.rewrite.draft.mutationOperations).toEqual([editAndDelete.mutationOperations![1]]);
+    expect(merged.rewrite.draft.operationOrder).toEqual([{ kind: "operation", index: 0 }, { kind: "mutation", index: 0 }]);
+    expect([...merged.rewrite.operationIndexes]).toEqual([[0, 0]]);
+    expect([...merged.rewrite.mutationIndexes]).toEqual([[1, 0]]);
+    expect(merged.report.humanEditedUnits).toEqual(["p_1", "p_2"]);
+    expect(merged.report.editBeatsDelete).toEqual(["#p_2"]);
+  });
+
+  it("hands the draft unchanged and reports nothing when nobody edited what it overwrites", () => {
+    const basis = computeProposalMergeBasis(editAndDelete, base);
+
+    const merged = rewriteProposalDraftMerging(base, editAndDelete, basis, (rewrite) => rewrite);
+
+    expect(merged.rewrite.draft).toBe(editAndDelete);
+    expect(isProposalMergeQuiet(merged.report)).toBe(true);
+  });
+
+  /** The owner's replay: it cannot apply the merged p_1 (a merge failure, as the approval's replay error). */
+  const replayRejectingMergedP1 = (replays: AiEditSessionDraft[], error: () => Error) => (rewrite: { draft: AiEditSessionDraft }) => {
+    replays.push(rewrite.draft);
+    const p1 = rewrite.draft.operations[0];
+    if (p1 && "replacementBlock" in p1 && JSON.stringify(p1.replacementBlock).includes("big")) {
+      throw error();
+    }
+    return replayProposalDraft(current, rewrite.draft);
+  };
+
+  it("puts only the unit whose merged contents fail the owner's replay back on the AI's side, and counts it", () => {
+    const basis = computeProposalMergeBasis(editAndDelete, base);
+    const replays: AiEditSessionDraft[] = [];
+
+    const merged = rewriteProposalDraftMerging(current, editAndDelete, basis, replayRejectingMergedP1(replays, () => new ProposalReplayRepeatedIdError(["p_1"])));
+
+    expect(paragraphText(merged.result.nextDocument, "p_1")).toBe("The dog sat.");
+    expect(paragraphText(merged.result.nextDocument, "p_2")).toBe("two by human");
+    expect(merged.report.invalidAfterMerge).toBe(1);
+    expect(replays.length).toBeGreaterThan(1);
+  });
+
+  it("with \"throw\", replays nothing on the AI's side: the owner's replay error comes back as it is", () => {
+    const basis = computeProposalMergeBasis(editAndDelete, base);
+    const replays: AiEditSessionDraft[] = [];
+    const rejection = new Error("the owner cannot apply the merged p_1");
+
+    expect(() => rewriteProposalDraftMerging(current, editAndDelete, basis, replayRejectingMergedP1(replays, () => rejection), "throw"))
+      .toThrow(rejection);
+    expect(replays).toHaveLength(1);
+  });
+
+  it("with \"throw\", stops on a unit whose merged contents fail validation instead of replaying the AI's version", () => {
+    const box = (blocks: ParagraphNode[]): BoxBlockNode => ({ type: "boxBlock", id: "box", styleId: "plain", blocks });
+    const boxBase = documentOf([box([paragraph("c", "c"), paragraph("d", "d")]), paragraph("tail", "tail")]);
+    const draft = replaceDraft(box([paragraph("c", "c by AI"), paragraph("d", "d")]));
+    const basis = computeProposalMergeBasis(draft, boxBase);
+    // The person moves c out of the box: the merge (edit beats delete) would keep c in the box as well.
+    const moved = documentOf([box([paragraph("d", "d")]), paragraph("tail", "tail"), paragraph("c", "c")]);
+    let replayed = false;
+
+    expect(() => rewriteProposalDraftMerging(moved, draft, basis, () => { replayed = true; }, "throw"))
+      .toThrow(expect.objectContaining({ name: "ProposalMergeValidationError", ids: ["box"] }));
+    expect(replayed).toBe(false);
+    // The approval's rule replays the AI's box instead and counts it.
+    expect(rewriteProposalDraftMerging(moved, draft, basis, (rewrite) => rewrite).report.invalidAfterMerge).toBe(1);
+  });
+});
+
+describe("assertNoRepeatedContentIds", () => {
+  it("rejects a replay that leaves an id more often than before, and keeps what the document already repeats", () => {
+    const before = documentOf([paragraph("p_1", "one"), paragraph("p_2", "two")]);
+
+    expect(() => assertNoRepeatedContentIds(before, documentOf([paragraph("p_1", "one"), paragraph("p_2", "two"), paragraph("p_3", "new")]))).not.toThrow();
+    expect(() => assertNoRepeatedContentIds(before, { ...before, content: [...before.content, paragraph("p_1", "copy")] }))
+      .toThrow(expect.objectContaining({ name: "ProposalReplayRepeatedIdError", ids: ["p_1"] }));
   });
 });
 

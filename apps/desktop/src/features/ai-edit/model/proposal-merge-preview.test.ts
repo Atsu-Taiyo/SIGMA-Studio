@@ -202,6 +202,71 @@ describe("resolveProposalMergePreview", () => {
     expect(resolveProposalMergePreview(current, preview)).toEqual({ afterDocument: null, humanEditedUnits: [] });
   });
 
+  it("shows a draft its owner already merged as it is, with the owner's merged units (WebMCP)", () => {
+    const current = documentOf([paragraph("p_1", HUMAN_TEXT)]);
+    // WebMCP の再生が書き換えた draft: 人の編集と AI の変更を合わせた内容がすでに入っている。
+    const ownerMerged = (units?: readonly string[]): AiEditPreviewState => ({
+      targetId: "p_1",
+      draft: replaceDraft("p_1", MERGED_TEXT),
+      createdAt: 0,
+      proposalIds: ["webmcp_single_draft"],
+      baseRevision: 0,
+      providers: ["chatgpt"],
+      lockTargets: false,
+      ...(units ? { ownerMergedHumanEditedUnits: units } : {}),
+    });
+    const counted: string[] = [];
+
+    const merged = resolveProposalMergePreview(current, ownerMerged(["p_1"]), { count: (name) => counted.push(name) });
+    const card = groupPendingProposalContentByAnchor([ownerMerged(["p_1"])], current).get("p_1")?.[0];
+
+    expect(paragraphText(findBlock(merged.afterDocument!, "p_1"))).toBe(MERGED_TEXT);
+    expect(merged.humanEditedUnits).toEqual(["p_1"]);
+    expect(card?.mergedWithHumanEdits).toBe(true);
+    expect(counted).toEqual([]);
+    expect(resolveProposalMergePreview(current, ownerMerged()).humanEditedUnits).toEqual([]);
+  });
+
+  it("reports the owner's merged units for a shapes-only draft too (the floating bar's notice)", () => {
+    const shape = { id: "shape_1", type: "geo", x: 90, y: 40, props: { w: 80, h: 40, geo: "rectangle", fill: "none", color: "#111111", labelColor: "#111111", dash: "solid", size: "m" } };
+    const current = { ...documentOf([paragraph("p_1", BASE_TEXT)]), pageLayout: { overlay: { overlaySnapshot: { version: 1, shapes: [shape], assets: {} } } } } as unknown as SigmaDocument;
+    const draft: AiEditSessionDraft = {
+      summary: "色",
+      plan: [],
+      operations: [],
+      mutationOperations: [{ operation: "updateOverlayShape", summary: "色", shapeId: "shape_1", patch: { props: { color: "#dc2626" } } } as SigmaDocMutationOp],
+      warnings: [],
+    };
+    const preview: AiEditPreviewState = { targetId: "shape_1", draft, createdAt: 0, proposalIds: ["webmcp_single_draft"], baseRevision: 0, providers: ["chatgpt"], lockTargets: false };
+
+    expect(resolveProposalMergePreview(current, preview)).toEqual({ afterDocument: null, humanEditedUnits: [] });
+    const merged = resolveProposalMergePreview(current, { ...preview, ownerMergedHumanEditedUnits: ["shape_1"] });
+    expect(merged.humanEditedUnits).toEqual(["shape_1"]);
+    expect(merged.afterDocument?.pageLayout?.overlay?.overlaySnapshot?.shapes).toEqual([
+      expect.objectContaining({ id: "shape_1", x: 90, props: expect.objectContaining({ color: "#dc2626" }) }),
+    ]);
+  });
+
+  it("shows the current document when the owner's merge left nothing to apply (the human edited everything it deletes)", () => {
+    const current = documentOf([paragraph("p_1", BASE_TEXT), paragraph("p_2", "人が直した段落")]);
+    const emptied: AiEditPreviewState = {
+      targetId: "p_2",
+      draft: { summary: "削除", plan: [], operations: [], mutationOperations: [], warnings: [] },
+      createdAt: 0,
+      proposalIds: ["webmcp_single_draft"],
+      baseRevision: 0,
+      providers: ["chatgpt"],
+      lockTargets: false,
+      ownerMergedHumanEditedUnits: ["p_2"],
+    };
+    const counted: string[] = [];
+
+    const merged = resolveProposalMergePreview(current, emptied, { count: (name) => counted.push(name) });
+
+    expect(merged).toEqual({ afterDocument: current, humanEditedUnits: ["p_2"] });
+    expect(counted).toEqual([]);
+  });
+
   it("does not show a block the AI deletes as removed when the human's edit keeps it", () => {
     const base = documentOf([paragraph("p_1", "前"), paragraph("p_2", "消される段落"), paragraph("p_3", "後")]);
     const draft: AiEditSessionDraft = {

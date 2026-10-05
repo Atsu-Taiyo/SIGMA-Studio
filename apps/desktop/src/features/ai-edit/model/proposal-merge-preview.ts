@@ -29,6 +29,9 @@ import { hasBodyAiEditChanges, type AiEditPreviewState } from "./preview";
  *   単位はこの結果から読む。base を持たない図形だけの提案は使わないので replay しない。
  * - 図形の変更は 250ms 遅れて文書に入る (overlay の debounce)。プレビューはその後の文書で更新され、
  *   承認は直前に flush するので、承認の内容とは食い違わない。
+ * - 持ち主が draft をすでに合成している提案 (WebMCP、`ownerMergedHumanEditedUnits`) は、draft をそのまま
+ *   今の文書へ当てた内容を見せ、人の編集を取り込んだ単位は持ち主の報告をそのまま返す (合成し直すと持ち主の
+ *   適用と別の規則で作ることになる)。
  */
 export interface AiProposalMergePreview {
   /** 承認したら保存される文書 (今の文書に提案を replay した結果)。使わない・適用できないときは `null`。 */
@@ -85,7 +88,7 @@ export function resolveProposalMergePreview(
   preview: AiEditPreviewState,
   options: ResolveProposalMergePreviewOptions = {},
 ): AiProposalMergePreview {
-  if (!hasBodyAiEditChanges(preview) && !preview.mergeSources?.length) {
+  if (!hasBodyAiEditChanges(preview) && !preview.mergeSources?.length && !preview.ownerMergedHumanEditedUnits?.length) {
     return NO_PREVIEW;
   }
   const cached = previewCache.get(preview);
@@ -161,8 +164,16 @@ function computeMergePreview(
     fallbacks.push(AI_PROPOSAL_PREVIEW_COUNTERS.fallback);
   }
   try {
+    // 持ち主の合成が操作を全部落とした draft (人が直した対象を消すだけの提案など) は、承認しても今の文書の
+    // まま (承認の合成 replay と同じ: `replayRewrittenDraft`)。
+    const ownerMergedAway = preview.ownerMergedHumanEditedUnits !== undefined
+      && preview.draft.operations.length === 0
+      && (preview.draft.mutationOperations?.length ?? 0) === 0;
     return {
-      result: { afterDocument: createAiEditSessionDocumentDraft(current, null, preview.draft).nextDocument, humanEditedUnits: [] },
+      result: {
+        afterDocument: ownerMergedAway ? current : createAiEditSessionDocumentDraft(current, null, preview.draft).nextDocument,
+        humanEditedUnits: preview.ownerMergedHumanEditedUnits ?? [],
+      },
       fallbacks,
     };
   } catch {
