@@ -1,3 +1,4 @@
+import { createOverlayPayloadFromClipboard } from "@/components/editor/overlay-canvas/clipboard-overlay-payload";
 import type { SigmaBlock } from "@/features/document";
 import {
   cloneDocumentBlocksForPaste,
@@ -5,6 +6,8 @@ import {
   createDocumentBlocksClipboardPayload,
   createInlineMathClipboardPayload,
   createTextFlowClipboardPayload,
+  EDITOR_CLIPBOARD_MIME,
+  EDITOR_TEXT_SLICE_MIME,
   getLocalEditorClipboardPayload,
   isTextFlowClipboardBlock,
   readEditorClipboardPayload,
@@ -29,7 +32,17 @@ interface EditorClipboardPorts {
   getSelectedBlock: () => SigmaBlock | null;
   isMaterialEditing: () => boolean;
   insertBlocks: (paste: BlockPaste) => void;
-  pasteShapes: (payload: Extract<EditorClipboardPayload, { kind: "overlayShapes" }>) => void;
+  pasteShapes: (
+    payload: Extract<EditorClipboardPayload, { kind: "overlayShapes" }>,
+    options?: { centerAt?: { x: number; y: number }; unbounded?: boolean },
+  ) => void;
+  /**
+   * 本文を持たない紙面 (ホワイトボード) か。本文のコピー (問題・文章・数式) は貼る場所が無いので、
+   * テキスト部分だけを文章の図形にして貼る。
+   */
+  bodyless?: boolean;
+  /** 本文を持たない紙面で、貼った文章の図形の中心にする場所 (見えている範囲の中央)。 */
+  getBodylessPasteCenter?: () => { x: number; y: number } | null;
   setCanPasteProblem: (canPaste: boolean) => void;
   setStatusMessage: (message: string) => void;
   translate: Translate<"editor">;
@@ -74,6 +87,42 @@ export function registerEditorClipboardEvents(ports: EditorClipboardPorts): () =
     setStatusMessage(block.type === "problem" ? t("status.problemCopied") : t("status.bodyBlockCopied"));
   };
 
+  /**
+   * ホワイトボードへの本文のコピーの貼り付け。問題・本文ブロック・数式は、番号や枠は持たせず、
+   * 含んでいる文章だけを文章の図形 (オーバーレイ) にして、見えている範囲の中央へ置く。
+   * 編集中の入力欄・本文・ダイアログへの貼り付けは、そちらに任せる。
+   */
+  const pasteBodyTextAsShape = (event: ClipboardEvent): boolean => {
+    const data = event.clipboardData;
+    if (
+      !ports.bodyless || !data || ports.isMaterialEditing()
+      || isNativeClipboardTarget(event.target) || isPlainTextClipboardTarget(event.target)
+      || (event.target instanceof Element && event.target.closest('[role="dialog"]'))
+    ) {
+      return false;
+    }
+    const payload = readEditorClipboardPayload(data);
+    if (payload?.kind !== "textFlowBlocks" && payload?.kind !== "documentBlocks" && payload?.kind !== "inlineMath") {
+      return false;
+    }
+    const overlayPayload = createOverlayPayloadFromClipboard({
+      [EDITOR_CLIPBOARD_MIME]: data.getData(EDITOR_CLIPBOARD_MIME),
+      [EDITOR_TEXT_SLICE_MIME]: data.getData(EDITOR_TEXT_SLICE_MIME),
+      "text/html": data.getData("text/html"),
+      "text/plain": data.getData("text/plain"),
+    });
+    if (!overlayPayload) {
+      return false;
+    }
+    const centerAt = ports.getBodylessPasteCenter?.() ?? undefined;
+    event.preventDefault();
+    event.stopPropagation();
+    // ホワイトボードは、パンで原点より左上も見えるので、見えている中央へ置くときは紙の範囲へ押し戻さない。
+    ports.pasteShapes(overlayPayload, centerAt ? { centerAt, unbounded: true } : undefined);
+    setStatusMessage(t("status.bodyPastedAsTextShape"));
+    return true;
+  };
+
   const handlePaste = (event: ClipboardEvent) => {
     if (event.clipboardData && !ports.isMaterialEditing() && !isPlainTextClipboardTarget(event.target)
       && !(event.target instanceof Element && event.target.closest('[role="dialog"]'))
@@ -81,6 +130,9 @@ export function registerEditorClipboardEvents(ports: EditorClipboardPorts): () =
       && ports.pasteTikz?.(event.clipboardData.getData("text/plain"))) {
       event.preventDefault();
       event.stopImmediatePropagation();
+      return;
+    }
+    if (pasteBodyTextAsShape(event)) {
       return;
     }
     if (overlayEditing || !event.clipboardData) {

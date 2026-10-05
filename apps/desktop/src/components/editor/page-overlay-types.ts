@@ -187,6 +187,10 @@ export type OverlayActionRequestInput =
       anchorBlockIdMap?: Record<string, string>;
       /** 本文と 1 つの undo エントリに畳むためのコアレスキー。 */
       historyGroup?: string;
+      /** 貼り付けた図形全体の中心を置く紙面の座標 (ドロップ・ホワイトボードへの挿入)。 */
+      centerAt?: { x: number; y: number };
+      /** 紙のサイズへ押し戻さない (ホワイトボード。パンで見えている負の座標へも置ける)。 */
+      unbounded?: boolean;
     };
 
 export type OverlayActionRequest = OverlayActionRequestInput & { id: number };

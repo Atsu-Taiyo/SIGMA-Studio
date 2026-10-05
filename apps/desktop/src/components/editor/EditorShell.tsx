@@ -162,6 +162,7 @@ import { Tooltip } from "@/components/ui/Tooltip";
 import {
 closeRightDock
 } from "@/features/right-dock/model/right-dock-state";
+import { POCKET_PAGE_DROP, usePocketPageHost } from "@/components/editor/editor-shell/use-pocket-page-host";
 import { PocketBar, usePocketPhase } from "@/features/pocket";
 import { FilesPanel } from "@/features/right-dock/view/FilesPanel";
 import { RightDockToggle } from "@/features/right-dock/view/RightDock";
@@ -2319,6 +2320,18 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
     },
   });
 
+  // ホワイトボードの見えている範囲の中央 (カメラを引いた座標)。ポケットのクリック挿入と、
+  // ホワイトボードへの本文のコピーの貼り付けで、文章の図形を置く場所に使う。
+  const getWhiteboardViewportCenter = useCallback(() => {
+    const viewport = window.document.querySelector<HTMLElement>(".whiteboard-page-canvas");
+    if (!viewport) {
+      return null;
+    }
+    const { zoom: currentZoom, whiteboardPan: pan } = editorStore.getState();
+    const scale = Math.max(0.01, currentZoom / 100);
+    return { x: (viewport.clientWidth / 2 - pan.panX) / scale, y: (viewport.clientHeight / 2 - pan.panY) / scale };
+  }, [editorStore]);
+
   useEffect(() => registerEditorClipboardEvents({
     pasteTikz: tikzEditor.pasteTikz,
     overlayEditing,
@@ -2336,14 +2349,22 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
       setSelectedId(nextSelectedId);
       setSelectedInlineMath(null);
     },
-    pasteShapes: (payload) => {
+    pasteShapes: (payload, options) => {
       overlayActionRequestIdRef.current += 1;
-      setOverlayActionRequest({ id: overlayActionRequestIdRef.current, type: "pasteShapes", payload });
+      setOverlayActionRequest({
+        id: overlayActionRequestIdRef.current,
+        type: "pasteShapes",
+        payload,
+        centerAt: options?.centerAt,
+        unbounded: options?.unbounded,
+      });
     },
+    bodyless: isWhiteboardDocument,
+    getBodylessPasteCenter: getWhiteboardViewportCenter,
     setCanPasteProblem,
     setStatusMessage,
     translate: tEditor,
-  }), [tikzEditor.pasteTikz, materialEditingOpenRef, commitDocumentChange, overlayEditing, selectedInlineMath, setSelectedId, setSelectedInlineMath, setStatusMessage]);
+  }), [tikzEditor.pasteTikz, materialEditingOpenRef, commitDocumentChange, overlayEditing, selectedInlineMath, setSelectedId, setSelectedInlineMath, setStatusMessage, isWhiteboardDocument, getWhiteboardViewportCenter]);
 
   // 画面のアウトラインは表示言語で引く (`t` を省略すると `collectOutline` の既定 =
   // 日本語になる。既定が日本語なのは AI / MCP の呼び出しを固定するため)。
@@ -2988,6 +3009,12 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
       ...request,
     } as OverlayActionRequest);
   }, []);
+  // ポケットの項目を紙面へ置く窓口。ホワイトボードは本文が無いので、本文のコピーも文章の図形として置く。
+  usePocketPageHost({
+    bodyless: isWhiteboardDocument,
+    getViewportCenter: getWhiteboardViewportCenter,
+    requestOverlayAction,
+  });
   // 選択の近くに出す編集操作。中身は SelectionToolbarProvider 越しに読むので identity は不変でよい。
   const selectionToolbarExtension = useMemo(() => createSelectionToolbarExtension(), []);
 
@@ -4771,6 +4798,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
             suppressSelectionActions={aiDisplayMode === "inline" && aiInlineOpen}
             renderSelectionActions={renderSelectionActions ? anchor => renderSelectionActions({ fileId: activeFileId, document, metadata: activeDocumentMetadata ?? undefined, anchor }) : undefined}
             selectionTools={selectionToolbarExtension}
+            externalDrop={POCKET_PAGE_DROP}
             pinAiTextSelectionReference={isDesktopApp && pinAiTextSelectionReference}
             onInlineRunPortalReady={handleInlineRunPortalReady}
             documentIdentityKey={activeFileId}
