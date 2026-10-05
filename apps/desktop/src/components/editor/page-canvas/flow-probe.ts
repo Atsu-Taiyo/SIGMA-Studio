@@ -162,7 +162,11 @@ export function probeFlow(flow: HTMLElement, options: FlowProbeOptions): ProbeTr
     const domRect = element.getBoundingClientRect();
     // 描かれていない本文ノード (display: none で畳んだブロック) は行を持たない。0 の矩形から変位を
     // 引くと負の位置の行になる。高さ 0 で描かれた要素は矩形を持つので測る (`isUndrawnElement`)。
-    if (isUndrawnElement(element, domRect)) return null;
+    // 先に見つけた方が勝つ規則は保つ (後の同じ id の要素をそのノードとして測らない)。
+    if (isUndrawnElement(element, domRect)) {
+      seenNodeIds.add(id);
+      return null;
+    }
     const own = readFlowDisplacement(element);
     const acc = { dx: unitAcc.dx + own.dx, dy: unitAcc.dy + own.dy };
     const rect = toRect(domRect, acc);
