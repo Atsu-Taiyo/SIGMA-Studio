@@ -4,11 +4,13 @@ import { normalizeOverlaySnapshot, type SigmaDocument } from "@/features/documen
 import { rewriteAiOverlayShapeReplacementDrafts } from "@/lib/ai/overlay-shape-replacement";
 import type { AiEditSessionDraft } from "@/lib/ai/sigma-doc-edit-schema";
 import {
+  blockContainsId,
   collectNonMergeableTargets,
   createEmptyProposalMergeReport,
   usableProposalMergeBasis,
   type ProposalMergeReport,
 } from "@/lib/ai/proposal-merge-basis";
+import { findBlock } from "@/lib/document-tree";
 import { computeDocumentBlockHashes } from "@/lib/sigma-doc-block-hash";
 import type { CollaborationSessions } from "./sessions";
 import { readSharedProposal } from "./proposal-context";
@@ -26,6 +28,14 @@ import {
   type SharedApproval,
 } from "../../src/features/collaboration/model/approval";
 import { stableValue, type ObjectValue } from "../../src/features/collaboration/model/value";
+
+/**
+ * The last approval sent for a group of pending proposals (main-process memory, by file and proposal
+ * versions), until it is answered. A rewritten approval's operation id follows the document it was
+ * merged on, which the approval itself changes, so a retry after a lost answer must not merge again.
+ * After a restart this is gone: such a retry then merges again (and stops on the AI's own inserted ids).
+ */
+const sentApprovals = new Map<string, { before: SigmaDocument; prepared: PreparedApproval }>();
 
 /** What the approval uses of the shared session. */
 export type SharedProposalSessions = Pick<
@@ -74,23 +84,41 @@ export function createSharedProposalApprover(
               ),
             ),
           );
-          // This window's projection only catches up with the other participants on an online
-          // flush; the merge and the rebuilt preconditions must read what the server holds now.
-          await sessions.flush(fileId, true);
-          const before = sessions.project(fileId)!;
-          const prepared = records.some(hasMergeBasis)
-            ? await prepareMergedApproval(before, records, envelopes)
-            : prepareRecordedApproval(records, envelopes);
+          const approvalIds = proposals.map((proposal) => proposal.proposalId);
+          const sentKey = [fileId, ...records.map((proposal) => `${proposal.proposalId}@${proposal.updatedAt}`).sort()].join("\0");
+          // A retry first sends again what was sent for these proposals: the server answers an operation it
+          // applied (and whose answer was lost) from its receipt, before checking anything. Only when the
+          // server refuses it (the document moved on) is the approval merged again.
+          let sent = sentApprovals.get(sentKey);
           let accepted: { seq: number } | undefined;
-          let document = before;
-          if (prepared.approval) {
-            accepted = await sessions.approve(
-              fileId,
-              prepared.approval,
-              proposals.map((proposal) => proposal.proposalId),
-            );
-            document = sessions.project(fileId)!;
+          if (sent) {
+            try {
+              accepted = await sessions.approve(fileId, sent.prepared.approval!, approvalIds);
+            } catch (error) {
+              if (!/PROPOSAL_CONFLICT|MISSING_PRECONDITION/.test(String(error))) throw error;
+              sentApprovals.delete(sentKey);
+              sent = undefined;
+            }
           }
+          if (!sent) {
+            // This window's projection only catches up with the other participants on an online
+            // flush; the merge and the rebuilt preconditions must read what the server holds now.
+            await sessions.flush(fileId, true);
+            const before = sessions.project(fileId)!;
+            sent = {
+              before,
+              prepared: records.some(hasMergeBasis)
+                ? await prepareMergedApproval(before, records, envelopes)
+                : prepareRecordedApproval(records, envelopes),
+            };
+            if (sent.prepared.approval) {
+              sentApprovals.set(sentKey, sent);
+              accepted = await sessions.approve(fileId, sent.prepared.approval, approvalIds);
+            }
+          }
+          sentApprovals.delete(sentKey);
+          const { before, prepared } = sent;
+          const document = accepted ? sessions.project(fileId)! : before;
           // The merged proposals first, so a group is resolved with its replayed member's report.
           let resolved = proposals[0];
           for (const proposalId of new Set([
@@ -260,8 +288,25 @@ function rebuildPreconditions(
       ...collectRequiredInsertAnchorBlockIds(draft),
     ]),
   ].filter((id) => !keptIds.has(id)));
+  const recorded = envelopes.flatMap((envelope) => envelope.preconditions);
+  // A block's hash covers everything nested in it, so a recorded block that holds a merged block or
+  // lies inside one (now or in the unit's base snapshot) is checked as merged too: the AI read the
+  // problem holding the paragraph it rewrote, or the paragraphs of the problem it rewrote. Shapes do
+  // not nest in hashes (a group's members and anchored shapes are shapes of their own, and a merged
+  // shape is never one of those: `collectNonMergeableTargets` keeps them).
+  const mergedBlocks = proposals.flatMap((proposal) => Object.entries(usableProposalMergeBasis(proposal.mergeBasis)?.entities ?? {}))
+    .flatMap(([id, entity]) => (entity.kind === "block" && mergedIds.has(id) ? [entity.value] : []))
+    .concat([...mergedIds].flatMap((id) => findBlock(current, id) ?? []));
+  for (const { id } of recorded) {
+    const block = keptIds.has(id) || mergedIds.has(id) ? null : findBlock(current, id);
+    if (
+      !keptIds.has(id)
+      && mergedBlocks.some((merged) => blockContainsId(current, merged, id) || (block !== null && blockContainsId(current, block, merged.id)))
+    )
+      mergedIds.add(id);
+  }
   const conditions = new Map<string, ReadPrecondition>();
-  for (const condition of envelopes.flatMap((envelope) => envelope.preconditions)) {
+  for (const condition of recorded) {
     if (mergedIds.has(condition.id)) continue;
     if ((conditions.get(condition.id)?.hash ?? condition.hash) !== condition.hash)
       throw new Error("PROPOSAL_CONFLICT");

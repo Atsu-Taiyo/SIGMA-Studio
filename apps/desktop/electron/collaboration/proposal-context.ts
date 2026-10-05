@@ -205,6 +205,34 @@ export async function captureSharedProposal(
   await fs.mkdir(path.dirname(file), { recursive: true, mode: 0o700 });
   await durableWrite(file, JSON.stringify({ draftHash, approval }));
 }
+/** A proposal's shared approval record as stored, or null when it has none (not a shared document). */
+export async function readSharedApprovalRecord(
+  userData: string,
+  proposalId: string,
+): Promise<string | null> {
+  try {
+    return await fs.readFile(approvalFile(userData, proposalId), "utf8");
+  } catch (error) {
+    if (
+      error &&
+      typeof error === "object" &&
+      "code" in error &&
+      error.code === "ENOENT"
+    )
+      return null;
+    throw error;
+  }
+}
+/** Puts back a record read with `readSharedApprovalRecord` (a rolled-back proposal's, unchanged). */
+export async function restoreSharedApprovalRecord(
+  userData: string,
+  proposalId: string,
+  record: string,
+): Promise<void> {
+  const file = approvalFile(userData, proposalId);
+  await fs.mkdir(path.dirname(file), { recursive: true, mode: 0o700 });
+  await durableWrite(file, record);
+}
 export async function readSharedProposal(
   userData: string,
   proposalId: string,
