@@ -26,11 +26,13 @@ import { TextRunSelectionOverlay } from "@/components/editor/text-flow/TextRunSe
 import {
   REQUEST_BOX_SETTINGS_EVENT,
   REQUEST_TEXT_PAGE_BREAK_EVENT,
+  type TextFlowBoundaryDeleteOutcome,
   type TextFlowBoundaryDeleteRequest,
   type TextFlowChangeContext,
   type TextFlowMaterialInsertRequest,
   type TextPageBreakRequestDetail,
 } from "@/components/editor/TextFlowEditor";
+import { findHiddenBoundaryDeleteBlockId } from "@/components/editor/page-canvas/boundary-delete-guard";
 import {
   BLOCK_SPACE_AFTER_FOLLOWER_CLASS,
   blockSpaceAfterPx,
@@ -576,6 +578,11 @@ const {
     return { extensionContentByNodeId: byNodeId, extensionMeasureKey: keys.join("\u0001") };
   }, [inlineContentByTargetId]);
   const textFlowChangeDecorationState = pageExtension?.textFlowChangeDecorationState;
+  // 畳んだブロック (`collapsedIds`) は境界の削除から読む。イベントの時点の値を ref で引く。
+  const collapsedBlockIdsRef = useRef(textFlowChangeDecorationState?.collapsedIds);
+  useLayoutEffect(() => {
+    collapsedBlockIdsRef.current = textFlowChangeDecorationState?.collapsedIds;
+  }, [textFlowChangeDecorationState]);
   const overlayShapeClassNames = pageExtension?.overlayShapeClassNames;
   const resolveOverlayPresentation = pageExtension?.resolveOverlayPresentation;
   const featureSelectionExtension = pageExtension?.selection;
@@ -2158,10 +2165,16 @@ const { candidateCommentTop, pendingCommentTop, commentThreadPositions } = usePa
 
   }, [horizontalMarginEditPageNumber, runningRegionEditKind, setHorizontalMarginEditPageNumber, setRunningRegionEditKind, setRunningRegionOverlayEditing]);
 
-  const handleTextFlowBoundaryDelete = useCallback((request: TextFlowBoundaryDeleteRequest) => {
+  const handleTextFlowBoundaryDelete = useCallback((request: TextFlowBoundaryDeleteRequest): TextFlowBoundaryDeleteOutcome => {
     const deletion = resolveTextFlowBoundaryDelete(pageContentRef.current, request);
     if (!deletion) {
       return false;
+    }
+    // 面をまたぐ結合・削除は面のガードを通らない。畳んだ (描かれていない) ブロックを書き換える・その中へ
+    // キャレットを置く変更は、ここで断ってガードの案内を出す (文書の変更口も同じ集合で断る)。
+    const hiddenBlockId = findHiddenBoundaryDeleteBlockId(deletion, collapsedBlockIdsRef.current);
+    if (hiddenBlockId) {
+      return { blockedBlockId: hiddenBlockId };
     }
 
     if (deletion.previousIds.length > 0 || deletion.nextBlocks.length > 0) {

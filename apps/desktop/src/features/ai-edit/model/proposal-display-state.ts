@@ -103,9 +103,11 @@ export function readAiProposalCardDisplayState(
 }
 
 /**
- * 紙面のカードの 1 回の操作を、場所ごとの書き換えに分ける。適用後だけにしたら、同じ提案のどのカードも
- * 内容を隠さない (畳んだ本文と隠した内容が両方消えると、適用前でも適用後でもない姿になる)。
- * 規則はここ 1 か所に置き、カードが自分で状態を持つとき (`applyAiProposalCardDisplayPatch`) も同じものを通す。
+ * 紙面のカードの 1 回の操作を、場所ごとの書き換えに分ける。「適用後だけ」と「内容を隠す」は排他:
+ * 適用後だけにしたら同じ提案のどのカードも内容を隠さず、どれかのカードの内容を隠したらその提案の
+ * 適用後だけを解除する (畳んだ本文と隠した内容が両方消えると、適用前でも適用後でもない姿になる)。
+ * カード・本文・図形はどれもこの 1 つの状態 (`afterOnly`) を読む。規則はここ 1 か所に置き、カードが
+ * 自分で状態を持つとき (`applyAiProposalCardDisplayPatch`) も同じものを通す。
  */
 export function routeAiProposalCardDisplayPatch(
   patch: DisplayPatch,
@@ -123,6 +125,9 @@ export function routeAiProposalCardDisplayPatch(
     }
   };
   add(keys.conversationKey, conversationPatch);
+  if (patch.contentHidden === true) {
+    add(keys.conversationKey, { afterOnly: false });
+  }
   if (patch.afterOnly === true) {
     for (const cardKey of keys.conversationCardKeys) {
       add(cardKey, { contentHidden: false });
@@ -140,13 +145,6 @@ export function applyAiProposalCardDisplayPatch(state: AiProposalDisplayState, p
     (next, [, part]) => ({ ...next, ...part }),
     state,
   );
-}
-
-/**
- * 適用後の姿を紙面に組んでいるか: 適用後だけを選び、内容を隠していない。内容を隠したカードは本文を畳まない。
- */
-export function showsAiProposalResultOnly(state: Pick<AiProposalDisplayState, "afterOnly" | "contentHidden">): boolean {
-  return state.afterOnly && !state.contentHidden;
 }
 
 /**

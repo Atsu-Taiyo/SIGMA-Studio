@@ -6,7 +6,9 @@ import type { AiProposalAnchorCard, AiProposalContentHunk } from "./model/propos
 import {
   AI_PROPOSAL_RESULT_ONLY_COUNTERS,
   buildAiHiddenTargetEditorExtensions,
+  collectPageEditorBlockIds,
   collectResultOnlyCollapsedBlockIds,
+  composeAiPageEditorExtensions,
   countResultOnlyNotLaidOut,
   deriveAiOverlayShapeClassNames,
   deriveAiResultOnlyShapeIds,
@@ -171,8 +173,8 @@ describe("AI proposal cards in the page flow", () => {
       ]);
       const states = new Map<string, AiProposalDisplayState>([
         ["proposal-1", { ...DEFAULT_AI_PROPOSAL_DISPLAY_STATE, afterOnly: true }],
-        // 内容を隠したカードは畳まない (適用前でも適用後でもない姿にしない)。
-        ["proposal-3", { ...DEFAULT_AI_PROPOSAL_DISPLAY_STATE, afterOnly: true, contentHidden: true }],
+        // 内容を隠したカード (適用後だけは解除されている) は畳まない。
+        ["proposal-3", { ...DEFAULT_AI_PROPOSAL_DISPLAY_STATE, contentHidden: true }],
       ]);
 
       const collapsed = collectResultOnlyCollapsedBlockIds(cards, (_targetId, entry) => (
@@ -444,12 +446,12 @@ describe("deriveAiResultOnlyShapeIds (shapes of a proposal shown as its result o
 
   it("hides the before state of an update and draws its after state without marks", () => {
     const update = withMutations([{ operation: "updateOverlayShape", summary: "移動", shapeId: "shape-1", patch: { x: 10 } }]);
-    expect(deriveAiResultOnlyShapeIds([update], [], new Set())).toEqual({ hiddenShapeIds: ["shape-1"], ghostShapeIds: ["shape-1"] });
+    expect(deriveAiResultOnlyShapeIds([update], new Set())).toEqual({ hiddenShapeIds: ["shape-1"], ghostShapeIds: ["shape-1"] });
   });
 
   it("hides a shape the proposal deletes, unless the merge keeps it (the human edited it)", () => {
     const deletion = withMutations([{ operation: "deleteOverlayShapes", summary: "削除", shapeIds: ["shape-gone", "shape-kept"] }]);
-    expect(deriveAiResultOnlyShapeIds([deletion], [], new Set(["shape-kept"]))).toEqual({ hiddenShapeIds: ["shape-gone"], ghostShapeIds: [] });
+    expect(deriveAiResultOnlyShapeIds([deletion], new Set(["shape-kept"]))).toEqual({ hiddenShapeIds: ["shape-gone"], ghostShapeIds: [] });
   });
 
   it("draws an inserted shape without marks and hides nothing for it", () => {
@@ -460,7 +462,7 @@ describe("deriveAiResultOnlyShapeIds (shapes of a proposal shown as its result o
       overlayShape: { id: "shape-new", type: "geo", x: 0, y: 0, props: { w: 80, h: 40, geo: "rectangle", fill: "none", color: "#111111", fillColor: "#ffffff", labelColor: "#111111", dash: "solid", size: "m" } },
       assets: {},
     }]);
-    expect(deriveAiResultOnlyShapeIds([insertion], [], new Set())).toEqual({ hiddenShapeIds: [], ghostShapeIds: ["shape-new"] });
+    expect(deriveAiResultOnlyShapeIds([insertion], new Set())).toEqual({ hiddenShapeIds: [], ghostShapeIds: ["shape-new"] });
   });
 
   it("keeps a shape hidden for the result only hidden while the approval plays the removal", () => {
@@ -486,5 +488,49 @@ describe("deriveAiResultOnlyShapeIds (shapes of a proposal shown as its result o
       beforeHiddenShapeIds: new Set(["shape-gone"]),
     });
     expect(classNames.get("shape-gone")).toBe("ai-diff-removed-shape ai-diff-before-shape ai-diff-before-hidden");
+  });
+});
+
+describe("collectPageEditorBlockIds (the blocks the change decoration can fold)", () => {
+  it("lists the top-level nodes of every editing surface the page lays out, and nothing nested in them", () => {
+    const paragraph = (id: string) => ({ id, type: "paragraph", children: [{ type: "text", text: id }] });
+    const content = [
+      paragraph("top"),
+      { id: "box", type: "boxBlock", styleId: "itembox", blocks: [paragraph("box_child")] },
+      { id: "list", type: "list", listType: "bullet", items: [{ id: "item", type: "listItem", children: [] }] },
+      {
+        id: "problem", type: "problem", tags: [], lead: [], hints: [], answer: { type: "math", expected: "" },
+        prompt: [paragraph("prompt"), { id: "area_columns", type: "layoutSection", layout: { columnCount: 2 }, children: [paragraph("area_col")] }],
+        solution: [paragraph("solution")],
+      },
+      { id: "columns", type: "layoutSection", layout: { columnCount: 2 }, children: [paragraph("col_a"), paragraph("col_b")] },
+    ] as unknown as Parameters<typeof collectPageEditorBlockIds>[0];
+
+    const ids = collectPageEditorBlockIds(content);
+
+    // 空の導入文のエリアは、打てるように置く仮の段落 (`problem_lead_empty`) が編集面の最上位に並ぶ。
+    expect([...ids].sort()).toEqual(["area_col", "box", "col_a", "col_b", "list", "problem_lead_empty", "prompt", "solution", "top"]);
+  });
+});
+
+describe("composeAiPageEditorExtensions", () => {
+  it("keeps a live run's guard (with its stop action) on a block that is also folded away", () => {
+    const runGuard = {
+      blockId: "block-1",
+      guardId: "run-1",
+      isPrimaryActionTarget: true,
+      blockedMessage: "AI編集中です。",
+      presentation: { highlightedBlockClassName: "a", readOnlyBlockClassName: "b", characterClassName: "c", atomClassName: "d" },
+      highlight: true,
+    };
+    const composed = composeAiPageEditorExtensions(
+      { textFlowEditPolicy: { guards: [runGuard] } },
+      buildAiHiddenTargetEditorExtensions(new Set(), new Set(["block-1", "block-2"])),
+      undefined,
+    );
+
+    const guards = new Map(composed!.textFlowEditPolicy!.guards.map((guard) => [guard.blockId, guard]));
+    expect(guards.get("block-1")).toBe(runGuard);
+    expect(guards.get("block-2")?.guardId).toBe("ai-result-only-block-2");
   });
 });

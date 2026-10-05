@@ -391,6 +391,7 @@ const COMMENT_MUTATION_PORTS: CommentMutationPorts = {
 };
 /** 図形の無い文書でも参照が変わらないよう固定 (memo依存の無駄な再計算を避ける)。 */
 const EMPTY_OVERLAY_SHAPES: OverlayShape[] = [];
+const EMPTY_RESULT_ONLY_BLOCK_IDS: ReadonlySet<string> = new Set();
 /** コメントの無い文書でも参照が変わらないよう固定 (装飾更新の再 dispatch を避ける)。 */
 const EMPTY_COMMENT_THREADS: SigmaCommentThread[] = [];
 
@@ -544,6 +545,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
     isAiLockedBlock,
     isAiLockedShapeSelection,
     useAiLockedTargets,
+    withAiResultOnlyBlocks,
     useAiPinnedReferences,
     useAiPendingAttachments,
     useAiWorkspaceTabTitles,
@@ -779,7 +781,13 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
     aiProposalPresentation.previewGroups,
     document.pageLayout?.overlay?.overlaySnapshot?.shapes ?? EMPTY_OVERLAY_SHAPES,
   );
-  const aiLockedTargets = documentSession ? EMPTY_AI_LOCKED_TARGETS : localAiLockedTargets;
+  // 紙面のカードが「適用後だけ」で本文から畳んだ変更前。見えないので、文書の変更口と履歴の巻き戻しも
+  // 同じ集合で断る (紙面の拡張が 1 か所で決め、ガード・面をまたぐ削除・検索と共有する)。
+  const [aiResultOnlyBlockIds, setAiResultOnlyBlockIds] = useState<ReadonlySet<string>>(EMPTY_RESULT_ONLY_BLOCK_IDS);
+  const aiLockedTargets = useMemo(
+    () => withAiResultOnlyBlocks(documentSession ? EMPTY_AI_LOCKED_TARGETS : localAiLockedTargets, aiResultOnlyBlockIds),
+    [EMPTY_AI_LOCKED_TARGETS, aiResultOnlyBlockIds, documentSession, localAiLockedTargets, withAiResultOnlyBlocks],
+  );
   // MCP プレビューの apply/dismiss の二重実行を防ぐ (承認済み提案への再実行で error 表示に
   // なるのを回避)。承認は文書を丸ごと差し替えるので、この窓だけは唯一の文書全体ロックも兼ねる
   // (途中の打鍵が黙って失われるため)。commitDocumentChange から参照するのでここで宣言する。
@@ -3238,7 +3246,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
     applyInlineFormat("boxedVariant", nextVariant);
   };
 
-  const { findNext, findPrevious, replaceNext, replaceAll, searchMatchCount } = useDocumentSearchCommands({ document, selectedId, searchQuery, replaceText, setSelectedId, setStatusMessage, commitDocumentChange });
+  const { findNext, findPrevious, replaceNext, replaceAll, searchMatchCount } = useDocumentSearchCommands({ document, selectedId, searchQuery, replaceText, hiddenBlockIds: aiResultOnlyBlockIds, setSelectedId, setStatusMessage, commitDocumentChange });
 
   const replaceTextFlow = useCallback((
     previousIds: string[],
@@ -4667,6 +4675,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
             overlaySelection={overlaySelection}
             overlayCommentAnchor={currentOverlayCommentAnchor}
             aiDocumentWriteInProgress={mcpPreviewBusy}
+            onAiResultOnlyBlocksChange={setAiResultOnlyBlockIds}
             editorExtensions={sessionEditExtensions}
             aiEditPreviewGroups={visibleAiEditPreviewGroups}
             aiEditPreviewApplying={mcpPreviewBusy}

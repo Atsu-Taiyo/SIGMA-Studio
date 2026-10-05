@@ -140,6 +140,20 @@ describe("document search model", () => {
       .toBe("top-list-item");
   });
 
+  it("leaves out blocks the page does not show, with everything inside them", () => {
+    const content = searchableContent();
+    // 紙面から畳んだブロック (適用後だけを見せている提案の変更前など) は、見えないので探さない。
+    const hidden = new Set(["top-box", "top-section"]);
+
+    expect(findFirstBlockWithText(content, "box body needle", null, "next", hidden)).toBeNull();
+    expect(findFirstBlockWithText(content, "top box needle", null, "next", hidden)).toBeNull();
+    expect(findFirstBlockWithText(content, "needle", "top-list-item", "next", hidden)?.id).toBe("problem-lead");
+    expect(findFirstBlockWithText(content, "needle", "problem-lead", "previous", hidden)?.id).toBe("top-list-item");
+    // top needle / top box needle / box body needle の 3 つが数えられない。
+    expect(countTextMatches(content, "needle", hidden)).toBe(7);
+    expect(countTextMatches(content, "needle", new Set())).toBe(10);
+  });
+
   it("treats blank and missing queries as no matches", () => {
     const content = searchableContent();
 

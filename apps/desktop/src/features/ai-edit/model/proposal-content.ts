@@ -27,7 +27,6 @@ import {
   findProblemAreaBlockLocation,
   type EditableBlock,
 } from "@/lib/document-tree";
-import { isTextFlowBlock } from "@/features/text-editing";
 import { getHeadingNumberMap } from "@/lib/heading-numbering";
 import { getProblemNumberMap } from "@/lib/problem-numbering";
 import { areStructurallyEqual } from "@/lib/structural-equality";
@@ -115,7 +114,10 @@ export interface AiProposalContent {
  * (`buildPendingHunks`) のものをそのまま使い、別に差分を数えない (MISS R17)。
  */
 export interface AiProposalResultLayout {
-  /** 本文から畳む変更前: 削除側 (`hunk.removed`) のうち、紙面の編集面の最上位に並ぶブロック。 */
+  /**
+   * 本文から畳む変更前: 削除側 (`hunk.removed`) のうち、紙面の編集面の最上位に並ぶブロック
+   * (`GroupPendingProposalContentOptions.pageEditorBlockIds`。本文の変更装飾が付くのと同じ単位)。
+   */
   collapsedBlockIds: string[];
   /**
    * 変更前を畳んで足される側をカードに置けば、適用後の紙面と同じ並びになるか。畳めない変更前 (箱・
@@ -328,7 +330,6 @@ function buildPendingHunks(
 
 interface PendingHunks {
   hunks: AiProposalContentHunk[];
-  currentIndex: DocumentFlowIndex;
   afterIndex: DocumentFlowIndex | null;
 }
 
@@ -464,24 +465,19 @@ function collectPendingHunks(
     }))
     .sort((a, b) => a.order - b.order || a.index - b.index)
     .map(({ hunk }) => hunk);
-  return { hunks: ordered, currentIndex, afterIndex };
+  return { hunks: ordered, afterIndex };
 }
 
 /** 中身のブロックを置き換える・足す・消すだけの操作。ほか (移動・段組み) は適用後の位置をカードに組めない。 */
 const RESULT_LAYOUT_OPERATIONS: ReadonlySet<AiProposalOperationKind> = new Set(["replace", "insertAfter", "deleteBlocks"]);
 
-/**
- * 紙面の編集面の最上位に並ぶブロックか (本文の装飾で畳める)。流れのブロックのうち、編集面に本文として並ぶ
- * もの (`isTextFlowBlock`。紙面のユニット分け `buildRenderUnits` と同じ判定)。問題と段組みそのものはエリア・段
- * ごとの編集面に分かれて描かれ、1 つのブロックとしては並ばない。
- */
-function isPageEditorTopLevelBlock(block: EditableBlock, index: DocumentFlowIndex): boolean {
-  return index.flowAnchorById.get(block.id) === block.id && block.type !== "listItem" && isTextFlowBlock(block);
-}
-
-function resultLayoutOf(hunk: AiProposalContentHunk, built: PendingHunks): AiProposalResultLayout {
+function resultLayoutOf(
+  hunk: AiProposalContentHunk,
+  built: PendingHunks,
+  pageEditorBlockIds: ReadonlySet<string>,
+): AiProposalResultLayout {
   const collapsedBlockIds = hunk.removed
-    .filter((block) => isPageEditorTopLevelBlock(block, built.currentIndex))
+    .filter((block) => pageEditorBlockIds.has(block.id))
     .map((block) => block.id);
   const { afterIndex } = built;
   const addedInFlow = hunk.added.every((block) => afterIndex?.flowAnchorById.get(block.id) === block.id);
@@ -645,10 +641,20 @@ export function isProposalContentEmpty(content: AiProposalContent): boolean {
  * カードにしない。カードが 1 枚もできない提案は、紙面がそのそばに浮かぶバーで決める
  * (`AiPageCanvasEditor`)。
  */
+export interface GroupPendingProposalContentOptions extends ResolveProposalMergePreviewOptions {
+  /**
+   * 紙面の編集面の最上位に並ぶブロック (本文の変更装飾が付く単位)。紙面のユニット分けから作って渡す
+   * (`collectPageEditorBlockIds`)。適用後だけで畳めるのはこの中のブロックだけ。渡さなければ何も畳まない。
+   */
+  pageEditorBlockIds?: ReadonlySet<string>;
+}
+
+const NO_PAGE_EDITOR_BLOCKS: ReadonlySet<string> = new Set();
+
 export function groupPendingProposalContentByAnchor(
   previews: AiEditPreviewState[],
   document: SigmaDocument,
-  options: ResolveProposalMergePreviewOptions = {},
+  options: GroupPendingProposalContentOptions = {},
 ): Map<string, AiProposalAnchorCard[]> {
   const cardsByAnchorId = new Map<string, AiProposalAnchorCard[]>();
   let flowAnchorById: ReadonlyMap<string, string> | null = null;
@@ -673,7 +679,7 @@ export function groupPendingProposalContentByAnchor(
         preview,
         content: { hunks: [hunk], shapes: [] },
         mergedWithHumanEdits: mergedAnchors.has(hunk.anchorBlockId),
-        resultLayout: resultLayoutOf(hunk, built),
+        resultLayout: resultLayoutOf(hunk, built, options.pageEditorBlockIds ?? NO_PAGE_EDITOR_BLOCKS),
       });
       cardsByAnchorId.set(hunk.anchorBlockId, cards);
     }

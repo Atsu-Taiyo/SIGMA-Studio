@@ -741,3 +741,120 @@ test("showing only the result hides the before shape and draws the proposed shap
   await expect(beforeShape).toHaveCSS("opacity", "1");
   await expect(page.locator('.overlay-shape.ai-diff-after-shape[data-overlay-shape-id="bar_shape"]').first()).toBeVisible();
 });
+
+const RESULT_ONLY_LOCK = "適用後だけを表示している間は、変更前の本文を編集できません。「変更箇所を表示」に戻すと編集できます。";
+
+/** 保存された段落の文字。 */
+async function savedText(page: Page, id: string): Promise<string | undefined> {
+  return page.evaluate((blockId) => {
+    const saved = JSON.parse(window.localStorage.getItem("sigma-studio:e2e-document") ?? "null");
+    return saved?.content?.find((block: { id: string }) => block.id === blockId)
+      ?.children?.map((node: { text?: string }) => node.text ?? "").join("");
+  }, id);
+}
+
+/** 段落の文字の端にキャレットを置く (macOS の合成キーに頼らない)。 */
+async function placeCaret(page: Page, id: string, edge: "start" | "end"): Promise<void> {
+  const block = page.locator(`.page-flow [data-sigma-doc-id="${id}"]`).first();
+  await block.click();
+  await block.evaluate((element, at) => {
+    const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);
+    const texts: Text[] = [];
+    for (let node = walker.nextNode(); node; node = walker.nextNode()) texts.push(node as Text);
+    const target = at === "start" ? texts[0] : texts.at(-1);
+    window.getSelection()!.collapse(target ?? element, at === "start" || !target ? 0 : target.length);
+  }, edge);
+}
+
+test("Backspace at the start of the paragraph after the card does not join it into the folded before block", async ({ page }) => {
+  // カードは para_pad_1 の後ろに入るので、para_pad_2 は別の編集面の先頭: Backspace は面をまたぐ結合になる。
+  await open(page, [replaceWithRows(1, "para_pad_1")]);
+  const card = pageCard(page, "para_pad_1").locator("[data-ai-proposal-card]");
+  await card.getByRole("button", { name: "適用後だけを表示", exact: true }).click();
+  const folded = page.locator('.page-flow [data-sigma-doc-id="para_pad_1"]').first();
+  await expect(folded).toBeHidden();
+
+  await placeCaret(page, "para_pad_2", "start");
+  await page.keyboard.press("Backspace");
+  await expect(page.locator(".text-flow-edit-guard-notice").first()).toHaveText(RESULT_ONLY_LOCK);
+  // キャレットは見えないブロックへ移らず、その場に打てる。
+  await page.keyboard.type("Y");
+
+  await expect.poll(() => savedText(page, "para_pad_2")).toBe("Y続きの本文 3");
+  expect(await savedText(page, "para_pad_1")).toBe("続きの本文 2");
+  await expect(folded).toBeHidden();
+  await expect(card).toBeVisible();
+});
+
+test("Enter at the end of the paragraph before a folded block adds a paragraph and leaves the folded block alone", async ({ page }) => {
+  await open(page, [replaceWithRows(1, "para_pad_1")]);
+  const card = pageCard(page, "para_pad_1").locator("[data-ai-proposal-card]");
+  await card.getByRole("button", { name: "適用後だけを表示", exact: true }).click();
+  await expect(page.locator('.page-flow [data-sigma-doc-id="para_pad_1"]').first()).toBeHidden();
+
+  await placeCaret(page, "para_pad_0", "end");
+  await page.keyboard.press("Enter");
+  await page.keyboard.type("新しい段落");
+
+  await expect.poll(() => page.evaluate(() => {
+    const saved = JSON.parse(window.localStorage.getItem("sigma-studio:e2e-document") ?? "null");
+    const ids: string[] = saved?.content?.map((block: { id: string }) => block.id) ?? [];
+    const index = ids.indexOf("para_pad_0");
+    const next = saved?.content?.[index + 1];
+    return next?.children?.map((node: { text?: string }) => node.text ?? "").join("");
+  })).toBe("新しい段落");
+  expect(await savedText(page, "para_pad_1")).toBe("続きの本文 2");
+  await expect(page.locator('.page-flow [data-sigma-doc-id="para_pad_1"]').first()).toBeHidden();
+});
+
+test("undo cannot change a folded block it cannot show, and works again once the changes are shown", async ({ page }) => {
+  await open(page, [replaceWithRows(1, "para_pad_1")]);
+  const card = pageCard(page, "para_pad_1").locator("[data-ai-proposal-card]");
+  // 差分の表示のまま対象の段落を直す (保留中の対象はロックしない)。
+  await placeCaret(page, "para_pad_1", "end");
+  await page.keyboard.type("Z");
+  await expect.poll(() => savedText(page, "para_pad_1")).toBe("続きの本文 2Z");
+
+  await card.getByRole("button", { name: "適用後だけを表示", exact: true }).click();
+  await expect(page.locator('.page-flow [data-sigma-doc-id="para_pad_1"]').first()).toBeHidden();
+  const undo = page.getByRole("button", { name: "元に戻す", exact: true });
+  await undo.click();
+  await expect(page.locator(".save-state").first()).toContainText(RESULT_ONLY_LOCK);
+  expect(await savedText(page, "para_pad_1")).toBe("続きの本文 2Z");
+
+  await card.getByRole("button", { name: "変更箇所を表示", exact: true }).click();
+  await undo.click();
+  await expect.poll(() => savedText(page, "para_pad_1")).toBe("続きの本文 2");
+});
+
+test("search does not find text in a folded block, and replacing cannot rewrite it unseen", async ({ page }) => {
+  await open(page, [replaceWithRows(1, "para_pad_1")]);
+  const card = pageCard(page, "para_pad_1").locator("[data-ai-proposal-card]");
+  await card.getByRole("button", { name: "適用後だけを表示", exact: true }).click();
+  await expect(page.locator('.page-flow [data-sigma-doc-id="para_pad_1"]').first()).toBeHidden();
+
+  await page.getByRole("button", { name: "検索置換", exact: true }).click();
+  const widget = page.locator(".find-widget");
+  const query = widget.getByRole("textbox", { name: "検索", exact: true });
+  await query.fill("続きの本文 2");
+  await expect(widget.locator(".find-count")).toHaveText("0 件");
+  await query.press("Enter");
+  await expect(page.locator(".save-state").first()).toContainText("検索結果がありません");
+
+  // 見える段落と畳んだ段落の両方に当たる置換は、畳んだ段落を見えないまま書き換えるので断る。
+  await query.fill("続きの本文");
+  await expect(widget.locator(".find-count")).toHaveText("3 件");
+  await widget.getByRole("button", { name: "置換を開く", exact: true }).click();
+  await widget.getByRole("textbox", { name: "置換", exact: true }).fill("本文");
+  await widget.getByRole("button", { name: "すべて置換", exact: true }).click();
+  await expect(page.locator(".save-state").first()).toContainText(RESULT_ONLY_LOCK);
+  expect(await savedText(page, "para_pad_1")).toBe("続きの本文 2");
+  expect(await savedText(page, "para_pad_0")).toBe("続きの本文 1");
+
+  // 差分の表示に戻すと、畳んでいた段落も探せる (外を押すと検索の枠は閉じるので開き直す)。
+  await card.getByRole("button", { name: "変更箇所を表示", exact: true }).click();
+  if (!(await widget.isVisible())) {
+    await page.getByRole("button", { name: "検索置換", exact: true }).click();
+  }
+  await expect(widget.locator(".find-count")).toHaveText("4 件");
+});

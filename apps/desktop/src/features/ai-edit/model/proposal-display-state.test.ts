@@ -8,7 +8,6 @@ import {
   readAiProposalCardDisplayState,
   readAiProposalDisplayState,
   routeAiProposalCardDisplayPatch,
-  showsAiProposalResultOnly,
   type AiProposalCardDisplayKeys,
   type AiProposalDisplayStates,
 } from "./proposal-display-state";
@@ -117,8 +116,8 @@ describe("a page card's state split between the card and its proposal (conversat
   });
 
   it("keeps the card's own state (hidden content, error) on the card and the before/result toggles on the proposal", () => {
-    expect(routeAiProposalCardDisplayPatch({ contentHidden: true, applyError: "失敗" }, KEYS))
-      .toEqual([[CARD, { contentHidden: true, applyError: "失敗" }]]);
+    expect(routeAiProposalCardDisplayPatch({ contentHidden: false, applyError: "失敗" }, KEYS))
+      .toEqual([[CARD, { contentHidden: false, applyError: "失敗" }]]);
     expect(routeAiProposalCardDisplayPatch({ beforeHidden: true }, KEYS)).toEqual([[CONVERSATION, { beforeHidden: true }]]);
     expect(routeAiProposalCardDisplayPatch({ afterOnly: false }, KEYS)).toEqual([[CONVERSATION, { afterOnly: false }]]);
   });
@@ -128,11 +127,17 @@ describe("a page card's state split between the card and its proposal (conversat
     expect(readAiProposalCardDisplayState(states, KEYS, ["proposal-1", "proposal-2"]).afterOnly).toBe(false);
   });
 
-  it("lays out the result only while the content is shown", () => {
-    expect(showsAiProposalResultOnly(DEFAULT_AI_PROPOSAL_DISPLAY_STATE)).toBe(false);
-    expect(showsAiProposalResultOnly({ ...DEFAULT_AI_PROPOSAL_DISPLAY_STATE, afterOnly: true })).toBe(true);
-    // 適用後だけのまま 1 枚の内容を隠したら、そのカードは本文を畳まない (適用前でも適用後でもない姿にしない)。
-    expect(showsAiProposalResultOnly({ ...DEFAULT_AI_PROPOSAL_DISPLAY_STATE, afterOnly: true, contentHidden: true })).toBe(false);
+  it("leaves the result only when a card's content is hidden, for the whole proposal (cards and shapes alike)", () => {
+    const resultOnly = press(EMPTY, { afterOnly: true });
+
+    const hidden = press(resultOnly, { contentHidden: true });
+
+    // 内容を隠したら適用後だけは解除 (適用前でも適用後でもない姿にしない)。図形も会話の key の同じ状態を読む。
+    expect(readAiProposalCardDisplayState(hidden, KEYS, IDS)).toMatchObject({ contentHidden: true, afterOnly: false });
+    expect(readAiProposalDisplayState(hidden, CONVERSATION, IDS).afterOnly).toBe(false);
+    expect(readAiProposalCardDisplayState(hidden, { ...KEYS, cardKey: OTHER_CARD }, IDS).afterOnly).toBe(false);
+    // 内容を出し直しても適用後だけには戻らない (解除したまま)。
+    expect(readAiProposalCardDisplayState(press(hidden, { contentHidden: false }), KEYS, IDS).afterOnly).toBe(false);
   });
 
   it("applies the same rule to a card that keeps its state itself", () => {
@@ -143,5 +148,7 @@ describe("a page card's state split between the card and its proposal (conversat
       contentHidden: false,
     });
     expect(applyAiProposalCardDisplayPatch(hidden, { beforeHidden: true })).toMatchObject({ contentHidden: true, beforeHidden: true });
+    expect(applyAiProposalCardDisplayPatch({ ...DEFAULT_AI_PROPOSAL_DISPLAY_STATE, afterOnly: true }, { contentHidden: true }))
+      .toMatchObject({ contentHidden: true, afterOnly: false });
   });
 });

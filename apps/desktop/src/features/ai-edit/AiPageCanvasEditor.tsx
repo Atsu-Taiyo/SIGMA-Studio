@@ -30,7 +30,6 @@ import {
   readAiProposalCardDisplayState,
   readAiProposalDisplayState,
   routeAiProposalCardDisplayPatch,
-  showsAiProposalResultOnly,
   type AiProposalCardDisplayKeys,
   type AiProposalDisplayState,
 } from "./model/proposal-display-state";
@@ -50,6 +49,7 @@ import {
   getNarrowColumnBounds,
   placeCenteredWidget,
 } from "@/components/editor/page-canvas/extension-placement";
+import { buildRenderUnits } from "@/components/editor/page-canvas/render-units";
 import {
   getShapesSelectionBounds,
   resolveShapesPosition,
@@ -60,7 +60,7 @@ import { getRenderableShapes } from "@/features/rendering/core";
 import type { Translate } from "@/lib/i18n";
 import { useT } from "@/lib/i18n/react";
 import { countPerformanceEvent } from "@/lib/performance";
-import type { OverlayShape } from "@/features/document";
+import type { OverlayShape, SigmaBlock } from "@/features/document";
 import type {
   PageCanvasEditorExtension,
   PageCanvasGhostShape,
@@ -127,6 +127,11 @@ export interface AiPageCanvasEditorProps extends Omit<PageCanvasEditorProps, "pa
   aiDocumentWriteInProgress?: boolean;
   documentWorkspaceId?: string | null;
   onFocusAiSession?: (roomId: string) => void;
+  /**
+   * 「適用後だけ」で本文から畳んだブロックの集合 (紙面の拡張が決める唯一の定義)。文書の変更口と履歴の
+   * 巻き戻し・検索が同じ集合を読み、見えないブロックを変える変更を断る。外したときは空の集合。
+   */
+  onAiResultOnlyBlocksChange?: (blockIds: ReadonlySet<string>) => void;
 }
 
 function AiPageCanvasEditorImpl(props: AiPageCanvasEditorProps) {
@@ -164,6 +169,7 @@ function AiEnabledPageCanvasEditor({
   aiDocumentWriteInProgress = false,
   documentWorkspaceId = null,
   onFocusAiSession,
+  onAiResultOnlyBlocksChange,
   ...pageEditorProps
 }: AiPageCanvasEditorProps) {
   const documentShapes = useMemo(
@@ -192,6 +198,11 @@ function AiEnabledPageCanvasEditor({
     documentWorkspaceId,
     onFocusSession: onFocusAiSession,
   });
+  // 畳んだブロックは文書の変更口 (EditorShell) にも渡す。面のガードと同じ集合で断る。
+  useLayoutEffect(() => {
+    onAiResultOnlyBlocksChange?.(collapsedBlockIds);
+  }, [collapsedBlockIds, onAiResultOnlyBlocksChange]);
+  useLayoutEffect(() => () => onAiResultOnlyBlocksChange?.(EMPTY_ID_SET), [onAiResultOnlyBlocksChange]);
   // 隠した変更前 (バーで隠した図形・適用後だけで隠した図形と畳んだ本文) は、選べず編集もできない
   // (見えないものを動かさない・書き換えない)。
   const hiddenTargetExtensions = useMemo(
@@ -199,10 +210,7 @@ function AiEnabledPageCanvasEditor({
     [collapsedBlockIds, hiddenShapeIds],
   );
   const editorExtensions = useMemo(
-    () => mergeEditorExtensionSets(
-      mergeEditorExtensionSets(aiEditorExtensions, hiddenTargetExtensions),
-      pageEditorProps.editorExtensions,
-    ),
+    () => composeAiPageEditorExtensions(aiEditorExtensions, hiddenTargetExtensions, pageEditorProps.editorExtensions),
     [aiEditorExtensions, hiddenTargetExtensions, pageEditorProps.editorExtensions],
   );
 
@@ -283,11 +291,16 @@ function useAiPageCanvasExtension({
   // その先の `inlineContentByTargetId` → `pageExtension` まで打鍵ごとに新品になる。
   // 承認が文書を差し替えている間 (applying) は、承認済みの提案が承認後の文書に重ねて描かれるので、
   // プレビューの代わりの経路を数えない。
+  // 適用後だけで畳めるのは、紙面の編集面の最上位に並ぶブロックだけ (本文の変更装飾が付く単位)。
+  const pageEditorBlockIds = useMemo(
+    () => inlinePreviewGroups.length === 0 ? EMPTY_ID_SET : collectPageEditorBlockIds(document.content),
+    [document.content, inlinePreviewGroups.length],
+  );
   const previewCardsByTargetId = useMemo(
     () => inlinePreviewGroups.length === 0
       ? EMPTY_PREVIEW_CARDS_BY_TARGET_ID
-      : groupPendingProposalContentByAnchor(inlinePreviewGroups, document, { countFallbacks: !applying }),
-    [applying, document, inlinePreviewGroups],
+      : groupPendingProposalContentByAnchor(inlinePreviewGroups, document, { countFallbacks: !applying, pageEditorBlockIds }),
+    [applying, document, inlinePreviewGroups, pageEditorBlockIds],
   );
   const previewsWithCards = useMemo(
     () => new Set([...previewCardsByTargetId.values()].flat().map((card) => card.preview)),
@@ -410,14 +423,15 @@ function useAiPageCanvasExtension({
   // 作り直されるので、中身が同じなら同じ集合を使う (各本文ユニットの props を動かさない)。
   const removedBlockIds = useStableIdSet(collectPendingRemovedBlockIds(previewCardsByTargetId));
   // 適用後だけを見せているカードの変更前は本文から畳む。同じ合成後の内容 (カードの削除側) から決める。
-  const collapsedBlockIds = useStableIdSet(collectResultOnlyCollapsedBlockIds(
+  const collapsedBlockIdList = useMemo(() => collectResultOnlyCollapsedBlockIds(
     previewCardsByTargetId,
     (targetId, card) => readAiProposalCardDisplayState(
       displayStates,
       cardDisplayKeysOf(targetId, card.preview, cardKeysByConversation),
       card.preview.proposalIds,
     ),
-  ));
+  ), [cardKeysByConversation, displayStates, previewCardsByTargetId]);
+  const collapsedBlockIds = useStableIdSet(collapsedBlockIdList);
   const textFlowChangeDecorationState = useMemo(() => {
     const removedIds = [...removedBlockIds];
     const collapsedIds = [...collapsedBlockIds];
@@ -448,25 +462,24 @@ function useAiPageCanvasExtension({
   );
   // 適用後だけを見せている提案の図形: 変更前 (と合成で残らない削除) を隠し、変更後を印なしで描く。カードの
   // ある提案だけ (カードが無くなった提案に残った状態は、切り替えが出ないので効かせない)。
-  const currentShapes = document.pageLayout?.overlay?.overlaySnapshot?.shapes;
   const resultOnlyShapes = useMemo(() => deriveAiResultOnlyShapeIds(
     previewGroups.filter((preview) => previewsWithCards.has(preview)
       && readAiProposalDisplayState(displayStates, getAiProposalConversationKey(preview), preview.proposalIds).afterOnly),
-    currentShapes ?? [],
     mergeKeptShapeIds,
-  ), [currentShapes, displayStates, mergeKeptShapeIds, previewGroups, previewsWithCards]);
+  ), [displayStates, mergeKeptShapeIds, previewGroups, previewsWithCards]);
   const resultOnlyGhostShapeIds = useStableIdSet(resultOnlyShapes.ghostShapeIds);
   const resultOnlyHiddenShapeIds = useStableIdSet(resultOnlyShapes.hiddenShapeIds);
   // 隠した変更前の図形 (バーで隠したもの・適用後だけのもの)。中身が同じなら同じ集合 (図形の印・編集の方針・
   // 紙面の拡張を作り直さない)。
-  const hiddenShapeIds = useStableIdSet([
+  const hiddenShapeIdList = useMemo(() => [
     ...previewGroups.flatMap((preview) => (
       readAiProposalDisplayState(displayStates, getAiProposalConversationKey(preview), preview.proposalIds).beforeHidden
         ? getAiEditPreviewBeforeShapeIds(preview)
         : []
     )),
     ...resultOnlyHiddenShapeIds,
-  ]);
+  ], [displayStates, previewGroups, resultOnlyHiddenShapeIds]);
+  const hiddenShapeIds = useStableIdSet(hiddenShapeIdList);
   const overlayShapeClassNames = useMemo(
     () => deriveAiOverlayShapeClassNames({
       previewGroups,
@@ -991,6 +1004,37 @@ export function buildAiHiddenTargetEditorExtensions(
   };
 }
 
+/**
+ * 紙面の編集面の最上位に並ぶブロック: 紙面のユニット分け (`buildRenderUnits`) が各編集面に渡すブロック。
+ * 本文の変更装飾 (`TextFlowChangeDecorationState`) は各編集面の最上位ノードにだけ付くので、適用後だけで
+ * 畳めるのはこの中だけ (問題・段組みそのものや、箱・リスト・入れ子の問題の中は畳めない)。
+ */
+export function collectPageEditorBlockIds(content: SigmaBlock[]): ReadonlySet<string> {
+  const ids = new Set<string>();
+  for (const unit of buildRenderUnits(content)) {
+    if (unit.type !== "block") {
+      unit.blocks.forEach((block) => ids.add(block.id));
+    }
+  }
+  return ids;
+}
+
+/**
+ * 紙面に渡す編集の拡張。同じブロックのガードは後から重ねたものが勝つ (`mergeEditorExtensionSets`) ので、
+ * 実行中の run・合成できない提案のガード (止める操作と理由を持つ) を、隠した変更前の読み取り専用ガードの
+ * 後に重ねる (畳んだブロックが実行中でも「AIを停止して編集」を置き換えない)。どれも編集を断る。
+ */
+export function composeAiPageEditorExtensions(
+  aiEditorExtensions: EditorExtensionContextValue | undefined,
+  hiddenTargetExtensions: EditorExtensionContextValue | undefined,
+  pageEditorExtensions: EditorExtensionContextValue | undefined,
+): EditorExtensionContextValue | undefined {
+  return mergeEditorExtensionSets(
+    mergeEditorExtensionSets(hiddenTargetExtensions, aiEditorExtensions),
+    pageEditorExtensions,
+  );
+}
+
 /** 適用後だけの提案の変更後の図形 (ゴースト)。差分の枠を付けず、承認後と同じ見た目で描く。 */
 const AI_RESULT_ONLY_GHOST_CLASS_NAME = "ai-result-only-shape";
 
@@ -1000,26 +1044,42 @@ const AI_RESULT_ONLY_GHOST_CLASS_NAME = "ai-result-only-shape";
  */
 export function deriveAiResultOnlyShapeIds(
   previews: readonly AiEditPreviewState[],
-  currentShapes: OverlayShape[],
   mergeKeptShapeIds: ReadonlySet<string>,
 ): { hiddenShapeIds: string[]; ghostShapeIds: string[] } {
   const hidden = new Set<string>();
   const ghosts = new Set<string>();
   for (const preview of previews) {
-    const diff = deriveAiEditPreviewDiff([preview], currentShapes);
-    getAiEditPreviewBeforeShapeIds(preview).forEach((id) => hidden.add(id));
-    diff.removedShapeIds.forEach((id) => {
+    const ids = resultOnlyShapeIdsOf(preview);
+    ids.before.forEach((id) => hidden.add(id));
+    ids.removed.forEach((id) => {
       if (!mergeKeptShapeIds.has(id)) hidden.add(id);
     });
-    diff.modifiedShapeIds.forEach((id) => ghosts.add(id));
-    diff.addedShapes.forEach(({ shape }) => ghosts.add(shape.id));
+    ids.ghosts.forEach((id) => ghosts.add(id));
   }
   return { hiddenShapeIds: [...hidden], ghostShapeIds: [...ghosts] };
 }
 
+/** 提案が触れる図形の id (変更前・消す・変更後)。draft だけで決まり今の図形には依らないので、提案ごとに覚える。 */
+const resultOnlyShapeIdsCache = new WeakMap<AiEditPreviewState, { before: string[]; removed: string[]; ghosts: string[] }>();
+
+function resultOnlyShapeIdsOf(preview: AiEditPreviewState): { before: string[]; removed: string[]; ghosts: string[] } {
+  const cached = resultOnlyShapeIdsCache.get(preview);
+  if (cached) {
+    return cached;
+  }
+  const diff = deriveAiEditPreviewDiff([preview]);
+  const ids = {
+    before: getAiEditPreviewBeforeShapeIds(preview),
+    removed: [...diff.removedShapeIds],
+    ghosts: [...diff.modifiedShapeIds, ...diff.addedShapes.map(({ shape }) => shape.id)],
+  };
+  resultOnlyShapeIdsCache.set(preview, ids);
+  return ids;
+}
+
 /**
- * 本文から畳むブロック: 適用後だけを見せているカード (内容を隠していないもの) の変更前
- * (`AiProposalResultLayout.collapsedBlockIds`)。ほかのカードの変更前は差分の表示のまま。
+ * 本文から畳むブロック: 適用後だけを見せているカードの変更前 (`AiProposalResultLayout.collapsedBlockIds`)。
+ * ほかのカードの変更前は差分の表示のまま (適用後だけと内容を隠すは排他。`routeAiProposalCardDisplayPatch`)。
  */
 export function collectResultOnlyCollapsedBlockIds(
   cardsByTargetId: ReadonlyMap<string, readonly AiProposalAnchorCard[]>,
@@ -1028,7 +1088,7 @@ export function collectResultOnlyCollapsedBlockIds(
   const ids = new Set<string>();
   for (const [targetId, cards] of cardsByTargetId) {
     for (const card of cards) {
-      if (showsAiProposalResultOnly(readCardState(targetId, card))) {
+      if (readCardState(targetId, card).afterOnly) {
         card.resultLayout.collapsedBlockIds.forEach((id) => ids.add(id));
       }
     }
