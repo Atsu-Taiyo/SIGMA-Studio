@@ -8,6 +8,7 @@ import {
   isValidOverlaySnapshot,
   normalizeOverlaySnapshot,
   patchShape,
+  collectShapeAnchorRemovalIds,
   removeShapes,
   type SigmaTableBorderStyle,
   type SigmaTableCell,
@@ -1175,16 +1176,22 @@ function average(values: number[]): number {
   return values.reduce((sum, value) => sum + value, 0) / values.length;
 }
 
-function deleteOverlayShapesFromSnapshot(snapshot: OverlaySnapshot, shapeIds: string[]): OverlaySnapshot {
-  const shapesById = new Map(snapshot.shapes.map((shape) => [shape.id, shape]));
+/**
+ * Every shape `deleteOverlayShapes` actually removes for `shapeIds`: the members of a deleted group
+ * (a group has no children list; membership is the member's own `parentId`), then every shape anchored
+ * to a removed shape (`removeShapes`). Callers that must know what a deletion takes with it (the AI
+ * proposal locks) read this instead of re-deriving the cascade.
+ */
+export function collectOverlayShapeDeletionIds(
+  shapes: readonly OverlayShape[],
+  shapeIds: readonly string[],
+): Set<string> {
+  const shapesById = new Map(shapes.map((shape) => [shape.id, shape]));
   const toDelete = new Set(shapeIds);
-
-  // Cascade-delete children of any deleted group shape (a group has no separate children list;
-  // membership is expressed by the child's own parentId).
   let changed = true;
   while (changed) {
     changed = false;
-    for (const shape of snapshot.shapes) {
+    for (const shape of shapes) {
       if (toDelete.has(shape.id) || !shape.parentId || !toDelete.has(shape.parentId)) {
         continue;
       }
@@ -1195,8 +1202,12 @@ function deleteOverlayShapesFromSnapshot(snapshot: OverlaySnapshot, shapeIds: st
       }
     }
   }
+  return collectShapeAnchorRemovalIds(shapes, Array.from(toDelete));
+}
 
-  const survivors = removeShapes(snapshot.shapes, Array.from(toDelete));
+function deleteOverlayShapesFromSnapshot(snapshot: OverlaySnapshot, shapeIds: string[]): OverlaySnapshot {
+  const removed = collectOverlayShapeDeletionIds(snapshot.shapes, shapeIds);
+  const survivors = removeShapes(snapshot.shapes, Array.from(removed));
   const survivorIds = new Set(survivors.map((shape) => shape.id));
   const removedIds = new Set(
     snapshot.shapes.map((shape) => shape.id).filter((id) => !survivorIds.has(id)),

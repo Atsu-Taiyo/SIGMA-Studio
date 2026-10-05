@@ -1378,13 +1378,13 @@ describe("derivePendingAiProposalLockTargets", () => {
     expect(locks.shapeIds).toEqual(new Set(["s4", "s5"]));
   });
 
-  it("does not lock an aligned shape the same proposal also merges as a unit", () => {
+  it("locks an aligned shape even when the same proposal also updates it (the alignment overwrites the merge)", () => {
     const locks = derivePendingAiProposalLockTargets([lockPreview([{
       mergeBasis: "computed",
       draft: { mutationOperations: [{ ...updateOverlayShapeOp, shapeId: "s4" }, alignOverlayShapesOp] },
     }])]);
 
-    expect(locks.shapeIds).toEqual(new Set(["s5"]));
+    expect(locks.shapeIds).toEqual(new Set(["s4", "s5"]));
   });
 
   it("locks only the proposals of a group that have no usable merge basis", () => {
@@ -1442,6 +1442,15 @@ describe("derivePendingAiProposalLockTargets", () => {
 
     expect(preview.shapeReplacements).toEqual([{ removedShapeId: "s6", addedShapeId: "s6_new" }]);
     expect(derivePendingAiProposalLockTargets([preview]).shapeIds).toEqual(new Set(["s6"]));
+  });
+
+  it("locks a deleted shape with the shapes its deletion takes along (anchored to it), read from the current shapes", () => {
+    const preview = lockPreview([{ mergeBasis: "computed", draft: { mutationOperations: [{ ...deleteOverlayShapesOp, shapeIds: ["s3"] }] } }]);
+    const shapes = (lockTargetDocument().pageLayout!.overlay!.overlaySnapshot!.shapes as OverlayShape[]);
+    const anchored = { ...shapes[0], id: "pinned", anchor: { type: "shape", shapeId: "s3", dx: 0, dy: 20 } } as unknown as OverlayShape;
+
+    expect(derivePendingAiProposalLockTargets([preview], [...shapes, anchored]).shapeIds).toEqual(new Set(["s3", "pinned"]));
+    expect(derivePendingAiProposalLockTargets([preview], shapes).shapeIds).toEqual(new Set());
   });
 
   it("locks the old shape of a replacement pair whose insertion is a legacy record", () => {

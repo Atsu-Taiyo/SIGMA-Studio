@@ -101,8 +101,8 @@ export function useAiLockedTargets(
   const liveBlockLocks = useAiEditingBlockLocks(documentIdentityKey);
   const liveShapeLocks = useAiEditingShapeLocks(documentIdentityKey);
   const pendingTargets = useMemo(
-    () => derivePendingAiProposalLockTargets([...previewGroups]),
-    [previewGroups],
+    () => derivePendingAiProposalLockTargets([...previewGroups], shapes),
+    [previewGroups, shapes],
   );
 
   return useMemo(

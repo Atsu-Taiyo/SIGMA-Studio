@@ -10,6 +10,7 @@ import { collectBlocksById, findBlock, updateBlockInDocument, type EditableBlock
 import { isOverlayAnchorSupportDraft } from "@/lib/ai/applied-document-diff";
 import {
   EditableBlockSchema,
+  collectOverlayShapeDeletionIds,
   resolveAiEditSessionOperationOrder,
   type AiEditSessionDraft,
 } from "@/lib/ai/sigma-doc-edit-schema";
@@ -277,10 +278,18 @@ export interface ProposalTargets {
  *   approval compares their hashes: `collectConflictSensitiveBlockIds` reads this same definition).
  * - A proposal with a basis: what the merging replay leaves to the plain replay (`replayProposalDraft
  *   Merging`) — a replaced block outside every basis block, a deleted block or shape and an updated
- *   shape without a snapshot — and the targets of operations it never merges (aligned shapes, a
- *   reconfigured column section) unless the same target is a merged unit. A graph it updates, aligns
- *   or deletes stays out of the merge with the labels it owns.
+ *   shape without a snapshot — and the targets of operations it never merges: aligned shapes and a
+ *   reconfigured column section, always (the operation is applied over the merged unit, so it would
+ *   overwrite the human's value silently). A graph it updates, aligns or deletes stays out of the merge
+ *   with the labels it owns.
+ * - With the current `shapes`: a shape whose deletion or move reaches other shapes (a group and its
+ *   members, a member of a group, the shapes anchored to it: `collectOverlayShapeDeletionIds`, the same
+ *   cascade the replay deletes with) stays out of the merge with all of them. The replay only compares
+ *   the shape itself, so a human's edit of a member or an anchored shape would be lost.
  * - Moves only change where a block is, so the replay keeps a human's edit of the moved block.
+ *
+ * Guarded by a contract test (`proposal-merge-basis.test.ts`): for every kind of operation, a human's
+ * edit of the target either survives the merging replay or the target is returned here.
  * - The old shape of a replacement pair (`replacements`, a deletion and a later insertion requesting
  *   its id in the same group): a human's edit would keep the old shape and the replacement could not
  *   take its id, so the whole group would fail.
@@ -288,9 +297,11 @@ export interface ProposalTargets {
 export function collectNonMergeableTargets(
   proposals: readonly { draft: AiEditSessionDraft; mergeBasis?: ProposalMergeBasis }[],
   replacements: readonly { removedShapeId: string }[] = [],
+  shapes: readonly OverlayShape[] = [],
 ): ProposalTargets {
   const blockIds = new Set<string>();
   const shapeIds = new Set<string>();
+  const currentShapes = new Map(shapes.map((shape) => [shape.id, shape]));
   for (const proposal of proposals) {
     const mergeBasis = usableProposalMergeBasis(proposal.mergeBasis);
     const { draft } = proposal;
@@ -314,13 +325,21 @@ export function collectNonMergeableTargets(
     // A graph's labels are separate shapes the graph owns. The AI re-lays them out with the graph (and
     // replaces them when it relabels it), so merging a human's edit of one leaves an orphaned label next
     // to its replacement: the graph and every label it owns stay out of the merge.
-    const addShape = (id: string) => {
+    const addShape = (id: string, always = false) => {
       const snapshot = mergeBasis?.entities[id];
-      if (snapshot?.kind !== "shape") {
-        shapeIds.add(id);
-      } else if (snapshot.value.type === "graph2dShape") {
-        shapeIds.add(id);
-        getGraphOwnedLabelShapeIds(snapshot.value).forEach((labelId) => shapeIds.add(labelId));
+      const value = snapshot?.kind === "shape" ? snapshot.value : undefined;
+      const current = currentShapes.get(id);
+      const reached = collectOverlayShapeDeletionIds(shapes, [id]);
+      const connected = reached.size > 1
+        || [value, current].some((shape) => shape?.type === "group" || Boolean(shape?.parentId));
+      const graph = [value, current].find((shape) => shape?.type === "graph2dShape");
+      if (!always && value && !connected && !graph) {
+        return;
+      }
+      shapeIds.add(id);
+      reached.forEach((reachedId) => shapeIds.add(reachedId));
+      if (graph?.type === "graph2dShape") {
+        getGraphOwnedLabelShapeIds(graph).forEach((labelId) => shapeIds.add(labelId));
       }
     };
     // Moves only change where a block is (the replay keeps a human's edit of the moved block), so even a
@@ -331,14 +350,16 @@ export function collectNonMergeableTargets(
           operation.blockIds.filter((id) => !hasSnapshot(id, "block")).forEach((id) => blockIds.add(id));
           break;
         case "updateLayoutSection":
-          if (!hasSnapshot(operation.sectionId, "block")) blockIds.add(operation.sectionId);
+          blockIds.add(operation.sectionId);
           break;
         case "updateOverlayShape":
           addShape(operation.shapeId);
           break;
         case "alignOverlayShapes":
+          operation.shapeIds.forEach((id) => addShape(id, true));
+          break;
         case "deleteOverlayShapes":
-          operation.shapeIds.forEach(addShape);
+          operation.shapeIds.forEach((id) => addShape(id));
           break;
         default:
           break;
