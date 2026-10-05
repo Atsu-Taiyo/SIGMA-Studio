@@ -31,17 +31,27 @@ function canvasAt(left: number, top: number): HTMLElement {
 }
 
 describe("getOverlaySelectionControlsCanvasRect", () => {
-  it.each([50, 100, 200])("covers the popover, the rotate handle and the selected shapes at zoom %i%%", (zoom) => {
+  it.each([50, 100, 200])("covers the popover and the rotate handle above the shapes at zoom %i%%", (zoom) => {
     const rect = getOverlaySelectionControlsCanvasRect(shapeSelection, zoom);
     const scale = zoom / 100;
 
     // ポップオーバー (高さ 38) と回転ハンドルの間隔 (42) は画面の px なので、紙面ではズームで割る。
-    // その下の選択枠 (持ち手) まで含める。
     expect(rect).not.toBeNull();
-    expect(rect!.y).toBeCloseTo(400 - (38 + 42) / scale);
-    expect(rect!.y + rect!.h).toBeCloseTo(450);
+    expect(rect!.y + rect!.h).toBe(400);
+    expect(rect!.h).toBeCloseTo((38 + 42) / scale);
     expect(rect!.x + rect!.w / 2).toBe(350);
-    expect(rect!.w).toBeCloseTo(Math.max(210 / scale, 100));
+    expect(rect!.w).toBeCloseTo(210 / scale);
+  });
+
+  it("stays a band above a multi-shape selection and leaves the selected area itself free", () => {
+    const lower = { ...rectangle, id: "shape-2", y: 850 } as OverlayShape;
+    const rect = getOverlaySelectionControlsCanvasRect(
+      selectionOf({ selectedCount: 2, selectedShapeIds: ["shape-1", "shape-2"], selectedShapes: [rectangle, lower] }),
+      100,
+    );
+
+    // 選んだ範囲 (y 400〜900) の中は障害物にしない (グループ・全選択でもバーを押し出さない)。
+    expect(rect).toMatchObject({ y: 400 - 80, h: 80 });
   });
 
   it("spans the popover's measured width once it is drawn (its content decides the width)", () => {
@@ -67,7 +77,7 @@ describe("getOverlaySelectionControlsCanvasRect", () => {
       100,
     );
 
-    expect(rect).toMatchObject({ y: 300 - 38 - 8, h: 38 + 8 + 40 });
+    expect(rect).toMatchObject({ y: 300 - 38 - 8, h: 38 + 8 });
   });
 
   it("is absent without a selection", () => {
