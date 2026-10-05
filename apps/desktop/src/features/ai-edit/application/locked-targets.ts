@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 
-import type { OverlayShape } from "@/features/document";
+import type { DocumentChangeOrigin, OverlayShape } from "@/features/document";
 import type { TextContentReservation } from "@/features/text-editing";
 import {
   useAiEditingBlockLocks,
@@ -66,13 +66,6 @@ export interface AiLockedTargets {
   /** The same holds without the result-only subsets (what non-human changes are checked against). */
   withoutResultOnly?: AiLockedTargets;
 }
-
-/**
- * Where a document change comes from. The result-only hold stops only what a human does to things
- * they cannot see; an AI approval being applied, a version restore and an external replacement are
- * not edits of the hidden content and must not be blocked by a display toggle.
- */
-export type AiDocumentChangeOrigin = "human-edit" | "ai-approval" | "history-restore" | "external";
 
 export const EMPTY_AI_LOCKED_TARGETS: AiLockedTargets = {
   blockIds: new Set<string>(),
@@ -143,7 +136,7 @@ export function withAiResultOnlyTargets(
  * The holds a change from `origin` is checked against: everything for a human edit, everything
  * but the result-only subsets otherwise. The one place that tells the two apart.
  */
-export function aiLockedTargetsForOrigin(targets: AiLockedTargets, origin: AiDocumentChangeOrigin): AiLockedTargets {
+export function aiLockedTargetsForOrigin(targets: AiLockedTargets, origin: DocumentChangeOrigin): AiLockedTargets {
   return origin === "human-edit" ? targets : targets.withoutResultOnly ?? targets;
 }
 

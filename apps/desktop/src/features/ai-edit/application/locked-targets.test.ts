@@ -250,8 +250,8 @@ describe("who a result-only fold stops: only human edits", () => {
 
   it("refuses a human edit of a folded block but lets an AI approval and a version restore through", () => {
     expect(findAiLockedTargetsTouched(before, changed, aiLockedTargetsForOrigin(folded, "human-edit")).blockIds).toEqual(["folded"]);
-    // WebMCP の承認・版の復元・外からの差し替えは、表示の切り替えで止めない。
-    for (const origin of ["ai-approval", "history-restore", "external"] as const) {
+    // WebMCP の承認・版の復元は、表示の切り替えで止めない。
+    for (const origin of ["ai-approval", "history-restore"] as const) {
       expect(findAiLockedTargetsTouched(before, changed, aiLockedTargetsForOrigin(folded, origin)).blockIds).toEqual([]);
     }
   });

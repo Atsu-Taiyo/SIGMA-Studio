@@ -32,7 +32,6 @@ export {
   useAiLockedTargets,
   withAiResultOnlyTargets,
   aiLockedTargetsForOrigin,
-  type AiDocumentChangeOrigin,
   type AiLockedTargets,
 } from "./application/locked-targets";
 export {
