@@ -10,11 +10,17 @@ import {
 } from "./claude-model-catalog";
 import { buildCliChildEnv, getProcessPathEnv } from "./cli-child-env";
 import { logLedgerEvent } from "./ledger-log";
+import { SIGMA_DOC_MCP_SERVER_NAME } from "./sigma-studio-mcp-launch";
 
 import { resolveBareBinNames, resolveCliBinForSpawn, spawnCliProcess, type CliChildProcess } from "./cli-spawn";
 
 import type { AiEditReference } from "@/lib/ai/ai-edit-reference";
-import { inferToolCategoriesForRun, toolNamesForCategories } from "@/lib/ai/mcp-tool-categories";
+import {
+  categoriesToAllowAfterDenial,
+  inferToolCategoriesForRun,
+  toolNamesForCategories,
+  type McpToolCategory,
+} from "@/lib/ai/mcp-tool-categories";
 import { appMcpToolNames } from "@/lib/ai/mcp-tool-profile";
 import { createCurrentLocaleTranslator } from "@/lib/i18n";
 
@@ -80,7 +86,7 @@ export interface ClaudeStreamClientOptions {
   cancelGraceMs?: number;
   /** Claude Code が取得したモデル一覧の置き場。テストでは実ホームを読まないよう差し替える。 */
   modelCatalogDir?: string;
-  /** data dir whose ledger counts turns run with widened tool permissions (MISS R3). Omitted: not recorded. */
+  /** data dir whose ledger counts sigma-studio-local tools refused by the narrowing (MISS R3). Omitted: not recorded. */
   ledgerDataDir?: string;
 }
 
@@ -188,9 +194,8 @@ export interface ClaudeTurnResult {
 // 委ねる(claude --help / 実バイナリのstrings確認: ビルトインtool名は "Skill"。SKILL.md
 // 本体はSkillツールが読むが、supporting files(references/等)を読ませるためReadも許可する)。
 const DEFAULT_ALLOWED_TOOLS = "Skill Read";
-const SIGMA_MCP_TOOL_PREFIX = "mcp__sigma-studio-local__";
-// The only wider set any turn gets (gating off, or a conversation whose narrowed turn was refused a
-// sigma-studio-local tool): every sigma-studio-local tool, plus what a narrowed turn already allows.
+// Built from the server name so the denial detection and the wildcard follow a rename.
+const SIGMA_MCP_TOOL_PREFIX = `mcp__${SIGMA_DOC_MCP_SERVER_NAME}__`;
 const FULL_EXPOSURE_ALLOWED_TOOLS = `${SIGMA_MCP_TOOL_PREFIX}* ${DEFAULT_ALLOWED_TOOLS}`;
 const DEFAULT_DISALLOWED_TOOLS = ["Bash", "Write", "Edit", "WebFetch", "WebSearch", "Task"];
 const DEFAULT_MODEL = "sonnet";
@@ -261,11 +266,11 @@ export class ClaudeStreamClient extends EventEmitter {
   private readonly cancelGraceMs: number;
   private readonly modelCatalogDir: string;
   private readonly ledgerDataDir: string | null;
-  // session id -> the sigma-studio-local tools a turn of that session was refused because the
-  // narrowed --allowedTools did not list them. Every later turn resuming the session (the run's
-  // continuation and the conversation's next message) is allowed every sigma-studio-local tool, so a
-  // narrowing miss never dead-ends the conversation (see allowedToolsForRun).
-  private readonly deniedLocalToolsBySession = new Map<string, string[]>();
+  // session id -> the categories of the sigma-studio-local tools a turn of that session was refused
+  // because the narrowed --allowedTools did not list them (categoriesToAllowAfterDenial). Every later
+  // turn resuming the session (the run's continuation and the conversation's next message) also
+  // allows them, so a narrowing miss never dead-ends the conversation (see allowedToolsForRun).
+  private readonly categoriesAllowedAfterDenial = new Map<string, Set<McpToolCategory>>();
 
   constructor(options: ClaudeStreamClientOptions) {
     super();
@@ -647,10 +652,7 @@ export class ClaudeStreamClient extends EventEmitter {
               this.authError = null;
             }
             const permissionDenials = Array.isArray(result.permission_denials) ? result.permission_denials : [];
-            const deniedLocalTools = deniedSigmaMcpToolNames(permissionDenials);
-            if (sessionId && deniedLocalTools.length > 0 && !this.deniedLocalToolsBySession.has(sessionId)) {
-              this.deniedLocalToolsBySession.set(sessionId, deniedLocalTools);
-            }
+            this.recordLocalToolDenials(sessionId, deniedSigmaMcpToolNames(permissionDenials));
             finish(() =>
               resolve({
                 sessionId,
@@ -811,30 +813,44 @@ export class ClaudeStreamClient extends EventEmitter {
     if (process.env.SIGMA_AI_TOOL_GATING?.trim().toLowerCase() === "off") {
       return FULL_EXPOSURE_ALLOWED_TOOLS;
     }
-    // The conversation already hit a sigma-studio-local tool the narrowing left out: stop narrowing
-    // it. This widens to the sigma-studio-local wildcard only; buildSpawnArgs still refuses the
-    // built-ins and decides web search from the setting, exactly as for a narrowed turn.
-    const deniedLocalTools = params.resumeSessionId
-      ? this.deniedLocalToolsBySession.get(params.resumeSessionId)
-      : undefined;
-    if (deniedLocalTools) {
-      if (this.ledgerDataDir) {
-        logLedgerEvent(this.ledgerDataDir, "claude-tool-permission-widened", {
-          sessionId: params.resumeSessionId,
-          deniedTools: deniedLocalTools,
-        });
-      }
-      return FULL_EXPOSURE_ALLOWED_TOOLS;
-    }
     const categories = inferToolCategoriesForRun({
       instruction: params.userInstruction ?? params.instruction,
       references: params.references ?? [],
       selectedSkillIds: params.selectedSkillIds ?? [],
     });
-    const mcpTools = appMcpToolNames(toolNamesForCategories(categories))
+    // The conversation was refused a sigma-studio-local tool the narrowing left out: also allow that
+    // tool's category. Only named sigma-studio-local tools are added; buildSpawnArgs still refuses
+    // the built-ins and decides web search from the setting, exactly as for a narrowed turn.
+    const allowedAfterDenial = params.resumeSessionId
+      ? this.categoriesAllowedAfterDenial.get(params.resumeSessionId) ?? []
+      : [];
+    const mcpTools = appMcpToolNames(toolNamesForCategories([...categories, ...allowedAfterDenial]))
       .map((name) => `${SIGMA_MCP_TOOL_PREFIX}${name}`)
       .join(" ");
     return `${mcpTools} ${DEFAULT_ALLOWED_TOOLS}`;
+  }
+
+  /**
+   * A turn's refused sigma-studio-local tools: remember their categories for the session's later
+   * turns, and count the narrowing miss once here (MISS R3; only ids and tool names are written).
+   */
+  private recordLocalToolDenials(sessionId: string | null, deniedTools: string[]): void {
+    if (deniedTools.length === 0) {
+      return;
+    }
+    const widenedCategories = categoriesToAllowAfterDenial(
+      deniedTools.map((name) => name.slice(SIGMA_MCP_TOOL_PREFIX.length)),
+    );
+    if (sessionId && widenedCategories.length > 0) {
+      const allowed = this.categoriesAllowedAfterDenial.get(sessionId) ?? new Set<McpToolCategory>();
+      for (const category of widenedCategories) {
+        allowed.add(category);
+      }
+      this.categoriesAllowedAfterDenial.set(sessionId, allowed);
+    }
+    if (this.ledgerDataDir) {
+      logLedgerEvent(this.ledgerDataDir, "claude-tool-permission-denied", { sessionId, deniedTools, widenedCategories });
+    }
   }
 
   private async isClaudeAvailable(): Promise<boolean> {
