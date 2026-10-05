@@ -23,6 +23,7 @@ import {
   resolveShapesPosition,
   type BlockExtent,
 } from "../overlay-canvas/anchor";
+import { isShapeEditPolicyLockedInTree } from "../overlay-canvas/grouping";
 import { attachUnanchoredShapesToMeasuredBlocks } from "../overlay-canvas/reanchor-model";
 import { endBlockSpaceAfterPreview } from "../text-flow/block-space-after-preview";
 import { isTextFlowMeasurementReady,TEXT_FLOW_MEASUREMENT_READY } from "../text-flow/measurement-revision";
@@ -73,6 +74,8 @@ import type {
   RenderUnit,
 } from "./types";
 
+const NO_LOCKED_SHAPE_IDS: ReadonlySet<string> = new Set();
+
 interface MeasurementDocument {
   pageDocument: SigmaDocument;
   units: RenderUnit[];
@@ -81,6 +84,11 @@ interface MeasurementDocument {
   overlaySource: PageOverlay | undefined;
   pendingDeletion: { revision: number; deletedIds: string[] } | null;
   onReanchorOverlay: (overlay: PageOverlay) => void;
+  /**
+   * 今は編集できない図形 (`OverlayEditPolicy.lockedShapeIds`: 機能が持っている・隠している図形)。削除後の
+   * 付け替えはこれを書き換えない。
+   */
+  lockedShapeIds?: ReadonlySet<string>;
   /**
    * フロー内の拡張ノードの並びと中身の版 (`PageCanvasInlineContent.measureRevision`)。拡張ノードは
    * 文書ではないので、中身が同じ高さで変わっても文書の変化・ResizeObserver のどちらも鳴らない。
@@ -113,7 +121,7 @@ interface PageCanvasMeasurementInputs {
 
 /** Owns the one flow measurement/pagination session and all its asynchronous resources. */
 export function usePageCanvasMeasurement({ content, geometry, surface, spaceAfter }: PageCanvasMeasurementInputs) {
-  const { pageDocument, units, historyRevision, overlay, overlaySource, pendingDeletion, onReanchorOverlay, extensionMeasureKey = "" } = content;
+  const { pageDocument, units, historyRevision, overlay, overlaySource, pendingDeletion, onReanchorOverlay, extensionMeasureKey = "", lockedShapeIds = NO_LOCKED_SHAPE_IDS } = content;
   const { metrics, zoom, fontSize, isWhiteboard, isPagedRender } = geometry;
   const { flowRef, canvasRef, flowElement } = surface;
   const { spaceAfterSessionRef, setSpaceAfterDrag, setBlockAffordance } = spaceAfter;
@@ -182,6 +190,7 @@ export function usePageCanvasMeasurement({ content, geometry, surface, spaceAfte
   }, [breakBeforeIds, breakHostIds]);
 
   const onReanchorOverlayRef = useRef(onReanchorOverlay);
+  const lockedShapeIdsRef = useRef(lockedShapeIds);
 
   const lastHandledDeletionRef = useRef(0);
 
@@ -287,6 +296,10 @@ export function usePageCanvasMeasurement({ content, geometry, surface, spaceAfte
     onReanchorOverlayRef.current = onReanchorOverlay;
   }, [onReanchorOverlay]);
 
+  useLayoutEffect(() => {
+    lockedShapeIdsRef.current = lockedShapeIds;
+  }, [lockedShapeIds]);
+
   // A shape inserted by AI or an importer may omit its body anchor. As soon as
   // the body is measurable (and therefore visible), attach it to nearby text.
   // The anchor line is an overlay control, so this repair never reserves flow
@@ -345,11 +358,15 @@ export function usePageCanvasMeasurement({ content, geometry, surface, spaceAfte
     // including ones nested inside a list or a box block — not just the blocks
     // pagination flows between.
     const { anchorable } = measureFlowBlocks(flow, zoom / 100, marginTopPx, lineMeasureCacheRef.current);
+    // 今は編集できない図形 (適用後だけを見せている間に隠した変更前など) は付け替えない。付け替えは 1 回の
+    // コミットで出すので、1 つでも混ざると全体が断られ、ほかの図形まで消したブロックにぶら下がったまま残る。
+    const lockedShapeIds = lockedShapeIdsRef.current;
     const { shapes: reanchoredShapes, changed } = reanchorAfterDeletion(
       normalized.shapes,
       deleted,
       prevMeasureRef.current,
       anchorable,
+      { keepsStoredAnchor: (shape) => isShapeEditPolicyLockedInTree(normalized.shapes, shape, lockedShapeIds) },
     );
     if (!changed) {
       return;

@@ -16,6 +16,7 @@ import {
 } from "./grouping";
 import type { PendingOverlaySave } from "./pending-save";
 import { mergePendingOverlaySave } from "./pending-save";
+import type { MeasuredBlock } from "./anchor";
 import { reanchorShapesAgainstCanvas } from "./snapshot-anchors";
 import type {
   OverlayAsset,
@@ -30,6 +31,8 @@ export interface Dependencies {
   canvasHeightRef: RefObject<number>;
   canvasWidthRef: RefObject<number>;
   getBlockAnchorScope: () => ParentNode | null;
+  /** The last block measurement in overlay coordinates (where a block now folded away was drawn). */
+  getLastDrawnBlockRects: () => ReadonlyMap<string, MeasuredBlock> | null;
   suppressNextSaveRef: RefObject<boolean>;
   setShapes: Dispatch<SetStateAction<OverlayShape[]>>;
   assetsRef: RefObject<Record<string, OverlayAsset>>;
@@ -49,6 +52,7 @@ export function useOverlaySaveController({
   canvasHeightRef,
   canvasWidthRef,
   getBlockAnchorScope,
+  getLastDrawnBlockRects,
   suppressNextSaveRef,
   setShapes,
   assetsRef,
@@ -69,6 +73,7 @@ export function useOverlaySaveController({
         canvasHeightRef.current,
         canvasWidthRef.current,
         getBlockAnchorScope(),
+        getLastDrawnBlockRects(),
       ))
       : normalizeOverlayGroups(shapesRef.current);
     // Refresh chart snapshots at the single point every edit funnels through, rather than hooking
@@ -101,7 +106,7 @@ export function useOverlaySaveController({
       },
     );
     imageCropDirtyRef.current = false;
-  }, [assetsRef, canvasHeightRef, canvasRef, canvasWidthRef, extensionsRef, getBlockAnchorScope, imageCropDirtyRef, lastEmittedSnapshotRef, onChangeRef, setShapes, shapesRef, suppressNextSaveRef, syncBlockAnchors]);
+  }, [assetsRef, canvasHeightRef, canvasRef, canvasWidthRef, extensionsRef, getBlockAnchorScope, getLastDrawnBlockRects, imageCropDirtyRef, lastEmittedSnapshotRef, onChangeRef, setShapes, shapesRef, suppressNextSaveRef, syncBlockAnchors]);
 
   const clearQueuedOverlaySave = useCallback(() => {
     if (saveTimeoutRef.current) {

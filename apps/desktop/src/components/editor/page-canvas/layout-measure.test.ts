@@ -4,7 +4,10 @@ import { afterEach, describe, expect, it } from "vitest";
 import type { OverlayShape } from "@/components/editor/overlay-canvas/types";
 
 import { reanchorAfterDeletion } from "@/components/editor/overlay-canvas/anchor";
+import { anchorMeasurementKey } from "@/components/editor/overlay-canvas/snapshot-anchors";
 
+import { isSameBlockGeometry } from "./incremental-layout";
+import { sameMeasuredBlockMap } from "./layout-equality";
 import {
   calculateReserveSpaceGaps,
   measureFlowBlocks,
@@ -178,5 +181,35 @@ describe("measureFlowBlocks with blocks that are not drawn", () => {
 
     expect(measureFlowBlocks(flow, 1, 96).rects.has("x")).toBe(false);
     expect(measureFlowBlocks(flow, 1, 96, undefined, { previous }).rects.get("x")?.top).toBe(120);
+  });
+
+  it("tells a fold and an unfold apart even when nothing moves (block map identity, geometry check and overlay key)", () => {
+    // 畳んだブロックが最後にあれば、畳んでも戻しても他のブロックは 1px も動かない。それでも印が変われば
+    // 下流 (紙面の blockRects / blockAnchorable・overlay の固定先の計測) は新しい計測を受け取る。
+    const { flow, find } = flowWithFoldable();
+    find("b").remove();
+    const cache: LineMeasureCache = new Map();
+    const drawn = measureFlowBlocks(flow, 1, 96, cache);
+    fold(find("x"));
+    fold(find("x_item"));
+
+    for (const scope of [undefined, { kind: "dirtyUnit" as const, unitId: "a" }]) {
+      const folded = measureFlowBlocks(flow, 1, 96, cache, { previous: drawn, ...(scope ? { scope } : {}) });
+      expect(folded.rects.get("x")?.undrawn).toBe(true);
+      expect(folded.anchorable.find((block) => block.id === "x")?.undrawn).toBe(true);
+      expect(isSameBlockGeometry(folded.rects.get("x")!, drawn.rects.get("x"))).toBe(false);
+      expect(sameMeasuredBlockMap(drawn.rects, folded.rects)).toBe(false);
+      expect(anchorMeasurementKey(folded.anchorable)).not.toBe(anchorMeasurementKey(drawn.anchorable));
+
+      place(find("x"), 120, 30);
+      place(find("x_item"), 120, 30);
+      const unfolded = measureFlowBlocks(flow, 1, 96, cache, { previous: folded, ...(scope ? { scope } : {}) });
+      expect(unfolded.rects.get("x")?.undrawn).toBeUndefined();
+      expect(unfolded.anchorable.find((block) => block.id === "x")?.undrawn).toBeUndefined();
+      expect(sameMeasuredBlockMap(folded.rects, unfolded.rects)).toBe(false);
+      expect(anchorMeasurementKey(unfolded.anchorable)).toBe(anchorMeasurementKey(drawn.anchorable));
+      fold(find("x"));
+      fold(find("x_item"));
+    }
   });
 });

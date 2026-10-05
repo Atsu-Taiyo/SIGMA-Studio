@@ -31,6 +31,8 @@ export type {
 } from "@/features/drawing";
 import { countPerformanceEvent } from "@/lib/performance";
 
+import { isPickableAnchorBlock, isUndrawnElement, keepUndrawnBlock } from "../page-canvas/undrawn-blocks";
+
 const LINE_GROUP_TOLERANCE_PX = 2;
 const COLUMN_PROBE_TOLERANCE_PX = 0.5;
 /** Every element that carries block geometry a figure can be anchored to. */
@@ -152,8 +154,9 @@ export function pickBlockAnchor(
   // anchored to them still resolve) but are not offered as a target. Falling back to the full
   // set when that leaves nothing beats returning a page anchor: losing the block relationship
   // stops the figure following text reflow at all.
-  // A block that is not drawn (folded away) is likewise not a new target, except when re-anchoring.
-  const documentBlocks = measuredBlocks.filter((block) => !block.derived && (options.includeUndrawn || !block.undrawn));
+  // A block that is not drawn (folded away) is likewise not a new target, except when re-anchoring
+  // after a deletion (`undrawn-blocks.ts`).
+  const documentBlocks = measuredBlocks.filter((block) => !block.derived && isPickableAnchorBlock(block, options));
   const blocks = documentBlocks.length > 0 ? documentBlocks : measuredBlocks;
 
   const anchorColumns = getAnchorColumns(blocks);
@@ -263,7 +266,7 @@ export function pickAnchorBoundaryAtPoint(
   }
 
   // A rule is never snapped to a block that is not drawn (nothing is visible there).
-  const drawnBlocks = blocks.filter((block) => !block.undrawn);
+  const drawnBlocks = blocks.filter((block) => isPickableAnchorBlock(block));
   const pool = drawnBlocks.length > 0 ? drawnBlocks : blocks;
   const anchorColumns = getAnchorColumns(pool);
   const column = Number.isFinite(point.x) ? findColumnForProbeX(point.x, anchorColumns) : undefined;
@@ -468,12 +471,20 @@ export function reanchorAfterDeletion<T extends Pick<OverlayShape, "y" | "anchor
   deletedIds: ReadonlySet<string>,
   preMeasure: Map<string, BlockExtent>,
   orderedPost: MeasuredBlock[],
+  options: {
+    /**
+     * A figure that may not be edited right now (a host feature holds or hides it). It keeps its
+     * stored anchor: the re-anchor is committed as one change, and a held figure in it would get the
+     * whole change refused, leaving every other figure hanging off the deleted block.
+     */
+    keepsStoredAnchor?: (shape: T) => boolean;
+  } = {},
 ): { shapes: T[]; changed: boolean } {
   let changed = false;
 
   const next = shapes.map((shape) => {
     const anchor = shape.anchor;
-    if (!anchor || anchor.type !== "block" || !deletedIds.has(anchor.blockId)) {
+    if (!anchor || anchor.type !== "block" || !deletedIds.has(anchor.blockId) || options.keepsStoredAnchor?.(shape)) {
       return shape;
     }
 
@@ -512,28 +523,46 @@ export function reanchorAfterDeletion<T extends Pick<OverlayShape, "y" | "anchor
   return { shapes: changed ? next : shapes, changed };
 }
 
+export interface OverlayBlockMeasurement {
+  tops: Map<string, number>;
+  rects: Map<string, MeasuredBlock>;
+  ordered: MeasuredBlock[];
+  /**
+   * Blocks that are in the page but not drawn (folded away), whether or not their last drawn
+   * geometry was kept in `rects`. Saving re-anchors figures against this measurement, and a figure
+   * on such a block must keep its stored anchor even when nothing is known of where it was.
+   */
+  undrawnIds: Set<string>;
+}
+
 /**
  * Measure block tops in overlay coordinates. `pageRectEl` is an element whose
  * bounding rect spans the overlay coordinate space (the overlay canvas / preview
  * layer), `scope` is the node to query for `[data-sigma-doc-id]` blocks, and
  * `coordHeight` is the unzoomed height that `pageRectEl` represents (one A4 page
  * for a single page, or the full document height for the continuous canvas).
+ *
+ * A block that is not drawn follows `undrawn-blocks.ts`, the same rule as the page canvas's
+ * `measureFlowBlocks`: its zero rect is never read; its geometry from `lastDrawn` (a previous
+ * measurement in the same overlay coordinates) is kept marked `undrawn`, or it is left out.
  */
 export function measureBlockTops(
   pageRectEl: Element,
   scope: ParentNode,
   coordHeight: number = A4_PAGE_PX.height,
   coordWidth: number = A4_PAGE_PX.width,
-): { tops: Map<string, number>; rects: Map<string, MeasuredBlock>; ordered: MeasuredBlock[] } {
+  lastDrawn?: ReadonlyMap<string, MeasuredBlock> | null,
+): OverlayBlockMeasurement {
   // 本文を全件歩く計測。page canvas 側の実測を使えている間はここに来ない。
   countPerformanceEvent("Overlay.measureBlockTops");
   const tops = new Map<string, number>();
   const rects = new Map<string, MeasuredBlock>();
   const ordered: MeasuredBlock[] = [];
+  const undrawnIds = new Set<string>();
 
   const pageRect = pageRectEl.getBoundingClientRect();
   if (pageRect.height <= 0) {
-    return { tops, rects, ordered };
+    return { tops, rects, ordered, undrawnIds };
   }
 
   const scaleY = coordHeight / pageRect.height;
@@ -546,6 +575,16 @@ export function measureBlockTops(
     }
     seen.add(id);
     const rect = el.getBoundingClientRect();
+    if (isUndrawnElement(el, rect)) {
+      undrawnIds.add(id);
+      const kept = keepUndrawnBlock(lastDrawn?.get(id));
+      if (kept) {
+        tops.set(id, kept.top);
+        rects.set(id, kept);
+        ordered.push(kept);
+      }
+      return;
+    }
     const top = (rect.top - pageRect.top) * scaleY;
     const left = (rect.left - pageRect.left) * scaleX;
     const containerId = findMeasurableContainerId(el, id);
@@ -565,7 +604,7 @@ export function measureBlockTops(
   });
 
   ordered.sort((a, b) => a.top - b.top);
-  return { tops, rects, ordered };
+  return { tops, rects, ordered, undrawnIds };
 }
 
 /**

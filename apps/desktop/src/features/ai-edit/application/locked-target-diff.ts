@@ -71,7 +71,12 @@ export function findAiLockedTargetsTouched(
       if (!previous) {
         continue;
       }
-      if (hasChanged(previous, nextShapes.get(shapeId))) {
+      if (hasShapeChanged(
+        previous,
+        nextShapes.get(shapeId),
+        { document: before, shapes: previousShapes },
+        { document: after, shapes: nextShapes },
+      )) {
         shapeIds.push(shapeId);
       }
     }
@@ -150,6 +155,45 @@ function hasChanged(previous: unknown, next: unknown): boolean {
     return true;
   }
   return !deepEquals(previous, next);
+}
+
+/**
+ * A shape compares by what a person sets on it -- its anchor, size, content, existence -- and not by
+ * the coordinates its anchor resolves to. The page re-resolves those whenever the body reflows (a
+ * folded block takes its height out of the page, say) and the next save carries them, so comparing
+ * them would refuse an unrelated edit. A move of an anchored shape still shows up: it rewrites the
+ * anchor's offsets. A dangling anchor (its block or shape is gone) resolves nothing, so there the
+ * coordinates are the shape's own and are compared.
+ */
+function hasShapeChanged(
+  previous: OverlayShape,
+  next: OverlayShape | undefined,
+  before: AnchorTargets,
+  after: AnchorTargets,
+): boolean {
+  if (next === undefined) {
+    return true;
+  }
+  return previous !== next
+    && !deepEquals(withoutAnchorDerivedPosition(previous, before), withoutAnchorDerivedPosition(next, after));
+}
+
+interface AnchorTargets {
+  document: SigmaDocument;
+  shapes: ReadonlyMap<string, OverlayShape>;
+}
+
+/** The shape without the coordinates its anchor determines (block: y, and x when it keeps dx; shape: both). */
+function withoutAnchorDerivedPosition(shape: OverlayShape, targets: AnchorTargets): Record<string, unknown> {
+  const { x, y, ...rest } = shape;
+  const anchor = shape.anchor;
+  if (anchor?.type === "shape" && targets.shapes.has(anchor.shapeId)) {
+    return rest;
+  }
+  if (anchor?.type === "block" && findBlock(targets.document, anchor.blockId)) {
+    return typeof anchor.dx === "number" ? rest : { ...rest, x };
+  }
+  return { ...rest, x, y };
 }
 
 /**

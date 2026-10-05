@@ -9,6 +9,8 @@ import type {
   ProbeUnit,
 } from "@/features/rendering/core";
 
+import { isUndrawnElement } from "./undrawn-blocks";
+
 /**
  * 本文フローの**自然配置**を読む。
  *
@@ -117,15 +119,6 @@ interface Displacement {
   dy: number;
 }
 
-/**
- * 要素が描かれていない (自身か祖先が display: none で、描画矩形を 1 つも持たない) か。そのときの
- * 外接矩形はすべて 0 なので、0 の大きさのときだけ `getClientRects` を引く (打鍵ごとの計測を重くしない)。
- * 本文の計測 (`probeFlow` と `layout-measure.ts` の `measureFlowBlocks`) はこれで同じ要素を除く。
- */
-export function isUndrawnElement(element: Element, rect: DOMRect | DOMRectReadOnly): boolean {
-  return rect.width === 0 && rect.height === 0 && element.getClientRects().length === 0;
-}
-
 export function readFlowDisplacement(element: Element): Displacement {
   const dx = Number(element.getAttribute(FLOW_DX_ATTRIBUTE) ?? 0);
   const dy = Number(element.getAttribute(FLOW_DY_ATTRIBUTE) ?? 0);
@@ -160,8 +153,8 @@ export function probeFlow(flow: HTMLElement, options: FlowProbeOptions): ProbeTr
     const id = isExtension ? extensionId : element.getAttribute("data-sigma-doc-id");
     if (!id) return null;
     const domRect = element.getBoundingClientRect();
-    // 描かれていない本文ノード (display: none で畳んだブロック) は行を持たない。0 の矩形から変位を
-    // 引くと負の位置の行になる。高さ 0 で描かれた要素は矩形を持つので測る (`isUndrawnElement`)。
+    // 描かれていない本文ノード (display: none で畳んだブロック) は行を持たない (`undrawn-blocks.ts`)。
+    // 0 の矩形から変位を引くと負の位置の行になる。
     // 先に見つけた方が勝つ規則は保つ (後の同じ id の要素をそのノードとして測らない)。
     if (isUndrawnElement(element, domRect)) {
       seenNodeIds.add(id);

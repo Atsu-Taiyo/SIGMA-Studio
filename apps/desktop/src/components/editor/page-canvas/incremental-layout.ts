@@ -1,6 +1,7 @@
 import type { BlockExtent, MeasuredBlock } from "@/components/editor/overlay-canvas/anchor";
 
 import type { RenderUnit } from "./types";
+import { isSameDrawState } from "./undrawn-blocks";
 
 /**
  * 本文の実測 1 パス分。`measureFlowBlocks` の戻り値そのもの。
@@ -228,10 +229,11 @@ const BLOCK_GEOMETRY_EPSILON_PX = 0.05;
 export const MAX_CONSECUTIVE_INCREMENTAL_MEASURES = 40;
 
 /**
- * 測り直した結果が前回と同じ場所・同じ高さか。
+ * 測り直した結果が前回と同じ場所・同じ高さで、描かれているかどうかも同じか。
  *
  * ここが「汚れたユニットだけ測って、下流は前回のまま使ってよい」の判定。1 文字打っても行が
  * 増えなければユニットの高さは変わらず、下のブロックは 1px も動かない — 実測の 99% はこの形。
+ * 畳んだブロックは最後に描かれていた幾何のまま残るので、印 (`undrawn`) の差も見る (`undrawn-blocks.ts`)。
  */
 export function isSameBlockGeometry(
   measured: MeasuredBlock,
@@ -239,5 +241,6 @@ export function isSameBlockGeometry(
 ): boolean {
   return previous !== undefined
     && Math.abs(measured.top - previous.top) <= BLOCK_GEOMETRY_EPSILON_PX
-    && Math.abs((measured.height ?? 0) - (previous.height ?? 0)) <= BLOCK_GEOMETRY_EPSILON_PX;
+    && Math.abs((measured.height ?? 0) - (previous.height ?? 0)) <= BLOCK_GEOMETRY_EPSILON_PX
+    && isSameDrawState(measured, previous);
 }

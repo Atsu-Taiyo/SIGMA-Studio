@@ -8,7 +8,6 @@ import {
 import type { OverlayShape } from "@/components/editor/overlay-canvas/types";
 import type { TextFlowBoxFragmentSourceLayout } from "@/components/editor/text-flow/types";
 import { countPerformanceEvent } from "@/lib/performance";
-import { isUndrawnElement } from "./flow-probe";
 import {
   canCarrySegments,
   composeFlowMeasurement,
@@ -20,6 +19,7 @@ import {
   type MeasureScope,
 } from "./incremental-layout";
 import type { EditorBoxBlockFragmentLayout, FlowUnitLayout } from "./types";
+import { isUndrawnElement, keepUndrawnBlock } from "./undrawn-blocks";
 
 interface LineMeasureCacheEntry {
   contentRevision: string;
@@ -135,15 +135,15 @@ export function measureFlowBlocks(
     // 箱の断片の複製など) をそのブロックの位置として読まない。
     seen.add(id);
     const rect = el.getBoundingClientRect();
-    // 描かれていないブロック (display: none で畳んだものとその中) の 0 の矩形は読まない。畳むのは
-    // 表示だけなので、最後に描かれていたときの矩形のまま残す: 図形の固定先・付け替えの候補・前回の
-    // 計測が表示の切り替えで変わらない (保存される内容が変わらない)。矩形は紙面の座標 (ズームに依らない)
-    // なので、ズームを変えた後も使える。点から選ぶ新しい固定先には出さない (`undrawn`)。一度も描かれて
-    // いなければ残さない。
+    // 描かれていないブロック (display: none で畳んだものとその中) は `undrawn-blocks.ts` の規則で扱う:
+    // 0 の矩形は読まず、最後に描かれていたときの矩形に印を付けて残す (一度も描かれていなければ残さない)。
+    // 印が付く・外れるのも幾何の変化として数える (前回に無かった id を必ず変化に数える下の前提も保つ)。
     if (isUndrawnElement(el, rect)) {
-      const lastDrawn = previous?.rects.get(id) ?? cache?.get(id)?.block;
-      if (lastDrawn) {
-        const kept = lastDrawn.undrawn ? lastDrawn : { ...lastDrawn, undrawn: true };
+      const kept = keepUndrawnBlock(previous?.rects.get(id) ?? cache?.get(id)?.block);
+      if (kept) {
+        if (!isSameBlockGeometry(kept, previous?.rects.get(id))) {
+          geometryChanged = true;
+        }
         measuredBlocks.push(kept);
         into.push({ block: kept, isFlowUnit });
       }
