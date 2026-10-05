@@ -4,9 +4,9 @@ import { forwardRef, useCallback, useEffect, useImperativeHandle, useLayoutEffec
 
 import type { DocumentChangeOrigin, SigmaDocument } from "@/features/document";
 import type { AiProposalApplyOutcome } from "@/features/ai-edit/application/proposal-action-model";
-import { countProposalMergeFallbacks } from "@/features/ai-edit/application/proposal-merge-metrics";
 import type { AiEditPreviewState } from "@/features/ai-edit/model/preview";
 import { blockToReferenceText } from "@/lib/ai/ai-edit-reference";
+import { countProposalMergeFallbacks } from "@/lib/ai/proposal-merge-metrics";
 import { collectOverlayShapeOutline, findBlock } from "@/lib/document-tree";
 import type { Translate } from "@/lib/i18n";
 import { useT } from "@/lib/i18n/react";
