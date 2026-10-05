@@ -10,6 +10,7 @@ import {
 import {
   aiActiveRunBlockedMessage,
   aiPendingProposalBlockedMessage,
+  aiResultOnlyBlockedMessage,
   getAiTextContentReservation,
 } from "../adapters/tiptap/edit-lock-adapter";
 import { derivePendingAiProposalLockTargets, type AiEditPreviewState } from "../model/preview";
@@ -55,6 +56,12 @@ export interface AiLockedTargets {
   runShapeIds: ReadonlySet<string>;
   /** Only these fragments are reserved; ids absent here retain whole-block protection. */
   contentReservations?: ReadonlyMap<string, readonly TextContentReservation[]>;
+  /**
+   * The subset folded out of the page while a proposal shows only its result
+   * (`withAiResultOnlyBlocks`). Not visible, so not editable either; released by
+   * switching the proposal back to its changes.
+   */
+  resultOnlyBlockIds?: ReadonlySet<string>;
 }
 
 export const EMPTY_AI_LOCKED_TARGETS: AiLockedTargets = {
@@ -90,6 +97,31 @@ export function mergeAiLockedTargets(
     runBlockIds,
     runShapeIds,
     contentReservations,
+  };
+}
+
+/**
+ * Adds the blocks a page card folds away to show only its proposal's result. The page extension
+ * decides them once (`collectResultOnlyCollapsedBlockIds`): the same set folds the blocks, guards
+ * them in the editing surfaces, refuses cross-surface joins into them, and -- through this union --
+ * refuses every commit and history restore that would change them while they cannot be seen
+ * (search & replace, boundary deletes, undo). A folded block is protected whole, even where a live
+ * run reserved only a fragment of it.
+ */
+export function withAiResultOnlyBlocks(
+  targets: AiLockedTargets,
+  resultOnlyBlockIds: ReadonlySet<string>,
+): AiLockedTargets {
+  if (resultOnlyBlockIds.size === 0) {
+    return targets;
+  }
+  const contentReservations = new Map(targets.contentReservations ?? []);
+  resultOnlyBlockIds.forEach((id) => contentReservations.delete(id));
+  return {
+    ...targets,
+    blockIds: new Set([...targets.blockIds, ...resultOnlyBlockIds]),
+    contentReservations,
+    resultOnlyBlockIds,
   };
 }
 
@@ -159,5 +191,10 @@ export function describeAiLockedTargets(
 ): string {
   const heldByRun = touched.blockIds.some((id) => targets.runBlockIds.has(id))
     || touched.shapeIds.some((id) => targets.runShapeIds.has(id));
-  return heldByRun ? aiActiveRunBlockedMessage() : aiPendingProposalBlockedMessage();
+  if (heldByRun) {
+    return aiActiveRunBlockedMessage();
+  }
+  return touched.blockIds.some((id) => targets.resultOnlyBlockIds?.has(id))
+    ? aiResultOnlyBlockedMessage()
+    : aiPendingProposalBlockedMessage();
 }

@@ -5,6 +5,7 @@ import { type TextRunScopeContainer } from "@/components/editor/text-flow/text-r
 import {
   TextFlowEditor,
   type TextFlowBodyBlockCommandRequest,
+  type TextFlowBoundaryDeleteOutcome,
   type TextFlowBoundaryDeleteRequest,
   type TextFlowBoxFragmentSourceLayout,
   type TextFlowChangeContext,
@@ -217,7 +218,7 @@ export function TextFlowWithInlineContent({
     activeBlockId?: string | null,
     context?: TextFlowChangeContext,
   ) => void;
-  onBoundaryDelete?: (request: TextFlowBoundaryDeleteRequest) => boolean;
+  onBoundaryDelete?: (request: TextFlowBoundaryDeleteRequest) => TextFlowBoundaryDeleteOutcome;
   materials: MaterialItem[];
   onMaterialInsert?: (request: TextFlowMaterialInsertRequest) => void;
   enableSelectionFormatMenu?: boolean;

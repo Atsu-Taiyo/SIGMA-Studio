@@ -91,6 +91,14 @@ describe("AI lock reads at both document choke points", () => {
     expect(refusal).toContain("return;");
   });
 
+  it("puts the blocks a page card folds away (result only) into the locked set both choke points read", () => {
+    // 畳んだ (見えない) ブロックは、検索の置換・面をまたぐ結合・巻き戻しでも書き換えさせない。紙面の
+    // 拡張が決めた 1 つの集合を、ロックの集合と検索の両方に渡す。
+    expect(shellSource).toMatch(/withAiResultOnlyBlocks\([^\n]*aiResultOnlyBlockIds\)/);
+    expect(shellSource).toContain("onAiResultOnlyBlocksChange={setAiResultOnlyBlockIds}");
+    expect(shellSource).toContain("hiddenBlockIds: aiResultOnlyBlockIds");
+  });
+
   it("asks the same two questions the edit choke point asks", () => {
     const commit = bodyOf(
       "  const commitDocumentChange = useCallback((change: DocumentChange",

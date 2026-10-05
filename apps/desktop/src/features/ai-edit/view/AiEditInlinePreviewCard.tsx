@@ -22,7 +22,6 @@ import type { AiProposalContent, AiProposalContentHunk, AiProposalOperationKind 
 import {
   applyAiProposalCardDisplayPatch,
   DEFAULT_AI_PROPOSAL_DISPLAY_STATE,
-  showsAiProposalResultOnly,
   type AiProposalDisplayState,
 } from "../model/proposal-display-state";
 import type { AiProposalApplyOutcome } from "../application/proposal-action-model";
@@ -368,7 +367,7 @@ export function AiEditInlinePreviewCard({
   const title = getAiEditInlinePreviewTitle(bodyContent, t);
   // 複製は同じ id を持たない (支援技術・aria-controls が正本だけを指す)。
   const ownContentId = replica ? undefined : contentId;
-  const resultOnly = showsAiProposalResultOnly(state);
+  const resultOnly = state.afterOnly;
   const notices = [
     mergedWithHumanEdits && <AiProposalMergeNotice key="merged" />,
     resultOnly && !resultLaidOut && <AiProposalResultNotice key="result" />,

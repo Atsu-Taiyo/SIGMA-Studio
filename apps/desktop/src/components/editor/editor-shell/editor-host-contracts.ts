@@ -26,6 +26,7 @@ export interface EditorAssistanceServices {
   isAiLockedBlock: typeof import("@/features/ai-edit").isAiLockedBlock;
   isAiLockedShapeSelection: typeof import("@/features/ai-edit").isAiLockedShapeSelection;
   useAiLockedTargets: typeof import("@/features/ai-edit").useAiLockedTargets;
+  withAiResultOnlyBlocks: typeof import("@/features/ai-edit").withAiResultOnlyBlocks;
   useAiPinnedReferences: typeof import("@/features/ai-edit").useAiPinnedReferences;
   useAiPendingAttachments: typeof import("@/features/ai-edit").useAiPendingAttachments;
   useAiWorkspaceTabTitles: typeof import("@/features/ai-edit").useAiWorkspaceTabTitles;

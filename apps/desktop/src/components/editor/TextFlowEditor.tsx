@@ -247,6 +247,7 @@ import  {
 } from "./text-flow/text-run-span";
 import { textFlowToTiptap, tiptapToTextFlow } from "./text-flow/tiptap-document-adapter";
 import type  {
+  TextFlowBoundaryDeleteOutcome,
   TextFlowBoundaryDeleteRequest,
   TextFlowBoxFragmentSourceLayout,
   TextFlowColumnBlockLayout,
@@ -269,6 +270,7 @@ ManualTextPageBreakResult,
 ManualTextPageBreakSelection,
 TextFlowBlock,
 TextFlowBodyBlockCommandRequest,
+TextFlowBoundaryDeleteOutcome,
 TextFlowBoundaryDeleteRequest,
 TextFlowBoxCommandRequest,
 TextFlowBoxFragmentSourceLayout,
@@ -865,6 +867,17 @@ function TextFlowEditorImpl({
     editGuardNoticeTimeoutRef.current = setTimeout(() => setEditGuardNotice(null), 6000);
   }, []);
   const onEditGuardBlockedAttemptRef = useRef(handleEditGuardBlockedAttempt);
+  /**
+   * 境界の削除を持ち主が断ったとき (見えない・守られたブロックを変える) は、そのブロックのガードの
+   * 案内を出して、キーは消費する (面の中の既定の削除へ落とさない)。
+   */
+  const handleBoundaryDeleteOutcome = (outcome: TextFlowBoundaryDeleteOutcome): boolean => {
+    if (typeof outcome === "object") {
+      onEditGuardBlockedAttemptRef.current(outcome.blockedBlockId);
+      return true;
+    }
+    return outcome;
+  };
   const slashCommandCandidatesRef = useRef<SlashCommandCandidate[]>([]);
   const slashCommandActiveIndexRef = useRef(0);
   const lastTextSelectionRef = useRef<{ blockId: string; from: number; to: number } | null>(null);
@@ -1388,7 +1401,7 @@ function TextFlowEditorImpl({
           const emptyOwnerRequest = manualBreakDirection === "backward"
             ? getEmptyManualBreakOwnerDeleteRequest(view.state, blocksRef.current)
             : null;
-          if (emptyOwnerRequest && onBoundaryDeleteRef.current?.(emptyOwnerRequest)) {
+          if (emptyOwnerRequest && handleBoundaryDeleteOutcome(onBoundaryDeleteRef.current?.(emptyOwnerRequest) ?? false)) {
             return true;
           }
           if (!moveCaretHorizontally(view.dom, manualBreakDirection)) {
@@ -1421,7 +1434,7 @@ function TextFlowEditorImpl({
           return false;
         }
 
-        const handled = onBoundaryDeleteRef.current?.(request) ?? false;
+        const handled = handleBoundaryDeleteOutcome(onBoundaryDeleteRef.current?.(request) ?? false);
         if (handled) {
           event.preventDefault();
         }

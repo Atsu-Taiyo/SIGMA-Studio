@@ -480,11 +480,29 @@ describe("groupPendingProposalContentByAnchor", () => {
   });
 
   describe("what a card folds out of the page body to show only the result", () => {
-    const cardAt = (preview: AiEditPreviewState, anchorId: string, document = baseDocument()) => {
-      const card = groupPendingProposalContentByAnchor([preview], document).get(anchorId)?.[0];
+    /** 紙面の編集面の最上位に並ぶブロック (紙面のユニット分けから作る集合。ここでは baseDocument の分)。 */
+    const PAGE_EDITOR_BLOCK_IDS = new Set(["p1", "prompt_1", "solution_1", "box_1", "p_last"]);
+    const cardAt = (preview: AiEditPreviewState, anchorId: string, document = baseDocument(), pageEditorBlockIds = PAGE_EDITOR_BLOCK_IDS) => {
+      const card = groupPendingProposalContentByAnchor([preview], document, { pageEditorBlockIds }).get(anchorId)?.[0];
       if (!card) throw new Error(`no card at ${anchorId}`);
       return card;
     };
+
+    it("folds only the blocks the page lays out as its editing surfaces' top-level nodes (where the fold can apply)", () => {
+      // 段組みの段の直下に置かれた問題: 流れの索引では中の段落も流れのブロックに見えるが、紙面では
+      // 問題ごと 1 つのノードとして段の編集面に並び、中の段落には装飾が届かない。
+      const nested = {
+        id: "columns_1",
+        type: "layoutSection",
+        layout: { columnCount: 1 },
+        children: [{ ...problem(), id: "nested_problem", prompt: [paragraph("nested_prompt", "入れ子の問題文") as never], solution: [] }],
+      } as unknown as SigmaBlock;
+      const base = documentOf([paragraph("p1", "変更前の問題文")]);
+      const document = { ...base, content: [...base.content, nested] } as SigmaDocument;
+      const card = cardAt(previewOf([replace("nested_prompt", "直した問題文")]), "nested_prompt", document, new Set(["p1", "nested_problem"]));
+
+      expect(card.resultLayout).toEqual({ collapsedBlockIds: [], complete: false });
+    });
 
     it.each([
       ["a replaced top-level block", previewOf([replace("p1", "変更後")]), "p1", ["p1"]],

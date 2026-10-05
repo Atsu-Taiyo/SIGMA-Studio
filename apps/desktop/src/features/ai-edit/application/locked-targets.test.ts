@@ -7,13 +7,16 @@ import type { AiEditSessionDraft } from "@/lib/ai/sigma-doc-edit-schema";
 import { findAiLockedTargetsTouched } from "./locked-target-diff";
 import {
   describeAiLockedTargets,
+  EMPTY_AI_LOCKED_TARGETS,
   isAiLockedBlock,
   isAiLockedShapeSelection,
   mergeAiLockedTargets,
+  withAiResultOnlyBlocks,
 } from "./locked-targets";
 import {
   aiActiveRunBlockedMessage,
   aiPendingProposalBlockedMessage,
+  aiResultOnlyBlockedMessage,
 } from "../adapters/tiptap/edit-lock-adapter";
 import { derivePendingAiProposalLockTargets, type AiEditPreviewState } from "../model/preview";
 
@@ -204,3 +207,37 @@ function graphWithLabels(id: string, labelShapeIds: string[]): OverlayGraphShape
     },
   };
 }
+
+describe("blocks folded away while a proposal shows only its result", () => {
+  const before = makeDocument([paragraph("folded", "変更前"), paragraph("next", "次の段落")]);
+
+  it("refuses at the commit choke point (and for undo) any change to a folded block, with the result-only wording", () => {
+    const targets = withAiResultOnlyBlocks(EMPTY_AI_LOCKED_TARGETS, new Set(["folded"]));
+    // 次の段落の先頭で Backspace: 次の段落が畳んだ変更前へ結合される。
+    const joined = makeDocument([paragraph("folded", "変更前次の段落")]);
+    // 検索の置換: 畳んだ変更前の文字が見えないまま書き換わる。
+    const replaced = makeDocument([paragraph("folded", "変更後"), paragraph("next", "次の段落")]);
+
+    for (const after of [joined, replaced]) {
+      const touched = findAiLockedTargetsTouched(before, after, targets);
+      expect(touched.blockIds).toEqual(["folded"]);
+      expect(describeAiLockedTargets(targets, touched)).toBe(aiResultOnlyBlockedMessage());
+    }
+    expect(findAiLockedTargetsTouched(before, makeDocument([paragraph("folded", "変更前"), paragraph("next", "直した")]), targets).blockIds)
+      .toEqual([]);
+  });
+
+  it("guards a folded block as a whole, even where a live run reserved only a fragment of it", () => {
+    const base = mergeAiLockedTargets(["folded"], [], { blockIds: [], shapeIds: [] }, [], new Map([["folded", [{ baselineText: "変更前", ranges: [{ from: 0, to: 1 }], inlineMathIds: [] }]]]));
+    const targets = withAiResultOnlyBlocks(base, new Set(["folded"]));
+
+    expect(targets.contentReservations?.has("folded")).toBe(false);
+    expect(isAiLockedBlock(targets, "folded")).toBe(true);
+    // 止められる実行が握っていれば、その案内を優先する。
+    expect(describeAiLockedTargets(targets, { blockIds: ["folded"], shapeIds: [] })).toBe(aiActiveRunBlockedMessage());
+  });
+
+  it("changes nothing while nothing is folded", () => {
+    expect(withAiResultOnlyBlocks(EMPTY_AI_LOCKED_TARGETS, new Set())).toBe(EMPTY_AI_LOCKED_TARGETS);
+  });
+});
