@@ -256,24 +256,33 @@ export interface ProposalDraftRewrite {
  * implicitly): writes the merged contents of every unit the human edited since `mergeBasis` into the
  * draft (the same plan as the approval: replaced blocks, deleted blocks and shapes, updated shapes,
  * reinsertions, the insertAfter anchors the basis remembers, renamed image assets) and replays the
- * rewritten draft with `replay`. When `replay` throws with the merged units, only the units whose
- * merged contents cannot be applied fall back to the AI's version (counted as `invalidAfterMerge`), as
- * in the approval; when even that fails, `replay`'s first error is thrown. Without anything to merge,
- * `replay` gets the draft unchanged and the report is empty.
+ * rewritten draft with `replay`. Without anything to merge, `replay` gets the draft unchanged and the
+ * report is empty.
  *
- * `isMergeFailure` tells the merge failures (what the approval falls back on: a replay error, an id
- * the merge repeats, `assertNoRepeatedContentIds`) from the owner's own rejections. An owner's
- * rejection (WebMCP's stale checks of a move, a column range or an implicit id) is thrown at once:
- * putting units back on the AI's side would only make its check pass by dropping the human's edit.
+ * `onMergeFailure` decides what a failed merge does.
+ * - "ai-side", the approval's rule (MISS R2): a unit whose merged contents fail validation is replayed
+ *   in the AI's version, and when `replay` throws with the merged units, only the units whose merged
+ *   contents cannot be applied fall back to the AI's version; when even that fails, `replay`'s first
+ *   error is thrown. Each fallback is counted (`invalidAfterMerge`) and the person is told.
+ * - "throw", for an owner whose person gets no such notice but whose agent re-reads and retries a
+ *   stale draft (WebMCP): nothing falls back to the AI's version, so no human edit is dropped. A unit
+ *   whose merged contents fail validation throws `ProposalMergeValidationError` with its id, and
+ *   `replay`'s error is thrown as it is.
  */
 export function rewriteProposalDraftMerging<T>(
   document: SigmaDocument,
   draft: AiEditSessionDraft,
   mergeBasis: ProposalMergeBasis,
   replay: (rewrite: ProposalDraftRewrite) => T,
-  isMergeFailure: (error: unknown) => boolean = () => true,
+  onMergeFailure: "ai-side" | "throw" = "ai-side",
 ): { rewrite: ProposalDraftRewrite; result: T; report: ProposalMergeReport } {
   const plan = planMergingReplay(document, draft, mergeBasis);
+  if (onMergeFailure === "throw") {
+    const invalidIds = allUnits(plan).filter((unit) => unit.outcome === "invalid").map((unit) => unit.id);
+    if (invalidIds.length > 0) {
+      throw new ProposalMergeValidationError(te("electron.proposal.regenerateReplayFailed"), invalidIds);
+    }
+  }
   const attempt = (fallBack: ReadonlySet<string>) => {
     const rewrite = plan.rewrites ? rewriteDraft(document, draft, plan, fallBack) : removeDraftEntries(draft, new Set(), new Set());
     return { rewrite, result: replay(rewrite) };
@@ -281,16 +290,30 @@ export function rewriteProposalDraftMerging<T>(
   try {
     return { ...attempt(new Set()), report: assembleReport(plan, new Set()) };
   } catch (error) {
+    if (onMergeFailure === "throw") {
+      throw error;
+    }
     // Without merged units (nothing to rewrite) this rethrows `replay`'s error at once.
-    const { replay: merged, fallBack } = retryWithFailingUnitsOnTheAiSide(plan, attempt, error, isMergeFailure);
+    const { replay: merged, fallBack } = retryWithFailingUnitsOnTheAiSide(plan, attempt, error);
     return { ...merged, report: assembleReport(plan, fallBack) };
   }
 }
 
+/**
+ * A merged result that fails validation (a unit whose merge is not a valid block or shape, an id the
+ * merge repeats), with the units or ids concerned. A plain replay error is never one of these.
+ */
+export class ProposalMergeValidationError extends Error {
+  constructor(message: string, readonly ids: string[]) {
+    super(message);
+    this.name = "ProposalMergeValidationError";
+  }
+}
+
 /** The replay left ids more often in the document than before (a merged unit repeated them). */
-export class ProposalReplayRepeatedIdError extends Error {
-  constructor(readonly ids: string[]) {
-    super(te("electron.proposal.regenerateReplayFailed"));
+export class ProposalReplayRepeatedIdError extends ProposalMergeValidationError {
+  constructor(ids: string[]) {
+    super(te("electron.proposal.regenerateReplayFailed"), ids);
     this.name = "ProposalReplayRepeatedIdError";
   }
 }
@@ -342,28 +365,20 @@ type MergedReplay = Omit<ProposalMergeReplayResult, "report">;
  * The replay failed with the merged units. Each merged unit is tried alone (the others on the AI's
  * side) to find the ones whose merged contents cannot be applied, and only those fall back to the
  * AI's version, so the other units keep the human's edits. If that combination still fails, every
- * merged unit falls back; if even that fails, the original error is rethrown. An error that is not a
- * merge failure (`isMergeFailure`) is rethrown at once, whichever attempt it comes from.
+ * merged unit falls back; if even that fails, the original error is rethrown.
  */
 function retryWithFailingUnitsOnTheAiSide<R extends object>(
   plan: MergingReplayPlan,
   attempt: (fallBack: ReadonlySet<string>) => R,
   error: unknown,
-  isMergeFailure: (error: unknown) => boolean = () => true,
 ): { replay: R; fallBack: ReadonlySet<string> } {
-  if (!isMergeFailure(error)) {
-    throw error;
-  }
   const mergedIds = allUnits(plan)
     .filter((unit) => unit.usesMerged)
     .map((unit) => unit.id);
   const tryAttempt = (fallBack: ReadonlySet<string>): R | null => {
     try {
       return attempt(fallBack);
-    } catch (attemptError) {
-      if (!isMergeFailure(attemptError)) {
-        throw attemptError;
-      }
+    } catch {
       return null;
     }
   };

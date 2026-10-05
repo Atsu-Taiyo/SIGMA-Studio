@@ -1586,7 +1586,7 @@ describe("WebMCP draft merged with the human's edits", () => {
     expect(blockToReferenceText(findBlock(harness.getDocument(), "p_existing")!)).toBe("Agent text by a human");
   });
 
-  it("stops at STALE_DRAFT instead of repeating an id when the merged problem falls back to the agent's version", async () => {
+  it("stops at STALE_DRAFT instead of repeating an id when the person moved a block out of the merged problem", async () => {
     const harness = createHarness(problemDocument());
     await rewriteProblemLead(harness);
     await harness.tool("apply_edits").execute({ expectedRevision: 0, operations: [{ op: "replace_text", target: { type: "text", blockId: "prompt_a", text: "First" }, replacement: "AIの最初" }] });
@@ -1595,7 +1595,36 @@ describe("WebMCP draft merged with the human's edits", () => {
     const moved = withPrompt(harness.getDocument(), (prompt) => [textParagraph("prompt_h", "人が足した段落"), ...prompt.filter((block) => block.id !== "prompt_a")]);
     harness.humanEdit({ ...moved, content: [...moved.content, textParagraph("prompt_a", "First prompt")] });
 
-    expect(() => pending.apply(harness.getDocument())).toThrow(/STALE_DRAFT.*prompt_a/);
+    // The merged problem would hold prompt_a next to the person's copy outside it: the merge fails, and the
+    // draft stops instead of replaying the agent's problem over the person's paragraph.
+    expect(() => pending.apply(harness.getDocument())).toThrow(/STALE_DRAFT.*q_1/);
+    expect(() => harness.getProposal()!.apply(harness.getDocument())).toThrow(/STALE_DRAFT.*q_1/);
+  });
+
+  it("stops at STALE_DRAFT when the merged problem fails validation, instead of replaying the agent's version over the human's edit", async () => {
+    const harness = createHarness(problemDocument());
+    await harness.tool("move_blocks").execute({ expectedRevision: 0, blockIds: ["p_existing"], targetId: "prompt_a", position: "after" });
+    const draftProblem = parseResult(await harness.tool("get_block").execute({ blockId: "q_1" })).block;
+    await harness.tool("update_problem_content").execute({ expectedRevision: 0, targetId: "q_1", expectedProblem: draftProblem, answerText: "42" });
+    harness.humanEdit(withPrompt(harness.getDocument(), (prompt) => prompt.map((block) => (block.id === "prompt_a" ? textParagraph("prompt_a", "人が直した問い") : block))));
+
+    expect(() => harness.getProposal()!.apply(harness.getDocument())).toThrow(/STALE_DRAFT.*q_1/);
+  });
+
+  it("stops at STALE_DRAFT when the human deleted an insertion's anchor inside a merged problem, instead of reviving it", async () => {
+    const harness = createHarness(problemDocument());
+    const problem = findBlock(harness.getDocument(), "q_1")!;
+    await harness.tool("replace_block").execute({
+      expectedRevision: 0, blockId: "q_1", expectedBlock: problem,
+      block: { ...problem, prompt: [textParagraph("prompt_a", "First prompt"), textParagraph("prompt_b", "AIが直した二つ目")] },
+    });
+    await harness.tool("insert_body_content").execute({ expectedRevision: 0, targetId: "prompt_a", blocks: [{ id: "p_ai", text: "AIの段落" }] });
+    const withoutAnchor = withPrompt(harness.getDocument(), (prompt) => prompt.filter((block) => block.id !== "prompt_a"));
+    harness.humanEdit({
+      ...withoutAnchor,
+      content: withoutAnchor.content.map((block) => (block.id === "q_1" ? { ...block, hints: [textParagraph("hint_h", "人が足したヒント")] } as Block : block)),
+    });
+
     expect(() => harness.getProposal()!.apply(harness.getDocument())).toThrow(/STALE_DRAFT.*prompt_a/);
   });
 
@@ -1830,5 +1859,61 @@ describe("contract: a human edit of a WebMCP draft's target survives the approva
 
     expect(outcome).not.toBe("lost");
     expect(outcome).toBe(expected);
+  });
+
+  /**
+   * Combinations whose merge fails (the merged problem would repeat a block the draft moved into it; an
+   * insertion's anchor the person deleted). The approval must not replay the agent's version of the problem
+   * over the person's edit (no notice tells the person, unlike the desktop): it stops at STALE_DRAFT.
+   */
+  const mergeFailureCases: Array<{
+    name: string;
+    propose: (harness: Harness) => Promise<unknown>;
+    edit: (document: SigmaDocument) => SigmaDocument;
+    kept: (result: SigmaDocument) => boolean;
+  }> = [
+    {
+      name: "the draft moves a paragraph into the problem and rewrites the problem; the person edits a prompt",
+      propose: async (harness) => {
+        await harness.tool("move_blocks").execute({ expectedRevision: 0, blockIds: ["p_existing"], targetId: "prompt_a", position: "after" });
+        const draftProblem = parseResult(await harness.tool("get_block").execute({ blockId: "q_1" })).block;
+        return harness.tool("update_problem_content").execute({ expectedRevision: 0, targetId: "q_1", expectedProblem: draftProblem, answerText: "42" });
+      },
+      edit: (document) => withPrompt(document, (prompt) => prompt.map((block) => (block.id === "prompt_a" ? textParagraph("prompt_a", "人が直した問い") : block))),
+      kept: (result) => blockToReferenceText(findBlock(result, "prompt_a")!).includes("人が直した"),
+    },
+    {
+      name: "the draft rewrites the problem and inserts after a prompt; the person deletes that prompt and adds a hint",
+      propose: async (harness) => {
+        const problem = findBlock(harness.getDocument(), "q_1")!;
+        await harness.tool("replace_block").execute({
+          expectedRevision: 0, blockId: "q_1", expectedBlock: problem,
+          block: { ...problem, prompt: [textParagraph("prompt_a", "First prompt"), textParagraph("prompt_b", "AIが直した二つ目")] },
+        });
+        return harness.tool("insert_body_content").execute({ expectedRevision: 0, targetId: "prompt_a", blocks: [{ id: "p_ai", text: "AIの段落" }] });
+      },
+      edit: (document) => {
+        const withoutAnchor = withPrompt(document, (prompt) => prompt.filter((block) => block.id !== "prompt_a"));
+        return { ...withoutAnchor, content: withoutAnchor.content.map((block) => (block.id === "q_1" ? { ...block, hints: [textParagraph("hint_h", "人が足したヒント")] } as Block : block)) };
+      },
+      kept: (result) => findBlock(result, "prompt_a") === null && findBlock(result, "hint_h") !== null,
+    },
+  ];
+
+  it.each(mergeFailureCases)("$name", async ({ propose, edit, kept }) => {
+    const harness = createHarness(problemDocument());
+    await propose(harness);
+    harness.humanEdit(edit(harness.getDocument()));
+    let outcome: "kept" | "stale" | "lost";
+    try {
+      const result = harness.getProposal()!.apply(harness.getDocument()).document;
+      outcome = repeatedIds(result).length === 0 && kept(result) ? "kept" : "lost";
+    } catch (error) {
+      if (!(error instanceof Error) || !error.message.startsWith("STALE_DRAFT:")) throw error;
+      outcome = "stale";
+    }
+
+    expect(outcome).not.toBe("lost");
+    expect(outcome).toBe("stale");
   });
 });
