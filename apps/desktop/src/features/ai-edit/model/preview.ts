@@ -73,6 +73,13 @@ export interface AiEditPreviewState {
    * そのまま今の文書へ適用した内容を見せる (`resolveProposalMergePreview`)。
    */
   mergeSources?: AiProposalMergeSource[];
+  /**
+   * 提案の持ち主が draft をすでに人の編集と合成しているとき (WebMCP: 再生のたびに三者マージで書き換えた
+   * draft を渡す) の、合成で人の編集を取り込んだ単位。プレビューは draft をそのまま今の文書へ当て
+   * (`mergeSources` のように合成し直さない。持ち主の適用と同じ内容になる)、この単位のカードに
+   * 「あなたの編集と合わせた内容です」を添える。
+   */
+  ownerMergedHumanEditedUnits?: readonly string[];
 }
 
 /**

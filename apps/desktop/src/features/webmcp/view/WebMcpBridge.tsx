@@ -4,6 +4,7 @@ import { forwardRef, useCallback, useEffect, useImperativeHandle, useLayoutEffec
 
 import type { DocumentChangeOrigin, SigmaDocument } from "@/features/document";
 import type { AiProposalApplyOutcome } from "@/features/ai-edit/application/proposal-action-model";
+import { countProposalMergeFallbacks } from "@/features/ai-edit/application/proposal-merge-metrics";
 import type { AiEditPreviewState } from "@/features/ai-edit/model/preview";
 import { blockToReferenceText } from "@/lib/ai/ai-edit-reference";
 import { collectOverlayShapeOutline, findBlock } from "@/lib/document-tree";
@@ -16,9 +17,12 @@ import {
   createSigmaWebMcpTools,
   getWebMcpAgentInstructionsStorageKey,
   initializeWebMcpHeavyFallbackCounter,
+  recordWebMcpHeavyFallback,
   WEBMCP_APPLICATION_GUIDANCE,
   type SigmaWebMcpPorts,
   type SigmaWebMcpProposal,
+  type SigmaWebMcpProposalApplication,
+  type WebMcpFallbackCounterTarget,
   type WebMcpToolDefinition,
 } from "@/lib/webmcp-tools";
 
@@ -119,13 +123,21 @@ export const WebMcpBridge = forwardRef<WebMcpBridgeHandle, WebMcpBridgeProps>(fu
   const [history, setHistory] = useState<WebMcpHistoryEntry[]>([]);
   const historyEntrySequenceRef = useRef(0);
   const { enabled, instructionScopeId, commitDocumentChange, getDocument, getRevision, getSelectedBlockId, getSelection, navigateToTarget, onPreviewGroupsChange, onHistoryChange } = props;
-  const previewGroups = useMemo<AiEditPreviewState[]>(() => proposal ? [{ targetId: proposal.previewDraft.operations[0]?.targetId ?? proposal.targetId, draft: proposal.previewDraft, createdAt: proposal.createdAt, proposalIds: [proposal.id], baseRevision: proposal.baseRevision, providers: ["chatgpt"], sessionLabel: "WebMCP", lockTargets: false }] : [], [proposal]);
+  // previewDraft は人の編集とすでに合成してある (webmcp-tools の再生)。プレビューはそれをそのまま当て、
+  // 「あなたの編集と合わせた内容です」は合成の報告の単位に添える (`ownerMergedHumanEditedUnits`)。
+  const previewGroups = useMemo<AiEditPreviewState[]>(() => proposal ? [{ targetId: proposal.previewDraft.operations[0]?.targetId ?? proposal.targetId, draft: proposal.previewDraft, createdAt: proposal.createdAt, proposalIds: [proposal.id], baseRevision: proposal.baseRevision, providers: ["chatgpt"], sessionLabel: "WebMCP", lockTargets: false, ...(proposal.mergeReport.humanEditedUnits.length > 0 ? { ownerMergedHumanEditedUnits: proposal.mergeReport.humanEditedUnits } : {}) }] : [], [proposal]);
   const liveRevision = getRevision();
   const conflictTargets = proposal?.conflictTargetIds.length
     ? formatWebMcpConflictTargets(getDocument(), proposal.conflictTargetIds, tShape)
     : "";
+  const conflicted = (proposal?.conflictTargetIds.length ?? 0) > 0;
 
-  useEffect(() => { initializeWebMcpHeavyFallbackCounter(window as typeof window & { __sigmaWebMcpHeavyFallbackCount?: number }); }, []);
+  useEffect(() => { initializeWebMcpHeavyFallbackCounter(window as typeof window & WebMcpFallbackCounterTarget); }, []);
+  // 人の編集と合成できずにドラフトが STALE_DRAFT になった回数 (MISS R3)。その状態に入ったときに 1 回数える
+  // (競合したまま打鍵が続いても数え直さない)。重なりの無い通常の承認では 0。
+  useEffect(() => {
+    if (conflicted) recordWebMcpHeavyFallback(window as typeof window & WebMcpFallbackCounterTarget);
+  }, [conflicted]);
   useEffect(() => { onPreviewGroupsChange(previewGroups); return () => onPreviewGroupsChange([]); }, [onPreviewGroupsChange, previewGroups]);
   useEffect(() => { onHistoryChange(history); return () => onHistoryChange([]); }, [history, onHistoryChange]);
   useEffect(() => { publishStatus({ state: registration.state, registeredToolCount: registration.toolCount, failedToolNames: registration.failedToolNames, operationCount: proposal?.operationCount ?? 0, changedIds: [...(proposal?.targetIds ?? [])], conflictTargetIds: [...(proposal?.conflictTargetIds ?? [])], conflictTargets }); }, [conflictTargets, proposal, registration]);
@@ -214,10 +226,18 @@ export const WebMcpBridge = forwardRef<WebMcpBridgeHandle, WebMcpBridgeProps>(fu
     }
     try {
       const before = getDocument();
-      commitDocumentChange((current) => SigmaDocumentSchema.parse(proposal.apply(current).document), { origin: "ai-approval" });
+      let mergeReport: SigmaWebMcpProposalApplication["mergeReport"] | undefined;
+      commitDocumentChange((current) => {
+        const application = proposal.apply(current);
+        mergeReport = application.mergeReport;
+        return SigmaDocumentSchema.parse(application.document);
+      }, { origin: "ai-approval" });
       if (getDocument() === before) {
         return { ok: false, reason: t("webMcpProposal.applyRejected") };
       }
+      // 人の編集との合成が退避した箇所 (重なり・AI 側の採用・削除より編集を残した) を、デスクトップの承認と
+      // 同じカウンタで数える (MISS R19)。
+      countProposalMergeFallbacks(mergeReport);
       proposal.accept();
       recordHistory(proposal, "applied");
       setProposal(null);

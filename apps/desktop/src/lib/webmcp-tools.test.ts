@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { createTableShapeProps } from "@/components/editor/overlay-canvas/shapes/table";
 import { blockToReferenceText } from "@/lib/ai/ai-edit-reference";
+import { createEmptyProposalMergeReport } from "@/lib/ai/proposal-merge-basis";
 import { findBlock } from "@/lib/document-tree";
 import { sampleDocument } from "@/lib/sample-document";
 import {
@@ -113,6 +114,11 @@ function createHarness(initial = baseDocument(), catalog: "public" | "implementa
 function parseResult(result: unknown): Record<string, unknown> {
   expect(result).toEqual(expect.any(Object));
   return result as Record<string, unknown>;
+}
+
+/** p_existing ("Original text") with a human's addition at the end, away from where the agent edits. */
+function humanEditedExisting(): SigmaDocument["content"][number] {
+  return { type: "paragraph", id: "p_existing", children: [{ type: "text", text: "Original ", marks: ["bold"] }, { type: "text", text: "text by a human" }] };
 }
 
 function currentShape(document: SigmaDocument, id: string): OverlayShape {
@@ -826,14 +832,21 @@ describe("Sigma WebMCP desktop-parity tools", () => {
     expect(blockToReferenceText(findBlock(harness.getDocument(), "p_added")!)).toBe("Agent addition");
   });
 
-  it("rejects a human change to the updated block with its target ID (acceptance 2)", async () => {
+  it("keeps both a human edit and the agent's edit of the same block, on approval and on the agent's next write (acceptance 2)", async () => {
     const harness = createHarness();
     expect(() => harness.tool("update_rich_content").execute({ expectedRevision: 0, blockId: "p_existing", expectedContent: "stale", text: "No" })).toThrow("STALE_TARGET");
-    await harness.tool("update_rich_content").execute({ expectedRevision: 0, blockId: "p_existing", expectedContent: "Original text", text: "Agent edit" });
+    await harness.tool("apply_edits").execute({ expectedRevision: 0, operations: [{ op: "replace_text", target: { type: "text", blockId: "p_existing", text: "Original" }, replacement: "Agent" }] });
     const pending = harness.getProposal()!;
-    harness.humanEdit({ ...harness.getDocument(), content: [{ type: "paragraph", id: "p_existing", children: [{ type: "text", text: "Human edit" }] }, harness.getDocument().content[1]!] });
-    expect(() => pending.apply(harness.getDocument())).toThrow(/STALE_DRAFT.*p_existing/);
-    expect(() => harness.tool("insert_body_content").execute({ expectedRevision: 0, targetId: "p_second", blocks: ["Another edit"] })).toThrow(/STALE_DRAFT.*p_existing/);
+    harness.humanEdit({ ...harness.getDocument(), content: [humanEditedExisting(), harness.getDocument().content[1]!] });
+    // The reviewed preview did not show the human's edit yet; the refreshed one merges it.
+    expect(() => pending.apply(harness.getDocument())).toThrow("PREVIEW_STALE");
+    const refreshed = harness.getProposal()!;
+    expect(refreshed).not.toBe(pending);
+    expect(blockToReferenceText(findBlock(refreshed.apply(harness.getDocument()).document, "p_existing")!)).toBe("Agent text by a human");
+    await harness.tool("insert_body_content").execute({ expectedRevision: 0, targetId: "p_second", blocks: [{ id: "p_added", text: "Another edit" }] });
+    harness.apply();
+    expect(blockToReferenceText(findBlock(harness.getDocument(), "p_existing")!)).toBe("Agent text by a human");
+    expect(blockToReferenceText(findBlock(harness.getDocument(), "p_added")!)).toBe("Another edit");
   });
 
   it("rebases insertion after A over an unrelated B edit (acceptance 3)", async () => {
@@ -1160,10 +1173,11 @@ describe("Sigma WebMCP desktop-parity tools", () => {
     await harness.tool("update_rich_content").execute({ expectedRevision: 0, blockId: "p_existing", expectedContent: "Original text", text: "AI A" });
     await harness.tool("update_rich_content").execute({ expectedRevision: 0, blockId: "p_second", expectedContent: "Second paragraph", text: "AI B" });
     const pending = harness.getProposal()!;
-    harness.humanEdit({ ...harness.getDocument(), content: [harness.getDocument().content[0]!, { type: "paragraph", id: "p_second", children: [{ type: "text", text: "Human B" }] }] });
+    // The human deleted the block the agent rewrites: the merge has nothing to keep the edit in.
+    harness.humanEdit({ ...harness.getDocument(), content: [harness.getDocument().content[0]!] });
     expect(() => pending.apply(harness.getDocument())).toThrow(/STALE_DRAFT.*p_second/);
     expect(blockToReferenceText(findBlock(harness.getDocument(), "p_existing")!)).toBe("Original text");
-    expect(blockToReferenceText(findBlock(harness.getDocument(), "p_second")!)).toBe("Human B");
+    expect(findBlock(harness.getDocument(), "p_second")).toBeNull();
   });
 
   it("regenerates the preview over the latest human document (acceptance 12)", async () => {
@@ -1208,11 +1222,12 @@ describe("Sigma WebMCP desktop-parity tools", () => {
     const pending = harness.getProposal()!;
     harness.humanEdit({
       ...harness.getDocument(),
-      content: [{ type: "paragraph", id: "p_existing", children: [{ type: "text", text: "Human edit" }] }, harness.getDocument().content[1]!],
+      content: [{ type: "paragraph", id: "p_second", children: [{ type: "text", text: "Human edit" }] }],
     });
     expect(() => pending.apply(harness.getDocument())).toThrow(/STALE_DRAFT.*p_existing/);
     const read = parseResult(await harness.tool("read_document").execute({ detail: "full" }));
-    expect(blockToReferenceText(findBlock(read.document as SigmaDocument, "p_existing")!)).toBe("Human edit");
+    expect(findBlock(read.document as SigmaDocument, "p_existing")).toBeNull();
+    expect(blockToReferenceText(findBlock(read.document as SigmaDocument, "p_second")!)).toBe("Human edit");
     expect(parseResult(await harness.tool("get_pending_proposal").execute({}))).toMatchObject({
       pending: true,
       currentRevision: 1,
@@ -1361,5 +1376,307 @@ describe("Sigma WebMCP desktop-parity tools", () => {
     const applied = pending.apply(harness.getDocument()).document;
     expect(applied.comments?.map((thread) => thread.id)).toEqual(["comment_human"]);
     expect(blockToReferenceText(findBlock(applied, "p_existing")!)).toBe("Agent edit");
+  });
+});
+
+const geoShape = (id: string, x: number, extra: Partial<OverlayShape> = {}): OverlayShape => ({
+  id, type: "geo", x, y: 0,
+  props: { w: 40, h: 20, geo: "rectangle", fill: "none", color: "#111111", labelColor: "#111111", dash: "solid", size: "m" },
+  ...extra,
+} as OverlayShape);
+
+/** Two paragraphs, a column section, two shapes and a group of two members. */
+function mergeDocument(): SigmaDocument {
+  const document = baseDocument([
+    geoShape("s_1", 0), geoShape("s_2", 100),
+    { id: "g", type: "group", x: 200, y: 0, props: { w: 90, h: 20 } } as OverlayShape,
+    geoShape("m_1", 200, { parentId: "g" }), geoShape("m_2", 250, { parentId: "g" }),
+  ]);
+  return {
+    ...document,
+    content: [
+      ...document.content,
+      { id: "sec_1", type: "layoutSection", layout: { columnCount: 2, columnGapMm: 8 }, children: [{ type: "paragraph", id: "sec_p", children: [{ type: "text", text: "Section paragraph" }] }] },
+    ],
+  } as SigmaDocument;
+}
+
+function editShape(id: string, patch: Partial<OverlayShape>) {
+  return (document: SigmaDocument): SigmaDocument => ({
+    ...document,
+    pageLayout: {
+      ...document.pageLayout!,
+      overlay: {
+        ...document.pageLayout!.overlay!,
+        overlaySnapshot: {
+          ...document.pageLayout!.overlay!.overlaySnapshot!,
+          shapes: document.pageLayout!.overlay!.overlaySnapshot!.shapes.map((shape) => (shape.id === id ? { ...shape, ...patch } as OverlayShape : shape)),
+        },
+      },
+    },
+  });
+}
+
+function deleteShape(id: string) {
+  return (document: SigmaDocument): SigmaDocument => ({
+    ...document,
+    pageLayout: {
+      ...document.pageLayout!,
+      overlay: {
+        ...document.pageLayout!.overlay!,
+        overlaySnapshot: {
+          ...document.pageLayout!.overlay!.overlaySnapshot!,
+          shapes: document.pageLayout!.overlay!.overlaySnapshot!.shapes.filter((shape) => shape.id !== id),
+        },
+      },
+    },
+  });
+}
+
+function editParagraph(id: string, text: string) {
+  return (document: SigmaDocument): SigmaDocument => {
+    const visit = (blocks: SigmaDocument["content"]): SigmaDocument["content"] => blocks.map((block) => {
+      if (block.id === id) return { ...block, children: [{ type: "text", text }] } as SigmaDocument["content"][number];
+      if (block.type === "layoutSection") return { ...block, children: visit(block.children as SigmaDocument["content"]) } as SigmaDocument["content"][number];
+      return block;
+    });
+    return { ...document, content: visit(document.content) };
+  };
+}
+
+async function outlineShape(harness: ReturnType<typeof createHarness>, id: string): Promise<OverlayShape> {
+  const shapes = parseResult(await harness.tool("get_document_outline").execute({})).overlayShapes as OverlayShape[];
+  const shape = shapes.find((candidate) => candidate.id === id);
+  if (!shape) throw new Error(`Missing shape: ${id}`);
+  return shape;
+}
+
+describe("WebMCP draft merged with the human's edits", () => {
+  it("keeps a block the agent deletes when the human edits it, and reports the kept deletion", async () => {
+    const harness = createHarness();
+    const second = findBlock(harness.getDocument(), "p_second");
+    await harness.tool("delete_blocks").execute({ expectedRevision: 0, blockIds: ["p_second"], expectedBlocks: [second] });
+    harness.humanEdit(editParagraph("p_second", "Second paragraph, edited by a human")(harness.getDocument()));
+    const proposal = harness.getProposal()!;
+
+    expect(proposal.previewDraft.mutationOperations ?? []).toEqual([]);
+    const applied = proposal.apply(harness.getDocument());
+    expect(blockToReferenceText(findBlock(applied.document, "p_second")!)).toBe("Second paragraph, edited by a human");
+    expect(applied.mergeReport).toMatchObject({ editBeatsDelete: ["#p_second"], humanEditedUnits: ["p_second"] });
+  });
+
+  it("keeps a shape the agent deletes when the human edits it", async () => {
+    const harness = createHarness(mergeDocument());
+    await harness.tool("delete_shapes").execute({ expectedRevision: 0, shapeIds: ["s_2"], expectedShapes: [await outlineShape(harness, "s_2")] });
+    harness.humanEdit(editShape("s_2", { y: 90 })(harness.getDocument()));
+    harness.apply();
+
+    expect(currentShape(harness.getDocument(), "s_2")).toMatchObject({ x: 100, y: 90 });
+  });
+
+  it("reports no fallback and the units the human edited when the edits do not overlap", async () => {
+    const harness = createHarness(mergeDocument());
+    await harness.tool("apply_edits").execute({ expectedRevision: 0, operations: [{ op: "replace_text", target: { type: "text", blockId: "p_existing", text: "Original" }, replacement: "Agent" }] });
+    await harness.tool("update_shape").execute({ expectedRevision: 0, shapeId: "s_1", expectedShape: await outlineShape(harness, "s_1"), color: "#dc2626" });
+    expect(harness.getProposal()!.mergeReport).toEqual(createEmptyProposalMergeReport());
+    harness.humanEdit(editShape("s_1", { y: 40 })({ ...harness.getDocument(), content: [humanEditedExisting(), ...harness.getDocument().content.slice(1)] }));
+    const applied = harness.getProposal()!.apply(harness.getDocument());
+
+    expect(applied.mergeReport).toEqual({ ...createEmptyProposalMergeReport(), humanEditedUnits: ["p_existing", "s_1"] });
+    expect(blockToReferenceText(findBlock(applied.document, "p_existing")!)).toBe("Agent text by a human");
+    expect(currentShape(applied.document, "s_1")).toMatchObject({ y: 40, props: { color: "#dc2626" } });
+  });
+
+  it("treats deleting a block the human already deleted as done", async () => {
+    const harness = createHarness();
+    const second = findBlock(harness.getDocument(), "p_second");
+    await harness.tool("delete_blocks").execute({ expectedRevision: 0, blockIds: ["p_second"], expectedBlocks: [second] });
+    await harness.tool("update_rich_content").execute({ expectedRevision: 0, blockId: "p_existing", expectedContent: "Original text", text: "Agent edit" });
+    harness.humanEdit({ ...harness.getDocument(), content: [harness.getDocument().content[0]!] });
+    harness.apply();
+
+    expect(harness.getDocument().content.map((block) => block.id)).toEqual(["p_existing"]);
+    expect(blockToReferenceText(findBlock(harness.getDocument(), "p_existing")!)).toBe("Agent edit");
+  });
+
+  it("drops a deletion the human's edit superseded and still replays a later move with the placement it was made with", async () => {
+    const paragraph = (id: string) => ({ type: "paragraph" as const, id, children: [{ type: "text" as const, text: id }] });
+    const initial: SigmaDocument = { ...baseDocument(), content: ["p_existing", "p_a", "p_third", "p_b", "p_second"].map(paragraph) };
+    const harness = createHarness(initial);
+    await harness.tool("delete_blocks").execute({ expectedRevision: 0, blockIds: ["p_second"], expectedBlocks: [findBlock(initial, "p_second")] });
+    await harness.tool("move_blocks").execute({ expectedRevision: 0, blockIds: ["p_existing"], targetId: "p_third", position: "after" });
+    harness.humanEdit(editParagraph("p_second", "Kept by the human")(harness.getDocument()));
+    // The published proposal is replayed from its own draft: the deletion goes, the move keeps its placement.
+    expect(harness.getProposal()!.apply(harness.getDocument()).document.content.map((block) => block.id))
+      .toEqual(["p_a", "p_third", "p_existing", "p_b", "p_second"]);
+    // The agent's next write rebases the working draft onto the human's document: the deletion is gone from it.
+    await harness.tool("insert_body_content").execute({ expectedRevision: 0, targetId: "p_b", blocks: [{ id: "p_ai", text: "AI" }] });
+    expect(parseResult(await harness.tool("get_pending_proposal").execute({}))).toMatchObject({ conflictIds: [], operationCount: 2 });
+    harness.humanEdit({ ...harness.getDocument(), metadata: { ...harness.getDocument().metadata, title: "Human title" } });
+    harness.apply();
+
+    expect(harness.getDocument().content.map((block) => block.id)).toEqual(["p_a", "p_third", "p_existing", "p_b", "p_ai", "p_second"]);
+    expect(blockToReferenceText(findBlock(harness.getDocument(), "p_second")!)).toBe("Kept by the human");
+  });
+
+  it("carries the merge of a rebased working draft into the published proposal's report", async () => {
+    const harness = createHarness();
+    await harness.tool("apply_edits").execute({ expectedRevision: 0, operations: [{ op: "replace_text", target: { type: "text", blockId: "p_existing", text: "Original" }, replacement: "Agent" }] });
+    harness.humanEdit({ ...harness.getDocument(), content: [humanEditedExisting(), harness.getDocument().content[1]!] });
+    await harness.tool("insert_body_content").execute({ expectedRevision: 0, targetId: "p_second", blocks: [{ id: "p_ai", text: "AI" }] });
+
+    expect(harness.getProposal()!.mergeReport.humanEditedUnits).toEqual(["p_existing"]);
+    expect(harness.getProposal()!.apply(harness.getDocument()).mergeReport.humanEditedUnits).toEqual(["p_existing"]);
+  });
+
+  it("does not merge the human's edit twice after a failed edit rolls back a rebased draft", async () => {
+    const harness = createHarness();
+    await harness.tool("apply_edits").execute({ expectedRevision: 0, operations: [{ op: "replace_text", target: { type: "text", blockId: "p_existing", text: "Original" }, replacement: "Agent" }] });
+    harness.humanEdit({ ...harness.getDocument(), content: [humanEditedExisting(), harness.getDocument().content[1]!] });
+    expect(() => harness.tool("apply_edits").execute({
+      expectedRevision: 0,
+      operations: [{ op: "replace_text", target: { type: "text", blockId: "missing", text: "anything" }, replacement: "No" }],
+    })).toThrow("Editable paragraph or heading not found");
+    await harness.tool("insert_body_content").execute({ expectedRevision: 0, targetId: "p_second", blocks: [{ id: "p_ai", text: "AI" }] });
+    harness.apply();
+
+    expect(blockToReferenceText(findBlock(harness.getDocument(), "p_existing")!)).toBe("Agent text by a human");
+  });
+
+  it("keeps STALE_DRAFT for the targets the merge cannot keep a human edit of", async () => {
+    const harness = createHarness(mergeDocument());
+    await harness.tool("align_shapes").execute({ expectedRevision: 0, shapeIds: ["s_1", "s_2"], expectedShapes: [await outlineShape(harness, "s_1"), await outlineShape(harness, "s_2")], mode: "top" });
+    const pending = harness.getProposal()!;
+    harness.humanEdit(editShape("s_2", { y: 60 })(harness.getDocument()));
+
+    expect(() => pending.apply(harness.getDocument())).toThrow(/STALE_DRAFT.*s_2/);
+    expect(() => harness.tool("insert_body_content").execute({ expectedRevision: 0, targetId: "p_second", blocks: ["Next"] })).toThrow(/STALE_DRAFT.*s_2/);
+  });
+});
+
+/**
+ * 契約 (R4): WebMCP のドラフトの対象を人が直したとき、承認はその編集を残すか、そうでなければ STALE_DRAFT で止まる。
+ * どちらでもない (人の編集が黙って消える) 組を作らない。どの対象を合成できないかは `collectNonMergeableTargets`
+ * (デスクトップのロックと承認と同じ定義) が決める。合成やその定義が変わってこの組が崩れたら、ここが落ちる。
+ */
+describe("contract: a human edit of a WebMCP draft's target survives the approval or the draft is STALE_DRAFT", () => {
+  type Harness = ReturnType<typeof createHarness>;
+  const graphLabelId = (document: SigmaDocument): string => {
+    const graph = currentShape(document, "graph_1");
+    if (graph.type !== "graph2dShape") throw new Error("graph_1 is not a graph");
+    return graph.props.axisLabelTextShapeIds!.x!;
+  };
+  const cases: Array<{
+    name: string;
+    /** Builds the draft (sync tools return their result, async ones a promise: both are awaited). */
+    propose: (harness: Harness) => unknown;
+    edit: (document: SigmaDocument) => SigmaDocument;
+    kept: (result: SigmaDocument) => boolean;
+    expected: "kept" | "stale";
+  }> = [
+    {
+      name: "a replaced block",
+      propose: (harness) => harness.tool("apply_edits").execute({ expectedRevision: 0, operations: [{ op: "replace_text", target: { type: "text", blockId: "p_existing", text: "Original" }, replacement: "Agent" }] }),
+      edit: (document) => ({ ...document, content: [humanEditedExisting(), ...document.content.slice(1)] }),
+      kept: (result) => blockToReferenceText(findBlock(result, "p_existing")!).includes("by a human"),
+      expected: "kept",
+    },
+    {
+      name: "a replaced block the human deleted",
+      propose: (harness) => harness.tool("update_rich_content").execute({ expectedRevision: 0, blockId: "p_second", expectedContent: "Second paragraph", text: "Agent" }),
+      edit: (document) => ({ ...document, content: document.content.filter((block) => block.id !== "p_second") }),
+      kept: (result) => findBlock(result, "p_second") === null,
+      expected: "stale",
+    },
+    {
+      name: "a deleted block",
+      propose: (harness) => harness.tool("delete_blocks").execute({ expectedRevision: 0, blockIds: ["p_second"], expectedBlocks: [findBlock(harness.getDocument(), "p_second")] }),
+      edit: editParagraph("p_second", "Human second"),
+      kept: (result) => blockToReferenceText(findBlock(result, "p_second") ?? { type: "paragraph", id: "none", children: [] }) === "Human second",
+      expected: "kept",
+    },
+    {
+      name: "a moved block",
+      propose: (harness) => harness.tool("move_blocks").execute({ expectedRevision: 0, blockIds: ["p_existing"], targetId: "p_second", position: "after" }),
+      edit: editParagraph("p_existing", "Human existing"),
+      kept: (result) => blockToReferenceText(findBlock(result, "p_existing")!) === "Human existing",
+      expected: "kept",
+    },
+    {
+      name: "a block wrapped in columns",
+      propose: (harness) => harness.tool("update_column_layout").execute({ expectedRevision: 0, scope: "blocks", blockIds: ["p_existing", "p_second"], columnCount: 2 }),
+      edit: editParagraph("p_second", "Human second"),
+      kept: (result) => blockToReferenceText(findBlock(result, "p_second")!) === "Human second",
+      expected: "kept",
+    },
+    {
+      name: "a reconfigured column section",
+      propose: (harness) => harness.tool("update_column_layout").execute({ expectedRevision: 0, scope: "section", sectionId: "sec_1", columnCount: 3 }),
+      edit: editParagraph("sec_p", "Human section paragraph"),
+      kept: (result) => blockToReferenceText(findBlock(result, "sec_p")!) === "Human section paragraph",
+      expected: "stale",
+    },
+    {
+      name: "an updated shape",
+      propose: async (harness) => harness.tool("update_shape").execute({ expectedRevision: 0, shapeId: "s_1", expectedShape: await outlineShape(harness, "s_1"), color: "#dc2626" }),
+      edit: editShape("s_1", { y: 40 }),
+      kept: (result) => currentShape(result, "s_1").y === 40,
+      expected: "kept",
+    },
+    {
+      name: "an updated shape the human deleted",
+      propose: async (harness) => harness.tool("update_shape").execute({ expectedRevision: 0, shapeId: "s_1", expectedShape: await outlineShape(harness, "s_1"), color: "#dc2626" }),
+      edit: deleteShape("s_1"),
+      kept: (result) => !(result.pageLayout?.overlay?.overlaySnapshot?.shapes ?? []).some((shape) => shape.id === "s_1"),
+      expected: "stale",
+    },
+    {
+      name: "a deleted shape",
+      propose: async (harness) => harness.tool("delete_shapes").execute({ expectedRevision: 0, shapeIds: ["s_2"], expectedShapes: [await outlineShape(harness, "s_2")] }),
+      edit: editShape("s_2", { y: 90 }),
+      kept: (result) => (result.pageLayout?.overlay?.overlaySnapshot?.shapes ?? []).some((shape) => shape.id === "s_2" && shape.y === 90),
+      expected: "kept",
+    },
+    {
+      name: "an aligned shape",
+      propose: async (harness) => harness.tool("align_shapes").execute({ expectedRevision: 0, shapeIds: ["s_1", "s_2"], expectedShapes: [await outlineShape(harness, "s_1"), await outlineShape(harness, "s_2")], mode: "top" }),
+      edit: editShape("s_2", { y: 60 }),
+      kept: (result) => currentShape(result, "s_2").y === 60,
+      expected: "stale",
+    },
+    {
+      name: "a member of a group the agent deletes",
+      propose: async (harness) => harness.tool("delete_shapes").execute({ expectedRevision: 0, shapeIds: ["g"], expectedShapes: [await outlineShape(harness, "g")] }),
+      edit: editShape("m_1", { y: 30 }),
+      kept: (result) => (result.pageLayout?.overlay?.overlaySnapshot?.shapes ?? []).some((shape) => shape.id === "m_1" && shape.y === 30),
+      expected: "stale",
+    },
+    {
+      name: "an owned label of a graph the agent updates",
+      propose: async (harness) => {
+        await harness.tool("insert_graph").execute({ expectedRevision: 0, targetId: "p_existing", id: "graph_1", kind: "cartesian", axes: { xLabel: "x", yLabel: "y" } });
+        harness.apply();
+        await harness.tool("update_graph").execute({ expectedRevision: 1, shapeId: "graph_1", expectedShape: await outlineShape(harness, "graph_1"), axes: { xLabel: "時間" } });
+      },
+      edit: (document) => editShape(graphLabelId(document), { y: 333 })(document),
+      kept: (result) => (result.pageLayout?.overlay?.overlaySnapshot?.shapes ?? []).some((shape) => shape.y === 333),
+      expected: "stale",
+    },
+  ];
+
+  it.each(cases)("$name", async ({ propose, edit, kept, expected }) => {
+    const harness = createHarness(mergeDocument());
+    await propose(harness);
+    harness.humanEdit(edit(harness.getDocument()));
+    let outcome: "kept" | "stale" | "lost";
+    try {
+      outcome = kept(harness.getProposal()!.apply(harness.getDocument()).document) ? "kept" : "lost";
+    } catch (error) {
+      if (!(error instanceof Error) || !error.message.startsWith("STALE_DRAFT:")) throw error;
+      outcome = "stale";
+    }
+
+    expect(outcome).not.toBe("lost");
+    expect(outcome).toBe(expected);
   });
 });
