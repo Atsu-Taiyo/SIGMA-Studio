@@ -1,3 +1,4 @@
+import { splitFileName } from "@/lib/file-name";
 import { createBlankDocument } from "@/lib/blank-document";
 import { DEFAULT_DOCUMENT_TITLE, resolveDocumentTitle } from "@/lib/document-title";
 import { createId } from "@/lib/id";
@@ -228,9 +229,8 @@ export function blankDocumentWithTitle(title: string | undefined): SigmaDocument
 }
 
 export function duplicateTitle(source: SigmaDocument): string {
-  return tWorkspace("duplicatedTitle", {
-    title: resolveDocumentTitle(source, DEFAULT_DOCUMENT_TITLE),
-  });
+  const { stem, extension } = splitFileName(resolveDocumentTitle(source, DEFAULT_DOCUMENT_TITLE));
+  return `${tWorkspace("duplicatedTitle", { title: stem })}${extension}`;
 }
 
 /** 保存済みの本文を、読み込み失敗の分類つきで取り出す。 */

@@ -1,3 +1,4 @@
+import { splitFileName } from "@/lib/file-name";
 import { mkdirSync, watch, type FSWatcher, type WatchEventType } from "node:fs";
 import fs from "node:fs/promises";
 import path from "node:path";
@@ -798,10 +799,15 @@ export class LocalSigmaDocStore {
             ...document,
             updatedAt: document.updatedAt ?? now,
           })));
+          const requestedTitle = resolveDocumentTitle(normalized);
+          // Shared materialization preserves the existing catalog name verbatim.
+          const title = this.rawLibraryContext.getStore() || requestedTitle === file.title ? requestedTitle
+            : availableDocumentTitle(requestedTitle, library.files, { ...file, excludeFileId: fileId });
+          if (title !== requestedTitle) normalized.metadata = { ...normalized.metadata, title };
           const nextFile: LocalFileRecord = {
             ...file,
             docId: normalized.docId,
-            title: resolveDocumentTitle(normalized),
+            title,
             documentPath: getDocumentPath(file.fileId),
             revision: Math.max(0, file.revision) + 1,
             updatedAt: normalized.updatedAt ?? now,
@@ -1028,12 +1034,13 @@ export class LocalSigmaDocStore {
     }
 
     const now = new Date().toISOString();
+    const { stem, extension } = splitFileName(resolveDocumentTitle(source));
     const document = ensurePageLayout({
       ...cloneDocument(source),
       docId: createId("doc"),
       metadata: {
         ...source.metadata,
-        title: `${resolveDocumentTitle(source)} のコピー`,
+        title: `${createCurrentLocaleTranslator("workspace")("duplicatedTitle", { title: stem })}${extension}`,
       },
       updatedAt: now,
     });
@@ -1688,12 +1695,15 @@ export class LocalSigmaDocStore {
     ) {
       const now = new Date().toISOString();
       const document = createInitialDocument(initialDocument);
+      const requestedTitle = resolveDocumentTitle(document, "サンプル教材");
+      const title = availableDocumentTitle(requestedTitle, library.files, { workspaceId: activeWorkspaceId });
+      if (title !== requestedTitle) document.metadata = { ...document.metadata, title };
       const file: LocalFileRecord = {
         fileId: createId("file"),
         workspaceId: activeWorkspaceId,
         folderId: null,
         docId: document.docId,
-        title: resolveDocumentTitle(document, "サンプル教材"),
+        title,
         documentPath: "",
         revision: 1,
         createdAt: document.updatedAt ?? now,

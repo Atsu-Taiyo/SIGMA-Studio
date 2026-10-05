@@ -43,12 +43,12 @@ test("saves the PDF to the PC from the final preview", async ({ page }) => {
     pageCount: expect.any(Number),
     pageWidthMm: expect.any(Number),
     pageHeightMm: expect.any(Number),
-    suggestedName: "二次関数 テスト.pdf",
+    suggestedName: "二次関数-テスト.pdf",
   });
   const savedDialog = page.getByRole("dialog", { name: "PDFを保存しました" });
   await expect(savedDialog).toBeVisible();
   await expect(savedDialog).toContainText("PDFをこのPCに保存しました。");
-  await expect(savedDialog).toContainText("/Users/e2e/Downloads/二次関数 テスト.pdf");
+  await expect(savedDialog).toContainText("/Users/e2e/Downloads/二次関数-テスト.pdf");
   await savedDialog.getByRole("button", { name: "閉じる", exact: true }).click();
   await expect(savedDialog).toHaveCount(0);
 });
