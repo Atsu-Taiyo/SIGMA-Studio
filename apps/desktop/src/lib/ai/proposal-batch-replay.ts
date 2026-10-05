@@ -12,6 +12,7 @@ import {
   collectReplaceTargetIds,
   orderItemsByReplacementAncestry,
   replayProposalForApproval,
+  type ProposalMergeFailureRule,
 } from "./proposal-replay";
 import { type AiEditSessionDraft } from "./sigma-doc-edit-schema";
 
@@ -49,6 +50,17 @@ export interface MergeProposalDraftsResult {
   reports: Record<string, ProposalMergeReport>;
   /** All applied proposals' reports combined (what the approval returns for counting). */
   report: ProposalMergeReport;
+  /**
+   * The applied proposals in the order they were replayed, each with the draft it was replayed with
+   * (`replayProposalForApproval`'s `draft`): replaying these plainly one after the other onto the base
+   * document gives `document`. A shared document's approval sends them to the server.
+   */
+  drafts: { proposalId: string; draft: AiEditSessionDraft }[];
+}
+
+export interface MergeProposalDraftsOptions {
+  /** What a failed merge does (`replayProposalDraftMerging`). A failing proposal is not applied. */
+  onMergeFailure?: ProposalMergeFailureRule;
 }
 
 // 一括承認 (approve-mcp-edit-proposals) の中核ロジック: 作成順に並んだ複数提案の draft を、
@@ -73,6 +85,7 @@ export function mergeProposalDraftsIntoDocument(
     mergeBasis?: ProposalMergeBasis;
     mergeCarry?: ProposalMergeReport;
   }>,
+  { onMergeFailure = "ai-side" }: MergeProposalDraftsOptions = {},
 ): MergeProposalDraftsResult {
   // グループ各レコードは、どのmemberを単体承認しても全操作を適用できるよう同じ累積draftを持つ。
   // 複数選択に全memberが含まれた場合は最後のmemberだけをreplayし、累積draftを二重適用しない。
@@ -92,11 +105,13 @@ export function mergeProposalDraftsIntoDocument(
   if (filteredReplacementBatch.pairs.length > 0) {
     let replacementDocument = baseDocument;
     const replacementReports: Record<string, ProposalMergeReport> = {};
+    const replacementDrafts: MergeProposalDraftsResult["drafts"] = [];
     for (const proposal of filteredReplacementBatch.proposals) {
       try {
-        const replayed = replayProposalForApproval(replacementDocument, proposal);
+        const replayed = replayProposalForApproval(replacementDocument, proposal, onMergeFailure);
         replacementDocument = replayed.nextDocument;
         replacementReports[proposal.proposalId] = replayed.report;
+        replacementDrafts.push({ proposalId: proposal.proposalId, draft: replayed.draft });
       } catch (error) {
         return {
           document: baseDocument,
@@ -107,6 +122,7 @@ export function mergeProposalDraftsIntoDocument(
           }],
           reports: {},
           report: createEmptyProposalMergeReport(),
+          drafts: [],
         };
       }
     }
@@ -116,6 +132,7 @@ export function mergeProposalDraftsIntoDocument(
       failed: [],
       reports: replacementReports,
       report: combineProposalMergeReports(Object.values(replacementReports)),
+      drafts: replacementDrafts,
     };
   }
 
@@ -123,6 +140,7 @@ export function mergeProposalDraftsIntoDocument(
   const appliedIdSet = new Set<string>();
   const failedById = new Map<string, string>();
   const reports: Record<string, ProposalMergeReport> = {};
+  const drafts: MergeProposalDraftsResult["drafts"] = [];
   // Whole-block replacements can overlap: update_problem_content replaces a Problem while
   // update_rich_content replaces one of its child paragraphs. Replaying the child first lets the
   // stale parent snapshot silently overwrite it. Preserve both intents by applying ancestors
@@ -130,10 +148,11 @@ export function mergeProposalDraftsIntoDocument(
   const replayOrder = orderProposalDraftsForReplay(baseDocument, canonicalProposals);
   for (const proposal of replayOrder) {
     try {
-      const replayed = replayProposalForApproval(document, proposal);
+      const replayed = replayProposalForApproval(document, proposal, onMergeFailure);
       document = replayed.nextDocument;
       reports[proposal.proposalId] = replayed.report;
       appliedIdSet.add(proposal.proposalId);
+      drafts.push({ proposalId: proposal.proposalId, draft: replayed.draft });
     } catch (error) {
       failedById.set(
         proposal.proposalId,
@@ -154,6 +173,7 @@ export function mergeProposalDraftsIntoDocument(
     failed,
     reports,
     report: combineProposalMergeReports(appliedIds.map((proposalId) => reports[proposalId]!)),
+    drafts,
   };
 }
 
