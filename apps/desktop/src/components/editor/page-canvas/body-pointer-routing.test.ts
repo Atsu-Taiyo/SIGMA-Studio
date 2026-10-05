@@ -11,12 +11,14 @@ function route(input: {
   hitShapeId?: string | null;
   selectedShapeIds?: readonly string[];
   pointerOverBodyText?: boolean;
+  pointerOnLink?: boolean;
   modifiers?: Partial<BodyPointerModifiers>;
 }) {
   return resolveBodyPointerRoute({
     hitShapeId: input.hitShapeId ?? null,
     selectedShapeIds: input.selectedShapeIds ?? [],
     pointerOverBodyText: input.pointerOverBodyText ?? true,
+    pointerOnLink: input.pointerOnLink,
     modifiers: { ...NO_POINTER_MODIFIERS, ...input.modifiers },
   });
 }
@@ -53,6 +55,21 @@ describe("resolveBodyPointerRoute", () => {
   it("routes Ctrl/Cmd-click with no shape under it to the overlay for a marquee", () => {
     expect(route({ hitShapeId: null, modifiers: { ctrl: true } })).toBe("overlayShape");
     expect(route({ hitShapeId: null, modifiers: { meta: true } })).toBe("overlayShape");
+  });
+
+  it("leaves Ctrl/Cmd-click on a link to the body text so the link opens", () => {
+    expect(route({ pointerOnLink: true, modifiers: { ctrl: true } })).toBe("text");
+    expect(route({ pointerOnLink: true, modifiers: { meta: true } })).toBe("text");
+    expect(route({ pointerOnLink: true, modifiers: { meta: true, shift: true } })).toBe("text");
+  });
+
+  it("still lets Ctrl/Cmd-click grab a shape lying over a link", () => {
+    expect(route({ hitShapeId: "shape_1", pointerOnLink: true, modifiers: { meta: true } })).toBe("overlayShape");
+  });
+
+  it("does not open a link on Ctrl/Cmd+Alt-click, and a plain press on a link is unchanged", () => {
+    expect(route({ pointerOnLink: true, modifiers: { meta: true, alt: true } })).toBe("overlayShape");
+    expect(route({ pointerOnLink: true })).toBe("text");
   });
 
   it("leaves Shift-click to the body text so range selection keeps working under a shape", () => {
