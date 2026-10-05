@@ -117,6 +117,15 @@ interface Displacement {
   dy: number;
 }
 
+/**
+ * 要素が描かれていない (自身か祖先が display: none で、描画矩形を 1 つも持たない) か。そのときの
+ * 外接矩形はすべて 0 なので、0 の大きさのときだけ `getClientRects` を引く (打鍵ごとの計測を重くしない)。
+ * 本文の計測 (`probeFlow` と `layout-measure.ts` の `measureFlowBlocks`) はこれで同じ要素を除く。
+ */
+export function isUndrawnElement(element: Element, rect: DOMRect | DOMRectReadOnly): boolean {
+  return rect.width === 0 && rect.height === 0 && element.getClientRects().length === 0;
+}
+
 export function readFlowDisplacement(element: Element): Displacement {
   const dx = Number(element.getAttribute(FLOW_DX_ATTRIBUTE) ?? 0);
   const dy = Number(element.getAttribute(FLOW_DY_ATTRIBUTE) ?? 0);
@@ -150,9 +159,13 @@ export function probeFlow(flow: HTMLElement, options: FlowProbeOptions): ProbeTr
     const isExtension = extensionId !== null;
     const id = isExtension ? extensionId : element.getAttribute("data-sigma-doc-id");
     if (!id) return null;
+    const domRect = element.getBoundingClientRect();
+    // 描かれていない本文ノード (display: none で畳んだブロック) は行を持たない。0 の矩形から変位を
+    // 引くと負の位置の行になる。高さ 0 で描かれた要素は矩形を持つので測る (`isUndrawnElement`)。
+    if (isUndrawnElement(element, domRect)) return null;
     const own = readFlowDisplacement(element);
     const acc = { dx: unitAcc.dx + own.dx, dy: unitAcc.dy + own.dy };
-    const rect = toRect(element.getBoundingClientRect(), acc);
+    const rect = toRect(domRect, acc);
     const height = rect.bottom - rect.top;
     // 閉じた (中身の無い) 拡張ノードは行を持たない。同じ id の 2 つ目は測らない: 行キー・変位・断片が
     // id で引かれるので、2 つあると上書きし合い、片方が他方の位置に描かれる (描く側が 1 か所にする)。
