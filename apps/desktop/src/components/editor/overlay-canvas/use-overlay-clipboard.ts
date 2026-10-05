@@ -18,6 +18,7 @@ import {
 import {
   getSelectedShapesForClipboard
 } from "./grouping";
+import type { ApplyPastedOverlayShapesOptions } from "./paste-shapes";
 import { isTextInputTarget } from "./selection-command-model";
 import type {
   OverlayAsset,
@@ -35,7 +36,7 @@ export interface Dependencies {
   getRemovableSelectedShapeIds: () => string[];
   pendingOverlaySaveHistoryGroupRef: RefObject<string | null>;
   deleteSelectedShapes: () => void;
-  applyPastedOverlayShapes: (payload: Extract<EditorClipboardPayload, { kind: "overlayShapes"; }>, options?: { anchorBlockIdMap?: Record<string, string>; historyGroup?: string; }) => boolean;
+  applyPastedOverlayShapes: (payload: Extract<EditorClipboardPayload, { kind: "overlayShapes"; }>, options?: ApplyPastedOverlayShapesOptions) => boolean;
 }
 
 export function useOverlayClipboard({

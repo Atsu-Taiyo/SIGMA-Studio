@@ -4,7 +4,7 @@ import type { TextFlowChangeDecorationState } from "@/components/tiptap/change-d
 import type { MeasuredBlock } from "@/components/editor/overlay-canvas/anchor";
 import type { OverlayAsset, OverlayShape } from "@/components/editor/overlay-canvas/types";
 import type { OverlaySelectionSummary } from "@/components/editor/page-overlay-types";
-import type { SigmaCommentAnchor, SigmaDocument } from "@/features/document";
+import type { OverlayPoint, SigmaCommentAnchor, SigmaDocument } from "@/features/document";
 
 import type { SelectionActionPopoverPosition } from "./popover-anchors";
 
@@ -101,6 +101,23 @@ export interface PageCanvasSelectionExtension {
   createAction: (source: PageCanvasSelectionSource) => PageCanvasSelectionAction | null;
   clearCandidate?: () => void;
   retainCandidateOnTextSelectionClear?: boolean;
+}
+
+/** 紙面へドロップされた場所。紙面の座標へ直せない場所 (余白の外など) では `pagePoint` が null。 */
+export interface PageCanvasDropLocation {
+  clientX: number;
+  clientY: number;
+  /** ホワイトボードはカメラ (パン・ズーム) を引いた座標、紙は用紙上の座標。 */
+  pagePoint: OverlayPoint | null;
+}
+
+/**
+ * 紙面の外 (ポケットなど) から運ばれてきたドラッグを受ける、機能側の受け口。
+ * 紙面は座標の変換だけを持ち、何をドロップとみなすか・何が起きるかは機能が決める。
+ */
+export interface PageCanvasExternalDrop {
+  accepts: (dataTransfer: DataTransfer) => boolean;
+  drop: (dataTransfer: DataTransfer, location: PageCanvasDropLocation) => void;
 }
 
 export interface PageCanvasLayerContext {
