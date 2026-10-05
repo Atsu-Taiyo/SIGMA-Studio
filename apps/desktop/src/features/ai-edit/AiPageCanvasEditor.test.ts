@@ -365,7 +365,7 @@ describe("floating decision bars (proposals without a page card)", () => {
     expect(selectAiFloatingDecisionPreviews([shown, other], new Set(), new Set())).toEqual([shown, other]);
   });
 
-  const frame ={ pageWidthPx: 800, pageHeightPx: 1100, pageStridePx: 1124, desiredWidthPx: 320, gapPx: 8, marginPx: 12 };
+  const frame = { pageWidthPx: 800, pageHeightPx: 1100, pageStridePx: 1124, desiredWidthPx: 320, gapPx: 8, marginPx: 12 };
   const page = { left: 0, right: 800, width: 800 };
   const rectOf = (placement: ReturnType<typeof placeFloatingDecisionBars>[number], height: number) => ({
     left: placement.left - placement.width / 2,
@@ -440,6 +440,37 @@ describe("floating decision bars (proposals without a page card)", () => {
       expect(overlaps(rect, rectOfBounds(below)), `${index} vs below`).toBe(false);
     }
     expect(overlaps(rects[0], rects[1])).toBe(false);
+  });
+
+  it("keeps the bar on the page when a low shape near the page top has the selected shape's controls on both sides", () => {
+    // 見出しのような背の低い図形の上は 1 ページ目の上端。すぐ下の図形 (y 140〜200) を選ぶと、その操作
+    // (ポップオーバー・回転ハンドルの帯と選択枠) が上下の両方にかかる。
+    const controls = { x: 245, y: 60, w: 210, h: 140 };
+    const [placement] = placeFloatingDecisionBars([
+      { key: "heading", bounds: { x: 300, y: 100, w: 100, h: 20 }, horizontalBounds: page, heightPx: 80 },
+    ], frame, [controls]);
+    const rect = rectOf(placement, 80);
+
+    expect(rect.top).toBeGreaterThanOrEqual(0);
+    expect(rect.bottom).toBeLessThanOrEqual(frame.pageHeightPx);
+    expect(overlaps(rect, rectOfBounds(controls))).toBe(false);
+  });
+
+  it("keeps the bar on the page near the page bottom instead of running into the gap or the next page", () => {
+    const shape = { x: 300, y: 1000, w: 100, h: 50 };
+    const placements = placeFloatingDecisionBars([
+      { key: "bottom", bounds: shape, horizontalBounds: page, heightPx: 80 },
+    ], frame, [{ x: 245, y: 920, w: 210, h: 80 }]);
+    const tall = placeFloatingDecisionBars([
+      { key: "tall", bounds: { x: 300, y: 20, w: 100, h: 1060 }, horizontalBounds: page, heightPx: 80 },
+    ], frame);
+
+    for (const placement of [...placements, ...tall]) {
+      const rect = rectOf(placement, 80);
+      expect(rect.top, placement.key).toBeGreaterThanOrEqual(0);
+      expect(rect.bottom, placement.key).toBeLessThanOrEqual(frame.pageHeightPx);
+    }
+    expect(overlaps(rectOf(placements[0], 80), rectOfBounds({ x: 245, y: 920, w: 210, h: 80 }))).toBe(false);
   });
 
   it("places a proposal with nothing to point at near the top right of the first page", () => {

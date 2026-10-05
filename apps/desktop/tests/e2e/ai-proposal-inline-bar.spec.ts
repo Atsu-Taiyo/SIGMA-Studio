@@ -358,7 +358,6 @@ test("a shape-only proposal attaches the same bar beside the shape and never alt
   await expect(widget).toHaveCount(0);
 });
 
-/** その要素の中心を押したら、本当にその要素に届くか (覆われていない・切り取られていない)。 */
 for (const [label, proposals] of [
   ["a shape change plus a page-layout change", () => [shapeAndLayout()]],
   ["a page-layout change only", () => [pageLayoutOnly()]],

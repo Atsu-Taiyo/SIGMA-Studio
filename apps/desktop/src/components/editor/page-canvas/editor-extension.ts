@@ -47,10 +47,12 @@ export interface PageCanvasOverlayPresentationContext {
   blockGaps: Record<string, number>;
   contentWidthPx: number;
   pageWidthPx: number;
+  /** 1 ページの高さ。ページの無いホワイトボードでは図形の層の面全体の高さ。 */
   pageHeightPx: number;
   /**
-   * 図形の選択の操作 (選択ポップオーバーと回転ハンドル) が占める矩形 (紙面の座標)。図形を選んでいない
-   * ときは `null`。紙面に浮かべる部品はこれを覆わない (`getOverlaySelectionControlsCanvasRect`)。
+   * 図形の選択の操作 (選択ポップオーバー・回転ハンドル・選択枠) が占める矩形 (紙面の座標)。図形の選択
+   * ポップオーバーが出ていないときは `null`。紙面に浮かべる部品はこれを覆わない
+   * (`getOverlaySelectionControlsCanvasRect`)。
    */
   selectionControlsRect: { x: number; y: number; w: number; h: number } | null;
 }
