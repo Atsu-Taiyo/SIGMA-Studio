@@ -994,7 +994,7 @@ export function buildAiHiddenTargetEditorExtensions(
   hiddenShapeIds: ReadonlySet<string>,
   collapsedBlockIds: ReadonlySet<string> = EMPTY_ID_SET,
   /**
-   * `hiddenShapeIds` のうち「適用後だけ」で隠した図形。文書の変更口が人の編集を断るので、削除後の付け替えの
+   * `hiddenShapeIds` のうち「適用後だけ」で隠した図形。文書の変更口が人の編集を断るので、保存時の付け替えの
    * ような派生の書き換えからも外す (`preservedShapeIds`)。バーで隠しただけの図形は変更口が断らないので含めない。
    */
   resultOnlyHiddenShapeIds: ReadonlySet<string> = EMPTY_ID_SET,

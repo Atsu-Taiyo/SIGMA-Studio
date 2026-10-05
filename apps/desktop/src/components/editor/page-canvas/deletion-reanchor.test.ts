@@ -25,31 +25,27 @@ const preMeasure = new Map<string, BlockExtent>([
 const anchorable: MeasuredBlock[] = [{ id: "h", top: 50 }, { id: "b", top: 180 }];
 
 describe("reanchorOverlayShapesAfterDeletion", () => {
-  it("re-anchors every figure of the deleted block except the ones a feature preserves (and their group's members)", () => {
+  it("re-anchors every figure of the deleted block, including ones hidden for the result only, as one change", () => {
+    // 消した固定先からの選び直しは変更口が導出として通す。隠した図形 (とグループ) だけ残すと、消えた
+    // ブロックへの固定と削除前の y のまま残り、表示を戻すと本文からずれる (この再検出は 1 回きり)。
     const shapes = [
       rectangle("plain", "a", 50),
-      // AI の実行中・合成できない提案でロックされた図形・バーで隠した図形は、従来どおり付け替える。
       rectangle("run_locked", "a", 50),
-      rectangle("bar_hidden", "a", 50),
-      // 適用後だけで隠した図形 (とそのグループの中の図形) は保存のまま残す。
       rectangle("result_hidden", "a", 50),
       { ...rectangle("hidden_group", "a", 50), type: "group", props: { w: 40, h: 30 } } as unknown as OverlayShape,
       rectangle("hidden_member", "a", 50, "hidden_group"),
     ];
 
-    const next = reanchorOverlayShapesAfterDeletion(shapes, new Set(["a"]), preMeasure, anchorable, new Set(["result_hidden", "hidden_group"]));
+    const next = reanchorOverlayShapesAfterDeletion(shapes, new Set(["a"]), preMeasure, anchorable);
 
     const byId = new Map(next!.map((shape) => [shape.id, shape]));
-    for (const id of ["plain", "run_locked", "bar_hidden"]) {
+    for (const id of ["plain", "run_locked", "result_hidden", "hidden_group", "hidden_member"]) {
       expect(byId.get(id)).toMatchObject({ y: 130, anchor: { type: "block", blockId: "h", dy: 80 } });
-    }
-    for (const id of ["result_hidden", "hidden_group", "hidden_member"]) {
-      expect(byId.get(id)).toBe(shapes.find((shape) => shape.id === id));
     }
   });
 
-  it("changes nothing (null) when only preserved figures hung off the deleted block", () => {
-    const shapes = [rectangle("result_hidden", "a", 50), rectangle("elsewhere", "b", 10)];
-    expect(reanchorOverlayShapesAfterDeletion(shapes, new Set(["a"]), preMeasure, anchorable, new Set(["result_hidden"]))).toBeNull();
+  it("changes nothing (null) when no figure hung off the deleted block", () => {
+    const shapes = [rectangle("elsewhere", "b", 10)];
+    expect(reanchorOverlayShapesAfterDeletion(shapes, new Set(["a"]), preMeasure, anchorable)).toBeNull();
   });
 });

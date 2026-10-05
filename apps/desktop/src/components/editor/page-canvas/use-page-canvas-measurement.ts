@@ -82,7 +82,7 @@ interface MeasurementDocument {
   overlaySource: PageOverlay | undefined;
   pendingDeletion: { revision: number; deletedIds: string[] } | null;
   onReanchorOverlay: (overlay: PageOverlay) => void;
-  /** 削除後の付け替えが書き換えない図形 (`OverlayEditPolicy.preservedShapeIds`)。 */
+  /** 固定の補修が書き換えない図形 (`OverlayEditPolicy.preservedShapeIds`)。 */
   preservedShapeIds?: ReadonlySet<string>;
   /**
    * フロー内の拡張ノードの並びと中身の版 (`PageCanvasInlineContent.measureRevision`)。拡張ノードは
@@ -354,13 +354,12 @@ export function usePageCanvasMeasurement({ content, geometry, surface, spaceAfte
     // including ones nested inside a list or a box block — not just the blocks
     // pagination flows between.
     const { anchorable } = measureFlowBlocks(flow, zoom / 100, marginTopPx, lineMeasureCacheRef.current);
-    // 機能が人の編集から守っている図形 (適用後だけで隠した変更前) は付け替えない (`deletion-reanchor.ts`)。
+    // 機能が守っている図形も付け替える (`deletion-reanchor.ts`)。
     const nextShapes = reanchorOverlayShapesAfterDeletion(
       normalized.shapes,
       deleted,
       prevMeasureRef.current,
       anchorable,
-      preservedShapeIdsRef.current,
     );
     if (!nextShapes) {
       return;

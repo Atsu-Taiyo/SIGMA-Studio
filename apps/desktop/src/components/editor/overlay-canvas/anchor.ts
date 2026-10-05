@@ -471,20 +471,12 @@ export function reanchorAfterDeletion<T extends Pick<OverlayShape, "y" | "anchor
   deletedIds: ReadonlySet<string>,
   preMeasure: Map<string, BlockExtent>,
   orderedPost: MeasuredBlock[],
-  options: {
-    /**
-     * A figure that may not be edited right now (a host feature holds or hides it). It keeps its
-     * stored anchor: the re-anchor is committed as one change, and a held figure in it would get the
-     * whole change refused, leaving every other figure hanging off the deleted block.
-     */
-    keepsStoredAnchor?: (shape: T) => boolean;
-  } = {},
 ): { shapes: T[]; changed: boolean } {
   let changed = false;
 
   const next = shapes.map((shape) => {
     const anchor = shape.anchor;
-    if (!anchor || anchor.type !== "block" || !deletedIds.has(anchor.blockId) || options.keepsStoredAnchor?.(shape)) {
+    if (!anchor || anchor.type !== "block" || !deletedIds.has(anchor.blockId)) {
       return shape;
     }
 

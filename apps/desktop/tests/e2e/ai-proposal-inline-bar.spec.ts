@@ -1032,7 +1032,7 @@ test("moving another shape while only the result is shown is saved even when a h
   await expect(page.locator(".save-state").first()).not.toContainText(RESULT_ONLY_LOCK);
 });
 
-test("deleting a block while only the result is shown re-anchors the other shapes and leaves the hidden before shape as saved", async ({ page }) => {
+test("deleting a block while only the result is shown re-anchors every shape on it, the hidden one too, and it sits right once the changes are shown", async ({ page }) => {
   const document = withShapes({ id: "other_shape", anchorBlockId: "para_shape_anchor", x: 420 });
   const shape = document.pageLayout!.overlay!.overlaySnapshot!.shapes[0]!;
   const target = document.content.find((block) => block.id === "para_target")!;
@@ -1041,32 +1041,29 @@ test("deleting a block while only the result is shown re-anchors the other shape
     bar_shape: { kind: "shape", value: shape as never },
   } } }], document);
   const card = pageCard(page, "para_target").locator("[data-ai-proposal-card]");
+  const hiddenBefore = page.locator('.overlay-shape.ai-diff-before-shape[data-overlay-shape-id="bar_shape"]').first();
   await card.getByRole("button", { name: "適用後だけを表示", exact: true }).click();
-  await expect(page.locator('.overlay-shape.ai-diff-before-shape[data-overlay-shape-id="bar_shape"]').first()).toHaveCSS("opacity", "0");
+  await expect(hiddenBefore).toHaveCSS("opacity", "0");
 
   // 削除の付け替えは直前の計測を基準にする。開いた直後は基準がまだ無いので、先に 1 文字打って測らせる。
   await placeCaret(page, "para_pad_3", "end");
   await page.keyboard.type("!");
   await expect.poll(() => savedText(page, "para_pad_3")).toBe("続きの本文 4!");
-  // 両方の図形がぶら下がる段落を、前の段落へ結合して消す。付け替えのコミットに隠した変更前の図形が
-  // 混ざると全体が断られ、ふつうの図形まで消した段落に固定されたまま残る。
+  // 両方の図形 (隠した変更前の bar_shape と、ふつうの other_shape) がぶら下がる段落を、前の段落へ結合して消す。
   await placeCaret(page, "para_shape_anchor", "start");
   await page.keyboard.press("Backspace");
   await expect.poll(() => savedText(page, "para_pad_3")).toBe("続きの本文 4!図形がぶら下がる段落です。");
 
-  await expect.poll(async () => (await savedShape(page, "other_shape"))?.anchor?.blockId ?? "para_shape_anchor").not.toBe("para_shape_anchor");
-  expect((await savedShape(page, "bar_shape"))?.anchor).toEqual({ type: "block", blockId: "para_shape_anchor", dx: 60, dy: 24 });
+  // 隠した図形も同じように付け替わる (消えた固定先からの選び直しは変更口が通す)。
+  await expect.poll(async () => (await savedShape(page, "bar_shape"))?.anchor?.blockId ?? "para_shape_anchor").not.toBe("para_shape_anchor");
+  const [bar, other] = [await savedShape(page, "bar_shape"), await savedShape(page, "other_shape")];
+  expect(bar?.anchor?.blockId).toBe(other?.anchor?.blockId);
+  expect(bar?.anchor?.dy).toBe(other?.anchor?.dy);
   await expect(page.locator(".save-state").first()).not.toContainText(RESULT_ONLY_LOCK);
 
-  // 固定先を消された隠した図形があっても、無関係な図形の移動は保存できる (保存時の付け替えが隠した図形の
-  // 固定を選び直すのは導出で、変更口はそれで保存全体を断らない)。
-  const other = page.locator('.page-overlay-preview .overlay-shape[data-overlay-shape-id="other_shape"]').first();
-  await grabShapeFromBody(page, other);
-  const box = (await page.locator('.overlay-canvas-editor .overlay-shape[data-overlay-shape-id="other_shape"]').first().boundingBox())!;
-  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
-  await page.mouse.down();
-  await page.mouse.move(box.x + box.width / 2 + 60, box.y + box.height / 2, { steps: 6 });
-  await page.mouse.up();
-  await expect.poll(async () => (await savedShape(page, "other_shape"))?.x ?? 420).toBeGreaterThan(450);
-  await expect(page.locator(".save-state").first()).not.toContainText(RESULT_ONLY_LOCK);
+  // 表示を戻すと、隠していた図形は消した段落の高さぶん上へ詰まった位置 (同じ固定のふつうの図形と同じ高さ) にある。
+  await card.getByRole("button", { name: "変更箇所を表示", exact: true }).click();
+  await expect(hiddenBefore).toHaveCSS("opacity", "1");
+  const otherShown = page.locator('.page-overlay-preview .overlay-shape[data-overlay-shape-id="other_shape"]').first();
+  await expect.poll(async () => Math.abs((await hiddenBefore.boundingBox())!.y - (await otherShown.boundingBox())!.y)).toBeLessThanOrEqual(1);
 });

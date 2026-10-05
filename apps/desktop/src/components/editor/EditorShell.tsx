@@ -3478,7 +3478,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
         && !isWhiteboardPageLayout(withLayout.pageLayout);
       const preparedDocument = switchingToWhiteboard
         ? convertOverlayToWhiteboard(withLayout, measuredBodyBlockRectsRef.current)
-        : ensureOverlayAnchorOffsets(withLayout);
+        : ensureOverlayAnchorOffsets(withLayout, aiLockedTargetsRef.current.resultOnlyShapeIds);
       const overlay = preparedDocument.pageLayout?.overlay ?? normalizedLayout.overlay;
       return {
         ...preparedDocument,
@@ -3715,7 +3715,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
       const switchingToWhiteboard = isWhiteboardPageLayout(normalizedLayout) && !isWhiteboardPageLayout(normalizePageLayout(withLayout.pageLayout));
       const preparedDocument = switchingToWhiteboard
         ? convertOverlayToWhiteboard(withLayout, measuredBodyBlockRectsRef.current)
-        : ensureOverlayAnchorOffsets(withLayout);
+        : ensureOverlayAnchorOffsets(withLayout, aiLockedTargetsRef.current.resultOnlyShapeIds);
       const overlay = preparedDocument.pageLayout?.overlay ?? normalizedLayout.overlay;
       return {
         ...preparedDocument,
