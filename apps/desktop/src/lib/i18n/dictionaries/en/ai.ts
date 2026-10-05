@@ -211,6 +211,7 @@ export const ai = {
   lock: {
     activeRun: "The AI is editing this block. Hover the block and use the \u201cStop the AI and edit\u201d button to take over.",
     pendingProposal: "This spot is waiting on an AI proposal that can’t be combined with your edits. Apply or discard it to edit.",
+    resultOnly: "The hidden original can’t be edited while only the result is shown. Switch to Show changes to edit it.",
     documentWrite: "Applying the AI's edit.",
     shape: "This shape is locked for an AI edit. Stop the AI while it runs, or apply or discard the proposal once it arrives.",
     editing: "An AI edit is in progress.",
@@ -298,6 +299,9 @@ export const ai = {
     showContent: "Show details",
     hideBefore: "Hide original",
     showBefore: "Show original",
+    showAfterOnly: "Show result only",
+    showDiff: "Show changes",
+    resultNotLaidOut: "This change can’t be shown as its result here. Use Show changes to review it.",
     mergedWithYourEdits: "Combined with your edits",
   },
   composer: {

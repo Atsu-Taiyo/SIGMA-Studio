@@ -16,13 +16,17 @@ export function reanchorShapesAgainstCanvas(
   coordHeight: number,
   coordWidth: number,
   blockAnchorScope: ParentNode | null = null,
+  /** The last block measurement in overlay coordinates: where a block now folded away was drawn. */
+  lastDrawn?: ReadonlyMap<string, MeasuredBlock> | null,
+  /** Shapes this derived rewrite leaves as stored (`OverlayEditPolicy.preservedShapeIds`). */
+  preservedShapeIds?: ReadonlySet<string>,
 ): OverlayShape[] {
   if (!canvasEl) {
     return shapes;
   }
 
   const scope = blockAnchorScope ?? canvasEl.closest(".page-canvas") ?? canvasEl.ownerDocument;
-  const { ordered } = measureBlockTops(canvasEl, scope, coordHeight, coordWidth);
+  const { ordered } = measureBlockTops(canvasEl, scope, coordHeight, coordWidth, lastDrawn);
   if (ordered.length === 0) {
     return shapes;
   }
@@ -31,6 +35,7 @@ export function reanchorShapesAgainstCanvas(
     shapes,
     ordered,
     calculateReserveSpaceGaps(shapes),
+    preservedShapeIds,
   );
 }
 
@@ -47,6 +52,8 @@ export function anchorMeasurementKey(blocks: MeasuredBlock[]): string {
         Math.round(line.top * 10) / 10,
         Math.round(line.height * 10) / 10,
       ].join("/")).join(",") ?? "",
+      // 畳んだブロックは最後に描かれていた幾何のまま残るので、印の差も鍵に入れる (`undrawn-blocks.ts`)。
+      block.undrawn ? "undrawn" : "",
     ].join(":"))
     .join("|");
 }

@@ -2,7 +2,7 @@
 
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from "react";
 
-import type { SigmaDocument } from "@/features/document";
+import type { DocumentChangeOrigin, SigmaDocument } from "@/features/document";
 import type { AiProposalApplyOutcome } from "@/features/ai-edit/application/proposal-action-model";
 import type { AiEditPreviewState } from "@/features/ai-edit/model/preview";
 import { blockToReferenceText } from "@/lib/ai/ai-edit-reference";
@@ -47,7 +47,8 @@ async function waitForWebMcpModelContext(signal: AbortSignal): Promise<WebMcpMod
 export interface WebMcpBridgeProps {
   enabled: boolean;
   instructionScopeId: string;
-  commitDocumentChange(change: (current: SigmaDocument) => SigmaDocument): void;
+  /** `origin: "ai-approval"`: applying an approved proposal, not a human edit (a display toggle does not stop it). */
+  commitDocumentChange(change: (current: SigmaDocument) => SigmaDocument, options?: { origin?: DocumentChangeOrigin }): unknown;
   getDocument: SigmaWebMcpPorts["getDocument"];
   getRevision: SigmaWebMcpPorts["getRevision"];
   getSelectedBlockId: SigmaWebMcpPorts["getSelectedBlockId"];
@@ -213,7 +214,7 @@ export const WebMcpBridge = forwardRef<WebMcpBridgeHandle, WebMcpBridgeProps>(fu
     }
     try {
       const before = getDocument();
-      commitDocumentChange((current) => SigmaDocumentSchema.parse(proposal.apply(current).document));
+      commitDocumentChange((current) => SigmaDocumentSchema.parse(proposal.apply(current).document), { origin: "ai-approval" });
       if (getDocument() === before) {
         return { ok: false, reason: t("webMcpProposal.applyRejected") };
       }

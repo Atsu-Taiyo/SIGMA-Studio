@@ -26,11 +26,13 @@ import { TextRunSelectionOverlay } from "@/components/editor/text-flow/TextRunSe
 import {
   REQUEST_BOX_SETTINGS_EVENT,
   REQUEST_TEXT_PAGE_BREAK_EVENT,
+  type TextFlowBoundaryDeleteOutcome,
   type TextFlowBoundaryDeleteRequest,
   type TextFlowChangeContext,
   type TextFlowMaterialInsertRequest,
   type TextPageBreakRequestDetail,
 } from "@/components/editor/TextFlowEditor";
+import { resolveVisibleBoundaryDelete } from "@/components/editor/page-canvas/boundary-delete-guard";
 import {
   BLOCK_SPACE_AFTER_FOLLOWER_CLASS,
   blockSpaceAfterPx,
@@ -576,6 +578,11 @@ const {
     return { extensionContentByNodeId: byNodeId, extensionMeasureKey: keys.join("\u0001") };
   }, [inlineContentByTargetId]);
   const textFlowChangeDecorationState = pageExtension?.textFlowChangeDecorationState;
+  // 畳んだブロック (`collapsedIds`) は境界の削除から読む。イベントの時点の値を ref で引く。
+  const collapsedBlockIdsRef = useRef(textFlowChangeDecorationState?.collapsedIds);
+  useLayoutEffect(() => {
+    collapsedBlockIdsRef.current = textFlowChangeDecorationState?.collapsedIds;
+  }, [textFlowChangeDecorationState]);
   const overlayShapeClassNames = pageExtension?.overlayShapeClassNames;
   const resolveOverlayPresentation = pageExtension?.resolveOverlayPresentation;
   const featureSelectionExtension = pageExtension?.selection;
@@ -837,7 +844,7 @@ const {
     markFullMeasureDirty,
     bleed
   } = usePageCanvasMeasurement({
-    content: { pageDocument, units, historyRevision, overlay, overlaySource: document.pageLayout?.overlay, pendingDeletion, onReanchorOverlay, extensionMeasureKey },
+    content: { pageDocument, units, historyRevision, overlay, overlaySource: document.pageLayout?.overlay, pendingDeletion, onReanchorOverlay, extensionMeasureKey, preservedShapeIds: editorExtensions?.overlayEditPolicy?.preservedShapeIds },
     geometry: { metrics, zoom, fontSize, isWhiteboard, isPagedRender },
     surface: { flowRef, canvasRef, flowElement },
     spaceAfter: { spaceAfterSessionRef, setSpaceAfterDrag, setBlockAffordance },
@@ -2158,11 +2165,21 @@ const { candidateCommentTop, pendingCommentTop, commentThreadPositions } = usePa
 
   }, [horizontalMarginEditPageNumber, runningRegionEditKind, setHorizontalMarginEditPageNumber, setRunningRegionEditKind, setRunningRegionOverlayEditing]);
 
-  const handleTextFlowBoundaryDelete = useCallback((request: TextFlowBoundaryDeleteRequest) => {
-    const deletion = resolveTextFlowBoundaryDelete(pageContentRef.current, request);
-    if (!deletion) {
+  const handleTextFlowBoundaryDelete = useCallback((request: TextFlowBoundaryDeleteRequest): TextFlowBoundaryDeleteOutcome => {
+    // 面をまたぐ結合・削除は面のガードを通らない。畳んだ (描かれていない) ブロックを書き換える変更は
+    // ここで断ってガードの案内を出し (文書の変更口も同じ集合で断る)、キャレットは見えるブロックへ置く。
+    const outcome = resolveVisibleBoundaryDelete(
+      request,
+      (input) => resolveTextFlowBoundaryDelete(pageContentRef.current, input),
+      collapsedBlockIdsRef.current,
+    );
+    if (!outcome) {
       return false;
     }
+    if ("blockedBlockId" in outcome) {
+      return outcome;
+    }
+    const { deletion } = outcome;
 
     if (deletion.previousIds.length > 0 || deletion.nextBlocks.length > 0) {
       // 境界の削除は 2 つのユニットを繋ぐので、上流側の高さも変わる。「打った場所より下だけ」

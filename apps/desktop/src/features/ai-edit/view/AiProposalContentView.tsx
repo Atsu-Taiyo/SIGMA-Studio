@@ -45,9 +45,18 @@ import styles from "./AiProposalContentView.module.css";
  */
 export type AiProposalContentSurface = "page" | "panel";
 
+/**
+ * 内容の見せ方。
+ * - `diff` (既定): 変更を印で示す (変わった単語の塗り・追加側の下地・操作の要約・問題エリアの区分の名前)。
+ * - `after`: 適用後の姿だけ。印を付けず、足される側を紙面と同じ組版で描く (紙面のカードの「適用後だけを
+ *   表示」。本文側は変更前を畳む)。消える側は描かない。
+ */
+export type AiProposalContentPresentation = "diff" | "after";
+
 export interface AiProposalContentViewProps {
   content: AiProposalContent;
   surface: AiProposalContentSurface;
+  presentation?: AiProposalContentPresentation;
   mathFractionSizing?: MathFractionSizing;
   /** `panel` で組むときの段幅 (px)。省略時は既定の用紙の段幅。 */
   paperWidthPx?: number;
@@ -177,6 +186,7 @@ function ProposalSide({
   blocks,
   numbering,
   surface,
+  presentation,
   paperWidthPx,
   mathFractionSizing,
 }: {
@@ -184,6 +194,7 @@ function ProposalSide({
   blocks: EditableBlock[];
   numbering: AiProposalNumbering;
   surface: AiProposalContentSurface;
+  presentation: AiProposalContentPresentation;
   paperWidthPx: number;
   mathFractionSizing?: MathFractionSizing;
 }) {
@@ -205,7 +216,8 @@ function ProposalSide({
   return (
     <div
       className={styles.side}
-      data-change={change}
+      // 適用後だけのときは変更の側を示さない (追加側の下地を付けない)。
+      data-change={presentation === "diff" ? change : undefined}
       role="group"
       aria-label={change === "added" ? t("diff.after") : t("diff.before")}
     >
@@ -223,31 +235,35 @@ function ProposalHunk({
   hunk,
   display,
   surface,
+  presentation,
   paperWidthPx,
   mathFractionSizing,
 }: {
   hunk: AiProposalContentHunk;
   display: AiProposalDisplayHunk;
   surface: AiProposalContentSurface;
+  presentation: AiProposalContentPresentation;
   paperWidthPx: number;
   mathFractionSizing?: MathFractionSizing;
 }) {
   const t = useT("ai");
   const tEditor = useT("editor");
-  const showRemoved = surface === "panel" && display.removed.length > 0;
+  const marked = presentation === "diff";
+  const showRemoved = marked && surface === "panel" && display.removed.length > 0;
+  const problemArea = marked ? hunk.problemArea : undefined;
   return (
-    <section className={styles.hunk} data-ai-proposal-hunk="" data-problem-area={hunk.problemArea?.area}>
-      {hunk.problemArea && (
+    <section className={styles.hunk} data-ai-proposal-hunk="" data-problem-area={problemArea?.area}>
+      {problemArea && (
         <span className={styles.areaLabel} data-ai-proposal-area-label="">
           {problemAreaLabel(
-            hunk.problemArea.area,
-            hunk.numbering.added.problems.get(hunk.problemArea.problemId),
+            problemArea.area,
+            hunk.numbering.added.problems.get(problemArea.problemId),
             tEditor,
           )}
         </span>
       )}
       <div className={styles.hunkBody}>
-        {hunk.notes.map((note, index) => (
+        {marked && hunk.notes.map((note, index) => (
           <p key={index} className={styles.note} data-ai-proposal-note="">
             <History size={13} aria-hidden="true" />
             <span>{note || t("card.title.edit")}</span>
@@ -259,6 +275,7 @@ function ProposalHunk({
             blocks={display.removed}
             numbering={display.numbering.removed}
             surface={surface}
+            presentation={presentation}
             paperWidthPx={paperWidthPx}
             mathFractionSizing={mathFractionSizing}
           />
@@ -269,6 +286,7 @@ function ProposalHunk({
             blocks={display.added}
             numbering={display.numbering.added}
             surface={surface}
+            presentation={presentation}
             paperWidthPx={paperWidthPx}
             mathFractionSizing={mathFractionSizing}
           />
@@ -314,20 +332,25 @@ const ProposalShapeGroup = memo(function ProposalShapeGroup({
 
 /**
  * AI 提案の内容 (本文の塊と図形) を描く唯一の部品。本文カード・サイドバー・⌘K パネル・
- * チャットの図形サムネはすべてこれを使う。描くのは表示専用のコピーで、変わった単語だけを塗り、
- * id を付け替えて紙面の本物と同じ `data-sigma-doc-id` を出さない (`toDisplayProposalHunk`)。
+ * チャットの図形サムネはすべてこれを使う。描くのは表示専用のコピーで、変わった単語だけを塗り
+ * (`presentation: "after"` では塗らない)、id を付け替えて紙面の本物と同じ `data-sigma-doc-id` を
+ * 出さない (`toDisplayProposalHunk`)。
  */
 export function AiProposalContentView({
   content,
   surface,
+  presentation = "diff",
   mathFractionSizing,
   paperWidthPx = DEFAULT_PANEL_PAPER_WIDTH_PX,
   outcome,
   caption,
 }: AiProposalContentViewProps) {
   const hunks = useMemo(
-    () => content.hunks.map((hunk) => ({ hunk, display: toDisplayProposalHunk(hunk) })),
-    [content.hunks],
+    () => content.hunks.map((hunk) => ({
+      hunk,
+      display: toDisplayProposalHunk(hunk, { markChanges: presentation === "diff" }),
+    })),
+    [content.hunks, presentation],
   );
   const shapeGroups = useMemo(
     () => SHAPE_CHANGES
@@ -344,13 +367,20 @@ export function AiProposalContentView({
   // 説明を添えるときは、内容と説明を 1 つの図 (figure + figcaption) にまとめて読み上げる。
   const Root = caption ? "figure" : "div";
   return (
-    <Root className={styles.content} data-ai-proposal-content="" data-surface={surface} data-outcome={outcome}>
+    <Root
+      className={styles.content}
+      data-ai-proposal-content=""
+      data-surface={surface}
+      data-presentation={presentation}
+      data-outcome={outcome}
+    >
       {hunks.map(({ hunk, display }, index) => (
         <ProposalHunk
           key={`${hunk.anchorBlockId}:${index}`}
           hunk={hunk}
           display={display}
           surface={surface}
+          presentation={presentation}
           paperWidthPx={paperWidthPx}
           mathFractionSizing={mathFractionSizing}
         />

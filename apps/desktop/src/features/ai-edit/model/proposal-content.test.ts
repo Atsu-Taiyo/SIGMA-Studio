@@ -479,6 +479,117 @@ describe("groupPendingProposalContentByAnchor", () => {
     expect(cards.every((card) => card.content.shapes.length === 0)).toBe(true);
   });
 
+  describe("what a card folds out of the page body to show only the result", () => {
+    /** 紙面の編集面の最上位に並ぶブロック (紙面のユニット分けから作る集合。ここでは baseDocument の分)。 */
+    const PAGE_EDITOR_BLOCK_IDS = new Set(["p1", "prompt_1", "solution_1", "box_1", "p_last"]);
+    const cardAt = (preview: AiEditPreviewState, anchorId: string, document = baseDocument(), pageEditorBlockIds = PAGE_EDITOR_BLOCK_IDS) => {
+      const card = groupPendingProposalContentByAnchor([preview], document, { pageEditorBlockIds }).get(anchorId)?.[0];
+      if (!card) throw new Error(`no card at ${anchorId}`);
+      return card;
+    };
+
+    it("folds only the blocks the page lays out as its editing surfaces' top-level nodes (where the fold can apply)", () => {
+      // 段組みの段の直下に置かれた問題: 流れの索引では中の段落も流れのブロックに見えるが、紙面では
+      // 問題ごと 1 つのノードとして段の編集面に並び、中の段落には装飾が届かない。
+      const nested = {
+        id: "columns_1",
+        type: "layoutSection",
+        layout: { columnCount: 1 },
+        children: [{ ...problem(), id: "nested_problem", prompt: [paragraph("nested_prompt", "入れ子の問題文") as never], solution: [] }],
+      } as unknown as SigmaBlock;
+      const base = documentOf([paragraph("p1", "変更前の問題文")]);
+      const document = { ...base, content: [...base.content, nested] } as SigmaDocument;
+      const card = cardAt(previewOf([replace("nested_prompt", "直した問題文")]), "nested_prompt", document, new Set(["p1", "nested_problem"]));
+
+      expect(card.resultLayout).toEqual({ collapsedBlockIds: [], complete: false });
+    });
+
+    it.each([
+      ["a replaced top-level block", previewOf([replace("p1", "変更後")]), "p1", ["p1"]],
+      ["an insertion after a block (nothing to fold)", previewOf([insertAfter("p1", "ins", "追加")]), "p1", []],
+      ["deleted blocks", previewOf([], [{ operation: "deleteBlocks", summary: "削除", blockIds: ["p_last"] }]), "p_last", ["p_last"]],
+      ["a block directly in a problem area", previewOf([replace("prompt_1", "新しい問題文")]), "prompt_1", ["prompt_1"]],
+    ] as const)("folds %s and lays the card's content out in its place", (_label, preview, anchorId, collapsed) => {
+      expect(cardAt(preview, anchorId).resultLayout).toEqual({ collapsedBlockIds: collapsed, complete: true });
+    });
+
+    it.each([
+      // 箱の中の段落は紙面の最上位に並ばないので畳めない (入れ子は注記に回す)。
+      ["a block inside a box", previewOf([replace("box_p", "直した箱の本文")]), "box_1"],
+      // 箱の中への挿入は、カードの位置 (箱の後ろ) と適用後の位置 (箱の中) が違う。
+      ["an insertion inside a box", previewOf([insertAfter("box_p", "box_ins", "箱に足す")]), "box_1"],
+      // 問題そのものはエリアごとの編集面に分かれて描かれ、1 つのブロックとして畳めない。
+      ["a whole problem", previewOf([{ operation: "replace", summary: "問題", targetId: "problem_1", replacementBlock: problem() as never }]), "problem_1"],
+      // 移動は中身を持たないので、カードは適用後の位置を組めない。
+      ["a move", previewOf([], [{ operation: "moveBlocks", summary: "移動", blockIds: ["p_last"], targetId: "p1", position: "before" }]), "p_last"],
+    ] as const)("does not claim the result is laid out for %s", (_label, preview, anchorId) => {
+      const card = cardAt(preview, anchorId);
+      expect(card.resultLayout.complete).toBe(false);
+      // 畳めるのは紙面の最上位に並ぶブロックだけ (問題・箱そのものや、その中は畳まない)。
+      expect(card.resultLayout.collapsedBlockIds).toEqual([]);
+    });
+
+    it("folds only blocks the current document has (after a version restore drops one, it is no longer folded)", () => {
+      const preview = previewOf([], [{ operation: "deleteBlocks", summary: "削除", blockIds: ["p1", "p_last"] }]);
+      const restored = documentOf([paragraph("p1", "変更前の問題文"), problem(), box()]);
+
+      expect(cardAt(preview, "p1").resultLayout.collapsedBlockIds).toEqual(["p1", "p_last"]);
+      expect(cardAt(preview, "p1", restored).resultLayout.collapsedBlockIds).toEqual(["p1"]);
+    });
+
+    describe("a block a shape hangs from", () => {
+      const list = (): SigmaBlock => ({
+        id: "list_1",
+        type: "list",
+        listType: "bullet",
+        items: [{ type: "listItem", id: "list_item_1", children: [{ type: "text", text: "項目" }] }],
+      } as SigmaBlock);
+      const rectangle = (id: string, anchor: Record<string, unknown> | undefined, parentId?: string) => ({
+        id, type: "geo", x: 10, y: 20, rotation: 0,
+        ...(anchor ? { anchor } : {}),
+        ...(parentId ? { parentId } : {}),
+        props: { w: 40, h: 30, geo: "rectangle", fill: "solid", color: "#111111", fillColor: "#ffffff", labelColor: "#111111", dash: "solid", size: "m" },
+      });
+      const withShapes = (shapes: unknown[]) => ({
+        ...documentOf([paragraph("p1", "変更前の問題文"), list(), paragraph("p_last", "最後")]),
+        pageLayout: { overlay: { overlaySnapshot: { version: 1, shapes, assets: {} } } },
+      }) as unknown as SigmaDocument;
+      const editorBlocks = new Set(["p1", "list_1", "p_last"]);
+      const replaceList = previewOf([{
+        operation: "replace", summary: "リスト", targetId: "list_1",
+        replacementBlock: { ...list(), items: [{ type: "listItem", id: "list_item_1", children: [{ type: "text", text: "直した項目" }] }] } as never,
+      }]);
+
+      it.each([
+        ["anchored to it", [rectangle("s", { type: "block", blockId: "p1", dx: 0, dy: 4 })], previewOf([replace("p1", "変更後")]), "p1"],
+        ["anchored to one of its lines", [rectangle("s", { type: "block", blockId: "p1", dy: 4, line: { index: 0, dy: 2 } })], previewOf([replace("p1", "変更後")]), "p1"],
+        ["anchored to a block inside it", [rectangle("s", { type: "block", blockId: "list_item_1", dy: 4 })], replaceList, "list_1"],
+        ["in a group anchored to it", [
+          { id: "g", type: "group", x: 0, y: 0, rotation: 0, anchor: { type: "block", blockId: "p1", dy: 4 }, props: { w: 40, h: 30 } },
+          rectangle("member", undefined, "g"),
+        ], previewOf([replace("p1", "変更後")]), "p1"],
+      ] as const)("is not folded when a shape is %s, and the card says the result is not laid out", (_label, shapes, preview, anchorId) => {
+        // 畳んだブロックに固定された図形は、付け替え・保存・変更口のどれにも例外を生む。畳まずに注記へ回す。
+        const card = cardAt(preview, anchorId, withShapes([...shapes]), editorBlocks);
+        expect(card.resultLayout).toEqual({ collapsedBlockIds: [], complete: false });
+      });
+
+      it("still folds a block no shape hangs from", () => {
+        const shapes = [rectangle("s", { type: "block", blockId: "p_last", dy: 4 }), rectangle("free", undefined)];
+        expect(cardAt(previewOf([replace("p1", "変更後")]), "p1", withShapes(shapes), editorBlocks).resultLayout)
+          .toEqual({ collapsedBlockIds: ["p1"], complete: true });
+      });
+    });
+
+    it("folds only what the merged content removes: a block the human's edit keeps stays on the page", () => {
+      const base = baseDocument();
+      const preview = mergeablePreviewOf(base, [], [{ operation: "deleteBlocks", summary: "削除", blockIds: ["p1", "p_last"] }]);
+      const current = withParagraph(base, "p_last", "人が直した最後の段落");
+
+      expect(cardAt(preview, "p1", current).resultLayout).toEqual({ collapsedBlockIds: ["p1"], complete: true });
+    });
+  });
+
   it("makes no card where the page has nothing to place it after (the decision falls back to a floating bar)", () => {
     const document = baseDocument();
     // 文書に無いブロック (ヘッダーの中など) を対象にした置き換えと、対象ブロックを持たない操作。
@@ -674,6 +785,19 @@ describe("toDisplayProposalHunk", () => {
     const display = toDisplayProposalHunk(content.hunks[0]);
 
     expect((display.added[0] as { children: InlineNode[] }).children.some((node) => node.backgroundColor)).toBe(false);
+  });
+
+  it("can leave every word unpainted (the result only) and still renames every id", () => {
+    const content = pending(baseDocument(), previewOf([replace("p1", "変更後の問題文")]));
+
+    const display = toDisplayProposalHunk(content.hunks[0], { markChanges: false });
+
+    expect(display.added.map((block) => block.id)).toEqual([`${AI_PROPOSAL_PREVIEW_ID_PREFIX}p1`]);
+    expect(display.removed.map((block) => block.id)).toEqual([`${AI_PROPOSAL_PREVIEW_ID_PREFIX}p1`]);
+    for (const block of [...display.added, ...display.removed]) {
+      expect((block as { children: InlineNode[] }).children.some((node) => node.backgroundColor)).toBe(false);
+    }
+    expect(texts((display.added[0] as { children: InlineNode[] }).children)).toBe("変更後の問題文");
   });
 
   it("re-keys the numbering to the renamed ids so headings and problems keep their numbers", () => {

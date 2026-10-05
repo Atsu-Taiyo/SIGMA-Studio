@@ -30,6 +30,8 @@ export {
   isAiLockedShapeSelection,
   mergeAiLockedTargets,
   useAiLockedTargets,
+  withAiResultOnlyTargets,
+  aiLockedTargetsForOrigin,
   type AiLockedTargets,
 } from "./application/locked-targets";
 export {

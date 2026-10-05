@@ -146,6 +146,35 @@ describe("probeFlow extension nodes", () => {
     expect(card.ink.map((ink) => [ink.top, ink.bottom])).toEqual([[10, 30], [80, 90], [170, 190]]);
   });
 
+  it("makes no row for a body block that is not drawn (folded away with display: none)", () => {
+    // 適用後だけを見せる提案の変更前: 本文から畳まれ、描画矩形を持たない。0 の矩形から変位を引くと
+    // 負の位置の行になり、ページ割りが前のページへ行を置く。畳んだブロックが持つ手動改ページ
+    // (breakIds の p1) も行と一緒に消える: 畳んだ間のページ割りは、適用後のブロックが持つ改ページを
+    // まだ表さない (カードへ引き継ぐのは follow-up)。
+    const { flow } = cardFlow();
+    const folded = find(flow, '[data-sigma-doc-id="p1"]');
+    folded.setAttribute("data-flow-dy", "40");
+    folded.getBoundingClientRect = () => new DOMRect(0, 0, 0, 0);
+    folded.getClientRects = () => [] as unknown as DOMRectList;
+    textRects.clear();
+    placeText(find(flow, ".row-1"), { top: 40, bottom: 60 });
+    placeText(find(flow, ".row-2"), { top: 70, bottom: 90 });
+    placeText(find(flow, "button"), { top: 100, bottom: 115 });
+    placeText(find(flow, '[data-sigma-doc-id="p2"]'), { top: 140, bottom: 160 });
+
+    const [unit] = probeFlow(flow, { ...OPTIONS, breakIds: new Set(["p1"]) }).units;
+
+    expect(unit.nodes.map((node) => node.id)).toEqual(["extension:card", "p2"]);
+    expect(Math.min(...unit.nodes.map((node) => node.rect.top))).toBeGreaterThanOrEqual(0);
+  });
+
+  it("still measures an empty-looking body block that is drawn (a zero-height rect)", () => {
+    const { flow } = cardFlow();
+    const empty = find(flow, '[data-sigma-doc-id="p1"]');
+    place(empty, { top: 0, bottom: 0 });
+    expect(probeFlow(flow, OPTIONS).units[0].nodes.map((node) => node.id)).toEqual(["p1", "extension:card", "p2"]);
+  });
+
   it("skips an empty (collapsed) extension node", () => {
     const { flow, card } = cardFlow();
     card.innerHTML = "";
@@ -173,6 +202,17 @@ describe("probeFlow extension nodes", () => {
     card.querySelector("section")!.prepend(marker);
     place(marker, { top: 32, bottom: 38 });
     expect(probeFlow(flow, OPTIONS).units[0].attachments).toEqual([]);
+  });
+
+  it("lets the first node with an id win even when it is not drawn (a later duplicate is not measured)", () => {
+    const { flow, card } = cardFlow();
+    const duplicate = card.cloneNode(true) as HTMLElement;
+    find(flow, '[data-sigma-doc-id="p2"]').closest(".ProseMirror")!.after(duplicate);
+    place(duplicate, { top: 170, bottom: 190 });
+    card.getBoundingClientRect = () => new DOMRect(0, 0, 0, 0);
+    card.getClientRects = () => [] as unknown as DOMRectList;
+
+    expect(probeFlow(flow, OPTIONS).units[0].nodes.map((node) => node.id)).toEqual(["p1", "p2"]);
   });
 
   it("measures an extension node id only once even if a feature draws it twice", () => {

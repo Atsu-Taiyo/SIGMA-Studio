@@ -9,6 +9,8 @@ import type {
   ProbeUnit,
 } from "@/features/rendering/core";
 
+import { isUndrawnElement } from "./undrawn-blocks";
+
 /**
  * 本文フローの**自然配置**を読む。
  *
@@ -150,9 +152,17 @@ export function probeFlow(flow: HTMLElement, options: FlowProbeOptions): ProbeTr
     const isExtension = extensionId !== null;
     const id = isExtension ? extensionId : element.getAttribute("data-sigma-doc-id");
     if (!id) return null;
+    const domRect = element.getBoundingClientRect();
+    // 描かれていない本文ノード (display: none で畳んだブロック) は行を持たない (`undrawn-blocks.ts`)。
+    // 0 の矩形から変位を引くと負の位置の行になる。
+    // 先に見つけた方が勝つ規則は保つ (後の同じ id の要素をそのノードとして測らない)。
+    if (isUndrawnElement(element, domRect)) {
+      seenNodeIds.add(id);
+      return null;
+    }
     const own = readFlowDisplacement(element);
     const acc = { dx: unitAcc.dx + own.dx, dy: unitAcc.dy + own.dy };
-    const rect = toRect(element.getBoundingClientRect(), acc);
+    const rect = toRect(domRect, acc);
     const height = rect.bottom - rect.top;
     // 閉じた (中身の無い) 拡張ノードは行を持たない。同じ id の 2 つ目は測らない: 行キー・変位・断片が
     // id で引かれるので、2 つあると上書きし合い、片方が他方の位置に描かれる (描く側が 1 か所にする)。
