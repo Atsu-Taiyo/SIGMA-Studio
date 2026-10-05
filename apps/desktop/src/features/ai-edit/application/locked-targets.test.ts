@@ -276,6 +276,44 @@ describe("who a result-only fold stops: only human edits", () => {
     expect(findAiLockedTargetsTouched(withShape(10), withShape(90), aiLockedTargetsForOrigin(hidden, "ai-approval")).shapeIds).toEqual([]);
   });
 
+  it("does not refuse a save that carries only the position a hidden shape's anchor resolves to", () => {
+    // 畳んだ変更前の分だけ本文が詰まると、紙面は隠した図形の y を固定先から解き直し、次の保存 (無関係な
+    // 図形の移動) に載せる。固定で決まる座標は人の編集ではないので比べない。固定・大きさ・中身・削除は比べる。
+    type Anchor = Record<string, unknown>;
+    const hiddenShape = (anchor: Anchor | undefined, x: number, y: number, w = 120) => ({
+      id: "hidden_shape", type: "geo", x, y, ...(anchor ? { anchor } : {}), props: { w, h: 60 },
+    });
+    const other = (x: number) => ({ id: "other_shape", type: "geo", x, y: 0, props: { w: 40, h: 40 } });
+    const saved = (shape: ReturnType<typeof hiddenShape> | null, otherX = 0) => ({
+      content: [{ id: "below", type: "paragraph", children: [{ type: "text", text: "固定先" }] }],
+      pageLayout: { overlay: { overlaySnapshot: { version: 1, shapes: [...(shape ? [shape] : []), other(otherX)], assets: {} } } },
+    }) as unknown as SigmaDocument;
+    const hidden = aiLockedTargetsForOrigin(
+      withAiResultOnlyTargets(EMPTY_AI_LOCKED_TARGETS, { blockIds: new Set(), shapeIds: new Set(["hidden_shape"]) }),
+      "human-edit",
+    );
+    const touched = (anchor: Anchor | undefined, next: ReturnType<typeof hiddenShape> | null) => (
+      findAiLockedTargetsTouched(saved(hiddenShape(anchor, 84, 130)), saved(next, 40), hidden).shapeIds
+    );
+    const onBlock = { type: "block", blockId: "below", dx: 60, dy: 10 };
+    const onBlockNoDx = { type: "block", blockId: "below", dy: 10 };
+    const onShape = { type: "shape", shapeId: "other_shape", dx: 4, dy: 4 };
+
+    // 固定先から解き直した座標だけが違う。
+    expect(touched(onBlock, hiddenShape(onBlock, 96, 100))).toEqual([]);
+    expect(touched(onBlockNoDx, hiddenShape(onBlockNoDx, 84, 100))).toEqual([]);
+    expect(touched(onShape, hiddenShape(onShape, 44, 4))).toEqual([]);
+    // 人の編集で変わるものは断る: 固定・dx の無い固定での x (図形自身の位置)・大きさ・削除・固定の無い図形の位置。
+    expect(touched(onBlock, hiddenShape({ ...onBlock, dy: 30 }, 84, 150))).toEqual(["hidden_shape"]);
+    expect(touched(onBlockNoDx, hiddenShape(onBlockNoDx, 120, 130))).toEqual(["hidden_shape"]);
+    expect(touched(onBlock, hiddenShape(onBlock, 84, 130, 200))).toEqual(["hidden_shape"]);
+    expect(touched(onBlock, null)).toEqual(["hidden_shape"]);
+    expect(touched(undefined, hiddenShape(undefined, 84, 100))).toEqual(["hidden_shape"]);
+    // 固定先が無い (ぶら下がった) 固定は何も解かないので、座標は図形自身のもの。
+    const dangling = { type: "block", blockId: "gone", dx: 60, dy: 10 };
+    expect(touched(dangling, hiddenShape(dangling, 84, 100))).toEqual(["hidden_shape"]);
+  });
+
   it("treats a restore it cannot look at in advance (a shared session's undo) as touching what is hidden", () => {
     expect(findAiLockedTargetsTouched(before, undefined, folded)).toEqual({ blockIds: ["folded"], shapeIds: [] });
     expect(findAiLockedTargetsTouched(before, undefined, EMPTY_AI_LOCKED_TARGETS)).toEqual({ blockIds: [], shapeIds: [] });

@@ -7,6 +7,7 @@ import { SessionPresenceExtension, sessionPresenceKey } from "@/components/tipta
 
 import { acknowledgeTextFlowContent, expectTextFlowContent } from "./text-flow/measurement-revision";
 import { getFragmentEditSession } from "./text-flow/fragment-edit-session";
+import { selectionOutsideCollapsedBlocks } from "./text-flow/collapsed-selection";
 import { caretAddressAtBlockEdge, indexTextFlowBlocksById } from "@/features/text-editing";
 import  {
   BoxActionDialog,
@@ -1890,6 +1891,15 @@ function TextFlowEditorImpl({
     changeDecorationStateRef.current = changeDecorationState;
     if (editor && !editor.isDestroyed) {
       requestSyncDecorationRefresh("changes");
+      // 畳んだブロックに残った選択は見えず、打鍵も通らない。見えるブロックへ移す (履歴には積まない)。
+      // 紙面の選択を持っている編集面だけ: 他の面の既定の選択を動かすと、紙面の選択ブロックを奪う。
+      const ownsSelection = editor.isFocused || getSelectedTextBlockId(editor) === selectedIdRef.current;
+      const visible = ownsSelection
+        ? selectionOutsideCollapsedBlocks(editor.state, changeDecorationState?.collapsedIds)
+        : null;
+      if (visible) {
+        editor.view.dispatch(editor.state.tr.setSelection(visible).setMeta("addToHistory", false));
+      }
     }
   }, [changeDecorationState, editor, requestSyncDecorationRefresh]);
 

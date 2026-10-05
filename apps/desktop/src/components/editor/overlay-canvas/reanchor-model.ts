@@ -13,6 +13,7 @@ import {
   getShapeVisualBounds,
   getShapesVisualBounds,
 } from "@/features/drawing";
+import { isUndrawnAnchorBlock } from "../page-canvas/undrawn-blocks";
 import type { OverlayAnchor, OverlayBounds, OverlayShape, OverlayShapeId } from "./types";
 
 const MAX_AUTOMATICALLY_ANCHORED_SHAPES = 64;
@@ -235,6 +236,8 @@ export function reanchorShapesAgainstMeasuredBlocks(
   shapes: OverlayShape[],
   orderedBlocks: MeasuredBlock[],
   reserveSpaceGaps: OverlayBlockGapMap = {},
+  /** Blocks in the page that are not drawn, including ones left out of `orderedBlocks` (`measureBlockTops`). */
+  undrawnIds?: ReadonlySet<string>,
 ): OverlayShape[] {
   if (orderedBlocks.length === 0) {
     return shapes;
@@ -270,6 +273,11 @@ export function reanchorShapesAgainstMeasuredBlocks(
     const existingBlock = existingBlockId
       ? anchorBlocks.find((block) => block.id === existingBlockId)
       : undefined;
+    // A figure on a block that is folded away keeps its stored anchor: the block's place cannot be
+    // read, so neither dx/dy nor the block is worked out again (`undrawn-blocks.ts`).
+    if (existingBlockId && isUndrawnAnchorBlock(existingBlockId, existingBlock, undrawnIds)) {
+      return shape;
+    }
     // A block that exists only in the editor is not a target this pass may keep: re-picking from
     // every block is what migrates a document that already carries such an anchor onto a real one.
     const canKeepExistingBlockAnchor = existingBlock &&

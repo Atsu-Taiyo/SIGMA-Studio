@@ -662,6 +662,8 @@ export default function OverlayCanvasEditorClient({
   useEffect(() => {
     onActiveToolChange?.(mode.tool);
   }, [mode.tool, onActiveToolChange]);
+  // 最後の固定先の計測 (本文側の実測か自前の計測)。畳んだブロックが最後に描かれていた場所の出どころ。
+  const getLastDrawnBlockRects = useCallback(() => anchorMeasurementsRef.current.rects, []);
   const { queueOverlaySave, clearQueuedOverlaySave, commitOverlayChangeNow, flushOverlayChange, queueDirtyImageCropSave } = useOverlaySaveController({
     syncBlockAnchors,
     shapesRef,
@@ -669,6 +671,7 @@ export default function OverlayCanvasEditorClient({
     canvasHeightRef,
     canvasWidthRef,
     getBlockAnchorScope,
+    getLastDrawnBlockRects,
     suppressNextSaveRef,
     setShapes,
     assetsRef,
@@ -770,7 +773,13 @@ export default function OverlayCanvasEditorClient({
     if (!scope) {
       return;
     }
-    const { rects, ordered } = measureBlockTops(el, scope, canvasHeightRef.current, canvasWidthRef.current);
+    const { rects, ordered } = measureBlockTops(
+      el,
+      scope,
+      canvasHeightRef.current,
+      canvasWidthRef.current,
+      anchorMeasurementsRef.current.rects,
+    );
     if (rects.size === 0) {
       return;
     }
@@ -1012,7 +1021,7 @@ export default function OverlayCanvasEditorClient({
     // 違い、混ぜるとリスト項目や枠の中のブロックに付いた図形が無言で追従しなくなる。
     const measured = bodyBlockRects && bodyAnchorableBlocks
       ? { rects: bodyBlockRects, ordered: [...bodyAnchorableBlocks] }
-      : measureBlockTops(el, scope, canvasHeightRef.current, canvasWidthRef.current);
+      : measureBlockTops(el, scope, canvasHeightRef.current, canvasWidthRef.current, anchorMeasurementsRef.current.rects);
     const { rects, ordered } = measured;
     const key = anchorMeasurementKey(ordered);
     if (key === anchorMeasurementKeyRef.current) {

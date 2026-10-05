@@ -943,3 +943,75 @@ test("undo cannot move a shape whose before state is hidden while only the resul
   }
   expect(await savedX()).toBe(60);
 });
+
+/** 図形を足した教材 (固定先の段落と x を指定)。 */
+function withShapes(...shapes: Array<{ id: string; anchorBlockId: string; x: number }>): SigmaDocument {
+  const document = createDocument();
+  const snapshot = document.pageLayout!.overlay!.overlaySnapshot!;
+  const added = shapes.map(({ id, anchorBlockId, x }) => {
+    const shape = rectangle(id, anchorBlockId) as OverlayShape & { anchor: { dx: number } };
+    return { ...shape, x, anchor: { ...shape.anchor, dx: x } } as OverlayShape;
+  });
+  return {
+    ...document,
+    pageLayout: { ...document.pageLayout, overlay: { ...document.pageLayout!.overlay, overlaySnapshot: { ...snapshot, shapes: [...snapshot.shapes, ...added] } } },
+  } as SigmaDocument;
+}
+
+/** 保存された図形 (保存がまだなら null)。 */
+async function savedShape(page: Page, id: string): Promise<{ x?: number; anchor?: { blockId?: string; dx?: number; dy?: number } } | null> {
+  return page.evaluate((shapeId) => {
+    const saved = JSON.parse(window.localStorage.getItem("sigma-studio:e2e-document") ?? "null");
+    return saved?.pageLayout?.overlay?.overlaySnapshot?.shapes?.find((shape: { id?: string }) => shape.id === shapeId) ?? null;
+  }, id);
+}
+
+test("moving another shape while only the result is shown keeps the saved anchor of a shape on the folded block", async ({ page }) => {
+  await open(page, [replaceWithRows(1)], withShapes(
+    { id: "folded_shape", anchorBlockId: "para_target", x: 60 },
+    { id: "other_shape", anchorBlockId: "para_pad_2", x: 420 },
+  ));
+  const card = pageCard(page, "para_target").locator("[data-ai-proposal-card]");
+  await card.getByRole("button", { name: "適用後だけを表示", exact: true }).click();
+  await expect(page.locator('.page-flow [data-sigma-doc-id="para_target"]').first()).toBeHidden();
+
+  // 畳んだ段落とは無関係な図形を動かして保存する。保存時の付け替えは、畳んだ段落に固定された図形の固定を
+  // 描かれていない 0 の矩形から逆算し直さない。
+  const other = page.locator('.page-overlay-preview .overlay-shape[data-overlay-shape-id="other_shape"]').first();
+  await grabShapeFromBody(page, other);
+  const box = (await page.locator('.overlay-canvas-editor .overlay-shape[data-overlay-shape-id="other_shape"]').first().boundingBox())!;
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(box.x + box.width / 2 + 60, box.y + box.height / 2, { steps: 6 });
+  await page.mouse.up();
+  await expect.poll(async () => (await savedShape(page, "other_shape"))?.x ?? 420).not.toBe(420);
+
+  expect((await savedShape(page, "folded_shape"))?.anchor).toEqual({ type: "block", blockId: "para_target", dx: 60, dy: 24 });
+});
+
+test("deleting a block while only the result is shown re-anchors the other shapes and leaves the hidden before shape as saved", async ({ page }) => {
+  const document = withShapes({ id: "other_shape", anchorBlockId: "para_shape_anchor", x: 420 });
+  const shape = document.pageLayout!.overlay!.overlaySnapshot!.shapes[0]!;
+  const target = document.content.find((block) => block.id === "para_target")!;
+  await open(page, [{ ...bodyAndShape(), mergeBasis: { version: 1, entities: {
+    para_target: { kind: "block", value: target as never },
+    bar_shape: { kind: "shape", value: shape as never },
+  } } }], document);
+  const card = pageCard(page, "para_target").locator("[data-ai-proposal-card]");
+  await card.getByRole("button", { name: "適用後だけを表示", exact: true }).click();
+  await expect(page.locator('.overlay-shape.ai-diff-before-shape[data-overlay-shape-id="bar_shape"]').first()).toHaveCSS("opacity", "0");
+
+  // 削除の付け替えは直前の計測を基準にする。開いた直後は基準がまだ無いので、先に 1 文字打って測らせる。
+  await placeCaret(page, "para_pad_3", "end");
+  await page.keyboard.type("!");
+  await expect.poll(() => savedText(page, "para_pad_3")).toBe("続きの本文 4!");
+  // 両方の図形がぶら下がる段落を、前の段落へ結合して消す。付け替えのコミットに隠した変更前の図形が
+  // 混ざると全体が断られ、ふつうの図形まで消した段落に固定されたまま残る。
+  await placeCaret(page, "para_shape_anchor", "start");
+  await page.keyboard.press("Backspace");
+  await expect.poll(() => savedText(page, "para_pad_3")).toBe("続きの本文 4!図形がぶら下がる段落です。");
+
+  await expect.poll(async () => (await savedShape(page, "other_shape"))?.anchor?.blockId ?? "para_shape_anchor").not.toBe("para_shape_anchor");
+  expect((await savedShape(page, "bar_shape"))?.anchor).toEqual({ type: "block", blockId: "para_shape_anchor", dx: 60, dy: 24 });
+  await expect(page.locator(".save-state").first()).not.toContainText(RESULT_ONLY_LOCK);
+});
