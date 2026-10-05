@@ -24,6 +24,7 @@ import {
   assertAppliedProposalHasRealChanges,
   replayProposalDraft,
   replayProposalDraftMerging,
+  rewriteProposalDraftMerging,
 } from "./proposal-replay";
 
 function text(value: string): InlineNode {
@@ -740,6 +741,64 @@ describe("replayProposalDraftMerging", () => {
     replayProposalDraftMerging(current, draft, basis);
 
     expect({ draft, basis, current }).toEqual(snapshots);
+  });
+});
+
+describe("rewriteProposalDraftMerging (the merge for an owner that replays drafts itself)", () => {
+  const editAndDelete: AiEditSessionDraft = {
+    summary: "編集",
+    plan: ["編集"],
+    operations: [{ operation: "replace", summary: "a", targetId: "p_1", replacementBlock: paragraph("p_1", "The dog sat.") }],
+    mutationOperations: [
+      { operation: "deleteBlocks", summary: "d", blockIds: ["p_2"] },
+      { operation: "deleteBlocks", summary: "d", blockIds: ["p_3"] },
+    ],
+    operationOrder: [{ kind: "mutation", index: 0 }, { kind: "operation", index: 0 }, { kind: "mutation", index: 1 }],
+    warnings: [],
+  };
+  const base = documentOf([paragraph("p_1", "The cat sat."), paragraph("p_2", "two"), paragraph("p_3", "three")]);
+  const current = withParagraph(withParagraph(base, "p_1", "The big cat sat."), "p_2", "two by human");
+
+  it("hands the owner's replay the draft the approval's merge would replay, with the superseded operations dropped", () => {
+    const basis = computeProposalMergeBasis(editAndDelete, base);
+
+    const merged = rewriteProposalDraftMerging(current, editAndDelete, basis, (rewrite) => replayProposalDraft(current, rewrite.draft));
+
+    expect(withoutUpdatedAt(merged.result.nextDocument)).toEqual(withoutUpdatedAt(replayProposalDraftMerging(current, editAndDelete, basis).nextDocument));
+    expect(merged.rewrite.draft.mutationOperations).toEqual([editAndDelete.mutationOperations![1]]);
+    expect(merged.rewrite.draft.operationOrder).toEqual([{ kind: "operation", index: 0 }, { kind: "mutation", index: 0 }]);
+    expect([...merged.rewrite.operationIndexes]).toEqual([[0, 0]]);
+    expect([...merged.rewrite.mutationIndexes]).toEqual([[1, 0]]);
+    expect(merged.report.humanEditedUnits).toEqual(["p_1", "p_2"]);
+    expect(merged.report.editBeatsDelete).toEqual(["#p_2"]);
+  });
+
+  it("hands the draft unchanged and reports nothing when nobody edited what it overwrites", () => {
+    const basis = computeProposalMergeBasis(editAndDelete, base);
+
+    const merged = rewriteProposalDraftMerging(base, editAndDelete, basis, (rewrite) => rewrite);
+
+    expect(merged.rewrite.draft).toBe(editAndDelete);
+    expect(isProposalMergeQuiet(merged.report)).toBe(true);
+  });
+
+  it("puts only the unit the owner's replay cannot apply back on the AI's side, and counts it", () => {
+    const basis = computeProposalMergeBasis(editAndDelete, base);
+    const replays: AiEditSessionDraft[] = [];
+
+    const merged = rewriteProposalDraftMerging(current, editAndDelete, basis, (rewrite) => {
+      replays.push(rewrite.draft);
+      const p1 = rewrite.draft.operations[0];
+      if (p1 && "replacementBlock" in p1 && JSON.stringify(p1.replacementBlock).includes("big")) {
+        throw new Error("the owner cannot apply the merged p_1");
+      }
+      return replayProposalDraft(current, rewrite.draft);
+    });
+
+    expect(paragraphText(merged.result.nextDocument, "p_1")).toBe("The dog sat.");
+    expect(paragraphText(merged.result.nextDocument, "p_2")).toBe("two by human");
+    expect(merged.report.invalidAfterMerge).toBe(1);
+    expect(replays.length).toBeGreaterThan(1);
   });
 });
 
