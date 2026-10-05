@@ -4,7 +4,6 @@ import {
   resolveAiEditSessionOperationOrder,
   type AiEditSessionDraft,
 } from "@/lib/ai/sigma-doc-edit-schema";
-import { isOverlayAnchorSupportDraft } from "@/lib/ai/applied-document-diff";
 import {
   collectNonMergeableTargets,
   collectReinsertedDeletionIds,
@@ -219,35 +218,13 @@ export function collectTouchedBlockIds(draft: AiEditSessionDraft): string[] {
  * 挿入アンカーの文章や依頼時の選択範囲が変わっただけでは競合にしない。アンカー削除や新規IDの
  * 重複は replay 自体が正確に検出する。moveBlocks / wrapBlocksInColumns も内容を保持するため、
  * 内容ハッシュの変化は競合理由にしない。
+ *
+ * base を持たない旧レコードの「合成できない対象」と同じ定義 (`collectNonMergeableTargets`)。紙面は
+ * 保留中にこれと同じ対象をロックする。
  */
 export function collectConflictSensitiveBlockIds(draft: AiEditSessionDraft): string[] {
-  const ids: string[] = [];
-  const push = (id: string): void => {
-    if (id.length > 0) {
-      ids.push(id);
-    }
-  };
-
-  for (const operation of draft.operations) {
-    if ((operation.operation === undefined || operation.operation === "replace")
-      && !isOverlayAnchorSupportDraft(operation, draft.operations)) {
-      push(operation.targetId);
-    }
-  }
-
-  for (const operation of draft.mutationOperations ?? []) {
-    if (operation.operation === "deleteBlocks") {
-      operation.blockIds.forEach(push);
-    } else if (operation.operation === "updateOverlayShape") {
-      push(operation.shapeId);
-    } else if (operation.operation === "alignOverlayShapes" || operation.operation === "deleteOverlayShapes") {
-      operation.shapeIds.forEach(push);
-    } else if (operation.operation === "updateLayoutSection") {
-      push(operation.sectionId);
-    }
-  }
-
-  return Array.from(new Set(ids));
+  const targets = collectNonMergeableTargets([{ draft }]);
+  return [...new Set([...targets.blockIds, ...targets.shapeIds])].filter((id) => id.length > 0);
 }
 
 /**

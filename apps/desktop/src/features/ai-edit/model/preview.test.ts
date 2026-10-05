@@ -1468,21 +1468,22 @@ describe("derivePendingAiProposalLockTargets", () => {
     expect(derivePendingAiProposalLockTargets([preview]).shapeIds).toEqual(new Set(["s6"]));
   });
 
-  it("does not reserve the text of a body insertion anchor or move destination", () => {
+  it("does not reserve the text of a body insertion anchor or a moved block, even for a legacy record", () => {
     const insertion = derivePendingAiProposalLockTargets([makePreview({ operations: [insertAfterDraft] })]);
     expect(insertion.blockIds.size).toBe(0);
+    // 移動は中身を上書きしないので、旧レコードの承認も比べない (人の編集は移動先で残る)。
     const move = derivePendingAiProposalLockTargets([makePreview({ operations: [], mutationOperations: [moveBlocksOp] })]);
-    expect(move.blockIds).toEqual(new Set(moveBlocksOp.blockIds));
+    expect(move.blockIds.size).toBe(0);
   });
-  it("keeps every existing target of a legacy record (no merge basis) locked until the proposal is resolved", () => {
+  it("keeps what a legacy record's approval compares (no merge basis) locked until the proposal is resolved", () => {
     const locks = derivePendingAiProposalLockTargets([
       makePreview({
         operations: [replaceDraft, insertAfterDraft],
-        mutationOperations: [deleteBlocksOp, moveBlocksOp, updateOverlayShapeOp, alignOverlayShapesOp, deleteOverlayShapesOp],
+        mutationOperations: [deleteBlocksOp, moveBlocksOp, updateLayoutSectionOp, updateOverlayShapeOp, alignOverlayShapesOp, deleteOverlayShapesOp],
       }),
     ]);
 
-    expect(locks.blockIds).toEqual(new Set(["b1", "b4", "b5", "b6"]));
+    expect(locks.blockIds).toEqual(new Set(["b1", "b4", "b5", "sec1"]));
     expect(locks.shapeIds).toEqual(new Set(["s3", "s4", "s5", "s6"]));
   });
 
