@@ -41,6 +41,13 @@ export interface BodyPointerRouteInput {
    * 素のクリックでそのまま掴める。
    */
   pointerOverBodyText: boolean;
+  /**
+   * 押した点が本文のリンク (URL の下線) の上か。省略は false。
+   *
+   * Ctrl/Cmd+クリックはリンクを開く操作でもあるので、図形に当たっていないリンクの上に限って
+   * 本文へ渡す。図形に当たっているときは従来どおり図形を掴む (明示の修飾キーが優先)。
+   */
+  pointerOnLink?: boolean;
   modifiers: BodyPointerModifiers;
 }
 
@@ -55,12 +62,15 @@ export function resolveBodyPointerRoute({
   hitShapeId,
   selectedShapeIds,
   pointerOverBodyText,
+  pointerOnLink = false,
   modifiers,
 }: BodyPointerRouteInput): BodyPointerRoute {
   // Ctrl/Cmd は「いまは図形を触る」という明示操作。図形に当たっていなくても範囲選択
   // (marquee) を始めたいので、ヒットの有無に関わらずオーバーレイへ渡す。
+  // ただし図形に当たっていないリンクの上は「リンクを開く」を優先する (範囲選択は別の場所から
+  // 始められる)。Alt が一緒のときは、リンクを開く操作にしない。
   if (modifiers.ctrl || modifiers.meta) {
-    return "overlayShape";
+    return pointerOnLink && !hitShapeId && !modifiers.alt ? "text" : "overlayShape";
   }
 
   // Shift / Alt は本文側の操作 (範囲選択の伸長など) なので図形に横取りさせない。
