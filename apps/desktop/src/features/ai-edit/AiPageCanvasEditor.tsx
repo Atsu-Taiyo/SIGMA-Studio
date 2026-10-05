@@ -128,10 +128,11 @@ export interface AiPageCanvasEditorProps extends Omit<PageCanvasEditorProps, "pa
   documentWorkspaceId?: string | null;
   onFocusAiSession?: (roomId: string) => void;
   /**
-   * 「適用後だけ」で本文から畳んだブロックの集合 (紙面の拡張が決める唯一の定義)。文書の変更口と履歴の
-   * 巻き戻し・検索が同じ集合を読み、見えないブロックを変える変更を断る。外したときは空の集合。
+   * 「適用後だけ」で隠したもの: 本文から畳んだブロックと、変更前を隠した図形 (紙面の拡張が決める唯一の
+   * 定義)。文書の変更口と履歴の巻き戻し・検索が同じ集合を読み、人が見えないものを変える変更を断る。
+   * 外したときは空の集合。
    */
-  onAiResultOnlyBlocksChange?: (blockIds: ReadonlySet<string>) => void;
+  onAiResultOnlyTargetsChange?: (targets: { blockIds: ReadonlySet<string>; shapeIds: ReadonlySet<string> }) => void;
 }
 
 function AiPageCanvasEditorImpl(props: AiPageCanvasEditorProps) {
@@ -169,7 +170,7 @@ function AiEnabledPageCanvasEditor({
   aiDocumentWriteInProgress = false,
   documentWorkspaceId = null,
   onFocusAiSession,
-  onAiResultOnlyBlocksChange,
+  onAiResultOnlyTargetsChange,
   ...pageEditorProps
 }: AiPageCanvasEditorProps) {
   const documentShapes = useMemo(
@@ -182,7 +183,7 @@ function AiEnabledPageCanvasEditor({
     documentWriteInProgress: aiDocumentWriteInProgress,
     shapes: documentShapes,
   });
-  const { extension, hiddenShapeIds, collapsedBlockIds } = useAiPageCanvasExtension({
+  const { extension, hiddenShapeIds, collapsedBlockIds, resultOnlyHiddenShapeIds } = useAiPageCanvasExtension({
     document: pageEditorProps.document,
     previewGroups: aiEditPreviewGroups,
     applying: aiEditPreviewApplying,
@@ -198,11 +199,18 @@ function AiEnabledPageCanvasEditor({
     documentWorkspaceId,
     onFocusSession: onFocusAiSession,
   });
-  // 畳んだブロックは文書の変更口 (EditorShell) にも渡す。面のガードと同じ集合で断る。
+  // 畳んだブロックと隠した図形は文書の変更口 (EditorShell) にも渡す。面のガード・図形の編集方針と同じ集合で断る。
+  const resultOnlyTargets = useMemo(
+    () => ({ blockIds: collapsedBlockIds, shapeIds: resultOnlyHiddenShapeIds }),
+    [collapsedBlockIds, resultOnlyHiddenShapeIds],
+  );
   useLayoutEffect(() => {
-    onAiResultOnlyBlocksChange?.(collapsedBlockIds);
-  }, [collapsedBlockIds, onAiResultOnlyBlocksChange]);
-  useLayoutEffect(() => () => onAiResultOnlyBlocksChange?.(EMPTY_ID_SET), [onAiResultOnlyBlocksChange]);
+    onAiResultOnlyTargetsChange?.(resultOnlyTargets);
+  }, [onAiResultOnlyTargetsChange, resultOnlyTargets]);
+  useLayoutEffect(
+    () => () => onAiResultOnlyTargetsChange?.({ blockIds: EMPTY_ID_SET, shapeIds: EMPTY_ID_SET }),
+    [onAiResultOnlyTargetsChange],
+  );
   // 隠した変更前 (バーで隠した図形・適用後だけで隠した図形と畳んだ本文) は、選べず編集もできない
   // (見えないものを動かさない・書き換えない)。
   const hiddenTargetExtensions = useMemo(
@@ -277,6 +285,7 @@ function useAiPageCanvasExtension({
   extension: PageCanvasEditorExtension;
   hiddenShapeIds: ReadonlySet<string>;
   collapsedBlockIds: ReadonlySet<string>;
+  resultOnlyHiddenShapeIds: ReadonlySet<string>;
 } {
   const t = useT("ai");
   // 承認・破棄で保留中でなくなった提案の、退避を数え済みという記録を捨てる (MISS R3)。
@@ -691,7 +700,7 @@ function useAiPageCanvasExtension({
     selection,
     textFlowChangeDecorationState,
   ]);
-  return { extension, hiddenShapeIds, collapsedBlockIds };
+  return { extension, hiddenShapeIds, collapsedBlockIds, resultOnlyHiddenShapeIds };
 }
 
 /** 紙面のカードの状態を持つ場所 (カードの key・会話の key・同じ会話のカードの key)。 */

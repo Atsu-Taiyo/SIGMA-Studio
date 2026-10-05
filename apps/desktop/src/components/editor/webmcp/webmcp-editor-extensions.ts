@@ -1,6 +1,10 @@
 import type { EditorExtensionContextValue } from "@/components/editor/editor-extension-context";
 import type { OverlayShapeDecoration } from "@/components/editor/overlay-canvas/editor-extension";
-import type { TextFlowEditGuardPresentation } from "@/components/tiptap/edit-guard-extension";
+import {
+  combineTextFlowEditGuards,
+  type TextFlowEditGuard,
+  type TextFlowEditGuardPresentation,
+} from "@/components/tiptap/edit-guard-extension";
 
 export interface WebMcpPendingTargets {
   blockIds: readonly string[];
@@ -51,10 +55,12 @@ export function mergeEditorExtensionSets(
   if (!first) return second;
   if (!second) return first;
 
-  const guardsByBlockId = new Map(
-    [...(first.textFlowEditPolicy?.guards ?? []), ...(second.textFlowEditPolicy?.guards ?? [])]
-      .map((guard) => [guard.blockId, guard]),
-  );
+  // 同じブロックに 2 つのガードがあれば 1 つの規則で合わせる (一部の予約が全体のガードを弱めない)。
+  const guardsByBlockId = new Map<string, TextFlowEditGuard>();
+  for (const guard of [...(first.textFlowEditPolicy?.guards ?? []), ...(second.textFlowEditPolicy?.guards ?? [])]) {
+    const earlier = guardsByBlockId.get(guard.blockId);
+    guardsByBlockId.set(guard.blockId, earlier ? combineTextFlowEditGuards(earlier, guard) : guard);
+  }
   const firstOverlay = first.overlayEditPolicy;
   const secondOverlay = second.overlayEditPolicy;
   const decorations = new Map<string, OverlayShapeDecoration>(first.overlayShapeDecorations ?? []);

@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import type { SigmaBlock } from "@/features/document";
 import { resolveTextFlowBoundaryDelete } from "@/features/text-editing";
 
-import { findHiddenBoundaryDeleteBlockId } from "./boundary-delete-guard";
+import { findHiddenBoundaryDeleteBlockId, resolveVisibleBoundaryDelete } from "./boundary-delete-guard";
 
 const paragraph = (id: string, text: string, breakBefore = false): SigmaBlock => ({
   id,
@@ -41,5 +41,27 @@ describe("boundary deletes next to a block folded out of the page", () => {
       resolveTextFlowBoundaryDelete(content, { direction: "backward", blockId: "after", emptyBlock: false })!,
       new Set(),
     )).toBeNull();
+  });
+});
+
+describe("deleting an empty line next to a folded block", () => {
+  const blocks = [paragraph("first", "最初の段落"), paragraph("folded", "畳んだ変更前"), paragraph("empty", ""), paragraph("after", "次の段落")];
+  const resolve = (request: Parameters<typeof resolveTextFlowBoundaryDelete>[1]) => resolveTextFlowBoundaryDelete(blocks, request);
+
+  it("deletes it and moves the caret to the nearest visible block instead of the folded one", () => {
+    const outcome = resolveVisibleBoundaryDelete({ direction: "backward", blockId: "empty", emptyBlock: true }, resolve, hidden);
+
+    expect(outcome).toMatchObject({ deletion: { previousIds: ["empty"], focusBlockId: "after", focusPosition: "start" } });
+  });
+
+  it("still refuses a join into the folded block", () => {
+    expect(resolveVisibleBoundaryDelete({ direction: "backward", blockId: "after", emptyBlock: false }, (request) => resolveTextFlowBoundaryDelete(content, request), hidden))
+      .toEqual({ blockedBlockId: "folded" });
+  });
+
+  it("leaves deletes away from folded blocks as they were", () => {
+    const deletion = resolve({ direction: "backward", blockId: "after", emptyBlock: false });
+    expect(resolveVisibleBoundaryDelete({ direction: "backward", blockId: "after", emptyBlock: false }, resolve, hidden)).toEqual({ deletion });
+    expect(resolveVisibleBoundaryDelete({ direction: "backward", blockId: "first", emptyBlock: false }, resolve, hidden)).toBeNull();
   });
 });

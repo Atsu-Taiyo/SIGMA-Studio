@@ -33,9 +33,16 @@ export const NO_AI_LOCKED_TARGETS_TOUCHED: AiLockedTargetsTouched = { blockIds: 
 
 export function findAiLockedTargetsTouched(
   before: SigmaDocument,
-  after: SigmaDocument,
+  after: SigmaDocument | undefined,
   locked: AiLockedTargets,
 ): AiLockedTargetsTouched {
+  if (after === undefined) {
+    // The result cannot be looked at before it is applied (a shared session's undo/redo). What a
+    // human must not change unseen is refused outright; the session holds nothing else.
+    const blockIds = [...(locked.resultOnlyBlockIds ?? [])];
+    const shapeIds = [...(locked.resultOnlyShapeIds ?? [])];
+    return blockIds.length === 0 && shapeIds.length === 0 ? NO_AI_LOCKED_TARGETS_TOUCHED : { blockIds, shapeIds };
+  }
   if (before === after || (locked.blockIds.size === 0 && locked.shapeIds.size === 0)) {
     return NO_AI_LOCKED_TARGETS_TOUCHED;
   }

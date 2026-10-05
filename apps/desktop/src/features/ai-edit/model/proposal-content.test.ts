@@ -529,6 +529,14 @@ describe("groupPendingProposalContentByAnchor", () => {
       expect(card.resultLayout.collapsedBlockIds).toEqual([]);
     });
 
+    it("folds only blocks the current document has (after a version restore drops one, it is no longer folded)", () => {
+      const preview = previewOf([], [{ operation: "deleteBlocks", summary: "削除", blockIds: ["p1", "p_last"] }]);
+      const restored = documentOf([paragraph("p1", "変更前の問題文"), problem(), box()]);
+
+      expect(cardAt(preview, "p1").resultLayout.collapsedBlockIds).toEqual(["p1", "p_last"]);
+      expect(cardAt(preview, "p1", restored).resultLayout.collapsedBlockIds).toEqual(["p1"]);
+    });
+
     it("folds only what the merged content removes: a block the human's edit keeps stays on the page", () => {
       const base = baseDocument();
       const preview = mergeablePreviewOf(base, [], [{ operation: "deleteBlocks", summary: "削除", blockIds: ["p1", "p_last"] }]);
