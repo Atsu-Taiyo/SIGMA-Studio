@@ -41,7 +41,7 @@ export function tiptapDocToOverlayTextBlocks(
  * path that runs. It keeps the text either way: a block that somehow arrived as one of those comes
  * back as a paragraph holding its own runs, because dropping it would delete what the author typed.
  */
-function toOverlayTextBlock(block: TextFlowBlock): OverlayTextBlock {
+export function toOverlayTextBlock(block: TextFlowBlock): OverlayTextBlock {
   if (
     block.type === "paragraph" ||
     block.type === "heading" ||

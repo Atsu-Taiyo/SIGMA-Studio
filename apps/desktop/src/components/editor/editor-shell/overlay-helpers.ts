@@ -1,4 +1,5 @@
 import { ensureShapeAnchorDx } from "@/components/editor/overlay-canvas/anchor";
+import { keepPreservedShapes } from "@/components/editor/overlay-canvas/reanchor-model";
 import {
   estimateTopLevelBlockRects,
   normalizeOverlaySnapshot,
@@ -23,7 +24,14 @@ import { createCurrentLocaleTranslator, type Translate } from "@/lib/i18n";
 
 const DEFAULT_EDITOR_TRANSLATE = createCurrentLocaleTranslator("editor");
 
-export function ensureOverlayAnchorOffsets(document: SigmaDocument): SigmaDocument {
+/**
+ * ブロック固定に dx を足す (ページ設定の変更の前に、横位置を固定から導けるようにする)。`preservedShapeIds`
+ * (「適用後だけ」で隠した図形) は保存時の付け替えと同じく書き換えない: 変更口が人の編集として変更ごと断る。
+ */
+export function ensureOverlayAnchorOffsets(
+  document: SigmaDocument,
+  preservedShapeIds?: ReadonlySet<string>,
+): SigmaDocument {
   const layout = document.pageLayout;
   const snapshot = layout?.overlay?.overlaySnapshot;
   if (!layout || !snapshot) {
@@ -32,9 +40,12 @@ export function ensureOverlayAnchorOffsets(document: SigmaDocument): SigmaDocume
 
   const normalizedSnapshot = normalizeOverlaySnapshot(snapshot);
   const blockRects = estimateTopLevelBlockRects(document.content, layout);
-  const { shapes, changed } = ensureShapeAnchorDx(normalizedSnapshot.shapes, blockRects);
+  const ensured = ensureShapeAnchorDx(normalizedSnapshot.shapes, blockRects);
+  const shapes = ensured.changed
+    ? keepPreservedShapes(normalizedSnapshot.shapes, ensured.shapes, preservedShapeIds)
+    : normalizedSnapshot.shapes;
 
-  if (!changed) {
+  if (shapes === normalizedSnapshot.shapes) {
     return document;
   }
 

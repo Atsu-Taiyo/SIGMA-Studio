@@ -1,6 +1,9 @@
 import type { SigmaDocument } from "@/features/document";
+import type { ProposalMergeReport } from "@/lib/ai/proposal-merge-basis";
 import {
   mergeExternalDocumentChange,
+  WHOLE_DOCUMENT_PATH,
+  type DocumentMergeReport,
   type MergeExternalDocumentChangeResult,
 } from "@/lib/document-block-merge";
 import { areSigmaDocumentsEquivalent } from "@/lib/document-equivalence";
@@ -76,16 +79,31 @@ export type AiApprovedDocumentDecision =
       kind: "merge";
       document: SigmaDocument;
       adoptedDocumentMatchesDisk: boolean;
-      /** prefer-theirs で解決した競合の説明。空なら競合はなかった。 */
+      /**
+       * どちらかの側の変更が結果に入らなかった単位の説明 (両方が同じ値を違う値にした、合成結果が
+       * 検証を通らずAI側を採った、削除と編集がぶつかった、並べ替えが食い違った)。両方の変更が
+       * 残った単位は載らない。空ならそうした単位は無い。どちらの側が落ちたかは `mergeReport` の
+       * `droppedHumanEdits` / `droppedAiEdits`。
+       */
       resolvedConflicts: string[];
+      /**
+       * 承認待ちの間の入力とAI結果の合成が決めたこと。`humanEditedUnits` は両方が変えて合成した
+       * 単位 (`$` は教材全体の情報)。提案のreplayと同じ型で、`anchorRelocated`・`legacyNoBase` は
+       * この合成では常に 0、`droppedHumanEdits` / `droppedAiEdits` は常にある。重なりが無ければ
+       * すべて空・0 (MISS R3)。
+       */
+      mergeReport: ProposalMergeReport & { droppedHumanEdits: string[]; droppedAiEdits: string[] };
     };
 
 /**
  * 承認済みAI文書を、承認待ちの間に入った人手編集と突き合わせて「今の教材へどう反映するか」を
  * 決める。**必ず同じ教材ファイルの中で解決する** — 競合を理由に別教材へ退避したり、承認結果を
- * 取り込まずに放置したりはしない。競合した単位だけAI側 (承認された内容) を採り、競合していない
- * 人手編集はそのまま残す。採用の直前に現在の文書をundoスタックへ積むのは呼び出し側の責務で、
- * これにより競合で置き換わった入力も Ctrl+Z で戻せる。
+ * 取り込まずに放置したりはしない。両方が変えた単位 (段落・図形・教材全体の情報) は三者マージで
+ * 合成し、同じ段落の別の位置への入力も残す (`resolution: "merge-both"`)。合成結果が検証を通らない
+ * 単位だけAI側 (承認された内容) を採る。片方がブロックを移し、もう片方が元の場所で直したときは、
+ * 移した先に1つだけ残して両方の編集を合成する (同じブロックidは1回しか現れない)。それができない
+ * ときだけ承認された文書そのものを採る。採用の直前に現在の文書をundoスタックへ積むのは呼び出し側
+ * の責務で、これにより合成・置き換えで変わった入力も Ctrl+Z で戻せる。
  */
 export function decideAiApprovedDocument(params: {
   documentAtApprovalStart: SigmaDocument;
@@ -118,17 +136,23 @@ export function decideAiApprovedDocument(params: {
 
   // 承認待ちの間に実際に人手編集が入った場合だけ3-wayマージする。
   const merge = params.merge ?? ((base, mine, theirs) => mergeExternalDocumentChange(base, mine, theirs, {
-    resolution: "prefer-theirs",
+    resolution: "merge-both",
   }));
   const mergeResult = merge(documentAtApprovalStart, currentDocument, normalizedApprovedDocument);
   if (!mergeResult.ok) {
-    // prefer-theirs では起きない想定。マージが諦めた場合でも教材を増やさず、承認された内容を
-    // 採用する (直前の入力は呼び出し側が積むundoエントリから戻せる)。
+    // merge-both では起きない想定。マージが諦めた場合でも教材を増やさず、承認された内容を
+    // 採用する (直前の入力は呼び出し側が積むundoエントリから戻せる)。文書全体をAI側へ退避した
+    // ことになるので、退避1件として数える (MISS R3)。
     return {
       kind: "merge",
       document: normalizedApprovedDocument,
       adoptedDocumentMatchesDisk: areSigmaDocumentsEquivalent(normalizedApprovedDocument, diskDocument),
       resolvedConflicts: [mergeResult.reason],
+      mergeReport: {
+        ...toProposalMergeReport(undefined),
+        invalidAfterMerge: 1,
+        droppedHumanEdits: [WHOLE_DOCUMENT_PATH],
+      },
     };
   }
 
@@ -137,5 +161,26 @@ export function decideAiApprovedDocument(params: {
     document: mergeResult.merged,
     adoptedDocumentMatchesDisk: areSigmaDocumentsEquivalent(mergeResult.merged, diskDocument),
     resolvedConflicts: mergeResult.resolvedConflicts ?? [],
+    mergeReport: toProposalMergeReport(mergeResult.report),
+  };
+}
+
+/** 文書の三者マージの報告を、提案のreplayと同じ形にする (レンダラの計測・表示を1つの型にする)。 */
+function toProposalMergeReport(
+  report: DocumentMergeReport | undefined,
+): ProposalMergeReport & { droppedHumanEdits: string[]; droppedAiEdits: string[] } {
+  return {
+    overlaps: [...(report?.overlaps ?? [])],
+    capped: report?.capped ?? false,
+    cappedPaths: [...(report?.cappedPaths ?? [])],
+    reidentified: report?.reidentified ?? 0,
+    editBeatsDelete: [...(report?.editBeatsDelete ?? [])],
+    duplicateIds: [...(report?.duplicateIds ?? [])],
+    invalidAfterMerge: report?.invalidAfterMerge ?? 0,
+    anchorRelocated: 0,
+    legacyNoBase: 0,
+    humanEditedUnits: [...(report?.mergedUnits ?? [])],
+    droppedHumanEdits: [...(report?.droppedHumanEdits ?? [])],
+    droppedAiEdits: [...(report?.droppedAiEdits ?? [])],
   };
 }

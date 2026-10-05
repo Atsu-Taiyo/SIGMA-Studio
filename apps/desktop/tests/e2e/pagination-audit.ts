@@ -75,12 +75,19 @@ const EXCLUDED_SELECTOR = [
   ".manual-break-marker",
   ".page-block-handle",
   ".page-block-space-handle",
-  "[aria-hidden='true']",
+  // 拡張ノードの続き (複製) は支援技術から隠すが、紙面には描かれる中身なので数える。
+  "[aria-hidden='true']:not([data-flow-extension-replica])",
   "[data-editor-only]",
 ].join(",");
 
+/**
+ * 続き (2 ページ目以降の帯) を描く複製の根。同じ中身をもう一度描くので、正本と同じキーで数える。
+ * 箱・段落などのブロックの続きと、フロー内の拡張ノード (AI の提案など) の続き。
+ */
+const FRAGMENT_ROOT_SELECTOR = ".editor-box-fragment-viewport, [data-flow-extension-replica]";
+
 export async function auditPagination(page: Page, options: PaginationAuditOptions): Promise<PaginationAuditResult> {
-  return page.evaluate(({ options, excluded }) => {
+  return page.evaluate(({ options, excluded, fragmentRoots }) => {
     const mmToPx = 96 / 25.4;
     const canvas = document.querySelector<HTMLElement>(".page-canvas");
     if (!canvas) throw new Error("page canvas missing");
@@ -114,8 +121,14 @@ export async function auditPagination(page: Page, options: PaginationAuditOption
         top = Math.max(top, rect.top);
         bottom = Math.min(bottom, rect.bottom);
       }
-      if (element instanceof HTMLElement && element.classList.contains("text-flow-box-fragment-source")) {
-        const visible = Number.parseFloat(element.style.getPropertyValue("--text-flow-box-fragment-visible-height"));
+      // 切れたブロック・拡張ノードの正本は、見せる帯を上端からの高さ (CSS 変数) で切る。
+      const visibleBandProperty = element instanceof HTMLElement
+        ? element.classList.contains("text-flow-box-fragment-source")
+          ? "--text-flow-box-fragment-visible-height"
+          : element.hasAttribute("data-flow-extension-fragment-source") ? "--flow-extension-visible-height" : null
+        : null;
+      if (element instanceof HTMLElement && visibleBandProperty) {
+        const visible = Number.parseFloat(element.style.getPropertyValue(visibleBandProperty));
         if (Number.isFinite(visible)) {
           bottom = Math.min(bottom, rect.top + visible * scale);
         }
@@ -136,8 +149,14 @@ export async function auditPagination(page: Page, options: PaginationAuditOption
       return clip;
     };
 
+    // 拡張ノードの中の id の無い文字 (操作の帯など) は、拡張ノード (とその複製) を持ち主にする。
     const blockOf = (node: Node): HTMLElement | null => (
-      (node instanceof HTMLElement ? node : node.parentElement)?.closest<HTMLElement>("[data-sigma-doc-id]") ?? null
+      (node instanceof HTMLElement ? node : node.parentElement)?.closest<HTMLElement>(
+        "[data-sigma-doc-id], [data-flow-extension-node-id], [data-flow-extension-replica]",
+      ) ?? null
+    );
+    const blockIdOf = (block: HTMLElement): string => (
+      block.dataset.sigmaDocId ?? block.dataset.flowExtensionNodeId ?? block.dataset.flowExtensionReplica ?? ""
     );
     const manualBreakIds = new Set(options.manualBreakBlockIds ?? []);
     const manualBreakOf = (element: HTMLElement | null) => {
@@ -147,7 +166,7 @@ export async function auditPagination(page: Page, options: PaginationAuditOption
       return false;
     };
 
-    const roots = Array.from(canvas.querySelectorAll<HTMLElement>(".page-flow, .editor-box-fragment-viewport"));
+    const roots = Array.from(canvas.querySelectorAll<HTMLElement>(`.page-flow, ${fragmentRoots}`));
     const lines: AuditLine[] = [];
     // 文書順と区間の種類は本文フローの DOM から決める (断片の複製はキーで引き継ぐ)。
     const orderByKey = new Map<string, number>();
@@ -174,7 +193,7 @@ export async function auditPagination(page: Page, options: PaginationAuditOption
       const center = (top + bottom) / 2;
       lines.push({
         key: keyBase,
-        blockId: block?.dataset.sigmaDocId ?? "",
+        blockId: block ? blockIdOf(block) : "",
         text: text.slice(0, 24),
         top,
         bottom,
@@ -211,13 +230,13 @@ export async function auditPagination(page: Page, options: PaginationAuditOption
         const element = node instanceof HTMLElement ? node : node.parentElement;
         if (!element || element.closest(excluded)) continue;
         // 断片は別の root として数える (キーが元と揃うように)。
-        const viewport = element.closest(".editor-box-fragment-viewport");
+        const viewport = element.closest(fragmentRoots);
         if (viewport && viewport !== root) continue;
         // 問題番号は枠の外 (ブロックの外) にあるので、問題とエリアで区別する。数字は印として 1 回だけ数える。
         if (node.nodeType === Node.TEXT_NODE && element.closest(".problem-number-marker")) continue;
         const block = blockOf(node);
         const area = block ? null : element.closest<HTMLElement>("[data-problem-id]");
-        const blockId = block?.dataset.sigmaDocId ?? (area ? `${area.dataset.problemId}:${area.dataset.problemArea ?? ""}` : "(none)");
+        const blockId = block ? blockIdOf(block) : (area ? `${area.dataset.problemId}:${area.dataset.problemArea ?? ""}` : "(none)");
         if (node.nodeType === Node.TEXT_NODE) {
           const text = node.textContent ?? "";
           if (!text.trim()) continue;
@@ -326,7 +345,7 @@ export async function auditPagination(page: Page, options: PaginationAuditOption
       }
       return found;
     }
-  }, { options, excluded: EXCLUDED_SELECTOR });
+  }, { options, excluded: EXCLUDED_SELECTOR, fragmentRoots: FRAGMENT_ROOT_SELECTOR });
 }
 
 /**

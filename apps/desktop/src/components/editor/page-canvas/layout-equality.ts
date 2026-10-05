@@ -8,6 +8,7 @@ import type {
   ProblemAreaColumnLayout,
   ProblemAreaFrameFragmentLayout,
 } from "./types";
+import { isSameDrawState } from "./undrawn-blocks";
 
 /** Page layout normalization returns fresh objects, so structural checks compare geometry, not identity. */
 export function samePageMetrics(a: PageMetrics, b: PageMetrics): boolean {
@@ -238,6 +239,9 @@ export function sameMeasuredBlockMap(a: Map<string, MeasuredBlock>, b: Map<strin
       Math.abs((left.left ?? 0) - (right.left ?? 0)) > 0.5 ||
       Math.abs((left.width ?? 0) - (right.width ?? 0)) > 0.5 ||
       Math.abs((left.height ?? 0) - (right.height ?? 0)) > 0.5 ||
+      // 畳んだブロックは最後に描かれていた幾何のまま残る。印の差を見ないと、畳む/戻すで他が動かないとき
+      // 下流 (図形の固定先の候補) に古い印が残る (`undrawn-blocks.ts`)。
+      !isSameDrawState(left, right) ||
       !sameMeasuredLines(left.lines, right.lines)
     ) {
       return false;

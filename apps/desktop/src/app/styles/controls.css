@@ -36,6 +36,9 @@
      が開閉に合わせて上書きする。`--editor-statusbar-height` と同じ理由で :root に既定を置く
      (`.app-shell` の外へ出た DOM の calc() を無効化しない)。紙面の高さの計算はこれを引く。 */
   --editor-pocket-height: 0px;
+  /* 開いたポケットの高さ。`--editor-pocket-height` は開閉でこの値へ向かって動く (下の `@property`)
+     ので、動いている最中の値ではなく「開き切ったときの高さ」が要る箇所 (バーの中身の高さ) はこちらを引く。 */
+  --editor-pocket-open-height: 88px;
   /* Word風のステータスバーの実寸。--editor-statusbar-height は「いまのレイアウトで
      本文が譲るべき高さ」なので docs では 0px になるが、こちらは常に実寸を持つ。
      body へ portal されて `.app-shell` の外に出る浮遊UI（描画ヒント等）が、
@@ -312,14 +315,35 @@ button:disabled {
   background: var(--surface-soft);
 }
 
-/* ポケット (クロームと紙面の間の 1 段)。畳んだ帯と開いた並びの高さはここが唯一の出典で、
-   バー自身も `.app-shell` の 2 本目のトラックも同じトークンを読む。 */
+/* ポケット (クロームと紙面の間の 1 段)。開いた並びの高さはここが唯一の出典で、バー自身も
+   `.app-shell` の 2 本目のトラックも同じトークンを読む。畳んだ姿は高さ 0 で、件数だけの小さなチップを
+   上部の真ん中へ重ねて出す (紙面を押し下げない)。
+
+   開閉は、このトークンの値を動かして見せる。`@property` で長さとして登録するとトランジションが効き、
+   バー・紙面・ホワイトボードの高さの計算 (どれも同じトークンを引く) が同じ速さで揃って動く。
+   登録しないと custom property は補間されず、一瞬で切り替わる。 */
+@property --editor-pocket-height {
+  syntax: "<length>";
+  inherits: true;
+  initial-value: 0px;
+}
+
+.app-shell {
+  transition: --editor-pocket-height 280ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
 .app-shell[data-pocket="collapsed"] {
-  --editor-pocket-height: 28px;
+  --editor-pocket-height: 0px;
 }
 
 .app-shell[data-pocket="expanded"] {
-  --editor-pocket-height: 88px;
+  --editor-pocket-height: var(--editor-pocket-open-height);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .app-shell {
+    transition: none;
+  }
 }
 
 .app-shell > [data-pocket-root] {

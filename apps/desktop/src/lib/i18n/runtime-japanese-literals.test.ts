@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 
-import ts from "typescript";
+import ts from "typescript-compiler-api";
 import { describe, expect, it } from "vitest";
 
 const JAPANESE_CHARACTER = /[\u3040-\u30ff\u3400-\u9fff]/;

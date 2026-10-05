@@ -1,3 +1,4 @@
+import type { OverlayShape } from "@/features/document";
 import { appMcpToolNames, type McpToolProfile } from "./mcp-tool-profile";
 
 export const MCP_TOOL_CATEGORIES = [
@@ -194,6 +195,46 @@ const CATEGORY_KEYWORD_PATTERNS: ReadonlyArray<{
   },
 ];
 
+/**
+ * Solids are drawn with insert_graph3d / update_graph3d (graph category). These words only add that
+ * category to a run that is narrowed anyway; they never take part in deciding to narrow, because
+ * 「球」 also matches 地球・球技・電球 and 「立体的に」 is ordinary prose.
+ */
+const SOLID_FIGURE_PATTERN = /[3３][-\s]?[dｄ]|[3３三]次元|立体|空間図形|空間ベクトル|面体|立方体|直方体|錐|[円角]すい|角柱|円柱|柱体|円筒|球|回転体|断面|展開図|three[- ]?dimensional|sphere|cone|cylinder|pyramid|prism|cube|cuboid|hedr(?:on|a)|torus|cross[- ]?section/i;
+
+/** What a selected shape opens when nothing more specific applies (also for unknown types). */
+const SHAPE_CATEGORIES: readonly McpToolCategory[] = ["図形", "visual edit"];
+
+/**
+ * Categories a selected overlay shape opens: the ones holding every tool that edits a shape of that
+ * type (its own update tool, plus update_shape / delete_shapes / align_shapes in 図形). Every shape
+ * type needs an entry, so a new one fails the typecheck here; the contract test in
+ * mcp-tool-categories.test.ts checks each type against the tools that edit it.
+ */
+const SELECTED_SHAPE_CATEGORIES: Readonly<Record<OverlayShape["type"], readonly McpToolCategory[]>> = {
+  group: SHAPE_CATEGORIES,
+  geo: SHAPE_CATEGORIES,
+  arc: SHAPE_CATEGORIES,
+  arrow: SHAPE_CATEGORIES,
+  line: SHAPE_CATEGORIES,
+  text: SHAPE_CATEGORIES,
+  callout: SHAPE_CATEGORIES,
+  chartShape: SHAPE_CATEGORIES,
+  image: ["素材", "図形", "visual edit"],
+  graph2dShape: ["グラフ", "図形"],
+  graph3dShape: ["グラフ", "図形", "visual edit"],
+  tableShape: ["表", "図形"],
+};
+
+/** `targetType` of a selected-shape reference (createOverlaySelectionAiEditReference): `overlayShape:<type>`. */
+const OVERLAY_SHAPE_TARGET_TYPE_PREFIX = "overlayShape:";
+
+function selectedShapeCategories(type: string): readonly McpToolCategory[] {
+  return Object.hasOwn(SELECTED_SHAPE_CATEGORIES, type)
+    ? SELECTED_SHAPE_CATEGORIES[type as OverlayShape["type"]]
+    : SHAPE_CATEGORIES;
+}
+
 const DOCUMENT_EXPLORATION_PATTERN = /探して|検索|調べ|確認|読み取|読んで|一覧|概要|構成|どこ|find|search|inspect|read|list|outline/i;
 const GENERIC_MUTATION_PATTERN = /直して|修正|変更|編集|追加|作成|挿入|削除|移動|置換|更新|edit|fix|change|add|create|insert|delete|move|replace|update/i;
 
@@ -288,7 +329,13 @@ export function inferToolCategoriesForRun({
     ].filter(Boolean).join(" "));
 
     const targetType = reference.targetType ?? "";
-    if (/graph2d/i.test(targetType)) {
+    if (targetType.startsWith(OVERLAY_SHAPE_TARGET_TYPE_PREFIX)) {
+      // A shape reference keeps its type here even when its overlay selection was dropped.
+      for (const category of selectedShapeCategories(targetType.slice(OVERLAY_SHAPE_TARGET_TYPE_PREFIX.length))) {
+        inferred.add(category);
+      }
+      hasConfidentSignal = true;
+    } else if (/graph2d/i.test(targetType)) {
       inferred.add("グラフ");
       hasConfidentSignal = true;
     } else if (/table/i.test(targetType)) {
@@ -303,19 +350,13 @@ export function inferToolCategoriesForRun({
     }
 
     for (const shape of reference.overlaySelection?.shapes ?? []) {
-      if (shape.type === "graph2dShape") {
-        inferred.add("グラフ");
-      } else if (shape.type === "tableShape") {
-        inferred.add("表");
-      } else if (shape.type === "image") {
-        inferred.add("素材");
-        inferred.add("図形");
-        inferred.add("visual edit");
-      } else if (shape.type) {
-        inferred.add("図形");
-        inferred.add("visual edit");
+      if (!shape.type) {
+        continue;
       }
-      hasConfidentSignal = hasConfidentSignal || Boolean(shape.type);
+      for (const category of selectedShapeCategories(shape.type)) {
+        inferred.add(category);
+      }
+      hasConfidentSignal = true;
     }
   }
 
@@ -353,7 +394,32 @@ export function inferToolCategoriesForRun({
   if (!hasConfidentSignal || hasUnknownSelectedSkill || ambiguousMutation) {
     return [...MCP_TOOL_CATEGORIES];
   }
+  if (SOLID_FIGURE_PATTERN.test(searchableText)) {
+    inferred.add("グラフ");
+  }
   return MCP_TOOL_CATEGORIES.filter((category) => inferred.has(category));
+}
+
+/**
+ * Library management and AI settings act outside the document's proposal flow (deleting files,
+ * changing auto-approval), so a refused call never opens them. They still open as before from the
+ * instruction's keywords, a selected skill, or the all-categories fallback for unclear instructions.
+ */
+const NEVER_ALLOWED_AFTER_DENIAL: ReadonlySet<McpToolCategory> = new Set(["教材管理", "AI設定・アプリ文脈"]);
+
+/**
+ * Categories a conversation may additionally allow after the narrowed permissions refused these
+ * tools: the categories that own them (by app-profile or external name). Unknown names open nothing.
+ */
+export function categoriesToAllowAfterDenial(deniedToolNames: readonly string[]): McpToolCategory[] {
+  const denied = new Set(deniedToolNames);
+  return MCP_TOOL_CATEGORIES.filter((category) => {
+    if (NEVER_ALLOWED_AFTER_DENIAL.has(category)) {
+      return false;
+    }
+    const names = MCP_TOOL_CATEGORY_MAP[category];
+    return [...names, ...appMcpToolNames(names)].some((name) => denied.has(name));
+  });
 }
 
 /** Always adds document exploration and proposal/verification tools. */

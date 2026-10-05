@@ -1,6 +1,6 @@
 import { readFileSync, readdirSync } from "node:fs";
 
-import ts from "typescript";
+import ts from "typescript-compiler-api";
 import { describe, expect, it } from "vitest";
 
 import * as legacyStore from "../local-sigma-doc-proposal-store";
@@ -74,6 +74,7 @@ describe("proposal domain boundaries", () => {
       findProposalFreshnessConflictIds: freshness.findProposalFreshnessConflictIds,
       findProposalFreshnessConflict: freshness.findProposalFreshnessConflict,
       classifyProposalReplayFailure: freshness.classifyProposalReplayFailure,
+      replayMergeableProposal: freshness.replayMergeableProposal,
       mergeProposalDraftsIntoDocument: replay.mergeProposalDraftsIntoDocument,
       replayProposalDraft: replay.replayProposalDraft,
       assertAppliedProposalHasRealChanges: replay.assertAppliedProposalHasRealChanges,

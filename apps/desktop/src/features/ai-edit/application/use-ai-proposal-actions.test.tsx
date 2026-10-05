@@ -9,6 +9,8 @@ import { decideAiApprovedDocument } from "@/lib/ai-run-applier";
 import { submitRejectionFeedback } from "@/lib/ai/ai-run-controller";
 import { createBlankDocument } from "@/lib/blank-document";
 import { getDesktopBridge } from "@/lib/desktop-bridge";
+import { createEmptyProposalMergeReport } from "@/lib/ai/proposal-merge-basis";
+import { countPerformanceEvent } from "@/lib/performance";
 import { createCurrentLocaleTranslator } from "@/lib/i18n";
 import type {
   DesktopAPI,
@@ -24,6 +26,7 @@ import { useAiProposalActions, type AiProposalActionsDependencies } from "./use-
 
 vi.mock("@/lib/desktop-bridge", () => ({ getDesktopBridge: vi.fn() }));
 vi.mock("@/lib/ai/ai-run-controller", () => ({ submitRejectionFeedback: vi.fn() }));
+vi.mock("@/lib/performance", () => ({ countPerformanceEvent: vi.fn(), measurePerformance: (_name: string, task: () => unknown) => task() }));
 
 const cleanups: Array<() => void | Promise<void>> = [];
 const pendingOperations: Promise<unknown>[] = [];
@@ -117,6 +120,7 @@ async function mount(overrides: Partial<AiProposalActionsDependencies> = {}) {
   const status = vi.fn<AiProposalActionsDependencies["setStatusMessage"]>((message) => { events.push(`status:${String(message)}`); });
   const deps: AiProposalActionsDependencies = {
     document: originalDocument,
+    getDocument: () => deps.document,
     activeFileId: "file", activeDocumentRevision: 1, activeFileIdRef: { current: "file" },
     selectedIdRef: { current: "paragraph" }, lastSyncedDocumentRef,
     metadataByFileId: new Map([["file", metadata(1)]]),
@@ -188,6 +192,85 @@ describe("AI proposal action controller", () => {
     expect(h.deps.mcpPreviewBusyRef.current).toBe(false);
   });
 
+  it("counts the merge fallbacks the approval IPC reports, and none for a quiet merge", async () => {
+    const h = await mount();
+    const mergeCounters = () => vi.mocked(countPerformanceEvent).mock.calls
+      .map(([name]) => name)
+      .filter((name) => name.startsWith("AiProposalMerge."));
+
+    h.approve.mockResolvedValueOnce({ ...h.approvalResult, mergeReport: createEmptyProposalMergeReport() });
+    await act(async () => { await h.read().applyAiEditPreviewGroup(["proposal"]); });
+    expect(mergeCounters()).toEqual([]);
+
+    h.approve.mockResolvedValueOnce({
+      ...h.approvalResult,
+      mergeReport: { ...createEmptyProposalMergeReport(), editBeatsDelete: ["#paragraph"], legacyNoBase: 1 },
+    });
+    await act(async () => { await h.read().applyAiEditPreviewGroup(["proposal"]); });
+    expect(mergeCounters()).toEqual(["AiProposalMerge.editBeatsDelete", "AiProposalMerge.legacyNoBase"]);
+  });
+
+  it("counts the adoption merge only when typing during the approval overlapped the AI's change", async () => {
+    const base = documentWithText("段落の本文");
+    const h = await mount({ lastSyncedDocumentRef: { current: base } });
+    const adoptionCounters = () => vi.mocked(countPerformanceEvent).mock.calls
+      .map(([name]) => name)
+      .filter((name) => name.startsWith("AiProposalMerge.adoption."))
+      .sort();
+    const approveWithAiText = (text: string) => h.approve.mockResolvedValueOnce({ ...h.approvalResult, document: documentWithText(text) });
+    const typeDuringApproval = (current: SigmaDocument) => h.adopt.mockImplementationOnce((params) => {
+      h.events.push("adopt");
+      return decideAiApprovedDocument({ ...params, currentDocument: current });
+    });
+
+    // 別のブロックへの入力: 合成は起きないので、どのカウンタも動かない (MISS R3)。
+    approveWithAiText("段落の新しい本文");
+    typeDuringApproval({
+      ...base,
+      content: [...base.content, { id: "typed", type: "paragraph", children: [{ type: "text", text: "入力" }] }],
+    });
+    let outcome: unknown;
+    await act(async () => { outcome = await h.read().applyAiEditPreviewGroup(["proposal"]); });
+    expect(outcome).toEqual({ ok: true });
+    expect(adoptionCounters()).toEqual([]);
+    const tEditor = createCurrentLocaleTranslator("editor");
+    const mergeMessages = [
+      tEditor("status.aiMergedKeepingBoth"),
+      tEditor("status.aiMergedHumanEditsReplaced"),
+      tEditor("status.aiMergedAiEditsSkipped"),
+    ];
+    expect(mergeMessages).not.toContain(h.status.mock.lastCall?.[0]);
+
+    // AIが変えた段落の同じ位置への入力: 合成して両方残し、合成と重なりを数える。
+    approveWithAiText("段落の新しい本文");
+    typeDuringApproval(documentWithText("段落の短い本文"));
+    await act(async () => { outcome = await h.read().applyAiEditPreviewGroup(["proposal"]); });
+    expect(outcome).toEqual({ ok: true });
+    expect(adoptionCounters()).toEqual(["AiProposalMerge.adoption.mergedUnits", "AiProposalMerge.adoption.overlaps"]);
+    // 両方残したことを知らせる (「AIの内容にしています」とは言わない)。
+    expect(h.status).toHaveBeenLastCalledWith(tEditor("status.aiMergedKeepingBoth"));
+    // 合成しても教材を増やさず、undoできる1手として採用する (全文差し替えはしない)。
+    expect(h.adopt).toHaveBeenCalledTimes(2);
+    expect(h.reset).not.toHaveBeenCalled();
+  });
+
+  it("tells the user when the approval replaced a value typed during the approval", async () => {
+    const base = documentWithText("段落の本文");
+    const withAlign = (align: "center" | "right"): SigmaDocument => ({
+      ...base,
+      content: [{ id: "paragraph", type: "paragraph", align, children: [{ type: "text", text: "段落の本文" }] }],
+    });
+    const h = await mount({ lastSyncedDocumentRef: { current: base } });
+    h.approve.mockResolvedValueOnce({ ...h.approvalResult, document: withAlign("right") });
+    h.adopt.mockImplementationOnce((params) => decideAiApprovedDocument({ ...params, currentDocument: withAlign("center") }));
+
+    await act(async () => { await h.read().applyAiEditPreviewGroup(["proposal"]); });
+
+    expect(h.status).toHaveBeenLastCalledWith(createCurrentLocaleTranslator("editor")("status.aiMergedHumanEditsReplaced"));
+    expect(vi.mocked(countPerformanceEvent).mock.calls.map(([name]) => name))
+      .toContain("AiProposalMerge.adoption.droppedHumanEdits");
+  });
+
   it("rejects overlapping decisions synchronously until the original action finishes", async () => {
     const h = await mount();
     const response = deferred(h.approvalResult);
@@ -242,6 +325,22 @@ describe("AI proposal action controller", () => {
     expect(h.adopt).toHaveBeenCalledWith(expect.objectContaining({ diskDocument: recovered, approvedRevision: 7 }));
   });
 
+  it("keeps the partial failure notice when the typing during the approval was merged keeping both", async () => {
+    const base = documentWithText("段落の本文");
+    const h = await mount({
+      lastSyncedDocumentRef: { current: base },
+      aiEditPreviewGroups: [preview(["a"], "a-room"), preview(["b"], "b-room")],
+    });
+    h.approve.mockResolvedValueOnce({ ...h.approvalResult, document: documentWithText("段落の新しい本文"), failed: [{ proposalId: "b", error: "競合" }] });
+    h.adopt.mockImplementationOnce((params) => decideAiApprovedDocument({ ...params, currentDocument: documentWithText("段落の短い本文") }));
+
+    await act(async () => { await h.read().applyAiEditPreviewGroup(["a", "b"]); });
+
+    const message = String(h.status.mock.lastCall?.[0] ?? "");
+    expect(message).toContain(createCurrentLocaleTranslator("editor")("status.aiMergedKeepingBoth"));
+    expect(message).toContain("競合");
+  });
+
   it("resolves only successful proposals and retains failed groups after partial approval", async () => {
     const h = await mount({ aiEditPreviewGroups: [preview(["a"], "a-room"), preview(["b"], "b-room")] });
     h.approve.mockResolvedValue({ ...h.approvalResult, ok: true, failed: [{ proposalId: "b", error: "競合" }] });
@@ -249,6 +348,60 @@ describe("AI proposal action controller", () => {
     expect([...h.deps.locallyResolvedProposalIdsRef.current]).toEqual(["a"]);
     expect(h.adopt).toHaveBeenCalledWith(expect.objectContaining({ appliedProposalIds: ["a"] }));
     expect(h.read().aiEditPreviewClearRequest.targets).toEqual([{ roomId: "a-room", turnId: "a-room-turn" }]);
+  });
+
+  it("fades out only what the approval's merge removes: a block the human edited after the AI deleted it stays", async () => {
+    vi.useFakeTimers();
+    const deletion = (): AiEditPreviewState => {
+      const group = preview();
+      group.draft.mutationOperations = [{ operation: "deleteBlocks", summary: "削除", blockIds: ["paragraph"] }];
+      group.mergeSources = [{
+        proposalId: "proposal",
+        createdAt: "2026-09-09T00:00:00Z",
+        draft: group.draft,
+        mergeBasis: { version: 1, entities: { paragraph: { kind: "block", value: { id: "paragraph", type: "paragraph", children: [{ type: "text", text: "AIが見た本文" }] } } } },
+      }];
+      return group;
+    };
+
+    // 文書の段落 ("変更前") は base ("AIが見た本文") から人が直したもの。合成は段落を残す (編集は削除に勝つ)。
+    const edited = await mount({ aiEditPreviewGroups: [deletion()] });
+    await act(async () => { track(edited.read().applyAiEditPreviewGroup(["proposal"])); });
+    expect(edited.read().aiApplyAnimation?.removingBlockIds ?? []).toEqual([]);
+    await act(async () => { await vi.runAllTimersAsync(); });
+    await edited.unmount();
+
+    // 人が直していなければ、従来どおり消えるアニメーションを付ける。
+    const untouched = await mount({ aiEditPreviewGroups: [deletion()], document: documentWithText("AIが見た本文") });
+    await act(async () => { track(untouched.read().applyAiEditPreviewGroup(["proposal"])); });
+    expect(untouched.read().aiApplyAnimation?.removingBlockIds).toEqual(["paragraph"]);
+  });
+
+  it("reads the shape removals after flushing a just-made overlay edit (the 250ms debounce)", async () => {
+    vi.useFakeTimers();
+    const shape = { id: "shape_1", type: "geo", x: 10, y: 10, props: { w: 40, h: 20, geo: "rectangle", fill: "none", color: "#111111", labelColor: "#111111", dash: "solid", size: "m" } };
+    const withShape = (x: number): SigmaDocument => ({
+      ...documentWithText("変更前"),
+      pageLayout: { overlay: { overlaySnapshot: { version: 1, shapes: [{ ...shape, x }], assets: {} } } },
+    } as unknown as SigmaDocument);
+    const group = preview();
+    group.draft.mutationOperations = [{ operation: "deleteOverlayShapes", summary: "削除", shapeIds: ["shape_1"] }];
+    group.mergeSources = [{
+      proposalId: "proposal", createdAt: "2026-09-09T00:00:00Z", draft: group.draft,
+      mergeBasis: { version: 1, entities: { shape_1: { kind: "shape", value: structuredClone(shape) as never } } },
+    }];
+    // 人が図形を動かした直後 (まだ文書に入っていない) に適用を押した。flush で動かした図形が文書に入る。
+    let current = withShape(10);
+    const h = await mount({
+      document: current,
+      getDocument: () => current,
+      flushOverlayChanges: () => { current = withShape(80); },
+      aiEditPreviewGroups: [group],
+    });
+
+    await act(async () => { track(h.read().applyAiEditPreviewGroup(["proposal"])); });
+
+    expect(h.read().aiApplyAnimation?.removingShapeIds ?? []).toEqual([]);
   });
 
   it("holds removal feedback until approval and cleans the added-content flash timer on unmount", async () => {

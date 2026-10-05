@@ -68,6 +68,21 @@ import {
 } from "@/lib/comments";
 import { createId } from "@/lib/id";
 import { resolveCommentAgentVendor } from "@/lib/comment-agents";
+import {
+  collectMissingMergeUnitIds,
+  collectNonMergeableTargets,
+  combineProposalMergeReports,
+  computeProposalMergeBasis,
+  createEmptyProposalMergeReport,
+  type ProposalMergeBasis,
+  type ProposalMergeReport,
+} from "@/lib/ai/proposal-merge-basis";
+import {
+  assertNoRepeatedContentIds,
+  ProposalMergeValidationError,
+  rewriteProposalDraftMerging,
+  type ProposalDraftRewrite,
+} from "@/lib/ai/proposal-replay";
 
 export const END_OF_DOCUMENT_TARGET = "END_OF_DOCUMENT";
 export const WEB_MCP_PROPOSAL_ID = "webmcp_single_draft";
@@ -163,6 +178,8 @@ export interface SigmaWebMcpPorts {
 export interface SigmaWebMcpProposalApplication {
   document: SigmaDocument;
   selectedBlockId: string;
+  /** What the merge with the human's edits decided for the applied document (`mergeReport`). */
+  mergeReport: ProposalMergeReport;
 }
 
 export interface SigmaWebMcpProposal {
@@ -176,7 +193,18 @@ export interface SigmaWebMcpProposal {
   after: readonly string[];
   operationCount: number;
   baseRevision: number;
+  /**
+   * The draft as replayed onto the document the preview was made from: the human's edits since the
+   * draft's base are already merged into it (three-way merge), so applying it as it is gives the
+   * previewed document.
+   */
   previewDraft: ReturnType<typeof getSigmaDocAgentSessionDraft>["draft"];
+  /**
+   * What merging the draft with the human's edits decided (the same report as the desktop approval's):
+   * `humanEditedUnits` are the units whose preview contains the human's edit too, the other fields the
+   * fallbacks to count (MISS R3/R19). Empty when nobody else edited what the draft overwrites.
+   */
+  mergeReport: ProposalMergeReport;
   refresh(current: SigmaDocument): SigmaWebMcpProposal;
   apply(current: SigmaDocument): SigmaWebMcpProposalApplication;
   accept(): void;
@@ -593,10 +621,34 @@ function wrapRangeConflictIds(
   return [];
 }
 
+/**
+ * The draft's merge basis: what it overwrites, as it was in the document the agent's draft was built
+ * on (`computeProposalMergeBasis`, the desktop proposal's `mergeBasis`). Never stored: it is computed
+ * from the base document in memory on every replay. WebMCP tracks its insertion points itself
+ * (`resolveInsertionForReplay`), so the basis carries no insertAfter anchors: an insertion whose
+ * anchor the human deleted stays a `STALE_DRAFT` instead of moving after a preceding block.
+ */
+function webMcpMergeBasis(draft: AiEditSessionDraft, base: SigmaDocument): ProposalMergeBasis {
+  return { version: 1, entities: computeProposalMergeBasis(draft, base).entities };
+}
+
+/**
+ * What makes the draft `STALE_DRAFT` before it is replayed. The units the three-way merge keeps the
+ * human's edits of (replaced blocks, deleted blocks, updated and deleted shapes) are not compared:
+ * the replay merges them. Compared are only:
+ * - the targets the merge cannot keep a human edit of (`collectNonMergeableTargets`, the definition the
+ *   desktop approval and its locks read): aligned shapes, a reconfigured column section, a target
+ *   without a snapshot, shapes a deletion or move reaches (a group and its members, anchored shapes),
+ *   a graph and the labels it owns;
+ * - merged units the human deleted (`collectMissingMergeUnitIds`, the approval's anchor-missing);
+ * - what the merge never covers: the image asset of an updated, aligned or deleted image, the page
+ *   settings, the document columns and the document itself (docId).
+ */
 function replayConflictIds(
   base: SigmaDocument,
   current: SigmaDocument,
   draft: AiEditSessionDraft,
+  mergeBasis: ProposalMergeBasis,
   checkpoints: readonly WebMcpReplayCheckpoint[],
 ): string[] {
   const conflicts = new Set<string>();
@@ -605,15 +657,20 @@ function replayConflictIds(
     ...insertedDraftIds(draft),
     ...checkpoints.flatMap((checkpoint) => checkpoint.implicitBlockIds),
   ]);
+  const baseShapes = shapes(base);
+  const currentShapes = shapes(current);
   const compareBlock = (id: string): void => {
     if (insertedIds.has(id)) return;
     if (!sameValue(findBlock(base, id), findBlock(current, id))) conflicts.add(id);
   };
   const compareShape = (id: string): void => {
     if (insertedIds.has(id)) return;
-    const before = shapes(base).find((shape) => shape.id === id);
-    const after = shapes(current).find((shape) => shape.id === id);
-    if (!sameValue(before, after)) conflicts.add(id);
+    if (!sameValue(baseShapes.find((shape) => shape.id === id), currentShapes.find((shape) => shape.id === id))) conflicts.add(id);
+  };
+  const compareImageAsset = (id: string): void => {
+    if (insertedIds.has(id)) return;
+    const before = baseShapes.find((shape) => shape.id === id);
+    const after = currentShapes.find((shape) => shape.id === id);
     if (before?.type === "image" && after?.type === "image") {
       const beforeAsset = base.pageLayout?.overlay?.overlaySnapshot?.assets[before.props.assetId];
       const afterAsset = current.pageLayout?.overlay?.overlaySnapshot?.assets[after.props.assetId];
@@ -621,22 +678,60 @@ function replayConflictIds(
     }
   };
 
-  for (const operation of draft.operations) {
-    if (operation.operation === undefined || operation.operation === "replace") compareBlock(operation.targetId);
-  }
+  const nonMergeable = collectNonMergeableTargets([{ draft, mergeBasis }], [], currentShapes);
+  nonMergeable.blockIds.forEach(compareBlock);
+  nonMergeable.shapeIds.forEach(compareShape);
+  const currentShapeIds = new Set(currentShapes.map((shape) => shape.id));
+  collectMissingMergeUnitIds(draft, mergeBasis, (id) => findBlock(current, id) !== null || currentShapeIds.has(id))
+    .forEach((id) => conflicts.add(id));
   for (const operation of draft.mutationOperations ?? []) {
-    if (operation.operation === "deleteBlocks") {
-      // Deletion is content-targeted, not placement-targeted: a refreshed preview shows the
-      // block at its current location, so an informed approval may still delete it after a move.
-      operation.blockIds.forEach(compareBlock);
-    }
-    else if (operation.operation === "updateOverlayShape") compareShape(operation.shapeId);
-    else if (operation.operation === "alignOverlayShapes" || operation.operation === "deleteOverlayShapes") operation.shapeIds.forEach(compareShape);
-    else if (operation.operation === "updateLayoutSection") compareBlock(operation.sectionId);
+    if (operation.operation === "updateOverlayShape") compareImageAsset(operation.shapeId);
+    else if (operation.operation === "alignOverlayShapes" || operation.operation === "deleteOverlayShapes") operation.shapeIds.forEach(compareImageAsset);
     else if (operation.operation === "updatePageLayout" && !sameValue(layoutWithoutOverlay(base), layoutWithoutOverlay(current))) conflicts.add("pageLayout");
     else if (operation.operation === "setDocumentColumns" && !sameValue(base.pageLayout?.flow, current.pageLayout?.flow)) conflicts.add("pageLayout.flow");
   }
   return [...conflicts];
+}
+
+interface WebMcpReplayBookkeeping {
+  placements: WebMcpInsertionPlacement[];
+  movePlacements: WebMcpMovePlacement[];
+  checkpoints: WebMcpReplayCheckpoint[];
+}
+
+/**
+ * Points what WebMCP records by operation index (insertion points, move placements, implicit-id
+ * checkpoints) at the rewritten draft, which lacks the operations the merge superseded (a deletion of
+ * blocks or shapes the human edited, a nested replacement the merged unit no longer holds).
+ */
+function remapReplayBookkeeping(
+  draft: AiEditSessionDraft,
+  rewrite: ProposalDraftRewrite,
+  bookkeeping: WebMcpReplayBookkeeping,
+): WebMcpReplayBookkeeping {
+  if (rewrite.draft === draft) return bookkeeping;
+  const order = draft.operationOrder ?? [];
+  const kept = (entry: AiEditSessionOperationOrderEntry) => (
+    entry.kind === "operation" ? rewrite.operationIndexes : rewrite.mutationIndexes
+  ).has(entry.index);
+  return {
+    placements: bookkeeping.placements.flatMap((placement) => {
+      const operationIndex = rewrite.operationIndexes.get(placement.operationIndex);
+      return operationIndex === undefined ? [] : [{ ...placement, operationIndex }];
+    }),
+    movePlacements: bookkeeping.movePlacements.flatMap((placement) => {
+      const mutationIndex = rewrite.mutationIndexes.get(placement.mutationIndex);
+      return mutationIndex === undefined ? [] : [{ ...placement, mutationIndex }];
+    }),
+    // A checkpoint whose own operation (the last one it consumed) was superseded is dropped, not moved
+    // onto an earlier operation (it would meet another checkpoint's length or ids it does not generate).
+    checkpoints: bookkeeping.checkpoints.flatMap((checkpoint) => {
+      const last = order[checkpoint.operationOrderLength - 1];
+      return last && kept(last)
+        ? [{ ...checkpoint, operationOrderLength: order.slice(0, checkpoint.operationOrderLength).filter(kept).length }]
+        : [];
+    }),
+  };
 }
 
 function replayMoveConflictIds(
@@ -962,6 +1057,10 @@ export function createSigmaWebMcpTools(
   let movePlacements: WebMcpMovePlacement[] = [];
   let replayCheckpoints: WebMcpReplayCheckpoint[] = [];
   let replayConflict: { targetIds: string[]; liveRevision: number } | null = null;
+  // 作業中のドラフトを人の編集の上へ載せ替えたとき (refreshSessionFromLive) の合成の報告。載せ替えた
+  // あとの元の文書は人の編集を含むので、承認ではもう合成されない。その合成が人の編集を取り込んだ・退避した
+  // ことを、公開する提案の報告に足して持ち越す (デスクトップの提案の mergeCarry と同じ)。
+  let mergeCarry: ProposalMergeReport = createEmptyProposalMergeReport();
   // コメントは文書の revision を進めるが、本文の前提は動かさない。エージェントへ見せる
   // revision からコメントぶんを差し引き、「コメントを書いたら expectedRevision が使えなくなる」
   // 事故を防ぐ。人がパネルからコメントしたぶんも、内容が同じなら同じように吸収する。
@@ -1000,6 +1099,7 @@ export function createSigmaWebMcpTools(
     movePlacements = [];
     replayCheckpoints = [];
     replayConflict = null;
+    mergeCarry = createEmptyProposalMergeReport();
   };
   const sessionDraft = (current: SigmaDocAgentSession): AiEditSessionDraft => ({
     summary: "WebMCP pending draft",
@@ -1036,6 +1136,116 @@ export function createSigmaWebMcpTools(
     }
     return { ...operation, targetId: placement.anchorId };
   };
+  /**
+   * Replays the draft onto the current document in its recorded order, with WebMCP's own procedure:
+   * insertions follow their recorded insertion points, moves check the placements they were made
+   * with, and the ids a problem or column wrap generated implicitly keep their first values.
+   */
+  const replayEntries = (
+    base: SigmaDocument,
+    currentDocument: SigmaDocument,
+    draft: AiEditSessionDraft,
+    { placements, movePlacements: capturedMovePlacements, checkpoints: capturedCheckpoints }: WebMcpReplayBookkeeping,
+  ) => {
+    const replayableDraft = structuredClone(draft);
+    const normalizedOperations = [...replayableDraft.operations];
+    const normalizedMutationOperations = [...(replayableDraft.mutationOperations ?? [])];
+    const draftOwnedIds = new Set([
+      ...insertedDraftIds(replayableDraft),
+      ...capturedCheckpoints.flatMap((checkpoint) => checkpoint.implicitBlockIds),
+    ]);
+    const draftOwnedPlacementIds = new Set<string>();
+    const operationResults: ReturnType<typeof createAiEditSessionDocumentDraft>["operationResults"] = [];
+    let nextDocument = currentDocument;
+    let checkpointBase = currentDocument;
+    for (let orderIndex = 0; orderIndex < (replayableDraft.operationOrder ?? []).length; orderIndex += 1) {
+      const entry = replayableDraft.operationOrder![orderIndex]!;
+      const operation = entry.kind === "operation"
+        ? resolveInsertionForReplay(nextDocument, normalizedOperations[entry.index]!, entry.index, placements)
+        : null;
+      if (operation) normalizedOperations[entry.index] = operation;
+      const followingEntry = replayableDraft.operationOrder![orderIndex + 1];
+      const followingOperation = followingEntry?.kind === "operation" ? normalizedOperations[followingEntry.index]! : null;
+      const materializedProblemBody = operation?.operation === "insertAfter"
+        && operation.insertedBlock.type === "problem"
+        && followingOperation?.operation === "insertAfter"
+        && followingOperation.targetId === operation.insertedBlock.id;
+      let mutationOperation = entry.kind === "mutation" ? normalizedMutationOperations[entry.index]! : null;
+      if (mutationOperation?.operation === "moveBlocks") {
+        const placement = capturedMovePlacements.find((item) => item.mutationIndex === entry.index);
+        const moveConflicts = replayMoveConflictIds(nextDocument, mutationOperation, placement, draftOwnedIds);
+        if (moveConflicts.length > 0) throw formatStaleError(moveConflicts);
+        if (placement?.atDocumentEnd) {
+          const movedBlockIds = mutationOperation.blockIds;
+          const targetId = [...nextDocument.content].reverse().find((block) => !movedBlockIds.includes(block.id))?.id;
+          if (targetId) mutationOperation = { ...mutationOperation, targetId };
+        }
+        normalizedMutationOperations[entry.index] = mutationOperation;
+      }
+      if (mutationOperation?.operation === "wrapBlocksInColumns") {
+        const wrapConflicts = wrapRangeConflictIds(base, nextDocument, mutationOperation.blockIds, draftOwnedPlacementIds);
+        if (wrapConflicts.length > 0) throw formatStaleError(wrapConflicts);
+      }
+      const singleDraft: AiEditSessionDraft = {
+        ...replayableDraft,
+        operations: entry.kind === "operation"
+          ? materializedProblemBody ? [operation, followingOperation] : [operation!]
+          : [],
+        mutationOperations: mutationOperation ? [mutationOperation] : [],
+        operationOrder: materializedProblemBody
+          ? [{ kind: "operation", index: 0 }, { kind: "operation", index: 1 }]
+          : [{ kind: entry.kind, index: 0 }],
+      };
+      const result = createAiEditSessionDocumentDraft(nextDocument, null, singleDraft);
+      nextDocument = result.nextDocument;
+      if (entry.kind === "operation") {
+        normalizedOperations[entry.index] = result.draft.operations[0]!;
+        if (materializedProblemBody && followingEntry?.kind === "operation") {
+          normalizedOperations[followingEntry.index] = result.draft.operations[1]!;
+        }
+        operationResults.push(...result.operationResults);
+        if (operation?.operation === "insertAfter") collectPersistedIds(operation.insertedBlock, draftOwnedPlacementIds);
+        if (materializedProblemBody && followingOperation?.operation === "insertAfter") {
+          collectPersistedIds(followingOperation.insertedBlock, draftOwnedPlacementIds);
+        }
+      } else {
+        normalizedMutationOperations[entry.index] = result.draft.mutationOperations![0]!;
+        if (mutationOperation?.operation === "moveBlocks") {
+          mutationOperation.blockIds.forEach((id) => draftOwnedPlacementIds.add(id));
+        }
+      }
+      const consumedOrderLength = orderIndex + (materializedProblemBody ? 2 : 1);
+      const checkpoint = capturedCheckpoints.find((item) => item.operationOrderLength === consumedOrderLength);
+      if (checkpoint) {
+        const beforeIds = new Set(blockIdsInOrder(checkpointBase));
+        const explicitIds = insertedDraftIds(replayableDraft);
+        const generatedIds = blockIdsInOrder(nextDocument).filter((id) => !beforeIds.has(id) && !explicitIds.has(id));
+        if (generatedIds.length !== checkpoint.implicitBlockIds.length) {
+          throw formatStaleError(checkpoint.implicitBlockIds.length > 0 ? checkpoint.implicitBlockIds : ["document"]);
+        }
+        const replacements = new Map(generatedIds.map((id, index) => [id, checkpoint.implicitBlockIds[index]!]));
+        for (const stableId of replacements.values()) {
+          if (findBlock(currentDocument, stableId)) throw formatStaleError([stableId]);
+        }
+        nextDocument = replaceDocumentIds(nextDocument, replacements);
+        checkpoint.implicitBlockIds.forEach((id) => draftOwnedPlacementIds.add(id));
+        checkpointBase = nextDocument;
+      }
+      if (materializedProblemBody) orderIndex += 1;
+    }
+    return {
+      draft: { ...replayableDraft, operations: normalizedOperations, mutationOperations: normalizedMutationOperations },
+      nextDocument,
+      operationResults,
+    };
+  };
+  /**
+   * Replays the draft made on `base` onto `currentDocument`, keeping the human's edits made since
+   * `base`: the units the three-way merge covers are rewritten with the merged contents first (the
+   * desktop approval's merge, `rewriteProposalDraftMerging`), then the rewritten draft is replayed with
+   * WebMCP's procedure (`replayEntries`). Throws `STALE_DRAFT` only for what the merge cannot resolve
+   * (`replayConflictIds`, an id the draft inserts that is now taken, a replay that still fails).
+   */
   const replayDraft = (
     base: SigmaDocument,
     currentDocument: SigmaDocument,
@@ -1046,102 +1256,29 @@ export function createSigmaWebMcpTools(
   ) => {
     const insertedIdConflicts = insertedIdCollisionIds(currentDocument, draft);
     if (insertedIdConflicts.length > 0) throw formatStaleError(insertedIdConflicts);
-    const conflicts = replayConflictIds(base, currentDocument, draft, capturedCheckpoints);
+    const mergeBasis = webMcpMergeBasis(draft, base);
+    const conflicts = replayConflictIds(base, currentDocument, draft, mergeBasis, capturedCheckpoints);
     if (conflicts.length > 0) throw formatStaleError(conflicts);
+    const bookkeeping: WebMcpReplayBookkeeping = {
+      placements: [...placements],
+      movePlacements: [...capturedMovePlacements],
+      checkpoints: [...capturedCheckpoints],
+    };
     try {
-      const replayableDraft = structuredClone(draft);
-      const normalizedOperations = [...replayableDraft.operations];
-      const normalizedMutationOperations = [...(replayableDraft.mutationOperations ?? [])];
-      const draftOwnedIds = new Set([
-        ...insertedDraftIds(replayableDraft),
-        ...capturedCheckpoints.flatMap((checkpoint) => checkpoint.implicitBlockIds),
-      ]);
-      const draftOwnedPlacementIds = new Set<string>();
-      const operationResults: ReturnType<typeof createAiEditSessionDocumentDraft>["operationResults"] = [];
-      let nextDocument = currentDocument;
-      let checkpointBase = currentDocument;
-      for (let orderIndex = 0; orderIndex < (replayableDraft.operationOrder ?? []).length; orderIndex += 1) {
-        const entry = replayableDraft.operationOrder![orderIndex]!;
-        const operation = entry.kind === "operation"
-          ? resolveInsertionForReplay(nextDocument, normalizedOperations[entry.index]!, entry.index, placements)
-          : null;
-        if (operation) normalizedOperations[entry.index] = operation;
-        const followingEntry = replayableDraft.operationOrder![orderIndex + 1];
-        const followingOperation = followingEntry?.kind === "operation" ? normalizedOperations[followingEntry.index]! : null;
-        const materializedProblemBody = operation?.operation === "insertAfter"
-          && operation.insertedBlock.type === "problem"
-          && followingOperation?.operation === "insertAfter"
-          && followingOperation.targetId === operation.insertedBlock.id;
-        let mutationOperation = entry.kind === "mutation" ? normalizedMutationOperations[entry.index]! : null;
-        if (mutationOperation?.operation === "moveBlocks") {
-          const placement = capturedMovePlacements.find((item) => item.mutationIndex === entry.index);
-          const moveConflicts = replayMoveConflictIds(nextDocument, mutationOperation, placement, draftOwnedIds);
-          if (moveConflicts.length > 0) throw formatStaleError(moveConflicts);
-          if (placement?.atDocumentEnd) {
-            const movedBlockIds = mutationOperation.blockIds;
-            const targetId = [...nextDocument.content].reverse().find((block) => !movedBlockIds.includes(block.id))?.id;
-            if (targetId) mutationOperation = { ...mutationOperation, targetId };
-          }
-          normalizedMutationOperations[entry.index] = mutationOperation;
-        }
-        if (mutationOperation?.operation === "wrapBlocksInColumns") {
-          const wrapConflicts = wrapRangeConflictIds(base, nextDocument, mutationOperation.blockIds, draftOwnedPlacementIds);
-          if (wrapConflicts.length > 0) throw formatStaleError(wrapConflicts);
-        }
-        const singleDraft: AiEditSessionDraft = {
-          ...replayableDraft,
-          operations: entry.kind === "operation"
-            ? materializedProblemBody ? [operation, followingOperation] : [operation!]
-            : [],
-          mutationOperations: mutationOperation ? [mutationOperation] : [],
-          operationOrder: materializedProblemBody
-            ? [{ kind: "operation", index: 0 }, { kind: "operation", index: 1 }]
-            : [{ kind: entry.kind, index: 0 }],
-        };
-        const result = createAiEditSessionDocumentDraft(nextDocument, null, singleDraft);
-        nextDocument = result.nextDocument;
-        if (entry.kind === "operation") {
-          normalizedOperations[entry.index] = result.draft.operations[0]!;
-          if (materializedProblemBody && followingEntry?.kind === "operation") {
-            normalizedOperations[followingEntry.index] = result.draft.operations[1]!;
-          }
-          operationResults.push(...result.operationResults);
-          if (operation?.operation === "insertAfter") collectPersistedIds(operation.insertedBlock, draftOwnedPlacementIds);
-          if (materializedProblemBody && followingOperation?.operation === "insertAfter") {
-            collectPersistedIds(followingOperation.insertedBlock, draftOwnedPlacementIds);
-          }
-        } else {
-          normalizedMutationOperations[entry.index] = result.draft.mutationOperations![0]!;
-          if (mutationOperation?.operation === "moveBlocks") {
-            mutationOperation.blockIds.forEach((id) => draftOwnedPlacementIds.add(id));
-          }
-        }
-        const consumedOrderLength = orderIndex + (materializedProblemBody ? 2 : 1);
-        const checkpoint = capturedCheckpoints.find((item) => item.operationOrderLength === consumedOrderLength);
-        if (checkpoint) {
-          const beforeIds = new Set(blockIdsInOrder(checkpointBase));
-          const explicitIds = insertedDraftIds(replayableDraft);
-          const generatedIds = blockIdsInOrder(nextDocument).filter((id) => !beforeIds.has(id) && !explicitIds.has(id));
-          if (generatedIds.length !== checkpoint.implicitBlockIds.length) {
-            throw formatStaleError(checkpoint.implicitBlockIds.length > 0 ? checkpoint.implicitBlockIds : ["document"]);
-          }
-          const replacements = new Map(generatedIds.map((id, index) => [id, checkpoint.implicitBlockIds[index]!]));
-          for (const stableId of replacements.values()) {
-            if (findBlock(currentDocument, stableId)) throw formatStaleError([stableId]);
-          }
-          nextDocument = replaceDocumentIds(nextDocument, replacements);
-          checkpoint.implicitBlockIds.forEach((id) => draftOwnedPlacementIds.add(id));
-          checkpointBase = nextDocument;
-        }
-        if (materializedProblemBody) orderIndex += 1;
-      }
-      return {
-        draft: { ...replayableDraft, operations: normalizedOperations, mutationOperations: normalizedMutationOperations },
-        nextDocument,
-        operationResults,
-      };
+      // A failed merge never falls back to the AI's version here ("throw"): the person sees no notice
+      // of a dropped edit, while the agent can re-read and retry a STALE_DRAFT (the safe side WebMCP
+      // always had). The approval's fallback is for the desktop, where it is counted and announced.
+      const merged = rewriteProposalDraftMerging(currentDocument, draft, mergeBasis, (rewrite) => {
+        const rewrittenBookkeeping = remapReplayBookkeeping(draft, rewrite, bookkeeping);
+        const replayed = replayEntries(base, currentDocument, rewrite.draft, rewrittenBookkeeping);
+        // A merged draft must not repeat an id, as in the approval.
+        if (rewrite.draft !== draft) assertNoRepeatedContentIds(currentDocument, replayed.nextDocument);
+        return { ...replayed, bookkeeping: rewrittenBookkeeping };
+      }, "throw");
+      return { ...merged.result, report: merged.report };
     } catch (error) {
       if (error instanceof WebMcpStaleDraftError) throw error;
+      if (error instanceof ProposalMergeValidationError) throw formatStaleError(error.ids);
       const ids = replayFailureTargetIds(currentDocument, draft);
       const stale = new WebMcpStaleDraftError(ids.length > 0 ? ids : ["document"]);
       stale.message = `${stale.message} Replay failed: ${error instanceof Error ? error.message : String(error)}`;
@@ -1165,11 +1302,19 @@ export function createSigmaWebMcpTools(
         movePlacements,
         replayCheckpoints,
       );
+      // 今の文書を新しい元の文書にし、ドラフトも合成で書き換えた内容にする (デスクトップの rebaseRoomDraft と
+      // 同じ規則: AI がこのあと読むのは人の編集を合わせた文書なので、その人の編集は元の内容に含める)。
+      // 合成で落ちた操作 (人が直した対象の削除) は、順序と番号で引く記録からも外す。
       session.baseDocument = structuredClone(liveDocument);
       session.draftDocument = replay.nextDocument;
       session.operations = replay.draft.operations;
       session.mutationOperations = replay.draft.mutationOperations ?? [];
       session.operationResults = replay.operationResults;
+      operationOrder = [...(replay.draft.operationOrder ?? operationOrder)];
+      insertionPlacements = replay.bookkeeping.placements;
+      movePlacements = replay.bookkeeping.movePlacements;
+      replayCheckpoints = replay.bookkeeping.checkpoints;
+      mergeCarry = combineProposalMergeReports([mergeCarry, replay.report]);
       baseLiveDocument = structuredClone(liveDocument);
       baseLiveRevision = liveRevision;
       replayConflict = null;
@@ -1343,12 +1488,25 @@ export function createSigmaWebMcpTools(
     const capturedPlacements = structuredClone(insertionPlacements);
     const capturedMovePlacements = structuredClone(movePlacements);
     const capturedCheckpoints = structuredClone(replayCheckpoints);
+    const capturedMergeCarry = structuredClone(mergeCarry);
     const reviewedDocument = SigmaDocumentSchema.parse(generated.nextDocument);
     const capturedOperationCount = capturedSession.operations.length + capturedSession.mutationOperations.length;
+    // 公開した提案は状態を持たない: 更新のたびに「公開時の draft と元の文書」から今の文書へ合成し直す
+    // (人の編集を合わせる元は、いつも AI が draft を作った文書)。`previewedOn` はプレビューを作った文書で、
+    // 適用はそれから文書が変わっていれば (人がまだ見ていない内容なので) 断る。
+    const replayOnto = (current: SigmaDocument) => replayDraft(
+      capturedBaseLiveDocument,
+      current,
+      capturedDraft,
+      capturedPlacements,
+      capturedMovePlacements,
+      capturedCheckpoints,
+    );
     const createProposal = (
-      previewBase: SigmaDocument,
+      previewedOn: SigmaDocument,
       previewedDocument: SigmaDocument,
       currentPreviewDraft: AiEditSessionDraft,
+      mergeReport: ProposalMergeReport,
     ): SigmaWebMcpProposal => ({
         id: WEB_MCP_PROPOSAL_ID,
         kind: "draft",
@@ -1361,30 +1519,22 @@ export function createSigmaWebMcpTools(
         operationCount: capturedOperationCount,
         baseRevision: capturedRevision,
         previewDraft: structuredClone(currentPreviewDraft),
+        mergeReport,
         refresh: (current) => {
-          const replay = replayDraft(
-            previewBase,
-            current,
-            capturedDraft,
-            capturedPlacements,
-            capturedMovePlacements,
-            capturedCheckpoints,
+          const replay = replayOnto(current);
+          return createProposal(
+            structuredClone(current),
+            SigmaDocumentSchema.parse(replay.nextDocument),
+            replay.draft,
+            combineProposalMergeReports([capturedMergeCarry, replay.report]),
           );
-          return createProposal(structuredClone(current), SigmaDocumentSchema.parse(replay.nextDocument), replay.draft);
         },
         apply: (current) => {
-          const liveChanges = contentChangedTargets(previewBase, current);
+          const liveChanges = contentChangedTargets(previewedOn, current);
           if (liveChanges.length > 0) {
             // Diagnose a real target conflict first, but never commit a placement the person has
             // not yet seen in the preview. The Bridge refreshes and republishes on revision drift.
-            replayDraft(
-              previewBase,
-              current,
-              capturedDraft,
-              capturedPlacements,
-              capturedMovePlacements,
-              capturedCheckpoints,
-            );
+            replayOnto(current);
             throw new Error("PREVIEW_STALE: The document changed after this preview was rendered. Review the refreshed preview before applying it.");
           }
           const nextDocument = SigmaDocumentSchema.parse({
@@ -1393,7 +1543,7 @@ export function createSigmaWebMcpTools(
             updatedAt: current.updatedAt,
           });
           const selectedBlockId = blockIds.at(-1) ?? current.content[0]?.id ?? END_OF_DOCUMENT_TARGET;
-          return { document: nextDocument, selectedBlockId };
+          return { document: nextDocument, selectedBlockId, mergeReport: structuredClone(mergeReport) };
         },
         accept: () => {
           if (session === capturedSession && baseRevision === capturedRevision) clearDraft();
@@ -1402,7 +1552,7 @@ export function createSigmaWebMcpTools(
           if (session === capturedSession && baseRevision === capturedRevision) clearDraft();
         },
       });
-    ports.proposeDocumentChange(createProposal(capturedBaseLiveDocument, reviewedDocument, previewDraft));
+    ports.proposeDocumentChange(createProposal(capturedBaseLiveDocument, reviewedDocument, previewDraft, capturedMergeCarry));
     return toolResult({
       ok: true,
       status: "pending_approval",
@@ -1566,11 +1716,12 @@ export function createSigmaWebMcpTools(
     }, (input) => {
       const args = objectInput(input);
       if (!Array.isArray(args.operations)) throw new Error("operations must be an array.");
-      const previousSession = session;
-      const previousBaseRevision = baseRevision;
-      const previousBaseLiveDocument = baseLiveDocument;
-      const previousOperationOrder = operationOrder;
+      const hadSession = session !== null;
       const current = ensureSession(expectedRevision(args));
+      // ensureSession may have rebased the pending draft onto the live document (merged with the
+      // human's edits, its base moved along). A failed edit rolls back to that rebased draft, never to
+      // the state before the rebase: its base would no longer match the merged operations.
+      const previousOperationOrder = operationOrder;
       const trialSession = structuredClone(current);
       const trialOperationOrder = [...operationOrder];
       let result: SigmaDocAgentToolResult | null = null;
@@ -1595,10 +1746,12 @@ export function createSigmaWebMcpTools(
         operationOrder = trialOperationOrder;
         return publish(result);
       } catch (error) {
-        session = previousSession;
-        baseRevision = previousBaseRevision;
-        baseLiveDocument = previousBaseLiveDocument;
-        operationOrder = previousOperationOrder;
+        if (hadSession) {
+          session = current;
+          operationOrder = previousOperationOrder;
+        } else {
+          clearDraft();
+        }
         throw error;
       }
     }),

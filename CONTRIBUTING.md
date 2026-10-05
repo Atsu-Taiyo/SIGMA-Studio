@@ -118,3 +118,16 @@ CI定義の検査、GitHub上の実行、同梱Electronでのネイティブ機�
 ローカルバックエンド用の `.env.collaboration.local` は自動では読みません。
 それを使う場合はバックエンドを起動した上で
 `SIGMA_STUDIO_COLLABORATION_ENV_FILE=.env.collaboration.local npm run electron:dev` と指定してください。
+
+### TypeScript 7 と React 18/19 の互換性
+
+型検査と公開宣言の生成は各workspaceのTypeScript 7を使います。構文木を調べるテストと
+Viewerの型生成は、TypeScript 7が提供しないJavaScript Compiler APIを使うため、
+ルートの `typescript-compiler-api`（TypeScript 5.9.3のnpm alias）を明示的にimportします。
+Next.jsもCLI経由で型検査を行い、型検査の省略はしません。
+
+`examples/editor-react18` はReact 18の互換性検証用として維持します。
+React 19は同じ画面を使う `examples/editor-react19` で検証します。
+`npm --workspace @sigma-studio/editor-react19-example run build` の後に
+`npm run test:public-browser:react19` を実行してください。両テストは実際のReact版と
+編集・保存・再読込を確認し、CIとnpm公開前にも両方を実行します。

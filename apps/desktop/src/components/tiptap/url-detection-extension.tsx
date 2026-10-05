@@ -4,12 +4,14 @@ import { Extension } from "@tiptap/core";
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import { Plugin, PluginKey, type Transaction } from "@tiptap/pm/state";
 import type { Step } from "@tiptap/pm/transform";
-import { Decoration, DecorationSet } from "@tiptap/pm/view";
+import { Decoration, DecorationSet, type EditorView } from "@tiptap/pm/view";
 
+import { getDesktopBridge } from "@/lib/desktop-bridge";
+import { requestOpenLink } from "@/lib/link-open-request";
 import { findUrls } from "@/lib/url-detection";
 
 import { countDecorationInitWalk } from "./decoration-walk-metrics";
-import { createTranslator, getAppLocale } from "@/lib/i18n";
+import { createUrlLinkCard, URL_LINK_SELECTOR, type UrlLinkCardAction } from "./url-link-card";
 
 export const QR_CODE_REQUEST_EVENT = "sigma-studio:qr-code-request";
 
@@ -33,40 +35,41 @@ export function requestQrCodeFromUrl(url: string): void {
   window.dispatchEvent(new CustomEvent<QrCodeRequestDetail>(QR_CODE_REQUEST_EVENT, { detail }));
 }
 
-function buildQrButton(url: string): HTMLElement {
-  const button = document.createElement("button");
-  button.type = "button";
-  button.className = "url-qr-action";
-  button.contentEditable = "false";
-  button.tabIndex = -1;
-  // Tiptap の装飾は React の外で作るので、表示のたびにロケールストアから引く。
-  const label = createTranslator(getAppLocale(), "editor")("url.makeQrCode");
-  button.title = label;
-  button.setAttribute("aria-label", label);
-  button.dataset.url = url;
-  // Small inline QR glyph drawn with an SVG so it stays crisp at any zoom.
-  button.innerHTML = `<svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true" focusable="false"><path fill="currentColor" d="M1 1h6v6H1V1zm2 2v2h2V3H3zm6-2h6v6H9V1zm2 2v2h2V3h-2zM1 9h6v6H1V9zm2 2v2h2v-2H3zm6 0h2v2H9v-2zm4-2h2v2h-2V9zm0 4h2v2h-2v-2zm-2 0h2v2h-2v-2z"/></svg>`;
-  button.addEventListener("mousedown", (event) => {
-    // Prevent the editor from moving the selection / losing focus.
-    event.preventDefault();
-  });
-  button.addEventListener("click", (event) => {
-    event.preventDefault();
-    event.stopPropagation();
+/** 本文のリンクの要素。`url-detected` の下線で、URL は `data-url` が持つ。 */
+function linkElementAt(view: EditorView, target: EventTarget | null): HTMLElement | null {
+  const link = target instanceof Element ? target.closest<HTMLElement>(URL_LINK_SELECTOR) : null;
+  return link && view.dom.contains(link) && link.dataset.url ? link : null;
+}
+
+/** ⌘ (mac) / Ctrl を押したクリック。Alt が一緒のときは別の操作に譲る。 */
+export function isOpenLinkClick(event: MouseEvent): boolean {
+  return event.button === 0 && (event.metaKey || event.ctrlKey) && !event.altKey;
+}
+
+function hasSigmaBrowser(): boolean {
+  return Boolean(getDesktopBridge()?.browser);
+}
+
+function runLinkAction(action: UrlLinkCardAction, url: string): void {
+  if (action === "qr") {
     requestQrCodeFromUrl(url);
-  });
-  return button;
+    return;
+  }
+  requestOpenLink(url, action === "sigma" && hasSigmaBrowser() ? "sigma" : "browser");
 }
 
 /**
  * Detects http(s) URLs in flow text as the user types and decorates them with a
- * subtle underline plus an inline "make QR code" affordance. Detection is
- * view-only and does not change the SigmaDoc document.
+ * subtle underline. Hovering one offers "QR code / open in the browser / open in
+ * Sigma", and ⌘/Ctrl+click opens it. Detection is view-only and does not change
+ * the SigmaDoc document.
  */
 export const UrlDetectionExtension = Extension.create({
   name: "urlDetection",
 
   addProseMirrorPlugins() {
+    // 編集器 1 つにつきカード 1 つ (この関数は編集器ごとに呼ばれる)。
+    const card = createUrlLinkCard({ onAction: runLinkAction, canOpenInSigma: hasSigmaBrowser });
     return [
       new Plugin<DecorationSet>({
         key: urlDetectionKey,
@@ -78,24 +81,72 @@ export const UrlDetectionExtension = Extension.create({
         },
         props: {
           decorations: (state) => urlDetectionKey.getState(state) ?? DecorationSet.empty,
+          handleDOMEvents: {
+            // `mouseover` は「入った」瞬間にしか来ないので、クリックや打鍵でカードが閉じたあとも
+            // ポインタがリンクの上に残っていると二度と出ない。リンク上で動いている間は、止まった
+            // ところで出す (動くたびに待ち直す)。
+            mousemove: (view, event) => {
+              const link = linkElementAt(view, event.target);
+              // ボタンを押している間 (範囲選択のドラッグ) と変換入力中は出さない。
+              if (link && event.buttons === 0 && !view.composing) {
+                card.hoverLink(link, { x: event.clientX, y: event.clientY });
+              }
+              return false;
+            },
+            mouseout: (view, event) => {
+              const link = linkElementAt(view, event.target);
+              if (!link) {
+                return false;
+              }
+              // 折り返した同じ URL の別の行・マークで分かれた別の要素へ動いただけなら、出たことにしない。
+              const next = linkElementAt(view, event.relatedTarget);
+              if (!next || next.dataset.url !== link.dataset.url) {
+                card.leaveLink();
+              }
+              return false;
+            },
+            // ⌘/Ctrl+クリックは「開く」であって、キャレットを置く操作ではない。
+            mousedown: (view, event) => {
+              if (!isOpenLinkClick(event) || !linkElementAt(view, event.target)) {
+                return false;
+              }
+              event.preventDefault();
+              return true;
+            },
+            click: (view, event) => {
+              const link = isOpenLinkClick(event) ? linkElementAt(view, event.target) : null;
+              if (!link?.dataset.url) {
+                return false;
+              }
+              event.preventDefault();
+              card.hide();
+              runLinkAction(event.shiftKey ? "sigma" : "browser", link.dataset.url);
+              return true;
+            },
+            // 打ち始めたら出さない (修飾キーだけは、⌘クリックの前触れなので残す)。
+            keydown: (_view, event) => {
+              if (event.key !== "Meta" && event.key !== "Control" && event.key !== "Shift" && event.key !== "Alt") {
+                card.hide();
+              }
+              return false;
+            },
+          },
         },
+        view: () => ({
+          update: (view, previous) => {
+            if (view.state.doc !== previous.doc) {
+              card.hide();
+            }
+          },
+          destroy: () => card.destroy(),
+        }),
       }),
     ];
   },
 });
 
-/** そのテキストブロックが持つ URL 装飾 (下線 + QR ボタン)。 */
+/** そのテキストブロックが持つ URL 装飾 (下線)。 */
 function collectUrlDecorationsInBlock(block: ProseMirrorNode, blockPos: number, into: Decoration[]): void {
-  // key はブロックの id と「そのブロックの何個目の URL か」で作る。位置を入れると、写像で
-  // 位置だけ動いた widget の key が実際の位置と食い違い、同じ段落を読み直すたびに
-  // 「別物」と判定されて QR ボタンが作り直される。
-  // id 無しのブロック (この拡張は本文以外の編集面でも使える) は位置で代用する。位置は写像に
-  // 追従しないので、同じ URL を持つ id 無しブロックが 2 つあると key が衝突しうる — ただし
-  // 本文では `sigmaDocTextIdentity` が必ず id を配るので、その状態は次の読み直しで解消する。
-  const blockKey = typeof block.attrs?.sigmaDocId === "string" && block.attrs.sigmaDocId
-    ? block.attrs.sigmaDocId
-    : `pos${blockPos}`;
-  let occurrence = 0;
   block.descendants((node, offset) => {
     if (!node.isText || !node.text) {
       return;
@@ -105,13 +156,8 @@ function collectUrlDecorationsInBlock(block: ProseMirrorNode, blockPos: number, 
     for (const { url, start, end } of findUrls(node.text)) {
       const from = base + start;
       const to = base + end;
-      into.push(Decoration.inline(from, to, { class: "url-detected" }));
-      into.push(Decoration.widget(to, () => buildQrButton(url), {
-        side: 1,
-        ignoreSelection: true,
-        key: `url-qr-${blockKey}-${occurrence}-${url}`,
-      }));
-      occurrence += 1;
+      // URL は属性で持つ: マークで分かれた下線の要素のどれにホバーしても、同じ URL を引ける。
+      into.push(Decoration.inline(from, to, { class: "url-detected", "data-url": url }));
     }
   });
 }

@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
 import { describe, expect, it } from "vitest";
-import ts from "typescript";
+import ts from "typescript-compiler-api";
 
 /**
  * **文書を書き換える choke point は 2 つあり、AI ロックの読み方は同じでなければならない。**
@@ -29,6 +29,8 @@ function bodyOf(from: string, to: string): string {
   return shellSource.slice(start, end);
 }
 
+const RESTORE_READ = 'const aiLockedTargets = aiLockedTargetsForOrigin(aiLockedTargetsRef.current, "human-edit");';
+
 const restoreBody = () => bodyOf(
   '  const restoreDocumentHistory = useCallback((direction: "undo" | "redo") => {',
   "  const undoDocumentChange = useCallback(() => {",
@@ -44,7 +46,7 @@ describe("AI lock reads at both document choke points", () => {
 
   it("reads the locked set from the synchronous ref", () => {
     const body = restoreBody();
-    expect(body).toContain("const aiLockedTargets = aiLockedTargetsRef.current;");
+    expect(body).toContain(RESTORE_READ);
   });
 
   it("keeps the AI state out of the dependency array", () => {
@@ -91,17 +93,47 @@ describe("AI lock reads at both document choke points", () => {
     expect(refusal).toContain("return;");
   });
 
+  it("puts what a page card hides (result only) into the locked set both choke points read", () => {
+    // 畳んだブロックと隠した図形は、検索の置換・面をまたぐ結合・巻き戻し・遅れて流れる図形の反映でも
+    // 人が書き換えない。紙面の拡張が決めた 1 つの集合を、ロックの集合と検索の両方に渡す。
+    expect(shellSource).toMatch(/withAiResultOnlyTargets\([^\n]*aiResultOnlyTargets\)/);
+    expect(shellSource).toContain("onAiResultOnlyTargetsChange={setAiResultOnlyTargets}");
+    expect(shellSource).toContain("hiddenBlockIds: aiResultOnlyTargets.blockIds");
+  });
+
+  it("refuses a shared session's undo/redo that may change what is hidden, before the session restores", () => {
+    const body = restoreBody();
+    const sessionRestore = body.indexOf("session.restore(direction)");
+    const check = body.indexOf("findAiLockedTargetsTouched(documentRef.current, undefined, aiLockedTargets)");
+    expect(check).toBeGreaterThan(0);
+    expect(check).toBeLessThan(sessionRestore);
+    const refusal = body.slice(check, sessionRestore);
+    expect(refusal).toContain("setStatusMessage(describeAiLockedTargets(aiLockedTargets, touchedHidden));");
+    expect(refusal).toContain("return;");
+  });
+
+  it("does not let a display toggle stop an AI approval or a version restore", () => {
+    // 版の履歴からの復元は人の編集ではない。
+    expect(shellSource).toContain('applyVersion: () => commitDocumentChange(structuredClone(version.document), { origin: "history-restore" }),');
+    // WebMCP の承認の適用。
+    const bridge = readFileSync(fileURLToPath(new URL("../../../features/webmcp/view/WebMcpBridge.tsx", import.meta.url)), "utf8");
+    expect(bridge).toContain('{ origin: "ai-approval" }');
+    // デスクトップの承認の適用は変更口 (とそのゲート) を通らない。
+    const approval = bodyOf("  const applyAiApprovedDocument = useCallback((", "  const refreshDocumentMetadatas");
+    expect(approval).not.toContain("commitDocumentChange(");
+    expect(approval).not.toContain("findAiLockedTargetsTouched(");
+  });
+
   it("asks the same two questions the edit choke point asks", () => {
     const commit = bodyOf(
       "  const commitDocumentChange = useCallback((change: DocumentChange",
       "  const restoreDocumentHistory = useCallback(",
     );
-    for (const read of [
-      "const aiDocumentWriteInProgress = mcpPreviewBusyRef.current;",
-      "const aiLockedTargets = aiLockedTargetsRef.current;",
-    ]) {
-      expect(commit, read).toContain(read);
-      expect(restoreBody(), read).toContain(read);
-    }
+    const busy = "const aiDocumentWriteInProgress = mcpPreviewBusyRef.current;";
+    expect(commit).toContain(busy);
+    expect(restoreBody()).toContain(busy);
+    // 同じロックの集合を、変更の由来で選ぶ (人の編集だけが「適用後だけ」で隠したものに止められる)。
+    expect(commit).toContain('const aiLockedTargets = aiLockedTargetsForOrigin(aiLockedTargetsRef.current, options?.origin ?? "human-edit");');
+    expect(restoreBody()).toContain(RESTORE_READ);
   });
 });

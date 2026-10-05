@@ -16,13 +16,13 @@ import { useOverlaySnapshotState } from "./use-snapshot-state";
 
 const shape: OverlayShape = { id: "text", type: "text", x: 10, y: 20, props: { w: 220, h: 16, color: "black", size: "m", blocks: [{ id: "paragraph", type: "paragraph", children: [{ type: "text", text: "A" }] }] } };
 function overlay(shapes: OverlayShape[]): PageOverlay { return { overlaySnapshot: { version: 1, shapes, assets: {} } }; }
-function harness() {
+function harness(preservedShapeIds?: ReadonlySet<string>) {
   let api!: ReturnType<typeof useOverlaySnapshotState> & ReturnType<typeof useOverlaySaveController> & ReturnType<typeof useOverlayMutations> & { transitionMode(action: OverlayInteractionAction): void };
   const host = document.createElement("div"); const root = createRoot(host); const changed = vi.fn<(overlay: PageOverlay, options?: OverlayChangeOptions) => void>();
   function Harness({ source, revision = 0 }: { source: PageOverlay; revision?: number }) {
     const state = useOverlaySnapshotState({ overlay: source, canvasWidth: 800, canvasHeight: 600, documentId: "doc", externalRevision: revision, onChange: changed });
     const canvasRef = useRef<HTMLDivElement | null>(null);
-    const save = useOverlaySaveController({ ...state, canvasRef, syncBlockAnchors: false, getBlockAnchorScope: useCallback(() => null, []) });
+    const save = useOverlaySaveController({ ...state, canvasRef, syncBlockAnchors: false, getBlockAnchorScope: useCallback(() => null, []), getLastDrawnBlockRects: useCallback(() => null, []), getPreservedShapeIds: useCallback(() => preservedShapeIds, []) });
     const [mode, setMode] = useState(createInitialOverlayInteractionMode); const modeRef = useRef(mode);
     const transitionMode = useCallback((action: OverlayInteractionAction) => { modeRef.current = overlayInteractionModeReducer(modeRef.current, action); setMode(modeRef.current); }, []);
     const [selectedIds, setSelectedIds] = useState<string[]>([]); const selectedIdsRef = useRef(selectedIds);
@@ -39,6 +39,46 @@ function harness() {
 }
 beforeEach(() => { vi.useFakeTimers(); (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true; });
 afterEach(() => vi.useRealTimers());
+
+function cell(rowId: string, columnId: string, text: string) {
+  return { id: `${rowId}-${columnId}`, rowId, columnId, content: [{ type: "paragraph", id: `${rowId}-${columnId}-p`, children: [{ type: "text", text }] }] };
+}
+function scoreTable(classA: string) {
+  const rows = [["", "Math"], ["Class A", classA]];
+  return {
+    version: 1, kind: "plain",
+    columns: ["c1", "c2"].map((id) => ({ id, width: { mode: "auto" } })),
+    rows: ["r1", "r2"].map((id) => ({ id, height: { mode: "auto" } })),
+    cells: rows.flatMap((row, rowIndex) => row.map((text, columnIndex) => cell(`r${rowIndex + 1}`, `c${columnIndex + 1}`, text))),
+    grid: { borderColor: "#000000", borderWidth: 1 }, defaultCellStyle: {},
+  };
+}
+const STALE_CHART_DATA = { labels: ["old"], series: [{ id: "c2", name: "Old", values: [1] }] };
+const tableShape = { id: "table", type: "tableShape", x: 0, y: 0, props: { w: 200, h: 100, table: scoreTable("80") } } as unknown as OverlayShape;
+const chartShape = {
+  id: "chart", type: "chartShape", x: 0, y: 200,
+  props: { w: 200, h: 130, spec: { version: 1, kind: "bar", orientation: "columns", headerRow: true, labelColumn: true, legend: true, seriesColors: {} }, sourceTableShapeId: "table", dataSnapshot: STALE_CHART_DATA },
+} as unknown as OverlayShape;
+
+describe("a shape a feature preserves", () => {
+  it("keeps its chart data as saved when the visible source table is edited (the save is not refused)", async () => {
+    // 「適用後だけ」で隠したグラフは、元の表を人が直しても保存のまま (書き換えると変更口が保存全体を断る)。
+    const h = harness(new Set(["chart"])); await h.render(overlay([tableShape, chartShape]));
+    await act(async () => h.current().updateShape({ id: "table", type: "tableShape", props: { table: scoreTable("95") } } as never, { commit: true }));
+    const saved = h.changed.mock.calls.at(-1)![0].overlaySnapshot!.shapes;
+    expect((saved[0] as { props: { table: unknown } }).props.table).toEqual(scoreTable("95"));
+    expect(saved[1]).toEqual(chartShape);
+    await act(async () => h.root.unmount());
+  });
+
+  it("still refreshes the chart data of a shape nobody preserves", async () => {
+    const h = harness(); await h.render(overlay([tableShape, chartShape]));
+    await act(async () => h.current().updateShape({ id: "table", type: "tableShape", props: { table: scoreTable("95") } } as never, { commit: true }));
+    const saved = h.changed.mock.calls.at(-1)![0].overlaySnapshot!.shapes;
+    expect((saved[1] as { props: { dataSnapshot: { labels: string[] } } }).props.dataSnapshot.labels).toEqual(["Class A"]);
+    await act(async () => h.root.unmount());
+  });
+});
 
 describe("overlay derived session and single save boundary", () => {
   it("commits each text edit once, preserves undo granularity and reloads the saved snapshot", async () => {

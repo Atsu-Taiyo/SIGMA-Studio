@@ -103,21 +103,36 @@ export function getSelectionActionPopoverPosition(
   };
 }
 
+/** 図形の選択のポップオーバーを添える範囲 (紙面の座標) と、その上に空ける間隔 (画面の px)。 */
+function getOverlaySelectionPopoverAnchor(
+  selection: OverlaySelectionSummary,
+): { bounds: { x: number; y: number; w: number; h: number }; verticalClearance: number } | null {
+  if (selection.selectedShapes.length === 0 && !selection.region) {
+    return null;
+  }
+  const bounds = selection.region ?? getShapesSelectionBounds(selection.selectedShapes);
+  if (!bounds) {
+    return null;
+  }
+  // 図形を選んでいれば、選択枠の上の回転ハンドルを避ける。範囲の選択には回転ハンドルが無い。
+  return {
+    bounds,
+    verticalClearance: selection.region ? SELECTION_ACTION_POPOVER_GAP : OVERLAY_ROTATE_HANDLE_CLEARANCE,
+  };
+}
+
 export function getOverlaySelectionActionPopoverPosition(
   canvas: HTMLElement | null,
   selection: OverlaySelectionSummary,
   zoom: number,
   offset: { x: number; y: number } = { x: 0, y: 0 },
 ): SelectionActionPopoverPosition | null {
-  if (!canvas || (selection.selectedShapes.length === 0 && !selection.region)) {
+  const anchor = getOverlaySelectionPopoverAnchor(selection);
+  if (!canvas || !anchor) {
     return null;
   }
 
-  const bounds = selection.region ?? getShapesSelectionBounds(selection.selectedShapes);
-  if (!bounds) {
-    return null;
-  }
-
+  const { bounds, verticalClearance } = anchor;
   const zoomScale = Math.max(0.01, zoom / 100);
   const canvasRect = canvas.getBoundingClientRect();
   return getSelectionActionPopoverPosition(new DOMRect(
@@ -125,9 +140,33 @@ export function getOverlaySelectionActionPopoverPosition(
     canvasRect.top + offset.y + bounds.y * zoomScale,
     Math.max(1, bounds.w * zoomScale),
     Math.max(1, bounds.h * zoomScale),
-  ), {
-    verticalClearance: selection.region ? SELECTION_ACTION_POPOVER_GAP : OVERLAY_ROTATE_HANDLE_CLEARANCE,
-  });
+  ), { verticalClearance });
+}
+
+/**
+ * 図形の選択の操作が選択範囲の上に取る帯 (紙面の座標): ポップオーバーと、その下の回転ハンドルの間隔。
+ * 紙面に浮かべる部品 (拡張の `floatingContent`) がこれを覆わないための障害物。ポップオーバーは画面の px で
+ * 置くので、紙面の座標ではズームで割る。幅は中身で変わるので、描いた後は実寸 (`popoverWidthPx`) を
+ * 使う (それまでは見積もり)。選んだ範囲そのもの (グループ・複数選択の中) は含めない。
+ */
+export function getOverlaySelectionControlsCanvasRect(
+  selection: OverlaySelectionSummary,
+  zoom: number,
+  popoverWidthPx: number = SELECTION_ACTION_POPOVER_WIDTH,
+): { x: number; y: number; w: number; h: number } | null {
+  const anchor = getOverlaySelectionPopoverAnchor(selection);
+  if (!anchor) {
+    return null;
+  }
+  const zoomScale = Math.max(0.01, zoom / 100);
+  const height = (SELECTION_ACTION_POPOVER_HEIGHT + anchor.verticalClearance) / zoomScale;
+  const width = popoverWidthPx / zoomScale;
+  return {
+    x: anchor.bounds.x + anchor.bounds.w / 2 - width / 2,
+    y: anchor.bounds.y - height,
+    w: width,
+    h: height,
+  };
 }
 
 export function sameSelectionActionPopoverPosition(

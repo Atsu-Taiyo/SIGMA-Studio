@@ -33,9 +33,16 @@ export const NO_AI_LOCKED_TARGETS_TOUCHED: AiLockedTargetsTouched = { blockIds: 
 
 export function findAiLockedTargetsTouched(
   before: SigmaDocument,
-  after: SigmaDocument,
+  after: SigmaDocument | undefined,
   locked: AiLockedTargets,
 ): AiLockedTargetsTouched {
+  if (after === undefined) {
+    // The result cannot be looked at before it is applied (a shared session's undo/redo). What a
+    // human must not change unseen is refused outright; the session holds nothing else.
+    const blockIds = [...(locked.resultOnlyBlockIds ?? [])];
+    const shapeIds = [...(locked.resultOnlyShapeIds ?? [])];
+    return blockIds.length === 0 && shapeIds.length === 0 ? NO_AI_LOCKED_TARGETS_TOUCHED : { blockIds, shapeIds };
+  }
   if (before === after || (locked.blockIds.size === 0 && locked.shapeIds.size === 0)) {
     return NO_AI_LOCKED_TARGETS_TOUCHED;
   }
@@ -64,7 +71,12 @@ export function findAiLockedTargetsTouched(
       if (!previous) {
         continue;
       }
-      if (hasChanged(previous, nextShapes.get(shapeId))) {
+      if (hasShapeChanged(
+        previous,
+        nextShapes.get(shapeId),
+        { document: before, shapes: previousShapes },
+        { document: after, shapes: nextShapes },
+      )) {
         shapeIds.push(shapeId);
       }
     }
@@ -143,6 +155,72 @@ function hasChanged(previous: unknown, next: unknown): boolean {
     return true;
   }
   return !deepEquals(previous, next);
+}
+
+/**
+ * A shape compares by what a person sets on it -- its anchor, size, content, existence -- and not by
+ * what the page derives from its anchor:
+ * - the coordinates its anchor resolves to. The page re-resolves those whenever the body reflows (a
+ *   folded block takes its height out of the page, say) and the next save carries them, so comparing
+ *   them would refuse an unrelated edit. A move of an anchored shape still shows up: it rewrites the
+ *   anchor's offsets.
+ * - an anchor whose block or shape is gone from the document. Saving picks the anchor again from the
+ *   shape's position (and a human deleted the block, not the shape), so the anchor and the position
+ *   are derived there too. Moving the anchor of a shape whose anchor is still there is compared.
+ */
+function hasShapeChanged(
+  previous: OverlayShape,
+  next: OverlayShape | undefined,
+  before: AnchorTargets,
+  after: AnchorTargets,
+): boolean {
+  if (next === undefined) {
+    return true;
+  }
+  if (previous === next) {
+    return false;
+  }
+  if (!anchorTargetExists(previous.anchor, after)) {
+    return !deepEquals(withoutAnchorAndPosition(previous), withoutAnchorAndPosition(next));
+  }
+  return !deepEquals(withoutAnchorDerivedPosition(previous, before), withoutAnchorDerivedPosition(next, after));
+}
+
+interface AnchorTargets {
+  document: SigmaDocument;
+  shapes: ReadonlyMap<string, OverlayShape>;
+}
+
+/** Whether the block or shape an anchor names is in the document (a page anchor or none: nothing to lose). */
+function anchorTargetExists(anchor: OverlayShape["anchor"], targets: AnchorTargets): boolean {
+  if (anchor?.type === "block") {
+    return findBlock(targets.document, anchor.blockId) !== null;
+  }
+  if (anchor?.type === "shape") {
+    return targets.shapes.has(anchor.shapeId);
+  }
+  return true;
+}
+
+function withoutAnchorAndPosition(shape: OverlayShape): Record<string, unknown> {
+  const rest: Record<string, unknown> = { ...shape };
+  delete rest.x;
+  delete rest.y;
+  delete rest.anchor;
+  return rest;
+}
+
+/** The shape without the coordinates its anchor determines (block: y, and x when it keeps dx; shape: both). */
+function withoutAnchorDerivedPosition(shape: OverlayShape, targets: AnchorTargets): Record<string, unknown> {
+  const { x, y, ...rest } = shape;
+  const anchor = shape.anchor;
+  if (anchor?.type === "shape" && targets.shapes.has(anchor.shapeId)) {
+    return rest;
+  }
+  if (anchor?.type === "block" && findBlock(targets.document, anchor.blockId)) {
+    return typeof anchor.dx === "number" ? rest : { ...rest, x };
+  }
+  return { ...rest, x, y };
 }
 
 /**

@@ -112,7 +112,7 @@ describe("document file commands", () => {
 
     await act(async () => { await actions.exportJson(); await actions.copyDocumentText(); });
     const payload = saveSigmaDoc.mock.calls[0]?.[0] as { suggestedName: string; data: string };
-    expect(payload.suggestedName).toBe("flush 後のタイトル.sigma");
+    expect(payload.suggestedName).toBe("flush-後のタイトル.sigma");
     expect(JSON.parse(payload.data).metadata.title).toBe("flush 後のタイトル");
     expect(write).toHaveBeenCalledWith(payload.data);
     expect(actions.documentTextCopyFallback).toBe(payload.data);

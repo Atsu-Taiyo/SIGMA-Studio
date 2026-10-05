@@ -16,6 +16,8 @@ import {
 } from "./grouping";
 import type { PendingOverlaySave } from "./pending-save";
 import { mergePendingOverlaySave } from "./pending-save";
+import type { MeasuredBlock } from "./anchor";
+import { keepPreservedShapes } from "./reanchor-model";
 import { reanchorShapesAgainstCanvas } from "./snapshot-anchors";
 import type {
   OverlayAsset,
@@ -30,6 +32,10 @@ export interface Dependencies {
   canvasHeightRef: RefObject<number>;
   canvasWidthRef: RefObject<number>;
   getBlockAnchorScope: () => ParentNode | null;
+  /** The last block measurement in overlay coordinates (where a block now folded away was drawn). */
+  getLastDrawnBlockRects: () => ReadonlyMap<string, MeasuredBlock> | null;
+  /** Shapes the save's re-anchor leaves as stored (`OverlayEditPolicy.preservedShapeIds`). */
+  getPreservedShapeIds: () => ReadonlySet<string> | undefined;
   suppressNextSaveRef: RefObject<boolean>;
   setShapes: Dispatch<SetStateAction<OverlayShape[]>>;
   assetsRef: RefObject<Record<string, OverlayAsset>>;
@@ -49,6 +55,8 @@ export function useOverlaySaveController({
   canvasHeightRef,
   canvasWidthRef,
   getBlockAnchorScope,
+  getLastDrawnBlockRects,
+  getPreservedShapeIds,
   suppressNextSaveRef,
   setShapes,
   assetsRef,
@@ -69,12 +77,15 @@ export function useOverlaySaveController({
         canvasHeightRef.current,
         canvasWidthRef.current,
         getBlockAnchorScope(),
+        getLastDrawnBlockRects(),
+        getPreservedShapeIds(),
       ))
       : normalizeOverlayGroups(shapesRef.current);
     // Refresh chart snapshots at the single point every edit funnels through, rather than hooking
     // each path that can change or delete a table. Copy-on-write: an unchanged document keeps its
-    // array identity and no save is queued.
-    const synced = syncChartDataSnapshots(reanchored);
+    // array identity and no save is queued. A preserved shape keeps its saved chart data like its
+    // anchor (a derived rewrite of a hidden shape gets the whole save refused).
+    const synced = keepPreservedShapes(reanchored, syncChartDataSnapshots(reanchored), getPreservedShapeIds());
     if (synced !== shapesRef.current) {
       shapesRef.current = synced;
       suppressNextSaveRef.current = true;
@@ -101,7 +112,7 @@ export function useOverlaySaveController({
       },
     );
     imageCropDirtyRef.current = false;
-  }, [assetsRef, canvasHeightRef, canvasRef, canvasWidthRef, extensionsRef, getBlockAnchorScope, imageCropDirtyRef, lastEmittedSnapshotRef, onChangeRef, setShapes, shapesRef, suppressNextSaveRef, syncBlockAnchors]);
+  }, [assetsRef, canvasHeightRef, canvasRef, canvasWidthRef, extensionsRef, getBlockAnchorScope, getLastDrawnBlockRects, getPreservedShapeIds, imageCropDirtyRef, lastEmittedSnapshotRef, onChangeRef, setShapes, shapesRef, suppressNextSaveRef, syncBlockAnchors]);
 
   const clearQueuedOverlaySave = useCallback(() => {
     if (saveTimeoutRef.current) {

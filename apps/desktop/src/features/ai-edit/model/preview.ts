@@ -20,7 +20,13 @@ import {
   preserveOverlayShapePlacementForReplacement,
   type AiOverlayShapeReplacementPair,
 } from "@/lib/ai/overlay-shape-replacement";
-import { buildShapeOnlyPreview, type AiEditShapeOnlyPreview } from "@/lib/ai/ai-edit-shape-preview";
+import { getVisualShapesFromOperations } from "@/lib/ai/ai-edit-shape-preview";
+import {
+  collectNonMergeableTargets,
+  type ProposalMergeBasis,
+  type ProposalMergeReport,
+} from "@/lib/ai/proposal-merge-basis";
+import type { AiProposalContent } from "./proposal-content";
 import {
   deriveAppliedDraftFallback,
   isOverlayAnchorSupportDraft,
@@ -51,14 +57,44 @@ export interface AiEditPreviewState {
   // グループのラベル (チャットのセッションタイトル、または最初の指示の抜粋)。
   sessionLabel?: string;
   /** Web proposals rely on their revision/content freshness guards and remain
-   * directly editable while their on-page preview is visible. Desktop AI
-   * proposals omit this field and keep the established target reservation. */
+   * directly editable while their on-page preview is visible, even though they
+   * carry no `mergeSources`. Desktop AI proposals omit this field: their targets
+   * stay editable when the approval's merge can follow them, and only the
+   * targets it cannot merge are reserved (`derivePendingAiProposalLockTargets`). */
   lockTargets?: boolean;
   // Phase 1: Agentic RAG。このグループの全提案が参照した過去教材・素材・Webページを
   // 集約・重複排除したもの (存在する場合のみ、空配列にはしない)。
   sourceReferences?: DesktopAiSourceReference[];
   /** A delete + insert sequence that represents one logical shape replacement. */
   shapeReplacements?: AiOverlayShapeReplacementPair[];
+  /**
+   * 承認と同じ合成 replay でプレビューを作るための、まとめた提案それぞれの元 (作成順)。
+   * どれかが base (`mergeBasis`) を持つときだけ付く。無ければ従来どおり、まとめた draft を
+   * そのまま今の文書へ適用した内容を見せる (`resolveProposalMergePreview`)。
+   */
+  mergeSources?: AiProposalMergeSource[];
+  /**
+   * 提案の持ち主が draft をすでに人の編集と合成しているとき (WebMCP: 再生のたびに三者マージで書き換えた
+   * draft を渡す) の、合成で人の編集を取り込んだ単位。プレビューは draft をそのまま今の文書へ当て
+   * (`mergeSources` のように合成し直さない。持ち主の適用と同じ内容になる)、この単位のカードに
+   * 「あなたの編集と合わせた内容です」を添える。
+   */
+  ownerMergedHumanEditedUnits?: readonly string[];
+}
+
+/**
+ * 提案 1 件を承認と同じ手順で replay するのに要るもの (`mergeProposalDraftsIntoDocument` の入力)。
+ * `mergeBasis` は invalidReason を持つ提案には付けない (承認もその base を使わない)。
+ */
+export interface AiProposalMergeSource {
+  proposalId: string;
+  createdAt: string;
+  draft: AiEditSessionDraft;
+  requestedShapeId?: string;
+  groupId?: string;
+  groupPosition?: number;
+  mergeBasis?: ProposalMergeBasis;
+  mergeCarry?: ProposalMergeReport;
 }
 
 /**
@@ -126,11 +162,14 @@ export function describeRevertBlockedReason(
 //   従来どおり手動の「作り直し」に頼る。
 export type StaleMcpProposalKind = "conflict" | "manual-rebase" | "pending-auto-rebase";
 
-/** stale (baseRevisionが古い) pending提案1件を上記3種に分類する。 */
+/**
+ * stale (baseRevisionが古い) pending提案1件を上記3種に分類する。保存済みのdraftが壊れている提案
+ * (`invalidReason`) は、mainが競合を記録する前でも適用できないので "conflict" (replay-failed) にする。
+ */
 export function classifyStaleMcpProposal(
-  proposal: Pick<DesktopMcpEditProposalSummary, "conflict" | "touchedBlocks">,
+  proposal: Pick<DesktopMcpEditProposalSummary, "conflict" | "touchedBlocks" | "invalidReason">,
 ): StaleMcpProposalKind {
-  if (proposal.conflict) {
+  if (proposal.conflict || proposal.invalidReason) {
     return "conflict";
   }
   if (proposal.touchedBlocks && proposal.touchedBlocks.length > 0) {
@@ -222,13 +261,15 @@ export function buildSourceReferencesByTurnId(
 /**
  * Builds one stable, shape-only chat thumbnail for every assistant turn that
  * created overlay insertion proposals. Proposal drafts remain the native
- * SigmaDoc source of truth; this SVG is only a derived chat representation.
- * Using proposals from every status keeps the thumbnail available after the
- * user approves or rejects the insertion and after chat history is restored.
+ * SigmaDoc source of truth; the thumbnail is the same proposal content model
+ * every other surface draws (`AiProposalContentView`), holding only the
+ * inserted shapes and the assets their drafts carry. Using proposals from every
+ * status keeps the thumbnail available after the user approves or rejects the
+ * insertion and after chat history is restored.
  */
 export function buildInsertedShapePreviewsByTurnId(
   proposals: Pick<DesktopMcpEditProposalSummary, "turnId" | "createdAt" | "draft">[],
-): Map<string, AiEditShapeOnlyPreview> {
+): Map<string, AiProposalContent> {
   const proposalsByTurnId = new Map<string, typeof proposals>();
   for (const proposal of proposals) {
     if (!proposal.turnId) {
@@ -242,17 +283,26 @@ export function buildInsertedShapePreviewsByTurnId(
     }
   }
 
-  const result = new Map<string, AiEditShapeOnlyPreview>();
+  const result = new Map<string, AiProposalContent>();
   for (const [turnId, turnProposals] of proposalsByTurnId) {
     const visualOperations = turnProposals
       .slice()
       .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
       .flatMap((proposal) => proposal.draft.operations)
       .filter((operation) => operation.operation === "insertOverlayShape" || operation.operation === "insertTableShape");
-    const preview = buildShapeOnlyPreview(visualOperations);
-    if (preview) {
-      result.set(turnId, preview);
+    if (visualOperations.length === 0) {
+      continue;
     }
+    let assets: Record<string, OverlayAsset> = {};
+    for (const operation of visualOperations) {
+      if (operation.operation === "insertOverlayShape") {
+        assets = { ...assets, ...(operation.assets ?? {}) };
+      }
+    }
+    result.set(turnId, {
+      hunks: [],
+      shapes: getVisualShapesFromOperations(visualOperations).map((shape) => ({ change: "added", shape, assets })),
+    });
   }
   return result;
 }
@@ -333,6 +383,19 @@ export function dedupeAiSourceReferences(references: DesktopAiSourceReference[])
   return result;
 }
 
+function toMergeSource(proposal: DesktopMcpEditProposalSummary): AiProposalMergeSource {
+  return {
+    proposalId: proposal.proposalId,
+    createdAt: proposal.createdAt,
+    draft: proposal.draft,
+    ...(proposal.requestedShapeId ? { requestedShapeId: proposal.requestedShapeId } : {}),
+    ...(proposal.groupId ? { groupId: proposal.groupId } : {}),
+    ...(proposal.groupPosition !== undefined ? { groupPosition: proposal.groupPosition } : {}),
+    ...(proposal.mergeBasis ? { mergeBasis: proposal.mergeBasis } : {}),
+    ...(proposal.mergeCarry ? { mergeCarry: proposal.mergeCarry } : {}),
+  };
+}
+
 function resolveGroupTargetId(
   operations: AiEditSessionDraft["operations"],
   mutationOperations: NonNullable<AiEditSessionDraft["mutationOperations"]>,
@@ -350,9 +413,13 @@ function resolveGroupTargetId(
 // (帰属不明なら "unattributed") ごとに1つのプレビュー単位へまとめられ、それぞれが自分の
 // apply/dismiss を持つ (決定B)。baseRevision はプレビュー分割に使わない — run 途中で人手編集や
 // 別提案の適用で revision が進んでも、同一 run の提案は1カードのまま (承認時に現在docへ順に
-// replay される)。stale 扱いになるのは (a) 自動rebaseが実上書き対象の変更、またはreplay不能を
-// 検出して conflict を立てた提案と、(b) requestSelection を持たないレガシー提案が baseRevision の
-// 古いまま残っているケースだけ。
+// replay される)。競合通知 (stale) へ回すのは、合成で解決できない提案だけ:
+// (a) main が解決できない競合を記録した提案 (conflict。base を持つ提案では対象の消失・合成後の
+//     検証失敗・合成しない操作の対象の変更だけが記録される)、
+// (b) 保存済みの draft が壊れている提案 (invalidReason)、
+// (c) base (mergeBasis) も requestSelection も持たない上書き系の旧提案が baseRevision の古いまま
+//     残っているケース。base を持つ提案は対象が変わっていても承認時の三者マージで人の編集を
+//     残せるので、revision が進んだだけでは競合にしない。
 export function groupMcpProposalsForPreview(
   proposals: DesktopMcpEditProposalSummary[],
   fileId: string,
@@ -371,10 +438,11 @@ export function groupMcpProposalsForPreview(
   const currentProposals: DesktopMcpEditProposalSummary[] = [];
   const staleProposals: DesktopMcpEditProposalSummary[] = [];
   for (const proposal of pending) {
-    if (proposal.conflict) {
+    if (proposal.conflict || proposal.invalidReason) {
       staleProposals.push(proposal);
     } else if (
       !proposal.requestSelection
+      && !proposal.mergeBasis
       && proposal.baseRevision !== currentRevision
       && !isAdditiveInsertOnlyDraft(proposal.draft)
     ) {
@@ -402,7 +470,9 @@ export function groupMcpProposalsForPreview(
   }>();
   for (const proposal of staleProposals) {
     const kind = classifyStaleMcpProposal(proposal);
-    const conflictReason = kind === "conflict" ? proposal.conflict?.reason : undefined;
+    const conflictReason = kind === "conflict"
+      ? proposal.conflict?.reason ?? (proposal.invalidReason ? "replay-failed" : undefined)
+      : undefined;
     const invalidReason = proposal.invalidReason;
     const key = `${proposal.baseRevision}::${kind}::${conflictReason ?? "unclassified"}::${invalidReason ?? "valid"}`;
     const bucket = staleByKey.get(key);
@@ -487,6 +557,10 @@ export function groupMcpProposalsForPreview(
     const runId = latestFirst.map((proposal) => proposal.runId).find((id) => !!id);
     const sourceReferences = dedupeAiSourceReferences(ordered.flatMap((proposal) => proposal.sourceReferences ?? []));
     const shapeReplacements = deriveAiOverlayShapeReplacementPairs(ordered);
+    // 承認と同じ合成 replay でプレビューを作る材料。base を持つ提案が無ければ従来どおり。
+    const mergeSources = ordered.some((proposal) => proposal.mergeBasis)
+      ? ordered.map(toMergeSource)
+      : undefined;
 
     groups.push({
       targetId: resolveGroupTargetId(operations, mutationOperations, ordered),
@@ -510,6 +584,7 @@ export function groupMcpProposalsForPreview(
       sessionLabel,
       ...(sourceReferences.length > 0 ? { sourceReferences } : {}),
       ...(shapeReplacements.length > 0 ? { shapeReplacements } : {}),
+      ...(mergeSources ? { mergeSources } : {}),
     });
   }
 
@@ -533,9 +608,12 @@ export interface AiEditPreviewAddedShape {
   assets: Record<string, OverlayAsset>;
 }
 
+/**
+ * The overlay side of a pending proposal's draft. Body blocks that will be replaced or removed are not
+ * here: they come from the merged result (`collectPendingRemovedBlockIds`), which keeps a block the
+ * human edited after the AI deleted it.
+ */
 export interface AiEditPreviewDiff {
-  /** Body blocks that will be overwritten (`replace`) or removed (`deleteBlocks`). */
-  removedBlockIds: Set<string>;
   /** Overlay shapes that will be deleted (`deleteOverlayShapes`). */
   removedShapeIds: Set<string>;
   /** Overlay shapes that will be changed in place (`updateOverlayShape` / `alignOverlayShapes`) — neither purely added nor removed. */
@@ -583,9 +661,29 @@ export function hasBodyAiEditChanges(preview: AiEditPreviewState): boolean {
 }
 
 /**
- * Overlay-only proposals get a canvas-native approval widget instead of an
- * inline body card. Mixed proposals intentionally stay inline: one decision
- * must continue to describe both their body and overlay changes together.
+ * 変更前と変更後の両方が紙面に描かれる図形 (今の図形 = 変更前の赤い破線、ゴースト = 変更後)。
+ * 更新・整列の対象と、置き換えの元の図形。挿入と削除は片側しか描かれないので含めない。
+ * 承認バーの「変更前を隠す」はこれらだけを隠す。
+ */
+export function getAiEditPreviewBeforeShapeIds(preview: AiEditPreviewState): string[] {
+  const ids = new Set<string>();
+  for (const op of preview.draft.mutationOperations ?? []) {
+    if (op.operation === "updateOverlayShape") {
+      ids.add(op.shapeId);
+    } else if (op.operation === "alignOverlayShapes") {
+      op.shapeIds.forEach((id) => ids.add(id));
+    }
+  }
+  for (const pair of preview.shapeReplacements ?? []) {
+    ids.add(pair.removedShapeId);
+  }
+  return [...ids];
+}
+
+/**
+ * 図形だけの提案 (本文を変えない)。本文フローが無いので、承認バーを図形のそばに付ける。
+ * 本文と図形の両方を変える提案は紙面のカード (本文フローの中) の 1 本のバーだけで決め、図形のそばには
+ * バーを出さない (同じ提案の判断を 2 か所に置かない)。図形の変更前/変更後は、どちらの場合も紙面に描く。
  */
 export function isOverlayOnlyAiEditPreview(preview: AiEditPreviewState): boolean {
   const operations = preview.draft.operations;
@@ -746,6 +844,8 @@ export function summarizeAiEditPreviewChanges(
   preview: AiEditPreviewState,
   currentShapes: OverlayShape[] = [],
   t: Translate<"ai"> = DEFAULT_AI_TRANSLATE,
+  /** AI が消す図形のうち、人が直したので承認の合成で残るもの (`resolveShapesKeptByMerge`)。削除と言わない。 */
+  keptShapeIds: ReadonlySet<string> = new Set(),
 ): string[] {
   const shapesById = new Map(currentShapes.map((shape) => [shape.id, shape]));
   const replacementByAddedId = new Map(
@@ -805,7 +905,7 @@ export function summarizeAiEditPreviewChanges(
       op.shapeIds.forEach((shapeId) => bump("align", overlayShapeNounId(shapesById.get(shapeId))));
     } else if (op.operation === "deleteOverlayShapes") {
       op.shapeIds
-        .filter((shapeId) => !replacementRemovedIds.has(shapeId))
+        .filter((shapeId) => !replacementRemovedIds.has(shapeId) && !keptShapeIds.has(shapeId))
         .forEach((shapeId) => bump("delete", overlayShapeNounId(shapesById.get(shapeId))));
     }
   }
@@ -952,16 +1052,15 @@ export function buildAppliedTurnChangesByTurnId(
   return result;
 }
 
-/** Derives the pending-diff id/shape sets for one or more preview groups
+/** Derives the pending-diff shape sets for one or more preview groups
  * (see `AiEditPreviewState`), merging across groups so several concurrent
- * runs' proposals all get diff coloring at once. `moveBlocks` is deliberately
- * not represented here — it changes position, not content, so there is
- * nothing GitHub-diff-shaped to color for it. */
+ * runs' proposals all get diff coloring at once. Body blocks are not derived
+ * here: the removed side comes from the merged result
+ * (`collectPendingRemovedBlockIds`), not from the draft. */
 export function deriveAiEditPreviewDiff(
   previews: AiEditPreviewState[],
   currentShapes: OverlayShape[] = [],
 ): AiEditPreviewDiff {
-  const removedBlockIds = new Set<string>();
   const removedShapeIds = new Set<string>();
   const modifiedShapeIds = new Set<string>();
   const addedShapes: AiEditPreviewAddedShape[] = [];
@@ -985,16 +1084,12 @@ export function deriveAiEditPreviewDiff(
           const shape = existingShape ? preserveOverlayShapePlacementForReplacement(existingShape, inserted) : inserted;
           addedShapes.push({ shape, assets: operation.operation === "insertOverlayShape" ? operation.assets ?? {} : {} });
           shapeCursor = [...shapeCursor.filter((candidate) => candidate.id !== shape.id), shape];
-        } else if (operation.operation !== "insertAfter" && !isOverlayAnchorSupportDraft(operation, preview.draft.operations)) {
-          removedBlockIds.add(operation.targetId);
         }
         continue;
       }
       const op = preview.draft.mutationOperations?.[entry.index];
       if (!op) continue;
-      if (op.operation === "deleteBlocks") {
-        op.blockIds.forEach((id) => removedBlockIds.add(id));
-      } else if (op.operation === "deleteOverlayShapes") {
+      if (op.operation === "deleteOverlayShapes") {
         op.shapeIds.forEach((id) => removedShapeIds.add(id));
         shapeCursor = shapeCursor.filter((shape) => !op.shapeIds.includes(shape.id));
         for (let index = addedShapes.length - 1; index >= 0; index -= 1) {
@@ -1015,13 +1110,27 @@ export function deriveAiEditPreviewDiff(
     }
   }
 
-  return { removedBlockIds, removedShapeIds, modifiedShapeIds, addedShapes };
+  return { removedShapeIds, modifiedShapeIds, addedShapes };
 }
 
-/** Existing document targets that must remain read-only after a run finishes
- * and while its proposal is still awaiting a human decision. Newly inserted
- * blocks/shapes are ghosts and therefore need no lock of their own. */
-export function derivePendingAiProposalLockTargets(previews: AiEditPreviewState[]): {
+/**
+ * 保留中の提案の対象のうち、決めるまで読み取り専用にするもの: 人が直すと承認が競合になるか人の編集が
+ * 落ちる (三者マージで合成できない) 対象だけ。どれが合成できないかは承認の競合判定と同じ関数
+ * (`collectNonMergeableTargets`) が決める。ここで draft から別に導かない (MISS R17)。
+ *
+ * - base (`mergeBasis`) を持つ提案の置換・削除・移動・図形の更新/削除の対象は、base にその元の内容が
+ *   あればロックしない。承認の合成 replay が人の編集を残して追従する (編集は削除に勝つ)。
+ * - base に元の内容が無い対象、合成しない操作 (図形の整列・段組み設定の更新) の対象、置き換えの組の
+ *   元の図形はロックする。base を持たない (読めない) 旧レコードは従来どおり全対象をロックする。
+ *
+ * 挿入するだけのブロック・図形はゴーストなのでロックは要らない。WebMCP のプレビュー (`lockTargets:
+ * false`) は mergeSources を持たないが、旧レコードではない (鮮度の検査で守る) のでロックしない。
+ */
+export function derivePendingAiProposalLockTargets(
+  previews: AiEditPreviewState[],
+  /** 今の図形。消す・動かす図形が他の図形を連れて行く (group のメンバー・固定された図形) かを読む。 */
+  shapes: readonly OverlayShape[] = [],
+): {
   blockIds: Set<string>;
   shapeIds: Set<string>;
 } {
@@ -1032,33 +1141,14 @@ export function derivePendingAiProposalLockTargets(previews: AiEditPreviewState[
     if (preview.lockTargets === false) {
       continue;
     }
-    const allOperations = preview.draft.operations;
-    for (const operation of allOperations) {
-      if (operation.operation === "insertOverlayShape" || operation.operation === "insertTableShape") {
-        continue;
-      }
-      if (isOverlayAnchorSupportDraft(operation, allOperations)) {
-        continue;
-      }
-      // Insertion only reads the anchor's identity. Its text is not overwritten.
-      if (operation.operation === "replace") blockIds.add(operation.targetId);
-    }
-
-    for (const operation of preview.draft.mutationOperations ?? []) {
-      if (operation.operation === "deleteBlocks") {
-        operation.blockIds.forEach((id) => blockIds.add(id));
-      } else if (operation.operation === "moveBlocks") {
-        operation.blockIds.forEach((id) => blockIds.add(id));
-      } else if (operation.operation === "deleteOverlayShapes") {
-        operation.shapeIds.forEach((id) => shapeIds.add(id));
-      } else if (operation.operation === "updateOverlayShape") {
-        shapeIds.add(operation.shapeId);
-      } else if (operation.operation === "alignOverlayShapes") {
-        operation.shapeIds.forEach((id) => shapeIds.add(id));
-      }
-    }
-
-    preview.shapeReplacements?.forEach((replacement) => shapeIds.add(replacement.removedShapeId));
+    // mergeSources が無いまとまりは、どの提案も base を持たない (旧レコード)。
+    const targets = collectNonMergeableTargets(
+      preview.mergeSources?.length ? preview.mergeSources : [{ draft: preview.draft }],
+      preview.shapeReplacements,
+      shapes,
+    );
+    targets.blockIds.forEach((id) => blockIds.add(id));
+    targets.shapeIds.forEach((id) => shapeIds.add(id));
   }
 
   return { blockIds, shapeIds };

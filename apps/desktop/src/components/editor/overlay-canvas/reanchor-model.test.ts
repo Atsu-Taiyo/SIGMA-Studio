@@ -139,6 +139,29 @@ describe("areOverlayAnchorsEqual", () => {
 });
 
 describe("reanchorShapesAgainstMeasuredBlocks", () => {
+  it("leaves a shape a feature preserves (and its group) as stored, while measuring the others again", () => {
+    // 保存時の付け替えは保存済みの固定を測り直す (行への固定を足す・dx をそろえる)。適用後だけで隠した図形に
+    // それをすると、文書の変更口が人の編集として保存全体を断る。
+    const blocks: MeasuredBlock[] = [
+      { id: "a", top: 100, left: 40, width: 200, lines: [{ index: 0, top: 100, height: 20 }] },
+    ];
+    const hidden = rect("hidden", 50, 124, { type: "block", blockId: "a", dy: 24 });
+    const group = { ...rect("group", 50, 124, { type: "block", blockId: "a", dy: 24 }), type: "group", props: { w: 20, h: 10 } } as unknown as OverlayShape;
+    const member = { ...rect("member", 50, 124), parentId: "group" } as OverlayShape;
+    const plain = rect("plain", 50, 124, { type: "block", blockId: "a", dy: 24 });
+    const shapes = [hidden, group, member, plain];
+
+    const next = reanchorShapesAgainstMeasuredBlocks(shapes, blocks, {}, new Set(["hidden", "group"]));
+
+    expect(next[0]).toBe(hidden);
+    expect(next[1]).toBe(group);
+    expect(next[2]).toBe(member);
+    expect(next[3].anchor).toMatchObject({ type: "block", blockId: "a", dx: 10, dy: 24, line: { index: 0 } });
+    // 守っている図形だけなら、配列ごとそのまま (保存を起こさない)。
+    expect(reanchorShapesAgainstMeasuredBlocks([hidden], blocks, {}, new Set(["hidden"]))).toEqual([hidden]);
+    expect(attachUnanchoredShapesToMeasuredBlocks([rect("loose", 50, 124)], blocks, undefined, new Set(["loose"]))[0]).not.toHaveProperty("anchor");
+  });
+
   it("keeps the exact shape array when no blocks were measured", () => {
     const shapes = [rect("shape", 20, 30)];
 

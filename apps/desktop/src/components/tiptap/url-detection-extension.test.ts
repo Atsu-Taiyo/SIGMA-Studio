@@ -8,6 +8,7 @@ import { describe, expect, it } from "vitest";
 import {
   applyUrlDecorationsToTransaction,
   createUrlDecorations,
+  isOpenLinkClick,
 } from "@/components/tiptap/url-detection-extension";
 
 const SigmaDocIdAttrs = Extension.create({
@@ -39,10 +40,11 @@ function decorationRanges(set: { find: () => readonly Decoration[] }): Array<[nu
   return set.find().map((decoration) => [decoration.from, decoration.to] as [number, number]);
 }
 
-function widgetKeys(decorations: readonly Decoration[]): string[] {
+/** 下線の装飾が持つ URL (ホバーのカードが引く `data-url`)。 */
+function decorationUrls(decorations: readonly Decoration[]): string[] {
   return decorations
-    .map((decoration) => (decoration as unknown as { type: { spec?: { key?: string } } }).type.spec?.key)
-    .filter((key): key is string => typeof key === "string");
+    .map((decoration) => (decoration as unknown as { type: { attrs?: Record<string, string> } }).type.attrs?.["data-url"])
+    .filter((url): url is string => typeof url === "string");
 }
 
 describe("url detection decorations", () => {
@@ -51,12 +53,9 @@ describe("url detection decorations", () => {
 
     const found = createUrlDecorations(doc).find();
 
-    // 1 URL につき下線 (inline) と QR ボタン (widget) の 2 つ。
-    expect(found).toHaveLength(4);
-    expect(widgetKeys(found)).toEqual([
-      "url-qr-p0-0-https://example.com/a",
-      "url-qr-p2-0-https://example.com/b",
-    ]);
+    // 1 URL につき下線 (inline) が 1 つ。URL はその要素の data-url が持つ。
+    expect(found).toHaveLength(2);
+    expect(decorationUrls(found)).toEqual(["https://example.com/a", "https://example.com/b"]);
   });
 
   it("carries the decorations of untouched blocks over untouched", () => {
@@ -72,7 +71,7 @@ describe("url detection decorations", () => {
     const after = applyUrlDecorationsToTransaction(before, transaction);
 
     expect(after.find(1, 22)).toEqual(untouched);
-    expect(after.find()).toHaveLength(4);
+    expect(after.find()).toHaveLength(2);
   });
 
   it("re-reads only the block the change landed in", () => {
@@ -80,16 +79,13 @@ describe("url detection decorations", () => {
     const state = EditorState.create({ doc });
     const before = createUrlDecorations(doc);
 
-    expect(before.find()).toHaveLength(2);
+    expect(before.find()).toHaveLength(1);
 
     // 1 段落目の末尾に URL を打ち切る。
     const transaction = state.tr.insertText(" https://example.com/new", 10);
     const after = applyUrlDecorationsToTransaction(before, transaction);
 
-    expect(widgetKeys(after.find())).toEqual([
-      "url-qr-p0-0-https://example.com/new",
-      "url-qr-p1-0-https://example.com/b",
-    ]);
+    expect(decorationUrls(after.find())).toEqual(["https://example.com/new", "https://example.com/b"]);
   });
 
   it("drops the decorations of a URL that was deleted", () => {
@@ -112,12 +108,12 @@ describe("url detection decorations", () => {
     const full = createUrlDecorations(transaction.doc);
 
     expect(decorationRanges(incremental)).toEqual(decorationRanges(full));
-    expect(widgetKeys(incremental.find()).sort()).toEqual(widgetKeys(full.find()).sort());
+    expect(decorationUrls(incremental.find()).sort()).toEqual(decorationUrls(full.find()).sort());
   });
 
   it("re-reads both halves when a URL is split by Enter", () => {
     // 分割は「前半・後半の両方が変わる」唯一の打鍵。どちらかを読み落とすと、URL の途中で
-    // 改行したときに下線と QR ボタンが本文と食い違ったまま残る。
+    // 改行したときに下線が本文と食い違ったまま残る。
     const doc = createDoc(["https://example.com/split-here"]);
     const state = EditorState.create({ doc });
     const before = createUrlDecorations(doc);
@@ -128,7 +124,7 @@ describe("url detection decorations", () => {
     const full = createUrlDecorations(transaction.doc);
 
     expect(decorationRanges(after)).toEqual(decorationRanges(full));
-    expect(widgetKeys(after.find()).sort()).toEqual(widgetKeys(full.find()).sort());
+    expect(decorationUrls(after.find()).sort()).toEqual(decorationUrls(full.find()).sort());
   });
 
   it("matches a full re-read when several blocks change in one transaction", () => {
@@ -143,18 +139,18 @@ describe("url detection decorations", () => {
     const full = createUrlDecorations(transaction.doc);
 
     expect(decorationRanges(after)).toEqual(decorationRanges(full));
-    expect(widgetKeys(after.find()).sort()).toEqual(widgetKeys(full.find()).sort());
+    expect(decorationUrls(after.find()).sort()).toEqual(decorationUrls(full.find()).sort());
   });
 
   it("re-reads a block whose marks changed, even though the step moves nothing", () => {
     // マークの step は位置を動かさないので `StepMap` が空。だがマークはテキストノードを割るので、
     // URL の一部を太字にすると検出は外れる。範囲が出ない step を無視すると、消えるはずの
-    // 下線と QR ボタンが残り続ける (全文再読とのズレ)。
+    // 下線が残り続ける (全文再読とのズレ)。
     const doc = createDoc(["https://example.com/marked here"]);
     const state = EditorState.create({ doc });
     const before = createUrlDecorations(doc);
 
-    expect(before.find()).toHaveLength(2);
+    expect(before.find()).toHaveLength(1);
 
     const transaction = state.tr.addMark(10, 15, schema.marks.bold.create());
     const after = applyUrlDecorationsToTransaction(before, transaction);
@@ -175,7 +171,7 @@ describe("url detection decorations", () => {
     const full = createUrlDecorations(unmarked.doc);
 
     expect(decorationRanges(after)).toEqual(decorationRanges(full));
-    expect(after.find()).toHaveLength(2);
+    expect(after.find()).toHaveLength(1);
   });
 
   it("does nothing when the transaction did not change the document", () => {
@@ -186,5 +182,23 @@ describe("url detection decorations", () => {
     const after = applyUrlDecorationsToTransaction(before, state.tr.setMeta("noop", 1));
 
     expect(after).toBe(before);
+  });
+});
+
+describe("open-link click", () => {
+  const click = (init: Partial<Pick<MouseEvent, "button" | "metaKey" | "ctrlKey" | "altKey" | "shiftKey">>) =>
+    ({ button: 0, metaKey: false, ctrlKey: false, altKey: false, shiftKey: false, ...init }) as MouseEvent;
+
+  it("opens on Cmd+click and Ctrl+click, with or without Shift", () => {
+    expect(isOpenLinkClick(click({ metaKey: true }))).toBe(true);
+    expect(isOpenLinkClick(click({ ctrlKey: true }))).toBe(true);
+    expect(isOpenLinkClick(click({ metaKey: true, shiftKey: true }))).toBe(true);
+  });
+
+  it("leaves a plain click, Alt combinations and other buttons alone", () => {
+    expect(isOpenLinkClick(click({}))).toBe(false);
+    expect(isOpenLinkClick(click({ shiftKey: true }))).toBe(false);
+    expect(isOpenLinkClick(click({ metaKey: true, altKey: true }))).toBe(false);
+    expect(isOpenLinkClick(click({ metaKey: true, button: 2 }))).toBe(false);
   });
 });

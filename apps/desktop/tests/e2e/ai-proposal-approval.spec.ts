@@ -3,6 +3,12 @@ import { expect, test, type Page } from "@playwright/test";
 import { installDesktopRuntimeMock } from "./desktop-runtime-mock";
 import type { ParagraphNode, SigmaBlock, SigmaDocument } from "@/types/sigma-doc";
 
+/**
+ * 紙面の提案カードの正本 (本文フローの拡張ノードの直下)。改ページで切れたときの続きの複製は
+ * 拡張ノードの id を持たないので数えない。
+ */
+const PAGE_PROPOSAL_CARD = '[data-flow-extension-node-id] > [data-ai-proposal-card="page"]';
+
 // AI提案承認まわりの改修 (Issue 1〜4) のe2e。desktop runtime mockの疑似AI実行を使う:
 // - Issue 1: 別ブロックへの2つ目のrunをロック係合中でも並列開始でき、独立に確定できる。
 //   サイドバーからの別ブロック依頼は走行中runを待たず新しい部屋で並列開始される。
@@ -148,6 +154,18 @@ async function closeInlineSurface(page: Page): Promise<void> {
   await expect(page.locator(".ai-chat-composer--inline")).toBeHidden();
 }
 
+/**
+ * 閉じた ⌘K の面は、実行が終わると結果 (要約と同じ承認バー) を実行を始めた位置に浮かべる。紙面の
+ * カードの承認バーはカードの先頭 (対象の段落のすぐ下) にあるので、その結果の面と重なる。紙面の
+ * カードから決める spec は、結果の面を閉じてからバーを押す (結果の面のバーでも同じ判断ができる)。
+ */
+async function closeInlineResult(page: Page): Promise<void> {
+  const close = page.locator(".ai-inline-result").getByRole("button", { name: "閉じる", exact: true }).first();
+  await expect(close).toBeVisible({ timeout: 20_000 });
+  await close.click();
+  await expect(page.locator(".ai-inline-result")).toHaveCount(0);
+}
+
 async function listProposalStatuses(page: Page): Promise<Record<string, string>> {
   const proposals = await page.evaluate(async () => {
     const api = (window as unknown as { desktopAPI: { storage: { listMcpEditProposals: (options: { status: string }) => Promise<Array<{ proposalId: string; status: string }>> } } }).desktopAPI;
@@ -179,7 +197,7 @@ test("Issue 1: run B starts on another block while run A's lock is engaged, and 
   expect(runPayloads).toHaveLength(2);
 
   // Run B (fast) finishes first: its card appears while A is still running, and applies independently.
-  const previewDialogs = page.locator(".ai-inline-preview-dialog");
+  const previewDialogs = page.locator(PAGE_PROPOSAL_CARD);
   await expect(previewDialogs).toHaveCount(1, { timeout: 20_000 });
   await previewDialogs.first().locator('.ai-inline-preview-action.apply[aria-label="適用"]').click();
   await expect(previewDialogs).toHaveCount(0);
@@ -205,19 +223,20 @@ test("problem and solution proposals keep their page-area layout in the preview"
 
   await startInlineRun(page, "problem_prompt_1", "PROPOSAL 問題文を書き換えて");
   await closeInlineSurface(page);
-  let previewDialog = page.locator(".ai-inline-preview-dialog");
+  let previewDialog = page.locator(PAGE_PROPOSAL_CARD);
   await expect(previewDialog).toBeVisible({ timeout: 20_000 });
-  await expect(previewDialog.locator('.ai-inline-preview-operation[data-problem-area="prompt"]')).toBeVisible();
-  await expect(previewDialog.locator(".ai-inline-preview-problem-area-label")).toHaveText("問7 問題文");
+  await expect(previewDialog.locator('[data-ai-proposal-hunk][data-problem-area="prompt"]')).toBeVisible();
+  await expect(previewDialog.locator("[data-ai-proposal-area-label]")).toHaveText("問7 問題文");
+  await closeInlineResult(page);
   await previewDialog.locator('.ai-inline-preview-action.apply[aria-label="適用"]').click();
   await expect(previewDialog).toBeHidden();
 
   await startInlineRun(page, "problem_solution_1", "PROPOSAL 解答を書き換えて");
   await closeInlineSurface(page);
-  previewDialog = page.locator(".ai-inline-preview-dialog");
+  previewDialog = page.locator(PAGE_PROPOSAL_CARD);
   await expect(previewDialog).toBeVisible({ timeout: 20_000 });
-  await expect(previewDialog.locator('.ai-inline-preview-operation[data-problem-area="solution"]')).toBeVisible();
-  await expect(previewDialog.locator(".ai-inline-preview-problem-area-label")).toHaveText("解答");
+  await expect(previewDialog.locator('[data-ai-proposal-hunk][data-problem-area="solution"]')).toBeVisible();
+  await expect(previewDialog.locator("[data-ai-proposal-area-label]")).toHaveText("解答");
 });
 
 test("問題挿入プレビューが問題番号と枠線付きで描かれる", async ({ page }) => {
@@ -226,7 +245,7 @@ test("問題挿入プレビューが問題番号と枠線付きで描かれる",
   await startInlineRun(page, "para_a", "PROPOSAL PROBLEM 問題を追加して");
   await closeInlineSurface(page);
 
-  const previewDialog = page.locator(".ai-inline-preview-dialog");
+  const previewDialog = page.locator(PAGE_PROPOSAL_CARD);
   await expect(previewDialog).toBeVisible({ timeout: 20_000 });
   await expect(previewDialog.locator(".print-problem-area.with-frame")).toBeVisible();
   await expect(previewDialog.locator(".print-problem-number")).toHaveText("1");
@@ -297,8 +316,9 @@ test("Issue 3: Ctrl+Z undoes an applied proposal in one step (body restored + st
 
   await startInlineRun(page, "para_a", "PROPOSAL この段落を書き換えて");
   await closeInlineSurface(page);
-  const previewDialog = page.locator(".ai-inline-preview-dialog");
+  const previewDialog = page.locator(PAGE_PROPOSAL_CARD);
   await expect(previewDialog).toBeVisible({ timeout: 20_000 });
+  await closeInlineResult(page);
   await previewDialog.locator('.ai-inline-preview-action.apply[aria-label="適用"]').click();
   await expect(previewDialog).toBeHidden();
   await expect(paragraphA).toContainText("E2E提案で書き換えた本文");
@@ -338,13 +358,13 @@ test("auto-applied proposal is one undo step and preserves earlier document hist
 
   await startInlineRun(page, "para_a", "PROPOSAL この段落を書き換えて");
   await closeInlineSurface(page);
-  await expect(page.locator(".ai-inline-preview-dialog")).toBeVisible({ timeout: 20_000 });
+  await expect(page.locator(PAGE_PROPOSAL_CARD)).toBeVisible({ timeout: 20_000 });
 
   const proposalId = await page.evaluate(() => (
     window as unknown as { __autoApplyFirstPendingProposal: () => string | null }
   ).__autoApplyFirstPendingProposal());
   expect(proposalId).toBeTruthy();
-  await expect(page.locator(".ai-inline-preview-dialog")).toBeHidden();
+  await expect(page.locator(PAGE_PROPOSAL_CARD)).toBeHidden();
   await expect(paragraphA).toContainText("E2E提案で書き換えた本文");
 
   // 1手目は自動承認だけを戻し、それ以前の人手編集は残す。
@@ -373,8 +393,9 @@ test("適用はいま開いている教材だけを編集する: 打鍵した入
   await startInlineRun(page, "para_a", "PROPOSAL この段落を書き換えて");
   await closeInlineSurface(page);
 
-  const previewDialogs = page.locator(".ai-inline-preview-dialog");
+  const previewDialogs = page.locator(PAGE_PROPOSAL_CARD);
   await expect(previewDialogs).toHaveCount(1, { timeout: 20_000 });
+  await closeInlineResult(page);
   await previewDialogs.first().locator('.ai-inline-preview-action.apply[aria-label="適用"]').click();
   await expect(previewDialogs).toHaveCount(0);
 
@@ -406,7 +427,7 @@ test("applied chat result shows the real diff and reverts the apply in one click
 
   const proposal = sidebar.locator(".ai-chat-result-proposal");
   await expect(proposal).toBeVisible({ timeout: 20_000 });
-  const inlinePreview = page.locator(".ai-inline-preview-dialog").first();
+  const inlinePreview = page.locator(PAGE_PROPOSAL_CARD).first();
   await expect(inlinePreview).toBeVisible();
   await expect(inlinePreview).not.toContainText("本文を更新");
   await proposal.getByRole("button", { name: "適用", exact: true }).click();
@@ -454,8 +475,12 @@ test("a formatting-only proposal remains visible as a real pending diff", async 
   await expect(proposal).toBeVisible({ timeout: 20_000 });
   await expect(proposal).toContainText("−1行");
   await expect(proposal).toContainText("+1行");
-  await expect(proposal.locator('[data-change="removed"] mark')).toContainText("一次関数のグラフは直線");
-  await expect(proposal.locator('[data-change="added"] mark strong')).toContainText("一次関数のグラフは直線");
+  // 装飾だけが変わった単語は、両側とも表示用のコピーに差分の印が付く (元の背景色は残し、文書には書かない)。
+  await expect(proposal.locator('[data-change="removed"] [style*="--ai-proposal-word-removed"]').first())
+    .toContainText("一次関数のグラフは直線");
+  await expect(proposal.locator('[data-change="added"] [style*="--ai-proposal-word-added"]').first())
+    .toContainText("一次関数のグラフは直線");
+  await expect(proposal.locator('[data-change="added"] strong').first()).toContainText("一次関数のグラフは直線");
 });
 
 test("a shape replacement pending diff uses the preserved rotation and opacity", async ({ page }) => {
@@ -490,7 +515,7 @@ test("Issue 4: the apply-all bar approves every pending run's proposals in one c
   await closeInlineSurface(page);
 
   // 2run分のカードが出そろうと一括適用バーが現れる。
-  const previewDialogs = page.locator(".ai-inline-preview-dialog");
+  const previewDialogs = page.locator(PAGE_PROPOSAL_CARD);
   await expect(previewDialogs).toHaveCount(2, { timeout: 25_000 });
   const applyAllBar = page.locator(".ai-apply-all-bar");
   await expect(applyAllBar).toBeVisible();

@@ -12,14 +12,19 @@ import type {
   ListItemNode,
   ListNode,
   ProblemAreaBlock,
+  ProblemNode,
 } from "@/features/document";
 
 /**
- * 適用済み/提案中のAI編集差分を、GitHub風の「行」単位表示に変換する。React/DOMには
- * 依存しない(electron側のサマリー生成からも将来呼べるようにするため)。
+ * 適用済み/提案中のAI編集差分を「行」単位で揃える。React/DOMには依存しない。
  *
  * SigmaDocにはテキストエディタのような「行」概念が無いので、ブロックツリーの葉
  * (見出し/段落全体、リスト項目1件、問題エリアの各リッチブロックなど)を1行として扱う。
+ *
+ * 用途は 2 つ: (1) +n/−n の件数 (`buildAppliedDiffRows` → `countAppliedDiffLines`)、
+ * (2) 提案内容の描画で変わった単語だけを塗るための、削除前/追加後の行の対応付け
+ * (`pairBlockLines` で行を組にし、`mapBlockLineNodes` で表示用のコピーへ書き戻す)。
+ * 行そのものを画面に並べる描画はもう無い (提案内容は紙面と同じ静的描画で見せる)。
  */
 
 export interface DiffLine {
@@ -163,6 +168,140 @@ export function flattenBlockLines(
   return areas.flatMap(([blocks, label]) => blocks.flatMap((areaBlock) => flattenRichBlock(areaBlock, label)));
 }
 
+/**
+ * 行の中身を書き換える関数。`undefined` を返した行はそのまま残す。`key` は
+ * `flattenBlockLines` が付けるのと同じ鍵。
+ */
+export type BlockLineNodesMapper = (key: string, nodes: InlineNode[]) => InlineNode[] | undefined;
+
+function mapLineNodes(key: string, nodes: InlineNode[], mapper: BlockLineNodesMapper): InlineNode[] {
+  return mapper(key, nodes) ?? nodes;
+}
+
+function mapListItemLines(item: ListItemNode, mapper: BlockLineNodesMapper): ListItemNode {
+  return {
+    ...item,
+    children: mapLineNodes(item.id, item.children, mapper),
+    ...(item.continuations
+      ? {
+          continuations: item.continuations.map((continuation) => {
+            if (continuation.type === "divider") {
+              // 区切り線は文章を持たないが、`flattenBlockLines` は空の行として数える。同じ鍵で
+              // 訪ねるだけ訪ね、書き戻す先は無いので結果は捨てる。
+              mapper(continuation.id, []);
+              return continuation;
+            }
+            return { ...continuation, children: mapLineNodes(continuation.id, continuation.children, mapper) };
+          }),
+        }
+      : {}),
+    ...(item.nested ? { nested: item.nested.map((nested) => mapListLines(nested, mapper)) } : {}),
+  };
+}
+
+function mapListLines(list: ListNode, mapper: BlockLineNodesMapper): ListNode {
+  return { ...list, items: list.items.map((item) => mapListItemLines(item, mapper)) };
+}
+
+function mapBoxBlockLines(block: BoxBlockNode, mapper: BlockLineNodesMapper): BoxBlockNode {
+  return {
+    ...block,
+    ...(block.title && block.title.length > 0 ? { title: mapLineNodes(`${block.id}:title`, block.title, mapper) } : {}),
+    blocks: block.blocks.map((child) => mapBoxBlockChildLines(child, mapper)),
+  };
+}
+
+function mapLayoutSectionChildLines(
+  block: LayoutSectionChildBlock,
+  mapper: BlockLineNodesMapper,
+): LayoutSectionChildBlock {
+  if (block.type === "section" || block.type === "divider") {
+    return block;
+  }
+  if (block.type === "heading" || block.type === "paragraph" || block.type === "codeBlock") {
+    return { ...block, children: mapLineNodes(block.id, block.children, mapper) } as LayoutSectionChildBlock;
+  }
+  if (block.type === "list") {
+    return mapListLines(block, mapper);
+  }
+  if (block.type === "quote") {
+    return { ...block, blocks: block.blocks.map((child) => mapLayoutSectionChildLines(child, mapper)) } as LayoutSectionChildBlock;
+  }
+  return mapBoxBlockLines(block, mapper);
+}
+
+function mapBoxBlockChildLines(block: BoxBlockChildBlock, mapper: BlockLineNodesMapper): BoxBlockChildBlock {
+  if (block.type === "problem") {
+    return mapProblemLines(block, mapper);
+  }
+  if (block.type === "layoutSection") {
+    return { ...block, children: block.children.map((child) => mapLayoutSectionChildLines(child, mapper)) };
+  }
+  return mapLayoutSectionChildLines(block, mapper) as BoxBlockChildBlock;
+}
+
+function mapRichBlockLines(block: ProblemAreaBlock, mapper: BlockLineNodesMapper): ProblemAreaBlock {
+  if (block.type === "heading" || block.type === "paragraph" || block.type === "codeBlock") {
+    return { ...block, children: mapLineNodes(block.id, block.children, mapper) } as ProblemAreaBlock;
+  }
+  if (block.type === "list") {
+    return mapListLines(block, mapper);
+  }
+  if (block.type === "boxBlock") {
+    return mapBoxBlockLines(block, mapper);
+  }
+  if (block.type === "divider") {
+    return block;
+  }
+  if (block.type === "quote") {
+    return { ...block, blocks: block.blocks.map((child) => mapLayoutSectionChildLines(child, mapper)) } as ProblemAreaBlock;
+  }
+  return { ...block, children: block.children.map((child) => mapLayoutSectionChildLines(child, mapper)) };
+}
+
+function mapProblemLines(block: ProblemNode, mapper: BlockLineNodesMapper): ProblemNode {
+  // 訪ねる順は `flattenBlockLines` と同じ (導入文 → 問題文 → コメント → 解答)。
+  const lead = block.lead.map((child) => mapRichBlockLines(child, mapper));
+  const prompt = block.prompt.map((child) => mapRichBlockLines(child, mapper));
+  const hints = block.hints.map((child) => mapRichBlockLines(child, mapper));
+  const solution = block.solution.map((child) => mapRichBlockLines(child, mapper));
+  return { ...block, lead, prompt, hints, solution };
+}
+
+function mapEditableBlockLines(block: EditableBlock, mapper: BlockLineNodesMapper): EditableBlock {
+  if (block.type === "section" || block.type === "divider") {
+    return block;
+  }
+  if (block.type === "heading" || block.type === "paragraph" || block.type === "codeBlock") {
+    return { ...block, children: mapLineNodes(block.id, block.children, mapper) } as EditableBlock;
+  }
+  if (block.type === "listItem") {
+    return mapListItemLines(block, mapper);
+  }
+  if (block.type === "list") {
+    return mapListLines(block, mapper);
+  }
+  if (block.type === "layoutSection") {
+    return { ...block, children: block.children.map((child) => mapLayoutSectionChildLines(child, mapper)) };
+  }
+  if (block.type === "boxBlock") {
+    return mapBoxBlockLines(block, mapper);
+  }
+  if (block.type === "quote") {
+    return { ...block, blocks: block.blocks.map((child) => mapLayoutSectionChildLines(child, mapper)) } as EditableBlock;
+  }
+  return mapProblemLines(block, mapper);
+}
+
+/**
+ * `flattenBlockLines` と同じ順・同じ鍵で各行を訪ね、`mapper` の返したノード列に差し替えた
+ * **コピー**を返す。元のブロックは変えない (提案内容の表示専用のコピーを作るため)。
+ * 章の題 (`section.title`) は文字列で装飾を持てないので訪ねない。
+ */
+export function mapBlockLineNodes<Block extends EditableBlock>(block: Block, mapper: BlockLineNodesMapper): Block {
+  return mapEditableBlockLines(block, mapper) as Block;
+}
+
 function linePlainText(line: DiffLine): string {
   return inlineNodesToPlainText(line.nodes);
 }
@@ -181,13 +320,7 @@ export interface AppliedDiffChangedRow {
   segments: InlineDiffSegment[];
 }
 
-export interface AppliedDiffCollapsedRow {
-  type: "collapsed";
-  count: number;
-  rows: AppliedDiffContextRow[];
-}
-
-export type AppliedDiffRow = AppliedDiffContextRow | AppliedDiffChangedRow | AppliedDiffCollapsedRow;
+export type AppliedDiffRow = AppliedDiffContextRow | AppliedDiffChangedRow;
 
 function pushChangedLinePair(
   rows: AppliedDiffRow[],
@@ -213,39 +346,39 @@ function pushChangedLinePair(
   });
 }
 
-/** 削除前/追加後が同じブロックidを持つ「修正ペア」を、行単位で整列してGitHub風の行にする。 */
-function buildRowsForPair(
+/** 削除前/追加後の行の組。片方だけの行は、対応する行が無い (丸ごと消えた/足された) 行。 */
+export interface BlockLinePair {
+  removed?: DiffLine;
+  added?: DiffLine;
+}
+
+/**
+ * 削除前/追加後が同じブロックidを持つ「修正ペア」を、行単位で整列する。
+ *
+ * 行のLCSは読みやすい整列のためplain textで取る。隣り合う削除/追加の連続区間は、git風に
+ * 「入れ替わった行同士」として index 順に組にし、片方が余った分は片側だけの行にする。
+ */
+export function pairBlockLines(
   removedBlock: EditableBlock,
   addedBlock: EditableBlock,
-  t: Translate<"editor">,
-): AppliedDiffRow[] {
+  t: Translate<"editor"> = DEFAULT_EDITOR_TRANSLATE,
+): BlockLinePair[] {
   const removedLines = flattenBlockLines(removedBlock, t);
   const addedLines = flattenBlockLines(addedBlock, t);
   const ops = diffArrays(removedLines, addedLines, linePlainText);
 
-  const rows: AppliedDiffRow[] = [];
+  const pairs: BlockLinePair[] = [];
   let i = 0;
   while (i < ops.length) {
     const op = ops[i];
     if (op.type === "equal") {
-      const removedLine = op.a!;
-      const addedLine = op.b!;
-      // 行のLCSは読みやすい整列のためplain textで取るが、同じ文字列でも装飾だけが
-      // 変わることがある。contextと確定する前に、見た目の属性を含むinline差分を確認する。
-      const inlineDiff = diffInlineNodes(removedLine.nodes, addedLine.nodes);
-      if (inlineDiff.changed) {
-        pushChangedLinePair(rows, removedLine, addedLine, inlineDiff);
-      } else {
-        rows.push({ type: "context", key: removedLine.key, label: removedLine.label, nodes: removedLine.nodes });
-      }
+      pairs.push({ removed: op.a, added: op.b });
       i++;
       continue;
     }
 
-    // 隣り合う削除/追加の連続区間は、git風に「入れ替わった行同士」として index 順にペアリングし、
-    // 単語単位のハイライトを出す。片方が余った分はそのまま丸ごと削除/追加の行にする。
-    const removedRun: typeof removedLines = [];
-    const addedRun: typeof addedLines = [];
+    const removedRun: DiffLine[] = [];
+    const addedRun: DiffLine[] = [];
     while (i < ops.length && ops[i].type !== "equal") {
       if (ops[i].type === "remove") {
         removedRun.push(ops[i].a!);
@@ -257,69 +390,46 @@ function buildRowsForPair(
 
     const pairCount = Math.min(removedRun.length, addedRun.length);
     for (let k = 0; k < pairCount; k++) {
-      const removedLine = removedRun[k];
-      const addedLine = addedRun[k];
-      pushChangedLinePair(rows, removedLine, addedLine);
+      pairs.push({ removed: removedRun[k], added: addedRun[k] });
     }
     for (let k = pairCount; k < removedRun.length; k++) {
-      rows.push({
-        type: "removed",
-        key: removedRun[k].key,
-        label: removedRun[k].label,
-        segments: [{ changed: true, nodes: removedRun[k].nodes }],
-      });
+      pairs.push({ removed: removedRun[k] });
     }
     for (let k = pairCount; k < addedRun.length; k++) {
-      rows.push({
-        type: "added",
-        key: addedRun[k].key,
-        label: addedRun[k].label,
-        segments: [{ changed: true, nodes: addedRun[k].nodes }],
-      });
+      pairs.push({ added: addedRun[k] });
     }
   }
+  return pairs;
+}
 
+function buildRowsForPair(
+  removedBlock: EditableBlock,
+  addedBlock: EditableBlock,
+  t: Translate<"editor">,
+): AppliedDiffRow[] {
+  const rows: AppliedDiffRow[] = [];
+  for (const { removed, added } of pairBlockLines(removedBlock, addedBlock, t)) {
+    if (removed && added) {
+      // 同じ文字列でも装飾だけが変わることがある。contextと確定する前に、見た目の属性を
+      // 含むinline差分を確認する。
+      const inlineDiff = diffInlineNodes(removed.nodes, added.nodes);
+      if (inlineDiff.changed) {
+        pushChangedLinePair(rows, removed, added, inlineDiff);
+      } else {
+        rows.push({ type: "context", key: removed.key, label: removed.label, nodes: removed.nodes });
+      }
+    } else if (removed) {
+      rows.push({ type: "removed", key: removed.key, label: removed.label, segments: [{ changed: true, nodes: removed.nodes }] });
+    } else if (added) {
+      rows.push({ type: "added", key: added.key, label: added.label, segments: [{ changed: true, nodes: added.nodes }] });
+    }
+  }
   return rows;
 }
 
-// 5行以上連続したcontext行は間を折りたたむ(両端の1行ずつは見えたままにする) —
-// サイドバーの狭い幅で、変更の無いブロック全体を延々スクロールさせないため。
-const CONTEXT_COLLAPSE_THRESHOLD = 4;
-
-function collapseContextRuns(rows: AppliedDiffRow[]): AppliedDiffRow[] {
-  const result: AppliedDiffRow[] = [];
-  let i = 0;
-  while (i < rows.length) {
-    const row = rows[i];
-    if (row.type !== "context") {
-      result.push(row);
-      i++;
-      continue;
-    }
-    const run: AppliedDiffContextRow[] = [];
-    let j = i;
-    while (j < rows.length) {
-      const candidate = rows[j];
-      if (candidate.type !== "context") break;
-      run.push(candidate);
-      j++;
-    }
-    if (run.length > CONTEXT_COLLAPSE_THRESHOLD) {
-      const middle = run.slice(1, -1);
-      result.push(run[0]);
-      result.push({ type: "collapsed", count: middle.length, rows: middle });
-      result.push(run[run.length - 1]);
-    } else {
-      result.push(...run);
-    }
-    i = j;
-  }
-  return result;
-}
-
 /**
- * 適用済み/提案中のAI編集差分から、GitHub風の統一差分行を組み立てる。同じブロックidを
- * 持つ削除/追加は「修正ペア」として行単位で整列し、単語/数式レベルのハイライトを付ける。
+ * 適用済み/提案中のAI編集差分から、件数を数えるための行を組み立てる。同じブロックidを
+ * 持つ削除/追加は「修正ペア」として行単位で整列し、単語/数式レベルの差分を付ける。
  * ペアの中身が完全に一致する(移動やレイアウト変更だけの)場合は何も出さない。
  */
 export function buildAppliedDiffRows(
@@ -367,10 +477,10 @@ export function buildAppliedDiffRows(
     }
   }
 
-  return collapseContextRuns(rows);
+  return rows;
 }
 
-/** GitHubの +n/-n に相当する、行単位の実差分集計。context行(折りたたみ内も含む)は数えない。 */
+/** GitHubの +n/-n に相当する、行単位の実差分集計。context行は数えない。 */
 export function countAppliedDiffLines(rows: AppliedDiffRow[]): { added: number; removed: number } {
   let added = 0;
   let removed = 0;

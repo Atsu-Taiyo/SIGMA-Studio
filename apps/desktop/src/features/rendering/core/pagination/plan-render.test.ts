@@ -12,7 +12,7 @@ const geometry: PageGeometry = {
 function columns(count: number, rows: number): ProbeTree {
   return { units: [{
     id: "columns", rect: { top: 8, bottom: 10 + rows * 20, left: 20, width: 200 },
-    span: "column", breakBefore: false, attachments: [], objects: [], nodes: [],
+    span: "column", breakBefore: false, attachments: [], nodes: [],
     columns: Array.from({ length: count }, (_, index) => ({
       index, rect: { top: 10, bottom: 10 + rows * 20, left: 20 + index * 100, width: 90 },
       nodes: Array.from({ length: rows - index }, (_, row) => ({
@@ -57,7 +57,7 @@ describe("fragments split by a manual break inside a block", () => {
   // 引用の 2 行目と 3 行目の間に改ページ。印は y=62〜86、3 行目の子は y=96 から。
   const tree: ProbeTree = { units: [{
     id: "unit", rect: { top: 10, bottom: 130, left: 20, width: 200 },
-    span: "column", breakBefore: false, attachments: [], objects: [],
+    span: "column", breakBefore: false, attachments: [],
     nodes: [{
       id: "quote", rect: { top: 10, bottom: 130, left: 20, width: 200 },
       ink: [

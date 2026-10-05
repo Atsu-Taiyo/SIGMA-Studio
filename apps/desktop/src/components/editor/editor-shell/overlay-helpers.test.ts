@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   convertOverlayToWhiteboard,
   createOverlaySelectionCommentAnchor,
+  ensureOverlayAnchorOffsets,
   getSharedOverlayLineDash,
   getSharedOverlayLineSize,
 } from "@/components/editor/editor-shell/overlay-helpers";
@@ -135,6 +136,32 @@ describe("convertOverlayToWhiteboard", () => {
 
     expect(converted.content).toEqual([]);
     expect(converted.comments?.map((thread) => thread.id)).toEqual(["shape", "overlay_math"]);
+  });
+});
+
+describe("ensureOverlayAnchorOffsets", () => {
+  function withShapes(shapes: OverlayShape[]): SigmaDocument {
+    const base = ensurePageLayout(sampleDocument);
+    return {
+      ...base,
+      pageLayout: { ...base.pageLayout!, overlay: { overlaySnapshot: { version: 1, shapes, assets: {} } } },
+    };
+  }
+
+  it("leaves a preserved shape's anchor as saved while adding dx to the others (a page setting change is not refused)", () => {
+    // 「適用後だけ」で隠した図形に dx を足すと、変更口が人の編集としてページ設定の変更ごと断る。
+    const blockId = sampleDocument.content[0]!.id;
+    const hidden = rectangle("hidden", 40, 60, { type: "block", blockId, dy: 16 });
+    const plain = rectangle("plain", 40, 60, { type: "block", blockId, dy: 16 });
+
+    const next = ensureOverlayAnchorOffsets(withShapes([hidden, plain]), new Set(["hidden"]));
+    const shapes = next.pageLayout!.overlay!.overlaySnapshot!.shapes;
+
+    expect(shapes.find((shape) => shape.id === "hidden")?.anchor).toEqual(hidden.anchor);
+    expect(shapes.find((shape) => shape.id === "plain")?.anchor).toHaveProperty("dx");
+    // 守る図形しか足す先が無ければ、文書はそのまま。
+    const onlyHidden = withShapes([hidden]);
+    expect(ensureOverlayAnchorOffsets(onlyHidden, new Set(["hidden"]))).toBe(onlyHidden);
   });
 });
 

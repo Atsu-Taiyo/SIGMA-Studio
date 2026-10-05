@@ -31,6 +31,8 @@ export type {
 } from "@/features/drawing";
 import { countPerformanceEvent } from "@/lib/performance";
 
+import { isPickableAnchorBlock, isUndrawnElement, keepUndrawnBlock } from "../page-canvas/undrawn-blocks";
+
 const LINE_GROUP_TOLERANCE_PX = 2;
 const COLUMN_PROBE_TOLERANCE_PX = 0.5;
 /** Every element that carries block geometry a figure can be anchored to. */
@@ -141,17 +143,21 @@ export function pickBlockAnchor(
   shapeProbeX?: number,
   shapeX?: number,
 ): OverlayAnchor {
-  if (measuredBlocks.length === 0) {
+  // A block that is not drawn (folded away) is never a candidate, on any path — a new anchor, the
+  // re-anchor after a deletion, or the re-anchor on save (`undrawn-blocks.ts`): no figure is ever
+  // anchored to a block nobody can see.
+  const drawnBlocks = measuredBlocks.filter((block) => isPickableAnchorBlock(block));
+  if (drawnBlocks.length === 0) {
     return { type: "page" };
   }
 
   // An anchor is stored in the document, so it may only name a block the document has.
   // Editor-only placeholder blocks stay in the measurement (they paginate, and figures already
-  // anchored to them still resolve) but are not offered as a target. Falling back to the full
-  // set when that leaves nothing beats returning a page anchor: losing the block relationship
+  // anchored to them still resolve) but are not offered as a target. Falling back to every drawn
+  // block when that leaves nothing beats returning a page anchor: losing the block relationship
   // stops the figure following text reflow at all.
-  const documentBlocks = measuredBlocks.filter((block) => !block.derived);
-  const blocks = documentBlocks.length > 0 ? documentBlocks : measuredBlocks;
+  const documentBlocks = drawnBlocks.filter((block) => !block.derived);
+  const blocks = documentBlocks.length > 0 ? documentBlocks : drawnBlocks;
 
   const anchorColumns = getAnchorColumns(blocks);
   const shapeColumn = Number.isFinite(shapeProbeX)
@@ -259,10 +265,13 @@ export function pickAnchorBoundaryAtPoint(
     return undefined;
   }
 
-  const anchorColumns = getAnchorColumns(blocks);
+  // A rule is never snapped to a block that is not drawn (nothing is visible there).
+  const drawnBlocks = blocks.filter((block) => isPickableAnchorBlock(block));
+  const pool = drawnBlocks.length > 0 ? drawnBlocks : blocks;
+  const anchorColumns = getAnchorColumns(pool);
   const column = Number.isFinite(point.x) ? findColumnForProbeX(point.x, anchorColumns) : undefined;
-  const columnBlocks = column ? blocks.filter((block) => column.blockIds.has(block.id)) : [];
-  const candidates = columnBlocks.length > 0 ? columnBlocks : blocks;
+  const columnBlocks = column ? pool.filter((block) => column.blockIds.has(block.id)) : [];
+  const candidates = columnBlocks.length > 0 ? columnBlocks : pool;
 
   let best: AnchorBoundary | undefined;
   let bestDistance = Number.POSITIVE_INFINITY;
@@ -506,19 +515,30 @@ export function reanchorAfterDeletion<T extends Pick<OverlayShape, "y" | "anchor
   return { shapes: changed ? next : shapes, changed };
 }
 
+export interface OverlayBlockMeasurement {
+  tops: Map<string, number>;
+  rects: Map<string, MeasuredBlock>;
+  ordered: MeasuredBlock[];
+}
+
 /**
  * Measure block tops in overlay coordinates. `pageRectEl` is an element whose
  * bounding rect spans the overlay coordinate space (the overlay canvas / preview
  * layer), `scope` is the node to query for `[data-sigma-doc-id]` blocks, and
  * `coordHeight` is the unzoomed height that `pageRectEl` represents (one A4 page
  * for a single page, or the full document height for the continuous canvas).
+ *
+ * A block that is not drawn follows `undrawn-blocks.ts`, the same rule as the page canvas's
+ * `measureFlowBlocks`: its zero rect is never read; its geometry from `lastDrawn` (a previous
+ * measurement in the same overlay coordinates) is kept marked `undrawn`, or it is left out.
  */
 export function measureBlockTops(
   pageRectEl: Element,
   scope: ParentNode,
   coordHeight: number = A4_PAGE_PX.height,
   coordWidth: number = A4_PAGE_PX.width,
-): { tops: Map<string, number>; rects: Map<string, MeasuredBlock>; ordered: MeasuredBlock[] } {
+  lastDrawn?: ReadonlyMap<string, MeasuredBlock> | null,
+): OverlayBlockMeasurement {
   // 本文を全件歩く計測。page canvas 側の実測を使えている間はここに来ない。
   countPerformanceEvent("Overlay.measureBlockTops");
   const tops = new Map<string, number>();
@@ -540,6 +560,15 @@ export function measureBlockTops(
     }
     seen.add(id);
     const rect = el.getBoundingClientRect();
+    if (isUndrawnElement(el, rect)) {
+      const kept = keepUndrawnBlock(lastDrawn?.get(id));
+      if (kept) {
+        tops.set(id, kept.top);
+        rects.set(id, kept);
+        ordered.push(kept);
+      }
+      return;
+    }
     const top = (rect.top - pageRect.top) * scaleY;
     const left = (rect.left - pageRect.left) * scaleX;
     const containerId = findMeasurableContainerId(el, id);

@@ -1,7 +1,7 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
-import { AiProposalActions } from "./AiProposalActions";
+import { AiProposalActions, placeDismissReasonPopover } from "./AiProposalActions";
 import { AiProposalDecisionButton } from "./AiProposalDecisionButton";
 
 describe("AI proposal actions", () => {
@@ -37,5 +37,26 @@ describe("AI proposal actions", () => {
     expect(html).toContain('role="group"');
     expect(html).toContain('aria-expanded="false"');
     expect(html).not.toContain('aria-modal="true"');
+  });
+});
+
+describe("placeDismissReasonPopover", () => {
+  const viewport = { width: 1000, height: 800 };
+  const popover = { width: 240, height: 150 };
+
+  it("opens below the dismiss button, right-aligned to it", () => {
+    expect(placeDismissReasonPopover({ top: 100, bottom: 128, right: 600 }, popover, viewport))
+      .toEqual({ top: 136, left: 360 });
+  });
+
+  it("flips above the button when there is no room below", () => {
+    expect(placeDismissReasonPopover({ top: 700, bottom: 728, right: 600 }, popover, viewport))
+      .toEqual({ top: 542, left: 360 });
+  });
+
+  it("stays inside the viewport when neither side fits whole, and near the left edge", () => {
+    const tall = { width: 240, height: 760 };
+    expect(placeDismissReasonPopover({ top: 300, bottom: 328, right: 100 }, tall, viewport))
+      .toEqual({ top: 32, left: 8 });
   });
 });

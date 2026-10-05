@@ -4,7 +4,19 @@ import {
   resolveAiEditSessionOperationOrder,
   type AiEditSessionDraft,
 } from "@/lib/ai/sigma-doc-edit-schema";
-import { isOverlayAnchorSupportDraft } from "@/lib/ai/applied-document-diff";
+import {
+  collectMissingMergeUnitIds,
+  collectNonMergeableTargets,
+  findBlockContainer,
+  usableProposalMergeBasis,
+  type ProposalMergeBasis,
+} from "@/lib/ai/proposal-merge-basis";
+import { collectBlocksById } from "@/lib/document-tree";
+import {
+  ProposalMergeReplayError,
+  replayProposalDraftMerging,
+  type ProposalMergeReplayResult,
+} from "@/lib/ai/proposal-replay";
 import { computeDocumentBlockHashes } from "@/lib/sigma-doc-block-hash";
 import { type EditableBlock } from "@/lib/document-tree";
 import { normalizeOverlaySnapshot, type SigmaDocument } from "@/features/document";
@@ -24,7 +36,7 @@ export function canForceApplyProposalConflict(conflict: ProposalFreshnessConflic
 // テスト容易性のため、設定読み込み・現在revisionの取得ロジックからここを切り離してある。
 export function shouldAutoApplyProposal(params: {
   settingEnabled: boolean;
-  proposal: Pick<LocalMcpEditProposal, "status" | "verification" | "baseRevision" | "conflict">;
+  proposal: Pick<LocalMcpEditProposal, "status" | "verification" | "baseRevision" | "conflict" | "autoApplyDeferredAtRevision">;
   currentRevision: number;
 }): boolean {
   return (
@@ -32,7 +44,9 @@ export function shouldAutoApplyProposal(params: {
     params.proposal.status === "pending" &&
     params.proposal.verification?.validationOk === true &&
     params.proposal.baseRevision === params.currentRevision &&
-    !params.proposal.conflict
+    !params.proposal.conflict &&
+    // 合成が必要で自動承認を見送った提案は、文書が変わるまで再試行しない (毎回の合成を避ける)。
+    params.proposal.autoApplyDeferredAtRevision !== params.currentRevision
   );
 }
 
@@ -80,7 +94,8 @@ export function collectRequiredInsertAnchorBlockIds(draft: AiEditSessionDraft): 
       }
     }
     if (operation.operation === "insertAfter") {
-      createdIds.add(operation.insertedBlock.id);
+      // The inserted block's nested blocks (a problem's paragraphs...) are created too.
+      collectEditableBlockTreeIds(operation.insertedBlock).forEach((id) => createdIds.add(id));
     } else if (operation.operation === "insertTableShape") {
       createdIds.add(operation.tableShape.id);
     } else {
@@ -203,35 +218,13 @@ export function collectTouchedBlockIds(draft: AiEditSessionDraft): string[] {
  * 挿入アンカーの文章や依頼時の選択範囲が変わっただけでは競合にしない。アンカー削除や新規IDの
  * 重複は replay 自体が正確に検出する。moveBlocks / wrapBlocksInColumns も内容を保持するため、
  * 内容ハッシュの変化は競合理由にしない。
+ *
+ * base を持たない旧レコードの「合成できない対象」と同じ定義 (`collectNonMergeableTargets`)。紙面は
+ * 保留中にこれと同じ対象をロックする。
  */
 export function collectConflictSensitiveBlockIds(draft: AiEditSessionDraft): string[] {
-  const ids: string[] = [];
-  const push = (id: string): void => {
-    if (id.length > 0) {
-      ids.push(id);
-    }
-  };
-
-  for (const operation of draft.operations) {
-    if ((operation.operation === undefined || operation.operation === "replace")
-      && !isOverlayAnchorSupportDraft(operation, draft.operations)) {
-      push(operation.targetId);
-    }
-  }
-
-  for (const operation of draft.mutationOperations ?? []) {
-    if (operation.operation === "deleteBlocks") {
-      operation.blockIds.forEach(push);
-    } else if (operation.operation === "updateOverlayShape") {
-      push(operation.shapeId);
-    } else if (operation.operation === "alignOverlayShapes" || operation.operation === "deleteOverlayShapes") {
-      operation.shapeIds.forEach(push);
-    } else if (operation.operation === "updateLayoutSection") {
-      push(operation.sectionId);
-    }
-  }
-
-  return Array.from(new Set(ids));
+  const targets = collectNonMergeableTargets([{ draft }]);
+  return [...new Set([...targets.blockIds, ...targets.shapeIds])].filter((id) => id.length > 0);
 }
 
 /**
@@ -287,7 +280,7 @@ export function findRequestSelectionConflictIds(
  * フォールバックする。空配列 = 衝突なし (そのままreplay/自動追従してよい)。
  */
 export function findProposalFreshnessConflictIds(
-  proposal: Pick<LocalMcpEditProposal, "requestSelection" | "touchedBlocks" | "baseRevision" | "invalidReason"> & {
+  proposal: Pick<LocalMcpEditProposal, "requestSelection" | "touchedBlocks" | "baseRevision" | "invalidReason" | "mergeBasis"> & {
     draft?: AiEditSessionDraft;
   },
   currentHashes: Record<string, string>,
@@ -303,7 +296,7 @@ export function findProposalFreshnessConflictIds(
 }
 
 export function findProposalFreshnessConflict(
-  proposal: Pick<LocalMcpEditProposal, "requestSelection" | "touchedBlocks" | "baseRevision" | "invalidReason"> & {
+  proposal: Pick<LocalMcpEditProposal, "requestSelection" | "touchedBlocks" | "baseRevision" | "invalidReason" | "mergeBasis"> & {
     draft?: AiEditSessionDraft;
   },
   currentHashes: Record<string, string>,
@@ -312,6 +305,20 @@ export function findProposalFreshnessConflict(
 ): ProposalFreshnessConflict | null {
   if (proposal.invalidReason) {
     return { blockIds: [], reason: "replay-failed" };
+  }
+  // base (mergeBasis) を持つ提案は、上書き対象が変わっていても三者マージで人間の編集を残して
+  // 追従できる。内容ハッシュ (content-stale)・アンカー消失・asset ID衝突のうち、合成replayが
+  // 解決できるものは競合にせず、解決できないもの (対象の消失・ID占有・合成後もAI側も検証不能)
+  // だけを返す。旧レコードは下の従来判定のまま。
+  const mergeBasis = usableProposalMergeBasis(proposal.mergeBasis);
+  if (mergeBasis && proposal.draft) {
+    const mergeable = { draft: proposal.draft, mergeBasis, touchedBlocks: proposal.touchedBlocks };
+    if (!currentDocument) {
+      return findNonMergeableContentStale(mergeable, currentHashes)
+        ?? findMissingMergeUnits(mergeable, currentHashes);
+    }
+    const replay = replayMergeableProposal(mergeable, currentDocument, currentHashes);
+    return replay.ok ? null : replay.conflict;
   }
   // 部分段組みだけの提案は本文内容を変更しない。選択箇所の文章が変わっていても、現在の
   // 開始〜終了範囲を包めれば安全なので、内容ハッシュでは競合にしない。アンカー削除・移動などの
@@ -392,6 +399,179 @@ export function findProposalFreshnessConflict(
       : null;
   }
   return null;
+}
+
+export type MergeableProposalReplay =
+  | { ok: true; result: ProposalMergeReplayResult }
+  | { ok: false; conflict: ProposalFreshnessConflict };
+
+/** A proposal that carries a merge basis, with what the freshness rules read from it. */
+export interface MergeableProposal {
+  draft: AiEditSessionDraft;
+  mergeBasis: ProposalMergeBasis;
+  touchedBlocks?: LocalMcpEditProposalTouchedBlock[];
+}
+
+/**
+ * Overwritten targets the merging replay cannot merge (`collectNonMergeableTargets`, the same rule the
+ * editor locks while the proposal is pending): a human change to one is a content conflict, compared
+ * with the base hashes, instead of being overwritten by the replay.
+ */
+function findNonMergeableContentStale(
+  proposal: MergeableProposal,
+  currentHashes: Record<string, string>,
+  currentDocument?: SigmaDocument,
+): ProposalFreshnessConflict | null {
+  const shapes = currentDocument ? normalizeOverlaySnapshot(currentDocument.pageLayout?.overlay?.overlaySnapshot).shapes : [];
+  const targets = collectNonMergeableTargets([proposal], [], shapes);
+  const ids = new Set([...targets.blockIds, ...targets.shapeIds]);
+  const conflictIds = ids.size > 0
+    ? findConflictingBlockIds((proposal.touchedBlocks ?? []).filter((touched) => ids.has(touched.id)), currentHashes)
+    : [];
+  return conflictIds.length > 0 ? { blockIds: conflictIds, reason: "content-stale" } : null;
+}
+
+/**
+ * Looks ids up in the document tree the way the AI tools resolve targets (`findBlock` walks into
+ * quotes, which the block hashes skip) and among the overlay shapes. Existence must not be read
+ * from the hashes: a paragraph inside a quote has no hash but is there.
+ */
+function indexDocumentIds(document: SigmaDocument): (id: string) => unknown {
+  const blocks = collectBlocksById(document.content);
+  const shapes = new Map(normalizeOverlaySnapshot(document.pageLayout?.overlay?.overlaySnapshot).shapes
+    .map((shape) => [shape.id, shape]));
+  return (id) => blocks.get(id) ?? shapes.get(id);
+}
+
+/**
+ * Merged units the human deleted (`collectMissingMergeUnitIds`, the rule WebMCP's draft replay reads
+ * too). A unit the draft itself deletes is not missing: both sides want it gone.
+ */
+function findMissingMergeUnits(
+  proposal: Pick<MergeableProposal, "draft" | "mergeBasis">,
+  currentHashes: Record<string, string>,
+  currentDocument?: SigmaDocument,
+): ProposalFreshnessConflict | null {
+  const lookup = currentDocument ? indexDocumentIds(currentDocument) : (id: string) => currentHashes[id];
+  const missingIds = collectMissingMergeUnitIds(proposal.draft, proposal.mergeBasis, (id) => lookup(id) !== undefined);
+  return missingIds.length > 0 ? { blockIds: missingIds, reason: "anchor-missing" } : null;
+}
+
+/**
+ * A short signature of the current contents of everything a merge-capable proposal depends on
+ * (its merged units, every id the draft touches, and `extraIds` such as a conflict's targets).
+ * While it is unchanged, re-evaluating the proposal after a save would reach the same answer, so a
+ * recorded conflict or a deferred automatic approval is kept as it is without replaying.
+ */
+export function computeMergeAttentionSignature(
+  proposal: Pick<MergeableProposal, "draft"> & { mergeBasis?: ProposalMergeBasis },
+  extraIds: readonly string[],
+  currentHashes: Record<string, string>,
+  currentDocument?: SigmaDocument,
+): string {
+  const ids = [...new Set([
+    ...Object.keys(proposal.mergeBasis?.entities ?? {}),
+    ...collectTouchedBlockIds(proposal.draft),
+    ...extraIds,
+  ])].sort();
+  // Blocks the hashes skip (inside quotes) are fingerprinted from the document itself.
+  const lookup = currentDocument ? indexDocumentIds(currentDocument) : () => undefined;
+  return hashString(ids.map((id) => {
+    const value = currentHashes[id] ?? lookup(id);
+    return `${id}=${value === undefined ? "-" : typeof value === "string" ? value : hashString(JSON.stringify(value))}`;
+  }).join("\n"));
+}
+
+/** cyrb53: a fast 53-bit string hash (not cryptographic; collisions only cost a re-evaluation). */
+function hashString(value: string): string {
+  let h1 = 0xdeadbeef;
+  let h2 = 0x41c6ce57;
+  for (let index = 0; index < value.length; index += 1) {
+    const code = value.charCodeAt(index);
+    h1 = Math.imul(h1 ^ code, 2654435761);
+    h2 = Math.imul(h2 ^ code, 1597334677);
+  }
+  h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507) ^ Math.imul(h2 ^ (h2 >>> 13), 3266489909);
+  h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909);
+  return (4294967296 * (2097151 & h2) + (h1 >>> 0)).toString(36);
+}
+
+/**
+ * The checks a save can afford without replaying (MISS: post-save runs on every autosave): a
+ * non-merged target the human changed (content-stale), a merged unit or an insertion anchor the
+ * human deleted that cannot be re-anchored (anchor-missing), and an inserted id that is now taken
+ * (replay-failed). A proposal that passes them may still fail the full merge at approval, which then
+ * reports its own conflict.
+ */
+export function findMergeableProposalStructuralConflict(
+  proposal: MergeableProposal,
+  currentHashes: Record<string, string>,
+  currentDocument: SigmaDocument,
+): ProposalFreshnessConflict | null {
+  const contentStale = findNonMergeableContentStale(proposal, currentHashes, currentDocument);
+  if (contentStale) {
+    return contentStale;
+  }
+  const missingUnits = findMissingMergeUnits(proposal, currentHashes, currentDocument);
+  if (missingUnits) {
+    return missingUnits;
+  }
+  const lookup = indexDocumentIds(currentDocument);
+  const insertAfterTargets = new Set(proposal.draft.operations.flatMap((operation) => (
+    operation.operation === "insertAfter" ? [operation.targetId] : []
+  )));
+  const missingAnchors = collectRequiredInsertAnchorBlockIds(proposal.draft).filter((id) => {
+    if (id === WHITEBOARD_CANVAS_TARGET_ID || lookup(id) !== undefined) {
+      return false;
+    }
+    const anchor = proposal.mergeBasis.anchors?.[id];
+    return !(insertAfterTargets.has(id) && anchor?.precedingIds.some((precedingId) => (
+      lookup(precedingId) !== undefined && findBlockContainer(currentDocument, precedingId) === anchor.container
+    )));
+  });
+  if (missingAnchors.length > 0) {
+    return { blockIds: missingAnchors, reason: "anchor-missing" };
+  }
+  const occupiedIds = collectOccupiedInsertIds(proposal.draft, currentHashes);
+  return occupiedIds.length > 0 ? { blockIds: occupiedIds, reason: "replay-failed" } : null;
+}
+
+/** The whiteboard insertion target: never a block or shape id, validated by the replay itself. */
+const WHITEBOARD_CANVAS_TARGET_ID = "CANVAS";
+
+/**
+ * base (mergeBasis) を持つ提案を現在の文書へ合成replayする。解決できない場合は、その理由を
+ * 従来と同じ競合の種類で返す: 合成の対象外の操作 (図形の整列・部分段組みの設定) が上書きする
+ * 対象を人間が変えていれば content-stale (`allowContentStale` で無視して合成できる)、対象・
+ * アンカーの消失は anchor-missing、挿入IDの占有や合成後の検証失敗 (AI側の採用でも解決できない
+ * もの) は replay-failed。
+ */
+export function replayMergeableProposal(
+  proposal: MergeableProposal,
+  currentDocument: SigmaDocument,
+  currentHashes: Record<string, string> = computeDocumentBlockHashes(currentDocument),
+  options: { allowContentStale?: boolean } = {},
+): MergeableProposalReplay {
+  const contentStale = options.allowContentStale ? null : findNonMergeableContentStale(proposal, currentHashes, currentDocument);
+  if (contentStale) {
+    return { ok: false, conflict: contentStale };
+  }
+  try {
+    return { ok: true, result: replayProposalDraftMerging(currentDocument, proposal.draft, proposal.mergeBasis) };
+  } catch (error) {
+    if (error instanceof ProposalMergeReplayError) {
+      return { ok: false, conflict: { blockIds: error.ids, reason: error.reason } };
+    }
+    const missing = classifyProposalReplayFailure(proposal, currentDocument);
+    if (missing.reason === "anchor-missing") {
+      return { ok: false, conflict: missing };
+    }
+    const occupiedIds = collectOccupiedInsertIds(proposal.draft, currentHashes);
+    return {
+      ok: false,
+      conflict: occupiedIds.length > 0 ? { blockIds: occupiedIds, reason: "replay-failed" } : missing,
+    };
+  }
 }
 
 export function classifyProposalReplayFailure(

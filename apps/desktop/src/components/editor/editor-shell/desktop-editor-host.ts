@@ -1,6 +1,6 @@
 "use client";
 import type { EditorHostServices } from "./editor-host-contracts";
-import { EMPTY_AI_LOCKED_TARGETS, AiEditorHost, AI_REFERENCE_TEXT_RANGE_EVENT, aiDocumentWriteInProgressMessage, AiPageCanvasEditor, buildAppliedTurnChangesByTurnId, buildInsertedShapePreviewsByTurnId, buildRestorableProposalsByTurnId, buildSourceReferencesByTurnId, deriveAiProposalPresentation, deriveAiReferenceRequestPlan, deriveAiRunStartTransition, describeAiLockedTargets, findAiLockedTargetsTouched, groupMcpProposalsForPreview, hasAiLockedTargetsTouched, isAiLockedBlock, isAiLockedShapeSelection, useAiLockedTargets, useAiPinnedReferences, useAiPendingAttachments, useAiWorkspaceTabTitles, useAiProposalActions, useCommentAiRun } from "@/features/ai-edit";
+import { EMPTY_AI_LOCKED_TARGETS, AiEditorHost, AI_REFERENCE_TEXT_RANGE_EVENT, aiDocumentWriteInProgressMessage, AiPageCanvasEditor, buildAppliedTurnChangesByTurnId, buildInsertedShapePreviewsByTurnId, buildRestorableProposalsByTurnId, buildSourceReferencesByTurnId, deriveAiProposalPresentation, deriveAiReferenceRequestPlan, deriveAiRunStartTransition, describeAiLockedTargets, findAiLockedTargetsTouched, groupMcpProposalsForPreview, hasAiLockedTargetsTouched, isAiLockedBlock, isAiLockedShapeSelection, useAiLockedTargets, withAiResultOnlyTargets, aiLockedTargetsForOrigin, useAiPinnedReferences, useAiPendingAttachments, useAiWorkspaceTabTitles, useAiProposalActions, useCommentAiRun } from "@/features/ai-edit";
 import { AiEditPanel } from "@/components/editor/AiEditPanel";
 import { AiTaskDock } from "@/components/editor/AiTaskDock";
 import { AiSettingsDialog } from "@/components/editor/AiSettingsDialog";
@@ -39,6 +39,8 @@ export const DESKTOP_EDITOR_HOST: EditorHostServices = {
     isAiLockedBlock,
     isAiLockedShapeSelection,
     useAiLockedTargets,
+    withAiResultOnlyTargets,
+    aiLockedTargetsForOrigin,
     useAiPinnedReferences,
     useAiPendingAttachments,
     useAiWorkspaceTabTitles,

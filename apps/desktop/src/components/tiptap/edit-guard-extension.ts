@@ -57,6 +57,20 @@ export interface TextFlowEditGuard {
   action?: TextFlowEditGuardAction;
 }
 
+/**
+ * Two features guarding the same block: the later guard is used (its message, highlight and action),
+ * but a fragment reservation never weakens a whole-block guard. The editing surface and the commit
+ * choke point must refuse the same edits; if a partial guard replaced a whole one, the surface would
+ * let through a change the commit point then refuses, and the screen and the document would differ.
+ */
+export function combineTextFlowEditGuards(earlier: TextFlowEditGuard, later: TextFlowEditGuard): TextFlowEditGuard {
+  const reservesFragmentsOnly = (guard: TextFlowEditGuard) => (guard.contentReservations?.length ?? 0) > 0;
+  if (reservesFragmentsOnly(later) && !reservesFragmentsOnly(earlier)) {
+    return { ...later, contentReservations: undefined };
+  }
+  return later;
+}
+
 export interface TextFlowEditPolicy {
   guards: readonly TextFlowEditGuard[];
   /** Applies a read-only guard to every block rendered by this editor. */

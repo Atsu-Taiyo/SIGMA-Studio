@@ -23,6 +23,7 @@ import {
   type OverlaySolidEdgeSelection
 } from "../page-overlay-types";
 import { getAllSelectableShapeIds, getShapeIdsAnchoredToBlocks } from "./anchored-shape-selection";
+import { isOverlayShapeUnselectable } from "./edit-policy";
 import {
   getSelectedShapesInStackOrder,
   getShapeSelectionIds,
@@ -39,6 +40,7 @@ import {
 import {
   reanchorShapesByPosition
 } from "./reanchor-model";
+import type { ApplyPastedOverlayShapesOptions } from "./paste-shapes";
 import { readRememberedShapeStyle } from "./remembered-shape-style";
 import { type OverlayArrangeAction } from "./reorder-shapes";
 import { getStyleTargetIds } from "./selection-command-model";
@@ -66,10 +68,12 @@ interface Dependencies {
   setSelectedShapesHidden: (hidden: boolean) => void;
   setPreview: Dispatch<SetStateAction<{ style: OverlaySelectionStylePatch; targetIds: Set<string>; } | null>>;
   editPolicyLockedShapeIdsRef: RefObject<ReadonlySet<string>>;
+  /** 選べない図形 (`OverlayEditPolicy.unselectableShapeIds`)。指名された図形でも選ばない。 */
+  editPolicyUnselectableShapeIdsRef?: RefObject<ReadonlySet<string> | undefined>;
   solidEdgeRef: RefObject<OverlaySolidEdgeSelection | null>;
   learnShapeStyleDefaults: (next: OverlayShapeStyleDefaults) => void;
   applyStyleToSelectedShapes: (style: OverlaySelectionStylePatch) => void;
-  applyPastedOverlayShapes: (payload: Extract<EditorClipboardPayload, { kind: "overlayShapes"; }>, options?: { anchorBlockIdMap?: Record<string, string>; historyGroup?: string; }) => boolean;
+  applyPastedOverlayShapes: (payload: Extract<EditorClipboardPayload, { kind: "overlayShapes"; }>, options?: ApplyPastedOverlayShapesOptions) => boolean;
   setFocusedGroupId: Dispatch<SetStateAction<string | null>>;
   setSelectedShapeIds: (ids: OverlayShapeId[]) => void;
   refreshAnchorMeasurements: () => AnchorMeasurements;
@@ -107,6 +111,7 @@ export function useOverlayExternalRequests({
   setSelectedShapesHidden,
   setPreview,
   editPolicyLockedShapeIdsRef,
+  editPolicyUnselectableShapeIdsRef,
   solidEdgeRef,
   learnShapeStyleDefaults,
   applyStyleToSelectedShapes,
@@ -177,6 +182,8 @@ export function useOverlayExternalRequests({
       applyPastedOverlayShapes(request.payload, {
         anchorBlockIdMap: request.anchorBlockIdMap,
         historyGroup: request.historyGroup,
+        centerAt: request.centerAt,
+        unbounded: request.unbounded,
       });
     } else if (request.type === "selectShapesForBlocks") {
       // フォーカスは本文に残したまま選択だけ立てる。`focusOverlayCanvas` を呼ぶと本文の
@@ -245,7 +252,8 @@ export function useOverlayExternalRequests({
       ? shapesRef.current.find((item) => (
         item.id === request.targetShapeId &&
         !isOverlayGroupShape(item) &&
-        !isShapeHiddenInTree(shapesRef.current, item)
+        !isShapeHiddenInTree(shapesRef.current, item) &&
+        !isOverlayShapeUnselectable(item.id, editPolicyUnselectableShapeIdsRef?.current)
       ))
       : undefined;
     const shape = requestedShape ?? getShapeAtPoint(request.point, 8) ?? getOpenStrokeShapeAtPoint(request.point);
@@ -299,7 +307,7 @@ export function useOverlayExternalRequests({
       transitionMode({ type: "select" });
       onSelectPointHandled(request.id, false);
     }
-  }, [handledSelectPointRequestIdRef, shapesRef, getShapeAtPoint, getOpenStrokeShapeAtPoint, focusOverlayCanvas, transitionMode, onSelectPointHandled, activeTextEditorRef, selectShape, editPolicyLockedShapeIdsRef, focusedGroupIdRef, refreshAnchorMeasurements, setSelectedShapeIds, setShapes, queueOverlaySave, documentId]);
+  }, [handledSelectPointRequestIdRef, shapesRef, getShapeAtPoint, getOpenStrokeShapeAtPoint, focusOverlayCanvas, transitionMode, onSelectPointHandled, activeTextEditorRef, selectShape, editPolicyLockedShapeIdsRef, editPolicyUnselectableShapeIdsRef, focusedGroupIdRef, refreshAnchorMeasurements, setSelectedShapeIds, setShapes, queueOverlaySave, documentId]);
 
   useEffect(() => {
     if (selectPointRequest) {

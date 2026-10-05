@@ -44,13 +44,12 @@
 .account {
   position: relative;
   display: inline-flex;
-  /* Pro is the one place the monochrome UI takes colour: polished gold, on the
-     avatar ring and the badge only. */
-  --pro-gold-deep: #8a6212;
-  --pro-gold: #c9a13b;
-  --pro-gold-light: #f2dc92;
-  --pro-gold-shine: #fff7d6;
-  --pro-gold-ink: #2b1d03;
+  /* Pro is the one place the monochrome UI takes colour: plain yellow, on the
+     avatar ring and the badge only. Flat fills, no metallic shine. */
+  --pro-yellow: #facc15;
+  --pro-yellow-soft: #fef6c7;
+  --pro-yellow-line: rgb(161 98 7 / 0.28);
+  --pro-yellow-ink: #854d0e;
 }
 .accountControl {
   position: relative;
@@ -90,18 +89,7 @@
 .accountButtonPro {
   margin: -3px;
   padding: 3px;
-  background: conic-gradient(
-    from 200deg,
-    var(--pro-gold-deep),
-    var(--pro-gold-light) 14%,
-    var(--pro-gold-shine) 24%,
-    var(--pro-gold) 40%,
-    var(--pro-gold-deep) 58%,
-    var(--pro-gold-light) 78%,
-    var(--pro-gold-shine) 88%,
-    var(--pro-gold-deep)
-  );
-  box-shadow: 0 0 0 1px rgb(138 98 18 / 0.35), 0 2px 6px rgb(138 98 18 / 0.3);
+  background: var(--pro-yellow);
 }
 .accountButtonPro .avatar {
   border-width: 2px;
@@ -115,7 +103,6 @@
   padding: 0 5px;
   border: 1.5px solid var(--background);
   font-size: 9px;
-  font-weight: 800;
   line-height: 12px;
   pointer-events: none;
 }
@@ -125,17 +112,16 @@
   flex: 0 0 auto;
   align-items: center;
   border-radius: var(--radius-round);
-  background: linear-gradient(135deg, var(--pro-gold-light), var(--pro-gold) 55%, var(--pro-gold-deep));
-  color: var(--pro-gold-ink);
-  letter-spacing: 0.06em;
-  text-shadow: 0 1px 0 rgb(255 255 255 / 0.45);
+  background: var(--pro-yellow-soft);
+  color: var(--pro-yellow-ink);
+  font-weight: 600;
+  letter-spacing: 0.04em;
   white-space: nowrap;
 }
 .accountMenu .accountMenuProBadge {
   padding: 0 6px;
-  border: 1px solid rgb(138 98 18 / 0.5);
+  border: 1px solid var(--pro-yellow-line);
   font-size: 10px;
-  font-weight: 700;
   line-height: 16px;
 }
 .accountMenu {
