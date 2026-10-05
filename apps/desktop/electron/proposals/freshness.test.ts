@@ -953,6 +953,23 @@ describe("merge-capable proposals with operations the merge does not cover", () 
     expect(findProposalFreshnessConflict(proposal, computeDocumentBlockHashes(current), 2, current))
       .toEqual({ blockIds: ["shape_1"], reason: "content-stale" });
   });
+
+  it("reports content-stale for a replaced block the basis has no snapshot of, instead of overwriting the human's edit", () => {
+    const base = paragraphDocument(["p_1", "p_2"]);
+    const draft = replaceParagraphDraft("p_1", "AI");
+    const proposal = {
+      baseRevision: 1,
+      draft,
+      touchedBlocks: computeTouchedBlocks(draft, base),
+      mergeBasis: { version: 1 as const, entities: {} },
+    };
+    const current = replayProposalDraft(base, replaceParagraphDraft("p_1", "p_1 human")).nextDocument;
+
+    expect(findProposalFreshnessConflict(proposal, computeDocumentBlockHashes(current), 2, current))
+      .toEqual({ blockIds: ["p_1"], reason: "content-stale" });
+    // Nobody edited it: the plain replay applies as before.
+    expect(findProposalFreshnessConflict(proposal, computeDocumentBlockHashes(base), 2, base)).toBeNull();
+  });
 });
 
 describe("shouldAutoApplyProposal after an automatic approval was deferred", () => {
