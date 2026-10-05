@@ -9,6 +9,7 @@
     "examples/editor-react18"
   ],
   "scripts": {
+    "postinstall": "node scripts/patch-http-cache-semantics.mjs",
     "dev": "npm --workspace @sigma-studio/desktop run dev",
     "build": "npm --workspace @sigma-studio/desktop run build",
     "start": "npm --workspace @sigma-studio/desktop run start",
@@ -47,9 +48,16 @@
     "collaboration:desktop": "node --env-file=.env.collaboration.local scripts/collaboration-desktop.mjs",
     "collaboration:benchmark": "node scripts/collaboration-benchmark.mjs",
     "dependencies:check": "node scripts/check-desktop-dependencies.mjs",
-    "security:audit": "npm audit --audit-level=high"
+    "security:audit": "node --test scripts/dependency-security.test.mjs && npm audit --audit-level=high"
+  },
+  "devDependencies": {
+    "@next/eslint-plugin-next": "16.3.8"
   },
   "overrides": {
-    "postcss": "^8.5.28"
+    "postcss": "^8.5.28",
+    "http-cache-semantics": "4.3.0",
+    "@next/eslint-plugin-next@16.3.8": {
+      "fast-glob": "npm:tinyglobby@0.2.17"
+    }
   }
 }
