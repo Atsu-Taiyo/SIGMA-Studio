@@ -321,15 +321,16 @@ describe("resolveProposalMergePreview follows the approval's batch rules", () =>
 });
 
 describe("resolveProposalMergePreview counts its fallbacks (MISS R3)", () => {
-  function conflicting() {
+  // 数え済みの退避は提案の id ごとに覚えるので、テストごとに別の提案にする。
+  function conflicting(proposalId: string) {
     const base = documentOf([paragraph("p_1", BASE_TEXT), paragraph("p_2", "残す")]);
     const draft = replaceDraft("p_1", AI_TEXT);
-    const preview = previewFor(summaryOf(draft, { mergeBasis: computeProposalMergeBasis(draft, base) }));
+    const preview = previewFor(summaryOf(draft, { proposalId, mergeBasis: computeProposalMergeBasis(draft, base) }));
     return { preview, current: deleteBlocksFromDocument(base, ["p_1"]) };
   }
 
   it("counts a preview that could not use the merging replay and one that shows nothing", () => {
-    const { preview, current } = conflicting();
+    const { preview, current } = conflicting("proposal_counts_both");
     const counted: string[] = [];
 
     resolveProposalMergePreview(current, preview, { count: (name) => counted.push(name) });
@@ -338,7 +339,7 @@ describe("resolveProposalMergePreview counts its fallbacks (MISS R3)", () => {
   });
 
   it("counts a proposal entering the fallback state once, not again while it stays there", () => {
-    const { preview, current } = conflicting();
+    const { preview, current } = conflicting("proposal_enters_once");
     const counted: string[] = [];
     const count = (name: string) => counted.push(name);
 
@@ -357,6 +358,37 @@ describe("resolveProposalMergePreview counts its fallbacks (MISS R3)", () => {
     ]);
   });
 
+  it("does not count the same fallback again when the proposal list is fetched again (new preview objects)", () => {
+    const base = documentOf([paragraph("p_1", BASE_TEXT), paragraph("p_2", "残す")]);
+    const draft = replaceDraft("p_1", AI_TEXT);
+    const summary = summaryOf(draft, { proposalId: "proposal_refetched", mergeBasis: computeProposalMergeBasis(draft, base) });
+    const current = deleteBlocksFromDocument(base, ["p_1"]);
+    const counted: string[] = [];
+    const count = (name: string) => counted.push(name);
+
+    resolveProposalMergePreview(current, previewFor(summary), { count });
+    // 自動保存のあとなどで一覧を取り直すと、同じ提案のプレビューが新しいオブジェクトで届く。
+    resolveProposalMergePreview(current, previewFor(summary), { count });
+
+    expect(counted).toEqual([AI_PROPOSAL_PREVIEW_COUNTERS.fallback, AI_PROPOSAL_PREVIEW_COUNTERS.noPreview]);
+  });
+
+  it("still counts a fallback first observed while counting was off (approval in progress, removal animation)", () => {
+    const base = documentOf([paragraph("p_1", BASE_TEXT), paragraph("p_2", "残す")]);
+    const draft = replaceDraft("p_1", AI_TEXT);
+    const preview = previewFor(summaryOf(draft, { proposalId: "proposal_observed_quietly", mergeBasis: computeProposalMergeBasis(draft, base) }));
+    const current = deleteBlocksFromDocument(base, ["p_1"]);
+    const counted: string[] = [];
+    const count = (name: string) => counted.push(name);
+
+    resolveProposalMergePreview(current, preview, { countFallbacks: false, count });
+    expect(counted).toEqual([]);
+    resolveProposalMergePreview(current, preview, { count });
+    resolveProposalMergePreview(current, preview, { count });
+
+    expect(counted).toEqual([AI_PROPOSAL_PREVIEW_COUNTERS.fallback, AI_PROPOSAL_PREVIEW_COUNTERS.noPreview]);
+  });
+
   it("counts nothing for a proposal that merges or applies normally", () => {
     const base = documentOf([paragraph("p_1", BASE_TEXT), paragraph("p_2", "別の段落")]);
     const draft = replaceDraft("p_1", AI_TEXT);
@@ -369,7 +401,7 @@ describe("resolveProposalMergePreview counts its fallbacks (MISS R3)", () => {
   });
 
   it("does not count while an approval is replacing the document (the old proposals are drawn over the result)", () => {
-    const { preview, current } = conflicting();
+    const { preview, current } = conflicting("proposal_while_applying");
     const counted: string[] = [];
 
     resolveProposalMergePreview(current, preview, { countFallbacks: false, count: (name) => counted.push(name) });
