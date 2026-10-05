@@ -120,6 +120,7 @@ async function mount(overrides: Partial<AiProposalActionsDependencies> = {}) {
   const status = vi.fn<AiProposalActionsDependencies["setStatusMessage"]>((message) => { events.push(`status:${String(message)}`); });
   const deps: AiProposalActionsDependencies = {
     document: originalDocument,
+    getDocument: () => deps.document,
     activeFileId: "file", activeDocumentRevision: 1, activeFileIdRef: { current: "file" },
     selectedIdRef: { current: "paragraph" }, lastSyncedDocumentRef,
     metadataByFileId: new Map([["file", metadata(1)]]),
@@ -374,6 +375,33 @@ describe("AI proposal action controller", () => {
     const untouched = await mount({ aiEditPreviewGroups: [deletion()], document: documentWithText("AIが見た本文") });
     await act(async () => { track(untouched.read().applyAiEditPreviewGroup(["proposal"])); });
     expect(untouched.read().aiApplyAnimation?.removingBlockIds).toEqual(["paragraph"]);
+  });
+
+  it("reads the shape removals after flushing a just-made overlay edit (the 250ms debounce)", async () => {
+    vi.useFakeTimers();
+    const shape = { id: "shape_1", type: "geo", x: 10, y: 10, props: { w: 40, h: 20, geo: "rectangle", fill: "none", color: "#111111", labelColor: "#111111", dash: "solid", size: "m" } };
+    const withShape = (x: number): SigmaDocument => ({
+      ...documentWithText("変更前"),
+      pageLayout: { overlay: { overlaySnapshot: { version: 1, shapes: [{ ...shape, x }], assets: {} } } },
+    } as unknown as SigmaDocument);
+    const group = preview();
+    group.draft.mutationOperations = [{ operation: "deleteOverlayShapes", summary: "削除", shapeIds: ["shape_1"] }];
+    group.mergeSources = [{
+      proposalId: "proposal", createdAt: "2026-09-09T00:00:00Z", draft: group.draft,
+      mergeBasis: { version: 1, entities: { shape_1: { kind: "shape", value: structuredClone(shape) as never } } },
+    }];
+    // 人が図形を動かした直後 (まだ文書に入っていない) に適用を押した。flush で動かした図形が文書に入る。
+    let current = withShape(10);
+    const h = await mount({
+      document: current,
+      getDocument: () => current,
+      flushOverlayChanges: () => { current = withShape(80); },
+      aiEditPreviewGroups: [group],
+    });
+
+    await act(async () => { track(h.read().applyAiEditPreviewGroup(["proposal"])); });
+
+    expect(h.read().aiApplyAnimation?.removingShapeIds ?? []).toEqual([]);
   });
 
   it("holds removal feedback until approval and cleans the added-content flash timer on unmount", async () => {

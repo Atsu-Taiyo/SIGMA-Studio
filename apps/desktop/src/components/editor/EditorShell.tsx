@@ -3494,6 +3494,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
     revertAppliedProposals,
   } = useAiProposalActions({
     document,
+    getDocument: getCurrentSessionDocument,
     activeFileId,
     activeDocumentRevision,
     activeFileIdRef,

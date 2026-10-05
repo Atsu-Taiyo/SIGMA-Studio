@@ -396,7 +396,11 @@ function buildPendingHunks(
     if (!op || isOverlaySigmaDocMutationOp(op)) {
       continue;
     }
-    const targetId = primarySigmaDocMutationOpTargetId(op);
+    // 複数ブロックの削除は、今も文書にある最初の対象に置く。先頭の対象を人が消していても、残りの
+    // 対象が消えることを見せる (保留中の対象はロックしないので、先頭だけが消えていることがある)。
+    const targetId = op.operation === "deleteBlocks"
+      ? op.blockIds.find((blockId) => currentBlocks.has(blockId)) ?? op.blockIds[0]
+      : primarySigmaDocMutationOpTargetId(op);
     if (!targetId) {
       continue;
     }
