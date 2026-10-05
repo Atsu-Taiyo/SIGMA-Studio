@@ -20,6 +20,7 @@ import {
   buildAppliedProposalContent,
   buildPendingProposalContent,
   collectPendingRemovedBlockIds,
+  collectProposalRemovals,
   collectShapesKeptByMerge,
   groupPendingProposalContentByAnchor,
   isProposalContentEmpty,
@@ -547,6 +548,27 @@ describe("shapes a pending proposal deletes but the merge keeps", () => {
     expect(merged.humanEditedUnits).toEqual(["img_1"]);
     expect(collectShapesKeptByMerge(current, merged.afterDocument, preview)).toEqual(new Set(["img_1"]));
     expect(buildPendingProposalContent(current, merged.afterDocument, preview).shapes).toEqual([]);
+  });
+
+  it("does not count the old shape of a replacement pair as kept: its replacement takes its id at approval", () => {
+    const base = overlayDocument([imageShape()]);
+    const preview = { ...mergeablePreviewOf(base, [], [deleteImage]), shapeReplacements: [{ removedShapeId: "img_1", addedShapeId: "img_new" }] };
+    const current = overlayDocument([{ ...imageShape(), x: 90 }]);
+
+    expect(collectShapesKeptByMerge(current, resolveProposalMergePreview(current, preview).afterDocument, preview)).toEqual(new Set());
+  });
+
+  it("gives the approval and the page the same removals, decided by the merged result", () => {
+    const base = { ...overlayDocument([imageShape(), { ...imageShape(), id: "img_2" }]) };
+    const preview = mergeablePreviewOf(base, [], [
+      { operation: "deleteBlocks", summary: "削除", blockIds: ["p1", "p_last"] },
+      { operation: "deleteOverlayShapes", summary: "削除", shapeIds: ["img_1", "img_2"] },
+    ]);
+    // 人が p_last と img_1 を直した。合成はその 2 つを残す。
+    const current = overlayDocument([{ ...imageShape(), x: 90 }, { ...imageShape(), id: "img_2" }]);
+    const edited = { ...current, content: current.content.map((block) => (block.id === "p_last" ? paragraph("p_last", "人が直した") : block)) };
+
+    expect(collectProposalRemovals([preview], edited)).toEqual({ blockIds: ["p1"], shapeIds: ["img_2"] });
   });
 
   it("still lists a deleted shape nobody touched as removed", () => {

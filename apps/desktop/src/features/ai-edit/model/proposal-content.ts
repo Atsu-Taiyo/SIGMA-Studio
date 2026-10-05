@@ -32,6 +32,7 @@ import { getProblemNumberMap } from "@/lib/problem-numbering";
 import { areStructurallyEqual } from "@/lib/structural-equality";
 
 import {
+  deriveAiEditPreviewDiff,
   deriveAiEditPreviewOverlayShapes,
   hasBodyAiEditChanges,
   isOverlayAiEditDraft,
@@ -643,11 +644,15 @@ export function collectShapesKeptByMerge(
   if (!afterDocument) {
     return kept;
   }
-  const reinsertedIds = new Set(preview.draft.operations.flatMap((operation) => (
-    operation.operation === "insertOverlayShape"
-      ? [operation.overlayShape.id]
-      : operation.operation === "insertTableShape" ? [operation.tableShape.id] : []
-  )));
+  // 挿入し直す図形: 同じ draft が同じ id で挿入するものと、置き換えの組で新しい図形がその id を引き継ぐもの。
+  const reinsertedIds = new Set([
+    ...preview.draft.operations.flatMap((operation) => (
+      operation.operation === "insertOverlayShape"
+        ? [operation.overlayShape.id]
+        : operation.operation === "insertTableShape" ? [operation.tableShape.id] : []
+    )),
+    ...(preview.shapeReplacements ?? []).map((pair) => pair.removedShapeId),
+  ]);
   const currentById = new Map((current.pageLayout?.overlay?.overlaySnapshot?.shapes ?? []).map((shape) => [shape.id, shape]));
   const afterById = new Map((afterDocument.pageLayout?.overlay?.overlaySnapshot?.shapes ?? []).map((shape) => [shape.id, shape]));
   for (const operation of preview.draft.mutationOperations ?? []) {
@@ -662,6 +667,60 @@ export function collectShapesKeptByMerge(
     }
   }
   return kept;
+}
+
+const NO_SHAPES_KEPT: ReadonlySet<string> = new Set();
+const shapesKeptCache = new WeakMap<AiEditPreviewState, {
+  afterDocument: SigmaDocument | null;
+  shapes: unknown;
+  kept: ReadonlySet<string>;
+}>();
+
+/**
+ * 今の文書で `collectShapesKeptByMerge` を引く。提案ごとに直近 1 件を覚え、合成の結果 (提案が読む単位が
+ * 同じなら同じもの) と今の図形の並びが同じなら作り直さない (打鍵のたびに全図形を歩かない)。図形を
+ * 消さない提案は合成も引かない。
+ */
+export function resolveShapesKeptByMerge(
+  document: SigmaDocument,
+  preview: AiEditPreviewState,
+  options: ResolveProposalMergePreviewOptions = {},
+): ReadonlySet<string> {
+  if (!(preview.draft.mutationOperations ?? []).some((operation) => operation.operation === "deleteOverlayShapes")) {
+    return NO_SHAPES_KEPT;
+  }
+  const afterDocument = resolveProposalMergePreview(document, preview, options).afterDocument;
+  const shapes = document.pageLayout?.overlay?.overlaySnapshot?.shapes;
+  const cached = shapesKeptCache.get(preview);
+  if (cached && cached.afterDocument === afterDocument && cached.shapes === shapes) {
+    return cached.kept;
+  }
+  const kept = collectShapesKeptByMerge(document, afterDocument, preview);
+  shapesKeptCache.set(preview, { afterDocument, shapes, kept });
+  return kept;
+}
+
+/**
+ * 承認で消える既存のブロックと図形。合成後の内容で決める: 紙面のカードの削除側と同じブロック
+ * (`collectPendingRemovedBlockIds`) と、消す図形のうち合成で残らないもの。承認の「消える」
+ * アニメーションはこれを読む (draft から別に数えると、人が直して残るものまで消えて見える。MISS R17)。
+ */
+export function collectProposalRemovals(
+  previews: AiEditPreviewState[],
+  document: SigmaDocument,
+  options: ResolveProposalMergePreviewOptions = {},
+): { blockIds: string[]; shapeIds: string[] } {
+  const shapeIds = new Set<string>();
+  for (const preview of previews) {
+    const kept = resolveShapesKeptByMerge(document, preview, options);
+    deriveAiEditPreviewDiff([preview]).removedShapeIds.forEach((shapeId) => {
+      if (!kept.has(shapeId)) shapeIds.add(shapeId);
+    });
+  }
+  return {
+    blockIds: collectPendingRemovedBlockIds(groupPendingProposalContentByAnchor(previews, document, options)),
+    shapeIds: [...shapeIds],
+  };
 }
 
 // --- 表示用のコピー ---------------------------------------------------------
