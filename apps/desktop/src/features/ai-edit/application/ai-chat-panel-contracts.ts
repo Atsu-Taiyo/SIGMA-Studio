@@ -63,6 +63,11 @@ export interface AiEditPanelProps {
   busy?: boolean;
   onApplyGroup?: (proposalIds: string[]) => Promise<AiProposalApplyOutcome>;
   onDismissGroup?: (proposalIds: string[]) => void;
+  /**
+   * ⌘K のパネルが提案の判断 (承認バー) を出した (`shown`)・下げた。紙面はその提案の浮かぶバーを出さない
+   * (1 つの提案に見える承認バーは 1 本)。
+   */
+  onInlineDecisionShownChange?: (proposalIds: readonly string[], shown: boolean) => void;
   staleProposalGroups: StaleMcpProposalGroup[];
   /** Phase 1: Agentic RAG. Proposals' `sourceReferences` (all statuses), aggregated
    * and deduped by turnId. Used to show a "参照したドキュメント" row under each

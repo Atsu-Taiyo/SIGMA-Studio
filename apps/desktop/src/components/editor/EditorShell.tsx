@@ -392,6 +392,7 @@ const COMMENT_MUTATION_PORTS: CommentMutationPorts = {
 /** 図形の無い文書でも参照が変わらないよう固定 (memo依存の無駄な再計算を避ける)。 */
 const EMPTY_OVERLAY_SHAPES: OverlayShape[] = [];
 const EMPTY_RESULT_ONLY_TARGETS: HiddenDocumentTargets = { blockIds: new Set(), shapeIds: new Set() };
+const EMPTY_PROPOSAL_IDS: ReadonlySet<string> = new Set();
 /** コメントの無い文書でも参照が変わらないよう固定 (装飾更新の再 dispatch を避ける)。 */
 const EMPTY_COMMENT_THREADS: SigmaCommentThread[] = [];
 
@@ -790,6 +791,21 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
     () => withAiResultOnlyTargets(documentSession ? EMPTY_AI_LOCKED_TARGETS : localAiLockedTargets, aiResultOnlyTargets),
     [EMPTY_AI_LOCKED_TARGETS, aiResultOnlyTargets, documentSession, localAiLockedTargets, withAiResultOnlyTargets],
   );
+  // ⌘K のパネルが判断 (承認バー) を出している提案。紙面はその提案の浮かぶバーを出さない (1 本にする)。
+  const [aiPanelDecisionProposalIds, setAiPanelDecisionProposalIds] = useState<ReadonlySet<string>>(EMPTY_PROPOSAL_IDS);
+  const handleInlineDecisionShownChange = useCallback((proposalIds: readonly string[], shown: boolean) => {
+    setAiPanelDecisionProposalIds((current) => {
+      if (proposalIds.every((proposalId) => current.has(proposalId) === shown)) {
+        return current;
+      }
+      const next = new Set(current);
+      for (const proposalId of proposalIds) {
+        if (shown) next.add(proposalId);
+        else next.delete(proposalId);
+      }
+      return next;
+    });
+  }, []);
   // MCP プレビューの apply/dismiss の二重実行を防ぐ (承認済み提案への再実行で error 表示に
   // なるのを回避)。承認は文書を丸ごと差し替えるので、この窓だけは唯一の文書全体ロックも兼ねる
   // (途中の打鍵が黙って失われるため)。commitDocumentChange から参照するのでここで宣言する。
@@ -4416,6 +4432,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
       busy={mcpPreviewBusy}
       onApplyGroup={applyAiEditPreviewGroup}
       onDismissGroup={dismissAiEditPreviewGroup}
+      onInlineDecisionShownChange={handleInlineDecisionShownChange}
       staleProposalGroups={staleProposalGroups}
       sourceReferencesByTurnId={sourceReferencesByTurnId}
       insertedShapePreviewsByTurnId={insertedShapePreviewsByTurnId}
@@ -4686,6 +4703,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
             overlayCommentAnchor={currentOverlayCommentAnchor}
             aiDocumentWriteInProgress={mcpPreviewBusy}
             onAiResultOnlyTargetsChange={setAiResultOnlyTargets}
+            aiPanelDecisionProposalIds={aiPanelDecisionProposalIds}
             editorExtensions={sessionEditExtensions}
             aiEditPreviewGroups={visibleAiEditPreviewGroups}
             aiEditPreviewApplying={mcpPreviewBusy}

@@ -866,7 +866,9 @@ const {
     sideNoteLabelYs,
     markerDisplacements,
   } = layoutViewState;
-  const { overlaySelectionKey, selectionActionPopover } = usePageCanvasSelectionActions({ overlaySelection, suppressSelectionActions, pageOverlayEditing, selectionExtension, selectedId, document, bodyOverlayModeStatus, overlayCommentAnchor, canvasRef, zoom, isWhiteboard, whiteboardPanX, whiteboardPanY, onCommentAnchorCandidateChange, isOverlayEditing, onCommentAnchorRequest, renderSelectionActions, selectedInlineMath, totalHeight });
+  // 図形の選択ポップオーバーの描いた幅 (中身で変わる)。紙面に浮かべる部品が避ける矩形に使う。
+  const [overlayPopoverWidthPx, setOverlayPopoverWidthPx] = useState<number | undefined>(undefined);
+  const { overlaySelectionKey, selectionActionPopover, selectionControlsRect } = usePageCanvasSelectionActions({ overlaySelection, suppressSelectionActions, pageOverlayEditing, selectionExtension, selectedId, document, bodyOverlayModeStatus, overlayCommentAnchor, canvasRef, zoom, isWhiteboard, whiteboardPanX, whiteboardPanY, onCommentAnchorCandidateChange, isOverlayEditing, onCommentAnchorRequest, renderSelectionActions, selectedInlineMath, totalHeight, overlayPopoverWidthPx });
   useLayoutEffect(() => {
     requestCaretKeeperReanchor();
   }, [layoutViewState]);
@@ -1049,6 +1051,8 @@ const { candidateCommentTop, pendingCommentTop, commentThreadPositions } = usePa
     ),
     [overlay.overlaySnapshot],
   );
+  // ホワイトボードにページは無い。図形の層は 1 枚の面 (20000px) として扱う。
+  const overlayPageHeightPx = isWhiteboard ? 20000 : pageHeightPx;
   const overlayView = useMemo(
     () => measurePerformance("PageCanvasEditor.createResolvedOverlayView", () => createResolvedOverlayView(
       overlay,
@@ -1057,13 +1061,13 @@ const { candidateCommentTop, pendingCommentTop, commentThreadPositions } = usePa
         canvasHeight: isWhiteboard ? 20000 : totalHeight,
         canvasWidth: isWhiteboard ? 20000 : pageWidthPx,
         pageGapPx: isWhiteboard ? 0 : PAGE_GAP_PX,
-        pageHeightPx: isWhiteboard ? 20000 : pageHeightPx,
+        pageHeightPx: overlayPageHeightPx,
         revision: layoutViewState.revision,
         reserveSpaceGaps,
       },
       overlayIdentityCache,
     )),
-    [blockRects, isWhiteboard, layoutViewState.revision, overlay, overlayIdentityCache, pageHeightPx, pageWidthPx, reserveSpaceGaps, totalHeight],
+    [blockRects, isWhiteboard, layoutViewState.revision, overlay, overlayIdentityCache, overlayPageHeightPx, pageWidthPx, reserveSpaceGaps, totalHeight],
   );
   const overlayPresentation = useMemo(
     () => resolveOverlayPresentation?.({
@@ -1073,9 +1077,10 @@ const { candidateCommentTop, pendingCommentTop, commentThreadPositions } = usePa
       blockGaps: reserveSpaceGaps,
       contentWidthPx: metrics.content.widthPx,
       pageWidthPx,
-      pageHeightPx,
+      pageHeightPx: overlayPageHeightPx,
+      selectionControlsRect,
     }),
-    [blockRects, metrics.content.widthPx, overlay.overlaySnapshot?.assets, overlay.overlaySnapshot?.shapes, pageHeightPx, pageWidthPx, reserveSpaceGaps, resolveOverlayPresentation],
+    [blockRects, metrics.content.widthPx, overlay.overlaySnapshot?.assets, overlay.overlaySnapshot?.shapes, overlayPageHeightPx, pageWidthPx, reserveSpaceGaps, resolveOverlayPresentation, selectionControlsRect],
   );
   const pinnedOverlayShapeIds = overlaySelection.selectedShapeIds;
   const visibleBodyHitShapes = useMemo(
@@ -2991,6 +2996,7 @@ const { candidateCommentTop, pendingCommentTop, commentThreadPositions } = usePa
             popover={selectionActionPopover}
             onCommentAnchorRequest={onCommentAnchorRequest}
             renderSelectionActions={renderSelectionActions}
+            onWidthChange={selectionControlsRect ? setOverlayPopoverWidthPx : undefined}
           />
         )}
       </section>
@@ -3681,6 +3687,8 @@ const { candidateCommentTop, pendingCommentTop, commentThreadPositions } = usePa
           popover={selectionActionPopover}
           onCommentAnchorRequest={onCommentAnchorRequest}
             renderSelectionActions={renderSelectionActions}
+          // 幅を測るのは図形の選択ポップオーバーだけ (出ている間は避ける矩形がある)。
+          onWidthChange={selectionControlsRect ? setOverlayPopoverWidthPx : undefined}
         />
       )}
       {problemContextMenu && (

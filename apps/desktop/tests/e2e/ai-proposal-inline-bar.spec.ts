@@ -5,6 +5,7 @@ import type { ProposalMergeBasis } from "@/lib/ai/proposal-merge-basis";
 import type { DesktopMcpEditProposalSummary } from "@/types/desktop";
 import { grabShapeFromBody } from "./body-overlay-entry";
 import { installDesktopRuntimeMock } from "./desktop-runtime-mock";
+import { expectHittable } from "./hit-testing";
 
 /**
  * 提案の見せ方は「紙面内インライン」の 1 方式。紙面のカードは対象の段幅のまま、寸法の上限も
@@ -356,17 +357,6 @@ test("a shape-only proposal attaches the same bar beside the shape and never alt
   await widget.getByRole("button", { name: "適用", exact: true }).click();
   await expect(widget).toHaveCount(0);
 });
-
-/** その要素の中心を押したら、本当にその要素に届くか (覆われていない・切り取られていない)。 */
-async function expectHittable(target: Locator): Promise<void> {
-  await target.scrollIntoViewIfNeeded();
-  const reached = await target.evaluate((element) => {
-    const rect = element.getBoundingClientRect();
-    const hit = document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2);
-    return Boolean(hit && (hit === element || element.contains(hit)));
-  });
-  expect(reached).toBe(true);
-}
 
 for (const [label, proposals] of [
   ["a shape change plus a page-layout change", () => [shapeAndLayout()]],
