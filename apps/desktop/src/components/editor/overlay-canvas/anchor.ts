@@ -140,6 +140,8 @@ export function pickBlockAnchor(
   measuredBlocks: MeasuredBlock[],
   shapeProbeX?: number,
   shapeX?: number,
+  /** Re-anchoring an existing anchor (after a deletion) keeps blocks that are not drawn as candidates. */
+  options: { includeUndrawn?: boolean } = {},
 ): OverlayAnchor {
   if (measuredBlocks.length === 0) {
     return { type: "page" };
@@ -150,7 +152,8 @@ export function pickBlockAnchor(
   // anchored to them still resolve) but are not offered as a target. Falling back to the full
   // set when that leaves nothing beats returning a page anchor: losing the block relationship
   // stops the figure following text reflow at all.
-  const documentBlocks = measuredBlocks.filter((block) => !block.derived);
+  // A block that is not drawn (folded away) is likewise not a new target, except when re-anchoring.
+  const documentBlocks = measuredBlocks.filter((block) => !block.derived && (options.includeUndrawn || !block.undrawn));
   const blocks = documentBlocks.length > 0 ? documentBlocks : measuredBlocks;
 
   const anchorColumns = getAnchorColumns(blocks);
@@ -259,10 +262,13 @@ export function pickAnchorBoundaryAtPoint(
     return undefined;
   }
 
-  const anchorColumns = getAnchorColumns(blocks);
+  // A rule is never snapped to a block that is not drawn (nothing is visible there).
+  const drawnBlocks = blocks.filter((block) => !block.undrawn);
+  const pool = drawnBlocks.length > 0 ? drawnBlocks : blocks;
+  const anchorColumns = getAnchorColumns(pool);
   const column = Number.isFinite(point.x) ? findColumnForProbeX(point.x, anchorColumns) : undefined;
-  const columnBlocks = column ? blocks.filter((block) => column.blockIds.has(block.id)) : [];
-  const candidates = columnBlocks.length > 0 ? columnBlocks : blocks;
+  const columnBlocks = column ? pool.filter((block) => column.blockIds.has(block.id)) : [];
+  const candidates = columnBlocks.length > 0 ? columnBlocks : pool;
 
   let best: AnchorBoundary | undefined;
   let bestDistance = Number.POSITIVE_INFINITY;
@@ -493,7 +499,7 @@ export function reanchorAfterDeletion<T extends Pick<OverlayShape, "y" | "anchor
     const fNew = fOld - hDeleted;
     const shapeX = typeof shape.x === "number" ? shape.x : undefined;
     changed = true;
-    const nextAnchor = pickBlockAnchor(fNew, fNew, orderedPost, shapeX, shapeX);
+    const nextAnchor = pickBlockAnchor(fNew, fNew, orderedPost, shapeX, shapeX, { includeUndrawn: true });
     return {
       ...shape,
       y: fNew,

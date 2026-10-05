@@ -137,12 +137,13 @@ export function measureFlowBlocks(
     const rect = el.getBoundingClientRect();
     // 描かれていないブロック (display: none で畳んだものとその中) の 0 の矩形は読まない。畳むのは
     // 表示だけなので、最後に描かれていたときの矩形のまま残す: 図形の固定先・付け替えの候補・前回の
-    // 計測が表示の切り替えで変わらない (保存される内容が変わらない)。一度も描かれていなければ残さない。
+    // 計測が表示の切り替えで変わらない (保存される内容が変わらない)。矩形は紙面の座標 (ズームに依らない)
+    // なので、ズームを変えた後も使える。点から選ぶ新しい固定先には出さない (`undrawn`)。一度も描かれて
+    // いなければ残さない。
     if (isUndrawnElement(el, rect)) {
-      const cachedBlock = cache?.get(id);
-      const kept = previous?.rects.get(id)
-        ?? (cachedBlock && cachedBlock.zoomFactor === zoomFactor ? cachedBlock.block : undefined);
-      if (kept) {
+      const lastDrawn = previous?.rects.get(id) ?? cache?.get(id)?.block;
+      if (lastDrawn) {
+        const kept = lastDrawn.undrawn ? lastDrawn : { ...lastDrawn, undrawn: true };
         measuredBlocks.push(kept);
         into.push({ block: kept, isFlowUnit });
       }

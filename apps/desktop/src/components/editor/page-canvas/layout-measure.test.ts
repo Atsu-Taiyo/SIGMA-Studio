@@ -105,8 +105,9 @@ describe("measureFlowBlocks with blocks that are not drawn", () => {
     const whole = measureFlowBlocks(flow, 1, 96, undefined, { previous });
 
     for (const measurement of [incremental, whole]) {
-      expect(measurement.rects.get("x")).toEqual(previous.rects.get("x"));
-      expect(measurement.rects.get("x_item")).toEqual(previous.rects.get("x_item"));
+      // 描かれていない印を付けて残す (付け替えでは候補、点から選ぶ新しい固定先には出さない)。
+      expect(measurement.rects.get("x")).toEqual({ ...previous.rects.get("x"), undrawn: true });
+      expect(measurement.rects.get("x_item")).toEqual({ ...previous.rects.get("x_item"), undrawn: true });
       expect(measurement.anchorable.map((block) => block.id)).toContain("x");
       expect(measurement.tops.get("b")).toBe(120);
     }
@@ -123,6 +124,20 @@ describe("measureFlowBlocks with blocks that are not drawn", () => {
 
     expect(folded.rects.get("x")?.top).toBe(before.rects.get("x")?.top);
     expect(folded.anchorable.map((block) => block.id)).toContain("x");
+  });
+
+  it("keeps a folded block after a zoom change (the kept geometry does not depend on the zoom)", () => {
+    const { flow, find } = flowWithFoldable();
+    const cache: LineMeasureCache = new Map();
+    const before = measureFlowBlocks(flow, 1, 96, cache);
+    fold(find("x"));
+    fold(find("x_item"));
+    // ズームを変えると前回の計測は持ち越されない (呼び出し側が previous を捨てる)。
+    flow.getBoundingClientRect = () => new DOMRect(0, 0, 800, 2000);
+
+    const zoomed = measureFlowBlocks(flow, 2, 96, cache);
+
+    expect(zoomed.rects.get("x")).toMatchObject({ top: before.rects.get("x")?.top, height: before.rects.get("x")?.height, undrawn: true });
   });
 
   it("re-anchors a figure of a deleted block to the same block whether or not its neighbour is folded", () => {
