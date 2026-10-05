@@ -432,8 +432,8 @@ describe("buildAiHiddenTargetEditorExtensions", () => {
     expect(extensions!.textFlowEditPolicy!.lockAll).toBeUndefined();
   });
 
-  it("preserves only the shapes hidden for the result only from derived rewrites (a re-anchor after a deletion)", () => {
-    // バーで隠した変更前・AI の実行中・合成できない提案のロックは付け替えを止めない (従来どおり)。
+  it("preserves only the shapes hidden for the result only from derived rewrites (a re-anchor on save)", () => {
+    // バーで隠した変更前・AI の実行中・合成できない提案のロックは派生の書き換えを止めない (従来どおり)。
     // 止めるのは「適用後だけ」で隠した図形だけ: 人の編集では変えられず、混ざると変更口がコミットごと断る。
     const composed = composeAiPageEditorExtensions(
       { overlayEditPolicy: { lockedShapeIds: new Set(["run_shape"]) } },

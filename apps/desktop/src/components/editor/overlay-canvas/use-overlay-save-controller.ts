@@ -17,6 +17,7 @@ import {
 import type { PendingOverlaySave } from "./pending-save";
 import { mergePendingOverlaySave } from "./pending-save";
 import type { MeasuredBlock } from "./anchor";
+import { keepPreservedShapes } from "./reanchor-model";
 import { reanchorShapesAgainstCanvas } from "./snapshot-anchors";
 import type {
   OverlayAsset,
@@ -82,8 +83,9 @@ export function useOverlaySaveController({
       : normalizeOverlayGroups(shapesRef.current);
     // Refresh chart snapshots at the single point every edit funnels through, rather than hooking
     // each path that can change or delete a table. Copy-on-write: an unchanged document keeps its
-    // array identity and no save is queued.
-    const synced = syncChartDataSnapshots(reanchored);
+    // array identity and no save is queued. A preserved shape keeps its saved chart data like its
+    // anchor (a derived rewrite of a hidden shape gets the whole save refused).
+    const synced = keepPreservedShapes(reanchored, syncChartDataSnapshots(reanchored), getPreservedShapeIds());
     if (synced !== shapesRef.current) {
       shapesRef.current = synced;
       suppressNextSaveRef.current = true;

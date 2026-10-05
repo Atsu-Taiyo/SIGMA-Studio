@@ -1,5 +1,7 @@
 import { type SigmaCommentAnchor,type SigmaCommentThread } from "@/features/document";
 
+import { isUndrawnElement } from "./undrawn-blocks";
+
 export function getMathTexFromRange(range: Range): string[] {
   const fragment = range.cloneContents();
   const values = Array.from(fragment.querySelectorAll<HTMLElement>("[data-sigma-doc-math-inline], .inline-math-node"))
@@ -69,6 +71,34 @@ export function measureElementTopInCanvas(canvas: HTMLElement, element: HTMLElem
   }
   const zoomScale = Math.max(0.01, zoom / 100);
   const canvasRect = canvas.getBoundingClientRect();
-  const elementRect = element.getBoundingClientRect();
-  return Math.max(0, (elementRect.top - canvasRect.top) / zoomScale);
+  const top = drawnTopOf(element);
+  return top === null ? null : Math.max(0, (top - canvasRect.top) / zoomScale);
+}
+
+const isUndrawn = (element: Element) => isUndrawnElement(element, element.getBoundingClientRect());
+
+/**
+ * 要素の上端 (画面座標)。描かれていない要素 (畳んだブロックとその中: `undrawn-blocks.ts`) の 0 の矩形は読まず、
+ * 畳んだ一番外の要素があった位置を使う: 後ろで最初に描かれている兄弟の上端 (「適用後だけ」ならカードの先頭)、
+ * 無ければ前で最後に描かれている兄弟の下端。どちらも無ければ null。
+ */
+function drawnTopOf(element: HTMLElement): number | null {
+  if (!isUndrawn(element)) {
+    return element.getBoundingClientRect().top;
+  }
+  let folded: Element = element;
+  while (folded.parentElement && isUndrawn(folded.parentElement)) {
+    folded = folded.parentElement;
+  }
+  for (let sibling = folded.nextElementSibling; sibling; sibling = sibling.nextElementSibling) {
+    if (!isUndrawn(sibling)) {
+      return sibling.getBoundingClientRect().top;
+    }
+  }
+  for (let sibling = folded.previousElementSibling; sibling; sibling = sibling.previousElementSibling) {
+    if (!isUndrawn(sibling)) {
+      return sibling.getBoundingClientRect().bottom;
+    }
+  }
+  return null;
 }

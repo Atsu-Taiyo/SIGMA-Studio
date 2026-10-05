@@ -93,24 +93,6 @@ describe("reanchorAfterDeletion", () => {
     expect(next[0]).toBe(shapes[0]);
   });
 
-  it("leaves a figure that may not be edited right now as stored and still re-anchors the others", () => {
-    // 適用後だけを見せている間に隠した変更前の図形 (s2) は人の編集では変えられない。一緒に付け替えると
-    // 付け替えのコミット全体が断られ、ふつうの図形 (s1) まで消したブロックにぶら下がったまま残る。
-    const shapes: TestShape[] = [
-      { id: "s1", y: 150, anchor: blockAnchor("a", 50) },
-      { id: "s2", y: 160, anchor: blockAnchor("a", 60) },
-    ];
-    const orderedPost: MeasuredBlock[] = [{ id: "h", top: 50 }, { id: "b", top: 180 }];
-
-    const { shapes: next, changed } = reanchorAfterDeletion(shapes, new Set(["a"]), pre(), orderedPost, {
-      keepsStoredAnchor: (shape) => shape.id === "s2",
-    });
-
-    expect(changed).toBe(true);
-    expect(next[0]).toMatchObject({ y: 130, anchor: { type: "block", blockId: "h", dy: 80 } });
-    expect(next[1]).toBe(shapes[1]);
-  });
-
   it("leaves shapes whose anchor block survived untouched", () => {
     const shapes: TestShape[] = [{ id: "fig", y: 150, anchor: blockAnchor("a", 50) }];
 
