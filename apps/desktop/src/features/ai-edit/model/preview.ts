@@ -601,9 +601,12 @@ export interface AiEditPreviewAddedShape {
   assets: Record<string, OverlayAsset>;
 }
 
+/**
+ * The overlay side of a pending proposal's draft. Body blocks that will be replaced or removed are not
+ * here: they come from the merged result (`collectPendingRemovedBlockIds`), which keeps a block the
+ * human edited after the AI deleted it.
+ */
 export interface AiEditPreviewDiff {
-  /** Body blocks that will be overwritten (`replace`) or removed (`deleteBlocks`). */
-  removedBlockIds: Set<string>;
   /** Overlay shapes that will be deleted (`deleteOverlayShapes`). */
   removedShapeIds: Set<string>;
   /** Overlay shapes that will be changed in place (`updateOverlayShape` / `alignOverlayShapes`) — neither purely added nor removed. */
@@ -1040,16 +1043,15 @@ export function buildAppliedTurnChangesByTurnId(
   return result;
 }
 
-/** Derives the pending-diff id/shape sets for one or more preview groups
+/** Derives the pending-diff shape sets for one or more preview groups
  * (see `AiEditPreviewState`), merging across groups so several concurrent
- * runs' proposals all get diff coloring at once. `moveBlocks` is deliberately
- * not represented here — it changes position, not content, so there is
- * nothing GitHub-diff-shaped to color for it. */
+ * runs' proposals all get diff coloring at once. Body blocks are not derived
+ * here: the removed side comes from the merged result
+ * (`collectPendingRemovedBlockIds`), not from the draft. */
 export function deriveAiEditPreviewDiff(
   previews: AiEditPreviewState[],
   currentShapes: OverlayShape[] = [],
 ): AiEditPreviewDiff {
-  const removedBlockIds = new Set<string>();
   const removedShapeIds = new Set<string>();
   const modifiedShapeIds = new Set<string>();
   const addedShapes: AiEditPreviewAddedShape[] = [];
@@ -1073,16 +1075,12 @@ export function deriveAiEditPreviewDiff(
           const shape = existingShape ? preserveOverlayShapePlacementForReplacement(existingShape, inserted) : inserted;
           addedShapes.push({ shape, assets: operation.operation === "insertOverlayShape" ? operation.assets ?? {} : {} });
           shapeCursor = [...shapeCursor.filter((candidate) => candidate.id !== shape.id), shape];
-        } else if (operation.operation !== "insertAfter" && !isOverlayAnchorSupportDraft(operation, preview.draft.operations)) {
-          removedBlockIds.add(operation.targetId);
         }
         continue;
       }
       const op = preview.draft.mutationOperations?.[entry.index];
       if (!op) continue;
-      if (op.operation === "deleteBlocks") {
-        op.blockIds.forEach((id) => removedBlockIds.add(id));
-      } else if (op.operation === "deleteOverlayShapes") {
+      if (op.operation === "deleteOverlayShapes") {
         op.shapeIds.forEach((id) => removedShapeIds.add(id));
         shapeCursor = shapeCursor.filter((shape) => !op.shapeIds.includes(shape.id));
         for (let index = addedShapes.length - 1; index >= 0; index -= 1) {
@@ -1103,7 +1101,7 @@ export function deriveAiEditPreviewDiff(
     }
   }
 
-  return { removedBlockIds, removedShapeIds, modifiedShapeIds, addedShapes };
+  return { removedShapeIds, modifiedShapeIds, addedShapes };
 }
 
 /**
