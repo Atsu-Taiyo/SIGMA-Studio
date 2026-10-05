@@ -90,22 +90,47 @@ export function resolveProposalMergePreview(
   }
   const cached = previewCache.get(preview);
   if (cached?.document === current) {
+    noteFallbacks(preview, cached.fallbacks, options);
     return cached.result;
   }
   const dependencies = readDependencies(current, dependencyIdsOf(preview));
   if (cached && sameDependencies(cached.dependencies, dependencies)) {
     previewCache.set(preview, { ...cached, document: current });
+    noteFallbacks(preview, cached.fallbacks, options);
     return cached.result;
   }
   const { result, fallbacks } = computeMergePreview(current, preview);
-  // 代わりの経路に「入った」ときだけ数える。保留中の対象は人が直せる (消せる) ので、対象が消えたまま
-  // 提案が読む単位を直し続けると、同じ状態で何度も作り直す。それを数え直すと退避の回数がノイズになる。
-  if (options.countFallbacks !== false) {
-    const count = options.count ?? countPerformanceEvent;
-    fallbacks.filter((name) => !cached?.fallbacks.includes(name)).forEach((name) => count(name));
-  }
   previewCache.set(preview, { document: current, dependencies, result, fallbacks });
+  noteFallbacks(preview, fallbacks, options);
   return result;
+}
+
+/**
+ * 提案ごとに、いま入っていて数え済みの代わりの経路。プレビューのオブジェクトは一覧の取り直し (自動保存の
+ * あとなど) で作り直されるので、提案の id で持つ。数えるのは代わりの経路に「入った」ときだけ: 保留中の
+ * 対象は人が直せる (消せる) ので、対象が消えたまま作り直すたびに数えると退避の回数がノイズになる。
+ * 数えない呼び出し (承認中・消えるアニメーション) は観測しても記録しないので、そのあと数える呼び出しが
+ * 初回として数える。抜けた (数える呼び出しで退避が無かった) ら忘れ、また入れば数える。
+ */
+const countedFallbacksByProposal = new Map<string, ReadonlySet<string>>();
+
+function noteFallbacks(
+  preview: AiEditPreviewState,
+  fallbacks: readonly string[],
+  options: ResolveProposalMergePreviewOptions,
+): void {
+  if (options.countFallbacks === false) {
+    return;
+  }
+  const key = preview.proposalIds.join("\u0000");
+  const counted = countedFallbacksByProposal.get(key);
+  if (fallbacks.length === 0) {
+    countedFallbacksByProposal.delete(key);
+    return;
+  }
+  const count = options.count ?? countPerformanceEvent;
+  fallbacks.filter((name) => !counted?.has(name)).forEach((name) => count(name));
+  countedFallbacksByProposal.set(key, new Set(fallbacks));
 }
 
 function computeMergePreview(
