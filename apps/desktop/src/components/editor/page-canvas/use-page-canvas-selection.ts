@@ -124,8 +124,8 @@ export function usePageCanvasSelectionActions({ overlaySelection, suppressSelect
 
   const selectionActionPopover = bodySelectionActionPopover ?? overlaySelectionActionPopover;
 
-  // 図形の選択ポップオーバーが実際に出ている間だけ、選択の操作 (ポップオーバー・回転ハンドル・選択枠) を
-  // 紙面に浮かべる部品が避ける矩形にする (紙面の座標)。出ていなければ `null`。
+  // 図形の選択ポップオーバーが実際に出ている間だけ、その帯 (と回転ハンドル) を紙面に浮かべる部品が
+  // 避ける矩形にする (紙面の座標)。出ていなければ `null`。
   const overlaySelectionPopoverShown = !bodySelectionActionPopover && overlaySelectionActionPopover !== null;
   const selectionControls = useMemo(
     () => overlaySelectionPopoverShown

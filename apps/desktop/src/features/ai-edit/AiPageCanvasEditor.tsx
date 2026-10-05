@@ -1231,8 +1231,8 @@ const findOverlappingRect = (rect: FloatingBarRect, others: readonly FloatingBar
  * (本文の先頭のブロックの選択ポップオーバーは中央に出るので、それと重ならない側)。
  * 障害物 (選んだ図形の上に出る選択の操作) にかかる側は避けて反対側を先に試す。先に置いたバーか障害物と
  * 重なるときは、見積もった高さで重ならないところまで (上に置くものは上へ、下に置くものは下へ) ずらす。
- * ずらした先は図形のあるページに収める: 収まる側を選び、どちらも収まらなければ重なってもページの中に
- * 置く (押せることを優先する)。
+ * ずらした先は図形のあるページに収める: 収まる側を選び、どちらも収まらなければページの中へ戻してから、
+ * 先に置いたバーと障害物に重ならないよう上か下へ積む (重ならず押せることを、ページに収めることより優先する)。
  */
 export function placeFloatingDecisionBars(
   requests: readonly FloatingDecisionBarRequest[],
@@ -1268,26 +1268,34 @@ export function placeFloatingDecisionBars(
     const sides: Array<"above" | "below"> = bounds && bounds.y - pageTop >= heightPx + frame.gapPx ? ["above", "below"] : ["below"];
     const freeOfObstacles = (side: "above" | "below") => !findOverlappingRect(rectAt(side, topOf(side)), obstacleRects);
     const blockers = [...obstacleRects, ...placedRects];
-    const candidates = [...sides.filter(freeOfObstacles), ...sides.filter((side) => !freeOfObstacles(side))].map((side) => {
-      let top = topOf(side);
+    // `startTop` から、障害物と先に置いたバーに重ならないところまで上か下へ送る。
+    const pushPast = (side: "above" | "below", startTop: number, direction: "up" | "down") => {
+      let top = startTop;
       for (let attempt = 0; attempt <= blockers.length; attempt += 1) {
         const blocker = findOverlappingRect(rectAt(side, top), blockers);
         if (!blocker) {
           break;
         }
-        top = side === "above" ? blocker.top - FLOATING_BAR_STACK_GAP_PX : blocker.bottom + FLOATING_BAR_STACK_GAP_PX;
+        const rectTop = direction === "up" ? blocker.top - FLOATING_BAR_STACK_GAP_PX - heightPx : blocker.bottom + FLOATING_BAR_STACK_GAP_PX;
+        top = side === "above" ? rectTop + heightPx : rectTop;
       }
       return { side, top };
-    });
+    };
     const onPage = ({ side, top }: { side: "above" | "below"; top: number }) => {
       const rect = rectAt(side, top);
       return rect.top >= pageTop && rect.bottom <= pageBottom;
     };
+    const candidates = [...sides.filter(freeOfObstacles), ...sides.filter((side) => !freeOfObstacles(side))]
+      .map((side) => pushPast(side, topOf(side), side === "above" ? "up" : "down"));
+    // どの側もページに収まらなければ、最初の側をページの中へ戻し、そこから重ならないところまで上か下へ積む。
+    // ページに収まる向きを選び、どちらも収まらなければ下へ送る (ページの中より、重ならず押せることを優先)。
     const fallback = candidates[0];
     const lowest = fallback.side === "above" ? pageTop + heightPx : pageTop;
     const highest = Math.max(lowest, fallback.side === "above" ? pageBottom : pageBottom - heightPx);
-    const { side: placement, top } = candidates.find(onPage)
-      ?? { side: fallback.side, top: Math.min(Math.max(fallback.top, lowest), highest) };
+    const stacked = (["up", "down"] as const).map((direction) => (
+      pushPast(fallback.side, Math.min(Math.max(fallback.top, lowest), highest), direction)
+    ));
+    const { side: placement, top } = candidates.find(onPage) ?? stacked.find(onPage) ?? stacked[1];
     placedRects.push(rectAt(placement, top));
     return { key: request.key, placement, left: horizontal.center, top, width: horizontal.width };
   });

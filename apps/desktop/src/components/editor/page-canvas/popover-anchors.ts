@@ -144,10 +144,10 @@ export function getOverlaySelectionActionPopoverPosition(
 }
 
 /**
- * 図形の選択の操作が占める範囲 (紙面の座標): 選択範囲の上のポップオーバーと回転ハンドルの間隔、その下の
- * 選択枠 (持ち手)。紙面に浮かべる部品 (拡張の `floatingContent`) がこれを覆わないための障害物。
- * ポップオーバーは画面の px で置くので、紙面の座標ではズームで割る。幅は中身で変わるので、描いた後は
- * 実寸 (`popoverWidthPx`) を使う (それまでは見積もり)。
+ * 図形の選択の操作が選択範囲の上に取る帯 (紙面の座標): ポップオーバーと、その下の回転ハンドルの間隔。
+ * 紙面に浮かべる部品 (拡張の `floatingContent`) がこれを覆わないための障害物。ポップオーバーは画面の px で
+ * 置くので、紙面の座標ではズームで割る。幅は中身で変わるので、描いた後は実寸 (`popoverWidthPx`) を
+ * 使う (それまでは見積もり)。選んだ範囲そのもの (グループ・複数選択の中) は含めない。
  */
 export function getOverlaySelectionControlsCanvasRect(
   selection: OverlaySelectionSummary,
@@ -158,13 +158,15 @@ export function getOverlaySelectionControlsCanvasRect(
   if (!anchor) {
     return null;
   }
-  const { bounds } = anchor;
   const zoomScale = Math.max(0.01, zoom / 100);
-  const reach = (SELECTION_ACTION_POPOVER_HEIGHT + anchor.verticalClearance) / zoomScale;
-  const popoverHalfWidth = popoverWidthPx / zoomScale / 2;
-  const left = Math.min(bounds.x, bounds.x + bounds.w / 2 - popoverHalfWidth);
-  const right = Math.max(bounds.x + bounds.w, bounds.x + bounds.w / 2 + popoverHalfWidth);
-  return { x: left, y: bounds.y - reach, w: right - left, h: reach + bounds.h };
+  const height = (SELECTION_ACTION_POPOVER_HEIGHT + anchor.verticalClearance) / zoomScale;
+  const width = popoverWidthPx / zoomScale;
+  return {
+    x: anchor.bounds.x + anchor.bounds.w / 2 - width / 2,
+    y: anchor.bounds.y - height,
+    w: width,
+    h: height,
+  };
 }
 
 export function sameSelectionActionPopoverPosition(

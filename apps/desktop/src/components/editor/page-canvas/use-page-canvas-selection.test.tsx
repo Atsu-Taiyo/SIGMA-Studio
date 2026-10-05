@@ -70,7 +70,7 @@ afterEach(async () => { await act(async () => root.unmount()); });
 it("gives floating content the shape popover's area only while the popover is shown", async () => {
   await render({ suppressed: false });
   expect(owner.selectionActionPopover).not.toBeNull();
-  expect(owner.selectionControlsRect).toMatchObject({ y: 400 - 80, h: 80 + 50 });
+  expect(owner.selectionControlsRect).toMatchObject({ y: 400 - 80, h: 80 });
 
   // ⌘K を開いている間 (ポップオーバーを出さない) は、見えない帯を避けない。
   await render({ suppressed: true });
