@@ -337,6 +337,26 @@ describe("resolveProposalMergePreview counts its fallbacks (MISS R3)", () => {
     expect(counted).toEqual([AI_PROPOSAL_PREVIEW_COUNTERS.fallback, AI_PROPOSAL_PREVIEW_COUNTERS.noPreview]);
   });
 
+  it("counts a proposal entering the fallback state once, not again while it stays there", () => {
+    const { preview, current } = conflicting();
+    const counted: string[] = [];
+    const count = (name: string) => counted.push(name);
+
+    resolveProposalMergePreview(current, preview, { count });
+    // The human keeps editing what the proposal reads (here: the problem numbering) while its target is gone.
+    resolveProposalMergePreview({ ...current, content: [problem("q_0", "新しい問"), ...current.content] }, preview, { count });
+    expect(counted).toEqual([AI_PROPOSAL_PREVIEW_COUNTERS.fallback, AI_PROPOSAL_PREVIEW_COUNTERS.noPreview]);
+
+    // The target comes back (undo), then is deleted again: that is a new fallback.
+    const restored = documentOf([paragraph("p_1", BASE_TEXT), paragraph("p_2", "残す")]);
+    resolveProposalMergePreview(restored, preview, { count });
+    resolveProposalMergePreview(deleteBlocksFromDocument(restored, ["p_1"]), preview, { count });
+    expect(counted).toEqual([
+      AI_PROPOSAL_PREVIEW_COUNTERS.fallback, AI_PROPOSAL_PREVIEW_COUNTERS.noPreview,
+      AI_PROPOSAL_PREVIEW_COUNTERS.fallback, AI_PROPOSAL_PREVIEW_COUNTERS.noPreview,
+    ]);
+  });
+
   it("counts nothing for a proposal that merges or applies normally", () => {
     const base = documentOf([paragraph("p_1", BASE_TEXT), paragraph("p_2", "別の段落")]);
     const draft = replaceDraft("p_1", AI_TEXT);
