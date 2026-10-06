@@ -1,12 +1,12 @@
 {
   "name": "sigma-studio-workspace",
-  "version": "0.507.0",
+  "version": "0.508.0",
   "private": true,
   "workspaces": [
     "apps/desktop",
     "packages/viewer",
     "packages/editor",
-    "examples/editor-react18",
+    "tests/fixtures/editor-react18",
     "examples/editor-react19"
   ],
   "scripts": {
@@ -25,14 +25,14 @@
     "viewer:test": "npm --workspace @sigma-studio/viewer run test",
     "viewer:typecheck": "npm --workspace @sigma-studio/viewer run typecheck",
     "viewer:pack": "npm pack --workspace @sigma-studio/viewer --dry-run",
-    "viewer:example": "npm --workspace @sigma-studio/editor-react18-example run dev",
-    "viewer:example:build": "npm --workspace @sigma-studio/editor-react18-example run build",
+    "viewer:example": "npm --workspace @sigma-studio/editor-react19-example run dev",
+    "viewer:example:build": "npm --workspace @sigma-studio/editor-react19-example run build",
     "editor:build": "npm run viewer:build && npm --workspace @sigma-studio/editor run build",
     "editor:test": "npm run viewer:build && npm --workspace @sigma-studio/editor run test",
     "editor:typecheck": "npm --workspace @sigma-studio/editor run typecheck",
     "editor:pack": "npm run editor:build && npm pack --workspace @sigma-studio/editor --dry-run",
-    "editor:example": "npm run editor:build && npm --workspace @sigma-studio/editor-react18-example run dev",
-    "editor:example:build": "npm run editor:build && npm --workspace @sigma-studio/editor-react18-example run build",
+    "editor:example": "npm run editor:build && npm --workspace @sigma-studio/editor-react19-example run dev",
+    "editor:example:build": "npm run editor:build && npm --workspace @sigma-studio/editor-react19-example run build",
     "version:set": "node scripts/set-release-version.mjs",
     "version:sync": "node scripts/sync-public-package-versions.mjs",
     "version:check": "node scripts/sync-public-package-versions.mjs --check",
@@ -50,7 +50,8 @@
     "collaboration:benchmark": "node scripts/collaboration-benchmark.mjs",
     "dependencies:check": "node scripts/check-desktop-dependencies.mjs",
     "security:audit": "node --test scripts/dependency-security.test.mjs && npm audit --audit-level=high",
-    "test:public-browser:react19": "npm exec --workspace @sigma-studio/desktop -- playwright test --config ../../tests/public-browser/playwright.react19.config.mts"
+    "test:public-browser:react19": "npm run test:public-browser",
+    "test:public-browser:react18": "npm exec --workspace @sigma-studio/desktop -- playwright test --config ../../tests/public-browser/playwright.react18.config.mts"
   },
   "devDependencies": {
     "@next/eslint-plugin-next": "16.3.8",

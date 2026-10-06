@@ -26,6 +26,7 @@ export function renderDocsComposition(parts: EditorChromeParts, t: Translate<"ch
             {parts.fileMenu}
             {parts.insertMenu}
             {parts.aiMenu}
+            {parts.problemMenu}
             {parts.settingsMenu}
           </nav>
 

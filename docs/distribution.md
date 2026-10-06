@@ -46,7 +46,7 @@ Microsoft Storeへのアップロード・審査提出・状態確認は、ビ�
 
 ## npmパッケージの公開準備
 
-`publish-npm.yml` はEditorとViewerのビルド、型契約、packageテスト、React 18のブラウザ検証後、
+`publish-npm.yml` はEditorとViewerのビルド、型契約、packageテスト、React 19とReact 18のブラウザ検証後、
 実際のtgzを作成して検査します。`RELEASE_CONTENT_RULES` は既存の配布物検査と同じSecretで、
 設定なし・不正な設定では停止します。ファイル名と内容の検査に加え、代表的な資格情報形式、
 配布対象外ファイル、source map、symlink、バージョン不整合、ライセンス通知の欠落を検出します。

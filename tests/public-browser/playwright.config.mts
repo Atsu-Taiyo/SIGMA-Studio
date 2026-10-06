@@ -3,7 +3,7 @@ import { defineConfig, devices } from "@playwright/test";
 
 export default defineConfig({
   testDir: ".",
-  projects: [{ name: "react18" }],
+  projects: [{ name: "react19" }],
   outputDir: fileURLToPath(new URL("../../test-results/public-browser/", import.meta.url)),
   timeout: 60_000,
   expect: { timeout: 10_000 },
@@ -19,8 +19,8 @@ export default defineConfig({
   },
   webServer: {
     // Exercise the public packages and example's production output, including
-    // React 18 and emitted assets. Build the example before running this suite.
-    command: "npm --workspace @sigma-studio/editor-react18-example exec -- vite preview --host 127.0.0.1 --port 4178 --strictPort",
+    // React 19 and emitted assets. Build the example before running this suite.
+    command: "npm --workspace @sigma-studio/editor-react19-example exec -- vite preview --host 127.0.0.1 --port 4178 --strictPort",
     cwd: fileURLToPath(new URL("../../", import.meta.url)),
     url: "http://127.0.0.1:4178",
     reuseExistingServer: false,

@@ -126,6 +126,7 @@ export const chrome = {
     },
   },
   appMenu: {
+    problems: "問題",
     aria: "メニュー",
     file: {
       label: "ファイル",

@@ -81,6 +81,30 @@ describe("a shape a feature preserves", () => {
 });
 
 describe("overlay derived session and single save boundary", () => {
+  it("does not save a superseded local render after Undo adopts an empty snapshot", async () => {
+    const h = harness();
+    const original: PageOverlay = {};
+    await h.render(original);
+    await act(async () => {
+      const pasted = [shape];
+      h.current().shapesRef.current = pasted;
+      h.current().setShapes(pasted);
+      await h.render(original, 1);
+    });
+    expect(h.current().shapes).toEqual([]);
+    await act(async () => vi.advanceTimersByTime(500));
+    expect(h.changed).not.toHaveBeenCalled();
+    await act(async () => {
+      const nextPaste = [{ ...shape, x: 40 }];
+      h.current().shapesRef.current = nextPaste;
+      h.current().setShapes(nextPaste);
+    });
+    await act(async () => vi.advanceTimersByTime(500));
+    expect(h.changed).toHaveBeenCalledOnce();
+    expect(h.changed.mock.calls[0][0].overlaySnapshot?.shapes[0].x).toBe(40);
+    await act(async () => h.root.unmount());
+  });
+
   it("commits each text edit once, preserves undo granularity and reloads the saved snapshot", async () => {
     const h = harness(); await h.render(overlay([shape]));
     for (const text of ["AB", "ABC"]) {

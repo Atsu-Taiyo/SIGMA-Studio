@@ -270,6 +270,7 @@ export interface EditorChromeView {
 
 /** メニューバー行（タイトル・アプリメニュー・教材タブ・保存状態・右側アクション・隠しinput）。 */
 export interface EditorChromeAppMenu {
+  openProblemLibrary: () => void;
   activeDocumentOpenFailure: DocumentOpenFailure | null;
   activeFileId: string;
   addBlock: (type: SigmaBlock["type"]) => void;
