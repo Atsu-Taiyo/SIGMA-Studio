@@ -765,7 +765,7 @@ export default function OverlayCanvasEditorClient({
     seenDocumentSnapshotRef,
     mode,
   });
-  useOverlaySaveEffects({ assets, shapes, mountedRef, pendingOverlaySaveHistoryGroupRef, explicitlySavedShapeStatesRef, suppressNextSaveRef, commitOverlayChangeNow, queueOverlaySave, flushOverlayChange, saveTimeoutRef, imageCropDirtyRef });
+  useOverlaySaveEffects({ assets, shapes, assetsRef, shapesRef, mountedRef, pendingOverlaySaveHistoryGroupRef, explicitlySavedShapeStatesRef, suppressNextSaveRef, commitOverlayChangeNow, queueOverlaySave, flushOverlayChange, saveTimeoutRef, imageCropDirtyRef });
 
   // On entering overlay editing, re-derive anchored shapes' y from the current
   // block layout so figures sit where the text now flows (text may have reflowed

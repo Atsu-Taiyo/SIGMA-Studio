@@ -33,3 +33,9 @@ it.each([302, 401, 403, 429, 500])("sanitizes upstream failures %s", async (stat
   expect(result.ok).toBe(false);
   expect(JSON.stringify(result)).not.toContain("private response body");
 });
+
+it("omits explicitly undefined filters passed through the desktop bridge", async () => {
+  const fetcher = vi.fn<typeof fetch>().mockResolvedValue(Response.json({ ok: true, results: [] }));
+  await fetchProblemSearch({ q: "漸化式", category: undefined, sort: "likes", limit: 20 }, connection, fetcher);
+  expect(Object.fromEntries(new URL(String(fetcher.mock.calls[0][0])).searchParams)).toEqual({ q: "漸化式", sort: "likes", limit: "20" });
+});

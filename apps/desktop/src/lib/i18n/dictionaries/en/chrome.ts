@@ -123,6 +123,7 @@ export const chrome = {
     },
   },
   appMenu: {
+    problems: "Problems",
     aria: "Menu",
     file: {
       label: "File",

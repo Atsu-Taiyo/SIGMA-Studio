@@ -47,7 +47,7 @@ export async function syncPublicPackageVersions({ checkOnly = false } = {}) {
 
   const viewerPackage = await readJson("packages/viewer/package.json");
   const editorPackage = await readJson("packages/editor/package.json");
-  const examplePackage = await readJson("examples/editor-react18/package.json");
+  const examplePackage = await readJson("tests/fixtures/editor-react18/package.json");
   const example19Package = await readJson("examples/editor-react19/package.json");
   const packageLock = await readJson("package-lock.json");
 
@@ -74,7 +74,7 @@ export async function syncPublicPackageVersions({ checkOnly = false } = {}) {
       },
     },
     {
-      label: "React 18 exampleからEditorへのdependency",
+      label: "React 18 fixtureからEditorへのdependency",
       current: examplePackage.dependencies?.["@sigma-studio/editor"],
       apply: () => {
         examplePackage.dependencies["@sigma-studio/editor"] = publicVersion;
@@ -124,9 +124,9 @@ export async function syncPublicPackageVersions({ checkOnly = false } = {}) {
     },
     {
       label: "package-lock exampleからEditorへのdependency",
-      current: packageLock.packages?.["examples/editor-react18"]?.dependencies?.["@sigma-studio/editor"],
+      current: packageLock.packages?.["tests/fixtures/editor-react18"]?.dependencies?.["@sigma-studio/editor"],
       apply: () => {
-        packageLock.packages["examples/editor-react18"].dependencies["@sigma-studio/editor"] = publicVersion;
+        packageLock.packages["tests/fixtures/editor-react18"].dependencies["@sigma-studio/editor"] = publicVersion;
       },
     },
   ];
@@ -164,7 +164,7 @@ export async function syncPublicPackageVersions({ checkOnly = false } = {}) {
     await Promise.all([
       writeJson("packages/viewer/package.json", viewerPackage),
       writeJson("packages/editor/package.json", editorPackage),
-      writeJson("examples/editor-react18/package.json", examplePackage),
+      writeJson("tests/fixtures/editor-react18/package.json", examplePackage),
       writeJson("examples/editor-react19/package.json", example19Package),
       writeJson("package-lock.json", packageLock),
     ]);

@@ -60,13 +60,13 @@ jobs:
           npm run editor:typecheck
           npm run viewer:test
           npm --workspace @sigma-studio/editor run test
-          npm --workspace @sigma-studio/editor-react18-example run build
+          npm --workspace @sigma-studio/editor-react18-fixture run build
           npm --workspace @sigma-studio/editor-react19-example run build
-      - name: Verify React 18 integration
+      - name: Verify React 19 and React 18 integration
         run: |
           npm exec --workspace @sigma-studio/desktop -- playwright install --with-deps chromium
           npm run test:public-browser
-          npm run test:public-browser:react19
+          npm run test:public-browser:react18
 
       - name: Pack the tested output
         shell: bash
@@ -107,6 +107,6 @@ jobs:
         run: |
           {
             echo "### npm packages ${PUBLIC_VERSION}"
-            echo "Build, public contracts, React 18 and tarball audit passed."
+            echo "Build, public contracts, React 19/18 and tarball audit passed."
             echo "Publication requested: ${PUBLISH_REQUESTED}"
           } >> "$GITHUB_STEP_SUMMARY"

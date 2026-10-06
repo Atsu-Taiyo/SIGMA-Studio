@@ -1,6 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 import type { SigmaDocument } from "@sigma-studio/viewer";
-import sampleDocument from "../../examples/editor-react18/src/sample-document.json";
+import sampleDocument from "../../examples/editor-react19/src/sample-document.json";
 
 const storageKey = "sigma-sdk-answer-share-document-v2";
 
@@ -26,7 +26,7 @@ test("Viewer display settings preserve SigmaDoc; edits survive host save and rel
   const title = page.getByRole("textbox", { name: "教材タイトル", exact: true });
   // An untitled sample uses a body-derived title in the editor input.
   await expect(title).toBeVisible();
-  const updatedTitle = "React 18 保存と再読込の確認";
+  const updatedTitle = `${testInfo.project.name} 保存と再読込の確認`;
   await title.fill(updatedTitle);
   await expect.poll(() => page.evaluate((key) => {
     const raw = localStorage.getItem(key);
@@ -41,7 +41,7 @@ test("Viewer display settings preserve SigmaDoc; edits survive host save and rel
 
   const paragraphId = "p_1e465f2e-5571-4cf8-88ad-818451b870b8";
   const body = page.locator(`[data-sigma-doc-id="${paragraphId}"]`).first();
-  const addedText = " React 18で追記した本文";
+  const addedText = ` ${testInfo.project.name}で追記した本文`;
   await body.click();
   await page.keyboard.press("End");
   await page.keyboard.insertText(addedText);
