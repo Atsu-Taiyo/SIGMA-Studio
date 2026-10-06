@@ -8,6 +8,7 @@ export interface TextFlowHistoryGroupingState {
   readonly previousRanges: readonly number[] | null;
   readonly previousTime: number;
   readonly previousComposition: unknown;
+  readonly previousWasPaste: boolean;
 }
 
 export interface TextFlowHistoryGroupingResult {
@@ -23,13 +24,16 @@ export function createTextFlowHistoryGroupingState(): TextFlowHistoryGroupingSta
     // Matches ProseMirror's sentinel so ordinary (non-composition)
     // transactions still apply the delay and adjacency boundaries.
     previousComposition: -1,
+    previousWasPaste: false,
   };
 }
 
 /**
  * Mirrors ProseMirror's default history grouping: adjacent document changes
  * within 500 ms share one undo event, while a pause or a non-adjacent edit
- * starts another. The actual history remains SigmaDoc-owned.
+ * starts another. Paste operations (including Pocket drops) have boundaries on
+ * both sides, so they never merge with typing or a subsequent paste.
+ * The actual history remains SigmaDoc-owned.
  */
 export function groupTextFlowTransaction(
   previous: TextFlowHistoryGroupingState,
@@ -37,13 +41,16 @@ export function groupTextFlowTransaction(
 ): TextFlowHistoryGroupingResult {
   const appendedTransaction = transaction.getMeta("appendedTransaction");
   const composition = transaction.getMeta("composition");
+  const isPaste = transaction.getMeta("uiEvent") === "paste";
   const startsNewGroup = previous.previousTime === 0
-    || (!appendedTransaction
-      && previous.previousComposition !== composition
-      && (
+    || (!appendedTransaction && (
+      isPaste
+      || previous.previousWasPaste
+      || (previous.previousComposition !== composition && (
         previous.previousTime < transaction.time - TEXT_FLOW_HISTORY_GROUP_DELAY_MS
         || !isAdjacentToPreviousChange(transaction, previous.previousRanges)
-      ));
+      ))
+    ));
   const sequence = startsNewGroup ? previous.sequence + 1 : previous.sequence;
   const previousRanges = appendedTransaction
     ? mapRanges(previous.previousRanges, transaction.mapping)
@@ -56,6 +63,7 @@ export function groupTextFlowTransaction(
       previousRanges,
       previousTime: transaction.time,
       previousComposition: composition == null ? previous.previousComposition : composition,
+      previousWasPaste: appendedTransaction ? previous.previousWasPaste : isPaste,
     },
   };
 }
