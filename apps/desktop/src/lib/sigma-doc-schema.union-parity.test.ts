@@ -56,7 +56,7 @@ const FIXTURES: Array<{ name: string; document: unknown }> = [
   // `sample-document.ts` は complex-square-product-range.sigmadoc.json を再輸出しているだけなので、
   // 両方入れても 1 つ分にしかならない。実体の JSON だけを見る。
   { name: "complex-square-product-range", document: readJsonFixture("complex-square-product-range.sigmadoc.json") },
-  { name: "examples/editor-react18", document: readJsonFixture("../../examples/editor-react18/src/sample-document.json") },
+  { name: "examples/editor-react19", document: readJsonFixture("../../examples/editor-react19/src/sample-document.json") },
 ];
 
 describe("SigmaBlockSchema: 旧 union と受理集合が同一", () => {

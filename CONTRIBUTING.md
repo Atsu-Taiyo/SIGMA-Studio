@@ -86,9 +86,11 @@ npm run viewer:typecheck
 npm run editor:typecheck
 npm run viewer:test
 npm --workspace @sigma-studio/editor run test
-npm --workspace @sigma-studio/editor-react18-example run build
+npm --workspace @sigma-studio/editor-react19-example run build
+npm --workspace @sigma-studio/editor-react18-fixture run build
 npm exec --workspace @sigma-studio/desktop -- playwright install chromium
 npm run test:public-browser
+npm run test:public-browser:react18
 npm pack --workspace @sigma-studio/viewer --workspace @sigma-studio/editor --dry-run --ignore-scripts
 ```
 
@@ -97,7 +99,7 @@ npm pack --workspace @sigma-studio/viewer --workspace @sigma-studio/editor --dry
 `public-types.test.ts` は生成された宣言と実際のpackage exportsを使い、BundlerとNodeNextの利用側を型検査します。
 CSS・フォント・画像の扱いも本番設定を通します。`dist` は生成物なので直接編集しません。
 
-`test:public-browser` はビルド済みのReact 18 exampleを起動し、Viewerの表示切替、本文編集、
+`test:public-browser` はビルド済みのReact 19 exampleを起動し、Viewerの表示切替、本文編集、
 ホストによる保存、再読込を確認します。外部サービスや公開サイトには書き込みません。
 `test:scripts` は実際のversion CLIを一時ディレクトリで実行し、manifest同期とcheckの読取専用性を検査します。
 
@@ -126,8 +128,9 @@ Viewerの型生成は、TypeScript 7が提供しないJavaScript Compiler APIを
 ルートの `typescript-compiler-api`（TypeScript 5.9.3のnpm alias）を明示的にimportします。
 Next.jsもCLI経由で型検査を行い、型検査の省略はしません。
 
-`examples/editor-react18` はReact 18の互換性検証用として維持します。
-React 19は同じ画面を使う `examples/editor-react19` で検証します。
-`npm --workspace @sigma-studio/editor-react19-example run build` の後に
-`npm run test:public-browser:react19` を実行してください。両テストは実際のReact版と
+`examples/editor-react19` が組み込み例の本体です。`editor:example` と `viewer:example` もReact 19で起動します。
+React 18の互換性検証用ホストは `tests/fixtures/editor-react18` に置き、同じ画面ソースを使います。
+React 19は `npm run test:public-browser`、React 18はfixtureのビルド後に
+`npm run test:public-browser:react18` で検証します。従来の `test:public-browser:react19` は通常の検証へのaliasです。
+両テストは実際のReact版と
 編集・保存・再読込を確認し、CIとnpm公開前にも両方を実行します。
