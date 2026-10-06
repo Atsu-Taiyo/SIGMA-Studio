@@ -2,12 +2,14 @@
 import { useEffect, type RefObject } from "react";
 import { FLUSH_OVERLAY_CHANGES_EVENT, type OverlayChangeOptions } from "../page-overlay-types";
 import type { OverlayAsset, OverlayShape } from "./types";
-interface Dependencies { assets: Record<string, OverlayAsset>; shapes: OverlayShape[]; mountedRef: RefObject<boolean>; pendingOverlaySaveHistoryGroupRef: RefObject<string | null>; explicitlySavedShapeStatesRef: RefObject<WeakSet<OverlayShape[]>>; suppressNextSaveRef: RefObject<boolean>; commitOverlayChangeNow(options?: OverlayChangeOptions): void; queueOverlaySave(options?: OverlayChangeOptions): void; flushOverlayChange(): void; saveTimeoutRef: RefObject<number | undefined>; imageCropDirtyRef: RefObject<boolean>; }
+interface Dependencies { assets: Record<string, OverlayAsset>; shapes: OverlayShape[]; assetsRef: RefObject<Record<string, OverlayAsset>>; shapesRef: RefObject<OverlayShape[]>; mountedRef: RefObject<boolean>; pendingOverlaySaveHistoryGroupRef: RefObject<string | null>; explicitlySavedShapeStatesRef: RefObject<WeakSet<OverlayShape[]>>; suppressNextSaveRef: RefObject<boolean>; commitOverlayChangeNow(options?: OverlayChangeOptions): void; queueOverlaySave(options?: OverlayChangeOptions): void; flushOverlayChange(): void; saveTimeoutRef: RefObject<number | undefined>; imageCropDirtyRef: RefObject<boolean>; }
 
 /** Run after external snapshot adoption so echoes/Undo never queue a new save. */
 export function useOverlaySaveEffects({
   assets,
   shapes,
+  assetsRef,
+  shapesRef,
   mountedRef,
   pendingOverlaySaveHistoryGroupRef,
   explicitlySavedShapeStatesRef,
@@ -31,6 +33,13 @@ export function useOverlaySaveEffects({
     const historyGroup = pendingOverlaySaveHistoryGroupRef.current;
     pendingOverlaySaveHistoryGroupRef.current = null;
 
+    // Snapshot adoption runs before this effect and updates refs immediately,
+    // while its setState is rendered next. Do not consume the suppression flag
+    // or queue a save from the superseded render: that echo would clear Redo.
+    if (shapes !== shapesRef.current || assets !== assetsRef.current) {
+      return;
+    }
+
     if (explicitlySavedShapeStatesRef.current.delete(shapes)) {
       return;
     }
@@ -50,7 +59,7 @@ export function useOverlaySaveEffects({
     }
 
     queueOverlaySave();
-  }, [assets, commitOverlayChangeNow, explicitlySavedShapeStatesRef, mountedRef, pendingOverlaySaveHistoryGroupRef, queueOverlaySave, shapes, suppressNextSaveRef]);
+  }, [assets, assetsRef, commitOverlayChangeNow, explicitlySavedShapeStatesRef, mountedRef, pendingOverlaySaveHistoryGroupRef, queueOverlaySave, shapes, shapesRef, suppressNextSaveRef]);
 
   useEffect(() => {
     window.addEventListener(FLUSH_OVERLAY_CHANGES_EVENT, flushOverlayChange);
