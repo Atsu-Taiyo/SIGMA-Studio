@@ -76,6 +76,7 @@ import type { CommentPanelAuthor } from "@/components/editor/CommentThreadsPanel
 import { DesktopSettingsModal } from "@/components/editor/DesktopSettingsModal";
 import { DocumentLibraryDialog } from "@/components/editor/DocumentLibraryDialog";
 import { DocumentOpenFailurePanel } from "@/components/editor/DocumentOpenFailurePanel";
+import { ProblemLibraryDialog } from "@/components/editor/ProblemLibraryDialog";
 import { DocumentTextCopyDialog,DocumentTextImportDialog } from "@/components/editor/DocumentTextTransferDialog";
 import {
 type SelectedInlineMath
@@ -925,6 +926,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
   const moreBlocksMenuButtonRef = useRef<HTMLButtonElement | null>(null);
   const fileMenuButtonRef = useRef<HTMLButtonElement | null>(null);
   const insertMenuButtonRef = useRef<HTMLButtonElement | null>(null);
+  const [problemLibraryOpen, setProblemLibraryOpen] = useState(false);
   const aiMenuButtonRef = useRef<HTMLButtonElement | null>(null);
   const newDocButtonRef = useRef<HTMLButtonElement | null>(null);
   const newDocMenuCloseTimerRef = useRef<number | null>(null);
@@ -3418,6 +3420,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
     openDocumentViaDesktop,
     openExternalDocument,
     importDocumentFile,
+    importDocumentFileWithResult,
     openImportDialog,
     openOtherImportDialog,
   } = useDocumentFileCommands({
@@ -4425,6 +4428,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
       zoomOptions,
     },
     appMenu: {
+      openProblemLibrary: () => setProblemLibraryOpen(true),
       activeDocumentOpenFailure, activeFileId, addBlock, aiMenuButtonRef, appUpdateState,
       closeDocumentTab, commentsPanelOpen, commitDocumentTitle, copyDocumentText, createDocumentTab, createWhiteboardDocumentTab, degradedWatcherScopes,
       deleteActiveDocument, documentMetadatas, documentTitle, duplicateActiveDocument, exportJson,
@@ -4974,6 +4978,9 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
         onInsert={insertTemplate}
       />
 
+      {problemLibraryOpen && (
+        <ProblemLibraryDialog onImport={async file => (await importDocumentFileWithResult(file)) === "imported"} onClose={() => setProblemLibraryOpen(false)} />
+      )}
       {textImportOpen && (
         <DocumentTextImportDialog
           onImport={(file) => importDocumentFile(file)}

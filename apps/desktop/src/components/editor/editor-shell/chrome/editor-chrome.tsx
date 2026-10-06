@@ -326,6 +326,12 @@ export function renderEditorChrome(chrome: EditorChromeValue) {
     )
   );
 
+  const problemMenu = !isEmbedded && isDesktopApp ? (
+    <button type="button" className="app-menu-button" aria-haspopup="dialog" onClick={() => { setActiveMenu(null); chrome.appMenu.openProblemLibrary(); }}>
+      {t("appMenu.problems")}
+    </button>
+  ) : null;
+
   const settingsMenu = (
     <div className="app-menu-anchor">
       <button ref={settingsMenuButtonRef} type="button" className={`app-menu-button ${activeMenu === "settings" ? "active" : ""}`} aria-haspopup="menu" aria-expanded={activeMenu === "settings"} onClick={() => toggleMenu("settings")}>
@@ -664,6 +670,7 @@ export function renderEditorChrome(chrome: EditorChromeValue) {
     <div className="ribbon-tab-actions">
       {commentsToggleButton}
       {!isEmbedded && aiChatButton}
+      {problemMenu}
     </div>
   );
 
@@ -2997,6 +3004,7 @@ export function renderEditorChrome(chrome: EditorChromeValue) {
     fileMenu,
     insertMenu,
     aiMenu,
+    problemMenu,
     settingsMenu,
     documentTabsRow,
     saveStateBadge,

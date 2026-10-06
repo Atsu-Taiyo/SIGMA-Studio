@@ -20,7 +20,9 @@ export async function fetchProblemSearch(
   const parsed = ProblemSearchRequestSchema.safeParse(input);
   if (!parsed.success) return { ok: false, error: ta("problemSearch.invalidQuery") };
   const query = new URLSearchParams();
-  for (const [key, value] of Object.entries(parsed.data)) query.set(key, String(value));
+  for (const [key, value] of Object.entries(parsed.data)) {
+    if (value !== undefined) query.set(key, String(value));
+  }
   const result = await fetchProblemReference(`search?${query}`, connection, (key) => ta(`problemSearch.${key}`), fetchImpl);
   if (!result.ok) return result;
   if (result.data.ok !== true || !Array.isArray(result.data.results)) return { ok: false, error: ta("problemSearch.invalidResponse") };
