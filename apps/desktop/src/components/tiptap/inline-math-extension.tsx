@@ -1623,9 +1623,10 @@ function InlineMathLiveField({
       }
       mathField.readOnly = locked;
       // クリックされた placeholder に入るには、無名の `\placeholder{}` に一時的な id を振る。
+      const editableTex = normalizeMathTextRuns(tex);
       mathField.value = initialPlaceholderIndex === null
-        ? tex
-        : indexAnonymousInlineMathPlaceholders(tex);
+        ? editableTex
+        : indexAnonymousInlineMathPlaceholders(editableTex);
       mathField.addEventListener("input", handleMathFieldInput);
       mathField.addEventListener("blur", handleMathFieldBlur);
       mathField.ownerDocument.addEventListener("keydown", handleMathFieldKeyDown, true);
@@ -1907,8 +1908,16 @@ function syncInlineMathFieldLineBreaks(mathField: InlineMathFieldElement): strin
   const rawTex = getMathfieldLatex(mathField) || mathField.value;
   const nextTex = normalizeInlineMathLineBreakInput(rawTex);
   if (nextTex !== rawTex || nextTex !== mathField.value) {
+    // Wrapping Japanese characters in \text{} changes their mode, not their
+    // atom offsets. Keep the cursor inside its box/fraction instead of moving
+    // subsequent spaces and characters to the end of the entire formula.
+    const selection = nextTex === normalizeMathTextRuns(rawTex) ? mathField.selection : undefined;
     mathField.value = nextTex;
-    mathField.executeCommand?.("moveToMathfieldEnd");
+    if (selection !== undefined) {
+      mathField.selection = selection;
+    } else {
+      mathField.executeCommand?.("moveToMathfieldEnd");
+    }
   }
   return nextTex;
 }
