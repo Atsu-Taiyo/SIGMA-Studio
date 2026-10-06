@@ -380,7 +380,9 @@ export function pasteTextFlowBlocksFromClipboard(
     } catch {
       // Keep the paste operation even if ProseMirror cannot place a nearby cursor.
     }
-    view.dispatch(transaction.scrollIntoView());
+    view.dispatch(transaction.scrollIntoView()
+      .setMeta("paste", true)
+      .setMeta("uiEvent", "paste"));
     if (view.state.doc === previousDocument) {
       return true;
     }
