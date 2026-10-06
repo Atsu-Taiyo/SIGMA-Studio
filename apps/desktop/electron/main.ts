@@ -1501,6 +1501,8 @@ function checkForUpdatesInBackground(): void {
 
 function registerIpc() {
   registerTikzIpc();
+  ipcMain.handle("problems:search", (_event, query: unknown) => fetchProblemSearch(query, collaborationSessions.auth));
+  ipcMain.handle("problems:solution", (_event, request: unknown) => fetchProblemSolution(request, collaborationSessions.auth));
   ipcMain.handle("app:close-ack", (event) => {
     return activeWindowCloseHandshake?.acknowledge(event.sender) ?? false;
   });

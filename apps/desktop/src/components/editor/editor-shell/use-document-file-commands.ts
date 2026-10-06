@@ -146,7 +146,7 @@ export function useDocumentFileCommands({
     }
   };
 
-  const importDocumentFileWithResult = async (file: File): Promise<boolean> => {
+  const importDocumentFileWithResult = async (file: File): Promise<"imported" | "cancelled" | "error"> => {
     try {
       const request = planDocumentFileImport(file);
       const { document: importedDocument, recoveryIssues, successMessageKey } = await prepareDocumentFileImport(request, {
@@ -161,10 +161,10 @@ export function useDocumentFileCommands({
         setSaveState("saved");
         setStatusMessage(tEditor(successMessageKey));
         announceRecovery(recoveryIssues);
-        return true;
+        return "imported";
       }
       if (workspaceReady && !(await saveCurrentDocumentBeforeReplacement())) {
-        return false;
+        return "cancelled";
       }
       const importedRecord = await createDocumentFromSigmaDocument(importedDocument);
       await openDocumentAsTab(importedRecord, tEditor(successMessageKey));
@@ -172,8 +172,9 @@ export function useDocumentFileCommands({
     } catch (error) {
       setSaveState("error");
       setStatusMessage(error instanceof Error ? error.message : tEditor("status.fileReadFailed"));
+      return "error";
     }
-    return true;
+    return "imported";
   };
 
   const importDocumentFile = async (file: File) => {
@@ -186,7 +187,8 @@ export function useDocumentFileCommands({
       return true;
     }
     const baseName = pending.filePath.split(/[\\/]/).pop() ?? "document.sigma";
-    return importDocumentFileWithResult(new File([pending.data], baseName, { type: "application/json" }));
+    // Invalid OS-open requests are consumed once; a cancelled save stays pending.
+    return (await importDocumentFileWithResult(new File([pending.data], baseName, { type: "application/json" }))) !== "cancelled";
   };
 
   const openImportDialog = () => {
@@ -220,6 +222,6 @@ export function useDocumentFileCommands({
   };
 
   return {
-    importInputRef, otherImportInputRef, textImportOpen, setTextImportOpen, documentTextCopyFallback, setDocumentTextCopyFallback, exportJson, copyDocumentText, openTextImportDialog, openDocumentViaDesktop, openExternalDocument, importDocumentFile, openImportDialog, openOtherImportDialog,
+    importInputRef, otherImportInputRef, textImportOpen, setTextImportOpen, documentTextCopyFallback, setDocumentTextCopyFallback, exportJson, copyDocumentText, openTextImportDialog, openDocumentViaDesktop, openExternalDocument, importDocumentFile, importDocumentFileWithResult, openImportDialog, openOtherImportDialog,
   };
 }

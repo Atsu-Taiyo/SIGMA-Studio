@@ -122,7 +122,7 @@ describe("document file commands", () => {
   it("rejects malformed input before asking to save or creating a workspace file", async () => {
     const f = fixture();
     render(f.options);
-    await act(async () => { await actions.importDocumentFile(new File(["{broken"], "教材.json")); });
+    await act(async () => { expect(await actions.importDocumentFileWithResult(new File(["{broken"], "教材.json"))).toBe("error"); });
     expect(f.options.setSaveState).toHaveBeenLastCalledWith("error");
     expect(f.options.saveCurrentDocumentBeforeReplacement).not.toHaveBeenCalled();
     expect(f.create).not.toHaveBeenCalled();
