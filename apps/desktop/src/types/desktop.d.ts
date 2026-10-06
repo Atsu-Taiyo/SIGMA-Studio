@@ -916,6 +916,7 @@ export interface DesktopWorkspacePreviewAPI {
 }
 
 export interface DesktopAPI {
+  problems?: import("@/lib/problem-library").ProblemLibraryBridge;
   tikz?: import("@/lib/tikz-contract").TikzRenderAPI;
   shareLinks?: {
     pending(): Promise<{ id: string; url: string } | null>;

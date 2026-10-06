@@ -8,6 +8,10 @@ const desktopAPI = {
   tikz: {
     render: (input: unknown) => ipcRenderer.invoke("tikz:render", input),
   },
+  problems: {
+    search: (query: unknown) => ipcRenderer.invoke("problems:search", query),
+    getSolution: (request: unknown) => ipcRenderer.invoke("problems:solution", request),
+  },
   isDesktop: true as const,
   platform: process.platform,
   shareLinks: {

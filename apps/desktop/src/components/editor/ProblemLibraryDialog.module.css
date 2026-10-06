@@ -1,0 +1,390 @@
+.title {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-sm);
+  min-width: 0;
+}
+
+/* 検索バーは固定し、結果の領域だけがスクロールする。 */
+.body {
+  display: flex;
+  flex: 1 1 auto;
+  min-height: 0;
+  flex-direction: column;
+}
+
+/* Inset は四方同値なので、ヘッダーの左右 24px に揃えるためだけに、スケールの値で上下左右を分ける。 */
+.toolbar {
+  flex: 0 0 auto;
+  padding: var(--space-md) var(--space-xl);
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.search {
+  display: flex;
+  flex: 1 1 240px;
+  align-items: center;
+  gap: var(--space-sm);
+  min-width: 0;
+  min-height: 38px;
+  padding: 0 var(--space-xs) 0 var(--space-md);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  background: var(--surface);
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
+.search svg {
+  flex: 0 0 auto;
+}
+
+.search:focus-within {
+  border-color: var(--border-strong);
+  background: var(--background);
+  outline: 2px solid color-mix(in srgb, var(--accent) 24%, transparent);
+}
+
+.search input {
+  flex: 1 1 auto;
+  width: 100%;
+  min-width: 0;
+  padding: 0 var(--space-sm) 0 0;
+  border: 0;
+  outline: none;
+  background: transparent;
+  color: var(--text-primary);
+  font: inherit;
+}
+
+.search input::placeholder {
+  color: var(--text-muted);
+}
+
+.search input:disabled {
+  color: var(--text-muted);
+}
+
+/* タグの絞り込み。検索欄より控えめな短いチップで、いま選んでいるタグだけを見せる。
+   共通 Select のトリガーは `.trigger` (0,1,0) を持つので、ここは親を足して必ず上書きする。 */
+.tagFilter {
+  position: relative;
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  max-width: 100%;
+}
+
+/* トリガーはラベルしか描かないので、アイコンは兄弟として重ね、左の余白 (2xl) の中に置く。 */
+.tagIcon {
+  position: absolute;
+  inset-inline-start: var(--space-md);
+  color: var(--text-muted);
+  pointer-events: none;
+}
+
+.tagFilter .tagTrigger {
+  min-height: 32px;
+  max-width: 220px;
+  padding: 0 var(--space-md) 0 var(--space-2xl);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-round);
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.tagFilter .tagTrigger:hover:not(:disabled),
+.tagFilter .tagTrigger[aria-expanded="true"] {
+  border-color: var(--border);
+  background: var(--surface-muted);
+}
+
+/* 絞り込み中は、濃い枠ではなく薄いグレーの面で示す。 */
+.tagFilter[data-active] .tagTrigger {
+  border-color: var(--border);
+  background: var(--surface-muted);
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.tagFilter[data-active] .tagIcon {
+  color: var(--text-primary);
+}
+
+.tagFilter .tagTrigger:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent) 32%, transparent);
+  outline-offset: 2px;
+}
+
+.tagFilter .tagTrigger:disabled {
+  color: var(--text-disabled);
+}
+
+/* メニューの選択肢 (Select の content)。行の面は Select が持ち、ここは小さなタグの見た目だけを描く。 */
+.tagOption,
+.tagOptionAll {
+  display: inline-flex;
+  align-items: center;
+  min-height: 22px;
+  padding: 0 var(--space-sm);
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.tagOption {
+  gap: var(--space-xs);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-round);
+  background: var(--surface-soft);
+}
+
+.tagOption svg {
+  flex: 0 0 auto;
+  color: var(--text-muted);
+}
+
+/* 結果領域の幅を基準にした列数の切り替え (下の @container) のため、ここを container にする。 */
+.results {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  container-type: inline-size;
+}
+
+.heading {
+  min-height: 30px;
+}
+
+.heading h3 {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: 14px;
+  font-weight: 650;
+  line-height: 1.4;
+}
+
+.count {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.notice {
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-control);
+  background: var(--surface);
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.notice svg {
+  flex: 0 0 auto;
+  color: var(--danger);
+}
+
+.state {
+  min-height: 240px;
+  color: var(--text-muted);
+  text-align: center;
+}
+
+.state strong {
+  color: var(--text-secondary);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.stateMessage {
+  max-width: var(--content-width-sm);
+  color: var(--text-secondary);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+/* 行を揃えず、各列でカードを上から詰める。Grid の共通 gap トークンを列間にも使う。 */
+.results .grid[data-columns] {
+  display: block;
+  column-count: 3;
+}
+
+.grid > .card {
+  display: inline-block;
+  width: 100%;
+  vertical-align: top;
+  break-inside: avoid;
+  /* 段組には縦の gap が効かないため、カード間だけ共通トークンの余白を設ける。 */
+  margin-block-end: var(--space-md);
+}
+
+/* ウィンドウ全体ではなく、結果領域の幅で 3 → 2 → 1 列へ切り替える。 */
+@container (max-width: 719px) {
+  .results .grid[data-columns] {
+    column-count: 2;
+  }
+}
+
+@container (max-width: 479px) {
+  .results .grid[data-columns] {
+    column-count: 1;
+  }
+}
+
+.card {
+  min-width: 0;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-panel);
+  background: var(--background);
+  transition: border-color 140ms ease, background 140ms ease;
+}
+
+.card:hover,
+.card:focus-within {
+  border-color: var(--border);
+}
+
+.card[data-importing="true"] {
+  border-color: var(--border-strong);
+  background: var(--surface);
+}
+
+.meta {
+  min-height: 20px;
+}
+
+.categoryTag {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  min-height: 20px;
+  padding: 0 var(--space-sm);
+  border-radius: var(--radius-round);
+  background: var(--surface-muted);
+  color: var(--text-secondary);
+  font-size: 11px;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+/* 解答の有無。事実として分かっているときだけ「付き／なし」と書き、不明は不明のまま控えめに出す。 */
+.solution {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-xs);
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.solution svg {
+  flex: 0 0 auto;
+}
+
+.solution[data-solution="available"] {
+  color: var(--text-secondary);
+}
+
+.cardTitle {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 650;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+/* 問題自体の出典 (source_name)。サービス名 (.sourceLink) とは別の、タイトルの下の控えめな文字。 */
+.origin {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+/* 高さは本文なり。縦はクリップせず全文を見せ、横にはみ出す長い数式だけをこの枠の中で横スクロールにする。 */
+.preview {
+  overflow: auto hidden;
+  overflow-wrap: anywhere;
+  font-size: 13px;
+  line-height: 1.7;
+}
+
+.previewFailed {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.sourceLink {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-xs);
+  min-width: 0;
+  color: var(--text-muted);
+  font-size: 12px;
+  text-decoration: none;
+}
+
+.sourceLink span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sourceLink svg {
+  flex: 0 0 auto;
+}
+
+.sourceLink:hover {
+  color: var(--text-primary);
+  text-decoration: underline;
+}
+
+.sourceLink:focus-visible {
+  border-radius: var(--radius-control);
+  outline: 2px solid color-mix(in srgb, var(--accent) 32%, transparent);
+  outline-offset: 2px;
+}
+
+/* 読み込み中: ProblemCard と同じ行構成 (メタ・タイトル・本文・フッター) の骨格。共通の .ui-shimmer-surface は
+   inline-block なので、二つ重ねたセレクターで block にして寸法を与える。 */
+.skeleton .skeletonTag {
+  display: block;
+  width: 56px;
+  height: 20px;
+  border-radius: var(--radius-round);
+}
+
+.skeleton .skeletonTitle {
+  display: block;
+  width: 72%;
+  height: 18px;
+  border-radius: var(--radius-control);
+}
+
+.skeleton .skeletonLine {
+  display: block;
+  height: 12px;
+  border-radius: var(--radius-control);
+}
+
+.skeleton .skeletonLink {
+  display: block;
+  width: 96px;
+  height: 14px;
+  border-radius: var(--radius-control);
+}
+
+.skeleton .skeletonButton {
+  display: block;
+  width: 76px;
+  height: 30px;
+  border-radius: var(--radius-control);
+}

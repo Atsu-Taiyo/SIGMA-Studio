@@ -8,6 +8,43 @@ import type { TranslationsOf } from "../types";
  * **訳語ではなく英語話者が実際に打つ語**を独自に並べてある。
  */
 export const editor = {
+  problemLibrary: {
+    provenance: "Source: Juken Math / {{url}}",
+    categories: { integers: "Integers", algebra: "Algebra", geometry: "Geometry", complex: "Complex plane", calculus: "Calculus", probability: "Probability", sequences: "Sequences" },
+
+    // Display name of the provider (service). Distinct from a problem's own origin (`source_name`); shown only as quiet card metadata.
+    sources: { jukenmath: "Juken Math" },
+
+    "title": "Problem library",
+    "keyword": "Keyword",
+    "placeholder": "Search by keyword (e.g. quadratic functions)",
+    "clear": "Clear search",
+    "category": "Tag",
+    "all": "All tags",
+    "recommended": "Recommended problems",
+    "results": "Search results",
+    "resultCount": "{{total}} found",
+    "recommend": "Show recommendations",
+    "retry": "Reload",
+    "loading": "Loading problems…",
+    "empty": "No problems found",
+    "import": "Import",
+    "importTitle": "Import as a new document",
+    "importWithSolutionTitle": "Import as a new document, with its solution",
+    "importing": "Importing…",
+    "importFailed": "Import did not complete. Check the save status and try again.",
+    // Whether the problem has a solution. Only say "with" or "no" when it is known; otherwise say it is unchecked.
+    solutionState: { available: "With solution", none: "No solution", unknown: "Solution unchecked" },
+    // Used by the import code (lib/problem-library.ts). When the solution cannot be loaded or verified, the body is not imported alone.
+    "solutionLoadFailed": "Could not load the solution. Check your connection and try again.",
+    "restartRequired": "Restart the app to import solutions. Save your documents, quit Sigma Studio, and open it again.",
+    "solutionUnavailable": "The solution could not be verified, so the import was cancelled. Please check the original page.",
+    solutionLabels: { official: "Official solution", author: "Author's solution", editorial: "Editorial solution" },
+    "loadFailed": "Could not load problems. Check your sign-in and connection, then reload.",
+    "unavailable": "Problem search requires the desktop app.",
+    "openOriginal": "Open original page",
+    "conversionFailed": "This problem could not be converted. Please check the original page."
+},
   common: {
     close: "Close",
     cancel: "Cancel",
