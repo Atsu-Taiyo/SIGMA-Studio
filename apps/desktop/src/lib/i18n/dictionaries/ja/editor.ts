@@ -6,6 +6,43 @@
  * i18next のキー解決が途中で打ち切られて生キーが画面に出る (WI-4 で実測)。
  */
 export const editor = {
+  problemLibrary: {
+    provenance: "出典：りずりーの受験数学研究所 / {{url}}",
+    categories: { integers: "整数", algebra: "数と式", geometry: "図形", complex: "複素数平面", calculus: "微積分", probability: "確率", sequences: "数列" },
+
+    // 取得元 (サービス) の表示名。問題自体の出典 (`source_name`) とは別物で、カードの控えめなメタ情報にだけ出す。
+    sources: { jukenmath: "受験数学研究所" },
+
+    "title": "問題ライブラリ",
+    "keyword": "キーワード",
+    "placeholder": "キーワードで検索（例：二次関数、漸化式）",
+    "clear": "検索語を消す",
+    "category": "タグ",
+    "all": "すべてのタグ",
+    "recommended": "おすすめの問題",
+    "results": "検索結果",
+    "resultCount": "{{total}}件",
+    "recommend": "おすすめを表示",
+    "retry": "再読み込み",
+    "loading": "問題を読み込み中…",
+    "empty": "該当する問題がありません",
+    "import": "取り込む",
+    "importTitle": "新しい教材として取り込む",
+    "importWithSolutionTitle": "解答付きで新しい教材として取り込む",
+    "importing": "取り込み中…",
+    "importFailed": "取り込みが完了しませんでした。保存状態を確認して、もう一度お試しください。",
+    // 解答の有無。値が確認できているときだけ「付き／なし」と言い、不明は不明と書く。
+    solutionState: { available: "解答付き", none: "解答なし", unknown: "解答未確認" },
+    // 以下は取り込み処理 (lib/problem-library.ts) が使う。解答を取得・検証できないときは本文だけで取り込まない。
+    "solutionLoadFailed": "解答を取得できませんでした。接続を確認して、もう一度お試しください。",
+    "restartRequired": "解答の取り込みにはアプリの再起動が必要です。教材を保存してSigma Studioを終了し、もう一度起動してください。",
+    "solutionUnavailable": "解答を確認できないため、取り込みを中止しました。元のページを確認してください。",
+    solutionLabels: { official: "公式解答", author: "投稿者の解答", editorial: "編集部の解答" },
+    "loadFailed": "問題を取得できませんでした。ログイン状態と接続を確認し、再読み込みしてください。",
+    "unavailable": "問題の取得にはデスクトップ版をご利用ください。",
+    "openOriginal": "元のページを開く",
+    "conversionFailed": "この問題を変換できませんでした。元のページで内容を確認してください。"
+},
   /**
    * コメントの絵文字リアクション。`comment-reactions.ts` は emoji と id しか持たず、
    * 表示名と検索語はここが唯一の出典。
