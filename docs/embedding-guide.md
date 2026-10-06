@@ -17,7 +17,7 @@ Editorパッケージが担当するのはSigmaDocの検証・表示と、Sigma 
 npm install @sigma-studio/editor
 ```
 
-このmonorepo内で動作確認する場合は、React 18の組み込み例を使えます。
+このmonorepo内で動作確認する場合は、React 19の組み込み例を使えます。
 
 ```sh
 npm install
@@ -176,7 +176,7 @@ type SigmaDocViewerError =
 - SSR: packageのimportは可能。hydration完了までは安定したshellを表示します。
 - Browser: ResizeObserver、Font Loading APIなどが無い環境では利用可能な範囲で表示し、hostを停止させません。
 
-React 18での閲覧・編集round-tripは`examples/editor-react18`を参照してください。長い数学問題と解答を持つ共有ページ、表示パラメータ操作、別routeの編集ページ、保存後の再表示までを含みます。
+React 19での閲覧・編集round-tripは`examples/editor-react19`を参照してください。長い数学問題と解答を持つ共有ページ、表示パラメータ操作、別routeの編集ページ、保存後の再表示までを含みます。
 
 ## SigmaDocEditorを組み込む
 

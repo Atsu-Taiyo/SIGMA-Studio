@@ -12,7 +12,7 @@ const paths = [
   "apps/desktop/package.json",
   "packages/viewer/package.json",
   "packages/editor/package.json",
-  "examples/editor-react18/package.json",
+  "tests/fixtures/editor-react18/package.json",
   "examples/editor-react19/package.json",
   "package-lock.json",
 ];
@@ -27,7 +27,7 @@ function manifests(version) {
     "packages/editor/package.json": {
       name: "@sigma-studio/editor", version, dependencies: { ...viewerDependency },
     },
-    "examples/editor-react18/package.json": {
+    "tests/fixtures/editor-react18/package.json": {
       name: "example", version: "0.0.0", private: true, dependencies: { ...editorDependency },
     },
     "examples/editor-react19/package.json": {
@@ -40,7 +40,7 @@ function manifests(version) {
         "apps/desktop": { name: "desktop", version },
         "packages/viewer": { name: "@sigma-studio/viewer", version },
         "packages/editor": { version, dependencies: { ...viewerDependency } },
-        "examples/editor-react18": { version: "0.0.0", dependencies: { ...editorDependency } },
+        "tests/fixtures/editor-react18": { version: "0.0.0", dependencies: { ...editorDependency } },
         "examples/editor-react19": { version: "0.0.0", dependencies: { ...editorDependency } },
         "node_modules/unrelated": { version: "7.8.9", integrity: "unchanged" },
       },
