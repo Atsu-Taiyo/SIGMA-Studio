@@ -59,7 +59,7 @@ export function useOverlaySaveEffects({
     }
 
     queueOverlaySave();
-  }, [assets, assetsRef, commitOverlayChangeNow, explicitlySavedShapeStatesRef, mountedRef, pendingOverlaySaveHistoryGroupRef, queueOverlaySave, shapes, shapesRef, suppressNextSaveRef]);
+  }, [assets, commitOverlayChangeNow, explicitlySavedShapeStatesRef, mountedRef, pendingOverlaySaveHistoryGroupRef, queueOverlaySave, shapes, suppressNextSaveRef, assetsRef, shapesRef]);
 
   useEffect(() => {
     window.addEventListener(FLUSH_OVERLAY_CHANGES_EVENT, flushOverlayChange);
