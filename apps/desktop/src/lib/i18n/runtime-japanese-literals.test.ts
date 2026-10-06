@@ -20,6 +20,12 @@ type IntentionalJapaneseRule = {
  */
 export const INTENTIONAL_RUNTIME_JAPANESE: readonly IntentionalJapaneseRule[] = [
   {
+    path: /^src\/lib\/problem-library\.ts$/,
+    value: /^(?:整数|数と式|図形|複素数平面|微積分|確率|数列)$/,
+    classification: "upstream API category identifiers",
+    reason: "Problem search accepts these Japanese category identifiers in every locale; interface labels resolve separate i18n dictionary keys.",
+  },
+  {
     path: /^src\/lib\/heading-numbering\.ts$/,
     value: /^(?:第|章)$/,
     classification: "document numbering format",
