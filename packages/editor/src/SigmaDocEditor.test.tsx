@@ -170,7 +170,7 @@ describe("SigmaDocEditor", () => {
 
   it("ignores a stale echo of its own emitted document instead of resetting mid-edit", async () => {
     // 再現: host の onSave が await 後に、その時点で渡されたスナップショットを
-    // setDocument で書き戻す(examples/editor-react18/src/App.tsx が過去にやって
+    // setDocument で書き戻す(examples/editor-react19/src/App.tsx が過去にやって
     // いたパターン)。その間にユーザーがさらに編集していると、古い方の
     // documentHistoryKey は「エディタが過去に emit した文書」の記録に載っている
     // ので、host update として resetEditorDocument してはいけない。
