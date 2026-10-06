@@ -116,11 +116,11 @@ jobs:
       - run: npm run editor:typecheck
       - run: npm run viewer:test
       - run: npm --workspace @sigma-studio/editor run test
-      - run: npm --workspace @sigma-studio/editor-react18-example run build
+      - run: npm --workspace @sigma-studio/editor-react18-fixture run build
       - run: npm --workspace @sigma-studio/editor-react19-example run build
       - run: npm exec --workspace @sigma-studio/desktop -- playwright install --with-deps chromium
       - run: npm run test:public-browser
-      - run: npm run test:public-browser:react19
+      - run: npm run test:public-browser:react18
       - name: Inspect the public tarballs without publishing
         run: npm pack --workspace @sigma-studio/viewer --workspace @sigma-studio/editor --dry-run --ignore-scripts
 
