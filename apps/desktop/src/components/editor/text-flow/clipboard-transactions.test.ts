@@ -204,6 +204,20 @@ describe("clipboard transaction acceptance", () => {
 });
 
 describe("pasting a copied text range", () => {
+  it("marks a body paste for the document history boundary", () => {
+    const editor = createEditor();
+    editor.commands.setTextSelection(2);
+    const data = new DataTransfer();
+    writeEditorClipboardData(data, createTextFlowClipboardPayload([paragraph("source", "X")]));
+    const updates: Array<{ paste: unknown; uiEvent: unknown }> = [];
+    editor.on("update", ({ transaction }) => updates.push({
+      paste: transaction.getMeta("paste"), uiEvent: transaction.getMeta("uiEvent"),
+    }));
+
+    expect(pasteTextFlowBlocksFromClipboard(editor.view, clipboardEvent(data), Slice.empty)).toBe(true);
+    expect(updates).toEqual([{ paste: true, uiEvent: "paste" }]);
+  });
+
   it("replaces an empty destination with pasted blocks and preserves the following empty paragraph", () => {
     const editor = createEditor();
     const following = [{ ...paragraph("blank", ""), children: [] }, paragraph("following", "続き")];
