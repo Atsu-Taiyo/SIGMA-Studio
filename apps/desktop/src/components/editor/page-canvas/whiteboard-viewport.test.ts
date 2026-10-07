@@ -54,6 +54,12 @@ describe("whiteboard viewport contract", () => {
     expect(ruleBody(".page-canvas.whiteboard-page-canvas:focus {")).toContain("outline: none;");
   });
 
+  it("does not draw the focus ring of the 20,000px overlay surface as the canvas origin corner", () => {
+    // 描画面 (`.overlay-canvas-bleed-surface`, tabIndex=-1) は 20000×20000 で、フォーカスされると
+    // その外周がネイティブのリングで描かれ、左上の角だけが画面の途中に出る。
+    expect(ruleBody(".whiteboard-canvas > .overlay-canvas-bleed-surface:focus {")).toContain("outline: none;");
+  });
+
   it("insets both docks so they do not stick to the frameless edge", () => {
     expect(ruleBody('.editor-canvas[data-whiteboard="true"] .ai-task-dock-root {'))
       .toContain("margin-left: var(--space-lg);");
