@@ -937,6 +937,142 @@ test("crops graph shapes down to the displayed graph range", async ({ page }) =>
   expect(Number(savedGraph!.props.spec.graphViewBox?.yMax)).toBeCloseTo(2);
 });
 
+/** 切り取りモードに入り、ハンドルを掴んで動かす (Alt を押したまま動かすと描画範囲の拡大)。 */
+async function startGraphCrop(page: import("@playwright/test").Page) {
+  await chooseInsert(page, "グラフ");
+  const graph = page.locator(".graph-shape").first();
+  const box = (await graph.boundingBox())!;
+  await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+  await page.mouse.dblclick(box.x + box.width / 2, box.y + box.height / 2);
+  await expect(page.locator(".graph2d-container.cropping")).toHaveCount(1);
+  return { graph, box };
+}
+
+async function dragGraphCropHandle(
+  page: import("@playwright/test").Page,
+  handle: "l" | "r" | "t" | "b",
+  dx: number,
+  dy: number,
+  options: { alt?: boolean } = {},
+) {
+  const order = ["tl", "tr", "bl", "br", "t", "b", "l", "r"];
+  const grip = (await page
+    .locator(".graph2d-container.cropping circle[fill='transparent']")
+    .nth(order.indexOf(handle))
+    .boundingBox())!;
+  const x = grip.x + grip.width / 2;
+  const y = grip.y + grip.height / 2;
+  if (options.alt) await page.keyboard.down("Alt");
+  await page.mouse.move(x, y);
+  await page.mouse.down();
+  await page.mouse.move(x + dx, y + dy, { steps: 10 });
+  await page.mouse.up();
+  if (options.alt) await page.keyboard.up("Alt");
+}
+
+/** ページ本文の空白を押す = 切り取りを確定して編集面から抜ける。 */
+async function finishGraphCropByClickingPage(
+  page: import("@playwright/test").Page,
+  box: { x: number; y: number; width: number; height: number },
+) {
+  await page.mouse.click(box.x + 20, box.y + box.height + 150);
+  await expect(page.locator(".graph2d-container.cropping")).toHaveCount(0);
+}
+
+async function flushOverlay(page: import("@playwright/test").Page) {
+  await page.evaluate(() => window.dispatchEvent(new CustomEvent("sigma-studio:flush-overlay-changes")));
+}
+
+test("keeps the cropped width after dragging a crop handle and clicking the page, and never saves a half-cropped graph", async ({ page }) => {
+  await page.goto(appUrl("/"), { waitUntil: "domcontentloaded" });
+  await expect(page.getByText("準備完了")).toBeVisible();
+  const { box } = await startGraphCrop(page);
+  await flushOverlay(page);
+  await expect.poll(async () => getSavedFirstGraph(page)).not.toBeNull();
+  const before = (await getSavedFirstGraph(page))!;
+
+  await dragGraphCropHandle(page, "r", -120, 0);
+  // ドラッグ中の途中経過は文書に書かない: 範囲だけ切り取り後で幅は元のまま、という状態が
+  // 保存されると、確定と選択への復帰が重なったときにその保存が確定結果を巻き戻した。
+  await flushOverlay(page);
+  const during = (await getSavedFirstGraph(page))!;
+  expect(during.props.w).toBeCloseTo(before.props.w, 1);
+  expect(during.props.spec.viewBox).toEqual(before.props.spec.viewBox);
+
+  await finishGraphCropByClickingPage(page, box);
+  await flushOverlay(page);
+  await expect.poll(async () => (await getSavedFirstGraph(page))?.props.w ?? Number.MAX_SAFE_INTEGER)
+    .toBeCloseTo(before.props.w - 120, 0);
+  const after = (await getSavedFirstGraph(page))!;
+  // 切り取った範囲の横幅がそのまま図の幅になる (元の幅へ引き伸ばされない)。縮尺は変わらない。
+  expect(after.props.spec.width).toBeCloseTo(after.props.w + 64, 1);
+  const unitsPerPx = (range: { xMin: string; xMax: string }, w: number) => (Number(range.xMax) - Number(range.xMin)) / w;
+  expect(unitsPerPx(after.props.spec.viewBox, after.props.w)).toBeCloseTo(unitsPerPx(before.props.spec.viewBox, before.props.w), 4);
+  expect(Number(after.props.spec.viewBox.xMin)).toBeCloseTo(Number(before.props.spec.viewBox.xMin), 3);
+  const drawn = await page.locator(".graph-shape .graph2d-svg").first().boundingBox();
+  expect(drawn!.width).toBeCloseTo(after.props.spec.width, 0);
+});
+
+test("widens the drawing range past the plot while Alt is held, without scaling the graph", async ({ page }) => {
+  await page.goto(appUrl("/"), { waitUntil: "domcontentloaded" });
+  await expect(page.getByText("準備完了")).toBeVisible();
+  const { box } = await startGraphCrop(page);
+  await flushOverlay(page);
+  await expect.poll(async () => getSavedFirstGraph(page)).not.toBeNull();
+  const before = (await getSavedFirstGraph(page))!;
+
+  await dragGraphCropHandle(page, "r", 100, 0, { alt: true });
+  await dragGraphCropHandle(page, "l", -60, 0, { alt: true });
+  await dragGraphCropHandle(page, "b", 0, 40, { alt: true });
+  // 広げた部分の下見が出て、図形の外へはみ出した枠が見える (図形の切り抜きは外れている)。
+  await expect(page.getByTestId("graph2d-crop-expansion")).toHaveCount(1);
+  await expect(page.locator(".graph2d-crop-hint")).toBeVisible();
+  await finishGraphCropByClickingPage(page, box);
+  await flushOverlay(page);
+
+  await expect.poll(async () => (await getSavedFirstGraph(page))?.props.w ?? 0).toBeCloseTo(before.props.w + 160, 0);
+  const after = (await getSavedFirstGraph(page))!;
+  expect(after.props.h).toBeCloseTo(before.props.h + 40, 0);
+  // 左へ 60 広げたぶん、図形の位置も左へ動く (元の部分は紙面の同じ場所に残る)。
+  expect(after.x).toBeCloseTo(before.x - 60, 0);
+  expect(after.y).toBeCloseTo(before.y, 0);
+  // 縮尺 (1 あたりのピクセル数) は変わらず、描画範囲だけが広がる。
+  const unitsPerPx = (range: { xMin: string; xMax: string }, w: number) => (Number(range.xMax) - Number(range.xMin)) / w;
+  expect(unitsPerPx(after.props.spec.viewBox, after.props.w)).toBeCloseTo(unitsPerPx(before.props.spec.viewBox, before.props.w), 4);
+  const perPx = unitsPerPx(before.props.spec.viewBox, before.props.w);
+  expect(Number(after.props.spec.viewBox.xMin)).toBeCloseTo(Number(before.props.spec.viewBox.xMin) - 60 * perPx, 3);
+  expect(Number(after.props.spec.viewBox.xMax)).toBeCloseTo(Number(before.props.spec.viewBox.xMax) + 100 * perPx, 3);
+
+  // 保存した文書を開き直しても、広げた幅のまま描かれる。
+  const saved = await page.evaluate(() => JSON.parse(localStorage.getItem("sigma-studio:e2e-document") ?? "null") as SigmaDocument);
+  const restored = await page.context().newPage();
+  await installDesktopRuntimeMock(restored, saved);
+  await restored.goto(appUrl("/"), { waitUntil: "domcontentloaded" });
+  await expect(restored.locator(".graph-shape .graph2d-svg").first()).toBeVisible();
+  const drawn = await restored.locator(".graph-shape .graph2d-svg").first().boundingBox();
+  expect(drawn!.width).toBeCloseTo(after.props.spec.width, 0);
+  await restored.close();
+});
+
+test("does not widen the drawing range without the modifier key", async ({ page }) => {
+  await page.goto(appUrl("/"), { waitUntil: "domcontentloaded" });
+  await expect(page.getByText("準備完了")).toBeVisible();
+  const { box } = await startGraphCrop(page);
+  await flushOverlay(page);
+  await expect.poll(async () => getSavedFirstGraph(page)).not.toBeNull();
+  const before = (await getSavedFirstGraph(page))!;
+
+  await dragGraphCropHandle(page, "r", 100, 0);
+  await dragGraphCropHandle(page, "l", -60, 0);
+  await expect(page.getByTestId("graph2d-crop-expansion")).toHaveCount(0);
+  await finishGraphCropByClickingPage(page, box);
+  await flushOverlay(page);
+
+  const after = (await getSavedFirstGraph(page))!;
+  expect(after.props.w).toBeCloseTo(before.props.w, 0);
+  expect(after.x).toBeCloseTo(before.x, 0);
+});
+
 async function chooseInsert(page: import("@playwright/test").Page, label: string) {
   await expect(page.locator(".tiptap.ProseMirror").first()).toBeVisible();
   await page.getByRole("button", { name: "挿入", exact: true }).click();
@@ -1107,6 +1243,8 @@ async function readGraphRangeValue(
 }
 
 type SavedGraphShape = {
+  x: number;
+  y: number;
   props: {
     w: number;
     h: number;

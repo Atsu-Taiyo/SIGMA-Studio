@@ -3280,6 +3280,33 @@ body.page-block-dragging * {
   height: 100%;
 }
 
+/*
+ * 切り取り中は図形の切り抜き (`.graph-shape` の overflow: hidden) を外す。描画範囲の拡大では
+ * 枠・ハンドル・下見が元の図形の外へ広がるので、切ったままだと拡大した部分が見えない。
+ */
+.graph-shape:has(.graph2d-container.cropping) {
+  overflow: visible;
+}
+
+/* 切り取り中だけ図の下に出す一時的なガイド。図形の外に置くので、選択枠の寸法ラベルや図そのものに重ならない。 */
+.graph2d-crop-hint {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 50%;
+  z-index: 7;
+  box-sizing: border-box;
+  padding: var(--space-xs) var(--space-sm);
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  background: var(--surface-soft);
+  color: var(--text-secondary);
+  font-size: 11px;
+  line-height: 1.3;
+  pointer-events: none;
+  transform: translateX(-50%);
+  white-space: nowrap;
+}
+
 .graph3d-preview,
 .graph3d-preview-viewport,
 .graph3d-preview-canvas {
