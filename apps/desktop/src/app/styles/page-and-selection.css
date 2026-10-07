@@ -204,6 +204,13 @@ code {
   outline: none;
 }
 
+/* The overlay editor's event surface is focusable too (`tabIndex={-1}`) and covers the whole
+   20,000 × 20,000 canvas, so its native focus ring shows up as the canvas origin corner
+   (in the OS accent colour). Same reasoning as the viewport above. */
+.whiteboard-canvas > .overlay-canvas-bleed-surface:focus {
+  outline: none;
+}
+
 /* 下地の面。色とレイヤ構造だけをここに置き、パターン (background-image / -size /
    -position) は `page-canvas/whiteboard-background.ts` が inline style で渡す。
    分けている理由は「実効間隔が一定より狭くなったら描かない」というしきい値で、
