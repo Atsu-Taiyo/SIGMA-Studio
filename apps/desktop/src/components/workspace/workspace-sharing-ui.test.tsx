@@ -24,6 +24,7 @@ beforeEach(() => {
 afterEach(() => { act(() => root.unmount()); container.remove(); vi.restoreAllMocks(); });
 const click = async (element: Element) => { await act(async () => { element.dispatchEvent(new MouseEvent("click", { bubbles: true })); }); };
 const settle = async () => { await act(async () => { await new Promise((resolve) => setTimeout(resolve, 20)); }); };
+const reviewSource = async () => { await act(async () => { (document.querySelector('input[type="checkbox"]') as HTMLInputElement).click(); }); };
 function button(name: string) { const found = Array.from(document.querySelectorAll("button")).find((item) => item.textContent === name || item.getAttribute("aria-label") === name); expect(found).toBeTruthy(); return found!; }
 
 describe("workspace menu targets", () => {
@@ -171,6 +172,9 @@ it("join retains the submitted token through Google authentication", async () =>
   act(() => root.render(<WorkspaceJoinDialog onClose={vi.fn()} onJoined={onJoined} />));
   const input = document.querySelector("input")!;
   await act(async () => { Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(input, `  ${"a".repeat(43)}  `); input.dispatchEvent(new Event("input", { bubbles: true })); });
+  expect(button("参加する").disabled).toBe(true);
+  expect(f.catalog.join).not.toHaveBeenCalled();
+  await reviewSource();
   await click(button("参加する"));
   expect(f.signInWithGoogle).toHaveBeenCalledOnce(); expect(f.catalog.join).toHaveBeenCalledWith("a".repeat(43)); expect(onJoined).toHaveBeenCalledWith(result);
 });
@@ -183,6 +187,7 @@ it("a full share tells the invitee why joining failed instead of offering a plan
   act(() => root.render(<WorkspaceJoinDialog onClose={vi.fn()} onJoined={vi.fn()} />));
   const input = document.querySelector("input")!;
   await act(async () => { Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(input, "b".repeat(43)); input.dispatchEvent(new Event("input", { bubbles: true })); });
+  await reviewSource();
   await click(button("参加する"));
   expect(document.querySelector('[role="alert"]')?.textContent).toContain("参加人数が上限");
   expect(document.querySelectorAll('[role="dialog"]')).toHaveLength(1);
@@ -307,8 +312,47 @@ it("opens a member link without accepting an invitation and preserves the target
   const target = { kind: "document", catalogNodeId: "12345678-1234-4234-8234-123456789012" } as CatalogSharingDetails["target"];
   const result = { target, workspaceId: "w", fileId: "device-specific-file" };
   f.catalog.openLink = vi.fn(async () => result);
-  act(() => root.render(<WorkspaceJoinDialog initialValue={createShareLink(target)} autoSubmit onClose={vi.fn()} onJoined={onJoined} />));
+  act(() => root.render(<WorkspaceJoinDialog initialValue={createShareLink(target)} onClose={vi.fn()} onJoined={onJoined} />));
   await settle(); await settle();
+  expect(f.signInWithGoogle).not.toHaveBeenCalled(); expect(f.catalog.openLink).not.toHaveBeenCalled();
+  expect(document.body.textContent).toContain("共有元の所有者を確認できません");
+  await reviewSource();
+  await click(button("共有項目を開く"));
   expect(f.signInWithGoogle).toHaveBeenCalledOnce(); expect(f.catalog.openLink).toHaveBeenCalledWith(target);
   expect(f.catalog.join).not.toHaveBeenCalled(); expect(onJoined).toHaveBeenCalledWith(result);
+});
+
+it("canceling a shared link has no membership or navigation side effects, and editing resets consent", async () => {
+  const { WorkspaceJoinDialog } = await import("./WorkspaceJoinDialog");
+  const f = setupCatalog(); const onClose = vi.fn(); const onJoined = vi.fn();
+  act(() => root.render(<WorkspaceJoinDialog initialValue={"a".repeat(43)} onClose={onClose} onJoined={onJoined} />));
+  await reviewSource();
+  const input = document.querySelector('input:not([type="checkbox"])')!;
+  await act(async () => { Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(input, "b".repeat(43)); input.dispatchEvent(new Event("input", { bubbles: true })); });
+  expect(button("参加する").disabled).toBe(true);
+  await click(button("キャンセル"));
+  expect(onClose).toHaveBeenCalledOnce();
+  expect(f.signInWithGoogle).not.toHaveBeenCalled();
+  expect(f.catalog.join).not.toHaveBeenCalled();
+  expect(onJoined).not.toHaveBeenCalled();
+});
+
+it("shows server-owned metadata only for an accessible member link, not an invitation's unverified target", async () => {
+  const { WorkspaceJoinDialog } = await import("./WorkspaceJoinDialog");
+  const { createShareLink } = await import("@/features/collaboration/model/share-link");
+  const f = setupCatalog();
+  vi.mocked(bridgeModule.getDesktopBridge()!.collaboration!.info).mockResolvedValue({ configured: true, user: { actorId: "guest" }, sessions: [], restrictedFileIds: [] } as never);
+  const target = { kind: "document", catalogNodeId: "12345678-1234-4234-8234-123456789012" } as CatalogSharingDetails["target"];
+  vi.mocked(f.catalog.details).mockResolvedValue({ target, name: "数学教材", sharing: { ownerId: "owner" }, members: [{ userId: "owner", email: "owner@example.test" }] } as CatalogSharingDetails);
+  act(() => root.render(<WorkspaceJoinDialog initialValue={createShareLink(target)} onClose={vi.fn()} onJoined={vi.fn()} />));
+  await act(async () => { await new Promise(resolve => setTimeout(resolve, 250)); });
+  expect(document.body.textContent).toContain("数学教材");
+  expect(document.body.textContent).toContain("owner@example.test");
+  expect(f.catalog.join).not.toHaveBeenCalled();
+  vi.mocked(f.catalog.details).mockClear();
+  act(() => root.render(<WorkspaceJoinDialog key="invite" initialValue={createShareLink(target, "a".repeat(43))} onClose={vi.fn()} onJoined={vi.fn()} />));
+  await act(async () => { await new Promise(resolve => setTimeout(resolve, 250)); });
+  expect(f.catalog.details).not.toHaveBeenCalled();
+  expect(document.body.textContent).toContain("共有元の所有者を確認できません");
+  expect(document.body.textContent).not.toContain("owner@example.test");
 });

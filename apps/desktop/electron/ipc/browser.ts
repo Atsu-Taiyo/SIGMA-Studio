@@ -6,6 +6,8 @@ import { InAppBrowser } from "../browser/in-app-browser";
 
 export interface RegisterBrowserIpcDeps {
   getMainWindow(): BrowserWindow | null;
+  confirmLink(url: string, signal: AbortSignal): Promise<boolean>;
+  openSharedLink(url: string): boolean;
 }
 
 const MAX_TEXT_LENGTH = 4096;
@@ -20,6 +22,8 @@ export function registerBrowserIpc(deps: RegisterBrowserIpcDeps): { dispose(): v
   const get = () => {
     browser ??= new InAppBrowser({
       getWindow: deps.getMainWindow,
+      confirmLink: deps.confirmLink,
+      openSharedLink: deps.openSharedLink,
       send: (channel, payload) => {
         const window = deps.getMainWindow();
         if (window && !window.isDestroyed() && !window.webContents.isDestroyed()) window.webContents.send(channel, payload);

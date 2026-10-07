@@ -23,7 +23,7 @@ export function SharedLinkHandler() {
     setRequest(null);
     await getDesktopBridge()?.shareLinks?.acknowledge(request.id);
   };
-  return <WorkspaceJoinDialog key={request.id} initialValue={request.url} autoSubmit onClose={() => { void close(); }} onJoined={async (result, location) => {
+  return <WorkspaceJoinDialog key={request.id} initialValue={request.url} onClose={() => { void close(); }} onJoined={async (result, location) => {
     if (!(await prepareAppNavigation())) throw new Error("SAVE_NOT_COMPLETED");
     await close();
     if (result.fileId) navigateToAppRoute("/", { fileId: result.fileId, location: location ? encodeDocumentLocation(location) : undefined });

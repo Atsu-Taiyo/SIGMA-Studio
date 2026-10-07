@@ -36,9 +36,19 @@
   position: absolute;
   left: var(--space-md);
   display: grid;
+  width: 14px;
+  height: 14px;
+  overflow: hidden;
   place-items: center;
   color: var(--text-muted);
   pointer-events: none;
+}
+
+.favicon {
+  display: block;
+  width: 14px;
+  height: 14px;
+  object-fit: contain;
 }
 
 .addressInput {
