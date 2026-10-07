@@ -3,7 +3,25 @@ import type { TranslationsOf } from "../types";
 
 /** 対応する日本語 namespace と同時に埋める。詳細は `../ja/chrome.ts` を参照。 */
 export const chrome = {
+  linkConfirmation: {
+    title: "Check the link destination",
+    description: "Check that this is the person or website you intended to visit.",
+    unencrypted: "This uses HTTP. The connection is not encrypted.",
+    credentials: "This URL contains credentials. Check the actual destination rather than any apparent site name.",
+    international: "This is an internationalized domain. Check for lookalike characters impersonating another website.",
+    address: "This destination is an IP address or a local network address.",
+    unverified: "This does not guarantee the site's safety. Do not open links you do not trust.",
+    cancel: "Cancel", open: "Confirm and open", openExternal: "Confirm and open in external app",
+  },
   collaboration: {
+    checkSharedSource: "Check the sharing source and destination",
+    sharedTarget: "{{kind}} · {{id}}",
+    targetKind: { document: "Document", folder: "Folder", workspace: "Workspace" },
+    sharedName: "Shared item: {{name}}",
+    sharedOwner: "Owner: {{owner}}",
+    sharedOwnerUnknown: "The owner could not be verified. A link or invitation code alone does not verify the sender's identity.",
+    sharedSourceWarning: "Check that this link came from someone you trust. Joining may make your account information visible to other members.",
+    sharedSourceReviewed: "I have checked the sharing source and destination",
     effectiveRole: "Effective access: {{role}}",
     inheritedFrom: "Inherited from {{name}}: {{role}}",
 

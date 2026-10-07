@@ -14,6 +14,7 @@ import type { Metadata } from "next";
 
 import { SharedLinkHandler } from "@/components/workspace/SharedLinkHandler";
 import { AppDocumentLanguage } from "@/components/AppDocumentLanguage";
+import { LinkConfirmationDialog } from "@/components/LinkConfirmationDialog";
 
 import { buildContentSecurityPolicyMeta } from "./content-security-policy";
 
@@ -36,6 +37,7 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
       <body>
         <AppDocumentLanguage />
         <SharedLinkHandler />
+        <LinkConfirmationDialog />
         {children}
       </body>
     </html>
