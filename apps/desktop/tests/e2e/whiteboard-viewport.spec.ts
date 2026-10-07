@@ -127,6 +127,21 @@ test.describe("Googleドキュメント風クローム", () => {
     await expect(page.locator(".editor-canvas")).toHaveAttribute("data-whiteboard", "true");
   });
 
+  test("描画面にフォーカスしてもキャンバスの角にフォーカスリングが出ない", async ({ page }) => {
+    await openWhiteboard(page);
+
+    // 描画面 (20000×20000) はキーボード操作後の focus() で :focus-visible になり、ブラウザ標準の
+    // リングが外周に描かれる。ズームすると左上の角だけが画面の途中に見えてしまう。
+    const surface = page.locator(".whiteboard-canvas > .overlay-canvas-bleed-surface");
+    await expect(surface).toBeAttached();
+    await page.keyboard.press("Shift");
+    await surface.evaluate((element) => (element as HTMLElement).focus());
+
+    await expect(surface).toBeFocused();
+    expect(await surface.evaluate((element) => element.matches(":focus-visible"))).toBe(true);
+    await expect(surface).toHaveCSS("outline-style", "none");
+  });
+
   test("右下のズームコントロールがビューポート内に完全に収まる", async ({ page }) => {
     await openWhiteboard(page);
 
