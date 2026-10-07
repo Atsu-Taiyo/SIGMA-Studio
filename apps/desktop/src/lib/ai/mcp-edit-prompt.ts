@@ -348,6 +348,11 @@ function turnPromptHeadLines(
     args.selectedId ? t("turn.selectedId", { replace: { selectedId: args.selectedId } }) : "",
     guidance(section(t, "editTurnHardRules") + section(t, "officialSkillGuide")),
     args.toolProfile === "app" ? section(t, "appToolProfile") : "",
+    // agy headless cannot prompt for command permission. Keep this on resumed
+    // turns too: inspecting its large, single-line MCP schema cache with a
+    // shell command otherwise aborts the turn before a proposal is created.
+    provider === "antigravity" ? section(t, "antigravityHeadlessTools") : "",
+    provider === "antigravity" && args.toolProfile === "app" ? section(t, "antigravityTextEditExample") : "",
     provider === "codex" ? section(t, "chatgptVisualPreview") : "",
     t("turn.procedure"),
     t("turn.completionReport"),
