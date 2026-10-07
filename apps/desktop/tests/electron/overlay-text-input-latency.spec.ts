@@ -2,6 +2,7 @@ import { _electron as electron, expect, test, type Page } from "@playwright/test
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { grabShapeFromBody } from "../e2e/body-overlay-entry";
 
 import { sampleDocument } from "@/lib/sample-document";
 import { createGraph2DSpecPreset } from "@/lib/graph2d";
@@ -46,14 +47,16 @@ function largeOverlayDocument(): SigmaDocument {
 async function editText(page: Page, id: string) {
   const target = page.locator(`.overlay-shape-text[data-overlay-shape-id="${id}"]`).first();
   await expect(target).toBeVisible();
-  const box = (await target.boundingBox())!;
-  const point = { x: box.x + box.width * 0.3, y: box.y + box.height * 0.4 };
-  const modifier = process.platform === "darwin" ? "Meta" : "Control";
-  await page.keyboard.down(modifier);
-  await page.mouse.click(point.x, point.y);
-  await page.keyboard.up(modifier);
+  await page.evaluate(() => document.fonts.ready.then(() => undefined));
+  await grabShapeFromBody(page, target);
+  const selected = page.locator(`.overlay-canvas-editor .overlay-shape-text.selected[data-overlay-shape-id="${id}"]`);
+  await expect(selected).toBeVisible();
   // The selection gesture intentionally suppresses double-click editing for 500 ms.
   await page.waitForTimeout(650);
+  // Selection loads the editing canvas asynchronously and can move its bounds. Read the
+  // active surface now, rather than double-clicking stale coordinates from the preview.
+  const box = (await selected.boundingBox())!;
+  const point = { x: box.x + box.width * 0.3, y: box.y + box.height * 0.4 };
   await page.mouse.dblclick(point.x, point.y);
   const editor = page.locator(".ProseMirror.overlay-text-shape-content");
   await expect(editor).toBeFocused();
