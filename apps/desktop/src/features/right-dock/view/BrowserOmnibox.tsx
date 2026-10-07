@@ -106,7 +106,7 @@ export function BrowserOmnibox({ bridge, engineId, display, fullValue, faviconDa
         {showsPageIcon ? (
           faviconDataUrl ? (
             // eslint-disable-next-line @next/next/no-img-element -- ネイティブ側で取得した data URL
-            <img className={styles.favicon} src={faviconDataUrl} alt="" />
+            <img className={styles.favicon} src={faviconDataUrl} width={14} height={14} alt="" />
           ) : (
             <Globe size={14} />
           )

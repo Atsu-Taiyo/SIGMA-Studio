@@ -4,13 +4,14 @@ import { createCurrentLocaleTranslator } from "@/lib/i18n";
 
 const te = createCurrentLocaleTranslator("error");
 
-export function registerShellIpc(): void {
+export function registerShellIpc({ confirm }: { confirm(url: string): Promise<boolean> }): void {
   ipcMain.handle("shell:open-external", async (_event, url: string) => {
     try {
       const parsed = new URL(url);
       if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
         return { ok: false, error: te("electron.shell.invalidExternalUrl") };
       }
+      if (!await confirm(url)) return { ok: false };
       await shell.openExternal(url);
       return { ok: true };
     } catch (error) {

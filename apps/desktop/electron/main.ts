@@ -57,6 +57,7 @@ import {
 import { registerAppIpc } from "./ipc/app";
 import { registerBrowserIpc } from "./ipc/browser";
 import { registerShellIpc } from "./ipc/shell";
+import { LinkConfirmation } from "./link-confirmation";
 import { registerSettingsIpc } from "./ipc/settings";
 import { registerTikzIpc } from "./ipc/tikz";
 import { assertUsableCliBinPath } from "./cli-spawn";
@@ -117,6 +118,9 @@ if (!hasSingleInstanceLock) {
   } else app.exit(0);
 }
 let mainWindow: BrowserWindow | null = null;
+const linkConfirmation = new LinkConfirmation(() => {
+  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send("link-confirmation:changed");
+});
 configureTrustedIpc({ getMainWebContents: () => mainWindow?.webContents ?? null, rendererDirectory: DIST_RENDERER_DIR, devServerUrl: DEV_SERVER_URL });
 const shareLinkQueue = new ShareLinkQueue(() => {
   if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send("share-link:available");
@@ -408,7 +412,10 @@ function openExternalUrl(url: string): void {
   try {
     const parsed = new URL(url);
     if (parsed.protocol === "http:" || parsed.protocol === "https:" || parsed.protocol === "mailto:") {
-      shell.openExternal(url).catch(() => undefined);
+      if (!mainWindow || mainWindow.isDestroyed()) return;
+      void linkConfirmation.confirm(url, "external").then(approved => {
+        if (approved) return shell.openExternal(url);
+      }).catch(() => undefined);
     }
   } catch {
     // Ignore malformed navigation attempts.
@@ -448,6 +455,10 @@ function createWindow() {
     },
   });
   mainWindow = win;
+  win.webContents.on("did-start-navigation", event => {
+    if (event.isMainFrame && !event.isSameDocument) linkConfirmation.cancel();
+  });
+  win.once("closed", () => linkConfirmation.cancel());
   if (DEV_SERVER_URL) {
     win.once("ready-to-show", () => win.showInactive());
   }
@@ -1531,8 +1542,16 @@ function registerIpc() {
     },
   });
 
-  registerShellIpc();
-  registerBrowserIpc({ getMainWindow: () => mainWindow });
+  ipcMain.handle("link-confirmation:pending", () => linkConfirmation.pending());
+  ipcMain.handle("link-confirmation:respond", (_event, id: unknown, approved: unknown) => {
+    if (typeof id === "string" && typeof approved === "boolean") linkConfirmation.respond(id, approved);
+  });
+  registerShellIpc({ confirm: url => linkConfirmation.confirm(url, "external") });
+  registerBrowserIpc({
+    getMainWindow: () => mainWindow,
+    confirmLink: (url, signal) => linkConfirmation.confirm(url, "browser", signal),
+    openSharedLink: url => shareLinkQueue.enqueue(url),
+  });
 
   registerSettingsIpc({
     dataDir: SIGMA_STUDIO_DATA_PATH,
