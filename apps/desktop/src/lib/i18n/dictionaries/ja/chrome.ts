@@ -5,7 +5,25 @@
  * ここが日本語の SSoT で、`../en/chrome.ts` が型で網羅性を強制される。
  */
 export const chrome = {
+  linkConfirmation: {
+    title: "リンク先を確認",
+    description: "開こうとしているリンク先が、意図した相手・サイトか確認してください。",
+    unencrypted: "HTTP接続です。通信が暗号化されません。",
+    credentials: "認証情報を含むURLです。表示名に惑わされず、実際の接続先を確認してください。",
+    international: "国際化ドメインです。よく似た文字を使った別サイトでないか確認してください。",
+    address: "IPアドレスまたはローカルネットワーク上の宛先です。",
+    unverified: "サイトの安全性を保証するものではありません。不審なリンクは開かないでください。",
+    cancel: "キャンセル", open: "確認して開く", openExternal: "確認して外部アプリで開く",
+  },
   collaboration: {
+    checkSharedSource: "共有元と共有先を確認",
+    sharedTarget: "{{kind}} · {{id}}",
+    targetKind: { document: "教材", folder: "フォルダ", workspace: "ワークスペース" },
+    sharedName: "共有項目：{{name}}",
+    sharedOwner: "所有者：{{owner}}",
+    sharedOwnerUnknown: "共有元の所有者を確認できません。リンクや招待コードだけでは送信者の本人確認はできません。",
+    sharedSourceWarning: "信頼できる相手から届いたリンクか確認してください。参加すると、共有先のメンバーにあなたのアカウント情報が表示される場合があります。",
+    sharedSourceReviewed: "共有元とリンク先を確認しました",
     effectiveRole: "実効権限：{{role}}",
     inheritedFrom: "{{name}}から継承：{{role}}",
 

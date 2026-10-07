@@ -930,6 +930,7 @@ export interface DesktopWorkspacePreviewAPI {
 }
 
 export interface DesktopAPI {
+  linkConfirmation?: import("@/lib/link-confirmation").LinkConfirmationAPI;
   problems?: import("@/lib/problem-library").ProblemLibraryBridge;
   tikz?: import("@/lib/tikz-contract").TikzRenderAPI;
   shareLinks?: {
