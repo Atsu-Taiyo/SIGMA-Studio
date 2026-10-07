@@ -1,6 +1,5 @@
 "use client";
 import { PanelRight, X } from "lucide-react";
-import { createPortal } from "react-dom";
 import { renderProviderMark } from "@/components/branding/provider-logos";
 import { type AiEditPreviewState } from "@/features/ai-edit/model/preview";
 import { AiStreamRenderer } from "@/features/ai-edit/view";
@@ -29,7 +28,7 @@ export interface AiChatInlineSurfaceProps {
 }
 export function AiChatInlineSurface({surface,conversation,proposals,composer,composerError,hasOpenMenu,retryTurn,dismissTurn}: AiChatInlineSurfaceProps) {
  const t=useT("ai");const tCommon=useT("common");
- const {inlineOpen=false,inlineAnchor=null,inlineRunAnchor=null,inlineRunAnchorCanvas=null,inlineRunPortalTarget=null,onPromoteToSidebar,onCloseInline}=surface;
+ const {inlineOpen=false,inlineAnchor=null,inlineRunAnchor=null,onPromoteToSidebar,onCloseInline}=surface;
  const {provider,lockedProvider,visibleTurns,latestAssistant,activeRoomId,inlineRunTurnId,inlineBaselineTurnId,isRunning,clockNow}=conversation;
  const latestAssistantId=latestAssistant?.id??null;
  const {previewGroups=[],busy=false,onApplyGroup,onDismissGroup,insertedShapePreviewsByTurnId,activeRoomPreview,isMergedWithHumanEdits,onInlineDecisionShownChange}=proposals;
@@ -140,6 +139,7 @@ export function AiChatInlineSurface({surface,conversation,proposals,composer,com
           <div className="ai-edit-panel ai-inline-edit" data-variant="inline">
             <div className="ai-inline-result">
               {renderInlineResultControls(turn.id)}
+              <div className="ai-inline-result-content" data-no-drag="true">
               <div className="ai-inline-result-head">
                 <span className="ai-inline-logo" aria-hidden="true">{renderProviderMark(inlineProvider, { size: 15 })}</span>
                 <AiStreamRenderer className="ai-inline-summary" text={turn.result.draft.summary} />
@@ -153,10 +153,11 @@ export function AiChatInlineSurface({surface,conversation,proposals,composer,com
               {turn.events.some((event) => event.images?.some((image) => image.generatedImage)) && (
                 <AssistantActivity turn={turn} clockNow={clockNow} />
               )}
-              {renderInlineProposalActions(turn)}
               {turn.result.draft.warnings.length > 0 && (
                 <AiEditPlanList title={t("panel.warnings")} items={turn.result.draft.warnings} compact />
               )}
+              </div>
+              {renderInlineProposalActions(turn)}
             </div>
           </div>
         );
@@ -179,34 +180,11 @@ export function AiChatInlineSurface({surface,conversation,proposals,composer,com
       return null;
     };
 
-    // Keep the running surface attached to the page canvas, so scroll/zoom changes
-    // move it with the document position where the run started.
-    const shouldRenderRunPortal = !!(
-      runTurn &&
-      inlineRunAnchorCanvas &&
-      inlineRunPortalTarget &&
-      (runTurnWorking || (runTurnDetached && runTurnActive))
-    );
-    const runPortal = shouldRenderRunPortal && runTurn && inlineRunAnchorCanvas && inlineRunPortalTarget
-      ? createPortal(
-          <div
-            className="ai-inline-run-overlay"
-            style={{
-              left: `${Math.max(0, inlineRunAnchorCanvas.left)}px`,
-              top: `${Math.max(0, inlineRunAnchorCanvas.top)}px`,
-            }}
-          >
-            {renderInlineRunSurface(runTurn)}
-          </div>,
-          inlineRunPortalTarget,
-        )
-      : null;
+    // Settled results use the viewport host so their approval controls stay accessible
+    // after scrolling or zooming the document. Live runs have their own AiRunAnchorLayer.
 
     if (!inlineOpen) {
       const detachedSurface = runTurn && runTurnActive ? renderInlineRunSurface(runTurn) : null;
-      if (runPortal) {
-        return <>{runPortal}</>;
-      }
       if (detachedSurface) {
         return <>{detachedSurface}</>;
       }
@@ -214,9 +192,6 @@ export function AiChatInlineSurface({surface,conversation,proposals,composer,com
     }
 
     if (isWorking) {
-      if (runPortal) {
-        return <>{runPortal}</>;
-      }
       if (runningTurn) {
         return <>{renderInlineRunSurface(runningTurn)}</>;
       }
@@ -226,7 +201,6 @@ export function AiChatInlineSurface({surface,conversation,proposals,composer,com
 
     return (
       <>
-        {runPortal}
         <div
           className={`ai-edit-panel ai-inline-edit ai-inline-edit--enter ${showInlineComposer ? "ai-inline-edit--bare" : ""}`.trim()}
           data-variant="inline"
@@ -242,6 +216,7 @@ export function AiChatInlineSurface({surface,conversation,proposals,composer,com
           {hasInlineResult && inlineResultTurn ? (
             <div className="ai-inline-result">
               {renderInlineResultControls(inlineResultTurn.id)}
+              <div className="ai-inline-result-content" data-no-drag="true">
               <div className="ai-inline-result-head">
                 <span className="ai-inline-logo" aria-hidden="true">{renderProviderMark(inlineProvider, { size: 15 })}</span>
                 <AiStreamRenderer className="ai-inline-summary" text={inlineResultTurn.result!.draft.summary} />
@@ -255,10 +230,11 @@ export function AiChatInlineSurface({surface,conversation,proposals,composer,com
               {inlineResultTurn.events.some((event) => event.images?.some((image) => image.generatedImage)) && (
                 <AssistantActivity turn={inlineResultTurn} clockNow={clockNow} />
               )}
-              {renderInlineProposalActions(inlineResultTurn)}
               {inlineResultTurn.result!.draft.warnings.length > 0 && (
                 <AiEditPlanList title={t("panel.warnings")} items={inlineResultTurn.result!.draft.warnings} compact />
               )}
+              </div>
+              {renderInlineProposalActions(inlineResultTurn)}
             </div>
           ) : inlineErrorShown && inlineResultTurn ? (
             <div className="ai-inline-error-row">

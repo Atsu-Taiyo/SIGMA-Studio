@@ -17,6 +17,7 @@ import type { Translate } from "@/lib/i18n";
 import type { Dispatch, RefObject, SetStateAction } from "react";
 import {
   useEffect,
+  useLayoutEffect,
   useMemo
 } from "react";
 import {
@@ -310,7 +311,7 @@ export function useOverlaySelectionPresentation({
       .filter((indicator): indicator is AnchorIndicator => indicator !== null);
   }, [anchorDrag, anchorMeasurements, bleedValues, canvasHeight, canvasWidth, movingShapeIds, selectedShapes, shapes, showAnchorHandles]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const canStyleStroke = selectedShapes.some(canShapeStyleStroke);
     const canStyleFill = selectedShapes.some(canShapeStyleFill);
     const canStyleLine = selectedShapes.some(canShapeStyleLine);

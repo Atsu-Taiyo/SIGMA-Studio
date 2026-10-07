@@ -2283,6 +2283,21 @@ nav.app-menu-list[inert] *,
 .ai-inline-result {
   position: relative;
   padding: 2px 70px 2px 2px;
+  display: flex;
+  flex-direction: column;
+  /* Only the floating conversation scrolls. Paper proposal cards keep their natural flow. */
+  max-height: calc(var(--ai-inline-max-height, 80dvh) - 18px);
+  min-height: 0;
+}
+
+.ai-inline-result-content {
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+
+.ai-inline-result > [data-ai-proposal-bar] {
+  flex-shrink: 0;
 }
 
 .ai-inline-result-actions {

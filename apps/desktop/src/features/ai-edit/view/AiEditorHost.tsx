@@ -1,11 +1,14 @@
 "use client";
 
 import { createPortal } from "react-dom";
-import type { ReactNode, RefObject } from "react";
+import type { CSSProperties, ReactNode, RefObject } from "react";
 
 import {
   AI_INLINE_DEFAULT_LEFT_PX,
   AI_INLINE_DEFAULT_TOP_PX,
+  AI_INLINE_DRAG_BOTTOM_MARGIN_PX,
+  AI_INLINE_HOST_BOTTOM_CLEARANCE_PX,
+  AI_INLINE_VIEWPORT_MARGIN_PX,
   getAiInlineDragPosition,
   getAiInlineHostPosition,
   getAiInlineTopBoundary,
@@ -13,6 +16,7 @@ import {
 } from "@/components/editor/ai-inline-placement";
 import type { AiDisplayMode, AiSurfaceResolution } from "@/lib/ai/ai-surface";
 import { useAiInlineDrag } from "./use-ai-inline-drag";
+import { useAiInlineViewport } from "./use-ai-inline-viewport";
 
 export interface AiEditorHostProps {
   enabled: boolean;
@@ -54,22 +58,31 @@ export function AiEditorHost({
     enabled: enabled && isInlineHost,
     sessionId: inlineSessionId,
   });
+  const bounds = useAiInlineViewport(hostRef, enabled && isInlineHost && hostVisible);
   if (!enabled || !isInlineHost) return null;
 
   const inlineViewport = isInlineHost && hostVisible && typeof window !== "undefined"
-    ? { width: window.innerWidth, height: window.innerHeight }
+    ? { width: bounds.width || window.innerWidth, height: bounds.height || window.innerHeight }
     : null;
   const inlineTopBoundary = inlineViewport ? getAiInlineTopBoundary() : null;
   const autoPosition = inlineViewport && inlineTopBoundary !== null
     ? hostAnchor
-      ? getAiInlineHostPosition(hostAnchor, inlineViewport, { topBoundary: inlineTopBoundary })
+      ? getAiInlineHostPosition(hostAnchor, inlineViewport, {
+          topBoundary: inlineTopBoundary,
+          bottomClearance: Math.max(AI_INLINE_HOST_BOTTOM_CLEARANCE_PX, bounds.hostHeight + AI_INLINE_VIEWPORT_MARGIN_PX),
+        })
       : getAiInlineDragPosition(
           { left: AI_INLINE_DEFAULT_LEFT_PX, top: AI_INLINE_DEFAULT_TOP_PX },
           inlineViewport,
-          { topBoundary: inlineTopBoundary },
+          { topBoundary: inlineTopBoundary, bottomMargin: Math.max(AI_INLINE_DRAG_BOTTOM_MARGIN_PX, bounds.hostHeight + AI_INLINE_VIEWPORT_MARGIN_PX) },
         )
     : null;
-  const renderPosition = dragPosition ?? autoPosition;
+  const renderPosition = dragPosition && inlineViewport && inlineTopBoundary !== null
+    ? getAiInlineDragPosition(dragPosition, inlineViewport, {
+        topBoundary: inlineTopBoundary,
+        bottomMargin: Math.max(AI_INLINE_DRAG_BOTTOM_MARGIN_PX, bounds.hostHeight + AI_INLINE_VIEWPORT_MARGIN_PX),
+      })
+    : autoPosition;
   const host = (
     <>
       {(surface.catcherVisible || inlineClosing) && (
@@ -98,7 +111,10 @@ export function AiEditorHost({
         aria-label="AI"
         aria-hidden={!hostVisible}
         {...handlers}
-        style={renderPosition ? { left: `${renderPosition.left}px`, top: `${renderPosition.top}px` } : undefined}
+        style={renderPosition && inlineViewport && inlineTopBoundary !== null ? {
+          left: `${renderPosition.left}px`, top: `${renderPosition.top}px`,
+          "--ai-inline-max-height": `${Math.max(0, inlineViewport.height - inlineTopBoundary - AI_INLINE_VIEWPORT_MARGIN_PX)}px`,
+        } as CSSProperties : undefined}
       >
         {children}
       </aside>
