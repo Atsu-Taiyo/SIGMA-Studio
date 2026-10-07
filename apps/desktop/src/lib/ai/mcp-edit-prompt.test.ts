@@ -69,6 +69,19 @@ const ALL_EXPORTED_STRINGS: string[] = [
 ];
 
 describe("mcp-edit-prompt anti-regression sweep", () => {
+  it.each(["ja", "en"] as const)("keeps Antigravity headless tool guidance on new and resumed %s turns", (locale) => {
+    const t = createTranslator(locale, "prompt");
+    for (const isResumedTurn of [false, true]) {
+      const args = { locale, instruction: "Rewrite the selected math paragraph", fileId: "file_abc", toolProfile: "app" as const, isResumedTurn };
+      const prompt = buildMcpEditPrompt({ ...args, provider: "antigravity" });
+      expect(prompt).toContain(t("mcp.antigravityHeadlessTools"));
+      expect(prompt).toContain(t("mcp.antigravityTextEditExample"));
+      for (const provider of ["claude", "codex"] as const) {
+        expect(buildMcpEditPrompt({ ...args, provider })).not.toContain(t("mcp.antigravityHeadlessTools"));
+      }
+    }
+  });
+
   it.each(ALL_EXPORTED_STRINGS.map((value, index) => [index, value] as const))(
     "output #%i contains no draft_/dynamic tool/get_material_catalog leftovers",
     (_index, value) => {
