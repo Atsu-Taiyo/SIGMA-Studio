@@ -213,6 +213,10 @@ export function OverlayTextShapeEditor({
   const isCallout = shape.type === "callout";
   const lineHeightPx = getTextShapeRenderedLineHeightPx(shape);
   const rotation = getShapeRotation(shape);
+  const measuredShapeRef = useRef(shape);
+  useLayoutEffect(() => {
+    measuredShapeRef.current = shape;
+  }, [shape]);
 
   useLayoutEffect(() => {
     const measure = () => {
@@ -224,7 +228,8 @@ export function OverlayTextShapeEditor({
       // the point: if focusing a shape measured its height differently from drawing it, the box
       // would jump at the moment the editor mounts and again when it unmounts.
       const contentHeight = measureOverlayTextContentHeight(content, { rotated: rotation !== 0 });
-      onMeasuredHeight(shape.id, overlayTextBoxHeightForContent(shape, contentHeight));
+      const currentShape = measuredShapeRef.current;
+      onMeasuredHeight(currentShape.id, overlayTextBoxHeightForContent(currentShape, contentHeight));
     };
 
     measure();
@@ -263,7 +268,7 @@ export function OverlayTextShapeEditor({
     // height re-arm the effect that produced it. The measurement itself reads the *content*
     // element, one level inside that wrapper, which is what makes the write unable to grow its own
     // reading; the dependency list must not undo that.
-  }, [editing, lineHeightPx, onMeasuredHeight, rotation, shape, shape.props.blocks, shape.props.w]);
+  }, [editing, editor, lineHeightPx, onMeasuredHeight, rotation, shape.id, shape.type, shape.props.blocks, shape.props.w]);
 
   return (
     <div

@@ -51,6 +51,16 @@ export function createEmptyOverlaySnapshot(): OverlaySnapshot {
 // SigmaDoc snapshots are immutable at the editor boundary. Preserve the
 // normalized object for every repeated read of the same input reference.
 const normalizedSnapshotCache = new WeakMap<object, OverlaySnapshot>();
+const normalizedShapeCache = new WeakMap<object, OverlayShape | null>();
+
+function normalizeImmutableShape(shape: unknown): OverlayShape | null {
+  if (typeof shape !== "object" || shape === null) return null;
+  if (normalizedShapeCache.has(shape)) return normalizedShapeCache.get(shape)!;
+  const normalized = isOverlayShape(shape) ? canonicalizeOverlayShape(shape) : null;
+  normalizedShapeCache.set(shape, normalized);
+  if (normalized) normalizedShapeCache.set(normalized, normalized);
+  return normalized;
+}
 
 export function normalizeOverlaySnapshot(snapshot: unknown): OverlaySnapshot {
   const cacheKey = typeof snapshot === "object" && snapshot !== null ? snapshot : null;
@@ -65,8 +75,8 @@ export function normalizeOverlaySnapshot(snapshot: unknown): OverlaySnapshot {
 
   const extensions = collectOverlayExtensions(snapshot);
   const validShapes = snapshot.shapes
-    .filter(isOverlayShape)
-    .map(canonicalizeOverlayShape);
+    .map(normalizeImmutableShape)
+    .filter((shape): shape is OverlayShape => shape !== null);
   const normalized: OverlaySnapshot = {
     version: 1,
     shapes: normalizeOverlayGroups(normalizeGraphPlotBounds(validShapes)),

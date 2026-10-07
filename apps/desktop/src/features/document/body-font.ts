@@ -55,25 +55,29 @@ const LEGACY_SYMBOLS_FIRST_BODY_FONT_FAMILY =
 const LEGACY_SYMBOLS_FIRST_SERIF_FONT_FAMILY =
   '"Noto Sans Symbols", "Noto Serif JP", "STIX Two Math", serif';
 
+const legacyFontFamilies = new Map([
+  [fontFamilyKey(LEGACY_STANDARD_SERIF_FONT_FAMILY), DEFAULT_SERIF_BODY_FONT_FAMILY],
+  [fontFamilyKey(LEGACY_SYSTEM_BODY_FONT_FAMILY), DEFAULT_BODY_FONT_FAMILY],
+  [fontFamilyKey(LEGACY_SYMBOLS_FIRST_BODY_FONT_FAMILY), DEFAULT_BODY_FONT_FAMILY],
+  [fontFamilyKey(LEGACY_SYMBOLS_FIRST_SERIF_FONT_FAMILY), DEFAULT_SERIF_BODY_FONT_FAMILY],
+]);
+// Fonts repeat across thousands of runs. Bound both entry count and key length so imported
+// documents cannot turn the shared render cache into an unbounded string store.
+const resolvedFontFamilies = new Map<string, string>();
+
 export function resolveDocumentFontFamily(fontFamily: string | null | undefined): string | undefined {
   const value = fontFamily?.trim();
   if (!value) {
     return undefined;
   }
-  const key = fontFamilyKey(value);
-  if (key === fontFamilyKey(LEGACY_STANDARD_SERIF_FONT_FAMILY)) {
-    return DEFAULT_SERIF_BODY_FONT_FAMILY;
+  const cached = resolvedFontFamilies.get(value);
+  if (cached !== undefined) return cached;
+  const resolved = legacyFontFamilies.get(fontFamilyKey(value)) ?? value;
+  if (value.length <= 512) {
+    if (resolvedFontFamilies.size >= 256) resolvedFontFamilies.clear();
+    resolvedFontFamilies.set(value, resolved);
   }
-  if (key === fontFamilyKey(LEGACY_SYSTEM_BODY_FONT_FAMILY)) {
-    return DEFAULT_BODY_FONT_FAMILY;
-  }
-  if (key === fontFamilyKey(LEGACY_SYMBOLS_FIRST_BODY_FONT_FAMILY)) {
-    return DEFAULT_BODY_FONT_FAMILY;
-  }
-  if (key === fontFamilyKey(LEGACY_SYMBOLS_FIRST_SERIF_FONT_FAMILY)) {
-    return DEFAULT_SERIF_BODY_FONT_FAMILY;
-  }
-  return value;
+  return resolved;
 }
 
 function fontFamilyKey(value: string): string {
