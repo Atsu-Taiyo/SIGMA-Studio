@@ -6,6 +6,7 @@ import {
   createGraphPointLabelShapeEntries as createGraphPointLabelShapeEntriesLayout,
   getGraphFormulaLabelEntries as getGraphFormulaLabelEntriesLayout,
   getGraphRenderLayout,
+  getShapeRotationPivot,
   GRAPH_BOUNDS_MODE,
   type GraphAnnotationLabelOptions,
   type GraphAnnotationLabelShapeEntry,
@@ -166,11 +167,24 @@ export function getGraphCropPositionPatch(
     };
   }
 
+  // 回転した図形は、左上ではなく中心 (`getShapeRotationPivot`) を軸に描かれる。切り取り・拡大で
+  // 幅と高さが変わると軸も動くので、左上を軸に (dx, dy) を回すだけでは、残した部分が紙面の別の
+  // 場所へずれる。そこで「残す部分の左上が、切り取る前と紙面の同じ点に来る」ように新しい左上を解く。
   const cos = Math.cos(rotation);
   const sin = Math.sin(rotation);
+  const turn = (x: number, y: number) => ({ x: x * cos - y * sin, y: x * sin + y * cos });
+  const pivot = getShapeRotationPivot(graphShape);
+  // 切り取る前の図形の中で、残す部分の左上は (dx, dy)。その紙面上の位置:
+  const kept = turn(graphShape.x + dx - pivot.x, graphShape.y + dy - pivot.y);
+  const cornerX = pivot.x + kept.x;
+  const cornerY = pivot.y + kept.y;
+  // 新しい図形 (幅 newW・高さ newH) は、自分の中心を軸に回る。左上の角が (cornerX, cornerY) に来る中心は:
+  const newW = cropBox.width * layout.scaleX;
+  const newH = cropBox.height * layout.scaleY;
+  const centerOffset = turn(newW / 2, newH / 2);
   return {
-    x: graphShape.x + dx * cos - dy * sin,
-    y: graphShape.y + dx * sin + dy * cos,
+    x: cornerX + centerOffset.x - newW / 2,
+    y: cornerY + centerOffset.y - newH / 2,
   };
 }
 

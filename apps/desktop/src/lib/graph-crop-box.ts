@@ -25,6 +25,36 @@ export const GRAPH_CROP_MIN_SIZE = 30;
  */
 export const GRAPH_CROP_EXPAND_RATIO = 1;
 
+/** SVG の座標変換行列 (`DOMMatrix` の a〜d。平行移動は移動量の換算には要らない)。 */
+export interface GraphScreenMatrix {
+  a: number;
+  b: number;
+  c: number;
+  d: number;
+}
+
+/**
+ * 画面上のポインタの移動量を、図の SVG 座標の移動量へ換算する。
+ *
+ * 図の座標系から画面への変換行列 (`svg.getScreenCTM()`) の逆行列を掛ける。要素の大きさだけで割ると、
+ * 回転した図形では画面上の外接矩形の大きさで割ることになり、移動の向きも縮尺も狂う。行列なら
+ * 回転・拡大縮小・反転が一度に正しく扱える。つぶれた行列 (表示されていない要素など) は null。
+ */
+export function clientDeltaToSvgDelta(
+  matrix: GraphScreenMatrix,
+  dx: number,
+  dy: number,
+): { x: number; y: number } | null {
+  const determinant = matrix.a * matrix.d - matrix.b * matrix.c;
+  if (!Number.isFinite(determinant) || Math.abs(determinant) < 1e-9) {
+    return null;
+  }
+  return {
+    x: (matrix.d * dx - matrix.c * dy) / determinant,
+    y: (-matrix.b * dx + matrix.a * dy) / determinant,
+  };
+}
+
 export interface DragGraphCropBoxInput {
   /** ドラッグ開始時の枠。 */
   start: GraphSvgCropBox;

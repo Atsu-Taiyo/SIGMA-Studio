@@ -47,6 +47,7 @@ import  {
   type GraphSvgCropBox,
 } from "@/lib/graph2d";
 import {
+  clientDeltaToSvgDelta,
   dragGraphCropBox,
   getGraphCropExpansionClipPath,
   getGraphCropShadowRects,
@@ -535,15 +536,13 @@ function Graph2DPreviewComponent({
 
     const start = dragStartRef.current;
 
-    if (!svgRef.current) return;
-    const rect = svgRef.current.getBoundingClientRect();
-    if (rect.width <= 0 || rect.height <= 0) return;
-
-    const scaleX = spec.width / rect.width;
-    const scaleY = spec.height / rect.height;
-
-    const dx = (e.clientX - start.x) * scaleX;
-    const dy = (e.clientY - start.y) * scaleY;
+    const svg = svgRef.current;
+    if (!svg) return;
+    // 画面の移動量を図の座標へ。回転・拡大縮小は変換行列で受ける (要素の大きさで割るだけでは、
+    // 回転した図形で向きも縮尺も狂う)。行列が取れない環境では、要素の大きさの比へ戻る。
+    const delta = getSvgPointerDelta(svg, spec, e.clientX - start.x, e.clientY - start.y);
+    if (!delta) return;
+    const { x: dx, y: dy } = delta;
 
     // Alt (⌥) を押している間だけ、プロットの外へ広げられる = 描画範囲の拡大。縮尺は変えず、
     // 広げた分だけ範囲と図形の大きさが増える (確定は `commitFinalCropBox`)。
@@ -1080,6 +1079,24 @@ function Graph2DPreviewComponent({
       )}
     </div>
   );
+}
+
+function getSvgPointerDelta(
+  svg: SVGSVGElement,
+  spec: Graph2DSpec,
+  clientDx: number,
+  clientDy: number,
+): { x: number; y: number } | null {
+  const matrix = typeof svg.getScreenCTM === "function" ? svg.getScreenCTM() : null;
+  const byMatrix = matrix ? clientDeltaToSvgDelta(matrix, clientDx, clientDy) : null;
+  if (byMatrix) {
+    return byMatrix;
+  }
+  const rect = svg.getBoundingClientRect();
+  if (rect.width <= 0 || rect.height <= 0) {
+    return null;
+  }
+  return { x: (clientDx * spec.width) / rect.width, y: (clientDy * spec.height) / rect.height };
 }
 
 /** 切り取り枠をプロットの外へ広げたとき、確定後に足される部分の下見 (原本の座標系へ置くための平行移動つき)。 */

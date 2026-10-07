@@ -74,10 +74,54 @@ async function readSaved(page: Page): Promise<SavedGraph | null> {
   });
 }
 
-async function enterCrop(page: Page) {
-  const graph = page.locator(".graph-shape").first();
-  const box = (await graph.boundingBox())!;
+/** 保存された文書にある、すべてのグラフ (挿入順)。 */
+async function readSavedAll(page: Page): Promise<SavedGraph[]> {
+  return page.evaluate(async () => {
+    window.dispatchEvent(new CustomEvent("sigma-studio:flush-overlay-changes"));
+    await new Promise((resolve) => setTimeout(resolve, 450));
+    const [file] = await window.desktopAPI!.storage.listFiles();
+    const doc = await window.desktopAPI!.storage.loadDocument(file.fileId);
+    const shapes = doc?.pageLayout?.overlay?.overlaySnapshot?.shapes ?? [];
+    return shapes.flatMap((shape) => (
+      shape.type === "graph2dShape"
+        ? [{ x: shape.x, y: shape.y, w: shape.props.w, h: shape.props.h, spec: shape.props.spec as SavedGraph["spec"] }]
+        : []
+    ));
+  });
+}
+
+/** 2 つ目のグラフを、1 つ目の下に挿入する (切り取り中の別図形のクリックと、片方だけが変わることの確認用)。 */
+async function insertSecondGraph(page: Page) {
+  await page.getByRole("button", { name: "挿入", exact: true }).click();
+  await page.getByRole("menu", { name: "挿入", exact: true }).getByRole("menuitem", { name: "グラフ" }).click();
+  const surface = (await page.locator(".overlay-canvas-editor.inserting").first().boundingBox())!;
+  await page.mouse.move(surface.x + 200, surface.y + 500);
+  await page.mouse.down();
+  await page.mouse.move(surface.x + 520, surface.y + 680, { steps: 8 });
+  await page.mouse.up();
+  await expect(page.locator(".graph-shape")).toHaveCount(2);
+  // 挿入した直後の最初のクリックは、そのグラフの原点の指定になる。先に済ませておく。
+  const inserted = (await page.locator(".graph-shape").nth(1).boundingBox())!;
+  await page.mouse.click(inserted.x + inserted.width / 2, inserted.y + inserted.height / 2);
+  await expect(page.locator(".overlay-canvas-editor.origin-picking")).toHaveCount(0);
+  await expect.poll(async () => (await readSavedAll(page)).length).toBe(2);
+}
+
+async function pressToolbar(page: Page, name: "元に戻す" | "やり直す") {
+  await page.getByRole("button", { name, exact: true }).first().click();
+}
+
+/**
+ * 図を選び、ダブルクリックで切り取りモードに入る。
+ *
+ * 本文のクリックで編集面が外れたあとは、最初の押下で編集面が組み立て直される。選択が出るのを待たずに
+ * 2 回目を押すと、ダブルクリックが取りこぼされる。
+ */
+async function enterCrop(page: Page, index = 0) {
+  const box = (await page.locator(".graph-shape").nth(index).boundingBox())!;
   await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+  await expect(page.locator(".overlay-shape.selected")).toHaveCount(1);
+  await page.waitForTimeout(300);
   await page.mouse.dblclick(box.x + box.width / 2, box.y + box.height / 2);
   await expect(page.locator(".graph2d-container.cropping")).toHaveCount(1);
   return box;
@@ -171,6 +215,148 @@ test.describe("graph crop in the desktop app", () => {
       await expect(page.locator(".graph-shape .graph2d-svg").first()).toBeVisible();
       const reloaded = (await page.locator(".graph-shape .graph2d-svg").first().boundingBox())!;
       expect(reloaded.width).toBeCloseTo(after.spec.width, 0);
+    } finally {
+      await app.close();
+      cleanup();
+    }
+  });
+  test("keeps the crop however crop mode is left, and the crop button does not end or double it", async () => {
+    const { app, page, cleanup } = await launch();
+    try {
+      await insertGraph(page);
+      await insertSecondGraph(page);
+      const second = page.locator(".graph-shape").nth(1);
+      const secondBefore = (await readSavedAll(page))[1];
+
+      for (const exit of ["escape", "another-shape"] as const) {
+        const before = (await readSavedAll(page))[0];
+        await enterCrop(page, 0);
+
+        await dragHandle(page, "r", -40, 0);
+        if (exit === "escape") {
+          await page.keyboard.press("Escape");
+        } else {
+          const other = (await second.boundingBox())!;
+          await page.mouse.click(other.x + other.width / 2, other.y + other.height / 2);
+        }
+        await expect(page.locator(".graph2d-container.cropping")).toHaveCount(0);
+
+        await expect.poll(async () => (await readSavedAll(page))[0].w, { message: `exit by ${exit}` })
+          .toBeCloseTo(before.w - 40, 0);
+        // 切り取ったのは 1 つ目だけ。2 つ目は変わらない。
+        const secondAfter = (await readSavedAll(page))[1];
+        expect(secondAfter.w).toBeCloseTo(secondBefore.w, 1);
+        expect(secondAfter.x).toBeCloseTo(secondBefore.x, 1);
+        expect(secondAfter.spec.viewBox).toEqual(secondBefore.spec.viewBox);
+      }
+
+      // 切り取り中に設定パネルの「表示領域をトリミング」を押しても、切り取りは終わらず、何も書かれない。
+      const before = (await readSavedAll(page))[0];
+      await enterCrop(page, 0);
+      await dragHandle(page, "r", -30, 0);
+      await page.getByRole("button", { name: "表示領域をトリミング", exact: true }).first().click();
+      await expect(page.locator(".graph2d-container.cropping")).toHaveCount(1);
+      expect((await readSavedAll(page))[0].w).toBeCloseTo(before.w, 1);
+
+      // そのまま確定すると、ボタンを押さなかったときと同じ結果になる (二重にも消えもしない)。
+      await page.keyboard.press("Escape");
+      await expect(page.locator(".graph2d-container.cropping")).toHaveCount(0);
+      await expect.poll(async () => (await readSavedAll(page))[0].w).toBeCloseTo(before.w - 30, 0);
+    } finally {
+      await app.close();
+      cleanup();
+    }
+  });
+
+  test("undoes a whole crop in one step and redoes it, also after a reload", async () => {
+    const { app, page, cleanup } = await launch();
+    try {
+      await insertGraph(page);
+      const box = await enterCrop(page);
+      const before = (await readSaved(page))!;
+
+      await dragHandle(page, "l", 70, 0);
+      await dragHandle(page, "r", -50, 0);
+      await finishByClickingPage(page, box);
+      await expect.poll(async () => (await readSaved(page))?.w ?? before.w).toBeCloseTo(before.w - 120, 0);
+      const cropped = (await readSaved(page))!;
+
+      await pressToolbar(page, "元に戻す");
+      // 1 回で、幅・位置・範囲のすべてが切り取る前へ戻る (ドラッグごとに戻るのではない)。
+      await expect.poll(async () => (await readSaved(page))?.w ?? 0).toBeCloseTo(before.w, 0);
+      const undone = (await readSaved(page))!;
+      expect(undone.x).toBeCloseTo(before.x, 1);
+      expect(undone.spec.viewBox).toEqual(before.spec.viewBox);
+      expect((await page.locator(".graph-shape .graph2d-svg").first().boundingBox())!.width).toBeCloseTo(before.spec.width, 0);
+
+      await pressToolbar(page, "やり直す");
+      await expect.poll(async () => (await readSaved(page))?.w ?? 0).toBeCloseTo(cropped.w, 0);
+      const redone = (await readSaved(page))!;
+      expect(redone.x).toBeCloseTo(cropped.x, 1);
+      expect(redone.spec.viewBox).toEqual(cropped.spec.viewBox);
+
+      await page.reload();
+      await expect(page.locator(".graph-shape .graph2d-svg").first()).toBeVisible();
+      expect((await page.locator(".graph-shape .graph2d-svg").first().boundingBox())!.width).toBeCloseTo(cropped.spec.width, 0);
+    } finally {
+      await app.close();
+      cleanup();
+    }
+  });
+
+  test("a second crop session starts from the first one's result, and widening then cutting round-trips", async () => {
+    const { app, page, cleanup } = await launch();
+    try {
+      await insertGraph(page);
+      let box = await enterCrop(page);
+      const original = (await readSaved(page))!;
+
+      // 1 回目: ⌥ で左右へ 60 ずつ広げる。
+      await dragHandle(page, "l", -60, 0, true);
+      await dragHandle(page, "r", 60, 0, true);
+      await finishByClickingPage(page, box);
+      await expect.poll(async () => (await readSaved(page))?.w ?? 0).toBeCloseTo(original.w + 120, 0);
+      const widened = (await readSaved(page))!;
+      expect(widened.x).toBeCloseTo(original.x - 60, 0);
+
+      // 2 回目: 広げた結果が新しい基準。広げた分をそのまま切り落とすと、元の図に戻る。
+      box = await enterCrop(page);
+      await dragHandle(page, "l", 60, 0);
+      await dragHandle(page, "r", -60, 0);
+      await finishByClickingPage(page, box);
+      await expect.poll(async () => (await readSaved(page))?.w ?? 0).toBeCloseTo(original.w, 0);
+      const restored = (await readSaved(page))!;
+      expect(restored.x).toBeCloseTo(original.x, 0);
+      expect(Number(restored.spec.viewBox.xMin)).toBeCloseTo(Number(original.spec.viewBox.xMin), 3);
+      expect(Number(restored.spec.viewBox.xMax)).toBeCloseTo(Number(original.spec.viewBox.xMax), 3);
+    } finally {
+      await app.close();
+      cleanup();
+    }
+  });
+
+  test("releasing the modifier key while dragging pulls the edge back to the plot", async () => {
+    const { app, page, cleanup } = await launch();
+    try {
+      await insertGraph(page);
+      const box = await enterCrop(page);
+      const before = (await readSaved(page))!;
+
+      const grip = (await page.locator(".graph2d-container.cropping circle[fill='transparent']").nth(7).boundingBox())!;
+      const x = grip.x + grip.width / 2;
+      const y = grip.y + grip.height / 2;
+      await page.keyboard.down("Alt");
+      await page.mouse.move(x, y);
+      await page.mouse.down();
+      await page.mouse.move(x + 90, y, { steps: 8 });
+      await expect(page.getByTestId("graph2d-crop-expansion")).toHaveCount(1);
+      await page.keyboard.up("Alt");
+      await page.mouse.move(x + 91, y, { steps: 2 });
+      await expect(page.getByTestId("graph2d-crop-expansion")).toHaveCount(0);
+      await page.mouse.up();
+
+      await finishByClickingPage(page, box);
+      await expect.poll(async () => (await readSaved(page))?.w ?? 0).toBeCloseTo(before.w, 0);
     } finally {
       await app.close();
       cleanup();
