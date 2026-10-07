@@ -1,0 +1,16 @@
+.destination {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+  max-height: 180px;
+  overflow: auto;
+  padding: var(--space-md);
+  border-radius: var(--radius-control);
+  background: var(--surface-muted);
+  overflow-wrap: anywhere;
+  unicode-bidi: isolate;
+}
+
+.destination code { font-size: 12px; }
+.warnings { margin: 0; padding-left: var(--space-lg); font-size: 13px; }
+.note { margin: 0; color: var(--text-secondary); font-size: 12px; }

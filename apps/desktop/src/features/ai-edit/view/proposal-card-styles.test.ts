@@ -26,6 +26,7 @@ function rules(css: string): Array<{ selector: string; body: string }> {
 const FEATURE_CSS = readCss("app/styles/graph-and-text-editing.css");
 const OVERLAY_CSS = readCss("app/styles/task-and-command-overlays.css");
 const CHAT_CSS = readCss("app/styles/ai-chat.css");
+const WORKSPACE_CSS = readCss("app/styles/workspace.css");
 const CONTENT_CSS = readCss("features/ai-edit/view/AiProposalContentView.module.css");
 const BAR_CSS = readCss("components/ui/ai/AiProposalDecisionBar.module.css");
 const ALL_CSS = [FEATURE_CSS, OVERLAY_CSS, CHAT_CSS, CONTENT_CSS, BAR_CSS].join("\n");
@@ -42,6 +43,16 @@ describe("proposal card styles", () => {
       .filter(({ body }) => SIZE_CAP.test(body) || INNER_SCROLL.test(body))
       .map(({ selector }) => selector);
     expect(offending).toEqual([]);
+  });
+
+  it("lets the floating AI result card grow to its content (no height cap that its visible overflow would spill past)", () => {
+    const card = rules(WORKSPACE_CSS).filter(({ selector }) => selector === ".ai-edit-panel.ai-inline-edit");
+    expect(card).toHaveLength(1);
+    const body = card[0].body;
+    // 上限を置くと、overflow: visible の中身 (要約・承認バー) が枠の外に落ちて、枠だけが短く見える。
+    expect(body).toMatch(/(?:^|;)\s*height\s*:\s*auto/);
+    expect(body).toMatch(/(?:^|;)\s*max-height\s*:\s*none/);
+    expect(body).toMatch(/(?:^|;)\s*overflow\s*:\s*visible/);
   });
 
   it("keeps the page card's margin at single-class specificity so the continuation copy can drop it", () => {

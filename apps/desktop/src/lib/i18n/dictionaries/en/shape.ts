@@ -387,6 +387,7 @@ export const shape = {
     defaultAria: "Graph",
     rangeErrorAria: "{{description}} range error",
     cannotDraw: "The graph cannot be rendered",
+    cropExpandHint: "Hold ⌥ (Alt) while dragging to extend the drawing range",
   },
   graphWarning: {
     curveOutsideView: "The curve is outside the display range. Adjust the range to see it.",

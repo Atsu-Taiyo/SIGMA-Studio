@@ -5,6 +5,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { OverlayShape } from "@/features/document";
+import * as textMeasure from "./text-shape-measure";
 
 vi.mock("mathlive", () => ({}));
 
@@ -32,6 +33,28 @@ afterEach(async () => {
   await act(async () => root.unmount());
   container.remove();
   vi.restoreAllMocks();
+});
+
+it("does not restart height measurement after its own height write-back or a position change", async () => {
+  const measure = vi.spyOn(textMeasure, "measureOverlayTextContentHeight").mockReturnValue(40);
+  const shape: Extract<OverlayShape, { type: "text" }> = {
+    id: "height_text", type: "text", x: 10, y: 20,
+    props: { w: 200, h: 30, size: "m", color: "black", blocks: [
+      { id: "height_block", type: "paragraph", children: [{ type: "text", text: "高さ" }] },
+    ] },
+  };
+  const callbacks = { onFocus: vi.fn(), onCancel: vi.fn(), onMeasuredHeight: vi.fn(), onChange: vi.fn() };
+  const render = async (next: typeof shape) => {
+    await act(async () => { root.render(<OverlayTextShapeEditor shape={next} externalRevision={0} editing={false} {...callbacks} />); });
+    await act(async () => { await new Promise(resolve => window.setTimeout(resolve, 40)); });
+  };
+  await render(shape);
+  expect(callbacks.onMeasuredHeight).toHaveBeenCalledWith(shape.id, 40);
+  const initialReads = measure.mock.calls.length;
+  await render({ ...shape, x: 50, props: { ...shape.props, h: 40 } });
+  expect(measure).toHaveBeenCalledTimes(initialReads);
+  await render({ ...shape, props: { ...shape.props, w: 100 } });
+  expect(measure.mock.calls.length).toBeGreaterThan(initialReads);
 });
 
 /**

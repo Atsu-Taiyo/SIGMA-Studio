@@ -5,6 +5,15 @@ type AiEditEvent = unknown;
 let runCounter = 0;
 
 const desktopAPI = {
+  linkConfirmation: {
+    pending: () => ipcRenderer.invoke("link-confirmation:pending"),
+    respond: (id: string, approved: boolean) => ipcRenderer.invoke("link-confirmation:respond", id, approved),
+    onChanged(handler: () => void) {
+      const listener = () => handler();
+      ipcRenderer.on("link-confirmation:changed", listener);
+      return () => ipcRenderer.removeListener("link-confirmation:changed", listener);
+    },
+  },
   tikz: {
     render: (input: unknown) => ipcRenderer.invoke("tikz:render", input),
   },

@@ -38,17 +38,68 @@ export {
   isOverlayGraphAxisLabelKey,
 };
 
+/** Session-local dependencies; ordinary text input must not rebuild every graph's label layout. */
+export function createGraphOwnedTextLabelReconciler(createShapeId: () => OverlayShapeId) {
+  let previous = new Map<OverlayShapeId, Map<OverlayShapeId, OverlayShape | undefined>>();
+  let previousSize: { width: number; height: number } | undefined;
+
+  return (shapes: OverlayShape[], canvasSize: { width: number; height: number }): OverlayShape[] => {
+    const byId = new Map(shapes.map((shape) => [shape.id, shape]));
+    const graphs = shapes.filter((shape): shape is OverlayGraphShape => shape.type === "graph2dShape");
+    const resized = previousSize?.width !== canvasSize.width || previousSize?.height !== canvasSize.height;
+    const affected = new Set(graphs.filter((graph) => {
+      const dependencies = previous.get(graph.id);
+      return resized || !dependencies || Array.from(dependencies).some(([id, shape]) => byId.get(id) !== shape);
+    }).map((graph) => graph.id));
+
+    const materialized = affected.size > 0
+      ? materializeMissingGraphOwnedTextLabels(shapes, createShapeId, canvasSize, affected)
+      : shapes;
+    // The old sweep also resolved generic shape anchors. Keep that behavior once per change,
+    // including when a text box is the target of another shape's anchor.
+    const next = graphs.length > 0 ? resolveShapeAnchorPositions(materialized) : materialized;
+    const nextById = new Map(next.map((shape) => [shape.id, shape]));
+    previous = new Map(next.filter((shape): shape is OverlayGraphShape => shape.type === "graph2dShape")
+      .map((graph) => [graph.id, graphLabelDependencies(graph, nextById)]));
+    previousSize = { ...canvasSize };
+    return next;
+  };
+}
+
+function graphLabelDependencies(graph: OverlayGraphShape, byId: Map<OverlayShapeId, OverlayShape>) {
+  const dependencies = new Map<OverlayShapeId, OverlayShape | undefined>();
+  const props = graph.props;
+  const pending = [
+    graph.id,
+    ...Object.values(props.axisLabelTextShapeIds ?? {}),
+    ...Object.values(props.pointLabelTextShapeIdsByPointId ?? {}),
+    ...Object.values(props.annotationTextShapeIdsByAnnotationId ?? {}),
+    ...Object.values(props.labelTextShapeIdsByCurveId ?? {}),
+    ...(props.labelTextShapeIds ?? []),
+  ];
+  while (pending.length > 0) {
+    const id = pending.pop();
+    if (id === undefined || dependencies.has(id)) continue;
+    const shape = byId.get(id);
+    dependencies.set(id, shape);
+    if (shape?.parentId) pending.push(shape.parentId);
+    if (shape?.anchor?.type === "shape") pending.push(shape.anchor.shapeId);
+  }
+  return dependencies;
+}
+
 export function materializeMissingGraphOwnedTextLabels(
   shapes: OverlayShape[],
   createShapeId: () => OverlayShapeId,
   canvasSize: { width: number; height: number } = { width: 1600, height: 1200 },
+  graphIds?: ReadonlySet<OverlayShapeId>,
 ): OverlayShape[] {
   let nextShapes = shapes;
   const nextGraphById = new Map<OverlayShapeId, OverlayGraphShape>();
   const newLabelShapes: OverlayShape[] = [];
 
   for (const shape of shapes) {
-    if (shape.type !== "graph2dShape") {
+    if (shape.type !== "graph2dShape" || (graphIds && !graphIds.has(shape.id))) {
       continue;
     }
 
@@ -143,7 +194,7 @@ export function materializeMissingGraphOwnedTextLabels(
 
   let synced = nextShapes;
   for (const shape of synced) {
-    if (shape.type !== "graph2dShape") {
+    if (shape.type !== "graph2dShape" || (graphIds && !graphIds.has(shape.id))) {
       continue;
     }
     const nextGraph = nextGraphById.get(shape.id) ?? shape;

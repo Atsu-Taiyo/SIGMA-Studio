@@ -195,9 +195,17 @@ export function useOverlayMutations({
     shapeId: OverlayShapeId,
     spec: Graph2DSpec,
     patch: Partial<Pick<OverlayGraphShape, "x" | "y">> = {},
-    options: { preserveGraphOwnedLabelPositions?: boolean } = {},
+    options: {
+      preserveGraphOwnedLabelPositions?: boolean;
+      /**
+       * その場で `shapesRef` を更新し、すぐ文書へ書く。切り取りの確定のように、直後に編集面ごと
+       * 外れうる操作に使う。既定の `setShapes` の更新関数は次の描画で初めて実行されるので、
+       * 本文のクリックで編集面が先に外れると実行されず、確定が丸ごと消える。
+       */
+      commit?: boolean;
+    } = {},
   ) => {
-    setShapes((current) => {
+    const buildNext = (current: OverlayShape[]): OverlayShape[] => {
       const graphShape = current.find((shape): shape is OverlayGraphShape => (
         shape.id === shapeId && shape.type === GRAPH_SHAPE_TYPE
       ));
@@ -222,13 +230,29 @@ export function useOverlayMutations({
           ? syncMovedOverlayShapeAnchor(nextGraph, graphShape, current, anchorMeasurementsRef.current.rects)
           : nextGraph;
       const nextBeforeAxisSync = current.map((shape) => (shape.id === shapeId ? anchoredNextGraph : shape));
-      const next = syncGraphOwnedLabelTextShapePositions(nextBeforeAxisSync, anchoredNextGraph, {
+      return syncGraphOwnedLabelTextShapePositions(nextBeforeAxisSync, anchoredNextGraph, {
         preserveExistingPositions: options.preserveGraphOwnedLabelPositions === true,
       });
+    };
+
+    if (options.commit) {
+      const next = buildNext(shapesRef.current);
+      if (next === shapesRef.current) {
+        return;
+      }
+      shapesRef.current = next;
+      explicitlySavedShapeStatesRef.current.add(next);
+      setShapes(next);
+      commitOverlayChangeNow();
+      return;
+    }
+
+    setShapes((current) => {
+      const next = buildNext(current);
       shapesRef.current = next;
       return next;
     });
-  }, [anchorMeasurementsRef, setShapes, shapesRef]);
+  }, [anchorMeasurementsRef, commitOverlayChangeNow, explicitlySavedShapeStatesRef, setShapes, shapesRef]);
 
   const replaceShape = useCallback((shape: OverlayShape) => {
     setShapes((current) => {

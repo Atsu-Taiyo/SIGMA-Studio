@@ -2227,7 +2227,9 @@ nav.app-menu-list[inert] *,
   width: min(440px, 84vw);
   height: auto;
   min-height: 0;
-  max-height: 70vh;
+  /* 高さの上限は持たない。上限を置くと、overflow: visible の中身が枠からはみ出して
+     (長い要約や承認バーが枠の外に落ちる)、枠だけが短く見える。枠は中身の高さまで伸びる。 */
+  max-height: none;
   overflow: visible;
   padding: 8px;
   border: 1px solid var(--border);
@@ -2281,6 +2283,21 @@ nav.app-menu-list[inert] *,
 .ai-inline-result {
   position: relative;
   padding: 2px 70px 2px 2px;
+  display: flex;
+  flex-direction: column;
+  /* Only the floating conversation scrolls. Paper proposal cards keep their natural flow. */
+  max-height: calc(var(--ai-inline-max-height, 80dvh) - 18px);
+  min-height: 0;
+}
+
+.ai-inline-result-content {
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+
+.ai-inline-result > [data-ai-proposal-bar] {
+  flex-shrink: 0;
 }
 
 .ai-inline-result-actions {
