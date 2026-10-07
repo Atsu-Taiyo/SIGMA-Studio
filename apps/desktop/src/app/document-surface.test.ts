@@ -92,6 +92,8 @@ const EDITOR_CHROME_CLASSES = new Set([
   "boxed-text-toolbar-control",
   "graph2d-block",
   "graph2d-container",
+  // 切り取り中だけ図の下に出す一時的なガイド (編集専用。viewer の文書面には出ない)。
+  "graph2d-crop-hint",
   "graph2d-preview-button",
   "page-running-direct-editor",
   "page-running-direct-flow",

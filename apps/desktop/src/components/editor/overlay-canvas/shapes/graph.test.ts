@@ -1,4 +1,5 @@
 import { overlayTextBlocksToInlineNodes } from "@/features/document";
+import { getShapeRotationPivot } from "@/features/drawing";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -16,6 +17,7 @@ import {
   createGraphFormulaLabelShapes,
   getGraphCropPositionPatch,
   getGraphRenderLayout,
+  getGraphShapeSizeForSpec,
   getGraphOwnedLabelTextSyncedProps,
   getGraphOwnedTextLabelCropSyncPatch,
   createGraphPointLabelShapeEntries,
@@ -100,7 +102,12 @@ describe("overlay graph shapes", () => {
     });
   });
 
-  it("rotates the cropped plot offset with the graph shape", () => {
+  it("places a rotated graph so that what stays does not move on the page", () => {
+    // 90° 回した 300x170 のグラフから、左へ 72・上へ 36 を切り落として 180x96 を残す。
+    // 回転は図形の中心を軸にするので、新しい左上は「オフセットを左上の軸で回した位置」にはならない。
+    //   旧: 中心 (270, 225) の図形。残す部分の左上は図の中で (72, 36) → 紙面 (319, 147)。
+    //   新: 幅 180・高さ 96 の図形の左上の角がそこへ来る中心は (271, 237) なので、左上は (181, 189)。
+    // 旧実装は左上を軸に回して (84, 212) とし、残した部分を紙面で約 97px ずらしていた。
     const shape: OverlayGraphShape = {
       ...createGraphShapeFromPlotBounds(
         "graph_rotated_crop",
@@ -118,8 +125,8 @@ describe("overlay graph shapes", () => {
       height: 96,
     });
 
-    expect(patch.x).toBeCloseTo(shape.x - 36);
-    expect(patch.y).toBeCloseTo(shape.y + 72);
+    expect(patch.x).toBeCloseTo(181);
+    expect(patch.y).toBeCloseTo(189);
   });
 
   it("creates default axis labels as graph-anchored text shapes", () => {
@@ -599,3 +606,132 @@ function graphWithSpec(
     },
   };
 }
+
+/**
+ * 切り取り・拡大のあと、残した部分は紙面の同じ場所にある。
+ *
+ * 図の中のどの点も、確定の前後で紙面上の位置が変わらない。回転した図形は左上ではなく中心を軸に
+ * 描かれるので、位置の補正が「左上を軸に回す」式のままだと、角度が 0 以外のときだけ図が別の場所へ
+ * ずれた (縮小でも拡大でも)。
+ */
+describe("getGraphCropPositionPatch keeps the part that stays on the same spot of the page", () => {
+  /** 図形の中の点 (プロット左上からの距離) が、回転も含めて紙面のどこに描かれるか。 */
+  function pagePoint(shape: OverlayGraphShape, local: { x: number; y: number }) {
+    const pivot = getShapeRotationPivot(shape);
+    const rotation = shape.rotation ?? 0;
+    const dx = shape.x + local.x - pivot.x;
+    const dy = shape.y + local.y - pivot.y;
+    return {
+      x: pivot.x + dx * Math.cos(rotation) - dy * Math.sin(rotation),
+      y: pivot.y + dx * Math.sin(rotation) + dy * Math.cos(rotation),
+    };
+  }
+
+  function commit(graph: OverlayGraphShape, box: { left: number; top: number; width: number; height: number }) {
+    const spec = cropGraphSpecToSvgBox(graph.props.spec, box, { resizeToCrop: true })!;
+    const size = getGraphShapeSizeForSpec(graph, spec);
+    const patch = getGraphCropPositionPatch(graph, box);
+    return { ...graph, ...patch, props: { ...graph.props, spec, w: size.w, h: size.h } } as OverlayGraphShape;
+  }
+
+  function expectKeptSpotUnchanged(graph: OverlayGraphShape, box: { left: number; top: number; width: number; height: number }) {
+    const before = graph.props.spec;
+    const beforePlot = getGraphPlotBox(before);
+    const beforeRange = getGraphNumericRange(before);
+    const committed = commit(graph, box);
+    const afterPlot = getGraphPlotBox(committed.props.spec);
+    const afterRange = getGraphNumericRange(committed.props.spec);
+    const layout = getGraphRenderLayout(graph);
+    const nextLayout = getGraphRenderLayout(committed);
+
+    for (const [fx, fy] of [[0.15, 0.2], [0.5, 0.5], [0.8, 0.9]]) {
+      const point = {
+        x: beforeRange.xMin + (beforeRange.xMax - beforeRange.xMin) * fx,
+        y: beforeRange.yMin + (beforeRange.yMax - beforeRange.yMin) * fy,
+      };
+      const oldSvg = mapGraphPoint(point.x, point.y, beforeRange, before, beforePlot);
+      const newSvg = mapGraphPoint(point.x, point.y, afterRange, committed.props.spec, afterPlot);
+      const old = pagePoint(graph, {
+        x: (oldSvg.x - beforePlot.left) * layout.scaleX,
+        y: (oldSvg.y - beforePlot.top) * layout.scaleY,
+      });
+      const next = pagePoint(committed, {
+        x: (newSvg.x - afterPlot.left) * nextLayout.scaleX,
+        y: (newSvg.y - afterPlot.top) * nextLayout.scaleY,
+      });
+      expect(next.x).toBeCloseTo(old.x, 2);
+      expect(next.y).toBeCloseTo(old.y, 2);
+    }
+  }
+
+  const graphAt = (rotation: number, extra: Partial<OverlayGraphShape["props"]> = {}): OverlayGraphShape => ({
+    id: "g",
+    type: "graph2dShape",
+    x: 100,
+    y: 80,
+    ...(rotation === 0 ? {} : { rotation }),
+    props: { ...createGraphShapeProps("quadratic"), ...extra },
+  });
+
+  const rotations = [0, 0.6, -1.2, Math.PI / 2, Math.PI, 2.5];
+
+  for (const rotation of rotations) {
+    const label = `rotation ${rotation.toFixed(2)} rad`;
+    it(`${label}: after cutting from the left and top`, () => {
+      const graph = graphAt(rotation);
+      const plot = getGraphPlotBox(graph.props.spec);
+      expectKeptSpotUnchanged(graph, {
+        left: plot.left + 60,
+        top: plot.top + 25,
+        width: graph.props.w - 60 - 20,
+        height: graph.props.h - 25 - 30,
+      });
+    });
+
+    it(`${label}: after widening on every side`, () => {
+      const graph = graphAt(rotation);
+      const plot = getGraphPlotBox(graph.props.spec);
+      expectKeptSpotUnchanged(graph, {
+        left: plot.left - 70,
+        top: plot.top - 30,
+        width: graph.props.w + 70 + 110,
+        height: graph.props.h + 30 + 55,
+      });
+    });
+
+    it(`${label}: after widening one side while cutting another`, () => {
+      const graph = graphAt(rotation);
+      const plot = getGraphPlotBox(graph.props.spec);
+      expectKeptSpotUnchanged(graph, {
+        left: plot.left - 45,
+        top: plot.top + 40,
+        width: graph.props.w + 45 - 80,
+        height: graph.props.h - 40 + 35,
+      });
+    });
+  }
+
+  it("holds for a graph drawn smaller than its spec (the spec size is preserved), rotated or not", () => {
+    for (const rotation of [0, 0.9]) {
+      const base = graphAt(rotation);
+      const scaled: OverlayGraphShape = {
+        ...base,
+        props: { ...base.props, preserveSpecSize: true, w: base.props.w / 2, h: base.props.h / 2 },
+      };
+      const plot = getGraphPlotBox(scaled.props.spec);
+      expectKeptSpotUnchanged(scaled, {
+        left: plot.left - 50,
+        top: plot.top + 20,
+        width: scaled.props.spec.width - plot.left - plot.right + 50 + 30,
+        height: 120,
+      });
+    }
+  });
+
+  it("returns the plain offset for an unrotated graph", () => {
+    const graph = graphAt(0);
+    const plot = getGraphPlotBox(graph.props.spec);
+    expect(getGraphCropPositionPatch(graph, { left: plot.left + 50, top: plot.top - 20, width: 100, height: 100 }))
+      .toEqual({ x: graph.x + 50, y: graph.y - 20 });
+  });
+});
