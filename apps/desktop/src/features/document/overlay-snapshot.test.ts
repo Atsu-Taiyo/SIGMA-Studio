@@ -56,6 +56,26 @@ function textShape(id: string): OverlayTextShape {
 }
 
 describe("overlay snapshot normalization", () => {
+  it("reuses unchanged canonical shapes across immutable text edits without bypassing sanitization", () => {
+    const fixed = { ...rectangle("fixed"), color: "ignored metadata" };
+    const text = textShape("editable");
+    const first = normalizeOverlaySnapshot({ version: 1, shapes: [fixed, text], assets: {} });
+    const edited = {
+      ...text,
+      props: { ...text.props, color: "url(https://example.invalid)", blocks: [{
+        type: "paragraph", id: "edited_block", children: [{ type: "text", text: "変更" }],
+      }] },
+    };
+    const second = normalizeOverlaySnapshot({ version: 1, shapes: [fixed, edited], assets: {} });
+    expect(second.shapes[0]).toBe(first.shapes[0]);
+    expect(second.shapes[1]).not.toBe(first.shapes[1]);
+    expect(second.shapes[1]).toMatchObject({ props: { color: "black", blocks: edited.props.blocks } });
+    expect(first.shapes[1]).toMatchObject({ props: { blocks: text.props.blocks } });
+    const third = normalizeOverlaySnapshot({ version: 1, shapes: second.shapes, assets: {} });
+    expect(third.shapes[0]).toBe(second.shapes[0]);
+    expect(third.shapes[1]).toBe(second.shapes[1]);
+  });
+
   it("returns the same normalized reference for the same immutable input", () => {
     const snapshot = {
       version: 1,

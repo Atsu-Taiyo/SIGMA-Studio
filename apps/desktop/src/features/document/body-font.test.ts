@@ -15,6 +15,18 @@ import  {
  * that does the drawing.
  */
 describe("default body font", () => {
+  it("resolves quoted legacy variants and preserves custom fonts after cache turnover", () => {
+    const legacy = " 'NOTO SANS SYMBOLS' , 'M PLUS 1p' , 'STIX Two Math' , SANS-SERIF ";
+    expect(resolveDocumentFontFamily(legacy)).toBe(DEFAULT_BODY_FONT_FAMILY);
+    for (let index = 0; index < 300; index++) {
+      expect(resolveDocumentFontFamily(` Custom ${index}, serif `)).toBe(`Custom ${index}, serif`);
+    }
+    expect(resolveDocumentFontFamily(legacy)).toBe(DEFAULT_BODY_FONT_FAMILY);
+    expect(resolveDocumentFontFamily(undefined)).toBeUndefined();
+    expect(resolveDocumentFontFamily(null)).toBeUndefined();
+    expect(resolveDocumentFontFamily(" ")).toBeUndefined();
+  });
+
   it("matches --editor-body-font-family in globals.css", () => {
     const css = readFileSync(new URL("../../app/globals.css", import.meta.url), "utf8");
     const declaration = /--editor-body-font-family:([^;]*);/.exec(css)?.[1];
