@@ -2227,7 +2227,9 @@ nav.app-menu-list[inert] *,
   width: min(440px, 84vw);
   height: auto;
   min-height: 0;
-  max-height: 70vh;
+  /* 高さの上限は持たない。上限を置くと、overflow: visible の中身が枠からはみ出して
+     (長い要約や承認バーが枠の外に落ちる)、枠だけが短く見える。枠は中身の高さまで伸びる。 */
+  max-height: none;
   overflow: visible;
   padding: 8px;
   border: 1px solid var(--border);
