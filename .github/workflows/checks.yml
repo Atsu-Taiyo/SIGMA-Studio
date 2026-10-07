@@ -90,8 +90,13 @@ jobs:
           }
           EOF
           sudo apparmor_parser --replace "$profile"
-      - name: Exercise native import, editing, saving, and reload through real IPC
-        run: xvfb-run --auto-servernum npm run test:e2e:electron -- tests/electron/open-document.spec.ts tests/electron/ipc-sender-security.spec.ts tests/electron/file-names.spec.ts
+      - name: Exercise native IPC, approval, graph crop, overlay editing, and persistence
+        run: >-
+          xvfb-run --auto-servernum npm run test:e2e:electron --
+          tests/electron/open-document.spec.ts tests/electron/ipc-sender-security.spec.ts
+          tests/electron/file-names.spec.ts tests/electron/ai-inline-approval.spec.ts
+          tests/electron/whiteboard-focus.spec.ts tests/electron/graph-crop.spec.ts
+          tests/electron/overlay-text-input-latency.spec.ts tests/electron/browser-sidebar.spec.ts
       - uses: actions/upload-artifact@v7
         if: failure()
         with:

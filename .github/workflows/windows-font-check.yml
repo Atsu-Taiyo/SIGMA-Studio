@@ -1,6 +1,12 @@
 name: Windows font and clipboard checks
 
 on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/windows-font-check.yml'
+      - 'apps/desktop/**'
+      - 'package-lock.json'
   pull_request:
     paths:
       - '.github/workflows/windows-font-check.yml'

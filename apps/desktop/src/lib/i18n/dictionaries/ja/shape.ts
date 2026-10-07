@@ -432,6 +432,8 @@ export const shape = {
     defaultAria: "グラフ",
     rangeErrorAria: "{{description}} 範囲エラー",
     cannotDraw: "グラフを描画できません",
+    /** 切り取り中だけ出す短いガイド。⌥ は Mac の Option、Windows では Alt。 */
+    cropExpandHint: "⌥（Alt）を押しながら広げると描画範囲を拡大",
   },
   graphWarning: {
     curveOutsideView: "曲線が表示範囲の外にあります。表示範囲を調整してください。",

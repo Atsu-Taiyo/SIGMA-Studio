@@ -26,19 +26,21 @@ import { createCurrentLocaleTranslator } from "@/lib/i18n";
 import { DownloadTracker } from "./download-tracker";
 import { isBrowsableUrl, parseSuggestions, resolveOmniboxInput, searchUrl, suggestionEndpoint } from "./omnibox";
 import { siteIconServiceUrl } from "./site-icon";
+import { readImageDataUrl } from "./image-response";
 
 const te = createCurrentLocaleTranslator("error");
 
 /** ログインやCookieを保つ専用パーティション。アプリ本体のセッションとは共有しない。 */
 export const IN_APP_BROWSER_PARTITION = "persist:sigma-studio-browser";
 
-const FAVICON_MAX_BYTES = 128 * 1024;
 const SUGGEST_TIMEOUT_MS = 1500;
 const SITE_ICON_TIMEOUT_MS = 4000;
 const STATE_EMIT_DELAY_MS = 16;
 
 export interface InAppBrowserOptions {
   getWindow(): BrowserWindow | null;
+  confirmLink(url: string, signal: AbortSignal): Promise<boolean>;
+  openSharedLink(url: string): boolean;
   /** レンダラへ通知する。ウィンドウが無いときは何もしない。 */
   send(channel: string, payload?: unknown): void;
 }
@@ -46,6 +48,7 @@ export interface InAppBrowserOptions {
 interface TabRecord {
   view: WebContentsView;
   state: InAppBrowserTab;
+  cancelledNavigationUrl?: string;
 }
 
 /**
@@ -66,6 +69,7 @@ export class InAppBrowser {
   private attachedWindow: BrowserWindow | null = null;
   private emitTimer: ReturnType<typeof setTimeout> | null = null;
   private disposed = false;
+  private readonly pendingNavigations = new Map<number, AbortController>();
 
   constructor(private readonly options: InAppBrowserOptions) {
     this.session = electronSession.fromPartition(IN_APP_BROWSER_PARTITION);
@@ -257,6 +261,10 @@ export class InAppBrowser {
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
+    this.session.webRequest.onBeforeRequest(null);
+    this.session.webRequest.onErrorOccurred(null);
+    for (const controller of this.pendingNavigations.values()) controller.abort();
+    this.pendingNavigations.clear();
     if (this.emitTimer) clearTimeout(this.emitTimer);
     this.downloads.dispose();
     for (const record of this.tabs.values()) {
@@ -288,6 +296,39 @@ export class InAppBrowser {
   }
 
   private hardenSession(target: Session): void {
+    // Pause the actual request, including redirects and POSTs. Replaying a URL
+    // after will-navigate would discard form data and could confirm the wrong request.
+    target.webRequest.onBeforeRequest((details, callback) => {
+      if (details.resourceType !== "mainFrame") { callback({}); return; }
+      const contents = details.webContents;
+      const record = [...this.tabs.values()].find(tab => tab.view.webContents === contents);
+      if (!isBrowsableUrl(details.url) || !contents || !record) {
+        callback({ cancel: true });
+        return;
+      }
+      const controller = new AbortController();
+      this.pendingNavigations.set(details.id, controller);
+      const abort = () => controller.abort();
+      contents.once("destroyed", abort);
+      void this.options.confirmLink(details.url, controller.signal).then(approved => {
+        const cancel = !approved || controller.signal.aborted || contents.isDestroyed();
+        if (cancel && !contents.isDestroyed()) {
+          record.cancelledNavigationUrl = details.url;
+          // Canceling only through webRequest commits Chromium's blocked-request
+          // error page. Stop the provisional navigation first to retain the page.
+          contents.stop();
+          record.state.url = contents.getURL() === "about:blank" ? "" : contents.getURL();
+          record.state.loading = false;
+          record.state.error = null;
+          this.scheduleEmit();
+        }
+        callback({ cancel });
+      }, () => callback({ cancel: true })).finally(() => {
+        if (this.pendingNavigations.get(details.id) === controller) this.pendingNavigations.delete(details.id);
+        if (!contents.isDestroyed()) contents.removeListener("destroyed", abort);
+      });
+    });
+    target.webRequest.onErrorOccurred(details => this.pendingNavigations.get(details.id)?.abort());
     // ページからのカメラ・マイク・位置情報・通知などの許可要求はすべて断る。
     // クリップボードへの書き込み (「コピー」ボタン) だけは、ユーザー操作に伴うので許す。
     const allowed = (permission: string) => permission === "clipboard-sanitized-write";
@@ -348,6 +389,10 @@ export class InAppBrowser {
     contents.on("did-fail-load", (_event, errorCode, errorDescription, validatedUrl, isMainFrame) => {
       // -3 (ABORTED) は別ページへ移った・停止したときの通常の中断。
       if (!isMainFrame || errorCode === -3) return;
+      if (errorCode === -20 && validatedUrl === record.cancelledNavigationUrl) {
+        record.cancelledNavigationUrl = undefined;
+        return;
+      }
       state.loading = false;
       state.error = { code: errorCode, description: errorDescription };
       if (validatedUrl && isBrowsableUrl(validatedUrl)) state.url = validatedUrl;
@@ -361,10 +406,11 @@ export class InAppBrowser {
 
     // 別ウィンドウを開くリンク (target=_blank, window.open) は新しいタブにする。web以外は開かない。
     contents.setWindowOpenHandler(({ url, disposition }) => {
-      if (isBrowsableUrl(url)) this.openTab({ input: url, activate: disposition !== "background-tab" });
+      if (!this.options.openSharedLink(url) && isBrowsableUrl(url)) this.openTab({ input: url, activate: disposition !== "background-tab" });
       return { action: "deny" };
     });
     const guardNavigation = (event: { url: string; preventDefault(): void }) => {
+      if (this.options.openSharedLink(event.url)) { event.preventDefault(); return; }
       if (!isBrowsableUrl(event.url) && event.url !== "about:blank") event.preventDefault();
     };
     contents.on("will-navigate", guardNavigation);
@@ -515,12 +561,4 @@ export class InAppBrowser {
       this.options.send("browser:state", this.snapshot());
     }, STATE_EMIT_DELAY_MS);
   }
-}
-
-/** 画像の応答だけを、上限サイズ内で data URL にする。レンダラの CSP は外部画像を許さないので、data URL で渡す。 */
-async function readImageDataUrl(response: Response): Promise<string | null> {
-  const type = response.headers.get("content-type")?.split(";")[0].trim() ?? "";
-  if (!response.ok || !type.startsWith("image/")) return null;
-  const bytes = Buffer.from(await response.arrayBuffer());
-  return bytes.length > 0 && bytes.length <= FAVICON_MAX_BYTES ? `data:${type};base64,${bytes.toString("base64")}` : null;
 }

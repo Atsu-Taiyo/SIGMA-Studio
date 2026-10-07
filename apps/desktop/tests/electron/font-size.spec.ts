@@ -134,7 +134,7 @@ test("font sizes use the real Electron bridge and survive an app restart", async
       return observation.samples;
     });
     expect(switchSamples.length).toBeGreaterThan(0);
-    expect(switchSamples.every((size) => size === "" || size === "12")).toBe(true);
+    expect(switchSamples.every((size) => size === "" || size === "12"), `font-size frames after selection: ${switchSamples.join(", ")}`).toBe(true);
     await up().click();
     await expect(sizeInput()).toHaveValue("13");
     await down().click();
