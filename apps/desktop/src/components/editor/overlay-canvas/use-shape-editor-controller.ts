@@ -43,7 +43,7 @@ export interface Dependencies {
   transitionMode: (action: OverlayInteractionAction) => void;
   shapesRef: RefObject<OverlayShape[]>;
   updateShape: (patch: OverlayShapePatch, options?: { commit?: boolean; history?: OverlayChangeHistory; }) => void;
-  updateGraphShapeSpec: (shapeId: OverlayShapeId, spec: Graph2DSpec, patch?: Partial<Pick<OverlayGraphShape, "x" | "y">>, options?: { preserveGraphOwnedLabelPositions?: boolean; }) => void;
+  updateGraphShapeSpec: (shapeId: OverlayShapeId, spec: Graph2DSpec, patch?: Partial<Pick<OverlayGraphShape, "x" | "y">>, options?: { preserveGraphOwnedLabelPositions?: boolean; commit?: boolean; }) => void;
   insertedTableFocusRef: RefObject<string | null>;
 }
 
@@ -122,7 +122,8 @@ export function useOverlayShapeEditorController({ activeTextEditorRef, selectSha
       shapeId,
       spec,
       positionPatch,
-      { preserveGraphOwnedLabelPositions: meta?.source === "crop" },
+      // 切り取りは確定の 1 回だけが来る。続けて編集面が外れることがあるので同期で文書へ書く。
+      { preserveGraphOwnedLabelPositions: meta?.source === "crop", commit: meta?.source === "crop" },
     );
   }, [shapesRef, updateGraphShapeSpec]);
 

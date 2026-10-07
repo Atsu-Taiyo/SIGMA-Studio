@@ -46,6 +46,12 @@ import  {
   type GraphSpecChangeMeta,
   type GraphSvgCropBox,
 } from "@/lib/graph2d";
+import {
+  dragGraphCropBox,
+  getGraphCropExpansionClipPath,
+  getGraphCropShadowRects,
+  graphCropBoxExtendsBeyondPlot,
+} from "@/lib/graph-crop-box";
 import { countPerformanceEvent, measurePerformance } from "@/lib/performance";
 
 import { applyMathTypesetStyle } from "@/features/rendering/core";
@@ -381,6 +387,20 @@ function Graph2DPreviewComponent({
   /* eslint-enable react-hooks/exhaustive-deps */
   const tShape = useT("shape");
   const visibilityWarnings = useMemo(() => getGraphVisibilityWarnings(spec), [spec]);
+  // 切り取り枠が動ける基準になる、原本のプロット領域 (SVG 座標)。
+  const cropPlotRect = useMemo(() => ({
+    left: plotBox.left,
+    top: plotBox.top,
+    right: spec.width - plotBox.right,
+    bottom: spec.height - plotBox.bottom,
+  }), [plotBox, spec.width, spec.height]);
+  // 枠がプロットの外へ広がっている間だけ、確定後の姿を計算して足される部分の下見にする。
+  const expansionPreview = useMemo(() => {
+    if (!isCropping || !cropBox || !originalSpec || !graphCropBoxExtendsBeyondPlot(cropBox, cropPlotRect)) {
+      return null;
+    }
+    return buildGraphCropExpansionPreview(originalSpec, cropBox);
+  }, [isCropping, cropBox, originalSpec, cropPlotRect]);
   const range = safeRange(spec);
   const graphRange = safeDisplayRange(spec);
   const description = describeGraphSpec(propSpec) || tShape("graphPreview.defaultAria");
@@ -444,26 +464,26 @@ function Graph2DPreviewComponent({
     }
   };
 
-  const commitCropBoxToSpec = (
-    box: GraphSvgCropBox,
-    options: { resizeToCrop?: boolean } = {},
-  ) => {
+  // 切り取りの結果 (範囲・幅・高さ・位置) は、モードを抜けるこの 1 回だけで書く。
+  //
+  // ドラッグ中の途中経過を `onSpecChange` で書いてはいけない: 途中のスペックは範囲 (viewBox) だけが
+  // 切り取り後で幅は元のままという、どこにも存在しない状態で、自動保存で文書に残る。
+  // 確定と「選択へ戻る」が同じ更新に重なると、文書側の同期は残っていたその途中の保存を
+  // 「外から来た変更」として採用し、確定結果を巻き戻した (切り取った図が元の横幅まで引き伸ばされた)。
+  // 途中経過の見た目は、原本 (`originalSpec`) に枠と影を重ねるこの面の中だけで足りる。
+  const commitFinalCropBox = (box: GraphSvgCropBox) => {
+    if (cropCommittedRef.current) return;
+    cropCommittedRef.current = true;
     const sourceSpec = originalSpecRef.current ?? originalSpec;
     if (!onSpecChange || !sourceSpec) return;
-    const nextSpec = cropGraphSpecToSvgBox(sourceSpec, box, options);
+    const nextSpec = cropGraphSpecToSvgBox(sourceSpec, box, { resizeToCrop: true });
     if (!nextSpec) return;
 
     onSpecChange(nextSpec, {
       source: "crop",
       cropBox: box,
-      resizeToCrop: options.resizeToCrop === true,
+      resizeToCrop: true,
     });
-  };
-
-  const commitFinalCropBox = (box: GraphSvgCropBox) => {
-    if (cropCommittedRef.current) return;
-    cropCommittedRef.current = true;
-    commitCropBoxToSpec(box, { resizeToCrop: true });
   };
 
   // Auto-start crop mode when triggered externally (e.g. overlay editing state).
@@ -525,43 +545,19 @@ function Graph2DPreviewComponent({
     const dx = (e.clientX - start.x) * scaleX;
     const dy = (e.clientY - start.y) * scaleY;
 
-    const plotLeft = plotBox.left;
-    const plotRight = spec.width - plotBox.right;
-    const plotTop = plotBox.top;
-    const plotBottom = spec.height - plotBox.bottom;
-
-    const newBox = { ...start.box };
-    const MIN_SIZE = 30;
-
-    if (start.handle === "center") {
-      newBox.left = Math.max(plotLeft, Math.min(plotRight - newBox.width, start.box.left + dx));
-      newBox.top = Math.max(plotTop, Math.min(plotBottom - newBox.height, start.box.top + dy));
-    } else {
-      if (start.handle.includes("l")) {
-        const potentialLeft = start.box.left + dx;
-        const boundedLeft = Math.max(plotLeft, Math.min(start.box.left + start.box.width - MIN_SIZE, potentialLeft));
-        newBox.width = start.box.left + start.box.width - boundedLeft;
-        newBox.left = boundedLeft;
-      }
-      if (start.handle.includes("r")) {
-        const potentialWidth = start.box.width + dx;
-        newBox.width = Math.max(MIN_SIZE, Math.min(plotRight - start.box.left, potentialWidth));
-      }
-      if (start.handle.includes("t")) {
-        const potentialTop = start.box.top + dy;
-        const boundedTop = Math.max(plotTop, Math.min(start.box.top + start.box.height - MIN_SIZE, potentialTop));
-        newBox.height = start.box.top + start.box.height - boundedTop;
-        newBox.top = boundedTop;
-      }
-      if (start.handle.includes("b")) {
-        const potentialHeight = start.box.height + dy;
-        newBox.height = Math.max(MIN_SIZE, Math.min(plotBottom - start.box.top, potentialHeight));
-      }
-    }
+    // Alt (⌥) を押している間だけ、プロットの外へ広げられる = 描画範囲の拡大。縮尺は変えず、
+    // 広げた分だけ範囲と図形の大きさが増える (確定は `commitFinalCropBox`)。
+    const newBox = dragGraphCropBox({
+      start: start.box,
+      handle: start.handle,
+      dx,
+      dy,
+      plot: cropPlotRect,
+      expand: e.altKey,
+    });
 
     cropBoxRef.current = newBox;
     setCropBox(newBox);
-    commitCropBoxToSpec(newBox);
   };
 
   const handlePointerUp = (e: React.PointerEvent) => {
@@ -628,6 +624,8 @@ function Graph2DPreviewComponent({
     : undefined;
   const plotClipId = `graph2d-plot-clip-${graphSvgId}`;
   const graphClipId = `graph2d-graph-clip-${graphSvgId}`;
+  const cropExpansionClipId = `graph2d-crop-expansion-clip-${graphSvgId}`;
+  const cropExpansionGraphClipId = `graph2d-crop-expansion-graph-clip-${graphSvgId}`;
   const plotWidth = Math.max(0, spec.width - plotBox.left - plotBox.right);
   const plotHeight = Math.max(0, spec.height - plotBox.top - plotBox.bottom);
   const graphClipBox = getGraphDisplayClipBox(spec, plotBox);
@@ -958,39 +956,83 @@ function Graph2DPreviewComponent({
         {/* Cropping UI inside SVG */}
         {isCropping && cropBox && (
           <>
-            {/* Shadows overlay outside crop boundaries */}
-            <rect
-              x={plotBox.left}
-              y={plotBox.top}
-              width={Math.max(0, cropBox.left - plotBox.left)}
-              height={spec.height - plotBox.top - plotBox.bottom}
-              fill="#0f172a80"
-              style={{ pointerEvents: "none" }}
-            />
-            <rect
-              x={cropBox.left + cropBox.width}
-              y={plotBox.top}
-              width={Math.max(0, spec.width - plotBox.right - (cropBox.left + cropBox.width))}
-              height={spec.height - plotBox.top - plotBox.bottom}
-              fill="#0f172a80"
-              style={{ pointerEvents: "none" }}
-            />
-            <rect
-              x={cropBox.left}
-              y={plotBox.top}
-              width={cropBox.width}
-              height={Math.max(0, cropBox.top - plotBox.top)}
-              fill="#0f172a80"
-              style={{ pointerEvents: "none" }}
-            />
-            <rect
-              x={cropBox.left}
-              y={cropBox.top + cropBox.height}
-              width={cropBox.width}
-              height={Math.max(0, spec.height - plotBox.bottom - (cropBox.top + cropBox.height))}
-              fill="#0f172a80"
-              style={{ pointerEvents: "none" }}
-            />
+            {/* Part of the plot the crop box cuts away */}
+            {getGraphCropShadowRects(cropBox, cropPlotRect).map((rect, index) => (
+              <rect
+                key={`crop-shadow-${index}`}
+                x={rect.x}
+                y={rect.y}
+                width={rect.width}
+                height={rect.height}
+                fill="#0f172a80"
+                style={{ pointerEvents: "none" }}
+              />
+            ))}
+
+            {/* Drawing range added by dragging the box past the plot (Alt held) */}
+            {expansionPreview && (
+              <g
+                className="graph2d-crop-expansion"
+                data-testid="graph2d-crop-expansion"
+                clipPath={`url(#${cropExpansionClipId})`}
+                style={{ pointerEvents: "none" }}
+              >
+                <clipPath id={cropExpansionClipId}>
+                  <path d={getGraphCropExpansionClipPath(cropBox, cropPlotRect)} clipRule="evenodd" />
+                </clipPath>
+                <g transform={`translate(${expansionPreview.offsetX} ${expansionPreview.offsetY})`}>
+                  <clipPath id={cropExpansionGraphClipId}>
+                    <rect
+                      x={expansionPreview.clipBox.x}
+                      y={expansionPreview.clipBox.y}
+                      width={expansionPreview.clipBox.width}
+                      height={expansionPreview.clipBox.height}
+                    />
+                  </clipPath>
+                  <rect
+                    x={expansionPreview.plotRect.x}
+                    y={expansionPreview.plotRect.y}
+                    width={expansionPreview.plotRect.width}
+                    height={expansionPreview.plotRect.height}
+                    fill="#f1f1f1"
+                  />
+                  <g className="graph2d-axes">
+                    {expansionPreview.xAxis && (
+                      <line
+                        x1={expansionPreview.xAxis.x1}
+                        x2={expansionPreview.xAxis.x2}
+                        y1={expansionPreview.xAxis.y}
+                        y2={expansionPreview.xAxis.y}
+                        style={axisStyle}
+                      />
+                    )}
+                    {expansionPreview.yAxis && (
+                      <line
+                        x1={expansionPreview.yAxis.x}
+                        x2={expansionPreview.yAxis.x}
+                        y1={expansionPreview.yAxis.y1}
+                        y2={expansionPreview.yAxis.y2}
+                        style={axisStyle}
+                      />
+                    )}
+                  </g>
+                  <g clipPath={`url(#${cropExpansionGraphClipId})`}>
+                    {expansionPreview.curves.map(({ curve, path }) => (
+                      <path
+                        key={curve.id}
+                        d={path}
+                        fill="none"
+                        stroke={normalizeGraphColor(curve.color)}
+                        strokeWidth={normalizeGraphCurveStrokeWidth(curve.strokeWidth)}
+                        strokeDasharray={graphCurveStrokeDasharray(curve)}
+                        strokeLinecap="butt"
+                        vectorEffect="non-scaling-stroke"
+                      />
+                    ))}
+                  </g>
+                </g>
+              </g>
+            )}
 
             {/* Crop box border */}
             <rect
@@ -1031,8 +1073,68 @@ function Graph2DPreviewComponent({
           </>
         )}
       </svg>
+      {isCropping && (
+        <div className="graph2d-crop-hint" role="note">
+          {tShape("graphPreview.cropExpandHint")}
+        </div>
+      )}
     </div>
   );
+}
+
+/** 切り取り枠をプロットの外へ広げたとき、確定後に足される部分の下見 (原本の座標系へ置くための平行移動つき)。 */
+interface GraphCropExpansionPreview {
+  offsetX: number;
+  offsetY: number;
+  plotRect: { x: number; y: number; width: number; height: number };
+  clipBox: { x: number; y: number; width: number; height: number };
+  curves: { curve: Graph2DSpec["curves"][number]; path: string }[];
+  xAxis: { x1: number; x2: number; y: number } | null;
+  yAxis: { x: number; y1: number; y2: number } | null;
+}
+
+/**
+ * 確定したときと同じ `cropGraphSpecToSvgBox` の結果から、曲線と軸だけを組む。
+ * 縮尺は原本と同じなので、結果のプロット左上を枠の左上に合わせて平行移動すれば、
+ * 原本と重なる部分は原本の描画とぴったり一致する。
+ */
+function buildGraphCropExpansionPreview(source: Graph2DSpec, box: GraphSvgCropBox): GraphCropExpansionPreview | null {
+  const cropped = cropGraphSpecToSvgBox(source, box, { resizeToCrop: true });
+  if (!cropped) {
+    return null;
+  }
+  try {
+    const expanded = resolveGraph2DParameters(cropped);
+    const expandedPlotBox = getGraphPlotBox(expanded);
+    const expandedRange = getGraphNumericRange(expanded);
+    const visibleRange = intersectGraphRanges(expandedRange, getGraphDisplayRange(expanded));
+    const clipBox = getGraphDisplayClipBox(expanded, expandedPlotBox);
+    const showXAxis = expanded.axes.showX !== false
+      && visibleRange !== null && visibleRange.yMin <= 0 && visibleRange.yMax >= 0;
+    const showYAxis = expanded.kind === "cartesian" && expanded.axes.showY !== false
+      && visibleRange !== null && visibleRange.xMin <= 0 && visibleRange.xMax >= 0;
+    const xAxisY = axisY(expandedRange, expanded, expandedPlotBox);
+    const yAxisX = axisX(expandedRange, expanded, expandedPlotBox);
+    return {
+      offsetX: box.left - expandedPlotBox.left,
+      offsetY: box.top - expandedPlotBox.top,
+      plotRect: {
+        x: expandedPlotBox.left,
+        y: expandedPlotBox.top,
+        width: Math.max(0, expanded.width - expandedPlotBox.left - expandedPlotBox.right),
+        height: Math.max(0, expanded.height - expandedPlotBox.top - expandedPlotBox.bottom),
+      },
+      clipBox,
+      curves: expanded.curves
+        .map((curve) => ({ curve, path: getCachedGraphCurvePath(curve, expanded, expandedPlotBox) }))
+        .filter((entry) => entry.path),
+      xAxis: showXAxis ? { x1: clipBox.x, x2: clipBox.x + clipBox.width, y: xAxisY } : null,
+      yAxis: showYAxis ? { x: yAxisX, y1: clipBox.y + clipBox.height, y2: clipBox.y } : null,
+    };
+  } catch {
+    // 範囲が壊れたスペックでは下見を出さない (確定時は `cropGraphSpecToSvgBox` が null を返し何も書かない)。
+    return null;
+  }
 }
 
 function safeRange(spec: Graph2DSpec) {
