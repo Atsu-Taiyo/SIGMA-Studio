@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { OverlayChangeOptions } from "../page-overlay-types";
 import { createOverlayShapeId } from "./ids";
 import type { PendingOverlaySave } from "./pending-save";
-import { materializeMissingGraphOwnedTextLabels } from "./shapes/graph-labels";
+import { createGraphOwnedTextLabelReconciler } from "./shapes/graph-labels";
 import type { OverlayAsset, OverlayShape, OverlaySnapshot } from "./types";
 
 /** Derived editing session only. SigmaDoc and history remain owned by the host. */
@@ -24,6 +24,7 @@ export function useOverlaySnapshotState({
   const initialSnapshot = useMemo(() => normalizeOverlaySnapshot(overlay.overlaySnapshot), [overlay.overlaySnapshot]);
   const [shapes, setShapes] = useState<OverlayShape[]>(initialSnapshot.shapes);
   const [assets, setAssets] = useState<Record<string, OverlayAsset>>(initialSnapshot.assets);
+  const [reconcileGraphLabels] = useState(() => createGraphOwnedTextLabelReconciler(createOverlayShapeId));
 
   const canvasWidthRef = useRef(canvasWidth);
   const canvasHeightRef = useRef(canvasHeight);
@@ -75,10 +76,9 @@ export function useOverlaySnapshotState({
   }, [shapes]);
 
   useEffect(() => {
-    const next = materializeMissingGraphOwnedTextLabels(
+    const next = reconcileGraphLabels(
       shapesRef.current,
-      createOverlayShapeId,
-      { width: canvasWidthRef.current, height: canvasHeightRef.current },
+      { width: canvasWidth, height: canvasHeight },
     );
     if (next === shapesRef.current) {
       return;
@@ -86,7 +86,7 @@ export function useOverlaySnapshotState({
 
     shapesRef.current = next;
     setShapes(next);
-  }, [shapes]);
+  }, [canvasWidth, canvasHeight, reconcileGraphLabels, shapes]);
 
   useEffect(() => {
     assetsRef.current = assets;
