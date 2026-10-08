@@ -45,6 +45,9 @@ export class RendererDocumentSession implements DocumentSession {
   private readonly undo: Y.UndoManager;
   private listeners = new Set<() => void>();
   private pending: Promise<unknown> = Promise.resolve();
+  private readonly pendingWrites: (() => Promise<unknown>)[] = [];
+  private drainingWrites = false;
+  private writeFailed = false;
   private activeApprovalIds?: string[];
   private kind: "manual" | "undo" | "redo" = "manual";
   private composing = false;
@@ -102,27 +105,19 @@ export class RendererDocumentSession implements DocumentSession {
       const kind = this.kind;
       this.status = "local-saving";
       this.notifyStatus();
-      this.pending = this.pending
-        .then(() =>
-          this.bridge.update(
-            info.binding.localFileId,
-            toBase64(update),
-            operationId,
-            kind,
-            info.binding.epoch,
-          ),
-        )
-        .catch(() => {
-          this.status = "save-error";
-          this.notifyStatus();
-          throw new Error("LOCAL_SAVE_FAILED");
-        });
-      void this.pending.catch(() => {});
+      this.enqueueWrite(() => this.bridge.update(
+        info.binding.localFileId,
+        toBase64(update),
+        operationId,
+        kind,
+        info.binding.epoch,
+      ));
     });
   }
   get writable(): boolean {
     return (
       this.role !== "viewer" &&
+      !this.writeFailed &&
       !["permission-error", "save-error", "epoch-error"].includes(this.status)
     );
   }
@@ -139,7 +134,7 @@ export class RendererDocumentSession implements DocumentSession {
   change(before: SigmaDocument, after: SigmaDocument): SigmaDocument {
     if (!this.writable) throw new Error("READ_ONLY");
     const next = JSON.parse(JSON.stringify(after)) as ObjectValue;
-    const assets: Promise<unknown>[] = [];
+    const assets: (() => Promise<unknown>)[] = [];
     const addedAssetIds: string[] = [];
     const visit = (value: unknown): void => {
       if (Array.isArray(value)) {
@@ -174,7 +169,7 @@ export class RendererDocumentSession implements DocumentSession {
         this.pendingAssetPreviews.set(assetId, source);
         addedAssetIds.push(assetId);
         assets.push(
-          this.bridge.asset(
+          () => this.bridge.asset(
             this.info.binding.localFileId,
             assetId,
             source,
@@ -185,22 +180,20 @@ export class RendererDocumentSession implements DocumentSession {
       Object.values(value).forEach(visit);
     };
     visit(next);
-    if (assets.length)
-      this.pending = this.pending.then(() => Promise.all(assets));
+    assets.forEach((write) => this.enqueueWrite(write));
     this.shared.change(JSON.parse(JSON.stringify(before)) as ObjectValue, next);
     if (addedAssetIds.length) {
       // The update listener above appends bridge.update after the durable asset
       // write. Keep the data URL visible until both have reached main, then
       // notify only image adapters so Chromium retries the authorized URL.
-      const ready = this.pending;
-      void ready.then(() => {
+      this.enqueueWrite(async () => {
         if (this.destroyed) return;
         let changed = false;
         for (const assetId of addedAssetIds)
           changed = this.pendingAssetPreviews.delete(assetId) || changed;
         if (!changed) return;
         this.notifyAssets();
-      }).catch(() => {});
+      });
     }
     return this.project();
   }
@@ -239,7 +232,7 @@ export class RendererDocumentSession implements DocumentSession {
     }
     if (event.type === "status") {
       const writable = this.writable;
-      this.status = event.status;
+      this.status = this.writeFailed ? "save-error" : event.status;
       this.role = event.role;
       this.notifyStatus();
       if (writable !== this.writable)
@@ -512,8 +505,39 @@ export class RendererDocumentSession implements DocumentSession {
     );
   }
   async flush(): Promise<void> {
+    // Keep the failed write (and every dependent update) queued. A new save
+    // retries it with the same asset/operation ids, before writing references.
+    if (this.writeFailed && !this.drainingWrites) {
+      this.drainWrites();
+    }
     await this.pending;
     await this.bridge.flush(this.info.binding.localFileId);
+  }
+  private enqueueWrite(write: () => Promise<unknown>): void {
+    this.pendingWrites.push(write);
+    if (!this.drainingWrites && !this.writeFailed) this.drainWrites();
+  }
+  private drainWrites(): void {
+    this.drainingWrites = true;
+    this.pending = (async () => {
+      while (this.pendingWrites.length) {
+        await this.pendingWrites[0]!();
+        this.pendingWrites.shift();
+      }
+      if (this.writeFailed) {
+        this.writeFailed = false;
+        if (this.status === "save-error") this.status = "local-saved";
+        this.notifyStatus();
+        this.notifyDocument();
+      }
+    })().catch((error: unknown) => {
+      this.writeFailed = true;
+      this.status = "save-error";
+      this.notifyStatus();
+      this.notifyDocument();
+      throw error;
+    }).finally(() => { this.drainingWrites = false; });
+    void this.pending.catch(() => {});
   }
   async exportDocument(): Promise<SigmaDocument> {
     await this.flush();
