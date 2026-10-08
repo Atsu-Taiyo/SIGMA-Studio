@@ -36,7 +36,7 @@ jobs:
       - name: Build the static desktop application
         run: npm --workspace @sigma-studio/desktop run electron:prepare
       - name: Verify sizes, native copy/paste, persistence, and app restart
-        run: npm --workspace @sigma-studio/desktop run test:e2e:electron -- font-size.spec.ts font-size-copy-pages.spec.ts --reporter=list,html
+        run: npm --workspace @sigma-studio/desktop run test:e2e:electron -- font-size.spec.ts font-size-copy-pages.spec.ts problem-display.spec.ts --reporter=list,html
       - uses: actions/upload-artifact@v7
         if: always()
         with:

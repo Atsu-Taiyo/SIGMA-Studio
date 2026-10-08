@@ -39,6 +39,7 @@ async function launch(): Promise<{ app: ElectronApplication; page: Page; cleanup
   await page.reload();
   await expect(page.locator(".page-flow .ProseMirror").first()).toBeVisible();
   await expect(page.locator(".startup-splash")).toBeHidden();
+  await page.evaluate(() => document.fonts.ready.then(() => undefined));
   return {
     app,
     page,
@@ -49,7 +50,9 @@ async function launch(): Promise<{ app: ElectronApplication; page: Page; cleanup
 async function insertGraph(page: Page) {
   await page.getByRole("button", { name: "挿入", exact: true }).click();
   await page.getByRole("menu", { name: "挿入", exact: true }).getByRole("menuitem", { name: "グラフ" }).click();
-  const surface = (await page.locator(".overlay-canvas-editor.inserting").first().boundingBox())!;
+  const insertion = page.locator(".overlay-canvas-editor.inserting").first();
+  await expect(insertion).toBeVisible();
+  const surface = (await insertion.boundingBox())!;
   await page.mouse.move(surface.x + 200, surface.y + 120);
   await page.mouse.down();
   await page.mouse.move(surface.x + 600, surface.y + 340, { steps: 8 });
@@ -94,10 +97,19 @@ async function readSavedAll(page: Page): Promise<SavedGraph[]> {
 async function insertSecondGraph(page: Page) {
   await page.getByRole("button", { name: "挿入", exact: true }).click();
   await page.getByRole("menu", { name: "挿入", exact: true }).getByRole("menuitem", { name: "グラフ" }).click();
-  const surface = (await page.locator(".overlay-canvas-editor.inserting").first().boundingBox())!;
-  await page.mouse.move(surface.x + 200, surface.y + 500);
+  const insertion = page.locator(".overlay-canvas-editor.inserting").first();
+  await expect(insertion).toBeVisible();
+  const surface = (await insertion.boundingBox())!;
+  const first = (await page.locator(".graph-shape").first().boundingBox())!;
+  const viewportHeight = await page.evaluate(() => window.innerHeight);
+  // The paper extends below the window. A fixed y + 680 can release the pointer
+  // outside the app on CI; place the second graph in the visible space below the first.
+  const top = first.y + first.height + 40;
+  const bottom = Math.min(top + 180, surface.y + surface.height, viewportHeight - 40);
+  expect(bottom - top, "visible room for the second graph").toBeGreaterThan(60);
+  await page.mouse.move(surface.x + 200, top);
   await page.mouse.down();
-  await page.mouse.move(surface.x + 520, surface.y + 680, { steps: 8 });
+  await page.mouse.move(surface.x + 520, bottom, { steps: 8 });
   await page.mouse.up();
   await expect(page.locator(".graph-shape")).toHaveCount(2);
   // 挿入した直後の最初のクリックは、そのグラフの原点の指定になる。先に済ませておく。

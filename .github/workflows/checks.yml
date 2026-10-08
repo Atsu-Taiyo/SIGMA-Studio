@@ -97,6 +97,7 @@ jobs:
           tests/electron/file-names.spec.ts tests/electron/ai-inline-approval.spec.ts
           tests/electron/whiteboard-focus.spec.ts tests/electron/graph-crop.spec.ts
           tests/electron/overlay-text-input-latency.spec.ts tests/electron/browser-sidebar.spec.ts
+          tests/electron/problem-display.spec.ts
       - uses: actions/upload-artifact@v7
         if: failure()
         with:
