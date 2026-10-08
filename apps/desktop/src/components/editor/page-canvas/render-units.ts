@@ -5,6 +5,7 @@ import {
 } from "@/components/editor/TextFlowEditor";
 import {
   isProblemAreaFlowEligible,
+  type ProblemDisplayFilter,
   type TextFlowColumnBlockLayout,
 } from "@/features/rendering/core";
 import {
@@ -80,6 +81,7 @@ export function buildRenderUnits(
   previousChunks: ChunkBoundaryState | null = null,
   pinnedChunkAnchors: ReadonlySet<string> | null = null,
   headingNumbering?: HeadingNumberingConfig,
+  problemDisplay?: ProblemDisplayFilter,
 ): RenderUnit[] {
   const units: RenderUnit[] = [];
   let textRun: TextFlowBlock[] = [];
@@ -125,7 +127,7 @@ export function buildRenderUnits(
     }
 
     if (block.type === "problem") {
-      units.push(...problemToAreaUnits(block, undefined, problemNumbers.get(block.id)));
+      units.push(...problemToAreaUnits(block, undefined, problemNumbers.get(block.id), problemDisplay));
       continue;
     }
   }
@@ -185,8 +187,13 @@ function pickHeadingNumbers(
   return picked;
 }
 
-export function problemToAreaUnits(problem: ProblemNode, index?: number, problemNumber?: number): RenderUnit[] {
-  const areas = PROBLEM_AREA_ORDER.filter((area) => shouldShowProblemArea(problem, area));
+export function problemToAreaUnits(
+  problem: ProblemNode,
+  index?: number,
+  problemNumber?: number,
+  problemDisplay?: ProblemDisplayFilter,
+): RenderUnit[] {
+  const areas = PROBLEM_AREA_ORDER.filter((area) => shouldShowProblemArea(problem, area, problemDisplay));
   const frameAreas = areas.filter(isProblemFrameArea);
   const firstFrameArea = frameAreas[0];
   const lastFrameArea = frameAreas.at(-1);

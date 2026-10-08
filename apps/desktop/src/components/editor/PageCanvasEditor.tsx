@@ -367,6 +367,7 @@ function PageCanvasEditorImpl({
   selectionTools,
   externalDrop,
   presentation = "edit",
+  problemDisplay,
   publishesSessionPresence: publishesSessionPresenceProp,
 }: PageCanvasEditorProps) {
   const tEditorText = useT("editor");
@@ -440,12 +441,13 @@ const {
           // 割った併合が合成中のエディタの key を消し、unmount で IME セッションごと落ちる。
           getFocusedTextRunUnitIds(),
           pageDocument.metadata.headingNumbering,
+          problemDisplay,
         ),
       );
       return nextUnits;
     },
     /* eslint-enable react-hooks/refs */
-    [pageDocument.content, pageDocument.docId, pageDocument.metadata.headingNumbering],
+    [pageDocument.content, pageDocument.docId, pageDocument.metadata.headingNumbering, problemDisplay],
   );
   const unitManualBreakEdges = useMemo(() => getRenderUnitManualBreakEdges(units), [units]);
   const textRunGroupByUnitId = useMemo(

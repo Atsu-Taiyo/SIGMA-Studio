@@ -180,6 +180,10 @@ export const chrome = {
       texEnvironment: "TeX / TikZ environment",
       pageSettings: "Page setup",
       appSettings: "App settings",
+      display: "View",
+      displayProblem: "Problem",
+      displaySolution: "Answer",
+      displayHints: "Comment",
     },
   },
   title: {
@@ -505,6 +509,13 @@ export const chrome = {
       help: "Help",
     },
     openDocuments: "Open materials",
+  },
+  problemDisplay: {
+    // Lists the parts currently shown, e.g. "Problem, Answer".
+    viewing: "Showing {{parts}} only",
+    separator: ", ",
+    readOnly: "Editing is off in this view",
+    showAll: "Show everything",
   },
   versionHistory: {
     title: "Version history",

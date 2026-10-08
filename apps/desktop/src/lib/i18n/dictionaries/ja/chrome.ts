@@ -183,6 +183,10 @@ export const chrome = {
       texEnvironment: "TeX・TikZ環境設定",
       pageSettings: "ページ設定",
       appSettings: "アプリ設定",
+      display: "表示",
+      displayProblem: "問題",
+      displaySolution: "解答",
+      displayHints: "コメント",
     },
   },
   title: {
@@ -512,6 +516,13 @@ export const chrome = {
       help: "ヘルプ",
     },
     openDocuments: "開いている教材",
+  },
+  problemDisplay: {
+    // 「問題・解答」のように、いま映している領域を並べる。
+    viewing: "{{parts}}だけを表示中",
+    separator: "・",
+    readOnly: "この表示では編集できません",
+    showAll: "すべて表示に戻す",
   },
   versionHistory: {
     title: "過去の版",
