@@ -1,9 +1,10 @@
 import { describe, expect, it } from "vitest";
 
 import { WHITEBOARD_BASE_CELL_PX } from "@/features/document";
+import { FULL_PROBLEM_DISPLAY, type ProblemDisplayFilter } from "@/features/rendering/core";
 import { createTranslator } from "@/lib/i18n";
 import { ensurePageLayout, getDefaultPageLayout, MM_TO_PX } from "@/lib/page-layout";
-import { getPrintableDocument, WHITEBOARD_PRINT_PADDING_PX } from "@/lib/print-renderer";
+import { getPrintableDocument, getProblemDisplayDocument, WHITEBOARD_PRINT_PADDING_PX } from "@/lib/print-renderer";
 import type { SigmaDocument } from "@/types/sigma-doc";
 
 const profileFilteringDocument: SigmaDocument = {
@@ -410,5 +411,98 @@ describe("whiteboard print crop", () => {
       preset: "custom",
       pageSize: { widthMm: 210, heightMm: 297 },
     });
+  });
+});
+
+describe("problem display document (設定 > 表示)", () => {
+  const onlyProblem: ProblemDisplayFilter = { problem: true, solution: false, hints: false };
+  const onlySolution: ProblemDisplayFilter = { problem: false, solution: true, hints: false };
+  const onlyHints: ProblemDisplayFilter = { problem: false, solution: false, hints: true };
+
+  function withShapes() {
+    const document = ensurePageLayout(profileFilteringDocument);
+    document.pageLayout!.overlay = {
+      overlaySnapshot: {
+        version: 1,
+        assets: {},
+        shapes: [
+          overlayRectangle("shape_problem_head", "problem_print_profile"),
+          overlayRectangle("shape_prompt", "p_print_prompt"),
+          overlayRectangle("shape_solution", "p_print_solution"),
+          overlayShapeAnchoredRectangle("shape_solution_label", "shape_solution"),
+          overlayRectangle("shape_hint", "p_print_hint"),
+          overlayRectangle("shape_page"),
+        ],
+      },
+    };
+    return document;
+  }
+
+  function problemOf(document: SigmaDocument) {
+    const problem = document.content.find((block) => block.type === "problem");
+    if (problem?.type !== "problem") throw new Error("problem not found");
+    return problem;
+  }
+
+  function shapeIds(document: SigmaDocument) {
+    return document.pageLayout?.overlay?.overlaySnapshot?.shapes.map((shape) => shape.id);
+  }
+
+  it("keeps only the problem when 解答 and コメント are off", () => {
+    const shown = getProblemDisplayDocument(withShapes(), onlyProblem);
+    const problem = problemOf(shown);
+
+    expect(problem.prompt).toHaveLength(1);
+    expect(problem.solution).toEqual([]);
+    expect(problem.hints).toEqual([]);
+    expect(shapeIds(shown)).toEqual(["shape_problem_head", "shape_prompt", "shape_page"]);
+  });
+
+  it("keeps only the solution, and drops figures that belonged to the problem text", () => {
+    const shown = getProblemDisplayDocument(withShapes(), onlySolution);
+    const problem = problemOf(shown);
+
+    expect(problem.lead).toEqual([]);
+    expect(problem.prompt).toEqual([]);
+    expect(problem.solution).toHaveLength(1);
+    expect(problem.hints).toEqual([]);
+    // 問題の先頭に錨を下ろした図も、問題を隠す表示では行き先が無い。
+    expect(shapeIds(shown)).toEqual(["shape_solution", "shape_solution_label", "shape_page"]);
+  });
+
+  it("keeps only the comment", () => {
+    const shown = getProblemDisplayDocument(withShapes(), onlyHints);
+
+    expect(problemOf(shown).hints).toHaveLength(1);
+    expect(problemOf(shown).solution).toEqual([]);
+    expect(shapeIds(shown)).toEqual(["shape_hint", "shape_page"]);
+  });
+
+  it("follows the chosen display, not the document's own output profiles", () => {
+    // 生徒用プロファイルは解答を隠すが、画面で「解答」を選んだら見える。
+    const document = { ...withShapes(), outputProfiles: { ...profileFilteringDocument.outputProfiles, teacher: {} } };
+
+    expect(problemOf(getProblemDisplayDocument(document, onlySolution)).solution).toHaveLength(1);
+  });
+
+  it("narrows problems nested in boxes without touching the source document", () => {
+    const source: SigmaDocument = { ...profileFilteringDocument, content: [
+      { type: "boxBlock", id: "box", styleId: "itembox", blocks: profileFilteringDocument.content },
+    ] };
+    const before = JSON.stringify(source);
+
+    const shown = getProblemDisplayDocument(source, onlyProblem);
+
+    expect(JSON.stringify(shown.content)).toContain("次の方程式を解け。");
+    expect(JSON.stringify(shown.content)).not.toContain("因数分解して求める。");
+    expect(JSON.stringify(source)).toBe(before);
+  });
+
+  it("returns the full document when nothing is hidden", () => {
+    const shown = getProblemDisplayDocument(withShapes(), FULL_PROBLEM_DISPLAY);
+
+    expect(problemOf(shown).solution).toHaveLength(1);
+    expect(problemOf(shown).hints).toHaveLength(1);
+    expect(shapeIds(shown)).toHaveLength(6);
   });
 });

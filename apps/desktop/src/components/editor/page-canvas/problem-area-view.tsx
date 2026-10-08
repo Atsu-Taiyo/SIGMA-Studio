@@ -151,7 +151,9 @@ export function ProblemAreaFlowUnit({
   } as CSSProperties;
   const problemNumber = unit.problemNumber;
   const isFirstArea = unit.isFirstProblemArea;
-  const showNumber = area === "lead" && typeof problemNumber === "number";
+  // 番号は問題の先頭の領域に付く。ふだんは導入文だが、「解答だけ」のように導入文を
+  // 隠した表示では、いちばん上に出る領域が番号を持つ (どの問題の解答か分からなくなるため)。
+  const showNumber = isFirstArea && typeof problemNumber === "number";
   const problemNumberStyle = showNumber ? { fontSize: `${getProblemNumberFontSize(problem)}pt` } : undefined;
   const frameClasses = hasFrame ? problemFrameClassName("with-frame", frameStyleId) : "";
   // A manual break can split a framed area into several page/column segments (see
