@@ -34,6 +34,7 @@ import type { SharedApproval } from "../../src/features/collaboration/model/appr
 import { CollaborationAuth, collaborationConfig } from "./auth";
 import { CollaborationHttpError, readResponseBytes, readResponseJson, responseError, retryDelay } from "./transport";
 import { durableWrite, SharedDocumentJournal } from "./journal";
+import { logLedgerEvent } from "../ledger-log";
 import { isRemoteId, validateAcknowledgements, validateApproval, validateDocumentIdentity, validateSnapshot, validateSync } from "./response-validation";
 
 interface Session {
@@ -771,6 +772,7 @@ export class CollaborationSessions {
       } catch (error) {
         session.failed = true;
         this.status(fileId, "save-error");
+        this.logSaveFailure("shared-document-save-failed", fileId, error, { operationId });
         throw error;
       }
     });
@@ -793,6 +795,7 @@ export class CollaborationSessions {
     session.syncing = this.synchronize(fileId)
       .then(() => { session.retryFailures = 0; session.retryAt = 0; })
       .catch((error) => {
+        this.logSaveFailure("shared-document-sync-failed", fileId, error);
         session.retryFailures = (session.retryFailures ?? 0) + 1;
         session.retryAt = Date.now() + retryDelay(session.retryFailures, error);
         this.status(
@@ -1243,6 +1246,33 @@ export class CollaborationSessions {
     return this.local.createFileFromDocument({ document: local });
   }
   async asset(
+    fileId: string,
+    assetId: string,
+    source?: string,
+    download = true,
+  ): Promise<string> {
+    try {
+      return await this.accessAsset(fileId, assetId, source, download);
+    } catch (error) {
+      if (source !== undefined)
+        this.logSaveFailure("shared-asset-save-failed", fileId, error, { assetId, sourceLength: source.length });
+      throw error;
+    }
+  }
+  private logSaveFailure(
+    event: "shared-document-save-failed" | "shared-asset-save-failed" | "shared-document-sync-failed",
+    fileId: string,
+    error: unknown,
+    fields: Record<string, unknown> = {},
+  ): void {
+    logLedgerEvent(path.join(path.dirname(this.directory), "data"), event, {
+      fileId,
+      ...fields,
+      error: error instanceof Error ? error.message.slice(0, 500) : String(error).slice(0, 500),
+      ...(error && typeof error === "object" && "code" in error ? { code: error.code } : {}),
+    });
+  }
+  private async accessAsset(
     fileId: string,
     assetId: string,
     source?: string,
