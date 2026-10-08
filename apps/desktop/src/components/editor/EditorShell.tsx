@@ -47,6 +47,7 @@ import { useWorkspaceDocumentCommands } from "./editor-shell/use-workspace-docum
 export type { EmbeddedEditorHost } from "./editor-shell/document-lifecycle-types";
 
 import {
+Eye,
 Loader2,
 PanelLeft,
 RotateCcw,
@@ -202,7 +203,15 @@ type TextAlign
 } from "@/features/document";
 import type { MeasuredBlock } from "@/features/drawing";
 import { MathEnvironmentProvider } from "@/features/rendering/adapters/react";
-import { parseDocumentTitleInlineNodes } from "@/features/rendering/core";
+import {
+  FULL_PROBLEM_DISPLAY,
+  isProblemDisplayFiltered,
+  parseDocumentTitleInlineNodes,
+  PROBLEM_DISPLAY_PARTS,
+  toggleProblemDisplayPart,
+  type ProblemDisplayFilter,
+  type ProblemDisplayPart,
+} from "@/features/rendering/core";
 import {
 convertBlockStyle,
 insertTopLevelTextFlowBlocks,
@@ -759,6 +768,32 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
   const [versionHistoryRestoring, setVersionHistoryRestoring] = useState(false);
   const [versionHistoryWarnings, setVersionHistoryWarnings] = useState<Record<string, string>>({});
   const versionHistoryWarning = versionHistoryWarnings[activeFileId] ?? null;
+  // 設定 > 表示。「問題だけ」「解答だけ」など、紙面に出す領域の絞り込み。教材には書かず、
+  // 画面を見ている間だけの状態。教材 (タブ) ごとに持ち、絞っていない教材は載せない。
+  const [problemDisplayByFile, setProblemDisplayByFile] = useState<ReadonlyMap<string, ProblemDisplayFilter>>(() => new Map());
+  const problemDisplay = problemDisplayByFile.get(activeFileId) ?? FULL_PROBLEM_DISPLAY;
+  // ホワイトボードに問題は無いので、絞り込みの入口を出さない。
+  const problemDisplayAvailable = !isWhiteboardDocument;
+  const problemDisplayActive = problemDisplayAvailable && isProblemDisplayFiltered(problemDisplay);
+  const toggleProblemDisplay = useCallback((part: ProblemDisplayPart) => {
+    setProblemDisplayByFile((current) => {
+      const base = current.get(activeFileId) ?? FULL_PROBLEM_DISPLAY;
+      const next = toggleProblemDisplayPart(base, part);
+      if (next === base) return current;
+      const updated = new Map(current);
+      if (isProblemDisplayFiltered(next)) updated.set(activeFileId, next);
+      else updated.delete(activeFileId);
+      return updated;
+    });
+  }, [activeFileId]);
+  const showAllProblemParts = useCallback(() => {
+    setProblemDisplayByFile((current) => {
+      if (!current.has(activeFileId)) return current;
+      const updated = new Map(current);
+      updated.delete(activeFileId);
+      return updated;
+    });
+  }, [activeFileId]);
   const measuredBodyBlockRectsRef = useRef<ReadonlyMap<string, MeasuredBlock>>(new Map());
   const captureMeasuredBodyBlockRects = useCallback((blockRects: ReadonlyMap<string, MeasuredBlock>) => {
     measuredBodyBlockRectsRef.current = blockRects;
@@ -3148,6 +3183,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
     || ribbonBackstageOpen
     || commandPaletteOpen
     || versionHistoryPreviewActive
+    || problemDisplayActive
     || windowCloseSaveDialog !== null;
 
   useEffect(() => {
@@ -3944,7 +3980,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
   // ページ編集面が実際に描かれる条件。ステータスバーのページ数もこれを見る
   // （描かれていないのに前の教材のページ数を出さないため。onPageCountChange は
   // アンマウントでは呼ばれない）。
-  const pageEditorMounted = workspaceReady && !activeDocumentOpenFailure && !versionHistoryPreviewActive;
+  const pageEditorMounted = workspaceReady && !activeDocumentOpenFailure && !versionHistoryPreviewActive && !problemDisplayActive;
   useRequestedDocumentLocation({
     ready: pageEditorMounted, fileId: activeFileId, document, root: editorCanvasElement,
     selectBlock: id => { setSelectedInlineMath(null); setSelectedId(id); },
@@ -4370,7 +4406,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
       // `saveState` / `statusMessage` は渡さない。打鍵のたびに動く値なので、
       // 購読は葉 (`SaveStatusIndicators`) に閉じ込めてある。
       setStatusMessage, shapeGallerySections, lineToolItems, t, toggleMenu,
-      versionHistoryPreviewActive,
+      versionHistoryPreviewActive, problemDisplayActive,
     },
     editing: {
       setMaterialLibraryOpen,
@@ -4430,7 +4466,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
     appMenu: {
       openProblemLibrary: () => setProblemLibraryOpen(true),
       activeDocumentOpenFailure, activeFileId, addBlock, aiMenuButtonRef, appUpdateState,
-      closeDocumentTab, commentsPanelOpen, commitDocumentTitle, copyDocumentText, createDocumentTab, createWhiteboardDocumentTab, degradedWatcherScopes,
+      closeDocumentTab, commentsPanelOpen, problemDisplay, problemDisplayAvailable, toggleProblemDisplayPart: toggleProblemDisplay, commitDocumentTitle, copyDocumentText, createDocumentTab, createWhiteboardDocumentTab, degradedWatcherScopes,
       deleteActiveDocument, documentMetadatas, documentTitle, duplicateActiveDocument, exportJson,
       exportMenuOpen, fileMenuButtonRef, handleTitleUpdateAction,
       importDocumentFile, importInputRef, insertMenuButtonRef, loadingFileId,
@@ -4680,7 +4716,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
           data-whiteboard={isWhiteboardDocument ? "true" : undefined}
           ref={attachEditorCanvas}
           onClick={(event) => {
-            if (versionHistoryPreviewActive) return;
+            if (versionHistoryPreviewActive || problemDisplayActive) return;
             const target = event.target instanceof Element ? event.target : null;
             if (target?.closest("[data-sigma-doc-id], [data-overlay-shape-id], .overlay-canvas-bleed-surface, .overlay-canvas-editor, .page-overlay-preview, [data-problem-area]")) {
               return;
@@ -4694,7 +4730,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
           {/* 「AIが今何をやっているか」を常時確認できるcockpitの入口。折りたたみ時は
               canvas左上のアイコン1つだけ (バッジで実行中/要対応を示す)。開閉はUIローカル
               stateなので、旧: メニューの開閉トグルは廃止した (redundant)。 */}
-          {!versionHistoryPreviewActive && (isDesktopApp || webMcpEnabled) && workspaceReady && !activeDocumentOpenFailure && (
+          {!versionHistoryPreviewActive && !problemDisplayActive && (isDesktopApp || webMcpEnabled) && workspaceReady && !activeDocumentOpenFailure && (
             <AiTaskDock
               documentIdentityKey={isDesktopApp ? activeFileId : document.docId}
               document={document}
@@ -4876,6 +4912,31 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
               {versionHistoryRestoreError && <p className="version-history-preview-error" role="alert">{versionHistoryRestoreError}</p>}
               <div className="version-history-preview-scroll">
                 <PagedRenderSurface document={versionHistoryPreview.document} profile="teacher" />
+              </div>
+            </div>
+          )}
+          {problemDisplayActive && !versionHistoryPreviewActive && !activeDocumentOpenFailure && workspaceReady && (
+            <div className="version-history-preview problem-display-preview" data-problem-display-view="true">
+              {/* 紙面を押し下げない小さなチップ (ポケットの畳んだチップと同じ作り)。絞り込み中は編集できず、
+                  その状態を隠すと「効かない」と見えるので、ポケットと違いホバーを待たず常に出す。 */}
+              <div className="problem-display-chip" title={t("problemDisplay.readOnly")}>
+                <Eye size={14} aria-hidden="true" />
+                <span className="problem-display-chip-text" role="status">{t("problemDisplay.viewing", {
+                  parts: PROBLEM_DISPLAY_PARTS
+                    .filter((part) => problemDisplay[part])
+                    .map((part) => (part === "problem"
+                      ? t("appMenu.settings.displayProblem")
+                      : part === "solution"
+                        ? t("appMenu.settings.displaySolution")
+                        : t("appMenu.settings.displayHints")))
+                    .join(t("problemDisplay.separator")),
+                })}</span>
+                <button type="button" className="problem-display-chip-action" onClick={showAllProblemParts}>
+                  {t("problemDisplay.showAll")}
+                </button>
+              </div>
+              <div className="version-history-preview-scroll">
+                <PagedRenderSurface document={document} profile="teacher" problemDisplay={problemDisplay} />
               </div>
             </div>
           )}

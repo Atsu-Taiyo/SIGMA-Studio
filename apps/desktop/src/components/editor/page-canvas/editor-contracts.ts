@@ -19,6 +19,7 @@ import {
   type SigmaCommentThread,
   type SigmaDocument,
 } from "@/features/document";
+import { type ProblemDisplayFilter } from "@/features/rendering/core";
 import { type TextFlowBlock } from "@/features/text-editing";
 import { type BlockDragMoveRequest } from "@/lib/block-drag-move";
 import type { MaterialItem } from "@/types/material";
@@ -169,6 +170,12 @@ export interface PageCanvasEditorProps {
    * clone of this DOM — see docs/pdf-parity-architecture.md.
    */
   presentation?: "edit" | "paged";
+  /**
+   * 問題のうち見せる領域 (問題 / 解答 / コメント)。表示だけの絞り込みで、教材は変えない。
+   * 隠した領域は描かず、ページ割りにも入れない。書き込みを伴う編集面には渡さない:
+   * 描いていない領域を前提にした編集が、見えない中身を巻き込むため。`"paged"` の読み取り専用面でだけ使う。
+   */
+  problemDisplay?: ProblemDisplayFilter;
   /**
    * Whether this canvas announces the local selection to other participants of the
    * document session. Output surfaces never do; a read-only pane that only shows a
