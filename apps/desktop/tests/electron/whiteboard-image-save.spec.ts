@@ -85,6 +85,9 @@ test("image save retries unblock whiteboard tabs and survive cloud outage and El
     }, { ...createBlankDocument("画像保存のホワイトボード"), content: [], pageLayout: getDefaultPageLayout("whiteboard") });
     const encrypted = await app!.evaluate(({ safeStorage }, tokens) => {
       if (!safeStorage.isEncryptionAvailable()) throw new Error("SECURE_STORAGE_REQUIRED");
+      if (process.platform === "linux" && safeStorage.getSelectedStorageBackend() === "basic_text") {
+        throw new Error("SECURE_STORAGE_REQUIRED");
+      }
       return safeStorage.encryptString(JSON.stringify(tokens)).toString("base64");
     }, { access_token: "fixture", refresh_token: "fixture", expires_at: Math.floor(Date.now() / 1000) + 3600,
       expires_in: 3600, user: { id: actorId } });
