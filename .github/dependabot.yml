@@ -5,6 +5,10 @@ updates:
     schedule:
       interval: daily
     open-pull-requests-limit: 10
+    # This fixture must keep exercising React 18 while the desktop uses React 19.
+    # Exclude only its manifest; runtime dependencies remain eligible for updates.
+    exclude-paths:
+      - "tests/fixtures/editor-react18/package.json"
     groups:
       tiptap:
         patterns: ["@tiptap/*"]

@@ -32,6 +32,80 @@ function overlaySource(document: ReturnType<RendererDocumentSession["project"]>)
   return document.pageLayout?.overlay?.overlaySnapshot?.assets.asset_local?.props.src ?? "";
 }
 
+it("retries a failed image write before saving its reference, without losing queued edits or pixels", async () => {
+  const document = createBlankDocument();
+  const durable = new SharedDocument();
+  durable.initialize(JSON.parse(JSON.stringify(document)) as ObjectValue, { sharedDocumentId: "shared", epoch: 1 });
+  const failure = new Error("ENOSPC: asset write failed");
+  const asset = vi.fn().mockRejectedValueOnce(failure).mockResolvedValue(imageSource);
+  const update = vi.fn(async (_fileId: string, encoded: string) => {
+    durable.applyUpdate(Uint8Array.from(Buffer.from(encoded, "base64")));
+  });
+  const session = new RendererDocumentSession(
+    { binding: { protocol: 1, epoch: 1, sharedDocumentId: "shared", docId: document.docId, localFileId: "file" }, state: toBase64(durable.snapshot()), role: "editor", status: "saved", actorId: "self", assets: {} },
+    { update, asset, flush: vi.fn(async () => {}), presence: vi.fn(async () => {}) } as unknown as CollaborationBridge,
+  );
+  sessions.push(session);
+  const changed = vi.fn();
+  const assetChanged = vi.fn();
+  session.subscribe(changed);
+  session.subscribeAssets(assetChanged);
+  const after = structuredClone(session.project());
+  addImage(after);
+  session.change(session.project(), after);
+  const later = structuredClone(session.project());
+  later.metadata.title = "Edit made while saving the image";
+  session.change(session.project(), later);
+  await expect(session.flush()).rejects.toBe(failure);
+  expect(session.writable).toBe(false);
+  expect(changed).toHaveBeenCalledOnce();
+  expect(update).not.toHaveBeenCalled();
+  expect(assetChanged).not.toHaveBeenCalled();
+  const source = overlaySource(session.project());
+  expect(session.resolveAssetSource(source)).toBe(imageSource);
+
+  // A status notification must not hide a renderer's outstanding local failure.
+  session.receive({ type: "status", fileId: "file", status: "saved", role: "editor" });
+  expect(session.status).toBe("save-error");
+  expect(session.writable).toBe(false);
+  await session.flush();
+  expect(asset).toHaveBeenCalledTimes(2);
+  expect(asset.mock.calls[1]).toEqual(asset.mock.calls[0]);
+  expect(update).toHaveBeenCalledTimes(2);
+  expect(session.writable).toBe(true);
+  expect(assetChanged).toHaveBeenCalledOnce();
+  expect(session.resolveAssetSource(source)).toBe(source);
+  const reopened = new RendererDocumentSession(
+    { ...session.info, state: toBase64(durable.snapshot()), status: "saved" },
+    { asset, flush: vi.fn(async () => {}), presence: vi.fn(async () => {}) } as unknown as CollaborationBridge,
+  );
+  sessions.push(reopened);
+  expect(reopened.project().metadata.title).toBe(later.metadata.title);
+  expect(overlaySource(await reopened.exportDocument())).toBe(imageSource);
+  durable.destroy();
+});
+
+it("retries an unacknowledged update with the original operation id", async () => {
+  const document = createBlankDocument();
+  const shared = new SharedDocument();
+  shared.initialize(JSON.parse(JSON.stringify(document)) as ObjectValue, { sharedDocumentId: "shared", epoch: 1 });
+  const update = vi.fn().mockRejectedValueOnce(new Error("IPC reply lost")).mockResolvedValue(undefined);
+  const session = new RendererDocumentSession(
+    { binding: { protocol: 1, epoch: 1, sharedDocumentId: "shared", docId: document.docId, localFileId: "file" }, state: toBase64(shared.snapshot()), role: "editor", status: "saved", actorId: "self", assets: {} },
+    { update, flush: vi.fn(async () => {}), presence: vi.fn(async () => {}) } as unknown as CollaborationBridge,
+  );
+  sessions.push(session);
+  const after = structuredClone(session.project());
+  after.metadata.title = "Unsaved title";
+  session.change(session.project(), after);
+  await expect(session.flush()).rejects.toThrow("IPC reply lost");
+  await session.flush();
+  expect(update).toHaveBeenCalledTimes(2);
+  expect(update.mock.calls[1]).toEqual(update.mock.calls[0]);
+  expect(session.writable).toBe(true);
+  shared.destroy();
+});
+
 it("keeps pasted pixels visible until the durable asset and journal reference are ready", async () => {
   const document = createBlankDocument();
   const shared = new SharedDocument();

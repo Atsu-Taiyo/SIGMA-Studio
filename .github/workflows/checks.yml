@@ -91,12 +91,21 @@ jobs:
           EOF
           sudo apparmor_parser --replace "$profile"
       - name: Exercise native IPC, approval, graph crop, overlay editing, and persistence
-        run: >-
-          xvfb-run --auto-servernum npm run test:e2e:electron --
-          tests/electron/open-document.spec.ts tests/electron/ipc-sender-security.spec.ts
-          tests/electron/file-names.spec.ts tests/electron/ai-inline-approval.spec.ts
-          tests/electron/whiteboard-focus.spec.ts tests/electron/graph-crop.spec.ts
-          tests/electron/overlay-text-input-latency.spec.ts tests/electron/browser-sidebar.spec.ts
+        # The shared-document fixture encrypts its fake login through safeStorage.
+        # Give headless Linux a real Secret Service instead of a plaintext backend.
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes gnome-keyring
+          xvfb-run --auto-servernum dbus-run-session -- bash -euo pipefail -c '
+            printf "%s" "sigma-ci-fixture" | gnome-keyring-daemon --daemonize --components=secrets --unlock >/dev/null
+            export XDG_CURRENT_DESKTOP=GNOME
+            npm run test:e2e:electron -- \
+              tests/electron/open-document.spec.ts tests/electron/ipc-sender-security.spec.ts \
+              tests/electron/file-names.spec.ts tests/electron/ai-inline-approval.spec.ts \
+              tests/electron/whiteboard-focus.spec.ts tests/electron/graph-crop.spec.ts \
+              tests/electron/overlay-text-input-latency.spec.ts tests/electron/browser-sidebar.spec.ts \
+              tests/electron/problem-display.spec.ts tests/electron/whiteboard-image-save.spec.ts
+          '
       - uses: actions/upload-artifact@v7
         if: failure()
         with:
