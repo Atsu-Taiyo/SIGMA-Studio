@@ -332,3 +332,45 @@ describe("getRenderUnitManualBreakEdges", () => {
     expect(byFirstId("section")).toEqual({ leading: true, trailing: false });
   });
 });
+
+describe("buildRenderUnits with a problem display filter", () => {
+  const problem = {
+    type: "problem",
+    id: "q1",
+    lead: [paragraph("q1_lead", "導入文")],
+    prompt: [paragraph("q1_prompt", "問題文")],
+    hints: [paragraph("q1_hint", "コメント")],
+    solution: [paragraph("q1_solution", "解答")],
+  } as unknown as SigmaBlock;
+
+  function areasOf(units: readonly RenderUnit[]) {
+    return units
+      .filter((unit): unit is Extract<RenderUnit, { type: "problemArea" }> => unit.type === "problemArea")
+      .map((unit) => unit.area);
+  }
+
+  it("lays out every area when no filter is given", () => {
+    expect(areasOf(buildRenderUnits([problem]))).toEqual(["lead", "prompt", "hints", "solution"]);
+  });
+
+  it("drops 解答 and コメント from the layout for 問題だけ", () => {
+    const units = buildRenderUnits([problem], null, null, undefined, { problem: true, solution: false, hints: false });
+
+    expect(areasOf(units)).toEqual(["lead", "prompt"]);
+  });
+
+  it("drops the always-rendered lead and prompt for 解答だけ, and the solution becomes the first area", () => {
+    const units = buildRenderUnits([problem], null, null, undefined, { problem: false, solution: true, hints: false });
+    const [first] = units.filter((unit) => unit.type === "problemArea");
+
+    expect(areasOf(units)).toEqual(["solution"]);
+    expect(first?.type === "problemArea" && first.isFirstProblemArea).toBe(true);
+    expect(first?.type === "problemArea" && first.isLastProblemArea).toBe(true);
+  });
+
+  it("keeps コメント and 解答 in page order for コメント+解答", () => {
+    const units = buildRenderUnits([problem], null, null, undefined, { problem: false, solution: true, hints: true });
+
+    expect(areasOf(units)).toEqual(["hints", "solution"]);
+  });
+});
