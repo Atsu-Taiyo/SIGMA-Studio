@@ -2,6 +2,7 @@ import { _electron as electron, expect, test, type ElectronApplication } from "@
 import { createServer } from "node:http";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
+import { createRequire } from "node:module";
 import path from "node:path";
 import { WebSocketServer } from "ws";
 import { createBlankDocument } from "@/lib/blank-document";
@@ -67,7 +68,12 @@ test("image save retries unblock whiteboard tabs and survive cloud outage and El
   delete env.ELECTRON_RUN_AS_NODE;
   let app: ElectronApplication | undefined;
   const launch = async () => {
-    app = await electron.launch({ args: [root], cwd: root, env });
+    // Playwright's default loader forces password-store=basic on Linux. Bypass
+    // that loader so the fixture uses the CI session's real Secret Service.
+    const nativeKeyring = process.platform === "linux"
+      ? { executablePath: createRequire(path.join(root, "package.json"))("electron") as string }
+      : {};
+    app = await electron.launch({ ...nativeKeyring, args: [root], cwd: root, env });
     const page = await app.firstWindow();
     await page.waitForFunction(() => Boolean(window.desktopAPI?.collaboration));
     return page;
