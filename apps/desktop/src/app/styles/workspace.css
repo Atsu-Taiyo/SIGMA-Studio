@@ -2088,6 +2088,87 @@ nav.app-menu-list[inert] *,
   gap: var(--space-sm);
 }
 
+/* 「問題だけ」などの絞り込み中に出すチップ。ポケットの畳んだチップ (PocketBar.module.css の .handle) と
+   同じ丸い小さな見た目で、紙面の上部中央に重ねる。段の高さを持たないので紙面を押し下げない。 */
+.problem-display-preview {
+  position: relative;
+}
+
+.problem-display-chip {
+  position: absolute;
+  top: var(--space-sm);
+  left: 50%;
+  z-index: 4;
+  display: inline-flex;
+  max-width: calc(100% - 32px);
+  height: 24px;
+  align-items: center;
+  gap: var(--space-xs);
+  padding: 0 var(--space-xs) 0 var(--space-sm);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-round);
+  background: var(--background);
+  box-shadow: 0 2px 8px rgb(17 17 17 / 10%);
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1;
+  white-space: nowrap;
+  transform: translateX(-50%);
+  animation: problem-display-chip-in 160ms ease both;
+}
+
+.problem-display-chip-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--text-primary);
+}
+
+.problem-display-chip-action {
+  height: 18px;
+  flex: 0 0 auto;
+  padding: 0 var(--space-sm);
+  border: 0;
+  border-radius: var(--radius-round);
+  background: var(--surface-muted);
+  color: var(--text-secondary);
+  font: inherit;
+  cursor: pointer;
+  transition: background 140ms ease, color 140ms ease;
+}
+
+.problem-display-chip-action:hover {
+  background: var(--surface-strong);
+  color: var(--text-primary);
+}
+
+.problem-display-chip-action:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent) 32%, transparent);
+  outline-offset: 2px;
+}
+
+@keyframes problem-display-chip-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, -4px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translate(-50%, 0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .problem-display-chip {
+    animation: none;
+  }
+
+  .problem-display-chip-action {
+    transition: none;
+  }
+}
+
 .version-history-preview-error {
   margin: 0;
   padding: 8px 16px;

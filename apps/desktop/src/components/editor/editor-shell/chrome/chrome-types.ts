@@ -23,6 +23,7 @@ import type { OverlayArrangeAction, OverlayCommand, OverlaySelectionStylePatch, 
 import type { TooltipContent } from "@/components/ui/Tooltip";
 import type { BoxedVariant, InlineNode, SigmaBlock, SigmaDocument, TextAlign } from "@/features/document";
 import type { OverlayDash, OverlayTextSize } from "@/features/document/overlay-model";
+import type { ProblemDisplayFilter, ProblemDisplayPart } from "@/features/rendering/core";
 import type { ResolvedDocumentTitle } from "@/lib/document-title";
 import type { Translate } from "@/lib/i18n";
 import type { EditorCommandId } from "@/lib/editor-command-shortcuts";
@@ -96,6 +97,8 @@ export interface EditorChromeShared {
   isDesktopApp: boolean;
   isEmbedded: boolean;
   versionHistoryPreviewActive: boolean;
+  /** 「問題だけ」などで紙面を絞って見せている間 true (読み取り専用の表示)。 */
+  problemDisplayActive: boolean;
   runEditCommand: (command: "bold" | "italic" | "underline" | "boxed" | "undo" | "redo") => void;
   runOverlayCommand: (command: OverlayCommand, graphPreset?: Graph2DPreset) => void;
   setStatusMessage: Dispatch<SetStateAction<string>>;
@@ -279,6 +282,11 @@ export interface EditorChromeAppMenu {
   closeDocumentTab: (fileId: string) => Promise<void>;
   commitDocumentTitle: () => Promise<void>;
   commentsPanelOpen: boolean;
+  /** 設定 > 表示 のチェック。問題 / 解答 / コメントのどれを紙面に出すか。 */
+  problemDisplay: ProblemDisplayFilter;
+  /** 問題を持たない教材 (ホワイトボード) では「表示」を出さない。 */
+  problemDisplayAvailable: boolean;
+  toggleProblemDisplayPart: (part: ProblemDisplayPart) => void;
   createDocumentTab: () => Promise<void>;
   createWhiteboardDocumentTab: () => Promise<void>;
   /** 教材をクリップボードのテキストとして書き出す。 */
