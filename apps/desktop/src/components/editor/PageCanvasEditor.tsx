@@ -48,7 +48,7 @@ import {
   type ProblemNode,
 } from "@/features/document";
 import { PageColumnRules } from "@/features/rendering/adapters/react";
-import { getVisibleOverlayShapes } from "@/features/rendering/core";
+import { getVisibleOverlayShapes, isProblemAreaDisplayed } from "@/features/rendering/core";
 import {
   bodyTextFlowBlockContainsId,
   canInsertManualPageBreakAfterBlock,
@@ -258,6 +258,7 @@ import {
   registerBlockSpaceAfterPreviewRoot,
   setBlockSpaceAfterPreviewDeltaPx,
 } from "./text-flow/block-space-after-preview";
+import { ProblemDisplayProvider } from "./text-flow/ProblemDisplayContext";
 import { ProblemNumberingProvider } from "./text-flow/ProblemNumberingContext";
 
 const PAGE_DOUBLE_TAP_MS = 450;
@@ -700,7 +701,11 @@ const {
     ? findBlock(pageDocument, problemSettingsId)
     : null;
   const problemSettingsProblem = problemSettingsBlock?.type === "problem" ? problemSettingsBlock : null;
-  const contextMenuHiddenAreas = contextMenuProblemNode ? getHiddenOptionalProblemAreas(contextMenuProblemNode) : [];
+  // 表示で隠している領域は「追加」に出さない (足しても紙面に出ず、何も起きなかったように見える)。
+  const contextMenuHiddenAreas = contextMenuProblemNode
+    ? getHiddenOptionalProblemAreas(contextMenuProblemNode)
+      .filter((area) => !problemDisplay || isProblemAreaDisplayed(problemDisplay, area))
+    : [];
   const contextMenuBlock = bodyContextMenu ? findBlock(pageDocument, bodyContextMenu.blockId) : null;
   const activeBodyContextMenu = bodyContextMenu && contextMenuBlock && isBodyContextMenuBlock(contextMenuBlock)
     ? bodyContextMenu
@@ -2192,7 +2197,7 @@ const { candidateCommentTop, pendingCommentTop, commentThreadPositions } = usePa
     // ここで断ってガードの案内を出し (文書の変更口も同じ集合で断る)、キャレットは見えるブロックへ置く。
     const outcome = resolveVisibleBoundaryDelete(
       request,
-      (input) => resolveTextFlowBoundaryDelete(pageContentRef.current, input),
+      (input) => resolveTextFlowBoundaryDelete(pageContentRef.current, input, problemDisplay),
       collapsedBlockIdsRef.current,
     );
     if (!outcome) {
@@ -2212,7 +2217,7 @@ const { candidateCommentTop, pendingCommentTop, commentThreadPositions } = usePa
     onSelect(deletion.focusBlockId);
     scheduleTextBlockFocus(pageContentRef.current, deletion.focusBlockId, deletion.focusPosition);
     return true;
-  }, [markFullMeasureDirty, onReplaceTextFlow, onSelect]);
+  }, [markFullMeasureDirty, onReplaceTextFlow, onSelect, problemDisplay]);
 
   const updateBreakBefore = useCallback((blockId: string, enabled: boolean) => {
     onChange(blockId, (block) => setBlockBreakBefore(block, enabled));
@@ -2509,7 +2514,7 @@ const { candidateCommentTop, pendingCommentTop, commentThreadPositions } = usePa
     }
 
     if (block.type === "problem") {
-      const area = PROBLEM_AREA_ORDER.find((candidate) => shouldShowProblemArea(block, candidate));
+      const area = PROBLEM_AREA_ORDER.find((candidate) => shouldShowProblemArea(block, candidate, problemDisplay));
       if (area) {
         openProblemActionMenu(block.id, area, handleElement);
       }
@@ -2518,7 +2523,7 @@ const { candidateCommentTop, pendingCommentTop, commentThreadPositions } = usePa
 
     const rect = handleElement.getBoundingClientRect();
     openBodyContextMenu({ blockId: block.id, clientX: rect.right, clientY: rect.top });
-  }, [dragIndex, openBodyContextMenu, openProblemActionMenu, pageDocument]);
+  }, [dragIndex, openBodyContextMenu, openProblemActionMenu, pageDocument, problemDisplay]);
 
   const updateBodyOverlay = useCallback((nextOverlay: PageOverlay, options?: OverlayChangeOptions) => {
     const overlayLayer = window.document.querySelector<HTMLElement>(".overlay-canvas-editor") ??
@@ -2531,12 +2536,13 @@ const { candidateCommentTop, pendingCommentTop, commentThreadPositions } = usePa
       pageWidthPx,
       totalHeight,
       flowElement,
+      editorExtensions?.overlayEditPolicy?.preservedShapeIds,
     );
     for (const addition of materialized.additions) {
       onAddProblemBlock(addition.problemId, addition.area, addition.block);
     }
     onOverlayChange(materialized.overlay, options);
-  }, [flowElement, onAddProblemBlock, onOverlayChange, overlayBackgroundLayerElement, pageDocument, pageWidthPx, totalHeight]);
+  }, [editorExtensions?.overlayEditPolicy?.preservedShapeIds, flowElement, onAddProblemBlock, onOverlayChange, overlayBackgroundLayerElement, pageDocument, pageWidthPx, totalHeight]);
 
   const handlePagePointerDownCapture = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
     if (event.button !== 0) {
@@ -3025,6 +3031,7 @@ const { candidateCommentTop, pendingCommentTop, commentThreadPositions } = usePa
 
   return (
     <ProblemNumberingProvider numbers={problemNumbers}>
+    <ProblemDisplayProvider display={problemDisplay}>
     <EditorExtensionProvider value={editorExtensions}>
       <TextRunSelectionOverlay />
       <section
@@ -3935,6 +3942,7 @@ const { candidateCommentTop, pendingCommentTop, commentThreadPositions } = usePa
       )}
       </section>
     </EditorExtensionProvider>
+    </ProblemDisplayProvider>
     </ProblemNumberingProvider>
   );
 }

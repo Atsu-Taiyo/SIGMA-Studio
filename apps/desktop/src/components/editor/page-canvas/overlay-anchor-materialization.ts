@@ -10,6 +10,7 @@ import { getShapeBounds,hitTestShape } from "@/features/drawing";
 import { isProblemAreaKind } from "@/features/text-editing";
 import { createEmptyProblemAreaAnchorBlock } from "@/lib/document-tree";
 import { measureBlockTops,resolveShapeAnchorPositions,resolveShapesPosition } from "../overlay-canvas/anchor";
+import { isShapeEditPolicyLockedInTree } from "../overlay-canvas/grouping";
 import type { OverlayPoint,OverlayShape } from "../overlay-canvas/types";
 import { emptyProblemAreaEditorBlockId,PROBLEM_AREA_ORDER } from "./block-ops";
 import { calculateReserveSpaceGaps } from "./layout-measure";
@@ -45,6 +46,11 @@ export function materializeEmptyProblemAreaOverlayAnchors(
   canvasWidth: number,
   canvasHeight: number,
   blockAnchorScopeElement: HTMLElement | null = null,
+  /**
+   * 書き換えない図形 (`OverlayEditPolicy.preservedShapeIds`)。空の領域へ錨を移すのも派生の書き換えなので、
+   * 機能が隠している図形 (設定 > 表示 で隠した領域の図形など) は、たまたま空の領域の上にあっても移さない。
+   */
+  preservedShapeIds?: ReadonlySet<string>,
 ): { overlay: PageOverlay; additions: EmptyProblemAreaOverlayAnchorAddition[] } {
   if (!overlay.overlaySnapshot || !overlayLayerElement) {
     return { overlay, additions: [] };
@@ -84,6 +90,9 @@ export function materializeEmptyProblemAreaOverlayAnchors(
 
   const shapes = snapshot.shapes.map((shape): OverlayShape => {
     if (shape.anchor?.type === "page" || shape.anchor?.type === "shape") {
+      return shape;
+    }
+    if (preservedShapeIds && preservedShapeIds.size > 0 && isShapeEditPolicyLockedInTree(snapshot.shapes, shape, preservedShapeIds)) {
       return shape;
     }
 
