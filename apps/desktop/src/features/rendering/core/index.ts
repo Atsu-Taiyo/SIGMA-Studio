@@ -23,6 +23,7 @@ export * from "./pagination";
 export * from "./problem-area-column-flow";
 export * from "./problem-area-visibility";
 export * from "./problem-display-filter";
+export * from "./problem-display-targets";
 export * from "./rich-text-render-model";
 export * from "./text-block-typography";
 

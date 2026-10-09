@@ -19,8 +19,7 @@ import {
   type SigmaDocument,
   type OutputProfileName,
 } from "@/features/document";
-import { isProblemDisplayFiltered, type ProblemDisplayFilter } from "@/features/rendering/core";
-import { getPrintableDocument, getProblemDisplayDocument } from "@/lib/print-renderer";
+import { getPrintableDocument } from "@/lib/print-renderer";
 import { useCustomFonts } from "@/lib/use-custom-fonts";
 
 /** How often the canvas layout is sampled while waiting for it to settle. */
@@ -48,11 +47,6 @@ export interface PagedRenderSurfaceProps {
   document: SigmaDocument;
   profile: OutputProfileName;
   displayMode?: PagedRenderDisplayMode;
-  /**
-   * 問題のうち見せる領域。画面で「問題だけ」「解答だけ」を見るときだけ渡す。PDF の書き出しや
-   * 印刷プレビューは渡さない (出力は出力プロファイルで決まる)。
-   */
-  problemDisplay?: ProblemDisplayFilter;
   onRenderStateChange?: (snapshot: PagedRenderStateSnapshot) => void;
 }
 
@@ -68,7 +62,6 @@ export function PagedRenderSurface({
   document: sourceDocument,
   profile,
   displayMode = "vertical",
-  problemDisplay,
   onRenderStateChange,
 }: PagedRenderSurfaceProps) {
   const t = useT("print");
@@ -77,10 +70,8 @@ export function PagedRenderSurface({
   const surfaceId = `pdf_surface_${reactSurfaceId.replace(/[^a-zA-Z0-9_-]/g, "")}`;
 
   const printable = useMemo(
-    () => problemDisplay && isProblemDisplayFiltered(problemDisplay)
-      ? getProblemDisplayDocument(sourceDocument, problemDisplay)
-      : getPrintableDocument(sourceDocument, profile, t),
-    [sourceDocument, profile, problemDisplay, t],
+    () => getPrintableDocument(sourceDocument, profile, t),
+    [sourceDocument, profile, t],
   );
   // The paper size the PDF is cut to comes from the document, never from a default.
   const paper = useMemo(() => {
@@ -268,7 +259,6 @@ export function PagedRenderSurface({
         <PageCanvasEditor
           presentation="paged"
           document={printable}
-          problemDisplay={problemDisplay}
           selectedId={null}
           selectedInlineMath={null}
           commentThreads={[]}

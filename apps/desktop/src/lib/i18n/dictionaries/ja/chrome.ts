@@ -521,7 +521,6 @@ export const chrome = {
     // 「問題・解答」のように、いま映している領域を並べる。
     viewing: "{{parts}}だけを表示中",
     separator: "・",
-    readOnly: "この表示では編集できません",
     showAll: "すべて表示に戻す",
   },
   versionHistory: {

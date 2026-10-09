@@ -514,7 +514,6 @@ export const chrome = {
     // Lists the parts currently shown, e.g. "Problem, Answer".
     viewing: "Showing {{parts}} only",
     separator: ", ",
-    readOnly: "Editing is off in this view",
     showAll: "Show everything",
   },
   versionHistory: {
