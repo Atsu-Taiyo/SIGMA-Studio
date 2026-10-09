@@ -120,16 +120,24 @@ async function assertCaretAboveFrame(app: ElectronApplication, page: Page, field
     return { x: Math.floor(bounds.left) - 2, y: Math.floor(bounds.top), width: 5, height: Math.ceil(bounds.height) };
   });
   const png = await page.screenshot({ path: screenshotPath, clip, caret: "initial" });
-  const redPixels = await app.evaluate(({ nativeImage }, base64) => {
-    const bitmap = nativeImage.createFromBuffer(Buffer.from(base64, "base64")).toBitmap();
-    let red = 0;
-    // Column immediately outside the frame is where its outline and caret overlap.
-    for (let offset = 4; offset < bitmap.length; offset += 5 * 4) {
-      if (bitmap[offset + 2] > 150 && bitmap[offset] < 120 && bitmap[offset + 1] < 120) red++;
+  const pixels = await app.evaluate(({ nativeImage }, base64) => {
+    const image = nativeImage.createFromBuffer(Buffer.from(base64, "base64"));
+    const { width, height } = image.getSize();
+    const bitmap = image.toBitmap();
+    const columns = Array.from({ length: width }, () => ({ blue: 0, red: 0 }));
+    for (let y = 0; y < height; y++) {
+      for (let x = 0; x < width; x++) {
+        const offset = (y * width + x) * 4;
+        if (bitmap[offset] > 150 && bitmap[offset + 1] < 120 && bitmap[offset + 2] < 120) columns[x].blue++;
+        if (bitmap[offset + 2] > 150 && bitmap[offset] < 120 && bitmap[offset + 1] < 120) columns[x].red++;
+      }
     }
-    return red;
+    // Fractional frame coordinates can put the outline in either adjacent
+    // pixel column. Inspect the painted blue line rather than assuming x=1.
+    return columns.reduce((outline, column) => column.blue > outline.blue ? column : outline);
   }, png.toString("base64"));
-  expect(redPixels).toBeGreaterThan(3);
+  expect(pixels.blue).toBeGreaterThan(3);
+  expect(pixels.red).toBeGreaterThan(3);
 }
 
 async function fractionTex(field: Locator) {
