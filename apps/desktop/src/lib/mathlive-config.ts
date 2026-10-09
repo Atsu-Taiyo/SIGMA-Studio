@@ -23,6 +23,7 @@ export type InlineMathLiveFieldElement = HTMLElement & {
   macros?: Readonly<Record<string, unknown>>;
   mathVirtualKeyboardPolicy?: "auto" | "manual" | "sandboxed";
   menuItems?: readonly unknown[];
+  onScrollIntoView?: (() => void) | null;
   popoverPolicy?: "auto" | "off";
   smartFence?: boolean;
 };
@@ -85,6 +86,20 @@ export function configureInlineMathLiveField(
   // 既定値に頼らず明示しておく。閉じ括弧が薄く出ないようにする CSS は
   // `.inline-math-field { --smart-fence-opacity: 1 }` 側にある。
   mathField.smartFence = true;
+  const canvas = mathField.closest?.<HTMLElement>(".editor-canvas");
+  if (canvas) {
+    // MathLive's focus() ignores FocusOptions and scrolls every ancestor by
+    // default. Only reveal an offscreen field inside its own document pane.
+    mathField.onScrollIntoView = () => {
+      const viewport = canvas.getBoundingClientRect();
+      const field = mathField.getBoundingClientRect();
+      const top = field.top < viewport.top ? field.top - viewport.top
+        : field.bottom > viewport.bottom ? field.bottom - viewport.bottom : 0;
+      const left = field.left < viewport.left ? field.left - viewport.left
+        : field.right > viewport.right ? field.right - viewport.right : 0;
+      if (top || left) canvas.scrollBy({ top, left, behavior: "instant" });
+    };
+  }
   try {
     mathField.menuItems = [];
     mathField.executeCommand?.("hideVirtualKeyboard");
