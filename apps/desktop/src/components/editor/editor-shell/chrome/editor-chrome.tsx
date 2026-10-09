@@ -83,7 +83,7 @@ export function renderEditorChrome(chrome: EditorChromeValue) {
   const { ActiveLineToolIcon, activeLineToolItem, activeOverlayTool, bodyToolbarLockedByAi, cancelInlineMathMenuClose, inlineMathButtonRef, inlineMathMenuOpen, lineToolMenuButtonRef, lineToolMenuOpen, openInlineMathMenu, scheduleInlineMathMenuClose, selectedInlineMath, selectedInlineMathDetails, setInlineMathMenuOpen, shapeMenuButtonRef, shapeMenuOpen, startInlineMathFromToolbar } = chrome.insert;
   const { findNext, findPrevious, overlayEditing, replaceAll, replaceNext, replaceOpen, replaceText, searchButtonRef, searchMatchCount, searchOpen, searchQuery, setReplaceOpen, setReplaceText, setSearchOpen, setSearchQuery } = chrome.search;
   const { applyOverlayStyle, arrangeOverlayShapes, canChangeOverlayShapeType, changeOverlayShapeType, canArrangeOverlayShapes, canUseFillStyleControls, canUseLineEndpointControls, canUseLineStyleControls, canUseStrokeStyleControls, effectiveLineDashMenuOpen, effectiveLineEndpointMenu, effectiveLineWidthMenuOpen, fillColorButtonRef, fillColorPatch, lineDashButtonRef, lineWidthButtonRef, overlaySelection, selectedOverlayLineDash, selectedOverlayLineSize, selectionFill, selectionFillColor, selectionFillOpacity, setStrokeColor, strokeColor, strokeColorButtonRef } = chrome.shapeStyle;
-  const { activeMenu, aiDocumentWriteInProgress, colorStylePanel, document, getActiveTextTarget, imageInputRef, insertInlineMath, isDesktopApp, isEmbedded, runEditCommand, runOverlayCommand, setStatusMessage, shapeGallerySections, lineToolItems, problemDisplayActive, t, toggleMenu, versionHistoryPreviewActive } = chrome.shared;
+  const { activeMenu, aiDocumentWriteInProgress, colorStylePanel, document, getActiveTextTarget, imageInputRef, insertInlineMath, isDesktopApp, isEmbedded, runEditCommand, runOverlayCommand, setStatusMessage, shapeGallerySections, lineToolItems, t, toggleMenu, versionHistoryPreviewActive } = chrome.shared;
   const { setActiveMenu, setBoxedTextMenuOpen, setColorStylePanel, setFontFamilyMenuOpen, setBlockStyleMenuOpen, setLineDashMenuOpen, setLineEndpointMenu, setLineHeightMenuOpen, setLineToolMenuOpen, setLineWidthMenuOpen, setShapeMenuOpen, setTextAlignMenuOpen } = chrome.toolbarMenus;
   const { activePageNumber, applyZoom, pageCount, zoom, zoomOptions } = chrome.view;
   const { applyColumnCommand, backstage, closeBackstage, columnCommand, contextualTabVisible, ribbonCollapse, ribbonIdPrefix, ribbonTabState, selectBackstageSection, selectRibbonTab, toggleBackstage, toggleRibbonCollapse } = chrome.ribbon;
@@ -102,7 +102,7 @@ export function renderEditorChrome(chrome: EditorChromeValue) {
   );
 
   const documentTitleRow = (
-    <div className="document-title-row" inert={versionHistoryPreviewActive || problemDisplayActive || undefined}>
+    <div className="document-title-row" inert={versionHistoryPreviewActive || undefined}>
       {/* 入力欄は常時マウントしたまま、非フォーカス時だけリッチ表示を重ねる。
           フォーカスの有無で要素を差し替えると getByLabel("教材タイトル") を使う
           既存の操作 (値の検証・フォーカス・入力) と IME 変換が一斉に壊れる。 */}
@@ -666,7 +666,7 @@ export function renderEditorChrome(chrome: EditorChromeValue) {
     // 保存状態バッジは docs と同じ .save-state-wrap をそのまま入れ子にしている。
     // 入れ子にすると .menubar-row の grid item ではなくなり grid-column:4 が失効し
     // flex: 0 1 260px だけが残るので、ribbon-chrome.css 側で打ち消している。
-    <div className="ribbon-qat" inert={versionHistoryPreviewActive || problemDisplayActive || undefined}>
+    <div className="ribbon-qat" inert={versionHistoryPreviewActive || undefined}>
       {saveStateBadge}
       {undoButton}
       {redoButton}
@@ -3017,7 +3017,7 @@ export function renderEditorChrome(chrome: EditorChromeValue) {
     <footer
       className="ribbon-statusbar"
       aria-label={t("statusBar.aria")}
-      inert={versionHistoryPreviewActive || problemDisplayActive || undefined}
+      inert={versionHistoryPreviewActive || undefined}
     >
       {/* activePageNumber はスクロールでしか更新されない。AI 編集などでページが
           «スクロールせずに» 減ると N > M の一瞬が出るので、表示側で丸める。 */}
@@ -3060,8 +3060,7 @@ export function renderEditorChrome(chrome: EditorChromeValue) {
     ribbonTitlebarActions,
     ribbonStatusBar,
     appMenuInert: chrome.shared.versionHistoryPreviewActive,
-    // 「問題だけ」などの表示中は読み取り専用: 編集のボタンは効かせず、メニュー (表示を戻す入口) は生かす。
-    editingSurfaceInert: chrome.shared.versionHistoryPreviewActive || problemDisplayActive,
+    editingSurfaceInert: chrome.shared.versionHistoryPreviewActive,
   };
 
   return uiLayoutPreference.mode === "word"

@@ -171,9 +171,11 @@ export interface PageCanvasEditorProps {
    */
   presentation?: "edit" | "paged";
   /**
-   * 問題のうち見せる領域 (問題 / 解答 / コメント)。表示だけの絞り込みで、教材は変えない。
-   * 隠した領域は描かず、ページ割りにも入れない。書き込みを伴う編集面には渡さない:
-   * 描いていない領域を前提にした編集が、見えない中身を巻き込むため。`"paged"` の読み取り専用面でだけ使う。
+   * 問題のうち見せる領域 (設定 > 表示 の 問題 / 解答 / コメント)。表示だけの絞り込みで、教材は変えない。
+   * 隠した領域は描かず、ページ割りにも入れない。描いた領域はふだんどおり編集でき、領域ごとの書き戻し
+   * (`replaceProblemAreaRichBlocks`) は描いていない領域に触れない。隠した領域に錨を下ろした図形は、
+   * 呼び出し側が `editorExtensions` の `overlayEditPolicy` で見せず・触らせず・書き換えさせない
+   * (`collectProblemDisplayHiddenShapeIds`)。
    */
   problemDisplay?: ProblemDisplayFilter;
   /**

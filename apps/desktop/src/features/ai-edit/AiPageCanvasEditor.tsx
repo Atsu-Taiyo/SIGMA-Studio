@@ -56,7 +56,7 @@ import {
   type MeasuredBlock,
   type OverlayBlockGapMap,
 } from "@/features/drawing";
-import { getRenderableShapes } from "@/features/rendering/core";
+import { collectProblemDisplayHiddenBlockIds, getRenderableShapes } from "@/features/rendering/core";
 import type { Translate } from "@/lib/i18n";
 import { useT } from "@/lib/i18n/react";
 import { countPerformanceEvent } from "@/lib/performance";
@@ -183,6 +183,10 @@ function AiEnabledPageCanvasEditor({
     () => pageEditorProps.document.pageLayout?.overlay?.overlaySnapshot?.shapes ?? [],
     [pageEditorProps.document.pageLayout?.overlay?.overlaySnapshot?.shapes],
   );
+  // 設定 > 表示 で隠した領域。そこへの提案は、描かれないカードの代わりに紙面に浮かぶバーで決める。
+  const undrawnBlockIds = useStableIdSet(pageEditorProps.problemDisplay
+    ? collectProblemDisplayHiddenBlockIds(pageEditorProps.document.content, pageEditorProps.problemDisplay)
+    : EMPTY_ID_SET);
   const aiEditorExtensions = useAiEditorExtensions({
     documentIdentityKey,
     previewGroups: aiEditPreviewGroups,
@@ -205,6 +209,7 @@ function AiEnabledPageCanvasEditor({
     documentWorkspaceId,
     onFocusSession: onFocusAiSession,
     panelDecisionProposalIds: aiPanelDecisionProposalIds,
+    undrawnBlockIds,
   });
   // 畳んだブロックと隠した図形は文書の変更口 (EditorShell) にも渡す。面のガード・図形の編集方針と同じ集合で断る。
   const resultOnlyTargets = useMemo(
@@ -267,6 +272,8 @@ interface UseAiPageCanvasExtensionOptions {
   documentWorkspaceId: string | null;
   onFocusSession?: AiPageCanvasEditorProps["onFocusAiSession"];
   panelDecisionProposalIds: ReadonlySet<string>;
+  /** 紙面に描かれていないブロック (`GroupPendingProposalContentOptions.undrawnBlockIds`)。 */
+  undrawnBlockIds: ReadonlySet<string>;
 }
 
 /** 提案が無いときに配り回す固定の空コレクション (identity を動かさないため)。 */
@@ -290,6 +297,7 @@ function useAiPageCanvasExtension({
   documentWorkspaceId,
   onFocusSession,
   panelDecisionProposalIds,
+  undrawnBlockIds,
 }: UseAiPageCanvasExtensionOptions): {
   extension: PageCanvasEditorExtension;
   hiddenShapeIds: ReadonlySet<string>;
@@ -317,8 +325,8 @@ function useAiPageCanvasExtension({
   const previewCardsByTargetId = useMemo(
     () => inlinePreviewGroups.length === 0
       ? EMPTY_PREVIEW_CARDS_BY_TARGET_ID
-      : groupPendingProposalContentByAnchor(inlinePreviewGroups, document, { countFallbacks: !applying, pageEditorBlockIds }),
-    [applying, document, inlinePreviewGroups, pageEditorBlockIds],
+      : groupPendingProposalContentByAnchor(inlinePreviewGroups, document, { countFallbacks: !applying, pageEditorBlockIds, undrawnBlockIds }),
+    [applying, document, inlinePreviewGroups, pageEditorBlockIds, undrawnBlockIds],
   );
   const previewsWithCards = useMemo(
     () => new Set([...previewCardsByTargetId.values()].flat().map((card) => card.preview)),

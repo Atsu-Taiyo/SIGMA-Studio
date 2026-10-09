@@ -18,6 +18,8 @@ import { useDocumentBodyCommands } from "./editor-shell/use-document-body-comman
 import { useDocumentPrintController } from "./editor-shell/use-document-print-controller";
 import { useDocumentRecovery } from "./editor-shell/use-document-recovery";
 import { useDocumentSearchCommands,useDocumentSearchState } from "./editor-shell/use-document-search";
+import { useProblemDisplayEditing } from "./editor-shell/use-problem-display-editing";
+import { mergeEditorExtensionSets } from "./webmcp/webmcp-editor-extensions";
 import { useEditorChromeController } from "./editor-shell/use-editor-chrome-controller";
 import { useEditorDialogState } from "./editor-shell/use-editor-dialog-state";
 import { useEmbeddedDocumentSync } from "./editor-shell/use-embedded-document-sync";
@@ -770,6 +772,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
   const versionHistoryWarning = versionHistoryWarnings[activeFileId] ?? null;
   // 設定 > 表示。「問題だけ」「解答だけ」など、紙面に出す領域の絞り込み。教材には書かず、
   // 画面を見ている間だけの状態。教材 (タブ) ごとに持ち、絞っていない教材は載せない。
+  // 絞っている間も編集面はそのまま: 隠した領域を描かないだけで、見えている領域はふだんどおり編集できる。
   const [problemDisplayByFile, setProblemDisplayByFile] = useState<ReadonlyMap<string, ProblemDisplayFilter>>(() => new Map());
   const problemDisplay = problemDisplayByFile.get(activeFileId) ?? FULL_PROBLEM_DISPLAY;
   // ホワイトボードに問題は無いので、絞り込みの入口を出さない。
@@ -852,6 +855,12 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
   const aiDocumentWriteInProgress = mcpPreviewBusy || !sessionWritable;
   const sessionEditExtensions = useMemo(() => sessionWritable ? undefined
     : sessionReadOnlyExtensions(t("collaboration.readOnlyDocument")), [sessionWritable, t]);
+  // 絞り込みで隠した領域に錨を下ろした図形は、見せず・触らせず・書き換えさせない (`useProblemDisplayEditing`)。
+  const problemDisplayEditing = useProblemDisplayEditing(document, problemDisplayActive ? problemDisplay : undefined);
+  const pageEditorExtensions = useMemo(
+    () => mergeEditorExtensionSets(sessionEditExtensions, problemDisplayEditing.editorExtensions),
+    [problemDisplayEditing.editorExtensions, sessionEditExtensions],
+  );
   // AI ロック集合の最新値。`commitDocumentChange` の deps に入れると、保存のたびに動く
   // 提案プレビュー由来でその識別子が変わり、ぶら下がる全コールバック → memo 済み本文ユニット
   // 全部が描き直される。**イベント処理から呼ばれる前提**の choke point なので ref で足りる
@@ -3183,7 +3192,6 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
     || ribbonBackstageOpen
     || commandPaletteOpen
     || versionHistoryPreviewActive
-    || problemDisplayActive
     || windowCloseSaveDialog !== null;
 
   useEffect(() => {
@@ -3364,7 +3372,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
     applyInlineFormat("boxedVariant", nextVariant);
   };
 
-  const { findNext, findPrevious, replaceNext, replaceAll, searchMatchCount } = useDocumentSearchCommands({ document, selectedId, searchQuery, replaceText, hiddenBlockIds: aiResultOnlyTargets.blockIds, setSelectedId, setStatusMessage, commitDocumentChange });
+  const { findNext, findPrevious, replaceNext, replaceAll, searchMatchCount } = useDocumentSearchCommands({ document, selectedId, searchQuery, replaceText, hiddenBlockIds: aiResultOnlyTargets.blockIds, skippedBlockIds: problemDisplayEditing.hiddenBlockIds, setSelectedId, setStatusMessage, commitDocumentChange });
 
   const replaceTextFlow = useCallback((
     previousIds: string[],
@@ -3585,8 +3593,9 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
       const withLayout = ensurePageLayout(current);
       const switchingToWhiteboard = isWhiteboardPageLayout(normalizedLayout)
         && !isWhiteboardPageLayout(withLayout.pageLayout);
+      // 絞り込み中の実測は隠した領域を抜いた紙面のもの。図形の座標は、ふだんの紙面の推定でそろえる。
       const preparedDocument = switchingToWhiteboard
-        ? convertOverlayToWhiteboard(withLayout, measuredBodyBlockRectsRef.current)
+        ? convertOverlayToWhiteboard(withLayout, problemDisplayActive ? undefined : measuredBodyBlockRectsRef.current)
         : ensureOverlayAnchorOffsets(withLayout, aiLockedTargetsRef.current.resultOnlyShapeIds);
       const overlay = preparedDocument.pageLayout?.overlay ?? normalizedLayout.overlay;
       return {
@@ -3822,8 +3831,9 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
     commitDocumentChange((current) => {
       const withLayout = ensurePageLayout(current);
       const switchingToWhiteboard = isWhiteboardPageLayout(normalizedLayout) && !isWhiteboardPageLayout(normalizePageLayout(withLayout.pageLayout));
+      // 絞り込み中の実測は隠した領域を抜いた紙面のもの。図形の座標は、ふだんの紙面の推定でそろえる。
       const preparedDocument = switchingToWhiteboard
-        ? convertOverlayToWhiteboard(withLayout, measuredBodyBlockRectsRef.current)
+        ? convertOverlayToWhiteboard(withLayout, problemDisplayActive ? undefined : measuredBodyBlockRectsRef.current)
         : ensureOverlayAnchorOffsets(withLayout, aiLockedTargetsRef.current.resultOnlyShapeIds);
       const overlay = preparedDocument.pageLayout?.overlay ?? normalizedLayout.overlay;
       return {
@@ -3980,7 +3990,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
   // ページ編集面が実際に描かれる条件。ステータスバーのページ数もこれを見る
   // （描かれていないのに前の教材のページ数を出さないため。onPageCountChange は
   // アンマウントでは呼ばれない）。
-  const pageEditorMounted = workspaceReady && !activeDocumentOpenFailure && !versionHistoryPreviewActive && !problemDisplayActive;
+  const pageEditorMounted = workspaceReady && !activeDocumentOpenFailure && !versionHistoryPreviewActive;
   useRequestedDocumentLocation({
     ready: pageEditorMounted, fileId: activeFileId, document, root: editorCanvasElement,
     selectBlock: id => { setSelectedInlineMath(null); setSelectedId(id); },
@@ -4406,7 +4416,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
       // `saveState` / `statusMessage` は渡さない。打鍵のたびに動く値なので、
       // 購読は葉 (`SaveStatusIndicators`) に閉じ込めてある。
       setStatusMessage, shapeGallerySections, lineToolItems, t, toggleMenu,
-      versionHistoryPreviewActive, problemDisplayActive,
+      versionHistoryPreviewActive,
     },
     editing: {
       setMaterialLibraryOpen,
@@ -4716,7 +4726,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
           data-whiteboard={isWhiteboardDocument ? "true" : undefined}
           ref={attachEditorCanvas}
           onClick={(event) => {
-            if (versionHistoryPreviewActive || problemDisplayActive) return;
+            if (versionHistoryPreviewActive) return;
             const target = event.target instanceof Element ? event.target : null;
             if (target?.closest("[data-sigma-doc-id], [data-overlay-shape-id], .overlay-canvas-bleed-surface, .overlay-canvas-editor, .page-overlay-preview, [data-problem-area]")) {
               return;
@@ -4730,7 +4740,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
           {/* 「AIが今何をやっているか」を常時確認できるcockpitの入口。折りたたみ時は
               canvas左上のアイコン1つだけ (バッジで実行中/要対応を示す)。開閉はUIローカル
               stateなので、旧: メニューの開閉トグルは廃止した (redundant)。 */}
-          {!versionHistoryPreviewActive && !problemDisplayActive && (isDesktopApp || webMcpEnabled) && workspaceReady && !activeDocumentOpenFailure && (
+          {!versionHistoryPreviewActive && (isDesktopApp || webMcpEnabled) && workspaceReady && !activeDocumentOpenFailure && (
             <AiTaskDock
               documentIdentityKey={isDesktopApp ? activeFileId : document.docId}
               document={document}
@@ -4750,6 +4760,28 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
               webMcpInstructionScopeId={webMcpEnabled ? document.docId : null}
               webMcpHistory={webMcpEnabled ? webMcpHistory : undefined}
             />
+          )}
+          {problemDisplayActive && pageEditorMounted && (
+            // 高さを持たない sticky の台に、紙面の上部中央へ重ねる小さなチップを載せる (紙面を押し下げない。
+            // ポケットの畳んだチップと同じ見た目)。隠している領域があることを、ホバーを待たず常に示す。
+            <div className="problem-display-chip-root" data-problem-display-chip="true">
+              <div className="problem-display-chip">
+                <Eye size={14} aria-hidden="true" />
+                <span className="problem-display-chip-text" role="status">{t("problemDisplay.viewing", {
+                  parts: PROBLEM_DISPLAY_PARTS
+                    .filter((part) => problemDisplay[part])
+                    .map((part) => (part === "problem"
+                      ? t("appMenu.settings.displayProblem")
+                      : part === "solution"
+                        ? t("appMenu.settings.displaySolution")
+                        : t("appMenu.settings.displayHints")))
+                    .join(t("problemDisplay.separator")),
+                })}</span>
+                <button type="button" className="problem-display-chip-action" onClick={showAllProblemParts}>
+                  {t("problemDisplay.showAll")}
+                </button>
+              </div>
+            </div>
           )}
           {!versionHistoryPreviewActive && workspaceReady && isWhiteboardDocument && !commentsInRail && (
             <CommentDock
@@ -4798,7 +4830,8 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
             aiDocumentWriteInProgress={mcpPreviewBusy}
             onAiResultOnlyTargetsChange={setAiResultOnlyTargets}
             aiPanelDecisionProposalIds={aiPanelDecisionProposalIds}
-            editorExtensions={sessionEditExtensions}
+            editorExtensions={pageEditorExtensions}
+            problemDisplay={problemDisplayActive ? problemDisplay : undefined}
             aiEditPreviewGroups={visibleAiEditPreviewGroups}
             aiEditPreviewApplying={mcpPreviewBusy}
             aiApplyAnimation={aiApplyAnimation}
@@ -4912,31 +4945,6 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
               {versionHistoryRestoreError && <p className="version-history-preview-error" role="alert">{versionHistoryRestoreError}</p>}
               <div className="version-history-preview-scroll">
                 <PagedRenderSurface document={versionHistoryPreview.document} profile="teacher" />
-              </div>
-            </div>
-          )}
-          {problemDisplayActive && !versionHistoryPreviewActive && !activeDocumentOpenFailure && workspaceReady && (
-            <div className="version-history-preview problem-display-preview" data-problem-display-view="true">
-              {/* 紙面を押し下げない小さなチップ (ポケットの畳んだチップと同じ作り)。絞り込み中は編集できず、
-                  その状態を隠すと「効かない」と見えるので、ポケットと違いホバーを待たず常に出す。 */}
-              <div className="problem-display-chip" title={t("problemDisplay.readOnly")}>
-                <Eye size={14} aria-hidden="true" />
-                <span className="problem-display-chip-text" role="status">{t("problemDisplay.viewing", {
-                  parts: PROBLEM_DISPLAY_PARTS
-                    .filter((part) => problemDisplay[part])
-                    .map((part) => (part === "problem"
-                      ? t("appMenu.settings.displayProblem")
-                      : part === "solution"
-                        ? t("appMenu.settings.displaySolution")
-                        : t("appMenu.settings.displayHints")))
-                    .join(t("problemDisplay.separator")),
-                })}</span>
-                <button type="button" className="problem-display-chip-action" onClick={showAllProblemParts}>
-                  {t("problemDisplay.showAll")}
-                </button>
-              </div>
-              <div className="version-history-preview-scroll">
-                <PagedRenderSurface document={document} profile="teacher" problemDisplay={problemDisplay} />
               </div>
             </div>
           )}
