@@ -246,17 +246,27 @@ export function updateInlineMathTexInDocument(
     : document;
 }
 
+export interface ReplaceInDocumentOptions extends DocumentTextMutationOptions {
+  /**
+   * 紙面に描かれていないブロック (設定 > 表示 で隠した問題の領域など)。そのブロックと中は置き換えない:
+   * 検索の件数 (`countTextMatches` の `hiddenBlockIds`) に入らない箇所を、見えないまま書き換えない。
+   */
+  skipBlockIds?: ReadonlySet<string>;
+}
+
 export function replaceInDocument(
   document: SigmaDocument,
   query: string,
   replacement: string,
   replaceAll: boolean,
-  options: DocumentTextMutationOptions = {},
+  options: ReplaceInDocumentOptions = {},
 ): SigmaDocument {
   const normalizedQuery = query.trim();
   if (!normalizedQuery) {
     return document;
   }
+  const skipBlockIds = options.skipBlockIds;
+  const isSkipped = (block: { id: string }) => skipBlockIds?.has(block.id) === true;
 
   let replaced = false;
   const shouldReplace = () => replaceAll || !replaced;
@@ -277,6 +287,9 @@ export function replaceInDocument(
     });
 
   const replaceRichBlock = <T extends ProblemAreaBlock>(block: T): T => {
+    if (isSkipped(block)) {
+      return block;
+    }
     if (block.type === "layoutSection") {
       return {
         ...block,
@@ -378,7 +391,7 @@ export function replaceInDocument(
       return replaceListBlock(block);
     }
 
-    if (block.type === "problem" && shouldReplace()) {
+    if (block.type === "problem" && shouldReplace() && !isSkipped(block)) {
       return {
         ...block,
         lead: block.lead.map(replaceRichBlock),

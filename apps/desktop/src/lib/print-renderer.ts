@@ -17,7 +17,6 @@ import {
   WHITEBOARD_BASE_CELL_PX,
 } from "@/features/document";
 import { getShapesVisualBounds, resolveShapeAnchorPositions } from "@/features/drawing";
-import { isProblemDisplayFiltered, type ProblemDisplayFilter } from "@/features/rendering/core";
 
 import { collectBlocksById, collectProblemAreaBlockLocations, type ProblemAreaBlockLocation } from "@/lib/document-tree";
 import { resolveDocumentTitle } from "@/lib/document-title";
@@ -63,67 +62,6 @@ export function getPrintableDocument(
     content,
     pageLayout: filterPageLayoutOverlay(sourceDocument.pageLayout, collectVisibleBlockIds(content), problemAreaBlockLocations),
   };
-}
-
-/**
- * 画面に「問題だけ」「解答だけ」などを映すための紙面。保存される教材は変えず、映す分だけ作る。
- *
- * 出力プロファイル (`getPrintableDocument`) とは別物: 教材ごとの `outputProfiles` には従わず、
- * いま選んだ表示だけで決める。隠した領域の中身は空にし、そこに錨を下ろした図形は紙面から外す
- * (残すと、錨の先が無いまま前回の位置に浮く)。領域そのものを描くかどうかは
- * `shouldShowProblemArea` の `display` が決めるので、`lead`/`prompt` を隠した問題が
- * 空の枠として残ることはない。
- */
-export function getProblemDisplayDocument(
-  document: SigmaDocument,
-  display: ProblemDisplayFilter,
-): SigmaDocument {
-  const source = ensurePageLayout(document);
-  if (!isProblemDisplayFiltered(display) || isWhiteboardPageLayout(source.pageLayout)) {
-    return source;
-  }
-
-  const problemAreaBlockLocations = collectProblemAreaBlockLocations(source);
-  const content = source.content.map((block) => narrowBlockToProblemDisplay(block, display));
-  const visibleBlockIds = collectVisibleBlockIds(content);
-  for (const id of collectBlocksById(content).keys()) {
-    visibleBlockIds.add(id);
-  }
-  if (!display.problem) {
-    // 問題の先頭 (導入文) を基準に置いた図形は、問題を隠す表示では行き先を失う。
-    for (const block of collectBlocksById(content).values()) {
-      if (block.type === "problem") {
-        visibleBlockIds.delete(block.id);
-      }
-    }
-  }
-  return {
-    ...source,
-    content,
-    pageLayout: filterPageLayoutOverlay(source.pageLayout, visibleBlockIds, problemAreaBlockLocations),
-  };
-}
-
-function narrowBlockToProblemDisplay<T extends SigmaBlock | RichBlock | LayoutSectionChildBlock | BoxBlockChildBlock>(
-  block: T,
-  display: ProblemDisplayFilter,
-): T {
-  if (block.type === "boxBlock" || block.type === "quote") {
-    return { ...block, blocks: block.blocks.map((child) => narrowBlockToProblemDisplay(child, display)) };
-  }
-  if (block.type === "layoutSection") {
-    return { ...block, children: block.children.map((child) => narrowBlockToProblemDisplay(child, display)) };
-  }
-  if (block.type === "problem") {
-    return {
-      ...block,
-      lead: display.problem ? block.lead : [],
-      prompt: display.problem ? block.prompt : [],
-      solution: display.solution ? block.solution : [],
-      hints: display.hints ? block.hints : [],
-    };
-  }
-  return block;
 }
 
 export const WHITEBOARD_PRINT_PADDING_PX = 40;

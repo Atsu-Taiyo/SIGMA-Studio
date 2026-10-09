@@ -325,6 +325,33 @@ describe("resolveTextFlowBoundaryDelete", () => {
     });
   });
 
+  it("lands the caret only on the areas the display filter keeps", () => {
+    const content: SigmaBlock[] = [
+      paragraph("before", "前"),
+      problem("problem", {
+        lead: [paragraph("lead_body", "導")],
+        prompt: [paragraph("prompt_body", "問")],
+        solution: [paragraph("solution_body", "解")],
+      }),
+      paragraph("after", "後"),
+    ];
+    const onlySolution = { problem: false, solution: true, hints: false };
+    const onlyProblem = { problem: true, solution: false, hints: false };
+
+    // 解答だけ: 問題の入口は導入文ではなく解答になる。
+    expect(resolveTextFlowBoundaryDelete(content, {
+      blockId: "before",
+      direction: "forward",
+      emptyBlock: false,
+    }, onlySolution)?.focusBlockId).toBe("solution_body");
+    // 問題だけ: 後ろから入る先は、隠した解答ではなく問題文の最後。
+    expect(resolveTextFlowBoundaryDelete(content, {
+      blockId: "after",
+      direction: "backward",
+      emptyBlock: false,
+    }, onlyProblem)?.focusBlockId).toBe("prompt_body");
+  });
+
   it("keeps the last block of a document that has nothing to fall back to", () => {
     expect(resolveTextFlowBoundaryDelete([paragraph("only", "")], {
       blockId: "only",

@@ -97,8 +97,6 @@ export interface EditorChromeShared {
   isDesktopApp: boolean;
   isEmbedded: boolean;
   versionHistoryPreviewActive: boolean;
-  /** 「問題だけ」などで紙面を絞って見せている間 true (読み取り専用の表示)。 */
-  problemDisplayActive: boolean;
   runEditCommand: (command: "bold" | "italic" | "underline" | "boxed" | "undo" | "redo") => void;
   runOverlayCommand: (command: OverlayCommand, graphPreset?: Graph2DPreset) => void;
   setStatusMessage: Dispatch<SetStateAction<string>>;

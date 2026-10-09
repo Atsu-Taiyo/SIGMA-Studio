@@ -1,6 +1,6 @@
 {
   "name": "@sigma-studio/viewer",
-  "version": "0.510.0",
+  "version": "0.511.0",
   "description": "Read-only React renderer for SigmaDoc teaching materials.",
   "keywords": [
     "sigma-studio",
@@ -67,7 +67,7 @@
     "@types/react-dom": "^19.3.0",
     "esbuild": "^0.28.2",
     "happy-dom": "^20.11.0",
-    "postcss": "^8.5.28",
+    "postcss": "^8.5.29",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
     "typescript": "^7.0.2",

@@ -11,6 +11,7 @@ export {
   replaceInDocument,
   updateInlineMathTexInDocument,
   type DocumentTextMutationOptions,
+  type ReplaceInDocumentOptions,
 } from "./document-text-mutations";
 export {
   canInsertManualPageBreakAfterBlock,
