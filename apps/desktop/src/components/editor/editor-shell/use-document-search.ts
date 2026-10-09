@@ -49,12 +49,25 @@ interface SearchCommandPorts {
    * 見えないブロックを書き換える変更は変更口が断る (断った理由は変更口が出す)。
    */
   hiddenBlockIds?: ReadonlySet<string>;
+  /**
+   * 表示の絞り込み (設定 > 表示) で紙面に描かれていないブロック。探さず数えず、置換もしない
+   * (変更口はこれを断らないので、置換の側で避ける。見えないまま書き換えない)。
+   */
+  skippedBlockIds?: ReadonlySet<string>;
   setSelectedId: (id: string) => void;
   setStatusMessage: (message: string) => void;
   /** 文書を変えたら true。断ったら false (理由は変更口が出しているので、ここでは何も言わない)。 */
   commitDocumentChange: (change: DocumentChange) => boolean | void;
 }
-export function useDocumentSearchCommands({ document, selectedId, searchQuery, replaceText, hiddenBlockIds, setSelectedId, setStatusMessage, commitDocumentChange }: SearchCommandPorts) {
+export function useDocumentSearchCommands({ document, selectedId, searchQuery, replaceText, hiddenBlockIds: collapsedBlockIds, skippedBlockIds, setSelectedId, setStatusMessage, commitDocumentChange }: SearchCommandPorts) {
+  const hiddenBlockIds = useMemo(
+    () => !skippedBlockIds || skippedBlockIds.size === 0
+      ? collapsedBlockIds
+      : !collapsedBlockIds || collapsedBlockIds.size === 0
+        ? skippedBlockIds
+        : new Set([...collapsedBlockIds, ...skippedBlockIds]),
+    [collapsedBlockIds, skippedBlockIds],
+  );
   const findNext = () => {
     const match = findFirstBlockWithText(document.content, searchQuery, selectedId, "next", hiddenBlockIds);
     if (!match) {
@@ -86,7 +99,7 @@ export function useDocumentSearchCommands({ document, selectedId, searchQuery, r
       return;
     }
 
-    if (commitDocumentChange((current) => replaceInDocument(current, searchQuery, replaceText, false)) === false) {
+    if (commitDocumentChange((current) => replaceInDocument(current, searchQuery, replaceText, false, { skipBlockIds: skippedBlockIds })) === false) {
       return;
     }
     setSelectedId(match.id);
@@ -100,7 +113,7 @@ export function useDocumentSearchCommands({ document, selectedId, searchQuery, r
       return;
     }
 
-    if (commitDocumentChange((current) => replaceInDocument(current, searchQuery, replaceText, true)) === false) {
+    if (commitDocumentChange((current) => replaceInDocument(current, searchQuery, replaceText, true, { skipBlockIds: skippedBlockIds })) === false) {
       return;
     }
     setStatusMessage(tEditor("status.replacedMany", { matches: count }));

@@ -2329,6 +2329,14 @@ button.ai-source-ref-chip--document:focus-visible {
   user-select: none;
 }
 
+/* 設定 > 表示 で隠した領域に錨を下ろした図形 (`problem-display-hidden-shape`)。錨の先が描かれていないので
+   見せず、当たり判定も持たせない。選択・編集は `OverlayEditPolicy` が別に断る。 */
+.overlay-shape.problem-display-hidden-shape,
+.overlay-shape.problem-display-hidden-shape * {
+  visibility: hidden;
+  pointer-events: none;
+}
+
 .overlay-shape.ai-apply-added-shape {
   animation: ai-apply-add-flash-shape 1200ms ease-out forwards;
 }
@@ -2444,6 +2452,8 @@ button.ai-source-ref-chip--document:focus-visible {
   inline-size: max-content;
   min-inline-size: 100%;
   pointer-events: none;
+  /* Paint the input caret after the frame's outline, including at either edge. */
+  z-index: 1;
 }
 
 .inline-math-node.editing > .inline-math-field-host > .inline-math-field,
@@ -2512,6 +2522,11 @@ button.ai-source-ref-chip--document:focus-visible {
 
 .inline-math-field::part(content) {
   padding: 0;
+}
+
+.inline-math-node.editing > .inline-math-field-host > .inline-math-field::part(content) {
+  /* The edge caret extends outside the formula; do not clip it at the frame. */
+  overflow: visible;
 }
 
 /* MathLive uses the system Highlight outline for the prompt containing the

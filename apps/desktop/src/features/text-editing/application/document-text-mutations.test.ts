@@ -169,6 +169,50 @@ describe("document text mutations", () => {
     expect(result.updatedAt).toBe("2026-07-25T03:00:00.000Z");
   });
 
+  it("leaves blocks the page does not draw untouched, matching the visible count", () => {
+    const original = documentWith([
+      {
+        id: "q1",
+        type: "problem",
+        tags: [],
+        lead: [],
+        prompt: [paragraph("q1_prompt", [{ type: "text", text: "target" }])],
+        hints: [paragraph("q1_hint", [{ type: "text", text: "target" }])],
+        solution: [paragraph("q1_solution", [{ type: "text", text: "target target" }])],
+      },
+      {
+        id: "q2",
+        type: "problem",
+        tags: [],
+        lead: [],
+        prompt: [paragraph("q2_prompt", [{ type: "text", text: "target" }])],
+        hints: [],
+        solution: [],
+      },
+    ]);
+    // 「解答だけ」: q1 の問題文・コメントと、解答を持たない q2 はまるごと描かれない。
+    const hidden = new Set(["q1_prompt", "q1_hint", "q2", "q2_prompt"]);
+
+    const result = replaceInDocument(original, "target", "done", true, { skipBlockIds: hidden });
+
+    expect(countTextMatches(original.content, "target", hidden)).toBe(2);
+    expect(countTextMatches(result.content, "done")).toBe(2);
+    expect(countTextMatches(result.content, "target")).toBe(3);
+    expect(result.content[0]).toMatchObject({
+      prompt: [{ children: [{ text: "target" }] }],
+      hints: [{ children: [{ text: "target" }] }],
+      solution: [{ children: [{ text: "done done" }] }],
+    });
+    expect(result.content[1]).toBe(original.content[1]);
+
+    const first = replaceInDocument(original, "target", "done", false, { skipBlockIds: hidden });
+    // 1 件だけの置換も、文書の先頭にある見えない問題文ではなく、見えている解答を書き換える。
+    expect(first.content[0]).toMatchObject({
+      prompt: [{ children: [{ text: "target" }] }],
+      solution: [{ children: [{ text: "done target" }] }],
+    });
+  });
+
   it("preserves the document reference and does not read the clock when nothing changes", () => {
     const original = nestedMutationDocument();
     const now = () => {

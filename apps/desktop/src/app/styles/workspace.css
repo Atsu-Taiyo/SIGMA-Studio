@@ -2089,9 +2089,14 @@ nav.app-menu-list[inert] *,
 }
 
 /* 「問題だけ」などの絞り込み中に出すチップ。ポケットの畳んだチップ (PocketBar.module.css の .handle) と
-   同じ丸い小さな見た目で、紙面の上部中央に重ねる。段の高さを持たないので紙面を押し下げない。 */
-.problem-display-preview {
-  position: relative;
+   同じ丸い小さな見た目で、紙面の上部中央に重ねる。台は高さ 0 の sticky (AIタスクDockの台と同じ作り) なので
+   紙面を押し下げず、スクロールしても見えている範囲の上端に残る。 */
+.problem-display-chip-root {
+  position: sticky;
+  top: 0;
+  z-index: 85;
+  height: 0;
+  overflow: visible;
 }
 
 .problem-display-chip {

@@ -83,6 +83,7 @@ import { createSpaceAfterPreviewDecorations } from "@/components/editor/text-flo
 import { CodeBlockActionExtension } from "@/components/tiptap/code-block-action-extension";
 import { countDecorationBlockWalk } from "@/components/tiptap/decoration-walk-metrics";
 import { nestedProblemLayoutKey } from "@/components/tiptap/nested-problem-extension";
+import { useProblemDisplay } from "./text-flow/ProblemDisplayContext";
 import { useProblemNumbers } from "./text-flow/ProblemNumberingContext";
 import { HeadingNumberingExtension, headingNumberingKey } from "@/components/tiptap/heading-numbering-extension";
 import { PageBreakGapExtension, paginationGapKey, type PageBreakMarkerLayout } from "@/components/tiptap/page-break-gap-extension";
@@ -953,6 +954,9 @@ function TextFlowEditorImpl({
   const problemNumbers = useProblemNumbers();
   const problemNumbersRef = useRef(problemNumbers);
   const getProblemNumbers = useCallback(() => problemNumbersRef.current, []);
+  const problemDisplay = useProblemDisplay();
+  const problemDisplayRef = useRef(problemDisplay);
+  const getProblemDisplay = useCallback(() => problemDisplayRef.current, []);
   const headingNumbersRef = useRef<Readonly<Record<string, string>>>(headingNumbers);
   const boxFragmentSourceLayoutsRef = useRef<Record<string, TextFlowBoxFragmentSourceLayout>>(boxFragmentSourceLayouts ?? {});
   const commentThreadsRef = useRef(commentThreads);
@@ -1155,7 +1159,7 @@ function TextFlowEditorImpl({
           SigmaDocTextAttrs,
           // configure stores this callback; the plugin reads it when applying transactions.
           // eslint-disable-next-line react-hooks/refs
-          BoxBlockExtension.configure({ getProblemNumbers }),
+          BoxBlockExtension.configure({ getProblemNumbers, getProblemDisplay }),
           BoxBlockTitleExtension.configure({ readOnly: readOnlyBoxTitle }),
           BoxBlockBodyExtension.configure({ titleReadOnly: readOnlyBoxTitle }),
           LayoutSectionExtension,
@@ -2141,10 +2145,11 @@ function TextFlowEditorImpl({
   const boxFragmentSourceLayoutsKey = useMemo(() => getTextFlowFragmentLayoutsSyncKey(boxFragmentSourceLayouts), [boxFragmentSourceLayouts]);
   useLayoutEffect(() => {
     problemNumbersRef.current = problemNumbers;
+    problemDisplayRef.current = problemDisplay;
     if (editor && !editor.isDestroyed) {
       editor.view.dispatch(editor.state.tr.setMeta(nestedProblemLayoutKey, true).setMeta("addToHistory", false));
     }
-  }, [editor, problemNumbers]);
+  }, [editor, problemDisplay, problemNumbers]);
 
   const headingNumbersKey = useMemo(
     () => Object.entries(headingNumbers).sort(([a], [b]) => a.localeCompare(b)).map(([id, number]) => `${id}:${number}`).join("\u0000"),
