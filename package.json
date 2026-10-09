@@ -54,7 +54,7 @@
     "test:public-browser:react18": "npm exec --workspace @sigma-studio/desktop -- playwright test --config ../../tests/public-browser/playwright.react18.config.mts"
   },
   "devDependencies": {
-    "@next/eslint-plugin-next": "16.3.8",
+    "@next/eslint-plugin-next": "16.4.0",
     "typescript-compiler-api": "npm:typescript@5.9.3"
   },
   "overrides": {
