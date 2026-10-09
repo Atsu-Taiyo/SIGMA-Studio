@@ -2444,6 +2444,8 @@ button.ai-source-ref-chip--document:focus-visible {
   inline-size: max-content;
   min-inline-size: 100%;
   pointer-events: none;
+  /* Paint the input caret after the frame's outline, including at either edge. */
+  z-index: 1;
 }
 
 .inline-math-node.editing > .inline-math-field-host > .inline-math-field,
@@ -2512,6 +2514,11 @@ button.ai-source-ref-chip--document:focus-visible {
 
 .inline-math-field::part(content) {
   padding: 0;
+}
+
+.inline-math-node.editing > .inline-math-field-host > .inline-math-field::part(content) {
+  /* The edge caret extends outside the formula; do not clip it at the frame. */
+  overflow: visible;
 }
 
 /* MathLive uses the system Highlight outline for the prompt containing the
