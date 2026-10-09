@@ -684,6 +684,12 @@ export interface GroupPendingProposalContentOptions extends ResolveProposalMerge
    * (`collectPageEditorBlockIds`)。適用後だけで畳めるのはこの中のブロックだけ。渡さなければ何も畳まない。
    */
   pageEditorBlockIds?: ReadonlySet<string>;
+  /**
+   * 紙面に描かれていないブロック (設定 > 表示 で隠した問題の領域など)。そこに付くカードは作らない:
+   * どこにも出ないカードが判断を持つと、提案を紙面で承認・破棄できない。カードが 1 枚も残らない提案は
+   * 紙面に浮かぶバーで決める (`selectAiFloatingDecisionPreviews`)。
+   */
+  undrawnBlockIds?: ReadonlySet<string>;
 }
 
 const NO_PAGE_EDITOR_BLOCKS: ReadonlySet<string> = new Set();
@@ -710,7 +716,7 @@ export function groupPendingProposalContentByAnchor(
     // 今の文書と、承認後の文書 (提案が足す・動かす図形) のどちらかで図形が固定されているブロックは畳まない。
     const shapeAnchorBlockIds = collectShapeAnchorBlockIds(document, merged.afterDocument);
     for (const hunk of built.hunks) {
-      if (!placeable.has(hunk.anchorBlockId)) {
+      if (!placeable.has(hunk.anchorBlockId) || options.undrawnBlockIds?.has(hunk.anchorBlockId)) {
         continue;
       }
       const cards = cardsByAnchorId.get(hunk.anchorBlockId) ?? [];

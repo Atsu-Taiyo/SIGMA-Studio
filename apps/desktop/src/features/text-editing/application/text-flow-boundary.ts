@@ -12,6 +12,7 @@ import type {
 import {
   emptyProblemAreaEditorBlockId,
   shouldShowProblemArea,
+  type ProblemDisplayFilter,
 } from "@/features/rendering/core";
 
 import type { TextFlowBlock } from "../model";
@@ -39,7 +40,12 @@ export interface TextFlowBoundaryDeleteResult {
 export function resolveTextFlowBoundaryDelete(
   content: SigmaBlock[],
   request: TextFlowBoundaryDeleteInput,
+  /** 紙面に出している問題の領域 (設定 > 表示)。キャレットは描かれている領域にだけ送る。 */
+  problemDisplay?: ProblemDisplayFilter,
 ): TextFlowBoundaryDeleteResult | null {
+  const resolveProblemEdge = (block: SigmaBlock | null, edge: "start" | "end") => (
+    resolveDisplayedProblemEdge(block, edge, problemDisplay)
+  );
   const index = content.findIndex((block) => block.id === request.blockId && isTopLevelTextFlowBlock(block));
   if (index < 0) {
     return null;
@@ -171,16 +177,17 @@ interface ProblemEdgeFocus {
  * A rendered-but-empty area contributes its derived placeholder block, which is what the
  * editor actually mounts there.
  */
-function resolveProblemEdge(
+function resolveDisplayedProblemEdge(
   block: SigmaBlock | null,
   edge: "start" | "end",
+  problemDisplay: ProblemDisplayFilter | undefined,
 ): ProblemEdgeFocus | null {
   if (!block || block.type !== "problem") {
     return null;
   }
 
   const problem: ProblemNode = block;
-  const areas = PROBLEM_AREA_ORDER.filter((area) => shouldShowProblemArea(problem, area));
+  const areas = PROBLEM_AREA_ORDER.filter((area) => shouldShowProblemArea(problem, area, problemDisplay));
   const area = edge === "end" ? areas.at(-1) : areas[0];
   if (!area) {
     return null;

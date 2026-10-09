@@ -479,6 +479,18 @@ describe("groupPendingProposalContentByAnchor", () => {
     expect(cards.every((card) => card.content.shapes.length === 0)).toBe(true);
   });
 
+  it("gives no card to a change the page does not draw, so the proposal is decided from the floating bar", () => {
+    const document = baseDocument();
+    const onSolution = previewOf([replace("solution_1", "新しい解答")], [], { runId: "run-solution", proposalIds: ["ps"] });
+    const onPrompt = previewOf([replace("prompt_1", "新しい問題文")], [], { runId: "run-prompt", proposalIds: ["pp"] });
+
+    // 設定 > 表示 で「問題だけ」: 解答は描かれない。
+    const grouped = groupPendingProposalContentByAnchor([onSolution, onPrompt], document, { undrawnBlockIds: new Set(["solution_1"]) });
+
+    expect([...grouped.values()].flat().map((card) => card.preview.runId)).toEqual(["run-prompt"]);
+    expect([...groupPendingProposalContentByAnchor([onSolution, onPrompt], document).values()].flat()).toHaveLength(2);
+  });
+
   describe("what a card folds out of the page body to show only the result", () => {
     /** 紙面の編集面の最上位に並ぶブロック (紙面のユニット分けから作る集合。ここでは baseDocument の分)。 */
     const PAGE_EDITOR_BLOCK_IDS = new Set(["p1", "prompt_1", "solution_1", "box_1", "p_last"]);

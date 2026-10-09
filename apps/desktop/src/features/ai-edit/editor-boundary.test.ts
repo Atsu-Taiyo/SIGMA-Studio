@@ -257,8 +257,10 @@ describe("AI editor extension boundary", () => {
     expect(adapter).toContain('from "@/features/ai-edit"');
     expect(adapter).not.toMatch(/from\s+["']@\/features\/ai-edit\//);
     expect(source).not.toContain("useAiEditorExtensions");
-    // Shared-session guards use the generic extension contract; AI extensions remain inside the feature.
-    expect(source.match(/editorExtensions=\{([^}]+)\}/g)).toEqual(["editorExtensions={sessionEditExtensions}"]);
+    // Shared-session guards and the display filter's figure policy (設定 > 表示) use the generic
+    // extension contract; AI extensions remain inside the feature.
+    expect(source.match(/editorExtensions=\{([^}]+)\}/g)).toEqual(["editorExtensions={pageEditorExtensions}"]);
+    expect(source).toMatch(/mergeEditorExtensionSets\(sessionEditExtensions, problemDisplayEditing\.editorExtensions\)/);
     expect(namedImportSource(adapter, "useAiPinnedReferences")).toBe("@/features/ai-edit");
     expect(namedImportSource(adapter, "useAiProposalActions")).toBe("@/features/ai-edit");
     expect(namedImportSource(adapter, "useCommentAiRun")).toBe("@/features/ai-edit");
