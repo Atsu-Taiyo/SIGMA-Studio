@@ -22,6 +22,7 @@ import {
   renderMathHtml,
   setInlineMathBodyTex,
 } from "@/features/rendering/adapters";
+import { startAtomPointerSelection } from "@/components/tiptap/atom-pointer-selection";
 import { InlineMathTexEditor } from "@/components/tiptap/inline-math-tex-editor";
 import { getDesktopBridge } from "@/lib/desktop-bridge";
 import { readEditorClipboardPayload } from "@/lib/editor-clipboard";
@@ -930,10 +931,36 @@ export class InlineMathNodeView implements NodeView {
       return;
     }
 
+    const startPoint = { x: event.clientX, y: event.clientY };
+    const openAtPressedPoint = () => {
+      // 押してから離すまでにノードビューが作り直されたら開かない (破棄済みのビューで編集を
+      // 始めると、入力ソースを取ったまま返さなくなる)。
+      if (!this.dom.isConnected || this.editor.isDestroyed) {
+        return;
+      }
+      // 押した位置に placeholder があれば、そこへ直接入る。静的プレビューは prompt id を
+      // 持たないので、序数を編集用の math-field へ持ち越す。
+      this.beginEditing(this.tex, "end", {
+        placeholderIndex: this.body
+          ? getInlineMathPlaceholderIndexAtPoint(this.body, startPoint.x, startPoint.y)
+          : null,
+      });
+    };
+    // 本文の連なりの中では、ドラッグを編集面の追跡へ渡す。ここで伸ばすと自分の編集面の中に
+    // 閉じ、隣のユニット (問題文・次のチャンク) まで選べない (`atom-pointer-selection.ts`)。
+    if (startAtomPointerSelection(this.editor, {
+      event,
+      from: position,
+      to: position + this.node.nodeSize,
+      onClick: openAtPressedPoint,
+    })) {
+      event.stopPropagation();
+      return;
+    }
+
     event.preventDefault();
     event.stopPropagation();
 
-    const startPoint = { x: event.clientX, y: event.clientY };
     const ownerWindow = this.editor.view.dom.ownerDocument.defaultView ?? window;
     let dragged = false;
 
@@ -971,13 +998,7 @@ export class InlineMathNodeView implements NodeView {
 
     const handleMouseUp = (upEvent: globalThis.MouseEvent) => {
       if (!dragged) {
-        // 押した位置に placeholder があれば、そこへ直接入る。静的プレビューは prompt id を
-        // 持たないので、序数を編集用の math-field へ持ち越す。
-        this.beginEditing(this.tex, "end", {
-          placeholderIndex: this.body
-            ? getInlineMathPlaceholderIndexAtPoint(this.body, startPoint.x, startPoint.y)
-            : null,
-        });
+        openAtPressedPoint();
         return;
       }
       upEvent.preventDefault();

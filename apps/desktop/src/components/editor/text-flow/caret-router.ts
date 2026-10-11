@@ -496,6 +496,42 @@ export function getFocusedCaretSurfaceUnitIds(): ReadonlySet<string> {
   return focused;
 }
 
+/**
+ * フォーカス中のエディタが、自分のユニットの先頭ブロックより**前**に持っているブロックの id
+ * (キーはユニットの先頭ブロック id)。先頭ブロックの行頭で Enter を押す・貼り付けると、新しい
+ * ブロックはこのエディタの中、先頭ブロックの手前にできる。文書の上ではチャンクの境界より前なので、
+ * `chunkTextRun` に教えないと別のユニット (文書・連なりの先頭なら単独のユニット、途中なら前の
+ * チャンク) へ回され、エディタの中身と紙面のブロック列が食い違う — 空行が二重に見え、打った
+ * 文字が二重に見え、キャレットが前のユニットへ飛ぶ (文書の先頭では焦点ごと落ちる)。
+ */
+export function getFocusedCaretSurfaceLeadingBlockIds(): ReadonlyMap<string, readonly string[]> {
+  const leading = new Map<string, readonly string[]>();
+  for (const handle of getCaretSurfaces()) {
+    if (!handle.textRun || !handle.editor.isFocused || handle.editor.isDestroyed) {
+      continue;
+    }
+    // 分割されたパート (`${先頭ブロック id}:${パート番号}`) のうち先頭ブロックを持つのは 0 番だけ。
+    const anchor = handle.textRun.unitId.replace(/:\d+$/, "");
+    const before: string[] = [];
+    let found = false;
+    handle.editor.state.doc.forEach((node) => {
+      const id: unknown = node.attrs.sigmaDocId;
+      if (found || typeof id !== "string") {
+        return;
+      }
+      if (id === anchor) {
+        found = true;
+        return;
+      }
+      before.push(id);
+    });
+    if (found && before.length > 0) {
+      leading.set(anchor, before);
+    }
+  }
+  return leading;
+}
+
 /** その断片ブロックを見せている面すべて (正本 + 複製)。 */
 export function getCaretSurfacesForBox(boxId: string): CaretSurfaceHandle[] {
   return getCaretSurfaces().filter((handle) => handle.boxIds.includes(boxId));
