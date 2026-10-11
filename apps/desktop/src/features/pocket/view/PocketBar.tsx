@@ -47,12 +47,6 @@ const LANDED_MS = 360;
  * 開いて入れたときは、開き切って着く先のカードの位置が決まってから「飛んでいく」を始める。
  */
 const POCKET_TRANSITION_MS = 280;
-/** 畳んでいるとき、チップを出すマウスの範囲 (ポケットの段の上端から下へ)。 */
-const REVEAL_ZONE_PX = 44;
-/** 範囲にマウスが少し留まってから出す。上のツールバーへ向かう途中で通り過ぎただけでは出さない。 */
-const REVEAL_DWELL_MS = 120;
-/** 範囲を出てから、チップを引っ込めるまでの時間。 */
-const REVEAL_HIDE_MS = 350;
 
 /** 仕立て屋の「パッチポケット」。lucide に無いので、同じ線の太さ・端の丸めで描く。 */
 export function PocketIcon({ size = 16 }: { size?: number }) {
@@ -313,7 +307,7 @@ function PocketDragGhost({ items, t }: { items: readonly PocketItem[]; t: Transl
  *
  * 選んだ文章・図形・ブロックをコピーと同じ内容で入れておき、別のページや別の教材へ何度でも
  * 挿入できる。カードは押すとキャレットの位置へ、ドラッグすると落とした場所へ入る。畳んでいる間は
- * 上部に件数だけの小さなチップを出す。中身はこのアプリの作業台で、教材には保存されず、共有しても相手には見えない。
+ * 上部の真ん中に件数だけの小さなチップを出し続ける (ホバーを待たない。空のときは何も出さない)。中身はこのアプリの作業台で、教材には保存されず、共有しても相手には見えない。
  * 押してもキャレットと選択を動かさない (ボタンの mousedown で焦点を奪わない) ので、
  * 本文を選んだまま「入れる」、キャレットを置いたまま「挿入する」ができる。
  */
@@ -332,8 +326,6 @@ export function PocketBar({ addShortcut }: { addShortcut?: string | null }) {
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [flight, setFlight] = useState<PocketFlight | null>(null);
   const [landedId, setLandedId] = useState<string | null>(null);
-  const [revealed, setRevealed] = useState(false);
-  const barRef = useRef<HTMLElement | null>(null);
   const [announcement, setAnnouncement] = useState("");
 
   const { removal, notice, justAdded } = state;
@@ -402,64 +394,6 @@ export function PocketBar({ addShortcut }: { addShortcut?: string | null }) {
     const timer = window.setTimeout(() => setLandedId(null), LANDED_MS);
     return () => window.clearTimeout(timer);
   }, [landedId]);
-
-  // 畳んでいるあいだ、チップは普段は見えない。上部 (ポケットの段の上端から下の帯) へマウスを
-  // 持っていくと現れ、離れると引っ込む。キーボードの焦点でも現れる (CSS の :focus-visible)。
-  useEffect(() => {
-    if (phase !== "collapsed") {
-      return;
-    }
-    let shown = false;
-    let showTimer: number | null = null;
-    let hideTimer: number | null = null;
-    const cancel = (timer: number | null) => {
-      if (timer !== null) {
-        window.clearTimeout(timer);
-      }
-      return null;
-    };
-    const scheduleShow = () => {
-      hideTimer = cancel(hideTimer);
-      if (!shown && showTimer === null) {
-        showTimer = window.setTimeout(() => {
-          showTimer = null;
-          shown = true;
-          setRevealed(true);
-        }, REVEAL_DWELL_MS);
-      }
-    };
-    const scheduleHide = () => {
-      showTimer = cancel(showTimer);
-      if (shown && hideTimer === null) {
-        hideTimer = window.setTimeout(() => {
-          hideTimer = null;
-          shown = false;
-          setRevealed(false);
-        }, REVEAL_HIDE_MS);
-      }
-    };
-    const onMove = (event: globalThis.PointerEvent) => {
-      const bar = barRef.current;
-      if (!bar) {
-        return;
-      }
-      const top = bar.getBoundingClientRect().top;
-      if (event.clientY >= top - 2 && event.clientY <= top + REVEAL_ZONE_PX) {
-        scheduleShow();
-      } else {
-        scheduleHide();
-      }
-    };
-    window.addEventListener("pointermove", onMove, true);
-    document.documentElement.addEventListener("pointerleave", scheduleHide);
-    return () => {
-      window.removeEventListener("pointermove", onMove, true);
-      document.documentElement.removeEventListener("pointerleave", scheduleHide);
-      cancel(showTimer);
-      cancel(hideTimer);
-      setRevealed(false);
-    };
-  }, [phase]);
 
   // マウスのホイール (縦回転) でも並びを横へ送れるようにする。トラックパッドの横スクロールは
   // そのまま通す。React の onWheel は passive で preventDefault できないので、直接つなぐ。
@@ -540,10 +474,8 @@ export function PocketBar({ addShortcut }: { addShortcut?: string | null }) {
   if (shownPhase === "collapsed") {
     return (
       <section
-        ref={barRef}
         className={styles.bar}
         data-phase="collapsed"
-        data-revealed={revealed ? "true" : undefined}
         aria-label={t("pocket.region")}
         {...{ [POCKET_ROOT_ATTRIBUTE]: "" }}
         onMouseDown={keepEditorFocus}
