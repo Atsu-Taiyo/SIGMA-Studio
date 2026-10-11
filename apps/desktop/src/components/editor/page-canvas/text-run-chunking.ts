@@ -59,15 +59,21 @@ export const DEFAULT_TEXT_RUN_CHUNK_LIMITS: TextRunChunkLimits = {
  * unmount されて IME セッションが落ちる。フォーカス中のユニットが関わる併合だけを
  * 見送り、フォーカスが外れた後の描画で自然に併合させる。
  *
- * 純関数・決定的: 同じ (blocks, previous, limits, pinnedAnchors) からは必ず同じ結果になる。
- * さらに**不動点**でもある — この関数の出力から作った境界を渡し直しても結果は変わらない。
- * これが崩れると、内容を変えていないのに次の描画で境界が動く (= 作り直しが 1 回起きる)。
+ * `pinnedLeadingBlockIds` はフォーカス中のエディタが先頭ブロックの手前に持つブロック
+ * (`getFocusedCaretSurfaceLeadingBlockIds`)。先頭ブロックの行頭で Enter を押すと、新しい
+ * ブロックはそのエディタの中にできるので、同じチャンクへ入れる (`adoptPinnedLeadingBlocks`)。
+ *
+ * 純関数・決定的: 同じ (blocks, previous, limits, pinnedAnchors, pinnedLeadingBlockIds) からは
+ * 必ず同じ結果になる。さらに**不動点**でもある — この関数の出力から作った境界を渡し直しても
+ * 結果は変わらない。これが崩れると、内容を変えていないのに次の描画で境界が動く (= 作り直しが
+ * 1 回起きる)。
  */
 export function chunkTextRun(
   blocks: TextFlowBlock[],
   previous: ChunkBoundaryState | null,
   limits: TextRunChunkLimits = DEFAULT_TEXT_RUN_CHUNK_LIMITS,
   pinnedAnchors: ReadonlySet<string> | null = null,
+  pinnedLeadingBlockIds: ReadonlyMap<string, readonly string[]> | null = null,
 ): TextFlowBlock[][] {
   if (blocks.length === 0) {
     return [];
@@ -76,7 +82,8 @@ export function chunkTextRun(
   // 前回のアンカーがこの連なりに 1 つも残っていない = 初めて描く連なり (新規文書、AI 適用や
   // 巨大 undo での差し替え)。ここでアンカー方式に落とすと連なり全体が 1 チャンクになり、
   // ProseMirror 1 インスタンスが想定の倍を抱えてしまうので、素直に target 件ごとに切る。
-  const anchors = previous?.anchors;
+  const adopted = previous ? adoptPinnedLeadingBlocks(blocks, previous.anchors, pinnedLeadingBlockIds) : null;
+  const anchors = adopted?.anchors ?? previous?.anchors;
   const chunks = anchors && blocks.some((block) => anchors.has(block.id))
     ? sliceByAnchors(blocks, anchors)
     : sliceEvery(blocks, limits.target);
@@ -84,7 +91,58 @@ export function chunkTextRun(
   // 初回も同じ後処理を通す。初回だけ併合を飛ばすと「初回の出力を次回に渡すと結果が変わる」
   // 状態 (例: 45 件が 40+5 → 45) になり、**開いて最初の 1 打鍵で必ず境界が動く** —
   // この WI が消そうとしている再マウントそのものが 1 回だけ残る。
-  return mergeSmallChunks(splitLargeChunks(chunks, limits), limits, normalizePinnedAnchors(pinnedAnchors));
+  const pinned = normalizePinnedAnchors(pinnedAnchors);
+  return mergeSmallChunks(
+    splitLargeChunks(chunks, limits),
+    limits,
+    adopted ? new Set([...(pinned ?? []), ...adopted.pinned]) : pinned,
+  );
+}
+
+/**
+ * フォーカス中のエディタが先頭ブロックの手前に持つブロックを、そのエディタのチャンクへ入れる
+ * (境界をそのブロックの先頭へずらす = アンカーを差し替える)。
+ *
+ * 入れないと、新しいブロックは文書の上でチャンクの境界より前にあるので、連なりの先頭では単独の
+ * チャンクに、途中では前のチャンクの末尾に回る。フォーカス中のエディタは併合の見送りで中身を
+ * 差し替えられないまま同じブロックを持ち続けるので、紙面に同じブロックが二つ描かれる (行頭の
+ * Enter で空行が二重に見え、そこへ打った文字も二重に見える)。文書の先頭では作り直しで焦点ごと
+ * 落ちる。ずらした後はユニット id (= 先頭ブロック id) が変わるが、`reconcileRenderUnits` が
+ * 前のユニットの key を引き継ぐので、エディタは作り直されない。
+ *
+ * 文書の並びがエディタの中身と一致する (手前のブロックがアンカーの直前に同じ順で並ぶ) ときだけ
+ * ずらす。他のチャンクのアンカーは奪わず、手動改ページもまたがない。
+ */
+function adoptPinnedLeadingBlocks(
+  blocks: readonly TextFlowBlock[],
+  anchors: ReadonlySet<string>,
+  leadingBlockIds: ReadonlyMap<string, readonly string[]> | null,
+): { anchors: ReadonlySet<string>; pinned: readonly string[] } | null {
+  if (!leadingBlockIds || leadingBlockIds.size === 0) {
+    return null;
+  }
+  let adoptedAnchors: Set<string> | null = null;
+  const pinned: string[] = [];
+  for (const [anchor, leading] of leadingBlockIds) {
+    if (leading.length === 0 || !anchors.has(anchor)) {
+      continue;
+    }
+    const anchorIndex = blocks.findIndex((block) => block.id === anchor);
+    const start = anchorIndex - leading.length;
+    if (anchorIndex < 0 || start < 0) {
+      continue;
+    }
+    const matches = leading.every((id, offset) => blocks[start + offset].id === id && !anchors.has(id))
+      && blocks.slice(start + 1, anchorIndex + 1).every((block) => !hasBreakBefore(block));
+    if (!matches) {
+      continue;
+    }
+    adoptedAnchors ??= new Set(anchors);
+    adoptedAnchors.delete(anchor);
+    adoptedAnchors.add(leading[0]);
+    pinned.push(leading[0]);
+  }
+  return adoptedAnchors ? { anchors: adoptedAnchors, pinned } : null;
 }
 
 /**
