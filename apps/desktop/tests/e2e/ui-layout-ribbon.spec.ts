@@ -546,7 +546,7 @@ test("keys do not reach the document while the Backstage covers it", async ({ pa
   // カーソル位置にテキスト図形) も届かない。capture の stopPropagation は同じ
   // window に付いた別の capture リスナーを止められず、inert も window レベルには
   // 効かないので、ここが素通りしていると覆われた本文に図形が生える。
-  await page.keyboard.press("Control+Alt+KeyT");
+  await page.keyboard.press("ControlOrMeta+Alt+KeyT");
   await expect(shapes).toHaveCount(1);
   await expect(page.locator(".overlay-canvas-editor.editing")).toHaveCount(0);
 

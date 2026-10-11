@@ -1,3 +1,5 @@
+import { hasPrimaryShortcutModifier, type EditorShortcutPlatform } from "@/lib/editor-command-shortcuts";
+
 export type AiDisplayMode = "inline" | "sidebar";
 
 export interface AiSurfaceState {
@@ -47,10 +49,11 @@ export function toggleSurface(state: AiSurfaceState): AiSurfaceState {
   return openInline();
 }
 
-export function isInlineToggleShortcut(event: KeyboardEvent): boolean {
+export function isInlineToggleShortcut(event: KeyboardEvent, platform?: EditorShortcutPlatform): boolean {
   if (event.isComposing) return false;
   if (event.altKey || event.shiftKey) return false;
-  if (!(event.metaKey || event.ctrlKey)) return false;
+  // macOS は ⌘K だけ。⌃K は数式の tan のショートカット。
+  if (!hasPrimaryShortcutModifier(event, platform)) return false;
   return event.key === "k" || event.key === "K";
 }
 

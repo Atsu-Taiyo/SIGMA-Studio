@@ -14,6 +14,7 @@ import {
 import { readSelectionFontSize, type SelectionFontSize } from "@/components/tiptap/text-format-font-size";
 import { isBoxTitleNodeName } from "@/components/tiptap/node-queries";
 import { applyTextFormatCommand } from "@/components/tiptap/text-format-controller";
+import { hasPrimaryShortcutModifier } from "@/lib/editor-command-shortcuts";
 import {
   createDocumentBlocksClipboardPayload,
   createTextFlowClipboardPayload,
@@ -938,7 +939,7 @@ export function handleTextRunSpanKeyDown(event: KeyboardEvent, viewDom: HTMLElem
     return false;
   }
 
-  if ((event.metaKey || event.ctrlKey) && !event.altKey && !event.shiftKey && event.key.toLowerCase() === "a") {
+  if (hasPrimaryShortcutModifier(event) && !event.altKey && !event.shiftKey && event.key.toLowerCase() === "a") {
     if (selectEntireTextRun(handle.editor)) {
       event.preventDefault();
       return true;
@@ -997,7 +998,7 @@ export function handleTextRunSpanKeyDown(event: KeyboardEvent, viewDom: HTMLElem
   // 効かない (ネイティブ選択は焦点エディタにしか張っていない) ので、span 経路で全ユニット
   // の担当範囲へ配って適用する。選択は保つ。
   if (
-    (event.metaKey || event.ctrlKey)
+    hasPrimaryShortcutModifier(event)
     && !event.altKey
     && !event.shiftKey
     && ["b", "i", "u"].includes(event.key.toLowerCase())

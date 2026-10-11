@@ -16,11 +16,12 @@ import {
   getInlineMathShiftDigit7Text,
   hasInlineMathEditGuardDecoration,
   hasInlineMathLatexCommandCandidate,
-  indexAnonymousInlineMathPlaceholders,
   normalizeInlineMathLatexAliases,
   normalizeInlineMathLineBreakInput,
   normalizeInlineMathTexLiteralInput,
+  insertInlineMathTexAtSelection,
   removeInlineMathClickPlaceholderIds,
+  unwrapFilledInlineMathPlaceholders,
   restoreDesktopInputSource,
   requestDesktopAsciiInputSource,
   insertMathKeyboardShortcutInlineMathAtSelection,
@@ -36,6 +37,7 @@ import {
   shouldStartInlineMathOnBackslash,
 } from "@/components/tiptap/inline-math-extension";
 import { MATH_KEYBOARD_SHORTCUTS, getMathKeyboardMathShortcut } from "@/lib/math-keyboard-shortcuts";
+import { toInlineMathTypeAheadKey } from "@/components/tiptap/inline-math-type-ahead";
 import type { TiptapDoc } from "@/lib/tiptap-adapter";
 import { DEFAULT_MATH_RENDER_ENVIRONMENT } from "@/lib/math-environment";
 
@@ -69,27 +71,41 @@ describe("math tiptap extensions", () => {
     expect(getInlineMathPlaceholderIndexAtPoint(preview, 35, 20)).toBeNull();
   });
 
-  it("selects the matching MathLive prompt when editing begins", () => {
+  it("selects the clicked placeholder itself, without turning blanks into prompts", () => {
+    // \frac{\placeholder{}}{x+\placeholder[answer]{}} を MathLive が原子ごとに返す値。
+    const atoms = ["", "\\placeholder{}", "", "x", "+", "\\placeholder[answer]{}", "\\frac{\\placeholder{}}{x+\\placeholder[answer]{}}"];
     const mathField = {
-      getPromptRange: (id: string) => id === "denominator" ? [8, 8] : [3, 3],
-      getPrompts: () => ["numerator", "denominator"],
-      selection: 0,
+      getPromptRange: (id: string) => id === "answer" ? [5, 5] : null,
+      getValue: (start: number, end: number) => end === start + 1 ? atoms[end] : "",
+      lastOffset: atoms.length - 1,
+      selection: 0 as unknown,
     };
 
+    expect(focusInlineMathPlaceholder(mathField as never, 0)).toBe(true);
+    expect(mathField.selection).toEqual({ direction: "forward", ranges: [[0, 1]] });
     expect(focusInlineMathPlaceholder(mathField as never, 1)).toBe(true);
-    expect(mathField.selection).toEqual([8, 8]);
-    expect(focusInlineMathPlaceholder(mathField as never, 3)).toBe(false);
+    expect(mathField.selection).toEqual([5, 5]);
+    expect(focusInlineMathPlaceholder(mathField as never, 2)).toBe(false);
   });
 
-  it("temporarily gives anonymous placeholders distinct ids and removes them on commit", () => {
-    const indexed = indexAnonymousInlineMathPlaceholders(
-      String.raw`\frac{\placeholder{}}{\placeholder[answer]{}}`,
-    );
+  it("keeps a TeX-mode shortcut command separate from the next letter", () => {
+    expect(insertInlineMathTexAtSelection("a", 1, 1, String.raw`\pi`)).toEqual({ cursor: 5, tex: String.raw`a\pi ` });
+    expect(insertInlineMathTexAtSelection("", 0, 0, String.raw`\sin #?`)).toEqual({ cursor: 5, tex: String.raw`\sin ` });
+    expect(insertInlineMathTexAtSelection("", 0, 0, String.raw`\frac{#?}{#?}`)).toEqual({ cursor: 6, tex: String.raw`\frac{}{}` });
+    expect(insertInlineMathTexAtSelection("", 0, 0, String.raw`^{\circ}`)).toEqual({ cursor: 8, tex: String.raw`^{\circ}` });
+  });
 
-    expect(indexed).toBe(
-      String.raw`\frac{\placeholder[sigma-click-0]{}}{\placeholder[answer]{}}`,
-    );
-    expect(removeInlineMathClickPlaceholderIds(indexed)).toBe(
+  it("turns blanks that 0.511.0 saved with typed content back into plain groups", () => {
+    expect(unwrapFilledInlineMathPlaceholders(String.raw`\log\placeholder{x}`)).toBe(String.raw`\log{x}`);
+    expect(unwrapFilledInlineMathPlaceholders(String.raw`\frac{\placeholder{12}}{\placeholder{}}`)).toBe(String.raw`\frac{{12}}{\placeholder{}}`);
+    expect(unwrapFilledInlineMathPlaceholders(String.raw`\placeholder{\frac{a}{\placeholder{b}}}+\placeholder[answer]{c}`))
+      .toBe(String.raw`{\frac{a}{{b}}}+\placeholder[answer]{c}`);
+    expect(unwrapFilledInlineMathPlaceholders(String.raw`\sqrt{\placeholder{ }}`)).toBe(String.raw`\sqrt{\placeholder{}}`);
+    expect(unwrapFilledInlineMathPlaceholders(String.raw`\placeholder{x`)).toBe(String.raw`\placeholder{x`);
+  });
+
+  it("drops temporary placeholder ids left by older builds on commit", () => {
+    expect(removeInlineMathClickPlaceholderIds(String.raw`\frac{\placeholder[sigma-click-0]{}}{\placeholder[answer]{}}`)).toBe(
       String.raw`\frac{\placeholder{}}{\placeholder[answer]{}}`,
     );
   });
@@ -309,7 +325,7 @@ describe("math tiptap extensions", () => {
     expect(normalizeInlineMathTexLiteralInput(String.raw`\al`)).toBe(String.raw`\al`);
   });
 
-  it("creates inline math directly from keyboard shortcuts in body text", () => {
+  it("opens empty inline math for keyboard shortcuts in body text and hands the shortcut to the field", () => {
     const schema = getSchema(extensions);
     const doc = schema.nodes.doc.create(null, [
       schema.nodes.paragraph.create(null, [schema.text("abc")]),
@@ -319,7 +335,8 @@ describe("math tiptap extensions", () => {
       schema,
       selection: TextSelection.create(doc, 2),
     });
-    const shortcut = getMathKeyboardMathShortcut(keyEvent("g", { code: "KeyG", ctrlKey: true }));
+    const event = keyEvent("g", { code: "KeyG", ctrlKey: true });
+    const shortcut = getMathKeyboardMathShortcut(event);
     let nextState = state;
 
     expect(shortcut?.tex).toBe("\\sum_{#?}^{#?} #?");
@@ -327,14 +344,17 @@ describe("math tiptap extensions", () => {
       state,
       schema.nodes.mathInline,
       shortcut!,
+      toInlineMathTypeAheadKey(event),
       (transaction) => {
         nextState = state.apply(transaction);
       },
     )).toBe(true);
 
+    // テンプレートは、数式の中で押したときと同じ経路 (入力欄への打鍵) で入る。本文側で
+    // `#?` を展開すると空欄が枠付きの prompt になり、数式の中で押した結果と食い違う。
     const inserted = nextState.doc.nodeAt(2);
     expect(inserted?.type.name).toBe("mathInline");
-    expect(inserted?.attrs.tex).toBe("\\sum_{#?}^{#?} #?");
+    expect(inserted?.attrs.tex).toBe("");
     expect(nextState.doc.textContent).toBe("abc");
   });
 
@@ -348,7 +368,8 @@ describe("math tiptap extensions", () => {
       schema,
       selection: TextSelection.create(doc, 2, 3),
     });
-    const shortcut = getMathKeyboardMathShortcut(keyEvent("2", { altKey: true, code: "Digit2", ctrlKey: true }));
+    const event = keyEvent("2", { altKey: true, code: "Digit2", ctrlKey: true });
+    const shortcut = getMathKeyboardMathShortcut(event);
     let nextState = state;
 
     expect(createInlineMathTexFromMathKeyboardShortcut(shortcut!, "b")).toBe("{b}^{2}");
@@ -356,6 +377,7 @@ describe("math tiptap extensions", () => {
       state,
       schema.nodes.mathInline,
       shortcut!,
+      toInlineMathTypeAheadKey(event),
       (transaction) => {
         nextState = state.apply(transaction);
       },
