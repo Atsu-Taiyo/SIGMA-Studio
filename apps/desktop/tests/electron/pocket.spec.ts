@@ -353,15 +353,15 @@ test("the selected part flies into the pocket, and the closed pocket is a chip a
     expect(heights.some((height) => height > 8 && height < 80)).toBe(true);
     expect(heights[heights.length - 1]).toBe(88);
 
-    // 畳むと、チップは普段は見えない。上部へマウスを持っていくと、上部の真ん中に現れる。
+    // 畳むと、上部の真ん中にチップが出たままになる (マウスを上部へ持っていかなくても見える)。
     await page.locator("[data-pocket-root]").getByRole("button", { name: "ポケットを閉じる" }).click();
     const handle = page.locator("[data-pocket-root]").getByRole("button", { name: /ポケット 1件/ });
     const opacity = () => handle.evaluate((element) => parseFloat(getComputedStyle(element).opacity));
     const bar = (await page.locator("[data-pocket-root]").boundingBox())!;
     await page.mouse.move(700, bar.y + 300);
-    await expect.poll(opacity).toBe(0);
-    await page.mouse.move(700, bar.y + 12, { steps: 4 });
     await expect.poll(opacity).toBe(1);
+    await page.waitForTimeout(500);
+    expect(await opacity()).toBe(1);
     const chip = (await handle.boundingBox())!;
     const width = await page.evaluate(() => window.innerWidth);
     expect(Math.abs(chip.x + chip.width / 2 - width / 2)).toBeLessThanOrEqual(2);
