@@ -18,6 +18,8 @@ updates:
       - dependency-name: "@types/react-dom"
         update-types: ["version-update:semver-major"]
     groups:
+      next-toolchain:
+        patterns: ["next", "eslint-config-next", "@next/eslint-plugin-next"]
       tiptap:
         patterns: ["@tiptap/*"]
       desktop-runtime:

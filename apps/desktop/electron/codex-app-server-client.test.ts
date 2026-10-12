@@ -629,9 +629,7 @@ describe("CodexAppServerClient", () => {
       input: [{ type: "text", text: "HANG", text_elements: [] }],
       runId: "run_cancel_2",
     });
-    await new Promise((resolve) => setTimeout(resolve, 20));
-
-    expect(client.cancelByRunId("run_cancel_2")).toBe(true);
+    await vi.waitFor(() => expect(client.cancelByRunId("run_cancel_2")).toBe(true));
     // Second cancel on the same runId: turn already completed/removed, so this
     // is a no-op rather than throwing or resolving twice.
     expect(client.cancelByRunId("run_cancel_2")).toBe(false);
