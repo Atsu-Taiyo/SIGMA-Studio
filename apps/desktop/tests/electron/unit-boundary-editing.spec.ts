@@ -91,6 +91,10 @@ test("Enter at the start of a later unit's first paragraph adds one blank line i
     await expect(page.locator('[data-flow-unit-id="b40"]')).toHaveCount(1);
     await caretAtStart(page, "b40");
     await page.keyboard.press("Enter");
+    await expect.poll(async () => {
+      const texts = await drawnTexts(page);
+      return texts.slice(texts.indexOf("段落39"), texts.indexOf("段落40") + 1);
+    }).toEqual(["段落39", "", "段落40"]);
     await page.keyboard.press("ArrowUp");
     await page.keyboard.type("テスト");
 
@@ -112,7 +116,7 @@ test("Enter at the start of a later unit's first paragraph adds one blank line i
     expect(reloaded.filter(text => text === "テスト")).toHaveLength(1);
   } finally {
     await app.close();
-    rmSync(profile, { recursive: true, force: true, maxRetries: 3 });
+    rmSync(profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
   }
 });
 
@@ -129,7 +133,7 @@ test("Enter at the start of the document keeps the caret in the moved paragraph"
     expect(await drawnTexts(page)).toEqual(["", "あ最初の段落", "次の段落"]);
   } finally {
     await app.close();
-    rmSync(profile, { recursive: true, force: true, maxRetries: 3 });
+    rmSync(profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
   }
 });
 
@@ -164,7 +168,7 @@ test("a formula in a paragraph with a sized run is coloured when selected", asyn
     })).toBe("rgba(0, 0, 0, 0)");
   } finally {
     await app.close();
-    rmSync(profile, { recursive: true, force: true, maxRetries: 3 });
+    rmSync(profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
   }
 });
 
@@ -203,6 +207,6 @@ test("a drag that starts on a formula extends into the next unit", async () => {
     await expect(page.locator(".page-flow math-field")).toHaveCount(1);
   } finally {
     await app.close();
-    rmSync(profile, { recursive: true, force: true, maxRetries: 3 });
+    rmSync(profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
   }
 });
