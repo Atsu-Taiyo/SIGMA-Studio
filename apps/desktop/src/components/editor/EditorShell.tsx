@@ -4574,6 +4574,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
       data-backstage-open={ribbonBackstageOpen ? "true" : undefined}
       data-ribbon-collapsed={ribbonCollapse.collapsed ? "true" : undefined}
       data-pocket={pocketVisible && pocketPhase !== "hidden" ? pocketPhase : undefined}
+      data-problem-display={problemDisplayActive && pageEditorMounted ? "filtered" : undefined}
       data-ai-sidebar-open={aiDisplayMode === "sidebar" && aiSidebarOpen ? "true" : undefined}
       data-right-dock-open={isDesktopApp && !isEmbedded && rightDock.open ? "true" : undefined}
       data-tab-groups={!isEmbedded ? "true" : undefined}

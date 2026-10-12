@@ -302,13 +302,6 @@ test("says so when nothing is selected, instead of silently doing nothing", asyn
   await expect(cards(page)).toHaveCount(0);
 });
 
-/** 畳んだポケットの上部 (段の上端から少し下) へマウスを持っていく。チップが現れる。 */
-async function hoverClosedPocketTop(page: Page): Promise<void> {
-  const bar = (await pocket(page).boundingBox())!;
-  await page.mouse.move(40, bar.y + 200);
-  await page.mouse.move(700, bar.y + 12, { steps: 4 });
-}
-
 test("collapses without taking any room, and reopens from the chip", async ({ page }) => {
   await openEditor(page);
   await selectSourceLine(page);
@@ -325,7 +318,6 @@ test("collapses without taking any room, and reopens from the chip", async ({ pa
   expect(paperTopClosed).toBeLessThan(paperTopOpen - expanded!.height / 2);
   expect((await pageFitsViewport(page)).overflow).toBeLessThanOrEqual(0);
 
-  await hoverClosedPocketTop(page);
   await pocket(page).getByRole("button", { name: /ポケット 1件/ }).click();
   await expect(cards(page)).toHaveCount(1);
 });
@@ -391,7 +383,7 @@ async function dragChipTo(page: Page, chip: Locator, x: number, y: number): Prom
   await page.mouse.up();
 }
 
-test("shows the closed pocket as a small chip at the top centre, only while the pointer is up there", async ({ page }) => {
+test("shows the closed pocket as a small chip at the top centre, without waiting for the pointer", async ({ page }) => {
   await openEditor(page);
   await enableMotion(page);
   await selectSourceLine(page);
@@ -402,15 +394,11 @@ test("shows the closed pocket as a small chip at the top centre, only while the 
   const handle = pocket(page).getByRole("button", { name: /ポケット 1件/ });
   const opacity = () => handle.evaluate((element) => parseFloat(getComputedStyle(element).opacity));
 
-  // マウスが上にいないあいだは見えず、その下の紙面を操作できる (チップはマウスを受けない)。
+  // マウスが上部に無くても見えていて、押せる。
   const bar = (await pocket(page).boundingBox())!;
   await page.mouse.move(700, bar.y + 300);
-  await expect.poll(opacity).toBe(0);
-  expect(await handle.evaluate((element) => getComputedStyle(element).pointerEvents)).toBe("none");
-
-  // 上部へマウスを持っていくと現れる。
-  await page.mouse.move(700, bar.y + 12, { steps: 4 });
   await expect.poll(opacity).toBe(1);
+  expect(await handle.evaluate((element) => getComputedStyle(element).pointerEvents)).toBe("auto");
   const chip = (await handle.boundingBox())!;
   const viewport = page.viewportSize()!;
   // 上部の真ん中。丸い小さなチップで、帯いっぱいには広がらない。
@@ -427,15 +415,69 @@ test("shows the closed pocket as a small chip at the top centre, only while the 
   expect(band.background).toBe("rgba(0, 0, 0, 0)");
   expect(band.borderBottom).toBe("0px");
 
-  // 離れると、少しして引っ込む。
-  await page.mouse.move(700, bar.y + 300, { steps: 4 });
-  await expect.poll(opacity).toBe(0);
+  // マウスを動かしても引っ込まない。
+  await page.mouse.move(40, bar.y + 500, { steps: 4 });
+  await page.waitForTimeout(500);
+  expect(await opacity()).toBe(1);
 
   // 開くと、中身のカードが元のとおり並ぶ。
-  await page.mouse.move(700, bar.y + 12, { steps: 4 });
-  await expect.poll(opacity).toBe(1);
   await handle.click();
   await expect(cards(page)).toHaveCount(1);
+});
+
+test("takes the chip away once everything is taken out and the pocket is closed", async ({ page }) => {
+  await openEditor(page);
+  await selectSourceLine(page);
+  await page.keyboard.press("ControlOrMeta+Shift+KeyC");
+  await expect(cards(page)).toHaveCount(1);
+  await pocket(page).getByRole("button", { name: "ポケットを閉じる" }).click();
+  await expect(pocket(page).getByRole("button", { name: /ポケット 1件/ })).toBeVisible();
+
+  // 開いて全部外して畳むと、チップも出さない (空のポケットは見せない)。
+  await pocket(page).getByRole("button", { name: /ポケット 1件/ }).click();
+  await cards(page).first().focus();
+  await page.keyboard.press("Delete");
+  await expect(cards(page)).toHaveCount(0);
+  await pocket(page).getByRole("button", { name: "ポケットを閉じる" }).click();
+  await expect(pocket(page)).toHaveCount(0);
+});
+
+test("sets the closed pocket's chip beside the display filter's chip instead of on top of it", async ({ page }) => {
+  await openEditor(page);
+  await selectSourceLine(page);
+  await page.keyboard.press("ControlOrMeta+Shift+KeyC");
+  await expect(cards(page)).toHaveCount(1);
+  await pocket(page).getByRole("button", { name: "ポケットを閉じる" }).click();
+  const handle = pocket(page).getByRole("button", { name: /ポケット 1件/ });
+  await expect(handle).toBeVisible();
+  const viewport = page.viewportSize()!;
+  const alone = (await handle.boundingBox())!;
+  expect(Math.abs(alone.x + alone.width / 2 - viewport.width / 2)).toBeLessThanOrEqual(2);
+
+  // 設定 > 表示 で「解答」を外すと、上部の真ん中に絞り込みのチップが出る。
+  await page.locator(".editor-menubar").getByRole("button", { name: "設定", exact: true }).click();
+  await page.getByRole("menuitem", { name: "表示", exact: true }).hover();
+  await page.getByRole("menuitemcheckbox", { name: "解答", exact: true }).click();
+  await page.keyboard.press("Escape");
+  const filter = page.locator(".problem-display-chip");
+  await expect(filter).toBeVisible();
+
+  // 真ん中の線を挟んで、左にポケット、右に絞り込み。重ならず、同じ高さに並ぶ。
+  const pocketChip = (await handle.boundingBox())!;
+  const filterChip = (await filter.boundingBox())!;
+  expect(pocketChip.x + pocketChip.width).toBeLessThanOrEqual(viewport.width / 2);
+  expect(filterChip.x).toBeGreaterThanOrEqual(viewport.width / 2);
+  expect(filterChip.x).toBeGreaterThan(pocketChip.x + pocketChip.width);
+  expect(Math.abs(filterChip.y - pocketChip.y)).toBeLessThanOrEqual(1);
+  // どちらも押せる (上に別のものが被っていない)。
+  await page.locator("[data-problem-display-chip]").getByRole("button", { name: "すべて表示に戻す" }).click();
+  await expect(filter).toHaveCount(0);
+  await expect.poll(async () => {
+    const box = (await handle.boundingBox())!;
+    return Math.abs(box.x + box.width / 2 - viewport.width / 2);
+  }).toBeLessThanOrEqual(2);
+  await handle.click();
+  await expect(pocket(page)).toHaveAttribute("data-phase", "expanded");
 });
 
 /** 動いている間の、バーの高さと紙面の上端を、フレームごとに記録する。 */
@@ -549,7 +591,7 @@ test("the card flies in only after the pocket has finished opening", async ({ pa
   await expect(flyer).toHaveCount(0);
 });
 
-test("the chip is reachable from the keyboard even while it is out of sight", async ({ page }) => {
+test("the chip is reachable from the keyboard and opens with Enter", async ({ page }) => {
   await openEditor(page);
   await selectSourceLine(page);
   await page.keyboard.press("ControlOrMeta+Shift+KeyC");
@@ -558,7 +600,7 @@ test("the chip is reachable from the keyboard even while it is out of sight", as
 
   await handle.focus();
 
-  // 焦点が来ると現れ、Enter で開く。
+  // 焦点が来ても見えたまま、Enter で開く。
   await expect.poll(() => handle.evaluate((element) => parseFloat(getComputedStyle(element).opacity))).toBe(1);
   await page.keyboard.press("Enter");
   await expect(cards(page)).toHaveCount(1);

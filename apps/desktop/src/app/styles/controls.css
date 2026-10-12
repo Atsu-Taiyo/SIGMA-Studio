@@ -39,6 +39,9 @@
   /* 開いたポケットの高さ。`--editor-pocket-height` は開閉でこの値へ向かって動く (下の `@property`)
      ので、動いている最中の値ではなく「開き切ったときの高さ」が要る箇所 (バーの中身の高さ) はこちらを引く。 */
   --editor-pocket-open-height: 88px;
+  /* 畳んだポケットのチップを横へずらす量 (チップ自身の translate)。上部中央にほかのチップが
+     並ぶときだけ、`.app-shell` の側で上書きする (workspace.css の絞り込みチップ)。 */
+  --editor-pocket-chip-shift: 0px;
   /* Word風のステータスバーの実寸。--editor-statusbar-height は「いまのレイアウトで
      本文が譲るべき高さ」なので docs では 0px になるが、こちらは常に実寸を持つ。
      body へ portal されて `.app-shell` の外に出る浮遊UI（描画ヒント等）が、
