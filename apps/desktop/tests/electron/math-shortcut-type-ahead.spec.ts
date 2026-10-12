@@ -194,9 +194,16 @@ test("keys typed right after entering an existing formula stay in it, and a clic
     await arrow.click();
     await arrow.evaluate(el => {
       const before = document.createTreeWalker(el, NodeFilter.SHOW_TEXT).nextNode()!;
-      getSelection()!.collapse(before, before.textContent!.length);
+      const host = el.closest<HTMLElement>(".ProseMirror") as (HTMLElement & {
+        editor?: { view: { posAtDOM(node: Node, offset: number): number; focus(): void };
+          commands: { setTextSelection(position: number): boolean } };
+      }) | null;
+      const editor = host?.editor;
+      if (!editor) throw new Error("The text editor is required");
+      editor.commands.setTextSelection(editor.view.posAtDOM(before, before.textContent!.length));
+      editor.view.focus();
     });
-    // ProseMirror が DOM の選択を取り込むのを待つ (取り込む前の → は前の位置から動く)。
+    // 操作前のカーソル位置を確定する (取り込む前の → は前の位置から動く)。
     await expect.poll(() => arrow.evaluate(el => {
       const host = el.closest<HTMLElement>(".ProseMirror") as (HTMLElement & {
         editor?: { state: { selection: { empty: boolean; $from: { parentOffset: number; parent: { attrs: Record<string, unknown> } } } } };
