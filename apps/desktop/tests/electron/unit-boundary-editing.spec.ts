@@ -96,6 +96,12 @@ test("Enter at the start of a later unit's first paragraph adds one blank line i
       return texts.slice(texts.indexOf("段落39"), texts.indexOf("段落40") + 1);
     }).toEqual(["段落39", "", "段落40"]);
     await page.keyboard.press("ArrowUp");
+    await expect.poll(() => page.evaluate(() => {
+      const selection = getSelection();
+      const anchor = selection?.anchorNode;
+      const paragraph = (anchor?.nodeType === Node.ELEMENT_NODE ? anchor as Element : anchor?.parentElement)?.closest("p");
+      return paragraph?.textContent;
+    })).toBe("");
     await page.keyboard.type("テスト");
 
     await expect.poll(() => drawnTexts(page).then(texts => texts.filter(text => text === "テスト").length)).toBe(1);
