@@ -66,9 +66,9 @@ test("React 18's scheduler cannot disappear during regeneration", (t) => {
   }), /Missing required dependency.*scheduler/);
 });
 
-test("workspace dependency specifications must match their manifests", (t) => {
+test("declared workspace dependencies cannot be omitted from lock metadata", (t) => {
   assert.throws(withLock(t, (lock) => {
-    lock.packages["tests/fixtures/editor-react18"].dependencies.react = "^19.0.0";
+    delete lock.packages["tests/fixtures/editor-react18"].dependencies.react;
   }), /Workspace dependencies differ/);
 });
 
@@ -84,4 +84,11 @@ test("a missing transitive required dependency fails", (t) => {
       if (location.endsWith("node_modules/csstype")) delete lock.packages[location];
     }
   }), /Missing required dependency.*csstype/);
+});
+
+// Dependabot can generate this harmless metadata difference for a pinned runtime.
+test("exact manifest pins may have range notation in lock metadata", (t) => {
+  assert.equal(withLock(t, (lock) => {
+    lock.packages["apps/desktop"].devDependencies.electron = `^${baseline.packages["apps/desktop"].devDependencies.electron}`;
+  })(), manifest.workspaces.length);
 });
