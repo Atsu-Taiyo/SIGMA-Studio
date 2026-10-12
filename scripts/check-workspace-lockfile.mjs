@@ -34,7 +34,10 @@ export function checkWorkspaceLockfile(root) {
     assert.ok(locked, `Missing workspace in lockfile: ${location || "root"}`);
     assert.equal(locked.version, source.version, `Workspace version differs: ${location || "root"}`);
     for (const field of dependencyFields) {
-      assert.deepEqual(locked[field] ?? {}, source[field] ?? {}, `Workspace ${field} differ: ${location || "root"}`);
+      // npm may retain a range here even when Dependabot keeps an exact
+      // manifest pin. Required names must match; npm ci validates versions.
+      assert.deepEqual(Object.keys(locked[field] ?? {}).sort(), Object.keys(source[field] ?? {}).sort(),
+        `Workspace ${field} differ: ${location || "root"}`);
     }
     // React 18 must not silently fall back to the hoisted React 19 install.
     for (const name of ["react", "react-dom", "@types/react", "@types/react-dom"]) {
