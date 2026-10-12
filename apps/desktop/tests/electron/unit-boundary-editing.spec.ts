@@ -95,13 +95,15 @@ test("Enter at the start of a later unit's first paragraph adds one blank line i
       const texts = await drawnTexts(page);
       return texts.slice(texts.indexOf("段落39"), texts.indexOf("段落40") + 1);
     }).toEqual(["段落39", "", "段落40"]);
-    await page.keyboard.press("ArrowUp");
-    await expect.poll(() => page.evaluate(() => {
-      const selection = getSelection();
-      const anchor = selection?.anchorNode;
-      const paragraph = (anchor?.nodeType === Node.ELEMENT_NODE ? anchor as Element : anchor?.parentElement)?.closest("p");
-      return paragraph?.textContent;
-    })).toBe("");
+    // この回帰は空行の所属と保存を検証する。矢印キーの非同期な行移動に依存せず、
+    // 同じ編集単位に追加された空行へカーソルを置く（元の不具合ならここで落ちる）。
+    const unitAfterEnter = page.locator(".page-flow [data-flow-unit-id]:has(.ProseMirror-focused)");
+    await expect(unitAfterEnter.locator('[data-sigma-doc-id="b40"]')).toHaveCount(1);
+    const blank = unitAfterEnter.locator("p[data-sigma-doc-id]").first();
+    await expect(blank).toHaveText("");
+    const blankId = await blank.getAttribute("data-sigma-doc-id");
+    expect(blankId).toBeTruthy();
+    await caretAtStart(page, blankId!);
     await page.keyboard.type("テスト");
 
     await expect.poll(() => drawnTexts(page).then(texts => texts.filter(text => text === "テスト").length)).toBe(1);
