@@ -7,6 +7,18 @@ npm ci
 npm run dev
 ```
 
+## ワークスペースの依存更新
+
+依存の更新後はルートで `npm run lockfile:refresh` を実行し、`npm ci` で再現性を確認します。
+全ワークスペースを含めて更新し、個別のpackage-lock.jsonは作りません。
+`npm run lockfile:check` はインストール前にも実行でき、ワークスペース・リンク・必須依存の欠落を検出します。
+CIでもこの検査を `npm ci` の前に実行します。CIでlockfileを自動修復せず、不整合は失敗させます。
+
+Dependabotの `exclude-paths` でルートのワークスペースのpackage.jsonを除外しないでください。
+除外するとlockfileの再生成からもその依存グラフが失われます。
+React 18検証用fixtureとReact 19の実アプリ・サンプルを共存させるため、Reactとその型の
+メジャー更新のみ `ignore` で止め、マイナー・パッチ更新は許可しています。
+
 ## デスクトップ版をホットリロードで開発する
 
 ```sh

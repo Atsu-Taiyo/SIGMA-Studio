@@ -51,7 +51,9 @@
     "dependencies:check": "node scripts/check-desktop-dependencies.mjs",
     "security:audit": "node --test scripts/dependency-security.test.mjs && npm audit --audit-level=high",
     "test:public-browser:react19": "npm run test:public-browser",
-    "test:public-browser:react18": "npm exec --workspace @sigma-studio/desktop -- playwright test --config ../../tests/public-browser/playwright.react18.config.mts"
+    "test:public-browser:react18": "npm exec --workspace @sigma-studio/desktop -- playwright test --config ../../tests/public-browser/playwright.react18.config.mts",
+    "lockfile:check": "node scripts/check-workspace-lockfile.mjs",
+    "lockfile:refresh": "npm install --package-lock-only --ignore-scripts --workspaces --include-workspace-root --no-audit --no-fund && npm run lockfile:check"
   },
   "devDependencies": {
     "@next/eslint-plugin-next": "16.3.8",

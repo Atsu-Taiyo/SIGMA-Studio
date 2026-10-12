@@ -25,6 +25,7 @@ jobs:
         with:
           node-version: "24"
           cache: npm
+      - run: npm run lockfile:check
       - run: npm ci
       - run: npm run dependencies:check
       - run: npm run version:check
@@ -48,6 +49,7 @@ jobs:
         with:
           node-version: "24"
           cache: npm
+      - run: npm run lockfile:check
       - run: npm ci
       # Includes build/test dependencies: compromised tooling can affect releases.
       - run: npm run dependencies:check
@@ -65,6 +67,7 @@ jobs:
         with:
           node-version: "24"
           cache: npm
+      - run: npm run lockfile:check
       - run: npm ci
       - run: npm run dependencies:check
       - run: npm exec --workspace @sigma-studio/desktop -- playwright install --with-deps chromium
@@ -123,6 +126,7 @@ jobs:
         with:
           node-version: "24"
           cache: npm
+      - run: npm run lockfile:check
       - run: npm ci
       # Viewer declarations must exist before Editor's public contract checks.
       - run: npm run editor:build
@@ -152,6 +156,7 @@ jobs:
         with:
           node-version: "24"
           cache: npm
+      - run: npm run lockfile:check
       - run: npm ci
       - name: Verify ownership and real process recovery
         run: npm --workspace @sigma-studio/desktop run test -- file-lock
