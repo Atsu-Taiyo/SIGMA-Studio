@@ -96,6 +96,7 @@ import { OverlayImagePreviewContext } from "./overlay-canvas/image-preview-conte
 import { useTikzEditor } from "./tikz/use-tikz-editor";
 
 import { HeldBodySelectionOverlay } from "@/components/editor/editor-shell/HeldBodySelectionOverlay";
+import { useChromeHeldBodySelection } from "@/components/editor/editor-shell/use-chrome-held-body-selection";
 import type { EditorChromeValue } from "@/components/editor/editor-shell/chrome/chrome-types";
 import { renderEditorChrome } from "@/components/editor/editor-shell/chrome/editor-chrome";
 import { NO_COLUMN_COMMAND,resolveColumnCommandState } from "@/components/editor/editor-shell/chrome/layout-commands";
@@ -653,6 +654,8 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
     setStatusMessage(message);
   }, [setSaveState, setStatusMessage, tE]);
   const { textFontSize, setTextFontSize, textFontSizeMixed, setTextFontSizeMixed, fontSizeInput, setFontSizeInput, boxedTextPaddingY, setBoxedTextPaddingY, boxedTextActive, boldActive, italicActive, underlineActive, blockStyleState, documentTextFormatTarget, hasMultiEditorTextRunSpan, boxedTextVariant, setBoxedTextVariant, textColor, setTextColor, textBackgroundColor, setTextBackgroundColor, strokeColor, setStrokeColor, fontFamily, setFontFamily, lineHeight, setLineHeight, lineHeightInput, setLineHeightInput, lineHeightInputError, setLineHeightInputError, lineHeightCustomOpen, setLineHeightCustomOpen, getLastBoxedFormat, rememberBoxedFormat, saveEditorFontFamilyPreference } = useTextFormattingState();
+  // ツールバーの入力欄へフォーカスが移っても、本文の選択を見せ続ける (`HeldBodySelectionOverlay`)。
+  const chromeHeldBodyEditor = useChromeHeldBodySelection();
   const zoom = useStore(editorStore, (state) => state.zoom);
   // パンは倍率と同じストアに置く (理由は EditorToolbarSlice の宣言のコメント)。
   const whiteboardPan = useStore(editorStore, (state) => state.whiteboardPan);
@@ -4591,7 +4594,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
       />
       {/* 図形を選んでいる間、フォーカスを失った本文の選択を描き直す帯。
           「本文も図形も同時に選ばれている」ことが画面から読めないと混在コピーは事故になる。 */}
-      <HeldBodySelectionOverlay active={overlaySelection.selectedCount > 0} />
+      <HeldBodySelectionOverlay active={overlaySelection.selectedCount > 0} heldEditor={chromeHeldBodyEditor} />
       <CommandPalette
         open={commandPaletteOpen}
         entries={paletteEntries}

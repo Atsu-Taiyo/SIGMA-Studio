@@ -49,6 +49,7 @@ import {
 } from "@/lib/graph-tex";
 import { findGraphCurveIntersections } from "@/lib/graph-intersection";
 import { insertEditableMathTemplateTex } from "@/lib/math-tex";
+import { insertTemplateIntoFocusedInlineMathField } from "@/components/tiptap/inline-math-type-ahead";
 import {
   DEFAULT_GRAPH_FILL_COLOR,
   GRAPH_FILL_PATTERN_OPTIONS,
@@ -233,6 +234,13 @@ export function InlineMathDetails({
     : 0;
 
   const insertTemplate = (templateTex: string) => {
+    // 数式を編集中なら、その入力欄に数式の中の Ctrl ショートカットと同じ挿入で入れる
+    // (キャレットは最初の空欄へ)。TeX を書き換えて渡し直すと、キャレットが末尾へ飛ぶ。
+    // 選択中の数式の通知より先に見る: 本文の選択の通知が遅れて選択を空にすると、編集中の数式が
+    // 新しく挿入した数式に置き換わっていた。
+    if (insertTemplateIntoFocusedInlineMathField(templateTex)) {
+      return;
+    }
     if (!selectedInlineMath) {
       onInsertTemplate?.(templateTex);
       return;

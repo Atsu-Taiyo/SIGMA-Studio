@@ -991,7 +991,14 @@ export function renderEditorChrome(chrome: EditorChromeValue) {
           </div>
   );
 
-  const commitFontSizeInput = (value: string) => {
+  const shownFontSize = activeTextFontSize === null ? "" : String(activeTextFontSize);
+  const commitFontSizeInput = (value: string, { applyUnchanged = false }: { applyUnchanged?: boolean } = {}) => {
+    // 打ち変えていない値は書き込まない。焦点を当てて外すだけで、引き継いでいた文字サイズが明示の
+    // 指定に変わり (文書が変わる)、まちまちの範囲は表示中の値にそろってしまっていた。
+    if (value.trim() === shownFontSize && !applyUnchanged) {
+      setFontSizeInput(shownFontSize);
+      return;
+    }
     const parsedSize = Number(value);
     if (!value.trim() || !Number.isFinite(parsedSize) || parsedSize <= 0) {
       setFontSizeInput(activeTextFontSize === null ? "" : String(activeTextFontSize));
@@ -1062,7 +1069,8 @@ export function renderEditorChrome(chrome: EditorChromeValue) {
             event.preventDefault();
             event.stopPropagation();
             fontSizeSkipBlurRef.current = true;
-            commitFontSizeInput(event.currentTarget.value);
+            // Enter は明示の確定。まちまちの範囲なら、表示中の値のままでもそろえる。
+            commitFontSizeInput(event.currentTarget.value, { applyUnchanged: activeTextFontSizeMixed });
             event.currentTarget.blur();
           } else if (event.key === "Escape") {
             event.preventDefault();

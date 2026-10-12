@@ -175,6 +175,66 @@ describe("chunkTextRun", () => {
     expect(second.map((chunk) => chunk.length)).toEqual(first.map((chunk) => chunk.length));
   });
 
+  it("フォーカス中のエディタが先頭ブロックの手前に作ったブロックは、そのエディタのチャンクへ入る", () => {
+    // 先頭ブロック b40 の行頭で Enter: 新しい空行 n はフォーカス中のエディタ (b40 のチャンク) の
+    // 中、b40 の手前にできる。境界のままだと n は前のチャンクの末尾へ回り、エディタの中身と
+    // 食い違って空行が二重に描かれ、そこへ打った文字も二重に見えた。
+    const blocks = run(100);
+    const first = chunkTextRun(blocks, null);
+    const withNew = [...blocks.slice(0, 40), paragraph("n"), ...blocks.slice(40)];
+    const leading = new Map([["b40", ["n"]]]);
+
+    const next = chunkTextRun(withNew, stateOf(first), DEFAULT_TEXT_RUN_CHUNK_LIMITS, new Set(["b40:0"]), leading);
+
+    expect(anchorsOf(next)).toEqual(["b0", "n", "b80"]);
+    expect(next.map((chunk) => chunk.length)).toEqual([40, 41, 20]);
+    // 不動点: 出力の境界を渡し直しても動かない (ユニット id が n に変わった後の描画)。
+    const again = chunkTextRun(withNew, stateOf(next), DEFAULT_TEXT_RUN_CHUNK_LIMITS, new Set(["n:0"]));
+    expect(anchorsOf(again)).toEqual(["b0", "n", "b80"]);
+
+    // 手前のブロックを知らされなければ従来どおり前のチャンクへ回る。
+    const unaware = chunkTextRun(withNew, stateOf(first), DEFAULT_TEXT_RUN_CHUNK_LIMITS, new Set(["b40:0"]));
+    expect(next.map((chunk) => chunk.length)).not.toEqual(unaware.map((chunk) => chunk.length));
+    expect(unaware.map((chunk) => chunk.length)).toEqual([41, 40, 20]);
+  });
+
+  it("連なりの先頭でも、手前に作ったブロックは単独のチャンクにならない", () => {
+    // 文書の先頭 (や問題の直後) の段落の行頭で Enter。単独のチャンクにすると、フォーカス中の
+    // エディタが中身を差し替えられて焦点ごと落ちた。
+    const blocks = run(10);
+    const first = chunkTextRun(blocks, null);
+    const withNew = [paragraph("n1"), paragraph("n2"), ...blocks];
+
+    const next = chunkTextRun(
+      withNew,
+      stateOf(first),
+      DEFAULT_TEXT_RUN_CHUNK_LIMITS,
+      new Set(["b0:0"]),
+      new Map([["b0", ["n1", "n2"]]]),
+    );
+
+    expect(anchorsOf(next)).toEqual(["n1"]);
+    expect(next.map((chunk) => chunk.length)).toEqual([12]);
+  });
+
+  it("手前のブロックの並びが文書と食い違うときは境界を動かさない", () => {
+    const blocks = run(100);
+    const first = chunkTextRun(blocks, null);
+    const withNew = [...blocks.slice(0, 40), paragraph("n"), ...blocks.slice(40)];
+
+    // 文書にまだ無いブロック・順序違い・他のチャンクのアンカーは奪わない。
+    for (const leading of [["missing"], ["n", "b39"], ["b0"]]) {
+      const next = chunkTextRun(
+        withNew,
+        stateOf(first),
+        DEFAULT_TEXT_RUN_CHUNK_LIMITS,
+        new Set(["b40:0"]),
+        new Map([["b40", leading]]),
+      );
+      expect(anchorsOf(next)).toEqual(["b0", "b40", "b80"]);
+    }
+  });
+
   it("always starts a chunk at a manual page break", () => {
     const blocks = [
       paragraph("b0"),

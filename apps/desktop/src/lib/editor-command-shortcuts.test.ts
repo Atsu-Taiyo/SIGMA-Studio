@@ -113,11 +113,24 @@ describe("editor command shortcuts", () => {
     expect(duplicate).toBeUndefined();
   });
 
+  it("keeps macOS Control shortcuts for math input instead of reading them as Command", () => {
+    // ⌃I・⌃G・⌃U・⌃B・⌃D・⌃- は数式のショートカット (積分・総和・極限・枠・行列・≠)。
+    for (const key of ["i", "g", "u", "b", "d", "-"]) {
+      expect(findCommandByShortcut(keyEvent({ key, ctrlKey: true }), {}, [], "mac")).toBeNull();
+    }
+    expect(findCommandByShortcut(keyEvent({ key: "i", metaKey: true }), {}, [], "mac")?.commandId).toBe("edit.italic");
+    expect(findCommandByShortcut(keyEvent({ key: "g", metaKey: true }), {}, [], "mac")?.commandId).toBe("overlay.group");
+    expect(findCommandByShortcut(keyEvent({ key: "i", ctrlKey: true }), {}, [], "windows")?.commandId).toBe("edit.italic");
+    // 利用者が ⌃ 付きで割り当てたコマンドは macOS でも ⌃ で動く。
+    expect(findCommandByShortcut(keyEvent({ key: "j", ctrlKey: true }), { "edit.italic": { ctrl: true, key: "j" } }, [], "mac")?.commandId)
+      .toBe("edit.italic");
+  });
+
   it("matches default primary shortcuts", () => {
     expect(findCommandByShortcut(keyEvent({ key: "z", metaKey: true }), {})?.commandId).toBe("edit.undo");
     expect(findCommandByShortcut(keyEvent({ key: "Z", metaKey: true, shiftKey: true }), {})?.commandId).toBe("edit.redo");
-    expect(findCommandByShortcut(keyEvent({ key: "=", ctrlKey: true }), {})?.commandId).toBe("view.zoomIn");
-    expect(findCommandByShortcut(keyEvent({ key: "+", ctrlKey: true, shiftKey: true }), {})?.commandId).toBe("view.zoomIn");
+    expect(findCommandByShortcut(keyEvent({ key: "=", ctrlKey: true }), {}, [], "windows")?.commandId).toBe("view.zoomIn");
+    expect(findCommandByShortcut(keyEvent({ key: "+", ctrlKey: true, shiftKey: true }), {}, [], "windows")?.commandId).toBe("view.zoomIn");
     expect(findCommandByShortcut(keyEvent({ key: "b", metaKey: true }), {})?.commandId).toBe("view.toggleOutline");
     expect(findCommandByShortcut(keyEvent({ key: "i", metaKey: true }), {})?.commandId).toBe("edit.italic");
     expect(findCommandByShortcut(keyEvent({ key: "d", metaKey: true }), {})?.commandId).toBe("overlay.duplicate");

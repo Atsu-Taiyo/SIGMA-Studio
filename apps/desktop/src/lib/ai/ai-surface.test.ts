@@ -116,7 +116,10 @@ describe("surface transitions", () => {
 describe("isInlineToggleShortcut", () => {
   it("matches Cmd/Ctrl+K", () => {
     expect(isInlineToggleShortcut(keyEvent({ key: "k", metaKey: true }))).toBe(true);
-    expect(isInlineToggleShortcut(keyEvent({ key: "K", ctrlKey: true }))).toBe(true);
+    expect(isInlineToggleShortcut(keyEvent({ key: "K", ctrlKey: true }), "windows")).toBe(true);
+    expect(isInlineToggleShortcut(keyEvent({ key: "k", metaKey: true }), "mac")).toBe(true);
+    // macOS の ⌃K は数式の tan。AI は ⌘K だけで開く。
+    expect(isInlineToggleShortcut(keyEvent({ key: "k", ctrlKey: true }), "mac")).toBe(false);
   });
 
   it("ignores plain k and modifier-laden combos", () => {

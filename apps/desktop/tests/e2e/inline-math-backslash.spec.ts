@@ -244,32 +244,24 @@ test("focuses the placeholder square clicked in a realtime math preview", async 
   const inlineMath = flowInlineMath(page, inlineMathId);
   const placeholderSquares = inlineMath.locator(".ML__prompt-atom");
   await expect(placeholderSquares).toHaveCount(2);
-  const staticPromptAppearance = await placeholderSquares.nth(1).locator(".ML__prompt").evaluate((prompt) => {
-    const style = getComputedStyle(prompt);
-    return [style.outlineColor, style.outlineStyle, style.outlineWidth, style.borderRadius];
-  });
 
   await placeholderSquares.nth(1).click();
 
+  // 押した空欄そのものが選ばれる (数式の中で Tab で空欄へ移ったのと同じ)。空欄を枠付きの prompt に
+  // すると、打った文字が \placeholder{7} のまま保存され、左右に余白が付いて見えた。
   const mathLiveField = inlineMath.locator("math-field.inline-math-field");
   await expect(mathLiveField).toBeFocused();
   await expect.poll(() => mathLiveField.evaluate((field) => {
-    const prompt = field.shadowRoot?.querySelector(".ML__focusedPromptBox");
-    if (!(prompt instanceof HTMLElement)) {
-      return null;
-    }
-    const style = getComputedStyle(prompt);
-    return [style.outlineColor, style.outlineStyle, style.outlineWidth, style.borderRadius];
-  })).toEqual(staticPromptAppearance);
+    const input = field as HTMLElement & { getValue: (selection: unknown) => string; selection: unknown };
+    return {
+      prompts: field.shadowRoot?.querySelectorAll(".ML__prompt").length ?? -1,
+      selected: input.getValue(input.selection),
+    };
+  })).toEqual({ prompts: 0, selected: String.raw`\placeholder{}` });
   await page.keyboard.type("7");
-  await expect.poll(() => texFieldValue(mathLiveField)).toBe(
-    String.raw`\frac{\placeholder[sigma-click-0]{}}{\placeholder[sigma-click-1]{7}}`,
-  );
+  await expect.poll(() => texFieldValue(mathLiveField)).toBe(String.raw`\frac{\placeholder{}}{7}`);
   await page.keyboard.press("Enter");
-  await expect(inlineMath).toHaveAttribute(
-    "data-tex",
-    String.raw`\frac{\placeholder{}}{\placeholder{7}}`,
-  );
+  await expect(inlineMath).toHaveAttribute("data-tex", String.raw`\frac{\placeholder{}}{7}`);
 });
 
 test("keeps TeX text runs in the surrounding body font while previewing and editing", async ({ page }) => {
