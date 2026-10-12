@@ -19,6 +19,7 @@ import { mergeLargePasteDeferredBlockIds } from "@/components/editor/text-flow/l
 import { shouldRestoreTextFlowSelectionAfterChange } from "@/components/editor/text-flow/text-run-replacement";
 import {
   clearTextRunSpanOnOutsidePointerDown,
+  getFocusedTextRunLeadingBlockIds,
   getFocusedTextRunUnitIds,
   isMultiEditorTextRunSpan,
 } from "@/components/editor/text-flow/text-run-span";
@@ -443,6 +444,9 @@ const {
           getFocusedTextRunUnitIds(),
           pageDocument.metadata.headingNumbering,
           problemDisplay,
+          // 先頭ブロックの行頭で Enter を押したエディタは、新しいブロックを先頭の手前に持つ。
+          // 同じユニットへ入れないと紙面に同じブロックが二つ描かれ、キャレットが飛ぶ。
+          getFocusedTextRunLeadingBlockIds(),
         ),
       );
       return nextUnits;

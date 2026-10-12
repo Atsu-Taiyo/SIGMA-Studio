@@ -12,8 +12,10 @@
  * 未対応で、パース失敗のあと規則を落とす (vercel/next.js#85398)。ここでは `<style>` として
  * 注入する。`style-src 'unsafe-inline'` はデスクトップ CSP で既に必要。
  *
- * 数式アトム等の非テキストノードは Highlight が描かない。そちらは PM の状態選択に付く
- * `.inline-math-node.text-selected` 装飾が補完する (globals.css の対の規則を参照)。
+ * 数式アトムの選択色は PM の状態選択に付く `.inline-math-node.text-selected` 装飾 (数式全体の
+ * 背景) が持つ。Range は数式の中の KaTeX の文字も含むので、Highlight はそれも塗ってしまい、背景の
+ * 上に記号ごとの四角が濃く重なる。数式の中では Highlight を塗らない (ネイティブ ::selection の
+ * 対の規則は math-and-comments.css)。
  */
 
 /** チャンクを跨ぐ本文選択 (`TextRunSelectionOverlay`)。 */
@@ -26,6 +28,10 @@ const CUSTOM_HIGHLIGHT_STYLE_ID = "sigma-custom-highlight-styles";
 const CUSTOM_HIGHLIGHT_CSS = `::highlight(${TEXT_RUN_SPAN_HIGHLIGHT_NAME}),
 ::highlight(${HELD_BODY_SELECTION_HIGHLIGHT_NAME}) {
   background-color: var(--editor-selection-background);
+}
+.inline-math-node ::highlight(${TEXT_RUN_SPAN_HIGHLIGHT_NAME}),
+.inline-math-node ::highlight(${HELD_BODY_SELECTION_HIGHLIGHT_NAME}) {
+  background-color: transparent;
 }`;
 
 function ensureCustomHighlightStyles(): void {

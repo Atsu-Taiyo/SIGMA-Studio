@@ -14,6 +14,7 @@ import {
 import { readSelectionFontSize, type SelectionFontSize } from "@/components/tiptap/text-format-font-size";
 import { isBoxTitleNodeName } from "@/components/tiptap/node-queries";
 import { applyTextFormatCommand } from "@/components/tiptap/text-format-controller";
+import { hasPrimaryShortcutModifier } from "@/lib/editor-command-shortcuts";
 import {
   createDocumentBlocksClipboardPayload,
   createTextFlowClipboardPayload,
@@ -173,7 +174,10 @@ export function getTextRunEditors(groupId: string): TextRunEditorHandle[] {
   return getTextRunSurfaces(groupId);
 }
 
-export { getFocusedCaretSurfaceUnitIds as getFocusedTextRunUnitIds } from "./caret-router";
+export {
+  getFocusedCaretSurfaceLeadingBlockIds as getFocusedTextRunLeadingBlockIds,
+  getFocusedCaretSurfaceUnitIds as getFocusedTextRunUnitIds,
+} from "./caret-router";
 
 export function getActiveTextRunSpan(): TextRunSpan | null {
   return activeSpan;
@@ -675,6 +679,110 @@ export function startTextRunPointerSelection(
   return true;
 }
 
+/**
+ * 数式などの原子ノードの上で押したドラッグ (`registerAtomPointerSelectionStarter` の受け口)。
+ *
+ * 原子ノードは contenteditable=false なので本文の左ドラッグ (`startTextRunPointerSelection`) を
+ * 通らない。ノードビューが自分の編集面の中だけで伸ばしていたため、数式から押し始めると隣の
+ * ユニットへ選択が伸びなかった。ここでは本文と同じ追跡で編集面をまたいで伸ばす。
+ *
+ * 起点は原子ノードの手前か後ろ: 文書の後ろへ伸ばすなら手前、前へ伸ばすなら後ろに置き、押した
+ * 数式が必ず範囲に入るようにする。数式の上で向きを決めるのはポインタの動き (縦に大きく動けば
+ * 上下、そうでなければ左右) で、ノードビューの従来の規則と同じ。押しただけ (クリック) なら
+ * `onClick` で数式を開くので、焦点も選択もドラッグが始まるまで動かさない。
+ */
+export function startTextRunAtomPointerSelection(
+  event: MouseEvent,
+  editor: Editor,
+  groupId: string,
+  atom: { from: number; to: number },
+  onClick: () => void,
+): boolean {
+  if (
+    editor.isDestroyed || event.button !== 0 || event.defaultPrevented || event.detail > 1
+    || event.shiftKey || event.metaKey || event.ctrlKey || event.altKey
+  ) {
+    return false;
+  }
+  const handle = getTextRunSurface(editor);
+  if (!handle) {
+    return false;
+  }
+  const runEditors = getTextRunEditors(groupId);
+  event.preventDefault();
+
+  const startPoint = { x: event.clientX, y: event.clientY };
+  const ownerWindow = editor.view.dom.ownerDocument.defaultView ?? window;
+  const updateSelection = (clientX: number, clientY: number) => {
+    const target = editorAtPoint(runEditors, clientX, clientY) ?? handle;
+    const pos = posInEditor(target.editor, clientX, clientY);
+    if (pos === null) {
+      return;
+    }
+    const originIndex = runEditors.indexOf(handle);
+    const targetIndex = runEditors.indexOf(target);
+    const deltaX = clientX - startPoint.x;
+    const deltaY = clientY - startPoint.y;
+    const pointerBackward = Math.abs(deltaY) > Math.abs(deltaX) ? deltaY < 0 : deltaX < 0;
+    const backward = targetIndex !== originIndex
+      ? targetIndex < originIndex
+      : pos < atom.from || (pos <= atom.to && pointerBackward);
+    applySpan(
+      groupId,
+      { unitId: handle.unitId, pos: backward ? atom.to : atom.from },
+      { unitId: target.unitId, pos },
+      target,
+    );
+  };
+  const scrollContainer = findDragAutoScrollScroller(editor.view.dom);
+  const autoScroller = scrollContainer
+    ? createDragAutoScroller({
+        ownerWindow,
+        getViewportBounds: () => getDragAutoScrollViewportBounds(scrollContainer, ownerWindow),
+        panBy: (_dx, dy) => panDragAutoScrollElement(scrollContainer, 0, dy),
+        onPan: updateSelection,
+        maxSpeedPxPerSec: TEXT_SELECTION_AUTO_SCROLL_MAX_SPEED_PX_PER_SEC,
+        horizontal: false,
+      })
+    : null;
+
+  let dragging = false;
+  const beginDrag = () => {
+    dragging = true;
+    focusEditorViewNow(editor);
+    clearTextRunSpan();
+  };
+  const handleMouseMove = (moveEvent: MouseEvent) => {
+    if (!dragging) {
+      if (!hasDragged(startPoint, moveEvent.clientX, moveEvent.clientY)) {
+        return;
+      }
+      beginDrag();
+    }
+    moveEvent.preventDefault();
+    updateSelection(moveEvent.clientX, moveEvent.clientY);
+    autoScroller?.update(moveEvent.clientX, moveEvent.clientY);
+  };
+  const handleMouseUp = (upEvent: MouseEvent) => {
+    autoScroller?.stop();
+    ownerWindow.removeEventListener("mousemove", handleMouseMove);
+    if (!dragging && !hasDragged(startPoint, upEvent.clientX, upEvent.clientY)) {
+      onClick();
+      return;
+    }
+    if (!dragging) {
+      beginDrag();
+    }
+    upEvent.preventDefault();
+    updateSelection(upEvent.clientX, upEvent.clientY);
+    syncFocusedEditorDomSelectionToSpan();
+  };
+
+  ownerWindow.addEventListener("mousemove", handleMouseMove);
+  ownerWindow.addEventListener("mouseup", handleMouseUp, { once: true });
+  return true;
+}
+
 export function selectEntireTextRun(editor: Editor): boolean {
   const handle = getTextRunSurface(editor);
   if (!handle) {
@@ -938,7 +1046,7 @@ export function handleTextRunSpanKeyDown(event: KeyboardEvent, viewDom: HTMLElem
     return false;
   }
 
-  if ((event.metaKey || event.ctrlKey) && !event.altKey && !event.shiftKey && event.key.toLowerCase() === "a") {
+  if (hasPrimaryShortcutModifier(event) && !event.altKey && !event.shiftKey && event.key.toLowerCase() === "a") {
     if (selectEntireTextRun(handle.editor)) {
       event.preventDefault();
       return true;
@@ -997,7 +1105,7 @@ export function handleTextRunSpanKeyDown(event: KeyboardEvent, viewDom: HTMLElem
   // 効かない (ネイティブ選択は焦点エディタにしか張っていない) ので、span 経路で全ユニット
   // の担当範囲へ配って適用する。選択は保つ。
   if (
-    (event.metaKey || event.ctrlKey)
+    hasPrimaryShortcutModifier(event)
     && !event.altKey
     && !event.shiftKey
     && ["b", "i", "u"].includes(event.key.toLowerCase())
