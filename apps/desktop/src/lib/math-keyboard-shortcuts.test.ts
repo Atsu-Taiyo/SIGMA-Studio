@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   MATH_KEYBOARD_SHORTCUTS,
+  collidesWithMathKeyboardShortcut,
   getMathKeyboardMathShortcut,
   handleMathKeyboardMathShortcut,
   isMathKeyboardMathModeShortcut,
@@ -22,6 +23,12 @@ describe("math keyboard shortcuts", () => {
     expect(getMathKeyboardMathShortcut(eventFor("2", { altKey: true }))?.wrapsSelection).toBe(true);
   });
 
+  it("prefers the typed character over the physical key", () => {
+    // JIS 配列の「[」は物理キーが US の「]」(BracketRight)、「]」は US の「\\」(Backslash)。
+    expect(getMathKeyboardMathShortcut(eventFor("[", { code: "BracketRight" }))?.id).toBe("brackets-scripts");
+    expect(getMathKeyboardMathShortcut(eventFor("]", { code: "Backslash" }))?.id).toBe("subscript");
+  });
+
   it("uses physical key codes as a fallback for layout differences", () => {
     expect(getMathKeyboardMathShortcut(eventFor("x", { code: "KeyR" }))?.tex).toBe("\\sqrt{#?}");
     expect(getMathKeyboardMathShortcut(eventFor("\\", { code: "IntlYen" }))?.tex).toBe("\\left|#?\\right|");
@@ -38,6 +45,21 @@ describe("math keyboard shortcuts", () => {
     expect(isMathKeyboardMathModeShortcut(eventFor("m"))).toBe(true);
     expect(isMathKeyboardMathModeShortcut(eventFor("m", { metaKey: true }))).toBe(false);
     expect(isMathKeyboardReturnToTextShortcut(eventFor("t"))).toBe(true);
+  });
+
+  it("finds the MathLive key bindings that would run before a shortcut", () => {
+    // MathLive 0.111 の macOS 既定: ⌃H 削除・⌃D 後ろを削除・⌃B 左へ・⌃L 表示位置、英語配列の ⌃- 下付き・⌃; 行追加。
+    for (const key of ["ctrl+h", "ctrl+d", "ctrl+b", "ctrl+l", "ctrl+[Minus]", "ctrl+;", "shift+ctrl+;"]) {
+      expect(collidesWithMathKeyboardShortcut(key), key).toBe(true);
+    }
+    // US 配列の ⌃@ (π) は Shift+2、⌃^ (上付き) は Shift+6。MathLive の ⌃2 (√ の挿入)・⌃6 (上付きへ移動) が先に動く。
+    for (const key of ["ctrl+[Digit2]", "ctrl+[Digit6]"]) {
+      expect(collidesWithMathKeyboardShortcut(key), key).toBe(true);
+    }
+    // ショートカットの無いキー・⌘ 系・Ctrl の無いキーは残す。
+    for (const key of ["ctrl+a", "ctrl+e", "ctrl+f", "ctrl+n", "ctrl+p", "ctrl+[Digit5]", "ctrl+[ArrowLeft]", "ctrl+[Backspace]", "cmd+;", "alt+[BracketLeft]"]) {
+      expect(collidesWithMathKeyboardShortcut(key), key).toBe(false);
+    }
   });
 
   it("inserts templates into MathLive with placeholder focus", () => {

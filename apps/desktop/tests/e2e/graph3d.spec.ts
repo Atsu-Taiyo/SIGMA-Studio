@@ -179,7 +179,7 @@ test("undo inside the 3D dialog rolls back its current edit without closing the 
   // 表示の切り替えは checkbox ではなく aria-pressed のトグルボタン (uncheck() は落ちる)。
   await visible.click();
   await expect(visible).toHaveAttribute("aria-pressed", "false");
-  await visible.press("Control+z");
+  await visible.press("ControlOrMeta+z");
   await expect(visible).toHaveAttribute("aria-pressed", "true");
   await expect(panel).toBeVisible();
 });

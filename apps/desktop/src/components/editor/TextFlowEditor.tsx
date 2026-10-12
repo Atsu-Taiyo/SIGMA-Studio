@@ -73,6 +73,7 @@ import  {
   type TextFlowEditGuard,
 } from "@/components/tiptap/edit-guard-extension";
 import { ExternalTextRangeHighlightExtension, getPlainTextBlockLength, getTextRangeForBlock } from "@/components/tiptap/external-text-range-highlight-extension";
+import { registerAtomPointerSelectionStarter } from "@/components/tiptap/atom-pointer-selection";
 import { requestInlineMathEdit, sliceTextForClipboard } from "@/components/tiptap/inline-math-extension";
 // `refreshPageBreakGaps` (個別 dispatch) は使わない: 装飾の更新は 1 本の transaction に
 // まとめてあるので、meta キー (`paginationGapKey`) だけを取る。
@@ -244,6 +245,7 @@ import  {
   handleTextRunSpanTextInput,
   isMultiEditorTextRunSpan,
   selectEntireTextRun,
+  startTextRunAtomPointerSelection,
   startTextRunPointerSelection,
   subscribeTextRunSpan,
 } from "./text-flow/text-run-span";
@@ -2489,6 +2491,17 @@ function TextFlowEditorImpl({
     }
     return registerCaretSurface({ editor, ...facets });
   }, [editor]);
+
+  // 数式から押し始めたドラッグも、本文の左ドラッグと同じ追跡で編集面をまたいで伸ばす。数式は
+  // contenteditable=false なので下の onMouseDownCapture を通らず、ノードビューが受けて渡してくる。
+  useEffect(() => {
+    if (!editor || editor.isDestroyed || !textRunGroupId) {
+      return;
+    }
+    return registerAtomPointerSelectionStarter(editor, ({ event, from, to, onClick }) => (
+      startTextRunAtomPointerSelection(event, editor, textRunGroupId, { from, to }, onClick)
+    ));
+  }, [editor, textRunGroupId]);
 
   // span の変化でツールバーの書式状態を配り直す。Shift+矢印での跨ぎ拡張は head 側の
   // (焦点ではない) エディタにしか transaction を流さないため、onTransaction の配信だけだと

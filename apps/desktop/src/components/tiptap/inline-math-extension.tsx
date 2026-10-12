@@ -22,6 +22,7 @@ import {
   renderMathHtml,
   setInlineMathBodyTex,
 } from "@/features/rendering/adapters";
+import { startAtomPointerSelection } from "@/components/tiptap/atom-pointer-selection";
 import { InlineMathTexEditor } from "@/components/tiptap/inline-math-tex-editor";
 import { getDesktopBridge } from "@/lib/desktop-bridge";
 import { readEditorClipboardPayload } from "@/lib/editor-clipboard";
@@ -64,12 +65,24 @@ import {
   getMathfieldLatex,
   getMathKeyboardMathShortcut,
   handleMathKeyboardMathShortcut,
+  insertMathKeyboardMathTemplate,
   isMathKeyboardMathModeShortcut,
   isMathKeyboardReturnToTextShortcut,
   type MathKeyboardMathShortcut,
   type MathKeyboardMathfieldLike,
 } from "@/lib/math-keyboard-shortcuts";
 import type { MathFractionSizing } from "@/features/document";
+import {
+  holdInlineMathTypeAhead,
+  INSERT_INLINE_MATH_TEMPLATE_EVENT,
+  isHoldingInlineMathTypeAhead,
+  queueInlineMathTemplate,
+  releaseInlineMathTypeAhead,
+  replayInlineMathTypeAhead,
+  toInlineMathTypeAheadKey,
+  type InlineMathTypeAheadKey,
+  type InsertInlineMathTemplateDetail,
+} from "@/components/tiptap/inline-math-type-ahead";
 
 declare module "@tiptap/core" {
   interface Commands<ReturnType> {
@@ -103,7 +116,6 @@ export interface MathNodeOptions {
 const SINGLE_INLINE_MATH_TEXT = /^\$([^$]+)\$$/;
 type PendingInlineMathEditRequest = {
   cursorPosition: InlineMathCursorPosition;
-  placeholderIndex?: number | null;
   pendingLatexCommandTrigger?: InlineMathLatexCommandTrigger;
 };
 
@@ -147,10 +159,10 @@ type DesktopAsciiInputSession = {
   restored: boolean;
 };
 
-type InlineMathFieldElement = InlineMathLiveFieldElement & MathKeyboardMathfieldLike & {
-  // MathLive の prompt API (クリックした placeholder に直接入る機能で使う)。
+type InlineMathFieldElement = InlineMathLiveFieldElement & Omit<MathKeyboardMathfieldLike, "getValue"> & {
+  // MathLive の範囲指定の値と prompt API (クリックした placeholder に直接入る機能で使う)。
+  getValue?: (start?: number, end?: number, format?: "latex") => string;
   getPromptRange?: (id: string) => [number, number] | null;
-  getPrompts?: () => string[];
   readOnly: boolean;
   value: string;
   focus: (options?: FocusOptions) => void;
@@ -166,15 +178,24 @@ type InlineMathFieldElement = InlineMathLiveFieldElement & MathKeyboardMathfield
 export function requestInlineMathEdit(
   id: string,
   cursorPosition: InlineMathCursorPosition = "end",
-  options: { pendingLatexCommandTrigger?: InlineMathLatexCommandTrigger; placeholderIndex?: number | null } = {},
+  options: {
+    pendingLatexCommandTrigger?: InlineMathLatexCommandTrigger;
+    /**
+     * キーボードで開くときに渡す。入力欄が焦点を取るまでの打鍵を預かって入力欄へ流す
+     * (渡したキーはその先頭に積む)。
+     */
+    typeAhead?: readonly InlineMathTypeAheadKey[];
+  } = {},
 ) {
   if (!id || typeof window === "undefined") {
     return;
   }
 
+  if (options.typeAhead) {
+    holdInlineMathTypeAhead(id, options.typeAhead);
+  }
   const request: PendingInlineMathEditRequest = {
     cursorPosition,
-    placeholderIndex: options.placeholderIndex,
     pendingLatexCommandTrigger: options.pendingLatexCommandTrigger,
   };
   pendingInlineMathEditRequests.set(id, request);
@@ -187,6 +208,14 @@ export function requestInlineMathEdit(
   window.requestAnimationFrame(dispatchEditRequest);
   window.setTimeout(dispatchEditRequest, 50);
   window.setTimeout(dispatchEditRequest, 250);
+  if (options.typeAhead) {
+    // どのノードビューも拾わなかった (数式の挿入が止められたなど)。預かったキーを本文へ返す。
+    window.setTimeout(() => {
+      if (pendingInlineMathEditRequests.get(id) === request) {
+        releaseInlineMathTypeAhead(id);
+      }
+    }, 300);
+  }
   window.setTimeout(() => pendingInlineMathEditRequests.delete(id), 1500);
 }
 
@@ -216,40 +245,77 @@ export function getInlineMathPlaceholderIndexAtPoint(
   return index >= 0 ? index : null;
 }
 
+/**
+ * `placeholderIndex` 番目の placeholder を選ぶ (数式の中で空欄へ Tab で移ったのと同じ状態)。
+ *
+ * 空欄に一時 id を振って prompt にすると、MathLive では左右に余白のある枠になり、打った文字が
+ * `\placeholder{7}` のまま保存される。なので id は振らず、原子を順に見て空欄の位置を探す。
+ */
 export function focusInlineMathPlaceholder(
   mathField: InlineMathFieldElement,
   placeholderIndex: number | null,
 ): boolean {
-  if (placeholderIndex === null || !mathField.getPrompts || !mathField.getPromptRange) {
+  if (placeholderIndex === null || typeof mathField.getValue !== "function") {
     return false;
   }
 
   try {
-    const promptId = mathField.getPrompts()[placeholderIndex];
-    const range = promptId === undefined ? null : mathField.getPromptRange(promptId);
-    if (!range) {
-      return false;
+    const lastOffset = mathField.lastOffset ?? 0;
+    let seen = 0;
+    for (let offset = 1; offset <= lastOffset; offset += 1) {
+      const atom = mathField.getValue(offset - 1, offset, "latex");
+      const placeholder = /^\\placeholder(?:\[([^\]]*)\])?\{/.exec(atom);
+      if (!placeholder) {
+        continue;
+      }
+      if (seen !== placeholderIndex) {
+        seen += 1;
+        continue;
+      }
+      // 名前付きの prompt (`\placeholder[answer]{}`) は、その中身の範囲を選ぶ。
+      const promptRange = placeholder[1] ? mathField.getPromptRange?.(placeholder[1]) : null;
+      mathField.selection = promptRange ?? { direction: "forward", ranges: [[offset - 1, offset]] };
+      return true;
     }
-    mathField.selection = range;
-    return true;
+    return false;
   } catch {
     // MathLive can briefly reject selection writes while the custom element mounts.
     return false;
   }
 }
 
-export function indexAnonymousInlineMathPlaceholders(tex: string): string {
-  let placeholderIndex = 0;
-  return tex.replace(
-    /\\placeholder(?:\[([^\]]*)\])?\{([^{}]*)\}/g,
-    (match, id: string | undefined, body: string) => {
-      const index = placeholderIndex;
-      placeholderIndex += 1;
-      return id
-        ? match
-        : `\\placeholder[${INLINE_MATH_CLICK_PLACEHOLDER_ID_PREFIX}${index}]{${body}}`;
-    },
-  );
+/**
+ * 中身の入った名前なしの空欄 `\placeholder{x}` を中身 `{x}` に戻す。0.511.0 は本文から押した
+ * Ctrl+L・Ctrl+/ や空欄クリックで打った文字をこの形で保存しており、空欄の枠の余白で左右が広がって
+ * 見える。名前付きの prompt と空の空欄はそのまま残す。
+ */
+export function unwrapFilledInlineMathPlaceholders(tex: string): string {
+  const marker = "\\placeholder{";
+  let result = "";
+  let index = 0;
+  for (let start = tex.indexOf(marker); start >= 0; start = tex.indexOf(marker, index)) {
+    const open = start + marker.length - 1;
+    let depth = 0;
+    let close = -1;
+    for (let cursor = open; cursor < tex.length; cursor += 1) {
+      const character = tex[cursor];
+      if (character === "\\") {
+        cursor += 1;
+      } else if (character === "{") {
+        depth += 1;
+      } else if (character === "}" && --depth === 0) {
+        close = cursor;
+        break;
+      }
+    }
+    if (close < 0) {
+      break;
+    }
+    const body = tex.slice(open + 1, close);
+    result += tex.slice(index, start) + (body.trim() ? `{${unwrapFilledInlineMathPlaceholders(body)}}` : `${marker}}`);
+    index = close + 1;
+  }
+  return result + tex.slice(index);
 }
 
 export function removeInlineMathClickPlaceholderIds(tex: string): string {
@@ -325,6 +391,7 @@ export function insertMathKeyboardShortcutInlineMathAtSelection(
   state: EditorState,
   mathInlineType: NodeType,
   shortcut: MathKeyboardMathShortcut,
+  shortcutKey: InlineMathTypeAheadKey,
   dispatch?: (tr: Transaction) => void,
 ): boolean {
   if (!canInsertInlineMathAtSelection(state.selection)) {
@@ -335,13 +402,16 @@ export function insertMathKeyboardShortcutInlineMathAtSelection(
   const selectedText = state.selection.empty
     ? ""
     : state.doc.textBetween(state.selection.from, state.selection.to, "");
-  const tex = createInlineMathTexFromMathKeyboardShortcut(shortcut, selectedText);
+  // 選んだ文字を中身にするショートカット (Ctrl+Alt+2 の二乗) だけは、その式をそのまま作る。
+  // それ以外は空の数式を開き、押されたショートカットを入力欄へそのまま流す。本文から押しても
+  // 「Ctrl+M で数式に入ってから押した」のと同じ挿入・空欄・キャレットになる。
+  const wrapsSelection = Boolean(shortcut.wrapsSelection && selectedText);
   const node = mathInlineType.create({
     id,
-    tex,
+    tex: wrapsSelection ? createInlineMathTexFromMathKeyboardShortcut(shortcut, selectedText) : "",
   });
   dispatch?.(state.tr.replaceSelectionWith(node).scrollIntoView());
-  requestInlineMathEdit(id, "end", { placeholderIndex: tex.includes("#?") ? 0 : null });
+  requestInlineMathEdit(id, "end", { typeAhead: wrapsSelection ? [] : [shortcutKey] });
   return true;
 }
 
@@ -473,7 +543,6 @@ export class InlineMathNodeView implements NodeView {
       if (pending) {
         this.scheduleEditFrame(() => {
           this.beginEditing(this.tex, pending.cursorPosition ?? "end", {
-            placeholderIndex: pending.placeholderIndex,
             pendingLatexCommandTrigger: pending.pendingLatexCommandTrigger,
           });
         });
@@ -536,6 +605,11 @@ export class InlineMathNodeView implements NodeView {
     this.dom.classList.add("selected");
     const keyboardEditIntent = consumeInlineMathKeyboardEditIntent();
     if (keyboardEditIntent && typeof window !== "undefined") {
+      // 矢印キーで入った直後の打鍵は、入力欄ができるまで預かる。本文へ届くと、選択中の
+      // この数式ごと打った文字に置き換わってしまう。
+      if (!isHoldingInlineMathTypeAhead(this.id)) {
+        holdInlineMathTypeAhead(this.id);
+      }
       this.scheduleEditFrame(() => {
         this.beginEditing(this.tex, keyboardEditIntent.cursorPosition);
       });
@@ -604,7 +678,6 @@ export class InlineMathNodeView implements NodeView {
       return;
     }
     this.beginEditing(this.tex, normalizeInlineMathCursorPosition(detail.cursorPosition) ?? "end", {
-      placeholderIndex: typeof detail.placeholderIndex === "number" ? detail.placeholderIndex : null,
       pendingLatexCommandTrigger: normalizeInlineMathLatexCommandTrigger(detail.pendingLatexCommandTrigger) ?? null,
     });
   };
@@ -656,19 +729,32 @@ export class InlineMathNodeView implements NodeView {
     } = {},
   ): void {
     if (this.editGuarded) {
+      releaseInlineMathTypeAhead(this.id);
       return;
     }
     pendingInlineMathEditRequests.delete(this.id);
+    nextTex = unwrapFilledInlineMathPlaceholders(nextTex);
+    let template: string | null = null;
     if (!this.editing) {
       this.editing = true;
       this.inputSourceSession = requestDesktopAsciiInputSource();
+      // クリックなどで開いてから入力欄が焦点を取るまでの打鍵も、入力欄へ流す。
+      if (!isHoldingInlineMathTypeAhead(this.id)) {
+        holdInlineMathTypeAhead(this.id);
+      }
+      // 数式パレットのテンプレート (`#?` 入り) は空の入力欄に、数式の中でショートカットを押したのと
+      // 同じ挿入で入れる。値として渡すと、キャレットが空欄の外 (末尾) に出て枠も追従しない。
+      if (nextTex.includes("#?")) {
+        template = nextTex;
+        queueInlineMathTemplate(this.id, template);
+      }
     }
-    this.editingTex = nextTex;
+    this.editingTex = template === null ? nextTex : "";
     this.initialCursorPosition = cursorPosition;
     this.initialPlaceholderIndex = options.placeholderIndex ?? null;
     this.initialLatexCommandTrigger = options.pendingLatexCommandTrigger ?? null;
     this.renderEditingField();
-    this.dispatchSelection(nextTex, cursorPosition === "start" ? 0 : nextTex.length);
+    this.dispatchSelection(this.editingTex, cursorPosition === "start" ? 0 : this.editingTex.length);
   }
 
   private finishEditing(): void {
@@ -743,6 +829,7 @@ export class InlineMathNodeView implements NodeView {
         initialCursorPosition={this.initialCursorPosition}
         initialLatexCommandTrigger={this.initialLatexCommandTrigger}
         initialPlaceholderIndex={this.initialPlaceholderIndex}
+        onInitialFocus={(field) => replayInlineMathTypeAhead(this.id, field)}
         onInput={(nextTex, cursor) => this.handleEditingInput(nextTex, cursor)}
         onCancel={() => this.finishEditing()}
         onCommit={(nextTex) => this.commitMath(nextTex)}
@@ -844,10 +931,36 @@ export class InlineMathNodeView implements NodeView {
       return;
     }
 
+    const startPoint = { x: event.clientX, y: event.clientY };
+    const openAtPressedPoint = () => {
+      // 押してから離すまでにノードビューが作り直されたら開かない (破棄済みのビューで編集を
+      // 始めると、入力ソースを取ったまま返さなくなる)。
+      if (!this.dom.isConnected || this.editor.isDestroyed) {
+        return;
+      }
+      // 押した位置に placeholder があれば、そこへ直接入る。静的プレビューは prompt id を
+      // 持たないので、序数を編集用の math-field へ持ち越す。
+      this.beginEditing(this.tex, "end", {
+        placeholderIndex: this.body
+          ? getInlineMathPlaceholderIndexAtPoint(this.body, startPoint.x, startPoint.y)
+          : null,
+      });
+    };
+    // 本文の連なりの中では、ドラッグを編集面の追跡へ渡す。ここで伸ばすと自分の編集面の中に
+    // 閉じ、隣のユニット (問題文・次のチャンク) まで選べない (`atom-pointer-selection.ts`)。
+    if (startAtomPointerSelection(this.editor, {
+      event,
+      from: position,
+      to: position + this.node.nodeSize,
+      onClick: openAtPressedPoint,
+    })) {
+      event.stopPropagation();
+      return;
+    }
+
     event.preventDefault();
     event.stopPropagation();
 
-    const startPoint = { x: event.clientX, y: event.clientY };
     const ownerWindow = this.editor.view.dom.ownerDocument.defaultView ?? window;
     let dragged = false;
 
@@ -885,13 +998,7 @@ export class InlineMathNodeView implements NodeView {
 
     const handleMouseUp = (upEvent: globalThis.MouseEvent) => {
       if (!dragged) {
-        // 押した位置に placeholder があれば、そこへ直接入る。静的プレビューは prompt id を
-        // 持たないので、序数を編集用の math-field へ持ち越す。
-        this.beginEditing(this.tex, "end", {
-          placeholderIndex: this.body
-            ? getInlineMathPlaceholderIndexAtPoint(this.body, startPoint.x, startPoint.y)
-            : null,
-        });
+        openAtPressedPoint();
         return;
       }
       upEvent.preventDefault();
@@ -963,6 +1070,7 @@ export function InlineMathField({
   initialCursorPosition,
   initialLatexCommandTrigger,
   initialPlaceholderIndex,
+  onInitialFocus,
   onInput,
   onCancel,
   onCommit,
@@ -986,6 +1094,8 @@ export function InlineMathField({
   initialPlaceholderIndex: number | null;
   initialCursorPosition: InlineMathCursorPosition;
   initialLatexCommandTrigger: InlineMathLatexCommandTrigger | null;
+  /** 開いた入力欄へ最初に焦点を渡し、キャレットを置いた直後に 1 回呼ぶ。 */
+  onInitialFocus?: (field: HTMLElement) => void;
   onInput: (tex: string, cursor?: number) => void;
   onCancel: () => void;
   onCommit: (tex: string) => void;
@@ -1012,6 +1122,7 @@ export function InlineMathField({
         initialCursorPosition={initialCursorPosition}
         initialPlaceholderIndex={initialPlaceholderIndex}
         initialLatexCommandTrigger={initialLatexCommandTrigger}
+        onInitialFocus={onInitialFocus}
         onInput={onInput}
         onCancel={onCancel}
         onCommit={onCommit}
@@ -1034,6 +1145,7 @@ export function InlineMathField({
       locked={locked}
       tex={tex}
       initialCursorPosition={initialCursorPosition}
+      onInitialFocus={onInitialFocus}
       onInput={onInput}
       onCancel={onCancel}
       onCommit={onCommit}
@@ -1055,6 +1167,7 @@ function InlineMathTexField({
   locked,
   tex,
   initialCursorPosition,
+  onInitialFocus,
   onInput,
   onCancel,
   onCommit,
@@ -1072,6 +1185,7 @@ function InlineMathTexField({
   locked: boolean;
   tex: string;
   initialCursorPosition: InlineMathCursorPosition;
+  onInitialFocus?: (field: HTMLElement) => void;
   onInput: (tex: string, cursor?: number) => void;
   onCancel: () => void;
   onCommit: (tex: string) => void;
@@ -1084,6 +1198,7 @@ function InlineMathTexField({
 }) {
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
   const onInputRef = useRef(onInput);
+  const onInitialFocusRef = useRef(onInitialFocus);
   const draftTexRef = useRef(tex);
   const committedRef = useRef(false);
   const commandReferenceOpenRef = useRef(false);
@@ -1092,7 +1207,8 @@ function InlineMathTexField({
 
   useEffect(() => {
     onInputRef.current = onInput;
-  }, [onInput]);
+    onInitialFocusRef.current = onInitialFocus;
+  }, [onInitialFocus, onInput]);
 
   useEffect(() => {
     draftTexRef.current = tex;
@@ -1130,6 +1246,17 @@ function InlineMathTexField({
     applyInitialCaret(element);
   }, [applyInitialCaret]);
 
+  // textarea は `autoFocus` で焦点を取ることが多い (下の予約より先に、popover の中へ後から現れる)。
+  // どちらの経路でも、最初に焦点が入ったときに 1 回だけ知らせる。
+  const initialFocusNotifiedRef = useRef(false);
+  const notifyInitialFocus = useCallback((input: HTMLTextAreaElement) => {
+    if (initialFocusNotifiedRef.current || locked) {
+      return;
+    }
+    initialFocusNotifiedRef.current = true;
+    onInitialFocusRef.current?.(input);
+  }, [locked]);
+
   useEffect(() => {
     let focusFrame = 0;
     let focusTimeout = 0;
@@ -1141,6 +1268,7 @@ function InlineMathTexField({
       }
       input.focus({ preventScroll: true });
       applyInitialCaret(input);
+      notifyInitialFocus(input);
     };
 
     focusFrame = window.requestAnimationFrame(focusInput);
@@ -1149,7 +1277,7 @@ function InlineMathTexField({
       window.cancelAnimationFrame(focusFrame);
       window.clearTimeout(focusTimeout);
     };
-  }, [applyInitialCaret, locked]);
+  }, [applyInitialCaret, locked, notifyInitialFocus]);
 
   const restoreInputCursor = useCallback((cursor: number) => {
     window.requestAnimationFrame(() => {
@@ -1203,6 +1331,29 @@ function InlineMathTexField({
     ));
   };
 
+  // 数式パレットのテンプレートは、Ctrl のショートカット (`insertTexAtSelection`) と同じ挿入で入れる。
+  useEffect(() => {
+    const handleTemplate = (event: Event) => {
+      const input = inputRef.current;
+      if (!input || event.target !== input || locked) {
+        return;
+      }
+      event.preventDefault();
+      markUserInteraction();
+      const change = insertInlineMathTexAtSelection(
+        input.value,
+        input.selectionStart ?? input.value.length,
+        input.selectionEnd ?? input.selectionStart ?? input.value.length,
+        (event as CustomEvent<InsertInlineMathTemplateDetail>).detail.tex,
+      );
+      // React の打鍵処理の外 (先打ちの流し込み) から来るので、値を同期で描いてからキャレットを置く。
+      // 描く前に次のフレームのキャレット設定が走ると、空の値に置かれて末尾へずれる。
+      flushSync(() => applyInlineMathTexChange(change));
+    };
+    document.addEventListener(INSERT_INLINE_MATH_TEMPLATE_EVENT, handleTemplate);
+    return () => document.removeEventListener(INSERT_INLINE_MATH_TEMPLATE_EVENT, handleTemplate);
+  }, [applyInlineMathTexChange, locked, markUserInteraction]);
+
   const commit = (element: EventTarget | null, action: "after" | "backspace" | "before" | "commit" = "commit") => {
     if (locked) {
       onCancel();
@@ -1244,7 +1395,11 @@ function InlineMathTexField({
       }}
       textareaProps={{
         onFocus: (event) => {
+          // textarea は popover の中に後から現れるので、forwardRef 経由の参照が空のことがある。
+          // 焦点を得た実物を覚えておく (テンプレートの受け口・確定がこれを使う)。
+          inputRef.current = event.currentTarget;
           applyInitialCaret(event.currentTarget);
+          notifyInitialFocus(event.currentTarget);
         },
         onPointerDown: (event) => {
           armedEdgeRef.current = null;
@@ -1364,6 +1519,7 @@ function InlineMathLiveField({
   initialCursorPosition,
   initialPlaceholderIndex,
   initialLatexCommandTrigger,
+  onInitialFocus,
   onInput,
   onCancel,
   onCommit,
@@ -1387,6 +1543,7 @@ function InlineMathLiveField({
   initialPlaceholderIndex: number | null;
   initialCursorPosition: InlineMathCursorPosition;
   initialLatexCommandTrigger: InlineMathLatexCommandTrigger | null;
+  onInitialFocus?: (field: HTMLElement) => void;
   onInput: (tex: string, cursor?: number) => void;
   onCancel: () => void;
   onCommit: (tex: string) => void;
@@ -1399,6 +1556,7 @@ function InlineMathLiveField({
 }) {
   const fieldId = useId();
   const onInputRef = useRef(onInput);
+  const onInitialFocusRef = useRef(onInitialFocus);
   const pendingLatexCommandRef = useRef<PendingInlineMathLatexCommand | null>(null);
   const pendingLatexCommandTimeoutRef = useRef(0);
   const committedRef = useRef(false);
@@ -1406,7 +1564,8 @@ function InlineMathLiveField({
 
   useEffect(() => {
     onInputRef.current = onInput;
-  }, [onInput]);
+    onInitialFocusRef.current = onInitialFocus;
+  }, [onInitialFocus, onInput]);
 
   const clearPendingLatexCommand = useCallback(() => {
     if (pendingLatexCommandTimeoutRef.current) {
@@ -1529,6 +1688,16 @@ function InlineMathLiveField({
       }
       flushPendingLatexCommand(mathField);
     };
+    // 数式パレットのテンプレートは、Ctrl のショートカット (`handleMathKeyboardMathShortcut`) と同じ挿入で入れる。
+    const handleMathFieldTemplate = (event: Event) => {
+      if (!mathField || locked) {
+        return;
+      }
+      event.preventDefault();
+      clearPendingLatexCommand();
+      insertMathKeyboardMathTemplate(mathField, (event as CustomEvent<InsertInlineMathTemplateDetail>).detail.tex);
+      onInputRef.current(getMathfieldLatex(mathField));
+    };
     const handleMathFieldKeyDown = (event: globalThis.KeyboardEvent) => {
       if (!mathField || locked) {
         return;
@@ -1628,16 +1797,10 @@ function InlineMathLiveField({
         mathField.style.setProperty("--text-font-family", inheritedTextFontFamily);
       }
       mathField.readOnly = locked;
-      // クリックされた placeholder に入るには、無名の `\placeholder{}` に一時的な id を振る。
-      const editableTex = normalizeMathTextRuns(tex).replace(/#\?/g, "\\placeholder{}");
-      mathField.value = initialPlaceholderIndex === null
-        ? editableTex
-        : indexAnonymousInlineMathPlaceholders(editableTex);
-      // Assigning a template expands #? into actual prompts. Size the static
-      // layout box from the field's serialized TeX before the first keystroke.
-      onInputRef.current(syncInlineMathFieldLineBreaks(mathField));
+      mathField.value = normalizeMathTextRuns(tex);
       mathField.addEventListener("input", handleMathFieldInput);
       mathField.addEventListener("blur", handleMathFieldBlur);
+      mathField.addEventListener(INSERT_INLINE_MATH_TEMPLATE_EVENT, handleMathFieldTemplate);
       mathField.ownerDocument.addEventListener("keydown", handleMathFieldKeyDown, true);
       const mountedMathField = mathField;
       const focusMathField = () => {
@@ -1654,6 +1817,7 @@ function InlineMathLiveField({
           initialLatexCommandApplied = true;
           rememberPendingLatexCommand(initialLatexCommandTrigger, mountedMathField);
         }
+        onInitialFocusRef.current?.(mountedMathField);
       };
       focusFrame = window.requestAnimationFrame(focusMathField);
       focusTimeout = window.setTimeout(focusMathField, 50);
@@ -1669,6 +1833,7 @@ function InlineMathLiveField({
       }
       mathField?.removeEventListener("input", handleMathFieldInput);
       mathField?.removeEventListener("blur", handleMathFieldBlur);
+      mathField?.removeEventListener(INSERT_INLINE_MATH_TEMPLATE_EVENT, handleMathFieldTemplate);
       mathField?.ownerDocument.removeEventListener("keydown", handleMathFieldKeyDown, true);
     };
   }, [
@@ -1836,7 +2001,7 @@ function getInlineMathTexInputSelectionState(input: HTMLTextAreaElement): Inline
   };
 }
 
-function insertInlineMathTexAtSelection(
+export function insertInlineMathTexAtSelection(
   tex: string,
   selectionStart: number,
   selectionEnd: number,
@@ -1847,7 +2012,9 @@ function insertInlineMathTexAtSelection(
   const from = Math.min(start, end);
   const to = Math.max(start, end);
   const firstPlaceholderIndex = insertedTex.indexOf("#?");
-  const cleanInsertedTex = insertedTex.replace(/#\?/g, "");
+  // 命令 (`\pi`・`\leqq`) で終わるときは区切りの空白を足す。足さないと続けて打った文字が
+  // `\pix` のように命令名へ繋がり、存在しない命令になる (MathLive 側は原子で入るので起きない)。
+  const cleanInsertedTex = insertedTex.replace(/#\?/g, "").replace(/(\\[a-zA-Z]+)$/, "$1 ");
   const nextTex = `${tex.slice(0, from)}${cleanInsertedTex}${tex.slice(to)}`;
   const cursor = from + (firstPlaceholderIndex >= 0 ? firstPlaceholderIndex : cleanInsertedTex.length);
   return { cursor, tex: nextTex };
@@ -2088,14 +2255,21 @@ export const InlineMathExtension = Node.create<MathNodeOptions>({
               const startsWithRawBackslash = getInlineMathInputMode() === "tex";
               const node = this.type.create({ id, tex: startsWithRawBackslash ? "\\" : "" });
               view.dispatch(view.state.tr.replaceSelectionWith(node).scrollIntoView());
-              requestInlineMathEdit(id, "end", startsWithRawBackslash ? {} : {
+              requestInlineMathEdit(id, "end", startsWithRawBackslash ? { typeAhead: [] } : {
                 pendingLatexCommandTrigger: "\\",
+                typeAhead: [],
               });
               return true;
             }
 
             const shortcut = getMathKeyboardMathShortcut(event);
-            if (shortcut && insertMathKeyboardShortcutInlineMathAtSelection(view.state, this.type, shortcut, view.dispatch)) {
+            if (shortcut && insertMathKeyboardShortcutInlineMathAtSelection(
+              view.state,
+              this.type,
+              shortcut,
+              toInlineMathTypeAheadKey(event),
+              view.dispatch,
+            )) {
               event.preventDefault();
               event.stopPropagation();
               return true;
@@ -2111,7 +2285,7 @@ export const InlineMathExtension = Node.create<MathNodeOptions>({
             const id = createId("m_inline");
             const node = this.type.create({ id, tex: "" });
             view.dispatch(view.state.tr.replaceSelectionWith(node).scrollIntoView());
-            requestInlineMathEdit(id);
+            requestInlineMathEdit(id, "end", { typeAhead: [] });
             return true;
           },
           transformPasted: (slice) => refreshMathInlineIdsInSlice(slice),

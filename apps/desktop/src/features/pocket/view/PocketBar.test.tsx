@@ -616,16 +616,7 @@ describe("PocketBar", () => {
   });
 
   describe("the closed pocket's chip", () => {
-    const move = (y: number) => window.dispatchEvent(new PointerEvent("pointermove", { bubbles: true, clientX: 600, clientY: y }));
     const bar = () => container.querySelector<HTMLElement>('[data-phase="collapsed"]');
-
-    beforeEach(() => {
-      vi.useFakeTimers();
-    });
-
-    afterEach(() => {
-      vi.useRealTimers();
-    });
 
     async function renderClosed(): Promise<void> {
       await act(async () => {
@@ -636,55 +627,16 @@ describe("PocketBar", () => {
       expect(bar()).not.toBeNull();
     }
 
-    it("stays out of sight until the pointer goes to the top, then appears", async () => {
-      await renderClosed();
-      expect(bar()?.dataset.revealed).toBeUndefined();
-
-      // 段の上端 (ここでは 0) から下の帯へマウスが入って、少し留まると出る。
-      await act(async () => {
-        move(20);
-        vi.advanceTimersByTime(60);
-      });
-      expect(bar()?.dataset.revealed).toBeUndefined();
-      await act(async () => {
-        vi.advanceTimersByTime(100);
-      });
-      expect(bar()?.dataset.revealed).toBe("true");
-    });
-
-    it("does not flash when the pointer only passes through on its way to the toolbar", async () => {
+    it("is shown without waiting for the pointer to come near it", async () => {
       await renderClosed();
 
-      await act(async () => {
-        move(20);
-        vi.advanceTimersByTime(60);
-        move(300);
-        vi.advanceTimersByTime(1000);
-      });
-
+      // ホバーで出し入れする印は無い。マウスがどこにあっても同じ姿のまま。
+      window.dispatchEvent(new PointerEvent("pointermove", { bubbles: true, clientX: 600, clientY: 400 }));
       expect(bar()?.dataset.revealed).toBeUndefined();
+      expect(buttonByLabel(/ポケット 1件/).getAttribute("title")).toBe("ポケットを開く");
     });
 
-    it("goes away again a moment after the pointer leaves the top", async () => {
-      await renderClosed();
-      await act(async () => {
-        move(20);
-        vi.advanceTimersByTime(200);
-      });
-      expect(bar()?.dataset.revealed).toBe("true");
-
-      await act(async () => {
-        move(400);
-        vi.advanceTimersByTime(200);
-      });
-      expect(bar()?.dataset.revealed).toBe("true");
-      await act(async () => {
-        vi.advanceTimersByTime(400);
-      });
-      expect(bar()?.dataset.revealed).toBeUndefined();
-    });
-
-    it("stays reachable from the keyboard while it is out of sight, and opens the pocket", async () => {
+    it("can be reached from the keyboard, and opens the pocket", async () => {
       await renderClosed();
 
       const handle = buttonByLabel(/ポケット 1件/);

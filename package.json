@@ -1,6 +1,6 @@
 {
   "name": "sigma-studio-workspace",
-  "version": "0.511.0",
+  "version": "0.512.0",
   "private": true,
   "workspaces": [
     "apps/desktop",
@@ -51,16 +51,18 @@
     "dependencies:check": "node scripts/check-desktop-dependencies.mjs",
     "security:audit": "node --test scripts/dependency-security.test.mjs && npm audit --audit-level=high",
     "test:public-browser:react19": "npm run test:public-browser",
-    "test:public-browser:react18": "npm exec --workspace @sigma-studio/desktop -- playwright test --config ../../tests/public-browser/playwright.react18.config.mts"
+    "test:public-browser:react18": "npm exec --workspace @sigma-studio/desktop -- playwright test --config ../../tests/public-browser/playwright.react18.config.mts",
+    "lockfile:check": "node scripts/check-workspace-lockfile.mjs",
+    "lockfile:refresh": "npm install --package-lock-only --ignore-scripts --workspaces --include-workspace-root --no-audit --no-fund && npm run lockfile:check"
   },
   "devDependencies": {
-    "@next/eslint-plugin-next": "16.3.8",
+    "@next/eslint-plugin-next": "16.4.0",
     "typescript-compiler-api": "npm:typescript@5.9.3"
   },
   "overrides": {
     "postcss": "^8.5.28",
     "http-cache-semantics": "4.3.0",
-    "@next/eslint-plugin-next@16.3.8": {
+    "@next/eslint-plugin-next": {
       "fast-glob": "npm:tinyglobby@0.2.17"
     }
   }

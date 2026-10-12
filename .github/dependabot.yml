@@ -5,11 +5,21 @@ updates:
     schedule:
       interval: daily
     open-pull-requests-limit: 10
-    # This fixture must keep exercising React 18 while the desktop uses React 19.
-    # Exclude only its manifest; runtime dependencies remain eligible for updates.
-    exclude-paths:
-      - "tests/fixtures/editor-react18/package.json"
+    # Fetch every workspace manifest so npm keeps its complete dependency graph.
+    # React 18 fixtures and React 19 consumers must stay on their current majors.
+    # Minor/patch updates remain enabled; major migrations need explicit review.
+    ignore:
+      - dependency-name: react
+        update-types: ["version-update:semver-major"]
+      - dependency-name: react-dom
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "@types/react"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "@types/react-dom"
+        update-types: ["version-update:semver-major"]
     groups:
+      next-toolchain:
+        patterns: ["next", "eslint-config-next", "@next/eslint-plugin-next"]
       tiptap:
         patterns: ["@tiptap/*"]
       desktop-runtime:

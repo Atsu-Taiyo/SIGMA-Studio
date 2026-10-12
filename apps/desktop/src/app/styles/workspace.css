@@ -2152,6 +2152,17 @@ nav.app-menu-list[inert] *,
   outline-offset: 2px;
 }
 
+/* 畳んだポケットのチップも上部中央に常に出ているので、両方あるときは真ん中の線を挟んで
+   左にポケット、右に絞り込みのチップを並べる (重ねると互いの文字が読めない)。ずらすのは
+   translate だけで、出てくる動き (transform のアニメーション) とは足し合わされる。 */
+.app-shell[data-pocket="collapsed"][data-problem-display="filtered"] {
+  --editor-pocket-chip-shift: calc(-50% - var(--space-xs));
+}
+
+.app-shell[data-pocket="collapsed"] .problem-display-chip {
+  translate: calc(50% + var(--space-xs));
+}
+
 @keyframes problem-display-chip-in {
   from {
     opacity: 0;
