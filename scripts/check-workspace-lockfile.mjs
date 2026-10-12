@@ -36,6 +36,15 @@ export function checkWorkspaceLockfile(root) {
     for (const field of dependencyFields) {
       assert.deepEqual(locked[field] ?? {}, source[field] ?? {}, `Workspace ${field} differ: ${location || "root"}`);
     }
+    // React 18 must not silently fall back to the hoisted React 19 install.
+    for (const name of ["react", "react-dom", "@types/react", "@types/react-dom"]) {
+      const range = source.dependencies?.[name] ?? source.devDependencies?.[name];
+      const major = range?.match(/^[~^]?(\d+)\./)?.[1];
+      if (major) {
+        assert.equal(resolveLockedPackage(packages, location, name)?.version?.split(".")[0], major,
+          `React major differs: ${location || "root"} -> ${name}`);
+      }
+    }
     if (location) {
       const link = packages[`node_modules/${source.name}`];
       assert.ok(link?.link && link.resolved === location, `Missing workspace link: ${source.name}`);

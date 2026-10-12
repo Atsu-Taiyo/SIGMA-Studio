@@ -55,8 +55,11 @@ test("a missing React 18 install cannot be replaced by the hoisted React 19 grap
         delete lock.packages[location];
       }
     }
-    // Required nested dependencies expose the missing graph. Range validation
-    // remains npm ci's responsibility, so model the missing scheduler as well.
+  }), /React major differs.*react-dom/);
+});
+
+test("React 18's scheduler cannot disappear during regeneration", (t) => {
+  assert.throws(withLock(t, (lock) => {
     for (const location of Object.keys(lock.packages)) {
       if (location.endsWith("node_modules/scheduler")) delete lock.packages[location];
     }
