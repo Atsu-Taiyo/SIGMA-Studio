@@ -42,8 +42,8 @@
 }
 
 /* 畳んだ姿。段の高さは 0 (紙面を押し下げない) で、件数だけの小さなチップが上部の真ん中にある。
-   チップは普段は見えず、上部へマウスを持っていくと (PocketBar.tsx が data-revealed を付ける) 現れる。
-   見えていない間はマウスを受けないので、その下の紙面を普通に操作できる。 */
+   チップはホバーを待たず常に見せる (空のときはポケットごと出さない)。ほかのチップと並ぶときは、シェルが
+   `--editor-pocket-chip-shift` (controls.css) で横へずらす。 */
 .bar[data-phase="collapsed"] {
   display: block;
   height: 0;
@@ -71,17 +71,23 @@
   font-size: 12px;
   line-height: 1;
   white-space: nowrap;
-  opacity: 0;
-  pointer-events: none;
-  transform: translate(-50%, -4px);
-  transition: opacity 160ms ease, transform 160ms ease, background 140ms ease, border-color 140ms ease, color 140ms ease;
+  transform: translate(-50%, 0);
+  translate: var(--editor-pocket-chip-shift);
+  transition: background 140ms ease, border-color 140ms ease, color 140ms ease;
+  /* 畳み終わって開いた並びと入れ替わるとき、上からそっと降りてくる。 */
+  animation: handle-in 160ms ease both;
 }
 
-.bar[data-revealed="true"] .handle,
-.handle:focus-visible {
-  opacity: 1;
-  pointer-events: auto;
-  transform: translate(-50%, 0);
+@keyframes handle-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, -4px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translate(-50%, 0);
+  }
 }
 
 .handle:hover {
@@ -392,6 +398,10 @@
   .addCard,
   .remove {
     transition: none;
+  }
+
+  .handle {
+    animation: none;
   }
 
   .card[data-landed="true"] {
