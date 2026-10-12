@@ -599,6 +599,14 @@
   -webkit-text-fill-color: inherit;
 }
 
+/* 数式の中の文字にはネイティブ ::selection を塗らない。選択した数式の色は数式全体の背景
+   (`.inline-math-node.text-selected`) が 1 枚で持つ。両方が塗ると、角丸の背景の上に記号ごとの
+   四角が濃く重なり、同じ選択の中で数式だけ 2 色に見える (選択の途中の数式ほど起きる)。
+   跨ぎ選択の Highlight 側の同じ規則は custom-highlight.ts が注入する。 */
+.ProseMirror .inline-math-node ::selection {
+  background: transparent;
+}
+
 /* チャンクを跨ぐ選択と、図形操作中に保持した本文選択は CSS Custom Highlight で描く
    (TextRunSelectionOverlay / HeldBodySelectionOverlay が DOM Range を登録する)。
    `::highlight(...)` の色は custom-highlight.ts が <style> として注入する。Next.js 16 の

@@ -347,7 +347,7 @@ async function startSidebarRun(page: Page, blockId: string, instruction: string)
 test("the inline composer opens in front of and below the menu bar", async ({ page }) => {
   await setup(page);
 
-  await page.keyboard.press("Control+K");
+  await page.keyboard.press("ControlOrMeta+K");
   const composer = page.locator(".ai-chat-composer--inline");
   await expect(composer).toBeVisible();
   await expectInlineComposerClearOfMenubar(page);
@@ -358,7 +358,7 @@ test("the inline composer opens in front of and below the menu bar", async ({ pa
 test("model and effort choices open as runtime-backed hover submenus", async ({ page }) => {
   await setup(page);
 
-  await page.keyboard.press("Control+K");
+  await page.keyboard.press("ControlOrMeta+K");
   const composer = page.locator(".ai-chat-composer--inline");
   await expect(composer).toBeVisible();
   await composer.locator(".ai-chat-model-button").click();
@@ -408,7 +408,7 @@ test("model and effort choices open as runtime-backed hover submenus", async ({ 
 test("the portalled model menu supports keyboard navigation and restores trigger focus", async ({ page }) => {
   await setup(page);
 
-  await page.keyboard.press("Control+K");
+  await page.keyboard.press("ControlOrMeta+K");
   const composer = page.locator(".ai-chat-composer--inline");
   const modelButton = composer.locator(".ai-chat-model-button");
   // Control+K focuses the inline composer asynchronously. Wait for that
@@ -449,7 +449,7 @@ test("Windows restores provider, model, and effort immediately after reload", as
     preserveAiModelPreferences: true,
   });
 
-  await page.keyboard.press("Control+K");
+  await page.keyboard.press("ControlOrMeta+K");
   let composer = page.locator(".ai-chat-composer--inline");
   let modelButton = composer.locator(".ai-chat-model-button");
   await modelButton.click();
@@ -469,7 +469,7 @@ test("Windows restores provider, model, and effort immediately after reload", as
 
   await page.reload();
   await expect(page.locator(".startup-splash")).toBeHidden();
-  await page.keyboard.press("Control+K");
+  await page.keyboard.press("ControlOrMeta+K");
   composer = page.locator(".ai-chat-composer--inline");
   modelButton = composer.locator(".ai-chat-model-button");
   await expect(modelButton).toContainText("Claude");
@@ -519,7 +519,7 @@ test("the docked sidebar model submenu remains visible over the editor", async (
 test("Claude Sonnet exposes effort choices and Shift+Arrow changes the effort", async ({ page }) => {
   await setup(page);
 
-  await page.keyboard.press("Control+K");
+  await page.keyboard.press("ControlOrMeta+K");
   const composer = page.locator(".ai-chat-composer--inline");
   const modelButton = composer.locator(".ai-chat-model-button");
   await modelButton.click();
@@ -544,7 +544,7 @@ test("Claude Sonnet exposes effort choices and Shift+Arrow changes the effort", 
 test("a model without effort support is labeled explicitly", async ({ page }) => {
   await setup(page);
 
-  await page.keyboard.press("Control+K");
+  await page.keyboard.press("ControlOrMeta+K");
   const composer = page.locator(".ai-chat-composer--inline");
   const modelButton = composer.locator(".ai-chat-model-button");
   await modelButton.click();

@@ -2395,10 +2395,16 @@ button.ai-source-ref-chip--document:focus-visible {
 /* 選択中の数式アトムの背景。フォーカス面のほか、チャンク跨ぎ選択 ([data-text-run-span]) と
    図形操作中の保持選択 ([data-held-body-selection]) でも描く — 帯は CSS Custom Highlight が
    グリフの背後に描くが、Highlight は非テキストノード (数式アトム) を塗らないため、
-   状態選択由来のこの装飾が補完する。 */
+   状態選択由来のこの装飾が補完する。
+   `text-selected` は数式そのものではなく、それを包む装飾の span に付くことがある。同じ段落に
+   文字サイズを指定した文字があると、本文の書体の装飾 (`text-block-typography.ts`) が数式を
+   `<span data-sigma-doc-inherited-font>` で包み (印刷側と同じ入れ子)、ProseMirror はその後ろに
+   並んだ装飾の class を包んだ span へ載せる。数式そのものの規則だけだと、その段落の数式は
+   選択しても色が付かなかった。包んだ span の直下の数式も同じに塗る。 */
 :where(.ProseMirror-focused, [data-text-run-span], [data-held-body-selection]) .inline-math-node.selected,
 :where(.ProseMirror-focused, [data-text-run-span], [data-held-body-selection]) .inline-math-node.ProseMirror-selectednode,
-:where(.ProseMirror-focused, [data-text-run-span], [data-held-body-selection]) .inline-math-node.text-selected {
+:where(.ProseMirror-focused, [data-text-run-span], [data-held-body-selection]) .inline-math-node.text-selected,
+:where(.ProseMirror-focused, [data-text-run-span], [data-held-body-selection]) .text-selected > .inline-math-node {
   background: var(--editor-selection-background);
   color: var(--editor-selection-color);
   outline: none;
@@ -2412,14 +2418,18 @@ button.ai-source-ref-chip--document:focus-visible {
 :where(.ProseMirror-focused, [data-text-run-span], [data-held-body-selection]) .inline-math-node.ProseMirror-selectednode .katex,
 :where(.ProseMirror-focused, [data-text-run-span], [data-held-body-selection]) .inline-math-node.text-selected .math-preview,
 :where(.ProseMirror-focused, [data-text-run-span], [data-held-body-selection]) .inline-math-node.text-selected .ML__latex,
-:where(.ProseMirror-focused, [data-text-run-span], [data-held-body-selection]) .inline-math-node.text-selected .katex {
+:where(.ProseMirror-focused, [data-text-run-span], [data-held-body-selection]) .inline-math-node.text-selected .katex,
+:where(.ProseMirror-focused, [data-text-run-span], [data-held-body-selection]) .text-selected > .inline-math-node .math-preview,
+:where(.ProseMirror-focused, [data-text-run-span], [data-held-body-selection]) .text-selected > .inline-math-node .ML__latex,
+:where(.ProseMirror-focused, [data-text-run-span], [data-held-body-selection]) .text-selected > .inline-math-node .katex {
   color: inherit;
 }
 
 /* 囲み (.boxed-run-framed) は枠を自前の層で描き、枠内の背景を透明にする。選択色を持つ数式アトムは
    その枠の計測対象と同じ要素なので、上の規則 (詳細度が低い) では透明に負けて、囲んだ数式だけ
    選択しても色が付かない。囲みの中でも本文と同じ選択色を載せる。 */
-:where(.ProseMirror-focused, [data-text-run-span], [data-held-body-selection]) .boxed-text .inline-math-node:is(.selected, .ProseMirror-selectednode, .text-selected)[data-boxed-run-height-target="true"] {
+:where(.ProseMirror-focused, [data-text-run-span], [data-held-body-selection]) .boxed-text .inline-math-node:is(.selected, .ProseMirror-selectednode, .text-selected)[data-boxed-run-height-target="true"],
+:where(.ProseMirror-focused, [data-text-run-span], [data-held-body-selection]) .boxed-text .text-selected > .inline-math-node[data-boxed-run-height-target="true"] {
   background-color: var(--editor-selection-background);
 }
 

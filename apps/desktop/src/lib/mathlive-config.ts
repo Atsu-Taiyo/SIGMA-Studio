@@ -2,6 +2,7 @@ import { mathFieldDefaultMode } from "@/features/rendering/core";
 import type { MathRenderEnvironment } from "@/lib/math-environment";
 import { SIGMA_MATHLIVE_MACRO_STYLES } from "@/lib/math-macros";
 import { MATHLIVE_BOX_LAYOUT_CLASS, normalizeMathLiveBoxStyle } from "@/lib/mathlive-box-layout";
+import { collidesWithMathKeyboardShortcut } from "@/lib/math-keyboard-shortcuts";
 
 export const MATHLIVE_MATH_MODE_SPACE = "\\ ";
 
@@ -13,6 +14,7 @@ export type InlineMathLiveFieldElement = HTMLElement & {
   defaultMode?: "inline-math" | "math" | "text";
   environmentPopoverPolicy?: "auto" | "off" | "on";
   executeCommand?: (command: string | [string, unknown]) => void;
+  keybindings?: readonly { key: string }[];
   insert?: (text: string, options?: {
     focus?: boolean;
     format?: "latex";
@@ -86,6 +88,12 @@ export function configureInlineMathLiveField(
   // 既定値に頼らず明示しておく。閉じ括弧が薄く出ないようにする CSS は
   // `.inline-math-field { --smart-fence-opacity: 1 }` 側にある。
   mathField.smartFence = true;
+  // 数式のショートカット (⌃H の sin・⌃D の行列・⌃B の枠…) と同じキーの MathLive 既定動作を外す。
+  // MathLive はショートカットより先にキーを受けるので、残すと挿入の前に文字が消える・動く。
+  const keybindings = mathField.keybindings;
+  if (keybindings?.some((binding) => collidesWithMathKeyboardShortcut(binding.key))) {
+    mathField.keybindings = keybindings.filter((binding) => !collidesWithMathKeyboardShortcut(binding.key));
+  }
   const canvas = mathField.closest?.<HTMLElement>(".editor-canvas");
   if (canvas) {
     // MathLive's focus() ignores FocusOptions and scrolls every ancestor by

@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 
 import { getBodyTextRangeSelection } from "../overlay-canvas/body-text-selection";
+import { getCaretSurfaceByViewDom } from "../text-flow/caret-router";
 import {
   HELD_BODY_SELECTION_HIGHLIGHT_NAME,
   setCustomHighlight,
@@ -30,6 +31,10 @@ import {
  * `data-held-body-selection` 属性 + PM の状態選択由来の `text-selected` 装飾が描く
  * (globals.css の対の規則)。
  *
+ * 本文の外の入力欄 (ツールバーの文字サイズなど) へフォーカスが移った間も描く (`heldEditor`)。入力欄は
+ * ブラウザの選択を自分の中へ移すので、そのときの範囲は DOM の選択ではなく、そのエディタの状態選択
+ * (ProseMirror はフォーカスを失っても保つ) から作る。
+ *
  * 本文エディタがフォーカスを持っている間はネイティブ `::selection` が出るので重ねない。
  * チャンク跨ぎ選択中は `TextRunSelectionOverlay` が描くので、こちらは出さない。
  *
@@ -38,13 +43,20 @@ import {
  * 同期し直し、その場で範囲が畳まれる (実測: 図形が選ばれた 3 フレーム後に collapsed)。
  * 見せるための仕掛けが見せたいものを壊すので、PM の外から Highlight として描く。
  */
-export function HeldBodySelectionOverlay({ active }: { active: boolean }) {
+export function HeldBodySelectionOverlay({
+  active,
+  heldEditor = null,
+}: {
+  active: boolean;
+  /** 本文の外の入力欄へフォーカスが移ったときの、選択を持っていた本文エディタの root。 */
+  heldEditor?: HTMLElement | null;
+}) {
   // 保持していない間は載せない (マウント自体を親が切る)。effect の中で「消す」を
   // 書かずに済み、選択が無い間はリスナーも走らない。
-  return active ? <HeldBodySelectionRects /> : null;
+  return active || heldEditor ? <HeldBodySelectionRects heldEditor={heldEditor} /> : null;
 }
 
-function HeldBodySelectionRects() {
+function HeldBodySelectionRects({ heldEditor }: { heldEditor: HTMLElement | null }) {
   const [rects, setRects] = useState<readonly SelectionHighlightRect[]>([]);
 
   useEffect(() => {
@@ -59,7 +71,7 @@ function HeldBodySelectionRects() {
       markedEditor = element;
     };
     const update = () => {
-      const held = collectHeldBodySelection();
+      const held = collectHeldBodySelection(heldEditor);
       setCustomHighlight(HELD_BODY_SELECTION_HIGHLIGHT_NAME, held ? [held.range] : []);
       markHeldEditor(held?.editorElement ?? null);
       // 空行の印に加えて、行末の塗り (ブロック末尾の改行タブ・折返し空白) も補完する。
@@ -86,7 +98,14 @@ function HeldBodySelectionRects() {
     window.document.addEventListener("selectionchange", schedule);
     window.document.addEventListener("focusin", schedule, true);
     window.document.addEventListener("focusout", schedule, true);
+    // 入力欄にフォーカスがある間は selectionchange が来ない。書式を当てると本文の DOM が作り直され、
+    // live な Range が古いノードを指したまま消えるので、保持中のエディタの変化でも描き直す。
+    const mutations = heldEditor ? new MutationObserver(schedule) : null;
+    if (heldEditor) {
+      mutations?.observe(heldEditor, { childList: true, characterData: true, subtree: true });
+    }
     return () => {
+      mutations?.disconnect();
       window.cancelAnimationFrame(frame);
       window.removeEventListener("scroll", schedule, true);
       window.removeEventListener("resize", schedule);
@@ -96,7 +115,7 @@ function HeldBodySelectionRects() {
       setCustomHighlight(HELD_BODY_SELECTION_HIGHLIGHT_NAME, []);
       markHeldEditor(null);
     };
-  }, []);
+  }, [heldEditor]);
 
   if (rects.length === 0) {
     return null;
@@ -115,8 +134,8 @@ function HeldBodySelectionRects() {
   );
 }
 
-function collectHeldBodySelection(): { editorElement: Element; range: Range } | null {
-  const range = getBodyTextRangeSelection(window.document);
+function collectHeldBodySelection(heldEditor: HTMLElement | null): { editorElement: Element; range: Range } | null {
+  const range = getBodyTextRangeSelection(window.document) ?? heldEditorStateRange(heldEditor);
   if (!range) {
     return null;
   }
@@ -132,6 +151,28 @@ function collectHeldBodySelection(): { editorElement: Element; range: Range } | 
   const element = container instanceof Element ? container : container.parentElement;
   const editorElement = element?.closest(".text-flow-editor") ?? null;
   return editorElement ? { editorElement, range } : null;
+}
+
+/** 本文エディタの状態選択を DOM の Range にする。範囲が無い・エディタが外れたら null。 */
+function heldEditorStateRange(heldEditor: HTMLElement | null): Range | null {
+  if (!heldEditor?.isConnected) {
+    return null;
+  }
+  const editor = getCaretSurfaceByViewDom(heldEditor)?.editor;
+  if (!editor || editor.isDestroyed || editor.state.selection.empty) {
+    return null;
+  }
+  try {
+    const { from, to } = editor.state.selection;
+    const start = editor.view.domAtPos(from);
+    const end = editor.view.domAtPos(to);
+    const range = heldEditor.ownerDocument.createRange();
+    range.setStart(start.node, start.offset);
+    range.setEnd(end.node, end.offset);
+    return range.collapsed ? null : range;
+  } catch {
+    return null;
+  }
 }
 
 function sameRects(

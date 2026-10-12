@@ -509,10 +509,11 @@ export function findCommandByShortcut(
   event: Pick<KeyboardEvent, "altKey" | "code" | "ctrlKey" | "key" | "metaKey" | "shiftKey">,
   overrides: EditorShortcutOverrides,
   customCommands: readonly EditorCustomCommandDefinition[] = [],
+  platform: EditorShortcutPlatform = detectEditorShortcutPlatform(),
 ): { commandId: EditorCommandId; binding: EditorShortcutBinding } | null {
   for (const command of getEditorCommandCatalog(customCommands)) {
     const binding = getShortcutForCommand(overrides, command.id, customCommands);
-    if (binding && shortcutMatchesEvent(binding, event)) {
+    if (binding && shortcutMatchesEvent(binding, event, platform)) {
       return { commandId: command.id, binding };
     }
   }
@@ -570,9 +571,10 @@ export function shortcutBindingFromEvent(
 export function shortcutMatchesEvent(
   binding: EditorShortcutBinding,
   event: Pick<KeyboardEvent, "altKey" | "code" | "ctrlKey" | "key" | "metaKey" | "shiftKey">,
+  platform: EditorShortcutPlatform = detectEditorShortcutPlatform(),
 ): boolean {
   const normalizedBinding = normalizeShortcutBinding(binding);
-  if (!shortcutModifiersMatchEvent(normalizedBinding, event)) {
+  if (!shortcutModifiersMatchEvent(normalizedBinding, event, platform)) {
     return false;
   }
 
@@ -1037,6 +1039,7 @@ function shortcutBindingKey(binding: EditorShortcutBinding): string {
 function shortcutModifiersMatchEvent(
   binding: EditorShortcutBinding,
   event: Pick<KeyboardEvent, "altKey" | "ctrlKey" | "key" | "metaKey" | "shiftKey">,
+  platform: EditorShortcutPlatform,
 ): boolean {
   if (event.altKey !== Boolean(binding.alt)) {
     return false;
@@ -1048,7 +1051,9 @@ function shortcutModifiersMatchEvent(
   }
 
   if (binding.primary) {
-    const hasPrimary = event.ctrlKey || event.metaKey;
+    const hasPrimary = binding.ctrl && platform === "mac"
+      ? event.metaKey
+      : hasPrimaryShortcutModifier(event, platform);
     if (!hasPrimary) {
       return false;
     }
@@ -1110,6 +1115,18 @@ function formatShortcutKey(key: string, shifted: boolean): string {
     return key.toUpperCase();
   }
   return key.length === 1 ? key.toUpperCase() : key;
+}
+
+/**
+ * 主キー (macOS は ⌘、それ以外は Ctrl か ⌘) で押されたか。macOS の ⌃ (Ctrl) は数式の
+ * ショートカット (⌃I の積分・⌃G の総和など) とテキスト編集の Emacs キーのものなので、
+ * ⌘ のコマンドに読み替えない。
+ */
+export function hasPrimaryShortcutModifier(
+  event: Pick<KeyboardEvent, "ctrlKey" | "metaKey">,
+  platform: EditorShortcutPlatform = detectEditorShortcutPlatform(),
+): boolean {
+  return platform === "mac" ? event.metaKey && !event.ctrlKey : event.ctrlKey || event.metaKey;
 }
 
 function isPrimaryShortcutKeyPressed(

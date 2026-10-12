@@ -75,6 +75,9 @@ export function buildProblemAreaOwnerByBlockId(
  * `pinnedChunkAnchors` はフォーカス中のユニット id (= 先頭ブロック id)。跨ぎ選択の IME
  * 合成が他ユニットの担当分を先に削除したとき、小チャンク併合がフォーカス中のエディタを
  * unmount / setContent しないよう、その境界だけ併合を見送る (`chunkTextRun`)。
+ *
+ * `pinnedLeadingBlockIds` はフォーカス中のエディタが先頭ブロックの手前に持つブロック。行頭の
+ * Enter でできた新しいブロックを、そのエディタのユニットへ入れる (`chunkTextRun`)。
  */
 export function buildRenderUnits(
   content: SigmaBlock[],
@@ -82,6 +85,7 @@ export function buildRenderUnits(
   pinnedChunkAnchors: ReadonlySet<string> | null = null,
   headingNumbering?: HeadingNumberingConfig,
   problemDisplay?: ProblemDisplayFilter,
+  pinnedLeadingBlockIds: ReadonlyMap<string, readonly string[]> | null = null,
 ): RenderUnit[] {
   const units: RenderUnit[] = [];
   let textRun: TextFlowBlock[] = [];
@@ -93,7 +97,7 @@ export function buildRenderUnits(
       return;
     }
 
-    for (const chunk of chunkTextRun(textRun, previousChunks, undefined, pinnedChunkAnchors)) {
+    for (const chunk of chunkTextRun(textRun, previousChunks, undefined, pinnedChunkAnchors, pinnedLeadingBlockIds)) {
       units.push({
         type: "textFlow",
         id: chunk[0].id,
