@@ -217,9 +217,57 @@ describe("visual edit session state files", () => {
     } finally {
       link.mockRestore();
     }
-    // Restoring generation 1 would silently lose the change the tool call reported.
+    // Restoring generation 1 would silently lose the change the tool call reported. It is kept
+    // under an invalid name as the record of how far the session got.
     await expect(port.load(session.sessionId, "run_state")).resolves.toBeNull();
-    expect(await fs.readdir(directory)).toEqual([]);
+    expect(await fs.readdir(directory)).toEqual(["claude-run_state.visual_session_state-1.g1-invalid.visual-session-state.json"]);
+    await expect(target.readGeneration()).resolves.toBe(1);
+  });
+
+  it("refuses a stale writer after a failed write invalidated the generation it would replace", async () => {
+    const directory = await runContextDirectory();
+    const session = visualSession();
+    const stale = stateFiles(directory).port;
+    const current = stateFiles(directory).port;
+    await current.resolveTarget(session)!.write(current.serialize(session, 1), 1);
+    // `stale` loaded generation 1. `current` saves 2, then fails to save 3.
+    await current.resolveTarget(session)!.write(current.serialize({ ...session, revision: 2 }, 2), 2);
+    const link = vi.spyOn(fsPromises, "link").mockRejectedValueOnce(Object.assign(new Error("disk full"), { code: "ENOSPC" }));
+    try {
+      await expect(current.resolveTarget(session)!.write(current.serialize({ ...session, revision: 3 }, 3), 3)).resolves.toBe("failed");
+    } finally {
+      link.mockRestore();
+    }
+    // Generation 2 is not readable any more, but it still blocks a write derived from generation 1.
+    await expect(stale.resolveTarget(session)!.write(stale.serialize({ ...session, revision: 9 }, 2), 2)).resolves.toBe("superseded");
+    await expect(stale.load(session.sessionId, "run_state")).resolves.toBeNull();
+    // The process that got furthest can still save its next generation, which cleans up the rest.
+    await expect(current.resolveTarget(session)!.write(current.serialize({ ...session, revision: 3 }, 3), 3)).resolves.toBe("written");
+    expect((await current.load(session.sessionId, "run_state"))?.session.revision).toBe(3);
+    expect(await fs.readdir(directory)).toEqual(["claude-run_state.visual_session_state-1.g3.visual-session-state.json"]);
+  });
+
+  it("withdraws a generation published while another process was retiring the session", async () => {
+    const directory = await runContextDirectory();
+    const session = visualSession();
+    const writer = stateFiles(directory).port;
+    const finisher = stateFiles(directory).port;
+    await writer.resolveTarget(session)!.write(writer.serialize(session, 1), 1);
+    const writeFile = fsPromises.writeFile.bind(fsPromises);
+    const slow = vi.spyOn(fsPromises, "writeFile").mockImplementation(async (...args: Parameters<typeof fsPromises.writeFile>) => {
+      if (String(args[1]).includes('"revision":2')) await new Promise((resolve) => setTimeout(resolve, 120));
+      return writeFile(...args);
+    });
+    try {
+      // The writer passed its finished check and is still writing when the other process retires.
+      const late = writer.resolveTarget(session)!.write(writer.serialize({ ...session, revision: 2 }, 2), 2);
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      await finisher.resolveTarget(session)!.retire();
+      await expect(late).resolves.toBe("superseded");
+    } finally {
+      slow.mockRestore();
+    }
+    expect(await fs.readdir(directory)).toEqual(["claude-run_state.visual_session_state-1.terminal.visual-session-state.json"]);
   });
 
   it("only restores this provider's intact files for the requested session", async () => {
@@ -279,15 +327,17 @@ describe("visual edit session state files", () => {
     expect(await fs.readdir(directory)).toEqual(["claude-run_state.visual_session_state-1.terminal.visual-session-state.json"]);
   });
 
-  it("clears every saved generation without marking the session finished", async () => {
+  it("invalidates every saved generation without marking the session finished", async () => {
     const directory = await runContextDirectory();
     const { port } = stateFiles(directory);
     const session = visualSession();
     const target = port.resolveTarget(session)!;
     await target.write(port.serialize(session, 1), 1);
     await target.clear();
-    await expect(target.readGeneration()).resolves.toBeNull();
+    await expect(port.load(session.sessionId, "run_state")).resolves.toBeNull();
+    await expect(target.readGeneration()).resolves.toBe(1);
     await expect(target.isRetired()).resolves.toBe(false);
-    expect(await fs.readdir(directory)).toEqual([]);
+    await expect(target.write(port.serialize(session, 1), 1)).resolves.toBe("superseded");
+    await expect(target.write(port.serialize(session, 2), 2)).resolves.toBe("written");
   });
 });

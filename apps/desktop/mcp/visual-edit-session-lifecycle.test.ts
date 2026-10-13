@@ -369,6 +369,7 @@ function sharedRunStorage() {
   const stateWrites = vi.fn();
   const failWrites = new Set<string>();
   const retired = new Set<string>();
+  const unreadable = new Set<string>();
   const resolveStatusTarget: VisualEditSessionLifecyclePorts["resolveStatusTarget"] = (provider, runId) => {
     if (!provider || !runId) return null;
     const key = `${provider}/${runId}`;
@@ -404,7 +405,7 @@ function sharedRunStorage() {
     },
     serialize: (session) => JSON.stringify(session),
     load: async (sessionId, runId) => {
-      if (retired.has(sessionId)) return null;
+      if (retired.has(sessionId) || unreadable.has(sessionId)) return null;
       const entry = saved.get(sessionId);
       const session = entry ? JSON.parse(entry.serialized) as VisualEditSession : null;
       return entry && session?.runId === runId ? { generation: entry.generation, session } : null;
@@ -412,7 +413,7 @@ function sharedRunStorage() {
   };
   const process = () => new VisualEditSessionLifecycle({ now: () => clock.now, resolveStatusTarget, sessionState });
   const status = (sessionId: string) => statusFiles.get("claude/run_visual")?.sessions.find((item) => item.sessionId === sessionId);
-  return { clock, saved, statusFiles, stateWrites, failWrites, retired, process, status };
+  return { clock, saved, statusFiles, stateWrites, failWrites, retired, unreadable, process, status };
 }
 
 /** The run the MCP server process belongs to (from its run-context file); the tool call did not pass a runId. */
@@ -657,6 +658,60 @@ describe("visual sessions saved per run", () => {
 
     await expect(first.find("double_propose", RUN)).resolves.toBeUndefined();
     expect(first.peek("double_propose")).toBeUndefined();
+  });
+
+  it("does not fall back to its older copy when a newer saved generation cannot be read", async () => {
+    const storage = sharedRunStorage();
+    const first = storage.process();
+    const held = first.begin(sessionInput("newer_unreadable"));
+    await first.persist(held);
+    const next = storage.process();
+    const advanced = await next.resolve("newer_unreadable", RUN);
+    addOperation(next, advanced);
+    await next.persist(advanced);
+
+    // The newer generation is replaced again (or invalidated) before `first` reads it.
+    storage.unreadable.add("newer_unreadable");
+    await expect(first.find("newer_unreadable", RUN)).resolves.toBeUndefined();
+    expect(first.peek("newer_unreadable")).toBeUndefined();
+    storage.unreadable.delete("newer_unreadable");
+    expect((await first.resolve("newer_unreadable", RUN)).agentSession.operations).toHaveLength(1);
+  });
+
+  it("checks right before proposing that no other process saved a newer generation", async () => {
+    const storage = sharedRunStorage();
+    const first = storage.process();
+    const held = first.begin(sessionInput("propose_check"));
+    await first.persist(held);
+    await expect(first.isLatest(held)).resolves.toBe(true);
+
+    const next = storage.process();
+    const advanced = await next.resolve("propose_check", RUN);
+    addOperation(next, advanced);
+    await next.persist(advanced);
+    await expect(first.isLatest(held)).resolves.toBe(false);
+    expect(first.peek("propose_check")).toBeUndefined();
+    await expect(first.persist(held)).resolves.toBe("superseded");
+  });
+
+  it("does not turn another process's finished record back into an unfinished one", async () => {
+    const storage = sharedRunStorage();
+    const first = storage.process();
+    const held = first.begin(sessionInput("held_elsewhere_finished"));
+    addOperation(first, held);
+    await first.persist(held);
+    await first.flushStatusWrites();
+    // Another process proposed it and recorded that, then stopped before retiring the state.
+    const record = storage.status("held_elsewhere_finished")!;
+    storage.statusFiles.set("claude/run_visual", { version: 1, updatedAt: new Date(START).toISOString(), sessions: [{ ...record, proposed: true }] });
+
+    // `first` still holds its unfinished copy and rewrites the status for another session.
+    await first.persist(first.begin(sessionInput("other_session")));
+    await first.flushStatusWrites();
+    expect(storage.status("held_elsewhere_finished")).toMatchObject({ proposed: true });
+    // Neither `first` nor a new process continues it.
+    await expect(first.find("held_elsewhere_finished", RUN)).resolves.toBeUndefined();
+    await expect(storage.process().find("held_elsewhere_finished", RUN)).resolves.toBeUndefined();
   });
 
   it("restores and exposes sessions only to their own run", async () => {

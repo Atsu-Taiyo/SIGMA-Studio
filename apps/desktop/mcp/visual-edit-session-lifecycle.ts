@@ -150,11 +150,11 @@ export interface VisualEditSessionStateTarget {
   /**
    * 直列化した状態をこの世代として保存する。同じ世代か新しい世代を別プロセスが先に保存して
    * いた・提案化・破棄されていた場合は書かずに "superseded" を返す (プロセスをまたいだ比較更新)。
-   * 失敗は例外にせず "failed" を返し、そのとき保存済みの古い世代は消す (書けなかった変更より
-   * 古い状態を最新として読み戻させない)。
+   * 失敗は例外にせず "failed" を返し、そのとき保存済みの古い世代は無効にする (書けなかった
+   * 変更より古い状態を最新として読み戻させない。到達した世代の記録は残す)。
    */
   write(serialized: string, generation: number): Promise<VisualEditSessionStateWriteOutcome>;
-  /** 保存した世代をすべて消す (直列化できなかったとき)。 */
+  /** 保存した世代をすべて無効にする (直列化できなかったとき)。到達した世代の記録は残す。 */
   clear(): Promise<void>;
   /** 提案化・破棄の目印を残して、保存した世代を消す。目印のある session は読み戻さない。 */
   retire(): Promise<void>;
@@ -592,7 +592,7 @@ export class VisualEditSessionLifecycle {
     const knownSessionIds = new Set(statusBySessionId.keys());
     return this.enqueueWrite(target.key, async () => {
       const current = target.read ? await target.read() : null;
-      await target.write(carryOverUnknownSessions(current, statusFile, knownSessionIds));
+      await target.write(carryOverUnknownSessions(current, keepRecordedFinishes(current, statusFile), knownSessionIds));
     });
   }
 
@@ -602,20 +602,20 @@ export class VisualEditSessionLifecycle {
     if (!port) {
       return live;
     }
+    // memory の copy より新しい世代が保存されている。読み戻せなければ古い copy では続けない。
+    let newerSaved = false;
     if (live) {
       const target = port.resolveTarget(live);
-      if (target && await target.isRetired()) {
+      if ((target && await target.isRetired()) || await this.isRecordedTerminal(live)) {
         // 別のプロセスが提案化・破棄した。この memory の古い copy で続けない (二重の提案を防ぐ)。
-        if (this.live.get(sessionId) === live) {
-          this.live.delete(sessionId);
-          this.generations.delete(sessionId);
-        }
+        this.dropLive(live);
         return undefined;
       }
       const storedGeneration = target ? await target.readGeneration() : null;
       if (storedGeneration === null || storedGeneration <= (this.generations.get(sessionId) ?? 0)) {
         return this.live.get(sessionId);
       }
+      newerSaved = true;
     } else if (this.terminal.has(sessionId)) {
       // この process で提案化・破棄した session は、保存の削除が遅れていても戻さない。
       return undefined;
@@ -628,6 +628,11 @@ export class VisualEditSessionLifecycle {
     const stored = await port.load(sessionId, ownerRunId);
     const current = this.live.get(sessionId);
     if (!stored || stored.session.sessionId !== sessionId) {
+      if (newerSaved && live) {
+        // 新しい世代を読む前に、さらに新しい世代へ置き換わった・無効になった。次の呼び出しで読み直す。
+        this.dropLive(live);
+        return undefined;
+      }
       return current;
     }
     if (current && stored.generation <= (this.generations.get(sessionId) ?? 0)) {
@@ -652,6 +657,38 @@ export class VisualEditSessionLifecycle {
     this.live.set(sessionId, stored.session);
     this.generations.set(sessionId, stored.generation);
     return stored.session;
+  }
+
+  /**
+   * 提案化の直前に、memory の copy が今も最新の保存か確かめる。別のプロセスがより新しい世代を
+   * 保存した・提案化や破棄をした場合は copy を捨てて false を返す (古い内容で提案を作らない)。
+   */
+  async isLatest(session: VisualEditSession): Promise<boolean> {
+    if (this.live.get(session.sessionId) !== session || this.superseded.has(session)) {
+      return false;
+    }
+    const target = this.ports.sessionState?.resolveTarget(session) ?? null;
+    if (!target) {
+      return true;
+    }
+    const pending = this.pendingWrites.get(target.key);
+    await pending?.catch(() => undefined);
+    const storedGeneration = await target.readGeneration();
+    const latest = !(await target.isRetired())
+      && !(await this.isRecordedTerminal(session))
+      && (storedGeneration === null || storedGeneration <= (this.generations.get(session.sessionId) ?? 0));
+    if (!latest) {
+      this.superseded.add(session);
+      this.dropLive(session);
+    }
+    return latest;
+  }
+
+  private dropLive(session: VisualEditSession): void {
+    if (this.live.get(session.sessionId) === session) {
+      this.live.delete(session.sessionId);
+      this.generations.delete(session.sessionId);
+    }
   }
 
   /** run の状態ファイルに、この session の提案化・破棄が記録されているか。読めなければ false。 */
@@ -757,6 +794,24 @@ function carryOverUnknownSessions(
     return next;
   }
   return { ...next, sessions: [...next.sessions, ...carried].sort(compareSessionIds) };
+}
+
+/**
+ * 別のプロセスが提案化・破棄を記録した session は、この process の memory の未終了の copy で
+ * 未終了へ戻さない (戻すと、残った保存を別のプロセスが読み戻せてしまう)。
+ */
+function keepRecordedFinishes(current: VisualSessionsStatusFile | null, next: VisualSessionsStatusFile): VisualSessionsStatusFile {
+  const finished = new Map((current?.sessions ?? [])
+    .filter((status) => status.proposed || status.discarded)
+    .map((status) => [status.sessionId, status] as const));
+  if (finished.size === 0) {
+    return next;
+  }
+  return {
+    ...next,
+    sessions: next.sessions.map((status) =>
+      !status.proposed && !status.discarded ? finished.get(status.sessionId) ?? status : status),
+  };
 }
 
 function snapshotVisualSessionStatus(session: VisualEditSession): VisualSessionStatusSnapshot {
