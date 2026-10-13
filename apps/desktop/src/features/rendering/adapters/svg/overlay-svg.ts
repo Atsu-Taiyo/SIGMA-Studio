@@ -39,6 +39,7 @@ import {
   getSolidStrokes,
   getTextShapeFontSizePt,
   getTextShapeRenderedFontSizePx,
+  graphOwnsOriginLabel,
   isClosedPolyline,
   isSolidShape,
   normalizeLineKind,
@@ -114,7 +115,7 @@ export interface OverlayPreviewSource {
 }
 
 export interface OverlaySvgRenderers {
-  renderGraphHtml: (spec: Graph2DSpec, idSeed: string) => string;
+  renderGraphHtml: (spec: Graph2DSpec, idSeed: string, options?: { originLabeled?: boolean }) => string;
   renderMathHtml: (tex: string) => string;
   /**
    * Static markup for a shape's text, for a `<foreignObject>`. Same port reasoning as the table
@@ -390,7 +391,7 @@ function shapeToSvg(
 
   if (shape.type === "graph2dShape") {
     const layout = getGraphRenderLayout(shape);
-    const html = renderers.renderGraphHtml(layout.spec, shape.id);
+    const html = renderers.renderGraphHtml(layout.spec, shape.id, { originLabeled: graphOwnsOriginLabel(shape) });
     svg = foreignObject(layout.renderBounds.x, layout.renderBounds.y, layout.renderBounds.w, layout.renderBounds.h, [
       `<div xmlns="http://www.w3.org/1999/xhtml" style="width:${layout.renderBounds.w}px;height:${layout.renderBounds.h}px;overflow:hidden;background:transparent;">`,
       html,

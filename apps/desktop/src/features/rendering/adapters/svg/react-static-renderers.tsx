@@ -200,9 +200,9 @@ export interface OverlaySvgRenderOptions extends OverlaySvgExportOptions {
  */
 function createStaticReactRenderers(environment: MathRenderEnvironment): OverlaySvgRenderers {
   return {
-    renderGraphHtml: (spec, idSeed) => renderToStaticMarkup(
+    renderGraphHtml: (spec, idSeed, options) => renderToStaticMarkup(
       <MathEnvironmentValueProvider environment={environment}>
-        <Graph2DPreview idSeed={idSeed} spec={spec} staticMode />
+        <Graph2DPreview idSeed={idSeed} spec={spec} staticMode originLabeled={options?.originLabeled} />
       </MathEnvironmentValueProvider>,
     ),
     renderMathHtml: (tex) => renderMathHtml(tex, environment),
