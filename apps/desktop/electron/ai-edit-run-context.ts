@@ -8,6 +8,11 @@ import { parseAiEditTextRange, resolveAiEditTextRangeBlockIds } from "@/lib/ai/a
 import { SigmaDocumentSchema } from "@/lib/sigma-doc-schema";
 import { computeDocumentBlockHashes } from "@/lib/sigma-doc-block-hash";
 import type { AiEditAttachment, AiEditMentionedDocumentContext } from "@/lib/ai/sigma-doc-agent-tools";
+import {
+  MAX_AI_IMAGE_ANNOTATION_COMMENT_LENGTH,
+  MAX_AI_IMAGE_ANNOTATIONS,
+  type AiImageAnnotation,
+} from "@/lib/ai/ai-image-annotations";
 import type { SigmaDocument } from "@/features/document";
 import { createCurrentLocaleTranslator } from "@/lib/i18n";
 import type { LocalSigmaDocStore } from "./local-sigma-doc-store";
@@ -72,6 +77,17 @@ function sanitizeRunIdForFileName(runId: string): string {
 // 気付かれずフィールドを落とすことを防ぐ。mentionedDocuments の document はJSON化された
 // SigmaDocument (実行コンテキストファイル経由のためRecordとして受ける) なので、
 // AiEditMentionedDocumentContext の document(SigmaDocument型)とは別枠で扱う。
+// renderer は送信前に normalizeAiImageAnnotations で範囲へ収めてから渡す。ここで外れた値を
+// 受けると添付ごと落ちる (filterValidItems) ので、形の検査だけにして丸めはしない。
+const AiImageAnnotationItemSchema = z.object({
+  id: z.string().min(1),
+  x: z.number().min(0).max(1),
+  y: z.number().min(0).max(1),
+  width: z.number().min(0).max(1).optional(),
+  height: z.number().min(0).max(1).optional(),
+  comment: z.string().max(MAX_AI_IMAGE_ANNOTATION_COMMENT_LENGTH),
+}) satisfies z.ZodType<AiImageAnnotation>;
+
 export const AiEditAttachmentItemSchema = z.object({
   id: z.string().min(1),
   name: z.string(),
@@ -81,6 +97,7 @@ export const AiEditAttachmentItemSchema = z.object({
   height: z.number().optional(),
   fileSize: z.number().optional(),
   sourceReferenceKey: z.string().optional(),
+  annotations: z.array(AiImageAnnotationItemSchema).max(MAX_AI_IMAGE_ANNOTATIONS).optional(),
 }) satisfies z.ZodType<AiEditAttachment>;
 
 export const AiEditMentionedDocumentItemSchema = z.object({

@@ -4,6 +4,7 @@ import {
   type OverlayShape,
 } from "@/features/document";
 import {
+  getGraphRenderLayout,
   getShapeBounds,
   resolveShapeAnchorPositions,
 } from "@/features/drawing";
@@ -108,7 +109,7 @@ export function buildShapesSvgPreview(
 
 export function unionShapeBounds(shapes: OverlayShape[]): OverlayBounds {
   return shapes
-    .map((shape) => getShapeBounds(shape))
+    .map((shape) => getShapePreviewBounds(shape))
     .reduce((acc, bounds) => {
       const x = Math.min(acc.x, bounds.x);
       const y = Math.min(acc.y, bounds.y);
@@ -116,6 +117,27 @@ export function unionShapeBounds(shapes: OverlayShape[]): OverlayBounds {
       const bottom = Math.max(acc.y + acc.h, bounds.y + bounds.h);
       return { x, y, w: right - x, h: bottom - y };
     });
+}
+
+/**
+ * プレビューで切り取る範囲。グラフの枠 (`getShapeBounds`) は描画域だけで、目盛りの数字や
+ * 軸の名前 (x・y・O) はその外側の余白に描かれる。余白ごと (`renderBounds`) 含めないと、
+ * 入力欄のサムネや AI へ渡す画像でラベルが切れる。
+ */
+function getShapePreviewBounds(shape: OverlayShape): OverlayBounds {
+  const bounds = getShapeBounds(shape);
+  if (shape.type !== "graph2dShape") {
+    return bounds;
+  }
+  const drawn = getGraphRenderLayout(shape).renderBounds;
+  const x = Math.min(bounds.x, drawn.x);
+  const y = Math.min(bounds.y, drawn.y);
+  return {
+    x,
+    y,
+    w: Math.max(bounds.x + bounds.w, drawn.x + drawn.w) - x,
+    h: Math.max(bounds.y + bounds.h, drawn.y + drawn.h) - y,
+  };
 }
 
 export function expandBounds(

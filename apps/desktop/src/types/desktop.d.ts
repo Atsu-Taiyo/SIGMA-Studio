@@ -1,5 +1,6 @@
 import type { AiEditReference } from "@/lib/ai/ai-edit-reference";
 import type { AiProvider } from "@/lib/ai/ai-providers";
+import type { AiImageAnnotation } from "@/lib/ai/ai-image-annotations";
 import type { AiEditPlanStep, AiEditRunEvent, AiEditRunResult } from "@/lib/ai/ai-edit-runtime";
 import type { AiEditSessionDraft } from "@/lib/ai/sigma-doc-edit-schema";
 import type { AiAppliedDocumentDiff } from "@/lib/ai/applied-document-diff";
@@ -21,6 +22,8 @@ export interface DesktopAiEditChatAttachmentSummary {
   fileSize: number | null;
   dataUrl?: string | null;
   sourceReferenceKey?: string | null;
+  /** 画像の中の場所を指したコメント。履歴では元の画像に同じ印を重ねて見せる。 */
+  annotations?: AiImageAnnotation[] | null;
 }
 
 export interface DesktopAiEditChatMentionedDocumentSummary {

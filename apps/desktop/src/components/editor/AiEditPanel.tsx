@@ -85,6 +85,7 @@ export function AiEditPanel({
   onRemovePinnedReference,
   pendingAttachments = EMPTY_PENDING_ATTACHMENTS,
   onRemovePendingAttachment,
+  onSetPendingAttachmentAnnotations,
   onPendingAttachmentsSent,
   overlaySelection,
   variant = "sidebar",
@@ -123,7 +124,7 @@ export function AiEditPanel({
   const geminiConnection = useGeminiConnection();
   const models = useAiChatModelController();
   const { provider, setProvider, model, claudeModel, geminiModel, reasoningEffort } = models;
-  const composer = useAiChatComposer({ document, documentIdentityKey, documentWorkspaceId, selectedId, reference, pinnedReferences, pinnedReferencePreviews, pendingAttachments, onRemovePendingAttachment, onPendingAttachmentsSent, overlaySelection, provider, refreshRuntimeModels: models.refreshRuntimeModels });
+  const composer = useAiChatComposer({ document, documentIdentityKey, documentWorkspaceId, selectedId, reference, pinnedReferences, pinnedReferencePreviews, pendingAttachments, onRemovePendingAttachment, onSetPendingAttachmentAnnotations, onPendingAttachmentsSent, overlaySelection, provider, refreshRuntimeModels: models.refreshRuntimeModels });
   const {
     instruction,
     attachments,
@@ -131,6 +132,7 @@ export function AiEditPanel({
     selectedAiResourceIds,
     aiResources,
     overlayComposerPreviews,
+    overlayAnnotations,
     activeReferenceKey,
     hasAttachableSelectedImages,
     turnReferences,
@@ -474,6 +476,7 @@ export function AiEditPanel({
       overlayPreviews: overlayComposerPreviews,
       overlaySelection,
       activeReferenceKey,
+      overlayAnnotations,
     });
     // A room bound to a provider always runs on it, even if the composer's
     // `provider` state hasn't caught up to a just-selected room yet.
@@ -508,7 +511,7 @@ export function AiEditPanel({
     };
   }, [
     activeReferenceKey, aiResources, aiTargetId, attachments, claudeModel, document, documentIdentityKey, geminiModel,
-    inlineAnchor, instruction, lockedProvider, mentionedDocuments, model, overlayComposerPreviews, overlaySelection, overlaySelectionContext, provider, reasoningEffort,
+    inlineAnchor, instruction, lockedProvider, mentionedDocuments, model, overlayAnnotations, overlayComposerPreviews, overlaySelection, overlaySelectionContext, provider, reasoningEffort,
     scopedAgentThreadId, selectedAiResourceIds, turnReferences, variant,
   ]);
 
@@ -519,7 +522,9 @@ export function AiEditPanel({
     }
 
     const trimmedInstruction = instruction.trim();
-    if (!trimmedInstruction && attachments.length === 0 && !hasAttachableSelectedImages) {
+    // 選んだ図形のプレビューに場所のコメントを付けただけでも、そのコメントが依頼になる。
+    const hasOverlayAnnotations = Object.values(overlayAnnotations).some((annotations) => annotations.length > 0);
+    if (!trimmedInstruction && attachments.length === 0 && !hasAttachableSelectedImages && !hasOverlayAnnotations) {
       setComposerError(t("composer.instructionRequired"));
       return;
     }
@@ -590,7 +595,7 @@ export function AiEditPanel({
     if (variant === "inline" && overlaySelectionContext) {
       onCloseInline?.();
     }
-  }, [activeRoom, historyLoading, instruction, attachments.length, hasAttachableSelectedImages,
+  }, [activeRoom, historyLoading, instruction, attachments.length, hasAttachableSelectedImages, overlayAnnotations,
     t, buildRunParams, model, claudeModel, geminiModel, documentIdentityKey,
     setComposerError, capture, clearComposerAfterSubmit, variant, overlaySelectionContext, onCloseInline, inlineAnchor, onInlineRunAnchorChange]);
 

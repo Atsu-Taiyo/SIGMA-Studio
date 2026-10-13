@@ -770,6 +770,24 @@ border を引く、running region のリストは region スコープ、静的�
   共有契約はapplication側へ置き、`AiChatComposer`、`AiChatHistory`、`AiChatTurn`、
   `AiChatActivity`、`AiChatInlineSurface` は表示と明示的な操作callbackを受け取る。
   提案の承認・保存は既存のhost callbackとstoreを経由し、表示部品は文書の正本を所有しない。
+- 添付画像の中の場所へのコメント (注記) は `lib/ai/ai-image-annotations.ts` が型・正規化・印の配置
+  (`getAiImageAnnotationMarkLayout`)・プロンプトの対応表を持つ。React・DOM・AIの実行に依存せず、renderer・
+  Electron main (履歴の正規化・run-contextの検査)・MCP (`get_attached_media` の `annotations`) が同じものを使う。
+  座標は画像に対する割合 (0〜1) で、点は輪で囲み、範囲は枠で囲み、番号の丸は指した所を隠さない位置に置く。
+  付ける画面は `features/ai-edit/view/AiImageAnnotationDialog.tsx` (クリック=点・ドラッグ=範囲、`ModalFrame`)、
+  入力欄・履歴の画像に重ねる印は `AiImageAnnotationMarks.tsx`。注記は添付そのもの (`AiEditAttachment.annotations`)
+  に持たせ、入力欄の添付は下書き、範囲スクリーンショットは `useAiPendingAttachments`、選択図形のプレビューは
+  下書きの参照キーごとの表に置く (プレビューPNGは送信時に同じSVGから作るので座標をそのまま渡せる)。
+  AIへ送る画像に印を描き込むのはIPCへ渡す直前の1回だけ (`lib/ai/ai-image-annotation-canvas.ts`、
+  `runAiEditViaDesktopRuntime`)。会話履歴には元の画像と注記を残し、同じ配置の印をDOMで重ねる。画像の枠
+  (1回4枚) に空きがあれば、番号の丸で隠れた文字を読めるよう印のない元画像も「（印なし）」として添える。
+  コメントの対応表は3プロバイダ共通の `formatAttachmentsHint` (`lib/ai/mcp-edit-prompt.ts`) が添付の案内に続けて入れる。
+- SVG を `<img>` / canvas で画像にするときは `lib/svg-embedded-styles.ts` を通す。図形の書き出しは foreignObject の
+  中の HTML に入れ子の `<svg>` を名前空間なしで書き、グラフの線や文字は紙面の CSS クラスで描くので、そのままでは
+  画像が白紙になる。`prepareSvgForImage` が名前空間の無い入れ子の `<svg>` / `<math>` に名前空間を書き足し、使っているクラスの CSS・書体・
+  ルートのカスタムプロパティを埋め込む。AI へ渡す選択図形のプレビュー PNG と印刷のサムネイルが同じ部品を使う。
+  選択図形のプレビューは選択サマリーの `previewShapes` (選択 + 選んだグラフが持つ軸・点の名前の文字図形) で描き、
+  切り取り範囲はグラフの余白 (目盛りの数字・軸の名前) まで含める。AI が編集する対象 (`selectedShapes`) は変えない。
 - `AiModelMenuContents` はモデル／推論強度メニューの表示とキーボード操作を所有し、
   選択値の保存とプロバイダ固有の補正は呼び出し側が所有する。
 - 設定値の購読は `subscribe-storage-preference.ts` で共有し、同一タブ・別タブの変更を

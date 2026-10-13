@@ -7,6 +7,7 @@ import { prompt as jaPrompt } from "@/lib/i18n/dictionaries/ja/prompt";
 import type { AiResourceRunContext } from "../../../electron/ai-resource-store";
 import { SIGMA_DOC_MCP_SERVER_NAME } from "../../../electron/sigma-studio-mcp-launch";
 import { appMcpToolGuidance, type McpToolProfile } from "./mcp-tool-profile";
+import { formatAiImageAnnotationsForPrompt, type AiImageAnnotation } from "./ai-image-annotations";
 
 /** この層のプロンプト文言は全て `prompt` namespace が持つ。 */
 type PromptTranslate = Translate<"prompt">;
@@ -279,6 +280,8 @@ export interface BuildMcpEditTurnPromptMentionedDocument {
 export interface BuildMcpEditTurnPromptAttachment {
   name: string;
   mimeType?: string | null;
+  /** 画像の中の場所を指したコメント。IPCの生の値でも受けられるよう、整形時に正規化する。 */
+  annotations?: readonly AiImageAnnotation[] | null;
 }
 
 export interface BuildMcpEditTurnPromptArgs {
@@ -381,7 +384,8 @@ function formatAttachmentsHint(
   return [
     t("turn.attachments", { replace: { count: attachments.length, names } }),
     section(t, "imageSourceFidelity"),
-  ].join("\n");
+    formatAiImageAnnotationsForPrompt(attachments, t),
+  ].filter((line) => line.length > 0).join("\n");
 }
 
 function turnPromptTailLines(args: BuildMcpEditTurnPromptArgs, t: PromptTranslate): string[] {

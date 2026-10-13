@@ -19,6 +19,7 @@ import {
 } from "@/lib/ai/sigma-doc-agent-tools";
 import { parseSigmaDocument } from "@/lib/sigma-doc-schema";
 import type { AiEditReference } from "@/lib/ai/ai-edit-reference";
+import type { AiImageAnnotation } from "@/lib/ai/ai-image-annotations";
 import { getFileMetadata, loadDocumentForFile } from "./sigma-doc-mcp-store";
 import {
   resolveRunContextDirectory,
@@ -115,6 +116,7 @@ async function runAttachedMediaTool(deps: AppContextToolDeps, context: AiEditRun
     height: number | null;
     fileSize: number | null;
     sourceReferenceKey: string | null;
+    annotations?: AiImageAnnotation[];
     hasImageData: boolean;
     imageContentIncluded: boolean;
     contentIncluded: boolean;
@@ -164,6 +166,10 @@ async function runAttachedMediaTool(deps: AppContextToolDeps, context: AiEditRun
       height: attachment.height ?? null,
       fileSize: attachment.fileSize ?? null,
       sourceReferenceKey: attachment.sourceReferenceKey ?? null,
+      // 画像に描き込んだ番号付きの印と同じ番号・位置のコメント (位置は画像に対する割合)。
+      ...(attachment.annotations && attachment.annotations.length > 0
+        ? { annotations: attachment.annotations }
+        : {}),
       hasImageData: attachment.dataUrl.startsWith("data:image/"),
       imageContentIncluded: Boolean(parsedImage),
       contentIncluded: contentType !== null,
@@ -440,7 +446,7 @@ export const APP_CONTEXT_TOOL_TABLE: AppContextToolDefinition[] = [
   {
     name: "get_attached_media",
     title: "添付ファイルを取得(アプリ実行時)",
-    description: "ユーザーの添付ファイルメタデータ、run-scopedな絶対filePath、実内容を最大4件返します。PNG/JPEG/GIF/WEBPはimage content、その他の形式はresource contentです。ChatGPTではinline image contentを省略するため、画像はfilePathをview_imageで開きます。PDFはChatGPT/Antigravity向けにpdf.pages(ページ番号・text・previewFile)、pageCount、nextPageStartを返します。Antigravityにはページ画像もimage contentで返します。続きはattachmentIdとpageStart=nextPageStartを指定します(1回最大4ページ)。添付があるturnでは編集前に呼び、ファイル名や@参照だけで内容を推測しません。fileIdは不要。runIdはプロンプトの値を渡します。アプリ実行外ではhasAppContext:falseを返します。",
+    description: "ユーザーの添付ファイルメタデータ、run-scopedな絶対filePath、実内容を最大4件返します。PNG/JPEG/GIF/WEBPはimage content、その他の形式はresource contentです。ChatGPTではinline image contentを省略するため、画像はfilePathをview_imageで開きます。PDFはChatGPT/Antigravity向けにpdf.pages(ページ番号・text・previewFile)、pageCount、nextPageStartを返します。Antigravityにはページ画像もimage contentで返します。続きはattachmentIdとpageStart=nextPageStartを指定します(1回最大4ページ)。ユーザーが画像の中の場所にコメントした添付はannotations(番号順。x/yとwidth/heightは画像に対する割合0〜1)を持ち、画像には同じ番号の青い印が描き込まれています。添付があるturnでは編集前に呼び、ファイル名や@参照だけで内容を推測しません。fileIdは不要。runIdはプロンプトの値を渡します。アプリ実行外ではhasAppContext:falseを返します。",
     withTargetId: false,
     toolName: "get_attached_media",
   },

@@ -2,6 +2,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 
 import type { AiEditReference } from "@/lib/ai/ai-edit-reference";
+import { normalizeAiImageAnnotations, type AiImageAnnotation } from "@/lib/ai/ai-image-annotations";
 import { createCurrentLocaleTranslator } from "@/lib/i18n";
 import {
   capRunPreviewImages,
@@ -29,6 +30,7 @@ export interface LocalAiEditChatAttachmentSummary {
   fileSize: number | null;
   dataUrl?: string | null;
   sourceReferenceKey?: string | null;
+  annotations?: AiImageAnnotation[] | null;
 }
 
 export interface LocalAiEditChatMentionedDocumentSummary {
@@ -301,7 +303,13 @@ function normalizeAttachmentSummary(value: unknown): LocalAiEditChatAttachmentSu
     fileSize: asNumber(record.fileSize) ?? null,
     dataUrl: asString(record.dataUrl) ?? null,
     sourceReferenceKey: asString(record.sourceReferenceKey) ?? null,
+    ...withAnnotations(normalizeAiImageAnnotations(record.annotations)),
   };
+}
+
+// 注記の無い添付には項目を作らない (旧履歴と同じ形のまま保存する)。
+function withAnnotations(annotations: AiImageAnnotation[]): { annotations?: AiImageAnnotation[] } {
+  return annotations.length > 0 ? { annotations } : {};
 }
 
 function normalizeMentionedDocumentSummary(value: unknown): LocalAiEditChatMentionedDocumentSummary {

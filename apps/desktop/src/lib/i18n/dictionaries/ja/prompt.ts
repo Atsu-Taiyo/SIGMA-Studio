@@ -38,6 +38,13 @@ export const prompt = {
     selectionContext: "ユーザーの選択コンテキスト:",
     selectionTruncated: "...(選択コンテキストが長いため省略しました)",
     userInstruction: "ユーザーの指示:",
+    imageAnnotations: {
+      intro: "ユーザーは添付画像の中の場所を指してコメントしています。画像には同じ番号の青い印を描き込んであります（点の注記は番号の丸の左下にある青い輪の中心、範囲の注記は青い枠の中）。各コメントは、その印が指す場所についての指示として扱ってください。位置は画像の左上を0%、右下を100%とした割合です。青い印はユーザーが付けた目印で元の画像の内容ではないので、教材へ写したり再現したりしないでください。印で隠れて読みにくい所は、名前の末尾が「（印なし）」の同じ画像が添付されていれば、そちらで確認してください。",
+      originalName: "{{base}}（印なし）{{extension}}",
+      image: "画像「{{name}}」へのコメント:",
+      point: "{{index}}. 点（左から{{x}}%、上から{{y}}%）: {{comment}}",
+      region: "{{index}}. 範囲（横{{left}}〜{{right}}%、縦{{top}}〜{{bottom}}%）: {{comment}}",
+    },
   },
   refused: {
     item: {
@@ -61,6 +68,7 @@ export const prompt = {
     mathliveContext: "数式編集では MathLive が解釈しやすいTeXを mathInline.tex にだけ入れてください。\ntex に $...$ や $$...$$ の区切り記号は入れません。\n本文中に文章と数式を混ぜるときは runs: [\"文章\", {type:\"math\", tex:\"x^2+1\"}, \"文章\"] の形を唯一の正しい書き方としてください。\ntext や runs 内の文字列に \\(x^2+1\\) や $x^2+1$ のようなLaTeX区切りが混ざった場合はアプリ側でフォールバックとして mathInline に分解しますが、これはあくまで保険であり、通常は使わないでください。$$...$$ は区切りが崩れる原因になるため絶対に使わないでください（フォールバックとしては分解されますが推奨しません）。\ntexの実値では、TeXコマンドを必ずバックスラッシュ1個（\\frac、\\sqrt、\\left、\\right など）で始めてください。JSON表示では \"\\\\frac\" のようにエスケープされますが、実値へバックスラッシュ2個を入れてはいけません。例外は数式内の改行だけで、実値を「\\\\ 」の形（バックスラッシュ2個の直後に半角スペース）にしてください。\nコマンドの構文を省略しないでください。分数・根号は \\frac{分子}{分母}、\\sqrt{被開平数} と書き、伸縮括弧は \\left と \\right を対応する区切り記号付きの1組で使います（例: \\left(x\\right)、\\left|x\\right|）。片側を隠す場合だけ \\left. / \\right. を使います。\n// はMathLiveの改行ではないため使わないでください。\n使用例: \\frac{a}{b}, \\sqrt{x}, x^2, x_i, \\begin{pmatrix}a&b\\\\c&d\\end{pmatrix}, \\begin{cases}x>0\\\\x\\leqq0\\end{cases}, \\sin, \\cos, \\tan, \\log, \\lim_{x\\to0}, \\sum_{k=1}^{n}, \\left|x\\right|, \\leqq, \\geqq, \\ne, \\pi。\n既存の mathInline.id と display: \"inline\" は保ちます。新しい mathInline を作る必要がある場合だけ、衝突しないIDを作ります。\n文章をTeXに混ぜず、日本語説明は text ノードへ置いてください。\n数式の一部ではない独立した説明文を、配置目的だけで \\text{...} や aligned/cases の行に入れないでください。説明文は独立したparagraphのtextノードへ分け、必要なら前後の数式も別paragraphへ分割します。",
     imageToSigmaDocDefaultInstruction: "添付画像を元教材として読み取り、本文・問題文・解答・表・グラフ・図形・レイアウトを編集可能なSigmaDoc教材として再構成して。",
     attachedFileDefaultInstruction: "添付ファイルを読み取り、内容を教材編集や回答に必要な資料として利用して。",
+    imageAnnotationDefaultInstruction: "画像に付けたコメントに沿って対応して。",
   },
   /**
    * ツール呼び出しの検証フィードバックと、モデルへ返る内部文言 (WI-8b)。

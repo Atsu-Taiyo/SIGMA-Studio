@@ -1,5 +1,5 @@
 "use client";
-import { useRef } from "react";
+import { useRef, useState } from "react";
 import type { AiProvider } from "@/lib/ai/ai-providers";
 import { AiModelMenuContents } from "@/components/editor/ai-model-menu-contents";
 import {
@@ -35,6 +35,9 @@ import { useT } from "@/lib/i18n/react";
 import { MAX_AI_EDIT_MENTIONED_DOCUMENTS } from "@/features/ai-edit/application/ai-chat-context";
 import { buildAiActionPresets } from "@/features/ai-edit/view/ai-chat-presets";
 import { ComposerOverlaySelectionPreview } from "@/features/ai-edit/view/AiChatPreviewImages";
+import { AiImageAnnotationDialog } from "@/features/ai-edit/view/AiImageAnnotationDialog";
+import { buildSelectedShapesAttachmentName } from "@/lib/ai/ai-edit-attachment-names";
+import { isImageAttachment } from "@/features/ai-edit/application/ai-chat-attachments";
 import {
   MentionedDocumentChip,
   AiResourceChip,
@@ -58,8 +61,12 @@ export interface AiChatComposerProps {
  hasTurns: boolean;
  onSubmit: () => Promise<void>;
 }
+/** コメントを付けている画像。添付は id、選択図形のプレビューは参照キーで指す。 */
+type AnnotationTarget = { kind: "attachment"; id: string } | { kind: "overlay"; referenceKey: string };
+
 export function AiChatComposer({ controller, models, pinnedReferences,onRemovePinnedReference,lockedProvider,composerVariant,inlineSessionId,onPromoteToSidebar,historyLoading,isRunning,hasTurns,onSubmit:runEdit }: AiChatComposerProps) {
  const modelMenuButtonRef = useRef<HTMLButtonElement | null>(null);
+ const [annotationTarget, setAnnotationTarget] = useState<AnnotationTarget | null>(null);
  const t=useT("ai");const tEditor=useT("editor");const tCommon=useT("common");
  const {provider,setProvider,model,setModel,claudeModel,setClaudeModel,geminiModel,setGeminiModel,reasoningEffort,setReasoningEffort,runtimeModelCatalogs,modelCatalogLoadingProvider,modelCatalogErrors}=models;
  const {
@@ -100,6 +107,9 @@ export function AiChatComposer({ controller, models, pinnedReferences,onRemovePi
     selectedOverlayImageCount,
     selectedOverlayNonImageShapeCount,
     overlayComposerPreviews,
+    overlayAnnotations,
+    setAttachmentAnnotations,
+    setOverlayPreviewAnnotations,
     handleAttachmentFiles,
     handleInstructionPaste,
     removeAttachment,
@@ -143,6 +153,13 @@ export function AiChatComposer({ controller, models, pinnedReferences,onRemovePi
   const reasoningEffortSupported = activeReasoningEfforts.length > 0;
   const modelCatalogLoading = modelCatalogLoadingProvider === provider;
   const modelCatalogError = modelCatalogErrors[provider];
+  // 画像が送信・×・選択の変更で消えたら、開いていたコメントの画面も閉じる (描画から外すだけ)。
+  const annotationAttachment = annotationTarget?.kind === "attachment"
+    ? attachments.find((attachment) => attachment.id === annotationTarget.id && isImageAttachment(attachment)) ?? null
+    : null;
+  const annotationOverlayPreview = annotationTarget?.kind === "overlay"
+    ? overlayComposerPreviews.find((item) => item.referenceKey === annotationTarget.referenceKey) ?? null
+    : null;
 
   // The composer (text field + chips + @/slash popovers + toolbar) is rendered
   // verbatim in both the docked sidebar and the inline editor so the input UI is
@@ -193,6 +210,8 @@ export function AiChatComposer({ controller, models, pinnedReferences,onRemovePi
                 key={overlayPreview.referenceKey}
                 preview={overlayPreview.preview}
                 shapeCount={overlayPreview.shapeCount}
+                annotations={overlayAnnotations[overlayPreview.referenceKey]}
+                onAnnotate={() => setAnnotationTarget({ kind: "overlay", referenceKey: overlayPreview.referenceKey })}
               />
             ))}
             {showReferenceChip && activeReference && (
@@ -221,6 +240,9 @@ export function AiChatComposer({ controller, models, pinnedReferences,onRemovePi
                 key={attachment.id}
                 attachment={attachment}
                 onRemove={() => removeAttachment(attachment.id)}
+                onAnnotate={isImageAttachment(attachment)
+                  ? () => setAnnotationTarget({ kind: "attachment", id: attachment.id })
+                  : undefined}
               />
             ))}
             {mentionedDocuments.map((item) => (
@@ -671,6 +693,31 @@ export function AiChatComposer({ controller, models, pinnedReferences,onRemovePi
           </button>
         </div>
       </div>
+      {annotationAttachment ? (
+        <AiImageAnnotationDialog
+          key={`attachment:${annotationAttachment.id}`}
+          src={annotationAttachment.dataUrl}
+          name={annotationAttachment.name}
+          naturalSize={annotationAttachment.width && annotationAttachment.height
+            ? { width: annotationAttachment.width, height: annotationAttachment.height }
+            : null}
+          annotations={annotationAttachment.annotations ?? []}
+          onChange={(annotations) => setAttachmentAnnotations(annotationAttachment.id, annotations)}
+          onClose={() => setAnnotationTarget(null)}
+        />
+      ) : null}
+      {annotationOverlayPreview ? (
+        <AiImageAnnotationDialog
+          key={`overlay:${annotationOverlayPreview.referenceKey}`}
+          src={`data:image/svg+xml;charset=utf-8,${encodeURIComponent(annotationOverlayPreview.preview.svg)}`}
+          shapePreview={annotationOverlayPreview.preview}
+          name={buildSelectedShapesAttachmentName(annotationOverlayPreview.shapeCount)}
+          naturalSize={{ width: annotationOverlayPreview.preview.width, height: annotationOverlayPreview.preview.height }}
+          annotations={overlayAnnotations[annotationOverlayPreview.referenceKey] ?? []}
+          onChange={(annotations) => setOverlayPreviewAnnotations(annotationOverlayPreview.referenceKey, annotations)}
+          onClose={() => setAnnotationTarget(null)}
+        />
+      ) : null}
     </div>
   );
 
