@@ -134,14 +134,14 @@ describe("WebMCP editor extensions", () => {
   });
 
   it("keeps the first set's frame drawing, body policy and decorations when the second only locks shapes", () => {
-    const problemFrameDrawing = { renderPanel: () => null };
+    const frameDrawing = { renderPanel: () => null };
     const textFlowEditPolicy = { guards: [] };
     const overlayShapeDecorations = new Map([["shape_ai", { className: "ai-shape" }]]);
     const first: EditorExtensionContextValue = {
       textFlowEditPolicy,
       overlayEditPolicy: { lockedShapeIds: new Set(["shape_ai"]) },
       overlayShapeDecorations,
-      problemFrameDrawing,
+      frameDrawing,
     };
     const shapeOnly: EditorExtensionContextValue = {
       overlayEditPolicy: { lockedShapeIds: new Set(["hidden"]), unselectableShapeIds: new Set(["hidden"]) },
@@ -150,13 +150,13 @@ describe("WebMCP editor extensions", () => {
     const merged = mergeEditorExtensionSets(first, shapeOnly)!;
 
     // 枠の AI タブ (問題設定の枠エディタ) が消えない。
-    expect(merged.problemFrameDrawing).toBe(problemFrameDrawing);
+    expect(merged.frameDrawing).toBe(frameDrawing);
     // 本文の編集面の方針と図形の飾りは同じオブジェクトのまま (本文ユニットを描き直させない)。
     expect(merged.textFlowEditPolicy).toBe(textFlowEditPolicy);
     expect(merged.overlayShapeDecorations).toBe(overlayShapeDecorations);
     expect([...merged.overlayEditPolicy!.unselectableShapeIds!]).toEqual(["hidden"]);
     // 2 つ目が飾りを持つなら、2 つ目の frame drawing より 1 つ目のものも引き継ぐ。
-    expect(mergeEditorExtensionSets(shapeOnly, first)!.problemFrameDrawing).toBe(problemFrameDrawing);
+    expect(mergeEditorExtensionSets(shapeOnly, first)!.frameDrawing).toBe(frameDrawing);
   });
 
   it("publishes refresh conflicts, blocks apply, and recovers after the human edit is undone", async () => {

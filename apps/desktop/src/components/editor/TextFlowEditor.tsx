@@ -161,6 +161,7 @@ import  {
   boxFrameHasSubtitle,
   patchBoxFrame,
   resolveBoxFrame,
+  setBoxCustomFrame,
   setBoxStyle,
 } from "@/lib/box-blocks";
 import  {
@@ -173,6 +174,7 @@ import  {
 import { useAppLocale, useT } from "@/lib/i18n/react";
 import { createId } from "@/lib/id";
 import { countPerformanceEvent, measurePerformance } from "@/lib/performance";
+import { getFrameLibrary, type FrameLibraryEntry } from "@/lib/frame-library";
 import { applyRememberedBoxFrame, forgetRememberedBoxFrame, rememberBoxFramePatch } from "@/lib/remembered-box-style";
 import { inlineNodesToTiptapNodes, tiptapNodesToInlineNodes, type TiptapDoc, type TiptapNode } from "@/lib/tiptap-adapter";
 import { SELECT_BODY_WITH_SHAPES_EVENT, collectSelectedBlockIds, requestBodySelectionShapes } from "./text-flow/body-shape-selection";
@@ -321,6 +323,8 @@ export function shouldHandleTextPageBreakRequest(
 }
 /** 本文ブロック候補が無いときに渡す不変配列 (毎回新しい `[]` を作ると useMemo が毎回外れる)。 */
 const EMPTY_BLOCK_COMMAND_IDS: readonly string[] = [];
+/** 箱を置けないときの棚。同じく不変配列。 */
+const NO_FRAMES: readonly FrameLibraryEntry[] = [];
 const BOX_ACTION_DIALOG_WIDTH = 188;
 const BOX_ACTION_DIALOG_HEIGHT = 180;
 const BOX_ACTION_DIALOG_MARGIN = 12;
@@ -1013,19 +1017,23 @@ function TextFlowEditorImpl({
   const slashCommandPageBreakKind = !singleBlock && onManualBreakCommand && slashCommandQuery?.canInsertPageBreak
     ? resolvedPaginationMarkerKind
     : null;
+  const slashCanInsertBox = enableBoxCommands && (slashCommandQuery?.canInsertBox ?? false);
   const slashCommandCandidates = useMemo(
     () => filterSlashCommandCandidates(
       materials,
       slashCommandQuery?.query ?? "",
-      enableBoxCommands && (slashCommandQuery?.canInsertBox ?? false),
+      slashCanInsertBox,
       t,
       boxCommandStyleIds,
       enableProblemCommands,
       slashCommandBlockIds,
       enableHeadingCommands,
       slashCommandPageBreakKind,
+      // 棚は `/` で箱を置ける間だけ読む。購読すると本文エディタの描画のたびに localStorage の
+      // 棚 (最大 60 件の SVG) を読み直すことになる。
+      slashCanInsertBox ? getFrameLibrary() : NO_FRAMES,
     ),
-    [boxCommandStyleIds, enableBoxCommands, enableHeadingCommands, enableProblemCommands, materials, slashCommandBlockIds, slashCommandPageBreakKind, slashCommandQuery?.canInsertBox, slashCommandQuery?.query, t],
+    [boxCommandStyleIds, enableHeadingCommands, enableProblemCommands, materials, slashCanInsertBox, slashCommandBlockIds, slashCommandPageBreakKind, slashCommandQuery?.query, t],
   );
   const slashCommandMaxIndex = Math.max(0, slashCommandCandidates.length - 1);
   const clampedSlashCommandActiveIndex = Math.min(slashCommandActiveIndex, slashCommandMaxIndex);
@@ -3159,6 +3167,12 @@ function TextFlowEditorImpl({
           onFrameChange={(patch) => {
             applyBoxSettings(activeBoxSettingsDialog.boxId, (boxBlock) => patchBoxFrame(boxBlock, patch));
             rememberBoxFramePatch(activeBoxSettingsDialog.styleId, patch);
+          }}
+          onCustomFrameChange={(updater) => {
+            applyBoxSettings(activeBoxSettingsDialog.boxId, (boxBlock) => {
+              const next = updater(boxBlock.frame?.custom);
+              return next ? setBoxCustomFrame(boxBlock, next) : boxBlock;
+            });
           }}
           onResetStyle={() => {
             forgetRememberedBoxFrame(activeBoxSettingsDialog.styleId);

@@ -4,7 +4,8 @@ import {
   type PageBreakMarkerKind,
   type TextFlowCommandDefinition,
 } from "@/features/text-editing";
-import { resolveBoxStyles } from "@/lib/box-blocks";
+import type { CustomFrame } from "@/features/document";
+import { CUSTOM_BOX_STYLE_ID, resolveBoxStyles } from "@/lib/box-blocks";
 import type { Translate } from "@/lib/i18n";
 import { materialMatchesQuery } from "@/lib/materials";
 import { isOfficialMaterial } from "@/lib/official-materials";
@@ -30,8 +31,16 @@ export interface ActiveSlashCommandQuery {
   };
 }
 
+/** A frame on the user's shelf (`frame-library`), offered as a box drawn with it. */
+export interface SlashCommandFrame {
+  id: string;
+  name: string;
+  custom: CustomFrame;
+}
+
 export type SlashCommandCandidate =
   | { kind: "box"; box: TextFlowCommandDefinition }
+  | { kind: "frameBox"; frameBox: TextFlowCommandDefinition & { frame: SlashCommandFrame } }
   | { kind: "block"; block: TextFlowCommandDefinition }
   | { kind: "problem"; problem: TextFlowCommandDefinition }
   | { kind: "heading"; heading: TextFlowCommandDefinition & { level: 1 | 2 | 3 } }
@@ -51,6 +60,9 @@ export function getSlashCommandCandidateName(candidate: SlashCommandCandidate): 
   if (candidate.kind === "pageBreak") {
     return `/${candidate.pageBreak.commandName}`;
   }
+  if (candidate.kind === "frameBox") {
+    return `/${candidate.frameBox.commandName}`;
+  }
   return candidate.kind === "box" ? `/${candidate.box.commandName}` : `/${candidate.material.name}`;
 }
 
@@ -59,6 +71,23 @@ const MAX_MATERIAL_CANDIDATES = 8;
 const MAX_SLASH_COMMAND_CANDIDATES = 12;
 
 const MAX_BOX_COMMAND_CANDIDATES = 6;
+
+const MAX_FRAME_BOX_COMMAND_CANDIDATES = 3;
+
+/** The shelf frames as `/` commands: found by their name, inserted as a box drawn with the frame. */
+function buildFrameBoxCommandDefinitions(
+  frames: readonly SlashCommandFrame[],
+  t: Translate<"editor">,
+): Array<TextFlowCommandDefinition & { frame: SlashCommandFrame }> {
+  return frames.map((frame) => ({
+    id: frame.id,
+    commandName: frame.name,
+    displayName: frame.name,
+    description: t("slash.frameBoxDescription"),
+    aliases: [],
+    frame,
+  }));
+}
 
 /**
  * `/` コマンドの一覧。**文言は毎回 `t` から解決する** (module 直下で作ると
@@ -167,6 +196,8 @@ export function filterSlashCommandCandidates(
   includeHeadingCommands = false,
   /** 区切りを出すならその種別。null なら出さない。 */
   pageBreakKind: PageBreakMarkerKind | null = null,
+  /** 棚 (自作の枠の一覧) の枠。箱を置ける場所でだけ、その枠の箱として出す。 */
+  frames: readonly SlashCommandFrame[] = [],
 ): SlashCommandCandidate[] {
   const problemCandidates = includeProblemCommand
     ? filterTextFlowCommandDefinitions([buildProblemCommandDefinition(t)], {
@@ -187,6 +218,12 @@ export function filterSlashCommandCandidates(
         limit: MAX_BOX_COMMAND_CANDIDATES,
       }).map((box): SlashCommandCandidate => ({ kind: "box", box }))
     : [];
+  const frameBoxCandidates = includeBoxCommands && (!boxCommandStyleIds || boxCommandStyleIds.includes(CUSTOM_BOX_STYLE_ID))
+    ? filterTextFlowCommandDefinitions(buildFrameBoxCommandDefinitions(frames, t), {
+        query,
+        limit: MAX_FRAME_BOX_COMMAND_CANDIDATES,
+      }).map((frameBox): SlashCommandCandidate => ({ kind: "frameBox", frameBox }))
+    : [];
   const blockCandidates = blockCommandIds.length > 0
     ? filterTextFlowCommandDefinitions(buildBodyBlockCommandDefinitions(t), {
         query,
@@ -204,7 +241,14 @@ export function filterSlashCommandCandidates(
     .map((material): SlashCommandCandidate => ({ kind: "material", material }));
   // 名前が前方一致した候補を先に出す。`/引用` は引用ブロックであって「引用」を別名に持つ箱
   // (leftbar) ではない、という当たり前の順番は、説明文や別名まで見る絞り込みだけでは作れない。
-  const commandCandidates = [...problemCandidates, ...headingCandidates, ...blockCandidates, ...pageBreakCandidates, ...boxCandidates];
+  const commandCandidates = [
+    ...problemCandidates,
+    ...headingCandidates,
+    ...blockCandidates,
+    ...pageBreakCandidates,
+    ...boxCandidates,
+    ...frameBoxCandidates,
+  ];
   const rankedCommands = [...commandCandidates].sort((a, b) => (
     textFlowCommandNameMatchRank(getSlashCommandCandidateName(a).slice(1), query)
     - textFlowCommandNameMatchRank(getSlashCommandCandidateName(b).slice(1), query)

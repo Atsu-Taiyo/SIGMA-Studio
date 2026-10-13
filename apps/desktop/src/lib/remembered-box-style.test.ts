@@ -131,4 +131,15 @@ describe("覚えた箱スタイル", () => {
 
     expect(readRememberedBoxFrame("theorembox")).toMatchObject({ backgroundColor: "#fef2f2" });
   });
+
+  it("never remembers a custom frame's drawing, which would land on every box inserted next", () => {
+    installStorage();
+    const custom = {
+      svg: '<svg xmlns="http://www.w3.org/2000/svg" width="60" height="40" viewBox="0 0 60 40"><rect width="60" height="40" fill="none" stroke="#000"/></svg>',
+      width: 60, height: 40, slice: 10, borderPx: 18, paddingPx: 12,
+    };
+    rememberBoxFramePatch("custom", { titleColor: "#1f3864", custom });
+
+    expect(readRememberedBoxFrame("custom")).toEqual({ titleColor: "#1f3864" });
+  });
 });

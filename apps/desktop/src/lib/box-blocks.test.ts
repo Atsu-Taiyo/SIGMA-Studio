@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  applyBoxFrameDrawing,
   BUILTIN_BOX_STYLES,
+  boxFrameChromeInsetPx,
   boxBlockSubtitleText,
   boxBlockTitleText,
   boxFrameHasSubtitle,
@@ -13,12 +15,16 @@ import {
   cornerBoxFoldSizePx,
   cornerBoxReferenceHeightStyleVars,
   createBoxBlock,
+  createCustomFrameBoxBlock,
+  getBoxCustomFrame,
   patchBoxFrame,
   resolveBoxFrame,
+  setBoxCustomFrame,
   setBoxStyle,
   setBoxTitle,
 } from "@/lib/box-blocks";
-import type { BoxBlockNode, BoxFrameSpec } from "@/features/document";
+import type { BoxBlockNode, BoxFrameSpec, CustomFrame } from "@/features/document";
+import { getCustomFrameStyle } from "@/lib/custom-frame";
 
 describe("cornerbox frame", () => {
   it("uses default editor text size unless the user customizes it", () => {
@@ -362,5 +368,133 @@ describe("box frame style attribute CSS injection", () => {
     expect(boxFrameStyleAttribute(frame).split(";")).toHaveLength(
       Object.keys(boxFrameStyleVars(frame)).length,
     );
+  });
+});
+
+describe("custom box frame", () => {
+  const CUSTOM: CustomFrame = {
+    svg: '<svg xmlns="http://www.w3.org/2000/svg" width="60" height="40" viewBox="0 0 60 40"><rect width="60" height="40" fill="none" stroke="#000"/></svg>',
+    width: 60,
+    height: 40,
+    slice: 10,
+    borderPx: 18,
+    paddingPx: 12,
+  };
+
+  it("frames a box with the drawing and keeps the rest of its look, so an older app still draws the old box", () => {
+    const box = setBoxCustomFrame(createBoxBlock("tcolorbox", "定理"), CUSTOM);
+    expect(box.styleId).toBe("custom");
+    expect(box.frame).toMatchObject({ custom: CUSTOM, titleBackgroundColor: expect.any(String), decorations: expect.any(Array) });
+    expect(getBoxCustomFrame(box)).toBe(CUSTOM);
+    expect(box.title).toEqual([{ type: "text", text: "定理" }]);
+  });
+
+  it("lets the drawing decide the border, padding and decorations, and keeps the text styling", () => {
+    const box = setBoxCustomFrame(patchBoxFrame(createBoxBlock("tcolorbox", "定理"), { titleColor: "#123456" }), CUSTOM);
+    const frame = resolveBoxFrame(box);
+    expect(frame).toMatchObject({
+      borderWidthPx: 18,
+      paddingPx: { top: 12, right: 12, bottom: 12, left: 12 },
+      titleColor: "#123456",
+      custom: { svg: CUSTOM.svg, slice: 10 },
+    });
+    expect(frame.decorations).toBeUndefined();
+    expect(frame.backgroundColor).toBeUndefined();
+    expect(boxFrameClassName("print-box-block", frame, box.styleId).split(" "))
+      .toEqual(["print-box-block", "box-frame", "box-frame--custom", "box-frame--title-position-l"]);
+    expect(boxFrameDecorationAttributes(frame)).toEqual({});
+  });
+
+  it("hands back the box's own drawing object while its numbers are valid, so its style is computed once", () => {
+    const box = setBoxCustomFrame(createBoxBlock("fancybox"), CUSTOM);
+    expect(resolveBoxFrame(box).custom).toBe(CUSTOM);
+    expect(getCustomFrameStyle(resolveBoxFrame(box).custom!, "px")).toBe(getCustomFrameStyle(resolveBoxFrame(box).custom!, "px"));
+    const hostile = setBoxCustomFrame(createBoxBlock("fancybox"), { ...CUSTOM, borderPx: 400 });
+    expect(resolveBoxFrame(hostile).custom).toMatchObject({ borderPx: 48 });
+  });
+
+  it("hands the stylesheet the drawing: every image for print, only the closed one for the editor's style attribute", () => {
+    const frame = resolveBoxFrame(setBoxCustomFrame(createBoxBlock("fancybox"), CUSTOM));
+    const vars = boxFrameStyleVars(frame);
+    expect(vars).toMatchObject({
+      "--custom-frame-border": "18px",
+      "--custom-frame-slice": "10",
+      "--sigma-doc-box-padding-top": "12px",
+      "--sigma-doc-box-border-width": "18px",
+    });
+    expect(vars["--custom-frame-image-open-top"]).toMatch(/^url\("data:image\/svg\+xml,/);
+
+    const attribute = boxFrameStyleAttribute(frame);
+    expect(attribute).toContain('--custom-frame-image-closed:url("data:image/svg+xml,');
+    expect(attribute).not.toContain("--custom-frame-image-open-top");
+  });
+
+  it("still keeps an unsafe value out of the editor's style attribute next to the drawing", () => {
+    const box = setBoxCustomFrame(createBoxBlock("fancybox"), CUSTOM);
+    const hostile = { ...box, frame: { ...box.frame, titleColor: "red;position:fixed" } } as BoxBlockNode;
+    const attribute = boxFrameStyleAttribute(resolveBoxFrame(hostile));
+    expect(attribute).not.toContain("position:fixed");
+    expect(attribute).toContain("--custom-frame-image-closed");
+  });
+
+  it("uses the drawing only while the box's style says so, and keeps it when a built-in style is chosen", () => {
+    const custom = setBoxCustomFrame(createBoxBlock("fancybox"), CUSTOM);
+    const builtIn = setBoxStyle(custom, "doublebox");
+    expect(builtIn.styleId).toBe("doublebox");
+    expect(builtIn.frame?.custom).toBe(CUSTOM);
+    expect(resolveBoxFrame(builtIn).custom).toBeUndefined();
+    expect(boxFrameClassName("x", resolveBoxFrame(builtIn), builtIn.styleId)).not.toContain("box-frame--custom");
+    expect(getBoxCustomFrame(builtIn)).toBeUndefined();
+  });
+
+  it("resets a custom box's look to the defaults without dropping its drawing", () => {
+    const custom = patchBoxFrame(setBoxCustomFrame(createBoxBlock("fancybox"), CUSTOM), { titleColor: "#ff0000" });
+    const reset = setBoxStyle(custom, "custom");
+    expect(reset.styleId).toBe("custom");
+    expect(reset.frame?.custom).toBe(CUSTOM);
+    expect(reset.frame?.titleColor).toBeUndefined();
+  });
+
+  it.each(["bandbox", "tabbox"])("keeps %s's title readable once its dark band is gone", (styleId) => {
+    const box = setBoxCustomFrame(createBoxBlock(styleId, "定理"), CUSTOM);
+    // Stored for an app that still draws the band...
+    expect(box.frame?.titleColor).toBe("#ffffff");
+    // ...but the drawing's inside is the paper, so the white title falls back to the body ink.
+    const frame = resolveBoxFrame(box);
+    expect(frame.titleColor).toBeUndefined();
+    expect(boxFrameStyleAttribute(frame)).not.toContain("--sigma-doc-box-title-color");
+  });
+
+  it("keeps a title or body color that reads on the paper", () => {
+    const theorem = resolveBoxFrame(setBoxCustomFrame(createBoxBlock("theorembox", "定理"), CUSTOM));
+    expect(theorem.titleColor).toBe("#1f3864");
+    const chosen = resolveBoxFrame(patchBoxFrame(setBoxCustomFrame(createBoxBlock("fancybox"), CUSTOM), { titleColor: "#b91c1c", bodyColor: "#fef9c3" }));
+    expect(chosen.titleColor).toBe("#b91c1c");
+    expect(chosen.bodyColor).toBeUndefined();
+  });
+
+  it("drops the second heading cell, which only the split title decoration draws", () => {
+    const split = createBoxBlock("splitbox", "解法");
+    expect(split.subtitle).toBeDefined();
+    expect(setBoxCustomFrame(split, CUSTOM).subtitle).toBeUndefined();
+  });
+
+  it("keeps the thickness and padding the user chose when a new drawing arrives", () => {
+    const box = setBoxCustomFrame(createBoxBlock("fancybox"), { ...CUSTOM, borderPx: 30, paddingPx: 20 });
+    const redrawn = applyBoxFrameDrawing(box, { svg: CUSTOM.svg, width: 60, height: 40 });
+    expect(redrawn.frame?.custom).toMatchObject({ borderPx: 30, paddingPx: 20, slice: 10 });
+  });
+
+  it("makes a new box from a shelf frame, without a default title", () => {
+    const box = createCustomFrameBoxBlock(CUSTOM, { id: "box_shelf", bodyText: "本文" });
+    expect(box).toMatchObject({ id: "box_shelf", styleId: "custom", frame: { borderWidthPx: 1.4, custom: CUSTOM } });
+    expect(box.title).toBeUndefined();
+    expect(box.blocks).toHaveLength(1);
+  });
+
+  it("counts a custom frame's border in the layout estimates, but not a built-in box's thin rule", () => {
+    const custom = resolveBoxFrame(setBoxCustomFrame(createBoxBlock("fancybox"), CUSTOM));
+    expect(boxFrameChromeInsetPx(custom)).toEqual({ top: 30, right: 30, bottom: 30, left: 30 });
+    expect(boxFrameChromeInsetPx(resolveBoxFrame(createBoxBlock("fancybox")))).toEqual({ top: 12, right: 14, bottom: 12, left: 14 });
   });
 });

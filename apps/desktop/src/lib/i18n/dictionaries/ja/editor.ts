@@ -238,6 +238,9 @@ export const editor = {
     candidates: "挿入候補",
     empty: "候補がありません",
     kindBox: "箱",
+    /** 棚 (自作の枠の一覧) の枠で挿す箱。 */
+    kindFrameBox: "自分の枠",
+    frameBoxDescription: "自作の枠の箱",
     kindBlock: "ブロック",
     kindProblem: "問題",
     kindMaterial: "素材",

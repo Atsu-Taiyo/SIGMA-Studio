@@ -6,8 +6,8 @@ import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from "vite
 
 import type { DesktopAiSkillDraftEvent, DesktopAiSkillDraftRequest, DesktopAiSkillDraftResult } from "@/types/desktop";
 
-import { problemFrameChatStore } from "../application/problem-frame-chat-store";
-import { AiProblemFramePanel } from "./AiProblemFramePanel";
+import { frameChatStore } from "../application/frame-chat-store";
+import { AiFrameDrawingPanel } from "./AiFrameDrawingPanel";
 
 const connectionKinds = vi.hoisted(() => ({
   chatgpt: "unavailable",
@@ -60,10 +60,10 @@ function installBridge() {
   return generate;
 }
 
-function mount(props: Partial<Parameters<typeof AiProblemFramePanel>[0]> = {}) {
+function mount(props: Partial<Parameters<typeof AiFrameDrawingPanel>[0]> = {}) {
   const onDrawn = (props.onDrawn ?? vi.fn()) as Mock;
   act(() => root.render(
-    <AiProblemFramePanel problemId="p1" documentIdentityKey="doc" currentSvg="" onDrawn={onDrawn} {...props} />,
+    <AiFrameDrawingPanel target={{ kind: "problem", id: "p1" }} documentIdentityKey="doc" currentSvg="" onDrawn={onDrawn} {...props} />,
   ));
   return onDrawn;
 }
@@ -73,7 +73,7 @@ function unmount() {
 }
 
 function prompt() {
-  return container.querySelector<HTMLTextAreaElement>('[data-testid="problem-custom-frame-ai-prompt"]')!;
+  return container.querySelector<HTMLTextAreaElement>('[data-testid="custom-frame-ai-prompt"]')!;
 }
 
 function setPrompt(value: string) {
@@ -85,7 +85,7 @@ function setPrompt(value: string) {
 }
 
 function sendButton() {
-  return container.querySelector<HTMLButtonElement>('[data-testid="problem-custom-frame-ai-generate"]');
+  return container.querySelector<HTMLButtonElement>('[data-testid="custom-frame-ai-generate"]');
 }
 
 async function send(text: string) {
@@ -111,7 +111,7 @@ beforeEach(() => {
   connectionKinds.claude = "loggedIn";
   connectionKinds.antigravity = "loggedOut";
   window.localStorage.removeItem(PREFERENCES_KEY);
-  act(() => problemFrameChatStore.resetForTests());
+  act(() => frameChatStore.resetForTests());
 });
 
 afterEach(() => {
@@ -120,14 +120,14 @@ afterEach(() => {
   delete (window as { desktopAPI?: unknown }).desktopAPI;
 });
 
-describe("AiProblemFramePanel", () => {
+describe("AiFrameDrawingPanel", () => {
   it("opens as a chat in which the AI has already asked what kind of frame to draw", () => {
     installBridge();
     mount();
 
-    expect(testId("problem-custom-frame-ai-greeting")?.textContent).toContain("どんな枠線にしますか？");
+    expect(testId("custom-frame-ai-greeting")?.textContent).toContain("どんな枠線にしますか？");
     expect(container.querySelector('[role="log"]')).not.toBeNull();
-    expect(container.querySelectorAll('[data-testid="problem-custom-frame-ai-turn"]')).toHaveLength(0);
+    expect(container.querySelectorAll('[data-testid="custom-frame-ai-turn"]')).toHaveLength(0);
     expect(prompt()).not.toBeNull();
     expect(sendButton()!.disabled).toBe(true);
     expect(container.textContent).toContain("桜");
@@ -142,23 +142,23 @@ describe("AiProblemFramePanel", () => {
     expect(runs[0].request).toMatchObject({
       provider: "claude",
       model: "sonnet",
-      purpose: "problemFrame",
+      purpose: "frameDrawing",
       prompt: "ピンクの細い枠",
       context: { currentContent: "", history: [] },
     });
     // The message is in the log and the input is empty again, like any chat.
     expect(container.querySelector('[role="log"]')?.textContent).toContain("ピンクの細い枠");
     expect(prompt().value).toBe("");
-    expect(testId("problem-custom-frame-ai-stop")).not.toBeNull();
+    expect(testId("custom-frame-ai-stop")).not.toBeNull();
 
     act(() => runs[0].emit({ kind: "reasoning", text: "四隅に花びらを置く" }));
-    expect(testId("problem-custom-frame-ai-reasoning")?.textContent).toBe("四隅に花びらを置く");
-    expect(testId("problem-custom-frame-ai-thinking")?.textContent).toContain("考えています");
+    expect(testId("custom-frame-ai-reasoning")?.textContent).toBe("四隅に花びらを置く");
+    expect(testId("custom-frame-ai-thinking")?.textContent).toContain("考えています");
 
     act(() => runs[0].emit({ kind: "delta", text: "ピンクの細い枠にしました。\n<svg viewBox=" }));
     expect(container.querySelector('[role="log"]')?.textContent).toContain("ピンクの細い枠にしました。");
     expect(container.querySelector('[role="log"]')?.textContent).not.toContain("<svg");
-    expect(testId("problem-custom-frame-ai-thinking")?.textContent).toContain("描いています");
+    expect(testId("custom-frame-ai-thinking")?.textContent).toContain("描いています");
     expect(container.querySelector('[role="log"]')?.textContent).toContain("SVGを書いています");
 
     await finish(runs[0], { ok: true, text: SVG, message: "ピンクの細い枠にしました。" });
@@ -166,13 +166,13 @@ describe("AiProblemFramePanel", () => {
     expect(onDrawn).toHaveBeenCalledTimes(1);
     expect(onDrawn.mock.calls[0][0]).toMatchObject({ width: 160, height: 100, slice: 24, asNew: true });
     expect(onDrawn.mock.calls[0][0].svg).toContain('xmlns="http://www.w3.org/2000/svg"');
-    expect(testId("problem-custom-frame-ai-drawing")).not.toBeNull();
-    expect(testId("problem-custom-frame-ai-in-use")).not.toBeNull();
-    expect(testId("problem-custom-frame-ai-generate")).not.toBeNull();
+    expect(testId("custom-frame-ai-drawing")).not.toBeNull();
+    expect(testId("custom-frame-ai-in-use")).not.toBeNull();
+    expect(testId("custom-frame-ai-generate")).not.toBeNull();
     // The thinking folds away once the answer is there, and opens again from its header.
-    expect(testId("problem-custom-frame-ai-reasoning")).toBeNull();
-    act(() => testId("problem-custom-frame-ai-thinking")!.querySelector("button")!.click());
-    expect(testId("problem-custom-frame-ai-reasoning")?.textContent).toBe("四隅に花びらを置く");
+    expect(testId("custom-frame-ai-reasoning")).toBeNull();
+    act(() => testId("custom-frame-ai-thinking")!.querySelector("button")!.click());
+    expect(testId("custom-frame-ai-reasoning")?.textContent).toBe("四隅に花びらを置く");
   });
 
   it("sends with Enter, but not with Shift+Enter or while composing Japanese", async () => {
@@ -217,14 +217,14 @@ describe("AiProblemFramePanel", () => {
   it("offers to start from the current frame, and drops that when the reader takes the chip off", async () => {
     installBridge();
     mount({ currentSvg: SVG });
-    expect(testId("problem-custom-frame-ai-greeting")?.textContent).toContain("今の枠を元に直すこともできます");
+    expect(testId("custom-frame-ai-greeting")?.textContent).toContain("今の枠を元に直すこともできます");
     expect(container.textContent).toContain("今の枠を元にする");
 
     await send("もっと太く");
     expect(runs[0].request.context.currentContent).toBe(SVG);
     await finish(runs[0], { ok: false, error: "x" });
 
-    act(() => problemFrameChatStore.resetForTests());
+    act(() => frameChatStore.resetForTests());
     mount({ currentSvg: SVG });
     act(() => container.querySelector<HTMLButtonElement>('button[aria-label="今の枠を元にしない"]')!.click());
     expect(container.textContent).not.toContain("今の枠を元にする");
@@ -264,7 +264,7 @@ describe("AiProblemFramePanel", () => {
     mount();
     await send("桜");
 
-    act(() => testId("problem-custom-frame-ai-stop")!.click());
+    act(() => testId("custom-frame-ai-stop")!.click());
     expect(cancel).toHaveBeenCalledWith("run-1");
     expect(container.textContent).toContain("中止しました。");
     expect(sendButton()).not.toBeNull();
@@ -280,11 +280,11 @@ describe("AiProblemFramePanel", () => {
     };
     mount();
 
-    const modelButton = testId("problem-custom-frame-ai-model-button")!;
+    const modelButton = testId("custom-frame-ai-model-button")!;
     expect(modelButton.textContent).toContain("Claude");
     act(() => modelButton.click());
     const menu = document.body.querySelector('[role="menu"]')!;
-    const provider = (name: string) => menu.querySelector<HTMLButtonElement>(`[data-testid="problem-custom-frame-ai-provider-${name}"]`)!;
+    const provider = (name: string) => menu.querySelector<HTMLButtonElement>(`[data-testid="custom-frame-ai-provider-${name}"]`)!;
     expect(provider("claude").getAttribute("aria-checked")).toBe("true");
     expect(provider("chatgpt").disabled).toBe(true);
     expect(provider("chatgpt").textContent).toContain("利用できません");
@@ -296,8 +296,8 @@ describe("AiProblemFramePanel", () => {
     act(() => provider("antigravity").click());
     // The model list is asked for on the next tick and comes back asynchronously.
     await act(async () => { await new Promise((resolve) => setTimeout(resolve, 10)); });
-    expect(testId("problem-custom-frame-ai-model-button")!.textContent).toContain("Antigravity");
-    expect(testId("problem-custom-frame-ai-model-button")!.textContent).toContain("Gemini X");
+    expect(testId("custom-frame-ai-model-button")!.textContent).toContain("Antigravity");
+    expect(testId("custom-frame-ai-model-button")!.textContent).toContain("Gemini X");
     await send("青い枠");
     expect(runs[0].request).toMatchObject({ provider: "antigravity", model: "gemini-x" });
     expect(runs[0].request.reasoningEffort).toBeUndefined();
@@ -318,15 +318,15 @@ describe("AiProblemFramePanel", () => {
 
     await finish(runs[0], { ok: true, text: SVG, message: "桜の枠です。" });
     expect(onDrawn).not.toHaveBeenCalled();
-    expect(problemFrameChatStore.getNotices()).toHaveLength(1);
+    expect(frameChatStore.getNotices()).toHaveLength(1);
 
     const reopened = mount();
     expect(container.querySelector('[role="log"]')?.textContent).toContain("桜の枠です。");
-    expect(testId("problem-custom-frame-ai-in-use")).toBeNull();
-    act(() => testId("problem-custom-frame-ai-use")!.click());
+    expect(testId("custom-frame-ai-in-use")).toBeNull();
+    act(() => testId("custom-frame-ai-use")!.click());
     expect(reopened).toHaveBeenCalledTimes(1);
     expect(reopened.mock.calls[0][0]).toMatchObject({ width: 160, asNew: true });
-    expect(testId("problem-custom-frame-ai-in-use")).not.toBeNull();
+    expect(testId("custom-frame-ai-in-use")).not.toBeNull();
   });
 
   it("shows a run that is still going when the panel is opened again", async () => {
@@ -337,8 +337,8 @@ describe("AiProblemFramePanel", () => {
     unmount();
     mount();
 
-    expect(testId("problem-custom-frame-ai-reasoning")?.textContent).toBe("考え中の内容");
-    expect(testId("problem-custom-frame-ai-stop")).not.toBeNull();
+    expect(testId("custom-frame-ai-reasoning")?.textContent).toBe("考え中の内容");
+    expect(testId("custom-frame-ai-stop")).not.toBeNull();
     expect(container.textContent).toContain("閉じても描き続けます");
   });
 
