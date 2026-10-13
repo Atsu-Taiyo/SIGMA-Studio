@@ -436,7 +436,7 @@ Tiptapは編集UIとして使い、保存形式にはしません。
 }
 ```
 
-`preset` は `A4` / `A3` / `B5` / `B4` / `custom` を持てます。文書全体の本文 `content` は段ごとの配列に分けず、論理順の1本の配列を正本にします。ページ段への流し込み、ページ寸法、本文矩形、ヘッダー/フッターの表示テキストは `features/document` の正規化・metrics関数から派生させます。一方、本文途中だけを段組みにする `layoutSection` は新聞型の自動流し込みではなく、`layout.columnStartIds`で各childの列所属、`layout.columnWidths`で相対幅を明示します。列ごとに独立した編集面とページカーソルを持つため、左列末尾のEnterやページ溢れで右列へ本文が移ることはありません。短い列は空白のまま、長い列だけが次ページへ続きます。`pagination.break`は局所段組の列境界には使いません。ヘッダー/フッター本文は `blocks` を正規データにし、Tiptapのページ表示拡張は実験的な表示レイヤーとして使い、Tiptap JSONや拡張内部状態は正本にしません。
+`preset` は `A4` / `A3` / `B5` / `B4` / `custom` を持てます。文書全体の本文 `content` は段ごとの配列に分けず、論理順の1本の配列を正本にします。ページ段への流し込み、ページ寸法、本文矩形、ヘッダー/フッターの表示テキストは `features/document` の正規化・metrics関数から派生させます。一方、本文途中だけを段組みにする `layoutSection` は新聞型の自動流し込みではなく、`layout.columnStartIds`で各childの列所属、`layout.columnWidths`で相対幅を明示します。列ごとに独立した編集面とページカーソルを持つため、左列末尾のEnterやページ溢れで右列へ本文が移ることはありません。短い列は空白のまま、長い列だけが次ページへ続きます。`pagination.break`は局所段組の列境界には使いません。ヘッダー/フッター本文は `blocks` を正規データにし、Tiptapのページ表示拡張は実験的な表示レイヤーとして使い、Tiptap JSONや拡張内部状態は正本にしません。紙面 (編集画面とPDF) のヘッダー/フッターは、編集していないページでも本文と同じ `TextFlowEditor` を読み取り専用で描きます (`page-canvas/running-region-view.tsx` の `RunningRegionPageView`、箱の位置は編集中の帯と同じ数で決める)。静的な描画 (`PageRunningRegionView`) はエディタを持たない面 (埋め込みビューア・サムネイル) だけのもので、紙面が使うと空白や差し込みの見え方が編集に入った途端に変わります。差し込み (`{title}` `{page}` `{total}`) は本文に書いた文字のまま残し、見つけ方と値は `features/document/application/running-region-fields.ts` の 1 か所で決めます。エディタでは `components/tiptap/running-field-extension.ts` が値を装飾として重ね、差し込みを 1 つの塊として扱います (カーソルは中に入らず、Backspace / Delete は塊ごと消す)。
 
 ### Math Editor
 
@@ -449,6 +449,8 @@ MathLiveを使います。
 - 既存TeXの再編集
 
 表示はKaTeXを使います。MathLiveは入力とTeX検証に使い、KaTeXは表示に使います。
+
+数式の一部に選んだフォントは、TeXの `\htmlStyle{font-family:…}{…}` として正本に残します (`lib/math-font-style.ts`)。ツールバーのフォントは、数式の入力欄で範囲を選んでいればその範囲だけに付きます (`components/tiptap/inline-math-font.ts`。範囲はMathLiveが構造の境目をまたいで持つことがあるので、同じTeXを表す最も狭い範囲へ詰めてから置き換える)。数式の入力欄は焦点を失うと確定して閉じますが、フォントメニュー (`INLINE_MATH_FONT_MENU_ATTRIBUTE` の印の中) の検索欄へ移ったときだけは閉じずに待ち、メニューを開いた時点の入力欄へ付けます。メニューの外へ焦点が出るか、入力欄へ焦点が戻らないままメニューが閉じたら確定します。数式の文字は書体クラスが自前のフォントを持つので、包んだ要素の指定を継がせる規則を静的描画 (`document-surface.css`) と編集中の入力欄 (`SIGMA_MATHLIVE_MACRO_STYLES`) の両方に置きます。無害化 (`math-markup.ts`) は `font-family` をフォント名の並びとしてだけ通します。
 
 ### Overlay Canvas
 

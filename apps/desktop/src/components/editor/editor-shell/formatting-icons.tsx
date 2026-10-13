@@ -22,6 +22,7 @@ import {
 
 export function LineEndpointMenuButton({
   endpoint,
+  label,
   currentValue,
   open,
   disabled = false,
@@ -30,6 +31,8 @@ export function LineEndpointMenuButton({
   onSelect,
 }: {
   endpoint: "start" | "end";
+  /** What the end is called in the button's name and the menu header. Defaults to the line's end. */
+  label?: string;
   currentValue: OverlayArrowhead | null;
   open: boolean;
   disabled?: boolean;
@@ -40,7 +43,8 @@ export function LineEndpointMenuButton({
   const t = useT("chrome");
   const previewStart = endpoint === "start" ? (currentValue ?? "none") : "none";
   const previewEnd = endpoint === "end" ? (currentValue ?? "none") : "none";
-  const endpointLabel = endpoint === "start" ? t("format.lineEndpoint.start") : t("format.lineEndpoint.end");
+  const endpointLabel = label
+    ?? (endpoint === "start" ? t("format.lineEndpoint.start") : t("format.lineEndpoint.end"));
   const currentOption = LINE_ENDPOINT_OPTIONS.find((option) => option.value === currentValue);
   const currentLabel = currentOption
     ? t(`format.lineEndpoint.${currentOption.value}`)

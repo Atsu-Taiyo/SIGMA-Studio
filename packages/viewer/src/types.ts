@@ -690,6 +690,17 @@ export interface GraphViewBox {
     yMax: string;
 }
 
+/**
+ * Positive-end decoration of an axis.
+ *
+ * The names are the overlay endpoint heads: an axis end and a line end are drawn from one table of
+ * outlines (`ARROWHEAD_MARKER_SPECS`), so a head picked here is the same head a line can carry.
+ */
+export type GraphAxisEndStyle = OverlayArrowhead;
+
+/** What an axis end is drawn with when the document does not say. */
+export declare const DEFAULT_GRAPH_AXIS_END_STYLE: GraphAxisEndStyle;
+
 export interface GraphAxes {
     grid: boolean;
     showX?: boolean;
@@ -698,6 +709,10 @@ export interface GraphAxes {
     axisDash?: GraphCurveDash;
     axisColor?: string;
     axisStrokeWidth?: number;
+    /** Omitted means `DEFAULT_GRAPH_AXIS_END_STYLE`. */
+    xAxisEndStyle?: GraphAxisEndStyle;
+    /** Omitted means `DEFAULT_GRAPH_AXIS_END_STYLE`. */
+    yAxisEndStyle?: GraphAxisEndStyle;
     xLabel?: string;
     yLabel?: string;
     originLabel?: string;

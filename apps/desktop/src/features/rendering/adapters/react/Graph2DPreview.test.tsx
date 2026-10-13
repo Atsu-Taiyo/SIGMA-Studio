@@ -1,6 +1,8 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
+import { DEFAULT_GRAPH_AXIS_END_STYLE } from "@/features/document";
+import { getArrowheadTrimInStrokes } from "@/features/rendering/core";
 import { createGraph2DSpecPreset } from "@/lib/graph2d";
 
 import { Graph2DPreview } from "./Graph2DPreview";
@@ -224,7 +226,9 @@ describe("Graph2DPreview rendering adapter", () => {
     expect((axesGroup.match(/<line /g) ?? [])).toHaveLength(1);
     expect(axesGroup).toContain('x1="294"');
     expect(axesGroup).toContain('y1="111"');
-    expect(axesGroup).toContain('y2="18"');
+    // The axis runs to the top of the display range (y=18); its default end sits on that edge and the
+    // line itself stops where the end already covers it.
+    expect(axesGroup).toContain(`y2="${18 + getArrowheadTrimInStrokes(DEFAULT_GRAPH_AXIS_END_STYLE) * 1.2}"`);
     expect(html).not.toContain("graph2d-axis-label-tex");
   });
 
@@ -257,7 +261,8 @@ describe("Graph2DPreview rendering adapter", () => {
 
     expect(html).toContain("stroke-dasharray:3 3");
     expect(html).toContain("stroke-width:0.85");
-    expect(html).toContain("fill:#0d0d0d");
+    // The default end is an open arrow, so the axis colour reaches it as a stroke.
+    expect(html.match(/<marker[\s\S]*?<\/marker>/)?.[0]).toContain('style="stroke:#0d0d0d"');
   });
 
   it("does not render formula labels inside the graph", () => {

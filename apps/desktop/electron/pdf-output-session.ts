@@ -5,6 +5,11 @@ import { createCurrentLocaleTranslator } from "@/lib/i18n";
 const te = createCurrentLocaleTranslator("error");
 
 import { FREEZE_ANIMATED_IMAGES_SOURCE } from "./pdf-animated-image-freeze";
+import {
+  SETTLE_DOCUMENT_FONTS_MAX_ROUNDS,
+  SETTLE_DOCUMENT_FONTS_SOURCE,
+  SETTLE_DOCUMENT_FONTS_TIMEOUT_MS,
+} from "./pdf-font-settle";
 
 export interface PdfOutputSessionExpectation {
   surfaceId: string;
@@ -151,6 +156,7 @@ async function writeHiddenPdfPage(window: BrowserWindow, documentHtml: string): 
   if (window.isDestroyed() || window.webContents.isDestroyed()) {
     throw new Error(te("electron.pdf.previewChanged"));
   }
+  const fontsNotReady = te("electron.pdf.fontsNotReady");
   await window.webContents.executeJavaScript(
     `(() => {
       const html = ${JSON.stringify(documentHtml)};
@@ -167,12 +173,11 @@ async function writeHiddenPdfPage(window: BrowserWindow, documentHtml: string): 
           image.addEventListener("error", resolve, { once: true });
         });
       }));
-      const fontsReady = document.fonts?.ready ?? Promise.resolve();
       return imagesReady
         .then(() => {
           if (images.some((image) => image.getAttribute("src") && image.naturalWidth === 0)) throw new Error("PDF_IMAGE_UNAVAILABLE");
         })
-        .then(() => fontsReady)
+        .then(() => (${SETTLE_DOCUMENT_FONTS_SOURCE})(document, ${SETTLE_DOCUMENT_FONTS_MAX_ROUNDS}, ${SETTLE_DOCUMENT_FONTS_TIMEOUT_MS}, ${JSON.stringify(fontsNotReady)}))
         .then(() => new Promise((resolve) => {
           requestAnimationFrame(() => requestAnimationFrame(() => resolve(true)));
         }));

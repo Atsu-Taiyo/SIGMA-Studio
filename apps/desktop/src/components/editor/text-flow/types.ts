@@ -137,6 +137,14 @@ export interface TextFlowEditorProps {
   boxFragmentSourceLayouts?: Record<string, TextFlowBoxFragmentSourceLayout>;
   /** Display-only heading labels keyed by SigmaDoc heading id. */
   headingNumbers?: Readonly<Record<string, string>>;
+  /** ヘッダー/フッターの差し込み (`{page}` など) に見せる、このページの値。本文では渡さない。 */
+  runningFieldValues?: import("@/features/document").RunningRegionFieldValues | null;
+  /**
+   * キャレットの行き先 (caret-router の面) として登録するか。編集していないページのヘッダー/フッター
+   * のように、同じブロックを読み取り専用で何枚も描く面は登録しない。登録すると、キャレットの復元が
+   * ブロック id で面を探したときに、編集中の 1 枚ではなく読み取り専用の複製を選びうる。
+   */
+  caretSurface?: boolean;
   /** Continuation preview's logical source box; all replicas share one selection range. */
   boxFragmentReplicaId?: string;
   /** Which continuation fragment this replica shows (the source is 0). */
