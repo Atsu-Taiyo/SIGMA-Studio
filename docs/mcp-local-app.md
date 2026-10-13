@@ -137,7 +137,7 @@ MCPからの書き込み系ツールは、既定では教材ファイルを直�
 
 ### Claudeの実行許可
 
-Claudeの `--allowedTools` は、公開しているツール名をカテゴリごとに許可します。カテゴリごとの実行許可は、MCPの公開スキーマ自体をカテゴリ別に削減する仕組みではありません。許可するカテゴリは、指示文の語・選択中の図形の種類・選んだスキルから絞り込みます (`src/lib/ai/mcp-tool-categories.ts`)。図形を選んだときは、その種類の図形を編集するツール (専用の更新ツールと `update_shape` / `delete_shapes` / `align_shapes`) を持つカテゴリを開き、立体の語 (3D・立体・球・円錐など) は絞り込んだrunにグラフのカテゴリを足します。絞り込みの外の sigma-studio-local のツールを呼んで拒否された会話は、以降のturn (同じrunの続行と次の指示) で、拒否されたツールが属するカテゴリを足して許可します (`categoriesToAllowAfterDenial`)。教材管理とAI設定・アプリ文脈のカテゴリは拒否の信号では足しません (指示文のキーワード・選んだスキル・あいまいな指示のときの全カテゴリでは従来どおり開き、提案の操作に使うツールは常に許可します)。足すのは sigma-studio-local のツールだけで、Bash・Write・Edit・Taskの不許可とWeb検索の設定の扱いは変わりません。拒否は `data/logs/ledger.log` に `claude-tool-permission-denied` (session id・拒否されたツール名・足したカテゴリ) として1回ずつ記録します。`sigma-doc-mcp-app-tools.test.ts` は、実際の `tools/list` がこのカテゴリ表と一致し、内部実装の名前を公開しないことを確かめます。
+Claudeの `--allowedTools` は `mcp__sigma-studio-local__*` で、sigma-studio-local のツールをすべて許可します (Claude Code の許可ルールは、サーバー名の後の `*` でそのサーバーの全ツールに一致します)。指示文の語・選択中の対象・選んだスキルから使うツールを推定して許可を絞ることはしません。Codex・Antigravityにもツールの絞り込みはありません。Claudeでは Skill・Read を許可し、Bash・Write・Edit・Task は常に不許可です。WebSearch・WebFetch は、Web検索の設定がオンのturnだけ許可します。`sigma-doc-mcp-app-tools.test.ts` は、実際の `tools/list` が内部実装の名前を公開しないことを確かめます。
 
 ## 公式スキル
 

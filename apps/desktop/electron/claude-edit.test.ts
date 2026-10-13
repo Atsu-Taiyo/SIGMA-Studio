@@ -192,36 +192,6 @@ describe("runClaudeEditForIpc", () => {
     expect(fake.lastImages()).toEqual([]);
   });
 
-  it("forwards the raw instruction, references, and explicit skill ids for per-run tool gating", async () => {
-    const fake = createFakeClaude();
-    const references = [{ kind: "block" as const, targetId: "block_1", targetType: "paragraph", excerpt: "本文" }];
-
-    await runClaudeEditForIpc({ locale: "ja",
-      claude: fake.client,
-      payload: { instruction: "これを直して", fileId: "file_xyz", document: FAKE_DOCUMENT, references },
-      aiResources: {
-        provider: "claude",
-        always: [],
-        explicit: [{
-          id: "official-graph",
-          kind: "skill",
-          title: "グラフ",
-          loadMode: "manual",
-          description: "",
-          tags: [],
-          content: "skill body",
-        }],
-      },
-      onEvent: () => {},
-    });
-
-    expect(fake.lastTurnParams()).toMatchObject({
-      userInstruction: "これを直して",
-      references,
-      selectedSkillIds: ["official-graph"],
-    });
-  });
-
   it("forwards a per-run mcpConfig override through to the claude client's runTurn call", async () => {
     const fake = createFakeClaude();
     const perRunMcpConfig = {
@@ -391,9 +361,9 @@ describe("runClaudeEditForIpc", () => {
     }
   });
 
-  it("resumes the denied turn's session in the run's continuation, which is what widens its tool permissions", async () => {
-    const userDataPath = await fs.mkdtemp(path.join(os.tmpdir(), "sigma-claude-denied-continuation-"));
-    const runId = "run_claude_denied_continuation";
+  it("resumes the first turn's session in the run's continuation", async () => {
+    const userDataPath = await fs.mkdtemp(path.join(os.tmpdir(), "sigma-claude-continuation-"));
+    const runId = "run_claude_continuation";
     const statusFile = path.join(runContextDirPath(userDataPath), visualSessionsFileName("claude", runId));
     await fs.mkdir(path.dirname(statusFile), { recursive: true });
     await fs.writeFile(statusFile, JSON.stringify({
@@ -414,14 +384,7 @@ describe("runClaudeEditForIpc", () => {
       const turns: ClaudeRunTurnParams[] = [];
       const fake = createFakeClaude({
         emitToolUse: true,
-        turn: {
-          sessionId: "sess_denied",
-          permissionDenials: [{
-            tool_name: "mcp__sigma-studio-local__insert_graph3d",
-            tool_use_id: "toolu_denied",
-            tool_input: {},
-          }],
-        },
+        turn: { sessionId: "sess_first" },
         onTurn: async (params, turnNumber) => {
           turns.push(params);
           if (turnNumber === 2) {
@@ -438,7 +401,7 @@ describe("runClaudeEditForIpc", () => {
         userDataPath,
       });
 
-      expect(turns.map((turn) => turn.resumeSessionId ?? null)).toEqual([null, "sess_denied"]);
+      expect(turns.map((turn) => turn.resumeSessionId ?? null)).toEqual([null, "sess_first"]);
     } finally {
       await fs.rm(userDataPath, { recursive: true, force: true });
     }
