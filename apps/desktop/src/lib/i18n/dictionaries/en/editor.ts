@@ -164,6 +164,7 @@ export const editor = {
     spaceAfter: "Space below the block",
     spaceAfterHint: "Drag down to add space (double-click resets it)",
     areaPrompt: "Q{{number}} Problem text",
+    areaPromptShort: "Q{{number}}",
   },
   pageMenu: {
     problemSettings: "Problem settings…",
@@ -591,6 +592,7 @@ export const editor = {
     box: "Box",
     boxBody: "Box content",
     columns: "Columns: {{columns}}",
+    columnsShort: "{{columns}} cols",
     columnsIcon: "Col",
     problem: "Problem",
     problemLead: "Lead-in",

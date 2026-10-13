@@ -4,7 +4,7 @@ import { type TextFlowBlock } from "@/features/text-editing";
 import type { CSSProperties } from "react";
 import { FLOW_DX_ATTRIBUTE,FLOW_DY_ATTRIBUTE } from "./flow-probe";
 import { type PageLayoutSnapshot } from "./layout-snapshot";
-import { isFullSpanUnit } from "./render-units";
+import { getPageColumnSideNote,isFullSpanUnit,SIDE_NOTE_IN_COLUMN_GAP } from "./render-units";
 import type { RenderUnit } from "./types";
 
 /**
@@ -78,7 +78,8 @@ export function sameDisplacementMap(
 /**
  * ユニットの置き方のうち、変位以外のもの。段組のページでは本文は段幅の自然フローに置くので、
  * 全幅のエリアだけは本文幅を明示する (段幅の帯から右へはみ出すが、変位と同じくレイアウトには
- * 影響しない)。紙面外のサイド注は、段へ動いたユニットでも紙面の左余白に出す。
+ * 影響しない)。サイド注は、ユニットが (最初の行の変位で) 置かれた段のすぐ左に出す
+ * (1 段目なら紙面の左余白)。
  */
 export function getFlowUnitPlacementStyle(
   unit: RenderUnit,
@@ -90,10 +91,23 @@ export function getFlowUnitPlacementStyle(
   if (isColumnPage && isFullSpanUnit(unit)) {
     style.width = `${metrics.content.widthPx}px`;
   }
-  if (displacement && displacement.dx !== 0) {
-    style["--problem-area-page-x"] = `${metrics.margins.leftPx + displacement.dx}px`;
-  }
+  Object.assign(style, getFlowUnitSideNote(displacement, metrics)?.style);
   return Object.keys(style).length > 0 ? (style as CSSProperties) : undefined;
+}
+
+/** ユニットのサイド注を段の間に出すときの印 (`data-side-note`)。1 段目なら付けない。 */
+export function getFlowUnitSideNoteAttribute(
+  displacement: FlowDisplacement | undefined,
+  metrics: PageMetrics,
+): typeof SIDE_NOTE_IN_COLUMN_GAP | undefined {
+  return getFlowUnitSideNote(displacement, metrics)?.inColumnGap ? SIDE_NOTE_IN_COLUMN_GAP : undefined;
+}
+
+/** 横へ動いていない (1 段目の) ユニットは CSS の既定 (紙面の左余白) のまま。 */
+function getFlowUnitSideNote(displacement: FlowDisplacement | undefined, metrics: PageMetrics) {
+  if (!displacement || displacement.dx === 0) return undefined;
+  const unitX = metrics.margins.leftPx + displacement.dx;
+  return getPageColumnSideNote(unitX, unitX, metrics);
 }
 
 /**
