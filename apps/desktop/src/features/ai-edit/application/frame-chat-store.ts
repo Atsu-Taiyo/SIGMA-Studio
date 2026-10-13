@@ -2,18 +2,19 @@ import { useSyncExternalStore } from "react";
 
 import { normalizeFrameSvg } from "@/features/document";
 import type { AiProvider } from "@/lib/ai/ai-providers";
+import type { CustomFrameTarget } from "@/lib/custom-frame";
 import { getDesktopBridge } from "@/lib/desktop-bridge";
 import { createCurrentLocaleTranslator } from "@/lib/i18n";
 import type { DesktopAiSkillDraftRequest } from "@/types/desktop";
 
 import {
-  isProblemFrameChatRunning,
-  problemFrameChatHistory,
-  type ProblemFrameChatAssistantTurn,
-  type ProblemFrameChatDrawing,
-  type ProblemFrameChatSession,
-  type ProblemFrameChatTurn,
-} from "../model/problem-frame-chat";
+  isFrameChatRunning,
+  frameChatHistory,
+  type FrameChatAssistantTurn,
+  type FrameChatDrawing,
+  type FrameChatSession,
+  type FrameChatTurn,
+} from "../model/frame-chat";
 
 const ts = createCurrentLocaleTranslator("settings");
 
@@ -21,9 +22,10 @@ const MAX_TURNS_PER_SESSION = 40;
 const MAX_REASONING_CHARS = 20_000;
 const MAX_STREAM_CHARS = 200_000;
 
-export interface ProblemFrameChatSendRequest {
+export interface FrameChatSendRequest {
   documentIdentityKey: string;
-  problemId: string;
+  /** どの問題 (または箱) の枠か。AI への依頼文もこれで少し変わる。 */
+  target: CustomFrameTarget;
   key: string;
   instruction: string;
   provider: AiProvider;
@@ -33,7 +35,7 @@ export interface ProblemFrameChatSendRequest {
   baseSvg: string;
 }
 
-export type ProblemFrameChatSendResult =
+export type FrameChatSendResult =
   | { ok: true }
   | { ok: false; reason: "empty" | "busy" | "unavailable" };
 
@@ -41,20 +43,20 @@ export type ProblemFrameChatSendResult =
  * 実行が終わったとき、その会話を画面で見ている人 (watch している) がいなかった場合の知らせ。
  * ダイアログを閉じたあとに終わった実行を、教材の画面が「終わりました」と伝えるために使う。
  */
-export interface ProblemFrameChatNotice {
+export interface FrameChatNotice {
   /** 返答のターン id。 */
   id: string;
   key: string;
   documentIdentityKey: string;
-  problemId: string;
+  target: CustomFrameTarget;
   kind: "drawn" | "reply" | "failed";
-  drawing: ProblemFrameChatDrawing | null;
+  drawing: FrameChatDrawing | null;
   message: string;
   error: string | null;
 }
 
-/** 画面で会話を見ている側。描き終わった絵をその場で問題へ反映する。 */
-export type ProblemFrameChatWatcher = (drawing: ProblemFrameChatDrawing, turn: ProblemFrameChatAssistantTurn) => void;
+/** 画面で会話を見ている側。描き終わった絵をその場で対象 (問題・箱) へ反映する。 */
+export type FrameChatWatcher = (drawing: FrameChatDrawing, turn: FrameChatAssistantTurn) => void;
 
 type Listener = () => void;
 
@@ -69,12 +71,12 @@ function appendCapped(current: string, delta: string, max: number): string {
   return next.length > max ? next.slice(next.length - max) : next;
 }
 
-class ProblemFrameChatStore {
-  private sessions = new Map<string, ProblemFrameChatSession>();
-  private snapshot: ReadonlyMap<string, ProblemFrameChatSession> = new Map();
-  private notices: readonly ProblemFrameChatNotice[] = [];
+class FrameChatStore {
+  private sessions = new Map<string, FrameChatSession>();
+  private snapshot: ReadonlyMap<string, FrameChatSession> = new Map();
+  private notices: readonly FrameChatNotice[] = [];
   private listeners = new Set<Listener>();
-  private watchers = new Map<string, Set<ProblemFrameChatWatcher>>();
+  private watchers = new Map<string, Set<FrameChatWatcher>>();
   private cancelled = new Set<string>();
 
   subscribe = (listener: Listener): (() => void) => {
@@ -84,11 +86,11 @@ class ProblemFrameChatStore {
     };
   };
 
-  getSnapshot = (): ReadonlyMap<string, ProblemFrameChatSession> => this.snapshot;
+  getSnapshot = (): ReadonlyMap<string, FrameChatSession> => this.snapshot;
 
-  getNotices = (): readonly ProblemFrameChatNotice[] => this.notices;
+  getNotices = (): readonly FrameChatNotice[] => this.notices;
 
-  getSession(key: string): ProblemFrameChatSession | null {
+  getSession(key: string): FrameChatSession | null {
     return this.sessions.get(key) ?? null;
   }
 
@@ -96,8 +98,8 @@ class ProblemFrameChatStore {
    * この会話を画面で見ている間だけ呼ぶ。見ている間に絵が描き上がれば、通知は出さず
    * `watcher` へ渡してその場で反映する。戻り値で見るのをやめる。
    */
-  watch(key: string, watcher: ProblemFrameChatWatcher): () => void {
-    const set = this.watchers.get(key) ?? new Set<ProblemFrameChatWatcher>();
+  watch(key: string, watcher: FrameChatWatcher): () => void {
+    const set = this.watchers.get(key) ?? new Set<FrameChatWatcher>();
     set.add(watcher);
     this.watchers.set(key, set);
     this.emit();
@@ -115,7 +117,7 @@ class ProblemFrameChatStore {
     return (this.watchers.get(key)?.size ?? 0) > 0;
   }
 
-  send(request: ProblemFrameChatSendRequest): ProblemFrameChatSendResult {
+  send(request: FrameChatSendRequest): FrameChatSendResult {
     const instruction = request.instruction.trim();
     if (!instruction) {
       return { ok: false, reason: "empty" };
@@ -125,13 +127,13 @@ class ProblemFrameChatStore {
       return { ok: false, reason: "unavailable" };
     }
     const existing = this.sessions.get(request.key);
-    if (isProblemFrameChatRunning(existing)) {
+    if (isFrameChatRunning(existing)) {
       return { ok: false, reason: "busy" };
     }
 
     const now = Date.now();
-    const userTurn: ProblemFrameChatTurn = { id: nextId("u"), role: "user", text: instruction, at: now };
-    const assistant: ProblemFrameChatAssistantTurn = {
+    const userTurn: FrameChatTurn = { id: nextId("u"), role: "user", text: instruction, at: now };
+    const assistant: FrameChatAssistantTurn = {
       id: nextId("a"),
       role: "assistant",
       status: "running",
@@ -146,11 +148,11 @@ class ProblemFrameChatStore {
       replyStartedAt: null,
       endedAt: null,
     };
-    const history = problemFrameChatHistory(existing);
+    const history = frameChatHistory(existing);
     this.write({
       key: request.key,
       documentIdentityKey: request.documentIdentityKey,
-      problemId: request.problemId,
+      target: request.target,
       turns: [...(existing?.turns ?? []), userTurn, assistant].slice(-MAX_TURNS_PER_SESSION),
       runId: null,
       appliedTurnId: existing?.appliedTurnId ?? null,
@@ -159,7 +161,8 @@ class ProblemFrameChatStore {
     const payload: DesktopAiSkillDraftRequest = {
       provider: request.provider,
       prompt: instruction,
-      purpose: "problemFrame",
+      purpose: "frameDrawing",
+      frameTarget: request.target.kind,
       ...(request.model ? { model: request.model } : {}),
       ...(request.reasoningEffort ? { reasoningEffort: request.reasoningEffort } : {}),
       context: { title: "", description: "", currentContent: request.baseSvg, history },
@@ -190,7 +193,7 @@ class ProblemFrameChatStore {
         (result) => this.finish(request, assistant.id, result),
         (cause: unknown) => this.finish(request, assistant.id, {
           ok: false,
-          error: cause instanceof Error ? cause.message : ts("problem.custom.aiFailed"),
+          error: cause instanceof Error ? cause.message : ts("frame.aiFailed"),
         }),
       );
     return { ok: true };
@@ -200,7 +203,7 @@ class ProblemFrameChatStore {
   cancel(key: string): void {
     const session = this.sessions.get(key);
     const running = session?.turns.find(
-      (turn): turn is ProblemFrameChatAssistantTurn => turn.role === "assistant" && turn.status === "running",
+      (turn): turn is FrameChatAssistantTurn => turn.role === "assistant" && turn.status === "running",
     );
     if (!session || !running) {
       return;
@@ -216,7 +219,7 @@ class ProblemFrameChatStore {
     }
   }
 
-  /** この返答の絵が問題の枠として使われた、と記録する。 */
+  /** この返答の絵が対象の枠として使われた、と記録する。 */
   markApplied(key: string, turnId: string): void {
     const session = this.sessions.get(key);
     if (session && session.appliedTurnId !== turnId) {
@@ -232,7 +235,7 @@ class ProblemFrameChatStore {
   }
 
   private finish(
-    request: ProblemFrameChatSendRequest,
+    request: FrameChatSendRequest,
     turnId: string,
     result: { ok: true; text: string; message?: string } | { ok: false; error: string; message?: string },
   ): void {
@@ -240,10 +243,10 @@ class ProblemFrameChatStore {
       return;
     }
     const normalized = result.ok ? normalizeFrameSvg(result.text) : null;
-    const drawing: ProblemFrameChatDrawing | null = normalized?.ok
+    const drawing: FrameChatDrawing | null = normalized?.ok
       ? { svg: normalized.svg, width: normalized.width, height: normalized.height }
       : null;
-    const error = result.ok ? (drawing ? null : ts("problem.custom.aiInvalid")) : result.error;
+    const error = result.ok ? (drawing ? null : ts("frame.aiInvalid")) : result.error;
     const message = result.message?.trim() ?? "";
 
     this.updateAssistant(request.key, turnId, () => ({
@@ -263,7 +266,7 @@ class ProblemFrameChatStore {
     if (drawing && watchers && watchers.size > 0) {
       this.markApplied(request.key, turnId);
       const finished = this.sessions.get(request.key)?.turns.find(
-        (turn): turn is ProblemFrameChatAssistantTurn => turn.role === "assistant" && turn.id === turnId,
+        (turn): turn is FrameChatAssistantTurn => turn.role === "assistant" && turn.id === turnId,
       );
       if (finished) {
         watchers.forEach((watcher) => watcher(drawing, finished));
@@ -276,7 +279,7 @@ class ProblemFrameChatStore {
         id: turnId,
         key: request.key,
         documentIdentityKey: request.documentIdentityKey,
-        problemId: request.problemId,
+        target: request.target,
         kind: drawing ? "drawn" : error ? "failed" : "reply",
         drawing,
         message,
@@ -289,7 +292,7 @@ class ProblemFrameChatStore {
   private updateAssistant(
     key: string,
     turnId: string,
-    patch: (turn: ProblemFrameChatAssistantTurn) => Partial<ProblemFrameChatAssistantTurn>,
+    patch: (turn: FrameChatAssistantTurn) => Partial<FrameChatAssistantTurn>,
   ): void {
     const session = this.sessions.get(key);
     if (!session) {
@@ -308,7 +311,7 @@ class ProblemFrameChatStore {
     }
   }
 
-  private write(session: ProblemFrameChatSession): void {
+  private write(session: FrameChatSession): void {
     this.sessions.set(session.key, session);
     this.emit();
   }
@@ -328,29 +331,29 @@ class ProblemFrameChatStore {
   }
 }
 
-export const problemFrameChatStore = new ProblemFrameChatStore();
+export const frameChatStore = new FrameChatStore();
 
-export function useProblemFrameChatSession(key: string): ProblemFrameChatSession | null {
+export function useFrameChatSession(key: string): FrameChatSession | null {
   const sessions = useSyncExternalStore(
-    problemFrameChatStore.subscribe,
-    problemFrameChatStore.getSnapshot,
-    problemFrameChatStore.getSnapshot,
+    frameChatStore.subscribe,
+    frameChatStore.getSnapshot,
+    frameChatStore.getSnapshot,
   );
   return sessions.get(key) ?? null;
 }
 
-export function useProblemFrameChatSessions(): ReadonlyMap<string, ProblemFrameChatSession> {
+export function useFrameChatSessions(): ReadonlyMap<string, FrameChatSession> {
   return useSyncExternalStore(
-    problemFrameChatStore.subscribe,
-    problemFrameChatStore.getSnapshot,
-    problemFrameChatStore.getSnapshot,
+    frameChatStore.subscribe,
+    frameChatStore.getSnapshot,
+    frameChatStore.getSnapshot,
   );
 }
 
-export function useProblemFrameChatNotices(): readonly ProblemFrameChatNotice[] {
+export function useFrameChatNotices(): readonly FrameChatNotice[] {
   return useSyncExternalStore(
-    problemFrameChatStore.subscribe,
-    problemFrameChatStore.getNotices,
-    problemFrameChatStore.getNotices,
+    frameChatStore.subscribe,
+    frameChatStore.getNotices,
+    frameChatStore.getNotices,
   );
 }

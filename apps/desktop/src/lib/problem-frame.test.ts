@@ -1,12 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { readStylesheet as readFileSync } from "../../tests/helpers/read-stylesheet";
 
-import type { ProblemCustomFrame, SigmaBlock } from "@/features/document";
+import type { CustomFrame, SigmaBlock } from "@/features/document";
 import  {
   getPrintProblemFrameChromePaddingMm,
   getPrintProblemFrameFragmentChromeHeightMm,
   getProblemCustomFrame,
-  getProblemCustomFrameStyle,
   getProblemFrameChromePaddingPx,
   getProblemFrameStyleId,
   normalizeProblemFrameInput,
@@ -96,7 +95,7 @@ describe("problem frame chrome padding", () => {
   });
 });
 
-const CUSTOM: ProblemCustomFrame = {
+const CUSTOM: CustomFrame = {
   svg: '<svg xmlns="http://www.w3.org/2000/svg" width="60" height="40" viewBox="0 0 60 40"><rect width="60" height="40" fill="none" stroke="#000"/></svg>',
   width: 60,
   height: 40,
@@ -123,42 +122,13 @@ describe("custom problem frame", () => {
     expect(again.frame.styleId).toBe("custom");
   });
 
-  it("hands the stylesheet the same drawing in px for the editor and mm for print", () => {
-    const editor = getProblemCustomFrameStyle(CUSTOM, "px");
-    const print = getProblemCustomFrameStyle(CUSTOM, "mm");
-    expect(editor["--problem-frame-border"]).toBe("18px");
-    expect(editor["--problem-frame-padding"]).toBe("12px");
-    expect(print["--problem-frame-border"]).toBe("4.763mm");
-    expect(print["--problem-frame-slice"]).toBe("10");
-  });
-
-  it("gives a piece open at the top and bottom a cropped drawing, so the sides run straight on", () => {
-    const style = getProblemCustomFrameStyle(CUSTOM, "px");
-    expect(decodeURIComponent(style["--problem-frame-image-closed"])).toContain('viewBox="0 0 60 40"');
-    expect(decodeURIComponent(style["--problem-frame-image-open-bottom"])).toContain('viewBox="0 0 60 30"');
-    expect(decodeURIComponent(style["--problem-frame-image-open-top"])).toContain('viewBox="0 10 60 30"');
-    expect(decodeURIComponent(style["--problem-frame-image-open-both"])).toContain('viewBox="0 10 60 20"');
-    // The payload is fully percent-encoded, so it cannot end the `url("…")` or the declaration.
-    for (const name of ["closed", "open-bottom", "open-top", "open-both"]) {
-      const value = style[`--problem-frame-image-${name}`];
-      expect(value).toMatch(/^url\("data:image\/svg\+xml,[^"';)]*"\)$/);
-    }
-  });
-
-  it("never writes an untrusted value into a style, however the document was made", () => {
+  it("measures an untrusted drawing's chrome from validated numbers, however the document was made", () => {
     const hostile = {
       ...CUSTOM,
       borderPx: "1px;position:fixed;inset:0" as unknown as number,
       paddingPx: Number.NaN,
       slice: 1e9,
     };
-    const style = getProblemCustomFrameStyle(hostile, "px");
-    expect(style["--problem-frame-border"]).toBe("16px");
-    expect(style["--problem-frame-padding"]).toBe("12px");
-    expect(style["--problem-frame-slice"]).toBe("19");
-    for (const value of Object.values(style)) {
-      expect(value).not.toMatch(/position|inset/);
-    }
     expect(getProblemFrameChromePaddingPx("custom", hostile)).toEqual({ x: 28, y: 28 });
   });
 

@@ -3,9 +3,10 @@ import { EditorState, TextSelection } from "@tiptap/pm/state";
 import type { EditorView } from "@tiptap/pm/view";
 
 import { findAncestorNodeDepth, findBoxTitleAncestorDepth } from "@/components/tiptap/node-queries";
-import { parseTextFlowCommandTrigger, type TextFlowCommandDefinition } from "@/features/text-editing";
+import { parseTextFlowCommandTrigger, type TextFlowBlock, type TextFlowCommandDefinition } from "@/features/text-editing";
 import { createBlock } from "@/lib/document-tree";
-import { createBoxBlock } from "@/lib/box-blocks";
+import type { CustomFrame } from "@/features/document";
+import { createBoxBlock, createCustomFrameBoxBlock } from "@/lib/box-blocks";
 import { createTranslator, getAppLocale } from "@/lib/i18n";
 import { applyRememberedBoxFrame } from "@/lib/remembered-box-style";
 import type { MaterialItem } from "@/types/material";
@@ -146,6 +147,11 @@ export function insertSlashCommandFromQuery(
 
   if (candidate.kind === "box") {
     insertBoxCommandFromQuery(view, candidate.box, slashCommandQueryRef, onBoxCommandRef, setSlashCommandQuery);
+    return;
+  }
+
+  if (candidate.kind === "frameBox") {
+    insertFrameBoxCommandFromQuery(view, candidate.frameBox.frame.custom, slashCommandQueryRef, setSlashCommandQuery);
     return;
   }
 
@@ -339,22 +345,8 @@ function insertBoxCommandFromQuery(
   onBoxCommandRef: { current: TextFlowEditorProps["onBoxCommand"] },
   setSlashCommandQuery: (query: ActiveSlashCommandQuery | null) => void,
 ): void {
-  const query = slashCommandQueryRef.current;
+  const query = boxInsertionQuery(view, slashCommandQueryRef, setSlashCommandQuery);
   if (!query) {
-    return;
-  }
-
-  const { state } = view;
-  const { selection } = state;
-  if (!selection.empty || !query.canInsertBox) {
-    setSlashCommandQuery(null);
-    return;
-  }
-
-  const { $from } = selection;
-  const trailingText = $from.parent.textBetween($from.parentOffset, $from.parent.content.size, "", "");
-  if (!$from.parent.isTextblock || trailingText.trim().length > 0) {
-    setSlashCommandQuery(null);
     return;
   }
 
@@ -366,7 +358,7 @@ function insertBoxCommandFromQuery(
   }) ?? false;
 
   if (handledByHost) {
-    view.dispatch(state.tr.delete(query.from, query.to).scrollIntoView());
+    view.dispatch(view.state.tr.delete(query.from, query.to).scrollIntoView());
     view.focus();
     setSlashCommandQuery(null);
     return;
@@ -374,9 +366,60 @@ function insertBoxCommandFromQuery(
 
   // 既定タイトルは**文書に焼き込まれる**ので、挿入した時点の UI 言語で解決する。
   // ここは React の外 (module 直下のヘルパ) なので `useT` ではなくストアから引く。
-  const boxBlock = applyRememberedBoxFrame(
+  replaceQueryWithBox(view, setSlashCommandQuery, applyRememberedBoxFrame(
     createBoxBlock(candidate.id, "", {}, createTranslator(getAppLocale(), "editor")),
-  );
+  ));
+}
+
+/** 棚の枠の `/` コマンド。その枠で描く箱を、組み込みの箱と同じ場所・同じ手順で置く。 */
+function insertFrameBoxCommandFromQuery(
+  view: EditorView,
+  custom: CustomFrame,
+  slashCommandQueryRef: { current: ActiveSlashCommandQuery | null },
+  setSlashCommandQuery: (query: ActiveSlashCommandQuery | null) => void,
+): void {
+  if (!boxInsertionQuery(view, slashCommandQueryRef, setSlashCommandQuery)) {
+    return;
+  }
+  replaceQueryWithBox(view, setSlashCommandQuery, applyRememberedBoxFrame(
+    createCustomFrameBoxBlock(custom, {}, createTranslator(getAppLocale(), "editor")),
+  ));
+}
+
+/** 箱を置ける `/…` か。置けない位置 (選択がある・後ろに文字がある) なら候補を閉じて null。 */
+function boxInsertionQuery(
+  view: EditorView,
+  slashCommandQueryRef: { current: ActiveSlashCommandQuery | null },
+  setSlashCommandQuery: (query: ActiveSlashCommandQuery | null) => void,
+): ActiveSlashCommandQuery | null {
+  const query = slashCommandQueryRef.current;
+  if (!query) {
+    return null;
+  }
+
+  const { selection } = view.state;
+  if (!selection.empty || !query.canInsertBox) {
+    setSlashCommandQuery(null);
+    return null;
+  }
+
+  const { $from } = selection;
+  const trailingText = $from.parent.textBetween($from.parentOffset, $from.parent.content.size, "", "");
+  if (!$from.parent.isTextblock || trailingText.trim().length > 0) {
+    setSlashCommandQuery(null);
+    return null;
+  }
+  return query;
+}
+
+/** 打った `/…` の段落を作った箱で置き換え、キャレットを箱の中へ置く。 */
+function replaceQueryWithBox(
+  view: EditorView,
+  setSlashCommandQuery: (query: ActiveSlashCommandQuery | null) => void,
+  boxBlock: TextFlowBlock,
+): void {
+  const { state } = view;
+  const { $from } = state.selection;
   const boxNode = state.schema.nodeFromJSON(textFlowBlockToTiptapNode(boxBlock));
   const from = $from.before($from.depth);
   const to = $from.after($from.depth);

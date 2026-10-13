@@ -1,5 +1,6 @@
 /**
- * The single decision of "what may a user-drawn problem frame be".
+ * The single decision of "what may a user-drawn frame be" — the same drawing frames a problem
+ * (`ProblemFrame.custom`) or a box (`BoxFrameSpec.custom`).
  *
  * A custom frame is one SVG that the renderer cuts into nine pieces (`border-image`). The SVG is
  * only ever drawn as an image, where browsers run no script and load no external file, but the
@@ -223,7 +224,7 @@ export interface CustomFrameEdges {
 
 /**
  * A frame split across columns or pages is drawn one piece per fragment, and only the outer edges
- * of the whole problem are closed. For a piece that is open at the top or bottom the matching band
+ * of the whole problem or box are closed. For a piece that is open at the top or bottom the matching band
  * is cropped away, so the side edges continue straight through the break instead of showing the
  * corner artwork again.
  */

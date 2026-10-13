@@ -1,7 +1,7 @@
 "use client";
 
 import { Plus, Tag, X } from "lucide-react";
-import { useId, useRef, useState, type ChangeEvent } from "react";
+import { useId, useRef, useState, type ChangeEvent, type CSSProperties } from "react";
 
 import { ModalBody, ModalFrame, ModalHeader } from "@/components/ui/Modal";
 import type { ProblemNode } from "@/features/document";
@@ -14,8 +14,9 @@ import {
   setProblemFrameEnabled,
   setProblemFrameStyle,
 } from "@/lib/problem-frame";
-import { findProblemFrameLibraryEntry, useProblemFrameLibrary } from "@/lib/problem-frame-library";
-import { ProblemCustomFrameEditor, svgDataUrl } from "./ProblemCustomFrameEditor";
+import { customFrameImageSrc, getCustomFrameStyle } from "@/lib/custom-frame";
+import { findFrameLibraryEntry, useFrameLibrary } from "@/lib/frame-library";
+import { CustomFrameEditor } from "./CustomFrameEditor";
 import styles from "./ProblemSettingsDialog.module.css";
 import { useT } from "@/lib/i18n/react";
 
@@ -31,14 +32,16 @@ export function ProblemSettingsDialog({ problem, onChange, onClose }: ProblemSet
   const t = useT("settings");
   const frameEnabled = problem.frame?.enabled === true;
   const selectedFrameStyleId = frameEnabled ? getProblemFrameStyleId(problem) : "none";
-  const library = useProblemFrameLibrary();
+  const library = useFrameLibrary();
   // The drawing tools stay open while a custom frame is in use, and can be opened to start a new one.
   const [customEditorOpen, setCustomEditorOpen] = useState(selectedFrameStyleId === CUSTOM_FRAME_STYLE_ID);
   // Which shelf entry is being edited. A problem opened with a frame from elsewhere starts unsaved.
   const [activeId, setActiveId] = useState<string | null>(
-    () => (selectedFrameStyleId === CUSTOM_FRAME_STYLE_ID ? findProblemFrameLibraryEntry(problem.frame?.custom)?.id : null) ?? null,
+    () => (selectedFrameStyleId === CUSTOM_FRAME_STYLE_ID ? findFrameLibraryEntry(problem.frame?.custom)?.id : null) ?? null,
   );
   const [startingNew, setStartingNew] = useState(false);
+  // Bumped whenever the user picks another frame of their own, so the frame editor swaps its drafts.
+  const [framePick, setFramePick] = useState(0);
   const customSelected = frameEnabled && selectedFrameStyleId === CUSTOM_FRAME_STYLE_ID && !startingNew;
 
   return (
@@ -139,6 +142,7 @@ export function ProblemSettingsDialog({ problem, onChange, onClose }: ProblemSet
                     setActiveId(entry.id);
                     setStartingNew(false);
                     setCustomEditorOpen(true);
+                    setFramePick((pick) => pick + 1);
                     onChange((current) => setProblemCustomFrame(current, entry.custom));
                   }}
                 />
@@ -153,17 +157,33 @@ export function ProblemSettingsDialog({ problem, onChange, onClose }: ProblemSet
                   setActiveId(null);
                   setStartingNew(true);
                   setCustomEditorOpen(true);
+                  setFramePick((pick) => pick + 1);
                 }}
               />
             </div>
             {customEditorOpen && (
-              <ProblemCustomFrameEditor
-                problem={problem}
-                onChange={onChange}
+              <CustomFrameEditor
+                target={{ kind: "problem", id: problem.id }}
+                custom={problem.frame?.custom}
+                onCustomChange={(updater) => onChange((current) => {
+                  const next = updater(current.frame?.custom);
+                  return next ? setProblemCustomFrame(current, next) : current;
+                })}
                 activeId={activeId}
                 onActiveChange={setActiveId}
                 fresh={startingNew}
                 onFreshChange={setStartingNew}
+                pick={framePick}
+                renderPreview={(custom, paperClassName) => (
+                  // Same classes and stylesheet as the real problem, so what is shown is what is printed.
+                  <div
+                    className={`${problemFrameClassName("problem-area-flow-unit with-frame", CUSTOM_FRAME_STYLE_ID)} first-frame-area last-frame-area ${paperClassName}`}
+                    style={getCustomFrameStyle(custom, "px") as CSSProperties}
+                    data-testid="problem-custom-frame-preview"
+                  >
+                    {t("problem.custom.previewSample")}
+                  </div>
+                )}
               />
             )}
           </section>
@@ -217,7 +237,7 @@ function FrameStyleButton({
           ? previewSvg
             // The drawing is previewed as an image, where it cannot run anything.
             // eslint-disable-next-line @next/next/no-img-element
-            ? <img src={svgDataUrl(previewSvg)} alt="" />
+            ? <img src={customFrameImageSrc(previewSvg)} alt="" />
             : <Plus size={14} />
           : <span />}
       </span>

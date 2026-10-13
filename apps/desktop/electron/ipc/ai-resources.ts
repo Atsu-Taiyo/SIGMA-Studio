@@ -30,7 +30,8 @@ function parseAiSkillDraftPayload(payload: unknown): AiSkillDraftRequest | null 
   return {
     provider,
     prompt,
-    purpose: record.purpose === "problemFrame" ? "problemFrame" : "skill",
+    purpose: record.purpose === "frameDrawing" ? "frameDrawing" : "skill",
+    ...(record.purpose === "frameDrawing" ? { frameTarget: record.frameTarget === "box" ? "box" : "problem" } : {}),
     ...(typeof record.model === "string" && record.model.trim() ? { model: record.model.trim().slice(0, 200) } : {}),
     ...(typeof record.reasoningEffort === "string" && record.reasoningEffort.trim()
       ? { reasoningEffort: record.reasoningEffort.trim().slice(0, 32) }

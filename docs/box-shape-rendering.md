@@ -8,7 +8,8 @@
 
 - `src/types/sigma-doc.ts`: `BoxBlockNode`、`BoxFrameSpec`、`BoxDecorationSpec`
 - `src/lib/sigma-doc-schema.ts`: 読み込み検証
-- `src/lib/box-blocks.ts`: built-in style、`createBoxBlock`、CSS変数/data属性への変換
+- `src/lib/box-blocks.ts`: built-in style、`createBoxBlock`、CSS変数/data属性への変換、自作の枠 (`setBoxCustomFrame` / `applyBoxFrameDrawing`)
+- `src/lib/custom-frame.ts`: 問題と箱で共通の自作枠 (絵→枠、`--custom-frame-*` の CSS 変数)
 - `src/components/editor/TextFlowEditor.tsx`: 編集画面の本文フロー描画
 - `src/components/print/PrintPreview.tsx`: 印刷プレビュー描画
 
@@ -76,3 +77,13 @@
 - **編集面**: Tiptap の `boxBlock` は `boxBlockTitle boxBlockSubtitle? boxBlockBody`。サブタイトル欄の有無は枠の装飾に従い、設定ダイアログでスタイルを替えると欄を足す/消す (`syncBoxSubtitleNode`)。
 - **幅の変更**: 段組みの列と同じく、境界のつまみ (`box-split-handle.ts`) をドラッグする。離したときに 1 回だけ `subtitleShare` を書き込む。設定ダイアログの数値・並び順・隙間からも変えられる。
 - **印刷・ビューア**: `print-box-title` と `print-box-title print-box-subtitle` の 2 つを出す。どちらも空なら帯ごと出さない。
+
+## 自作の枠 (`styleId: "custom"`)
+
+問題の自作枠と同じ SVG 1枚の9分割 (`border-image`) を箱にも使う。保存は `frame.custom` (型 `CustomFrame`)。
+
+- **作る道具は問題と共通**: 箱の設定のスタイル一覧の後ろに、棚 (`lib/frame-library.ts`、問題と共通) の枠と「枠を追加」が並ぶ。選ぶと `CustomFrameEditor` (見本・SVG・TikZ・AIで描く・角の大きさ／太さ／内側の余白) が開く。AI のチャットは `frame-chat-store` が「教材 × 対象」ごとに持ち、閉じても続く。終わると `FrameChatNotices` が「この箱に使う」を出す。
+- **見た目**: 罫・余白・角は絵が決める (`resolveBoxFrame` が `decorations`・地色・罫の色を外し、`borderWidthPx = borderPx`、全辺 `paddingPx`)。タイトルは枠の内側の先頭行 (装飾なしのタイトルと同じ規則)。設定ダイアログはタイトル位置と文字の色・太さだけを出す。
+- **CSS**: `.box-frame--custom` (document-surface.css、編集と印刷で共通)。編集面は箱を丸ごと描いてページ境界で切り抜くので閉じた絵だけ、印刷は `print-box-fragment-first/middle/last` ごとに開いた辺を切り落とした絵 (`--custom-frame-image-open-*`) を使う。
+- **`/` コマンド**: 棚の枠が「自分の枠」として候補に出て、その枠の箱を挿せる (`createCustomFrameBoxBlock`。既定タイトルなし)。
+- **互換**: 自作の枠へ替えても元の `frame` の値は残す。自作の枠を知らない版では元の箱として描かれる。
