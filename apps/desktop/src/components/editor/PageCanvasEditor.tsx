@@ -161,11 +161,12 @@ import {
   getFlowDisplacementProps,
   getFlowUnitBlockIds,
   getFlowUnitPlacementStyle,
+  getFlowUnitSideNoteAttribute,
   mergeFlowUnitStyle,
 } from "./page-canvas/flow-presentation";
 import { getFlowExtensionNodeId,getProblemAfterContentUnitIds,getProblemAfterInlineContent } from "./page-canvas/inline-content-composition";
 import { calculateReserveSpaceGaps } from "./page-canvas/layout-measure";
-import { LayoutSectionFlowUnit } from "./page-canvas/layout-section-view";
+import { LayoutSectionFlowUnit,layoutSectionSideLabel } from "./page-canvas/layout-section-view";
 import { publishLayoutSnapshot } from "./page-canvas/layout-snapshot";
 import { canInsertManualBreakAtBlock } from "./page-canvas/manual-break-context";
 import {
@@ -204,14 +205,16 @@ import {
   buildRenderUnits,
   getFlowLayoutStyle,
   getLayoutSectionColumnCount,
-  getPageColumnSideNoteOffsetPx,
+  getPageColumnSideNote,
   getRenderUnitManualBreakEdges,
   pickTextFlowBoxFragmentSourceLayouts,
   reconcileRenderUnits,
+  SIDE_NOTE_IN_COLUMN_GAP,
 } from "./page-canvas/render-units";
 import { RunningRegionControls, RunningRegionPageView } from "./page-canvas/running-region-view";
 import { mergeSelectionExtensions } from "./page-canvas/selection-extension-merge";
 import { SelectionActionPopover } from "./page-canvas/SelectionActionPopover";
+import { SideNoteChip } from "./page-canvas/side-note-chip";
 import { SpaceAfterDragSession } from "./page-canvas/space-after-drag-session";
 import {
   resolveSpaceAfterDragPx,
@@ -3194,18 +3197,16 @@ const { candidateCommentTop, pendingCommentTop, commentThreadPositions } = usePa
               if (!section || section.type !== "layoutSection") {
                 return null;
               }
+              const sideNote = getPageColumnSideNote(noteLayout.x, noteLayout.x, metrics);
               return (
                 <div
                   key={`box-layout-section-side-note-${sectionId}`}
                   className={`box-layout-section-side-note-anchor ${selectedId === sectionId ? "selected" : ""}`}
                   data-box-layout-section-side-note={sectionId}
+                  data-side-note={sideNote.inColumnGap ? SIDE_NOTE_IN_COLUMN_GAP : undefined}
                   style={{
                     ...getFlowLayoutStyle(noteLayout),
-                    "--problem-area-page-x": `${getPageColumnSideNoteOffsetPx(
-                      noteLayout.x,
-                      noteLayout.x,
-                      metrics,
-                    )}px`,
+                    ...sideNote.style,
                   } as CSSProperties}
                   onClick={(event) => {
                     event.stopPropagation();
@@ -3213,7 +3214,10 @@ const { candidateCommentTop, pendingCommentTop, commentThreadPositions } = usePa
                   }}
                 >
                   <div className="layout-section-side-note">
-                    <span>{tEditorText("block.columns", { replace: { columns: getLayoutSectionColumnCount(section) } })}</span>
+                    <SideNoteChip
+                      label={layoutSectionSideLabel(getLayoutSectionColumnCount(section), tEditorText, sideNote.inColumnGap)}
+                      title={sideNote.inColumnGap ? layoutSectionSideLabel(getLayoutSectionColumnCount(section), tEditorText) : undefined}
+                    />
                   </div>
                 </div>
               );
@@ -3308,6 +3312,7 @@ const { candidateCommentTop, pendingCommentTop, commentThreadPositions } = usePa
                   columnLayout={problemAreaColumnLayouts[unit.id]}
                   boxFragmentSourceLayouts={boxFragmentSourceLayouts}
                   layoutStyle={getFlowUnitPlacementStyle(unit, unitDisplacements[unit.id], metrics, isColumnPage)}
+                  sideNoteAttribute={getFlowUnitSideNoteAttribute(unitDisplacements[unit.id], metrics)}
                   spaceAfterFollowerClass={spaceAfterFollowerUnitClass(unit.id)}
                   pageColumnGapPx={metrics.flow.columnGapPx}
                   pageColumnGapMm={metrics.flow.columnGapMm}
@@ -3346,6 +3351,7 @@ const { candidateCommentTop, pendingCommentTop, commentThreadPositions } = usePa
                   boxFragmentSourceLayouts={boxFragmentSourceLayouts}
                   frameFragments={frameFragmentLayouts[unit.id]}
                   layoutStyle={getFlowUnitPlacementStyle(unit, unitDisplacements[unit.id], metrics, isColumnPage)}
+                  sideNoteAttribute={getFlowUnitSideNoteAttribute(unitDisplacements[unit.id], metrics)}
                   spaceAfterFollowerClass={spaceAfterFollowerUnitClass(unit.id)}
                   draftMinHeightMm={problemAreaHeightDrafts[problemAreaDraftKey(unit.problem.id, unit.area)]}
                   pageContentHeightPx={metrics.content.heightPx}

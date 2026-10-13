@@ -333,41 +333,32 @@ export function getFlowLayoutStyle(layout: FlowUnitLayout): CSSProperties {
   };
 }
 
-export function getProblemAreaSideNoteOffsetPx(
-  unit: Extract<RenderUnit, { type: "problemArea" | "layoutSection" | "problemLayoutSection" }>,
-  isColumnFlow: boolean,
-  layouts: Record<string, FlowUnitLayout>,
-  metrics: PageMetrics,
-  blockLayouts?: Record<string, TextFlowColumnBlockLayout>,
-): number | undefined {
-  if (!isColumnFlow) {
-    return undefined;
-  }
+/** 2 段目以降のサイド注の下端の線を、段の左端からどれだけ手前で止めるか。 */
+const SIDE_NOTE_COLUMN_CLEARANCE_PX = 4;
 
-  const layout = layouts[unit.id];
-  if (!layout) {
-    return undefined;
-  }
+/** サイド注を段の間に出す印 (`data-side-note`)。見出しは縦書きになる (graph-and-text-editing.css)。 */
+export const SIDE_NOTE_IN_COLUMN_GAP = "column-gap";
 
-  const firstBlockLayout = unit.type === "problemArea" && unit.blocks.length > 0
-    ? blockLayouts?.[unit.blocks[0].id]
-    : undefined;
-  const referenceX = layout.x + (firstBlockLayout?.x ?? 0);
-
-  return getPageColumnSideNoteOffsetPx(layout.x, referenceX, metrics);
+export interface PageColumnSideNote {
+  /** 横位置を決める CSS 変数。値はアンカー左端から測る。 */
+  style: Record<string, string>;
+  /** 2 段目以降で、段の間に出すか。 */
+  inColumnGap: boolean;
 }
 
 /**
- * Positions a side note immediately before the outer page column containing
- * referenceX. The anchor may be inset from that column (for example by a box),
- * so the returned offset compensates for that inset instead of treating the
- * nested section itself as the page-column edge.
+ * サイド注 (括弧の線・見出し・下端の線) をどこに出すか。
+ * 1 段目は紙面の左余白の外 (CSS の既定。紙面左端からアンカーまでの距離だけ渡す)、
+ * 2 段目以降は referenceX を含む外側の段の「すぐ左」(段の間) に出す: 括弧の線は段の間の中央、
+ * 下端の線は段の左端の手前で止め、見出しは縦書きで括弧の線の上に置く (どちらの段の本文にも重ねない)。
+ * アンカーは段の左端から内側にずれていることがある (箱の中の段組など) ので、
+ * 値はアンカー左端から測ってそのずれを差し引く。
  */
-export function getPageColumnSideNoteOffsetPx(
+export function getPageColumnSideNote(
   anchorX: number,
   referenceX: number,
   metrics: PageMetrics,
-): number {
+): PageColumnSideNote {
   const columnStep = metrics.flow.columnWidthPx + metrics.flow.columnGapPx;
   const columnIndex = columnStep > 0
     ? Math.max(
@@ -380,11 +371,19 @@ export function getPageColumnSideNoteOffsetPx(
     : 0;
 
   if (columnIndex === 0) {
-    return anchorX;
+    return { style: { "--problem-area-page-x": `${anchorX}px` }, inColumnGap: false };
   }
 
   const columnLeft = metrics.margins.leftPx + columnIndex * columnStep;
-  return anchorX - columnLeft + Math.max(0, metrics.flow.columnGapPx / 2);
+  const inset = anchorX - columnLeft;
+  const halfGap = Math.max(0, metrics.flow.columnGapPx / 2);
+  return {
+    style: {
+      "--side-note-rule-x": `${-(inset + halfGap)}px`,
+      "--side-note-line-end": `${-(inset + Math.min(SIDE_NOTE_COLUMN_CLEARANCE_PX, halfGap))}px`,
+    },
+    inColumnGap: true,
+  };
 }
 
 export function getTextFlowColumnBlockLayouts(

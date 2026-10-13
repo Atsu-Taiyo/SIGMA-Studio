@@ -3,13 +3,15 @@ import { describe, expect, it } from "vitest";
 import { deriveAiEditPreviewOverlayShapes, hasOverlayAiEditChanges, type AiEditPreviewState } from "@/components/editor/ai-edit-preview-types";
 import type { OverlayShape } from "@/components/editor/overlay-canvas/types";
 import { canInsertManualColumnBreak } from "@/components/editor/page-canvas/block-ops";
+import { getFlowUnitPlacementStyle, getFlowUnitSideNoteAttribute } from "@/components/editor/page-canvas/flow-presentation";
 import { measureBoxLayoutSectionSideNotes } from "@/components/editor/page-canvas/layout-measure";
 import { getSelectionActionPopoverPosition, viewportToCanvasAnchor } from "@/components/editor/page-canvas/popover-anchors";
 import  {
   buildProblemAreaOwnerByBlockId,
   buildRenderUnits,
   getLayoutSectionColumnGapPx,
-  getPageColumnSideNoteOffsetPx,
+  getPageColumnSideNote,
+  SIDE_NOTE_IN_COLUMN_GAP,
 } from "@/components/editor/page-canvas/render-units";
 import type { RenderUnit } from "@/components/editor/page-canvas/types";
 import { calculateVisiblePageRange, getVisiblePageIndexes } from "@/components/editor/page-canvas/virtualization";
@@ -46,26 +48,53 @@ describe("local layout section columns", () => {
       flow: { type: "columns", columnCount: 3, columnGapMm: 8 },
     }));
     const columnStep = metrics.flow.columnWidthPx + metrics.flow.columnGapPx;
+    const halfGap = metrics.flow.columnGapPx / 2;
     const nestedInset = 14;
     const firstColumnAnchor = metrics.margins.leftPx + nestedInset;
     const secondColumnLeft = metrics.margins.leftPx + columnStep;
     const thirdColumnLeft = metrics.margins.leftPx + columnStep * 2;
+    // 2 段目以降は段の間: 括弧の線は段の間の中央、下端の線は段の左端の 4px 手前 (アンカーから測る)。
+    const inColumnGap = (inset: number) => ({
+      style: {
+        "--side-note-rule-x": `${-(inset + halfGap)}px`,
+        "--side-note-line-end": `${-(inset + 4)}px`,
+      },
+      inColumnGap: true,
+    });
 
-    expect(getPageColumnSideNoteOffsetPx(
-      firstColumnAnchor,
-      firstColumnAnchor,
-      metrics,
-    )).toBeCloseTo(firstColumnAnchor);
-    expect(getPageColumnSideNoteOffsetPx(
-      secondColumnLeft + nestedInset,
-      secondColumnLeft + nestedInset,
-      metrics,
-    )).toBeCloseTo(nestedInset + metrics.flow.columnGapPx / 2);
-    expect(getPageColumnSideNoteOffsetPx(
-      thirdColumnLeft + nestedInset,
-      thirdColumnLeft + nestedInset,
-      metrics,
-    )).toBeCloseTo(nestedInset + metrics.flow.columnGapPx / 2);
+    // 1 段目は紙面の左余白 (CSS の既定) に出すので、紙面左端からの距離だけ渡す。
+    expect(getPageColumnSideNote(firstColumnAnchor, firstColumnAnchor, metrics))
+      .toEqual({ style: { "--problem-area-page-x": `${firstColumnAnchor}px` }, inColumnGap: false });
+    expect(getPageColumnSideNote(secondColumnLeft + nestedInset, secondColumnLeft + nestedInset, metrics))
+      .toEqual(inColumnGap(nestedInset));
+    expect(getPageColumnSideNote(thirdColumnLeft + nestedInset, thirdColumnLeft + nestedInset, metrics))
+      .toEqual(inColumnGap(nestedInset));
+    expect(getPageColumnSideNote(secondColumnLeft, secondColumnLeft, metrics))
+      .toEqual(inColumnGap(0));
+  });
+
+  it("places a page-column problem area's side note in the gap before the column it was moved into", () => {
+    const metrics = getPageMetrics(normalizePageLayout({
+      flow: { type: "columns", columnCount: 2, columnGapMm: 8 },
+    }));
+    const columnStep = metrics.flow.columnWidthPx + metrics.flow.columnGapPx;
+    const unit = problemAreaUnit(createProblem({ id: "right_column_problem" }), "solution", "right_column_solution");
+
+    // 1 段目のまま (変位なし・下へだけ動いた) なら紙面の左余白の既定のまま。
+    for (const displacement of [undefined, { dx: 0, dy: 120 }]) {
+      expect(getFlowUnitPlacementStyle(unit, displacement, metrics, true)).toBeUndefined();
+      expect(getFlowUnitSideNoteAttribute(displacement, metrics)).toBeUndefined();
+    }
+    // 2 段目 (次のページの 2 段目も) へ動いたら、その段のすぐ左 (段の間)。
+    for (const dy of [0, metrics.page.heightPx + 40]) {
+      const displacement = { dx: Math.round(columnStep), dy };
+      const style = getFlowUnitPlacementStyle(unit, displacement, metrics, true) as Record<string, string>;
+      // 変位は整数 px に丸めてあるので、段の左端からのずれ (±0.5px) を差し引いて段の間の中央に置く。
+      expect(parseFloat(style["--side-note-rule-x"]))
+        .toBeCloseTo(-(Math.round(columnStep) - columnStep + metrics.flow.columnGapPx / 2));
+      expect(style["--problem-area-page-x"]).toBeUndefined();
+      expect(getFlowUnitSideNoteAttribute(displacement, metrics)).toBe(SIDE_NOTE_IN_COLUMN_GAP);
+    }
   });
 
   it("limits box-local manual column breaks to columnCount minus one", () => {
