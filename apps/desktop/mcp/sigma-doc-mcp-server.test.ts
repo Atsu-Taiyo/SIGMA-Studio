@@ -3081,6 +3081,42 @@ describe("sigma-doc-mcp-server new read/write tools", () => {
     }
   });
 
+  it("update_graph keeps the axis ends the author chose", async () => {
+    // The AI is not asked to choose an axis end, but update_graph rebuilds the axes, so a dropped
+    // field would quietly put every edited graph back to the default end.
+    const fileId = await getFileId();
+    let revision = await seedTableAndGraph(fileId);
+    const store = new LocalSigmaDocStore(userDataDir);
+    const before = await store.loadDocument(fileId);
+    const graph = before?.pageLayout?.overlay?.overlaySnapshot?.shapes.find((shape) => shape.id === "graph_for_update");
+    if (!before || graph?.type !== "graph2dShape") {
+      throw new Error("seeded graph missing");
+    }
+    graph.props.spec.axes.xAxisEndStyle = "openArrowSmall";
+    graph.props.spec.axes.yAxisEndStyle = "none";
+    const saved = await saveAtCurrentRevision(store, fileId, before);
+    expect(saved.ok).toBe(true);
+    revision = saved.revision ?? revision;
+
+    const result = extractPayload(await client.callTool({
+      name: "update_graph",
+      arguments: {
+        fileId,
+        shapeId: "graph_for_update",
+        axes: { xLabel: "t" },
+        expectedRevision: revision,
+      },
+    }));
+    expect(result.ok).toBe(true);
+
+    const stored = await new LocalMcpEditProposalStore(userDataDir).findLatestPendingProposalForFile(fileId);
+    const nextGraph = stored?.nextDocument.pageLayout?.overlay?.overlaySnapshot?.shapes
+      .find((shape) => shape.id === "graph_for_update");
+    const nextAxes = nextGraph?.type === "graph2dShape" ? nextGraph.props.spec.axes : null;
+    expect(nextAxes?.xAxisEndStyle).toBe("openArrowSmall");
+    expect(nextAxes?.yAxisEndStyle).toBe("none");
+  });
+
   it("update_table content-mode edit (cells only) preserves a pre-existing fixed column width/row height/grid/defaultCellStyle", async () => {
     const fileId = await getFileId();
     await seedTableAndGraph(fileId);

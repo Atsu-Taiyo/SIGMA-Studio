@@ -23,6 +23,7 @@ export {
   getGraph3DAxisColors,
   resolveGraph3DDimensionEndStyle,
 } from "./model/graph3d";
+export { DEFAULT_GRAPH_AXIS_END_STYLE } from "./model/graph";
 export { CHART_SERIES_FALLBACK_COLOR, CHART_SERIES_PALETTE } from "./model/chart";
 export {
   evaluateTableFormulas,

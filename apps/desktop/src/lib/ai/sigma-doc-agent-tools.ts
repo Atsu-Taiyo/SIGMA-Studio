@@ -4476,6 +4476,10 @@ function normalizeGraphAxes(input: unknown, kind: "cartesian" | "numberLine"): G
     ...(kind === "cartesian" ? { yTickStep: typeof axes.yTickStep === "string" ? axes.yTickStep : "1" } : {}),
     ...(axes.xTickMode === "pi" || axes.xTickMode === "number" ? { xTickMode: axes.xTickMode } : {}),
     ...(axes.yTickMode === "pi" || axes.yTickMode === "number" ? { yTickMode: axes.yTickMode } : {}),
+    // Not something the AI is asked to choose, but `update_graph` rebuilds the axes through here, so
+    // dropping them would undo the author's choice on every AI edit of the graph.
+    ...(isOverlayArrowheadValue(axes.xAxisEndStyle) ? { xAxisEndStyle: axes.xAxisEndStyle } : {}),
+    ...(kind === "cartesian" && isOverlayArrowheadValue(axes.yAxisEndStyle) ? { yAxisEndStyle: axes.yAxisEndStyle } : {}),
   };
 }
 
@@ -5518,7 +5522,11 @@ function normalizeOverlayArrowhead(value: OverlayArrowhead | undefined, fallback
   // Derived, not enumerated: this used to carry its own copy of the four original heads and
   // quietly rewrote anything else to the fallback, so a new head reached the schema but never the
   // document.
-  return value !== undefined && (OVERLAY_ARROWHEADS as readonly string[]).includes(value) ? value : fallback;
+  return isOverlayArrowheadValue(value) ? value : fallback;
+}
+
+function isOverlayArrowheadValue(value: unknown): value is OverlayArrowhead {
+  return typeof value === "string" && (OVERLAY_ARROWHEADS as readonly string[]).includes(value);
 }
 
 const aiGraphLabelLayoutPort = createGraphLabelLayoutPort();
