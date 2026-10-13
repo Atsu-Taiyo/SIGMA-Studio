@@ -607,19 +607,40 @@ describe("sigma-doc-mcp-server integration", () => {
     });
   });
 
-  it("publishes a common machine-readable output schema for every tool", async () => {
+  it("publishes self-contained input schemas that define each shared part once, without an output schema", async () => {
     const tools = (await client.listTools()).tools;
     for (const tool of tools) {
-      expect(tool.outputSchema, `${tool.name} must publish outputSchema`).toMatchObject({
-        type: "object",
-        properties: {
-          ok: expect.any(Object),
-          data: expect.any(Object),
-          error: expect.any(Object),
-        },
-        required: expect.arrayContaining(["ok"]),
-      });
+      // Declaring an outputSchema makes clients require and validate structuredContent and
+      // repeats one definition in every tool. The envelope is checked on the server instead.
+      expect(tool.outputSchema, tool.name).toBeUndefined();
+      const definitions = (tool.inputSchema.definitions ?? {}) as Record<string, unknown>;
+      const largeParts = new Map<string, number>();
+      const visit = (node: unknown): void => {
+        if (!node || typeof node !== "object") return;
+        const ref = (node as { $ref?: unknown }).$ref;
+        if (ref !== undefined) {
+          // Each tool is self-contained: every reference resolves inside its own definitions.
+          const name = typeof ref === "string" && ref.startsWith("#/definitions/") ? ref.slice("#/definitions/".length) : "";
+          expect(Object.hasOwn(definitions, name), `${tool.name}: ${String(ref)}`).toBe(true);
+        }
+        const serialized = JSON.stringify(node);
+        if (serialized.length >= 1024) largeParts.set(serialized, (largeParts.get(serialized) ?? 0) + 1);
+        for (const child of Object.values(node)) visit(child);
+      };
+      visit(tool.inputSchema);
+      // Shared parts are defined once and referenced; a large part repeated inline means a
+      // shared schema lost its definition id (see sigma-doc-mcp-schema-definitions.ts).
+      expect([...largeParts.values()].filter((count) => count > 1), tool.name).toEqual([]);
     }
+    const graph3d = tools.find((tool) => tool.name === "insert_graph3d")!.inputSchema;
+    const graph3dProperties = graph3d.properties as Record<string, { properties?: Record<string, unknown> }>;
+    // spec and the top-level objects remain two ways to give the same objects.
+    expect(JSON.stringify(graph3dProperties.objects)).toContain("#/definitions/Graph3DObjectList");
+    expect(JSON.stringify(graph3dProperties.spec!.properties!.objects)).toContain("#/definitions/Graph3DObjectList");
+    const editText = tools.find((tool) => tool.name === "edit_text")!.inputSchema;
+    expect(Object.keys(editText.definitions as Record<string, unknown>)).toEqual(expect.arrayContaining([
+      "InlineNode", "ParagraphNode", "HeadingNode", "ListNode", "ProblemNode", "BoxBlockNode",
+    ]));
   });
 
   it("returns the common success and actionable error envelopes", async () => {

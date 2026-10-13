@@ -108,7 +108,7 @@ describe("MCP body tools", () => {
     expect(edit.oneOf).toHaveLength(3);
     expect(edit.oneOf[0]!.required).toEqual(expect.arrayContaining(["action", "operations"]));
     expect(app.find((tool) => tool.name === "organize_blocks")!.annotations).toMatchObject({ destructiveHint: true, readOnlyHint: false });
-    for (const tool of app) expect(tool.outputSchema).toBeDefined();
+    for (const tool of app) expect(tool.outputSchema).toBeUndefined();
     // The implementations are not callable through the MCP transport.
     expect((await appClient.callTool({ name: "delete_blocks", arguments: { ...context(), blockIds: ["p_1"] } })).isError).toBe(true);
     expect(await proposals.listProposals({ status: "pending" })).toHaveLength(0);
