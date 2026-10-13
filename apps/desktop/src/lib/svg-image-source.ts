@@ -46,8 +46,9 @@ export function resolvedAttrs(node: XmlNode): Record<string, string> {
 
 export function parseStaticSvg(svg: string): XmlNode {
   // Parse a bounded static subset, without DOM insertion or external entity/resource loading.
+  if (new TextEncoder().encode(svg).length > MAX_BYTES) throw new SvgConversionError("source");
   const source = svg.replace(/^\s*<\?xml[^?]*\?>/, "").replace(/<!--[\s\S]*?-->/g, "");
-  if (new TextEncoder().encode(source).length > MAX_BYTES || (source.match(/</g)?.length ?? 0) > 8192 || /<!|<\?/.test(source) || XMLValidator.validate(source) !== true) throw new SvgConversionError("source");
+  if ((source.match(/</g)?.length ?? 0) > 8192 || /<!|<\?/.test(source) || XMLValidator.validate(source) !== true) throw new SvgConversionError("source");
   const nodes = new XMLParser({ preserveOrder: true, ignoreAttributes: false, attributeNamePrefix: "", parseTagValue: false,
     parseAttributeValue: false, trimValues: false }).parse(source) as XmlNode[];
   const roots = nodes.filter((node) => tagOf(node) !== "#text");

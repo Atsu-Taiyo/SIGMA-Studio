@@ -1,4 +1,5 @@
 import { _electron as electron, expect, test } from "@playwright/test";
+import { createCanvas } from "@napi-rs/canvas";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -16,6 +17,97 @@ const DOCUMENT: SigmaDocument = { version: "2.0", docId: "svg-conversion", metad
   content: [{ type: "paragraph", id: "p", children: [{ type: "text", text: "SVGを右クリックして変換" }] }],
   pageLayout: { ...getDefaultPageLayout(), overlay: { overlaySnapshot: SNAPSHOT } }, outputProfiles: { student: {}, teacher: {}, answerBook: {} } };
 
+for (const format of ["inline", "base64", "percent"] as const) {
+  test(`native SVG clipboard (${format}) stays vector through conversion, undo and desktop reload`, async ({}, testInfo) => {
+    test.setTimeout(180_000);
+    const profile = await mkdtemp(path.join(tmpdir(), "sigma-svg-paste-"));
+    const env = Object.fromEntries(Object.entries(process.env).filter((entry): entry is [string, string] => entry[1] !== undefined));
+    delete env.ELECTRON_RUN_AS_NODE;
+    delete env.SIGMA_STUDIO_DEV_SERVER_URL;
+    env.SIGMA_STUDIO_USER_DATA_DIR = profile;
+    if (process.env.SIGMA_STUDIO_E2E_BASE_URL) env.SIGMA_STUDIO_DEV_SERVER_URL = process.env.SIGMA_STUDIO_E2E_BASE_URL;
+    const executablePath = process.env.SIGMA_STUDIO_E2E_EXECUTABLE;
+    const app = await electron.launch({ executablePath, args: executablePath ? [] : [APP_ROOT], cwd: APP_ROOT, env });
+    const originalClipboard = await app.evaluateHandle(async ({ clipboard, ClipboardItem }) => Promise.all((await clipboard.read()).map(async item => new ClipboardItem(Object.fromEntries(await Promise.all(item.types.map(async type => [type, await item.getType(type)])))))));
+    try {
+      const page = await app.firstWindow();
+      const errors: string[] = [];
+      page.on("pageerror", error => errors.push(error.message));
+      await (await app.browserWindow(page)).evaluate(win => win.setContentSize(1400, 1050));
+      await page.waitForFunction(() => Boolean(window.desktopAPI?.storage));
+      await expect(page.locator(".startup-splash")).toBeHidden({ timeout: 60_000 });
+      const fileId = await page.evaluate(async document => {
+        localStorage.setItem("sigma-studio:ui-layout-preference", JSON.stringify({ mode: "docs", onboardingCompleted: true }));
+        localStorage.setItem("sigma-studio:github-star-dismissed:v1", "1");
+        await window.desktopAPI!.settings!.setUiLocale!("ja");
+        const created = await window.desktopAPI!.storage.createFileFromDocument({ document });
+        await window.desktopAPI!.storage.saveWorkspace({ openFileIds: [created.file.fileId], activeFileId: created.file.fileId });
+        return created.file.fileId;
+      }, { ...DOCUMENT, pageLayout: getDefaultPageLayout() });
+      await page.reload();
+      await expect(page.locator(".startup-splash")).toBeHidden({ timeout: 60_000 });
+      await expect(page.getByRole("textbox", { name: "教材タイトル" })).toHaveValue("SVG変換確認");
+      const saved = () => page.evaluate(id => window.desktopAPI!.storage.loadDocument(id), fileId);
+      const snapshot = async () => (await saved())!.pageLayout?.overlay?.overlaySnapshot;
+      const modifier = process.platform === "darwin" ? "Meta" : "Control";
+      const src = format === "base64" ? `data:image/svg+xml;base64,${Buffer.from(SVG).toString("base64")}` : `data:image/svg+xml;charset=utf-8,${encodeURIComponent(SVG)}`;
+      const html = format === "inline" ? `<html><body><!--StartFragment--><div>${SVG}</div><!--EndFragment--></body></html>` : `<img src="${src}">`;
+      const png = format === "inline" ? undefined : createCanvas(300, 200).toDataURL("image/png");
+      await app.evaluate(({ clipboard, ClipboardItem }, { html, png }) => clipboard.write([new ClipboardItem({
+        "text/html": html,
+        "text/plain": "装置図",
+        ...(png ? { "image/png": new Blob([Buffer.from(png.split(",")[1], "base64")], { type: "image/png" }) } : {}),
+      })]), { html, png });
+      await page.locator('.page-flow [data-sigma-doc-id="p"]').first().click();
+      await page.keyboard.press(`${modifier}+v`);
+      await expect.poll(async () => (await snapshot())?.shapes.map(shape => shape.type)).toEqual(["image"]);
+      const pasted = (await snapshot())!;
+      expect(Object.values(pasted.assets)).toHaveLength(1);
+      expect(Object.values(pasted.assets)[0].props).toMatchObject({ mimeType: "image/svg+xml", w: 300, h: 200 });
+      expect((await saved())!.content).toEqual(DOCUMENT.content);
+      const normalize = (value: unknown): unknown => value === undefined ? undefined : JSON.parse(JSON.stringify(value, (_key, child) => typeof child === "number" ? Math.round(child * 100) / 100 : child));
+      await page.keyboard.press(`${modifier}+z`);
+      await expect.poll(async () => (await snapshot())?.shapes ?? []).toEqual([]);
+      await expect.poll(async () => Object.keys((await snapshot())?.assets ?? {})).toEqual([]);
+      await page.keyboard.press(`${modifier}+Shift+z`);
+      await expect.poll(async () => normalize(await snapshot())).toEqual(normalize(pasted));
+      await page.reload();
+      await expect(page.locator(".startup-splash")).toBeHidden({ timeout: 60_000 });
+      await expect(page.getByRole("textbox", { name: "教材タイトル" })).toHaveValue("SVG変換確認");
+      expect(normalize(await snapshot())).toEqual(normalize(pasted));
+      const image = page.locator(".overlay-shape-image").first();
+      await image.scrollIntoViewIfNeeded();
+      const box = (await image.boundingBox())!;
+      await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2, { button: "right" });
+      await page.getByRole("menuitem", { name: "図形に変換", exact: true }).click();
+      await expect(page.getByTestId("svg-conversion-message")).toContainText("個の図形に変換しました");
+      await expect.poll(async () => (await snapshot())?.shapes.filter(shape => shape.type === "geo" || shape.type === "line").length).toBe(4);
+      const converted = (await snapshot())!;
+      const text = converted.shapes.filter(shape => shape.type === "text");
+      expect(text).toHaveLength(2);
+      expect(text.flatMap(shape => shape.props.blocks.flatMap(block => block.type === "paragraph" ? block.children : [])).filter(node => node.type === "mathInline")).toMatchObject([{ tex: "V(z)" }]);
+      expect(converted.shapes.filter(shape => shape.type === "image")).toHaveLength(1);
+      await page.keyboard.press(`${modifier}+z`);
+      await expect.poll(async () => normalize(await snapshot())).toEqual(normalize(pasted));
+      await page.keyboard.press(`${modifier}+Shift+z`);
+      await expect.poll(async () => normalize(await snapshot())).toEqual(normalize(converted));
+      await page.reload();
+      await expect(page.locator(".startup-splash")).toBeHidden({ timeout: 60_000 });
+      await expect(page.getByRole("textbox", { name: "教材タイトル" })).toHaveValue("SVG変換確認");
+      expect(normalize(await snapshot())).toEqual(normalize(converted));
+      await page.keyboard.press("Escape");
+      await page.mouse.move(50, 150);
+      await page.screenshot({ path: testInfo.outputPath(`svg-clipboard-${format}.png`) });
+      expect(errors).toEqual([]);
+    } finally {
+      await app.evaluate(({ clipboard }, original) => clipboard.write(original), originalClipboard);
+      await originalClipboard.dispose();
+      await app.close();
+      await rm(profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+    }
+  });
+}
+
 for (const reference of [false, true]) {
   test(reference ? "reference SVG converts on an isolated desktop copy" : "SVG context conversion, individual editing, undo and reload use the desktop bridge", async ({}, testInfo) => {
     test.skip(reference && !process.env.SIGMA_STUDIO_SVG_REFERENCE_DOCUMENT, "Optional local reference document");
@@ -23,9 +115,11 @@ for (const reference of [false, true]) {
     const profile = await mkdtemp(path.join(tmpdir(), "sigma-svg-conversion-"));
     const env = Object.fromEntries(Object.entries(process.env).filter((entry): entry is [string, string] => entry[1] !== undefined));
     delete env.ELECTRON_RUN_AS_NODE;
+    delete env.SIGMA_STUDIO_DEV_SERVER_URL;
     env.SIGMA_STUDIO_USER_DATA_DIR = profile;
     if (process.env.SIGMA_STUDIO_E2E_BASE_URL) env.SIGMA_STUDIO_DEV_SERVER_URL = process.env.SIGMA_STUDIO_E2E_BASE_URL;
-    const app = await electron.launch({ args: [APP_ROOT], cwd: APP_ROOT, env });
+    const executablePath = process.env.SIGMA_STUDIO_E2E_EXECUTABLE;
+    const app = await electron.launch({ executablePath, args: executablePath ? [] : [APP_ROOT], cwd: APP_ROOT, env });
     const dictionary = path.join(APP_ROOT, "src/components/editor/overlay-canvas/context-menu.tsx");
     let dictionaryBefore: string | undefined;
     try {
