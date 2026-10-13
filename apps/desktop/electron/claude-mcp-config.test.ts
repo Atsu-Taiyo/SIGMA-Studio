@@ -94,6 +94,5 @@ describe("buildClaudeMcpConfig", () => {
     });
 
     expect(config.mcpServers["sigma-studio-local"].env.SIGMA_STUDIO_MCP_PROVIDER).toBe("claude");
-    expect(config.mcpServers["sigma-studio-local"].env.SIGMA_STUDIO_MCP_TOOL_PROFILE).toBe("app");
   });
 });

@@ -5,19 +5,16 @@ import { describe, expect, it } from "vitest";
 import { validateAiSvg } from "@/lib/ai/svg-image";
 import { parseSkillFile, SKILL_CONTENT_MAX_LENGTH } from "@/lib/ai/skill-frontmatter";
 import { MCP_TOOL_CATEGORY_MAP } from "@/lib/ai/mcp-tool-categories";
-import { APP_BODY_TOOL_ROUTES } from "@/lib/ai/mcp-tool-profile";
 
+import { BODY_IMPLEMENTATION_ROUTES } from "../mcp/sigma-doc-mcp-app-tools";
 import { OFFICIAL_SKILL_DEFINITIONS } from "./ai-resource-store";
 
 const SKILLS_ROOT = path.join(__dirname, "official-skills");
 
-/** 現在のアプリ内AI(app profile)が使えるツール名。本文編集の8入口は4入口へ置き換わる。 */
-const LEGACY_BODY_TOOL_NAMES = Object.keys(APP_BODY_TOOL_ROUTES);
-const APP_BODY_TOOL_NAMES = Object.values(APP_BODY_TOOL_ROUTES).map((route) => route.name);
-const KNOWN_TOOL_NAMES = new Set<string>([
-  ...Object.values(MCP_TOOL_CATEGORY_MAP).flat().filter((name) => !LEGACY_BODY_TOOL_NAMES.includes(name)),
-  ...APP_BODY_TOOL_NAMES,
-]);
+/** アプリ内AIが呼べるツール名 (MCPサーバーが公開する全ツール)。 */
+const KNOWN_TOOL_NAMES = new Set<string>(Object.values(MCP_TOOL_CATEGORY_MAP).flat());
+/** 本文編集の4入口の内部実装の名前。公開されないので、スキルに書くとモデルが呼べない。 */
+const BODY_IMPLEMENTATION_NAMES = Object.keys(BODY_IMPLEMENTATION_ROUTES);
 /** ツール名ではないが、snake_case に見える語（操作名・返値の項目・例に使うID）。 */
 const COMMON_SNAKE_WORDS = new Set([
   "expected_revision", "file_id", "run_id", "target_id", "write_mode",
@@ -64,10 +61,10 @@ describe("official skills", () => {
         const toolLikeTokens = [...new Set([...raw.matchAll(/\b[a-z]+(?:_[a-z0-9]+)+\b/g)].map((match) => match[0]))];
         const unknown = toolLikeTokens.filter((name) =>
           !KNOWN_TOOL_NAMES.has(name) && !COMMON_SNAKE_WORDS.has(name) && !EXAMPLE_ID_PATTERN.test(name));
-        const legacy = toolLikeTokens.filter((name) => LEGACY_BODY_TOOL_NAMES.includes(name));
+        const internal = toolLikeTokens.filter((name) => BODY_IMPLEMENTATION_NAMES.includes(name));
 
         expect(unknown, "unknown tool-like names").toEqual([]);
-        expect(legacy, "body tools replaced by insert_content / edit_text / edit_problem / organize_blocks").toEqual([]);
+        expect(internal, "internal body-edit names; use insert_content / edit_text / edit_problem / organize_blocks").toEqual([]);
       });
 
       it("ships only SVG and JSON examples that the tools accept", async () => {

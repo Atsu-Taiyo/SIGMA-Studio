@@ -72,7 +72,7 @@ describe("mcp-edit-prompt anti-regression sweep", () => {
   it.each(["ja", "en"] as const)("keeps Antigravity headless tool guidance on new and resumed %s turns", (locale) => {
     const t = createTranslator(locale, "prompt");
     for (const isResumedTurn of [false, true]) {
-      const args = { locale, instruction: "Rewrite the selected math paragraph", fileId: "file_abc", toolProfile: "app" as const, isResumedTurn };
+      const args = { locale, instruction: "Rewrite the selected math paragraph", fileId: "file_abc", isResumedTurn };
       const prompt = buildMcpEditPrompt({ ...args, provider: "antigravity" });
       expect(prompt).toContain(t("mcp.antigravityHeadlessTools"));
       expect(prompt).toContain(t("mcp.antigravityTextEditExample"));
@@ -97,7 +97,10 @@ describe("mcp-edit-prompt anti-regression sweep", () => {
 describe("MCP tool name coverage", () => {
   it("mentions the MCP-native tool names and invariant rules", () => {
     for (const name of [
-      "insert_body_content",
+      "insert_content",
+      "edit_text",
+      "edit_problem",
+      "organize_blocks",
       "insert_shape",
       "insert_graph",
       "insert_table",
@@ -120,36 +123,36 @@ describe("MCP tool name coverage", () => {
 
 describe("content editing tool guidance", () => {
   it("shows concrete read, insert, update, and block-vs-overlay routes", () => {
-    expect(buildMcpEditInvariantGuidance(tJa)).toContain(buildMcpContentToolGuidePrompt(tJa));
-    expect(buildMcpContentToolGuidePrompt(tJa)).toContain("get_edit_context({fileId, runId");
-    expect(buildMcpContentToolGuidePrompt(tJa)).toContain("context.selection.blockIds/blocks");
-    expect(buildMcpContentToolGuidePrompt(tJa)).toContain("selectionの全対象");
-    expect(buildMcpContentToolGuidePrompt(tJa)).toContain("get_document_outline");
-    expect(buildMcpContentToolGuidePrompt(tJa)).toContain('op:"replace_text"');
-    expect(buildMcpContentToolGuidePrompt(tJa)).toContain('type:"range",blockId,from,to,quote');
-    expect(buildMcpContentToolGuidePrompt(tJa)).toContain("copy-with置換");
-    expect(buildMcpContentToolGuidePrompt(tJa)).toContain("insert_body_content({");
-    expect(buildMcpContentToolGuidePrompt(tJa)).toContain("create_problem_content({");
-    expect(buildMcpContentToolGuidePrompt(tJa)).toContain("replace_block はpatchではありません");
-    expect(buildMcpContentToolGuidePrompt(tJa)).toContain("update_rich_content");
-    expect(buildMcpContentToolGuidePrompt(tJa)).toContain("update_problem_content");
-    expect(buildMcpContentToolGuidePrompt(tJa)).toContain("overlayShapes");
-    expect(buildMcpContentToolGuidePrompt(tJa)).toContain("update_column_layout");
-    expect(buildMcpContentToolGuidePrompt(tJa)).toContain('scope:"document"');
-    expect(buildMcpContentToolGuidePrompt(tJa)).toContain('scope:"blocks"');
-    expect(buildMcpContentToolGuidePrompt(tJa)).toContain('scope:"section"');
-    expect(buildMcpContentToolGuidePrompt(tJa)).toContain("data.verification.preview");
-    expect(buildMcpContentToolGuidePrompt(tJa)).toContain("proposalCreated:true");
+    const guide = buildMcpContentToolGuidePrompt(tJa);
+    expect(buildMcpEditInvariantGuidance(tJa)).toContain(guide);
+    expect(buildMcpEditInvariantGuidance(tJa)).toContain("overlayShapes");
+    expect(guide).toContain("get_edit_context({fileId,runId,targetId})");
+    expect(guide).toContain("context.selection.references、blockIds/blocks、shapeIds/shapesの全対象");
+    expect(guide).toContain("get_document_outline");
+    expect(guide).toContain('op:"replace_text"');
+    expect(guide).toContain('target:{type:"range",blockId:"p_1",from:3,to:6,quote:"変更前"}');
+    expect(guide).toContain("元の書式と範囲外を保ち、曖昧な引用は拒否します");
+    expect(guide).toContain('insert_content({fileId,runId,expectedRevision,targetId:"END_OF_DOCUMENT",content:{format:"markdown"');
+    expect(guide).toContain('content:{format:"blocks",blocks:[...]}');
+    expect(guide).toContain('edit_text({fileId,runId,expectedRevision,edit:{action:"patch",operations:[');
+    expect(guide).toContain('edit:{action:"update",blockId,textまたはruns,pagination?}');
+    expect(guide).toContain('edit:{action:"replace_structure",blockId,block}');
+    expect(guide).toContain("完全置換はpatchではありません");
+    expect(guide).toContain('edit_problem({fileId,runId,expectedRevision,edit:{action:"create",targetId,prompt:["次を解け。"]}})');
+    expect(guide).toContain('既存問題はaction:"update"と対象ID');
+    expect(guide).toContain('organize_blocks({fileId,runId,expectedRevision,edit:{action:"move",blockIds,targetId,position:"before"}})');
+    expect(guide).toContain('edit:{action:"delete",blockIds}');
+    expect(guide).toContain("update_table/update_graph/update_shape/delete_shapes");
+    expect(guide).toContain("data.verification.validationとpreview");
+    expect(guide).toContain("教材本体への適用は承認後です");
   });
 
   it("treats the selected block as an anchor and explains structural math/prose splitting", () => {
-    expect(buildMcpContentToolGuidePrompt(tJa)).toContain("編集をそのブロック内だけで完結させる制約ではありません");
-    expect(buildMcpContentToolGuidePrompt(tJa)).toContain("分割・追加・削除・移動");
-    expect(buildMcpContentToolGuidePrompt(tJa)).toContain("同じrun/roomの書き込みは1件の作業案へ積み上がります");
-    expect(buildMcpContentToolGuidePrompt(tJa)).toContain("その段落IDをtargetIdにしてareaを省略");
-    expect(buildMcpContentToolGuidePrompt(tJa)).toContain(String.raw`\text{...}`);
-    expect(buildMcpContentToolGuidePrompt(tJa)).toContain("よって，両辺を k 倍すると，");
-    expect(buildMcpContentToolGuidePrompt(tJa)).toContain('align:"left"');
+    const guide = buildMcpContentToolGuidePrompt(tJa);
+    expect(guide).toContain("選択ブロックは編集境界ではありません");
+    expect(guide).toContain("すべて既存の作業案へ積み上がり");
+    expect(guide).toContain("problem内の段落直後はそのIDをtargetIdにしてareaを省略");
+    expect(guide).toContain("独立した説明文は数式のtext/aligned行からparagraphへ分離できます");
   });
 });
 
@@ -317,8 +320,8 @@ describe("buildMcpEditPrompt", () => {
     expect(buildMcpImageMaterialReconstructionPrompt(tJa)).toContain("解答・解説・ヒントは画像内に存在する場合");
   });
 
-  it("shows a prompt-only create_problem_content example for source reconstruction", () => {
-    expect(buildMcpContentToolGuidePrompt(tJa)).toContain("問題文だけの元資料を再現する例");
+  it("shows a prompt-only edit_problem example for source reconstruction", () => {
+    expect(buildMcpContentToolGuidePrompt(tJa)).toContain('edit:{action:"create",targetId,prompt:["次を解け。"]}');
     expect(buildMcpContentToolGuidePrompt(tJa)).toContain("ユーザーが作成を明示した場合だけ");
   });
 
@@ -363,8 +366,7 @@ describe("buildMcpEditPrompt", () => {
     expect(guidance).toContain("クライアントで仕上げ");
     expect(guidance).toContain("忠実な再現");
     expect(buildMcpShapeToolGuidePrompt(tJa)).toContain("原則 insert_svg_image でSVG1枚として入れます");
-    expect(buildMcpContentToolGuidePrompt(tJa)).toContain('target:{type:"overlaySelection"}');
-    expect(buildMcpContentToolGuidePrompt(tJa)).toContain('target:{type:"shape",shapeId}');
+    expect(buildMcpContentToolGuidePrompt(tJa)).toContain("図形だけならoverlaySelection、単一図形ならshapeとshapeIdを使います");
   });
 
   it("sends the SVG-first rule on every turn, for every provider, and never the old shape-first line", () => {
@@ -411,16 +413,15 @@ describe("runId prompt line (shared-MCP-server correlation)", () => {
         fileId: "file_1",
         runId: "run_abc123",
       });
-      expect(prompt).toContain("run_abc123");
-      expect(prompt).toContain("runId");
-      expect(prompt).toContain("get_edit_context");
-      expect(prompt).toContain("get_selected_block");
+      expect(prompt).toContain(tJa("turn.runId", { replace: { runId: "run_abc123" } }));
+      // The run id goes to every read and every proposal-creating write as the root runId argument.
+      expect(prompt).toContain("読み取りと、編集案を作る書き込みのすべてで、最上位のrunId引数に「run_abc123」をそのまま渡してください");
     }
   });
 
   it("omits the runId line when runId is not given", () => {
     const prompt = buildMcpEditTurnPrompt("claude", { instruction: "指示", fileId: "file_1" });
-    expect(prompt).not.toContain("あなたのrunid");
+    expect(prompt).not.toContain("あなたのrunId");
   });
 
   it("buildMcpEditPrompt also carries runId through to the composed prompt", () => {
@@ -553,8 +554,12 @@ describe("selection reference inclusion", () => {
   it("truncates an overlong referenceText and notes the truncation", () => {
     const longReference = "あ".repeat(7000);
     const prompt = buildMcpEditTurnPrompt("claude", { instruction: "指示", fileId: "file_1", referenceText: longReference });
+    const withoutReference = buildMcpEditTurnPrompt("claude", { instruction: "指示", fileId: "file_1" });
     expect(prompt).toContain("省略しました");
-    expect(prompt.length).toBeLessThan(longReference.length + 500);
+    // Cut at 6000 characters; the label and the truncation note add little beyond that.
+    expect(prompt).toContain("あ".repeat(6000));
+    expect(prompt).not.toContain("あ".repeat(6001));
+    expect(prompt.length - withoutReference.length).toBeLessThan(6000 + 100);
   });
 
   it("carries referenceText through buildMcpEditPrompt as well", () => {
@@ -695,5 +700,56 @@ describe("buildMcpEditGraphExamples(tJa) gating", () => {
     expect(buildMcpGraphToolGuidePrompt(tJa)).not.toContain("サンプル教材級の範囲図の例");
     expect(buildMcpEditGraphExamples(tJa)).toContain("単純な二次関数の例");
     expect(buildMcpEditGraphExamples(tJa)).toContain("サンプル教材級の範囲図の例");
+  });
+});
+
+/** The four body tools the MCP server publishes, and the internal names behind them that it never publishes. */
+const BODY_TOOL_NAMES = ["insert_content", "edit_text", "edit_problem", "organize_blocks"];
+const INTERNAL_BODY_NAMES = [
+  "insert_body_content", "apply_edits", "update_rich_content", "replace_block",
+  "create_problem_content", "update_problem_content", "delete_blocks", "move_blocks",
+];
+
+describe("body tool names in prompts", () => {
+  it.each(["ja", "en"] as const)("uses current tool names and schemas in first and resumed %s prompts", (locale) => {
+    const t = createTranslator(locale, "prompt");
+    for (const provider of ["codex", "claude", "antigravity"] as const) {
+      for (const isResumedTurn of [false, true]) {
+        const prompt = buildMcpEditPrompt({
+          provider, locale, isResumedTurn, fileId: "file_1", runId: "run_1", instruction: "Fix the paragraph.",
+        });
+        for (const name of BODY_TOOL_NAMES) expect(prompt).toContain(name);
+        for (const name of INTERNAL_BODY_NAMES) expect(prompt).not.toContain(name);
+        expect(prompt).toContain("edit:{action,...}");
+        expect(prompt).toContain(t("documentLanguagePolicy"));
+        if (!isResumedTurn) {
+          expect(prompt).toContain(t("mcp.contentToolGuide"));
+          expect(prompt).toContain(t("mcp.markdownBoundary"));
+          expect(prompt).toContain("replace_structure");
+        }
+      }
+    }
+    const invariants = buildMcpEditInvariantGuidance(t);
+    expect(invariants).toContain("source");
+    expect(invariants).toContain("verification");
+    expect(invariants).toContain("expectedRevision");
+    for (const name of INTERNAL_BODY_NAMES) expect(invariants).not.toContain(name);
+  });
+
+  it("preserves literal tool names inside user instructions and selected text", () => {
+    const instruction = "Explain the literal string apply_edits and do not replace it.";
+    const referenceText = "insert_body_content / update_rich_content";
+    const prompt = buildMcpEditTurnPrompt("codex", { fileId: "file_1", instruction, referenceText });
+    expect(prompt).toContain(instruction);
+    expect(prompt).toContain(referenceText);
+  });
+
+  it("does not rewrite identifiers that happen to match internal tool names", () => {
+    const t = createTranslator("ja", "prompt");
+    const prompt = buildMcpEditTurnPrompt("codex", {
+      fileId: "insert_body_content", runId: "apply_edits", instruction: "Fix the paragraph.",
+    });
+    expect(prompt).toContain(t("turn.runId", { replace: { runId: "apply_edits" } }));
+    expect(prompt).toContain(t("turn.fileId", { replace: { fileId: "insert_body_content" } }));
   });
 });

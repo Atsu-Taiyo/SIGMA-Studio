@@ -37,7 +37,7 @@ describe("SVG image MCP proposals", () => {
     await context.write({ version: 1, runId: "svg_run", provider: "chatgpt", fileId, fileRevision: 1,
       createdAt: new Date().toISOString(), selectedId: "p_svg", references: [], attachments: [], mentionedDocuments: [], roomId: "svg_room", turnId: "svg_turn" });
     vi.stubEnv("SIGMA_STUDIO_RUN_CONTEXT_FILE", context.getRunContextFilePath());
-    const server = createSigmaDocMcpServer({ toolProfile: "app" });
+    const server = createSigmaDocMcpServer();
     client = new Client({ name: "svg-test", version: "1" });
     const [a, b] = InMemoryTransport.createLinkedPair();
     await Promise.all([client.connect(a), server.connect(b)]);

@@ -49,7 +49,7 @@ describe("generated image MCP proposals", () => {
     const scope = { runId: "svg_run", fileId, threadId: "thread_1", turnId: "turn_1", itemId: "image_1" };
     imageId = (await images.register(scope, imageBytes("red"))).imageId;
     nextImageId = (await images.register({ ...scope, itemId: "image_2" }, imageBytes("blue"))).imageId;
-    const server = createSigmaDocMcpServer({ toolProfile: "app" });
+    const server = createSigmaDocMcpServer();
     client = new Client({ name: "svg-test", version: "1" });
     const [a, b] = InMemoryTransport.createLinkedPair();
     await Promise.all([client.connect(a), server.connect(b)]);

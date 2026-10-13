@@ -53,7 +53,7 @@ function createFakeClaude(options: FakeClaudeOptions = {}): {
       lastMcpConfig = params.mcpConfig;
       await options.onTurn?.(params, turnNumber);
       if (options.emitToolUse) {
-        params.onToolUse?.({ id: "tool_1", name: "mcp__sigma-studio-local__insert_body_content" });
+        params.onToolUse?.({ id: "tool_1", name: "mcp__sigma-studio-local__insert_content" });
       }
       for (const [index, name] of (options.toolUseNames ?? []).entries()) {
         params.onToolUse?.({ id: `tool_${index}`, name });
