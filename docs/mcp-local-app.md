@@ -182,7 +182,27 @@ Claudeの `--allowedTools` も同じツール名対応を使います。ただ�
 
 設定の「AIへの指示」(`data/ai-agent-config/instructions/global.md`。各AIへは `AGENTS.md` / `CLAUDE.md` として渡る) は、**新規インストールでだけ**運用ルール(進め方・教材の書き方・報告)の初期文で始まります。文は `desktop.resource.defaultGlobalInstructions` (ja/en) が持ち、作成時の表示言語で保存されます。既存のファイルは、空でも上書きしません。基盤ルール(SigmaDocが正本、編集は提案経由、日本語の扱いなど)は組み込みプロンプトが毎回渡すので、初期文には複製しません。初期文が入ると毎ターンのプロンプトにも載るため、短く保ちます。
 
-SVGは、AIが教材へ入れられる絵の既定の形式です。プロンプト・ツール説明・`official-svg-figure` は、図・イラストを先に `insert_svg_image` で入れ、部品ごとの編集を求められたときだけ `insert_shape` を使う方針で揃えています。
+## AIへの指示の置き場所
+
+同じ規則をプロンプト・server instructions・ツール説明に重ねて書くと、同じturnでモデルが何度も読むことになります。規則ごとに置き場所を1つに決めます。
+
+| 置き場所 | 書くもの | 3つのホストへの届き方 |
+|---|---|---|
+| 毎ターンの厳守事項 (`prompt.ts` の `editTurnHardRules` と `officialSkillGuide`、本文ツールの案内 `appToolProfile`) | 再開turnでも外せない短い規則: expectedRevisionと競合の扱い、writeMode、`data.changeSummary` / `data.verification.validation` の確認、図はSVGが既定、選択ブロックは編集境界ではない、本文の4ツールと `edit:{action}` | Claude・Codex・Antigravity とも毎ターンのプロンプト |
+| MCP編集方針 (`buildMcpEditInvariantGuidanceSection`) | ツールをまたぐ方針: 読み取りの順、編集の経路、表・グラフ・図形はoverlayで作り直さず部分更新、insert系の `targetId` (`END_OF_DOCUMENT` / ホワイトボードは `CANVAS`)、図・イラストの使い分け (`svgImageGuidance`)、visual edit session、素材、画像からの再構成、ライブラリ参照、AI設定の変更 | Claude と Antigravity は会話の最初のプロンプト、Codex はスレッド開始時の developerInstructions |
+| 各ツールの description と inputSchema | そのツールだけの使い方: SVGの制約・描き方・確認 (`insert_svg_image`)、`kind:"text"` の寸法や標準kind (`insert_shape`)、`cellPatches` (`update_table`)、部分更新とpreviewでの確認 (`update_page_layout`) など | 3ホストとも、モデルがそのツールを調べたときだけ (最初のプロンプトにはツール名の一覧だけが載る) |
+| server instructions (`SIGMA_DOC_MCP_SERVER_INSTRUCTIONS`) | サーバーの素性だけ (SigmaDoc JSONが正本、書き込みは承認待ちの提案)。作業方針は書かない | 下のとおりホストごとに違う |
+| 公式スキル | 作業の種類ごとの詳しい手順 (図の作り方は `official-svg-figure`) | プロバイダが必要なときだけ |
+
+server instructions の届き方は、2026-10-13 に固有の合言葉を入れた検証用MCPサーバーと実際の Sigma Studio MCP で確かめました (Claude Code 2.1.296、Codex CLI 0.154.0 とアプリの実行記録 0.156.1、Antigravity CLI 1.3.4)。
+
+- Claude Code (`--print`): APIへ送られた要求を見ると、最初のユーザーメッセージに「# MCP Server Instructions」として入り、先頭約4,000字で切られます (`… [truncated]`)。MCPツールは tool search で遅延読み込みされ、最初は名前の一覧だけが載り、説明とスキーマはモデルが `ToolSearch` で読み込んだときに届きます (アプリからの実行でも `ToolSearch` → `get_edit_context` → `insert_svg_image` の順でした)。APIの宛先を変えると tool search が既定で切れて68本すべてが毎回送られるため、要求を記録する中継では `ENABLE_TOOL_SEARCH=auto` を付けてアプリと同じ条件にしました。
+- Codex (app-server / exec): MCPのツールは code mode の `exec` から呼ぶ入れ子ツールで、説明は最初のプロンプトに入りません。モデルが `ALL_TOOLS` などでツールを調べると、**各ツールの説明の前に server instructions 全文が付いて**返ります。調べたツールの数だけ繰り返し読むことになります。
+- Antigravity (`agy --print`): プロンプトにはサーバー名とツール名だけが載り、server instructions は `~/.gemini/antigravity-cli/mcp/<server>/instructions.md`、ツール定義は同じ場所の `<tool>.json` に書き出されます。モデルが読みに行ったときだけ届きます。
+
+このため、3つのホストに確実に届くのはアプリのプロンプトだけです。ツールをまたぐ方針はプロンプトに、ツール固有の使い方はツールの説明に置き、server instructions は最小限にします。Codex のプロンプトには SigmaDoc の文脈節 (`buildSigmaDocContextPrompt`) が入らないので、正本の一文だけは server instructions に残しています。`src/lib/ai/mcp-edit-prompt.test.ts` は各規則が初回のプロンプトに1回だけ出ることを、`mcp/sigma-doc-mcp-guidance-placement.test.ts` は server instructions の短さとツール説明への移動を確かめます。
+
+SVGは、AIが教材へ入れられる絵の既定の形式です。既定 (迷ったらSVG) は毎ターンの厳守事項、`insert_graph` / `insert_graph3d` / `insert_table` / `insert_shape` との使い分けは `svgImageGuidance`、SVGの書き方と確認は `insert_svg_image` の説明、作り方の詳細は `official-svg-figure` が持ちます。
 
 ## AI向けの選択・入力例
 
