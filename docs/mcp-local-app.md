@@ -43,6 +43,8 @@ MCPからの書き込み系ツールは、既定では教材ファイルを直�
 
 ## 公開ツール
 
+`(Codexのみ)` と付けた画像ツールは、`SIGMA_STUDIO_MCP_PROVIDER=chatgpt` で起動したときだけ公開します(後述の `SIGMA_STUDIO_MCP_PROVIDER` の説明を参照)。
+
 - `get_local_app_status` - ローカル保存先を確認します。
 - `save_ai_resource` - Studio管理下のAIリソース(skill/instruction)を新規作成または更新します。skillは常にアプリ全体スコープ(全ワークスペースで使用)・全プロバイダ(Codex/Claude/Antigravity)向けに保存されます。`kind:"instruction"` はnameに既存の `global-instructions` のみ指定できます。
 - `delete_ai_resource` - Studio管理下のskillをnameで削除します。ユーザーが明示的に削除を依頼した場合のみ使用してください。
@@ -67,8 +69,6 @@ MCPからの書き込み系ツールは、既定では教材ファイルを直�
 - `list_edit_proposals` - 現在のrun/チャットに帰属するMCP編集提案の軽量な一覧を返します。`draft`、変更後教材全体、内部proposal IDは含みません。
 - `get_edit_proposal` - `fileId`/`runId`から現在の作業案を読みます。既定の `detail:"summary"` は要約のみ、`detail:"full"` は再適用可能な `draft` を含みますが、内部の教材スナップショットとproposal IDは返しません。
 - `withdraw_current_edit_proposal` - 同じチャットルームの未承認の作業案全体を取り下げます。
-- `list_all_pending_proposals` - 指定した教材のセッション横断の保留中提案一覧を返します。roomId/runId に関わらず過去セッション由来の提案も含みます。デスクトップアプリのUI側で「他のセッションの保留中提案」として表示し、却下できるようにするために使います。
-- `withdraw_edit_proposal` - 指定した proposalId の保留中提案を、セッション (roomId/runId) に関わらず取り下げます。`reason` 省略時は自動メッセージが使われます。
 - `list_materials` - 保存済み素材を `description` / `usage` / `visualConcepts` / 内容要約で検索します。
 - `get_material` - 保存済み素材のカタログ情報とSigmaDoc contentを読みます。
 - `begin_visual_edit_session` - 図形を試作し、preview/inspection後に提案化するscratch sessionを作ります。必須の `sourceAnalysis` には、元画像と教材本文(問題文・近接ブロック・ラベル・寸法)から読み取った図の意味的構成を20字以上で記述してください(輪郭トレースではなく、『この図は何をどう作図したものか』の分析)。必須の `plannedShapes` には、図を構成する標準図形の分解計画を `{kind, purpose}` の配列で指定してください(円・円弧・扇形・曲線をpolylineで近似してはいけません)。
@@ -94,10 +94,10 @@ MCPからの書き込み系ツールは、既定では教材ファイルを直�
 - `move_blocks` - 本文ブロックを、指定した対象ブロックの前後へ移動します。
 - `update_page_layout` - SigmaDocのページ設定を部分更新します。`preset` (`A4`/`A3`/`B5`/`B4`/`custom`)、`orientation` (`portrait`/`landscape`)、`customSizeMm`、`marginsMm` のうち指定したfieldだけを変更し、未指定field、段組み、ヘッダー、フッターは保持します。用紙サイズと余白の単位はmmです。`customSizeMm`は`preset:"custom"`と同時に指定します。変更前に`read_local_document`または`get_document_outline`で現在の`pageLayout`とrevisionを確認し、成功後はverificationのページpreviewを確認してください。
 - `update_column_layout` - 段組みを変更します。`scope: "document"` は文書全体、`scope: "blocks"` は連続した本文ブロックを新しい `layoutSection` で囲み(問題のsolutionエリアやboxBlock内の段落も対象にできます)、`scope: "section"` は既存 `layoutSection` の段数・段間を更新します。boxBlock内の複数段layoutSectionでは子の `pagination.break` が改段になります。箱・引用・問題エリアの中のブロックの `pagination.break` はその位置で改ページ(段組みのページでは改段)し、箱や引用はそこで分割されて次のページへ続きます。ローカル段組みの解除は `scope: "section", unwrap: true` を使い、`columnCount: 1` は1段のsectionとして保持します。`scope: "document"` はブロック単位のrevision緩和を行わず、`expectedRevision` の完全一致が必要です。実行前に `get_document_outline` で現在の段組みとsection IDを確認し、実行後は `data.verification.validation` とPNG previewを確認してください。
-- `list_generated_images` - Codexの現在の依頼で生成した画像の`imageId`、寸法、プレビューを返します。依頼と同じ`fileId` / `runId`が必須です。生成完了直後に空ならturnを終了し、ホストの取り込み後の続行を待ちます。
-- `insert_generated_image` - `imageId`を通常の画像assetとimage shapeに変換し、挿入の承認待ち提案を作ります。`targetId`または`selectedId`が必須で、ホワイトボードは`CANVAS`。同じ画像の再呼び出しでは図形を重複させません。
-- `update_generated_image` - `shapeId`の画像を生成結果へ差し替える承認待ち提案を作ります。位置、表示サイズ、回転、アンカーを保持し、assetを共有する別の図形へ影響させません。
-- `get_image_reference` - 教材内のimage shapeをCodexの画像編集へ渡す参照画像として取得します。`fileId` / `runId` / `shapeId`が必須。返る`filePath`を`view_image`と画像生成ツールの参照入力に使います。自己完結SVGは検証後にPNGへ変換します。
+- `list_generated_images` - (Codexのみ) Codexの現在の依頼で生成した画像の`imageId`、寸法、プレビューを返します。依頼と同じ`fileId` / `runId`が必須です。生成完了直後に空ならturnを終了し、ホストの取り込み後の続行を待ちます。
+- `insert_generated_image` - (Codexのみ) `imageId`を通常の画像assetとimage shapeに変換し、挿入の承認待ち提案を作ります。`targetId`または`selectedId`が必須で、ホワイトボードは`CANVAS`。同じ画像の再呼び出しでは図形を重複させません。
+- `update_generated_image` - (Codexのみ) `shapeId`の画像を生成結果へ差し替える承認待ち提案を作ります。位置、表示サイズ、回転、アンカーを保持し、assetを共有する別の図形へ影響させません。
+- `get_image_reference` - (Codexのみ) 教材内のimage shapeをCodexの画像編集へ渡す参照画像として取得します。`fileId` / `runId` / `shapeId`が必須。返る`filePath`を`view_image`と画像生成ツールの参照入力に使います。自己完結SVGは検証後にPNGへ変換します。
 - `insert_svg_image` - 図・図解・模式図・イラスト・挿絵を入れる既定の入口です(迷ったらSVG)。AIが書いた自己完結した静的SVGを、画像アセットとimage shapeとして承認待ち提案へ追加します。関数グラフは`insert_graph`、立体は`insert_graph3d`、表は`insert_table`、部品ごとの個別編集を求められた図だけ`insert_shape`を使います。TeXは解釈されないため、図中の記号はUnicodeで書き、凝った式は図の上に`insert_shape`(`kind:"text"`, `tex`)で重ねます。`svg`にxmlnsとviewBoxが必須。`targetId`（ホワイトボードは`CANVAS`）または`selectedId`、必要に応じて`area`/`x`/`y`/`w`/`h`/`name`を指定します。片方だけの表示寸法は縦横比を保持します。座標省略時はアンカーの下へ配置します。本文とは独立した画像レイヤーなので、プレビューで重なりを確認し、必要なら`update_shape`で位置・サイズを調整します。SVG原文はSigmaDocのasset.props.src（base64）に保存し、描画結果は`verification.preview`で確認します。
 - `update_svg_image` - `shapeId`と新しい`svg`でSVG画像を差し替える承認待ち提案を作ります。位置・表示サイズ・回転・アンカーを保持し、共有アセットは対象画像だけを変更します。原文は`read_local_document(detail:"full")`で取得できます。両ツールとも最大256 KiB・4096要素・64段、xmlnsと正のviewBoxが必要です。静的なpath・基本図形・text/tspan・defs・グラデーション・clipPath・mask・markerと表示属性のみを受理し、style・script・外部参照・use・foreignObject・アニメーション・XML宣言を拒否します。`verification.preview`のPNGを実見して必要なら更新します。previewが生成できない場合は未確認として扱い、`render_block_context`/`render_page`で再確認します。
 - `insert_shape` - 部品ごとに個別編集する図形、図や本文に重ねる補助線・矢印・折れ線・曲線・ハイライト・テキスト注記・吹き出しを overlay に挿入します(図全体は`insert_svg_image`)。ホワイトボードでは `targetId:"CANVAS"` と絶対座標 `x`/`y` を指定し、本文・ページ anchor を作りません。吹き出し(`kind:"callout"`)は`text`/`tex`を内部のリッチテキストとして保持する単一オブジェクトです。`kind:"text"`では`markdown`に複数段落、見出し、リスト、`$...$`数式を指定でき、`text`/`tex`/`label`とは併用できません。`w`/`h`は本文矩形のサイズ、`cornerRadius`は角丸半径、`tailBaseStart`/`tailBaseEnd`は本文矩形外周上の独立した麓2点、`tailTip`は自由に動く頂点で、3点は本文矩形左上基準の相対座標です。`rotationDeg`とarc/sectorの`startAngleDeg`/`endAngleDeg`は度で指定し、サーバーがoverlay内部のラジアンへ変換します。ページ座標はy軸下向きで0°=右、弧は`startAngleDeg`から`endAngleDeg`へ画面上の時計回りです(上半円は180→360)。circle/arc/sectorの`x`/`y`は円全体のバウンディングボックス左上で、中心は`(x+r, y+r)`です(ellipseは`(x+rx, y+ry)`)。`kind:"text"`は`w`がテキストの折り返し幅で、省略すると既定幅になります。高さは内容から導出されるので`h`は指定できません。標準kindで表せる図形を`polyline`で近似しません。線・矢印・開いた曲線・開いた円弧の端点装飾は`arrowheadStart`/`arrowheadEnd`に`none`/`arrow`/`triangle`/`openArrow`/`thinArrow`/`diamond`/`dot`/`bar`、またはそれぞれを小さく描く`arrowSmall`/`triangleSmall`/`openArrowSmall`/`thinArrowSmall`/`diamondSmall`/`dotSmall`/`barSmall`を指定します(始点と終点は独立、線幅に比例して拡大)。**位置指定**は絶対座標(`x`/`y`)または`placement`のいずれか一方です。`x`/`y`・`points`・`start`/`end` はページ左上基準の絶対座標で、`update_shape` と同じ座標系です。基準にする座標は `get_insertion_candidates` の `rect`(推定値)や `get_document_outline` の `blockRects` / `overlayShapes` の `x`,`y` から取得します。`x`/`y` を省略するとアンカーブロック直下24pxに配置され、位置を意味で指定できる場合は `placement` が推奨です。
@@ -332,5 +332,7 @@ Electron側が判定する未完了セッションは `operationCount > 0` か�
 書き込み系ツールの成功時レスポンスには `data.verification` が付きます。`data.verification.validation` は変更後のSigmaDocを検証した結果(`ok` / `issues`(最大10件) / `issueCount`)です。`data.verification.preview` は可能であれば変更後の最初の対象ブロック周辺のページコンテキストPNGで、`source`(`"app-bridge"` / `"svg-fallback"` / `"none"`)、`warnings`、`previewFile`(取得できた場合の絶対PNGパス)を持ちます。PNGが取得できた場合、ChatGPT以外ではtool結果のimage contentとしても添付されます。ChatGPTでは`previewFile`を`view_image`で開いてください。render bridgeが使えない、または対象を特定できない場合は `source:"none"` になりますが、書き込み自体は失敗しません。既存内容や承認前の提案のブロック周辺は `render_block_context`、ページ全体と実際のページ割当は `render_page` を使ってください。
 
 環境変数 `SIGMA_STUDIO_MCP_PROVIDER`(`claude` / `chatgpt` / `antigravity`)を設定すると、作成される提案にそのプロバイダが付記され、デスクトップ側の承認UIにも表示されます。未設定または不正な値の場合はプロバイダなし(`null`)として扱われます。
+
+`list_generated_images` / `insert_generated_image` / `update_generated_image` / `get_image_reference` は、Codex (app-server) のrunが生成した画像と、そのrunの参照画像だけを扱います。Codex以外のrunでは必ず失敗するため、`SIGMA_STUDIO_MCP_PROVIDER` が `chatgpt` のときだけ `tools/list` に公開し、`claude` / `antigravity`・未設定・不正な値では登録しません(アプリを通さずに `run-sigma-doc-mcp.mjs` を起動したMCPは未設定に当たります)。Claudeの `--allowedTools` を組むカテゴリ表 (`src/lib/ai/mcp-tool-categories.ts`) にも載せません。
 
 デスクトップ側で承認するとき、提案は現在の教材へ再適用されます。提案の後に対象が変更されていても、提案が作成時に保存した元の内容 (`mergeBasis`) との三者マージで人間の編集を残して適用されるため、作り直しは要りません (承認UIは合成した内容を見せ、「あなたの編集と合わせた内容です」と添えます)。対象ブロック自体が削除された、合成後の内容が検証を通らないなど、合成で解決できずに適用できない場合だけ失敗するため、その場合はMCP側でもう一度最新の `revision` と対象IDを読んで提案を作り直します。

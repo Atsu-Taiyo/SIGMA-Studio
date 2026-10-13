@@ -20,8 +20,9 @@ import { appMcpToolNames } from "./mcp-tool-profile";
 /**
  * Tools that edit a shape of each overlay type once it is on the page, read from the MCP handlers:
  * update_shape refuses tables and 2D graphs (they have their own update tool), and an image's
- * source is replaced by the SVG or generated-image tool. Selecting a shape and asking to change it
- * must allow every tool in its row. A new shape type fails the typecheck here until it gets a row.
+ * source is replaced by the SVG tool (Claude never gets the Codex-only generated-image tool).
+ * Selecting a shape and asking to change it must allow every tool in its row. A new shape type
+ * fails the typecheck here until it gets a row.
  */
 const SHAPE_EDITING_TOOLS = {
   group: ["update_shape", "delete_shapes", "align_shapes"],
@@ -32,7 +33,7 @@ const SHAPE_EDITING_TOOLS = {
   text: ["update_shape", "delete_shapes", "align_shapes"],
   callout: ["update_shape", "delete_shapes", "align_shapes"],
   chartShape: ["update_shape", "delete_shapes", "align_shapes"],
-  image: ["update_shape", "update_svg_image", "update_generated_image", "delete_shapes", "align_shapes"],
+  image: ["update_shape", "update_svg_image", "delete_shapes", "align_shapes"],
   graph2dShape: ["update_graph", "delete_shapes", "align_shapes"],
   graph3dShape: ["update_graph3d", "update_shape", "delete_shapes", "align_shapes"],
   tableShape: ["update_table", "delete_shapes", "align_shapes"],

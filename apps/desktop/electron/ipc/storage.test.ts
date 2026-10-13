@@ -374,7 +374,7 @@ describe("storage:approve-mcp-edit-proposals conflict persistence", () => {
         const snapshot = await originalLoad(proposalId);
         if (!interposed) {
           interposed = true;
-          await proposalStore.rejectSingleProposal(proposalId, "並行して却下");
+          await proposalStore.resolveProposal(proposalId, "rejected");
         }
         return snapshot;
       });

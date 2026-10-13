@@ -116,8 +116,6 @@ const DOCUMENTED_TOOL_NAMES = [
   "delete_shapes",
   "discard_visual_edit_session",
   "get_active_reference",
-  "get_image_reference",
-  "list_generated_images",
   "get_attached_media",
   "get_block",
   "get_blocks",
@@ -135,14 +133,11 @@ const DOCUMENTED_TOOL_NAMES = [
   "insert_graph3d",
   "insert_material",
   "insert_shape",
-  "insert_generated_image",
-  "update_generated_image",
   "insert_svg_image",
   "update_svg_image",
   "insert_table",
   "inspect_visual_edit_session",
   "list_edit_proposals",
-  "list_all_pending_proposals",
   "list_local_documents",
   "list_materials",
   "move_blocks",
@@ -171,7 +166,14 @@ const DOCUMENTED_TOOL_NAMES = [
   "visual_remove_shape",
   "visual_replace_shape",
   "withdraw_current_edit_proposal",
-  "withdraw_edit_proposal",
+];
+
+// Codex (app-server) の画像生成の結果を扱う4本。SIGMA_STUDIO_MCP_PROVIDER=chatgpt のサーバーだけが公開する。
+const CODEX_ONLY_TOOL_NAMES = [
+  "get_image_reference",
+  "insert_generated_image",
+  "list_generated_images",
+  "update_generated_image",
 ];
 
 function extractPayload(result: unknown): Record<string, unknown> {
@@ -270,6 +272,24 @@ describe("sigma-doc-mcp-server integration", () => {
     }
     await fs.rm(userDataDir, { recursive: true, force: true });
   });
+
+  // Builds another server with SIGMA_STUDIO_MCP_PROVIDER set (afterEach restores the variable).
+  async function listToolNamesForProvider(provider: string | undefined): Promise<string[]> {
+    if (provider === undefined) {
+      delete process.env.SIGMA_STUDIO_MCP_PROVIDER;
+    } else {
+      process.env.SIGMA_STUDIO_MCP_PROVIDER = provider;
+    }
+    const server = createSigmaDocMcpServer();
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    const providerClient = new Client({ name: "provider-test-client", version: "0.0.0" });
+    await Promise.all([providerClient.connect(clientTransport), server.connect(serverTransport)]);
+    try {
+      return (await providerClient.listTools()).tools.map((tool) => tool.name);
+    } finally {
+      await providerClient.close();
+    }
+  }
 
   async function getFileId(): Promise<string> {
     const store = new LocalSigmaDocStore(userDataDir);
@@ -611,6 +631,17 @@ describe("sigma-doc-mcp-server integration", () => {
     expect(toolNames).toEqual([...DOCUMENTED_TOOL_NAMES].sort());
   });
 
+  it("publishes the Codex image tools only to a chatgpt-provider server", async () => {
+    // requireImageRun rejects every run that is not a Codex run, so the other providers never see them.
+    for (const provider of [undefined, "claude", "antigravity", "chatgpt", "unknown"]) {
+      const names = (await listToolNamesForProvider(provider)).sort();
+      const expected = provider === "chatgpt"
+        ? [...DOCUMENTED_TOOL_NAMES, ...CODEX_ONLY_TOOL_NAMES]
+        : DOCUMENTED_TOOL_NAMES;
+      expect(names, `provider=${provider}`).toEqual([...expected].sort());
+    }
+  });
+
   it("categorizes every documented public tool exactly once", () => {
     const categorizedNames = MCP_TOOL_CATEGORIES.flatMap((category) => MCP_TOOL_CATEGORY_MAP[category]);
 
@@ -664,8 +695,8 @@ describe("sigma-doc-mcp-server integration", () => {
 
   it("exposes exactly the tool set listed under docs/mcp-local-app.md's 公開ツール section", async () => {
     const toolsFromDocs = await readPublicToolNamesFromDocs();
-    const tools = await client.listTools();
-    const toolNames = tools.tools.map((tool) => tool.name).sort();
+    // The docs list every tool, including the Codex-only ones only a chatgpt-provider server publishes.
+    const toolNames = (await listToolNamesForProvider("chatgpt")).sort();
 
     // Set-equality both ways so a tool added/removed on either side (server or docs)
     // fails CI instead of silently drifting.
