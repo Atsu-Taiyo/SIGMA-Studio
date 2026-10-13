@@ -12,7 +12,6 @@ import path from "node:path";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
-import { appMcpToolGuidance, MCP_TOOL_PROFILE_ENV, type McpToolProfile } from "@/lib/ai/mcp-tool-profile";
 import { createAppBodyTools } from "./sigma-doc-mcp-app-tools";
 import { getProblemSolutionFromApp } from "./sigma-doc-mcp-problem-solution";
 import { ProblemSolutionRequestSchema } from "../electron/problem-solution-client";
@@ -162,6 +161,7 @@ import { hasSelfIntersection, inspectShapeBasics, type VisualInspectionIssue } f
 import { createTranslator, DEFAULT_LOCALE } from "@/lib/i18n";
 
 import { createMcpToolRegistrar } from "./sigma-doc-mcp-tool-registrar";
+import { registerMcpSchemaDefinitions } from "./sigma-doc-mcp-schema-definitions";
 import {
   jsonResultWithContent,
   isJsonResultWithContent,
@@ -176,8 +176,11 @@ import {
   VISUAL_PREVIEW_CODE_LENGTH,
   VisualEditSessionLifecycle,
   type VisualEditSession,
+  type VisualEditSessionCaller,
+  type VisualEditSessionPersistOutcome,
   type VisualInspectionResult,
 } from "./visual-edit-session-lifecycle";
+import { createVisualEditSessionStateFiles } from "./visual-edit-session-state-file";
 import { resolveVisualSessionStatusFile } from "./visual-session-status-file";
 
 export { deriveVisualPreviewCode } from "./visual-edit-session-lifecycle";
@@ -209,7 +212,7 @@ const PaginationInputSchema = z.preprocess(stripAbolishedPaginationInputKeys, z.
 }).strict());
 const RichInputSchema = z.union([z.string(), JsonRecordSchema]).describe(
   '短い文章は文字列、構造化する場合は {type:"paragraph"|"heading"|"list"|"boxBlock", id, text?, runs?, pagination?:{break?}, ...}。boxBlockの例: {type:"boxBlock", id:"ai_box_1", styleId:"fancybox", title:"タイトル", blocks:[...]}。利用可能なstyleId: fancybox|itembox|tcolorbox|tcolorbox-note|doublebox|shadebox|leftbar|dashedbox|ruledbox|screenbox|ovalbox|cornerbox。文章と数式を混ぜる例: {type:"paragraph",id:"ai_p_1",runs:["式 ",{type:"math",id:"ai_m_1",tex:"x^2"},"を考える。"]}。',
-);
+).meta({ id: "RichInput" });
 const InlineFormatBoxInputSchema = z.object({
   enabled: z.boolean().describe("trueで囲みを追加、falseで囲みとその設定を削除します。"),
   paddingY: z.number().min(0).max(100).optional(),
@@ -384,7 +387,7 @@ const TableTrackSizeSchema = z.discriminatedUnion("mode", [
   z.object({ mode: z.literal("auto"), min: z.number().positive().optional(), max: z.number().positive().optional() }).strict(),
   z.object({ mode: z.literal("fixed"), value: z.number().positive() }).strict(),
   z.object({ mode: z.literal("fr"), value: z.number().positive(), min: z.number().positive().optional(), max: z.number().positive().optional() }).strict(),
-]);
+]).meta({ id: "TableTrackSize" });
 const TableGridSchema = z.object({
   borderColor: z.string().optional(),
   borderWidth: z.number().nonnegative().optional(),
@@ -402,7 +405,7 @@ const TableCellStyleSchema = z.object({
   fontFamily: z.string().optional(),
   fontSize: z.number().positive().optional(),
   fontWeight: z.enum(["normal", "bold"]).optional(),
-}).strict();
+}).strict().meta({ id: "TableCellStyle" });
 // Required (non-optional) cell content: string/number/null or the structured cell object.
 const TableCellContentInputSchema = z.union([
   z.string(),
@@ -416,7 +419,7 @@ const TableCellContentInputSchema = z.union([
     colSpan: z.number().int().positive().optional(),
     style: TableCellStyleSchema.optional(),
   }).strict(),
-]);
+]).meta({ id: "TableCellContent" });
 const TableCellInputSchema = TableCellContentInputSchema.optional();
 // update_table専用。既存表の1セルだけをcontentで置き換える(列幅・行高さ・grid・defaultCellStyle・
 // 他セルは一切触らない)。root causeだった「一部編集のつもりが表全体を再構成してユーザーの
@@ -538,9 +541,12 @@ const GraphToolInputSchema = {
 // `version` はサーバーが入れるので受け取らない。
 const GRAPH3D_ROTATION_DESCRIPTION =
   "オブジェクト自身の中心まわりのx→y→zオイラー回転。単位はラジアンで、式を書けます(90度はpi/2、度から書くならdeg*pi/180、パラメータ依存なら\"t\")。overlay図形のrotationDeg(度)とは別系統です。";
-const Graph3DExpressionVector3InputSchema = z.object({
-  x: z.string(), y: z.string(), z: z.string(),
-}).strict();
+const Graph3DExpressionVector3InputShape = { x: z.string(), y: z.string(), z: z.string() } as const;
+const Graph3DExpressionVector3InputSchema = z.object(Graph3DExpressionVector3InputShape).strict()
+  .meta({ id: "Graph3DExpressionVector3" });
+// rotation は10種のobjectすべてにあるので、説明ごと1つの定義にする (使う場所ごとに説明を複製しない)。
+const Graph3DRotationInputSchema = z.object(Graph3DExpressionVector3InputShape).strict()
+  .meta({ id: "Graph3DRotation", description: GRAPH3D_ROTATION_DESCRIPTION });
 const Graph3DNumericVector3InputSchema = z.object({
   x: z.number(), y: z.number(), z: z.number(),
 }).strict();
@@ -548,7 +554,7 @@ const Graph3DRangeInputSchema = z.object({
   min: z.string(),
   max: z.string(),
   samples: z.number().int().min(6).max(256).optional(),
-}).strict();
+}).strict().meta({ id: "Graph3DRange" });
 const Graph3DBoundsInputSchema = z.object({
   x: Graph3DRangeInputSchema,
   y: Graph3DRangeInputSchema,
@@ -569,20 +575,20 @@ const Graph3DFillInputSchema = z.discriminatedUnion("mode", [
     opacity: z.number().min(0).max(1).optional(),
     pattern: z.enum(["diagonal", "cross", "dots"]),
   }).strict(),
-]);
+]).meta({ id: "Graph3DFill" });
 const Graph3DObjectStyleInputSchema = z.object({
   color: z.string().optional(),
   opacity: z.number().min(0).max(1).optional(),
   wireframe: z.boolean().optional(),
   wireframeColor: z.string().optional(),
   fill: Graph3DFillInputSchema.optional(),
-}).strict();
+}).strict().meta({ id: "Graph3DObjectStyle" });
 const Graph3DObjectBaseInputFields = {
   id: z.string().min(1),
   name: z.string().optional(),
   visible: z.boolean().optional(),
   style: Graph3DObjectStyleInputSchema.optional(),
-  rotation: Graph3DExpressionVector3InputSchema.optional().describe(GRAPH3D_ROTATION_DESCRIPTION),
+  rotation: Graph3DRotationInputSchema.optional(),
   translation: Graph3DExpressionVector3InputSchema.optional(),
   scale: Graph3DExpressionVector3InputSchema.optional(),
 } as const;
@@ -593,11 +599,9 @@ const Graph3DPlaneDefinitionInputSchema = z.discriminatedUnion("kind", [
   }).strict(),
   z.object({
     kind: z.literal("threePoints"),
-    points: z.tuple([
-      Graph3DExpressionVector3InputSchema,
-      Graph3DExpressionVector3InputSchema,
-      Graph3DExpressionVector3InputSchema,
-    ]),
+    // z.tuple は配列形式の items (draft-07) になり、Codex がツール定義を読めずに graph3d の2本を
+    // 公開しなくなる。要素の型が同じなので、長さ固定の配列で同じ入力を受け付ける。
+    points: z.array(Graph3DExpressionVector3InputSchema).length(3),
   }).strict(),
   z.object({
     kind: z.literal("pointNormal"),
@@ -609,7 +613,7 @@ const Graph3DRevolutionAxisInputSchema = z.union([
   z.enum(["x", "y", "z"]),
   z.object({
     kind: z.literal("planeIntersection"),
-    equations: z.tuple([z.string(), z.string()]),
+    equations: z.array(z.string()).length(2),
     parameter: z.string().min(1).optional(),
   }).strict(),
 ]).describe("回転軸。座標軸名か、2平面の交線(例: x = y と z = 0 の交線は直線(t,t,0))。");
@@ -690,7 +694,7 @@ const Graph3DObjectListInputSchema = z.array(Graph3DObjectInputSchema).max(64).d
   + " primitive(球・円柱・円錐・直方体) / solidOfRevolution(回転体) / polyhedron(多面体) /"
   + " boundedSolid(不等式で囲まれた立体) / point / segment / plane の10種。数学座標はz軸上向き(zUp)の右手系で、"
   + "式はTeXではなく評価用の式です。指定すると既存のobjectsは丸ごと置き換わります(追加ではありません)。",
-);
+).meta({ id: "Graph3DObjectList" });
 const Graph3DParameterInputSchema = z.object({
   id: z.string().min(1),
   name: z.string().min(1).describe("式から参照する変数名(例: z = s の s)。"),
@@ -703,7 +707,7 @@ const Graph3DParameterInputSchema = z.object({
     loop: z.enum(["once", "repeat", "pingPong"]),
     playOnPage: z.boolean().optional(),
   }).strict().optional(),
-}).strict();
+}).strict().meta({ id: "Graph3DParameter" });
 const Graph3DRegionInputSchema = z.object({
   id: z.string().min(1),
   kind: z.literal("objectIntersection"),
@@ -718,7 +722,7 @@ const Graph3DRegionInputSchema = z.object({
 const Graph3DRegionListInputSchema = z.array(Graph3DRegionInputSchema).max(32).describe(
   "2つ以上のobjectsが共有する部分を独自色で描きます。切断ではないので何も削られません。"
   + "平面をメンバーに含めると断面図になり、共通部分が空なら何も描かれません。",
-);
+).meta({ id: "Graph3DRegionList" });
 const Graph3DAnnotationInputSchema = z.discriminatedUnion("kind", [
   z.object({
     id: z.string().min(1),
@@ -741,7 +745,7 @@ const Graph3DAnnotationInputSchema = z.discriminatedUnion("kind", [
 ]);
 const Graph3DAnnotationListInputSchema = z.array(Graph3DAnnotationInputSchema).max(64).describe(
   "labelTexはTeXです。ラベルは派生PNGへ焼かず、印刷・PDFでもベクタのラベル層として重ねられます。",
-);
+).meta({ id: "Graph3DAnnotationList" });
 const Graph3DCameraOptionalInputFields = {
   fov: z.number().gt(0).lt(180).optional().describe("透視投影の垂直画角(度)。ここだけは度です。"),
   zoom: z.number().positive().optional(),
@@ -814,15 +818,15 @@ export const Graph3DToolInputSchema = {
   ...Graph3DContentToolInputSchema,
 } as const;
 const WriteModeSchema = z.enum(["proposal", "dryRun"]).optional()
-  .describe("既定のproposalはデスクトップ承認待ち提案を作ります。dryRunは提案も教材本体も保存しません。MCPから教材本体を直接保存するモードはありません。");
+  .describe("既定のproposalは承認待ちの提案を作り、dryRunは何も保存しません。教材本体へ直接保存するモードはありません。");
 const ExpectedRevisionSchema = z.number().int().nonnegative()
-  .describe("保存前にローカル教材の revision が一致するか確認します。list_local_documents / read_local_document で取得した revision を必ず渡してください。");
+  .describe("list_local_documents / read_local_document で取得した教材のrevision。保存前の競合確認に使います。");
 const VisualSessionIdSchema = z.string().min(1);
 const VisualReviewStringArraySchema = z.array(z.string().min(1)).max(16).optional();
 const WriteRunIdSchema = z.string().min(1).optional()
-  .describe("この呼び出し元エージェントのrunId。プロンプトで伝えられたrunIdをそのまま渡すと、作成される提案が自分のAIセッションへ正しく帰属します。");
+  .describe("プロンプトで伝えられた自分のrunId。そのまま渡すと、提案が自分のAIセッションへ帰属します。");
 const ReadRunIdSchema = z.string().min(1).optional()
-  .describe("プロンプトで伝えられたrunId。実行開始時の選択範囲と複数参照を正しいAIセッションから取得するため、そのまま渡してください。");
+  .describe("プロンプトで伝えられた自分のrunId。そのまま渡すと、実行開始時の選択範囲と複数参照を自分のAIセッションから取得します。");
 const PageLayoutCustomSizeInputSchema = z.object({
   widthMm: z.number().positive("用紙幅は0より大きい値にしてください。").optional()
     .describe("カスタム用紙の幅(mm)。"),
@@ -986,7 +990,7 @@ function dedupeSourceReferencesBySource(references: AiSourceReference[]): AiSour
   return Array.from(byIdentity.values());
 }
 const SourceReferencesInputSchema = z.array(SourceReferenceSchema).max(MAX_PERSISTED_SOURCE_REFERENCES)
-  .describe("この編集が参照した過去教材・素材・Webページ。アプリが実際のツール利用から自動記録するので通常は省略してよく、特定ブロックを参照した場合など補足したいときだけ指定します。ユーザーに「参照元」として表示されます。");
+  .describe("この編集が参照した過去教材・素材・Webページ。アプリが自動記録するので通常は省略し、特定ブロックを参照したときなどの補足だけに使います。ユーザーに「参照元」として表示されます。");
 
 const DocumentTargetSchema = {
   fileId: z.string().min(1).describe("ローカルアプリの教材 fileId。list_local_documents で取得します。"),
@@ -1050,10 +1054,76 @@ interface DraftRunRequest {
 }
 
 // MCP server インスタンス間でも、同じプロセスの scratch session を引き続き共有する。
+// runId のある session は run-context ディレクトリにも保存し、turn ごとに MCP サーバーを
+// 起動し直す provider (Claude / Antigravity) の次の turn でも同じ sessionId で再開できる。
 const visualEditSessions: VisualEditSessionLifecycle = new VisualEditSessionLifecycle({
   now: () => Date.now(),
   resolveStatusTarget: (provider, runId) => resolveVisualSessionStatusFile(process.env, provider, runId),
+  sessionState: createVisualEditSessionStateFiles({
+    env: process.env,
+    provider: () => resolveMcpProvider(),
+    loadMaterials: () => createMaterialStore().listMaterials(),
+  }),
 });
+
+const VISUAL_SESSION_NOT_SAVED_WARNING = "図形編集セッションの状態を保存できませんでした。このturnのうちに提案化まで進めてください（次のturnでは同じsessionIdで再開できません）。";
+const VISUAL_SESSION_SUPERSEDED_MESSAGE = "同じ図形編集セッションを別のプロセスが先に更新していたため、この操作の変更は保存していません。同じsessionIdで、最新の状態からもう一度実行してください。";
+
+function resolveActiveRunId(): string | undefined {
+  try {
+    const loaded = loadAiEditRunContext(process.env, { provider: resolveMcpProvider() ?? undefined });
+    return loaded.state === "ready" ? loaded.context.runId : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** visual 操作の呼び出し元の run。引数の runId を優先し、無ければこの MCP サーバーの実行コンテキスト。 */
+function visualSessionCaller(runId: string | undefined): VisualEditSessionCaller {
+  const explicit = runId?.trim();
+  return explicit ? { runId: explicit, explicit: true } : { runId: resolveActiveRunId() ?? null, explicit: false };
+}
+
+/** 保存の結果を応答へ反映する。別プロセスに先を越された変更は成功として返さない。 */
+function applyVisualSessionPersistOutcome<T extends JsonObject | JsonResultWithContent>(
+  result: T,
+  outcome: VisualEditSessionPersistOutcome,
+): T {
+  if (outcome === "superseded") {
+    throw new Error(VISUAL_SESSION_SUPERSEDED_MESSAGE);
+  }
+  if (outcome !== "not-saved") {
+    return result;
+  }
+  const withWarning = (payload: JsonObject): JsonObject => ({
+    ...payload,
+    warnings: [...(Array.isArray(payload.warnings) ? payload.warnings : []), VISUAL_SESSION_NOT_SAVED_WARNING],
+  });
+  return (isJsonResultWithContent(result)
+    ? { ...result, payload: withWarning(result.payload) }
+    : withWarning(result)) as T;
+}
+
+/**
+ * 保存済みの session も同じ sessionId で読み戻して `run` に渡し、呼び出しで変わった状態を
+ * 応答を返す前に保存する (応答の直後に turn が終わって MCP サーバーが止められても失わない)。
+ * 読み戻すのは呼び出し元の run の session だけ。
+ */
+async function withVisualSession<T extends JsonObject | JsonResultWithContent>(
+  sessionId: string,
+  runId: string | undefined,
+  run: (session: VisualEditSession) => Promise<T>,
+): Promise<T> {
+  const session = await visualEditSessions.resolve(sessionId, visualSessionCaller(runId));
+  let result: T;
+  try {
+    result = await run(session);
+  } catch (error) {
+    await visualEditSessions.persist(session);
+    throw error;
+  }
+  return applyVisualSessionPersistOutcome(result, await visualEditSessions.persist(session));
+}
 
 /** Internal observability for tests; the MCP tool contract does not expose these caches. */
 export function getVisualSessionStatusCacheSizesForTests(): { terminal: number; pending: number } {
@@ -3047,14 +3117,25 @@ async function runMutationTool(
   }, renderVisualPreviewDeps, store);
 }
 
+/**
+ * MCP の server instructions。**サーバーの素性だけを書き、作業方針は書かない。**
+ *
+ * ホストごとに届き方が違うため (2026-10 に実機で確認、docs/mcp-local-app.md の
+ * 「AIへの指示の置き場所」): Claude Code は最初のメッセージへ先頭約4,000字だけを載せ、
+ * Codex は code mode の各ツール説明の前に毎回付け、Antigravity は
+ * `~/.gemini/antigravity-cli/mcp/<server>/instructions.md` に書き出してモデルが読むときだけ届く。
+ * ツールをまたぐ方針はアプリのプロンプト (`src/lib/ai/mcp-edit-prompt.ts`) に、
+ * ツール固有の使い方は各ツールの description と inputSchema に1回だけ置く。
+ * 正本の一文だけは Codex のプロンプトに SigmaDoc の文脈節が無いためここに残す。
+ */
+export const SIGMA_DOC_MCP_SERVER_INSTRUCTIONS = "Sigma Studio のローカル教材を読み書きするMCPサーバーです。SigmaDoc JSONが正本で、Tiptap JSON・HTML・LaTeX全文・overlay編集スナップショットは正本ではありません。書き込みツールは教材を直接保存せず、アプリで承認する提案を作ります。進め方とツールの使い分けは、アプリが渡すプロンプトと各ツールの説明に従ってください。";
+
 export interface CreateSigmaDocMcpServerOptions {
   renderVisualPreviewDeps?: RenderVisualPreviewDeps;
-  toolProfile?: McpToolProfile;
 }
 
 export function createSigmaDocMcpServer(options: CreateSigmaDocMcpServerOptions = {}): McpServer {
-const toolProfile = options.toolProfile ?? (process.env[MCP_TOOL_PROFILE_ENV] === "app" ? "app" : "external");
-const profileGuidance = toolProfile === "app" ? appMcpToolGuidance : (text: string) => text;
+registerMcpSchemaDefinitions();
 const renderVisualPreviewDeps = options.renderVisualPreviewDeps ?? createDefaultRenderVisualPreviewDeps();
 const storeContext = createStore();
 void createProposalStore().warmIndex().catch(() => {
@@ -3068,37 +3149,13 @@ const server = new McpServer(
     version: SERVER_VERSION,
   },
   {
-    instructions: profileGuidance([
-      ...(toolProfile === "app" ? ["アプリ内AI用の本文編集は insert_content / edit_text / edit_problem / organize_blocks です。fileId/runId/expectedRevision/writeMode/sourceReferencesは最上位、操作固有の引数はedit:{action,...}へ入れます。insert_contentはtargetId/areaとcontent:{format:'markdown',markdown:'...'}またはcontent:{format:'blocks',blocks:[...]}を使います。古いスキルの名前・引数例より現在のinputSchemaを優先してください。"] : []),
-      "Sigma Studio のローカルSigmaDoc教材を操作するMCPサーバーです。",
-      "SigmaDoc JSONが正本です。Tiptap JSON、HTML、LaTeX全文、overlay編集スナップショットを正本として扱わないでください。",
-      "まず list_local_documents で workspaceId/folderId/fileId/revisionを確認し、編集対象が明確なら get_edit_context で現在revision・対象・前後文脈・outlineをまとめて取得します。対象が不明な場合は get_document_outline / search_document / get_blocks で対象を絞ります。read_local_document は既定のsummaryを使い、教材全体が必要な場合だけ detail:\"full\" を指定します。",
-      "教材ライブラリ内の教材・フォルダ操作は create_local_document / update_local_document / delete_local_document / create_local_folder / update_local_folder / delete_local_folder を使います。これらはアプリ管理下のIDだけを受け取り、任意のOSパスは操作しません。教材名変更・削除にはlist_local_documentsで確認したexpectedRevisionが必要です。削除はユーザーが明示した場合だけ行ってください。",
-      "insert系ツール(insert_body_content / create_problem_content / insert_table / insert_shape / insert_graph / insert_graph3d / insert_material)は targetId または selectedId が必須です。教材末尾は targetId:\"END_OF_DOCUMENT\"、ホワイトボードへの図形・表・グラフ追加は targetId:\"CANVAS\" を指定してください。",
-      "paragraph/headingの本文は update_rich_content、problemの各エリアは update_problem_content、表は update_table、2Dグラフは update_graph、3Dグラフは update_graph3d、通常図形は update_shape を使います。replace_block はそれらで表せない構造置換のみfallbackです。",
-      "表(tableShape)・グラフ(graph2dShape)・通常の図形はSigmaBlockではなくoverlay図形です。get_document_outline の overlayShapes または search_document でIDを確認し、書き換えは insert_shape で作り直さず update_shape(部分更新、pointsやstart/endによる頂点移動も可)、整列は align_shapes、削除は delete_shapes を使ってください。表・グラフも同様に delete_shapes + insert_table/insert_graph/insert_graph3d で作り直さず、update_table(cellPatchesで1セルだけ、または内容の部分再構成)・update_graph・update_graph3dで既存shapeをその場で更新してください。作り直すと位置・サイズ・スタイル・列幅/行高さがリセットされます。delete_blocks は本文ブロックにしか使えません(表・グラフ・図形には効きません)。",
-      "保存済み素材が使えそうな場合は list_materials / get_material で description、usage、visualConcepts、ports を確認し、insert_material でexact cloneとして挿入してください。",
-      "立体・回転体・断面・共通部分などの3D図版は insert_graph3d を使い、更新は update_graph3d で行ってください(2Dの関数グラフ・座標平面・数直線は insert_graph)。",
-      "図・図解・模式図・イラスト・挿絵は、原則 insert_svg_image で静的SVGを1枚の画像として入れてください(迷ったらSVG)。「図を入れて」「画像を入れて」「絵を描いて」もこの入口です。SVGは自己完結で書き(xmlnsと正のviewBox、fill/stroke等の属性、TeXは解釈されないので記号はUnicode)、verification.previewを実見してupdate_svg_imageで修正します。関数グラフはinsert_graph、立体はinsert_graph3d、表はinsert_tableを使い、部品ごとの個別編集を求められたときだけinsert_shapeを使います。",
-      "部品ごとに編集する図形、図や本文に重ねる補助線・矢印・文字注記・吹き出しは insert_shape を使ってください。円・楕円・矩形・三角形など標準kindで表せる図形はそのkindを使い、polylineで近似しないでください。polylineは折れ曲がった線、経路、標準kindにない多角形など線分列であることが意味を持つ場合だけ使います。図形内ラベルの寸法はtool側で決めます。文字注記(kind:text)は幅だけを指定し、高さは内容から導出されます。",
-      "図形を確認しながら作る場合は begin_visual_edit_session → visual_insert_shape → render_visual_edit_session → previewFileをview_imageで開く → inspect_visual_edit_session → review_visual_edit_session(previewCode付き) → propose_visual_edit_session の順で進めます。beginにはtargetIdまたはselectedIdが必要です。",
-      "insert_body_content / create_problem_content / update_rich_content / update_problem_content / replace_block / delete_blocks / move_blocks / insert_table / update_table / insert_svg_image / update_svg_image / insert_shape / update_shape / insert_graph / update_graph / insert_graph3d / update_graph3d などの書き込みツールは、成功時に data.verification(validation、可能ならpreview PNGとpreviewFile)を返します。ChatGPTではinline image contentを省略するため、previewFileをview_imageで開いて必ず確認してください。完了前に必ず内容を確認し、問題があれば直してください。既存の内容や承認前のproposalのブロック周辺は render_block_context、ページ全体と実際のページ割当は render_page で確認します。",
-      "書き込み系ツールでは expectedRevision が必須です。既定のwriteMode:\"proposal\" は pending proposal、writeMode:\"dryRun\" は保存なしの検証です。MCPから教材本体を直接保存しません。expectedRevisionが古くても、今回の書き込みが触るブロック/overlay図形がその時点から変わっていなければ受理されます(無関係な人間の編集で失敗しません)。触った対象が実際に変更されていた場合のみREVISION_MISMATCHになり、競合ブロックの現在の内容を踏まえて作り直してください。ただし文書全体の設定を変更する書き込み(update_column_layout の scope:\"document\" など)はこの緩和の対象外で、expectedRevisionの完全一致が必要です。不一致になったら現在の設定を読み直してから再試行してください。",
-      "ユーザーがAIの挙動・スキル・設定の変更を相談してきた場合は save_ai_resource(グローバルskill/instructionの作成・更新) / delete_ai_resource(明示的な削除依頼のときだけ) / update_ai_settings(Web検索許可や検証済み提案の自動承認)で実際に変更でき、変更内容は必ず回答で報告してください。",
-    ].join(" ")),
+    instructions: SIGMA_DOC_MCP_SERVER_INSTRUCTIONS,
   },
 );
 
-const { registerTool, bodyImplementations } = createMcpToolRegistrar(server, {
-  toolProfile,
-  profileGuidance,
+const { registerTool, registerBodyImplementation, bodyImplementations } = createMcpToolRegistrar(server, {
   activityLogger: createToolActivityLogger(process.env),
-  activeRunId: () => {
-    try {
-      const loaded = loadAiEditRunContext(process.env, { provider: resolveMcpProvider() ?? undefined });
-      return loaded.state === "ready" ? loaded.context.runId : undefined;
-    } catch { return undefined; }
-  },
+  activeRunId: resolveActiveRunId,
   visualSessionRunId: (sessionId) => visualEditSessions.peek(sessionId)?.runId ?? undefined,
 });
 
@@ -3285,61 +3342,6 @@ registerTool(
   }),
 );
 
-registerTool(
-  "list_all_pending_proposals",
-  {
-    title: "すべてのセッションの保留中提案一覧",
-    description: "指定した教材の保留中提案をセッション (roomId/runId) に関わらず返します。過去セッション由来の却下不可な提案をUI側で表示するために使います。",
-    inputSchema: {
-      fileId: z.string().min(1),
-    },
-  },
-  async ({ fileId }) => withToolErrorHandling(async () => {
-    const proposalStore = createProposalStore();
-    const proposals = await proposalStore.listAllPendingProposalsForFile(fileId);
-    return {
-      ok: true,
-      proposals: proposals.map((proposal) => {
-        const summary = summarizeProposalListItem(proposal as unknown as Record<string, unknown>);
-        // For cross-session proposal discovery, include proposalId so caller can withdraw it
-        return {
-          ...summary,
-          proposalId: (proposal as unknown as Record<string, unknown>).proposalId as string,
-        };
-      }),
-    };
-  }),
-);
-
-registerTool(
-  "withdraw_edit_proposal",
-  {
-    title: "任意の保留中提案を取り下げる (セッション横断)",
-    description: "指定した提案ID の保留中提案を、セッション (roomId/runId) に関わらず取り下げます。",
-    inputSchema: {
-      fileId: z.string().min(1),
-      proposalId: z.string().min(1),
-      reason: z.string().optional(),
-    },
-  },
-  async ({ fileId, proposalId, reason }) => withToolErrorHandling(async () => {
-    const proposalStore = createProposalStore();
-    // Verify the proposal belongs to the requested fileId
-    const proposal = await proposalStore.loadProposal(proposalId);
-    if (!proposal) {
-      throw new Error(`提案 ${proposalId} が見つかりません。`);
-    }
-    if (proposal.fileId !== fileId) {
-      throw new Error(`提案は異なる教材に属しています。要求: ${fileId}, 実際: ${proposal.fileId}`);
-    }
-    const withdrawn = await proposalStore.rejectSingleProposal(proposalId, reason);
-    return {
-      ok: true,
-      withdrawn: true,
-      proposal: summarizeProposalListItem(withdrawn as unknown as Record<string, unknown>),
-    };
-  }),
-);
 registerTool(
   "list_local_documents",
   {
@@ -3730,7 +3732,7 @@ registerTool(
   "get_block",
   {
     title: "ブロックを読む",
-    description: "本文、problem、problem内のlead/prompt/hints/solutionブロックをIDで完全JSONとして返します。replace_blockを使う場合は先に呼び、返ったid/typeと変更しないfieldを保った全体をblockに渡してください。文章だけならupdate_rich_content、問題各エリアならupdate_problem_contentを優先します。複数IDならget_blocks、表・グラフ・図形のID確認はget_document_outline.overlayShapesです。例: {fileId:\"...\",blockId:\"p_1\"}。",
+    description: "本文、problem、problem内のlead/prompt/hints/solutionブロックをIDで完全JSONとして返します。edit_text (edit.action:\"replace_structure\")を使う場合は先に呼び、返ったid/typeと変更しないfieldを保った全体をblockに渡してください。文章だけならedit_text (edit.action:\"update\")、問題各エリアならedit_problem (edit.action:\"update\")を優先します。複数IDならget_blocks、表・グラフ・図形のID確認はget_document_outline.overlayShapesです。例: {fileId:\"...\",blockId:\"p_1\"}。",
     inputSchema: {
       fileId: z.string().min(1),
       blockId: z.string().min(1),
@@ -3987,17 +3989,13 @@ registerTool(
   }),
 );
 
-registerTool(
+registerBodyImplementation(
   "insert_body_content",
   {
-    title: "本文を挿入",
-    description: '新しいparagraph/heading/list/boxBlockを基準ブロックの後へ挿入します。無限キャンバス(ホワイトボード)モードには対応していません。各blockのpagination:{break:true}で改ページ(段組み内では改段)を指定できます。選択ブロックは編集境界ではないため、既存内容の分割ではupdate_rich_contentで元ブロックを更新してから、このtoolで後続ブロックを追加できます。既存paragraph/headingの本文修正はupdate_rich_content、問題全体の新規作成はcreate_problem_contentを使います。problem内の既存段落直後へ入れる場合はその段落IDをtargetIdにしてareaを省略します。areaはproblemの特定領域へ末尾追加する場合に指定します。例: {targetId:"END_OF_DOCUMENT",blocks:[{text:"新しい本文",pagination:{break:true}}],expectedRevision:3}。',
-    inputSchema: {
-      ...DocumentTargetSchema,
-      area: ProblemAreaInputSchema.optional(),
-      blocks: z.array(RichInputSchema).min(1),
-      sourceReferences: SourceReferencesInputSchema.optional(),
-    },
+    ...DocumentTargetSchema,
+    area: ProblemAreaInputSchema.optional(),
+    blocks: z.array(RichInputSchema).min(1),
+    sourceReferences: SourceReferencesInputSchema.optional(),
   },
   async ({ fileId, selectedId, targetId, writeMode, expectedRevision, runId, area, blocks, sourceReferences }) => withToolErrorHandling(async () =>
     runDraftTool({
@@ -4016,19 +4014,15 @@ registerTool(
     }, renderVisualPreviewDeps, storeContext.store)),
 );
 
-registerTool(
+registerBodyImplementation(
   "apply_edits",
   {
-    title: "教材へ型付き編集を適用",
-    description: '複数の編集を1回のpending proposalへまとめる統合入口です。本文のreplace_textは既存SigmaDocを土台に指定範囲だけをcopy-with置換し、元のフォント・ptサイズ・装飾と範囲外内容を保持します。明示的な書式変更は本文とtext/callout図形のformat_inlineを使います。replace_textのrange targetはblockId/from/to/quoteを必須とし、古いquoteなら拒否します。例: {fileId:"...",operations:[{op:"replace_text",target:{type:"range",blockId:"p_1",from:3,to:7,quote:"変更前"},replacement:"変更後"}],expectedRevision:3}。',
-    inputSchema: {
-      fileId: z.string().min(1),
-      operations: z.array(ApplyEditOperationInputSchema).min(1).max(20),
-      writeMode: WriteModeSchema,
-      expectedRevision: ExpectedRevisionSchema,
-      runId: WriteRunIdSchema,
-      sourceReferences: SourceReferencesInputSchema.optional(),
-    },
+    fileId: z.string().min(1),
+    operations: z.array(ApplyEditOperationInputSchema).min(1).max(20),
+    writeMode: WriteModeSchema,
+    expectedRevision: ExpectedRevisionSchema,
+    runId: WriteRunIdSchema,
+    sourceReferences: SourceReferencesInputSchema.optional(),
   },
   async ({ fileId, operations, writeMode, expectedRevision, runId, sourceReferences }) => withToolErrorHandling(async () =>
     runSessionTool({
@@ -4097,22 +4091,18 @@ registerTool(
     }, renderVisualPreviewDeps, storeContext.store)),
 );
 
-registerTool(
+registerBodyImplementation(
   "update_rich_content",
   {
-    title: "本文・見出しの内容を更新",
-    description: '既存paragraph/headingの文章またはpaginationを更新します。文章入力はサーバー側で最小差分へ縮約し、既存SigmaDocをcopy-with更新してID・type・見出しlevel・未変更範囲の書式を保持します。局所的な文章変更はapply_editsのreplace_textを優先してください。本文はtextまたはrunsのどちらか一方を渡します。pagination:nullで指定をすべて解除できます。problemの複数エリア更新はupdate_problem_content、ブロック構造全体の置換はreplace_blockを使います。',
-    inputSchema: {
-      fileId: z.string().min(1),
-      blockId: z.string().min(1),
-      text: z.string().optional(),
-      runs: z.array(z.union([z.string(), JsonRecordSchema])).min(1).optional(),
-      pagination: PaginationInputSchema.nullable().optional(),
-      writeMode: WriteModeSchema,
-      expectedRevision: ExpectedRevisionSchema,
-      runId: WriteRunIdSchema,
-      sourceReferences: SourceReferencesInputSchema.optional(),
-    },
+    fileId: z.string().min(1),
+    blockId: z.string().min(1),
+    text: z.string().optional(),
+    runs: z.array(z.union([z.string(), JsonRecordSchema])).min(1).optional(),
+    pagination: PaginationInputSchema.nullable().optional(),
+    writeMode: WriteModeSchema,
+    expectedRevision: ExpectedRevisionSchema,
+    runId: WriteRunIdSchema,
+    sourceReferences: SourceReferencesInputSchema.optional(),
   },
   async ({ fileId, blockId, text, runs, pagination, writeMode, expectedRevision, runId, sourceReferences }) => withToolErrorHandling(async () =>
     runDraftTool({
@@ -4131,24 +4121,20 @@ registerTool(
     }, renderVisualPreviewDeps, storeContext.store)),
 );
 
-registerTool(
+registerBodyImplementation(
   "create_problem_content",
   {
-    title: "問題を作成",
-    description: '問題文promptと任意のlead/answer/solution/hintsから新しいProblemNodeを挿入します。無限キャンバス(ホワイトボード)モードには対応していません。既存問題の変更はupdate_problem_content、問題ノード全体の置換はreplace_blockです。問題番号や自動表示の「解答」見出しを文章に入れません。例: {fileId:"...",targetId:"p_1",prompt:[{id:"ai_prompt_1",text:"次を解け。"}],answerTex:"x=\\\\pm2",solution:[{id:"ai_sol_1",text:"因数分解する。"}],expectedRevision:3}。',
-    inputSchema: {
-      ...DocumentTargetSchema,
-      id: z.string().min(1).optional(),
-      tags: z.array(z.string()).optional(),
-      lead: LeadRichInputListSchema.optional(),
-      prompt: RichInputListSchema,
-      answerText: z.string().optional(),
-      answerTex: z.string().optional(),
-      solution: RichInputListSchema.optional(),
-      hints: RichInputListSchema.optional(),
-      pagination: PaginationInputSchema.optional(),
-      sourceReferences: SourceReferencesInputSchema.optional(),
-    },
+    ...DocumentTargetSchema,
+    id: z.string().min(1).optional(),
+    tags: z.array(z.string()).optional(),
+    lead: LeadRichInputListSchema.optional(),
+    prompt: RichInputListSchema,
+    answerText: z.string().optional(),
+    answerTex: z.string().optional(),
+    solution: RichInputListSchema.optional(),
+    hints: RichInputListSchema.optional(),
+    pagination: PaginationInputSchema.optional(),
+    sourceReferences: SourceReferencesInputSchema.optional(),
   },
   async (args) => withToolErrorHandling(async () =>
     runDraftTool({
@@ -4174,23 +4160,19 @@ registerTool(
     }, renderVisualPreviewDeps, storeContext.store)),
 );
 
-registerTool(
+registerBodyImplementation(
   "update_problem_content",
   {
-    title: "既存問題を更新",
-    description: "既存problemのlead/prompt/answer/solution/hints/paginationの指定項目だけを更新し、未指定項目とproblem IDを保持します。pagination:nullで問題のページ指定をすべて解除できます。lead/solution/hintsは空配列で消去、answerはnullまたは空のanswerText/answerTexで消去できます。answer/answerText/answerTexは1つだけ指定します。targetIdはproblem IDまたはその内部ブロックID。例: {fileId:\"...\",targetId:\"problem_1\",pagination:{break:true},expectedRevision:3}。",
-    inputSchema: {
-      ...DocumentTargetSchema,
-      lead: UpdateLeadRichInputListSchema.optional(),
-      prompt: RichInputListSchema.optional(),
-      answer: ProblemAnswerInputSchema.nullable().optional(),
-      answerText: z.string().optional(),
-      answerTex: z.string().optional(),
-      solution: UpdateRichInputListSchema.optional(),
-      hints: UpdateRichInputListSchema.optional(),
-      pagination: PaginationInputSchema.nullable().optional(),
-      sourceReferences: SourceReferencesInputSchema.optional(),
-    },
+    ...DocumentTargetSchema,
+    lead: UpdateLeadRichInputListSchema.optional(),
+    prompt: RichInputListSchema.optional(),
+    answer: ProblemAnswerInputSchema.nullable().optional(),
+    answerText: z.string().optional(),
+    answerTex: z.string().optional(),
+    solution: UpdateRichInputListSchema.optional(),
+    hints: UpdateRichInputListSchema.optional(),
+    pagination: PaginationInputSchema.nullable().optional(),
+    sourceReferences: SourceReferencesInputSchema.optional(),
   },
   async (args) => withToolErrorHandling(async () =>
     runDraftTool({
@@ -4215,20 +4197,16 @@ registerTool(
     }, renderVisualPreviewDeps, storeContext.store)),
 );
 
-registerTool(
+registerBodyImplementation(
   "replace_block",
   {
-    title: "ブロック構造全体を置換",
-    description: '高レベル更新ツールで表せない構造変更のみに使うfallbackです。get_blockで現在値を読み、block.id/typeと未変更fieldを保った完全ブロックを渡します。本文だけはupdate_rich_content、problem内容はupdate_problem_content、overlayは専用ツールを優先します。',
-    inputSchema: {
-      fileId: z.string().min(1).describe("ローカルアプリの教材 fileId。"),
-      blockId: z.string().min(1).describe("更新対象のブロックID。get_document_outline / search_document / get_block / get_blocks で確認してください。"),
-      block: EditableBlockSchema.describe("置き換え後の完全なSigmaDoc/RichBlock。idとtypeは既存ブロックと一致させてください。"),
-      writeMode: WriteModeSchema,
-      expectedRevision: ExpectedRevisionSchema,
-      runId: WriteRunIdSchema,
-      sourceReferences: SourceReferencesInputSchema.optional(),
-    },
+    fileId: z.string().min(1).describe("ローカルアプリの教材 fileId。"),
+    blockId: z.string().min(1).describe("更新対象のブロックID。get_document_outline / search_document / get_block / get_blocks で確認してください。"),
+    block: EditableBlockSchema.describe("置き換え後の完全なSigmaDoc/RichBlock。idとtypeは既存ブロックと一致させてください。"),
+    writeMode: WriteModeSchema,
+    expectedRevision: ExpectedRevisionSchema,
+    runId: WriteRunIdSchema,
+    sourceReferences: SourceReferencesInputSchema.optional(),
   },
   async ({ fileId, blockId, block, writeMode, expectedRevision, runId, sourceReferences }) => withToolErrorHandling(async () =>
     runDraftTool({
@@ -4243,19 +4221,14 @@ registerTool(
     }, renderVisualPreviewDeps, storeContext.store)),
 );
 
-registerTool(
+registerBodyImplementation(
   "delete_blocks",
   {
-    title: "ブロックを削除",
-    description:
-      "教材内の本文ブロック(トップレベル、および問題のlead/prompt/hints/solution内のブロック)をIDで指定して削除します。表(tableShape)・グラフ(graph2dShape)・図形はブロックではなくoverlay図形なのでここでは削除できません。delete_shapes を使ってください(IDは get_document_outline の overlayShapes で確認)。",
-    inputSchema: {
-      fileId: z.string().min(1),
-      blockIds: z.array(z.string().min(1)).min(1).describe("削除対象のブロックID一覧。"),
-      writeMode: WriteModeSchema,
-      expectedRevision: ExpectedRevisionSchema,
-      runId: WriteRunIdSchema,
-    },
+    fileId: z.string().min(1),
+    blockIds: z.array(z.string().min(1)).min(1).describe("削除対象のブロックID一覧。"),
+    writeMode: WriteModeSchema,
+    expectedRevision: ExpectedRevisionSchema,
+    runId: WriteRunIdSchema,
   },
   async ({ fileId, blockIds, writeMode, expectedRevision, runId }) => withToolErrorHandling(async () =>
     runMutationTool({
@@ -4272,20 +4245,16 @@ registerTool(
     }, renderVisualPreviewDeps, storeContext.store)),
 );
 
-registerTool(
+registerBodyImplementation(
   "move_blocks",
   {
-    title: "ブロックを移動",
-    description: "本文ブロックをblockIdsの順序を保ってtargetIdの前または後へ移動します。overlay図形の移動ではなく、problem内エリア間の移動にも使いません。末尾へはtargetId:\"END_OF_DOCUMENT\", position:\"after\"。例: {fileId:\"...\",blockIds:[\"p_2\"],targetId:\"p_1\",position:\"before\",expectedRevision:3}。",
-    inputSchema: {
-      fileId: z.string().min(1),
-      blockIds: z.array(z.string().min(1)).min(1).describe("移動対象のブロックID一覧(元の順序を保ったまま移動します)。"),
-      targetId: z.string().min(1).describe("移動先の基準ブロックID。教材末尾へ移動する場合は \"END_OF_DOCUMENT\" を指定してください。"),
-      position: z.enum(["before", "after"]),
-      writeMode: WriteModeSchema,
-      expectedRevision: ExpectedRevisionSchema,
-      runId: WriteRunIdSchema,
-    },
+    fileId: z.string().min(1),
+    blockIds: z.array(z.string().min(1)).min(1).describe("移動対象のブロックID一覧(元の順序を保ったまま移動します)。"),
+    targetId: z.string().min(1).describe("移動先の基準ブロックID。教材末尾へ移動する場合は \"END_OF_DOCUMENT\" を指定してください。"),
+    position: z.enum(["before", "after"]),
+    writeMode: WriteModeSchema,
+    expectedRevision: ExpectedRevisionSchema,
+    runId: WriteRunIdSchema,
   },
   async ({ fileId, blockIds, targetId, position, writeMode, expectedRevision, runId }) => withToolErrorHandling(async () =>
     runMutationTool({
@@ -4309,7 +4278,7 @@ registerTool(
   {
     title: "ページ設定を変更",
     description:
-      "SigmaDocのページ設定を型付き引数で部分更新します。用紙プリセット(A4/A3/B5/B4/custom)、縦横、カスタム用紙サイズ(mm)、上下左右の余白(mm)のうち指定したfieldだけを変更し、未指定field、段組み、ヘッダー、フッターは保持します。customSizeMmはpreset:\"custom\"と同時に指定してください。変更前にread_local_documentまたはget_document_outlineで現在のpageLayoutとrevisionを確認し、成功後はverificationのページpreviewを確認してください。",
+      "SigmaDocのページ設定を型付き引数で部分更新します。用紙プリセット(A4/A3/B5/B4/custom)、縦横、カスタム用紙サイズ(mm)、上下左右の余白(mm)のうち指定したfieldだけを変更し、未指定field、段組み、ヘッダー、フッターは保持します。customSizeMmはpreset:\"custom\"と同時に指定してください。変更前にread_local_documentまたはget_document_outlineで現在のpageLayoutとrevisionを確認し、成功後はverificationのvalidationとページpreviewで用紙方向・本文領域・余白に問題がないことを確認してください。",
     inputSchema: UpdatePageLayoutInputSchema,
   },
   async ({ fileId, preset, orientation, customSizeMm, marginsMm, writeMode, expectedRevision, runId }) =>
@@ -4444,105 +4413,111 @@ registerTool(
   }),
 );
 
-// Generated results belong to a specific app run and document. Never accept arbitrary OS paths.
-const generatedImages = new CodexGeneratedImageStore(storeContext.dataDir);
-const GeneratedImageTargetSchema = { fileId: z.string().min(1), runId: z.string().min(1) };
-function requireImageRun(fileId: string, runId: string): AiEditRunContext {
-  const context = resolveEditContextRunContext(fileId, runId);
-  if (!context || context.provider !== "chatgpt" || context.runId !== runId) {
-    throw new Error("この依頼の画像を利用できません。fileIdとrunIdを確認してください。");
-  }
-  return context;
-}
-async function resolveGeneratedImage(fileId: string, runId: string, imageId: string) {
-  requireImageRun(fileId, runId);
-  const record = await generatedImages.get(runId, imageId);
-  if (!record || record.fileId !== fileId) throw new Error("この依頼の生成画像が見つかりません。list_generated_imagesで確認してください。");
-  if (!record.image.fileSize || !record.image.width || !record.image.height) throw new Error("生成画像のサイズ情報がありません。");
-  if (record.image.fileSize > MAX_AI_OVERLAY_ASSET_BYTES || record.image.width * record.image.height > MAX_AI_OVERLAY_ASSET_PIXELS) {
-    throw new Error("生成画像はプレビューできますが、編集案の画像上限（2 MiB・2500万画素）を超えるため挿入できません。小さい画像で再度依頼してください。");
-  }
-  return record;
-}
-
-registerTool("list_generated_images", {
-  title: "生成画像を確認",
-  description: "この依頼でCodexが生成した画像のimageId・サイズ・プレビューを返します。fileId/runIdは依頼と同じ値が必須。生成完了直後に空の場合はturnを終えてください。ホストが取り込み完了後に続行します。画像の挿入はinsert_generated_image、差し替えはupdate_generated_imageで承認待ち提案にします。",
-  inputSchema: GeneratedImageTargetSchema,
-}, async ({ fileId, runId }) => withToolErrorHandling(async () => {
-  requireImageRun(fileId, runId);
-  const records = (await generatedImages.list(runId)).filter((record) => record.fileId === fileId);
-  return jsonResultWithContent({
-    ok: true, message: "生成画像を確認しました。",
-    images: records.map((record) => ({ imageId: record.imageId, width: record.image.width, height: record.image.height, mimeType: record.image.mimeType })),
-  }, records.map((record) => ({ type: "image" as const, mimeType: "image/png", data: record.previewDataUrl.split(",")[1] })));
-}));
-
-registerTool("insert_generated_image", {
-  title: "生成画像を挿入",
-  description: "list_generated_imagesで確認した画像を教材へ挿入する承認待ち提案を作ります。画像本体はSigmaDocへ保持します。targetIdまたはselectedIdが必須。ホワイトボードはtargetId:CANVAS。w/h省略時は縦横比を保持します。同じimageIdの再挿入は重複しません。verification.previewを確認してください。",
-  inputSchema: { ...DocumentTargetSchema, ...DraftInsertGeneratedImageArgsSchema.shape, runId: z.string().min(1) },
-}, async (args) => withToolErrorHandling(async () => runDraftTool({
-  ...args, toolName: "draft_insert_generated_image", toolArgs: DraftInsertGeneratedImageArgsSchema.parse(args),
-  resolveRuntimeToolArgs: async () => ({ generatedImage: (await resolveGeneratedImage(args.fileId, args.runId, args.imageId)).image }),
-}, renderVisualPreviewDeps, storeContext.store)));
-
-registerTool("update_generated_image", {
-  title: "生成画像に差し替え",
-  description: "教材内の画像をlist_generated_imagesで確認した生成画像に差し替える承認待ち提案を作ります。shapeId・位置・表示サイズ・回転・アンカーは保持し、画像を共有する他の図形には影響しません。verification.previewを確認してください。",
-  inputSchema: { ...DocumentTargetSchema, ...DraftUpdateGeneratedImageArgsSchema.shape, runId: z.string().min(1) },
-}, async (args) => withToolErrorHandling(async () => runDraftTool({
-  ...args, toolName: "draft_update_generated_image", toolArgs: DraftUpdateGeneratedImageArgsSchema.parse(args),
-  resolveRuntimeToolArgs: async () => ({ generatedImage: (await resolveGeneratedImage(args.fileId, args.runId, args.imageId)).image }),
-}, renderVisualPreviewDeps, storeContext.store)));
-
-registerTool("get_image_reference", {
-  title: "教材の画像を参照",
-  description: "画像編集用に教材内のimage shapeの元画像を取得します。fileId/runId/shapeIdが必須。filePathをview_imageで確認してCodex画像生成ツールの参照画像に使えます。返されたshapeIdをupdate_generated_imageに渡して差し替え提案を作ってください。",
-  inputSchema: { ...GeneratedImageTargetSchema, shapeId: z.string().min(1) },
-}, async ({ fileId, runId, shapeId }) => withToolErrorHandling(async () => {
-  const context = requireImageRun(fileId, runId);
-  const { document, file } = await loadDocumentForFile(storeContext.store, fileId);
-  const pending = await createProposalStore().findCurrentPendingProposal({ fileId, roomId: context.roomId, runId });
-  let working = document;
-  if (pending && !pending.invalidReason && (usableProposalMergeBasis(pending.mergeBasis) || pending.baseRevision === file.revision)) {
-    const resolved = resolveRoomWorkingDocument(pending, document);
-    if (resolved.ok) {
-      working = resolved.document;
-    } else {
-      // 合成できない作業案の画像は保存済みSigmaDocから引く (退避は台帳ログで数える)。
-      createProposalStore().recordMergeFallback("image-reference-working-document", { proposalId: pending.proposalId });
+// Codexのネイティブ画像生成を扱う4本は、Codex (app-server) のrunだけが使える。requireImageRunが
+// chatgpt以外のrunを必ず拒否するので、Claude/Antigravityと、providerを持たない起動 (外部CLI・テスト)
+// には公開しない。providerは起動元 (electron/sigma-studio-mcp-launch.ts) が焼き込む値で、
+// サーバープロセスの寿命の間は変わらない。
+if (resolveMcpProvider() === "chatgpt") {
+  // Generated results belong to a specific app run and document. Never accept arbitrary OS paths.
+  const generatedImages = new CodexGeneratedImageStore(storeContext.dataDir);
+  const GeneratedImageTargetSchema = { fileId: z.string().min(1), runId: z.string().min(1) };
+  function requireImageRun(fileId: string, runId: string): AiEditRunContext {
+    const context = resolveEditContextRunContext(fileId, runId);
+    if (!context || context.provider !== "chatgpt" || context.runId !== runId) {
+      throw new Error("この依頼の画像を利用できません。fileIdとrunIdを確認してください。");
     }
+    return context;
   }
-  const snapshot = normalizeOverlaySnapshot(working.pageLayout?.overlay?.overlaySnapshot);
-  const shape = snapshot.shapes.find((candidate) => candidate.id === shapeId);
-  if (!shape || shape.type !== "image") throw new Error("参照する画像が見つかりません。shapeIdを確認してください。");
-  const asset = snapshot.assets[shape.props.assetId];
-  const parsed = parseAttachedFileDataUrl(asset?.props.src ?? "");
-  if (!parsed || parsed.base64.length > Math.ceil(MAX_GENERATED_IMAGE_BYTES / 3) * 4) throw new Error("参照画像を読み込めませんでした。");
-  let bytes: Buffer = Buffer.from(parsed.base64, "base64");
-  if (parsed.mimeType === "image/svg+xml") {
-    const svg = bytes.toString("utf8");
-    validateAiSvg(svg);
-    const resvg = await renderVisualPreviewDeps.loadResvg();
-    if (!resvg) throw new Error("参照画像のpreviewを生成できません。");
-    bytes = resvg.render(svg);
+  async function resolveGeneratedImage(fileId: string, runId: string, imageId: string) {
+    requireImageRun(fileId, runId);
+    const record = await generatedImages.get(runId, imageId);
+    if (!record || record.fileId !== fileId) throw new Error("この依頼の生成画像が見つかりません。list_generated_imagesで確認してください。");
+    if (!record.image.fileSize || !record.image.width || !record.image.height) throw new Error("生成画像のサイズ情報がありません。");
+    if (record.image.fileSize > MAX_AI_OVERLAY_ASSET_BYTES || record.image.width * record.image.height > MAX_AI_OVERLAY_ASSET_PIXELS) {
+      throw new Error("生成画像はプレビューできますが、編集案の画像上限（2 MiB・2500万画素）を超えるため挿入できません。小さい画像で再度依頼してください。");
+    }
+    return record;
   }
-  const image = await prepareGeneratedImage(bytes);
-  const extension = image.mimeType === "image/jpeg" ? "jpg" : image.mimeType === "image/webp" ? "webp" : "png";
-  const scope = createHash("sha256").update(runId).digest("hex");
-  const name = createHash("sha256").update(shapeId).update(bytes).digest("hex");
-  const filePath = await writeRunContextPreviewFile(path.join(storeContext.dataDir, "ai-run-context"), `image-reference-${scope}`, `${name}.${extension}`, bytes);
-  return jsonResultWithContent({ ok: true, message: "参照画像を取得しました。", shapeId, filePath, width: image.width, height: image.height }, [
-    { type: "image", mimeType: "image/png", data: image.previewDataUrl.split(",")[1] },
-  ]);
-}));
+
+  registerTool("list_generated_images", {
+    title: "生成画像を確認",
+    description: "この依頼でCodexが生成した画像のimageId・サイズ・プレビューを返します。fileId/runIdは依頼と同じ値が必須。生成完了直後に空の場合はturnを終えてください。ホストが取り込み完了後に続行します。画像の挿入はinsert_generated_image、差し替えはupdate_generated_imageで承認待ち提案にします。",
+    inputSchema: GeneratedImageTargetSchema,
+  }, async ({ fileId, runId }) => withToolErrorHandling(async () => {
+    requireImageRun(fileId, runId);
+    const records = (await generatedImages.list(runId)).filter((record) => record.fileId === fileId);
+    return jsonResultWithContent({
+      ok: true, message: "生成画像を確認しました。",
+      images: records.map((record) => ({ imageId: record.imageId, width: record.image.width, height: record.image.height, mimeType: record.image.mimeType })),
+    }, records.map((record) => ({ type: "image" as const, mimeType: "image/png", data: record.previewDataUrl.split(",")[1] })));
+  }));
+
+  registerTool("insert_generated_image", {
+    title: "生成画像を挿入",
+    description: "list_generated_imagesで確認した画像を教材へ挿入する承認待ち提案を作ります。画像本体はSigmaDocへ保持します。targetIdまたはselectedIdが必須。ホワイトボードはtargetId:CANVAS。w/h省略時は縦横比を保持します。同じimageIdの再挿入は重複しません。verification.previewを確認してください。",
+    inputSchema: { ...DocumentTargetSchema, ...DraftInsertGeneratedImageArgsSchema.shape, runId: z.string().min(1) },
+  }, async (args) => withToolErrorHandling(async () => runDraftTool({
+    ...args, toolName: "draft_insert_generated_image", toolArgs: DraftInsertGeneratedImageArgsSchema.parse(args),
+    resolveRuntimeToolArgs: async () => ({ generatedImage: (await resolveGeneratedImage(args.fileId, args.runId, args.imageId)).image }),
+  }, renderVisualPreviewDeps, storeContext.store)));
+
+  registerTool("update_generated_image", {
+    title: "生成画像に差し替え",
+    description: "教材内の画像をlist_generated_imagesで確認した生成画像に差し替える承認待ち提案を作ります。shapeId・位置・表示サイズ・回転・アンカーは保持し、画像を共有する他の図形には影響しません。verification.previewを確認してください。",
+    inputSchema: { ...DocumentTargetSchema, ...DraftUpdateGeneratedImageArgsSchema.shape, runId: z.string().min(1) },
+  }, async (args) => withToolErrorHandling(async () => runDraftTool({
+    ...args, toolName: "draft_update_generated_image", toolArgs: DraftUpdateGeneratedImageArgsSchema.parse(args),
+    resolveRuntimeToolArgs: async () => ({ generatedImage: (await resolveGeneratedImage(args.fileId, args.runId, args.imageId)).image }),
+  }, renderVisualPreviewDeps, storeContext.store)));
+
+  registerTool("get_image_reference", {
+    title: "教材の画像を参照",
+    description: "画像編集用に教材内のimage shapeの元画像を取得します。fileId/runId/shapeIdが必須。filePathをview_imageで確認してCodex画像生成ツールの参照画像に使えます。返されたshapeIdをupdate_generated_imageに渡して差し替え提案を作ってください。",
+    inputSchema: { ...GeneratedImageTargetSchema, shapeId: z.string().min(1) },
+  }, async ({ fileId, runId, shapeId }) => withToolErrorHandling(async () => {
+    const context = requireImageRun(fileId, runId);
+    const { document, file } = await loadDocumentForFile(storeContext.store, fileId);
+    const pending = await createProposalStore().findCurrentPendingProposal({ fileId, roomId: context.roomId, runId });
+    let working = document;
+    if (pending && !pending.invalidReason && (usableProposalMergeBasis(pending.mergeBasis) || pending.baseRevision === file.revision)) {
+      const resolved = resolveRoomWorkingDocument(pending, document);
+      if (resolved.ok) {
+        working = resolved.document;
+      } else {
+        // 合成できない作業案の画像は保存済みSigmaDocから引く (退避は台帳ログで数える)。
+        createProposalStore().recordMergeFallback("image-reference-working-document", { proposalId: pending.proposalId });
+      }
+    }
+    const snapshot = normalizeOverlaySnapshot(working.pageLayout?.overlay?.overlaySnapshot);
+    const shape = snapshot.shapes.find((candidate) => candidate.id === shapeId);
+    if (!shape || shape.type !== "image") throw new Error("参照する画像が見つかりません。shapeIdを確認してください。");
+    const asset = snapshot.assets[shape.props.assetId];
+    const parsed = parseAttachedFileDataUrl(asset?.props.src ?? "");
+    if (!parsed || parsed.base64.length > Math.ceil(MAX_GENERATED_IMAGE_BYTES / 3) * 4) throw new Error("参照画像を読み込めませんでした。");
+    let bytes: Buffer = Buffer.from(parsed.base64, "base64");
+    if (parsed.mimeType === "image/svg+xml") {
+      const svg = bytes.toString("utf8");
+      validateAiSvg(svg);
+      const resvg = await renderVisualPreviewDeps.loadResvg();
+      if (!resvg) throw new Error("参照画像のpreviewを生成できません。");
+      bytes = resvg.render(svg);
+    }
+    const image = await prepareGeneratedImage(bytes);
+    const extension = image.mimeType === "image/jpeg" ? "jpg" : image.mimeType === "image/webp" ? "webp" : "png";
+    const scope = createHash("sha256").update(runId).digest("hex");
+    const name = createHash("sha256").update(shapeId).update(bytes).digest("hex");
+    const filePath = await writeRunContextPreviewFile(path.join(storeContext.dataDir, "ai-run-context"), `image-reference-${scope}`, `${name}.${extension}`, bytes);
+    return jsonResultWithContent({ ok: true, message: "参照画像を取得しました。", shapeId, filePath, width: image.width, height: image.height }, [
+      { type: "image", mimeType: "image/png", data: image.previewDataUrl.split(",")[1] },
+    ]);
+  }));
+}
 
 registerTool(
   "insert_svg_image",
   {
     title: "SVG画像を挿入",
-    description: "図・図解・模式図・イラスト・挿絵・フローチャート・幾何の作図など、教材に入れる絵の既定の入口です(迷ったらSVG)。AIが記述した自己完結SVGを1枚の画像として提案挿入します。関数グラフはinsert_graph、立体はinsert_graph3d、表はinsert_table、部品ごとに個別編集する図形だけinsert_shapeを使います。svgにはxmlnsとviewBoxが必須。TeXは解釈されないので図中の記号はUnicodeで書き、凝った式は図の上にinsert_shape(kind:text,tex)で重ねます。path/text/図形/defs/gradient/clipPath/mask/markerと表示属性を使用でき、style・script・外部参照・use・foreignObject・アニメーション・XML宣言は使えません。最大256 KiB。SVG原文はasset.props.srcにbase64で保持します。verification.previewのPNGを必ず実見し、修正にはupdate_svg_imageを使ってください。",
+    description: "図・図解・模式図・イラスト・挿絵・フローチャート・幾何の作図など、教材に入れる絵の既定の入口です(迷ったらSVG)。AIが記述した自己完結SVGを1枚の画像として提案挿入します。関数グラフはinsert_graph、立体はinsert_graph3d、表はinsert_table、部品ごとに個別編集する図形だけinsert_shapeを使います。svgにはxmlnsと正のviewBoxが必須。TeXは解釈されないので図中の記号はUnicodeで書き、凝った式は図の上にinsert_shape(kind:text,tex)で重ねます。path/text/図形/defs/gradient/clipPath/mask/markerと表示属性(fill/stroke等)を使用でき、style・class・script・外部参照・use・foreignObject・pattern・filter・アニメーション・XML宣言は使えません。最大256 KiB。白黒基調・透明背景にし、先に主要な点の座標を決めて長さ・角度などの条件に合わせて描きます。w:hの比はviewBoxに合わせます。SVGは本文と独立した画像レイヤーで、本文は回り込みません。SVG原文はasset.props.srcにbase64で保持します。verification.previewのPNGを必ず実見して内容・文字・本文との重なりを確かめ、修正にはupdate_svg_image、位置・大きさの変更にはupdate_shapeのx/y/w/hを使ってください。previewが取得できなければrender_block_contextまたはrender_pageで確認し、未確認のまま視覚確認済みと報告しないでください。",
     inputSchema: { ...DocumentTargetSchema, ...DraftInsertSvgImageArgsSchema.shape },
   },
   async (args) => withToolErrorHandling(async () => runDraftTool({
@@ -5123,7 +5098,7 @@ registerTool(
   {
     title: "図形を削除",
     description:
-      "overlay図形をIDで指定して削除します。表(tableShape)・グラフ(graph2dShape)・通常の図形はすべてoverlay図形なので削除はここを使います(本文ブロックの削除には使えません。それは delete_blocks)。IDは get_document_outline の overlayShapes または search_document で確認してください。既存図形/表/グラフの一部だけを直すために delete_shapes してから insert_shape/insert_table/insert_graph で作り直すのは避けてください(位置・サイズ・スタイルがリセットされます)。部分更新は update_shape/update_table/update_graphを使います。",
+      "overlay図形をIDで指定して削除します。表(tableShape)・グラフ(graph2dShape)・通常の図形はすべてoverlay図形なので削除はここを使います(本文ブロックの削除には使えません。それは organize_blocks (edit.action:\"delete\"))。IDは get_document_outline の overlayShapes または search_document で確認してください。既存図形/表/グラフの一部だけを直すために delete_shapes してから insert_shape/insert_table/insert_graph で作り直すのは避けてください(位置・サイズ・スタイルがリセットされます)。部分更新は update_shape/update_table/update_graphを使います。",
     inputSchema: {
       fileId: z.string().min(1),
       shapeIds: z.array(z.string().min(1)).min(1).describe("削除対象の図形ID一覧。get_document_outline の overlayShapes で確認してください。"),
@@ -5240,12 +5215,13 @@ registerTool(
       sourceAnalysis,
       plannedShapes,
     });
+    const persisted = await visualEditSessions.persist(session);
 
-    return {
+    return applyVisualSessionPersistOutcome({
       ok: true,
       message: "図形編集セッションを開始しました。visual_insert_shape → render_visual_edit_session → inspect_visual_edit_session → review_visual_edit_session → propose_visual_edit_session の順に進めてください。",
       session: summarizeVisualSession(session),
-    };
+    }, persisted);
   }),
 );
 
@@ -5256,12 +5232,12 @@ registerTool(
     description: "scratch visual edit sessionへ図形を追加します。このtoolはpending proposalを作りません。追加後はrender_visual_edit_sessionとinspect_visual_edit_sessionで確認してください。",
     inputSchema: {
       sessionId: VisualSessionIdSchema,
+      runId: WriteRunIdSchema,
       targetId: z.string().min(1).optional(),
       ...ShapeToolInputSchema,
     },
   },
-  async (args) => withToolErrorHandling(async () => {
-    const session = visualEditSessions.get(args.sessionId);
+  async (args) => withToolErrorHandling(() => withVisualSession(args.sessionId, args.runId, async (session) => {
     // Validate polyline/freehand vs plannedShapes
     if (
       (args.kind === "polyline" || args.kind === "freehand")
@@ -5296,7 +5272,7 @@ registerTool(
       needsInspection: true,
       needsReview: true,
     };
-  }),
+  })),
 );
 
 registerTool(
@@ -5306,13 +5282,13 @@ registerTool(
     description: "scratch visual edit session内の既存図形を、同じIDの新しい図形定義で置き換えます。元画像とpreviewを見比べて位置・サイズ・折れ線pointsなどを直す時に使います。",
     inputSchema: {
       sessionId: VisualSessionIdSchema,
+      runId: WriteRunIdSchema,
       shapeId: z.string().min(1),
       targetId: z.string().min(1).optional(),
       ...ShapeToolInputSchema,
     },
   },
-  async (args) => withToolErrorHandling(async () => {
-    const session = visualEditSessions.get(args.sessionId);
+  async (args) => withToolErrorHandling(() => withVisualSession(args.sessionId, args.runId, async (session) => {
     // Validate polyline/freehand vs plannedShapes
     if (
       (args.kind === "polyline" || args.kind === "freehand")
@@ -5374,7 +5350,7 @@ registerTool(
       needsInspection: true,
       needsReview: true,
     };
-  }),
+  })),
 );
 
 registerTool(
@@ -5384,11 +5360,11 @@ registerTool(
     description: "scratch visual edit session内の既存図形を削除します。元画像とpreviewを見比べて余分な図形を消す時に使います。",
     inputSchema: {
       sessionId: VisualSessionIdSchema,
+      runId: WriteRunIdSchema,
       shapeId: z.string().min(1),
     },
   },
-  async ({ sessionId, shapeId }) => withToolErrorHandling(async () => {
-    const session = visualEditSessions.get(sessionId);
+  async ({ sessionId, runId, shapeId }) => withToolErrorHandling(() => withVisualSession(sessionId, runId, async (session) => {
     const operationIndex = findVisualShapeOperationIndex(session, shapeId);
     if (operationIndex < 0) {
       throw new Error(`削除対象の図形が見つかりません: ${shapeId}`);
@@ -5409,7 +5385,7 @@ registerTool(
       needsInspection: true,
       needsReview: true,
     };
-  }),
+  })),
 );
 
 registerTool(
@@ -5419,11 +5395,11 @@ registerTool(
     description: "scratch visual edit sessionの図形を、アンカーブロック周辺のページコンテキストと一緒にPNG previewとして返します。絶対previewFileを返し、画像右上にreview用の5文字コードを描画します。ChatGPTではinline image contentを既定で省略するためpreviewFileをview_imageで開いてください。最後の変更後に必ず実行してください。",
     inputSchema: {
       sessionId: VisualSessionIdSchema,
+      runId: WriteRunIdSchema,
       includeImage: z.boolean().optional(),
     },
   },
-  async ({ sessionId, includeImage }) => withToolErrorHandling(async () => {
-    const session = visualEditSessions.get(sessionId);
+  async ({ sessionId, runId, includeImage }) => withToolErrorHandling(() => withVisualSession(sessionId, runId, async (session) => {
     if (session.agentSession.operations.length === 0) {
       return {
         ok: false,
@@ -5599,7 +5575,7 @@ registerTool(
     }, session.provider === "chatgpt" && includeImage !== true
       ? []
       : includeImage === false ? [] : [pngImageContent(result.png)]);
-  }),
+  })),
 );
 
 registerTool(
@@ -5609,10 +5585,10 @@ registerTool(
     description: "scratch visual edit sessionの図形を機械的に検査します。不可視、極小、ページ外、折れ線点不足、自己交差などを検出します。",
     inputSchema: {
       sessionId: VisualSessionIdSchema,
+      runId: WriteRunIdSchema,
     },
   },
-  async ({ sessionId }) => withToolErrorHandling(async () => {
-    const session = visualEditSessions.get(sessionId);
+  async ({ sessionId, runId }) => withToolErrorHandling(() => withVisualSession(sessionId, runId, async (session) => {
     const inspection = inspectVisualSession(session);
     visualEditSessions.recordInspection(session, inspection);
     return {
@@ -5624,7 +5600,7 @@ registerTool(
       inspection,
       shapes: getVisualShapes(session.agentSession.operations).map(summarizeShape),
     };
-  }),
+  })),
 );
 
 registerTool(
@@ -5634,6 +5610,7 @@ registerTool(
     description: "render_visual_edit_sessionのpreviewを、添付された元画像またはユーザーの参照図と見比べた結果を記録します。画像右上の5文字previewCodeが直近renderのコードと一致し、verdict:'pass'、issuesが空、直近のinspect_visual_edit_sessionが合格、直近の変更後にrenderが実行済み、のすべてを満たす場合だけpassします。十分でなければneeds_revisionを返し、visual_replace_shape等で修正してから再度render/inspect/reviewしてください。",
     inputSchema: {
       sessionId: VisualSessionIdSchema,
+      runId: WriteRunIdSchema,
       verdict: z.enum(["pass", "needs_revision"]),
       score: z.number().min(0).max(100).describe("再現精度の自己評価スコア。記録はされますが、合否判定には使用しません(合否はverdict/issues/inspection/renderの機械的な条件で決まります)。"),
       previewCode: z.string()
@@ -5647,9 +5624,8 @@ registerTool(
       nextActions: VisualReviewStringArraySchema.describe("needs_revisionの場合に次に直す内容。"),
     },
   },
-  async ({ sessionId, verdict, score, previewCode, sourceImageSummary, previewSummary, matchedElements, issues, nextActions }) =>
-    withToolErrorHandling(async () => {
-      const session = visualEditSessions.get(sessionId);
+  async ({ sessionId, runId, verdict, score, previewCode, sourceImageSummary, previewSummary, matchedElements, issues, nextActions }) =>
+    withToolErrorHandling(() => withVisualSession(sessionId, runId, async (session) => {
       const { review, previewCodeMatches } = visualEditSessions.review(session, {
         verdict, score, previewCode, sourceImageSummary, previewSummary, matchedElements, issues, nextActions,
       });
@@ -5665,7 +5641,7 @@ registerTool(
         review,
         session: summarizeVisualSession(session),
       };
-    }),
+    })),
 );
 
 registerTool(
@@ -5675,11 +5651,11 @@ registerTool(
     description: "previewと品質検査に通過したscratch visual edit sessionをpending proposalとして保存します。最後の変更後にrenderとinspectを実行していない場合は拒否します。",
     inputSchema: {
       sessionId: VisualSessionIdSchema,
+      runId: WriteRunIdSchema,
       summary: z.string().min(1).optional(),
     },
   },
-  async ({ sessionId, summary }) => withToolErrorHandling(async () => {
-    const session = visualEditSessions.get(sessionId);
+  async ({ sessionId, runId, summary }) => withToolErrorHandling(() => withVisualSession(sessionId, runId, async (session) => {
     visualEditSessions.assertReadyForProposal(session, inspectVisualSession);
 
     const { store } = storeContext;
@@ -5731,6 +5707,10 @@ registerTool(
     }
 
     const proposalSummary = createPendingProposalMessage(draft.draft.summary);
+    // 提案を保存する直前に、別のプロセスがこの session を先に進めていないか確かめる (古い内容で提案しない)。
+    if (!await visualEditSessions.isLatest(session)) {
+      throw new Error(VISUAL_SESSION_SUPERSEDED_MESSAGE);
+    }
     const visualWriteContext = resolveWriteRunContext(session.runId ?? undefined);
     const proposalStore = createProposalStore();
     const currentRoomProposal = await proposalStore.findCurrentPendingProposal({
@@ -5793,7 +5773,7 @@ registerTool(
       instructionForAgent: VERIFICATION_INSTRUCTION,
       ...(revisionNote ? { revisionReconciliation: { expectedRevision: session.file.revision, acceptedAtRevision: file.revision, note: revisionNote } } : {}),
     };
-  }),
+  })),
 );
 
 registerTool(
@@ -5803,11 +5783,12 @@ registerTool(
     description: "scratch visual edit sessionを破棄します。教材本体やpending proposalには影響しません。",
     inputSchema: {
       sessionId: VisualSessionIdSchema,
+      runId: WriteRunIdSchema,
     },
   },
-  async ({ sessionId }) => withToolErrorHandling(async () => {
-    visualEditSessions.prune();
-    const session = visualEditSessions.peek(sessionId);
+  async ({ sessionId, runId }) => withToolErrorHandling(async () => {
+    // 前の turn の MCP サーバーが作った session も、保存から読み戻して破棄できる (自分の run のものだけ)。
+    const session = await visualEditSessions.find(sessionId, visualSessionCaller(runId));
     if (session) {
       await visualEditSessions.finish(session, "discarded");
     }
@@ -6115,7 +6096,7 @@ async function runAppContextTool(callback: () => Promise<AppContextToolOutcome>)
 const appContextDeps: AppContextToolDeps = { env: process.env, loadSigmaDocStore: () => storeContext.store };
 
 const AppContextRunIdInputSchema = z.string().min(1).optional()
-  .describe("この呼び出し元エージェントのrunId。プロンプトで伝えられたrunIdをそのまま渡してください。並行実行中の自分のrunのコンテキストを正しく参照するために使います。省略時は最新の実行コンテキストにフォールバックします。");
+  .describe("プロンプトで伝えられた自分のrunId。そのまま渡すと、並行実行中でも自分のrunのコンテキストを参照します。省略時は最新の実行コンテキストを使います。");
 
 for (const tool of APP_CONTEXT_TOOL_TABLE) {
   registerTool(
@@ -6136,16 +6117,14 @@ for (const tool of APP_CONTEXT_TOOL_TABLE) {
   );
 }
 
-  if (toolProfile === "app") {
-    for (const tool of createAppBodyTools(bodyImplementations)) {
-      registerTool(tool.name, tool.config, async (args, extra) => {
-        try {
-          return await tool.handler(args, extra);
-        } catch (error) {
-          return toolErrorResult(error);
-        }
-      });
-    }
+  for (const tool of createAppBodyTools(bodyImplementations)) {
+    registerTool(tool.name, tool.config, async (args, extra) => {
+      try {
+        return await tool.handler(args, extra);
+      } catch (error) {
+        return toolErrorResult(error);
+      }
+    });
   }
   return server;
 }

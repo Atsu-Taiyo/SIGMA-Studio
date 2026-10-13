@@ -22,7 +22,6 @@ describe("buildCodexAgentConfigToml", () => {
     expect(toml).toContain('web_search = "disabled"');
     expect(toml).toContain("[tools]");
     expect(toml).toContain("view_image = true");
-    expect(toml).toContain('SIGMA_STUDIO_MCP_TOOL_PROFILE = "app"');
   });
 
   it("registers the sigma-studio-local MCP server with command/args and timeouts", () => {

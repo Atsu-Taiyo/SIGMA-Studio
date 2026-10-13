@@ -45,7 +45,7 @@ describe("official skill examples against the app-profile MCP tools", () => {
     await context.write({ version: 1, runId: "skill_run", provider: "chatgpt", fileId, fileRevision: 1,
       createdAt: new Date().toISOString(), selectedId: "p_skill", references: [], attachments: [], mentionedDocuments: [], roomId: "skill_room", turnId: "skill_turn" });
     vi.stubEnv("SIGMA_STUDIO_RUN_CONTEXT_FILE", context.getRunContextFilePath());
-    const server = createSigmaDocMcpServer({ toolProfile: "app" });
+    const server = createSigmaDocMcpServer();
     client = new Client({ name: "skill-examples", version: "1" });
     const [a, b] = InMemoryTransport.createLinkedPair();
     await Promise.all([client.connect(a), server.connect(b)]);
@@ -73,9 +73,9 @@ describe("official skill examples against the app-profile MCP tools", () => {
     ]) {
       expect(names.has(name), name).toBe(true);
     }
-    // 外部MCP名は app profile では出ない。スキルがそれを書くとモデルは呼べない。
-    for (const legacy of ["insert_body_content", "create_problem_content", "apply_edits"]) {
-      expect(names.has(legacy), legacy).toBe(false);
+    // 本文編集の内部実装の名前は公開しない。スキルがそれを書くとモデルは呼べない。
+    for (const internal of ["insert_body_content", "create_problem_content", "apply_edits"]) {
+      expect(names.has(internal), internal).toBe(false);
     }
   });
 

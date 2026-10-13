@@ -3,6 +3,7 @@ import fsPromises from "node:fs/promises";
 import path from "node:path";
 
 import { visualSessionsFileName, type AiEditRunContextProvider } from "../electron/ai-edit-run-context";
+import { parseVisualSessionsStatusFile } from "../electron/visual-session-status";
 import type { VisualSessionStatusWriteTarget } from "./visual-edit-session-lifecycle";
 import { resolveRunContextDirectory } from "./sigma-doc-mcp-files";
 
@@ -19,6 +20,13 @@ export function resolveVisualSessionStatusFile(
   const filePath = path.join(runContextDirectory, visualSessionsFileName(provider, runId));
   return {
     key: filePath,
+    async read() {
+      try {
+        return parseVisualSessionsStatusFile(JSON.parse(await fsPromises.readFile(filePath, "utf8")));
+      } catch {
+        return null;
+      }
+    },
     async write(statusFile) {
       const temporaryFilePath = `${filePath}.tmp-${randomUUID()}`;
       try {

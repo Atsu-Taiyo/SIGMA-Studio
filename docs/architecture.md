@@ -193,13 +193,15 @@ mtimeの古さだけで生存中の所有者を追い出さず、クラッシュ
 旧版と新版の同時稼働は排他の保証対象外です。`.mutex`は所有者情報ではなく安定した排他対象なので、
 通常のreleaseや残骸cleanupで削除しません。
 
-ローカルMCPでは`sigma-doc-mcp-tool-registrar.ts`が公開profile、annotation、実行帰属、計測を担い、
+ローカルMCPでは`sigma-doc-mcp-tool-registrar.ts`が公開するtool、annotation、実行帰属、計測と、本文編集の4ツールが呼ぶ内部実装の保持を担い、
 `sigma-doc-mcp-response.ts`が応答envelopeを所有します。SDKの`server.registerTool`を実行中に上書きせず、
 coreが明示的なregistrarに既存tool定義を渡します。tool名、description、schema、公開順と実行経路はそのまま維持します。
 visual sessionのlive・terminal・書込待ち状態と描画世代の検証は`mcp/visual-edit-session-lifecycle.ts`が所有します。
 clockと状態書込先を受け取るprocess共通のinstanceを使い、tool handlerから状態遷移を呼びます。
 状態ファイルの保存は`mcp/visual-session-status-file.ts`、Electron側と共有する形式は
 `electron/visual-session-status.ts`に置きます。終了状態の保存完了後にlive sessionを削除する順序を維持します。
+runIdを持つsessionは`mcp/visual-edit-session-state-file.ts`がrun単位のファイルへ保存し、別processの
+MCPサーバーが同じsessionIdで読み戻します。lifecycleは保存先をportとして受け取り、memoryを保存のcacheとして扱います。
 
 この依存規則は `src/features/headless-boundaries.test.ts`、`src/features/document/architecture.test.ts`、`src/features/drawing/architecture.test.ts`、`src/features/rendering/architecture.test.ts`、`src/features/text-editing/architecture.test.ts`、`src/features/ai-edit/editor-boundary.test.ts`、`src/components/editor/text-flow/architecture.test.ts`、`src/components/tiptap/text-format-controller-architecture.test.ts`、`src/components/editor/page-canvas/architecture.test.ts`、`src/components/editor/overlay-canvas/shape-renderer-architecture.test.ts` で検査します。互換性を型検査するtestと出力adapterは境界を跨ぐこと自体が役割なので、純粋coreと同じ禁止規則は適用しません。
 
