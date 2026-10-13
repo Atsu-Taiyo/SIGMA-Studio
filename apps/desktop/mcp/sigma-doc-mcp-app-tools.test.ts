@@ -12,7 +12,6 @@ import { computeDocumentBlockHashes } from "@/lib/sigma-doc-block-hash";
 import { getDefaultPageLayout } from "@/lib/page-layout";
 import { sampleDocument } from "@/lib/sample-document";
 import { parseSigmaDocument, SigmaDocumentSchema } from "@/lib/sigma-doc-schema";
-import { MCP_TOOL_CATEGORIES, MCP_TOOL_CATEGORY_MAP, toolNamesForCategories } from "@/lib/ai/mcp-tool-categories";
 import { LocalAiEditRunContextStore } from "../electron/ai-edit-run-context";
 import { LocalSigmaDocStore } from "../electron/local-sigma-doc-store";
 import { LocalMcpEditProposalStore } from "../electron/local-sigma-doc-proposal-store";
@@ -94,14 +93,10 @@ describe("MCP body tools", () => {
     return proposal!;
   }
 
-  it("publishes the four body tools in place of their implementations and matches the permission categories", async () => {
+  it("publishes the four body tools in place of their implementations", async () => {
     const appClient = await connect();
     const app = (await appClient.listTools()).tools;
-    expect(app.map((tool) => tool.name).sort()).toEqual(
-      MCP_TOOL_CATEGORIES.flatMap((category) => MCP_TOOL_CATEGORY_MAP[category]).sort(),
-    );
     expect(app).toHaveLength(68);
-    expect(toolNamesForCategories(MCP_TOOL_CATEGORIES).sort()).toEqual(app.map((tool) => tool.name).sort());
     for (const [name, route] of Object.entries(BODY_IMPLEMENTATION_ROUTES)) {
       expect(app.some((tool) => tool.name === name)).toBe(false);
       expect(app.some((tool) => tool.name === route.name)).toBe(true);

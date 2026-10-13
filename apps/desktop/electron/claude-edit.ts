@@ -77,12 +77,9 @@ function buildClaudeDescriptor(images: ClaudeImageInput[], documents: ClaudePdfI
       return { instruction: prompt };
     },
 
-    async runTurn({ client, instruction, userInstruction, references, selectedSkillIds, model, reasoningEffort, agentThreadId, mcpConfig, webSearchEnabled, runId, cwd, onDelta, onToolUse, onToolResult }) {
+    async runTurn({ client, instruction, model, reasoningEffort, agentThreadId, mcpConfig, webSearchEnabled, runId, cwd, onDelta, onToolUse, onToolResult }) {
       const result = await client.runTurn({
         instruction,
-        userInstruction,
-        references,
-        selectedSkillIds,
         images,
         documents,
         model,

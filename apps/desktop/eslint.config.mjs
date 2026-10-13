@@ -100,7 +100,6 @@ const eslintConfig = [
       "src/lib/document-title.ts",
       "src/app/layout.tsx",
       // AI/MCP向けプロンプト・ツール契約・照合語彙。ユーザー可視UIは含めない。
-      "src/lib/ai/mcp-tool-categories.ts",
       "src/lib/ai/sigma-doc-agent-tools.ts",
       "src/lib/ai/comment-mention.ts",
       "src/lib/ai/ai-rejection-prompt.ts",

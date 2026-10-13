@@ -1,20 +1,36 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import { describe, expect, it } from "vitest";
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
+import { beforeAll, describe, expect, it } from "vitest";
 
 import { validateAiSvg } from "@/lib/ai/svg-image";
 import { parseSkillFile, SKILL_CONTENT_MAX_LENGTH } from "@/lib/ai/skill-frontmatter";
-import { MCP_TOOL_CATEGORY_MAP } from "@/lib/ai/mcp-tool-categories";
 
 import { BODY_IMPLEMENTATION_ROUTES } from "../mcp/sigma-doc-mcp-app-tools";
+import { createSigmaDocMcpServer } from "../mcp/sigma-doc-mcp-server-core";
 import { OFFICIAL_SKILL_DEFINITIONS } from "./ai-resource-store";
 
 const SKILLS_ROOT = path.join(__dirname, "official-skills");
 
-/** アプリ内AIが呼べるツール名 (MCPサーバーが公開する全ツール)。 */
-const KNOWN_TOOL_NAMES = new Set<string>(Object.values(MCP_TOOL_CATEGORY_MAP).flat());
 /** 本文編集の4入口の内部実装の名前。公開されないので、スキルに書くとモデルが呼べない。 */
 const BODY_IMPLEMENTATION_NAMES = Object.keys(BODY_IMPLEMENTATION_ROUTES);
+/** アプリ内AIが呼べるツール名。実際のMCPサーバーの tools/list から読む。 */
+const KNOWN_TOOL_NAMES = new Set<string>();
+
+beforeAll(async () => {
+  const server = createSigmaDocMcpServer();
+  const client = new Client({ name: "official-skills-test", version: "0.0.0" });
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+  try {
+    for (const tool of (await client.listTools()).tools) {
+      KNOWN_TOOL_NAMES.add(tool.name);
+    }
+  } finally {
+    await client.close();
+  }
+});
 /** ツール名ではないが、snake_case に見える語（操作名・返値の項目・例に使うID）。 */
 const COMMON_SNAKE_WORDS = new Set([
   "expected_revision", "file_id", "run_id", "target_id", "write_mode",
