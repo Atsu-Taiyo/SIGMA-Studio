@@ -226,6 +226,8 @@ export interface OverlaySelectPointRequest {
   focusTextOnMiss?: boolean;
   startMarquee?: boolean;
   targetShapeId?: string;
+  /** Open the shape menu after the read-only page hands selection to the canvas. */
+  openContextMenu?: boolean;
 }
 
 export type OverlayModeId =

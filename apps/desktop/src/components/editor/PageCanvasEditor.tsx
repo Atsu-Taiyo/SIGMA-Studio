@@ -1,4 +1,5 @@
 "use client";
+import { isSvgImageAsset } from "@/lib/svg-to-sigma";
 import { BlockEditor } from "@/components/editor/BlockEditor";
 import { CommentThreadsPanel } from "@/components/editor/CommentThreadsPanel";
 import { EditorExtensionProvider } from "@/components/editor/editor-extension-context";
@@ -1857,6 +1858,7 @@ const { candidateCommentTop, pendingCommentTop, commentThreadPositions } = usePa
     startMarquee = false,
     dragEndScreenPoint?: ClientPoint,
     targetShapeId?: string,
+    openContextMenu = false,
   ) => {
     if (bounds.width <= 0 || bounds.height <= 0) {
       return;
@@ -1902,6 +1904,7 @@ const { candidateCommentTop, pendingCommentTop, commentThreadPositions } = usePa
       focusTextOnMiss,
       startMarquee,
       targetShapeId,
+      openContextMenu,
     });
   }, [isWhiteboard, metrics, nextSelectPointRequestId, whiteboardPanX, whiteboardPanY, zoom]);
 
@@ -2415,6 +2418,16 @@ const { candidateCommentTop, pendingCommentTop, commentThreadPositions } = usePa
 
     const target = event.target instanceof Element ? event.target : null;
     const canvas = canvasRef.current;
+    const overlayPoint = !runningRegionEditKind ? getOverflowOverlayPointFromClient(event.clientX, event.clientY) : null;
+    const svgImage = overlayPoint ? getTopmostBodyModeOverlayHit(visibleBodyHitShapes, overlayPoint) : null;
+    if (canvas && svgImage?.type === "image" && isSvgImageAsset(overlay?.overlaySnapshot?.assets[svgImage.props.assetId])) {
+      event.preventDefault();
+      event.stopPropagation();
+      setBodyContextMenu(null);
+      setProblemContextMenu(null);
+      requestOverlayPreviewSelection(canvas.getBoundingClientRect(), event.clientX, event.clientY, false, false, false, undefined, svgImage.id, true);
+      return;
+    }
     const problemAreaElement = target?.closest<HTMLElement>("[data-problem-area]") ?? null;
     const problemId = problemAreaElement?.closest("[data-problem-id]")?.getAttribute("data-problem-id") ?? null;
     const problemAreaValue = problemAreaElement?.getAttribute("data-problem-area") ?? null;
@@ -2488,6 +2501,11 @@ const { candidateCommentTop, pendingCommentTop, commentThreadPositions } = usePa
     });
   }, [
     isOverlayEditing,
+    getOverflowOverlayPointFromClient,
+    overlay,
+    requestOverlayPreviewSelection,
+    runningRegionEditKind,
+    visibleBodyHitShapes,
     onSelect,
     openBodyContextMenu,
     pageDocument,
