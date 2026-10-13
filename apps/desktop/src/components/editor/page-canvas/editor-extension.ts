@@ -93,7 +93,13 @@ export type PageCanvasSelectionSource =
  */
 export interface PageCanvasSelectionAction {
   key: string;
-  render: (position: SelectionActionPopoverPosition) => ReactNode;
+  /**
+   * 選択に対する機能の操作 (AI への依頼など)。本文の選択では、コメントと並べて選んだところの
+   * 右下のチップに出す。`position` はそのチップの位置 (画面座標) で、開く面の錨に使える。
+   */
+  render?: (position: SelectionActionPopoverPosition) => ReactNode;
+  /** 選んだものを直す操作 (書式・図形の操作)。選択の上の帯に出す。 */
+  renderTools?: () => ReactNode;
   notifyCandidate?: () => void;
 }
 

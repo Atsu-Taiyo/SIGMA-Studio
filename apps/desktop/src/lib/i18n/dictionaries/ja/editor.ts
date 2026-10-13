@@ -187,6 +187,8 @@ export const editor = {
     spaceAfterHint: "下へドラッグで余白を追加（ダブルクリックで 0）",
     /** 問題文だけは何問目かが付く。区分の呼び名そのものは `block.problem*` が出典。 */
     areaPrompt: "問{{number}} 問題文",
+    /** 段組の 2 段目以降で段の間に縦書きで出すときの短い形。 */
+    areaPromptShort: "問{{number}}",
   },
   /**
    * 紙面の右クリックメニュー。**区分の呼び名 (`{{area}}`) と段数 (`{{columns}}`) は
@@ -238,6 +240,9 @@ export const editor = {
     candidates: "挿入候補",
     empty: "候補がありません",
     kindBox: "箱",
+    /** 棚 (自作の枠の一覧) の枠で挿す箱。 */
+    kindFrameBox: "自分の枠",
+    frameBoxDescription: "自作の枠の箱",
     kindBlock: "ブロック",
     kindProblem: "問題",
     kindMaterial: "素材",
@@ -641,6 +646,8 @@ export const editor = {
     box: "箱",
     boxBody: "箱の中身",
     columns: "{{columns}}段組",
+    /** 段組の 2 段目以降で段の間に縦書きで出すときの短い形。 */
+    columnsShort: "{{columns}}段",
     /** 段組ブロックのアイコン代わりに出す短いラベル。 */
     columnsIcon: "段",
     problem: "問題",

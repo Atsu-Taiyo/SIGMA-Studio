@@ -1,6 +1,8 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
+import { DEFAULT_GRAPH_AXIS_END_STYLE } from "@/features/document";
+import { getArrowheadTrimInStrokes } from "@/features/rendering/core";
 import { createGraph2DSpecPreset } from "@/lib/graph2d";
 
 import { Graph2DPreview } from "./Graph2DPreview";
@@ -224,7 +226,9 @@ describe("Graph2DPreview rendering adapter", () => {
     expect((axesGroup.match(/<line /g) ?? [])).toHaveLength(1);
     expect(axesGroup).toContain('x1="294"');
     expect(axesGroup).toContain('y1="111"');
-    expect(axesGroup).toContain('y2="18"');
+    // The axis runs to the top of the display range (y=18); its default end sits on that edge and the
+    // line itself stops where the end already covers it.
+    expect(axesGroup).toContain(`y2="${18 + getArrowheadTrimInStrokes(DEFAULT_GRAPH_AXIS_END_STYLE) * 1.2}"`);
     expect(html).not.toContain("graph2d-axis-label-tex");
   });
 
@@ -257,7 +261,8 @@ describe("Graph2DPreview rendering adapter", () => {
 
     expect(html).toContain("stroke-dasharray:3 3");
     expect(html).toContain("stroke-width:0.85");
-    expect(html).toContain("fill:#0d0d0d");
+    // The default end is an open arrow, so the axis colour reaches it as a stroke.
+    expect(html.match(/<marker[\s\S]*?<\/marker>/)?.[0]).toContain('style="stroke:#0d0d0d"');
   });
 
   it("does not render formula labels inside the graph", () => {
@@ -412,5 +417,35 @@ describe("Graph2DPreview rendering adapter", () => {
     expect(html).toContain("graph2d-fill-region");
     expect(html).toContain('fill-rule="evenodd"');
     expect(html.indexOf("graph2d-fill-region")).toBeLessThan(html.indexOf("graph2d-curves"));
+  });
+});
+
+describe("Graph2DPreview origin tick", () => {
+  function tickLabels(originLabeled: boolean): { x: string[]; y: string[] } {
+    const base = createGraph2DSpecPreset("line");
+    const spec = {
+      ...base,
+      viewBox: { xMin: "-3", xMax: "3", yMin: "-3", yMax: "3" },
+      axes: { ...base.axes, showX: true, showY: true, showTicks: true, xTickStep: "1", yTickStep: "1" },
+    };
+    const html = renderToStaticMarkup(<Graph2DPreview spec={spec} staticMode originLabeled={originLabeled} />);
+    const ticks = html.slice(html.indexOf('class="graph2d-ticks"'));
+    const labels = [...ticks.matchAll(/<text x="([^"]+)" y="([^"]+)"[^>]*>([^<]*)<\/text>/g)]
+      .map((match) => ({ x: Number(match[1]), y: Number(match[2]), text: match[3]! }));
+    // 横軸の目盛り数字は同じ y に並び、縦軸の数字は同じ x (左の余白) に並ぶ。
+    const xRow = labels.filter((label) => label.y === labels[0]!.y).map((label) => label.text);
+    const yColumn = labels.filter((label) => label.y !== labels[0]!.y).map((label) => label.text);
+    return { x: xRow, y: yColumn };
+  }
+
+  it("drops the x-axis 0 under the origin label O, and keeps the y-axis 0 in the left margin", () => {
+    const labeled = tickLabels(true);
+    expect(labeled.x).not.toContain("0");
+    expect(labeled.x).toContain("1");
+    expect(labeled.y).toContain("0");
+  });
+
+  it("keeps the 0 tick when the graph has no origin label", () => {
+    expect(tickLabels(false).x).toContain("0");
   });
 });

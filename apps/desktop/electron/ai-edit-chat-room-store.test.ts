@@ -82,6 +82,45 @@ describe("LocalAiEditChatRoomStore", () => {
     });
   });
 
+  it("keeps image comments in the restored user turn and drops broken ones", async () => {
+    const room = createRoom("room_notes", "file_1", "thread_notes");
+    const userTurn = room.turns[0];
+    if (userTurn?.role !== "user") {
+      throw new Error("user turn fixture is missing");
+    }
+    userTurn.attachments = [{
+      id: "shot_1",
+      name: "screenshot.png",
+      mimeType: "image/png",
+      width: 400,
+      height: 300,
+      fileSize: 128,
+      dataUrl: "data:image/png;base64,AAAA",
+      annotations: [
+        { id: "a", x: 0.5, y: 0.25, comment: "ここ" },
+        { id: "b", x: 0.5, y: 0.25, comment: "  " },
+      ],
+    }, {
+      id: "plain_1",
+      name: "plain.png",
+      mimeType: "image/png",
+      width: 10,
+      height: 10,
+      fileSize: 1,
+      dataUrl: "data:image/png;base64,AAAA",
+    }];
+
+    await store.saveRoom(room);
+    const restored = await store.listRooms("file_1");
+    const restoredUserTurn = restored[0]?.turns[0];
+    if (restoredUserTurn?.role !== "user") {
+      throw new Error("restored user turn is missing");
+    }
+    expect(restoredUserTurn.attachments[0]?.annotations).toEqual([{ id: "a", x: 0.5, y: 0.25, comment: "ここ" }]);
+    // 注記の無い添付は旧形式のまま (項目を足さない)。
+    expect(restoredUserTurn.attachments[1]).not.toHaveProperty("annotations");
+  });
+
   it("migrates a legacy single overlay reference so its historical preview survives", async () => {
     const legacyRoom = createRoom("room_legacy_overlay", "file_1", "thread_legacy");
     const legacyReference = {

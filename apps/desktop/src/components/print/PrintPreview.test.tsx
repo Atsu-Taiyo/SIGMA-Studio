@@ -10,10 +10,10 @@ import {
   translateNestedMeasuredBlock,
   type PrintContentUnit,
 } from "@/components/print/PrintPreview";
-import { PrintLayoutSectionFragment } from "@/components/print/print-static-blocks";
+import { PrintBoxBlock, PrintLayoutSectionFragment } from "@/components/print/print-static-blocks";
 import { renderMathHtml } from "@/features/rendering/adapters";
 import { MM_TO_PX } from "@/features/document";
-import { createBoxBlock } from "@/lib/box-blocks";
+import { createBoxBlock, setBoxCustomFrame } from "@/lib/box-blocks";
 import { createMathRenderEnvironment } from "@/lib/math-environment";
 import { getPrintProblemFrameFragmentChromeHeightMm } from "@/lib/problem-frame";
 import type { SigmaBlock, SigmaDocument } from "@/types/sigma-doc";
@@ -1163,11 +1163,35 @@ describe("PrintPreview print pagination", () => {
 
     expect(previewHtml).toContain("problem-frame--custom");
     expect(previewHtml).toContain('data-problem-frame-style="custom"');
-    expect(previewHtml).toContain("--problem-frame-border:5.292mm");
-    expect(previewHtml).toContain("--problem-frame-padding:2.646mm");
-    expect(previewHtml).toContain("--problem-frame-image-closed:url(&quot;data:image/svg+xml,%3Csvg");
+    expect(previewHtml).toContain("--custom-frame-border:5.292mm");
+    expect(previewHtml).toContain("--custom-frame-padding:2.646mm");
+    expect(previewHtml).toContain("--custom-frame-image-closed:url(&quot;data:image/svg+xml,%3Csvg");
     expect(getPrintProblemFrameFragmentChromeHeightMm("custom", "single", custom))
       .toBeCloseTo((10 + 20) * 2 * 25.4 / 96);
+  });
+
+  it("draws a box's own frame as the same nine-slice drawing, open-edged where a split box continues", () => {
+    const custom = {
+      svg: '<svg xmlns="http://www.w3.org/2000/svg" width="80" height="50" viewBox="0 0 80 50"><rect x="1" y="1" width="78" height="48" fill="none" stroke="#123456"/></svg>',
+      width: 80,
+      height: 50,
+      slice: 12,
+      borderPx: 20,
+      paddingPx: 10,
+    };
+    const box = setBoxCustomFrame(createBoxBlock("tcolorbox", "定理", { id: "box_custom_print" }), custom);
+    const whole = renderToStaticMarkup(<PrintBoxBlock block={box} columnGapMm={8} />);
+    expect(whole).toContain("box-frame--custom");
+    expect(whole).not.toContain("box-frame--title-band");
+    expect(whole).toContain("--custom-frame-border:20px");
+    expect(whole).toContain("--sigma-doc-box-padding-top:10px");
+    expect(whole).toContain("--custom-frame-image-open-top:url(&quot;data:image/svg+xml,%3Csvg");
+    expect(whole).toContain('class="print-box-title"');
+
+    const middle = renderToStaticMarkup(
+      <PrintBoxBlock block={box} columnGapMm={8} fragmentBlocks={box.blocks} fragmentRole="middle" includeTitle={false} />,
+    );
+    expect(middle).toMatch(/class="print-box-block box-frame box-frame--custom [^"]* print-box-fragment-middle"/);
   });
 
   it("keeps full-span problem areas atomic", () => {

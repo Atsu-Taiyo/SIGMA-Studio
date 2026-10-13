@@ -2,9 +2,11 @@ import { drawCroppedImageToCanvas } from "@/components/editor/overlay-canvas/ima
 import type { OverlayAsset, OverlayShape } from "@/components/editor/overlay-canvas/types";
 import type { OverlaySelectionSummary } from "@/components/editor/page-overlay-types";
 import { buildSelectedShapesAttachmentName } from "@/lib/ai/ai-edit-attachment-names";
+import { prepareSvgForImage } from "@/lib/svg-embedded-styles";
 import { type AiEditOverlaySelectionContext } from "@/lib/ai/ai-edit-reference";
 import { buildShapesSvgPreview, type AiEditShapeOnlyPreview } from "@/lib/ai/ai-edit-shape-preview";
 import type { AiEditAttachment } from "@/lib/ai/sigma-doc-agent-tools";
+import type { AiImageAnnotation } from "@/lib/ai/ai-image-annotations";
 import { tAiNow } from "./ai-chat-translator";
 export const MAX_AI_EDIT_ATTACHMENTS = 4;
 export interface OverlayReferencePreview {
@@ -21,18 +23,22 @@ export async function createAttachmentsWithSelectedOverlayPreview({
   overlayPreviews,
   overlaySelection,
   activeReferenceKey,
+  overlayAnnotations = {},
 }: {
   attachments: AiEditAttachment[];
   overlayPreviews: OverlayReferencePreview[];
   overlaySelection: OverlaySelectionSummary;
   activeReferenceKey: string | null;
+  /** 図形プレビューの中に付けたコメント (参照キーごと)。PNGは同じSVGから同じ縦横比で作るので座標はそのまま使える。 */
+  overlayAnnotations?: Readonly<Record<string, AiImageAnnotation[]>>;
 }): Promise<AiEditAttachment[]> {
   const requestedPreviews = overlayPreviews.slice(0, MAX_AI_EDIT_ATTACHMENTS);
   const generatedPreviews: AiEditAttachment[] = [];
   for (const overlayPreview of requestedPreviews) {
     const attachment = await createAttachmentFromOverlayPreview(overlayPreview);
     if (attachment) {
-      generatedPreviews.push(attachment);
+      const annotations = overlayAnnotations[overlayPreview.referenceKey];
+      generatedPreviews.push(annotations && annotations.length > 0 ? { ...attachment, annotations } : attachment);
     }
   }
 
@@ -74,7 +80,7 @@ export function buildSelectedOverlayShapePreview(overlaySelection: OverlaySelect
   if (overlaySelection.selectedShapes.length === 0) {
     return null;
   }
-  return buildShapesSvgPreview(overlaySelection.selectedShapes, overlaySelection.selectedAssets, {
+  return buildShapesSvgPreview(overlaySelection.previewShapes ?? overlaySelection.selectedShapes, overlaySelection.selectedAssets, {
     paddingPx: 10,
     minWidthPx: 48,
     minHeightPx: 48,
@@ -106,7 +112,10 @@ async function createAttachmentFromOverlayPreview(
     );
     const width = Math.max(1, Math.round(preview.width * scale));
     const height = Math.max(1, Math.round(preview.height * scale));
-    const image = await loadImageElement(toSvgDataUrl(preview.svg));
+    // グラフの軸や図形の文字は紙面の CSS クラスで描き、入れ子の SVG は名前空間なしで書き出される。
+    // 画像にする前に名前空間を付け直し、CSS と書体を埋め込む (できなければ従来どおり SVG だけで描く)。
+    const svg = await prepareSvgForImage(preview.svg).catch(() => preview.svg);
+    const image = await loadImageElement(toSvgDataUrl(svg));
     const canvas = document.createElement("canvas");
     canvas.width = width;
     canvas.height = height;

@@ -237,7 +237,7 @@ function containsDeepFocus(field: HTMLElement): boolean {
   return Boolean(active && (field === active || field.contains(active) || field.shadowRoot?.contains(active)));
 }
 
-function getDeepActiveElement(ownerDocument: Document): Element | null {
+export function getDeepActiveElement(ownerDocument: Document): Element | null {
   let active = ownerDocument.activeElement;
   while (active?.shadowRoot?.activeElement) {
     active = active.shadowRoot.activeElement;

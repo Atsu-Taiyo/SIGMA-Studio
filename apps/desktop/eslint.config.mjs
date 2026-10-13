@@ -25,7 +25,6 @@ const eslintConfig = [
       "coverage/**",
       "dist/**",
       "dist-electron/**",
-      "dist-mcp/**",
       "release/**",
       "build/**",
       // 計測用ビルドの退避先とレポート出力先 (どちらもビルド成果物 / 生成物)。
@@ -101,7 +100,6 @@ const eslintConfig = [
       "src/lib/document-title.ts",
       "src/app/layout.tsx",
       // AI/MCP向けプロンプト・ツール契約・照合語彙。ユーザー可視UIは含めない。
-      "src/lib/ai/mcp-tool-categories.ts",
       "src/lib/ai/sigma-doc-agent-tools.ts",
       "src/lib/ai/comment-mention.ts",
       "src/lib/ai/ai-rejection-prompt.ts",

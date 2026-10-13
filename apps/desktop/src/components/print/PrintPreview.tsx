@@ -49,6 +49,7 @@ import { getPrintableDocument } from "@/lib/print-renderer";
 import { useT } from "@/lib/i18n/react";
 import {
   boxBlockHasHeader,
+  boxFrameChromeInsetPx,
   observeCornerBoxReferenceHeights,
   resolveBoxFrame,
 } from "@/lib/box-blocks";
@@ -1480,10 +1481,9 @@ export function paginateMeasuredPrintBlocks(
 }
 
 function estimatePrintBoxFragmentChromeHeight(block: Extract<SigmaBlock, { type: "boxBlock" }>): number {
-  const frame = resolveBoxFrame(block);
-  const padding = frame.paddingPx ?? { top: 12, right: 14, bottom: 12, left: 14 };
+  const inset = boxFrameChromeInsetPx(resolveBoxFrame(block));
   const titleHeight = boxBlockHasHeader(block) ? 24 : 0;
-  return padding.top + padding.bottom + titleHeight;
+  return inset.top + inset.bottom + titleHeight;
 }
 
 /**
@@ -1517,9 +1517,7 @@ function getBlockSliceBreakOffsets(
   if (block.type !== "boxBlock") {
     return measuredBreakOffsets ?? [];
   }
-  const frame = resolveBoxFrame(block);
-  const padding = frame.paddingPx ?? { top: 12, right: 14, bottom: 12, left: 14 };
-  let cursor = padding.top + (boxBlockHasHeader(block) ? 24 : 0);
+  let cursor = boxFrameChromeInsetPx(resolveBoxFrame(block)).top + (boxBlockHasHeader(block) ? 24 : 0);
   const offsets: number[] = [];
   for (const child of block.blocks) {
     cursor += getMeasuredOrEstimatedBlockHeight(child, measuredDescendantHeights);

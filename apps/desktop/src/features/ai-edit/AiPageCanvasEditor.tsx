@@ -91,7 +91,7 @@ import { RegionCaptureLayer } from "@/components/editor/region-capture/RegionCap
 import { useAiEditorExtensions } from "./editor-extensions";
 import { aiResultOnlyBlockedMessage, createAiReadOnlyTextFlowEditGuard } from "./adapters/tiptap/edit-lock-adapter";
 import { AiScreenshotAskButton, type AiScreenshotRequestHandler } from "./view/AiScreenshotAskButton";
-import { ProblemFrameChatNotices } from "./view/ProblemFrameChatNotices";
+import { FrameChatNotices } from "./view/FrameChatNotices";
 import type { AiProposalApplyOutcome } from "./application/proposal-action-model";
 
 /** 浮かぶバーの幅。見出しと操作が 1 行に並ぶ幅 (段が狭ければ段に収める)。 */
@@ -247,7 +247,7 @@ function AiEnabledPageCanvasEditor({
         pageExtension={extension}
       />
       <RegionCaptureLayer actions={screenshotActions} />
-      <ProblemFrameChatNotices
+      <FrameChatNotices
         documentIdentityKey={documentIdentityKey}
         document={pageEditorProps.document}
         onChange={pageEditorProps.onChange}
@@ -799,7 +799,7 @@ function createSelectionAction({
         assets: source.selection.selectedAssets,
       });
       if (source.selection.selectedShapes.length > 0) {
-        overlayPreview = buildShapesSvgPreview(source.selection.selectedShapes, source.selection.selectedAssets, {
+        overlayPreview = buildShapesSvgPreview(source.selection.previewShapes ?? source.selection.selectedShapes, source.selection.selectedAssets, {
           paddingPx: 10,
           minWidthPx: 48,
           minHeightPx: 48,

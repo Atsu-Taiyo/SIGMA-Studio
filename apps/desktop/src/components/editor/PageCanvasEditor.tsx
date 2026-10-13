@@ -1,9 +1,9 @@
 "use client";
+import { isSvgImageAsset } from "@/lib/svg-to-sigma";
 import { BlockEditor } from "@/components/editor/BlockEditor";
 import { CommentThreadsPanel } from "@/components/editor/CommentThreadsPanel";
 import { EditorExtensionProvider } from "@/components/editor/editor-extension-context";
 import { KEYBOARD_ZOOM_STEP } from "@/components/editor/editor-shell/constants";
-import { PageRunningRegionView } from "@/components/editor/PageRunningRegionView";
 import { ProblemSettingsDialog } from "@/components/editor/ProblemSettingsDialog";
 import {
   cancelCaretKeeperWindow,
@@ -162,11 +162,12 @@ import {
   getFlowDisplacementProps,
   getFlowUnitBlockIds,
   getFlowUnitPlacementStyle,
+  getFlowUnitSideNoteAttribute,
   mergeFlowUnitStyle,
 } from "./page-canvas/flow-presentation";
 import { getFlowExtensionNodeId,getProblemAfterContentUnitIds,getProblemAfterInlineContent } from "./page-canvas/inline-content-composition";
 import { calculateReserveSpaceGaps } from "./page-canvas/layout-measure";
-import { LayoutSectionFlowUnit } from "./page-canvas/layout-section-view";
+import { LayoutSectionFlowUnit,layoutSectionSideLabel } from "./page-canvas/layout-section-view";
 import { publishLayoutSnapshot } from "./page-canvas/layout-snapshot";
 import { canInsertManualBreakAtBlock } from "./page-canvas/manual-break-context";
 import {
@@ -205,14 +206,16 @@ import {
   buildRenderUnits,
   getFlowLayoutStyle,
   getLayoutSectionColumnCount,
-  getPageColumnSideNoteOffsetPx,
+  getPageColumnSideNote,
   getRenderUnitManualBreakEdges,
   pickTextFlowBoxFragmentSourceLayouts,
   reconcileRenderUnits,
+  SIDE_NOTE_IN_COLUMN_GAP,
 } from "./page-canvas/render-units";
-import { RunningRegionControls } from "./page-canvas/running-region-view";
+import { RunningRegionControls, RunningRegionPageView } from "./page-canvas/running-region-view";
 import { mergeSelectionExtensions } from "./page-canvas/selection-extension-merge";
 import { SelectionActionPopover } from "./page-canvas/SelectionActionPopover";
+import { SideNoteChip } from "./page-canvas/side-note-chip";
 import { SpaceAfterDragSession } from "./page-canvas/space-after-drag-session";
 import {
   resolveSpaceAfterDragPx,
@@ -1857,6 +1860,7 @@ const { candidateCommentTop, pendingCommentTop, commentThreadPositions } = usePa
     startMarquee = false,
     dragEndScreenPoint?: ClientPoint,
     targetShapeId?: string,
+    openContextMenu = false,
   ) => {
     if (bounds.width <= 0 || bounds.height <= 0) {
       return;
@@ -1902,6 +1906,7 @@ const { candidateCommentTop, pendingCommentTop, commentThreadPositions } = usePa
       focusTextOnMiss,
       startMarquee,
       targetShapeId,
+      openContextMenu,
     });
   }, [isWhiteboard, metrics, nextSelectPointRequestId, whiteboardPanX, whiteboardPanY, zoom]);
 
@@ -2415,6 +2420,16 @@ const { candidateCommentTop, pendingCommentTop, commentThreadPositions } = usePa
 
     const target = event.target instanceof Element ? event.target : null;
     const canvas = canvasRef.current;
+    const overlayPoint = !runningRegionEditKind ? getOverflowOverlayPointFromClient(event.clientX, event.clientY) : null;
+    const svgImage = overlayPoint ? getTopmostBodyModeOverlayHit(visibleBodyHitShapes, overlayPoint) : null;
+    if (canvas && svgImage?.type === "image" && isSvgImageAsset(overlay?.overlaySnapshot?.assets[svgImage.props.assetId])) {
+      event.preventDefault();
+      event.stopPropagation();
+      setBodyContextMenu(null);
+      setProblemContextMenu(null);
+      requestOverlayPreviewSelection(canvas.getBoundingClientRect(), event.clientX, event.clientY, false, false, false, undefined, svgImage.id, true);
+      return;
+    }
     const problemAreaElement = target?.closest<HTMLElement>("[data-problem-area]") ?? null;
     const problemId = problemAreaElement?.closest("[data-problem-id]")?.getAttribute("data-problem-id") ?? null;
     const problemAreaValue = problemAreaElement?.getAttribute("data-problem-area") ?? null;
@@ -2488,6 +2503,11 @@ const { candidateCommentTop, pendingCommentTop, commentThreadPositions } = usePa
     });
   }, [
     isOverlayEditing,
+    getOverflowOverlayPointFromClient,
+    overlay,
+    requestOverlayPreviewSelection,
+    runningRegionEditKind,
+    visibleBodyHitShapes,
     onSelect,
     openBodyContextMenu,
     pageDocument,
@@ -3098,9 +3118,10 @@ const { candidateCommentTop, pendingCommentTop, commentThreadPositions } = usePa
                 <ColumnGuides metrics={metrics} />
                 <PageColumnRules metrics={metrics} />
                 {!(runningRegionEditKind === "header" && index + 1 === runningRegionEditPageNumber) && (
-                  <PageRunningRegionView
+                  <RunningRegionPageView
                     region={visibleLayout.header}
                     kind="header"
+                    layout={visibleLayout}
                     title={pageDocument.metadata.title}
                     pageNumber={index + 1}
                     totalPages={pageCount}
@@ -3109,9 +3130,10 @@ const { candidateCommentTop, pendingCommentTop, commentThreadPositions } = usePa
                   />
                 )}
                 {!(runningRegionEditKind === "footer" && index + 1 === runningRegionEditPageNumber) && (
-                  <PageRunningRegionView
+                  <RunningRegionPageView
                     region={visibleLayout.footer}
                     kind="footer"
+                    layout={visibleLayout}
                     title={pageDocument.metadata.title}
                     pageNumber={index + 1}
                     totalPages={pageCount}
@@ -3157,6 +3179,9 @@ const { candidateCommentTop, pendingCommentTop, commentThreadPositions } = usePa
                   metrics={metrics}
                   pageTopPx={index * (pageHeightPx + PAGE_GAP_PX)}
                   pageNumber={index + 1}
+                  title={pageDocument.metadata.title}
+                  totalPages={pageCount}
+                  mathFractionSizing={mathFractionSizing}
                   editingKind={runningRegionEditKind}
                   editingPageNumber={runningRegionEditPageNumber}
                   focusRequest={runningRegionFocusRequest}
@@ -3190,18 +3215,16 @@ const { candidateCommentTop, pendingCommentTop, commentThreadPositions } = usePa
               if (!section || section.type !== "layoutSection") {
                 return null;
               }
+              const sideNote = getPageColumnSideNote(noteLayout.x, noteLayout.x, metrics);
               return (
                 <div
                   key={`box-layout-section-side-note-${sectionId}`}
                   className={`box-layout-section-side-note-anchor ${selectedId === sectionId ? "selected" : ""}`}
                   data-box-layout-section-side-note={sectionId}
+                  data-side-note={sideNote.inColumnGap ? SIDE_NOTE_IN_COLUMN_GAP : undefined}
                   style={{
                     ...getFlowLayoutStyle(noteLayout),
-                    "--problem-area-page-x": `${getPageColumnSideNoteOffsetPx(
-                      noteLayout.x,
-                      noteLayout.x,
-                      metrics,
-                    )}px`,
+                    ...sideNote.style,
                   } as CSSProperties}
                   onClick={(event) => {
                     event.stopPropagation();
@@ -3209,7 +3232,10 @@ const { candidateCommentTop, pendingCommentTop, commentThreadPositions } = usePa
                   }}
                 >
                   <div className="layout-section-side-note">
-                    <span>{tEditorText("block.columns", { replace: { columns: getLayoutSectionColumnCount(section) } })}</span>
+                    <SideNoteChip
+                      label={layoutSectionSideLabel(getLayoutSectionColumnCount(section), tEditorText, sideNote.inColumnGap)}
+                      title={sideNote.inColumnGap ? layoutSectionSideLabel(getLayoutSectionColumnCount(section), tEditorText) : undefined}
+                    />
                   </div>
                 </div>
               );
@@ -3304,6 +3330,7 @@ const { candidateCommentTop, pendingCommentTop, commentThreadPositions } = usePa
                   columnLayout={problemAreaColumnLayouts[unit.id]}
                   boxFragmentSourceLayouts={boxFragmentSourceLayouts}
                   layoutStyle={getFlowUnitPlacementStyle(unit, unitDisplacements[unit.id], metrics, isColumnPage)}
+                  sideNoteAttribute={getFlowUnitSideNoteAttribute(unitDisplacements[unit.id], metrics)}
                   spaceAfterFollowerClass={spaceAfterFollowerUnitClass(unit.id)}
                   pageColumnGapPx={metrics.flow.columnGapPx}
                   pageColumnGapMm={metrics.flow.columnGapMm}
@@ -3342,6 +3369,7 @@ const { candidateCommentTop, pendingCommentTop, commentThreadPositions } = usePa
                   boxFragmentSourceLayouts={boxFragmentSourceLayouts}
                   frameFragments={frameFragmentLayouts[unit.id]}
                   layoutStyle={getFlowUnitPlacementStyle(unit, unitDisplacements[unit.id], metrics, isColumnPage)}
+                  sideNoteAttribute={getFlowUnitSideNoteAttribute(unitDisplacements[unit.id], metrics)}
                   spaceAfterFollowerClass={spaceAfterFollowerUnitClass(unit.id)}
                   draftMinHeightMm={problemAreaHeightDrafts[problemAreaDraftKey(unit.problem.id, unit.area)]}
                   pageContentHeightPx={metrics.content.heightPx}

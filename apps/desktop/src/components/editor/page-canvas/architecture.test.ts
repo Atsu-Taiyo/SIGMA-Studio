@@ -210,12 +210,14 @@ describe("page canvas pure-model dependency boundary", () => {
     expect(
       pageCanvas.match(/visiblePageRange=\{visiblePageRange\}/g),
     ).toHaveLength(4);
-    // The running region used to take a `variant` prop that every production caller set to
-    // `"print"`; the header/footer body is now drawn by the same renderer as the page body, so there
-    // is no fork left to pin. What matters is that the page canvas still composes the view itself.
-    expect(pageCanvas).toContain("<PageRunningRegionView");
-    const runningRegionElements = pageCanvas.match(/<PageRunningRegionView[^>]*>/g) ?? [];
+    // ヘッダー/フッターは、編集していないページ (PDF も) でも本文と同じエディタで描く。
+    // 静的な描画 (`PageRunningRegionView`) は埋め込みビューアなどエディタを持たない面だけのもので、
+    // 紙面が使うと、空白・差し込みの見え方が編集に入った途端に変わる。
+    expect(pageCanvas).not.toContain("PageRunningRegionView");
+    const runningRegionElements = pageCanvas.match(/<RunningRegionPageView[^>]*>/g) ?? [];
     expect(runningRegionElements).toHaveLength(2);
-    expect(runningRegionElements.join("")).not.toContain("variant=");
+    const runningRegionView = readSiblingSource("./running-region-view.tsx");
+    const pageView = runningRegionView.slice(runningRegionView.indexOf("export function RunningRegionPageView"));
+    expect(pageView.slice(0, pageView.indexOf("export function RunningRegionControls"))).toContain("<TextFlowEditor");
   });
 });

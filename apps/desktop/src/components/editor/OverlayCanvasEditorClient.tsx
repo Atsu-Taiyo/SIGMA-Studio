@@ -1,6 +1,8 @@
 "use client";
 import { useMemo } from "react";
 import { OverlayShapeContextMenu } from "./overlay-canvas/context-menu";
+import { useSvgConversion } from "./overlay-canvas/use-svg-conversion";
+import { isSvgImageAsset } from "@/lib/svg-to-sigma";
 import { CurveDrawingMarkers, InsertDragPreview, OverlayDragReadout, TablePlacementPreview } from "./overlay-canvas/insertion-preview";
 import { getModeStatus } from "./overlay-canvas/mode-status";
 import { readRememberedCalloutCornerRadius } from "./overlay-canvas/remembered-callout-radius";
@@ -1158,6 +1160,11 @@ export default function OverlayCanvasEditorClient({
    * 関数を使うが、それらは後ろで定義されるので、最新の実装を ref 越しに呼ぶ。
    */
   const extendedActionRunnerRef = useRef<((request: OverlayActionRequest) => void) | null>(null);
+  const openRequestedShapeContextMenu = useCallback((point: { x: number; y: number }, shapeId: string) => setContextMenu({
+    x: clamp(point.x, 8, Math.max(8, window.innerWidth - 232)),
+    y: clamp(point.y, 8, Math.max(8, window.innerHeight - 360)),
+    shapeId,
+  }), [setContextMenu]);
   useOverlayExternalRequests({
     handledActionRequestIdRef,
     duplicateSelectedShapes,
@@ -1197,7 +1204,8 @@ export default function OverlayCanvasEditorClient({
     queueOverlaySave,
     selectShape,
     documentId,
-    selectPointRequest
+    selectPointRequest,
+    openShapeContextMenu: openRequestedShapeContextMenu,
   });
   useOverlayGraphLabelController({
     setShapes,
@@ -1539,6 +1547,11 @@ export default function OverlayCanvasEditorClient({
     pageGapPx
   });
   const contextMenuSelectionCount = contextMenu ? selectedShapes.length : 0;
+  const { convertSvg, svgConversionMessage } = useSvgConversion({
+    documentId, shapesRef, assetsRef, extensionsRef, editPolicyLockedShapeIdsRef, explicitlySavedShapeStatesRef,
+    notifyEditPolicyBlocked, setShapes, setAssets, setSelectedShapeIds, commitOverlayChangeNow,
+    resolveAssetSource: (source) => documentSession?.resolveAssetSource?.(source) ?? source, tShape,
+  });
   const contextCanGroup = contextMenuSelectionCount >= 2;
   const contextCanUngroup = contextMenuSelectionCount > 0 && selectedShapes.some(isOverlayGroupShape);
   const contextCanAlign = contextMenuSelectionCount >= 2;
@@ -1840,6 +1853,12 @@ export default function OverlayCanvasEditorClient({
           </div>
         ), document.body)}
 
+        {svgConversionMessage && typeof document !== "undefined" && createPortal((
+          <div className="overlay-drawing-hint" role="status" aria-live="polite" data-testid="svg-conversion-message">
+            {svgConversionMessage}
+          </div>
+        ), document.body)}
+
         {contextMenu && contextMenuSelectionCount > 0 && typeof document !== "undefined" && createPortal((
           <OverlayShapeContextMenu
             x={contextMenu.x}
@@ -1892,6 +1911,8 @@ export default function OverlayCanvasEditorClient({
             onImageReplace={contextImageShape ? () => runContextMenuAction(() => requestImageReplacement(contextImageShape.id)) : undefined}
             onImageResetCrop={contextImageShape ? () => runContextMenuAction(() => resetImageCrop(contextImageShape.id)) : undefined}
             onImageNaturalSize={contextImageShape ? () => runContextMenuAction(() => restoreImageNaturalSize(contextImageShape.id)) : undefined}
+            onSvgConvert={contextImageShape && isSvgImageAsset(assets[contextImageShape.props.assetId])
+              ? () => runContextMenuAction(() => { void convertSvg(contextImageShape.id); }) : undefined}
             onImageOpacityChange={contextImageShape ? (opacity) => setImageOpacity(contextImageShape.id, opacity) : undefined}
             onDuplicate={() => runContextMenuAction(() => duplicateSelectedShapes())}
             onDelete={() => runContextMenuAction(deleteSelectedShapes)}

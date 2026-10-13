@@ -74,8 +74,8 @@ test("inserts native boxes in problem text and solution independently from the p
   const tiles = page.locator('[data-testid^="problem-frame-library-"]');
   await expect(tiles).toHaveCount(0);
   await page.getByTestId("problem-frame-new").click();
-  await expect(page.getByTestId("problem-custom-frame-editor")).toBeVisible();
-  await page.getByTestId("problem-frame-preset-soft-round").click();
+  await expect(page.getByTestId("custom-frame-editor")).toBeVisible();
+  await page.getByTestId("custom-frame-preset-soft-round").click();
   await expect(promptArea).toHaveClass(/problem-frame--custom/);
   await expect(promptArea).toHaveAttribute("data-problem-frame-style", "custom");
   await expect.poll(() => customFrameRenderMetrics(page)).toMatchObject({
@@ -90,14 +90,14 @@ test("inserts native boxes in problem text and solution independently from the p
   const firstSvg = (await savedFrame(page))?.custom?.svg;
 
   // Thickness is a live control: the frame on the page follows it, and so does the saved border.
-  await page.getByTestId("problem-custom-frame-thickness").fill("24");
+  await page.getByTestId("custom-frame-thickness").fill("24");
   await expect.poll(() => customFrameRenderMetrics(page)).toMatchObject({ borderLeft: 24, borderTop: 24 });
   await expect.poll(async () => (await libraryEntries(page))[0]?.custom.borderPx).toBe(24);
 
   // Borders can be added one after another; each is its own entry.
   await page.getByTestId("problem-frame-new").click();
   await expect(page.getByTestId("problem-custom-frame-preview")).toHaveCount(0);
-  await page.getByTestId("problem-frame-preset-double-diamond").click();
+  await page.getByTestId("custom-frame-preset-double-diamond").click();
   await expect(tiles).toHaveCount(2);
   await expect.poll(async () => (await savedFrame(page))?.custom?.svg).not.toBe(firstSvg);
   await expect.poll(async () => (await libraryEntries(page)).map((entry) => entry.custom.svg === firstSvg)).toEqual([false, true]);
@@ -116,11 +116,11 @@ test("inserts native boxes in problem text and solution independently from the p
   await expect.poll(() => customFrameRenderMetrics(page)).toMatchObject({ borderLeft: 24 });
 
   // It can be named.
-  await page.getByTestId("problem-custom-frame-name").fill("桜の枠");
+  await page.getByTestId("custom-frame-name").fill("桜の枠");
   await expect(page.getByTestId(`problem-frame-library-${firstEntry.id}`)).toContainText("桜の枠");
 
   // A drawing pasted as SVG replaces this entry's drawing; broken markup is reported and changes nothing.
-  const svgField = page.getByTestId("problem-custom-frame-svg");
+  const svgField = page.getByTestId("custom-frame-svg");
   await svgField.fill("<p>not a drawing</p>");
   await expect(page.getByRole("alert")).toContainText("SVG");
   await expect.poll(async () => (await savedFrame(page))?.custom?.svg).toBe(firstSvg);
@@ -130,10 +130,10 @@ test("inserts native boxes in problem text and solution independently from the p
   await expect(tiles).toHaveCount(2);
 
   // Deleting it from the list leaves the frame on the problem that uses it.
-  await page.getByTestId("problem-custom-frame-delete").click();
+  await page.getByTestId("custom-frame-delete").click();
   await expect(tiles).toHaveCount(1);
   await expect(promptArea).toHaveClass(/problem-frame--custom/);
-  await expect(page.getByTestId("problem-custom-frame-save")).toBeVisible();
+  await expect(page.getByTestId("custom-frame-save")).toBeVisible();
 });
 
 async function libraryEntries(page: Page): Promise<Array<{ id: string; name: string; custom: { svg: string; width: number; borderPx: number } }>> {

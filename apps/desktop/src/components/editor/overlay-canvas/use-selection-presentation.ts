@@ -3,6 +3,7 @@ import type { DocumentSession, SessionOverlayPresence } from "@/features/documen
 import {
   canBoxResize,
   collectSelectedOverlayAssets,
+  expandShapeIdsWithGraphOwnedLabels,
   getCurveDrawingPreviewPoints,
   getSelectionVisualFrame,
   getShapeRotation,
@@ -147,6 +148,14 @@ export function useOverlaySelectionPresentation({
     () => collectSelectedOverlayAssets(selectedContextShapes, assets),
     [assets, selectedContextShapes],
   );
+  // 選択を絵にするとき (図形プレビュー) に一緒に描く図形。グラフの軸の名前・点の名前などは
+  // グラフが持つ別の文字図形なので、選択そのもの (コピーや編集の対象) には入れずにここで足す。
+  const selectedPreviewShapes = useMemo(() => {
+    const contextIds = new Set(selectedContextShapes.map((shape) => shape.id));
+    const withLabels = new Set(expandShapeIdsWithGraphOwnedLabels(shapes, contextIds));
+    const labels = shapes.filter((shape) => withLabels.has(shape.id) && !contextIds.has(shape.id));
+    return labels.length > 0 ? [...selectedContextShapes, ...labels] : selectedContextShapes;
+  }, [selectedContextShapes, shapes]);
   const transformSelectedShapes = useMemo(
     () => getUnlockedTransformShapes(shapes, selectedIds, editPolicyLockedShapeIds),
     [editPolicyLockedShapeIds, selectedIds, shapes],
@@ -335,6 +344,7 @@ export function useOverlaySelectionPresentation({
       selectedShapeIds: selectedIds,
       selectedShapes: selectedContextShapes,
       selectedAssets: selectedContextAssets,
+      ...(selectedPreviewShapes !== selectedContextShapes ? { previewShapes: selectedPreviewShapes } : {}),
       locked: selectedLocked,
       hidden: selectedHidden,
       grouped: selectedShapes.some((shape) => isOverlayGroupShape(shape) || Boolean(shape.parentId)),
@@ -358,6 +368,7 @@ export function useOverlaySelectionPresentation({
     selectedRegion,
     selectedContextAssets,
     selectedContextShapes,
+    selectedPreviewShapes,
     selectedHidden,
     selectedIds,
     selectedLocked,

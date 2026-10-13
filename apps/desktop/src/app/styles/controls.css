@@ -3103,6 +3103,11 @@ button:disabled {
   gap: 2px;
 }
 
+/* 数式の入力欄が焦点を外しても閉じない範囲の印 (data-inline-math-font-menu) を付けるだけの箱。並びは変えない。 */
+.font-family-menu-content {
+  display: contents;
+}
+
 .font-family-menu-search {
   display: flex;
   align-items: center;

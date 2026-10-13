@@ -47,3 +47,4 @@ export * from "./shape-snap-points";
 export * from "./shape-transform";
 export * from "./snapping";
 export * from "./solid-geometry";
+export * from "./svg-to-shapes";

@@ -214,3 +214,43 @@ describe("headless overlay SVG serializer", () => {
     )).toBeUndefined();
   });
 });
+
+describe("graph origin label in exports", () => {
+  function graph(axisLabelTextShapeIds?: Record<string, string>): OverlayShape {
+    return {
+      id: "shape_graph",
+      type: "graph2dShape",
+      x: 40,
+      y: 50,
+      props: {
+        boundsMode: "plot",
+        w: 296,
+        h: 188,
+        spec: {
+          kind: "cartesian",
+          title: "",
+          width: 360,
+          height: 240,
+          viewBox: { xMin: "-5", xMax: "5", yMin: "-5", yMax: "5" },
+          axes: { grid: false, showX: true, showY: true },
+          curves: [],
+        },
+        ...(axisLabelTextShapeIds ? { axisLabelTextShapeIds } : {}),
+      },
+    } as unknown as OverlayShape;
+  }
+
+  it("tells the graph renderer whether the graph owns an origin label, so the 0 under O can be left out", () => {
+    const seen: Array<boolean | undefined> = [];
+    const recording: OverlaySvgRenderers = {
+      ...renderers,
+      renderGraphHtml: (_spec, idSeed, options) => {
+        seen.push(options?.originLabeled);
+        return `<svg data-graph="${idSeed}"></svg>`;
+      },
+    };
+    serializeOverlaySvg([graph({ origin: "shape_origin" })], {}, { width: 500, height: 400 }, recording);
+    serializeOverlaySvg([graph()], {}, { width: 500, height: 400 }, recording);
+    expect(seen).toEqual([true, false]);
+  });
+});

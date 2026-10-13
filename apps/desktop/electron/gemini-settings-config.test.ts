@@ -44,7 +44,6 @@ describe("buildGeminiWorkspaceSettings", () => {
     expect(env.SIGMA_STUDIO_USER_DATA_DIR).toBe(BASE_INPUT.userDataDir);
     expect(env.SIGMA_STUDIO_RUN_CONTEXT_FILE).toBe(BASE_INPUT.runContextFile);
     expect(env.SIGMA_STUDIO_RENDER_BRIDGE_FILE).toBe(BASE_INPUT.renderBridgeFile);
-    expect(env.SIGMA_STUDIO_MCP_TOOL_PROFILE).toBe("app");
   });
 
   it("uses the Antigravity run-context file, not claude's", () => {

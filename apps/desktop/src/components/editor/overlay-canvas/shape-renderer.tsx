@@ -41,6 +41,7 @@ import {
   getSolidStrokes,
   getTextShapeFontSizePt,
   getTextShapeRenderedLineHeightPx,
+  graphOwnsOriginLabel,
   isSolidShape,
   MIN_TEXT_SHAPE_WIDTH,
   trimPolylinePoints,
@@ -755,6 +756,7 @@ export function ShapeBody({
         <Graph2DPreview
           shapeId={shape.id}
           spec={graphDisplaySpec}
+          originLabeled={graphOwnsOriginLabel(shape)}
           autoStartCrop={editing}
           disableCropInteraction={disableGraphCrop}
           onSpecChange={(nextSpec, meta) => onGraphSpecChange(shape.id, nextSpec, meta)}

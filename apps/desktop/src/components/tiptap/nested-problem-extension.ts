@@ -8,10 +8,10 @@ import { isProblemAreaDisplayed, type ProblemDisplayFilter } from "@/features/re
 import { getProblemNumberFontSize, isRecord } from "@/features/text-editing/model";
 import {
   getProblemCustomFrame,
-  getProblemCustomFrameStyle,
   getProblemFrameStyleId,
   problemFrameClassName,
 } from "@/lib/problem-frame";
+import { getCustomFrameStyle } from "@/lib/custom-frame";
 
 export interface NestedProblemOptions {
   getProblemNumbers: () => ReadonlyMap<string, number>;
@@ -59,7 +59,7 @@ export function createNestedProblemDecorations(
       if (framed && area === visibleFrameAreas.at(-1)) classes.push("last-frame-area");
       const frameCustom = framed ? getProblemCustomFrame(metadata) : undefined;
       const customFrameStyle = frameCustom
-        ? Object.entries(getProblemCustomFrameStyle(frameCustom, "mm")).map(([name, value]) => `${name}:${value}`)
+        ? Object.entries(getCustomFrameStyle(frameCustom, "mm")).map(([name, value]) => `${name}:${value}`)
         : [];
       const style = [!visible ? "display:none" : "", minHeight ? `min-height:${minHeight}mm` : "",
         showNumber ? `--nested-problem-number-size:${getProblemNumberFontSize(metadata)}pt` : "",

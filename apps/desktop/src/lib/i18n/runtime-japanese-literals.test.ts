@@ -73,7 +73,7 @@ export const INTENTIONAL_RUNTIME_JAPANESE: readonly IntentionalJapaneseRule[] = 
     reason: "Build-time application metadata; it is not rendered in the locale-switchable editor surface.",
   },
   {
-    path: /^src\/lib\/ai\/(?:mcp-tool-categories|comment-mention|ai-rejection-prompt)\.ts$/,
+    path: /^src\/lib\/ai\/(?:comment-mention|ai-rejection-prompt)\.ts$/,
     classification: "AI or MCP contract",
     reason: "Model instructions, tool descriptions, or language-matching vocabulary rather than interface copy.",
   },

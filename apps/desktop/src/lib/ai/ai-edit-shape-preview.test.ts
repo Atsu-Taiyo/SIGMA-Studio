@@ -1,8 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import { buildShapeOnlyPreview, buildShapesSvgPreview } from "@/lib/ai/ai-edit-shape-preview";
+import { buildShapeOnlyPreview, buildShapesSvgPreview, unionShapeBounds } from "@/lib/ai/ai-edit-shape-preview";
+import { getGraphRenderLayout, getShapeBounds } from "@/features/drawing";
 import type { AiEditDraft } from "@/lib/ai/sigma-doc-edit-schema";
-import type { OverlayGeoShape } from "@/features/document";
+import type { OverlayGeoShape, OverlayGraphShape } from "@/features/document";
 
 function rectangle(id: string, x = 0, y = 0): OverlayGeoShape {
   return {
@@ -152,5 +153,41 @@ describe("buildShapesSvgPreview with drafts that are not in canonical form", () 
     const preview = buildShapesSvgPreview([brokenTextShape, rectangle("shape_1")], {});
 
     expect(preview).not.toBeNull();
+  });
+});
+
+describe("graph previews", () => {
+  const graph = {
+    id: "shape_graph",
+    type: "graph2dShape",
+    x: 40,
+    y: 50,
+    props: {
+      boundsMode: "plot",
+      w: 296,
+      h: 188,
+      spec: {
+        kind: "cartesian",
+        title: "",
+        width: 360,
+        height: 240,
+        viewBox: { xMin: "-5", xMax: "5", yMin: "-5", yMax: "5" },
+        axes: { grid: false, showX: true, showY: true, showTicks: true, xLabel: "x", yLabel: "y", originLabel: "O" },
+        curves: [],
+      },
+    },
+  } as unknown as OverlayGraphShape;
+
+  it("crops to the whole drawn graph, so tick numbers and axis names in its margin are not cut off", () => {
+    const plot = getShapeBounds(graph);
+    const drawn = getGraphRenderLayout(graph).renderBounds;
+    // 目盛りの数字・軸の名前は描画域 (plot) の外側の余白に描かれる。
+    expect(drawn.x).toBeLessThan(plot.x);
+    expect(unionShapeBounds([graph])).toEqual({
+      x: Math.min(plot.x, drawn.x),
+      y: Math.min(plot.y, drawn.y),
+      w: Math.max(plot.x + plot.w, drawn.x + drawn.w) - Math.min(plot.x, drawn.x),
+      h: Math.max(plot.y + plot.h, drawn.y + drawn.h) - Math.min(plot.y, drawn.y),
+    });
   });
 });

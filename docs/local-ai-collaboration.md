@@ -80,19 +80,10 @@ Antigravity CLI (`agy --print`) は実機確認で以下の癖があり、`Gemin
 
 ## Local MCP Server
 
-Claude Code / Codex / Antigravity CLI など外部AIからローカル教材を読む・編集提案を作る場合は、stdio MCP server を使います。
+アプリ内AI (Codex / Claude / Antigravity) は、アプリが起動する stdio MCP server 経由でローカル教材を読み、編集提案を作ります。アプリの外 (ターミナルの Claude Code / Codex など) から接続して使う構成は提供しません。
 アプリ内 Claude MCP 実行の並列化計画は `docs/claude-mcp-parallel-sessions-plan.md` に置きます。
 
-```bash
-node apps/desktop/scripts/run-sigma-doc-mcp.mjs
-```
-
-project scoped 設定は次です。
-
-- Claude Code: `.mcp.json`
-- Codex: `.codex/config.toml`
-
-MCP server は `apps/desktop/mcp/sigma-doc-mcp-server.ts` をビルドして起動し、`SIGMA_STUDIO_USER_DATA_DIR` または `SIGMA_STUDIO_DATA_DIR` が指定されていなければ Electron と同じ userData 保存先を探します。
+MCP server は `scripts/build-electron.mjs` が `apps/desktop/mcp/sigma-doc-mcp-server.ts` から `dist-electron/sigma-doc-mcp-server.cjs` へビルドし、アプリが Electron の実行ファイル (`ELECTRON_RUN_AS_NODE=1`) で起動します。アプリは `SIGMA_STUDIO_USER_DATA_DIR` に自分の userData を渡します。`SIGMA_STUDIO_USER_DATA_DIR` と `SIGMA_STUDIO_DATA_DIR` のどちらも無ければ、Electron と同じ userData 保存先を探します。
 
 ## MCP Write Policy
 
@@ -124,7 +115,7 @@ insertだけの提案は選択範囲やアンカー本文のhash差分を競合�
 - Web版のWebMCPの作業ドラフトも同じ合成で適用します (`docs/webmcp.md`)。元の内容はブラウザのメモリにある元の文書から再生のたびに作り (保存しない)、合成できない対象 (`collectNonMergeableTargets`) と人間が消した単位だけを `STALE_DRAFT` で止めます。
 - 共有教材の提案も同じ合成で承認します (`electron/collaboration/proposal-approval.ts`)。承認の直前に同期して今の共有文書を読み、一括承認と同じ順で合成し、合成で書き換えたdraftと作り直した事前条件を同期サーバーへ送ります: 合成した単位・挿入の付け替え先・書き換えたdraftが上書きする対象と挿入の目印 (とそれを含む・その中にあるブロック。AIが問題を読んでから中の段落を書き換えた場合など) は今のハッシュ、合成できない対象 (提案が消す図形が連れて行くgroupのメンバー・固定された図形・グラフのラベルを含む。提案の記録時に元のハッシュを残す) とAIが参照として読んだ資料は元のハッシュのまま確かめます。承認の記録 (`collaboration-v1/proposals/*.json`) の形式は変えず、`mergeBasis` を持たない旧レコードは記録どおりに送ります。共有教材にはロックが無く別の参加者には人間向けのお知らせも届かないので、合成が検証を通らない単位をAI側の版に戻すことはせず、対象の消失・合成できない対象の変更とあわせて `PROPOSAL_CONFLICT` (承認できない) のままにします。合成で操作が全部不要になったときは送らずに承認済みにします。書き換えた承認の操作IDは記録の操作IDと送る内容から決まるので、同じ文書の状態からの再試行は同じ操作になります。ただし、`mergeBasis` を持つ提案の承認 (書き換えたものも記録どおりのものも) をサーバーが適用したのに応答が届かなかった後の再試行は、適用済みの文書の上で合成し直すので別の操作になります。挿入を含む提案はAI自身の挿入IDで `PROPOSAL_CONFLICT` になって適用済みのまま保留に残り (破棄して片付ける)、置換の提案は2回目が送られ、AI自身の変更が人間の編集として数えられて誤ったお知らせになりえます。同じ操作IDで送り直して冪等なのは `mergeBasis` を持たない旧レコードだけです (冪等な送り直しは今後の課題)。
 
-AI編集で渡す選択ブロックは位置と文脈の手掛かりであり、編集をそのブロック内だけで完結させる境界ではありません。意味やレイアウトを正しくするために必要なら、同じrun/roomの作業案内で既存ブロックの更新と `insert_body_content` / `delete_blocks` / `move_blocks` を組み合わせ、ブロックを分割・追加・削除・移動します。独立した日本語説明を位置合わせ目的で数式の `\text{...}` や `aligned` に残さず、左揃え等の独立paragraphへ分離します。
+AI編集で渡す選択ブロックは位置と文脈の手掛かりであり、編集をそのブロック内だけで完結させる境界ではありません。意味やレイアウトを正しくするために必要なら、同じrun/roomの作業案内で既存ブロックの更新と `insert_content` / `organize_blocks` (`edit.action:"delete"` / `"move"`) を組み合わせ、ブロックを分割・追加・削除・移動します。独立した日本語説明を位置合わせ目的で数式の `\text{...}` や `aligned` に残さず、左揃え等の独立paragraphへ分離します。
 
 ## Public MCP Tools
 

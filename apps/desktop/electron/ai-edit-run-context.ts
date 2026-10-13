@@ -8,6 +8,11 @@ import { parseAiEditTextRange, resolveAiEditTextRangeBlockIds } from "@/lib/ai/a
 import { SigmaDocumentSchema } from "@/lib/sigma-doc-schema";
 import { computeDocumentBlockHashes } from "@/lib/sigma-doc-block-hash";
 import type { AiEditAttachment, AiEditMentionedDocumentContext } from "@/lib/ai/sigma-doc-agent-tools";
+import {
+  MAX_AI_IMAGE_ANNOTATION_COMMENT_LENGTH,
+  MAX_AI_IMAGE_ANNOTATIONS,
+  type AiImageAnnotation,
+} from "@/lib/ai/ai-image-annotations";
 import type { SigmaDocument } from "@/features/document";
 import { createCurrentLocaleTranslator } from "@/lib/i18n";
 import type { LocalSigmaDocStore } from "./local-sigma-doc-store";
@@ -62,9 +67,68 @@ export function visualSessionsFileName(provider: AiEditRunContextProvider, runId
   return `${provider}.visual-sessions.json`;
 }
 
+// The MCP server keeps each unfinished visual edit session's full state here so a
+// later MCP server process (Claude and Antigravity start one per turn) can resume
+// it by the same sessionId. Always run-scoped: there is no provider-level form.
+// Sanitized runIds and sessionIds contain no ".", so the prefix up to the first
+// "." identifies the run and the remainder identifies the session.
+export const VISUAL_SESSION_STATE_FILE_SUFFIX = ".visual-session-state.json";
+
+export function visualSessionStateFilePrefix(provider: AiEditRunContextProvider, runId: string): string {
+  return `${provider}-${sanitizeRunIdForFileName(runId)}.`;
+}
+
+/** The part of a state file name that identifies the session (`.<sessionId>.visual-session-state.json`). */
+export function visualSessionStateFileSessionSuffix(sessionId: string): string {
+  return `.${sanitizeRunIdForFileName(sessionId)}${VISUAL_SESSION_STATE_FILE_SUFFIX}`;
+}
+
+export function visualSessionStateFileName(
+  provider: AiEditRunContextProvider,
+  runId: string,
+  sessionId: string,
+): string {
+  return `${provider}-${sanitizeRunIdForFileName(runId)}${visualSessionStateFileSessionSuffix(sessionId)}`;
+}
+
 function sanitizeRunIdForFileName(runId: string): string {
   const sanitized = runId.trim().replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 200);
   return sanitized.length > 0 ? sanitized : "run";
+}
+
+/**
+ * Removes the run's saved visual edit session states once the run (including
+ * its visual-review continuations) has ended. Best-effort, like the other
+ * run-context cleanup: a failure is logged and never fails the run.
+ */
+export async function clearVisualSessionStateFiles(
+  userDataPath: string,
+  provider: AiEditRunContextProvider,
+  runId: string,
+): Promise<void> {
+  if (!runId.trim()) {
+    return;
+  }
+  const dir = runContextDirPath(userDataPath);
+  let entries: string[];
+  try {
+    entries = await fs.readdir(dir);
+  } catch (error) {
+    if (!isEnoent(error)) {
+      console.warn("図形編集セッションの保存状態を片付けられませんでした。", error);
+    }
+    return;
+  }
+  const prefix = visualSessionStateFilePrefix(provider, runId);
+  await Promise.all(
+    entries
+      .filter((name) => name.startsWith(prefix) && name.endsWith(VISUAL_SESSION_STATE_FILE_SUFFIX))
+      .map((name) => fs.unlink(path.join(dir, name)).catch((error) => {
+        if (!isEnoent(error)) {
+          console.warn(`図形編集セッションの保存状態を削除できませんでした (${name})。`, error);
+        }
+      })),
+  );
 }
 
 // AiEditAttachment / AiEditMentionedDocumentContext (@/lib/ai/sigma-doc-agent-tools) と
@@ -72,6 +136,17 @@ function sanitizeRunIdForFileName(runId: string): string {
 // 気付かれずフィールドを落とすことを防ぐ。mentionedDocuments の document はJSON化された
 // SigmaDocument (実行コンテキストファイル経由のためRecordとして受ける) なので、
 // AiEditMentionedDocumentContext の document(SigmaDocument型)とは別枠で扱う。
+// renderer は送信前に normalizeAiImageAnnotations で範囲へ収めてから渡す。ここで外れた値を
+// 受けると添付ごと落ちる (filterValidItems) ので、形の検査だけにして丸めはしない。
+const AiImageAnnotationItemSchema = z.object({
+  id: z.string().min(1),
+  x: z.number().min(0).max(1),
+  y: z.number().min(0).max(1),
+  width: z.number().min(0).max(1).optional(),
+  height: z.number().min(0).max(1).optional(),
+  comment: z.string().max(MAX_AI_IMAGE_ANNOTATION_COMMENT_LENGTH),
+}) satisfies z.ZodType<AiImageAnnotation>;
+
 export const AiEditAttachmentItemSchema = z.object({
   id: z.string().min(1),
   name: z.string(),
@@ -81,6 +156,7 @@ export const AiEditAttachmentItemSchema = z.object({
   height: z.number().optional(),
   fileSize: z.number().optional(),
   sourceReferenceKey: z.string().optional(),
+  annotations: z.array(AiImageAnnotationItemSchema).max(MAX_AI_IMAGE_ANNOTATIONS).optional(),
 }) satisfies z.ZodType<AiEditAttachment>;
 
 export const AiEditMentionedDocumentItemSchema = z.object({
@@ -299,7 +375,8 @@ function isPlausibleSigmaDocument(value: unknown): value is SigmaDocument {
 // provider単位の静的ファイル (<provider>.run-context.json) はこの関数の対象外
 // (呼び出し元が個別に clear() している)。
 // Antigravity用のtool-activityファイル (<provider>[-<runId>].tool-activity.jsonl) と、MCPが
-// 書き出すvisual session statusファイル (<provider>-<runId>.visual-sessions.json) も同様に
+// 書き出すvisual session statusファイル (<provider>-<runId>.visual-sessions.json)・
+// セッション状態ファイル (<provider>-<runId>.<sessionId>.visual-session-state.json) も同様に
 // 積み残しうる (ToolActivityWatcher.stop() はper-runファイルをbest-effortで消すが、クラッシュ時は
 // 消えない。静的ファイルはwatcherが消さない設計なので、こちらも起動時掃除の対象に含める)。
 export async function sweepOrphanPerRunContextFiles(
@@ -327,6 +404,7 @@ export async function sweepOrphanPerRunContextFiles(
             name.endsWith(".run-context.json")
             || name.endsWith(".tool-activity.jsonl")
             || name.endsWith(".visual-sessions.json")
+            || name.endsWith(VISUAL_SESSION_STATE_FILE_SUFFIX)
           )) ||
           name === staticToolActivityName,
       )

@@ -164,6 +164,7 @@ export const editor = {
     spaceAfter: "Space below the block",
     spaceAfterHint: "Drag down to add space (double-click resets it)",
     areaPrompt: "Q{{number}} Problem text",
+    areaPromptShort: "Q{{number}}",
   },
   pageMenu: {
     problemSettings: "Problem settings…",
@@ -211,6 +212,9 @@ export const editor = {
     candidates: "Insert suggestions",
     empty: "No matches",
     kindBox: "Box",
+    /** 棚 (自作の枠の一覧) の枠で挿す箱。 */
+    kindFrameBox: "My border",
+    frameBoxDescription: "Box with your own border",
     kindBlock: "Block",
     kindProblem: "Problem",
     kindMaterial: "Material",
@@ -591,6 +595,7 @@ export const editor = {
     box: "Box",
     boxBody: "Box content",
     columns: "Columns: {{columns}}",
+    columnsShort: "{{columns}} cols",
     columnsIcon: "Col",
     problem: "Problem",
     problemLead: "Lead-in",

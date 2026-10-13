@@ -817,6 +817,7 @@
 }
 
 .ai-chat-user-attachment-image {
+  position: relative;
   display: block;
   width: 100%;
   aspect-ratio: 1.18 / 1;
@@ -845,6 +846,59 @@
   max-width: 100%;
   height: auto;
   max-height: 100%;
+}
+
+/* 場所にコメントを付けた画像は、画像の下に同じ番号のコメントを並べる。 */
+.ai-chat-user-attachment-annotated {
+  display: grid;
+  gap: 6px;
+  width: min(240px, 100%);
+  min-width: 0;
+}
+
+.ai-chat-user-attachment-annotated .ai-chat-user-attachment {
+  width: 100%;
+}
+
+.ai-chat-user-annotations {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.ai-chat-user-annotations li {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  min-width: 0;
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.ai-chat-user-annotation-badge {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  margin-top: 1px;
+  border-radius: 999px;
+  background: #2563eb;
+  color: #ffffff;
+  font-size: 10px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+
+.ai-chat-user-annotation-text {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
 }
 
 .ai-chat-user-attachment figcaption {
@@ -1752,6 +1806,7 @@
 }
 
 .ai-chat-attachment-thumb {
+  position: relative;
   display: block;
   width: 100%;
   aspect-ratio: 1.18 / 1;
@@ -1761,6 +1816,68 @@
   background-position: center;
   background-repeat: no-repeat;
   background-size: contain;
+}
+
+/* 画像を押すと「画像にコメント」が開く (左上のボタンと同じ操作)。 */
+.ai-chat-attachment-thumb[data-annotatable="true"] {
+  cursor: pointer;
+}
+
+.ai-chat-attachment-thumb[data-annotatable="true"]:hover {
+  border-color: var(--border-strong);
+}
+
+/* 選択図形のプレビューは中身がSVG (innerHTML) なので、印は枠に重ねた別の箱へ描く。 */
+.ai-chat-overlay-preview-marks {
+  position: absolute;
+  pointer-events: none;
+}
+
+/* 右上の × と同じ面・大きさで左上に置く。コメントがあるときは件数のピルになる。 */
+.ai-chat-attachment-annotate {
+  position: absolute;
+  top: 6px;
+  left: 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  min-width: 22px;
+  height: 22px;
+  padding: 0 5px;
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.94);
+  color: #1f2937;
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.14);
+  font-size: 11px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.ai-chat-attachment-annotate[data-has-annotations="true"] {
+  color: #2563eb;
+  transition: opacity 120ms ease;
+}
+
+/* コメントがあれば画像の上の印がそれを示すので、件数のピルは指を載せたとき (焦点が入ったとき) だけ出し、
+   左上の印を隠さない。画像そのものを押しても同じ画面が開く。 */
+.ai-chat-attachment-preview:not(:hover):not(:focus-within) .ai-chat-attachment-annotate[data-has-annotations="true"] {
+  opacity: 0;
+}
+
+.ai-chat-attachment-annotate:hover,
+.ai-chat-attachment-annotate:focus-visible {
+  background: #ffffff;
+  color: #0f172a;
+  outline: none;
+}
+
+.ai-chat-attachment-annotate[data-has-annotations="true"]:hover,
+.ai-chat-attachment-annotate[data-has-annotations="true"]:focus-visible {
+  color: #1d4ed8;
 }
 
 .ai-chat-attachment-name {

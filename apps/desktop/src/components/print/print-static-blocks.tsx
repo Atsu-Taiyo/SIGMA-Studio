@@ -11,7 +11,7 @@ import {
   type BoxBlockChildBlock,
   type PaginationHints,
   type ProblemAreaBlock,
-  type ProblemCustomFrame,
+  type CustomFrame,
   type ProblemAreaColumnSpan,
   type ProblemAreaKind,
   type SigmaBlock,
@@ -33,10 +33,10 @@ import {
 import { formatProblemNumber } from "@/lib/problem-numbering";
 import {
   getProblemCustomFrame,
-  getProblemCustomFrameStyle,
   getProblemFrameStyleId,
   problemFrameClassName,
 } from "@/lib/problem-frame";
+import { getCustomFrameStyle } from "@/lib/custom-frame";
 
 export type PrintContentUnit =
   | {
@@ -90,7 +90,7 @@ export type PrintContentUnit =
       numberFontSize: number;
       hasFrame: boolean;
       frameStyleId?: string;
-      frameCustom?: ProblemCustomFrame;
+      frameCustom?: CustomFrame;
       isFirstProblemArea: boolean;
       isLastProblemArea: boolean;
       isFirstProblemFrameArea: boolean;
@@ -114,7 +114,7 @@ export type PrintContentUnit =
       numberFontSize: number;
       hasFrame: boolean;
       frameStyleId?: string;
-      frameCustom?: ProblemCustomFrame;
+      frameCustom?: CustomFrame;
       columnSpan?: ProblemAreaColumnSpan;
       isFirstProblemArea: boolean;
       isLastProblemArea: boolean;
@@ -503,7 +503,7 @@ export function PrintProblemArea({
   numberFontSize: number;
   hasFrame: boolean;
   frameStyleId?: string;
-  frameCustom?: ProblemCustomFrame;
+  frameCustom?: CustomFrame;
   isFirstProblemArea: boolean;
   isFirstProblemFrameArea: boolean;
   isLastProblemFrameArea: boolean;
@@ -520,7 +520,7 @@ export function PrintProblemArea({
   const frameClasses = hasFrame ? problemFrameClassName("print-problem-area with-frame", frameStyleId) : "print-problem-area";
   const fragmentClasses = fragmentRole ? ` print-problem-area-fragment print-problem-area-fragment-${fragmentRole}` : "";
   const printFrameStyle: CSSProperties | undefined = hasFrame && frameCustom
-    ? { ...(minHeightMm ? { minHeight: `${minHeightMm}mm` } : {}), ...getProblemCustomFrameStyle(frameCustom, "mm") }
+    ? { ...(minHeightMm ? { minHeight: `${minHeightMm}mm` } : {}), ...getCustomFrameStyle(frameCustom, "mm") }
     : minHeightMm ? { minHeight: `${minHeightMm}mm` } : undefined;
   const reservationClass = blocks.length === 0 && !layoutSectionFragment && minHeightMm
     ? " print-problem-area-reservation-only"

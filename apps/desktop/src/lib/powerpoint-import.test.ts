@@ -130,6 +130,24 @@ describe("PowerPoint import", () => {
     ]));
   });
 
+  it.each(["dist", "justLow", "thaiDist"] as const)("normalizes PowerPoint table alignment %s before saving", async (align) => {
+    const bytes = await createFixturePptx();
+    const model = await new PptxHandler().load(Uint8Array.from(bytes).buffer);
+    const sourceTable = model.slides[0]!.elements.find(element => element.type === "table")!;
+    for (const row of sourceTable.tableData!.rows) {
+      for (const cell of row.cells) cell.style = { ...cell.style, align };
+    }
+    vi.spyOn(PptxHandler.prototype, "load").mockResolvedValue(model);
+    const document = await importPptx(bytes, "alignment.pptx", { visualRenderer: "none" });
+    const shapes = document.pageLayout?.overlay?.overlaySnapshot?.shapes ?? [];
+    const table = findShapeByPowerPointName(shapes, "Table 1") as Extract<OverlayShape, { type: "tableShape" }>;
+    expect(table.props.table.defaultCellStyle.align).toBe("justify");
+    expect(table.props.table.cells[0]!.style?.align).toBe("justify");
+    expect(table.props.table.cells[0]!.content[0]).toMatchObject({ type: "paragraph", align: "justify" });
+    const reloaded = parseSigmaDocument(JSON.parse(JSON.stringify(document)));
+    expect(reloaded.pageLayout?.overlay?.overlaySnapshot?.shapes).toEqual(shapes);
+  });
+
   it("converts the same shapes when falling back to direct XML parsing", async () => {
     vi.spyOn(PptxHandler.prototype, "load").mockRejectedValue(new Error("unsupported pptx model"));
     const document = await importPptx(await createFixturePptx(), "lesson.pptx", {

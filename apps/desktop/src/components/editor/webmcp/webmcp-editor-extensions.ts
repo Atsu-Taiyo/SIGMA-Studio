@@ -110,8 +110,8 @@ export function mergeEditorExtensionSets(
     overlayShapeDecorations: !first.overlayShapeDecorations || !second.overlayShapeDecorations
       ? first.overlayShapeDecorations ?? second.overlayShapeDecorations
       : decorations,
-    // 問題の枠の描き直し (枠エディタの AI タブ) は 1 つの機能だけが差し込む。どちらかが持っていれば残す。
-    problemFrameDrawing: second.problemFrameDrawing ?? first.problemFrameDrawing,
+    // 枠の描き直し (問題・箱の枠エディタの AI タブ) は 1 つの機能だけが差し込む。どちらかが持っていれば残す。
+    frameDrawing: second.frameDrawing ?? first.frameDrawing,
     auxiliarySurfaceExtensions: mergeEditorExtensionSets(
       first.auxiliarySurfaceExtensions,
       second.auxiliarySurfaceExtensions,

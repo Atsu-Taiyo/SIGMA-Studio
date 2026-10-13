@@ -19,12 +19,15 @@
   display: block;
   position: absolute;
   overflow: visible;
-  white-space: normal;
 }
 
+/* 打った空白はそのまま見せる (本文のエディタ ProseMirror と同じ規則)。連続した空白や行頭の
+   空白を詰めると、ヘッダーで揃えた間隔が編集をやめた途端・PDF で崩れる。 */
 .page-running-text-layer {
   position: relative;
   z-index: 1;
+  white-space: pre-wrap;
+  white-space: break-spaces;
 }
 
 .page-running-overlay-preview {
@@ -250,6 +253,14 @@
   outline-offset: -4px;
 }
 
+/* 数式の一部に選んだフォント (`\htmlStyle{font-family:…}{…}`、lib/math-font-style.ts)。
+   文字・数字・\text は書体クラスが自前のフォントを持つので、包んだ要素の指定を継がせる。
+   大きさで字形を選ぶ記号 (積分・括弧・根号) と \mathbb などの書体命令はそのまま。
+   SIGMA_MATHLIVE_MACRO_STYLES (編集中の入力欄) と同じ規則。 */
+.ML__latex [style*="font-family"] :is(.ML__text, .ML__cmr, .ML__mathit, .ML__mathbf, .ML__mathbfit) {
+  font-family: inherit !important;
+}
+
 /* The reference is photographed sideways: upright digits have a tall oval,
    not a circle. Keep these font-relative dimensions synchronized with
    SIGMA_MATHLIVE_MACRO_STYLES, including the baseline optical correction. */
@@ -455,6 +466,51 @@
 
 .print-box-block.print-box-fragment:not(.print-box-fragment-single) {
   box-shadow: none;
+}
+
+/*
+ * 自作の枠の箱 (`frame.custom`)。問題の自作枠と同じ9分割で、値は `boxFrameStyleVars` が渡す (px)。
+ * 余白は `--sigma-doc-box-padding-*` に入るので上の断片の規則が効く。編集面は箱を丸ごと描いて
+ * 切り抜くので閉じた絵だけ、印刷は断片ごとに開いた辺を切り落とした絵 (`-open-*`) を使う。
+ */
+.sigma-doc-box-block.box-frame--custom,
+.print-box-block.box-frame--custom {
+  --cf-top: 1;
+  --cf-bottom: 1;
+  --cf-image: var(--custom-frame-image-closed);
+  border: solid transparent;
+  border-width:
+    calc(var(--custom-frame-border) * var(--cf-top))
+    var(--custom-frame-border)
+    calc(var(--custom-frame-border) * var(--cf-bottom));
+  border-radius: 0;
+  border-image-source: var(--cf-image);
+  border-image-slice:
+    calc(var(--custom-frame-slice) * var(--cf-top))
+    var(--custom-frame-slice)
+    calc(var(--custom-frame-slice) * var(--cf-bottom));
+  border-image-width:
+    calc(var(--custom-frame-border) * var(--cf-top))
+    var(--custom-frame-border)
+    calc(var(--custom-frame-border) * var(--cf-bottom));
+  background: transparent;
+  box-shadow: none;
+}
+
+.print-box-block.box-frame--custom.print-box-fragment-first {
+  --cf-bottom: 0;
+  --cf-image: var(--custom-frame-image-open-bottom);
+}
+
+.print-box-block.box-frame--custom.print-box-fragment-middle {
+  --cf-top: 0;
+  --cf-bottom: 0;
+  --cf-image: var(--custom-frame-image-open-both);
+}
+
+.print-box-block.box-frame--custom.print-box-fragment-last {
+  --cf-top: 0;
+  --cf-image: var(--custom-frame-image-open-top);
 }
 
 .box-frame--left-bar {
@@ -1059,6 +1115,11 @@ u:has(.math-preview) * {
   fill: #30343b;
 }
 
+.graph2d-axis-arrow-open {
+  fill: none;
+  stroke: #30343b;
+}
+
 .graph2d-ticks line {
   stroke: #50555f;
   stroke-width: 1;
@@ -1424,7 +1485,7 @@ li[data-list-marker-typography]::marker {
 
 /*
  * 自作の枠 (`ProblemFrame.custom`): SVG 1枚を border-image で9分割し、四隅は形を保ち辺だけ伸ばす。
- * 寸法と画像は TSX がインラインのカスタムプロパティで渡す (`getProblemCustomFrameStyle`、単位は
+ * 寸法と画像は TSX がインラインのカスタムプロパティで渡す (`getCustomFrameStyle`、単位は
  * 面ごと: 編集 px / 印刷 mm)。段・ページをまたぐ枠は断片ごとに描かれ、開いた辺側は画像を切り落とした
  * もの (`-open-*`) を使って側辺を途切れさせない。`.with-frame` の既存規則に勝つためクラスを重ねる。
  * 編集画面の同じ規則は graph-and-text-editing.css (共有ファイルは編集面のクラスを持たない約束)。
@@ -1433,24 +1494,24 @@ li[data-list-marker-typography]::marker {
   background: transparent;
   --pf-top: 0;
   --pf-bottom: 0;
-  --pf-image: var(--problem-frame-image-open-both);
+  --pf-image: var(--custom-frame-image-open-both);
   box-sizing: border-box;
-  padding: var(--problem-frame-padding);
+  padding: var(--custom-frame-padding);
   border: solid transparent;
   border-width:
-    calc(var(--problem-frame-border) * var(--pf-top))
-    var(--problem-frame-border)
-    calc(var(--problem-frame-border) * var(--pf-bottom));
+    calc(var(--custom-frame-border) * var(--pf-top))
+    var(--custom-frame-border)
+    calc(var(--custom-frame-border) * var(--pf-bottom));
   border-radius: 0;
   border-image-source: none;
   border-image-slice:
-    calc(var(--problem-frame-slice) * var(--pf-top))
-    var(--problem-frame-slice)
-    calc(var(--problem-frame-slice) * var(--pf-bottom));
+    calc(var(--custom-frame-slice) * var(--pf-top))
+    var(--custom-frame-slice)
+    calc(var(--custom-frame-slice) * var(--pf-bottom));
   border-image-width:
-    calc(var(--problem-frame-border) * var(--pf-top))
-    var(--problem-frame-border)
-    calc(var(--problem-frame-border) * var(--pf-bottom));
+    calc(var(--custom-frame-border) * var(--pf-top))
+    var(--custom-frame-border)
+    calc(var(--custom-frame-border) * var(--pf-bottom));
 }
 
 .print-problem-area.with-frame.problem-frame--custom.problem-frame--custom:not(.frame-split) {
@@ -1463,16 +1524,16 @@ li[data-list-marker-typography]::marker {
 
 .print-problem-area.with-frame.problem-frame--custom.problem-frame--custom.first-frame-area {
   --pf-top: 1;
-  --pf-image: var(--problem-frame-image-open-bottom);
+  --pf-image: var(--custom-frame-image-open-bottom);
 }
 
 .print-problem-area.with-frame.problem-frame--custom.problem-frame--custom.last-frame-area {
   --pf-bottom: 1;
-  --pf-image: var(--problem-frame-image-open-top);
+  --pf-image: var(--custom-frame-image-open-top);
 }
 
 .print-problem-area.with-frame.problem-frame--custom.problem-frame--custom.first-frame-area.last-frame-area {
-  --pf-image: var(--problem-frame-image-closed);
+  --pf-image: var(--custom-frame-image-closed);
 }
 
 .print-problem-area-content {

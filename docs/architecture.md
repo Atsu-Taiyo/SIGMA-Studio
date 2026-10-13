@@ -193,13 +193,15 @@ mtimeの古さだけで生存中の所有者を追い出さず、クラッシュ
 旧版と新版の同時稼働は排他の保証対象外です。`.mutex`は所有者情報ではなく安定した排他対象なので、
 通常のreleaseや残骸cleanupで削除しません。
 
-ローカルMCPでは`sigma-doc-mcp-tool-registrar.ts`が公開profile、annotation、実行帰属、計測を担い、
+ローカルMCPでは`sigma-doc-mcp-tool-registrar.ts`が公開するtool、annotation、実行帰属、計測と、本文編集の4ツールが呼ぶ内部実装の保持を担い、
 `sigma-doc-mcp-response.ts`が応答envelopeを所有します。SDKの`server.registerTool`を実行中に上書きせず、
 coreが明示的なregistrarに既存tool定義を渡します。tool名、description、schema、公開順と実行経路はそのまま維持します。
 visual sessionのlive・terminal・書込待ち状態と描画世代の検証は`mcp/visual-edit-session-lifecycle.ts`が所有します。
 clockと状態書込先を受け取るprocess共通のinstanceを使い、tool handlerから状態遷移を呼びます。
 状態ファイルの保存は`mcp/visual-session-status-file.ts`、Electron側と共有する形式は
 `electron/visual-session-status.ts`に置きます。終了状態の保存完了後にlive sessionを削除する順序を維持します。
+runIdを持つsessionは`mcp/visual-edit-session-state-file.ts`がrun単位のファイルへ保存し、別processの
+MCPサーバーが同じsessionIdで読み戻します。lifecycleは保存先をportとして受け取り、memoryを保存のcacheとして扱います。
 
 この依存規則は `src/features/headless-boundaries.test.ts`、`src/features/document/architecture.test.ts`、`src/features/drawing/architecture.test.ts`、`src/features/rendering/architecture.test.ts`、`src/features/text-editing/architecture.test.ts`、`src/features/ai-edit/editor-boundary.test.ts`、`src/components/editor/text-flow/architecture.test.ts`、`src/components/tiptap/text-format-controller-architecture.test.ts`、`src/components/editor/page-canvas/architecture.test.ts`、`src/components/editor/overlay-canvas/shape-renderer-architecture.test.ts` で検査します。互換性を型検査するtestと出力adapterは境界を跨ぐこと自体が役割なので、純粋coreと同じ禁止規則は適用しません。
 
@@ -436,7 +438,7 @@ Tiptapは編集UIとして使い、保存形式にはしません。
 }
 ```
 
-`preset` は `A4` / `A3` / `B5` / `B4` / `custom` を持てます。文書全体の本文 `content` は段ごとの配列に分けず、論理順の1本の配列を正本にします。ページ段への流し込み、ページ寸法、本文矩形、ヘッダー/フッターの表示テキストは `features/document` の正規化・metrics関数から派生させます。一方、本文途中だけを段組みにする `layoutSection` は新聞型の自動流し込みではなく、`layout.columnStartIds`で各childの列所属、`layout.columnWidths`で相対幅を明示します。列ごとに独立した編集面とページカーソルを持つため、左列末尾のEnterやページ溢れで右列へ本文が移ることはありません。短い列は空白のまま、長い列だけが次ページへ続きます。`pagination.break`は局所段組の列境界には使いません。ヘッダー/フッター本文は `blocks` を正規データにし、Tiptapのページ表示拡張は実験的な表示レイヤーとして使い、Tiptap JSONや拡張内部状態は正本にしません。
+`preset` は `A4` / `A3` / `B5` / `B4` / `custom` を持てます。文書全体の本文 `content` は段ごとの配列に分けず、論理順の1本の配列を正本にします。ページ段への流し込み、ページ寸法、本文矩形、ヘッダー/フッターの表示テキストは `features/document` の正規化・metrics関数から派生させます。一方、本文途中だけを段組みにする `layoutSection` は新聞型の自動流し込みではなく、`layout.columnStartIds`で各childの列所属、`layout.columnWidths`で相対幅を明示します。列ごとに独立した編集面とページカーソルを持つため、左列末尾のEnterやページ溢れで右列へ本文が移ることはありません。短い列は空白のまま、長い列だけが次ページへ続きます。`pagination.break`は局所段組の列境界には使いません。ヘッダー/フッター本文は `blocks` を正規データにし、Tiptapのページ表示拡張は実験的な表示レイヤーとして使い、Tiptap JSONや拡張内部状態は正本にしません。紙面 (編集画面とPDF) のヘッダー/フッターは、編集していないページでも本文と同じ `TextFlowEditor` を読み取り専用で描きます (`page-canvas/running-region-view.tsx` の `RunningRegionPageView`、箱の位置は編集中の帯と同じ数で決める)。静的な描画 (`PageRunningRegionView`) はエディタを持たない面 (埋め込みビューア・サムネイル) だけのもので、紙面が使うと空白や差し込みの見え方が編集に入った途端に変わります。差し込み (`{title}` `{page}` `{total}`) は本文に書いた文字のまま残し、見つけ方と値は `features/document/application/running-region-fields.ts` の 1 か所で決めます。エディタでは `components/tiptap/running-field-extension.ts` が値を装飾として重ね、差し込みを 1 つの塊として扱います (カーソルは中に入らず、Backspace / Delete は塊ごと消す)。
 
 ### Math Editor
 
@@ -449,6 +451,8 @@ MathLiveを使います。
 - 既存TeXの再編集
 
 表示はKaTeXを使います。MathLiveは入力とTeX検証に使い、KaTeXは表示に使います。
+
+数式の一部に選んだフォントは、TeXの `\htmlStyle{font-family:…}{…}` として正本に残します (`lib/math-font-style.ts`)。ツールバーのフォントは、数式の入力欄で範囲を選んでいればその範囲だけに付きます (`components/tiptap/inline-math-font.ts`。範囲はMathLiveが構造の境目をまたいで持つことがあるので、同じTeXを表す最も狭い範囲へ詰めてから置き換える)。数式の入力欄は焦点を失うと確定して閉じますが、フォントメニュー (`INLINE_MATH_FONT_MENU_ATTRIBUTE` の印の中) の検索欄へ移ったときだけは閉じずに待ち、メニューを開いた時点の入力欄へ付けます。メニューの外へ焦点が出るか、入力欄へ焦点が戻らないままメニューが閉じたら確定します。数式の文字は書体クラスが自前のフォントを持つので、包んだ要素の指定を継がせる規則を静的描画 (`document-surface.css`) と編集中の入力欄 (`SIGMA_MATHLIVE_MACRO_STYLES`) の両方に置きます。無害化 (`math-markup.ts`) は `font-family` をフォント名の並びとしてだけ通します。
 
 ### Overlay Canvas
 
@@ -770,6 +774,24 @@ border を引く、running region のリストは region スコープ、静的�
   共有契約はapplication側へ置き、`AiChatComposer`、`AiChatHistory`、`AiChatTurn`、
   `AiChatActivity`、`AiChatInlineSurface` は表示と明示的な操作callbackを受け取る。
   提案の承認・保存は既存のhost callbackとstoreを経由し、表示部品は文書の正本を所有しない。
+- 添付画像の中の場所へのコメント (注記) は `lib/ai/ai-image-annotations.ts` が型・正規化・印の配置
+  (`getAiImageAnnotationMarkLayout`)・プロンプトの対応表を持つ。React・DOM・AIの実行に依存せず、renderer・
+  Electron main (履歴の正規化・run-contextの検査)・MCP (`get_attached_media` の `annotations`) が同じものを使う。
+  座標は画像に対する割合 (0〜1) で、点は輪で囲み、範囲は枠で囲み、番号の丸は指した所を隠さない位置に置く。
+  付ける画面は `features/ai-edit/view/AiImageAnnotationDialog.tsx` (クリック=点・ドラッグ=範囲、`ModalFrame`)、
+  入力欄・履歴の画像に重ねる印は `AiImageAnnotationMarks.tsx`。注記は添付そのもの (`AiEditAttachment.annotations`)
+  に持たせ、入力欄の添付は下書き、範囲スクリーンショットは `useAiPendingAttachments`、選択図形のプレビューは
+  下書きの参照キーごとの表に置く (プレビューPNGは送信時に同じSVGから作るので座標をそのまま渡せる)。
+  AIへ送る画像に印を描き込むのはIPCへ渡す直前の1回だけ (`lib/ai/ai-image-annotation-canvas.ts`、
+  `runAiEditViaDesktopRuntime`)。会話履歴には元の画像と注記を残し、同じ配置の印をDOMで重ねる。画像の枠
+  (1回4枚) に空きがあれば、番号の丸で隠れた文字を読めるよう印のない元画像も「（印なし）」として添える。
+  コメントの対応表は3プロバイダ共通の `formatAttachmentsHint` (`lib/ai/mcp-edit-prompt.ts`) が添付の案内に続けて入れる。
+- SVG を `<img>` / canvas で画像にするときは `lib/svg-embedded-styles.ts` を通す。図形の書き出しは foreignObject の
+  中の HTML に入れ子の `<svg>` を名前空間なしで書き、グラフの線や文字は紙面の CSS クラスで描くので、そのままでは
+  画像が白紙になる。`prepareSvgForImage` が名前空間の無い入れ子の `<svg>` / `<math>` に名前空間を書き足し、使っているクラスの CSS・書体・
+  ルートのカスタムプロパティを埋め込む。AI へ渡す選択図形のプレビュー PNG と印刷のサムネイルが同じ部品を使う。
+  選択図形のプレビューは選択サマリーの `previewShapes` (選択 + 選んだグラフが持つ軸・点の名前の文字図形) で描き、
+  切り取り範囲はグラフの余白 (目盛りの数字・軸の名前) まで含める。AI が編集する対象 (`selectedShapes`) は変えない。
 - `AiModelMenuContents` はモデル／推論強度メニューの表示とキーボード操作を所有し、
   選択値の保存とプロバイダ固有の補正は呼び出し側が所有する。
 - 設定値の購読は `subscribe-storage-preference.ts` で共有し、同一タブ・別タブの変更を

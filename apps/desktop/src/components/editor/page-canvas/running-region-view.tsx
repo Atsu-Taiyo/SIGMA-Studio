@@ -5,14 +5,17 @@ import {
   getRunningRegionBoundsMm,
   getRunningRegionOverlaySize,
   mmToPx,
+  pageRunningRegionHasContent,
+  type MathFractionSizing,
   type PageLayout,
   type PageMetrics,
   type PageOverlay,
   type PageRunningRegion,
+  type RunningRegionFieldValues,
 } from "@/features/document";
 import { type TextFlowBlock } from "@/features/text-editing";
 import { useT } from "@/lib/i18n/react";
-import type { MouseEvent as ReactMouseEvent,PointerEvent as ReactPointerEvent } from "react";
+import type { CSSProperties,MouseEvent as ReactMouseEvent,PointerEvent as ReactPointerEvent } from "react";
 import { useCallback,useEffect,useLayoutEffect,useMemo,useRef,useState } from "react";
 import type { OverlayTool } from "../overlay-canvas/types";
 import type {
@@ -25,6 +28,7 @@ import type {
   OverlaySelectionSummary,
   OverlaySelectPointRequest,
 } from "../page-overlay-types";
+import { DocumentWritableContext } from "../document-session-context";
 import { PageRunningRegionOverlay } from "../PageRunningRegionOverlay";
 import { type ClientPoint } from "./caret-focus";
 import { OverlayCanvasEditor } from "./overlay-editor-surface";
@@ -33,12 +37,89 @@ import { pageRunningRegionToTextFlowBlocks } from "./running-region-text-model";
 import type { PageMarginEdge,RunningRegionEdge,RunningRegionKind } from "./types";
 import { useOverlayPreviewHandoff } from "./use-overlay-preview-handoff";
 
+const NOOP = () => {};
+
+/**
+ * 編集していないページのヘッダー/フッター。本文と**同じエディタ** (`TextFlowEditor`) を
+ * 読み取り専用で描く。編集中のページ (`RunningRegionDirectEditor`) と同じ部品・同じ装飾なので、
+ * 編集に入っても出ても、PDF でも見え方が変わらない (空白・差し込み・数式・書式)。
+ * 置き場所は紙 (`.a4-page-sheet`) の中で、図形より下に描く。
+ */
+export function RunningRegionPageView({
+  region,
+  kind,
+  layout,
+  title,
+  pageNumber,
+  totalPages,
+  metrics,
+  mathFractionSizing,
+}: {
+  region?: PageRunningRegion;
+  kind: RunningRegionKind;
+  layout: PageLayout;
+  title: string;
+  pageNumber: number;
+  totalPages: number;
+  metrics: PageMetrics;
+  mathFractionSizing?: MathFractionSizing | null;
+}) {
+  const blocks = useMemo(() => region ? pageRunningRegionToTextFlowBlocks(region, kind) : [], [kind, region]);
+  const fieldValues = useMemo<RunningRegionFieldValues>(
+    () => ({ title, page: pageNumber, total: totalPages }),
+    [pageNumber, title, totalPages],
+  );
+  if (!region?.enabled || !pageRunningRegionHasContent(region) || (pageNumber === 1 && !region.showOnFirstPage)) {
+    return null;
+  }
+
+  // 箱は編集中の帯 (`RunningRegionBand`) と同じ数で決める。紙の枠線の内側を基準に
+  // `right` / `bottom` で置くと、枠線のぶん (2px) 幅とフッターの高さが帯とずれる。
+  const overlaySize = getRunningRegionOverlaySize(metrics.content.widthPx, region);
+  const style = {
+    top: `${mmToPx(getRunningRegionBoundsMm(layout, kind).topMm)}px`,
+    left: `${metrics.margins.leftPx}px`,
+    width: `${overlaySize.widthPx}px`,
+    height: `${overlaySize.heightPx}px`,
+  } as CSSProperties;
+
+  return (
+    <div className={`page-running-region ${kind} free`} style={style}>
+      <PageRunningRegionOverlay
+        overlay={region.overlay}
+        widthPx={overlaySize.widthPx}
+        heightPx={overlaySize.heightPx}
+      />
+      <div className="page-running-text-layer">
+        <DocumentWritableContext.Provider value={false}>
+          <TextFlowEditor
+            blocks={blocks}
+            selectedId={null}
+            mathFractionSizing={mathFractionSizing}
+            historyRevision={0}
+            showPlaceholder={false}
+            runningFieldValues={fieldValues}
+            caretSurface={false}
+            enableSelectionFormatMenu={false}
+            enableBoxCommands={false}
+            onSelect={NOOP}
+            onChange={NOOP}
+          />
+        </DocumentWritableContext.Provider>
+      </div>
+    </div>
+  );
+}
+
 export function RunningRegionControls({
   marginEditing,
   layout,
   metrics,
   pageTopPx,
   pageNumber,
+  title,
+  totalPages,
+  mathFractionSizing,
   editingKind,
   editingPageNumber,
   focusRequest,
@@ -67,6 +148,10 @@ export function RunningRegionControls({
   metrics: PageMetrics;
   pageTopPx: number;
   pageNumber: number;
+  /** 差し込み (`{title}` `{page}` `{total}`) に見せる値。 */
+  title: string;
+  totalPages: number;
+  mathFractionSizing?: MathFractionSizing | null;
   editingKind: RunningRegionKind | null;
   editingPageNumber: number;
   focusRequest: number;
@@ -129,6 +214,9 @@ export function RunningRegionControls({
         metrics={metrics}
         layout={layout}
         pageNumber={pageNumber}
+        title={title}
+        totalPages={totalPages}
+        mathFractionSizing={mathFractionSizing}
         editing={editingKind === "header" && pageNumber === editingPageNumber}
         focusRequest={focusRequest}
         historyRevision={historyRevision}
@@ -157,6 +245,9 @@ export function RunningRegionControls({
         metrics={metrics}
         layout={layout}
         pageNumber={pageNumber}
+        title={title}
+        totalPages={totalPages}
+        mathFractionSizing={mathFractionSizing}
         editing={editingKind === "footer" && pageNumber === editingPageNumber}
         focusRequest={focusRequest}
         historyRevision={historyRevision}
@@ -189,6 +280,9 @@ export function RunningRegionBand({
   metrics,
   layout,
   pageNumber,
+  title,
+  totalPages,
+  mathFractionSizing,
   editing,
   focusRequest,
   historyRevision,
@@ -216,6 +310,9 @@ export function RunningRegionBand({
   metrics: PageMetrics;
   layout: PageLayout;
   pageNumber: number;
+  title: string;
+  totalPages: number;
+  mathFractionSizing?: MathFractionSizing | null;
   editing: boolean;
   focusRequest: number;
   historyRevision: number;
@@ -282,6 +379,8 @@ export function RunningRegionBand({
           kind={kind}
           label={label}
           region={region}
+          fieldValues={{ title, page: pageNumber, total: totalPages }}
+          mathFractionSizing={mathFractionSizing}
           focusRequest={focusRequest}
           historyRevision={historyRevision}
           onBlocksChange={onBlocksChange}
@@ -331,6 +430,8 @@ export function RunningRegionDirectEditor({
   kind,
   label,
   region,
+  fieldValues,
+  mathFractionSizing,
   focusRequest,
   historyRevision,
   onBlocksChange,
@@ -354,6 +455,9 @@ export function RunningRegionDirectEditor({
   kind: RunningRegionKind;
   label: string;
   region: PageRunningRegion;
+  /** 差し込みに見せる、このページの値 (編集していないページと同じ見え方にする)。 */
+  fieldValues?: RunningRegionFieldValues;
+  mathFractionSizing?: MathFractionSizing | null;
   focusRequest: number;
   historyRevision: number;
   onBlocksChange: (kind: RunningRegionKind, nextBlocks: TextFlowBlock[]) => void;
@@ -386,6 +490,15 @@ export function RunningRegionDirectEditor({
   const [runningSelectPointRequest, setRunningSelectPointRequest] = useState<OverlaySelectPointRequest | null>(null);
   const runningSelectPointRequestIdRef = useRef(0);
   const blocks = useMemo(() => pageRunningRegionToTextFlowBlocks(region, kind), [kind, region]);
+  const fieldTitle = fieldValues?.title;
+  const fieldPage = fieldValues?.page;
+  const fieldTotal = fieldValues?.total;
+  const stableFieldValues = useMemo<RunningRegionFieldValues | null>(
+    () => (fieldTitle === undefined || fieldPage === undefined || fieldTotal === undefined
+      ? null
+      : { title: fieldTitle, page: fieldPage, total: fieldTotal }),
+    [fieldPage, fieldTitle, fieldTotal],
+  );
   // The interactive layer sits above the running text at `z-index: 3` with `pointer-events: auto`,
   // so mounting it for a shapeless header would swallow every click meant for the text editor. The
   // removed SVG ghost returned null in exactly this case (the serializer bailed on an empty shape
@@ -513,6 +626,8 @@ export function RunningRegionDirectEditor({
         <TextFlowEditor
           blocks={blocks}
           selectedId={selectedRunningBlockId}
+          mathFractionSizing={mathFractionSizing}
+          runningFieldValues={stableFieldValues}
           placeholder={tEditor("running.placeholder", { replace: { region: label } })}
           historyRevision={historyRevision}
           showPlaceholder

@@ -307,6 +307,14 @@ export function getGraphOwnedLabelShapeIds(graphShape: OverlayGraphShape): Overl
 }
 
 /**
+ * グラフが原点の名前 (既定は O) の文字図形を持っているか。持っていれば、原点の真下に来る
+ * 横軸の「0」の目盛り数字は出さない (O と重なり、原点を二重に示すことになるため)。
+ */
+export function graphOwnsOriginLabel(graphShape: OverlayGraphShape): boolean {
+  return Boolean(graphShape.props.axisLabelTextShapeIds?.origin);
+}
+
+/**
  * `ids` plus the label shapes owned by every graph among them, so a caller that
  * reserved a graph reserves its labels in the same breath.
  */

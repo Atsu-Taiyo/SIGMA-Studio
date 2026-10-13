@@ -374,6 +374,9 @@ export function summarizeAttachments(attachments: AiEditAttachment[]): DesktopAi
     fileSize: attachment.fileSize ?? null,
     dataUrl: attachment.dataUrl,
     sourceReferenceKey: attachment.sourceReferenceKey ?? null,
+    ...(attachment.annotations && attachment.annotations.length > 0
+      ? { annotations: attachment.annotations }
+      : {}),
   }));
 }
 
@@ -715,6 +718,8 @@ const pendingRunParams = new Map<string, RunParams>();
 // cancel UI action needs to pass to cancelAiEditViaDesktopRuntime() -- it is
 // NOT the same id as assistantTurnId, which is only a UI-level chat-turn key.
 const activeAiEditRunIds = new Map<string, string>();
+// IPC の runId が決まる前 (送る画像にコメントの印を描き込んでいる間) の停止口。assistant turn id ごと。
+const preparingAiEditRuns = new Map<string, AbortController>();
 
 // Cross-room target serialization: two runs whose body-block or overlay-shape
 // target sets overlap must never execute concurrently. A conflicting run waits
@@ -1024,8 +1029,11 @@ async function executeRun(
   assistantTurnId: string,
   isCurrentRun: () => boolean,
 ): Promise<void> {
+  const preparation = new AbortController();
+  preparingAiEditRuns.set(assistantTurnId, preparation);
   try {
     const nextResult = await runAiEditViaDesktopRuntime({
+      signal: preparation.signal,
       provider: params.turnProvider,
       fileId: params.runDocumentIdentityKey,
       model: params.turnModel,
@@ -1042,6 +1050,7 @@ async function executeRun(
       aiResourceIds: params.turnAiResourceIds,
       agentThreadId: params.runAgentThreadId,
       onRunId: (runId) => {
+        preparingAiEditRuns.delete(assistantTurnId);
         activeAiEditRunIds.set(assistantTurnId, runId);
       },
       onEvent: (event) => {
@@ -1051,6 +1060,7 @@ async function executeRun(
         }
       },
     });
+    preparingAiEditRuns.delete(assistantTurnId);
     activeAiEditRunIds.delete(assistantTurnId);
     releaseAnchorAndDispatchNext(assistantTurnId);
     if (!isCurrentRun()) {
@@ -1074,6 +1084,7 @@ async function executeRun(
     }));
     aiRunSessionStore.completeRun(roomId, { endedAt });
   } catch (error) {
+    preparingAiEditRuns.delete(assistantTurnId);
     activeAiEditRunIds.delete(assistantTurnId);
     releaseAnchorAndDispatchNext(assistantTurnId);
     if (!isCurrentRun()) {
@@ -1172,6 +1183,12 @@ export function cancelRun(assistantTurnId: string): Promise<{ ok: boolean; cance
   const runId = activeAiEditRunIds.get(assistantTurnId);
   if (runId) {
     return cancelAiEditViaDesktopRuntime(runId);
+  }
+  // まだ IPC に渡していない (送る画像を準備中)。準備が終わった所で止まり、AI には送らない。
+  const preparing = preparingAiEditRuns.get(assistantTurnId);
+  if (preparing) {
+    preparing.abort();
+    return Promise.resolve({ ok: true, cancelled: true });
   }
 
   const pending = pendingAnchorRuns.get(assistantTurnId);

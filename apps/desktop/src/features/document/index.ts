@@ -7,7 +7,7 @@ export {
 export * from "./application";
 export * from "./chart-data";
 export * from "./graph-fill-style";
-export * from "./problem-custom-frame";
+export * from "./custom-frame";
 export * from "./graph3d-validation";
 export * from "./validation-error";
 export * from "./graph-label-read-model";
@@ -23,6 +23,7 @@ export {
   getGraph3DAxisColors,
   resolveGraph3DDimensionEndStyle,
 } from "./model/graph3d";
+export { DEFAULT_GRAPH_AXIS_END_STYLE } from "./model/graph";
 export { CHART_SERIES_FALLBACK_COLOR, CHART_SERIES_PALETTE } from "./model/chart";
 export {
   evaluateTableFormulas,

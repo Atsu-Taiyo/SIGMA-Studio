@@ -75,6 +75,12 @@ import { CommandPalette } from "@/components/editor/CommandPalette";
 import { CommandSettingsDialog } from "@/components/editor/CommandSettingsDialog";
 import { CommentDock } from "@/components/editor/CommentDock";
 import { CommentRail } from "@/components/editor/CommentRail";
+import { FloatingCommentComposer } from "@/components/editor/FloatingCommentComposer";
+import {
+  applyFontToInlineMathSelection,
+  captureInlineMathFontTarget,
+  notifyInlineMathFontMenuClosed,
+} from "@/components/tiptap/inline-math-font";
 import type { CommentPanelAuthor } from "@/components/editor/CommentThreadsPanel";
 import { DesktopSettingsModal } from "@/components/editor/DesktopSettingsModal";
 import { DocumentLibraryDialog } from "@/components/editor/DocumentLibraryDialog";
@@ -752,6 +758,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
     attachments: aiPendingAttachments,
     add: addAiPendingAttachment,
     remove: removeAiPendingAttachment,
+    setAnnotations: setAiPendingAttachmentAnnotations,
     clear: clearAiPendingAttachments,
   } = useAiPendingAttachments();
   const clearAiInlineSessionContext = useCallback(() => {
@@ -952,6 +959,8 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
   const [documentInstanceRevision, setDocumentInstanceRevision] = useState(0);
   const imageInputRef = useRef<HTMLInputElement | null>(null);
   const fontFamilyButtonRef = useRef<HTMLButtonElement | null>(null);
+  /** フォントメニューを開いたときの数式の入力欄 (`captureInlineMathFontTarget`)。検索欄へ焦点が移っても、そこへ付ける。 */
+  const inlineMathFontTargetRef = useRef<Element | null>(null);
   const blockStyleButtonRef = useRef<HTMLButtonElement | null>(null);
   const fontSizeInputRef = useRef<HTMLInputElement | null>(null);
   const fontSizeSkipBlurRef = useRef(false);
@@ -1108,6 +1117,14 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
   const materialMenuCloseRef = useRef<() => void>(() => {});
   const closeMaterialMenu = useCallback(() => materialMenuCloseRef.current(), []);
   const { shapeMenuOpen, setShapeMenuOpen, lineToolMenuOpen, setLineToolMenuOpen, inlineMathMenuOpen, setInlineMathMenuOpen, fontFamilyMenuOpen, setFontFamilyMenuOpen, blockStyleMenuOpen, setBlockStyleMenuOpen, boxedTextMenuOpen, setBoxedTextMenuOpen, lineHeightMenuOpen, setLineHeightMenuOpen, textAlignMenuOpen, setTextAlignMenuOpen, orderedListMenuOpen, setOrderedListMenuOpen, moreBlocksMenuOpen, setMoreBlocksMenuOpen, lineDashMenuOpen, setLineDashMenuOpen, lineWidthMenuOpen, setLineWidthMenuOpen, colorStylePanel, setColorStylePanel, lineEndpointMenu, setLineEndpointMenu, activeMenu, setActiveMenu, newDocMenuOpen, setNewDocMenuOpen, exportMenuOpen, setExportMenuOpen, ribbonTabState, ribbonBackstageState, ribbonBackstageOpen, ribbonCollapse, ribbonContextualTabVisible, ribbonIdPrefix, selectRibbonTab, toggleRibbonCollapse, toggleRibbonBackstage, closeRibbonBackstage, selectRibbonBackstageSection, toggleMenu } = useEditorChromeController({ contextualVisible: overlaySelection.selectedCount > 0, uiLayoutPreference, updateUiLayoutPreference, closeMaterialMenu, setSearchOpen });
+  // 開いた描画の直後 (検索欄へ焦点を移すより前) に覚える。キーボードで開いたときはボタンが返り、数式には付かない。
+  // 閉じたら、検索欄にいる間は確定を待っていた数式の入力欄へ知らせる (焦点が戻っていなければ確定する)。
+  useLayoutEffect(() => {
+    inlineMathFontTargetRef.current = fontFamilyMenuOpen ? captureInlineMathFontTarget() : null;
+    if (!fontFamilyMenuOpen) {
+      notifyInlineMathFontMenuClosed();
+    }
+  }, [fontFamilyMenuOpen]);
   const shortcutPlatform = useMemo(() => detectEditorShortcutPlatform(), []);
   const visibleCommentThreadsForPanel = useMemo(
     () => visibleCommentThreads(document.comments, {
@@ -1127,7 +1144,13 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
     return commentAnchorCandidate;
   }, [commentAnchorCandidate, currentOverlayCommentAnchor]);
 
-  const openCommentComposer = useCallback((requestedAnchor: SigmaCommentAnchor | null) => {
+  // 選んだところの右下のチップから始めたコメントは、押した場所の下に入力欄を浮かべる
+  // (コメントの欄のカードへは、外側を押したときに書きかけのまま移す)。
+  const [pendingCommentPlacement, setPendingCommentPlacement] = useState<{ left: number; top: number } | null>(null);
+  const openCommentComposer = useCallback((
+    requestedAnchor: SigmaCommentAnchor | null,
+    placement?: { left: number; top: number },
+  ) => {
     // 対象が選ばれていなければ、場所を持たない文書全体へのコメントとして始める。
     const anchor: SigmaCommentAnchor = requestedAnchor ?? { type: "document" };
     // 候補アンカーは「場所」で持ち回しているので、引用文は最後に選択された時点のもの。
@@ -1138,9 +1161,12 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
     setPendingCommentAnchor(anchoredAtNow);
     setPendingCommentDraft([]);
     setActiveCommentThreadId(null);
-    setCommentsPanelOpen(true);
+    setPendingCommentPlacement(placement ?? null);
+    if (!placement) {
+      setCommentsPanelOpen(true);
+    }
     setStatusMessage(tEditor("status.commentReady"));
-  }, [setCommentsPanelOpen, setActiveCommentThreadId, setPendingCommentAnchor, setStatusMessage]);
+  }, [setCommentsPanelOpen, setActiveCommentThreadId, setPendingCommentAnchor, setPendingCommentPlacement, setStatusMessage]);
 
   const focusCommentLocation = useCallback((threadId?: string | null) => {
     if (typeof window === "undefined") {
@@ -3325,6 +3351,10 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
     if (!canUseTextToolbar) {
       return;
     }
+    // 数式の入力欄で範囲を選んでいれば、フォントはその範囲だけに付ける (数式の外側の本文には付けない)。
+    if (command === "fontFamily" && applyFontToInlineMathSelection(value, inlineMathFontTargetRef.current)) {
+      return;
+    }
 
     window.dispatchEvent(new CustomEvent(FORMAT_TEXT_EVENT, { detail: { command, value, target: textToolbar.target } }));
   };
@@ -4269,7 +4299,8 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
     activeThreadId: activeCommentThreadId,
     author: commentAuthor,
     candidateAnchor: currentCommentAnchor,
-    pendingAnchor: pendingCommentAnchor,
+    // 浮かべた入力欄で書いている間は、欄に同じカードを並べない。
+    pendingAnchor: pendingCommentPlacement ? null : pendingCommentAnchor,
     pendingDraft: pendingCommentDraft,
     replyDrafts: commentReplyDrafts,
     showResolved: showResolvedComments,
@@ -4306,6 +4337,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
     openCommentComposer,
     pendingCommentAnchor,
     pendingCommentDraft,
+    pendingCommentPlacement,
     replyToCommentThread,
     selectCommentThread,
     setCommentReplyDraft,
@@ -4525,6 +4557,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
       onRemovePinnedReference={removeAiPinnedReference}
       pendingAttachments={aiPendingAttachments}
       onRemovePendingAttachment={removeAiPendingAttachment}
+      onSetPendingAttachmentAnnotations={setAiPendingAttachmentAnnotations}
       onPendingAttachmentsSent={clearAiPendingAttachments}
       overlaySelection={overlaySelection}
       variant={aiDisplayMode}
@@ -5023,6 +5056,30 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
           whiteboard={isWhiteboardDocument}
           onPeekHostChange={setRightDockPeekHost}
           onCompactChange={setCommentRailCompact}
+        />
+      )}
+      {pendingCommentAnchor && pendingCommentPlacement && !versionHistoryPreviewActive && (
+        <FloatingCommentComposer
+          placement={pendingCommentPlacement}
+          author={commentAuthor}
+          anchor={pendingCommentAnchor}
+          draft={pendingCommentDraft}
+          document={document}
+          loadMentionCandidates={loadMentionCandidates}
+          onDraftChange={setPendingCommentDraft}
+          onSubmit={() => {
+            addPendingCommentThread();
+            setPendingCommentPlacement(null);
+          }}
+          onCancel={() => {
+            setPendingCommentAnchor(null);
+            setPendingCommentDraft([]);
+            setPendingCommentPlacement(null);
+          }}
+          onDock={() => {
+            setPendingCommentPlacement(null);
+            setCommentsPanelOpen(true);
+          }}
         />
       )}
 
