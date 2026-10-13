@@ -4,7 +4,6 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { MCP_TOOL_CATEGORIES, toolNamesForCategories, type McpToolCategory } from "@/lib/ai/mcp-tool-categories";
-import { appMcpToolNames } from "@/lib/ai/mcp-tool-profile";
 import { ClaudeStreamClient, parseClaudeModelAliasesFromHelp } from "./claude-stream-client";
 import { getLedgerLogPath } from "./ledger-log";
 
@@ -33,7 +32,7 @@ const MCP_CONFIG = {
 };
 
 const ALL_STAGED_ALLOWED_TOOLS = [
-  ...appMcpToolNames(toolNamesForCategories(MCP_TOOL_CATEGORIES)).map((name) => `mcp__sigma-studio-local__${name}`),
+  ...toolNamesForCategories(MCP_TOOL_CATEGORIES).map((name) => `mcp__sigma-studio-local__${name}`),
   "Skill",
   "Read",
 ].join(" ");
@@ -807,7 +806,7 @@ function disallowedToolsOf(capture: FakeCapture): string[] {
 /** The --allowedTools a turn gets for these categories (plus the always-allowed tools). */
 function stagedAllowedTools(categories: McpToolCategory[]): string {
   return [
-    ...appMcpToolNames(toolNamesForCategories(categories)).map((name) => `mcp__sigma-studio-local__${name}`),
+    ...toolNamesForCategories(categories).map((name) => `mcp__sigma-studio-local__${name}`),
     "Skill",
     "Read",
   ].join(" ");

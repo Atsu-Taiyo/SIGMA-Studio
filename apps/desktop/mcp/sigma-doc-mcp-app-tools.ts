@@ -1,8 +1,29 @@
 import type { CallToolResult, ToolAnnotations } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
 
-import { APP_BODY_TOOL_ROUTES, type LegacyBodyToolName } from "@/lib/ai/mcp-tool-profile";
 import { parseMarkdownToTextFlowBlocks } from "@/lib/markdown-to-text-flow";
+
+/**
+ * The body-edit implementations behind the four public body tools, keyed by their
+ * internal names, with the public tool (and edit.action) that reaches each one.
+ * The internal names are never published as MCP tools.
+ */
+export const BODY_IMPLEMENTATION_ROUTES = {
+  insert_body_content: { name: "insert_content" },
+  apply_edits: { name: "edit_text", action: "patch" },
+  update_rich_content: { name: "edit_text", action: "update" },
+  replace_block: { name: "edit_text", action: "replace_structure" },
+  create_problem_content: { name: "edit_problem", action: "create" },
+  update_problem_content: { name: "edit_problem", action: "update" },
+  delete_blocks: { name: "organize_blocks", action: "delete" },
+  move_blocks: { name: "organize_blocks", action: "move" },
+} as const;
+
+export type BodyImplementationName = keyof typeof BODY_IMPLEMENTATION_ROUTES;
+
+export function isBodyImplementationName(name: string): name is BodyImplementationName {
+  return Object.hasOwn(BODY_IMPLEMENTATION_ROUTES, name);
+}
 
 export interface BodyToolImplementation {
   inputSchema: z.ZodRawShape;
@@ -24,27 +45,27 @@ const COMMON_FIELDS = new Set(["fileId", "expectedRevision", "runId", "writeMode
 const PROPOSAL_GUIDANCE = "First call get_edit_context with fileId/runId and read the current target. Pass expectedRevision and your runId. This creates or updates your pending proposal; it does not apply it. Check data.verification and data.proposal before reporting completion.";
 
 /**
- * App-only transport adapter, inspired by WebMCP's public/implementation split.
- * The existing handlers remain responsible for validation, selection, attribution,
+ * Public body-tool adapter, inspired by WebMCP's public/implementation split.
+ * The implementations remain responsible for validation, selection, attribution,
  * concurrency, proposal accumulation and previews. There is no second write path.
  */
 export function createAppBodyTools(
-  implementations: ReadonlyMap<LegacyBodyToolName, BodyToolImplementation>,
+  implementations: ReadonlyMap<BodyImplementationName, BodyToolImplementation>,
 ): AppBodyToolDefinition[] {
-  const implementation = (name: LegacyBodyToolName): BodyToolImplementation => {
+  const implementation = (name: BodyImplementationName): BodyToolImplementation => {
     const tool = implementations.get(name);
     if (!tool) throw new Error(`Missing app body tool implementation: ${name}`);
     return tool;
   };
   const common = Object.fromEntries(Object.entries(implementation("apply_edits").inputSchema)
     .filter(([key]) => COMMON_FIELDS.has(key)));
-  const fields = (name: LegacyBodyToolName) => Object.fromEntries(
+  const fields = (name: BodyImplementationName) => Object.fromEntries(
     Object.entries(implementation(name).inputSchema).filter(([key]) => !COMMON_FIELDS.has(key)),
   );
-  const dispatch = async (name: LegacyBodyToolName, args: Record<string, unknown>, extra: unknown[]): Promise<CallToolResult> => {
+  const dispatch = async (name: BodyImplementationName, args: Record<string, unknown>, extra: unknown[]): Promise<CallToolResult> => {
     const tool = implementation(name);
-    // Validate using the original contract before calling its handler. Schema changes
-    // therefore reach both profiles and malformed input never reaches the write path.
+    // Validate using the implementation's own contract before calling its handler, so
+    // malformed input never reaches the write path.
     const parsed = await z.object(tool.inputSchema).strict().parseAsync(args);
     return await tool.handler(parsed, ...extra) as CallToolResult;
   };
@@ -52,13 +73,13 @@ export function createAppBodyTools(
     name: string,
     title: string,
     description: string,
-    routes: [LegacyBodyToolName, LegacyBodyToolName, ...LegacyBodyToolName[]],
+    routes: [BodyImplementationName, BodyImplementationName, ...BodyImplementationName[]],
     annotations?: ToolAnnotations,
   ): AppBodyToolDefinition => {
-    const choices = routes.map((legacyName) => {
-      const route = APP_BODY_TOOL_ROUTES[legacyName];
-      if (!("action" in route)) throw new Error(`Missing edit action: ${legacyName}`);
-      return z.object({ action: z.literal(route.action), ...fields(legacyName) }).strict();
+    const choices = routes.map((implementationName) => {
+      const route = BODY_IMPLEMENTATION_ROUTES[implementationName];
+      if (!("action" in route)) throw new Error(`Missing edit action: ${implementationName}`);
+      return z.object({ action: z.literal(route.action), ...fields(implementationName) }).strict();
     });
     // Nest the discriminated union: MCP tools/list requires an object at the root.
     const edit = z.discriminatedUnion("action", [choices[0]!, choices[1]!, ...choices.slice(2)]);
@@ -69,19 +90,19 @@ export function createAppBodyTools(
         description: `${description} ${PROPOSAL_GUIDANCE}`,
         inputSchema: z.object({
           ...Object.fromEntries(Object.entries(common).filter(([key]) =>
-            routes.some((legacyName) => Object.hasOwn(implementation(legacyName).inputSchema, key)))),
+            routes.some((implementationName) => Object.hasOwn(implementation(implementationName).inputSchema, key)))),
           edit,
         }).strict(),
         annotations,
       },
       handler: async ({ edit: input, ...context }, ...extra) => {
         const { action, ...payload } = edit.parse(input);
-        const legacyName = routes.find((candidate) => {
-          const route = APP_BODY_TOOL_ROUTES[candidate];
+        const implementationName = routes.find((candidate) => {
+          const route = BODY_IMPLEMENTATION_ROUTES[candidate];
           return "action" in route && route.action === action;
         });
-        if (!legacyName) throw new Error(`Unknown body edit action: ${String(action)}`);
-        return dispatch(legacyName, { ...context, ...payload }, extra);
+        if (!implementationName) throw new Error(`Unknown body edit action: ${String(action)}`);
+        return dispatch(implementationName, { ...context, ...payload }, extra);
       },
     };
   };

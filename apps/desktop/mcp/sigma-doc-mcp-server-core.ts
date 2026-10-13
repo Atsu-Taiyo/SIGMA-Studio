@@ -12,7 +12,6 @@ import path from "node:path";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
-import { appMcpToolGuidance, MCP_TOOL_PROFILE_ENV, type McpToolProfile } from "@/lib/ai/mcp-tool-profile";
 import { createAppBodyTools } from "./sigma-doc-mcp-app-tools";
 import { getProblemSolutionFromApp } from "./sigma-doc-mcp-problem-solution";
 import { ProblemSolutionRequestSchema } from "../electron/problem-solution-client";
@@ -3049,12 +3048,9 @@ async function runMutationTool(
 
 export interface CreateSigmaDocMcpServerOptions {
   renderVisualPreviewDeps?: RenderVisualPreviewDeps;
-  toolProfile?: McpToolProfile;
 }
 
 export function createSigmaDocMcpServer(options: CreateSigmaDocMcpServerOptions = {}): McpServer {
-const toolProfile = options.toolProfile ?? (process.env[MCP_TOOL_PROFILE_ENV] === "app" ? "app" : "external");
-const profileGuidance = toolProfile === "app" ? appMcpToolGuidance : (text: string) => text;
 const renderVisualPreviewDeps = options.renderVisualPreviewDeps ?? createDefaultRenderVisualPreviewDeps();
 const storeContext = createStore();
 void createProposalStore().warmIndex().catch(() => {
@@ -3068,30 +3064,28 @@ const server = new McpServer(
     version: SERVER_VERSION,
   },
   {
-    instructions: profileGuidance([
-      ...(toolProfile === "app" ? ["アプリ内AI用の本文編集は insert_content / edit_text / edit_problem / organize_blocks です。fileId/runId/expectedRevision/writeMode/sourceReferencesは最上位、操作固有の引数はedit:{action,...}へ入れます。insert_contentはtargetId/areaとcontent:{format:'markdown',markdown:'...'}またはcontent:{format:'blocks',blocks:[...]}を使います。古いスキルの名前・引数例より現在のinputSchemaを優先してください。"] : []),
+    instructions: [
+      "アプリ内AI用の本文編集は insert_content / edit_text / edit_problem / organize_blocks です。fileId/runId/expectedRevision/writeMode/sourceReferencesは最上位、操作固有の引数はedit:{action,...}へ入れます。insert_contentはtargetId/areaとcontent:{format:'markdown',markdown:'...'}またはcontent:{format:'blocks',blocks:[...]}を使います。古いスキルの名前・引数例より現在のinputSchemaを優先してください。",
       "Sigma Studio のローカルSigmaDoc教材を操作するMCPサーバーです。",
       "SigmaDoc JSONが正本です。Tiptap JSON、HTML、LaTeX全文、overlay編集スナップショットを正本として扱わないでください。",
       "まず list_local_documents で workspaceId/folderId/fileId/revisionを確認し、編集対象が明確なら get_edit_context で現在revision・対象・前後文脈・outlineをまとめて取得します。対象が不明な場合は get_document_outline / search_document / get_blocks で対象を絞ります。read_local_document は既定のsummaryを使い、教材全体が必要な場合だけ detail:\"full\" を指定します。",
       "教材ライブラリ内の教材・フォルダ操作は create_local_document / update_local_document / delete_local_document / create_local_folder / update_local_folder / delete_local_folder を使います。これらはアプリ管理下のIDだけを受け取り、任意のOSパスは操作しません。教材名変更・削除にはlist_local_documentsで確認したexpectedRevisionが必要です。削除はユーザーが明示した場合だけ行ってください。",
-      "insert系ツール(insert_body_content / create_problem_content / insert_table / insert_shape / insert_graph / insert_graph3d / insert_material)は targetId または selectedId が必須です。教材末尾は targetId:\"END_OF_DOCUMENT\"、ホワイトボードへの図形・表・グラフ追加は targetId:\"CANVAS\" を指定してください。",
-      "paragraph/headingの本文は update_rich_content、problemの各エリアは update_problem_content、表は update_table、2Dグラフは update_graph、3Dグラフは update_graph3d、通常図形は update_shape を使います。replace_block はそれらで表せない構造置換のみfallbackです。",
-      "表(tableShape)・グラフ(graph2dShape)・通常の図形はSigmaBlockではなくoverlay図形です。get_document_outline の overlayShapes または search_document でIDを確認し、書き換えは insert_shape で作り直さず update_shape(部分更新、pointsやstart/endによる頂点移動も可)、整列は align_shapes、削除は delete_shapes を使ってください。表・グラフも同様に delete_shapes + insert_table/insert_graph/insert_graph3d で作り直さず、update_table(cellPatchesで1セルだけ、または内容の部分再構成)・update_graph・update_graph3dで既存shapeをその場で更新してください。作り直すと位置・サイズ・スタイル・列幅/行高さがリセットされます。delete_blocks は本文ブロックにしか使えません(表・グラフ・図形には効きません)。",
+      "insert系ツール(insert_content / edit_problem (edit.action:\"create\") / insert_table / insert_shape / insert_graph / insert_graph3d / insert_material)は targetId または selectedId が必須です。教材末尾は targetId:\"END_OF_DOCUMENT\"、ホワイトボードへの図形・表・グラフ追加は targetId:\"CANVAS\" を指定してください。",
+      "paragraph/headingの本文は edit_text (edit.action:\"update\")、problemの各エリアは edit_problem (edit.action:\"update\")、表は update_table、2Dグラフは update_graph、3Dグラフは update_graph3d、通常図形は update_shape を使います。edit_text (edit.action:\"replace_structure\") はそれらで表せない構造置換のみfallbackです。",
+      "表(tableShape)・グラフ(graph2dShape)・通常の図形はSigmaBlockではなくoverlay図形です。get_document_outline の overlayShapes または search_document でIDを確認し、書き換えは insert_shape で作り直さず update_shape(部分更新、pointsやstart/endによる頂点移動も可)、整列は align_shapes、削除は delete_shapes を使ってください。表・グラフも同様に delete_shapes + insert_table/insert_graph/insert_graph3d で作り直さず、update_table(cellPatchesで1セルだけ、または内容の部分再構成)・update_graph・update_graph3dで既存shapeをその場で更新してください。作り直すと位置・サイズ・スタイル・列幅/行高さがリセットされます。organize_blocks (edit.action:\"delete\") は本文ブロックにしか使えません(表・グラフ・図形には効きません)。",
       "保存済み素材が使えそうな場合は list_materials / get_material で description、usage、visualConcepts、ports を確認し、insert_material でexact cloneとして挿入してください。",
       "立体・回転体・断面・共通部分などの3D図版は insert_graph3d を使い、更新は update_graph3d で行ってください(2Dの関数グラフ・座標平面・数直線は insert_graph)。",
       "図・図解・模式図・イラスト・挿絵は、原則 insert_svg_image で静的SVGを1枚の画像として入れてください(迷ったらSVG)。「図を入れて」「画像を入れて」「絵を描いて」もこの入口です。SVGは自己完結で書き(xmlnsと正のviewBox、fill/stroke等の属性、TeXは解釈されないので記号はUnicode)、verification.previewを実見してupdate_svg_imageで修正します。関数グラフはinsert_graph、立体はinsert_graph3d、表はinsert_tableを使い、部品ごとの個別編集を求められたときだけinsert_shapeを使います。",
       "部品ごとに編集する図形、図や本文に重ねる補助線・矢印・文字注記・吹き出しは insert_shape を使ってください。円・楕円・矩形・三角形など標準kindで表せる図形はそのkindを使い、polylineで近似しないでください。polylineは折れ曲がった線、経路、標準kindにない多角形など線分列であることが意味を持つ場合だけ使います。図形内ラベルの寸法はtool側で決めます。文字注記(kind:text)は幅だけを指定し、高さは内容から導出されます。",
       "図形を確認しながら作る場合は begin_visual_edit_session → visual_insert_shape → render_visual_edit_session → previewFileをview_imageで開く → inspect_visual_edit_session → review_visual_edit_session(previewCode付き) → propose_visual_edit_session の順で進めます。beginにはtargetIdまたはselectedIdが必要です。",
-      "insert_body_content / create_problem_content / update_rich_content / update_problem_content / replace_block / delete_blocks / move_blocks / insert_table / update_table / insert_svg_image / update_svg_image / insert_shape / update_shape / insert_graph / update_graph / insert_graph3d / update_graph3d などの書き込みツールは、成功時に data.verification(validation、可能ならpreview PNGとpreviewFile)を返します。ChatGPTではinline image contentを省略するため、previewFileをview_imageで開いて必ず確認してください。完了前に必ず内容を確認し、問題があれば直してください。既存の内容や承認前のproposalのブロック周辺は render_block_context、ページ全体と実際のページ割当は render_page で確認します。",
+      "insert_content / edit_problem (edit.action:\"create\") / edit_text (edit.action:\"update\") / edit_problem (edit.action:\"update\") / edit_text (edit.action:\"replace_structure\") / organize_blocks (edit.action:\"delete\") / organize_blocks (edit.action:\"move\") / insert_table / update_table / insert_svg_image / update_svg_image / insert_shape / update_shape / insert_graph / update_graph / insert_graph3d / update_graph3d などの書き込みツールは、成功時に data.verification(validation、可能ならpreview PNGとpreviewFile)を返します。ChatGPTではinline image contentを省略するため、previewFileをview_imageで開いて必ず確認してください。完了前に必ず内容を確認し、問題があれば直してください。既存の内容や承認前のproposalのブロック周辺は render_block_context、ページ全体と実際のページ割当は render_page で確認します。",
       "書き込み系ツールでは expectedRevision が必須です。既定のwriteMode:\"proposal\" は pending proposal、writeMode:\"dryRun\" は保存なしの検証です。MCPから教材本体を直接保存しません。expectedRevisionが古くても、今回の書き込みが触るブロック/overlay図形がその時点から変わっていなければ受理されます(無関係な人間の編集で失敗しません)。触った対象が実際に変更されていた場合のみREVISION_MISMATCHになり、競合ブロックの現在の内容を踏まえて作り直してください。ただし文書全体の設定を変更する書き込み(update_column_layout の scope:\"document\" など)はこの緩和の対象外で、expectedRevisionの完全一致が必要です。不一致になったら現在の設定を読み直してから再試行してください。",
       "ユーザーがAIの挙動・スキル・設定の変更を相談してきた場合は save_ai_resource(グローバルskill/instructionの作成・更新) / delete_ai_resource(明示的な削除依頼のときだけ) / update_ai_settings(Web検索許可や検証済み提案の自動承認)で実際に変更でき、変更内容は必ず回答で報告してください。",
-    ].join(" ")),
+    ].join(" "),
   },
 );
 
-const { registerTool, bodyImplementations } = createMcpToolRegistrar(server, {
-  toolProfile,
-  profileGuidance,
+const { registerTool, registerBodyImplementation, bodyImplementations } = createMcpToolRegistrar(server, {
   activityLogger: createToolActivityLogger(process.env),
   activeRunId: () => {
     try {
@@ -3730,7 +3724,7 @@ registerTool(
   "get_block",
   {
     title: "ブロックを読む",
-    description: "本文、problem、problem内のlead/prompt/hints/solutionブロックをIDで完全JSONとして返します。replace_blockを使う場合は先に呼び、返ったid/typeと変更しないfieldを保った全体をblockに渡してください。文章だけならupdate_rich_content、問題各エリアならupdate_problem_contentを優先します。複数IDならget_blocks、表・グラフ・図形のID確認はget_document_outline.overlayShapesです。例: {fileId:\"...\",blockId:\"p_1\"}。",
+    description: "本文、problem、problem内のlead/prompt/hints/solutionブロックをIDで完全JSONとして返します。edit_text (edit.action:\"replace_structure\")を使う場合は先に呼び、返ったid/typeと変更しないfieldを保った全体をblockに渡してください。文章だけならedit_text (edit.action:\"update\")、問題各エリアならedit_problem (edit.action:\"update\")を優先します。複数IDならget_blocks、表・グラフ・図形のID確認はget_document_outline.overlayShapesです。例: {fileId:\"...\",blockId:\"p_1\"}。",
     inputSchema: {
       fileId: z.string().min(1),
       blockId: z.string().min(1),
@@ -3987,17 +3981,13 @@ registerTool(
   }),
 );
 
-registerTool(
+registerBodyImplementation(
   "insert_body_content",
   {
-    title: "本文を挿入",
-    description: '新しいparagraph/heading/list/boxBlockを基準ブロックの後へ挿入します。無限キャンバス(ホワイトボード)モードには対応していません。各blockのpagination:{break:true}で改ページ(段組み内では改段)を指定できます。選択ブロックは編集境界ではないため、既存内容の分割ではupdate_rich_contentで元ブロックを更新してから、このtoolで後続ブロックを追加できます。既存paragraph/headingの本文修正はupdate_rich_content、問題全体の新規作成はcreate_problem_contentを使います。problem内の既存段落直後へ入れる場合はその段落IDをtargetIdにしてareaを省略します。areaはproblemの特定領域へ末尾追加する場合に指定します。例: {targetId:"END_OF_DOCUMENT",blocks:[{text:"新しい本文",pagination:{break:true}}],expectedRevision:3}。',
-    inputSchema: {
-      ...DocumentTargetSchema,
-      area: ProblemAreaInputSchema.optional(),
-      blocks: z.array(RichInputSchema).min(1),
-      sourceReferences: SourceReferencesInputSchema.optional(),
-    },
+    ...DocumentTargetSchema,
+    area: ProblemAreaInputSchema.optional(),
+    blocks: z.array(RichInputSchema).min(1),
+    sourceReferences: SourceReferencesInputSchema.optional(),
   },
   async ({ fileId, selectedId, targetId, writeMode, expectedRevision, runId, area, blocks, sourceReferences }) => withToolErrorHandling(async () =>
     runDraftTool({
@@ -4016,19 +4006,15 @@ registerTool(
     }, renderVisualPreviewDeps, storeContext.store)),
 );
 
-registerTool(
+registerBodyImplementation(
   "apply_edits",
   {
-    title: "教材へ型付き編集を適用",
-    description: '複数の編集を1回のpending proposalへまとめる統合入口です。本文のreplace_textは既存SigmaDocを土台に指定範囲だけをcopy-with置換し、元のフォント・ptサイズ・装飾と範囲外内容を保持します。明示的な書式変更は本文とtext/callout図形のformat_inlineを使います。replace_textのrange targetはblockId/from/to/quoteを必須とし、古いquoteなら拒否します。例: {fileId:"...",operations:[{op:"replace_text",target:{type:"range",blockId:"p_1",from:3,to:7,quote:"変更前"},replacement:"変更後"}],expectedRevision:3}。',
-    inputSchema: {
-      fileId: z.string().min(1),
-      operations: z.array(ApplyEditOperationInputSchema).min(1).max(20),
-      writeMode: WriteModeSchema,
-      expectedRevision: ExpectedRevisionSchema,
-      runId: WriteRunIdSchema,
-      sourceReferences: SourceReferencesInputSchema.optional(),
-    },
+    fileId: z.string().min(1),
+    operations: z.array(ApplyEditOperationInputSchema).min(1).max(20),
+    writeMode: WriteModeSchema,
+    expectedRevision: ExpectedRevisionSchema,
+    runId: WriteRunIdSchema,
+    sourceReferences: SourceReferencesInputSchema.optional(),
   },
   async ({ fileId, operations, writeMode, expectedRevision, runId, sourceReferences }) => withToolErrorHandling(async () =>
     runSessionTool({
@@ -4097,22 +4083,18 @@ registerTool(
     }, renderVisualPreviewDeps, storeContext.store)),
 );
 
-registerTool(
+registerBodyImplementation(
   "update_rich_content",
   {
-    title: "本文・見出しの内容を更新",
-    description: '既存paragraph/headingの文章またはpaginationを更新します。文章入力はサーバー側で最小差分へ縮約し、既存SigmaDocをcopy-with更新してID・type・見出しlevel・未変更範囲の書式を保持します。局所的な文章変更はapply_editsのreplace_textを優先してください。本文はtextまたはrunsのどちらか一方を渡します。pagination:nullで指定をすべて解除できます。problemの複数エリア更新はupdate_problem_content、ブロック構造全体の置換はreplace_blockを使います。',
-    inputSchema: {
-      fileId: z.string().min(1),
-      blockId: z.string().min(1),
-      text: z.string().optional(),
-      runs: z.array(z.union([z.string(), JsonRecordSchema])).min(1).optional(),
-      pagination: PaginationInputSchema.nullable().optional(),
-      writeMode: WriteModeSchema,
-      expectedRevision: ExpectedRevisionSchema,
-      runId: WriteRunIdSchema,
-      sourceReferences: SourceReferencesInputSchema.optional(),
-    },
+    fileId: z.string().min(1),
+    blockId: z.string().min(1),
+    text: z.string().optional(),
+    runs: z.array(z.union([z.string(), JsonRecordSchema])).min(1).optional(),
+    pagination: PaginationInputSchema.nullable().optional(),
+    writeMode: WriteModeSchema,
+    expectedRevision: ExpectedRevisionSchema,
+    runId: WriteRunIdSchema,
+    sourceReferences: SourceReferencesInputSchema.optional(),
   },
   async ({ fileId, blockId, text, runs, pagination, writeMode, expectedRevision, runId, sourceReferences }) => withToolErrorHandling(async () =>
     runDraftTool({
@@ -4131,24 +4113,20 @@ registerTool(
     }, renderVisualPreviewDeps, storeContext.store)),
 );
 
-registerTool(
+registerBodyImplementation(
   "create_problem_content",
   {
-    title: "問題を作成",
-    description: '問題文promptと任意のlead/answer/solution/hintsから新しいProblemNodeを挿入します。無限キャンバス(ホワイトボード)モードには対応していません。既存問題の変更はupdate_problem_content、問題ノード全体の置換はreplace_blockです。問題番号や自動表示の「解答」見出しを文章に入れません。例: {fileId:"...",targetId:"p_1",prompt:[{id:"ai_prompt_1",text:"次を解け。"}],answerTex:"x=\\\\pm2",solution:[{id:"ai_sol_1",text:"因数分解する。"}],expectedRevision:3}。',
-    inputSchema: {
-      ...DocumentTargetSchema,
-      id: z.string().min(1).optional(),
-      tags: z.array(z.string()).optional(),
-      lead: LeadRichInputListSchema.optional(),
-      prompt: RichInputListSchema,
-      answerText: z.string().optional(),
-      answerTex: z.string().optional(),
-      solution: RichInputListSchema.optional(),
-      hints: RichInputListSchema.optional(),
-      pagination: PaginationInputSchema.optional(),
-      sourceReferences: SourceReferencesInputSchema.optional(),
-    },
+    ...DocumentTargetSchema,
+    id: z.string().min(1).optional(),
+    tags: z.array(z.string()).optional(),
+    lead: LeadRichInputListSchema.optional(),
+    prompt: RichInputListSchema,
+    answerText: z.string().optional(),
+    answerTex: z.string().optional(),
+    solution: RichInputListSchema.optional(),
+    hints: RichInputListSchema.optional(),
+    pagination: PaginationInputSchema.optional(),
+    sourceReferences: SourceReferencesInputSchema.optional(),
   },
   async (args) => withToolErrorHandling(async () =>
     runDraftTool({
@@ -4174,23 +4152,19 @@ registerTool(
     }, renderVisualPreviewDeps, storeContext.store)),
 );
 
-registerTool(
+registerBodyImplementation(
   "update_problem_content",
   {
-    title: "既存問題を更新",
-    description: "既存problemのlead/prompt/answer/solution/hints/paginationの指定項目だけを更新し、未指定項目とproblem IDを保持します。pagination:nullで問題のページ指定をすべて解除できます。lead/solution/hintsは空配列で消去、answerはnullまたは空のanswerText/answerTexで消去できます。answer/answerText/answerTexは1つだけ指定します。targetIdはproblem IDまたはその内部ブロックID。例: {fileId:\"...\",targetId:\"problem_1\",pagination:{break:true},expectedRevision:3}。",
-    inputSchema: {
-      ...DocumentTargetSchema,
-      lead: UpdateLeadRichInputListSchema.optional(),
-      prompt: RichInputListSchema.optional(),
-      answer: ProblemAnswerInputSchema.nullable().optional(),
-      answerText: z.string().optional(),
-      answerTex: z.string().optional(),
-      solution: UpdateRichInputListSchema.optional(),
-      hints: UpdateRichInputListSchema.optional(),
-      pagination: PaginationInputSchema.nullable().optional(),
-      sourceReferences: SourceReferencesInputSchema.optional(),
-    },
+    ...DocumentTargetSchema,
+    lead: UpdateLeadRichInputListSchema.optional(),
+    prompt: RichInputListSchema.optional(),
+    answer: ProblemAnswerInputSchema.nullable().optional(),
+    answerText: z.string().optional(),
+    answerTex: z.string().optional(),
+    solution: UpdateRichInputListSchema.optional(),
+    hints: UpdateRichInputListSchema.optional(),
+    pagination: PaginationInputSchema.nullable().optional(),
+    sourceReferences: SourceReferencesInputSchema.optional(),
   },
   async (args) => withToolErrorHandling(async () =>
     runDraftTool({
@@ -4215,20 +4189,16 @@ registerTool(
     }, renderVisualPreviewDeps, storeContext.store)),
 );
 
-registerTool(
+registerBodyImplementation(
   "replace_block",
   {
-    title: "ブロック構造全体を置換",
-    description: '高レベル更新ツールで表せない構造変更のみに使うfallbackです。get_blockで現在値を読み、block.id/typeと未変更fieldを保った完全ブロックを渡します。本文だけはupdate_rich_content、problem内容はupdate_problem_content、overlayは専用ツールを優先します。',
-    inputSchema: {
-      fileId: z.string().min(1).describe("ローカルアプリの教材 fileId。"),
-      blockId: z.string().min(1).describe("更新対象のブロックID。get_document_outline / search_document / get_block / get_blocks で確認してください。"),
-      block: EditableBlockSchema.describe("置き換え後の完全なSigmaDoc/RichBlock。idとtypeは既存ブロックと一致させてください。"),
-      writeMode: WriteModeSchema,
-      expectedRevision: ExpectedRevisionSchema,
-      runId: WriteRunIdSchema,
-      sourceReferences: SourceReferencesInputSchema.optional(),
-    },
+    fileId: z.string().min(1).describe("ローカルアプリの教材 fileId。"),
+    blockId: z.string().min(1).describe("更新対象のブロックID。get_document_outline / search_document / get_block / get_blocks で確認してください。"),
+    block: EditableBlockSchema.describe("置き換え後の完全なSigmaDoc/RichBlock。idとtypeは既存ブロックと一致させてください。"),
+    writeMode: WriteModeSchema,
+    expectedRevision: ExpectedRevisionSchema,
+    runId: WriteRunIdSchema,
+    sourceReferences: SourceReferencesInputSchema.optional(),
   },
   async ({ fileId, blockId, block, writeMode, expectedRevision, runId, sourceReferences }) => withToolErrorHandling(async () =>
     runDraftTool({
@@ -4243,19 +4213,14 @@ registerTool(
     }, renderVisualPreviewDeps, storeContext.store)),
 );
 
-registerTool(
+registerBodyImplementation(
   "delete_blocks",
   {
-    title: "ブロックを削除",
-    description:
-      "教材内の本文ブロック(トップレベル、および問題のlead/prompt/hints/solution内のブロック)をIDで指定して削除します。表(tableShape)・グラフ(graph2dShape)・図形はブロックではなくoverlay図形なのでここでは削除できません。delete_shapes を使ってください(IDは get_document_outline の overlayShapes で確認)。",
-    inputSchema: {
-      fileId: z.string().min(1),
-      blockIds: z.array(z.string().min(1)).min(1).describe("削除対象のブロックID一覧。"),
-      writeMode: WriteModeSchema,
-      expectedRevision: ExpectedRevisionSchema,
-      runId: WriteRunIdSchema,
-    },
+    fileId: z.string().min(1),
+    blockIds: z.array(z.string().min(1)).min(1).describe("削除対象のブロックID一覧。"),
+    writeMode: WriteModeSchema,
+    expectedRevision: ExpectedRevisionSchema,
+    runId: WriteRunIdSchema,
   },
   async ({ fileId, blockIds, writeMode, expectedRevision, runId }) => withToolErrorHandling(async () =>
     runMutationTool({
@@ -4272,20 +4237,16 @@ registerTool(
     }, renderVisualPreviewDeps, storeContext.store)),
 );
 
-registerTool(
+registerBodyImplementation(
   "move_blocks",
   {
-    title: "ブロックを移動",
-    description: "本文ブロックをblockIdsの順序を保ってtargetIdの前または後へ移動します。overlay図形の移動ではなく、problem内エリア間の移動にも使いません。末尾へはtargetId:\"END_OF_DOCUMENT\", position:\"after\"。例: {fileId:\"...\",blockIds:[\"p_2\"],targetId:\"p_1\",position:\"before\",expectedRevision:3}。",
-    inputSchema: {
-      fileId: z.string().min(1),
-      blockIds: z.array(z.string().min(1)).min(1).describe("移動対象のブロックID一覧(元の順序を保ったまま移動します)。"),
-      targetId: z.string().min(1).describe("移動先の基準ブロックID。教材末尾へ移動する場合は \"END_OF_DOCUMENT\" を指定してください。"),
-      position: z.enum(["before", "after"]),
-      writeMode: WriteModeSchema,
-      expectedRevision: ExpectedRevisionSchema,
-      runId: WriteRunIdSchema,
-    },
+    fileId: z.string().min(1),
+    blockIds: z.array(z.string().min(1)).min(1).describe("移動対象のブロックID一覧(元の順序を保ったまま移動します)。"),
+    targetId: z.string().min(1).describe("移動先の基準ブロックID。教材末尾へ移動する場合は \"END_OF_DOCUMENT\" を指定してください。"),
+    position: z.enum(["before", "after"]),
+    writeMode: WriteModeSchema,
+    expectedRevision: ExpectedRevisionSchema,
+    runId: WriteRunIdSchema,
   },
   async ({ fileId, blockIds, targetId, position, writeMode, expectedRevision, runId }) => withToolErrorHandling(async () =>
     runMutationTool({
@@ -5123,7 +5084,7 @@ registerTool(
   {
     title: "図形を削除",
     description:
-      "overlay図形をIDで指定して削除します。表(tableShape)・グラフ(graph2dShape)・通常の図形はすべてoverlay図形なので削除はここを使います(本文ブロックの削除には使えません。それは delete_blocks)。IDは get_document_outline の overlayShapes または search_document で確認してください。既存図形/表/グラフの一部だけを直すために delete_shapes してから insert_shape/insert_table/insert_graph で作り直すのは避けてください(位置・サイズ・スタイルがリセットされます)。部分更新は update_shape/update_table/update_graphを使います。",
+      "overlay図形をIDで指定して削除します。表(tableShape)・グラフ(graph2dShape)・通常の図形はすべてoverlay図形なので削除はここを使います(本文ブロックの削除には使えません。それは organize_blocks (edit.action:\"delete\"))。IDは get_document_outline の overlayShapes または search_document で確認してください。既存図形/表/グラフの一部だけを直すために delete_shapes してから insert_shape/insert_table/insert_graph で作り直すのは避けてください(位置・サイズ・スタイルがリセットされます)。部分更新は update_shape/update_table/update_graphを使います。",
     inputSchema: {
       fileId: z.string().min(1),
       shapeIds: z.array(z.string().min(1)).min(1).describe("削除対象の図形ID一覧。get_document_outline の overlayShapes で確認してください。"),
@@ -6136,16 +6097,14 @@ for (const tool of APP_CONTEXT_TOOL_TABLE) {
   );
 }
 
-  if (toolProfile === "app") {
-    for (const tool of createAppBodyTools(bodyImplementations)) {
-      registerTool(tool.name, tool.config, async (args, extra) => {
-        try {
-          return await tool.handler(args, extra);
-        } catch (error) {
-          return toolErrorResult(error);
-        }
-      });
-    }
+  for (const tool of createAppBodyTools(bodyImplementations)) {
+    registerTool(tool.name, tool.config, async (args, extra) => {
+      try {
+        return await tool.handler(args, extra);
+      } catch (error) {
+        return toolErrorResult(error);
+      }
+    });
   }
   return server;
 }

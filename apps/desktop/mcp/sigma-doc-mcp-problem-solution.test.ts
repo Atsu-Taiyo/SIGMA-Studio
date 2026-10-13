@@ -35,7 +35,7 @@ it("serves private reference JSON through authenticated main bridge and the real
   const unauthorized = await fetch(`${url}/problem-solution`, { method: "POST", body: '{"problemId":"123"}' });
   expect(unauthorized.status).toBe(401);
   expect(getProblemSolution).not.toHaveBeenCalled();
-  const mcp = createSigmaDocMcpServer({ toolProfile: "app" });
+  const mcp = createSigmaDocMcpServer();
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   client = new Client({ name: "solution-test", version: "1" });
   await mcp.connect(serverTransport);

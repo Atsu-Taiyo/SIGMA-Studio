@@ -225,7 +225,6 @@ export async function runAiEditForIpc(args: {
   );
 
   const prompt = buildMcpEditTurnPrompt("codex", {
-    toolProfile: "app",
     instruction,
     fileId,
     selectedId,
@@ -485,7 +484,7 @@ async function resolveThreadId(
   // Web検索ポリシーはスレッドレベルの developerInstructions にも足しておく
   // (turnごとの buildMcpEditTurnPrompt 側にも webSearchEnabled 経由で入る)。
   const t = createTranslator(locale, "prompt");
-  const developerInstructions = [buildMcpEditInvariantGuidance(t, "app"), t("generatedImages.guide"),
+  const developerInstructions = [buildMcpEditInvariantGuidance(t), t("generatedImages.guide"),
     ...(webSearchEnabled ? [buildMcpWebSearchPrompt(t)] : []),
   ].join("\n\n");
   if (requestedThreadId) {

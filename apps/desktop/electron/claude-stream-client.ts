@@ -21,7 +21,6 @@ import {
   toolNamesForCategories,
   type McpToolCategory,
 } from "@/lib/ai/mcp-tool-categories";
-import { appMcpToolNames } from "@/lib/ai/mcp-tool-profile";
 import { createCurrentLocaleTranslator } from "@/lib/i18n";
 
 const te = createCurrentLocaleTranslator("error");
@@ -824,7 +823,7 @@ export class ClaudeStreamClient extends EventEmitter {
     const allowedAfterDenial = params.resumeSessionId
       ? this.categoriesAllowedAfterDenial.get(params.resumeSessionId) ?? []
       : [];
-    const mcpTools = appMcpToolNames(toolNamesForCategories([...categories, ...allowedAfterDenial]))
+    const mcpTools = toolNamesForCategories([...categories, ...allowedAfterDenial])
       .map((name) => `${SIGMA_MCP_TOOL_PREFIX}${name}`)
       .join(" ");
     return `${mcpTools} ${DEFAULT_ALLOWED_TOOLS}`;

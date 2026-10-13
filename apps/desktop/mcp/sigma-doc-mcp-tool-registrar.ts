@@ -5,8 +5,7 @@ import type { McpServer, RegisteredTool, ToolCallback } from "@modelcontextproto
 import type { CallToolResult, ToolAnnotations } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
 
-import { isLegacyBodyToolName, type LegacyBodyToolName, type McpToolProfile } from "@/lib/ai/mcp-tool-profile";
-import type { BodyToolImplementation } from "./sigma-doc-mcp-app-tools";
+import type { BodyImplementationName, BodyToolImplementation } from "./sigma-doc-mcp-app-tools";
 import { ToolOutputEnvelopeSchema } from "./sigma-doc-mcp-response";
 import { recordDocumentRead } from "./sigma-doc-mcp-source-ledger";
 import { runWithMcpToolStats } from "./sigma-doc-mcp-stats";
@@ -22,7 +21,7 @@ const READ_ONLY_TOOL_NAMES = new Set([
   "get_attached_media", "get_mentioned_sigma_docs", "list_generated_images", "get_image_reference",
 ]);
 const DESTRUCTIVE_TOOL_NAMES = new Set([
-  "delete_ai_resource", "delete_blocks", "delete_shapes", "visual_remove_shape", "discard_visual_edit_session",
+  "delete_ai_resource", "delete_shapes", "visual_remove_shape", "discard_visual_edit_session",
   "delete_local_document", "delete_local_folder",
 ]);
 const IDEMPOTENT_TOOL_NAMES = new Set([
@@ -48,38 +47,49 @@ interface ToolRegistrationConfig<InputSchema> {
 }
 
 export interface McpToolRegistrarOptions {
-  toolProfile: McpToolProfile;
-  profileGuidance: (description: string) => string;
   activityLogger: ToolActivityLogger;
   activeRunId?: () => string | undefined;
   visualSessionRunId: (sessionId: string) => string | undefined;
 }
 
 /**
- * Publishes the selected tool profile and instruments calls at the transport boundary.
- * App body aliases reuse the original validated handlers; the registrar never creates
- * another editing or proposal path and never replaces methods on the SDK server.
+ * Publishes tools and instruments calls at the transport boundary. Body-edit
+ * implementations are only retained for the public body tools to dispatch to; the
+ * registrar never creates another editing or proposal path and never replaces
+ * methods on the SDK server.
  */
 export function createMcpToolRegistrar(server: McpServer, options: McpToolRegistrarOptions) {
-  const { toolProfile, profileGuidance, activityLogger, visualSessionRunId } = options;
-  const bodyImplementations = new Map<LegacyBodyToolName, BodyToolImplementation>();
+  const { activityLogger, visualSessionRunId } = options;
+  const bodyImplementations = new Map<BodyImplementationName, BodyToolImplementation>();
+
+  /**
+   * Retains a validated body-edit handler without publishing it. The public body tools
+   * (insert_content / edit_text / edit_problem / organize_blocks) call it after their own
+   * registration has attributed and instrumented the call.
+   */
+  function registerBodyImplementation<InputSchema extends z.ZodRawShape>(
+    name: BodyImplementationName,
+    inputSchema: InputSchema,
+    handler: ToolCallback<InputSchema>,
+  ): void {
+    if (!Object.values(inputSchema).every((schema) => schema instanceof z.ZodType)) {
+      throw new Error(`Expected a raw input shape for ${name}`);
+    }
+    bodyImplementations.set(name, {
+      inputSchema,
+      // Forwarding erases the SDK callback's request-context argument type.
+      handler: handler as (...handlerArgs: unknown[]) => CallToolResult | Promise<CallToolResult>,
+    });
+  }
 
   function registerTool<InputSchema extends z.ZodRawShape | z.ZodType | undefined = undefined>(
     name: string,
     config: ToolRegistrationConfig<InputSchema>,
     handler: ToolCallback<InputSchema>,
-  ): RegisteredTool | undefined {
+  ): RegisteredTool {
     // The public entry retains schema-based callback inference. Only forwarding needs
     // argument erasure because the SDK callback also includes its request context.
     const invoke = handler as (...handlerArgs: unknown[]) => CallToolResult | Promise<CallToolResult>;
-    if (toolProfile === "app" && isLegacyBodyToolName(name)) {
-      if (!isRecord(config.inputSchema)
-        || !Object.values(config.inputSchema).every((schema) => schema instanceof z.ZodType)) {
-        throw new Error(`Expected a raw input shape for ${name}`);
-      }
-      bodyImplementations.set(name, { inputSchema: config.inputSchema as z.ZodRawShape, handler: invoke });
-      return;
-    }
 
     const wrappedHandler = async (...handlerArgs: unknown[]): Promise<CallToolResult> => {
       const callId = randomUUID();
@@ -88,8 +98,8 @@ export function createMcpToolRegistrar(server: McpServer, options: McpToolRegist
       const explicitRunId = typeof toolArgs?.runId === "string" ? toolArgs.runId.trim() || undefined : undefined;
       const sessionId = typeof toolArgs?.sessionId === "string" ? toolArgs.sessionId : undefined;
       const runId = explicitRunId ?? (sessionId ? visualSessionRunId(sessionId) : undefined) ?? options.activeRunId?.();
-      // Read provenance is collected here for every profile. Only its intersection
-      // with library-search hits is later exposed as a proposal source reference.
+      // Read provenance is collected here. Only its intersection with library-search
+      // hits is later exposed as a proposal source reference.
       if (READ_ONLY_TOOL_NAMES.has(name) && typeof toolArgs?.fileId === "string") {
         recordDocumentRead(runId, toolArgs.fileId);
       }
@@ -108,7 +118,6 @@ export function createMcpToolRegistrar(server: McpServer, options: McpToolRegist
 
     return server.registerTool(name, {
       ...config,
-      ...(typeof config.description === "string" ? { description: profileGuidance(config.description) } : {}),
       outputSchema: ToolOutputEnvelopeSchema,
       annotations: {
         ...annotationsForTool(name),
@@ -117,7 +126,7 @@ export function createMcpToolRegistrar(server: McpServer, options: McpToolRegist
     }, wrappedHandler as ToolCallback<InputSchema>);
   }
 
-  return { registerTool, bodyImplementations };
+  return { registerTool, registerBodyImplementation, bodyImplementations };
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

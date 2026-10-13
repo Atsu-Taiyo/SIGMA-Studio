@@ -25,7 +25,6 @@ const eslintConfig = [
       "coverage/**",
       "dist/**",
       "dist-electron/**",
-      "dist-mcp/**",
       "release/**",
       "build/**",
       // 計測用ビルドの退避先とレポート出力先 (どちらもビルド成果物 / 生成物)。
