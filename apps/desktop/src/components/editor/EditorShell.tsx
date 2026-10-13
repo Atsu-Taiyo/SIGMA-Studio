@@ -111,8 +111,6 @@ BASE_EDITOR_FONT_SIZE,
 DEFAULT_OUTLINE_WIDTH,
 EMPTY_OVERLAY_SELECTION,
 filterFontFamilyGroups,
-FONT_FAMILY_OPTION_VALUES,
-FONT_FAMILY_OPTIONS,
 FORMAT_TEXT_EVENT,
 INSERT_INLINE_MATH_EVENT,
 MAX_DOCUMENT_HISTORY,
@@ -300,6 +298,7 @@ type DocumentMetadata
 import { templateInsertContent } from "@/lib/templates";
 import { useUiLayoutPreference } from "@/lib/ui-layout-preference";
 import { useCustomFonts } from "@/lib/use-custom-fonts";
+import { localFontMenuGroups } from "@/lib/local-font-menu";
 import { formatSigmaValidationCode } from "@/lib/validation-text";
 import {
 reconcileWorkspaceLayoutDocuments,
@@ -725,7 +724,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
   }, []);
   const { workspaceLayout, getWorkspaceLayout, setWorkspaceLayout, activateWorkspaceGroupTab, moveWorkspaceGroupTab, splitWorkspaceGroupTab, closeWorkspaceGroupTab, resizeWorkspaceGroupSplit, focusWorkspaceGroup } = useWorkspaceTabCoordination({ initialDocumentId: initialDocument.docId, getActiveFileId: getActiveWorkspaceFileId, setOpenFileIds: installOpenWorkspaceFileIds, openDocumentInWorkspace: requestOpenWorkspaceDocument, closeDocumentTab: requestCloseWorkspaceDocument, rememberPaneHandoff: rememberWorkspacePaneHandoff });
   const { shortcutOverrides, setShortcutOverrides, customCommands, setCustomCommands, commandSettingsLoaded, commandSettingsError, openCommandSettings } = useCommandSettingsController(setCommandSettingsOpen, setStatusMessage);
-  const { customFonts, reloadCustomFonts } = useCustomFonts();
+  const { customFonts, systemFonts, reloadCustomFonts } = useCustomFonts();
   const { searchOpen, setSearchOpen, replaceOpen, setReplaceOpen, searchQuery, setSearchQuery, replaceText, setReplaceText } = useDocumentSearchState();
   const [templateGalleryOpen, setTemplateGalleryOpen] = useState(false);
   const [canPasteProblem, setCanPasteProblem] = useState(false);
@@ -1125,6 +1124,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
       notifyInlineMathFontMenuClosed();
     }
   }, [fontFamilyMenuOpen]);
+  useEffect(() => { if (fontFamilyMenuOpen) reloadCustomFonts(); }, [fontFamilyMenuOpen, reloadCustomFonts]);
   const shortcutPlatform = useMemo(() => detectEditorShortcutPlatform(), []);
   const visibleCommentThreadsForPanel = useMemo(
     () => visibleCommentThreads(document.comments, {
@@ -2558,9 +2558,13 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
     () => customFonts.map((font) => ({ label: font.displayName, value: font.cssFamily })),
     [customFonts],
   );
+  const availableFontFamilyGroups = useMemo(
+    () => localFontMenuGroups(filterFontFamilyGroups(""), systemFonts) as ReturnType<typeof filterFontFamilyGroups>,
+    [systemFonts],
+  );
   const visibleFontFamilyGroups = useMemo(
-    () => filterFontFamilyGroups(fontFamilyQuery, (group) => t(`format.font.group.${group.id}`)),
-    [fontFamilyQuery, t],
+    () => filterFontFamilyGroups(fontFamilyQuery, (group) => t(`format.font.group.${group.id}`), availableFontFamilyGroups),
+    [fontFamilyQuery, availableFontFamilyGroups, t],
   );
   const visibleCustomFontOptions = useMemo(() => {
     const query = fontFamilyQuery.trim().toLocaleLowerCase("ja");
@@ -2576,7 +2580,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
   // dropdown would render a nameless row marked as the checked option.
   const fontFamilyIsMixed = fontFamily === "";
   const fontFamilyIsKnownOption = fontFamilyIsMixed
-    || FONT_FAMILY_OPTION_VALUES.has(fontFamily)
+    || availableFontFamilyGroups.some(group => group.options.some(option => option.value === fontFamily))
     || customFontOptions.some((option) => option.value === fontFamily);
   const hasOverlaySelection = overlaySelection.selectedCount > 0;
   const canUseTextToolbar = textToolbar.enabled;
@@ -5167,7 +5171,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
         <CommandSettingsDialog
           overrides={shortcutOverrides}
           customCommands={customCommands}
-          fontFamilyOptions={FONT_FAMILY_OPTIONS}
+          fontFamilyOptions={availableFontFamilyGroups.flatMap(group => group.options)}
           platform={shortcutPlatform}
           onChange={setShortcutOverrides}
           onCustomCommandsChange={setCustomCommands}

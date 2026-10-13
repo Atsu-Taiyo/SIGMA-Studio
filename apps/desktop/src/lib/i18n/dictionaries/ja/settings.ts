@@ -1,6 +1,8 @@
 /** WI-3 が本格的に埋める namespace。WI-1 は言語切り替え行の文言だけを置く。 */
 export const settings = {
   plugins: {
+    roleRequired: "このプラグインを使う権限がありません。管理者に確認してください。",
+    fonts: "付属フォント（{{count}}書体）",
     title: "公式プラグイン", description: "機能を追加して、このPCで利用できます。",
     keywords: "プラグイン 拡張機能 plugins extensions", check: "更新を確認", add: "追加", update: "更新",
     autoUpdate: "自動更新", autoUpdateDescription: "追加済みのプラグインを自動で更新します。",
@@ -8,7 +10,7 @@ export const settings = {
     loading: "プラグインを読み込んでいます。", empty: "追加できるプラグインはありません。",
     installed: "インストール済み：{{version}}", notInstalled: "未インストール", incompatible: "このプラグインにはアプリの更新が必要です。",
     enableNamed: "{{name}}を有効にする", checking: "更新を確認しています。", working: "プラグインを準備しています。",
-    errors: { unavailable: "プラグインを取得できませんでした。再度お試しください。", unauthorized: "ログインしてから再度お試しください。",
+    errors: { forbidden: "このプラグインを使う権限がありません。", unavailable: "プラグインを取得できませんでした。再度お試しください。", unauthorized: "ログインしてから再度お試しください。",
       incompatible: "アプリを更新してから追加してください。", "verification-failed": "プラグインを検証できませんでした。",
       busy: "変換が終了してから再度お試しください。" },
   },

@@ -7,14 +7,17 @@ export interface OfficialPluginRow {
   installedVersion?: string;
   enabled: boolean;
   compatible: boolean;
+  authorized?: boolean;
+  fonts?: string[];
 }
 export interface OfficialPluginStatus {
   available: boolean;
   requiresLogin: boolean;
+  requiresRole?: boolean;
   autoUpdate: boolean;
   phase: "idle" | "checking" | "installing";
   plugins: OfficialPluginRow[];
-  error?: "unavailable" | "unauthorized" | "incompatible" | "verification-failed" | "busy";
+  error?: "unavailable" | "unauthorized" | "forbidden" | "incompatible" | "verification-failed" | "busy";
 }
 export interface OfficialPluginBridge {
   status(): Promise<OfficialPluginStatus>;

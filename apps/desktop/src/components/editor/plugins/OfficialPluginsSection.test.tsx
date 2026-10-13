@@ -44,12 +44,20 @@ describe("official plugin settings", () => {
     expect([...container.querySelectorAll("button")].every(button => button.disabled)).toBe(true);
     await act(async () => root.render(null)); expect(unsubscribe).toHaveBeenCalledTimes(1);
   });
-  it("requires login for downloads while allowing installed plugins to be enabled offline", async () => {
+  it("requires login before enabling or downloading installed plugins", async () => {
     provide({ ...available, requiresLogin: true, plugins: [{ ...available.plugins[0], installedVersion: "0.9.0", enabled: true }] });
     await act(async () => root.render(<OfficialPluginsSection />));
     expect(container.textContent).toContain("ログインが必要");
     expect([...container.querySelectorAll("button")].find(button => button.textContent === "更新")?.disabled).toBe(true);
-    expect(container.querySelector<HTMLButtonElement>('[aria-label="教材変換を有効にする"]')?.disabled).toBe(false);
+    expect(container.querySelector<HTMLButtonElement>('[aria-label="教材変換を有効にする"]')?.disabled).toBe(true);
+  });
+  it("shows a role denial and disables access even for an installed plugin", async () => {
+    provide({...available,requiresRole:true,plugins:[{...available.plugins[0],installedVersion:"0.9.0",enabled:true,authorized:false,fonts:["Example Serif"]}]});
+    await act(async()=>root.render(<OfficialPluginsSection/>));
+    expect(container.textContent).toContain("管理者に確認");
+    expect(container.textContent).toContain("付属フォント（1書体）");
+    expect(container.querySelector<HTMLButtonElement>('[aria-label="教材変換を有効にする"]')?.disabled).toBe(true);
+    expect(container.querySelector<HTMLButtonElement>('[aria-label="教材変換を有効にする"]')?.getAttribute("aria-checked")).toBe("false");
   });
   it("localizes host failures and keeps the installed version visible", async () => {
     provide({ ...available, error: "verification-failed", plugins: [{ ...available.plugins[0], installedVersion: "0.9.0" }] });

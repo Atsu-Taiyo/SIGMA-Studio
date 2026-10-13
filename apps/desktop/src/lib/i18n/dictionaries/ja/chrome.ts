@@ -267,6 +267,7 @@ export const chrome = {
       // フォント名そのもの (「游ゴシック」等) は書体の固有名なので翻訳しない。
       // ここで訳すのはグループ見出しだけ。
       group: {
+        system: "このPCのフォント",
         basic: "基本",
         windows: "Windows 日本語",
         mac: "Mac 日本語",

@@ -105,7 +105,7 @@ export interface FontFamilyOption {
 }
 
 /** グループ見出しの翻訳キー。`label` は検索用の既定表記で、表示は chrome namespace が持つ。 */
-export type FontFamilyGroupId = "basic" | "windows" | "mac" | "macLatin" | "monospace";
+export type FontFamilyGroupId = "basic" | "windows" | "mac" | "macLatin" | "monospace" | "system";
 
 export interface FontFamilyGroup {
   id: FontFamilyGroupId;
@@ -199,12 +199,13 @@ export const FONT_FAMILY_OPTION_VALUES = new Set(FONT_FAMILY_OPTIONS.map((option
 export function filterFontFamilyGroups(
   query: string,
   resolveGroupLabel: (group: FontFamilyGroup) => string = (group) => group.label,
+  groups: FontFamilyGroup[] = FONT_FAMILY_GROUPS,
 ): FontFamilyGroup[] {
   const normalizedQuery = query.trim().toLocaleLowerCase("ja");
   if (!normalizedQuery) {
-    return FONT_FAMILY_GROUPS;
+    return groups;
   }
-  return FONT_FAMILY_GROUPS.flatMap((group) => {
+  return groups.flatMap((group) => {
     const groupMatches = resolveGroupLabel(group).toLocaleLowerCase("ja").includes(normalizedQuery);
     const options = groupMatches
       ? group.options

@@ -4,14 +4,24 @@ import { useCallback, useEffect, useState } from "react";
 
 import { getDesktopBridge } from "@/lib/desktop-bridge";
 import type { DesktopCustomFont } from "@/types/desktop";
+import { getLocalFontBridge, type LocalFontFace } from "@/lib/local-font-contracts";
 
 export function useCustomFonts(): {
   customFonts: DesktopCustomFont[];
+  systemFonts: LocalFontFace[] | null;
   reloadCustomFonts: () => void;
 } {
   const [customFonts, setCustomFonts] = useState<DesktopCustomFont[]>([]);
+  const [systemFonts, setSystemFonts] = useState<LocalFontFace[] | null>(null);
 
   const reloadCustomFonts = useCallback(() => {
+    const local = getLocalFontBridge();
+    if (local) {
+      void local.list().then(result => {
+        if (result.ok) { setCustomFonts(result.fonts); setSystemFonts(result.systemFonts); }
+      }).catch(error => console.warn("Failed to load local fonts", error));
+      return;
+    }
     const bridge = getDesktopBridge();
     if (!bridge?.fonts) {
       return;
@@ -29,6 +39,8 @@ export function useCustomFonts(): {
 
   useEffect(() => {
     reloadCustomFonts();
+    window.addEventListener("focus", reloadCustomFonts);
+    return () => window.removeEventListener("focus", reloadCustomFonts);
   }, [reloadCustomFonts]);
 
   useEffect(() => {
@@ -47,7 +59,7 @@ export function useCustomFonts(): {
     )).join("\n");
   }, [customFonts]);
 
-  return { customFonts, reloadCustomFonts };
+  return { customFonts, systemFonts, reloadCustomFonts };
 }
 
 function fontFormatForUrl(url: string): string {
