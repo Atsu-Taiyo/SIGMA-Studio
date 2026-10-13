@@ -94,7 +94,7 @@ export function createMcpToolRegistrar(server: McpServer, options: McpToolRegist
         recordDocumentRead(runId, toolArgs.fileId);
       }
       activityLogger({ callId, tool: name, runId, status: "started" });
-      return runWithMcpToolStats(name, runId, async () => {
+      const result = await runWithMcpToolStats(name, runId, async () => {
         try {
           const result = await withSharedReadScope(runId, READ_ONLY_TOOL_NAMES.has(name), async () => invoke(...handlerArgs));
           activityLogger({ callId, tool: name, runId, status: "completed" });
@@ -104,12 +104,13 @@ export function createMcpToolRegistrar(server: McpServer, options: McpToolRegist
           throw error;
         }
       });
+      assertToolOutputEnvelope(name, result);
+      return result;
     };
 
     return server.registerTool(name, {
       ...config,
       ...(typeof config.description === "string" ? { description: profileGuidance(config.description) } : {}),
-      outputSchema: ToolOutputEnvelopeSchema,
       annotations: {
         ...annotationsForTool(name),
         ...(isRecord(config.annotations) ? config.annotations : {}),
@@ -118,6 +119,23 @@ export function createMcpToolRegistrar(server: McpServer, options: McpToolRegist
   }
 
   return { registerTool, bodyImplementations };
+}
+
+/**
+ * tools/list には outputSchema を載せない。宣言すると全ツールに同じ定義が複製され、
+ * クライアントは structuredContent を必須として検証する。応答の共通形式はここで確かめる:
+ * SDK が outputSchema の宣言時に行っていた検査と同じく、エラー以外の応答で形が崩れていれば
+ * ツールエラーとして返る。
+ */
+function assertToolOutputEnvelope(name: string, result: CallToolResult): void {
+  if (result.isError) return;
+  if (!result.structuredContent) {
+    throw new Error(`Output validation error: Tool ${name} returned no structured content`);
+  }
+  const parsed = ToolOutputEnvelopeSchema.safeParse(result.structuredContent);
+  if (!parsed.success) {
+    throw new Error(`Output validation error: Invalid structured content for tool ${name}: ${parsed.error.message}`);
+  }
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

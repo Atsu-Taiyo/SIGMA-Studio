@@ -162,6 +162,7 @@ import { hasSelfIntersection, inspectShapeBasics, type VisualInspectionIssue } f
 import { createTranslator, DEFAULT_LOCALE } from "@/lib/i18n";
 
 import { createMcpToolRegistrar } from "./sigma-doc-mcp-tool-registrar";
+import { registerMcpSchemaDefinitions } from "./sigma-doc-mcp-schema-definitions";
 import {
   jsonResultWithContent,
   isJsonResultWithContent,
@@ -209,7 +210,7 @@ const PaginationInputSchema = z.preprocess(stripAbolishedPaginationInputKeys, z.
 }).strict());
 const RichInputSchema = z.union([z.string(), JsonRecordSchema]).describe(
   '短い文章は文字列、構造化する場合は {type:"paragraph"|"heading"|"list"|"boxBlock", id, text?, runs?, pagination?:{break?}, ...}。boxBlockの例: {type:"boxBlock", id:"ai_box_1", styleId:"fancybox", title:"タイトル", blocks:[...]}。利用可能なstyleId: fancybox|itembox|tcolorbox|tcolorbox-note|doublebox|shadebox|leftbar|dashedbox|ruledbox|screenbox|ovalbox|cornerbox。文章と数式を混ぜる例: {type:"paragraph",id:"ai_p_1",runs:["式 ",{type:"math",id:"ai_m_1",tex:"x^2"},"を考える。"]}。',
-);
+).meta({ id: "RichInput" });
 const InlineFormatBoxInputSchema = z.object({
   enabled: z.boolean().describe("trueで囲みを追加、falseで囲みとその設定を削除します。"),
   paddingY: z.number().min(0).max(100).optional(),
@@ -384,7 +385,7 @@ const TableTrackSizeSchema = z.discriminatedUnion("mode", [
   z.object({ mode: z.literal("auto"), min: z.number().positive().optional(), max: z.number().positive().optional() }).strict(),
   z.object({ mode: z.literal("fixed"), value: z.number().positive() }).strict(),
   z.object({ mode: z.literal("fr"), value: z.number().positive(), min: z.number().positive().optional(), max: z.number().positive().optional() }).strict(),
-]);
+]).meta({ id: "TableTrackSize" });
 const TableGridSchema = z.object({
   borderColor: z.string().optional(),
   borderWidth: z.number().nonnegative().optional(),
@@ -402,7 +403,7 @@ const TableCellStyleSchema = z.object({
   fontFamily: z.string().optional(),
   fontSize: z.number().positive().optional(),
   fontWeight: z.enum(["normal", "bold"]).optional(),
-}).strict();
+}).strict().meta({ id: "TableCellStyle" });
 // Required (non-optional) cell content: string/number/null or the structured cell object.
 const TableCellContentInputSchema = z.union([
   z.string(),
@@ -416,7 +417,7 @@ const TableCellContentInputSchema = z.union([
     colSpan: z.number().int().positive().optional(),
     style: TableCellStyleSchema.optional(),
   }).strict(),
-]);
+]).meta({ id: "TableCellContent" });
 const TableCellInputSchema = TableCellContentInputSchema.optional();
 // update_table専用。既存表の1セルだけをcontentで置き換える(列幅・行高さ・grid・defaultCellStyle・
 // 他セルは一切触らない)。root causeだった「一部編集のつもりが表全体を再構成してユーザーの
@@ -538,9 +539,12 @@ const GraphToolInputSchema = {
 // `version` はサーバーが入れるので受け取らない。
 const GRAPH3D_ROTATION_DESCRIPTION =
   "オブジェクト自身の中心まわりのx→y→zオイラー回転。単位はラジアンで、式を書けます(90度はpi/2、度から書くならdeg*pi/180、パラメータ依存なら\"t\")。overlay図形のrotationDeg(度)とは別系統です。";
-const Graph3DExpressionVector3InputSchema = z.object({
-  x: z.string(), y: z.string(), z: z.string(),
-}).strict();
+const Graph3DExpressionVector3InputShape = { x: z.string(), y: z.string(), z: z.string() } as const;
+const Graph3DExpressionVector3InputSchema = z.object(Graph3DExpressionVector3InputShape).strict()
+  .meta({ id: "Graph3DExpressionVector3" });
+// rotation は10種のobjectすべてにあるので、説明ごと1つの定義にする (使う場所ごとに説明を複製しない)。
+const Graph3DRotationInputSchema = z.object(Graph3DExpressionVector3InputShape).strict()
+  .meta({ id: "Graph3DRotation", description: GRAPH3D_ROTATION_DESCRIPTION });
 const Graph3DNumericVector3InputSchema = z.object({
   x: z.number(), y: z.number(), z: z.number(),
 }).strict();
@@ -548,7 +552,7 @@ const Graph3DRangeInputSchema = z.object({
   min: z.string(),
   max: z.string(),
   samples: z.number().int().min(6).max(256).optional(),
-}).strict();
+}).strict().meta({ id: "Graph3DRange" });
 const Graph3DBoundsInputSchema = z.object({
   x: Graph3DRangeInputSchema,
   y: Graph3DRangeInputSchema,
@@ -569,20 +573,20 @@ const Graph3DFillInputSchema = z.discriminatedUnion("mode", [
     opacity: z.number().min(0).max(1).optional(),
     pattern: z.enum(["diagonal", "cross", "dots"]),
   }).strict(),
-]);
+]).meta({ id: "Graph3DFill" });
 const Graph3DObjectStyleInputSchema = z.object({
   color: z.string().optional(),
   opacity: z.number().min(0).max(1).optional(),
   wireframe: z.boolean().optional(),
   wireframeColor: z.string().optional(),
   fill: Graph3DFillInputSchema.optional(),
-}).strict();
+}).strict().meta({ id: "Graph3DObjectStyle" });
 const Graph3DObjectBaseInputFields = {
   id: z.string().min(1),
   name: z.string().optional(),
   visible: z.boolean().optional(),
   style: Graph3DObjectStyleInputSchema.optional(),
-  rotation: Graph3DExpressionVector3InputSchema.optional().describe(GRAPH3D_ROTATION_DESCRIPTION),
+  rotation: Graph3DRotationInputSchema.optional(),
   translation: Graph3DExpressionVector3InputSchema.optional(),
   scale: Graph3DExpressionVector3InputSchema.optional(),
 } as const;
@@ -690,7 +694,7 @@ const Graph3DObjectListInputSchema = z.array(Graph3DObjectInputSchema).max(64).d
   + " primitive(球・円柱・円錐・直方体) / solidOfRevolution(回転体) / polyhedron(多面体) /"
   + " boundedSolid(不等式で囲まれた立体) / point / segment / plane の10種。数学座標はz軸上向き(zUp)の右手系で、"
   + "式はTeXではなく評価用の式です。指定すると既存のobjectsは丸ごと置き換わります(追加ではありません)。",
-);
+).meta({ id: "Graph3DObjectList" });
 const Graph3DParameterInputSchema = z.object({
   id: z.string().min(1),
   name: z.string().min(1).describe("式から参照する変数名(例: z = s の s)。"),
@@ -703,7 +707,7 @@ const Graph3DParameterInputSchema = z.object({
     loop: z.enum(["once", "repeat", "pingPong"]),
     playOnPage: z.boolean().optional(),
   }).strict().optional(),
-}).strict();
+}).strict().meta({ id: "Graph3DParameter" });
 const Graph3DRegionInputSchema = z.object({
   id: z.string().min(1),
   kind: z.literal("objectIntersection"),
@@ -718,7 +722,7 @@ const Graph3DRegionInputSchema = z.object({
 const Graph3DRegionListInputSchema = z.array(Graph3DRegionInputSchema).max(32).describe(
   "2つ以上のobjectsが共有する部分を独自色で描きます。切断ではないので何も削られません。"
   + "平面をメンバーに含めると断面図になり、共通部分が空なら何も描かれません。",
-);
+).meta({ id: "Graph3DRegionList" });
 const Graph3DAnnotationInputSchema = z.discriminatedUnion("kind", [
   z.object({
     id: z.string().min(1),
@@ -741,7 +745,7 @@ const Graph3DAnnotationInputSchema = z.discriminatedUnion("kind", [
 ]);
 const Graph3DAnnotationListInputSchema = z.array(Graph3DAnnotationInputSchema).max(64).describe(
   "labelTexはTeXです。ラベルは派生PNGへ焼かず、印刷・PDFでもベクタのラベル層として重ねられます。",
-);
+).meta({ id: "Graph3DAnnotationList" });
 const Graph3DCameraOptionalInputFields = {
   fov: z.number().gt(0).lt(180).optional().describe("透視投影の垂直画角(度)。ここだけは度です。"),
   zoom: z.number().positive().optional(),
@@ -814,15 +818,15 @@ export const Graph3DToolInputSchema = {
   ...Graph3DContentToolInputSchema,
 } as const;
 const WriteModeSchema = z.enum(["proposal", "dryRun"]).optional()
-  .describe("既定のproposalはデスクトップ承認待ち提案を作ります。dryRunは提案も教材本体も保存しません。MCPから教材本体を直接保存するモードはありません。");
+  .describe("既定のproposalは承認待ちの提案を作り、dryRunは何も保存しません。教材本体へ直接保存するモードはありません。");
 const ExpectedRevisionSchema = z.number().int().nonnegative()
-  .describe("保存前にローカル教材の revision が一致するか確認します。list_local_documents / read_local_document で取得した revision を必ず渡してください。");
+  .describe("list_local_documents / read_local_document で取得した教材のrevision。保存前の競合確認に使います。");
 const VisualSessionIdSchema = z.string().min(1);
 const VisualReviewStringArraySchema = z.array(z.string().min(1)).max(16).optional();
 const WriteRunIdSchema = z.string().min(1).optional()
-  .describe("この呼び出し元エージェントのrunId。プロンプトで伝えられたrunIdをそのまま渡すと、作成される提案が自分のAIセッションへ正しく帰属します。");
+  .describe("プロンプトで伝えられた自分のrunId。そのまま渡すと、提案が自分のAIセッションへ帰属します。");
 const ReadRunIdSchema = z.string().min(1).optional()
-  .describe("プロンプトで伝えられたrunId。実行開始時の選択範囲と複数参照を正しいAIセッションから取得するため、そのまま渡してください。");
+  .describe("プロンプトで伝えられた自分のrunId。そのまま渡すと、実行開始時の選択範囲と複数参照を自分のAIセッションから取得します。");
 const PageLayoutCustomSizeInputSchema = z.object({
   widthMm: z.number().positive("用紙幅は0より大きい値にしてください。").optional()
     .describe("カスタム用紙の幅(mm)。"),
@@ -986,7 +990,7 @@ function dedupeSourceReferencesBySource(references: AiSourceReference[]): AiSour
   return Array.from(byIdentity.values());
 }
 const SourceReferencesInputSchema = z.array(SourceReferenceSchema).max(MAX_PERSISTED_SOURCE_REFERENCES)
-  .describe("この編集が参照した過去教材・素材・Webページ。アプリが実際のツール利用から自動記録するので通常は省略してよく、特定ブロックを参照した場合など補足したいときだけ指定します。ユーザーに「参照元」として表示されます。");
+  .describe("この編集が参照した過去教材・素材・Webページ。アプリが自動記録するので通常は省略し、特定ブロックを参照したときなどの補足だけに使います。ユーザーに「参照元」として表示されます。");
 
 const DocumentTargetSchema = {
   fileId: z.string().min(1).describe("ローカルアプリの教材 fileId。list_local_documents で取得します。"),
@@ -3053,6 +3057,7 @@ export interface CreateSigmaDocMcpServerOptions {
 }
 
 export function createSigmaDocMcpServer(options: CreateSigmaDocMcpServerOptions = {}): McpServer {
+registerMcpSchemaDefinitions();
 const toolProfile = options.toolProfile ?? (process.env[MCP_TOOL_PROFILE_ENV] === "app" ? "app" : "external");
 const profileGuidance = toolProfile === "app" ? appMcpToolGuidance : (text: string) => text;
 const renderVisualPreviewDeps = options.renderVisualPreviewDeps ?? createDefaultRenderVisualPreviewDeps();
@@ -6115,7 +6120,7 @@ async function runAppContextTool(callback: () => Promise<AppContextToolOutcome>)
 const appContextDeps: AppContextToolDeps = { env: process.env, loadSigmaDocStore: () => storeContext.store };
 
 const AppContextRunIdInputSchema = z.string().min(1).optional()
-  .describe("この呼び出し元エージェントのrunId。プロンプトで伝えられたrunIdをそのまま渡してください。並行実行中の自分のrunのコンテキストを正しく参照するために使います。省略時は最新の実行コンテキストにフォールバックします。");
+  .describe("プロンプトで伝えられた自分のrunId。そのまま渡すと、並行実行中でも自分のrunのコンテキストを参照します。省略時は最新の実行コンテキストを使います。");
 
 for (const tool of APP_CONTEXT_TOOL_TABLE) {
   registerTool(

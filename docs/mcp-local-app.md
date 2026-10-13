@@ -325,7 +325,9 @@ Electron側が判定する未完了セッションは `operationCount > 0` か�
 
 いずれも編集内容そのものには影響せず、デスクトップアプリの承認UIに「参照元」として表示されるだけです。壊れた/削除済みの `fileId` を渡しても書き込み自体は失敗せず、`title` の自動補完だけが行われません。
 
-すべてのツールはこの共通形式をMCP `outputSchema`として公開します。正常応答は `{ "ok": true, "message": "...", "data": {...}, "nextAction"?: "..." }`、ツール実行エラーは `{ "ok": false, "error": { "code", "message", "retryable", "nextAction", "details"? } }` です。主なエラーcodeは `INVALID_INPUT` / `REVISION_MISMATCH` / `TARGET_REQUIRED` / `NOT_FOUND` / `INVALID_SESSION_STATE` / `PREVIEW_UNAVAILABLE` / `DOCUMENT_INVALID` / `PERMISSION_DENIED` / `TOOL_FAILED` です。inspection/reviewの品質不合格は通信・実行エラーではないため `ok:true` かつ `data.passed:false` で返ります。
+各ツールの `inputSchema` で、1つのツールの中に何度も現れる共有部品 (本文ブロック・インラインrun・3Dグラフのobjectsなど) は、そのツールの `definitions` に1回だけ定義して `$ref` で参照します (`apps/desktop/mcp/sigma-doc-mcp-schema-definitions.ts`)。定義はツールごとに自己完結し、受け付ける入力は変わりません。
+
+すべてのツールはこの共通形式を `structuredContent` (同じJSONをtext contentにも) で返します。`tools/list` には `outputSchema` を載せません (載せるとクライアントが `structuredContent` を必須として検証し、全ツールに同じ定義が複製されるため)。形式はサーバー側で確かめ、崩れた成功応答はツールエラーになります。正常応答は `{ "ok": true, "message": "...", "data": {...}, "nextAction"?: "..." }`、ツール実行エラーは `{ "ok": false, "error": { "code", "message", "retryable", "nextAction", "details"? } }` です。主なエラーcodeは `INVALID_INPUT` / `REVISION_MISMATCH` / `TARGET_REQUIRED` / `NOT_FOUND` / `INVALID_SESSION_STATE` / `PREVIEW_UNAVAILABLE` / `DOCUMENT_INVALID` / `PERMISSION_DENIED` / `TOOL_FAILED` です。inspection/reviewの品質不合格は通信・実行エラーではないため `ok:true` かつ `data.passed:false` で返ります。
 
 書き込み系ツールの `data` は、教材全体やブロックごとの前後スナップショットを含む重い `draft` オブジェクトの代わりに、軽量な `changeSummary`(`operationSummaries` / `blockCount` / `revisionInfo.changedIds`)と `documentSummary`(`blockCount` / `revision` / `changedIds`)を返します。`data.proposal` も `nextDocument` と内部の `draft` を除いた要約です。教材全体が必要な場合は `read_local_document({detail:"full"})` を明示してください。
 
