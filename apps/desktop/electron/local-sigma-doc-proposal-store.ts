@@ -967,15 +967,6 @@ export class LocalMcpEditProposalStore {
     }
     return { rejected, failed };
   }
-  /**
-   * fileId のすべての pending 提案を、セッション (roomId/runId) に関わらず返す。
-   * 過去セッション由来の取り下げ不可な提案を UI 側で表示・却下するために使う。
-   */
-  async listAllPendingProposalsForFile(fileId: string): Promise<LocalMcpEditProposalSummary[]> {
-    return selectGroupRepresentatives(await this.listPendingMetasForFile(fileId))
-      .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
-      .map(summarizeProposalMeta);
-  }
 
   async countPendingProposalsForFile(fileId: string): Promise<number> {
     return (await this.listPendingMetasForFile(fileId)).length;
@@ -990,28 +981,6 @@ export class LocalMcpEditProposalStore {
       .map((proposal) => proposal.proposalId);
     await Promise.all(proposalIds.map((proposalId) => this.deleteProposalFile(proposalId)));
     return proposalIds;
-  }
-
-  /**
-   * 任意の pending 提案を1件だけ却下する。rejectProposals (複数) と違い、
-   * roomId/runId に関わらず指定 proposalId 1件を処理する。
-   * グループメンバーも一括して却下する。
-   */
-  async rejectSingleProposal(proposalId: string, reason?: string): Promise<LocalMcpEditProposal> {
-    const before = await this.loadProposal(proposalId);
-    if (!before) {
-      throw new Error(te("electron.proposal.notFound"));
-    }
-    if (before.status !== "pending") {
-      throw new Error(te("electron.proposalStore.processedCannotReject"));
-    }
-
-    return this.runExclusive(before.fileId, () => this.resolveProposalUnlocked(
-      proposalId,
-      "rejected",
-      reason?.trim() || te("electron.proposalStore.rejectedFromCrossSession"),
-      { rejectedReason: reason?.trim() || te("electron.proposalStore.rejectedFromCrossSession") },
-    ));
   }
 
   /**

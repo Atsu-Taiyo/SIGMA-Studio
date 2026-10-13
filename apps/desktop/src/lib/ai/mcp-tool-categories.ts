@@ -20,7 +20,8 @@ export type McpToolCategory = (typeof MCP_TOOL_CATEGORIES)[number];
  * Public sigma-studio-local tools grouped by the user task that needs them.
  * The MCP contract test intentionally compares this map with its independently
  * pinned DOCUMENTED_TOOL_NAMES list so a newly registered tool cannot silently
- * skip staged exposure.
+ * skip staged exposure. Only Claude's --allowedTools reads this map, so the
+ * generated-image tools the server publishes to Codex alone are not listed.
  */
 export const MCP_TOOL_CATEGORY_MAP = {
   "文書探索": [
@@ -69,8 +70,6 @@ export const MCP_TOOL_CATEGORY_MAP = {
     "align_shapes",
     "delete_shapes",
     "insert_shape",
-    "insert_generated_image",
-    "update_generated_image",
     "insert_svg_image",
     "update_svg_image",
     "update_shape",
@@ -97,8 +96,6 @@ export const MCP_TOOL_CATEGORY_MAP = {
     "visual_replace_shape",
   ],
   "素材": [
-    "get_image_reference",
-    "list_generated_images",
     "get_attached_media",
     "get_material",
     "insert_material",
@@ -109,11 +106,9 @@ export const MCP_TOOL_CATEGORY_MAP = {
     "get_edit_proposal",
     "get_local_app_status",
     "list_edit_proposals",
-    "list_all_pending_proposals",
     "save_ai_resource",
     "update_ai_settings",
     "withdraw_current_edit_proposal",
-    "withdraw_edit_proposal",
   ],
 } as const satisfies Record<McpToolCategory, readonly string[]>;
 
@@ -123,10 +118,8 @@ export type McpToolName = (typeof MCP_TOOL_CATEGORY_MAP)[McpToolCategory][number
 export const ALWAYS_AVAILABLE_MCP_TOOL_NAMES = [
   "get_edit_proposal",
   "list_edit_proposals",
-  "list_all_pending_proposals",
   "validate_local_document",
   "withdraw_current_edit_proposal",
-  "withdraw_edit_proposal",
 ] as const satisfies readonly McpToolName[];
 
 export interface McpToolInferenceReference {

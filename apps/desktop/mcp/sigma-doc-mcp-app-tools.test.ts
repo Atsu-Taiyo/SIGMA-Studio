@@ -96,6 +96,9 @@ describe("app MCP body tool profile", () => {
   }
 
   it("reduces actual tools/list schemas while retaining the external contract and matching app permissions", async () => {
+    // The categories build Claude's --allowedTools, so compare them with what a Claude server lists
+    // (a chatgpt server also lists the Codex-only generated-image tools).
+    vi.stubEnv("SIGMA_STUDIO_MCP_PROVIDER", "claude");
     const externalClient = await connect();
     const appClient = await connect("app");
     const external = (await externalClient.listTools()).tools;

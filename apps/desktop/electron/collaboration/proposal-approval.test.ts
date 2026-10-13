@@ -505,7 +505,7 @@ describe("shared proposal approval", () => {
       replace("box_p", "段落 box_p by AI"),
       { operation: "replace", summary: "箱", targetId: "box_1", replacementBlock: { id: "box_1", type: "boxBlock", styleId: "itembox", title: [{ type: "text", text: "要点 by AI" }], blocks: [paragraph("box_p")] } as never },
     ], [{ operation: "deleteOverlayShapes", summary: "削除", shapeIds: ["g"] }]));
-    await fixture.proposals.rejectSingleProposal(legacy.proposalId);
+    await fixture.proposals.resolveProposal(legacy.proposalId, "rejected");
     await expect(fixture.proposals.restoreResolvedProposal(legacy.proposalId, fixture.server(), 1)).resolves.toMatchObject({ ok: true });
     const merged = await fixture.createProposal(draftOf([replace("p_1", "The dog sat.")]));
     const reproposed = (await fixture.proposals.loadProposal(legacy.proposalId))!;
