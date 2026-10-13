@@ -106,6 +106,7 @@ export const ai = {
     providerDisconnected: "{{name}}に接続されていません。サイドバーのAIパネルからログインしてください。",
     failed: "AI編集に失敗しました。",
     cancelledWhileWaiting: "他のAI編集の完了待ち中にキャンセルされました。",
+    cancelledWhilePreparing: "送る画像の準備中に中断しました。",
   },
   /**
    * プロバイダの接続状態。**失敗文言は `settings.provider.message.*` が出典**で、
@@ -551,6 +552,24 @@ export const ai = {
     shapeOne: "図形1",
     shapeRange: "図形1〜{{last}}",
     selectedImagePrefix: "選択画像-",
+    annotate: "画像にコメント",
+    annotateNamed: "画像にコメント: {{name}}",
+    annotationCount: "コメント{{count}}件",
+  },
+  /** 添付画像の中の場所を指してコメントを付ける画面 (`view/AiImageAnnotationDialog.tsx`)。 */
+  imageAnnotation: {
+    title: "画像にコメント",
+    hint: "クリックで場所、ドラッグで範囲を選んでコメントを付けます。",
+    stageAria: "コメントを付ける画像",
+    listTitle: "コメント",
+    empty: "まだコメントはありません",
+    placeholder: "この部分について…",
+    mark: "コメント{{index}}",
+    edit: "コメント{{index}}を編集",
+    delete: "コメントを削除",
+    limit: "コメントは1枚につき{{max}}件までです",
+    keyHint: "Enterで確定・Shift+Enterで改行",
+    done: "完了",
   },
   /** クイック操作のラベル。 */
   quickAction: {

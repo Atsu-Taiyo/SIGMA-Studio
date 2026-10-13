@@ -58,6 +58,30 @@ describe("loadAiEditRunContext / LocalAiEditRunContextStore", () => {
     }
   });
 
+  it("roundtrips image comments on an attachment so get_attached_media can return them", async () => {
+    const context: AiEditRunContext = {
+      ...validContext,
+      attachments: [{
+        id: "media_1",
+        name: "screenshot.png",
+        mimeType: "image/png",
+        dataUrl: "data:image/png;base64,AAAA",
+        annotations: [
+          { id: "a", x: 0.5, y: 0.5, comment: "ここ" },
+          { id: "b", x: 0, y: 0, width: 0.5, height: 0.25, comment: "この範囲" },
+        ],
+      }],
+    };
+    await store.write(context);
+    const result = loadAiEditRunContext({
+      [SIGMA_STUDIO_RUN_CONTEXT_FILE_ENV]: store.getRunContextFilePath(),
+    });
+    expect(result.state).toBe("ready");
+    if (result.state === "ready") {
+      expect(result.context.attachments[0]?.annotations).toEqual(context.attachments[0]?.annotations);
+    }
+  });
+
   it("returns state:none when the env var is unset or blank", () => {
     expect(loadAiEditRunContext({}).state).toBe("none");
     expect(loadAiEditRunContext({ [SIGMA_STUDIO_RUN_CONTEXT_FILE_ENV]: "  " }).state).toBe("none");

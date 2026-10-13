@@ -135,6 +135,11 @@ export interface OverlaySelectionSummary {
   selectedShapeIds: string[];
   selectedShapes: OverlayShape[];
   selectedAssets: Record<string, OverlayAsset>;
+  /**
+   * 選択を絵にするときに描く図形。選択に加えて、選んだグラフが持つ軸・点の名前の文字図形を含む。
+   * 足すものが無いときは省略する (`selectedShapes` と同じ)。
+   */
+  previewShapes?: OverlayShape[];
   locked: boolean;
   hidden: boolean;
   grouped: boolean;

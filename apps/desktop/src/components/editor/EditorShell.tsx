@@ -758,6 +758,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
     attachments: aiPendingAttachments,
     add: addAiPendingAttachment,
     remove: removeAiPendingAttachment,
+    setAnnotations: setAiPendingAttachmentAnnotations,
     clear: clearAiPendingAttachments,
   } = useAiPendingAttachments();
   const clearAiInlineSessionContext = useCallback(() => {
@@ -4556,6 +4557,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
       onRemovePinnedReference={removeAiPinnedReference}
       pendingAttachments={aiPendingAttachments}
       onRemovePendingAttachment={removeAiPendingAttachment}
+      onSetPendingAttachmentAnnotations={setAiPendingAttachmentAnnotations}
       onPendingAttachmentsSent={clearAiPendingAttachments}
       overlaySelection={overlaySelection}
       variant={aiDisplayMode}

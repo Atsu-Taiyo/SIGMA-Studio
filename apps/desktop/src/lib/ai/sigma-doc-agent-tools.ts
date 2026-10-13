@@ -1,4 +1,5 @@
 import { encodeAiSvg, MAX_AI_SVG_BYTES } from "./svg-image";
+import type { AiImageAnnotation } from "./ai-image-annotations";
 import { resolveValidationLocale, tv } from "@/lib/ai/validation-locale";
 import { z } from "zod";
 
@@ -169,6 +170,8 @@ export interface AiEditAttachment {
   fileSize?: number;
   /** Overlay preview attachments keep the reference they visualize so history fallback stays per-reference. */
   sourceReferenceKey?: string;
+  /** 画像の中の場所を指したコメント。送信直前に印を描き込んだ画像へ差し替え、文章でも渡す。 */
+  annotations?: AiImageAnnotation[];
 }
 
 export interface AiEditMentionedDocumentContext {

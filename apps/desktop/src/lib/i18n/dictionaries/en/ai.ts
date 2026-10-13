@@ -91,6 +91,7 @@ export const ai = {
     providerDisconnected: "{{name}} is not connected. Sign in from the AI panel in the sidebar.",
     failed: "The AI edit failed.",
     cancelledWhileWaiting: "Cancelled while waiting for another AI edit to finish.",
+    cancelledWhilePreparing: "Stopped while preparing the images to send.",
   },
   connection: {
     checking: "Checking the connection…",
@@ -493,6 +494,23 @@ export const ai = {
     shapeOne: "Shape 1",
     shapeRange: "Shapes 1-{{last}}",
     selectedImagePrefix: "selected-image-",
+    annotate: "Comment on the image",
+    annotateNamed: "Comment on the image: {{name}}",
+    annotationCount: "{{count}} comment(s)",
+  },
+  imageAnnotation: {
+    title: "Comment on the image",
+    hint: "Click a spot or drag over an area to add a comment.",
+    stageAria: "Image to comment on",
+    listTitle: "Comments",
+    empty: "No comments yet",
+    placeholder: "About this part…",
+    mark: "Comment {{index}}",
+    edit: "Edit comment {{index}}",
+    delete: "Delete the comment",
+    limit: "Up to {{max}} comments per image",
+    keyHint: "Enter to add · Shift+Enter for a new line",
+    done: "Done",
   },
   quickAction: {
     label: {

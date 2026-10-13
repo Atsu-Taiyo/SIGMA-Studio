@@ -5,7 +5,9 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { createBlankDocument } from "@/lib/blank-document";
 import { getDesktopBridge } from "@/lib/desktop-bridge";
 import type { DesktopDocumentMetadata, DesktopAiResourceManifestEntry } from "@/types/desktop";
-import { useAiChatComposer, type AiChatComposerOptions, type AiChatComposerController } from "./use-ai-chat-composer";
+import { imageAnnotationDefaultInstruction, imageToSigmaDocDefaultInstruction } from "@/lib/ai/ai-edit-runtime";
+import type { AiEditAttachment } from "@/lib/ai/sigma-doc-agent-tools";
+import { selectVisibleOverlayAnnotations, swapAnnotationDefaultInstruction, useAiChatComposer, type AiChatComposerOptions, type AiChatComposerController } from "./use-ai-chat-composer";
 
 vi.mock("@/lib/desktop-bridge", () => ({ getDesktopBridge: vi.fn() }));
 let root: Root | null;
@@ -179,4 +181,45 @@ it("tells the owner the outside attachments were used up when the draft is submi
   await act(async () => mount(options({ pendingAttachments: [screenshot("shot-1")], onPendingAttachmentsSent })));
   await act(async () => composer.actions.clearComposerAfterSubmit());
   expect(onPendingAttachmentsSent).toHaveBeenCalledTimes(1);
+});
+
+it("swaps only the untouched image default text when comments are added or all removed", () => {
+  expect(swapAnnotationDefaultInstruction(imageToSigmaDocDefaultInstruction(), true)).toBe(imageAnnotationDefaultInstruction());
+  expect(swapAnnotationDefaultInstruction(imageAnnotationDefaultInstruction(), false)).toBe(imageToSigmaDocDefaultInstruction());
+  // 利用者が書いた指示は書き換えない。
+  expect(swapAnnotationDefaultInstruction("この図の色を変えて", true)).toBe("この図の色を変えて");
+  expect(swapAnnotationDefaultInstruction("", true)).toBe("");
+});
+
+it("sends comments on a region screenshot back to its owner outside the draft", async () => {
+  const screenshot: AiEditAttachment = { id: "shot", name: "screenshot.png", mimeType: "image/png", dataUrl: "data:image/png;base64,AA" };
+  const onSetPendingAttachmentAnnotations = vi.fn();
+  await act(async () => mount(options({ pendingAttachments: [screenshot], onSetPendingAttachmentAnnotations })));
+  const note = { id: "n1", x: 0.5, y: 0.5, comment: "ここ" };
+  await act(async () => composer.view.setAttachmentAnnotations("shot", [note]));
+  expect(onSetPendingAttachmentAnnotations).toHaveBeenCalledWith("shot", [note]);
+});
+
+it("keeps comments on an attachment it owns in the draft until the draft is sent", async () => {
+  await act(async () => mount());
+  await act(async () => composer.view.handleAttachmentFiles([new File(["png"], "photo.png", { type: "image/png" })] as unknown as FileList));
+  await act(async () => { pendingReaders[0]!.result = "data:image/png;base64,AA"; pendingReaders[0]!.dispatchEvent(new Event("load")); });
+  await vi.waitFor(() => expect(composer.draft.attachments).toHaveLength(1));
+  expect(composer.draft.instruction).toBe(imageToSigmaDocDefaultInstruction());
+  const id = composer.draft.attachments[0]!.id;
+  await act(async () => composer.view.setAttachmentAnnotations(id, [{ id: "n1", x: 0.2, y: 0.3, comment: "この部分" }]));
+  expect(composer.draft.attachments[0]?.annotations).toEqual([{ id: "n1", x: 0.2, y: 0.3, comment: "この部分" }]);
+  expect(composer.draft.instruction).toBe(imageAnnotationDefaultInstruction());
+  await act(async () => composer.actions.clearComposerAfterSubmit());
+  expect(composer.draft.attachments).toEqual([]);
+});
+
+it("drops shape-preview comments once the shape's preview changes, so they never point at the wrong place", () => {
+  const note = { id: "n1", x: 0.4, y: 0.4, comment: "ここ" };
+  const stored = { "shape:a": { previewSvg: "<svg>before</svg>", annotations: [note] } };
+  const preview = (svg: string) => ({ referenceKey: "shape:a", shapeCount: 1, preview: { svg, width: 100, height: 50 } });
+  expect(selectVisibleOverlayAnnotations(stored, [preview("<svg>before</svg>")])).toEqual({ "shape:a": [note] });
+  // 図形を動かしてプレビューが変わった / 選択が外れた。
+  expect(selectVisibleOverlayAnnotations(stored, [preview("<svg>moved</svg>")])).toEqual({});
+  expect(selectVisibleOverlayAnnotations(stored, [])).toEqual({});
 });
