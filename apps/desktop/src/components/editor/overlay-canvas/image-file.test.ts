@@ -79,6 +79,16 @@ describe("overlay image browser decoding", () => {
     expect(entry.shape.props).toMatchObject({ w: 120, h: 79 });
   });
 
+  it("fits a pasted SVG by its viewBox aspect ratio", async () => {
+    const source = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="10 20 400 200"><rect width="100" height="50"/></svg>';
+    const decoding = createOverlayImageEntry(new File([source], "picture.svg", { type: "image/svg+xml" }), { w: 200, h: 200 });
+    await completeRead(`data:image/svg+xml,${encodeURIComponent(source)}`);
+    const entry = await decoding;
+    expect(ImageStub.instances).toHaveLength(0);
+    expect(entry.asset.props).toMatchObject({ w: 400, h: 200 });
+    expect(entry.shape.props).toMatchObject({ w: 200, h: 100 });
+  });
+
   it("keeps the original fallback asset when raster decoding fails", async () => {
     const decoding = createOverlayImageAsset(new File(["bytes"], "unknown"));
     await completeRead();

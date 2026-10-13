@@ -73,6 +73,7 @@ export function OverlayShapeContextMenu({
   onImageReplace,
   onImageResetCrop,
   onImageNaturalSize,
+  onSvgConvert,
   onImageOpacityChange,
   onDuplicate,
   onDelete,
@@ -110,6 +111,7 @@ export function OverlayShapeContextMenu({
   onImageReplace?: () => void;
   onImageResetCrop?: () => void;
   onImageNaturalSize?: () => void;
+  onSvgConvert?: () => void;
   onImageOpacityChange?: (opacity: number) => void;
   onDuplicate: () => void;
   onDelete: () => void;
@@ -170,6 +172,7 @@ export function OverlayShapeContextMenu({
       )}
       {onImageCrop && onImageReplace && onImageResetCrop && onImageNaturalSize && onImageOpacityChange && (
         <>
+          {onSvgConvert && <ContextMenuButton icon={<Shapes size={14} />} disabled={!imageEditable} onClick={onSvgConvert}>{tShape("menu.svgConvert")}</ContextMenuButton>}
           <ContextMenuButton icon={<Crop size={14} />} disabled={!imageEditable} onClick={onImageCrop}>{tShape("menu.imageCrop")}</ContextMenuButton>
           <ContextMenuButton icon={<RefreshCw size={14} />} disabled={!imageEditable} onClick={onImageReplace}>{tShape("menu.imageReplace")}</ContextMenuButton>
           <ContextMenuButton icon={<RotateCcw size={14} />} disabled={!imageEditable || !imageHasCrop} onClick={onImageResetCrop}>{tShape("menu.imageResetCrop")}</ContextMenuButton>

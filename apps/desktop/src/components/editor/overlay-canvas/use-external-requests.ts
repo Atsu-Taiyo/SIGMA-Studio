@@ -94,6 +94,7 @@ interface Dependencies {
   selectShape: (id: OverlayShapeId) => void;
   documentId: string | undefined;
   selectPointRequest: OverlaySelectPointRequest | null;
+  openShapeContextMenu?: (point: OverlayPoint, shapeId: string) => void;
 }
 
 export function useOverlayExternalRequests({
@@ -136,6 +137,7 @@ export function useOverlayExternalRequests({
   selectShape,
   documentId,
   selectPointRequest,
+  openShapeContextMenu,
 }: Dependencies) {
 
   const handleActionRequest = useCallback((request: OverlayActionRequest) => {
@@ -289,6 +291,7 @@ export function useOverlayExternalRequests({
 
       transitionMode({ type: "select" });
       selectShape(shape.id);
+      if (request.openContextMenu && request.screenPoint) openShapeContextMenu?.(request.screenPoint, shape.id);
       if (shape.type === "image" && shape.props.tikz && !shape.locked &&
         !editPolicyLockedShapeIdsRef.current.has(shape.id) && request.dragEndPoint &&
         Math.hypot(request.dragEndPoint.x - request.point.x, request.dragEndPoint.y - request.point.y) < 3) {
@@ -307,7 +310,7 @@ export function useOverlayExternalRequests({
       transitionMode({ type: "select" });
       onSelectPointHandled(request.id, false);
     }
-  }, [handledSelectPointRequestIdRef, shapesRef, getShapeAtPoint, getOpenStrokeShapeAtPoint, focusOverlayCanvas, transitionMode, onSelectPointHandled, activeTextEditorRef, selectShape, editPolicyLockedShapeIdsRef, editPolicyUnselectableShapeIdsRef, focusedGroupIdRef, refreshAnchorMeasurements, setSelectedShapeIds, setShapes, queueOverlaySave, documentId]);
+  }, [handledSelectPointRequestIdRef, shapesRef, getShapeAtPoint, getOpenStrokeShapeAtPoint, focusOverlayCanvas, transitionMode, onSelectPointHandled, activeTextEditorRef, selectShape, editPolicyLockedShapeIdsRef, editPolicyUnselectableShapeIdsRef, focusedGroupIdRef, refreshAnchorMeasurements, setSelectedShapeIds, setShapes, queueOverlaySave, documentId, openShapeContextMenu]);
 
   useEffect(() => {
     if (selectPointRequest) {
