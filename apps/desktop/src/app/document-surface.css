@@ -1070,6 +1070,11 @@ u:has(.math-preview) * {
   fill: #30343b;
 }
 
+.graph2d-axis-arrow-open {
+  fill: none;
+  stroke: #30343b;
+}
+
 .graph2d-ticks line {
   stroke: #50555f;
   stroke-width: 1;
