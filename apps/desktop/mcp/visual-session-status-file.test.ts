@@ -60,6 +60,18 @@ describe("visual status file writer", () => {
     expect(calls.at(-1)?.args[0]).toEqual(expect.stringContaining(`${target.key}.tmp-`));
   });
 
+  it("reads the current status for merging and treats a missing or broken file as none", async () => {
+    const target = resolveVisualSessionStatusFile({ SIGMA_STUDIO_RUN_CONTEXT_FILE: "/tmp/status/context.json" }, "claude", "run")!;
+    const readFile = vi.spyOn(fs, "readFile");
+    readFile.mockResolvedValueOnce(JSON.stringify({ ...status, sessions: [...status.sessions, { sessionId: "broken" }] }));
+    await expect(target.read!()).resolves.toEqual(status);
+    expect(readFile).toHaveBeenCalledWith(target.key, "utf8");
+    readFile.mockResolvedValueOnce("{not-json");
+    await expect(target.read!()).resolves.toBeNull();
+    readFile.mockRejectedValueOnce(Object.assign(new Error("missing"), { code: "ENOENT" }));
+    await expect(target.read!()).resolves.toBeNull();
+  });
+
   it("does not create a target without provider, run ID, or a run-context directory", () => {
     const env = { SIGMA_STUDIO_RUN_CONTEXT_FILE: "/tmp/status/context.json" };
     expect(resolveVisualSessionStatusFile(env, null, "run")).toBeNull();

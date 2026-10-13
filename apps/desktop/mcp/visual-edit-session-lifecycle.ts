@@ -113,6 +113,49 @@ export interface VisualSessionStatusWriteTarget {
   /** 同じ保存先への snapshot は、この key ごとに生成順で書き出す。 */
   key: string;
   write(status: VisualSessionsStatusFile): Promise<void>;
+  /**
+   * 書き出す直前に今の内容を読む。同じ run の別プロセス (前の turn の MCP サーバー) が
+   * 記録した未完了 session を、このプロセスが知らないという理由で消さないために使う。
+   * 無い・読めない場合は null。
+   */
+  read?(): Promise<VisualSessionsStatusFile | null>;
+}
+
+export type VisualEditSessionStateWriteOutcome = "written" | "superseded" | "failed";
+
+/** run 単位で保存した 1 session の状態ファイル。 */
+export interface VisualEditSessionStateTarget {
+  /** 同じ保存先への書き込み・削除は、この key ごとに生成順で行う。 */
+  key: string;
+  /** 保存済みの世代。無い・読めない場合は null。 */
+  readGeneration(): Promise<number | null>;
+  /**
+   * enqueue 時に直列化した状態を書く。保存済みの世代が `generation` 以上なら、別プロセスが
+   * 先へ進めた状態を古い状態で上書きしないよう書かずに "superseded" を返す。
+   * 失敗は例外にせず "failed" を返す (状態ファイルが書けなくてもツールの実行は続ける)。
+   */
+  write(serialized: string, generation: number): Promise<VisualEditSessionStateWriteOutcome>;
+  remove(): Promise<void>;
+}
+
+export interface StoredVisualEditSession {
+  session: VisualEditSession;
+  generation: number;
+}
+
+/**
+ * MCP サーバーのプロセスをまたいで scratch session を同じ sessionId で再開するための保存先。
+ * Claude と Antigravity は turn ごとに MCP サーバーを起動し直すので、memory だけでは
+ * 強制継続の turn で session が見つからない。保存先は provider と runId で決まる run 単位の
+ * パスに限り、runId を持たない session は従来どおりプロセス内だけに置く。
+ */
+export interface VisualEditSessionStatePort {
+  /** 保存先は enqueue 時点に解決する。provider/runId が無ければ null。 */
+  resolveTarget(session: VisualEditSession): VisualEditSessionStateTarget | null;
+  /** 書き込む内容は enqueue 時点の状態から作る (後から memory が変わっても混ざらない)。 */
+  serialize(session: VisualEditSession, generation: number): string;
+  /** memory に無い sessionId を保存から読み戻す。無い・壊れている場合は null。 */
+  load(sessionId: string): Promise<StoredVisualEditSession | null>;
 }
 
 export interface VisualEditSessionLifecyclePorts {
@@ -122,6 +165,8 @@ export interface VisualEditSessionLifecyclePorts {
     provider: AiEditRunContextProvider | null,
     runId: string | undefined,
   ): VisualSessionStatusWriteTarget | null;
+  /** 省略時は従来どおり session をプロセスの memory だけに置く。 */
+  sessionState?: VisualEditSessionStatePort;
 }
 
 export interface VisualEditSessionStart {
@@ -152,11 +197,17 @@ export interface VisualReviewInput {
  * scratch session の寿命・確認世代・終了状態の通知を所有する。MCP の登録や response、
  * SigmaDoc の描画・提案保存は呼び出し側が担当する。clock と保存先以外の副作用を持たない。
  * server ごとに作り直さず、core が持つ 1 インスタンスをプロセス全体で共有する。
+ * `sessionState` port があれば、未完了の session を run 単位で保存し、別プロセスからも
+ * 同じ sessionId で再開できるようにする (memory は保存の cache として扱う)。
  */
 export class VisualEditSessionLifecycle {
   private readonly live = new Map<string, VisualEditSession>();
   private readonly terminal = new Map<string, TerminalVisualSessionStatus>();
   private readonly pendingWrites = new Map<string, Promise<void>>();
+  /** memory の session が反映済みの保存の世代。保存側の方が新しければ読み直す。 */
+  private readonly generations = new Map<string, number>();
+  /** 同じ sessionId の読み戻しを 1 本にまとめ、別々の object が live に入るのを防ぐ。 */
+  private readonly restoring = new Map<string, Promise<VisualEditSession | undefined>>();
 
   constructor(private readonly ports: VisualEditSessionLifecyclePorts) {}
 
@@ -185,6 +236,7 @@ export class VisualEditSessionLifecycle {
       plannedShapes: input.plannedShapes,
     };
     this.live.set(session.sessionId, session);
+    this.generations.set(session.sessionId, 0);
     void this.queueStatusWrite(session);
     return session;
   }
@@ -202,15 +254,88 @@ export class VisualEditSessionLifecycle {
     return session;
   }
 
+  /**
+   * `get` と同じだが、memory に無い session を run 単位の保存から読み戻す。前の turn の
+   * MCP サーバーが作った session も、同じ sessionId のまま続けられる。
+   */
+  async resolve(sessionId: string): Promise<VisualEditSession> {
+    const session = await this.find(sessionId);
+    if (!session) {
+      throw new Error(`visual edit session が見つかりません: ${sessionId}`);
+    }
+    return session;
+  }
+
+  /** `resolve` の見つからなければ undefined を返す版 (破棄のように、無くても失敗にしない呼び出し用)。 */
+  find(sessionId: string): Promise<VisualEditSession | undefined> {
+    this.prune();
+    const inFlight = this.restoring.get(sessionId);
+    if (inFlight) {
+      return inFlight;
+    }
+    const lookup = this.findCurrent(sessionId).finally(() => {
+      if (this.restoring.get(sessionId) === lookup) {
+        this.restoring.delete(sessionId);
+      }
+    });
+    this.restoring.set(sessionId, lookup);
+    return lookup;
+  }
+
   prune(now = this.ports.now()): void {
     for (const [sessionId, session] of this.live) {
-      if (now - Date.parse(session.updatedAt) > VISUAL_EDIT_SESSION_TTL_MS) {
+      if (isExpired(session, now)) {
         // 期限切れも terminal snapshot を live map に存在する間に enqueue する。
         // 期限切れ処理は従来どおり書き出しを待たず、scratch 本体を解放する。
         void this.rememberTerminal(session, "discarded");
         this.live.delete(sessionId);
+        this.generations.delete(sessionId);
+        void this.removeState(session);
       }
     }
+  }
+
+  /**
+   * tool 呼び出しで変わった状態を run 単位の保存へ書き、同じ run の状態ファイルの書き込みと
+   * あわせて終わるまで待つ。応答を返した直後に turn が終わり MCP サーバーが止められても、
+   * 次の turn のプロセスが同じ状態から続けられるようにするため。書き込みの失敗は例外にしない。
+   * 終了済み・読み直しで置き換わった session は書かない。
+   */
+  async persist(session: VisualEditSession): Promise<void> {
+    if (this.live.get(session.sessionId) !== session) {
+      return;
+    }
+    const waits: Promise<void>[] = [];
+    const port = this.ports.sessionState;
+    const target = port?.resolveTarget(session) ?? null;
+    if (port && target) {
+      const generation = (this.generations.get(session.sessionId) ?? 0) + 1;
+      let serialized: string | null = null;
+      try {
+        serialized = port.serialize(session, generation);
+      } catch {
+        // 直列化できない状態は保存しない。この process の memory では引き続き使える。
+      }
+      if (serialized !== null) {
+        const payload = serialized;
+        this.generations.set(session.sessionId, generation);
+        waits.push(this.enqueueWrite(target.key, async () => {
+          const outcome = await target.write(payload, generation);
+          if (outcome === "superseded" && this.live.get(session.sessionId) === session) {
+            // 別プロセスが同じ session を先へ進めていた。古い memory を捨て、次の呼び出しで
+            // 保存側を読み直す。
+            this.live.delete(session.sessionId);
+            this.generations.delete(session.sessionId);
+          }
+        }));
+      }
+    }
+    const statusKey = this.ports.resolveStatusTarget(session.provider, session.runId?.trim())?.key;
+    const pendingStatus = statusKey ? this.pendingWrites.get(statusKey) : undefined;
+    if (pendingStatus) {
+      waits.push(pendingStatus);
+    }
+    await Promise.all(waits.map((wait) => wait.catch(() => undefined)));
   }
 
   touch(session: VisualEditSession): void {
@@ -366,6 +491,10 @@ export class VisualEditSessionLifecycle {
   async finish(session: VisualEditSession, terminalState: "proposed" | "discarded"): Promise<void> {
     await this.rememberTerminal(session, terminalState);
     this.live.delete(session.sessionId);
+    this.generations.delete(session.sessionId);
+    // 終了を状態ファイルへ書いてから保存を消す。逆順だと、間でプロセスが止まったときに
+    // 「未完了なのに再開できない」session が残り、強制継続が図形を作り直させてしまう。
+    await this.removeState(session);
   }
 
   cacheSizes(): { terminal: number; pending: number } {
@@ -406,14 +535,69 @@ export class VisualEditSessionLifecycle {
     const statusFile: VisualSessionsStatusFile = {
       version: 1,
       updatedAt: new Date(this.ports.now()).toISOString(),
-      sessions: [...statusBySessionId.values()].sort((left, right) => left.sessionId.localeCompare(right.sessionId)),
+      sessions: [...statusBySessionId.values()].sort(compareSessionIds),
     };
-    const previous = this.pendingWrites.get(target.key) ?? Promise.resolve();
-    const next = previous.then(() => target.write(statusFile));
-    this.pendingWrites.set(target.key, next);
+    const knownSessionIds = new Set(statusBySessionId.keys());
+    return this.enqueueWrite(target.key, async () => {
+      const current = target.read ? await target.read() : null;
+      await target.write(carryOverUnknownIncompleteSessions(current, statusFile, knownSessionIds));
+    });
+  }
+
+  private async findCurrent(sessionId: string): Promise<VisualEditSession | undefined> {
+    const port = this.ports.sessionState;
+    const live = this.live.get(sessionId);
+    if (!port) {
+      return live;
+    }
+    if (live) {
+      const target = port.resolveTarget(live);
+      const storedGeneration = target ? await target.readGeneration() : null;
+      if (storedGeneration === null || storedGeneration <= (this.generations.get(sessionId) ?? 0)) {
+        return this.live.get(sessionId);
+      }
+    } else if (this.terminal.has(sessionId)) {
+      // この process で提案化・破棄した session は、保存の削除が遅れていても戻さない。
+      return undefined;
+    }
+
+    const stored = await port.load(sessionId);
+    const current = this.live.get(sessionId);
+    if (!stored || stored.session.sessionId !== sessionId) {
+      return current;
+    }
+    if (current && stored.generation <= (this.generations.get(sessionId) ?? 0)) {
+      return current;
+    }
+    if (isExpired(stored.session, this.ports.now())) {
+      // memory の期限切れと同じく破棄として記録し、保存も消す。
+      this.live.delete(sessionId);
+      this.generations.delete(sessionId);
+      await this.rememberTerminal(stored.session, "discarded");
+      await this.removeState(stored.session);
+      return undefined;
+    }
+    this.live.set(sessionId, stored.session);
+    this.generations.set(sessionId, stored.generation);
+    return stored.session;
+  }
+
+  private removeState(session: VisualEditSession): Promise<void> {
+    const target = this.ports.sessionState?.resolveTarget(session) ?? null;
+    if (!target) {
+      return Promise.resolve();
+    }
+    return this.enqueueWrite(target.key, () => target.remove());
+  }
+
+  /** 同じ保存先への書き込み・削除を生成順に並べる。 */
+  private enqueueWrite(key: string, task: () => Promise<void>): Promise<void> {
+    const previous = this.pendingWrites.get(key) ?? Promise.resolve();
+    const next = previous.then(task);
+    this.pendingWrites.set(key, next);
     void next.finally(() => {
-      if (this.pendingWrites.get(target.key) === next) {
-        this.pendingWrites.delete(target.key);
+      if (this.pendingWrites.get(key) === next) {
+        this.pendingWrites.delete(key);
       }
     }).catch(() => undefined);
     return next;
@@ -442,6 +626,33 @@ export class VisualEditSessionLifecycle {
     }
     return this.queueStatusWrite(session);
   }
+}
+
+function isExpired(session: VisualEditSession, now: number): boolean {
+  return now - Date.parse(session.updatedAt) > VISUAL_EDIT_SESSION_TTL_MS;
+}
+
+function compareSessionIds(left: VisualSessionStatusSnapshot, right: VisualSessionStatusSnapshot): number {
+  return left.sessionId.localeCompare(right.sessionId);
+}
+
+/**
+ * 状態ファイルは run 全体の一覧なので、前の turn の MCP サーバーが作り、この process がまだ
+ * 読み戻していない未完了 session を落とさない。この process が知っている session は自分の
+ * 記録を正とし、知らない完了済み session は従来どおり上限で落ちてよい。
+ */
+function carryOverUnknownIncompleteSessions(
+  current: VisualSessionsStatusFile | null,
+  next: VisualSessionsStatusFile,
+  knownSessionIds: ReadonlySet<string>,
+): VisualSessionsStatusFile {
+  const carried = (current?.sessions ?? []).filter(
+    (status) => !knownSessionIds.has(status.sessionId) && !status.proposed && !status.discarded,
+  );
+  if (carried.length === 0) {
+    return next;
+  }
+  return { ...next, sessions: [...next.sessions, ...carried].sort(compareSessionIds) };
 }
 
 function snapshotVisualSessionStatus(session: VisualEditSession): VisualSessionStatusSnapshot {
