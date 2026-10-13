@@ -493,6 +493,24 @@ export class ClaudeStreamClient extends EventEmitter {
         }
         fn();
       };
+      // 1 turn = 1 spawn なので、result の後はこのプロセスに次の入力は来ない。stream-json 入力の
+      // CLI は stdin が閉じるまで待ち続け、MCP サーバーごと残る (アプリ終了まで溜まっていた)。
+      // stdin を閉じて終わらせ、それでも残る場合だけ止める。
+      const releaseAfterResult = () => {
+        if (proc.stdin.writable) {
+          proc.stdin.end();
+        }
+        if (processExited) {
+          return;
+        }
+        const exitTimer = setTimeout(() => {
+          if (!processExited) {
+            terminateWithEscalation();
+          }
+        }, this.cancelGraceMs);
+        exitTimer.unref?.();
+        proc.once("exit", () => clearTimeout(exitTimer));
+      };
 
       if (params.runId) {
         this.cancelHandles.set(params.runId, () => {
@@ -636,6 +654,7 @@ export class ClaudeStreamClient extends EventEmitter {
                 totalCostUsd: typeof result.total_cost_usd === "number" ? result.total_cost_usd : null,
               }),
             );
+            releaseAfterResult();
             return;
           }
           default:

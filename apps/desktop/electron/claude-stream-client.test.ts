@@ -230,6 +230,39 @@ describe("ClaudeStreamClient", () => {
     expect(status.running).toBe(false);
   });
 
+  it("ends the turn's process once its result arrives instead of leaving it waiting on stdin", async () => {
+    const { client, dir } = createClient();
+
+    await client.runTurn({ instruction: "hello world" });
+    // The fake, like the real stream-json CLI, keeps reading stdin after its result until stdin closes.
+    const { pid } = readFakeCapture(dir);
+    await expect.poll(() => isProcessAlive(pid), { timeout: 2_000 }).toBe(false);
+    const status = await client.getStatus();
+    client.dispose();
+
+    expect(status.running).toBe(false);
+  });
+
+  it("stops a process that is still alive a grace period after its result", async () => {
+    const dir = mkdtempSync(path.join(tmpdir(), "fake-claude-stream-"));
+    tempDirs.push(dir);
+    const fakeClaudeBin = path.join(dir, "claude");
+    writeFileSync(fakeClaudeBin, LINGER_AFTER_RESULT_BIN, "utf8");
+    chmodSync(fakeClaudeBin, 0o755);
+    const client = new ClaudeStreamClient({
+      claudeConfigDir: path.join(dir, "claude-home"),
+      mcpConfig: MCP_CONFIG,
+      claudeBin: fakeClaudeBin,
+      cancelGraceMs: 100,
+    });
+
+    await client.runTurn({ instruction: "linger after result" });
+    const pid = Number(readFileSync(path.join(dir, "linger-pid"), "utf8"));
+    expect(isProcessAlive(pid)).toBe(true);
+    await expect.poll(() => isProcessAlive(pid), { timeout: 2_000 }).toBe(false);
+    client.dispose();
+  });
+
   it("spawns with a per-run cwd override instead of claudeConfigDir when provided, and creates the directory", async () => {
     const { client, dir, claudeConfigDir } = createClient();
     const perRunCwd = path.join(dir, "agent-workspaces", "ws_1", "claude");
@@ -686,6 +719,15 @@ function disallowedToolsOf(capture: FakeCapture): string[] {
   return capture.argv.slice(capture.argv.indexOf("--disallowedTools") + 1, capture.argv.indexOf("--model"));
 }
 
+function isProcessAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function restoreEnv(key: string, value: string | undefined): void {
   if (value === undefined) {
     delete process.env[key];
@@ -852,6 +894,23 @@ rl.on("line", () => {
 `;
 
 // HANG_BIN と同じだが SIGTERM を無視する: cancelRun() の SIGKILL エスカレーションのテスト用。
+// result の後も stdin の EOF を無視して居座る (終了しない CLI の代わり)。SIGTERM では終わる。
+const LINGER_AFTER_RESULT_BIN = `#!/usr/bin/env node
+const readline = require("node:readline");
+const fs = require("node:fs");
+const path = require("node:path");
+if (process.argv.includes("--version")) { console.log("claude-fake 2.1.195"); process.exit(0); }
+if (!process.argv.includes("stream-json")) { process.exit(2); }
+fs.writeFileSync(path.join(process.cwd(), "..", "linger-pid"), String(process.pid));
+function send(message) { process.stdout.write(JSON.stringify(message) + "\\n"); }
+setInterval(() => {}, 1000);
+const rl = readline.createInterface({ input: process.stdin });
+rl.on("line", () => {
+  send({ type: "system", subtype: "init", session_id: "sess_linger", apiKeySource: "none", model: "claude-opus-4-8" });
+  send({ type: "result", subtype: "success", is_error: false, result: "done", session_id: "sess_linger", num_turns: 1 });
+});
+`;
+
 const HANG_IGNORE_SIGTERM_BIN = `#!/usr/bin/env node
 const readline = require("node:readline");
 if (process.argv.includes("--version")) { console.log("claude-fake 2.1.195"); process.exit(0); }
