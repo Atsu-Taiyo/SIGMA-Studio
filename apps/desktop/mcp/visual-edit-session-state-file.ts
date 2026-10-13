@@ -24,17 +24,13 @@ import type {
 } from "./visual-edit-session-lifecycle";
 
 /**
- * 1 行目は小さな header (世代・run・session)、2 行目が本体。世代を比べるときは先頭だけを読む。
+ * 1 行目は小さな header (世代・run・session)、2 行目が本体。世代はファイル名にも入れ、header と照合する。
  * 本体には元の文書・作業中の文書・図形操作・確認の状態を入れる。素材一覧と、図形操作ごとの
  * 途中の文書 (operationResults) は大きく、読み戻すときに作り直せるので入れない。
  */
 const VISUAL_SESSION_STATE_VERSION = 1;
-const HEADER_READ_BYTES = 4096;
 const PROVIDERS = ["claude", "chatgpt", "antigravity"] as const;
-/** 書き込みは数ミリ秒で終わる。これより古い lock は途中で止まったプロセスが残したものとして外す。 */
-const LOCK_STALE_MS = 2_000;
-const LOCK_WAIT_MS = 3_000;
-const LOCK_RETRY_MS = 15;
+
 
 const HeaderSchema = z.object({
   version: z.literal(VISUAL_SESSION_STATE_VERSION),
@@ -103,9 +99,17 @@ export interface VisualEditSessionStateFileOptions {
 }
 
 /**
- * run-context ディレクトリの `<provider>-<runId>.<sessionId>.visual-session-state.json` に
- * 未完了の scratch session を保存する。保存先は provider と runId を持つ session に限り、
- * run の終了時に Electron が片付ける。読み戻すのは呼び出し元の run のファイルだけ。
+ * 未完了の scratch session を run-context ディレクトリへ世代ごとのファイルで保存する。
+ *
+ * - `<provider>-<runId>.<sessionId>.g<世代>.visual-session-state.json`: その世代の状態。
+ *   書きかけを見せないよう一時ファイルに書いてから、同じ名前が無いときだけ作れる hard link で
+ *   公開する。同じ世代を別のプロセスが先に公開していれば、上書きせず先を越されたと返す
+ *   (プロセスをまたいだ比較更新。lock を使わないので、止まったプロセスに妨げられない)。
+ * - `<provider>-<runId>.<sessionId>.terminal.visual-session-state.json`: 提案化・破棄の目印。
+ *   これがある session は読み戻さず、書き足しもしない。
+ *
+ * 読み戻すのは呼び出し元の run の一番新しい世代だけ (壊れていれば古い世代へは戻らない)。
+ * 保存先は provider と runId を持つ session に限り、run の終了時に Electron が片付ける。
  * 読み書きの失敗は例外にせず、結果として返す。
  */
 export function createVisualEditSessionStateFiles(options: VisualEditSessionStateFileOptions): VisualEditSessionStatePort {
@@ -127,8 +131,15 @@ export function createVisualEditSessionStateFiles(options: VisualEditSessionStat
         return null;
       }
       // 別の run の session は、sessionId を渡されても読まない (ファイル名と header の両方で照合する)。
-      const filePath = path.join(directory, visualSessionStateFileName(provider, owner, sessionId));
-      return readStoredSession(filePath, sessionId, provider, owner, options);
+      const files = sessionFiles(path.join(directory, visualSessionStateFileName(provider, owner, sessionId)));
+      if (await fileExists(files.terminal)) {
+        return null;
+      }
+      const [latest] = await files.generations();
+      if (latest === undefined) {
+        return null;
+      }
+      return readStoredSession(files.generation(latest), latest, sessionId, provider, owner, options);
     },
   };
 }
@@ -179,106 +190,113 @@ export function serializeVisualEditSession(session: VisualEditSession, generatio
 }
 
 function createTarget(filePath: string): VisualEditSessionStateTarget {
+  const files = sessionFiles(filePath);
   return {
     key: filePath,
-    readGeneration: async () => (await readHeader(filePath))?.generation ?? null,
-    async write(serialized, generation): Promise<VisualEditSessionStateWriteOutcome> {
-      const outcome = await withFileLock(filePath, async (): Promise<VisualEditSessionStateWriteOutcome> => {
-        // 世代の確認から置き換えまでを lock の中で行う。同じ session を別の MCP プロセスが
-        // 進めていたら、古い memory で上書きしない。
-        const stored = await readHeader(filePath);
-        if (stored && stored.generation >= generation) {
-          return "superseded";
-        }
-        const temporaryFilePath = siblingFilePath(filePath, `tmp-${randomUUID()}`);
-        try {
-          await fsPromises.writeFile(temporaryFilePath, serialized, "utf8");
-          await fsPromises.rename(temporaryFilePath, filePath);
-          return "written";
-        } catch {
-          // 書けなかった変更より古い状態を、別のプロセスが最新として読み戻さないよう消す。
-          await fsPromises.unlink(filePath).catch(() => undefined);
-          return "failed";
-        } finally {
-          await fsPromises.unlink(temporaryFilePath).catch(() => undefined);
-        }
-      });
-      return outcome ?? "failed";
+    async readGeneration() {
+      const [latest] = await files.generations();
+      return latest ?? null;
     },
-    async remove() {
-      await withFileLock(filePath, () => fsPromises.unlink(filePath).catch(() => undefined));
+    isRetired: () => fileExists(files.terminal),
+    async write(serialized, generation): Promise<VisualEditSessionStateWriteOutcome> {
+      if (await fileExists(files.terminal)) {
+        // 別のプロセスが提案化・破棄した。古い memory で書き足さない。
+        return "superseded";
+      }
+      const published = files.generation(generation);
+      const temporaryFilePath = files.temporary();
+      try {
+        await fsPromises.mkdir(path.dirname(filePath), { recursive: true });
+        await fsPromises.writeFile(temporaryFilePath, serialized, "utf8");
+        try {
+          // 同じ名前が既にあれば失敗する (原子的)。その世代は別のプロセスが先に公開した。
+          await fsPromises.link(temporaryFilePath, published);
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code === "EEXIST") {
+            return "superseded";
+          }
+          throw error;
+        }
+      } catch {
+        // 書けなかった変更より古い状態を、別のプロセスが最新として読み戻さないよう消す。
+        await files.removeGenerations((existing) => existing < generation);
+        return "failed";
+      } finally {
+        await fsPromises.unlink(temporaryFilePath).catch(() => undefined);
+      }
+      const [latest] = await files.generations();
+      if (latest !== undefined && latest > generation) {
+        // 古い世代を片付けた後に、この世代を作り直してしまった。最新は別のプロセスの世代。
+        await fsPromises.unlink(published).catch(() => undefined);
+        return "superseded";
+      }
+      await files.removeGenerations((existing) => existing < generation);
+      return "written";
+    },
+    clear: () => files.removeGenerations(() => true),
+    async retire() {
+      // 目印を先に置く。消す途中で止まっても、残った世代を読み戻させない。
+      try {
+        await fsPromises.mkdir(path.dirname(filePath), { recursive: true });
+        await fsPromises.writeFile(files.terminal, "", "utf8");
+      } catch {
+        // 目印を置けなくても、run の状態ファイルの終了の記録で読み戻しを止める。
+      }
+      await files.removeGenerations(() => true);
     },
   };
 }
 
-/** 同じ保存先の lock・一時ファイル。名前の末尾を揃え、run の片付けと起動時の掃除で一緒に消す。 */
-function siblingFilePath(filePath: string, marker: string): string {
+/**
+ * 1 session のファイル群。名前は `<provider>-<runId>.<sessionId>.<種類>.visual-session-state.json` で
+ * 揃え、run の片付けと起動時の掃除 (末尾 `.visual-session-state.json`) で一緒に消えるようにする。
+ */
+function sessionFiles(filePath: string) {
   const base = filePath.endsWith(VISUAL_SESSION_STATE_FILE_SUFFIX)
     ? filePath.slice(0, -VISUAL_SESSION_STATE_FILE_SUFFIX.length)
     : filePath;
-  return `${base}.${marker}${VISUAL_SESSION_STATE_FILE_SUFFIX}`;
-}
-
-/**
- * 保存先ごとの lock (排他作成したファイル) を取ってから `task` を行う。プロセスをまたいで、
- * 世代の確認と置き換えの間に別の書き込みが入らないようにする。取れなければ null。
- */
-async function withFileLock<T>(filePath: string, task: () => Promise<T>): Promise<T | null> {
-  const lockPath = siblingFilePath(filePath, "lock");
-  const deadline = Date.now() + LOCK_WAIT_MS;
-  try {
-    await fsPromises.mkdir(path.dirname(filePath), { recursive: true });
-  } catch {
-    return null;
-  }
-  for (;;) {
+  const directory = path.dirname(base);
+  const generationPrefix = `${path.basename(base)}.g`;
+  const generations = async (): Promise<number[]> => {
+    let entries: string[];
     try {
-      await (await fsPromises.open(lockPath, "wx")).close();
-      break;
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "EEXIST") {
-        return null;
-      }
-      const lock = await fsPromises.stat(lockPath).catch(() => null);
-      if (lock && Date.now() - lock.mtimeMs > LOCK_STALE_MS) {
-        await fsPromises.unlink(lockPath).catch(() => undefined);
-        continue;
-      }
-      if (Date.now() > deadline) {
-        return null;
-      }
-      await new Promise((resolve) => setTimeout(resolve, LOCK_RETRY_MS));
+      entries = await fsPromises.readdir(directory);
+    } catch {
+      return [];
     }
-  }
-  try {
-    return await task();
-  } finally {
-    await fsPromises.unlink(lockPath).catch(() => undefined);
-  }
+    return entries
+      .filter((name) => name.startsWith(generationPrefix) && name.endsWith(VISUAL_SESSION_STATE_FILE_SUFFIX))
+      .map((name) => name.slice(generationPrefix.length, -VISUAL_SESSION_STATE_FILE_SUFFIX.length))
+      .filter((digits) => /^[1-9]\d*$/.test(digits))
+      .map(Number)
+      .sort((left, right) => right - left);
+  };
+  const generation = (value: number) => `${base}.g${value}${VISUAL_SESSION_STATE_FILE_SUFFIX}`;
+  return {
+    terminal: `${base}.terminal${VISUAL_SESSION_STATE_FILE_SUFFIX}`,
+    temporary: () => `${base}.tmp-${randomUUID()}${VISUAL_SESSION_STATE_FILE_SUFFIX}`,
+    generation,
+    generations,
+    async removeGenerations(shouldRemove: (generation: number) => boolean): Promise<void> {
+      await Promise.all((await generations())
+        .filter(shouldRemove)
+        .map((value) => fsPromises.unlink(generation(value)).catch(() => undefined)));
+    },
+  };
 }
 
-async function readHeader(filePath: string): Promise<Header | null> {
-  let handle: fsPromises.FileHandle | null = null;
+async function fileExists(filePath: string): Promise<boolean> {
   try {
-    handle = await fsPromises.open(filePath, "r");
-    const buffer = Buffer.alloc(HEADER_READ_BYTES);
-    const { bytesRead } = await handle.read(buffer, 0, HEADER_READ_BYTES, 0);
-    const text = buffer.subarray(0, bytesRead).toString("utf8");
-    const newline = text.indexOf("\n");
-    if (newline < 0) {
-      return null;
-    }
-    const parsed = HeaderSchema.safeParse(JSON.parse(text.slice(0, newline)));
-    return parsed.success ? parsed.data : null;
+    await fsPromises.access(filePath);
+    return true;
   } catch {
-    return null;
-  } finally {
-    await handle?.close().catch(() => undefined);
+    return false;
   }
 }
 
 async function readStoredSession(
   filePath: string,
+  generation: number,
   sessionId: string,
   provider: AiEditRunContextProvider,
   runId: string,
@@ -308,6 +326,7 @@ async function readStoredSession(
     || header.data.sessionId !== sessionId
     || header.data.provider !== provider
     || header.data.runId !== runId
+    || header.data.generation !== generation
   ) {
     return null;
   }

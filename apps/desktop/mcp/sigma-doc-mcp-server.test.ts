@@ -5033,10 +5033,13 @@ describe("render_visual_edit_session", () => {
 
     // Both are saved before the tool results return (the turn may end right after), and only
     // in the run's own files.
-    const stateFile = path.join(runContextDirectory, visualSessionStateFileName(provider, runId, sessionId));
-    const otherStateFile = path.join(runContextDirectory, visualSessionStateFileName(provider, runId, otherSessionId));
-    expect((await fs.stat(stateFile)).isFile()).toBe(true);
-    expect((await fs.stat(otherStateFile)).isFile()).toBe(true);
+    // Each saved generation is its own file next to the session's base name.
+    const savedGenerations = async (id: string): Promise<string[]> => {
+      const base = visualSessionStateFileName(provider, runId, id).replace(/\.visual-session-state\.json$/, "");
+      return (await fs.readdir(runContextDirectory)).filter((name) => name.startsWith(`${base}.g`));
+    };
+    expect(await savedGenerations(sessionId)).toHaveLength(1);
+    expect(await savedGenerations(otherSessionId)).toHaveLength(1);
     await client.close();
     await flushVisualSessionStatusWritesForTests();
 
@@ -5093,8 +5096,8 @@ describe("render_visual_edit_session", () => {
 
       // The finished session's state is removed; the untouched one stays resumable and stays
       // listed as unfinished, so the continuation check still sees it.
-      await expect(fs.stat(stateFile)).rejects.toMatchObject({ code: "ENOENT" });
-      expect((await fs.stat(otherStateFile)).isFile()).toBe(true);
+      expect(await savedGenerations(sessionId)).toEqual([]);
+      expect(await savedGenerations(otherSessionId)).toHaveLength(1);
       await processB.flushVisualSessionStatusWritesForTests();
       const status = JSON.parse(await fs.readFile(statusPath, "utf8")) as {
         sessions: Array<{ sessionId: string; operationCount: number; proposed: boolean; discarded: boolean }>;
@@ -5104,7 +5107,7 @@ describe("render_visual_edit_session", () => {
 
       const discarded = extractPayload(await client.callTool({ name: "discard_visual_edit_session", arguments: { sessionId: otherSessionId, runId } }));
       expect(discarded.ok).toBe(true);
-      await expect(fs.stat(otherStateFile)).rejects.toMatchObject({ code: "ENOENT" });
+      expect(await savedGenerations(otherSessionId)).toEqual([]);
       expect((await proposalStore.listProposals({ status: "pending" })).length).toBe(pendingBefore + 1);
     } finally {
       await processB.flushVisualSessionStatusWritesForTests();
