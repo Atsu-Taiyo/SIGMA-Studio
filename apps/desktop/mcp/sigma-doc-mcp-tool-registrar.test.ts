@@ -27,8 +27,6 @@ function createRegistrar(overrides: Partial<McpToolRegistrarOptions> = {}) {
   const server = new McpServer({ name: "registrar-test", version: "1" });
   servers.push(server);
   const options = {
-    toolProfile: "external" as const,
-    profileGuidance: (description: string) => description,
     activityLogger: vi.fn(),
     visualSessionRunId: vi.fn(() => "session-run"),
     ...overrides,
@@ -47,8 +45,8 @@ async function connect(server: McpServer): Promise<Client> {
 const successfulResult = () => withToolErrorHandling(async () => ({ ok: true, value: "preserved" }));
 
 describe("MCP tool registration", () => {
-  it("publishes tools in declaration order with default and explicit annotations", async () => {
-    const { server, registerTool } = createRegistrar({ profileGuidance: (text) => `profile: ${text}` });
+  it("publishes tools in declaration order with their descriptions and default and explicit annotations", async () => {
+    const { server, registerTool } = createRegistrar();
     const originalRegisterTool = server.registerTool;
     registerTool("read_local_document", { description: "read", inputSchema: {} }, successfulResult);
     registerTool("delete_local_document", { description: "delete", inputSchema: {} }, successfulResult);
@@ -64,7 +62,7 @@ describe("MCP tool registration", () => {
     expect(tools.map(({ name }) => name)).toEqual([
       "read_local_document", "delete_local_document", "update_ai_settings",
     ]);
-    expect(tools.map(({ description }) => description)).toEqual(["profile: read", "profile: delete", "profile: settings"]);
+    expect(tools.map(({ description }) => description)).toEqual(["read", "delete", "settings"]);
     expect(tools.map(({ annotations }) => annotations)).toEqual([
       { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
       { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
@@ -73,23 +71,22 @@ describe("MCP tool registration", () => {
     expect(tools.every((tool) => tool.outputSchema?.properties?.ok)).toBe(true);
   });
 
-  it("retains hidden app implementations without executing or publishing them", async () => {
-    const { server, registerTool, bodyImplementations, options } = createRegistrar({ toolProfile: "app" });
+  it("retains body-edit implementations without executing or publishing them", async () => {
+    const { server, registerTool, registerBodyImplementation, bodyImplementations, options } = createRegistrar();
     const inputSchema = { fileId: z.string() };
     const implementation = vi.fn(successfulResult);
-    const registration = registerTool("apply_edits", { inputSchema }, implementation);
+    registerBodyImplementation("apply_edits", inputSchema, implementation);
     registerTool("visible", { inputSchema: {} }, successfulResult);
 
-    expect(registration).toBeUndefined();
     expect(bodyImplementations.get("apply_edits")).toEqual({ inputSchema, handler: implementation });
     expect(implementation).not.toHaveBeenCalled();
     expect(options.activityLogger).not.toHaveBeenCalled();
     expect((await (await connect(server)).listTools()).tools.map(({ name }) => name)).toEqual(["visible"]);
   });
 
-  it("rejects an app body implementation whose schema cannot supply alias fields", () => {
-    const { registerTool, bodyImplementations } = createRegistrar({ toolProfile: "app" });
-    expect(() => registerTool("apply_edits", { inputSchema: z.object({}) }, successfulResult))
+  it("rejects a body-edit implementation whose schema cannot supply the body tools' fields", () => {
+    const { registerBodyImplementation, bodyImplementations } = createRegistrar();
+    expect(() => registerBodyImplementation("apply_edits", z.object({}) as unknown as z.ZodRawShape, successfulResult))
       .toThrow("Expected a raw input shape for apply_edits");
     expect(bodyImplementations.size).toBe(0);
   });

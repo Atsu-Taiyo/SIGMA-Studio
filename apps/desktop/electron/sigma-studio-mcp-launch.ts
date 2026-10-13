@@ -6,7 +6,6 @@
 
 import type { AppLocale } from "@/lib/i18n";
 import { VALIDATION_LOCALE_ENV } from "@/lib/ai/validation-locale";
-import { MCP_TOOL_PROFILE_ENV } from "@/lib/ai/mcp-tool-profile";
 import { SIGMA_STUDIO_RENDER_BRIDGE_FILE_ENV } from "./ai-render-bridge";
 import { SIGMA_STUDIO_RUN_CONTEXT_FILE_ENV } from "./ai-edit-run-context";
 import type { McpEditProposalProvider } from "./local-sigma-doc-proposal-store";
@@ -41,7 +40,6 @@ export function buildSigmaStudioMcpEnv(input: SigmaStudioMcpLaunchSpec): Record<
     [SIGMA_STUDIO_RUN_CONTEXT_FILE_ENV]: input.runContextFile,
     [SIGMA_STUDIO_RENDER_BRIDGE_FILE_ENV]: input.renderBridgeFile,
     [SIGMA_STUDIO_MCP_PROVIDER_ENV]: input.provider,
-    [MCP_TOOL_PROFILE_ENV]: "app",
     // 検証フィードバックの言語。**MCP サーバーは別プロセス**で renderer とメモリを
     // 共有しないので、起動時に渡すしかない (`src/lib/ai/validation-locale.ts`)。
     [VALIDATION_LOCALE_ENV]: input.uiLocale,

@@ -191,14 +191,14 @@ describe("MCP document and preview caches", () => {
     });
 
     const write = extractPayload(await client.callTool({
-      name: "insert_body_content",
+      name: "insert_content",
       arguments: {
         fileId,
         targetId: "END_OF_DOCUMENT",
         expectedRevision: 2,
         writeMode: "dryRun",
         runId: "cache_write_run",
-        blocks: ["キャッシュ後も検証される段落"],
+        content: { format: "blocks", blocks: ["キャッシュ後も検証される段落"] },
       },
     }));
     const verification = write.verification as {
@@ -316,13 +316,13 @@ describe("MCP document and preview caches", () => {
   it("does not reuse a current-proposal preview after that proposal draft changes", async () => {
     const runId = "proposal_cache_run";
     await client.callTool({
-      name: "insert_body_content",
+      name: "insert_content",
       arguments: {
         fileId,
         targetId: "END_OF_DOCUMENT",
         expectedRevision: 1,
         runId,
-        blocks: ["提案previewキャッシュの1回目"],
+        content: { format: "blocks", blocks: ["提案previewキャッシュの1回目"] },
       },
     });
     resetMcpRunStats();
@@ -335,13 +335,13 @@ describe("MCP document and preview caches", () => {
     expect(bridgeRenderCalls).toBe(1);
 
     await client.callTool({
-      name: "insert_body_content",
+      name: "insert_content",
       arguments: {
         fileId,
         targetId: "END_OF_DOCUMENT",
         expectedRevision: 1,
         runId,
-        blocks: ["提案previewキャッシュの2回目"],
+        content: { format: "blocks", blocks: ["提案previewキャッシュの2回目"] },
       },
     });
     const bridgeCallsAfterWriteVerification = bridgeRenderCalls;
@@ -477,22 +477,22 @@ describe("MCP document and preview caches", () => {
   it("keeps tool timings and lower-level counters isolated by runId", async () => {
     for (const runId of ["parallel_run_a", "parallel_run_b"]) {
       await client.callTool({
-        name: "insert_body_content",
+        name: "insert_content",
         arguments: {
           fileId,
           targetId: "END_OF_DOCUMENT",
           expectedRevision: 1,
           writeMode: "dryRun",
           runId,
-          blocks: [`${runId}の検証用段落`],
+          content: { format: "blocks", blocks: [`${runId}の検証用段落`] },
         },
       });
     }
 
     const runA = getMcpRunStats("parallel_run_a");
     const runB = getMcpRunStats("parallel_run_b");
-    expect(runA.tools.insert_body_content?.callCount).toBe(1);
-    expect(runB.tools.insert_body_content?.callCount).toBe(1);
+    expect(runA.tools.insert_content?.callCount).toBe(1);
+    expect(runB.tools.insert_content?.callCount).toBe(1);
     expect(runA.counters).toMatchObject({
       documentDiskLoads: 1,
       documentCacheMisses: 1,

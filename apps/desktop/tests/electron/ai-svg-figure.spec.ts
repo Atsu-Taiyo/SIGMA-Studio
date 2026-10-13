@@ -70,7 +70,7 @@ test("an SVG figure from insert_svg_image is approved, drawn, saved, and still t
     await client.connect(new StdioClientTransport({
       command: await app.evaluate(() => process.execPath),
       args: [path.join(APP_ROOT, "dist-electron/sigma-doc-mcp-server.cjs")],
-      env: { PATH: process.env.PATH ?? "", HOME: os.homedir(), ELECTRON_RUN_AS_NODE: "1", SIGMA_STUDIO_USER_DATA_DIR: profile, SIGMA_STUDIO_MCP_TOOL_PROFILE: "app" },
+      env: { PATH: process.env.PATH ?? "", HOME: os.homedir(), ELECTRON_RUN_AS_NODE: "1", SIGMA_STUDIO_USER_DATA_DIR: profile },
       stderr: "pipe",
     }));
     const tools = (await client.listTools()).tools.map((tool) => tool.name);

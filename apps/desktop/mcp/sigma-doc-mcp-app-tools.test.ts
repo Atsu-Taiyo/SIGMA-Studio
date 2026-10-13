@@ -12,11 +12,11 @@ import { computeDocumentBlockHashes } from "@/lib/sigma-doc-block-hash";
 import { getDefaultPageLayout } from "@/lib/page-layout";
 import { sampleDocument } from "@/lib/sample-document";
 import { parseSigmaDocument, SigmaDocumentSchema } from "@/lib/sigma-doc-schema";
-import { MCP_TOOL_CATEGORIES, MCP_TOOL_CATEGORY_MAP, measureMcpToolExposure, toolNamesForCategories } from "@/lib/ai/mcp-tool-categories";
-import { APP_BODY_TOOL_ROUTES, appMcpToolNames, MCP_TOOL_PROFILE_ENV, type McpToolProfile } from "@/lib/ai/mcp-tool-profile";
+import { MCP_TOOL_CATEGORIES, MCP_TOOL_CATEGORY_MAP, toolNamesForCategories } from "@/lib/ai/mcp-tool-categories";
 import { LocalAiEditRunContextStore } from "../electron/ai-edit-run-context";
 import { LocalSigmaDocStore } from "../electron/local-sigma-doc-store";
 import { LocalMcpEditProposalStore } from "../electron/local-sigma-doc-proposal-store";
+import { BODY_IMPLEMENTATION_ROUTES } from "./sigma-doc-mcp-app-tools";
 import { createSigmaDocMcpServer } from "./sigma-doc-mcp-server-core";
 
 const initialDocument: SigmaDocument = {
@@ -29,7 +29,7 @@ const initialDocument: SigmaDocument = {
   ],
 };
 
-describe("app MCP body tool profile", () => {
+describe("MCP body tools", () => {
   let userDataDir: string;
   let store: LocalSigmaDocStore;
   let proposals: LocalMcpEditProposalStore;
@@ -38,7 +38,7 @@ describe("app MCP body tool profile", () => {
 
   beforeEach(async () => {
     userDataDir = await fs.mkdtemp(path.join(os.tmpdir(), "sigma-app-mcp-"));
-    for (const key of ["SIGMA_STUDIO_DATA_DIR", "SIGMA_STUDIO_RUN_CONTEXT_FILE", "SIGMA_STUDIO_RENDER_BRIDGE_FILE", MCP_TOOL_PROFILE_ENV]) {
+    for (const key of ["SIGMA_STUDIO_DATA_DIR", "SIGMA_STUDIO_RUN_CONTEXT_FILE", "SIGMA_STUDIO_RENDER_BRIDGE_FILE"]) {
       vi.stubEnv(key, undefined);
     }
     vi.stubEnv("SIGMA_STUDIO_USER_DATA_DIR", userDataDir);
@@ -64,12 +64,11 @@ describe("app MCP body tool profile", () => {
     await fs.rm(userDataDir, { recursive: true, force: true });
   });
 
-  async function connect(toolProfile?: McpToolProfile): Promise<Client> {
+  async function connect(): Promise<Client> {
     const server = createSigmaDocMcpServer({
-      toolProfile,
       renderVisualPreviewDeps: { env: process.env, fetchImpl: fetch, loadResvg: async () => null },
     });
-    const client = new Client({ name: "app-profile-test", version: "1" });
+    const client = new Client({ name: "body-tools-test", version: "1" });
     clients.push(client);
     const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
     await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
@@ -95,25 +94,18 @@ describe("app MCP body tool profile", () => {
     return proposal!;
   }
 
-  it("reduces actual tools/list schemas while retaining the external contract and matching app permissions", async () => {
-    const externalClient = await connect();
-    const appClient = await connect("app");
-    const external = (await externalClient.listTools()).tools;
+  it("publishes the four body tools in place of their implementations and matches the permission categories", async () => {
+    const appClient = await connect();
     const app = (await appClient.listTools()).tools;
-    expect(external.map((tool) => tool.name).sort()).toEqual(
+    expect(app.map((tool) => tool.name).sort()).toEqual(
       MCP_TOOL_CATEGORIES.flatMap((category) => MCP_TOOL_CATEGORY_MAP[category]).sort(),
     );
-    expect(app.map((tool) => tool.name).sort()).toEqual(appMcpToolNames(external.map((tool) => tool.name)).sort());
-    expect(app).toHaveLength(external.length - 4);
-    expect(appMcpToolNames(toolNamesForCategories(MCP_TOOL_CATEGORIES)).sort()).toEqual(app.map((tool) => tool.name).sort());
-    for (const name of Object.keys(APP_BODY_TOOL_ROUTES)) {
+    expect(app).toHaveLength(68);
+    expect(toolNamesForCategories(MCP_TOOL_CATEGORIES).sort()).toEqual(app.map((tool) => tool.name).sort());
+    for (const [name, route] of Object.entries(BODY_IMPLEMENTATION_ROUTES)) {
       expect(app.some((tool) => tool.name === name)).toBe(false);
+      expect(app.some((tool) => tool.name === route.name)).toBe(true);
     }
-    const legacyBytes = measureMcpToolExposure(external, ["本文編集"]);
-    const appBytes = measureMcpToolExposure(app, ["本文編集"], "app");
-    expect(appBytes.selection.serializedSchemaBytes).toBeLessThan(legacyBytes.selection.serializedSchemaBytes);
-    expect(appBytes.fullExposure.serializedSchemaBytes).toBeLessThan(legacyBytes.fullExposure.serializedSchemaBytes);
-    console.info("MCP tools/list comparison", { external: legacyBytes, app: appBytes });
     const editSchema = app.find((tool) => tool.name === "edit_text")!.inputSchema;
     expect(editSchema.required).toEqual(expect.arrayContaining(["fileId", "expectedRevision", "edit"]));
     const edit = editSchema.properties!.edit as { oneOf: Array<{ required: string[] }> };
@@ -121,19 +113,13 @@ describe("app MCP body tool profile", () => {
     expect(edit.oneOf[0]!.required).toEqual(expect.arrayContaining(["action", "operations"]));
     expect(app.find((tool) => tool.name === "organize_blocks")!.annotations).toMatchObject({ destructiveHint: true, readOnlyHint: false });
     for (const tool of app) expect(tool.outputSchema).toBeDefined();
-    // Hidden legacy endpoints are not callable through the app's MCP transport.
+    // The implementations are not callable through the MCP transport.
     expect((await appClient.callTool({ name: "delete_blocks", arguments: { ...context(), blockIds: ["p_1"] } })).isError).toBe(true);
     expect(await proposals.listProposals({ status: "pending" })).toHaveLength(0);
   });
 
-  it("selects the app profile from the launch environment without changing the default external profile", async () => {
-    vi.stubEnv(MCP_TOOL_PROFILE_ENV, "app");
-    expect((await (await connect()).listTools()).tools.map((tool) => tool.name)).toContain("insert_content");
-    expect((await (await connect("external")).listTools()).tools.map((tool) => tool.name)).toContain("insert_body_content");
-  });
-
   it("converts Markdown into canonical math/lists and accumulates native blocks without writing the saved document", async () => {
-    const client = await connect("app");
+    const client = await connect();
     const savedBefore = await store.loadDocument(fileId);
     const result = await call(client, "insert_content", {
       targetId: "END_OF_DOCUMENT",
@@ -158,7 +144,7 @@ describe("app MCP body tool profile", () => {
   });
 
   it("routes patch, formatting, paragraph update and structural replacement into the same proposal", async () => {
-    const client = await connect("app");
+    const client = await connect();
     await call(client, "edit_text", { edit: { action: "patch", operations: [{
       op: "replace_text", target: { type: "text", blockId: "p_1", text: "Before" }, replacement: "After",
     }] } });
@@ -178,7 +164,7 @@ describe("app MCP body tool profile", () => {
   });
 
   it("creates and partially updates problems, then moves and deletes body blocks", async () => {
-    const client = await connect("app");
+    const client = await connect();
     await call(client, "edit_problem", { edit: { action: "create", id: "problem_1", targetId: "p_1", prompt: ["Solve."], solution: ["Keep this solution."] } });
     await call(client, "edit_problem", { edit: { action: "update", targetId: "problem_1", prompt: ["Solve again."] } });
     const beforeMove = findBlock((await pending()).nextDocument, "problem_1");
@@ -191,7 +177,7 @@ describe("app MCP body tool profile", () => {
   });
 
   it("preserves per-run attribution and dryRun semantics", async () => {
-    const client = await connect("app");
+    const client = await connect();
     await call(client, "edit_text", { writeMode: "dryRun", edit: { action: "update", blockId: "p_1", text: "Dry run" } });
     expect(await proposals.listProposals({ status: "pending" })).toHaveLength(0);
     await call(client, "edit_text", { edit: { action: "update", blockId: "p_1", text: "Agent A" } });
@@ -202,7 +188,7 @@ describe("app MCP body tool profile", () => {
   });
 
   it("rejects stale targets and malformed action payloads without saving a proposal", async () => {
-    const client = await connect("app");
+    const client = await connect();
     for (const [name, args] of [
       ["edit_text", { edit: { action: "patch", operations: [] } }],
       ["edit_problem", { edit: { action: "create", targetId: "p_1" } }],
@@ -222,7 +208,7 @@ describe("app MCP body tool profile", () => {
   });
 
   it("keeps a human edit saved between two turns of the same room, also after a revision-only auto-rebase", async () => {
-    const client = await connect("app");
+    const client = await connect();
     await call(client, "edit_text", { edit: { action: "patch", operations: [
       { op: "replace_text", target: { type: "text", blockId: "p_1", text: "Before" }, replacement: "After" },
     ] } });
@@ -251,7 +237,7 @@ describe("app MCP body tool profile", () => {
   });
 
   it("continues a room whose insertion anchor the human deleted, re-anchoring the insertion", async () => {
-    const client = await connect("app");
+    const client = await connect();
     await call(client, "insert_content", { targetId: "p_2", content: { format: "blocks", blocks: ["AI paragraph"] } });
     const saved = parseSigmaDocument(await store.loadDocument(fileId));
     const humanSave = await store.saveDocument(fileId, parseSigmaDocument(deleteBlocksFromDocument(saved, ["p_2"])), { expectedRevision: 1 });
@@ -269,7 +255,7 @@ describe("app MCP body tool profile", () => {
   });
 
   it("does not double a human edit a later turn of the room saw and rewrote", async () => {
-    const client = await connect("app");
+    const client = await connect();
     await call(client, "edit_text", { edit: { action: "patch", operations: [
       { op: "replace_text", target: { type: "text", blockId: "p_1", text: "Before" }, replacement: "After" },
     ] } });
@@ -295,7 +281,7 @@ describe("app MCP body tool profile", () => {
   });
 
   it("previews the room's proposal with the same merging replay as the approval", async () => {
-    const client = await connect("app");
+    const client = await connect();
     await call(client, "insert_content", { targetId: "p_2", content: { format: "blocks", blocks: ["AI paragraph"] } });
     const saved = parseSigmaDocument(await store.loadDocument(fileId));
     await store.saveDocument(fileId, parseSigmaDocument(deleteBlocksFromDocument(saved, ["p_2"])), { expectedRevision: 1 });
@@ -311,7 +297,7 @@ describe("app MCP body tool profile", () => {
   });
 
   it("does not publish a partially successful patch batch", async () => {
-    const client = await connect("app");
+    const client = await connect();
     const savedBefore = await store.loadDocument(fileId);
     const result = await client.callTool({ name: "edit_text", arguments: {
       ...context(),

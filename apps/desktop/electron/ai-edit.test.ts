@@ -338,7 +338,7 @@ describe("runAiEditForIpc", () => {
           params.onRefusal?.("commandExecution", "item_cmd_1");
           return { finalText: "", refusedItemTypes: ["commandExecution"] };
         }
-        params.onNotification?.({ method: "item/started", params: { item: mcpToolCallItem("item_1", "insert_body_content") } });
+        params.onNotification?.({ method: "item/started", params: { item: mcpToolCallItem("item_1", "insert_content") } });
         return "本文を追加しました。";
       },
     });
@@ -374,7 +374,7 @@ describe("runAiEditForIpc", () => {
       turn: async (params) => {
         capturedParams.push(params);
         params.onRefusal?.("commandExecution");
-        params.onNotification?.({ method: "item/started", params: { item: mcpToolCallItem(`item_${capturedParams.length}`, "insert_body_content") } });
+        params.onNotification?.({ method: "item/started", params: { item: mcpToolCallItem(`item_${capturedParams.length}`, "insert_content") } });
         return { finalText: "シェルが使えませんでした。", refusedItemTypes: ["commandExecution"] };
       },
     });
@@ -474,7 +474,7 @@ describe("runAiEditForIpc", () => {
         call += 1;
         if (call === 1) {
           params.onRefusal?.("commandExecution");
-          params.onNotification?.({ method: "item/started", params: { item: mcpToolCallItem("item_1", "insert_body_content") } });
+          params.onNotification?.({ method: "item/started", params: { item: mcpToolCallItem("item_1", "insert_content") } });
           return { finalText: "途中まで作りました。", refusedItemTypes: ["commandExecution"] };
         }
         throw new Error("transport died");
@@ -678,7 +678,7 @@ describe("runAiEditForIpc", () => {
     });
 
     expect(result.agentThreadId).toBe("thread_fresh");
-    expect(developerInstructionsSeen[0]).toBe([buildMcpEditInvariantGuidance(tJa, "app"), tJa("generatedImages.guide")].join("\n\n"));
+    expect(developerInstructionsSeen[0]).toBe([buildMcpEditInvariantGuidance(tJa), tJa("generatedImages.guide")].join("\n\n"));
   });
 
   it("maps mcpToolCall/plan/reasoning notifications to run events and tolerates unknown item types", async () => {

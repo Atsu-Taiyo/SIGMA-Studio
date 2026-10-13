@@ -6,7 +6,6 @@ import { createTranslator, DEFAULT_LOCALE, type AppLocale, type Translate } from
 import { prompt as jaPrompt } from "@/lib/i18n/dictionaries/ja/prompt";
 import type { AiResourceRunContext } from "../../../electron/ai-resource-store";
 import { SIGMA_DOC_MCP_SERVER_NAME } from "../../../electron/sigma-studio-mcp-launch";
-import { appMcpToolGuidance, type McpToolProfile } from "./mcp-tool-profile";
 
 /** この層のプロンプト文言は全て `prompt` namespace が持つ。 */
 type PromptTranslate = Translate<"prompt">;
@@ -66,8 +65,8 @@ export function buildMcpMaterialReusePrompt(t: PromptTranslate): string {
   return section(t, "materialReuse");
 }
 
-export function buildMcpContentToolGuidePrompt(t: PromptTranslate, toolProfile: McpToolProfile = "external"): string {
-  return section(t, toolProfile === "app" ? "appContentToolGuide" : "contentToolGuide");
+export function buildMcpContentToolGuidePrompt(t: PromptTranslate): string {
+  return section(t, "contentToolGuide");
 }
 
 export function buildMcpPageLayoutToolGuidePrompt(t: PromptTranslate): string {
@@ -212,8 +211,8 @@ export function buildMcpRefusedOperationContinuationPrompt(
  * 合成に使う節 (ポリシー無し)。単体で送る版は `buildMcpEditInvariantGuidance`。
  * export してあるのは、合成後のプロンプトに節が入っていることを検査できるようにするため。
  */
-export function buildMcpEditInvariantGuidanceSection(t: PromptTranslate, toolProfile: McpToolProfile = "external"): string {
-  const guidance = [
+export function buildMcpEditInvariantGuidanceSection(t: PromptTranslate): string {
+  return [
     section(t, "editInvariantGuidanceHead"),
     section(t, "svgImageGuidance"),
     section(t, "editExpectedRevision"),
@@ -221,7 +220,7 @@ export function buildMcpEditInvariantGuidanceSection(t: PromptTranslate, toolPro
     section(t, "editInvariantGuidanceMiddle"),
     "",
     buildMcpImageMaterialReconstructionPrompt(t),
-    buildMcpContentToolGuidePrompt(t, toolProfile),
+    buildMcpContentToolGuidePrompt(t),
     section(t, "pageLayoutToolGuide"),
     section(t, "materialReuse"),
     section(t, "shapeToolGuide"),
@@ -231,11 +230,10 @@ export function buildMcpEditInvariantGuidanceSection(t: PromptTranslate, toolPro
     section(t, "libraryReference"),
     section(t, "selfConfig"),
   ].join("\n\n");
-  return toolProfile === "app" ? appMcpToolGuidance(guidance) : guidance;
 }
 
-export function buildMcpEditInvariantGuidance(t: PromptTranslate, toolProfile: McpToolProfile = "external"): string {
-  return withPolicy(t, buildMcpEditInvariantGuidanceSection(t, toolProfile));
+export function buildMcpEditInvariantGuidance(t: PromptTranslate): string {
+  return withPolicy(t, buildMcpEditInvariantGuidanceSection(t));
 }
 
 export type McpEditPromptProvider = "claude" | "codex" | "antigravity";
@@ -282,8 +280,6 @@ export interface BuildMcpEditTurnPromptAttachment {
 }
 
 export interface BuildMcpEditTurnPromptArgs {
-  /** Must match the profile of the MCP server started for this agent. */
-  toolProfile?: McpToolProfile;
   instruction: string;
   fileId: string;
   selectedId?: string | null;
@@ -305,8 +301,8 @@ export interface BuildMcpEditTurnPromptArgs {
    * it back as the `runId` argument on every app-context tool call
    * (get_selected_block / get_active_reference / get_insertion_candidates /
    * get_neighbor_blocks / get_attached_media / get_mentioned_sigma_docs) as
-   * well as every write/visual-session tool (insert_body_content,
-   * update_rich_content, begin_visual_edit_session, etc.) so the pending proposals
+   * well as every write/visual-session tool (insert_content, edit_text,
+   * begin_visual_edit_session, etc.) so the pending proposals
    * they create are attributed back to this AI session.
    * Codex and Antigravity share one long-lived MCP server process across
    * concurrent runs, so without this the server cannot tell which run-context
@@ -339,20 +335,19 @@ function turnPromptHeadLines(
   args: BuildMcpEditTurnPromptArgs,
   t: PromptTranslate,
 ): string[] {
-  const guidance = args.toolProfile === "app" ? appMcpToolGuidance : (text: string) => text;
   return [
     t("turn.assistantIntro"),
     toolNamespaceLine(provider, t),
     t("turn.fileId", { replace: { fileId: args.fileId } }),
-    args.runId ? t(args.toolProfile === "app" ? "turn.appRunId" : "turn.runId", { replace: { runId: args.runId } }) : "",
+    args.runId ? t("turn.runId", { replace: { runId: args.runId } }) : "",
     args.selectedId ? t("turn.selectedId", { replace: { selectedId: args.selectedId } }) : "",
-    guidance(section(t, "editTurnHardRules") + section(t, "officialSkillGuide")),
-    args.toolProfile === "app" ? section(t, "appToolProfile") : "",
+    section(t, "editTurnHardRules") + section(t, "officialSkillGuide"),
+    section(t, "bodyToolGuide"),
     // agy headless cannot prompt for command permission. Keep this on resumed
     // turns too: inspecting its large, single-line MCP schema cache with a
     // shell command otherwise aborts the turn before a proposal is created.
     provider === "antigravity" ? section(t, "antigravityHeadlessTools") : "",
-    provider === "antigravity" && args.toolProfile === "app" ? section(t, "antigravityTextEditExample") : "",
+    provider === "antigravity" ? section(t, "antigravityTextEditExample") : "",
     provider === "codex" ? section(t, "chatgptVisualPreview") : "",
     t("turn.procedure"),
     t("turn.completionReport"),
@@ -450,11 +445,11 @@ export function buildMcpEditPrompt(args: BuildMcpEditPromptArgs): string {
     "",
     buildSigmaDocContextPrompt(t),
     "",
-    ...(args.toolProfile === "app" ? [section(t, "appMarkdownBoundary")] : []),
+    section(t, "markdownBoundary"),
     buildMathliveContextPrompt(t),
     "",
     // 合成する側なのでポリシー無しの節を使う (先頭で 1 度だけ付ける)。
-    buildMcpEditInvariantGuidanceSection(t, args.toolProfile),
+    buildMcpEditInvariantGuidanceSection(t),
     ...turnPromptTailLines(turnArgs, t),
   ].filter((line) => line.length > 0).join("\n"));
 }
