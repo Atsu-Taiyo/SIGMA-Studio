@@ -68,7 +68,9 @@ describe("MCP tool registration", () => {
       { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
       { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: true },
     ]);
-    expect(tools.every((tool) => tool.outputSchema?.properties?.ok)).toBe(true);
+    // The envelope is checked on the server; publishing it would make every client require
+    // and re-validate structuredContent and repeat the same definition in every tool.
+    expect(tools.every((tool) => tool.outputSchema === undefined)).toBe(true);
   });
 
   it("retains body-edit implementations without executing or publishing them", async () => {
@@ -151,5 +153,31 @@ describe("MCP call instrumentation", () => {
     ]);
     expect(getMcpRunStats().tools.throws.callCount).toBe(1);
     expect(getMcpRunStats().tools.returns_error.callCount).toBe(1);
+  });
+
+  it("still rejects a successful result that does not carry the common envelope", async () => {
+    const { server, registerTool } = createRegistrar();
+    registerTool("no_structured", { inputSchema: {} }, async () => ({ content: [{ type: "text" as const, text: "plain" }] }));
+    registerTool("malformed", { inputSchema: {} }, async () => ({
+      content: [{ type: "text" as const, text: "{}" }],
+      structuredContent: { ok: true },
+    }));
+    registerTool("plain_error", { inputSchema: {} }, async () => ({
+      content: [{ type: "text" as const, text: "failed" }],
+      isError: true,
+    }));
+    const client = await connect(server);
+
+    const missing = await client.callTool({ name: "no_structured", arguments: {} });
+    expect(missing.isError).toBe(true);
+    expect(JSON.stringify(missing.content)).toContain("returned no structured content");
+    const malformed = await client.callTool({ name: "malformed", arguments: {} });
+    expect(malformed.isError).toBe(true);
+    expect(JSON.stringify(malformed.content)).toContain("Invalid structured content for tool malformed");
+    // Errors are passed through as before; only successful results must carry the envelope.
+    expect(await client.callTool({ name: "plain_error", arguments: {} })).toMatchObject({
+      isError: true,
+      content: [{ type: "text", text: "failed" }],
+    });
   });
 });
