@@ -368,6 +368,7 @@ function sharedRunStorage() {
   const statusFiles = new Map<string, VisualSessionsStatusFile>();
   const stateWrites = vi.fn();
   const failWrites = new Set<string>();
+  const retired = new Set<string>();
   const resolveStatusTarget: VisualEditSessionLifecyclePorts["resolveStatusTarget"] = (provider, runId) => {
     if (!provider || !runId) return null;
     const key = `${provider}/${runId}`;
@@ -384,8 +385,10 @@ function sharedRunStorage() {
       return {
         key: `state/${sessionId}`,
         readGeneration: async () => saved.get(sessionId)?.generation ?? null,
+        isRetired: async () => retired.has(sessionId),
         write: async (serialized, generation) => {
           stateWrites(sessionId, generation);
+          if (retired.has(sessionId)) return "superseded";
           if (failWrites.has(sessionId)) {
             saved.delete(sessionId);
             return "failed";
@@ -395,11 +398,13 @@ function sharedRunStorage() {
           saved.set(sessionId, { generation, serialized });
           return "written";
         },
-        remove: async () => { saved.delete(sessionId); },
+        clear: async () => { saved.delete(sessionId); },
+        retire: async () => { retired.add(sessionId); saved.delete(sessionId); },
       };
     },
     serialize: (session) => JSON.stringify(session),
     load: async (sessionId, runId) => {
+      if (retired.has(sessionId)) return null;
       const entry = saved.get(sessionId);
       const session = entry ? JSON.parse(entry.serialized) as VisualEditSession : null;
       return entry && session?.runId === runId ? { generation: entry.generation, session } : null;
@@ -407,7 +412,7 @@ function sharedRunStorage() {
   };
   const process = () => new VisualEditSessionLifecycle({ now: () => clock.now, resolveStatusTarget, sessionState });
   const status = (sessionId: string) => statusFiles.get("claude/run_visual")?.sessions.find((item) => item.sessionId === sessionId);
-  return { clock, saved, statusFiles, stateWrites, failWrites, process, status };
+  return { clock, saved, statusFiles, stateWrites, failWrites, retired, process, status };
 }
 
 /** The run the MCP server process belongs to (from its run-context file); the tool call did not pass a runId. */
@@ -514,7 +519,7 @@ describe("visual sessions saved per run", () => {
     expect(storage.status("stale_saved")).toMatchObject({ operationCount: 1, discarded: true });
   });
 
-  it("keeps unfinished sessions of the same run that only another process knows in the status file", async () => {
+  it("keeps sessions of the same run that only another process knows in the status file, finished ones included", async () => {
     const storage = sharedRunStorage();
     const first = storage.process();
     for (const sessionId of ["kept_a", "kept_b"]) {
@@ -531,6 +536,7 @@ describe("visual sessions saved per run", () => {
     await next.finish(resumed, "proposed");
     await next.flushStatusWrites();
     expect(storage.statusFiles.get("claude/run_visual")?.sessions.map(({ sessionId, proposed, discarded }) => ({ sessionId, proposed, discarded }))).toEqual([
+      { sessionId: "finished_elsewhere", proposed: false, discarded: true },
       { sessionId: "kept_a", proposed: true, discarded: false },
       { sessionId: "kept_b", proposed: false, discarded: false },
     ]);
@@ -598,6 +604,59 @@ describe("visual sessions saved per run", () => {
     const next = storage.process();
     await expect(next.find("crashed_after_finish", RUN)).resolves.toBeUndefined();
     expect(storage.saved.has("crashed_after_finish")).toBe(false);
+  });
+
+  it("does not save writes already queued for a session after another process got ahead of it", async () => {
+    const storage = sharedRunStorage();
+    const first = storage.process();
+    const stale = first.begin(sessionInput("queued"));
+    await first.persist(stale);
+    const next = storage.process();
+    const advanced = await next.resolve("queued", RUN);
+    addOperation(next, advanced);
+    await next.persist(advanced);
+
+    // Two concurrent tool calls on the stale copy queue two writes. The first is refused; the
+    // second must not land as a newer generation on top of the other process's change.
+    addOperation(first, stale);
+    await expect(Promise.all([first.persist(stale), first.persist(stale)])).resolves.toEqual(["superseded", "superseded"]);
+    expect(storage.saved.get("queued")?.generation).toBe(2);
+    expect(JSON.parse(storage.saved.get("queued")!.serialized).agentSession.operations).toHaveLength(1);
+  });
+
+  it("keeps a finished session's record when another process rewrites the run's status, so it is not resumed", async () => {
+    const storage = sharedRunStorage();
+    const first = storage.process();
+    const session = first.begin(sessionInput("finished_then_crashed"));
+    addOperation(first, session);
+    await first.persist(session);
+    // The status says proposed, but the process stopped before retiring the saved state.
+    storage.statusFiles.set("claude/run_visual", {
+      version: 1,
+      updatedAt: new Date(START).toISOString(),
+      sessions: [{ ...storage.status("finished_then_crashed")!, proposed: true }],
+    });
+
+    // A new process of the same run starts another session and rewrites the status file.
+    const next = storage.process();
+    await next.persist(next.begin(sessionInput("another")));
+    await next.flushStatusWrites();
+    expect(storage.status("finished_then_crashed")).toMatchObject({ proposed: true });
+
+    await expect(storage.process().find("finished_then_crashed", RUN)).resolves.toBeUndefined();
+  });
+
+  it("drops a copy another process proposed, even while this process still holds it", async () => {
+    const storage = sharedRunStorage();
+    const first = storage.process();
+    const session = first.begin(sessionInput("double_propose"));
+    addOperation(first, session);
+    await first.persist(session);
+    const next = storage.process();
+    await next.finish(await next.resolve("double_propose", RUN), "proposed");
+
+    await expect(first.find("double_propose", RUN)).resolves.toBeUndefined();
+    expect(first.peek("double_propose")).toBeUndefined();
   });
 
   it("restores and exposes sessions only to their own run", async () => {

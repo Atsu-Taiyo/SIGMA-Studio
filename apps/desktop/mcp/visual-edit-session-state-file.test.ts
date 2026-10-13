@@ -72,19 +72,23 @@ function visualSession(overrides: Partial<VisualEditSession> = {}): VisualEditSe
   };
 }
 
+/** The published file of one generation, next to the session's base name. */
+function generationFile(target: { key: string }, generation: number): string {
+  return target.key.replace(/\.visual-session-state\.json$/, `.g${generation}.visual-session-state.json`);
+}
+
 describe("visual edit session state files", () => {
-  it("writes a run-scoped file and restores the session as it was", async () => {
+  it("writes a run-scoped generation file and restores the session as it was", async () => {
     const directory = await runContextDirectory();
     const material = { id: "material_1" } as MaterialItem;
     const { port, loadMaterials } = stateFiles(directory, { materials: [material] });
     const session = visualSession();
     const target = port.resolveTarget(session)!;
     expect(target.key).toBe(path.join(directory, visualSessionStateFileName("claude", "run_state", session.sessionId)));
-    expect(path.basename(target.key)).toBe("claude-run_state.visual_session_state-1.visual-session-state.json");
 
     await expect(target.write(port.serialize(session, 1), 1)).resolves.toBe("written");
     await expect(target.readGeneration()).resolves.toBe(1);
-    expect(await fs.readdir(directory)).toEqual([path.basename(target.key)]);
+    expect(await fs.readdir(directory)).toEqual(["claude-run_state.visual_session_state-1.g1.visual-session-state.json"]);
 
     const restored = await port.load(session.sessionId, "run_state");
     expect(restored?.generation).toBe(1);
@@ -118,18 +122,67 @@ describe("visual edit session state files", () => {
     expect(loadMaterials).toHaveBeenCalledOnce();
   });
 
-  it("refuses to overwrite a newer saved generation", async () => {
+  it("publishes each generation once and never lets an older one replace a newer one", async () => {
     const directory = await runContextDirectory();
     const { port } = stateFiles(directory);
     const session = visualSession();
     const target = port.resolveTarget(session)!;
-    await target.write(port.serialize(session, 3), 3);
+    await expect(target.write(port.serialize(session, 3), 3)).resolves.toBe("written");
 
     await expect(target.write(port.serialize({ ...session, revision: 9 }, 3), 3)).resolves.toBe("superseded");
     await expect(target.write(port.serialize({ ...session, revision: 9 }, 2), 2)).resolves.toBe("superseded");
     expect((await port.load(session.sessionId, "run_state"))?.session.revision).toBe(1);
     await expect(target.write(port.serialize({ ...session, revision: 4 }, 4), 4)).resolves.toBe("written");
     expect((await port.load(session.sessionId, "run_state"))?.session.revision).toBe(4);
+    // Older generations are cleaned up after a newer one is published; no temporary file is left.
+    expect(await fs.readdir(directory)).toEqual([path.basename(generationFile(target, 4))]);
+  });
+
+  it("lets only one of two processes publish the same generation", async () => {
+    const directory = await runContextDirectory();
+    const session = visualSession();
+    const older = stateFiles(directory).port;
+    const newer = stateFiles(directory).port;
+    await older.resolveTarget(session)!.write(older.serialize(session, 1), 1);
+    for (let round = 0; round < 10; round += 1) {
+      const generation = round + 2;
+      const outcomes = await Promise.all([
+        older.resolveTarget(session)!.write(older.serialize({ ...session, revision: 100 + round }, generation), generation),
+        newer.resolveTarget(session)!.write(newer.serialize({ ...session, revision: 200 + round }, generation), generation),
+      ]);
+      expect([...outcomes].sort()).toEqual(["superseded", "written"]);
+      const restored = await newer.load(session.sessionId, "run_state");
+      expect(restored?.generation).toBe(generation);
+      expect(restored?.session.revision).toBe(outcomes[0] === "written" ? 100 + round : 200 + round);
+    }
+  });
+
+  it("refuses a slow write that was overtaken while it was still writing", async () => {
+    const directory = await runContextDirectory();
+    const session = visualSession();
+    // Two ports stand in for two MCP server processes of the same run.
+    const older = stateFiles(directory).port;
+    const newer = stateFiles(directory).port;
+    await older.resolveTarget(session)!.write(older.serialize(session, 1), 1);
+    // The older process is slow to write generation 2; meanwhile the newer one publishes 2 and 3
+    // (and cleans up 2), so the slow write can no longer collide by name.
+    const writeFile = fsPromises.writeFile.bind(fsPromises);
+    const slowStale = vi.spyOn(fsPromises, "writeFile").mockImplementation(async (...args: Parameters<typeof fsPromises.writeFile>) => {
+      if (String(args[1]).includes('"revision":99')) await new Promise((resolve) => setTimeout(resolve, 150));
+      return writeFile(...args);
+    });
+    try {
+      const stale = older.resolveTarget(session)!.write(older.serialize({ ...session, revision: 99 }, 2), 2);
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      await expect(newer.resolveTarget(session)!.write(newer.serialize({ ...session, revision: 2 }, 2), 2)).resolves.toBe("written");
+      await expect(newer.resolveTarget(session)!.write(newer.serialize({ ...session, revision: 3 }, 3), 3)).resolves.toBe("written");
+      await expect(stale).resolves.toBe("superseded");
+    } finally {
+      slowStale.mockRestore();
+    }
+    const restored = await newer.load(session.sessionId, "run_state");
+    expect(restored?.generation).toBe(3);
+    expect(restored?.session.revision).toBe(3);
     expect((await fs.readdir(directory)).filter((name) => name.includes(".tmp-"))).toEqual([]);
   });
 
@@ -143,8 +196,30 @@ describe("visual edit session state files", () => {
 
     const session = visualSession();
     const target = port.resolveTarget(session)!;
-    await fs.mkdir(target.key);
-    await expect(target.write(port.serialize(session, 1), 1)).resolves.toBe("failed");
+    const link = vi.spyOn(fsPromises, "link").mockRejectedValueOnce(Object.assign(new Error("disk full"), { code: "ENOSPC" }));
+    try {
+      await expect(target.write(port.serialize(session, 1), 1)).resolves.toBe("failed");
+    } finally {
+      link.mockRestore();
+    }
+  });
+
+  it("removes the older saved state when a newer one cannot be written", async () => {
+    const directory = await runContextDirectory();
+    const { port } = stateFiles(directory);
+    const session = visualSession();
+    const target = port.resolveTarget(session)!;
+    await expect(target.write(port.serialize(session, 1), 1)).resolves.toBe("written");
+
+    const link = vi.spyOn(fsPromises, "link").mockRejectedValueOnce(Object.assign(new Error("disk full"), { code: "ENOSPC" }));
+    try {
+      await expect(target.write(port.serialize({ ...session, revision: 2 }, 2), 2)).resolves.toBe("failed");
+    } finally {
+      link.mockRestore();
+    }
+    // Restoring generation 1 would silently lose the change the tool call reported.
+    await expect(port.load(session.sessionId, "run_state")).resolves.toBeNull();
+    expect(await fs.readdir(directory)).toEqual([]);
   });
 
   it("only restores this provider's intact files for the requested session", async () => {
@@ -156,13 +231,18 @@ describe("visual edit session state files", () => {
     await expect(stateFiles(directory, { provider: "antigravity" }).port.load(session.sessionId, "run_state")).resolves.toBeNull();
     await expect(claude.load("visual_session_other", "run_state")).resolves.toBeNull();
 
-    const filePath = claude.resolveTarget(session)!.key;
+    const filePath = generationFile(claude.resolveTarget(session)!, 1);
     const [header, body] = (await fs.readFile(filePath, "utf8")).split("\n");
     await fs.writeFile(filePath, `${header}\n${body!.slice(0, 40)}`, "utf8");
     await expect(claude.load(session.sessionId, "run_state")).resolves.toBeNull();
 
     const otherHeader = JSON.stringify({ ...JSON.parse(header!), sessionId: "visual_session_other" });
     await fs.writeFile(filePath, `${otherHeader}\n${body}`, "utf8");
+    await expect(claude.load(session.sessionId, "run_state")).resolves.toBeNull();
+
+    // A newest generation that cannot be read is not replaced by an older one.
+    await fs.writeFile(filePath, `${header}\n${body}`, "utf8");
+    await fs.writeFile(generationFile(claude.resolveTarget(session)!, 2), "broken", "utf8");
     await expect(claude.load(session.sessionId, "run_state")).resolves.toBeNull();
   });
 
@@ -175,81 +255,39 @@ describe("visual edit session state files", () => {
     await expect(port.load(session.sessionId, "run_other")).resolves.toBeNull();
     await expect(port.load(session.sessionId, "")).resolves.toBeNull();
     // A file under this run's name whose header names another run is not this run's session.
-    const filePath = port.resolveTarget(session)!.key;
+    const filePath = generationFile(port.resolveTarget(session)!, 1);
     const [header, body] = (await fs.readFile(filePath, "utf8")).split("\n");
     await fs.writeFile(filePath, `${JSON.stringify({ ...JSON.parse(header!), runId: "run_other" })}\n${body}`, "utf8");
     await expect(port.load(session.sessionId, "run_state")).resolves.toBeNull();
   });
 
-  it("serializes generation checks across processes so a stale write never replaces a newer one", async () => {
-    const directory = await runContextDirectory();
-    const session = visualSession();
-    // Two ports stand in for two MCP server processes of the same run.
-    const older = stateFiles(directory).port;
-    const newer = stateFiles(directory).port;
-    await older.resolveTarget(session)!.write(older.serialize(session, 1), 1);
-    // The older process passes its generation check, then is slow to write: without a lock
-    // across processes the newer write lands in between and is then replaced by the stale one.
-    const writeFile = fsPromises.writeFile.bind(fsPromises);
-    const slowStale = vi.spyOn(fsPromises, "writeFile").mockImplementation(async (...args: Parameters<typeof fsPromises.writeFile>) => {
-      if (String(args[1]).includes('"revision":2')) await new Promise((resolve) => setTimeout(resolve, 150));
-      return writeFile(...args);
-    });
-    try {
-      const stale = older.resolveTarget(session)!.write(older.serialize({ ...session, revision: 2 }, 2), 2);
-      await new Promise((resolve) => setTimeout(resolve, 20));
-      const fresh = newer.resolveTarget(session)!.write(newer.serialize({ ...session, revision: 3 }, 3), 3);
-      await expect(Promise.all([stale, fresh])).resolves.toEqual(["written", "written"]);
-    } finally {
-      slowStale.mockRestore();
-    }
-    const restored = await newer.load(session.sessionId, "run_state");
-    expect(restored?.generation).toBe(3);
-    expect(restored?.session.revision).toBe(3);
-    expect((await fs.readdir(directory)).filter((name) => name.includes(".lock.") || name.includes(".tmp-"))).toEqual([]);
-  });
-
-  it("takes over a lock left by a process that stopped mid-write", async () => {
-    const directory = await runContextDirectory();
-    const { port } = stateFiles(directory);
-    const session = visualSession();
-    const target = port.resolveTarget(session)!;
-    const lockPath = target.key.replace(/\.visual-session-state\.json$/, ".lock.visual-session-state.json");
-    await fs.writeFile(lockPath, "", "utf8");
-    const old = new Date(Date.now() - 60_000);
-    await fs.utimes(lockPath, old, old);
-
-    await expect(target.write(port.serialize(session, 1), 1)).resolves.toBe("written");
-    await expect(fs.stat(lockPath)).rejects.toThrow();
-  });
-
-  it("removes the older saved state when a newer one cannot be written", async () => {
-    const directory = await runContextDirectory();
-    const { port } = stateFiles(directory);
-    const session = visualSession();
-    const target = port.resolveTarget(session)!;
-    await expect(target.write(port.serialize(session, 1), 1)).resolves.toBe("written");
-
-    const rename = vi.spyOn(fsPromises, "rename").mockRejectedValueOnce(Object.assign(new Error("disk full"), { code: "ENOSPC" }));
-    try {
-      await expect(target.write(port.serialize({ ...session, revision: 2 }, 2), 2)).resolves.toBe("failed");
-    } finally {
-      rename.mockRestore();
-    }
-    // Restoring generation 1 would silently lose the change the tool call reported.
-    await expect(port.load(session.sessionId, "run_state")).resolves.toBeNull();
-    expect(await fs.readdir(directory)).toEqual([]);
-  });
-
-  it("removes the file and tolerates a missing one", async () => {
+  it("retires a finished session so neither a load nor a late write brings it back", async () => {
     const directory = await runContextDirectory();
     const { port } = stateFiles(directory);
     const session = visualSession();
     const target = port.resolveTarget(session)!;
     await target.write(port.serialize(session, 1), 1);
-    await target.remove();
-    await expect(target.remove()).resolves.toBeUndefined();
+    await expect(target.isRetired()).resolves.toBe(false);
+
+    await target.retire();
+    await expect(target.retire()).resolves.toBeUndefined();
+    await expect(target.isRetired()).resolves.toBe(true);
     await expect(target.readGeneration()).resolves.toBeNull();
+    await expect(port.load(session.sessionId, "run_state")).resolves.toBeNull();
+    await expect(target.write(port.serialize(session, 2), 2)).resolves.toBe("superseded");
+    // Only the marker is left, and it is named like the other state files so run cleanup removes it.
+    expect(await fs.readdir(directory)).toEqual(["claude-run_state.visual_session_state-1.terminal.visual-session-state.json"]);
+  });
+
+  it("clears every saved generation without marking the session finished", async () => {
+    const directory = await runContextDirectory();
+    const { port } = stateFiles(directory);
+    const session = visualSession();
+    const target = port.resolveTarget(session)!;
+    await target.write(port.serialize(session, 1), 1);
+    await target.clear();
+    await expect(target.readGeneration()).resolves.toBeNull();
+    await expect(target.isRetired()).resolves.toBe(false);
     expect(await fs.readdir(directory)).toEqual([]);
   });
 });
