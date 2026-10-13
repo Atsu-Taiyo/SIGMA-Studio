@@ -2379,6 +2379,12 @@ button.ai-source-ref-chip--document:focus-visible {
   outline: none;
 }
 
+/* ヘッダー/フッターの差し込み (`{page}` など)。本文には書いた文字のまま残し、見た目だけを
+   そのページの値 (`running-field-value`) に替える (running-field-extension.ts)。 */
+.ProseMirror .running-field-source {
+  display: none;
+}
+
 .ProseMirror p.is-editor-empty:first-child::before {
   content: attr(data-placeholder);
   float: left;

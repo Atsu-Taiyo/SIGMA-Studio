@@ -3,7 +3,6 @@ import { BlockEditor } from "@/components/editor/BlockEditor";
 import { CommentThreadsPanel } from "@/components/editor/CommentThreadsPanel";
 import { EditorExtensionProvider } from "@/components/editor/editor-extension-context";
 import { KEYBOARD_ZOOM_STEP } from "@/components/editor/editor-shell/constants";
-import { PageRunningRegionView } from "@/components/editor/PageRunningRegionView";
 import { ProblemSettingsDialog } from "@/components/editor/ProblemSettingsDialog";
 import {
   cancelCaretKeeperWindow,
@@ -210,7 +209,7 @@ import {
   pickTextFlowBoxFragmentSourceLayouts,
   reconcileRenderUnits,
 } from "./page-canvas/render-units";
-import { RunningRegionControls } from "./page-canvas/running-region-view";
+import { RunningRegionControls, RunningRegionPageView } from "./page-canvas/running-region-view";
 import { mergeSelectionExtensions } from "./page-canvas/selection-extension-merge";
 import { SelectionActionPopover } from "./page-canvas/SelectionActionPopover";
 import { SpaceAfterDragSession } from "./page-canvas/space-after-drag-session";
@@ -3098,9 +3097,10 @@ const { candidateCommentTop, pendingCommentTop, commentThreadPositions } = usePa
                 <ColumnGuides metrics={metrics} />
                 <PageColumnRules metrics={metrics} />
                 {!(runningRegionEditKind === "header" && index + 1 === runningRegionEditPageNumber) && (
-                  <PageRunningRegionView
+                  <RunningRegionPageView
                     region={visibleLayout.header}
                     kind="header"
+                    layout={visibleLayout}
                     title={pageDocument.metadata.title}
                     pageNumber={index + 1}
                     totalPages={pageCount}
@@ -3109,9 +3109,10 @@ const { candidateCommentTop, pendingCommentTop, commentThreadPositions } = usePa
                   />
                 )}
                 {!(runningRegionEditKind === "footer" && index + 1 === runningRegionEditPageNumber) && (
-                  <PageRunningRegionView
+                  <RunningRegionPageView
                     region={visibleLayout.footer}
                     kind="footer"
+                    layout={visibleLayout}
                     title={pageDocument.metadata.title}
                     pageNumber={index + 1}
                     totalPages={pageCount}
@@ -3157,6 +3158,9 @@ const { candidateCommentTop, pendingCommentTop, commentThreadPositions } = usePa
                   metrics={metrics}
                   pageTopPx={index * (pageHeightPx + PAGE_GAP_PX)}
                   pageNumber={index + 1}
+                  title={pageDocument.metadata.title}
+                  totalPages={pageCount}
+                  mathFractionSizing={mathFractionSizing}
                   editingKind={runningRegionEditKind}
                   editingPageNumber={runningRegionEditPageNumber}
                   focusRequest={runningRegionFocusRequest}

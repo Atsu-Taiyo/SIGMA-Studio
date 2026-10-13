@@ -151,13 +151,14 @@ test("takes only the size from a leading formula, never the family", async ({ pa
   expect(math.markerSize).not.toBe(math.itemSize);
 });
 
-test("applies the same rule to the static renderer used by print, PDF, and the viewer", async ({ page }) => {
+test("applies the same rule to the header and footer, which use the body's editor on every page", async ({ page }) => {
   await openEditor(page, listDocument());
 
-  // ヘッダーは `TextFlowStaticBlock` が直接描く。本文 (ProseMirror decoration) とは別実装なので、
-  // ここを測らないと React 側の投影は markup の一致しか見ていないことになる。
-  const styled = await markerStyle(page.locator('.page-running-region li[data-sigma-doc-id="header_li_styled"]').first());
-  const plain = await markerStyle(page.locator('.page-running-region li[data-sigma-doc-id="header_li_plain"]').first());
+  // ヘッダーは編集していないページでも本文と同じエディタで描く (`RunningRegionPageView`)。
+  // 静的な描画 (`TextFlowStaticBlock`) のリストは `list-marker-dom.test.ts` が見る。
+  const runningItem = (id: string) => page.locator(`.page-running-region li:has(> p[data-sigma-doc-id="${id}"])`).first();
+  const styled = await markerStyle(runningItem("header_li_styled"));
+  const plain = await markerStyle(runningItem("header_li_plain"));
 
   expect(styled.runFamily).toBe(MINCHO_FONT_VALUE);
   expect(styled.markerFamily).toBe(styled.runFamily);

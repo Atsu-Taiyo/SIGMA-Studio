@@ -231,6 +231,7 @@ export const error = {
       previewChanged: "PDFプレビューが更新されたため、書き出しを中止しました。もう一度お試しください。",
       pageCountMismatch: "PDFのページ数がプレビューと一致しません（予定 {{expected}}、実際 {{actual}}）。",
       pageSizeMismatch: "PDFの{{page}}ページ目の用紙サイズがプレビューと一致しません。",
+      fontsNotReady: "フォントの読み込みが終わらないため、PDFの書き出しを中止しました。もう一度お試しください。",
     },
     preview: {
       documentLoadFailed: "教材を読み込めませんでした。",

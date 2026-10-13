@@ -39,6 +39,7 @@ import { LINE_HEIGHT_STEP, MAX_LINE_HEIGHT, MIN_LINE_HEIGHT } from "@/features/d
 import { DocumentTitleText } from "@/features/rendering/adapters/react";
 import { PROBLEM_DISPLAY_PARTS } from "@/features/rendering/core";
 import type { Translate } from "@/lib/i18n";
+import { INLINE_MATH_FONT_MENU_ATTRIBUTE } from "@/lib/math-font-style";
 import { SUPPORTED_OVERLAY_IMAGE_MIME_TYPES } from "@/lib/overlay-image-files";
 import { POWERPOINT_IMPORT_ACCEPT } from "@/lib/powerpoint-import";
 import { AlertTriangle, AppWindow, ArrowDownRight, ArrowLeft, Bold, Braces, BringToFront, Building2, ChartSpline, Check, ChevronDown, ChevronRight, ChevronUp, ClipboardCopy, ClipboardPaste, Clock3, Code, Columns3, Copy, Cuboid, Download, Eye, FileCog, FilePlus, FileQuestion, FileText, FolderOpen, Highlighter, ImageIcon, Italic, Keyboard, LayoutTemplate, Library, List, ListChevronsUpDown, ListOrdered, ListPlus, ListTree, Loader2, MessageSquare, Minus, MinusCircle, MoreHorizontal, MoveDown, MoveUp, PaintBucket, PenLine, Plus, PlusCircle, Quote, Redo2, Replace, Rows3, Search, SendToBack, SeparatorHorizontal, Shapes, Sigma, SlidersHorizontal, Sparkles, Square, SquareFunction, Trash2, Type, Underline, Undo2, X } from "lucide-react";
@@ -891,7 +892,7 @@ export function renderEditorChrome(chrome: EditorChromeValue) {
               role="menu"
               ariaLabel={t("format.font.aria")}
             >
-              {(fontFamilyMenuOpen && canUseTextToolbar) && <>
+              {(fontFamilyMenuOpen && canUseTextToolbar) && <div className="font-family-menu-content" {...{ [INLINE_MATH_FONT_MENU_ATTRIBUTE]: "" }}>
               <label className="font-family-menu-search">
                 <Search size={14} aria-hidden="true" />
                 <input
@@ -986,7 +987,7 @@ export function renderEditorChrome(chrome: EditorChromeValue) {
               {visibleFontFamilyGroups.length === 0 && visibleCustomFontOptions.length === 0 && (
                 <p className="font-family-menu-empty">{t("format.font.empty")}</p>
               )}
-              </>}
+              </div>}
             </ToolbarPopover>
           </div>
   );

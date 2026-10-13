@@ -2,6 +2,7 @@ import {
   getRunningRegionOverlaySize,
   mmToPx,
   pageRunningRegionHasContent,
+  renderRunningRegionTemplateText,
   type PageMetrics,
   type MathFractionSizing,
   type PageRunningRegion,
@@ -50,7 +51,7 @@ export function PageRunningRegionView({
   // `.text-flow-editor` typography — no `.print-*` family and no `variant` fork. Every production
   // caller passed `variant="print"`, and `.text-flow-editor p` (0,1,1) already outranked
   // `.print-paragraph` (0,1,0), so the body rules were what applied all along.
-  const resolveText = (text: string) => renderTemplateText(text, title, pageNumber, totalPages);
+  const resolveText = (text: string) => renderRunningRegionTemplateText(text, { title, page: pageNumber, total: totalPages });
 
   return (
     <div className={`page-running-region ${kind} free`} style={style}>
@@ -73,23 +74,4 @@ export function PageRunningRegionView({
       </div>
     </div>
   );
-}
-
-function renderTemplateText(text: string, title: string, pageNumber: number, totalPages: number): string {
-  return text
-    .split(/(\{title\}|\{page\}|\{total\}|\/\s*title|\/\s*page|\/\s*total)/g)
-    .map((part) => {
-      const normalized = part.replace(/\s+/g, "");
-      if (normalized === "{title}" || normalized === "/title") {
-        return title;
-      }
-      if (normalized === "{page}" || normalized === "/page") {
-        return String(pageNumber);
-      }
-      if (normalized === "{total}" || normalized === "/total") {
-        return String(totalPages);
-      }
-      return part;
-    })
-    .join("");
 }

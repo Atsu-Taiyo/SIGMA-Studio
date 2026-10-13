@@ -40,7 +40,7 @@ test("shared selections copy rich links, paste, and reopen the exact range witho
     await expect(page.locator(".startup-splash")).toBeHidden();
     await expect(page.locator('[data-sigma-doc-id="linked-paragraph"]')).toBeVisible({ timeout: 60_000 });
     await selectText(page);
-    await expect(page.locator(".selection-action-popover")).toBeVisible();
+    await expect(page.locator(".selection-action-popover--trailing")).toBeVisible();
     const copy = page.getByRole("button", { name: "選択箇所へのリンクをコピー", exact: true });
     await expect(copy).toHaveCount(0);
     const files = await page.evaluate(() => window.desktopAPI!.storage.listFiles());
