@@ -45,7 +45,6 @@ import {
 } from "@/lib/ai/sigma-doc-edit-schema";
 import { getGraph3DPreviewSourceHash } from "@/features/drawing";
 import { exportOverlaySvg } from "@/features/rendering/adapters/svg";
-import { MCP_TOOL_CATEGORIES, MCP_TOOL_CATEGORY_MAP } from "@/lib/ai/mcp-tool-categories";
 import { findBlock } from "@/lib/document-tree";
 import { describeLedgerSchemaFailure } from "@/lib/library-schema";
 import { getDefaultPageLayout, getPageMetrics } from "@/lib/page-layout";
@@ -609,18 +608,6 @@ describe("sigma-doc-mcp-server integration", () => {
     const tools = await client.listTools();
     const toolNames = tools.tools.map((tool) => tool.name).sort();
     expect(toolNames).toEqual([...DOCUMENTED_TOOL_NAMES].sort());
-  });
-
-  it("categorizes every documented public tool exactly once", () => {
-    const categorizedNames = MCP_TOOL_CATEGORIES.flatMap((category) => MCP_TOOL_CATEGORY_MAP[category]);
-
-    for (const name of DOCUMENTED_TOOL_NAMES) {
-      expect(
-        categorizedNames.filter((categorizedName) => categorizedName === name),
-        `expected documented tool ${name} in exactly one MCP category`,
-      ).toHaveLength(1);
-    }
-    expect([...categorizedNames].sort()).toEqual([...DOCUMENTED_TOOL_NAMES].sort());
   });
 
   it("keeps tool-like names in official skills within the public MCP contract", async () => {

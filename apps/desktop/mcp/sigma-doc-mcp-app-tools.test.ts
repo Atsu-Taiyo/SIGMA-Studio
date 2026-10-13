@@ -12,12 +12,16 @@ import { computeDocumentBlockHashes } from "@/lib/sigma-doc-block-hash";
 import { getDefaultPageLayout } from "@/lib/page-layout";
 import { sampleDocument } from "@/lib/sample-document";
 import { parseSigmaDocument, SigmaDocumentSchema } from "@/lib/sigma-doc-schema";
-import { MCP_TOOL_CATEGORIES, MCP_TOOL_CATEGORY_MAP, measureMcpToolExposure, toolNamesForCategories } from "@/lib/ai/mcp-tool-categories";
 import { APP_BODY_TOOL_ROUTES, appMcpToolNames, MCP_TOOL_PROFILE_ENV, type McpToolProfile } from "@/lib/ai/mcp-tool-profile";
 import { LocalAiEditRunContextStore } from "../electron/ai-edit-run-context";
 import { LocalSigmaDocStore } from "../electron/local-sigma-doc-store";
 import { LocalMcpEditProposalStore } from "../electron/local-sigma-doc-proposal-store";
 import { createSigmaDocMcpServer } from "./sigma-doc-mcp-server-core";
+
+/** UTF-8 size of the tool definitions as tools/list serializes them (not a token count). */
+function serializedUtf8Bytes(value: unknown): number {
+  return new TextEncoder().encode(JSON.stringify(value)).byteLength;
+}
 
 const initialDocument: SigmaDocument = {
   ...sampleDocument,
@@ -95,25 +99,21 @@ describe("app MCP body tool profile", () => {
     return proposal!;
   }
 
-  it("reduces actual tools/list schemas while retaining the external contract and matching app permissions", async () => {
+  it("reduces actual tools/list schemas while retaining the external contract", async () => {
     const externalClient = await connect();
     const appClient = await connect("app");
     const external = (await externalClient.listTools()).tools;
     const app = (await appClient.listTools()).tools;
-    expect(external.map((tool) => tool.name).sort()).toEqual(
-      MCP_TOOL_CATEGORIES.flatMap((category) => MCP_TOOL_CATEGORY_MAP[category]).sort(),
-    );
+    // The external names themselves are pinned by DOCUMENTED_TOOL_NAMES in sigma-doc-mcp-server.test.ts.
     expect(app.map((tool) => tool.name).sort()).toEqual(appMcpToolNames(external.map((tool) => tool.name)).sort());
     expect(app).toHaveLength(external.length - 4);
-    expect(appMcpToolNames(toolNamesForCategories(MCP_TOOL_CATEGORIES)).sort()).toEqual(app.map((tool) => tool.name).sort());
     for (const name of Object.keys(APP_BODY_TOOL_ROUTES)) {
       expect(app.some((tool) => tool.name === name)).toBe(false);
     }
-    const legacyBytes = measureMcpToolExposure(external, ["本文編集"]);
-    const appBytes = measureMcpToolExposure(app, ["本文編集"], "app");
-    expect(appBytes.selection.serializedSchemaBytes).toBeLessThan(legacyBytes.selection.serializedSchemaBytes);
-    expect(appBytes.fullExposure.serializedSchemaBytes).toBeLessThan(legacyBytes.fullExposure.serializedSchemaBytes);
-    console.info("MCP tools/list comparison", { external: legacyBytes, app: appBytes });
+    const externalBytes = { toolCount: external.length, serializedSchemaBytes: serializedUtf8Bytes(external) };
+    const appBytes = { toolCount: app.length, serializedSchemaBytes: serializedUtf8Bytes(app) };
+    expect(appBytes.serializedSchemaBytes).toBeLessThan(externalBytes.serializedSchemaBytes);
+    console.info("MCP tools/list comparison", { external: externalBytes, app: appBytes });
     const editSchema = app.find((tool) => tool.name === "edit_text")!.inputSchema;
     expect(editSchema.required).toEqual(expect.arrayContaining(["fileId", "expectedRevision", "edit"]));
     const edit = editSchema.properties!.edit as { oneOf: Array<{ required: string[] }> };

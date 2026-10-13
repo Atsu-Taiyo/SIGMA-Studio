@@ -9,19 +9,10 @@ import {
   readClaudeModelCatalog,
 } from "./claude-model-catalog";
 import { buildCliChildEnv, getProcessPathEnv } from "./cli-child-env";
-import { logLedgerEvent } from "./ledger-log";
 import { SIGMA_DOC_MCP_SERVER_NAME } from "./sigma-studio-mcp-launch";
 
 import { resolveBareBinNames, resolveCliBinForSpawn, spawnCliProcess, type CliChildProcess } from "./cli-spawn";
 
-import type { AiEditReference } from "@/lib/ai/ai-edit-reference";
-import {
-  categoriesToAllowAfterDenial,
-  inferToolCategoriesForRun,
-  toolNamesForCategories,
-  type McpToolCategory,
-} from "@/lib/ai/mcp-tool-categories";
-import { appMcpToolNames } from "@/lib/ai/mcp-tool-profile";
 import { createCurrentLocaleTranslator } from "@/lib/i18n";
 
 const te = createCurrentLocaleTranslator("error");
@@ -86,8 +77,6 @@ export interface ClaudeStreamClientOptions {
   cancelGraceMs?: number;
   /** Claude Code が取得したモデル一覧の置き場。テストでは実ホームを読まないよう差し替える。 */
   modelCatalogDir?: string;
-  /** data dir whose ledger counts sigma-studio-local tools refused by the narrowing (MISS R3). Omitted: not recorded. */
-  ledgerDataDir?: string;
 }
 
 export interface ClaudeAccountSummary {
@@ -127,12 +116,6 @@ export interface ClaudePdfInput {
 
 export interface ClaudeRunTurnParams {
   instruction: string;
-  /** Full prompts contain every tool name, so gating must use the original user instruction instead. */
-  userInstruction?: string;
-  /** Selected editor references used to infer table/graph/shape/body context. */
-  references?: readonly AiEditReference[];
-  /** Explicitly selected Studio skill ids used to widen the task categories. */
-  selectedSkillIds?: readonly string[];
   images?: ClaudeImageInput[];
   documents?: ClaudePdfInput[];
   model?: string | null;
@@ -188,15 +171,14 @@ export interface ClaudeTurnResult {
   cancelled?: boolean;
 }
 
-// MCPツールはrunごとに推論したカテゴリを列挙する。Skill/Read を許可することで、
-// cwd(claude-agent-home)の投影先 .claude/skills と
+// sigma-studio-local のMCPツールは、指示文などから推定して絞らず、サーバー単位ですべて許可する。
+// Claude Code の許可ルール `mcp__<server>__*` はそのサーバーの全ツールに一致する (Claude Code の
+// permissions 文書の「Tool name wildcards」「MCP」)。サーバー名から組み立て、改名にも追従させる。
+// Skill/Read を許可することで、cwd(claude-agent-home)の投影先 .claude/skills と
 // ~/.claude/skills (ユーザー個人skill)をclaude自身のネイティブskill探索・本文読み込みに
 // 委ねる(claude --help / 実バイナリのstrings確認: ビルトインtool名は "Skill"。SKILL.md
 // 本体はSkillツールが読むが、supporting files(references/等)を読ませるためReadも許可する)。
-const DEFAULT_ALLOWED_TOOLS = "Skill Read";
-// Built from the server name so the denial detection and the wildcard follow a rename.
-const SIGMA_MCP_TOOL_PREFIX = `mcp__${SIGMA_DOC_MCP_SERVER_NAME}__`;
-const FULL_EXPOSURE_ALLOWED_TOOLS = `${SIGMA_MCP_TOOL_PREFIX}* ${DEFAULT_ALLOWED_TOOLS}`;
+const DEFAULT_ALLOWED_TOOLS = `mcp__${SIGMA_DOC_MCP_SERVER_NAME}__* Skill Read`;
 const DEFAULT_DISALLOWED_TOOLS = ["Bash", "Write", "Edit", "WebFetch", "WebSearch", "Task"];
 const DEFAULT_MODEL = "sonnet";
 
@@ -240,7 +222,7 @@ export class ClaudeStreamClient extends EventEmitter {
   private readonly claudeConfigDir: string;
   private readonly mcpConfig: unknown;
   private readonly defaultModel: string;
-  private readonly allowedToolsOverride: string | null;
+  private readonly allowedTools: string;
   private readonly disallowedTools: string[];
   private configuredClaudeBin: string | null;
   private resolvedClaudeBin: string | null = null;
@@ -265,19 +247,13 @@ export class ClaudeStreamClient extends EventEmitter {
   private readonly turnMaxTimeoutMs: number;
   private readonly cancelGraceMs: number;
   private readonly modelCatalogDir: string;
-  private readonly ledgerDataDir: string | null;
-  // session id -> the categories of the sigma-studio-local tools a turn of that session was refused
-  // because the narrowed --allowedTools did not list them (categoriesToAllowAfterDenial). Every later
-  // turn resuming the session (the run's continuation and the conversation's next message) also
-  // allows them, so a narrowing miss never dead-ends the conversation (see allowedToolsForRun).
-  private readonly categoriesAllowedAfterDenial = new Map<string, Set<McpToolCategory>>();
 
   constructor(options: ClaudeStreamClientOptions) {
     super();
     this.claudeConfigDir = options.claudeConfigDir;
     this.mcpConfig = options.mcpConfig;
     this.defaultModel = options.defaultModel?.trim() || DEFAULT_MODEL;
-    this.allowedToolsOverride = options.allowedTools?.trim() || null;
+    this.allowedTools = options.allowedTools?.trim() || DEFAULT_ALLOWED_TOOLS;
     this.disallowedTools = options.disallowedTools ?? DEFAULT_DISALLOWED_TOOLS;
     this.configuredClaudeBin = normalizeBin(options.claudeBin);
     this.availabilityProbeTimeoutMs =
@@ -286,7 +262,6 @@ export class ClaudeStreamClient extends EventEmitter {
     this.turnMaxTimeoutMs = options.turnMaxTimeoutMs ?? TURN_MAX_TIMEOUT_MS;
     this.cancelGraceMs = options.cancelGraceMs ?? DEFAULT_CANCEL_GRACE_MS;
     this.modelCatalogDir = options.modelCatalogDir ?? defaultClaudeModelCatalogDir();
-    this.ledgerDataDir = options.ledgerDataDir ?? null;
   }
 
   getConfiguredClaudeBin(): string | null {
@@ -423,12 +398,11 @@ export class ClaudeStreamClient extends EventEmitter {
     await fs.mkdir(cwd, { recursive: true });
     const model = params.model?.trim() || this.defaultModel;
     const claudeBin = this.getClaudeBinForSpawn();
-    const allowedTools = this.allowedToolsForRun(params);
     const args = this.buildSpawnArgs(
       model,
       params.resumeSessionId ?? null,
       params.mcpConfig,
-      allowedTools,
+      this.allowedTools,
       params.webSearchEnabled === true,
       params.reasoningEffort,
       params.thinkingDisplay,
@@ -652,7 +626,6 @@ export class ClaudeStreamClient extends EventEmitter {
               this.authError = null;
             }
             const permissionDenials = Array.isArray(result.permission_denials) ? result.permission_denials : [];
-            this.recordLocalToolDenials(sessionId, deniedSigmaMcpToolNames(permissionDenials));
             finish(() =>
               resolve({
                 sessionId,
@@ -804,53 +777,6 @@ export class ClaudeStreamClient extends EventEmitter {
       args.push("--resume", resumeSessionId);
     }
     return args;
-  }
-
-  private allowedToolsForRun(params: ClaudeRunTurnParams): string {
-    if (this.allowedToolsOverride) {
-      return this.allowedToolsOverride;
-    }
-    if (process.env.SIGMA_AI_TOOL_GATING?.trim().toLowerCase() === "off") {
-      return FULL_EXPOSURE_ALLOWED_TOOLS;
-    }
-    const categories = inferToolCategoriesForRun({
-      instruction: params.userInstruction ?? params.instruction,
-      references: params.references ?? [],
-      selectedSkillIds: params.selectedSkillIds ?? [],
-    });
-    // The conversation was refused a sigma-studio-local tool the narrowing left out: also allow that
-    // tool's category. Only named sigma-studio-local tools are added; buildSpawnArgs still refuses
-    // the built-ins and decides web search from the setting, exactly as for a narrowed turn.
-    const allowedAfterDenial = params.resumeSessionId
-      ? this.categoriesAllowedAfterDenial.get(params.resumeSessionId) ?? []
-      : [];
-    const mcpTools = appMcpToolNames(toolNamesForCategories([...categories, ...allowedAfterDenial]))
-      .map((name) => `${SIGMA_MCP_TOOL_PREFIX}${name}`)
-      .join(" ");
-    return `${mcpTools} ${DEFAULT_ALLOWED_TOOLS}`;
-  }
-
-  /**
-   * A turn's refused sigma-studio-local tools: remember their categories for the session's later
-   * turns, and count the narrowing miss once here (MISS R3; only ids and tool names are written).
-   */
-  private recordLocalToolDenials(sessionId: string | null, deniedTools: string[]): void {
-    if (deniedTools.length === 0) {
-      return;
-    }
-    const widenedCategories = categoriesToAllowAfterDenial(
-      deniedTools.map((name) => name.slice(SIGMA_MCP_TOOL_PREFIX.length)),
-    );
-    if (sessionId && widenedCategories.length > 0) {
-      const allowed = this.categoriesAllowedAfterDenial.get(sessionId) ?? new Set<McpToolCategory>();
-      for (const category of widenedCategories) {
-        allowed.add(category);
-      }
-      this.categoriesAllowedAfterDenial.set(sessionId, allowed);
-    }
-    if (this.ledgerDataDir) {
-      logLedgerEvent(this.ledgerDataDir, "claude-tool-permission-denied", { sessionId, deniedTools, widenedCategories });
-    }
   }
 
   private async isClaudeAvailable(): Promise<boolean> {
@@ -1021,18 +947,6 @@ export function buildClaudeChildEnv(): ClaudeChildEnv {
 
 function isAuthErrorMessage(text: string): boolean {
   return /not logged in|\/login|please log ?in|unauthorized|authenticate|invalid api key|credit balance/i.test(text);
-}
-
-/**
- * The sigma-studio-local tools among a result's `permission_denials` ({ tool_name, tool_use_id,
- * tool_input } each). Matched by the server's tool-name prefix, so a built-in, another server's
- * tool, or a name that merely contains the prefix never counts.
- */
-function deniedSigmaMcpToolNames(permissionDenials: readonly unknown[]): string[] {
-  const names = permissionDenials
-    .map((denial) => getRecord(denial)?.tool_name)
-    .filter((name): name is string => typeof name === "string" && name.startsWith(SIGMA_MCP_TOOL_PREFIX));
-  return [...new Set(names)];
 }
 
 export function parseClaudeModelAliasesFromHelp(help: string): string[] {

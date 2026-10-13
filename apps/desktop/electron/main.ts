@@ -266,7 +266,6 @@ const claudeStreamClient = new ClaudeStreamClient({
     uiLocale: startupPromptLocale,
   }),
   claudeBin: process.env.SIGMA_STUDIO_CLAUDE_BIN?.trim() || usablePersistedBin(desktopSettings.claudeBin),
-  ledgerDataDir: SIGMA_STUDIO_DATA_PATH,
 });
 const geminiAgentWorkspaceDir = path.join(SIGMA_STUDIO_DATA_PATH, "antigravity-agent-workspace");
 const geminiHeadlessClient = new GeminiHeadlessClient({
