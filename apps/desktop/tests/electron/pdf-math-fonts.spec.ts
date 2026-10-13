@@ -6,17 +6,36 @@ import { _electron as electron, expect, test } from "@playwright/test";
 import type { SigmaDocument } from "@/features/document";
 
 const APP_ROOT = path.resolve(__dirname, "../..");
-const fixture: SigmaDocument = {
-  version: "2.0", docId: "pdf_math_fonts",
-  metadata: { title: "PDF数式フォント", styleUnits: { fontSize: "pt" } },
-  content: [{ type: "paragraph", id: "fraction", children: [{
-    type: "mathInline", id: "formula", display: "inline", fontSize: 18,
-    tex: String.raw`\frac{12345678+x}{98765432-y}=\sqrt{16a^2+1}`,
-  }] }],
-  outputProfiles: { student: {}, teacher: {}, answerBook: {} },
-};
+const FONT_FAMILY = '"Yu Mincho", YuMincho, "Hiragino Mincho ProN", "BIZ UDPMincho", serif';
+function fixture(fontSize: number): SigmaDocument {
+  return {
+    version: "2.0", docId: "pdf_math_fonts",
+    metadata: { title: "PDF数式フォント", styleUnits: { fontSize: "pt" } },
+    content: [
+      { type: "paragraph", id: "fraction", lineHeight: "1.5", children: [
+        { type: "text", text: "解説　", fontFamily: FONT_FAMILY, fontSize },
+        {
+          type: "mathInline", id: "formula", display: "inline", fontSize, fontFamily: FONT_FAMILY,
+          tex: String.raw`f(x)=\frac{12345678+x}{98765432-y}=\sqrt{16a^2+1}`,
+        },
+      ] },
+      // A second formula containing a middle dot reproduces the released app's
+      // missing-glyph bug. A single large fraction did not expose it.
+      { type: "paragraph", id: "mixed-math", children: [{
+        type: "mathInline", id: "secondary", display: "inline", fontSize,
+        tex: String.raw`\frac12・\sqrt{16a^2+1}`,
+      }] },
+    ],
+    outputProfiles: { student: {}, teacher: {}, answerBook: {} },
+    pageLayout: {
+      preset: "B4", orientation: "landscape", pageSize: { widthMm: 364, heightMm: 257 },
+      marginsMm: { top: 18, right: 17, bottom: 18, left: 17 },
+      flow: { type: "columns", columnCount: 1, columnGapMm: 8 },
+    },
+  };
+}
 
-test("PDF retains digits, symbols and fraction bars with cold delayed math fonts", async ({}, testInfo) => {
+for (const fontSize of [9, 18]) for (const coldFonts of [false, true]) test(`PDF retains math at ${fontSize}pt with ${coldFonts ? "cold delayed" : "warm"} fonts`, async ({}, testInfo) => {
   test.skip(!existsSync(path.join(APP_ROOT, "dist-electron/main.cjs")), "Build Electron first");
   test.skip(!process.env.SIGMA_STUDIO_E2E_BASE_URL && !existsSync(path.join(APP_ROOT, "out/index.html")), "Start a dev server or build the renderer");
   const profile = mkdtempSync(path.join(tmpdir(), "sigma-pdf-fonts-"));
@@ -26,7 +45,8 @@ test("PDF retains digits, symbols and fraction bars with cold delayed math fonts
   delete env.SIGMA_STUDIO_DEV_SERVER_URL;
   env.SIGMA_STUDIO_USER_DATA_DIR = profile;
   if (process.env.SIGMA_STUDIO_E2E_BASE_URL) env.SIGMA_STUDIO_DEV_SERVER_URL = process.env.SIGMA_STUDIO_E2E_BASE_URL;
-  const app = await electron.launch({ args: [APP_ROOT], cwd: APP_ROOT, env });
+  const executablePath = process.env.SIGMA_STUDIO_E2E_EXECUTABLE;
+  const app = await electron.launch({ ...(executablePath ? { executablePath } : {}), args: executablePath ? [] : [APP_ROOT], cwd: APP_ROOT, env });
   try {
     const page = await app.firstWindow();
     await page.waitForFunction(() => Boolean(window.desktopAPI?.storage));
@@ -37,7 +57,7 @@ test("PDF retains digits, symbols and fraction bars with cold delayed math fonts
       const { file } = await storage.createFileFromDocument({ document });
       await storage.saveWorkspace({ openFileIds: [file.fileId], activeFileId: file.fileId });
       return file.fileId;
-    }, fixture);
+    }, fixture(fontSize));
     await page.reload();
     await expect(page.locator('.page-flow [data-id="formula"] .ML__frac-line').first()).toBeVisible();
     await page.getByRole("button", { name: "ファイル", exact: true }).click();
@@ -52,10 +72,10 @@ test("PDF retains digits, symbols and fraction bars with cold delayed math fonts
     });
     // Make only the hidden snapshot's font URLs cold, then delay the real font responses.
     // This reproduces the race even when the preview already warmed Chromium's font cache.
-    await app.evaluate(({ app, dialog }, output) => {
+    await app.evaluate(({ app, dialog }, { output, coldFonts }) => {
       let count = 0;
       dialog.showSaveDialog = async () => ({ canceled: false, filePath: output });
-      app.on("browser-window-created", (_event, window) => {
+      if (coldFonts) app.on("browser-window-created", (_event, window) => {
         const execute = window.webContents.executeJavaScript.bind(window.webContents);
         window.webContents.executeJavaScript = (source, gesture) => execute(
           source.includes("document.write(html)") ? source.replaceAll(".woff2", ".woff2?pdf-font-cold=1") : source,
@@ -69,10 +89,10 @@ test("PDF retains digits, symbols and fraction bars with cold delayed math fonts
         });
       });
       (globalThis as unknown as { pdfFontRequests: () => number }).pdfFontRequests = () => count;
-    }, output);
+    }, { output, coldFonts });
     await preview.getByRole("button", { name: "PDF保存", exact: true }).click();
     await expect(page.getByRole("dialog", { name: "PDFを保存しました" })).toBeVisible({ timeout: 60_000 });
-    expect(await app.evaluate(() => (globalThis as unknown as { pdfFontRequests: () => number }).pdfFontRequests())).toBeGreaterThan(0);
+    if (coldFonts) expect(await app.evaluate(() => (globalThis as unknown as { pdfFontRequests: () => number }).pdfFontRequests())).toBeGreaterThan(0);
     const { getDocument } = await import("pdfjs-dist/legacy/build/pdf.mjs");
     const loading = getDocument({ data: Uint8Array.from(readFileSync(output)), verbosity: 0 });
     try {
@@ -80,7 +100,7 @@ test("PDF retains digits, symbols and fraction bars with cold delayed math fonts
       expect(pdf.numPages).toBe(1);
       const pdfPage = await pdf.getPage(1);
       const text = (await pdfPage.getTextContent()).items.map(item => "str" in item ? item.str : "").join("");
-      for (const expected of ["12345678", "98765432", "+", "=", "x", "y"]) expect(text).toContain(expected);
+      for (const expected of ["12345678", "98765432", "+", "=", "x", "y", "(", ")"]) expect(text).toContain(expected);
       const viewport = pdfPage.getViewport({ scale: 2 });
       const canvas = createCanvas(Math.ceil(viewport.width), Math.ceil(viewport.height));
       const context = canvas.getContext("2d");
@@ -104,10 +124,10 @@ test("PDF retains digits, symbols and fraction bars with cold delayed math fonts
       await loading.destroy();
     }
     // Export must leave the saved canonical math unchanged and its temporary window closed.
-    expect((await page.evaluate(id => window.desktopAPI!.storage.loadDocument(id), fileId))!.content).toEqual(fixture.content);
+    expect((await page.evaluate(id => window.desktopAPI!.storage.loadDocument(id), fileId))!.content).toEqual(fixture(fontSize).content);
     expect(await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().length)).toBe(1);
   } finally {
     await app.close();
-    rmSync(profile, { recursive: true, force: true });
+    rmSync(profile, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   }
 });
