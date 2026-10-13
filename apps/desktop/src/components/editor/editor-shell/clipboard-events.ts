@@ -17,6 +17,8 @@ import {
   type EditorClipboardPayload,
 } from "@/lib/editor-clipboard";
 import type { Translate } from "@/lib/i18n";
+import { readSpreadsheetClipboard } from "@/lib/spreadsheet-clipboard";
+import { viewportToCanvasAnchor } from "../page-canvas/popover-anchors";
 
 import { isMultiEditorTextRunSpan, replaceActiveTextRunSpan } from "../text-flow/text-run-span";
 import { INSERT_INLINE_MATH_EVENT } from "./constants";
@@ -55,6 +57,10 @@ interface EditorClipboardPorts {
  */
 export function registerEditorClipboardEvents(ports: EditorClipboardPorts): () => void {
   const { overlayEditing, selectedInlineMath, setStatusMessage, translate: t } = ports;
+  let literalPasteRequested = false;
+  const handleKeyDown = (event: KeyboardEvent) => {
+    literalPasteRequested = (event.ctrlKey || event.metaKey) && event.shiftKey && event.key.toLowerCase() === "v";
+  };
 
   const handleCopy = (event: ClipboardEvent) => {
     if (
@@ -124,6 +130,24 @@ export function registerEditorClipboardEvents(ports: EditorClipboardPorts): () =
   };
 
   const handlePaste = (event: ClipboardEvent) => {
+    const literalPaste = literalPasteRequested;
+    literalPasteRequested = false;
+    if (event.defaultPrevented) return;
+    if (!literalPaste && event.clipboardData && !ports.isMaterialEditing() && !isPlainTextClipboardTarget(event.target)
+      && !(event.target instanceof Element && event.target.closest('[role="dialog"], pre, .running-region-editor'))
+      && !readEditorClipboardPayload(event.clipboardData)) {
+      const spreadsheet = readSpreadsheetClipboard(event.clipboardData);
+      if (spreadsheet) {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        const shape = spreadsheet.shapes[0];
+        const centerAt = ports.bodyless ? ports.getBodylessPasteCenter?.() ?? undefined
+          : shape.type === "tableShape" ? tablePasteCenter(event.target, shape.props.w, shape.props.h, ports.getSelectedBlock()?.id) : undefined;
+        ports.pasteShapes(spreadsheet, centerAt ? { centerAt, unbounded: ports.bodyless === true } : undefined);
+        setStatusMessage(t("status.shapesPasted"));
+        return;
+      }
+    }
     if (event.clipboardData && !ports.isMaterialEditing() && !isPlainTextClipboardTarget(event.target)
       && !(event.target instanceof Element && event.target.closest('[role="dialog"]'))
       && !readEditorClipboardPayload(event.clipboardData)
@@ -221,11 +245,27 @@ export function registerEditorClipboardEvents(ports: EditorClipboardPorts): () =
   };
 
   window.addEventListener("copy", handleCopy);
+  window.addEventListener("keydown", handleKeyDown, true);
   window.addEventListener("paste", handlePaste, true);
   return () => {
     window.removeEventListener("copy", handleCopy);
+    window.removeEventListener("keydown", handleKeyDown, true);
     window.removeEventListener("paste", handlePaste, true);
   };
+}
+
+function tablePasteCenter(target: EventTarget | null, width: number, height: number, selectedId?: string) {
+  if (!(target instanceof Element)) return undefined;
+  const anchor = window.getSelection()?.anchorNode;
+  const element = anchor instanceof Element ? anchor : anchor?.parentElement;
+  const block = element?.closest<HTMLElement>("[data-sigma-doc-id]")
+    ?? (selectedId ? document.getElementById(selectedId) : null);
+  const canvas = block?.closest<HTMLElement>(".page-canvas") ?? target.closest<HTMLElement>(".page-canvas");
+  if (!canvas) return undefined;
+  if (!block || !canvas.contains(block)) return undefined;
+  const rect = block.getBoundingClientRect();
+  const point = viewportToCanvasAnchor({ left: rect.left, top: rect.bottom }, canvas);
+  return { x: point.left + width / 2, y: point.top + 8 + height / 2 };
 }
 
 /** 本文の contenteditable は図形も受け取れるので、通常の入力欄とは区別する。 */

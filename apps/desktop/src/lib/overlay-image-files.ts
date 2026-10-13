@@ -4,6 +4,7 @@
 export { SUPPORTED_OVERLAY_IMAGE_MIME_TYPES } from "@/features/document/asset-source";
 
 import { SUPPORTED_OVERLAY_IMAGE_MIME_TYPES } from "@/features/document/asset-source";
+import { readSpreadsheetClipboard } from "@/lib/spreadsheet-clipboard";
 
 const SUPPORTED_OVERLAY_IMAGE_MIME_TYPE_SET = new Set<string>(SUPPORTED_OVERLAY_IMAGE_MIME_TYPES);
 
@@ -20,12 +21,24 @@ export function getSupportedOverlayImageFiles(files: ArrayLike<File> | Iterable<
 }
 
 export function getSupportedOverlayImageFilesFromDataTransfer(dataTransfer: DataTransfer): File[] {
+  // Office may offer a bitmap preview alongside its editable cell range.
+  const html = dataTransfer.getData?.("text/html") ?? "";
+  if (readSpreadsheetClipboard(dataTransfer)) return [];
   const itemFiles = getDataTransferItemFiles(dataTransfer.items);
-  if (itemFiles.length > 0) {
-    return itemFiles.filter(isSupportedOverlayImageFile);
-  }
-
-  return getSupportedOverlayImageFiles(dataTransfer.files);
+  const supported = itemFiles.filter(isSupportedOverlayImageFile);
+  if (supported.length > 0) return supported;
+  const files = getSupportedOverlayImageFiles(dataTransfer.files);
+  if (files.length > 0) return files;
+  if (!/<img[\s>]/i.test(html) || html.length > 16_000_000) return [];
+  const doc = new DOMParser().parseFromString(html, "text/html");
+  return Array.from(doc.querySelectorAll("img")).flatMap(img => {
+    const match = img.getAttribute("src")?.match(/^data:(image\/(?:png|jpeg|webp));base64,([a-z\d+/=\s]+)$/i);
+    if (!match) return [];
+    try {
+      const bytes = Uint8Array.from(atob(match[2]), char => char.charCodeAt(0));
+      return [new File([bytes], "clipboard-chart", { type: match[1].toLowerCase() })];
+    } catch { return []; }
+  });
 }
 
 export function hasSupportedOverlayImageData(dataTransfer: DataTransfer): boolean {
