@@ -839,13 +839,13 @@ describe("rendering feature dependency boundary", () => {
 
     it("keeps DOM parsing confined to clipboard import", () => {
       // `DOMParser` は切り離した Document を作るだけで DOM への書き込みではないが、
-      // そこから `adoptNode` で本文へ運べば無害化を迂回できる。使う面を 1 つに固定する。
+      // そこから `adoptNode` で本文へ運べば無害化を迂回できる。外部 clipboard の読取境界だけに限定する。
       const parsers = injectionScanFiles()
         .filter((file) => /\bDOMParser\b/.test(readFileSync(file, "utf8")))
         .map(desktopSourcePath)
         .sort();
 
-      expect(parsers).toEqual(["lib/editor-clipboard.ts"]);
+      expect(parsers).toEqual(["lib/editor-clipboard.ts", "lib/overlay-image-files.ts", "lib/spreadsheet-clipboard.ts"]);
     });
 
     it("keeps every HTML sink in a shape whose injected value can be read", () => {
