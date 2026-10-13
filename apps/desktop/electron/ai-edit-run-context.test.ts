@@ -5,12 +5,14 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import {
+  clearVisualSessionStateFiles,
   LocalAiEditRunContextStore,
   loadAiEditRunContext,
   prepareAiEditRunContext,
   runContextDirPath,
   sweepOrphanPerRunContextFiles,
   toolActivityFileName,
+  visualSessionStateFileName,
   visualSessionsFileName,
   SIGMA_STUDIO_RUN_CONTEXT_FILE_ENV,
   type AiEditRunContext,
@@ -694,6 +696,42 @@ describe("visualSessionsFileName", () => {
   });
 });
 
+describe("visual session state files", () => {
+  it("names each saved session within its provider-runId", () => {
+    expect(visualSessionStateFileName("claude", "run_a", "visual_session_1"))
+      .toBe("claude-run_a.visual_session_1.visual-session-state.json");
+    expect(visualSessionStateFileName("antigravity", "../../etc", "../x.y"))
+      .toMatch(/^antigravity-[a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]+\.visual-session-state\.json$/);
+  });
+
+  it("removes only the finished run's saved sessions when the run ends", async () => {
+    const userDataDir = await fs.mkdtemp(path.join(os.tmpdir(), "sigma-visual-state-cleanup-"));
+    try {
+      const dir = runContextDirPath(userDataDir);
+      await fs.mkdir(dir, { recursive: true });
+      const names = [
+        visualSessionStateFileName("claude", "run_a", "visual_1"),
+        visualSessionStateFileName("claude", "run_a", "visual_2"),
+        visualSessionStateFileName("claude", "run_ab", "visual_3"),
+        visualSessionStateFileName("antigravity", "run_a", "visual_4"),
+        visualSessionsFileName("claude", "run_a"),
+      ];
+      await Promise.all(names.map((name) => fs.writeFile(path.join(dir, name), "{}", "utf8")));
+
+      await clearVisualSessionStateFiles(userDataDir, "claude", "run_a");
+
+      expect((await fs.readdir(dir)).sort()).toEqual([
+        visualSessionStateFileName("antigravity", "run_a", "visual_4"),
+        visualSessionStateFileName("claude", "run_ab", "visual_3"),
+        visualSessionsFileName("claude", "run_a"),
+      ].sort());
+      await expect(clearVisualSessionStateFiles(path.join(userDataDir, "missing"), "claude", "run_a")).resolves.toBeUndefined();
+    } finally {
+      await fs.rm(userDataDir, { recursive: true, force: true });
+    }
+  });
+});
+
 describe("runContextDirPath", () => {
   it("matches the directory LocalAiEditRunContextStore writes into", () => {
     const userDataPath = path.join("/tmp", "sigma-example-user-data");
@@ -760,6 +798,8 @@ describe("sweepOrphanPerRunContextFiles", () => {
     await fs.writeFile(path.join(dir, visualSessionsFileName("antigravity", "run_b")), "{}", "utf8");
     await fs.writeFile(path.join(dir, toolActivityFileName("claude", "run_c")), "{}\n", "utf8");
     await fs.writeFile(path.join(dir, visualSessionsFileName("claude", "run_c")), "{}", "utf8");
+    await fs.writeFile(path.join(dir, visualSessionStateFileName("antigravity", "run_a", "visual_1")), "{}", "utf8");
+    await fs.writeFile(path.join(dir, visualSessionStateFileName("claude", "run_c", "visual_2")), "{}", "utf8");
 
     await sweepOrphanPerRunContextFiles(userDataDir, "antigravity");
 
@@ -771,6 +811,8 @@ describe("sweepOrphanPerRunContextFiles", () => {
     expect(remaining).not.toContain(visualSessionsFileName("antigravity", "run_b"));
     expect(remaining).toContain(toolActivityFileName("claude", "run_c"));
     expect(remaining).toContain(visualSessionsFileName("claude", "run_c"));
+    expect(remaining).not.toContain(visualSessionStateFileName("antigravity", "run_a", "visual_1"));
+    expect(remaining).toContain(visualSessionStateFileName("claude", "run_c", "visual_2"));
   });
 
   it("removes the entire orphan preview directory, including file/session/unscoped run previews", async () => {

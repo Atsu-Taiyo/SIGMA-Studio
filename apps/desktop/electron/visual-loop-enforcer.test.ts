@@ -1,5 +1,6 @@
 import fs from "node:fs/promises";
 import { tv } from "@/lib/ai/validation-locale";
+import { createTranslator } from "@/lib/i18n";
 import os from "node:os";
 import path from "node:path";
 
@@ -116,16 +117,29 @@ describe("buildVisualLoopContinuationPrompt", () => {
     expect(buildVisualLoopContinuationPrompt(sessions, "antigravity", "run_gemini")).not.toContain("view_image");
   });
 
-  it.each(["claude", "antigravity"] as const)(
-    "starts a fresh visual session for %s instead of rendering the old session",
+  // The MCP server saves each session per run, so a provider that starts a new MCP server
+  // every turn (Claude, Antigravity) resumes the same session instead of redrawing the shapes.
+  it.each(["claude", "antigravity", "chatgpt"] as const)(
+    "continues the same visual session for %s instead of starting a new one",
     (provider) => {
       const prompt = buildVisualLoopContinuationPrompt(sessions, provider, `run_${provider}`);
 
-      expect(prompt).toContain("begin_visual_edit_session");
-      expect(prompt).not.toContain("visual_123");
-      expect(prompt).not.toMatch(/render_visual_edit_session[^\n]*visual_123/);
+      expect(prompt).toContain("visual edit session visual_123");
+      expect(prompt).toContain("同じsessionId");
+      expect(prompt).toMatch(/^\d+\. render_visual_edit_session/m);
+      expect(prompt).not.toMatch(/^\d+\. begin_visual_edit_session/m);
+      expect(prompt).not.toContain("やり直");
     },
   );
+
+  it("asks to keep the same sessionId in English as well", () => {
+    const t = createTranslator("en", "prompt");
+    const intro = t("validation.visualLoop.continueIntro" as never, { replace: { p0: "visual_123" } } as never) as unknown as string;
+
+    expect(intro).toContain("visual_123");
+    expect(intro).toContain("same sessionId");
+    expect(intro).not.toMatch(/\bredo\b/i);
+  });
 });
 
 describe("visual-session status snapshots", () => {
