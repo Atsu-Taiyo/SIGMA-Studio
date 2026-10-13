@@ -17,8 +17,17 @@ export function attachedFileDefaultInstruction(t: Translate<"prompt"> = tPromptN
   return t("runtime.attachedFileDefaultInstruction");
 }
 
+/** 画像の中の場所にコメントを付けたときの既定指示。コメントそのものはプロンプトの別節で渡る。 */
+export function imageAnnotationDefaultInstruction(t: Translate<"prompt"> = tPromptNow): string {
+  return t("runtime.imageAnnotationDefaultInstruction");
+}
+
 export function getAttachmentDefaultInstruction(
-  attachments: readonly { mimeType?: string | null; dataUrl?: string | null }[],
+  attachments: readonly {
+    mimeType?: string | null;
+    dataUrl?: string | null;
+    annotations?: readonly unknown[] | null;
+  }[],
   /**
    * **main プロセスでは省略しないこと。** 既定の `tPromptNow` は `getAppLocale()` を見るが、
    * main には `window` が無いので常に既定ロケール (日本語) を返す。英語 UI の run で
@@ -28,6 +37,9 @@ export function getAttachmentDefaultInstruction(
 ): string {
   if (attachments.length === 0) {
     return "";
+  }
+  if (attachments.some((attachment) => Array.isArray(attachment.annotations) && attachment.annotations.length > 0)) {
+    return imageAnnotationDefaultInstruction(t);
   }
   const imagesOnly = attachments.every((attachment) => (
     attachment.mimeType?.startsWith("image/")

@@ -469,6 +469,39 @@ describe("attachment hint", () => {
     }
   });
 
+  it("tells every provider which place each numbered image comment points at", () => {
+    for (const provider of ["claude", "codex", "antigravity"] as const) {
+      const prompt = buildMcpEditTurnPrompt(provider, {
+        instruction: "画像に付けたコメントに沿って対応して。",
+        fileId: "file_1",
+        runId: "run_notes",
+        attachments: [{
+          name: "screenshot.png",
+          mimeType: "image/png",
+          annotations: [
+            { id: "a", x: 0.25, y: 0.5, comment: "この式の符号を直して" },
+            { id: "b", x: 0.1, y: 0.1, width: 0.2, height: 0.3, comment: "この図を大きく" },
+          ],
+        }],
+      });
+      expect(prompt).toContain("画像「screenshot.png」へのコメント:");
+      expect(prompt).toContain("1. 点（左から25%、上から50%）: この式の符号を直して");
+      expect(prompt).toContain("2. 範囲（横10〜30%、縦10〜40%）: この図を大きく");
+      // コメントは添付の案内の中にあり、ユーザーの指示より前に来る。
+      expect(prompt.indexOf("screenshot.png」へのコメント")).toBeLessThan(prompt.indexOf("ユーザーの指示:"));
+    }
+  });
+
+  it("ignores malformed comments from a raw IPC payload instead of failing the prompt", () => {
+    const prompt = buildMcpEditTurnPrompt("codex", {
+      instruction: "指示",
+      fileId: "file_1",
+      attachments: [{ name: "a.png", annotations: [{ id: "x", x: "left", y: 0, comment: "壊れた" }] as never }],
+    });
+    expect(prompt).toContain("添付ファイルが1件あります");
+    expect(prompt).not.toContain("へのコメント");
+  });
+
   it("omits the attachment line when no files are attached", () => {
     const prompt = buildMcpEditTurnPrompt("codex", { instruction: "指示", fileId: "file_1" });
     expect(prompt).not.toContain("添付ファイルが");

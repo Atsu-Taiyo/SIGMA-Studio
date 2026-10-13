@@ -20,7 +20,12 @@ import {
   withAiEditOverlaySelection,
   type AiEditReference,
 } from "@/lib/ai/ai-edit-reference";
-import { getAttachmentDefaultInstruction } from "@/lib/ai/ai-edit-runtime";
+import {
+  getAttachmentDefaultInstruction,
+  imageAnnotationDefaultInstruction,
+  imageToSigmaDocDefaultInstruction,
+} from "@/lib/ai/ai-edit-runtime";
+import type { AiImageAnnotation } from "@/lib/ai/ai-image-annotations";
 import { type AiEditShapeOnlyPreview } from "@/lib/ai/ai-edit-shape-preview";
 import type { useAiChatModelController } from "@/features/ai-edit/application/use-ai-chat-model-controller";
 import type { AiProvider } from "@/lib/ai/ai-providers";
@@ -56,12 +61,51 @@ import {
   createAiEditAttachmentFromFile,
 } from "@/features/ai-edit/application/ai-chat-attachments";
 import type { AiEditPanelProps } from "@/features/ai-edit/application/ai-chat-panel-contracts";
-export type AiChatComposerOptions = Pick<AiEditPanelProps, "document" | "documentIdentityKey" | "documentWorkspaceId" | "selectedId" | "reference" | "pinnedReferences" | "pinnedReferencePreviews" | "pendingAttachments" | "onRemovePendingAttachment" | "onPendingAttachmentsSent" | "overlaySelection"> & { provider: AiProvider; refreshRuntimeModels: ReturnType<typeof useAiChatModelController>["refreshRuntimeModels"] };
+import { withAttachmentAnnotations } from "@/features/ai-edit/application/use-ai-pending-attachments";
+export type AiChatComposerOptions = Pick<AiEditPanelProps, "document" | "documentIdentityKey" | "documentWorkspaceId" | "selectedId" | "reference" | "pinnedReferences" | "pinnedReferencePreviews" | "pendingAttachments" | "onRemovePendingAttachment" | "onSetPendingAttachmentAnnotations" | "onPendingAttachmentsSent" | "overlaySelection"> & { provider: AiProvider; refreshRuntimeModels: ReturnType<typeof useAiChatModelController>["refreshRuntimeModels"] };
 const EMPTY_PINNED_REFERENCES: AiEditReference[]=[];
 const EMPTY_PENDING_ATTACHMENTS: AiEditAttachment[]=[];
 const EMPTY_PINNED_REFERENCE_PREVIEWS: ReadonlyMap<string, AiEditShapeOnlyPreview>=new Map();
+const EMPTY_OVERLAY_ANNOTATIONS: Readonly<Record<string, AiImageAnnotation[]>> = {};
+/**
+ * 選択図形のプレビューに付けたコメント。座標はコメントを付けたときのプレビューに対する割合なので、
+ * そのときの SVG も覚えておき、図形を動かしたり書き換えたりしてプレビューが変わったら使わない。
+ */
+interface OverlayPreviewAnnotations {
+  previewSvg: string;
+  annotations: AiImageAnnotation[];
+}
+const EMPTY_OVERLAY_PREVIEW_ANNOTATIONS: Readonly<Record<string, OverlayPreviewAnnotations>> = {};
+
+/**
+ * 画像を貼ると入力欄に「画像を教材にする」既定文が入る。そのまま場所にコメントを付けたら、
+ * 既定文 (まだ手を入れていないもの) だけを「コメントに沿って対応して」へ入れ替える。逆も同じ。
+ */
+export function swapAnnotationDefaultInstruction(instruction: string, hasAnnotations: boolean): string {
+  const trimmed = instruction.trim();
+  if (hasAnnotations && trimmed === imageToSigmaDocDefaultInstruction()) {
+    return imageAnnotationDefaultInstruction();
+  }
+  if (!hasAnnotations && trimmed === imageAnnotationDefaultInstruction()) {
+    return imageToSigmaDocDefaultInstruction();
+  }
+  return instruction;
+}
+/** 入力欄に出ている図形プレビューのうち、コメントを付けたときと同じ見た目のものに付いたコメントだけを返す。 */
+export function selectVisibleOverlayAnnotations(
+  stored: Readonly<Record<string, OverlayPreviewAnnotations>>,
+  previews: readonly OverlayReferencePreview[],
+): Readonly<Record<string, AiImageAnnotation[]>> {
+  const visible = previews.flatMap((item) => {
+    const entry = stored[item.referenceKey];
+    return entry && entry.annotations.length > 0 && entry.previewSvg === item.preview.svg
+      ? [[item.referenceKey, entry.annotations] as const]
+      : [];
+  });
+  return visible.length > 0 ? Object.fromEntries(visible) : EMPTY_OVERLAY_ANNOTATIONS;
+}
 /** Owns one unsent draft, references, picker IO and its lifetime; runs stay in the global controller. */
-export function useAiChatComposer({document,documentIdentityKey,documentWorkspaceId=null,selectedId,reference,pinnedReferences=EMPTY_PINNED_REFERENCES,pinnedReferencePreviews=EMPTY_PINNED_REFERENCE_PREVIEWS,pendingAttachments=EMPTY_PENDING_ATTACHMENTS,onRemovePendingAttachment,onPendingAttachmentsSent,overlaySelection,provider,refreshRuntimeModels}: AiChatComposerOptions) {
+export function useAiChatComposer({document,documentIdentityKey,documentWorkspaceId=null,selectedId,reference,pinnedReferences=EMPTY_PINNED_REFERENCES,pinnedReferencePreviews=EMPTY_PINNED_REFERENCE_PREVIEWS,pendingAttachments=EMPTY_PENDING_ATTACHMENTS,onRemovePendingAttachment,onSetPendingAttachmentAnnotations,onPendingAttachmentsSent,overlaySelection,provider,refreshRuntimeModels}: AiChatComposerOptions) {
   const t=useT("ai");
   const { invalidate, capture, defer } = useAiComposerLifetime(documentIdentityKey);
   const [instruction, setInstruction] = useState("");
@@ -95,6 +139,8 @@ export function useAiChatComposer({document,documentIdentityKey,documentWorkspac
   const [modelMenuOpen, setModelMenuOpen] = useState(false);
   const [modelFlyout, setModelFlyout] = useState<"model" | "effort" | null>(null);
   const [dismissedReferenceKey, setDismissedReferenceKey] = useState<string | null>(null);
+  // 選択図形のプレビュー (送信時にPNG化する) に付けたコメント。参照キーごとに下書きと同じ寿命で持つ。
+  const [overlayAnnotations, setOverlayAnnotations] = useState<Readonly<Record<string, OverlayPreviewAnnotations>>>(EMPTY_OVERLAY_PREVIEW_ANNOTATIONS);
   const mediaInputRef = useRef<HTMLInputElement | null>(null);
   const contextPickerRef = useRef<HTMLDivElement | null>(null);
   const contextPickerSearchRef = useRef<HTMLInputElement | null>(null);
@@ -121,6 +167,7 @@ export function useAiChatComposer({document,documentIdentityKey,documentWorkspac
     setModelMenuOpen(false);
     setModelFlyout(null);
     setDismissedReferenceKey(null);
+    setOverlayAnnotations(EMPTY_OVERLAY_PREVIEW_ANNOTATIONS);
     if (mediaInputRef.current) {
       mediaInputRef.current.value = "";
     }
@@ -250,6 +297,13 @@ export function useAiChatComposer({document,documentIdentityKey,documentWorkspac
         : [];
     }),
     [activeReferenceKey, overlaySelection, pinnedReferencePreviews, turnReferences],
+  );
+  // 今入力欄に出ていて、コメントを付けたときと同じ見た目の図形プレビューの分だけを有効なコメントとして
+  // 扱う。選択を変えて消えたプレビューや、図形を動かして変わったプレビューのコメントは下書きに残し
+  // (同じ選択・同じ見た目に戻れば復活する)、送信・既定文の判断には数えない。
+  const visibleOverlayAnnotations = useMemo<Readonly<Record<string, AiImageAnnotation[]>>>(
+    () => selectVisibleOverlayAnnotations(overlayAnnotations, overlayComposerPreviews),
+    [overlayAnnotations, overlayComposerPreviews],
   );
   const hasAttachableSelectedImages = useMemo(
     () => Boolean(activeReference?.overlaySelection) && hasSelectedOverlayImageAttachments(overlaySelection),
@@ -387,6 +441,7 @@ export function useAiChatComposer({document,documentIdentityKey,documentWorkspac
     setContextPickerDocFiles([]);
     setContextPickerDocLoading(false);
     setContextPickerActiveIndex(0);
+    setOverlayAnnotations(EMPTY_OVERLAY_PREVIEW_ANNOTATIONS);
     if (mediaInputRef.current) {
       mediaInputRef.current.value = "";
     }
@@ -471,6 +526,39 @@ export function useAiChatComposer({document,documentIdentityKey,documentWorkspac
       return;
     }
     setAttachments((current) => current.filter((attachment) => attachment.id !== id));
+  };
+
+  const countAnnotations = (
+    nextAttachments: readonly AiEditAttachment[],
+    nextOverlayAnnotations: Readonly<Record<string, AiImageAnnotation[]>>,
+  ) => nextAttachments.some((attachment) => (attachment.annotations?.length ?? 0) > 0)
+    || Object.values(nextOverlayAnnotations).some((annotations) => annotations.length > 0);
+
+  // 画像の中の場所に付けたコメント。範囲スクリーンショットの画像は下書きの外 (EditorShell) が持つので、そちらへ返す。
+  const setAttachmentAnnotations = (id: string, annotations: AiImageAnnotation[]) => {
+    if (pendingAttachments.some((attachment) => attachment.id === id)) {
+      onSetPendingAttachmentAnnotations?.(id, annotations);
+    } else {
+      setAttachments((current) => withAttachmentAnnotations(current, id, annotations));
+    }
+    const nextAttachments = withAttachmentAnnotations(attachments, id, annotations);
+    setInstruction((current) => swapAnnotationDefaultInstruction(current, countAnnotations(nextAttachments, visibleOverlayAnnotations)));
+  };
+
+  const setOverlayPreviewAnnotations = (referenceKey: string, annotations: AiImageAnnotation[]) => {
+    const preview = overlayComposerPreviews.find((item) => item.referenceKey === referenceKey);
+    if (!preview) {
+      return;
+    }
+    const next = { ...overlayAnnotations };
+    if (annotations.length > 0) {
+      next[referenceKey] = { previewSvg: preview.preview.svg, annotations };
+    } else {
+      delete next[referenceKey];
+    }
+    setOverlayAnnotations(next);
+    const visibleNext = selectVisibleOverlayAnnotations(next, overlayComposerPreviews);
+    setInstruction((current) => swapAnnotationDefaultInstruction(current, countAnnotations(attachments, visibleNext)));
   };
 
   const removeMentionedDocument = (id: string) => {
@@ -710,9 +798,9 @@ export function useAiChatComposer({document,documentIdentityKey,documentWorkspac
   }, [focus, pendingAttachments.length]);
 
   return {
-    draft: { instruction, attachments, mentionedDocuments, selectedAiResourceIds, aiResources, overlayComposerPreviews, activeReferenceKey, hasAttachableSelectedImages, turnReferences, aiTargetId, overlaySelectionContext },
+    draft: { instruction, attachments, mentionedDocuments, selectedAiResourceIds, aiResources, overlayComposerPreviews, overlayAnnotations: visibleOverlayAnnotations, activeReferenceKey, hasAttachableSelectedImages, turnReferences, aiTargetId, overlaySelectionContext },
     actions: { focus, capture, resetComposerState, clearComposerAfterSubmit, setInstruction, setComposerError, applyActionPreset },
-    view: { instruction, setInstruction, attachments, mentionedDocuments, mentionQuery, setMentionQuery, mentionCandidates, setMentionCandidates, mentionLoading, mentionActiveIndex, setMentionActiveIndex, selectedAiResourceIds, slashQuery, setSlashQuery, slashActiveIndex, setSlashActiveIndex, contextMenuOpen, setContextMenuOpen, contextPickerQuery, setContextPickerQuery, contextPickerDocLoading, contextPickerActiveIndex, setContextPickerActiveIndex, modelMenuOpen, setModelMenuOpen, modelFlyout, setModelFlyout, mediaInputRef, contextPickerRef, contextPickerSearchRef, contextPickerToggleRef, composerRef, referenceKey, showReferenceChip, activeReference, selectedOverlayImageCount, selectedOverlayNonImageShapeCount, overlayComposerPreviews, handleAttachmentFiles, handleInstructionPaste, removeAttachment, removeMentionedDocument, removeSelectedAiResource, updateMentionQueryFromInput, handleInstructionChange, handleMentionCandidateSelect, handleAiResourceSelect, selectContextPickerItem, dismissReferenceChip, toggleContextMenu, toggleModelMenu, mentionPopoverOpen, slashCandidates, slashPopoverOpen, contextPickerDocCandidates, contextPickerSkillCandidates, contextPickerItems, selectedAiResources },
+    view: { instruction, setInstruction, attachments, mentionedDocuments, mentionQuery, setMentionQuery, mentionCandidates, setMentionCandidates, mentionLoading, mentionActiveIndex, setMentionActiveIndex, selectedAiResourceIds, slashQuery, setSlashQuery, slashActiveIndex, setSlashActiveIndex, contextMenuOpen, setContextMenuOpen, contextPickerQuery, setContextPickerQuery, contextPickerDocLoading, contextPickerActiveIndex, setContextPickerActiveIndex, modelMenuOpen, setModelMenuOpen, modelFlyout, setModelFlyout, mediaInputRef, contextPickerRef, contextPickerSearchRef, contextPickerToggleRef, composerRef, referenceKey, showReferenceChip, activeReference, selectedOverlayImageCount, selectedOverlayNonImageShapeCount, overlayComposerPreviews, overlayAnnotations: visibleOverlayAnnotations, setAttachmentAnnotations, setOverlayPreviewAnnotations, handleAttachmentFiles, handleInstructionPaste, removeAttachment, removeMentionedDocument, removeSelectedAiResource, updateMentionQueryFromInput, handleInstructionChange, handleMentionCandidateSelect, handleAiResourceSelect, selectContextPickerItem, dismissReferenceChip, toggleContextMenu, toggleModelMenu, mentionPopoverOpen, slashCandidates, slashPopoverOpen, contextPickerDocCandidates, contextPickerSkillCandidates, contextPickerItems, selectedAiResources },
     composerRef,
     composerError,
     hasOpenMenu: Boolean(mentionQuery || slashQuery || contextMenuOpen || modelMenuOpen),
