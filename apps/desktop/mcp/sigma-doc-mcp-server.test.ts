@@ -5054,15 +5054,25 @@ describe("render_visual_edit_session", () => {
       expect(missing.ok).toBe(false);
       expect(String(missing.error)).toContain("visual edit session が見つかりません");
 
-      const render = extractPayload(await client.callTool({ name: "render_visual_edit_session", arguments: { sessionId } }));
-      expect(render.ok).toBe(true);
+      // Server B restores only this run's saved sessions: another run's runId does not reach it.
+      const otherRun = extractPayload(await client.callTool({
+        name: "render_visual_edit_session",
+        arguments: { sessionId, runId: "run_visual_other" },
+      }));
+      expect(otherRun.ok).toBe(false);
+      expect(String(otherRun.error)).toContain("visual edit session が見つかりません");
+
+      // As the prompt tells agents, the next turn passes its runId to every tool.
+      const render = extractPayload(await client.callTool({ name: "render_visual_edit_session", arguments: { sessionId, runId } }));
+      expect(render.ok, JSON.stringify(render.error)).toBe(true);
       expect(render.session).toMatchObject({ sessionId, revision: 1, operationCount: 1, changedIds: shapeIds, lastPreviewRevision: 1 });
-      const inspect = extractPayload(await client.callTool({ name: "inspect_visual_edit_session", arguments: { sessionId } }));
+      const inspect = extractPayload(await client.callTool({ name: "inspect_visual_edit_session", arguments: { sessionId, runId } }));
       expect(inspect.ok).toBe(true);
       const review = extractPayload(await client.callTool({
         name: "review_visual_edit_session",
         arguments: {
           sessionId,
+          runId,
           verdict: "pass",
           score: 96,
           // The preview code depends only on sessionId and revision, so it stays stable across processes.
@@ -5072,7 +5082,7 @@ describe("render_visual_edit_session", () => {
         },
       }));
       expect(review).toMatchObject({ ok: true, review: { passed: true } });
-      const proposed = extractPayload(await client.callTool({ name: "propose_visual_edit_session", arguments: { sessionId } }));
+      const proposed = extractPayload(await client.callTool({ name: "propose_visual_edit_session", arguments: { sessionId, runId } }));
       expect(proposed.ok).toBe(true);
       expect(proposed.proposalCreated).toBe(true);
 
@@ -5092,7 +5102,7 @@ describe("render_visual_edit_session", () => {
       expect(status.sessions.find((item) => item.sessionId === sessionId)).toMatchObject({ proposed: true, discarded: false });
       expect(status.sessions.find((item) => item.sessionId === otherSessionId)).toMatchObject({ operationCount: 1, proposed: false, discarded: false });
 
-      const discarded = extractPayload(await client.callTool({ name: "discard_visual_edit_session", arguments: { sessionId: otherSessionId } }));
+      const discarded = extractPayload(await client.callTool({ name: "discard_visual_edit_session", arguments: { sessionId: otherSessionId, runId } }));
       expect(discarded.ok).toBe(true);
       await expect(fs.stat(otherStateFile)).rejects.toMatchObject({ code: "ENOENT" });
       expect((await proposalStore.listProposals({ status: "pending" })).length).toBe(pendingBefore + 1);

@@ -12,6 +12,7 @@ import {
   type VisualEditSessionLifecyclePorts,
   type VisualEditSessionStart,
   type VisualEditSessionStatePort,
+  type VisualEditSessionCaller,
   type VisualInspectionResult,
   type VisualReviewInput,
 } from "./visual-edit-session-lifecycle";
@@ -366,6 +367,7 @@ function sharedRunStorage() {
   const saved = new Map<string, { generation: number; serialized: string }>();
   const statusFiles = new Map<string, VisualSessionsStatusFile>();
   const stateWrites = vi.fn();
+  const failWrites = new Set<string>();
   const resolveStatusTarget: VisualEditSessionLifecyclePorts["resolveStatusTarget"] = (provider, runId) => {
     if (!provider || !runId) return null;
     const key = `${provider}/${runId}`;
@@ -384,6 +386,10 @@ function sharedRunStorage() {
         readGeneration: async () => saved.get(sessionId)?.generation ?? null,
         write: async (serialized, generation) => {
           stateWrites(sessionId, generation);
+          if (failWrites.has(sessionId)) {
+            saved.delete(sessionId);
+            return "failed";
+          }
           const current = saved.get(sessionId);
           if (current && current.generation >= generation) return "superseded";
           saved.set(sessionId, { generation, serialized });
@@ -393,15 +399,19 @@ function sharedRunStorage() {
       };
     },
     serialize: (session) => JSON.stringify(session),
-    load: async (sessionId) => {
+    load: async (sessionId, runId) => {
       const entry = saved.get(sessionId);
-      return entry ? { generation: entry.generation, session: JSON.parse(entry.serialized) as VisualEditSession } : null;
+      const session = entry ? JSON.parse(entry.serialized) as VisualEditSession : null;
+      return entry && session?.runId === runId ? { generation: entry.generation, session } : null;
     },
   };
   const process = () => new VisualEditSessionLifecycle({ now: () => clock.now, resolveStatusTarget, sessionState });
   const status = (sessionId: string) => statusFiles.get("claude/run_visual")?.sessions.find((item) => item.sessionId === sessionId);
-  return { clock, saved, statusFiles, stateWrites, process, status };
+  return { clock, saved, statusFiles, stateWrites, failWrites, process, status };
 }
+
+/** The run the MCP server process belongs to (from its run-context file); the tool call did not pass a runId. */
+const RUN: VisualEditSessionCaller = { runId: "run_visual", explicit: false };
 
 describe("visual sessions saved per run", () => {
   it("resumes a session from another process with its operations and review generations", async () => {
@@ -415,7 +425,7 @@ describe("visual sessions saved per run", () => {
 
     const next: VisualEditSessionLifecycle = storage.process();
     expect(next.peek("resumed")).toBeUndefined();
-    const resumed = await next.resolve("resumed");
+    const resumed = await next.resolve("resumed", RUN);
     expect(resumed).toMatchObject({
       sessionId: "resumed", revision: 1, lastPreviewRevision: 1, runId: "run_visual", provider: "claude",
       lastPreviewCode: deriveVisualPreviewCode("resumed", 1),
@@ -426,7 +436,7 @@ describe("visual sessions saved per run", () => {
     const inspect = vi.fn(() => inspection(resumed));
     next.assertReadyForProposal(resumed, inspect);
     expect(inspect).toHaveBeenCalledOnce();
-    expect(await next.resolve("resumed")).toBe(resumed);
+    expect(await next.resolve("resumed", RUN)).toBe(resumed);
   });
 
   it("restores one object for concurrent calls and keeps the unknown-session error", async () => {
@@ -435,10 +445,10 @@ describe("visual sessions saved per run", () => {
     await first.persist(first.begin(sessionInput("concurrent")));
 
     const next = storage.process();
-    const [a, b] = await Promise.all([next.resolve("concurrent"), next.resolve("concurrent")]);
+    const [a, b] = await Promise.all([next.resolve("concurrent", RUN), next.resolve("concurrent", RUN)]);
     expect(a).toBe(b);
-    await expect(next.resolve("missing")).rejects.toThrow("visual edit session が見つかりません: missing");
-    await expect(next.find("missing")).resolves.toBeUndefined();
+    await expect(next.resolve("missing", RUN)).rejects.toThrow("visual edit session が見つかりません: missing");
+    await expect(next.find("missing", RUN)).resolves.toBeUndefined();
   });
 
   it("re-reads state another process advanced and never overwrites it with stale memory", async () => {
@@ -448,26 +458,26 @@ describe("visual sessions saved per run", () => {
     await first.persist(stale);
 
     const next = storage.process();
-    const advanced = await next.resolve("contended");
+    const advanced = await next.resolve("contended", RUN);
     addOperation(next, advanced);
     await next.persist(advanced);
     expect(storage.saved.get("contended")?.generation).toBe(2);
 
     // The earlier process picks the newer saved state instead of its own memory.
-    const reread = await first.resolve("contended");
+    const reread = await first.resolve("contended", RUN);
     expect(reread).not.toBe(stale);
     expect(reread.revision).toBe(1);
 
     // A write from memory that is older than the saved state is refused and dropped.
     const third = storage.process();
-    const staleCopy = await third.resolve("contended");
+    const staleCopy = await third.resolve("contended", RUN);
     addOperation(next, advanced);
     await next.persist(advanced);
     addOperation(third, staleCopy);
     await third.persist(staleCopy);
     expect(third.peek("contended")).toBeUndefined();
     expect(JSON.parse(storage.saved.get("contended")!.serialized).revision).toBe(2);
-    expect((await third.resolve("contended")).revision).toBe(2);
+    expect((await third.resolve("contended", RUN)).revision).toBe(2);
   });
 
   it.each(["proposed", "discarded"] as const)("records %s before removing the saved state and does not restore it again", async (state) => {
@@ -478,14 +488,14 @@ describe("visual sessions saved per run", () => {
     await first.persist(session);
 
     const next = storage.process();
-    const resumed = await next.resolve("finished");
+    const resumed = await next.resolve("finished", RUN);
     await next.finish(resumed, state);
     expect(storage.saved.has("finished")).toBe(false);
     expect(storage.status("finished")).toMatchObject({ proposed: state === "proposed", discarded: state === "discarded" });
 
     // Even if a late write brought the file back, this process does not resume a finished session.
     storage.saved.set("finished", { generation: 9, serialized: JSON.stringify(resumed) });
-    await expect(next.find("finished")).resolves.toBeUndefined();
+    await expect(next.find("finished", RUN)).resolves.toBeUndefined();
     await next.persist(resumed);
     expect(storage.saved.get("finished")?.generation).toBe(9);
   });
@@ -499,7 +509,7 @@ describe("visual sessions saved per run", () => {
 
     storage.clock.now += HOUR + 1;
     const next = storage.process();
-    await expect(next.resolve("stale_saved")).rejects.toThrow("visual edit session が見つかりません: stale_saved");
+    await expect(next.resolve("stale_saved", RUN)).rejects.toThrow("visual edit session が見つかりません: stale_saved");
     expect(storage.saved.has("stale_saved")).toBe(false);
     expect(storage.status("stale_saved")).toMatchObject({ operationCount: 1, discarded: true });
   });
@@ -517,7 +527,7 @@ describe("visual sessions saved per run", () => {
     await first.flushStatusWrites();
 
     const next = storage.process();
-    const resumed = await next.resolve("kept_a");
+    const resumed = await next.resolve("kept_a", RUN);
     await next.finish(resumed, "proposed");
     await next.flushStatusWrites();
     expect(storage.statusFiles.get("claude/run_visual")?.sessions.map(({ sessionId, proposed, discarded }) => ({ sessionId, proposed, discarded }))).toEqual([
@@ -537,14 +547,82 @@ describe("visual sessions saved per run", () => {
     expect(lifecycle.cacheSizes().pending).toBe(0);
   });
 
+  it("reports whether the state was saved, and never leaves an older state to resume after a failed write", async () => {
+    const storage = sharedRunStorage();
+    const first = storage.process();
+    const session = first.begin(sessionInput("unsaved"));
+    await expect(first.persist(session)).resolves.toBe("saved");
+    addOperation(first, session);
+    storage.failWrites.add("unsaved");
+    await expect(first.persist(session)).resolves.toBe("not-saved");
+    // This process keeps working from memory; another process cannot resume a stale copy.
+    expect(first.peek("unsaved")).toBe(session);
+    expect(storage.saved.has("unsaved")).toBe(false);
+    await expect(storage.process().find("unsaved", RUN)).resolves.toBeUndefined();
+
+    storage.failWrites.delete("unsaved");
+    await expect(first.persist(session)).resolves.toBe("saved");
+    expect((await storage.process().resolve("unsaved", RUN)).revision).toBe(1);
+  });
+
+  it("reports a change another process got ahead of instead of treating it as saved", async () => {
+    const storage = sharedRunStorage();
+    const first = storage.process();
+    const stale = first.begin(sessionInput("raced"));
+    await first.persist(stale);
+    const next = storage.process();
+    const advanced = await next.resolve("raced", RUN);
+    addOperation(next, advanced);
+    await expect(next.persist(advanced)).resolves.toBe("saved");
+
+    // `first` still holds generation 1 and writes generation 2, which `next` already saved.
+    addOperation(first, stale);
+    await expect(first.persist(stale)).resolves.toBe("superseded");
+    expect(JSON.parse(storage.saved.get("raced")!.serialized).revision).toBe(1);
+    expect(first.peek("raced")).toBeUndefined();
+  });
+
+  it("does not resume a session another process recorded as finished before it could remove the state", async () => {
+    const storage = sharedRunStorage();
+    const first = storage.process();
+    const session = first.begin(sessionInput("crashed_after_finish"));
+    addOperation(first, session);
+    await first.persist(session);
+    // The status says proposed, but the process stopped before deleting the saved state.
+    storage.statusFiles.set("claude/run_visual", {
+      version: 1,
+      updatedAt: new Date(START).toISOString(),
+      sessions: [{ ...storage.status("crashed_after_finish")!, proposed: true }],
+    });
+
+    const next = storage.process();
+    await expect(next.find("crashed_after_finish", RUN)).resolves.toBeUndefined();
+    expect(storage.saved.has("crashed_after_finish")).toBe(false);
+  });
+
+  it("restores and exposes sessions only to their own run", async () => {
+    const storage = sharedRunStorage();
+    const first = storage.process();
+    const session = first.begin(sessionInput("owned"));
+    await first.persist(session);
+
+    const other = storage.process();
+    await expect(other.find("owned", { runId: "run_other", explicit: false })).resolves.toBeUndefined();
+    await expect(other.find("owned", { runId: null, explicit: false })).resolves.toBeUndefined();
+    // A process that already holds the session still refuses a call that names another run.
+    await expect(first.find("owned", { runId: "run_other", explicit: true })).resolves.toBeUndefined();
+    await expect(first.find("owned", { runId: "run_visual", explicit: true })).resolves.toBe(session);
+    expect((await storage.process().resolve("owned", { runId: "run_visual", explicit: true })).sessionId).toBe("owned");
+  });
+
   it("keeps sessions without a run in memory only", async () => {
     const storage = sharedRunStorage();
     const lifecycle = storage.process();
     const session = lifecycle.begin(sessionInput("memory_only", { runId: undefined }));
     await lifecycle.persist(session);
     expect(storage.stateWrites).not.toHaveBeenCalled();
-    expect(await lifecycle.resolve("memory_only")).toBe(session);
-    await expect(storage.process().find("memory_only")).resolves.toBeUndefined();
+    expect(await lifecycle.resolve("memory_only", RUN)).toBe(session);
+    await expect(storage.process().find("memory_only", RUN)).resolves.toBeUndefined();
   });
 });
 

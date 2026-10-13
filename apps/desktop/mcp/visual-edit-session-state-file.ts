@@ -10,8 +10,8 @@ import { createAiEditSessionDocumentDraft, type AiEditDraft, type SigmaDocMutati
 import { SigmaDocumentSchema } from "@/lib/sigma-doc-schema";
 import type { MaterialItem } from "@/types/material";
 import {
+  VISUAL_SESSION_STATE_FILE_SUFFIX,
   visualSessionStateFileName,
-  visualSessionStateFileSessionSuffix,
   type AiEditRunContextProvider,
 } from "../electron/ai-edit-run-context";
 import { resolveRunContextDirectory } from "./sigma-doc-mcp-files";
@@ -31,6 +31,10 @@ import type {
 const VISUAL_SESSION_STATE_VERSION = 1;
 const HEADER_READ_BYTES = 4096;
 const PROVIDERS = ["claude", "chatgpt", "antigravity"] as const;
+/** 書き込みは数ミリ秒で終わる。これより古い lock は途中で止まったプロセスが残したものとして外す。 */
+const LOCK_STALE_MS = 2_000;
+const LOCK_WAIT_MS = 3_000;
+const LOCK_RETRY_MS = 15;
 
 const HeaderSchema = z.object({
   version: z.literal(VISUAL_SESSION_STATE_VERSION),
@@ -101,7 +105,8 @@ export interface VisualEditSessionStateFileOptions {
 /**
  * run-context ディレクトリの `<provider>-<runId>.<sessionId>.visual-session-state.json` に
  * 未完了の scratch session を保存する。保存先は provider と runId を持つ session に限り、
- * run の終了時に Electron が片付ける。読み書きの失敗はツールの実行を失敗させない。
+ * run の終了時に Electron が片付ける。読み戻すのは呼び出し元の run のファイルだけ。
+ * 読み書きの失敗は例外にせず、結果として返す。
  */
 export function createVisualEditSessionStateFiles(options: VisualEditSessionStateFileOptions): VisualEditSessionStatePort {
   return {
@@ -114,29 +119,16 @@ export function createVisualEditSessionStateFiles(options: VisualEditSessionStat
       return createTarget(path.join(directory, visualSessionStateFileName(session.provider, runId, session.sessionId)));
     },
     serialize: serializeVisualEditSession,
-    async load(sessionId) {
+    async load(sessionId, runId) {
       const directory = resolveRunContextDirectory(options.env);
       const provider = options.provider();
-      if (!directory || !provider) {
+      const owner = runId.trim();
+      if (!directory || !provider || !owner) {
         return null;
       }
-      let entries: string[];
-      try {
-        entries = await fsPromises.readdir(directory);
-      } catch {
-        return null;
-      }
-      const sessionSuffix = visualSessionStateFileSessionSuffix(sessionId);
-      for (const name of entries) {
-        if (!name.startsWith(`${provider}-`) || !name.endsWith(sessionSuffix)) {
-          continue;
-        }
-        const stored = await readStoredSession(path.join(directory, name), sessionId, provider, options);
-        if (stored) {
-          return stored;
-        }
-      }
-      return null;
+      // 別の run の session は、sessionId を渡されても読まない (ファイル名と header の両方で照合する)。
+      const filePath = path.join(directory, visualSessionStateFileName(provider, owner, sessionId));
+      return readStoredSession(filePath, sessionId, provider, owner, options);
     },
   };
 }
@@ -191,28 +183,78 @@ function createTarget(filePath: string): VisualEditSessionStateTarget {
     key: filePath,
     readGeneration: async () => (await readHeader(filePath))?.generation ?? null,
     async write(serialized, generation): Promise<VisualEditSessionStateWriteOutcome> {
-      const temporaryFilePath = `${filePath}.tmp-${randomUUID()}`;
-      try {
-        // 世代の確認と rename の間は原子的ではない。同じ session を 2 つのプロセスが同時に
-        // 進めることは想定しておらず、終わった turn の古い memory で上書きしないための確認。
+      const outcome = await withFileLock(filePath, async (): Promise<VisualEditSessionStateWriteOutcome> => {
+        // 世代の確認から置き換えまでを lock の中で行う。同じ session を別の MCP プロセスが
+        // 進めていたら、古い memory で上書きしない。
         const stored = await readHeader(filePath);
         if (stored && stored.generation >= generation) {
           return "superseded";
         }
-        await fsPromises.mkdir(path.dirname(filePath), { recursive: true });
-        await fsPromises.writeFile(temporaryFilePath, serialized, "utf8");
-        await fsPromises.rename(temporaryFilePath, filePath);
-        return "written";
-      } catch {
-        return "failed";
-      } finally {
-        await fsPromises.unlink(temporaryFilePath).catch(() => undefined);
-      }
+        const temporaryFilePath = siblingFilePath(filePath, `tmp-${randomUUID()}`);
+        try {
+          await fsPromises.writeFile(temporaryFilePath, serialized, "utf8");
+          await fsPromises.rename(temporaryFilePath, filePath);
+          return "written";
+        } catch {
+          // 書けなかった変更より古い状態を、別のプロセスが最新として読み戻さないよう消す。
+          await fsPromises.unlink(filePath).catch(() => undefined);
+          return "failed";
+        } finally {
+          await fsPromises.unlink(temporaryFilePath).catch(() => undefined);
+        }
+      });
+      return outcome ?? "failed";
     },
     async remove() {
-      await fsPromises.unlink(filePath).catch(() => undefined);
+      await withFileLock(filePath, () => fsPromises.unlink(filePath).catch(() => undefined));
     },
   };
+}
+
+/** 同じ保存先の lock・一時ファイル。名前の末尾を揃え、run の片付けと起動時の掃除で一緒に消す。 */
+function siblingFilePath(filePath: string, marker: string): string {
+  const base = filePath.endsWith(VISUAL_SESSION_STATE_FILE_SUFFIX)
+    ? filePath.slice(0, -VISUAL_SESSION_STATE_FILE_SUFFIX.length)
+    : filePath;
+  return `${base}.${marker}${VISUAL_SESSION_STATE_FILE_SUFFIX}`;
+}
+
+/**
+ * 保存先ごとの lock (排他作成したファイル) を取ってから `task` を行う。プロセスをまたいで、
+ * 世代の確認と置き換えの間に別の書き込みが入らないようにする。取れなければ null。
+ */
+async function withFileLock<T>(filePath: string, task: () => Promise<T>): Promise<T | null> {
+  const lockPath = siblingFilePath(filePath, "lock");
+  const deadline = Date.now() + LOCK_WAIT_MS;
+  try {
+    await fsPromises.mkdir(path.dirname(filePath), { recursive: true });
+  } catch {
+    return null;
+  }
+  for (;;) {
+    try {
+      await (await fsPromises.open(lockPath, "wx")).close();
+      break;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "EEXIST") {
+        return null;
+      }
+      const lock = await fsPromises.stat(lockPath).catch(() => null);
+      if (lock && Date.now() - lock.mtimeMs > LOCK_STALE_MS) {
+        await fsPromises.unlink(lockPath).catch(() => undefined);
+        continue;
+      }
+      if (Date.now() > deadline) {
+        return null;
+      }
+      await new Promise((resolve) => setTimeout(resolve, LOCK_RETRY_MS));
+    }
+  }
+  try {
+    return await task();
+  } finally {
+    await fsPromises.unlink(lockPath).catch(() => undefined);
+  }
 }
 
 async function readHeader(filePath: string): Promise<Header | null> {
@@ -239,6 +281,7 @@ async function readStoredSession(
   filePath: string,
   sessionId: string,
   provider: AiEditRunContextProvider,
+  runId: string,
   options: VisualEditSessionStateFileOptions,
 ): Promise<StoredVisualEditSession | null> {
   let raw: string;
@@ -260,7 +303,12 @@ async function readStoredSession(
     return null;
   }
   const header = HeaderSchema.safeParse(headerJson);
-  if (!header.success || header.data.sessionId !== sessionId || header.data.provider !== provider) {
+  if (
+    !header.success
+    || header.data.sessionId !== sessionId
+    || header.data.provider !== provider
+    || header.data.runId !== runId
+  ) {
     return null;
   }
   if (!BodySchema.safeParse(bodyJson).success) {
