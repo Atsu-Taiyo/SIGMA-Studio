@@ -104,7 +104,10 @@ for (const format of ["inline", "base64", "percent"] as const) {
       expect(errors).toEqual([]);
     } finally {
       try {
-        if (originalClipboard) await app.evaluate(({ clipboard }, original) => clipboard.write(original), originalClipboard);
+        if (originalClipboard) await app.evaluate(async ({ clipboard }, original) => {
+          clipboard.clear();
+          if (original.length > 0) await clipboard.write(original);
+        }, originalClipboard);
       } finally {
         await originalClipboard?.dispose();
         await app.close();
