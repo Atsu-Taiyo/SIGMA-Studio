@@ -87,6 +87,7 @@ import { nestedProblemLayoutKey } from "@/components/tiptap/nested-problem-exten
 import { useProblemDisplay } from "./text-flow/ProblemDisplayContext";
 import { useProblemNumbers } from "./text-flow/ProblemNumberingContext";
 import { HeadingNumberingExtension, headingNumberingKey } from "@/components/tiptap/heading-numbering-extension";
+import { RunningFieldExtension, runningFieldKey } from "@/components/tiptap/running-field-extension";
 import { PageBreakGapExtension, paginationGapKey, type PageBreakMarkerLayout } from "@/components/tiptap/page-break-gap-extension";
 import { FormattingMarksExtension } from "@/components/tiptap/formatting-marks-extension";
 import { findAncestorNodeDepth, isBoxTitleNodeName, isEmptyEditorTextBlock } from "@/components/tiptap/node-queries";
@@ -737,6 +738,8 @@ function TextFlowEditorImpl({
   nodeDisplacements,
   boxFragmentSourceLayouts,
   headingNumbers = {},
+  runningFieldValues = null,
+  caretSurface = true,
   boxFragmentReplicaId,
   boxFragmentReplicaIndex,
   syncFocusedContent = false,
@@ -988,6 +991,8 @@ function TextFlowEditorImpl({
   const getColumnFlowBlockLayouts = useCallback(() => columnFlowBlockLayoutsRef.current, []);
   const getNodeDisplacements = useCallback(() => nodeDisplacementsRef.current, []);
   const getHeadingNumbers = useCallback(() => headingNumbersRef.current, []);
+  const runningFieldValuesRef = useRef(runningFieldValues);
+  const getRunningFieldValues = useCallback(() => runningFieldValuesRef.current, []);
   const getHeadingNumberLayoutKey = useCallback((blockId: string) => {
     const layout = columnFlowBlockLayoutsRef.current[blockId];
     return layout
@@ -1240,6 +1245,10 @@ function TextFlowEditorImpl({
         // another segment when a multi-column layout is recalculated.
         getLayoutKey: getHeadingNumberLayoutKey,
       }),
+      // ヘッダー/フッターの差し込み (`{page}` など) をそのページの値で見せる。値を渡さない面
+      // (本文・図中文字) では何もしない。
+      // eslint-disable-next-line react-hooks/refs
+      RunningFieldExtension.configure({ getValues: getRunningFieldValues }),
       // These stable callbacks are read by the decoration plugin when it runs,
       // not during React render.
       // eslint-disable-next-line react-hooks/refs
@@ -2179,6 +2188,21 @@ function TextFlowEditorImpl({
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editor, headingNumbersKey, requestSyncDecorationRefresh]);
+  const runningFieldValuesKey = runningFieldValues
+    ? `${runningFieldValues.title}\u0000${runningFieldValues.page}\u0000${runningFieldValues.total}`
+    : "";
+  const appliedRunningFieldValuesKeyRef = useRef(runningFieldValuesKey);
+  // ページ数・題名が変わったら、同じコミットのうちに描き直す (ページ割りと同じ frame で揃える)。
+  // 作った時点の値はプラグインの init が読んでいるので、変わったときだけ打つ (本文の面は打たない)。
+  useLayoutEffect(() => {
+    runningFieldValuesRef.current = runningFieldValues;
+    if (!editor || editor.isDestroyed || appliedRunningFieldValuesKeyRef.current === runningFieldValuesKey) {
+      return;
+    }
+    appliedRunningFieldValuesKeyRef.current = runningFieldValuesKey;
+    editor.view.dispatch(editor.state.tr.setMeta(runningFieldKey, runningFieldValuesKey).setMeta("addToHistory", false));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editor, runningFieldValuesKey]);
 
   // ドラッグ中の下余白プレビュー。`requestSyncDecorationRefresh` は「この commit の最後に打つ」
   // 予約なので、React の外 (pointerdown / pointerup) から来るこの合図はその場で打つ。
@@ -2484,9 +2508,10 @@ function TextFlowEditorImpl({
   ]);
 
   /** 面の登録。**deps は `[editor]` だけ**にすること (上のコメント参照)。 */
+  const caretSurfaceRef = useRef(caretSurface);
   useLayoutEffect(() => {
     const facets = caretFacetsRef.current;
-    if (!editor || editor.isDestroyed || !facets) {
+    if (!editor || editor.isDestroyed || !facets || !caretSurfaceRef.current) {
       return;
     }
     return registerCaretSurface({ editor, ...facets });

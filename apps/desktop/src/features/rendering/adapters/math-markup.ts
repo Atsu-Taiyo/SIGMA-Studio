@@ -318,6 +318,12 @@ const CSS_ESCAPE_OR_DELIMITER = /[\\;{}<>]/u;
 // 「実測 ⊆ 受理集合」門番が赤くなる)。代わりに `calc()` は畳み込んで上限判定に載せる。
 // `min(` / `max(` / `clamp(` / `attr(` / `env(` は実出力 0 件なので禁止できる。
 const CSS_UNSAFE_TOKEN = /(?:url\s*\(|min\s*\(|max\s*\(|clamp\s*\(|attr\s*\(|env\s*\(|@import\b|expression\s*\(|javascript\s*:|vbscript\s*:|data\s*:|\/\*|\d\s*(?:[sldp]?v(?:h|w|i|b|min|max)|cq(?:w|h|i|b|min|max))\b)/iu;
+/**
+ * `font-family` の値 (数式の一部に選んだフォント `\htmlStyle{font-family:…}{…}`) はフォント名の並び
+ * だけを通す。寸法として読むと `M PLUS 1p` の `1p` を未知の単位として宣言ごと落とす。関数・
+ * 区切り・二重引用符 (属性では `&quot;` になり属性ごと落ちる) は含められないので、名前は単引用符で書く。
+ */
+const SAFE_FONT_FAMILY_VALUE = /^[\p{L}\p{N} ,'_.-]+$/u;
 /** `calc()` の入れ子の深さ上限。超えたら評価せず宣言ごと落とす。 */
 const CSS_CALC_MAX_DEPTH = 16;
 /**
@@ -741,6 +747,9 @@ function isSafeStyleDeclaration(declaration: string, fontScales: FontScales): bo
   }
   if (property === "position") {
     return SAFE_CSS_POSITION_VALUES.has(propertyValue);
+  }
+  if (property === "font-family") {
+    return SAFE_FONT_FAMILY_VALUE.test(propertyValue);
   }
   if (property === "z-index") {
     // 実測は 0 / 1 / 2。負の値も含め、数式が重なり順を動かす理由が無い。

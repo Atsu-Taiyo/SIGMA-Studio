@@ -6,11 +6,15 @@ import { mergeSelectionExtensions } from "./selection-extension-merge";
 
 const source: PageCanvasSelectionSource = { kind: "block", targetId: "p1" };
 
-function extension(key: string | null, label: string): PageCanvasSelectionExtension & { clearCandidate: () => void } {
+function extension(
+  key: string | null,
+  label: string,
+  slot: "render" | "renderTools" = label === "tools" ? "renderTools" : "render",
+): PageCanvasSelectionExtension & { clearCandidate: () => void } {
   return {
     createAction: () => key === null ? null : {
       key,
-      render: () => <b>{label}</b>,
+      [slot]: () => <b>{label}</b>,
       notifyCandidate: vi.fn(),
     },
     clearCandidate: vi.fn(),
@@ -26,11 +30,20 @@ describe("mergeSelectionExtensions", () => {
     expect(mergeSelectionExtensions(undefined, undefined)).toBeUndefined();
   });
 
-  it("renders the editing tools before the feature action and combines the keys", () => {
+  it("keeps the editing tools and the feature action in their own slots and combines the keys", () => {
     const merged = mergeSelectionExtensions(extension("tools", "tools"), extension("ai", "ai"))!;
     const action = merged.createAction(source) as PageCanvasSelectionAction;
     expect(JSON.parse(action.key)).toEqual(["tools", "ai"]);
-    expect(renderToStaticMarkup(<>{action.render({ left: 0, top: 0 })}</>)).toBe("<b>tools</b><b>ai</b>");
+    // 書式は選択の上の帯、AI は選んだところの右下のチップへ分けて出す。
+    expect(renderToStaticMarkup(<>{action.renderTools?.()}</>)).toBe("<b>tools</b>");
+    expect(renderToStaticMarkup(<>{action.render?.({ left: 0, top: 0 })}</>)).toBe("<b>ai</b>");
+  });
+
+  it("renders the editing tools before the feature action when both fill the same slot", () => {
+    const merged = mergeSelectionExtensions(extension("tools", "tools", "render"), extension("ai", "ai"))!;
+    const action = merged.createAction(source) as PageCanvasSelectionAction;
+    expect(renderToStaticMarkup(<>{action.render?.({ left: 0, top: 0 })}</>)).toBe("<b>tools</b><b>ai</b>");
+    expect(action.renderTools).toBeUndefined();
   });
 
   it("still offers whichever side has something for this selection", () => {

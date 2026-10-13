@@ -239,18 +239,13 @@ export function CommentThreadsPanel({
       <div className="comment-thread-panel-body" ref={panelBodyRef}>
         {pendingAnchor && (
           <section className="comment-compose-card pending" data-comment-card-key="pending" style={positionedItems.pendingStyle}>
-            <CommentAuthorLine author={author} />
-            <CommentQuote anchor={pendingAnchor} />
-            <CommentRichTextEditor
-              loadMentionCandidates={loadMentionCandidates}
-              value={pendingDraft}
+            <PendingCommentComposer
+              author={author}
+              anchor={pendingAnchor}
+              draft={pendingDraft}
               mathFractionSizing={mathFractionSizing}
-              placeholder={t("comment.agentPlaceholder")}
-              onChange={onPendingDraftChange}
-            />
-            <ComposerActions
-              disabled={isInlineBodyEmpty(pendingDraft)}
-              primaryLabel={t("comment.add")}
+              loadMentionCandidates={loadMentionCandidates}
+              onDraftChange={onPendingDraftChange}
               onCancel={onCancelPending}
               onSubmit={onAddThread}
             />
@@ -529,6 +524,54 @@ export function CommentThreadsPanel({
         </div>
       )}
     </aside>
+  );
+}
+
+/**
+ * 書きかけのコメントの中身 (書き手・引用・入力欄・送る/やめる)。コメントの欄のカードと、
+ * 選んだところの右下に浮かべる入力欄 (`FloatingCommentComposer`) が同じものを使う。
+ */
+export function PendingCommentComposer({
+  author,
+  anchor,
+  draft,
+  mathFractionSizing,
+  loadMentionCandidates,
+  autoFocus,
+  onDraftChange,
+  onCancel,
+  onSubmit,
+}: {
+  author: CommentPanelAuthor;
+  anchor: SigmaCommentAnchor;
+  draft: InlineNode[];
+  mathFractionSizing?: SigmaDocument["metadata"]["mathFractionSizing"];
+  loadMentionCandidates?: LoadCommentMentionCandidates;
+  autoFocus?: boolean;
+  onDraftChange: (value: InlineNode[]) => void;
+  onCancel: () => void;
+  onSubmit: () => void;
+}) {
+  const t = useT("editor");
+  return (
+    <>
+      <CommentAuthorLine author={author} />
+      <CommentQuote anchor={anchor} />
+      <CommentRichTextEditor
+        loadMentionCandidates={loadMentionCandidates}
+        value={draft}
+        mathFractionSizing={mathFractionSizing}
+        placeholder={t("comment.agentPlaceholder")}
+        autoFocus={autoFocus}
+        onChange={onDraftChange}
+      />
+      <ComposerActions
+        disabled={isInlineBodyEmpty(draft)}
+        primaryLabel={t("comment.add")}
+        onCancel={onCancel}
+        onSubmit={onSubmit}
+      />
+    </>
   );
 }
 

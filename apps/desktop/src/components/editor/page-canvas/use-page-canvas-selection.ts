@@ -26,10 +26,12 @@ import {
   getRangeScreenRect,
   getRangeTargetBlockId,
   getSelectionActionPopoverPosition,
+  getSelectionTrailingAnchor,
   isRangeInsideElement,
   sameSelectionActionPopoverPosition,
   type CommentAnchorPopoverState,
   type OverlaySelectionPopoverMeasurement,
+  type SelectionActionPopoverPosition,
 } from "./popover-anchors";
 
 interface Inputs {
@@ -48,7 +50,7 @@ interface Inputs {
   whiteboardPanY: number;
   onCommentAnchorCandidateChange: ((anchor: SigmaCommentAnchor | null) => void) | undefined;
   isOverlayEditing: boolean;
-  onCommentAnchorRequest: ((anchor: SigmaCommentAnchor) => void) | undefined;
+  onCommentAnchorRequest: ((anchor: SigmaCommentAnchor, placement?: { left: number; top: number }) => void) | undefined;
   renderSelectionActions: ((anchor: SigmaCommentAnchor) => React.ReactNode) | undefined;
   selectedInlineMath: { id: string; tex: string; blockId?: string; } | null;
   totalHeight: number;
@@ -310,7 +312,12 @@ export function usePageCanvasSelectionActions({ overlaySelection, suppressSelect
 
       emitExtensionCandidate(extensionAction);
       emitCommentAnchorCandidate(commentAnchor);
-      const position = getSelectionActionPopoverPosition(selectionRect);
+      const position = withSelectionTrailingAnchor(
+        getSelectionActionPopoverPosition(selectionRect),
+        Array.from(range.getClientRects()),
+        canvas,
+        getRangeEndRect(range),
+      );
       const nextExtensionPopover = extensionAction ? { action: extensionAction, position } : null;
       const nextCommentPopover = commentAnchor ? { anchor: commentAnchor, position } : null;
       setExtensionTextSelectionPopover((current) =>
@@ -423,7 +430,7 @@ export function usePageCanvasSelectionActions({ overlaySelection, suppressSelect
             }
           : null;
         const rect = mathElement?.getBoundingClientRect();
-        const position = rect ? getSelectionActionPopoverPosition(rect) : null;
+        const position = rect ? withSelectionTrailingAnchor(getSelectionActionPopoverPosition(rect), [rect], canvas) : null;
         emitCommentAnchorCandidate(commentAnchor);
         applySelectedTargetPopovers(
           extensionAction && position ? { action: extensionAction, position } : null,
@@ -441,7 +448,7 @@ export function usePageCanvasSelectionActions({ overlaySelection, suppressSelect
         ? createBlockCommentAnchor(document, selectedId)
         : null;
       const rect = blockElement?.getBoundingClientRect();
-      const position = rect ? getSelectionActionPopoverPosition(rect) : null;
+      const position = rect ? withSelectionTrailingAnchor(getSelectionActionPopoverPosition(rect), [rect], canvas) : null;
       emitCommentAnchorCandidate(commentAnchor);
       applySelectedTargetPopovers(
         extensionAction && position ? { action: extensionAction, position } : null,
@@ -452,4 +459,23 @@ export function usePageCanvasSelectionActions({ overlaySelection, suppressSelect
     return () => window.cancelAnimationFrame(frame);
   }, [commentAnchorOwnershipRevision, document, hasCommentAnchorRequest, isOverlayEditing, selectionExtension, selectedId, selectedInlineMath, totalHeight, zoom, canvasRef]);
   return { overlaySelectionKey, selectionActionPopover, selectionControlsRect };
+}
+
+/** 本文の選択の位置に、AI への依頼・コメントを置く右下の角を添える (図形の選択には添えない)。 */
+function withSelectionTrailingAnchor(
+  position: SelectionActionPopoverPosition,
+  lines: readonly DOMRect[],
+  canvas: HTMLElement,
+  end: DOMRect | null = null,
+): SelectionActionPopoverPosition {
+  const trailing = getSelectionTrailingAnchor(lines, canvas, end);
+  return trailing ? { ...position, trailing } : position;
+}
+
+/** 範囲の終わりに置いたカーソルの矩形。要素の境目で終わる範囲などで測れなければ null。 */
+function getRangeEndRect(range: Range): DOMRect | null {
+  const end = range.cloneRange();
+  end.collapse(false);
+  const rects = Array.from(end.getClientRects()).filter((rect) => rect.height > 0);
+  return rects.at(-1) ?? null;
 }

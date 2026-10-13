@@ -32,6 +32,8 @@ interface CommentRichTextEditorProps {
   loadMentionCandidates?: LoadCommentMentionCandidates;
   mathFractionSizing?: MathFractionSizing | null;
   placeholder?: string;
+  /** 出した瞬間に打ち始められるよう、作った直後に焦点を入れる (浮かべる入力欄)。 */
+  autoFocus?: boolean;
   onChange: (value: InlineNode[]) => void;
 }
 
@@ -40,6 +42,7 @@ export function CommentRichTextEditor({
   loadMentionCandidates,
   mathFractionSizing,
   placeholder,
+  autoFocus = false,
   onChange,
 }: CommentRichTextEditorProps) {
   const t = useT("editor");
@@ -122,6 +125,16 @@ export function CommentRichTextEditor({
       .setContent(inlineNodesToTiptapDoc(valueRef.current), { emitUpdate: false })
       .run();
   }, [editor, serializedValue]);
+
+  const autoFocusRef = useRef(autoFocus);
+  useEffect(() => {
+    if (!editor || editor.isDestroyed || !autoFocusRef.current) {
+      return;
+    }
+    // 最初の 1 回だけ。作り直し (表示言語の切り替え) のたびに焦点を奪わない。
+    autoFocusRef.current = false;
+    editor.commands.focus("end");
+  }, [editor]);
 
   useEffect(() => {
     if (!editor) {
