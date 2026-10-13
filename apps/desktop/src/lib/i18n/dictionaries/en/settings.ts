@@ -3,6 +3,16 @@ import type { TranslationsOf } from "../types";
 
 /** 対応する日本語 namespace と同時に埋める。詳細は `../ja/settings.ts` を参照。 */
 export const settings = {
+  plugins: {
+    title: "Official plugins", description: "Add features to use on this computer.",
+    keywords: "plugins extensions プラグイン 拡張機能", check: "Check for updates", add: "Add", update: "Update",
+    autoUpdate: "Automatic updates", autoUpdateDescription: "Automatically update installed plugins.",
+    unavailable: "Plugins are unavailable in this app.", login: "Sign in to download plugins.",
+    loading: "Loading plugins…", empty: "No plugins are available.", installed: "Installed: {{version}}", notInstalled: "Not installed",
+    incompatible: "This plugin requires an app update.", enableNamed: "Enable {{name}}", checking: "Checking for updates…", working: "Preparing plugin…",
+    errors: { unavailable: "Could not download plugins. Please try again.", unauthorized: "Sign in and try again.",
+      incompatible: "Update the app before adding this plugin.", "verification-failed": "Could not verify the plugin.", busy: "Try again after conversion finishes." },
+  },
   tikz: {
     importTitle: "Paste TeX",
     importProgress: "Generating figures… {{completed}} / {{total}}",

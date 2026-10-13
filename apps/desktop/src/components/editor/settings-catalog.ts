@@ -41,6 +41,10 @@ export interface SettingsEntryDefinition {
 }
 
 export const SETTINGS_ENTRIES: readonly SettingsEntryDefinition[] = [
+  {
+    id: "settings.app.plugins", surface: "desktopApp", anchorId: "desktop-settings-plugins",
+    labelKey: "plugins.title", descriptionKey: "plugins.description", keywordsKey: "plugins.keywords",
+  },
   // --- アプリ設定 (DesktopSettingsModal, mode="app") ---
   {
     id: "settings.app.language",
