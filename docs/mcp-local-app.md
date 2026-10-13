@@ -169,7 +169,7 @@ Claudeの `--allowedTools` は `mcp__sigma-studio-local__*` で、sigma-studio-l
 
 | 置き場所 | 書くもの | 3つのホストへの届き方 |
 |---|---|---|
-| 毎ターンの厳守事項 (`prompt.ts` の `editTurnHardRules` と `officialSkillGuide`、本文ツールの案内 `appToolProfile`) | 再開turnでも外せない短い規則: expectedRevisionと競合の扱い、writeMode、`data.changeSummary` / `data.verification.validation` の確認、図はSVGが既定、選択ブロックは編集境界ではない、本文の4ツールと `edit:{action}` | Claude・Codex・Antigravity とも毎ターンのプロンプト |
+| 毎ターンの厳守事項 (`prompt.ts` の `editTurnHardRules` と `officialSkillGuide`、本文ツールの案内 `bodyToolGuide`) | 再開turnでも外せない短い規則: expectedRevisionと競合の扱い、writeMode、`data.changeSummary` / `data.verification.validation` の確認、図はSVGが既定、選択ブロックは編集境界ではない、本文の4ツールと `edit:{action}` | Claude・Codex・Antigravity とも毎ターンのプロンプト |
 | MCP編集方針 (`buildMcpEditInvariantGuidanceSection`) | ツールをまたぐ方針: 読み取りの順、編集の経路、表・グラフ・図形はoverlayで作り直さず部分更新、insert系の `targetId` (`END_OF_DOCUMENT` / ホワイトボードは `CANVAS`)、図・イラストの使い分け (`svgImageGuidance`)、visual edit session、素材、画像からの再構成、ライブラリ参照、AI設定の変更 | Claude と Antigravity は会話の最初のプロンプト、Codex はスレッド開始時の developerInstructions |
 | 各ツールの description と inputSchema | そのツールだけの使い方: SVGの制約・描き方・確認 (`insert_svg_image`)、`kind:"text"` の寸法や標準kind (`insert_shape`)、`cellPatches` (`update_table`)、部分更新とpreviewでの確認 (`update_page_layout`) など | 3ホストとも、モデルがそのツールを調べたときだけ (最初のプロンプトにはツール名の一覧だけが載る) |
 | server instructions (`SIGMA_DOC_MCP_SERVER_INSTRUCTIONS`) | サーバーの素性だけ (SigmaDoc JSONが正本、書き込みは承認待ちの提案)。作業方針は書かない | 下のとおりホストごとに違う |
@@ -306,9 +306,9 @@ MCPサーバーのプロセスの寿命はproviderごとに違います(Claude C
 
 `<provider>-<runId>.<sessionId>.visual-session-state.json`
 
-1行目は世代(`generation`)・provider・runId・sessionIdだけの小さなheader、2行目が本体です。本体には開始時の文書、作業中の文書、図形操作、revision、直近のpreview・inspection・reviewの結果、`sourceAnalysis` / `plannedShapes`などを入れます。素材一覧と操作ごとの途中の文書は入れず、読み戻すときに作り直します。visual edit session系のツールは、状態を変えた呼び出しの応答を返す前にこのファイルとstatusファイルの書き込みを待ちます。メモリに無い`sessionId`は同じproviderのファイルから読み戻すので、次のturnのMCPサーバーでも同じ`sessionId`で続けられます。previewのコードは`sessionId`とrevisionから決まるため、プロセスが変わっても同じです。
+1行目は世代(`generation`)・provider・runId・sessionIdだけの小さなheader、2行目が本体です。本体には開始時の文書、作業中の文書、図形操作、revision、直近のpreview・inspection・reviewの結果、`sourceAnalysis` / `plannedShapes`などを入れます。素材一覧と操作ごとの途中の文書は入れず、読み戻すときに作り直します。visual edit session系のツールは、状態を変えた呼び出しの応答を返す前にこのファイルとstatusファイルの書き込みを待ちます。メモリに無い`sessionId`は、呼び出し元のrun(引数の`runId`、無ければこのMCPサーバーの実行コンテキスト)のファイルからだけ読み戻すので、次のturnのMCPサーバーでも同じ`sessionId`で続けられます。ファイル名とheaderの`runId`の両方が呼び出し元のrunと一致しないものは読みません。引数で`runId`を渡した呼び出しには、メモリにある別のrunのsessionも見つからないものとして扱います。visual edit session系のツールは、ほかの書き込みツールと同じく任意の`runId`引数を受け取ります。previewのコードは`sessionId`とrevisionから決まるため、プロセスが変わっても同じです。
 
-保存済みの世代が自分の世代以上なら書き込まず、メモリ上の古いsessionを捨てて次の呼び出しで読み直します(終わったturnの古い状態で上書きしないため。世代の確認とrenameの間は原子的ではありません)。statusファイルを書き直すときも、別のプロセスが記録してこのプロセスが知らない未完了sessionは残します。最終更新から1時間を過ぎたsessionは、メモリと同じく破棄として記録してファイルを消します。提案化・破棄したsessionは、statusファイルへ終了を書いてからファイルを消します。runが終わると(強制継続を含む)Electronがそのrunのファイルを消し、アプリの起動・終了時の掃除でも消えます。書き込みに失敗してもツール実行や教材編集は失敗しません。runIdを持たないsessionはこれまでどおりプロセスのメモリだけに置きます。
+保存済みの世代が自分の世代以上なら書き込まず、メモリ上の古いsessionを捨てます。世代の確認から置き換えまでは、sessionごとのロックファイル(`<provider>-<runId>.<sessionId>.lock.visual-session-state.json`)でプロセスをまたいで排他にします。先を越された呼び出しは成功として返さず、`INVALID_SESSION_STATE`(retryable)で同じ`sessionId`での再実行を求め、次の呼び出しで最新の保存から読み直します。statusファイルを書き直すときも、別のプロセスが記録してこのプロセスが知らない未完了sessionは残します。最終更新から1時間を過ぎたsessionは、メモリと同じく破棄として記録してファイルを消します。提案化・破棄したsessionは、statusファイルへ終了を書いてからファイルを消します。読み戻す前にはstatusファイルの終了の記録を確かめ、提案化・破棄済みのsessionは(ファイルを消す前にプロセスが止まっていても)再開せず、残ったファイルを消します。runが終わると(強制継続を含む)Electronがそのrunのファイルを消し、アプリの起動・終了時の掃除でも消えます。書き込みに失敗したときは古い保存も消し(書けなかった変更より古い状態を、次のturnが最新として読み戻さないため)、応答の`warnings`で「このturnのうちに提案化まで進める。次のturnでは同じ`sessionId`で再開できない」と伝えます。ツール実行や教材編集そのものは失敗させません。runIdを持たないsessionはこれまでどおりプロセスのメモリだけに置きます。
 
 保存済み素材は、AIが意味的に選べるように短い `description`、用途カードの `usage.useCases` / `usage.aliases` / `usage.avoidWhen`、画像内パーツ照合用の `visualConcepts`、接続点の `ports` を持てます。添付画像や参照図を再構成する場合は、まず画像内部を部品・記号・注記・接続構造に分解し、それぞれの一般名、用途、形状特徴を `list_materials` の `query` / `concepts` に渡して素材を探します。必要なら `get_material` で内容を確認してから `insert_material` で挿入します。合う素材がある場合は、通常の作図toolで再生成せず、保存済みcontentをcloneして使います。
 
@@ -316,7 +316,7 @@ MCPサーバーのプロセスの寿命はproviderごとに違います(Claude C
 
 `expectedRevision` は完全一致でなくても、その書き込みが実際に触るブロック/overlay図形が `expectedRevision` 時点から変わっていなければ受理されます(renderer側の人間の編集は保存のたびにrevisionを進めるため、無関係な編集のたびに書き込みが失敗するのを防ぐための緩和です)。受理された場合はツール応答の `data.revisionReconciliation` に実際に使われた現在revisionが入るので、以後はそちらを `expectedRevision` に使ってください。触った対象自体が実際に変更されていた場合のみ `REVISION_MISMATCH` になり、`error.details.conflictBlockIds` / `error.details.conflictBlocks` に競合したブロックの現在の内容が入るので、それを踏まえて編集を作り直してから、`error.details` に含まれる現在revisionで再試行してください。`propose_visual_edit_session` もセッション開始時のrevisionを基準に同じ判定を行います。
 
-書き込み系ツールおよび `begin_visual_edit_session` は任意の `runId` 引数も受け取ります。渡すと、作成されるpending proposalが呼び出し元のAIセッション(runId/roomId/turnId/sessionLabel)へ帰属します。プロンプトはエージェントに自分のrunIdを毎回渡すよう指示します。
+書き込み系ツールと visual edit session 系のツールは任意の `runId` 引数も受け取ります。渡すと、作成されるpending proposalが呼び出し元のAIセッション(runId/roomId/turnId/sessionLabel)へ帰属します。プロンプトはエージェントに自分のrunIdを毎回渡すよう指示します。
 
 `insert_content` / `edit_problem` (`edit.action:"create"`) / `insert_table` / `insert_shape` / `insert_graph` / `insert_graph3d` / `insert_material` は `targetId` または `selectedId` が必須です。省略はできません(以前は無指定時に教材の最後のブロックへ黙って挿入していましたが、この暗黙フォールバックは廃止しました)。教材末尾に追加したい場合は `targetId: "END_OF_DOCUMENT"`、ホワイトボードへ図形・表・グラフを追加したい場合は `targetId: "CANVAS"` を明示的に指定してください。対象ブロックIDが分からない場合は `get_document_outline` / `search_document` / `get_block` (`get_blocks`)で確認します。
 
