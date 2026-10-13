@@ -13,6 +13,13 @@
  *   longer looks like the page.
  */
 
+import {
+  collectDocumentCssText,
+  collectEmbeddedFontCss,
+  readAsDataUrl,
+  rootCustomPropertyDeclarations,
+} from "@/lib/svg-embedded-styles";
+
 export const WORKSPACE_PREVIEW_OUTPUT_WIDTH_PX = 560;
 
 export function printThumbnailRasterSize(
@@ -43,11 +50,11 @@ export async function rasterizePagedPageTopHalf(
   const rect = page.getBoundingClientRect();
   const size = printThumbnailRasterSize(rect.width || page.offsetWidth, rect.height || page.offsetHeight, outputWidthPx);
   const clone = await cloneBand(page, rect.top + size.sourceHeight);
-  const [css, fonts] = await Promise.all([collectCssText(), collectEmbeddedFontCss()]);
+  const [css, fonts] = await Promise.all([collectDocumentCssText(), collectEmbeddedFontCss()]);
   const frame = wrapInAncestors(page, clone, size.sourceWidth);
   // XMLSerializer gives an HTML root its XHTML namespace, so foreignObject renders it as HTML.
   const root = document.createElement("div");
-  root.setAttribute("style", `${rootCustomProperties()}width:${size.sourceWidth}px;height:${size.sourceHeight}px;overflow:hidden;background:#ffffff;${bodyTypography()}`);
+  root.setAttribute("style", `${rootCustomPropertyDeclarations()}width:${size.sourceWidth}px;height:${size.sourceHeight}px;overflow:hidden;background:#ffffff;${bodyTypography()}`);
   // Serialized as XML, the stylesheet's `<` and `&` are escaped for us.
   const style = document.createElement("style");
   style.textContent = `${fonts}\n${css}`;
@@ -118,14 +125,6 @@ async function inlineImage(live: Element, copy: Element, attribute: "src" | "hre
   }
 }
 
-async function readAsDataUrl(source: string): Promise<string> {
-  const response = await fetch(source);
-  if (!response.ok) {
-    throw new Error("image");
-  }
-  return blobToDataUrl(await response.blob());
-}
-
 /** Schemes that do not support fetch can still be read back from the decoded image, unless tainted. */
 function drawnImageDataUrl(live: Element): string | null {
   if (!(live instanceof HTMLImageElement) || !live.complete || live.naturalWidth === 0) {
@@ -140,15 +139,6 @@ function drawnImageDataUrl(live: Element): string | null {
   } catch {
     return null;
   }
-}
-
-function blobToDataUrl(blob: Blob): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(String(reader.result));
-    reader.onerror = () => reject(reader.error ?? new Error("read"));
-    reader.readAsDataURL(blob);
-  });
 }
 
 /**
@@ -173,121 +163,9 @@ function wrapInAncestors(page: HTMLElement, clone: HTMLElement, width: number): 
   return wrapped;
 }
 
-/** Custom properties live on `html`, which does not exist inside the SVG image. */
-function rootCustomProperties(): string {
-  const computed = getComputedStyle(document.documentElement);
-  let declarations = "";
-  for (let index = 0; index < computed.length; index += 1) {
-    const name = computed[index];
-    if (name.startsWith("--")) {
-      declarations += `${name}:${computed.getPropertyValue(name)};`;
-    }
-  }
-  return declarations;
-}
-
 function bodyTypography(): string {
   const body = getComputedStyle(document.body);
   return `font-family:${body.fontFamily};font-size:${body.fontSize};line-height:${body.lineHeight};color:${body.color};`;
-}
-
-function collectCssText(): string {
-  const parts: string[] = [];
-  for (const sheet of Array.from(document.styleSheets)) {
-    let rules: CSSRuleList;
-    try {
-      rules = sheet.cssRules;
-    } catch {
-      continue;
-    }
-    for (const rule of Array.from(rules)) {
-      // Font faces are replaced by the embedded copies; an SVG image could not load them.
-      if (typeof CSSFontFaceRule !== "undefined" && rule instanceof CSSFontFaceRule) {
-        continue;
-      }
-      parts.push(rule.cssText);
-    }
-  }
-  return parts.join("\n");
-}
-
-let embeddedFontCache: { key: string; css: Promise<string> } | null = null;
-
-/**
- * Inlines the font faces this renderer has actually loaded. Subset families register
- * many unicode ranges; only the loaded ones matter for text already on screen.
- */
-function collectEmbeddedFontCss(): Promise<string> {
-  const loaded = Array.from(document.fonts ?? []).filter((face) => face.status === "loaded");
-  const key = loaded.map(faceKey).sort().join(";");
-  if (embeddedFontCache?.key === key) {
-    return embeddedFontCache.css;
-  }
-  const wanted = new Set(loaded.map(faceKey));
-  const css = (async () => {
-    const rules: Promise<string | null>[] = [];
-    for (const sheet of Array.from(document.styleSheets)) {
-      let sheetRules: CSSRuleList;
-      try {
-        sheetRules = sheet.cssRules;
-      } catch {
-        continue;
-      }
-      for (const rule of Array.from(sheetRules)) {
-        if (typeof CSSFontFaceRule === "undefined" || !(rule instanceof CSSFontFaceRule)) {
-          continue;
-        }
-        const style = rule.style;
-        const family = unquote(style.getPropertyValue("font-family"));
-        const weight = style.getPropertyValue("font-weight") || "normal";
-        const fontStyle = style.getPropertyValue("font-style") || "normal";
-        const range = style.getPropertyValue("unicode-range") || "U+0-10FFFF";
-        if (!wanted.has(faceKey({ family, weight, style: fontStyle, unicodeRange: range }))) {
-          continue;
-        }
-        const url = firstFontUrl(style.getPropertyValue("src"), sheet.href ?? document.baseURI);
-        if (!url) {
-          continue;
-        }
-        rules.push(readAsDataUrl(url).then((dataUrl) => (
-          `@font-face{font-family:"${family}";font-style:${fontStyle};font-weight:${weight};unicode-range:${range};src:url(${dataUrl});}`
-        )).catch(() => null));
-      }
-    }
-    return (await Promise.all(rules)).filter(Boolean).join("\n");
-  })();
-  embeddedFontCache = { key, css };
-  return css;
-}
-
-function faceKey(face: { family: string; weight: string; style: string; unicodeRange: string }): string {
-  return [
-    unquote(face.family),
-    normalizeWeight(face.weight),
-    face.style.trim() || "normal",
-    face.unicodeRange.replace(/\s+/g, "").toUpperCase(),
-  ].join("|");
-}
-
-function normalizeWeight(weight: string): string {
-  const value = weight.trim();
-  return value === "normal" ? "400" : value === "bold" ? "700" : value;
-}
-
-function unquote(value: string): string {
-  return value.trim().replace(/^["']|["']$/g, "");
-}
-
-function firstFontUrl(src: string, base: string): string | null {
-  const match = /url\(\s*(["']?)([^"')]+)\1\s*\)/.exec(src);
-  if (!match) {
-    return null;
-  }
-  try {
-    return new URL(match[2], base).href;
-  } catch {
-    return null;
-  }
 }
 
 function loadImage(url: string): Promise<HTMLImageElement> {

@@ -24,6 +24,13 @@ export const prompt = {
     selectionContext: "The user's selection context:",
     selectionTruncated: "...(the selection context was truncated because it is long)",
     userInstruction: "The user's instruction:",
+    imageAnnotations: {
+      intro: "The user has commented on specific places inside the attached images. Each image has matching numbered blue marks drawn on it (a point comment points at the center of the blue ring at the lower left of its numbered circle; a region comment points at the area inside the blue frame). Treat each comment as an instruction about the place its mark points to. Positions are percentages where the top-left of the image is 0% and the bottom-right is 100%. The blue marks were added by the user and are not part of the original image, so never copy or reproduce them in the material. If a mark hides something, check the same image whose name ends with \"(unmarked)\" when it is attached.",
+      originalName: "{{base}} (unmarked){{extension}}",
+      image: "Comments on the image \"{{name}}\":",
+      point: "{{index}}. Point ({{x}}% from the left, {{y}}% from the top): {{comment}}",
+      region: "{{index}}. Region (horizontal {{left}}–{{right}}%, vertical {{top}}–{{bottom}}%): {{comment}}",
+    },
   },
   refused: {
     item: {
@@ -47,6 +54,7 @@ export const prompt = {
     mathliveContext: "When editing formulas, put TeX that MathLive can parse easily only into mathInline.tex.\nDo not put $...$ or $$...$$ delimiters into tex.\nWhen mixing prose and formulas in the body, treat runs: [\"text\", {type:\"math\", tex:\"x^2+1\"}, \"text\"] as the one and only correct form.\nIf a string in text or in runs contains LaTeX delimiters such as \\(x^2+1\\) or $x^2+1$, the app falls back to splitting it into mathInline, but that is only a safety net; do not use it normally. Never use $$...$$, because it causes the delimiters to break (the fallback does split it, but it is not recommended).\nIn the actual tex value, always start TeX commands with one backslash (\\frac, \\sqrt, \\left, \\right, and so on). In the JSON display they are escaped as \"\\\\frac\", but never put two backslashes into the actual value. The only exception is a line break inside a formula: make the actual value take the form \"\\\\ \" (two backslashes immediately followed by a single space).\nDo not abbreviate command syntax. Write fractions and roots as \\frac{numerator}{denominator} and \\sqrt{radicand}, and use stretchy brackets as one matched pair of \\left and \\right with their delimiters (for example: \\left(x\\right), \\left|x\\right|). Use \\left. / \\right. only when hiding one side.\n// is not a MathLive line break, so do not use it.\nExamples: \\frac{a}{b}, \\sqrt{x}, x^2, x_i, \\begin{pmatrix}a&b\\\\c&d\\end{pmatrix}, \\begin{cases}x>0\\\\x\\leqq0\\end{cases}, \\sin, \\cos, \\tan, \\log, \\lim_{x\\to0}, \\sum_{k=1}^{n}, \\left|x\\right|, \\leqq, \\geqq, \\ne, \\pi.\nPreserve existing mathInline.id and display: \"inline\". Only when you must create a new mathInline, generate a non-colliding ID.\nPut explanatory prose in text nodes rather than mixing it into TeX.\nDo not put standalone explanatory sentences that are not part of a formula into \\text{...} or into aligned/cases rows purely for layout purposes. Split explanatory sentences into the text node of a separate paragraph, and if necessary split the formulas before and after them into separate paragraphs as well.",
     imageToSigmaDocDefaultInstruction: "Read the attached image as the source teaching material, and reconstruct its body text, problem statements, answers, tables, graphs, shapes, and layout as an editable SigmaDoc document.",
     attachedFileDefaultInstruction: "Read the attached file and use its content as reference material for editing the teaching material or answering.",
+    imageAnnotationDefaultInstruction: "Follow the comments I added to the image.",
   },
   validation: {
     generatedImage: {

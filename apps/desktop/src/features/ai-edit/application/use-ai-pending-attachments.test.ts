@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import type { AiEditAttachment } from "@/lib/ai/sigma-doc-agent-tools";
 
 import { MAX_AI_EDIT_ATTACHMENTS } from "./ai-chat-attachments";
-import { appendPendingAttachment } from "./use-ai-pending-attachments";
+import { appendPendingAttachment, withAttachmentAnnotations } from "./use-ai-pending-attachments";
 
 function attachment(id: string): AiEditAttachment {
   return { id, name: `${id}.png`, mimeType: "image/png", dataUrl: "data:image/png;base64,AA" };
@@ -28,5 +28,20 @@ describe("appendPendingAttachment", () => {
   it("does not double an attachment that arrives twice", () => {
     const first = attachment("a");
     expect(appendPendingAttachment([first], first)).toHaveLength(1);
+  });
+});
+
+describe("withAttachmentAnnotations", () => {
+  const note = { id: "n1", x: 0.5, y: 0.5, comment: "ここ" };
+
+  it("sets comments on the matching attachment only", () => {
+    const result = withAttachmentAnnotations([attachment("a"), attachment("b")], "b", [note]);
+    expect(result[0]).not.toHaveProperty("annotations");
+    expect(result[1]?.annotations).toEqual([note]);
+  });
+
+  it("removes the field again when every comment is deleted, so the attachment looks like before", () => {
+    const annotated = withAttachmentAnnotations([attachment("a")], "a", [note]);
+    expect(withAttachmentAnnotations(annotated, "a", [])[0]).toEqual(attachment("a"));
   });
 });

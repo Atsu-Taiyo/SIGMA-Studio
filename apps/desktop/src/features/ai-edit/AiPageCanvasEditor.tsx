@@ -799,7 +799,7 @@ function createSelectionAction({
         assets: source.selection.selectedAssets,
       });
       if (source.selection.selectedShapes.length > 0) {
-        overlayPreview = buildShapesSvgPreview(source.selection.selectedShapes, source.selection.selectedAssets, {
+        overlayPreview = buildShapesSvgPreview(source.selection.previewShapes ?? source.selection.selectedShapes, source.selection.selectedAssets, {
           paddingPx: 10,
           minWidthPx: 48,
           minHeightPx: 48,
