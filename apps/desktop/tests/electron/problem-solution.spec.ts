@@ -59,7 +59,6 @@ test("Electron authenticates to the Worker and serves solutions through its bund
         PATH: process.env.PATH ?? "", HOME: os.homedir(), ELECTRON_RUN_AS_NODE: "1",
         SIGMA_STUDIO_USER_DATA_DIR: profile,
         SIGMA_STUDIO_RENDER_BRIDGE_FILE: bridgeFile,
-        SIGMA_STUDIO_MCP_TOOL_PROFILE: "app",
       },
       stderr: "pipe",
     }));

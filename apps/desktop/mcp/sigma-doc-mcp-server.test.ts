@@ -18,9 +18,11 @@ import {
   requireReadyOverview,
   type VisualInspectionIssue,
 } from "./sigma-doc-mcp-server-core";
+import { BODY_IMPLEMENTATION_ROUTES, type BodyImplementationName } from "./sigma-doc-mcp-app-tools";
 import { createDefaultRenderVisualPreviewDeps, type RenderVisualPreviewDeps } from "./sigma-doc-mcp-preview";
 import {
   LocalAiEditRunContextStore,
+  visualSessionStateFileName,
   visualSessionsFileName,
   type AiEditRunContext,
 } from "../electron/ai-edit-run-context";
@@ -45,7 +47,6 @@ import {
 } from "@/lib/ai/sigma-doc-edit-schema";
 import { getGraph3DPreviewSourceHash } from "@/features/drawing";
 import { exportOverlaySvg } from "@/features/rendering/adapters/svg";
-import { MCP_TOOL_CATEGORIES, MCP_TOOL_CATEGORY_MAP } from "@/lib/ai/mcp-tool-categories";
 import { findBlock } from "@/lib/document-tree";
 import { describeLedgerSchemaFailure } from "@/lib/library-schema";
 import { getDefaultPageLayout, getPageMetrics } from "@/lib/page-layout";
@@ -97,27 +98,24 @@ async function saveAtCurrentRevision(
   return store.saveDocument(fileId, document, { expectedRevision: file.revision });
 }
 
-// Pins the public tool contract consumed by docs/mcp-local-app.md and the
-// external Codex-import tooling. Public contract is intentionally versioned by exact names.
+// Pins the public tool contract documented in docs/mcp-local-app.md.
+// Public contract is intentionally versioned by exact names.
 const DOCUMENTED_TOOL_NAMES = [
   "get_problem_solution",
   "search_problems",
   "align_shapes",
-  "apply_edits",
   "begin_visual_edit_session",
   "propose_visual_edit_session",
   "create_local_document",
   "create_local_folder",
-  "create_problem_content",
   "delete_ai_resource",
-  "delete_blocks",
   "delete_local_document",
   "delete_local_folder",
   "delete_shapes",
   "discard_visual_edit_session",
+  "edit_problem",
+  "edit_text",
   "get_active_reference",
-  "get_image_reference",
-  "list_generated_images",
   "get_attached_media",
   "get_block",
   "get_blocks",
@@ -130,22 +128,19 @@ const DOCUMENTED_TOOL_NAMES = [
   "get_mentioned_sigma_docs",
   "get_neighbor_blocks",
   "get_selected_block",
-  "insert_body_content",
+  "insert_content",
   "insert_graph",
   "insert_graph3d",
   "insert_material",
   "insert_shape",
-  "insert_generated_image",
-  "update_generated_image",
   "insert_svg_image",
   "update_svg_image",
   "insert_table",
   "inspect_visual_edit_session",
   "list_edit_proposals",
-  "list_all_pending_proposals",
   "list_local_documents",
   "list_materials",
-  "move_blocks",
+  "organize_blocks",
   "read_local_document",
   "render_block_context",
   "render_page",
@@ -158,12 +153,9 @@ const DOCUMENTED_TOOL_NAMES = [
   "update_column_layout",
   "update_local_document",
   "update_local_folder",
-  "replace_block",
   "update_graph",
   "update_graph3d",
   "update_page_layout",
-  "update_problem_content",
-  "update_rich_content",
   "update_shape",
   "update_table",
   "validate_local_document",
@@ -171,7 +163,14 @@ const DOCUMENTED_TOOL_NAMES = [
   "visual_remove_shape",
   "visual_replace_shape",
   "withdraw_current_edit_proposal",
-  "withdraw_edit_proposal",
+];
+
+// Codex (app-server) の画像生成の結果を扱う4本。SIGMA_STUDIO_MCP_PROVIDER=chatgpt のサーバーだけが公開する。
+const CODEX_ONLY_TOOL_NAMES = [
+  "get_image_reference",
+  "insert_generated_image",
+  "list_generated_images",
+  "update_generated_image",
 ];
 
 function extractPayload(result: unknown): Record<string, unknown> {
@@ -198,6 +197,25 @@ function extractPayload(result: unknown): Record<string, unknown> {
     };
   }
   return structured;
+}
+
+const BODY_TOOL_COMMON_FIELDS = new Set(["fileId", "expectedRevision", "runId", "writeMode", "sourceReferences"]);
+
+/**
+ * Calls a body-edit implementation through the published body tool that routes to it
+ * (insert_content / edit_text / edit_problem / organize_blocks). The arguments use the
+ * implementation's own field names: the shared fields stay at the root, and the rest moves into
+ * insert_content's content:{format:"blocks"} or the tool's edit:{action}.
+ */
+function bodyToolCall(implementation: BodyImplementationName, args: Record<string, unknown>) {
+  const route = BODY_IMPLEMENTATION_ROUTES[implementation];
+  if (!("action" in route)) {
+    const { blocks, ...rest } = args;
+    return { name: route.name, arguments: { ...rest, ...(blocks === undefined ? {} : { content: { format: "blocks", blocks } }) } };
+  }
+  const root = Object.fromEntries(Object.entries(args).filter(([key]) => BODY_TOOL_COMMON_FIELDS.has(key)));
+  const edit = Object.fromEntries(Object.entries(args).filter(([key]) => !BODY_TOOL_COMMON_FIELDS.has(key)));
+  return { name: route.name, arguments: { ...root, edit: { action: route.action, ...edit } } };
 }
 
 // Parses the `## 公開ツール` section of docs/mcp-local-app.md and returns the
@@ -271,6 +289,24 @@ describe("sigma-doc-mcp-server integration", () => {
     await fs.rm(userDataDir, { recursive: true, force: true });
   });
 
+  // Builds another server with SIGMA_STUDIO_MCP_PROVIDER set (afterEach restores the variable).
+  async function listToolNamesForProvider(provider: string | undefined): Promise<string[]> {
+    if (provider === undefined) {
+      delete process.env.SIGMA_STUDIO_MCP_PROVIDER;
+    } else {
+      process.env.SIGMA_STUDIO_MCP_PROVIDER = provider;
+    }
+    const server = createSigmaDocMcpServer();
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    const providerClient = new Client({ name: "provider-test-client", version: "0.0.0" });
+    await Promise.all([providerClient.connect(clientTransport), server.connect(serverTransport)]);
+    try {
+      return (await providerClient.listTools()).tools.map((tool) => tool.name);
+    } finally {
+      await providerClient.close();
+    }
+  }
+
   async function getFileId(): Promise<string> {
     const store = new LocalSigmaDocStore(userDataDir);
     const files = await store.listFiles();
@@ -316,7 +352,7 @@ describe("sigma-doc-mcp-server integration", () => {
     const tools = await client.listTools();
     const toolNames = tools.tools.map((tool) => tool.name);
     expect(toolNames).toContain("list_local_documents");
-    expect(toolNames).toContain("insert_body_content");
+    expect(toolNames).toContain("insert_content");
     expect(toolNames).toContain("propose_visual_edit_session");
 
     const status = await client.callTool({ name: "get_local_app_status", arguments: {} });
@@ -423,16 +459,21 @@ describe("sigma-doc-mcp-server integration", () => {
         | Record<string, { description?: string }>
         | undefined
     ) ?? {};
+    // edit_text / edit_problem / organize_blocks keep each action's fields in a variant of edit.oneOf.
+    const editActionPropertiesOf = (name: string, action: string) => (
+      (propertiesOf(name).edit as { oneOf?: Array<{ properties: Record<string, { const?: string }> }> } | undefined)
+        ?.oneOf?.find((variant) => variant.properties.action?.const === action)?.properties
+    ) ?? {};
 
-    expect(descriptionOf("insert_body_content")).toContain("update_rich_content");
-    expect(descriptionOf("insert_body_content")).toContain("その段落IDをtargetIdにしてareaを省略");
-    expect(descriptionOf("insert_body_content")).toContain("例:");
-    expect(descriptionOf("insert_body_content")).toContain("boxBlock");
-    expect(descriptionOf("insert_body_content")).toContain("pagination");
-    expect(schemaOf("insert_body_content")).toContain("boxBlock");
+    expect(descriptionOf("insert_content")).toContain("END_OF_DOCUMENT");
+    expect(descriptionOf("insert_content")).toContain("content:{format:'markdown',markdown:'...'}");
+    expect(descriptionOf("insert_content")).toContain("content:{format:'blocks',blocks:[...]} for native box styles, explicit formatting or pagination");
+    expect(descriptionOf("insert_content")).toContain("For a semantic teaching problem use edit_problem");
+    expect(propertiesOf("insert_content").area?.description).toContain("対象がproblemの場合だけ指定します");
+    expect(schemaOf("insert_content")).toContain("boxBlock");
     // 廃止したページ指定はツールの入力スキーマに載せない (送られても黙って落とす)。
-    expect(schemaOf("insert_body_content")).not.toContain("keepWithNext");
-    expect(schemaOf("insert_body_content")).not.toContain("keepTogether");
+    expect(schemaOf("insert_content")).not.toContain("keepWithNext");
+    expect(schemaOf("insert_content")).not.toContain("keepTogether");
     for (const styleId of [
       "fancybox",
       "itembox",
@@ -447,13 +488,14 @@ describe("sigma-doc-mcp-server integration", () => {
       "ovalbox",
       "cornerbox",
     ]) {
-      expect(schemaOf("insert_body_content")).toContain(styleId);
+      expect(schemaOf("insert_content")).toContain(styleId);
     }
-    expect(descriptionOf("replace_block")).toContain("fallback");
-    expect(descriptionOf("apply_edits")).toContain("replace_text");
-    expect(descriptionOf("apply_edits")).toContain("copy-with");
-    expect(schemaOf("apply_edits")).toContain("replace_text");
-    expect(schemaOf("apply_edits")).toContain("quote");
+    expect(descriptionOf("edit_text")).toContain("replace_structure supplies a complete same-ID/same-type block only when a structural change cannot use the other actions");
+    expect(descriptionOf("edit_text")).toContain("it is not a patch");
+    expect(descriptionOf("edit_text")).toContain("replace_text/format_inline");
+    expect(descriptionOf("edit_text")).toContain("preserves surrounding formatting");
+    expect(schemaOf("edit_text")).toContain("replace_text");
+    expect(schemaOf("edit_text")).toContain("quote");
     expect(descriptionOf("insert_table")).toContain("n+1個");
     expect(descriptionOf("update_shape")).toContain("型付き引数");
     expect(descriptionOf("update_page_layout")).toContain("部分更新");
@@ -461,7 +503,7 @@ describe("sigma-doc-mcp-server integration", () => {
     expect(descriptionOf("begin_visual_edit_session")).toContain("手順:");
     expect(descriptionOf("get_attached_media")).toContain("resource content");
 
-    expect(propertiesOf("insert_body_content").targetId?.description).toContain("END_OF_DOCUMENT");
+    expect(propertiesOf("insert_content").targetId?.description).toContain("END_OF_DOCUMENT");
     expect(propertiesOf("insert_shape").targetId?.description).toContain("CANVAS");
     expect(propertiesOf("insert_table").targetId?.description).toContain("CANVAS");
     expect(propertiesOf("insert_graph").targetId?.description).toContain("CANVAS");
@@ -489,9 +531,9 @@ describe("sigma-doc-mcp-server integration", () => {
     expect(schemaOf("insert_graph3d")).not.toContain("\"cuts\"");
     expect(schemaOf("insert_graph3d")).not.toContain("\"inequality\"");
     expect(schemaOf("update_graph3d")).not.toContain("\"cuts\"");
-    expect(propertiesOf("insert_body_content").writeMode?.description).toContain("dryRun");
-    expect(propertiesOf("update_rich_content")).toHaveProperty("pagination");
-    expect(propertiesOf("update_problem_content")).toHaveProperty("pagination");
+    expect(propertiesOf("insert_content").writeMode?.description).toContain("dryRun");
+    expect(editActionPropertiesOf("edit_text", "update")).toHaveProperty("pagination");
+    expect(editActionPropertiesOf("edit_problem", "update")).toHaveProperty("pagination");
     expect(propertiesOf("insert_shape").kind?.description).toContain("polyline");
     expect(propertiesOf("insert_shape").rotationDeg?.description).toContain("度");
     expect(propertiesOf("insert_shape").startAngleDeg?.description).toContain("度");
@@ -538,13 +580,13 @@ describe("sigma-doc-mcp-server integration", () => {
       idempotentHint: true,
       openWorldHint: false,
     });
-    expect(byName("insert_body_content").annotations).toMatchObject({
+    expect(byName("insert_content").annotations).toMatchObject({
       readOnlyHint: false,
       destructiveHint: false,
       idempotentHint: false,
       openWorldHint: false,
     });
-    expect(byName("delete_blocks").annotations).toMatchObject({
+    expect(byName("organize_blocks").annotations).toMatchObject({
       readOnlyHint: false,
       destructiveHint: true,
       idempotentHint: false,
@@ -556,7 +598,7 @@ describe("sigma-doc-mcp-server integration", () => {
       idempotentHint: false,
       openWorldHint: false,
     });
-    expect(byName("update_rich_content").annotations).toMatchObject({
+    expect(byName("edit_text").annotations).toMatchObject({
       readOnlyHint: false,
       idempotentHint: false,
     });
@@ -566,19 +608,40 @@ describe("sigma-doc-mcp-server integration", () => {
     });
   });
 
-  it("publishes a common machine-readable output schema for every tool", async () => {
+  it("publishes self-contained input schemas that define each shared part once, without an output schema", async () => {
     const tools = (await client.listTools()).tools;
     for (const tool of tools) {
-      expect(tool.outputSchema, `${tool.name} must publish outputSchema`).toMatchObject({
-        type: "object",
-        properties: {
-          ok: expect.any(Object),
-          data: expect.any(Object),
-          error: expect.any(Object),
-        },
-        required: expect.arrayContaining(["ok"]),
-      });
+      // Declaring an outputSchema makes clients require and validate structuredContent and
+      // repeats one definition in every tool. The envelope is checked on the server instead.
+      expect(tool.outputSchema, tool.name).toBeUndefined();
+      const definitions = (tool.inputSchema.definitions ?? {}) as Record<string, unknown>;
+      const largeParts = new Map<string, number>();
+      const visit = (node: unknown): void => {
+        if (!node || typeof node !== "object") return;
+        const ref = (node as { $ref?: unknown }).$ref;
+        if (ref !== undefined) {
+          // Each tool is self-contained: every reference resolves inside its own definitions.
+          const name = typeof ref === "string" && ref.startsWith("#/definitions/") ? ref.slice("#/definitions/".length) : "";
+          expect(Object.hasOwn(definitions, name), `${tool.name}: ${String(ref)}`).toBe(true);
+        }
+        const serialized = JSON.stringify(node);
+        if (serialized.length >= 1024) largeParts.set(serialized, (largeParts.get(serialized) ?? 0) + 1);
+        for (const child of Object.values(node)) visit(child);
+      };
+      visit(tool.inputSchema);
+      // Shared parts are defined once and referenced; a large part repeated inline means a
+      // shared schema lost its definition id (see sigma-doc-mcp-schema-definitions.ts).
+      expect([...largeParts.values()].filter((count) => count > 1), tool.name).toEqual([]);
     }
+    const graph3d = tools.find((tool) => tool.name === "insert_graph3d")!.inputSchema;
+    const graph3dProperties = graph3d.properties as Record<string, { properties?: Record<string, unknown> }>;
+    // spec and the top-level objects remain two ways to give the same objects.
+    expect(JSON.stringify(graph3dProperties.objects)).toContain("#/definitions/Graph3DObjectList");
+    expect(JSON.stringify(graph3dProperties.spec!.properties!.objects)).toContain("#/definitions/Graph3DObjectList");
+    const editText = tools.find((tool) => tool.name === "edit_text")!.inputSchema;
+    expect(Object.keys(editText.definitions as Record<string, unknown>)).toEqual(expect.arrayContaining([
+      "InlineNode", "ParagraphNode", "HeadingNode", "ListNode", "ProblemNode", "BoxBlockNode",
+    ]));
   });
 
   it("returns the common success and actionable error envelopes", async () => {
@@ -590,10 +653,7 @@ describe("sigma-doc-mcp-server integration", () => {
     });
 
     const fileId = await getFileId();
-    const failed = await client.callTool({
-      name: "insert_body_content",
-      arguments: { fileId, targetId: "END_OF_DOCUMENT", expectedRevision: 999, blocks: ["本文"] },
-    });
+    const failed = await client.callTool(bodyToolCall("insert_body_content", { fileId, targetId: "END_OF_DOCUMENT", expectedRevision: 999, blocks: ["本文"] }));
     expect(failed.isError).toBe(true);
     expect(failed.structuredContent).toMatchObject({
       ok: false,
@@ -611,16 +671,15 @@ describe("sigma-doc-mcp-server integration", () => {
     expect(toolNames).toEqual([...DOCUMENTED_TOOL_NAMES].sort());
   });
 
-  it("categorizes every documented public tool exactly once", () => {
-    const categorizedNames = MCP_TOOL_CATEGORIES.flatMap((category) => MCP_TOOL_CATEGORY_MAP[category]);
-
-    for (const name of DOCUMENTED_TOOL_NAMES) {
-      expect(
-        categorizedNames.filter((categorizedName) => categorizedName === name),
-        `expected documented tool ${name} in exactly one MCP category`,
-      ).toHaveLength(1);
+  it("publishes the Codex image tools only to a chatgpt-provider server", async () => {
+    // requireImageRun rejects every run that is not a Codex run, so the other providers never see them.
+    for (const provider of [undefined, "claude", "antigravity", "chatgpt", "unknown"]) {
+      const names = (await listToolNamesForProvider(provider)).sort();
+      const expected = provider === "chatgpt"
+        ? [...DOCUMENTED_TOOL_NAMES, ...CODEX_ONLY_TOOL_NAMES]
+        : DOCUMENTED_TOOL_NAMES;
+      expect(names, `provider=${provider}`).toEqual([...expected].sort());
     }
-    expect([...categorizedNames].sort()).toEqual([...DOCUMENTED_TOOL_NAMES].sort());
   });
 
   it("keeps tool-like names in official skills within the public MCP contract", async () => {
@@ -640,8 +699,6 @@ describe("sigma-doc-mcp-server integration", () => {
       "replace_structure",
       "has_solution",
     ]);
-    // アプリ内AIだけが使う本文編集の4入口。skillはこちらの名前で書く(docs/mcp-local-app.md)。
-    const appProfileToolNames = ["insert_content", "edit_text", "edit_problem", "organize_blocks"];
     const skillsRoot = path.join(__dirname, "..", "electron", "official-skills");
     const skillDirectories = (await fs.readdir(skillsRoot, { withFileTypes: true }))
       .filter((entry) => entry.isDirectory())
@@ -654,7 +711,6 @@ describe("sigma-doc-mcp-server integration", () => {
       const toolLikeTokens = [...content.matchAll(/\b[a-z]+(?:_[a-z0-9]+)+\b/g)].map((match) => match[0]);
       const unknownNames = [...new Set(toolLikeTokens)].filter((name) =>
         !DOCUMENTED_TOOL_NAMES.includes(name as (typeof DOCUMENTED_TOOL_NAMES)[number])
-        && !appProfileToolNames.includes(name)
         && !commonToolLikeWords.has(name)
         && !name.startsWith("ai_"));
 
@@ -664,8 +720,8 @@ describe("sigma-doc-mcp-server integration", () => {
 
   it("exposes exactly the tool set listed under docs/mcp-local-app.md's 公開ツール section", async () => {
     const toolsFromDocs = await readPublicToolNamesFromDocs();
-    const tools = await client.listTools();
-    const toolNames = tools.tools.map((tool) => tool.name).sort();
+    // The docs list every tool, including the Codex-only ones only a chatgpt-provider server publishes.
+    const toolNames = (await listToolNamesForProvider("chatgpt")).sort();
 
     // Set-equality both ways so a tool added/removed on either side (server or docs)
     // fails CI instead of silently drifting.
@@ -698,20 +754,17 @@ describe("sigma-doc-mcp-server integration", () => {
   it("exposes an optional runId parameter on every write tool's inputSchema", async () => {
     const writeToolNames = [
       "insert_material",
-      "insert_body_content",
-      "create_problem_content",
-      "update_problem_content",
+      "insert_content",
+      "edit_problem",
       "insert_table",
       "insert_shape",
       "insert_graph",
       "insert_graph3d",
-      "replace_block",
-      "update_rich_content",
+      "edit_text",
       "update_table",
       "update_graph",
       "update_graph3d",
-      "delete_blocks",
-      "move_blocks",
+      "organize_blocks",
       "update_page_layout",
       "update_shape",
       "update_column_layout",
@@ -742,10 +795,7 @@ describe("sigma-doc-mcp-server integration", () => {
 
   it("rejects insert_body_content missing expectedRevision as an MCP tool-input error", async () => {
     const fileId = await getFileId();
-    const result = await client.callTool({
-      name: "insert_body_content",
-      arguments: { fileId, blocks: ["新しい段落"] },
-    });
+    const result = await client.callTool(bodyToolCall("insert_body_content", { fileId, blocks: ["新しい段落"] }));
     expect(result.isError).toBe(true);
     const text = (result.content as Array<{ text?: string }>)[0]?.text ?? "";
     expect(text).toContain("expectedRevision");
@@ -761,10 +811,7 @@ describe("sigma-doc-mcp-server integration", () => {
     // specifically, not the separate "no explicit target" error (the tool runs the session
     // first now, so a request that fails both checks would otherwise report the target error).
     const fileId = await getFileId();
-    const result = await client.callTool({
-      name: "insert_body_content",
-      arguments: { fileId, targetId: "END_OF_DOCUMENT", expectedRevision: 999, blocks: ["新しい段落"] },
-    });
+    const result = await client.callTool(bodyToolCall("insert_body_content", { fileId, targetId: "END_OF_DOCUMENT", expectedRevision: 999, blocks: ["新しい段落"] }));
     const payload = extractPayload(result);
     expect(payload.ok).toBe(false);
     expect(payload.errorCode).toBe("REVISION_MISMATCH");
@@ -775,10 +822,7 @@ describe("sigma-doc-mcp-server integration", () => {
 
   it("accepts insert_body_content with a matching expectedRevision and creates a pending proposal", async () => {
     const fileId = await getFileId();
-    const result = await client.callTool({
-      name: "insert_body_content",
-      arguments: { fileId, targetId: "END_OF_DOCUMENT", expectedRevision: 1, blocks: ["新しい段落"] },
-    });
+    const result = await client.callTool(bodyToolCall("insert_body_content", { fileId, targetId: "END_OF_DOCUMENT", expectedRevision: 1, blocks: ["新しい段落"] }));
     const payload = extractPayload(result);
     expect(payload.ok).toBe(true);
     expect(payload.proposalCreated).toBe(true);
@@ -799,10 +843,7 @@ describe("sigma-doc-mcp-server integration", () => {
       const currentRevision = await editParagraphAndSave(fileId, "p_ab_point_intro", "(unrelated edit #2)");
       expect(currentRevision).toBe(staleRevision + 1);
 
-      const result = await client.callTool({
-        name: "update_rich_content",
-        arguments: { fileId, blockId: "p_source_note", text: "AIによる更新", expectedRevision: staleRevision },
-      });
+      const result = await client.callTool(bodyToolCall("update_rich_content", { fileId, blockId: "p_source_note", text: "AIによる更新", expectedRevision: staleRevision }));
       const payload = extractPayload(result);
       expect(payload.ok).toBe(true);
       expect(payload.proposalCreated).toBe(true);
@@ -823,10 +864,7 @@ describe("sigma-doc-mcp-server integration", () => {
       const currentRevision = await editParagraphAndSave(fileId, "p_source_note", "(人間が編集済み)");
       expect(currentRevision).toBe(staleRevision + 1);
 
-      const result = await client.callTool({
-        name: "update_rich_content",
-        arguments: { fileId, blockId: "p_source_note", text: "AIによる上書き", expectedRevision: staleRevision },
-      });
+      const result = await client.callTool(bodyToolCall("update_rich_content", { fileId, blockId: "p_source_note", text: "AIによる上書き", expectedRevision: staleRevision }));
       const payload = extractPayload(result);
       expect(payload.ok).toBe(false);
       expect(payload.errorCode).toBe("REVISION_MISMATCH");
@@ -849,10 +887,7 @@ describe("sigma-doc-mcp-server integration", () => {
       // expectedRevision:1 is the file's very first revision, created by initializeWorkspace
       // without ever going through saveDocument, so no sidecar entry for "1" exists — this must
       // behave exactly like the pre-existing sidecar-unavailable case, not the relaxed one.
-      const result = await client.callTool({
-        name: "update_rich_content",
-        arguments: { fileId, blockId: "p_source_note", text: "AIによる更新", expectedRevision: 1 },
-      });
+      const result = await client.callTool(bodyToolCall("update_rich_content", { fileId, blockId: "p_source_note", text: "AIによる更新", expectedRevision: 1 }));
       const payload = extractPayload(result);
       expect(payload.ok).toBe(false);
       expect(payload.errorCode).toBe("REVISION_MISMATCH");
@@ -868,10 +903,7 @@ describe("sigma-doc-mcp-server integration", () => {
   it("stamps the pending proposal with the provider from SIGMA_STUDIO_MCP_PROVIDER", async () => {
     process.env.SIGMA_STUDIO_MCP_PROVIDER = "claude";
     const fileId = await getFileId();
-    const result = await client.callTool({
-      name: "insert_body_content",
-      arguments: { fileId, targetId: "END_OF_DOCUMENT", expectedRevision: 1, blocks: ["新しい段落"] },
-    });
+    const result = await client.callTool(bodyToolCall("insert_body_content", { fileId, targetId: "END_OF_DOCUMENT", expectedRevision: 1, blocks: ["新しい段落"] }));
     const payload = extractPayload(result);
     expect((payload.proposal as { provider?: string }).provider).toBe("claude");
   });
@@ -879,10 +911,7 @@ describe("sigma-doc-mcp-server integration", () => {
   it("stamps the pending proposal with provider null when SIGMA_STUDIO_MCP_PROVIDER is unset", async () => {
     delete process.env.SIGMA_STUDIO_MCP_PROVIDER;
     const fileId = await getFileId();
-    const result = await client.callTool({
-      name: "insert_body_content",
-      arguments: { fileId, targetId: "END_OF_DOCUMENT", expectedRevision: 1, blocks: ["新しい段落"] },
-    });
+    const result = await client.callTool(bodyToolCall("insert_body_content", { fileId, targetId: "END_OF_DOCUMENT", expectedRevision: 1, blocks: ["新しい段落"] }));
     const payload = extractPayload(result);
     expect((payload.proposal as { provider?: string | null }).provider).toBeNull();
   });
@@ -890,10 +919,7 @@ describe("sigma-doc-mcp-server integration", () => {
   it("stamps the pending proposal with provider null when SIGMA_STUDIO_MCP_PROVIDER is garbage", async () => {
     process.env.SIGMA_STUDIO_MCP_PROVIDER = "not-a-provider";
     const fileId = await getFileId();
-    const result = await client.callTool({
-      name: "insert_body_content",
-      arguments: { fileId, targetId: "END_OF_DOCUMENT", expectedRevision: 1, blocks: ["新しい段落"] },
-    });
+    const result = await client.callTool(bodyToolCall("insert_body_content", { fileId, targetId: "END_OF_DOCUMENT", expectedRevision: 1, blocks: ["新しい段落"] }));
     const payload = extractPayload(result);
     expect((payload.proposal as { provider?: string | null }).provider).toBeNull();
   });
@@ -920,10 +946,7 @@ describe("sigma-doc-mcp-server integration", () => {
       sessionLabel: "セッションA",
     });
 
-    const result = extractPayload(await client.callTool({
-      name: "insert_body_content",
-      arguments: { fileId, targetId: "END_OF_DOCUMENT", expectedRevision: 1, blocks: ["新しい段落"], runId: "run_mine" },
-    }));
+    const result = extractPayload(await client.callTool(bodyToolCall("insert_body_content", { fileId, targetId: "END_OF_DOCUMENT", expectedRevision: 1, blocks: ["新しい段落"], runId: "run_mine" })));
     expect(result.ok).toBe(true);
 
     const listed = extractPayload(await client.callTool({ name: "list_edit_proposals", arguments: {} }));
@@ -960,10 +983,7 @@ describe("sigma-doc-mcp-server integration", () => {
       mentionedDocuments: [],
     });
 
-    const result = extractPayload(await client.callTool({
-      name: "insert_body_content",
-      arguments: { fileId, targetId: "END_OF_DOCUMENT", expectedRevision: 1, blocks: ["新しい段落"], runId: "run_sel" },
-    }));
+    const result = extractPayload(await client.callTool(bodyToolCall("insert_body_content", { fileId, targetId: "END_OF_DOCUMENT", expectedRevision: 1, blocks: ["新しい段落"], runId: "run_sel" })));
     expect(result.ok).toBe(true);
 
     const listed = extractPayload(await client.callTool({ name: "list_edit_proposals", arguments: {} }));
@@ -994,10 +1014,7 @@ describe("sigma-doc-mcp-server integration", () => {
       roomId: "room_stale",
     });
 
-    const result = extractPayload(await client.callTool({
-      name: "insert_body_content",
-      arguments: { fileId, targetId: "END_OF_DOCUMENT", expectedRevision: 1, blocks: ["新しい段落"], runId: "run_caller" },
-    }));
+    const result = extractPayload(await client.callTool(bodyToolCall("insert_body_content", { fileId, targetId: "END_OF_DOCUMENT", expectedRevision: 1, blocks: ["新しい段落"], runId: "run_caller" })));
     expect(result.ok).toBe(true);
 
     const listed = extractPayload(await client.callTool({ name: "list_edit_proposals", arguments: {} }));
@@ -1009,10 +1026,7 @@ describe("sigma-doc-mcp-server integration", () => {
 
   it("creates the pending proposal with no attribution fields when neither runId nor a run-context file is present", async () => {
     const fileId = await getFileId();
-    const result = extractPayload(await client.callTool({
-      name: "insert_body_content",
-      arguments: { fileId, targetId: "END_OF_DOCUMENT", expectedRevision: 1, blocks: ["新しい段落"] },
-    }));
+    const result = extractPayload(await client.callTool(bodyToolCall("insert_body_content", { fileId, targetId: "END_OF_DOCUMENT", expectedRevision: 1, blocks: ["新しい段落"] })));
     expect(result.ok).toBe(true);
 
     const listed = extractPayload(await client.callTool({ name: "list_edit_proposals", arguments: {} }));
@@ -1201,29 +1215,23 @@ describe("sigma-doc-mcp-server integration", () => {
       turnId: "turn_problem_conversion",
     });
 
-    const deleted = extractPayload(await client.callTool({
-      name: "delete_blocks",
-      arguments: {
-        fileId,
-        blockIds: ["extra_p1"],
-        expectedRevision: revision,
-        runId: "run_problem_conversion",
-      },
-    }));
+    const deleted = extractPayload(await client.callTool(bodyToolCall("delete_blocks", {
+      fileId,
+      blockIds: ["extra_p1"],
+      expectedRevision: revision,
+      runId: "run_problem_conversion",
+    })));
     expect(deleted.ok).toBe(true);
 
-    const created = extractPayload(await client.callTool({
-      name: "create_problem_content",
-      arguments: {
-        fileId,
-        id: "problem_from_paragraph",
-        targetId: "problem_complex_square_product_range",
-        prompt: [{ id: "extra_p1", type: "paragraph", text: "図を見て面積を求めよ。" }],
-        answerTex: "2\\pi",
-        expectedRevision: revision,
-        runId: "run_problem_conversion",
-      },
-    }));
+    const created = extractPayload(await client.callTool(bodyToolCall("create_problem_content", {
+      fileId,
+      id: "problem_from_paragraph",
+      targetId: "problem_complex_square_product_range",
+      prompt: [{ id: "extra_p1", type: "paragraph", text: "図を見て面積を求めよ。" }],
+      answerTex: "2\\pi",
+      expectedRevision: revision,
+      runId: "run_problem_conversion",
+    })));
     expect(created.ok).toBe(true);
 
     const proposalStore = new LocalMcpEditProposalStore(userDataDir);
@@ -1272,53 +1280,47 @@ describe("sigma-doc-mcp-server integration", () => {
       turnId: "turn_structural_split",
     });
 
-    const updated = extractPayload(await client.callTool({
-      name: "update_rich_content",
-      arguments: {
-        fileId,
-        blockId: "p_ab_param_formula",
-        runs: [{
-          type: "math",
-          id: "ai_split_prefix_math",
-          tex: String.raw`\begin{aligned}\frac{a^k+(k-1)b^k}{k}&\geqq ab^{k-1}\end{aligned}`,
-        }],
-        expectedRevision: 1,
-        runId: "run_structural_split",
-      },
-    }));
+    const updated = extractPayload(await client.callTool(bodyToolCall("update_rich_content", {
+      fileId,
+      blockId: "p_ab_param_formula",
+      runs: [{
+        type: "math",
+        id: "ai_split_prefix_math",
+        tex: String.raw`\begin{aligned}\frac{a^k+(k-1)b^k}{k}&\geqq ab^{k-1}\end{aligned}`,
+      }],
+      expectedRevision: 1,
+      runId: "run_structural_split",
+    })));
     expect(updated.ok).toBe(true);
 
-    const inserted = extractPayload(await client.callTool({
-      name: "insert_body_content",
-      arguments: {
-        fileId,
-        targetId: "p_ab_param_formula",
-        blocks: [
-          {
-            type: "paragraph",
-            id: "ai_reason_left",
-            align: "left",
-            runs: [
-              "よって，両辺を ",
-              { type: "math", id: "ai_reason_k", tex: "k" },
-              " 倍すると，",
-            ],
-          },
-          {
-            type: "paragraph",
-            id: "ai_conclusion_math",
-            align: "center",
-            runs: [{
-              type: "math",
-              id: "ai_conclusion_math_run",
-              tex: String.raw`a^k+(k-1)b^k\geqq kab^{k-1}`,
-            }],
-          },
-        ],
-        expectedRevision: 1,
-        runId: "run_structural_split",
-      },
-    }));
+    const inserted = extractPayload(await client.callTool(bodyToolCall("insert_body_content", {
+      fileId,
+      targetId: "p_ab_param_formula",
+      blocks: [
+        {
+          type: "paragraph",
+          id: "ai_reason_left",
+          align: "left",
+          runs: [
+            "よって，両辺を ",
+            { type: "math", id: "ai_reason_k", tex: "k" },
+            " 倍すると，",
+          ],
+        },
+        {
+          type: "paragraph",
+          id: "ai_conclusion_math",
+          align: "center",
+          runs: [{
+            type: "math",
+            id: "ai_conclusion_math_run",
+            tex: String.raw`a^k+(k-1)b^k\geqq kab^{k-1}`,
+          }],
+        },
+      ],
+      expectedRevision: 1,
+      runId: "run_structural_split",
+    })));
     expect(inserted.ok).toBe(true);
 
     const proposalStore = new LocalMcpEditProposalStore(userDataDir);
@@ -2084,10 +2086,7 @@ describe("sigma-doc-mcp-server new read/write tools", () => {
 
   it("rejects insert_body_content when neither targetId nor selectedId is given (no silent last-block fallback)", async () => {
     const fileId = await getFileId();
-    const result = await client.callTool({
-      name: "insert_body_content",
-      arguments: { fileId, expectedRevision: 1, blocks: ["新しい段落"] },
-    });
+    const result = await client.callTool(bodyToolCall("insert_body_content", { fileId, expectedRevision: 1, blocks: ["新しい段落"] }));
     const payload = extractPayload(result);
     expect(payload.ok).toBe(false);
     expect(String((payload as { error?: string }).error)).toContain("編集対象が指定されていません");
@@ -2095,10 +2094,7 @@ describe("sigma-doc-mcp-server new read/write tools", () => {
 
   it("accepts insert_body_content with targetId:\"END_OF_DOCUMENT\" to explicitly append at the end", async () => {
     const fileId = await getFileId();
-    const result = await client.callTool({
-      name: "insert_body_content",
-      arguments: { fileId, targetId: "END_OF_DOCUMENT", expectedRevision: 1, blocks: ["新しい段落"] },
-    });
+    const result = await client.callTool(bodyToolCall("insert_body_content", { fileId, targetId: "END_OF_DOCUMENT", expectedRevision: 1, blocks: ["新しい段落"] }));
     const payload = extractPayload(result);
     expect(payload.ok).toBe(true);
     expect(payload.proposalCreated).toBe(true);
@@ -2106,10 +2102,7 @@ describe("sigma-doc-mcp-server new read/write tools", () => {
 
   it("write-tool success responses carry changeSummary/documentSummary instead of the full draft/document", async () => {
     const fileId = await getFileId();
-    const result = await client.callTool({
-      name: "insert_body_content",
-      arguments: { fileId, targetId: "END_OF_DOCUMENT", expectedRevision: 1, blocks: ["新しい段落"] },
-    });
+    const result = await client.callTool(bodyToolCall("insert_body_content", { fileId, targetId: "END_OF_DOCUMENT", expectedRevision: 1, blocks: ["新しい段落"] }));
     const payload = extractPayload(result);
     expect(payload).not.toHaveProperty("draft");
     expect(payload).toHaveProperty("changeSummary");
@@ -2122,10 +2115,7 @@ describe("sigma-doc-mcp-server new read/write tools", () => {
 
   it("write-tool success responses carry a verification field (validation + preview, source:none when no render bridge is configured)", async () => {
     const fileId = await getFileId();
-    const result = await client.callTool({
-      name: "insert_body_content",
-      arguments: { fileId, targetId: "END_OF_DOCUMENT", expectedRevision: 1, blocks: ["新しい段落"] },
-    });
+    const result = await client.callTool(bodyToolCall("insert_body_content", { fileId, targetId: "END_OF_DOCUMENT", expectedRevision: 1, blocks: ["新しい段落"] }));
     const payload = extractPayload(result);
     expect(payload.ok).toBe(true);
     const verification = payload.verification as { validation: { ok: boolean; issues: string[]; issueCount: number }; preview: { source: string; warnings: string[] } };
@@ -2199,10 +2189,7 @@ describe("sigma-doc-mcp-server new read/write tools", () => {
     });
 
     // モデルは sourceReferences を一切指定しない。それでもチップが出るのが受入基準。
-    const result = extractPayload(await client.callTool({
-      name: "insert_body_content",
-      arguments: { fileId: currentFileId, targetId: "END_OF_DOCUMENT", expectedRevision: 1, blocks: ["新しい段落"], runId: "run_cite" },
-    }));
+    const result = extractPayload(await client.callTool(bodyToolCall("insert_body_content", { fileId: currentFileId, targetId: "END_OF_DOCUMENT", expectedRevision: 1, blocks: ["新しい段落"], runId: "run_cite" })));
     expect(result.ok).toBe(true);
 
     const listed = extractPayload(await client.callTool({ name: "list_edit_proposals", arguments: {} }));
@@ -2223,10 +2210,7 @@ describe("sigma-doc-mcp-server new read/write tools", () => {
       arguments: { query: "複素数平面", excludeFileId: currentFileId, runId: "run_unread" },
     });
 
-    const result = extractPayload(await client.callTool({
-      name: "insert_body_content",
-      arguments: { fileId: currentFileId, targetId: "END_OF_DOCUMENT", expectedRevision: 1, blocks: ["新しい段落"], runId: "run_unread" },
-    }));
+    const result = extractPayload(await client.callTool(bodyToolCall("insert_body_content", { fileId: currentFileId, targetId: "END_OF_DOCUMENT", expectedRevision: 1, blocks: ["新しい段落"], runId: "run_unread" })));
     expect(result.ok).toBe(true);
 
     const listed = extractPayload(await client.callTool({ name: "list_edit_proposals", arguments: {} }));
@@ -2249,17 +2233,14 @@ describe("sigma-doc-mcp-server new read/write tools", () => {
       arguments: { fileId: otherFileId, blockIds: ["p_block"], runId: "run_blockid" },
     });
 
-    await client.callTool({
-      name: "insert_body_content",
-      arguments: {
-        fileId: currentFileId,
-        targetId: "END_OF_DOCUMENT",
-        expectedRevision: 1,
-        blocks: ["新しい段落"],
-        runId: "run_blockid",
-        sourceReferences: [{ type: "document", fileId: otherFileId, blockId: "p_block" }],
-      },
-    });
+    await client.callTool(bodyToolCall("insert_body_content", {
+      fileId: currentFileId,
+      targetId: "END_OF_DOCUMENT",
+      expectedRevision: 1,
+      blocks: ["新しい段落"],
+      runId: "run_blockid",
+      sourceReferences: [{ type: "document", fileId: otherFileId, blockId: "p_block" }],
+    }));
 
     const listed = extractPayload(await client.callTool({ name: "list_edit_proposals", arguments: {} }));
     const proposals = listed.proposals as Array<{ sourceReferences?: Array<{ fileId?: string; blockId?: string; title?: string }> }>;
@@ -2302,10 +2283,7 @@ describe("sigma-doc-mcp-server new read/write tools", () => {
 
     // 書き込みツールでは runId を省略する。run-context から実 runId が解決されるので、
     // 台帳の引用も一緒に付いてこなければならない。
-    await client.callTool({
-      name: "insert_body_content",
-      arguments: { fileId: currentFileId, targetId: "END_OF_DOCUMENT", expectedRevision: 1, blocks: ["新しい段落"] },
-    });
+    await client.callTool(bodyToolCall("insert_body_content", { fileId: currentFileId, targetId: "END_OF_DOCUMENT", expectedRevision: 1, blocks: ["新しい段落"] }));
 
     const listed = extractPayload(await client.callTool({ name: "list_edit_proposals", arguments: {} }));
     const proposals = listed.proposals as Array<{ sourceReferences?: Array<{ fileId?: string }> }>;
@@ -2328,17 +2306,14 @@ describe("sigma-doc-mcp-server new read/write tools", () => {
     });
 
     // モデルが title 無しで同じ教材を申告しても、enrich→dedupe の順で1件に畳まれる。
-    const result = extractPayload(await client.callTool({
-      name: "insert_body_content",
-      arguments: {
-        fileId: currentFileId,
-        targetId: "END_OF_DOCUMENT",
-        expectedRevision: 1,
-        blocks: ["新しい段落"],
-        runId: "run_both",
-        sourceReferences: [{ type: "document", fileId: otherFileId }],
-      },
-    }));
+    const result = extractPayload(await client.callTool(bodyToolCall("insert_body_content", {
+      fileId: currentFileId,
+      targetId: "END_OF_DOCUMENT",
+      expectedRevision: 1,
+      blocks: ["新しい段落"],
+      runId: "run_both",
+      sourceReferences: [{ type: "document", fileId: otherFileId }],
+    })));
     expect(result.ok).toBe(true);
 
     const listed = extractPayload(await client.callTool({ name: "list_edit_proposals", arguments: {} }));
@@ -2423,30 +2398,24 @@ describe("sigma-doc-mcp-server new read/write tools", () => {
 
   it("replace_block replaces an existing block in place via a pending proposal", async () => {
     const fileId = await getFileId();
-    const result = extractPayload(await client.callTool({
-      name: "replace_block",
-      arguments: {
-        fileId,
-        blockId: "p_source_note",
-        block: { type: "paragraph", id: "p_source_note", children: [{ type: "text", text: "更新済みの出典" }] },
-        expectedRevision: 1,
-      },
-    }));
+    const result = extractPayload(await client.callTool(bodyToolCall("replace_block", {
+      fileId,
+      blockId: "p_source_note",
+      block: { type: "paragraph", id: "p_source_note", children: [{ type: "text", text: "更新済みの出典" }] },
+      expectedRevision: 1,
+    })));
     expect(result.ok).toBe(true);
     expect(result.proposalCreated).toBe(true);
   });
 
   it("update_rich_content preserves the paragraph identity while replacing typed runs", async () => {
     const fileId = await getFileId();
-    const result = extractPayload(await client.callTool({
-      name: "update_rich_content",
-      arguments: {
-        fileId,
-        blockId: "p_source_note",
-        runs: ["更新後 ", { type: "math", id: "ai_math_updated", tex: "x^2" }],
-        expectedRevision: 1,
-      },
-    }));
+    const result = extractPayload(await client.callTool(bodyToolCall("update_rich_content", {
+      fileId,
+      blockId: "p_source_note",
+      runs: ["更新後 ", { type: "math", id: "ai_math_updated", tex: "x^2" }],
+      expectedRevision: 1,
+    })));
     expect(result.ok).toBe(true);
     const detail = extractPayload(await client.callTool({
       name: "get_edit_proposal",
@@ -2479,24 +2448,21 @@ describe("sigma-doc-mcp-server new read/write tools", () => {
       throw new Error(saved.error ?? "failed to seed styled paragraph");
     }
 
-    const result = extractPayload(await client.callTool({
-      name: "apply_edits",
-      arguments: {
-        fileId,
-        operations: [{
-          op: "replace_text",
-          target: {
-            type: "range",
-            blockId: "p_source_note",
-            from: 0,
-            to: 3,
-            quote: "変更前",
-          },
-          replacement: "更新後",
-        }],
-        expectedRevision: saved.revision,
-      },
-    }));
+    const result = extractPayload(await client.callTool(bodyToolCall("apply_edits", {
+      fileId,
+      operations: [{
+        op: "replace_text",
+        target: {
+          type: "range",
+          blockId: "p_source_note",
+          from: 0,
+          to: 3,
+          quote: "変更前",
+        },
+        replacement: "更新後",
+      }],
+      expectedRevision: saved.revision,
+    })));
     expect(result.ok).toBe(true);
 
     const detail = extractPayload(await client.callTool({
@@ -2559,23 +2525,20 @@ describe("sigma-doc-mcp-server new read/write tools", () => {
       mentionedDocuments: [],
     });
 
-    const result = extractPayload(await client.callTool({
-      name: "apply_edits",
-      arguments: {
-        fileId,
-        runId,
-        operations: [{
-          op: "format_inline",
-          target: { type: "activeSelection" },
-          style: {
-            fontFamilyToken: "mincho",
-            fontSizePt: 14,
-            boxed: { enabled: true, variant: "double", tone: "blue" },
-          },
-        }],
-        expectedRevision: 1,
-      },
-    }));
+    const result = extractPayload(await client.callTool(bodyToolCall("apply_edits", {
+      fileId,
+      runId,
+      operations: [{
+        op: "format_inline",
+        target: { type: "activeSelection" },
+        style: {
+          fontFamilyToken: "mincho",
+          fontSizePt: 14,
+          boxed: { enabled: true, variant: "double", tone: "blue" },
+        },
+      }],
+      expectedRevision: 1,
+    })));
     expect(result.ok).toBe(true);
     expect(result.proposalCreated).toBe(true);
 
@@ -2655,23 +2618,20 @@ describe("sigma-doc-mcp-server new read/write tools", () => {
       mentionedDocuments: [],
     });
 
-    const result = extractPayload(await client.callTool({
-      name: "apply_edits",
-      arguments: {
-        fileId,
-        runId,
-        operations: [{
-          op: "format_inline",
-          target: { type: "overlaySelection" },
-          style: {
-            fontFamilyToken: "mincho",
-            fontSizePt: 16,
-            boxed: { enabled: true, variant: "double" },
-          },
-        }],
-        expectedRevision: saved.revision,
-      },
-    }));
+    const result = extractPayload(await client.callTool(bodyToolCall("apply_edits", {
+      fileId,
+      runId,
+      operations: [{
+        op: "format_inline",
+        target: { type: "overlaySelection" },
+        style: {
+          fontFamilyToken: "mincho",
+          fontSizePt: 16,
+          boxed: { enabled: true, variant: "double" },
+        },
+      }],
+      expectedRevision: saved.revision,
+    })));
     expect(result.ok).toBe(true);
     expect(result.proposalCreated).toBe(true);
 
@@ -2693,15 +2653,12 @@ describe("sigma-doc-mcp-server new read/write tools", () => {
 
   it("update_rich_content updates pagination and silently drops abolished keep hints", async () => {
     const fileId = await getFileId();
-    const result = extractPayload(await client.callTool({
-      name: "update_rich_content",
-      arguments: {
-        fileId,
-        blockId: "p_source_note",
-        pagination: { break: true, keepTogether: true, keepWithNext: true },
-        expectedRevision: 1,
-      },
-    }));
+    const result = extractPayload(await client.callTool(bodyToolCall("update_rich_content", {
+      fileId,
+      blockId: "p_source_note",
+      pagination: { break: true, keepTogether: true, keepWithNext: true },
+      expectedRevision: 1,
+    })));
     expect(result.ok).toBe(true);
     const detail = extractPayload(await client.callTool({
       name: "get_edit_proposal",
@@ -2714,31 +2671,25 @@ describe("sigma-doc-mcp-server new read/write tools", () => {
 
   it("update_problem_content updates prompt without requiring a full problem replacement", async () => {
     const fileId = await getFileId();
-    const result = extractPayload(await client.callTool({
-      name: "update_problem_content",
-      arguments: {
-        fileId,
-        targetId: "problem_complex_square_product_range",
-        prompt: [{ id: "ai_prompt_updated", text: "更新後の問題文" }],
-        expectedRevision: 1,
-      },
-    }));
+    const result = extractPayload(await client.callTool(bodyToolCall("update_problem_content", {
+      fileId,
+      targetId: "problem_complex_square_product_range",
+      prompt: [{ id: "ai_prompt_updated", text: "更新後の問題文" }],
+      expectedRevision: 1,
+    })));
     expect(result.ok).toBe(true);
     expect(result.proposalCreated).toBe(true);
   });
 
   it("writeMode:dryRun validates a write without creating a proposal", async () => {
     const fileId = await getFileId();
-    const result = extractPayload(await client.callTool({
-      name: "update_rich_content",
-      arguments: {
-        fileId,
-        blockId: "p_source_note",
-        text: "dry run",
-        writeMode: "dryRun",
-        expectedRevision: 1,
-      },
-    }));
+    const result = extractPayload(await client.callTool(bodyToolCall("update_rich_content", {
+      fileId,
+      blockId: "p_source_note",
+      text: "dry run",
+      writeMode: "dryRun",
+      expectedRevision: 1,
+    })));
     expect(result.ok).toBe(true);
     expect(result.proposalCreated).toBe(false);
     expect(result.proposal).toBeNull();
@@ -3319,24 +3270,18 @@ describe("sigma-doc-mcp-server new read/write tools", () => {
     const fileId = await getFileId();
     const revision = await seedExtraParagraphAndShape(fileId, false);
 
-    const deleteResult = extractPayload(await client.callTool({
-      name: "delete_blocks",
-      arguments: { fileId, blockIds: ["extra_p1"], expectedRevision: revision },
-    }));
+    const deleteResult = extractPayload(await client.callTool(bodyToolCall("delete_blocks", { fileId, blockIds: ["extra_p1"], expectedRevision: revision })));
     expect(deleteResult.ok).toBe(true);
     expect(deleteResult.proposalCreated).toBe(true);
     expect((deleteResult.documentSummary as { blockCount: number }).blockCount).toBe(1);
 
-    const moveResult = extractPayload(await client.callTool({
-      name: "move_blocks",
-      arguments: {
-        fileId,
-        blockIds: ["extra_p1"],
-        targetId: "problem_complex_square_product_range",
-        position: "before",
-        expectedRevision: revision,
-      },
-    }));
+    const moveResult = extractPayload(await client.callTool(bodyToolCall("move_blocks", {
+      fileId,
+      blockIds: ["extra_p1"],
+      targetId: "problem_complex_square_product_range",
+      position: "before",
+      expectedRevision: revision,
+    })));
     expect(moveResult.ok).toBe(true);
     expect(moveResult.proposalCreated).toBe(true);
   });
@@ -3345,16 +3290,13 @@ describe("sigma-doc-mcp-server new read/write tools", () => {
     const fileId = await getFileId();
     const revision = await seedExtraParagraphAndShape(fileId, false);
 
-    const result = extractPayload(await client.callTool({
-      name: "move_blocks",
-      arguments: {
-        fileId,
-        blockIds: ["problem_complex_square_product_range"],
-        targetId: "END_OF_DOCUMENT",
-        position: "after",
-        expectedRevision: revision,
-      },
-    }));
+    const result = extractPayload(await client.callTool(bodyToolCall("move_blocks", {
+      fileId,
+      blockIds: ["problem_complex_square_product_range"],
+      targetId: "END_OF_DOCUMENT",
+      position: "after",
+      expectedRevision: revision,
+    })));
     expect(result.ok).toBe(true);
   });
 
@@ -4123,15 +4065,12 @@ describe("sigma-doc-mcp-server new read/write tools", () => {
 
   it("reports an invalid replace_block payload with a readable field-path message via formatToolError, not a raw ZodError dump", async () => {
     const fileId = await getFileId();
-    const result = await client.callTool({
-      name: "replace_block",
-      arguments: {
-        fileId,
-        blockId: "p_source_note",
-        block: { type: "not_a_real_block_type" },
-        expectedRevision: 1,
-      },
-    });
+    const result = await client.callTool(bodyToolCall("replace_block", {
+      fileId,
+      blockId: "p_source_note",
+      block: { type: "not_a_real_block_type" },
+      expectedRevision: 1,
+    }));
     expect(result.isError).toBe(true);
     const content = result.content as Array<{ type: string; text?: string }>;
     const message = content
@@ -4164,10 +4103,7 @@ describe("sigma-doc-mcp-server new read/write tools", () => {
     const fileId = await getFileId();
     const revision = await seedExtraParagraphAndShape(fileId, true);
 
-    const result = extractPayload(await client.callTool({
-      name: "delete_blocks",
-      arguments: { fileId, blockIds: ["extra_shape_a"], expectedRevision: revision },
-    }));
+    const result = extractPayload(await client.callTool(bodyToolCall("delete_blocks", { fileId, blockIds: ["extra_shape_a"], expectedRevision: revision })));
     expect(result.ok).toBe(false);
     const message = String((result.toolResult as { message?: string })?.message ?? "");
     expect(message).toContain("delete_shapes");
@@ -4327,15 +4263,12 @@ describe("render_block_context / render_page", () => {
       focus: { preferTargetPage: true },
     });
 
-    const insertResult = extractPayload(await client.callTool({
-      name: "insert_body_content",
-      arguments: {
-        fileId,
-        targetId: "END_OF_DOCUMENT",
-        expectedRevision: 1,
-        blocks: ["render_pageで確認する未承認の段落"],
-      },
-    }));
+    const insertResult = extractPayload(await client.callTool(bodyToolCall("insert_body_content", {
+      fileId,
+      targetId: "END_OF_DOCUMENT",
+      expectedRevision: 1,
+      blocks: ["render_pageで確認する未承認の段落"],
+    })));
     expect(insertResult.ok).toBe(true);
     const changedId = (insertResult.documentSummary as { changedIds: string[] }).changedIds[0];
     requests.length = 0;
@@ -4375,10 +4308,7 @@ describe("render_block_context / render_page", () => {
 
   it("resolves the target block from a proposal's changedIds and reapplies its draft to the current document", async () => {
     const fileId = await getFileId();
-    const insertResult = extractPayload(await client.callTool({
-      name: "insert_body_content",
-      arguments: { fileId, targetId: "END_OF_DOCUMENT", expectedRevision: 1, blocks: ["render_block_context用の新しい段落"] },
-    }));
+    const insertResult = extractPayload(await client.callTool(bodyToolCall("insert_body_content", { fileId, targetId: "END_OF_DOCUMENT", expectedRevision: 1, blocks: ["render_block_context用の新しい段落"] })));
     expect(insertResult.ok).toBe(true);
     const changedId = (insertResult.documentSummary as { changedIds: string[] }).changedIds[0];
     expect(changedId).toBeTruthy();
@@ -4416,10 +4346,7 @@ describe("render_block_context / render_page", () => {
 
   it("does not resolve another file's current proposal", async () => {
     const fileId = await getFileId();
-    await client.callTool({
-      name: "insert_body_content",
-      arguments: { fileId, targetId: "END_OF_DOCUMENT", expectedRevision: 1, blocks: ["別教材チェック用の段落"] },
-    });
+    await client.callTool(bodyToolCall("insert_body_content", { fileId, targetId: "END_OF_DOCUMENT", expectedRevision: 1, blocks: ["別教材チェック用の段落"] }));
     const otherFile = await new LocalSigmaDocStore(userDataDir).createDocument();
 
     const result = extractPayload(await client.callTool({
@@ -5086,6 +5013,141 @@ describe("render_visual_edit_session", () => {
     const statusDirectoryEntries = await fs.readdir(path.dirname(statusPath));
     expect(statusDirectoryEntries.filter((entry) => entry.startsWith(`${path.basename(statusPath)}.tmp-`))).toEqual([]);
     renameSpy.mockRestore();
+  });
+
+  it("resumes a visual session in another MCP server process with the same sessionId and proposes it once", async () => {
+    // Claude and Antigravity start a new MCP server process every turn. Server A plays the
+    // turn that began the session; server B is a fresh module instance (its own lifecycle and
+    // stores, nothing shared in memory) started with the same env, i.e. the next turn.
+    const provider = "claude" as const;
+    const runId = "run_visual_cross_process";
+    const fileId = await getFileId();
+    await configureVisualRunContext(provider, runId, fileId);
+    const bridgeStore = new LocalAiRenderBridgeStore(userDataDir);
+    await bridgeStore.write({
+      version: 1,
+      url: "http://render-bridge.test",
+      token: "test-token",
+      pid: process.pid,
+      createdAt: new Date().toISOString(),
+    });
+    const deps: RenderVisualPreviewDeps = {
+      env: { [SIGMA_STUDIO_RENDER_BRIDGE_FILE_ENV]: bridgeStore.getBridgeFilePath() },
+      fetchImpl: (async () => new Response(JSON.stringify({
+        ok: true,
+        pngBase64: Buffer.from(PNG_MAGIC_BYTES).toString("base64"),
+        width: 1,
+        height: 1,
+        capture: { pageIndex: 0, cropRect: { x: 0, y: 0, w: 1, h: 1 } },
+        anchorBlockFound: true,
+      }), { status: 200, headers: { "content-type": "application/json" } })) as typeof fetch,
+      loadResvg: async () => null,
+    };
+    const runContextDirectory = path.join(userDataDir, "data", "ai-run-context");
+    const statusPath = path.join(runContextDirectory, visualSessionsFileName(provider, runId));
+    const proposalStore = new LocalMcpEditProposalStore(userDataDir);
+    const pendingBefore = (await proposalStore.listProposals({ status: "pending" })).length;
+
+    await connectClient(deps);
+    const beginArgs = { fileId, targetId: "problem_complex_square_product_range", expectedRevision: 1, runId };
+    const begin = extractPayload(await client.callTool({ name: "begin_visual_edit_session", arguments: beginArgs }));
+    const sessionId = (begin.session as { sessionId: string }).sessionId;
+    const inserted = extractPayload(await client.callTool({
+      name: "visual_insert_shape",
+      arguments: { sessionId, kind: "rectangle", x: 100, y: 100, r: 40 },
+    }));
+    expect(inserted.ok).toBe(true);
+    const shapeIds = (inserted.session as { changedIds: string[] }).changedIds;
+    expect(shapeIds).toHaveLength(1);
+    // A second unfinished session of the same run that server B never touches.
+    const otherBegin = extractPayload(await client.callTool({ name: "begin_visual_edit_session", arguments: beginArgs }));
+    const otherSessionId = (otherBegin.session as { sessionId: string }).sessionId;
+    await client.callTool({
+      name: "visual_insert_shape",
+      arguments: { sessionId: otherSessionId, kind: "rectangle", x: 200, y: 200, r: 20 },
+    });
+
+    // Both are saved before the tool results return (the turn may end right after), and only
+    // in the run's own files.
+    // Each saved generation is its own file next to the session's base name.
+    const savedGenerations = async (id: string): Promise<string[]> => {
+      const base = visualSessionStateFileName(provider, runId, id).replace(/\.visual-session-state\.json$/, "");
+      return (await fs.readdir(runContextDirectory)).filter((name) => name.startsWith(`${base}.g`));
+    };
+    expect(await savedGenerations(sessionId)).toHaveLength(1);
+    expect(await savedGenerations(otherSessionId)).toHaveLength(1);
+    await client.close();
+    await flushVisualSessionStatusWritesForTests();
+
+    vi.resetModules();
+    const processB = await import("./sigma-doc-mcp-server-core");
+    const serverB = processB.createSigmaDocMcpServer({ renderVisualPreviewDeps: deps });
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    client = new Client({ name: "test-client-b", version: "0.0.0" });
+    await Promise.all([client.connect(clientTransport), serverB.connect(serverTransport)]);
+    try {
+      const missing = extractPayload(await client.callTool({
+        name: "render_visual_edit_session",
+        arguments: { sessionId: "visual_session_unknown" },
+      }));
+      expect(missing.ok).toBe(false);
+      expect(String(missing.error)).toContain("visual edit session が見つかりません");
+
+      // Server B restores only this run's saved sessions: another run's runId does not reach it.
+      const otherRun = extractPayload(await client.callTool({
+        name: "render_visual_edit_session",
+        arguments: { sessionId, runId: "run_visual_other" },
+      }));
+      expect(otherRun.ok).toBe(false);
+      expect(String(otherRun.error)).toContain("visual edit session が見つかりません");
+
+      // As the prompt tells agents, the next turn passes its runId to every tool.
+      const render = extractPayload(await client.callTool({ name: "render_visual_edit_session", arguments: { sessionId, runId } }));
+      expect(render.ok, JSON.stringify(render.error)).toBe(true);
+      expect(render.session).toMatchObject({ sessionId, revision: 1, operationCount: 1, changedIds: shapeIds, lastPreviewRevision: 1 });
+      const inspect = extractPayload(await client.callTool({ name: "inspect_visual_edit_session", arguments: { sessionId, runId } }));
+      expect(inspect.ok).toBe(true);
+      const review = extractPayload(await client.callTool({
+        name: "review_visual_edit_session",
+        arguments: {
+          sessionId,
+          runId,
+          verdict: "pass",
+          score: 96,
+          // The preview code depends only on sessionId and revision, so it stays stable across processes.
+          previewCode: processB.deriveVisualPreviewCode(sessionId, 1),
+          sourceImageSummary: "元画像の要約",
+          previewSummary: "previewの要約",
+        },
+      }));
+      expect(review).toMatchObject({ ok: true, review: { passed: true } });
+      const proposed = extractPayload(await client.callTool({ name: "propose_visual_edit_session", arguments: { sessionId, runId } }));
+      expect(proposed.ok).toBe(true);
+      expect(proposed.proposalCreated).toBe(true);
+
+      const pending = await proposalStore.listProposals({ status: "pending" });
+      expect(pending).toHaveLength(pendingBefore + 1);
+      const proposal = pending.find((item) => item.changedIds.includes(shapeIds[0]!));
+      expect(proposal).toMatchObject({ fileId, runId, provider });
+
+      // The finished session's state is removed; the untouched one stays resumable and stays
+      // listed as unfinished, so the continuation check still sees it.
+      expect(await savedGenerations(sessionId)).toEqual([]);
+      expect(await savedGenerations(otherSessionId)).toHaveLength(1);
+      await processB.flushVisualSessionStatusWritesForTests();
+      const status = JSON.parse(await fs.readFile(statusPath, "utf8")) as {
+        sessions: Array<{ sessionId: string; operationCount: number; proposed: boolean; discarded: boolean }>;
+      };
+      expect(status.sessions.find((item) => item.sessionId === sessionId)).toMatchObject({ proposed: true, discarded: false });
+      expect(status.sessions.find((item) => item.sessionId === otherSessionId)).toMatchObject({ operationCount: 1, proposed: false, discarded: false });
+
+      const discarded = extractPayload(await client.callTool({ name: "discard_visual_edit_session", arguments: { sessionId: otherSessionId, runId } }));
+      expect(discarded.ok).toBe(true);
+      expect(await savedGenerations(otherSessionId)).toEqual([]);
+      expect((await proposalStore.listProposals({ status: "pending" })).length).toBe(pendingBefore + 1);
+    } finally {
+      await processB.flushVisualSessionStatusWritesForTests();
+    }
   });
 
   it("records an expired visual session as discarded before pruning it", async () => {

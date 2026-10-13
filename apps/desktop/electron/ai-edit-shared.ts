@@ -17,14 +17,6 @@ const WRITE_CAPABLE_MCP_TOOL_NAMES = new Set([
   "edit_text",
   "edit_problem",
   "organize_blocks",
-  "apply_edits",
-  "insert_body_content",
-  "create_problem_content",
-  "update_rich_content",
-  "update_problem_content",
-  "replace_block",
-  "delete_blocks",
-  "move_blocks",
   "insert_table",
   "update_table",
   "insert_generated_image",
@@ -53,7 +45,7 @@ const MCP_TOOL_NAME_PREFIX_PATTERN = /^mcp__[^_]+(?:-[^_]+)*__/;
 
 // Gemini registers MCP tools as `mcp_<serverName>_<toolName>` with single
 // underscores (see Part A5 of the WI-4 plan). Tool names themselves contain
-// underscores (insert_body_content), so this must be an exact-prefix strip,
+// underscores (insert_content), so this must be an exact-prefix strip,
 // not a generic single-underscore regex. Derived from the shared MCP server
 // name constant (Finding 6) instead of a second hardcoded literal.
 const GEMINI_MCP_TOOL_NAME_PREFIX = `mcp_${SIGMA_DOC_MCP_SERVER_NAME}_`;

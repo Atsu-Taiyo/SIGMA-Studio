@@ -11,6 +11,8 @@ import {
   type VisualEditSession,
   type VisualEditSessionLifecyclePorts,
   type VisualEditSessionStart,
+  type VisualEditSessionStatePort,
+  type VisualEditSessionCaller,
   type VisualInspectionResult,
   type VisualReviewInput,
 } from "./visual-edit-session-lifecycle";
@@ -353,6 +355,388 @@ describe("visual session review generations", () => {
     lifecycle.assertReadyForProposal(session, inspect);
     expect(inspect).toHaveBeenCalledTimes(2);
     await h.lifecycle.flushStatusWrites();
+  });
+});
+
+/**
+ * Two lifecycles sharing one saved store and one status file stand in for two MCP server
+ * processes of the same run (Claude and Antigravity start one per turn).
+ */
+function sharedRunStorage() {
+  const clock = { now: START };
+  const saved = new Map<string, { generation: number; serialized: string }>();
+  const statusFiles = new Map<string, VisualSessionsStatusFile>();
+  const stateWrites = vi.fn();
+  const failWrites = new Set<string>();
+  const retired = new Set<string>();
+  const unreadable = new Set<string>();
+  const resolveStatusTarget: VisualEditSessionLifecyclePorts["resolveStatusTarget"] = (provider, runId) => {
+    if (!provider || !runId) return null;
+    const key = `${provider}/${runId}`;
+    return {
+      key,
+      read: async () => structuredClone(statusFiles.get(key) ?? null),
+      write: async (status) => { statusFiles.set(key, structuredClone(status)); },
+    };
+  };
+  const sessionState: VisualEditSessionStatePort = {
+    resolveTarget: (session) => {
+      if (!session.provider || !session.runId) return null;
+      const sessionId = session.sessionId;
+      return {
+        key: `state/${sessionId}`,
+        readGeneration: async () => saved.get(sessionId)?.generation ?? null,
+        isRetired: async () => retired.has(sessionId),
+        write: async (serialized, generation) => {
+          stateWrites(sessionId, generation);
+          if (retired.has(sessionId)) return "superseded";
+          if (failWrites.has(sessionId)) {
+            saved.delete(sessionId);
+            return "failed";
+          }
+          const current = saved.get(sessionId);
+          if (current && current.generation >= generation) return "superseded";
+          saved.set(sessionId, { generation, serialized });
+          return "written";
+        },
+        clear: async () => { saved.delete(sessionId); },
+        retire: async () => { retired.add(sessionId); saved.delete(sessionId); },
+      };
+    },
+    serialize: (session) => JSON.stringify(session),
+    load: async (sessionId, runId) => {
+      if (retired.has(sessionId) || unreadable.has(sessionId)) return null;
+      const entry = saved.get(sessionId);
+      const session = entry ? JSON.parse(entry.serialized) as VisualEditSession : null;
+      return entry && session?.runId === runId ? { generation: entry.generation, session } : null;
+    },
+  };
+  const process = () => new VisualEditSessionLifecycle({ now: () => clock.now, resolveStatusTarget, sessionState });
+  const status = (sessionId: string) => statusFiles.get("claude/run_visual")?.sessions.find((item) => item.sessionId === sessionId);
+  return { clock, saved, statusFiles, stateWrites, failWrites, retired, unreadable, process, status };
+}
+
+/** The run the MCP server process belongs to (from its run-context file); the tool call did not pass a runId. */
+const RUN: VisualEditSessionCaller = { runId: "run_visual", explicit: false };
+
+describe("visual sessions saved per run", () => {
+  it("resumes a session from another process with its operations and review generations", async () => {
+    const storage = sharedRunStorage();
+    const first = storage.process();
+    const session = first.begin(sessionInput("resumed"));
+    await first.persist(session);
+    makeReviewable(first, session);
+    await first.persist(session);
+    expect(storage.saved.get("resumed")?.generation).toBe(2);
+
+    const next: VisualEditSessionLifecycle = storage.process();
+    expect(next.peek("resumed")).toBeUndefined();
+    const resumed = await next.resolve("resumed", RUN);
+    expect(resumed).toMatchObject({
+      sessionId: "resumed", revision: 1, lastPreviewRevision: 1, runId: "run_visual", provider: "claude",
+      lastPreviewCode: deriveVisualPreviewCode("resumed", 1),
+      lastInspection: { passed: true, inspectedRevision: 1 },
+    });
+    expect(resumed.agentSession.operations).toHaveLength(1);
+    expect(next.review(resumed, reviewInput(resumed)).review.passed).toBe(true);
+    const inspect = vi.fn(() => inspection(resumed));
+    next.assertReadyForProposal(resumed, inspect);
+    expect(inspect).toHaveBeenCalledOnce();
+    expect(await next.resolve("resumed", RUN)).toBe(resumed);
+  });
+
+  it("restores one object for concurrent calls and keeps the unknown-session error", async () => {
+    const storage = sharedRunStorage();
+    const first = storage.process();
+    await first.persist(first.begin(sessionInput("concurrent")));
+
+    const next = storage.process();
+    const [a, b] = await Promise.all([next.resolve("concurrent", RUN), next.resolve("concurrent", RUN)]);
+    expect(a).toBe(b);
+    await expect(next.resolve("missing", RUN)).rejects.toThrow("visual edit session が見つかりません: missing");
+    await expect(next.find("missing", RUN)).resolves.toBeUndefined();
+  });
+
+  it("re-reads state another process advanced and never overwrites it with stale memory", async () => {
+    const storage = sharedRunStorage();
+    const first = storage.process();
+    const stale = first.begin(sessionInput("contended"));
+    await first.persist(stale);
+
+    const next = storage.process();
+    const advanced = await next.resolve("contended", RUN);
+    addOperation(next, advanced);
+    await next.persist(advanced);
+    expect(storage.saved.get("contended")?.generation).toBe(2);
+
+    // The earlier process picks the newer saved state instead of its own memory.
+    const reread = await first.resolve("contended", RUN);
+    expect(reread).not.toBe(stale);
+    expect(reread.revision).toBe(1);
+
+    // A write from memory that is older than the saved state is refused and dropped.
+    const third = storage.process();
+    const staleCopy = await third.resolve("contended", RUN);
+    addOperation(next, advanced);
+    await next.persist(advanced);
+    addOperation(third, staleCopy);
+    await third.persist(staleCopy);
+    expect(third.peek("contended")).toBeUndefined();
+    expect(JSON.parse(storage.saved.get("contended")!.serialized).revision).toBe(2);
+    expect((await third.resolve("contended", RUN)).revision).toBe(2);
+  });
+
+  it.each(["proposed", "discarded"] as const)("records %s before removing the saved state and does not restore it again", async (state) => {
+    const storage = sharedRunStorage();
+    const first = storage.process();
+    const session = first.begin(sessionInput("finished"));
+    addOperation(first, session);
+    await first.persist(session);
+
+    const next = storage.process();
+    const resumed = await next.resolve("finished", RUN);
+    await next.finish(resumed, state);
+    expect(storage.saved.has("finished")).toBe(false);
+    expect(storage.status("finished")).toMatchObject({ proposed: state === "proposed", discarded: state === "discarded" });
+
+    // Even if a late write brought the file back, this process does not resume a finished session.
+    storage.saved.set("finished", { generation: 9, serialized: JSON.stringify(resumed) });
+    await expect(next.find("finished", RUN)).resolves.toBeUndefined();
+    await next.persist(resumed);
+    expect(storage.saved.get("finished")?.generation).toBe(9);
+  });
+
+  it("discards a saved session that expired and removes its state", async () => {
+    const storage = sharedRunStorage();
+    const first = storage.process();
+    const session = first.begin(sessionInput("stale_saved"));
+    addOperation(first, session);
+    await first.persist(session);
+
+    storage.clock.now += HOUR + 1;
+    const next = storage.process();
+    await expect(next.resolve("stale_saved", RUN)).rejects.toThrow("visual edit session が見つかりません: stale_saved");
+    expect(storage.saved.has("stale_saved")).toBe(false);
+    expect(storage.status("stale_saved")).toMatchObject({ operationCount: 1, discarded: true });
+  });
+
+  it("keeps sessions of the same run that only another process knows in the status file, finished ones included", async () => {
+    const storage = sharedRunStorage();
+    const first = storage.process();
+    for (const sessionId of ["kept_a", "kept_b"]) {
+      const session = first.begin(sessionInput(sessionId));
+      addOperation(first, session);
+      await first.persist(session);
+    }
+    const finishedElsewhere = first.begin(sessionInput("finished_elsewhere"));
+    await first.finish(finishedElsewhere, "discarded");
+    await first.flushStatusWrites();
+
+    const next = storage.process();
+    const resumed = await next.resolve("kept_a", RUN);
+    await next.finish(resumed, "proposed");
+    await next.flushStatusWrites();
+    expect(storage.statusFiles.get("claude/run_visual")?.sessions.map(({ sessionId, proposed, discarded }) => ({ sessionId, proposed, discarded }))).toEqual([
+      { sessionId: "finished_elsewhere", proposed: false, discarded: true },
+      { sessionId: "kept_a", proposed: true, discarded: false },
+      { sessionId: "kept_b", proposed: false, discarded: false },
+    ]);
+  });
+
+  it("waits for the session's state and status writes before the tool call returns", async () => {
+    const storage = sharedRunStorage();
+    const lifecycle = storage.process();
+    const session = lifecycle.begin(sessionInput("durable"));
+    addOperation(lifecycle, session);
+    await lifecycle.persist(session);
+    expect(storage.saved.get("durable")?.generation).toBe(1);
+    expect(storage.status("durable")).toMatchObject({ operationCount: 1 });
+    expect(lifecycle.cacheSizes().pending).toBe(0);
+  });
+
+  it("reports whether the state was saved, and never leaves an older state to resume after a failed write", async () => {
+    const storage = sharedRunStorage();
+    const first = storage.process();
+    const session = first.begin(sessionInput("unsaved"));
+    await expect(first.persist(session)).resolves.toBe("saved");
+    addOperation(first, session);
+    storage.failWrites.add("unsaved");
+    await expect(first.persist(session)).resolves.toBe("not-saved");
+    // This process keeps working from memory; another process cannot resume a stale copy.
+    expect(first.peek("unsaved")).toBe(session);
+    expect(storage.saved.has("unsaved")).toBe(false);
+    await expect(storage.process().find("unsaved", RUN)).resolves.toBeUndefined();
+
+    storage.failWrites.delete("unsaved");
+    await expect(first.persist(session)).resolves.toBe("saved");
+    expect((await storage.process().resolve("unsaved", RUN)).revision).toBe(1);
+  });
+
+  it("reports a change another process got ahead of instead of treating it as saved", async () => {
+    const storage = sharedRunStorage();
+    const first = storage.process();
+    const stale = first.begin(sessionInput("raced"));
+    await first.persist(stale);
+    const next = storage.process();
+    const advanced = await next.resolve("raced", RUN);
+    addOperation(next, advanced);
+    await expect(next.persist(advanced)).resolves.toBe("saved");
+
+    // `first` still holds generation 1 and writes generation 2, which `next` already saved.
+    addOperation(first, stale);
+    await expect(first.persist(stale)).resolves.toBe("superseded");
+    expect(JSON.parse(storage.saved.get("raced")!.serialized).revision).toBe(1);
+    expect(first.peek("raced")).toBeUndefined();
+  });
+
+  it("does not resume a session another process recorded as finished before it could remove the state", async () => {
+    const storage = sharedRunStorage();
+    const first = storage.process();
+    const session = first.begin(sessionInput("crashed_after_finish"));
+    addOperation(first, session);
+    await first.persist(session);
+    // The status says proposed, but the process stopped before deleting the saved state.
+    storage.statusFiles.set("claude/run_visual", {
+      version: 1,
+      updatedAt: new Date(START).toISOString(),
+      sessions: [{ ...storage.status("crashed_after_finish")!, proposed: true }],
+    });
+
+    const next = storage.process();
+    await expect(next.find("crashed_after_finish", RUN)).resolves.toBeUndefined();
+    expect(storage.saved.has("crashed_after_finish")).toBe(false);
+  });
+
+  it("does not save writes already queued for a session after another process got ahead of it", async () => {
+    const storage = sharedRunStorage();
+    const first = storage.process();
+    const stale = first.begin(sessionInput("queued"));
+    await first.persist(stale);
+    const next = storage.process();
+    const advanced = await next.resolve("queued", RUN);
+    addOperation(next, advanced);
+    await next.persist(advanced);
+
+    // Two concurrent tool calls on the stale copy queue two writes. The first is refused; the
+    // second must not land as a newer generation on top of the other process's change.
+    addOperation(first, stale);
+    await expect(Promise.all([first.persist(stale), first.persist(stale)])).resolves.toEqual(["superseded", "superseded"]);
+    expect(storage.saved.get("queued")?.generation).toBe(2);
+    expect(JSON.parse(storage.saved.get("queued")!.serialized).agentSession.operations).toHaveLength(1);
+  });
+
+  it("keeps a finished session's record when another process rewrites the run's status, so it is not resumed", async () => {
+    const storage = sharedRunStorage();
+    const first = storage.process();
+    const session = first.begin(sessionInput("finished_then_crashed"));
+    addOperation(first, session);
+    await first.persist(session);
+    // The status says proposed, but the process stopped before retiring the saved state.
+    storage.statusFiles.set("claude/run_visual", {
+      version: 1,
+      updatedAt: new Date(START).toISOString(),
+      sessions: [{ ...storage.status("finished_then_crashed")!, proposed: true }],
+    });
+
+    // A new process of the same run starts another session and rewrites the status file.
+    const next = storage.process();
+    await next.persist(next.begin(sessionInput("another")));
+    await next.flushStatusWrites();
+    expect(storage.status("finished_then_crashed")).toMatchObject({ proposed: true });
+
+    await expect(storage.process().find("finished_then_crashed", RUN)).resolves.toBeUndefined();
+  });
+
+  it("drops a copy another process proposed, even while this process still holds it", async () => {
+    const storage = sharedRunStorage();
+    const first = storage.process();
+    const session = first.begin(sessionInput("double_propose"));
+    addOperation(first, session);
+    await first.persist(session);
+    const next = storage.process();
+    await next.finish(await next.resolve("double_propose", RUN), "proposed");
+
+    await expect(first.find("double_propose", RUN)).resolves.toBeUndefined();
+    expect(first.peek("double_propose")).toBeUndefined();
+  });
+
+  it("does not fall back to its older copy when a newer saved generation cannot be read", async () => {
+    const storage = sharedRunStorage();
+    const first = storage.process();
+    const held = first.begin(sessionInput("newer_unreadable"));
+    await first.persist(held);
+    const next = storage.process();
+    const advanced = await next.resolve("newer_unreadable", RUN);
+    addOperation(next, advanced);
+    await next.persist(advanced);
+
+    // The newer generation is replaced again (or invalidated) before `first` reads it.
+    storage.unreadable.add("newer_unreadable");
+    await expect(first.find("newer_unreadable", RUN)).resolves.toBeUndefined();
+    expect(first.peek("newer_unreadable")).toBeUndefined();
+    storage.unreadable.delete("newer_unreadable");
+    expect((await first.resolve("newer_unreadable", RUN)).agentSession.operations).toHaveLength(1);
+  });
+
+  it("checks right before proposing that no other process saved a newer generation", async () => {
+    const storage = sharedRunStorage();
+    const first = storage.process();
+    const held = first.begin(sessionInput("propose_check"));
+    await first.persist(held);
+    await expect(first.isLatest(held)).resolves.toBe(true);
+
+    const next = storage.process();
+    const advanced = await next.resolve("propose_check", RUN);
+    addOperation(next, advanced);
+    await next.persist(advanced);
+    await expect(first.isLatest(held)).resolves.toBe(false);
+    expect(first.peek("propose_check")).toBeUndefined();
+    await expect(first.persist(held)).resolves.toBe("superseded");
+  });
+
+  it("does not turn another process's finished record back into an unfinished one", async () => {
+    const storage = sharedRunStorage();
+    const first = storage.process();
+    const held = first.begin(sessionInput("held_elsewhere_finished"));
+    addOperation(first, held);
+    await first.persist(held);
+    await first.flushStatusWrites();
+    // Another process proposed it and recorded that, then stopped before retiring the state.
+    const record = storage.status("held_elsewhere_finished")!;
+    storage.statusFiles.set("claude/run_visual", { version: 1, updatedAt: new Date(START).toISOString(), sessions: [{ ...record, proposed: true }] });
+
+    // `first` still holds its unfinished copy and rewrites the status for another session.
+    await first.persist(first.begin(sessionInput("other_session")));
+    await first.flushStatusWrites();
+    expect(storage.status("held_elsewhere_finished")).toMatchObject({ proposed: true });
+    // Neither `first` nor a new process continues it.
+    await expect(first.find("held_elsewhere_finished", RUN)).resolves.toBeUndefined();
+    await expect(storage.process().find("held_elsewhere_finished", RUN)).resolves.toBeUndefined();
+  });
+
+  it("restores and exposes sessions only to their own run", async () => {
+    const storage = sharedRunStorage();
+    const first = storage.process();
+    const session = first.begin(sessionInput("owned"));
+    await first.persist(session);
+
+    const other = storage.process();
+    await expect(other.find("owned", { runId: "run_other", explicit: false })).resolves.toBeUndefined();
+    await expect(other.find("owned", { runId: null, explicit: false })).resolves.toBeUndefined();
+    // A process that already holds the session still refuses a call that names another run.
+    await expect(first.find("owned", { runId: "run_other", explicit: true })).resolves.toBeUndefined();
+    await expect(first.find("owned", { runId: "run_visual", explicit: true })).resolves.toBe(session);
+    expect((await storage.process().resolve("owned", { runId: "run_visual", explicit: true })).sessionId).toBe("owned");
+  });
+
+  it("keeps sessions without a run in memory only", async () => {
+    const storage = sharedRunStorage();
+    const lifecycle = storage.process();
+    const session = lifecycle.begin(sessionInput("memory_only", { runId: undefined }));
+    await lifecycle.persist(session);
+    expect(storage.stateWrites).not.toHaveBeenCalled();
+    expect(await lifecycle.resolve("memory_only", RUN)).toBe(session);
+    await expect(storage.process().find("memory_only", RUN)).resolves.toBeUndefined();
   });
 });
 

@@ -129,10 +129,6 @@ export interface McpEditProviderDescriptor<TClient> {
   runTurn(args: {
     client: TClient;
     instruction: string;
-    /** Original user instruction, before the shared MCP prompt is composed. */
-    userInstruction: string;
-    references: readonly AiEditReference[];
-    selectedSkillIds: readonly string[];
     model: string | null;
     reasoningEffort: string | null;
     agentThreadId: string | undefined;
@@ -193,7 +189,7 @@ export function buildMcpEditPromptForProvider(
     locale: AppLocale;
   },
 ): string {
-  return buildMcpEditPrompt({ provider, ...args, toolProfile: "app" });
+  return buildMcpEditPrompt({ provider, ...args });
 }
 
 export async function runMcpEditForIpc<TClient>(
@@ -274,11 +270,6 @@ export async function runMcpEditForIpc<TClient>(
     locale: args.locale,
     isResumedTurn: Boolean(payload.agentThreadId),
   });
-  const references = Array.isArray(payload.references) ? payload.references : [];
-  const selectedSkillIds = (args.aiResources?.explicit ?? [])
-    .filter((item) => item.kind === "skill")
-    .map((item) => item.id);
-
   emit(args.onEvent, { kind: "phase", phase: "thinking", message: descriptor.thinkingMessage });
 
   const { instruction: fullInstruction, cleanup } = await descriptor.prepareInstruction({
@@ -300,9 +291,6 @@ export async function runMcpEditForIpc<TClient>(
     const outcome = await descriptor.runTurn({
       client: args.client,
       instruction: fullInstruction,
-      userInstruction: instruction,
-      references,
-      selectedSkillIds,
       model: safeCliScalar(payload.model),
       reasoningEffort: safeCliScalar(payload.reasoningEffort),
       agentThreadId: safeCliScalar(payload.agentThreadId) ?? undefined,
