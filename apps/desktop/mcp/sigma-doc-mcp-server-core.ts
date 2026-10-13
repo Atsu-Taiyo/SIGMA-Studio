@@ -3280,61 +3280,6 @@ registerTool(
 );
 
 registerTool(
-  "list_all_pending_proposals",
-  {
-    title: "すべてのセッションの保留中提案一覧",
-    description: "指定した教材の保留中提案をセッション (roomId/runId) に関わらず返します。過去セッション由来の却下不可な提案をUI側で表示するために使います。",
-    inputSchema: {
-      fileId: z.string().min(1),
-    },
-  },
-  async ({ fileId }) => withToolErrorHandling(async () => {
-    const proposalStore = createProposalStore();
-    const proposals = await proposalStore.listAllPendingProposalsForFile(fileId);
-    return {
-      ok: true,
-      proposals: proposals.map((proposal) => {
-        const summary = summarizeProposalListItem(proposal as unknown as Record<string, unknown>);
-        // For cross-session proposal discovery, include proposalId so caller can withdraw it
-        return {
-          ...summary,
-          proposalId: (proposal as unknown as Record<string, unknown>).proposalId as string,
-        };
-      }),
-    };
-  }),
-);
-
-registerTool(
-  "withdraw_edit_proposal",
-  {
-    title: "任意の保留中提案を取り下げる (セッション横断)",
-    description: "指定した提案ID の保留中提案を、セッション (roomId/runId) に関わらず取り下げます。",
-    inputSchema: {
-      fileId: z.string().min(1),
-      proposalId: z.string().min(1),
-      reason: z.string().optional(),
-    },
-  },
-  async ({ fileId, proposalId, reason }) => withToolErrorHandling(async () => {
-    const proposalStore = createProposalStore();
-    // Verify the proposal belongs to the requested fileId
-    const proposal = await proposalStore.loadProposal(proposalId);
-    if (!proposal) {
-      throw new Error(`提案 ${proposalId} が見つかりません。`);
-    }
-    if (proposal.fileId !== fileId) {
-      throw new Error(`提案は異なる教材に属しています。要求: ${fileId}, 実際: ${proposal.fileId}`);
-    }
-    const withdrawn = await proposalStore.rejectSingleProposal(proposalId, reason);
-    return {
-      ok: true,
-      withdrawn: true,
-      proposal: summarizeProposalListItem(withdrawn as unknown as Record<string, unknown>),
-    };
-  }),
-);
-registerTool(
   "list_local_documents",
   {
     title: "ローカル教材一覧",
@@ -4405,99 +4350,105 @@ registerTool(
   }),
 );
 
-// Generated results belong to a specific app run and document. Never accept arbitrary OS paths.
-const generatedImages = new CodexGeneratedImageStore(storeContext.dataDir);
-const GeneratedImageTargetSchema = { fileId: z.string().min(1), runId: z.string().min(1) };
-function requireImageRun(fileId: string, runId: string): AiEditRunContext {
-  const context = resolveEditContextRunContext(fileId, runId);
-  if (!context || context.provider !== "chatgpt" || context.runId !== runId) {
-    throw new Error("この依頼の画像を利用できません。fileIdとrunIdを確認してください。");
-  }
-  return context;
-}
-async function resolveGeneratedImage(fileId: string, runId: string, imageId: string) {
-  requireImageRun(fileId, runId);
-  const record = await generatedImages.get(runId, imageId);
-  if (!record || record.fileId !== fileId) throw new Error("この依頼の生成画像が見つかりません。list_generated_imagesで確認してください。");
-  if (!record.image.fileSize || !record.image.width || !record.image.height) throw new Error("生成画像のサイズ情報がありません。");
-  if (record.image.fileSize > MAX_AI_OVERLAY_ASSET_BYTES || record.image.width * record.image.height > MAX_AI_OVERLAY_ASSET_PIXELS) {
-    throw new Error("生成画像はプレビューできますが、編集案の画像上限（2 MiB・2500万画素）を超えるため挿入できません。小さい画像で再度依頼してください。");
-  }
-  return record;
-}
-
-registerTool("list_generated_images", {
-  title: "生成画像を確認",
-  description: "この依頼でCodexが生成した画像のimageId・サイズ・プレビューを返します。fileId/runIdは依頼と同じ値が必須。生成完了直後に空の場合はturnを終えてください。ホストが取り込み完了後に続行します。画像の挿入はinsert_generated_image、差し替えはupdate_generated_imageで承認待ち提案にします。",
-  inputSchema: GeneratedImageTargetSchema,
-}, async ({ fileId, runId }) => withToolErrorHandling(async () => {
-  requireImageRun(fileId, runId);
-  const records = (await generatedImages.list(runId)).filter((record) => record.fileId === fileId);
-  return jsonResultWithContent({
-    ok: true, message: "生成画像を確認しました。",
-    images: records.map((record) => ({ imageId: record.imageId, width: record.image.width, height: record.image.height, mimeType: record.image.mimeType })),
-  }, records.map((record) => ({ type: "image" as const, mimeType: "image/png", data: record.previewDataUrl.split(",")[1] })));
-}));
-
-registerTool("insert_generated_image", {
-  title: "生成画像を挿入",
-  description: "list_generated_imagesで確認した画像を教材へ挿入する承認待ち提案を作ります。画像本体はSigmaDocへ保持します。targetIdまたはselectedIdが必須。ホワイトボードはtargetId:CANVAS。w/h省略時は縦横比を保持します。同じimageIdの再挿入は重複しません。verification.previewを確認してください。",
-  inputSchema: { ...DocumentTargetSchema, ...DraftInsertGeneratedImageArgsSchema.shape, runId: z.string().min(1) },
-}, async (args) => withToolErrorHandling(async () => runDraftTool({
-  ...args, toolName: "draft_insert_generated_image", toolArgs: DraftInsertGeneratedImageArgsSchema.parse(args),
-  resolveRuntimeToolArgs: async () => ({ generatedImage: (await resolveGeneratedImage(args.fileId, args.runId, args.imageId)).image }),
-}, renderVisualPreviewDeps, storeContext.store)));
-
-registerTool("update_generated_image", {
-  title: "生成画像に差し替え",
-  description: "教材内の画像をlist_generated_imagesで確認した生成画像に差し替える承認待ち提案を作ります。shapeId・位置・表示サイズ・回転・アンカーは保持し、画像を共有する他の図形には影響しません。verification.previewを確認してください。",
-  inputSchema: { ...DocumentTargetSchema, ...DraftUpdateGeneratedImageArgsSchema.shape, runId: z.string().min(1) },
-}, async (args) => withToolErrorHandling(async () => runDraftTool({
-  ...args, toolName: "draft_update_generated_image", toolArgs: DraftUpdateGeneratedImageArgsSchema.parse(args),
-  resolveRuntimeToolArgs: async () => ({ generatedImage: (await resolveGeneratedImage(args.fileId, args.runId, args.imageId)).image }),
-}, renderVisualPreviewDeps, storeContext.store)));
-
-registerTool("get_image_reference", {
-  title: "教材の画像を参照",
-  description: "画像編集用に教材内のimage shapeの元画像を取得します。fileId/runId/shapeIdが必須。filePathをview_imageで確認してCodex画像生成ツールの参照画像に使えます。返されたshapeIdをupdate_generated_imageに渡して差し替え提案を作ってください。",
-  inputSchema: { ...GeneratedImageTargetSchema, shapeId: z.string().min(1) },
-}, async ({ fileId, runId, shapeId }) => withToolErrorHandling(async () => {
-  const context = requireImageRun(fileId, runId);
-  const { document, file } = await loadDocumentForFile(storeContext.store, fileId);
-  const pending = await createProposalStore().findCurrentPendingProposal({ fileId, roomId: context.roomId, runId });
-  let working = document;
-  if (pending && !pending.invalidReason && (usableProposalMergeBasis(pending.mergeBasis) || pending.baseRevision === file.revision)) {
-    const resolved = resolveRoomWorkingDocument(pending, document);
-    if (resolved.ok) {
-      working = resolved.document;
-    } else {
-      // 合成できない作業案の画像は保存済みSigmaDocから引く (退避は台帳ログで数える)。
-      createProposalStore().recordMergeFallback("image-reference-working-document", { proposalId: pending.proposalId });
+// Codexのネイティブ画像生成を扱う4本は、Codex (app-server) のrunだけが使える。requireImageRunが
+// chatgpt以外のrunを必ず拒否するので、Claude/Antigravityと、providerを持たない起動 (外部CLI・テスト)
+// には公開しない。providerは起動元 (electron/sigma-studio-mcp-launch.ts) が焼き込む値で、
+// サーバープロセスの寿命の間は変わらない。
+if (resolveMcpProvider() === "chatgpt") {
+  // Generated results belong to a specific app run and document. Never accept arbitrary OS paths.
+  const generatedImages = new CodexGeneratedImageStore(storeContext.dataDir);
+  const GeneratedImageTargetSchema = { fileId: z.string().min(1), runId: z.string().min(1) };
+  function requireImageRun(fileId: string, runId: string): AiEditRunContext {
+    const context = resolveEditContextRunContext(fileId, runId);
+    if (!context || context.provider !== "chatgpt" || context.runId !== runId) {
+      throw new Error("この依頼の画像を利用できません。fileIdとrunIdを確認してください。");
     }
+    return context;
   }
-  const snapshot = normalizeOverlaySnapshot(working.pageLayout?.overlay?.overlaySnapshot);
-  const shape = snapshot.shapes.find((candidate) => candidate.id === shapeId);
-  if (!shape || shape.type !== "image") throw new Error("参照する画像が見つかりません。shapeIdを確認してください。");
-  const asset = snapshot.assets[shape.props.assetId];
-  const parsed = parseAttachedFileDataUrl(asset?.props.src ?? "");
-  if (!parsed || parsed.base64.length > Math.ceil(MAX_GENERATED_IMAGE_BYTES / 3) * 4) throw new Error("参照画像を読み込めませんでした。");
-  let bytes: Buffer = Buffer.from(parsed.base64, "base64");
-  if (parsed.mimeType === "image/svg+xml") {
-    const svg = bytes.toString("utf8");
-    validateAiSvg(svg);
-    const resvg = await renderVisualPreviewDeps.loadResvg();
-    if (!resvg) throw new Error("参照画像のpreviewを生成できません。");
-    bytes = resvg.render(svg);
+  async function resolveGeneratedImage(fileId: string, runId: string, imageId: string) {
+    requireImageRun(fileId, runId);
+    const record = await generatedImages.get(runId, imageId);
+    if (!record || record.fileId !== fileId) throw new Error("この依頼の生成画像が見つかりません。list_generated_imagesで確認してください。");
+    if (!record.image.fileSize || !record.image.width || !record.image.height) throw new Error("生成画像のサイズ情報がありません。");
+    if (record.image.fileSize > MAX_AI_OVERLAY_ASSET_BYTES || record.image.width * record.image.height > MAX_AI_OVERLAY_ASSET_PIXELS) {
+      throw new Error("生成画像はプレビューできますが、編集案の画像上限（2 MiB・2500万画素）を超えるため挿入できません。小さい画像で再度依頼してください。");
+    }
+    return record;
   }
-  const image = await prepareGeneratedImage(bytes);
-  const extension = image.mimeType === "image/jpeg" ? "jpg" : image.mimeType === "image/webp" ? "webp" : "png";
-  const scope = createHash("sha256").update(runId).digest("hex");
-  const name = createHash("sha256").update(shapeId).update(bytes).digest("hex");
-  const filePath = await writeRunContextPreviewFile(path.join(storeContext.dataDir, "ai-run-context"), `image-reference-${scope}`, `${name}.${extension}`, bytes);
-  return jsonResultWithContent({ ok: true, message: "参照画像を取得しました。", shapeId, filePath, width: image.width, height: image.height }, [
-    { type: "image", mimeType: "image/png", data: image.previewDataUrl.split(",")[1] },
-  ]);
-}));
+
+  registerTool("list_generated_images", {
+    title: "生成画像を確認",
+    description: "この依頼でCodexが生成した画像のimageId・サイズ・プレビューを返します。fileId/runIdは依頼と同じ値が必須。生成完了直後に空の場合はturnを終えてください。ホストが取り込み完了後に続行します。画像の挿入はinsert_generated_image、差し替えはupdate_generated_imageで承認待ち提案にします。",
+    inputSchema: GeneratedImageTargetSchema,
+  }, async ({ fileId, runId }) => withToolErrorHandling(async () => {
+    requireImageRun(fileId, runId);
+    const records = (await generatedImages.list(runId)).filter((record) => record.fileId === fileId);
+    return jsonResultWithContent({
+      ok: true, message: "生成画像を確認しました。",
+      images: records.map((record) => ({ imageId: record.imageId, width: record.image.width, height: record.image.height, mimeType: record.image.mimeType })),
+    }, records.map((record) => ({ type: "image" as const, mimeType: "image/png", data: record.previewDataUrl.split(",")[1] })));
+  }));
+
+  registerTool("insert_generated_image", {
+    title: "生成画像を挿入",
+    description: "list_generated_imagesで確認した画像を教材へ挿入する承認待ち提案を作ります。画像本体はSigmaDocへ保持します。targetIdまたはselectedIdが必須。ホワイトボードはtargetId:CANVAS。w/h省略時は縦横比を保持します。同じimageIdの再挿入は重複しません。verification.previewを確認してください。",
+    inputSchema: { ...DocumentTargetSchema, ...DraftInsertGeneratedImageArgsSchema.shape, runId: z.string().min(1) },
+  }, async (args) => withToolErrorHandling(async () => runDraftTool({
+    ...args, toolName: "draft_insert_generated_image", toolArgs: DraftInsertGeneratedImageArgsSchema.parse(args),
+    resolveRuntimeToolArgs: async () => ({ generatedImage: (await resolveGeneratedImage(args.fileId, args.runId, args.imageId)).image }),
+  }, renderVisualPreviewDeps, storeContext.store)));
+
+  registerTool("update_generated_image", {
+    title: "生成画像に差し替え",
+    description: "教材内の画像をlist_generated_imagesで確認した生成画像に差し替える承認待ち提案を作ります。shapeId・位置・表示サイズ・回転・アンカーは保持し、画像を共有する他の図形には影響しません。verification.previewを確認してください。",
+    inputSchema: { ...DocumentTargetSchema, ...DraftUpdateGeneratedImageArgsSchema.shape, runId: z.string().min(1) },
+  }, async (args) => withToolErrorHandling(async () => runDraftTool({
+    ...args, toolName: "draft_update_generated_image", toolArgs: DraftUpdateGeneratedImageArgsSchema.parse(args),
+    resolveRuntimeToolArgs: async () => ({ generatedImage: (await resolveGeneratedImage(args.fileId, args.runId, args.imageId)).image }),
+  }, renderVisualPreviewDeps, storeContext.store)));
+
+  registerTool("get_image_reference", {
+    title: "教材の画像を参照",
+    description: "画像編集用に教材内のimage shapeの元画像を取得します。fileId/runId/shapeIdが必須。filePathをview_imageで確認してCodex画像生成ツールの参照画像に使えます。返されたshapeIdをupdate_generated_imageに渡して差し替え提案を作ってください。",
+    inputSchema: { ...GeneratedImageTargetSchema, shapeId: z.string().min(1) },
+  }, async ({ fileId, runId, shapeId }) => withToolErrorHandling(async () => {
+    const context = requireImageRun(fileId, runId);
+    const { document, file } = await loadDocumentForFile(storeContext.store, fileId);
+    const pending = await createProposalStore().findCurrentPendingProposal({ fileId, roomId: context.roomId, runId });
+    let working = document;
+    if (pending && !pending.invalidReason && (usableProposalMergeBasis(pending.mergeBasis) || pending.baseRevision === file.revision)) {
+      const resolved = resolveRoomWorkingDocument(pending, document);
+      if (resolved.ok) {
+        working = resolved.document;
+      } else {
+        // 合成できない作業案の画像は保存済みSigmaDocから引く (退避は台帳ログで数える)。
+        createProposalStore().recordMergeFallback("image-reference-working-document", { proposalId: pending.proposalId });
+      }
+    }
+    const snapshot = normalizeOverlaySnapshot(working.pageLayout?.overlay?.overlaySnapshot);
+    const shape = snapshot.shapes.find((candidate) => candidate.id === shapeId);
+    if (!shape || shape.type !== "image") throw new Error("参照する画像が見つかりません。shapeIdを確認してください。");
+    const asset = snapshot.assets[shape.props.assetId];
+    const parsed = parseAttachedFileDataUrl(asset?.props.src ?? "");
+    if (!parsed || parsed.base64.length > Math.ceil(MAX_GENERATED_IMAGE_BYTES / 3) * 4) throw new Error("参照画像を読み込めませんでした。");
+    let bytes: Buffer = Buffer.from(parsed.base64, "base64");
+    if (parsed.mimeType === "image/svg+xml") {
+      const svg = bytes.toString("utf8");
+      validateAiSvg(svg);
+      const resvg = await renderVisualPreviewDeps.loadResvg();
+      if (!resvg) throw new Error("参照画像のpreviewを生成できません。");
+      bytes = resvg.render(svg);
+    }
+    const image = await prepareGeneratedImage(bytes);
+    const extension = image.mimeType === "image/jpeg" ? "jpg" : image.mimeType === "image/webp" ? "webp" : "png";
+    const scope = createHash("sha256").update(runId).digest("hex");
+    const name = createHash("sha256").update(shapeId).update(bytes).digest("hex");
+    const filePath = await writeRunContextPreviewFile(path.join(storeContext.dataDir, "ai-run-context"), `image-reference-${scope}`, `${name}.${extension}`, bytes);
+    return jsonResultWithContent({ ok: true, message: "参照画像を取得しました。", shapeId, filePath, width: image.width, height: image.height }, [
+      { type: "image", mimeType: "image/png", data: image.previewDataUrl.split(",")[1] },
+    ]);
+  }));
+}
 
 registerTool(
   "insert_svg_image",

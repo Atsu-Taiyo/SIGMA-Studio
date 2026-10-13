@@ -840,7 +840,7 @@ describe("LocalMcpEditProposalStore", () => {
     expect((await store.loadProposal(revised.proposalId))?.autoApplyDeferredAtRevision).toBeUndefined();
 
     await store.recordAutoApplyDeferred(revised.proposalId, 2, createEmptyProposalMergeReport());
-    await store.rejectSingleProposal(revised.proposalId, "あとで");
+    await store.resolveProposal(revised.proposalId, "rejected");
     await expect(store.restoreResolvedProposal(revised.proposalId, baseDocument, 3)).resolves.toMatchObject({ ok: true });
     expect((await store.loadProposal(revised.proposalId))?.autoApplyDeferredAtRevision).toBeUndefined();
   });
@@ -2886,7 +2886,7 @@ describe("LocalMcpEditProposalStore#autoRebaseProposalsForFile", () => {
 
   it("restores a rejected proposal over a human edit of its target without rewriting its draft or base", async () => {
     const proposal = await createTouchingProposal();
-    await store.rejectSingleProposal(proposal.proposalId, "あとで");
+    await store.resolveProposal(proposal.proposalId, "rejected");
     const currentDocument = parseSigmaDocument(updateBlockInDocument(sampleDocument, P_YOTTE_ID, (block) => ({
       ...(block as ParagraphNode),
       children: [...(block as ParagraphNode).children, { type: "text", text: "人間の追記" }],
