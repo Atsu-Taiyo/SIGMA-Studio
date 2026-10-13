@@ -24,8 +24,12 @@ export const SETTLE_DOCUMENT_FONTS_SOURCE = `((doc, maxRounds, timeoutMs, timeou
     if (doc.body) doc.body.getBoundingClientRect();
     return Promise.resolve(fonts.ready).then(nextFrame).then(() => {
       if (doc.body) doc.body.getBoundingClientRect();
-      const loading = Array.from(fonts).some((face) => face.status === "loading");
-      return loading && round + 1 < maxRounds ? settle(round + 1) : round + 1;
+      const faces = Array.from(fonts);
+      if (faces.some((face) => face.status === "error")) throw new Error(timeoutMessage);
+      const loading = faces.some((face) => face.status === "loading");
+      if (!loading) return round + 1;
+      if (round + 1 >= maxRounds) throw new Error(timeoutMessage);
+      return settle(round + 1);
     });
   };
   return new Promise((resolve, reject) => {
@@ -37,7 +41,7 @@ export const SETTLE_DOCUMENT_FONTS_SOURCE = `((doc, maxRounds, timeoutMs, timeou
   });
 })`;
 
-/** 待つ回数の上限。読み込みが次々に始まり続けても、そこで待つのをやめて印刷へ進む。 */
+/** 待つ回数の上限。収束しなければ、欠けた数式を印刷せず書き出しを中止する。 */
 export const SETTLE_DOCUMENT_FONTS_MAX_ROUNDS = 20;
 
 /** 1 ページで待つ時間の上限 (ミリ秒)。2 ページ目からはフォントが読み込み済みなので、ほぼ待たない。 */
