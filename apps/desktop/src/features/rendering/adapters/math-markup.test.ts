@@ -19,6 +19,21 @@ describe("sanitizeMathMarkup", () => {
     expect(sanitizeMathMarkup(markup)).toEqual({ html: markup, safe: true });
   });
 
+  it("keeps a font chosen for part of a formula, names with digits included", () => {
+    // `\htmlStyle{font-family:…}{…}` (lib/math-font-style.ts)。`M PLUS 1p` の `1p` を寸法として
+    // 読むと、未知の単位として宣言ごと落ちていた。
+    const markup = `<span style="font-family:'M PLUS 1p', 'Noto Sans Symbols', serif"><span class="ML__mathit">x</span></span>`;
+    expect(sanitizeMathMarkup(markup)).toEqual({ html: markup, safe: true });
+    expect(sanitizeMathMarkup('<span style="font-family:Noto Serif JP, 游明朝"><span>x</span></span>').html)
+      .toContain('style="font-family:Noto Serif JP, 游明朝"');
+  });
+
+  it("drops a font-family value that carries anything but font names", () => {
+    for (const value of ["var(--x)", "x, url(a)", "'a' !important", "x/**/"]) {
+      expect(sanitizeMathMarkup(`<span style="font-family:${value}">x</span>`).html).toBe("<span>x</span>");
+    }
+  });
+
   it("keeps the unquoted attribute values MathLive writes for stretchy SVG arrows", () => {
     // 実測: `\overrightarrow{AB}` は `style=height:0.522em` `width=400em` を**引用符なし**で吐く。
     // 引用符を必須にすると、この形が丸ごとエスケープされて画面に生タグが出る。

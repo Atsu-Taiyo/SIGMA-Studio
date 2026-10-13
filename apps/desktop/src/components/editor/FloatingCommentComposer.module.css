@@ -1,0 +1,8 @@
+/* 選んだところの右下に浮かべるコメントの入力欄。カードの見た目はコメントの欄の
+   `.comment-compose-card.pending` のまま、置き方だけを画面の固定位置に変える
+   (欄の中の `position: absolute; width: 100%` より強く当てる)。 */
+.root:global(.comment-compose-card) {
+  position: fixed;
+  z-index: 121;
+  width: min(320px, calc(100vw - 24px));
+}

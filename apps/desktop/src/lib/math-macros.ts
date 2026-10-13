@@ -8,6 +8,11 @@ export const KYOUTSUU_CHOICE_CLASS = "sigma-kyoutsuu-choice";
  * document-surface.test.ts が両者の宣言一致を固定する。
  */
 export const SIGMA_MATHLIVE_MACRO_STYLES = String.raw`
+/* A font chosen for part of a formula (lib/math-font-style.ts). Same rule as document-surface.css. */
+.ML__latex [style*="font-family"] :is(.ML__text, .ML__cmr, .ML__mathit, .ML__mathbf, .ML__mathbfit) {
+  font-family: inherit !important;
+}
+
 .sigma-doubleboxed .fbox,
 .sigma-doubleboxed .ML__box[style*="border:"] {
   border-width: 1px !important;

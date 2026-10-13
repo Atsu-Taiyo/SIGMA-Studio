@@ -19,12 +19,15 @@
   display: block;
   position: absolute;
   overflow: visible;
-  white-space: normal;
 }
 
+/* 打った空白はそのまま見せる (本文のエディタ ProseMirror と同じ規則)。連続した空白や行頭の
+   空白を詰めると、ヘッダーで揃えた間隔が編集をやめた途端・PDF で崩れる。 */
 .page-running-text-layer {
   position: relative;
   z-index: 1;
+  white-space: pre-wrap;
+  white-space: break-spaces;
 }
 
 .page-running-overlay-preview {
@@ -248,6 +251,14 @@
   border-width: 2px !important;
   outline: 1px solid currentColor;
   outline-offset: -4px;
+}
+
+/* 数式の一部に選んだフォント (`\htmlStyle{font-family:…}{…}`、lib/math-font-style.ts)。
+   文字・数字・\text は書体クラスが自前のフォントを持つので、包んだ要素の指定を継がせる。
+   大きさで字形を選ぶ記号 (積分・括弧・根号) と \mathbb などの書体命令はそのまま。
+   SIGMA_MATHLIVE_MACRO_STYLES (編集中の入力欄) と同じ規則。 */
+.ML__latex [style*="font-family"] :is(.ML__text, .ML__cmr, .ML__mathit, .ML__mathbf, .ML__mathbfit) {
+  font-family: inherit !important;
 }
 
 /* The reference is photographed sideways: upright digits have a tall oval,
@@ -1102,6 +1113,11 @@ u:has(.math-preview) * {
 
 .graph2d-axis-arrow {
   fill: #30343b;
+}
+
+.graph2d-axis-arrow-open {
+  fill: none;
+  stroke: #30343b;
 }
 
 .graph2d-ticks line {

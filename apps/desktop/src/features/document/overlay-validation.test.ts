@@ -450,6 +450,60 @@ function chartSnapshot(props: unknown) {
   };
 }
 
+describe("graph 2D axis end validation", () => {
+  const graphShape = (axes: Record<string, unknown>) => ({
+    id: "shape_graph2d",
+    type: "graph2dShape",
+    x: 40,
+    y: 80,
+    props: {
+      w: 360,
+      h: 240,
+      boundsMode: "plot",
+      spec: {
+        kind: "cartesian",
+        title: "",
+        width: 450,
+        height: 300,
+        viewBox: { xMin: "-5", xMax: "5", yMin: "-5", yMax: "5" },
+        axes: { grid: false, ...axes },
+        curves: [],
+      },
+    },
+  });
+
+  it("accepts every head a line end can carry, and no end at all, on either axis", () => {
+    for (const head of OVERLAY_ARROWHEADS) {
+      expect(isValidOverlaySnapshot({ version: 1, shapes: [graphShape({ xAxisEndStyle: head })], assets: {} })).toBe(true);
+      expect(isValidOverlaySnapshot({ version: 1, shapes: [graphShape({ yAxisEndStyle: head })], assets: {} })).toBe(true);
+    }
+  });
+
+  it("keeps a graph that never chose an end valid", () => {
+    expect(isValidOverlaySnapshot({ version: 1, shapes: [graphShape({})], assets: {} })).toBe(true);
+  });
+
+  it("rejects an end name that is not a head", () => {
+    for (const field of ["xAxisEndStyle", "yAxisEndStyle"]) {
+      expect(isValidOverlaySnapshot({ version: 1, shapes: [graphShape({ [field]: "star" })], assets: {} })).toBe(false);
+      expect(isValidOverlaySnapshot({ version: 1, shapes: [graphShape({ [field]: 1 })], assets: {} })).toBe(false);
+    }
+  });
+
+  it("keeps each axis's chosen end through normalization", () => {
+    const normalized = normalizeOverlaySnapshot({
+      version: 1,
+      shapes: [graphShape({ xAxisEndStyle: "openArrowSmall", yAxisEndStyle: "none" })],
+      assets: {},
+    });
+    const shape = normalized.shapes[0];
+    const axes = shape?.type === "graph2dShape" ? shape.props.spec.axes : null;
+
+    expect(axes?.xAxisEndStyle).toBe("openArrowSmall");
+    expect(axes?.yAxisEndStyle).toBe("none");
+  });
+});
+
 describe("chart overlay validation", () => {
   it("accepts a chart that references a table", () => {
     expect(isValidOverlaySnapshot(chartSnapshot({

@@ -9,5 +9,6 @@ export * from "./inline-format-operation";
 export * from "./line-height";
 export * from "./page-layout";
 export * from "./page-layout-resize";
+export * from "./running-region-fields";
 export * from "./page-running-region-layout";
 export * from "./three-way-merge";

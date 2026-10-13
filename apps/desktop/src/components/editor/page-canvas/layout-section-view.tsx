@@ -28,6 +28,7 @@ import {
   type ManualTextPageBreakSelection,
   type TextFlowBlock,
 } from "@/features/text-editing";
+import type { Translate } from "@/lib/i18n";
 import { useT } from "@/lib/i18n/react";
 import type { MaterialItem } from "@/types/material";
 import type { CSSProperties } from "react";
@@ -48,6 +49,7 @@ import {
   pickTextFlowBoxFragmentSourceLayouts,
   type RenderUnitManualBreakEdges,
 } from "./render-units";
+import { SideNoteChip } from "./side-note-chip";
 import { TextFlowWithInlineContent } from "./text-flow-view";
 import { type TextRunGroupAssignment } from "./text-run-groups";
 import type { ProblemAreaColumnLayout,RenderUnit } from "./types";
@@ -99,6 +101,11 @@ export function LayoutColumnResizeHandle({
   );
 }
 
+/** 段組のサイド注の呼び名。compact は段の間に縦書きで出すときの短い形 (高さが限られる)。 */
+export function layoutSectionSideLabel(columnCount: number, t: Translate<"editor">, compact = false): string {
+  return t(compact ? "block.columnsShort" : "block.columns", { replace: { columns: columnCount } });
+}
+
 export function LayoutSectionFlowUnit({
   unit,
   manualBreakEdges,
@@ -117,6 +124,7 @@ export function LayoutSectionFlowUnit({
   columnRulePieces,
   boxFragmentSourceLayouts,
   layoutStyle,
+  sideNoteAttribute,
   spaceAfterFollowerClass,
   pageColumnGapPx,
   pageColumnGapMm,
@@ -153,6 +161,8 @@ export function LayoutSectionFlowUnit({
   columnRulePieces?: readonly FlowColumnRulePiece[];
   boxFragmentSourceLayouts: Record<string, TextFlowBoxFragmentSourceLayout>;
   layoutStyle: CSSProperties | undefined;
+  /** サイド注を段の間に出す印 (段組の 2 段目以降)。 */
+  sideNoteAttribute: string | undefined;
   /** 下端つまみのドラッグ中、このユニットを殻ごと平行移動させる印 (該当しなければ空文字)。 */
   spaceAfterFollowerClass: string;
   pageColumnGapPx: number;
@@ -263,6 +273,7 @@ export function LayoutSectionFlowUnit({
       data-problem-area={isProblemAreaSection ? unit.area : undefined}
       data-problem-id={isProblemAreaSection ? unit.problem.id : undefined}
       data-flow-unit-id={unit.id}
+      data-side-note={sideNoteAttribute}
       {...displacementProps.attributes}
       {...{ [FLOW_BREAK_BEFORE_ATTRIBUTE]: hasBreakBefore(unit.section) ? "true" : undefined }}
       {...{ [FLOW_SPAN_ATTRIBUTE]: isColumnPage && isFullSpanUnit(unit) ? "full" : undefined }}
@@ -275,11 +286,17 @@ export function LayoutSectionFlowUnit({
     >
       {isProblemAreaSection && unit.showAreaSideNote && (
         <div className="problem-area-side-note">
-          <span>{problemAreaSideLabel(unit.area, unit.problemNumber, tEditor)}</span>
+          <SideNoteChip
+            label={problemAreaSideLabel(unit.area, unit.problemNumber, tEditor, sideNoteAttribute !== undefined)}
+            title={sideNoteAttribute ? problemAreaSideLabel(unit.area, unit.problemNumber, tEditor) : undefined}
+          />
         </div>
       )}
       <div className="layout-section-side-note">
-        <span>{tEditor("block.columns", { replace: { columns: columnCount } })}</span>
+        <SideNoteChip
+          label={layoutSectionSideLabel(columnCount, tEditor, sideNoteAttribute !== undefined)}
+          title={sideNoteAttribute ? layoutSectionSideLabel(columnCount, tEditor) : undefined}
+        />
       </div>
       {hasBreakBefore(unit.section) && (
         <PageBreakMarker blockId={unit.section.id} onRemove={onRemoveBreak} displacement={markerDisplacements?.[unit.id]} />
