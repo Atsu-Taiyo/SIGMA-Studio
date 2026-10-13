@@ -1,4 +1,5 @@
-import { _electron as electron, expect, test } from "@playwright/test";
+import { _electron as electron, expect, test, type JSHandle } from "@playwright/test";
+import type { ClipboardItem } from "electron";
 import { createCanvas } from "@napi-rs/canvas";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -28,8 +29,10 @@ for (const format of ["inline", "base64", "percent"] as const) {
     if (process.env.SIGMA_STUDIO_E2E_BASE_URL) env.SIGMA_STUDIO_DEV_SERVER_URL = process.env.SIGMA_STUDIO_E2E_BASE_URL;
     const executablePath = process.env.SIGMA_STUDIO_E2E_EXECUTABLE;
     const app = await electron.launch({ executablePath, args: executablePath ? [] : [APP_ROOT], cwd: APP_ROOT, env });
-    const originalClipboard = await app.evaluateHandle(async ({ clipboard, ClipboardItem }) => Promise.all((await clipboard.read()).map(async item => new ClipboardItem(Object.fromEntries(await Promise.all(item.types.map(async type => [type, await item.getType(type)])))))));
+    let originalClipboard: JSHandle<ClipboardItem[]> | undefined;
     try {
+      // X11 can report an empty item; ClipboardItem requires at least one readable MIME type.
+      originalClipboard = await app.evaluateHandle(async ({ clipboard, ClipboardItem }) => Promise.all((await clipboard.read()).filter(item => item.types.length > 0).map(async item => new ClipboardItem(Object.fromEntries(await Promise.all(item.types.map(async type => [type, await item.getType(type)])))))));
       const page = await app.firstWindow();
       const errors: string[] = [];
       page.on("pageerror", error => errors.push(error.message));
@@ -100,10 +103,13 @@ for (const format of ["inline", "base64", "percent"] as const) {
       await page.screenshot({ path: testInfo.outputPath(`svg-clipboard-${format}.png`) });
       expect(errors).toEqual([]);
     } finally {
-      await app.evaluate(({ clipboard }, original) => clipboard.write(original), originalClipboard);
-      await originalClipboard.dispose();
-      await app.close();
-      await rm(profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+      try {
+        if (originalClipboard) await app.evaluate(({ clipboard }, original) => clipboard.write(original), originalClipboard);
+      } finally {
+        await originalClipboard?.dispose();
+        await app.close();
+        await rm(profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+      }
     }
   });
 }
