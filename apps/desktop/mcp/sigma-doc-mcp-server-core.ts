@@ -5707,6 +5707,10 @@ registerTool(
     }
 
     const proposalSummary = createPendingProposalMessage(draft.draft.summary);
+    // 提案を保存する直前に、別のプロセスがこの session を先に進めていないか確かめる (古い内容で提案しない)。
+    if (!await visualEditSessions.isLatest(session)) {
+      throw new Error(VISUAL_SESSION_SUPERSEDED_MESSAGE);
+    }
     const visualWriteContext = resolveWriteRunContext(session.runId ?? undefined);
     const proposalStore = createProposalStore();
     const currentRoomProposal = await proposalStore.findCurrentPendingProposal({

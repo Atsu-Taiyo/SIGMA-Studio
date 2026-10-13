@@ -108,7 +108,7 @@ export interface VisualEditSessionStateFileOptions {
  * - `<provider>-<runId>.<sessionId>.terminal.visual-session-state.json`: 提案化・破棄の目印。
  *   これがある session は読み戻さず、書き足しもしない。
  *
- * 読み戻すのは呼び出し元の run の一番新しい世代だけ (壊れていれば古い世代へは戻らない)。
+ * 読み戻すのは呼び出し元の run の一番新しい世代だけ (壊れている・無効にした世代なら古い世代へは戻らない)。
  * 保存先は provider と runId を持つ session に限り、run の終了時に Electron が片付ける。
  * 読み書きの失敗は例外にせず、結果として返す。
  */
@@ -135,11 +135,12 @@ export function createVisualEditSessionStateFiles(options: VisualEditSessionStat
       if (await fileExists(files.terminal)) {
         return null;
       }
-      const [latest] = await files.generations();
-      if (latest === undefined) {
+      const [latest] = await files.entries();
+      if (!latest || latest.invalid) {
+        // 一番新しい世代が無効なら、それより古い世代へは戻らない。
         return null;
       }
-      return readStoredSession(files.generation(latest), latest, sessionId, provider, owner, options);
+      return readStoredSession(files.path(latest), latest.generation, sessionId, provider, owner, options);
     },
   };
 }
@@ -194,8 +195,8 @@ function createTarget(filePath: string): VisualEditSessionStateTarget {
   return {
     key: filePath,
     async readGeneration() {
-      const [latest] = await files.generations();
-      return latest ?? null;
+      const [latest] = await files.entries();
+      return latest?.generation ?? null;
     },
     isRetired: () => fileExists(files.terminal),
     async write(serialized, generation): Promise<VisualEditSessionStateWriteOutcome> {
@@ -203,7 +204,7 @@ function createTarget(filePath: string): VisualEditSessionStateTarget {
         // 別のプロセスが提案化・破棄した。古い memory で書き足さない。
         return "superseded";
       }
-      const published = files.generation(generation);
+      const published = files.path({ generation, invalid: false });
       const temporaryFilePath = files.temporary();
       try {
         await fsPromises.mkdir(path.dirname(filePath), { recursive: true });
@@ -218,22 +219,26 @@ function createTarget(filePath: string): VisualEditSessionStateTarget {
           throw error;
         }
       } catch {
-        // 書けなかった変更より古い状態を、別のプロセスが最新として読み戻さないよう消す。
-        await files.removeGenerations((existing) => existing < generation);
+        // 書けなかった変更より古い状態を、別のプロセスが最新として読み戻さないよう無効にする。
+        // 消さずに名前を変えるのは、ここまで進んだ世代の記録を残し、それより古い memory からの
+        // 書き込みを先を越されたものとして拒むため (名前の変更は空き容量を使わない)。
+        await files.invalidate((entry) => entry.generation < generation);
         return "failed";
       } finally {
         await fsPromises.unlink(temporaryFilePath).catch(() => undefined);
       }
-      const [latest] = await files.generations();
-      if (latest !== undefined && latest > generation) {
-        // 古い世代を片付けた後に、この世代を作り直してしまった。最新は別のプロセスの世代。
+      const overtaken = (await files.entries()).some((entry) =>
+        entry.generation > generation || (entry.generation === generation && entry.invalid));
+      if (overtaken || await fileExists(files.terminal)) {
+        // 公開している間に、別のプロセスがより新しい世代を保存した (古い世代を片付けた後に、
+        // この世代を作り直してしまった)・無効にした・提案化や破棄をした。
         await fsPromises.unlink(published).catch(() => undefined);
         return "superseded";
       }
-      await files.removeGenerations((existing) => existing < generation);
+      await files.remove((entry) => entry.generation < generation);
       return "written";
     },
-    clear: () => files.removeGenerations(() => true),
+    clear: () => files.invalidate(() => true),
     async retire() {
       // 目印を先に置く。消す途中で止まっても、残った世代を読み戻させない。
       try {
@@ -242,14 +247,21 @@ function createTarget(filePath: string): VisualEditSessionStateTarget {
       } catch {
         // 目印を置けなくても、run の状態ファイルの終了の記録で読み戻しを止める。
       }
-      await files.removeGenerations(() => true);
+      await files.remove(() => true);
     },
   };
+}
+
+interface GenerationEntry {
+  generation: number;
+  /** 書けなかった後に無効にした世代。読み戻さないが、到達した世代の記録として残す。 */
+  invalid: boolean;
 }
 
 /**
  * 1 session のファイル群。名前は `<provider>-<runId>.<sessionId>.<種類>.visual-session-state.json` で
  * 揃え、run の片付けと起動時の掃除 (末尾 `.visual-session-state.json`) で一緒に消えるようにする。
+ * 世代は `g<N>`、無効にした世代は `g<N>-invalid`。
  */
 function sessionFiles(filePath: string) {
   const base = filePath.endsWith(VISUAL_SESSION_STATE_FILE_SUFFIX)
@@ -257,30 +269,43 @@ function sessionFiles(filePath: string) {
     : filePath;
   const directory = path.dirname(base);
   const generationPrefix = `${path.basename(base)}.g`;
-  const generations = async (): Promise<number[]> => {
-    let entries: string[];
+  const entryPath = (entry: GenerationEntry) =>
+    `${base}.g${entry.generation}${entry.invalid ? "-invalid" : ""}${VISUAL_SESSION_STATE_FILE_SUFFIX}`;
+  /** 世代の新しい順。同じ世代では無効にしたものを先に並べる (読み戻さない側に倒す)。 */
+  const entries = async (): Promise<GenerationEntry[]> => {
+    let names: string[];
     try {
-      entries = await fsPromises.readdir(directory);
+      names = await fsPromises.readdir(directory);
     } catch {
       return [];
     }
-    return entries
+    return names
       .filter((name) => name.startsWith(generationPrefix) && name.endsWith(VISUAL_SESSION_STATE_FILE_SUFFIX))
-      .map((name) => name.slice(generationPrefix.length, -VISUAL_SESSION_STATE_FILE_SUFFIX.length))
-      .filter((digits) => /^[1-9]\d*$/.test(digits))
-      .map(Number)
-      .sort((left, right) => right - left);
+      .map((name) => /^([1-9]\d*)(-invalid)?$/.exec(name.slice(generationPrefix.length, -VISUAL_SESSION_STATE_FILE_SUFFIX.length)))
+      .filter((match): match is RegExpExecArray => match !== null)
+      .map((match) => ({ generation: Number(match[1]), invalid: match[2] !== undefined }))
+      .sort((left, right) => right.generation - left.generation || Number(right.invalid) - Number(left.invalid));
   };
-  const generation = (value: number) => `${base}.g${value}${VISUAL_SESSION_STATE_FILE_SUFFIX}`;
   return {
     terminal: `${base}.terminal${VISUAL_SESSION_STATE_FILE_SUFFIX}`,
     temporary: () => `${base}.tmp-${randomUUID()}${VISUAL_SESSION_STATE_FILE_SUFFIX}`,
-    generation,
-    generations,
-    async removeGenerations(shouldRemove: (generation: number) => boolean): Promise<void> {
-      await Promise.all((await generations())
+    path: entryPath,
+    entries,
+    async remove(shouldRemove: (entry: GenerationEntry) => boolean): Promise<void> {
+      await Promise.all((await entries())
         .filter(shouldRemove)
-        .map((value) => fsPromises.unlink(generation(value)).catch(() => undefined)));
+        .map((entry) => fsPromises.unlink(entryPath(entry)).catch(() => undefined)));
+    },
+    async invalidate(shouldInvalidate: (entry: GenerationEntry) => boolean): Promise<void> {
+      await Promise.all((await entries())
+        .filter((entry) => !entry.invalid && shouldInvalidate(entry))
+        .map(async (entry) => {
+          try {
+            await fsPromises.rename(entryPath(entry), entryPath({ ...entry, invalid: true }));
+          } catch {
+            await fsPromises.unlink(entryPath(entry)).catch(() => undefined);
+          }
+        }));
     },
   };
 }
