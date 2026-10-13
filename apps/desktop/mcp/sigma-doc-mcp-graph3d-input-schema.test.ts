@@ -28,6 +28,26 @@ describe("Graph3D MCP input schema", () => {
     expect(parsed.success).toBe(true);
   });
 
+  it("takes exactly three plane points and two axis planes as plain fixed-length arrays", () => {
+    // z.tuple だと配列形式の items になり、Codex が graph3d のツール定義を読めずに公開しなかった。
+    const point = (x: string) => ({ x, y: "0", z: "0" });
+    const plane = (points: unknown[]) => ({ objects: [{ id: "plane_1", kind: "plane", plane: { kind: "threePoints", points } }] });
+    expect(ContentSchema.safeParse(plane([point("0"), point("1"), point("2")])).success).toBe(true);
+    expect(ContentSchema.safeParse(plane([point("0"), point("1")])).success).toBe(false);
+    expect(ContentSchema.safeParse(plane([point("0"), point("1"), point("2"), point("3")])).success).toBe(false);
+
+    const { objects } = createGraph3DSpecPreset("revolution", PRESET_NAMES);
+    const solid = objects.find((object) => object.kind === "solidOfRevolution")!;
+    const withAxis = (equations: string[]) => ({ objects: [{ ...solid, axis: { kind: "planeIntersection", equations, parameter: "t" } }] });
+    expect(ContentSchema.safeParse(withAxis(["x = y", "z = 0"])).success).toBe(true);
+    expect(ContentSchema.safeParse(withAxis(["x = y"])).success).toBe(false);
+    expect(ContentSchema.safeParse(withAxis(["x = y", "z = 0", "x = 0"])).success).toBe(false);
+
+    const schema = JSON.stringify(z.toJSONSchema(ContentSchema, { io: "input" }));
+    expect(schema).not.toContain('"prefixItems"');
+    expect(schema).not.toMatch(/"items":\[/);
+  });
+
   it("does not expose cuts", () => {
     const spec = createGraph3DSpecPreset("revolution", PRESET_NAMES);
     const withCuts: Record<string, unknown> = { ...spec };

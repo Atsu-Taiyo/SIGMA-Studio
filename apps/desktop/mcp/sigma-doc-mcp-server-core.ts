@@ -597,11 +597,9 @@ const Graph3DPlaneDefinitionInputSchema = z.discriminatedUnion("kind", [
   }).strict(),
   z.object({
     kind: z.literal("threePoints"),
-    points: z.tuple([
-      Graph3DExpressionVector3InputSchema,
-      Graph3DExpressionVector3InputSchema,
-      Graph3DExpressionVector3InputSchema,
-    ]),
+    // z.tuple は配列形式の items (draft-07) になり、Codex がツール定義を読めずに graph3d の2本を
+    // 公開しなくなる。要素の型が同じなので、長さ固定の配列で同じ入力を受け付ける。
+    points: z.array(Graph3DExpressionVector3InputSchema).length(3),
   }).strict(),
   z.object({
     kind: z.literal("pointNormal"),
@@ -613,7 +611,7 @@ const Graph3DRevolutionAxisInputSchema = z.union([
   z.enum(["x", "y", "z"]),
   z.object({
     kind: z.literal("planeIntersection"),
-    equations: z.tuple([z.string(), z.string()]),
+    equations: z.array(z.string()).length(2),
     parameter: z.string().min(1).optional(),
   }).strict(),
 ]).describe("回転軸。座標軸名か、2平面の交線(例: x = y と z = 0 の交線は直線(t,t,0))。");
