@@ -8,7 +8,6 @@ import {
   formatAiResourcePromptSection,
   buildMcpEditAppContextToolGuide,
   buildMcpContentToolGuidePrompt,
-  buildMcpEditExpectedRevisionRule,
   buildMcpEditGraphExamples,
   buildMcpEditInvariantGuidance,
   buildMcpEditInvariantGuidanceSection,
@@ -18,7 +17,6 @@ import {
   buildMcpImageMaterialReconstructionPrompt,
   buildMcpImageSourceFidelityRule,
   buildMcpMaterialReusePrompt,
-  buildMcpPageLayoutToolGuidePrompt,
   buildMcpOfficialSkillGuide,
   buildMcpShapeToolGuidePrompt,
   buildMcpTableToolGuidePrompt,
@@ -54,7 +52,6 @@ const ALL_EXPORTED_STRINGS: string[] = [
   buildMcpImageMaterialReconstructionPrompt(tJa),
   buildMcpMaterialReusePrompt(tJa),
   buildMcpContentToolGuidePrompt(tJa),
-  buildMcpPageLayoutToolGuidePrompt(tJa),
   buildMcpShapeToolGuidePrompt(tJa),
   buildMcpGraphToolGuidePrompt(tJa),
   buildMcpTableToolGuidePrompt(tJa),
@@ -124,11 +121,12 @@ describe("MCP tool name coverage", () => {
 describe("content editing tool guidance", () => {
   it("shows concrete read, insert, update, and block-vs-overlay routes", () => {
     const guide = buildMcpContentToolGuidePrompt(tJa);
-    expect(buildMcpEditInvariantGuidance(tJa)).toContain(guide);
-    expect(buildMcpEditInvariantGuidance(tJa)).toContain("overlayShapes");
-    expect(guide).toContain("get_edit_context({fileId,runId,targetId})");
-    expect(guide).toContain("context.selection.references、blockIds/blocks、shapeIds/shapesの全対象");
-    expect(guide).toContain("get_document_outline");
+    const guidance = buildMcpEditInvariantGuidance(tJa);
+    expect(guidance).toContain(guide);
+    // 読み取りの入口と、本文ブロックとoverlay図形の使い分けは「MCP編集方針」の冒頭に1回だけ置く。
+    expect(guidance).toContain("get_edit_context");
+    expect(guidance).toContain("get_document_outline");
+    expect(guidance).toContain("update_table / update_graph / update_graph3d / update_shape");
     expect(guide).toContain('op:"replace_text"');
     expect(guide).toContain('target:{type:"range",blockId:"p_1",from:3,to:6,quote:"変更前"}');
     expect(guide).toContain("元の書式と範囲外を保ち、曖昧な引用は拒否します");
@@ -142,30 +140,25 @@ describe("content editing tool guidance", () => {
     expect(guide).toContain('既存問題はaction:"update"と対象ID');
     expect(guide).toContain('organize_blocks({fileId,runId,expectedRevision,edit:{action:"move",blockIds,targetId,position:"before"}})');
     expect(guide).toContain('edit:{action:"delete",blockIds}');
-    expect(guide).toContain("update_table/update_graph/update_shape/delete_shapes");
-    expect(guide).toContain("data.verification.validationとpreview");
-    expect(guide).toContain("教材本体への適用は承認後です");
   });
 
   it("treats the selected block as an anchor and explains structural math/prose splitting", () => {
-    const guide = buildMcpContentToolGuidePrompt(tJa);
-    expect(guide).toContain("選択ブロックは編集境界ではありません");
-    expect(guide).toContain("すべて既存の作業案へ積み上がり");
-    expect(guide).toContain("problem内の段落直後はそのIDをtargetIdにしてareaを省略");
-    expect(guide).toContain("独立した説明文は数式のtext/aligned行からparagraphへ分離できます");
+    // 毎ターンの規則なので厳守事項が持つ (内容ガイドでは繰り返さない)。
+    const hardRules = buildMcpEditTurnHardRules(tJa);
+    expect(hardRules).toContain("選択ブロックは編集位置の手掛かりであり編集境界ではない");
+    expect(hardRules).toContain("分割・追加・削除・移動");
+    expect(hardRules).toContain(String.raw`\text{...}/aligned行に残さずparagraphへ分ける`);
+    expect(buildMcpContentToolGuidePrompt(tJa)).toContain("problem内の段落直後はそのIDをtargetIdにしてareaを省略");
   });
 });
 
 describe("page-layout tool guidance", () => {
-  it("explains partial updates, millimeter units, current-layout reads, and preview verification", () => {
-    expect(buildMcpEditInvariantGuidance(tJa)).toContain(buildMcpPageLayoutToolGuidePrompt(tJa));
-    expect(buildMcpPageLayoutToolGuidePrompt(tJa)).toContain("update_page_layout");
-    expect(buildMcpPageLayoutToolGuidePrompt(tJa)).toContain("未指定field");
-    expect(buildMcpPageLayoutToolGuidePrompt(tJa)).toContain("mm");
-    expect(buildMcpPageLayoutToolGuidePrompt(tJa)).toContain("read_local_document");
-    expect(buildMcpPageLayoutToolGuidePrompt(tJa)).toContain("get_document_outline");
-    expect(buildMcpPageLayoutToolGuidePrompt(tJa)).toContain("verification.validation");
-    expect(buildMcpPageLayoutToolGuidePrompt(tJa)).toContain("preview");
+  it("leaves update_page_layout usage to the tool description", () => {
+    // 部分更新・mm単位・事前の読み取り・previewでの確認は update_page_layout の説明が持つ
+    // (mcp/sigma-doc-mcp-guidance-placement.test.ts)。プロンプトには経路の一覧だけを残す。
+    expect(buildMcpEditInvariantGuidance(tJa)).toContain("update_page_layout");
+    expect(buildMcpEditInvariantGuidance(tJa)).not.toContain("ページ設定ツール方針");
+    expect(buildMcpEditInvariantGuidance(tEn)).not.toContain("Page setup tool policy");
   });
 });
 
@@ -293,12 +286,25 @@ describe("buildMcpEditPrompt", () => {
     expect(fullPrompt.length).toBeGreaterThan(turnPrompt.length);
   });
 
-  it("does not contain the expectedRevision rule or the app-context tool guide sentence twice", () => {
-    const claudePrompt = buildMcpEditPrompt({ locale: "ja", provider: "claude", instruction: "指示", fileId: "file_1" });
-
-    for (const sentence of [buildMcpEditExpectedRevisionRule(tJa), buildMcpEditAppContextToolGuide(tJa)]) {
-      const occurrences = claudePrompt.split(sentence).length - 1;
-      expect(occurrences).toBe(1);
+  // 同じ turn でモデルに届く文面の中で、ツールをまたぐ規則は1回だけ書く。
+  // Codex はスレッド開始時の developerInstructions と毎ターンの turn プロンプトを両方読む。
+  it.each([
+    ["ja", ["REVISION_MISMATCH", "writeMode:\"dryRun\"", "迷ったらSVG", "編集境界ではない", "途中経過を短く報告",
+      "targetId:\"CANVAS\"", "overlay図形です", "先回りしてinsert_shapeを選ばない", "data.changeSummary"]],
+    ["en", ["REVISION_MISMATCH", "writeMode:\"dryRun\"", "(when in doubt, SVG)", "not an edit boundary", "report progress briefly",
+      "targetId:\"CANVAS\"", "overlay shapes, not body blocks", "do not pick insert_shape ahead of time", "data.changeSummary"]],
+  ] as const)("states each cross-tool rule once per first %s turn for every provider", (locale, rules) => {
+    const t = createTranslator(locale, "prompt");
+    const base = { locale, instruction: "図を入れて", fileId: "file_1", runId: "run_1" };
+    const firstTurns = {
+      claude: buildMcpEditPrompt({ ...base, provider: "claude" }),
+      antigravity: buildMcpEditPrompt({ ...base, provider: "antigravity" }),
+      codex: `${buildMcpEditInvariantGuidance(t)}\n${buildMcpEditTurnPrompt("codex", base, locale)}`,
+    };
+    for (const [provider, prompt] of Object.entries(firstTurns)) {
+      for (const rule of [...rules, buildMcpEditAppContextToolGuide(t)]) {
+        expect(prompt.split(rule).length - 1, `${provider}: ${rule}`).toBe(1);
+      }
     }
   });
 
@@ -339,33 +345,31 @@ describe("buildMcpEditPrompt", () => {
   });
 
   it("prefers native shape kinds over polyline approximations for simple shapes", () => {
-    expect(buildMcpShapeToolGuidePrompt(tJa)).toContain("polylineで近似しない");
-    expect(buildMcpShapeToolGuidePrompt(tJa)).toContain("円・楕円・円弧を多数点の折れ線で作ってはいけません");
     expect(buildMcpShapeToolGuidePrompt(tJa)).toContain("ページ座標(y軸下向き)で0°=右");
     expect(buildMcpShapeToolGuidePrompt(tJa)).toContain("画面上の時計回り");
     expect(buildMcpShapeToolGuidePrompt(tJa)).toContain("上半円(上に膨らむ)は180→360");
     expect(buildMcpShapeToolGuidePrompt(tJa)).toContain("線分列であること自体が意味を持つ場合だけ");
-    // A text shape is sized the way the editor sizes one: the author picks a width, the content
-    // decides the height. The guide has to say exactly that, because an agent told it can ask for
-    // a height will keep asking and keep being refused.
-    expect(buildMcpShapeToolGuidePrompt(tJa)).toContain("wがテキストの折り返し幅");
-    expect(buildMcpShapeToolGuidePrompt(tJa)).toContain("高さは内容から導出されるのでhは指定できません");
+    expect(buildMcpShapeToolGuidePrompt(tJa)).toContain("polylineで近似するとinspectionで不合格");
+    // 標準kindを使う規則と、kind:text は幅だけを決めて高さは内容から決まる規則は insert_shape の
+    // 説明が持つ (mcp/sigma-doc-mcp-guidance-placement.test.ts)。ガイドで繰り返さない。
+    expect(buildMcpShapeToolGuidePrompt(tJa)).not.toContain("hは指定できません");
     expect(buildMcpShapeToolGuidePrompt(tJa)).not.toContain("maxWidth");
     expect(buildMcpShapeToolGuidePrompt(tJa)).not.toContain("autoSize");
     expect(buildMcpShapeToolGuidePrompt(tJa)).toContain("graph-ownedラベルはtool側が自動採寸");
   });
 
   it("makes SVG the first choice for figures and keeps native shapes for individual editing", () => {
+    // 毎ターン届く厳守事項が既定 (迷ったらSVG) を、初回の方針がツールの使い分けを1回ずつ持つ。
+    const hardRules = buildMcpEditTurnHardRules(tJa);
+    expect(hardRules).toContain("insert_svg_imageでSVG1枚として入れ（迷ったらSVG）");
+    expect(hardRules).toContain("sigma-svg-figure");
     const guidance = buildMcpEditInvariantGuidance(tJa);
-    // 図・イラスト・図解は迷わずSVG。部品ごとの編集を頼まれたときだけ図形。
-    expect(guidance).toContain("原則 insert_svg_image");
-    expect(guidance).toContain("迷ったらSVG");
     expect(guidance).toContain("先回りしてinsert_shapeを選ばない");
-    expect(guidance).toContain("sigma-svg-figure");
     expect(guidance).toContain("編集可能なネイティブ図形");
+    expect(guidance).toContain("insert_graph3d");
     expect(guidance).toContain("クライアントで仕上げ");
     expect(guidance).toContain("忠実な再現");
-    expect(buildMcpShapeToolGuidePrompt(tJa)).toContain("原則 insert_svg_image でSVG1枚として入れます");
+    expect(buildMcpShapeToolGuidePrompt(tJa)).not.toContain("insert_svg_image");
     expect(buildMcpContentToolGuidePrompt(tJa)).toContain("図形だけならoverlaySelection、単一図形ならshapeとshapeIdを使います");
   });
 
@@ -384,24 +388,20 @@ describe("buildMcpEditPrompt", () => {
     expect(english).not.toContain("editable starting point");
   });
 
-  it("tells the agent how to write, verify, and place an SVG figure", () => {
+  it("leaves how to write and check an SVG to the insert_svg_image description", () => {
+    // xmlns・viewBox・属性・TeX・preview・w:h・回り込みの規則は insert_svg_image の説明が持つ
+    // (mcp/sigma-doc-mcp-guidance-placement.test.ts)。プロンプトはそこを指すだけにする。
     const guidance = buildMcpEditInvariantGuidance(tJa);
-    for (const phrase of [
-      "xmlnsと正のviewBox",
-      "fill/stroke等の属性",
-      "TeXとして解釈されない",
-      "verification.previewのPNGを実見",
-      "update_svg_image",
-      "w:hの比はviewBoxに合わせます",
-      "本文は回り込まない",
-    ]) {
-      expect(guidance).toContain(phrase);
+    expect(guidance).toContain("SVGの書き方・制約・確認は insert_svg_image の説明に従います");
+    for (const phrase of ["xmlns", "fill/stroke", "w:hの比", "回り込"]) {
+      expect(guidance).not.toContain(phrase);
     }
     // 英語のUIでも同じ方針が届く。
+    expect(buildMcpEditTurnHardRules(tEn)).toContain("insert_svg_image (when in doubt, SVG)");
+    expect(buildMcpEditTurnHardRules(tEn)).toContain("sigma-svg-figure");
     const english = buildMcpEditInvariantGuidance(tEn);
-    expect(english).toContain("insert_svg_image by default (when in doubt, use SVG)");
     expect(english).toContain("do not pick insert_shape ahead of time");
-    expect(english).toContain("sigma-svg-figure");
+    expect(english).toContain("Follow the insert_svg_image description");
   });
 });
 
@@ -592,7 +592,8 @@ describe("buildMcpEditTurnHardRules(tJa) per-turn block", () => {
     expect(buildMcpEditTurnHardRules(tJa)).toContain("REVISION_MISMATCH");
     expect(buildMcpEditTurnHardRules(tJa)).toContain("conflictBlockIds");
     expect(buildMcpEditTurnHardRules(tJa)).toContain("提案の取り下げ");
-    expect(buildMcpEditInvariantGuidance(tJa)).toContain("無関係な近傍ブロックの変更はそのまま保存");
+    // 競合の扱いは毎ターンの厳守事項だけが持つ (初回の方針で繰り返さない)。
+    expect(buildMcpEditInvariantGuidance(tJa)).not.toContain("REVISION_MISMATCH");
   });
 
   it("appears in the turn prompt for every provider", () => {
