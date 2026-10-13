@@ -95,8 +95,8 @@ describe("buildClaudeEditPrompt", () => {
     expect(prompt).toContain("visualConcepts");
     expect(prompt).toContain("visual_insert_shape / insert_shape");
     expect(prompt).toContain("line/polyline/curve");
-    expect(prompt).toContain("polylineで近似しない");
-    expect(prompt).toContain("円・楕円・円弧を多数点の折れ線で作ってはいけません");
+    // 標準kindを使う規則そのものは insert_shape の説明が持つ (プロンプトでは繰り返さない)。
+    expect(prompt).toContain("polylineで近似するとinspectionで不合格");
     expect(prompt).toContain("review_visual_edit_session");
     expect(prompt).toContain("目盛り（showTicks）とグリッド（grid）は基本的に不要");
     expect(prompt).not.toContain("draft_insert_shape");

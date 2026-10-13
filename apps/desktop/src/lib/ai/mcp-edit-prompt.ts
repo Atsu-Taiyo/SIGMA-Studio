@@ -69,10 +69,6 @@ export function buildMcpContentToolGuidePrompt(t: PromptTranslate): string {
   return section(t, "contentToolGuide");
 }
 
-export function buildMcpPageLayoutToolGuidePrompt(t: PromptTranslate): string {
-  return section(t, "pageLayoutToolGuide");
-}
-
 export function buildMcpShapeToolGuidePrompt(t: PromptTranslate): string {
   return section(t, "shapeToolGuide");
 }
@@ -137,16 +133,6 @@ function mentionsGraphContext(instruction: string, referenceText: string | undef
     || (referenceText ? GRAPH_CONTEXT_KEYWORD_PATTERN.test(referenceText) : false);
 }
 
-// Shared once-per-composed-output sentences. Both buildMcpEditPrompt (claude)
-// and turnPromptHeadLines (codex's per-turn prompt) used to inline their own
-// copies of these two rules, so claude's single composed prompt ended up
-// containing each sentence twice. They now live here as the single source and
-// are referenced (not duplicated) by MCP_EDIT_INVARIANT_GUIDANCE only —
-// codex additionally sees them once per thread via developerInstructions.
-export function buildMcpEditExpectedRevisionRule(t: PromptTranslate): string {
-  return section(t, "editExpectedRevision");
-}
-
 export function buildMcpEditAppContextToolGuide(t: PromptTranslate): string {
   return section(t, "editAppContextToolGuide");
 }
@@ -159,6 +145,9 @@ export function buildMcpOfficialSkillGuide(t: PromptTranslate): string {
 // callers). Kept to ≤6 lines and sent on every turn for every provider so
 // these survive even when a resumed session skips the full static guidance
 // below (see mcp-edit-shared-runner.ts's slimmed resumed-turn prompt).
+// These rules (expectedRevision and conflicts, writeMode, verification, SVG
+// first, selection is not a boundary) live only here: the once-per-session
+// guidance below and the MCP server instructions must not restate them.
 export function buildMcpEditTurnHardRules(t: PromptTranslate): string {
   // 末尾の公式スキル案内は同じ行に続ける (元の template literal と同じ並び)。
   return `${section(t, "editTurnHardRules")}${section(t, "officialSkillGuide")}`;
@@ -210,18 +199,22 @@ export function buildMcpRefusedOperationContinuationPrompt(
 /**
  * 合成に使う節 (ポリシー無し)。単体で送る版は `buildMcpEditInvariantGuidance`。
  * export してあるのは、合成後のプロンプトに節が入っていることを検査できるようにするため。
+ *
+ * **ツールをまたぐ方針だけを置く。** 1つのツールの使い方はそのツールの description と
+ * inputSchema が持ち、毎ターンの厳守事項 (`buildMcpEditTurnHardRules`) にある規則も
+ * ここでは繰り返さない。MCP の server instructions はホストごとに届き方が違う
+ * (Claude は先頭約4,000字だけ、Codex は各ツール説明の前に毎回、Antigravity はモデルが読むファイル)
+ * ので、方針の置き場にしない。配置の一覧は docs/mcp-local-app.md の「AIへの指示の置き場所」。
  */
 export function buildMcpEditInvariantGuidanceSection(t: PromptTranslate): string {
   return [
     section(t, "editInvariantGuidanceHead"),
     section(t, "svgImageGuidance"),
-    section(t, "editExpectedRevision"),
     section(t, "editAppContextToolGuide"),
     section(t, "editInvariantGuidanceMiddle"),
     "",
     buildMcpImageMaterialReconstructionPrompt(t),
     buildMcpContentToolGuidePrompt(t),
-    section(t, "pageLayoutToolGuide"),
     section(t, "materialReuse"),
     section(t, "shapeToolGuide"),
     section(t, "graphToolGuide"),

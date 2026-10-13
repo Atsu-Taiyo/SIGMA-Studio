@@ -3071,6 +3071,19 @@ async function runMutationTool(
   }, renderVisualPreviewDeps, store);
 }
 
+/**
+ * MCP の server instructions。**サーバーの素性だけを書き、作業方針は書かない。**
+ *
+ * ホストごとに届き方が違うため (2026-10 に実機で確認、docs/mcp-local-app.md の
+ * 「AIへの指示の置き場所」): Claude Code は最初のメッセージへ先頭約4,000字だけを載せ、
+ * Codex は code mode の各ツール説明の前に毎回付け、Antigravity は
+ * `~/.gemini/antigravity-cli/mcp/<server>/instructions.md` に書き出してモデルが読むときだけ届く。
+ * ツールをまたぐ方針はアプリのプロンプト (`src/lib/ai/mcp-edit-prompt.ts`) に、
+ * ツール固有の使い方は各ツールの description と inputSchema に1回だけ置く。
+ * 正本の一文だけは Codex のプロンプトに SigmaDoc の文脈節が無いためここに残す。
+ */
+export const SIGMA_DOC_MCP_SERVER_INSTRUCTIONS = "Sigma Studio のローカル教材を読み書きするMCPサーバーです。SigmaDoc JSONが正本で、Tiptap JSON・HTML・LaTeX全文・overlay編集スナップショットは正本ではありません。書き込みツールは教材を直接保存せず、アプリで承認する提案を作ります。進め方とツールの使い分けは、アプリが渡すプロンプトと各ツールの説明に従ってください。";
+
 export interface CreateSigmaDocMcpServerOptions {
   renderVisualPreviewDeps?: RenderVisualPreviewDeps;
 }
@@ -3090,24 +3103,7 @@ const server = new McpServer(
     version: SERVER_VERSION,
   },
   {
-    instructions: [
-      "アプリ内AI用の本文編集は insert_content / edit_text / edit_problem / organize_blocks です。fileId/runId/expectedRevision/writeMode/sourceReferencesは最上位、操作固有の引数はedit:{action,...}へ入れます。insert_contentはtargetId/areaとcontent:{format:'markdown',markdown:'...'}またはcontent:{format:'blocks',blocks:[...]}を使います。古いスキルの名前・引数例より現在のinputSchemaを優先してください。",
-      "Sigma Studio のローカルSigmaDoc教材を操作するMCPサーバーです。",
-      "SigmaDoc JSONが正本です。Tiptap JSON、HTML、LaTeX全文、overlay編集スナップショットを正本として扱わないでください。",
-      "まず list_local_documents で workspaceId/folderId/fileId/revisionを確認し、編集対象が明確なら get_edit_context で現在revision・対象・前後文脈・outlineをまとめて取得します。対象が不明な場合は get_document_outline / search_document / get_blocks で対象を絞ります。read_local_document は既定のsummaryを使い、教材全体が必要な場合だけ detail:\"full\" を指定します。",
-      "教材ライブラリ内の教材・フォルダ操作は create_local_document / update_local_document / delete_local_document / create_local_folder / update_local_folder / delete_local_folder を使います。これらはアプリ管理下のIDだけを受け取り、任意のOSパスは操作しません。教材名変更・削除にはlist_local_documentsで確認したexpectedRevisionが必要です。削除はユーザーが明示した場合だけ行ってください。",
-      "insert系ツール(insert_content / edit_problem (edit.action:\"create\") / insert_table / insert_shape / insert_graph / insert_graph3d / insert_material)は targetId または selectedId が必須です。教材末尾は targetId:\"END_OF_DOCUMENT\"、ホワイトボードへの図形・表・グラフ追加は targetId:\"CANVAS\" を指定してください。",
-      "paragraph/headingの本文は edit_text (edit.action:\"update\")、problemの各エリアは edit_problem (edit.action:\"update\")、表は update_table、2Dグラフは update_graph、3Dグラフは update_graph3d、通常図形は update_shape を使います。edit_text (edit.action:\"replace_structure\") はそれらで表せない構造置換のみfallbackです。",
-      "表(tableShape)・グラフ(graph2dShape)・通常の図形はSigmaBlockではなくoverlay図形です。get_document_outline の overlayShapes または search_document でIDを確認し、書き換えは insert_shape で作り直さず update_shape(部分更新、pointsやstart/endによる頂点移動も可)、整列は align_shapes、削除は delete_shapes を使ってください。表・グラフも同様に delete_shapes + insert_table/insert_graph/insert_graph3d で作り直さず、update_table(cellPatchesで1セルだけ、または内容の部分再構成)・update_graph・update_graph3dで既存shapeをその場で更新してください。作り直すと位置・サイズ・スタイル・列幅/行高さがリセットされます。organize_blocks (edit.action:\"delete\") は本文ブロックにしか使えません(表・グラフ・図形には効きません)。",
-      "保存済み素材が使えそうな場合は list_materials / get_material で description、usage、visualConcepts、ports を確認し、insert_material でexact cloneとして挿入してください。",
-      "立体・回転体・断面・共通部分などの3D図版は insert_graph3d を使い、更新は update_graph3d で行ってください(2Dの関数グラフ・座標平面・数直線は insert_graph)。",
-      "図・図解・模式図・イラスト・挿絵は、原則 insert_svg_image で静的SVGを1枚の画像として入れてください(迷ったらSVG)。「図を入れて」「画像を入れて」「絵を描いて」もこの入口です。SVGは自己完結で書き(xmlnsと正のviewBox、fill/stroke等の属性、TeXは解釈されないので記号はUnicode)、verification.previewを実見してupdate_svg_imageで修正します。関数グラフはinsert_graph、立体はinsert_graph3d、表はinsert_tableを使い、部品ごとの個別編集を求められたときだけinsert_shapeを使います。",
-      "部品ごとに編集する図形、図や本文に重ねる補助線・矢印・文字注記・吹き出しは insert_shape を使ってください。円・楕円・矩形・三角形など標準kindで表せる図形はそのkindを使い、polylineで近似しないでください。polylineは折れ曲がった線、経路、標準kindにない多角形など線分列であることが意味を持つ場合だけ使います。図形内ラベルの寸法はtool側で決めます。文字注記(kind:text)は幅だけを指定し、高さは内容から導出されます。",
-      "図形を確認しながら作る場合は begin_visual_edit_session → visual_insert_shape → render_visual_edit_session → previewFileをview_imageで開く → inspect_visual_edit_session → review_visual_edit_session(previewCode付き) → propose_visual_edit_session の順で進めます。beginにはtargetIdまたはselectedIdが必要です。",
-      "insert_content / edit_problem (edit.action:\"create\") / edit_text (edit.action:\"update\") / edit_problem (edit.action:\"update\") / edit_text (edit.action:\"replace_structure\") / organize_blocks (edit.action:\"delete\") / organize_blocks (edit.action:\"move\") / insert_table / update_table / insert_svg_image / update_svg_image / insert_shape / update_shape / insert_graph / update_graph / insert_graph3d / update_graph3d などの書き込みツールは、成功時に data.verification(validation、可能ならpreview PNGとpreviewFile)を返します。ChatGPTではinline image contentを省略するため、previewFileをview_imageで開いて必ず確認してください。完了前に必ず内容を確認し、問題があれば直してください。既存の内容や承認前のproposalのブロック周辺は render_block_context、ページ全体と実際のページ割当は render_page で確認します。",
-      "書き込み系ツールでは expectedRevision が必須です。既定のwriteMode:\"proposal\" は pending proposal、writeMode:\"dryRun\" は保存なしの検証です。MCPから教材本体を直接保存しません。expectedRevisionが古くても、今回の書き込みが触るブロック/overlay図形がその時点から変わっていなければ受理されます(無関係な人間の編集で失敗しません)。触った対象が実際に変更されていた場合のみREVISION_MISMATCHになり、競合ブロックの現在の内容を踏まえて作り直してください。ただし文書全体の設定を変更する書き込み(update_column_layout の scope:\"document\" など)はこの緩和の対象外で、expectedRevisionの完全一致が必要です。不一致になったら現在の設定を読み直してから再試行してください。",
-      "ユーザーがAIの挙動・スキル・設定の変更を相談してきた場合は save_ai_resource(グローバルskill/instructionの作成・更新) / delete_ai_resource(明示的な削除依頼のときだけ) / update_ai_settings(Web検索許可や検証済み提案の自動承認)で実際に変更でき、変更内容は必ず回答で報告してください。",
-    ].join(" "),
+    instructions: SIGMA_DOC_MCP_SERVER_INSTRUCTIONS,
   },
 );
 
@@ -4241,7 +4237,7 @@ registerTool(
   {
     title: "ページ設定を変更",
     description:
-      "SigmaDocのページ設定を型付き引数で部分更新します。用紙プリセット(A4/A3/B5/B4/custom)、縦横、カスタム用紙サイズ(mm)、上下左右の余白(mm)のうち指定したfieldだけを変更し、未指定field、段組み、ヘッダー、フッターは保持します。customSizeMmはpreset:\"custom\"と同時に指定してください。変更前にread_local_documentまたはget_document_outlineで現在のpageLayoutとrevisionを確認し、成功後はverificationのページpreviewを確認してください。",
+      "SigmaDocのページ設定を型付き引数で部分更新します。用紙プリセット(A4/A3/B5/B4/custom)、縦横、カスタム用紙サイズ(mm)、上下左右の余白(mm)のうち指定したfieldだけを変更し、未指定field、段組み、ヘッダー、フッターは保持します。customSizeMmはpreset:\"custom\"と同時に指定してください。変更前にread_local_documentまたはget_document_outlineで現在のpageLayoutとrevisionを確認し、成功後はverificationのvalidationとページpreviewで用紙方向・本文領域・余白に問題がないことを確認してください。",
     inputSchema: UpdatePageLayoutInputSchema,
   },
   async ({ fileId, preset, orientation, customSizeMm, marginsMm, writeMode, expectedRevision, runId }) =>
@@ -4480,7 +4476,7 @@ registerTool(
   "insert_svg_image",
   {
     title: "SVG画像を挿入",
-    description: "図・図解・模式図・イラスト・挿絵・フローチャート・幾何の作図など、教材に入れる絵の既定の入口です(迷ったらSVG)。AIが記述した自己完結SVGを1枚の画像として提案挿入します。関数グラフはinsert_graph、立体はinsert_graph3d、表はinsert_table、部品ごとに個別編集する図形だけinsert_shapeを使います。svgにはxmlnsとviewBoxが必須。TeXは解釈されないので図中の記号はUnicodeで書き、凝った式は図の上にinsert_shape(kind:text,tex)で重ねます。path/text/図形/defs/gradient/clipPath/mask/markerと表示属性を使用でき、style・script・外部参照・use・foreignObject・アニメーション・XML宣言は使えません。最大256 KiB。SVG原文はasset.props.srcにbase64で保持します。verification.previewのPNGを必ず実見し、修正にはupdate_svg_imageを使ってください。",
+    description: "図・図解・模式図・イラスト・挿絵・フローチャート・幾何の作図など、教材に入れる絵の既定の入口です(迷ったらSVG)。AIが記述した自己完結SVGを1枚の画像として提案挿入します。関数グラフはinsert_graph、立体はinsert_graph3d、表はinsert_table、部品ごとに個別編集する図形だけinsert_shapeを使います。svgにはxmlnsと正のviewBoxが必須。TeXは解釈されないので図中の記号はUnicodeで書き、凝った式は図の上にinsert_shape(kind:text,tex)で重ねます。path/text/図形/defs/gradient/clipPath/mask/markerと表示属性(fill/stroke等)を使用でき、style・class・script・外部参照・use・foreignObject・pattern・filter・アニメーション・XML宣言は使えません。最大256 KiB。白黒基調・透明背景にし、先に主要な点の座標を決めて長さ・角度などの条件に合わせて描きます。w:hの比はviewBoxに合わせます。SVGは本文と独立した画像レイヤーで、本文は回り込みません。SVG原文はasset.props.srcにbase64で保持します。verification.previewのPNGを必ず実見して内容・文字・本文との重なりを確かめ、修正にはupdate_svg_image、位置・大きさの変更にはupdate_shapeのx/y/w/hを使ってください。previewが取得できなければrender_block_contextまたはrender_pageで確認し、未確認のまま視覚確認済みと報告しないでください。",
     inputSchema: { ...DocumentTargetSchema, ...DraftInsertSvgImageArgsSchema.shape },
   },
   async (args) => withToolErrorHandling(async () => runDraftTool({
