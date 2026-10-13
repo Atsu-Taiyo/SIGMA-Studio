@@ -22,13 +22,13 @@ export function createSelectionToolbarExtension(): PageCanvasSelectionExtension 
       if (source.kind === "textRange") {
         return {
           key: JSON.stringify(["tools", "text", source.targetId]),
-          render: () => <TextToolsHost />,
+          renderTools: () => <TextToolsHost />,
         };
       }
       if (source.kind === "overlaySelection" && source.selection.selectedCount > 0) {
         return {
           key: JSON.stringify(["tools", "overlay", source.selection.selectedShapeIds]),
-          render: () => <ShapeToolsHost />,
+          renderTools: () => <ShapeToolsHost />,
         };
       }
       return null;

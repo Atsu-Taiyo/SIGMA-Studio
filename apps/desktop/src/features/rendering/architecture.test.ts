@@ -692,8 +692,8 @@ describe("rendering feature dependency boundary", () => {
       + " 戻り値をそのまま入れる (構造的な型なので型システムでは縛れていない)";
 
     const REVIEWED_INJECTIONS: Record<string, ReviewedInjection[]> = {
+      // 入力欄のチップ・履歴・「画像にコメント」の画面が、同じ `OverlayPreviewSvg` 1 か所を通す。
       "features/ai-edit/view/AiChatPreviewImages.tsx": [
-        { expression: "preview.svg", reason: `${SHAPE_PREVIEW_REASON}。ここは props で受け取る` },
         { expression: "preview.svg", reason: `${SHAPE_PREVIEW_REASON}。ここは props で受け取る` },
       ],
       "components/editor/EditorSettings.tsx": [

@@ -8,7 +8,7 @@ import {
 import type { TextFlowChangeDecorationState } from "@/components/tiptap/change-decoration";
 import {
   type ProblemAreaKind,
-  type ProblemCustomFrame,
+  type CustomFrame,
   type ProblemNode,
   type SigmaCommentThread,
 } from "@/features/document";
@@ -26,11 +26,11 @@ import type { Translate } from "@/lib/i18n";
 import { useT } from "@/lib/i18n/react";
 import {
   getProblemCustomFrame,
-  getProblemCustomFrameStyle,
   getProblemFrameChromePaddingPx,
   getProblemFrameStyleId,
   problemFrameClassName,
 } from "@/lib/problem-frame";
+import { getCustomFrameStyle } from "@/lib/custom-frame";
 import { formatProblemNumber } from "@/lib/problem-numbering";
 import type { MaterialItem } from "@/types/material";
 import { MoreHorizontal } from "lucide-react";
@@ -44,6 +44,7 @@ import { FLOW_BREAK_BEFORE_ATTRIBUTE,FLOW_SPAN_ATTRIBUTE } from "./flow-probe";
 import { BlockCommentBackground } from "./overlay-preview";
 import { PageBreakMarker } from "./page-chrome";
 import { isFullSpanUnit,pickTextFlowBoxFragmentSourceLayouts,type RenderUnitManualBreakEdges } from "./render-units";
+import { SideNoteChip } from "./side-note-chip";
 import { InlineContentStack,precedingBlockDisplacement,TextFlowWithInlineContent } from "./text-flow-view";
 import { type TextRunGroupAssignment } from "./text-run-groups";
 import type { ProblemAreaFrameFragmentLayout,RenderUnit } from "./types";
@@ -65,6 +66,7 @@ export function ProblemAreaFlowUnit({
   boxFragmentSourceLayouts,
   frameFragments,
   layoutStyle,
+  sideNoteAttribute,
   spaceAfterFollowerClass,
   draftMinHeightMm,
   pageContentHeightPx,
@@ -100,6 +102,8 @@ export function ProblemAreaFlowUnit({
   boxFragmentSourceLayouts: Record<string, TextFlowBoxFragmentSourceLayout>;
   frameFragments: ProblemAreaFrameFragmentLayout[] | undefined;
   layoutStyle: CSSProperties | undefined;
+  /** サイド注を段の間に出す印 (段組の 2 段目以降)。 */
+  sideNoteAttribute: string | undefined;
   /** 下端つまみのドラッグ中、このユニットを殻ごと平行移動させる印 (該当しなければ空文字)。 */
   spaceAfterFollowerClass: string;
   draftMinHeightMm: number | undefined;
@@ -141,7 +145,7 @@ export function ProblemAreaFlowUnit({
   const hasFrame = problem.frame?.enabled === true && isProblemFrameArea(area);
   const frameStyleId = hasFrame ? getProblemFrameStyleId(problem) : undefined;
   const frameCustom = hasFrame ? getProblemCustomFrame(problem) : undefined;
-  const frameCustomStyle = frameCustom ? getProblemCustomFrameStyle(frameCustom, "px") : undefined;
+  const frameCustomStyle = frameCustom ? getCustomFrameStyle(frameCustom, "px") : undefined;
   const style = {
     ...layoutStyle,
     ...displacementProps.style,
@@ -192,6 +196,7 @@ export function ProblemAreaFlowUnit({
       data-problem-area={area}
       data-problem-id={problem.id}
       data-flow-unit-id={unit.id}
+      data-side-note={sideNoteAttribute}
       {...displacementProps.attributes}
       {...{ [FLOW_BREAK_BEFORE_ATTRIBUTE]: breakBeforeArea ? "true" : undefined }}
       {...{ [FLOW_SPAN_ATTRIBUTE]: isColumnPage && isFullSpanUnit(unit) ? "full" : undefined }}
@@ -236,7 +241,10 @@ export function ProblemAreaFlowUnit({
       </button>
       {area !== "lead" && (
         <div className="problem-area-side-note">
-          <span>{problemAreaSideLabel(area, unit.problemNumber, tEditor)}</span>
+          <SideNoteChip
+            label={problemAreaSideLabel(area, unit.problemNumber, tEditor, sideNoteAttribute !== undefined)}
+            title={sideNoteAttribute ? problemAreaSideLabel(area, unit.problemNumber, tEditor) : undefined}
+          />
         </div>
       )}
       {isFirstArea && hasBreakBefore(problem) && (
@@ -331,12 +339,12 @@ export function ProblemAreaFrameFragmentPieces({
   fragments: ProblemAreaFrameFragmentLayout[];
   frameClasses: string;
   frameStyleId: string | undefined;
-  frameCustom: ProblemCustomFrame | undefined;
+  frameCustom: CustomFrame | undefined;
   isFirstProblemFrameArea: boolean;
   isLastProblemFrameArea: boolean;
 }) {
   const chromePadding = getProblemFrameChromePaddingPx(frameStyleId, frameCustom);
-  const frameCustomStyle = frameCustom ? getProblemCustomFrameStyle(frameCustom, "px") as CSSProperties : undefined;
+  const frameCustomStyle = frameCustom ? getCustomFrameStyle(frameCustom, "px") as CSSProperties : undefined;
   return (
     <>
       {fragments.map((fragment, index) => {
@@ -409,13 +417,15 @@ export function problemAreaLabel(area: ProblemAreaKind, t: Translate<"editor">):
   return t("block.problemPrompt");
 }
 
+/** compact: 段の間に縦書きで出すとき。高さが限られるので、問題文は何問目かだけにする。 */
 export function problemAreaSideLabel(
   area: ProblemAreaKind,
   problemNumber: number | undefined,
   t: Translate<"editor">,
+  compact = false,
 ): string {
   if (area === "prompt" && typeof problemNumber === "number") {
-    return t("pageCanvas.areaPrompt", { replace: { number: problemNumber } });
+    return t(compact ? "pageCanvas.areaPromptShort" : "pageCanvas.areaPrompt", { replace: { number: problemNumber } });
   }
 
   return problemAreaLabel(area, t);

@@ -13,6 +13,7 @@ import type { AiDisplayMode } from "@/lib/ai/ai-surface";
 import type { AiProposalContent } from "../model/proposal-content";
 import type { EditableBlock } from "@/lib/document-tree";
 import type { AiEditAttachment } from "@/lib/ai/sigma-doc-agent-tools";
+import type { AiImageAnnotation } from "@/lib/ai/ai-image-annotations";
 import type { DesktopAiSourceReference } from "@/types/desktop";
 
 export interface AiEditPanelProps {
@@ -40,6 +41,8 @@ export interface AiEditPanelProps {
   pendingAttachments?: AiEditAttachment[];
   /** 差し込まれた添付の × (添付の id で指定)。 */
   onRemovePendingAttachment?: (attachmentId: string) => void;
+  /** 差し込まれた画像の中に付けたコメントを差し替える (添付の id で指定)。 */
+  onSetPendingAttachmentAnnotations?: (attachmentId: string, annotations: AiImageAnnotation[]) => void;
   /** 送信で差し込んだ添付を使い切った。 */
   onPendingAttachmentsSent?: () => void;
   overlaySelection: OverlaySelectionSummary;

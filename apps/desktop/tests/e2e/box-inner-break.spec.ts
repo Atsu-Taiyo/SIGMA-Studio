@@ -435,21 +435,28 @@ test("a box-local column guide appears immediately before its containing outer p
     const note = document.querySelector<HTMLElement>(
       '[data-box-layout-section-side-note="inner_break_columns"] .layout-section-side-note',
     )?.getBoundingClientRect();
-    if (!sheet || !outerColumnBoundary || !section || !note) {
+    const chip = document.querySelector<HTMLElement>(
+      '[data-box-layout-section-side-note="inner_break_columns"] .layout-section-side-note > span',
+    )?.getBoundingClientRect();
+    if (!sheet || !outerColumnBoundary || !section || !note || !chip) {
       throw new Error("outer-column side-note geometry was not rendered");
     }
     return {
       boundaryLeft: outerColumnBoundary.left,
-      noteRight: note.right,
+      chipRight: chip.right,
+      // 括弧の線はサイド注の右端から 8px 内側。
+      ruleX: note.right - 8,
       sectionLeft: section.left,
       sheetLeft: sheet.left,
     };
   });
 
   expect(geometry.sectionLeft).toBeGreaterThan(geometry.boundaryLeft);
-  expect(geometry.noteRight).toBeGreaterThan(geometry.sheetLeft);
-  expect(geometry.noteRight).toBeLessThan(geometry.sectionLeft);
-  expect(Math.abs(geometry.noteRight - (geometry.boundaryLeft - 10))).toBeLessThan(2);
+  expect(geometry.chipRight).toBeGreaterThan(geometry.sheetLeft);
+  // 括弧の線は段の間の中央 (段の目安線) に重なり、見出しはその段の左端の手前で止まる。
+  expect(Math.abs(geometry.ruleX - geometry.boundaryLeft)).toBeLessThan(2);
+  expect(geometry.chipRight).toBeGreaterThan(geometry.boundaryLeft);
+  expect(geometry.chipRight).toBeLessThan(geometry.sectionLeft);
 });
 
 test("Enter keeps inserting lines while editing a box continuation fragment", async ({ page }) => {

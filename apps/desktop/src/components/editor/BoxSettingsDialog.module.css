@@ -34,6 +34,34 @@
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 24%, transparent);
 }
 
+/* 棚 (自作の枠) の見出し。組み込みの一覧の後ろで行を改めて並べる。 */
+.styleGroupLabel {
+  display: flex;
+  grid-column: 1 / -1;
+  align-items: center;
+  gap: var(--space-sm);
+  margin-top: var(--space-xs);
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.styleGroupLabel::after {
+  flex: 1;
+  height: 1px;
+  background: var(--border-subtle);
+  content: "";
+}
+
+.addFramePreview {
+  display: grid;
+  place-items: center;
+  height: 52px;
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius-control);
+  color: var(--text-secondary);
+}
+
 .stylePreviewViewport {
   display: block;
   position: relative;

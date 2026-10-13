@@ -1280,13 +1280,27 @@
   pointer-events: none;
 }
 
+/*
+ * サイド注の横位置 (アンカー左端から測る)。既定は紙面の左余白の外: 括弧の線は紙面の 18px 外、
+ * 見出しの右端は紙面へ 26px 入ったところ、下端の線は本文の 18px 手前まで。
+ * 段組の 2 段目以降は getPageColumnSideNote が「その段のすぐ左」(段の間) の値で上書きする。
+ */
+.problem-area-flow-unit,
+.layout-section-flow-unit,
+.box-layout-section-side-note-anchor {
+  --side-note-rule-x: calc(-1 * var(--problem-area-page-x, var(--page-margin-left)) - 18px);
+  --side-note-chip-end: calc(-1 * var(--problem-area-page-x, var(--page-margin-left)) + 26px);
+  --side-note-line-end: -18px;
+}
+
 .problem-area-side-note,
 .layout-section-side-note {
   position: absolute;
   top: 0;
   /* ページをまたいだユニットは、描かれた内容の末尾まで (自然配置の高さではなく)。 */
   bottom: calc(100% - var(--flow-unit-visual-height, 100%));
-  left: calc(-1 * var(--problem-area-page-x, var(--page-margin-left)) - 96px);
+  /* 右端 (= left + width) が括弧の線の 8px 右に来る。 */
+  left: calc(var(--side-note-rule-x) - 78px);
   z-index: 20;
   width: 86px;
   pointer-events: none;
@@ -1315,8 +1329,8 @@
 .layout-section-side-note::after {
   position: absolute;
   top: var(--problem-area-resize-y);
-  right: calc(-1 * var(--problem-area-page-x, var(--page-margin-left)) + 8px);
-  width: var(--problem-area-page-x, var(--page-margin-left));
+  right: calc(var(--side-note-rule-x) + 8px - var(--side-note-line-end));
+  width: calc(var(--side-note-line-end) - var(--side-note-rule-x));
   height: 1px;
   border-radius: 999px;
   background: color-mix(in srgb, var(--border-strong) 58%, transparent);
@@ -1327,10 +1341,13 @@
 .layout-section-side-note > span {
   position: absolute;
   top: var(--side-note-chip-y, var(--problem-area-side-note-y));
-  right: -36px;
-  display: inline-flex;
+  right: calc(var(--side-note-rule-x) + 8px - var(--side-note-chip-end));
+  /* 数字を縦中横の span で包むので flex にしない (flex だと数字の後の空白が詰まる)。 */
+  display: block;
   max-width: 68px;
-  padding: 2px 5px;
+  /* 縦書き (段の間) では上下と左右が入れ替わる。 */
+  padding-block: 2px;
+  padding-inline: 5px;
   border: 1px solid color-mix(in srgb, var(--border) 76%, transparent);
   border-radius: 5px;
   background: rgba(255, 255, 255, 0.9);
@@ -1338,6 +1355,40 @@
   transform: translateY(-50%);
   white-space: nowrap;
   pointer-events: auto;
+}
+
+/*
+ * 段組の 2 段目以降 (段の間) の見出し。段の間 (8mm で約 30px) に収まるよう縦書きの短い形 (問2・解答・
+ * 2段) にし、括弧の線 (サイド注の右端の 8px 内側) の上に中心を置く: どちらの段の本文にも重ねない。
+ * ユニットの上端から並べ、そのユニットの高さを超える分は省略する (次の見出しに重ならない)。
+ * 2 文字の見出しで 28px なので、1 行だけの段組 (約 32px) にも収まる。
+ */
+[data-side-note="column-gap"] > .problem-area-side-note > span,
+[data-side-note="column-gap"] > .layout-section-side-note > span {
+  top: 2px;
+  right: 8px;
+  max-width: none;
+  max-height: calc(100% - 4px);
+  padding-inline: 3px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  writing-mode: vertical-rl;
+  transform: translateX(50%);
+}
+
+/* 問題の領域そのものが段組のときは見出しが 2 つ (領域・段組) あるので、上下に分ける。 */
+.layout-section-flow-unit.in-problem-area[data-side-note="column-gap"] > .problem-area-side-note > span {
+  max-height: calc(50% - 3px);
+}
+
+.layout-section-flow-unit.in-problem-area[data-side-note="column-gap"] > .layout-section-side-note > span {
+  top: calc(50% + 1px);
+  max-height: calc(50% - 3px);
+}
+
+/* 縦書きの見出しでは 2 桁までの数字を縦中横にする (横書きでは効かない)。 */
+:lang(ja) .side-note-digits {
+  text-combine-upright: all;
 }
 
 .layout-section-flow-unit.in-problem-area .problem-area-side-note {
@@ -1495,24 +1546,24 @@
   background: transparent;
   --pf-top: 0;
   --pf-bottom: 0;
-  --pf-image: var(--problem-frame-image-open-both);
+  --pf-image: var(--custom-frame-image-open-both);
   box-sizing: border-box;
-  padding: var(--problem-frame-padding);
+  padding: var(--custom-frame-padding);
   border: solid transparent;
   border-width:
-    calc(var(--problem-frame-border) * var(--pf-top))
-    var(--problem-frame-border)
-    calc(var(--problem-frame-border) * var(--pf-bottom));
+    calc(var(--custom-frame-border) * var(--pf-top))
+    var(--custom-frame-border)
+    calc(var(--custom-frame-border) * var(--pf-bottom));
   border-radius: 0;
   border-image-source: none;
   border-image-slice:
-    calc(var(--problem-frame-slice) * var(--pf-top))
-    var(--problem-frame-slice)
-    calc(var(--problem-frame-slice) * var(--pf-bottom));
+    calc(var(--custom-frame-slice) * var(--pf-top))
+    var(--custom-frame-slice)
+    calc(var(--custom-frame-slice) * var(--pf-bottom));
   border-image-width:
-    calc(var(--problem-frame-border) * var(--pf-top))
-    var(--problem-frame-border)
-    calc(var(--problem-frame-border) * var(--pf-bottom));
+    calc(var(--custom-frame-border) * var(--pf-top))
+    var(--custom-frame-border)
+    calc(var(--custom-frame-border) * var(--pf-bottom));
 }
 
 .problem-area-flow-unit.with-frame.problem-frame--custom.problem-frame--custom:not(.frame-split) {
@@ -1525,16 +1576,16 @@
 
 .problem-area-flow-unit.with-frame.problem-frame--custom.problem-frame--custom.first-frame-area {
   --pf-top: 1;
-  --pf-image: var(--problem-frame-image-open-bottom);
+  --pf-image: var(--custom-frame-image-open-bottom);
 }
 
 .problem-area-flow-unit.with-frame.problem-frame--custom.problem-frame--custom.last-frame-area {
   --pf-bottom: 1;
-  --pf-image: var(--problem-frame-image-open-top);
+  --pf-image: var(--custom-frame-image-open-top);
 }
 
 .problem-area-flow-unit.with-frame.problem-frame--custom.problem-frame--custom.first-frame-area.last-frame-area {
-  --pf-image: var(--problem-frame-image-closed);
+  --pf-image: var(--custom-frame-image-closed);
 }
 
 .problem-area-paper-content {
@@ -2377,6 +2428,12 @@ button.ai-source-ref-chip--document:focus-visible {
 .ProseMirror {
   min-height: inherit;
   outline: none;
+}
+
+/* ヘッダー/フッターの差し込み (`{page}` など)。本文には書いた文字のまま残し、見た目だけを
+   そのページの値 (`running-field-value`) に替える (running-field-extension.ts)。 */
+.ProseMirror .running-field-source {
+  display: none;
 }
 
 .ProseMirror p.is-editor-empty:first-child::before {

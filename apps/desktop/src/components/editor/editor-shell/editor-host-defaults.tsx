@@ -105,8 +105,9 @@ export function useAiPinnedReferences() {
 export function useAiPendingAttachments() {
   const add = useCallback(() => undefined, []);
   const remove = useCallback(() => undefined, []);
+  const setAnnotations = useCallback(() => undefined, []);
   const clear = useCallback(() => undefined, []);
-  return { attachments: EMPTY_ARRAY, add, remove, clear };
+  return { attachments: EMPTY_ARRAY, add, remove, setAnnotations, clear };
 }
 
 // 公開Editorには提案の保存・承認経路を持ち込まない。hostの文書やbusy stateには触れない。

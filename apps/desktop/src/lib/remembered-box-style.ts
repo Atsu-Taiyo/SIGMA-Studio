@@ -62,7 +62,7 @@ function normalizeRememberedFrames(value: unknown): RememberedBoxFrames {
     // `BoxFrameSchema` は文書側で任意フィールドなので `.optional()`。ここでは値がある物だけ覚える。
     const parsed = BoxFrameSchema.safeParse(frame);
     if (styleId && parsed.success && parsed.data) {
-      next[styleId] = parsed.data;
+      next[styleId] = withoutDrawing(parsed.data);
     }
   }
   return next;
@@ -81,9 +81,19 @@ export function rememberBoxFramePatch(styleId: string, patch: Partial<BoxFrameSp
   const current = load();
   remembered = {
     ...current,
-    [styleId]: mergeBoxFrame(current[styleId], patch as BoxFrameSpec),
+    [styleId]: withoutDrawing(mergeBoxFrame(current[styleId], patch as BoxFrameSpec)),
   };
   save();
+}
+
+/**
+ * 覚えるのは見た目の差分だけで、自作の枠の絵 (`custom`) は持たない。絵は箱ごとのコピーと
+ * 枠の棚 (`frame-library`) が持つもので、ここに入ると次に挿す箱すべてへ同じ絵が付いてしまう。
+ */
+function withoutDrawing(frame: BoxFrameSpec): BoxFrameSpec {
+  const rest = { ...frame };
+  delete rest.custom;
+  return rest;
 }
 
 /** そのスタイルの記憶を捨てる (「既定に戻す」)。 */

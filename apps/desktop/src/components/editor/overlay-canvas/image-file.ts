@@ -1,6 +1,7 @@
 import type { OverlayAsset } from "@/features/document";
 import { fitImageSizeWithinArea, type ImageInsertionSize, type OverlayImageEntry } from "@/features/drawing";
 import { createOverlayAssetId, createOverlayShapeId } from "./ids";
+import { getSvgImageDimensions } from "@/lib/svg-image-source";
 
 // Browser file/decoder adapter. Geometry and the request lifetime are owned elsewhere.
 export async function createOverlayImageEntry(file: File, areaSize: ImageInsertionSize): Promise<OverlayImageEntry> {
@@ -59,7 +60,7 @@ function readFileAsDataUrl(file: File): Promise<string> {
 
 function readImageDimensions(dataUrl: string): Promise<{ width?: number; height?: number }> {
   if (dataUrl.startsWith("data:image/svg+xml")) {
-    return Promise.resolve({});
+    return Promise.resolve(getSvgImageDimensions(dataUrl) ?? {});
   }
 
   return new Promise((resolve) => {

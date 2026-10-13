@@ -87,6 +87,7 @@ import { nestedProblemLayoutKey } from "@/components/tiptap/nested-problem-exten
 import { useProblemDisplay } from "./text-flow/ProblemDisplayContext";
 import { useProblemNumbers } from "./text-flow/ProblemNumberingContext";
 import { HeadingNumberingExtension, headingNumberingKey } from "@/components/tiptap/heading-numbering-extension";
+import { RunningFieldExtension, runningFieldKey } from "@/components/tiptap/running-field-extension";
 import { PageBreakGapExtension, paginationGapKey, type PageBreakMarkerLayout } from "@/components/tiptap/page-break-gap-extension";
 import { FormattingMarksExtension } from "@/components/tiptap/formatting-marks-extension";
 import { findAncestorNodeDepth, isBoxTitleNodeName, isEmptyEditorTextBlock } from "@/components/tiptap/node-queries";
@@ -161,6 +162,7 @@ import  {
   boxFrameHasSubtitle,
   patchBoxFrame,
   resolveBoxFrame,
+  setBoxCustomFrame,
   setBoxStyle,
 } from "@/lib/box-blocks";
 import  {
@@ -173,6 +175,7 @@ import  {
 import { useAppLocale, useT } from "@/lib/i18n/react";
 import { createId } from "@/lib/id";
 import { countPerformanceEvent, measurePerformance } from "@/lib/performance";
+import { getFrameLibrary, type FrameLibraryEntry } from "@/lib/frame-library";
 import { applyRememberedBoxFrame, forgetRememberedBoxFrame, rememberBoxFramePatch } from "@/lib/remembered-box-style";
 import { inlineNodesToTiptapNodes, tiptapNodesToInlineNodes, type TiptapDoc, type TiptapNode } from "@/lib/tiptap-adapter";
 import { SELECT_BODY_WITH_SHAPES_EVENT, collectSelectedBlockIds, requestBodySelectionShapes } from "./text-flow/body-shape-selection";
@@ -321,6 +324,8 @@ export function shouldHandleTextPageBreakRequest(
 }
 /** 本文ブロック候補が無いときに渡す不変配列 (毎回新しい `[]` を作ると useMemo が毎回外れる)。 */
 const EMPTY_BLOCK_COMMAND_IDS: readonly string[] = [];
+/** 箱を置けないときの棚。同じく不変配列。 */
+const NO_FRAMES: readonly FrameLibraryEntry[] = [];
 const BOX_ACTION_DIALOG_WIDTH = 188;
 const BOX_ACTION_DIALOG_HEIGHT = 180;
 const BOX_ACTION_DIALOG_MARGIN = 12;
@@ -737,6 +742,8 @@ function TextFlowEditorImpl({
   nodeDisplacements,
   boxFragmentSourceLayouts,
   headingNumbers = {},
+  runningFieldValues = null,
+  caretSurface = true,
   boxFragmentReplicaId,
   boxFragmentReplicaIndex,
   syncFocusedContent = false,
@@ -988,6 +995,8 @@ function TextFlowEditorImpl({
   const getColumnFlowBlockLayouts = useCallback(() => columnFlowBlockLayoutsRef.current, []);
   const getNodeDisplacements = useCallback(() => nodeDisplacementsRef.current, []);
   const getHeadingNumbers = useCallback(() => headingNumbersRef.current, []);
+  const runningFieldValuesRef = useRef(runningFieldValues);
+  const getRunningFieldValues = useCallback(() => runningFieldValuesRef.current, []);
   const getHeadingNumberLayoutKey = useCallback((blockId: string) => {
     const layout = columnFlowBlockLayoutsRef.current[blockId];
     return layout
@@ -1013,19 +1022,23 @@ function TextFlowEditorImpl({
   const slashCommandPageBreakKind = !singleBlock && onManualBreakCommand && slashCommandQuery?.canInsertPageBreak
     ? resolvedPaginationMarkerKind
     : null;
+  const slashCanInsertBox = enableBoxCommands && (slashCommandQuery?.canInsertBox ?? false);
   const slashCommandCandidates = useMemo(
     () => filterSlashCommandCandidates(
       materials,
       slashCommandQuery?.query ?? "",
-      enableBoxCommands && (slashCommandQuery?.canInsertBox ?? false),
+      slashCanInsertBox,
       t,
       boxCommandStyleIds,
       enableProblemCommands,
       slashCommandBlockIds,
       enableHeadingCommands,
       slashCommandPageBreakKind,
+      // 棚は `/` で箱を置ける間だけ読む。購読すると本文エディタの描画のたびに localStorage の
+      // 棚 (最大 60 件の SVG) を読み直すことになる。
+      slashCanInsertBox ? getFrameLibrary() : NO_FRAMES,
     ),
-    [boxCommandStyleIds, enableBoxCommands, enableHeadingCommands, enableProblemCommands, materials, slashCommandBlockIds, slashCommandPageBreakKind, slashCommandQuery?.canInsertBox, slashCommandQuery?.query, t],
+    [boxCommandStyleIds, enableHeadingCommands, enableProblemCommands, materials, slashCanInsertBox, slashCommandBlockIds, slashCommandPageBreakKind, slashCommandQuery?.query, t],
   );
   const slashCommandMaxIndex = Math.max(0, slashCommandCandidates.length - 1);
   const clampedSlashCommandActiveIndex = Math.min(slashCommandActiveIndex, slashCommandMaxIndex);
@@ -1240,6 +1253,10 @@ function TextFlowEditorImpl({
         // another segment when a multi-column layout is recalculated.
         getLayoutKey: getHeadingNumberLayoutKey,
       }),
+      // ヘッダー/フッターの差し込み (`{page}` など) をそのページの値で見せる。値を渡さない面
+      // (本文・図中文字) では何もしない。
+      // eslint-disable-next-line react-hooks/refs
+      RunningFieldExtension.configure({ getValues: getRunningFieldValues }),
       // These stable callbacks are read by the decoration plugin when it runs,
       // not during React render.
       // eslint-disable-next-line react-hooks/refs
@@ -2179,6 +2196,21 @@ function TextFlowEditorImpl({
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editor, headingNumbersKey, requestSyncDecorationRefresh]);
+  const runningFieldValuesKey = runningFieldValues
+    ? `${runningFieldValues.title}\u0000${runningFieldValues.page}\u0000${runningFieldValues.total}`
+    : "";
+  const appliedRunningFieldValuesKeyRef = useRef(runningFieldValuesKey);
+  // ページ数・題名が変わったら、同じコミットのうちに描き直す (ページ割りと同じ frame で揃える)。
+  // 作った時点の値はプラグインの init が読んでいるので、変わったときだけ打つ (本文の面は打たない)。
+  useLayoutEffect(() => {
+    runningFieldValuesRef.current = runningFieldValues;
+    if (!editor || editor.isDestroyed || appliedRunningFieldValuesKeyRef.current === runningFieldValuesKey) {
+      return;
+    }
+    appliedRunningFieldValuesKeyRef.current = runningFieldValuesKey;
+    editor.view.dispatch(editor.state.tr.setMeta(runningFieldKey, runningFieldValuesKey).setMeta("addToHistory", false));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editor, runningFieldValuesKey]);
 
   // ドラッグ中の下余白プレビュー。`requestSyncDecorationRefresh` は「この commit の最後に打つ」
   // 予約なので、React の外 (pointerdown / pointerup) から来るこの合図はその場で打つ。
@@ -2484,9 +2516,10 @@ function TextFlowEditorImpl({
   ]);
 
   /** 面の登録。**deps は `[editor]` だけ**にすること (上のコメント参照)。 */
+  const caretSurfaceRef = useRef(caretSurface);
   useLayoutEffect(() => {
     const facets = caretFacetsRef.current;
-    if (!editor || editor.isDestroyed || !facets) {
+    if (!editor || editor.isDestroyed || !facets || !caretSurfaceRef.current) {
       return;
     }
     return registerCaretSurface({ editor, ...facets });
@@ -3159,6 +3192,12 @@ function TextFlowEditorImpl({
           onFrameChange={(patch) => {
             applyBoxSettings(activeBoxSettingsDialog.boxId, (boxBlock) => patchBoxFrame(boxBlock, patch));
             rememberBoxFramePatch(activeBoxSettingsDialog.styleId, patch);
+          }}
+          onCustomFrameChange={(updater) => {
+            applyBoxSettings(activeBoxSettingsDialog.boxId, (boxBlock) => {
+              const next = updater(boxBlock.frame?.custom);
+              return next ? setBoxCustomFrame(boxBlock, next) : boxBlock;
+            });
           }}
           onResetStyle={() => {
             forgetRememberedBoxFrame(activeBoxSettingsDialog.styleId);

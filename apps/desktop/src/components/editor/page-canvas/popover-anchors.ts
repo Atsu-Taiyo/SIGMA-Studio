@@ -30,6 +30,32 @@ export interface SelectionActionPopoverPosition {
    * `left` は幅の見積りで決めた端の位置で、AI パネルなど他の配置も参照するため残す。
    */
   centerX?: number;
+  /**
+   * 本文の選択だけが持つ。AI への依頼・コメントは書式の帯 (選択の上) に混ぜず、選んだところの
+   * 右下に別のチップで出す — 上に出すと、打っている行の 1 行上を隠して普段の編集の邪魔になる。
+   * 図形の選択は持たない (回転ハンドル・承認バーとの避け合いを帯 1 本で決めているため)。
+   */
+  trailing?: SelectionTrailingAnchor;
+}
+
+/** 選んだところの右下の角と、チップを収める範囲 (いずれも画面座標)。 */
+export interface SelectionTrailingAnchor {
+  /** 選択の最後の行の右端。 */
+  right: number;
+  /** 選択の最後の行の下端。 */
+  bottom: number;
+  /** 選択の上端。下に置けないときは、ここより上へ回す。 */
+  top: number;
+  /** 右端の限界。選択が載っている用紙の右端 (と画面の右端) を越えない。 */
+  limitRight: number;
+  /** 下端の限界。用紙の下端・本文の表示域の下端。 */
+  limitBottom: number;
+}
+
+export interface SelectionTrailingPlacement {
+  left: number;
+  top: number;
+  placement: "below" | "above";
 }
 
 export interface OverlaySelectionPopoverMeasurement {
@@ -173,7 +199,127 @@ export function sameSelectionActionPopoverPosition(
   a: SelectionActionPopoverPosition | null,
   b: SelectionActionPopoverPosition | null,
 ): boolean {
-  return a === b || Boolean(a && b && a.left === b.left && a.top === b.top && a.centerX === b.centerX);
+  return a === b || Boolean(
+    a && b && a.left === b.left && a.top === b.top && a.centerX === b.centerX
+      && sameSelectionTrailingAnchor(a.trailing, b.trailing),
+  );
+}
+
+function sameSelectionTrailingAnchor(a: SelectionTrailingAnchor | undefined, b: SelectionTrailingAnchor | undefined): boolean {
+  return a === b || Boolean(
+    a && b && a.right === b.right && a.bottom === b.bottom && a.top === b.top
+      && a.limitRight === b.limitRight && a.limitBottom === b.limitBottom,
+  );
+}
+
+/** 用紙の右端からチップを離す量 (画面の px)。用紙の縁にぴったり付けると、縁の影と重なって読みにくい。 */
+const TRAILING_PAGE_EDGE_INSET = 8;
+/** 選択とチップの間隔 (画面の px)。 */
+const TRAILING_GAP = 6;
+/** 同じ行の続きとみなす、行の切れ端どうしの隙間 (画面の px)。段の間はこれより広い。 */
+const LINE_PIECE_GAP = 8;
+
+/**
+ * 選んだところの右下の角を求める。`lines` は選択の行ごとの矩形 (範囲なら `getClientRects`、
+ * ブロックや数式ならその矩形 1 つ)。`end` は選択の終わりの位置 (範囲の終わりに置いたカーソルの矩形)。
+ *
+ * 右端は選択が終わった位置で、全体の外接矩形の右端ではない — 複数行の選択で、選択が終わった
+ * 位置から離れた段の右端にチップが飛ばないようにする。いちばん下の矩形も最後の行とは限らない
+ * (2 段組で 1 段目の下から 2 段目の上まで選ぶと、いちばん下は 1 段目) ので、終わりの位置が
+ * 分かれば、その位置の行だけを使う。終わりの位置が測れないときは、いちばん下の行を使う。
+ */
+export function getSelectionTrailingAnchor(
+  lines: readonly DOMRect[],
+  canvas: HTMLElement | null,
+  end: DOMRect | null = null,
+): SelectionTrailingAnchor | null {
+  const rects = lines.filter((rect) => rect.width > 0 || rect.height > 0);
+  if (rects.length === 0) {
+    return null;
+  }
+  const endLine = end ? findLineAtSelectionEnd(rects, end) : null;
+  const lastLine = endLine ?? findLowestLine(rects);
+  const right = endLine && end ? end.left : Math.max(...lastLine.map((rect) => rect.right));
+  const bottom = Math.max(...lastLine.map((rect) => rect.bottom));
+  const lineTop = Math.min(...lastLine.map((rect) => rect.top));
+  const top = Math.min(...rects.map((rect) => rect.top));
+  const scrollerRect = canvas?.closest<HTMLElement>(".editor-canvas")?.getBoundingClientRect() ?? null;
+  const viewportRight = Math.min(window.innerWidth, scrollerRect?.right ?? Number.POSITIVE_INFINITY);
+  const viewportBottom = Math.min(window.innerHeight, scrollerRect?.bottom ?? Number.POSITIVE_INFINITY);
+  const page = findPageSheetRect(canvas, (lineTop + bottom) / 2);
+  return {
+    right,
+    bottom,
+    top,
+    limitRight: Math.min(viewportRight - SELECTION_ACTION_POPOVER_MARGIN, page ? page.right - TRAILING_PAGE_EDGE_INSET : Number.POSITIVE_INFINITY),
+    limitBottom: Math.min(viewportBottom - SELECTION_ACTION_POPOVER_MARGIN, page ? page.bottom : Number.POSITIVE_INFINITY),
+  };
+}
+
+/** いちばん下の矩形と同じ高さに載っている矩形 (背の高い数式も同じ行に数える)。 */
+function findLowestLine(rects: readonly DOMRect[]): DOMRect[] {
+  const lowest = rects.reduce((current, rect) => (rect.bottom > current.bottom ? rect : current));
+  return rects.filter((rect) => {
+    const middle = rect.top + rect.height / 2;
+    return middle >= lowest.top && middle <= lowest.bottom;
+  });
+}
+
+/**
+ * 選択の終わりの位置がある行の矩形。終わりの位置を含む切れ端から、隙間なく左へ続く切れ端までを
+ * その行とする (同じ高さでも、段の間をあけた別の段の行は含めない)。見つからなければ null。
+ */
+function findLineAtSelectionEnd(rects: readonly DOMRect[], end: DOMRect): DOMRect[] | null {
+  const middle = end.top + end.height / 2;
+  const x = end.left;
+  const band = rects.filter((rect) => rect.top <= middle && middle <= rect.bottom);
+  const last = band.find((rect) => rect.left - 1 <= x && x <= rect.right + 1);
+  if (!last) {
+    return null;
+  }
+  const line = [last];
+  let lineLeft = last.left;
+  for (const rect of [...band].sort((a, b) => b.right - a.right)) {
+    if (rect !== last && rect.left < lineLeft && rect.right >= lineLeft - LINE_PIECE_GAP) {
+      line.push(rect);
+      lineLeft = rect.left;
+    }
+  }
+  return line;
+}
+
+/** 選択の行が載っている用紙の矩形。用紙の無い面 (ホワイトボード) や用紙の間では null。 */
+function findPageSheetRect(canvas: HTMLElement | null, y: number): DOMRect | null {
+  if (!canvas) {
+    return null;
+  }
+  for (const sheet of Array.from(canvas.querySelectorAll<HTMLElement>(".page-backdrop > .a4-page-sheet"))) {
+    const rect = sheet.getBoundingClientRect();
+    if (y >= rect.top && y <= rect.bottom) {
+      return rect;
+    }
+  }
+  return null;
+}
+
+/**
+ * チップの置き場所。左上の角を選んだところの右下の角に合わせ、用紙 (画面) の右端を越えるなら
+ * 右端に揃えて左へ寄せる。下に収まらない (用紙の下端・画面の下端を越える) ときだけ選択の上へ回す。
+ */
+export function placeSelectionTrailingActions(
+  anchor: SelectionTrailingAnchor,
+  size: { width: number; height: number },
+): SelectionTrailingPlacement {
+  const left = Math.max(SELECTION_ACTION_POPOVER_MARGIN, Math.min(anchor.right, anchor.limitRight - size.width));
+  const below = anchor.bottom + TRAILING_GAP;
+  if (below + size.height <= anchor.limitBottom) {
+    return { left, top: below, placement: "below" };
+  }
+  return {
+    left,
+    top: Math.max(SELECTION_ACTION_POPOVER_MARGIN, anchor.top - TRAILING_GAP - size.height),
+    placement: "above",
+  };
 }
 
 export function createTextCommentAnchorFromRange(

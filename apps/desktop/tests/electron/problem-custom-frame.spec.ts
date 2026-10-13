@@ -41,8 +41,8 @@ test("a hand-drawn problem frame is saved with the file and drawn again after re
     await prompt.getByRole("button", { name: "問題操作" }).click();
     await page.getByRole("menu", { name: "問題操作" }).getByRole("menuitem", { name: "問題の設定…" }).click();
     await page.getByTestId("problem-frame-new").click();
-    await page.getByTestId("problem-frame-preset-double-diamond").click();
-    await page.getByTestId("problem-custom-frame-thickness").fill("22");
+    await page.getByTestId("custom-frame-preset-double-diamond").click();
+    await page.getByTestId("custom-frame-thickness").fill("22");
     await expect(prompt).toHaveClass(/problem-frame--custom/);
     await expect.poll(() => frameMetrics(page)).toMatchObject({ imageDrawn: true, borderLeft: 22, borderTop: 22 });
 

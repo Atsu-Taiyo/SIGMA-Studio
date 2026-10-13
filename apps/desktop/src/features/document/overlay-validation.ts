@@ -514,6 +514,8 @@ function isGraph2DSpec(value: unknown): boolean {
     (value.graphViewBox === undefined || isGraphViewBox(value.graphViewBox)) &&
     isRecord(value.axes) &&
     typeof value.axes.grid === "boolean" &&
+    (value.axes.xAxisEndStyle === undefined || isOverlayArrowhead(value.axes.xAxisEndStyle)) &&
+    (value.axes.yAxisEndStyle === undefined || isOverlayArrowhead(value.axes.yAxisEndStyle)) &&
     Array.isArray(value.curves) &&
     value.curves.every(isGraphCurve) &&
     (value.parameters === undefined || (Array.isArray(value.parameters) && value.parameters.every(isGraphParameter))) &&

@@ -1,4 +1,5 @@
 import { encodeAiSvg, MAX_AI_SVG_BYTES } from "./svg-image";
+import type { AiImageAnnotation } from "./ai-image-annotations";
 import { resolveValidationLocale, tv } from "@/lib/ai/validation-locale";
 import { z } from "zod";
 
@@ -169,6 +170,8 @@ export interface AiEditAttachment {
   fileSize?: number;
   /** Overlay preview attachments keep the reference they visualize so history fallback stays per-reference. */
   sourceReferenceKey?: string;
+  /** 画像の中の場所を指したコメント。送信直前に印を描き込んだ画像へ差し替え、文章でも渡す。 */
+  annotations?: AiImageAnnotation[];
 }
 
 export interface AiEditMentionedDocumentContext {
@@ -4476,6 +4479,10 @@ function normalizeGraphAxes(input: unknown, kind: "cartesian" | "numberLine"): G
     ...(kind === "cartesian" ? { yTickStep: typeof axes.yTickStep === "string" ? axes.yTickStep : "1" } : {}),
     ...(axes.xTickMode === "pi" || axes.xTickMode === "number" ? { xTickMode: axes.xTickMode } : {}),
     ...(axes.yTickMode === "pi" || axes.yTickMode === "number" ? { yTickMode: axes.yTickMode } : {}),
+    // Not something the AI is asked to choose, but `update_graph` rebuilds the axes through here, so
+    // dropping them would undo the author's choice on every AI edit of the graph.
+    ...(isOverlayArrowheadValue(axes.xAxisEndStyle) ? { xAxisEndStyle: axes.xAxisEndStyle } : {}),
+    ...(kind === "cartesian" && isOverlayArrowheadValue(axes.yAxisEndStyle) ? { yAxisEndStyle: axes.yAxisEndStyle } : {}),
   };
 }
 
@@ -5518,7 +5525,11 @@ function normalizeOverlayArrowhead(value: OverlayArrowhead | undefined, fallback
   // Derived, not enumerated: this used to carry its own copy of the four original heads and
   // quietly rewrote anything else to the fallback, so a new head reached the schema but never the
   // document.
-  return value !== undefined && (OVERLAY_ARROWHEADS as readonly string[]).includes(value) ? value : fallback;
+  return isOverlayArrowheadValue(value) ? value : fallback;
+}
+
+function isOverlayArrowheadValue(value: unknown): value is OverlayArrowhead {
+  return typeof value === "string" && (OVERLAY_ARROWHEADS as readonly string[]).includes(value);
 }
 
 const aiGraphLabelLayoutPort = createGraphLabelLayoutPort();

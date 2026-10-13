@@ -3734,12 +3734,13 @@ function powerPointTableCellContent(
   idPrefix: string,
   style: PptxTableCellStyle | undefined,
 ): SigmaTableSpec["cells"][number]["content"] {
+  const align = normalizePowerPointTextAlign(style?.align);
   const lines = text.split(/\r?\n/u);
   const paragraphs = (lines.length > 0 ? lines : [""]).map((line, index) => ({
     type: "paragraph" as const,
     id: `${idPrefix}_p_${index + 1}`,
     children: powerPointTableTextToInlineNodes(line, style),
-    ...(style?.align ? { align: style.align } : {}),
+    ...(align ? { align } : {}),
   }));
   return paragraphs;
 }
@@ -3767,7 +3768,8 @@ function powerPointTableCellStyleToSigmaCellStyle(style: PptxTableCellStyle | un
     return undefined;
   }
   const result: NonNullable<SigmaTableSpec["cells"][number]["style"]> = {};
-  if (style.align) result.align = style.align;
+  const align = normalizePowerPointTextAlign(style.align);
+  if (align) result.align = align;
   if (style.vAlign) result.verticalAlign = style.vAlign;
   if (style.color) result.color = style.color;
   if (style.backgroundColor) result.backgroundColor = style.backgroundColor;
@@ -3794,7 +3796,7 @@ function getDefaultTableCellStyle(table: PptxTableData): {
 } {
   const firstStyle = table.rows.flatMap((row) => row.cells.map((cell) => cell.style)).find(Boolean);
   return {
-    align: firstStyle?.align ?? "center",
+    align: normalizePowerPointTextAlign(firstStyle?.align) ?? "center",
     verticalAlign: firstStyle?.vAlign ?? "middle",
     paddingX: round(Math.max(firstStyle?.marginLeft ?? 6, firstStyle?.marginRight ?? 6)),
     paddingY: round(Math.max(firstStyle?.marginTop ?? 4, firstStyle?.marginBottom ?? 4)),

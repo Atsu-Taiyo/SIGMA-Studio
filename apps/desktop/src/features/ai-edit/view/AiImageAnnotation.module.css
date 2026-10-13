@@ -1,0 +1,356 @@
+/* 添付画像の中の場所を指すコメント (注記) の印と、それを付ける画面。
+   印の青は lib/ai/ai-image-annotations.ts の AI_IMAGE_ANNOTATION_COLOR と同じ値にする
+   (AIへ送る画像に描き込む印と、画面で見せる印を揃えるため)。 */
+
+.marks,
+.dialog {
+  --ai-image-annotation-color: #2563eb;
+  --ai-image-annotation-fill: rgb(37 99 235 / 10%);
+}
+
+/* ---- 印 ---- */
+
+.marks {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.region {
+  position: absolute;
+  box-sizing: border-box;
+  border: 2px solid var(--ai-image-annotation-color);
+  border-radius: 2px;
+  background: var(--ai-image-annotation-fill);
+  box-shadow: 0 0 0 1px rgb(255 255 255 / 90%);
+}
+
+.region[data-draft="true"] {
+  border-style: dashed;
+}
+
+.region[data-active="true"] {
+  background: rgb(37 99 235 / 16%);
+}
+
+/* 点を囲む輪。中は塗らず、指した所そのものを見えるままにする。 */
+.ring {
+  position: absolute;
+  box-sizing: border-box;
+  border: 2px solid var(--ai-image-annotation-color);
+  border-radius: 999px;
+  box-shadow: 0 0 0 1px rgb(255 255 255 / 90%), inset 0 0 0 1px rgb(255 255 255 / 90%);
+  transform: translate(-50%, -50%);
+}
+
+.ring[data-draft="true"] {
+  border-style: dashed;
+}
+
+.badge {
+  position: absolute;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+  border: 2px solid #ffffff;
+  border-radius: 999px;
+  background: var(--ai-image-annotation-color);
+  box-shadow: 0 1px 3px rgb(15 23 42 / 28%);
+  color: #ffffff;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  transform: translate(-50%, -50%);
+}
+
+/* 小さなサムネでは白い縁を細くして、番号の読める面積を残す。 */
+.overlayBox .badge {
+  border-width: 1px;
+}
+
+.overlayBox .ring {
+  border-width: 1.5px;
+  box-shadow: none;
+}
+
+.overlayBox .region {
+  border-width: 1.5px;
+}
+
+.badge[data-draft="true"] {
+  border-style: dashed;
+  opacity: 0.85;
+}
+
+.marks[data-interactive="true"] .badge {
+  pointer-events: auto;
+  cursor: pointer;
+  transition: transform 120ms ease;
+}
+
+.marks[data-interactive="true"] .badge:hover,
+.marks[data-interactive="true"] .badge[data-active="true"] {
+  transform: translate(-50%, -50%) scale(1.12);
+}
+
+.marks[data-interactive="true"] .badge:focus-visible {
+  outline: 2px solid var(--text-primary);
+  outline-offset: 2px;
+}
+
+/* background-size: contain で枠に収めた画像と同じ箱。印をこの箱に重ねる。 */
+.overlayBox {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+
+/* ---- コメントを付ける画面 ---- */
+
+.dialog {
+  --ai-image-annotation-stage-max-height: min(62vh, 640px);
+  --ai-image-annotation-panel-width: 280px;
+  --ai-image-annotation-card-width: 280px;
+}
+
+.body {
+  display: flex;
+  min-height: 0;
+  flex: 1 1 auto;
+  flex-direction: column;
+}
+
+.layout {
+  display: flex;
+  min-height: 0;
+  flex: 1 1 auto;
+}
+
+.stage {
+  position: relative;
+  display: grid;
+  min-width: 0;
+  min-height: 320px;
+  flex: 1 1 auto;
+  place-items: center;
+  padding: var(--space-xl);
+  background: var(--surface-soft);
+}
+
+.frame {
+  position: relative;
+  max-width: 100%;
+  line-height: 0;
+  /* 縦横比が分かれば、小さな画像も段の幅か高さの上限まで広げて、場所を選びやすくする。 */
+  width: var(--ai-image-annotation-frame-width, auto);
+  box-shadow: 0 0 0 1px var(--border-subtle);
+  background: #ffffff;
+}
+
+.image {
+  display: block;
+  width: var(--ai-image-annotation-image-width, auto);
+  max-width: 100%;
+  max-height: var(--ai-image-annotation-stage-max-height);
+  height: auto;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+
+/* 選択図形のプレビュー (インラインSVG)。枠いっぱいに縦横比を保って描く。 */
+.svgImage {
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.svgImage svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.surface {
+  position: absolute;
+  inset: 0;
+  cursor: crosshair;
+  touch-action: none;
+}
+
+.surface[data-limit-reached="true"] {
+  cursor: not-allowed;
+}
+
+.card {
+  position: absolute;
+  z-index: 2;
+  visibility: hidden;
+  display: grid;
+  width: min(var(--ai-image-annotation-card-width), calc(100% - 16px));
+  gap: var(--space-sm);
+  padding: var(--space-md);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-panel);
+  background: var(--background);
+  box-shadow: var(--shadow-floating);
+  line-height: normal;
+}
+
+.cardBadge,
+.listBadge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  flex: 0 0 auto;
+  border-radius: 999px;
+  background: var(--ai-image-annotation-color);
+  color: #ffffff;
+  font-size: 11px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+
+.cardInput {
+  width: 100%;
+  min-height: 64px;
+  resize: vertical;
+  box-sizing: border-box;
+  padding: var(--space-sm);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  background: var(--background);
+  color: var(--text-primary);
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.cardInput:focus {
+  border-color: var(--text-primary);
+  outline: none;
+}
+
+.cardActions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+}
+
+.cardSpacer {
+  flex: 1 1 auto;
+}
+
+.panel {
+  display: flex;
+  width: var(--ai-image-annotation-panel-width);
+  min-height: 0;
+  flex: 0 0 auto;
+  flex-direction: column;
+  gap: var(--space-md);
+  padding: var(--space-lg);
+  overflow-y: auto;
+  border-left: 1px solid var(--border-subtle);
+}
+
+.panelTitle {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.panelCount {
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.empty,
+.limit {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.list {
+  display: grid;
+  gap: var(--space-xs);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.listItem {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-xs);
+  border-radius: var(--radius-control);
+}
+
+.listItem[data-active="true"] {
+  background: var(--surface-muted);
+}
+
+.listMain {
+  display: flex;
+  min-width: 0;
+  flex: 1 1 auto;
+  align-items: flex-start;
+  gap: var(--space-sm);
+  padding: var(--space-sm);
+  border: 0;
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--text-primary);
+  font-size: 13px;
+  line-height: 1.5;
+  text-align: left;
+}
+
+.listMain:focus-visible {
+  outline: 2px solid var(--text-primary);
+  outline-offset: -2px;
+}
+
+.listText {
+  display: -webkit-box;
+  min-width: 0;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+}
+
+.footer {
+  display: flex;
+  flex: 0 0 auto;
+  justify-content: flex-end;
+  padding: var(--space-lg) var(--space-xl);
+  border-top: 1px solid var(--border-subtle);
+}
+
+@media (max-width: 760px) {
+  .layout {
+    flex-direction: column;
+  }
+
+  .panel {
+    width: auto;
+    border-top: 1px solid var(--border-subtle);
+    border-left: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .marks[data-interactive="true"] .badge {
+    transition: none;
+  }
+}

@@ -16,7 +16,7 @@ import  {
   useState,
 } from "react";
 
-import type { Graph2DSpec, GraphFillPattern } from "@/features/document";
+import { DEFAULT_GRAPH_AXIS_END_STYLE, type Graph2DSpec, type GraphAxisEndStyle, type GraphFillPattern } from "@/features/document";
 import { isSafeCssColor } from "@/features/document/css-safety";
 import { ptToPx } from "@/lib/font-size-units";
 import  {
@@ -55,7 +55,15 @@ import {
 } from "@/lib/graph-crop-box";
 import { countPerformanceEvent, measurePerformance } from "@/lib/performance";
 
-import { applyMathTypesetStyle } from "@/features/rendering/core";
+import {
+  applyMathTypesetStyle,
+  arrowheadPathData,
+  getArrowheadMarkerSpec,
+  NO_ARROWHEAD_PLACEMENT,
+  planArrowheadEndpoints,
+  type ArrowheadMarkerSpec,
+  type ArrowheadPlacement,
+} from "@/features/rendering/core";
 
 import { sanitizeMathMarkup } from "../math-markup";
 import { measureTexBoxEm } from "../math-metrics";
@@ -76,6 +84,11 @@ interface Graph2DPreviewProps {
   disableCropInteraction?: boolean;
   /** Called when crop mode ends (confirm or cancel). */
   onCropEnd?: () => void;
+  /**
+   * グラフが原点の名前 (O) の文字図形を持っている。原点の真下に来る横軸の「0」の目盛り数字は
+   * O と重なるので出さない (縦軸の「0」は左の余白にあり重ならないので残す)。
+   */
+  originLabeled?: boolean;
 }
 
 type TexAlign = "start" | "middle" | "end";
@@ -306,6 +319,7 @@ function Graph2DPreviewComponent({
   autoStartCrop,
   disableCropInteraction,
   onCropEnd,
+  originLabeled = false,
 }: Graph2DPreviewProps) {
   countPerformanceEvent("Graph2DPreview.render");
   const mathEnvironment = useMathEnvironment();
@@ -603,7 +617,8 @@ function Graph2DPreviewComponent({
   const showYAxis = showY && yAxisWithinRange;
   const xAxisY = axisY(range, spec, plotBox);
   const yAxisX = showY ? axisX(range, spec, plotBox) : null;
-  const axisArrowId = `axis-arrow-${graphSvgId}`;
+  const xAxisArrowId = `axis-arrow-${graphSvgId}-x`;
+  const yAxisArrowId = `axis-arrow-${graphSvgId}-y`;
   // The axis is the one part of a graph whose style reaches a React style object rather than an SVG
   // attribute, and `isGraph2DSpec` checks the type of none of these three fields — so a `;` inside
   // any of them becomes a real extra declaration once this component is serialized with
@@ -628,6 +643,17 @@ function Graph2DPreviewComponent({
   const plotWidth = Math.max(0, spec.width - plotBox.left - plotBox.right);
   const plotHeight = Math.max(0, spec.height - plotBox.top - plotBox.bottom);
   const graphClipBox = getGraphDisplayClipBox(spec, plotBox);
+  // Each axis has its own end, so each gets its own marker and its own plan.
+  const xAxisEnd = planGraphAxisEnd(
+    spec.axes.xAxisEndStyle,
+    axisStrokeWidth ?? DEFAULT_GRAPH_AXIS_STROKE_WIDTH,
+    showXAxis ? graphClipBox.width : Infinity,
+  );
+  const yAxisEnd = planGraphAxisEnd(
+    spec.axes.yAxisEndStyle,
+    axisStrokeWidth ?? DEFAULT_GRAPH_AXIS_STROKE_WIDTH,
+    showYAxis && yAxisX !== null ? graphClipBox.height : Infinity,
+  );
   const hasDrawableCurve = curvePaths.some((curvePath) => curvePath.path);
 
   const handleDefs = cropBox ? [
@@ -669,21 +695,12 @@ function Graph2DPreviewComponent({
       >
         <title>{description}</title>
         <defs>
-          <marker
-            id={axisArrowId}
-            markerWidth="8"
-            markerHeight="8"
-            refX="6"
-            refY="4"
-            orient="auto"
-            markerUnits="strokeWidth"
-          >
-            <path
-              d="M0 0 L7 4 L0 8 Z"
-              className="graph2d-axis-arrow"
-              style={axisColor ? { fill: axisColor } : undefined}
-            />
-          </marker>
+          {xAxisEnd.spec && (
+            <GraphAxisEndMarker id={xAxisArrowId} axis="x" placement={xAxisEnd} spec={xAxisEnd.spec} color={axisColor} />
+          )}
+          {yAxisEnd.spec && (
+            <GraphAxisEndMarker id={yAxisArrowId} axis="y" placement={yAxisEnd} spec={yAxisEnd.spec} color={axisColor} />
+          )}
           <clipPath id={plotClipId}>
             <rect
               x={plotBox.left}
@@ -768,13 +785,17 @@ function Graph2DPreviewComponent({
         )}
 
         <g className="graph2d-axes">
+          {/*
+            * Each axis stops short of the display range by what its end gave up, so the end's point —
+            * not the line's square edge — lands on the edge of the range.
+            */}
           {showXAxis && (
             <line
               x1={graphClipBox.x}
-              x2={graphClipBox.x + graphClipBox.width}
+              x2={graphClipBox.x + graphClipBox.width - xAxisEnd.trimPx}
               y1={xAxisY}
               y2={xAxisY}
-              markerEnd={`url(#${axisArrowId})`}
+              markerEnd={xAxisEnd.spec ? `url(#${xAxisArrowId})` : undefined}
               style={axisStyle}
             />
           )}
@@ -783,8 +804,8 @@ function Graph2DPreviewComponent({
               x1={yAxisX}
               x2={yAxisX}
               y1={graphClipBox.y + graphClipBox.height}
-              y2={graphClipBox.y}
-              markerEnd={`url(#${axisArrowId})`}
+              y2={graphClipBox.y + yAxisEnd.trimPx}
+              markerEnd={yAxisEnd.spec ? `url(#${yAxisArrowId})` : undefined}
               style={axisStyle}
             />
           )}
@@ -793,7 +814,7 @@ function Graph2DPreviewComponent({
         {showTicks && (
           <g className="graph2d-ticks">
             {showXAxis &&
-              xTicks.map((tick) => {
+              xTicks.filter((tick) => !(originLabeled && showYAxis && Math.abs(tick) < 1e-9)).map((tick) => {
                 const point = mapGraphPoint(tick, 0, range, spec, plotBox);
                 const tickTex = formatTickLabelTex(tick, spec.axes.xTickMode, spec.axes.xTickStep);
                 const tickFontSize = isFiniteNumber(spec.axes.tickFontSize)
@@ -1203,6 +1224,93 @@ function getCachedGraphFillPath(
 function getCachedGraphTicks(min: number, max: number, requestedStep: string | undefined, maxTicks: number): number[] {
   const key = `${min}:${max}:${requestedStep ?? ""}:${maxTicks}`;
   return getCachedValue(graphTicksCache, key, () => generateTicks(min, max, requestedStep, maxTicks));
+}
+
+/**
+ * The axis line width when the document does not set one.
+ *
+ * Mirrors `.graph2d-axes line` in `document-surface.css`, which is what actually draws the axis: the
+ * end is measured in stroke widths, so the trim in pixels needs the width the stylesheet applies.
+ */
+const DEFAULT_GRAPH_AXIS_STROKE_WIDTH = 1.2;
+
+/**
+ * Where the axis end sits and how much of the axis it costs.
+ *
+ * `none` draws no end at all. A name the outline table does not know draws the default end rather
+ * than nothing, so an axis never silently loses its direction.
+ */
+function planGraphAxisEnd(
+  style: GraphAxisEndStyle | undefined,
+  strokeWidth: number,
+  axisLength: number,
+): ArrowheadPlacement {
+  if (style === "none" || !Number.isFinite(axisLength)) {
+    return NO_ARROWHEAD_PLACEMENT;
+  }
+  const kind = getArrowheadMarkerSpec(style)?.kind ?? DEFAULT_GRAPH_AXIS_END_STYLE;
+  return planArrowheadEndpoints("none", kind, strokeWidth, axisLength, { start: 0, end: axisLength }).end;
+}
+
+/**
+ * The axis end, drawn from the same outline table as a line's endpoint heads.
+ *
+ * The colour stays on the stylesheet (`.graph2d-axis-arrow`) unless the document sets one, the same
+ * way the axis line itself does.
+ */
+function GraphAxisEndMarker({
+  id,
+  axis,
+  placement,
+  spec,
+  color,
+}: {
+  id: string;
+  axis: "x" | "y";
+  placement: ArrowheadPlacement;
+  spec: ArrowheadMarkerSpec;
+  color: string | undefined;
+}) {
+  const { geometry } = spec;
+  const open = geometry.kind === "polyline" && !geometry.filled;
+  return (
+    <marker
+      id={id}
+      data-axis={axis}
+      data-axis-end={spec.kind}
+      markerWidth={spec.markerWidth}
+      markerHeight={spec.markerHeight}
+      refX={placement.refX}
+      refY={spec.refY}
+      orient="auto"
+      markerUnits="strokeWidth"
+    >
+      {geometry.kind === "circle" ? (
+        <circle
+          cx={geometry.cx}
+          cy={geometry.cy}
+          r={geometry.r}
+          className="graph2d-axis-arrow"
+          style={color ? { fill: color } : undefined}
+        />
+      ) : open ? (
+        <path
+          d={arrowheadPathData(geometry)}
+          className="graph2d-axis-arrow graph2d-axis-arrow-open"
+          strokeWidth={geometry.strokeWidth}
+          strokeLinecap="butt"
+          strokeLinejoin="miter"
+          style={color ? { stroke: color } : undefined}
+        />
+      ) : (
+        <path
+          d={arrowheadPathData(geometry)}
+          className="graph2d-axis-arrow"
+          style={color ? { fill: color } : undefined}
+        />
+      )}
+    </marker>
+  );
 }
 
 function axisDasharray(dash: Graph2DSpec["axes"]["axisDash"]): string | undefined {

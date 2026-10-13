@@ -4,13 +4,13 @@ import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
-  buildProblemFrameDrawingPrompt,
+  buildFrameDrawingPrompt,
   buildSkillDraftPrompt,
   cancelAiSkillDraftCodexRun,
-  extractProblemFrameReplyMessage,
+  extractFrameReplyMessage,
   generateAiSkillDraft,
   parseCodexExecJsonLine,
-  sanitizeProblemFrameDrawing,
+  sanitizeFrameDrawing,
   sanitizeSkillDraftText,
   type AiSkillDraftDeps,
 } from "./ai-skill-draft";
@@ -215,7 +215,7 @@ describe("generateAiSkillDraft (codex provider, via a fake `codex exec --json` b
     const result = await generateAiSkillDraft(
       {
         provider: "chatgpt",
-        purpose: "problemFrame",
+        purpose: "frameDrawing",
         prompt: "枠",
         model: "gpt-x",
         reasoningEffort: "high",
@@ -234,7 +234,7 @@ describe("generateAiSkillDraft (codex provider, via a fake `codex exec --json` b
 
     // Without a listener for thinking, no summary is asked for.
     await generateAiSkillDraft(
-      { provider: "chatgpt", purpose: "problemFrame", prompt: "枠", context: { title: "", description: "", currentContent: "" } },
+      { provider: "chatgpt", purpose: "frameDrawing", prompt: "枠", context: { title: "", description: "", currentContent: "" } },
       deps,
       "test-run-no-reasoning",
     );
@@ -312,11 +312,11 @@ process.stdout.write(JSON.stringify({ type: "turn.started" }) + "\\n");
 setInterval(() => {}, 1000);
 `;
 
-describe("problem frame drawing (purpose: problemFrame)", () => {
+describe("frame drawing (purpose: frameDrawing)", () => {
   const SVG = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 100"><rect x="2" y="2" width="156" height="96" fill="none" stroke="#0a0"/></svg>';
 
   it("tells the model the canvas, where the corners end, and that edges stretch", () => {
-    const prompt = buildProblemFrameDrawingPrompt("四隅に桜の花びらがある枠", "");
+    const prompt = buildFrameDrawingPrompt("四隅に桜の花びらがある枠", "");
     expect(prompt).toContain('viewBox="0 0 160 100"');
     expect(prompt).toContain("24×24");
     expect(prompt).toContain("引き伸ばして");
@@ -325,45 +325,54 @@ describe("problem frame drawing (purpose: problemFrame)", () => {
     expect(prompt).toContain("ツールは一切使用しないでください");
   });
 
+  it("tells the model it frames a problem, or a titled box whose title is not part of the drawing", () => {
+    expect(buildFrameDrawingPrompt("枠", "")).toContain("問題を囲む枠線");
+    const box = buildFrameDrawingPrompt("枠", "", [], "box");
+    expect(box).toContain("タイトル付きの箱");
+    expect(box).toContain("四辺は箱の大きさに合わせて");
+    expect(box).toContain("タイトルの文字は描かないでください");
+    expect(box).not.toContain("問題を囲む枠線");
+  });
+
   it("asks to revise the current drawing when there is one", () => {
-    const prompt = buildProblemFrameDrawingPrompt("もっと太く", SVG);
+    const prompt = buildFrameDrawingPrompt("もっと太く", SVG);
     expect(prompt).toContain("現在の枠線");
     expect(prompt).toContain(SVG);
     expect(prompt).toContain("もっと太く");
   });
 
   it("carries the earlier requests of the conversation, oldest first, when there are any", () => {
-    const prompt = buildProblemFrameDrawingPrompt("もっと淡く", SVG, ["桜の枠", "角を丸く"]);
+    const prompt = buildFrameDrawingPrompt("もっと淡く", SVG, ["桜の枠", "角を丸く"]);
     expect(prompt).toContain("これまでのユーザーの要望");
     expect(prompt.indexOf("1. 桜の枠")).toBeLessThan(prompt.indexOf("2. 角を丸く"));
     expect(prompt).toContain("最新のユーザーの要望");
     expect(prompt.indexOf("2. 角を丸く")).toBeLessThan(prompt.indexOf("もっと淡く"));
-    expect(buildProblemFrameDrawingPrompt("桜の枠", "")).not.toContain("これまでのユーザーの要望");
+    expect(buildFrameDrawingPrompt("桜の枠", "")).not.toContain("これまでのユーザーの要望");
   });
 
   it("asks for a one-line note about the frame before the SVG, so the answer reads as a reply", () => {
-    const prompt = buildProblemFrameDrawingPrompt("桜の枠", "");
+    const prompt = buildFrameDrawingPrompt("桜の枠", "");
     expect(prompt).toContain("どんな枠にしたかを日本語で1〜2文");
   });
 
   it("separates the note the model wrote around the SVG from the drawing itself", () => {
-    expect(extractProblemFrameReplyMessage(`桜を四隅に入れました。\n\n\`\`\`svg\n${SVG}\n\`\`\`\nお使いください。`))
+    expect(extractFrameReplyMessage(`桜を四隅に入れました。\n\n\`\`\`svg\n${SVG}\n\`\`\`\nお使いください。`))
       .toBe("桜を四隅に入れました。\n\nお使いください。");
-    expect(extractProblemFrameReplyMessage(SVG)).toBe("");
-    expect(extractProblemFrameReplyMessage("申し訳ありません、描けません。")).toBe("申し訳ありません、描けません。");
+    expect(extractFrameReplyMessage(SVG)).toBe("");
+    expect(extractFrameReplyMessage("申し訳ありません、描けません。")).toBe("申し訳ありません、描けません。");
   });
 
   it("keeps only the SVG the model wrote, in the canonical form", () => {
     const reply = `できました！\n\n\`\`\`svg\n${SVG}\n\`\`\`\nお使いください。`;
-    const text = sanitizeProblemFrameDrawing(reply);
+    const text = sanitizeFrameDrawing(reply);
     expect(text.startsWith("<svg")).toBe(true);
     expect(text).toContain('width="160" height="100" viewBox="0 0 160 100"');
     expect(text).not.toContain("できました");
   });
 
   it("drops a reply that contains no usable drawing", () => {
-    expect(sanitizeProblemFrameDrawing("申し訳ありません、描けません。")).toBe("");
-    expect(sanitizeProblemFrameDrawing("<svg><rect/></svg>")).toBe("");
+    expect(sanitizeFrameDrawing("申し訳ありません、描けません。")).toBe("");
+    expect(sanitizeFrameDrawing("<svg><rect/></svg>")).toBe("");
   });
 
   it("generates through the tool-less one-shot path and returns the drawing, not skill text", async () => {
@@ -376,7 +385,7 @@ describe("problem frame drawing (purpose: problemFrame)", () => {
       codex: {} as AiSkillDraftDeps["codex"],
     };
     const result = await generateAiSkillDraft(
-      { provider: "claude", purpose: "problemFrame", prompt: "緑の細い枠", context: { title: "", description: "", currentContent: "" } },
+      { provider: "claude", purpose: "frameDrawing", prompt: "緑の細い枠", context: { title: "", description: "", currentContent: "" } },
       deps,
       "frame-run",
     );
@@ -385,6 +394,23 @@ describe("problem frame drawing (purpose: problemFrame)", () => {
     const call = runTurn.mock.calls[0][0];
     expect(call.instruction).toContain("枠線の絵をSVGで描く");
     expect(call.mcpConfig).toEqual({ mcpServers: {} });
+  });
+
+  it("asks for a box's frame when the request is for a box", async () => {
+    const runTurn = vi.fn<(turn: { instruction: string }) => Promise<{ finalText: string; isError: boolean; cancelled: boolean }>>(
+      async () => ({ finalText: SVG, isError: false, cancelled: false }),
+    );
+    const deps = {
+      claude: { runTurn, cancelRun: vi.fn() } as unknown as AiSkillDraftDeps["claude"],
+      geminiSkillDraft: {} as AiSkillDraftDeps["geminiSkillDraft"],
+      codex: {} as AiSkillDraftDeps["codex"],
+    };
+    await generateAiSkillDraft(
+      { provider: "claude", purpose: "frameDrawing", frameTarget: "box", prompt: "枠", context: { title: "", description: "", currentContent: "" } },
+      deps,
+      "box-run",
+    );
+    expect(runTurn.mock.calls[0][0].instruction).toContain("タイトル付きの箱");
   });
 
   it("runs the model the caller chose, and the provider default when none is given", async () => {
@@ -397,8 +423,8 @@ describe("problem frame drawing (purpose: problemFrame)", () => {
       codex: {} as AiSkillDraftDeps["codex"],
     };
     const context = { title: "", description: "", currentContent: "" };
-    await generateAiSkillDraft({ provider: "claude", purpose: "problemFrame", prompt: "枠", model: " opus ", context }, deps, "m1");
-    await generateAiSkillDraft({ provider: "claude", purpose: "problemFrame", prompt: "枠", context }, deps, "m2");
+    await generateAiSkillDraft({ provider: "claude", purpose: "frameDrawing", prompt: "枠", model: " opus ", context }, deps, "m1");
+    await generateAiSkillDraft({ provider: "claude", purpose: "frameDrawing", prompt: "枠", context }, deps, "m2");
     expect(runTurn.mock.calls[0][0].model).toBe("opus");
     expect("model" in runTurn.mock.calls[1][0]).toBe(false);
   });
@@ -416,7 +442,7 @@ describe("problem frame drawing (purpose: problemFrame)", () => {
     };
     const request = {
       provider: "claude" as const,
-      purpose: "problemFrame" as const,
+      purpose: "frameDrawing" as const,
       prompt: "桜",
       reasoningEffort: " High ",
       context: { title: "", description: "", currentContent: "", history: ["前の要望"] },
@@ -445,7 +471,7 @@ describe("problem frame drawing (purpose: problemFrame)", () => {
     };
     await generateAiSkillDraft({
       provider: "claude",
-      purpose: "problemFrame",
+      purpose: "frameDrawing",
       prompt: "枠",
       reasoningEffort: "high --dangerously-skip-permissions",
       context: { title: "", description: "", currentContent: "" },
@@ -463,7 +489,7 @@ describe("problem frame drawing (purpose: problemFrame)", () => {
       codex: {} as AiSkillDraftDeps["codex"],
     };
     const result = await generateAiSkillDraft(
-      { provider: "claude", purpose: "problemFrame", prompt: "枠", context: { title: "", description: "", currentContent: "" } },
+      { provider: "claude", purpose: "frameDrawing", prompt: "枠", context: { title: "", description: "", currentContent: "" } },
       deps,
       "old-cli",
       undefined,
@@ -483,7 +509,7 @@ describe("problem frame drawing (purpose: problemFrame)", () => {
       codex: {} as AiSkillDraftDeps["codex"],
     };
     await generateAiSkillDraft(
-      { provider: "antigravity", purpose: "problemFrame", prompt: "枠", context: { title: "", description: "", currentContent: "" } },
+      { provider: "antigravity", purpose: "frameDrawing", prompt: "枠", context: { title: "", description: "", currentContent: "" } },
       deps,
       "agy-run",
     );
@@ -518,7 +544,7 @@ describe("problem frame drawing (purpose: problemFrame)", () => {
       codex: {} as AiSkillDraftDeps["codex"],
     };
     const result = await generateAiSkillDraft(
-      { provider: "claude", purpose: "problemFrame", prompt: "枠", context: { title: "", description: "", currentContent: "" } },
+      { provider: "claude", purpose: "frameDrawing", prompt: "枠", context: { title: "", description: "", currentContent: "" } },
       deps,
       "prose-run",
     );
@@ -535,7 +561,7 @@ describe("problem frame drawing (purpose: problemFrame)", () => {
       codex: {} as AiSkillDraftDeps["codex"],
     };
     const result = await generateAiSkillDraft(
-      { provider: "claude", purpose: "problemFrame", prompt: "何か", context: { title: "", description: "", currentContent: "" } },
+      { provider: "claude", purpose: "frameDrawing", prompt: "何か", context: { title: "", description: "", currentContent: "" } },
       deps,
       "frame-run-empty",
     );

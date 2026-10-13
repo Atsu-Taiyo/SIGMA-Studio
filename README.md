@@ -50,7 +50,7 @@ ChatGPT はサブスクの範囲でアプリ内に。頼んだ編集は「編集
 </p>
 
 - **ChatGPT（Codex）・Claude Code・Gemini** を、契約中のプランのままアプリの中で使えます。
-- **外のAIからも編集できる** — ローカルMCPを公開しているので、手元の Claude Code・Codex・Gemini から教材を直接作成・修正できます。[MCP連携](docs/mcp-local-app.md)
+- **教材の形のまま編集する** — AIはアプリ内のローカルMCPを通して、本文・数式・問題・表・グラフ・図を Sigma Studio の教材として作成・修正します。[MCP連携](docs/mcp-local-app.md)
 - **教材は運営者を経由しない** — AIとのやりとりは、選んだAIサービスへ直接届きます。
 
 AI機能は、利用するプロバイダの接続設定が必要です。

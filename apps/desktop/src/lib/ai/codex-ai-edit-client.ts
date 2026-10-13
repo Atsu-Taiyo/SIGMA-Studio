@@ -3,6 +3,8 @@ import type { AiEditAttachment, AiEditMentionedDocumentContext } from "@/lib/ai/
 import type { AiEditModel, AiEditReasoningEffort } from "@/lib/ai/sigma-doc-edit-schema";
 import type { AiEditRunEvent, AiEditRunResult } from "@/lib/ai/ai-edit-runtime";
 import { getDesktopBridge } from "@/lib/desktop-bridge";
+import { renderAnnotatedAttachmentsForAi } from "@/lib/ai/ai-image-annotation-canvas";
+import { hasAiImageAnnotations } from "@/lib/ai/ai-image-annotations";
 import type { SigmaDocument } from "@/features/document";
 import { createCurrentLocaleTranslator } from "@/lib/i18n";
 
@@ -31,6 +33,8 @@ export interface CodexAiEditRequest {
   onEvent?: (event: AiEditRunEvent) => void;
   /** Invoked synchronously with the underlying IPC runId, before the run resolves, so the caller can cancel it later via cancelAiEditViaDesktopRuntime. */
   onRunId?: (runId: string) => void;
+  /** IPC へ渡す前 (送る画像の準備中) の停止。止まっていれば IPC を呼ばずに失敗させる。 */
+  signal?: AbortSignal;
 }
 
 export async function runAiEditViaDesktopRuntime(request: CodexAiEditRequest): Promise<AiEditRunResult> {
@@ -39,6 +43,15 @@ export async function runAiEditViaDesktopRuntime(request: CodexAiEditRequest): P
     throw new Error(ta("provider.desktopCodexRequired"));
   }
 
+  // 画像の中の場所に付けたコメントは、送る画像そのものへ番号付きの印として描き込む。
+  // 注記の無い依頼は待ちを挟まず、これまでどおり同じ呼び出しのまま渡す。
+  const requestAttachments = request.attachments ?? [];
+  const attachments = requestAttachments.some(hasAiImageAnnotations)
+    ? await renderAnnotatedAttachmentsForAi(requestAttachments)
+    : requestAttachments;
+  if (request.signal?.aborted) {
+    throw new Error(ta("run.cancelledWhilePreparing"));
+  }
   const payload = {
     provider: request.provider ?? "chatgpt",
     fileId: request.fileId ?? null,
@@ -48,7 +61,7 @@ export async function runAiEditViaDesktopRuntime(request: CodexAiEditRequest): P
     document: request.document,
     selectedId: request.selectedId,
     references: request.references ?? [],
-    attachments: request.attachments ?? [],
+    attachments,
     mentionedDocuments: request.mentionedDocuments ?? [],
     aiResourceIds: request.aiResourceIds ?? [],
     agentThreadId: request.agentThreadId ?? null,

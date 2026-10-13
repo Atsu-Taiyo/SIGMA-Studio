@@ -18,6 +18,7 @@ import { GraphParameters } from "./GraphParameters";
 import { Graph2DVideoExport } from "./Graph2DVideoExport";
 import { dispatchGraphParameterPreview, dispatchGraphParametersOpen } from "@/lib/graph-parameter-preview";
 import { ColorPalette } from "@/components/editor/ColorPalette";
+import { LineEndpointMenuButton } from "@/components/editor/editor-shell/formatting-icons";
 
 import {
   OverlayLineDashMenuButton,
@@ -76,15 +77,16 @@ import {
   normalizeGraphCurveStrokeWidth,
   type GraphExpressionVariableName,
 } from "@/lib/graph2d";
-import type {
-  Graph2DSpec,
-  GraphCurve,
-  SigmaChartData,
-  SigmaChartSpec,
-  GraphCurveDash,
-  GraphFillRegion,
-  GraphPoint,
-  GraphViewBox,
+import {
+  DEFAULT_GRAPH_AXIS_END_STYLE,
+  type Graph2DSpec,
+  type GraphCurve,
+  type SigmaChartData,
+  type SigmaChartSpec,
+  type GraphCurveDash,
+  type GraphFillRegion,
+  type GraphPoint,
+  type GraphViewBox,
 } from "@/features/document";
 import type { Translate } from "@/lib/i18n";
 import { useT } from "@/lib/i18n/react";
@@ -317,6 +319,9 @@ function buildGraphLineWidthMenuOptions(t: Translate<"shape">): OverlayLineWidth
     strokeWidth: option.value,
   }));
 }
+
+/** The axis-end pickers share the panel's one open-menu slot with the curve style menus. */
+const AXIS_END_MENU_KEYS = { x: "axis-end-x", y: "axis-end-y" } as const;
 
 function getNextPointLabel(points: readonly GraphPoint[]): string {
   const labels = new Set(points.map((point) => point.label).filter((label): label is string => Boolean(label)));
@@ -939,6 +944,47 @@ export function OverlayGraphSettings({ selectedOverlayGraph }: { selectedOverlay
             />
             <span>{tShape("graph.grid")}</span>
           </label>
+        </Grid>
+
+        <label className="field-label">{tShape("graph.axisEnd")}</label>
+        <Grid className="graph-checkbox-grid" columns={2} gap="sm" responsive={false}>
+          {([
+            {
+              axis: "x",
+              name: tShape("graph.xAxis"),
+              label: tShape("graph.xAxisEnd"),
+              value: spec.axes.xAxisEndStyle,
+              drawn: spec.axes.showX !== false,
+            },
+            {
+              axis: "y",
+              name: tShape("graph.yAxis"),
+              label: tShape("graph.yAxisEnd"),
+              value: spec.axes.yAxisEndStyle,
+              drawn: spec.kind === "cartesian" && spec.axes.showY !== false,
+            },
+          ] as const).map(({ axis, name, label, value, drawn }) => {
+            const menuKey = AXIS_END_MENU_KEYS[axis];
+            const field = axis === "x" ? "xAxisEndStyle" : "yAxisEndStyle";
+            return (
+              <Inline key={axis} className="graph-style-field" gap="sm" align="center">
+                <span>{name}</span>
+                <LineEndpointMenuButton
+                  endpoint="end"
+                  label={label}
+                  currentValue={value ?? DEFAULT_GRAPH_AXIS_END_STYLE}
+                  open={openStyleMenu === menuKey}
+                  disabled={!drawn}
+                  popoverZIndex={GRAPH_SETTINGS_POPOVER_Z_INDEX}
+                  onToggle={() => setOpenStyleMenu((current) => current === menuKey ? null : menuKey)}
+                  onSelect={(endStyle) => {
+                    updateSpec((current) => ({ ...current, axes: { ...current.axes, [field]: endStyle } }));
+                    setOpenStyleMenu(null);
+                  }}
+                />
+              </Inline>
+            );
+          })}
         </Grid>
       </GraphSettingsSection>
 

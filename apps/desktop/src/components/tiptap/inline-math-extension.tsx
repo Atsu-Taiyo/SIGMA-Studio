@@ -83,6 +83,13 @@ import {
   type InlineMathTypeAheadKey,
   type InsertInlineMathTemplateDetail,
 } from "@/components/tiptap/inline-math-type-ahead";
+import {
+  APPLY_INLINE_MATH_FONT_EVENT,
+  applyFontToMathFieldSelection,
+  isInlineMathFontMenuElement,
+  watchInlineMathFontMenuFocus,
+  type ApplyInlineMathFontDetail,
+} from "@/components/tiptap/inline-math-font";
 
 declare module "@tiptap/core" {
   interface Commands<ReturnType> {
@@ -1561,11 +1568,18 @@ function InlineMathLiveField({
   const pendingLatexCommandTimeoutRef = useRef(0);
   const committedRef = useRef(false);
   const armedEdgeRef = useRef<"left" | "right" | null>(null);
+  /** フォントメニューへ焦点が移って確定を待っている間の見張り (`watchInlineMathFontMenuFocus`)。 */
+  const stopFontMenuWatchRef = useRef<(() => void) | null>(null);
 
   useEffect(() => {
     onInputRef.current = onInput;
     onInitialFocusRef.current = onInitialFocus;
   }, [onInitialFocus, onInput]);
+
+  useEffect(() => () => {
+    stopFontMenuWatchRef.current?.();
+    stopFontMenuWatchRef.current = null;
+  }, []);
 
   const clearPendingLatexCommand = useCallback(() => {
     if (pendingLatexCommandTimeoutRef.current) {
@@ -1698,6 +1712,19 @@ function InlineMathLiveField({
       insertMathKeyboardMathTemplate(mathField, (event as CustomEvent<InsertInlineMathTemplateDetail>).detail.tex);
       onInputRef.current(getMathfieldLatex(mathField));
     };
+    // ツールバーのフォントを、選んだ範囲だけに付ける (`inline-math-font.ts`)。
+    const handleMathFieldFont = (event: Event) => {
+      if (!mathField || locked) {
+        return;
+      }
+      const { fontFamily } = (event as CustomEvent<ApplyInlineMathFontDetail>).detail;
+      if (!applyFontToMathFieldSelection(mathField, fontFamily)) {
+        return;
+      }
+      event.preventDefault();
+      clearPendingLatexCommand();
+      onInputRef.current(getMathfieldLatex(mathField));
+    };
     const handleMathFieldKeyDown = (event: globalThis.KeyboardEvent) => {
       if (!mathField || locked) {
         return;
@@ -1801,6 +1828,7 @@ function InlineMathLiveField({
       mathField.addEventListener("input", handleMathFieldInput);
       mathField.addEventListener("blur", handleMathFieldBlur);
       mathField.addEventListener(INSERT_INLINE_MATH_TEMPLATE_EVENT, handleMathFieldTemplate);
+      mathField.addEventListener(APPLY_INLINE_MATH_FONT_EVENT, handleMathFieldFont);
       mathField.ownerDocument.addEventListener("keydown", handleMathFieldKeyDown, true);
       const mountedMathField = mathField;
       const focusMathField = () => {
@@ -1834,6 +1862,7 @@ function InlineMathLiveField({
       mathField?.removeEventListener("input", handleMathFieldInput);
       mathField?.removeEventListener("blur", handleMathFieldBlur);
       mathField?.removeEventListener(INSERT_INLINE_MATH_TEMPLATE_EVENT, handleMathFieldTemplate);
+      mathField?.removeEventListener(APPLY_INLINE_MATH_FONT_EVENT, handleMathFieldFont);
       mathField?.ownerDocument.removeEventListener("keydown", handleMathFieldKeyDown, true);
     };
   }, [
@@ -1983,6 +2012,18 @@ function InlineMathLiveField({
       commit(event.currentTarget);
     },
     onBlur: (event: Event) => {
+      stopFontMenuWatchRef.current?.();
+      stopFontMenuWatchRef.current = null;
+      // フォントメニューの検索欄へ移っただけなら閉じない。閉じると選んでいた範囲が消え、
+      // 検索して選んだフォントを付ける先が無くなる。メニューの外へ出たら、そこで確定する。
+      if (isInlineMathFontMenuElement((event as FocusEvent).relatedTarget)) {
+        const mathField = event.currentTarget as InlineMathFieldElement;
+        stopFontMenuWatchRef.current = watchInlineMathFontMenuFocus(mathField, () => {
+          stopFontMenuWatchRef.current = null;
+          commit(mathField);
+        });
+        return;
+      }
       commit(event.target);
     },
     onInput: (event: Event) => {

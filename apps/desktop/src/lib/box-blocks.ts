@@ -2,16 +2,29 @@ import { createTranslator, DEFAULT_LOCALE, type Translate } from "@/lib/i18n";
 import { createId } from "@/lib/id";
 import { inlineNodesToPlainText } from "@/lib/tiptap-adapter";
 import {
+  CUSTOM_FRAME_STYLE_ID,
   DEFAULT_SERIF_BODY_FONT_FAMILY,
+  resolveCustomFrameMetrics,
   resolveDocumentFontFamily,
   type BoxBlockNode,
   type BoxDecorationSpec,
   type BoxFrameSpec,
+  type BoxSpacingPx,
+  type CustomFrame,
   type InlineNode,
   type RichBlock,
   type SigmaBlock,
+  type TikzImageSource,
 } from "@/features/document";
 import { isSafeCssDeclarationValue } from "@/features/document/css-safety";
+import { parseHexColor } from "@/lib/color";
+import {
+  applyCustomFrameDrawing,
+  getCustomFrameStyle,
+  isCustomFrameImageValue,
+  type CustomFrameDrawing,
+  type CustomFrameImages,
+} from "@/lib/custom-frame";
 
 const MINCHO_FONT_STACK = DEFAULT_SERIF_BODY_FONT_FAMILY;
 const DEFAULT_CORNERBOX_TITLE_FONT_SIZE_PX = 32;
@@ -482,9 +495,134 @@ export function getBoxStyleDefinition(styleId: string): BoxStyleDefinition | und
   return BUILTIN_BOX_STYLES.find((style) => style.id === styleId || style.commandName === styleId);
 }
 
+/**
+ * The frame a box is drawn with: its style's defaults under its own values. The user's own drawing
+ * (`frame.custom`) is part of the result only while the box uses it (`styleId: "custom"`) — every
+ * reader can then tell a custom box from `frame.custom` alone — and it replaces the border,
+ * corners, decorations and padding (see `resolveCustomBoxFrame`).
+ */
 export function resolveBoxFrame(block: Pick<BoxBlockNode, "styleId" | "frame">): BoxFrameSpec {
-  const frame = mergeBoxFrame(getBoxStyleDefinition(block.styleId)?.frame, block.frame);
-  return block.styleId === "cornerbox" ? withoutDefaultCornerboxTextSizes(frame) : frame;
+  if (block.styleId === CUSTOM_BOX_STYLE_ID && block.frame?.custom) {
+    return resolveCustomBoxFrame(block.frame, block.frame.custom);
+  }
+  const merged = mergeBoxFrame(getBoxStyleDefinition(block.styleId)?.frame, block.frame);
+  delete merged.custom;
+  return block.styleId === "cornerbox" ? withoutDefaultCornerboxTextSizes(merged) : merged;
+}
+
+/** The style id of a box framed by the user's own drawing (`frame.custom`). */
+export const CUSTOM_BOX_STYLE_ID = CUSTOM_FRAME_STYLE_ID;
+
+/**
+ * What a box drawn with its own frame keeps from the box settings: the title and body text (color,
+ * font, size, alignment, title position). The drawing decides the rest — its thickness is the
+ * border, its padding the padding on every side — and the inside stays transparent like a custom
+ * problem frame. The numbers are re-validated here, at the sink, because they reach style attributes.
+ */
+function resolveCustomBoxFrame(frame: BoxFrameSpec, custom: CustomFrame): BoxFrameSpec {
+  const metrics = resolveCustomFrameMetrics(custom);
+  const resolved = mergeBoxFrame(getBoxStyleDefinition(CUSTOM_BOX_BASE_STYLE_ID)?.frame, frame);
+  // Left in, these would draw a second border, band or fill around the drawing.
+  for (const key of CUSTOM_BOX_DRAWN_FIELDS) {
+    delete resolved[key];
+  }
+  // A text color chosen against a dark band or fill (bandbox's white title) would vanish on the paper
+  // that shows through the drawing; such text falls back to the ink of the body. The stored value
+  // stays, for an app that still draws the band.
+  for (const key of ["titleColor", "bodyColor"] as const) {
+    if (isTooLightForPaper(resolved[key])) {
+      delete resolved[key];
+    }
+  }
+  const padding = metrics.paddingPx;
+  return {
+    ...resolved,
+    borderWidthPx: metrics.borderPx,
+    paddingPx: { top: padding, right: padding, bottom: padding, left: padding },
+    cornerStyle: "sharp",
+    // The same object when its numbers are already in range, so the style cache (`getCustomFrameStyle`)
+    // keeps working instead of encoding the drawing again on every render.
+    custom: metrics.slice === custom.slice && metrics.borderPx === custom.borderPx && metrics.paddingPx === custom.paddingPx
+      ? custom
+      : { ...custom, ...metrics },
+  };
+}
+
+/** Contrast against white below which text cannot be read on the paper (WCAG's ratio; white itself is 1). */
+const MIN_CONTRAST_ON_PAPER = 1.6;
+
+function isTooLightForPaper(color: string | undefined): boolean {
+  const parsed = color ? parseHexColor(color) : null;
+  if (!parsed) {
+    return false;
+  }
+  const channel = (value: number) => {
+    const c = value / 255;
+    return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+  };
+  const luminance = 0.2126 * channel(parsed.rgb.r) + 0.7152 * channel(parsed.rgb.g) + 0.0722 * channel(parsed.rgb.b);
+  return 1.05 / (luminance + 0.05) < MIN_CONTRAST_ON_PAPER;
+}
+
+/** What the drawing of a custom frame decides instead of the box settings. */
+const CUSTOM_BOX_DRAWN_FIELDS = [
+  "decorations",
+  "borderStyle",
+  "borderColor",
+  "backgroundColor",
+  "titleBackgroundColor",
+  "radiusPx",
+] as const satisfies readonly (keyof BoxFrameSpec)[];
+
+/** A box made straight from a shelf frame starts from this style's look (and falls back to it in older apps). */
+const CUSTOM_BOX_BASE_STYLE_ID = "fancybox";
+
+/** The drawing a box is framed by, or undefined when it uses a built-in style. */
+export function getBoxCustomFrame(block: Pick<BoxBlockNode, "styleId" | "frame">): CustomFrame | undefined {
+  return block.styleId === CUSTOM_BOX_STYLE_ID ? block.frame?.custom : undefined;
+}
+
+/**
+ * Frames the box with the user's own drawing. Everything else the box settings decided stays, so
+ * a file opened in an app that does not know custom frames still draws the box it had before
+ * (with its old style's border); the drawing goes on top of that.
+ */
+export function setBoxCustomFrame<T extends SigmaBlock | RichBlock>(block: T, custom: CustomFrame): T {
+  if (block.type !== "boxBlock") {
+    return block;
+  }
+  const box = block as BoxBlockNode;
+  const base = box.frame ?? getBoxStyleDefinition(box.styleId)?.frame ?? BUILTIN_BOX_STYLES[0].frame;
+  const next: BoxBlockNode = { ...box, styleId: CUSTOM_BOX_STYLE_ID, frame: { ...base, custom } };
+  // サブタイトル欄は 2 欄の見出しの装飾が描くもので、自作の枠は見出しを先頭行の 1 つしか持たない。
+  delete next.subtitle;
+  return next as T;
+}
+
+/**
+ * A finished drawing becomes the box's frame. The previous drawing is read from the block being
+ * updated, so the thickness and padding the user already chose survive a new drawing.
+ */
+export function applyBoxFrameDrawing<T extends SigmaBlock | RichBlock>(
+  block: T,
+  drawing: CustomFrameDrawing,
+  options: { slice?: number; tikz?: TikzImageSource } = {},
+): T {
+  if (block.type !== "boxBlock") {
+    return block;
+  }
+  return setBoxCustomFrame(block, applyCustomFrameDrawing(block.frame?.custom, drawing, options));
+}
+
+/** A new box framed by a drawing from the shelf. No default title: the drawing has no name to give it. */
+export function createCustomFrameBoxBlock(
+  custom: CustomFrame,
+  options: CreateBoxBlockOptions = {},
+  t: Translate<"editor"> = createTranslator(DEFAULT_LOCALE, "editor"),
+): BoxBlockNode {
+  const box = createBoxBlock(CUSTOM_BOX_BASE_STYLE_ID, "", options, t);
+  delete box.title;
+  return setBoxCustomFrame(box, custom);
 }
 
 export function setBoxStyle<T extends SigmaBlock | RichBlock>(
@@ -495,15 +633,21 @@ export function setBoxStyle<T extends SigmaBlock | RichBlock>(
   if (block.type !== "boxBlock") {
     return block;
   }
+  const box = block as BoxBlockNode;
+  // 自作の枠は「既定に戻す」で絵を残したまま見た目だけ既定に戻す (絵の無い箱は組み込みへ)。
+  if (styleId === CUSTOM_BOX_STYLE_ID && box.frame?.custom) {
+    return setBoxCustomFrame({ ...box, frame: BUILTIN_BOX_STYLES[0].frame }, box.frame.custom) as T;
+  }
   const style = getBoxStyleDefinition(styleId) ?? BUILTIN_BOX_STYLES[0];
   // サブタイトルは 2 欄の見出しを持つ箱だけが描く。持たない箱へ替えたら外し、持つ箱へ替えたら既定の文言で足す。
-  const box = block as BoxBlockNode;
   const subtitle = !boxFrameHasSubtitle(style.frame)
     ? undefined
     : box.subtitle?.length
       ? box.subtitle
       : defaultBoxSubtitle(style.id, t);
-  const next: BoxBlockNode = { ...box, styleId: style.id, frame: style.frame };
+  // 自作の絵は組み込みへ替えても持ち続ける (戻したときに絵が消えない。問題の枠と同じ)。
+  const frame = box.frame?.custom ? { ...style.frame, custom: box.frame.custom } : style.frame;
+  const next: BoxBlockNode = { ...box, styleId: style.id, frame };
   if (subtitle) {
     next.subtitle = subtitle;
   } else {
@@ -590,10 +734,25 @@ function parseBoxBodyLineHeightPx(frame: Pick<BoxFrameSpec, "bodyLineHeight" | "
  * Room for the top chrome plus roughly two body lines reads as "started cleanly".
  */
 export function boxFragmentMinStartHeightPx(frame: BoxFrameSpec, hasTitle: boolean): number {
-  const padding = frame.paddingPx ?? { top: 12, right: 14, bottom: 12, left: 14 };
   const lineHeight = parseBoxBodyLineHeightPx(frame);
   const titleHeight = hasTitle ? 24 : 0;
-  return Math.round(padding.top + titleHeight + lineHeight * 2);
+  return Math.round(boxFrameChromeInsetPx(frame).top + titleHeight + lineHeight * 2);
+}
+
+/**
+ * How far a box's content sits inside its outer edge, for the estimates that lay out boxes before
+ * they are measured. Built-in boxes count their padding only (their thin rules never moved those
+ * estimates); a custom frame's border is as thick as the drawing, so it counts too.
+ */
+export function boxFrameChromeInsetPx(frame: BoxFrameSpec): BoxSpacingPx {
+  const padding = frame.paddingPx ?? { top: 12, right: 14, bottom: 12, left: 14 };
+  const border = frame.custom ? frame.borderWidthPx ?? 0 : 0;
+  return {
+    top: padding.top + border,
+    right: padding.right + border,
+    bottom: padding.bottom + border,
+    left: padding.left + border,
+  };
 }
 
 export function findBoxDecoration<T extends BoxDecorationSpec["type"]>(
@@ -609,6 +768,10 @@ export function hasBoxDecoration(frame: Pick<BoxFrameSpec, "decorations"> | unde
 
 export function boxFrameClassName(baseClass: string, frame: BoxFrameSpec, styleId?: string): string {
   const classes = [baseClass, "box-frame"];
+  if (frame.custom) {
+    classes.push("box-frame--custom", `box-frame--title-position-${frame.titlePosition ?? "l"}`);
+    return classes.join(" ");
+  }
   for (const decoration of frame.decorations ?? []) {
     const renderClass = BOX_DECORATION_RENDER_CLASSES[decoration.type];
     if (renderClass) {
@@ -679,7 +842,17 @@ function titleSplitStyleVars(
   };
 }
 
-export function boxFrameStyleVars(frame: BoxFrameSpec): Record<string, string> {
+/**
+ * `customImages`: which images of a custom frame to hand over (`getCustomFrameStyle`). The editor
+ * draws a box whole and clips it at a page break, so it needs only the closed drawing; print draws
+ * each fragment as its own element and needs the open-edged ones too.
+ */
+export function boxFrameStyleVars(frame: BoxFrameSpec, customImages: CustomFrameImages = "split"): Record<string, string> {
+  const vars = builtInBoxFrameStyleVars(frame);
+  return frame.custom ? { ...vars, ...getCustomFrameStyle(frame.custom, "px", customImages) } : vars;
+}
+
+function builtInBoxFrameStyleVars(frame: BoxFrameSpec): Record<string, string> {
   const padding = frame.paddingPx ?? { top: 12, right: 14, bottom: 12, left: 14 };
   const cornerSquares = findBoxDecoration(frame, "cornerSquares");
   const doubleRule = findBoxDecoration(frame, "doubleRule");
@@ -779,8 +952,10 @@ export function boxFrameStyleVars(frame: BoxFrameSpec): Record<string, string> {
  * document. Every value is a color or a length; none legitimately contains `;{}<>` or `url(`.
  */
 export function boxFrameStyleAttribute(frame: BoxFrameSpec): string {
-  return Object.entries(boxFrameStyleVars(frame))
-    .filter(([, value]) => isSafeCssDeclarationValue(value))
+  return Object.entries(boxFrameStyleVars(frame, "closed"))
+    // A custom frame's drawing is a `url(...)` this module built itself from the canonical SVG; it is
+    // let through only in exactly that shape (`isCustomFrameImageValue`).
+    .filter(([, value]) => isSafeCssDeclarationValue(value) || isCustomFrameImageValue(value))
     .map(([property, value]) => `${property}:${value}`)
     .join(";");
 }

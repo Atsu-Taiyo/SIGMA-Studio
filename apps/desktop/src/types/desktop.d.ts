@@ -1,5 +1,6 @@
 import type { AiEditReference } from "@/lib/ai/ai-edit-reference";
 import type { AiProvider } from "@/lib/ai/ai-providers";
+import type { AiImageAnnotation } from "@/lib/ai/ai-image-annotations";
 import type { AiEditPlanStep, AiEditRunEvent, AiEditRunResult } from "@/lib/ai/ai-edit-runtime";
 import type { AiEditSessionDraft } from "@/lib/ai/sigma-doc-edit-schema";
 import type { AiAppliedDocumentDiff } from "@/lib/ai/applied-document-diff";
@@ -21,6 +22,8 @@ export interface DesktopAiEditChatAttachmentSummary {
   fileSize: number | null;
   dataUrl?: string | null;
   sourceReferenceKey?: string | null;
+  /** 画像の中の場所を指したコメント。履歴では元の画像に同じ印を重ねて見せる。 */
+  annotations?: AiImageAnnotation[] | null;
 }
 
 export interface DesktopAiEditChatMentionedDocumentSummary {
@@ -215,7 +218,7 @@ export interface DesktopAiSkillDraftContext {
   description: string;
   /** 既存のスキル本文。空文字なら新規作成として扱う。 */
   currentContent: string;
-  /** `problemFrame` のチャットで、これまでにユーザーが出した要望 (古い順)。 */
+  /** `frameDrawing` のチャットで、これまでにユーザーが出した要望 (古い順)。 */
   history?: string[];
 }
 
@@ -223,8 +226,10 @@ export interface DesktopAiSkillDraftRequest {
   provider: AiProvider;
   prompt: string;
   context: DesktopAiSkillDraftContext;
-  /** 省略はスキル本文。`problemFrame` は問題の枠線の絵 (SVG)。`currentContent` は改訂元の SVG。 */
-  purpose?: "skill" | "problemFrame";
+  /** 省略はスキル本文。`frameDrawing` は問題・箱の枠線の絵 (SVG)。`currentContent` は改訂元の SVG。 */
+  purpose?: "skill" | "frameDrawing";
+  /** `frameDrawing`: 何の枠か。省略は問題。 */
+  frameTarget?: "problem" | "box";
   /** 使うモデル。省略は各プロバイダの既定。 */
   model?: string;
   /** 推論の強さ。省略は各プロバイダの既定。 */
@@ -235,13 +240,13 @@ export type DesktopAiSkillDraftResult =
   | {
       ok: true;
       text: string;
-      /** `problemFrame`: SVG に添えて返ってきた一言。 */
+      /** `frameDrawing`: SVG に添えて返ってきた一言。 */
       message?: string;
     }
   | {
       ok: false;
       error: string;
-      /** `problemFrame`: 絵は無かったが、モデルが文章で返した内容。 */
+      /** `frameDrawing`: 絵は無かったが、モデルが文章で返した内容。 */
       message?: string;
     };
 
