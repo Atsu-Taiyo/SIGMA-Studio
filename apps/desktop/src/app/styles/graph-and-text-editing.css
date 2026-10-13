@@ -1495,24 +1495,24 @@
   background: transparent;
   --pf-top: 0;
   --pf-bottom: 0;
-  --pf-image: var(--problem-frame-image-open-both);
+  --pf-image: var(--custom-frame-image-open-both);
   box-sizing: border-box;
-  padding: var(--problem-frame-padding);
+  padding: var(--custom-frame-padding);
   border: solid transparent;
   border-width:
-    calc(var(--problem-frame-border) * var(--pf-top))
-    var(--problem-frame-border)
-    calc(var(--problem-frame-border) * var(--pf-bottom));
+    calc(var(--custom-frame-border) * var(--pf-top))
+    var(--custom-frame-border)
+    calc(var(--custom-frame-border) * var(--pf-bottom));
   border-radius: 0;
   border-image-source: none;
   border-image-slice:
-    calc(var(--problem-frame-slice) * var(--pf-top))
-    var(--problem-frame-slice)
-    calc(var(--problem-frame-slice) * var(--pf-bottom));
+    calc(var(--custom-frame-slice) * var(--pf-top))
+    var(--custom-frame-slice)
+    calc(var(--custom-frame-slice) * var(--pf-bottom));
   border-image-width:
-    calc(var(--problem-frame-border) * var(--pf-top))
-    var(--problem-frame-border)
-    calc(var(--problem-frame-border) * var(--pf-bottom));
+    calc(var(--custom-frame-border) * var(--pf-top))
+    var(--custom-frame-border)
+    calc(var(--custom-frame-border) * var(--pf-bottom));
 }
 
 .problem-area-flow-unit.with-frame.problem-frame--custom.problem-frame--custom:not(.frame-split) {
@@ -1525,16 +1525,16 @@
 
 .problem-area-flow-unit.with-frame.problem-frame--custom.problem-frame--custom.first-frame-area {
   --pf-top: 1;
-  --pf-image: var(--problem-frame-image-open-bottom);
+  --pf-image: var(--custom-frame-image-open-bottom);
 }
 
 .problem-area-flow-unit.with-frame.problem-frame--custom.problem-frame--custom.last-frame-area {
   --pf-bottom: 1;
-  --pf-image: var(--problem-frame-image-open-top);
+  --pf-image: var(--custom-frame-image-open-top);
 }
 
 .problem-area-flow-unit.with-frame.problem-frame--custom.problem-frame--custom.first-frame-area.last-frame-area {
-  --pf-image: var(--problem-frame-image-closed);
+  --pf-image: var(--custom-frame-image-closed);
 }
 
 .problem-area-paper-content {

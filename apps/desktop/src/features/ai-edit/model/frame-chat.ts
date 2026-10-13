@@ -1,30 +1,32 @@
 import type { AiProvider } from "@/lib/ai/ai-providers";
+import type { CustomFrameTarget } from "@/lib/custom-frame";
 
 /**
- * 問題の枠線を AI と描く「チャット」の状態と、その純粋な読み取り。
- * 会話はダイアログが閉じても続く (ストアが持つ) ので、画面の state ではなくここへ置く。
+ * 枠線を AI と描く「チャット」の状態と、その純粋な読み取り。問題の枠でも箱の枠でも同じ会話で、
+ * 違うのは対象 (`CustomFrameTarget`) だけ。会話はダイアログが閉じても続く (ストアが持つ) ので、
+ * 画面の state ではなくここへ置く。
  */
 
 /** AI が描いた枠の絵。`normalizeFrameSvg` を通った正規形。 */
-export interface ProblemFrameChatDrawing {
+export interface FrameChatDrawing {
   svg: string;
   width: number;
   height: number;
 }
 
-export interface ProblemFrameChatUserTurn {
+export interface FrameChatUserTurn {
   id: string;
   role: "user";
   text: string;
   at: number;
 }
 
-export type ProblemFrameChatAssistantStatus = "running" | "done" | "error" | "cancelled";
+export type FrameChatAssistantStatus = "running" | "done" | "error" | "cancelled";
 
-export interface ProblemFrameChatAssistantTurn {
+export interface FrameChatAssistantTurn {
   id: string;
   role: "assistant";
-  status: ProblemFrameChatAssistantStatus;
+  status: FrameChatAssistantStatus;
   provider: AiProvider;
   /** 実行中に届いた返答の生テキスト (前置きの一言 + 書きかけの SVG)。終わったら空にする。 */
   streamText: string;
@@ -32,7 +34,7 @@ export interface ProblemFrameChatAssistantTurn {
   reasoningText: string;
   /** SVG の前後に添えられた一言 (どんな枠にしたか)。 */
   message: string;
-  drawing: ProblemFrameChatDrawing | null;
+  drawing: FrameChatDrawing | null;
   /** 元の絵を直す依頼だった (新しく描く依頼ではない)。 */
   revised: boolean;
   error: string | null;
@@ -42,31 +44,32 @@ export interface ProblemFrameChatAssistantTurn {
   endedAt: number | null;
 }
 
-export type ProblemFrameChatTurn = ProblemFrameChatUserTurn | ProblemFrameChatAssistantTurn;
+export type FrameChatTurn = FrameChatUserTurn | FrameChatAssistantTurn;
 
-export interface ProblemFrameChatSession {
+export interface FrameChatSession {
   key: string;
   documentIdentityKey: string;
-  problemId: string;
-  turns: ProblemFrameChatTurn[];
+  /** どの問題 (または箱) の枠か。 */
+  target: CustomFrameTarget;
+  turns: FrameChatTurn[];
   /** 実行中の IPC の runId。中止に使う。 */
   runId: string | null;
-  /** 問題の枠として使われた返答。 */
+  /** 対象の枠として使われた返答。 */
   appliedTurnId: string | null;
 }
 
-/** 会話は「どの教材の、どの問題の枠か」で分ける。 */
-export function problemFrameChatKey(documentIdentityKey: string | null | undefined, problemId: string): string {
-  return `${documentIdentityKey ?? ""}\u0000${problemId}`;
+/** 会話は「どの教材の、どの問題 (箱) の枠か」で分ける。同じ id の問題と箱は別の会話。 */
+export function frameChatKey(documentIdentityKey: string | null | undefined, target: CustomFrameTarget): string {
+  return `${documentIdentityKey ?? ""}\u0000${target.kind}\u0000${target.id}`;
 }
 
-export function isProblemFrameChatRunning(session: ProblemFrameChatSession | null | undefined): boolean {
+export function isFrameChatRunning(session: FrameChatSession | null | undefined): boolean {
   return session?.runId != null
     || session?.turns.some((turn) => turn.role === "assistant" && turn.status === "running") === true;
 }
 
 /** 会話の中で最後に描かれた枠。次の依頼の「元の絵」になる。 */
-export function latestProblemFrameDrawing(session: ProblemFrameChatSession | null | undefined): ProblemFrameChatDrawing | null {
+export function latestFrameChatDrawing(session: FrameChatSession | null | undefined): FrameChatDrawing | null {
   const turns = session?.turns ?? [];
   for (let index = turns.length - 1; index >= 0; index -= 1) {
     const turn = turns[index];
@@ -78,7 +81,7 @@ export function latestProblemFrameDrawing(session: ProblemFrameChatSession | nul
 }
 
 /** これまでにユーザーが出した要望 (古い順)。次の実行へ文脈として渡す。 */
-export function problemFrameChatHistory(session: ProblemFrameChatSession | null | undefined): string[] {
+export function frameChatHistory(session: FrameChatSession | null | undefined): string[] {
   return (session?.turns ?? []).flatMap((turn) => (turn.role === "user" ? [turn.text] : []));
 }
 

@@ -12,7 +12,7 @@ import { AI_PROVIDER_LABELS, type AiProvider } from "@/lib/ai/ai-providers";
 import { useT } from "@/lib/i18n/react";
 
 import type { AiModelSelection } from "../application/use-ai-model-selection";
-import styles from "./ProblemFrameChat.module.css";
+import styles from "./FrameChat.module.css";
 
 const PROVIDERS: readonly AiProvider[] = ["chatgpt", "claude", "antigravity"];
 
@@ -29,7 +29,7 @@ interface ComposerProps {
   placeholder: string;
   selection: AiModelSelection;
   connections: Record<AiProvider, AiConnectionStateKind>;
-  /** Shown as a removable chip while the AI would start from the problem's current frame. */
+  /** Shown as a removable chip while the AI would start from the target's current frame. */
   reviseFromCurrent: boolean;
   onRemoveRevise: () => void;
   inputRef: RefObject<HTMLTextAreaElement | null>;
@@ -40,7 +40,7 @@ interface ComposerProps {
  * same send button as the AI chat, so choosing a provider, a model and how hard it thinks works the
  * way people already know.
  */
-export function ProblemFrameChatComposer({
+export function FrameChatComposer({
   draft,
   onDraftChange,
   onSubmit,
@@ -66,9 +66,9 @@ export function ProblemFrameChatComposer({
     : tAi("composer.effortUnsupported");
 
   const statusLabel = (kind: AiConnectionStateKind): string => {
-    if (kind === "checking") return t("problem.custom.aiStatusChecking");
-    if (kind === "loggedOut") return t("problem.custom.aiStatusLoggedOut");
-    return t("problem.custom.aiStatusUnavailable");
+    if (kind === "checking") return t("frame.aiStatusChecking");
+    if (kind === "loggedOut") return t("frame.aiStatusLoggedOut");
+    return t("frame.aiStatusUnavailable");
   };
 
   const handleKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -81,15 +81,15 @@ export function ProblemFrameChatComposer({
   };
 
   return (
-    <div className={`ai-chat-input-shell ${styles.composer}`} data-testid="problem-custom-frame-ai-composer">
+    <div className={`ai-chat-input-shell ${styles.composer}`} data-testid="custom-frame-ai-composer">
       {reviseFromCurrent && (
         <div className={styles.contextRow}>
           <span className={styles.contextChip}>
-            {t("problem.custom.chat.reviseChip")}
+            {t("frame.chat.reviseChip")}
             <button
               type="button"
               className={styles.contextChipRemove}
-              aria-label={t("problem.custom.chat.reviseChipRemove")}
+              aria-label={t("frame.chat.reviseChipRemove")}
               onClick={onRemoveRevise}
             >
               <X size={11} aria-hidden="true" />
@@ -103,8 +103,8 @@ export function ProblemFrameChatComposer({
         placeholder={placeholder}
         value={draft}
         disabled={unavailable}
-        aria-label={t("problem.custom.chat.inputAria")}
-        data-testid="problem-custom-frame-ai-prompt"
+        aria-label={t("frame.chat.inputAria")}
+        data-testid="custom-frame-ai-prompt"
         onChange={(event) => onDraftChange(event.target.value)}
         onKeyDown={handleKeyDown}
       />
@@ -114,7 +114,7 @@ export function ProblemFrameChatComposer({
             ref={menuButtonRef}
             type="button"
             className="ai-chat-model-button"
-            data-testid="problem-custom-frame-ai-model-button"
+            data-testid="custom-frame-ai-model-button"
             disabled={unavailable}
             title={tAi("composer.modelButtonTitle", { replace: { provider: providerLabel, model: modelLabel, effort: effortText } })}
             aria-label={tAi("composer.modelButtonAria", { replace: { provider: providerLabel, model: modelLabel, effort: effortText } })}
@@ -163,7 +163,7 @@ export function ProblemFrameChatComposer({
                     aria-checked={provider === candidate}
                     disabled={!connected}
                     title={connected ? AI_PROVIDER_LABELS[candidate] : statusLabel(connections[candidate])}
-                    data-testid={`problem-custom-frame-ai-provider-${candidate}`}
+                    data-testid={`custom-frame-ai-provider-${candidate}`}
                     className="ai-chat-model-menu-item"
                     onClick={() => {
                       selection.selectProvider(candidate);
@@ -206,7 +206,7 @@ export function ProblemFrameChatComposer({
           <button
             type="button"
             className="ai-chat-send-button"
-            data-testid="problem-custom-frame-ai-stop"
+            data-testid="custom-frame-ai-stop"
             title={tAi("composer.stop")}
             aria-label={tAi("composer.stop")}
             onClick={onStop}
@@ -217,10 +217,10 @@ export function ProblemFrameChatComposer({
           <button
             type="button"
             className="ai-chat-send-button"
-            data-testid="problem-custom-frame-ai-generate"
+            data-testid="custom-frame-ai-generate"
             disabled={unavailable || waiting || draft.trim().length === 0}
-            title={t("problem.custom.chat.send")}
-            aria-label={t("problem.custom.chat.send")}
+            title={t("frame.chat.send")}
+            aria-label={t("frame.chat.send")}
             onClick={onSubmit}
           >
             <ArrowUp size={16} strokeWidth={2.5} aria-hidden="true" />

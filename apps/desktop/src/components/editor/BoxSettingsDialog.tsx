@@ -14,6 +14,7 @@ import type {
   BoxBlockNode,
   BoxFrameSpec,
   BoxSpacingPx,
+  CustomFrame,
   InlineNode,
   MathFractionSizing,
 } from "@/features/document";
@@ -23,8 +24,12 @@ import {
   boxFrameHasSubtitle,
   boxFrameDecorationAttributes,
   boxFrameStyleVars,
+  CUSTOM_BOX_STYLE_ID,
+  getBoxCustomFrame,
   resolveBoxFrame,
 } from "@/lib/box-blocks";
+import { findFrameLibraryEntry, useFrameLibrary, type FrameLibraryEntry } from "@/lib/frame-library";
+import { CustomFrameEditor } from "./CustomFrameEditor";
 import { joinBoxColor, splitBoxColor } from "@/lib/box-color";
 import { fillOpacityToPercent } from "@/lib/fill-opacity";
 import { boxFrameFields, type BoxFrameField, type BoxFrameFieldGroup } from "@/lib/box-frame-fields";
@@ -44,6 +49,12 @@ interface BoxSettingsDialogProps {
   autoFocusTitle?: boolean;
   onStyleChange: (styleId: string) => void;
   onFrameChange: (patch: Partial<BoxFrameSpec>) => void;
+  /**
+   * Frames the box with the user's own drawing (`styleId: "custom"`). The updater receives the
+   * box's drawing at the moment of writing; returning undefined leaves the box as it is. Without it
+   * the dialog offers only the built-in styles.
+   */
+  onCustomFrameChange?: (updater: (previous: CustomFrame | undefined) => CustomFrame | undefined) => void;
   onTitleChange: (title: InlineNode[]) => void;
   onSubtitleChange?: (subtitle: InlineNode[]) => void;
   /** このスタイルで覚えている見た目を捨て、組み込みの既定へ戻す。 */
@@ -73,6 +84,7 @@ export function BoxSettingsDialog({
   autoFocusTitle = false,
   onStyleChange,
   onFrameChange,
+  onCustomFrameChange,
   onTitleChange,
   onSubtitleChange,
   onResetStyle,
@@ -86,6 +98,31 @@ export function BoxSettingsDialog({
   const galleryId = useId();
   const boxStyles = resolveBoxStyles(tEditor);
   const selectedStyle = boxStyles.find((style) => style.id === boxBlock.styleId);
+  const library = useFrameLibrary();
+  const customFrame = getBoxCustomFrame(boxBlock);
+  const isCustom = resolvedFrame.custom !== undefined;
+  // 自作の枠を使っている間は、作る道具を開いたままにする (問題の設定と同じ)。
+  const [customEditorOpen, setCustomEditorOpen] = useState(isCustom);
+  // 棚のどの枠を直しているか。よそから来た枠の箱は、棚に無い状態から始まる。
+  const [activeId, setActiveId] = useState<string | null>(() => findFrameLibraryEntry(customFrame)?.id ?? null);
+  const [startingNew, setStartingNew] = useState(false);
+  // 棚の枠を選び直す・新しく作り始めるたびに進める。枠エディタはこれで下書きを入れ替える。
+  const [framePick, setFramePick] = useState(0);
+  const activeEntry = isCustom ? library.find((entry) => entry.id === activeId) : undefined;
+  const selectedStyleName = isCustom ? activeEntry?.name ?? t("box.customFrame") : selectedStyle?.displayName;
+  const selectedStyleDescription = isCustom ? t("box.customFrameHint") : selectedStyle?.description;
+  const selectBuiltInStyle = (styleId: string) => {
+    setCustomEditorOpen(false);
+    setStartingNew(false);
+    onStyleChange(styleId);
+  };
+  const selectShelfFrame = (entry: FrameLibraryEntry) => {
+    setActiveId(entry.id);
+    setStartingNew(false);
+    setCustomEditorOpen(true);
+    setFramePick((pick) => pick + 1);
+    onCustomFrameChange?.(() => entry.custom);
+  };
   const hasNotchedCorners = boxBlock.styleId === "cornerbox" &&
     resolvedFrame.decorations?.some((decoration) => decoration.type === "titleDoubleRule");
   const padding = resolvedFrame.paddingPx ?? DEFAULT_PADDING;
@@ -94,7 +131,9 @@ export function BoxSettingsDialog({
   ));
   const uniformPadding = hasUniformPadding(padding) ? padding.top : "";
   const hasSubtitle = boxFrameHasSubtitle(resolvedFrame);
-  const fields = boxFrameFields(resolvedFrame);
+  // 自作の枠では罫・地色・装飾は絵が決めるので、文字の色と太さだけを出す。
+  const fields = boxFrameFields(resolvedFrame)
+    .filter((field) => !isCustom || ((field.group === "title" || field.group === "body") && field.id !== "titleBackgroundColor"));
   const decorationFields = fields.filter((field) => field.group === "decoration");
 
   const patchPadding = (side: keyof BoxSpacingPx, value: number) => {
@@ -133,8 +172,8 @@ export function BoxSettingsDialog({
                 mathFractionSizing={mathFractionSizing}
               />
             </div>
-            <strong className={styles.currentStyleName}>{selectedStyle?.displayName}</strong>
-            <p className={styles.fieldHint}>{selectedStyle?.description}</p>
+            <strong className={styles.currentStyleName}>{selectedStyleName}</strong>
+            <p className={styles.fieldHint}>{selectedStyleDescription}</p>
           </aside>
           <Stack gap="xl" className={styles.controls}>
             <Stack as="section" gap="sm" aria-labelledby="box-settings-title-heading">
@@ -169,7 +208,7 @@ export function BoxSettingsDialog({
                 onClick={() => setStylesOpen(open => !open)}
               >
                 <span id="box-settings-style-heading">{t("box.style")}</span>
-                <strong>{selectedStyle?.displayName}</strong>
+                <strong>{selectedStyleName}</strong>
                 <ChevronDown size={16} aria-hidden="true" />
               </button>
               <Grid id={galleryId} columns={3} gap="sm" className={styles.styleGrid} hidden={!stylesOpen}>
@@ -184,7 +223,7 @@ export function BoxSettingsDialog({
                       aria-pressed={selected}
                       title={`/${style.commandName}`}
                       data-testid={`box-style-${style.id}`}
-                      onClick={() => onStyleChange(style.id)}
+                      onClick={() => selectBuiltInStyle(style.id)}
                     >
                       <BoxStylePreview styleId={style.id} frame={style.frame} />
                       <span className={styles.styleLabel}>{style.displayName}</span>
@@ -192,59 +231,124 @@ export function BoxSettingsDialog({
                     </button>
                   );
                 })}
+                {onCustomFrameChange ? (
+                  <>
+                    <span className={styles.styleGroupLabel}>{t("box.myFrames")}</span>
+                    {library.map((entry) => {
+                      const selected = isCustom && !startingNew && activeId === entry.id;
+                      return (
+                        <button
+                          key={entry.id}
+                          type="button"
+                          className={styles.styleButton}
+                          data-selected={selected}
+                          aria-pressed={selected}
+                          data-testid={`box-frame-library-${entry.id}`}
+                          onClick={() => selectShelfFrame(entry)}
+                        >
+                          <BoxStylePreview
+                            styleId={CUSTOM_BOX_STYLE_ID}
+                            frame={resolveBoxFrame({ styleId: CUSTOM_BOX_STYLE_ID, frame: { ...boxBlock.frame, custom: entry.custom } })}
+                          />
+                          <span className={styles.styleLabel}>{entry.name}</span>
+                          <span className={styles.styleDescription}>{t("box.myFrameDescription")}</span>
+                        </button>
+                      );
+                    })}
+                    <button
+                      type="button"
+                      className={styles.styleButton}
+                      data-selected={customEditorOpen && startingNew}
+                      aria-pressed={customEditorOpen && startingNew}
+                      data-testid="box-frame-new"
+                      onClick={() => {
+                        setActiveId(null);
+                        setStartingNew(true);
+                        setCustomEditorOpen(true);
+                        setFramePick((pick) => pick + 1);
+                      }}
+                    >
+                      <span className={styles.addFramePreview} aria-hidden="true"><Plus size={16} /></span>
+                      <span className={styles.styleLabel}>{t("box.addFrame")}</span>
+                      <span className={styles.styleDescription}>{t("box.addFrameDescription")}</span>
+                    </button>
+                  </>
+                ) : null}
               </Grid>
             </Stack>
+
+            {onCustomFrameChange && customEditorOpen ? (
+              <Stack as="section" gap="md" aria-labelledby="box-settings-custom-frame-heading">
+                <SectionHeading id="box-settings-custom-frame-heading" title={t("box.customFrame")} />
+                <CustomFrameEditor
+                  target={{ kind: "box", id: boxBlock.id }}
+                  custom={customFrame}
+                  onCustomChange={onCustomFrameChange}
+                  activeId={activeId}
+                  onActiveChange={setActiveId}
+                  fresh={startingNew}
+                  onFreshChange={setStartingNew}
+                  pick={framePick}
+                />
+              </Stack>
+            ) : null}
 
             <Grid columns={2} gap="xl" className={styles.settingsGrid}>
               <Stack as="section" gap="md" aria-labelledby="box-settings-frame-heading">
                 <SectionHeading id="box-settings-frame-heading" title={t("box.frame")} />
-                <Grid columns={2} gap="md">
-                  <NumberField
-                    label={t("box.borderWidth")}
-                    value={resolvedFrame.borderWidthPx ?? 1}
-                    min={0}
-                    max={5}
-                    step={0.1}
-                    onChange={(borderWidthPx) => onFrameChange({ borderWidthPx })}
-                  />
-                  {renderFields(fields, "border", onFrameChange, t)}
-                </Grid>
-
-                {hasNotchedCorners ? (
-                  <p className={styles.fieldHint}>{t("box.notchedCorners")}</p>
+                {isCustom ? (
+                  <p className={styles.fieldHint}>{t("box.customFrameHint")}</p>
                 ) : (
                   <>
-                    <ControlGroup label={t("box.corner")}>
-                      <SegmentedButton
-                        selected={(resolvedFrame.cornerStyle ?? "sharp") === "sharp"}
-                        onClick={() => onFrameChange({ cornerStyle: "sharp" })}
-                      >
-                        <span className={styles.cornerIcon} aria-hidden="true" />
-                        {t("box.cornerSharp")}
-                      </SegmentedButton>
-                      <SegmentedButton
-                        selected={resolvedFrame.cornerStyle === "round"}
-                        onClick={() => onFrameChange({
-                          cornerStyle: "round",
-                          ...(!resolvedFrame.radiusPx ? { radiusPx: 4 } : {}),
-                        })}
-                      >
-                        <span className={styles.cornerIcon} data-rounded="true" aria-hidden="true" />
-                        {t("box.cornerRounded")}
-                      </SegmentedButton>
-                    </ControlGroup>
-
-                    {resolvedFrame.cornerStyle === "round" ? (
+                    <Grid columns={2} gap="md">
                       <NumberField
-                        label={t("box.cornerRadius")}
-                        slider
-                        value={resolvedFrame.radiusPx ?? 4}
+                        label={t("box.borderWidth")}
+                        value={resolvedFrame.borderWidthPx ?? 1}
                         min={0}
-                        max={32}
-                        step={1}
-                        onChange={(radiusPx) => onFrameChange({ radiusPx })}
+                        max={5}
+                        step={0.1}
+                        onChange={(borderWidthPx) => onFrameChange({ borderWidthPx })}
                       />
-                    ) : null}
+                      {renderFields(fields, "border", onFrameChange, t)}
+                    </Grid>
+
+                    {hasNotchedCorners ? (
+                      <p className={styles.fieldHint}>{t("box.notchedCorners")}</p>
+                    ) : (
+                      <>
+                        <ControlGroup label={t("box.corner")}>
+                          <SegmentedButton
+                            selected={(resolvedFrame.cornerStyle ?? "sharp") === "sharp"}
+                            onClick={() => onFrameChange({ cornerStyle: "sharp" })}
+                          >
+                            <span className={styles.cornerIcon} aria-hidden="true" />
+                            {t("box.cornerSharp")}
+                          </SegmentedButton>
+                          <SegmentedButton
+                            selected={resolvedFrame.cornerStyle === "round"}
+                            onClick={() => onFrameChange({
+                              cornerStyle: "round",
+                              ...(!resolvedFrame.radiusPx ? { radiusPx: 4 } : {}),
+                            })}
+                          >
+                            <span className={styles.cornerIcon} data-rounded="true" aria-hidden="true" />
+                            {t("box.cornerRounded")}
+                          </SegmentedButton>
+                        </ControlGroup>
+
+                        {resolvedFrame.cornerStyle === "round" ? (
+                          <NumberField
+                            label={t("box.cornerRadius")}
+                            slider
+                            value={resolvedFrame.radiusPx ?? 4}
+                            min={0}
+                            max={32}
+                            step={1}
+                            onChange={(radiusPx) => onFrameChange({ radiusPx })}
+                          />
+                        ) : null}
+                      </>
+                    )}
                   </>
                 )}
                 <ControlGroup label={t("box.titlePosition")}>
@@ -283,73 +387,75 @@ export function BoxSettingsDialog({
                 </Stack>
               ) : null}
 
-              <Stack as="section" gap="md" aria-labelledby="box-settings-padding-heading">
-                <Inline justify="between" align="center">
-                  <SectionHeading id="box-settings-padding-heading" title={t("box.padding")} />
-                  <div className={styles.modeSwitch} role="group" aria-label={t("box.paddingModeAria")}>
-                    <SegmentedButton selected={paddingMode === "all"} onClick={() => setPaddingMode("all")}>
-                      {t("box.paddingAll")}
-                    </SegmentedButton>
-                    <SegmentedButton selected={paddingMode === "sides"} onClick={() => setPaddingMode("sides")}>
-                      {t("box.paddingEach")}
-                    </SegmentedButton>
-                  </div>
-                </Inline>
+              {isCustom ? null : (
+                <Stack as="section" gap="md" aria-labelledby="box-settings-padding-heading">
+                  <Inline justify="between" align="center">
+                    <SectionHeading id="box-settings-padding-heading" title={t("box.padding")} />
+                    <div className={styles.modeSwitch} role="group" aria-label={t("box.paddingModeAria")}>
+                      <SegmentedButton selected={paddingMode === "all"} onClick={() => setPaddingMode("all")}>
+                        {t("box.paddingAll")}
+                      </SegmentedButton>
+                      <SegmentedButton selected={paddingMode === "sides"} onClick={() => setPaddingMode("sides")}>
+                        {t("box.paddingEach")}
+                      </SegmentedButton>
+                    </div>
+                  </Inline>
 
-                {paddingMode === "all" ? (
-                  <NumberField
-                    label={t("box.paddingAllValue")}
-                    value={uniformPadding}
-                    placeholder={t("box.paddingMixed")}
-                    min={0}
-                    max={200}
-                    step={1}
-                    onChange={(value) => onFrameChange({
-                      paddingPx: {
-                        top: value,
-                        right: value,
-                        bottom: value,
-                        left: value,
-                      },
-                    })}
-                  />
-                ) : (
-                  <Grid columns={2} gap="md">
+                  {paddingMode === "all" ? (
                     <NumberField
-                      label={t("box.paddingTop")}
-                      value={padding.top}
+                      label={t("box.paddingAllValue")}
+                      value={uniformPadding}
+                      placeholder={t("box.paddingMixed")}
                       min={0}
                       max={200}
                       step={1}
-                      onChange={(value) => patchPadding("top", value)}
+                      onChange={(value) => onFrameChange({
+                        paddingPx: {
+                          top: value,
+                          right: value,
+                          bottom: value,
+                          left: value,
+                        },
+                      })}
                     />
-                    <NumberField
-                      label={t("box.paddingRight")}
-                      value={padding.right}
-                      min={0}
-                      max={200}
-                      step={1}
-                      onChange={(value) => patchPadding("right", value)}
-                    />
-                    <NumberField
-                      label={t("box.paddingBottom")}
-                      value={padding.bottom}
-                      min={0}
-                      max={200}
-                      step={1}
-                      onChange={(value) => patchPadding("bottom", value)}
-                    />
-                    <NumberField
-                      label={t("box.paddingLeft")}
-                      value={padding.left}
-                      min={0}
-                      max={200}
-                      step={1}
-                      onChange={(value) => patchPadding("left", value)}
-                    />
-                  </Grid>
-                )}
-              </Stack>
+                  ) : (
+                    <Grid columns={2} gap="md">
+                      <NumberField
+                        label={t("box.paddingTop")}
+                        value={padding.top}
+                        min={0}
+                        max={200}
+                        step={1}
+                        onChange={(value) => patchPadding("top", value)}
+                      />
+                      <NumberField
+                        label={t("box.paddingRight")}
+                        value={padding.right}
+                        min={0}
+                        max={200}
+                        step={1}
+                        onChange={(value) => patchPadding("right", value)}
+                      />
+                      <NumberField
+                        label={t("box.paddingBottom")}
+                        value={padding.bottom}
+                        min={0}
+                        max={200}
+                        step={1}
+                        onChange={(value) => patchPadding("bottom", value)}
+                      />
+                      <NumberField
+                        label={t("box.paddingLeft")}
+                        value={padding.left}
+                        min={0}
+                        max={200}
+                        step={1}
+                        onChange={(value) => patchPadding("left", value)}
+                      />
+                    </Grid>
+                  )}
+                </Stack>
+              )}
             </Grid>
 
             <Inline justify="between" align="center" className={styles.footer}>
@@ -669,7 +775,7 @@ function BoxStylePreview({ styleId, frame, title, subtitle, mathFractionSizing }
         ref={frameRef}
         className={className}
         data-box-style={styleId}
-        style={boxFrameStyleVars(frame) as CSSProperties}
+        style={boxFrameStyleVars(frame, "closed") as CSSProperties}
         {...boxFrameDecorationAttributes(frame)}
         aria-hidden="true"
       >

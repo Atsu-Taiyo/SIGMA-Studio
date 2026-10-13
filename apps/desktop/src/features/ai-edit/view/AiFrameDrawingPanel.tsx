@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 
-import type { ProblemFrameDrawingPanelProps } from "@/components/editor/editor-extension-context";
+import type { FrameDrawingPanelProps } from "@/components/editor/editor-extension-context";
 import { AI_FRAME_DRAWING } from "@/features/document";
 import {
   useAiConnection,
@@ -14,44 +14,43 @@ import type { AiProvider } from "@/lib/ai/ai-providers";
 import { getDesktopBridge } from "@/lib/desktop-bridge";
 import { useT } from "@/lib/i18n/react";
 
-import { problemFrameChatStore, useProblemFrameChatSession } from "../application/problem-frame-chat-store";
+import { frameChatStore, useFrameChatSession } from "../application/frame-chat-store";
 import { useAiModelSelection } from "../application/use-ai-model-selection";
 import {
-  isProblemFrameChatRunning,
-  latestProblemFrameDrawing,
-  problemFrameChatKey,
-  type ProblemFrameChatAssistantTurn,
-  type ProblemFrameChatDrawing,
-} from "../model/problem-frame-chat";
-import { ProblemFrameChatComposer } from "./ProblemFrameChatComposer";
-import { ProblemFrameChatTranscript } from "./ProblemFrameChatTranscript";
-import styles from "./ProblemFrameChat.module.css";
+  isFrameChatRunning,
+  latestFrameChatDrawing,
+  frameChatKey,
+  type FrameChatAssistantTurn,
+  type FrameChatDrawing,
+} from "../model/frame-chat";
+import { FrameChatComposer } from "./FrameChatComposer";
+import { FrameChatTranscript } from "./FrameChatTranscript";
+import styles from "./FrameChat.module.css";
 
 const PROVIDERS: readonly AiProvider[] = ["chatgpt", "claude", "antigravity"];
 
-export interface AiProblemFramePanelProps extends ProblemFrameDrawingPanelProps {
-  /** The document the problem belongs to. Two documents can each have a problem with the same id. */
+export interface AiFrameDrawingPanelProps extends FrameDrawingPanelProps {
+  /** The document the target belongs to. Two documents can each have a problem with the same id. */
   documentIdentityKey?: string | null;
 }
 
 /**
- * "Draw with AI" tab of the problem frame dialog, as a chat: the AI has already asked what kind of
- * frame you want, you answer in the input below, and the drawing arrives with the AI's thinking
- * streaming in above it. It rides on the tool-less one-shot call the skill editor uses
- * (`aiSkillDraft`, purpose `problemFrame`): the model only ever returns one SVG, which is normalized
- * before it can become a frame, so it cannot touch the document by itself.
+ * "Draw with AI" tab of the frame editor (problem and box dialogs alike), as a chat: the AI has
+ * already asked what kind of frame you want, you answer in the input below, and the drawing arrives
+ * with the AI's thinking streaming in above it. It rides on the tool-less one-shot call the skill
+ * editor uses (`aiSkillDraft`, purpose `frameDrawing`): the model only ever returns one SVG, which is
+ * normalized before it can become a frame, so it cannot touch the document by itself.
  *
- * The conversation lives in `problemFrameChatStore`, not here, so it keeps running when the dialog
- * is closed. While this panel is on screen a finished drawing goes straight onto the problem;
- * otherwise the document shows a notice (see `ProblemFrameChatNotices`) and the drawing waits in
- * the conversation.
+ * The conversation lives in `frameChatStore`, not here, so it keeps running when the dialog is
+ * closed. While this panel is on screen a finished drawing goes straight onto the target; otherwise
+ * the document shows a notice (see `FrameChatNotices`) and the drawing waits in the conversation.
  */
-export function AiProblemFramePanel({ problemId, documentIdentityKey, currentSvg, onDrawn }: AiProblemFramePanelProps) {
+export function AiFrameDrawingPanel({ target, documentIdentityKey, currentSvg, onDrawn }: AiFrameDrawingPanelProps) {
   const t = useT("settings");
   const tAi = useT("ai");
-  const key = problemFrameChatKey(documentIdentityKey, problemId);
-  const session = useProblemFrameChatSession(key);
-  const running = isProblemFrameChatRunning(session);
+  const key = frameChatKey(documentIdentityKey, target);
+  const session = useFrameChatSession(key);
+  const running = isFrameChatRunning(session);
 
   const connections: Record<AiProvider, AiConnectionStateKind> = {
     chatgpt: useAiConnection().state.kind,
@@ -75,7 +74,7 @@ export function AiProblemFramePanel({ problemId, documentIdentityKey, currentSvg
     onDrawnRef.current = onDrawn;
   });
 
-  const putOnProblem = (drawing: ProblemFrameChatDrawing, revised: boolean) => {
+  const putOnTarget = (drawing: FrameChatDrawing, revised: boolean) => {
     onDrawnRef.current({
       svg: drawing.svg,
       width: drawing.width,
@@ -85,10 +84,10 @@ export function AiProblemFramePanel({ problemId, documentIdentityKey, currentSvg
     });
   };
 
-  // A drawing that finishes while this panel is on screen goes straight onto the problem.
-  // (`putOnProblem` only reads the latest `onDrawn`, through the ref.)
+  // A drawing that finishes while this panel is on screen goes straight onto the target.
+  // (`putOnTarget` only reads the latest `onDrawn`, through the ref.)
   useEffect(
-    () => problemFrameChatStore.watch(key, (drawing, turn) => putOnProblem(drawing, turn.revised)),
+    () => frameChatStore.watch(key, (drawing, turn) => putOnTarget(drawing, turn.revised)),
     [key],
   );
 
@@ -104,7 +103,7 @@ export function AiProblemFramePanel({ problemId, documentIdentityKey, currentSvg
     previousStatus.current = lastStatus;
   }, [lastStatus]);
 
-  const chatDrawing = latestProblemFrameDrawing(session);
+  const chatDrawing = latestFrameChatDrawing(session);
   const hasCurrentFrame = currentSvg.trim().length > 0;
   const showReviseChip = hasCurrentFrame && chatDrawing === null && reviseFromCurrent;
 
@@ -113,16 +112,16 @@ export function AiProblemFramePanel({ problemId, documentIdentityKey, currentSvg
     if (!instruction || running || unavailable || waiting) {
       return;
     }
-    const result = problemFrameChatStore.send({
+    const result = frameChatStore.send({
       key,
       documentIdentityKey: documentIdentityKey ?? "",
-      problemId,
+      target,
       instruction,
       provider: selection.provider,
       ...(selection.runtimeModel ? { model: selection.runtimeModel } : {}),
       ...(selection.runtimeReasoningEffort ? { reasoningEffort: selection.runtimeReasoningEffort } : {}),
       // The next request reworks the latest drawing of this conversation; the first one reworks
-      // the problem's current frame unless the reader took that chip off.
+      // the target's current frame unless the reader took that chip off.
       baseSvg: chatDrawing?.svg ?? (showReviseChip ? currentSvg : ""),
     });
     if (result.ok) {
@@ -135,37 +134,37 @@ export function AiProblemFramePanel({ problemId, documentIdentityKey, currentSvg
 
   return (
     <div ref={panelRef} className={styles.panel}>
-      {unavailable && <p className={styles.notice} role="status">{t("problem.custom.aiUnavailable")}</p>}
-      <ProblemFrameChatTranscript
+      {unavailable && <p className={styles.notice} role="status">{t("frame.aiUnavailable")}</p>}
+      <FrameChatTranscript
         session={session}
         hasCurrentFrame={hasCurrentFrame}
         onPickExample={(prompt) => {
           setDraft(prompt);
           inputRef.current?.focus();
         }}
-        onUse={(turn: ProblemFrameChatAssistantTurn, drawing) => {
-          putOnProblem(drawing, turn.revised);
-          problemFrameChatStore.markApplied(key, turn.id);
+        onUse={(turn: FrameChatAssistantTurn, drawing) => {
+          putOnTarget(drawing, turn.revised);
+          frameChatStore.markApplied(key, turn.id);
         }}
       />
-      <ProblemFrameChatComposer
+      <FrameChatComposer
         draft={draft}
         onDraftChange={setDraft}
         onSubmit={submit}
-        onStop={() => problemFrameChatStore.cancel(key)}
+        onStop={() => frameChatStore.cancel(key)}
         running={running}
         unavailable={unavailable}
         waiting={waiting}
-        placeholder={t(session && session.turns.length > 0 ? "problem.custom.chat.followUpPlaceholder" : "problem.custom.aiPlaceholder")}
+        placeholder={t(session && session.turns.length > 0 ? "frame.chat.followUpPlaceholder" : "frame.aiPlaceholder")}
         selection={selection}
         connections={connections}
         reviseFromCurrent={showReviseChip}
         onRemoveRevise={() => setReviseFromCurrent(false)}
         inputRef={inputRef}
       />
-      {waiting && <p className={styles.note} role="status">{t("problem.custom.aiStatusChecking")}</p>}
-      <p className={styles.note}>{t("problem.custom.aiSends")}</p>
-      {running && <p className={styles.note} role="status">{t("problem.custom.chat.background")}</p>}
+      {waiting && <p className={styles.note} role="status">{t("frame.aiStatusChecking")}</p>}
+      <p className={styles.note}>{t("frame.aiSends")}</p>
+      {running && <p className={styles.note} role="status">{t("frame.chat.background")}</p>}
     </div>
   );
 }

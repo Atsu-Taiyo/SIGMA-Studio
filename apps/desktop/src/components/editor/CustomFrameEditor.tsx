@@ -1,45 +1,44 @@
 "use client";
 
 import { Copy, FileUp, Plus, Trash2 } from "lucide-react";
-import { useEffect, useMemo, useRef, useState, type ChangeEvent, type CSSProperties } from "react";
+import { useEffect, useRef, useState, type ChangeEvent, type CSSProperties, type ReactNode } from "react";
 
 import { Button } from "@/components/ui/Button";
 import { Tabs } from "@/components/ui/settings";
 import {
   useEditorExtensions,
-  type ProblemFrameDrawingExtension,
-  type ProblemFrameDrawingPanelProps,
+  type FrameDrawingExtension,
+  type FrameDrawingPanelProps,
 } from "./editor-extension-context";
 import {
   clampCustomFrameSlice,
-  createCustomFrameGeometry,
   CUSTOM_FRAME_BORDER_RANGE,
   CUSTOM_FRAME_PADDING_RANGE,
   EMPTY_TIKZ_ENVIRONMENT,
   getMaxCustomFrameSlice,
   normalizeFrameSvg,
+  type CustomFrame,
   type CustomFrameRejection,
-  type ProblemCustomFrame,
-  type ProblemNode,
   type TikzImageSource,
 } from "@/features/document";
+import {
+  applyCustomFrameDrawing,
+  customFrameImageSrc,
+  updateCustomFrameGeometry,
+  type CustomFrameDrawing,
+  type CustomFrameTarget,
+} from "@/lib/custom-frame";
 import { getDesktopBridge } from "@/lib/desktop-bridge";
 import { useT } from "@/lib/i18n/react";
 import {
-  applyProblemFrameDrawing,
-  getProblemCustomFrameStyle,
-  problemFrameClassName,
-  setProblemCustomFrame,
-} from "@/lib/problem-frame";
-import {
-  addProblemFrameToLibrary,
-  getProblemFrameLibrary,
-  removeProblemFrameFromLibrary,
-  updateProblemFrameInLibrary,
-  useProblemFrameLibrary,
-} from "@/lib/problem-frame-library";
-import { PROBLEM_FRAME_PRESETS } from "@/lib/problem-frame-presets";
-import styles from "./ProblemCustomFrameEditor.module.css";
+  addFrameToLibrary,
+  getFrameLibrary,
+  removeFrameFromLibrary,
+  updateFrameInLibrary,
+  useFrameLibrary,
+} from "@/lib/frame-library";
+import { FRAME_PRESETS } from "@/lib/frame-presets";
+import styles from "./CustomFrameEditor.module.css";
 
 type SourceTab = "svg" | "tikz" | "ai";
 
@@ -48,16 +47,6 @@ const DEFAULT_TIKZ_SOURCE = String.raw`\begin{tikzpicture}
   \draw[line width=3pt, rounded corners=10pt, blue!60!black] (0,0) rectangle (8,5);
   \draw[line width=1pt, rounded corners=6pt, blue!40] (0.35,0.35) rectangle (7.65,4.65);
 \end{tikzpicture}`;
-
-interface Drawing {
-  svg: string;
-  width: number;
-  height: number;
-}
-
-export function svgDataUrl(svg: string): string {
-  return `data:image/svg+xml,${encodeURIComponent(svg)}`;
-}
 
 function decodeSvgDataUrl(src: string): string {
   const payload = src.slice(src.indexOf(",") + 1);
@@ -68,38 +57,79 @@ function decodeSvgDataUrl(src: string): string {
   return new TextDecoder().decode(bytes);
 }
 
-export function ProblemCustomFrameEditor({
-  problem,
-  onChange,
+export interface CustomFrameEditorProps {
+  /** The problem or box the frame is for. The AI conversation is kept per target. */
+  target: CustomFrameTarget;
+  /** The frame the target uses now (its own copy), or undefined when it has none. */
+  custom: CustomFrame | undefined;
+  /**
+   * The one way this editor writes the frame. The updater receives the target's frame at the moment
+   * of writing (not the props), so two quick edits never overwrite each other; returning undefined
+   * leaves the target as it is.
+   */
+  onCustomChange: (updater: (previous: CustomFrame | undefined) => CustomFrame | undefined) => void;
+  /** The library entry being edited, or null when the frame is not on the shelf (yet). */
+  activeId: string | null;
+  onActiveChange: (id: string | null) => void;
+  /** Starting a new frame: what the target has now is not shown until a drawing is made. */
+  fresh: boolean;
+  onFreshChange: (fresh: boolean) => void;
+  /**
+   * The frame drawn on the target, for hosts without a preview of their own. `paperClassName` gives
+   * the preview the editor's paper look.
+   */
+  renderPreview?: (custom: CustomFrame, paperClassName: string) => ReactNode;
+  /**
+   * Bumped by the host each time the user picks another frame (a shelf entry, or starting a new
+   * one). The SVG / TikZ drafts belong to the frame they were written for, so they are replaced
+   * then — never while the user is drawing, when the frame changes under the same pick.
+   */
+  pick?: number;
+}
+
+/**
+ * Making a frame of your own: the examples, SVG / TikZ / AI, the corner, thickness and padding, and
+ * the shelf entry the frame is kept as. The same editor serves the problem and the box dialogs; the
+ * host says which block it is for and how a frame is written onto it.
+ */
+export function CustomFrameEditor({
+  target,
+  custom: liveCustom,
+  onCustomChange,
   activeId,
   onActiveChange,
   fresh,
   onFreshChange,
-}: {
-  problem: ProblemNode;
-  onChange: (updater: (problem: ProblemNode) => ProblemNode) => void;
-  /** The library entry being edited, or null when the frame is not on the shelf (yet). */
-  activeId: string | null;
-  onActiveChange: (id: string | null) => void;
-  /** Starting a new frame: what the problem has now is not shown until a drawing is made. */
-  fresh: boolean;
-  onFreshChange: (fresh: boolean) => void;
-}) {
+  renderPreview,
+  pick = 0,
+}: CustomFrameEditorProps) {
   const t = useT("settings");
-  const drawingExtension = useEditorExtensions().problemFrameDrawing;
-  const library = useProblemFrameLibrary();
+  const drawingExtension = useEditorExtensions().frameDrawing;
+  const library = useFrameLibrary();
   const activeEntry = activeId ? library.find((entry) => entry.id === activeId) : undefined;
-  const liveCustom = problem.frame?.custom;
   const custom = fresh ? undefined : liveCustom;
   const [tab, setTab] = useState<SourceTab>(custom?.tikz ? "tikz" : "svg");
   const [svgText, setSvgText] = useState(custom?.svg ?? "");
   const [svgError, setSvgError] = useState<CustomFrameRejection | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
+  // Another frame was picked: left as they were, the drafts of the previous one would be committed
+  // onto this one (and onto its shelf entry) by the next keystroke.
+  const [draftsPick, setDraftsPick] = useState(pick);
+  if (draftsPick !== pick) {
+    setDraftsPick(pick);
+    setSvgText(custom?.svg ?? "");
+    setSvgError(null);
+  }
+  const pickRef = useRef(pick);
+  useEffect(() => {
+    pickRef.current = pick;
+  });
+
   /**
-   * Every edit made here is kept on the shelf too. `armed` marks "the next change of the problem's
+   * Every edit made here is kept on the shelf too. `armed` marks "the next change of the target's
    * frame came from this editor", and the effect below carries it over once React has applied it —
-   * so the shelf always gets exactly what the problem got, not a second computation of it.
+   * so the shelf always gets exactly what the target got, not a second computation of it.
    * A drawing that is a starting point (an example, "draw a new one") becomes its own entry
    * instead of overwriting the one being edited.
    */
@@ -115,43 +145,34 @@ export function ProblemCustomFrameEditor({
     }
     armed.current = null;
     const { activeId: current, onActiveChange: setActive, t: translate } = libraryRef.current;
-    if (current && !pending.asNew && updateProblemFrameInLibrary(current, { custom: liveCustom })) {
+    if (current && !pending.asNew && updateFrameInLibrary(current, { custom: liveCustom })) {
       return;
     }
     const name = pending.name
-      ?? translate("problem.custom.libraryDefaultName", { number: getProblemFrameLibrary().length + 1 });
-    const entry = addProblemFrameToLibrary(liveCustom, name);
+      ?? translate("frame.libraryDefaultName", { number: getFrameLibrary().length + 1 });
+    const entry = addFrameToLibrary(liveCustom, name);
     setActive(entry?.id ?? null);
   }, [liveCustom]);
 
   /**
-   * One place that turns a finished drawing into the problem's frame. The previous frame is read
-   * from the problem being updated, not from props, so two quick edits never overwrite each other,
-   * and the thickness / padding the user already chose survive a new drawing.
+   * One place that turns a finished drawing into the target's frame. The thickness / padding the
+   * user already chose survive a new drawing (`applyCustomFrameDrawing`).
    */
   const commitDrawing = (
-    drawing: Drawing,
+    drawing: CustomFrameDrawing,
     extra?: { tikz?: TikzImageSource; slice?: number; asNew?: boolean; name?: string },
   ) => {
     armed.current = { asNew: Boolean(extra?.asNew) || fresh, name: extra?.name };
     onFreshChange(false);
-    onChange((current) => applyProblemFrameDrawing(current, drawing, { slice: extra?.slice, tikz: extra?.tikz }));
+    onCustomChange((previous) => applyCustomFrameDrawing(previous, drawing, { slice: extra?.slice, tikz: extra?.tikz }));
   };
 
-  const updateGeometry = (patch: Partial<Pick<ProblemCustomFrame, "slice" | "borderPx" | "paddingPx">>) => {
+  const updateGeometry = (patch: Partial<Pick<CustomFrame, "slice" | "borderPx" | "paddingPx">>) => {
     if (!custom) {
       return;
     }
     armed.current = { asNew: false };
-    onChange((current) => {
-      const previous = current.frame?.custom;
-      if (!previous) {
-        return current;
-      }
-      const geometry = createCustomFrameGeometry(previous, { ...previous, ...patch });
-      const { tikz } = previous;
-      return setProblemCustomFrame(current, { ...geometry, ...(tikz ? { tikz } : {}) });
-    });
+    onCustomChange((previous) => previous ? updateCustomFrameGeometry(previous, patch) : undefined);
   };
 
   const applySvgText = (text: string) => {
@@ -175,88 +196,89 @@ export function ProblemCustomFrameEditor({
     if (!file) {
       return;
     }
-    applySvgText(await file.text());
+    const startedFor = pickRef.current;
+    const text = await file.text();
+    // Read for a frame the user has since moved away from.
+    if (startedFor !== pickRef.current) {
+      return;
+    }
+    applySvgText(text);
   };
 
-  const previewStyle = useMemo(
-    () => custom ? getProblemCustomFrameStyle(custom, "px") as CSSProperties : undefined,
-    [custom],
-  );
-
   return (
-    <div className={styles.editor} data-testid="problem-custom-frame-editor">
-      <p className={styles.hint}>{t("problem.custom.hint")}</p>
+    <div className={styles.editor} data-testid="custom-frame-editor">
+      <p className={styles.hint}>{t("frame.hint")}</p>
 
-      <div className={styles.shelf} data-testid="problem-custom-frame-shelf">
+      <div className={styles.shelf} data-testid="custom-frame-shelf">
         {fresh ? (
-          <p className={styles.note}>{t("problem.custom.shelfNew")}</p>
+          <p className={styles.note}>{t("frame.shelfNew")}</p>
         ) : activeEntry ? (
           <>
             <label className={styles.nameField}>
-              <span>{t("problem.custom.nameLabel")}</span>
+              <span>{t("frame.nameLabel")}</span>
               <input
                 type="text"
                 maxLength={40}
-                data-testid="problem-custom-frame-name"
+                data-testid="custom-frame-name"
                 value={activeEntry.name}
-                onChange={(event) => updateProblemFrameInLibrary(activeEntry.id, { name: event.target.value })}
+                onChange={(event) => updateFrameInLibrary(activeEntry.id, { name: event.target.value })}
               />
             </label>
             <div className={styles.row}>
               <Button
                 size="sm"
-                data-testid="problem-custom-frame-duplicate"
+                data-testid="custom-frame-duplicate"
                 disabled={!liveCustom}
                 onClick={() => {
                   if (!liveCustom) return;
-                  const copy = addProblemFrameToLibrary(liveCustom, t("problem.custom.copyName", { name: activeEntry.name }));
+                  const copy = addFrameToLibrary(liveCustom, t("frame.copyName", { name: activeEntry.name }));
                   if (copy) onActiveChange(copy.id);
                 }}
               >
                 <Copy size={14} aria-hidden="true" />
-                {t("problem.custom.duplicate")}
+                {t("frame.duplicate")}
               </Button>
               <Button
                 size="sm"
                 tone="danger"
-                data-testid="problem-custom-frame-delete"
+                data-testid="custom-frame-delete"
                 onClick={() => {
-                  removeProblemFrameFromLibrary(activeEntry.id);
+                  removeFrameFromLibrary(activeEntry.id);
                   onActiveChange(null);
                 }}
               >
                 <Trash2 size={14} aria-hidden="true" />
-                {t("problem.custom.deleteFromShelf")}
+                {t("frame.deleteFromShelf")}
               </Button>
             </div>
-            <p className={styles.note}>{t("problem.custom.shelfNote")}</p>
+            <p className={styles.note}>{t("frame.shelfNote")}</p>
           </>
         ) : liveCustom ? (
           <div className={styles.row}>
             <Button
               size="sm"
-              data-testid="problem-custom-frame-save"
+              data-testid="custom-frame-save"
               onClick={() => {
-                const entry = addProblemFrameToLibrary(liveCustom, t("problem.custom.libraryDefaultName", { number: library.length + 1 }));
+                const entry = addFrameToLibrary(liveCustom, t("frame.libraryDefaultName", { number: library.length + 1 }));
                 if (entry) onActiveChange(entry.id);
               }}
             >
               <Plus size={14} aria-hidden="true" />
-              {t("problem.custom.addToShelf")}
+              {t("frame.addToShelf")}
             </Button>
-            <span className={styles.note}>{t("problem.custom.notOnShelf")}</span>
+            <span className={styles.note}>{t(`frame.target.${target.kind}.notOnShelf`)}</span>
           </div>
         ) : null}
       </div>
 
-      <span className={styles.previewLabel}>{t("problem.custom.presetsLabel")}</span>
-      <div className={styles.presets} role="group" aria-label={t("problem.custom.presetsAria")}>
-        {PROBLEM_FRAME_PRESETS.map((preset) => (
+      <span className={styles.previewLabel}>{t("frame.presetsLabel")}</span>
+      <div className={styles.presets} role="group" aria-label={t("frame.presetsAria")}>
+        {FRAME_PRESETS.map((preset) => (
           <button
             key={preset.id}
             type="button"
             className={styles.preset}
-            data-testid={`problem-frame-preset-${preset.id}`}
+            data-testid={`custom-frame-preset-${preset.id}`}
             onClick={() => {
               setSvgText(preset.drawing.svg);
               setSvgError(null);
@@ -265,38 +287,38 @@ export function ProblemCustomFrameEditor({
           >
             {/* The drawing is previewed as an image, where it cannot run anything. */}
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={svgDataUrl(preset.drawing.svg)} alt="" className={styles.presetImage} />
+            <img src={customFrameImageSrc(preset.drawing.svg)} alt="" className={styles.presetImage} />
             <span>{t(preset.labelKey)}</span>
           </button>
         ))}
       </div>
 
       <Tabs
-        label={t("problem.custom.sourceAria")}
+        label={t("frame.sourceAria")}
         value={tab}
         onValueChange={setTab}
         items={[
-          { value: "svg", label: t("problem.custom.tabSvg") },
-          { value: "tikz", label: t("problem.custom.tabTikz") },
-          ...(drawingExtension ? [{ value: "ai" as const, label: t("problem.custom.tabAi") }] : []),
+          { value: "svg", label: t("frame.tabSvg") },
+          { value: "tikz", label: t("frame.tabTikz") },
+          ...(drawingExtension ? [{ value: "ai" as const, label: t("frame.tabAi") }] : []),
         ]}
       >
         {tab === "svg" && (
           <div className={styles.panel}>
             <textarea
               className={styles.code}
-              data-testid="problem-custom-frame-svg"
+              data-testid="custom-frame-svg"
               spellCheck={false}
-              aria-label={t("problem.custom.svgLabel")}
-              placeholder={t("problem.custom.svgPlaceholder")}
+              aria-label={t("frame.svgLabel")}
+              placeholder={t("frame.svgPlaceholder")}
               value={svgText}
               onChange={(event) => applySvgText(event.target.value)}
             />
-            {svgError && <p role="alert" className={styles.error}>{t(`problem.custom.errors.${svgError}`)}</p>}
+            {svgError && <p role="alert" className={styles.error}>{t(`frame.errors.${svgError}`)}</p>}
             <div className={styles.row}>
               <Button size="sm" onClick={() => fileInputRef.current?.click()}>
                 <FileUp size={14} aria-hidden="true" />
-                {t("problem.custom.svgFile")}
+                {t("frame.svgFile")}
               </Button>
               <input
                 ref={fileInputRef}
@@ -312,6 +334,7 @@ export function ProblemCustomFrameEditor({
         )}
         {tab === "tikz" && (
           <TikzPanel
+            key={pick}
             initial={custom?.tikz}
             onRendered={(tikz, drawing) => {
               setSvgText(drawing.svg);
@@ -322,7 +345,7 @@ export function ProblemCustomFrameEditor({
         {tab === "ai" && drawingExtension && (
           <DrawingExtensionPanel
             extension={drawingExtension}
-            problemId={problem.id}
+            target={target}
             currentSvg={custom?.svg ?? ""}
             onDrawn={(drawing) => {
               setSvgText(drawing.svg);
@@ -337,8 +360,8 @@ export function ProblemCustomFrameEditor({
         <>
           <div className={styles.controls}>
             <RangeField
-              label={t("problem.custom.corner")}
-              testId="problem-custom-frame-corner"
+              label={t("frame.corner")}
+              testId="custom-frame-corner"
               min={1}
               max={getMaxCustomFrameSlice(custom.width, custom.height)}
               step={0.5}
@@ -346,8 +369,8 @@ export function ProblemCustomFrameEditor({
               onChange={(value) => updateGeometry({ slice: clampCustomFrameSlice(value, custom.width, custom.height) })}
             />
             <RangeField
-              label={t("problem.custom.thickness")}
-              testId="problem-custom-frame-thickness"
+              label={t("frame.thickness")}
+              testId="custom-frame-thickness"
               min={CUSTOM_FRAME_BORDER_RANGE.min}
               max={CUSTOM_FRAME_BORDER_RANGE.max}
               step={1}
@@ -355,8 +378,8 @@ export function ProblemCustomFrameEditor({
               onChange={(value) => updateGeometry({ borderPx: value })}
             />
             <RangeField
-              label={t("problem.custom.padding")}
-              testId="problem-custom-frame-padding"
+              label={t("frame.padding")}
+              testId="custom-frame-padding"
               min={CUSTOM_FRAME_PADDING_RANGE.min}
               max={CUSTOM_FRAME_PADDING_RANGE.max}
               step={1}
@@ -365,32 +388,27 @@ export function ProblemCustomFrameEditor({
             />
           </div>
 
-          <div className={styles.previewBlock}>
-            <span className={styles.previewLabel}>{t("problem.custom.preview")}</span>
-            {/* Same classes and stylesheet as the real problem, so what is shown is what is printed. */}
-            <div
-              className={`${problemFrameClassName("problem-area-flow-unit with-frame", "custom")} first-frame-area last-frame-area ${styles.previewPaper}`}
-              style={previewStyle}
-              data-testid="problem-custom-frame-preview"
-            >
-              {t("problem.custom.previewSample")}
+          {renderPreview && (
+            <div className={styles.previewBlock}>
+              <span className={styles.previewLabel}>{t("frame.preview")}</span>
+              {renderPreview(custom, styles.previewPaper)}
+              <span className={styles.note}>{t("frame.transparentNote")}</span>
             </div>
-            <span className={styles.note}>{t("problem.custom.transparentNote")}</span>
-          </div>
+          )}
         </>
       )}
     </div>
   );
 }
 
-/** Hosts the feature-owned drawing panel; it only ever sees the current drawing and a callback. */
+/** Hosts the feature-owned drawing panel; it only ever sees the target, the current drawing and a callback. */
 function DrawingExtensionPanel({
   extension,
-  problemId,
+  target,
   currentSvg,
   onDrawn,
-}: ProblemFrameDrawingPanelProps & { extension: ProblemFrameDrawingExtension }) {
-  return <>{extension.renderPanel({ problemId, currentSvg, onDrawn })}</>;
+}: FrameDrawingPanelProps & { extension: FrameDrawingExtension }) {
+  return <>{extension.renderPanel({ target, currentSvg, onDrawn })}</>;
 }
 
 function RangeField({
@@ -435,7 +453,7 @@ function TikzPanel({
   onRendered,
 }: {
   initial: TikzImageSource | undefined;
-  onRendered: (tikz: TikzImageSource, drawing: Drawing) => void;
+  onRendered: (tikz: TikzImageSource, drawing: CustomFrameDrawing) => void;
 }) {
   const t = useT("settings");
   const [source, setSource] = useState(initial?.source ?? DEFAULT_TIKZ_SOURCE);
@@ -474,7 +492,7 @@ function TikzPanel({
       }
       const normalized = normalizeFrameSvg(decodeSvgDataUrl(response.image.src));
       if (!normalized.ok) {
-        setStatus({ kind: "error", message: callbacks.current.t(`problem.custom.errors.${normalized.reason}`) });
+        setStatus({ kind: "error", message: callbacks.current.t(`frame.errors.${normalized.reason}`) });
         return;
       }
       setStatus({ kind: "idle" });
@@ -497,6 +515,9 @@ function TikzPanel({
     if (timerRef.current !== null) {
       window.clearTimeout(timerRef.current);
     }
+    // A render still running belongs to the frame this panel was opened for; it must not land on
+    // whatever frame is picked next.
+    latest.current += 1;
   }, []);
   const edit = (text: string) => {
     setSource(text);
@@ -510,13 +531,13 @@ function TikzPanel({
     <div className={styles.panel}>
       <textarea
         className={styles.code}
-        data-testid="problem-custom-frame-tikz"
+        data-testid="custom-frame-tikz"
         spellCheck={false}
-        aria-label={t("problem.custom.tikzLabel")}
+        aria-label={t("frame.tikzLabel")}
         value={source}
         onChange={(event) => edit(event.target.value)}
       />
-      <p className={styles.note}>{t("problem.custom.tikzNote")}</p>
+      <p className={styles.note}>{t("frame.tikzNote")}</p>
       {!bridge?.tikz && <p role="alert" className={styles.error}>{t("tikz.desktopRequired")}</p>}
       {status.kind === "rendering" && <p role="status" className={styles.note}>{t("tikz.rendering")}</p>}
       {status.kind === "error" && <p role="alert" className={styles.error}>{status.message}</p>}
@@ -524,11 +545,11 @@ function TikzPanel({
         <Button
           size="sm"
           tone="primary"
-          data-testid="problem-custom-frame-tikz-apply"
+          data-testid="custom-frame-tikz-apply"
           disabled={!source.trim() || status.kind === "rendering"}
           onClick={() => void render(source)}
         >
-          {t("problem.custom.tikzApply")}
+          {t("frame.tikzApply")}
         </Button>
       </div>
     </div>

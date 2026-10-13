@@ -4,23 +4,27 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from "vitest";
 
-import type { ProblemNode, SigmaDocument } from "@/features/document";
-import { PROBLEM_FRAME_LIBRARY_STORAGE_KEY } from "@/lib/problem-frame-library";
+import type { BoxBlockNode, ProblemNode, SigmaDocument } from "@/features/document";
+import { createBoxBlock } from "@/lib/box-blocks";
+import type { CustomFrameTarget } from "@/lib/custom-frame";
+import { FRAME_LIBRARY_STORAGE_KEY } from "@/lib/frame-library";
 import type { DesktopAiSkillDraftResult } from "@/types/desktop";
 
-import { problemFrameChatStore } from "../application/problem-frame-chat-store";
-import { ProblemFrameChatNotices } from "./ProblemFrameChatNotices";
+import { frameChatStore } from "../application/frame-chat-store";
+import { frameChatKey } from "../model/frame-chat";
+import { FrameChatNotices } from "./FrameChatNotices";
 
 const SVG = '<svg viewBox="0 0 160 100"><rect x="2" y="2" width="156" height="96" fill="none" stroke="#c0a"/></svg>';
-const KEY = "doc\u0000p1";
+const KEY = frameChatKey("doc", { kind: "problem", id: "p1" });
+const BOX = createBoxBlock("tcolorbox", "定理", { id: "box_1" });
 const PROBLEM = { type: "problem", id: "p1", tags: [], lead: [], prompt: [], solution: [], hints: [] } as unknown as ProblemNode;
-const DOCUMENT = { content: [PROBLEM] } as unknown as SigmaDocument;
+const DOCUMENT = { content: [PROBLEM, BOX] } as unknown as SigmaDocument;
 
 let container: HTMLDivElement;
 let root: Root;
 let finishRun: (result: DesktopAiSkillDraftResult) => void;
 
-function startRun(problemId = "p1", documentIdentityKey = "doc") {
+function startRun(id = "p1", documentIdentityKey = "doc", kind: CustomFrameTarget["kind"] = "problem") {
   (window as { desktopAPI?: unknown }).desktopAPI = {
     aiSkillDraft: {
       cancel: vi.fn(),
@@ -30,10 +34,11 @@ function startRun(problemId = "p1", documentIdentityKey = "doc") {
       },
     },
   };
-  problemFrameChatStore.send({
-    key: `${documentIdentityKey}\u0000${problemId}`,
+  const target = { kind, id };
+  frameChatStore.send({
+    key: frameChatKey(documentIdentityKey, target),
     documentIdentityKey,
-    problemId,
+    target,
     instruction: "桜の枠",
     provider: "claude",
     baseSvg: "",
@@ -47,16 +52,16 @@ async function finish(result: DesktopAiSkillDraftResult) {
   });
 }
 
-function mount(props: Partial<Parameters<typeof ProblemFrameChatNotices>[0]> = {}) {
+function mount(props: Partial<Parameters<typeof FrameChatNotices>[0]> = {}) {
   const onChange = (props.onChange ?? vi.fn()) as Mock;
   act(() => root.render(
-    <ProblemFrameChatNotices documentIdentityKey="doc" document={DOCUMENT} onChange={onChange} {...props} />,
+    <FrameChatNotices documentIdentityKey="doc" document={DOCUMENT} onChange={onChange} {...props} />,
   ));
   return onChange;
 }
 
 const dialog = () => document.body.querySelector<HTMLElement>('[role="dialog"]');
-const useButton = () => document.body.querySelector<HTMLButtonElement>('[data-testid="problem-custom-frame-ai-notice-use"]');
+const useButton = () => document.body.querySelector<HTMLButtonElement>('[data-testid="custom-frame-ai-notice-use"]');
 const buttonByText = (text: string) => [...document.body.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent === text);
 
 beforeEach(() => {
@@ -64,8 +69,8 @@ beforeEach(() => {
   container = document.createElement("div");
   document.body.append(container);
   root = createRoot(container);
-  window.localStorage.removeItem(PROBLEM_FRAME_LIBRARY_STORAGE_KEY);
-  act(() => problemFrameChatStore.resetForTests());
+  window.localStorage.removeItem(FRAME_LIBRARY_STORAGE_KEY);
+  act(() => frameChatStore.resetForTests());
 });
 
 afterEach(() => {
@@ -74,14 +79,14 @@ afterEach(() => {
   delete (window as { desktopAPI?: unknown }).desktopAPI;
 });
 
-describe("ProblemFrameChatNotices", () => {
+describe("FrameChatNotices", () => {
   it("says nothing while nothing has finished, or when what finished belongs to another document", async () => {
     mount();
     expect(dialog()).toBeNull();
 
     act(() => startRun("p9", "other-doc"));
     await finish({ ok: true, text: SVG });
-    expect(problemFrameChatStore.getNotices()).toHaveLength(1);
+    expect(frameChatStore.getNotices()).toHaveLength(1);
     expect(dialog()).toBeNull();
   });
 
@@ -102,10 +107,37 @@ describe("ProblemFrameChatNotices", () => {
     const updated = updater(PROBLEM);
     expect(updated.frame).toMatchObject({ enabled: true, styleId: "custom", custom: { width: 160, height: 100, slice: 24 } });
     // It is kept on the shelf of the user's own frames, as every frame put on a problem is.
-    expect(JSON.parse(window.localStorage.getItem(PROBLEM_FRAME_LIBRARY_STORAGE_KEY)!)).toHaveLength(1);
-    expect(problemFrameChatStore.getSession(KEY)?.appliedTurnId).not.toBeNull();
-    expect(problemFrameChatStore.getNotices()).toEqual([]);
+    expect(JSON.parse(window.localStorage.getItem(FRAME_LIBRARY_STORAGE_KEY)!)).toHaveLength(1);
+    expect(frameChatStore.getSession(KEY)?.appliedTurnId).not.toBeNull();
+    expect(frameChatStore.getNotices()).toEqual([]);
     expect(dialog()).toBeNull();
+  });
+
+  it("puts a box's frame on the box, in the box's own words", async () => {
+    const onChange = mount();
+    act(() => startRun("box_1", "doc", "box"));
+    await finish({ ok: true, text: SVG });
+
+    expect(dialog()?.textContent).toContain("この箱に使いますか？");
+    expect(useButton()?.textContent).toBe("この箱に使う");
+    act(() => useButton()!.click());
+
+    const [blockId, updater] = onChange.mock.calls[0];
+    expect(blockId).toBe("box_1");
+    const updated = updater(BOX) as BoxBlockNode;
+    expect(updated.styleId).toBe("custom");
+    expect(updated.frame?.custom).toMatchObject({ width: 160, height: 100, slice: 24 });
+    expect(updated.blocks).toEqual(BOX.blocks);
+    expect(JSON.parse(window.localStorage.getItem(FRAME_LIBRARY_STORAGE_KEY)!)).toHaveLength(1);
+  });
+
+  it("does not offer a box's frame to a problem that happens to have the box's id", async () => {
+    mount({ document: { content: [{ ...PROBLEM, id: "box_1" }] } as unknown as SigmaDocument });
+    act(() => startRun("box_1", "doc", "box"));
+    await finish({ ok: true, text: SVG });
+
+    expect(dialog()?.textContent).toContain("枠を描き終えました");
+    expect(useButton()).toBeNull();
   });
 
   it("closes without touching the problem, and the drawing stays in the conversation", async () => {
@@ -116,9 +148,9 @@ describe("ProblemFrameChatNotices", () => {
     act(() => buttonByText("閉じる")!.click());
 
     expect(onChange).not.toHaveBeenCalled();
-    expect(window.localStorage.getItem(PROBLEM_FRAME_LIBRARY_STORAGE_KEY)).toBeNull();
+    expect(window.localStorage.getItem(FRAME_LIBRARY_STORAGE_KEY)).toBeNull();
     expect(dialog()).toBeNull();
-    const turn = problemFrameChatStore.getSession(KEY)!.turns.at(-1)!;
+    const turn = frameChatStore.getSession(KEY)!.turns.at(-1)!;
     expect(turn.role === "assistant" && turn.drawing).toBeTruthy();
   });
 
@@ -146,7 +178,7 @@ describe("ProblemFrameChatNotices", () => {
     mount();
     act(() => startRun());
     (window as { desktopAPI?: { aiSkillDraft: { cancel: unknown } } }).desktopAPI!.aiSkillDraft.cancel = cancel;
-    const busy = () => document.body.querySelector<HTMLElement>('[data-testid="problem-custom-frame-ai-busy"]');
+    const busy = () => document.body.querySelector<HTMLElement>('[data-testid="custom-frame-ai-busy"]');
     expect(busy()?.textContent).toContain("枠を描いています");
 
     act(() => busy()!.querySelector("button")!.click());
@@ -157,16 +189,16 @@ describe("ProblemFrameChatNotices", () => {
   it("shows no status for a conversation that is on screen, or for another document's run", async () => {
     mount();
     let unwatch = () => {};
-    act(() => { unwatch = problemFrameChatStore.watch(KEY, () => {}); });
+    act(() => { unwatch = frameChatStore.watch(KEY, () => {}); });
     act(() => startRun());
-    expect(document.body.querySelector('[data-testid="problem-custom-frame-ai-busy"]')).toBeNull();
+    expect(document.body.querySelector('[data-testid="custom-frame-ai-busy"]')).toBeNull();
     act(() => unwatch());
-    expect(document.body.querySelector('[data-testid="problem-custom-frame-ai-busy"]')).not.toBeNull();
+    expect(document.body.querySelector('[data-testid="custom-frame-ai-busy"]')).not.toBeNull();
     await finish({ ok: false, error: "x" });
-    expect(document.body.querySelector('[data-testid="problem-custom-frame-ai-busy"]')).toBeNull();
+    expect(document.body.querySelector('[data-testid="custom-frame-ai-busy"]')).toBeNull();
 
     act(() => startRun("p9", "other-doc"));
-    expect(document.body.querySelector('[data-testid="problem-custom-frame-ai-busy"]')).toBeNull();
+    expect(document.body.querySelector('[data-testid="custom-frame-ai-busy"]')).toBeNull();
   });
 
   it("shows one notice at a time", async () => {

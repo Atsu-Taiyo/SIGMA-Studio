@@ -8,7 +8,7 @@ import {
 import type { TextFlowChangeDecorationState } from "@/components/tiptap/change-decoration";
 import {
   type ProblemAreaKind,
-  type ProblemCustomFrame,
+  type CustomFrame,
   type ProblemNode,
   type SigmaCommentThread,
 } from "@/features/document";
@@ -26,11 +26,11 @@ import type { Translate } from "@/lib/i18n";
 import { useT } from "@/lib/i18n/react";
 import {
   getProblemCustomFrame,
-  getProblemCustomFrameStyle,
   getProblemFrameChromePaddingPx,
   getProblemFrameStyleId,
   problemFrameClassName,
 } from "@/lib/problem-frame";
+import { getCustomFrameStyle } from "@/lib/custom-frame";
 import { formatProblemNumber } from "@/lib/problem-numbering";
 import type { MaterialItem } from "@/types/material";
 import { MoreHorizontal } from "lucide-react";
@@ -141,7 +141,7 @@ export function ProblemAreaFlowUnit({
   const hasFrame = problem.frame?.enabled === true && isProblemFrameArea(area);
   const frameStyleId = hasFrame ? getProblemFrameStyleId(problem) : undefined;
   const frameCustom = hasFrame ? getProblemCustomFrame(problem) : undefined;
-  const frameCustomStyle = frameCustom ? getProblemCustomFrameStyle(frameCustom, "px") : undefined;
+  const frameCustomStyle = frameCustom ? getCustomFrameStyle(frameCustom, "px") : undefined;
   const style = {
     ...layoutStyle,
     ...displacementProps.style,
@@ -331,12 +331,12 @@ export function ProblemAreaFrameFragmentPieces({
   fragments: ProblemAreaFrameFragmentLayout[];
   frameClasses: string;
   frameStyleId: string | undefined;
-  frameCustom: ProblemCustomFrame | undefined;
+  frameCustom: CustomFrame | undefined;
   isFirstProblemFrameArea: boolean;
   isLastProblemFrameArea: boolean;
 }) {
   const chromePadding = getProblemFrameChromePaddingPx(frameStyleId, frameCustom);
-  const frameCustomStyle = frameCustom ? getProblemCustomFrameStyle(frameCustom, "px") as CSSProperties : undefined;
+  const frameCustomStyle = frameCustom ? getCustomFrameStyle(frameCustom, "px") as CSSProperties : undefined;
   return (
     <>
       {fragments.map((fragment, index) => {
