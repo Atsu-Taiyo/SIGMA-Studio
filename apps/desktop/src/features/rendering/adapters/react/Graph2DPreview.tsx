@@ -76,6 +76,11 @@ interface Graph2DPreviewProps {
   disableCropInteraction?: boolean;
   /** Called when crop mode ends (confirm or cancel). */
   onCropEnd?: () => void;
+  /**
+   * グラフが原点の名前 (O) の文字図形を持っている。原点の真下に来る横軸の「0」の目盛り数字は
+   * O と重なるので出さない (縦軸の「0」は左の余白にあり重ならないので残す)。
+   */
+  originLabeled?: boolean;
 }
 
 type TexAlign = "start" | "middle" | "end";
@@ -306,6 +311,7 @@ function Graph2DPreviewComponent({
   autoStartCrop,
   disableCropInteraction,
   onCropEnd,
+  originLabeled = false,
 }: Graph2DPreviewProps) {
   countPerformanceEvent("Graph2DPreview.render");
   const mathEnvironment = useMathEnvironment();
@@ -793,7 +799,7 @@ function Graph2DPreviewComponent({
         {showTicks && (
           <g className="graph2d-ticks">
             {showXAxis &&
-              xTicks.map((tick) => {
+              xTicks.filter((tick) => !(originLabeled && showYAxis && Math.abs(tick) < 1e-9)).map((tick) => {
                 const point = mapGraphPoint(tick, 0, range, spec, plotBox);
                 const tickTex = formatTickLabelTex(tick, spec.axes.xTickMode, spec.axes.xTickStep);
                 const tickFontSize = isFiniteNumber(spec.axes.tickFontSize)
