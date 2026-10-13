@@ -12,7 +12,7 @@ import { resolveDesktopPromptLocale } from "../desktop-settings";
 import { runAiEditForIpc } from "../ai-edit";
 import { LocalAiEditChatRoomStore } from "../ai-edit-chat-room-store";
 import { resolveAiEditProvider, type AiEditProvider } from "../ai-edit-provider";
-import { LocalAiEditRunContextStore, prepareAiEditRunContext } from "../ai-edit-run-context";
+import { clearVisualSessionStateFiles, LocalAiEditRunContextStore, prepareAiEditRunContext } from "../ai-edit-run-context";
 import { LocalAiEditRunLogStore } from "../ai-edit-run-log-store";
 import type { LocalAiRenderBridgeStore } from "../ai-render-bridge";
 import { LocalAiResourceStore } from "../ai-resource-store";
@@ -164,6 +164,9 @@ export function registerAiEditIpc(deps: RegisterAiEditIpcDeps): void {
       for (const cleanup of cleanups) {
         await cleanup();
       }
+      // The run (including its visual-review continuations) is over, so its saved
+      // visual edit sessions can no longer be resumed. Remove their state files.
+      await clearVisualSessionStateFiles(userDataPath, provider, args.runId);
     }
   }
 

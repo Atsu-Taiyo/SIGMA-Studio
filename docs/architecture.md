@@ -200,6 +200,8 @@ visual sessionのlive・terminal・書込待ち状態と描画世代の検証は
 clockと状態書込先を受け取るprocess共通のinstanceを使い、tool handlerから状態遷移を呼びます。
 状態ファイルの保存は`mcp/visual-session-status-file.ts`、Electron側と共有する形式は
 `electron/visual-session-status.ts`に置きます。終了状態の保存完了後にlive sessionを削除する順序を維持します。
+runIdを持つsessionは`mcp/visual-edit-session-state-file.ts`がrun単位のファイルへ保存し、別processの
+MCPサーバーが同じsessionIdで読み戻します。lifecycleは保存先をportとして受け取り、memoryを保存のcacheとして扱います。
 
 この依存規則は `src/features/headless-boundaries.test.ts`、`src/features/document/architecture.test.ts`、`src/features/drawing/architecture.test.ts`、`src/features/rendering/architecture.test.ts`、`src/features/text-editing/architecture.test.ts`、`src/features/ai-edit/editor-boundary.test.ts`、`src/components/editor/text-flow/architecture.test.ts`、`src/components/tiptap/text-format-controller-architecture.test.ts`、`src/components/editor/page-canvas/architecture.test.ts`、`src/components/editor/overlay-canvas/shape-renderer-architecture.test.ts` で検査します。互換性を型検査するtestと出力adapterは境界を跨ぐこと自体が役割なので、純粋coreと同じ禁止規則は適用しません。
 

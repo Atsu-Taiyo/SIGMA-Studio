@@ -22,6 +22,7 @@ import { BODY_IMPLEMENTATION_ROUTES, type BodyImplementationName } from "./sigma
 import { createDefaultRenderVisualPreviewDeps, type RenderVisualPreviewDeps } from "./sigma-doc-mcp-preview";
 import {
   LocalAiEditRunContextStore,
+  visualSessionStateFileName,
   visualSessionsFileName,
   type AiEditRunContext,
 } from "../electron/ai-edit-run-context";
@@ -4976,6 +4977,128 @@ describe("render_visual_edit_session", () => {
     const statusDirectoryEntries = await fs.readdir(path.dirname(statusPath));
     expect(statusDirectoryEntries.filter((entry) => entry.startsWith(`${path.basename(statusPath)}.tmp-`))).toEqual([]);
     renameSpy.mockRestore();
+  });
+
+  it("resumes a visual session in another MCP server process with the same sessionId and proposes it once", async () => {
+    // Claude and Antigravity start a new MCP server process every turn. Server A plays the
+    // turn that began the session; server B is a fresh module instance (its own lifecycle and
+    // stores, nothing shared in memory) started with the same env, i.e. the next turn.
+    const provider = "claude" as const;
+    const runId = "run_visual_cross_process";
+    const fileId = await getFileId();
+    await configureVisualRunContext(provider, runId, fileId);
+    const bridgeStore = new LocalAiRenderBridgeStore(userDataDir);
+    await bridgeStore.write({
+      version: 1,
+      url: "http://render-bridge.test",
+      token: "test-token",
+      pid: process.pid,
+      createdAt: new Date().toISOString(),
+    });
+    const deps: RenderVisualPreviewDeps = {
+      env: { [SIGMA_STUDIO_RENDER_BRIDGE_FILE_ENV]: bridgeStore.getBridgeFilePath() },
+      fetchImpl: (async () => new Response(JSON.stringify({
+        ok: true,
+        pngBase64: Buffer.from(PNG_MAGIC_BYTES).toString("base64"),
+        width: 1,
+        height: 1,
+        capture: { pageIndex: 0, cropRect: { x: 0, y: 0, w: 1, h: 1 } },
+        anchorBlockFound: true,
+      }), { status: 200, headers: { "content-type": "application/json" } })) as typeof fetch,
+      loadResvg: async () => null,
+    };
+    const runContextDirectory = path.join(userDataDir, "data", "ai-run-context");
+    const statusPath = path.join(runContextDirectory, visualSessionsFileName(provider, runId));
+    const proposalStore = new LocalMcpEditProposalStore(userDataDir);
+    const pendingBefore = (await proposalStore.listProposals({ status: "pending" })).length;
+
+    await connectClient(deps);
+    const beginArgs = { fileId, targetId: "problem_complex_square_product_range", expectedRevision: 1, runId };
+    const begin = extractPayload(await client.callTool({ name: "begin_visual_edit_session", arguments: beginArgs }));
+    const sessionId = (begin.session as { sessionId: string }).sessionId;
+    const inserted = extractPayload(await client.callTool({
+      name: "visual_insert_shape",
+      arguments: { sessionId, kind: "rectangle", x: 100, y: 100, r: 40 },
+    }));
+    expect(inserted.ok).toBe(true);
+    const shapeIds = (inserted.session as { changedIds: string[] }).changedIds;
+    expect(shapeIds).toHaveLength(1);
+    // A second unfinished session of the same run that server B never touches.
+    const otherBegin = extractPayload(await client.callTool({ name: "begin_visual_edit_session", arguments: beginArgs }));
+    const otherSessionId = (otherBegin.session as { sessionId: string }).sessionId;
+    await client.callTool({
+      name: "visual_insert_shape",
+      arguments: { sessionId: otherSessionId, kind: "rectangle", x: 200, y: 200, r: 20 },
+    });
+
+    // Both are saved before the tool results return (the turn may end right after), and only
+    // in the run's own files.
+    const stateFile = path.join(runContextDirectory, visualSessionStateFileName(provider, runId, sessionId));
+    const otherStateFile = path.join(runContextDirectory, visualSessionStateFileName(provider, runId, otherSessionId));
+    expect((await fs.stat(stateFile)).isFile()).toBe(true);
+    expect((await fs.stat(otherStateFile)).isFile()).toBe(true);
+    await client.close();
+    await flushVisualSessionStatusWritesForTests();
+
+    vi.resetModules();
+    const processB = await import("./sigma-doc-mcp-server-core");
+    const serverB = processB.createSigmaDocMcpServer({ renderVisualPreviewDeps: deps });
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    client = new Client({ name: "test-client-b", version: "0.0.0" });
+    await Promise.all([client.connect(clientTransport), serverB.connect(serverTransport)]);
+    try {
+      const missing = extractPayload(await client.callTool({
+        name: "render_visual_edit_session",
+        arguments: { sessionId: "visual_session_unknown" },
+      }));
+      expect(missing.ok).toBe(false);
+      expect(String(missing.error)).toContain("visual edit session が見つかりません");
+
+      const render = extractPayload(await client.callTool({ name: "render_visual_edit_session", arguments: { sessionId } }));
+      expect(render.ok).toBe(true);
+      expect(render.session).toMatchObject({ sessionId, revision: 1, operationCount: 1, changedIds: shapeIds, lastPreviewRevision: 1 });
+      const inspect = extractPayload(await client.callTool({ name: "inspect_visual_edit_session", arguments: { sessionId } }));
+      expect(inspect.ok).toBe(true);
+      const review = extractPayload(await client.callTool({
+        name: "review_visual_edit_session",
+        arguments: {
+          sessionId,
+          verdict: "pass",
+          score: 96,
+          // The preview code depends only on sessionId and revision, so it stays stable across processes.
+          previewCode: processB.deriveVisualPreviewCode(sessionId, 1),
+          sourceImageSummary: "元画像の要約",
+          previewSummary: "previewの要約",
+        },
+      }));
+      expect(review).toMatchObject({ ok: true, review: { passed: true } });
+      const proposed = extractPayload(await client.callTool({ name: "propose_visual_edit_session", arguments: { sessionId } }));
+      expect(proposed.ok).toBe(true);
+      expect(proposed.proposalCreated).toBe(true);
+
+      const pending = await proposalStore.listProposals({ status: "pending" });
+      expect(pending).toHaveLength(pendingBefore + 1);
+      const proposal = pending.find((item) => item.changedIds.includes(shapeIds[0]!));
+      expect(proposal).toMatchObject({ fileId, runId, provider });
+
+      // The finished session's state is removed; the untouched one stays resumable and stays
+      // listed as unfinished, so the continuation check still sees it.
+      await expect(fs.stat(stateFile)).rejects.toMatchObject({ code: "ENOENT" });
+      expect((await fs.stat(otherStateFile)).isFile()).toBe(true);
+      await processB.flushVisualSessionStatusWritesForTests();
+      const status = JSON.parse(await fs.readFile(statusPath, "utf8")) as {
+        sessions: Array<{ sessionId: string; operationCount: number; proposed: boolean; discarded: boolean }>;
+      };
+      expect(status.sessions.find((item) => item.sessionId === sessionId)).toMatchObject({ proposed: true, discarded: false });
+      expect(status.sessions.find((item) => item.sessionId === otherSessionId)).toMatchObject({ operationCount: 1, proposed: false, discarded: false });
+
+      const discarded = extractPayload(await client.callTool({ name: "discard_visual_edit_session", arguments: { sessionId: otherSessionId } }));
+      expect(discarded.ok).toBe(true);
+      await expect(fs.stat(otherStateFile)).rejects.toMatchObject({ code: "ENOENT" });
+      expect((await proposalStore.listProposals({ status: "pending" })).length).toBe(pendingBefore + 1);
+    } finally {
+      await processB.flushVisualSessionStatusWritesForTests();
+    }
   });
 
   it("records an expired visual session as discarded before pruning it", async () => {

@@ -98,7 +98,7 @@ MCPからの書き込み系ツールは、既定では教材ファイルを直�
 - `get_attached_media` - 同様にアプリ実行時、ユーザーが添付した任意形式のファイルを返します(最大4件)。各attachmentにはrun-scopedな絶対`filePath`が付きます。PNG/JPEG/GIF/WEBPはimage content、その他の形式は埋め込みresource contentとして実内容を返します(ChatGPTではinline image contentを省略するため、画像は`filePath`を`view_image`で開きます)。PDFはChatGPT/Antigravity向けにページ画像と抽出テキストへ変換し、`pdf.pageCount`、`pdf.pages[].pageNumber/text/previewFile`、`pdf.nextPageStart`を返します。1回最大4ページで、続きは同じ`runId`に`attachmentId`と`pageStart=nextPageStart`を指定します。ChatGPTは`previewFile`を`view_image`で開き、Antigravityはページ順のimage contentも読みます。ClaudeにはPDF原本をdocument contentで直接送信します。変換失敗はattachmentの`error`と`warnings`で通知します。図形参照から作ったpreviewには `sourceReferenceKey` が付き、`get_active_reference.references` の対応要素を特定できます。アプリの実行コンテキストがない場合は空の結果を返します。
 - `get_mentioned_sigma_docs` - 同様にアプリ実行時、ユーザーが@メンションした他教材のSigmaDocを返します。アプリの実行コンテキストがない場合は空の結果を返します。
 
-以上6つのアプリ実行時コンテキストtoolに加えて、`read_local_document` / `get_document_outline` / `get_block` / `get_blocks` / `search_document` / `search_library` も任意の `runId` 引数を受け取ります(後者は参照元の自動記録に使われます — 「Agentic RAG」節参照)。これらのtoolは、任意の `runId` 引数を受け取ります。プロンプトはエージェントに自分のrunIdを伝え、毎回のtool呼び出しで渡すよう指示します。Codex (app-server) とAntigravityは全runで1つのMCPサーバープロセスを共有するため、`runId` を渡すことで並行実行中の複数run分の実行コンテキストファイル(`<provider>-<runId>.run-context.json`)から自分のものを解決できます。省略した場合は、起動時にMCP設定へ焼き込まれた provider 単位の静的な実行コンテキストファイル(`<provider>.run-context.json`)にフォールバックします(単発実行や、runIdを渡し忘れた場合の互換用)。Claudeは1turnごとに `--mcp-config` を渡すため元々runId別ファイルですが、同じ命名規則で解決されるため `runId` を渡しても矛盾なく動作します。添付がある場合は `get_attached_media` に `runId` を渡してimage/resource contentを取得します。特にAntigravityの画像は `@` ファイル参照だけに依存しません。
+以上6つのアプリ実行時コンテキストtoolに加えて、`read_local_document` / `get_document_outline` / `get_block` / `get_blocks` / `search_document` / `search_library` も任意の `runId` 引数を受け取ります(後者は参照元の自動記録に使われます — 「Agentic RAG」節参照)。これらのtoolは、任意の `runId` 引数を受け取ります。プロンプトはエージェントに自分のrunIdを伝え、毎回のtool呼び出しで渡すよう指示します。Codex (app-server) とAntigravityはMCPサーバーの起動設定(環境変数)を全runで共有するため、`runId` を渡すことで並行実行中の複数run分の実行コンテキストファイル(`<provider>-<runId>.run-context.json`)から自分のものを解決できます。省略した場合は、起動時にMCP設定へ焼き込まれた provider 単位の静的な実行コンテキストファイル(`<provider>.run-context.json`)にフォールバックします(単発実行や、runIdを渡し忘れた場合の互換用)。Claudeは1turnごとに `--mcp-config` を渡すため元々runId別ファイルですが、同じ命名規則で解決されるため `runId` を渡しても矛盾なく動作します。添付がある場合は `get_attached_media` に `runId` を渡してimage/resource contentを取得します。特にAntigravityの画像は `@` ファイル参照だけに依存しません。
 
 ### 本文編集の4ツール
 
@@ -254,7 +254,7 @@ SigmaDoc JSON が正本です。MCPツールは Tiptap JSON、HTML、LaTeX全文
 
 ### 視覚レビューの強制継続と状態ファイル
 
-デスクトップのAI編集runは、各turnの完了後に、同じrunIdのvisual edit sessionが視覚レビュー合格・提案化または破棄まで到達したかを確認します。未完了セッションが残っている場合、同じ会話(thread/session)へ継続指示を送り、`render_visual_edit_session` → preview画像の実見 → `inspect_visual_edit_session` / `review_visual_edit_session` → 必要な修正 → `propose_visual_edit_session` のループを最大3回まで続けます。ChatGPTでは`previewFile`を`view_image`で開くように指示されます。3回継続しても未完了なら、AI編集結果に「図形の視覚レビューが合格しないまま終了しました。図形提案は作成されていません。」という警告を付けます。ユーザーがキャンセルした場合は継続せず、通常のキャンセル結果を返します。
+デスクトップのAI編集runは、各turnの完了後に、同じrunIdのvisual edit sessionが視覚レビュー合格・提案化または破棄まで到達したかを確認します。未完了セッションが残っている場合、同じ会話(thread/session)へ継続指示を送り、新しいセッションを作らずに同じ`sessionId`のまま `render_visual_edit_session` → preview画像の実見 → `inspect_visual_edit_session` / `review_visual_edit_session` → 必要な修正 → `propose_visual_edit_session` のループを最大3回まで続けます。ChatGPTでは`previewFile`を`view_image`で開くように指示されます。3回継続しても未完了なら、AI編集結果に「図形の視覚レビューが合格しないまま終了しました。図形提案は作成されていません。」という警告を付けます。ユーザーがキャンセルした場合は継続せず、通常のキャンセル結果を返します。
 
 MCPサーバーは、run-contextディレクトリへ次のrun単位のJSONをbest-effortで書き出します。
 
@@ -281,6 +281,14 @@ MCPサーバーは、run-contextディレクトリへ次のrun単位のJSONをbe
 ```
 
 Electron側が判定する未完了セッションは `operationCount > 0` かつ `proposed:false` かつ `discarded:false` です。ファイルが存在しない、JSONが壊れている、または書き込み先を解決できない場合は空として扱われ、状態ファイルの書き込み失敗がMCPツール実行や教材編集を失敗させることはありません。runIdを渡さないツール呼び出しは、このrun単位の強制継続の対象として紐付けられません。
+
+MCPサーバーのプロセスの寿命はproviderごとに違います(Claude Code 2.1 / codex-cli 0.154 / agy 1.3で確認)。Claudeはturnごと(継続の`--resume`を含む)に`claude`プロセスとMCPサーバーを起動し直し、Antigravityもturnごとの`agy --print`がMCPサーバーを起動し、turnの終わりに止めます。Codexは常駐app-serverの中でthreadごとにMCPサーバーを1つ起動し、同じthreadの継続turnでは同じプロセスを使います(app-serverを起動し直すと新しいプロセスになります)。そのため、runIdを持つvisual edit sessionの状態は、MCPサーバーのメモリに加えて次のrun単位のファイルへ保存します。
+
+`<provider>-<runId>.<sessionId>.visual-session-state.json`
+
+1行目は世代(`generation`)・provider・runId・sessionIdだけの小さなheader、2行目が本体です。本体には開始時の文書、作業中の文書、図形操作、revision、直近のpreview・inspection・reviewの結果、`sourceAnalysis` / `plannedShapes`などを入れます。素材一覧と操作ごとの途中の文書は入れず、読み戻すときに作り直します。visual edit session系のツールは、状態を変えた呼び出しの応答を返す前にこのファイルとstatusファイルの書き込みを待ちます。メモリに無い`sessionId`は同じproviderのファイルから読み戻すので、次のturnのMCPサーバーでも同じ`sessionId`で続けられます。previewのコードは`sessionId`とrevisionから決まるため、プロセスが変わっても同じです。
+
+保存済みの世代が自分の世代以上なら書き込まず、メモリ上の古いsessionを捨てて次の呼び出しで読み直します(終わったturnの古い状態で上書きしないため。世代の確認とrenameの間は原子的ではありません)。statusファイルを書き直すときも、別のプロセスが記録してこのプロセスが知らない未完了sessionは残します。最終更新から1時間を過ぎたsessionは、メモリと同じく破棄として記録してファイルを消します。提案化・破棄したsessionは、statusファイルへ終了を書いてからファイルを消します。runが終わると(強制継続を含む)Electronがそのrunのファイルを消し、アプリの起動・終了時の掃除でも消えます。書き込みに失敗してもツール実行や教材編集は失敗しません。runIdを持たないsessionはこれまでどおりプロセスのメモリだけに置きます。
 
 保存済み素材は、AIが意味的に選べるように短い `description`、用途カードの `usage.useCases` / `usage.aliases` / `usage.avoidWhen`、画像内パーツ照合用の `visualConcepts`、接続点の `ports` を持てます。添付画像や参照図を再構成する場合は、まず画像内部を部品・記号・注記・接続構造に分解し、それぞれの一般名、用途、形状特徴を `list_materials` の `query` / `concepts` に渡して素材を探します。必要なら `get_material` で内容を確認してから `insert_material` で挿入します。合う素材がある場合は、通常の作図toolで再生成せず、保存済みcontentをcloneして使います。
 
