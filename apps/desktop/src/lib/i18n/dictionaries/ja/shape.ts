@@ -106,6 +106,7 @@ export const shape = {
     imageReplace: "画像を置き換え…",
     imageResetCrop: "トリミングをリセット",
     imageNaturalSize: "元のサイズに戻す",
+    svgConvert: "図形に変換",
     opacity: "透明度",
     imageOpacityAria: "画像の透明度",
     group: "グループ化",
@@ -129,6 +130,13 @@ export const shape = {
     saveAsMaterial: "素材に追加",
     duplicate: "複製",
     delete: "削除",
+  },
+  svgConversion: {
+    done: "{{count}}個の図形に変換しました。グループ解除すると個別に編集できます。線の太さと点線はアプリの線種に合わせています。",
+    partial: "{{count}}個の図形に変換しました。文字はテキスト、明確な数式は数式にしています。曲線・複雑な配置などの一部はSVG画像として保持しました。グループ解除すると個別に編集できます。線の太さと点線はアプリの線種に合わせています。",
+    source: "SVGを読み込めませんでした。元の画像は保持しています。",
+    unsupported: "このSVGには変換できる図形がありません。元の画像は保持しています。",
+    cropped: "トリミングされたSVGは変換できません。トリミングをリセットしてから変換してください。",
   },
   /** 本文アンカー線の吹き出しと、グリップの読み上げ。 */
   anchor: {
