@@ -8,7 +8,7 @@ import {
   visualSessionsFileName,
   type AiEditRunContextProvider,
 } from "./ai-edit-run-context";
-import type { VisualSessionStatusSnapshot } from "./visual-session-status";
+import { parseVisualSessionsStatusFile, type VisualSessionStatusSnapshot } from "./visual-session-status";
 
 export type { VisualSessionStatusSnapshot } from "./visual-session-status";
 
@@ -58,11 +58,12 @@ export async function readIncompleteVisualSessions(
     return [];
   }
 
-  if (!isRecord(parsed) || parsed.version !== 1 || !Array.isArray(parsed.sessions)) {
+  const statusFile = parseVisualSessionsStatusFile(parsed);
+  if (!statusFile) {
     return [];
   }
 
-  return parsed.sessions.filter(isVisualSessionStatusSnapshot).filter(
+  return statusFile.sessions.filter(
     (session) => session.operationCount > 0 && !session.proposed && !session.discarded,
   );
 }
@@ -75,38 +76,25 @@ export function buildVisualLoopContinuationPrompt(
   const sessionIds = sessions.map((session) => session.sessionId).join(", ");
 
   /**
-   * 手順の**番号は本文に書かない**。同じ手順が 2 つのバリアントで別の番号を持つため
-   * (再開版は 4./5./6.、続行版は 3./4./5.)、番号込みで訳すと同じ文が二重に増え、
-   * 訳し分けたときに番号だけずれる。番号は並び順から機械的に振る。
+   * 手順の**番号は本文に書かない**。ChatGPT だけ view_image の手順が 1 つ増えるので、
+   * 番号込みで訳すと同じ文が二重に増え、訳し分けたときに番号だけずれる。
+   * 番号は並び順から機械的に振る。
    */
   const numbered = (steps: readonly string[]): string[] =>
     steps.map((step, index) => `${index + 1}. ${step}`);
 
-  if (provider !== "chatgpt") {
-    return [
-      tv("visualLoop.restartIntro"),
-      tv("visualLoop.restartWhyNewSession"),
-      tv("visualLoop.restartWhatToDo"),
-      tv("visualLoop.stepsHeader"),
-      ...numbered([
-        tv("visualLoop.restartStepBegin"),
-        tv("visualLoop.restartStepRedoShapes"),
-        tv("visualLoop.restartStepRender"),
-        tv("visualLoop.stepInspectAndReview"),
-        tv("visualLoop.stepFixIssues"),
-        tv("visualLoop.stepPropose"),
-      ]),
-      tv("visualLoop.discardFallback"),
-      tv("visualLoop.passRunId", { p0: runId }),
-    ].join("\n");
-  }
+  // session は MCP サーバーが run 単位で保存しているので、turn ごとに MCP サーバーを起動し直す
+  // provider (Claude / Antigravity) でも同じ sessionId のまま続けられる。図形を作り直させない。
+  // ChatGPT (Codex) だけは preview 画像を inline で受け取らないため view_image で開かせる。
+  const renderSteps = provider === "chatgpt"
+    ? [tv("visualLoop.continueStepRender"), tv("visualLoop.continueStepViewImage")]
+    : [tv("visualLoop.continueStepRenderAndCheck")];
 
   return [
     tv("visualLoop.continueIntro", { p0: sessionIds }),
     tv("visualLoop.stepsHeader"),
     ...numbered([
-      tv("visualLoop.continueStepRender"),
-      tv("visualLoop.continueStepViewImage"),
+      ...renderSteps,
       tv("visualLoop.stepInspectAndReview"),
       tv("visualLoop.stepFixIssues"),
       tv("visualLoop.stepPropose"),
@@ -270,23 +258,4 @@ function emit(
   event: Omit<AiEditRunEvent, "timestamp">,
 ): void {
   onEvent({ ...event, timestamp: Date.now() });
-}
-
-function isVisualSessionStatusSnapshot(value: unknown): value is VisualSessionStatusSnapshot {
-  if (!isRecord(value)) {
-    return false;
-  }
-  return typeof value.sessionId === "string"
-    && (typeof value.targetId === "string" || value.targetId === null)
-    && typeof value.operationCount === "number"
-    && Number.isFinite(value.operationCount)
-    && typeof value.revision === "number"
-    && Number.isFinite(value.revision)
-    && (typeof value.lastReviewPassed === "boolean" || value.lastReviewPassed === null)
-    && typeof value.proposed === "boolean"
-    && typeof value.discarded === "boolean";
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

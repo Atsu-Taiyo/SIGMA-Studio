@@ -178,6 +178,7 @@ import {
   type VisualEditSession,
   type VisualInspectionResult,
 } from "./visual-edit-session-lifecycle";
+import { createVisualEditSessionStateFiles } from "./visual-edit-session-state-file";
 import { resolveVisualSessionStatusFile } from "./visual-session-status-file";
 
 export { deriveVisualPreviewCode } from "./visual-edit-session-lifecycle";
@@ -1050,10 +1051,30 @@ interface DraftRunRequest {
 }
 
 // MCP server インスタンス間でも、同じプロセスの scratch session を引き続き共有する。
+// runId のある session は run-context ディレクトリにも保存し、turn ごとに MCP サーバーを
+// 起動し直す provider (Claude / Antigravity) の次の turn でも同じ sessionId で再開できる。
 const visualEditSessions: VisualEditSessionLifecycle = new VisualEditSessionLifecycle({
   now: () => Date.now(),
   resolveStatusTarget: (provider, runId) => resolveVisualSessionStatusFile(process.env, provider, runId),
+  sessionState: createVisualEditSessionStateFiles({
+    env: process.env,
+    provider: () => resolveMcpProvider(),
+    loadMaterials: () => createMaterialStore().listMaterials(),
+  }),
 });
+
+/**
+ * 保存済みの session も同じ sessionId で読み戻して `run` に渡し、呼び出しで変わった状態を
+ * 応答を返す前に保存する (応答の直後に turn が終わって MCP サーバーが止められても失わない)。
+ */
+async function withVisualSession<T>(sessionId: string, run: (session: VisualEditSession) => Promise<T>): Promise<T> {
+  const session = await visualEditSessions.resolve(sessionId);
+  try {
+    return await run(session);
+  } finally {
+    await visualEditSessions.persist(session);
+  }
+}
 
 /** Internal observability for tests; the MCP tool contract does not expose these caches. */
 export function getVisualSessionStatusCacheSizesForTests(): { terminal: number; pending: number } {
@@ -5240,6 +5261,7 @@ registerTool(
       sourceAnalysis,
       plannedShapes,
     });
+    await visualEditSessions.persist(session);
 
     return {
       ok: true,
@@ -5260,8 +5282,7 @@ registerTool(
       ...ShapeToolInputSchema,
     },
   },
-  async (args) => withToolErrorHandling(async () => {
-    const session = visualEditSessions.get(args.sessionId);
+  async (args) => withToolErrorHandling(() => withVisualSession(args.sessionId, async (session) => {
     // Validate polyline/freehand vs plannedShapes
     if (
       (args.kind === "polyline" || args.kind === "freehand")
@@ -5296,7 +5317,7 @@ registerTool(
       needsInspection: true,
       needsReview: true,
     };
-  }),
+  })),
 );
 
 registerTool(
@@ -5311,8 +5332,7 @@ registerTool(
       ...ShapeToolInputSchema,
     },
   },
-  async (args) => withToolErrorHandling(async () => {
-    const session = visualEditSessions.get(args.sessionId);
+  async (args) => withToolErrorHandling(() => withVisualSession(args.sessionId, async (session) => {
     // Validate polyline/freehand vs plannedShapes
     if (
       (args.kind === "polyline" || args.kind === "freehand")
@@ -5374,7 +5394,7 @@ registerTool(
       needsInspection: true,
       needsReview: true,
     };
-  }),
+  })),
 );
 
 registerTool(
@@ -5387,8 +5407,7 @@ registerTool(
       shapeId: z.string().min(1),
     },
   },
-  async ({ sessionId, shapeId }) => withToolErrorHandling(async () => {
-    const session = visualEditSessions.get(sessionId);
+  async ({ sessionId, shapeId }) => withToolErrorHandling(() => withVisualSession(sessionId, async (session) => {
     const operationIndex = findVisualShapeOperationIndex(session, shapeId);
     if (operationIndex < 0) {
       throw new Error(`削除対象の図形が見つかりません: ${shapeId}`);
@@ -5409,7 +5428,7 @@ registerTool(
       needsInspection: true,
       needsReview: true,
     };
-  }),
+  })),
 );
 
 registerTool(
@@ -5422,8 +5441,7 @@ registerTool(
       includeImage: z.boolean().optional(),
     },
   },
-  async ({ sessionId, includeImage }) => withToolErrorHandling(async () => {
-    const session = visualEditSessions.get(sessionId);
+  async ({ sessionId, includeImage }) => withToolErrorHandling(() => withVisualSession(sessionId, async (session) => {
     if (session.agentSession.operations.length === 0) {
       return {
         ok: false,
@@ -5599,7 +5617,7 @@ registerTool(
     }, session.provider === "chatgpt" && includeImage !== true
       ? []
       : includeImage === false ? [] : [pngImageContent(result.png)]);
-  }),
+  })),
 );
 
 registerTool(
@@ -5611,8 +5629,7 @@ registerTool(
       sessionId: VisualSessionIdSchema,
     },
   },
-  async ({ sessionId }) => withToolErrorHandling(async () => {
-    const session = visualEditSessions.get(sessionId);
+  async ({ sessionId }) => withToolErrorHandling(() => withVisualSession(sessionId, async (session) => {
     const inspection = inspectVisualSession(session);
     visualEditSessions.recordInspection(session, inspection);
     return {
@@ -5624,7 +5641,7 @@ registerTool(
       inspection,
       shapes: getVisualShapes(session.agentSession.operations).map(summarizeShape),
     };
-  }),
+  })),
 );
 
 registerTool(
@@ -5648,8 +5665,7 @@ registerTool(
     },
   },
   async ({ sessionId, verdict, score, previewCode, sourceImageSummary, previewSummary, matchedElements, issues, nextActions }) =>
-    withToolErrorHandling(async () => {
-      const session = visualEditSessions.get(sessionId);
+    withToolErrorHandling(() => withVisualSession(sessionId, async (session) => {
       const { review, previewCodeMatches } = visualEditSessions.review(session, {
         verdict, score, previewCode, sourceImageSummary, previewSummary, matchedElements, issues, nextActions,
       });
@@ -5665,7 +5681,7 @@ registerTool(
         review,
         session: summarizeVisualSession(session),
       };
-    }),
+    })),
 );
 
 registerTool(
@@ -5678,8 +5694,7 @@ registerTool(
       summary: z.string().min(1).optional(),
     },
   },
-  async ({ sessionId, summary }) => withToolErrorHandling(async () => {
-    const session = visualEditSessions.get(sessionId);
+  async ({ sessionId, summary }) => withToolErrorHandling(() => withVisualSession(sessionId, async (session) => {
     visualEditSessions.assertReadyForProposal(session, inspectVisualSession);
 
     const { store } = storeContext;
@@ -5793,7 +5808,7 @@ registerTool(
       instructionForAgent: VERIFICATION_INSTRUCTION,
       ...(revisionNote ? { revisionReconciliation: { expectedRevision: session.file.revision, acceptedAtRevision: file.revision, note: revisionNote } } : {}),
     };
-  }),
+  })),
 );
 
 registerTool(
@@ -5806,8 +5821,8 @@ registerTool(
     },
   },
   async ({ sessionId }) => withToolErrorHandling(async () => {
-    visualEditSessions.prune();
-    const session = visualEditSessions.peek(sessionId);
+    // 前の turn の MCP サーバーが作った session も、保存から読み戻して破棄できる。
+    const session = await visualEditSessions.find(sessionId);
     if (session) {
       await visualEditSessions.finish(session, "discarded");
     }
