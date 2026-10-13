@@ -193,7 +193,7 @@ mtimeの古さだけで生存中の所有者を追い出さず、クラッシュ
 旧版と新版の同時稼働は排他の保証対象外です。`.mutex`は所有者情報ではなく安定した排他対象なので、
 通常のreleaseや残骸cleanupで削除しません。
 
-ローカルMCPでは`sigma-doc-mcp-tool-registrar.ts`が公開profile、annotation、実行帰属、計測を担い、
+ローカルMCPでは`sigma-doc-mcp-tool-registrar.ts`が公開するtool、annotation、実行帰属、計測と、本文編集の4ツールが呼ぶ内部実装の保持を担い、
 `sigma-doc-mcp-response.ts`が応答envelopeを所有します。SDKの`server.registerTool`を実行中に上書きせず、
 coreが明示的なregistrarに既存tool定義を渡します。tool名、description、schema、公開順と実行経路はそのまま維持します。
 visual sessionのlive・terminal・書込待ち状態と描画世代の検証は`mcp/visual-edit-session-lifecycle.ts`が所有します。

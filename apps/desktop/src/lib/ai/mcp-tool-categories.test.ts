@@ -15,7 +15,6 @@ import {
   toolNamesForCategories,
   type McpToolName,
 } from "./mcp-tool-categories";
-import { appMcpToolNames } from "./mcp-tool-profile";
 
 /**
  * Tools that edit a shape of each overlay type once it is on the page, read from the MCP handlers:
@@ -38,8 +37,8 @@ const SHAPE_EDITING_TOOLS = {
   tableShape: ["update_table", "delete_shapes", "align_shapes"],
 } as const satisfies Record<OverlayShape["type"], readonly McpToolName[]>;
 
-function allowedAppToolsForRun(args: Parameters<typeof inferToolCategoriesForRun>[0]): string[] {
-  return appMcpToolNames(toolNamesForCategories(inferToolCategoriesForRun(args)));
+function allowedToolsForRun(args: Parameters<typeof inferToolCategoriesForRun>[0]): string[] {
+  return toolNamesForCategories(inferToolCategoriesForRun(args));
 }
 
 function selectedShapeReference(type: string) {
@@ -63,7 +62,7 @@ describe("MCP tool category inference", () => {
     })).toEqual(["文書探索", "表"]);
   });
 
-  it("treats body-block reordering as body editing and exposes move_blocks", () => {
+  it("treats body-block reordering as body editing and exposes organize_blocks", () => {
     const categories = inferToolCategoriesForRun({
       instruction: "問題2を問題1の前へ移動して",
       references: [],
@@ -71,9 +70,9 @@ describe("MCP tool category inference", () => {
     });
 
     expect(categories).toEqual(["文書探索", "本文編集"]);
-    expect(MCP_TOOL_CATEGORY_MAP["本文編集"]).toContain("move_blocks");
-    expect(MCP_TOOL_CATEGORY_MAP["ページ・段組み"]).not.toContain("move_blocks");
-    expect(toolNamesForCategories(categories)).toContain("move_blocks");
+    expect(MCP_TOOL_CATEGORY_MAP["本文編集"]).toContain("organize_blocks");
+    expect(MCP_TOOL_CATEGORY_MAP["ページ・段組み"]).not.toContain("organize_blocks");
+    expect(toolNamesForCategories(categories)).toContain("organize_blocks");
   });
 
   it("exposes only app-owned library CRUD for document and folder management requests", () => {
@@ -92,7 +91,7 @@ describe("MCP tool category inference", () => {
       "update_local_folder",
       "delete_local_folder",
     ]));
-    expect(toolNamesForCategories(categories)).not.toContain("insert_body_content");
+    expect(toolNamesForCategories(categories)).not.toContain("insert_content");
   });
 
   it("expands official skill selections to the categories their workflows need", () => {
@@ -153,7 +152,7 @@ describe("MCP tool category inference", () => {
 
   it("opens the 3D graph tools for requests about solids", () => {
     // 実際に拒否された依頼: 段落を選んだまま「円柱」の「円」で図形だけが開き、insert_graph3d が無かった。
-    expect(allowedAppToolsForRun({
+    expect(allowedToolsForRun({
       instruction: "3dで三角錐と円柱の共通部分を可視化して",
       references: [{ kind: "block", targetType: "paragraph", excerpt: "次の立体について考える。" }],
       selectedSkillIds: [],
@@ -189,7 +188,7 @@ describe("MCP tool category inference", () => {
       const args = { instruction, references: [], selectedSkillIds: [] };
       // 本文の語で絞り込まれた run でも、立体の語があれば3Dグラフのツールが入る。
       expect(inferToolCategoriesForRun(args), instruction).not.toEqual([...MCP_TOOL_CATEGORIES]);
-      expect(allowedAppToolsForRun(args), instruction)
+      expect(allowedToolsForRun(args), instruction)
         .toEqual(expect.arrayContaining(["insert_graph3d", "update_graph3d"]));
     }
   });
@@ -209,7 +208,7 @@ describe("MCP tool category inference", () => {
 
   it("allows updating a selected 3D graph from a generic instruction", () => {
     // 実際に拒否された依頼: 3D グラフを選んで「コレをアップデートしてみて」。
-    expect(allowedAppToolsForRun({
+    expect(allowedToolsForRun({
       instruction: "コレをアップデートしてみて",
       references: [selectedShapeReference("graph3dShape")],
       selectedSkillIds: [],
@@ -219,14 +218,14 @@ describe("MCP tool category inference", () => {
   it("treats a shape reference without its overlay selection like selecting that shape", () => {
     // withAiEditOverlaySelection(reference, null) で選択の中身が外れても、対象の種類は targetType に残る。
     // (抜粋の「図形N件」に頼らず、targetType だけで決まることを見る。)
-    expect(allowedAppToolsForRun({
+    expect(allowedToolsForRun({
       instruction: "これを削除して",
       references: [{ kind: "block", targetType: "overlayShape:graph3dShape" }],
       selectedSkillIds: [],
     })).toEqual(expect.arrayContaining(["delete_shapes", "update_graph3d", "update_shape"]));
 
     for (const [type, tools] of Object.entries(SHAPE_EDITING_TOOLS)) {
-      const allowed = allowedAppToolsForRun({
+      const allowed = allowedToolsForRun({
         instruction: "これを削除して",
         references: [{ kind: "block", targetType: `overlayShape:${type}` }],
         selectedSkillIds: [],
@@ -237,7 +236,7 @@ describe("MCP tool category inference", () => {
 
   it("allows every tool that edits the selected shape, for every overlay shape type", () => {
     for (const [type, tools] of Object.entries(SHAPE_EDITING_TOOLS)) {
-      const allowed = allowedAppToolsForRun({
+      const allowed = allowedToolsForRun({
         instruction: "コレをアップデートしてみて",
         references: [selectedShapeReference(type)],
         selectedSkillIds: [],
@@ -257,19 +256,21 @@ describe("MCP tool category inference", () => {
 });
 
 describe("categoriesToAllowAfterDenial", () => {
-  it("allows only the category of the refused tool, by its app-profile or external name", () => {
+  it("allows only the category of the refused tool", () => {
     expect(categoriesToAllowAfterDenial(["insert_graph3d"])).toEqual(["グラフ"]);
     expect(categoriesToAllowAfterDenial(["edit_text", "insert_table"])).toEqual(["本文編集", "表"]);
-    expect(categoriesToAllowAfterDenial(["apply_edits"])).toEqual(["本文編集"]);
+    expect(categoriesToAllowAfterDenial(["organize_blocks"])).toEqual(["本文編集"]);
   });
 
   it("never opens library management or AI settings, and ignores unknown tools", () => {
     expect(categoriesToAllowAfterDenial(["update_ai_settings", "save_ai_resource", "delete_local_document"])).toEqual([]);
     expect(categoriesToAllowAfterDenial(["no_such_tool", ""])).toEqual([]);
+    // The body-edit implementations behind the four body tools are never published.
+    expect(categoriesToAllowAfterDenial(["apply_edits", "insert_body_content", "delete_blocks"])).toEqual([]);
 
     for (const category of MCP_TOOL_CATEGORIES) {
       const expected = category === "教材管理" || category === "AI設定・アプリ文脈" ? [] : [category];
-      for (const name of appMcpToolNames(MCP_TOOL_CATEGORY_MAP[category])) {
+      for (const name of MCP_TOOL_CATEGORY_MAP[category]) {
         expect(categoriesToAllowAfterDenial([name]), name).toEqual(expected);
       }
     }

@@ -1,43 +1,26 @@
 # ローカルアプリMCP
 
-Sigma Studio デスクトップ版のローカル保存教材を Claude Code / Codex / Antigravity CLI から編集するための MCP サーバーです。
+Sigma Studio デスクトップ版のアプリ内AI (Codex / Claude / Antigravity) が、ローカル保存の教材を読み書きするための MCP サーバーです。アプリが各AIの実行に登録して起動します。アプリの外 (ターミナルの Claude Code / Codex など) から接続して使う構成は提供しません。
 
-## 使い方
+## 起動
 
-このリポジトリには project scoped の設定を置いています。
+`apps/desktop/scripts/build-electron.mjs` が `apps/desktop/mcp/sigma-doc-mcp-server.ts` を `apps/desktop/dist-electron/sigma-doc-mcp-server.cjs` へビルドし、配布版にも同梱します。アプリは Electron の実行ファイルを `ELECTRON_RUN_AS_NODE=1` で起動して、このファイルを stdio サーバーとして動かします。起動時の環境変数は `apps/desktop/electron/sigma-studio-mcp-launch.ts` の `buildSigmaStudioMcpEnv` が決めます。MCP は stdout をプロトコルに使うため、起動ログは出しません。
 
-- Claude Code: `.mcp.json`
-- Codex: `.codex/config.toml`
-
-どちらも次の stdio サーバーを起動します。
-
-```bash
-node apps/desktop/scripts/run-sigma-doc-mcp.mjs
-```
-
-初回起動時に `apps/desktop/mcp/sigma-doc-mcp-server.ts` を `apps/desktop/dist-mcp/sigma-doc-mcp-server.cjs` へ静かにビルドしてから起動します。MCP は stdout をプロトコルに使うため、起動ログは出しません。
-
-各ツールは MCP annotations (`readOnlyHint` / `destructiveHint` / `idempotentHint` / `openWorldHint`) を宣言します。ホスト側の承認ポリシーはこの情報を利用できますが、annotations自体は認可機構ではありません。`.codex/config.toml` は対話利用前提で `default_tools_approval_mode = "prompt"` にしています。非対話実行では `"approve"` を設定してください (デスクトップアプリ内実行は `codex-agent-home/config.toml` を自動生成して `"approve"` を設定済み)。
+各ツールは MCP annotations (`readOnlyHint` / `destructiveHint` / `idempotentHint` / `openWorldHint`) を宣言します。ホスト側の承認ポリシーはこの情報を利用できますが、annotations自体は認可機構ではありません。アプリ内のCodexには `codex-agent-home/config.toml` を自動生成して `default_tools_approval_mode = "approve"` を設定します。
 
 ## 保存先
 
-既定では Electron の `app.getPath("userData")` と同じローカル保存先を探します。macOS では次を見ます。
+アプリは起動時に `SIGMA_STUDIO_USER_DATA_DIR` へ自分の userData (Electron の `app.getPath("userData")`) を渡します。MCPサーバーが書く承認待ち提案を main の watcher が監視するので、両者は一致している必要があります。指定がない場合は同じローカル保存先を探します。macOS では次を見ます。
 
 ```text
 ~/Library/Application Support/Sigma Studio
-```
-
-保存先を明示したい場合は環境変数を使います。
-
-```bash
-SIGMA_STUDIO_USER_DATA_DIR="$HOME/Library/Application Support/Sigma Studio" node apps/desktop/scripts/run-sigma-doc-mcp.mjs
 ```
 
 `data` そのものを指す場合は `SIGMA_STUDIO_DATA_DIR` も使えます。
 
 MCPからの書き込み系ツールは、既定では教材ファイルを直接保存しません。`data/proposals` に承認待ちの編集提案を作り、デスクトップアプリ側の「AI提案」ボタンから承認・却下します。
 
-同じ `runId`(無ければ同じチャットルーム)の連続する書き込みは1つの提案グループに積み上がり、承認UIには「1ラン=1件(1ページ分の変更)」としてまとまって表示され、まとめて承認/却下できます。グループ内の後続ツールは、同一グループ内の未承認の先行操作を反映した中間状態に対して解決するため、`create_problem_content` で作ったばかりの(まだ承認していない)problemを同じrunの `update_problem_content` や overlay の anchor から参照できます(以前はNOT_FOUNDになっていました)。グループ内の挿入順はツール呼び出し順で確定し、承認順には依存しません。`withdraw_current_edit_proposal` はグループ全体を取り下げます。
+同じ `runId`(無ければ同じチャットルーム)の連続する書き込みは1つの提案グループに積み上がり、承認UIには「1ラン=1件(1ページ分の変更)」としてまとまって表示され、まとめて承認/却下できます。グループ内の後続ツールは、同一グループ内の未承認の先行操作を反映した中間状態に対して解決するため、`edit_problem` (`edit.action:"create"`) で作ったばかりの(まだ承認していない)problemを同じrunの `edit_problem` (`edit.action:"update"`) や overlay の anchor から参照できます(以前はNOT_FOUNDになっていました)。グループ内の挿入順はツール呼び出し順で確定し、承認順には依存しません。`withdraw_current_edit_proposal` はグループ全体を取り下げます。
 
 例外として、`create_local_document` / `update_local_document` / `delete_local_document` / `create_local_folder` / `update_local_folder` / `delete_local_folder` は教材ライブラリの構成を直接更新します。対象はSigma Studio管理下の個人ワークスペースID・フォルダID・fileIdに限定され、任意のOSパスは受け付けません。教材の更新・削除はrevisionを照合し、削除ツールには`destructiveHint:true`を付けます。
 
@@ -84,14 +67,10 @@ MCPからの書き込み系ツールは、既定では教材ファイルを直�
 - `propose_visual_edit_session` - render済み、inspection合格済み、review合格済みのscratch sessionをpending proposalにします。提案化直前にもinspectionを再実行し、失敗していれば拒否します。
 - `discard_visual_edit_session` - scratch sessionを破棄します。
 - `insert_material` - 保存済み素材を exact clone として挿入します。問題内へ置く場合は `area`、図形素材の配置調整には `x` / `y` / `scaleX` / `scaleY` を指定できます。追加回転の`rotationDeg`は度で指定します。
-- `insert_body_content` - 本文、小見出し、枠を基準ブロックの直後へ挿入します。ホワイトボードには本文がないため使用できません。各blockに `pagination: { break? }` (改ページ。段組み内では改段) を指定できます。problem内の既存段落直後へ入れる場合はその段落IDを`targetId`にして`area`を省略し、problemの特定領域へ末尾追加する場合だけ`area`を指定します。枠(boxBlock)を作成する場合は `{type: "boxBlock", styleId: "...", title?: "...", blocks: [...]}` の形式を使用します。styleIdは以下から選択: `fancybox`/`itembox`/`tcolorbox`/`tcolorbox-note`/`doublebox`/`shadebox`/`leftbar`/`dashedbox`/`ruledbox`/`screenbox`/`ovalbox`/`cornerbox`。`blocks` 内には段落、見出し、リスト、入れ子の枠を指定できます。枠は問題エリア内には挿入できません。
-- `apply_edits` - 複数の型付き編集を1回のpending proposalへまとめる統合入口です。`replace_text`は既存SigmaDocを土台に本文の指定範囲だけをcopy-with置換し、元のフォント・ptサイズ・太字・色・囲みと範囲外内容を保持します。厳密な差分指定は`target:{type:"range",blockId,from,to,quote}`、完全一致文字列は`target:{type:"text",blockId,text,occurrence?}`、選択範囲は`target:{type:"activeSelection"}`、段落全体は`target:{type:"block",blockId}`を使います。`format_inline`は内容を変えず、paragraph/headingおよびtext/callout図形内テキストの書式だけを変更します。組み込みフォントは`fontFamilyToken:"body"|"sans"|"mincho"|"m-plus-1p"`です。
-- `create_problem_content` - 問題を作成します。ホワイトボードには本文がないため使用できません。
-- `update_rich_content` - 既存paragraph/headingの文章を `text` または型付き `runs` で更新し、`pagination` だけの更新もできます。`pagination: null` でページ指定を解除します。ID・type・heading levelなどはサーバー側で保持します。
-- `update_problem_content` - 既存problemの `lead` / `prompt` / `answer` / `solution` / `hints` / `pagination` のうち指定した項目だけを更新します。`lead` / `solution` / `hints` は空配列、`answer` と `pagination` は `null` で消去できます。
-- `replace_block` - 専用更新ツールで表せない構造変更のfallbackです。`pagination` を含む既存ブロックを完全な型付きブロック定義で置換し、IDとtypeは変更できません。
-- `delete_blocks` - 本文ブロック(トップレベル、および問題のlead/prompt/hints/solution内のブロック)をIDで指定して削除します。表・グラフ・図形はoverlay図形なのでここでは削除できません(`delete_shapes` を使ってください)。
-- `move_blocks` - 本文ブロックを、指定した対象ブロックの前後へ移動します。
+- `insert_content` - 本文、小見出し、リスト、枠を基準ブロックの直後へ挿入します。教材末尾は `targetId:"END_OF_DOCUMENT"` です。ホワイトボードには本文がないため使用できません。本文は `content:{format:"markdown",markdown:"..."}` (段落・見出し・入れ子リスト・fenced code・太字・斜体・`$...$` / `$$...$$` 数式。通常のドル記号は `\$`) か、型付きブロックの `content:{format:"blocks",blocks:[...]}` で渡します。囲み枠・明示的な書式・ページ指定は `blocks` を使い、各blockに `pagination: { break? }` (改ページ。段組み内では改段) を指定できます。problem内の既存段落直後へ入れる場合はその段落IDを`targetId`にして`area`を省略し、problemの特定領域へ末尾追加する場合だけ`area`を指定します。枠(boxBlock)を作成する場合は `{type: "boxBlock", styleId: "...", title?: "...", blocks: [...]}` の形式を使用します。styleIdは以下から選択: `fancybox`/`itembox`/`tcolorbox`/`tcolorbox-note`/`doublebox`/`shadebox`/`leftbar`/`dashedbox`/`ruledbox`/`screenbox`/`ovalbox`/`cornerbox`。`blocks` 内には段落、見出し、リスト、入れ子の枠を指定できます。枠は問題エリア内には挿入できません。
+- `edit_text` - 既存の本文・見出しを `edit.action` で編集します。`"patch"` は1〜20件の型付き編集を1回のpending proposalへまとめます。`replace_text`は既存SigmaDocを土台に本文の指定範囲だけをcopy-with置換し、元のフォント・ptサイズ・太字・色・囲みと範囲外内容を保持します。厳密な差分指定は`target:{type:"range",blockId,from,to,quote}`、完全一致文字列は`target:{type:"text",blockId,text,occurrence?}`、選択範囲は`target:{type:"activeSelection"}`、段落全体は`target:{type:"block",blockId}`を使います。`format_inline`は内容を変えず、paragraph/headingおよびtext/callout図形内テキストの書式だけを変更します。組み込みフォントは`fontFamilyToken:"body"|"sans"|"mincho"|"m-plus-1p"`です。`"update"` は既存paragraph/headingの文章を `text` または型付き `runs` で更新し、`pagination` だけの更新もできます。`pagination: null` でページ指定を解除します。ID・type・heading levelなどはサーバー側で保持します。`"replace_structure"` は他の操作で表せない構造変更のfallbackです。`pagination` を含む既存ブロックを完全な型付きブロック定義で置換し、IDとtypeは変更できません。
+- `edit_problem` - `edit.action:"create"` で問題を作成し、`"update"` で既存problemの `lead` / `prompt` / `answer` / `solution` / `hints` / `pagination` のうち指定した項目だけを更新します。`lead` / `solution` / `hints` は空配列、`answer` と `pagination` は `null` で消去できます。ホワイトボードには本文がないため使用できません。
+- `organize_blocks` - 本文ブロック(トップレベル、および問題のlead/prompt/hints/solution内のブロック)を、`edit.action:"move"` で指定した対象ブロックの前後へ移動し、`"delete"` でIDを指定して削除します。表・グラフ・図形はoverlay図形なのでここでは削除できません(`delete_shapes` を使ってください)。
 - `update_page_layout` - SigmaDocのページ設定を部分更新します。`preset` (`A4`/`A3`/`B5`/`B4`/`custom`)、`orientation` (`portrait`/`landscape`)、`customSizeMm`、`marginsMm` のうち指定したfieldだけを変更し、未指定field、段組み、ヘッダー、フッターは保持します。用紙サイズと余白の単位はmmです。`customSizeMm`は`preset:"custom"`と同時に指定します。変更前に`read_local_document`または`get_document_outline`で現在の`pageLayout`とrevisionを確認し、成功後はverificationのページpreviewを確認してください。
 - `update_column_layout` - 段組みを変更します。`scope: "document"` は文書全体、`scope: "blocks"` は連続した本文ブロックを新しい `layoutSection` で囲み(問題のsolutionエリアやboxBlock内の段落も対象にできます)、`scope: "section"` は既存 `layoutSection` の段数・段間を更新します。boxBlock内の複数段layoutSectionでは子の `pagination.break` が改段になります。箱・引用・問題エリアの中のブロックの `pagination.break` はその位置で改ページ(段組みのページでは改段)し、箱や引用はそこで分割されて次のページへ続きます。ローカル段組みの解除は `scope: "section", unwrap: true` を使い、`columnCount: 1` は1段のsectionとして保持します。`scope: "document"` はブロック単位のrevision緩和を行わず、`expectedRevision` の完全一致が必要です。実行前に `get_document_outline` で現在の段組みとsection IDを確認し、実行後は `data.verification.validation` とPNG previewを確認してください。
 - `list_generated_images` - Codexの現在の依頼で生成した画像の`imageId`、寸法、プレビューを返します。依頼と同じ`fileId` / `runId`が必須です。生成完了直後に空ならturnを終了し、ホストの取り込み後の続行を待ちます。
@@ -103,7 +82,7 @@ MCPからの書き込み系ツールは、既定では教材ファイルを直�
 - `insert_shape` - 部品ごとに個別編集する図形、図や本文に重ねる補助線・矢印・折れ線・曲線・ハイライト・テキスト注記・吹き出しを overlay に挿入します(図全体は`insert_svg_image`)。ホワイトボードでは `targetId:"CANVAS"` と絶対座標 `x`/`y` を指定し、本文・ページ anchor を作りません。吹き出し(`kind:"callout"`)は`text`/`tex`を内部のリッチテキストとして保持する単一オブジェクトです。`kind:"text"`では`markdown`に複数段落、見出し、リスト、`$...$`数式を指定でき、`text`/`tex`/`label`とは併用できません。`w`/`h`は本文矩形のサイズ、`cornerRadius`は角丸半径、`tailBaseStart`/`tailBaseEnd`は本文矩形外周上の独立した麓2点、`tailTip`は自由に動く頂点で、3点は本文矩形左上基準の相対座標です。`rotationDeg`とarc/sectorの`startAngleDeg`/`endAngleDeg`は度で指定し、サーバーがoverlay内部のラジアンへ変換します。ページ座標はy軸下向きで0°=右、弧は`startAngleDeg`から`endAngleDeg`へ画面上の時計回りです(上半円は180→360)。circle/arc/sectorの`x`/`y`は円全体のバウンディングボックス左上で、中心は`(x+r, y+r)`です(ellipseは`(x+rx, y+ry)`)。`kind:"text"`は`w`がテキストの折り返し幅で、省略すると既定幅になります。高さは内容から導出されるので`h`は指定できません。標準kindで表せる図形を`polyline`で近似しません。線・矢印・開いた曲線・開いた円弧の端点装飾は`arrowheadStart`/`arrowheadEnd`に`none`/`arrow`/`triangle`/`openArrow`/`thinArrow`/`diamond`/`dot`/`bar`、またはそれぞれを小さく描く`arrowSmall`/`triangleSmall`/`openArrowSmall`/`thinArrowSmall`/`diamondSmall`/`dotSmall`/`barSmall`を指定します(始点と終点は独立、線幅に比例して拡大)。**位置指定**は絶対座標(`x`/`y`)または`placement`のいずれか一方です。`x`/`y`・`points`・`start`/`end` はページ左上基準の絶対座標で、`update_shape` と同じ座標系です。基準にする座標は `get_insertion_candidates` の `rect`(推定値)や `get_document_outline` の `blockRects` / `overlayShapes` の `x`,`y` から取得します。`x`/`y` を省略するとアンカーブロック直下24pxに配置され、位置を意味で指定できる場合は `placement` が推奨です。
 - `update_shape` - 通常のoverlay図形をIDで指定し、位置・回転・表示状態・色・線・サイズ・ラベルなどを部分更新します。吹き出しは`w`/`h`/`text`/`tex`/`fontSize`/`cornerRadius`/`tailBaseStart`/`tailBaseEnd`/`tailTip`を同じshapeへ直接更新できます。text図形の`text`/`tex`/`markdown`/`fontSize`を更新すると、本文変換と高さの導出を同じ操作で行います。text図形の幅は`w`で指定し、高さは内容から導出されるので指定できません。`rotationDeg`は時計回りの度で指定し、サーバーがoverlay内部のラジアンへ変換します。`points`はline、`start`/`end`はarrowの絶対座標更新に使います。表とグラフには専用ツールを使います。
 - `align_shapes` - 複数のoverlay図形をIDで指定し、指定したモードで整列または等間隔配置します。
-- `delete_shapes` - overlay図形(表・グラフ・通常の図形をすべて含む)をIDで指定して削除します。IDは `get_document_outline` の `overlayShapes` または `search_document` で確認してください(本文ブロックの削除は `delete_blocks`)。
+- `delete_shapes` - overlay図形(表・グラフ・通常の図形をすべて含む)をIDで指定して削除します。IDは `get_document_outline` の `overlayShapes` または `search_document` で確認してください(本文ブロックの削除は `organize_blocks` の `edit.action:"delete"`)。
 - `insert_table` - 表や増減表を overlay に挿入します。通常表は `kind: "plain"` と `cells` を使います。ホワイトボードでは `targetId:"CANVAS"` を指定し、本文・ページanchorなしで配置します。増減表は `kind: "variation"` と `criticalPoints` / `intervalSigns` / `trends` / `criticalValues` を使います。増減表の定義域端点は `leftEndpoint` / `rightEndpoint`、端点での関数値または極限は `endpointValues`、行ラベルは `variableLabel` / `derivativeLabel` / `functionLabel` で指定できます。表全体の枠線は `grid` の `borderStyle` (`solid` / `dashed` / `dotted` / `double`)・`borderColor`・`borderWidth`・`showOuterBorder`・`showInnerBorders`、共通の文字色・背景色などは `defaultCellStyle` で指定できます。問題内へ置く場合は `area` に `lead` / `prompt` / `hints` / `solution` を指定できます。
 - `update_table` - 既存tableShapeのID・位置・anchorを保持したまま部分更新します。1セルだけの修正は`cellPatches`(`{row, col, content}`の配列)を使うと、列幅・行高さ・`grid`・`defaultCellStyle`・他のセルを完全に保ったまま対象セルだけ置き換えます。`cells`/`rows`/`columns`等で内容を部分再構成する場合も、未指定の列幅・行高さ・`grid`・`defaultCellStyle`は既存表の値を引き継ぎ、既定値へリセットしません。`delete_shapes`+`insert_table`で作り直すとこれらが失われるため避けてください。
 - `insert_graph` - 2Dグラフを overlay に挿入します。問題内へ置く場合は `area` に `lead` / `prompt` / `hints` / `solution` を指定できます。軸名、点ラベル、注釈、曲線式ラベルはグラフ本体SVG内ではなく、graph-owned text shapeとして作られ、フォントサイズはptで保持されます。目盛りラベルのサイズも `axes.tickFontSize` にptで指定します。グラフ図形の位置・幅・高さはpxのままで、`w` / `h` は目盛り文字などのSVG余白を除いたプロット範囲を指定します。グラフは白黒基調が既定で、色を指定しなかった曲線・点・塗り領域は黒/グレー階調になり、複数曲線は色ではなく線種 (`dash`) で区別されます。色は明示的に指定した場合だけそのまま使われます。`points[].labelPlacement` (`n`/`ne`/`e`/`se`/`s`/`sw`/`w`/`nw`) で点ラベルの方位を指定でき、省略時は曲線・軸・他の点やラベルを避けて自動配置されます。
@@ -112,7 +91,7 @@ MCPからの書き込み系ツールは、既定では教材ファイルを直�
 - `update_graph3d` - 既存graph3dShapeのID・位置・anchor・未指定fieldを保持したまま、`insert_graph3d` と同じ型付きGraph3D fieldと `w` / `h` を部分更新します。指定した配列は丸ごと置き換わり、`camera` / `view` は浅くマージされます。specを変更した場合は派生PNGも同じ操作で差し替えます。`delete_shapes` + `insert_graph3d` で作り直すと位置・サイズ・カメラが失われるため避けてください。
 - `render_block_context` - 教材の現在の保存内容、または`currentProposal:true`で現在のrun/チャットの作業案を今の教材へ再適用した結果を、`blockId`(省略時は作業案の変更ブロックの先頭)周辺のページコンテキストPNGとして返します。`preview.previewFile`に絶対PNGパスを返し、ChatGPTではinline image contentを省略します。
 - `render_page` - `pageNumber`(ページ番号)または`blockId`(そのブロックが配置されたページ)のどちらか一方を指定し、ページ全体のPNGを返します。`profile`(`student` / `teacher` / `answerBook`)を指定でき、`currentProposal:true`で未承認案を再適用した結果を描画します。応答の`page`に`pageNumber` / `totalPages` / `blockIds` / `splitBlockIds`を含むため、独立したpagination情報取得ツールは設けません。**TODO:** 生徒用・教師用・解答集という出力プロファイル分岐は暫定であり、将来はこの区分と`profile`引数を廃止して単一の描画経路へ統合します。
-- `get_selected_block` - デスクトップアプリのAIチャットから実行した時に、ユーザーが選択中のブロックを返します。アプリの実行コンテキストがない場合(外部CLIからの実行など)は空の結果を返します。
+- `get_selected_block` - デスクトップアプリのAIチャットから実行した時に、ユーザーが選択中のブロックを返します。アプリの実行コンテキストがない場合は空の結果を返します。
 - `get_active_reference` - 同様にアプリ実行時、ユーザーが選択・参照中のコンテキストを `references` 配列(複数可、0件 = 参照指定なし)で返します。各要素は kind/targetId に加え、テキスト選択の抜粋やmathInlineのTeXなどの詳細を持ちます。「この式」「選択部分だけ」のような単一参照だけでなく、ワンドボタンでピン留めした複数の参照も同時に返ります。旧clientとの互換用に先頭要素を `reference` (0件ならnull)でも返します。アプリの実行コンテキストがない場合は空の結果を返します。
 - `get_insertion_candidates` - 同様にアプリ実行時、選択ブロック付近の挿入候補位置を返します。各候補には推定ページ矩形 `rect`(`pageIndex` / `left` / `top` / `width` / `height` / `estimated: true`)が付き、insert 系ツールの絶対 `x`/`y` の基準に使えます。アプリの実行コンテキストがない場合は空の結果を返します。
 - `get_neighbor_blocks` - 同様にアプリ実行時、選択ブロックの前後ブロックを返します。アプリの実行コンテキストがない場合は空の結果を返します。
@@ -121,11 +100,11 @@ MCPからの書き込み系ツールは、既定では教材ファイルを直�
 
 以上6つのアプリ実行時コンテキストtoolに加えて、`read_local_document` / `get_document_outline` / `get_block` / `get_blocks` / `search_document` / `search_library` も任意の `runId` 引数を受け取ります(後者は参照元の自動記録に使われます — 「Agentic RAG」節参照)。これらのtoolは、任意の `runId` 引数を受け取ります。プロンプトはエージェントに自分のrunIdを伝え、毎回のtool呼び出しで渡すよう指示します。Codex (app-server) とAntigravityは全runで1つのMCPサーバープロセスを共有するため、`runId` を渡すことで並行実行中の複数run分の実行コンテキストファイル(`<provider>-<runId>.run-context.json`)から自分のものを解決できます。省略した場合は、起動時にMCP設定へ焼き込まれた provider 単位の静的な実行コンテキストファイル(`<provider>.run-context.json`)にフォールバックします(単発実行や、runIdを渡し忘れた場合の互換用)。Claudeは1turnごとに `--mcp-config` を渡すため元々runId別ファイルですが、同じ命名規則で解決されるため `runId` を渡しても矛盾なく動作します。添付がある場合は `get_attached_media` に `runId` を渡してimage/resource contentを取得します。特にAntigravityの画像は `@` ファイル参照だけに依存しません。
 
-## アプリ内AI向けの本文ツール
+### 本文編集の4ツール
 
-アプリが起動するMCPには `SIGMA_STUDIO_MCP_TOOL_PROFILE=app` を渡します。このprofileでは本文編集の8入口を以下の4入口へ置き換え、`tools/list` にも新しい入口だけを公開します。環境変数を指定しない外部MCPは、上の「公開ツール」の名前・入力・説明を維持します。図形・表・グラフ・ライブラリなどの入口は共通です。
+本文編集は `insert_content` / `edit_text` / `edit_problem` / `organize_blocks` の4ツールです。各ツールは操作ごとに次の内部実装を呼びます。内部実装の名前はMCPツールとして公開しません。
 
-| アプリ用ツール | 操作と既存処理への対応 |
+| ツール | 操作と内部実装 |
 |---|---|
 | `insert_content` | `content.format:"markdown"` を既存のMarkdown変換器でSigmaDocブロックへ変換し、`insert_body_content` へ渡します。囲み枠・明示的書式・paginationには `content:{format:"blocks",blocks:[...]}` を使います。 |
 | `edit_text` | `edit.action:"patch"` は `apply_edits`、`"update"` は `update_rich_content`、`"replace_structure"` は `replace_block`。構造置換は完全な現在ブロックを読んでから使うfallbackです。 |
@@ -152,17 +131,19 @@ MCPからの書き込み系ツールは、既定では教材ファイルを直�
 }
 ```
 
-この入力例は `edit_text` 用です。IDとrevisionは実行時に `get_edit_context` などで取得します。Markdownは段落・見出し・入れ子リスト・fenced code・太字・斜体・`$...$` / `$$...$$` 数式に対応し、通常のドル記号は `\$` と書きます。表・リンク・画像・blockquote・inline codeの構造変換は行いません。ホワイトボードでは既存の本文ツールと同じ制約が適用されます。
+この入力例は `edit_text` 用です。IDとrevisionは実行時に `get_edit_context` などで取得します。Markdownは段落・見出し・入れ子リスト・fenced code・太字・斜体・`$...$` / `$$...$$` 数式に対応し、通常のドル記号は `\$` と書きます。表・リンク・画像・blockquote・inline codeの構造変換は行いません。ホワイトボードでは内部実装と同じ制約が適用されます。
 
-既存handlerの検証、対象の鮮度確認、run/roomへの帰属、1件の作業案への蓄積、dryRun、検証・previewをそのまま通します。本文を直接保存する新しい経路はありません。プロンプトはこのprofileに合わせた説明を使い、ユーザーの指示・選択テキスト・添付リソースは書き換えません。古い会話・スキルの呼び出し例より現在の `inputSchema` を優先する旨は、再開turnでも通知します。
+4ツールは内部実装の検証、対象の鮮度確認、run/roomへの帰属、1件の作業案への蓄積、dryRun、検証・previewをそのまま通します。本文を直接保存する経路はありません。プロンプト・ツール説明・サーバーのinstructionsはこの4ツールの名前で書き、ユーザーの指示・選択テキスト・添付リソースは書き換えません。古い会話・スキルの呼び出し例より現在の `inputSchema` を優先する旨は、再開turnでも通知します。
 
-Claudeの `--allowedTools` も同じツール名対応を使います。ただしカテゴリごとの実行許可は、MCPの公開スキーマ自体をカテゴリ別に削減する仕組みではありません。許可するカテゴリは、指示文の語・選択中の図形の種類・選んだスキルから絞り込みます (`src/lib/ai/mcp-tool-categories.ts`)。図形を選んだときは、その種類の図形を編集するツール (専用の更新ツールと `update_shape` / `delete_shapes` / `align_shapes`) を持つカテゴリを開き、立体の語 (3D・立体・球・円錐など) は絞り込んだrunにグラフのカテゴリを足します。絞り込みの外の sigma-studio-local のツールを呼んで拒否された会話は、以降のturn (同じrunの続行と次の指示) で、拒否されたツールが属するカテゴリを足して許可します (`categoriesToAllowAfterDenial`)。教材管理とAI設定・アプリ文脈のカテゴリは拒否の信号では足しません (指示文のキーワード・選んだスキル・あいまいな指示のときの全カテゴリでは従来どおり開き、提案の操作に使うツールは常に許可します)。足すのは sigma-studio-local のツールだけで、Bash・Write・Edit・Taskの不許可とWeb検索の設定の扱いは変わりません。拒否は `data/logs/ledger.log` に `claude-tool-permission-denied` (session id・拒否されたツール名・足したカテゴリ) として1回ずつ記録します。`sigma-doc-mcp-app-tools.test.ts` は両profileの実際の `tools/list` を比較し、公開定義のUTF-8 JSONサイズを計測します。この数値はモデルのトークン消費量やツール選択成功率ではありません。
+### Claudeの実行許可
+
+Claudeの `--allowedTools` は、公開しているツール名をカテゴリごとに許可します。カテゴリごとの実行許可は、MCPの公開スキーマ自体をカテゴリ別に削減する仕組みではありません。許可するカテゴリは、指示文の語・選択中の図形の種類・選んだスキルから絞り込みます (`src/lib/ai/mcp-tool-categories.ts`)。図形を選んだときは、その種類の図形を編集するツール (専用の更新ツールと `update_shape` / `delete_shapes` / `align_shapes`) を持つカテゴリを開き、立体の語 (3D・立体・球・円錐など) は絞り込んだrunにグラフのカテゴリを足します。絞り込みの外の sigma-studio-local のツールを呼んで拒否された会話は、以降のturn (同じrunの続行と次の指示) で、拒否されたツールが属するカテゴリを足して許可します (`categoriesToAllowAfterDenial`)。教材管理とAI設定・アプリ文脈のカテゴリは拒否の信号では足しません (指示文のキーワード・選んだスキル・あいまいな指示のときの全カテゴリでは従来どおり開き、提案の操作に使うツールは常に許可します)。足すのは sigma-studio-local のツールだけで、Bash・Write・Edit・Taskの不許可とWeb検索の設定の扱いは変わりません。拒否は `data/logs/ledger.log` に `claude-tool-permission-denied` (session id・拒否されたツール名・足したカテゴリ) として1回ずつ記録します。`sigma-doc-mcp-app-tools.test.ts` は、実際の `tools/list` がこのカテゴリ表と一致し、内部実装の名前を公開しないことを確かめます。
 
 ## 公式スキル
 
 アプリは、AIが作業の種類ごとに参照する公式スキルを同梱します。定義は `apps/desktop/electron/official-skill-definitions.ts`、本文は `apps/desktop/electron/official-skills/<name>/SKILL.md` です。プロバイダには必要なときだけ参照させ、本文を毎ターン一括で渡しません。ユーザーが編集した公式スキルはアプリ更新で上書きしません。
 
-公式スキルはアプリ内AI(上の app profile)向けなので、本文編集は `insert_content` / `edit_text` / `edit_problem` / `organize_blocks` の名前で書きます。`insert_body_content` などの外部MCP名は書きません。`electron/official-skills.test.ts` が、定義とディレクトリの1対1、frontmatterと定義の一致、ツール名の実在、SVG・JSON例の検証、本文の長さ上限(`SKILL_CONTENT_MAX_LENGTH`)を確かめます。
+公式スキルの本文編集は `insert_content` / `edit_text` / `edit_problem` / `organize_blocks` の名前で書きます。内部実装の名前 (`insert_body_content` など) は公開されないので書きません。`electron/official-skills.test.ts` が、定義とディレクトリの1対1、frontmatterと定義の一致、ツール名の実在、SVG・JSON例の検証、本文の長さ上限(`SKILL_CONTENT_MAX_LENGTH`)を確かめます。
 
 | id | 用途 |
 | --- | --- |
@@ -186,64 +167,68 @@ SVGは、AIが教材へ入れられる絵の既定の形式です。プロンプ
 
 ## AI向けの選択・入力例
 
-以下は外部MCPの入力例です。アプリ内AIでは上のprofileと現在の `inputSchema` に従います。
-
 次の例の `fileId` / `targetId` / `expectedRevision` / `runId` はプレースホルダです。実行時は読み取りツールの返値に置き換えます。`writeMode` は通常省略し、pending proposalを作成します。
 
-本文とインライン数式を教材末尾へ追加する例:
+本文とインライン数式を教材末尾へ追加する例 (`insert_content`。Markdownなら `content:{format:"markdown",markdown:"式 $x^2+1$ を考える。"}` でも同じ段落になります):
 
 ```json
 {
   "fileId": "file_...",
   "targetId": "END_OF_DOCUMENT",
-  "blocks": [
-    {
-      "type": "paragraph",
-      "id": "ai_body_1",
-      "runs": [
-        "式 ",
-        { "type": "math", "id": "ai_math_1", "tex": "x^2+1" },
-        " を考える。"
-      ]
-    }
-  ],
+  "content": {
+    "format": "blocks",
+    "blocks": [
+      {
+        "type": "paragraph",
+        "id": "ai_body_1",
+        "runs": [
+          "式 ",
+          { "type": "math", "id": "ai_math_1", "tex": "x^2+1" },
+          " を考える。"
+        ]
+      }
+    ]
+  },
   "expectedRevision": 3,
   "runId": "run_..."
 }
 ```
 
-問題を新規作成する例:
+問題を新規作成する例 (`edit_problem`):
 
 ```json
 {
   "fileId": "file_...",
-  "targetId": "p_1",
-  "prompt": [
-    {
-      "id": "ai_prompt_1",
-      "runs": [
-        "方程式 ",
-        { "type": "math", "id": "ai_prompt_math_1", "tex": "x^2-4=0" },
-        " を解け。"
-      ]
-    }
-  ],
-  "answerTex": "x=\\pm2",
-  "solution": [{ "id": "ai_solution_1", "text": "因数分解する。" }],
   "expectedRevision": 3,
-  "runId": "run_..."
+  "runId": "run_...",
+  "edit": {
+    "action": "create",
+    "targetId": "p_1",
+    "prompt": [
+      {
+        "id": "ai_prompt_1",
+        "runs": [
+          "方程式 ",
+          { "type": "math", "id": "ai_prompt_math_1", "tex": "x^2-4=0" },
+          " を解け。"
+        ]
+      }
+    ],
+    "answerTex": "x=\\pm2",
+    "solution": [{ "id": "ai_solution_1", "text": "因数分解する。" }]
+  }
 }
 ```
 
-本文・見出しの文章変更は`apply_edits`の`replace_text`で差分だけを送り、既存書式を継承します。内容を変えず選択範囲の書式だけを変更する場合は同toolの`format_inline`を使います。`update_rich_content`は段落内run構造全体を意図的に再構成する場合、問題内の各領域は`update_problem_content`を使います。`replace_block`は部分patchではありません。専用toolで表せない構造変更に限り、先に`get_block`で完全な現在値を読み、`id` / `type`と変更しないfieldを保った置き換え後ブロック全体を`block`へ渡します。
+本文・見出しの文章変更は`edit_text`の`edit.action:"patch"`で`replace_text`を使って差分だけを送り、既存書式を継承します。内容を変えず選択範囲の書式だけを変更する場合は同じ`patch`の`format_inline`を使います。`edit.action:"update"`は段落内run構造全体を意図的に再構成する場合、問題内の各領域は`edit_problem`の`edit.action:"update"`を使います。`edit.action:"replace_structure"`は部分patchではありません。他の操作で表せない構造変更に限り、先に`get_block`で完全な現在値を読み、`id` / `type`と変更しないfieldを保った置き換え後ブロック全体を`block`へ渡します。
 
-選択ブロックは編集位置の手掛かりであり、編集範囲の上限ではありません。意味やレイアウト上必要なら、同じrun/room内で `update_rich_content` / `update_problem_content` と `insert_body_content` / `delete_blocks` / `move_blocks` を組み合わせ、1件の作業案としてブロックを分割・追加・削除・移動します。独立した説明文を配置目的だけで数式の `\text{...}` や `aligned` の1行に残さず、説明paragraphへ分離します。たとえば数式中の「よって，両辺を…」を左端へ出す場合は、元の数式paragraphを前半だけに更新し、その直後へ `align:"left"` の説明paragraphと後半の数式paragraphを順に挿入します。
+選択ブロックは編集位置の手掛かりであり、編集範囲の上限ではありません。意味やレイアウト上必要なら、同じrun/room内で `edit_text` / `edit_problem` の `update` と `insert_content` / `organize_blocks` を組み合わせ、1件の作業案としてブロックを分割・追加・削除・移動します。独立した説明文を配置目的だけで数式の `\text{...}` や `aligned` の1行に残さず、説明paragraphへ分離します。たとえば数式中の「よって，両辺を…」を左端へ出す場合は、元の数式paragraphを前半だけに更新し、その直後へ `align:"left"` の説明paragraphと後半の数式paragraphを順に挿入します。
 
 本文とoverlayの操作対象は分けます。
 
-- 本文・見出し: `get_block` / `apply_edits` / `update_rich_content` / `replace_block` / `delete_blocks` / `move_blocks`
-- problem: `get_block` / `update_problem_content` / `replace_block` / `delete_blocks` / `move_blocks`
-- 表・グラフ・図形: `get_document_outline` の `overlayShapes` / `apply_edits`（text/callout内の書式）/ `update_table` / `update_graph` / `update_graph3d` / `update_shape` / `align_shapes` / `delete_shapes`
+- 本文・見出し: `get_block` / `edit_text` / `organize_blocks`
+- problem: `get_block` / `edit_problem` / `edit_text` (`replace_structure`) / `organize_blocks`
+- 表・グラフ・図形: `get_document_outline` の `overlayShapes` / `edit_text` の `patch`（text/callout内の書式）/ `update_table` / `update_graph` / `update_graph3d` / `update_shape` / `align_shapes` / `delete_shapes`
 
 書き込み後は `data.proposalCreated` だけで完了判定せず、`data.changeSummary` と `data.verification.validation` / `data.verification.preview` を確認します。`data.proposalCreated: true` は承認待ちであり、教材本体への反映済みを意味しません。
 
@@ -263,7 +248,7 @@ SigmaDoc JSON が正本です。MCPツールは Tiptap JSON、HTML、LaTeX全文
 
 図形、画像、表、グラフの問題エリア所属は、shape専用fieldではなく `anchor.blockId` から導出します。`insert_shape` / `insert_table` / `insert_graph` / `insert_graph3d` の `area` は、対象problem内の実rich blockへ `block` anchorを張るための補助指定です。空の `lead` / `hints` / `solution` へ挿入する場合は、ツール側で空paragraphを作ってからそのIDへanchorします。
 
-表(`tableShape`)・2Dグラフ(`graph2dShape`)・3Dグラフ(`graph3dShape`)・通常の図形は、いずれも本文ブロック(SigmaBlock)ではなくoverlay図形です。IDは `get_document_outline` の `overlayShapes` から確認し、表は `update_table`、2Dグラフは `update_graph`、3Dグラフは `update_graph3d`、通常図形は `update_shape`、整列は `align_shapes`、削除は `delete_shapes` を使ってください。誤って `delete_blocks` に図形/表/グラフのIDを渡した場合、またはその逆(`delete_shapes` に本文ブロックのIDを渡した場合)は、正しいツールを案内するエラーメッセージが返ります。
+表(`tableShape`)・2Dグラフ(`graph2dShape`)・3Dグラフ(`graph3dShape`)・通常の図形は、いずれも本文ブロック(SigmaBlock)ではなくoverlay図形です。IDは `get_document_outline` の `overlayShapes` から確認し、表は `update_table`、2Dグラフは `update_graph`、3Dグラフは `update_graph3d`、通常図形は `update_shape`、整列は `align_shapes`、削除は `delete_shapes` を使ってください。誤って `organize_blocks` の `delete` に図形/表/グラフのIDを渡した場合、またはその逆(`delete_shapes` に本文ブロックのIDを渡した場合)は、正しいツールを案内するエラーメッセージが返ります。
 
 図・図解・模式図・イラスト・挿絵は`insert_svg_image`でSVG1枚として提案し、`verification.preview`を見て`update_svg_image`で直します。部品ごとの個別編集を求められたとき、図や本文に重ねる文字注記・強調・吹き出しは`insert_shape`で編集可能なネイティブ図形として提案し、細かな位置・サイズはユーザーがクライアントで仕上げます。部品単位での忠実な再現、またはユーザーが見た目の一致と個別編集を明示した場合だけvisual edit sessionを使います。その場合は`begin_visual_edit_session` → `visual_insert_shape` → `render_visual_edit_session` → `preview.previewFile`を`view_image`で開く → `inspect_visual_edit_session` → `review_visual_edit_session`(`previewCode`に画像右上の5文字コードを渡す)を必要なだけ繰り返し、最後に`propose_visual_edit_session`を呼びます。円・楕円・円弧は標準kindで作り、多数点の折れ線で近似しません。
 
@@ -305,7 +290,7 @@ Electron側が判定する未完了セッションは `operationCount > 0` か�
 
 書き込み系ツールおよび `begin_visual_edit_session` は任意の `runId` 引数も受け取ります。渡すと、作成されるpending proposalが呼び出し元のAIセッション(runId/roomId/turnId/sessionLabel)へ帰属します。プロンプトはエージェントに自分のrunIdを毎回渡すよう指示します。
 
-`insert_body_content` / `create_problem_content` / `insert_table` / `insert_shape` / `insert_graph` / `insert_graph3d` / `insert_material` は `targetId` または `selectedId` が必須です。省略はできません(以前は無指定時に教材の最後のブロックへ黙って挿入していましたが、この暗黙フォールバックは廃止しました)。教材末尾に追加したい場合は `targetId: "END_OF_DOCUMENT"`、ホワイトボードへ図形・表・グラフを追加したい場合は `targetId: "CANVAS"` を明示的に指定してください。対象ブロックIDが分からない場合は `get_document_outline` / `search_document` / `get_block` (`get_blocks`)で確認します。
+`insert_content` / `edit_problem` (`edit.action:"create"`) / `insert_table` / `insert_shape` / `insert_graph` / `insert_graph3d` / `insert_material` は `targetId` または `selectedId` が必須です。省略はできません(以前は無指定時に教材の最後のブロックへ黙って挿入していましたが、この暗黙フォールバックは廃止しました)。教材末尾に追加したい場合は `targetId: "END_OF_DOCUMENT"`、ホワイトボードへ図形・表・グラフを追加したい場合は `targetId: "CANVAS"` を明示的に指定してください。対象ブロックIDが分からない場合は `get_document_outline` / `search_document` / `get_block` (`get_blocks`)で確認します。
 
 ### Agentic RAG: 過去教材を参照して編集する
 
@@ -313,10 +298,10 @@ Electron側が判定する未完了セッションは `operationCount > 0` か�
 
 1. `search_library` にクエリを渡して呼びます。クエリの言い回しを変えて複数回呼ぶと、単語が完全一致しない類題も拾いやすくなります。類題探しが目的なら `scope: "problems"` を使うと、問題ブロック単位のヒットとprompt/tagsを含む詳しい抜粋が返るため、内容を読まなくても関連度をある程度判断できます。
 2. ヒットした `fileId` に対して `get_document_outline` / `get_blocks` (必要なら `get_block`)を呼び、実際の内容を確認します。`read_local_document` は既定でsummaryを返しますが、対象確認にはさらに絞られた読み取りツールを優先します。
-3. 参考にする内容を今の教材へ適用します(`insert_body_content` / `create_problem_content` / `update_rich_content` などの通常の書き込みツールを使います)。
+3. 参考にする内容を今の教材へ適用します(`insert_content` / `edit_problem` / `edit_text` などの通常の書き込みツールを使います)。
 4. 参照元の記録はアプリが自動で行います。`search_library` でヒットし **かつ実際に読んだ** 教材と、`get_mentioned_sigma_docs` のメンション教材が、書き込み時に自動で `sourceReferences` へ入ります(そのために読み取りツールにも `runId` を渡してください)。書き込みツールの `sourceReferences` 引数は補足用で、特定ブロックを参考にした場合に `blockId` を添えるといった用途に使います。自動記録分と同じ出典を指定しても1件に畳まれます。
 
-`insert_body_content` / `create_problem_content` / `update_rich_content` / `update_problem_content` / `replace_block` / `insert_table` / `update_table` / `insert_graph` / `update_graph` / `insert_graph3d` / `update_graph3d` / `insert_material` は任意の `sourceReferences` 引数を受け取ります。配列で最大10件、次の種類を指定できます(自動記録分と合算した上で10件に切り詰められます)。
+`insert_content` / `edit_text` / `edit_problem` / `insert_table` / `update_table` / `insert_graph` / `update_graph` / `insert_graph3d` / `update_graph3d` / `insert_material` は任意の `sourceReferences` 引数を受け取ります。配列で最大10件、次の種類を指定できます(自動記録分と合算した上で10件に切り詰められます)。
 
 - `{ type: "document", fileId, title?, blockId?, note? }` - 参照した過去教材。`title` を省略すると、教材の現在のタイトルで自動的に補完されます。
 - `{ type: "web", url, title? }` - 参照したWebページ。出典URLが分かる場合に指定します。

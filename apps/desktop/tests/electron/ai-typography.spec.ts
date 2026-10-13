@@ -41,7 +41,7 @@ test("AI typography reaches Electron, saved documents, and restart through the r
     await client.connect(new StdioClientTransport({
       command: await app.evaluate(() => process.execPath),
       args: [path.join(APP_ROOT, "dist-electron/sigma-doc-mcp-server.cjs")],
-      env: { PATH: process.env.PATH ?? "", HOME: os.homedir(), ELECTRON_RUN_AS_NODE: "1", SIGMA_STUDIO_USER_DATA_DIR: profile, SIGMA_STUDIO_MCP_TOOL_PROFILE: "app" },
+      env: { PATH: process.env.PATH ?? "", HOME: os.homedir(), ELECTRON_RUN_AS_NODE: "1", SIGMA_STUDIO_USER_DATA_DIR: profile },
       stderr: "pipe",
     }));
     const fileId = created.file.fileId;

@@ -1,5 +1,4 @@
 import type { OverlayShape } from "@/features/document";
-import { appMcpToolNames, type McpToolProfile } from "./mcp-tool-profile";
 
 export const MCP_TOOL_CATEGORIES = [
   "文書探索",
@@ -52,14 +51,10 @@ export const MCP_TOOL_CATEGORY_MAP = {
     "update_local_folder",
   ],
   "本文編集": [
-    "apply_edits",
-    "create_problem_content",
-    "delete_blocks",
-    "insert_body_content",
-    "move_blocks",
-    "replace_block",
-    "update_problem_content",
-    "update_rich_content",
+    "edit_problem",
+    "edit_text",
+    "insert_content",
+    "organize_blocks",
   ],
   "ページ・段組み": [
     "update_column_layout",
@@ -409,7 +404,7 @@ const NEVER_ALLOWED_AFTER_DENIAL: ReadonlySet<McpToolCategory> = new Set(["教�
 
 /**
  * Categories a conversation may additionally allow after the narrowed permissions refused these
- * tools: the categories that own them (by app-profile or external name). Unknown names open nothing.
+ * tools: the categories that own them. Unknown names open nothing.
  */
 export function categoriesToAllowAfterDenial(deniedToolNames: readonly string[]): McpToolCategory[] {
   const denied = new Set(deniedToolNames);
@@ -417,8 +412,7 @@ export function categoriesToAllowAfterDenial(deniedToolNames: readonly string[])
     if (NEVER_ALLOWED_AFTER_DENIAL.has(category)) {
       return false;
     }
-    const names = MCP_TOOL_CATEGORY_MAP[category];
-    return [...names, ...appMcpToolNames(names)].some((name) => denied.has(name));
+    return MCP_TOOL_CATEGORY_MAP[category].some((name) => denied.has(name));
   });
 }
 
@@ -460,11 +454,9 @@ export interface McpToolExposureMeasurement {
 export function measureMcpToolExposure(
   tools: readonly McpToolSchemaLike[],
   categories: readonly McpToolCategory[],
-  profile: McpToolProfile = "external",
 ): McpToolExposureMeasurement {
   const effectiveCategories = new Set<McpToolCategory>(["文書探索", ...categories]);
-  const names = toolNamesForCategories(categories);
-  const selectedNameSet = new Set<string>(profile === "app" ? appMcpToolNames(names) : names);
+  const selectedNameSet = new Set<string>(toolNamesForCategories(categories));
   const selectedTools = tools.filter((tool) => selectedNameSet.has(tool.name));
   return {
     selection: {

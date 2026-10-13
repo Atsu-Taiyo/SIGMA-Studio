@@ -9,14 +9,6 @@ describe("isWriteCapableMcpToolName", () => {
       "edit_text",
       "edit_problem",
       "organize_blocks",
-      "apply_edits",
-      "insert_body_content",
-      "create_problem_content",
-      "update_rich_content",
-      "update_problem_content",
-      "replace_block",
-      "delete_blocks",
-      "move_blocks",
       "insert_table",
       "update_table",
       "insert_svg_image",
@@ -67,6 +59,22 @@ describe("isWriteCapableMcpToolName", () => {
     }
   });
 
+  it("does not count the internal body-edit names, which the MCP server never publishes", () => {
+    for (const name of [
+      "apply_edits",
+      "insert_body_content",
+      "create_problem_content",
+      "update_rich_content",
+      "update_problem_content",
+      "replace_block",
+      "delete_blocks",
+      "move_blocks",
+    ]) {
+      expect(isWriteCapableMcpToolName(name)).toBe(false);
+      expect(isWriteCapableMcpToolName(`mcp__sigma-studio-local__${name}`)).toBe(false);
+    }
+  });
+
   it("returns false for undefined/null/empty names", () => {
     expect(isWriteCapableMcpToolName(undefined)).toBe(false);
     expect(isWriteCapableMcpToolName(null)).toBe(false);
@@ -74,11 +82,11 @@ describe("isWriteCapableMcpToolName", () => {
   });
 
   it("does not strip gemini tool names with a generic single-underscore regex (exact prefix only)", () => {
-    // tool names themselves contain underscores (insert_body_content), so a naive
+    // tool names themselves contain underscores (insert_content), so a naive
     // single-underscore strip would mangle them; only the exact gemini MCP prefix
     // (mcp_sigma-studio-local_) may be removed.
-    expect(isWriteCapableMcpToolName("mcp_sigma-studio-local_insert_body_content")).toBe(true);
-    expect(isWriteCapableMcpToolName("mcp_other-server_insert_body_content")).toBe(false);
+    expect(isWriteCapableMcpToolName("mcp_sigma-studio-local_insert_content")).toBe(true);
+    expect(isWriteCapableMcpToolName("mcp_other-server_insert_content")).toBe(false);
   });
 });
 

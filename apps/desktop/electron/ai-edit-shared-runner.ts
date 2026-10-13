@@ -193,7 +193,7 @@ export function buildMcpEditPromptForProvider(
     locale: AppLocale;
   },
 ): string {
-  return buildMcpEditPrompt({ provider, ...args, toolProfile: "app" });
+  return buildMcpEditPrompt({ provider, ...args });
 }
 
 export async function runMcpEditForIpc<TClient>(
