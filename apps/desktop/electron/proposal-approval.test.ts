@@ -179,7 +179,7 @@ describe("proposal approval application", () => {
     const rejecting = fixture.proposals.runExclusive(fixture.file.fileId, async () => {
       holding.resolve();
       await release.promise;
-      await fixture.proposals.rejectSingleProposal(proposal.proposalId);
+      await fixture.proposals.resolveProposal(proposal.proposalId, "rejected");
     });
     await holding.promise;
     fixture.loadProposal.mockImplementationOnce(async (id) => {
