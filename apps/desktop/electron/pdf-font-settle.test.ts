@@ -60,9 +60,17 @@ describe("SETTLE_DOCUMENT_FONTS_SOURCE", () => {
     expect(frames()).toBe(3);
   });
 
-  it("gives up after the round limit instead of holding the export forever", async () => {
+  it("stops the export if fonts are still loading at the round limit", async () => {
     const { doc } = fakeDocument(Number.POSITIVE_INFINITY);
-    await expect(settleDocumentFonts(doc, 4)).resolves.toBe(4);
+    await expect(settleDocumentFonts(doc, 4)).rejects.toThrow("fonts not ready");
+  });
+
+  it("stops the export if a used font failed to load even though fonts.ready resolved", async () => {
+    const doc = {
+      body: { getBoundingClientRect: () => ({}) },
+      fonts: { ready: Promise.resolve(), [Symbol.iterator]: function* () { yield { status: "error" }; } },
+    };
+    await expect(settleDocumentFonts(doc, 4)).rejects.toThrow("fonts not ready");
   });
 
   it("stops the export when a font load never finishes", async () => {
