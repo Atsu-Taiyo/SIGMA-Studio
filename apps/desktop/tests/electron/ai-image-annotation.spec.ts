@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import type { TestInfo } from "@playwright/test";
 import os from "node:os";
 import path from "node:path";
@@ -55,16 +55,21 @@ async function prepare(app: ElectronApplication, page: Page) {
       throw new Error("stubbed run");
     });
   });
-  await page.evaluate(async () => {
+  await page.evaluate(() => {
     localStorage.setItem("sigma-studio:ui-layout-preference", JSON.stringify({ mode: "docs", onboardingCompleted: true, ribbonCollapsed: false }));
-    await window.desktopAPI!.settings!.setUiLocale!("ja");
   });
   await page.reload();
   await page.locator(".text-flow-editor").first().waitFor({ timeout: 180_000 });
   await expect(page.locator(".startup-splash")).toBeHidden();
+  await expect(page.locator("html")).toHaveAttribute("lang", "ja");
+  expect(await page.evaluate(() => window.desktopAPI!.settings!.get())).toMatchObject({ uiLocale: "ja" });
 }
 
 function launchEnv(profile: string): Record<string, string> {
+  // Seed the isolated profile before startup: setting the locale through IPC
+  // during bootstrap can race the renderer saving its detected OS language.
+  mkdirSync(path.join(profile, "data"), { recursive: true });
+  writeFileSync(path.join(profile, "data", "settings.json"), JSON.stringify({ uiLocale: "ja" }));
   const env = Object.fromEntries(Object.entries(process.env).filter((entry): entry is [string, string] => entry[1] !== undefined));
   delete env.ELECTRON_RUN_AS_NODE;
   delete env.SIGMA_STUDIO_DEV_SERVER_URL;
@@ -119,7 +124,7 @@ test("comments placed on a pasted image reach the AI as numbered marks and survi
   const worksheet = buildWorksheetPng();
   const worksheetBase64 = worksheet.toString("base64");
 
-  let app = await electron.launch({ args: [APP_ROOT, sourceFile], cwd: APP_ROOT, env });
+  let app = await electron.launch({ args: [APP_ROOT, sourceFile, "--lang=en-US"], cwd: APP_ROOT, env });
   try {
     let page = await app.firstWindow();
     await page.waitForURL(/^(https?|file):/, { timeout: 120_000 });
@@ -241,7 +246,7 @@ test("comments placed on a pasted image reach the AI as numbered marks and survi
 
     // 再起動しても、履歴の画像とコメントが残る (前回開いていた教材をそのまま開き直す)。
     await app.close();
-    app = await electron.launch({ args: [APP_ROOT], cwd: APP_ROOT, env });
+    app = await electron.launch({ args: [APP_ROOT, "--lang=en-US"], cwd: APP_ROOT, env });
     page = await app.firstWindow();
     await page.waitForURL(/^(https?|file):/, { timeout: 120_000 });
     await page.waitForFunction(() => Boolean(window.desktopAPI));
@@ -253,6 +258,9 @@ test("comments placed on a pasted image reach the AI as numbered marks and survi
     await expect(restoredTurn.locator(".ai-chat-user-annotations")).toContainText("ここの符号を確認して");
     await expect(restoredTurn.locator(".ai-chat-user-attachment-image [class*='badge']")).toHaveCount(2);
     await keep(testInfo, "history-after-restart", await sidebar.screenshot());
+  } catch (error) {
+    await app.firstWindow().then(async (page) => keep(testInfo, "failure", await page.screenshot())).catch(() => undefined);
+    throw error;
   } finally {
     await app.close().catch(() => undefined);
     rmSync(profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 300 });
@@ -280,7 +288,7 @@ test("a region screenshot sent to the inline AI can be commented on without clos
   const sourceFile = path.join(profile, "スクショへのコメント.sigma");
   writeFileSync(sourceFile, JSON.stringify(source));
 
-  const app = await electron.launch({ args: [APP_ROOT, sourceFile], cwd: APP_ROOT, env });
+  const app = await electron.launch({ args: [APP_ROOT, sourceFile, "--lang=en-US"], cwd: APP_ROOT, env });
   try {
     const page = await app.firstWindow();
     await page.waitForURL(/^(https?|file):/, { timeout: 120_000 });
@@ -328,7 +336,7 @@ test("a region screenshot sent to the inline AI can be commented on without clos
     expect(payload.attachments[0]?.annotations).toEqual([expect.objectContaining({ comment: "この式を因数分解した形にして" })]);
     expect(payload.attachments[1]?.name).toMatch(/（印なし）\.png$/);
   } catch (error) {
-    await keep(testInfo, "capture-failure", await (await app.firstWindow()).screenshot());
+    await app.firstWindow().then(async (page) => keep(testInfo, "failure", await page.screenshot())).catch(() => undefined);
     throw error;
   } finally {
     await app.close().catch(() => undefined);
@@ -344,7 +352,7 @@ test("a selected shape's preview can be commented on and is sent as a marked-up 
   const sourceFile = path.join(profile, "図形へのコメント.sigma");
   writeFileSync(sourceFile, JSON.stringify(source));
 
-  const app = await electron.launch({ args: [APP_ROOT, sourceFile], cwd: APP_ROOT, env });
+  const app = await electron.launch({ args: [APP_ROOT, sourceFile, "--lang=en-US"], cwd: APP_ROOT, env });
   try {
     const page = await app.firstWindow();
     await page.waitForURL(/^(https?|file):/, { timeout: 120_000 });
@@ -415,6 +423,9 @@ test("a selected shape's preview can be commented on and is sent as a marked-up 
     const userTurn = sidebar.locator(".ai-chat-turn.user").last();
     await expect(userTurn.locator(".ai-chat-user-annotations li")).toHaveCount(1);
     await keep(testInfo, "shape-history", await sidebar.screenshot());
+  } catch (error) {
+    await app.firstWindow().then(async (page) => keep(testInfo, "failure", await page.screenshot())).catch(() => undefined);
+    throw error;
   } finally {
     await app.close().catch(() => undefined);
     rmSync(profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 300 });
