@@ -262,6 +262,7 @@ test("comments placed on a pasted image reach the AI as numbered marks and survi
 async function chordDrag(page: Page, from: { x: number; y: number }, to: { x: number; y: number }) {
   await page.keyboard.down("Alt");
   await page.keyboard.down("Shift");
+  await expect(page.locator("html")).toHaveAttribute("data-region-capture-ready", "true");
   await page.mouse.move(from.x, from.y);
   await page.mouse.down();
   await page.mouse.move((from.x + to.x) / 2, (from.y + to.y) / 2, { steps: 6 });
@@ -285,10 +286,14 @@ test("a region screenshot sent to the inline AI can be commented on without clos
     await page.waitForURL(/^(https?|file):/, { timeout: 120_000 });
     await page.waitForFunction(() => Boolean(window.desktopAPI));
     await prepare(app, page);
-    await page.waitForTimeout(1500);
+    await page.bringToFront();
+    await page.evaluate(() => document.fonts.ready.then(() => undefined));
 
-    // ⌥⇧ドラッグで紙面を撮り、「AIに聞く」でインラインのAI面へ渡す。
-    const canvasBox = (await page.locator(".editor-canvas").boundingBox())!;
+    // Coordinate input has no Playwright actionability wait. Wait for the real
+    // capture target to be stable and unobstructed before measuring its bounds.
+    const canvas = page.locator(".editor-canvas");
+    await canvas.click({ position: { x: 140, y: 90 }, trial: true });
+    const canvasBox = (await canvas.boundingBox())!;
     const from = { x: canvasBox.x + 140, y: canvasBox.y + 90 };
     await chordDrag(page, from, { x: from.x + 420, y: from.y + 230 });
     await page.getByRole("toolbar", { name: "スクリーンショット" }).getByRole("button", { name: "AIに聞く" }).click();
@@ -322,6 +327,9 @@ test("a region screenshot sent to the inline AI can be commented on without clos
     };
     expect(payload.attachments[0]?.annotations).toEqual([expect.objectContaining({ comment: "この式を因数分解した形にして" })]);
     expect(payload.attachments[1]?.name).toMatch(/（印なし）\.png$/);
+  } catch (error) {
+    await keep(testInfo, "capture-failure", await (await app.firstWindow()).screenshot());
+    throw error;
   } finally {
     await app.close().catch(() => undefined);
     rmSync(profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 300 });
