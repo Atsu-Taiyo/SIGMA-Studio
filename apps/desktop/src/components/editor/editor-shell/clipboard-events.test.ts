@@ -75,6 +75,38 @@ beforeEach(() => {
   clipboardData(createOverlayClipboardPayload([], {}));
 });
 
+describe("spreadsheet paste routing", () => {
+  it("honors paste without formatting", () => {
+    const target = mount('<div class="page-flow"><div contenteditable="true" data-target></div></div>');
+    const ports = install();
+    target.dispatchEvent(new KeyboardEvent("keydown", { key: "v", metaKey: true, shiftKey: true, bubbles: true }));
+    const data = clipboardData();
+    data.setData("text/html", '<table><tr><td>120</td></tr></table>');
+    dispatch(target, "paste", data);
+    expect(ports.pasteShapes).not.toHaveBeenCalled();
+  });
+  it.each([false, true])("inserts editable tables once in body or overlay (overlay=%s)", (overlayEditing) => {
+    const target = mount('<div class="page-flow"><div contenteditable="true" data-target></div></div>');
+    const ports = install({ overlayEditing });
+    const data = clipboardData();
+    data.setData("text/html", '<table><tr><td>売上</td><td>120</td></tr></table>');
+    data.setData("text/plain", "売上\t120");
+    expect(dispatch(target, "paste", data).defaultPrevented).toBe(true);
+    expect(ports.pasteShapes).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(ports.pasteShapes).mock.calls[0][0].shapes[0].type).toBe("tableShape");
+    expect(ports.insertBlocks).not.toHaveBeenCalled();
+  });
+
+  it.each(['<input data-target>', '<div role="dialog"><div data-target></div></div>', '<div contenteditable="true" data-target></div>', '<div class="page-flow"><pre contenteditable="true" data-target></pre></div>'])("leaves text inputs alone: %s", (html) => {
+    const target = mount(html);
+    const ports = install();
+    const data = clipboardData();
+    data.setData("text/html", '<table><tr><td>120</td></tr></table>');
+    dispatch(target, "paste", data);
+    expect(ports.pasteShapes).not.toHaveBeenCalled();
+  });
+});
+
 describe("TikZ paste routing", () => {
   it.each([false, true])("routes plain TikZ before editor handlers (overlay=%s)", (overlayEditing) => {
     const target = mount('<div class="page-flow"><div contenteditable="true" data-target></div></div>');
