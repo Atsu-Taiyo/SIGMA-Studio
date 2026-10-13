@@ -225,16 +225,17 @@ export interface ProblemFrame {
   enabled?: boolean;
   /** Built-in style id, or `"custom"` when `custom` carries the user's own drawing. */
   styleId?: string;
-  custom?: ProblemCustomFrame;
+  custom?: CustomFrame;
 }
 
 /**
- * A frame the user drew themselves. The drawing is one SVG, cut into nine pieces (CSS
- * `border-image`): the four corners keep their shape, the four edges stretch (or repeat) to fit
- * a problem of any size, and the middle is left empty for the text. `svg` is the canonical
- * artwork; the TikZ source is kept only so the frame can be edited again.
+ * A frame the user drew themselves, used by problems (`ProblemFrame.custom`) and boxes
+ * (`BoxFrameSpec.custom`). The drawing is one SVG, cut into nine pieces (CSS `border-image`): the
+ * four corners keep their shape, the four edges stretch (or repeat) to fit content of any size, and
+ * the middle is left empty for the text. `svg` is the canonical artwork; the TikZ source is kept
+ * only so the frame can be edited again.
  */
-export interface ProblemCustomFrame {
+export interface CustomFrame {
   /** SVG markup with a `viewBox`. Never executed: it is only ever drawn as an image. */
   svg: string;
   /** Size of the drawing in SVG units (the `viewBox` width / height). */
@@ -248,6 +249,9 @@ export interface ProblemCustomFrame {
   paddingPx: number;
   tikz?: TikzImageSource;
 }
+
+/** @deprecated The same drawing now frames boxes too; use `CustomFrame`. */
+export type ProblemCustomFrame = CustomFrame;
 
 export interface LayoutSectionNode extends BaseNode {
   type: "layoutSection";
@@ -302,6 +306,13 @@ export interface BoxFrameSpec {
   radiusPx?: number;
   paddingPx?: BoxSpacingPx;
   decorations?: BoxDecorationSpec[];
+  /**
+   * The user's own drawing. It frames the box only while the box's `styleId` is `"custom"`: the
+   * drawing then replaces the border, decorations and padding, and the title is the first line
+   * inside it. A box switched to a built-in style keeps the drawing here, so switching back never
+   * loses it.
+   */
+  custom?: CustomFrame;
 }
 
 export interface BoxSpacingPx {

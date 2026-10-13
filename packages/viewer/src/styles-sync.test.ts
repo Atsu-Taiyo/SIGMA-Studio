@@ -165,7 +165,8 @@ describe("viewer stylesheet size", () => {
   // splitbox の 2 欄の見出し (`titleSplit` の grid) で約 1.6KB 増えたので 78KiB へ上げた。
   // 問題の枠線 (角付きの作り直しと、自作SVG枠の9分割描画) で約 3.1KB 増えたので 76KiB へ上げた。
   // 印刷・埋め込み viewer も同じ枠を描くので、共有面に置くほかない。
-  const MAX_AUTHORED_CSS_BYTES = 78 * 1024;
+  // 箱の自作枠 (問題と同じ9分割と、印刷の断片で開いた辺の切り落とし) で約 1.5KB 増えたので 80KiB へ上げた。
+  const MAX_AUTHORED_CSS_BYTES = 80 * 1024;
   const MAX_DIST_CSS_BYTES = 128 * 1024;
 
   it("keeps the authored CSS (viewer + shared document surface) small", () => {

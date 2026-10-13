@@ -5,23 +5,20 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 
 import { Button } from "@/components/ui/Button";
 import { Shimmer } from "@/components/ui/Shimmer";
+import { customFrameImageSrc } from "@/lib/custom-frame";
 import { useT } from "@/lib/i18n/react";
 
 import {
   splitStreamedFrameReply,
-  type ProblemFrameChatAssistantTurn,
-  type ProblemFrameChatDrawing,
-  type ProblemFrameChatSession,
-} from "../model/problem-frame-chat";
-import styles from "./ProblemFrameChat.module.css";
+  type FrameChatAssistantTurn,
+  type FrameChatDrawing,
+  type FrameChatSession,
+} from "../model/frame-chat";
+import styles from "./FrameChat.module.css";
 
 const EXAMPLE_KEYS = ["sakura", "blackboard", "japanese", "notebook"] as const;
 /** How close to the bottom the reader must be for the log to keep following new text. */
 const FOLLOW_THRESHOLD_PX = 24;
-
-export function frameSvgDataUrl(svg: string): string {
-  return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
-}
 
 function secondsBetween(from: number, to: number): number {
   return Math.max(0, Math.round((to - from) / 1000));
@@ -46,11 +43,11 @@ function useNow(active: boolean): number {
 }
 
 interface TranscriptProps {
-  session: ProblemFrameChatSession | null;
-  /** Whether the problem already has a frame the AI can rework. */
+  session: FrameChatSession | null;
+  /** Whether the problem or box already has a frame the AI can rework. */
   hasCurrentFrame: boolean;
   onPickExample: (prompt: string) => void;
-  onUse: (turn: ProblemFrameChatAssistantTurn, drawing: ProblemFrameChatDrawing) => void;
+  onUse: (turn: FrameChatAssistantTurn, drawing: FrameChatDrawing) => void;
 }
 
 /**
@@ -58,7 +55,7 @@ interface TranscriptProps {
  * already started. The log follows new text while the reader is at the bottom and stays put once
  * they scroll up to read.
  */
-export function ProblemFrameChatTranscript({ session, hasCurrentFrame, onPickExample, onUse }: TranscriptProps) {
+export function FrameChatTranscript({ session, hasCurrentFrame, onPickExample, onUse }: TranscriptProps) {
   const t = useT("settings");
   const turns = session?.turns ?? [];
   const running = turns.some((turn) => turn.role === "assistant" && turn.status === "running");
@@ -82,27 +79,27 @@ export function ProblemFrameChatTranscript({ session, hasCurrentFrame, onPickExa
       className={styles.log}
       role="log"
       aria-live="polite"
-      aria-label={t("problem.custom.chat.logAria")}
-      data-testid="problem-custom-frame-ai-log"
+      aria-label={t("frame.chat.logAria")}
+      data-testid="custom-frame-ai-log"
       onScroll={(event) => {
         const log = event.currentTarget;
         followingRef.current = log.scrollHeight - log.scrollTop - log.clientHeight <= FOLLOW_THRESHOLD_PX;
       }}
     >
-      <div className={styles.assistantRow} data-testid="problem-custom-frame-ai-greeting">
+      <div className={styles.assistantRow} data-testid="custom-frame-ai-greeting">
         <p className={styles.message}>
-          {t(hasCurrentFrame ? "problem.custom.chat.greetingWithCurrent" : "problem.custom.chat.greeting")}
+          {t(hasCurrentFrame ? "frame.chat.greetingWithCurrent" : "frame.chat.greeting")}
         </p>
         {turns.length === 0 && (
-          <div className={styles.examples} role="group" aria-label={t("problem.custom.aiExamplesLabel")}>
+          <div className={styles.examples} role="group" aria-label={t("frame.aiExamplesLabel")}>
             {EXAMPLE_KEYS.map((key) => (
               <button
                 key={key}
                 type="button"
                 className={styles.example}
-                onClick={() => onPickExample(t(`problem.custom.aiExamples.${key}.prompt`))}
+                onClick={() => onPickExample(t(`frame.aiExamples.${key}.prompt`))}
               >
-                {t(`problem.custom.aiExamples.${key}.label`)}
+                {t(`frame.aiExamples.${key}.label`)}
               </button>
             ))}
           </div>
@@ -133,7 +130,7 @@ function AssistantTurn({
   applied,
   onUse,
 }: {
-  turn: ProblemFrameChatAssistantTurn;
+  turn: FrameChatAssistantTurn;
   now: number;
   applied: boolean;
   onUse: TranscriptProps["onUse"];
@@ -144,42 +141,42 @@ function AssistantTurn({
   const message = running ? streamed?.message ?? "" : turn.message;
 
   return (
-    <div className={styles.assistantRow} data-status={turn.status} data-testid="problem-custom-frame-ai-turn">
+    <div className={styles.assistantRow} data-status={turn.status} data-testid="custom-frame-ai-turn">
       <Thinking turn={turn} now={now} />
       {message && <p className={styles.message}>{message}</p>}
       {running && (streamed?.drawingChars ?? 0) > 0 && (
         <p className={styles.progress}>
-          <Shimmer>{t("problem.custom.chat.writing", { chars: streamed?.drawingChars ?? 0 })}</Shimmer>
+          <Shimmer>{t("frame.chat.writing", { chars: streamed?.drawingChars ?? 0 })}</Shimmer>
         </p>
       )}
       {turn.drawing && (
-        <div className={styles.drawing} data-testid="problem-custom-frame-ai-drawing">
+        <div className={styles.drawing} data-testid="custom-frame-ai-drawing">
           {/* eslint-disable-next-line @next/next/no-img-element -- an inline SVG data URL, not a fetched image */}
           <img
             className={styles.drawingImage}
-            src={frameSvgDataUrl(turn.drawing.svg)}
-            alt={t("problem.custom.chat.drawingAlt")}
+            src={customFrameImageSrc(turn.drawing.svg)}
+            alt={t("frame.chat.drawingAlt")}
             width={turn.drawing.width}
             height={turn.drawing.height}
           />
           {applied ? (
-            <span className={styles.inUse} data-testid="problem-custom-frame-ai-in-use">
+            <span className={styles.inUse} data-testid="custom-frame-ai-in-use">
               <Check size={13} aria-hidden="true" />
-              {t("problem.custom.chat.inUse")}
+              {t("frame.chat.inUse")}
             </span>
           ) : (
             <Button
               size="sm"
-              data-testid="problem-custom-frame-ai-use"
+              data-testid="custom-frame-ai-use"
               onClick={() => turn.drawing && onUse(turn, turn.drawing)}
             >
-              {t("problem.custom.chat.useFrame")}
+              {t("frame.chat.useFrame")}
             </Button>
           )}
         </div>
       )}
       {turn.error && <p role="alert" className={styles.error}>{turn.error}</p>}
-      {turn.status === "cancelled" && <p className={styles.meta}>{t("problem.custom.chat.cancelled")}</p>}
+      {turn.status === "cancelled" && <p className={styles.meta}>{t("frame.chat.cancelled")}</p>}
     </div>
   );
 }
@@ -189,7 +186,7 @@ function AssistantTurn({
  * while it runs (for the providers that expose it) and folds away once the answer is there, to be
  * opened again from the header.
  */
-function Thinking({ turn, now }: { turn: ProblemFrameChatAssistantTurn; now: number }) {
+function Thinking({ turn, now }: { turn: FrameChatAssistantTurn; now: number }) {
   const t = useT("settings");
   const running = turn.status === "running";
   const hasReasoning = turn.reasoningText.trim().length > 0;
@@ -214,13 +211,13 @@ function Thinking({ turn, now }: { turn: ProblemFrameChatAssistantTurn; now: num
   let label: ReactNode = null;
   if (running) {
     label = turn.replyStartedAt === null
-      ? <Shimmer>{t("problem.custom.chat.thinkingFor", { seconds: secondsBetween(turn.startedAt, now) })}</Shimmer>
-      : <Shimmer>{t("problem.custom.chat.drawingFor", { seconds: secondsBetween(turn.startedAt, now) })}</Shimmer>;
+      ? <Shimmer>{t("frame.chat.thinkingFor", { seconds: secondsBetween(turn.startedAt, now) })}</Shimmer>
+      : <Shimmer>{t("frame.chat.drawingFor", { seconds: secondsBetween(turn.startedAt, now) })}</Shimmer>;
   } else if (turn.status === "done" || turn.status === "error") {
     label = hasReasoning
-      ? t("problem.custom.chat.thoughtFor", { seconds: secondsBetween(turn.startedAt, turn.replyStartedAt ?? end) })
+      ? t("frame.chat.thoughtFor", { seconds: secondsBetween(turn.startedAt, turn.replyStartedAt ?? end) })
       : turn.status === "done"
-        ? t("problem.custom.chat.drewFor", { seconds: secondsBetween(turn.startedAt, end) })
+        ? t("frame.chat.drewFor", { seconds: secondsBetween(turn.startedAt, end) })
         : null;
   }
   if (!label && !hasReasoning) {
@@ -228,13 +225,13 @@ function Thinking({ turn, now }: { turn: ProblemFrameChatAssistantTurn; now: num
   }
 
   return (
-    <div className={styles.thinking} data-testid="problem-custom-frame-ai-thinking">
+    <div className={styles.thinking} data-testid="custom-frame-ai-thinking">
       {hasReasoning ? (
         <button
           type="button"
           className={styles.thinkingToggle}
           aria-expanded={open}
-          aria-label={t(open ? "problem.custom.chat.hideReasoning" : "problem.custom.chat.showReasoning")}
+          aria-label={t(open ? "frame.chat.hideReasoning" : "frame.chat.showReasoning")}
           onClick={() => setOpen((current) => !current)}
         >
           <ChevronRight size={13} aria-hidden="true" className={styles.chevron} data-open={open} />
@@ -244,7 +241,7 @@ function Thinking({ turn, now }: { turn: ProblemFrameChatAssistantTurn; now: num
         <span className={styles.thinkingStatic} role={running ? "status" : undefined}>{label}</span>
       )}
       {hasReasoning && open && (
-        <p ref={bodyRef} className={styles.reasoning} data-testid="problem-custom-frame-ai-reasoning">
+        <p ref={bodyRef} className={styles.reasoning} data-testid="custom-frame-ai-reasoning">
           {turn.reasoningText}
         </p>
       )}

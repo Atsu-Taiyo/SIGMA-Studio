@@ -38,7 +38,7 @@ import {
   CUSTOM_FRAME_PADDING_RANGE,
   isCanonicalFrameSvg,
   MAX_CUSTOM_FRAME_SVG_LENGTH,
-} from "@/features/document/problem-custom-frame";
+} from "@/features/document/custom-frame";
 import { validateMathTex } from "@/lib/math-tex";
 
 const te = createCurrentLocaleTranslator("error");
@@ -393,6 +393,24 @@ const BoxDecorationSchema = z.discriminatedUnion("type", [
   }),
 ]);
 
+/** A user-drawn frame (`CustomFrame`), shared by problems and boxes. */
+const CustomFrameSchema = z.object({
+  svg: z.string().max(MAX_CUSTOM_FRAME_SVG_LENGTH).refine(isCanonicalFrameSvg),
+  width: z.number().positive(),
+  height: z.number().positive(),
+  slice: z.number().positive(),
+  borderPx: z.number().min(CUSTOM_FRAME_BORDER_RANGE.min).max(CUSTOM_FRAME_BORDER_RANGE.max),
+  paddingPx: z.number().min(CUSTOM_FRAME_PADDING_RANGE.min).max(CUSTOM_FRAME_PADDING_RANGE.max),
+  tikz: z.object({
+    source: z.string().min(1).max(100_000),
+    environment: z.object({
+      packages: z.string().max(20_000),
+      libraries: z.string().max(20_000),
+      preamble: z.string().max(20_000),
+    }),
+  }).optional(),
+}).refine((frame) => frame.slice * 2 < Math.min(frame.width, frame.height));
+
 export const BoxFrameSchema = z.object({
   borderWidthPx: z.number().nonnegative().optional(),
   borderColor: z.string().optional(),
@@ -415,6 +433,7 @@ export const BoxFrameSchema = z.object({
   radiusPx: z.number().nonnegative().optional(),
   paddingPx: BoxSpacingPxSchema.optional(),
   decorations: z.array(BoxDecorationSchema).optional(),
+  custom: CustomFrameSchema.optional(),
 }).optional();
 
 const BoxBlockChildBlockSchema: z.ZodType<BoxBlockChildBlock> = z.lazy(() => z.union([
@@ -464,23 +483,6 @@ const ProblemAreaBlockSchema: z.ZodType<ProblemAreaBlock> = z.lazy(() => z.union
   BoxBlockNodeSchema,
 ]));
 
-const ProblemCustomFrameSchema = z.object({
-  svg: z.string().max(MAX_CUSTOM_FRAME_SVG_LENGTH).refine(isCanonicalFrameSvg),
-  width: z.number().positive(),
-  height: z.number().positive(),
-  slice: z.number().positive(),
-  borderPx: z.number().min(CUSTOM_FRAME_BORDER_RANGE.min).max(CUSTOM_FRAME_BORDER_RANGE.max),
-  paddingPx: z.number().min(CUSTOM_FRAME_PADDING_RANGE.min).max(CUSTOM_FRAME_PADDING_RANGE.max),
-  tikz: z.object({
-    source: z.string().min(1).max(100_000),
-    environment: z.object({
-      packages: z.string().max(20_000),
-      libraries: z.string().max(20_000),
-      preamble: z.string().max(20_000),
-    }),
-  }).optional(),
-}).refine((frame) => frame.slice * 2 < Math.min(frame.width, frame.height));
-
 const ProblemNodeSchema = BaseNodeSchema.extend({
   type: z.literal("problem"),
   tags: z.array(z.string()),
@@ -513,7 +515,7 @@ const ProblemNodeSchema = BaseNodeSchema.extend({
     .object({
       enabled: z.boolean().optional(),
       styleId: z.string().min(1).optional(),
-      custom: ProblemCustomFrameSchema.optional(),
+      custom: CustomFrameSchema.optional(),
     })
     .optional(),
 });

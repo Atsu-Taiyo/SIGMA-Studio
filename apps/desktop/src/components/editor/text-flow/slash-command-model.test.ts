@@ -72,4 +72,30 @@ describe("slash command candidates", () => {
     ]);
     expect(candidates.at(-1)).toEqual({ kind: "material", material: materials[3] });
   });
+
+  describe("shelf frames", () => {
+    const custom = {
+      svg: '<svg xmlns="http://www.w3.org/2000/svg" width="60" height="40" viewBox="0 0 60 40"><rect width="60" height="40" fill="none" stroke="#000"/></svg>',
+      width: 60, height: 40, slice: 10, borderPx: 18, paddingPx: 12,
+    };
+    const frames = [
+      { id: "frame_a", name: "桜の枠", custom },
+      { id: "frame_b", name: "黒板", custom },
+    ];
+
+    it("offers a frame from the shelf by its name, as a box drawn with it", () => {
+      const candidates = filterSlashCommandCandidates([], "桜", true, japanese, undefined, false, [], false, null, frames);
+      expect(candidates).toEqual([
+        expect.objectContaining({ kind: "frameBox", frameBox: expect.objectContaining({ id: "frame_a", frame: frames[0] }) }),
+      ]);
+      expect(getSlashCommandCandidateName(candidates[0])).toBe("/桜の枠");
+    });
+
+    it("offers them only where a box can go, and not on a surface that limits the box styles", () => {
+      expect(filterSlashCommandCandidates([], "桜", false, japanese, undefined, false, [], false, null, frames)).toEqual([]);
+      expect(filterSlashCommandCandidates([], "桜", true, japanese, ["itembox"], false, [], false, null, frames)).toEqual([]);
+      expect(filterSlashCommandCandidates([], "桜", true, japanese, ["custom"], false, [], false, null, frames))
+        .toEqual([expect.objectContaining({ kind: "frameBox" })]);
+    });
+  });
 });

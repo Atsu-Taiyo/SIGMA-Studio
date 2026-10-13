@@ -1422,6 +1422,33 @@ describe("SigmaDoc schema", () => {
     });
   });
 
+  describe("custom box frame", () => {
+    const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="80" height="50" viewBox="0 0 80 50"><rect x="1" y="1" width="78" height="48" fill="none" stroke="#123456"/></svg>';
+    const custom = { svg, width: 80, height: 50, slice: 12, borderPx: 16, paddingPx: 12 };
+    const withBox = (frame: unknown) => ({
+      ...sampleDocument,
+      content: [{
+        type: "boxBlock",
+        id: "box_custom_frame",
+        styleId: "custom",
+        title: [{ type: "text", text: "定理" }],
+        blocks: [{ type: "paragraph", id: "box_custom_frame_p", children: [{ type: "text", text: "本文" }] }],
+        frame,
+      }],
+    });
+
+    it("keeps a box's hand-drawn frame, and the look it had before, through save and reload", () => {
+      const frame = { borderWidthPx: 1.4, borderColor: "#111111", titleColor: "#1f3864", custom };
+      const parsed = parseSigmaDocument(JSON.parse(JSON.stringify(withBox(frame))));
+      expect(parsed.content[0]).toMatchObject({ type: "boxBlock", styleId: "custom", frame });
+    });
+
+    it("rejects a box drawing the problem frame would reject too", () => {
+      expect(() => parseSigmaDocument(withBox({ custom: { ...custom, svg: svg.replace("<rect", "<script>alert(1)</script><rect") } }))).toThrow();
+      expect(() => parseSigmaDocument(withBox({ custom: { ...custom, borderPx: 400 } }))).toThrow();
+    });
+  });
+
   it("rejects negative problem area minimum heights", () => {
     expect(() =>
       parseSigmaDocument({

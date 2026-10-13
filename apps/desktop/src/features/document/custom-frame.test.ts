@@ -8,7 +8,7 @@ import {
   MAX_CUSTOM_FRAME_SVG_LENGTH,
   normalizeFrameSvg,
   readSvgViewBox,
-} from "./problem-custom-frame";
+} from "./custom-frame";
 
 const BASIC = '<svg viewBox="0 0 80 50"><rect x="1" y="1" width="78" height="48" fill="none" stroke="#123456" stroke-width="2"/></svg>';
 

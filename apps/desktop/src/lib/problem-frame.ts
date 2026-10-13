@@ -1,15 +1,14 @@
 import {
-  createCustomFrameGeometry,
-  cropCustomFrameSvg,
   CUSTOM_FRAME_STYLE_ID,
-  normalizeFrameSvg,
   resolveCustomFrameMetrics,
-  type ProblemCustomFrame,
+  type CustomFrame,
   type ProblemFrame,
   type ProblemNode,
   type RichBlock,
   type SigmaBlock,
+  type TikzImageSource,
 } from "@/features/document";
+import { applyCustomFrameDrawing, normalizeCustomFrameInput, type CustomFrameDrawing } from "@/lib/custom-frame";
 
 export const DEFAULT_PROBLEM_FRAME_STYLE_ID = "fancybox";
 
@@ -59,7 +58,7 @@ export function getProblemFrameStyleId(problem: Pick<ProblemNode, "frame">): Pro
     : normalizeProblemFrameStyleId(problem.frame?.styleId);
 }
 
-export function getProblemCustomFrame(problem: Pick<ProblemNode, "frame">): ProblemCustomFrame | undefined {
+export function getProblemCustomFrame(problem: Pick<ProblemNode, "frame">): CustomFrame | undefined {
   return getProblemFrameStyleId(problem) === CUSTOM_FRAME_STYLE_ID ? problem.frame?.custom : undefined;
 }
 
@@ -78,52 +77,6 @@ export function problemFrameClassName(baseClass: string, styleId: string | undef
 
 const PX_TO_MM = 25.4 / 96;
 
-function formatCssLength(px: number, unit: "px" | "mm"): string {
-  const value = unit === "mm" ? px * PX_TO_MM : px;
-  return `${Math.round(value * 1000) / 1000}${unit}`;
-}
-
-function svgDataUrl(svg: string): string {
-  return `url("data:image/svg+xml,${encodeURIComponent(svg)}")`;
-}
-
-const customFrameStyleCache = new WeakMap<ProblemCustomFrame, Map<string, Record<string, string>>>();
-
-/**
- * The inline custom properties the `problem-frame--custom` rules in document-surface.css read.
- * `unit` picks the length unit of the surface: the editor measures in px, print in mm — the same
- * drawing has to land on the same physical size in both.
- *
- * One image is handed over per combination of closed edges, because a frame that continues onto
- * the next column or page must not repeat its top or bottom artwork (see `cropCustomFrameSvg`).
- */
-export function getProblemCustomFrameStyle(
-  custom: ProblemCustomFrame,
-  unit: "px" | "mm",
-): Record<string, string> {
-  const cached = customFrameStyleCache.get(custom)?.get(unit);
-  if (cached) {
-    return cached;
-  }
-  const metrics = resolveCustomFrameMetrics(custom);
-  const svg = typeof custom.svg === "string" ? custom.svg : "";
-  const crop = (top: boolean, bottom: boolean) =>
-    svgDataUrl(cropCustomFrameSvg({ svg, slice: metrics.slice }, { top, bottom }));
-  const style = {
-    "--problem-frame-border": formatCssLength(metrics.borderPx, unit),
-    "--problem-frame-padding": formatCssLength(metrics.paddingPx, unit),
-    "--problem-frame-slice": String(metrics.slice),
-    "--problem-frame-image-closed": crop(true, true),
-    "--problem-frame-image-open-bottom": crop(true, false),
-    "--problem-frame-image-open-top": crop(false, true),
-    "--problem-frame-image-open-both": crop(false, false),
-  };
-  const perUnit = customFrameStyleCache.get(custom) ?? new Map<string, Record<string, string>>();
-  perUnit.set(unit, style);
-  customFrameStyleCache.set(custom, perUnit);
-  return style;
-}
-
 /**
  * A framed area normally gets its border/padding from CSS (`.with-frame` in
  * globals.css) laid out around the real content box. But when the area is split
@@ -136,7 +89,7 @@ export function getProblemCustomFrameStyle(
  */
 export function getProblemFrameChromePaddingPx(
   styleId: string | undefined,
-  custom?: ProblemCustomFrame,
+  custom?: CustomFrame,
 ): { x: number; y: number } {
   if (styleId === CUSTOM_FRAME_STYLE_ID && custom) {
     // The artwork sits in the border, which the overlay piece has to enclose as well.
@@ -163,7 +116,7 @@ export function getProblemFrameChromePaddingPx(
  */
 export function getPrintProblemFrameChromePaddingMm(
   styleId: string | undefined,
-  custom?: ProblemCustomFrame,
+  custom?: CustomFrame,
 ): { x: number; y: number } {
   if (styleId === CUSTOM_FRAME_STYLE_ID && custom) {
     const padding = resolveCustomFrameMetrics(custom).paddingPx * PX_TO_MM;
@@ -189,7 +142,7 @@ export function getPrintProblemFrameChromePaddingMm(
 export function getPrintProblemFrameFragmentChromeHeightMm(
   styleId: string | undefined,
   role: ProblemFrameFragmentRole,
-  custom?: ProblemCustomFrame,
+  custom?: CustomFrame,
 ): number {
   const isCustom = styleId === CUSTOM_FRAME_STYLE_ID && custom !== undefined;
   const paddingY = getPrintProblemFrameChromePaddingMm(styleId, custom).y;
@@ -246,7 +199,7 @@ export function setProblemFrameStyle<T extends SigmaBlock | RichBlock>(block: T,
  * Selecting the user's own drawing keeps every other frame field, and a built-in style chosen
  * later keeps the drawing too, so switching back and forth never loses artwork.
  */
-export function setProblemCustomFrame<T extends SigmaBlock | RichBlock>(block: T, custom: ProblemCustomFrame): T {
+export function setProblemCustomFrame<T extends SigmaBlock | RichBlock>(block: T, custom: CustomFrame): T {
   if (block.type !== "problem") {
     return block;
   }
@@ -265,56 +218,37 @@ export function setProblemCustomFrame<T extends SigmaBlock | RichBlock>(block: T
 /**
  * A finished drawing becomes the problem's frame. The previous frame is read from the block being
  * updated (not from props), so two quick edits never overwrite each other, and the thickness and
- * padding the user already chose survive a new drawing. The corner size carries over only while the
- * drawing keeps the same shape, unless the drawing says which corner size it was made for.
+ * padding the user already chose survive a new drawing (see `applyCustomFrameDrawing`).
  */
 export function applyProblemFrameDrawing<T extends SigmaBlock | RichBlock>(
   block: T,
-  drawing: { svg: string; width: number; height: number },
-  options: { slice?: number; tikz?: ProblemCustomFrame["tikz"] } = {},
+  drawing: CustomFrameDrawing,
+  options: { slice?: number; tikz?: TikzImageSource } = {},
 ): T {
   if (block.type !== "problem") {
     return block;
   }
-  const previous = block.frame?.custom;
-  const sameShape = previous !== undefined
-    && previous.width === drawing.width
-    && previous.height === drawing.height;
-  const geometry = createCustomFrameGeometry(drawing, {
-    borderPx: previous?.borderPx,
-    paddingPx: previous?.paddingPx,
-    slice: options.slice ?? (sameShape ? previous.slice : undefined),
-  });
-  return setProblemCustomFrame(block, { ...geometry, ...(options.tikz ? { tikz: options.tikz } : {}) });
+  return setProblemCustomFrame(block, applyCustomFrameDrawing(block.frame?.custom, drawing, options));
 }
 
 /**
  * Builds a saveable `ProblemFrame` from loosely typed input (an AI tool call, a pasted snippet).
- * The drawing is run through the same normalizer as the settings dialog, so a frame that arrives
- * this way is stored in the one canonical form the document schema accepts; a drawing that cannot
- * be used throws, instead of saving something the file would later refuse to open.
+ * The drawing is normalized like the settings dialog does (`normalizeCustomFrameInput`), so a frame
+ * that arrives this way is stored in the one canonical form the document schema accepts; a drawing
+ * that cannot be used throws, instead of saving something the file would later refuse to open.
  */
 export function normalizeProblemFrameInput(input: Record<string, unknown>): ProblemFrame {
-  const { custom, ...rest } = input;
+  const { custom: rawCustom, ...rest } = input;
   const frame = { ...rest } as ProblemFrame;
-  if (typeof custom !== "object" || custom === null || typeof (custom as { svg?: unknown }).svg !== "string") {
+  const custom = normalizeCustomFrameInput(rawCustom, "frame.custom");
+  if (!custom) {
     delete frame.custom;
     return frame;
   }
-  const source = custom as Record<string, unknown>;
-  const drawing = normalizeFrameSvg(source.svg as string);
-  if (!drawing.ok) {
-    throw new Error(`frame.custom.svg cannot be used as a frame drawing (${drawing.reason})`);
-  }
-  const numberOrUndefined = (value: unknown) => typeof value === "number" && Number.isFinite(value) ? value : undefined;
   return {
     ...frame,
     enabled: frame.enabled ?? true,
     styleId: CUSTOM_FRAME_STYLE_ID,
-    custom: createCustomFrameGeometry(drawing, {
-      slice: numberOrUndefined(source.slice),
-      borderPx: numberOrUndefined(source.borderPx),
-      paddingPx: numberOrUndefined(source.paddingPx),
-    }),
+    custom,
   };
 }

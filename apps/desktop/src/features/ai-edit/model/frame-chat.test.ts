@@ -1,16 +1,16 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  isProblemFrameChatRunning,
-  latestProblemFrameDrawing,
-  problemFrameChatHistory,
-  problemFrameChatKey,
+  isFrameChatRunning,
+  latestFrameChatDrawing,
+  frameChatHistory,
+  frameChatKey,
   splitStreamedFrameReply,
-  type ProblemFrameChatAssistantTurn,
-  type ProblemFrameChatSession,
-} from "./problem-frame-chat";
+  type FrameChatAssistantTurn,
+  type FrameChatSession,
+} from "./frame-chat";
 
-function assistant(patch: Partial<ProblemFrameChatAssistantTurn> = {}): ProblemFrameChatAssistantTurn {
+function assistant(patch: Partial<FrameChatAssistantTurn> = {}): FrameChatAssistantTurn {
   return {
     id: "a1",
     role: "assistant",
@@ -29,14 +29,19 @@ function assistant(patch: Partial<ProblemFrameChatAssistantTurn> = {}): ProblemF
   };
 }
 
-function session(turns: ProblemFrameChatSession["turns"], patch: Partial<ProblemFrameChatSession> = {}): ProblemFrameChatSession {
-  return { key: "k", documentIdentityKey: "d", problemId: "p", turns, runId: null, appliedTurnId: null, ...patch };
+function session(turns: FrameChatSession["turns"], patch: Partial<FrameChatSession> = {}): FrameChatSession {
+  return { key: "k", documentIdentityKey: "d", target: { kind: "problem", id: "p" }, turns, runId: null, appliedTurnId: null, ...patch };
 }
 
-describe("problemFrameChatKey", () => {
+describe("frameChatKey", () => {
   it("keeps two documents' problems with the same id apart", () => {
-    expect(problemFrameChatKey("doc-a", "p1")).not.toBe(problemFrameChatKey("doc-b", "p1"));
-    expect(problemFrameChatKey(undefined, "p1")).toBe(problemFrameChatKey(null, "p1"));
+    const p1 = { kind: "problem", id: "p1" } as const;
+    expect(frameChatKey("doc-a", p1)).not.toBe(frameChatKey("doc-b", p1));
+    expect(frameChatKey(undefined, p1)).toBe(frameChatKey(null, p1));
+  });
+
+  it("keeps a problem's and a box's conversations apart even when their ids match", () => {
+    expect(frameChatKey("doc", { kind: "problem", id: "x" })).not.toBe(frameChatKey("doc", { kind: "box", id: "x" }));
   });
 });
 
@@ -63,22 +68,22 @@ describe("conversation reads", () => {
   const drawing = { svg: "<svg/>", width: 160, height: 100 };
 
   it("finds the latest drawing to rework, and the earlier requests in order", () => {
-    const turns: ProblemFrameChatSession["turns"] = [
+    const turns: FrameChatSession["turns"] = [
       { id: "u1", role: "user", text: "桜", at: 0 },
       assistant({ id: "a1", drawing: { ...drawing, svg: "<svg id='1'/>" } }),
       { id: "u2", role: "user", text: "淡く", at: 1 },
       assistant({ id: "a2", status: "error", error: "x" }),
     ];
-    expect(latestProblemFrameDrawing(session(turns))?.svg).toBe("<svg id='1'/>");
-    expect(latestProblemFrameDrawing(session([]))).toBeNull();
-    expect(latestProblemFrameDrawing(null)).toBeNull();
-    expect(problemFrameChatHistory(session(turns))).toEqual(["桜", "淡く"]);
+    expect(latestFrameChatDrawing(session(turns))?.svg).toBe("<svg id='1'/>");
+    expect(latestFrameChatDrawing(session([]))).toBeNull();
+    expect(latestFrameChatDrawing(null)).toBeNull();
+    expect(frameChatHistory(session(turns))).toEqual(["桜", "淡く"]);
   });
 
   it("is running while a run id is held or a turn is still running", () => {
-    expect(isProblemFrameChatRunning(null)).toBe(false);
-    expect(isProblemFrameChatRunning(session([assistant()]))).toBe(false);
-    expect(isProblemFrameChatRunning(session([assistant({ status: "running" })]))).toBe(true);
-    expect(isProblemFrameChatRunning(session([assistant()], { runId: "r" }))).toBe(true);
+    expect(isFrameChatRunning(null)).toBe(false);
+    expect(isFrameChatRunning(session([assistant()]))).toBe(false);
+    expect(isFrameChatRunning(session([assistant({ status: "running" })]))).toBe(true);
+    expect(isFrameChatRunning(session([assistant()], { runId: "r" }))).toBe(true);
   });
 });

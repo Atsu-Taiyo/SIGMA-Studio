@@ -75,23 +75,23 @@ test("the AI frame chat keeps drawing after the dialog is closed, tells when it 
     await openProblemSettings();
     await page.getByTestId("problem-frame-new").click();
     await settings.getByRole("tab", { name: "AIで描く" }).click();
-    await expect(settings.getByTestId("problem-custom-frame-ai-greeting")).toContainText("どんな枠線にしますか？");
+    await expect(settings.getByTestId("custom-frame-ai-greeting")).toContainText("どんな枠線にしますか？");
 
     // 2. Answering in the chat input sends it; the thinking and the reply stream in.
-    await settings.getByTestId("problem-custom-frame-ai-prompt").fill("赤紫の細い枠");
-    await settings.getByTestId("problem-custom-frame-ai-prompt").press("Enter");
-    await expect(settings.getByTestId("problem-custom-frame-ai-log")).toContainText("赤紫の細い枠");
-    await expect(settings.getByTestId("problem-custom-frame-ai-reasoning")).toContainText("四隅に小さな花びらを置き、");
-    await expect(settings.getByTestId("problem-custom-frame-ai-reasoning")).toContainText("辺は単純な直線にします。");
-    await expect(settings.getByTestId("problem-custom-frame-ai-log")).toContainText("赤紫の細い枠にしました。");
-    await expect(settings.getByTestId("problem-custom-frame-ai-stop")).toBeVisible();
+    await settings.getByTestId("custom-frame-ai-prompt").fill("赤紫の細い枠");
+    await settings.getByTestId("custom-frame-ai-prompt").press("Enter");
+    await expect(settings.getByTestId("custom-frame-ai-log")).toContainText("赤紫の細い枠");
+    await expect(settings.getByTestId("custom-frame-ai-reasoning")).toContainText("四隅に小さな花びらを置き、");
+    await expect(settings.getByTestId("custom-frame-ai-reasoning")).toContainText("辺は単純な直線にします。");
+    await expect(settings.getByTestId("custom-frame-ai-log")).toContainText("赤紫の細い枠にしました。");
+    await expect(settings.getByTestId("custom-frame-ai-stop")).toBeVisible();
 
     // 3. Closing the dialog does not stop it.
     await settings.getByRole("button", { name: "閉じる" }).click();
     await expect(settings).toBeHidden();
     await expect.poll(() => app.evaluate(() => (globalThis as { __frameAiCalls?: unknown[] }).__frameAiCalls?.length)).toBe(1);
     // Work in progress stays visible, with a way to stop it, while nobody has the conversation open.
-    const busy = page.getByTestId("problem-custom-frame-ai-busy");
+    const busy = page.getByTestId("custom-frame-ai-busy");
     await expect(busy).toBeVisible();
 
     // 4. When it is done, a dialog says so, with the frame on show. The problem is not touched yet.
@@ -103,7 +103,7 @@ test("the AI frame chat keeps drawing after the dialog is closed, tells when it 
     await expect(prompt).not.toHaveClass(/problem-frame--custom/);
 
     // 5. Using it puts it on the problem, and the real bridge saves it with the file.
-    await notice.getByTestId("problem-custom-frame-ai-notice-use").click();
+    await notice.getByTestId("custom-frame-ai-notice-use").click();
     await expect(notice).toBeHidden();
     await expect(prompt).toHaveClass(/problem-frame--custom/);
     await expect.poll(async () => {
@@ -115,21 +115,21 @@ test("the AI frame chat keeps drawing after the dialog is closed, tells when it 
     // 6. The conversation is still there when the dialog is opened again, and says which frame is in use.
     await openProblemSettings();
     await settings.getByRole("tab", { name: "AIで描く" }).click();
-    await expect(settings.getByTestId("problem-custom-frame-ai-log")).toContainText("赤紫の細い枠");
-    await expect(settings.getByTestId("problem-custom-frame-ai-in-use")).toBeVisible();
+    await expect(settings.getByTestId("custom-frame-ai-log")).toContainText("赤紫の細い枠");
+    await expect(settings.getByTestId("custom-frame-ai-in-use")).toBeVisible();
 
     // 7. A follow-up reworks that drawing and sends the earlier request along.
-    await settings.getByTestId("problem-custom-frame-ai-prompt").fill("もっと細く");
-    await settings.getByTestId("problem-custom-frame-ai-generate").click();
+    await settings.getByTestId("custom-frame-ai-prompt").fill("もっと細く");
+    await settings.getByTestId("custom-frame-ai-generate").click();
     await expect.poll(() => app.evaluate(() => (globalThis as { __frameAiCalls?: unknown[] }).__frameAiCalls?.length)).toBe(2);
     const calls = await app.evaluate(() => (globalThis as { __frameAiCalls?: Array<{ prompt: string; purpose: string; context: { currentContent: string; history: string[] } }> }).__frameAiCalls);
-    expect(calls?.[1]).toMatchObject({ prompt: "もっと細く", purpose: "problemFrame", context: { history: ["赤紫の細い枠"] } });
+    expect(calls?.[1]).toMatchObject({ prompt: "もっと細く", purpose: "frameDrawing", context: { history: ["赤紫の細い枠"] } });
     expect(calls?.[1].context.currentContent).toContain("<svg");
     // ...and while the dialog is open, the new drawing lands on the problem without a notice:
     // the latest one is the frame in use, the earlier one can be taken again.
-    await expect(settings.getByTestId("problem-custom-frame-ai-drawing")).toHaveCount(2, { timeout: 15_000 });
-    await expect(settings.getByTestId("problem-custom-frame-ai-in-use")).toHaveCount(1);
-    await expect(settings.getByTestId("problem-custom-frame-ai-use")).toHaveCount(1);
+    await expect(settings.getByTestId("custom-frame-ai-drawing")).toHaveCount(2, { timeout: 15_000 });
+    await expect(settings.getByTestId("custom-frame-ai-in-use")).toHaveCount(1);
+    await expect(settings.getByTestId("custom-frame-ai-use")).toHaveCount(1);
     await expect(page.getByRole("dialog", { name: "枠を描き終えました" })).toBeHidden();
   } finally {
     await app.close();

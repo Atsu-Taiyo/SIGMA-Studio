@@ -7,7 +7,7 @@ import { spawnCliProcess } from "./cli-spawn";
 import { buildCodexChildEnv, type CodexAppServerClient } from "./codex-app-server-client";
 import type { ClaudeStreamClient } from "./claude-stream-client";
 import type { GeminiHeadlessClient } from "./gemini-headless-client";
-import { AI_FRAME_DRAWING, normalizeFrameSvg } from "@/features/document/problem-custom-frame";
+import { AI_FRAME_DRAWING, normalizeFrameSvg } from "@/features/document/custom-frame";
 import { parseSkillFile, SKILL_CONTENT_MAX_LENGTH } from "@/lib/ai/skill-frontmatter";
 import type { AiProvider } from "@/lib/ai/ai-providers";
 import { createCurrentLocaleTranslator } from "@/lib/i18n";
@@ -38,12 +38,15 @@ const ta = createCurrentLocaleTranslator("ai");
 // cancelAiSkillDraftCodexRun()をmain.tsのキャンセル分岐から呼べるようexportする。
 
 export const AI_SKILL_DRAFT_TIMEOUT_MS = 120_000;
+
+/** 枠を描く相手。描く絵の仕組みは同じで、AI への説明の言い方だけが違う。 */
+export type FrameDrawingTarget = "problem" | "box";
 /**
  * A frame is drawn in the background while the reader does something else, often with a thinking
  * model (Antigravity's Flash at high effort took over 90 s). Longer than the skill draft, which
  * someone is waiting on.
  */
-export const AI_PROBLEM_FRAME_TIMEOUT_MS = 300_000;
+export const AI_FRAME_DRAWING_TIMEOUT_MS = 300_000;
 
 export interface AiSkillDraftContext {
   title: string;
@@ -51,7 +54,7 @@ export interface AiSkillDraftContext {
   /** 既存のスキル本文。空文字なら新規作成として扱う。 */
   currentContent: string;
   /**
-   * `problemFrame` のチャットで、これまでにユーザーが出した要望 (古い順)。会話そのものは
+   * `frameDrawing` のチャットで、これまでにユーザーが出した要望 (古い順)。会話そのものは
    * プロバイダ側に持たせず (呼び出しごとに新しい一回きりの実行)、必要な文脈だけをこの形で渡す。
    */
   history?: string[];
@@ -63,11 +66,13 @@ export interface AiSkillDraftRequest {
   prompt: string;
   context: AiSkillDraftContext;
   /**
-   * 何を下書きするか。省略はスキル本文。`problemFrame` は問題の枠線の絵 (SVG 1枚) で、
+   * 何を下書きするか。省略はスキル本文。`frameDrawing` は問題・箱の枠線の絵 (SVG 1枚) で、
    * 「ツールなし・一回きり」という呼び出しの形がそのまま使えるので同じ経路に乗せる。
    * このとき `context.currentContent` は改訂元の SVG。
    */
-  purpose?: "skill" | "problemFrame";
+  purpose?: "skill" | "frameDrawing";
+  /** `frameDrawing`: 何の枠か。依頼文の言い方だけが変わる。省略は問題。 */
+  frameTarget?: FrameDrawingTarget;
   /**
    * 使うモデル。省略時は各プロバイダの既定。呼び出し側 (UI) が「AI設定で選んだモデル」を渡し、
    * 画面に出した名前と実際に走るモデルを一致させる。
@@ -81,13 +86,13 @@ export type AiSkillDraftResult =
   | {
       ok: true;
       text: string;
-      /** `problemFrame`: SVG に添えて返ってきた一言 (どんな枠にしたか)。無ければ含めない。 */
+      /** `frameDrawing`: SVG に添えて返ってきた一言 (どんな枠にしたか)。無ければ含めない。 */
       message?: string;
     }
   | {
       ok: false;
       error: string;
-      /** `problemFrame`: 絵は無かったが、モデルが文章で返した内容 (会話として見せる)。 */
+      /** `frameDrawing`: 絵は無かったが、モデルが文章で返した内容 (会話として見せる)。 */
       message?: string;
     };
 
@@ -124,9 +129,9 @@ export async function generateAiSkillDraft(
 
   const model = request.model?.trim() || undefined;
   const reasoningEffort = normalizeReasoningEffort(request.reasoningEffort);
-  const isProblemFrame = request.purpose === "problemFrame";
-  const fullPrompt = isProblemFrame
-    ? buildProblemFrameDrawingPrompt(userPrompt, request.context.currentContent, request.context.history)
+  const isFrameDrawing = request.purpose === "frameDrawing";
+  const fullPrompt = isFrameDrawing
+    ? buildFrameDrawingPrompt(userPrompt, request.context.currentContent, request.context.history, request.frameTarget)
     : buildSkillDraftPrompt(userPrompt, request.context);
   // Thinking and live streaming are for the frame chat, which shows them. The skill editor keeps its
   // one-shot call as it was: it only appends the reply, and asking the CLIs for more would change
@@ -135,8 +140,8 @@ export async function generateAiSkillDraft(
     model,
     reasoningEffort,
     onDelta,
-    timeoutMs: isProblemFrame ? AI_PROBLEM_FRAME_TIMEOUT_MS : AI_SKILL_DRAFT_TIMEOUT_MS,
-    ...(isProblemFrame ? { onReasoning, streamOutput: true } : {}),
+    timeoutMs: isFrameDrawing ? AI_FRAME_DRAWING_TIMEOUT_MS : AI_SKILL_DRAFT_TIMEOUT_MS,
+    ...(isFrameDrawing ? { onReasoning, streamOutput: true } : {}),
   };
 
   try {
@@ -145,8 +150,8 @@ export async function generateAiSkillDraft(
       : request.provider === "antigravity"
       ? generateWithGemini(deps.geminiSkillDraft, fullPrompt, runId, options)
       : generateWithCodex(deps.codex, fullPrompt, runId, options));
-    const text = isProblemFrame ? sanitizeProblemFrameDrawing(rawText) : sanitizeSkillDraftText(rawText);
-    const message = isProblemFrame ? extractProblemFrameReplyMessage(rawText) : "";
+    const text = isFrameDrawing ? sanitizeFrameDrawing(rawText) : sanitizeSkillDraftText(rawText);
+    const message = isFrameDrawing ? extractFrameReplyMessage(rawText) : "";
     if (!text) {
       return {
         ok: false,
@@ -201,21 +206,37 @@ export function buildSkillDraftPrompt(userPrompt: string, context: AiSkillDraftC
   return sections.join("\n");
 }
 
-const PROBLEM_FRAME_HISTORY_LIMIT = 8;
-const PROBLEM_FRAME_HISTORY_ITEM_MAX_LENGTH = 400;
+const FRAME_DRAWING_HISTORY_LIMIT = 8;
+const FRAME_DRAWING_HISTORY_ITEM_MAX_LENGTH = 400;
 
-export function buildProblemFrameDrawingPrompt(userPrompt: string, currentSvg: string, history: readonly string[] = []): string {
+const FRAME_DRAWING_SUBJECTS: Record<FrameDrawingTarget, { encloses: string; size: string; extra: string[] }> = {
+  problem: { encloses: "問題を囲む枠線", size: "問題", extra: [] },
+  box: {
+    encloses: "教材の囲み記事 (タイトル付きの箱) を囲む枠線",
+    size: "箱",
+    extra: ["- 箱のタイトルは、アプリが枠の内側の先頭行に文字で入れます。絵に見出しの帯・欄やタイトルの文字は描かないでください。"],
+  },
+};
+
+export function buildFrameDrawingPrompt(
+  userPrompt: string,
+  currentSvg: string,
+  history: readonly string[] = [],
+  target: FrameDrawingTarget = "problem",
+): string {
   const { width, height, slice } = AI_FRAME_DRAWING;
+  const subject = FRAME_DRAWING_SUBJECTS[target] ?? FRAME_DRAWING_SUBJECTS.problem;
   const sections = [
-    "あなたは数学教材エディタ「Sigma Studio」で、問題を囲む枠線の絵をSVGで描くアシスタントです。",
+    `あなたは数学教材エディタ「Sigma Studio」で、${subject.encloses}の絵をSVGで描くアシスタントです。`,
     "",
     "## 枠線の仕組み (必ず守ってください)",
     `- キャンバスは viewBox="0 0 ${width} ${height}" の長方形です。ルート要素は <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${width} ${height}"> にしてください。`,
-    `- アプリはこの絵を縦横3×3の9つに切り、四隅(各 ${slice}×${slice})は形を保ったまま、四辺は問題の大きさに合わせて引き伸ばして使います。中央は文章が入るので何も描かないでください。`,
+    `- アプリはこの絵を縦横3×3の9つに切り、四隅(各 ${slice}×${slice})は形を保ったまま、四辺は${subject.size}の大きさに合わせて引き伸ばして使います。中央は文章が入るので何も描かないでください。`,
     `- したがって、飾りは四隅の ${slice}×${slice} の中に収めてください。四辺(隅と隅のあいだ)は、端から端まで届く単純な直線や帯だけにしてください。点線・模様・文字を辺に描くと、引き伸ばされて崩れます。`,
     "- 背景は透明にしてください(背景の塗りつぶしは描かない)。紙に印刷されるので、読みやすさを損なわない落ち着いた色を選んでください。",
     "- 文字(<text>)、画像、外部ファイルの参照、スクリプト、フィルター、フォントは使わないでください。図形(path, rect, circle, line, polygon)と単色・線形グラデーションだけを使ってください。",
     "- 枠の外周を線が切れないよう、線は viewBox の内側(端から線幅の半分以上内側)に描いてください。",
+    ...subject.extra,
   ];
   if (currentSvg.trim()) {
     sections.push(
@@ -227,9 +248,9 @@ export function buildProblemFrameDrawingPrompt(userPrompt: string, currentSvg: s
     );
   }
   const earlier = history
-    .map((entry) => entry.trim().slice(0, PROBLEM_FRAME_HISTORY_ITEM_MAX_LENGTH))
+    .map((entry) => entry.trim().slice(0, FRAME_DRAWING_HISTORY_ITEM_MAX_LENGTH))
     .filter(Boolean)
-    .slice(-PROBLEM_FRAME_HISTORY_LIMIT);
+    .slice(-FRAME_DRAWING_HISTORY_LIMIT);
   if (earlier.length > 0) {
     sections.push(
       "",
@@ -251,13 +272,13 @@ export function buildProblemFrameDrawingPrompt(userPrompt: string, currentSvg: s
   return sections.join("\n");
 }
 
-const PROBLEM_FRAME_REPLY_MESSAGE_MAX_LENGTH = 400;
+const FRAME_REPLY_MESSAGE_MAX_LENGTH = 400;
 
 /**
  * モデルの返答から、SVG の前後に添えられた文章だけを取り出す (チャットの吹き出し用)。
  * コードフェンスの記号は落とす。SVG が無ければ返答全体が文章。
  */
-export function extractProblemFrameReplyMessage(raw: string): string {
+export function extractFrameReplyMessage(raw: string): string {
   const start = raw.search(/<svg[\s>]/i);
   const closeIndex = raw.toLowerCase().lastIndexOf("</svg>");
   const outside = start < 0
@@ -268,7 +289,7 @@ export function extractProblemFrameReplyMessage(raw: string): string {
     .replace(/\r\n/g, "\n")
     .replace(/\n{3,}/g, "\n\n")
     .trim()
-    .slice(0, PROBLEM_FRAME_REPLY_MESSAGE_MAX_LENGTH);
+    .slice(0, FRAME_REPLY_MESSAGE_MAX_LENGTH);
 }
 
 const REASONING_EFFORT_PATTERN = /^[a-z][a-z0-9_-]{1,15}$/;
@@ -279,7 +300,7 @@ function normalizeReasoningEffort(value: string | undefined): string | undefined
 }
 
 /** モデルの出力から SVG 1枚だけを取り出す。描けていなければ空文字。 */
-export function sanitizeProblemFrameDrawing(raw: string): string {
+export function sanitizeFrameDrawing(raw: string): string {
   const result = normalizeFrameSvg(raw);
   return result.ok ? result.svg : "";
 }
