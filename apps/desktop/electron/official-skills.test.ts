@@ -1,23 +1,36 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import { describe, expect, it } from "vitest";
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
+import { beforeAll, describe, expect, it } from "vitest";
 
 import { validateAiSvg } from "@/lib/ai/svg-image";
 import { parseSkillFile, SKILL_CONTENT_MAX_LENGTH } from "@/lib/ai/skill-frontmatter";
-import { MCP_TOOL_CATEGORY_MAP } from "@/lib/ai/mcp-tool-categories";
 import { APP_BODY_TOOL_ROUTES } from "@/lib/ai/mcp-tool-profile";
 
+import { createSigmaDocMcpServer } from "../mcp/sigma-doc-mcp-server-core";
 import { OFFICIAL_SKILL_DEFINITIONS } from "./ai-resource-store";
 
 const SKILLS_ROOT = path.join(__dirname, "official-skills");
 
-/** 現在のアプリ内AI(app profile)が使えるツール名。本文編集の8入口は4入口へ置き換わる。 */
+/** app profile では本文編集の8入口が4入口へ置き換わり、tools/list に出ない。 */
 const LEGACY_BODY_TOOL_NAMES = Object.keys(APP_BODY_TOOL_ROUTES);
-const APP_BODY_TOOL_NAMES = Object.values(APP_BODY_TOOL_ROUTES).map((route) => route.name);
-const KNOWN_TOOL_NAMES = new Set<string>([
-  ...Object.values(MCP_TOOL_CATEGORY_MAP).flat().filter((name) => !LEGACY_BODY_TOOL_NAMES.includes(name)),
-  ...APP_BODY_TOOL_NAMES,
-]);
+/** 現在のアプリ内AI(app profile)が使えるツール名。実際のMCPサーバーの tools/list から読む。 */
+const KNOWN_TOOL_NAMES = new Set<string>();
+
+beforeAll(async () => {
+  const server = createSigmaDocMcpServer({ toolProfile: "app" });
+  const client = new Client({ name: "official-skills-test", version: "0.0.0" });
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+  try {
+    for (const tool of (await client.listTools()).tools) {
+      KNOWN_TOOL_NAMES.add(tool.name);
+    }
+  } finally {
+    await client.close();
+  }
+});
 /** ツール名ではないが、snake_case に見える語（操作名・返値の項目・例に使うID）。 */
 const COMMON_SNAKE_WORDS = new Set([
   "expected_revision", "file_id", "run_id", "target_id", "write_mode",
