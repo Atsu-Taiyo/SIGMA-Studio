@@ -307,11 +307,32 @@ function buildCapturePageScript(
 
       function collectAbsoluteCss() {
         const parts = [];
+        const fontFaces = new Map();
         for (const sheet of Array.from(document.styleSheets)) {
           const base = sheet.href || document.baseURI;
           try {
             for (const rule of Array.from(sheet.cssRules)) {
-              parts.push(absolutizeCssUrls(rule.cssText, base));
+              const cssText = absolutizeCssUrls(rule.cssText, base);
+              // KaTeX and MathLive declare the same faces. In Chromium's detached
+              // print document, duplicate faces can omit glyphs even after fonts.ready.
+              // Keep the last declaration only when its descriptors AND primary font
+              // URL match; distinct unicode subsets, metrics and fallback fonts survive.
+              if (rule.type === CSSRule.FONT_FACE_RULE) {
+                const source = absolutizeCssUrls(rule.style.getPropertyValue("src"), base);
+                const primaryUrl = source.match(/url\\([^)]*\\)/)?.[0];
+                if (primaryUrl) {
+                  const descriptors = [
+                    "font-family", "font-style", "font-weight", "font-stretch", "unicode-range",
+                    "font-feature-settings", "font-variation-settings", "font-named-instance",
+                    "size-adjust", "ascent-override", "descent-override", "line-gap-override",
+                  ].map((name) => rule.style.getPropertyValue(name));
+                  const key = JSON.stringify([descriptors, primaryUrl]);
+                  const previous = fontFaces.get(key);
+                  if (previous !== undefined) parts[previous] = "";
+                  fontFaces.set(key, parts.length);
+                }
+              }
+              parts.push(cssText);
             }
           } catch {
             /* skip unreadable sheets */

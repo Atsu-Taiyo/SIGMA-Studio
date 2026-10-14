@@ -1,5 +1,6 @@
 import { PDFDocument } from "pdf-lib";
 import { BrowserWindow } from "electron";
+import { JSDOM } from "jsdom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
@@ -142,6 +143,64 @@ describe("file:export-pdf", () => {
     const parsed = await PDFDocument.load(written);
     expect(parsed.getPageCount()).toBe(2);
     expect(mocks.writeFile).toHaveBeenCalledWith("/Users/test/Downloads/教材.pdf", expect.any(Buffer));
+  });
+
+  it("captures duplicate font faces once while preserving subsets, weights, metrics and different sources", async () => {
+    const dom = new JSDOM(`
+      <div class="paged-surface" data-paged-surface-id="${B5.surfaceId}" data-paged-surface-state="ready"
+        data-paged-surface-revision="${B5.revision}" data-paged-surface-page-count="2"
+        data-paged-surface-page-width-mm="${B5.pageWidthMm}" data-paged-surface-page-height-mm="${B5.pageHeightMm}">
+        <div class="paged-surface-pages">
+          <div class="paged-surface-page-slot"><div class="paged-surface-page">one</div></div>
+          <div class="paged-surface-page-slot"><div class="paged-surface-page">two</div></div>
+        </div>
+      </div>
+    `, { url: "https://sigma.test/app/", runScripts: "outside-only" });
+    // jsdom's CSS parser does not retain all @font-face descriptors in Vitest.
+    // Supply the browser CSSOM shape while evaluating the actual capture script.
+    const declarations: Array<Record<string, string>> = [
+      { "font-family": "Math", "font-weight": "400", src: "url(font.woff2), url(font.woff)", "font-display": "block" },
+      { "font-family": "Math", "font-weight": "400", src: "url(font.woff2)" },
+      { "font-family": "Math", "font-weight": "700", src: "url(font.woff2)" },
+      { "font-family": "Math", "font-weight": "400", src: "url(font.woff2)", "unicode-range": "U+30-39" },
+      { "font-family": "Math", "font-weight": "400", src: "url(font.woff2)", "size-adjust": "110%" },
+      { "font-family": "Math", "font-weight": "400", src: "url(other.woff2)" },
+    ];
+    const rules = declarations.map(declaration => ({
+      type: dom.window.CSSRule.FONT_FACE_RULE,
+      cssText: "@font-face { " + Object.entries(declaration).map(([name, value]) => `${name}: ${value};`).join(" ") + " }",
+      style: { getPropertyValue: (name: string) => declaration[name] ?? "" },
+    }));
+    Object.defineProperty(dom.window.document, "styleSheets", { value: [{
+      cssRules: [...rules, { type: dom.window.CSSRule.STYLE_RULE, cssText: ".paper { color: black; }" }],
+    }] });
+    const captures: string[] = [];
+    mocks.executeJavaScript.mockImplementation(async (script: string) => {
+      const result = await dom.window.eval(script) as { documentHtml?: string };
+      if (result.documentHtml) captures.push(result.documentHtml);
+      return result;
+    });
+    mocks.printToPDF.mockResolvedValue(await createPdf(1, B5.pageWidthMm, B5.pageHeightMm));
+    mocks.showSaveDialog.mockResolvedValue({ canceled: false, filePath: "/Downloads/math.pdf" });
+    try {
+      registerFileIpc({ getMainWindow: () => null });
+      await mocks.handlers.get("file:export-pdf")!({ sender }, B5);
+      expect(captures).toHaveLength(2);
+      for (const html of captures) {
+        expect(html.match(/@font-face/g)).toHaveLength(5);
+        expect(html).not.toContain("font-display: block");
+        expect(html).toContain("https://sigma.test/app/font.woff2");
+        expect(html).toContain("https://sigma.test/app/other.woff2");
+        expect(html).toContain("unicode-range: U+30-39");
+        expect(html).toContain("size-adjust: 110%");
+        expect(html).toContain("font-weight: 700");
+        expect(html).toContain(".paper");
+      }
+      // Capturing the output must not mutate the preview's own font definitions.
+      expect(dom.window.document.styleSheets[0].cssRules).toHaveLength(7);
+    } finally {
+      dom.window.close();
+    }
   });
 
   it("does not render or write when the save dialog is cancelled", async () => {
