@@ -135,7 +135,8 @@ describe("PowerPoint import", () => {
     const model = await new PptxHandler().load(Uint8Array.from(bytes).buffer);
     const sourceTable = model.slides[0]!.elements.find(element => element.type === "table")!;
     for (const row of sourceTable.tableData!.rows) {
-      for (const cell of row.cells) cell.style = { ...cell.style, align };
+      // Inject external alignment values that the parser's declared type omits.
+      for (const cell of row.cells) Reflect.set(cell.style ??= {}, "align", align);
     }
     vi.spyOn(PptxHandler.prototype, "load").mockResolvedValue(model);
     const document = await importPptx(bytes, "alignment.pptx", { visualRenderer: "none" });
