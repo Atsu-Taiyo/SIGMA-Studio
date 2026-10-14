@@ -1,6 +1,5 @@
 "use client";
 import { useEffect, useState } from "react";
-import Image from "next/image";
 import { Building2 } from "lucide-react";
 import { useT } from "@/lib/i18n/react";
 import { getOfficialPluginBridge, type OfficialOrganization } from "./plugin-ui-contract";
@@ -13,7 +12,9 @@ export function OrganizationMembershipDisplay({ organizations, compact = false }
   return <span className={styles.list}>
     {visible.map(group => <span key={group.id} className={styles.badge} role="group" aria-label={t("organizations.membership", { name: group.name })} title={t("organizations.membership", { name: group.name })}>
       {group.logoUrl && /^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/]+=*$/u.test(group.logoUrl)
-        ? <Image className={styles.logo} src={group.logoUrl} alt="" width={20} height={20} unoptimized referrerPolicy="no-referrer" />
+        // Host-verified raster data needs no Next.js runtime in the public editor.
+        // eslint-disable-next-line @next/next/no-img-element
+        ? <img className={styles.logo} src={group.logoUrl} alt="" width={20} height={20} decoding="async" referrerPolicy="no-referrer" />
         : <Building2 size={16} aria-hidden="true" />}
       <span className={styles.name}>{group.name}</span>
     </span>)}

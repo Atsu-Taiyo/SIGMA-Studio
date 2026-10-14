@@ -8,7 +8,7 @@ export const settings = {
     roleRequired: "You do not have permission to use this plugin. Contact the administrator.",
     fonts: "Included fonts ({{count}} faces)",
     title: "Official plugins", description: "Add features to use on this computer.",
-    keywords: "plugins extensions プラグイン 拡張機能", check: "Check for updates", add: "Add", update: "Update",
+    keywords: "plugins extensions", check: "Check for updates", add: "Add", update: "Update",
     autoUpdate: "Automatic updates", autoUpdateDescription: "Automatically update installed plugins.",
     unavailable: "Plugins are unavailable in this app.", login: "Sign in to download plugins.",
     loading: "Loading plugins…", empty: "No plugins are available.", installed: "Installed: {{version}}", notInstalled: "Not installed",
