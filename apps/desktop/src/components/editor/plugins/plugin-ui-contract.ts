@@ -10,6 +10,12 @@ export interface OfficialPluginRow {
   authorized?: boolean;
   fonts?: string[];
 }
+export interface OfficialOrganization {
+  id: string;
+  name: string;
+  /** Verified raster image supplied by the privileged host. */
+  logoUrl?: string | null;
+}
 export interface OfficialPluginStatus {
   available: boolean;
   requiresLogin: boolean;
@@ -17,6 +23,7 @@ export interface OfficialPluginStatus {
   autoUpdate: boolean;
   phase: "idle" | "checking" | "installing";
   plugins: OfficialPluginRow[];
+  organizations?: OfficialOrganization[];
   error?: "unavailable" | "unauthorized" | "forbidden" | "incompatible" | "verification-failed" | "busy";
 }
 export interface OfficialPluginBridge {

@@ -3,6 +3,7 @@ import type { TranslationsOf } from "../types";
 
 /** 対応する日本語 namespace と同時に埋める。詳細は `../ja/settings.ts` を参照。 */
 export const settings = {
+  organizations: { title: "Your organizations", membership: "Member of {{name}}", more: "{{count}} more organizations" },
   plugins: {
     roleRequired: "You do not have permission to use this plugin. Contact the administrator.",
     fonts: "Included fonts ({{count}} faces)",

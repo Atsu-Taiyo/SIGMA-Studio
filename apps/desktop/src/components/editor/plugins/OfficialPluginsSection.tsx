@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/Button";
 import { Inline, Stack } from "@/components/ui/layout";
 import { SettingsRow, SettingsSection, SettingsStatus, Switch } from "@/components/ui/settings";
 import { useT } from "@/lib/i18n/react";
+import { OrganizationMembershipDisplay } from "./OrganizationMembershipBadge";
 import { getOfficialPluginBridge, type OfficialPluginStatus } from "./plugin-ui-contract";
 
 export function OfficialPluginsSection({ onFontsChanged }: { onFontsChanged?: () => void }) {
@@ -45,6 +46,7 @@ export function OfficialPluginsSection({ onFontsChanged }: { onFontsChanged?: ()
         <RefreshCw size={14} />{t("plugins.check")}
       </Button>}>
       {unavailable ? <SettingsStatus>{t("plugins.unavailable")}</SettingsStatus> : <Stack gap="md">
+        {!status?.requiresLogin && status?.organizations && status.organizations.length > 0 && <SettingsRow label={t("organizations.title")} control={<OrganizationMembershipDisplay organizations={status.organizations} />} />}
         <SettingsRow label={t("plugins.autoUpdate")} description={t("plugins.autoUpdateDescription")}
           control={<Switch label={t("plugins.autoUpdate")} checked={status?.autoUpdate ?? false} disabled={busy || !status}
             onCheckedChange={value => { if (bridge) void run(() => bridge.setAutoUpdate(value)); }} />} />

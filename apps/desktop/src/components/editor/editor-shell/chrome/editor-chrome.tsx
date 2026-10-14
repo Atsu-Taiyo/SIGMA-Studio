@@ -10,6 +10,7 @@
 // つまり「1関数・1 render pass で全部作る」ことが緑の条件で、共有はサブ関数ではなく
 // **ローカル const** で行います。WI-4 のリボンも同じ制約に従ってください。
 
+import { OrganizationMembershipBadge } from "@/components/editor/plugins/OrganizationMembershipBadge";
 import { ColorPalette } from "@/components/editor/ColorPalette";
 import { DocumentTabSaveDot, SaveStatusBadge } from "@/components/editor/editor-shell/SaveStatusIndicators";
 import { InlineMathDetails } from "@/components/editor/EditorSettings";
@@ -544,6 +545,7 @@ export function renderEditorChrome(chrome: EditorChromeValue) {
             <Building2 size={15} />
             <span>{t("actions.workspace")}</span>
           </button>
+          <OrganizationMembershipBadge />
           {chrome.shared.accountAction}
           {chrome.shared.rightDockToggle}
         </>}
@@ -692,6 +694,7 @@ export function renderEditorChrome(chrome: EditorChromeValue) {
             <Building2 size={15} />
             <span>{t("actions.workspace")}</span>
           </button>
+          <OrganizationMembershipBadge />
           {chrome.shared.accountAction}
           {chrome.shared.rightDockToggle}
         </div>

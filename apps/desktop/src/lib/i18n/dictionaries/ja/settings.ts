@@ -1,5 +1,6 @@
 /** WI-3 が本格的に埋める namespace。WI-1 は言語切り替え行の文言だけを置く。 */
 export const settings = {
+  organizations: { title: "所属団体", membership: "{{name}}に所属", more: "ほか{{count}}団体" },
   plugins: {
     roleRequired: "このプラグインを使う権限がありません。管理者に確認してください。",
     fonts: "付属フォント（{{count}}書体）",
