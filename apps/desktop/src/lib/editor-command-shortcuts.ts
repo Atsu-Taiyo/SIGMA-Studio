@@ -242,6 +242,7 @@ export const EDITOR_COMMAND_SHORTCUTS: readonly EditorCommandShortcutDefinition[
   { id: "overlay.line.solid", categoryId: "shapeStyle", defaultBinding: null },
   { id: "overlay.line.dashed", categoryId: "shapeStyle", defaultBinding: null },
   { id: "overlay.line.dotted", categoryId: "shapeStyle", defaultBinding: null },
+  { id: "overlay.line.width.xs", categoryId: "shapeStyle", defaultBinding: null },
   { id: "overlay.line.width.s", categoryId: "shapeStyle", defaultBinding: null },
   { id: "overlay.line.width.m", categoryId: "shapeStyle", defaultBinding: null },
   { id: "overlay.line.width.l", categoryId: "shapeStyle", defaultBinding: null },

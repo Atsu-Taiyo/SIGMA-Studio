@@ -430,6 +430,7 @@ function CustomCommandValueField({
         value={value}
         onChange={onValueChange}
         options={[
+          { value: "xs", label: t("commands.value.widthXs") },
           { value: "s", label: t("commands.value.widthS") },
           { value: "m", label: t("commands.value.widthM") },
           { value: "l", label: t("commands.value.widthL") },

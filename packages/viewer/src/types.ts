@@ -1504,7 +1504,7 @@ export type OverlayExtensionValue = null | boolean | number | string | readonly 
 
 export type OverlayExtensions = Record<string, OverlayExtensionValue>;
 
-export type OverlayTextSize = "s" | "m" | "l" | "xl";
+export type OverlayTextSize = "xs" | "s" | "m" | "l" | "xl";
 
 export type OverlayRegularPolygonSides = 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12;
 

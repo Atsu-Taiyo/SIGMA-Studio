@@ -48,3 +48,4 @@ export * from "./shape-transform";
 export * from "./snapping";
 export * from "./solid-geometry";
 export * from "./svg-to-shapes";
+export type { SvgMarkerDefinition, SvgMarkerLookup, SvgMarkerPrimitive } from "./svg-markers";

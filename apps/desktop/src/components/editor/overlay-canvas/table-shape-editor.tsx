@@ -233,9 +233,9 @@ function buildTableAlignOptions(t: Translate<"chrome">): OverlayTextAlignOption<
   ];
 }
 
-// 罫線の太さは上部メニューバーの線幅（細/中/太/極太）と同じドロップダウンを使うため、
+// 罫線の太さは上部メニューバーの線幅（極細/細/中/太/極太）と同じドロップダウンを使うため、
 // テーブル側の px 値と OverlayTextSize を相互変換する。
-const TABLE_BORDER_WIDTH_BY_SIZE: Record<OverlayTextSize, number> = { s: 1, m: 2, l: 3, xl: 4 };
+const TABLE_BORDER_WIDTH_BY_SIZE: Record<OverlayTextSize, number> = { xs: 0.5, s: 1, m: 2, l: 3, xl: 4 };
 
 function tableBorderWidthToSize(width: number | null): OverlayTextSize | null {
   if (width === null) {

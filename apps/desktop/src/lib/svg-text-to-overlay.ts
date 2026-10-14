@@ -149,6 +149,6 @@ export function svgTextToOverlay(node: XmlNode, attrs: Record<string, string>, m
     const offsetY = (h / 2 - metrics.baseline) * mirrorY;
     return { ...shape, x: baseline.x + Math.cos(angle) * offsetX - Math.sin(angle) * offsetY - w / 2,
       y: baseline.y + Math.sin(angle) * offsetX + Math.cos(angle) * offsetY - h / 2,
-      rotation: angle * 180 / Math.PI, ...(mirrorY < 0 ? { flipY: true } : {}), props: { ...shape.props, w, h } };
+      rotation: angle, ...(mirrorY < 0 ? { flipY: true } : {}), props: { ...shape.props, w, h } };
   } catch { return null; }
 }

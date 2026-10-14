@@ -39,6 +39,7 @@ export type OverlayLineWidthOption<T extends string> = {
 
 /** 既定の線幅。文言を持たない理由は {@link OVERLAY_LINE_DASH_VALUES} と同じ。 */
 export const OVERLAY_LINE_WIDTH_VALUES = [
+  { value: "xs", strokeWidth: 0.75 },
   { value: "s", strokeWidth: 1.25 },
   { value: "m", strokeWidth: 2 },
   { value: "l", strokeWidth: 3 },

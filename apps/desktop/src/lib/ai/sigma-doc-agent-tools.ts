@@ -681,7 +681,7 @@ export const DraftInsertShapeArgsSchema = z.object({
   strokeOpacity: z.number().min(0).max(1).optional(),
   opacity: z.number().min(0).max(1).optional(),
   dash: z.enum(["solid", "dashed", "dotted"]).optional(),
-  size: z.enum(["s", "m", "l", "xl"]).optional(),
+  size: z.enum(["xs", "s", "m", "l", "xl"]).optional(),
   fontSize: z.number().positive().optional(),
   arrowheadStart: z.enum(OVERLAY_ARROWHEADS).optional(),
   arrowheadEnd: z.enum(OVERLAY_ARROWHEADS).optional(),
@@ -5518,7 +5518,7 @@ function normalizeOverlayDash(value: OverlayDash | undefined): OverlayDash {
 }
 
 function normalizeOverlayTextSize(value: OverlayTextSize | undefined): OverlayTextSize {
-  return value === "s" || value === "l" || value === "xl" ? value : "m";
+  return value === "xs" || value === "s" || value === "l" || value === "xl" ? value : "m";
 }
 
 function normalizeOverlayArrowhead(value: OverlayArrowhead | undefined, fallback: OverlayArrowhead): OverlayArrowhead {

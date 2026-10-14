@@ -7,7 +7,7 @@ import path from "node:path";
 import { getDefaultPageLayout, type OverlaySnapshot, type SigmaDocument, type InlineNode } from "@/features/document";
 
 const APP_ROOT = path.resolve(__dirname, "../..");
-const SVG = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 200"><g stroke="#111111" stroke-width="2" fill="none"><rect x="20" y="20" width="80" height="50" fill="#dddddd"/><polygon points="150,20 190,70 110,70" fill="#cccccc"/><line x1="20" y1="100" x2="180" y2="100" stroke-dasharray="8 6"/><line x1="20" y1="130" x2="180" y2="130" stroke-dasharray="1 6"/><path d="M30 160 Q90 190 160 160"/></g><text x="200" y="40">装置図</text><text x="200" y="80"><tspan font-style="italic">V</tspan>(<tspan font-style="italic">z</tspan>)</text></svg>';
+const SVG = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 200"><g stroke="#111111" stroke-width="2" fill="none"><rect x="20" y="20" width="80" height="50" fill="#dddddd"/><polygon points="150,20 190,70 110,70" fill="#cccccc"/><line x1="20" y1="100" x2="180" y2="100" stroke-dasharray="8 6"/><line x1="20" y1="130" x2="180" y2="130" stroke-dasharray="1 6"/><path d="M30 160 C60 190 120 190 160 160"/></g><text x="200" y="40">装置図</text><text x="200" y="80"><tspan font-style="italic">V</tspan>(<tspan font-style="italic">z</tspan>)</text></svg>';
 const SNAPSHOT: OverlaySnapshot = {
   version: 1,
   shapes: [{ id: "svg-image", type: "image", x: 100, y: 120, props: { assetId: "svg-asset", w: 300, h: 200 } }],

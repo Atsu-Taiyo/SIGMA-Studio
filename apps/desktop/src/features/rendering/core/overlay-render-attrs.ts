@@ -1,4 +1,9 @@
-export function overlayStrokeWidth(size: "s" | "m" | "l" | "xl"): number {
+import type { OverlayTextSize } from "@/features/document";
+
+export function overlayStrokeWidth(size: OverlayTextSize): number {
+  if (size === "xs") {
+    return 0.75;
+  }
   if (size === "s") {
     return 1.25;
   }
@@ -11,7 +16,10 @@ export function overlayStrokeWidth(size: "s" | "m" | "l" | "xl"): number {
   return 2;
 }
 
-export function overlayLabelFontSize(size: "s" | "m" | "l" | "xl"): number {
+export function overlayLabelFontSize(size: OverlayTextSize): number {
+  if (size === "xs") {
+    return 12;
+  }
   if (size === "s") {
     return 14;
   }

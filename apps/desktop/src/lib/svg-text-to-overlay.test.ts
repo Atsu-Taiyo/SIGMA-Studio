@@ -55,7 +55,7 @@ describe("SVG text and math conversion", () => {
   it("uses measured text/math dimensions and baseline at rotated, mirrored and end-aligned positions", () => {
     const measure: MeasureSvgOverlayText = () => ({ width: 40, height: 24, baseline: 18 });
     expect(label('抵抗', 'text-anchor="end"', SVG_IDENTITY, measure)).toMatchObject({ x: 60, y: 62, props: { w: 40, h: 24 } });
-    expect(label('抵抗', '', [0, 1, -1, 0, 200, 0], measure)).toMatchObject({ x: 106, y: 108, rotation: 90, props: { fontSize: 15, h: 24 } });
+    expect(label('抵抗', '', [0, 1, -1, 0, 200, 0], measure)).toMatchObject({ x: 106, y: 108, rotation: expect.closeTo(Math.PI / 2, 10), props: { fontSize: 15, h: 24 } });
     expect(label('抵抗', '', [1, 0, 0, -1, 0, 200], measure)).toMatchObject({ x: 100, y: 114, flipY: true });
   });
 

@@ -517,6 +517,7 @@ export const settings = {
       dashSolid: "Solid",
       dashDashed: "Dashed",
       dashDotted: "Dotted",
+      widthXs: "Extra thin",
       widthS: "Thin",
       widthM: "Medium",
       widthL: "Thick",

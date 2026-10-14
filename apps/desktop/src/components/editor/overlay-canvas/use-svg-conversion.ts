@@ -21,13 +21,14 @@ interface Ports {
   setAssets: Dispatch<SetStateAction<Record<string, OverlayAsset>>>;
   setSelectedShapeIds: (ids: string[]) => void;
   commitOverlayChangeNow: () => void;
-  resolveAssetSource: (source: string) => string;
+  /** A `data:` or `blob:` URL for the asset; a shared document's storage reference is not readable as is. */
+  readAssetSource: (source: string) => Promise<string>;
   tShape: Translate<"shape">;
 }
 
 export function useSvgConversion({ documentId, shapesRef, assetsRef, extensionsRef, editPolicyLockedShapeIdsRef,
   explicitlySavedShapeStatesRef, notifyEditPolicyBlocked, setShapes, setAssets, setSelectedShapeIds,
-  commitOverlayChangeNow, resolveAssetSource, tShape }: Ports) {
+  commitOverlayChangeNow, readAssetSource, tShape }: Ports) {
   const [message, setMessage] = useState<string | null>(null);
   const mathEnvironment = useMathRenderEnvironment();
   const generation = useRef(0);
@@ -49,7 +50,7 @@ export function useSvgConversion({ documentId, shapesRef, assetsRef, extensionsR
     const asset = assetsRef.current[image.props.assetId];
     try {
       if (!asset) throw new SvgConversionError("source");
-      const source = resolveAssetSource(asset.props.src);
+      const source = await readAssetSource(asset.props.src);
       const svg = source.startsWith("blob:") ? await (await fetch(source)).text() : decodeSvgDataUrl(source);
       await prepareSvgTextFonts();
       if (requestGeneration !== generation.current) return;
@@ -71,7 +72,7 @@ export function useSvgConversion({ documentId, shapesRef, assetsRef, extensionsR
       setMessage(tShape(`svgConversion.${reason}`));
     }
   }, [assetsRef, commitOverlayChangeNow, editPolicyLockedShapeIdsRef, explicitlySavedShapeStatesRef, extensionsRef,
-    mathEnvironment, notifyEditPolicyBlocked, resolveAssetSource, setAssets, setSelectedShapeIds, setShapes, shapesRef, tShape]);
+    mathEnvironment, notifyEditPolicyBlocked, readAssetSource, setAssets, setSelectedShapeIds, setShapes, shapesRef, tShape]);
   useLayoutEffect(() => {
     if (!message) return;
     const timer = window.setTimeout(() => setMessage(null), 12_000);

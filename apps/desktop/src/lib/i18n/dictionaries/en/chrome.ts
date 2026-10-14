@@ -379,6 +379,7 @@ export const chrome = {
     lineWidth: {
       label: "Line weight",
       tooltip: "Change the line weight ({{value}})",
+      xs: "Extra thin",
       s: "Thin",
       m: "Medium",
       l: "Thick",

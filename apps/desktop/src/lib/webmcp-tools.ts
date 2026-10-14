@@ -310,7 +310,7 @@ const SHAPE_PROPERTIES = {
   color: { type: "string" }, fill: { type: "string", enum: ["none", "solid"] },
   fillColor: { type: "string" }, fillOpacity: { type: "number", minimum: 0, maximum: 1 },
   strokeOpacity: { type: "number", minimum: 0, maximum: 1 }, opacity: { type: "number", minimum: 0, maximum: 1 },
-  dash: { type: "string", enum: ["solid", "dashed", "dotted"] }, size: { type: "string", enum: ["s", "m", "l", "xl"] },
+  dash: { type: "string", enum: ["solid", "dashed", "dotted"] }, size: { type: "string", enum: ["xs", "s", "m", "l", "xl"] },
   fontSize: { type: "number", exclusiveMinimum: 0 },
   arrowheadStart: { type: "string" }, arrowheadEnd: { type: "string" },
   tailBaseStart: POINT_SCHEMA, tailBaseEnd: POINT_SCHEMA, tailTip: POINT_SCHEMA,
@@ -1807,7 +1807,7 @@ export function createSigmaWebMcpTools(
           : contentChanged
             ? inlineNodesToOverlayTextBlocks(createShapeToolInlineContent({ text: text as string | undefined, tex: tex as string | undefined, label: label as string | undefined }))
             : current.props.blocks;
-        const nextSize = size === "s" || size === "m" || size === "l" || size === "xl" ? size : current.props.size;
+        const nextSize = size === "xs" || size === "s" || size === "m" || size === "l" || size === "xl" ? size : current.props.size;
         const nextFontSize = typeof fontSize === "number" ? fontSize : current.props.fontSize;
         const nextWidth = typeof w === "number" ? w : current.props.w;
         const derivedHeight = contentChanged || fontSize !== undefined || size !== undefined
@@ -1831,7 +1831,7 @@ export function createSigmaWebMcpTools(
           ...(typeof w === "number" ? { w } : {}),
           ...(typeof h === "number" ? { h } : {}),
           ...(typeof fontSize === "number" ? { fontSize } : {}),
-          ...(size === "s" || size === "m" || size === "l" || size === "xl" ? { size } : {}),
+          ...(size === "xs" || size === "s" || size === "m" || size === "l" || size === "xl" ? { size } : {}),
           ...(cornerRadius === undefined ? {} : { radius: Math.min(cornerRadius as number, (typeof w === "number" ? w : current.props.w) / 2, (typeof h === "number" ? h : current.props.h) / 2) }),
           ...(tailBaseStart === undefined && tailBaseEnd === undefined && tailTip === undefined ? {} : { tail: { ...current.props.tail, ...(tailBaseStart === undefined ? {} : { baseStart: tailBaseStart }), ...(tailBaseEnd === undefined ? {} : { baseEnd: tailBaseEnd }), ...(tailTip === undefined ? {} : { tip: tailTip }) } }),
         };

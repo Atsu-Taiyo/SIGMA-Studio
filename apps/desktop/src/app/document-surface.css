@@ -1697,6 +1697,10 @@ li[data-list-marker-typography]::marker {
   position: relative;
   width: 100%;
   height: 100%;
+  /* トリミングの viewport は ghost より前に出すため z-index: 1 を持つ(page-and-selection.css)。枠を重なり文脈にして
+     その値を図形の外へ漏らさない。漏れると画像だけが常に他の図形(文字・線)より前面に描かれ、
+     図形の順序(前面へ/背面へ・PDF・変換結果の重なり)と食い違う。 */
+  isolation: isolate;
 }
 
 .overlay-callout-text-frame {

@@ -13,7 +13,7 @@ const ATTRS = new Set(("xmlns id viewBox width height x y x1 y1 x2 y2 cx cy r rx
   "preserveAspectRatio vector-effect paint-order clip-path clip-rule clipPathUnits mask maskUnits maskContentUnits " +
   "marker-start marker-mid marker-end markerWidth markerHeight markerUnits refX refY orient " +
   "gradientUnits gradientTransform spreadMethod fx fy fr offset stop-color stop-opacity xml:space role aria-label display visibility").split(" "));
-export type SvgConversionFailure = "source" | "unsupported" | "cropped";
+export type SvgConversionFailure = "source" | "unsupported";
 export class SvgConversionError extends Error {
   constructor(public readonly reason: SvgConversionFailure) { super(reason); }
 }

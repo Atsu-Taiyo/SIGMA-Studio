@@ -56,7 +56,7 @@ export const command = {
       code: "Code block",
     },
     lineDash: { solid: "Solid", dashed: "Dashed", dotted: "Dotted" },
-    lineWidth: { s: "Thin", m: "Medium", l: "Thick", xl: "Extra thick" },
+    lineWidth: { xs: "Extra thin", s: "Thin", m: "Medium", l: "Thick", xl: "Extra thick" },
   },
   /** コマンドパレット本体の文言。 */
   palette: {
@@ -207,6 +207,7 @@ export const command = {
     "overlay.line.solid": "Line style: Solid",
     "overlay.line.dashed": "Line style: Dashed",
     "overlay.line.dotted": "Line style: Dotted",
+    "overlay.line.width.xs": "Line weight: Extra thin",
     "overlay.line.width.s": "Line weight: Thin",
     "overlay.line.width.m": "Line weight: Medium",
     "overlay.line.width.l": "Line weight: Thick",
