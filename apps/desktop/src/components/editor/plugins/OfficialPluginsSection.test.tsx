@@ -9,7 +9,7 @@ import type { OfficialPluginBridge, OfficialPluginStatus } from "./plugin-ui-con
 
 let container: HTMLDivElement, root: Root;
 const available: OfficialPluginStatus = { available: true, requiresLogin: false, autoUpdate: true, phase: "idle",
-  plugins: [{ id: "example", name: "教材変換", description: "PCで変換", latestVersion: "1.0.0", enabled: false, compatible: true }] };
+  plugins: [{ id: "example", name: "教材変換", description: "PCで変換", latestVersion: "1.0.0", enabled: false, compatible: true, authorized: true }] };
 beforeEach(() => {
   (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
   setAppLocale("ja"); container = document.createElement("div"); document.body.append(container); root = createRoot(container);
@@ -44,20 +44,35 @@ describe("official plugin settings", () => {
     expect([...container.querySelectorAll("button")].every(button => button.disabled)).toBe(true);
     await act(async () => root.render(null)); expect(unsubscribe).toHaveBeenCalledTimes(1);
   });
-  it("requires login before enabling or downloading installed plugins", async () => {
+  it("hides installed plugin metadata while signed out", async () => {
     provide({ ...available, requiresLogin: true, plugins: [{ ...available.plugins[0], installedVersion: "0.9.0", enabled: true }] });
     await act(async () => root.render(<OfficialPluginsSection />));
     expect(container.textContent).toContain("ログインが必要");
-    expect([...container.querySelectorAll("button")].find(button => button.textContent === "更新")?.disabled).toBe(true);
-    expect(container.querySelector<HTMLButtonElement>('[aria-label="教材変換を有効にする"]')?.disabled).toBe(true);
+    expect(container.textContent).not.toContain("教材変換");
+    expect(container.textContent).not.toContain("インストール済み");
   });
-  it("shows a role denial and disables access even for an installed plugin", async () => {
+  it("hides names and fonts for an installed plugin after access is revoked", async () => {
     provide({...available,requiresRole:true,plugins:[{...available.plugins[0],installedVersion:"0.9.0",enabled:true,authorized:false,fonts:["Example Serif"]}]});
     await act(async()=>root.render(<OfficialPluginsSection/>));
     expect(container.textContent).toContain("管理者に確認");
-    expect(container.textContent).toContain("付属フォント（1書体）");
-    expect(container.querySelector<HTMLButtonElement>('[aria-label="教材変換を有効にする"]')?.disabled).toBe(true);
-    expect(container.querySelector<HTMLButtonElement>('[aria-label="教材変換を有効にする"]')?.getAttribute("aria-checked")).toBe("false");
+    expect(container.textContent).not.toContain("付属フォント");
+    expect(container.textContent).not.toContain("Example Serif");
+    expect(container.textContent).not.toContain("教材変換");
+  });
+  it("drops a stale initial response after an access-change event", async () => {
+    let resolve!: (value: OfficialPluginStatus) => void;
+    const { bridge, push } = provide();
+    vi.mocked(bridge.status).mockImplementationOnce(() => new Promise(value => { resolve = value; }));
+    await act(async () => root.render(<OfficialPluginsSection />));
+    await act(async () => push({ ...available, requiresLogin: true, plugins: [] }));
+    await act(async () => resolve(available));
+    expect(container.textContent).toContain("ログインが必要");
+    expect(container.textContent).not.toContain("教材変換");
+  });
+  it("hides plugin metadata when the host has not explicitly granted access", async () => {
+    provide({ ...available, plugins: [{ ...available.plugins[0], authorized: undefined }] });
+    await act(async () => root.render(<OfficialPluginsSection />));
+    expect(container.textContent).not.toContain("教材変換");
   });
   it("localizes host failures and keeps the installed version visible", async () => {
     provide({ ...available, error: "verification-failed", plugins: [{ ...available.plugins[0], installedVersion: "0.9.0" }] });

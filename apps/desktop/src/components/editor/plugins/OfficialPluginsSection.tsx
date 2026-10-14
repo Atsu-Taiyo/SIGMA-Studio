@@ -15,30 +15,36 @@ export function OfficialPluginsSection({ onFontsChanged }: { onFontsChanged?: ()
   const [pending, setPending] = useState(false);
   const [failed, setFailed] = useState(false);
   const changed = useRef(onFontsChanged);
+  const generation = useRef(0);
+  const mounted = useRef(false);
   useEffect(() => { changed.current = onFontsChanged; }, [onFontsChanged]);
   const bridge = getOfficialPluginBridge();
   useEffect(() => {
     if (!bridge) return;
-    let active = true;
-    void bridge.status().then(value => { if (active) setStatus(value); }).catch(() => { if (active) setFailed(true); });
+    let active = true; mounted.current = true;
+    const request = ++generation.current;
+    void bridge.status().then(value => { if (active && request === generation.current) setStatus(value); }).catch(() => { if (active && request === generation.current) setFailed(true); });
     const unsubscribe = bridge.onChange(value => {
       if (!active) return;
-      setStatus(value);
+      generation.current++; setStatus(value); setFailed(false);
       if (value.phase === "idle") changed.current?.();
     });
-    return () => { active = false; unsubscribe(); };
+    return () => { active = false; mounted.current = false; unsubscribe(); };
   }, [bridge]);
   async function run(action: () => Promise<OfficialPluginStatus>) {
+    const request = ++generation.current;
     setPending(true);
     setFailed(false);
     try {
       const result = await action();
+      if (!mounted.current || request !== generation.current) return;
       setStatus(result);
       if (!result.error) changed.current?.();
-    } catch { setFailed(true); }
-    finally { setPending(false); }
+    } catch { if (mounted.current && request === generation.current) setFailed(true); }
+    finally { if (mounted.current) setPending(false); }
   }
   const busy = pending || (status !== null && status.phase !== "idle");
+  const visiblePlugins = status && !status.requiresLogin && !status.requiresRole ? status.plugins.filter(plugin => plugin.authorized === true) : [];
   const unavailable = !bridge || status?.available === false;
   return (
     <SettingsSection title={t("plugins.title")} description={t("plugins.description")}
@@ -53,8 +59,8 @@ export function OfficialPluginsSection({ onFontsChanged }: { onFontsChanged?: ()
         {status?.requiresLogin && <SettingsStatus>{t("plugins.login")}</SettingsStatus>}
         {status?.requiresRole && !status.requiresLogin && <SettingsStatus>{t("plugins.roleRequired")}</SettingsStatus>}
         {!status && !failed && <SettingsStatus>{t("plugins.loading")}</SettingsStatus>}
-        {status && status.plugins.length === 0 && !status.requiresLogin && <SettingsStatus>{t("plugins.empty")}</SettingsStatus>}
-        {status?.plugins.map(plugin => <Stack key={plugin.id} gap="xs"><SettingsRow label={plugin.name}
+        {status && visiblePlugins.length === 0 && !status.requiresLogin && !status.requiresRole && <SettingsStatus>{t("plugins.empty")}</SettingsStatus>}
+        {status && visiblePlugins.map(plugin => <Stack key={plugin.id} gap="xs"><SettingsRow label={plugin.name}
           description={<><span>{plugin.description}</span><br />
             <span>{plugin.installedVersion ? t("plugins.installed", { version: plugin.installedVersion }) : t("plugins.notInstalled")}</span>
             {!plugin.compatible && <span>{t("plugins.incompatible")}</span>}
