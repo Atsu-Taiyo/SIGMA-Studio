@@ -8,7 +8,8 @@ export interface LocalFontFace {
 }
 export interface LocalFontCatalog {
   ok: boolean;
-  systemFonts: LocalFontFace[];
+  /** このPCの書体の名前の一覧。読めないとき (非対応・失敗) は null で、書体メニューは固定のままにする。 */
+  systemFonts: LocalFontFace[] | null;
   fonts: DesktopCustomFont[];
 }
 export interface LocalFontBridge {
