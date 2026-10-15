@@ -16,6 +16,7 @@ import type {
   DocumentVersionOrigin,
 } from "@/lib/document-version-history";
 import type { WorkspaceLayoutV2 } from "@/lib/workspace-tab-groups";
+import type { WorkspaceBodySearchHandle, WorkspaceBodySearchUpdate } from "@/lib/workspace-body-search-contract";
 
 /**
  * どの土台で動いているか。
@@ -211,6 +212,8 @@ export interface LocalLibraryRepository extends DocumentLibraryRepository {
 export interface LocalWorkspaceRepository {
   renameDocument?(workspaceId: string, fileId: string, name: string): Promise<WorkspaceOverviewResult>;
   listSearchOverview?(): Promise<WorkspaceOverviewResult>;
+  /** 全教材の本文検索。開いている間は裏で本文を読み進め、検索語ごとの結果を `onUpdate` へ流す。 */
+  openBodySearch?(onUpdate: (update: WorkspaceBodySearchUpdate) => void): WorkspaceBodySearchHandle;
   listOverview(workspaceId?: string | null): Promise<WorkspaceOverviewResult>;
   createWorkspace(name: string): Promise<WorkspaceOverviewResult>;
   renameWorkspace(workspaceId: string, name: string): Promise<WorkspaceOverviewResult>;

@@ -578,6 +578,8 @@ button.workspace-breadcrumb-item:focus-visible {
 .workspace-file-card {
   position: relative;
   display: grid;
+  /* 同じ行のカードが本文検索の抜粋で高くなっても、題名の位置は上で揃える (行の高さへ間延びさせない)。 */
+  align-content: start;
   min-width: 0;
   contain-intrinsic-size: 0 214px;
   content-visibility: auto;
@@ -3461,4 +3463,70 @@ nav.app-menu-list[inert] *,
   z-index: 1;
   background: color-mix(in srgb, var(--background) 90%, transparent);
   box-shadow: 0 1px 4px rgba(17, 17, 17, 0.14);
+}
+
+/* ── 本文検索 ─────────────────────────────────────────────────────────────── */
+
+/* 索引からすぐ答えが返る検索では出さない。続いたときだけ、少し遅れて静かに現れる。
+   左の見出しに寄せ、右の表示切り替えとの間の余白を自分の右側で吸う。 */
+.workspace-body-search-progress {
+  flex: 0 1 auto;
+  min-width: 0;
+  margin-inline-end: auto;
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: 12px;
+  white-space: nowrap;
+  animation: workspace-body-search-progress-in 160ms ease 400ms both;
+}
+
+@keyframes workspace-body-search-progress-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+/* 一致した箇所の 1 行。入りきらない後ろは「…」で切らず、右端へ薄れさせる。薄れる幅ぶんの
+   余白を持たせておくので、収まる抜粋の文字は薄れない。 */
+.workspace-search-excerpt {
+  --workspace-excerpt-fade: 24px;
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  padding-right: var(--workspace-excerpt-fade);
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1.5;
+  white-space: nowrap;
+  mask-image: linear-gradient(to right, #000 calc(100% - var(--workspace-excerpt-fade)), transparent);
+}
+
+.workspace-search-excerpt mark {
+  border-radius: 2px;
+  background: #fff1a8;
+  box-shadow: 0 0 0 1px rgba(154, 103, 0, 0.15);
+  color: var(--text-primary);
+}
+
+/* 一覧では名前の下、アイコンの幅だけ字下げして名前の頭に揃える。 */
+.workspace-list-cell-name .workspace-search-excerpt {
+  margin-top: 2px;
+  padding-left: 24px;
+}
+
+.workspace-list-row:has(.workspace-search-excerpt) td {
+  padding-top: 6px;
+  padding-bottom: 6px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .workspace-body-search-progress {
+    animation-duration: 1ms;
+  }
+}
+
+.workspace-search-more {
+  display: flex;
+  justify-content: center;
+  padding: 16px 0 8px;
 }

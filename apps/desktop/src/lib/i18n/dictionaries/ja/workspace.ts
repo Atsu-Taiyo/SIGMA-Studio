@@ -140,6 +140,10 @@ export const workspace = {
     placeholder: "すべてのワークスペースを検索",
     clear: "検索をクリア",
     results: "検索結果",
+    searchingBody: "本文も検索中…",
+    bodyMatch: "本文の一致箇所",
+    showMore_one: "さらに表示（残り {{count}} 件）",
+    showMore_other: "さらに表示（残り {{count}} 件）",
   },
   action: {
     openTemplateGallery: "テンプレートギャラリー",

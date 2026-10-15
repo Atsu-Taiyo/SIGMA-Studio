@@ -71,3 +71,16 @@ it("refreshes previously opened previews after one minute and removes cached ima
   expect(loadSharedWorkspacePreviewDocument).toHaveBeenCalledTimes(1);
   expect(container.querySelector("img")).toBeNull();
 });
+
+it("reads at most two document bodies at a time and skips cards that left the screen while waiting", async () => {
+  const resolvers = new Map<string, (document: null) => void>();
+  vi.mocked(loadWorkspacePreviewDocument).mockImplementation((fileId) => new Promise((resolve) => { resolvers.set(fileId, resolve); }));
+  const cards = (ids: string[]) => <>{ids.map((id) => <WorkspaceFileCardPreview key={id} fileId={id} revision={1} />)}</>;
+  await act(async () => root.render(cards(["a", "b", "c", "d"])));
+  expect(vi.mocked(loadWorkspacePreviewDocument).mock.calls.map(([id]) => id)).toEqual(["a", "b"]);
+  // 順番を待っている間に画面から外れたカード (c) は読まない。
+  await act(async () => root.render(cards(["a", "b", "d"])));
+  await act(async () => resolvers.get("a")!(null));
+  expect(vi.mocked(loadWorkspacePreviewDocument).mock.calls.map(([id]) => id)).toEqual(["a", "b", "d"]);
+  await act(async () => { resolvers.get("b")!(null); resolvers.get("d")!(null); });
+});

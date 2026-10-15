@@ -132,6 +132,32 @@ describe("browser runtime", () => {
     expect(reloaded.state === "ready" && reloaded.overview.activeWorkspaceId).toBe(first.overview.activeWorkspaceId);
   });
 
+  it("searches document bodies across workspaces and re-reads a body after it is saved", async () => {
+    await runtime.library.initializeWorkspace();
+    const second = await runtime.workspace.createWorkspace("Another");
+    if (second.state !== "ready") throw new Error();
+    const created = await runtime.library.createDocument({ workspaceId: second.overview.activeWorkspaceId, title: "Weekend" });
+    const body = (text: string) => ({ ...created.document, content: [{ type: "paragraph" as const, id: "p", children: [{ type: "text" as const, text }] }] });
+    const saved = await runtime.library.saveDocument(created.fileId, body("加法定理で三角関数を求める"), { expectedRevision: created.metadata.revision });
+    expect(saved.ok).toBe(true);
+    const updates: import("@/lib/workspace-body-search-contract").WorkspaceBodySearchUpdate[] = [];
+    const search = runtime.workspace.openBodySearch!((update) => updates.push(update));
+    search.setQuery(1, "三角");
+    await vi.waitFor(() => expect(updates.at(-1)?.pending).toBe(0));
+    expect(updates.flatMap((update) => update.hits).map((hit) => [hit.fileId, hit.excerpt.match])).toEqual([[created.fileId, "三角"]]);
+
+    const loaded = await runtime.library.loadDocumentWithRecovery(created.fileId);
+    if (!loaded.ok) throw new Error();
+    await runtime.library.saveDocument(created.fileId, body("二次関数"), { expectedRevision: loaded.revision });
+    const next: typeof updates = [];
+    const again = runtime.workspace.openBodySearch!((update) => next.push(update));
+    again.setQuery(1, "三角");
+    await vi.waitFor(() => expect(next.at(-1)?.pending).toBe(0));
+    expect(next.flatMap((update) => update.removed)).toEqual([created.fileId]);
+    search.close();
+    again.close();
+  });
+
   it("reports itself as the web target with browser storage", () => {
     expect(runtime.target).toBe("web");
     expect(runtime.capabilities).toMatchObject({

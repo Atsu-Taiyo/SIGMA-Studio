@@ -597,6 +597,16 @@ const desktopAPI = {
     },
   },
 
+  workspaceSearch: {
+    setQuery: (sessionId: string, queryId: number, query: string) => ipcRenderer.invoke("workspace-search:query", sessionId, queryId, query),
+    close: (sessionId: string) => ipcRenderer.invoke("workspace-search:close", sessionId),
+    onUpdate(handler: (update: unknown) => void) {
+      const listener = (_: unknown, update: unknown) => handler(update);
+      ipcRenderer.on("workspace-search:update", listener);
+      return () => ipcRenderer.removeListener("workspace-search:update", listener);
+    },
+  },
+
   workspacePreview: {
     getShared(fileId: string) { return ipcRenderer.invoke("workspace-preview:shared-get", fileId); },
     putShared(fileId: string, token: string, dataUrl: string) { return ipcRenderer.invoke("workspace-preview:shared-put", { fileId, token, dataUrl }); },

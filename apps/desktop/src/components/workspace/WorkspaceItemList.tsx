@@ -16,6 +16,8 @@ import { formatDateTime, resolveFileDisplayName } from "./workspace-format";
 import { isInteractiveTargetWithin } from "./workspace-interaction";
 import { WorkspaceEmptyState, type WorkspaceEmptyVariant } from "./WorkspaceEmptyState";
 import { WorkspaceInlineRenameInput } from "./WorkspaceInlineRenameInput";
+import { WorkspaceSearchExcerpt } from "./WorkspaceSearchExcerpt";
+import type { WorkspaceBodySearchExcerpt } from "@/lib/workspace-body-search-contract";
 import { useAppLocale, useT } from "@/lib/i18n/react";
 
 type DragDropProps = {
@@ -28,6 +30,10 @@ interface WorkspaceItemListProps {
   menuKey?: string | null;
   loading?: boolean;
   searchFailed?: boolean;
+  /** 検索中だけ。本文で一致した教材と、その一致箇所。 */
+  bodyMatches?: ReadonlyMap<string, WorkspaceBodySearchExcerpt>;
+  /** 本文検索の結果がまだ出そろっていない (この間は「一致なし」を出さない)。 */
+  bodySearchPending?: boolean;
   locationLabel?: (row: WorkspaceRow) => string;
   folders: WorkspaceFolderSummary[];
   files: WorkspaceFileSummary[];
@@ -88,6 +94,8 @@ export function WorkspaceItemList({
   menuKey,
   loading = false,
   searchFailed = false,
+  bodyMatches,
+  bodySearchPending = false,
   locationLabel,
   folders,
   files,
@@ -126,7 +134,7 @@ export function WorkspaceItemList({
   const t = useT("workspace");
   const locale = useAppLocale();
 
-  const rows = buildWorkspaceRows({ folders, files, sortKey, sortDirection, t });
+  const rows = buildWorkspaceRows({ folders, files, sortKey, sortDirection, t, bodyMatches });
   // Roving tabIndex: only focusedKey gets 0. Falls back to the first row so
   // the table stays Tab-reachable before any item has ever been focused.
   const effectiveFocusedKey = focusedKey ?? rows[0]?.key ?? null;
@@ -147,7 +155,7 @@ export function WorkspaceItemList({
   if (loading || searchFailed) return <p role={searchFailed ? "alert" : "status"}>{t(searchFailed ? "error.loadFailed" : "status.loading")}</p>;
 
   return (
-    <section className="workspace-group" aria-label={searchActive ? t("search.results") : t("label.materialsAndFolders")}>
+    <section className="workspace-group" aria-label={searchActive ? t("search.results") : t("label.materialsAndFolders")} aria-busy={bodySearchPending || undefined}>
       <div className="workspace-list">
         <table className="workspace-list-table">
           <thead className="workspace-list-head">
@@ -177,7 +185,7 @@ export function WorkspaceItemList({
             </tr>
           </thead>
           <tbody>
-            {rows.length === 0 ? (
+            {rows.length === 0 ? (bodySearchPending ? null : (
               <tr>
                 <td colSpan={4}>
                   <WorkspaceEmptyState
@@ -188,7 +196,7 @@ export function WorkspaceItemList({
                   />
                 </td>
               </tr>
-            ) : (
+            )) : (
               rows.map((row) => {
                 const target = row.kind === "folder" ? `folder:${row.id}` as const : null;
                 const dragItemForRow: WorkspaceDragItem = row.kind === "folder"
@@ -250,6 +258,7 @@ export function WorkspaceItemList({
                         )}
                         {(row.kind === "file" ? row.file.sharing : row.folder.sharing) && <WorkspaceSharedBadge />}
                       </span>
+                      {row.kind === "file" && row.excerpt && !editing && <WorkspaceSearchExcerpt excerpt={row.excerpt} />}
                     </td>
                     <td className="workspace-list-cell-updated">{formatDateTime(row.updatedAt, locale)}</td>
                     <td className="workspace-list-cell-location">

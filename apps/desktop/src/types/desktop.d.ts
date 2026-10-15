@@ -967,6 +967,7 @@ export interface DesktopAPI {
   templates: DesktopTemplatesAPI;
   storage: DesktopStorageAPI;
   workspacePreview?: DesktopWorkspacePreviewAPI;
+  workspaceSearch?: import("@/lib/workspace-body-search-contract").WorkspaceBodySearchBridge;
   browser?: import("@/lib/browser/in-app-browser-contract").DesktopBrowserAPI;
   onMenuAction(handler: (action: string) => void): () => void;
 }

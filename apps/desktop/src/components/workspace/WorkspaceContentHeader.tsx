@@ -10,6 +10,7 @@ import type { WorkspaceViewMode } from "@/lib/workspace-view-preferences";
 import type { WorkspaceDropTarget } from "./workspace-drag";
 import { resolveFolderDisplayName } from "./workspace-format";
 import { WorkspaceViewToggle } from "./WorkspaceViewToggle";
+import { Shimmer } from "@/components/ui/Shimmer";
 import { useT } from "@/lib/i18n/react";
 
 interface WorkspaceContentHeaderProps {
@@ -17,6 +18,8 @@ interface WorkspaceContentHeaderProps {
   folderPath: WorkspaceFolderSummary[];
   selectedFolder: WorkspaceFolderSummary | null;
   searchActive: boolean;
+  /** 本文検索の結果がまだ出そろっていない。 */
+  bodySearchPending?: boolean;
   dropTarget: WorkspaceDropTarget;
   dropProps: (target: WorkspaceDropTarget) => {
     onDragOver: (event: ReactDragEvent) => void;
@@ -38,6 +41,7 @@ export function WorkspaceContentHeader({
   folderPath,
   selectedFolder,
   searchActive,
+  bodySearchPending = false,
   dropTarget,
   dropProps,
   onNavigateRoot,
@@ -100,6 +104,12 @@ export function WorkspaceContentHeader({
           })
         )}
       </nav>
+      {searchActive && bodySearchPending && (
+        // 索引からすぐ答えが返るときは出さない (CSS で少し遅れて現れる)。結果の領域は aria-busy で伝える。
+        <span className="workspace-body-search-progress">
+          <Shimmer>{t("search.searchingBody")}</Shimmer>
+        </span>
+      )}
       <div className="workspace-content-header-actions">
         <WorkspaceViewToggle value={viewMode} onChange={onViewModeChange} />
         {showFolderActions && selectedFolder && (

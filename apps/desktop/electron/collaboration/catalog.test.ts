@@ -577,6 +577,23 @@ it("does not rewrite an unchanged catalog cache but writes every change", async 
     expect(reopened.data.revision).toBe(5);
   } finally { rename.mockRestore(); }
 });
+it("shares one ledger read between search overviews requested together", async () => {
+  const f = await fixture();
+  const read = vi.spyOn(f.local, "getLocalLibrarySnapshot");
+  const [title, body] = await Promise.all([f.catalog.searchOverview(), f.catalog.searchOverview()]);
+  expect(title).toBe(body);
+  expect(read).toHaveBeenCalledTimes(1);
+  await f.catalog.searchOverview();
+  expect(read).toHaveBeenCalledTimes(2);
+  // 変更の後の求めには、変更の前に読み始めた一覧を渡さない。
+  const before = f.catalog.searchOverview();
+  f.catalog.noteLibraryChanged();
+  const after = f.catalog.searchOverview();
+  expect(after).not.toBe(before);
+  await Promise.all([before, after]);
+  expect(read).toHaveBeenCalledTimes(4);
+});
+
 it("searches all local and shared workspaces without selecting them or downloading bodies", async () => {
   const f = await fixture();
   const first = await f.local.getWorkspaceOverview();
