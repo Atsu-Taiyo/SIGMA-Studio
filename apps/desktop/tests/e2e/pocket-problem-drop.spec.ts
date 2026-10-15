@@ -147,6 +147,7 @@ test("a problem copied into the pocket lands on a whiteboard as separate paragra
 
   await page.mouse.click(700, 1100);
   await page.getByRole("button", { name: "新規教材", exact: true }).click();
+  await page.getByRole("dialog", { name: /を作成しました$/ }).getByRole("button", { name: "閉じる" }).click();
   await expect(page.locator(".whiteboard-page-canvas")).toBeVisible();
   await card.click();
 
@@ -188,6 +189,7 @@ test("a problem copied with Cmd+C and pasted on a whiteboard becomes its text on
 
   await page.mouse.click(700, 1100);
   await page.getByRole("button", { name: "新規教材", exact: true }).click();
+  await page.getByRole("dialog", { name: /を作成しました$/ }).getByRole("button", { name: "閉じる" }).click();
   const canvas = page.locator(".whiteboard-page-canvas");
   await expect(canvas).toBeVisible();
   const viewport = (await canvas.boundingBox())!;

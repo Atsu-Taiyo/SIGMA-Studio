@@ -23,6 +23,7 @@ import type { EmbeddedEditorHost } from "./document-lifecycle-types";
 import { closeWorkspaceDocumentTab, deleteWorkspaceDocument, type DocumentTabOpenOptions } from "./document-tab-commands";
 import type { EditorTabViewState, ResolvedEditorTabViewState } from "./editor-tab-view-state";
 import { uniqueStringIds } from "./workspace-request";
+import { loadCreatedMaterialNotice, resolveNewMaterialDestination, type CreatedMaterialNotice } from "./new-material-destination";
 
 export interface WorkspaceDocumentCommandOptions {
   deleteAiDataForDocument(fileId: string): Promise<void>;
@@ -56,6 +57,8 @@ export interface WorkspaceDocumentCommandOptions {
   setDocumentListOpen(open: boolean): void;
   setSaveState(state: EditorSaveState): void;
   setStatusMessage(message: string): void;
+  /** 新規教材を作ったあと、実際に作った場所 (ワークスペースとフォルダの階層) を示す。 */
+  showCreatedMaterialLocation(notice: CreatedMaterialNotice): void;
   t: Translate<"chrome">;
   tEditor: Translate<"editor">;
 }
@@ -72,7 +75,7 @@ export function useWorkspaceDocumentCommands({
   resetEditorDocument, openDocumentInWorkspace, refreshDocumentMetadatas,
   saveWorkspaceState,
   setOpenFileIds, setActiveFileId, setWorkspaceReady, setActiveMenu,
-  setDocumentListOpen, setSaveState, setStatusMessage, t, tEditor,
+  setDocumentListOpen, setSaveState, setStatusMessage, showCreatedMaterialLocation, t, tEditor,
 }: WorkspaceDocumentCommandOptions) {
 
   const prepareExternalNavigation = useStableCallback(async () => {
@@ -117,35 +120,16 @@ export function useWorkspaceDocumentCommands({
     setStatusMessage(status);
   };
 
-  const createDocumentTab = async () => {
+  /**
+   * 新規教材・新規ホワイトボード。そのまま押したときは直前の教材と同じワークスペース (同じフォルダ) に、
+   * メニューでワークスペースを選んだときはそこに作り、作った場所をダイアログで示す
+   * (決め方は `new-material-destination.ts`)。
+   */
+  const createMaterialTab = async (kind: CreatedMaterialNotice["kind"], chosenWorkspaceId?: string) => {
     setActiveMenu(null);
     setDocumentListOpen(false);
     if (embeddedHostRef.current) {
-      setStatusMessage(tEditor("status.embeddedHostOwnsCreate"));
-      return;
-    }
-    try {
-      if (workspaceReady) {
-        if (!(await saveCurrentDocumentBeforeReplacement())) {
-          return;
-        }
-      }
-      const current = documentMetadatas.find(item => item.fileId === activeFileIdRef.current);
-      if (workspaceReady && !current) throw new Error("TARGET_UNAVAILABLE");
-      const created = await createNewDocument(undefined, current && { workspaceId: current.workspaceId, folderId: current.folderId });
-      untouchedNewDocumentsRef.current.set(created.fileId, created.document);
-      await openDocumentAsTab(created, tEditor("status.documentCreated"));
-    } catch (error) {
-      setSaveState("error");
-      setStatusMessage(error instanceof Error && error.message.includes("FORBIDDEN") ? tEditor("status.creationNotAllowed") : error instanceof Error ? error.message : tEditor("status.createFailed"));
-    }
-  };
-
-  const createWhiteboardDocumentTab = async () => {
-    setActiveMenu(null);
-    setDocumentListOpen(false);
-    if (embeddedHostRef.current) {
-      setStatusMessage(tEditor("status.embeddedHostOwnsWhiteboardCreate"));
+      setStatusMessage(tEditor(kind === "whiteboard" ? "status.embeddedHostOwnsWhiteboardCreate" : "status.embeddedHostOwnsCreate"));
       return;
     }
     try {
@@ -154,19 +138,27 @@ export function useWorkspaceDocumentCommands({
       }
       const current = documentMetadatas.find(item => item.fileId === activeFileIdRef.current);
       if (workspaceReady && !current) throw new Error("TARGET_UNAVAILABLE");
-      const whiteboard = createBlankDocument(t("tabs.untitledWhiteboard"));
-      const created = await createDocumentFromSigmaDocument({
-        ...whiteboard,
-        content: [],
-        pageLayout: getDefaultPageLayout("whiteboard"),
-      }, current && { workspaceId: current.workspaceId, folderId: current.folderId });
+      const destination = await resolveNewMaterialDestination(current, chosenWorkspaceId);
+      const created = kind === "whiteboard"
+        ? await createDocumentFromSigmaDocument({
+          ...createBlankDocument(t("tabs.untitledWhiteboard")),
+          content: [],
+          pageLayout: getDefaultPageLayout("whiteboard"),
+        }, destination.location)
+        : await createNewDocument(undefined, destination.location);
       untouchedNewDocumentsRef.current.set(created.fileId, created.document);
-      await openDocumentAsTab(created, tEditor("status.whiteboardCreated"));
+      await openDocumentAsTab(created, tEditor(kind === "whiteboard" ? "status.whiteboardCreated" : "status.documentCreated"));
+      showCreatedMaterialLocation(await loadCreatedMaterialNotice(created.metadata, { kind, origin: destination.origin }));
     } catch (error) {
       setSaveState("error");
-      setStatusMessage(error instanceof Error && error.message.includes("FORBIDDEN") ? tEditor("status.creationNotAllowed") : error instanceof Error ? error.message : tEditor("status.whiteboardCreateFailed"));
+      setStatusMessage(error instanceof Error && error.message.includes("FORBIDDEN") ? tEditor("status.creationNotAllowed") : error instanceof Error ? error.message : tEditor(kind === "whiteboard" ? "status.whiteboardCreateFailed" : "status.createFailed"));
     }
   };
+
+  const createDocumentTab = () => createMaterialTab("material");
+  /** ホバーで開くメニューから、作成先のワークスペースを選んで空の教材を作る。 */
+  const createDocumentTabInWorkspace = (workspaceId: string) => createMaterialTab("material", workspaceId);
+  const createWhiteboardDocumentTab = () => createMaterialTab("whiteboard");
 
   const duplicateActiveDocument = async () => {
     setActiveMenu(null);
@@ -276,6 +268,6 @@ export function useWorkspaceDocumentCommands({
     await deleteDocumentFromList(activeFileId);
   };
   return {
-    openWorkspaceScreen, openDocumentAsTab, createDocumentTab, createWhiteboardDocumentTab, duplicateActiveDocument, openDocumentListDialog, closeDocumentTab, openDocumentFromList, duplicateDocumentFromList, deleteDocumentFromList, deleteActiveDocument
+    openWorkspaceScreen, openDocumentAsTab, createDocumentTab, createDocumentTabInWorkspace, createWhiteboardDocumentTab, duplicateActiveDocument, openDocumentListDialog, closeDocumentTab, openDocumentFromList, duplicateDocumentFromList, deleteDocumentFromList, deleteActiveDocument
   };
 }

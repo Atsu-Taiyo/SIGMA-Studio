@@ -8,6 +8,8 @@ import type { TextFlowSelectionBookmark } from "@/features/text-editing";
 import * as navigation from "@/lib/app-navigation";
 import { createTranslator } from "@/lib/i18n";
 import * as storage from "@/lib/storage";
+import * as workspaceRepository from "@/lib/workspace-repository";
+import type { WorkspaceOverview } from "@/lib/workspace-repository";
 import { useWorkspaceDocumentCommands, type WorkspaceDocumentCommandOptions } from "./use-workspace-document-commands";
 
 let root: Root;
@@ -20,6 +22,33 @@ beforeEach(() => {
   document.body.appendChild(container);
   root = createRoot(container);
 });
+
+const stamp = "2026-10-16T00:00:00.000Z";
+const editorCapabilities = {
+  read: true, editDocument: true, createChildren: true, rename: false, move: false, deleteDescendants: false,
+  invite: false, manageEditorViewer: false, appointAdmin: false, stopRootShare: false, deleteRootShare: false,
+  restoreDocument: false, startHierarchyShare: false,
+};
+function sharedFolderSharing(createChildren: boolean) {
+  return {
+    target: { kind: "folder" as const, catalogNodeId: "node" as never }, ownerId: "owner", createdBy: "owner",
+    role: createChildren ? "editor" as const : "viewer" as const, capabilities: { ...editorCapabilities, editDocument: createChildren, createChildren },
+    state: "active" as const, placement: "incoming" as const, isShareRoot: true,
+  };
+}
+
+/** 作成先を決めるときと作成後に場所を説明するときに読む一覧。 */
+function mockOverview(overview: Partial<WorkspaceOverview>) {
+  return vi.spyOn(workspaceRepository, "listWorkspaceOverview").mockResolvedValue({
+    state: "ready",
+    overview: {
+      activeWorkspaceId: "workspace", files: [], catalog: { state: "ready", actorId: "me", revision: 1 },
+      workspaces: [{ id: "workspace", name: "マイ教材", createdAt: stamp, updatedAt: stamp }],
+      folders: [],
+      ...overview,
+    },
+  });
+}
 
 afterEach(() => {
   act(() => root.unmount());
@@ -76,6 +105,7 @@ function fixture() {
     refreshDocumentMetadatas: vi.fn(async () => { events.push("refresh"); }),
     setOpenFileIds: vi.fn(), setActiveFileId: vi.fn(), setWorkspaceReady: vi.fn(),
     setActiveMenu: vi.fn(), setDocumentListOpen: vi.fn(), setSaveState: vi.fn(), setStatusMessage: vi.fn(),
+    showCreatedMaterialLocation: vi.fn(),
     t: createTranslator("ja", "chrome"), tEditor: createTranslator("ja", "editor"),
   };
   return { options, original, events, saveWorkspace };
@@ -108,6 +138,12 @@ describe("workspace document commands", () => {
     const f = fixture();
     f.options.documentMetadatas[0].workspaceId = "shared-items";
     f.options.documentMetadatas[0].folderId = "catalog-shared-folder";
+    // 一覧の上では編集できる共有フォルダ。作る瞬間に保存先が断ったら、別の場所 (このPC) へは作らない。
+    mockOverview({
+      activeWorkspaceId: "shared-items",
+      workspaces: [{ id: "workspace", name: "マイ教材", createdAt: stamp, updatedAt: stamp }, { id: "shared-items", name: "共有アイテム", createdAt: stamp, updatedAt: stamp }],
+      folders: [{ id: "catalog-shared-folder", workspaceId: "shared-items", parentFolderId: null, name: "共有フォルダ", fileCount: 0, createdAt: stamp, updatedAt: stamp, sharing: sharedFolderSharing(true) }],
+    });
     const create = vi.spyOn(storage, "createNewDocument").mockRejectedValue(new Error("FORBIDDEN"));
     const whiteboard = vi.spyOn(storage, "createDocumentFromSigmaDocument").mockRejectedValue(new Error("FORBIDDEN"));
     render(f.options);
@@ -120,6 +156,7 @@ describe("workspace document commands", () => {
     expect(f.options.untouchedNewDocumentsRef.current.size).toBe(0);
     expect(f.saveWorkspace).not.toHaveBeenCalled();
     expect(f.options.setStatusMessage).toHaveBeenLastCalledWith(f.options.tEditor("status.creationNotAllowed"));
+    expect(f.options.showCreatedMaterialLocation).not.toHaveBeenCalled();
   });
 
   it("does not fall back to a local create when the current parent metadata is unavailable", async () => {
@@ -130,6 +167,69 @@ describe("workspace document commands", () => {
     await actions.createDocumentTab(); await actions.createWhiteboardDocumentTab();
     expect(create).not.toHaveBeenCalled(); expect(whiteboard).not.toHaveBeenCalled();
     expect(f.options.setStatusMessage).toHaveBeenLastCalledWith("TARGET_UNAVAILABLE");
+  });
+
+  it("creates a new material in the previous material's workspace and folder, then shows the saved location", async () => {
+    const f = fixture();
+    f.options.documentMetadatas[0].folderId = "unit";
+    const folders = [
+      { id: "grade", workspaceId: "workspace", parentFolderId: null, name: "2年", fileCount: 0, createdAt: stamp, updatedAt: stamp },
+      { id: "unit", workspaceId: "workspace", parentFolderId: "grade", name: "関数", fileCount: 1, createdAt: stamp, updatedAt: stamp },
+    ];
+    const overview = mockOverview({ folders });
+    const created = record("new");
+    created.metadata.folderId = "unit";
+    const create = vi.spyOn(storage, "createNewDocument").mockResolvedValue(created);
+    render(f.options);
+    await actions.createDocumentTab();
+    expect(create).toHaveBeenCalledExactlyOnceWith(undefined, { workspaceId: "workspace", folderId: "unit" });
+    // 作成先を決めるときと、作った場所を説明するとき (作った教材のワークスペース) に読む。
+    expect(overview.mock.calls).toEqual([["workspace"], ["workspace"]]);
+    // このテストはブラウザ版の保存先で動く (desktopAPI が無い) ので、共有でない教材は「このブラウザ」。
+    expect(f.options.showCreatedMaterialLocation).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
+      kind: "material", title: "new", workspaceName: "マイ教材", folderPath: ["2年", "関数"], storage: "browser", origin: "previous",
+    }));
+  });
+
+  it("creates in the default local workspace when the previous material's shared folder is read-only, and says so", async () => {
+    const f = fixture();
+    f.options.documentMetadatas[0].workspaceId = "shared-items";
+    f.options.documentMetadatas[0].folderId = "catalog-shared-folder";
+    mockOverview({
+      workspaces: [{ id: "workspace", name: "マイ教材", createdAt: stamp, updatedAt: stamp }, { id: "shared-items", name: "共有アイテム", createdAt: stamp, updatedAt: stamp }],
+      folders: [{ id: "catalog-shared-folder", workspaceId: "shared-items", parentFolderId: null, name: "閲覧だけ", fileCount: 0, createdAt: stamp, updatedAt: stamp, sharing: sharedFolderSharing(false) }],
+    });
+    const whiteboard = vi.spyOn(storage, "createDocumentFromSigmaDocument").mockResolvedValue(record("board"));
+    render(f.options);
+    await actions.createWhiteboardDocumentTab();
+    expect(whiteboard).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ content: [] }), { workspaceId: "workspace", folderId: null });
+    expect(f.options.showCreatedMaterialLocation).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
+      kind: "whiteboard", workspaceName: "マイ教材", folderPath: [], origin: "fallback",
+    }));
+  });
+
+  it("creates in the workspace chosen from the menu at its root, and refuses one that no longer accepts materials", async () => {
+    const f = fixture();
+    f.options.documentMetadatas[0].folderId = "unit";
+    mockOverview({
+      workspaces: [
+        { id: "workspace", name: "マイ教材", createdAt: stamp, updatedAt: stamp },
+        { id: "other", name: "別のワークスペース", createdAt: stamp, updatedAt: stamp },
+        { id: "viewer", name: "閲覧だけ", createdAt: stamp, updatedAt: stamp, sharing: sharedFolderSharing(false) },
+      ],
+      folders: [{ id: "unit", workspaceId: "workspace", parentFolderId: null, name: "関数", fileCount: 1, createdAt: stamp, updatedAt: stamp }],
+    });
+    const created = record("chosen");
+    created.metadata.workspaceId = "other";
+    const create = vi.spyOn(storage, "createNewDocument").mockResolvedValue(created);
+    render(f.options);
+    await actions.createDocumentTabInWorkspace("other");
+    expect(create).toHaveBeenCalledExactlyOnceWith(undefined, { workspaceId: "other", folderId: null });
+    expect(f.options.showCreatedMaterialLocation).toHaveBeenLastCalledWith(expect.objectContaining({ workspaceName: "別のワークスペース", folderPath: [], origin: "chosen" }));
+
+    await actions.createDocumentTabInWorkspace("viewer");
+    expect(create).toHaveBeenCalledTimes(1);
+    expect(f.options.setStatusMessage).toHaveBeenLastCalledWith(f.options.tEditor("status.creationNotAllowed"));
   });
 
   it("observes a host attached after render before running host-owned document commands", async () => {
@@ -184,6 +284,7 @@ describe("workspace document commands", () => {
   it("tracks created drafts and reads the active file again after a pending duplication save", async () => {
     const f = fixture();
     const created = record("new");
+    mockOverview({});
     vi.spyOn(storage, "createNewDocument").mockResolvedValue(created);
     const duplicate = vi.spyOn(storage, "duplicateDocument").mockResolvedValue(record("copy"));
     render(f.options);

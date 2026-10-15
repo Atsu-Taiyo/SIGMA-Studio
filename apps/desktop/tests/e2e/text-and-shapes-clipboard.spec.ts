@@ -234,6 +234,7 @@ test("pastes the mixed copy into another material tab and anchors the shape to t
   await clickAtEndOfBlock(page, page.locator('[data-sigma-doc-id="p_mixed_filler_3"]').first());
   await expect(page.locator(".page-mode").first()).toHaveAttribute("data-overlay-editing", "false");
   await page.getByRole("button", { name: "新規教材", exact: true }).click();
+  await page.getByRole("dialog", { name: /を作成しました$/ }).getByRole("button", { name: "閉じる" }).click();
   await expect(page.locator(".document-tab")).toHaveCount(2);
   const destination = page.locator('[data-sigma-doc-id="p_blank_body"]').first();
   await expect(destination).toBeVisible();

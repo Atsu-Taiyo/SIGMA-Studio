@@ -202,6 +202,22 @@ export const workspace = {
     workspaceRoot: "Workspace root",
     newMaterialTitle: "New material",
   },
+  /** Shown after creating a material from the editor, naming where it was created. */
+  createdDialog: {
+    title: "Material created",
+    whiteboardTitle: "Whiteboard created",
+    description: "It was created here.",
+    material: "Material",
+    workspace: "Workspace",
+    folder: "Folder",
+    storage: "Saved to",
+    root: "Workspace root",
+    unknown: "Unavailable",
+    thisPc: "This PC",
+    thisBrowser: "This browser",
+    cloud: "Cloud (shared)",
+    fallbackNote: "New materials can't be created in the previous material's workspace, so this one was created in the default location.",
+  },
   empty: {
     rootMessage: "No materials",
     folderMessage: "This folder is empty",

@@ -1423,11 +1423,59 @@
 .new-doc-menu {
   width: max-content;
   min-width: 180px;
+  /* 作成先のワークスペース名が長くてもメニューを画面幅いっぱいに広げない。 */
+  max-width: min(320px, calc(100vw - 16px));
 }
 
 .new-doc-menu-body {
   display: grid;
   gap: 2px;
+}
+
+/* 作成先のワークスペース (Issue #211)。上の項目と区切り、薄い見出しの下に並べる。 */
+.new-doc-menu-separator {
+  height: 1px;
+  margin: var(--space-xs) 0;
+  background: var(--border-subtle);
+}
+
+.new-doc-menu-group-label {
+  padding: var(--space-xs) var(--space-sm) 0;
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 650;
+  line-height: 1.3;
+}
+
+.new-doc-menu-targets {
+  display: grid;
+  /* 上の項目と同じ間隔 (.new-doc-menu-body) で並べる。 */
+  gap: inherit;
+  max-height: 240px;
+  overflow-y: auto;
+}
+
+.new-doc-menu-target-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.new-doc-menu-target-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-xs);
+  color: var(--text-muted);
+}
+
+.new-doc-menu-target-loading {
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr);
+  align-items: center;
+  gap: var(--space-sm);
+  min-height: 32px;
+  padding: 0 var(--space-sm);
 }
 
 .mcp-proposal-dialog {

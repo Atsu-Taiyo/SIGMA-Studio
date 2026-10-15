@@ -30,6 +30,7 @@ import type { Translate } from "@/lib/i18n";
 import type { EditorCommandId } from "@/lib/editor-command-shortcuts";
 import type { Graph2DPreset } from "@/lib/graph2d";
 import type { DocumentMetadata } from "@/lib/storage";
+import type { NewMaterialTargets } from "@/components/editor/editor-shell/use-new-material-targets";
 import type { UiLayoutPreference } from "@/lib/ui-layout-preference";
 import type { DesktopUpdateState } from "@/types/desktop";
 import type { LucideIcon } from "lucide-react";
@@ -287,6 +288,10 @@ export interface EditorChromeAppMenu {
   problemDisplayAvailable: boolean;
   toggleProblemDisplayPart: (part: ProblemDisplayPart) => void;
   createDocumentTab: () => Promise<void>;
+  /** 「新規教材」のメニューで選んだワークスペースに空の教材を作る。 */
+  createDocumentTabInWorkspace: (workspaceId: string) => Promise<void>;
+  /** 「新規教材」のメニューに出す作成先のワークスペース (メニューを開いている間だけ読む)。 */
+  newMaterialTargets: NewMaterialTargets;
   createWhiteboardDocumentTab: () => Promise<void>;
   /** 教材をクリップボードのテキストとして書き出す。 */
   copyDocumentText: () => Promise<void>;
