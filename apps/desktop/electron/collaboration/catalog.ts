@@ -244,13 +244,11 @@ export class DesktopSharedCatalog {
 
   async overview(workspaceId?: string | null): Promise<LocalWorkspaceOverviewResult> {
     await this.account();
-    if (workspaceId && (await this.local.getLocalLibrarySnapshot()).workspaces.some(w => w.id === workspaceId)) {
-      const selected = await this.local.withLocalLibrary(() => this.local.getWorkspaceOverview(workspaceId));
-      if (selected.state !== "ready") return selected;
-    }
-    const local = await this.rawOverview(workspaceId);
+    // One metadata read handles selection and projection. Previously this parsed the
+    // entire ledger three times and built every workspace's file list repeatedly.
+    const local = await this.local.getLocalLibrarySnapshot(workspaceId);
     const hidden = new Set(this.sessions.bindings().map(b => b.fileId));
-    const overview = this.cache ? this.cache.project(local, workspaceId, hidden) : { ...local, files: local.files.filter(f => !hidden.has(f.fileId)), folders: local.folders.filter(f => f.workspaceId === local.activeWorkspaceId) };
+    const overview = this.cache ? this.cache.project(local, workspaceId, hidden) : { ...local, files: local.files.filter(f => f.workspaceId === local.activeWorkspaceId && !hidden.has(f.fileId)), folders: local.folders.filter(f => f.workspaceId === local.activeWorkspaceId) };
     return { state: "ready", overview: { ...overview, catalog: await this.status() } } as LocalWorkspaceOverviewResult;
   }
   async searchOverview(): Promise<WorkspaceOverview> {

@@ -1149,11 +1149,22 @@ export class LocalSigmaDocStore {
     }
   }
 
-  /** Metadata-only adapter input. Never changes selected workspace or reads document bodies. */
-  async getLocalLibrarySnapshot(): Promise<LocalWorkspaceOverview> {
+  /** Metadata-only adapter input. Selects a workspace only when explicitly requested; never reads bodies. */
+  async getLocalLibrarySnapshot(workspaceId?: string | null): Promise<LocalWorkspaceOverview> {
     return this.withLedgerRead(async library => {
-      const overview = this.createWorkspaceOverview(library, library.activeWorkspaceId);
-      return { ...overview, folders: this.getVisibleWorkspaces(library).flatMap(w => this.createWorkspaceOverview(library, w.id).folders), files: this.getVisibleFiles(library).map(mapFileMetadata) };
+      const requested = workspaceId && this.findVisibleWorkspace(library, workspaceId);
+      if (!requested || requested.id === library.activeWorkspaceId) {
+        return this.createWorkspaceOverview(library, library.activeWorkspaceId, true);
+      }
+      return this.withLedger("getLocalLibrarySnapshot", async tx => {
+        // Recheck under the ledger lock: another process may have deleted the workspace.
+        const selected = this.findVisibleWorkspace(tx.library, requested.id);
+        if (selected && tx.library.activeWorkspaceId !== selected.id) {
+          tx.library.activeWorkspaceId = selected.id;
+          tx.markChanged();
+        }
+        return this.createWorkspaceOverview(tx.library, tx.library.activeWorkspaceId, true);
+      });
     });
   }
 
@@ -2327,9 +2338,15 @@ export class LocalSigmaDocStore {
   private createWorkspaceOverview(
     library: LocalLibraryRecord,
     workspaceId: string,
+    allWorkspaces = false,
   ): LocalWorkspaceOverview {
-    const files = this.getVisibleFiles(library).filter((file) => file.workspaceId === workspaceId);
-    const folders = this.getVisibleFolders(library).filter((folder) => folder.workspaceId === workspaceId);
+    const workspaces = this.getVisibleWorkspaces(library);
+    const visibleWorkspaceIds = new Set(workspaces.map(workspace => workspace.id));
+    const visibleFiles = this.getVisibleFiles(library);
+    const files = allWorkspaces ? visibleFiles : visibleFiles.filter((file) => file.workspaceId === workspaceId);
+    const folders = this.getVisibleFolders(library).filter(folder => allWorkspaces
+      ? visibleWorkspaceIds.has(folder.workspaceId)
+      : folder.workspaceId === workspaceId);
     const fileCountByFolderId = new Map<string, number>();
     for (const file of files) {
       if (!file.folderId) {
@@ -2340,7 +2357,7 @@ export class LocalSigmaDocStore {
 
     return {
       activeWorkspaceId: workspaceId,
-      workspaces: this.getVisibleWorkspaces(library).map((workspace) => ({
+      workspaces: workspaces.map((workspace) => ({
         id: workspace.id,
         name: workspace.name,
         createdAt: workspace.createdAt,
