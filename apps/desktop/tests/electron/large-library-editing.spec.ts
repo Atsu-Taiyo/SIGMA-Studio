@@ -80,11 +80,13 @@ test("editing and autosave do not reload the full library, and survive undo and 
     await page.keyboard.press(`${modifier}+Shift+z`);
     await expect(paragraph).toHaveText("元の本文alpha");
     await expect.poll(savedText).toContain("元の本文alpha");
+    // Durable body writes precede the IPC response and its post-save hooks.
+    // Wait for that response before reading the final counters.
+    await expect.poll(() => app.evaluate(() => Reflect.get(globalThis, "libraryEditingMetrics").saves)).toBeGreaterThanOrEqual(3);
     const metrics = await app.evaluate(() => Reflect.get(globalThis, "libraryEditingMetrics") as {
       lists: number; saves: number; metadata: number; saveMs: number[];
     });
     expect(metrics.lists).toBe(0);
-    expect(metrics.saves).toBeGreaterThanOrEqual(3);
     expect(metrics.metadata).toBe(metrics.saves);
     await testInfo.attach("large-library-metrics", { body: JSON.stringify({ documents: files.length, inputMs, ...metrics }), contentType: "application/json" });
     await page.reload();
