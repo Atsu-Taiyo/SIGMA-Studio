@@ -2,6 +2,11 @@
 export const settings = {
   organizations: { title: "所属団体", membership: "{{name}}に所属", more: "ほか{{count}}団体" },
   plugins: {
+    addComplete: "{{name}}の追加が完了しました。",
+    updateComplete: "{{name}}の更新が完了しました。",
+    loadComplete: "{{name}}の読み込みが完了しました。",
+    checkComplete: "確認が完了しました。",
+    updatesAvailable: "{{count}}件の更新があります。",
     roleRequired: "このプラグインを使う権限がありません。管理者に確認してください。",
     fonts: "付属フォント（{{count}}書体）",
     title: "公式プラグイン", description: "機能を追加して、このPCで利用できます。",

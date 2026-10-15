@@ -5,6 +5,11 @@ import type { TranslationsOf } from "../types";
 export const settings = {
   organizations: { title: "Your organizations", membership: "Member of {{name}}", more: "{{count}} more organizations" },
   plugins: {
+    addComplete: "{{name}} has been added.",
+    updateComplete: "{{name}} has been updated.",
+    loadComplete: "{{name}} has been loaded.",
+    checkComplete: "Check complete.",
+    updatesAvailable: "Updates available: {{count}}.",
     roleRequired: "You do not have permission to use this plugin. Contact the administrator.",
     fonts: "Included fonts ({{count}} faces)",
     title: "Official plugins", description: "Add features to use on this computer.",
