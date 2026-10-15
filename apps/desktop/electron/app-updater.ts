@@ -102,12 +102,14 @@ export class AppUpdateController {
   }
 
   private async doCheckForUpdates(): Promise<AppUpdateState> {
+    // Checking a Store-managed app is a status query, not an updater error.
+    if (process.windowsStore) {
+      return this.state;
+    }
     if (!isBuiltInUpdaterSupported()) {
       return this.setState("error", {
         supported: false,
-        error: process.windowsStore
-          ? te("electron.updater.storeManaged")
-          : te("electron.updater.devCheckUnavailable"),
+        error: te("electron.updater.devCheckUnavailable"),
       });
     }
 

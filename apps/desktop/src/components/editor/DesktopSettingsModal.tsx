@@ -447,6 +447,11 @@ function DesktopSettingsBody({
     setUpdateBusy(true);
     setAppActionStatus(null);
     try {
+      const status = await bridge.updater.getStatus();
+      setUpdateState(status);
+      if (!status.supported) {
+        return;
+      }
       setUpdateState(await bridge.updater.checkForUpdates());
     } catch (err) {
       setAppActionStatus({ kind: "error", text: err instanceof Error ? err.message : t("app.update.checkFailed") });
@@ -1142,21 +1147,23 @@ function DesktopSettingsBody({
             description={appInfo?.version ?? t("app.update.checking")}
             control={(
             <Inline className="desktop-settings-actions" gap="sm" justify="end" wrap>
-              <Button
-                tone="secondary"
-                onClick={handleUpdatePrimaryAction}
-                disabled={updateActionDisabled}
-              >
-                {updatePhase === "available" ? (
-                  <Download size={14} />
-                ) : updatePhase === "downloaded" ? (
-                  <RotateCw size={14} />
-                ) : (
-                  <RefreshCw size={14} />
-                )}
-                {getUpdateButtonLabel(updateState, t)}
-              </Button>
-              {(updateState?.phase === "error" || !bridge.updater) && (
+              {updateState?.supported !== false && (
+                <Button
+                  tone="secondary"
+                  onClick={handleUpdatePrimaryAction}
+                  disabled={updateActionDisabled}
+                >
+                  {updatePhase === "available" ? (
+                    <Download size={14} />
+                  ) : updatePhase === "downloaded" ? (
+                    <RotateCw size={14} />
+                  ) : (
+                    <RefreshCw size={14} />
+                  )}
+                  {getUpdateButtonLabel(updateState, t)}
+                </Button>
+              )}
+              {(updateState?.supported === false || updateState?.phase === "error" || !bridge.updater) && (
                 <Button tone="secondary" onClick={() => void openLatestReleasePage()}>
                   <ExternalLink size={14} />
                   {t("app.update.openManually")}
