@@ -55,6 +55,7 @@ import {
   type LocalMcpEditProposalChangeEvent,
 } from "./local-sigma-doc-proposal-store";
 import { registerAppIpc } from "./ipc/app";
+import { LocalFontService } from "./local-fonts";
 import { registerBrowserIpc } from "./ipc/browser";
 import { registerShellIpc } from "./ipc/shell";
 import { LinkConfirmation } from "./link-confirmation";
@@ -219,6 +220,7 @@ const documentConversionClient = new DocumentConversionClient({
   url: process.env.SIGMA_DOCUMENT_CONVERSION_URL, allowLoopbackHttp: !app.isPackaged,
   auth: collaborationSessions.auth, fontStore: applicationFontStore,
 });
+const localFontService = new LocalFontService();
 const appUpdateController = new AppUpdateController({ releaseUrl: RELEASE_PAGE_URL });
 const desktopSettings = readDesktopSettingsSync(SIGMA_STUDIO_DATA_PATH);
 /**
@@ -1533,6 +1535,7 @@ function registerIpc() {
     return activeWindowCloseHandshake?.cancel(event.sender) ?? false;
   });
   registerAppIpc({
+    listSystemFonts: sender => localFontService.list(sender),
     getMainWindow: () => mainWindow,
     releaseUrl: RELEASE_PAGE_URL,
     dataDir: SIGMA_STUDIO_DATA_PATH,

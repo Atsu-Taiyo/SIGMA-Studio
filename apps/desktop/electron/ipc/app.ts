@@ -1,5 +1,6 @@
 import type { ApplicationFontStore } from "../application-font-store";
 import { ipcMain } from "../trusted-ipc";
+import type { LocalFontFace } from "@/lib/local-font-contracts";
 import { app, dialog, shell, type BrowserWindow, type OpenDialogOptions } from "electron";
 import crypto from "node:crypto";
 import { existsSync } from "node:fs";
@@ -33,6 +34,8 @@ export interface RegisterAppIpcDeps {
   dataDir: string;
   applicationFontStore?: ApplicationFontStore;
   ensureFontResources?: (ids: unknown) => Promise<void>;
+  /** このPCにある書体の名前の一覧 (読めなければ null)。書体メニューを、実際に表示できる書体に合わせる。 */
+  listSystemFonts?: (sender: Electron.WebContents) => Promise<LocalFontFace[] | null>;
   appUpdateController: AppUpdateController;
   quitAndInstall?: () => ReturnType<AppUpdateController["quitAndInstall"]>;
 }
@@ -174,6 +177,13 @@ export function registerAppIpc(deps: RegisterAppIpcDeps): void {
 
   ipcMain.handle("fonts:list", () => ({
     ok: true,
+    fonts: readDesktopCustomFontsForRenderer(),
+  }));
+
+  /** 追加フォントと、このPCの書体の一覧を1回で返す。書体メニューの元になる。 */
+  ipcMain.handle("local-fonts:list", async (event) => ({
+    ok: true,
+    systemFonts: (await deps.listSystemFonts?.(event.sender)) ?? null,
     fonts: readDesktopCustomFontsForRenderer(),
   }));
 

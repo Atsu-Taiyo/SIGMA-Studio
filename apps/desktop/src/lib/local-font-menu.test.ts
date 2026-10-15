@@ -14,6 +14,10 @@ describe("local font menu", () => {
     expect(result.at(-1)?.id).toBe("system");
     expect(localFontMenuGroups(groups,[]).flatMap(group=>group.options.map(option=>option.label))).toEqual(["M PLUS 1p"]);
   });
+  it("keeps the static menu when the host reports the PC's fonts as unknown", () => {
+    // An unreadable list is null, never []: an empty list would read as "nothing is installed" and empty the menu.
+    expect(localFontMenuGroups(groups,null).flatMap(group=>group.options.map(option=>option.label))).toEqual(["M PLUS 1p","M-PRO"]);
+  });
   it("preserves existing behavior when a host cannot enumerate fonts and escapes CSS family names", () => {
     expect(localFontMenuGroups(groups,null)).toBe(groups);
     const name='Font, "Quoted"';
