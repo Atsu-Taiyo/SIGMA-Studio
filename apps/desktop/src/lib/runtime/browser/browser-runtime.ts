@@ -32,7 +32,12 @@ import {
 } from "@/lib/materials";
 import { normalizeTemplateName, parseTemplateDocument } from "@/lib/templates";
 import { resolveDocumentTitle } from "@/lib/document-title";
-import { pruneUnusedDocumentOverlayAssets } from "@/features/document";
+import { documentSearchText, pruneUnusedDocumentOverlayAssets } from "@/features/document";
+import {
+  bodySearchFileFromSummary,
+  WorkspaceBodySearchSession,
+  WorkspaceBodyTextIndex,
+} from "@/lib/workspace-body-search";
 import { ensurePageLayout } from "@/features/document";
 import {
   isValidDocumentVersionCapturedAt,
@@ -654,7 +659,26 @@ export function createBrowserRuntime(options: BrowserRuntimeOptions): AppRuntime
     },
   };
 
+  // ブラウザ版は教材が同じページの IndexedDB にあるので、索引も画面の中に持つ (ページを閉じたら消える)。
+  const bodyTextIndex = new WorkspaceBodyTextIndex();
+
   const workspace: LocalWorkspaceRepository = {
+    openBodySearch(onUpdate) {
+      const session = new WorkspaceBodySearchSession(bodyTextIndex, {
+        list: async () => {
+          const result = await workspace.listSearchOverview!();
+          return result.state === "ready" ? result.overview.files.map(bodySearchFileFromSummary) : [];
+        },
+        readText: async (file) => {
+          const document = await library.loadDocument(file.fileId);
+          return document ? documentSearchText(document) : null;
+        },
+      }, onUpdate);
+      return {
+        setQuery: (queryId, query) => { void session.setQuery(queryId, query); },
+        close: () => session.close(),
+      };
+    },
     async listSearchOverview() {
       try {
         return await backend.read(["library"], async tx => {

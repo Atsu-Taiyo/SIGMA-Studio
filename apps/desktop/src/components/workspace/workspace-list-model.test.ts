@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import type { WorkspaceFileSummary, WorkspaceFolderSummary, WorkspaceOverview } from "@/lib/workspace-repository";
 import type { WorkspaceSummary } from "@/lib/runtime/types";
 
-import { applyPendingRenames, buildFolderPath, buildWorkspaceRows, resolveRowLocation, type WorkspaceRow } from "./workspace-list-model";
+import { applyPendingRenames, buildFolderPath, buildWorkspaceRows, createSearchLocationResolver, resolveRowLocation, type WorkspaceRow } from "./workspace-list-model";
 import { createTranslator } from "@/lib/i18n";
 
 const t = createTranslator("ja", "workspace");
@@ -45,6 +45,27 @@ describe("buildWorkspaceRows", () => {
       for (const sortDirection of ["asc", "desc"] as const) {
         const rows = buildWorkspaceRows({ folders, files, sortKey, sortDirection, t });
         expect(rows.map((row) => row.kind)).toEqual(["folder", "file"]);
+      }
+    }
+  });
+
+  it("returns the same leading rows with a limit as sorting everything, ties and body matches included", () => {
+    let seed = 7;
+    const random = (n: number) => { seed = (seed * 1103515245 + 12345) % 2147483648; return seed % n; };
+    const folders = Array.from({ length: 30 }, (_, n) => makeFolder({ id: `folder-${n}`, name: `フォルダ${random(8)}`, updatedAt: `2026-07-${String(10 + random(5)).padStart(2, "0")}T00:00:00.000Z` }));
+    const files = Array.from({ length: 400 }, (_, n) => makeFile({
+      fileId: `file-${n}`,
+      title: `教材${random(40)}`,
+      updatedAt: random(10) === 0 ? "不正な日時" : `2026-07-${String(10 + random(9)).padStart(2, "0")}T00:00:00.000Z`,
+    }));
+    const bodyMatches = new Map(files.filter(() => random(3) === 0).map((file) => [file.fileId, { before: "", match: "語", after: "" }]));
+    for (const sortKey of ["name", "updatedAt"] as const) {
+      for (const sortDirection of ["asc", "desc"] as const) {
+        const all = buildWorkspaceRows({ folders, files, sortKey, sortDirection, t, bodyMatches });
+        for (const limit of [1, 25, 100, 250, 1000]) {
+          const limited = buildWorkspaceRows({ folders, files, sortKey, sortDirection, t, bodyMatches, limit });
+          expect(limited.map((row) => row.key)).toEqual(all.slice(0, limit).map((row) => row.key));
+        }
       }
     }
   });
@@ -268,5 +289,31 @@ describe("applyPendingRenames", () => {
     expect(next.files[0].title).toBe("新しい教材名");
     expect(next.folders[0].name).toBe("新しいフォルダ名");
     expect(next.workspaces[0].name).toBe("新しいワークスペース名");
+  });
+});
+
+describe("createSearchLocationResolver", () => {
+  it("names the workspace and the folder chain, stopping at other workspaces and cycles", () => {
+    const workspaces = [
+      { id: "workspace-1", name: "マイ教材", createdAt: NOW, updatedAt: NOW },
+      { id: "workspace-2", name: "共有先", createdAt: NOW, updatedAt: NOW },
+    ];
+    const folders = [
+      makeFolder({ id: "a", name: "数学" }),
+      makeFolder({ id: "b", name: "2年", parentFolderId: "a" }),
+      makeFolder({ id: "x", name: "別の場所", workspaceId: "workspace-2", parentFolderId: "b" }),
+      makeFolder({ id: "loop-1", name: "輪1", parentFolderId: "loop-2" }),
+      makeFolder({ id: "loop-2", name: "輪2", parentFolderId: "loop-1" }),
+    ];
+    const resolve = createSearchLocationResolver(folders, workspaces);
+    const [inB] = buildWorkspaceRows({ folders: [], files: [makeFile({ fileId: "f", folderId: "b" })], sortKey: "name", sortDirection: "asc", t });
+    const [inX] = buildWorkspaceRows({ folders: [], files: [makeFile({ fileId: "g", folderId: "x", workspaceId: "workspace-2" })], sortKey: "name", sortDirection: "asc", t });
+    const [inLoop] = buildWorkspaceRows({ folders: [], files: [makeFile({ fileId: "h", folderId: "loop-1" })], sortKey: "name", sortDirection: "asc", t });
+    const [rootFolder] = buildWorkspaceRows({ folders: [folders[0]], files: [], sortKey: "name", sortDirection: "asc", t });
+    expect(resolve(inB)).toBe("マイ教材 / 数学 / 2年");
+    expect(resolve(inB)).toBe("マイ教材 / 数学 / 2年");
+    expect(resolve(inX)).toBe("共有先 / 別の場所");
+    expect(resolve(inLoop)).toBe("マイ教材 / 輪2 / 輪1");
+    expect(resolve(rootFolder)).toBe("マイ教材");
   });
 });

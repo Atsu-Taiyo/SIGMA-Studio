@@ -84,6 +84,8 @@ import { startSessionBridge } from "./collaboration/local-bridge";
 import { createSharedProposalApprover } from "./collaboration/proposal-approval";
 import { createProposalApprovalCoordinator } from "./proposal-approval";
 import { registerWorkspacePreviewIpc } from "./ipc/workspace-preview";
+import { registerWorkspaceSearchIpc } from "./ipc/workspace-search";
+import { createWorkspaceBodySearchService } from "./workspace-body-search";
 import { createWindowCloseHandshake, type WindowCloseHandshake } from "./window-close-handshake";
 import {
   getPageMetrics,
@@ -202,6 +204,7 @@ const sharedCatalog = new DesktopSharedCatalog(collaborationSessions.directory, 
   retainLocal: id => collaborationSessions.retainLocal(id),
   restrict: allowed => collaborationSessions.restrictCatalog(allowed),
 }, status => {
+  noteLibraryChanged();
   for (const window of BrowserWindow.getAllWindows()) window.webContents.send("shared-catalog:change", status);
 });
 localSigmaDocStore.setLibraryAuthority(sharedCatalog.authority());
@@ -210,6 +213,15 @@ localSigmaDocStore.setDocumentAuthority({
   save: async (fileId, document) => collaborationSessions.has(fileId) ? collaborationSessions.boundarySave(fileId, document) : undefined,
 });
 let stopSessionBridge: (() => Promise<void>) | undefined;
+const workspaceBodySearch = createWorkspaceBodySearchService({
+  userDataPath: USER_DATA_PATH,
+  // 実行時 __dirname は dist-electron/ なので隣接ファイルとして解決できる (dev/packaged 共通)。
+  workerPath: path.join(__dirname, "workspace-body-search-worker.cjs"),
+  searchOverview: () => sharedCatalog.searchOverview(),
+  documentBodyPath: file => localSigmaDocStore.documentBodyPath(file),
+  loadSharedDocument: id => sharedCatalog.preview(id, { assets: false }),
+  sharedScope: () => collaborationSessions.actorId(),
+});
 const localMaterialStore = new LocalMaterialStore(USER_DATA_PATH);
 const localTemplateStore = new LocalTemplateStore(USER_DATA_PATH);
 const localMcpProposalStore = new LocalMcpEditProposalStore(USER_DATA_PATH);
@@ -1210,7 +1222,14 @@ function buildMenu() {
   Menu.setApplicationMenu(Menu.buildFromTemplate(template));
 }
 
+/** 教材の一覧が変わった。読み込み中の一覧を使い回さず、開いている本文検索は次の検索語で一覧を取り直す。 */
+function noteLibraryChanged(): void {
+  sharedCatalog.noteLibraryChanged();
+  workspaceBodySearch.invalidate();
+}
+
 function broadcastLocalStoreChange(event: LocalStoreChangeEvent | LocalMcpEditProposalChangeEvent): void {
+  if (event.type === "library" || event.type === "workspace" || event.type === "document") noteLibraryChanged();
   if (event.type === "document" && collaborationSessions.has(event.fileId)) return;
   for (const win of BrowserWindow.getAllWindows()) {
     win.webContents.send("storage:changed", event);
@@ -1224,6 +1243,7 @@ function broadcastLocalStoreChange(event: LocalStoreChangeEvent | LocalMcpEditPr
 // ここから再度ドキュメント保存が走ることはなく無限ループしない。(2) 検証済み自動承認の
 // 再チェックをスケジュールする (rebaseで baseRevision===current に追いついた提案を拾う)。
 async function runPostSaveHooks(fileId: string, document: SigmaDocument, revision: number): Promise<void> {
+  noteLibraryChanged();
   if (collaborationSessions.isShared(fileId)) return;
   if (await localMcpProposalStore.countPendingProposalsForFile(fileId) === 0) {
     scheduleAutoApplyCheck();
@@ -1640,6 +1660,8 @@ function registerIpc() {
     loadSharedDocument: (id, options) => options ? sharedCatalog.preview(id, options) : sharedCatalog.preview(id),
     sharedContext: id => sharedCatalog.previewContext(id),
   });
+
+  registerWorkspaceSearchIpc(workspaceBodySearch);
 }
 
 app.whenReady().then(async () => {
@@ -1727,6 +1749,7 @@ app.on("before-quit", (event) => {
   stopAiRenderBridgeServer();
   void stopSessionBridge?.();
   sharedCatalog.close();
+  workspaceBodySearch.close();
   void collaborationSessions.close();
 });
 

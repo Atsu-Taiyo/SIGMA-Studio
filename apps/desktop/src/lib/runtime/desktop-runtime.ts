@@ -12,6 +12,11 @@ import type {
   DesktopStorageAPI,
   DesktopTemplatesAPI,
 } from "@/types/desktop";
+import type {
+  WorkspaceBodySearchBridge,
+  WorkspaceBodySearchHandle,
+  WorkspaceBodySearchUpdate,
+} from "@/lib/workspace-body-search-contract";
 
 import type {
   CreateDocumentInput,
@@ -52,7 +57,7 @@ export function getDesktopRuntime(): DesktopRuntime | null {
     target: "desktop",
     capabilities: DESKTOP_CAPABILITIES,
     library: createDesktopLibraryRepository(bridge.storage),
-    workspace: createDesktopWorkspaceRepository(bridge.storage),
+    workspace: createDesktopWorkspaceRepository(bridge.storage, bridge.workspaceSearch),
     templates: createDesktopTemplateRepository(bridge.templates),
     materials: createDesktopMaterialRepository(bridge.materials),
     ai: bridge.aiEdit,
@@ -149,9 +154,13 @@ function createDesktopLibraryRepository(storage: DesktopStorageAPI): LocalLibrar
   };
 }
 
-function createDesktopWorkspaceRepository(storage: DesktopStorageAPI): LocalWorkspaceRepository {
+function createDesktopWorkspaceRepository(
+  storage: DesktopStorageAPI,
+  search: WorkspaceBodySearchBridge | undefined,
+): LocalWorkspaceRepository {
   return {
     ...(storage.renameDocument ? { renameDocument: (workspaceId: string, fileId: string, name: string) => storage.renameDocument!(workspaceId, fileId, name) } : {}),
+    ...(search ? { openBodySearch: (onUpdate: (update: WorkspaceBodySearchUpdate) => void) => openDesktopBodySearch(search, onUpdate) } : {}),
     listOverview(workspaceId?: string | null): Promise<WorkspaceOverviewResult> {
       return storage.getWorkspaceOverview(workspaceId);
     },
@@ -178,6 +187,33 @@ function createDesktopWorkspaceRepository(storage: DesktopStorageAPI): LocalWork
     },
     moveFileToWorkspace(fileId: string, targetWorkspaceId: string, folderId?: string | null): Promise<WorkspaceOverviewResult> {
       return storage.moveFileToWorkspace(fileId, targetWorkspaceId, folderId);
+    },
+  };
+}
+
+/** 本文の索引と読み込みは main が持つ。画面は検索語を送り、自分のセッションの結果だけを受け取る。 */
+function openDesktopBodySearch(
+  bridge: WorkspaceBodySearchBridge,
+  onUpdate: (update: WorkspaceBodySearchUpdate) => void,
+): WorkspaceBodySearchHandle {
+  const sessionId = createId("search");
+  let closed = false;
+  const unsubscribe = bridge.onUpdate(({ sessionId: target, ...update }) => {
+    if (!closed && target === sessionId) onUpdate(update);
+  });
+  return {
+    setQuery(queryId, query) {
+      if (closed) return;
+      void bridge.setQuery(sessionId, queryId, query).catch(() => {
+        // 本文検索が使えなくても、題名の結果はそのまま出ている。待ち表示だけを終わらせる。
+        if (!closed) onUpdate({ queryId, reset: true, hits: [], removed: [], pending: 0 });
+      });
+    },
+    close() {
+      if (closed) return;
+      closed = true;
+      unsubscribe();
+      void bridge.close(sessionId).catch(() => {});
     },
   };
 }

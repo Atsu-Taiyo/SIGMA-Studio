@@ -2299,6 +2299,14 @@ export class LocalSigmaDocStore {
     return path.join(this.dataDir, file.documentPath || getDocumentPath(file.fileId));
   }
 
+  /**
+   * 一覧に載った教材の本文ファイルの場所。台帳を読み直さずに本文だけを読む利用者 (本文検索の索引) 向け。
+   * 本文は `atomicRename` で置き換えるので、書き込み中に読んでも前後どちらかの完全な JSON になる。
+   */
+  documentBodyPath(file: { fileId: string; documentPath?: string }): string {
+    return path.join(this.dataDir, file.documentPath || getDocumentPath(file.fileId));
+  }
+
   private resolveWorkspace(
     library: LocalLibraryRecord,
     workspaceId?: string | null,

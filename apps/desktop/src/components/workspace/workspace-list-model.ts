@@ -1,4 +1,5 @@
 import type { WorkspaceFileSummary, WorkspaceFolderSummary, WorkspaceOverview } from "@/lib/workspace-repository";
+import type { WorkspaceBodySearchExcerpt } from "@/lib/workspace-body-search-contract";
 import type { WorkspaceSortDirection, WorkspaceSortKey } from "@/lib/workspace-view-preferences";
 
 import { resolveFileDisplayName, resolveFolderDisplayName } from "./workspace-format";
@@ -20,6 +21,8 @@ export type WorkspaceRow =
       name: string;
       updatedAt: string;
       file: WorkspaceFileSummary;
+      /** 題名ではなく本文で検索に一致した教材の、一致した箇所。 */
+      excerpt?: WorkspaceBodySearchExcerpt;
     };
 
 // Japanese collation with numeric mode so "教材2" sorts before "教材10"
@@ -39,6 +42,16 @@ export interface BuildWorkspaceRowsInput {
    * 教材名 = 内容であって、UI の言語で本棚の順序が変わるのは不可解なので。
    */
   t: Translate<"workspace">;
+  /**
+   * 検索中だけ渡す。題名ではなく本文で一致した教材 (fileId → 一致した箇所)。題名で一致した教材の
+   * 後ろにまとめて並べる — 本文の一致は後から届くので、先に出ている題名の一致の間へ割り込ませない。
+   */
+  bodyMatches?: ReadonlyMap<string, WorkspaceBodySearchExcerpt>;
+  /**
+   * 先頭からこの数だけを返す。全部を並べ替えずに上位だけを選ぶので、数万件の検索結果でも
+   * 速い (並びは全部を並べ替えて切り取ったときと同じ)。
+   */
+  limit?: number;
 }
 
 /**
@@ -47,7 +60,7 @@ export interface BuildWorkspaceRowsInput {
  * direction; the requested sort only orders items within each group.
  */
 export function buildWorkspaceRows(input: BuildWorkspaceRowsInput): WorkspaceRow[] {
-  const { folders, files, sortKey, sortDirection, t } = input;
+  const { folders, files, sortKey, sortDirection, t, bodyMatches, limit = Number.POSITIVE_INFINITY } = input;
 
   const folderRows: WorkspaceRow[] = folders.map((folder) => ({
     kind: "folder",
@@ -57,30 +70,67 @@ export function buildWorkspaceRows(input: BuildWorkspaceRowsInput): WorkspaceRow
     updatedAt: folder.updatedAt,
     folder,
   }));
-  const fileRows: WorkspaceRow[] = files.map((file) => ({
-    kind: "file",
-    key: `file:${file.fileId}`,
-    id: file.fileId,
-    name: resolveFileDisplayName(file, t),
-    updatedAt: file.updatedAt,
-    file,
-  }));
+  const fileRows: WorkspaceRow[] = files.map((file) => {
+    const excerpt = bodyMatches?.get(file.fileId);
+    return {
+      kind: "file",
+      key: `file:${file.fileId}`,
+      id: file.fileId,
+      name: resolveFileDisplayName(file, t),
+      updatedAt: file.updatedAt,
+      file,
+      ...(excerpt ? { excerpt } : {}),
+    };
+  });
 
-  return [
-    ...sortRows(folderRows, sortKey, sortDirection),
-    ...sortRows(fileRows, sortKey, sortDirection),
-  ];
+  const rows: WorkspaceRow[] = [];
+  for (const group of [
+    folderRows,
+    fileRows.filter((row) => !(row.kind === "file" && row.excerpt)),
+    fileRows.filter((row) => row.kind === "file" && row.excerpt),
+  ]) {
+    if (rows.length >= limit) break;
+    rows.push(...sortRows(group, sortKey, sortDirection, limit - rows.length));
+  }
+  return rows;
 }
 
 function sortRows(
   rows: WorkspaceRow[],
   sortKey: WorkspaceSortKey,
   sortDirection: WorkspaceSortDirection,
+  limit: number,
 ): WorkspaceRow[] {
-  const comparator = sortKey === "name"
-    ? (a: WorkspaceRow, b: WorkspaceRow) => compareByName(a, b, sortDirection)
-    : (a: WorkspaceRow, b: WorkspaceRow) => compareByUpdatedAt(a, b, sortDirection);
-  return [...rows].sort(comparator);
+  let compare: (a: WorkspaceRow, b: WorkspaceRow) => number;
+  if (sortKey === "name") {
+    compare = (a, b) => compareByName(a, b, sortDirection);
+  } else {
+    // 日時の解釈は 1 行 1 回。比較のたびに解釈すると、数万件の検索結果で並べ替えが数倍遅くなる。
+    const times = new Map(rows.map((row) => [row, Date.parse(row.updatedAt)]));
+    compare = (a, b) => compareByUpdatedAt(a, b, sortDirection, times);
+  }
+  return rows.length <= limit ? [...rows].sort(compare) : selectSorted(rows, compare, limit);
+}
+
+/**
+ * 並べ替えたときの先頭 `limit` 件を、全部を並べ替えずに選ぶ。並びが同じ行は元の順を保つ (安定な
+ * 並べ替えと同じ結果)。上位に入らない行は、今の最下位と 1 回比べるだけで捨てる。
+ */
+function selectSorted(rows: WorkspaceRow[], compare: (a: WorkspaceRow, b: WorkspaceRow) => number, limit: number): WorkspaceRow[] {
+  const top: WorkspaceRow[] = [];
+  for (const row of rows) {
+    if (top.length === limit && compare(row, top[limit - 1]) >= 0) continue;
+    let low = 0;
+    let high = top.length;
+    while (low < high) {
+      const middle = (low + high) >> 1;
+      if (compare(row, top[middle]) < 0) high = middle;
+      else low = middle + 1;
+    }
+    top.splice(low, 0, row);
+    if (top.length > limit) top.pop();
+  }
+  return top;
 }
 
 function compareByName(a: WorkspaceRow, b: WorkspaceRow, direction: WorkspaceSortDirection): number {
@@ -88,9 +138,14 @@ function compareByName(a: WorkspaceRow, b: WorkspaceRow, direction: WorkspaceSor
   return direction === "asc" ? cmp : -cmp;
 }
 
-function compareByUpdatedAt(a: WorkspaceRow, b: WorkspaceRow, direction: WorkspaceSortDirection): number {
-  const aTime = Date.parse(a.updatedAt);
-  const bTime = Date.parse(b.updatedAt);
+function compareByUpdatedAt(
+  a: WorkspaceRow,
+  b: WorkspaceRow,
+  direction: WorkspaceSortDirection,
+  times: ReadonlyMap<WorkspaceRow, number>,
+): number {
+  const aTime = times.get(a) ?? Number.NaN;
+  const bTime = times.get(b) ?? Number.NaN;
   const aValid = Number.isFinite(aTime) && aTime !== 0;
   const bValid = Number.isFinite(bTime) && bTime !== 0;
 
@@ -110,11 +165,37 @@ function compareByUpdatedAt(a: WorkspaceRow, b: WorkspaceRow, direction: Workspa
   return COLLATOR.compare(a.name, b.name);
 }
 
-export function resolveSearchLocation(row: WorkspaceRow, folders: WorkspaceFolderSummary[], workspaces: WorkspaceOverview["workspaces"]): string {
-  const item = row.kind === "file" ? row.file : row.folder;
-  const parentId = row.kind === "file" ? row.file.folderId : row.folder.parentFolderId;
-  const workspace = workspaces.find(w => w.id === item.workspaceId);
-  return [workspace?.name, ...buildFolderPath(folders.filter(f => f.workspaceId === item.workspaceId), parentId).map(f => f.name)].filter(Boolean).join(" / ");
+/**
+ * 検索結果の「場所」(ワークスペース名 / 親フォルダの道筋) を返す関数を作る。フォルダを ID で引けるように
+ * し、組んだ道筋を覚えておくので、数千のフォルダがあっても検索結果の 1 行ごとに全フォルダをたどらない。
+ * 別のワークスペースのフォルダはたどらず、親が輪になっていても止まる (`buildFolderPath` と同じ)。
+ */
+export function createSearchLocationResolver(
+  folders: WorkspaceFolderSummary[],
+  workspaces: WorkspaceOverview["workspaces"],
+): (row: WorkspaceRow) => string {
+  const foldersById = new Map(folders.map((folder) => [folder.id, folder]));
+  const workspaceNames = new Map(workspaces.map((workspace) => [workspace.id, workspace.name]));
+  const paths = new Map<string, string[]>();
+  const pathOf = (workspaceId: string, folderId: string | null): string[] => {
+    if (!folderId) return [];
+    const key = `${workspaceId}\u0000${folderId}`;
+    const cached = paths.get(key);
+    if (cached) return cached;
+    const names: string[] = [];
+    const seen = new Set<string>();
+    for (let current = foldersById.get(folderId); current && current.workspaceId === workspaceId && !seen.has(current.id); current = current.parentFolderId && current.parentFolderId !== current.id ? foldersById.get(current.parentFolderId) : undefined) {
+      seen.add(current.id);
+      names.unshift(current.name);
+    }
+    paths.set(key, names);
+    return names;
+  };
+  return (row) => {
+    const item = row.kind === "file" ? row.file : row.folder;
+    const parentId = row.kind === "file" ? row.file.folderId : row.folder.parentFolderId;
+    return [workspaceNames.get(item.workspaceId), ...pathOf(item.workspaceId, parentId)].filter(Boolean).join(" / ");
+  };
 }
 
 export interface ResolveRowLocationContext {

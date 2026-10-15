@@ -137,6 +137,10 @@ export const workspace = {
     placeholder: "Search all workspaces",
     clear: "Clear search",
     results: "Search results",
+    searchingBody: "Searching inside materials…",
+    bodyMatch: "Match in the material",
+    showMore_one: "Show more ({{count}} left)",
+    showMore_other: "Show more ({{count}} left)",
   },
   action: {
     openTemplateGallery: "Template gallery",

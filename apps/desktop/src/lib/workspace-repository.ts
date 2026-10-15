@@ -11,6 +11,7 @@ import type {
 } from "@/lib/runtime";
 import type { SigmaDocument } from "@/features/document";
 import { availableDocumentTitle } from "@/lib/library-ledger";
+import type { WorkspaceBodySearchHandle, WorkspaceBodySearchUpdate } from "@/lib/workspace-body-search-contract";
 import {
   createObservedDocumentWrite,
   saveDocumentRecord,
@@ -36,6 +37,17 @@ export async function listWorkspaceSearchOverview(): Promise<WorkspaceOverviewRe
   if (catalog?.searchOverview) return { state: "ready", overview: await catalog.searchOverview() };
   const workspace = getAppRuntime().workspace;
   return workspace.listSearchOverview ? workspace.listSearchOverview() : workspace.listOverview();
+}
+
+export function canSearchWorkspaceBodies(): boolean {
+  return typeof window !== "undefined" && Boolean(getAppRuntime().workspace.openBodySearch);
+}
+
+/** 全教材の本文検索を開く。本文検索の無い実装では null (題名だけで探す)。 */
+export function openWorkspaceBodySearch(
+  onUpdate: (update: WorkspaceBodySearchUpdate) => void,
+): WorkspaceBodySearchHandle | null {
+  return getAppRuntime().workspace.openBodySearch?.(onUpdate) ?? null;
 }
 
 export async function loadSharedWorkspacePreviewDocument(

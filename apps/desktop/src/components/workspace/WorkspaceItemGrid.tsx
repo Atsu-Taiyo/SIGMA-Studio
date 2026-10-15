@@ -17,6 +17,8 @@ import { isInteractiveTargetWithin } from "./workspace-interaction";
 import { WorkspaceEmptyState, type WorkspaceEmptyVariant } from "./WorkspaceEmptyState";
 import { WorkspaceFileCardPreview } from "./WorkspaceFileCardPreview";
 import { WorkspaceInlineRenameInput } from "./WorkspaceInlineRenameInput";
+import { WorkspaceSearchExcerpt } from "./WorkspaceSearchExcerpt";
+import type { WorkspaceBodySearchExcerpt } from "@/lib/workspace-body-search-contract";
 import { useAppLocale, useT } from "@/lib/i18n/react";
 
 type DragDropProps = {
@@ -29,6 +31,10 @@ interface WorkspaceItemGridProps {
   menuKey?: string | null;
   loading?: boolean;
   searchFailed?: boolean;
+  /** 検索中だけ。本文で一致した教材と、その一致箇所。 */
+  bodyMatches?: ReadonlyMap<string, WorkspaceBodySearchExcerpt>;
+  /** 本文検索の結果がまだ出そろっていない (この間は「一致なし」を出さない)。 */
+  bodySearchPending?: boolean;
   locationLabel?: (row: WorkspaceRow) => string;
   folders: WorkspaceFolderSummary[];
   files: WorkspaceFileSummary[];
@@ -66,6 +72,8 @@ export function WorkspaceItemGrid({
   menuKey,
   loading = false,
   searchFailed = false,
+  bodyMatches,
+  bodySearchPending = false,
   locationLabel,
   folders,
   files,
@@ -101,7 +109,7 @@ export function WorkspaceItemGrid({
   const locationFor = (key: string) => { const row = rows.find(row => row.key === key); return row && locationLabel?.(row); };
   const locale = useAppLocale();
 
-  const rows = buildWorkspaceRows({ folders, files, sortKey, sortDirection, t });
+  const rows = buildWorkspaceRows({ folders, files, sortKey, sortDirection, t, bodyMatches });
   const sortedFolders = rows.filter((row) => row.kind === "folder").map((row) => row.folder);
   const sortedFiles = rows.filter((row) => row.kind === "file").map((row) => row.file);
   // Roving tabIndex: only focusedKey gets 0. Falls back to the first row so
@@ -172,16 +180,16 @@ export function WorkspaceItemGrid({
         </section>
       )}
 
-      <section className="workspace-group" aria-label={t("label.materials")}>
+      <section className="workspace-group" aria-label={t("label.materials")} aria-busy={bodySearchPending || undefined}>
         <h3 className="workspace-group-title">{t("label.materials")}</h3>
-        {sortedFiles.length === 0 ? (
+        {sortedFiles.length === 0 ? (bodySearchPending ? null : (
           <WorkspaceEmptyState
             variant={emptyVariant}
             canCreate={canCreate}
             onCreateDocument={onCreateDocument}
             onClearSearch={onClearSearch}
           />
-        ) : (
+        )) : (
           <div className="workspace-item-grid" style={{ "--workspace-item-min": "232px" } as CSSProperties}>
             {sortedFiles.map((file) => {
               const dragging = dragItem?.type === "file" && dragItem.fileId === file.fileId;
@@ -190,6 +198,7 @@ export function WorkspaceItemGrid({
               const key = `file:${file.fileId}`;
               const editing = isRenameEditing(key);
               const selected = selectedKeys.has(key);
+              const excerpt = bodyMatches?.get(file.fileId);
               return (
                 <div
                   className={`workspace-file-card ${dragging ? "dragging" : ""} ${editing ? "editing" : ""} ${selected ? "selected" : ""}`}
@@ -235,6 +244,7 @@ export function WorkspaceItemGrid({
                     ) : (
                       <div className="workspace-file-card-title"><strong><DocumentTitleText title={displayName} /></strong>{file.sharing && <WorkspaceSharedBadge />}</div>
                     )}
+                    {excerpt && !editing && <WorkspaceSearchExcerpt excerpt={excerpt} />}
                     <small>{locationLabel ? locationFor(`file:${file.fileId}`) : formatDateTime(file.updatedAt, locale)}</small>
                   </div>
                   {!editing && (

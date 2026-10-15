@@ -251,7 +251,31 @@ export class DesktopSharedCatalog {
     const overview = this.cache ? this.cache.project(local, workspaceId, hidden) : { ...local, files: local.files.filter(f => f.workspaceId === local.activeWorkspaceId && !hidden.has(f.fileId)), folders: local.folders.filter(f => f.workspaceId === local.activeWorkspaceId) };
     return { state: "ready", overview: { ...overview, catalog: await this.status() } } as LocalWorkspaceOverviewResult;
   }
-  async searchOverview(): Promise<WorkspaceOverview> {
+  private searchOverviewRunning: { generation: number; overview: Promise<WorkspaceOverview> } | null = null;
+  private libraryGeneration = 0;
+  /** 教材・フォルダ・ワークスペースが変わった。読み込み中の一覧は、これより後の求めには分けない。 */
+  noteLibraryChanged(): void {
+    this.libraryGeneration += 1;
+  }
+  /**
+   * 全ワークスペースの一覧。台帳を丸ごと読むので、検索欄の題名検索と本文検索が同時に求めたときは
+   * 1 回の読み込みを分け合う (読み込みの間は main が止まり、打鍵が画面に届くのも遅れる)。ただし
+   * 変更の後に求められたら、変更の前に読み始めた一覧は渡さない (保存したばかりの版を見落とす)。
+   */
+  searchOverview(): Promise<WorkspaceOverview> {
+    const generation = this.libraryGeneration;
+    if (this.searchOverviewRunning?.generation !== generation) {
+      const running = {
+        generation,
+        overview: this.readSearchOverview().finally(() => {
+          if (this.searchOverviewRunning === running) this.searchOverviewRunning = null;
+        }),
+      };
+      this.searchOverviewRunning = running;
+    }
+    return this.searchOverviewRunning!.overview;
+  }
+  private async readSearchOverview(): Promise<WorkspaceOverview> {
     await this.account();
     const local = await this.rawOverview();
     const hidden = new Set(this.sessions.bindings().map(b => b.fileId));

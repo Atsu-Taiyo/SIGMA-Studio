@@ -13,11 +13,13 @@ import {
   UserRoundPlus,
   X,
 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import type { FormEvent, MouseEvent as ReactMouseEvent } from "react";
 
 import { Button, IconButton } from "@/components/ui/Button";
 import { useWorkspaceLibrary } from "./use-workspace-search";
+import { useWorkspaceBodySearch } from "./use-workspace-body-search";
+import { WorkspaceSearchMore } from "./WorkspaceSearchMore";
 import { useWorkspaceComments } from "./use-workspace-comments";
 import { WorkspaceJoinDialog } from "./WorkspaceJoinDialog";
 import { WorkspaceCommentsPanel } from "./WorkspaceCommentsPanel";
@@ -52,6 +54,7 @@ import {
   type WorkspaceFolderSummary,
   type WorkspaceOverview,
 } from "@/lib/workspace-repository";
+import { matchesSearchTerms, searchTerms, toSearchKey } from "@/lib/workspace-body-search";
 import { TemplateGallery } from "@/components/templates/TemplateGallery";
 import { LedgerSchemaFailurePanel } from "@/components/ledger/LedgerSchemaFailurePanel";
 import { createTemplateAtDestination } from "./workspace-template-commands";
@@ -79,6 +82,7 @@ import { WorkspaceConfirmDialog } from "./WorkspaceConfirmDialog";
 import { WorkspaceDeleteDialog, type WorkspaceDeleteDialogState } from "./WorkspaceDeleteDialog";
 import type { WorkspaceEmptyVariant } from "./WorkspaceEmptyState";
 import { WorkspaceItemGrid } from "./WorkspaceItemGrid";
+import { setWorkspacePreviewLoadsPaused } from "./WorkspaceFileCardPreview";
 import { WorkspaceItemList } from "./WorkspaceItemList";
 import { canDeleteWorkspaceItem, canMutateWorkspaceItem } from "./workspace-sharing-permissions";
 import type { WorkspaceInlineRenameTarget } from "./use-inline-rename";
@@ -90,7 +94,7 @@ import { useWorkspaceDragAndDrop } from "./use-workspace-drag-and-drop";
 import { useInlineRename } from "./use-inline-rename";
 import { useWorkspaceItemKeyboard } from "./use-workspace-item-keyboard";
 import { useWorkspaceSelection } from "./use-workspace-selection";
-import { applyPendingRenames, buildFolderPath, buildWorkspaceRows, resolveSearchLocation } from "./workspace-list-model";
+import { applyPendingRenames, buildFolderPath, buildWorkspaceRows, createSearchLocationResolver, type WorkspaceRow } from "./workspace-list-model";
 import { resolveFileDisplayName, resolveFolderDisplayName } from "./workspace-format";
 import { isInteractiveContextTarget, isSelectableItemTarget } from "./workspace-interaction";
 import { enterLedgerSchemaFailure, type LedgerSchemaErrorResult } from "./workspace-overview-result";
@@ -99,6 +103,10 @@ import type { Translate } from "@/lib/i18n/translator";
 import { WorkspaceCollaborationAccount } from "@/features/collaboration/renderer/CollaborationAccountControl";
 
 const ALL_FOLDERS = "all";
+/** 検索結果を一度に描く数。「さらに表示」1 回ごとにこれだけ足す。 */
+const SEARCH_RESULT_PAGE_SIZE = 100;
+/** 最後の打鍵からこれだけ空いたら、打ち終えたとみなしてプレビューを作り始める。 */
+const SEARCH_TYPING_IDLE_MS = 1000;
 
 type FolderFilter = typeof ALL_FOLDERS | string;
 type SaveStatus = "idle" | "loading" | "saving" | "error" | "saved";
@@ -148,6 +156,9 @@ export function WorkspaceManager() {
   const [folderNameDraft, setFolderNameDraft] = useState("");
   const [folderParentDraft, setFolderParentDraft] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
+  // 打った文字は検索欄にすぐ出し、一覧の絞り込み・並べ替え (数万件) はその後に回す。
+  const listQuery = useDeferredValue(searchQuery);
+  const [searchFocused, setSearchFocused] = useState(false);
   const [status, setStatus] = useState<SaveStatus>("loading");
   const [overviewLoadFailed, setOverviewLoadFailed] = useState(false);
   const [retryingOverview, setRetryingOverview] = useState(false);
@@ -307,8 +318,9 @@ export function WorkspaceManager() {
   }, [overview]);
   const visibleWorkspaces = useMemo(() => overview?.workspaces ?? [], [overview]);
 
-  const searchActive = searchQuery.trim().length > 0;
+  const searchActive = listQuery.trim().length > 0;
   // 検索・コメント一覧・ブックマークが読む、全ワークスペースの読み取り専用スナップショット。
+  // 検索欄に入った時点で読み始め、最初の 1 文字を打つときに待たせない。
   const profile = useCollaborationProfile();
   const commentIdentity = useMemo<CommentUserIdentity | null>(() => profile ? {
     userId: profile.actorId,
@@ -316,7 +328,7 @@ export function WorkspaceManager() {
     authorNames: [profile.displayName, profile.email, profile.actorId].filter((name): name is string => Boolean(name)),
   } : null, [profile]);
   const { latest: library, current: searchResult } = useWorkspaceLibrary(
-    searchActive || panel !== "files" || commentIdentity !== null,
+    searchActive || searchFocused || panel !== "files" || commentIdentity !== null,
     overview,
   );
   const searchOverview = searchResult?.overview;
@@ -330,26 +342,46 @@ export function WorkspaceManager() {
     : ALL_FOLDERS;
   const selectedFolder = folders.find((folder) => folder.id === effectiveFolderFilter) ?? null;
   const emptyVariant: WorkspaceEmptyVariant = searchActive ? "search" : selectedFolder ? "folder" : "root";
+  // 検索は題名 (ここでその場で絞る) と本文 (main の索引から届く) を同時に始め、届いたものから並べる。
+  const bodySearch = useWorkspaceBodySearch(listQuery, { warm: searchFocused });
+  const queryTerms = useMemo(() => searchTerms(listQuery), [listQuery]);
+  // 題名の照合用の形は一覧が届いたときに 1 度だけ作る (打鍵のたびに数万件を正規化しない)。
+  const titleKeys = useMemo(
+    () => new Map((searchOverview?.files ?? []).map((file) => [file.fileId, toSearchKey(file.title)])),
+    [searchOverview],
+  );
+  const titleMatchedFiles = useMemo(
+    () => queryTerms.length > 0
+      ? resultFiles.filter((file) => {
+        const key = titleKeys.get(file.fileId) ?? toSearchKey(file.title);
+        return queryTerms.every((term) => key.includes(term));
+      })
+      : [],
+    [queryTerms, resultFiles, titleKeys],
+  );
+  /** 題名では一致せず、本文で一致した教材と、その一致箇所。 */
+  const bodyMatches = useMemo(() => {
+    const titleMatched = new Set(titleMatchedFiles.map((file) => file.fileId));
+    return new Map([...bodySearch.hits].filter(([fileId]) => !titleMatched.has(fileId)));
+  }, [bodySearch.hits, titleMatchedFiles]);
   const filteredFiles = useMemo(() => {
-    const query = searchQuery.trim().toLowerCase();
-    if (query) {
-      return resultFiles.filter((file) => file.title.toLowerCase().includes(query));
+    if (queryTerms.length > 0) {
+      return [...titleMatchedFiles, ...resultFiles.filter((file) => bodyMatches.has(file.fileId))];
     }
     return files.filter((file) =>
       effectiveFolderFilter === ALL_FOLDERS ? !file.folderId : file.folderId === effectiveFolderFilter,
     );
-  }, [effectiveFolderFilter, files, resultFiles, searchQuery]);
+  }, [bodyMatches, effectiveFolderFilter, files, queryTerms, resultFiles, titleMatchedFiles]);
   const visibleFolders = useMemo(() => {
-    const query = searchQuery.trim().toLowerCase();
-    if (query) {
-      return resultFolders.filter((folder) => folder.name.toLowerCase().includes(query));
+    if (queryTerms.length > 0) {
+      return resultFolders.filter((folder) => matchesSearchTerms(folder.name, queryTerms));
     }
     return folders.filter((folder) =>
       effectiveFolderFilter === ALL_FOLDERS
         ? !folder.parentFolderId
         : folder.parentFolderId === effectiveFolderFilter,
     );
-  }, [effectiveFolderFilter, folders, resultFolders, searchQuery]);
+  }, [effectiveFolderFilter, folders, queryTerms, resultFolders]);
   const rootFolders = useMemo(() => folders.filter((folder) => !folder.parentFolderId), [folders]);
   const rootFiles = useMemo(() => files.filter((file) => !file.folderId), [files]);
 
@@ -427,6 +459,10 @@ export function WorkspaceManager() {
   // same deterministic buildWorkspaceRows -- the .key order always matches
   // even though the array instances differ, so there is no need to thread
   // this array down as a prop.
+  // 本文まで探すと数万件が一致しうる。検索結果は先頭から一定数だけ描き、続きは「さらに表示」で足す
+  // (届くたびに全件を並べ替えて描き直すと、その間画面が止まる)。検索語を変えたら先頭からに戻す。
+  const [searchShown, setSearchShown] = useState({ query: "", count: SEARCH_RESULT_PAGE_SIZE });
+  const searchLimit = searchShown.query === listQuery.trim() ? searchShown.count : SEARCH_RESULT_PAGE_SIZE;
   const selectionRows = useMemo(
     () => buildWorkspaceRows({
       folders: visibleFolders,
@@ -434,9 +470,51 @@ export function WorkspaceManager() {
       sortKey: viewPreference.sortKey,
       sortDirection: viewPreference.sortDirection,
       t,
+      bodyMatches,
+      ...(searchActive ? { limit: searchLimit } : {}),
     }),
-    [visibleFolders, filteredFiles, viewPreference.sortKey, viewPreference.sortDirection, t],
+    [visibleFolders, filteredFiles, viewPreference.sortKey, viewPreference.sortDirection, t, bodyMatches, searchActive, searchLimit],
   );
+  const hiddenSearchResults = visibleFolders.length + filteredFiles.length - selectionRows.length;
+  const shownFolders = useMemo(
+    () => (searchActive ? selectionRows.flatMap((row) => (row.kind === "folder" ? [row.folder] : [])) : visibleFolders),
+    [searchActive, selectionRows, visibleFolders],
+  );
+  const shownFiles = useMemo(
+    () => (searchActive ? selectionRows.flatMap((row) => (row.kind === "file" ? [row.file] : [])) : filteredFiles),
+    [filteredFiles, searchActive, selectionRows],
+  );
+  // 「場所」(ワークスペース / フォルダの道筋) は、描く行の分だけ先に組んでおく (行ごとに全フォルダをたどらない)。
+  const resolveLocation = useMemo(() => createSearchLocationResolver(resultFolders, visibleWorkspaces), [resultFolders, visibleWorkspaces]);
+  const searchLocations = useMemo(
+    () => new Map(searchActive ? selectionRows.map((row) => [row.key, resolveLocation(row)]) : []),
+    [resolveLocation, searchActive, selectionRows],
+  );
+  const searchLocationLabel = useCallback(
+    (row: WorkspaceRow) => searchLocations.get(row.key) ?? resolveLocation(row),
+    [resolveLocation, searchLocations],
+  );
+  const showMoreSearchResults = useCallback(() => {
+    setSearchShown({ query: listQuery.trim(), count: searchLimit + SEARCH_RESULT_PAGE_SIZE });
+  }, [listQuery, searchLimit]);
+  // 検索欄に入ってこれから打つとき・打っている間・本文の結果が流れ込んでいる間は、カードのプレビューを
+  // 作らない (後回しにする)。プレビューは教材を丸ごと読んで組むので、その間は打鍵が画面へ届くのが遅れる。
+  const [searchTyping, setSearchTyping] = useState(false);
+  useEffect(() => {
+    if (!searchTyping) return;
+    const timer = window.setTimeout(() => setSearchTyping(false), SEARCH_TYPING_IDLE_MS);
+    return () => window.clearTimeout(timer);
+  }, [searchQuery, searchTyping]);
+  // 判定は打った値そのもので行う (一覧に使う後回しの値で判定すると、最初の 1 文字の直後に一瞬だけ
+  // 止めるのをやめてしまい、そこで大きな教材のプレビューを組み始める)。
+  const searchTyped = searchQuery.trim().length > 0;
+  const previewsPaused = searchFocused
+    ? !searchTyped || searchTyping || bodySearch.pending
+    : (searchTyped || searchActive) && (searchTyping || bodySearch.pending);
+  useEffect(() => {
+    setWorkspacePreviewLoadsPaused(previewsPaused);
+  }, [previewsPaused]);
+  useEffect(() => () => setWorkspacePreviewLoadsPaused(false), []);
 
   // Prune (not clear) whenever the overview refreshes: an unrelated
   // rename/background sync must not blow away what the user had selected,
@@ -1246,9 +1324,11 @@ export function WorkspaceManager() {
             aria-label={t("search.material")}
             value={searchQuery}
             placeholder={t("search.placeholder")}
-            onChange={(event) => { setSearchQuery(event.target.value); setPanel("files"); }}
+            onChange={(event) => { setSearchQuery(event.target.value); setSearchTyping(true); setPanel("files"); }}
+            onFocus={() => setSearchFocused(true)}
+            onBlur={() => setSearchFocused(false)}
           />
-          {searchActive && (
+          {searchQuery.trim().length > 0 && (
             <button
               type="button"
               className="workspace-search-clear"
@@ -1398,6 +1478,7 @@ export function WorkspaceManager() {
               folderPath={folderPath}
               selectedFolder={selectedFolder}
               searchActive={searchActive}
+              bodySearchPending={searchActive && bodySearch.pending}
               dropTarget={dragDrop.dropTarget}
               dropProps={dragDrop.dropProps}
               onNavigateRoot={() => {
@@ -1444,14 +1525,16 @@ export function WorkspaceManager() {
             {viewPreference.mode === "grid" ? (
               <WorkspaceItemGrid
             menuKey={menuKey}
-                locationLabel={searchActive ? (row) => resolveSearchLocation(row, resultFolders, visibleWorkspaces) : undefined}
-                folders={visibleFolders}
-                files={filteredFiles}
+                locationLabel={searchActive ? searchLocationLabel : undefined}
+                folders={shownFolders}
+                files={shownFiles}
                 sortKey={viewPreference.sortKey}
                 sortDirection={viewPreference.sortDirection}
                 emptyVariant={emptyVariant}
                 loading={searchActive && !searchResult}
                 searchFailed={searchActive && Boolean(searchResult?.failed)}
+                bodyMatches={searchActive ? bodyMatches : undefined}
+                bodySearchPending={searchActive && bodySearch.pending}
                 dragItem={dragDrop.dragItem}
                 dropTarget={dragDrop.dropTarget}
                 dragProps={dragDrop.dragProps}
@@ -1480,9 +1563,9 @@ export function WorkspaceManager() {
             ) : (
               <WorkspaceItemList
             menuKey={menuKey}
-                locationLabel={searchActive ? (row) => resolveSearchLocation(row, resultFolders, visibleWorkspaces) : undefined}
-                folders={visibleFolders}
-                files={filteredFiles}
+                locationLabel={searchActive ? searchLocationLabel : undefined}
+                folders={shownFolders}
+                files={shownFiles}
                 allFolders={resultFolders}
                 workspaceName={workspaceName}
                 sortKey={viewPreference.sortKey}
@@ -1492,6 +1575,8 @@ export function WorkspaceManager() {
                 emptyVariant={emptyVariant}
                 loading={searchActive && !searchResult}
                 searchFailed={searchActive && Boolean(searchResult?.failed)}
+                bodyMatches={searchActive ? bodyMatches : undefined}
+                bodySearchPending={searchActive && bodySearch.pending}
                 dragItem={dragDrop.dragItem}
                 dropTarget={dragDrop.dropTarget}
                 dragProps={dragDrop.dragProps}
@@ -1517,6 +1602,9 @@ export function WorkspaceManager() {
                 bookmarkedKeys={bookmarkedKeys}
                 onToggleBookmark={toggleBookmark}
               />
+            )}
+            {searchActive && searchResult && hiddenSearchResults > 0 && (
+              <WorkspaceSearchMore remaining={hiddenSearchResults} onShowMore={showMoreSearchResults} />
             )}
 
           </section>

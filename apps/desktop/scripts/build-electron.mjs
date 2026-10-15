@@ -49,6 +49,7 @@ export async function buildElectron({ watch = false, onBuilt } = {}) {
       preload: path.join(root, "electron/preload.ts"),
       "preview-preload": path.join(root, "electron/preview-preload.ts"),
       "tikz-worker": path.join(root, "electron/tikz-worker.ts"),
+      "workspace-body-search-worker": path.join(root, "electron/workspace-body-search-worker.ts"),
       "sigma-doc-mcp-server": path.join(root, "mcp/sigma-doc-mcp-server.ts"),
     },
     outdir: path.join(root, "dist-electron"),
