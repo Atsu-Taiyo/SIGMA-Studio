@@ -57,16 +57,73 @@ describe("manual page-break application model", () => {
     ], "blank")).toBe(true);
   });
 
-  it("does not create another blank page immediately after an existing boundary", () => {
+  it("allows another break right after an existing boundary, leaving a blank page", () => {
     const blocks = [
       paragraph("body", "body"),
       { ...paragraph("page-start", ""), pagination: { break: true as const } },
       paragraph("blank", ""),
     ];
-    expect(canInsertManualPageBreakAfterBlock(blocks, "page-start")).toBe(false);
-    expect(canInsertManualPageBreakAfterBlock(blocks, "blank")).toBe(false);
-    blocks.push(paragraph("next-body", "text"));
-    expect(canInsertManualPageBreakAfterBlock(blocks, "next-body")).toBe(true);
+    expect(canInsertManualPageBreakAfterBlock(blocks, "page-start")).toBe(true);
+    expect(canInsertManualPageBreakAfterBlock(blocks, "blank")).toBe(true);
+  });
+
+  it("stacks a break at the start of an existing break owner by inserting a blank line before it", () => {
+    const blocks = [
+      paragraph("body", "body"),
+      { ...paragraph("page-start", ""), pagination: { break: true as const } },
+    ];
+    const once = resolveManualTextPageBreakBlocks(blocks, "page-start", true, { blockId: "page-start", offset: 0 }, { createId: deterministicIdFactory() });
+    expect(once?.blocks.map((block) => [block.id, block.pagination?.break === true])).toEqual([
+      ["body", false],
+      ["p_generated_1", true],
+      ["page-start", true],
+    ]);
+    // The caret (and the content after it) moves on to the next page each time.
+    expect(once?.focusBlockId).toBe("page-start");
+
+    const twice = resolveManualTextPageBreakBlocks(once!.blocks, "page-start", true, { blockId: "page-start", offset: 0 }, { createId: () => "p_again" });
+    expect(twice?.blocks.map((block) => [block.id, block.pagination?.break === true])).toEqual([
+      ["body", false],
+      ["p_generated_1", true],
+      ["p_again", true],
+      ["page-start", true],
+    ]);
+  });
+
+  it("inserts the blank line before a hoisted container or inside a problem area", () => {
+    const quote = { type: "quote" as const, id: "quote", pagination: { break: true as const }, blocks: [paragraph("q1", "one")] };
+    const atQuote = resolveManualTextPageBreakBlocks([paragraph("before", "x"), quote], "q1", true, { blockId: "q1", offset: 0 }, { createId: deterministicIdFactory() });
+    expect(atQuote?.blocks.map((block) => [block.id, block.pagination?.break === true])).toEqual([
+      ["before", false],
+      ["p_generated_1", true],
+      ["quote", true],
+    ]);
+    expect(atQuote?.focusBlockId).toBe("q1");
+
+    const problem = {
+      type: "problem" as const, id: "problem", tags: [], lead: [], hints: [], solution: [],
+      prompt: [paragraph("lead", "x"), { ...paragraph("second", "y"), pagination: { break: true as const } }],
+    };
+    const inArea = resolveManualTextPageBreakBlocks([problem], "second", true, { blockId: "second", offset: 0 }, { createId: deterministicIdFactory() });
+    expect(inArea?.blocks[0]).toMatchObject({ prompt: [
+      { id: "lead" }, { id: "p_generated_1", pagination: { break: true } }, { id: "second", pagination: { break: true } },
+    ] });
+  });
+
+  it("puts a blank page between the caret line and a next block that already breaks", () => {
+    const result = resolveManualTextPageBreakBlocks(
+      [paragraph("first", "first"), { ...paragraph("second", "second"), pagination: { break: true as const } }],
+      "first",
+      true,
+      { blockId: "first", offset: 5 },
+      { createId: deterministicIdFactory() },
+    );
+    expect(result?.blocks.map((block) => [block.id, block.pagination?.break === true])).toEqual([
+      ["first", false],
+      ["p_generated_1", true],
+      ["second", true],
+    ]);
+    expect(result?.focusBlockId).toBe("p_generated_1");
   });
 
   it("treats a visible object as body content", () => {

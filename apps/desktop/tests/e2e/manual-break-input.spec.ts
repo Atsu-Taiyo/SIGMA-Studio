@@ -221,14 +221,24 @@ test("an empty first line cannot insert a manual page break", async ({ page }) =
   await expect(page.getByRole("menuitem", { name: "改ページを挿入", exact: true })).toBeVisible();
 });
 
-test("an empty page after a manual break cannot insert another break", async ({ page }) => {
+test("an empty page after a manual break can insert another break, leaving a blank page", async ({ page }) => {
   const paragraphs = await typeReportedDocument(page);
   await expectStableFrames(page);
   await page.keyboard.press("Backspace");
   await expect(paragraphs.last()).toHaveText("");
   await paragraphs.last().click({ button: "right" });
-  await expect(page.getByRole("menuitem", { name: "改ページを挿入", exact: true })).toHaveCount(0);
-  await expect.poll(() => savedBreakCount(page)).toBe(1);
-  await page.getByRole("menuitem", { name: "改ページを解除", exact: true }).click();
-  await expect.poll(() => savedBreakCount(page)).toBe(0);
+  await expect(page.getByRole("menuitem", { name: "改ページを解除", exact: true })).toBeVisible();
+  await page.getByRole("menuitem", { name: "改ページを挿入", exact: true }).click();
+  await expect.poll(() => savedBreakCount(page)).toBe(2);
+  await expect(page.locator(".page-canvas")).toHaveAttribute("data-page-count", "3");
+  // キャレットは区切りの後ろ (3 ページ目の行) にいて、クリックせずにそのまま打てる。
+  await expect.poll(() => paragraphs.last().evaluate(element => {
+    const selection = window.getSelection();
+    return element.closest("[contenteditable=true]") === document.activeElement
+      && !!selection?.focusNode && element.contains(selection.focusNode);
+  })).toBe(true);
+  await page.keyboard.insertText("t");
+  await expect(paragraphs.last()).toHaveText("t");
+  await expect(paragraphs).toHaveCount(4);
+  await expect(page.locator(".page-canvas")).toHaveAttribute("data-page-count", "3");
 });
