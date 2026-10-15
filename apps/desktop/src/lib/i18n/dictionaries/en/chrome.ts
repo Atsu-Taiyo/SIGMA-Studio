@@ -262,6 +262,7 @@ export const chrome = {
       customGroup: "Added fonts",
       empty: "No matching fonts.",
       group: {
+        system: "Fonts on this PC",
         // 書体名 (「游ゴシック」等) は固有名なので訳さない。グループ見出しだけを訳す。
         basic: "Basic",
         windows: "Windows Japanese",

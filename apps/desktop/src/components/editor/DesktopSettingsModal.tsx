@@ -17,6 +17,7 @@ import type { Translate } from "@/lib/i18n";
 import { setAppLocale, useAppLocale, useT } from "@/lib/i18n/react";
 
 import { useSettingsEntryFocus } from "./settings-entry-focus";
+import { OfficialPluginsSection } from "./plugins/OfficialPluginsSection";
 import { useEditorHost } from "./editor-shell/editor-host";
 import type { DesktopAppInfo, DesktopClaudeStatus, DesktopCodexStatus, DesktopCustomFont, DesktopGeminiStatus, DesktopUpdateState } from "@/types/desktop";
 
@@ -1133,6 +1134,8 @@ function DesktopSettingsBody({
           </div>
           {fontActionStatus && <SettingsStatusMessage message={fontActionStatus} />}
         </SettingsSection>
+
+        <div id="desktop-settings-plugins"><OfficialPluginsSection onFontsChanged={onFontsChanged} /></div>
 
         <SettingsSection id="desktop-settings-app-update" title={t("app.update.section")}>
           <RequestedUpdateCheck request={requestUpdateCheck} onCheck={checkForAppUpdate} />
