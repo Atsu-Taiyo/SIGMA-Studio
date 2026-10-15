@@ -43,7 +43,7 @@ import type { Translate } from "@/lib/i18n";
 import { INLINE_MATH_FONT_MENU_ATTRIBUTE } from "@/lib/math-font-style";
 import { SUPPORTED_OVERLAY_IMAGE_MIME_TYPES } from "@/lib/overlay-image-files";
 import { POWERPOINT_IMPORT_ACCEPT } from "@/lib/powerpoint-import";
-import { CONVERSION_IMPORT_ACCEPT } from "@/lib/document-conversion-contracts";
+import { EXTENSION_ICON_COMPONENTS } from "@/components/editor/extensions/extension-icons";
 import { AlertTriangle, AppWindow, ArrowDownRight, ArrowLeft, Bold, Braces, BringToFront, Building2, ChartSpline, Check, ChevronDown, ChevronRight, ChevronUp, ClipboardCopy, ClipboardPaste, Clock3, Code, Columns3, Copy, Cuboid, Download, Eye, FileCog, FilePlus, FileQuestion, FileText, FolderOpen, Highlighter, ImageIcon, Italic, Keyboard, LayoutTemplate, Library, List, ListChevronsUpDown, ListOrdered, ListPlus, ListTree, Loader2, MessageSquare, Minus, MinusCircle, MoreHorizontal, MoveDown, MoveUp, PaintBucket, PenLine, Plus, PlusCircle, Puzzle, Quote, Redo2, Replace, Rows3, Search, SendToBack, SeparatorHorizontal, Shapes, Sigma, SlidersHorizontal, Sparkles, Square, SquareFunction, Trash2, Type, Underline, Undo2, X } from "lucide-react";
 import { Fragment } from "react";
 import type { ReactNode } from "react";
@@ -79,7 +79,7 @@ interface RibbonGroupDefinition {
 // Closed popovers return no DOM. Guard their JSX here as well so typing does
 // not build invisible font/shape catalogs on every document render.
 export function renderEditorChrome(chrome: EditorChromeValue) {
-  const { activeDocumentOpenFailure, activeFileId, addBlock, aiMenuButtonRef, appUpdateState, closeDocumentTab, commentsPanelOpen, commitDocumentTitle, copyDocumentText, createDocumentTab, createWhiteboardDocumentTab, degradedWatcherScopes, deleteActiveDocument, documentMetadatas, documentTitle, duplicateActiveDocument, exportJson, exportMenuOpen, fileMenuButtonRef, handleTitleUpdateAction, importDocumentFile, importInputRef, insertMenuButtonRef, loadingFileId, newDocButtonRef, newDocMenuOpen, openCommandSettings, openDocumentInWorkspace, openDocumentListDialog, openDocumentTabs, openImportDialog, openNewDocMenu, openOtherImportDialog, conversionLabel = null, openPrintPreview, openTextImportDialog, openVersionHistory, openWorkspaceScreen, otherImportInputRef, promoteAiToSidebar, reportIssue, requestOverlayImages, resolvedDocumentTitle, scheduleCloseNewDocMenu, setAiSettingsOpen, setDesktopSettingsOpen, setExportMenuOpen, setExtensionsOpen, setNewDocMenuOpen, setOutlineDialogOpen, setOverlayEditing, setPageSettingsOpen, setTemplateGalleryOpen, setTexCommandReferenceOpen, setTexEnvironmentSettingsOpen, setTitleInputFocused, settingsMenuButtonRef, showRichTitle, showTitleUpdateButton, titleInputValue, titleRichNodes, titleUpdateButtonDisabled, toggleCommentsPanel, toggleProblemDisplayPart, problemDisplay, problemDisplayAvailable, uiLayoutPreference, updateMetadata, versionHistoryOpen, workspaceTabsRow } = chrome.appMenu;
+  const { activeDocumentOpenFailure, activeFileId, addBlock, aiMenuButtonRef, appUpdateState, closeDocumentTab, commentsPanelOpen, commitDocumentTitle, copyDocumentText, createDocumentTab, createWhiteboardDocumentTab, degradedWatcherScopes, deleteActiveDocument, documentMetadatas, documentTitle, duplicateActiveDocument, exportJson, exportMenuOpen, fileMenuButtonRef, handleTitleUpdateAction, importDocumentFile, importInputRef, insertMenuButtonRef, loadingFileId, newDocButtonRef, newDocMenuOpen, openCommandSettings, openDocumentInWorkspace, openDocumentListDialog, openDocumentTabs, openImportDialog, openNewDocMenu, openOtherImportDialog, extensionMenu = [], extensionsMenuButtonRef, runExtensionItem, openPrintPreview, openTextImportDialog, openVersionHistory, openWorkspaceScreen, otherImportInputRef, promoteAiToSidebar, reportIssue, requestOverlayImages, resolvedDocumentTitle, scheduleCloseNewDocMenu, setAiSettingsOpen, setDesktopSettingsOpen, setExportMenuOpen, setExtensionsOpen, setNewDocMenuOpen, setOutlineDialogOpen, setOverlayEditing, setPageSettingsOpen, setTemplateGalleryOpen, setTexCommandReferenceOpen, setTexEnvironmentSettingsOpen, setTitleInputFocused, settingsMenuButtonRef, showRichTitle, showTitleUpdateButton, titleInputValue, titleRichNodes, titleUpdateButtonDisabled, toggleCommentsPanel, toggleProblemDisplayPart, problemDisplay, problemDisplayAvailable, uiLayoutPreference, updateMetadata, versionHistoryOpen, workspaceTabsRow } = chrome.appMenu;
   const { commandTooltip, renderMenuShortcut } = chrome.commands;
   const { setMaterialLibraryOpen } = chrome.editing;
   const { ActiveTextAlignIcon, activeFontFamilyLabel, activeTextAlignOption, activeTextFontSize, activeTextFontSizeMixed, applyBlockStructure, applyBoxedTextPaddingY, applyInlineFormat, applyLineHeight, applyTextAlign, applyTextStyle, blockStyleState, boldActive, boxedTextActive, boxedTextButtonRef, boxedTextMenuOpen, boxedTextPaddingY, boxedTextVariant, canUseBlockStructure, canUseLineHeight, canUseTextAlign, canUseTextBlockStyle, canUseTextToolbar, fontFamily, fontFamilyButtonRef, fontFamilyIsKnownOption, fontFamilyIsMixed, fontFamilyMenuOpen, fontFamilyQuery, handleLineHeightStepClick, italicActive, lineHeight, lineHeightButtonRef, lineHeightCustomOpen, lineHeightInput, lineHeightInputError, lineHeightMenuOpen, moreBlocksMenuButtonRef, moreBlocksMenuOpen, orderedListMenuButtonRef, orderedListMenuOpen, setMoreBlocksMenuOpen, setOrderedListMenuOpen, saveEditorFontFamilyPreference, selectBoxedTextVariant, selectedTextAlign, selectedTextStyle, setFontFamily, setFontFamilyQuery, setLineHeightCustomOpen, setLineHeightInput, setLineHeightInputError, setTextBackgroundColor, setTextColor, setTextFontSize, startLineHeightStepping, stopLineHeightStepping, textAlignButtonRef, textAlignMenuOpen, textBackgroundColor, textBackgroundColorButtonRef, textColor, textColorButtonRef, toggleBoxedText, underlineActive, visibleCustomFontOptions, visibleFontFamilyGroups, blockStyleButtonRef, blockStyleMenuOpen, fontSizeInputRef, fontSizeSkipBlurRef, fontSizeInput, setFontSizeInput } = chrome.format;
@@ -87,8 +87,6 @@ export function renderEditorChrome(chrome: EditorChromeValue) {
   const { findNext, findPrevious, overlayEditing, replaceAll, replaceNext, replaceOpen, replaceText, searchButtonRef, searchMatchCount, searchOpen, searchQuery, setReplaceOpen, setReplaceText, setSearchOpen, setSearchQuery } = chrome.search;
   const { applyOverlayStyle, arrangeOverlayShapes, canChangeOverlayShapeType, changeOverlayShapeType, canArrangeOverlayShapes, canUseFillStyleControls, canUseLineEndpointControls, canUseLineStyleControls, canUseStrokeStyleControls, effectiveLineDashMenuOpen, effectiveLineEndpointMenu, effectiveLineWidthMenuOpen, fillColorButtonRef, fillColorPatch, lineDashButtonRef, lineWidthButtonRef, overlaySelection, selectedOverlayLineDash, selectedOverlayLineSize, selectionFill, selectionFillColor, selectionFillOpacity, setStrokeColor, strokeColor, strokeColorButtonRef } = chrome.shapeStyle;
   const { activeMenu, aiDocumentWriteInProgress, colorStylePanel, document, getActiveTextTarget, imageInputRef, insertInlineMath, isDesktopApp, isEmbedded, runEditCommand, runOverlayCommand, setStatusMessage, shapeGallerySections, lineToolItems, t, toggleMenu, versionHistoryPreviewActive } = chrome.shared;
-  // PowerPoint 以外の変換形式は、サービスが使えるときだけ名前つきで案内する (名前はサービス側が名乗る)。
-  const otherImportLabel = conversionLabel ? t("appMenu.file.importOther", { name: conversionLabel }) : t("appMenu.file.importPowerPoint");
   const { setActiveMenu, setBoxedTextMenuOpen, setColorStylePanel, setFontFamilyMenuOpen, setBlockStyleMenuOpen, setLineDashMenuOpen, setLineEndpointMenu, setLineHeightMenuOpen, setLineToolMenuOpen, setLineWidthMenuOpen, setShapeMenuOpen, setTextAlignMenuOpen } = chrome.toolbarMenus;
   const { activePageNumber, applyZoom, pageCount, zoom, zoomOptions } = chrome.view;
   const { applyColumnCommand, backstage, closeBackstage, columnCommand, contextualTabVisible, ribbonCollapse, ribbonIdPrefix, ribbonTabState, selectBackstageSection, selectRibbonTab, toggleBackstage, toggleRibbonCollapse } = chrome.ribbon;
@@ -188,7 +186,7 @@ export function renderEditorChrome(chrome: EditorChromeValue) {
           </button>
           {<button type="button" role="menuitem" onClick={openOtherImportDialog}>
             <FolderOpen size={16} />
-            <span>{otherImportLabel}</span>
+            <span>{t("appMenu.file.importOther")}</span>
           </button>}
           <button type="button" role="menuitem" onClick={openTextImportDialog}>
             <ClipboardPaste size={16} />
@@ -434,6 +432,60 @@ export function renderEditorChrome(chrome: EditorChromeValue) {
       </ToolbarPopover>
     </div>
   );
+
+  // 拡張機能が足した項目。拡張機能は「何を並べるか」をデータで渡すだけで、描くのはここ。
+  // 項目を押したときに何が起きるか (action) は主プロセスだけが知っていて、ここは id を渡すだけ。
+  const pickExtensionItem = (extensionId: string, itemId: string) => {
+    setActiveMenu(null);
+    closeBackstage();
+    runExtensionItem?.(extensionId, itemId);
+  };
+  const extensionMenuItems = extensionMenu.map((group) => (
+    <div className="extension-menu-group" role="group" aria-label={group.name} key={group.extensionId}>
+      <div className="extension-menu-group-name">{group.name}</div>
+      {group.sections.map((section, sectionIndex) => (
+        <div className="extension-menu-section" role="presentation" key={sectionIndex}>
+          {section.title && <div className="extension-menu-section-title">{section.title}</div>}
+          {section.entries.map((entry, entryIndex) => {
+            if (entry.type === "separator") return <div className="extension-menu-separator" role="separator" key={entryIndex} />;
+            if (entry.type === "text") return <p className="extension-menu-text" key={entryIndex}>{entry.text}</p>;
+            const Icon = entry.icon ? EXTENSION_ICON_COMPONENTS[entry.icon] : null;
+            return (
+              <button type="button" role="menuitem" className="extension-menu-button" title={entry.description} key={entry.id} onClick={() => pickExtensionItem(group.extensionId, entry.id)}>
+                {Icon ? <Icon size={16} aria-hidden="true" /> : <span aria-hidden="true" />}
+                <span>{entry.label}</span>
+              </button>
+            );
+          })}
+        </div>
+      ))}
+    </div>
+  ));
+  const extensionsMenu = !isEmbedded && isDesktopApp && extensionMenu.length > 0 ? (
+    <div className="app-menu-anchor">
+      <button ref={extensionsMenuButtonRef} type="button" className={`app-menu-button ${activeMenu === "extensions" ? "active" : ""}`} aria-haspopup="menu" aria-expanded={activeMenu === "extensions"} onClick={() => toggleMenu("extensions")}>
+        {t("appMenu.extensions.label")}
+      </button>
+      <ToolbarPopover
+        open={activeMenu === "extensions"}
+        anchorRef={extensionsMenuButtonRef}
+        onClose={() => setActiveMenu(null)}
+        className="app-menu extension-menu"
+        role="menu"
+        ariaLabel={t("appMenu.extensions.label")}
+        gap={3}
+      >
+        {(activeMenu === "extensions") && <>
+          {extensionMenuItems}
+          <div className="extension-menu-separator" role="separator" />
+          <button type="button" role="menuitem" onClick={() => { setActiveMenu(null); setExtensionsOpen(true); }}>
+            <Puzzle size={16} />
+            <span>{t("appMenu.extensions.manage")}</span>
+          </button>
+        </>}
+      </ToolbarPopover>
+    </div>
+  ) : null;
 
   const documentTabsRow = workspaceTabsRow ?? (
     <div className="document-tabs-row" aria-label={t("tabs.region")}>
@@ -2439,7 +2491,7 @@ export function renderEditorChrome(chrome: EditorChromeValue) {
     <input
       ref={otherImportInputRef}
       type="file"
-      accept={conversionLabel ? `${POWERPOINT_IMPORT_ACCEPT},${CONVERSION_IMPORT_ACCEPT}` : POWERPOINT_IMPORT_ACCEPT}
+      accept={POWERPOINT_IMPORT_ACCEPT}
       hidden
       onChange={(event) => {
         const file = event.target.files?.[0];
@@ -2610,9 +2662,9 @@ export function renderEditorChrome(chrome: EditorChromeValue) {
               <span>{t("appMenu.file.import")}</span>
             </button>
             {(
-              <button type="button" className="ribbon-backstage-command" title={otherImportLabel} aria-label={otherImportLabel} onClick={() => runBackstageCommand(openOtherImportDialog)}>
+              <button type="button" className="ribbon-backstage-command" title={t("appMenu.file.importOther")} aria-label={t("appMenu.file.importOther")} onClick={() => runBackstageCommand(openOtherImportDialog)}>
                 <FolderOpen size={18} aria-hidden="true" />
-                <span>{otherImportLabel}</span>
+                <span>{t("appMenu.file.importOther")}</span>
               </button>
             )}
             <button type="button" className="ribbon-backstage-command" title={t("appMenu.file.importText")} aria-label={t("appMenu.file.importText")} onClick={() => runBackstageCommand(openTextImportDialog)}>
@@ -2689,6 +2741,12 @@ export function renderEditorChrome(chrome: EditorChromeValue) {
               <span>{t("appMenu.settings.pageSettings")}</span>
               {renderMenuShortcut("settings.page")}
             </button>
+          </div>
+        )}
+        {backstage.section === "options" && !isEmbedded && isDesktopApp && extensionMenu.length > 0 && (
+          <div className="ribbon-backstage-group extension-menu extension-menu-backstage" role="menu" aria-label={t("appMenu.extensions.label")}>
+            <h3 className="ribbon-backstage-group-label">{t("appMenu.extensions.label")}</h3>
+            {extensionMenuItems}
           </div>
         )}
 
@@ -3065,6 +3123,7 @@ export function renderEditorChrome(chrome: EditorChromeValue) {
     aiMenu,
     problemMenu,
     settingsMenu,
+    extensionsMenu,
     documentTabsRow,
     saveStateBadge,
     documentActions,

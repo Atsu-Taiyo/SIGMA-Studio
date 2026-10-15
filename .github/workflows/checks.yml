@@ -115,6 +115,7 @@ jobs:
               tests/electron/graph-axis-end.spec.ts tests/electron/pdf-math-fonts.spec.ts \
               tests/electron/ai-image-annotation.spec.ts tests/electron/ai-proposal-merge.spec.ts \
               tests/electron/ai-svg-figure.spec.ts tests/electron/extensions-dialog.spec.ts \
+              tests/electron/extensions-menu.spec.ts \
               tests/electron/local-fonts-menu.spec.ts
           '
       - uses: actions/upload-artifact@v7

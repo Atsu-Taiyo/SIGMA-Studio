@@ -1,10 +1,9 @@
 import { spaceFreeFileName } from "@/lib/file-name";
 import { ipcMain } from "../trusted-ipc";
-import { app, dialog, BrowserWindow, shell, type IpcMainInvokeEvent, type WebContents } from "electron";
+import { app, dialog, BrowserWindow, shell, type WebContents } from "electron";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { createCurrentLocaleTranslator } from "@/lib/i18n";
-import type { DocumentConversionClient } from "../document-conversion-client";
 import type { ExternalDocumentOpenQueue } from "../external-document-open";
 
 import {
@@ -108,7 +107,6 @@ async function reserveDownloadPath(base: string, extension: string): Promise<str
 
 export interface RegisterFileIpcDeps {
   getMainWindow: () => BrowserWindow | null;
-  documentConversionClient?: Pick<DocumentConversionClient, "capability" | "convert">;
   resolveSessionImage?: (source: string) => Promise<string>;
   externalDocumentOpenQueue?: Pick<ExternalDocumentOpenQueue, "readNext" | "acknowledge">;
 }
@@ -187,17 +185,10 @@ export function registerFileIpc(deps: RegisterFileIpcDeps): void {
   });
 
   ipcMain.handle("file:open-import-other-document", async () => {
-    const capability = await deps.documentConversionClient?.capability();
-    const conversionAvailable = capability?.available === true;
     const result = await dialog.showOpenDialog({
       title: te("electron.file.importOtherDocument"),
-      filters: capability?.available === true ? [
-        { name: te("electron.file.documentFiles"), extensions: ["pptx", "prt"] },
-        { name: "PowerPoint", extensions: ["pptx"] },
-        // 形式名はサービスが名乗る。名乗らないときは汎用名にする。
-        { name: capability.displayName ?? te("electron.file.conversionFiles"), extensions: ["prt"] },
-      ] : [
-        { name: te("electron.file.documentFiles"), extensions: ["pptx"] },
+      filters: [
+        { name: te("electron.file.powerPoint"), extensions: ["pptx"] },
         { name: "PowerPoint", extensions: ["pptx"] },
       ],
       properties: ["openFile"],
@@ -206,22 +197,8 @@ export function registerFileIpc(deps: RegisterFileIpcDeps): void {
       return null;
     }
     const filePath = result.filePaths[0];
-    if (path.extname(filePath).toLowerCase() === ".prt" && !conversionAvailable) return null;
     const dataBase64 = (await fs.readFile(filePath)).toString("base64");
     return { filePath, dataBase64 };
-  });
-
-  const isMainFrame = (event: IpcMainInvokeEvent): boolean =>
-    event.sender === getMainWindow()?.webContents && event.senderFrame === event.sender.mainFrame;
-
-  ipcMain.handle("file:document-conversion-capability", async (event) => {
-    if (!isMainFrame(event)) return { available: false, reason: "not-allowed" };
-    return deps.documentConversionClient?.capability() ?? { available: false, reason: "unavailable" };
-  });
-
-  ipcMain.handle("file:convert-document", async (event, payload: unknown) => {
-    if (!isMainFrame(event)) return { ok: false, error: "not-allowed" };
-    return deps.documentConversionClient?.convert(payload) ?? { ok: false, error: "unavailable" };
   });
 
   ipcMain.handle("file:save-sigma-doc", async (_event, payload: { suggestedName?: string; data: string }) => {

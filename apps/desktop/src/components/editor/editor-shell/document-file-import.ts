@@ -5,15 +5,13 @@ import {
   type DocumentBlockIdFactory,
   type SigmaDocument,
 } from "@/features/document";
-import { createTranslator, getAppLocale } from "@/lib/i18n";
-import { getDesktopBridge } from "@/lib/desktop-bridge";
-import { DOCUMENT_CONVERSION_MAX_INPUT_BYTES, isConversionFilename } from "@/lib/document-conversion-contracts";
-import type { DocumentConversionIssue } from "@/lib/document-conversion-contracts";
+import { getAppLocale } from "@/lib/i18n";
+import type { ExtensionImportIssue } from "@/lib/extension-contracts";
 import { importPowerPointPptxBuffer, isPowerPointPptxFilename } from "@/lib/powerpoint-import";
 import { recoverSigmaDocument, type SigmaDocumentRecoveryIssue } from "@/lib/sigma-doc-schema";
 import { importTexDocument, isTexFilename } from "@/lib/tex-import";
 
-type DocumentFileFormat = "sigmadoc" | "tex" | "pptx" | "converted";
+type DocumentFileFormat = "sigmadoc" | "tex" | "pptx";
 
 type ReadableDocumentFileImport = { kind: "readable"; file: File; format: DocumentFileFormat };
 
@@ -26,15 +24,38 @@ const IMPORT_SUCCESS_KEYS = {
   sigmadoc: "status.jsonImported",
   tex: "status.texConverted",
   pptx: "status.powerPointConverted",
-  converted: "status.documentConverted",
 } as const satisfies Record<DocumentFileFormat, string>;
 
 /** ファイル名から取り込み形式を選ぶ。ファイルの読み取りは実行段階で行う。 */
 export function planDocumentFileImport(file: File): ReadableDocumentFileImport {
   const format = isTexFilename(file.name) ? "tex"
-    : isPowerPointPptxFilename(file.name) ? "pptx"
-      : isConversionFilename(file.name) ? "converted" : "sigmadoc";
+    : isPowerPointPptxFilename(file.name) ? "pptx" : "sigmadoc";
   return { kind: "readable", file, format };
+}
+
+/** 取り込み結果の共通の仕上げ: 開いたファイル名を題名にし、教材の id と更新時刻を新しくする。 */
+function finishImportedDocument(imported: SigmaDocument, sourceName: string, environment: DocumentFileImportEnvironment): SigmaDocument {
+  const now = environment.now();
+  // 開くときに選んだ名前を教材名にする。JSON 内の古い題名や変換元の見出しを優先すると、
+  // OS 上で名前を変えて開き直してもタブ・教材一覧にその名前が反映されない。
+  const fileTitle = sourceName.trim().replace(/(?:\.(?:sigma|sigmadoc)\.json|\.[^.]+)$/i, "").trim();
+  return repairDuplicateTopLevelIds(ensurePageLayout({
+    ...imported,
+    docId: environment.createDocumentId(),
+    metadata: {
+      ...imported.metadata,
+      title: fileTitle || imported.metadata.title || environment.defaultTitle(),
+    },
+    updatedAt: now,
+  }), environment);
+}
+
+export interface PreparedDocumentImport {
+  document: SigmaDocument;
+  recoveryIssues: SigmaDocumentRecoveryIssue[];
+  successMessageKey: typeof IMPORT_SUCCESS_KEYS[DocumentFileFormat] | "status.extensionImported";
+  /** 拡張機能が取り込みに添えた所見。ある場合だけ、取り込み後に結果を見せる。 */
+  importIssues?: ExtensionImportIssue[];
 }
 
 /**
@@ -45,34 +66,11 @@ export function planDocumentFileImport(file: File): ReadableDocumentFileImport {
 export async function prepareDocumentFileImport(
   request: ReadableDocumentFileImport,
   environment: DocumentFileImportEnvironment,
-): Promise<{
-  document: SigmaDocument;
-  recoveryIssues: SigmaDocumentRecoveryIssue[];
-  successMessageKey: typeof IMPORT_SUCCESS_KEYS[DocumentFileFormat];
-  conversionIssues?: DocumentConversionIssue[];
-}> {
+): Promise<PreparedDocumentImport> {
   const { file, format } = request;
   let imported: SigmaDocument;
   let recoveryIssues: SigmaDocumentRecoveryIssue[] = [];
-  let conversionIssues: DocumentConversionIssue[] | undefined;
   switch (request.format) {
-    case "converted": {
-      const t = createTranslator(getAppLocale(), "editor");
-      const convert = getDesktopBridge()?.file.convertDocument;
-      if (!convert) throw new Error(t("conversion.desktopRequired"));
-      if (file.size === 0 || file.size > DOCUMENT_CONVERSION_MAX_INPUT_BYTES) throw new Error(t("conversion.invalidInput"));
-      const result = await convert({ bytes: new Uint8Array(await file.arrayBuffer()), filename: file.name });
-      if (!result.ok) {
-        const key = { "invalid-input": "conversion.invalidInput", busy: "conversion.busy", timeout: "conversion.timeout", "import-failed": "conversion.failed", unavailable: "conversion.unavailable", unauthorized: "conversion.unauthorized", "not-allowed": "conversion.notAllowed" } as const;
-        throw new Error(t(key[result.error]));
-      }
-      const recovered = recoverSigmaDocument(result.result.document);
-      if (!recovered.ok) throw new Error(t("conversion.failed"));
-      imported = recovered.document;
-      recoveryIssues = recovered.issues;
-      conversionIssues = result.result.issues;
-      break;
-    }
     case "tex":
       imported = importTexDocument(await file.text(), file.name);
       break;
@@ -89,21 +87,25 @@ export async function prepareDocumentFileImport(
       break;
     }
   }
-  const now = environment.now();
-  // 開くときに選んだ名前を教材名にする。JSON 内の古い題名や変換元の見出しを優先すると、
-  // OS 上で名前を変えて開き直してもタブ・教材一覧にその名前が反映されない。
-  const fileTitle = file.name.trim().replace(/(?:\.(?:sigma|sigmadoc)\.json|\.[^.]+)$/i, "").trim();
-  const document = repairDuplicateTopLevelIds(ensurePageLayout({
-    ...imported,
-    docId: environment.createDocumentId(),
-    metadata: {
-      ...imported.metadata,
-      title: fileTitle || imported.metadata.title || environment.defaultTitle(),
-    },
-    updatedAt: now,
-  }), environment);
+  return { document: finishImportedDocument(imported, file.name, environment), recoveryIssues, successMessageKey: IMPORT_SUCCESS_KEYS[format] };
+}
 
-  return { document, recoveryIssues, successMessageKey: IMPORT_SUCCESS_KEYS[format], ...(conversionIssues ? { conversionIssues } : {}) };
+/**
+ * 拡張機能が返した教材を、別の教材として開ける形にする。
+ * 中身はホストが形を検査済みだが、保存に使うので `recoverSigmaDocument` をもう一度通し、壊れた部分は直して警告にする。
+ */
+export function prepareExtensionDocumentImport(
+  result: { document: unknown; issues: ExtensionImportIssue[]; sourceName: string },
+  environment: DocumentFileImportEnvironment,
+): PreparedDocumentImport {
+  const recovered = recoverSigmaDocument(result.document);
+  if (!recovered.ok) throw new Error(recovered.error);
+  return {
+    document: finishImportedDocument(recovered.document, result.sourceName, environment),
+    recoveryIssues: recovered.issues,
+    successMessageKey: "status.extensionImported",
+    ...(result.issues.length ? { importIssues: result.issues } : {}),
+  };
 }
 
 /** Electron のファイル選択結果を、input / テキスト取り込みと同じ File 境界へ載せ替える。 */

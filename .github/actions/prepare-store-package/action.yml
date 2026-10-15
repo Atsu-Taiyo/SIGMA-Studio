@@ -13,6 +13,12 @@ inputs:
   SIGMA_SUPABASE_ANON_KEY:
     description: Supplied by the caller from GitHub Secrets.
     required: true
+  SIGMA_EXTENSIONS_CATALOG_URL:
+    description: Optional. The extension catalog URL, supplied by the caller from GitHub Secrets.
+    required: false
+  SIGMA_EXTENSIONS_PUBLIC_KEY:
+    description: Optional. The Ed25519 public key that verifies the catalog, supplied by the caller from GitHub Secrets.
+    required: false
   RELEASE_CONTENT_RULES:
     description: Supplied by the caller from GitHub Secrets.
     required: true
@@ -88,6 +94,8 @@ runs:
         SIGMA_COLLABORATION_URL: ${{ inputs.SIGMA_COLLABORATION_URL }}
         SIGMA_SUPABASE_URL: ${{ inputs.SIGMA_SUPABASE_URL }}
         SIGMA_SUPABASE_ANON_KEY: ${{ inputs.SIGMA_SUPABASE_ANON_KEY }}
+        SIGMA_EXTENSIONS_CATALOG_URL: ${{ inputs.SIGMA_EXTENSIONS_CATALOG_URL }}
+        SIGMA_EXTENSIONS_PUBLIC_KEY: ${{ inputs.SIGMA_EXTENSIONS_PUBLIC_KEY }}
         SIGMA_STUDIO_REQUIRE_RELEASE_AUDIT: 'true'
         RELEASE_CONTENT_RULES: ${{ inputs.RELEASE_CONTENT_RULES }}
         WINDOWS_STORE_IDENTITY_NAME: ${{ inputs.WINDOWS_STORE_IDENTITY_NAME }}

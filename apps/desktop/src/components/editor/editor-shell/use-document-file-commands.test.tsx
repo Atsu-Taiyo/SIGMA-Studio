@@ -5,6 +5,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { SigmaDocument } from "@/features/document";
 import * as clipboard from "@/lib/clipboard-text";
+import type { ExtensionBridge } from "@/lib/extension-contracts";
 import * as desktop from "@/lib/desktop-bridge";
 import { createTranslator } from "@/lib/i18n";
 import * as storage from "@/lib/storage";
@@ -188,21 +189,76 @@ describe("document file commands", () => {
     expect(f.create).toHaveBeenCalledOnce();
   });
 
-  it("labels the converted import format with the name the service gives, a generic one otherwise, and nothing when unavailable", async () => {
-    const f = fixture();
-    f.options.isDesktopApp = true;
-    const capability = vi.fn<() => Promise<import("@/lib/document-conversion-contracts").DocumentConversionCapability>>(
-      async () => ({ available: true, displayName: "Print Pages" }),
-    );
-    vi.spyOn(desktop, "getDesktopBridge").mockReturnValue({ file: { documentConversionCapability: capability } } as unknown as NonNullable<ReturnType<typeof desktop.getDesktopBridge>>);
-    render(f.options);
-    await act(async () => undefined);
-    expect(actions.conversionLabel).toBe("Print Pages");
-    capability.mockResolvedValue({ available: true });
-    await act(async () => { window.dispatchEvent(new Event("focus")); });
-    expect(actions.conversionLabel).toBe("外部形式");
-    capability.mockResolvedValue({ available: false, reason: "unauthorized" });
-    await act(async () => { window.dispatchEvent(new Event("focus")); });
-    expect(actions.conversionLabel).toBeNull();
+  describe("extension menu items", () => {
+    const withBridge = (run: ExtensionBridge["run"]) => {
+      window.sigmaExtensions = { menu: async () => [], run, onMenuChange: () => () => undefined };
+    };
+    afterEach(() => { delete window.sigmaExtensions; });
+
+    it("opens the returned document as a separate library copy and shows the diagnostics notice", async () => {
+      const f = fixture();
+      const issues = [{ code: "font-substitution", detail: "Example Mincho" }];
+      const run = vi.fn(async () => ({ ok: true as const, document: sigma("拡張機能の教材"), issues, sourceName: "元の教材.smp" }));
+      withBridge(run);
+      render(f.options);
+      await act(async () => { actions.runExtensionItem("sample-tool", "import-sample"); });
+      await act(async () => undefined);
+      expect(run).toHaveBeenCalledWith("sample-tool", "import-sample");
+      expect(f.events).toEqual(["save", "create", "open", "recovery"]);
+      expect(f.create.mock.calls[0][0].metadata.title).toBe("元の教材");
+      expect(f.create.mock.calls[0][0].docId).not.toBe("source");
+      expect(f.options.setActiveMenu).toHaveBeenCalledWith(null);
+      expect(actions.importNotice).toEqual(issues);
+      actions.setImportNotice(null);
+    });
+
+    it("clears the busy status when the picker is canceled and does not touch the current document", async () => {
+      const f = fixture();
+      withBridge(vi.fn(async () => ({ ok: false as const, error: "canceled" as const })));
+      render(f.options);
+      await act(async () => { actions.runExtensionItem("sample-tool", "import-sample"); });
+      await act(async () => undefined);
+      expect(vi.mocked(f.options.setStatusMessage).mock.calls.map(([message]) => message)).toEqual(["拡張機能で読み込んでいます…", ""]);
+      expect(f.create).not.toHaveBeenCalled();
+      expect(f.options.saveCurrentDocumentBeforeReplacement).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      ["busy", "別の取り込みを実行中です"],
+      ["forbidden", "このアカウントではこの拡張機能を使えません"],
+      ["unauthorized", "ログインしてください"],
+      ["timeout", "時間内に完了しませんでした"],
+    ] as const)("explains a %s failure without creating a document", async (error, message) => {
+      const f = fixture();
+      withBridge(vi.fn(async () => ({ ok: false as const, error })));
+      render(f.options);
+      await act(async () => { actions.runExtensionItem("sample-tool", "import-sample"); });
+      await act(async () => undefined);
+      expect(vi.mocked(f.options.setStatusMessage).mock.calls.at(-1)?.[0]).toContain(message);
+      expect(f.create).not.toHaveBeenCalled();
+    });
+
+    it("reports a malformed result instead of opening it, and keeps the unsaved document if saving is declined", async () => {
+      const f = fixture();
+      withBridge(vi.fn(async () => ({ ok: true as const, document: { version: "unknown" }, issues: [], sourceName: "a.smp" })));
+      render(f.options);
+      await act(async () => { actions.runExtensionItem("sample-tool", "import-sample"); });
+      await act(async () => undefined);
+      expect(f.options.setSaveState).toHaveBeenCalledWith("error");
+      expect(f.create).not.toHaveBeenCalled();
+      vi.mocked(f.options.saveCurrentDocumentBeforeReplacement).mockResolvedValueOnce(false);
+      withBridge(vi.fn(async () => ({ ok: true as const, document: sigma(), issues: [], sourceName: "a.smp" })));
+      await act(async () => { actions.runExtensionItem("sample-tool", "import-sample"); });
+      await act(async () => undefined);
+      expect(f.create).not.toHaveBeenCalled();
+      expect(vi.mocked(f.options.setStatusMessage).mock.calls.at(-1)?.[0]).toBe("");
+    });
+
+    it("does nothing without the desktop bridge", () => {
+      const f = fixture();
+      render(f.options);
+      act(() => actions.runExtensionItem("sample-tool", "import-sample"));
+      expect(f.options.setStatusMessage).not.toHaveBeenCalled();
+    });
   });
 });

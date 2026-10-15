@@ -15,6 +15,8 @@ export interface EditorChromeParts {
   aiMenu: ReactNode;
   problemMenu: ReactNode;
   settingsMenu: ReactNode;
+  /** 拡張機能が足したメニュー。メニューバーの一番右。内容が無ければ null。 */
+  extensionsMenu: ReactNode;
   documentTabsRow: ReactNode;
   saveStateBadge: ReactNode;
   /** 共有などの教材ごとの操作。docs では「過去の版」の左。Word風はタイトル行右端に直接置く。 */

@@ -151,8 +151,7 @@ export const chrome = {
       duplicate: "現在の教材を複製",
       delete: "現在の教材を削除",
       import: "インポート（.sigma / TeX）",
-      importPowerPoint: "PowerPointをインポート",
-      importOther: "PowerPoint・{{name}}をインポート",
+      importOther: "PowerPointをインポート",
       importText: "テキストから読み込み",
       export: "エクスポート",
       exportJson: "JSONをエクスポート",
@@ -169,6 +168,10 @@ export const chrome = {
       graph3d: "3D教材",
       image: "画像",
       shape: "図形",
+    },
+    extensions: {
+      label: "拡張機能",
+      manage: "拡張機能を管理…",
     },
     ai: {
       label: "AI",

@@ -28,10 +28,14 @@ function formatAddedDate(importedAt: string, locale: string): string | null {
  * 置き、ファイル名・追加日・削除は3点メニューへ収める。取り込みと削除は desktop bridge に委ね、
  * 反映が必要な画面へは `onFontsChanged` で知らせる。
  */
+/** 拡張機能が配る書体 (id が `plugin-` で始まる) は、ここの「追加フォント」には出さない。書体の選択には出る。 */
+const isUserFont = (font: DesktopCustomFont): boolean => !font.id.startsWith("plugin-");
+
 export function CustomFontsSection({ id, onFontsChanged }: { id?: string; onFontsChanged?: () => void }) {
   const t = useT("settings");
   const locale = useAppLocale();
-  const [fonts, setFonts] = useState<DesktopCustomFont[]>([]);
+  const [allFonts, setFonts] = useState<DesktopCustomFont[]>([]);
+  const fonts = allFonts.filter(isUserFont);
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState<FontStatus | null>(null);
   const [menuFontId, setMenuFontId] = useState<string | null>(null);

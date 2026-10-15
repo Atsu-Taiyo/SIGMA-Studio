@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { build, context } from "esbuild";
 import { releaseCollaborationDefaults } from "./collaboration-build-config.mjs";
+import { releaseExtensionDefaults } from "./extension-build-config.mjs";
 import { normalizeExportedCssAssets } from "./static-assets.mjs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
@@ -39,7 +40,10 @@ const common = {
 export async function buildElectron({ watch = false, onBuilt } = {}) {
   const options = {
     ...common,
-    define: { __SIGMA_COLLABORATION_DEFAULTS__: JSON.stringify(releaseCollaborationDefaults()) },
+    define: {
+      __SIGMA_COLLABORATION_DEFAULTS__: JSON.stringify(releaseCollaborationDefaults()),
+      __SIGMA_EXTENSIONS_CONFIG__: JSON.stringify(releaseExtensionDefaults()),
+    },
     entryPoints: {
       main: path.join(root, "electron/main.ts"),
       preload: path.join(root, "electron/preload.ts"),

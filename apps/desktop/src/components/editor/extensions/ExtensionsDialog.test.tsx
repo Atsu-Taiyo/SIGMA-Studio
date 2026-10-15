@@ -136,6 +136,13 @@ describe("ExtensionsDialog", () => {
     expect(document.activeElement).toBe(button);
   });
 
+  it("keeps fonts handed out by an extension out of the user's added fonts", async () => {
+    installFonts([serif, { ...sans, id: "plugin-" + "a".repeat(64), displayName: "Bundled Face" }]);
+    await render();
+    expect(tiles()).toHaveLength(1);
+    expect(fontsSection()?.textContent).not.toContain("Bundled Face");
+  });
+
   it("shows a short empty state and still offers the add button", async () => {
     installFonts([]);
     await render();

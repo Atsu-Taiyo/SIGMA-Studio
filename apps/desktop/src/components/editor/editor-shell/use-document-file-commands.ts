@@ -2,7 +2,7 @@
 
 import { spaceFreeFileName } from "@/lib/file-name";
 
-import { useEffect, useRef, useState, type RefObject } from "react";
+import { useRef, useState, type RefObject } from "react";
 import type { DocumentBlockClock, DocumentBlockIdFactory, SigmaDocument } from "@/features/document";
 import type { EditorSaveState } from "@/features/editor-state/types";
 import { writeTextToClipboard } from "@/lib/clipboard-text";
@@ -13,10 +13,10 @@ import type { Translate } from "@/lib/i18n";
 import { createId } from "@/lib/id";
 import type { SigmaDocumentRecoveryIssue } from "@/lib/sigma-doc-schema";
 import { createDocumentFromSigmaDocument, type DocumentFileRecord } from "@/lib/storage";
-import { fileFromDesktopImport, planDocumentFileImport, prepareDocumentFileImport } from "./document-file-import";
+import { fileFromDesktopImport, planDocumentFileImport, prepareDocumentFileImport, prepareExtensionDocumentImport, type PreparedDocumentImport } from "./document-file-import";
 import type { EmbeddedEditorHost } from "./document-lifecycle-types";
 import type { DesktopExternalDocument } from "@/types/desktop";
-import type { DocumentConversionIssue } from "@/lib/document-conversion-contracts";
+import { getExtensionBridge, type ExtensionImportIssue } from "@/lib/extension-contracts";
 
 export interface DocumentFileCommandOptions {
   documentRef: RefObject<SigmaDocument>;
@@ -49,32 +49,8 @@ export function useDocumentFileCommands({
   const importInputRef = useRef<HTMLInputElement | null>(null);
 
   const otherImportInputRef = useRef<HTMLInputElement | null>(null);
-  const [conversionNotice, setConversionNotice] = useState<DocumentConversionIssue[] | null>(null);
-  // サービスが利用可能なら、その形式の表示名 (サービス側が名乗る名前。無ければ null)。利用不可は undefined。
-  const [conversionService, setConversionService] = useState<{ displayName: string | null } | undefined>(undefined);
-  useEffect(() => {
-    const bridge = getDesktopBridge();
-    const capability = bridge?.file.documentConversionCapability;
-    if (!isDesktopApp || !capability) return;
-    let disposed = false;
-    let pending = false;
-    const refresh = async () => {
-      if (pending) return;
-      pending = true;
-      try {
-        const result = await capability();
-        if (!disposed) setConversionService(result.available ? { displayName: result.displayName ?? null } : undefined);
-      } catch { if (!disposed) setConversionService(undefined); }
-      finally { pending = false; }
-    };
-    void refresh();
-    window.addEventListener("focus", refresh);
-    const unsubscribe = bridge?.sharedCatalog?.onChange(() => { setConversionService(undefined); void refresh(); });
-    // Also update after an in-app sign-in or an administrator revokes access.
-    const timer = window.setInterval(() => { if (!document.hidden) void refresh(); }, 30_000);
-    return () => { disposed = true; unsubscribe?.(); window.clearInterval(timer); window.removeEventListener("focus", refresh); };
-  }, [isDesktopApp]);
-
+  // 拡張機能の取り込みが添えた所見。ある間だけ結果の通知を出す。
+  const [importNotice, setImportNotice] = useState<ExtensionImportIssue[] | null>(null);
 
   // 教材のテキスト受け渡し。取り込みは貼り付け面を開くだけ、書き出しは
   // クリップボードへ直接入れ、拒否されたときだけ手で選ぶ面 (テキストを保持) を出す。
@@ -175,38 +151,71 @@ export function useDocumentFileCommands({
     }
   };
 
+  /** 変換済みの教材を、別の教材として開く。保存の確認で止まったときは取り込まず "cancelled"。 */
+  const completeImport = async (prepared: PreparedDocumentImport): Promise<"imported" | "cancelled"> => {
+    const { document: importedDocument, recoveryIssues, successMessageKey, importIssues } = prepared;
+    if (embeddedHostRef.current) {
+      resetEditorDocument(importedDocument, undefined, null);
+      setOpenFileIds([importedDocument.docId]);
+      setActiveFileId(importedDocument.docId);
+      setSaveState("saved");
+      setStatusMessage(tEditor(successMessageKey));
+      announceRecovery(recoveryIssues);
+      if (importIssues) setImportNotice(importIssues);
+      return "imported";
+    }
+    if (workspaceReady && !(await saveCurrentDocumentBeforeReplacement())) {
+      return "cancelled";
+    }
+    const importedRecord = await createDocumentFromSigmaDocument(importedDocument);
+    await openDocumentAsTab(importedRecord, tEditor(successMessageKey));
+    announceRecovery(recoveryIssues);
+    if (importIssues) setImportNotice(importIssues);
+    return "imported";
+  };
+
   const importDocumentFileWithResult = async (file: File): Promise<"imported" | "cancelled" | "error"> => {
     try {
       const request = planDocumentFileImport(file);
-      if (request.format === "converted") setStatusMessage(tEditor("conversion.importing"));
-      const { document: importedDocument, recoveryIssues, successMessageKey, conversionIssues } = await prepareDocumentFileImport(request, {
+      return await completeImport(await prepareDocumentFileImport(request, {
         ...DOCUMENT_BLOCK_OPERATION_PORTS,
         createDocumentId: () => createId("doc"),
         defaultTitle: () => tEditor("status.importedDocumentTitle"),
-      });
-      if (embeddedHostRef.current) {
-        resetEditorDocument(importedDocument, undefined, null);
-        setOpenFileIds([importedDocument.docId]);
-        setActiveFileId(importedDocument.docId);
-        setSaveState("saved");
-        setStatusMessage(tEditor(successMessageKey));
-        announceRecovery(recoveryIssues);
-        if (conversionIssues) setConversionNotice(conversionIssues);
-        return "imported";
-      }
-      if (workspaceReady && !(await saveCurrentDocumentBeforeReplacement())) {
-        return "cancelled";
-      }
-      const importedRecord = await createDocumentFromSigmaDocument(importedDocument);
-      await openDocumentAsTab(importedRecord, tEditor(successMessageKey));
-      announceRecovery(recoveryIssues);
-      if (conversionIssues) setConversionNotice(conversionIssues);
+      }));
     } catch (error) {
       setSaveState("error");
       setStatusMessage(error instanceof Error ? error.message : tEditor("status.fileReadFailed"));
       return "error";
     }
-    return "imported";
+  };
+
+  /**
+   * 拡張機能のメニュー項目を実行する。ファイルの選択・変換はホストが行い、ここは結果を教材として開くだけ。
+   * ファイル選択中も状態表示を出し、選ばなかったときは消す。
+   */
+  const runExtensionItem = (extensionId: string, itemId: string) => {
+    const bridge = getExtensionBridge();
+    if (!bridge) return;
+    setActiveMenu(null);
+    setStatusMessage(tEditor("extensions.run.running"));
+    void (async () => {
+      try {
+        const result = await bridge.run(extensionId, itemId);
+        if (!result.ok) {
+          setStatusMessage(result.error === "canceled" ? "" : tEditor(`extensions.run.error.${result.error}`));
+          return;
+        }
+        const prepared = prepareExtensionDocumentImport(result, {
+          ...DOCUMENT_BLOCK_OPERATION_PORTS,
+          createDocumentId: () => createId("doc"),
+          defaultTitle: () => tEditor("status.importedDocumentTitle"),
+        });
+        if ((await completeImport(prepared)) === "cancelled") setStatusMessage("");
+      } catch (error) {
+        setSaveState("error");
+        setStatusMessage(error instanceof Error ? error.message : tEditor("extensions.run.error.import-failed"));
+      }
+    })();
   };
 
   const importDocumentFile = async (file: File) => {
@@ -253,11 +262,8 @@ export function useDocumentFileCommands({
     otherImportInputRef.current?.click();
   };
 
-  // 利用できるときだけ非 null。サービスが名乗らなければ汎用名を使う。
-  const conversionLabel = conversionService ? conversionService.displayName ?? tEditor("conversion.genericName") : null;
-
   return {
-    conversionLabel, conversionNotice, setConversionNotice,
+    importNotice, setImportNotice, runExtensionItem,
     importInputRef, otherImportInputRef, textImportOpen, setTextImportOpen, documentTextCopyFallback, setDocumentTextCopyFallback, exportJson, copyDocumentText, openTextImportDialog, openDocumentViaDesktop, openExternalDocument, importDocumentFile, importDocumentFileWithResult, openImportDialog, openOtherImportDialog,
   };
 }

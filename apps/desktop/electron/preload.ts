@@ -420,12 +420,6 @@ const desktopAPI = {
     openImportOtherDocument(): Promise<{ filePath: string; dataBase64: string } | null> {
       return ipcRenderer.invoke("file:open-import-other-document");
     },
-    documentConversionCapability() {
-      return ipcRenderer.invoke("file:document-conversion-capability");
-    },
-    convertDocument(payload: { bytes: Uint8Array; filename: string }) {
-      return ipcRenderer.invoke("file:convert-document", payload);
-    },
     saveSigmaDoc(payload: { suggestedName?: string; data: string }): Promise<{ filePath: string } | null> {
       return ipcRenderer.invoke("file:save-sigma-doc", payload);
     },
@@ -623,6 +617,31 @@ const desktopAPI = {
 };
 
 contextBridge.exposeInMainWorld("desktopAPI", desktopAPI);
+
+/** 公式プラグインの取得・有効化。権限と署名の検査はすべてホスト側で行う。 */
+contextBridge.exposeInMainWorld("sigmaPlugins", {
+  status: () => ipcRenderer.invoke("official-plugins:status"),
+  check: () => ipcRenderer.invoke("official-plugins:check"),
+  install: (id: string) => ipcRenderer.invoke("official-plugins:install", id),
+  setEnabled: (id: string, enabled: boolean) => ipcRenderer.invoke("official-plugins:enabled", id, enabled),
+  setAutoUpdate: (enabled: boolean) => ipcRenderer.invoke("official-plugins:auto-update", enabled),
+  onChange: (listener: (status: unknown) => void) => {
+    const receive = (_event: unknown, status: unknown) => listener(status);
+    ipcRenderer.on("official-plugins:change", receive);
+    return () => ipcRenderer.removeListener("official-plugins:change", receive);
+  },
+});
+
+/** 拡張機能のメニュー。描画側が渡せるのは拡張機能と項目の id だけで、実行内容はホストが決める。 */
+contextBridge.exposeInMainWorld("sigmaExtensions", {
+  menu: () => ipcRenderer.invoke("extensions:menu"),
+  run: (extensionId: string, itemId: string) => ipcRenderer.invoke("extensions:run", extensionId, itemId),
+  onMenuChange: (listener: (groups: unknown) => void) => {
+    const receive = (_event: unknown, groups: unknown) => listener(groups);
+    ipcRenderer.on("extensions:menu-change", receive);
+    return () => ipcRenderer.removeListener("extensions:menu-change", receive);
+  },
+});
 
 /** 書体メニュー用。追加フォントと、このPCの書体の名前の一覧を返す (書体の中身は渡さない)。 */
 contextBridge.exposeInMainWorld("sigmaLocalFonts", {
