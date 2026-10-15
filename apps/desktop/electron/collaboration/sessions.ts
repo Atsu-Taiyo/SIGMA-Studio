@@ -130,6 +130,9 @@ export class CollaborationSessions {
       .readdir(path.join(this.directory, "documents"), { withFileTypes: true })
       .catch(() => []);
     const recoveredEpochs = new Map<string, number>();
+    // 復元のために開いた journal は、下で登録済みの教材を開くときにそのまま使う。
+    // 共有教材の数だけ Yjs 文書を2回ずつ復号すると、起動が秒単位で遅れる。
+    const scanned = new Map<string, SharedDocumentJournal>();
     let repaired = false;
     for (const folder of folders) {
       if (!folder.isDirectory()) continue;
@@ -166,7 +169,7 @@ export class CollaborationSessions {
           recoveredEpochs.set(binding.localFileId, binding.epoch);
           repaired = true;
         }
-        recovered.document.destroy();
+        scanned.set(folder.name, recovered);
       } catch {
         /* The normal session open below reports corrupt registered journals. */
       }
@@ -174,19 +177,15 @@ export class CollaborationSessions {
     if (repaired) await this.saveRegistry();
     for (const [fileId, entry] of Object.entries(this.registry.files)) {
       try {
-        if (
-          !/^[A-Za-z0-9_-]+$/.test(
-            entry.journalDirectory ?? entry.sharedDocumentId,
-          )
-        )
+        const directory = entry.journalDirectory ?? entry.sharedDocumentId;
+        if (!/^[A-Za-z0-9_-]+$/.test(directory))
           throw new Error("INVALID_BINDING");
-        const journal = await SharedDocumentJournal.open(
-          path.join(
-            this.directory,
-            "documents",
-            entry.journalDirectory ?? entry.sharedDocumentId,
-          ),
-        );
+        // 同じ journal を指す登録が2つあっても、文書の実体は共有しない (2つ目は開き直す)。
+        const journal = scanned.get(directory)
+          ?? await SharedDocumentJournal.open(
+            path.join(this.directory, "documents", directory),
+          );
+        scanned.delete(directory);
         this.sessions.set(fileId, {
           journal,
           role: entry.role,
@@ -205,6 +204,8 @@ export class CollaborationSessions {
         );
       }
     }
+    // 登録に無い・退役した版など、セッションに使わなかったものだけを閉じる。
+    for (const journal of scanned.values()) journal.document.destroy();
     if (this.auth) {
       this.retry = setInterval(() => {
         if (this.auth?.user())

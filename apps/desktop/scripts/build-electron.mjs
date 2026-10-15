@@ -17,7 +17,10 @@ const external = [
   // mathlive / i18next は main.cjs へ束ねる。external のままだと実行時に node_modules を
   // 要求し、electron-builder の `files` に載っていないパッケージング事故になる。
   // unused-filename はESM専用なので、配布用CJSへの同梱方針を維持する。
-  ...Object.keys(pkg.dependencies ?? {}).filter((name) => name !== "mathlive" && name !== "i18next" && name !== "unused-filename"),
+  // yjs は、yjs を使う y-protocols・lib0 と一緒に束ねる。配布物の CJS 版 (dist/yjs.cjs) は lib0 の
+  // 関数を名前空間の getter 越しに呼ぶので、起動時に共有教材の journal を全部復号する処理が
+  // ESM 版の約2.5倍かかる (#204)。3つとも束ねて Yjs の実体を1つに保つ (2つ読むと型判定が壊れる)。
+  ...Object.keys(pkg.dependencies ?? {}).filter((name) => name !== "mathlive" && name !== "i18next" && name !== "unused-filename" && name !== "yjs" && name !== "y-protocols" && name !== "lib0"),
   ...Object.keys(pkg.devDependencies ?? {}),
 ];
 const emitSourceMaps = process.env.SIGMA_STUDIO_ELECTRON_SOURCEMAP === "true";

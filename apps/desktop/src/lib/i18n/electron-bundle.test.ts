@@ -53,4 +53,12 @@ describe("electron main bundle configuration", () => {
     expect(externalFilter).toMatch(/name !== "i18next"/u);
     expect(externalFilter).toMatch(/name !== "mathlive"/u);
   });
+
+  it("bundles yjs with every package that imports it, so main keeps a single fast Yjs copy", async () => {
+    // 配布物の dist/yjs.cjs は lib0 を getter 越しに呼び、起動時の共有教材の復号が約2.5倍遅い (#204)。
+    // yjs だけを束ねて y-protocols / lib0 を external に残すと、Yjs が2つ読まれて型判定が壊れる。
+    const source = await readFile(path.join(desktopRoot, "scripts/build-electron.mjs"), "utf8");
+    const externalFilter = /\.filter\(\(name\) => ([^)]*)\)/u.exec(source)?.[1] ?? "";
+    for (const name of ["yjs", "y-protocols", "lib0"]) expect(externalFilter).toContain(`name !== "${name}"`);
+  });
 });
