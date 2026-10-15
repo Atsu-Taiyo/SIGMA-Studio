@@ -65,4 +65,7 @@ R18. **提案のカードは本文フローの拡張ノードとしてページ�
 R19. **三者マージの退避は数える (R3)。**
 承認の合成 replay と採用マージが、重なった箇所で片側を採った・合成結果の代わりに AI 側を採った・旧レコードとして従来の replay に落とした回数は、renderer の `AiProposalMerge.*` カウンタと main の ledger (`proposal-merge-fallback`) に出す。重なりの無い通常の承認ではどれも 0 であることを e2e で確かめる (`tests/electron/ai-proposal-merge.spec.ts`)。退避を成功として黙って走らせると、常時発火していても気づけない。
 
+R20. **共有教材は、そのセッションが renderer に届くまで書き込ませない。main がセッションを登録したら、成否にかかわらず renderer へ知らせる。**
+共有教材の保存はセッション (journal) だけが受け付け、教材 JSON の保存は main が `SHARED_SESSION_WRITE_REQUIRED` で断る (権限の検査なので緩めない)。#205 (タブを分けると共有教材の保存が `SHARED_SESSION_WRITE_REQUIRED` で失敗する) の経路: 並べたペインに出た共有教材は表示中として初めて開かれるので、初回同期でライブ接続も張る。その同期が失敗すると (ペインはメタデータの更新のたびに表示中の登録をやり直し、張りかけの接続を閉じていた)、`openCatalogDocument` はセッションを登録したまま `reset` を送らなかった。以後の読み込みは登録済みとして何も知らせないので、renderer は JSON の複製を編集し続け、自動保存も終了時の保存も失敗した。セッションを登録する経路は成否にかかわらず `reset` を送る。編集面と並べたペインは同じ規則 (`features/document-session/writable.ts` の `isDocumentWritable`: 一覧で共有と出ている教材は、セッションが無い間は閲覧のみ) で書き込み可否を決め、セッションが無ければホストに取り直させる (`requestSession`)。検証は `electron/collaboration/split-pane-session.test.ts` と `tests/electron/shared-split-pane-save.spec.ts`。
+
 ---

@@ -67,4 +67,9 @@ export interface DocumentSessionHost {
   isReadOnly?(fileId: string): boolean;
   /** Subscribe when session availability or file authority changes. */
   subscribeAuthority?(listener: () => void): () => void;
+  /**
+   * The library lists this file as shared, but `get` has no session for it yet. Ask the
+   * host to attach one; `subscribeAuthority` listeners hear when it does.
+   */
+  requestSession?(fileId: string): void;
 }

@@ -57,6 +57,7 @@ export function DesktopEditor() {
   const visibleFiles = useRef(new Map<string, number>());
   const restrictedFileIds = useRef(new Set<string>());
   const authorityListeners = useRef(new Set<() => void>());
+  const requestSession = useRef<(fileId: string) => void>(() => {});
   const [bootError, setBootError] = useState<Error | null>(null);
   const [info, setInfo] = useState<CollaborationInfo | null>(null);
   const refresh = useCallback(async () => {
@@ -85,6 +86,13 @@ export function DesktopEditor() {
         queued.splice(0).forEach((event) => sessions.current.get(event.fileId)?.receive(event));
       }).catch((error: unknown) => {
         if (mounted) setBootError(error instanceof Error ? error : new Error("SESSION_UNAVAILABLE"));
+      });
+    };
+    // Main may hold a session this renderer has not read (a missed "reset"). Reread through
+    // the same queue, after any reread already under way, and only if it is still missing.
+    requestSession.current = (fileId) => {
+      void refreshTail.then(() => {
+        if (mounted && !sessions.current.has(fileId)) reload();
       });
     };
     const unsubscribe = bridge?.onEvent((event) => {
@@ -121,6 +129,7 @@ export function DesktopEditor() {
     const current = sessions.current;
     return () => {
       mounted = false;
+      requestSession.current = () => {};
       unsubscribe?.();
       window.removeEventListener("compositionstart", compositionStart, true);
       window.removeEventListener("compositionend", compositionEnd, true);
@@ -154,6 +163,7 @@ export function DesktopEditor() {
         authorityListeners.current.add(listener);
         return () => authorityListeners.current.delete(listener);
       },
+      requestSession: (fileId: string) => requestSession.current(fileId),
     }),
     [],
   );

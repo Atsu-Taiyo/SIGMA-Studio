@@ -26,6 +26,7 @@ export const chrome = {
     inheritedFrom: "Inherited from {{name}}: {{role}}",
 
     readOnlyDocument: "This document is read-only. Check your sharing access.",
+    sessionConnecting: "Connecting to the shared document. You can edit it once it is connected.",
     settingsTitle: "Sharing settings",
     shareTitle: "Share “{{name}}”",
     inviteHeading: "Invite",

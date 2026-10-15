@@ -667,9 +667,16 @@ export class CollaborationSessions {
     this.registry.files[fileId] = { sharedDocumentId, actorId, role: snapshot.role, operationId: randomUUID(), initialized: true, journalDirectory };
     await this.saveRegistry();
     this.sessions.set(fileId, { journal, role: snapshot.role, status: "syncing", tail: Promise.resolve(), assets: {}, viewing: (this.viewedFileId === fileId || this.visibleFileIds.has(fileId)) });
-    await this.loadAssets(fileId, true);
-    await this.flush(fileId, true);
-    this.emit({ type: "reset", fileId });
+    try {
+      await this.loadAssets(fileId, true);
+      await this.flush(fileId, true);
+    } finally {
+      // From here on every write to this file must go through the session. Renderers
+      // learn about it only from this event: a later open returns early above, so a
+      // failed first download or sync must still announce the session. Otherwise the
+      // renderer keeps editing a JSON copy that `boundarySave` can only reject.
+      this.emit({ type: "reset", fileId });
+    }
     return this.project(fileId)!;
   }
   async join(token: string): Promise<{ fileId: string }> {

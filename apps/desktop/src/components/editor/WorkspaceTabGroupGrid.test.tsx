@@ -113,6 +113,19 @@ it("retains the mounted detached file and releases it when the pane disappears",
   await act(async () => root.render(<div />));
   expect(release).toHaveBeenCalledTimes(1);
 });
+it("keeps a shared detached file visible across metadata refreshes", async () => {
+  // Each metadata refresh delivers a new `sharing` object. Re-registering the pane as visible
+  // closed the shared document's connection and could abort its first sync, which left main
+  // holding a session the renderer never heard about.
+  const f = fixture();
+  const release = vi.fn();
+  f.host.retainVisibleFile = vi.fn(() => release);
+  const shared = () => [{ fileId: "target", sharing: { state: "active", capabilities: { editDocument: true } } } as DocumentMetadata];
+  await render(f.host, false, shared());
+  await render(f.host, false, shared());
+  expect(f.host.retainVisibleFile).toHaveBeenCalledTimes(1);
+  expect(release).not.toHaveBeenCalled();
+});
 it("shows an unfocused document as a read-only editing surface and hands off its scroll and click point", async () => {
   const f = fixture(); const onFocusGroup = vi.fn();
   await render(f.host, false, [], onFocusGroup, false);

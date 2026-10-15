@@ -1,5 +1,6 @@
 "use client";
 import type { DocumentSessionHost } from "@/features/document-session/contracts";
+import { isDocumentWritable } from "@/features/document-session/writable";
 import { DocumentSessionContext,DocumentWritableContext } from "./document-session-context";
 import { DOCUMENT_BLOCK_OPERATION_PORTS } from "./editor-shell/document-operation-ports";
 import { scheduleEditorBlockFocus } from "./editor-shell/editor-focus";
@@ -703,15 +704,28 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
     void sessionHost.setActiveFile(workspaceReady ? activeFileId : null);
     return () => { void sessionHost.setActiveFile?.(null); };
   }, [activeFileId, sessionHost, workspaceReady]);
+  // A shared file is written only through its session: main rejects a JSON save of it
+  // (SHARED_SESSION_WRITE_REQUIRED). Until the session reaches this renderer, the editor
+  // treats the file the way a passive pane does — read-only — instead of collecting edits
+  // that can never be saved, and asks the host to attach the session.
+  const activeFileShared = useMemo(
+    () => Boolean(sessionHost) && documentMetadatas.some((item) => item.fileId === activeFileId && Boolean(item.sharing)),
+    [activeFileId, documentMetadatas, sessionHost],
+  );
+  const awaitingSharedSession = activeFileShared && !documentSession;
   const sessionWritable = useSyncExternalStore(
     listener => {
       const unsubscribeSession = documentSession?.subscribe(listener) ?? (() => {});
       const unsubscribeAuthority = sessionHost?.subscribeAuthority?.(listener) ?? (() => {});
       return () => { unsubscribeSession(); unsubscribeAuthority(); };
     },
-    () => sessionHost?.get(activeFileId)?.writable ?? !(sessionHost?.isReadOnly?.(activeFileId) ?? false),
-    () => sessionHost?.get(activeFileId)?.writable ?? !(sessionHost?.isReadOnly?.(activeFileId) ?? false),
+    () => isDocumentWritable(sessionHost, activeFileId, activeFileShared),
+    () => isDocumentWritable(sessionHost, activeFileId, activeFileShared),
   );
+  useEffect(() => {
+    if (!awaitingSharedSession || !workspaceReady) return;
+    sessionHost?.requestSession?.(activeFileId);
+  }, [activeFileId, awaitingSharedSession, sessionHost, workspaceReady]);
   const sessionWritableRef = useRef(sessionWritable);
   useLayoutEffect(() => { sessionWritableRef.current = sessionWritable; }, [sessionWritable]);
   const activeFileIdRef = useRef(activeFileId);
@@ -869,7 +883,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
   const [mcpPreviewBusy, setMcpPreviewBusy] = useState(false);
   const aiDocumentWriteInProgress = mcpPreviewBusy || !sessionWritable;
   const sessionEditExtensions = useMemo(() => sessionWritable ? undefined
-    : sessionReadOnlyExtensions(t("collaboration.readOnlyDocument")), [sessionWritable, t]);
+    : sessionReadOnlyExtensions(t(awaitingSharedSession ? "collaboration.sessionConnecting" : "collaboration.readOnlyDocument")), [awaitingSharedSession, sessionWritable, t]);
   // 絞り込みで隠した領域に錨を下ろした図形は、見せず・触らせず・書き換えさせない (`useProblemDisplayEditing`)。
   const problemDisplayEditing = useProblemDisplayEditing(document, problemDisplayActive ? problemDisplay : undefined);
   const pageEditorExtensions = useMemo(
