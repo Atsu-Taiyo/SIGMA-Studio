@@ -518,8 +518,11 @@ test("selected figure shows a draggable horizontal anchor line and can rebind to
   await expect(shape).toBeVisible();
   await grabShapeFromBody(page, shape);
   await expect(shape).toHaveClass(/selected/);
+  // 紙面の左上からの位置で比べる。掴み手へのホバーやドラッグの自動スクロールで画面上の位置は動く。
+  const pageTop = async () => (await page.locator(".page-canvas").boundingBox())!.y;
   const shapeBefore = await shape.boundingBox();
   expect(shapeBefore).not.toBeNull();
+  const shapeTopBefore = shapeBefore!.y - await pageTop();
 
   const anchor = page.locator(".overlay-anchor-handle").first();
   const grip = anchor.locator(".overlay-anchor-grip");
@@ -546,15 +549,18 @@ test("selected figure shows a draggable horizontal anchor line and can rebind to
     .toBe("p_problem_statement");
 
   // Dropping mid-block still snaps the rule to the boundary after the block's
-  // text instead of leaving it across the paragraph.
+  // text instead of leaving it across the paragraph. The block is measured again
+  // here: the drag may have auto-scrolled the page since `targetBox` was taken.
   const ruleBox = await anchor.boundingBox();
+  const targetAfter = await targetBlock.boundingBox();
   expect(ruleBox).not.toBeNull();
+  expect(targetAfter).not.toBeNull();
   const ruleY = ruleBox!.y + ruleBox!.height / 2;
-  expect(ruleY).toBeGreaterThan(targetBox!.y + targetBox!.height - 3);
-  expect(ruleY).toBeLessThan(targetBox!.y + targetBox!.height + 6);
+  expect(ruleY).toBeGreaterThan(targetAfter!.y + targetAfter!.height - 3);
+  expect(ruleY).toBeLessThan(targetAfter!.y + targetAfter!.height + 6);
   const shapeAfter = await shape.boundingBox();
   expect(shapeAfter).not.toBeNull();
-  expect(Math.abs(shapeAfter!.y - shapeBefore!.y)).toBeLessThan(6);
+  expect(Math.abs(shapeAfter!.y - await pageTop() - shapeTopBefore)).toBeLessThan(6);
 });
 
 test("a group shows one anchor line and rebinds every member with it", async ({ page }) => {
