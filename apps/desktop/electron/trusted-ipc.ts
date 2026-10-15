@@ -11,10 +11,24 @@ interface RendererPolicy {
 
 let policy: RendererPolicy | null = null;
 const previews = new Map<WebContents, { renderId: string; url: string }>();
+let startupHold: Promise<void> | null = null;
 
 /** Set once by main before any privileged handlers are registered. Fail closed until then. */
 export function configureTrustedIpc(value: RendererPolicy): void {
   policy = value;
+}
+
+/**
+ * main は起動画面を早く出すため、共有教材の復元など時間のかかる準備より先に窓を開く。
+ * その間に届いた特権呼び出しは `ready` が済むまで待たせ、届いた順に処理する。準備の途中の
+ * main を画面に見せないため。準備に失敗したら、待っていた呼び出しも後の呼び出しもその失敗で断る。
+ */
+export function holdTrustedIpcUntil(ready: Promise<void>): void {
+  const hold: Promise<void> = ready.then(() => {
+    if (startupHold === hold) startupHold = null;
+  });
+  hold.catch(() => undefined);
+  startupHold = hold;
 }
 
 /** Only actual application routes may invoke the bridge, even within the local origin. */
@@ -64,12 +78,26 @@ export const ipcMain = {
   handle(channel: string, handler: InvokeHandler): void {
     electronIpcMain.handle(channel, (event, ...args) => {
       if (!isTrustedMainSender(event)) throw new Error("TRUSTED_RENDERER_REQUIRED");
-      return handler(event, ...args);
+      const hold = startupHold;
+      if (!hold) return handler(event, ...args);
+      return hold.then(() => {
+        // 待っている間に窓が閉じた・別のページへ移った呼び出しは通さない。
+        if (!isTrustedMainSender(event)) throw new Error("TRUSTED_RENDERER_REQUIRED");
+        return handler(event, ...args);
+      });
     });
   },
   on(channel: string, handler: EventHandler): void {
     electronIpcMain.on(channel, (event, ...args) => {
-      if (isTrustedMainSender(event)) handler(event, ...args);
+      if (!isTrustedMainSender(event)) return;
+      const hold = startupHold;
+      if (!hold) {
+        handler(event, ...args);
+        return;
+      }
+      void hold.then(() => {
+        if (isTrustedMainSender(event)) handler(event, ...args);
+      }, () => undefined);
     });
   },
 };
