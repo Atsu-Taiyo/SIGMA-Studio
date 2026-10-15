@@ -615,4 +615,9 @@ const desktopAPI = {
 
 contextBridge.exposeInMainWorld("desktopAPI", desktopAPI);
 
+/** 書体メニュー用。追加フォントと、このPCの書体の名前の一覧を返す (書体の中身は渡さない)。 */
+contextBridge.exposeInMainWorld("sigmaLocalFonts", {
+  list: () => ipcRenderer.invoke("local-fonts:list"),
+});
+
 export type DesktopAPI = typeof desktopAPI;
