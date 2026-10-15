@@ -1,10 +1,11 @@
 #!/usr/bin/env node
 import { build, context } from "esbuild";
 import { releaseCollaborationDefaults } from "./collaboration-build-config.mjs";
+import { normalizeExportedCssAssets } from "./static-assets.mjs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import { readFileSync } from "node:fs";
-import { cp, rm } from "node:fs/promises";
+import { cp, readdir, rm } from "node:fs/promises";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(__dirname, "..");
@@ -57,6 +58,11 @@ export async function buildElectron({ watch = false, onBuilt } = {}) {
       },
     }] : [],
   };
+  // An old local build may still contain a former import-worker entry, which is no
+  // longer built. Remove stale ones before either the watch or release build.
+  for (const name of await readdir(path.join(root, "dist-electron")).catch(() => [])) {
+    if (/-import-worker\.cjs(?:\.map)?$/u.test(name)) await rm(path.join(root, "dist-electron", name), { force: true });
+  }
   // LocalAiResourceStore が起動時に公式skill本文をseedできるよう、main.cjsと同じ
   // dist-electron配下へ正本のSKILL.mdをコピーする。electron-builderは同ディレクトリを同梱する。
   await rm(path.join(root, "dist-electron", "official-skills"), { recursive: true, force: true });
@@ -80,6 +86,8 @@ export async function buildElectron({ watch = false, onBuilt } = {}) {
     return builder;
   }
   await build(options);
+  const assets = await normalizeExportedCssAssets(path.join(root, "out"));
+  if (assets.rewrittenUrls) console.log(`[electron] fixed ${assets.rewrittenUrls} static asset URLs in ${assets.rewrittenFiles} stylesheets`);
   console.log("[electron] build complete");
 }
 
