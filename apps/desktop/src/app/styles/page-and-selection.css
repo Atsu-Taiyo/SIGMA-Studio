@@ -2321,12 +2321,12 @@ body.page-block-dragging * {
 .overlay-resize-handle.n::after,
 .overlay-resize-handle.s::after {
   width: var(--overlay-resize-handle-length, 18px);
-  height: 5px;
+  height: var(--overlay-resize-handle-thickness, 3px);
 }
 
 .overlay-resize-handle.e::after,
 .overlay-resize-handle.w::after {
-  width: var(--overlay-resize-handle-thickness, 5px);
+  width: var(--overlay-resize-handle-thickness, 3px);
   height: var(--overlay-resize-handle-length, 18px);
 }
 

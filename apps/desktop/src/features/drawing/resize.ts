@@ -33,8 +33,10 @@ export function getResizeHandleSet(
 
   if (only?.type === "text") {
     // Width is the only thing the author sets. No corners either: a corner drag is a width *and* a
-    // height, and half of that has nowhere to go.
-    return { hitOnly: [], visible: TEXT_RESIZE_HANDLES };
+    // height, and half of that has nowhere to go. The two width handles are grab-only: a text box
+    // starts its glyphs right at the edge, so a drawn pill sits on the first character (a formula
+    // most of all). The selection frame and the ew-resize cursor still say where to drag.
+    return { hitOnly: TEXT_RESIZE_HANDLES, visible: [] };
   }
 
   if (only?.type === "tableShape") {
