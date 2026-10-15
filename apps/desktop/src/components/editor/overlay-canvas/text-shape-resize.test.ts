@@ -252,8 +252,9 @@ describe("resizing a selection that contains a text shape", () => {
 });
 
 describe("the handles a selection offers", () => {
-  it("gives a text shape its two width handles and nothing else", () => {
-    expect(getResizeHandleSet([{ type: "text" }])).toEqual({ hitOnly: [], visible: ["e", "w"] });
+  it("gives a text shape its two width handles, grab-only, and nothing else", () => {
+    // Not drawn: the pill would sit on the first character of the text. It stays draggable.
+    expect(getResizeHandleSet([{ type: "text" }])).toEqual({ hitOnly: ["e", "w"], visible: [] });
   });
 
   it("keeps every other single selection on the handles it had", () => {

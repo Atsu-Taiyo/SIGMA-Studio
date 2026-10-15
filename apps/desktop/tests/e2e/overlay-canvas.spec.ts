@@ -2089,6 +2089,12 @@ test("resizes a text shape by width alone", async ({ page }) => {
   await expect(page.locator(".overlay-resize-handle.e")).toHaveCount(1);
   await expect(page.locator(".overlay-resize-handle.w")).toHaveCount(1);
   await expect(page.locator(".overlay-rotate-handle")).toHaveCount(1);
+  // The pill would sit on the first character, so the width handles are grab-only: still there to
+  // drag below, but nothing is drawn over the text.
+  await expect(page.locator(".overlay-resize-handle.hit-only")).toHaveCount(2);
+  await expect.poll(async () => page.locator(".overlay-resize-handle.hit-only.w").evaluate((element) => (
+    getComputedStyle(element, "::after").display
+  ))).toBe("none");
 
   // Narrowing wraps the text: the box gets taller without the type getting smaller, and it grows
   // downwards from where it already was instead of drifting.
