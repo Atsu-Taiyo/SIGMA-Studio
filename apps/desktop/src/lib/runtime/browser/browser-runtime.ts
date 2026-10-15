@@ -19,6 +19,7 @@ import {
   resolveWorkspace,
   resolveWorkspaceState,
   softDeleteFileRow,
+  toDocumentMetadata,
   updateFolderRow,
   visibleFiles,
   type LedgerOutcome,
@@ -415,6 +416,7 @@ export function createBrowserRuntime(options: BrowserRuntimeOptions): AppRuntime
           return {
             ok: true as const,
             revision: outcome.file.revision,
+            metadata: toDocumentMetadata(outcome.file),
             normalized,
             previousDocument: previousStored?.document ?? null,
           };
@@ -444,6 +446,7 @@ export function createBrowserRuntime(options: BrowserRuntimeOptions): AppRuntime
         return {
           ok: true,
           revision: canonical.revision,
+          metadata: canonical.metadata,
           versionCaptured,
           versionCaptureError,
         };

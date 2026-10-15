@@ -316,6 +316,7 @@ shouldEndCompositionForEvent,
 import {
 getDefaultDocumentSelectionId,
 sameDocumentMetadatas,
+updateSavedDocumentMetadata,
 sameOverlaySelectionSummary
 } from "@/components/editor/editor-shell/document-helpers";
 import {
@@ -1508,7 +1509,11 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
     return decision;
   }, [documentHistory, setSelectedId, setSelectedInlineMath]);
 
-  const refreshDocumentMetadatas = useCallback(async () => {
+  const refreshDocumentMetadatas = useCallback(async (saved?: DocumentMetadata) => {
+    if (saved) {
+      setDocumentMetadatas((current) => updateSavedDocumentMetadata(current, saved));
+      return;
+    }
     // 一覧の取り直しは補助的な更新。ここで投げっぱなしにすると、保存先が使えない
     // 環境で unhandled rejection になって画面全体が落ちる。
     const metadatas = await listSavedDocuments().catch(() => null);

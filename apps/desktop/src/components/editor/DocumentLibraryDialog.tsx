@@ -29,7 +29,13 @@ interface DocumentLibraryDialogProps {
  * 保存済み教材の選択と管理操作を、共通モーダル上のコンパクトな一覧にまとめる。
  * 教材の保存・切り替え・削除そのものは所有せず、EditorShellの処理へ委ねる。
  */
-export function DocumentLibraryDialog({
+export function DocumentLibraryDialog(props: DocumentLibraryDialogProps) {
+  // ModalFrame cannot skip evaluating its parent's children. Mount the list
+  // only while it is open so editor updates never build hidden library rows.
+  return props.open ? <OpenDocumentLibraryDialog {...props} /> : null;
+}
+
+function OpenDocumentLibraryDialog({
   open,
   documents,
   activeFileId,

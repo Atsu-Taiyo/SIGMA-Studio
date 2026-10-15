@@ -170,6 +170,7 @@ export type LocalWorkspaceOverviewResult =
 
 export interface LocalStorageResult {
   ok: boolean;
+  metadata?: LocalDocumentMetadata;
   error?: string;
   /** saveDocument の楽観ロック失敗時のみ: "revision-mismatch"。 */
   code?: "revision-mismatch";
@@ -862,7 +863,7 @@ export class LocalSigmaDocStore {
               error: versionCaptureError,
             });
           }
-          return { ok: true, revision: nextFile.revision, versionCaptured, versionCaptureError };
+          return { ok: true, revision: nextFile.revision, metadata: mapFileMetadata(nextFile), versionCaptured, versionCaptureError };
         } catch (error) {
           return {
             ok: false,
