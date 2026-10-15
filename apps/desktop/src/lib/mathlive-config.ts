@@ -2,6 +2,7 @@ import { mathFieldDefaultMode } from "@/features/rendering/core";
 import type { MathRenderEnvironment } from "@/lib/math-environment";
 import { SIGMA_MATHLIVE_MACRO_STYLES } from "@/lib/math-macros";
 import { MATHLIVE_BOX_LAYOUT_CLASS, normalizeMathLiveBoxStyle } from "@/lib/mathlive-box-layout";
+import { installMathLiveCompositionAnchor } from "@/lib/mathlive-composition-anchor";
 import { collidesWithMathKeyboardShortcut } from "@/lib/math-keyboard-shortcuts";
 
 export const MATHLIVE_MATH_MODE_SPACE = "\\ ";
@@ -75,6 +76,7 @@ export function configureInlineMathLiveField(
   environment: MathRenderEnvironment,
 ) {
   installSigmaMathLiveMacroStyles(mathField);
+  if (mathField.shadowRoot) installMathLiveCompositionAnchor(mathField.shadowRoot);
   mathField.defaultMode = mathFieldDefaultMode(environment.typesetStyle);
   mathField.environmentPopoverPolicy = "off";
   configureMathLiveSpace(mathField);
