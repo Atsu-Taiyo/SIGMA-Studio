@@ -11,7 +11,8 @@
 .row {
   display: grid;
   grid-template-columns: 96px minmax(0, 1fr);
-  align-items: baseline;
+  /* 値の側はアイコンを含む flex なので、ベースライン揃えだと見出しが下へずれる。 */
+  align-items: center;
   gap: var(--space-md);
 }
 
