@@ -65,7 +65,7 @@
    - `localFontResources` は内容ハッシュを確かめてアプリのフォント置き場へ入れる (教材には Base64 で埋め込まない)。
 5. 描画側が `recoverSigmaDocument` を通し、**別の教材として開く** (現在の教材は変更しない。保存の確認で止まれば取り込まない)。
 
-ワーカーは、このPCの書体が要るときだけ `{ type: "local-font-request", families }` を投げ、`{ type: "local-font-response", fonts }` を受け取る。ホストは個数と文字列の形を検査し、拡張機能が自分で同梱している書体は読まない。
+ワーカーは、このPCの書体が要るときだけ `{ type: "local-font-request", families }` を投げ、`{ type: "local-font-response", fonts }` を受け取る。ホストは個数と文字列の形を検査し、拡張機能が自分で同梱している書体と、カタログの `ownFontFamilyPrefixes` (自分の書体の系統名の頭。最大 8 個) に当たる系統は、このPCから読まない。
 
 ## 書体
 

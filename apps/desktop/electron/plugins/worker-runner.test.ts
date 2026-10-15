@@ -41,15 +41,15 @@ describe("createWorkerRunner", () => {
     const filename = await worker(`
       parentPort.once("message", (message) => parentPort.postMessage({ ok: true, result: { type: message.type, sizes: message.fonts.map((font) => font.bytes.byteLength), family: message.fonts[0].family } }));
       parentPort.postMessage({ type: "local-font-request", families: ["Example Mincho"] });`);
-    const seen: Array<{ families: string[]; bundled: string[] }> = [];
+    const seen: Array<{ families: string[]; bundled: string[]; prefixes: string[] }> = [];
     const run = createWorkerRunner({
       loadLocalFonts: async (families, context) => {
-        seen.push({ families, bundled: [...context.bundledFamilies] });
+        seen.push({ families, bundled: [...context.bundledFamilies], prefixes: [...context.ownFamilyPrefixes] });
         return [{ family: "Example Mincho", bytes: new Uint8Array([1, 2, 3, 4]) }];
       },
     });
-    expect(await run(filename, {}, { bundledFamilies: new Set(["Bundled"]) })).toEqual({ type: "local-font-response", sizes: [4], family: "Example Mincho" });
-    expect(seen).toEqual([{ families: ["Example Mincho"], bundled: ["Bundled"] }]);
+    expect(await run(filename, {}, { bundledFamilies: new Set(["Bundled"]), ownFamilyPrefixes: ["Own"] })).toEqual({ type: "local-font-response", sizes: [4], family: "Example Mincho" });
+    expect(seen).toEqual([{ families: ["Example Mincho"], bundled: ["Bundled"], prefixes: ["Own"] }]);
   });
 
   it.each([

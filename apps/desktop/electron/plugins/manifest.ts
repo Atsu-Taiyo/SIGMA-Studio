@@ -63,6 +63,8 @@ export interface CatalogPlugin {
   capabilities: string[];
   files: CatalogFile[];
   contributes?: { menu?: { sections: CatalogMenuSection[] } };
+  /** この拡張機能が自分で持っている書体の系統名の頭 (例: 製品の書体ファミリー名の前半)。この系統の書体は、このPCから読まない。 */
+  ownFontFamilyPrefixes?: string[];
 }
 
 export interface Catalog {
@@ -166,6 +168,8 @@ export function validateCatalog(catalog: unknown): Catalog {
       total += file.bytes;
     }
     if (workers !== 1 || total > MAX_PACKAGE_BYTES) return invalid();
+    if (plugin.ownFontFamilyPrefixes !== undefined && (!Array.isArray(plugin.ownFontFamilyPrefixes) || plugin.ownFontFamilyPrefixes.length > 8
+      || !plugin.ownFontFamilyPrefixes.every((prefix) => typeof prefix === "string" && /^[\p{L}\p{N} _-]{1,40}$/u.test(prefix)))) return invalid();
     if (plugin.contributes !== undefined) {
       if (!plugin.contributes || typeof plugin.contributes !== "object") return invalid();
       if (plugin.contributes.menu !== undefined) validateMenu(plugin.contributes.menu);

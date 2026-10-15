@@ -10,6 +10,8 @@ export interface LocalFontBytes {
 /** ワーカーを動かす1回ごとの状況。拡張機能が自分で同梱している書体の名前を、ホストが知っているものとして渡す。 */
 export interface WorkerContext {
   bundledFamilies: ReadonlySet<string>;
+  /** この系統の書体は拡張機能が持っているので、このPCから読まない。 */
+  ownFamilyPrefixes: readonly string[];
 }
 
 export type RunWorker = (filename: string, payload: Record<string, unknown>, context?: WorkerContext) => Promise<unknown>;
@@ -28,7 +30,7 @@ export function createWorkerRunner({ loadLocalFonts = async () => [], timeoutMs 
   timeoutMs?: number;
   maxOldGenerationSizeMb?: number;
 } = {}): RunWorker {
-  return (filename, payload, context = { bundledFamilies: new Set() }) => new Promise((resolve, reject) => {
+  return (filename, payload, context = { bundledFamilies: new Set(), ownFamilyPrefixes: [] }) => new Promise((resolve, reject) => {
     const worker = new Worker(filename, { workerData: payload, resourceLimits: { maxOldGenerationSizeMb } });
     let finished = false;
     const finish = (error: PluginError | null, result?: unknown) => {

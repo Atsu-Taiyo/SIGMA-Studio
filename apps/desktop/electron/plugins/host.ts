@@ -96,7 +96,7 @@ export class PluginHost {
       authorization: () => options.auth?.authorization(),
       signedIn: () => Boolean(options.auth?.user()),
       userId: readUserId,
-      loadLocalFonts: (families, context) => this.localFonts.readFamilies(families, context.bundledFamilies),
+      loadLocalFonts: (families, context) => this.localFonts.readFamilies(families, context.bundledFamilies, context.ownFamilyPrefixes),
       registerFonts: (plugin, directory) => this.registerFonts(plugin, directory),
     });
     this.ready = this.manager.initialize().catch(() => undefined);

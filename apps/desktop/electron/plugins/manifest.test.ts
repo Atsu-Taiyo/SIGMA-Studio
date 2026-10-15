@@ -51,6 +51,20 @@ describe("catalog menu contributions", () => {
     expect(() => validateCatalog(catalog(plugin(contributes)))).toThrow("verification-failed");
   });
 
+  it.each([
+    ["a list of too many prefixes", Array.from({ length: 9 }, (_, index) => `Own${index}`)],
+    ["a prefix with a punctuation character", ["Own/Brand"]],
+    ["an empty prefix", [""]],
+    ["an over-long prefix", ["a".repeat(41)]],
+    ["a non-list", "Own"],
+  ])("rejects %s for the extension's own font prefixes", (_name, prefixes) => {
+    expect(() => validateCatalog(catalog({ ...plugin(), ownFontFamilyPrefixes: prefixes as string[] }))).toThrow("verification-failed");
+  });
+
+  it("accepts the extension's own font prefixes", () => {
+    expect(() => validateCatalog(catalog({ ...plugin(), ownFontFamilyPrefixes: ["Own Brand", "Other-Face"] }))).not.toThrow();
+  });
+
   it("rejects an unknown capability", () => {
     expect(() => validateCatalog(catalog({ ...plugin(), capabilities: ["shell"] }))).toThrow("verification-failed");
   });

@@ -16,9 +16,14 @@ const MAX_FACES = 32;
 
 /**
  * 変換が必要とする書体名から、このPCにある実体の書体を選ぶ。無い書体は近い系統の書体で代える。
- * 拡張機能が自分で同梱している書体 (`bundled`) は、このPCから読まない。
+ * 拡張機能が自分で同梱している書体 (`bundled`) と、自分の系統の書体 (`ownPrefixes`) は、このPCから読まない。
  */
-export function selectLocalFontFaces(faces: LocalFontFace[], families: string[], bundled: ReadonlySet<string> = new Set()): LocalFontFace[] {
+export function selectLocalFontFaces(
+  faces: LocalFontFace[],
+  families: string[],
+  bundled: ReadonlySet<string> = new Set(),
+  ownPrefixes: readonly string[] = [],
+): LocalFontFace[] {
   const groups = new Map<string, LocalFontFace[]>();
   for (const face of faces) {
     const rows = groups.get(face.family) ?? [];
@@ -26,11 +31,13 @@ export function selectLocalFontFaces(faces: LocalFontFace[], families: string[],
     groups.set(face.family, rows);
   }
   const bundledNames = new Set([...bundled].map(normalizedFamily));
+  const prefixes = ownPrefixes.map(normalizedFamily).filter(Boolean);
   const wanted = new Set<string>();
   const find = (family: string): string | undefined => [...groups.keys()].find((name) => normalizedFamily(name) === normalizedFamily(family))
     ?? faces.find((face) => [face.fullName, face.postscriptName].some((name) => normalizedFamily(name) === normalizedFamily(family)))?.family;
   for (const family of families) {
-    if (bundledNames.has(normalizedFamily(family))) continue;
+    const normalized = normalizedFamily(family);
+    if (bundledNames.has(normalized) || prefixes.some((prefix) => normalized.startsWith(prefix))) continue;
     const exact = find(family);
     if (exact) {
       wanted.add(exact);

@@ -28,6 +28,12 @@ describe("selectLocalFontFaces", () => {
     expect(selectLocalFontFaces(faces, ["Yu Gothic"], new Set(["yu gothic"]))).toEqual([]);
   });
 
+  it("never reads a family under the extension's own prefix, even one it does not bundle", () => {
+    const own = [...faces, face("Own Brand Mincho", "Regular")];
+    expect(selectLocalFontFaces(own, ["Own Brand Mincho", "Own Brand Gothic"], new Set(), ["own brand"])).toEqual([]);
+    expect(selectLocalFontFaces(own, ["Own Brand Mincho", "Yu Gothic"], new Set(), ["own brand"]).every((item) => item.family === "Yu Gothic")).toBe(true);
+  });
+
   it("bounds the number of faces", () => {
     const many = Array.from({ length: 40 }, (_, index) => face(`Family ${index}`, "Regular"));
     expect(selectLocalFontFaces(many, many.map((item) => item.family)).length).toBeLessThanOrEqual(32);

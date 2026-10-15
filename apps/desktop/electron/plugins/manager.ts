@@ -615,7 +615,10 @@ export class PluginManager extends EventEmitter {
           portable: file.portable,
           complete: file.complete === true,
         })),
-      }, { bundledFamilies: new Set(plugin.files.flatMap((file) => (file.kind === "font" && file.family ? [file.family] : []))) });
+      }, {
+        bundledFamilies: new Set(plugin.files.flatMap((file) => (file.kind === "font" && file.family ? [file.family] : []))),
+        ownFamilyPrefixes: plugin.ownFontFamilyPrefixes ?? [],
+      });
     } finally {
       this.jobs -= 1;
       if (!this.jobs) for (const resolve of this.idleWaiters.splice(0)) resolve();

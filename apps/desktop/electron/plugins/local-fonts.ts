@@ -45,11 +45,11 @@ export class LocalFontReader {
     return rows as LocalFontFace[];
   }
 
-  async readFamilies(families: string[], bundled: ReadonlySet<string>): Promise<LocalFontBytes[]> {
+  async readFamilies(families: string[], bundled: ReadonlySet<string>, ownPrefixes: readonly string[] = []): Promise<LocalFontBytes[]> {
     const contents = this.getMainContents();
     if (!this.trusted(contents)) throw new Error("LOCAL_FONTS_UNAVAILABLE");
     this.prepare(contents);
-    const selected = selectLocalFontFaces(await this.listFaces(contents), families, bundled);
+    const selected = selectLocalFontFaces(await this.listFaces(contents), families, bundled, ownPrefixes);
     const names = selected.map((face) => face.postscriptName);
     const rows: unknown = names.length ? await contents.executeJavaScript(`(async () => {
       const rows = await queryLocalFonts({postscriptNames:${JSON.stringify(names)}});
