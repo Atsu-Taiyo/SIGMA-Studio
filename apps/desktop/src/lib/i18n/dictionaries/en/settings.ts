@@ -140,7 +140,6 @@ export const settings = {
     description: "Changes apply to the material immediately",
     titleSection: "Title",
     subtitleSection: "Subtitle",
-    previewSubtitle: "Label",
     titlePlaceholder: "Write the title",
     titleInsertMath: "Insert math into the title",
     titleHint: "Use Σ to insert the same math as in the body",

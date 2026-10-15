@@ -5,6 +5,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { BoxSettingsDialog } from "@/components/editor/BoxSettingsDialog";
+import { BOX_PREVIEW_BODY_BLOCK_LIMIT, BOX_PREVIEW_ID_PREFIX, type BoxPreviewPaper } from "@/components/editor/BoxSettingsPreview";
 import type { BoxBlockNode, CustomFrame } from "@/features/document";
 import { createBoxBlock, patchBoxFrame, setBoxCustomFrame, setBoxStyle } from "@/lib/box-blocks";
 import { addFrameToLibrary, FRAME_LIBRARY_STORAGE_KEY, getFrameLibrary } from "@/lib/frame-library";
@@ -24,10 +25,11 @@ let root: Root;
 let current: BoxBlockNode;
 
 /** Applies the dialog's changes the way the text flow editor does, so the dialog sees its own edits. */
-function Host({ initial, withCustomFrames, onBox }: {
+function Host({ initial, withCustomFrames, onBox, paper }: {
   initial: BoxBlockNode;
   withCustomFrames: boolean;
   onBox: (box: BoxBlockNode) => void;
+  paper?: BoxPreviewPaper;
 }) {
   const [box, setBox] = useState(initial);
   useEffect(() => onBox(box), [box, onBox]);
@@ -35,6 +37,8 @@ function Host({ initial, withCustomFrames, onBox }: {
     <BoxSettingsDialog
       boxBlock={box}
       title={box.title ?? []}
+      body={box.blocks}
+      paper={paper}
       onStyleChange={(styleId) => setBox((previous) => setBoxStyle(previous, styleId))}
       onFrameChange={(patch) => setBox((previous) => patchBoxFrame(previous, patch))}
       onCustomFrameChange={withCustomFrames
@@ -52,13 +56,16 @@ function Host({ initial, withCustomFrames, onBox }: {
 
 const byTestId = (id: string) => document.body.querySelector<HTMLElement>(`[data-testid="${id}"]`);
 
-async function render(initial: BoxBlockNode, withCustomFrames = true) {
+async function render(initial: BoxBlockNode, withCustomFrames = true, paper?: BoxPreviewPaper) {
   const onBox = (box: BoxBlockNode) => {
     current = box;
   };
-  await act(async () => root.render(<Host initial={initial} withCustomFrames={withCustomFrames} onBox={onBox} />));
+  await act(async () => root.render(<Host initial={initial} withCustomFrames={withCustomFrames} onBox={onBox} paper={paper} />));
   await act(async () => byTestId("box-style-picker")!.click());
 }
+
+/** The box drawn in the dialog's live preview (not a style thumbnail). */
+const previewBox = () => byTestId("box-live-preview")!.querySelector<HTMLElement>(".print-box-block")!;
 
 beforeEach(() => {
   setAppLocale("ja");
@@ -158,5 +165,67 @@ describe("BoxSettingsDialog custom frames", () => {
 
     expect(byTestId("box-frame-new")).toBeNull();
     expect(document.body.textContent).not.toContain("自分の枠（問題と共通）");
+  });
+});
+
+describe("BoxSettingsDialog live preview", () => {
+  it("draws the box itself, title and body, with the paper's renderer instead of a placeholder", async () => {
+    const box = createBoxBlock("titlebox", "定理の見出し", { id: "box_1", bodyId: "box_1_p", bodyText: "本文の一行目" });
+    box.frame = { ...box.frame, borderWidthPx: 3, borderColor: "#dc2626", bodyColor: "#b91c1c" };
+    await render(box, true, { widthPx: 700, fontSize: "14pt" });
+
+    const preview = previewBox();
+    expect(preview.className).toContain("box-frame--title-band");
+    expect(preview.querySelector(".print-box-title")?.textContent).toBe("定理の見出し");
+    expect(preview.querySelector(".print-box-body")?.textContent).toContain("本文の一行目");
+    // The frame comes from the same variables the paper's box reads.
+    expect(preview.style.getPropertyValue("--sigma-doc-box-border-width")).toBe("3px");
+    expect(preview.style.getPropertyValue("--sigma-doc-box-border-color")).toBe("#dc2626");
+    expect(preview.style.getPropertyValue("--sigma-doc-box-body-color")).toBe("#b91c1c");
+    // Typeset at the paper's width and type size, then scaled, so lines break as they do on the page.
+    const sheet = preview.closest<HTMLElement>(".text-flow-editor")!;
+    expect(sheet.style.getPropertyValue("--box-preview-paper-width")).toBe("700px");
+    expect(sheet.style.getPropertyValue("--editor-font-size")).toBe("14pt");
+  });
+
+  it("follows each change at once: corners, title position and the title typed in the dialog", async () => {
+    await render(createBoxBlock("fancybox", "見出し", { id: "box_1" }));
+    expect(previewBox().style.getPropertyValue("--sigma-doc-box-radius")).toBe("0px");
+
+    const rounded = Array.from(document.body.querySelectorAll<HTMLButtonElement>("button"))
+      .find((button) => button.textContent === "角丸")!;
+    await act(async () => rounded.click());
+    expect(current.frame?.cornerStyle).toBe("round");
+    expect(previewBox().style.getPropertyValue("--sigma-doc-box-radius")).toBe("4px");
+
+    const center = Array.from(document.body.querySelectorAll<HTMLButtonElement>("button"))
+      .find((button) => button.textContent === "中央")!;
+    await act(async () => center.click());
+    expect(previewBox().className).toContain("box-frame--title-position-c");
+  });
+
+  it("keeps the preview copy's ids apart from the paper's and caps a long body", async () => {
+    const box = createBoxBlock("fancybox", "長い箱", { id: "box_1", bodyId: "p_0", bodyText: "1 段落目" });
+    box.blocks = Array.from({ length: BOX_PREVIEW_BODY_BLOCK_LIMIT + 4 }, (_, index) => ({
+      type: "paragraph" as const,
+      id: `p_${index}`,
+      children: [{ type: "text" as const, text: `${index + 1} 段落目` }],
+    }));
+    await render(box);
+
+    const preview = previewBox();
+    const ids = Array.from(byTestId("box-live-preview")!.querySelectorAll("[data-sigma-doc-id]"))
+      .map((element) => element.getAttribute("data-sigma-doc-id")!);
+    expect(ids.length).toBeGreaterThan(0);
+    expect(ids.every((id) => id.startsWith(BOX_PREVIEW_ID_PREFIX))).toBe(true);
+    expect(preview.querySelectorAll(".print-box-body > *")).toHaveLength(BOX_PREVIEW_BODY_BLOCK_LIMIT);
+  });
+
+  it("previews a drawn frame with the drawing", async () => {
+    await render(setBoxCustomFrame(createBoxBlock("fancybox", "自作", { id: "box_1" }), CUSTOM));
+
+    const preview = previewBox();
+    expect(preview.className).toContain("box-frame--custom");
+    expect(preview.style.getPropertyValue("--custom-frame-image-closed")).toContain("url(");
   });
 });

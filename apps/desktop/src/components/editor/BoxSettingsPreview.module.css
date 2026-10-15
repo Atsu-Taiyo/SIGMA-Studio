@@ -1,0 +1,25 @@
+/* 箱の設定のプレビュー (BoxSettingsPreview)。箱の見た目は紙面と共有の document-surface.css が
+   決める。ここは「紙面と同じ組版幅の紙を、入れ物の幅に縮めて置く」ことだけを持つ。 */
+
+.viewport {
+  position: relative;
+  min-width: 0;
+  overflow: hidden;
+  pointer-events: none;
+  user-select: none;
+}
+
+/* 紙。紙面と同じ書体・字の大きさ・行送りで組む (`text-flow-editor` と併用)。
+   左右と上下の余白は、枠にまたがる見出し板や四隅の角が切れないための逃げ。 */
+.sheet {
+  box-sizing: content-box;
+  width: var(--box-preview-paper-width, 640px);
+  margin-inline: auto;
+  padding: 6px 12px;
+  background: #ffffff;
+  color: #111111;
+  font-family: var(--editor-body-font-family);
+  font-size: var(--editor-font-size, 12pt);
+  line-height: 1.78;
+  transform-origin: top left;
+}
