@@ -4517,7 +4517,7 @@ registerTool(
   "insert_svg_image",
   {
     title: "SVG画像を挿入",
-    description: "図・図解・模式図・イラスト・挿絵・フローチャート・幾何の作図など、教材に入れる絵の既定の入口です(迷ったらSVG)。AIが記述した自己完結SVGを1枚の画像として提案挿入します。関数グラフはinsert_graph、立体はinsert_graph3d、表はinsert_table、部品ごとに個別編集する図形だけinsert_shapeを使います。svgにはxmlnsと正のviewBoxが必須。TeXは解釈されないので図中の記号はUnicodeで書き、凝った式は図の上にinsert_shape(kind:text,tex)で重ねます。path/text/図形/defs/gradient/clipPath/mask/markerと表示属性(fill/stroke等)を使用でき、style・class・script・外部参照・use・foreignObject・pattern・filter・アニメーション・XML宣言は使えません。最大256 KiB。白黒基調・透明背景にし、先に主要な点の座標を決めて長さ・角度などの条件に合わせて描きます。w:hの比はviewBoxに合わせます。SVGは本文と独立した画像レイヤーで、本文は回り込みません。SVG原文はasset.props.srcにbase64で保持します。verification.previewのPNGを必ず実見して内容・文字・本文との重なりを確かめ、修正にはupdate_svg_image、位置・大きさの変更にはupdate_shapeのx/y/w/hを使ってください。previewが取得できなければrender_block_contextまたはrender_pageで確認し、未確認のまま視覚確認済みと報告しないでください。",
+    description: "図・図解・模式図・イラスト・挿絵・フローチャート・幾何の作図など、教材に入れる絵の既定の入口です(迷ったらSVG)。AIが記述した自己完結SVGを1枚の画像として提案挿入します。関数グラフはinsert_graph、立体はinsert_graph3d、表はinsert_table、図や本文に重ねる注記・強調だけinsert_shapeを使います。部品ごとに編集したい図もこのツールで描きます。画像の「図形に変換」で線・図形・文字・数式に分解でき、見た目も保たれます(insert_shapeで部品を作り直さない)。分解されるように、線だけの要素はfill=\"none\"、曲線はM…Q…を1本ずつ(3次ベジェ・円弧Aは分解されないので円弧はQで近似)、矢印は線のstrokeと同じ色の標準marker(三角・V字・丸)、文字は1行ずつ<text>(stroke付きのgに入れない、dominant-baselineは使わない)、stroke-widthは0.75/1.25/2/3/5から選び、viewBoxの幅を表示幅に合わせます。詳細は公式スキルsigma-svg-figure。svgにはxmlnsと正のviewBoxが必須。TeXは解釈されないので図中の記号はUnicodeで書き、凝った式は図の上にinsert_shape(kind:text,tex)で重ねます。path/text/図形/defs/gradient/clipPath/mask/markerと表示属性(fill/stroke等)を使用でき、style・class・script・外部参照・use・foreignObject・pattern・filter・アニメーション・XML宣言は使えません。最大256 KiB。白黒基調・透明背景にし、先に主要な点の座標を決めて長さ・角度などの条件に合わせて描きます。w:hの比はviewBoxに合わせます。SVGは本文と独立した画像レイヤーで、本文は回り込みません。SVG原文はasset.props.srcにbase64で保持します。verification.previewのPNGを必ず実見して内容・文字・本文との重なりを確かめ、修正にはupdate_svg_image、位置・大きさの変更にはupdate_shapeのx/y/w/hを使ってください。「図形に変換」した後の部品はupdate_svg_imageでは直せないのでupdate_shapeを使います。previewが取得できなければrender_block_contextまたはrender_pageで確認し、未確認のまま視覚確認済みと報告しないでください。",
     inputSchema: { ...DocumentTargetSchema, ...DraftInsertSvgImageArgsSchema.shape },
   },
   async (args) => withToolErrorHandling(async () => runDraftTool({
@@ -4541,7 +4541,7 @@ registerTool(
   "insert_shape",
   {
     title: "図形を挿入",
-    description: "部品ごとに個別編集する図形、図や本文に重ねる補助線・矢印・折れ線・曲線・ハイライト・テキスト注記・吹き出しをoverlayへ挿入します。図・図解・模式図・イラスト全体を入れるだけなら、先にinsert_svg_image(SVG1枚)を使ってください。kind:calloutはtext/texを内部に持つ単一オブジェクトで、tailBaseStart/tailBaseEnd/tailTipにより口の3点、cornerRadiusにより本文矩形の角丸を指定できます。kind:textはmarkdownで複数段落・見出し・リスト・数式を保持でき、wがテキストの折り返し幅で、省略すると既定幅になります。高さは内容から導出されるのでhは指定できません。円・楕円・矩形・三角形など標準kindで表せる図形はそのkindを使い、polylineで近似しないでください。関数グラフや座標平面は insert_graph を使います。既存図形の一部はupdate_shapeで更新してください。",
+    description: "図や本文に重ねる補助線・矢印・折れ線・曲線・ハイライト・テキスト注記・吹き出しなど、個別に動かす図形をoverlayへ挿入します。図・図解・模式図・イラストは、部品ごとに編集したい場合もinsert_svg_image(SVG1枚)で描いてください(画像の「図形に変換」で図形・文字に分解できるので、このツールで部品を作り直さない)。kind:calloutはtext/texを内部に持つ単一オブジェクトで、tailBaseStart/tailBaseEnd/tailTipにより口の3点、cornerRadiusにより本文矩形の角丸を指定できます。kind:textはmarkdownで複数段落・見出し・リスト・数式を保持でき、wがテキストの折り返し幅で、省略すると既定幅になります。高さは内容から導出されるのでhは指定できません。円・楕円・矩形・三角形など標準kindで表せる図形はそのkindを使い、polylineで近似しないでください。関数グラフや座標平面は insert_graph を使います。既存図形の一部はupdate_shapeで更新してください。",
     inputSchema: {
       ...DocumentTargetSchema,
       ...ShapeToolInputSchema,

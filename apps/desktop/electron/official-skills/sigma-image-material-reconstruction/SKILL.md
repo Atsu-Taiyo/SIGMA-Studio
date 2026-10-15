@@ -18,7 +18,11 @@ description: "画像、写真、スクリーンショット、手書きラフ、
    - 関数・座標平面・数直線は `insert_graph`
    - 立体・回転体・断面は `insert_graph3d`
    - **それ以外の図（幾何の作図、模式図、図解、イラスト、装置の絵、フローチャート）は `insert_svg_image`**（sigma-svg-figure）。輪郭の写経ではなく、「何をどう作図した図か」を読み取って、座標を決めてから描く。
-6. 図の部品を後から個別に動かしたいと頼まれたときだけ、`insert_shape` か visual edit session（`begin_visual_edit_session` → `visual_insert_shape` → `render_visual_edit_session` → `inspect_visual_edit_session` → `review_visual_edit_session` → `propose_visual_edit_session`）を使う。previewを見ずに提案しない。
+6. 図の部品を後から個別に動かしたいと頼まれても、`insert_shape` で部品を作り直さない。**SVGで描いてから分解する。**
+   - sigma-svg-figure の「変換しやすい書き方」で描く。線だけの要素は `fill="none"`、曲線は `M…Q…` を1本ずつ、円弧は `A` を使わず Q 曲線で近似、矢印は線と同じ色の標準 marker（三角・V字・丸）、文字は1行ずつ `<text>`、線の太さは 0.75 / 1.25 / 2 / 3 / 5 から選ぶ。
+   - 下の7の手順で、`verification.preview` が元画像と合うまで `update_svg_image` で直す。分解した後よりも、SVGのうちに直すほうが1回で済む。
+   - 合ったら、画像を右クリックして「図形に変換」を選ぶと線・図形・文字・数式に分解でき、グループ解除で部品ごとに動かせることを伝える。分解した後の部品は `update_shape` で直す（`update_svg_image` は使えない）。
+   - 部品単位での忠実な再現を求められたときだけ、visual edit session（`begin_visual_edit_session` → `visual_insert_shape` → `render_visual_edit_session` → `inspect_visual_edit_session` → `review_visual_edit_session` → `propose_visual_edit_session`）を使う。previewを見ずに提案しない。
 7. 作成後の `verification.preview` を元画像と見比べる。本文や数式の欠落、表の行列、曲線・軸・ラベル、図の要素と位置関係、重なり、はみ出しを確認し、違いがあれば `update_svg_image` / `update_graph` / `update_table` / `edit_text` で直して再確認する。SVGは本文と独立した画像レイヤーなので、本文と重なっていないかも見る。
 
 ## 判断ルール
@@ -32,4 +36,4 @@ description: "画像、写真、スクリーンショット、手書きラフ、
 
 ## 完了時の報告
 
-再構成できたもの、そのまま残したもの、読み取れず確認が要るものを分けて短く伝える。確認していない項目を「確認済み」と書かない。
+再構成できたもの、そのまま残したもの、読み取れず確認が要るものを分けて短く伝える。図はSVGとして入れたこと、部品ごとに動かしたいときは「図形に変換」で分解できることを添える。確認していない項目を「確認済み」と書かない。
