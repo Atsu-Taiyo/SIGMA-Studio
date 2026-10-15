@@ -12,7 +12,7 @@ import type { EditorSaveState,EditorStateUpdate } from "@/features/editor-state/
 import { trackInFlightSave } from "@/lib/ai-run-applier";
 import type { DocumentVersion } from "@/lib/document-version-history";
 import { type Translate } from "@/lib/i18n";
-import { captureDocumentVersion,createObservedDocumentWrite,saveDocumentRecord,type StorageResult } from "@/lib/storage";
+import { captureDocumentVersion,createObservedDocumentWrite,saveDocumentRecord,type DocumentMetadata,type StorageResult } from "@/lib/storage";
 import type { Dispatch,RefObject,SetStateAction } from "react";
 import { useCallback,useEffect,useRef,useState } from "react";
 import type { DocumentStorageChangeEvent,EmbeddedEditorHost } from "./document-lifecycle-types";
@@ -28,7 +28,7 @@ interface Dependencies {
     openFileIds: string[];
     setOpenFileIds: (ids: string[]) => void;
     saveWorkspaceState: (state: { openFileIds: string[]; activeFileId: string }) => Promise<StorageResult>;
-    refreshDocumentMetadatas: () => Promise<void>;
+    refreshDocumentMetadatas: (saved?: DocumentMetadata) => Promise<void>;
   };
 
   documentSessionRef?: RefObject<DocumentSession | undefined>;
@@ -437,7 +437,7 @@ export function useDocumentSaveBoundary({
               setOpenFileIds(nextOpenFileIds);
               await saveWorkspaceState({ openFileIds: nextOpenFileIds, activeFileId });
             }
-            await refreshDocumentMetadatas();
+            await refreshDocumentMetadatas(result.metadata);
             if (cancelled) {
               return;
             }

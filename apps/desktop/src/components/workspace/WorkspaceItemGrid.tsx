@@ -162,7 +162,7 @@ export function WorkspaceItemGrid({
                     <span className="workspace-folder-card-name">{folder.name}</span>
                   )}
                   {folder.sharing && <WorkspaceSharedBadge />}
-                  <small>{locationLabel ? locationFor(key) : folder.fileCount}</small>
+                  {locationLabel && <small>{locationFor(key)}</small>}
                   {!editing && <WorkspaceBookmarkButton name={folder.name} bookmarked={bookmarkedKeys.has(key)} onToggle={() => onToggleBookmark("folder", folder.id)} />}
                   {!editing && <WorkspaceItemMenuButton expanded={menuKey === `folder:${folder.id}`} name={folder.name} onClick={(event) => onFolderContextMenu(event, folder.id)} />}
                 </div>

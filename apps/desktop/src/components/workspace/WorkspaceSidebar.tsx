@@ -2,6 +2,7 @@
 
 import { Bookmark, Building2, ChevronRight, FileText, Folder, MessageSquare, Plus, Share2 } from "lucide-react";
 import type { CSSProperties, Dispatch, DragEvent as ReactDragEvent, MouseEvent as ReactMouseEvent, SetStateAction } from "react";
+import { useMemo } from "react";
 
 import { SHARED_ITEMS_WORKSPACE_ID } from "@/lib/runtime/shared-catalog";
 import { WorkspaceItemMenuButton } from "./WorkspaceItemMenuButton";
@@ -93,6 +94,23 @@ export function WorkspaceSidebar({
   const t = useT("workspace");
   const tc = useT("chrome");
 
+  const children = useMemo(() => {
+    if (collapsed || !workspaceTreeExpanded) return null;
+    const childFolders = new Map<string | null, WorkspaceFolderSummary[]>();
+    const childFiles = new Map<string | null, WorkspaceFileSummary[]>();
+    for (const folder of folders) {
+      const siblings = childFolders.get(folder.parentFolderId);
+      if (siblings) siblings.push(folder);
+      else childFolders.set(folder.parentFolderId, [folder]);
+    }
+    for (const file of files) {
+      const siblings = childFiles.get(file.folderId);
+      if (siblings) siblings.push(file);
+      else childFiles.set(file.folderId, [file]);
+    }
+    return { folders: childFolders, files: childFiles };
+  }, [collapsed, workspaceTreeExpanded, folders, files]);
+
   const toggleSidebarFolder = (folderId: string) => {
     setExpandedFolderIds((current) => {
       const next = new Set(current);
@@ -119,8 +137,8 @@ export function WorkspaceSidebar({
   );
 
   const renderSidebarFolder = (folder: WorkspaceFolderSummary, depth = 0) => {
-    const childFolders = folders.filter((candidate) => candidate.parentFolderId === folder.id);
-    const childFiles = files.filter((file) => file.folderId === folder.id);
+    const childFolders = children?.folders.get(folder.id) ?? [];
+    const childFiles = children?.files.get(folder.id) ?? [];
     const expanded = expandedFolderIds.has(folder.id);
     const hasChildren = childFolders.length > 0 || childFiles.length > 0;
 

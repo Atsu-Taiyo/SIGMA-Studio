@@ -52,6 +52,9 @@ import type {
   OverlayShapeId
 } from "./types";
 
+/** 辺つまみの描画の太さ(枠線込み)。辺の上に半分はみ出すので、図中の文字や数式に重ならないよう細くしておく。 */
+const EDGE_RESIZE_HANDLE_THICKNESS = 3;
+
 export interface AnchorIndicatorCopy {
   title: string;
   body: string;
@@ -373,7 +376,7 @@ export function getEdgeResizeHandleStyle(handle: ResizeHandle, bounds: OverlayBo
   if (handle === "e" || handle === "w") {
     return {
       "--overlay-resize-handle-length": `${Math.min(getAdaptiveEdgeHandleLength(bounds.h), Math.max(2, bounds.w * 0.4))}px`,
-      "--overlay-resize-handle-thickness": `${Math.min(5, Math.max(1, bounds.w * 0.1))}px`,
+      "--overlay-resize-handle-thickness": `${Math.min(EDGE_RESIZE_HANDLE_THICKNESS, Math.max(1, bounds.w * 0.1))}px`,
       top: `${getEdgeResizeHandleInsetPx(bounds.h)}px`,
       bottom: `${getEdgeResizeHandleInsetPx(bounds.h)}px`,
     } as CSSProperties;

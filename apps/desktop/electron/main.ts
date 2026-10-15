@@ -55,6 +55,7 @@ import {
   type LocalMcpEditProposalChangeEvent,
 } from "./local-sigma-doc-proposal-store";
 import { registerAppIpc } from "./ipc/app";
+import { LocalFontService } from "./local-fonts";
 import { registerBrowserIpc } from "./ipc/browser";
 import { registerShellIpc } from "./ipc/shell";
 import { LinkConfirmation } from "./link-confirmation";
@@ -223,6 +224,7 @@ const pluginHost = new PluginHost({
   getMainContents: () => mainWindow?.webContents ?? null,
   partialFontNote: () => te("electron.plugins.partialFont"),
 });
+const localFontService = new LocalFontService();
 const appUpdateController = new AppUpdateController({ releaseUrl: RELEASE_PAGE_URL });
 const desktopSettings = readDesktopSettingsSync(SIGMA_STUDIO_DATA_PATH);
 /**
@@ -1538,6 +1540,7 @@ function registerIpc() {
   });
   registerPluginIpc({ host: pluginHost, getMainWindow: () => mainWindow });
   registerAppIpc({
+    listSystemFonts: sender => localFontService.list(sender),
     getMainWindow: () => mainWindow,
     releaseUrl: RELEASE_PAGE_URL,
     dataDir: SIGMA_STUDIO_DATA_PATH,
@@ -1685,10 +1688,11 @@ app.whenReady().then(async () => {
     codexAppServerClient.getStatus().catch(() => {});
   }, 1500);
 
-  setTimeout(() => {
-    checkForUpdatesInBackground();
-  }, 5000);
-  setInterval(checkForUpdatesInBackground, UPDATE_CHECK_INTERVAL_MS);
+  // Store manages AppX updates; do not schedule the GitHub updater there.
+  if (appUpdateController.getStatus().supported) {
+    setTimeout(checkForUpdatesInBackground, 5000);
+    setInterval(checkForUpdatesInBackground, UPDATE_CHECK_INTERVAL_MS);
+  }
 
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) {

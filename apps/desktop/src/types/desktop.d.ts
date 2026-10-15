@@ -536,6 +536,7 @@ export interface DesktopWorkspaceState {
 
 export interface DesktopStorageResult {
   ok: boolean;
+  metadata?: DesktopDocumentMetadata;
   error?: string;
   /** saveDocument の楽観ロック失敗時のみ: "revision-mismatch"。 */
   code?: "revision-mismatch";

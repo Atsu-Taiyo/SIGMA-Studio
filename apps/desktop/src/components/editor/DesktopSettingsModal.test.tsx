@@ -5,6 +5,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { setAppLocale } from "@/lib/i18n/react";
+import type { DesktopAPI } from "@/types/desktop";
 
 import { DesktopSettingsModal, LanguageChangeDialog, LanguageSettingButton } from "./DesktopSettingsModal";
 
@@ -25,6 +26,7 @@ beforeEach(() => {
 afterEach(async () => {
   await act(async () => root.unmount());
   container.remove();
+  delete window.desktopAPI;
 });
 
 async function renderDialog(props: Partial<Parameters<typeof LanguageChangeDialog>[0]> = {}) {
@@ -118,5 +120,58 @@ describe("DesktopSettingsModal on the web", () => {
 
     expect(document.querySelector<HTMLElement>('[role="dialog"][aria-label="Settings"]')).not.toBeNull();
     expect(window.localStorage.getItem("sigma-studio:ui-locale")).toBe("en");
+  });
+});
+
+describe("DesktopSettingsModal updates", () => {
+  function installBridge(supported: boolean) {
+    const status = { phase: "idle" as const, supported, currentVersion: "0.515.1", releaseUrl: "https://github.com/Atsu-Taiyo/SIGMA-Studio/releases/latest" };
+    const updater = {
+      getStatus: vi.fn().mockResolvedValue(status),
+      checkForUpdates: vi.fn().mockResolvedValue({ ...status, phase: "not-available" }),
+      downloadUpdate: vi.fn(),
+      quitAndInstall: vi.fn(),
+      onStatusChange: vi.fn(() => () => {}),
+    };
+    const openLatestReleasePage = vi.fn().mockResolvedValue({ ok: true });
+    window.desktopAPI = {
+      platform: "win32",
+      app: { getInfo: vi.fn().mockResolvedValue({ version: "0.515.1", releaseUrl: status.releaseUrl }), openLatestReleasePage },
+      storage: { getDataDir: vi.fn().mockResolvedValue({ path: "/test/profile" }) },
+      codex: {
+        getStatus: vi.fn().mockResolvedValue({ available: false, loggedIn: false }),
+        onStatusChange: vi.fn(() => () => {}),
+      },
+      updater,
+    } as unknown as DesktopAPI;
+    return { updater, openLatestReleasePage };
+  }
+
+  it("shows the Store notice and preserves manual access without checking GitHub from the menu", async () => {
+    const { updater, openLatestReleasePage } = installBridge(false);
+    await act(async () => {
+      root.render(<DesktopSettingsModal open onClose={vi.fn()} requestUpdateCheck={1} />);
+    });
+
+    const section = document.getElementById("desktop-settings-app-update");
+    expect(section?.textContent).toContain("更新は Microsoft Store から自動的にインストールされます。");
+    const buttons = [...section!.querySelectorAll<HTMLButtonElement>("button")];
+    expect(buttons.map(button => button.textContent)).toEqual(["手動で開く"]);
+    expect(updater.checkForUpdates).not.toHaveBeenCalled();
+    expect(updater.downloadUpdate).not.toHaveBeenCalled();
+    await act(async () => buttons[0].click());
+    expect(openLatestReleasePage).toHaveBeenCalledOnce();
+  });
+
+  it("keeps the menu update check for existing Windows installer builds", async () => {
+    const { updater } = installBridge(true);
+    await act(async () => {
+      root.render(<DesktopSettingsModal open onClose={vi.fn()} requestUpdateCheck={1} />);
+    });
+
+    expect(updater.checkForUpdates).toHaveBeenCalledOnce();
+    const section = document.getElementById("desktop-settings-app-update");
+    expect(section?.textContent).toContain("現在のバージョンは最新版です。");
+    expect(section?.textContent).toContain("最新版を確認");
   });
 });

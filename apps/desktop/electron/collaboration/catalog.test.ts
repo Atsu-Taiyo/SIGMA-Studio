@@ -40,6 +40,56 @@ async function fixture() {
   local.setDocumentAuthority({ read: id => catalog.read(id), save: async () => undefined });
   return { directory, local, catalog, sessions, request, open, emit, setNodes: (value: CatalogNode[]) => { nodes = value; }, setActor: (value: string | null) => { actor = value; }, setOffline: (value: boolean) => { offline = value; } };
 }
+it("reads one local snapshot per overview and scopes signed-out files to the selected workspace", async () => {
+  const f = await fixture();
+  f.setActor(null);
+  const initial = await f.local.getLocalLibrarySnapshot();
+  const firstId = initial.activeWorkspaceId;
+  const second = await f.local.createWorkspace("別の教材");
+  if (second.state !== "ready") throw new Error("WORKSPACE_NOT_READY");
+  const secondId = second.overview.activeWorkspaceId;
+  await f.local.createDocument({ workspaceId: secondId, title: "別の教材の本文" });
+  const snapshot = vi.spyOn(f.local, "getLocalLibrarySnapshot");
+  const read = vi.spyOn(fs, "readFile");
+  const result = await f.catalog.overview(secondId);
+  expect(result.state).toBe("ready");
+  if (result.state !== "ready") throw new Error("OVERVIEW_NOT_READY");
+  expect(snapshot).toHaveBeenCalledExactlyOnceWith(secondId);
+  expect(read.mock.calls.filter(([p]) => String(p) === path.join(f.directory, "data/library.json"))).toHaveLength(1);
+  expect(result.overview.files.length).toBeGreaterThan(0);
+  expect(result.overview.files.every(file => file.workspaceId === secondId)).toBe(true);
+  read.mockClear();
+  const switched = await f.catalog.overview(firstId);
+  if (switched.state !== "ready") throw new Error("OVERVIEW_NOT_READY");
+  expect(switched.overview.activeWorkspaceId).toBe(firstId);
+  expect(switched.overview.files.map(file => file.fileId)).toEqual(initial.files.map(file => file.fileId));
+  expect(JSON.parse(await fs.readFile(path.join(f.directory, "data/library.json"), "utf8")).activeWorkspaceId).toBe(firstId);
+  // Unscoped search remains read-only and includes both workspaces after restart.
+  const restarted = new LocalSigmaDocStore(f.directory);
+  const all = await restarted.getLocalLibrarySnapshot();
+  expect(all.activeWorkspaceId).toBe(firstId);
+  expect(new Set(all.files.map(file => file.workspaceId))).toEqual(new Set([firstId, secondId]));
+  expect(f.open).not.toHaveBeenCalled();
+  snapshot.mockRestore();
+  read.mockRestore();
+});
+
+it("keeps folders from missing or deleted workspaces out of the all-workspace snapshot", async () => {
+  const f = await fixture();
+  const initial = await f.local.getLocalLibrarySnapshot();
+  const folder = await f.local.createFolder(initial.activeWorkspaceId, "表示するフォルダ");
+  if (folder.state !== "ready") throw new Error("FOLDER_NOT_READY");
+  const ledgerPath = path.join(f.directory, "data/library.json");
+  const ledger = JSON.parse(await fs.readFile(ledgerPath, "utf8"));
+  const original = ledger.folders[0];
+  ledger.workspaces.push({ ...ledger.workspaces[0], id: "workspace_deleted", deletedAt: new Date().toISOString() });
+  ledger.folders.push({ ...original, id: "folder_deleted-workspace", workspaceId: "workspace_deleted" });
+  ledger.folders.push({ ...original, id: "folder_missing-workspace", workspaceId: "workspace_missing" });
+  await fs.writeFile(ledgerPath, JSON.stringify(ledger));
+  const snapshot = await new LocalSigmaDocStore(f.directory).getLocalLibrarySnapshot();
+  expect(snapshot.folders.map(value => value.id)).toEqual([original.id]);
+});
+
 it("lists metadata lazily, retains file identity through workspace grant/revoke and restart", async () => {
   const f = await fixture(); const workspace = node("workspace"); const folder = node("folder", workspace.id); const doc = node("document", folder.id);
   f.setNodes([doc]); await f.catalog.refresh();

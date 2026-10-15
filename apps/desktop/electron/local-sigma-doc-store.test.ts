@@ -58,6 +58,21 @@ describe("LocalSigmaDocStore", () => {
     await fs.rm(userDataDir, { recursive: true, force: true });
   });
 
+  it("returns persisted metadata for one save, including a normalized duplicate title", async () => {
+    await store.initializeWorkspace({ initialDocument: createBlankDocument("既存") });
+    const created = await store.createFileFromDocument({ document: createBlankDocument("編集用") });
+    const document = { ...created.document, metadata: { ...created.document.metadata, title: "既存" }, updatedAt: "2026-10-15T00:00:00.000Z" };
+    const result = await store.saveDocument(created.file.fileId, document, { expectedRevision: created.file.revision });
+    expect(result.ok).toBe(true);
+    expect(result.metadata).toMatchObject({ fileId: created.file.fileId, title: "既存-2", revision: 2, updatedAt: document.updatedAt });
+    const reopened = new LocalSigmaDocStore(userDataDir);
+    expect((await reopened.listFiles()).find((file) => file.fileId === created.file.fileId)).toEqual(result.metadata);
+    expect((await reopened.loadDocument(created.file.fileId))?.metadata.title).toBe(result.metadata?.title);
+    const conflict = await store.saveDocument(created.file.fileId, document, { expectedRevision: 1 });
+    expect(conflict).toMatchObject({ ok: false, code: "revision-mismatch" });
+    expect(conflict.metadata).toBeUndefined();
+  });
+
   it("assigns a space-free name to the first document without changing the source", async () => {
     const source = createBlankDocument("最初の 教材.sigma");
     const workspace = await store.initializeWorkspace({ initialDocument: source });
