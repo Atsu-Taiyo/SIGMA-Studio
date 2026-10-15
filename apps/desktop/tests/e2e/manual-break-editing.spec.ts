@@ -199,6 +199,84 @@ test("/newpage breaks at the caret, and Backspace on the fresh empty line takes 
   await expect.poll(async () => (await readCaretSurface(page)).blockId).toBe("second");
 });
 
+/** 保存された最上位ブロックの [id (生成された空の行は "blank"), 区切り, 子の数]。 */
+async function savedShape(page: Page, keepIds: readonly string[]) {
+  const content = JSON.parse(await savedContent(page)) as Array<{ id: string; children?: unknown[]; pagination?: { break?: boolean } }>;
+  return content.map((block) => [keepIds.includes(block.id) ? block.id : "blank", block.pagination?.break === true, block.children?.length ?? 0]);
+}
+
+// 開発サーバー (StrictMode) では、区切りで新しいユニットへ移った面の二重マウントで焦点が落ちることがある
+// (配布版では起きない。キャレットが付いていくことは tests/electron/manual-break.spec.ts で確かめる)。
+// ここでは押すたびにキャレットを置き直し、文書と紙面の結果だけを見る。
+test("consecutive breaks leave blank pages without typing anything in between", async ({ page }) => {
+  await open(page, [paragraph("first", "一ページ目"), paragraph("second", "最後のページへ")]);
+  const breakKey = process.platform === "darwin" ? "Meta+Enter" : "Control+Enter";
+  // 行の先頭で続けて押すたびに、その行が 1 ページずつ後ろへ送られる。
+  for (const expected of [2, 3, 4]) {
+    await placeCaret(page, "second", "start");
+    await page.keyboard.press(breakKey);
+    await expect.poll(() => pageNumberOf(page, "second")).toBe(expected);
+    await expect(page.locator(".page-canvas")).toHaveAttribute("data-page-count", String(expected));
+  }
+  // 空のページには空の段落が 1 つずつ残り、文字は打たれていない。
+  await expect.poll(() => savedShape(page, ["first", "second"]))
+    .toEqual([["first", false, 1], ["blank", true, 0], ["blank", true, 0], ["second", true, 1]]);
+
+  // 行末で押しても、次の行が既に区切りを持つなら空のページを挟む。
+  await placeCaret(page, "first", "end");
+  await page.keyboard.press(breakKey);
+  await expect(page.locator(".page-canvas")).toHaveAttribute("data-page-count", "5");
+  await expect.poll(() => pageNumberOf(page, "second")).toBe(5);
+  await expect.poll(() => savedShape(page, ["first", "second"]))
+    .toEqual([["first", false, 1], ["blank", true, 0], ["blank", true, 0], ["blank", true, 0], ["second", true, 1]]);
+
+  // 区切りの直後の Backspace は前の (空のページの) 行へ越えるだけ。そこでもう一度押すと、
+  // その空のページだけが消える。
+  await placeCaret(page, "second", "start");
+  await page.keyboard.press("Backspace");
+  await expect.poll(async () => (await readCaretSurface(page)).blockId).not.toBe("second");
+  await expect.poll(async () => (await readCaretSurface(page)).text).toBe("");
+  await page.keyboard.press("Backspace");
+  await expect(page.locator(".page-canvas")).toHaveAttribute("data-page-count", "4");
+  await expect.poll(() => pageNumberOf(page, "second")).toBe(4);
+  await expect.poll(() => savedShape(page, ["first", "second"]))
+    .toEqual([["first", false, 1], ["blank", true, 0], ["blank", true, 0], ["second", true, 1]]);
+});
+
+test("consecutive column breaks leave blank columns on a two-column page", async ({ page }) => {
+  await page.setViewportSize({ width: 1400, height: 1000 });
+  await installDesktopRuntimeMock(page, {
+    ...documentWith([paragraph("first", "一段目"), paragraph("second", "送られる段落")]),
+    pageLayout: normalizePageLayout({ flow: { type: "columns", columnCount: 2, columnGapMm: 8 } }),
+  });
+  await page.goto("/");
+  await expect(page.locator(".startup-splash")).toBeHidden();
+  const columnOf = (blockId: string) => page.evaluate((blockId) => {
+    const canvas = document.querySelector<HTMLElement>(".page-canvas")!;
+    const scale = new DOMMatrixReadOnly(getComputedStyle(canvas.closest(".page-stack")!).transform).a || 1;
+    const stride = Number(canvas.dataset.pageStride);
+    const element = Array.from(document.querySelectorAll<HTMLElement>(`.page-flow [data-sigma-doc-id="${blockId}"]`))
+      .find((candidate) => candidate.getClientRects().length > 0);
+    if (!element) return null;
+    const rect = element.getBoundingClientRect();
+    const canvasRect = canvas.getBoundingClientRect();
+    const pageIndex = Math.floor((rect.top - canvasRect.top) / scale / stride);
+    const side = rect.left - canvasRect.left > canvasRect.width / 2 ? 1 : 0;
+    return pageIndex * 2 + side + 1;
+  }, blockId);
+  const breakKey = process.platform === "darwin" ? "Meta+Enter" : "Control+Enter";
+  await expect.poll(() => columnOf("second")).toBe(1);
+  // 段の頭 (区切りの直後) で押しても、その段が空の段になって次の段へ送られる。
+  for (const expected of [2, 3, 4]) {
+    await placeCaret(page, "second", "start");
+    await page.keyboard.press(breakKey);
+    await expect.poll(() => columnOf("second")).toBe(expected);
+  }
+  await expect(page.locator(".page-canvas")).toHaveAttribute("data-page-count", "2");
+  await expect.poll(() => savedShape(page, ["first", "second"]))
+    .toEqual([["first", false, 1], ["blank", true, 0], ["blank", true, 0], ["second", true, 1]]);
+});
+
 test("the block menu removes only the break at, around, or right after the clicked block", async ({ page }) => {
   await open(page, [
     paragraph("far", "離れた段落"),

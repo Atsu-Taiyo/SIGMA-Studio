@@ -24,17 +24,19 @@ export interface ResolveManualTextPageBreakOptions {
   createId?: TextFlowIdFactory;
 }
 
-/** Blank paragraphs at the start of a flow cannot create an empty page/column. */
+/**
+ * Blank paragraphs at the start of a flow cannot create an empty first page/column. After a
+ * manual break they can: consecutive breaks leave blank pages/columns, like Word.
+ */
 export function canInsertManualPageBreakAfterBlock(blocks: readonly SigmaBlock[], blockId: string): boolean {
   const find = (siblings: readonly SigmaBlock[]): boolean | null => {
     let hasBody = false;
     for (const block of siblings) {
-      if (block.pagination?.break) hasBody = false;
       const hasContent = block.type === "paragraph" || block.type === "heading"
         || block.type === "codeBlock" || block.type === "section"
         ? getTextFlowBlockEditorLength(block) > 0
         : true; // Figures, boxes and other structural blocks occupy body space.
-      hasBody ||= hasContent;
+      hasBody ||= block.pagination?.break === true || hasContent;
       if (block.id === blockId) return hasBody;
       const groups = block.type === "problem"
         ? PROBLEM_AREA_ORDER.map(area => block[area])
@@ -82,6 +84,9 @@ export function shouldUseDocumentNextBlockForPageBreak(
  * - 文字の途中: ブロックを分け、後ろの半分の前で区切る
  * - 先頭 (空のブロックを含む): このブロックの前で区切る。引用・箱・1段組の先頭の子なら入れ物の前
  * - 末尾: 次のブロックの前で区切る。次が無ければ空の段落を足してその前で区切る
+ *
+ * 区切る位置に既に区切りがある (区切りの直後の先頭・区切りの直前の末尾) ときは、そこへ空の段落を
+ * 挟んでその前でも区切る。続けて入れた分だけ空のページ (段) ができる (Word の改ページと同じ)。
  */
 export function resolveManualTextPageBreakBlocks(
   blocks: TextFlowBlock[],
@@ -106,6 +111,14 @@ export function resolveManualTextPageBreakBlocks(
   const targetOffset = clampInteger(selection?.offset ?? targetLength, 0, targetLength);
   if (targetOffset <= 0) {
     const ownerId = resolveManualBreakHoistTarget(blocks, targetBlockId);
+    if (indexTextFlowBlocksById(blocks).get(ownerId)?.pagination?.break === true) {
+      // 区切りの直後 (空のページ・段の上) でもう一度: 空の段落を挟んで、キャレットを次へ送る。
+      const blank = setTextFlowBlockBreakBeforeValue(createEmptyParagraphTextBlock(options.createId ?? createTextFlowId), true);
+      const inserted = insertTextFlowBlockBeforeRecursively(blocks, ownerId, blank);
+      return inserted.changed
+        ? { blocks: inserted.blocks, focusBlockId: targetBlockId, focusPosition: "start" }
+        : null;
+    }
     const result = setTextFlowBlockBreakBeforeRecursively(blocks, ownerId, true);
     return result.changed
       ? { blocks: result.blocks, focusBlockId: targetBlockId, focusPosition: "start" }
@@ -160,6 +173,16 @@ function insertManualTextPageBreakAfterCaret(
         ...blocks.slice(blockIndex + 1),
       ],
       focusBlockId: after.id,
+      focusPosition: "start",
+    };
+  }
+
+  if (nextBlock?.pagination?.break === true) {
+    // 次のブロックが既に区切りを持つ: 空の段落を挟んでその前でも区切り、キャレットはその行へ。
+    const blank = setTextFlowBlockBreakBeforeValue(createEmptyParagraphTextBlock(createId), true);
+    return {
+      blocks: [...blocks.slice(0, blockIndex + 1), blank, ...blocks.slice(blockIndex + 1)],
+      focusBlockId: blank.id,
       focusPosition: "start",
     };
   }
@@ -223,6 +246,31 @@ function setTextFlowBlockBreakBeforeRecursively(
     return block;
   });
   return { blocks: changed ? nextBlocks : blocks, changed };
+}
+
+/** `blockId` を持つ兄弟の列 (入れ子の中も探す) の、そのブロックの直前に `inserted` を入れる。 */
+function insertTextFlowBlockBeforeRecursively(
+  blocks: TextFlowBlock[],
+  blockId: string,
+  inserted: TextFlowBlock,
+): { blocks: TextFlowBlock[]; changed: boolean } {
+  const index = blocks.findIndex((block) => block.id === blockId);
+  if (index >= 0) {
+    return { blocks: [...blocks.slice(0, index), inserted, ...blocks.slice(index)], changed: true };
+  }
+  for (const [position, block] of blocks.entries()) {
+    const groups = block.type === "problem" ? PROBLEM_AREA_ORDER.map((area) => ({ key: area, children: block[area] }))
+      : block.type === "boxBlock" || block.type === "quote" ? [{ key: "blocks", children: block.blocks }]
+        : block.type === "layoutSection" ? [{ key: "children", children: block.children }] : [];
+    for (const { key, children } of groups) {
+      const nested = insertTextFlowBlockBeforeRecursively(children, blockId, inserted);
+      if (nested.changed) {
+        const updated = { ...block, [key]: nested.blocks } as TextFlowBlock;
+        return { blocks: blocks.map((candidate, at) => at === position ? updated : candidate), changed: true };
+      }
+    }
+  }
+  return { blocks, changed: false };
 }
 
 function setTextFlowBlockBreakBefore(

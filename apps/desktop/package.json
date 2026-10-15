@@ -1,6 +1,6 @@
 {
   "name": "@sigma-studio/desktop",
-  "version": "0.516.0",
+  "version": "0.517.0",
   "description": "数式と図形を扱う教材エディタ / A teaching-material editor for mathematics and diagrams",
   "private": true,
   "main": "dist-electron/main.cjs",
@@ -51,7 +51,7 @@
     "lib0": "0.2.119",
     "lowlight": "^3.3.0",
     "lucide-react": "^1.55.0",
-    "mathlive": "^0.111.0",
+    "mathlive": "^0.111.1",
     "next": "^16.4.0",
     "node-tikzjax": "^1.0.5",
     "pdf-lib": "^1.17.1",

@@ -115,7 +115,7 @@ describe("inserting at the caret", () => {
     expect(resolveManualBreakHoistTarget(blocks, "prompt")).toBe("prompt");
   });
 
-  it("refuses a break that would leave an empty page or column before it", () => {
+  it("refuses a break only at the start of the document, before any body", () => {
     const blocks: SigmaBlock[] = [
       paragraph("blank", ""),
       paragraph("first"),
@@ -126,11 +126,22 @@ describe("inserting at the caret", () => {
     expect(canInsertManualPageBreakAt(blocks, { blockId: "first", offset: 0 })).toBe(false);
     expect(canInsertManualPageBreakAt(blocks, { blockId: "first", offset: 2 })).toBe(true);
     expect(canInsertManualPageBreakAt(blocks, { blockId: "first" })).toBe(true);
-    // Already at the head of a page.
-    expect(canInsertManualPageBreakAt(blocks, { blockId: "after-break", offset: 0 })).toBe(false);
-    // Only an empty line since the last break: the quote's first line is still the head of the page.
-    expect(canInsertManualPageBreakAt(blocks, { blockId: "q1", offset: 0 })).toBe(false);
+    // Right after a break (on an empty page): consecutive breaks leave blank pages, like Word.
+    expect(canInsertManualPageBreakAt(blocks, { blockId: "after-break", offset: 0 })).toBe(true);
+    expect(canInsertManualPageBreakAt(blocks, { blockId: "q1", offset: 0 })).toBe(true);
     expect(canInsertManualPageBreakAt(blocks, { blockId: "q2", offset: 0 })).toBe(true);
+  });
+
+  it("counts a break as the start of a page even when only empty lines precede it", () => {
+    const blocks: SigmaBlock[] = [
+      paragraph("blank", ""),
+      paragraph("page-two", "", BREAK),
+      paragraph("blank-two", ""),
+    ];
+    expect(canInsertManualPageBreakAt(blocks, { blockId: "blank", offset: 0 })).toBe(false);
+    // The break itself is a leftover before any body (the editor drops it), so do not stack on it.
+    expect(canInsertManualPageBreakAt(blocks, { blockId: "page-two", offset: 0 })).toBe(false);
+    expect(canInsertManualPageBreakAt(blocks, { blockId: "blank-two", offset: 0 })).toBe(true);
   });
 
   it("counts a visible box frame as body but not an empty quote or problem shell", () => {
