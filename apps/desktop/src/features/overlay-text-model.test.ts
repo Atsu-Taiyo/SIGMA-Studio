@@ -46,6 +46,10 @@ interface Exemption {
  * offers it, or a local variable that happens to be called "how wide this may be".
  */
 const EXEMPTIONS = new Map<string, Exemption>([
+  ["src/features/rendering/core/overlay-text-scale.ts", {
+    reason: "CSS only: keeps a fixed horizontal glyph transform from being clamped by its parent; does not fit content",
+    lines: /return \{ width: width \/ scale, maxWidth: "none", transform:/,
+  }],
   // The existing WebMCP schema still advertises this legacy field. Preserve that public
   // contract during internal refactors; the characterization below verifies that accepting
   // the argument at transport discovery never restores it to the canonical text model.

@@ -1,4 +1,5 @@
 import { isGraphParameter } from "./graph-parameter-validation";
+import { normalizeLineHeight } from "./application/line-height";
 import { isTikzImageSource } from "./tikz";
 import { isGraphFillPattern } from "./graph-fill-style";
 import { isGraph3DSpec } from "./graph3d-validation";
@@ -113,10 +114,13 @@ export function isOverlayShape(value: unknown): value is OverlayShape {
         (value.props.fill === "none" || value.props.fill === "solid") &&
         typeof value.props.color === "string" &&
         (value.props.fillColor === undefined || typeof value.props.fillColor === "string") &&
+        (value.props.strokeScale === undefined || (isFiniteNumber(value.props.strokeScale) && value.props.strokeScale > 0 && value.props.strokeScale <= 100)) &&
+        (value.props.hitTestMode === undefined || (value.props.hitTestMode === "stroke" && value.props.geo === "rectangle")) &&
         (value.props.strokeOpacity === undefined || (isFiniteNumber(value.props.strokeOpacity) && value.props.strokeOpacity >= 0 && value.props.strokeOpacity <= 1)) &&
         (value.props.fillOpacity === undefined || (isFiniteNumber(value.props.fillOpacity) && value.props.fillOpacity >= 0 && value.props.fillOpacity <= 1)) &&
         typeof value.props.labelColor === "string" &&
         isOverlayDash(value.props.dash) &&
+        isOverlayDashPattern(value.props.dashPattern) &&
         isOverlayTextSize(value.props.size) &&
         (value.props.label === undefined || typeof value.props.label === "string");
     case "arc":
@@ -127,6 +131,7 @@ export function isOverlayShape(value: unknown): value is OverlayShape {
         (value.props.ry === undefined || (isFiniteNumber(value.props.ry) && value.props.ry > 0)) &&
         isFiniteNumber(value.props.startAngle) &&
         isFiniteNumber(value.props.endAngle) &&
+        (value.props.arrowheadScale === undefined || (isFiniteNumber(value.props.arrowheadScale) && value.props.arrowheadScale > 0 && value.props.arrowheadScale <= 100)) &&
         (value.props.arrowheadStart === undefined || isOverlayArrowhead(value.props.arrowheadStart)) &&
         (value.props.arrowheadEnd === undefined || isOverlayArrowhead(value.props.arrowheadEnd)) &&
         (value.props.fill === undefined || value.props.fill === "none" || value.props.fill === "solid") &&
@@ -134,19 +139,24 @@ export function isOverlayShape(value: unknown): value is OverlayShape {
         (value.props.fillOpacity === undefined || (isFiniteNumber(value.props.fillOpacity) && value.props.fillOpacity >= 0 && value.props.fillOpacity <= 1)) &&
         (value.props.fillPattern === undefined || value.props.fillPattern === "diagonalHatch") &&
         typeof value.props.color === "string" &&
+        (value.props.strokeScale === undefined || (isFiniteNumber(value.props.strokeScale) && value.props.strokeScale > 0 && value.props.strokeScale <= 100)) &&
         (value.props.strokeOpacity === undefined || (isFiniteNumber(value.props.strokeOpacity) && value.props.strokeOpacity >= 0 && value.props.strokeOpacity <= 1)) &&
         isOverlayDash(value.props.dash) &&
+        isOverlayDashPattern(value.props.dashPattern) &&
         isOverlayTextSize(value.props.size);
     case "arrow":
       return isOverlayPoint(value.props.start) &&
         isOverlayPoint(value.props.end) &&
+        (value.props.arrowheadScale === undefined || (isFiniteNumber(value.props.arrowheadScale) && value.props.arrowheadScale > 0 && value.props.arrowheadScale <= 100)) &&
         (value.props.arrowheadStart === undefined || isOverlayArrowhead(value.props.arrowheadStart)) &&
         isOverlayArrowhead(value.props.arrowheadEnd) &&
         value.props.fill === "none" &&
         typeof value.props.color === "string" &&
+        (value.props.strokeScale === undefined || (isFiniteNumber(value.props.strokeScale) && value.props.strokeScale > 0 && value.props.strokeScale <= 100)) &&
         (value.props.strokeOpacity === undefined || (isFiniteNumber(value.props.strokeOpacity) && value.props.strokeOpacity >= 0 && value.props.strokeOpacity <= 1)) &&
         typeof value.props.labelColor === "string" &&
         isOverlayDash(value.props.dash) &&
+        isOverlayDashPattern(value.props.dashPattern) &&
         isOverlayTextSize(value.props.size) &&
         (value.props.label === undefined || typeof value.props.label === "string");
     case "line":
@@ -155,19 +165,27 @@ export function isOverlayShape(value: unknown): value is OverlayShape {
         value.props.points.every(isOverlayPoint) &&
         (value.props.kind === undefined || isOverlayLineKind(value.props.kind)) &&
         typeof value.props.closed === "boolean" &&
+        (value.props.arrowheadScale === undefined || (isFiniteNumber(value.props.arrowheadScale) && value.props.arrowheadScale > 0 && value.props.arrowheadScale <= 100)) &&
         (value.props.arrowheadStart === undefined || isOverlayArrowhead(value.props.arrowheadStart)) &&
         (value.props.arrowheadEnd === undefined || isOverlayArrowhead(value.props.arrowheadEnd)) &&
         (value.props.fill === undefined || value.props.fill === "none" || value.props.fill === "solid") &&
         (value.props.fillColor === undefined || typeof value.props.fillColor === "string") &&
         (value.props.fillOpacity === undefined || (isFiniteNumber(value.props.fillOpacity) && value.props.fillOpacity >= 0 && value.props.fillOpacity <= 1)) &&
+        (value.props.fillPattern === undefined || value.props.fillPattern === "diagonalHatch" || value.props.fillPattern === "dots") &&
         typeof value.props.color === "string" &&
+        (value.props.strokeScale === undefined || (isFiniteNumber(value.props.strokeScale) && value.props.strokeScale > 0 && value.props.strokeScale <= 100)) &&
+        (value.props.hitTestMode === undefined || value.props.hitTestMode === "stroke") &&
         (value.props.strokeOpacity === undefined || (isFiniteNumber(value.props.strokeOpacity) && value.props.strokeOpacity >= 0 && value.props.strokeOpacity <= 1)) &&
         isOverlayDash(value.props.dash) &&
+        isOverlayDashPattern(value.props.dashPattern) &&
         isOverlayTextSize(value.props.size) &&
         (value.props.labelColor === undefined || typeof value.props.labelColor === "string") &&
         (value.props.label === undefined || typeof value.props.label === "string");
     case "text":
       return isFiniteNumber(value.props.w) &&
+        (value.props.textScaleX === undefined || (isFiniteNumber(value.props.textScaleX)
+          && value.props.textScaleX >= 0.1 && value.props.textScaleX <= 10)) &&
+        (value.props.textWrap === undefined || value.props.textWrap === "none") &&
         isFiniteNumber(value.props.h) &&
         value.props.h > 0 &&
         isOverlayTextBlocks(value.props.blocks) &&
@@ -460,6 +478,11 @@ function isOverlayDash(value: unknown): value is OverlayDash {
   return value === "solid" || value === "dashed" || value === "dotted";
 }
 
+function isOverlayDashPattern(value: unknown): value is number[] | undefined {
+  return value === undefined || (Array.isArray(value) && value.length >= 2 && value.length <= 32
+    && value.every((part) => isFiniteNumber(part) && part > 0 && part <= 10000));
+}
+
 function isOverlayArrowhead(value: unknown): value is OverlayArrowhead {
   return typeof value === "string" && (OVERLAY_ARROWHEADS as readonly string[]).includes(value);
 }
@@ -737,7 +760,8 @@ function isTableCellContent(value: unknown): boolean {
   if (value.type === "paragraph") {
     return Array.isArray(value.children) &&
       value.children.every(isInlineNode) &&
-      (value.align === undefined || isTextAlign(value.align));
+      (value.align === undefined || isTextAlign(value.align)) &&
+      (value.lineHeight === undefined || normalizeLineHeight(value.lineHeight) !== undefined);
   }
 
   return value.type === "trend" &&
@@ -762,7 +786,7 @@ function isInlineNode(value: unknown): value is InlineNode {
       (value.fontFamily === undefined || typeof value.fontFamily === "string") &&
       (value.fontSize === undefined || (isFiniteNumber(value.fontSize) && value.fontSize > 0)) &&
       (value.boxedPaddingY === undefined || (isFiniteNumber(value.boxedPaddingY) && value.boxedPaddingY >= 0)) &&
-      isOptionalBoxStyle(value);
+      isOptionalBoxStyle(value) && isOptionalUnderlineStyle(value);
   }
 
   return value.type === "mathInline" &&
@@ -783,7 +807,7 @@ function isInlineNode(value: unknown): value is InlineNode {
       value.semanticRole === "variable"
     ) &&
     (value.altText === undefined || typeof value.altText === "string") &&
-    isOptionalBoxStyle(value);
+    isOptionalBoxStyle(value) && isOptionalUnderlineStyle(value);
 }
 
 function isTextMark(value: unknown): boolean {
@@ -800,7 +824,8 @@ function isOptionalBoxStyle(value: Record<string, unknown>): boolean {
     value.boxedVariant === "thick" ||
     value.boxedVariant === "double" ||
     value.boxedVariant === "oval" ||
-    value.boxedVariant === "shade") &&
+    value.boxedVariant === "shade" ||
+    value.boxedVariant === "compact") &&
     (value.boxedTone === undefined ||
       value.boxedTone === "gray" ||
       value.boxedTone === "blue" ||
@@ -913,4 +938,9 @@ function isOptionalPositiveNumber(value: unknown): boolean {
 
 function isOptionalNonnegativeNumber(value: unknown): boolean {
   return value === undefined || (isFiniteNumber(value) && value >= 0);
+}
+
+function isOptionalUnderlineStyle(value: Record<string, unknown>): boolean {
+  return value.underlineStyle === undefined || value.underlineStyle === "solid" || value.underlineStyle === "wavy"
+    || value.underlineStyle === "dotted" || value.underlineStyle === "double";
 }

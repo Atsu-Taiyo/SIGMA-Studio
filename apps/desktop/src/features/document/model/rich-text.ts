@@ -11,6 +11,7 @@ export interface TextInlineNode {
   /** Stable recipient identity for a collaborator mention in a comment. */
   mentionUserId?: string;
   marks?: TextMark[];
+  underlineStyle?: UnderlineStyle;
   color?: string;
   backgroundColor?: string;
   fontFamily?: string;
@@ -20,14 +21,18 @@ export interface TextInlineNode {
   boxedTone?: BoxedTone;
 }
 
+/** Native underline appearance; absent preserves the existing solid underline. */
+export type UnderlineStyle = "solid" | "wavy" | "dotted" | "double";
+
 export type TextMark = "bold" | "italic" | "underline" | "boxed";
 
 /**
  * Visual style of a boxed run, modeled after common TeX box commands:
- * `frame` (\fbox), `thick`, `double`, `oval` (\ovalbox), and `shade` (\tcolorbox / \itembox).
+ * `frame` (\fbox), `thick`, `double`, `oval` (\ovalbox), `shade` (\tcolorbox / \itembox),
+ * and `compact` (a tight frame for imported source text).
  * Absent means `frame`, so existing boxed runs keep their thin-border look.
  */
-export type BoxedVariant = "frame" | "thick" | "double" | "oval" | "shade";
+export type BoxedVariant = "frame" | "thick" | "double" | "oval" | "shade" | "compact";
 
 /** Fill colour preset for `shade` boxes. Absent means `gray`. */
 export type BoxedTone = "gray" | "blue" | "green" | "red" | "yellow";
@@ -38,6 +43,7 @@ export interface MathInlineNode {
   tex: string;
   display: "inline";
   marks?: Array<Extract<TextMark, "underline" | "boxed">>;
+  underlineStyle?: UnderlineStyle;
   color?: string;
   backgroundColor?: string;
   fontFamily?: string;

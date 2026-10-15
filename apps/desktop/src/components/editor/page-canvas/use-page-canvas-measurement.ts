@@ -2,7 +2,7 @@
 import { type TextFlowBoxFragmentSourceLayout } from "@/components/editor/TextFlowEditor";
 import type { PageMetrics,SigmaDocument } from "@/features/document";
 import { normalizeOverlaySnapshot,PAGE_GAP_PX,type PageOverlay } from "@/features/document";
-import { getShapeBounds } from "@/features/drawing";
+import { getRotatedShapeVisualBounds } from "@/features/drawing";
 import { EDITOR_ZOOM_CHANGE_EVENT } from "@/features/rendering/adapters/editor-zoom-event";
 import {
   buildFlowModel,
@@ -532,7 +532,9 @@ export function usePageCanvasMeasurement({ content, geometry, surface, spaceAfte
         if (shape.hidden) {
           continue;
         }
-        const bounds = getShapeBounds(shape);
+        // Page count follows painted ink, including rotation and stroke.
+        // Hit-target padding must not create an extra blank page.
+        const bounds = getRotatedShapeVisualBounds(shape);
         maxShapeBottom = Math.max(maxShapeBottom, bounds.y + bounds.h);
         if (bounds.x < 0) {
           minShapeLeft = Math.min(minShapeLeft, bounds.x);

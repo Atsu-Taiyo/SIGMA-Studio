@@ -51,7 +51,8 @@ const DIRECTIVES: readonly (readonly [string, string])[] = [
   // 外部 URL を落とすことで、教材を開いただけの開封通知と IP 漏洩を止める。
   ["img-src", "'self' data: blob: sigma-doc-storage: sigma-collaboration-profile:"],
   // 実測: KaTeX / MathLive / M PLUS のフォントは相対パス (`../media/...`) で吐かれる。
-  ["font-src", "'self'"],
+  // 文書に埋め込まれたフォントも許可する。外部 URL は引き続き遮断する。
+  ["font-src", "'self' data: sigma-app-font:"],
   // `fetch` / `XHR` / `WebSocket` / `EventSource` / `sendBeacon` を同一オリジンに限る (本番コードの
   // 呼び出しは 0 件で、Next のクライアント遷移が同一オリジンの RSC ペイロードを取りに行くだけ)。
   // **これで「外部送出が塞がる」わけではない**: トップレベルのナビゲーションは CSP の管轄外

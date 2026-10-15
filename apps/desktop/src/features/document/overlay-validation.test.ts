@@ -45,6 +45,10 @@ const supportedDocument: OverlayTextBlock[] = [
 describe("overlay rich-text validation", () => {
   it("accepts semantic blocks backed by canonical InlineNode arrays", () => {
     expect(isOverlayTextBlocks(supportedDocument)).toBe(true);
+    expect(isOverlayTextBlocks([{ type: "paragraph", id: "compact_boxed_test", children: [
+      { type: "text", text: "文字", marks: ["boxed"], boxedVariant: "compact" },
+      { type: "mathInline", id: "compact_math", tex: "x", display: "inline", marks: ["boxed"], boxedVariant: "compact" },
+    ] }])).toBe(true);
   });
 
   it.each([

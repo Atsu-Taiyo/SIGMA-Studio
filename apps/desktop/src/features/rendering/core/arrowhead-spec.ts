@@ -165,6 +165,34 @@ const ARROWHEAD_SHAPE_SPEC_TABLE: Record<ArrowheadShapeKind, ArrowheadOutlineSpe
       strokeWidth: 0,
     },
   },
+  triangleNarrow: {
+    idPrefix: "triangleNarrow",
+    markerWidth: 9.2,
+    markerHeight: 8,
+    refY: 4,
+    anchor: "point",
+    geometry: {
+      kind: "polyline",
+      points: [{ x: 1, y: 1 }, { x: 8.2, y: 4 }, { x: 1, y: 7 }],
+      closed: true,
+      filled: true,
+      strokeWidth: 0,
+    },
+  },
+  stealth: {
+    idPrefix: "stealth",
+    markerWidth: 14,
+    markerHeight: 10,
+    refY: 5,
+    anchor: "point",
+    geometry: {
+      kind: "polyline",
+      points: [{ x: 1, y: 1 }, { x: 13, y: 5 }, { x: 1, y: 9 }, { x: 5, y: 5 }],
+      closed: true,
+      filled: true,
+      strokeWidth: 0,
+    },
+  },
   openArrow: {
     idPrefix: "openArrow",
     markerWidth: 9,
@@ -363,6 +391,8 @@ function scaleGeometry(geometry: ArrowheadGeometry, scale: number): ArrowheadGeo
 const ARROWHEAD_MARKER_SPEC_TABLE: Record<ArrowheadKind, Omit<ArrowheadMarkerSpec, "kind">> = {
   arrow: buildSpec(ARROWHEAD_SHAPE_SPEC_TABLE.arrow, 1),
   triangle: buildSpec(ARROWHEAD_SHAPE_SPEC_TABLE.triangle, 1),
+  triangleNarrow: buildSpec(ARROWHEAD_SHAPE_SPEC_TABLE.triangleNarrow, 1),
+  stealth: buildSpec(ARROWHEAD_SHAPE_SPEC_TABLE.stealth, 1),
   openArrow: buildSpec(ARROWHEAD_SHAPE_SPEC_TABLE.openArrow, 1),
   thinArrow: buildSpec(ARROWHEAD_SHAPE_SPEC_TABLE.thinArrow, 1),
   diamond: buildSpec(ARROWHEAD_SHAPE_SPEC_TABLE.diamond, 1),
@@ -370,6 +400,8 @@ const ARROWHEAD_MARKER_SPEC_TABLE: Record<ArrowheadKind, Omit<ArrowheadMarkerSpe
   bar: buildSpec(ARROWHEAD_SHAPE_SPEC_TABLE.bar, 1),
   arrowSmall: buildSpec(ARROWHEAD_SHAPE_SPEC_TABLE.arrow, SMALL_HEAD_SCALE),
   triangleSmall: buildSpec(ARROWHEAD_SHAPE_SPEC_TABLE.triangle, SMALL_HEAD_SCALE),
+  triangleNarrowSmall: buildSpec(ARROWHEAD_SHAPE_SPEC_TABLE.triangleNarrow, SMALL_HEAD_SCALE),
+  stealthSmall: buildSpec(ARROWHEAD_SHAPE_SPEC_TABLE.stealth, SMALL_HEAD_SCALE),
   openArrowSmall: buildSpec(ARROWHEAD_SHAPE_SPEC_TABLE.openArrow, SMALL_HEAD_SCALE),
   thinArrowSmall: buildSpec(ARROWHEAD_SHAPE_SPEC_TABLE.thinArrow, SMALL_HEAD_SCALE),
   diamondSmall: buildSpec(ARROWHEAD_SHAPE_SPEC_TABLE.diamond, SMALL_HEAD_SCALE),
@@ -392,11 +424,11 @@ const SPECS_BY_KIND = new Map<string, ArrowheadMarkerSpec>(
   ARROWHEAD_MARKER_SPECS.map((spec) => [spec.kind, spec]),
 );
 
-export function getArrowheadMarkerSpec(head: OverlayArrowhead | string | undefined): ArrowheadMarkerSpec | null {
+export function getArrowheadMarkerSpec(head: OverlayArrowhead | string | undefined, scale = 1): ArrowheadMarkerSpec | null {
   if (typeof head !== "string") {
     return null;
   }
-  return SPECS_BY_KIND.get(head) ?? null;
+  return scaleMarkerSpec(SPECS_BY_KIND.get(head) ?? null, scale);
 }
 
 /**
@@ -424,8 +456,8 @@ export function arrowheadMarkerId(
  * line gives up 37.5px and on an `s` line 9.4px. A constant number of pixels would make a thick
  * short arrow disappear and a thin one still show its stub.
  */
-export function getArrowheadTrimInStrokes(head: OverlayArrowhead | string | undefined): number {
-  const spec = getArrowheadMarkerSpec(head);
+export function getArrowheadTrimInStrokes(head: OverlayArrowhead | string | undefined, scale = 1): number {
+  const spec = getArrowheadMarkerSpec(head, scale);
   if (!spec) {
     return 0;
   }
@@ -488,9 +520,10 @@ export function planArrowheadEndpoints(
    * stops being visible. Straight paths pass nothing.
    */
   maxTrimPx?: { readonly start: number; readonly end: number },
+  headScale = 1,
 ): ArrowheadEndpointPlan {
-  const startSpec = getArrowheadMarkerSpec(start);
-  const endSpec = getArrowheadMarkerSpec(end);
+  const startSpec = getArrowheadMarkerSpec(start, headScale);
+  const endSpec = getArrowheadMarkerSpec(end, headScale);
   const stroke = Number.isFinite(strokeWidth) && strokeWidth > 0 ? strokeWidth : 0;
 
   // Planned in marker units rather than pixels, because `refX` is a marker-unit number: taking the
@@ -519,6 +552,20 @@ export function planArrowheadEndpoints(
     start: toPlacement(startSpec, startTrim, stroke),
     end: toPlacement(endSpec, endTrim, stroke),
   };
+}
+
+/** Recompute ink, clipping and trim from the scaled geometry as one plan. */
+function scaleMarkerSpec(spec: ArrowheadMarkerSpec | null, scale: number): ArrowheadMarkerSpec | null {
+  if (!spec || scale === 1) return spec;
+  if (!Number.isFinite(scale) || scale <= 0 || scale > 100) return spec;
+  return { kind: spec.kind, ...buildSpec({
+    idPrefix: spec.idPrefix,
+    markerWidth: spec.markerWidth,
+    markerHeight: spec.markerHeight,
+    refY: spec.refY,
+    anchor: spec.reversibleOrient ? "point" : "centre",
+    geometry: spec.geometry,
+  }, scale) };
 }
 
 /** A length in pixels as a count of stroke widths, which is what a marker measures in. */
@@ -619,8 +666,8 @@ export function arrowheadPathData(geometry: ArrowheadPolylineGeometry): string {
  * Used to size selection boxes: the head is the outermost ink on a line, and because markers are
  * measured in stroke widths a flat padding is wrong at every size but one.
  */
-export function getArrowheadExtentInStrokes(head: OverlayArrowhead | string | undefined): number {
-  const spec = getArrowheadMarkerSpec(head);
+export function getArrowheadExtentInStrokes(head: OverlayArrowhead | string | undefined, scale = 1): number {
+  const spec = getArrowheadMarkerSpec(head, scale);
   if (!spec) {
     return 0;
   }

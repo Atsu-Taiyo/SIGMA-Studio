@@ -66,6 +66,39 @@ describe("buildPageWindows", () => {
       .toEqual(["1 / 2", "2 / 2"]);
   });
 
+  it("clones only visible overlay shapes while retaining a shape across paper boundaries", () => {
+    const stageRoot = document.createElement("div");
+    stageRoot.className = "page-mode";
+    const canvas = document.createElement("div");
+    canvas.className = "page-canvas";
+    stageRoot.appendChild(canvas);
+    const shapes = [
+      { id: "first", top: 10, height: 10 },
+      { id: "cross", top: 96, height: 35 },
+      { id: "last", top: 300, height: 10 },
+    ];
+    for (const shape of shapes) {
+      const element = document.createElement("div");
+      element.className = "overlay-shape";
+      element.dataset.overlayShapeId = shape.id;
+      element.dataset.testShape = shape.id;
+      element.getBoundingClientRect = () => domRect(0, shape.top, 20, shape.height);
+      canvas.appendChild(element);
+    }
+    stageRoot.getBoundingClientRect = () => domRect(0, 0, 200, 340);
+    canvas.getBoundingClientRect = () => domRect(0, 0, 200, 340);
+    const container = document.createElement("div");
+    buildPageWindows({ stageRoot, canvas, container, metrics: {
+      pageCount: 3, pageHeightPx: 100, pageStridePx: 120, pageWidthPx: 200,
+    } });
+    const pages = Array.from(container.querySelectorAll(".paged-surface-page"));
+    const present = (page: Element) => Array.from(page.querySelectorAll("[data-test-shape]"))
+      .map((shape) => shape.getAttribute("data-test-shape"));
+    expect(pages.map(present)).toEqual([["first", "cross"], ["cross"], ["last"]]);
+    expect(pages[0].querySelector('[data-overlay-shape-id="cross"]')).not.toBeNull();
+    expect(pages[1].querySelector('[data-overlay-shape-id="cross"]')).toBeNull();
+  });
+
   it("hydrates only the code continuation owned by each cloned page", () => {
     const stageRoot = document.createElement("div");
     stageRoot.className = "page-mode";

@@ -148,6 +148,7 @@ export interface DesktopFontsResult extends DesktopStorageResult {
 }
 
 export interface DesktopFontsAPI {
+  resolve?(resourceIds: string[]): Promise<{ resources: Record<string, string>; missing: string[] }>;
   list(): Promise<DesktopFontsResult>;
   importFont(): Promise<DesktopFontsResult>;
   deleteFont(fontId: string): Promise<DesktopFontsResult>;
@@ -285,6 +286,8 @@ export interface DesktopFileAPI {
   openSigmaDoc(): Promise<{ filePath: string; data: string } | null>;
   openImportDocument?(): Promise<{ filePath: string; dataBase64: string } | null>;
   openImportOtherDocument?(): Promise<{ filePath: string; dataBase64: string } | null>;
+  documentConversionCapability?(): Promise<import("@/lib/document-conversion-contracts").DocumentConversionCapability>;
+  convertDocument?(payload: { bytes: Uint8Array; filename: string }): Promise<import("@/lib/document-conversion-contracts").DocumentConversionResponse>;
   saveSigmaDoc(payload: { suggestedName?: string; data: string }): Promise<{ filePath: string } | null>;
   exportPdf?(payload: {
     suggestedName?: string;

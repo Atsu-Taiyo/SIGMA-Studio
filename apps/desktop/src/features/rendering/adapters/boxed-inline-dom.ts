@@ -144,11 +144,6 @@ export function boxedTextPaddingVars(paddingY: unknown): Record<`--${string}`, s
 
 
 /**
- * Cumulative CSS `zoom` applied to an element (product of every ancestor's `zoom`).
- * Browser rects are zoom-scaled; callers divide measurements by this value before
- * feeding them back into CSS dimensions inside the same zoomed container.
- */
-/**
  * How much larger the element is painted than it is laid out.
  *
  * Measured rects are in painted pixels; the boxed-run maths needs the element's own
@@ -156,9 +151,10 @@ export function boxedTextPaddingVars(paddingY: unknown): Record<`--${string}`, s
  * page canvas paints through a `transform` (so zoom cannot change layout — see
  * docs/pdf-parity-architecture.md), while previews such as the material thumbnail still
  * use the `zoom` property. Reading only one of them reported 1 while the rects were
- * scaled, inflating every measured height by the zoom factor.
+ * scaled, inflating every measured height by the zoom factor. Use the y axis for
+ * height measurements: imported text may have horizontal compression only.
  */
-export function getEffectiveZoom(element: Element | null): number {
+export function getEffectiveZoom(element: Element | null, axis: "x" | "y" = "x"): number {
   if (typeof window === "undefined") {
     return 1;
   }
@@ -169,18 +165,20 @@ export function getEffectiveZoom(element: Element | null): number {
     if (Number.isFinite(value) && value > 0) {
       zoom *= value;
     }
-    zoom *= readTransformScaleX(style.transform);
+    zoom *= readTransformScale(style.transform, axis);
   }
   return zoom > 0 ? zoom : 1;
 }
 
-/** The horizontal scale of a computed `transform`; 1 when there is none or it is not a scale. */
-function readTransformScaleX(transform: string | undefined): number {
+/** The requested axis scale of a computed transform; 1 when absent. */
+function readTransformScale(transform: string | undefined, axis: "x" | "y"): number {
   if (!transform || transform === "none") {
     return 1;
   }
-  // `matrix(a, b, c, d, e, f)` and `matrix3d(a, …)` both start with the x scale.
-  const match = /^matrix(?:3d)?\(\s*([-\d.eE+]+)/.exec(transform);
-  const scaleX = match ? Number.parseFloat(match[1]) : Number.NaN;
-  return Number.isFinite(scaleX) && scaleX > 0 ? scaleX : 1;
+  const match = /^matrix(3d)?\(([^)]+)\)/.exec(transform);
+  if (!match) return 1;
+  const values = match[2].split(",").map(Number);
+  const offset = axis === "x" ? 0 : match[1] ? 4 : 2;
+  const scale = Math.hypot(values[offset], values[offset + 1]);
+  return Number.isFinite(scale) && scale > 0 ? scale : 1;
 }

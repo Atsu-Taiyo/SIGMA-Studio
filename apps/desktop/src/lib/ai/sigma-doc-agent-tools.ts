@@ -527,7 +527,7 @@ export const DraftUpdateRichContentArgsSchema = z.object({
 const InlineFormatBoxSchema = z.object({
   enabled: z.boolean(),
   paddingY: z.number().min(0).max(100).optional(),
-  variant: z.enum(["frame", "thick", "double", "oval", "shade"]).optional(),
+  variant: z.enum(["frame", "thick", "double", "oval", "shade", "compact"]).optional(),
   tone: z.enum(["gray", "blue", "green", "red", "yellow"]).optional(),
 }).strict();
 
@@ -3448,8 +3448,8 @@ function createMathInline(tex: string, id: unknown, source: Record<string, unkno
   };
 }
 
-function normalizeInlineBoxedVariant(value: unknown): "frame" | "thick" | "double" | "oval" | "shade" | undefined {
-  return value === "frame" || value === "thick" || value === "double" || value === "oval" || value === "shade"
+function normalizeInlineBoxedVariant(value: unknown): "frame" | "thick" | "double" | "oval" | "shade" | "compact" | undefined {
+  return value === "frame" || value === "thick" || value === "double" || value === "oval" || value === "shade" || value === "compact"
     ? value
     : undefined;
 }

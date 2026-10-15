@@ -503,7 +503,8 @@ export function normalizeTextFormatBoxedVariant(value: unknown): BoxedVariant | 
     value === "thick" ||
     value === "double" ||
     value === "oval" ||
-    value === "shade"
+    value === "shade" ||
+    value === "compact"
     ? value
     : undefined;
 }

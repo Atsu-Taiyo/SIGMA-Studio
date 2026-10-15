@@ -3,8 +3,8 @@
  *
  * The PDF is a clone of the editor canvas (docs/pdf-parity-architecture.md), so
  * nothing here may re-measure or re-position content. Each window clips one page
- * band out of an identical copy of the canvas; the only per-page difference is the
- * translation applied to the wrapper.
+ * band out of the settled canvas clone. Off-page absolute overlay shape subtrees
+ * can be omitted without changing layout; all in-flow content stays identical.
  */
 
 import { stripWrappingMarkdownCodeFence } from "@/features/rendering/core";
@@ -48,7 +48,10 @@ export function readPagedCanvasMetrics(canvas: HTMLElement | null): PagedCanvasM
 export function sanitizePagedClone(root: HTMLElement): void {
   root.removeAttribute("id");
   root.querySelectorAll("[contenteditable]").forEach((element) => {
-    element.removeAttribute("contenteditable");
+    // Chromium changes the intrinsic box metrics of some nested editor nodes
+    // when this attribute disappears. Keep its layout-affecting presence while
+    // making every cloned editor explicitly non-editable.
+    element.setAttribute("contenteditable", "false");
   });
   root.querySelectorAll("[tabindex]").forEach((element) => {
     element.removeAttribute("tabindex");
@@ -59,8 +62,8 @@ export function sanitizePagedClone(root: HTMLElement): void {
 }
 
 /**
- * Attributes that identify a piece of content. Every page window holds a complete
- * copy of the canvas, so these have to be scoped to the page the element actually
+ * Attributes that identify a piece of content. Page windows duplicate in-flow
+ * content, so these have to be scoped to the page the element actually
  * lands on — otherwise `[data-sigma-doc-id="…"]` would resolve to page 1's copy of
  * a block that prints on page 5.
  */
@@ -92,19 +95,65 @@ export function measurePageOwnership(canvas: HTMLElement, metrics: PagedCanvasMe
 }
 
 /**
- * `ownership` is indexed by document order within the canvas, so it must be applied
- * to the cloned canvas — not the cloned `.page-mode` root, whose element set differs.
+ * Ownership is measured in source document order and then bound to the matching
+ * template elements before shape subtrees are omitted from a page clone.
  */
-function applyPageOwnership(clonedCanvas: Element, ownership: readonly number[], pageIndex: number): void {
-  const elements = clonedCanvas.querySelectorAll(OWNED_SELECTOR);
-  elements.forEach((element, index) => {
-    if (ownership[index] === pageIndex) {
-      return;
+/**
+ * Overlay shapes are absolutely positioned inside the settled canvas. Keeping
+ * a shape in every page clone multiplies large imported diagrams by the page
+ * count, even though the paper window clips all but its visible pages. Clone
+ * the settled DOM, omitting only shape subtrees that cannot intersect this page.
+ */
+function cloneVisiblePage(
+  source: HTMLElement,
+  pageIndex: number,
+  visibleShapePages: ReadonlyMap<Element, readonly [number, number]>,
+  ownership: ReadonlyMap<Element, number>,
+): { clone: HTMLElement; ownedElements: Map<Element, number> } {
+  const ownedElements = new Map<Element, number>();
+  const cloneNode = (node: Node): Node | null => {
+    if (node instanceof Element) {
+      const visiblePages = visibleShapePages.get(node);
+      if (visiblePages && (pageIndex < visiblePages[0] || pageIndex > visiblePages[1])) return null;
     }
-    for (const name of OWNED_ATTRIBUTES) {
-      element.removeAttribute(name);
+    const clone = node.cloneNode(false);
+    if (node instanceof Element && clone instanceof Element && ownership.has(node)) {
+      ownedElements.set(clone, ownership.get(node)!);
     }
+    for (const child of Array.from(node.childNodes)) {
+      const copied = cloneNode(child);
+      if (copied) clone.appendChild(copied);
+    }
+    return clone;
+  };
+  return { clone: cloneNode(source) as HTMLElement, ownedElements };
+}
+
+function measureVisibleShapePages(
+  canvas: HTMLElement,
+  clonedCanvas: Element,
+  metrics: PagedCanvasMetrics,
+): ReadonlyMap<Element, readonly [number, number]> {
+  const sourceShapes = canvas.querySelectorAll<HTMLElement>(".overlay-shape[data-overlay-shape-id]");
+  const clonedShapes = clonedCanvas.querySelectorAll(".overlay-shape[data-overlay-shape-id]");
+  const ranges = new Map<Element, readonly [number, number]>();
+  if (sourceShapes.length !== clonedShapes.length) return ranges;
+  const canvasTop = canvas.getBoundingClientRect().top;
+  const lastPage = Math.max(0, metrics.pageCount - 1);
+  sourceShapes.forEach((shape, index) => {
+    const rect = shape.getBoundingClientRect();
+    // An unmeasured shape is retained on every page rather than risk omitting ink.
+    if (rect.width <= 0 || rect.height <= 0) return;
+    // Retain near-edge shadows, strokes, arrowheads and text ink that can
+    // extend beyond the positioned shape's own border box.
+    const inkBleedPx = 32;
+    const top = rect.top - canvasTop - inkBleedPx;
+    const bottom = rect.bottom - canvasTop + inkBleedPx;
+    const first = Math.max(0, Math.min(lastPage, Math.floor((top - metrics.pageHeightPx) / metrics.pageStridePx) + 1));
+    const last = Math.max(0, Math.min(lastPage, Math.floor(bottom / metrics.pageStridePx)));
+    ranges.set(clonedShapes[index], [first, last]);
   });
+  return ranges;
 }
 
 /**
@@ -247,6 +296,12 @@ export function buildPageWindows({
   const ownership = measurePageOwnership(canvas, metrics);
   const cloneTemplate = stageRoot.cloneNode(true) as HTMLElement;
   sanitizePagedClone(cloneTemplate);
+  const templateCanvas = cloneTemplate.querySelector(".page-canvas");
+  const visibleShapePages = templateCanvas ? measureVisibleShapePages(canvas, templateCanvas, metrics) : new Map();
+  const ownershipByElement = new Map<Element, number>();
+  templateCanvas?.querySelectorAll(OWNED_SELECTOR).forEach((element, index) => {
+    ownershipByElement.set(element, ownership[index] ?? -1);
+  });
   compactPagedCodeBlocks(cloneTemplate);
 
   // Where the canvas sits inside the staged root, after the stack's padding and
@@ -273,11 +328,14 @@ export function buildPageWindows({
     inner.style.setProperty("--paged-page-offset", `${index * metrics.pageStridePx + canvasOffsetTop}px`);
     inner.style.setProperty("--paged-page-inset", `${canvasOffsetLeft}px`);
 
-    const clone = cloneTemplate.cloneNode(true) as HTMLElement;
+    const { clone, ownedElements } = cloneVisiblePage(cloneTemplate, index, visibleShapePages, ownershipByElement);
     const clonedCanvas = clone.querySelector(".page-canvas");
     if (clonedCanvas) {
       hydratePagedCodeFragment(clonedCanvas, index);
-      applyPageOwnership(clonedCanvas, ownership, index);
+      ownedElements.forEach((owner, element) => {
+        if (owner === index) return;
+        for (const name of OWNED_ATTRIBUTES) element.removeAttribute(name);
+      });
     }
     inner.appendChild(clone);
     page.appendChild(inner);

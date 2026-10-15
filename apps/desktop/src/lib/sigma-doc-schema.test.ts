@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { getDocumentIssues, parseSigmaDocument, recoverSigmaDocument } from "@/lib/sigma-doc-schema";
+import { InlineNodeSchema, getDocumentIssues, parseSigmaDocument, recoverSigmaDocument } from "@/lib/sigma-doc-schema";
 import { areSigmaDocumentsEquivalent } from "@/lib/document-equivalence";
 import { ensurePageLayout } from "@/lib/page-layout";
 import { sampleDocument } from "@/lib/sample-document";
@@ -22,6 +22,15 @@ function parenList(): ListNode {
 }
 
 describe("SigmaDoc schema", () => {
+  it("retains native underline style on both text and math and rejects unknown styles", () => {
+    for (const underlineStyle of ["solid", "wavy", "dotted", "double"]) {
+      for (const node of [
+        { type: "text", text: "下線", marks: ["underline"], underlineStyle },
+        { type: "mathInline", id: "underlined", tex: "x", display: "inline", marks: ["underline"], underlineStyle },
+      ]) expect(InlineNodeSchema.parse(node)).toEqual(node);
+    }
+    expect(InlineNodeSchema.safeParse({ type: "text", text: "bad", underlineStyle: "unknown" }).success).toBe(false);
+  });
   it("preserves external provenance without requiring a format-specific importer", () => {
     const document = {
       ...sampleDocument,
@@ -868,6 +877,7 @@ describe("SigmaDoc schema", () => {
               boxedPaddingY: 4,
               boxedVariant: "double",
             },
+            { type: "text", text: "密着", marks: ["boxed"], boxedVariant: "compact" },
           ],
         },
       ],
@@ -886,6 +896,7 @@ describe("SigmaDoc schema", () => {
           boxedPaddingY: 4,
           boxedVariant: "double",
         },
+        { type: "text", marks: ["boxed"], boxedVariant: "compact" },
       ],
     });
     expect(getDocumentIssues(document)).toEqual([]);

@@ -185,6 +185,7 @@ export const error = {
       openSigmaDoc: "SigmaDocファイルを開く",
       importDocument: "教材ファイルをインポート",
       documentFiles: "教材ファイル",
+      conversionFiles: "外部形式",
       importOtherDocument: "他の形式の教材ファイルをインポート",
       powerPoint: "PowerPoint",
       saveSigmaDoc: "SigmaDocファイルを保存",

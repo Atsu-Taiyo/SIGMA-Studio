@@ -1105,6 +1105,8 @@ export declare const GRAPH3D_AXIS_END_STYLES: readonly [
     "none",
     "arrow",
     "triangle",
+    "triangleNarrow",
+    "stealth",
     "openArrow",
     "thinArrow",
     "diamond",
@@ -1112,6 +1114,8 @@ export declare const GRAPH3D_AXIS_END_STYLES: readonly [
     "bar",
     "arrowSmall",
     "triangleSmall",
+    "triangleNarrowSmall",
+    "stealthSmall",
     "openArrowSmall",
     "thinArrowSmall",
     "diamondSmall",
@@ -1282,6 +1286,7 @@ export interface TextInlineNode {
     /** Stable recipient identity for a collaborator mention in a comment. */
     mentionUserId?: string;
     marks?: TextMark[];
+    underlineStyle?: UnderlineStyle;
     color?: string;
     backgroundColor?: string;
     fontFamily?: string;
@@ -1291,14 +1296,18 @@ export interface TextInlineNode {
     boxedTone?: BoxedTone;
 }
 
+/** Native underline appearance; absent preserves the existing solid underline. */
+export type UnderlineStyle = "solid" | "wavy" | "dotted" | "double";
+
 export type TextMark = "bold" | "italic" | "underline" | "boxed";
 
 /**
  * Visual style of a boxed run, modeled after common TeX box commands:
- * `frame` (\fbox), `thick`, `double`, `oval` (\ovalbox), and `shade` (\tcolorbox / \itembox).
+ * `frame` (\fbox), `thick`, `double`, `oval` (\ovalbox), `shade` (\tcolorbox / \itembox),
+ * and `compact` (a tight frame for imported source text).
  * Absent means `frame`, so existing boxed runs keep their thin-border look.
  */
-export type BoxedVariant = "frame" | "thick" | "double" | "oval" | "shade";
+export type BoxedVariant = "frame" | "thick" | "double" | "oval" | "shade" | "compact";
 
 /** Fill colour preset for `shade` boxes. Absent means `gray`. */
 export type BoxedTone = "gray" | "blue" | "green" | "red" | "yellow";
@@ -1309,6 +1318,7 @@ export interface MathInlineNode {
     tex: string;
     display: "inline";
     marks?: Array<Extract<TextMark, "underline" | "boxed">>;
+    underlineStyle?: UnderlineStyle;
     color?: string;
     backgroundColor?: string;
     fontFamily?: string;
@@ -1524,6 +1534,8 @@ export declare const OVERLAY_ARROWHEADS: readonly [
     "none",
     "arrow",
     "triangle",
+    "triangleNarrow",
+    "stealth",
     "openArrow",
     "thinArrow",
     "diamond",
@@ -1531,6 +1543,8 @@ export declare const OVERLAY_ARROWHEADS: readonly [
     "bar",
     "arrowSmall",
     "triangleSmall",
+    "triangleNarrowSmall",
+    "stealthSmall",
     "openArrowSmall",
     "thinArrowSmall",
     "diamondSmall",
@@ -1668,6 +1682,10 @@ export type OverlayGroupShape = OverlayBaseShape<"group", {
 }>;
 
 export type OverlayGeoShape = OverlayBaseShape<"geo", {
+    /** Multiplier for the selected stroke size; imports retain the original line weight. */
+    strokeScale?: number;
+    /** Rectangle only: select its outline so enclosed shapes remain clickable. */
+    hitTestMode?: "stroke";
     w: number;
     h: number;
     geo: "rectangle" | "ellipse" | "triangle" | "diamond" | "pentagon" | "regularPolygon" | "blockArrow" | "pyramid" | "prism" | "sphere";
@@ -1703,17 +1721,23 @@ export type OverlayGeoShape = OverlayBaseShape<"geo", {
     fillOpacity?: number;
     labelColor: string;
     dash: OverlayDash;
+    /** Exact SVG dash lengths in document pixels for imported strokes. */
+    dashPattern?: number[];
     size: OverlayTextSize;
     label?: string;
 }>;
 
 export type OverlayArcShape = OverlayBaseShape<"arc", {
+    /** Multiplier for the selected stroke size; imports retain the original line weight. */
+    strokeScale?: number;
     kind?: "arc" | "sector";
     r: number;
     rx?: number;
     ry?: number;
     startAngle: number;
     endAngle: number;
+    /** Scale of endpoint heads, independent of the line pen width. */
+    arrowheadScale?: number;
     arrowheadStart?: OverlayArrowhead;
     arrowheadEnd?: OverlayArrowhead;
     fill?: "none" | "solid";
@@ -1722,12 +1746,17 @@ export type OverlayArcShape = OverlayBaseShape<"arc", {
     color: string;
     strokeOpacity?: number;
     dash: OverlayDash;
+    dashPattern?: number[];
     size: OverlayTextSize;
 }>;
 
 export type OverlayArrowShape = OverlayBaseShape<"arrow", {
+    /** Multiplier for the selected stroke size; imports retain the original line weight. */
+    strokeScale?: number;
     start: OverlayPoint;
     end: OverlayPoint;
+    /** Scale of endpoint heads, independent of the line pen width. */
+    arrowheadScale?: number;
     arrowheadStart?: OverlayArrowhead;
     arrowheadEnd: OverlayArrowhead;
     fill: "none";
@@ -1735,29 +1764,41 @@ export type OverlayArrowShape = OverlayBaseShape<"arrow", {
     strokeOpacity?: number;
     labelColor: string;
     dash: OverlayDash;
+    dashPattern?: number[];
     size: OverlayTextSize;
     label?: string;
 }>;
 
 export type OverlayLineShape = OverlayBaseShape<"line", {
+    /** Multiplier for the selected stroke size; imports retain the original line weight. */
+    strokeScale?: number;
+    /** Select only the stroke even if this closed line has a fill. */
+    hitTestMode?: "stroke";
     kind?: OverlayLineKind;
     points: OverlayPoint[];
     closed: boolean;
+    /** Scale of endpoint heads, independent of the line pen width. */
+    arrowheadScale?: number;
     arrowheadStart?: OverlayArrowhead;
     arrowheadEnd?: OverlayArrowhead;
     fill?: "none" | "solid";
     fillColor?: string;
     fillOpacity?: number;
-    fillPattern?: "diagonalHatch";
+    fillPattern?: "diagonalHatch" | "dots";
     color: string;
     strokeOpacity?: number;
     labelColor?: string;
     dash: OverlayDash;
+    dashPattern?: number[];
     size: OverlayTextSize;
     label?: string;
 }>;
 
 export type OverlayTextShape = OverlayBaseShape<"text", {
+    /** Fixed horizontal glyph scale for imported condensed text. Width remains user controlled. */
+    textScaleX?: number;
+    /** Keep explicit breaks while suppressing automatic wrapping (used by imported source lines). */
+    textWrap?: "none";
     /** User-chosen width. Text wraps at this width; changing it never changes the font size. */
     w: number;
     /** Derived height cache written back from the measured DOM. Never edited directly. */
@@ -1946,6 +1987,7 @@ export interface SigmaTableCellParagraph {
     id: string;
     children: InlineNode[];
     align?: TextAlign;
+    lineHeight?: LineHeight;
 }
 
 export interface SigmaTableTrend {

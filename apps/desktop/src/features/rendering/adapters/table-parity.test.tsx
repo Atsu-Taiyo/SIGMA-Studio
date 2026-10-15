@@ -8,6 +8,8 @@ import { describe, expect, it } from "vitest";
 import { OverlayTableCellContentEditor } from "@/components/editor/overlay-canvas/table-cell-content-editor";
 import type { OverlayShape, SigmaTableSpec } from "@/features/document";
 import { exportOverlaySvg } from "@/features/rendering/adapters/svg";
+import { recoverSigmaDocument } from "@/lib/sigma-doc-schema";
+import { sampleDocument } from "@/lib/sample-document";
 import  {
   getTableCellStyleModel,
   getTableGridModel,
@@ -280,6 +282,36 @@ describe("the double-border overlay", () => {
 });
 
 describe("cell content", () => {
+  it("preserves per-paragraph line heights through document recovery, editor display and static output", () => {
+    const table = baseTable({ version: 1, cells: [{ id: "cell_lines", rowId: "r1", columnId: "c1", content: [
+      { id: "cell_top", type: "paragraph", lineHeight: "1.63", children: [{ type: "text", text: "上段" }] },
+      { id: "cell_bottom", type: "paragraph", lineHeight: "2.94", children: [{ type: "text", text: "下段" }] },
+    ] }] });
+    const result = recoverSigmaDocument({ ...sampleDocument, pageLayout: { ...sampleDocument.pageLayout,
+      overlay: { overlaySnapshot: { version: 1, shapes: [{ id: "lines", type: "tableShape", x: 0, y: 0,
+        anchor: { type: "page" }, props: { w: 240, h: 120, table } }], assets: {} } } } });
+    if (!result.ok) throw new Error("Expected valid document");
+    const shape = result.document.pageLayout!.overlay!.overlaySnapshot!.shapes[0];
+    if (shape?.type !== "tableShape") throw new Error("Expected table");
+    const recovered = shape.props.table;
+    expect(recovered.cells[0].content.map(c => c.type === "paragraph" ? c.lineHeight : undefined)).toEqual(["1.63", "2.94"]);
+    expect(renderTable(recovered, 240, 120)).toContain("line-height:1.63");
+    expect(renderTable(recovered, 240, 120)).toContain("line-height:2.94");
+    const editor = renderToStaticMarkup(<OverlayTableCellContentEditor shapeId="lines" cellId="cell_lines"
+      cell={recovered.cells[0]} content={recovered.cells[0].content[0]} table={recovered} editing={false}
+      showFormulaSource={false} rowIndex={0} columnIndex={0} colSpan={1} onFocus={() => undefined}
+      onChange={() => undefined} onNavigate={() => false} onRegisterEditor={() => () => undefined} />);
+    expect(editor).toContain("line-height:1.63");
+    const again = recoverSigmaDocument(JSON.parse(JSON.stringify(result.document)));
+    expect(again.ok && again.document.pageLayout!.overlay!.overlaySnapshot).toEqual(result.document.pageLayout!.overlay!.overlaySnapshot);
+  });
+
+  it.each(["1; color:red", "20px", "0.7", "3.1"])("omits invalid paragraph line-height CSS %s", lineHeight => {
+    const table = baseTable({ cells: [{ id: "bad", rowId: "r1", columnId: "c1", content: [
+      { id: "bad_p", type: "paragraph", lineHeight, children: [] },
+    ] }] });
+    expect(renderTable(table,240,120)).not.toContain(`line-height:${lineHeight}`);
+  });
   it("renders inline math through the shared inline renderer", () => {
     const table = baseTable({
       cells: [{

@@ -1,4 +1,4 @@
-import type { InlineNode } from "@/features/document";
+import type { InlineNode, UnderlineStyle } from "@/features/document";
 import {
   inlineMathNodeClassName,
   inlineMathNodeDataAttributes,
@@ -55,7 +55,7 @@ export interface RichTextDomElement {
 export type RichTextDomNode =
   | RichTextDomElement
   | { key: string; kind: "lineBreak" }
-  | { key: string; kind: "mathBody"; tex: string }
+  | { key: string; kind: "mathBody"; tex: string; compact?: boolean }
   | { key: string; kind: "text"; text: string };
 
 export interface InlineRichTextDomOptions {
@@ -130,15 +130,29 @@ export function buildInlineRenderModelDom(
       tag: "span",
       className: UNDERLINE_RUN_CLASS_NAME,
       key: `${options.keyPrefix}-underline-run-${first.key}-${last.key}`,
-      attrs: { "data-sigma-doc-underline-text": "true" },
-      selfContainedStyle: underlineRunStyle(underlineRun.some((piece) => piece.entry.kind === "math")),
-      children: underlineRun.map((piece) => buildInlinePieceDom(piece, options)),
+      attrs: underlineDomAttrs(findDecoration(first.entry.decorations, "underline")?.style),
+      selfContainedStyle: underlineRunStyle(
+        underlineRun.some((piece) => piece.entry.kind === "math"),
+        findDecoration(first.entry.decorations, "underline")?.style,
+      ),
+      children: findDecoration(first.entry.decorations, "underline")?.style === "wavy"
+        ? [
+          { kind: "element", tag: "span", key: `${first.key}-wave-content`, children: underlineRun.map((piece) => buildInlinePieceDom(piece, options)) },
+          { kind: "element", tag: "span", key: `${first.key}-wave-stroke`, className: UNDERLINE_WAVE_CLASS_NAME, attrs: { "aria-hidden": "true" },
+            selfContainedStyle: underlineWaveStrokeStyle(underlineRun.some((piece) => piece.entry.kind === "math")), children: [] },
+        ]
+        : underlineRun.map((piece) => buildInlinePieceDom(piece, options)),
     });
     underlineRun = [];
   };
 
   for (const piece of flattenInlinePieces(entries, options)) {
     if (piece.kind === "piece" && hasDecoration(piece.entry.decorations, "underline")) {
+      const previous = underlineRun[underlineRun.length - 1];
+      if (previous && (findDecoration(previous.entry.decorations, "underline")?.style ?? "solid")
+        !== (findDecoration(piece.entry.decorations, "underline")?.style ?? "solid")) {
+        flushUnderlineRun();
+      }
       underlineRun.push(piece);
       continue;
     }
@@ -202,7 +216,7 @@ function buildInlinePieceDom(
   // innermost. Underline is not in this list: it wraps whole runs, above.
   let children: RichTextDomNode[] = child.kind === "text"
     ? (piece.text ?? "").length > 0 ? [{ kind: "text", key: `${key}-text`, text: piece.text ?? "" }] : []
-    : [mathFrame(child, options)];
+    : [mathFrame(child, options, boxed?.variant === "compact" || hasDecoration(child.decorations, "underline"))];
   if (options.preserveInheritedFontSize && findDecoration(child.decorations, "style")?.style.fontSizePt === undefined) {
     children = [{
       kind: "element", tag: "span", key: `${key}-inherited-font`,
@@ -268,6 +282,7 @@ function withPieceBoxedRun(
 function mathFrame(
   child: Extract<RichTextInlineRenderNode, { kind: "math" }>,
   options: InlineRichTextDomOptions,
+  compact: boolean,
 ): RichTextDomElement {
   return {
     kind: "element",
@@ -276,8 +291,11 @@ function mathFrame(
     className: inlineMathNodeClassName(),
     key: `${options.keyPrefix}-${child.id}-frame`,
     attrs: inlineMathNodeDataAttributes({ id: child.id, tex: child.tex }),
-    selfContainedStyle: MATH_FRAME_SELF_CONTAINED_STYLE,
-    children: [{ kind: "mathBody", key: `${options.keyPrefix}-${child.id}-body`, tex: child.tex }],
+    selfContainedStyle: compact
+      ? { ...MATH_FRAME_SELF_CONTAINED_STYLE, "margin-inline": "0", "line-height": "0" }
+      : MATH_FRAME_SELF_CONTAINED_STYLE,
+    children: [{ kind: "mathBody", key: `${options.keyPrefix}-${child.id}-body`, tex: child.tex,
+      ...(compact ? { compact: true } : {}) }],
   };
 }
 
@@ -339,6 +357,9 @@ export function boxedSelfContainedStyle(boxed: RichTextBoxDecoration): RichTextD
   if (boxed.connectLeft) {
     Object.assign(style, BOXED_RUN_CONNECT_LEFT_STYLE);
   }
+  if (boxed.variant === "compact") {
+    Object.assign(style, { "--boxed-text-padding-y": "1px", "padding-inline": "1px" });
+  }
   return style;
 }
 
@@ -398,25 +419,57 @@ const BOXED_RUN_CONNECT_LEFT_STYLE: RichTextDomStyle = {
   "border-bottom-left-radius": "0",
 };
 
-export function underlineRunStyle(containsMath: boolean): RichTextDomStyle {
+export const UNDERLINE_WAVE_CLASS_NAME = "sigma-underline-wave";
+const UNDERLINE_WAVE_MASK = "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='4' viewBox='0 0 8 4'%3E%3Cpath d='M0 2 Q2 0 4 2 T8 2' fill='none' stroke='black' stroke-width='1'/%3E%3C/svg%3E\")";
+
+/** A CSS decoration inside the marked run; it is never a canonical canvas shape. */
+export function underlineWaveStrokeStyle(containsMath: boolean): RichTextDomStyle {
+  return {
+    display: containsMath ? "block" : "none",
+    position: "absolute",
+    left: "0",
+    right: "0",
+    bottom: "0",
+    height: "4px",
+    "background-color": "currentColor",
+    "mask-image": UNDERLINE_WAVE_MASK,
+    "mask-size": "8px 4px",
+    "mask-repeat": "repeat-x",
+    "pointer-events": "none",
+  };
+}
+
+export function underlineDomAttrs(style?: UnderlineStyle): Record<string, string> {
+  return {
+    "data-sigma-doc-underline-text": "true",
+    ...(style && style !== "solid" ? { "data-sigma-doc-underline-style": style } : {}),
+  };
+}
+
+export function underlineRunStyle(containsMath: boolean, style: UnderlineStyle = "solid"): RichTextDomStyle {
   if (!containsMath) {
-    return underlineStyle();
+    return underlineStyle(style);
   }
   return {
     display: "inline-block",
     "vertical-align": "baseline",
     "max-width": "100%",
     "text-decoration": "none",
-    "border-bottom": "1.25px solid currentColor",
-    "padding-bottom": "0.1em",
+    "border-bottom": style === "double" ? "3px double currentColor" : `1.25px ${style === "wavy" ? "solid" : style} currentColor`,
+    ...(style === "wavy" ? {
+      "border-bottom": "0",
+      position: "relative",
+    } : {}),
+    "padding-bottom": style === "wavy" ? "4px" : "0.1em",
     "box-decoration-break": "clone",
     "-webkit-box-decoration-break": "clone",
   };
 }
 
-export function underlineStyle(): RichTextDomStyle {
+export function underlineStyle(style: UnderlineStyle = "solid"): RichTextDomStyle {
   return {
     "text-decoration-line": "underline",
+    ...(style !== "solid" ? { "text-decoration-style": style } : {}),
     "text-decoration-thickness": "1px",
     "text-decoration-color": "currentColor",
     "text-underline-offset": "0.12em",

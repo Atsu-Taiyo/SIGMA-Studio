@@ -3,6 +3,7 @@ import { tv } from "@/lib/ai/validation-locale";
 import { z } from "zod";
 
 import {
+  normalizeLineHeight,
   listItemContinuationInlineNodes,
   isOverlayAsset,
   isValidOverlaySnapshot,
@@ -1611,6 +1612,7 @@ function createTableParagraph(children: InlineNode[], input?: Record<string, unk
     id: nonEmptyStringOr(input?.id, createId("ai_table_p")),
     children,
     align: isTextAlign(input?.align) ? input.align : "center",
+    ...(normalizeLineHeight(input?.lineHeight) ? { lineHeight: normalizeLineHeight(input?.lineHeight) } : {}),
   };
 }
 

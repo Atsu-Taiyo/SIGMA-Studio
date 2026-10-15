@@ -209,6 +209,14 @@ const CORPUS: Array<{ document: OverlayTextBlock[]; name: string }> = [
 const KNOWN_DIVERGENT = new Set(["a bullet list"]);
 
 describe("overlay text projects the same DOM through Tiptap and the static renderer", () => {
+  it.each(["solid", "wavy", "dotted", "double"] as const)("agrees on native %s underline runs across styled text", (underlineStyle) => {
+    const richText: OverlayTextBlock[] = [{ type: "paragraph", id: "underline-parity", children: [
+      { type: "text", text: "前", marks: ["underline"], underlineStyle },
+      { type: "text", text: "太", marks: ["underline", "bold"], underlineStyle },
+      { type: "text", text: "後", marks: ["underline"], underlineStyle },
+    ] }];
+    expect(staticBlocks(richText)).toEqual(editorBlocks(richText));
+  });
   for (const { document: richText, name } of CORPUS) {
     if (KNOWN_DIVERGENT.has(name)) {
       it.fails(`still differs on ${name} (known divergence, as in the body)`, () => {

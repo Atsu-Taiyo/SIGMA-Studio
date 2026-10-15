@@ -2,7 +2,7 @@
 
 import { spaceFreeFileName } from "@/lib/file-name";
 
-import { useRef, useState, type RefObject } from "react";
+import { useEffect, useRef, useState, type RefObject } from "react";
 import type { DocumentBlockClock, DocumentBlockIdFactory, SigmaDocument } from "@/features/document";
 import type { EditorSaveState } from "@/features/editor-state/types";
 import { writeTextToClipboard } from "@/lib/clipboard-text";
@@ -16,6 +16,7 @@ import { createDocumentFromSigmaDocument, type DocumentFileRecord } from "@/lib/
 import { fileFromDesktopImport, planDocumentFileImport, prepareDocumentFileImport } from "./document-file-import";
 import type { EmbeddedEditorHost } from "./document-lifecycle-types";
 import type { DesktopExternalDocument } from "@/types/desktop";
+import type { DocumentConversionIssue } from "@/lib/document-conversion-contracts";
 
 export interface DocumentFileCommandOptions {
   documentRef: RefObject<SigmaDocument>;
@@ -48,6 +49,32 @@ export function useDocumentFileCommands({
   const importInputRef = useRef<HTMLInputElement | null>(null);
 
   const otherImportInputRef = useRef<HTMLInputElement | null>(null);
+  const [conversionNotice, setConversionNotice] = useState<DocumentConversionIssue[] | null>(null);
+  // サービスが利用可能なら、その形式の表示名 (サービス側が名乗る名前。無ければ null)。利用不可は undefined。
+  const [conversionService, setConversionService] = useState<{ displayName: string | null } | undefined>(undefined);
+  useEffect(() => {
+    const bridge = getDesktopBridge();
+    const capability = bridge?.file.documentConversionCapability;
+    if (!isDesktopApp || !capability) return;
+    let disposed = false;
+    let pending = false;
+    const refresh = async () => {
+      if (pending) return;
+      pending = true;
+      try {
+        const result = await capability();
+        if (!disposed) setConversionService(result.available ? { displayName: result.displayName ?? null } : undefined);
+      } catch { if (!disposed) setConversionService(undefined); }
+      finally { pending = false; }
+    };
+    void refresh();
+    window.addEventListener("focus", refresh);
+    const unsubscribe = bridge?.sharedCatalog?.onChange(() => { setConversionService(undefined); void refresh(); });
+    // Also update after an in-app sign-in or an administrator revokes access.
+    const timer = window.setInterval(() => { if (!document.hidden) void refresh(); }, 30_000);
+    return () => { disposed = true; unsubscribe?.(); window.clearInterval(timer); window.removeEventListener("focus", refresh); };
+  }, [isDesktopApp]);
+
 
   // 教材のテキスト受け渡し。取り込みは貼り付け面を開くだけ、書き出しは
   // クリップボードへ直接入れ、拒否されたときだけ手で選ぶ面 (テキストを保持) を出す。
@@ -151,7 +178,8 @@ export function useDocumentFileCommands({
   const importDocumentFileWithResult = async (file: File): Promise<"imported" | "cancelled" | "error"> => {
     try {
       const request = planDocumentFileImport(file);
-      const { document: importedDocument, recoveryIssues, successMessageKey } = await prepareDocumentFileImport(request, {
+      if (request.format === "converted") setStatusMessage(tEditor("conversion.importing"));
+      const { document: importedDocument, recoveryIssues, successMessageKey, conversionIssues } = await prepareDocumentFileImport(request, {
         ...DOCUMENT_BLOCK_OPERATION_PORTS,
         createDocumentId: () => createId("doc"),
         defaultTitle: () => tEditor("status.importedDocumentTitle"),
@@ -163,6 +191,7 @@ export function useDocumentFileCommands({
         setSaveState("saved");
         setStatusMessage(tEditor(successMessageKey));
         announceRecovery(recoveryIssues);
+        if (conversionIssues) setConversionNotice(conversionIssues);
         return "imported";
       }
       if (workspaceReady && !(await saveCurrentDocumentBeforeReplacement())) {
@@ -171,6 +200,7 @@ export function useDocumentFileCommands({
       const importedRecord = await createDocumentFromSigmaDocument(importedDocument);
       await openDocumentAsTab(importedRecord, tEditor(successMessageKey));
       announceRecovery(recoveryIssues);
+      if (conversionIssues) setConversionNotice(conversionIssues);
     } catch (error) {
       setSaveState("error");
       setStatusMessage(error instanceof Error ? error.message : tEditor("status.fileReadFailed"));
@@ -223,7 +253,11 @@ export function useDocumentFileCommands({
     otherImportInputRef.current?.click();
   };
 
+  // 利用できるときだけ非 null。サービスが名乗らなければ汎用名を使う。
+  const conversionLabel = conversionService ? conversionService.displayName ?? tEditor("conversion.genericName") : null;
+
   return {
+    conversionLabel, conversionNotice, setConversionNotice,
     importInputRef, otherImportInputRef, textImportOpen, setTextImportOpen, documentTextCopyFallback, setDocumentTextCopyFallback, exportJson, copyDocumentText, openTextImportDialog, openDocumentViaDesktop, openExternalDocument, importDocumentFile, importDocumentFileWithResult, openImportDialog, openOtherImportDialog,
   };
 }

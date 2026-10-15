@@ -311,6 +311,8 @@ export interface EditorChromeAppMenu {
   openImportDialog: () => void;
   openNewDocMenu: () => void;
   openOtherImportDialog: () => void;
+  /** 変換サービスが使えるときの形式名。使えないときは null/未指定。 */
+  conversionLabel?: string | null;
   openPrintPreview: () => void;
   /** 貼り付けたテキストから教材を取り込む面を開く。 */
   openTextImportDialog: () => void;

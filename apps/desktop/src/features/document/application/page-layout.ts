@@ -859,8 +859,8 @@ function normalizeMathInlineMarks(input: unknown): Array<"underline" | "boxed"> 
   return marks.length > 0 ? Array.from(new Set(marks)) : undefined;
 }
 
-function normalizeBoxedVariant(input: unknown): "frame" | "thick" | "double" | "oval" | "shade" | undefined {
-  return input === "frame" || input === "thick" || input === "double" || input === "oval" || input === "shade"
+function normalizeBoxedVariant(input: unknown): "frame" | "thick" | "double" | "oval" | "shade" | "compact" | undefined {
+  return input === "frame" || input === "thick" || input === "double" || input === "oval" || input === "shade" || input === "compact"
     ? input
     : undefined;
 }

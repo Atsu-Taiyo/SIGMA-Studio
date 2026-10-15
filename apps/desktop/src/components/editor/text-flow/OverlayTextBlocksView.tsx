@@ -100,6 +100,8 @@ export interface OverlayTextBlocksViewProps {
   mathFractionSizing?: MathFractionSizing | null;
   /** Inline the app's block typography. Set only by output that leaves the stylesheet behind. */
   selfContained?: boolean;
+  /** Preserve an imported source row's explicit breaks without browser wrapping. */
+  noWrap?: boolean;
   /** Serialized markup needs the namespace on the outermost element; the mounted view does not. */
   xmlns?: string;
 }
@@ -123,13 +125,16 @@ export function OverlayTextBlocksView({
   contentRef,
   mathFractionSizing,
   selfContained = false,
+  noWrap = false,
   xmlns,
 }: OverlayTextBlocksViewProps) {
   return (
     <div
       ref={contentRef}
       className="overlay-text-shape-content"
-      style={selfContained ? OVERLAY_TEXT_CONTENT_SELF_CONTAINED_STYLE : undefined}
+      style={noWrap
+        ? { ...(selfContained ? OVERLAY_TEXT_CONTENT_SELF_CONTAINED_STYLE : {}), overflowWrap: "normal", wordBreak: "normal", whiteSpace: "pre" }
+        : selfContained ? OVERLAY_TEXT_CONTENT_SELF_CONTAINED_STYLE : undefined}
       {...(xmlns ? ({ xmlns } as { xmlns: string }) : {})}
     >
       {blocks.map((block) => (

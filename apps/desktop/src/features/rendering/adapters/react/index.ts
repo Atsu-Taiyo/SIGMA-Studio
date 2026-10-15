@@ -1,5 +1,7 @@
 "use client";
 
+export { EmbeddedDocumentFonts } from "./EmbeddedDocumentFonts";
+
 export { DocumentTitleText, type DocumentTitleTextProps } from "./DocumentTitleText";
 export { Graph2DPreview } from "./Graph2DPreview";
 export { recordGraph2DAnimationVideo } from "./graph2d-video";

@@ -15,7 +15,8 @@ import {
 import { pasteAsSingleBlockInlineContent } from "@/components/editor/text-flow/inline-block-paste";
 import { createRichTextEngineExtensions } from "@/components/tiptap/rich-text-engine";
 import { dispatchTextFormatState } from "@/components/tiptap/text-format-controller";
-import { DEFAULT_BODY_FONT_FAMILY, getTableCellDisplayNodes, getTableCellFormulaResult } from "@/features/document";
+import { DEFAULT_BODY_FONT_FAMILY, getTableCellDisplayNodes, getTableCellFormulaResult, normalizeLineHeight } from "@/features/document";
+import { getTableCellParagraphStyleModel } from "@/features/rendering/core";
 import type {
   InlineNode,
   OverlayShapeId,
@@ -122,7 +123,7 @@ function OverlayTableParagraphStaticView({
           run directly into the flex container instead made the cell's own line box a differently
           sized flex item, so the text moved the moment the cell took focus.
         */}
-        <p style={{ textAlign: content.align ?? undefined }}>
+        <p style={getTableCellParagraphStyleModel(content)}>
           {renderSigmaInlineNodesPreview(getTableCellDisplayNodes(table, cell, content))}
         </p>
       </div>
@@ -153,7 +154,7 @@ function OverlayTableParagraphEditor({
   onNavigate: (rowIndex: number, columnIndex: number, direction: TableCellNavigationDirection) => boolean;
   onRegisterEditor: (cellId: string, contentId: string, editor: TiptapEditor) => () => void;
 }) {
-  const initialDoc = useMemo(() => inlineNodesToTiptapDoc(content.children, content.align), [content.align, content.children]);
+  const initialDoc = useMemo(() => inlineNodesToTiptapDoc(content.children, content.align, content.lineHeight), [content.align, content.children, content.lineHeight]);
   const contentRef = useRef(initialDoc);
   const editor = useEditor({
     extensions: createRichTextEngineExtensions({
@@ -195,6 +196,7 @@ function OverlayTableParagraphEditor({
       onChange(cellId, content.id, {
         ...content,
         align: activeEditor.getAttributes("paragraph").textAlign ?? content.align,
+        lineHeight: normalizeLineHeight(activeEditor.getAttributes("paragraph").lineHeight) ?? content.lineHeight,
         children: tiptapDocToInlineNodes(json),
       });
     },
@@ -215,24 +217,26 @@ function OverlayTableParagraphEditor({
   useEffect(() => {
     if (!editor || editor.isDestroyed) return;
     const textAlign = content.align ?? null;
-    if (editor.getAttributes("paragraph").textAlign === textAlign) return;
+    const lineHeight = normalizeLineHeight(content.lineHeight) ?? null;
+    const attrs = editor.getAttributes("paragraph");
+    if (attrs.textAlign === textAlign && attrs.lineHeight === lineHeight) return;
     // A cell-toolbar change must reach the focused editor without replacing its text or caret.
     const tr = editor.state.tr;
     editor.state.doc.forEach((node, offset) => {
       if (node.type.name === "paragraph") {
-        tr.setNodeMarkup(offset, undefined, { ...node.attrs, textAlign });
+        tr.setNodeMarkup(offset, undefined, { ...node.attrs, textAlign, lineHeight });
       }
     });
     editor.view.dispatch(tr.setMeta("preventUpdate", true).setMeta("addToHistory", false));
     contentRef.current = editor.getJSON() as TiptapDoc;
-  }, [content.align, editor]);
+  }, [content.align, content.lineHeight, editor]);
 
   useEffect(() => {
     if (!editor || editor.isFocused) {
       return;
     }
 
-    const nextContent = inlineNodesToTiptapDoc(content.children, content.align);
+    const nextContent = inlineNodesToTiptapDoc(content.children, content.align, content.lineHeight);
     const serializedCurrent = JSON.stringify(contentRef.current);
     const serializedNext = JSON.stringify(nextContent);
     if (serializedCurrent !== serializedNext) {
@@ -245,7 +249,7 @@ function OverlayTableParagraphEditor({
 
       return () => window.clearTimeout(timeoutId);
     }
-  }, [content.align, content.children, editor]);
+  }, [content.align, content.children, content.lineHeight, editor]);
 
   const handleKeyDownCapture = (event: ReactKeyboardEvent<HTMLDivElement>) => {
     if (!editor) {

@@ -6,6 +6,46 @@ import { tiptapNodesToInlineNodes } from "@/lib/tiptap-adapter";
 import { InlineContent, renderInlineContent } from "./InlineContent";
 
 describe("React inline-content rendering adapter", () => {
+  it("keeps underlined math's ink struts without extra leading in standalone output", () => {
+    const nodes = [
+      { type: "mathInline" as const, id: "underlined-fraction", tex: String.raw`\frac{1}{x}`, display: "inline" as const, marks: ["underline" as const] },
+      { type: "text" as const, text: "，", marks: ["underline" as const] },
+      { type: "mathInline" as const, id: "underlined-variable", tex: "y", display: "inline" as const, marks: ["underline" as const] },
+      { type: "mathInline" as const, id: "plain-variable", tex: "z", display: "inline" as const },
+    ];
+    const standalone = renderToStaticMarkup(<>{renderInlineContent(nodes, { selfContained: true })}</>);
+    expect(standalone.match(/class="sigma-underline-run"/g)).toHaveLength(1);
+    expect(standalone.match(/class="ML__latex" style="line-height:0"/g)).toHaveLength(2);
+    expect(standalone).toContain('ML__strut');
+    expect(standalone).toContain('class="ML__latex"><');
+    const mounted = renderToStaticMarkup(<>{renderInlineContent(nodes)}</>);
+    expect(mounted).not.toContain('class="ML__latex" style="line-height:0"');
+  });
+  it("joins text and math only when their native underline styles match", () => {
+    const html = renderToStaticMarkup(<>{renderInlineContent([
+      { type: "text", text: "波", marks: ["underline"], underlineStyle: "wavy" },
+      { type: "mathInline", id: "wave-math", tex: "x^2", display: "inline", marks: ["underline"], underlineStyle: "wavy" },
+      { type: "text", text: "点", marks: ["underline"], underlineStyle: "dotted" },
+    ], { selfContained: true })}</>);
+    expect(html.match(/class="sigma-underline-run"/g)).toHaveLength(2);
+    expect(html).toContain('data-sigma-doc-underline-style="wavy"');
+    expect(html).toContain('data-sigma-doc-underline-style="dotted"');
+    expect(html).toContain('mask-repeat:repeat-x');
+    expect(html).toContain('text-decoration-style:dotted');
+  });
+  it("keeps compact boxed math's strut leading and margins in self-contained output only", () => {
+    const node = { type: "mathInline" as const, id: "compact-math", tex: "x^2", display: "inline" as const,
+      marks: ["boxed" as const], boxedVariant: "compact" as const };
+    const standalone = renderToStaticMarkup(<>{renderInlineContent([node], { selfContained: true })}</>);
+    expect(standalone).toContain('data-sigma-doc-boxed-variant="compact"');
+    expect(standalone).toContain('--boxed-text-padding-y:1px');
+    expect(standalone).toContain('padding-inline:1px');
+    expect(standalone).toContain('margin-inline:0;line-height:0');
+    expect(standalone).toContain('class="math-preview math-preview-inline" style="line-height:0"');
+    expect(standalone).toContain('class="ML__latex" style="line-height:0"');
+    const mounted = renderToStaticMarkup(<>{renderInlineContent([node])}</>);
+    expect(mounted).not.toContain('class="ML__latex" style="line-height:0"');
+  });
   it("renders inline math with the same body math wrapper", () => {
     const html = renderToStaticMarkup(
       <>{renderInlineContent([

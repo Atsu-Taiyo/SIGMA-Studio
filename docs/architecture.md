@@ -825,3 +825,25 @@ border を引く、running region のリストは region スコープ、静的�
 - `globals.css` は `styles/` の機能別CSSを元のカスケード順に読み込む。
   文書面の正本は引き続き `document-surface.css`。CSSの契約テストは共通の
   `tests/helpers/read-stylesheet.ts` を通して分割先も検査する。
+
+### 文書のフォント参照
+
+新しい取り込み文書は `pageLayout.overlay.overlaySnapshot.extensions["sigma.font-references"]`
+に `{ family, resourceId }` を保存します。`resourceId` はフォントファイル全体のSHA-256で、
+パスや取得先URLを文書へ入れません。書体名だけで同一性を判断せず、同じバイトのフォントを
+再利用するので、部分フォントや異なる版を混同しません。
+
+デスクトップは必要なフォントを認証付き変換サービスから初回だけ取得し、
+アプリの `data/font-resources/<resourceId>.font` に共有保存します。
+`ApplicationFontStore` が大きさ・形式・ハッシュを確認し、`sigma-app-font://<resourceId>/`
+で描画側へ提供します。文書由来の任意URLやローカルパスは受け付けません。
+
+`features/document/font-references.ts` はデータ契約、rendering coreは検証済み識別子から
+CSSを生成し、ElectronのストアとプロトコルがI/Oを担当します。フォントfaceは同期的に登録し、
+既存のPageCanvasの `document.fonts.ready` / `loadingdone` と出力確定に参加させます。
+旧文書の `sigma.embedded-fonts` の読み込みも継続します。
+
+フォント参照への変更は格納方式の変更です。変換時に使う字幅・輪郭・記号対応の計算を
+省略するものではありません。これらを事前計算したデータへ置き換える場合も、元の座標・
+形・数式・警告を比較して検証します。初回取得には設定された変換サービスへの接続と認証が
+必要です。キャッシュ済みのフォントはオフラインでも参照できます。

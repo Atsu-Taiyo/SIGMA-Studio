@@ -27,11 +27,11 @@ const SHAPE_KEYS = [
 ] as const;
 const SHAPE_PROP_KEYS: Record<OverlayShape["type"], readonly string[]> = {
   group: ["w", "h", "name"],
-  geo: ["w", "h", "geo", "polygonSides", "baseSides", "solidPoints", "solidEdgeDash", "solidEdgeSize", "apexX", "headLengthRatio", "shaftRatio", "radius", "fill", "color", "fillColor", "strokeOpacity", "fillOpacity", "labelColor", "dash", "size", "label"],
-  arc: ["kind", "r", "rx", "ry", "startAngle", "endAngle", "arrowheadStart", "arrowheadEnd", "fill", "fillColor", "fillOpacity", "fillPattern", "color", "strokeOpacity", "dash", "size"],
-  arrow: ["start", "end", "arrowheadStart", "arrowheadEnd", "fill", "color", "strokeOpacity", "labelColor", "dash", "size", "label"],
-  line: ["kind", "points", "closed", "arrowheadStart", "arrowheadEnd", "fill", "fillColor", "fillOpacity", "fillPattern", "color", "strokeOpacity", "labelColor", "dash", "size", "label"],
-  text: ["w", "h", "blocks", "color", "fontSize", "size"],
+  geo: ["strokeScale", "hitTestMode", "w", "h", "geo", "polygonSides", "baseSides", "solidPoints", "solidEdgeDash", "solidEdgeSize", "apexX", "headLengthRatio", "shaftRatio", "radius", "fill", "color", "fillColor", "strokeOpacity", "fillOpacity", "labelColor", "dash", "dashPattern", "size", "label"],
+  arc: ["strokeScale", "kind", "r", "rx", "ry", "startAngle", "endAngle", "arrowheadScale", "arrowheadStart", "arrowheadEnd", "fill", "fillColor", "fillOpacity", "fillPattern", "color", "strokeOpacity", "dash", "dashPattern", "size"],
+  arrow: ["strokeScale", "start", "end", "arrowheadScale", "arrowheadStart", "arrowheadEnd", "fill", "color", "strokeOpacity", "labelColor", "dash", "dashPattern", "size", "label"],
+  line: ["strokeScale", "hitTestMode", "kind", "points", "closed", "arrowheadScale", "arrowheadStart", "arrowheadEnd", "fill", "fillColor", "fillOpacity", "fillPattern", "color", "strokeOpacity", "labelColor", "dash", "dashPattern", "size", "label"],
+  text: ["w", "h", "blocks", "color", "fontSize", "size", "textScaleX", "textWrap"],
   image: ["assetId", "w", "h", "crop", "tikz"],
   callout: ["w", "h", "radius", "tail", "blocks", "color", "fontSize", "size", "dash", "strokeWidth"],
   graph2dShape: ["boundsMode", "w", "h", "spec", "preserveSpecSize", "axisLabelTextShapeIds", "pointLabelTextShapeIdsByPointId", "annotationTextShapeIdsByAnnotationId", "labelTextShapeIds", "labelTextShapeIdsByCurveId"],
@@ -497,6 +497,8 @@ function canonicalizeOverlayShape(shape: OverlayShape): OverlayShape {
     canonical.anchor = canonicalizeOverlayAnchor(shape.anchor);
   }
   const props = canonical.props as Record<string, unknown>;
+  if ((shape.type === "geo" || shape.type === "arc" || shape.type === "arrow" || shape.type === "line")
+    && shape.props.dashPattern) props.dashPattern = [...shape.props.dashPattern];
   sanitizeShapeCssScalars(shape.type, props);
   if (shape.type === "text" || shape.type === "callout") {
     props.blocks = shape.props.blocks.map(canonicalizeOverlayTextBlock);
@@ -643,8 +645,8 @@ function canonicalizeOverlayTextContinuation(
 
 function canonicalizeInlineNode(node: InlineNode): InlineNode {
   const keys = node.type === "text"
-    ? ["type", "text", "marks", "color", "backgroundColor", "fontFamily", "fontSize", "boxedPaddingY", "boxedVariant", "boxedTone"]
-    : ["type", "id", "tex", "display", "marks", "color", "backgroundColor", "fontFamily", "fontSize", "boxedPaddingY", "boxedVariant", "boxedTone", "semanticRole", "altText"];
+    ? ["type", "text", "marks", "underlineStyle", "color", "backgroundColor", "fontFamily", "fontSize", "boxedPaddingY", "boxedVariant", "boxedTone"]
+    : ["type", "id", "tex", "display", "marks", "underlineStyle", "color", "backgroundColor", "fontFamily", "fontSize", "boxedPaddingY", "boxedVariant", "boxedTone", "semanticRole", "altText"];
   return sanitizeInlineNodeCssScalars(
     pickDefined(node as unknown as Record<string, unknown>, keys),
   ) as unknown as InlineNode;

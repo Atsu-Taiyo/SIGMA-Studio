@@ -682,7 +682,7 @@ export function getGraphIssues(spec: Graph2DSpec, nodeId: string): GraphIssue[] 
 
     if (
       curve.strokeWidth !== undefined &&
-      (!Number.isFinite(curve.strokeWidth) || curve.strokeWidth < 0.5 || curve.strokeWidth > 8)
+      (!Number.isFinite(curve.strokeWidth) || curve.strokeWidth < 0.5 || curve.strokeWidth > MAX_GRAPH_CURVE_STROKE_WIDTH)
     ) {
       issues.push({ code: "curveStrokeWidth", nodeId, targetId: curve.id });
     }
@@ -1186,9 +1186,52 @@ function buildImplicitFunctionPath(
   graphRange: GraphNumericRange,
   plotBox: GraphPlotBox,
 ): string {
-  return sampleImplicitCurveSegments(curve, spec, axisRange, graphRange, plotBox)
-    .map(({ a, b }) => `M${roundCoordinate(a.x)} ${roundCoordinate(a.y)} L${roundCoordinate(b.x)} ${roundCoordinate(b.y)}`)
-    .join(" ");
+  // Every SVG subpath restarts its dash pattern. Joining adjacent grid edges
+  // keeps dotted contours dotted even when an individual edge is shorter than
+  // one dash. Stop at branches so distinct contours never gain a connecting line.
+  const key = (point: { x: number; y: number }) => `${Math.round(point.x * 1e6)},${Math.round(point.y * 1e6)}`;
+  const segmentKeys = new Set<string>();
+  const segments = sampleImplicitCurveSegments(curve, spec, axisRange, graphRange, plotBox).filter(({ a, b }) => {
+    // A contour exactly on a grid edge is reported by both adjacent cells.
+    const edgeKey = [key(a), key(b)].sort().join("|");
+    if (segmentKeys.has(edgeKey)) return false;
+    segmentKeys.add(edgeKey);
+    return true;
+  });
+  const edges = new Map<string, number[]>();
+  for (const [index, segment] of segments.entries()) {
+    for (const point of [segment.a, segment.b]) {
+      const pointKey = key(point);
+      const incident = edges.get(pointKey) ?? [];
+      incident.push(index);
+      edges.set(pointKey, incident);
+    }
+  }
+  const visited = new Set<number>();
+  const paths: string[] = [];
+  const walk = (start: { x: number; y: number }, first: number) => {
+    let point = start;
+    let index: number | undefined = first;
+    const commands = [`M${roundCoordinate(point.x)} ${roundCoordinate(point.y)}`];
+    while (index !== undefined && !visited.has(index)) {
+      visited.add(index);
+      const segment = segments[index];
+      point = key(segment.a) === key(point) ? segment.b : segment.a;
+      commands.push(`L${roundCoordinate(point.x)} ${roundCoordinate(point.y)}`);
+      const incident = edges.get(key(point))!;
+      index = incident.length === 2 ? incident.find((edge) => !visited.has(edge)) : undefined;
+    }
+    paths.push(commands.join(" "));
+  };
+  for (const [index, segment] of segments.entries()) {
+    if (visited.has(index)) continue;
+    if (edges.get(key(segment.a))!.length !== 2) walk(segment.a, index);
+    else if (edges.get(key(segment.b))!.length !== 2) walk(segment.b, index);
+  }
+  for (const [index, segment] of segments.entries()) {
+    if (!visited.has(index)) walk(segment.a, index);
+  }
+  return paths.join(" ");
 }
 
 export function sampleImplicitCurveSegments(
@@ -1414,8 +1457,11 @@ export function normalizeGraphCurveDash(dash: GraphCurveDash | undefined): Graph
   return dash === "dashed" || dash === "dotted" ? dash : DEFAULT_CURVE_DASH;
 }
 
+/** Imported small plots may need a larger spec-space stroke to retain their print width. */
+export const MAX_GRAPH_CURVE_STROKE_WIDTH = 64;
+
 export function normalizeGraphCurveStrokeWidth(strokeWidth: number | undefined): number {
-  if (!Number.isFinite(strokeWidth) || strokeWidth === undefined || strokeWidth < 0.5 || strokeWidth > 8) {
+  if (!Number.isFinite(strokeWidth) || strokeWidth === undefined || strokeWidth < 0.5 || strokeWidth > MAX_GRAPH_CURVE_STROKE_WIDTH) {
     return DEFAULT_CURVE_STROKE_WIDTH;
   }
 
@@ -1494,7 +1540,8 @@ export function graphCurveStrokeDasharray(curve: Pick<GraphCurve, "dash" | "stro
     return `${roundDashValue(strokeWidth * 3)} ${roundDashValue(strokeWidth * 2)}`;
   }
 
-  return `0 ${roundDashValue(strokeWidth * 2.2)}`;
+  // Curves use butt caps. A zero-length dash has no painted area with that cap.
+  return `${roundDashValue(strokeWidth)} ${roundDashValue(strokeWidth * 2.2)}`;
 }
 
 // 白黒基調の既定スタイル: 追加された曲線は色ではなく線種の違いで区別する。

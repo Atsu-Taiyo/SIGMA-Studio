@@ -171,6 +171,25 @@ describe("the static view's height write-back", () => {
 });
 
 describe("the static view's box", () => {
+  it("marks only saved source lines as no-auto-wrap and keeps ordinary text wrapping", async () => {
+    await render(<OverlayTextShapeStaticView shape={textShape({ textWrap: "none" })} />);
+    expect(container.querySelector(".overlay-text-shape")?.classList.contains("no-auto-wrap")).toBe(true);
+    expect(container.querySelector<HTMLElement>(CONTENT_SELECTOR)?.style.whiteSpace).toBe("pre");
+    await render(<OverlayTextShapeStaticView shape={textShape()} />);
+    expect(container.querySelector(".overlay-text-shape")?.classList.contains("no-auto-wrap")).toBe(false);
+    expect(container.querySelector<HTMLElement>(CONTENT_SELECTOR)?.style.whiteSpace).toBe("");
+  });
+  it("keeps imported horizontal glyph scaling while width changes leave font height alone", async () => {
+    await render(<OverlayTextShapeStaticView shape={textShape({ w: 200, textScaleX: 0.5 })} />);
+    const original = container.querySelector<HTMLElement>(".overlay-text-shape")!;
+    const fontSize = original.style.fontSize;
+    expect(original.style.width).toBe("400px");
+    expect(original.style.transform).toBe("scaleX(0.5)");
+    await render(<OverlayTextShapeStaticView shape={textShape({ w: 300, textScaleX: 0.5 })} />);
+    const resized = container.querySelector<HTMLElement>(".overlay-text-shape")!;
+    expect(resized.style.width).toBe("600px");
+    expect(resized.style.fontSize).toBe(fontSize);
+  });
   it("uses a locally measured height on a read-only surface without changing the source shape", async () => {
     mockContentHeight(64);
     const shape = textShape({ h: 16 });

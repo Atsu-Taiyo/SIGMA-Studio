@@ -97,6 +97,8 @@ describe("Graph2DPreview rendering adapter", () => {
 
     expect(html).toContain("font-size:10.5pt");
     expect(html).toContain(`viewBox="0 0 ${spec.width} ${spec.height}"`);
+    // The overlay layout independently maps plot width and height to its box.
+    expect(html).toContain('preserveAspectRatio="none"');
   });
 
   it("sizes tick label foreignObjects from real font metrics instead of a fixed box", () => {
@@ -290,8 +292,16 @@ describe("Graph2DPreview rendering adapter", () => {
 
     expect(html).toContain('stroke-width="3.4"');
     expect(html).toContain('stroke-linecap="butt"');
-    expect(html).toMatch(/stroke-dasharray="0 [^"]+"/);
+    expect(html).toContain('stroke-dasharray="3.4 7.48"');
     expect((html.match(/stroke-dasharray=/g) ?? [])).toHaveLength(1);
+  });
+
+  it("renders an imported small-plot pen without resetting its wider saved width", () => {
+    const base = createGraph2DSpecPreset("line");
+    const spec = { ...base, curves: [{ ...base.curves[0], strokeWidth: 14.6 }] };
+    const html = renderToStaticMarkup(<Graph2DPreview spec={spec} staticMode />);
+    expect(html).toContain('data-testid="graph2d-curve"');
+    expect(html).toContain('stroke-width="14.6"');
   });
 
   it("renders parametric curves", () => {

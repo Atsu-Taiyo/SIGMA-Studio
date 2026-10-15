@@ -5,7 +5,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { SelectedOverlayGraph } from "@/components/editor/EditorSettings";
-import type { Graph2DSpec, GraphAxes } from "@/features/document";
+import { OVERLAY_ARROWHEADS, type Graph2DSpec, type GraphAxes } from "@/features/document";
 import { createGraph2DSpecPreset } from "@/lib/graph2d";
 
 /** `vitest.setup.ts` と同じキー。表示言語をここでも ja に固定するために持つ。 */
@@ -127,7 +127,7 @@ describe("2D graph axis end pickers", () => {
     const menu = axisEndMenu("x");
     expect(menu).not.toBeNull();
     // Every head a line can carry, plus なし: the axis end and the line end are one table.
-    expect(menu?.querySelectorAll('[role="menuitemradio"]').length).toBe(15);
+    expect(menu?.querySelectorAll('[role="menuitemradio"]').length).toBe(OVERLAY_ARROWHEADS.length);
     expect(menu?.querySelector('[role="menuitemradio"][aria-checked="true"]')?.getAttribute("aria-label")).toBe("矢印");
 
     await act(async () => {

@@ -1,3 +1,4 @@
+import { buildInlineRichTextDom } from "@/features/rendering/adapters/rich-text-dom";
 import { overlayTextBlocksToInlineNodes } from "./overlay-inline-projection";
 import { isOverlayShape } from "./overlay-validation";
 import { describe, expect, it } from "vitest";
@@ -56,6 +57,32 @@ function textShape(id: string): OverlayTextShape {
 }
 
 describe("overlay snapshot normalization", () => {
+  it.each(["solid", "wavy", "dotted", "double"] as const)("keeps %s underline style through snapshot normalization and renderer projection", (underlineStyle) => {
+    const original = textShape(`underline-${underlineStyle}`);
+    original.props.blocks = [{ type: "paragraph", id: "native-underline", children: [
+      { type: "text", text: "下線", marks: ["underline"], underlineStyle },
+      { type: "mathInline", id: "underline-math", tex: "x^2", display: "inline", marks: ["underline"], underlineStyle },
+    ] }];
+    const normalized = normalizeOverlaySnapshot({ version: 1, assets: {}, shapes: [original] });
+    const reloaded = normalizeOverlaySnapshot(JSON.parse(JSON.stringify(normalized)));
+    const shape = reloaded.shapes[0] as OverlayTextShape;
+    const children = overlayTextBlocksToInlineNodes(shape.props.blocks);
+    expect(children).toEqual(original.props.blocks[0].type === "paragraph" ? original.props.blocks[0].children : []);
+    const dom = buildInlineRichTextDom(children, { keyPrefix: "underline-snapshot" });
+    expect(dom).toHaveLength(1);
+    expect(dom[0]).toMatchObject({ className: "sigma-underline-run", attrs: {
+      "data-sigma-doc-underline-text": "true",
+      ...(underlineStyle !== "solid" ? { "data-sigma-doc-underline-style": underlineStyle } : {}),
+    } });
+  });
+  it("keeps explicit stroke-only hit testing and rejects unknown hit modes", () => {
+    const saved = normalizeOverlaySnapshot({ version: 1, assets: {}, shapes: [
+      { ...rectangle("frame"), props: { ...rectangle("frame").props, hitTestMode: "stroke" } },
+      { ...rectangle("invalid"), props: { ...rectangle("invalid").props, hitTestMode: "interior" } },
+    ] });
+    expect(saved.shapes).toHaveLength(1);
+    expect(saved.shapes[0]).toMatchObject({ id: "frame", props: { hitTestMode: "stroke" } });
+  });
   it("reuses unchanged canonical shapes across immutable text edits without bypassing sanitization", () => {
     const fixed = { ...rectangle("fixed"), color: "ignored metadata" };
     const text = textShape("editable");

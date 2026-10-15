@@ -43,6 +43,7 @@ import type { Translate } from "@/lib/i18n";
 import { INLINE_MATH_FONT_MENU_ATTRIBUTE } from "@/lib/math-font-style";
 import { SUPPORTED_OVERLAY_IMAGE_MIME_TYPES } from "@/lib/overlay-image-files";
 import { POWERPOINT_IMPORT_ACCEPT } from "@/lib/powerpoint-import";
+import { CONVERSION_IMPORT_ACCEPT } from "@/lib/document-conversion-contracts";
 import { AlertTriangle, AppWindow, ArrowDownRight, ArrowLeft, Bold, Braces, BringToFront, Building2, ChartSpline, Check, ChevronDown, ChevronRight, ChevronUp, ClipboardCopy, ClipboardPaste, Clock3, Code, Columns3, Copy, Cuboid, Download, Eye, FileCog, FilePlus, FileQuestion, FileText, FolderOpen, Highlighter, ImageIcon, Italic, Keyboard, LayoutTemplate, Library, List, ListChevronsUpDown, ListOrdered, ListPlus, ListTree, Loader2, MessageSquare, Minus, MinusCircle, MoreHorizontal, MoveDown, MoveUp, PaintBucket, PenLine, Plus, PlusCircle, Quote, Redo2, Replace, Rows3, Search, SendToBack, SeparatorHorizontal, Shapes, Sigma, SlidersHorizontal, Sparkles, Square, SquareFunction, Trash2, Type, Underline, Undo2, X } from "lucide-react";
 import { Fragment } from "react";
 import type { ReactNode } from "react";
@@ -78,7 +79,7 @@ interface RibbonGroupDefinition {
 // Closed popovers return no DOM. Guard their JSX here as well so typing does
 // not build invisible font/shape catalogs on every document render.
 export function renderEditorChrome(chrome: EditorChromeValue) {
-  const { activeDocumentOpenFailure, activeFileId, addBlock, aiMenuButtonRef, appUpdateState, closeDocumentTab, commentsPanelOpen, commitDocumentTitle, copyDocumentText, createDocumentTab, createWhiteboardDocumentTab, degradedWatcherScopes, deleteActiveDocument, documentMetadatas, documentTitle, duplicateActiveDocument, exportJson, exportMenuOpen, fileMenuButtonRef, handleTitleUpdateAction, importDocumentFile, importInputRef, insertMenuButtonRef, loadingFileId, newDocButtonRef, newDocMenuOpen, openCommandSettings, openDocumentInWorkspace, openDocumentListDialog, openDocumentTabs, openImportDialog, openNewDocMenu, openOtherImportDialog, openPrintPreview, openTextImportDialog, openVersionHistory, openWorkspaceScreen, otherImportInputRef, promoteAiToSidebar, reportIssue, requestOverlayImages, resolvedDocumentTitle, scheduleCloseNewDocMenu, setAiSettingsOpen, setDesktopSettingsOpen, setExportMenuOpen, setNewDocMenuOpen, setOutlineDialogOpen, setOverlayEditing, setPageSettingsOpen, setTemplateGalleryOpen, setTexCommandReferenceOpen, setTexEnvironmentSettingsOpen, setTitleInputFocused, settingsMenuButtonRef, showRichTitle, showTitleUpdateButton, titleInputValue, titleRichNodes, titleUpdateButtonDisabled, toggleCommentsPanel, toggleProblemDisplayPart, problemDisplay, problemDisplayAvailable, uiLayoutPreference, updateMetadata, versionHistoryOpen, workspaceTabsRow } = chrome.appMenu;
+  const { activeDocumentOpenFailure, activeFileId, addBlock, aiMenuButtonRef, appUpdateState, closeDocumentTab, commentsPanelOpen, commitDocumentTitle, copyDocumentText, createDocumentTab, createWhiteboardDocumentTab, degradedWatcherScopes, deleteActiveDocument, documentMetadatas, documentTitle, duplicateActiveDocument, exportJson, exportMenuOpen, fileMenuButtonRef, handleTitleUpdateAction, importDocumentFile, importInputRef, insertMenuButtonRef, loadingFileId, newDocButtonRef, newDocMenuOpen, openCommandSettings, openDocumentInWorkspace, openDocumentListDialog, openDocumentTabs, openImportDialog, openNewDocMenu, openOtherImportDialog, conversionLabel = null, openPrintPreview, openTextImportDialog, openVersionHistory, openWorkspaceScreen, otherImportInputRef, promoteAiToSidebar, reportIssue, requestOverlayImages, resolvedDocumentTitle, scheduleCloseNewDocMenu, setAiSettingsOpen, setDesktopSettingsOpen, setExportMenuOpen, setNewDocMenuOpen, setOutlineDialogOpen, setOverlayEditing, setPageSettingsOpen, setTemplateGalleryOpen, setTexCommandReferenceOpen, setTexEnvironmentSettingsOpen, setTitleInputFocused, settingsMenuButtonRef, showRichTitle, showTitleUpdateButton, titleInputValue, titleRichNodes, titleUpdateButtonDisabled, toggleCommentsPanel, toggleProblemDisplayPart, problemDisplay, problemDisplayAvailable, uiLayoutPreference, updateMetadata, versionHistoryOpen, workspaceTabsRow } = chrome.appMenu;
   const { commandTooltip, renderMenuShortcut } = chrome.commands;
   const { setMaterialLibraryOpen } = chrome.editing;
   const { ActiveTextAlignIcon, activeFontFamilyLabel, activeTextAlignOption, activeTextFontSize, activeTextFontSizeMixed, applyBlockStructure, applyBoxedTextPaddingY, applyInlineFormat, applyLineHeight, applyTextAlign, applyTextStyle, blockStyleState, boldActive, boxedTextActive, boxedTextButtonRef, boxedTextMenuOpen, boxedTextPaddingY, boxedTextVariant, canUseBlockStructure, canUseLineHeight, canUseTextAlign, canUseTextBlockStyle, canUseTextToolbar, fontFamily, fontFamilyButtonRef, fontFamilyIsKnownOption, fontFamilyIsMixed, fontFamilyMenuOpen, fontFamilyQuery, handleLineHeightStepClick, italicActive, lineHeight, lineHeightButtonRef, lineHeightCustomOpen, lineHeightInput, lineHeightInputError, lineHeightMenuOpen, moreBlocksMenuButtonRef, moreBlocksMenuOpen, orderedListMenuButtonRef, orderedListMenuOpen, setMoreBlocksMenuOpen, setOrderedListMenuOpen, saveEditorFontFamilyPreference, selectBoxedTextVariant, selectedTextAlign, selectedTextStyle, setFontFamily, setFontFamilyQuery, setLineHeightCustomOpen, setLineHeightInput, setLineHeightInputError, setTextBackgroundColor, setTextColor, setTextFontSize, startLineHeightStepping, stopLineHeightStepping, textAlignButtonRef, textAlignMenuOpen, textBackgroundColor, textBackgroundColorButtonRef, textColor, textColorButtonRef, toggleBoxedText, underlineActive, visibleCustomFontOptions, visibleFontFamilyGroups, blockStyleButtonRef, blockStyleMenuOpen, fontSizeInputRef, fontSizeSkipBlurRef, fontSizeInput, setFontSizeInput } = chrome.format;
@@ -86,6 +87,8 @@ export function renderEditorChrome(chrome: EditorChromeValue) {
   const { findNext, findPrevious, overlayEditing, replaceAll, replaceNext, replaceOpen, replaceText, searchButtonRef, searchMatchCount, searchOpen, searchQuery, setReplaceOpen, setReplaceText, setSearchOpen, setSearchQuery } = chrome.search;
   const { applyOverlayStyle, arrangeOverlayShapes, canChangeOverlayShapeType, changeOverlayShapeType, canArrangeOverlayShapes, canUseFillStyleControls, canUseLineEndpointControls, canUseLineStyleControls, canUseStrokeStyleControls, effectiveLineDashMenuOpen, effectiveLineEndpointMenu, effectiveLineWidthMenuOpen, fillColorButtonRef, fillColorPatch, lineDashButtonRef, lineWidthButtonRef, overlaySelection, selectedOverlayLineDash, selectedOverlayLineSize, selectionFill, selectionFillColor, selectionFillOpacity, setStrokeColor, strokeColor, strokeColorButtonRef } = chrome.shapeStyle;
   const { activeMenu, aiDocumentWriteInProgress, colorStylePanel, document, getActiveTextTarget, imageInputRef, insertInlineMath, isDesktopApp, isEmbedded, runEditCommand, runOverlayCommand, setStatusMessage, shapeGallerySections, lineToolItems, t, toggleMenu, versionHistoryPreviewActive } = chrome.shared;
+  // PowerPoint 以外の変換形式は、サービスが使えるときだけ名前つきで案内する (名前はサービス側が名乗る)。
+  const otherImportLabel = conversionLabel ? t("appMenu.file.importOther", { name: conversionLabel }) : t("appMenu.file.importPowerPoint");
   const { setActiveMenu, setBoxedTextMenuOpen, setColorStylePanel, setFontFamilyMenuOpen, setBlockStyleMenuOpen, setLineDashMenuOpen, setLineEndpointMenu, setLineHeightMenuOpen, setLineToolMenuOpen, setLineWidthMenuOpen, setShapeMenuOpen, setTextAlignMenuOpen } = chrome.toolbarMenus;
   const { activePageNumber, applyZoom, pageCount, zoom, zoomOptions } = chrome.view;
   const { applyColumnCommand, backstage, closeBackstage, columnCommand, contextualTabVisible, ribbonCollapse, ribbonIdPrefix, ribbonTabState, selectBackstageSection, selectRibbonTab, toggleBackstage, toggleRibbonCollapse } = chrome.ribbon;
@@ -185,7 +188,7 @@ export function renderEditorChrome(chrome: EditorChromeValue) {
           </button>
           {<button type="button" role="menuitem" onClick={openOtherImportDialog}>
             <FolderOpen size={16} />
-            <span>{t("appMenu.file.importOther")}</span>
+            <span>{otherImportLabel}</span>
           </button>}
           <button type="button" role="menuitem" onClick={openTextImportDialog}>
             <ClipboardPaste size={16} />
@@ -2430,7 +2433,7 @@ export function renderEditorChrome(chrome: EditorChromeValue) {
     <input
       ref={otherImportInputRef}
       type="file"
-      accept={POWERPOINT_IMPORT_ACCEPT}
+      accept={conversionLabel ? `${POWERPOINT_IMPORT_ACCEPT},${CONVERSION_IMPORT_ACCEPT}` : POWERPOINT_IMPORT_ACCEPT}
       hidden
       onChange={(event) => {
         const file = event.target.files?.[0];
@@ -2601,9 +2604,9 @@ export function renderEditorChrome(chrome: EditorChromeValue) {
               <span>{t("appMenu.file.import")}</span>
             </button>
             {(
-              <button type="button" className="ribbon-backstage-command" title={t("appMenu.file.importOther")} aria-label={t("appMenu.file.importOther")} onClick={() => runBackstageCommand(openOtherImportDialog)}>
+              <button type="button" className="ribbon-backstage-command" title={otherImportLabel} aria-label={otherImportLabel} onClick={() => runBackstageCommand(openOtherImportDialog)}>
                 <FolderOpen size={18} aria-hidden="true" />
-                <span>{t("appMenu.file.importOther")}</span>
+                <span>{otherImportLabel}</span>
               </button>
             )}
             <button type="button" className="ribbon-backstage-command" title={t("appMenu.file.importText")} aria-label={t("appMenu.file.importText")} onClick={() => runBackstageCommand(openTextImportDialog)}>

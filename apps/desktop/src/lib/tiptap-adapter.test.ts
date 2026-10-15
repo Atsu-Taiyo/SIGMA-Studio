@@ -12,6 +12,23 @@ import {
 import type { ParagraphNode } from "@/types/sigma-doc";
 
 describe("Tiptap adapter", () => {
+  it.each(["solid", "wavy", "dotted", "double"] as const)("preserves %s underline styles through edits and hard breaks", (underlineStyle) => {
+    const paragraph: ParagraphNode = {
+      type: "paragraph", id: "underline-style", children: [
+        { type: "text", text: "前\n次", marks: ["underline"], underlineStyle },
+        { type: "mathInline", id: "style-math", tex: "x^2", display: "inline", marks: ["underline"], underlineStyle, semanticRole: "expression" },
+        { type: "text", text: "後", marks: ["underline"], underlineStyle: "double" },
+      ],
+    };
+    const projection = toTiptap(paragraph);
+    projection.content[0].content![0].text = "編集済み";
+    expect(fromTiptap(projection, paragraph).children).toEqual([
+      { ...paragraph.children[0], text: "編集済み\n次" },
+      ...paragraph.children.slice(1),
+    ]);
+  });
+
+
   it("keeps overlay inline projection as a document-feature compatibility export", () => {
     expect(overlayRichTextInlinesToInlineNodes)
       .toBe(canonicalOverlayRichTextInlinesToInlineNodes);
@@ -271,6 +288,20 @@ describe("Tiptap adapter", () => {
       type: "boxed",
       attrs: { variant: "double", tone: "blue", math: true },
     });
+    expect(fromTiptap(tiptap, paragraph)).toEqual(paragraph);
+  });
+
+  it("keeps compact boxed text and math through an edit round-trip", () => {
+    const paragraph: ParagraphNode = {
+      type: "paragraph", id: "p_compact_boxed", align: undefined, lineHeight: undefined, children: [
+        { type: "text", text: "左右", marks: ["boxed"], boxedVariant: "compact" },
+        { type: "mathInline", id: "m_compact_boxed", tex: "f(x)", display: "inline",
+          marks: ["boxed"], boxedVariant: "compact", semanticRole: "expression" },
+      ],
+    };
+    const tiptap = toTiptap(paragraph);
+    expect(tiptap.content[0].content?.[0].marks).toContainEqual({ type: "boxed", attrs: { variant: "compact" } });
+    expect(tiptap.content[0].content?.[1].marks).toContainEqual({ type: "boxed", attrs: { variant: "compact", math: true } });
     expect(fromTiptap(tiptap, paragraph)).toEqual(paragraph);
   });
 });

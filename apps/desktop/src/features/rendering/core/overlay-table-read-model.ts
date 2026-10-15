@@ -1,7 +1,9 @@
 import {
   getTableCellMatrix,
+  normalizeLineHeight,
   resolveDocumentFontFamily,
   type SigmaTableCell,
+  type SigmaTableCellParagraph,
   type SigmaTableGridLineOverride,
   type SigmaTableGridStyle,
   type SigmaTableSpec,
@@ -498,6 +500,14 @@ export const OVERLAY_TABLE_CELL_STATIC_STYLE: OverlayTableStyleModel = {
   minWidth: "0",
   overflow: "hidden",
 };
+
+export function getTableCellParagraphStyleModel(content: SigmaTableCellParagraph): OverlayTableStyleModel {
+  const lineHeight = normalizeLineHeight(content.lineHeight);
+  return {
+    ...(content.align ? { textAlign: content.align } : {}),
+    ...(lineHeight ? { lineHeight } : {}),
+  };
+}
 
 /**
  * The inherited text declarations `.overlay-table-shape` supplies.

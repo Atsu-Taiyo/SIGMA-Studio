@@ -12,6 +12,7 @@ import type {
 import { isSafeCssDeclarationValue } from "@/features/document/css-safety";
 import {
   getTableCellContentLayerStyleModel,
+  getTableCellParagraphStyleModel,
   getTableCellStyleModel,
   getTableGridModel,
   getTableRenderedLineConnectorModels,
@@ -231,8 +232,8 @@ function OverlayTableCellContentStaticView({
 
   return (
     // `margin` is a literal and stays outside the funnel (React renders the number as `0px`, which
-    // the parity tests pin); `align` is the one document-supplied value here, so it goes through.
-    <p style={{ margin: 0, ...toReactStyle(content.align ? { textAlign: content.align } : {}) }}>
+    // the parity tests pin); document-supplied paragraph styles go through the shared model.
+    <p style={{ margin: 0, ...toReactStyle(getTableCellParagraphStyleModel(content)) }}>
       {renderInlineContent(getTableCellDisplayNodes(table, cell, content), {
         keyPrefix: content.id,
         mathFractionSizing,

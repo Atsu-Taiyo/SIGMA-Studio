@@ -85,6 +85,7 @@ import type { CommentPanelAuthor } from "@/components/editor/CommentThreadsPanel
 import { DesktopSettingsModal } from "@/components/editor/DesktopSettingsModal";
 import { DocumentLibraryDialog } from "@/components/editor/DocumentLibraryDialog";
 import { DocumentOpenFailurePanel } from "@/components/editor/DocumentOpenFailurePanel";
+import { ConversionImportNotice } from "@/components/editor/ConversionImportNotice";
 import { ProblemLibraryDialog } from "@/components/editor/ProblemLibraryDialog";
 import { DocumentTextCopyDialog,DocumentTextImportDialog } from "@/components/editor/DocumentTextTransferDialog";
 import {
@@ -3491,6 +3492,9 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
   const {
     importInputRef,
     otherImportInputRef,
+    conversionLabel,
+    conversionNotice,
+    setConversionNotice,
     textImportOpen,
     setTextImportOpen,
     documentTextCopyFallback,
@@ -4518,7 +4522,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
       closeDocumentTab, commentsPanelOpen, problemDisplay, problemDisplayAvailable, toggleProblemDisplayPart: toggleProblemDisplay, commitDocumentTitle, copyDocumentText, createDocumentTab, createWhiteboardDocumentTab, degradedWatcherScopes,
       deleteActiveDocument, documentMetadatas, documentTitle, duplicateActiveDocument, exportJson,
       exportMenuOpen, fileMenuButtonRef, handleTitleUpdateAction,
-      importDocumentFile, importInputRef, insertMenuButtonRef, loadingFileId,
+      importDocumentFile, importInputRef, insertMenuButtonRef, loadingFileId, conversionLabel,
       newDocButtonRef, newDocMenuOpen, openCommandSettings, openDocumentInWorkspace,
       openDocumentListDialog, openDocumentTabs, openImportDialog, openNewDocMenu, openOtherImportDialog,
       openPrintPreview, openTextImportDialog, otherImportInputRef,
@@ -5120,6 +5124,10 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
           onImport={(file) => importDocumentFile(file)}
           onClose={() => setTextImportOpen(false)}
         />
+      )}
+
+      {conversionNotice !== null && (
+        <ConversionImportNotice issues={conversionNotice} onClose={() => setConversionNotice(null)} />
       )}
 
       {documentTextCopyFallback !== null && (

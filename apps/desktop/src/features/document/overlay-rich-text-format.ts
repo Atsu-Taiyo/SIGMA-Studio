@@ -224,7 +224,7 @@ function normalizeNonnegativeNumber(value: unknown): number | undefined {
 }
 
 function normalizeBoxedVariant(value: unknown): BoxedVariant | undefined {
-  return value === "frame" || value === "thick" || value === "double" || value === "oval" || value === "shade"
+  return value === "frame" || value === "thick" || value === "double" || value === "oval" || value === "shade" || value === "compact"
     ? value
     : undefined;
 }

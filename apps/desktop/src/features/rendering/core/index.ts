@@ -1,3 +1,4 @@
+export { embeddedDocumentFontCss } from "./embedded-fonts";
 export * from "./apng";
 export * from "./arrowhead-ink";
 export * from "./arrowhead-spec";
@@ -18,6 +19,7 @@ export * from "./overlay-page-window";
 export * from "./overlay-render-attrs";
 export * from "./overlay-table-read-model";
 export * from "./overlay-text-line-count";
+export * from "./overlay-text-scale";
 export * from "./overlay-visibility-projection";
 export * from "./pagination";
 export * from "./problem-area-column-flow";
