@@ -1,4 +1,4 @@
-import { resolveDocumentFontFamily, type InlineNode } from "@/features/document";
+import { resolveDocumentFontFamily, type InlineNode, type UnderlineStyle } from "@/features/document";
 
 import {
   annotateBoxedInlineRuns,
@@ -37,7 +37,7 @@ export interface RichTextBoxDecoration {
 export type RichTextRenderDecoration =
   | { type: "bold" }
   | { type: "italic" }
-  | { type: "underline" }
+  | { type: "underline"; style?: UnderlineStyle }
   | { style: RichTextRenderStyle; type: "style" }
   | RichTextBoxDecoration;
 
@@ -140,7 +140,7 @@ function createInlineNodeRenderModel(
       decorations.push({ type: "style", style });
     }
     if (child.marks?.includes("underline")) {
-      decorations.push({ type: "underline" });
+      decorations.push({ type: "underline", ...(child.underlineStyle ? { style: child.underlineStyle } : {}) });
     }
     if (child.marks?.includes("boxed")) {
       decorations.push(createRichTextBoxDecoration(
@@ -161,7 +161,10 @@ function createInlineNodeRenderModel(
   }
 
   const decorations: RichTextRenderDecoration[] = (child.marks ?? []).flatMap((mark): RichTextRenderDecoration[] => {
-    if (mark === "bold" || mark === "italic" || mark === "underline") {
+    if (mark === "underline") {
+      return [{ type: mark, ...(child.underlineStyle ? { style: child.underlineStyle } : {}) }];
+    }
+    if (mark === "bold" || mark === "italic") {
       return [{ type: mark }];
     }
     if (mark === "boxed") {

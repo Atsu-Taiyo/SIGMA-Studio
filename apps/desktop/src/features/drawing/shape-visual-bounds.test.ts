@@ -6,9 +6,10 @@ import type {
   OverlayGeoShape,
   OverlayLineShape,
   OverlayShape,
+  OverlayTextShape,
 } from "@/features/document";
 
-import { ARROWHEAD_MARKER_SPECS, overlayStrokeWidth } from "@/features/rendering/core";
+import { ARROWHEAD_MARKER_SPECS, WIDEST_ARROWHEAD_EXTENT_IN_STROKES, overlayStrokeWidth } from "@/features/rendering/core";
 
 import { getShapeArrowheadPlan } from "./arrowhead-trim";
 import { trimPolylinePoints } from "./line-geometry";
@@ -353,9 +354,7 @@ describe("arrow head extents", () => {
 
   it("falls back to the widest known head for an unrecognised one", () => {
     const unknown = getShapeVisualBounds(arrow({ arrowheadEnd: "someFutureHead" as never, size: "m" }));
-    const bar = getShapeVisualBounds(arrow({ arrowheadEnd: "bar", size: "m" }));
-
-    expect(unknown.h).toBe(bar.h);
+    expect(unknown.h).toBe(overlayStrokeWidth("m") * WIDEST_ARROWHEAD_EXTENT_IN_STROKES);
   });
 });
 
@@ -503,6 +502,25 @@ describe("freehand visual bounds", () => {
     const polyline = line({ kind: "polyline", points });
 
     expect(getShapeVisualBounds(freehand).h).toBeLessThan(getShapeVisualBounds(polyline).h);
+  });
+});
+
+describe("page extent from painted bounds", () => {
+  it("ignores line selection padding while retaining stroke and text height", () => {
+    const lastLine = { ...line({ points: [{ x: 0, y: 0 }, { x: 0, y: 5 }] }), y: 90 };
+    const lastText: OverlayTextShape = { id: "last_text", type: "text", x: 10, y: 80,
+      props: { w: 100, h: 1, color: "#000000", size: "m", blocks: [{ type: "paragraph", id: "p",
+        children: [{ type: "text", text: "last row" }] }] } };
+    const pageEnd = 100;
+    const visualBottom = (shape: OverlayShape) => {
+      const bounds = getRotatedShapeVisualBounds(shape);
+      return bounds.y + bounds.h;
+    };
+
+    expect(getShapeBounds(lastLine).y + getShapeBounds(lastLine).h).toBeGreaterThan(pageEnd);
+    expect(visualBottom(lastLine)).toBeLessThan(pageEnd);
+    expect(visualBottom(lastText)).toBeGreaterThan(lastText.y + lastText.props.h);
+    expect(visualBottom(lastText)).toBeLessThan(pageEnd);
   });
 });
 

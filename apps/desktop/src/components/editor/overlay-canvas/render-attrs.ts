@@ -11,7 +11,8 @@ export {
   overlayStrokeWidth,
 } from "@/features/rendering/core";
 
-export function dashToStrokeDasharray(dash: OverlayDash): string | undefined {
+export function dashToStrokeDasharray(dash: OverlayDash, pattern?: readonly number[]): string | undefined {
+  if (pattern?.length) return pattern.join(" ");
   if (dash === "dashed") {
     return "8 6";
   }

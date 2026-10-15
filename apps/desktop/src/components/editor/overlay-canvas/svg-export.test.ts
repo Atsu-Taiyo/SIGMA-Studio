@@ -37,6 +37,16 @@ function getForeignObjectRects(svg: string | undefined): ForeignObjectRect[] {
 }
 
 describe("overlay svg export", () => {
+  it("serializes imported single-line wrapping without changing ordinary text wrapping", () => {
+    const shape: OverlayShape = { id: "source-line", type: "text", x: 0, y: 0,
+      props: { w: 120, h: 20, color: "#000000", size: "s", textWrap: "none",
+        blocks: [{ type: "paragraph", id: "p", children: [{ type: "text", text: "第1問" }] }] } };
+    const sourceSvg = getOverlayPreviewSvg({ overlaySnapshot: { version: 1, shapes: [shape], assets: {} } });
+    expect(sourceSvg).toContain("white-space:pre");
+    const ordinary: OverlayShape = { ...shape, props: { ...shape.props, textWrap: undefined } };
+    const ordinarySvg = getOverlayPreviewSvg({ overlaySnapshot: { version: 1, shapes: [ordinary], assets: {} } });
+    expect(ordinarySvg).toContain("white-space:pre-wrap");
+  });
   it("derives a preview svg from snapshot-only overlays", () => {
     const overlaySnapshot: OverlaySnapshot = {
       version: 1,
@@ -188,6 +198,21 @@ describe("overlay svg export", () => {
     expect(svg).toContain('<pattern id="fill-shape_hatch"');
     expect(svg).toContain('fill="url(#fill-shape_hatch)"');
     expect(svg).toContain('d="M -1 7 L 7 -1"');
+  });
+
+  it("exports dotted fills as one reusable vector pattern", () => {
+    const overlaySnapshot: OverlaySnapshot = {
+      version: 1, assets: {}, shapes: [{
+        id: "shape_dots", type: "line", x: 10, y: 20,
+        props: { kind: "polyline", points: [{ x: 0, y: 0 }, { x: 20, y: 0 }, { x: 20, y: 20 }, { x: 0, y: 20 }],
+          closed: true, fill: "solid", fillColor: "#ffffff", fillPattern: "dots", color: "#000000", dash: "solid", size: "s" },
+      }],
+    };
+    const svg = getOverlayPreviewSvg({ overlaySnapshot });
+    expect(svg).toContain('<pattern id="fill-shape_dots"');
+    expect(svg).toContain('<circle cx="2" cy="2" r="0.4" fill="#000000" stroke="none"');
+    expect(svg).toContain('<rect width="4" height="4" fill="#ffffff" stroke="none"');
+    expect(svg).toContain('fill="url(#fill-shape_dots)"');
   });
 
   it("escapes shape ids in arrow marker definitions and references", () => {

@@ -188,7 +188,7 @@ function measureKatexTree(tex: string, environment: MathRenderEnvironment): { as
   try {
     // 採寸に使う組版スタイルは描画と同じ出典から取る。ここだけ display 組版を直書きすると、
     // 用紙設定を textstyle にした文書で図形テキストの箱だけが過大なまま取り残される。
-    const styledTex = applyMathTypesetStyle(toKatexPreviewTex(tex) || "\\square", environment.typesetStyle);
+    const styledTex = applyMathTypesetStyle(toKatexPreviewTex(normalizeMathLiveBboxForMeasurement(tex)) || "\\square", environment.typesetStyle);
     const tree = katexRenderToHTMLTree(styledTex, {
       ...KATEX_MEASURE_OPTIONS,
       macros: environment.macroSet.katexMacros,
@@ -235,7 +235,9 @@ function computeTreeWidthEm(node: KatexTreeNode, scale: number): number {
     (parseEmStyleValue(style.paddingRight) ?? 0)
   ) * scale;
 
-  let total = contentWidth + spacing;
+  // KaTeX supplies frame padding through its .boxpad CSS class rather than
+  // inline styles. Include that advance when walking its DOM-free tree.
+  let total = contentWidth + spacing + (classes.includes("boxpad") ? .6 * nextScale : 0);
 
   const explicitWidth = parseEmStyleValue(style.width) ?? parseEmStyleValue(style.minWidth);
   if (explicitWidth !== undefined) {
@@ -302,6 +304,9 @@ function computeLeafWidthEm(node: KatexTreeNode): number {
     return 0;
   }
   if (chars.length === 1) {
+    // KaTeX gives CJK fallback leaves a Latin placeholder advance. The actual
+    // browser face draws these characters in a full-em cell.
+    if (classesIncludeCjkFallback(node) && isFullWidthChar(chars[0])) return CJK_FALLBACK_CHAR_WIDTH_EM;
     return typeof node.width === "number" ? node.width : estimateFallbackCharWidthEm(chars[0]);
   }
 
@@ -318,6 +323,30 @@ function computeLeafWidthEm(node: KatexTreeNode): number {
     chars.reduce((sum, char) => sum + widthForCharInFont(char, font), 0)
   ));
   return Math.max(...sums);
+}
+
+function classesIncludeCjkFallback(node: KatexTreeNode): boolean {
+  return node.classes?.includes("cjk_fallback") ?? false;
+}
+
+/** MathLive bbox padding is explicit; KaTeX boxed uses fixed .3em padding. */
+function normalizeMathLiveBboxForMeasurement(tex: string): string {
+  const command = /\\bbox\[([0-9.]+)em(?:,border:[^\]]+)?\]\{/g;
+  const match = command.exec(tex);
+  if (!match) return tex;
+  const padding = Number(match[1]);
+  if (!Number.isFinite(padding) || padding < 0 || padding > 100) return tex;
+  const start = match.index + match[0].length;
+  let end = start, depth = 1;
+  for (; end < tex.length; end += 1) {
+    if (tex[end] === "{" && tex[end - 1] !== "\\") depth += 1;
+    if (tex[end] === "}" && tex[end - 1] !== "\\" && --depth === 0) break;
+  }
+  if (depth !== 0) return tex;
+  const spacing = Number((padding - .3).toFixed(8));
+  const content = normalizeMathLiveBboxForMeasurement(tex.slice(start, end));
+  return tex.slice(0, match.index) + `\\boxed{\\hspace{${spacing}em}${content}\\hspace{${spacing}em}}`
+    + normalizeMathLiveBboxForMeasurement(tex.slice(end + 1));
 }
 
 function findMatchingFonts(codePoint: number, width: number): string[] {
@@ -350,6 +379,11 @@ function isFullWidthChar(char: string): boolean {
     (codePoint >= 0x1100 && codePoint <= 0x11ff) ||
     (codePoint >= 0x2e80 && codePoint <= 0xa4cf) ||
     (codePoint >= 0xac00 && codePoint <= 0xd7af) ||
+    // Private-use glyphs have no KaTeX font metrics. A custom font often uses a
+    // full-em symbol cell, so keep one glyph cell instead of counting its TeX code.
+    (codePoint >= 0xe000 && codePoint <= 0xf8ff) ||
+    (codePoint >= 0xf0000 && codePoint <= 0xffffd) ||
+    (codePoint >= 0x100000 && codePoint <= 0x10fffd) ||
     (codePoint >= 0xf900 && codePoint <= 0xfaff) ||
     (codePoint >= 0xff00 && codePoint <= 0xffef)
   );
@@ -358,6 +392,18 @@ function isFullWidthChar(char: string): boolean {
 /** Used only when KaTeX's own tree render throws (unknown macro, parse error, etc). */
 function estimateFallbackWidthEm(tex: string): number {
   const visible = tex
+    // Font selectors carry metadata, not visible characters. KaTeX does not
+    // support MathLive's custom-family command, so this is a fallback-only path.
+    .replace(/\\fontfamily\s*\{[^}]*\}/g, "")
+    .replace(/\\selectfont\b/g, "")
+    .replace(/\\char\s*"([0-9a-fA-F]+)/g, (command, hex: string) => {
+      const codePoint = Number.parseInt(hex, 16);
+      return codePoint <= 0x10ffff && !(codePoint >= 0xd800 && codePoint <= 0xdfff)
+        ? String.fromCodePoint(codePoint)
+        : command;
+    })
+    // Text/font wrappers draw their contents but have no advance of their own.
+    .replace(/\\(?:text|textrm|textsf|texttt|textbf|textit|mathrm|mathbf|mathsf|mathtt|mathit|mathnormal)\b(?=\s*\{)/g, "")
     .replace(/\\(?:begin|end)\s*\{[^}]*\}/g, "")
     .replace(/\\[a-zA-Z]+/g, "M")
     .replace(/[{}^_\\]/g, "");

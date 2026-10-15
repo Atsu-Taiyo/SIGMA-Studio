@@ -105,6 +105,22 @@ describe("arrow head ink reach", () => {
 });
 
 describe("planArrowheadEndpoints", () => {
+  it("keeps imported head dimensions independent of a thicker shaft and anchors both ends", () => {
+    const thin = planArrowheadEndpoints("stealth", "triangleNarrow", 1, 100, { start: 100, end: 100 });
+    const thick = planArrowheadEndpoints("stealth", "triangleNarrow", 2, 100, { start: 100, end: 100 }, undefined, 0.5);
+    for (const endpoint of ["start", "end"] as const) {
+      const a = thin[endpoint], b = thick[endpoint];
+      if (!a.spec || !b.spec || a.spec.geometry.kind !== "polyline" || b.spec.geometry.kind !== "polyline") throw new Error("Missing head");
+      const physical = (placement: typeof a, width: number) => {
+        const spec = placement.spec!;
+        if (spec.geometry.kind !== "polyline") throw new Error("Unexpected head");
+        return spec.geometry.points.map((p) => [(p.x - spec.tipX) * width, (p.y - spec.refY) * width]);
+      };
+      expect(physical(b, 2)).toEqual(physical(a, 1));
+      expect(b.refX * 2 + b.trimPx).toBeCloseTo(b.spec.tipX * 2, 8);
+    }
+  });
+
   it.each(ARROWHEAD_MARKER_SPECS)("lands the point of $kind on the stored endpoint at every size", (spec) => {
     for (const size of SIZES) {
       const strokeWidth = overlayStrokeWidth(size);

@@ -66,6 +66,8 @@ import { registerCodexIpc } from "./ipc/codex";
 import { registerAiEditIpc } from "./ipc/ai-edit";
 import { registerAiResourcesIpc } from "./ipc/ai-resources";
 import { registerFileIpc } from "./ipc/file";
+import { ApplicationFontStore } from "./application-font-store";
+import { DocumentConversionClient } from "./document-conversion-client";
 import { documentPathsFromArgv, ExternalDocumentOpenQueue } from "./external-document-open";
 import { registerMaterialsIpc } from "./ipc/materials";
 import { registerStorageIpc } from "./ipc/storage";
@@ -170,6 +172,7 @@ let stopAiResourceWatch: (() => void) | null = null;
 let stopAiSettingsWatch: (() => void) | null = null;
 const localSigmaDocStore = new LocalSigmaDocStore(USER_DATA_PATH);
 protocol.registerSchemesAsPrivileged([
+  { scheme: "sigma-app-font", privileges: { secure: true, corsEnabled: true, supportFetchAPI: true, stream: true } },
   { scheme: "sigma-doc-storage", privileges: { secure: true, supportFetchAPI: false, stream: true } },
   { scheme: "sigma-collaboration-profile", privileges: { secure: true, supportFetchAPI: false, stream: true } },
 ]);
@@ -212,6 +215,11 @@ const localAiEditRunLogStore = new LocalAiEditRunLogStore(USER_DATA_PATH);
 const localAiEditChatRoomStore = new LocalAiEditChatRoomStore(USER_DATA_PATH);
 const localAiResourceStore = new LocalAiResourceStore(USER_DATA_PATH);
 const SIGMA_STUDIO_DATA_PATH = localSigmaDocStore.getDataDir();
+const applicationFontStore = new ApplicationFontStore(path.join(SIGMA_STUDIO_DATA_PATH, "font-resources"));
+const documentConversionClient = new DocumentConversionClient({
+  url: process.env.SIGMA_DOCUMENT_CONVERSION_URL, allowLoopbackHttp: !app.isPackaged,
+  auth: collaborationSessions.auth, fontStore: applicationFontStore,
+});
 const localFontService = new LocalFontService();
 const appUpdateController = new AppUpdateController({ releaseUrl: RELEASE_PAGE_URL });
 const desktopSettings = readDesktopSettingsSync(SIGMA_STUDIO_DATA_PATH);
@@ -1531,6 +1539,7 @@ function registerIpc() {
     getMainWindow: () => mainWindow,
     releaseUrl: RELEASE_PAGE_URL,
     dataDir: SIGMA_STUDIO_DATA_PATH,
+    applicationFontStore, ensureFontResources: ids => documentConversionClient.ensureFontResources(ids),
     appUpdateController,
     quitAndInstall: () => {
       if (appUpdateController.getStatus().phase !== "downloaded") {
@@ -1597,6 +1606,7 @@ function registerIpc() {
 
   registerFileIpc({
     getMainWindow: () => mainWindow,
+    documentConversionClient,
     externalDocumentOpenQueue,
     resolveSessionImage: async source => {
       const response = await collaborationSessions.assetResponse(source);
@@ -1631,6 +1641,15 @@ function registerIpc() {
 app.whenReady().then(async () => {
   await collaborationSessions.initialize();
   stopSessionBridge = await startSessionBridge(collaborationSessions, localSigmaDocStore);
+  protocol.handle("sigma-app-font", async request => {
+    let response = await applicationFontStore.response(request.url);
+    const id = /^sigma-app-font:\/\/([a-f0-9]{64})\/$/u.exec(request.url)?.[1];
+    if (response.status === 404 && id) {
+      await documentConversionClient.ensureFontResources([id]).catch(() => {});
+      response = await applicationFontStore.response(request.url);
+    }
+    return response;
+  });
   protocol.handle("sigma-doc-storage", request => collaborationSessions.assetResponse(request.url));
   protocol.handle("sigma-collaboration-profile", request => profileImageResponse(request.url));
   registerCollaborationIpc(collaborationSessions, sharedCatalog);

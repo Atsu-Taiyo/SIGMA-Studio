@@ -7,6 +7,7 @@ import { parseCssFontSizeToPt } from "@/lib/font-size-units";
 import {
   normalizeLineHeight,
   type BoxedVariant,
+  type UnderlineStyle,
 } from "@/features/document";
 import {
   boxedInlineDomSpec,
@@ -14,6 +15,8 @@ import {
   inlineTextStyleDeclarations,
   BOXED_TEXT_CLASS_NAME,
   UNDERLINE_RUN_CLASS_NAME,
+  underlineDomAttrs,
+  UNDERLINE_WAVE_CLASS_NAME,
 } from "@/features/rendering/adapters";
 
 declare module "@tiptap/core" {
@@ -53,6 +56,16 @@ export const UnderlineExtension = Mark.create({
   // `.sigma-underline-run` wraps the whole sequence.
   priority: 1000,
 
+  addAttributes() {
+    return {
+      style: {
+        default: null,
+        parseHTML: (element) => normalizeUnderlineStyle(element.getAttribute("data-sigma-doc-underline-style") ?? element.style.textDecorationStyle),
+        renderHTML: () => ({}),
+      },
+    };
+  },
+
   parseHTML() {
     return [
       { tag: "u" },
@@ -69,8 +82,12 @@ export const UnderlineExtension = Mark.create({
     ];
   },
 
-  renderHTML({ HTMLAttributes }) {
-    return ["span", mergeAttributes(HTMLAttributes, { class: UNDERLINE_RUN_CLASS_NAME, "data-sigma-doc-underline-text": "true" }), 0];
+  renderHTML({ HTMLAttributes, mark }) {
+    const style = normalizeUnderlineStyle(mark.attrs.style) ?? undefined;
+    const attrs = mergeAttributes(HTMLAttributes, { class: UNDERLINE_RUN_CLASS_NAME, ...underlineDomAttrs(style) });
+    return style === "wavy"
+      ? ["span", attrs, ["span", {}, 0], ["span", { class: UNDERLINE_WAVE_CLASS_NAME, "aria-hidden": "true" }]]
+      : ["span", attrs, 0];
   },
 
   addCommands() {
@@ -78,11 +95,11 @@ export const UnderlineExtension = Mark.create({
       setUnderline:
         () =>
         ({ dispatch, state }) =>
-          updateInlineMarkInSelection(state, dispatch, this.name, {}, "set"),
+          updateInlineMarkInSelection(state, dispatch, this.name, {}, "set", { mergeAttrs: true }),
       toggleUnderline:
         () =>
         ({ dispatch, state }) =>
-          updateInlineMarkInSelection(state, dispatch, this.name, {}, "toggle"),
+          updateInlineMarkInSelection(state, dispatch, this.name, {}, "toggle", { mergeAttrs: true }),
       unsetUnderline:
         () =>
         ({ dispatch, state }) =>
@@ -484,7 +501,7 @@ function normalizeBoxedPaddingY(value: unknown): number | null {
 }
 
 function normalizeBoxedVariant(value: unknown): BoxedVariant | null {
-  return value === "frame" || value === "thick" || value === "double" || value === "oval" || value === "shade"
+  return value === "frame" || value === "thick" || value === "double" || value === "oval" || value === "shade" || value === "compact"
     ? value
     : null;
 }
@@ -493,4 +510,8 @@ function normalizeBoxedTone(value: unknown): "gray" | "blue" | "green" | "red" |
   return value === "gray" || value === "blue" || value === "green" || value === "red" || value === "yellow"
     ? value
     : null;
+}
+
+function normalizeUnderlineStyle(value: unknown): UnderlineStyle | null {
+  return value === "solid" || value === "wavy" || value === "dotted" || value === "double" ? value : null;
 }

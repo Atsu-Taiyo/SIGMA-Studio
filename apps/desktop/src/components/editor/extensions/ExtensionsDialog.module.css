@@ -1,0 +1,150 @@
+.title {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-sm);
+}
+
+.body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xl);
+}
+
+/* 追加したものは「どんな見た目か」と名前だけを並べる。ファイル名や日付などの副次情報は
+   各タイルの3点メニューへ収める (docs/design-rules.md > Item Grids And Item Menus)。 */
+.grid {
+  margin: var(--space-none);
+  padding: var(--space-none);
+  list-style: none;
+}
+
+.tile {
+  display: grid;
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-panel);
+  background: var(--surface-soft);
+}
+
+.tile[data-menu-open="true"] {
+  border-color: var(--border);
+}
+
+.fontPreview {
+  display: grid;
+  height: 72px;
+  place-items: center;
+  overflow: hidden;
+  border-bottom: 1px solid var(--border-subtle);
+  background: var(--background);
+  color: var(--text-primary);
+  font-size: 30px;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.tileFooter {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: var(--space-xs);
+  padding: var(--space-xs) var(--space-xs) var(--space-xs) var(--space-md);
+}
+
+/* 入りきらない名前は「…」で切らず、右端に向かって薄れさせる (Overflow Fade)。
+   薄れる幅ぶんの余白を右に持たせるので、収まる名前の文字は薄れない。全文は title で確認できる。 */
+.tileName {
+  --tile-name-fade: 14px;
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  padding-right: var(--tile-name-fade);
+  -webkit-mask-image: linear-gradient(to right, #000 calc(100% - var(--tile-name-fade)), transparent);
+  mask-image: linear-gradient(to right, #000 calc(100% - var(--tile-name-fade)), transparent);
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 650;
+  white-space: nowrap;
+}
+
+.empty {
+  margin: var(--space-none);
+  padding: var(--space-md);
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-panel);
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+/* 3点メニュー。ToolbarPopover が画面固定で配置するので、見た目だけをここで持つ。 */
+.menu {
+  display: grid;
+  min-width: 200px;
+  max-width: 280px;
+  padding: var(--space-xs);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-panel);
+  background: var(--background);
+  box-shadow: var(--shadow-floating);
+}
+
+.menuDetails {
+  display: grid;
+  gap: var(--space-xs);
+  padding: var(--space-sm) var(--space-md);
+  border-bottom: 1px solid var(--border-subtle);
+  margin-bottom: var(--space-xs);
+}
+
+.menuDetailLabel {
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.menuDetailValue {
+  overflow-wrap: anywhere;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.menuDetailValue[data-mono="true"] {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11.5px;
+}
+
+.menuItem {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  align-items: center;
+  gap: var(--space-sm);
+  min-height: 34px;
+  padding: var(--space-none) var(--space-md);
+  border: 0;
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--text-primary);
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.menuItem:hover,
+.menuItem:focus-visible {
+  background: var(--surface-muted);
+  outline: none;
+}
+
+.menuItem[data-tone="danger"] {
+  color: var(--danger);
+}
+
+.menuItem:disabled {
+  color: var(--text-muted);
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.menuItem:disabled:hover {
+  background: transparent;
+}

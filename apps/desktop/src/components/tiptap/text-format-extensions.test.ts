@@ -1,3 +1,5 @@
+// @vitest-environment happy-dom
+
 import { getSchema } from "@tiptap/core";
 import { DOMParser, DOMSerializer } from "@tiptap/pm/model";
 import { EditorState, TextSelection } from "@tiptap/pm/state";
@@ -19,6 +21,29 @@ const schema = getSchema([
 ]);
 
 describe("text format extensions", () => {
+  it.each(["solid", "wavy", "dotted", "double"] as const)("keeps %s underline on edited text/math through schema HTML and canonical round trip", (style) => {
+    const mark = schema.marks.underline.create({ style });
+    const doc = schema.nodes.doc.create(null, schema.nodes.paragraph.create(null, [
+      schema.text("前", [mark]),
+      schema.nodes.mathInline.create({ id: "underline-edit", tex: "x^2" }, null, [mark]),
+      schema.text("後", [mark]),
+    ]));
+    let state = EditorState.create({ doc, selection: TextSelection.create(doc, 2) });
+    state = state.apply(state.tr.insertText("追記"));
+    state.doc.firstChild!.forEach((node) => expect(schema.marks.underline.isInSet(node.marks)?.attrs.style).toBe(style));
+    const window = new Window();
+    const container = window.document.createElement("div");
+    try {
+      DOMSerializer.fromSchema(schema).serializeFragment(state.doc.content,
+        { document: window.document as unknown as Document }, container as unknown as HTMLElement);
+      const parsed = DOMParser.fromSchema(schema).parse(container as unknown as Node);
+      parsed.firstChild!.forEach((node) => expect(schema.marks.underline.isInSet(node.marks)?.attrs.style ?? "solid").toBe(style));
+      expect(parsed.textContent).toBe("前追記後");
+      expect(parsed.firstChild!.child(1).attrs.tex).toBe("x^2");
+    } finally {
+      window.close();
+    }
+  });
   it("toggles underline over text and inline math in one selection", () => {
     const underline = schema.marks.underline;
     const doc = schema.nodes.doc.create(null, [

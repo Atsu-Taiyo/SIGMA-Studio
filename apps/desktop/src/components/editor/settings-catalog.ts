@@ -16,6 +16,7 @@
 export type SettingsSurfaceId =
   | "desktopApp"
   | "desktopAi"
+  | "extensions"
   | "page"
   | "commands"
   | "aiResources"
@@ -41,10 +42,6 @@ export interface SettingsEntryDefinition {
 }
 
 export const SETTINGS_ENTRIES: readonly SettingsEntryDefinition[] = [
-  {
-    id: "settings.app.plugins", surface: "desktopApp", anchorId: "desktop-settings-plugins",
-    labelKey: "plugins.title", descriptionKey: "plugins.description", keywordsKey: "plugins.keywords",
-  },
   // --- アプリ設定 (DesktopSettingsModal, mode="app") ---
   {
     id: "settings.app.language",
@@ -53,14 +50,6 @@ export const SETTINGS_ENTRIES: readonly SettingsEntryDefinition[] = [
     labelKey: "language.label",
     descriptionKey: "language.description",
     keywordsKey: "catalog.keywords.language",
-  },
-  {
-    id: "settings.app.fonts",
-    surface: "desktopApp",
-    anchorId: "desktop-settings-font-add",
-    labelKey: "app.font.add",
-    descriptionKey: "app.font.addDescription",
-    keywordsKey: "catalog.keywords.fonts",
   },
   {
     id: "settings.app.version",
@@ -75,6 +64,24 @@ export const SETTINGS_ENTRIES: readonly SettingsEntryDefinition[] = [
     anchorId: "desktop-settings-data-dir",
     labelKey: "app.localData.path",
     keywordsKey: "catalog.keywords.dataDir",
+  },
+  // --- 拡張機能 (ExtensionsDialog) ---
+  // フォントの id は、アプリ設定に居た頃のまま使う (id は永続する契約。最近使った履歴が参照する)。
+  {
+    id: "settings.app.fonts",
+    surface: "extensions",
+    anchorId: "extensions-fonts",
+    labelKey: "extensions.font.add",
+    descriptionKey: "extensions.font.addDescription",
+    keywordsKey: "catalog.keywords.fonts",
+  },
+  {
+    id: "settings.extensions.plugins",
+    surface: "extensions",
+    anchorId: "extensions-plugins",
+    labelKey: "plugins.title",
+    descriptionKey: "plugins.description",
+    keywordsKey: "plugins.keywords",
   },
   // --- AI 設定 (DesktopSettingsModal, mode="ai") ---
   {
@@ -210,6 +217,7 @@ export const SETTINGS_SURFACE_DESKTOP_MODE: Readonly<Partial<Record<SettingsSurf
 export const SETTINGS_SURFACE_SOURCES: Readonly<Record<SettingsSurfaceId, string>> = {
   desktopApp: "src/components/editor/DesktopSettingsModal.tsx",
   desktopAi: "src/components/editor/DesktopSettingsModal.tsx",
+  extensions: "src/components/editor/extensions/ExtensionsDialog.tsx",
   page: "src/components/editor/PageSettingsDialog.tsx",
   commands: "src/components/editor/CommandSettingsDialog.tsx",
   aiResources: "src/components/editor/AiSettingsDialog.tsx",

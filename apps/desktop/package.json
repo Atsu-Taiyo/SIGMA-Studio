@@ -6,7 +6,7 @@
   "main": "dist-electron/main.cjs",
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "build": "next build && node ../../scripts/audit-private-conversion.mjs --build",
     "start": "next start",
     "lint": "eslint . --max-warnings=0",
     "test": "vitest run",
@@ -19,7 +19,7 @@
     "perf:probe:reportOnly": "node scripts/perf-probe.mjs --report-only",
     "csp:smoke": "electron scripts/electron-csp-smoke.mjs out",
     "typecheck": "tsc --noEmit",
-    "electron:build": "node scripts/build-electron.mjs",
+    "electron:build": "node scripts/build-electron.mjs && node ../../scripts/audit-private-conversion.mjs --build",
     "icons:generate": "node scripts/generate-app-icons.mjs",
     "electron:brand-dev": "node scripts/brand-dev-electron.mjs",
     "electron:prepare": "cross-env NEXT_PUBLIC_TARGET=desktop next build && npm run electron:build",

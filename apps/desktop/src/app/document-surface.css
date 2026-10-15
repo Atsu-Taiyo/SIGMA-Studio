@@ -93,6 +93,7 @@
 
 .boxed-run-framed {
   position: relative;
+  isolation: isolate;
 }
 
 /* One rectangle per connected run, positioned where the run actually is. */
@@ -105,6 +106,7 @@
   height: 0;
   overflow: visible;
   pointer-events: none;
+  z-index: -1;
 }
 
 .boxed-run-frame {
@@ -210,6 +212,24 @@
   line-height: normal;
 }
 
+/* Compact frames use math struts without extra line leading. */
+.boxed-text[data-sigma-doc-boxed-variant="compact"] {
+  --boxed-text-padding-y: 1px;
+}
+
+.boxed-text[data-sigma-doc-boxed-variant="compact"]:not(:has([data-boxed-run-height-target="true"])),
+.boxed-text[data-sigma-doc-boxed-variant="compact"] [data-boxed-run-height-target="true"] {
+  padding-inline: 1px !important;
+}
+
+.boxed-text[data-sigma-doc-boxed-variant="compact"] .inline-math-node {
+  margin-inline: 0;
+}
+
+.boxed-text[data-sigma-doc-boxed-variant="compact"] :is(.inline-math-node, .math-preview, .ML__latex) {
+  line-height: 0;
+}
+
 /* TeX box-command variants (\ovalbox, \tcolorbox, \itembox, …). The default
    (no variant attribute) keeps the thin \fbox-style frame above. */
 
@@ -308,13 +328,15 @@
   font: inherit;
 }
 
-.boxed-text[data-sigma-doc-boxed-variant="oval"] {
+.boxed-text[data-sigma-doc-boxed-variant="oval"],
+.boxed-run-frame[data-sigma-doc-boxed-variant="oval"] {
   --boxed-text-border-radius: 0.9em;
   padding-left: 0.45em;
   padding-right: 0.45em;
 }
 
-.boxed-text[data-sigma-doc-boxed-variant="shade"] {
+.boxed-text[data-sigma-doc-boxed-variant="shade"],
+.boxed-run-frame[data-sigma-doc-boxed-variant="shade"] {
   --boxed-text-border-color: var(--boxed-tone-border, #9ca3af);
   --boxed-text-background: var(--boxed-tone-fill, #f3f4f6);
   --boxed-text-border-radius: 4px;
@@ -1055,6 +1077,13 @@ u:has(.math-preview) .inline-math-node {
   margin-left: 0;
 }
 
+/* MathLive's font leading is not ink. Its explicit struts retain the formula
+   height and depth; extra leading would push a mixed text/math underline down. */
+.sigma-underline-run :is(.inline-math-node, .math-preview, .ML__latex),
+u:has(.math-preview) :is(.inline-math-node, .math-preview, .ML__latex) {
+  line-height: 0;
+}
+
 /* 数式を含む下線はrun全体のborderで描き、背の高い数式と二重線を避ける。 */
 
 .sigma-underline-run:has(.math-preview),
@@ -1069,6 +1098,48 @@ u:has(.math-preview) {
   padding-bottom: 0.1em;
   box-decoration-break: clone;
   -webkit-box-decoration-break: clone;
+}
+
+/* Native underline variants also apply to imported text/math runs. */
+.sigma-underline-run[data-sigma-doc-underline-style="wavy"]:not(:has(.math-preview)) {
+  text-decoration-style: wavy;
+}
+.sigma-underline-run[data-sigma-doc-underline-style="dotted"]:not(:has(.math-preview)) {
+  text-decoration-style: dotted;
+}
+.sigma-underline-run[data-sigma-doc-underline-style="double"]:not(:has(.math-preview)) {
+  text-decoration-style: double;
+}
+.sigma-underline-run[data-sigma-doc-underline-style="dotted"]:has(.math-preview) {
+  border-bottom: 1.25px dotted currentColor;
+}
+.sigma-underline-run[data-sigma-doc-underline-style="double"]:has(.math-preview) {
+  border-bottom: 3px double currentColor;
+}
+.sigma-underline-run[data-sigma-doc-underline-style="wavy"] {
+  position: relative;
+}
+.sigma-underline-run[data-sigma-doc-underline-style="wavy"]:has(.math-preview) {
+  border-bottom: 0;
+  padding-bottom: 4px;
+}
+
+/* Wavy math underlines use the current text colour and a repeated CSS mask. */
+.sigma-underline-wave {
+  display: none;
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 4px;
+  background-color: currentColor;
+  mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='4' viewBox='0 0 8 4'%3E%3Cpath d='M0 2 Q2 0 4 2 T8 2' fill='none' stroke='black' stroke-width='1'/%3E%3C/svg%3E");
+  mask-size: 8px 4px;
+  mask-repeat: repeat-x;
+  pointer-events: none;
+}
+.sigma-underline-run:has(.math-preview) > .sigma-underline-wave {
+  display: block;
 }
 
 /* Kill any nested text-decoration inside a continuous math underline run so the
@@ -1767,6 +1838,16 @@ li[data-list-marker-typography]::marker {
   outline: none;
   overflow-wrap: anywhere;
   white-space: pre-wrap;
+}
+
+/* Imported source rows retain explicit breaks but never acquire a browser wrap
+   merely because editable math uses a different glyph advance. Ordinary text
+   shapes keep the width-controlled wrapping above. */
+.overlay-text-shape.no-auto-wrap .overlay-text-shape-content,
+.overlay-text-shape.no-auto-wrap .overlay-text-shape-content :is(p, h1, h2, h3) {
+  overflow-wrap: normal;
+  word-break: normal;
+  white-space: pre;
 }
 
 /* 図中テキストの組版は本文と別。本文の 1.78 行送りと段落マージンは、図の中の 1 語ラベルには

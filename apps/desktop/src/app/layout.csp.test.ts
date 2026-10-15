@@ -35,7 +35,7 @@ describe("desktop renderer Content-Security-Policy", () => {
       "script-src-attr 'none'",
       "style-src 'self' 'unsafe-inline'",
       "img-src 'self' data: blob: sigma-doc-storage: sigma-collaboration-profile:",
-      "font-src 'self'",
+      "font-src 'self' data: sigma-app-font:",
       "connect-src 'self'",
       "object-src 'none'",
       "frame-src 'none'",

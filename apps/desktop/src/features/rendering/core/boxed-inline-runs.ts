@@ -55,6 +55,8 @@ export interface BoxedRunRect {
 
 export interface BoxedRunMeasurement<TTarget> extends BoxedRunRect {
   boxedTarget?: TTarget;
+  /** Empty flex text has no baseline; stretching it would move the whole line. */
+  whitespaceOnly?: boolean;
 }
 
 export interface BoxedRunLineTarget {
@@ -219,8 +221,10 @@ export function computeBoxedRunLineTargets<TTarget>(
   const targets = new Map<TTarget, BoxedRunLineTarget>();
 
   for (const line of splitBoxedRunRectsIntoLines(measurements)) {
-    const targetTop = Math.min(...line.map((rect) => rect.top));
-    const targetBottom = Math.max(...line.map((rect) => rect.bottom));
+    const content = line.filter((rect) => !rect.whitespaceOnly);
+    const visibleLine = content.length ? content : line;
+    const targetTop = Math.min(...visibleLine.map((rect) => rect.top));
+    const targetBottom = Math.max(...visibleLine.map((rect) => rect.bottom));
     const targetHeight = targetBottom - targetTop;
     if (!Number.isFinite(targetHeight) || targetHeight <= 0) {
       continue;
@@ -228,6 +232,12 @@ export function computeBoxedRunLineTargets<TTarget>(
 
     for (const rect of line) {
       if (rect.boxedTarget === undefined) {
+        continue;
+      }
+      if (rect.whitespaceOnly) {
+        // Keep the gap in its native box (and in frame/connection bookkeeping),
+        // but never add vertical padding to a flex item with no text baseline.
+        targets.set(rect.boxedTarget, { targetHeight: rect.height, ownHeight: rect.height, extraPaddingTop: 0, extraPaddingBottom: 0 });
         continue;
       }
       const previous = targets.get(rect.boxedTarget);

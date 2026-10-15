@@ -40,6 +40,7 @@ describe("editor toolbar formatting", () => {
   it("accepts only the supported boxed-text variants", () => {
     expect(normalizeBoxedTextVariant("frame")).toBe("frame");
     expect(normalizeBoxedTextVariant("shade")).toBe("shade");
+    expect(normalizeBoxedTextVariant("compact")).toBe("compact");
     expect(normalizeBoxedTextVariant("unknown")).toBeUndefined();
     expect(normalizeBoxedTextVariant(null)).toBeUndefined();
   });

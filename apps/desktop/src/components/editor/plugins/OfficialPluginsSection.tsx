@@ -42,7 +42,7 @@ function completion(intent: Intent, status: OfficialPluginStatus): Notice | null
 const keeps = (notice: Notice, status: OfficialPluginStatus) => hasAccess(status) && status.phase === "idle" && !status.error
   && (!notice.plugin || status.plugins.some(row => row.id === notice.plugin && row.authorized === true));
 
-export function OfficialPluginsSection({ onFontsChanged }: { onFontsChanged?: () => void }) {
+export function OfficialPluginsSection({ id, onFontsChanged }: { id?: string; onFontsChanged?: () => void }) {
   const t = useT("settings");
   const [status, setStatus] = useState<OfficialPluginStatus | null>(null);
   const [pending, setPending] = useState(false);
@@ -126,7 +126,7 @@ export function OfficialPluginsSection({ onFontsChanged }: { onFontsChanged?: ()
   const unavailable = !bridge || status?.available === false;
   const error = status?.error ?? actionError ?? (loadFailed ? "unavailable" : null);
   return (
-    <SettingsSection title={t("plugins.title")} description={t("plugins.description")}
+    <SettingsSection id={id} title={t("plugins.title")} description={t("plugins.description")}
       actions={bridge && <Button tone="secondary" disabled={busy || unavailable} onClick={() => void run({ kind: "check" }, () => bridge.check())}>
         <RefreshCw size={14} />{t("plugins.check")}
       </Button>}>

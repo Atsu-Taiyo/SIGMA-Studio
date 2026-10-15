@@ -6,6 +6,7 @@ import type {
 } from "react";
 
 import { OverlayTextBlocksView } from "@/components/editor/text-flow/OverlayTextBlocksView";
+import { overlayTextScale } from "@/features/rendering/core";
 import {
   Graph2DPreview,
   Graph3DStaticLabelOverlay,
@@ -334,6 +335,10 @@ export const OverlayShapeView = memo(function OverlayShapeView({
         transform: composeShapeTransform(rotation, dragTranslate, shape.flipX, shape.flipY),
         transformOrigin: shapeTransformOrigin(shape, bounds, rotation),
         opacity: shape.opacity,
+        // Pointer routing for outline-only frames uses the canvas geometry
+        // hit test; their rectangular DIV must not cover enclosed text/math.
+        ...((shape.type === "geo" || shape.type === "line") && shape.props.hitTestMode === "stroke"
+          ? { pointerEvents: "none" as const } : {}),
       }}
       onPointerDown={(event) => onPointerDown(event, shape)}
       onDoubleClickCapture={(event) => {
@@ -450,6 +455,8 @@ export const OverlayShapeHitTarget = memo(function OverlayShapeHitTarget({
         height: bounds.h,
         transform: composeShapeTransform(rotation, dragTranslate, shape.flipX, shape.flipY),
         transformOrigin: shapeTransformOrigin(shape, bounds, rotation),
+        ...((shape.type === "geo" || shape.type === "line") && shape.props.hitTestMode === "stroke"
+          ? { pointerEvents: "none" as const } : {}),
       }}
       onPointerDown={(event) => onPointerDown(event, shape)}
       onDoubleClick={(event) => {
@@ -494,7 +501,7 @@ export function ShapeBody({
   onGraphCropEnd: () => void;
 }) {
   if (shape.type === "geo") {
-    const strokeWidth = overlayStrokeWidth(shape.props.size);
+    const strokeWidth = overlayStrokeWidth(shape.props.size, shape.props.strokeScale);
     const labelPoint = { x: shape.props.w / 2, y: shape.props.h / 2 };
     return (
       <svg
@@ -504,7 +511,7 @@ export function ShapeBody({
         style={{
           color: shape.props.color,
           strokeWidth,
-          strokeDasharray: dashToStrokeDasharray(shape.props.dash),
+          strokeDasharray: dashToStrokeDasharray(shape.props.dash, shape.props.dashPattern),
         }}
       >
         <GeoSvgBody shape={shape} />
@@ -529,7 +536,7 @@ export function ShapeBody({
     const start = { x: shape.x + shape.props.start.x - bounds.x, y: shape.y + shape.props.start.y - bounds.y };
     const end = { x: shape.x + shape.props.end.x - bounds.x, y: shape.y + shape.props.end.y - bounds.y };
     const labelPoint = toLocalLabelPoint(shape, bounds);
-    const strokeWidth = overlayStrokeWidth(shape.props.size);
+    const strokeWidth = overlayStrokeWidth(shape.props.size, shape.props.strokeScale);
     const plan = getShapeArrowheadPlan(shape);
     const [drawnStart, drawnEnd] = trimPolylinePoints([start, end], plan.start.trimPx, plan.end.trimPx);
     return (
@@ -540,7 +547,7 @@ export function ShapeBody({
         style={{
           color: shape.props.color,
           strokeWidth,
-          strokeDasharray: dashToStrokeDasharray(shape.props.dash),
+          strokeDasharray: dashToStrokeDasharray(shape.props.dash, shape.props.dashPattern),
         }}
       >
         <defs>
@@ -581,7 +588,7 @@ export function ShapeBody({
     const points = shape.props.points.map((point) => ({ x: shape.x + point.x - bounds.x, y: shape.y + point.y - bounds.y }));
     const closed = isClosedPolyline(kind, points, shape.props.closed);
     const labelPoint = toLocalLabelPoint(shape, bounds);
-    const strokeWidth = overlayStrokeWidth(shape.props.size);
+    const strokeWidth = overlayStrokeWidth(shape.props.size, shape.props.strokeScale);
     // One source for both "does this end draw a head" and "how much does it give up", so a closed
     // polyline can never end up shortened at an end that declares no marker.
     const plan = getShapeArrowheadPlan(shape);
@@ -590,7 +597,7 @@ export function ShapeBody({
     const markerEnd = markerUrl(shape.id, "end", plan.end.spec?.kind);
     const patternId = `fill-${shape.id}`;
     const fill = closed && shape.props.fill === "solid"
-      ? shape.props.fillPattern === "diagonalHatch"
+      ? shape.props.fillPattern === "diagonalHatch" || shape.props.fillPattern === "dots"
         ? `url(#${patternId})`
         : shape.props.fillColor ?? shape.props.color
       : "none";
@@ -602,7 +609,7 @@ export function ShapeBody({
         style={{
           color: shape.props.color,
           strokeWidth,
-          strokeDasharray: dashToStrokeDasharray(shape.props.dash),
+          strokeDasharray: dashToStrokeDasharray(shape.props.dash, shape.props.dashPattern),
         }}
       >
         <defs>
@@ -614,8 +621,14 @@ export function ShapeBody({
           />
           {shape.props.fillPattern === "diagonalHatch" && (
             <pattern id={patternId} patternUnits="userSpaceOnUse" width="6" height="6">
-              <rect width="6" height="6" fill={shape.props.fillColor ?? "#ffffff"} />
+              <rect width="6" height="6" fill={shape.props.fillColor ?? "#ffffff"} stroke="none" />
               <path d="M -1 7 L 7 -1" stroke={shape.props.color} strokeWidth="1" />
+            </pattern>
+          )}
+          {shape.props.fillPattern === "dots" && (
+            <pattern id={patternId} patternUnits="userSpaceOnUse" width="4" height="4">
+              <rect width="4" height="4" fill={shape.props.fillColor ?? "#ffffff"} stroke="none" />
+              <circle cx="2" cy="2" r="0.4" fill={shape.props.color} stroke="none" />
             </pattern>
           )}
         </defs>
@@ -658,7 +671,7 @@ export function ShapeBody({
   }
 
   if (shape.type === "arc") {
-    const strokeWidth = overlayStrokeWidth(shape.props.size);
+    const strokeWidth = overlayStrokeWidth(shape.props.size, shape.props.strokeScale);
     const plan = getShapeArrowheadPlan(shape);
     const markerStart = markerUrl(shape.id, "start", plan.start.spec?.kind);
     const markerEnd = markerUrl(shape.id, "end", plan.end.spec?.kind);
@@ -670,7 +683,7 @@ export function ShapeBody({
         style={{
           color: shape.props.color,
           strokeWidth,
-          strokeDasharray: dashToStrokeDasharray(shape.props.dash),
+          strokeDasharray: dashToStrokeDasharray(shape.props.dash, shape.props.dashPattern),
         }}
       >
         <defs>
@@ -918,8 +931,8 @@ export function GeoSvgBody({ shape }: { shape: Extract<OverlayShape, { type: "ge
       <ellipse
         cx={shape.props.w / 2}
         cy={shape.props.h / 2}
-        rx={Math.max(1, shape.props.w / 2 - 1)}
-        ry={Math.max(1, shape.props.h / 2 - 1)}
+        rx={shape.props.w / 2}
+        ry={shape.props.h / 2}
         {...commonProps}
       />
     );
@@ -1090,11 +1103,13 @@ export function OverlayTextShapeStaticView({
 
   return (
     <div
-      className={`overlay-text-shape ${isCallout ? "embedded-callout" : ""}`}
+      className={`overlay-text-shape ${isCallout ? "embedded-callout" : ""} ${shape.type === "text" && shape.props.textWrap === "none" ? "no-auto-wrap" : ""}`}
+      data-boxed-run-frames={!isCallout && getShapeRotation(shape) === 0 ? "true" : undefined}
       style={{
         // A callout fills the text rect its geometry already carved out; a text shape is exactly
         // as wide as the user made it, and the content wraps inside that.
         width: isCallout ? "100%" : shape.props.w,
+        ...(shape.type === "text" ? overlayTextScale(shape) : {}),
         minWidth: isCallout ? 0 : MIN_TEXT_SHAPE_WIDTH,
         minHeight: isCallout ? lineHeightPx : Math.max(shape.props.h, lineHeightPx),
         color: shape.props.color,
@@ -1102,7 +1117,8 @@ export function OverlayTextShapeStaticView({
         pointerEvents: "none",
       }}
     >
-      <OverlayTextBlocksView blocks={shape.props.blocks} contentRef={measureRef} />
+      <OverlayTextBlocksView blocks={shape.props.blocks} contentRef={measureRef}
+        noWrap={shape.type === "text" && shape.props.textWrap === "none"} />
     </div>
   );
 }

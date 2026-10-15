@@ -48,8 +48,9 @@ test("connects adjacent boxed body text and inline math with one shared frame he
   expect(doubleProof.bottomDelta).toBeLessThanOrEqual(1);
   expect(doubleProof.heightDelta).toBeLessThanOrEqual(1);
   expect(doubleProof.seamGap).toBeLessThanOrEqual(1.5);
-  expect(doubleProof.outerLeftBorder).toBeGreaterThanOrEqual(2);
-  expect(doubleProof.outerRightBorder).toBeGreaterThanOrEqual(2);
+  const doubleFrame = page.locator('.page-flow .text-flow-editor [data-sigma-doc-id="p_boxed_double"] .boxed-run-frame[data-sigma-doc-boxed-variant="double"]');
+  await expect(doubleFrame).toHaveCount(1);
+  await expect(doubleFrame).toHaveCSS("outline-width", "1px");
 
   await expect.poll(async () => boxedRunProof(page, '.page-flow .text-flow-editor [data-sigma-doc-id="p_boxed_styled_math_text"]')).toMatchObject({
     ready: true,
@@ -133,8 +134,9 @@ test("prints boxed inline text and math with the same connected frame semantics"
   expect(doubleProof.heightDelta).toBeLessThanOrEqual(1);
   expect(doubleProof.maxMathOverflow).toBeLessThanOrEqual(1);
   expect(doubleProof.seamGap).toBeLessThanOrEqual(1.5);
-  expect(doubleProof.outerLeftBorder).toBeGreaterThanOrEqual(2);
-  expect(doubleProof.outerRightBorder).toBeGreaterThanOrEqual(2);
+  const doubleFrame = page.locator('.paged-surface-page [data-sigma-doc-id="p_boxed_double"] .boxed-run-frame[data-sigma-doc-boxed-variant="double"]');
+  await expect(doubleFrame).toHaveCount(1);
+  await expect(doubleFrame).toHaveCSS("outline-width", "1px");
 
   await expect.poll(async () => boxedRunProof(page, '.paged-surface-page [data-sigma-doc-id="p_boxed_styled_math_text"]')).toMatchObject({
     ready: true,
@@ -171,7 +173,7 @@ test("connects adjacent boxed figure text and inline math with one shared frame 
   await page.goto("/");
   await expect(page.getByText("準備完了")).toBeVisible();
 
-  const selector = '.page-overlay-preview .rich-inline-content:has([data-id="m_overlay_boxed_tall"])';
+  const selector = '.page-overlay-preview .overlay-text-shape-content p:has([data-id="m_overlay_boxed_tall"])';
   await expect(page.locator(selector)).toBeVisible();
   await expect.poll(async () => boxedRunProof(page, selector)).toMatchObject({
     aligned: true,
@@ -368,33 +370,9 @@ test("the next inserted box reuses the last applied variant and padding", async 
   await expect.poll(() => boxInfo("p_plain_b")).toMatchObject({ boxed: true, variant: "double", padding: 3 });
 });
 
-/**
- * The per-segment border is the INTENT on the overlay surfaces, not an accident.
- *
- * A boxed run is drawn two different ways in this app: the document body draws one rectangle for
- * the whole run (`drawRunFrames`), and the overlay text shape and table cells paint a border per
- * segment. The second one leaves a seam wherever segments of different natural heights meet, so
- * "merge the segments into one span and let its own line box be the frame" was investigated as a
- * way to remove the seam without measuring anything (WI-14). The geometry works — a merged span
- * with `display: inline-block` encloses a tall `\sum` with zero measurement — but the merge cannot
- * be reproduced on the editing surface, so adopting it would make the box jump on focus:
- *
- * - ProseMirror can only keep one mark span open across adjacent nodes when the mark is *equal* on
- *   both, and `lib/tiptap-adapter.ts` puts `math: true` on the boxed mark of every math atom. A
- *   text + math run therefore splits at the mark level, before any decoration is involved —
- *   measured: two adjacent boxed maths coalesce into ONE `.boxed-text` span, but the text beside
- *   them always gets its own.
- * - `styledText` (priority 300) nests outside `boxed` (200) so the `0.18em` padding scales with the
- *   font the styling sets, which splits a run again wherever colour/font/size changes.
- *
- * Reaching one span therefore means changing the document schema, not the DOM — see the long note
- * in `document-surface.css` above `.boxed-run-framed …` for the measurements and the full argument.
- *
- * This test pins the resulting contract so the difference stays deliberate: only the body draws the
- * single rectangle; the overlay surfaces paint segment borders in BOTH focus states, which is what
- * keeps the box identical across a focus change.
- */
-test("overlay text and table cells paint a border per segment while the body draws one rectangle", async ({ page }) => {
+/** Body and overlay text share one measured rectangle per connected run in static and edit views.
+ * Table cells retain their per-segment borders. */
+test("body and overlay text draw one run frame while table cells retain segment borders", async ({ page }) => {
   await page.setViewportSize({ width: 1400, height: 950 });
   await installDesktopRuntimeMock(page, createSegmentBorderIntentDocument());
   await page.goto("/");
@@ -410,22 +388,19 @@ test("overlay text and table cells paint a border per segment while the body dra
     framed: true,
   });
 
-  const overlaySelector = '.page-overlay-preview .rich-inline-content:has([data-id="m_intent_overlay"])';
+  const overlaySelector = '.page-overlay-preview .overlay-text-shape-content p:has([data-id="m_intent_overlay"])';
   await expect(page.locator(overlaySelector)).toBeVisible();
   await expect.poll(async () => segmentBorderProof(page, overlaySelector)).toMatchObject({
     stable: true,
     boxedSpans: 3,
-    // No rectangle anywhere on the static overlay layer — the run is painted by the segments.
-    runFrames: 0,
-    framed: false,
-    // Outer edges of the run are drawn, inner edges are dropped, so the segments read as one box.
-    innerBorders: [0, 0, 0, 0],
+    runFrames: 1,
+    framed: true,
+    segmentBordersTransparent: true,
     // The mark attribute that keeps a text + math run from being held in one span.
     mathAttributes: [null, "true", null],
   });
   const overlayProof = await segmentBorderProof(page, overlaySelector);
-  expect(overlayProof.outerLeftBorder).toBeGreaterThanOrEqual(1);
-  expect(overlayProof.outerRightBorder).toBeGreaterThanOrEqual(1);
+  expect(overlayProof.frameWidth).toBeGreaterThan(overlayProof.runWidth - 2);
 
   const cellSelector = '.page-overlay-preview [data-overlay-shape-id="shape_intent_table"] td:has([data-id="m_intent_cell"])';
   await expect(page.locator(cellSelector)).toBeVisible();
@@ -440,8 +415,7 @@ test("overlay text and table cells paint a border per segment while the body dra
   expect(cellProof.outerLeftBorder).toBeGreaterThanOrEqual(1);
   expect(cellProof.outerRightBorder).toBeGreaterThanOrEqual(1);
 
-  // Focusing the shape must not swap in a drawn rectangle: that swap is the divergence the
-  // `drawRunFrames: false` on these surfaces exists to prevent.
+  // Focusing the shape keeps the same single-frame rendering contract.
   await page.locator(".startup-splash").waitFor({ state: "hidden", timeout: 20_000 }).catch(() => undefined);
   const previewShape = page.locator('.page-overlay-preview [data-overlay-shape-id="shape_intent_overlay"]').first();
   await expect(previewShape).toBeVisible();
@@ -459,15 +433,13 @@ test("overlay text and table cells paint a border per segment while the body dra
   await expect.poll(async () => segmentBorderProof(page, focusedSelector)).toMatchObject({
     stable: true,
     boxedSpans: 3,
-    runFrames: 0,
-    framed: false,
-    // Same painting pattern as the idle view above: the box must not change on focus.
-    innerBorders: [0, 0, 0, 0],
+    runFrames: 1,
+    framed: true,
+    segmentBordersTransparent: true,
     mathAttributes: [null, "true", null],
   });
   const focusedProof = await segmentBorderProof(page, focusedSelector);
-  expect(focusedProof.outerLeftBorder).toBeGreaterThanOrEqual(1);
-  expect(focusedProof.outerRightBorder).toBeGreaterThanOrEqual(1);
+  expect(focusedProof.frameWidth).toBeGreaterThan(focusedProof.runWidth - 2);
 });
 
 /**
@@ -475,7 +447,7 @@ test("overlay text and table cells paint a border per segment while the body dra
  *
  * `innerBorders` are the edges that face a neighbour (every seam contributes the right edge of one
  * segment and the left edge of the next); `outerLeftBorder` / `outerRightBorder` are the two ends
- * of the run. Segment painting means: ends drawn, seams dropped.
+ * of a segment-painted run. A framed run keeps those borders transparent and paints one rectangle.
  *
  * Read four times across animation frames and reported as `stable` only when all four agree and
  * none of them was taken while the measuring pass was in flight. Two matching reads are not
@@ -490,7 +462,10 @@ async function segmentBorderProof(page: Page, rootSelector: string): Promise<{
   mathAttributes: Array<string | null>;
   outerLeftBorder: number;
   outerRightBorder: number;
+  frameWidth: number;
+  runWidth: number;
   runFrames: number;
+  segmentBordersTransparent: boolean;
   stable: boolean;
 }> {
   return page.evaluate(async (selector) => {
@@ -513,20 +488,30 @@ async function segmentBorderProof(page: Page, rootSelector: string): Promise<{
           innerBorders.push(borderWidth(painter, "Right"));
         }
       });
-      // A drawn rectangle anywhere in the same shape (or in the framed container, for the body)
-      // counts: the point is that these surfaces produce none at all.
-      const frameScope = root?.closest(".boxed-run-framed")
+      // Count rectangles in the same shape or framed body container.
+      const framedRoot = root?.closest(".boxed-run-framed") ?? root?.querySelector<HTMLElement>(".boxed-run-framed");
+      const frameScope = framedRoot
         ?? root?.closest("[data-overlay-shape-id]")
         ?? root;
+      const frame = frameScope?.querySelector<HTMLElement>(".boxed-run-frame");
+      const rects = painters.map((painter) => painter.getBoundingClientRect());
+      const transparent = (value: string) => value === "transparent" || /^rgba\([^)]*,\s*0\)$/.test(value);
       return {
         boxedSpans: boxes.length,
-        framed: Boolean(root?.closest(".boxed-run-framed")),
+        framed: Boolean(framedRoot),
         innerBorders,
         mathAttributes: boxes.map((box) => box.getAttribute("data-sigma-doc-boxed-math")),
-        measuring: Boolean(document.querySelector(".boxed-run-measuring")),
+        measuring: Boolean(document.querySelector(".boxed-run-measuring, .boxed-inline-run-measuring")),
         outerLeftBorder: borderWidth(painters[0], "Left"),
         outerRightBorder: borderWidth(painters[painters.length - 1], "Right"),
+        frameWidth: Math.round((frame?.getBoundingClientRect().width ?? 0) * 100) / 100,
+        runWidth: rects.length ? Math.round((Math.max(...rects.map((rect) => rect.right))
+          - Math.min(...rects.map((rect) => rect.left))) * 100) / 100 : 0,
         runFrames: frameScope?.querySelectorAll(".boxed-run-frame").length ?? 0,
+        segmentBordersTransparent: painters.every((painter) => {
+          const style = getComputedStyle(painter);
+          return transparent(style.borderLeftColor) && transparent(style.borderRightColor);
+        }),
       };
     };
 
@@ -1178,3 +1163,155 @@ test("stretches a short boxed fraction to the tall sum coalesced beside it", asy
   expect(proof.seamGap).toBeLessThanOrEqual(1.5);
   expect(proof.maxMathOverflow).toBeLessThanOrEqual(1);
 });
+
+test("compact source-style boxes keep 1px inline padding and enclose mixed math on preview, focus, and PDF", async ({ page }) => {
+  await page.setViewportSize({ width: 1400, height: 950 });
+  await installDesktopRuntimeMock(page, createCompactBoxedOverlayDocument());
+  await page.goto("/");
+  await expect(page.getByText("準備完了")).toBeVisible();
+
+  const preview = '.page-overlay-preview [data-overlay-shape-id="shape_compact_box"]';
+  const compactPreview = `${preview} p:has([data-id="m_compact_sum"])`;
+  const defaultPreview = `${preview} p:has([data-id="m_default_short"])`;
+  await expect(page.locator(compactPreview)).toBeVisible();
+  await expect.poll(async () => (await compactBoxProof(page, compactPreview)).frameCount).toBe(1);
+  const staticProof = await compactBoxProof(page, compactPreview);
+  expectCompactBox(staticProof);
+  const compactShort = await compactBoxProof(page, `${preview} p:has([data-id="m_compact_short"])`);
+  const defaultShort = await compactBoxProof(page, defaultPreview);
+  expect(compactShort.frameHeight).toBeGreaterThan(0);
+  expect(compactShort.frameHeight).toBeLessThan(defaultShort.frameHeight);
+
+  await page.locator(".startup-splash").waitFor({ state: "hidden", timeout: 20_000 }).catch(() => undefined);
+  const previewShape = page.locator(preview).first();
+  const previewShapeBox = await previewShape.boundingBox();
+  expect(previewShapeBox).not.toBeNull();
+  await page.mouse.click(previewShapeBox!.x + 180, previewShapeBox!.y + 36);
+  const selectedShape = page.locator('[data-overlay-shape-id="shape_compact_box"].overlay-shape-text.selected').first();
+  await expect(selectedShape).toBeVisible();
+  const selectedShapeBox = await selectedShape.boundingBox();
+  expect(selectedShapeBox).not.toBeNull();
+  await page.mouse.click(selectedShapeBox!.x + 180, selectedShapeBox!.y + 36);
+
+  const focused = '.overlay-shape-text .ProseMirror[contenteditable="true"] p:has([data-id="m_compact_sum"])';
+  await expect(page.locator(focused)).toBeVisible();
+  await expect.poll(async () => (await compactBoxProof(page, focused)).frameCount).toBe(1);
+  const focusedProof = await compactBoxProof(page, focused);
+  expectCompactBox(focusedProof);
+  expect(Math.abs(focusedProof.frameHeight - staticProof.frameHeight)).toBeLessThanOrEqual(1);
+
+  await page.goto("/print?fileId=file_e2e_document");
+  const printed = '.paged-surface-page [data-overlay-shape-id="shape_compact_box"] p:has([data-id="m_compact_sum"])';
+  await expect(page.locator(printed)).toBeVisible();
+  await expect.poll(async () => (await compactBoxProof(page, printed)).frameCount).toBe(1);
+  const printedProof = await compactBoxProof(page, printed);
+  expectCompactBox(printedProof);
+  expect(Math.abs(printedProof.frameHeight - staticProof.frameHeight)).toBeLessThanOrEqual(1);
+});
+
+type CompactBoxProof = {
+  frameCount: number;
+  frameHeight: number;
+  maxMathOverflow: number;
+  targetPaddings: number[];
+  boxedWhitespaceCount: number;
+  unboxedBoundarySpaces: number;
+};
+
+function expectCompactBox(proof: CompactBoxProof): void {
+  expect(proof.frameCount).toBe(1);
+  expect(proof.targetPaddings).toEqual([1, 1, 1, 1]);
+  expect(proof.boxedWhitespaceCount).toBe(0);
+  expect(proof.unboxedBoundarySpaces).toBe(2);
+  expect(proof.maxMathOverflow).toBeLessThanOrEqual(1);
+}
+
+async function compactBoxProof(page: Page, selector: string): Promise<CompactBoxProof> {
+  return page.evaluate((rootSelector) => {
+    const root = document.querySelector<HTMLElement>(rootSelector);
+    if (!root) throw new Error(`missing compact box: ${rootSelector}`);
+    const frame = root.querySelector<HTMLElement>(".boxed-run-frame");
+    const targets = Array.from(root.querySelectorAll<HTMLElement>('[data-boxed-run-height-target="true"]'));
+    const math = Array.from(root.querySelectorAll<HTMLElement>(".math-preview"));
+    const frameRect = frame?.getBoundingClientRect();
+    return {
+      frameCount: root.querySelectorAll('.boxed-run-frame[data-sigma-doc-boxed-variant="compact"]').length,
+      frameHeight: frameRect?.height ?? 0,
+      maxMathOverflow: frameRect ? Math.max(0, ...math.map((element) => {
+        const rect = element.getBoundingClientRect();
+        return Math.max(frameRect.top - rect.top, rect.bottom - frameRect.bottom);
+      })) : Number.POSITIVE_INFINITY,
+      targetPaddings: targets.map((target) => Number.parseFloat(getComputedStyle(target).paddingLeft)),
+      boxedWhitespaceCount: Array.from(root.querySelectorAll<HTMLElement>(".boxed-text"))
+        .filter((box) => box.textContent?.trim() === "").length,
+      unboxedBoundarySpaces: (() => {
+        const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+        let count = 0;
+        let node: Node | null;
+        while ((node = walker.nextNode())) {
+          if (node.textContent === " " && !node.parentElement?.closest(".boxed-text")) count += 1;
+        }
+        return count;
+      })(),
+    };
+  }, selector);
+}
+
+function createCompactBoxedOverlayDocument(): SigmaDocument {
+  const compact = (id: string): InlineNode[] => [
+    { type: "text", text: " " },
+    { type: "text", text: "式", marks: ["boxed"], boxedVariant: "compact", boxedPaddingY: 1 },
+    { type: "mathInline", id: `m_${id}_sum`, tex: "\\sum_{k=1}^{n} k", display: "inline", marks: ["boxed"], boxedVariant: "compact", boxedPaddingY: 1 },
+    { type: "mathInline", id: `m_${id}_frac`, tex: "\\frac{1}{2}", display: "inline", marks: ["boxed"], boxedVariant: "compact", boxedPaddingY: 1 },
+    { type: "text", text: "は", marks: ["boxed"], boxedVariant: "compact", boxedPaddingY: 1 },
+    { type: "text", text: " " },
+  ];
+  const overlaySnapshot: OverlaySnapshot = {
+    version: 1,
+    assets: {},
+    shapes: [{
+      id: "shape_compact_box",
+      type: "text",
+      x: 80,
+      y: 90,
+      props: {
+        w: 420,
+        h: 140,
+        color: "#111827",
+        size: "m",
+        blocks: [
+          { type: "paragraph", id: "p_compact_overlay", lineHeight: "1.8", children: compact("compact") },
+          { type: "paragraph", id: "p_compact_short", lineHeight: "1.8", children: [
+            { type: "text", text: "同", marks: ["boxed"], boxedVariant: "compact", boxedPaddingY: 1 },
+            { type: "mathInline", id: "m_compact_short", tex: "x", display: "inline", marks: ["boxed"], boxedVariant: "compact", boxedPaddingY: 1 },
+            { type: "text", text: "じ", marks: ["boxed"], boxedVariant: "compact", boxedPaddingY: 1 },
+          ] },
+          { type: "paragraph", id: "p_default_overlay", lineHeight: "1.8", children: [
+            { type: "text", text: "同", marks: ["boxed"], boxedPaddingY: 8 },
+            { type: "mathInline", id: "m_default_short", tex: "x", display: "inline", marks: ["boxed"], boxedPaddingY: 8 },
+            { type: "text", text: "じ", marks: ["boxed"], boxedPaddingY: 8 },
+          ] },
+        ],
+      },
+    }],
+  };
+  return {
+    version: "2.0",
+    docId: "compact_boxed_overlay_doc",
+    metadata: { title: "Converted compact boxed import" },
+    content: [{ type: "paragraph", id: "p_compact_context", children: [{ type: "text", text: "囲み検証" }] }],
+    outputProfiles: {
+      student: {},
+      teacher: { showSolutions: true, showHints: true },
+      answerBook: { includeAnswers: true, onlySolutions: true },
+    },
+    pageLayout: {
+      preset: "A4",
+      orientation: "portrait",
+      pageSize: { widthMm: 210, heightMm: 297 },
+      marginsMm: { top: 18, right: 18, bottom: 18, left: 18 },
+      flow: { type: "columns", columnCount: 1, columnGapMm: 8 },
+      overlay: { overlaySnapshot },
+    },
+  };
+}

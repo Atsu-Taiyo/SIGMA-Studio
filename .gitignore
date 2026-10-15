@@ -53,3 +53,10 @@ outputs/
 /docs/adr/001-optional-collaboration.md
 /apps/desktop/tests/electron/collaboration-cloud-*.ts
 /apps/desktop/electron/collaboration/cloud-test-cleanup.test.ts
+
+# Private conversion engine and source materials must stay outside this repository.
+/private/
+/private-conversion/
+*.prt
+*.sdw
+*.cab

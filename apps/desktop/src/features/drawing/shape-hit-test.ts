@@ -1,4 +1,6 @@
 import type { OverlayPoint, OverlayShape } from "@/features/document";
+import { overlayStrokeWidth, scaleArrowheadGeometry } from "@/features/rendering/core";
+import { getShapeArrowheadPlan } from "./arrowhead-trim";
 
 import { getBlockArrowPolygonPoints } from "./block-arrow-geometry";
 import { isClosedPolyline } from "./line-geometry";
@@ -48,6 +50,18 @@ export function hitTestShape(
     return hitTestSolidEdge(shape, local, effectiveMargin) !== null;
   }
 
+  if (shape.type === "geo" && shape.props.geo === "rectangle" && shape.props.hitTestMode === "stroke") {
+    // The SVG rectangle is inset one unit inside its box. Test that outline
+    // after un-rotation so a text or math shape inside an imported frame wins.
+    const left = shape.x + 1, top = shape.y + 1;
+    const right = shape.x + Math.max(1, shape.props.w - 1);
+    const bottom = shape.y + Math.max(1, shape.props.h - 1);
+    return testPoint.x >= left - effectiveMargin && testPoint.x <= right + effectiveMargin
+      && testPoint.y >= top - effectiveMargin && testPoint.y <= bottom + effectiveMargin
+      && !(testPoint.x > left + effectiveMargin && testPoint.x < right - effectiveMargin
+        && testPoint.y > top + effectiveMargin && testPoint.y < bottom - effectiveMargin);
+  }
+
   if (shape.type === "geo" && shape.props.geo === "ellipse") {
     const rx = Math.max(1, bounds.w / 2 + effectiveMargin);
     const ry = Math.max(1, bounds.h / 2 + effectiveMargin);
@@ -72,6 +86,9 @@ export function hitTestShape(
     return pointInPolygon(testPoint, getGeoPolygonPoints(shape));
   }
 
+  if ((shape.type === "arrow" || shape.type === "line" || shape.type === "arc")
+    && hitTestEndpointHeads(shape, testPoint, effectiveMargin)) return true;
+
   if (shape.type === "arrow") {
     return distanceToSegment(
       testPoint,
@@ -95,7 +112,7 @@ export function hitTestShape(
       shape.props.closed,
     );
     if (
-      closed &&
+      closed && shape.props.hitTestMode !== "stroke" &&
       shape.props.fill === "solid" &&
       pointInPolygon(testPoint, points)
     ) {
@@ -126,6 +143,55 @@ export function hitTestShape(
     testPoint.y >= bounds.y - effectiveMargin &&
     testPoint.y <= bounds.y + bounds.h + effectiveMargin
   );
+}
+
+/** The endpoint head is part of its owning shape, including independently scaled imports. */
+function hitTestEndpointHeads(shape: Extract<OverlayShape, { type: "arrow" | "line" | "arc" }>, point: OverlayPoint, margin: number): boolean {
+  const plan = getShapeArrowheadPlan(shape);
+  const stroke = overlayStrokeWidth(shape.props.size, shape.props.strokeScale);
+  const endpoints = (): { start: OverlayPoint; end: OverlayPoint; startDirection: OverlayPoint; endDirection: OverlayPoint } | null => {
+    if (shape.type === "arc") {
+      const { rx, ry } = getArcRadii(shape);
+      const at = (angle: number) => ({ x: rx + Math.cos(angle) * rx, y: ry + Math.sin(angle) * ry });
+      const tangent = (angle: number) => ({ x: -Math.sin(angle) * rx, y: Math.cos(angle) * ry });
+      const first = tangent(shape.props.startAngle), last = tangent(shape.props.endAngle);
+      return { start: at(shape.props.startAngle), end: at(shape.props.endAngle),
+        startDirection: { x: -first.x, y: -first.y }, endDirection: last };
+    }
+    const points = shape.type === "arrow" ? [shape.props.start, shape.props.end] : shape.props.points;
+    if (points.length < 2) return null;
+    const start = points[0], end = points[points.length - 1];
+    const after = points.find((p) => p.x !== start.x || p.y !== start.y);
+    const before = [...points].reverse().find((p) => p.x !== end.x || p.y !== end.y);
+    if (!after || !before) return null;
+    return { start, end, startDirection: { x: start.x - after.x, y: start.y - after.y },
+      endDirection: { x: end.x - before.x, y: end.y - before.y } };
+  };
+  const ends = endpoints();
+  if (!ends) return false;
+  for (const endpoint of ["start", "end"] as const) {
+    const spec = plan[endpoint].spec;
+    if (!spec) continue;
+    const direction = ends[endpoint === "start" ? "startDirection" : "endDirection"];
+    const length = Math.hypot(direction.x, direction.y);
+    if (!length) continue;
+    const ux = direction.x / length, uy = direction.y / length, at = ends[endpoint];
+    const geometry = scaleArrowheadGeometry(spec, stroke, false);
+    const project = (p: OverlayPoint) => ({ x: shape.x + at.x + p.x * ux - p.y * uy,
+      y: shape.y + at.y + p.x * uy + p.y * ux });
+    if (geometry.kind === "circle") {
+      const center = project({ x: geometry.cx, y: geometry.cy });
+      if (Math.hypot(point.x - center.x, point.y - center.y) <= geometry.r + margin) return true;
+      continue;
+    }
+    const points = geometry.points.map(project);
+    if (geometry.filled && pointInPolygon(point, points)) return true;
+    const count = geometry.closed ? points.length : points.length - 1;
+    for (let i = 0; i < count; i += 1) {
+      if (distanceToSegment(point, points[i], points[(i + 1) % points.length]) <= margin + geometry.strokeWidth * stroke / 2) return true;
+    }
+  }
+  return false;
 }
 
 function isPointInSolidFill(

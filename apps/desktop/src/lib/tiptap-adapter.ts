@@ -8,6 +8,7 @@ import {
   type ParagraphNode,
   type TextAlign,
   type TextMark,
+  type UnderlineStyle,
   normalizeLineHeight,
   resolveDocumentFontFamily,
 } from "@/features/document";
@@ -132,10 +133,14 @@ export function inlineNodesToTiptapNodes(children: InlineNode[]): TiptapNode[] {
           tex: child.tex,
         },
         ...(marks ? { marks } : {}),
+
       };
     }
 
     const marks: TiptapNode[] = child.marks?.map((mark) => {
+      if (mark === "underline" && child.underlineStyle) {
+        return { type: mark, attrs: { style: child.underlineStyle } };
+      }
       if (mark !== "boxed") {
         return { type: mark };
       }
@@ -182,6 +187,7 @@ export function tiptapNodesToInlineNodes(nodes: TiptapNode[]): InlineNode[] {
         getBoxedTextVariant(node),
         getBoxedTextTone(node),
         getCommentMentionUserId(node),
+        getUnderlineStyle(node),
       );
       continue;
     }
@@ -199,6 +205,8 @@ export function tiptapNodesToInlineNodes(nodes: TiptapNode[]): InlineNode[] {
         previous?.type === "text" ? previous.boxedPaddingY : undefined,
         previous?.type === "text" ? previous.boxedVariant : undefined,
         previous?.type === "text" ? previous.boxedTone : undefined,
+        undefined,
+        previous?.type === "text" ? previous.underlineStyle : undefined,
       );
       continue;
     }
@@ -215,6 +223,7 @@ export function tiptapNodesToInlineNodes(nodes: TiptapNode[]): InlineNode[] {
         tex: String(node.attrs?.tex ?? ""),
         display: "inline",
         ...(marks ? { marks } : {}),
+        ...(getUnderlineStyle(node) ? { underlineStyle: getUnderlineStyle(node) } : {}),
         ...(getStyledTextAttr(node, "color") ? { color: getStyledTextAttr(node, "color") } : {}),
         ...(getStyledTextAttr(node, "backgroundColor") ? { backgroundColor: getStyledTextAttr(node, "backgroundColor") } : {}),
         ...(getStyledTextAttr(node, "fontFamily") ? { fontFamily: getStyledTextAttr(node, "fontFamily") } : {}),
@@ -241,6 +250,8 @@ export function tiptapNodesToInlineNodes(nodes: TiptapNode[]): InlineNode[] {
             child.boxedPaddingY,
             child.boxedVariant,
             child.boxedTone,
+            child.mentionUserId,
+            child.underlineStyle,
           );
         } else {
           result.push(child);
@@ -285,6 +296,7 @@ function pushText(
   boxedVariant?: BoxedVariant,
   boxedTone?: BoxedTone,
   mentionUserId?: string,
+  underlineStyle?: UnderlineStyle,
 ): void {
   const previous = nodes[nodes.length - 1];
   const normalizedMarks = marks?.length ? marks : undefined;
@@ -303,6 +315,7 @@ function pushText(
     previous.boxedPaddingY === normalizedBoxedPaddingY &&
     previous.boxedVariant === normalizedBoxedVariant &&
     previous.boxedTone === normalizedBoxedTone &&
+    previous.underlineStyle === underlineStyle &&
     previous.mentionUserId === mentionUserId
   ) {
     previous.text += text;
@@ -314,6 +327,7 @@ function pushText(
     text,
     ...(mentionUserId ? { mentionUserId } : {}),
     ...(normalizedMarks ? { marks: normalizedMarks } : {}),
+    ...(underlineStyle && normalizedMarks?.includes("underline") ? { underlineStyle } : {}),
     ...(color ? { color } : {}),
     ...(backgroundColor ? { backgroundColor } : {}),
     ...(fontFamily ? { fontFamily } : {}),
@@ -398,7 +412,7 @@ function inlineMathMarksToTiptapMarks(node: Extract<InlineNode, { type: "mathInl
     });
   }
   if (node.marks?.includes("underline")) {
-    marks.push({ type: "underline" });
+    marks.push({ type: "underline", ...(node.underlineStyle ? { attrs: { style: node.underlineStyle } } : {}) });
   }
   if (node.marks?.includes("boxed")) {
     marks.push({
@@ -422,7 +436,7 @@ function normalizeBoxedPaddingY(value: unknown): number | undefined {
 }
 
 function normalizeBoxedVariant(value: unknown): BoxedVariant | undefined {
-  return value === "frame" || value === "thick" || value === "double" || value === "oval" || value === "shade"
+  return value === "frame" || value === "thick" || value === "double" || value === "oval" || value === "shade" || value === "compact"
     ? value
     : undefined;
 }
@@ -436,4 +450,9 @@ function normalizeBoxedTone(value: unknown): BoxedTone | undefined {
 function getCommentMentionUserId(node: TiptapNode): string | undefined {
   const value = node.marks?.find((mark) => mark.type === "commentMention")?.attrs?.userId;
   return typeof value === "string" && value.length > 0 ? value : undefined;
+}
+
+function getUnderlineStyle(node: TiptapNode): UnderlineStyle | undefined {
+  const value = node.marks?.find((mark) => mark.type === "underline")?.attrs?.style;
+  return value === "solid" || value === "wavy" || value === "dotted" || value === "double" ? value : undefined;
 }

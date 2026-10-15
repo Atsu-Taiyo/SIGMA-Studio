@@ -1,4 +1,5 @@
 import { TRUSTED_SIGMA_MATH_CLASSES } from "@/lib/math-macros";
+import { isSafeCssFontFamily } from "@/features/document/css-safety";
 
 import { escapeHtml } from "./rich-text-html";
 
@@ -731,8 +732,7 @@ function isSafeStyleDeclaration(declaration: string, fontScales: FontScales): bo
     return true;
   }
   if (CSS_CONTROL_CHARACTER.test(trimmed) ||
-    CSS_ESCAPE_OR_DELIMITER.test(trimmed) ||
-    CSS_UNSAFE_TOKEN.test(trimmed)) {
+    CSS_ESCAPE_OR_DELIMITER.test(trimmed)) {
     return false;
   }
 
@@ -743,6 +743,15 @@ function isSafeStyleDeclaration(declaration: string, fontScales: FontScales): bo
   const property = trimmed.slice(0, separator).trim().toLowerCase();
   const propertyValue = trimmed.slice(separator + 1).trim().toLowerCase();
   if (!MATH_MARKUP_ALLOWED_STYLE_PROPERTIES.has(property) || !propertyValue) {
+    return false;
+  }
+  // A resource hash in a family name is an identifier, not a CSS dimension.
+  // Keep the document's bounded lexical font validation instead of interpreting
+  // characters such as "33bad" as a number followed by an unknown length unit.
+  if (property === "font-family") {
+    return isSafeCssFontFamily(propertyValue);
+  }
+  if (CSS_UNSAFE_TOKEN.test(trimmed)) {
     return false;
   }
   if (property === "position") {

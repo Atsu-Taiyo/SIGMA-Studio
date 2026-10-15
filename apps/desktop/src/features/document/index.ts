@@ -1,3 +1,4 @@
+export { documentFontReferences, type DocumentFontReference } from "./font-references";
 export {
   DEFAULT_BODY_FONT_FAMILY,
   DEFAULT_SERIF_BODY_FONT_FAMILY,

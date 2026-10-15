@@ -158,8 +158,8 @@ describe("arrow head parity between the canvas and the SVG exporter", () => {
     // A bar and a dot sit on their own centre, so a half turn leaves them where they were; every
     // other head is anchored at its tip and has to be flipped to point away from the line.
     expect(reversed).toEqual([
-      "arrow", "triangle", "openArrow", "thinArrow", "diamond",
-      "arrowSmall", "triangleSmall", "openArrowSmall", "thinArrowSmall", "diamondSmall",
+      "arrow", "triangle", "triangleNarrow", "stealth", "openArrow", "thinArrow", "diamond",
+      "arrowSmall", "triangleSmall", "triangleNarrowSmall", "stealthSmall", "openArrowSmall", "thinArrowSmall", "diamondSmall",
     ]);
     for (const spec of ARROWHEAD_MARKER_SPECS) {
       const markers = parseMarkers(reactMarkers(spec.kind));
@@ -283,6 +283,14 @@ describe("drawn path parity between the canvas and the SVG exporter", () => {
         fill: "none", color: "#111827", labelColor: "#111827", dash: "solid", size: "xl",
       },
     } as OverlayShape)],
+    ["an independently scaled filled arrow", shapeAtOrigin({
+      id: "shape_scaled_arrow", type: "arrow", x: 0, y: 0,
+      props: {
+        start: { x: 0, y: 0 }, end: { x: 92, y: 0 },
+        arrowheadStart: "triangleNarrow", arrowheadEnd: "stealth", arrowheadScale: 0.5,
+        fill: "none", color: "#111827", labelColor: "#111827", dash: "solid", size: "m",
+      },
+    } as OverlayShape)],
     ["a sector, which draws no head at all", shapeAtOrigin({
       id: "shape_sector", type: "arc", x: 0, y: 0,
       props: {
@@ -311,7 +319,7 @@ describe("drawn path parity between the canvas and the SVG exporter", () => {
   });
 
   it("keeps the sector's path exactly as it was before heads could trim a line", () => {
-    const [, sector] = CASES[4];
+    const [, sector] = CASES.find(([name]) => name.startsWith("a sector"))!;
 
     expect(attributeOf(drawnMarkup(renderToStaticMarkup(
       createElement(OverlayShapeReadOnlyView, { shape: sector, assets: {} }),

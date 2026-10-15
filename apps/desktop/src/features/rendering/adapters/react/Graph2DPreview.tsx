@@ -591,6 +591,7 @@ function Graph2DPreviewComponent({
           role="img"
           aria-label={tShape("graphPreview.rangeErrorAria", { description })}
           viewBox={`0 0 ${spec.width} ${spec.height}`}
+          preserveAspectRatio="none"
         >
           <rect width={spec.width} height={spec.height} rx="6" className="graph2d-error-bg" />
           <text x={spec.width / 2} y={spec.height / 2} textAnchor="middle" className="graph2d-error-text">
@@ -689,6 +690,7 @@ function Graph2DPreviewComponent({
         role="img"
         aria-label={description}
         viewBox={`0 0 ${spec.width} ${spec.height}`}
+        preserveAspectRatio="none"
         onPointerMove={handlePointerMove}
         onPointerUp={handlePointerUp}
         style={{ touchAction: isCropping ? "none" : "auto" }}

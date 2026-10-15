@@ -51,9 +51,11 @@ export function getShapeArrowheadPlan(shape: OverlayShape): ArrowheadEndpointPla
     return planArrowheadEndpoints(
       shape.props.arrowheadStart,
       shape.props.arrowheadEnd,
-      overlayStrokeWidth(shape.props.size),
+      overlayStrokeWidth(shape.props.size, shape.props.strokeScale),
       length,
       { start: length, end: length },
+      undefined,
+      shape.props.arrowheadScale,
     );
   }
 
@@ -66,14 +68,16 @@ export function getShapeArrowheadPlan(shape: OverlayShape): ArrowheadEndpointPla
     return planArrowheadEndpoints(
       shape.props.arrowheadStart,
       shape.props.arrowheadEnd,
-      overlayStrokeWidth(shape.props.size),
+      overlayStrokeWidth(shape.props.size, shape.props.strokeScale),
       getLinePathLength(shape.props.points, kind),
       getLineTerminalSegmentLengths(shape.props.points, kind),
+      undefined,
+      shape.props.arrowheadScale,
     );
   }
 
   if (shape.type === "arc") {
-    const strokeWidth = overlayStrokeWidth(shape.props.size);
+    const strokeWidth = overlayStrokeWidth(shape.props.size, shape.props.strokeScale);
     const table = getArcLengthTable(shape);
     return planArrowheadEndpoints(
       shape.props.arrowheadStart,
@@ -82,9 +86,10 @@ export function getShapeArrowheadPlan(shape: OverlayShape): ArrowheadEndpointPla
       table.total,
       { start: table.total, end: table.total },
       {
-        start: getMaxArcTrim(table, "start", idealArcTrim(shape.props.arrowheadStart, strokeWidth), strokeWidth),
-        end: getMaxArcTrim(table, "end", idealArcTrim(shape.props.arrowheadEnd, strokeWidth), strokeWidth),
+        start: getMaxArcTrim(table, "start", idealArcTrim(shape.props.arrowheadStart, strokeWidth, shape.props.arrowheadScale), strokeWidth),
+        end: getMaxArcTrim(table, "end", idealArcTrim(shape.props.arrowheadEnd, strokeWidth, shape.props.arrowheadScale), strokeWidth),
       },
+      shape.props.arrowheadScale,
     );
   }
 
@@ -120,8 +125,8 @@ function hasHead(head: string | undefined): boolean {
   return typeof head === "string" && head !== "none";
 }
 
-function idealArcTrim(head: string | undefined, strokeWidth: number): number {
-  return getArrowheadTrimInStrokes(head) * Math.max(0, strokeWidth);
+function idealArcTrim(head: string | undefined, strokeWidth: number, headScale = 1): number {
+  return getArrowheadTrimInStrokes(head, headScale) * Math.max(0, strokeWidth);
 }
 
 /**

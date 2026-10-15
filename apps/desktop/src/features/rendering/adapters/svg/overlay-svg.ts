@@ -11,6 +11,7 @@ import {
   createGraph3DDisplayAnnotations,
   overlayLabelFontSize,
   overlayStrokeWidth,
+  overlayTextScale,
   projectGraph3DLabel,
   resolveTableLineBorder,
   type ArrowheadEndpointPlan,
@@ -122,7 +123,7 @@ export interface OverlaySvgRenderers {
    * below: the React work stays outside this serializer, and the implementation renders the very
    * component the canvas draws, which is what keeps the exported page and the screen in step.
    */
-  renderOverlayTextHtml: (blocks: readonly OverlayTextBlock[]) => string;
+  renderOverlayTextHtml: (blocks: readonly OverlayTextBlock[], noWrap?: boolean) => string;
   /**
    * Static table markup for a `<foreignObject>`. React work stays behind this port so the
    * serializer itself remains headless (`architecture.test.ts`); the implementation renders the
@@ -257,8 +258,8 @@ function shapeToSvg(
 
   if (shape.type === "geo") {
     const stroke = escapeAttr(shape.props.color || "#111111");
-    const strokeWidth = overlayStrokeWidth(shape.props.size);
-    const dash = dashAttr(shape.props.dash);
+    const strokeWidth = overlayStrokeWidth(shape.props.size, shape.props.strokeScale);
+    const dash = dashAttr(shape.props.dash, shape.props.dashPattern);
     const fill = shape.props.fill === "solid" ? escapeAttr(shape.props.fillColor || shape.props.color || "#111111") : "transparent";
     const strokeOpacity = opacityAttr("stroke-opacity", shape.props.strokeOpacity);
     const fillOpacity = opacityAttr("fill-opacity", shape.props.fillOpacity);
@@ -301,7 +302,7 @@ function shapeToSvg(
     const markerDefs = getArrowMarkerDefs(shape.id, shape.props.color, shape.props.strokeOpacity, plan);
     const markerStart = markerAttr("marker-start", shape.id, "start", plan.start.spec?.kind);
     const markerEnd = markerAttr("marker-end", shape.id, "end", plan.end.spec?.kind);
-    svg = `<defs>${markerDefs}</defs><line x1="${drawnStart.x}" y1="${drawnStart.y}" x2="${drawnEnd.x}" y2="${drawnEnd.y}" stroke="${escapeAttr(shape.props.color)}" stroke-width="${overlayStrokeWidth(shape.props.size)}" ${SHARP_STROKE_ATTRS}${dashAttr(shape.props.dash)}${opacityAttr("stroke-opacity", shape.props.strokeOpacity)}${markerStart}${markerEnd} />`;
+    svg = `<defs>${markerDefs}</defs><line x1="${drawnStart.x}" y1="${drawnStart.y}" x2="${drawnEnd.x}" y2="${drawnEnd.y}" stroke="${escapeAttr(shape.props.color)}" stroke-width="${overlayStrokeWidth(shape.props.size, shape.props.strokeScale)}" ${SHARP_STROKE_ATTRS}${dashAttr(shape.props.dash, shape.props.dashPattern)}${opacityAttr("stroke-opacity", shape.props.strokeOpacity)}${markerStart}${markerEnd} />`;
     return withShapeOpacity(shape, withShapeRotation(shape, withLineLabel(shape, svg)));
   }
 
@@ -318,12 +319,12 @@ function shapeToSvg(
     const markerEnd = markerAttr("marker-end", shape.id, "end", plan.end.spec?.kind);
     const fillPatternDefs = getLineFillPatternDefs(shape);
     const fill = closed && shape.props.fill === "solid"
-      ? shape.props.fillPattern === "diagonalHatch"
+      ? shape.props.fillPattern === "diagonalHatch" || shape.props.fillPattern === "dots"
         ? `url(#${escapeAttr(lineFillPatternId(shape.id))})`
         : escapeAttr(shape.props.fillColor || shape.props.color || "#111111")
       : "none";
     const fillOpacity = closed ? opacityAttr("fill-opacity", shape.props.fillOpacity) : "";
-    const strokeAttrs = `fill="${fill}" stroke="${escapeAttr(shape.props.color)}" stroke-width="${overlayStrokeWidth(shape.props.size)}" ${SHARP_STROKE_ATTRS}${dashAttr(shape.props.dash)}${opacityAttr("stroke-opacity", shape.props.strokeOpacity)}${fillOpacity}${markerStart}${markerEnd}`;
+    const strokeAttrs = `fill="${fill}" stroke="${escapeAttr(shape.props.color)}" stroke-width="${overlayStrokeWidth(shape.props.size, shape.props.strokeScale)}" ${SHARP_STROKE_ATTRS}${dashAttr(shape.props.dash, shape.props.dashPattern)}${opacityAttr("stroke-opacity", shape.props.strokeOpacity)}${fillOpacity}${markerStart}${markerEnd}`;
     svg = closed
       ? `<defs>${markerDefs}${fillPatternDefs}</defs><polygon points="${getLinePolylinePoints(points)}" ${strokeAttrs} />`
       : kind === "polyline"
@@ -339,7 +340,7 @@ function shapeToSvg(
     const markerDefs = getArrowMarkerDefs(shape.id, shape.props.color, shape.props.strokeOpacity, plan);
     const markerStart = markerAttr("marker-start", shape.id, "start", plan.start.spec?.kind);
     const markerEnd = markerAttr("marker-end", shape.id, "end", plan.end.spec?.kind);
-    svg = `<defs>${markerDefs}</defs><path d="${escapeAttr(getArcPath(shape))}" fill="${fill}" stroke="${escapeAttr(shape.props.color)}" stroke-width="${overlayStrokeWidth(shape.props.size)}" ${SHARP_STROKE_ATTRS}${dashAttr(shape.props.dash)}${opacityAttr("stroke-opacity", shape.props.strokeOpacity)}${fillOpacity}${markerStart}${markerEnd} />`;
+    svg = `<defs>${markerDefs}</defs><path d="${escapeAttr(getArcPath(shape))}" fill="${fill}" stroke="${escapeAttr(shape.props.color)}" stroke-width="${overlayStrokeWidth(shape.props.size, shape.props.strokeScale)}" ${SHARP_STROKE_ATTRS}${dashAttr(shape.props.dash, shape.props.dashPattern)}${opacityAttr("stroke-opacity", shape.props.strokeOpacity)}${fillOpacity}${markerStart}${markerEnd} />`;
     return withShapeOpacity(shape, withShapeRotation(shape, svg));
   }
 
@@ -418,16 +419,17 @@ function shapeToSvg(
 
   if (shape.type === "text") {
     const bounds = getShapeBounds(shape);
+    const textScale = overlayTextScale(shape, bounds.w);
     const fontSize = getTextShapeFontSizePt(shape);
     const bleed = getOverlayTextBleedPx(getTextShapeRenderedFontSizePx(shape));
-    const html = renderers.renderOverlayTextHtml(shape.props.blocks);
+    const html = renderers.renderOverlayTextHtml(shape.props.blocks, shape.props.textWrap === "none");
     svg = foreignObject(
       shape.x - bleed,
       shape.y - bleed,
       bounds.w + bleed * 2,
       bounds.h + bleed * 2,
       [
-        `<div xmlns="http://www.w3.org/1999/xhtml" style="box-sizing:border-box;width:${bounds.w}px;min-height:${bounds.h}px;margin:${bleed}px;color:${escapeAttr(safeTextColor(shape.props.color))};font-size:${fontSize}pt;line-height:${TEXT_SHAPE_LINE_HEIGHT};overflow:visible;">`,
+        `<div xmlns="http://www.w3.org/1999/xhtml" style="box-sizing:border-box;width:${textScale.width}px;min-height:${bounds.h}px;transform:${textScale.transform};transform-origin:left top;margin:${bleed}px;color:${escapeAttr(safeTextColor(shape.props.color))};font-size:${fontSize}pt;line-height:${TEXT_SHAPE_LINE_HEIGHT};overflow:visible;">`,
         html,
         "</div>",
       ].join(""),
@@ -612,13 +614,16 @@ function lineFillPatternId(shapeId: OverlayShapeId): string {
 }
 
 function getLineFillPatternDefs(shape: Extract<OverlayShape, { type: "line" }>): string {
-  if (shape.props.fillPattern !== "diagonalHatch") {
+  if (shape.props.fillPattern !== "diagonalHatch" && shape.props.fillPattern !== "dots") {
     return "";
   }
   const id = escapeAttr(lineFillPatternId(shape.id));
   const background = escapeAttr(shape.props.fillColor ?? "#ffffff");
   const stroke = escapeAttr(shape.props.color);
-  return `<pattern id="${id}" patternUnits="userSpaceOnUse" width="6" height="6"><rect width="6" height="6" fill="${background}" /><path d="M -1 7 L 7 -1" stroke="${stroke}" stroke-width="1" /></pattern>`;
+  if (shape.props.fillPattern === "dots") {
+    return `<pattern id="${id}" patternUnits="userSpaceOnUse" width="4" height="4"><rect width="4" height="4" fill="${background}" stroke="none" /><circle cx="2" cy="2" r="0.4" fill="${stroke}" stroke="none" /></pattern>`;
+  }
+  return `<pattern id="${id}" patternUnits="userSpaceOnUse" width="6" height="6"><rect width="6" height="6" fill="${background}" stroke="none" /><path d="M -1 7 L 7 -1" stroke="${stroke}" stroke-width="1" /></pattern>`;
 }
 
 function markerAttr(name: string, shapeId: OverlayShapeId, endpoint: "start" | "end", head: OverlayArrowhead | undefined): string {
@@ -630,7 +635,8 @@ function markerAttr(name: string, shapeId: OverlayShapeId, endpoint: "start" | "
   return ` ${name}="url(#${escapeAttr(id)})"`;
 }
 
-function dashAttr(dash: OverlayDash): string {
+function dashAttr(dash: OverlayDash, pattern?: readonly number[]): string {
+  if (pattern?.length) return ` stroke-dasharray="${pattern.join(" ")}"`;
   if (dash === "dashed") {
     return ' stroke-dasharray="8 6"';
   }

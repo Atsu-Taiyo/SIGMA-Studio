@@ -17,6 +17,7 @@ import {
   boxedSelfContainedStyle,
   MATH_FRAME_SELF_CONTAINED_STYLE,
   underlineRunStyle,
+  underlineWaveStrokeStyle,
   type RichTextDomStyle,
 } from "./rich-text-dom";
 
@@ -74,7 +75,7 @@ function mergedRuleDeclarations(selector: string): RichTextDomStyle {
     const close = findBlockEnd(withoutComments, open);
     const prelude = withoutComments.slice(index, open).trim();
     const selectors = prelude.split(",").map((entry) => entry.trim().replace(/\s+/g, " "));
-    if (!prelude.startsWith("@") && selectors.includes(selector)) {
+    if (!prelude.startsWith("@") && (prelude === selector || selectors.includes(selector))) {
       Object.assign(merged, parseDeclarations(withoutComments.slice(open + 1, close)));
     }
     index = close + 1;
@@ -105,7 +106,7 @@ function ruleDeclarations(css: string, selector: string): RichTextDomStyle {
     const close = findBlockEnd(withoutComments, open);
     const prelude = withoutComments.slice(index, open).trim();
     const selectors = prelude.split(",").map((entry) => entry.trim().replace(/\s+/g, " "));
-    if (!prelude.startsWith("@") && selectors.includes(selector)) {
+    if (!prelude.startsWith("@") && (prelude === selector || selectors.includes(selector))) {
       return parseDeclarations(withoutComments.slice(open + 1, close));
     }
     index = close + 1;
@@ -200,6 +201,20 @@ describe("the self-contained boxed style mirrors document-surface.css", () => {
       ));
   });
 
+  it("carries compact frame padding and math leading into stylesheet-less output", () => {
+    const selector = '.boxed-text[data-sigma-doc-boxed-variant="compact"]';
+    const style = boxedSelfContainedStyle(boxed({ math: true, variant: "compact" }));
+    expect(style["--boxed-text-padding-y"]).toBe(
+      ruleDeclarations(documentSurfaceCss, selector)["--boxed-text-padding-y"],
+    );
+    expect(style["padding-inline"]).toBe(
+      ruleDeclarations(documentSurfaceCss, `${selector}:not(:has([data-boxed-run-height-target="true"]))`)["padding-inline"].replace(/\s*!important$/, ""),
+    );
+    expect(mergedRuleDeclarations(`${selector} .inline-math-node`)["margin-inline"]).toBe("0");
+    expect(mergedRuleDeclarations(`${selector} :is(.inline-math-node, .math-preview, .ML__latex)`)["line-height"])
+      .toBe("0");
+  });
+
   // Every segment of a boxed run carries `data-boxed-run-height-target`, whose rule comes after
   // the math rule in the stylesheet. PR #223 moved this branch to a baseline anchor; an
   // `align-items: center` here would silently put SVG-rendered runs back on the old behaviour.
@@ -245,6 +260,29 @@ describe("the self-contained boxed style mirrors document-surface.css", () => {
 });
 
 describe("the self-contained underline mirrors document-surface.css", () => {
+  it("keeps the native wavy math decoration identical in standalone and app output", () => {
+    expect(underlineWaveStrokeStyle(false)).toEqual(ruleDeclarations(documentSurfaceCss, ".sigma-underline-wave"));
+    expect(underlineWaveStrokeStyle(true)).toEqual({
+      ...ruleDeclarations(documentSurfaceCss, ".sigma-underline-wave"),
+      ...ruleDeclarations(documentSurfaceCss, ".sigma-underline-run:has(.math-preview) > .sigma-underline-wave"),
+    });
+  });
+  it.each(["wavy", "dotted", "double"] as const)("keeps %s native underline variants identical in standalone and app output", (style) => {
+    for (const containsMath of [false, true]) {
+      const branch = containsMath ? ":has(.math-preview)" : ":not(:has(.math-preview))";
+      // `position: relative` sits on the bare wavy rule so the math-container rules stay free of
+      // positioning. Only a run with math owns the absolutely positioned wave stroke that needs it,
+      // so the self-contained text-only run carries no position to mirror.
+      const bareRule = style === "wavy" && containsMath
+        ? ruleDeclarations(documentSurfaceCss, `.sigma-underline-run[data-sigma-doc-underline-style="${style}"]`)
+        : {};
+      expect(underlineRunStyle(containsMath, style)).toEqual({
+        ...mergedRules(documentSurfaceCss, `.sigma-underline-run${branch}`),
+        ...bareRule,
+        ...ruleDeclarations(documentSurfaceCss, `.sigma-underline-run[data-sigma-doc-underline-style="${style}"]${branch}`),
+      });
+    }
+  });
   it("matches the text-only branch", () => {
     expect(underlineRunStyle(false))
       .toEqual(mergedRules(documentSurfaceCss, ".sigma-underline-run:not(:has(.math-preview))"));
@@ -268,6 +306,14 @@ describe("the self-contained underline mirrors document-surface.css", () => {
 });
 
 describe("the self-contained margins mirror the app rules", () => {
+  it("removes only decorated math leading in both native underline projections", () => {
+    const selectors = [
+      ".sigma-underline-run :is(.inline-math-node, .math-preview, .ML__latex)",
+      "u:has(.math-preview) :is(.inline-math-node, .math-preview, .ML__latex)",
+    ];
+    expect(ruleDeclarations(documentSurfaceCss, selectors.join(",\n")))
+      .toEqual({ "line-height": "0" });
+  });
   it("zeroes the inline-math margin the way .overlay-text-shape .inline-math-node does", () => {
     // The overlay shape rules moved into the shared file when the running region started drawing
     // React shapes: `packages/viewer` loads only `document-surface.css`.

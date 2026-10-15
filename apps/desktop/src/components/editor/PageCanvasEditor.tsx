@@ -48,7 +48,7 @@ import {
   type ProblemAreaKind,
   type ProblemNode,
 } from "@/features/document";
-import { PageColumnRules } from "@/features/rendering/adapters/react";
+import { EmbeddedDocumentFonts, PageColumnRules } from "@/features/rendering/adapters/react";
 import { getVisibleOverlayShapes, isProblemAreaDisplayed } from "@/features/rendering/core";
 import {
   bodyTextFlowBlockContainsId,
@@ -2914,6 +2914,7 @@ const { candidateCommentTop, pendingCommentTop, commentThreadPositions } = usePa
   if (isWhiteboard) {
     return (
       <section className="page-mode whiteboard-mode" style={pageStyle}>
+        <EmbeddedDocumentFonts snapshot={document.pageLayout?.overlay?.overlaySnapshot} />
         <div className="page-stack whiteboard-page-stack">
           <div
             tabIndex={0}
@@ -3057,6 +3058,7 @@ const { candidateCommentTop, pendingCommentTop, commentThreadPositions } = usePa
     <ProblemNumberingProvider numbers={problemNumbers}>
     <ProblemDisplayProvider display={problemDisplay}>
     <EditorExtensionProvider value={editorExtensions}>
+      <EmbeddedDocumentFonts snapshot={document.pageLayout?.overlay?.overlaySnapshot} />
       <TextRunSelectionOverlay />
       <section
         className={`page-mode${isPagedRender ? " paged-render" : ""}`}

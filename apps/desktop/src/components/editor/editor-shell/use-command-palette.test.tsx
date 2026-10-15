@@ -66,6 +66,7 @@ function fixture() {
       setCommandPaletteOpen: record("palette"),
       setSettingsFocusEntryId: record("focus"),
       setDesktopSettingsOpen: record("desktop"),
+      setExtensionsOpen: record("extensions"),
       setAiSettingsOpen: record("ai"),
       setPageSettingsOpen: record("page"),
       setTexEnvironmentSettingsOpen: record("tex"),
@@ -122,7 +123,7 @@ describe("mounted command palette", () => {
     expect(desktopEntries.some((entry) => entry.kind === "setting" && entry.surface === "desktopApp")).toBe(true);
     render({ ...f.options, catalog: { ...f.options.catalog, isEmbedded: true } });
     const expected = desktopEntries.filter((entry) => entry.kind !== "setting"
-      || !["desktopApp", "desktopAi", "aiResources"].includes(entry.surface));
+      || !["desktopApp", "desktopAi", "aiResources", "extensions"].includes(entry.surface));
     expect(palette.paletteEntries).toEqual(expected);
   });
 
@@ -151,7 +152,7 @@ describe("mounted command palette", () => {
   });
 
   it.each([
-    ["desktopApp", "desktop"], ["desktopAi", "ai"], ["aiResources", "ai"], ["page", "page"],
+    ["desktopApp", "desktop"], ["desktopAi", "ai"], ["aiResources", "ai"], ["extensions", "extensions"], ["page", "page"],
   ] as const)("closes, sets the focus target, then opens %s", (surface, destination) => {
     const f = fixture();
     render(f.options);

@@ -222,3 +222,14 @@ describe("applyStylePatchToShape on solid line widths", () => {
     expect(styled.type === "geo" && styled.props.solidEdgeSize).toEqual(["s", "xl"]);
   });
 });
+
+describe("saved custom dash", () => {
+  it("keeps an imported pattern for other style edits and clears it when the user chooses a dash preset", () => {
+    const imported = rectangle({ dash: "dashed", dashPattern: [0.625, 0.625] });
+    const recolored = applyStylePatchToShape(imported, { color: "#123456" });
+    expect(recolored.type === "geo" && recolored.props.dashPattern).toEqual([0.625, 0.625]);
+    const restyled = applyStylePatchToShape(recolored, { dash: "dotted" });
+    expect(restyled.type === "geo" && restyled.props.dashPattern).toBeUndefined();
+    expect(restyled.type === "geo" && restyled.props.dash).toBe("dotted");
+  });
+});

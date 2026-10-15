@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
-import { Check, ChevronRight, Download, ExternalLink, FolderOpen, Languages, RefreshCw, RotateCw, Trash2, Type } from "lucide-react";
+import { Check, ChevronRight, Download, ExternalLink, FolderOpen, Languages, RefreshCw, RotateCw } from "lucide-react";
 
 import { AntigravityMark, ClaudeMark, OpenAiMark } from "@/components/branding/provider-logos";
 import { Button, IconButton } from "@/components/ui/Button";
@@ -17,14 +17,12 @@ import type { Translate } from "@/lib/i18n";
 import { setAppLocale, useAppLocale, useT } from "@/lib/i18n/react";
 
 import { useSettingsEntryFocus } from "./settings-entry-focus";
-import { OfficialPluginsSection } from "./plugins/OfficialPluginsSection";
 import { useEditorHost } from "./editor-shell/editor-host";
-import type { DesktopAppInfo, DesktopClaudeStatus, DesktopCodexStatus, DesktopCustomFont, DesktopGeminiStatus, DesktopUpdateState } from "@/types/desktop";
+import type { DesktopAppInfo, DesktopClaudeStatus, DesktopCodexStatus, DesktopGeminiStatus, DesktopUpdateState } from "@/types/desktop";
 
 interface DesktopSettingsModalProps {
   open: boolean;
   onClose: () => void;
-  onFontsChanged?: () => void;
   requestUpdateCheck?: number;
   mode?: "app" | "ai";
   embedded?: boolean;
@@ -52,7 +50,6 @@ const AI_PROVIDER_TABS = [
 export function DesktopSettingsModal({
   open,
   onClose,
-  onFontsChanged,
   requestUpdateCheck = 0,
   mode = "app",
   embedded = false,
@@ -73,7 +70,6 @@ export function DesktopSettingsModal({
   return (
     <DesktopSettingsBody
       onClose={onClose}
-      onFontsChanged={onFontsChanged}
       requestUpdateCheck={requestUpdateCheck}
       focusEntryId={focusEntryId}
       mode={mode}
@@ -177,7 +173,6 @@ function WebSettingsBody({
 
 function DesktopSettingsBody({
   onClose,
-  onFontsChanged,
   requestUpdateCheck,
   focusEntryId,
   mode,
@@ -185,7 +180,6 @@ function DesktopSettingsBody({
 }: {
   focusEntryId?: string;
   onClose: () => void;
-  onFontsChanged?: () => void;
   requestUpdateCheck: number;
   mode: "app" | "ai";
   embedded: boolean;
@@ -197,9 +191,7 @@ function DesktopSettingsBody({
   const [geminiStatus, setGeminiStatus] = useState<DesktopGeminiStatus | null>(null);
   const [updateState, setUpdateState] = useState<DesktopUpdateState | null>(null);
   const [dataDir, setDataDir] = useState<string | null>(null);
-  const [customFonts, setCustomFonts] = useState<DesktopCustomFont[]>([]);
   const [appActionStatus, setAppActionStatus] = useState<SettingsMessage | null>(null);
-  const [fontActionStatus, setFontActionStatus] = useState<SettingsMessage | null>(null);
   const [codexActionStatus, setCodexActionStatus] = useState<SettingsMessage | null>(null);
   const [claudeActionStatus, setClaudeActionStatus] = useState<SettingsMessage | null>(null);
   const [geminiActionStatus, setGeminiActionStatus] = useState<SettingsMessage | null>(null);
@@ -211,7 +203,6 @@ function DesktopSettingsBody({
   const [geminiBusy, setGeminiBusy] = useState(false);
   const [activeAiProvider, setActiveAiProvider] = useState<AiSettingsProvider>("chatgpt");
   const [updateBusy, setUpdateBusy] = useState(false);
-  const [fontBusy, setFontBusy] = useState(false);
   const [autoApplyVerified, setAutoApplyVerified] = useState(false);
   const [autoApplyBusy, setAutoApplyBusy] = useState(false);
   // aiWebSearchEnabled は未設定 (キー欠落) が有効扱いのため、既定値は true。
@@ -251,11 +242,6 @@ function DesktopSettingsBody({
       if (!cancelled) {
         setAutoApplyVerified(r.aiAutoApplyVerifiedProposals ?? false);
         setWebSearchEnabled(r.aiWebSearchEnabled ?? true);
-      }
-    });
-    bridge.fonts?.list().then((r) => {
-      if (!cancelled && r.ok) {
-        setCustomFonts(r.fonts);
       }
     });
     // MCPのupdate_ai_settings tool(別プロセス)がsettings.jsonを書き換えた場合に、開いている
@@ -506,50 +492,6 @@ function DesktopSettingsBody({
       return;
     }
     void checkForAppUpdate();
-  };
-
-  const importFont = async () => {
-    if (!bridge.fonts) {
-      setFontActionStatus({ kind: "error", text: t("app.font.unavailable") });
-      return;
-    }
-    setFontBusy(true);
-    setFontActionStatus(null);
-    try {
-      const result = await bridge.fonts.importFont();
-      setCustomFonts(result.fonts);
-      onFontsChanged?.();
-      if (!result.ok) {
-        setFontActionStatus({ kind: "error", text: result.error ?? t("app.font.addFailed") });
-      } else if (!result.canceled) {
-        setFontActionStatus({ kind: "success", text: t("app.font.added") });
-      }
-    } catch (err) {
-      setFontActionStatus({ kind: "error", text: err instanceof Error ? err.message : t("app.font.addFailed") });
-    } finally {
-      setFontBusy(false);
-    }
-  };
-
-  const deleteFont = async (fontId: string) => {
-    if (!bridge.fonts) {
-      setFontActionStatus({ kind: "error", text: t("app.font.unavailable") });
-      return;
-    }
-    setFontBusy(true);
-    setFontActionStatus(null);
-    try {
-      const result = await bridge.fonts.deleteFont(fontId);
-      setCustomFonts(result.fonts);
-      onFontsChanged?.();
-      setFontActionStatus(result.ok
-        ? { kind: "success", text: t("app.font.deleted") }
-        : { kind: "error", text: result.error ?? t("app.font.deleteFailed") });
-    } catch (err) {
-      setFontActionStatus({ kind: "error", text: err instanceof Error ? err.message : t("app.font.deleteFailed") });
-    } finally {
-      setFontBusy(false);
-    }
   };
 
   const loginCodex = async () => {
@@ -1101,47 +1043,6 @@ function DesktopSettingsBody({
           {languageActionStatus && <SettingsStatusMessage message={languageActionStatus} />}
         </SettingsSection>
 
-        <SettingsSection id="desktop-settings-fonts" title={t("app.font.section")}>
-          <SettingsRow
-            id="desktop-settings-font-add"
-            label={t("app.font.add")}
-            description={t("app.font.addDescription")}
-            icon={<Type size={13} aria-hidden="true" />}
-            control={(
-            <Button tone="secondary" onClick={() => void importFont()} disabled={fontBusy || !bridge.fonts}>
-              <FolderOpen size={14} />
-              {t("app.font.addButton")}
-            </Button>
-            )}
-          />
-          <p className="desktop-settings-help">
-            {t("app.font.help")}
-          </p>
-          <div className="desktop-settings-font-list" aria-label={t("app.font.listAria")}>
-            {customFonts.length === 0 ? (
-              <p className="desktop-settings-empty">{t("app.font.empty")}</p>
-            ) : customFonts.map((font) => (
-              <div className="desktop-settings-font-item" key={font.id}>
-                <div className="desktop-settings-row-info">
-                  <strong style={{ fontFamily: font.cssFamily }}>{font.displayName}</strong>
-                  <span className="desktop-settings-path">{font.fileName}</span>
-                </div>
-                <IconButton
-                  tone="danger"
-                  label={t("app.font.deleteNamed", { name: font.displayName })}
-                  onClick={() => void deleteFont(font.id)}
-                  disabled={fontBusy}
-                >
-                  <Trash2 size={14} />
-                </IconButton>
-              </div>
-            ))}
-          </div>
-          {fontActionStatus && <SettingsStatusMessage message={fontActionStatus} />}
-        </SettingsSection>
-
-        <div id="desktop-settings-plugins"><OfficialPluginsSection onFontsChanged={onFontsChanged} /></div>
-
         <SettingsSection id="desktop-settings-app-update" title={t("app.update.section")}>
           <RequestedUpdateCheck request={requestUpdateCheck} onCheck={checkForAppUpdate} />
           <SettingsRow
@@ -1296,29 +1197,6 @@ function DesktopSettingsBody({
         }
         .desktop-settings-actions {
           max-width: 100%;
-        }
-        .desktop-settings-row-info { display: grid; gap: var(--space-xs); min-width: 0; }
-        .desktop-settings-row-info strong {
-          display: inline-flex; align-items: center; gap: var(--space-sm);
-          font-size: 12px; font-weight: 650; color: var(--text-secondary, #555);
-        }
-        .desktop-settings-row-info > span { font-size: 13px; color: var(--text-primary, #111); }
-        .desktop-settings-font-list {
-          display: grid; gap: var(--space-sm);
-        }
-        .desktop-settings-font-item {
-          display: grid; grid-template-columns: minmax(0, 1fr) 34px; gap: var(--space-sm); align-items: center;
-          padding: var(--space-sm) var(--space-md);
-          border: 1px solid var(--border-subtle, #e5e5e5);
-          border-radius: var(--radius-panel);
-          background: var(--surface-soft, #f7f7f7);
-        }
-        .desktop-settings-empty {
-          margin: var(--space-none); padding: var(--space-sm) var(--space-md);
-          border: 1px dashed var(--border, #dadada);
-          border-radius: var(--radius-panel);
-          color: var(--text-muted, #8a8a8a);
-          font-size: 12px;
         }
         .desktop-settings-path {
           overflow-wrap: anywhere;

@@ -130,6 +130,14 @@ describe("boxedRunSegmentCount", () => {
 });
 
 describe("assignBoxedRunTargets", () => {
+  it("preserves whitespace classification through editor measurements without losing connections", () => {
+    const left = { from: 1, to: 2 }, gap = { from: 2, to: 3, whitespaceOnly: true }, right = { from: 3, to: 4 };
+    const measurements = assignBoxedRunTargets([boxed(rect(5, 21), 1), boxed(rect(13, 17), 1), boxed(rect(0, 30), 1)], [left, gap, right]);
+    expect(measurements[1]).toMatchObject({ boxedTarget: gap, whitespaceOnly: true });
+    expect(computeBoxedRunLineTargets(measurements).get(gap)).toEqual({ extraPaddingTop: 0, extraPaddingBottom: 0, targetHeight: 4, ownHeight: 4 });
+    expect(computeBoxedRunLineConnections(measurements).get(gap)).toEqual({ connectLeft: true, connectRight: true });
+  });
+
   it("maps every coalesced math segment plus the trailing text to its own target", () => {
     // `αβ=X+Yi` + `αβ` coalesce into one span (segmentCount 2); `とすると` follows.
     const mathLeft = target(1, 2, "0|double|");

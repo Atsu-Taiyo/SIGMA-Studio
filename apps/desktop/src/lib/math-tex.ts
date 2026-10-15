@@ -7,7 +7,7 @@ import { applyMathTypesetStyle } from "@/features/rendering/core";
 import { mathRenderEnvironmentCacheKey, type MathRenderEnvironment } from "@/lib/math-environment";
 import { DEFAULT_MATH_MACRO_SET, trustSigmaKatexMacro, type MathMacroSet } from "@/lib/math-macros";
 
-const MULTILINE_ENVIRONMENT_PATTERN = /\\begin\{(aligned|alignedat|array|cases|displaylines|matrix|pmatrix|bmatrix|Bmatrix|vmatrix|Vmatrix|smallmatrix)\}([\s\S]*?)\\end\{\1\}/g;
+const MULTILINE_ENVIRONMENT_PATTERN = /\\begin\{(aligned|alignedat|array|cases|dcases|rcases|displaylines|matrix|pmatrix|bmatrix|Bmatrix|vmatrix|Vmatrix|smallmatrix)\}([\s\S]*?)\\end\{\1\}/g;
 const TEX_ROW_SEPARATOR = "\\\\";
 const MATH_TEMPLATE_PLACEHOLDER_PATTERN = /#\?/g;
 const MATH_TEMPLATE_PLACEHOLDER_TEX = "\\placeholder{}";

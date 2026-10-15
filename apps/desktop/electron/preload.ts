@@ -182,6 +182,9 @@ const desktopAPI = {
   },
 
   fonts: {
+    resolve(resourceIds: string[]): Promise<unknown> {
+      return ipcRenderer.invoke("fonts:resolve", resourceIds);
+    },
     list(): Promise<unknown> {
       return ipcRenderer.invoke("fonts:list");
     },
@@ -416,6 +419,12 @@ const desktopAPI = {
     },
     openImportOtherDocument(): Promise<{ filePath: string; dataBase64: string } | null> {
       return ipcRenderer.invoke("file:open-import-other-document");
+    },
+    documentConversionCapability() {
+      return ipcRenderer.invoke("file:document-conversion-capability");
+    },
+    convertDocument(payload: { bytes: Uint8Array; filename: string }) {
+      return ipcRenderer.invoke("file:convert-document", payload);
     },
     saveSigmaDoc(payload: { suggestedName?: string; data: string }): Promise<{ filePath: string } | null> {
       return ipcRenderer.invoke("file:save-sigma-doc", payload);

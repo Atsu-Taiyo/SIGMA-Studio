@@ -44,6 +44,19 @@ describe("boxed text run height", () => {
     expect(boxedRunExtraPaddingBottom(58, 44)).toBe(0);
   });
 
+  it("does not move a source baseline by stretching whitespace-only flex gaps beside tall math", () => {
+    // Chromium source reproduction: adding 12.19px bottom padding to this gap
+    // moved the whole paragraph baseline by 12.19px (~9.14pt).
+    const targets = computeBoxedRunLineTargets<string>([
+      { top: 5.59, bottom: 21.68, height: 16.09, boxedTarget: "prose" },
+      { top: 13.59, bottom: 17.59, height: 4, boxedTarget: "gap", whitespaceOnly: true },
+      { top: 0, bottom: 29.78, height: 29.78, boxedTarget: "integral" },
+    ]);
+    expect(targets.get("prose")).toEqual({ extraPaddingTop: 5.59, extraPaddingBottom: 8.100000000000001, targetHeight: 29.78, ownHeight: 16.09 });
+    expect(targets.get("gap")).toEqual({ extraPaddingTop: 0, extraPaddingBottom: 0, targetHeight: 4, ownHeight: 4 });
+    expect(targets.get("integral")).toEqual({ extraPaddingTop: 0, extraPaddingBottom: 0, targetHeight: 29.78, ownHeight: 29.78 });
+  });
+
   it("targets the tallest item on each visual line, including unboxed content", () => {
     const targets = computeBoxedRunLineTargets<string>([
       { top: 20, bottom: 44, height: 24, boxedTarget: "text-box" },

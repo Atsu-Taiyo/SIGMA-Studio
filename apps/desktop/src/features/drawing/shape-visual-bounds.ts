@@ -254,7 +254,7 @@ export function getStrokeInflation(shape: OverlayShape): number {
     return 0;
   }
 
-  const strokeWidth = overlayStrokeWidth(shape.props.size);
+  const strokeWidth = overlayStrokeWidth(shape.props.size, shape.props.strokeScale);
   const heads = [shape.props.arrowheadStart, shape.props.arrowheadEnd]
     .filter((head) => typeof head === "string" && head !== "none")
     .map((head) => String(head));
@@ -266,9 +266,9 @@ export function getStrokeInflation(shape: OverlayShape): number {
   // An unrecognised head falls back to the widest one rather than to nothing: a box that is too
   // small hides ink, a box that is slightly too large only looks loose.
   const extent = Math.max(...heads.map((head) => (
-    getArrowheadExtentInStrokes(head) || WIDEST_ARROWHEAD_EXTENT_IN_STROKES
+    getArrowheadExtentInStrokes(head, shape.props.arrowheadScale) || WIDEST_ARROWHEAD_EXTENT_IN_STROKES * (shape.props.arrowheadScale ?? 1)
   )));
-  return (strokeWidth * extent) / 2;
+  return Math.max(strokeWidth / 2, (strokeWidth * extent) / 2);
 }
 
 /**

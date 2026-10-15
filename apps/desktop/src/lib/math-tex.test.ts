@@ -52,6 +52,16 @@ describe("math template TeX helpers", () => {
     expect(toMathLivePreviewTex("\\placeholder{}")).toBe("\\placeholder[?]{\\square}");
   });
 
+  it.each(["cases", "dcases", "rcases"])("keeps %s rows inside their own environment", (environment) => {
+    const tex = `m(a)=\\begin{${environment}}f(a+1)=a^2-1\\\\f(1)=-1\\\\f(a)=a^2-2a\\end{${environment}}`;
+    expect(toMathLivePreviewTex(tex)).toBe(tex);
+    expect(toKatexPreviewTex(tex)).toBe(tex);
+    // Treating these row separators as bare multiline input adds alignment
+    // markers to the equals signs and pushes parts of the case off the page.
+    const html = convertLatexToMarkupCached(tex, DEFAULT_MATH_RENDER_ENVIRONMENT);
+    expect(html.match(/class="col-align-l"/g)).toHaveLength(1);
+  });
+
   it("renders KaTeX-only commands without changing MathLive-supported previews", () => {
     const tableTex = String.raw`\begin{array}{c}a\\\hline b\end{array}`;
 

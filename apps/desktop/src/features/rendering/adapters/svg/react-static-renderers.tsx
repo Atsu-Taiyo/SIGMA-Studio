@@ -160,13 +160,14 @@ const overlayTextHtmlCache = new WeakMap<readonly OverlayTextBlock[], Map<string
 function renderOverlayTextHtmlMemoized(
   blocks: readonly OverlayTextBlock[],
   environment: MathRenderEnvironment,
+  noWrap = false,
 ): string {
   let cached = overlayTextHtmlCache.get(blocks);
   if (!cached) {
     cached = new Map();
     overlayTextHtmlCache.set(blocks, cached);
   }
-  const key = mathRenderEnvironmentCacheKey(environment, "overlay-text");
+  const key = mathRenderEnvironmentCacheKey(environment, `overlay-text-${noWrap}`);
   const hit = cached.get(key);
   if (hit !== undefined) {
     return hit;
@@ -174,7 +175,7 @@ function renderOverlayTextHtmlMemoized(
 
   const html = renderToStaticMarkup(
     <MathEnvironmentValueProvider environment={environment}>
-      <OverlayTextBlocksView blocks={blocks} selfContained xmlns="http://www.w3.org/1999/xhtml" />
+      <OverlayTextBlocksView blocks={blocks} selfContained noWrap={noWrap} xmlns="http://www.w3.org/1999/xhtml" />
     </MathEnvironmentValueProvider>,
   );
   cached.set(key, html);
@@ -206,7 +207,7 @@ function createStaticReactRenderers(environment: MathRenderEnvironment): Overlay
       </MathEnvironmentValueProvider>,
     ),
     renderMathHtml: (tex) => renderMathHtml(tex, environment),
-    renderOverlayTextHtml: (blocks) => renderOverlayTextHtmlMemoized(blocks, environment),
+    renderOverlayTextHtml: (blocks, noWrap) => renderOverlayTextHtmlMemoized(blocks, environment, noWrap),
     renderTableHtml: (table, width, height, overflow) => (
       renderTableHtmlMemoized(table, width, height, overflow, environment)
     ),

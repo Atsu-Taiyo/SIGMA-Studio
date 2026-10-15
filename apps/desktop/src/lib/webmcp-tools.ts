@@ -280,7 +280,7 @@ const INLINE_STYLE_SCHEMA = {
       properties: {
         enabled: { type: "boolean" },
         paddingY: { type: "number", minimum: 0, maximum: 100 },
-        variant: { type: "string", enum: ["frame", "thick", "double", "oval", "shade"] },
+        variant: { type: "string", enum: ["frame", "thick", "double", "oval", "shade", "compact"] },
         tone: { type: "string", enum: ["gray", "blue", "green", "red", "yellow"] },
       },
       required: ["enabled"],

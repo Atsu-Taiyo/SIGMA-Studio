@@ -727,6 +727,12 @@ describe("rendering feature dependency boundary", () => {
           wrapper: "renderTex",
         },
       ],
+      "features/rendering/adapters/react/MathPreview.tsx": [
+        {
+          expression: "compactHtml",
+          reason: "renderMathHtml の無害化済み出力。固定の MathLive 根タグへ固定 line-height 宣言だけを追加し、文書由来の値を補間しない",
+        },
+      ],
     };
 
     /**
@@ -1045,9 +1051,25 @@ describe("rendering feature dependency boundary", () => {
 
       expect(importSpecifiers(sanitizer)).toEqual([
         "@/lib/math-macros",
+        "@/features/document/css-safety",
         "./rich-text-html",
       ]);
-      expect(sanitizer).not.toMatch(/\b(?:window|document|DOMParser|HTMLElement)\b/);
+      const domIdentifiers: string[] = [];
+      const visitIdentifier = (node: ts.Node): void => {
+        if (ts.isIdentifier(node) && /^(?:window|document|DOMParser|HTMLElement)$/.test(node.text)) domIdentifiers.push(node.text);
+        ts.forEachChild(node, visitIdentifier);
+      };
+      visitIdentifier(ts.createSourceFile("math-markup.ts", sanitizer, ts.ScriptTarget.Latest, true));
+      expect(domIdentifiers).toEqual([]);
+      const cssSafety = readFileSync(fileURLToPath(new URL("../document/css-safety.ts", import.meta.url)), "utf8");
+      expect(importSpecifiers(cssSafety)).toEqual([]);
+    });
+
+    it("limits compact math markup changes to the fixed sanitized root declaration", () => {
+      const source = readFileSync(fileURLToPath(new URL("./adapters/react/MathPreview.tsx", import.meta.url)), "utf8");
+      expect(source).toContain("const html = renderMathHtml(tex, mathEnvironment);");
+      expect(source).toContain("? html.replace(/^<span class=\"ML__latex\">/, '<span class=\"ML__latex\" style=\"line-height:0\">')");
+      expect(source).toContain(": html;");
     });
   });
 

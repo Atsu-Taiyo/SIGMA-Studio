@@ -1,4 +1,5 @@
 export * from "./boxed-inline-dom";
+export * from "./boxed-run-frames";
 export * from "./code-highlight";
 export * from "./dom-raster";
 export * from "./graph-label-layout-port";

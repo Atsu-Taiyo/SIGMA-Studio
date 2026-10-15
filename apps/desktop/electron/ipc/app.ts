@@ -1,3 +1,4 @@
+import type { ApplicationFontStore } from "../application-font-store";
 import { ipcMain } from "../trusted-ipc";
 import type { LocalFontFace } from "@/lib/local-font-contracts";
 import { app, dialog, shell, type BrowserWindow, type OpenDialogOptions } from "electron";
@@ -31,6 +32,8 @@ export interface RegisterAppIpcDeps {
   getMainWindow: () => BrowserWindow | null;
   releaseUrl: string;
   dataDir: string;
+  applicationFontStore?: ApplicationFontStore;
+  ensureFontResources?: (ids: unknown) => Promise<void>;
   /** このPCにある書体の名前の一覧 (読めなければ null)。書体メニューを、実際に表示できる書体に合わせる。 */
   listSystemFonts?: (sender: Electron.WebContents) => Promise<LocalFontFace[] | null>;
   appUpdateController: AppUpdateController;
@@ -160,6 +163,16 @@ export function registerAppIpc(deps: RegisterAppIpcDeps): void {
       ok: true,
       preferences: readDesktopEditorPreferences(dataDir),
     };
+  });
+
+  ipcMain.handle("fonts:resolve", async (_event, ids: unknown) => {
+    if (!deps.applicationFontStore) return { resources: {}, missing: [] };
+    let result = await deps.applicationFontStore.resolve(ids);
+    if (result.missing.length && deps.ensureFontResources) {
+      await deps.ensureFontResources(result.missing).catch(() => {});
+      result = await deps.applicationFontStore.resolve(ids);
+    }
+    return result;
   });
 
   ipcMain.handle("fonts:list", () => ({

@@ -185,6 +185,7 @@ describe("text format controller", () => {
     expect(normalizeTextFormatNonnegativeNumber("0")).toBe(0);
     expect(normalizeTextFormatNonnegativeNumber("-1")).toBeUndefined();
     expect(normalizeTextFormatBoxedVariant("oval")).toBe("oval");
+    expect(normalizeTextFormatBoxedVariant("compact")).toBe("compact");
     expect(normalizeTextFormatBoxedVariant("round")).toBeUndefined();
     expect(isValidTextFormatSelection({ from: 1, to: 4 }, 4)).toBe(true);
     expect(isValidTextFormatSelection({ from: 4, to: 4 }, 4)).toBe(false);

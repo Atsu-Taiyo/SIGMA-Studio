@@ -166,7 +166,11 @@ describe("viewer stylesheet size", () => {
   // 問題の枠線 (角付きの作り直しと、自作SVG枠の9分割描画) で約 3.1KB 増えたので 76KiB へ上げた。
   // 印刷・埋め込み viewer も同じ枠を描くので、共有面に置くほかない。
   // 箱の自作枠 (問題と同じ9分割と、印刷の断片で開いた辺の切り落とし) で約 1.5KB 増えたので 80KiB へ上げた。
-  const MAX_AUTHORED_CSS_BYTES = 80 * 1024;
+  // Native underline variants (wavy/dotted/double, including the math wave stroke), compact text
+  // frames and the no-wrap rule for imported rows add about 3.6 KB of shared document styles that the
+  // print output and the embedded viewer must also draw, so they cannot live in the app-only CSS.
+  // Allow 4 KiB for them (84 KiB) while keeping the generated CSS cap unchanged.
+  const MAX_AUTHORED_CSS_BYTES = 84 * 1024;
   const MAX_DIST_CSS_BYTES = 128 * 1024;
 
   it("keeps the authored CSS (viewer + shared document surface) small", () => {

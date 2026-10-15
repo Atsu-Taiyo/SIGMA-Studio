@@ -187,4 +187,22 @@ describe("document file commands", () => {
     expect(click).toHaveBeenCalledOnce();
     expect(f.create).toHaveBeenCalledOnce();
   });
+
+  it("labels the converted import format with the name the service gives, a generic one otherwise, and nothing when unavailable", async () => {
+    const f = fixture();
+    f.options.isDesktopApp = true;
+    const capability = vi.fn<() => Promise<import("@/lib/document-conversion-contracts").DocumentConversionCapability>>(
+      async () => ({ available: true, displayName: "Print Pages" }),
+    );
+    vi.spyOn(desktop, "getDesktopBridge").mockReturnValue({ file: { documentConversionCapability: capability } } as unknown as NonNullable<ReturnType<typeof desktop.getDesktopBridge>>);
+    render(f.options);
+    await act(async () => undefined);
+    expect(actions.conversionLabel).toBe("Print Pages");
+    capability.mockResolvedValue({ available: true });
+    await act(async () => { window.dispatchEvent(new Event("focus")); });
+    expect(actions.conversionLabel).toBe("外部形式");
+    capability.mockResolvedValue({ available: false, reason: "unauthorized" });
+    await act(async () => { window.dispatchEvent(new Event("focus")); });
+    expect(actions.conversionLabel).toBeNull();
+  });
 });

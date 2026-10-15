@@ -21,6 +21,9 @@ import { isSafeCssDeclarationValue } from "@/features/document/css-safety";
 import {
   buildInlineRichTextDom,
   getEffectiveZoom,
+  readBoxedRunFrames,
+  hasBoxedRunFrameContent,
+  createBoxedRunFrameLayer,
   mergeStyles,
   type RichTextDomNode,
   type RichTextDomStyle,
@@ -95,6 +98,21 @@ export function useBoxedInlineRunAlignment<TElement extends HTMLElement>(
 
     let destroyed = false;
     let measuring = false;
+    let frameSignature = "";
+    let frameLayer: HTMLElement | undefined;
+    const drawFrames = root.matches("p,h1,h2,h3,h4,h5,h6")
+      && Boolean(root.closest('[data-boxed-run-frames="true"]'));
+    const updateFrames = () => {
+      if (!drawFrames) return;
+      const frames = readBoxedRunFrames(root);
+      const signature = JSON.stringify(frames);
+      if (frameSignature === signature && (!frames.length || frameLayer?.parentElement === root)) return;
+      frameSignature = signature;
+      frameLayer?.remove();
+      root.classList.toggle("boxed-run-framed", frames.length > 0);
+      frameLayer = frames.length ? createBoxedRunFrameLayer(frames) : undefined;
+      if (frameLayer) root.prepend(frameLayer);
+    };
     let animationFrameId: number | null = null;
     let releaseMeasuringFrameId: number | null = null;
     let settleMeasuringFrameId: number | null = null;
@@ -126,6 +144,7 @@ export function useBoxedInlineRunAlignment<TElement extends HTMLElement>(
         observeResizeTargets();
         releaseMeasuringFrameId = window.requestAnimationFrame(() => {
           releaseMeasuringFrameId = null;
+          updateFrames();
           settleMeasuringFrameId = window.requestAnimationFrame(() => {
             settleMeasuringFrameId = null;
             measuring = false;
@@ -149,6 +168,7 @@ export function useBoxedInlineRunAlignment<TElement extends HTMLElement>(
       attributes: true,
       attributeFilter: [
         "class",
+        "style",
         "data-sigma-doc-boxed-padding-y",
         "data-sigma-doc-boxed-variant",
         "data-sigma-doc-boxed-tone",
@@ -162,6 +182,8 @@ export function useBoxedInlineRunAlignment<TElement extends HTMLElement>(
 
     return () => {
       destroyed = true;
+      frameLayer?.remove();
+      if (drawFrames) root.classList.remove("boxed-run-framed");
       if (animationFrameId !== null) {
         window.cancelAnimationFrame(animationFrameId);
       }
@@ -225,6 +247,7 @@ function renderRichTextDomNode(node: RichTextDomNode, options: RenderInlineConte
         key={node.key}
         tex={node.tex}
         mathFractionSizing={options.mathFractionSizing}
+        compactSelfContained={options.selfContained && node.compact}
       />
     );
   }
@@ -289,7 +312,7 @@ function collectStaticInlineMeasurements(root: HTMLElement): Array<BoxedRunMeasu
   const measurements: Array<BoxedRunMeasurement<StaticBoxedRunTarget>> = [];
   // Rects are zoom-scaled when the page canvas is zoomed; divide back out so the
   // applied target height matches content instead of growing by zoom². See getEffectiveZoom.
-  const zoom = getEffectiveZoom(root);
+  const zoom = getEffectiveZoom(root, "y");
   const visit = (node: Node) => {
     for (const child of Array.from(node.childNodes)) {
       if (child.nodeType === Node.TEXT_NODE) {
@@ -309,6 +332,7 @@ function collectStaticInlineMeasurements(root: HTMLElement): Array<BoxedRunMeasu
           measurements.push(...scaleBoxedRunRects(getElementRects(child), zoom).map((rect) => ({
             ...rect,
             boxedTarget: { segmentId },
+            ...(!hasBoxedRunFrameContent(child) ? { whitespaceOnly: true } : {}),
           })));
         }
         continue;

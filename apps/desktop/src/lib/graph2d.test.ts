@@ -18,9 +18,22 @@ import {
   makeGraphCurveLabel,
   mapGraphPoint,
   moveGraphOriginToRatios,
+  normalizeGraphCurveStrokeWidth,
 } from "@/lib/graph2d";
 
 describe("graph2d", () => {
+  it("retains imported small-plot pen widths above the editor menu range", () => {
+    const spec = createGraph2DSpecPreset("line");
+    spec.curves[0] = { ...spec.curves[0], strokeWidth: 14.6 };
+    expect(getGraphIssues(spec, "imported_graph")).not.toContainEqual(
+      { code: "curveStrokeWidth", nodeId: "imported_graph", targetId: spec.curves[0].id },
+    );
+    expect(normalizeGraphCurveStrokeWidth(14.6)).toBe(14.6);
+    spec.curves[0] = { ...spec.curves[0], strokeWidth: 65 };
+    expect(getGraphIssues(spec, "oversize_graph")).toContainEqual(
+      { code: "curveStrokeWidth", nodeId: "oversize_graph", targetId: spec.curves[0].id },
+    );
+  });
   it("evaluates supported math expressions", () => {
     expect(evaluateExpression("sin(pi/2)", 0)).toBeCloseTo(1);
     expect(evaluateExpression("x^2 - 5*x + 6", 2)).toBeCloseTo(0);
@@ -280,7 +293,20 @@ describe("graph2d", () => {
 
     expect(path).toContain("M");
     expect(path).toContain("L");
-    expect((path.match(/M/g) ?? []).length).toBeGreaterThan(5);
+    expect((path.match(/M/g) ?? []).length).toBe(2);
+  });
+
+  it.each(["x - 1", "y - 1"])("keeps the dotted contour %s continuous across sampling cells", (expr) => {
+    const spec = createGraph2DSpecPreset("line");
+    const path = buildFunctionPath({ ...spec.curves[0], expr, mode: "implicit", dash: "dotted", samples: 80 }, spec);
+    expect(path.match(/M/g)).toHaveLength(1);
+    expect((path.match(/L/g) ?? []).length).toBeGreaterThan(50);
+  });
+
+  it("keeps disconnected closed implicit contours as separate paths", () => {
+    const spec = { ...createGraph2DSpecPreset("line"), viewBox: { xMin: "-4", xMax: "4", yMin: "-3", yMax: "3" } };
+    const path = buildFunctionPath({ ...spec.curves[0], expr: "((x-2)^2+y^2-1)*((x+2)^2+y^2-1)", mode: "implicit", samples: 90 }, spec);
+    expect(path.match(/M/g)).toHaveLength(2);
   });
 
   it("builds an SVG path for implicit equations with nonzero right-hand sides", () => {

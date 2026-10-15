@@ -21,23 +21,31 @@ interface MathPreviewProps {
   displayMode?: boolean;
   className?: string;
   mathFractionSizing?: MathFractionSizing | null;
+  /** The compact boxed source variant needs its MathLive strut height in stylesheet-less SVG. */
+  compactSelfContained?: boolean;
 }
 
 // Memoized: a math node only re-renders when its tex/mode/class actually changes.
 // Without this, every inline math in the whole document re-renders on each keystroke
 // (the parent editor trees re-render), which dominated typing latency.
-export const MathPreview = memo(function MathPreview({ tex, displayMode = false, className, mathFractionSizing }: MathPreviewProps) {
+export const MathPreview = memo(function MathPreview({ tex, displayMode = false, className, mathFractionSizing, compactSelfContained = false }: MathPreviewProps) {
   countPerformanceEvent("MathPreview.render");
   // 描画は main の math render parity (環境を渡す) に合わせる。
   const mathEnvironment = useMathRenderEnvironment(mathFractionSizing);
   const html = renderMathHtml(tex, mathEnvironment);
+  // `renderMathHtml` is already sanitized. Only its fixed MathLive root gets a
+  // fixed declaration; the normal math path and unknown-markup fallback stay intact.
+  const compactHtml = compactSelfContained
+    ? html.replace(/^<span class="ML__latex">/, '<span class="ML__latex" style="line-height:0">')
+    : html;
   // クラスの組み立ては共通出典から (編集面の NodeView・静的レンダラと同じ文字列にする)。
   const classes = inlineMathBodyClassName(displayMode, className);
 
   return (
     <span
       className={classes}
-      dangerouslySetInnerHTML={{ __html: html }}
+      style={compactSelfContained ? { lineHeight: 0 } : undefined}
+      dangerouslySetInnerHTML={{ __html: compactHtml }}
       data-empty={!tex ? "true" : "false"}
     />
   );

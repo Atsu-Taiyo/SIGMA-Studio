@@ -317,7 +317,7 @@ export type LineEndpointSize = (typeof LINE_ENDPOINT_SIZES)[number]["size"];
  * The picker's rows, in order. Derived from nothing else on purpose: the labels are editorial.
  *
  * A row is one shape and the sizes it can be drawn at, so the menu can be read as a grid — the
- * shapes down the side, the sizes across the top — instead of as fourteen names that only differ
+ * shapes down the side, the sizes across the top — instead of as names that only differ
  * by a suffix.
  */
 export const LINE_ENDPOINT_SHAPES: Array<{
@@ -325,6 +325,8 @@ export const LINE_ENDPOINT_SHAPES: Array<{
 }> = [
   { values: { normal: "arrow", small: "arrowSmall" } },
   { values: { normal: "triangle", small: "triangleSmall" } },
+  { values: { normal: "triangleNarrow", small: "triangleNarrowSmall" } },
+  { values: { normal: "stealth", small: "stealthSmall" } },
   { values: { normal: "openArrow", small: "openArrowSmall" } },
   { values: { normal: "thinArrow", small: "thinArrowSmall" } },
   { values: { normal: "diamond", small: "diamondSmall" } },

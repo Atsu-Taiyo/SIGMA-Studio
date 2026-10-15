@@ -7,6 +7,18 @@ import {
 } from "./math-markup";
 
 describe("sanitizeMathMarkup", () => {
+  it("retains bounded font identifiers containing resource hashes", () => {
+    for (const family of ["'HGSoeiKakugothicUB-5b5c7b0b'", "'MS Mincho-33bad001'", "'Custom600vw'", "KaTeX_Main, serif"]) {
+      const markup = `<span class="ML__text" style="font-family:${family}">4</span>`;
+      expect(sanitizeMathMarkup(markup)).toEqual({ html: markup, safe: true });
+    }
+  });
+
+  it("rejects functions, escapes and oversized font-family values", () => {
+    for (const family of ["url(https://example.com/font)", "var(--font)", "bad\\name", "a".repeat(201)]) {
+      expect(sanitizeMathMarkup(`<span style="font-family:${family}">4</span>`).html).toBe("<span>4</span>");
+    }
+  });
   it("keeps the markup MathLive and KaTeX actually produce", () => {
     const markup = [
       '<span class="ML__latex">',

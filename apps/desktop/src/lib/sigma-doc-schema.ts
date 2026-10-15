@@ -90,7 +90,7 @@ const LineHeightSchema = z.string().transform((value, context) => {
   }
   return normalized;
 }).optional();
-const BoxedVariantSchema = z.enum(["frame", "thick", "double", "oval", "shade"]).optional();
+const BoxedVariantSchema = z.enum(["frame", "thick", "double", "oval", "shade", "compact"]).optional();
 const BoxedToneSchema = z.enum(["gray", "blue", "green", "red", "yellow"]).optional();
 
 const TextInlineSchema = z.object({
@@ -102,6 +102,7 @@ const TextInlineSchema = z.object({
   backgroundColor: z.string().optional(),
   fontFamily: z.string().optional(),
   fontSize: z.number().positive().optional(),
+  underlineStyle: z.enum(["solid", "wavy", "dotted", "double"]).optional(),
   boxedPaddingY: z.number().min(0).optional(),
   boxedVariant: BoxedVariantSchema,
   boxedTone: BoxedToneSchema,
@@ -117,6 +118,7 @@ const MathInlineSchema = z.object({
   backgroundColor: z.string().optional(),
   fontFamily: z.string().optional(),
   fontSize: z.number().positive().optional(),
+  underlineStyle: z.enum(["solid", "wavy", "dotted", "double"]).optional(),
   boxedPaddingY: z.number().min(0).optional(),
   boxedVariant: BoxedVariantSchema,
   boxedTone: BoxedToneSchema,

@@ -8,6 +8,7 @@ import { createRichTextEngineExtensions } from "@/components/tiptap/rich-text-en
 import { dispatchTextFormatState } from "@/components/tiptap/text-format-controller";
 import { DEFAULT_BODY_FONT_FAMILY, type OverlayTextBlock } from "@/features/document";
 import { useMathEnvironment } from "@/features/rendering/adapters/react";
+import { overlayTextScale } from "@/features/rendering/core";
 import {
   getShapeRotation,
   getTextShapeFontSizePt,
@@ -74,10 +75,8 @@ export function OverlayTextShapeEditor({
       // Block identity has to survive the round trip, or every keystroke renames every block.
       // The shape's variant keeps the id in the document and out of the DOM — see the extension.
       blockExtensions: [OverlayTextBlockAttrs],
-      // The static twin of this editor (`OverlayTextShapeStaticView`) draws per-segment borders,
-      // so drawing one rectangle per run here would change the box the moment the shape is
-      // focused. See `BoxedTextRunHeightOptions.drawRunFrames`.
-      drawBoxedRunFrames: false,
+      // Both static and editing overlays measure the entire connected text/math run.
+      drawBoxedRunFrames: shape.type === "text" && getShapeRotation(shape) === 0,
       enableMathDelimiters: true,
       // A shape saves quotes, code blocks and rules now, so the extensions that create them are
       // safe to load here: the gate exists to keep a surface from creating a block its converter
@@ -273,9 +272,10 @@ export function OverlayTextShapeEditor({
   return (
     <div
       ref={wrapperRef}
-      className={`overlay-text-shape ${isCallout ? "embedded-callout" : ""}`}
+      className={`overlay-text-shape ${isCallout ? "embedded-callout" : ""} ${shape.type === "text" && shape.props.textWrap === "none" ? "no-auto-wrap" : ""}`}
       style={{
         width: isCallout ? "100%" : shape.props.w,
+        ...(shape.type === "text" ? overlayTextScale(shape) : {}),
         minWidth: isCallout ? 0 : MIN_TEXT_SHAPE_WIDTH,
         minHeight: isCallout ? lineHeightPx : Math.max(shape.props.h, lineHeightPx),
         color: shape.props.color,

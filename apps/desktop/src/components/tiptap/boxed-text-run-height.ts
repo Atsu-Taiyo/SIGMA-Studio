@@ -6,6 +6,10 @@ import { Decoration, DecorationSet, type EditorView } from "@tiptap/pm/view";
 import {
   BOXED_TEXT_CLASS_NAME,
   getEffectiveZoom,
+  readBoxedRunFrames,
+  hasBoxedRunFrameContent,
+  createBoxedRunFrameLayer,
+  type BoxedRunFrame,
   INLINE_MATH_NODE_VIEW_ATTRIBUTE,
 } from "@/features/rendering/adapters";
 import {
@@ -42,10 +46,6 @@ const IGNORABLE_ELEMENT_SELECTOR = "img.ProseMirror-separator";
 const HEIGHT_TARGET_TOLERANCE_PX = 0.5;
 /** Frame edges are drawn, so they are compared far more tightly than heights. */
 const RUN_FRAME_EPSILON_PX = 0.02;
-/** Segments of one run touch; a bigger horizontal gap means a separate frame. */
-const RUN_FRAME_JOIN_TOLERANCE_PX = 1.5;
-/** Tops this close belong to the same visual line. */
-const RUN_FRAME_LINE_TOLERANCE_PX = 1;
 const CSS_PIXEL_PRECISION = 100;
 const boxedTextRunHeightPluginKey = new PluginKey<BoxedRunHeightState>("boxedTextRunHeight");
 
@@ -60,16 +60,6 @@ export interface BoxedRunHeightState {
    * see `reconcileBoxedRunHeightState`.
    */
   signatures: Record<string, string>;
-}
-
-/** A frame to draw, in coordinates relative to its container's padding box. */
-interface BoxedRunFrame {
-  left: number;
-  top: number;
-  width: number;
-  height: number;
-  variant: string | null;
-  tone: string | null;
 }
 
 interface BoxedRunInlineTarget {
@@ -87,6 +77,7 @@ interface BoxedRunInlineTarget {
 
 export interface BoxedRunDomTarget {
   element?: HTMLElement;
+  whitespaceOnly?: boolean;
   from?: number;
   styleKey?: string;
   to?: number;
@@ -113,19 +104,8 @@ export interface BoxedTextRunHeightOptions {
   /**
    * Draw one rectangle per connected run instead of letting each segment paint its own border.
    *
-   * Only surfaces whose static twin draws the same rectangle may turn this on. The overlay text
-   * shape and table cells swap a Tiptap editor for a static renderer the moment they lose focus,
-   * and that renderer has no frame layer — drawing one here would make the box jump on every
-   * focus change, which is the divergence this whole area exists to remove. The document body
-   * has no static twin (it is always the editor), so it keeps the exact single frame.
-   *
-   * The split is deliberate and verified, not a gap waiting to be closed: the seamless
-   * alternative for the other surfaces — merge a run's pieces into one span and let its own line
-   * box be the frame, so nothing has to be measured — was measured end to end and is blocked on
-   * the editing surface, because ProseMirror keeps one mark span open only where the mark is
-   * equal and every math atom's boxed mark carries `math: true`. `document-surface.css` (above
-   * `.boxed-run-framed …`) records the measurements and the full reasoning;
-   * `boxed-text-run-height.spec.ts` pins the resulting contract.
+   * The static twin must use the same measured frame. Overlay text does so through
+   * useBoxedInlineRunAlignment; table cells retain their per-segment borders.
    */
   drawRunFrames: boolean;
 }
@@ -600,59 +580,7 @@ function readRenderedRunFrames(
     if (!key) {
       continue;
     }
-    const segments = Array.from(container.querySelectorAll<HTMLElement>(`[${HEIGHT_TARGET_ATTRIBUTE}]`));
-    if (segments.length === 0) {
-      continue;
-    }
-
-    const containerRect = container.getBoundingClientRect();
-    const containerStyle = window.getComputedStyle(container);
-    const originLeft = containerRect.left + (Number.parseFloat(containerStyle.borderLeftWidth) || 0);
-    const originTop = containerRect.top + (Number.parseFloat(containerStyle.borderTopWidth) || 0);
-    const zoom = getEffectiveZoom(container);
-    const containerFrames: BoxedRunFrame[] = [];
-
-    let run: { left: number; top: number; right: number; bottom: number; source: HTMLElement } | null = null;
-    const flush = () => {
-      if (!run) {
-        return;
-      }
-      const mark = run.source.closest<HTMLElement>(BOXED_TEXT_SELECTOR) ?? run.source;
-      containerFrames.push({
-        left: roundCssPx(run.left),
-        top: roundCssPx(run.top),
-        width: roundCssPx(run.right - run.left),
-        height: roundCssPx(run.bottom - run.top),
-        variant: mark.getAttribute("data-sigma-doc-boxed-variant"),
-        tone: mark.getAttribute("data-sigma-doc-boxed-tone"),
-      });
-      run = null;
-    };
-
-    for (const segment of segments) {
-      // A segment that wraps reports a union box spanning both lines, which is not a
-      // rectangle anyone can draw. Its individual line boxes are, so use those.
-      for (const rect of Array.from(segment.getClientRects())) {
-        const left = (rect.left - originLeft) / zoom;
-        const top = (rect.top - originTop) / zoom;
-        const right = left + rect.width / zoom;
-        const bottom = top + rect.height / zoom;
-        const continues = run !== null &&
-          Math.abs(top - run.top) <= RUN_FRAME_LINE_TOLERANCE_PX &&
-          left - run.right <= RUN_FRAME_JOIN_TOLERANCE_PX;
-        if (continues && run) {
-          run.left = Math.min(run.left, left);
-          run.top = Math.min(run.top, top);
-          run.right = Math.max(run.right, right);
-          run.bottom = Math.max(run.bottom, bottom);
-        } else {
-          flush();
-          run = { left, top, right, bottom, source: segment };
-        }
-      }
-    }
-    flush();
-
+    const containerFrames = readBoxedRunFrames(container);
     if (containerFrames.length > 0) {
       frames[key] = containerFrames;
     }
@@ -676,7 +604,7 @@ function sameFrames(a: Record<string, BoxedRunFrame[]>, b: Record<string, BoxedR
         sameAlignmentPx(frame.width, other.width) &&
         sameAlignmentPx(frame.height, other.height) &&
         frame.variant === other.variant &&
-        frame.tone === other.tone;
+        frame.tone === other.tone && frame.color === other.color;
     });
   });
 }
@@ -736,36 +664,9 @@ function getDecoratedBlockStyle(attrs: Record<string, unknown>, targetHeight: nu
   return styles.join("; ");
 }
 
-/**
- * The drawn frames for one container: absolutely positioned, so they take no part in
- * layout and cannot disturb the run they were measured from.
- */
-function createBoxedRunFrameLayer(frames: BoxedRunFrame[]): HTMLElement {
-  const layer = document.createElement("span");
-  layer.className = "boxed-run-frame-layer";
-  layer.contentEditable = "false";
-  layer.setAttribute("aria-hidden", "true");
-  for (const frame of frames) {
-    const element = document.createElement("span");
-    element.className = "boxed-run-frame";
-    if (frame.variant) {
-      element.setAttribute("data-sigma-doc-boxed-variant", frame.variant);
-    }
-    if (frame.tone) {
-      element.setAttribute("data-sigma-doc-boxed-tone", frame.tone);
-    }
-    element.style.left = `${frame.left}px`;
-    element.style.top = `${frame.top}px`;
-    element.style.width = `${frame.width}px`;
-    element.style.height = `${frame.height}px`;
-    layer.appendChild(element);
-  }
-  return layer;
-}
-
 function boxedRunFrameKey(frames: BoxedRunFrame[]): string {
   return frames
-    .map((frame) => `${frame.left},${frame.top},${frame.width},${frame.height},${frame.variant ?? ""},${frame.tone ?? ""}`)
+    .map((frame) => `${frame.left},${frame.top},${frame.width},${frame.height},${frame.variant ?? ""},${frame.tone ?? ""},${frame.color ?? ""}`)
     .join("|");
 }
 
@@ -795,7 +696,9 @@ function getContainerHeightTargetKey(
     return undefined;
   }
   const block = getContainerDocBlock(container, view, blocksById);
-  return block ? `pos:${block.pos}` : undefined;
+  // Overlay paragraphs keep their stable id in the document, intentionally not
+  // in the DOM. Use the same key as the decoration pass in that case too.
+  return block ? getBlockHeightTargetKey(block.node.attrs, block.pos) : undefined;
 }
 
 function hasAnyBoxedRunTarget(root: ParentNode): boolean {
@@ -918,7 +821,9 @@ export function assignBoxedRunTargets(
     for (const segmentRects of item.segments) {
       const boxedTarget = documentTargets[documentTargetIndex] ?? item.resolveFallback();
       documentTargetIndex += 1;
-      measurements.push(...segmentRects.map((rect) => ({ ...rect, boxedTarget })));
+      measurements.push(...segmentRects.map((rect) => ({ ...rect, boxedTarget,
+        ...(boxedTarget.whitespaceOnly ? { whitespaceOnly: true } : {}),
+      })));
     }
   }
   return measurements;
@@ -929,7 +834,7 @@ function collectBoxedRunWalkItems(container: HTMLElement, view?: EditorView): Bo
   // Measured rects are zoom-scaled (`.page-stack { zoom }`); divide them back to the
   // element's own coordinate space so applied heights don't grow by zoom². See
   // getEffectiveZoom.
-  const zoom = getEffectiveZoom(container);
+  const zoom = getEffectiveZoom(container, "y");
   const visit = (node: Node) => {
     for (const child of Array.from(node.childNodes)) {
       if (child.nodeType === Node.TEXT_NODE) {
@@ -995,6 +900,7 @@ export function collectBoxedRunDocTargetsForTextBlock(node: ProseMirrorNode, pos
 
     targets.push({
       from: pos + 1 + offset,
+      ...(child.isText && !hasVisibleInlineText((child.text ?? "").trim()) ? { whitespaceOnly: true } : {}),
       styleKey: getBoxedInlineStyleKey(boxedMark.attrs),
       to: pos + 1 + offset + child.nodeSize,
     });
@@ -1052,18 +958,19 @@ function getContainerDocBlock(
 
 function getBoxedRunDomTarget(element: HTMLElement, view?: EditorView): BoxedRunDomTarget {
   if (!view) {
-    return { element };
+    return { element, ...(!hasBoxedRunFrameContent(element) ? { whitespaceOnly: true } : {}) };
   }
 
   try {
     return {
       element,
+      ...(!hasBoxedRunFrameContent(element) ? { whitespaceOnly: true } : {}),
       from: view.posAtDOM(element, 0),
       styleKey: getBoxedRunDomStyleKey(element),
       to: view.posAtDOM(element, element.childNodes.length),
     };
   } catch {
-    return { element, styleKey: getBoxedRunDomStyleKey(element) };
+    return { element, styleKey: getBoxedRunDomStyleKey(element), ...(!hasBoxedRunFrameContent(element) ? { whitespaceOnly: true } : {}) };
   }
 }
 

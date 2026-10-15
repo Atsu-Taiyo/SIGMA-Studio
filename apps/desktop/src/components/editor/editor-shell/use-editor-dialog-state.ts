@@ -14,6 +14,7 @@ export function useEditorDialogState() {
   const [texEnvironmentSettingsOpen, setTexEnvironmentSettingsOpen] = useState(false);
   const [documentListOpen, setDocumentListOpen] = useState(false);
   const [desktopSettingsOpen, setDesktopSettingsOpen] = useState(false);
+  const [extensionsOpen, setExtensionsOpen] = useState(false);
   const [desktopSettingsUpdateCheckRequest, setDesktopSettingsUpdateCheckRequest] = useState(0);
   /**
    * クロームのメニュー/ツールバーから「アプリ設定」を開く経路。素の setter を渡すと、
@@ -24,5 +25,5 @@ export function useEditorDialogState() {
     setDesktopSettingsUpdateCheckRequest(0);
     setDesktopSettingsOpen(value);
   }, []);
-  return { pageSettingsOpen, setPageSettingsOpen, commandSettingsOpen, setCommandSettingsOpen, commandPaletteOpen, setCommandPaletteOpen, settingsFocusEntryId, setSettingsFocusEntryId, texCommandReferenceOpen, setTexCommandReferenceOpen, texEnvironmentSettingsOpen, setTexEnvironmentSettingsOpen, documentListOpen, setDocumentListOpen, desktopSettingsOpen, setDesktopSettingsOpen, desktopSettingsUpdateCheckRequest, setDesktopSettingsUpdateCheckRequest, openDesktopSettingsFromChrome };
+  return { pageSettingsOpen, setPageSettingsOpen, commandSettingsOpen, setCommandSettingsOpen, commandPaletteOpen, setCommandPaletteOpen, settingsFocusEntryId, setSettingsFocusEntryId, texCommandReferenceOpen, setTexCommandReferenceOpen, texEnvironmentSettingsOpen, setTexEnvironmentSettingsOpen, documentListOpen, setDocumentListOpen, desktopSettingsOpen, setDesktopSettingsOpen, extensionsOpen, setExtensionsOpen, desktopSettingsUpdateCheckRequest, setDesktopSettingsUpdateCheckRequest, openDesktopSettingsFromChrome };
 }

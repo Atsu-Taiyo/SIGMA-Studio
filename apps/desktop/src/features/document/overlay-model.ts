@@ -1,5 +1,5 @@
 import type { TikzImageSource } from "./model/tikz";
-import type { InlineNode, TextAlign } from "./model/rich-text";
+import type { InlineNode, LineHeight, TextAlign } from "./model/rich-text";
 import type { CodeBlockNode, DividerNode, QuoteBlockNode, RichBlock } from "./model/blocks";
 import type { Graph2DSpec } from "./model/graph";
 import type { Graph3DSpec } from "./model/graph3d";
@@ -35,15 +35,19 @@ export const OVERLAY_ARROWHEADS = [
   "none",
   "arrow",
   "triangle",
+  "triangleNarrow",
+  "stealth",
   "openArrow",
   "thinArrow",
   "diamond",
   "dot",
   "bar",
-  // The same seven shapes drawn small. A head is measured in stroke widths, so before these the
+  // The same shapes drawn small. A head is measured in stroke widths, so before these the
   // only way to get a discreet arrow on a normal line was to thin the line.
   "arrowSmall",
   "triangleSmall",
+  "triangleNarrowSmall",
+  "stealthSmall",
   "openArrowSmall",
   "thinArrowSmall",
   "diamondSmall",
@@ -178,6 +182,10 @@ export type OverlayGroupShape = OverlayBaseShape<"group", {
 }>;
 
 export type OverlayGeoShape = OverlayBaseShape<"geo", {
+  /** Multiplier for the selected stroke size; imports retain the original line weight. */
+  strokeScale?: number;
+  /** Rectangle only: select its outline so enclosed shapes remain clickable. */
+  hitTestMode?: "stroke";
   w: number;
   h: number;
   geo: "rectangle" | "ellipse" | "triangle" | "diamond" | "pentagon" | "regularPolygon" | "blockArrow" | "pyramid" | "prism" | "sphere";
@@ -213,17 +221,23 @@ export type OverlayGeoShape = OverlayBaseShape<"geo", {
   fillOpacity?: number;
   labelColor: string;
   dash: OverlayDash;
+  /** Exact SVG dash lengths in document pixels for imported strokes. */
+  dashPattern?: number[];
   size: OverlayTextSize;
   label?: string;
 }>;
 
 export type OverlayArcShape = OverlayBaseShape<"arc", {
+  /** Multiplier for the selected stroke size; imports retain the original line weight. */
+  strokeScale?: number;
   kind?: "arc" | "sector";
   r: number;
   rx?: number;
   ry?: number;
   startAngle: number;
   endAngle: number;
+  /** Scale of endpoint heads, independent of the line pen width. */
+  arrowheadScale?: number;
   arrowheadStart?: OverlayArrowhead;
   arrowheadEnd?: OverlayArrowhead;
   fill?: "none" | "solid";
@@ -232,12 +246,17 @@ export type OverlayArcShape = OverlayBaseShape<"arc", {
   color: string;
   strokeOpacity?: number;
   dash: OverlayDash;
+  dashPattern?: number[];
   size: OverlayTextSize;
 }>;
 
 export type OverlayArrowShape = OverlayBaseShape<"arrow", {
+  /** Multiplier for the selected stroke size; imports retain the original line weight. */
+  strokeScale?: number;
   start: OverlayPoint;
   end: OverlayPoint;
+  /** Scale of endpoint heads, independent of the line pen width. */
+  arrowheadScale?: number;
   arrowheadStart?: OverlayArrowhead;
   arrowheadEnd: OverlayArrowhead;
   fill: "none";
@@ -245,29 +264,41 @@ export type OverlayArrowShape = OverlayBaseShape<"arrow", {
   strokeOpacity?: number;
   labelColor: string;
   dash: OverlayDash;
+  dashPattern?: number[];
   size: OverlayTextSize;
   label?: string;
 }>;
 
 export type OverlayLineShape = OverlayBaseShape<"line", {
+  /** Multiplier for the selected stroke size; imports retain the original line weight. */
+  strokeScale?: number;
+  /** Select only the stroke even if this closed line has a fill. */
+  hitTestMode?: "stroke";
   kind?: OverlayLineKind;
   points: OverlayPoint[];
   closed: boolean;
+  /** Scale of endpoint heads, independent of the line pen width. */
+  arrowheadScale?: number;
   arrowheadStart?: OverlayArrowhead;
   arrowheadEnd?: OverlayArrowhead;
   fill?: "none" | "solid";
   fillColor?: string;
   fillOpacity?: number;
-  fillPattern?: "diagonalHatch";
+  fillPattern?: "diagonalHatch" | "dots";
   color: string;
   strokeOpacity?: number;
   labelColor?: string;
   dash: OverlayDash;
+  dashPattern?: number[];
   size: OverlayTextSize;
   label?: string;
 }>;
 
 export type OverlayTextShape = OverlayBaseShape<"text", {
+  /** Fixed horizontal glyph scale for imported condensed text. Width remains user controlled. */
+  textScaleX?: number;
+  /** Keep explicit breaks while suppressing automatic wrapping (used by imported source lines). */
+  textWrap?: "none";
   /** User-chosen width. Text wraps at this width; changing it never changes the font size. */
   w: number;
   /** Derived height cache written back from the measured DOM. Never edited directly. */
@@ -447,6 +478,7 @@ export interface SigmaTableCellParagraph {
   id: string;
   children: InlineNode[];
   align?: TextAlign;
+  lineHeight?: LineHeight;
 }
 
 export interface SigmaTableTrend {

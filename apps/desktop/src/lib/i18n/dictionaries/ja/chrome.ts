@@ -151,7 +151,8 @@ export const chrome = {
       duplicate: "現在の教材を複製",
       delete: "現在の教材を削除",
       import: "インポート（.sigma / TeX）",
-      importOther: "PowerPointをインポート",
+      importPowerPoint: "PowerPointをインポート",
+      importOther: "PowerPoint・{{name}}をインポート",
       importText: "テキストから読み込み",
       export: "エクスポート",
       exportJson: "JSONをエクスポート",
@@ -183,6 +184,7 @@ export const chrome = {
       texEnvironment: "TeX・TikZ環境設定",
       pageSettings: "ページ設定",
       appSettings: "アプリ設定",
+      extensions: "拡張機能",
       display: "表示",
       displayProblem: "問題",
       displaySolution: "解答",
@@ -315,6 +317,7 @@ export const chrome = {
         // `BoxedVariant` には在るがツールバーの選択肢には出ていない種類。
         // キーを欠くと `t(`...${variant}`)` が型エラーになるので置いておく。
         shade: "網かけ",
+        compact: "狭い枠",
       },
     },
     textColor: {
@@ -357,6 +360,8 @@ export const chrome = {
       tooltip: "{{endpoint}}を変える（{{value}}）",
       none: "なし",
       arrow: "矢印",
+      triangleNarrow: "細い三角",
+      stealth: "塗り矢印",
       triangle: "三角",
       openArrow: "矢印（開）",
       thinArrow: "矢印（細）",
@@ -364,6 +369,8 @@ export const chrome = {
       dot: "丸",
       bar: "バー",
       arrowSmall: "矢印（小）",
+      triangleNarrowSmall: "細い三角（小）",
+      stealthSmall: "塗り矢印（小）",
       triangleSmall: "三角（小）",
       openArrowSmall: "矢印（開）（小）",
       thinArrowSmall: "矢印（細）（小）",
