@@ -1,12 +1,13 @@
 "use client";
 
 import type { DocumentChange,DocumentChangeOptions } from "@/components/editor/editor-shell/types";
+import type { BlockInsertContainer } from "@/components/editor/page-canvas/block-affordances";
 import { requestCaret } from "@/components/editor/text-flow/caret-router";
 import type { TextFlowChangeContext } from "@/components/editor/text-flow/types";
-import { insertTopLevelDocumentBlocks,insertTopLevelDocumentBlocksBefore,type RichBlock,type SigmaBlock,type SigmaDocument } from "@/features/document";
+import { insertTopLevelDocumentBlocks,insertTopLevelDocumentBlocksBefore,type ProblemAreaKind,type RichBlock,type SigmaBlock,type SigmaDocument } from "@/features/document";
 import { getLayoutSectionColumns,getLayoutSectionColumnWidths,removeLeadingEmptyPageBreaks,setBlockSpaceAfter,setLayoutSectionColumns,type TextFlowSelectionBookmark } from "@/features/text-editing";
 import { moveBlocksByDrag,moveUnitsByStep,type BlockDragMoveRequest } from "@/lib/block-drag-move";
-import { createBlock,deleteBlocksFromDocument,ensureBodyBlockAfterProblem,ensureEditableBody,findBlock,findContainingLayoutSection,insertBlockAtSelection,isEmptyTopLevelTextFlowBlock,removeBlockFromDocument,unwrapLayoutSection,updateBlockInDocument,wrapTextFlowBlocksInLayoutSection,type EditableBlock } from "@/lib/document-tree";
+import { addRichBlockToProblem,createBlock,createParagraph,deleteBlocksFromDocument,ensureBodyBlockAfterProblem,ensureEditableBody,findBlock,findContainingLayoutSection,insertBlockAtSelection,isEmptyTopLevelTextFlowBlock,removeBlockFromDocument,unwrapLayoutSection,updateBlockInDocument,wrapTextFlowBlocksInLayoutSection,type EditableBlock } from "@/lib/document-tree";
 import { cloneDocumentBlocksForPaste,createDocumentBlocksClipboardPayload,getLocalEditorClipboardPayload,writeEditorPayloadToSystemClipboard } from "@/lib/editor-clipboard";
 import { applyRememberedBoxFrame } from "@/lib/remembered-box-style";
 import type { SetStateAction } from "react";
@@ -275,7 +276,11 @@ export function useDocumentBodyCommands({ getDocument, selectedId, getSelectedId
   };
 
   /** Adds an empty paragraph next to `anchorBlockId`, or at the end when it is null. */
-  const insertBodyBlockAt = (anchorBlockId: string | null, position: "before" | "after") => {
+  const insertBodyBlockAt = (anchorBlockId: string | null, position: "before" | "after", container?: BlockInsertContainer) => {
+    if (container?.kind === "problemAreaEnd") {
+      insertProblemAreaEndBlock(container.problemId, container.area);
+      return;
+    }
     // Clicking the blank strip under the text repeatedly must not stack empty paragraphs:
     // if the document already ends in one, that is the spot the user is asking for.
     if (anchorBlockId === null && position === "after") {
@@ -293,6 +298,31 @@ export function useDocumentBodyCommands({ getDocument, selectedId, getSelectedId
         ? insertTopLevelDocumentBlocksBefore(current, anchorBlockId, [block], DOCUMENT_BLOCK_OPERATION_PORTS)
         : insertTopLevelDocumentBlocks(current, anchorBlockId, [block], DOCUMENT_BLOCK_OPERATION_PORTS)
     ));
+    setSelectedInlineMath(null);
+    setSelectedId(block.id);
+    scheduleEditorBlockFocus(block.id);
+  };
+
+  /**
+   * 問題の領域 (コメントなど) の末尾の ＋。トップレベルの ＋ と同じく空の段落を 1 つ足して
+   * そこへキャレットを置く — ただし入る先は問題の外ではなく、その領域の中の最後。
+   */
+  const insertProblemAreaEndBlock = (problemId: string, area: ProblemAreaKind) => {
+    const problem = findBlock(getDocument(), problemId);
+    if (problem?.type !== "problem") {
+      return;
+    }
+    // 末尾がもう空の段落なら、そこが求められている場所 (押すたびに空段落を積まない)。
+    const last = problem[area].at(-1);
+    if (last?.type === "paragraph" && isEmptyTopLevelTextFlowBlock(last)) {
+      setSelectedInlineMath(null);
+      setSelectedId(last.id);
+      scheduleEditorBlockFocus(last.id);
+      return;
+    }
+
+    const block = createParagraph("");
+    commitDocumentChange((current) => addRichBlockToProblem(current, problemId, area, block));
     setSelectedInlineMath(null);
     setSelectedId(block.id);
     scheduleEditorBlockFocus(block.id);

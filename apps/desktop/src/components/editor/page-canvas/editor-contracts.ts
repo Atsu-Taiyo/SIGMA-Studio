@@ -35,7 +35,7 @@ import type {
   OverlaySelectionSummary,
   PageLayoutChangeOptions,
 } from "../page-overlay-types";
-import { type TopLevelBlockBox } from "./block-affordances";
+import { type BlockInsertContainer,type TopLevelBlockBox } from "./block-affordances";
 import type {
   PageCanvasEditorExtension,
   PageCanvasSelectionAction,
@@ -103,8 +103,11 @@ export interface PageCanvasEditorProps {
   onDelete: (blockId: string) => void;
   /** Removes body blocks wherever they live, without emptying their text first. */
   onDeleteBlocks?: (blockIds: string[]) => void;
-  /** Adds an empty paragraph next to a top-level block, or at the end when the anchor is null. */
-  onInsertBodyBlock?: (anchorBlockId: string | null, position: "before" | "after") => void;
+  /**
+   * Adds an empty paragraph next to a top-level block, or at the end when the anchor is null.
+   * `container` があれば、その入れ物の中 (問題の領域の末尾) へ足す。
+   */
+  onInsertBodyBlock?: (anchorBlockId: string | null, position: "before" | "after", container?: BlockInsertContainer) => void;
   /** グリップのドラッグ (Notion 風のブロック移動・段組化)。 */
   onMoveBlocks?: (request: BlockDragMoveRequest) => void;
   /** ⌥⇧↑/↓ で前後の兄弟と入れ替える。 */

@@ -11,6 +11,8 @@
  * page canvas uses for its other absolutely positioned layers.
  */
 
+import type { ProblemAreaKind } from "@/features/document";
+
 export interface TopLevelBlockBox {
   id: string;
   top: number;
@@ -55,12 +57,39 @@ export interface HoveredTopLevelBlock {
    * (挿入線は入れ物の辺の判定なので従来どおり)。
    */
   laneEmpty?: boolean;
+  /**
+   * 問題の各領域 (導入文・問題文・コメント・解答) の末尾。問題の外の前後とは別に、
+   * 領域の中の末尾へ足す ＋ を出す場所。描かれている領域だけ (`measureProblemAreaEnds`)。
+   */
+  areaEnds?: readonly ProblemAreaEndBox[];
 }
+
+/**
+ * 問題の 1 領域の末尾 = 最後のブロックの **実際の下端** (ページ・段を跨いで続く断片の
+ * 切れ目ではない)。左右はその断片の幅で、＋ と挿入線はそこへ描く。
+ */
+export interface ProblemAreaEndBox {
+  problemId: string;
+  area: ProblemAreaKind;
+  bottom: number;
+  left: number;
+  right: number;
+}
+
+/** ＋ が入れる先。無ければトップレベルの `anchorBlockId` の前後。 */
+export type BlockInsertContainer = {
+  /** 問題の領域の中の末尾。 */
+  kind: "problemAreaEnd";
+  problemId: string;
+  area: ProblemAreaKind;
+};
 
 export interface BlockInsertPoint {
   /** Null means "at the end of the document" — there is no block to anchor to. */
   anchorBlockId: string | null;
   position: "before" | "after";
+  /** 入れ物の中へ入れるとき。トップレベルの前後なら無い。 */
+  container?: BlockInsertContainer;
   /** Where the line is drawn. */
   top: number;
   left: number;
@@ -382,7 +411,7 @@ export function resolveBlockAffordanceHover(
 
   // One gap must resolve to one insert point no matter which side the pointer approached
   // from, so "after this block" is expressed as "before the next one" whenever there is one.
-  const insertPoint: BlockInsertPoint | null = atTopEdge
+  const edgeInsertPoint: BlockInsertPoint | null = atTopEdge
     && (!atBottomEdge || distanceToTop <= distanceToBottom)
     ? { anchorBlockId: box.id, position: "before", top: box.top, left: box.left, width }
     : atBottomEdge
@@ -394,6 +423,19 @@ export function resolveBlockAffordanceHover(
           width,
         }
       : null;
+  // 問題の外の辺のすぐ内側で終わる領域 (最後の領域・枠の内側) は、辺の ＋ に任せる。
+  // 見た目の同じ ＋ が数 px 違いで「問題の後」と「領域の中」を出し分けても、人には区別できない。
+  const areaEnds = hovered.isAtomic
+    ? hovered.areaEnds?.filter((end) => (
+      Math.abs(end.bottom - box.bottom) > edgeThresholdPx * 2
+      && Math.abs(end.bottom - box.top) > edgeThresholdPx * 2
+    ))
+    : hovered.areaEnds;
+  const insertPoint = pickInsertPoint(
+    edgeInsertPoint,
+    resolveProblemAreaEndInsertPoint(areaEnds, point, edgeThresholdPx, gutterWidthPx),
+    point,
+  );
 
   const unit = hovered.useOwnerAffordance ? null : hovered.unit ?? null;
   if (hovered.laneEmpty) {
@@ -416,6 +458,61 @@ export function resolveBlockAffordanceHover(
     // なく「その下端」なので、幾何は呼び出し側が実測した値をそのまま運ぶ。
     spaceAfter: hovered.spaceAfterTarget ?? null,
   };
+}
+
+/**
+ * 問題の領域の末尾の ＋。領域の最後のブロックが段落でも箱でも、末尾のそばなら同じ ＋ を出す
+ * (箱の下に ＋ が出るのと同じ操作で、コメントの一番下などにも足せる)。
+ *
+ * 横は末尾の断片の段の中 (左ガターを含む) だけ。段組ページで隣の段の同じ高さに居ても出さない。
+ */
+export function resolveProblemAreaEndInsertPoint(
+  areaEnds: readonly ProblemAreaEndBox[] | undefined,
+  point: { x: number; y: number },
+  edgeThresholdPx = 7,
+  gutterWidthPx = 48,
+): BlockInsertPoint | null {
+  let nearest: { end: ProblemAreaEndBox; distance: number } | null = null;
+  for (const end of areaEnds ?? []) {
+    const distance = Math.abs(point.y - end.bottom);
+    if (
+      distance > edgeThresholdPx
+      || point.x < end.left - gutterWidthPx
+      || point.x > end.right
+    ) {
+      continue;
+    }
+    if (!nearest || distance < nearest.distance) {
+      nearest = { end, distance };
+    }
+  }
+  if (!nearest) {
+    return null;
+  }
+  const { end } = nearest;
+  return {
+    anchorBlockId: end.problemId,
+    position: "after",
+    container: { kind: "problemAreaEnd", problemId: end.problemId, area: end.area },
+    top: end.bottom,
+    left: end.left,
+    width: end.right - end.left,
+  };
+}
+
+/**
+ * 問題の外の辺 (前後に足す) と領域の末尾 (中に足す) が両方ポインタのそばにあるときは、
+ * ポインタに近い方 (同じ距離なら従来の辺)。辺に近すぎる末尾は呼び出し側で除いてある。
+ */
+function pickInsertPoint(
+  edge: BlockInsertPoint | null,
+  areaEnd: BlockInsertPoint | null,
+  point: { y: number },
+): BlockInsertPoint | null {
+  if (!areaEnd || !edge) {
+    return edge ?? areaEnd;
+  }
+  return Math.abs(point.y - areaEnd.top) < Math.abs(point.y - edge.top) ? areaEnd : edge;
 }
 
 /**
@@ -539,6 +636,9 @@ export function sameBlockAffordanceHover(
   return (
     a.insertPoint.anchorBlockId === b.insertPoint.anchorBlockId &&
     a.insertPoint.position === b.insertPoint.position &&
+    a.insertPoint.container?.kind === b.insertPoint.container?.kind &&
+    a.insertPoint.container?.problemId === b.insertPoint.container?.problemId &&
+    a.insertPoint.container?.area === b.insertPoint.container?.area &&
     a.insertPoint.top === b.insertPoint.top &&
     a.insertPoint.left === b.insertPoint.left &&
     a.insertPoint.width === b.insertPoint.width

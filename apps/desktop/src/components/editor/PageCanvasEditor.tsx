@@ -1595,7 +1595,7 @@ const { candidateCommentTop, pendingCommentTop, commentThreadPositions } = usePa
   }, [dragIndex, onSelect]);
 
   const insertBodyBlockAtPoint = useCallback((insertPoint: BlockInsertPoint) => {
-    onInsertBodyBlock?.(insertPoint.anchorBlockId, insertPoint.position);
+    onInsertBodyBlock?.(insertPoint.anchorBlockId, insertPoint.position, insertPoint.container);
     setBlockSelection(EMPTY_BLOCK_SELECTION);
     setBlockAffordance(EMPTY_BLOCK_AFFORDANCE_HOVER);
   }, [onInsertBodyBlock]);

@@ -3,6 +3,7 @@
 import  {
   blockSpaceAfterPx,
   PAGE_GAP_PX,
+  PROBLEM_AREA_ORDER,
   rendersBlockSpaceAfter,
   type PageMetrics,
   type SigmaBlock,
@@ -16,6 +17,7 @@ import  {
   resolveColumnLaneWidthPx,
   type BlockNeighborKind,
   type HoveredTopLevelBlock,
+  type ProblemAreaEndBox,
   type TopLevelBlockBox,
 } from "./block-affordances";
 import { resolveHoverDragUnitAt, resolveInnerAffordanceProbe, type DragIndex } from "./block-drag-dom";
@@ -37,6 +39,9 @@ export const BLOCK_HIT_PROBE_INSET_PX = 8;
 
 /** How far up and down the probe reaches when the pointer sits in the gap between blocks. */
 export const BLOCK_HIT_GAP_PROBE_PX = 14;
+
+/** 紙面に載る編集用の層 (ドラッグのゴースト・ガターの操作)。同じ id を持っていても本文ではない。 */
+const BLOCK_AFFORDANCE_CHROME_SELECTOR = ".page-block-drag-ghost-layer, .page-block-affordance-layer";
 
 
 export function getPagePointerContext({
@@ -240,6 +245,13 @@ export function hitTestTopLevelBlock(
       }
     : null;
 
+  // 問題の各領域の末尾。ページを跨ぐ続きの表示枠の上でも測る — 領域の最後のブロックが
+  // 跨いでいれば、末尾はそこにある。
+  const ownerBlock = content[index];
+  const areaEnds = ownerBlock.type === "problem"
+    ? measureProblemAreaEnds(canvas, ownerBlock)
+    : [];
+
   return {
     box,
     nextBlockId: content[index + 1]?.id ?? null,
@@ -248,6 +260,7 @@ export function hitTestTopLevelBlock(
     aboveKind: owner.element.matches(".editor-box-fragment-viewport") ? "body" : neighborKind(index > 0 ? content[index - 1] : null),
     belowKind: owner.element.matches(".editor-box-fragment-viewport") ? "body" : neighborKind(content[index + 1] ?? null),
     gapEdge: gapAbove ? "bottom" : gapBelow ? "top" : null,
+    ...(areaEnds.length > 0 ? { areaEnds } : {}),
     spaceAfterTarget,
     useOwnerAffordance: ownerOwnsTopBand || hoveredUnit?.id === content[index].id,
     ...(laneEmpty ? { laneEmpty: true } : {}),
@@ -262,6 +275,71 @@ export function hitTestTopLevelBlock(
       }
       : null,
   };
+}
+
+
+/**
+ * 描かれている各領域の末尾 (`ProblemAreaEndBox`)。空の領域 (派生の空段落だけ) は除く —
+ * そこはクリックでそのまま書ける。
+ *
+ * 末尾は領域の最後のブロックの、**続きを持たない断片** の下端。ページや段を跨ぐブロックでは
+ * 元の断片の切れ目は末尾ではないので測らない (下端つまみと同じ規則)。隠した領域 (設定 > 表示)
+ * は要素が無いので出ない。
+ */
+export function measureProblemAreaEnds(
+  canvas: HTMLElement,
+  problem: Extract<SigmaBlock, { type: "problem" }>,
+): ProblemAreaEndBox[] {
+  const canvasRect = canvas.getBoundingClientRect();
+  const scale = canvasLayoutScale(canvas);
+  const ends: ProblemAreaEndBox[] = [];
+  for (const area of PROBLEM_AREA_ORDER) {
+    const last = problem[area].at(-1);
+    if (!last) {
+      continue;
+    }
+    const areaSelector = `[data-problem-id="${CSS.escape(problem.id)}"][data-problem-area="${area}"]`;
+    let end: DOMRect | null = null;
+    for (const element of Array.from(canvas.querySelectorAll<HTMLElement>(`[data-sigma-doc-id="${CSS.escape(last.id)}"]`))) {
+      if (element.closest(BLOCK_AFFORDANCE_CHROME_SELECTOR) || !isWithinProblemArea(canvas, element, areaSelector)) {
+        continue;
+      }
+      const visible = visibleBlockClientRect(element);
+      // 断片の切れ目で切られている (ブロックの続きが次のページ・段にある) なら末尾ではない。
+      if (!visible || element.getBoundingClientRect().bottom > visible.bottom + 0.5) {
+        continue;
+      }
+      if (!end || visible.bottom > end.bottom) {
+        end = visible;
+      }
+    }
+    if (end) {
+      ends.push({
+        problemId: problem.id,
+        area,
+        bottom: (end.bottom - canvasRect.top) / scale,
+        left: (end.left - canvasRect.left) / scale,
+        right: (end.right - canvasRect.left) / scale,
+      });
+    }
+  }
+  return ends;
+}
+
+/**
+ * 領域の中のブロックか。ページを跨いだ続き (`.page-box-fragment-layer` の表示枠) は領域の
+ * 要素の外に描かれるので、表示枠の元のブロックが領域の中にあるかで判定する。
+ */
+function isWithinProblemArea(canvas: HTMLElement, element: HTMLElement, areaSelector: string): boolean {
+  if (element.closest(areaSelector)) {
+    return true;
+  }
+  const sourceId = element.closest<HTMLElement>(".editor-box-fragment-viewport")?.dataset.boxSourceId;
+  if (!sourceId) {
+    return false;
+  }
+  return Array.from(canvas.querySelectorAll<HTMLElement>(`[data-sigma-doc-id="${CSS.escape(sourceId)}"]`))
+    .some((source) => !source.closest(BLOCK_BOX_FRAGMENT_LAYER_SELECTOR) && !!source.closest(areaSelector));
 }
 
 

@@ -194,6 +194,106 @@ describe("resolveBlockAffordanceHover", () => {
   });
 });
 
+/**
+ * 問題の各領域の末尾にも、問題の前後と同じ ＋ を出す (Issue #203)。問題は 48〜200、
+ * 問題文の末尾 100・コメントの末尾 150・解答の末尾 198 (枠なしなので問題の下端とほぼ同じ)。
+ */
+describe("the insert button at the end of a problem area", () => {
+  const problemWithAreas: HoveredTopLevelBlock = {
+    ...problem,
+    areaEnds: [
+      { problemId: "problem", area: "prompt", bottom: 100, left: 130, right: 500 },
+      { problemId: "problem", area: "hints", bottom: 150, left: 130, right: 500 },
+      { problemId: "problem", area: "solution", bottom: 198, left: 130, right: 500 },
+    ],
+  };
+
+  it("offers the end of the comment between the prompt and the solution, inside the problem", () => {
+    expect(resolveBlockAffordanceHover(problemWithAreas, { x: 300, y: 147 }).insertPoint).toEqual({
+      anchorBlockId: "problem",
+      position: "after",
+      container: { kind: "problemAreaEnd", problemId: "problem", area: "hints" },
+      top: 150,
+      left: 130,
+      width: 370,
+    });
+    // 末尾の少し下 (次の領域の上端) からでも同じ末尾。
+    expect(resolveBlockAffordanceHover(problemWithAreas, { x: 300, y: 156 }).insertPoint?.container)
+      .toEqual({ kind: "problemAreaEnd", problemId: "problem", area: "hints" });
+    // 左ガターからも (既存の ＋ と同じ範囲)。
+    expect(resolveBlockAffordanceHover(problemWithAreas, { x: 100, y: 150 }).insertPoint?.container?.area)
+      .toBe("hints");
+  });
+
+  it("stays out of the middle of an area", () => {
+    expect(resolveBlockAffordanceHover(problemWithAreas, { x: 300, y: 125 }).insertPoint).toBeNull();
+  });
+
+  it("leaves an area ending just inside the problem's edge to that edge", () => {
+    // 解答の末尾 (198) は問題の下端 (200) のすぐ内側。見た目の同じ ＋ を数 px 違いで出し分けない。
+    expect(resolveBlockAffordanceHover(problemWithAreas, { x: 300, y: 197 }).insertPoint).toEqual({
+      anchorBlockId: "outro",
+      position: "before",
+      top: 200,
+      left: 100,
+      width: 400,
+    });
+    // 枠の内側の余白ぶん (8px) 離れていても同じ。
+    const framed: HoveredTopLevelBlock = {
+      ...problem,
+      areaEnds: [{ problemId: "problem", area: "solution", bottom: 192, left: 130, right: 480 }],
+    };
+    expect(resolveBlockAffordanceHover(framed, { x: 300, y: 190 }).insertPoint).toBeNull();
+    expect(resolveBlockAffordanceHover(framed, { x: 300, y: 197 }).insertPoint?.container).toBeUndefined();
+  });
+
+  it("offers both when reserved space separates the last area's end from the problem's edge", () => {
+    const reserved: HoveredTopLevelBlock = {
+      ...problem,
+      areaEnds: [{ problemId: "problem", area: "solution", bottom: 160, left: 130, right: 480 }],
+    };
+
+    expect(resolveBlockAffordanceHover(reserved, { x: 300, y: 162 }).insertPoint?.container?.area).toBe("solution");
+    expect(resolveBlockAffordanceHover(reserved, { x: 300, y: 199 }).insertPoint).toMatchObject({
+      anchorBlockId: "outro",
+      position: "before",
+      top: 200,
+    });
+  });
+
+  it("offers the end inside a continuation, whose edges are not document boundaries", () => {
+    const continuation: HoveredTopLevelBlock = {
+      box: { id: "problem", top: 20, bottom: 300, left: 100, right: 500 },
+      nextBlockId: "outro",
+      isAtomic: false,
+      aboveKind: "body",
+      belowKind: "body",
+      areaEnds: [{ problemId: "problem", area: "hints", bottom: 298, left: 100, right: 500 }],
+    };
+
+    expect(resolveBlockAffordanceHover(continuation, { x: 300, y: 296 }).insertPoint?.container?.area).toBe("hints");
+  });
+
+  it("does not reach into the neighbouring column at the same height", () => {
+    const columns: HoveredTopLevelBlock = {
+      ...problem,
+      areaEnds: [{ problemId: "problem", area: "hints", bottom: 150, left: 100, right: 280 }],
+    };
+
+    expect(resolveBlockAffordanceHover(columns, { x: 200, y: 150 }).insertPoint?.container?.area).toBe("hints");
+    expect(resolveBlockAffordanceHover(columns, { x: 400, y: 150 }).insertPoint).toBeNull();
+  });
+
+  it("re-renders when the pointer moves from one area's end to another's", () => {
+    const hints = resolveBlockAffordanceHover(problemWithAreas, { x: 300, y: 150 });
+    const prompt = resolveBlockAffordanceHover(problemWithAreas, { x: 300, y: 100 });
+
+    expect(sameBlockAffordanceHover(hints, resolveBlockAffordanceHover(problemWithAreas, { x: 300, y: 151 }))).toBe(true);
+    expect(sameBlockAffordanceHover(hints, prompt)).toBe(false);
+    expect(sameBlockAffordanceHover(hints, resolveBlockAffordanceHover(problem, { x: 300, y: 150 }))).toBe(false);
+  });
+});
+
 describe("resolveStationaryBlockAffordanceRefresh", () => {
   it("adopts changed geometry at the last pointer point when layout revision advances", () => {
     const current = resolveBlockAffordanceHover(middleParagraph, { x: 300, y: 320 });
