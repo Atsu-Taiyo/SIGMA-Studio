@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { isValidOverlaySnapshot, normalizeOverlaySnapshot, type OverlayAsset, type OverlayShape, type OverlaySnapshot } from "@/features/document";
 import { convertSvgImageToSigma, decodeSvgDataUrl, isSvgImageAsset, SvgConversionError } from "./svg-to-sigma";
+import { getSvgImageDimensions } from "./svg-image-source";
 
 function fixture(body: string, attrs = ""): OverlaySnapshot {
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 120" ${attrs}>${body}</svg>`;
@@ -118,17 +119,28 @@ describe("SVG to SigmaDoc shapes", () => {
     expect(before).toEqual(copy);
   });
 
-  it("leaves unsupported, malformed, oversized or cropped images intact", () => {
+  it("leaves unsupported, malformed or oversized images intact", () => {
     for (const before of [fixture('<text>文字だけ</text>'), fixture('<path d="M0 0Q20 20 30 0"/>')]) {
       expect(() => convertSvgImageToSigma(before, "image")).toThrow(SvgConversionError);
       expect(before.shapes[0].type).toBe("image");
     }
-    const cropped = fixture('<rect x="20" y="20" width="40" height="40"/>');
-    if (cropped.shapes[0].type === "image") cropped.shapes[0].props.crop = { topLeft: { x: 0.2, y: 0 }, bottomRight: { x: 1, y: 1 } };
-    expect(() => convertSvgImageToSigma(cropped, "image")).toThrow("cropped");
     expect(() => decodeSvgDataUrl('data:image/svg+xml;base64,!!!')).toThrow("source");
     expect(() => decodeSvgDataUrl('data:image/svg+xml,' + 'x'.repeat(1024 * 1024 + 1))).toThrow("source");
     expect(() => convertSvgImageToSigma(fixture('<rect'), "image")).toThrow("source");
+  });
+
+  it("converts a 500×460 SVG in a rounded 440×405 frame using the displayed cover scale", () => {
+    const before = fixture('<rect x="100" y="100" width="40" height="30"/>', 'width="500" height="460"');
+    before.assets.svg_asset.props = { ...before.assets.svg_asset.props, w: 500, h: 460,
+      src: 'data:image/svg+xml,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 500 460"><rect x="100" y="100" width="40" height="30"/></svg>') };
+    if (before.shapes[0].type !== "image") throw new Error("fixture");
+    before.shapes[0].props = { ...before.shapes[0].props, w: 440, h: 405 };
+    const result = convertSvgImageToSigma(before, "image");
+    const scale = 405 / 460;
+    expect(result).toMatchObject({ convertedCount: 1, preservedCount: 0 });
+    expect(result.snapshot.shapes[0].x).toBeCloseTo(30 + (440 - 500 * scale) / 2 + 100 * scale);
+    expect(result.snapshot.shapes[0].y).toBeCloseTo(50 + 100 * scale);
+    expect(result.snapshot.shapes[0]).toMatchObject({ type: "geo", props: { w: expect.closeTo(40 * scale), h: expect.closeTo(30 * scale) } });
   });
 
   it("recognizes base64 SVG with MIME parameters and preserves Unicode", () => {
@@ -147,8 +159,96 @@ describe("SVG to SigmaDoc shapes", () => {
       expect(root.children).toEqual(expect.arrayContaining([expect.objectContaining({ tag: "text" })]));
       return { x: 90, y: 70, w: 60, h: 30 };
     });
-    expect(result.snapshot.shapes[2]).toMatchObject({ type: "image", x: 120, y: 120, props: { w: 60, h: 30,
-      crop: { topLeft: { x: 0.45, y: 70 / 120 }, bottomRight: { x: 0.75, y: 100 / 120 } } } });
+    expect(result.snapshot.shapes[2]).toMatchObject({ type: "image", x: 120, y: 120, props: { w: 60, h: 30 } });
+    expect(decodeSvgDataUrl(Object.values(result.snapshot.assets)[0].props.src)).toContain('viewBox="90 70 60 30"');
     expect(isValidOverlaySnapshot(result.snapshot)).toBe(true);
   });
+});
+
+describe("SVG conversion uses the visible crop", () => {
+  function cropped() {
+    const before = fixture('<rect x="60" y="20" width="30" height="30"/><rect x="20" y="20" width="40" height="40"/><circle cx="180" cy="30" r="5"/>');
+    if (before.shapes[0].type !== "image") throw new Error("fixture");
+    before.shapes[0].props = { ...before.shapes[0].props, w: 100, h: 120,
+      crop: { topLeft: { x: 0.25, y: 0 }, bottomRight: { x: 0.75, y: 1 } } };
+    return before;
+  }
+
+  it("converts visible parts, clips crossing parts and omits hidden parts in stack order", () => {
+    const before = cropped(), copy = structuredClone(before);
+    const result = convertSvgImageToSigma(before, "image", undefined, (root) => {
+      const rect = root.children.find((child) => typeof child !== "string" && child.tag === "rect");
+      return rect ? { x: 19, y: 19, w: 42, h: 42 } : { x: 174, y: 24, w: 12, h: 12 };
+    });
+    expect(before).toEqual(copy);
+    expect(result).toMatchObject({ convertedCount: 1, preservedCount: 1 });
+    expect(result.snapshot.shapes).toMatchObject([
+      { id: "image", type: "group" },
+      { type: "geo", x: 40, y: 70, props: { w: 30, h: 30 } },
+      { type: "image", x: 30, y: 69, props: { w: 11, h: 42 } },
+    ]);
+    const residual = Object.values(result.snapshot.assets)[0];
+    expect(residual.props).toMatchObject({ w: 11, h: 42 });
+    expect(decodeSvgDataUrl(residual.props.src)).toContain('viewBox="50 19 11 42"');
+    expect(normalizeOverlaySnapshot(JSON.parse(JSON.stringify(result.snapshot)))).toEqual(result.snapshot);
+  });
+
+  it("retains the visible window when host measurement is unavailable", () => {
+    const result = convertSvgImageToSigma(cropped(), "image");
+    expect(result).toMatchObject({ convertedCount: 1, preservedCount: 1 });
+    expect(result.snapshot.shapes[2]).toMatchObject({ type: "image", x: 30, y: 50, props: { w: 100, h: 120 } });
+    expect(decodeSvgDataUrl(Object.values(result.snapshot.assets)[0].props.src)).toContain('viewBox="50 0 100 120"');
+  });
+
+  it("keeps sub-minimum-width fragments cropped without revealing hidden pixels", () => {
+    const result = convertSvgImageToSigma(cropped(), "image", undefined, () => ({ x: 49, y: 20, w: 2, h: 40 }));
+    expect(result.snapshot.shapes[2]).toMatchObject({ type: "image", x: 30, y: 70, props: { w: 1, h: 40 } });
+    expect(result.snapshot.shapes[2].props).not.toHaveProperty("crop");
+    expect(decodeSvgDataUrl(Object.values(result.snapshot.assets)[0].props.src)).toContain('viewBox="50 20 1 40"');
+  });
+
+  it("preserves crop placement through rotation, reflection and body anchoring", () => {
+    const before = cropped();
+    before.shapes[0] = { ...before.shapes[0], rotation: Math.PI, flipX: true,
+      anchor: { type: "block", blockId: "p", dx: 5, dy: 10, line: { index: 0, dy: 10 } } };
+    const result = convertSvgImageToSigma(before, "image");
+    const rect = result.snapshot.shapes.find((shape) => shape.type === "geo")!;
+    expect(rect.x).toBeCloseTo(40);
+    expect(rect.y).toBeCloseTo(120);
+    expect(rect.anchor).toEqual({ type: "block", blockId: "p", dx: 15, dy: 80, line: { index: 0, dy: 80 } });
+    expect(normalizeOverlaySnapshot(JSON.parse(JSON.stringify(result.snapshot)))).toEqual(result.snapshot);
+  });
+
+  it("retains viewBox and inherited styling in the cropped residual SVG", () => {
+    const before = fixture("");
+    before.assets.svg_asset.props.src = 'data:image/svg+xml,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="10 10 100 60" fill="blue"><g fill="red"><rect x="20" y="20" width="20" height="10"/><path d="M50 20 Q60 30 70 20"/></g></svg>');
+    const result = convertSvgImageToSigma(before, "image");
+    const residual = decodeSvgDataUrl(Object.values(result.snapshot.assets)[0].props.src);
+    expect(residual).toContain('viewBox="10 10 100 60"');
+    expect(residual).toContain('width="100" height="60" x="0" y="0"');
+    expect(residual).toContain('fill="blue"');
+    expect(residual).toContain('<g fill="red">');
+    expect(isValidOverlaySnapshot(result.snapshot)).toBe(true);
+  });
+
+  it("preserves percentage-based residual geometry in its original nested viewport", () => {
+    const before = fixture('<defs><linearGradient id="gradient" gradientUnits="userSpaceOnUse" x2="100%"><stop offset="0" stop-color="black"/><stop offset="1" stop-color="white"/></linearGradient></defs><rect x="60" y="20" width="30" height="30"/><rect x="10%" y="20" width="40%" height="40" fill="url(#gradient)"/>');
+    if (before.shapes[0].type !== "image") throw new Error("fixture");
+    before.shapes[0].props = { ...before.shapes[0].props, w: 100, h: 120,
+      crop: { topLeft: { x: 0.25, y: 0 }, bottomRight: { x: 0.75, y: 1 } } };
+    const result = convertSvgImageToSigma(before, "image", undefined, () => ({ x: 20, y: 20, w: 80, h: 40 }));
+    const asset = Object.values(result.snapshot.assets)[0];
+    const residual = decodeSvgDataUrl(asset.props.src);
+    expect(residual).toContain('viewBox="50 20 50 40"');
+    expect(residual).toContain('viewBox="0 0 200 120" width="200" height="120"');
+    expect(residual).toContain('x2="100%"');
+    expect(getSvgImageDimensions(asset.props.src)).toEqual({ width: 50, height: 40 });
+  });
+
+  it.each(['<script>alert(1)</script>', '<image href="https://example.com/image.png"/>'])
+    ("validates nested viewport contents: %s", (body) => {
+      const before = fixture(`<rect x="50" y="20" width="30" height="30"/><svg width="100" height="100">${body}</svg>`);
+      expect(() => convertSvgImageToSigma(before, "image")).toThrow(SvgConversionError);
+      expect(before.shapes).toHaveLength(1);
+    });
 });

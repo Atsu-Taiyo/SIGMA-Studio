@@ -13,7 +13,7 @@ const ATTRS = new Set(("xmlns id viewBox width height x y x1 y1 x2 y2 cx cy r rx
   "preserveAspectRatio vector-effect paint-order clip-path clip-rule clipPathUnits mask maskUnits maskContentUnits " +
   "marker-start marker-mid marker-end markerWidth markerHeight markerUnits refX refY orient " +
   "gradientUnits gradientTransform spreadMethod fx fy fr offset stop-color stop-opacity xml:space role aria-label display visibility").split(" "));
-export type SvgConversionFailure = "source" | "unsupported" | "cropped";
+export type SvgConversionFailure = "source" | "unsupported";
 export class SvgConversionError extends Error {
   constructor(public readonly reason: SvgConversionFailure) { super(reason); }
 }
@@ -57,7 +57,9 @@ export function parseStaticSvg(svg: string): XmlNode {
   const validate = (node: XmlNode, depth: number) => {
     const tag = tagOf(node);
     if (tag === "#text") return;
-    if (++count > 4096 || depth > 64 || !TAGS.has(tag) || (tag === "svg" && depth > 0)) throw new SvgConversionError("unsupported");
+    // Nested static SVG viewports keep cropped residuals self-contained. Their children receive the same validation;
+    // conversion preserves a nested viewport as one fragment instead of interpreting its coordinate system.
+    if (++count > 4096 || depth > 64 || !TAGS.has(tag)) throw new SvgConversionError("unsupported");
     for (const [key, value] of Object.entries(node[":@"] ?? {})) {
       const withoutLocalReferences = value.replace(/url\(\s*(['"]?)#[A-Za-z_][\w.-]*\1\s*\)/g, "");
       if (!ATTRS.has(key) || (key === "xmlns" && value !== SVG_NAMESPACE) || /[\\<>]|\/\*|url\s*\(|(?:https?|data|file|javascript):|@import|expression\s*\(/i.test(key === "xmlns" ? "" : withoutLocalReferences)) throw new SvgConversionError("unsupported");

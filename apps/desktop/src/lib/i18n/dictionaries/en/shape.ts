@@ -116,7 +116,6 @@ export const shape = {
     partial: "Converted to {{count}} shapes. Labels become text, and clear formulas become editable math. Curves and complex layouts remain SVG images. Ungroup to edit each part. Line widths and dashes use the app's styles.",
     source: "Could not read the SVG. The original image is preserved.",
     unsupported: "This SVG has no shapes that can be converted. The original image is preserved.",
-    cropped: "A cropped SVG cannot be converted. Reset its crop first.",
   },
   anchor: {
     belowTitle: "Linked to the figure below this line",
