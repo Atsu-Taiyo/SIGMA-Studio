@@ -1,4 +1,5 @@
 import type { TextFormatStateContext } from "@/components/tiptap/text-format-controller";
+import { getOverlayTextFormatState, type OverlayTextBlock, type OverlayTextFormatState } from "@/features/document";
 import type { OverlaySelectionSummary } from "../page-overlay-types";
 
 interface TextToolbarContext {
@@ -53,4 +54,23 @@ export function resolveTextToolbarTarget(context: TextToolbarContext) {
     canUseTextAlign: overlayEnabled || (documentEnabled && !isBoxTitle && !isCodeBlock),
     wholeTextShape: overlayEnabled && isWholeTextShape ? selectedShape : null,
   };
+}
+
+/** The on/off marks and box style the text buttons show. */
+export type TextToolbarMarkState = OverlayTextFormatState;
+
+/**
+ * Where the text buttons read their state from.
+ *
+ * A text session (body, shape text, table cell) reports its caret's marks by event. A shape
+ * selected as a whole has no session and reports nothing, so its state comes from the shape's
+ * own runs — the same runs `formatOverlayTextBlocks` changes when a button is pressed, under the
+ * same "every run that can carry it" rule. Reading the last reported value there instead made the
+ * box button, which picks "add" or "remove" from what it shows, add forever (issue #210).
+ */
+export function resolveTextToolbarMarkState(
+  wholeTextShape: { props: { blocks: readonly OverlayTextBlock[] } } | null,
+  reported: TextToolbarMarkState,
+): TextToolbarMarkState {
+  return wholeTextShape ? getOverlayTextFormatState(wholeTextShape.props.blocks) : reported;
 }
