@@ -15,6 +15,7 @@ import type {
   BlockStyleToolbarState,
 } from "@/components/editor/editor-shell/toolbar-formatting";
 import type { ColorStylePanel, EditorMenu } from "@/components/editor/editor-shell/types";
+import type { ExtensionMenuGroup } from "@/lib/extension-contracts";
 import type { ShapeGallerySection } from "@/components/editor/overlay-canvas/shape-gallery";
 import type { ShapeTypeChangeCommand } from "@/components/editor/overlay-canvas/shape-type-change";
 import type { SharedFillState } from "@/components/editor/overlay-canvas/style-patch";
@@ -311,8 +312,11 @@ export interface EditorChromeAppMenu {
   openImportDialog: () => void;
   openNewDocMenu: () => void;
   openOtherImportDialog: () => void;
-  /** 変換サービスが使えるときの形式名。使えないときは null/未指定。 */
-  conversionLabel?: string | null;
+  /** メニューバーの「拡張機能」に出す内容。空ならメニュー自体を出さない。 */
+  extensionMenu?: ExtensionMenuGroup[];
+  /** 拡張機能の項目を実行する (ファイル選択から取り込みまで)。 */
+  runExtensionItem?: (extensionId: string, itemId: string) => void;
+  extensionsMenuButtonRef: RefObject<HTMLButtonElement | null>;
   openPrintPreview: () => void;
   /** 貼り付けたテキストから教材を取り込む面を開く。 */
   openTextImportDialog: () => void;

@@ -86,7 +86,8 @@ import { DesktopSettingsModal } from "@/components/editor/DesktopSettingsModal";
 import { ExtensionsDialog } from "@/components/editor/extensions/ExtensionsDialog";
 import { DocumentLibraryDialog } from "@/components/editor/DocumentLibraryDialog";
 import { DocumentOpenFailurePanel } from "@/components/editor/DocumentOpenFailurePanel";
-import { ConversionImportNotice } from "@/components/editor/ConversionImportNotice";
+import { ImportResultNotice } from "@/components/editor/ImportResultNotice";
+import { useExtensionMenu } from "@/components/editor/extensions/use-extension-menu";
 import { ProblemLibraryDialog } from "@/components/editor/ProblemLibraryDialog";
 import { DocumentTextCopyDialog,DocumentTextImportDialog } from "@/components/editor/DocumentTextTransferDialog";
 import {
@@ -623,6 +624,8 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
   // コメントは、デスクトップ版では右上に浮かぶカードで見せる (本文の右横の欄・ホワイトボードのパネルは使わない)。
   // ホワイトボードも同じ並びで、通常の教材と同じく開いた状態から始まる。
   const commentsInRail = isDesktopApp && !isEmbedded;
+  // メニューバーの「拡張機能」。インストール済み・有効・権限ありの拡張機能がある間だけ中身が入る。
+  const extensionMenu = useExtensionMenu(isDesktopApp && !isEmbedded);
   const embeddedHostRef = useRef(embeddedHost);
   useEffect(() => {
     embeddedHostRef.current = embeddedHost;
@@ -988,6 +991,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
   const newDocButtonRef = useRef<HTMLButtonElement | null>(null);
   const newDocMenuCloseTimerRef = useRef<number | null>(null);
   const settingsMenuButtonRef = useRef<HTMLButtonElement | null>(null);
+  const extensionsMenuButtonRef = useRef<HTMLButtonElement | null>(null);
   const editorCanvasRef = useRef<HTMLElement | null>(null);
   // A split re-parents the editor canvas. Track the node so native listeners follow it.
   const [editorCanvasElement, setEditorCanvasElement] = useState<HTMLElement | null>(null);
@@ -3493,9 +3497,9 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
   const {
     importInputRef,
     otherImportInputRef,
-    conversionLabel,
-    conversionNotice,
-    setConversionNotice,
+    importNotice,
+    setImportNotice,
+    runExtensionItem,
     textImportOpen,
     setTextImportOpen,
     documentTextCopyFallback,
@@ -4523,7 +4527,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
       closeDocumentTab, commentsPanelOpen, problemDisplay, problemDisplayAvailable, toggleProblemDisplayPart: toggleProblemDisplay, commitDocumentTitle, copyDocumentText, createDocumentTab, createWhiteboardDocumentTab, degradedWatcherScopes,
       deleteActiveDocument, documentMetadatas, documentTitle, duplicateActiveDocument, exportJson,
       exportMenuOpen, fileMenuButtonRef, handleTitleUpdateAction,
-      importDocumentFile, importInputRef, insertMenuButtonRef, loadingFileId, conversionLabel,
+      importDocumentFile, importInputRef, insertMenuButtonRef, loadingFileId, extensionMenu, extensionsMenuButtonRef, runExtensionItem,
       newDocButtonRef, newDocMenuOpen, openCommandSettings, openDocumentInWorkspace,
       openDocumentListDialog, openDocumentTabs, openImportDialog, openNewDocMenu, openOtherImportDialog,
       openPrintPreview, openTextImportDialog, otherImportInputRef,
@@ -5137,8 +5141,8 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
         />
       )}
 
-      {conversionNotice !== null && (
-        <ConversionImportNotice issues={conversionNotice} onClose={() => setConversionNotice(null)} />
+      {importNotice !== null && (
+        <ImportResultNotice issues={importNotice} onClose={() => setImportNotice(null)} />
       )}
 
       {documentTextCopyFallback !== null && (

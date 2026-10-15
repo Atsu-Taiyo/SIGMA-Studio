@@ -148,8 +148,7 @@ export const chrome = {
       duplicate: "Duplicate this material",
       delete: "Delete this material",
       import: "Import (.sigma / TeX)",
-      importPowerPoint: "Import PowerPoint",
-      importOther: "Import PowerPoint / {{name}}",
+      importOther: "Import PowerPoint",
       importText: "Import from text",
       export: "Export",
       exportJson: "Export JSON",
@@ -166,6 +165,10 @@ export const chrome = {
       graph3d: "3D figure",
       image: "Image",
       shape: "Shape",
+    },
+    extensions: {
+      label: "Extensions",
+      manage: "Manage extensions…",
     },
     ai: {
       label: "AI",

@@ -286,8 +286,6 @@ export interface DesktopFileAPI {
   openSigmaDoc(): Promise<{ filePath: string; data: string } | null>;
   openImportDocument?(): Promise<{ filePath: string; dataBase64: string } | null>;
   openImportOtherDocument?(): Promise<{ filePath: string; dataBase64: string } | null>;
-  documentConversionCapability?(): Promise<import("@/lib/document-conversion-contracts").DocumentConversionCapability>;
-  convertDocument?(payload: { bytes: Uint8Array; filename: string }): Promise<import("@/lib/document-conversion-contracts").DocumentConversionResponse>;
   saveSigmaDoc(payload: { suggestedName?: string; data: string }): Promise<{ filePath: string } | null>;
   exportPdf?(payload: {
     suggestedName?: string;
@@ -976,5 +974,7 @@ declare global {
   interface Window {
     desktopAPI?: DesktopAPI;
     sigmaPreviewAPI?: { getRenderDocument(renderId: string): Promise<SigmaDocument | null> };
+    sigmaPlugins?: import("@/lib/plugin-status-contracts").OfficialPluginBridge;
+    sigmaExtensions?: import("@/lib/extension-contracts").ExtensionBridge;
   }
 }

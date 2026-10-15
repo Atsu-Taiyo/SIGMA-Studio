@@ -3,10 +3,9 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { ensurePageLayout, type SigmaDocument } from "@/features/document";
 import * as locale from "@/lib/i18n";
 import * as powerpoint from "@/lib/powerpoint-import";
-import * as desktop from "@/lib/desktop-bridge";
 import { parseSigmaDocument } from "@/lib/sigma-doc-schema";
 
-import { fileFromDesktopImport, planDocumentFileImport, prepareDocumentFileImport } from "./document-file-import";
+import { fileFromDesktopImport, planDocumentFileImport, prepareDocumentFileImport, prepareExtensionDocumentImport } from "./document-file-import";
 
 const IMPORTED_AT = "2026-09-08T15:00:00.000Z";
 
@@ -51,7 +50,8 @@ describe("document import planning", () => {
     ["教材.TEX", "tex"],
     ["教材.latex", "tex"],
     ["教材.PPTX ", "pptx"],
-    ["教材.PRT ", "converted"],
+    // 拡張機能の取り込みはファイル名では選ばない。未知の拡張子は従来どおり SigmaDoc として読む。
+    ["教材.PRT ", "sigmadoc"],
   ])("classifies %s without reading file contents", (name, format) => {
     const file = new File(["not read yet"], name);
     const text = vi.spyOn(file, "text");
@@ -177,47 +177,24 @@ describe("prepared SigmaDoc imports", () => {
 });
 
 describe("desktop import file adapter", () => {
-  it("passes converted-format bytes through the desktop converter and retains fidelity diagnostics", async () => {
-    const bytes = new Uint8Array([0, 128, 255]);
-    const issues = [{ code: "missing-glyph" as const, detail: "U+1234" }];
-    const convert = vi.fn().mockResolvedValue({ ok: true, result: { document: document(), issues } });
-    vi.spyOn(desktop, "getDesktopBridge").mockReturnValue({ file: { convertDocument: convert } } as unknown as NonNullable<ReturnType<typeof desktop.getDesktopBridge>>);
-    const result = await prepareDocumentFileImport(readable(new File([bytes], "教材.prt")), environment());
-    expect(convert).toHaveBeenCalledWith({ bytes, filename: "教材.prt" });
+  it("opens an extension's result as a separate document and keeps its diagnostics", () => {
+    const issues = [{ code: "missing-glyph", detail: "U+1234" }];
+    const result = prepareExtensionDocumentImport({ document: document(), issues, sourceName: "教材.smp" }, environment());
     expect(result.document.docId).toBe("doc_imported");
-    expect(result.conversionIssues).toEqual(issues);
-    expect(result.successMessageKey).toBe("status.documentConverted");
+    expect(result.document.metadata.title).toBe("教材");
+    expect(result.document.updatedAt).toBe(IMPORTED_AT);
+    expect(result.importIssues).toEqual(issues);
+    expect(result.successMessageKey).toBe("status.extensionImported");
   });
 
-  it("does not allocate a document when conversion fails or the bridge is unavailable", async () => {
-    const ports = { ...environment(), createDocumentId: vi.fn() };
-    const file = new File(["bad source"], "broken.prt");
-    const bridge = vi.spyOn(desktop, "getDesktopBridge").mockReturnValue(null);
-    await expect(prepareDocumentFileImport(readable(file), ports)).rejects.toThrow();
-    bridge.mockReturnValue({ file: { convertDocument: async () => ({ ok: false, error: "import-failed", detail: "Truncated source" }) } } as unknown as NonNullable<ReturnType<typeof desktop.getDesktopBridge>>);
-    await expect(prepareDocumentFileImport(readable(file), ports)).rejects.toThrow("ファイルを変換できませんでした。");
-    expect(ports.createDocumentId).not.toHaveBeenCalled();
+  it("omits the diagnostics when the extension reported none", () => {
+    expect(prepareExtensionDocumentImport({ document: document(), issues: [], sourceName: "教材.smp" }, environment()))
+      .not.toHaveProperty("importIssues");
   });
 
-  it.each([
-    ["unauthorized", "ログインしてください"],
-    ["not-allowed", "利用できません"],
-    ["unavailable", "接続できません"],
-  ])("keeps the current document when conversion returns %s", async (error, message) => {
+  it("rejects a malformed result before allocating a new document", () => {
     const ports = { ...environment(), createDocumentId: vi.fn() };
-    vi.spyOn(desktop, "getDesktopBridge").mockReturnValue({ file: {
-      convertDocument: async () => ({ ok: false, error }),
-    } } as unknown as NonNullable<ReturnType<typeof desktop.getDesktopBridge>>);
-    await expect(prepareDocumentFileImport(readable(new File(["source"], "教材.prt")), ports)).rejects.toThrow(message);
-    expect(ports.createDocumentId).not.toHaveBeenCalled();
-  });
-
-  it("rejects malformed converted documents before allocating a new document", async () => {
-    const ports = { ...environment(), createDocumentId: vi.fn() };
-    vi.spyOn(desktop, "getDesktopBridge").mockReturnValue({ file: {
-      convertDocument: async () => ({ ok: true, result: { document: { version: "unknown" }, issues: [] } }),
-    } } as unknown as NonNullable<ReturnType<typeof desktop.getDesktopBridge>>);
-    await expect(prepareDocumentFileImport(readable(new File(["source"], "教材.prt")), ports)).rejects.toThrow();
+    expect(() => prepareExtensionDocumentImport({ document: { version: "unknown" }, issues: [], sourceName: "教材.smp" }, ports)).toThrow();
     expect(ports.createDocumentId).not.toHaveBeenCalled();
   });
 

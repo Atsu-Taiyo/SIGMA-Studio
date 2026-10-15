@@ -41,7 +41,6 @@ vi.mock("electron", () => ({
   BrowserWindow: class BrowserWindow {
     static fromWebContents = vi.fn(() => null);
     webContents = {
-      mainFrame: { id: 1 },
       executeJavaScript: mocks.hiddenExecuteJavaScript,
       printToPDF: mocks.printToPDF,
       isDestroyed: () => false,
@@ -62,56 +61,6 @@ vi.mock("node:fs/promises", () => ({
 }));
 
 import { registerFileIpc } from "./file";
-
-it("restricts conversion capability and import to the main editor frame", async () => {
-  mocks.handlers.clear();
-  const mainWindow = new BrowserWindow();
-  const capability = vi.fn(async () => ({ available: true as const }));
-  const convert = vi.fn(async () => ({ ok: false as const, error: "invalid-input" as const }));
-  registerFileIpc({ getMainWindow: () => mainWindow, documentConversionClient: { capability, convert } });
-  const getCapability = mocks.handlers.get("file:document-conversion-capability")!;
-  const convertDocument = mocks.handlers.get("file:convert-document")!;
-  const payload = { bytes: Uint8Array.of(1), filename: "数列.prt" };
-  expect(await getCapability({ sender })).toEqual({ available: false, reason: "not-allowed" });
-  expect(await convertDocument({ sender }, payload)).toEqual({ ok: false, error: "not-allowed" });
-  expect(await getCapability({ sender: mainWindow.webContents, senderFrame: { id: 2 } })).toEqual({ available: false, reason: "not-allowed" });
-  expect(await convertDocument({ sender: mainWindow.webContents, senderFrame: { id: 2 } }, payload)).toEqual({ ok: false, error: "not-allowed" });
-  expect(capability).not.toHaveBeenCalled();
-  expect(convert).not.toHaveBeenCalled();
-  const mainEvent = { sender: mainWindow.webContents, senderFrame: mainWindow.webContents.mainFrame };
-  expect(await getCapability(mainEvent)).toEqual({ available: true });
-  expect(await convertDocument(mainEvent, payload)).toEqual({ ok: false, error: "invalid-input" });
-  expect(capability).toHaveBeenCalledTimes(1);
-  expect(convert).toHaveBeenCalledWith(payload);
-});
-
-it("only offers the PRT picker filter when conversion is available", async () => {
-  vi.clearAllMocks();
-  mocks.handlers.clear();
-  const showOpenDialog = vi.mocked((await import("electron")).dialog.showOpenDialog);
-  showOpenDialog.mockResolvedValue({ canceled: true, filePaths: [] });
-  const capability = vi.fn(async () => ({ available: false as const, reason: "unauthorized" as const }));
-  registerFileIpc({ getMainWindow: () => new BrowserWindow(), documentConversionClient: {
-    capability, convert: vi.fn(),
-  } });
-  const open = mocks.handlers.get("file:open-import-other-document")!;
-  await open({});
-  expect(showOpenDialog).toHaveBeenCalledWith(expect.objectContaining({
-    filters: expect.arrayContaining([{ name: "PowerPoint", extensions: ["pptx"] }]),
-  }));
-  expect(JSON.stringify(showOpenDialog.mock.calls.at(-1)?.[0])).not.toContain("prt");
-  showOpenDialog.mockResolvedValueOnce({ canceled: false, filePaths: ["/tmp/hidden.prt"] });
-  expect(await open({})).toBeNull();
-  expect((await import("node:fs/promises")).default.readFile).not.toHaveBeenCalled();
-  capability.mockResolvedValue({ available: true } as never);
-  await open({});
-  expect(JSON.stringify(showOpenDialog.mock.calls.at(-1)?.[0])).toContain("prt");
-  // 形式名はサービスが名乗らない限り、汎用名になる。
-  expect(showOpenDialog.mock.calls.at(-1)?.[0]?.filters).toContainEqual({ name: "外部形式", extensions: ["prt"] });
-  capability.mockResolvedValue({ available: true, displayName: "Print Pages" } as never);
-  await open({});
-  expect(showOpenDialog.mock.calls.at(-1)?.[0]?.filters).toContainEqual({ name: "Print Pages", extensions: ["prt"] });
-});
 
 it("only lets the main editor receive and acknowledge OS-selected paths", async () => {
   const mainWindow = new BrowserWindow();

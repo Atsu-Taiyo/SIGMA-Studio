@@ -32,7 +32,8 @@ export interface RegisterAppIpcDeps {
   releaseUrl: string;
   dataDir: string;
   applicationFontStore?: ApplicationFontStore;
-  ensureFontResources?: (ids: unknown) => Promise<void>;
+  /** 一覧に出してよい書体か。配布された書体を、権限の外れた本人に見せないために使う。 */
+  isFontVisible?: (font: DesktopCustomFont) => boolean;
   appUpdateController: AppUpdateController;
   quitAndInstall?: () => ReturnType<AppUpdateController["quitAndInstall"]>;
 }
@@ -49,7 +50,7 @@ export function registerAppIpc(deps: RegisterAppIpcDeps): void {
   }
 
   function readDesktopCustomFontsForRenderer(): DesktopCustomFontForRenderer[] {
-    return (readDesktopSettingsSync(dataDir).customFonts ?? []).map((font) => ({
+    return (readDesktopSettingsSync(dataDir).customFonts ?? []).filter((font) => deps.isFontVisible?.(font) ?? true).map((font) => ({
       ...font,
       url: customFontUrl(font.fileName),
     }));
@@ -164,12 +165,7 @@ export function registerAppIpc(deps: RegisterAppIpcDeps): void {
 
   ipcMain.handle("fonts:resolve", async (_event, ids: unknown) => {
     if (!deps.applicationFontStore) return { resources: {}, missing: [] };
-    let result = await deps.applicationFontStore.resolve(ids);
-    if (result.missing.length && deps.ensureFontResources) {
-      await deps.ensureFontResources(result.missing).catch(() => {});
-      result = await deps.applicationFontStore.resolve(ids);
-    }
-    return result;
+    return deps.applicationFontStore.resolve(ids);
   });
 
   ipcMain.handle("fonts:list", () => ({

@@ -28,6 +28,7 @@ export function renderDocsComposition(parts: EditorChromeParts, t: Translate<"ch
             {parts.aiMenu}
             {parts.problemMenu}
             {parts.settingsMenu}
+            {parts.extensionsMenu}
           </nav>
 
           {parts.documentTabsRow}
