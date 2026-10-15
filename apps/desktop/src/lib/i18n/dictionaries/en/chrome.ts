@@ -181,6 +181,7 @@ export const chrome = {
       texEnvironment: "TeX / TikZ environment",
       pageSettings: "Page setup",
       appSettings: "App settings",
+      extensions: "Extensions",
       display: "View",
       displayProblem: "Problem",
       displaySolution: "Answer",

@@ -327,6 +327,7 @@ export interface EditorChromeAppMenu {
   scheduleCloseNewDocMenu: () => void;
   setAiSettingsOpen: Dispatch<SetStateAction<boolean>>;
   setDesktopSettingsOpen: Dispatch<SetStateAction<boolean>>;
+  setExtensionsOpen: Dispatch<SetStateAction<boolean>>;
   setExportMenuOpen: Dispatch<SetStateAction<boolean>>;
   setNewDocMenuOpen: Dispatch<SetStateAction<boolean>>;
   setOutlineDialogOpen: Dispatch<SetStateAction<boolean>>;

@@ -31,6 +31,7 @@ export interface EditorCommandPaletteSurfaces {
   setCommandPaletteOpen(open: boolean): void;
   setSettingsFocusEntryId(id: string | undefined): void;
   setDesktopSettingsOpen(open: boolean): void;
+  setExtensionsOpen(open: boolean): void;
   setAiSettingsOpen(open: boolean): void;
   setPageSettingsOpen(open: boolean): void;
   setTexEnvironmentSettingsOpen(open: boolean): void;
@@ -49,7 +50,7 @@ export function useCommandPalette({
   commandPaletteOpen,
   catalog: { customCommands, shortcutOverrides, shortcutPlatform, isEmbedded, tCommand, tSettings },
   surfaces: {
-    setCommandPaletteOpen, setSettingsFocusEntryId, setDesktopSettingsOpen, setAiSettingsOpen,
+    setCommandPaletteOpen, setSettingsFocusEntryId, setDesktopSettingsOpen, setExtensionsOpen, setAiSettingsOpen,
     setPageSettingsOpen, setTexEnvironmentSettingsOpen, openCommandSettings,
   },
   runShortcutCommandRef,
@@ -72,7 +73,7 @@ export function useCommandPalette({
     // 埋め込み (SDK web) にはデスクトップブリッジも AI 設定も無く、選んでも
     // 何も描かれない。死に行を並べない。
     isSettingsSurfaceAvailable: (surface) => !isEmbedded
-      || (surface !== "desktopApp" && surface !== "desktopAi" && surface !== "aiResources"),
+      || (surface !== "desktopApp" && surface !== "desktopAi" && surface !== "aiResources" && surface !== "extensions"),
   }) : []), [commandPaletteOpen, customCommands, isEmbedded, shortcutOverrides, shortcutPlatform, tCommand, tSettings]);
 
   const runPaletteEntry = useCallback((entry: PaletteEntry) => {
@@ -93,6 +94,10 @@ export function useCommandPalette({
       case "desktopApp":
         setSettingsFocusEntryId(entry.id);
         setDesktopSettingsOpen(true);
+        return;
+      case "extensions":
+        setSettingsFocusEntryId(entry.id);
+        setExtensionsOpen(true);
         return;
       case "desktopAi":
       case "aiResources":
@@ -125,7 +130,7 @@ export function useCommandPalette({
     }
   }, [
     openCommandSettings, runShortcutCommandRef, setAiSettingsOpen, setCommandPaletteOpen,
-    setDesktopSettingsOpen, setSettingsFocusEntryId, setPageSettingsOpen, setTexEnvironmentSettingsOpen,
+    setDesktopSettingsOpen, setExtensionsOpen, setSettingsFocusEntryId, setPageSettingsOpen, setTexEnvironmentSettingsOpen,
   ]);
 
   const commandTooltip = (label: string, commandId: EditorCommandId): TooltipContent => {

@@ -83,6 +83,7 @@ import {
 } from "@/components/tiptap/inline-math-font";
 import type { CommentPanelAuthor } from "@/components/editor/CommentThreadsPanel";
 import { DesktopSettingsModal } from "@/components/editor/DesktopSettingsModal";
+import { ExtensionsDialog } from "@/components/editor/extensions/ExtensionsDialog";
 import { DocumentLibraryDialog } from "@/components/editor/DocumentLibraryDialog";
 import { DocumentOpenFailurePanel } from "@/components/editor/DocumentOpenFailurePanel";
 import { ConversionImportNotice } from "@/components/editor/ConversionImportNotice";
@@ -670,7 +671,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
   const handleWhiteboardViewportChange = useCallback((element: HTMLDivElement | null) => {
     whiteboardViewportRef.current = element;
   }, []);
-  const { pageSettingsOpen, setPageSettingsOpen, commandSettingsOpen, setCommandSettingsOpen, commandPaletteOpen, setCommandPaletteOpen, settingsFocusEntryId, setSettingsFocusEntryId, texCommandReferenceOpen, setTexCommandReferenceOpen, texEnvironmentSettingsOpen, setTexEnvironmentSettingsOpen, documentListOpen, setDocumentListOpen, desktopSettingsOpen, setDesktopSettingsOpen, desktopSettingsUpdateCheckRequest, setDesktopSettingsUpdateCheckRequest, openDesktopSettingsFromChrome } = useEditorDialogState();
+  const { pageSettingsOpen, setPageSettingsOpen, commandSettingsOpen, setCommandSettingsOpen, commandPaletteOpen, setCommandPaletteOpen, settingsFocusEntryId, setSettingsFocusEntryId, texCommandReferenceOpen, setTexCommandReferenceOpen, texEnvironmentSettingsOpen, setTexEnvironmentSettingsOpen, documentListOpen, setDocumentListOpen, desktopSettingsOpen, setDesktopSettingsOpen, extensionsOpen, setExtensionsOpen, desktopSettingsUpdateCheckRequest, setDesktopSettingsUpdateCheckRequest, openDesktopSettingsFromChrome } = useEditorDialogState();
   const [workspaceReady, setWorkspaceReady] = useState(isEmbedded);
   const [ledgerFailure, setLedgerFailure] = useState<LedgerSchemaFailure | null>(null);
   const [workspaceReloadNonce, setWorkspaceReloadNonce] = useState(0);
@@ -4144,7 +4145,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
     commandPaletteOpen,
     catalog: { customCommands, shortcutOverrides, shortcutPlatform, isEmbedded, tCommand, tSettings },
     surfaces: {
-      setCommandPaletteOpen, setSettingsFocusEntryId, setDesktopSettingsOpen, setAiSettingsOpen,
+      setCommandPaletteOpen, setSettingsFocusEntryId, setDesktopSettingsOpen, setExtensionsOpen, setAiSettingsOpen,
       setPageSettingsOpen, setTexEnvironmentSettingsOpen, openCommandSettings,
     },
     runShortcutCommandRef,
@@ -4528,7 +4529,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
       openPrintPreview, openTextImportDialog, otherImportInputRef,
       openVersionHistory, openWorkspaceScreen, promoteAiToSidebar, reportIssue, requestOverlayImages,
       resolvedDocumentTitle, scheduleCloseNewDocMenu,
-      setAiSettingsOpen, setDesktopSettingsOpen: openDesktopSettingsFromChrome, setExportMenuOpen, setNewDocMenuOpen,
+      setAiSettingsOpen, setDesktopSettingsOpen: openDesktopSettingsFromChrome, setExtensionsOpen, setExportMenuOpen, setNewDocMenuOpen,
       setOutlineDialogOpen, setOverlayEditing, setPageSettingsOpen, setTemplateGalleryOpen,
       setTexCommandReferenceOpen, setTexEnvironmentSettingsOpen, setTitleInputFocused,
       settingsMenuButtonRef, showRichTitle,
@@ -4651,10 +4652,20 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
           setDesktopSettingsUpdateCheckRequest(0);
           setSettingsFocusEntryId(undefined);
         }}
-        onFontsChanged={reloadCustomFonts}
         requestUpdateCheck={desktopSettingsUpdateCheckRequest}
         focusEntryId={settingsFocusEntryId}
       />
+      {!isEmbedded && (
+        <ExtensionsDialog
+          open={extensionsOpen}
+          onClose={() => {
+            setExtensionsOpen(false);
+            setSettingsFocusEntryId(undefined);
+          }}
+          onFontsChanged={reloadCustomFonts}
+          focusEntryId={settingsFocusEntryId}
+        />
+      )}
       {!isEmbedded && (
         <AiSettingsDialog
           open={aiSettingsOpen}
