@@ -1,5 +1,5 @@
 import { normalizeOverlayGroups, pruneUnusedOverlayAssets, type OverlayAnchor, type OverlayAsset, type OverlayBounds, type OverlayShape, type OverlaySnapshot } from "@/features/document";
-import { flipShapesAround, getCroppedImageLayout, getShapesSelectionBounds, multiplySvgMatrices, parseSvgTransform, rotateShapesAround, svgPrimitiveToShapes, type SvgMatrix } from "@/features/drawing";
+import { flipShapesAround, getCroppedImageLayout, getShapesSelectionBounds, multiplySvgMatrices, parseSvgTransform, rotateShapesAround, svgNumbers, svgPrimitiveToShapes, type SvgMarkerDefinition, type SvgMarkerLookup, type SvgMatrix } from "@/features/drawing";
 import { createId } from "./id";
 import { svgFontSizePx, svgTextToOverlay, type MeasureSvgOverlayText } from "./svg-text-to-overlay";
 import { childrenOf, decodeSvgDataUrl, parseStaticSvg, resolvedAttrs, svgViewport, tagOf, SvgConversionError, type SvgFragmentNode, type XmlNode } from "./svg-image-source";
@@ -21,6 +21,39 @@ function serialize(node: XmlNode): string {
 }
 function measurementNode(node: XmlNode): SvgFragmentNode {
   return { tag: tagOf(node), attrs: { ...node[":@"] }, children: childrenOf(node).map((child) => tagOf(child) === "#text" ? String(child["#text"]) : measurementNode(child)) };
+}
+const inheritedOf = (attrs: Record<string, string>) => Object.fromEntries(Object.entries(attrs).filter(([key]) => INHERITED.has(key)));
+/** Markers whose drawing and geometry are plain numbers; a marker that is anything else stays SVG. */
+function markerDefinition(node: XmlNode, inherited: Record<string, string>): SvgMarkerDefinition | null {
+  try {
+    const attrs = resolvedAttrs(node);
+    if (attrs.preserveAspectRatio && !/^xMidYMid(?:\s+meet)?$/.test(attrs.preserveAspectRatio.trim())) return null;
+    const number = (value: string | undefined, fallback: number) => {
+      const numbers = svgNumbers(value ?? String(fallback));
+      if (numbers.length !== 1) throw new Error("number");
+      return numbers[0];
+    };
+    const markerWidth = number(attrs.markerWidth, 3), markerHeight = number(attrs.markerHeight, 3);
+    const viewBox = attrs.viewBox ? svgNumbers(attrs.viewBox) : [0, 0, markerWidth, markerHeight];
+    if (viewBox.length !== 4 || viewBox[2] <= 0 || viewBox[3] <= 0 || markerWidth <= 0 || markerHeight <= 0) return null;
+    const painted = { ...inherited, ...inheritedOf(attrs) };
+    return { viewBox: viewBox as [number, number, number, number], markerWidth, markerHeight,
+      refX: number(attrs.refX, 0), refY: number(attrs.refY, 0), orient: attrs.orient ?? "0", userSpace: attrs.markerUnits === "userSpaceOnUse",
+      primitives: childrenOf(node).filter((child) => !["#text", "title", "desc"].includes(tagOf(child)))
+        .map((child) => ({ tag: tagOf(child), attrs: { ...painted, ...resolvedAttrs(child) } })) };
+  } catch { return null; }
+}
+function collectMarkers(root: XmlNode, inherited: Record<string, string>): SvgMarkerLookup {
+  const markers = new Map<string, SvgMarkerDefinition>();
+  const visit = (node: XmlNode) => {
+    const tag = tagOf(node), id = node[":@"]?.id;
+    if (tag === "marker") {
+      const definition = id ? markerDefinition(node, inherited) : null;
+      if (id && definition) markers.set(id, definition);
+    } else if (tag === "defs" || tag === "g") childrenOf(node).forEach(visit);
+  };
+  childrenOf(root).forEach(visit);
+  return (id) => markers.get(id);
 }
 function shiftedAnchor(anchor: OverlayAnchor | undefined, dx: number, dy: number): OverlayAnchor | undefined {
   if (anchor?.type === "block") return { ...anchor, dy: anchor.dy + dy, ...(anchor.dx === undefined ? {} : { dx: anchor.dx + dx }),
@@ -57,6 +90,8 @@ export function convertSvgImageToSigma(
   const placement = multiplySvgMatrices([kx, 0, 0, ky, image.x + layout.x, image.y + layout.y], viewport);
   const visible = { left: Math.max(0, -layout.x / kx), top: Math.max(0, -layout.y / ky),
     right: Math.min(width, (image.props.w - layout.x) / kx), bottom: Math.min(height, (image.props.h - layout.y) / ky) };
+  const whole = visible.left < 1e-4 && visible.top < 1e-4 && width - visible.right < 1e-4 && height - visible.bottom < 1e-4;
+  const frame = { left: image.x, top: image.y, right: image.x + image.props.w, bottom: image.y + image.props.h };
   const wrap = (node: XmlNode, ancestors: XmlNode[]) => ancestors.reduceRight((child, ancestor) => ({ g: [child], ":@": ancestor[":@"] }), node);
   const definitions: XmlNode[] = [];
   const collectDefinitions = (node: XmlNode, ancestors: XmlNode[]) => {
@@ -64,6 +99,7 @@ export function convertSvgImageToSigma(
     else if (tagOf(node) === "g") childrenOf(node).forEach((child) => collectDefinitions(child, [...ancestors, node]));
   };
   childrenOf(root).forEach((node) => collectDefinitions(node, []));
+  const markers = collectMarkers(root, inheritedOf(rootAttrs));
   const shapes: OverlayShape[] = [];
   const assets = { ...snapshot.assets };
   let convertedCount = 0, preservedCount = 0;
@@ -121,10 +157,16 @@ export function convertSvgImageToSigma(
       return;
     }
     const text = tag === "text" && attrs.visibility !== "hidden" ? svgTextToOverlay(node, attrs, transformed, () => createId("svg_text"), measureText) : null;
-    let converted = text ? [text] : tag === "g" || attrs.visibility === "hidden" ? null : svgPrimitiveToShapes(tag, attrs, transformed, () => createId("overlay_shape"));
+    let converted = text ? [text] : tag === "g" || attrs.visibility === "hidden" ? null : svgPrimitiveToShapes(tag, attrs, transformed, () => createId("overlay_shape"), markers);
     // Preserve primitives crossing the visible frame as clipped SVG, in their original stack order.
     const bounds = converted && getShapesSelectionBounds(converted);
-    if (bounds && (bounds.x < image.x - 1 || bounds.y < image.y - 1 || bounds.x + bounds.w > image.x + image.props.w + 1 || bounds.y + bounds.h > image.y + image.props.h + 1)) converted = null;
+    if (bounds && (bounds.x < frame.left - 1 || bounds.y < frame.top - 1 || bounds.x + bounds.w > frame.right + 1 || bounds.y + bounds.h > frame.bottom + 1)) {
+      // Clear of a cropped frame by more than its stroke can reach (half the width, times the miter limit), so none of it shows.
+      const strokeWidth = Number.parseFloat(attrs["stroke-width"] ?? "1");
+      const reach = Math.max(1, 2 * (Number.isFinite(strokeWidth) ? strokeWidth : 1) * Math.hypot(transformed[0], transformed[1]));
+      if (!whole && (bounds.x > frame.right + reach || bounds.y > frame.bottom + reach || bounds.x + bounds.w < frame.left - reach || bounds.y + bounds.h < frame.top - reach)) return;
+      converted = null;
+    }
     if (!converted?.length) { preserve(node, ancestors); return; }
     const opacity = Number(own.opacity ?? 1);
     if (!Number.isFinite(opacity) || opacity < 0 || opacity > 1) { preserve(node, ancestors); return; }

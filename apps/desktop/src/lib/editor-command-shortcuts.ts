@@ -1,4 +1,4 @@
-import { normalizeLineHeight } from "@/features/document";
+import { normalizeLineHeight, type OverlayTextSize } from "@/features/document";
 import { COMMAND_PALETTE_BINDING, PRINT_PREVIEW_BINDING } from "@/lib/editor-command-bindings";
 import type { Translate } from "@/lib/i18n";
 
@@ -92,7 +92,7 @@ export type EditorCustomCommandAction =
   | { type: "overlayStrokeColor"; value: string | null }
   | { type: "overlayFillColor"; value: string | null }
   | { type: "overlayLineDash"; value: "solid" | "dashed" | "dotted" }
-  | { type: "overlayLineWidth"; value: "s" | "m" | "l" | "xl" }
+  | { type: "overlayLineWidth"; value: OverlayTextSize }
   /**
    * 組み込みコマンドをそのまま実行する。カスタムコマンドの入れ子は持たない
    * (自分自身を呼ぶ循環を、データの形で作れなくするため)。
@@ -242,6 +242,7 @@ export const EDITOR_COMMAND_SHORTCUTS: readonly EditorCommandShortcutDefinition[
   { id: "overlay.line.solid", categoryId: "shapeStyle", defaultBinding: null },
   { id: "overlay.line.dashed", categoryId: "shapeStyle", defaultBinding: null },
   { id: "overlay.line.dotted", categoryId: "shapeStyle", defaultBinding: null },
+  { id: "overlay.line.width.xs", categoryId: "shapeStyle", defaultBinding: null },
   { id: "overlay.line.width.s", categoryId: "shapeStyle", defaultBinding: null },
   { id: "overlay.line.width.m", categoryId: "shapeStyle", defaultBinding: null },
   { id: "overlay.line.width.l", categoryId: "shapeStyle", defaultBinding: null },
@@ -990,7 +991,7 @@ function parseEditorCustomCommandAction(value: unknown): EditorCustomCommandActi
   if (action.type === "overlayLineDash" && isOneOf(action.value, ["solid", "dashed", "dotted"])) {
     return { type: "overlayLineDash", value: action.value };
   }
-  if (action.type === "overlayLineWidth" && isOneOf(action.value, ["s", "m", "l", "xl"])) {
+  if (action.type === "overlayLineWidth" && isOneOf(action.value, ["xs", "s", "m", "l", "xl"])) {
     return { type: "overlayLineWidth", value: action.value };
   }
   // 入れ子を避けるため、指せるのは組み込みコマンドだけ (`custom.` は EDITOR_COMMAND_IDS に無い)。

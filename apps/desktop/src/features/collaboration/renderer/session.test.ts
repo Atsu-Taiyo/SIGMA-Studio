@@ -220,6 +220,47 @@ it("retries a remotely cached asset without putting its readiness revision in th
   shared.destroy();
 });
 
+it("reads an image's own data for parsing, ignoring the readiness query and passing other sources through", async () => {
+  const document = createBlankDocument();
+  addImage(document);
+  document.pageLayout!.overlay!.overlaySnapshot!.assets.asset_local!.props.src = "sigma-doc-storage://asset_remote";
+  const shared = new SharedDocument();
+  shared.initialize(JSON.parse(JSON.stringify(document)) as ObjectValue, { sharedDocumentId: "shared", epoch: 1 });
+  const asset = vi.fn(async () => imageSource);
+  const session = new RendererDocumentSession(
+    { binding: { protocol: 1, epoch: 1, sharedDocumentId: "shared", docId: document.docId, localFileId: "file" }, state: toBase64(shared.snapshot()), role: "editor", status: "saved", actorId: "self", assets: {} },
+    { update: vi.fn(async () => {}), asset, flush: vi.fn(async () => {}), presence: vi.fn(async () => {}) } as unknown as CollaborationBridge,
+  );
+  sessions.push(session);
+  // The renderer can only show this scheme in an <img>; its bytes come from the durable asset.
+  expect(await session.readAssetSource("sigma-doc-storage://asset_remote?ready=3")).toBe(imageSource);
+  expect(asset).toHaveBeenCalledExactlyOnceWith("file", "asset_remote");
+  expect(await session.readAssetSource(imageSource)).toBe(imageSource);
+  expect(asset).toHaveBeenCalledOnce();
+  shared.destroy();
+});
+
+it("reads a just-added image from its local pixels before the durable write is acknowledged", async () => {
+  const document = createBlankDocument();
+  const shared = new SharedDocument();
+  shared.initialize(JSON.parse(JSON.stringify(document)) as ObjectValue, { sharedDocumentId: "shared", epoch: 1 });
+  let finishAsset!: () => void;
+  const asset = vi.fn(() => new Promise<string>((resolve) => { finishAsset = () => resolve(imageSource); }));
+  const session = new RendererDocumentSession(
+    { binding: { protocol: 1, epoch: 1, sharedDocumentId: "shared", docId: document.docId, localFileId: "file" }, state: toBase64(shared.snapshot()), role: "editor", status: "saved", actorId: "self", assets: {} },
+    { update: vi.fn(async () => {}), asset, flush: vi.fn(async () => {}), presence: vi.fn(async () => {}) } as unknown as CollaborationBridge,
+  );
+  sessions.push(session);
+  const after = structuredClone(session.project());
+  addImage(after);
+  const visible = session.change(session.project(), after);
+  expect(overlaySource(visible)).toMatch(/^sigma-doc-storage:\/\//);
+  expect(await session.readAssetSource(overlaySource(visible))).toBe(imageSource);
+  expect(asset).toHaveBeenCalledOnce();
+  finishAsset();
+  shared.destroy();
+});
+
 it("shows local edits before persistence completes, retains layout references and ignores echoed updates", async () => {
   const document = createBlankDocument();
   document.content = ["p1", "p2"].map(id => ({ id, type: "paragraph", children: [{ type: "text", text: id }] }));

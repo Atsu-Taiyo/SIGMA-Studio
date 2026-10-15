@@ -52,6 +52,8 @@ export interface DocumentSession {
   remoteOverlayPresence?(): RemoteSessionOverlayPresence[];
   subscribePresence?(listener: () => void): () => void;
   resolveAssetSource?(source: string): string;
+  /** The asset's own bytes as a `data:` URL, for code that parses it. An `<img>` uses `resolveAssetSource`. */
+  readAssetSource?(source: string): Promise<string>;
   assetSourceVersion?(): number;
   subscribeAssets?(listener: () => void): () => void;
 }

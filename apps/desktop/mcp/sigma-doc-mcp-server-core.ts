@@ -366,7 +366,7 @@ const ShapeToolInputSchema = {
   strokeOpacity: z.number().min(0).max(1).optional(),
   opacity: z.number().min(0).max(1).optional(),
   dash: z.enum(["solid", "dashed", "dotted"]).optional(),
-  size: z.enum(["s", "m", "l", "xl"]).optional().describe("既定サイズ。通常はm、細かい注記はs、主図はl/xl。図形内ラベルの寸法はこれに合わせてtool側が決めます。"),
+  size: z.enum(["xs", "s", "m", "l", "xl"]).optional().describe("既定サイズ(線の太さ。xs=極細0.75px、s=1.25px、m=2px、l=3px、xl=5px)。通常はm、細かい注記はs、細い補助線はxs、主図はl/xl。図形内ラベルの寸法はこれに合わせてtool側が決めます。"),
   fontSize: z.number().positive().optional().describe("kind:text/calloutの文字サイズ(pt)。省略時はsizeから決まります。"),
   arrowheadStart: z.enum(OVERLAY_ARROWHEADS).optional(),
   arrowheadEnd: z.enum(OVERLAY_ARROWHEADS).optional(),
@@ -1874,7 +1874,7 @@ function createTextShapeUpdateProps(
   const hasContentChange = text !== undefined || tex !== undefined || label !== undefined;
   const hasRichContentChange = markdown !== undefined || hasContentChange;
 
-  const nextSize = size === "s" || size === "m" || size === "l" || size === "xl"
+  const nextSize = size === "xs" || size === "s" || size === "m" || size === "l" || size === "xl"
     ? size
     : shape.props.size;
   const nextFontSize = typeof fontSize === "number" ? fontSize : shape.props.fontSize;
@@ -1960,7 +1960,7 @@ function createCalloutShapeUpdateProps(
     ...(typeof w === "number" ? { w } : {}),
     ...(typeof h === "number" ? { h } : {}),
     ...(typeof fontSize === "number" ? { fontSize } : {}),
-    ...(size === "s" || size === "m" || size === "l" || size === "xl" ? { size } : {}),
+    ...(size === "xs" || size === "s" || size === "m" || size === "l" || size === "xl" ? { size } : {}),
   };
 }
 
@@ -4592,7 +4592,7 @@ registerTool(
       text: z.string().optional(),
       tex: z.string().optional(),
       markdown: z.string().optional().describe('kind:textの複数段落リッチテキスト。insert_body_contentと同じMarkdown規則(見出し・リスト・$...$数式)。text/tex/labelとは併用不可。'),
-      size: z.enum(["s", "m", "l", "xl"]).optional(),
+      size: z.enum(["xs", "s", "m", "l", "xl"]).optional(),
       fontSize: z.number().positive().optional().describe("text/callout全体の文字サイズ(pt)。既存の個別文字サイズも更新します。textの高さはこれに合わせて導出し直します。"),
       arrowheadStart: z.enum(OVERLAY_ARROWHEADS).optional().describe("線分の始端マーカーだけを部分更新します(insert_shapeと同じ値域)。位置・長さ・色・反対側の端点は保持されます。line(線)・arrow(矢印)・arc(弧)にのみ指定できます。"),
       arrowheadEnd: z.enum(OVERLAY_ARROWHEADS).optional().describe("線分の終端マーカーだけを部分更新します(insert_shapeと同じ値域)。例: 既存の直線の右端だけ矢印にする場合は arrowheadEnd:\"arrow\" のみを指定します(delete_shapes+insert_shapeで作り直さないでください)。"),

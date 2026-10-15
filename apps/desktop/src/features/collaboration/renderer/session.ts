@@ -336,6 +336,12 @@ export class RendererDocumentSession implements DocumentSession {
     const readyVersion = this.assetReadyVersions.get(assetId);
     return readyVersion ? `${canonical}?ready=${readyVersion}` : canonical;
   }
+  async readAssetSource(source: string): Promise<string> {
+    if (!source.startsWith("sigma-doc-storage://")) return source;
+    const assetId = canonicalAssetSource(source).slice(20);
+    // The renderer cannot fetch this scheme; a pending image's pixels are still local.
+    return this.pendingAssetPreviews.get(assetId) ?? this.bridge.asset(this.info.binding.localFileId, assetId);
+  }
   assetSourceVersion(): number {
     return this.assetRevision;
   }

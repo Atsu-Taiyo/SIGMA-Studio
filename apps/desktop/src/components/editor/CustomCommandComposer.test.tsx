@@ -62,6 +62,21 @@ function button(name: string): HTMLButtonElement {
 }
 
 describe("CustomCommandComposer", () => {
+  it("adds an extra-thin line width command from the menu", async () => {
+    const onSubmit = vi.fn();
+    await render(onSubmit);
+    const choose = async (label: string, value: string) => {
+      await act(async () => button(label).click());
+      const option = [...document.querySelectorAll<HTMLElement>('[role="option"]')].find(item => item.textContent?.trim() === value);
+      expect(option).toBeDefined();
+      await act(async () => option!.click());
+    };
+    await choose("操作 1", "図形の線幅に変更");
+    await choose("線幅", "極細");
+    await act(async () => button("追加").click());
+    expect(onSubmit.mock.calls[0][0].actions).toEqual([{ type: "overlayLineWidth", value: "xs" }]);
+  });
+
   it("is a single always-open form: one step to start, no toggle", async () => {
     await render(() => {});
     expect(container.querySelectorAll(".custom-command-step")).toHaveLength(1);

@@ -467,7 +467,7 @@ function isOverlayImageCrop(value: unknown): boolean {
 }
 
 function isOverlayTextSize(value: unknown): value is OverlayTextSize {
-  return value === "s" || value === "m" || value === "l" || value === "xl";
+  return value === "xs" || value === "s" || value === "m" || value === "l" || value === "xl";
 }
 
 function isOverlayStackLayer(value: unknown): value is OverlayStackLayer {

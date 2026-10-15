@@ -300,6 +300,7 @@ export const SHORTCUT_LINE_DASHES: Record<string, OverlayDash> = {
   "overlay.line.dotted": "dotted",
 };
 export const SHORTCUT_LINE_WIDTHS: Record<string, OverlayTextSize> = {
+  "overlay.line.width.xs": "xs",
   "overlay.line.width.s": "s",
   "overlay.line.width.m": "m",
   "overlay.line.width.l": "l",

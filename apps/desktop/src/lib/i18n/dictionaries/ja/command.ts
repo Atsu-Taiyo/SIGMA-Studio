@@ -59,7 +59,7 @@ export const command = {
       code: "コードブロック",
     },
     lineDash: { solid: "実線", dashed: "破線", dotted: "点線" },
-    lineWidth: { s: "細い", m: "標準", l: "太い", xl: "極太" },
+    lineWidth: { xs: "極細", s: "細い", m: "標準", l: "太い", xl: "極太" },
   },
   /** コマンドパレット本体の文言。 */
   palette: {
@@ -210,6 +210,7 @@ export const command = {
     "overlay.line.solid": "線種: 実線",
     "overlay.line.dashed": "線種: 破線",
     "overlay.line.dotted": "線種: 点線",
+    "overlay.line.width.xs": "線幅: 極細",
     "overlay.line.width.s": "線幅: 細い",
     "overlay.line.width.m": "線幅: 標準",
     "overlay.line.width.l": "線幅: 太い",

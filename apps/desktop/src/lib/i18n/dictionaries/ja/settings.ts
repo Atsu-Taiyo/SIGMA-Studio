@@ -561,6 +561,7 @@ export const settings = {
       dashSolid: "実線",
       dashDashed: "破線",
       dashDotted: "点線",
+      widthXs: "極細",
       widthS: "細い",
       widthM: "標準",
       widthL: "太い",

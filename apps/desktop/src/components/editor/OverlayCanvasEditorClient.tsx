@@ -1550,7 +1550,7 @@ export default function OverlayCanvasEditorClient({
   const { convertSvg, svgConversionMessage } = useSvgConversion({
     documentId, shapesRef, assetsRef, extensionsRef, editPolicyLockedShapeIdsRef, explicitlySavedShapeStatesRef,
     notifyEditPolicyBlocked, setShapes, setAssets, setSelectedShapeIds, commitOverlayChangeNow,
-    resolveAssetSource: (source) => documentSession?.resolveAssetSource?.(source) ?? source, tShape,
+    readAssetSource: async (source) => await documentSession?.readAssetSource?.(source) ?? documentSession?.resolveAssetSource?.(source) ?? source, tShape,
   });
   const contextCanGroup = contextMenuSelectionCount >= 2;
   const contextCanUngroup = contextMenuSelectionCount > 0 && selectedShapes.some(isOverlayGroupShape);
