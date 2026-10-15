@@ -240,3 +240,23 @@ export function sameDocumentMetadatas(
     return keys.every((key) => metadata[key] === other[key]);
   });
 }
+
+/** Update one successful save without fetching or replacing unrelated rows. */
+export function updateSavedDocumentMetadata(
+  current: DocumentMetadata[],
+  saved: DocumentMetadata,
+): DocumentMetadata[] {
+  const index = current.findIndex((item) => item.fileId === saved.fileId);
+  // A save acknowledgement is not a library visibility change. In particular,
+  // do not restore a row removed while this save was in flight.
+  if (index < 0) return current;
+  const previous = current[index];
+  // A late save response must not roll back a newer external revision.
+  if (previous.revision > saved.revision) return current;
+  if (previous.revision === saved.revision && previous.updatedAt > saved.updatedAt) return current;
+  const next = { ...previous, ...saved };
+  if (sameDocumentMetadatas([previous], [next])) return current;
+  const updated = current.slice();
+  updated[index] = next;
+  return updated;
+}

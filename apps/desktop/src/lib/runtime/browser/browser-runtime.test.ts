@@ -87,6 +87,7 @@ describe("browser runtime", () => {
     expect(duplicate.metadata.title).toBe("数学-演習-のコピー.sigma");
     const result = await runtime.library.saveDocument(second.fileId, { ...second.document, metadata: { title: "新しい 名前" } }, { expectedRevision: second.metadata.revision });
     expect(result.ok).toBe(true);
+    expect(result.metadata).toEqual((await runtime.library.listFiles()).find((file) => file.fileId === second.fileId));
     expect((await runtime.library.loadDocument(second.fileId))?.metadata.title).toBe("新しい-名前");
     await backend.write(["library", "documents"], async tx => {
       const { readLibrary, writeLibrary } = await import("./browser-library");

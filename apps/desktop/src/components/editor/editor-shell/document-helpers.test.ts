@@ -10,6 +10,7 @@ import {
   areSelectedOverlayChartsEqual,
   getDefaultDocumentSelectionId,
   sameDocumentMetadatas,
+  updateSavedDocumentMetadata,
 } from "./document-helpers";
 
 function metadata(overrides: Partial<DocumentMetadata> = {}): DocumentMetadata {
@@ -44,6 +45,32 @@ describe("sameDocumentMetadatas", () => {
       [metadata(), metadata({ fileId: "file_2" })],
       [metadata({ fileId: "file_2" }), metadata()],
     )).toBe(false);
+  });
+});
+
+describe("updateSavedDocumentMetadata", () => {
+  it("changes only the saved row in a large library, retaining placement and sharing", () => {
+    const current = Array.from({ length: 54_000 }, (_, index) => metadata({ fileId: `file_${index}` }));
+    current[42] = metadata({ fileId: "file_42", folderId: "folder_1", sharingPending: true });
+    const saved = { ...current[42], title: "保存済みの題名", revision: 4 };
+    const next = updateSavedDocumentMetadata(current, saved);
+    expect(next).toHaveLength(current.length);
+    expect(next[42]).toEqual(saved);
+    expect(next.every((row, index) => index === 42 || row === current[index])).toBe(true);
+    expect(current[42].revision).toBe(3);
+  });
+
+  it("ignores an older save response and leaves an identical response unchanged", () => {
+    const current = [metadata({ revision: 5 })];
+    expect(updateSavedDocumentMetadata(current, metadata({ revision: 4 }))).toBe(current);
+    expect(updateSavedDocumentMetadata(current, metadata({ revision: 5 }))).toBe(current);
+  });
+
+  it("does not resurrect a removed row or undo a newer move at the same revision", () => {
+    const current = [metadata({ fileId: "other" })];
+    expect(updateSavedDocumentMetadata(current, metadata())).toBe(current);
+    const moved = [metadata({ folderId: "new-folder", updatedAt: "2026-02-01T00:00:00.000Z" })];
+    expect(updateSavedDocumentMetadata(moved, metadata())).toBe(moved);
   });
 });
 

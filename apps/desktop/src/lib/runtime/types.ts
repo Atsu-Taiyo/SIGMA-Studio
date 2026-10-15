@@ -40,6 +40,8 @@ export interface RuntimeCapabilities {
 
 export interface StorageResult {
   ok: boolean;
+  /** Persisted metadata for this save; consumers need not reload the library. */
+  metadata?: DocumentMetadata;
   error?: string;
   code?: "revision-mismatch";
   currentRevision?: number;
