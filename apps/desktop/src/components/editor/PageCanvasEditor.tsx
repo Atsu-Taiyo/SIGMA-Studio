@@ -2244,7 +2244,7 @@ const { candidateCommentTop, pendingCommentTop, commentThreadPositions } = usePa
   /**
    * キャレットの位置に手動改ページ (改段) を入れる。右クリックメニュー・`/` コマンド・
    * ショートカットの共通の入口。区切りを実際に組み立てるのはキャレットを持つ本文エディタ
-   * (`REQUEST_TEXT_PAGE_BREAK_EVENT`) で、ここは文書全体を見た可否 (独立段組みの中・空のページ)
+   * (`REQUEST_TEXT_PAGE_BREAK_EVENT`) で、ここは文書全体を見た可否 (独立段組みの中・文書の先頭)
    * と、どのエディタも受けなかったときの後始末だけを持つ。
    */
   const insertManualBreakAt = useCallback((
@@ -2257,7 +2257,13 @@ const { candidateCommentTop, pendingCommentTop, commentThreadPositions } = usePa
       return false;
     }
     const content = document.content;
-    const documentNextBlockId = getNextTopLevelTextFlowBlockId(content, blockId);
+    const nextBlockId = getNextTopLevelTextFlowBlockId(content, blockId);
+    // 次のユニットの先頭が既に区切りを持つなら任せない。本文エディタが末尾に空の段落を足して
+    // その前で区切る (続けて入れた改ページの分だけ空のページができる)。
+    const documentNextBlockId = nextBlockId
+      && content.find((block) => block.id === nextBlockId)?.pagination?.break !== true
+      ? nextBlockId
+      : null;
     const detail: TextPageBreakRequestDetail = {
       blockId,
       enabled: true,
@@ -2285,7 +2291,12 @@ const { candidateCommentTop, pendingCommentTop, commentThreadPositions } = usePa
     // どのエディタも受けなかった: 最上位のユニットの末尾で区切った (次のユニットの先頭が持つ) か、
     // 本文エディタを持たないブロック (区切り線など) の後ろで区切る。
     const fallbackBlockId = documentNextBlockId ?? blockId;
-    if (!canInsertManualPageBreakAt(content, { blockId: fallbackBlockId, offset: 0 })) {
+    const fallbackBlock = findBlock(document, fallbackBlockId);
+    if (
+      !canInsertManualPageBreakAt(content, { blockId: fallbackBlockId, offset: 0 })
+      // 既に区切りを持つ: 空の行を挟むのは本文エディタの仕事で、ここでは足すものが無い。
+      || (!!fallbackBlock && "pagination" in fallbackBlock && fallbackBlock.pagination?.break === true)
+    ) {
       return false;
     }
     updateBreakBefore(fallbackBlockId, true);

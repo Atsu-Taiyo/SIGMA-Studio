@@ -167,8 +167,11 @@ export interface ManualBreakInsertionPoint {
 }
 
 /**
- * キャレットの位置に区切りを入れて空のページ (段) ができないか。区切りの前に、前の区切り以降の
- * 本文 (文字・図などの中身) が 1 つも無いなら入れない。
+ * キャレットの位置に区切りを入れられるか。文書の先頭 (区切りの前に本文 (文字・図などの中身) も
+ * 手動の区切りも 1 つも無い位置) だけは入れない — 1 ページ目が空になる。
+ *
+ * 区切りの直後 (空のページ・段の上) には続けて入れられる。Word の改ページと同じく、続けて
+ * 入れた分だけ空のページ (段) ができる。
  */
 export function canInsertManualPageBreakAt(
   blocks: readonly FlowBlock[],
@@ -187,9 +190,9 @@ export function canInsertManualPageBreakAt(
   let hasBody = false;
   for (const candidate of entries) {
     if (candidate.ancestors.some(isMultiColumnSection)) continue;
-    if (candidate.block.id === targetId) return hasBody && candidate.block.pagination?.break !== true;
-    if (candidate.block.pagination?.break === true) hasBody = false;
-    hasBody ||= occupiesBody(candidate.block);
+    // 既に区切りを持つブロックでも入れられる (その前に空の行を挟んで続けて区切る)。
+    if (candidate.block.id === targetId) return hasBody;
+    hasBody ||= candidate.block.pagination?.break === true || occupiesBody(candidate.block);
   }
   return false;
 }

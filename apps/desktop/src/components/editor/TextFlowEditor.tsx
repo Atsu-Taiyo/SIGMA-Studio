@@ -2575,7 +2575,7 @@ function TextFlowEditorImpl({
         return;
       }
       if (detail.enabled && selection && detail.canInsertAt && !detail.canInsertAt(selection)) {
-        // 区切りの前に本文が無い (空のページ・段ができる)。
+        // 文書の先頭で、区切りの前に本文が無い (1 ページ目が空になる)。
         detail.handled = true;
         detail.rejected = true;
         return;
