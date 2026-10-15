@@ -397,6 +397,7 @@ export const chrome = {
     lineWidth: {
       label: "線幅",
       tooltip: "線の太さを変える（{{value}}）",
+      xs: "極細",
       s: "細",
       m: "中",
       l: "太",

@@ -229,7 +229,7 @@ function isDash(value: unknown): value is OverlayDash {
 }
 
 function isTextSize(value: unknown): value is OverlayTextSize {
-  return value === "s" || value === "m" || value === "l" || value === "xl";
+  return value === "xs" || value === "s" || value === "m" || value === "l" || value === "xl";
 }
 
 function isArrowhead(value: unknown): value is OverlayArrowhead {

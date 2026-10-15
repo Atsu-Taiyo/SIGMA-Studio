@@ -259,7 +259,7 @@ function buildCustomCommandAction(
   if (kind === "overlayLineDash" && isOneOf(value, ["solid", "dashed", "dotted"])) {
     return { type: "overlayLineDash", value };
   }
-  if (kind === "overlayLineWidth" && isOneOf(value, ["s", "m", "l", "xl"])) {
+  if (kind === "overlayLineWidth" && isOneOf(value, ["xs", "s", "m", "l", "xl"])) {
     return { type: "overlayLineWidth", value };
   }
   if (kind === "command" && value) {
@@ -430,6 +430,7 @@ function CustomCommandValueField({
         value={value}
         onChange={onValueChange}
         options={[
+          { value: "xs", label: t("commands.value.widthXs") },
           { value: "s", label: t("commands.value.widthS") },
           { value: "m", label: t("commands.value.widthM") },
           { value: "l", label: t("commands.value.widthL") },

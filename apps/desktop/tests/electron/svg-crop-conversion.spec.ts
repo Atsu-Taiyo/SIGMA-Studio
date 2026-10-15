@@ -98,10 +98,9 @@ for (const mode of ["rounded", "crop", "reference"] as const) {
         expect(total).toBeGreaterThan(100);
         expect(kept / total).toBeGreaterThan(0.95);
       }
-      const modifier = process.platform === "darwin" ? "Meta" : "Control";
-      await page.keyboard.press(`${modifier}+z`);
+      await page.getByRole("button", { name: "元に戻す", exact: true }).click();
       await expect.poll(async () => rounded((await saved())!.pageLayout!.overlay!.overlaySnapshot)).toEqual(rounded(before.pageLayout!.overlay!.overlaySnapshot));
-      await page.keyboard.press(`${modifier}+Shift+z`);
+      await page.getByRole("button", { name: "やり直す", exact: true }).click();
       await expect.poll(async () => rounded((await saved())!.pageLayout!.overlay!.overlaySnapshot)).toEqual(rounded(converted.pageLayout!.overlay!.overlaySnapshot));
       await page.reload();
       await expect(page.locator(".startup-splash")).toBeHidden({ timeout: 60_000 });

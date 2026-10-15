@@ -43,9 +43,10 @@ function rectangle(
 
 describe("overlay output read model", () => {
   it("keeps persisted stroke and label size presentation values", () => {
-    const sizes = ["s", "m", "l", "xl"] as const;
-    expect(sizes.map(size => overlayStrokeWidth(size))).toEqual([1.25, 2, 3, 5]);
-    expect(sizes.map(overlayLabelFontSize)).toEqual([14, 18, 22, 28]);
+    const sizes = ["xs", "s", "m", "l", "xl"] as const;
+    expect(sizes.map(size => overlayStrokeWidth(size))).toEqual([0.75, 1.25, 2, 3, 5]);
+    expect(sizes.map(overlayLabelFontSize)).toEqual([12, 14, 18, 22, 28]);
+    expect(overlayStrokeWidth("xs", 2)).toBe(1.5);
     expect(overlayStrokeWidth("s", 2)).toBe(2.5);
   });
 

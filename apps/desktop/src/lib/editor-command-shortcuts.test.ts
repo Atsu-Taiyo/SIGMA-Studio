@@ -250,6 +250,14 @@ describe("editor command shortcuts", () => {
     expect(customCommands[0].actions).toEqual([{ type: "lineHeight", value: "1.2" }]);
   });
 
+  it("persists the extra-thin line width in custom commands", () => {
+    const commands = parseEditorCustomCommands(JSON.stringify([{ id: "custom.hairline", label: "Hairline",
+      actions: [{ type: "overlayLineWidth", value: "xs" }] }]));
+    expect(commands).toHaveLength(1);
+    expect(commands[0].actions).toEqual([{ type: "overlayLineWidth", value: "xs" }]);
+    expect(formatCustomCommandDescription(commands[0].actions, createTranslator("ja", "command"))).toContain("極細");
+  });
+
   it("keeps several steps in order, drops the invalid ones, and never nests custom commands", () => {
     const [command, ...rest] = parseEditorCustomCommands(JSON.stringify([
       {

@@ -50,6 +50,9 @@ export function fontSizeToOverlaySize(fontSize: number): OverlayTextSize {
 }
 
 export function overlayTextSizeToPx(size: OverlayTextSize): number {
+  if (size === "xs") {
+    return 11;
+  }
   if (size === "s") {
     return 13;
   }

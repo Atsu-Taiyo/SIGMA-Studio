@@ -963,7 +963,7 @@ type OverlayGeoShape = OverlayBaseShape<"geo", {
   baseSides?: 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12;
   solidPoints?: { x: number; y: number }[];
   solidEdgeDash?: ("solid" | "dashed" | "dotted")[];
-  solidEdgeSize?: ("s" | "m" | "l" | "xl")[];
+  solidEdgeSize?: ("xs" | "s" | "m" | "l" | "xl")[];
   apexX?: number;
   headLengthRatio?: number;
   shaftRatio?: number;
@@ -975,12 +975,12 @@ type OverlayGeoShape = OverlayBaseShape<"geo", {
   fillOpacity?: number;
   labelColor: string;
   dash: "solid" | "dashed" | "dotted";
-  size: "s" | "m" | "l" | "xl";
+  size: "xs" | "s" | "m" | "l" | "xl";
   label?: string;
 }>;
 ```
 
-`w` と `h` は必須です。`fill` は `"none"` または `"solid"` です。`strokeOpacity` と `fillOpacity` は指定する場合 `0..1` です。`blockArrow` は太い矢印型の図形で、`headLengthRatio` と `shaftRatio` で頭部と軸の比率を調整できます。`radius` は角丸矩形用の半径です。
+`size` は線の太さで、`xs`(極細)・`s`・`m`・`l`・`xl` がそれぞれ 0.75 / 1.25 / 2 / 3 / 5 px です。`w` と `h` は必須です。`fill` は `"none"` または `"solid"` です。`strokeOpacity` と `fillOpacity` は指定する場合 `0..1` です。`blockArrow` は太い矢印型の図形で、`headLengthRatio` と `shaftRatio` で頭部と軸の比率を調整できます。`radius` は角丸矩形用の半径です。
 
 `pyramid`(角錐)・`prism`(角柱)・`sphere`(球)は立体図形で、教材の作図と同じく、見えない辺を破線にした針金細工として描きます。`pyramid` と `prism` は底面の辺の数 `baseSides`(3〜12)が必須です。面ではなく**頂点と辺**が正本です。
 
@@ -1008,7 +1008,7 @@ type OverlayArcShape = OverlayBaseShape<"arc", {
   color: string;
   strokeOpacity?: number;
   dash: "solid" | "dashed" | "dotted";
-  size: "s" | "m" | "l" | "xl";
+  size: "xs" | "s" | "m" | "l" | "xl";
 }>;
 ```
 
@@ -1029,7 +1029,7 @@ type OverlayArrowShape = OverlayBaseShape<"arrow", {
   strokeOpacity?: number;
   labelColor: string;
   dash: "solid" | "dashed" | "dotted";
-  size: "s" | "m" | "l" | "xl";
+  size: "xs" | "s" | "m" | "l" | "xl";
   label?: string;
 }>;
 ```
@@ -1052,7 +1052,7 @@ type OverlayLineShape = OverlayBaseShape<"line", {
   strokeOpacity?: number;
   labelColor?: string;
   dash: "solid" | "dashed" | "dotted";
-  size: "s" | "m" | "l" | "xl";
+  size: "xs" | "s" | "m" | "l" | "xl";
   label?: string;
 }>;
 ```
@@ -1068,7 +1068,7 @@ type OverlayTextShape = OverlayBaseShape<"text", {
   blocks: OverlayTextBlock[];
   color: string;
   fontSize?: number;
-  size: "s" | "m" | "l" | "xl";
+  size: "xs" | "s" | "m" | "l" | "xl";
 }>;
 ```
 
@@ -1126,7 +1126,7 @@ type OverlayCalloutShape = OverlayBaseShape<"callout", {
   blocks: OverlayTextBlock[];
   color: string;
   fontSize?: number;
-  size: "s" | "m" | "l" | "xl";
+  size: "xs" | "s" | "m" | "l" | "xl";
 }>;
 ```
 

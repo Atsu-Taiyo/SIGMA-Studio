@@ -19,7 +19,7 @@ export type OverlayExtensionValue =
   | { readonly [key: string]: unknown };
 export type OverlayExtensions = Record<string, OverlayExtensionValue>;
 
-export type OverlayTextSize = "s" | "m" | "l" | "xl";
+export type OverlayTextSize = "xs" | "s" | "m" | "l" | "xl";
 export type OverlayRegularPolygonSides = 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12;
 /** 角錐・角柱の底面の辺の数。三角錐(3)から十二角柱(12)まで。 */
 export type OverlaySolidBaseSides = 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12;
