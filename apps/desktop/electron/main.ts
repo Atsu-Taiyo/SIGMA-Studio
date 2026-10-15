@@ -1673,10 +1673,11 @@ app.whenReady().then(async () => {
     codexAppServerClient.getStatus().catch(() => {});
   }, 1500);
 
-  setTimeout(() => {
-    checkForUpdatesInBackground();
-  }, 5000);
-  setInterval(checkForUpdatesInBackground, UPDATE_CHECK_INTERVAL_MS);
+  // Store manages AppX updates; do not schedule the GitHub updater there.
+  if (appUpdateController.getStatus().supported) {
+    setTimeout(checkForUpdatesInBackground, 5000);
+    setInterval(checkForUpdatesInBackground, UPDATE_CHECK_INTERVAL_MS);
+  }
 
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) {
