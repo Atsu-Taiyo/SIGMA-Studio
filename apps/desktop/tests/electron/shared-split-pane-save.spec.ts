@@ -168,13 +168,20 @@ test("a shared document first opened in a split pane saves its edits through the
     await expect(page.getByText("SHARED_SESSION_WRITE_REQUIRED")).toHaveCount(0);
 
     // Closing the window saves without the "保存できませんでした" dialog, and the edit survives a restart.
-    const exited = new Promise<void>((resolve) => app!.process().once("exit", () => resolve()));
+    // Wait for the window: macOS keeps the app running after its last window closes.
+    const fixtureProcess = app!.process();
+    const exited = new Promise<void>((resolve) => fixtureProcess.once("exit", () => resolve()));
+    const closed = page.waitForEvent("close", { timeout: 30_000 });
     await app!.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].close());
     await Promise.race([
-      exited,
+      closed,
+      // The page closing first rejects this wait; only a visible dialog is a failure.
       page.getByRole("dialog", { name: "保存できませんでした" }).waitFor({ timeout: 20_000 })
-        .then(() => { throw new Error("The window close save failed"); }),
+        .then(() => { throw new Error("The window close save failed"); }, () => closed),
     ]);
+    // Other platforms quit with their last window.
+    if (process.platform === "darwin") await app!.close();
+    else await Promise.race([exited, new Promise((resolve) => setTimeout(resolve, 15_000)).then(() => app!.close())]);
     app = undefined;
     page = await launch();
     await expect(page.locator(".startup-splash")).toBeHidden({ timeout: 60_000 });
