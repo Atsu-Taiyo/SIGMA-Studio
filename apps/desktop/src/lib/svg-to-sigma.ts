@@ -1,5 +1,5 @@
 import { normalizeOverlayGroups, pruneUnusedOverlayAssets, type OverlayAnchor, type OverlayAsset, type OverlayBounds, type OverlayShape, type OverlaySnapshot } from "@/features/document";
-import { flipShapesAround, getImageCoverCrop, getShapesSelectionBounds, multiplySvgMatrices, parseSvgTransform, rotateShapesAround, svgPrimitiveToShapes, type SvgMatrix } from "@/features/drawing";
+import { flipShapesAround, getCroppedImageLayout, getShapesSelectionBounds, multiplySvgMatrices, parseSvgTransform, rotateShapesAround, svgPrimitiveToShapes, type SvgMatrix } from "@/features/drawing";
 import { createId } from "./id";
 import { svgFontSizePx, svgTextToOverlay, type MeasureSvgOverlayText } from "./svg-text-to-overlay";
 import { childrenOf, decodeSvgDataUrl, parseStaticSvg, resolvedAttrs, svgViewport, tagOf, SvgConversionError, type SvgFragmentNode, type XmlNode } from "./svg-image-source";
@@ -40,8 +40,6 @@ export function convertSvgImageToSigma(
   const image = snapshot.shapes.find((shape): shape is Extract<OverlayShape, { type: "image" }> => shape.id === shapeId && shape.type === "image");
   const asset = image && snapshot.assets[image.props.assetId];
   if (!image || !isSvgImageAsset(asset)) throw new SvgConversionError("source");
-  const crop = getImageCoverCrop(image, asset);
-  if (Math.abs(crop.topLeft.x) + Math.abs(crop.topLeft.y) + Math.abs(crop.bottomRight.x - 1) + Math.abs(crop.bottomRight.y - 1) > 1e-7) throw new SvgConversionError("cropped");
   const root = parseStaticSvg(source ?? decodeSvgDataUrl(asset!.props.src));
   const rootAttrs = resolvedAttrs(root);
   const { width, height, viewBox } = svgViewport(rootAttrs, asset!.props);
@@ -53,7 +51,12 @@ export function convertSvgImageToSigma(
   const alignY = aspect.includes("YMax") ? 1 : aspect.includes("YMid") ? 0.5 : 0;
   const viewport: SvgMatrix = [sx, 0, 0, sy, -viewBox[0] * sx + (width - viewBox[2] * sx) * alignX,
     -viewBox[1] * sy + (height - viewBox[3] * sy) * alignY];
-  const placement = multiplySvgMatrices([image.props.w / width, 0, 0, image.props.h / height, image.x, image.y], viewport);
+  // Use the same cover/crop transform as the canvas, including aspect-ratio rounding.
+  const layout = getCroppedImageLayout(image, asset);
+  const kx = layout.width / width, ky = layout.height / height;
+  const placement = multiplySvgMatrices([kx, 0, 0, ky, image.x + layout.x, image.y + layout.y], viewport);
+  const visible = { left: Math.max(0, -layout.x / kx), top: Math.max(0, -layout.y / ky),
+    right: Math.min(width, (image.props.w - layout.x) / kx), bottom: Math.min(height, (image.props.h - layout.y) / ky) };
   const wrap = (node: XmlNode, ancestors: XmlNode[]) => ancestors.reduceRight((child, ancestor) => ({ g: [child], ":@": ancestor[":@"] }), node);
   const definitions: XmlNode[] = [];
   const collectDefinitions = (node: XmlNode, ancestors: XmlNode[]) => {
@@ -69,26 +72,31 @@ export function convertSvgImageToSigma(
   const flush = () => {
     if (!pending.length) return;
     const fragmentRoot: XmlNode = { svg: [...definitions, ...pending], ":@": { ...root[":@"], width: String(width), height: String(height) } };
-    const fragment = serialize(fragmentRoot);
+    const measured = measureFragment?.(measurementNode(fragmentRoot));
+    const bounds = measured && [measured.x, measured.y, measured.w, measured.h].every(Number.isFinite) && measured.w > 0 && measured.h > 0
+      ? { left: measured.x, top: measured.y, right: measured.x + measured.w, bottom: measured.y + measured.h } : visible;
+    const clipped = { left: Math.max(visible.left, bounds.left), top: Math.max(visible.top, bounds.top),
+      right: Math.min(visible.right, bounds.right), bottom: Math.min(visible.bottom, bounds.bottom) };
+    pending = [];
+    if (clipped.right <= clipped.left || clipped.bottom <= clipped.top) return;
+    const w = clipped.right - clipped.left, h = clipped.bottom - clipped.top;
+    // Bake the visible window into a standalone SVG viewport. A narrow fragment must not be expanded by the
+    // editor's minimum image-crop ratio, which would reveal pixels hidden by the original frame.
+    // Keep the original inner viewport: percentage lengths (including user-space gradients) must still resolve
+    // against its original size, rather than the smaller visible fragment's viewport.
+    const fragment = serialize({ svg: [{ ...fragmentRoot, ":@": { ...fragmentRoot[":@"], x: "0", y: "0" } }],
+      ":@": { xmlns: "http://www.w3.org/2000/svg", width: String(w), height: String(h),
+        viewBox: `${clipped.left} ${clipped.top} ${w} ${h}`, preserveAspectRatio: "none" } });
     const bytes = new TextEncoder().encode(fragment);
     fragmentBytes += bytes.length;
     if (fragmentBytes > 8 * 1024 * 1024 || preservedCount >= 256) throw new SvgConversionError("unsupported");
     const id = createId("overlay_asset");
-    assets[id] = { id, type: "image", props: { ...asset!.props, w: width, h: height,
+    assets[id] = { id, type: "image", props: { ...asset!.props, w, h,
       name: `${asset!.props.name} (SVG)`, storage: undefined,
       src: `data:image/svg+xml;base64,${btoa(Array.from(bytes, (byte) => String.fromCharCode(byte)).join(""))}`, fileSize: bytes.length } };
-    const measured = measureFragment?.(measurementNode(fragmentRoot));
-    const bounds = measured && [measured.x, measured.y, measured.w, measured.h].every(Number.isFinite) && measured.w > 0 && measured.h > 0
-      ? { x: Math.max(0, measured.x), y: Math.max(0, measured.y),
-        right: Math.min(width, measured.x + measured.w), bottom: Math.min(height, measured.y + measured.h) } : null;
-    const clipped = bounds && bounds.right > bounds.x && bounds.bottom > bounds.y ? bounds : null;
-    shapes.push({ id: createId("overlay_shape"), type: "image", x: image.x + (clipped?.x ?? 0) * image.props.w / width,
-      y: image.y + (clipped?.y ?? 0) * image.props.h / height, rotation: 0,
-      props: { assetId: id, w: clipped ? (clipped.right - clipped.x) * image.props.w / width : image.props.w,
-        h: clipped ? (clipped.bottom - clipped.y) * image.props.h / height : image.props.h,
-        ...(clipped ? { crop: { topLeft: { x: clipped.x / width, y: clipped.y / height }, bottomRight: { x: clipped.right / width, y: clipped.bottom / height } } } : {}) } });
+    shapes.push({ id: createId("overlay_shape"), type: "image", x: image.x + layout.x + clipped.left * kx,
+      y: image.y + layout.y + clipped.top * ky, rotation: 0, props: { assetId: id, w: w * kx, h: h * ky } });
     preservedCount++;
-    pending = [];
   };
   const preserve = (node: XmlNode, ancestors: XmlNode[]) => {
     pending.push(wrap(node, ancestors));
@@ -114,7 +122,7 @@ export function convertSvgImageToSigma(
     }
     const text = tag === "text" && attrs.visibility !== "hidden" ? svgTextToOverlay(node, attrs, transformed, () => createId("svg_text"), measureText) : null;
     let converted = text ? [text] : tag === "g" || attrs.visibility === "hidden" ? null : svgPrimitiveToShapes(tag, attrs, transformed, () => createId("overlay_shape"));
-    // SVG clips at its viewport; native shapes cannot reproduce a clipped primitive.
+    // Preserve primitives crossing the visible frame as clipped SVG, in their original stack order.
     const bounds = converted && getShapesSelectionBounds(converted);
     if (bounds && (bounds.x < image.x - 1 || bounds.y < image.y - 1 || bounds.x + bounds.w > image.x + image.props.w + 1 || bounds.y + bounds.h > image.y + image.props.h + 1)) converted = null;
     if (!converted?.length) { preserve(node, ancestors); return; }
