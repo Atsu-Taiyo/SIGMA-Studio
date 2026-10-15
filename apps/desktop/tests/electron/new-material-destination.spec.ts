@@ -119,7 +119,7 @@ test("new materials follow the previous material's workspace, can be placed from
     const direct = await createdBy(page, () => newMaterial.click());
     expect(direct).toMatchObject({ workspaceId: fixture.home, folderId: fixture.unitId });
     await expectLocation(page, { workspace: "マイ教材", folder: "2年 / 関数" });
-    await page.screenshot({ path: testInfo.outputPath("01-direct-click-dialog.png") });
+    await page.screenshot({ path: testInfo.outputPath("01-direct-click-dialog.png"), animations: "disabled" });
     await closeCreatedDialog(page);
     await typeIntoActiveMaterial(page, direct.fileId, "直接作成");
 
@@ -130,11 +130,11 @@ test("new materials follow the previous material's workspace, can be placed from
     const team = menu.getByRole("menuitem", { name: "数学科に作成", exact: true });
     await expect(home).toHaveAttribute("data-default", "true");
     await expect(team).not.toHaveAttribute("data-default", "true");
-    await page.screenshot({ path: testInfo.outputPath("02-hover-menu.png") });
+    await page.screenshot({ path: testInfo.outputPath("02-hover-menu.png"), animations: "disabled" });
     const chosen = await createdBy(page, () => team.click());
     expect(chosen).toMatchObject({ workspaceId: fixture.team, folderId: null });
     await expectLocation(page, { workspace: "数学科", folder: "ワークスペースの直下" });
-    await page.screenshot({ path: testInfo.outputPath("03-chosen-workspace-dialog.png") });
+    await page.screenshot({ path: testInfo.outputPath("03-chosen-workspace-dialog.png"), animations: "disabled" });
     await closeCreatedDialog(page);
     await typeIntoActiveMaterial(page, chosen.fileId, "選んで作成");
 
@@ -188,7 +188,7 @@ test("new materials follow the previous material's workspace, can be placed from
     expect(fallback).toMatchObject({ workspaceId: fixture.team, folderId: null });
     await expectLocation(page, { workspace: "数学科", folder: "ワークスペースの直下" });
     await expect(createdDialog(page)).toContainText("直前の教材のワークスペースには作成できないため、既定の作成先に作成しました。");
-    await page.screenshot({ path: testInfo.outputPath("04-read-only-fallback-dialog.png") });
+    await page.screenshot({ path: testInfo.outputPath("04-read-only-fallback-dialog.png"), animations: "disabled" });
     await closeCreatedDialog(page);
     await session.app.evaluate(({ ipcMain }) => {
       const channel = "storage:get-workspace-overview";
@@ -207,7 +207,7 @@ test("new materials follow the previous material's workspace, can be placed from
     await expect(page.locator(`[data-item-key="file:${direct.fileId}"]`)).toBeVisible({ timeout: 60_000 });
     await page.goto(workspaceUrl(page, fixture.team, null));
     await expect(page.locator(`[data-item-key="file:${chosen.fileId}"]`)).toBeVisible({ timeout: 60_000 });
-    await page.screenshot({ path: testInfo.outputPath("05-after-restart-workspace.png") });
+    await page.screenshot({ path: testInfo.outputPath("05-after-restart-workspace.png"), animations: "disabled" });
   } finally {
     await session?.app.close().catch(() => undefined);
     rmSync(profile, { recursive: true, force: true });
