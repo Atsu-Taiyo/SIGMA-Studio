@@ -513,8 +513,16 @@ describe("renderMathHtml stored XSS surface", () => {
     }
     expect(renderMathHtml(String.raw`\href{javascript:alert(1)}{x}`, DEFAULT_MATH_RENDER_ENVIRONMENT))
       .toBe('<span data-math-unrendered="true">\\href{javascript:alert(1)}{x}</span>');
-    expect(renderMathHtml(String.raw`\class{x" onmouseover="alert(1)}{y}`, DEFAULT_MATH_RENDER_ENVIRONMENT))
-      .toContain('data-math-unrendered="true"');
+  });
+
+  it("renders malformed class attributes safely after MathLive drops the invalid class", () => {
+    const html = renderMathHtml(String.raw`\class{x" onmouseover="alert(1)}{y}`, DEFAULT_MATH_RENDER_ENVIRONMENT);
+    expect(html).not.toContain('data-math-unrendered="true"');
+    expect(html).toContain(">y</span>");
+    expect(auditMathMarkup(html)).toEqual({
+      borrowedClassTokens: [], disallowedAttributes: [], disallowedTags: [],
+      eventHandlerAttributes: [], screenCoveringStyles: [], urlBearingElements: [],
+    });
   });
 
   it("keeps the raw TeX fallback readable and escaped", () => {
