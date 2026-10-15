@@ -2052,6 +2052,11 @@ export function GraphExpressionMathInput({
           ? (value) => {
             const trimmed = value.trim();
             if (!trimmed) {
+              // 全部消した途中も入力欄は開いたまま。直前の式の理由 (括弧…) を残さず、確定時と同じ理由を出す。
+              if (!allowEmpty) {
+                setDraft(value);
+                setErrorReason("empty");
+              }
               return;
             }
             const parsed = parseGraphExpressionInputTex(trimmed, { allowImplicitEquation });
