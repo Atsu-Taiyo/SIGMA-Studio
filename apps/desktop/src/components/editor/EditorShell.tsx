@@ -1573,10 +1573,13 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
   const { documentOpenFailure, documentOpenFailureRef, showRecordedDocumentOpenFailure, enterDocumentOpenFailureState, loadWorkspaceDocument: loadRecoveredWorkspaceDocument } = useDocumentRecovery({ announceRecovery, rememberPristineDraft, activateFailedDocument });
   // Opening a shared file makes main announce its session. Show the file only once that
   // session is attached, so its edits go to the session (journaled locally, sent when the
-  // sync gets through) and never to a JSON copy that main rejects.
+  // sync gets through) and never to a JSON copy that main rejects; the editor never flashes
+  // read-only meanwhile. A file the host holds back until its session arrives (`isReadOnly`)
+  // counts as shared even before the library list has loaded (startup).
   const loadWorkspaceDocument = useCallback(async (fileId: string) => {
     const loaded = await loadRecoveredWorkspaceDocument(fileId);
-    const shared = documentMetadatasRef.current.some((item) => item.fileId === fileId && Boolean(item.sharing));
+    const shared = documentMetadatasRef.current.some((item) => item.fileId === fileId && Boolean(item.sharing))
+      || (sessionHost?.isReadOnly?.(fileId) ?? false);
     if (loaded && sessionHost?.attachSession) await sessionHost.attachSession(fileId, shared);
     return loaded;
   }, [loadRecoveredWorkspaceDocument, sessionHost]);

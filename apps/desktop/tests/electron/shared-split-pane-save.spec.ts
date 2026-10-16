@@ -215,9 +215,18 @@ test("a shared document first opened in a split pane is editable offline and sen
       ]);
       expect(failed).toBe(false);
       await gone;
-      if (process.platform === "darwin") await app!.close();
-      else await Promise.race([exited, new Promise((resolve) => setTimeout(resolve, 15_000)).then(() => app!.close().catch(() => undefined))]);
+      const closing = app!;
       app = undefined;
+      if (process.platform === "darwin") {
+        await closing.close();
+        return;
+      }
+      // Close it only if it did not quit by itself; never touch the next instance later.
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      await Promise.race([exited, new Promise<void>((resolve) => {
+        timer = setTimeout(() => void closing.close().catch(() => undefined).then(resolve), 15_000);
+      })]);
+      clearTimeout(timer);
     };
 
     // Closing saves without the "保存できませんでした" dialog; the edit survives a restart offline.
