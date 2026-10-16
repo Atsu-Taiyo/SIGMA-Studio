@@ -76,9 +76,10 @@ test("quitting right after a shape edit saves the edit and closes without the sa
     // 2. Box the text and quit at once: the height it measures afterwards is also still held back.
     await selectWholeShape(page);
     await expectSavedAsShown(page, savedShape);
-    const heightBefore = (await savedShape())!.props.h;
     await page.locator(".editor-menubar").getByRole("button", { name: "囲み文字を適用", exact: true }).click();
-    await expect(page.locator(".overlay-shape-dimension-label").first()).not.toHaveText(new RegExp(` x ${Math.round(heightBefore)}$`));
+    await expect(shape(page).locator(".boxed-text").first()).toBeVisible();
+    // The shape measures its new height on the next frame and holds it back for 250ms.
+    await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
     const shownSize = await page.locator(".overlay-shape-dimension-label").first().textContent();
     await quitWithoutSaveFailure(app, page);
     ({ app, page } = await launch());
@@ -102,7 +103,10 @@ async function selectWholeShape(page: Page): Promise<void> {
   await expect(shape(page).locator(".ProseMirror")).toHaveCount(0);
 }
 
-/** Opening re-measures the shape and saves that; start each edit from a document that is at rest. */
+/**
+ * Opening re-measures the shape and saves that when it differs; start each edit from a document
+ * at rest. The tab's dot reads `idle` when opening changed nothing, so only an ongoing save waits.
+ */
 async function expectSavedAsShown(
   page: Page,
   savedShape: () => Promise<{ props: { h: number } } | undefined>,
@@ -111,7 +115,7 @@ async function expectSavedAsShown(
     const shown = await page.locator(".overlay-shape-dimension-label").first().textContent();
     const saved = await savedShape();
     const saveDot = await page.locator(".document-tab-save-dot").first().getAttribute("class");
-    return Boolean(saved) && shown?.endsWith(` x ${Math.round(saved!.props.h)}`) === true && /\bsaved\b/.test(saveDot ?? "");
+    return Boolean(saved) && shown?.endsWith(` x ${Math.round(saved!.props.h)}`) === true && !/\bsaving\b/.test(saveDot ?? "");
   }).toBe(true);
 }
 
