@@ -2,6 +2,7 @@ import { _electron as electron, expect, test, type ElectronApplication } from "@
 import { createServer } from "node:http";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
+import { createRequire } from "node:module";
 import path from "node:path";
 import { WebSocketServer } from "ws";
 import { createBlankDocument } from "@/lib/blank-document";
@@ -94,7 +95,12 @@ test("sends a shared outbox left from the last run once, and opens clean shared 
   delete env.ELECTRON_RUN_AS_NODE;
   let app: ElectronApplication | undefined;
   const launch = async () => {
-    app = await electron.launch({ args: [root], cwd: root, env });
+    // Linux CI grants the Electron executable itself user namespaces; launch it directly so
+    // Playwright does not add --no-sandbox, and safeStorage uses the real Secret Service.
+    const nativeKeyring = process.platform === "linux"
+      ? { executablePath: createRequire(path.join(root, "package.json"))("electron") as string }
+      : {};
+    app = await electron.launch({ ...nativeKeyring, args: [root], cwd: root, env });
     const page = await app.firstWindow();
     await page.waitForFunction(() => Boolean(window.desktopAPI?.collaboration));
     return page;
