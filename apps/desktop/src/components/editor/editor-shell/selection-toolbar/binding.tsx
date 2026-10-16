@@ -34,6 +34,8 @@ export interface SelectionToolbarTextBinding {
   boxed: boolean;
   boxedVariant: BoxedVariant;
   boxedPaddingY: number;
+  /** 角丸の丸め具合 (%)。既定の丸みは 100。 */
+  boxedRoundness: number;
   textColor: string;
   textBackgroundColor: string | null;
   textAlign: TextAlign;
@@ -44,6 +46,7 @@ export interface SelectionToolbarTextBinding {
   toggleBoxed: () => void;
   selectBoxedVariant: (variant: BoxedVariant) => void;
   setBoxedPaddingY: (paddingY: number) => void;
+  setBoxedRoundness: (roundness: number) => void;
   setTextColor: (color: string) => void;
   setTextBackgroundColor: (color: string | null) => void;
   applyTextAlign: (align: TextAlign) => void;

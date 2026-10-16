@@ -1294,6 +1294,8 @@ export interface TextInlineNode {
     boxedPaddingY?: number;
     boxedVariant?: BoxedVariant;
     boxedTone?: BoxedTone;
+    /** {@link BoxedRoundness}. */
+    boxedRoundness?: BoxedRoundness;
 }
 
 /** Native underline appearance; absent preserves the existing solid underline. */
@@ -1312,6 +1314,13 @@ export type BoxedVariant = "frame" | "thick" | "double" | "oval" | "shade" | "co
 /** Fill colour preset for `shade` boxes. Absent means `gray`. */
 export type BoxedTone = "gray" | "blue" | "green" | "red" | "yellow";
 
+/**
+ * How round an `oval` box's corners are, as a percentage (0–100) of the full rounding the variant
+ * draws by default. Absent means 100, so existing rounded boxes keep their look. Other variants
+ * have square corners and ignore it. Older readers drop the unknown field and draw the default.
+ */
+export type BoxedRoundness = number;
+
 export interface MathInlineNode {
     type: "mathInline";
     id: string;
@@ -1326,6 +1335,8 @@ export interface MathInlineNode {
     boxedPaddingY?: number;
     boxedVariant?: BoxedVariant;
     boxedTone?: BoxedTone;
+    /** {@link BoxedRoundness}. */
+    boxedRoundness?: BoxedRoundness;
     semanticRole?: "expression" | "equation" | "variable";
     altText?: string;
 }

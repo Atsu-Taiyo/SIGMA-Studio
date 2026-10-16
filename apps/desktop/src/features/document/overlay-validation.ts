@@ -831,7 +831,8 @@ function isOptionalBoxStyle(value: Record<string, unknown>): boolean {
       value.boxedTone === "blue" ||
       value.boxedTone === "green" ||
       value.boxedTone === "red" ||
-      value.boxedTone === "yellow");
+      value.boxedTone === "yellow") &&
+    (value.boxedRoundness === undefined || (isFiniteNumber(value.boxedRoundness) && value.boxedRoundness >= 0));
 }
 
 function isTableGridStyle(value: unknown, rowIds: Set<string>, columnIds: Set<string>): boolean {

@@ -1935,6 +1935,7 @@ function normalizeInlineMathTex(children: InlineNode[]): InlineNode[] {
         ...(child.boxedPaddingY !== undefined ? { boxedPaddingY: child.boxedPaddingY } : {}),
         ...(child.boxedVariant !== undefined ? { boxedVariant: child.boxedVariant } : {}),
         ...(child.boxedTone !== undefined ? { boxedTone: child.boxedTone } : {}),
+        ...(child.boxedRoundness !== undefined ? { boxedRoundness: child.boxedRoundness } : {}),
         ...(child.altText !== undefined ? { altText: child.altText } : {}),
         semanticRole: normalizeMathInlineSemanticRole(child.semanticRole),
       }];
@@ -1964,6 +1965,7 @@ function createDelimitedTextInline(text: string, source: Partial<Extract<InlineN
     ...(source.boxedPaddingY !== undefined ? { boxedPaddingY: source.boxedPaddingY } : {}),
     ...(source.boxedVariant !== undefined ? { boxedVariant: source.boxedVariant } : {}),
     ...(source.boxedTone !== undefined ? { boxedTone: source.boxedTone } : {}),
+    ...(source.boxedRoundness !== undefined ? { boxedRoundness: source.boxedRoundness } : {}),
   };
 }
 

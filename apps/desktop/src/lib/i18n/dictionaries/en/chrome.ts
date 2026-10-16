@@ -308,6 +308,9 @@ export const chrome = {
       padding: "Vertical padding",
       paddingDecrease: "Decrease vertical padding by 1px",
       paddingIncrease: "Increase vertical padding by 1px",
+      roundness: "Corner roundness",
+      roundnessDecrease: "Decrease corner roundness by {{step}}%",
+      roundnessIncrease: "Increase corner roundness by {{step}}%",
       variant: {
         frame: "Thin",
         thick: "Thick",

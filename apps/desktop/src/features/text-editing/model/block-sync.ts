@@ -209,6 +209,7 @@ function inlineNodesSyncKey(nodes: InlineNode[]): string {
         node.boxedPaddingY ?? "",
         node.boxedVariant ?? "",
         node.boxedTone ?? "",
+        node.boxedRoundness ?? "",
         node.semanticRole ?? "",
         node.altText ?? "",
       ].join("|");
@@ -224,6 +225,7 @@ function inlineNodesSyncKey(nodes: InlineNode[]): string {
       node.boxedPaddingY ?? "",
       node.boxedVariant ?? "",
       node.boxedTone ?? "",
+      node.boxedRoundness ?? "",
     ].join("|");
   }).join("\u0003");
 }

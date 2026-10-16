@@ -312,6 +312,9 @@ export const chrome = {
       padding: "上下余白",
       paddingDecrease: "上下余白を1px減らす",
       paddingIncrease: "上下余白を1px増やす",
+      roundness: "角の丸み",
+      roundnessDecrease: "角の丸みを{{step}}%減らす",
+      roundnessIncrease: "角の丸みを{{step}}%増やす",
       variant: {
         frame: "細線",
         thick: "太線",

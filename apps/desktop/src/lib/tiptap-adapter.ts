@@ -1,4 +1,6 @@
 import {
+  DEFAULT_BOXED_ROUNDNESS,
+  normalizeBoxedRoundness,
   type BoxedTone,
   type BoxedVariant,
   type HeadingNode,
@@ -188,6 +190,7 @@ export function tiptapNodesToInlineNodes(nodes: TiptapNode[]): InlineNode[] {
         getBoxedTextTone(node),
         getCommentMentionUserId(node),
         getUnderlineStyle(node),
+        getBoxedTextRoundness(node),
       );
       continue;
     }
@@ -207,6 +210,7 @@ export function tiptapNodesToInlineNodes(nodes: TiptapNode[]): InlineNode[] {
         previous?.type === "text" ? previous.boxedTone : undefined,
         undefined,
         previous?.type === "text" ? previous.underlineStyle : undefined,
+        previous?.type === "text" ? previous.boxedRoundness : undefined,
       );
       continue;
     }
@@ -217,6 +221,7 @@ export function tiptapNodesToInlineNodes(nodes: TiptapNode[]): InlineNode[] {
       const boxedPaddingY = isBoxed ? getBoxedTextPaddingY(node) : undefined;
       const boxedVariant = isBoxed ? getBoxedTextVariant(node) : undefined;
       const boxedTone = isBoxed ? getBoxedTextTone(node) : undefined;
+      const boxedRoundness = isBoxed ? storedBoxedRoundness(boxedVariant, getBoxedTextRoundness(node)) : undefined;
       result.push({
         type: "mathInline",
         id: String(node.attrs?.id ?? `m_inline_${result.length}`),
@@ -231,6 +236,7 @@ export function tiptapNodesToInlineNodes(nodes: TiptapNode[]): InlineNode[] {
         ...(boxedPaddingY !== undefined ? { boxedPaddingY } : {}),
         ...(boxedVariant ? { boxedVariant } : {}),
         ...(boxedTone ? { boxedTone } : {}),
+        ...(boxedRoundness !== undefined ? { boxedRoundness } : {}),
         semanticRole: "expression",
       });
       continue;
@@ -252,6 +258,7 @@ export function tiptapNodesToInlineNodes(nodes: TiptapNode[]): InlineNode[] {
             child.boxedTone,
             child.mentionUserId,
             child.underlineStyle,
+            child.boxedRoundness,
           );
         } else {
           result.push(child);
@@ -297,6 +304,7 @@ function pushText(
   boxedTone?: BoxedTone,
   mentionUserId?: string,
   underlineStyle?: UnderlineStyle,
+  boxedRoundness?: number,
 ): void {
   const previous = nodes[nodes.length - 1];
   const normalizedMarks = marks?.length ? marks : undefined;
@@ -305,6 +313,7 @@ function pushText(
   const normalizedBoxedPaddingY = isBoxed ? normalizeBoxedPaddingY(boxedPaddingY) : undefined;
   const normalizedBoxedVariant = isBoxed ? normalizeBoxedVariant(boxedVariant) : undefined;
   const normalizedBoxedTone = isBoxed ? normalizeBoxedTone(boxedTone) : undefined;
+  const normalizedBoxedRoundness = isBoxed ? storedBoxedRoundness(normalizedBoxedVariant, boxedRoundness) : undefined;
   if (
     previous?.type === "text" &&
     sameMarks(previous.marks, normalizedMarks) &&
@@ -315,6 +324,7 @@ function pushText(
     previous.boxedPaddingY === normalizedBoxedPaddingY &&
     previous.boxedVariant === normalizedBoxedVariant &&
     previous.boxedTone === normalizedBoxedTone &&
+    previous.boxedRoundness === normalizedBoxedRoundness &&
     previous.underlineStyle === underlineStyle &&
     previous.mentionUserId === mentionUserId
   ) {
@@ -335,6 +345,7 @@ function pushText(
     ...(normalizedBoxedPaddingY !== undefined ? { boxedPaddingY: normalizedBoxedPaddingY } : {}),
     ...(normalizedBoxedVariant ? { boxedVariant: normalizedBoxedVariant } : {}),
     ...(normalizedBoxedTone ? { boxedTone: normalizedBoxedTone } : {}),
+    ...(normalizedBoxedRoundness !== undefined ? { boxedRoundness: normalizedBoxedRoundness } : {}),
   });
 }
 
@@ -368,6 +379,20 @@ function getBoxedTextTone(node: TiptapNode): BoxedTone | undefined {
   return normalizeBoxedTone(mark?.attrs?.tone);
 }
 
+function getBoxedTextRoundness(node: TiptapNode): number | undefined {
+  const mark = node.marks?.find((item) => item.type === "boxed");
+  return normalizeBoxedRoundness(mark?.attrs?.roundness);
+}
+
+/**
+ * 保存する丸め具合。角丸 (`oval`) の箱が既定 (100%) より角を立てたときだけ持つ。他の種類の角は
+ * 尖っていて丸め具合を読まないので、種類を変えたあとに残った値を文書へ書き出さない。
+ */
+function storedBoxedRoundness(variant: BoxedVariant | undefined, roundness: unknown): number | undefined {
+  const normalized = variant === "oval" ? normalizeBoxedRoundness(roundness) : undefined;
+  return normalized === DEFAULT_BOXED_ROUNDNESS ? undefined : normalized;
+}
+
 function getInlineMathMarks(node: TiptapNode): Array<Extract<TextMark, "underline" | "boxed">> | undefined {
   const marks = node.marks
     ?.map((mark) => mark.type)
@@ -379,6 +404,7 @@ function boxedMarkAttrs(node: {
   boxedPaddingY?: number;
   boxedVariant?: BoxedVariant;
   boxedTone?: BoxedTone;
+  boxedRoundness?: number;
 }): Record<string, unknown> {
   const attrs: Record<string, unknown> = {};
   const paddingY = normalizeBoxedPaddingY(node.boxedPaddingY);
@@ -392,6 +418,10 @@ function boxedMarkAttrs(node: {
   const tone = normalizeBoxedTone(node.boxedTone);
   if (tone) {
     attrs.tone = tone;
+  }
+  const roundness = storedBoxedRoundness(variant, node.boxedRoundness);
+  if (roundness !== undefined) {
+    attrs.roundness = roundness;
   }
   return attrs;
 }

@@ -31,6 +31,13 @@ describe("SigmaDoc schema", () => {
     }
     expect(InlineNodeSchema.safeParse({ type: "text", text: "bad", underlineStyle: "unknown" }).success).toBe(false);
   });
+  it("accepts an oval box's corner roundness and leaves the upper bound to the renderer", () => {
+    // 角丸の丸め具合は 0 以上の数。上限は描くときに丸める (範囲外の 1 値で文書を読めなくしない)。
+    expect(InlineNodeSchema.parse({ type: "text", text: "角", marks: ["boxed"], boxedVariant: "oval", boxedRoundness: 40 }))
+      .toMatchObject({ boxedRoundness: 40 });
+    expect(InlineNodeSchema.safeParse({ type: "text", text: "角", boxedRoundness: 140 }).success).toBe(true);
+    expect(InlineNodeSchema.safeParse({ type: "text", text: "角", boxedRoundness: -1 }).success).toBe(false);
+  });
   it("preserves external provenance without requiring a format-specific importer", () => {
     const document = {
       ...sampleDocument,

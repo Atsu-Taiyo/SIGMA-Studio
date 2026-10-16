@@ -130,6 +130,7 @@ describe("text format controller", () => {
       boxed: true,
       boxedPaddingY: 2.5,
       boxedVariant: "double",
+      boxedRoundness: 100,
       color: null,
       backgroundColor: null,
       fontFamily: " serif ",

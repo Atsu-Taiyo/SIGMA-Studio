@@ -20,6 +20,7 @@ export const OVERLAY_TEXT_HEIGHT_ATTRIBUTES = [
   "data-sigma-doc-boxed-padding-y",
   "data-sigma-doc-boxed-variant",
   "data-sigma-doc-boxed-tone",
+  "data-sigma-doc-boxed-roundness",
   "data-sigma-doc-boxed-math",
 ] as const;
 

@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 
 import type { InlineNode } from "@/features/document";
-import { annotateBoxedInlineRuns } from "@/features/rendering/core";
+import { annotateBoxedInlineRuns, normalizeBoxedInlineStyle } from "@/features/rendering/core";
+import { boxedInlineDomSpec } from "@/features/rendering/adapters";
 import {
   annotateBoxedInlineRuns as annotateBoxedInlineRunsFromCompatibilityFacade,
   boxedInlineDomSpec as boxedInlineDomSpecFromCompatibilityFacade,
@@ -97,6 +98,41 @@ describe("boxed inline runs", () => {
     expect(annotated[1].boxedRun).toBeUndefined();
     expect(annotated[2].boxedRun).toBeUndefined();
     expect(annotated[3].boxedRun?.connectLeft).toBe(true);
+  });
+});
+
+describe("boxed corner roundness", () => {
+  it("is read only for an oval box that is less round than the default", () => {
+    expect(normalizeBoxedInlineStyle({ boxedVariant: "oval", boxedRoundness: 40 })).toMatchObject({ roundness: 40 });
+    expect(normalizeBoxedInlineStyle({ boxedVariant: "oval", boxedRoundness: 140 })).not.toHaveProperty("roundness");
+    expect(normalizeBoxedInlineStyle({ boxedVariant: "oval", boxedRoundness: 100 })).not.toHaveProperty("roundness");
+    expect(normalizeBoxedInlineStyle({ boxedVariant: "oval", boxedRoundness: -5 })).not.toHaveProperty("roundness");
+    // Square variants keep square corners whatever a stale value says.
+    expect(normalizeBoxedInlineStyle({ boxedVariant: "thick", boxedRoundness: 40 })).not.toHaveProperty("roundness");
+    expect(normalizeBoxedInlineStyle({ boxedRoundness: 40 })).not.toHaveProperty("roundness");
+  });
+
+  it("hands the roundness to the stylesheet as a ratio of the oval's full rounding", () => {
+    expect(boxedInlineDomSpec(boxedText("A", { boxedVariant: "oval", boxedRoundness: 30 }) as never)).toEqual({
+      attrs: {
+        "data-sigma-doc-boxed-text": "true",
+        "data-sigma-doc-boxed-variant": "oval",
+        "data-sigma-doc-boxed-roundness": "30",
+      },
+      className: "boxed-text",
+      style: { "--boxed-text-roundness": "0.3" },
+    });
+    expect(boxedInlineDomSpec(boxedText("A", { boxedVariant: "oval" }) as never).style).toBeUndefined();
+  });
+
+  it("starts a new run where the roundness changes", () => {
+    const runs = annotateBoxedInlineRuns([
+      boxedText("A", { boxedVariant: "oval", boxedRoundness: 30 }),
+      boxedText("B", { boxedVariant: "oval", boxedRoundness: 30 }),
+      boxedText("C", { boxedVariant: "oval" }),
+    ]);
+    expect(runs[0].boxedRun?.runId).toBe(runs[1].boxedRun?.runId);
+    expect(runs[2].boxedRun?.runId).not.toBe(runs[1].boxedRun?.runId);
   });
 });
 

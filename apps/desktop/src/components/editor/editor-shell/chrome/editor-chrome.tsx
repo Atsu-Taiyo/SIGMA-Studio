@@ -16,7 +16,7 @@ import { DocumentTabSaveDot, SaveStatusBadge } from "@/components/editor/editor-
 import { InlineMathDetails } from "@/components/editor/EditorSettings";
 import { EDITOR_TOOLBAR_CARET_SIZE, EDITOR_TOOLBAR_ICON_SIZE, EDITOR_TOOLBAR_TEXT_ICON_SIZE, EditorToolbarColorButton, EditorToolbarGroup, EditorToolbarIconButton, EditorToolbarMenuButton, EditorToolbarSelect, EditorToolbarSeparator } from "@/components/editor/EditorToolbar";
 import { ToolbarPopover } from "@/components/editor/ToolbarPopover";
-import { BOXED_TEXT_STYLE_OPTIONS, BLOCK_STRUCTURE_OPTIONS, BLOCK_STYLE_OPTIONS, DEFAULT_FONT_FAMILY_VALUE, KEYBOARD_ZOOM_STEP, LINE_HEIGHT_OPTIONS, MAX_BOXED_TEXT_PADDING_Y, MIN_BOXED_TEXT_PADDING_Y, TEXT_ALIGN_OPTIONS, type BlockStructureOptionValue } from "@/components/editor/editor-shell/constants";
+import { BOXED_TEXT_ROUNDNESS_STEP, BOXED_TEXT_STYLE_OPTIONS, BLOCK_STRUCTURE_OPTIONS, BLOCK_STYLE_OPTIONS, DEFAULT_FONT_FAMILY_VALUE, KEYBOARD_ZOOM_STEP, LINE_HEIGHT_OPTIONS, MAX_BOXED_TEXT_PADDING_Y, MAX_BOXED_TEXT_ROUNDNESS, MIN_BOXED_TEXT_PADDING_Y, MIN_BOXED_TEXT_ROUNDNESS, TEXT_ALIGN_OPTIONS, type BlockStructureOptionValue } from "@/components/editor/editor-shell/constants";
 import { BoxedTextIcon, BoxedTextStylePreview, LineEndpointMenuButton } from "@/components/editor/editor-shell/formatting-icons";
 import {
   fillPreviewPatch,
@@ -82,7 +82,7 @@ export function renderEditorChrome(chrome: EditorChromeValue) {
   const { activeDocumentOpenFailure, activeFileId, addBlock, aiMenuButtonRef, appUpdateState, closeDocumentTab, commentsPanelOpen, commitDocumentTitle, copyDocumentText, createDocumentTab, createWhiteboardDocumentTab, degradedWatcherScopes, deleteActiveDocument, documentMetadatas, documentTitle, duplicateActiveDocument, exportJson, exportMenuOpen, fileMenuButtonRef, handleTitleUpdateAction, importDocumentFile, importInputRef, insertMenuButtonRef, loadingFileId, newDocButtonRef, newDocMenuOpen, openCommandSettings, openDocumentInWorkspace, openDocumentListDialog, openDocumentTabs, openImportDialog, openNewDocMenu, openOtherImportDialog, extensionMenu = [], extensionsMenuButtonRef, runExtensionItem, openPrintPreview, openTextImportDialog, openVersionHistory, openWorkspaceScreen, otherImportInputRef, promoteAiToSidebar, reportIssue, requestOverlayImages, resolvedDocumentTitle, scheduleCloseNewDocMenu, setAiSettingsOpen, setDesktopSettingsOpen, setExportMenuOpen, setExtensionsOpen, setNewDocMenuOpen, setOutlineDialogOpen, setOverlayEditing, setPageSettingsOpen, setTemplateGalleryOpen, setTexCommandReferenceOpen, setTexEnvironmentSettingsOpen, setTitleInputFocused, settingsMenuButtonRef, showRichTitle, showTitleUpdateButton, titleInputValue, titleRichNodes, titleUpdateButtonDisabled, toggleCommentsPanel, toggleProblemDisplayPart, problemDisplay, problemDisplayAvailable, uiLayoutPreference, updateMetadata, versionHistoryOpen, workspaceTabsRow } = chrome.appMenu;
   const { commandTooltip, renderMenuShortcut } = chrome.commands;
   const { setMaterialLibraryOpen } = chrome.editing;
-  const { ActiveTextAlignIcon, activeFontFamilyLabel, activeTextAlignOption, activeTextFontSize, activeTextFontSizeMixed, applyBlockStructure, applyBoxedTextPaddingY, applyInlineFormat, applyLineHeight, applyTextAlign, applyTextStyle, blockStyleState, boldActive, boxedTextActive, boxedTextButtonRef, boxedTextMenuOpen, boxedTextPaddingY, boxedTextVariant, canUseBlockStructure, canUseLineHeight, canUseTextAlign, canUseTextBlockStyle, canUseTextToolbar, fontFamily, fontFamilyButtonRef, fontFamilyIsKnownOption, fontFamilyIsMixed, fontFamilyMenuOpen, fontFamilyQuery, handleLineHeightStepClick, italicActive, lineHeight, lineHeightButtonRef, lineHeightCustomOpen, lineHeightInput, lineHeightInputError, lineHeightMenuOpen, moreBlocksMenuButtonRef, moreBlocksMenuOpen, orderedListMenuButtonRef, orderedListMenuOpen, setMoreBlocksMenuOpen, setOrderedListMenuOpen, saveEditorFontFamilyPreference, selectBoxedTextVariant, selectedTextAlign, selectedTextStyle, setFontFamily, setFontFamilyQuery, setLineHeightCustomOpen, setLineHeightInput, setLineHeightInputError, setTextBackgroundColor, setTextColor, setTextFontSize, startLineHeightStepping, stopLineHeightStepping, textAlignButtonRef, textAlignMenuOpen, textBackgroundColor, textBackgroundColorButtonRef, textColor, textColorButtonRef, toggleBoxedText, underlineActive, visibleCustomFontOptions, visibleFontFamilyGroups, blockStyleButtonRef, blockStyleMenuOpen, fontSizeInputRef, fontSizeSkipBlurRef, fontSizeInput, setFontSizeInput } = chrome.format;
+  const { ActiveTextAlignIcon, activeFontFamilyLabel, activeTextAlignOption, activeTextFontSize, activeTextFontSizeMixed, applyBlockStructure, applyBoxedTextPaddingY, applyBoxedTextRoundness, applyInlineFormat, applyLineHeight, applyTextAlign, applyTextStyle, blockStyleState, boldActive, boxedTextActive, boxedTextButtonRef, boxedTextMenuOpen, boxedTextPaddingY, boxedTextRoundness, boxedTextVariant, canUseBlockStructure, canUseLineHeight, canUseTextAlign, canUseTextBlockStyle, canUseTextToolbar, fontFamily, fontFamilyButtonRef, fontFamilyIsKnownOption, fontFamilyIsMixed, fontFamilyMenuOpen, fontFamilyQuery, handleLineHeightStepClick, italicActive, lineHeight, lineHeightButtonRef, lineHeightCustomOpen, lineHeightInput, lineHeightInputError, lineHeightMenuOpen, moreBlocksMenuButtonRef, moreBlocksMenuOpen, orderedListMenuButtonRef, orderedListMenuOpen, setMoreBlocksMenuOpen, setOrderedListMenuOpen, saveEditorFontFamilyPreference, selectBoxedTextVariant, selectedTextAlign, selectedTextStyle, setFontFamily, setFontFamilyQuery, setLineHeightCustomOpen, setLineHeightInput, setLineHeightInputError, setTextBackgroundColor, setTextColor, setTextFontSize, startLineHeightStepping, stopLineHeightStepping, textAlignButtonRef, textAlignMenuOpen, textBackgroundColor, textBackgroundColorButtonRef, textColor, textColorButtonRef, toggleBoxedText, underlineActive, visibleCustomFontOptions, visibleFontFamilyGroups, blockStyleButtonRef, blockStyleMenuOpen, fontSizeInputRef, fontSizeSkipBlurRef, fontSizeInput, setFontSizeInput } = chrome.format;
   const { ActiveLineToolIcon, activeLineToolItem, activeOverlayTool, bodyToolbarLockedByAi, cancelInlineMathMenuClose, inlineMathButtonRef, inlineMathMenuOpen, lineToolMenuButtonRef, lineToolMenuOpen, openInlineMathMenu, scheduleInlineMathMenuClose, selectedInlineMath, selectedInlineMathDetails, setInlineMathMenuOpen, shapeMenuButtonRef, shapeMenuOpen, startInlineMathFromToolbar } = chrome.insert;
   const { findNext, findPrevious, overlayEditing, replaceAll, replaceNext, replaceOpen, replaceText, searchButtonRef, searchMatchCount, searchOpen, searchQuery, setReplaceOpen, setReplaceText, setSearchOpen, setSearchQuery } = chrome.search;
   const { applyOverlayStyle, arrangeOverlayShapes, canChangeOverlayShapeType, changeOverlayShapeType, canArrangeOverlayShapes, canUseFillStyleControls, canUseLineEndpointControls, canUseLineStyleControls, canUseStrokeStyleControls, effectiveLineDashMenuOpen, effectiveLineEndpointMenu, effectiveLineWidthMenuOpen, fillColorButtonRef, fillColorPatch, lineDashButtonRef, lineWidthButtonRef, overlaySelection, selectedOverlayLineDash, selectedOverlayLineSize, selectionFill, selectionFillColor, selectionFillOpacity, setStrokeColor, strokeColor, strokeColorButtonRef } = chrome.shapeStyle;
@@ -1302,6 +1302,37 @@ export function renderEditorChrome(chrome: EditorChromeValue) {
                   <PlusCircle size={14} />
                 </button>
               </div>
+              {/* 丸め具合は角丸だけが読む。他の種類の角は尖っている。並びは上下余白と同じ。 */}
+              {boxedTextVariant === "oval" ? (
+                <div className="boxed-text-padding-stepper" data-boxed-text-stepper="roundness">
+                  <span className="boxed-text-padding-label">{t("format.boxedText.roundness")}</span>
+                  <button
+                    type="button"
+                    title={t("format.boxedText.roundnessDecrease", { step: BOXED_TEXT_ROUNDNESS_STEP })}
+                    aria-label={t("format.boxedText.roundnessDecrease", { step: BOXED_TEXT_ROUNDNESS_STEP })}
+                    disabled={!canUseTextToolbar || boxedTextRoundness <= MIN_BOXED_TEXT_ROUNDNESS}
+                    onMouseDown={(event) => event.preventDefault()}
+                    onClick={() => {
+                      applyBoxedTextRoundness(boxedTextRoundness - BOXED_TEXT_ROUNDNESS_STEP);
+                    }}
+                  >
+                    <Minus size={14} />
+                  </button>
+                  <output aria-live="polite">{boxedTextRoundness}%</output>
+                  <button
+                    type="button"
+                    title={t("format.boxedText.roundnessIncrease", { step: BOXED_TEXT_ROUNDNESS_STEP })}
+                    aria-label={t("format.boxedText.roundnessIncrease", { step: BOXED_TEXT_ROUNDNESS_STEP })}
+                    disabled={!canUseTextToolbar || boxedTextRoundness >= MAX_BOXED_TEXT_ROUNDNESS}
+                    onMouseDown={(event) => event.preventDefault()}
+                    onClick={() => {
+                      applyBoxedTextRoundness(boxedTextRoundness + BOXED_TEXT_ROUNDNESS_STEP);
+                    }}
+                  >
+                    <PlusCircle size={14} />
+                  </button>
+                </div>
+              ) : null}
               </>}
             </ToolbarPopover>
           </div>

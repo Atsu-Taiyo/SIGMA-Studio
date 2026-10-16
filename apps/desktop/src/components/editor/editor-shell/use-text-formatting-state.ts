@@ -4,7 +4,7 @@ import { BASE_EDITOR_LINE_HEIGHT,BASE_EDITOR_TEXT_COLOR,DEFAULT_FONT_FAMILY_VALU
 import { EMPTY_BLOCK_STYLE_TOOLBAR_STATE,nextBlockStyleToolbarState,normalizeBoxedTextVariant,normalizeToolbarFontFamily,type BlockStyleToolbarState } from "@/components/editor/editor-shell/toolbar-formatting";
 import { isMultiEditorTextRunSpan,subscribeTextRunSpan } from "@/components/editor/text-flow/text-run-span";
 import { isTextFormatTargetNodeType,type TextFormatStateContext } from "@/components/tiptap/text-format-controller";
-import { normalizeLineHeight,type BoxedVariant,type LineHeight } from "@/features/document";
+import { DEFAULT_BOXED_ROUNDNESS,normalizeBoxedRoundness,normalizeLineHeight,type BoxedVariant,type LineHeight } from "@/features/document";
 import { getDesktopBridge } from "@/lib/desktop-bridge";
 import { useCallback,useEffect,useRef,useState } from "react";
 
@@ -36,12 +36,14 @@ export function useTextFormattingState() {
     setHasMultiEditorTextRunSpan(isMultiEditorTextRunSpan());
   }), []);
   const [boxedTextVariant, setBoxedTextVariant] = useState<BoxedVariant>("frame");
+  // 角丸の丸め具合 (%)。既定の丸みは 100。
+  const [boxedTextRoundness, setBoxedTextRoundness] = useState(DEFAULT_BOXED_ROUNDNESS);
   // The toolbar variant/padding state mirrors the current selection (reset to
   // frame/0 when an unboxed range is selected), so it can't carry "last used".
   // This ref persists the last format the user applied and seeds the next insert.
-  const lastBoxedFormatRef = useRef<{ paddingY: number; variant: BoxedVariant }>({ paddingY: 0, variant: "frame" });
+  const lastBoxedFormatRef = useRef<{ paddingY: number; variant: BoxedVariant; roundness: number }>({ paddingY: 0, variant: "frame", roundness: DEFAULT_BOXED_ROUNDNESS });
   const getLastBoxedFormat = useCallback(() => lastBoxedFormatRef.current, []);
-  const rememberBoxedFormat = useCallback((patch: Partial<{ paddingY: number; variant: BoxedVariant }>) => { lastBoxedFormatRef.current = { ...lastBoxedFormatRef.current, ...patch }; }, []);
+  const rememberBoxedFormat = useCallback((patch: Partial<{ paddingY: number; variant: BoxedVariant; roundness: number }>) => { lastBoxedFormatRef.current = { ...lastBoxedFormatRef.current, ...patch }; }, []);
   const [textColor, setTextColor] = useState("#111111");
   const [textBackgroundColor, setTextBackgroundColor] = useState<string | null>("#fff3c2");
   const [strokeColor, setStrokeColor] = useState<string | null>("#000000");
@@ -120,6 +122,7 @@ export function useTextFormattingState() {
         setBoxedTextPaddingY(detail.boxedPaddingY);
       }
       setBoxedTextVariant(normalizeBoxedTextVariant(detail.boxedVariant) ?? "frame");
+      setBoxedTextRoundness(normalizeBoxedRoundness(detail.boxedRoundness) ?? DEFAULT_BOXED_ROUNDNESS);
       setBlockStyleState((current) => nextBlockStyleToolbarState(current, detail));
       // The toolbar shows the font this position is actually drawn with. It used to fall back to
       // `preferredFontFamilyRef` — the last font picked from the dropdown, persisted in settings —
@@ -158,5 +161,5 @@ export function useTextFormattingState() {
     return () => window.removeEventListener(TEXT_FORMAT_STATE_EVENT, handleTextFormatState);
   }, []);
 
-  return { textFontSize, setTextFontSize, textFontSizeMixed, setTextFontSizeMixed, fontSizeInput, setFontSizeInput, boxedTextPaddingY, setBoxedTextPaddingY, boxedTextActive, setBoxedTextActive, boldActive, setBoldActive, italicActive, setItalicActive, underlineActive, setUnderlineActive, blockStyleState, setBlockStyleState, documentTextFormatTarget, setDocumentTextFormatTarget, hasMultiEditorTextRunSpan, setHasMultiEditorTextRunSpan, boxedTextVariant, setBoxedTextVariant, textColor, setTextColor, textBackgroundColor, setTextBackgroundColor, strokeColor, setStrokeColor, fontFamily, setFontFamily, lineHeight, setLineHeight, lineHeightInput, setLineHeightInput, lineHeightInputError, setLineHeightInputError, lineHeightCustomOpen, setLineHeightCustomOpen, getLastBoxedFormat, rememberBoxedFormat, saveEditorFontFamilyPreference };
+  return { textFontSize, setTextFontSize, textFontSizeMixed, setTextFontSizeMixed, fontSizeInput, setFontSizeInput, boxedTextPaddingY, setBoxedTextPaddingY, boxedTextActive, setBoxedTextActive, boldActive, setBoldActive, italicActive, setItalicActive, underlineActive, setUnderlineActive, blockStyleState, setBlockStyleState, documentTextFormatTarget, setDocumentTextFormatTarget, hasMultiEditorTextRunSpan, setHasMultiEditorTextRunSpan, boxedTextVariant, setBoxedTextVariant, boxedTextRoundness, setBoxedTextRoundness, textColor, setTextColor, textBackgroundColor, setTextBackgroundColor, strokeColor, setStrokeColor, fontFamily, setFontFamily, lineHeight, setLineHeight, lineHeightInput, setLineHeightInput, lineHeightInputError, setLineHeightInputError, lineHeightCustomOpen, setLineHeightCustomOpen, getLastBoxedFormat, rememberBoxedFormat, saveEditorFontFamilyPreference };
 }

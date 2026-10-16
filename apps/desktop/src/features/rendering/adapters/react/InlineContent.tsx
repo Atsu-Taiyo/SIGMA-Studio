@@ -172,6 +172,7 @@ export function useBoxedInlineRunAlignment<TElement extends HTMLElement>(
         "data-sigma-doc-boxed-padding-y",
         "data-sigma-doc-boxed-variant",
         "data-sigma-doc-boxed-tone",
+        "data-sigma-doc-boxed-roundness",
       ],
       childList: true,
       characterData: true,
