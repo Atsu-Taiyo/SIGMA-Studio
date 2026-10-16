@@ -135,6 +135,7 @@ const DOCUMENTED_TOOL_NAMES = [
   "insert_shape",
   "insert_svg_image",
   "update_svg_image",
+  "convert_svg_image",
   "insert_table",
   "inspect_visual_edit_session",
   "list_edit_proposals",

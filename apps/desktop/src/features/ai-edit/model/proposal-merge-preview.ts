@@ -232,6 +232,14 @@ function dependencyIdsOf(preview: AiEditPreviewState): DependencyIds {
           shapeIds.add(op.shapeId);
           readsAssets ||= Boolean(op.assets);
           break;
+        case "replaceOverlayShape":
+          shapeIds.add(op.shapeId);
+          for (const shape of op.shapes) {
+            if (shape.anchor?.type === "block") blockIds.add(shape.anchor.blockId);
+            if (shape.anchor?.type === "shape") shapeIds.add(shape.anchor.shapeId);
+          }
+          readsAssets = true;
+          break;
         case "alignOverlayShapes":
         case "deleteOverlayShapes":
           op.shapeIds.forEach((id) => shapeIds.add(id));

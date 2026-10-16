@@ -11,6 +11,7 @@ import {
   patchShape,
   collectShapeAnchorRemovalIds,
   removeShapes,
+  replaceOverlayShapeInSnapshot,
   type SigmaTableBorderStyle,
   type SigmaTableCell,
   type SigmaTableCellContent,
@@ -211,6 +212,19 @@ const SigmaDocDeleteOverlayShapesOpSchema = z.object({
   summary: z.string().min(1),
   shapeIds: z.array(z.string().min(1)).min(1),
 });
+
+/**
+ * Puts shapes where one shape is, keeping its id and stack position: an SVG image becomes the group
+ * (or the one shape) "図形に変換" makes of it. `shapes[0]` takes `shapeId`; the rest are new members.
+ * Approval never merges it with a human's edit of the image: the image stays locked while pending.
+ */
+const SigmaDocReplaceOverlayShapeOpSchema = z.object({
+  operation: z.literal("replaceOverlayShape"),
+  summary: z.string().min(1),
+  shapeId: z.string().min(1),
+  shapes: z.array(z.custom<OverlayShape>((value) => isRecord(value))).min(1),
+  assets: AiOverlayAssetsSchema.optional(),
+});
 const StandardPageSizePresetSchema = z.enum(["A4", "A3", "B5", "B4", "whiteboard", "custom"]);
 const PageLayoutSizePatchSchema = z.object({
   widthMm: z.number().positive({ error: () => tv("schema.pageLayoutSizePatch1") }).optional(),
@@ -286,6 +300,7 @@ export const SigmaDocMutationOpSchema = z.union([
   SigmaDocUpdateOverlayShapeOpSchema,
   SigmaDocAlignOverlayShapesOpSchema,
   SigmaDocDeleteOverlayShapesOpSchema,
+  SigmaDocReplaceOverlayShapeOpSchema,
   SigmaDocUpdatePageLayoutOpSchema,
   SigmaDocSetDocumentColumnsOpSchema,
   SigmaDocWrapBlocksInColumnsOpSchema,
@@ -316,8 +331,8 @@ export function primarySigmaDocMutationOpTargetId(op: SigmaDocMutationOp | Recor
   if (operation === "deleteBlocks" || operation === "moveBlocks") {
     return (op as Extract<SigmaDocMutationOp, { operation: "deleteBlocks" | "moveBlocks" }>).blockIds[0];
   }
-  if (operation === "updateOverlayShape") {
-    return (op as Extract<SigmaDocMutationOp, { operation: "updateOverlayShape" }>).shapeId;
+  if (operation === "updateOverlayShape" || operation === "replaceOverlayShape") {
+    return (op as Extract<SigmaDocMutationOp, { operation: "updateOverlayShape" | "replaceOverlayShape" }>).shapeId;
   }
   if (operation === "alignOverlayShapes" || operation === "deleteOverlayShapes") {
     return (op as Extract<SigmaDocMutationOp, { operation: "alignOverlayShapes" | "deleteOverlayShapes" }>).shapeIds[0];
@@ -361,6 +376,9 @@ export function applySigmaDocMutationOp(document: SigmaDocument, input: unknown)
 
   if (op.operation === "alignOverlayShapes") {
     return { op, nextDocument: parseSigmaDocument(applyAlignOverlayShapes(document, op)) };
+  }
+  if (op.operation === "replaceOverlayShape") {
+    return { op, nextDocument: parseSigmaDocument(applyReplaceOverlayShape(document, op)) };
   }
   if (op.operation === "updatePageLayout") {
     const withLayout = ensurePageLayout(document);
@@ -598,7 +616,9 @@ export const AiEditSessionDraftSchema = z.object({
     // Replacement assets on an update cost the proposal exactly what an insertion's do, so they
     // are weighed on the same scale — otherwise a run of updates could carry unbounded bytes.
     ...(draft.mutationOperations ?? []).flatMap((operation) => (
-      operation.operation === "updateOverlayShape" ? Object.values(operation.assets ?? {}) : []
+      operation.operation === "updateOverlayShape" || operation.operation === "replaceOverlayShape"
+        ? Object.values(operation.assets ?? {})
+        : []
     )),
   ];
   if (assets.length > MAX_AI_OVERLAY_ASSETS_PER_PROPOSAL) {
@@ -1076,6 +1096,37 @@ function applyDeleteOverlayShapes(
     throw new Error(tv("schema.applyDeleteOverlayShapes3"));
   }
 
+  return writeOverlaySnapshot(document, nextSnapshot);
+}
+
+function applyReplaceOverlayShape(
+  document: SigmaDocument,
+  op: Extract<SigmaDocMutationOp, { operation: "replaceOverlayShape" }>,
+): SigmaDocument {
+  const snapshot = getOverlaySnapshotForRead(document);
+  if (!snapshot.shapes.some((shape) => shape.id === op.shapeId)) {
+    throw new Error(tv("schema.replaceOverlayShape1", { p0: op.shapeId }));
+  }
+  if (op.shapes[0]?.id !== op.shapeId) {
+    throw new Error(tv("schema.replaceOverlayShape2", { p0: op.shapeId }));
+  }
+  const taken = new Set(snapshot.shapes.map((shape) => shape.id));
+  for (const shape of op.shapes.slice(1)) {
+    if (taken.has(shape.id)) {
+      throw new Error(tv("schema.replaceOverlayShape3", { p0: shape.id }));
+    }
+    taken.add(shape.id);
+  }
+  for (const [assetId, asset] of Object.entries(op.assets ?? {})) {
+    const existingAsset = snapshot.assets[assetId];
+    if (existingAsset && !areStructurallyEqual(existingAsset, asset)) {
+      throw new Error(tv("schema.insertOverlayShapeInDocument1", { p0: assetId }));
+    }
+  }
+  const nextSnapshot = replaceOverlayShapeInSnapshot(snapshot, op.shapeId, op.shapes, op.assets ?? {});
+  if (!isValidOverlaySnapshot(nextSnapshot)) {
+    throw new Error(tv("schema.replaceOverlayShape4"));
+  }
   return writeOverlaySnapshot(document, nextSnapshot);
 }
 
@@ -2234,10 +2285,22 @@ export function isAllowedAiOverlayAssetSource(source: string): boolean {
     if (source.length > MAX_AI_SVG_BYTES * 4 / 3 + 64) return false;
     const bytes = decodeStrictBase64(source.slice("data:image/svg+xml;base64,".length));
     if (!bytes || bytes.length > MAX_AI_SVG_BYTES) return false;
+    let text: string;
     try {
-      validateAiSvg(new TextDecoder("utf-8", { fatal: true }).decode(bytes));
-      return true;
+      text = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
     } catch { return false; }
+    try {
+      validateAiSvg(text);
+      return true;
+    } catch {
+      // The parts "図形に変換" keeps as SVG are cropped fragments: the same content inside one nested
+      // viewport, which the AI's own SVG rules refuse. Without accepting exactly that wrapper, one
+      // kept fragment in a material made every later AI proposal on it fail.
+      try {
+        validateAiSvg(text, { convertedFragment: true });
+        return true;
+      } catch { return false; }
+    }
   }
   const match = /^data:image\/(png|jpeg|webp);base64,([a-z\d+/]+={0,2})$/i.exec(source);
   if (!match) {

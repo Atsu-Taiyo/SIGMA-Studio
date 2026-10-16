@@ -363,12 +363,14 @@ describe("buildMcpEditPrompt", () => {
     const hardRules = buildMcpEditTurnHardRules(tJa);
     expect(hardRules).toContain("insert_svg_imageでSVG1枚として入れ（迷ったらSVG）");
     expect(hardRules).toContain("sigma-svg-figure");
-    // 部品ごとに編集したい図もSVGで描き、画面の「図形に変換」で分解する。insert_shapeで作り直さない。
-    expect(hardRules).toContain("部品ごとに編集したい図もSVGで描き、画像の「図形に変換」で図形・文字に分解できると伝える");
+    // 部品ごとに編集したい図もSVGで描き、convert_svg_image で分解する。insert_shapeで作り直さない。
+    expect(hardRules).toContain("部品ごとに編集したい図もSVGで描き、previewで確かめてからconvert_svg_imageで図形・文字に分解する");
     expect(hardRules).toContain("insert_shapeで部品を作り直さない");
     expect(hardRules).not.toContain("部品ごとの個別編集を求められた図だけinsert_shape");
     const guidance = buildMcpEditInvariantGuidance(tJa);
-    expect(guidance).toContain("「図形に変換」で線・図形・文字・数式に分解でき");
+    expect(guidance).toContain("convert_svg_image（画面の「図形に変換」と同じ変換器）で線・図形・文字・数式に分解でき");
+    // 頼まれていない図までは分解しない。
+    expect(guidance).toContain("部品ごとの編集を求められていない図は分解せず");
     expect(guidance).toContain("insert_shapeで部品を作り直さないでください");
     expect(guidance).toContain("先回りしてinsert_shapeを選ばない");
     expect(guidance).toContain("編集可能なネイティブ図形");
@@ -405,7 +407,7 @@ describe("buildMcpEditPrompt", () => {
     // 英語のUIでも同じ方針が届く。
     expect(buildMcpEditTurnHardRules(tEn)).toContain("insert_svg_image (when in doubt, SVG)");
     expect(buildMcpEditTurnHardRules(tEn)).toContain("sigma-svg-figure");
-    expect(buildMcpEditTurnHardRules(tEn)).toContain("\"Convert to shapes\" on the image splits it into shapes and text");
+    expect(buildMcpEditTurnHardRules(tEn)).toContain("split it into shapes and text with convert_svg_image");
     expect(buildMcpEditTurnHardRules(tEn)).not.toContain("only for figures the user asked to edit part by part");
     const english = buildMcpEditInvariantGuidance(tEn);
     expect(english).toContain("do not rebuild the parts with insert_shape");

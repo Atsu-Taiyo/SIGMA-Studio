@@ -1,5 +1,5 @@
-import { normalizeOverlayGroups, pruneUnusedOverlayAssets, type OverlayAnchor, type OverlayAsset, type OverlayBounds, type OverlayShape, type OverlaySnapshot } from "@/features/document";
-import { flipShapesAround, getCroppedImageLayout, getShapesSelectionBounds, multiplySvgMatrices, parseSvgTransform, rotateShapesAround, svgNumbers, svgPrimitiveToShapes, type SvgMarkerDefinition, type SvgMarkerLookup, type SvgMatrix } from "@/features/drawing";
+import { replaceOverlayShapeInSnapshot, type OverlayAnchor, type OverlayAsset, type OverlayBounds, type OverlayShape, type OverlaySnapshot, type OverlayTextSize } from "@/features/document";
+import { flipShapesAround, getCroppedImageLayout, getShapesSelectionBounds, multiplySvgMatrices, parseSvgTransform, rotateShapesAround, SVG_LINE_SIZES, svgNumbers, svgPrimitiveToShapes, type SvgMarkerDefinition, type SvgMarkerLookup, type SvgMatrix } from "@/features/drawing";
 import { createId } from "./id";
 import { svgFontSizePx, svgTextToOverlay, type MeasureSvgOverlayText } from "./svg-text-to-overlay";
 import { childrenOf, decodeSvgDataUrl, parseStaticSvg, resolvedAttrs, svgViewport, tagOf, SvgConversionError, type SvgFragmentNode, type XmlNode } from "./svg-image-source";
@@ -62,17 +62,60 @@ function shiftedAnchor(anchor: OverlayAnchor | undefined, dx: number, dy: number
   return anchor;
 }
 
+export type MeasureSvgFragment = (root: SvgFragmentNode) => OverlayBounds | null;
+export interface SvgConversionOptions {
+  /** The line sizes a stroke may become; the nearest wins. Defaults to every size the editor offers. */
+  lineSizes?: readonly OverlayTextSize[];
+}
+/** What "図形に変換" turns one SVG image into, before it takes the image's place. */
+export interface SvgImageConversion {
+  /** The image's replacement in stack order: first the shape that keeps the image's id (a group, or the one shape), then its members. */
+  shapes: OverlayShape[];
+  /** The pictures the replacement adds: the parts that stay SVG, each a cropped fragment. */
+  assets: Record<string, OverlayAsset>;
+  convertedCount: number;
+  preservedCount: number;
+  textCount: number;
+  mathCount: number;
+}
+/**
+ * The AI's conversion keeps strokes at "細" (s) or thicker: an `xs` line is dropped or makes a shared
+ * material unreadable in a version from before `xs`. The conversion from the canvas menu keeps `xs`.
+ */
+export const AI_SVG_CONVERSION_LINE_SIZES: readonly OverlayTextSize[] = SVG_LINE_SIZES.filter((size) => size !== "xs");
+
+type ImageShape = Extract<OverlayShape, { type: "image" }>;
+
 /** Replace one SVG image atomically. Unrepresentable fragments retain their SVG and stack order. */
 export function convertSvgImageToSigma(
   snapshot: OverlaySnapshot,
   shapeId: string,
   source?: string,
-  measureFragment?: (root: SvgFragmentNode) => OverlayBounds | null,
+  measureFragment?: MeasureSvgFragment,
   measureText?: MeasureSvgOverlayText,
-): { snapshot: OverlaySnapshot; selectedIds: string[]; convertedCount: number; preservedCount: number; textCount: number; mathCount: number } {
-  const image = snapshot.shapes.find((shape): shape is Extract<OverlayShape, { type: "image" }> => shape.id === shapeId && shape.type === "image");
-  const asset = image && snapshot.assets[image.props.assetId];
+  options?: SvgConversionOptions,
+): { snapshot: OverlaySnapshot; selectedIds: string[] } & Omit<SvgImageConversion, "shapes" | "assets"> {
+  const image = snapshot.shapes.find((shape): shape is ImageShape => shape.id === shapeId && shape.type === "image");
+  const { shapes, assets, ...counts } = convertSvgImageShape({ image, asset: image && snapshot.assets[image.props.assetId] },
+    source, measureFragment, measureText, options);
+  return { snapshot: replaceOverlayShapeInSnapshot(snapshot, shapeId, shapes, assets), selectedIds: [shapeId], ...counts };
+}
+
+/**
+ * Converts one SVG image without touching the snapshot it is in: the caller puts the result in its
+ * place (`replaceOverlayShapeInSnapshot`). The canvas measures text, math and kept fragments with the
+ * real renderer; without `measureFragment` / `measureText` the converter estimates them.
+ */
+export function convertSvgImageShape(
+  target: { image: ImageShape | undefined; asset: OverlayAsset | undefined },
+  source?: string,
+  measureFragment?: MeasureSvgFragment,
+  measureText?: MeasureSvgOverlayText,
+  options: SvgConversionOptions = {},
+): SvgImageConversion {
+  const { image, asset } = target;
   if (!image || !isSvgImageAsset(asset)) throw new SvgConversionError("source");
+  const lineSizes = options.lineSizes ?? SVG_LINE_SIZES;
   const root = parseStaticSvg(source ?? decodeSvgDataUrl(asset!.props.src));
   const rootAttrs = resolvedAttrs(root);
   const { width, height, viewBox } = svgViewport(rootAttrs, asset!.props);
@@ -101,7 +144,7 @@ export function convertSvgImageToSigma(
   childrenOf(root).forEach((node) => collectDefinitions(node, []));
   const markers = collectMarkers(root, inheritedOf(rootAttrs));
   const shapes: OverlayShape[] = [];
-  const assets = { ...snapshot.assets };
+  const assets: Record<string, OverlayAsset> = {};
   let convertedCount = 0, preservedCount = 0;
   let pending: XmlNode[] = [];
   let fragmentBytes = 0;
@@ -157,7 +200,7 @@ export function convertSvgImageToSigma(
       return;
     }
     const text = tag === "text" && attrs.visibility !== "hidden" ? svgTextToOverlay(node, attrs, transformed, () => createId("svg_text"), measureText) : null;
-    let converted = text ? [text] : tag === "g" || attrs.visibility === "hidden" ? null : svgPrimitiveToShapes(tag, attrs, transformed, () => createId("overlay_shape"), markers);
+    let converted = text ? [text] : tag === "g" || attrs.visibility === "hidden" ? null : svgPrimitiveToShapes(tag, attrs, transformed, () => createId("overlay_shape"), markers, lineSizes);
     // Preserve primitives crossing the visible frame as clipped SVG, in their original stack order.
     const bounds = converted && getShapesSelectionBounds(converted);
     if (bounds && (bounds.x < frame.left - 1 || bounds.y < frame.top - 1 || bounds.x + bounds.w > frame.right + 1 || bounds.y + bounds.h > frame.bottom + 1)) {
@@ -196,9 +239,7 @@ export function convertSvgImageToSigma(
     : [{ id: image.id, type: "group", x: bounds.x, y: bounds.y, parentId: image.parentId, stackLayer: image.stackLayer,
       opacity: image.opacity, anchor: shiftedAnchor(image.anchor, bounds.x - image.x, bounds.y - image.y),
       props: { w: bounds.w, h: bounds.h, name: asset!.props.name } }, ...anchored.map((shape) => ({ ...shape, parentId: image.id }))];
-  const nextShapes = normalizeOverlayGroups(snapshot.shapes.flatMap((shape) => shape.id === image.id ? replacements : [shape]));
-  const next = pruneUnusedOverlayAssets({ ...snapshot, shapes: nextShapes, assets });
   const texts = anchored.filter((shape) => shape.type === "text");
-  return { snapshot: next, selectedIds: [image.id], convertedCount, preservedCount, textCount: texts.length,
+  return { shapes: replacements, assets, convertedCount, preservedCount, textCount: texts.length,
     mathCount: texts.reduce((sum, shape) => sum + shape.props.blocks.reduce((n, block) => n + (block.type === "paragraph" ? block.children.filter((child) => child.type === "mathInline").length : 0), 0), 0) };
 }
