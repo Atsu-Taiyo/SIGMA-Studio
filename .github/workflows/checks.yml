@@ -105,6 +105,7 @@ jobs:
             npm run test:e2e:electron -- \
               tests/electron/open-document.spec.ts tests/electron/ipc-sender-security.spec.ts \
               tests/electron/file-names.spec.ts tests/electron/ai-inline-approval.spec.ts \
+              tests/electron/math-ime-placeholder.spec.ts \
               tests/electron/whiteboard-focus.spec.ts tests/electron/graph-crop.spec.ts \
               tests/electron/overlay-text-input-latency.spec.ts tests/electron/browser-sidebar.spec.ts \
               tests/electron/large-library-editing.spec.ts \
@@ -116,8 +117,7 @@ jobs:
               tests/electron/ai-image-annotation.spec.ts tests/electron/ai-proposal-merge.spec.ts \
               tests/electron/ai-svg-figure.spec.ts tests/electron/extensions-dialog.spec.ts \
               tests/electron/extensions-menu.spec.ts \
-              tests/electron/local-fonts-menu.spec.ts tests/electron/math-ime-composition-scroll.spec.ts \
-              tests/electron/math-ime-placeholder.spec.ts
+              tests/electron/local-fonts-menu.spec.ts tests/electron/math-ime-composition-scroll.spec.ts
           '
       - uses: actions/upload-artifact@v7
         if: failure()
