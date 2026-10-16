@@ -16,7 +16,9 @@ async function readFieldState(field: Locator): Promise<FieldState | null> {
     const mathField = element as HTMLElement & { getValue?: () => string; hasFocus?: () => boolean; value?: string };
     return {
       value: mathField.getValue?.() ?? mathField.value ?? "",
-      focused: mathField.hasFocus?.() ?? document.activeElement === element,
+      // MathLive の hasFocus() は DOM の焦点が移る (focus() の少し後) より先に true になる。その間の
+      // キーは入力欄に届かないので、DOM の焦点も見る。
+      focused: document.activeElement === element && (mathField.hasFocus?.() ?? true),
     };
   });
 }
@@ -105,20 +107,32 @@ test("the realtime graph expression field deletes sin(x) one element per Backspa
     const field = panel.getByTestId("overlay-graph-expr-input-field");
     await expect.poll(() => readFieldState(field)).toEqual({ value: "\\sin(x)", focused: true });
 
-    // 1 回の Backspace で 1 つずつ消え、点 (`.`) が増えずに空まで行き着く。MathLive は閉じ括弧を消した
-    // 途中の式を `\sin(x.` と書き出す (欄には `sin(x` と出る) ので、`.` は 1 個までを許す。
-    const values: string[] = ["\\sin(x)"];
-    for (let press = 0; press < 6 && values.at(-1) !== ""; press += 1) {
-      const before = values.at(-1)!;
+    // 閉じ括弧を消した途中で欄を離れても、式の下書き (赤いエラー表示のボタン) に `.` が出ない。
+    // MathLive はこの途中の式を `\sin(x.` と書き出していた (`mathlive-open-fence.ts`)。
+    await page.keyboard.press("Backspace");
+    await expect.poll(async () => (await readFieldState(field))?.value).toBe("\\sin(x");
+    await page.keyboard.press("Enter");
+    await expect(field).toHaveCount(0);
+    const draftButton = panel.getByTestId("overlay-graph-expr-input");
+    await expect(draftButton).toContainText("sin");
+    expect(await draftButton.textContent(), "draft preview").not.toContain(".");
+    await draftButton.click();
+    await expect.poll(() => readFieldState(field)).toEqual({ value: "\\sin(x", focused: true });
+
+    // 末尾から Backspace で消していくと、点 (`.`) が増えずに空まで行き着く。開き直した `\sin(x` には
+    // MathLive が仮の閉じ括弧を出すので、最初の 1 回はそれを消す (値は `\sin(x` のまま)。
+    const values: string[] = ["\\sin(x"];
+    for (let press = 0; press < 8 && values.at(-1) !== ""; press += 1) {
       await page.keyboard.press("Backspace");
-      await expect.poll(async () => (await readFieldState(field))?.value).not.toBe(before);
+      await page.waitForTimeout(120);
       const state = await readFieldState(field);
-      expect(state?.focused).toBe(true);
+      expect(state?.focused, `values: ${JSON.stringify(values)}`).toBe(true);
       values.push(state!.value);
     }
     expect(values.at(-1), `values: ${JSON.stringify(values)}`).toBe("");
-    for (const value of values) {
-      expect((value.match(/\./g) ?? []).length, `values: ${JSON.stringify(values)}`).toBeLessThanOrEqual(1);
+    for (let index = 1; index < values.length; index += 1) {
+      expect(values[index], `values: ${JSON.stringify(values)}`).not.toContain(".");
+      expect(values[index].length, `values: ${JSON.stringify(values)}`).toBeLessThanOrEqual(values[index - 1].length);
     }
 
     // 空の欄でさらに Backspace しても閉じず、焦点も残る。
