@@ -68,8 +68,9 @@ export interface DocumentSessionHost {
   /** Subscribe when session availability or file authority changes. */
   subscribeAuthority?(listener: () => void): () => void;
   /**
-   * The library lists this file as shared, but `get` has no session for it yet. Ask the
-   * host to attach one; `subscribeAuthority` listeners hear when it does.
+   * Resolves once `get` returns the session of a file the library lists as shared (`shared`),
+   * rereading the host's sessions if needed, or once the host has found none. Resolves at
+   * once for other files. Editors await it before showing a shared file they just loaded.
    */
-  requestSession?(fileId: string): void;
+  attachSession?(fileId: string, shared: boolean): Promise<void>;
 }

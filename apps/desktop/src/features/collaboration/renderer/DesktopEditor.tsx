@@ -17,9 +17,12 @@ import type { CollaborationBridge, CollaborationInfo, SessionInfo } from "../mod
 export async function readCollaborationInfo(
   bridge: CollaborationBridge,
   activeFileId: string | null,
+  /** Receives the first read when reasserting the viewed file (a network sync) follows it. */
+  beforeView?: (info: CollaborationInfo) => void,
 ): Promise<CollaborationInfo> {
   let info = await bridge.info();
   if (activeFileId && info.sessions.some((session) => session.binding.localFileId === activeFileId)) {
+    beforeView?.(info);
     await bridge.view(activeFileId);
     info = await bridge.info();
   }
@@ -57,7 +60,7 @@ export function DesktopEditor() {
   const visibleFiles = useRef(new Map<string, number>());
   const restrictedFileIds = useRef(new Set<string>());
   const authorityListeners = useRef(new Set<() => void>());
-  const requestSession = useRef<(fileId: string) => void>(() => {});
+  const attachSession = useRef<(fileId: string, shared: boolean) => Promise<void>>(async () => {});
   const [bootError, setBootError] = useState<Error | null>(null);
   const [info, setInfo] = useState<CollaborationInfo | null>(null);
   const refresh = useCallback(async () => {
@@ -66,10 +69,15 @@ export function DesktopEditor() {
       setInfo({ configured: false, user: null, sessions: [], restrictedFileIds: [] });
       return;
     }
-    const next = await readCollaborationInfo(bridge, activeFileId.current);
-    restrictedFileIds.current = new Set(next.restrictedFileIds);
-    reconcileRendererSessions(sessions.current, next.sessions, bridge, activeFileId.current);
-    authorityListeners.current.forEach((listener) => listener());
+    const apply = (value: CollaborationInfo) => {
+      restrictedFileIds.current = new Set(value.restrictedFileIds);
+      reconcileRendererSessions(sessions.current, value.sessions, bridge, activeFileId.current);
+      authorityListeners.current.forEach((listener) => listener());
+    };
+    // Attach newly announced sessions from the first read. Reasserting the viewed file
+    // waits for the network and must not keep a just-opened document from its session.
+    const next = await readCollaborationInfo(bridge, activeFileId.current, apply);
+    apply(next);
     setInfo(next);
   }, []);
   useEffect(() => {
@@ -88,11 +96,25 @@ export function DesktopEditor() {
         if (mounted) setBootError(error instanceof Error ? error : new Error("SESSION_UNAVAILABLE"));
       });
     };
-    // Main may hold a session this renderer has not read (a missed "reset"). Reread through
-    // the same queue, after any reread already under way, and only if it is still missing.
-    requestSession.current = (fileId) => {
-      void refreshTail.then(() => {
-        if (mounted && !sessions.current.has(fileId)) reload();
+    // Wait for the session of a shared file: main announces it ("reset") before answering
+    // the read that opened it. If it is still missing once the reread under way is done
+    // (a missed announcement), reread through the same queue.
+    attachSession.current = (fileId, shared) => {
+      if (!shared || sessions.current.has(fileId)) return Promise.resolve();
+      return new Promise<void>((resolve) => {
+        const finish = () => {
+          authorityListeners.current.delete(check);
+          resolve();
+        };
+        const check = () => {
+          if (!mounted || sessions.current.has(fileId)) finish();
+        };
+        authorityListeners.current.add(check);
+        void refreshTail.then(() => {
+          if (!mounted || sessions.current.has(fileId)) return finish();
+          reload();
+          void refreshTail.then(finish);
+        });
       });
     };
     const unsubscribe = bridge?.onEvent((event) => {
@@ -129,7 +151,7 @@ export function DesktopEditor() {
     const current = sessions.current;
     return () => {
       mounted = false;
-      requestSession.current = () => {};
+      attachSession.current = async () => {};
       unsubscribe?.();
       window.removeEventListener("compositionstart", compositionStart, true);
       window.removeEventListener("compositionend", compositionEnd, true);
@@ -163,7 +185,7 @@ export function DesktopEditor() {
         authorityListeners.current.add(listener);
         return () => authorityListeners.current.delete(listener);
       },
-      requestSession: (fileId: string) => requestSession.current(fileId),
+      attachSession: (fileId: string, shared: boolean) => attachSession.current(fileId, shared),
     }),
     [],
   );

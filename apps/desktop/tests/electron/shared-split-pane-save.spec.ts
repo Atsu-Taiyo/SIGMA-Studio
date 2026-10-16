@@ -15,14 +15,19 @@ import { CatalogCache } from "../../electron/collaboration/catalog-cache";
 /**
  * Issue #205: a shared document shown in the other pane of a split ("右に並べて開く") is opened
  * there first, while visible, so its first sync also opens the live connection. When that
- * connection failed, main kept the session but never told the renderer. Clicking the pane
- * then edited a JSON copy that main could only reject (SHARED_SESSION_WRITE_REQUIRED), and
- * closing the window showed "保存できませんでした".
+ * sync failed, main kept the session but never told the renderer. Clicking the pane then
+ * edited a JSON copy that main could only reject (SHARED_SESSION_WRITE_REQUIRED), and closing
+ * the window showed "保存できませんでした".
  *
- * The backend is a loopback protocol fixture that refuses the first live connection.
+ * Now the session reaches the editor before the first sync: the document is editable while
+ * the sync server is unreachable, the edits wait in the local journal (across a restart) and
+ * are sent once, when the server is reachable again.
+ *
+ * The backend is a loopback protocol fixture that only serves the snapshot while "offline" and
+ * leaves the live connection and the sync request unanswered.
  * Electron main, preload, HTTP, WebSocket, journals and the catalog cache are real.
  */
-test("a shared document first opened in a split pane saves its edits through the shared session", async ({}, testInfo) => {
+test("a shared document first opened in a split pane is editable offline and sends its edits once", async ({}, testInfo) => {
   test.setTimeout(240_000);
   const root = path.resolve(__dirname, "../..");
   const profile = await mkdtemp(path.join(tmpdir(), "sigma-split-shared-"));
@@ -31,7 +36,17 @@ test("a shared document first opened in a split pane saves its edits through the
   const directory = path.join(profile, "collaboration-v1");
   const remote = new SharedDocument();
   let sequence = 0;
-  let upgrades = 0;
+  let online = false;
+  const received: string[] = [];
+  // While "offline", the first network step after the snapshot (the live connection or the
+  // sync request) is left unanswered until the server comes back.
+  const stalled = new Set<() => void>();
+  let firstStallAt: number | undefined;
+  const stall = (release: () => void, onEnd: (listener: () => void) => void) => {
+    firstStallAt ??= Date.now();
+    stalled.add(release);
+    onEnd(() => stalled.delete(release));
+  };
   const server = createServer(async (request, response) => {
     const prefix = `/documents/${sharedId}`;
     const json = (value: unknown) => response.writeHead(200, { "Content-Type": "application/json" }).end(JSON.stringify(value));
@@ -45,10 +60,15 @@ test("a shared document first opened in a split pane saves its edits through the
     const body = bytes.length ? JSON.parse(bytes.toString()) : {};
     if (request.url === `${prefix}/snapshot`) {
       json({ state: toBase64(remote.snapshot()), role: "editor", epoch: 1 });
+    } else if (!online && request.url === `${prefix}/sync`) {
+      stall(() => response.writeHead(503).end(), (listener) => response.once("close", listener));
+    } else if (!online) {
+      response.writeHead(503, { "Content-Type": "application/json" }).end('{"error":"FIXTURE_OFFLINE"}');
     } else if (request.url === `${prefix}/sync` && body.vector) {
       json({ update: toBase64(remote.difference(fromBase64(body.vector))), role: "editor", epoch: 1, protocol: 1 });
     } else if (request.url === `${prefix}/updates` && Array.isArray(body.operations)) {
       const acks = body.operations.map((operation: { operationId: string; update: string }) => {
+        received.push(operation.operationId);
         remote.applyUpdate(fromBase64(operation.update));
         return { operationId: operation.operationId, seq: ++sequence };
       });
@@ -57,8 +77,11 @@ test("a shared document first opened in a split pane saves its edits through the
   });
   const sockets = new WebSocketServer({ noServer: true });
   server.on("upgrade", (request, socket, head) => {
-    // The first live connection fails, like a dropped or refused socket.
-    if (request.url !== `/documents/${sharedId}/socket` || ++upgrades === 1) { socket.destroy(); return; }
+    if (request.url !== `/documents/${sharedId}/socket`) { socket.destroy(); return; }
+    if (!online) {
+      stall(() => socket.destroy(), (listener) => socket.once("close", listener));
+      return;
+    }
     sockets.handleUpgrade(request, socket, head, (client) => sockets.emit("connection", client, request));
   });
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
@@ -138,61 +161,86 @@ test("a shared document first opened in a split pane saves its edits through the
     const sharedJsonSaves = () => app!.evaluate((_electron, fileId) => (globalThis as typeof globalThis & { jsonSaves: { fileId: string; result: unknown }[] })
       .jsonSaves.filter((save) => save.fileId === fileId), seeded.sharedFileId);
 
+    const sharedBody = async () => JSON.stringify((await page.evaluate((fileId) => window.desktopAPI!.storage.loadDocument(fileId), seeded.sharedFileId))?.content);
+
     // 右に並べて開く: the local document moves to a new pane; the shared one stays in the other pane.
     await page.getByRole("tab", { name: "手元の教材", exact: true }).click({ button: "right" });
     await page.getByRole("menuitem", { name: "右に並べて開く" }).click();
     await expect(page.locator(".workspace-tab-group")).toHaveCount(2);
     const passive = page.locator(".workspace-passive-editor").filter({ hasText: "共有の本文" });
+    // The document shows while its first sync is still unanswered. Before this change the open
+    // waited for it: the live connection gives up after 10 s, the sync request after 20 s.
+    await expect.poll(() => firstStallAt !== undefined).toBe(true);
     await expect(passive).toBeVisible({ timeout: 30_000 });
-    expect(upgrades).toBeGreaterThan(0);
+    expect(Date.now() - firstStallAt!).toBeLessThan(8_000);
     await page.screenshot({ path: testInfo.outputPath("01-split.png") });
 
-    // Edit the shared document from its pane.
+    // Edit the shared document from its pane while the sync server is unreachable.
     await passive.locator(".page-canvas").first().click({ position: { x: 120, y: 160 } });
     const paragraph = page.locator('[data-sigma-doc-id="shared_p"]').first();
     await expect(paragraph).toBeVisible();
-    await expect.poll(() => page.evaluate((fileId) => window.desktopAPI!.collaboration!.info()
-      .then((info) => info.sessions.some((session) => session.binding.localFileId === fileId)), seeded.sharedFileId)).toBe(true);
     await paragraph.click();
     await page.keyboard.press("End");
     await page.keyboard.type("を追記");
     await expect(paragraph).toContainText("共有の本文を追記");
-    await page.screenshot({ path: testInfo.outputPath("02-edited.png") });
+    // The pending sync shows only as the sharing status icon, never as a read-only editor.
+    await expect(page.getByRole("status", { name: /^(オフライン|端末保存済み・未同期)$/ })).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByText("少し待ってから入力してください")).toHaveCount(0);
+    await page.screenshot({ path: testInfo.outputPath("02-edited-offline.png") });
 
-    // The edit went through the shared session, never as a rejected JSON save.
-    await expect.poll(async () => JSON.stringify((await page.evaluate((fileId) => window.desktopAPI!.storage.loadDocument(fileId), seeded.sharedFileId))?.content))
-      .toContain("共有の本文を追記");
-    await page.evaluate((fileId) => window.desktopAPI!.collaboration!.flush(fileId, true), seeded.sharedFileId);
-    expect(JSON.stringify(remote.project())).toContain("共有の本文を追記");
+    // The edit went into the shared session's local journal, never as a rejected JSON save.
+    await expect.poll(sharedBody).toContain("共有の本文を追記");
     expect(await sharedJsonSaves()).toEqual([]);
+    expect(received).toEqual([]);
     await expect(page.getByText("SHARED_SESSION_WRITE_REQUIRED")).toHaveCount(0);
 
-    // Closing the window saves without the "保存できませんでした" dialog, and the edit survives a restart.
-    // Wait for the window: macOS keeps the app running after its last window closes.
-    const fixtureProcess = app!.process();
-    const exited = new Promise<void>((resolve) => fixtureProcess.once("exit", () => resolve()));
-    const closed = page.waitForEvent("close", { timeout: 30_000 });
-    await app!.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].close());
-    await Promise.race([
-      closed,
-      // The page closing first rejects this wait; only a visible dialog is a failure.
-      page.getByRole("dialog", { name: "保存できませんでした" }).waitFor({ timeout: 20_000 })
-        .then(() => { throw new Error("The window close save failed"); }, () => closed),
-    ]);
-    // Other platforms quit with their last window.
-    if (process.platform === "darwin") await app!.close();
-    else await Promise.race([exited, new Promise((resolve) => setTimeout(resolve, 15_000)).then(() => app!.close())]);
-    app = undefined;
+    const closeWindow = async () => {
+      // Wait for the window: macOS keeps the app running after its last window closes.
+      const fixtureProcess = app!.process();
+      const exited = new Promise<void>((resolve) => fixtureProcess.once("exit", () => resolve()));
+      const closed = page.waitForEvent("close", { timeout: 30_000 });
+      await app!.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].close());
+      await Promise.race([
+        closed,
+        // The page closing first rejects this wait; only a visible dialog is a failure.
+        page.getByRole("dialog", { name: "保存できませんでした" }).waitFor({ timeout: 20_000 })
+          .then(() => { throw new Error("The window close save failed"); }, () => closed),
+      ]);
+      // Other platforms quit with their last window.
+      if (process.platform === "darwin") await app!.close();
+      else await Promise.race([exited, new Promise((resolve) => setTimeout(resolve, 15_000)).then(() => app!.close())]);
+      app = undefined;
+    };
+
+    // Closing saves without the "保存できませんでした" dialog; the edit survives a restart offline.
+    await closeWindow();
     page = await launch();
     await expect(page.locator(".startup-splash")).toBeHidden({ timeout: 60_000 });
-    await expect.poll(async () => JSON.stringify((await page.evaluate((fileId) => window.desktopAPI!.storage.loadDocument(fileId), seeded.sharedFileId))?.content))
-      .toContain("共有の本文を追記");
+    await expect.poll(sharedBody).toContain("共有の本文を追記");
+    expect(received).toEqual([]);
+
+    // Once the server is reachable, the retry sends the waiting edit, exactly once.
+    online = true;
+    for (const release of stalled) release();
+    await expect.poll(() => JSON.stringify(remote.project()), { timeout: 60_000 }).toContain("共有の本文を追記");
+    await page.evaluate((fileId) => window.desktopAPI!.collaboration!.flush(fileId, true), seeded.sharedFileId);
+    await page.screenshot({ path: testInfo.outputPath("03-sent.png") });
+    expect(received.length).toBeGreaterThan(0);
+    expect(new Set(received).size).toBe(received.length);
+    const sent = received.length;
+    await closeWindow();
+    page = await launch();
+    await expect(page.locator(".startup-splash")).toBeHidden({ timeout: 60_000 });
+    await expect.poll(sharedBody).toContain("共有の本文を追記");
+    await page.evaluate((fileId) => window.desktopAPI!.collaboration!.flush(fileId, true), seeded.sharedFileId);
+    expect(received).toHaveLength(sent);
   } finally {
     if (app) {
       const fixtureProcess = app.process();
       const timer = setTimeout(() => fixtureProcess.kill("SIGKILL"), 5000);
       try { await app.close(); } finally { clearTimeout(timer); }
     }
+    for (const release of stalled) release();
     for (const client of sockets.clients) client.terminate();
     await new Promise<void>((resolve) => sockets.close(() => resolve()));
     await new Promise<void>((resolve) => server.close(() => resolve()));

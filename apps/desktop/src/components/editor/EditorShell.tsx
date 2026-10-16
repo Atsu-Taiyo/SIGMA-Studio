@@ -684,6 +684,8 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
   // 教材の中身 (壊れたJSON / スキーマ違反) が原因で本文を組み立てられなかった教材。
   // その教材がアクティブな間だけ、編集キャンバスの代わりに原因と修復プロンプトを出す。
   const [documentMetadatas, setDocumentMetadatas] = useState<DocumentMetadata[]>([]);
+  const documentMetadatasRef = useRef(documentMetadatas);
+  useLayoutEffect(() => { documentMetadatasRef.current = documentMetadatas; }, [documentMetadatas]);
   const [openFileIds, setOpenFileIds] = useState<string[]>(() => [initialDocument.docId]);
   const [activeFileId, setActiveFileId] = useState(initialDocument.docId);
   const cameraByFileIdRef = useRef(new Map<string, { zoom: number; panX: number; panY: number }>());
@@ -705,9 +707,9 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
     return () => { void sessionHost.setActiveFile?.(null); };
   }, [activeFileId, sessionHost, workspaceReady]);
   // A shared file is written only through its session: main rejects a JSON save of it
-  // (SHARED_SESSION_WRITE_REQUIRED). Until the session reaches this renderer, the editor
-  // treats the file the way a passive pane does — read-only — instead of collecting edits
-  // that can never be saved, and asks the host to attach the session.
+  // (SHARED_SESSION_WRITE_REQUIRED). Loading waits for the session, so this only covers the
+  // moment a file is shared while open: edits wait for the session instead of collecting in
+  // a JSON copy that can never be saved. The connection itself never blocks editing.
   const activeFileShared = useMemo(
     () => Boolean(sessionHost) && documentMetadatas.some((item) => item.fileId === activeFileId && Boolean(item.sharing)),
     [activeFileId, documentMetadatas, sessionHost],
@@ -724,7 +726,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
   );
   useEffect(() => {
     if (!awaitingSharedSession || !workspaceReady) return;
-    sessionHost?.requestSession?.(activeFileId);
+    void sessionHost?.attachSession?.(activeFileId, true);
   }, [activeFileId, awaitingSharedSession, sessionHost, workspaceReady]);
   const sessionWritableRef = useRef(sessionWritable);
   useLayoutEffect(() => { sessionWritableRef.current = sessionWritable; }, [sessionWritable]);
@@ -883,7 +885,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
   const [mcpPreviewBusy, setMcpPreviewBusy] = useState(false);
   const aiDocumentWriteInProgress = mcpPreviewBusy || !sessionWritable;
   const sessionEditExtensions = useMemo(() => sessionWritable ? undefined
-    : sessionReadOnlyExtensions(t(awaitingSharedSession ? "collaboration.sessionConnecting" : "collaboration.readOnlyDocument")), [awaitingSharedSession, sessionWritable, t]);
+    : sessionReadOnlyExtensions(t(awaitingSharedSession ? "collaboration.sessionOpening" : "collaboration.readOnlyDocument")), [awaitingSharedSession, sessionWritable, t]);
   // 絞り込みで隠した領域に錨を下ろした図形は、見せず・触らせず・書き換えさせない (`useProblemDisplayEditing`)。
   const problemDisplayEditing = useProblemDisplayEditing(document, problemDisplayActive ? problemDisplay : undefined);
   const pageEditorExtensions = useMemo(
@@ -1568,7 +1570,16 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
   }, [refreshDocumentMetadatas, resetEditorDocument, saveWorkspaceState, setSaveState, setStatusMessage]);
 
   const rememberPristineDraft = useCallback((fileId: string, initial: SigmaDocument) => { untouchedNewDocumentsRef.current.set(fileId, initial); }, []);
-  const { documentOpenFailure, documentOpenFailureRef, showRecordedDocumentOpenFailure, enterDocumentOpenFailureState, loadWorkspaceDocument } = useDocumentRecovery({ announceRecovery, rememberPristineDraft, activateFailedDocument });
+  const { documentOpenFailure, documentOpenFailureRef, showRecordedDocumentOpenFailure, enterDocumentOpenFailureState, loadWorkspaceDocument: loadRecoveredWorkspaceDocument } = useDocumentRecovery({ announceRecovery, rememberPristineDraft, activateFailedDocument });
+  // Opening a shared file makes main announce its session. Show the file only once that
+  // session is attached, so its edits go to the session (journaled locally, sent when the
+  // sync gets through) and never to a JSON copy that main rejects.
+  const loadWorkspaceDocument = useCallback(async (fileId: string) => {
+    const loaded = await loadRecoveredWorkspaceDocument(fileId);
+    const shared = documentMetadatasRef.current.some((item) => item.fileId === fileId && Boolean(item.sharing));
+    if (loaded && sessionHost?.attachSession) await sessionHost.attachSession(fileId, shared);
+    return loaded;
+  }, [loadRecoveredWorkspaceDocument, sessionHost]);
 
   const isCurrentDocumentDirty = useCallback(() => {
     return !areSigmaDocumentsEquivalent(documentRef.current, lastSavedDocumentRef.current);

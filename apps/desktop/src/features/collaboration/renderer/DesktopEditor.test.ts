@@ -51,3 +51,22 @@ it("does not reactivate a restricted file for a different account", async () => 
   await expect(readCollaborationInfo({ info, view } as unknown as CollaborationBridge, "file")).resolves.toBe(infoValue);
   expect(view).not.toHaveBeenCalled();
 });
+
+it("hands over the first read before reasserting the viewed file over the network", async () => {
+  // A just-opened shared file must not wait for the viewed file's sync to get its session.
+  const opened = snapshot("opened");
+  const first = { configured: true, user: { actorId: "actor" }, sessions: [snapshot("file"), opened], restrictedFileIds: ["file", "opened"] };
+  const info = vi.fn().mockResolvedValueOnce(first).mockResolvedValueOnce(first);
+  let finishView!: () => void;
+  const view = vi.fn(() => new Promise<void>((resolve) => { finishView = resolve; }));
+  const beforeView = vi.fn();
+  const reading = readCollaborationInfo({ info, view } as unknown as CollaborationBridge, "file", beforeView);
+  await vi.waitFor(() => expect(view).toHaveBeenCalledWith("file"));
+  expect(beforeView).toHaveBeenCalledExactlyOnceWith(first);
+  finishView();
+  await expect(reading).resolves.toBe(first);
+
+  const local = vi.fn();
+  await readCollaborationInfo({ info: vi.fn(async () => first), view } as unknown as CollaborationBridge, "local", local);
+  expect(local).not.toHaveBeenCalled();
+});
