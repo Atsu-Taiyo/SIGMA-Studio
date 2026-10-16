@@ -1559,6 +1559,11 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
   const isCurrentDocumentDirty = useCallback(() => {
     return !areSigmaDocumentsEquivalent(documentRef.current, lastSavedDocumentRef.current);
   }, []);
+  // Commits what every mounted overlay editor still holds on its save debounce. Stable, because
+  // the boundary save (and through it the window-close subscription) depends on it.
+  const flushOverlayChanges = useCallback(() => {
+    window.dispatchEvent(new CustomEvent(FLUSH_OVERLAY_CHANGES_EVENT));
+  }, []);
   const {
     cancelPendingAutosaveRef,
     scheduleAutosaveRetry,
@@ -1586,6 +1591,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
     externalChangeFileIdsRef,
     mcpPreviewBusyRef,
     isCurrentDocumentDirty,
+    flushPendingEdits: flushOverlayChanges,
     isEmbedded,
     setSaveState,
     setStatusMessage,
@@ -2770,10 +2776,6 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
   const updateOverlay = (overlay: PageOverlay, options?: OverlayChangeOptions) => writeOverlay(overlay, options);
   // Automatic re-anchor after a deletion: coalesce into the deletion's undo entry.
   const reanchorOverlay = (overlay: PageOverlay) => writeOverlay(overlay, { history: "coalesce" });
-
-  const flushOverlayChanges = () => {
-    window.dispatchEvent(new CustomEvent(FLUSH_OVERLAY_CHANGES_EVENT));
-  };
 
   const { previewOpen, setPreviewOpen, pdfExporting, exportedPdfPath, setExportedPdfPath, printPreviewRenderState, setPrintPreviewRenderState, openPrintPreview, exportPdf, openPrintWindow } = useDocumentPrintController({ isDesktopApp, isEmbedded, getDocument: getCurrentSessionDocument, getActiveFileId: getActiveWorkspaceFileId, flushOverlayChanges, saveCurrentDocumentRecord, setSaveState, setStatusMessage });
 

@@ -50,6 +50,12 @@ interface Dependencies {
   externalChangeFileIdsRef: RefObject<Set<string>>;
   mcpPreviewBusyRef: RefObject<boolean>;
   isCurrentDocumentDirty: () => boolean;
+  /**
+   * Moves edits a surface is still holding back into the document now. A shape's edits (a drag,
+   * a style, the height it measured after its text changed) reach the document on a short
+   * debounce; a boundary save has to take them in before it reads the document.
+   */
+  flushPendingEdits: () => void;
   isEmbedded: boolean;
   setSaveState: (update: EditorStateUpdate<EditorSaveState>) => void;
   setStatusMessage: (update: EditorStateUpdate<string>) => void;
@@ -76,6 +82,7 @@ export function useDocumentSaveBoundary({
   externalChangeFileIdsRef,
   mcpPreviewBusyRef,
   isCurrentDocumentDirty,
+  flushPendingEdits,
   isEmbedded,
   setSaveState,
   setStatusMessage,
@@ -215,6 +222,10 @@ export function useDocumentSaveBoundary({
     skippedReason?: DocumentBoundarySkipReason;
   }> => {
     const boundaryFileId = activeFileIdRef.current;
+    // 図形の編集 (ドラッグ・測り直した高さなど) は短い遅延の後にまとめて文書へ入るので、
+    // 境界の保存はまずそれを取り込む。取り込まないと、保存の途中で入った変更が保存し終えても
+    // 未保存のまま残り、閉じるときに「保存できませんでした」が出る (終了直前の図形の操作で起きた)。
+    flushPendingEdits();
     if (documentSessionRef?.current) return saveCurrentDocumentRecord(origin);
     const boundarySkipReason = () => getDocumentBoundarySkipReason({
       isEmbedded,
@@ -229,6 +240,8 @@ export function useDocumentSaveBoundary({
     while (inFlightSavePromiseRef.current) {
       await inFlightSavePromiseRef.current.catch(() => undefined);
     }
+    // 先の保存を待つ間に溜まった分も、内容を読む直前にもう一度取り込む。
+    flushPendingEdits();
     const fileId = activeFileIdRef.current;
     if (fileId !== boundaryFileId) return { ok: true, skipped: true };
     const skipReasonAfterWait = boundarySkipReason();
@@ -252,7 +265,7 @@ export function useDocumentSaveBoundary({
       }));
     }
     return { ok: true };
-  }, [activeFileIdRef, documentObservedRevisionRef, documentOpenFailureRef, documentRef, documentSessionRef, externalChangeFileIdsRef, inFlightSavePromiseRef, isCurrentDocumentDirty, isEmbedded, mcpPreviewBusyRef, saveCurrentDocumentRecord, setVersionHistoryWarnings, t, workspaceReadyRef]);
+  }, [activeFileIdRef, documentObservedRevisionRef, documentOpenFailureRef, documentRef, documentSessionRef, externalChangeFileIdsRef, flushPendingEdits, inFlightSavePromiseRef, isCurrentDocumentDirty, isEmbedded, mcpPreviewBusyRef, saveCurrentDocumentRecord, setVersionHistoryWarnings, t, workspaceReadyRef]);
 
 
   const saveCurrentDocumentBeforeReplacement = useCallback(async (): Promise<boolean> => {
