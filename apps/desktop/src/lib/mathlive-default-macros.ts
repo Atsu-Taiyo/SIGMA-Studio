@@ -40,8 +40,8 @@ function readFromMountedField(): MathLiveMacroDictionary {
   host.inert = true;
   host.style.cssText = "position:fixed;top:0;left:-9999px;width:0;height:0;overflow:hidden;visibility:hidden;pointer-events:none";
   const field = new FieldElement() as MacroReadableField;
-  host.append(field);
-  document.body.append(host);
+  host.appendChild(field);
+  document.body.appendChild(host);
   try {
     // マウント前は throw する ("Mathfield not mounted")。読めなければ空へ倒し、描画は止めない。
     return { ...field.macros };

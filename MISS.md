@@ -65,4 +65,7 @@ R18. **提案のカードは本文フローの拡張ノードとしてページ�
 R19. **三者マージの退避は数える (R3)。**
 承認の合成 replay と採用マージが、重なった箇所で片側を採った・合成結果の代わりに AI 側を採った・旧レコードとして従来の replay に落とした回数は、renderer の `AiProposalMerge.*` カウンタと main の ledger (`proposal-merge-fallback`) に出す。重なりの無い通常の承認ではどれも 0 であることを e2e で確かめる (`tests/electron/ai-proposal-merge.spec.ts`)。退避を成功として黙って走らせると、常時発火していても気づけない。
 
+R20. **共有サーバーは配布中のアプリと同じ文書スキーマで検証する。スキーマを広げる変更は、サーバーの写しを先に同期・配備してから配布する。**
+共有サーバー (非公開リポの Worker) は、このリポの `apps/desktop` の文書モデル (`sigma-doc-schema`・図形の検証・共有文書の射影) の写しで、受け取った更新と AI 提案の承認を検証する。写しがアプリより古いと、アプリが新しく書く属性 (v0.517 の SVG 変換の `size: "xs"`・`dashPattern` など) を含む更新を `INVALID_REQUEST` で拒む。共有教材の更新は順に送るので、拒まれた 1 件より後の変更はすべて端末に溜まったまま送れない。AI 提案の承認は先に同期するのでそこで失敗し、「対象ブロックが変更または削除されている可能性」(競合) と表示され、同期状態は「オフライン」と出ていた。2026-10 に立体図形 (10/8〜14)・SVG 変換の図形 (10/15〜) で 2 度起き、どちらも人が見るのは誤った理由だった。(1) 写しは手で直さず、非公開リポの `scripts/sync-public-worker-sources.mjs` で公開リポの 1 コミットから Worker が読むファイルをまとめて取り、`--check` で照合する。(2) `overlay-validation.ts`・`sigma-doc-schema.ts` などで受け付ける値を足す変更は、そのコミットへサーバーを同期・配備してから配布する。(3) 同期・承認の失敗は理由どおりに見せる: サーバーの拒否 (400/409/413) は `syncFailureStatus` が `sync-rejected` に、承認前の同期・承認要求の失敗は `sharedApprovalFailure` が競合以外の文言にする。競合と呼ぶのは合成できない編集 (`PROPOSAL_CONFLICT`) だけ。検証は、拒まれた実際の更新を配備中の版の `SharedDocument.prepareUpdate` + `parseSigmaDocument` に通して確かめる (ledger の `shared-document-sync-failed` が `INVALID_REQUEST` を繰り返していたら最初に疑う)。
+
 ---

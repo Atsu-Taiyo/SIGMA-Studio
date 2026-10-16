@@ -14,6 +14,7 @@ import { findBlock } from "@/lib/document-tree";
 import { computeDocumentBlockHashes } from "@/lib/sigma-doc-block-hash";
 import type { CollaborationSessions } from "./sessions";
 import { readSharedProposal } from "./proposal-context";
+import { isServerRejection } from "./transport";
 import type { LocalMcpEditProposalStore } from "../local-sigma-doc-proposal-store";
 import type {
   ProposalApprovalPorts,
@@ -78,7 +79,7 @@ export function createSharedProposalApprover(
           );
           // This window's projection only catches up with the other participants on an online
           // flush; the merge and the rebuilt preconditions must read what the server holds now.
-          await sessions.flush(fileId, true);
+          await throughServer(() => sessions.flush(fileId, true));
           const before = sessions.project(fileId)!;
           const prepared = records.some(hasMergeBasis)
             ? await prepareMergedApproval(before, records, envelopes)
@@ -86,11 +87,12 @@ export function createSharedProposalApprover(
           let accepted: { seq: number } | undefined;
           let document = before;
           if (prepared.approval) {
-            accepted = await sessions.approve(
+            const approval = prepared.approval;
+            accepted = await throughServer(() => sessions.approve(
               fileId,
-              prepared.approval,
+              approval,
               proposals.map((proposal) => proposal.proposalId),
-            );
+            ));
             document = sessions.project(fileId)!;
           }
           // The merged proposals first, so a group is resolved with its replayed member's report.
@@ -142,19 +144,46 @@ export function createSharedProposalApprover(
             mergeReport: prepared.report,
           };
         } catch (error) {
-          return {
-            ok: false,
-            code: "conflict",
-            error: ports.translate(
-              String(error).includes("PROPOSAL_CONFLICT")
-                ? "electron.proposal.changedBeforeApproval"
-                : "electron.proposal.applyFailed",
-            ),
-          };
+          return sharedApprovalFailure(error, ports.translate);
         }
       },
     );
   };
+}
+
+/** A failure while this window talked to the sync server (the pre-approval sync or the approval itself). */
+class ServerStepError extends Error {
+  constructor(readonly reason: unknown) {
+    super(String(reason));
+  }
+}
+
+function throughServer<T>(step: () => Promise<T>): Promise<T> {
+  return step().catch((error: unknown) => {
+    throw new ServerStepError(error);
+  });
+}
+
+/**
+ * Only an edit the merge cannot keep is a conflict. Before approving, the shared document is synced:
+ * when that fails, nothing about the proposal's targets is known, and calling it a conflict ("the target
+ * was changed or deleted") sent people looking for an edit that never happened while the real cause —
+ * a server refusing the document's unsent edits, or no connection — went unnoticed (MISS.md R20).
+ */
+function sharedApprovalFailure(
+  error: unknown,
+  translate: ProposalApprovalPorts["translate"],
+): ApproveProposalResult {
+  if (String(error).includes("PROPOSAL_CONFLICT"))
+    return { ok: false, code: "conflict", error: translate("electron.proposal.changedBeforeApproval") };
+  if (error instanceof ServerStepError)
+    return {
+      ok: false,
+      error: translate(isServerRejection(error.reason)
+        ? "electron.proposal.sharedServerRejected"
+        : "electron.proposal.sharedSyncUnavailable"),
+    };
+  return { ok: false, code: "conflict", error: translate("electron.proposal.applyFailed") };
 }
 
 interface PreparedApproval {

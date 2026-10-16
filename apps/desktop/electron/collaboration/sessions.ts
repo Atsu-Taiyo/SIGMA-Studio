@@ -32,7 +32,7 @@ import type {
 } from "../../src/features/collaboration/model/bridge";
 import type { SharedApproval } from "../../src/features/collaboration/model/approval";
 import { CollaborationAuth, collaborationConfig } from "./auth";
-import { CollaborationHttpError, readResponseBytes, readResponseJson, responseError, retryDelay } from "./transport";
+import { CollaborationHttpError, readResponseBytes, readResponseJson, responseError, retryDelay, syncFailureStatus } from "./transport";
 import { durableWrite, SharedDocumentJournal } from "./journal";
 import { logLedgerEvent } from "../ledger-log";
 import { isRemoteId, validateAcknowledgements, validateApproval, validateDocumentIdentity, validateSnapshot, validateSync } from "./response-validation";
@@ -798,16 +798,7 @@ export class CollaborationSessions {
         this.logSaveFailure("shared-document-sync-failed", fileId, error);
         session.retryFailures = (session.retryFailures ?? 0) + 1;
         session.retryAt = Date.now() + retryDelay(session.retryFailures, error);
-        this.status(
-          fileId,
-          /EPOCH/.test(String(error))
-            ? "epoch-error"
-            : (error instanceof CollaborationHttpError && [401, 403].includes(error.status)) || /ACCESS|MEMBERSHIP|READ_ONLY|DOCUMENT_UNAVAILABLE|AUTH_REQUIRED|ACCOUNT_CHANGED/.test(
-                  String(error),
-                )
-              ? "permission-error"
-              : "offline",
-        );
+        this.status(fileId, syncFailureStatus(error));
         throw error;
       })
       .finally(() => {
