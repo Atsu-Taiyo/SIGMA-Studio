@@ -47,8 +47,10 @@ test("a shared document first opened in a split pane is editable offline and sen
     stalled.add(release);
     onEnd(() => stalled.delete(release));
   };
+  const requests: string[] = [];
   const server = createServer(async (request, response) => {
     const prefix = `/documents/${sharedId}`;
+    requests.push(`${online ? "online" : "offline"} ${request.method} ${request.url?.replace(prefix, "")}`);
     const json = (value: unknown) => response.writeHead(200, { "Content-Type": "application/json" }).end(JSON.stringify(value));
     if (!request.url?.startsWith(prefix)) {
       response.writeHead(503, { "Content-Type": "application/json" }).end('{"error":"FIXTURE_OFFLINE"}');
@@ -77,6 +79,7 @@ test("a shared document first opened in a split pane is editable offline and sen
   });
   const sockets = new WebSocketServer({ noServer: true });
   server.on("upgrade", (request, socket, head) => {
+    requests.push(`${online ? "online" : "offline"} upgrade`);
     if (request.url !== `/documents/${sharedId}/socket`) { socket.destroy(); return; }
     if (!online) {
       stall(() => socket.destroy(), (listener) => socket.once("close", listener));
@@ -95,12 +98,14 @@ test("a shared document first opened in a split pane is editable offline and sen
   };
   delete env.ELECTRON_RUN_AS_NODE;
   let app: ElectronApplication | undefined;
+  let appProcess: ReturnType<ElectronApplication["process"]> | undefined;
   const launch = async () => {
     // Linux CI encrypts the fixture login with the real Secret Service through Electron's own binary.
     const nativeKeyring = process.platform === "linux"
       ? { executablePath: createRequire(path.join(root, "package.json"))("electron") as string }
       : {};
     app = await electron.launch({ ...nativeKeyring, args: [root], cwd: root, env });
+    appProcess = app.process();
     const page = await app.firstWindow();
     await page.waitForFunction(() => Boolean(window.desktopAPI?.collaboration));
     return page;
@@ -195,20 +200,23 @@ test("a shared document first opened in a split pane is editable offline and sen
     await expect(page.getByText("SHARED_SESSION_WRITE_REQUIRED")).toHaveCount(0);
 
     const closeWindow = async () => {
-      // Wait for the window: macOS keeps the app running after its last window closes.
-      const fixtureProcess = app!.process();
-      const exited = new Promise<void>((resolve) => fixtureProcess.once("exit", () => resolve()));
-      const closed = page.waitForEvent("close", { timeout: 30_000 });
-      await app!.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].close());
-      await Promise.race([
-        closed,
-        // The page closing first rejects this wait; only a visible dialog is a failure.
-        page.getByRole("dialog", { name: "保存できませんでした" }).waitFor({ timeout: 20_000 })
-          .then(() => { throw new Error("The window close save failed"); }, () => closed),
+      // macOS keeps the app running after its last window closes; other platforms quit.
+      const fixtureProcess = appProcess!;
+      const exited = new Promise<void>((resolve) => {
+        if (fixtureProcess.exitCode !== null) resolve();
+        else fixtureProcess.once("exit", () => resolve());
+      });
+      const gone = Promise.race([page.waitForEvent("close", { timeout: 30_000 }).catch(() => undefined), exited]);
+      await app!.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].close()).catch(() => undefined);
+      // The page closing first rejects the dialog wait; only a visible dialog is a failure.
+      const failed = await Promise.race([
+        gone.then(() => false),
+        page.getByRole("dialog", { name: "保存できませんでした" }).waitFor({ timeout: 20_000 }).then(() => true, () => false),
       ]);
-      // Other platforms quit with their last window.
+      expect(failed).toBe(false);
+      await gone;
       if (process.platform === "darwin") await app!.close();
-      else await Promise.race([exited, new Promise((resolve) => setTimeout(resolve, 15_000)).then(() => app!.close())]);
+      else await Promise.race([exited, new Promise((resolve) => setTimeout(resolve, 15_000)).then(() => app!.close().catch(() => undefined))]);
       app = undefined;
     };
 
@@ -222,7 +230,10 @@ test("a shared document first opened in a split pane is editable offline and sen
     // Once the server is reachable, the retry sends the waiting edit, exactly once.
     online = true;
     for (const release of stalled) release();
-    await expect.poll(() => JSON.stringify(remote.project()), { timeout: 60_000 }).toContain("共有の本文を追記");
+    await expect.poll(() => JSON.stringify(remote.project()), { timeout: 60_000 }).toContain("共有の本文を追記").catch(async (error: unknown) => {
+      const sessions = await page.evaluate(() => window.desktopAPI!.collaboration!.info()).then((info) => info.sessions.map((session) => session.status), () => "unavailable");
+      throw new Error(`${String(error)}\nsessions: ${JSON.stringify(sessions)}\nrequests:\n${requests.join("\n")}`);
+    });
     await page.evaluate((fileId) => window.desktopAPI!.collaboration!.flush(fileId, true), seeded.sharedFileId);
     await page.screenshot({ path: testInfo.outputPath("03-sent.png") });
     expect(received.length).toBeGreaterThan(0);
@@ -235,10 +246,10 @@ test("a shared document first opened in a split pane is editable offline and sen
     await page.evaluate((fileId) => window.desktopAPI!.collaboration!.flush(fileId, true), seeded.sharedFileId);
     expect(received).toHaveLength(sent);
   } finally {
-    if (app) {
-      const fixtureProcess = app.process();
+    if (app && appProcess && appProcess.exitCode === null) {
+      const fixtureProcess = appProcess;
       const timer = setTimeout(() => fixtureProcess.kill("SIGKILL"), 5000);
-      try { await app.close(); } finally { clearTimeout(timer); }
+      try { await app.close().catch(() => undefined); } finally { clearTimeout(timer); }
     }
     for (const release of stalled) release();
     for (const client of sockets.clients) client.terminate();
