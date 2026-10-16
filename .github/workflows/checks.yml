@@ -103,6 +103,7 @@ jobs:
             printf "%s" "sigma-ci-fixture" | gnome-keyring-daemon --daemonize --components=secrets --unlock >/dev/null
             export XDG_CURRENT_DESKTOP=GNOME
             npm run test:e2e:electron -- \
+              tests/electron/ai-svg-conversion.spec.ts \
               tests/electron/open-document.spec.ts tests/electron/ipc-sender-security.spec.ts \
               tests/electron/file-names.spec.ts tests/electron/ai-inline-approval.spec.ts \
               tests/electron/whiteboard-focus.spec.ts tests/electron/graph-crop.spec.ts \
@@ -114,8 +115,7 @@ jobs:
               tests/electron/problem-custom-frame.spec.ts tests/electron/problem-frame-ai-chat.spec.ts \
               tests/electron/graph-axis-end.spec.ts tests/electron/pdf-math-fonts.spec.ts \
               tests/electron/ai-image-annotation.spec.ts tests/electron/ai-proposal-merge.spec.ts \
-              tests/electron/ai-svg-figure.spec.ts tests/electron/ai-svg-conversion.spec.ts \
-              tests/electron/extensions-dialog.spec.ts \
+              tests/electron/ai-svg-figure.spec.ts tests/electron/extensions-dialog.spec.ts \
               tests/electron/extensions-menu.spec.ts \
               tests/electron/local-fonts-menu.spec.ts tests/electron/math-ime-composition-scroll.spec.ts
           '
