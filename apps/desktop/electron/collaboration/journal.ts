@@ -31,6 +31,18 @@ interface LogRecord {
   checksum: string;
 }
 
+/** What `SharedDocumentJournal.inspect` learns without decoding the CRDT. */
+export interface JournalSummary {
+  binding: SharedBinding;
+  /** Updates written locally and not yet acknowledged by the server (the outbox). */
+  pending: number;
+}
+// `writeRecord` stores `JSON.stringify(record)`: only a locally written update carries
+// `"pending":true`, and only an acknowledgement carries `"kind":"ack"` (identity kinds are
+// manual/ai/undo/redo). Lines without either cannot change the outbox and are not parsed.
+const PENDING_UPDATE_MARK = '"pending":true';
+const ACK_MARK = '"kind":"ack"';
+
 function checksum(value: unknown): string {
   return createHash("sha256").update(stableValue(value)).digest("hex");
 }
@@ -100,6 +112,45 @@ export class SharedDocumentJournal {
     }
     await journal.writeCheckpoint();
     return journal;
+  }
+
+  /**
+   * 起動時に、共有教材の Yjs 文書を復号せずに、素性 (binding) と送信待ちの数だけを読む。
+   * 送信待ちは `open` が組み立てる outbox と同じ規則で数える (スナップショットの pending に、
+   * スナップショットより後の記録の送信待ちを足し、受領を引く。書きかけの末尾の行は読まない)。
+   * 整合性の検査 (checksum・連番) はしない。それは実際に開く `open` が行う。
+   */
+  static async inspect(directory: string): Promise<JournalSummary> {
+    const raw = JSON.parse(
+      await fs.readFile(path.join(directory, "snapshot.json"), "utf8"),
+    ) as { value?: Partial<Checkpoint> };
+    const value = raw.value;
+    if (value?.version !== 1 || !value.binding || typeof value.sequence !== "number" || !Array.isArray(value.pending))
+      throw new Error("CORRUPT_SNAPSHOT");
+    const outbox = new Set(value.pending.map((item) => item.identity.operationId));
+    let log = "";
+    try {
+      log = await fs.readFile(path.join(directory, "updates.jsonl"), "utf8");
+    } catch (error) {
+      if (!(
+        error &&
+        typeof error === "object" &&
+        "code" in error &&
+        error.code === "ENOENT"
+      ))
+        throw error;
+    }
+    if (outbox.size || log.includes(PENDING_UPDATE_MARK)) {
+      const complete = log.slice(0, log.lastIndexOf("\n") + 1);
+      for (const line of complete.split("\n")) {
+        if (!line.includes(PENDING_UPDATE_MARK) && !line.includes(ACK_MARK)) continue;
+        const record = JSON.parse(line) as LogRecord;
+        if (record.sequence <= value.sequence) continue;
+        if (record.payload.kind === "ack") outbox.delete(record.payload.operationId);
+        else if (record.payload.pending) outbox.add(record.payload.value.identity.operationId);
+      }
+    }
+    return { binding: value.binding, pending: outbox.size };
   }
 
   static async open(directory: string): Promise<SharedDocumentJournal> {
