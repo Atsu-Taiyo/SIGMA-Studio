@@ -109,6 +109,7 @@ jobs:
               tests/electron/overlay-text-input-latency.spec.ts tests/electron/browser-sidebar.spec.ts \
               tests/electron/large-library-editing.spec.ts \
               tests/electron/problem-display.spec.ts tests/electron/whiteboard-image-save.spec.ts \
+              tests/electron/small-shape-handles.spec.ts \
               tests/electron/page-column-side-notes.spec.ts \
               tests/electron/svg-to-sigma.spec.ts tests/electron/box-custom-frame.spec.ts \
               tests/electron/problem-custom-frame.spec.ts tests/electron/problem-frame-ai-chat.spec.ts \
