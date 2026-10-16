@@ -78,6 +78,8 @@ test("boxed text has square corners and an adjustable rounding for the oval styl
     await menu.getByRole("button", { name: "角丸", exact: true }).click();
     const stepper = menu.locator('[data-boxed-text-stepper="roundness"]');
     await expect(stepper.locator("output")).toHaveText("100%");
+    // 角丸に替わった枠が描かれるまで待ってから既定の丸みを測る (選んだ直後は前の四角い枠が残る)。
+    await expect.poll(() => radiusPx(page, "p_round")).toBeGreaterThan(1);
     const fullRadius = await radiusPx(page, "p_round");
     await zoomShot(page, "p_round", testInfo.outputPath("oval-100-x4.png"));
     for (let index = 0; index < 6; index += 1) {
@@ -105,6 +107,7 @@ test("boxed text has square corners and an adjustable rounding for the oval styl
     await expect(shape).toHaveClass(/selected/);
     await expect(shape.locator(".ProseMirror")).toHaveCount(0);
     // 本文で最後に選んだ 40% とは違う値 (30%) を持たせ、図形の文字から読んでいることを確かめる。
+    await expect.poll(shapeRadius).toBeGreaterThan(1);
     const shapeFullRadius = (await shapeRadius()) / 0.3;
     await page.locator(".editor-menubar .boxed-text-menu-trigger").click();
     await expect(menu.getByRole("button", { name: "角丸", exact: true })).toHaveClass(/applied/);
