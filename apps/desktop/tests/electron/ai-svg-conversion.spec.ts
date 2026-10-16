@@ -73,6 +73,8 @@ test("convert_svg_image measures with the app, is approved like any proposal, ma
     const approve = async () => {
       await page.getByRole("button", { name: "適用", exact: true }).first().click();
       await expect.poll(() => page.evaluate(() => window.desktopAPI!.storage.listMcpEditProposals({ status: "pending" }))).toEqual([]);
+      // Let the approval's animation and highlight finish before the page is measured.
+      await page.waitForTimeout(1500);
     };
 
     // The MCP server the AI talks to, pointed at this app's render bridge.
@@ -100,8 +102,9 @@ test("convert_svg_image measures with the app, is approved like any proposal, ma
 
     // 1. The figure as the AI drew it, approved.
     const image = await insertApproved({ targetId: "before_figure" });
-    const frame = page.locator(`.overlay-shape-image[data-overlay-shape-id="${image.id}"]`);
-    await expect.poll(() => frame.locator("img").evaluate((element: HTMLImageElement) => element.complete && element.naturalWidth)).toBeGreaterThan(0);
+    // The approval's transition can briefly draw the new image twice: measure the first.
+    const frame = page.locator(`.overlay-shape-image[data-overlay-shape-id="${image.id}"]`).first();
+    await expect.poll(() => frame.locator("img").first().evaluate((element: HTMLImageElement) => element.complete && element.naturalWidth)).toBeGreaterThan(0);
     await frame.scrollIntoViewIfNeeded();
     await page.mouse.move(20, 100);
     await page.waitForTimeout(500);
@@ -138,8 +141,8 @@ test("convert_svg_image measures with the app, is approved like any proposal, ma
 
     // 5. The same figure converted from the canvas menu lands on the same geometry: the app measured both.
     const copy = await insertApproved({ targetId: "before_figure", x: 120, y: 700 });
-    const copyFrame = page.locator(`.overlay-shape-image[data-overlay-shape-id="${copy.id}"]`);
-    await expect.poll(() => copyFrame.locator("img").evaluate((element: HTMLImageElement) => element.complete && element.naturalWidth)).toBeGreaterThan(0);
+    const copyFrame = page.locator(`.overlay-shape-image[data-overlay-shape-id="${copy.id}"]`).first();
+    await expect.poll(() => copyFrame.locator("img").first().evaluate((element: HTMLImageElement) => element.complete && element.naturalWidth)).toBeGreaterThan(0);
     await copyFrame.scrollIntoViewIfNeeded();
     const copyBox = (await copyFrame.boundingBox())!;
     await page.mouse.click(copyBox.x + copyBox.width / 2, copyBox.y + copyBox.height / 2, { button: "right" });
