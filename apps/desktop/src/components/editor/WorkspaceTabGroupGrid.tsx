@@ -9,6 +9,7 @@ import { BASE_EDITOR_FONT_SIZE, EMPTY_OVERLAY_SELECTION } from "@/components/edi
 import { PageCanvasEditor } from "@/components/editor/PageCanvasEditor";
 import { WORKSPACE_TAB_DRAG_TYPE } from "@/components/editor/WorkspaceTabStrip";
 import type { DocumentSession, DocumentSessionHost } from "@/features/document-session/contracts";
+import { isDocumentWritable } from "@/features/document-session/writable";
 import { getAppRuntime } from "@/lib/runtime";
 import { visibleCommentThreads } from "@/lib/comments";
 import { isWhiteboardPageLayout, normalizePageLayout, type SigmaDocument } from "@/features/document";
@@ -252,6 +253,10 @@ function BackgroundTabContent({
   const t = useT("editor");
   const { AiEditPanel } = useEditorHost().assistance;
   const fileId = tab.kind === "document" ? tab.fileId : tab.documentFileId;
+  // Every metadata refresh delivers a new `sharing` object. Depend on whether the file is
+  // shared, not on that object: re-running the effect releases and re-retains the visible
+  // file, which closes the shared document's connection (and can abort its first sync).
+  const shared = Boolean(metadata?.sharing);
   const [document, setDocument] = useState<SigmaDocument | null>(null);
   const [writable, setWritable] = useState(false);
   useEffect(() => {
@@ -263,7 +268,7 @@ function BackgroundTabContent({
     const refresh = () => {
       const request = ++generation;
       const session = sessionHost?.get(fileId);
-      setWritable(session?.writable ?? (!metadata?.sharing && !(sessionHost?.isReadOnly?.(fileId) ?? false)));
+      setWritable(isDocumentWritable(sessionHost, fileId, shared));
       if (session) {
         // Clone the projection for asset-only notifications without mutating the session.
         setDocument({ ...session.project() });
@@ -296,7 +301,7 @@ function BackgroundTabContent({
       unsubscribeAuthority?.();
       unsubscribeStorage();
     };
-  }, [fileId, sessionHost, metadata?.sharing]);
+  }, [fileId, sessionHost, shared]);
   if (!document) return <div className="workspace-tab-loading-preview" aria-label={t("tabGroups.loading")} />;
   if (tab.kind === "ai" && writable) {
     return (

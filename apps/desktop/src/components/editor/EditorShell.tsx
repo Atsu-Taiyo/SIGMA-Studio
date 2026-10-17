@@ -1,5 +1,6 @@
 "use client";
 import type { DocumentSessionHost } from "@/features/document-session/contracts";
+import { isDocumentWritable } from "@/features/document-session/writable";
 import { DocumentSessionContext,DocumentWritableContext } from "./document-session-context";
 import { DOCUMENT_BLOCK_OPERATION_PORTS } from "./editor-shell/document-operation-ports";
 import { scheduleEditorBlockFocus } from "./editor-shell/editor-focus";
@@ -683,6 +684,8 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
   // 教材の中身 (壊れたJSON / スキーマ違反) が原因で本文を組み立てられなかった教材。
   // その教材がアクティブな間だけ、編集キャンバスの代わりに原因と修復プロンプトを出す。
   const [documentMetadatas, setDocumentMetadatas] = useState<DocumentMetadata[]>([]);
+  const documentMetadatasRef = useRef(documentMetadatas);
+  useLayoutEffect(() => { documentMetadatasRef.current = documentMetadatas; }, [documentMetadatas]);
   const [openFileIds, setOpenFileIds] = useState<string[]>(() => [initialDocument.docId]);
   const [activeFileId, setActiveFileId] = useState(initialDocument.docId);
   const cameraByFileIdRef = useRef(new Map<string, { zoom: number; panX: number; panY: number }>());
@@ -703,15 +706,28 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
     void sessionHost.setActiveFile(workspaceReady ? activeFileId : null);
     return () => { void sessionHost.setActiveFile?.(null); };
   }, [activeFileId, sessionHost, workspaceReady]);
+  // A shared file is written only through its session: main rejects a JSON save of it
+  // (SHARED_SESSION_WRITE_REQUIRED). Loading waits for the session, so this only covers the
+  // moment a file is shared while open: edits wait for the session instead of collecting in
+  // a JSON copy that can never be saved. The connection itself never blocks editing.
+  const activeFileShared = useMemo(
+    () => Boolean(sessionHost) && documentMetadatas.some((item) => item.fileId === activeFileId && Boolean(item.sharing)),
+    [activeFileId, documentMetadatas, sessionHost],
+  );
+  const awaitingSharedSession = activeFileShared && !documentSession;
   const sessionWritable = useSyncExternalStore(
     listener => {
       const unsubscribeSession = documentSession?.subscribe(listener) ?? (() => {});
       const unsubscribeAuthority = sessionHost?.subscribeAuthority?.(listener) ?? (() => {});
       return () => { unsubscribeSession(); unsubscribeAuthority(); };
     },
-    () => sessionHost?.get(activeFileId)?.writable ?? !(sessionHost?.isReadOnly?.(activeFileId) ?? false),
-    () => sessionHost?.get(activeFileId)?.writable ?? !(sessionHost?.isReadOnly?.(activeFileId) ?? false),
+    () => isDocumentWritable(sessionHost, activeFileId, activeFileShared),
+    () => isDocumentWritable(sessionHost, activeFileId, activeFileShared),
   );
+  useEffect(() => {
+    if (!awaitingSharedSession || !workspaceReady) return;
+    void sessionHost?.attachSession?.(activeFileId, true);
+  }, [activeFileId, awaitingSharedSession, sessionHost, workspaceReady]);
   const sessionWritableRef = useRef(sessionWritable);
   useLayoutEffect(() => { sessionWritableRef.current = sessionWritable; }, [sessionWritable]);
   const activeFileIdRef = useRef(activeFileId);
@@ -869,7 +885,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
   const [mcpPreviewBusy, setMcpPreviewBusy] = useState(false);
   const aiDocumentWriteInProgress = mcpPreviewBusy || !sessionWritable;
   const sessionEditExtensions = useMemo(() => sessionWritable ? undefined
-    : sessionReadOnlyExtensions(t("collaboration.readOnlyDocument")), [sessionWritable, t]);
+    : sessionReadOnlyExtensions(t(awaitingSharedSession ? "collaboration.sessionOpening" : "collaboration.readOnlyDocument")), [awaitingSharedSession, sessionWritable, t]);
   // 絞り込みで隠した領域に錨を下ろした図形は、見せず・触らせず・書き換えさせない (`useProblemDisplayEditing`)。
   const problemDisplayEditing = useProblemDisplayEditing(document, problemDisplayActive ? problemDisplay : undefined);
   const pageEditorExtensions = useMemo(
@@ -1554,7 +1570,19 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
   }, [refreshDocumentMetadatas, resetEditorDocument, saveWorkspaceState, setSaveState, setStatusMessage]);
 
   const rememberPristineDraft = useCallback((fileId: string, initial: SigmaDocument) => { untouchedNewDocumentsRef.current.set(fileId, initial); }, []);
-  const { documentOpenFailure, documentOpenFailureRef, showRecordedDocumentOpenFailure, enterDocumentOpenFailureState, loadWorkspaceDocument } = useDocumentRecovery({ announceRecovery, rememberPristineDraft, activateFailedDocument });
+  const { documentOpenFailure, documentOpenFailureRef, showRecordedDocumentOpenFailure, enterDocumentOpenFailureState, loadWorkspaceDocument: loadRecoveredWorkspaceDocument } = useDocumentRecovery({ announceRecovery, rememberPristineDraft, activateFailedDocument });
+  // Opening a shared file makes main announce its session. Show the file only once that
+  // session is attached, so its edits go to the session (journaled locally, sent when the
+  // sync gets through) and never to a JSON copy that main rejects; the editor never flashes
+  // read-only meanwhile. A file the host holds back until its session arrives (`isReadOnly`)
+  // counts as shared even before the library list has loaded (startup).
+  const loadWorkspaceDocument = useCallback(async (fileId: string) => {
+    const loaded = await loadRecoveredWorkspaceDocument(fileId);
+    const shared = documentMetadatasRef.current.some((item) => item.fileId === fileId && Boolean(item.sharing))
+      || (sessionHost?.isReadOnly?.(fileId) ?? false);
+    if (loaded && sessionHost?.attachSession) await sessionHost.attachSession(fileId, shared);
+    return loaded;
+  }, [loadRecoveredWorkspaceDocument, sessionHost]);
 
   const isCurrentDocumentDirty = useCallback(() => {
     return !areSigmaDocumentsEquivalent(documentRef.current, lastSavedDocumentRef.current);

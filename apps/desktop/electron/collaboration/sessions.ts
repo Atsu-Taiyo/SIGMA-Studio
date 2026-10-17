@@ -667,9 +667,12 @@ export class CollaborationSessions {
     this.registry.files[fileId] = { sharedDocumentId, actorId, role: snapshot.role, operationId: randomUUID(), initialized: true, journalDirectory };
     await this.saveRegistry();
     this.sessions.set(fileId, { journal, role: snapshot.role, status: "syncing", tail: Promise.resolve(), assets: {}, viewing: (this.viewedFileId === fileId || this.visibleFileIds.has(fileId)) });
-    await this.loadAssets(fileId, true);
-    await this.flush(fileId, true);
+    // From here on every write to this file goes through the session, so hand it to the
+    // renderers now (a later open returns early above and announces nothing). The snapshot
+    // is current; edits are journaled locally and sent once the first sync gets through.
+    // That sync also downloads images, which `assetResponse` fetches on demand meanwhile.
     this.emit({ type: "reset", fileId });
+    void this.backgroundFlush(fileId);
     return this.project(fileId)!;
   }
   async join(token: string): Promise<{ fileId: string }> {

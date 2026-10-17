@@ -67,4 +67,10 @@ export interface DocumentSessionHost {
   isReadOnly?(fileId: string): boolean;
   /** Subscribe when session availability or file authority changes. */
   subscribeAuthority?(listener: () => void): () => void;
+  /**
+   * Resolves once `get` returns the session of a file the library lists as shared (`shared`),
+   * rereading the host's sessions if needed, or once the host has found none. Resolves at
+   * once for other files. Editors await it before showing a shared file they just loaded.
+   */
+  attachSession?(fileId: string, shared: boolean): Promise<void>;
 }

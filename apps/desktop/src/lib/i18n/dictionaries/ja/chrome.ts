@@ -28,6 +28,7 @@ export const chrome = {
     inheritedFrom: "{{name}}から継承：{{role}}",
 
     readOnlyDocument: "この教材は閲覧のみです。共有権限を確認してください。",
+    sessionOpening: "共有教材を開いています。少し待ってから入力してください。",
     settingsTitle: "共有設定",
     shareTitle: "「{{name}}」を共有",
     inviteHeading: "招待",
