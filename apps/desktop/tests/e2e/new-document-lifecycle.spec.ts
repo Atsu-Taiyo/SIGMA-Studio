@@ -10,6 +10,7 @@ test.beforeEach(async ({ page }) => {
 
 test("closing an untouched new material removes its file", async ({ page }) => {
   await page.getByRole("button", { name: "新規教材", exact: true }).click();
+  await page.getByRole("dialog", { name: /を作成しました$/ }).getByRole("button", { name: "閉じる" }).click();
   await expect(page.locator(".document-tab")).toHaveCount(2);
   await page.getByLabel("無題の教材 のタブを閉じる").click();
   await expect(page.locator(".document-tab")).toHaveCount(1);
@@ -18,6 +19,7 @@ test("closing an untouched new material removes its file", async ({ page }) => {
 
 test("renaming a new material retains it and saves the name immediately", async ({ page }) => {
   await page.getByRole("button", { name: "新規教材", exact: true }).click();
+  await page.getByRole("dialog", { name: /を作成しました$/ }).getByRole("button", { name: "閉じる" }).click();
   await expect(page.locator(".document-tab")).toHaveCount(2);
   await page.getByLabel("教材タイトル").fill("残す教材");
   await page.getByLabel("教材タイトル").press("Tab");
@@ -29,6 +31,7 @@ test("renaming a new material retains it and saves the name immediately", async 
 
 test("a material remains after writing and undoing its content", async ({ page }) => {
   await page.getByRole("button", { name: "新規教材", exact: true }).click();
+  await page.getByRole("dialog", { name: /を作成しました$/ }).getByRole("button", { name: "閉じる" }).click();
   await expect(page.locator(".document-tab")).toHaveCount(2);
   await page.locator(".page-flow .tiptap").first().click();
   await page.keyboard.insertText("朝");
@@ -40,6 +43,7 @@ test("a material remains after writing and undoing its content", async ({ page }
 
 test("closing an inactive untouched tab leaves the current material active", async ({ page }) => {
   await page.getByRole("button", { name: "新規教材", exact: true }).click();
+  await page.getByRole("dialog", { name: /を作成しました$/ }).getByRole("button", { name: "閉じる" }).click();
   await expect(page.locator(".document-tab")).toHaveCount(2);
   await page.getByRole("tab", { name: "残す教材", exact: true }).click();
   await page.getByLabel("無題の教材 のタブを閉じる").click();
@@ -49,6 +53,7 @@ test("closing an inactive untouched tab leaves the current material active", asy
 
 test("closing the last untouched tab returns to the workspace", async ({ page }) => {
   await page.getByRole("button", { name: "新規教材", exact: true }).click();
+  await page.getByRole("dialog", { name: /を作成しました$/ }).getByRole("button", { name: "閉じる" }).click();
   await expect(page.locator(".document-tab")).toHaveCount(2);
   await page.getByLabel("残す教材 のタブを閉じる").click();
   await expect(page.locator(".document-tab")).toHaveCount(1);

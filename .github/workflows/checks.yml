@@ -103,20 +103,31 @@ jobs:
             printf "%s" "sigma-ci-fixture" | gnome-keyring-daemon --daemonize --components=secrets --unlock >/dev/null
             export XDG_CURRENT_DESKTOP=GNOME
             npm run test:e2e:electron -- \
+              tests/electron/ai-svg-conversion.spec.ts \
               tests/electron/open-document.spec.ts tests/electron/ipc-sender-security.spec.ts \
               tests/electron/file-names.spec.ts tests/electron/ai-inline-approval.spec.ts \
+              tests/electron/math-ime-placeholder.spec.ts \
               tests/electron/whiteboard-focus.spec.ts tests/electron/graph-crop.spec.ts \
               tests/electron/overlay-text-input-latency.spec.ts tests/electron/browser-sidebar.spec.ts \
+              tests/electron/overlay-math-box-toggle.spec.ts tests/electron/boxed-text-corners.spec.ts \
               tests/electron/large-library-editing.spec.ts \
+              tests/electron/shared-lazy-open.spec.ts \
               tests/electron/problem-display.spec.ts tests/electron/whiteboard-image-save.spec.ts \
+              tests/electron/small-shape-handles.spec.ts \
               tests/electron/page-column-side-notes.spec.ts \
+              tests/electron/shared-split-pane-save.spec.ts \
               tests/electron/svg-to-sigma.spec.ts tests/electron/box-custom-frame.spec.ts \
               tests/electron/problem-custom-frame.spec.ts tests/electron/problem-frame-ai-chat.spec.ts \
+              tests/electron/problem-tags-ime.spec.ts \
               tests/electron/graph-axis-end.spec.ts tests/electron/pdf-math-fonts.spec.ts \
               tests/electron/ai-image-annotation.spec.ts tests/electron/ai-proposal-merge.spec.ts \
+              tests/electron/overlay-mode-switch-position.spec.ts \
               tests/electron/ai-svg-figure.spec.ts tests/electron/extensions-dialog.spec.ts \
+              tests/electron/close-right-after-shape-edit.spec.ts \
+              tests/electron/shared-sync-rejected.spec.ts \
               tests/electron/extensions-menu.spec.ts \
-              tests/electron/local-fonts-menu.spec.ts tests/electron/math-ime-composition-scroll.spec.ts
+              tests/electron/local-fonts-menu.spec.ts tests/electron/math-ime-composition-scroll.spec.ts \
+              tests/electron/graph-expression-backspace.spec.ts tests/electron/math-unclosed-paren.spec.ts
           '
       - uses: actions/upload-artifact@v7
         if: failure()

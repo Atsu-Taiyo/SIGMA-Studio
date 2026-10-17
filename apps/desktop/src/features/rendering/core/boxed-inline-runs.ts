@@ -1,4 +1,4 @@
-import type { InlineNode } from "@/features/document";
+import { DEFAULT_BOXED_ROUNDNESS, normalizeBoxedRoundness, type InlineNode } from "@/features/document";
 
 const ZERO_WIDTH_TEXT = /[\u200B-\u200D\uFEFF]/g;
 const LINE_OVERLAP_TOLERANCE_PX = 1;
@@ -12,15 +12,23 @@ export function scaleBoxedRunRects<T extends BoxedRunRect>(rects: T[], zoom: num
 
 export interface BoxedInlineStyleSource {
   boxedPaddingY?: unknown;
+  boxedRoundness?: unknown;
   boxedTone?: unknown;
   boxedVariant?: unknown;
   paddingY?: unknown;
+  roundness?: unknown;
   tone?: unknown;
   variant?: unknown;
 }
 
 export interface NormalizedBoxedInlineStyle {
   paddingY?: number;
+  /**
+   * Corner roundness of an `oval` box in percent (0–99). Absent for every other variant (their
+   * corners are square) and for the default full rounding, so only a value that changes the
+   * drawing reaches the DOM or splits a run.
+   */
+  roundness?: number;
   tone?: string;
   variant?: string;
 }
@@ -143,6 +151,7 @@ export function boxedInlineRunSignature(children: readonly InlineNode[]): string
         child.boxedPaddingY ?? "",
         child.boxedVariant ?? "",
         child.boxedTone ?? "",
+        child.boxedRoundness ?? "",
         child.color ?? "",
         child.backgroundColor ?? "",
         child.fontFamily ?? "",
@@ -157,6 +166,7 @@ export function boxedInlineRunSignature(children: readonly InlineNode[]): string
       child.boxedPaddingY ?? "",
       child.boxedVariant ?? "",
       child.boxedTone ?? "",
+      child.boxedRoundness ?? "",
     ].join(":");
   }).join("|");
 }
@@ -166,14 +176,20 @@ export function getBoxedInlineStyleKey(source: BoxedInlineStyleSource): string {
   const paddingY = normalized.paddingY ?? 0;
   const variant = normalized.variant ?? "frame";
   const tone = normalized.tone ?? "";
-  return `${paddingY}|${variant}|${tone}`;
+  const roundness = normalized.roundness === undefined ? "" : `|${normalized.roundness}`;
+  return `${paddingY}|${variant}|${tone}${roundness}`;
 }
 
 export function normalizeBoxedInlineStyle(source: BoxedInlineStyleSource): NormalizedBoxedInlineStyle {
+  const variant = firstNonEmptyString(source.boxedVariant, source.variant);
+  const roundness = variant === "oval"
+    ? normalizeBoxedRoundness(firstFiniteNumber(source.boxedRoundness, source.roundness))
+    : undefined;
   return {
     paddingY: firstFiniteNumber(source.boxedPaddingY, source.paddingY),
-    variant: firstNonEmptyString(source.boxedVariant, source.variant),
+    variant,
     tone: firstNonEmptyString(source.boxedTone, source.tone),
+    ...(roundness !== undefined && roundness !== DEFAULT_BOXED_ROUNDNESS ? { roundness } : {}),
   };
 }
 

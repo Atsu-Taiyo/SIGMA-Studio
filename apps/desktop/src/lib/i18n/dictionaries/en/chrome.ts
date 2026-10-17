@@ -26,6 +26,7 @@ export const chrome = {
     inheritedFrom: "Inherited from {{name}}: {{role}}",
 
     readOnlyDocument: "This document is read-only. Check your sharing access.",
+    sessionOpening: "Opening the shared document. Wait a moment, then type again.",
     settingsTitle: "Sharing settings",
     shareTitle: "Share “{{name}}”",
     inviteHeading: "Invite",
@@ -78,7 +79,7 @@ export const chrome = {
     owner: "Owner", admin: "Admin", editor: "Can edit", viewer: "View only", me: "You", members: "People", remove: "Remove access", retry: "Reconnect", localCopy: "Save a local copy",
     stop: "Stop sharing", leave: "Leave shared material", delete: "Delete from server", confirmEnd: "End collaboration?", endDescription: "Previously saved content remains on each device. Save a local copy first if you need one.", cancel: "Cancel",
     error: "The action could not be completed. Check your connection and access, then try again.", working: "Preparing", ready: "Joined. Open the material from your library.",
-    status: { "epoch-error": "Shared document restored", "local-saving": "Saving on device", "local-saved": "Saved on device · Not synced", syncing: "Syncing", saved: "Saved to cloud", offline: "Offline", "permission-error": "Check sharing access", "save-error": "Save failed" },
+    status: { "epoch-error": "Shared document restored", "local-saving": "Saving on device", "local-saved": "Saved on device · Not synced", syncing: "Syncing", saved: "Saved to cloud", offline: "Offline", "sync-rejected": "Saved on device · Server refused changes", "permission-error": "Check sharing access", "save-error": "Save failed" },
     plan: {
       reasons: {
         documentLimit: {
@@ -206,6 +207,11 @@ export const chrome = {
     untitledWhiteboard: "Untitled whiteboard",
     newFromTemplate: "From a template",
     library: "Material list",
+    /** In the New material menu: pick the workspace to create a blank material in. */
+    newInWorkspaceGroup: "Workspace to create in",
+    newInWorkspace: "Create in {{name}}",
+    newTargetDefault: "Where clicking New material creates it",
+    newTargetsLoading: "Loading workspaces",
   },
   actions: {
     reportIssue: "Report an issue",
@@ -308,6 +314,9 @@ export const chrome = {
       padding: "Vertical padding",
       paddingDecrease: "Decrease vertical padding by 1px",
       paddingIncrease: "Increase vertical padding by 1px",
+      roundness: "Corner roundness",
+      roundnessDecrease: "Decrease corner roundness by {{step}}%",
+      roundnessIncrease: "Increase corner roundness by {{step}}%",
       variant: {
         frame: "Thin",
         thick: "Thick",

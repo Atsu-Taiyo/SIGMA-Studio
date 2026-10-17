@@ -307,6 +307,7 @@ function boxedElement(
 ): RichTextDomElement {
   const spec = boxedInlineDomSpec({
     boxedPaddingY: boxed.paddingY,
+    boxedRoundness: boxed.roundness,
     boxedTone: boxed.tone,
     boxedVariant: boxed.variant,
   }, { math: boxed.math });
@@ -366,7 +367,7 @@ export function boxedSelfContainedStyle(boxed: RichTextBoxDecoration): RichTextD
 const BOXED_FRAME_STYLE: RichTextDomStyle = {
   border:
     "var(--boxed-text-border-width, 1px) var(--boxed-text-border-style, solid) var(--boxed-text-border-color, currentColor)",
-  "border-radius": "var(--boxed-text-border-radius, 2px)",
+  "border-radius": "var(--boxed-text-border-radius, 0)",
   "background-color": "var(--boxed-text-background, transparent)",
 };
 

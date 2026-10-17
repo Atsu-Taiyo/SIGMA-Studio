@@ -6,6 +6,7 @@ import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { normalizeOverlaySnapshot } from "@/features/document";
 import { sampleDocument } from "@/lib/sample-document";
+import { convertSvgImageToSigma } from "@/lib/svg-to-sigma";
 import { LocalAiEditRunContextStore } from "../electron/ai-edit-run-context";
 import { LocalSigmaDocStore } from "../electron/local-sigma-doc-store";
 import { LocalMcpEditProposalStore } from "../electron/local-sigma-doc-proposal-store";
@@ -152,5 +153,27 @@ describe("official skill examples against the app-profile MCP tools", () => {
     expect(image.props.w).toBe(320);
     expect(image.props.h).toBeCloseTo(220, 5);
     expect(image.anchor).toMatchObject({ type: "block", blockId: "p_skill" });
+  });
+
+  it("splits every sigma-svg-figure example completely when the inserted image is converted to shapes", async () => {
+    // スキルの例を w 省略で実際に挿入し、提案の画像を画面の「図形に変換」と同じ変換器にかける。
+    const seen = new Set<string>();
+    for (const svg of await fences("sigma-svg-figure", "svg")) {
+      const result = await client.callTool({
+        name: "insert_svg_image",
+        arguments: { fileId, expectedRevision: 1, runId: "skill_run", targetId: "p_skill", svg, name: "変換の確認" },
+      });
+      expect(result.structuredContent).toMatchObject({ ok: true });
+      const record = (await proposals.listProposals({ status: "pending" })).find((item) => !seen.has(item.proposalId))!;
+      seen.add(record.proposalId);
+      const proposal = (await proposals.loadProposal(record.proposalId))!;
+      const snapshot = normalizeOverlaySnapshot(proposal.nextDocument.pageLayout?.overlay?.overlaySnapshot);
+      const image = snapshot.shapes.at(-1)!;
+      const converted = convertSvgImageToSigma(snapshot, image.id);
+      expect(converted.preservedCount, svg).toBe(0);
+      // viewBox の1単位が1pxなので、区分の値で書いた線の太さはそのまま (主線2=中、補助線1.25=細)。
+      const sizes = converted.snapshot.shapes.flatMap((shape) => shape.type === "line" || shape.type === "geo" ? [shape.props.size] : []);
+      expect(sizes.every((size) => size === "m" || size === "s"), svg).toBe(true);
+    }
   });
 });

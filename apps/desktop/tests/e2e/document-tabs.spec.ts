@@ -128,6 +128,7 @@ test("creates, switches, closes, and reopens Chrome-like document tabs", async (
 
   await page.getByLabel("教材タイトル").fill("教材A");
   await page.getByRole("button", { name: "新規教材", exact: true }).click();
+  await page.getByRole("dialog", { name: /を作成しました$/ }).getByRole("button", { name: "閉じる" }).click();
   await expect(page.locator(".document-tab")).toHaveCount(2);
 
   await page.getByLabel("教材タイトル").fill("教材B");
@@ -161,6 +162,7 @@ test("creates, switches, closes, and reopens Chrome-like document tabs", async (
   for (let index = 0; index < 8; index += 1) {
     const expectedCount = index + 3;
     await page.getByRole("button", { name: "新規教材", exact: true }).click();
+    await page.getByRole("dialog", { name: /を作成しました$/ }).getByRole("button", { name: "閉じる" }).click();
     await expect(page.locator(".document-tab")).toHaveCount(expectedCount);
   }
 

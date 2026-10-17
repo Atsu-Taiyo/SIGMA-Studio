@@ -119,9 +119,16 @@ import {
   type AiEditReference,
 } from "@/lib/ai/ai-edit-reference";
 import {
+  AI_SVG_CONVERSION_LINE_SIZES,
+  convertSvgImageShape,
+  isSvgImageAsset,
+  SvgConversionError,
+} from "@/lib/svg-to-sigma";
+import {
   applySigmaDocMutationOp,
   EditableBlockSchema,
   isAllowedAiOverlayAssetSource,
+  MAX_AI_OVERLAY_ASSETS_PER_OPERATION,
   type AiEditDraft,
   type AiEditSessionDocumentDraft,
   type SigmaDocMutationOp,
@@ -140,7 +147,7 @@ import { buildGraph3DPresetNames } from "@/lib/graph3d-preset-names";
 import { createTranslator, type Translate } from "@/lib/i18n";
 import { formatGraphIssue, getGraphIssues, getGraphPlotBox } from "@/lib/graph2d";
 import { formatValidationError } from "@/lib/validation-text";
-import { isSigmaValidationError } from "@/features/document";
+import { isSigmaValidationError, normalizeBoxedRoundness } from "@/features/document";
 import { ptToPx } from "@/lib/font-size-units";
 import { createId } from "@/lib/id";
 import { parseMarkdownToTextFlowBlocks } from "@/lib/markdown-to-text-flow";
@@ -247,6 +254,7 @@ export type SigmaDocAgentDraftToolName =
   | "draft_insert_graph_shape"
   | "draft_insert_svg_image"
   | "draft_update_svg_image"
+  | "draft_convert_svg_image"
   | "draft_insert_generated_image"
   | "draft_update_generated_image"
   | "draft_attach_image_asset"
@@ -889,6 +897,26 @@ export const DraftUpdateSvgImageArgsSchema = z.object({
   name: z.string().min(1).max(200).optional(),
 });
 
+export const DraftConvertSvgImageArgsSchema = z.object({
+  shapeId: z.string().min(1),
+});
+
+/**
+ * How `draft_convert_svg_image` measured text and math: with the app's own renderer (the same
+ * measurement as "図形に変換" on the canvas), or estimated by the converter when no renderer could be
+ * reached. The host passes the measured result; the model never writes it.
+ */
+export type SvgConversionMeasurement = "app" | "estimate";
+
+const MeasuredSvgConversionSchema = z.object({
+  shapes: z.array(z.custom<OverlayShape>((value) => typeof value === "object" && value !== null)).min(1),
+  assets: z.record(z.string(), z.custom<OverlayAsset>((value) => typeof value === "object" && value !== null)).default({}),
+  convertedCount: z.number().int().nonnegative(),
+  preservedCount: z.number().int().nonnegative(),
+  textCount: z.number().int().nonnegative(),
+  mathCount: z.number().int().nonnegative(),
+});
+
 export const DraftAttachImageAssetArgsSchema = z.object({
   targetId: z.string().min(1).optional(),
   area: ProblemAreaSchema.optional(),
@@ -1110,6 +1138,9 @@ function summarizeSigmaDocMutationOp(op: SigmaDocMutationOp): SigmaDocOperationS
   if (op.operation === "updateOverlayShape") {
     return { type: op.operation, shapeIds: [op.shapeId], summaryText: op.summary };
   }
+  if (op.operation === "replaceOverlayShape") {
+    return { type: op.operation, shapeIds: op.shapes.map((shape) => shape.id), summaryText: op.summary };
+  }
   if (op.operation === "updatePageLayout") {
     return { type: op.operation, summaryText: op.summary };
   }
@@ -1202,6 +1233,8 @@ function runDraftTool(
       return draftInsertSvgImage(session, args);
     case "draft_update_svg_image":
       return draftUpdateSvgImage(session, args);
+    case "draft_convert_svg_image":
+      return draftConvertSvgImage(session, args);
     case "draft_insert_generated_image":
       return draftInsertGeneratedImage(session, args);
     case "draft_update_generated_image":
@@ -2676,6 +2709,59 @@ function draftUpdateSvgImage(session: SigmaDocAgentSession, rawArgs: Record<stri
   });
 }
 
+/**
+ * Proposes what "図形に変換" makes of an SVG image: the image keeps its id and stack position and becomes
+ * a group of lines, shapes, text and math (`replaceOverlayShape`). The host hands over the conversion it
+ * measured with the app's renderer (`measuredConversion`); without one the same converter estimates text
+ * and math. Strokes stay at "細" (s) or thicker (`AI_SVG_CONVERSION_LINE_SIZES`).
+ */
+function draftConvertSvgImage(session: SigmaDocAgentSession, rawArgs: Record<string, unknown>): SigmaDocAgentToolResult {
+  const args = DraftConvertSvgImageArgsSchema.parse(rawArgs);
+  const snapshot = normalizeOverlaySnapshot(session.draftDocument.pageLayout?.overlay?.overlaySnapshot);
+  const image = snapshot.shapes.find((candidate) => candidate.id === args.shapeId);
+  const asset = image?.type === "image" ? snapshot.assets[image.props.assetId] : undefined;
+  if (!image || image.type !== "image" || !isSvgImageAsset(asset)) throw new Error(tv("svg.convertTarget"));
+  const shapesById = new Map(snapshot.shapes.map((shape) => [shape.id, shape]));
+  for (let current: OverlayShape | undefined = image; current; current = current.parentId ? shapesById.get(current.parentId) : undefined) {
+    if (current.locked) throw new Error(tv("svg.convertLocked"));
+  }
+  const measured = rawArgs.measuredConversion === undefined ? null : MeasuredSvgConversionSchema.parse(rawArgs.measuredConversion);
+  const measurement: SvgConversionMeasurement = measured ? "app" : "estimate";
+  let conversion: z.infer<typeof MeasuredSvgConversionSchema>;
+  try {
+    conversion = measured ?? convertSvgImageShape({ image, asset }, undefined, undefined, undefined, { lineSizes: AI_SVG_CONVERSION_LINE_SIZES });
+  } catch (error) {
+    if (error instanceof SvgConversionError) {
+      throw new Error(tv(error.reason === "source" ? "svg.convertSource" : "svg.convertUnsupported"));
+    }
+    throw error;
+  }
+  if (conversion.shapes[0]?.id !== image.id) throw new Error(tv("svg.convertStale"));
+  const keptCount = Object.keys(conversion.assets).length;
+  if (keptCount > MAX_AI_OVERLAY_ASSETS_PER_OPERATION) {
+    throw new Error(tv("svg.convertTooManyKept", { count: keptCount, max: MAX_AI_OVERLAY_ASSETS_PER_OPERATION }));
+  }
+  const summary = tv(measurement === "app" ? "svg.converted" : "svg.convertedEstimated", { count: conversion.convertedCount });
+  return commitSigmaDocMutation(session, {
+    operation: "replaceOverlayShape",
+    summary,
+    shapeId: image.id,
+    shapes: conversion.shapes,
+    ...(keptCount > 0 ? { assets: conversion.assets } : {}),
+  }, {
+    conversion: {
+      measurement,
+      convertedCount: conversion.convertedCount,
+      keptAsSvgCount: conversion.preservedCount,
+      textCount: conversion.textCount,
+      mathCount: conversion.mathCount,
+      groupId: image.id,
+      shapeIds: conversion.shapes.slice(conversion.shapes.length > 1 ? 1 : 0).map((shape) => shape.id),
+      ...(measurement === "estimate" ? { note: tv("svg.estimatedNote") } : {}),
+    },
+  });
+}
+
 function draftInsertGeneratedImage(session: SigmaDocAgentSession, rawArgs: Record<string, unknown>): SigmaDocAgentToolResult {
   const args = DraftInsertGeneratedImageArgsSchema.parse(rawArgs);
   const image = GeneratedImageAttachmentSchema.parse(rawArgs.generatedImage);
@@ -2823,6 +2909,14 @@ function summarizeOperationForToolData(operation: AiEditDraft): AiEditDraft {
 }
 
 function summarizeMutationOpForToolData(op: SigmaDocMutationOp): SigmaDocMutationOp {
+  if (op.operation === "replaceOverlayShape") {
+    // The replacement's shapes are many and the model reads them back with get_document_outline: return their ids only.
+    return {
+      ...op,
+      shapes: op.shapes.map((shape) => ({ id: shape.id, type: shape.type, ...(shape.parentId ? { parentId: shape.parentId } : {}) }) as OverlayShape),
+      ...(op.assets ? { assets: summarizeAssetsForToolData(op.assets) } : {}),
+    };
+  }
   return op.operation === "updateOverlayShape" && Object.keys(op.assets ?? {}).length > 0
     ? { ...op, assets: summarizeAssetsForToolData(op.assets!) }
     : op;
@@ -2891,6 +2985,9 @@ function collectSigmaDocMutationChangedIds(op: SigmaDocMutationOp): string[] {
   }
   if (op.operation === "updateOverlayShape") {
     return [op.shapeId];
+  }
+  if (op.operation === "replaceOverlayShape") {
+    return op.shapes.map((shape) => shape.id);
   }
   if (op.operation === "updatePageLayout") {
     return [];
@@ -3423,6 +3520,7 @@ function createTextInline(text: string, source: Record<string, unknown>): Inline
     ...(positiveNumberOrUndefined(source.boxedPaddingY) ? { boxedPaddingY: positiveNumberOrUndefined(source.boxedPaddingY) } : {}),
     ...(boxedVariant ? { boxedVariant } : {}),
     ...(boxedTone ? { boxedTone } : {}),
+    ...(normalizeBoxedRoundness(source.boxedRoundness) !== undefined ? { boxedRoundness: normalizeBoxedRoundness(source.boxedRoundness) } : {}),
   };
 }
 
@@ -3445,6 +3543,7 @@ function createMathInline(tex: string, id: unknown, source: Record<string, unkno
     ...(positiveNumberOrUndefined(source.boxedPaddingY) ? { boxedPaddingY: positiveNumberOrUndefined(source.boxedPaddingY) } : {}),
     ...(boxedVariant ? { boxedVariant } : {}),
     ...(boxedTone ? { boxedTone } : {}),
+    ...(normalizeBoxedRoundness(source.boxedRoundness) !== undefined ? { boxedRoundness: normalizeBoxedRoundness(source.boxedRoundness) } : {}),
   };
 }
 

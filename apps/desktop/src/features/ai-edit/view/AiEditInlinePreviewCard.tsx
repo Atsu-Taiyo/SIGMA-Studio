@@ -71,6 +71,7 @@ export const AI_PREVIEW_TITLE_IDS = [
   "replaceTable",
   "replaceGraph",
   "replaceShape",
+  "convertShape",
   "shapeEdit",
 ] as const;
 
@@ -83,6 +84,7 @@ function mutationOpTitleId(op: SigmaDocMutationOp | Record<string, unknown>): Ai
   if (operation === "updateOverlayShape") return "updateShape";
   if (operation === "alignOverlayShapes") return "alignShape";
   if (operation === "deleteOverlayShapes") return "deleteShape";
+  if (operation === "replaceOverlayShape") return "convertShape";
   return "edit";
 }
 

@@ -97,7 +97,7 @@ describe("MCP body tools", () => {
     const appClient = await connect();
     const app = (await appClient.listTools()).tools;
     // This suite runs as a chatgpt provider, which also lists the Codex-only generated-image tools.
-    expect(app).toHaveLength(66);
+    expect(app).toHaveLength(67);
     for (const [name, route] of Object.entries(BODY_IMPLEMENTATION_ROUTES)) {
       expect(app.some((tool) => tool.name === name)).toBe(false);
       expect(app.some((tool) => tool.name === route.name)).toBe(true);

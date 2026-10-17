@@ -4,7 +4,8 @@ import { createHash } from "node:crypto";
 import { CodexGeneratedImageStore, prepareGeneratedImage, MAX_GENERATED_IMAGE_BYTES } from "../electron/codex-generated-images";
 import { parseAttachedFileDataUrl } from "../electron/ai-edit-image";
 import { validateAiSvg } from "@/lib/ai/svg-image";
-import { DraftInsertGeneratedImageArgsSchema, DraftUpdateGeneratedImageArgsSchema, DraftInsertSvgImageArgsSchema, DraftUpdateSvgImageArgsSchema } from "@/lib/ai/sigma-doc-agent-tools";
+import { DraftConvertSvgImageArgsSchema, DraftInsertGeneratedImageArgsSchema, DraftUpdateGeneratedImageArgsSchema, DraftInsertSvgImageArgsSchema, DraftUpdateSvgImageArgsSchema } from "@/lib/ai/sigma-doc-agent-tools";
+import { convertSvgImageViaAppBridge, type SvgConversionSource } from "./sigma-doc-mcp-svg-conversion";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -2499,7 +2500,8 @@ function normalizeRoomProposalDraft(draft: AiEditSessionDraft): AiEditSessionDra
         mutationIndexMap.set(index, mutationOperations.length);
         mutationOperations.push({ ...operation, shapeIds });
       }
-    } else if (operation.operation === "updateOverlayShape" && cancelledIds.has(operation.shapeId)) {
+    } else if ((operation.operation === "updateOverlayShape" || operation.operation === "replaceOverlayShape")
+      && cancelledIds.has(operation.shapeId)) {
       continue;
     } else {
       mutationIndexMap.set(index, mutationOperations.length);
@@ -3019,6 +3021,20 @@ function withGraph3DPreviewVerification(
   }
   const verification = isRecord(payload.verification) ? payload.verification : {};
   const merged: JsonObject = { ...payload, verification: { ...verification, preview3d } };
+  return isJsonResultWithContent(result) ? { ...result, payload: merged } : merged;
+}
+
+/** `verification.svgConversion`: how the text and math of `convert_svg_image` were measured, and why it estimated. */
+function withSvgConversionVerification(
+  result: JsonObject | JsonResultWithContent,
+  svgConversion: { source: SvgConversionSource; warnings: string[] },
+): JsonObject | JsonResultWithContent {
+  const payload = isJsonResultWithContent(result) ? result.payload : result;
+  if (payload.ok === false) {
+    return result;
+  }
+  const verification = isRecord(payload.verification) ? payload.verification : {};
+  const merged: JsonObject = { ...payload, verification: { ...verification, svgConversion } };
   return isJsonResultWithContent(result) ? { ...result, payload: merged } : merged;
 }
 
@@ -4517,7 +4533,7 @@ registerTool(
   "insert_svg_image",
   {
     title: "SVG画像を挿入",
-    description: "図・図解・模式図・イラスト・挿絵・フローチャート・幾何の作図など、教材に入れる絵の既定の入口です(迷ったらSVG)。AIが記述した自己完結SVGを1枚の画像として提案挿入します。関数グラフはinsert_graph、立体はinsert_graph3d、表はinsert_table、部品ごとに個別編集する図形だけinsert_shapeを使います。svgにはxmlnsと正のviewBoxが必須。TeXは解釈されないので図中の記号はUnicodeで書き、凝った式は図の上にinsert_shape(kind:text,tex)で重ねます。path/text/図形/defs/gradient/clipPath/mask/markerと表示属性(fill/stroke等)を使用でき、style・class・script・外部参照・use・foreignObject・pattern・filter・アニメーション・XML宣言は使えません。最大256 KiB。白黒基調・透明背景にし、先に主要な点の座標を決めて長さ・角度などの条件に合わせて描きます。w:hの比はviewBoxに合わせます。SVGは本文と独立した画像レイヤーで、本文は回り込みません。SVG原文はasset.props.srcにbase64で保持します。verification.previewのPNGを必ず実見して内容・文字・本文との重なりを確かめ、修正にはupdate_svg_image、位置・大きさの変更にはupdate_shapeのx/y/w/hを使ってください。previewが取得できなければrender_block_contextまたはrender_pageで確認し、未確認のまま視覚確認済みと報告しないでください。",
+    description: "図・図解・模式図・イラスト・挿絵・フローチャート・幾何の作図など、教材に入れる絵の既定の入口です(迷ったらSVG)。AIが記述した自己完結SVGを1枚の画像として提案挿入します。関数グラフはinsert_graph、立体はinsert_graph3d、表はinsert_table、図や本文に重ねる注記・強調だけinsert_shapeを使います。部品ごとに編集したい図もこのツールで描き、previewで確かめてからconvert_svg_imageで線・図形・文字・数式に分解します(画面の「図形に変換」と同じ変換で見た目は保たれる。insert_shapeで部品を作り直さない)。分解されるように、線だけの要素はfill=\"none\"、曲線はM…Q…を1本ずつ(3次ベジェ・円弧Aは分解されないので円弧はQで近似)、矢印は線のstrokeと同じ色の標準marker(三角・V字・丸)、文字は1行ずつ<text>(stroke付きのgに入れない、dominant-baselineは使わない)、stroke-widthは0.75/1.25/2/3/5から選び、viewBoxの幅を表示幅に合わせます。詳細は公式スキルsigma-svg-figure。svgにはxmlnsと正のviewBoxが必須。TeXは解釈されないので図中の記号はUnicodeで書き、凝った式は図の上にinsert_shape(kind:text,tex)で重ねます。path/text/図形/defs/gradient/clipPath/mask/markerと表示属性(fill/stroke等)を使用でき、style・class・script・外部参照・use・foreignObject・pattern・filter・アニメーション・XML宣言は使えません。最大256 KiB。白黒基調・透明背景は新規作図と手書きの清書での既定です。先に主要な点の座標を決め、参照図の扱いと詳しい作図手順はsigma-svg-figureに従います。w:hの比はviewBoxに合わせます。SVGは本文と独立した画像レイヤーで、本文は回り込みません。SVG原文はasset.props.srcにbase64で保持します。verification.previewのPNGを必ず実見して内容・文字・本文との重なりを確かめ、修正にはupdate_svg_image、位置・大きさの変更にはupdate_shapeのx/y/w/hを使ってください。「図形に変換」した後の部品はupdate_svg_imageでは直せないのでupdate_shapeを使います。previewが取得できなければrender_block_contextまたはrender_pageで確認し、未確認のまま視覚確認済みと報告しないでください。",
     inputSchema: { ...DocumentTargetSchema, ...DraftInsertSvgImageArgsSchema.shape },
   },
   async (args) => withToolErrorHandling(async () => runDraftTool({
@@ -4538,10 +4554,40 @@ registerTool(
 );
 
 registerTool(
+  "convert_svg_image",
+  {
+    title: "SVG画像を図形に変換",
+    description: "SVG画像を、画面の「図形に変換」と同じ変換器で線・図形・文字・数式に分解する承認待ち提案を作ります。画像はそのID・重なり順・アンカーのままグループ(部品が1つならその図形)になり、部品ごとに動かして編集できます。部品ごとに編集したいと頼まれた図に使います(insert_svg_imageで変換しやすい書き方で描き、previewで確かめてから呼ぶ)。shapeIdはSVG画像のID(get_document_outlineのoverlayShapes、または同じ会話で挿入した画像)。文字と数式はアプリの描画環境で測ります。使えないときは推定で変換し、toolResult.data.conversion.measurementが\"estimate\"になります。その場合は完了報告で、文字の位置は推定なので、ずれていたら画面の「図形に変換」(SVG画像を右クリック)で分解し直せることを伝えてください。線の太さは細(1.25)以上に切り上げます(極細0.75は細になる)。分解できない部分(円弧A・3次ベジェ・グラデーション等)は小さなSVG画像として残り、その数はkeptAsSvgCountです。変換後の図はSVG画像ではないのでupdate_svg_imageでは直せません。部品はupdate_shape / align_shapes / delete_shapesで直します。PNGなどの画像、固定された画像は変換できません。",
+    inputSchema: {
+      fileId: DocumentTargetSchema.fileId,
+      ...DraftConvertSvgImageArgsSchema.extend({ shapeId: z.string().min(1).describe("図形に変換するSVG画像のshapeId。") }).shape,
+      writeMode: WriteModeSchema,
+      expectedRevision: ExpectedRevisionSchema,
+      runId: WriteRunIdSchema,
+    },
+  },
+  async (args) => withToolErrorHandling(async () => {
+    const measured: { value: { source: SvgConversionSource; warnings: string[] } | null } = { value: null };
+    const result = await runDraftTool({
+      ...args,
+      toolName: "draft_convert_svg_image",
+      toolArgs: DraftConvertSvgImageArgsSchema.parse(args),
+      // 変換はアプリの描画環境 (隠した印刷ページ) で測る。測れなければ同じ変換器の推定で続ける。
+      resolveRuntimeToolArgs: async (document) => {
+        const attempt = await convertSvgImageViaAppBridge(renderVisualPreviewDeps, document, args.shapeId);
+        measured.value = { source: attempt.source, warnings: attempt.warnings };
+        return attempt.conversion ? { measuredConversion: attempt.conversion as JsonObject } : {};
+      },
+    }, renderVisualPreviewDeps, storeContext.store);
+    return measured.value ? withSvgConversionVerification(result, measured.value) : result;
+  }),
+);
+
+registerTool(
   "insert_shape",
   {
     title: "図形を挿入",
-    description: "部品ごとに個別編集する図形、図や本文に重ねる補助線・矢印・折れ線・曲線・ハイライト・テキスト注記・吹き出しをoverlayへ挿入します。図・図解・模式図・イラスト全体を入れるだけなら、先にinsert_svg_image(SVG1枚)を使ってください。kind:calloutはtext/texを内部に持つ単一オブジェクトで、tailBaseStart/tailBaseEnd/tailTipにより口の3点、cornerRadiusにより本文矩形の角丸を指定できます。kind:textはmarkdownで複数段落・見出し・リスト・数式を保持でき、wがテキストの折り返し幅で、省略すると既定幅になります。高さは内容から導出されるのでhは指定できません。円・楕円・矩形・三角形など標準kindで表せる図形はそのkindを使い、polylineで近似しないでください。関数グラフや座標平面は insert_graph を使います。既存図形の一部はupdate_shapeで更新してください。",
+    description: "図や本文に重ねる補助線・矢印・折れ線・曲線・ハイライト・テキスト注記・吹き出しなど、個別に動かす図形をoverlayへ挿入します。図・図解・模式図・イラストは、部品ごとに編集したい場合もinsert_svg_image(SVG1枚)で描いてください(convert_svg_imageで図形・文字に分解できるので、このツールで部品を作り直さない)。kind:calloutはtext/texを内部に持つ単一オブジェクトで、tailBaseStart/tailBaseEnd/tailTipにより口の3点、cornerRadiusにより本文矩形の角丸を指定できます。kind:textはmarkdownで複数段落・見出し・リスト・数式を保持でき、wがテキストの折り返し幅で、省略すると既定幅になります。高さは内容から導出されるのでhは指定できません。円・楕円・矩形・三角形など標準kindで表せる図形はそのkindを使い、polylineで近似しないでください。関数グラフや座標平面は insert_graph を使います。既存図形の一部はupdate_shapeで更新してください。",
     inputSchema: {
       ...DocumentTargetSchema,
       ...ShapeToolInputSchema,

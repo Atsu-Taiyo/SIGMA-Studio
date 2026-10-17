@@ -264,6 +264,7 @@ test("設定 > 表示 で絞ったまま、見えている領域を編集でき�
     await closeMenu(page);
     await expect(chip(page)).toContainText("解答・コメントだけを表示中");
     await page.getByRole("button", { name: "新規教材", exact: true }).click();
+    await page.getByRole("dialog", { name: /を作成しました$/ }).getByRole("button", { name: "閉じる" }).click();
     await expect(page.locator(".document-tab")).toHaveCount(2);
     await expect(page.locator("[data-problem-display-chip]")).toHaveCount(0);
     await page.locator(".document-tab-main").first().click();

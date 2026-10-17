@@ -52,6 +52,7 @@ import  {
 } from "react";
 
 import { BoxSettingsDialog } from "@/components/editor/BoxSettingsDialog";
+import type { BoxPreviewPaper } from "@/components/editor/BoxSettingsPreview";
 import  {
   caretAtTextblockEdgeLine,
   flushPendingCaret,
@@ -341,6 +342,10 @@ interface BoxSettingsDialogState {
   title: InlineNode[];
   /** 2 欄の見出しを持つ箱だけ。 */
   subtitle?: InlineNode[];
+  /** 箱の本文 (開いた時点)。ダイアログは本文を変えないので、開いている間はこのまま使う。 */
+  body: BoxBlockChildBlock[];
+  /** 紙面での箱の幅と本文の字の大きさ。プレビューを紙面と同じ組版幅で組む。 */
+  paper?: BoxPreviewPaper;
   /** ⋯メニューの「タイトルを編集…」から開いたときだけ true。 */
   focusTitle: boolean;
 }
@@ -2830,6 +2835,11 @@ function TextFlowEditorImpl({
       frame: boxBlock.frame,
       title: boxTitleFromNode(target.node),
       subtitle: boxSubtitleFromNode(target.node),
+      body: findBoxBlockInTextFlowBlocks(
+        tiptapToTextFlow(editor.getJSON() as TiptapDoc, blocksRef.current),
+        boxBlock.id,
+      )?.blocks ?? [],
+      paper: boxPreviewPaperFromDom(editor.view.nodeDOM(target.pos)),
       focusTitle: options.focusTitle === true,
     } : null);
   }, [editor, readOnlyBoxTitle, setBoxActionDialog, setBoxSettingsDialog]);
@@ -2885,6 +2895,8 @@ function TextFlowEditorImpl({
       frame: nextBoxBlock.frame,
       title: current?.boxId === nextBoxBlock.id ? current.title : boxTitleFromNode(target.node),
       subtitle: updated ? boxSubtitleFromNode(updated.node) : undefined,
+      body: current?.boxId === nextBoxBlock.id ? current.body : [],
+      paper: current?.boxId === nextBoxBlock.id ? current.paper : undefined,
       focusTitle: false,
     }));
   }, [editor, setBoxSettingsDialog]);
@@ -3180,6 +3192,8 @@ function TextFlowEditorImpl({
           }}
           title={activeBoxSettingsDialog.title}
           subtitle={activeBoxSettingsDialog.subtitle}
+          body={activeBoxSettingsDialog.body}
+          paper={activeBoxSettingsDialog.paper}
           mathFractionSizing={mathFractionSizing}
           autoFocusTitle={activeBoxSettingsDialog.focusTitle}
           onStyleChange={(styleId) => {
@@ -3754,6 +3768,18 @@ function syncBoxSubtitleNode(
   } else if (!wantsSubtitle && existing && hasSubtitle) {
     transaction.delete(subtitleStart, subtitleStart + existing.nodeSize);
   }
+}
+
+/**
+ * 紙面に描かれた箱の幅と本文の字の大きさ。`offsetWidth` は表示倍率の `transform` を含まない
+ * レイアウト上の幅なので、紙面の組版幅そのもの。描かれていなければ (読み込み直後など) 何も返さない。
+ */
+function boxPreviewPaperFromDom(dom: Node | null | undefined): BoxPreviewPaper | undefined {
+  if (!(dom instanceof HTMLElement) || dom.offsetWidth <= 0) {
+    return undefined;
+  }
+  const fontSize = dom.ownerDocument.defaultView?.getComputedStyle(dom).getPropertyValue("--editor-font-size").trim();
+  return { widthPx: dom.offsetWidth, ...(fontSize ? { fontSize } : {}) };
 }
 
 function boxSettingsBlockFromNode(node: ProseMirrorModelNode): BoxBlockNode | null {

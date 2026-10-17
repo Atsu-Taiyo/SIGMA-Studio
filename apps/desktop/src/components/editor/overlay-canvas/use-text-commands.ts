@@ -167,6 +167,11 @@ export function useOverlayTextCommands({ shapesRef, selectedIdsRef, editingShape
           if (variant) {
             textEditor.chain().focus().setBoxedTextVariant(variant).run();
           }
+        } else if (command === "boxedRoundness" && value) {
+          const roundness = Number.parseFloat(value);
+          if (Number.isFinite(roundness) && roundness >= 0) {
+            textEditor.chain().focus().setBoxedTextRoundness(roundness).run();
+          }
         } else if (command === "color" && value) {
           textEditor.chain().focus().setTextColor(value).run();
         } else if (command === "backgroundColor") {

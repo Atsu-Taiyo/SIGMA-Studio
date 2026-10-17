@@ -16,6 +16,8 @@ import {
   resolvePageContextCapturePage,
   SIGMA_STUDIO_RENDER_BRIDGE_FILE_ENV,
   type AiRenderBridgeInfo,
+  type ConvertSvgImageRequest,
+  type ConvertSvgImageResult,
   type RenderPageContextRequest,
   type RenderPageContextResult,
   type RenderSvgRequest,
@@ -363,6 +365,50 @@ describe("createAiRenderBridgeServer", () => {
     });
     expect(hugeArea.status).toBe(400);
     expect(lastSvgRequest).toBeNull();
+  });
+
+  describe("/convert-svg (convert_svg_image measured by the app)", () => {
+    const conversion = { shapes: [{ id: "figure", type: "group" }], assets: {}, convertedCount: 2, preservedCount: 0, textCount: 1, mathCount: 0 };
+    function withConverter(result: ConvertSvgImageResult) {
+      const requests: ConvertSvgImageRequest[] = [];
+      server = createAiRenderBridgeServer({
+        token: TOKEN,
+        parseDocument: fakeParseDocument,
+        renderPageContext: async () => renderResult,
+        renderSvg: async () => renderSvgResult,
+        convertSvgImage: async (request) => {
+          requests.push(request);
+          return result;
+        },
+      });
+      return requests;
+    }
+    const post = (body: unknown, headers: Record<string, string> = { authorization: `Bearer ${TOKEN}` }) =>
+      requestBridge("/convert-svg", { method: "POST", headers, body: JSON.stringify(body) });
+
+    it("hands the document and the image to the converter and returns its result", async () => {
+      const requests = withConverter({ ok: true, conversion });
+      const res = await post({ document: { docId: "doc" }, shapeId: "figure" });
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({ ok: true, conversion });
+      expect(requests).toEqual([{ document: { docId: "doc" }, shapeId: "figure" }]);
+    });
+
+    it("requires the token, a valid document and a shape id, and reports a failed conversion as 502", async () => {
+      const requests = withConverter({ ok: false, error: "renderer crashed" });
+      expect((await post({ document: { docId: "doc" }, shapeId: "figure" }, {})).status).toBe(401);
+      expect((await post({ document: { title: "no docId" }, shapeId: "figure" })).status).toBe(400);
+      expect((await post({ document: { docId: "doc" } })).status).toBe(400);
+      expect(requests).toEqual([]);
+      const failed = await post({ document: { docId: "doc" }, shapeId: "figure" });
+      expect(failed.status).toBe(502);
+      expect(await failed.json()).toEqual({ ok: false, error: "renderer crashed" });
+    });
+
+    it("is not found when the app does not convert (an older app)", async () => {
+      const res = await post({ document: { docId: "doc" }, shapeId: "figure" });
+      expect(res.status).toBe(404);
+    });
   });
 
   it("reports a failed rasterization as 502 rather than throwing", async () => {

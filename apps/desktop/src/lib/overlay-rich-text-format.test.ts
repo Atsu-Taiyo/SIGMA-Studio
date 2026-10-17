@@ -1,4 +1,4 @@
-import { overlayTextBlockInlineRuns } from "@/features/document";
+import { getOverlayTextFormatState, overlayTextBlockInlineRuns } from "@/features/document";
 import { describe, expect, it } from "vitest";
 
 import type { InlineNode, OverlayTextBlock } from "@/features/document";
@@ -88,6 +88,81 @@ describe("formatOverlayTextBlocks", () => {
     expect(firstInline(formatOverlayTextBlocks(mathDoc(), "italic")).marks).toBeUndefined();
   });
 
+  it("removes the box from a whole shape and keeps the formula and every other format", () => {
+    // Issue #210: a box put on a shape's formula could never be taken off again.
+    const blocks: OverlayTextBlock[] = [{
+      type: "paragraph", id: "boxed_shape", children: [
+        { type: "text", text: "注記", marks: ["bold", "boxed"], boxedPaddingY: 3, boxedVariant: "oval", boxedRoundness: 40, color: "#d00000" },
+        { type: "mathInline", id: "m_boxed", tex: "\\frac{1}{x}", display: "inline", semanticRole: "expression",
+          marks: ["underline", "boxed"], underlineStyle: "wavy", boxedPaddingY: 3, boxedVariant: "oval", boxedTone: "blue", boxedRoundness: 40, fontSize: 14 },
+      ],
+    }];
+    expect(getOverlayTextFormatState(blocks)).toEqual({
+      bold: true, italic: false, underline: false, boxed: true, boxedPaddingY: 3, boxedVariant: "oval", boxedRoundness: 40,
+    });
+
+    const unboxed = formatOverlayTextBlocks(blocks, "boxed");
+    expect(overlayTextBlockInlineRuns(unboxed[0])).toEqual([
+      { type: "text", text: "注記", marks: ["bold"], color: "#d00000" },
+      { type: "mathInline", id: "m_boxed", tex: "\\frac{1}{x}", display: "inline", semanticRole: "expression",
+        marks: ["underline"], underlineStyle: "wavy", fontSize: 14 },
+    ]);
+    // 角の丸みも囲みと一緒に外れ、ツールバーは既定の丸み (100%) に戻る。
+    expect(getOverlayTextFormatState(unboxed)).toMatchObject({ bold: true, boxed: false, boxedPaddingY: 0, boxedVariant: "frame", boxedRoundness: 100 });
+
+    // Boxing it again goes through the same commands the toolbar sends for "add".
+    const reboxed = formatOverlayTextBlocks(unboxed, "boxedPaddingY", "3");
+    expect(getOverlayTextFormatState(reboxed)).toMatchObject({ boxed: true, boxedPaddingY: 3 });
+    expect(overlayTextBlockInlineRuns(reboxed[0])[1]).toMatchObject({ tex: "\\frac{1}{x}", marks: ["underline", "boxed"] });
+    // 角丸と丸め具合も、ツールバーが付け直すときに送るコマンド (種類→丸み) で戻る。
+    const rounded = formatOverlayTextBlocks(formatOverlayTextBlocks(reboxed, "boxedVariant", "oval"), "boxedRoundness", "40");
+    expect(getOverlayTextFormatState(rounded)).toMatchObject({ boxed: true, boxedVariant: "oval", boxedRoundness: 40 });
+  });
+
+  it("removes the box from a shape that holds only a boxed formula", () => {
+    const boxed = formatOverlayTextBlocks(mathDoc(), "boxedPaddingY", "0");
+    expect(getOverlayTextFormatState(boxed).boxed).toBe(true);
+    const unboxed = formatOverlayTextBlocks(boxed, "boxed");
+    expect(firstInline(unboxed)).toEqual(firstInline(mathDoc()));
+    expect(getOverlayTextFormatState(unboxed).boxed).toBe(false);
+  });
+
+  it("toggles a partly formatted shape one way instead of swapping its runs", () => {
+    const blocks: OverlayTextBlock[] = [{
+      type: "paragraph", id: "partly_boxed", children: [
+        { type: "text", text: "前" },
+        { type: "mathInline", id: "m_partly", tex: "x", display: "inline", marks: ["boxed"] },
+      ],
+    }];
+    expect(getOverlayTextFormatState(blocks).boxed).toBe(false);
+    const boxed = formatOverlayTextBlocks(blocks, "boxed");
+    expect(overlayTextBlockInlineRuns(boxed[0]).map((run) => run.marks)).toEqual([["boxed"], ["boxed"]]);
+
+    const partlyBold: OverlayTextBlock[] = [{
+      type: "paragraph", id: "partly_bold", children: [
+        { type: "text", text: "太", marks: ["bold"] },
+        { type: "text", text: "細" },
+      ],
+    }];
+    expect(getOverlayTextFormatState(partlyBold).bold).toBe(false);
+    expect(overlayTextBlockInlineRuns(formatOverlayTextBlocks(partlyBold, "bold")[0]).map((run) => run.marks))
+      .toEqual([["bold"], ["bold"]]);
+  });
+
+  it("leaves formulas out of bold and italic, and line-break-only runs out of every toggle", () => {
+    const blocks: OverlayTextBlock[] = [{
+      type: "paragraph", id: "bold_with_math", children: [
+        { type: "text", text: "太字", marks: ["bold", "italic"] },
+        { type: "text", text: "\n" },
+        { type: "mathInline", id: "m_plain", tex: "y", display: "inline" },
+      ],
+    }];
+    expect(getOverlayTextFormatState(blocks)).toMatchObject({ bold: true, italic: true, boxed: false });
+    const unbolded = formatOverlayTextBlocks(blocks, "bold");
+    expect(overlayTextBlockInlineRuns(unbolded[0]).map((run) => run.marks)).toEqual([["italic"], undefined, undefined]);
+    expect(getOverlayTextFormatState(mathDoc())).toMatchObject({ bold: false, italic: false, boxed: false });
+  });
+
   it("sets semantic paragraph alignment", () => {
     const formatted = formatOverlayTextBlocks(doc("Text"), "textAlign", "center");
     expect(formatted[0].type === "paragraph" ? formatted[0].align : undefined).toBe("center");
@@ -111,5 +186,15 @@ describe("fontSizeToOverlaySize", () => {
     expect(fontSizeToOverlaySize(12)).toBe("m");
     expect(fontSizeToOverlaySize(15)).toBe("l");
     expect(fontSizeToOverlaySize(18)).toBe("xl");
+  });
+});
+
+describe("overlay boxed corner roundness", () => {
+  it("sets an oval box's roundness on shape text and drops the default", () => {
+    const blocks = formatOverlayTextBlocks(doc("角"), "boxedVariant", "oval");
+    const rounded = formatOverlayTextBlocks(blocks, "boxedRoundness", "40");
+    expect((rounded[0] as { children: InlineNode[] }).children[0]).toMatchObject({ marks: ["boxed"], boxedVariant: "oval", boxedRoundness: 40 });
+    const reset = formatOverlayTextBlocks(rounded, "boxedRoundness", "100");
+    expect((reset[0] as { children: InlineNode[] }).children[0]).not.toHaveProperty("boxedRoundness", expect.anything());
   });
 });

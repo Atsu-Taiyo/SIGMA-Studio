@@ -1106,7 +1106,12 @@ export function InlineMathField({
   onInput: (tex: string, cursor?: number) => void;
   onCancel: () => void;
   onCommit: (tex: string) => void;
-  onDeleteBackwardFromStart: (tex: string) => void;
+  /**
+   * 先頭 (空欄を含む) で Backspace を押したとき、数式を確定して手前を消す (本文の数式用)。
+   * 渡さなければ先頭の Backspace は何もしない。設定欄のように「手前」が無い入力欄では渡さない
+   * (渡すと、全部消した直後の Backspace で入力欄が閉じ、続けて打った文字がどこにも入らない)。
+   */
+  onDeleteBackwardFromStart?: (tex: string) => void;
   onReturnToTextAfter: (tex: string) => void;
   onReturnToTextBefore: (tex: string) => void;
   onPointerDown: (event: PointerEvent) => void;
@@ -1196,7 +1201,7 @@ function InlineMathTexField({
   onInput: (tex: string, cursor?: number) => void;
   onCancel: () => void;
   onCommit: (tex: string) => void;
-  onDeleteBackwardFromStart: (tex: string) => void;
+  onDeleteBackwardFromStart?: (tex: string) => void;
   onReturnToTextAfter: (tex: string) => void;
   onReturnToTextBefore: (tex: string) => void;
   onPointerDown: (event: PointerEvent) => void;
@@ -1377,7 +1382,7 @@ function InlineMathTexField({
     } else if (action === "before") {
       onReturnToTextBefore(nextTex);
     } else if (action === "backspace") {
-      onDeleteBackwardFromStart(nextTex);
+      onDeleteBackwardFromStart?.(nextTex);
     } else {
       onCommit(nextTex);
     }
@@ -1459,7 +1464,7 @@ function InlineMathTexField({
             return;
           }
 
-          if (shouldDeleteBeforeInlineMathOnBackspace(event, cursorState)) {
+          if (onDeleteBackwardFromStart && shouldDeleteBeforeInlineMathOnBackspace(event, cursorState)) {
             event.preventDefault();
             event.stopPropagation();
             commit(input, "backspace");
@@ -1554,7 +1559,7 @@ function InlineMathLiveField({
   onInput: (tex: string, cursor?: number) => void;
   onCancel: () => void;
   onCommit: (tex: string) => void;
-  onDeleteBackwardFromStart: (tex: string) => void;
+  onDeleteBackwardFromStart?: (tex: string) => void;
   onReturnToTextAfter: (tex: string) => void;
   onReturnToTextBefore: (tex: string) => void;
   onPointerDown: (event: PointerEvent) => void;
@@ -1895,7 +1900,7 @@ function InlineMathLiveField({
     const mathField = element as InlineMathFieldElement | null;
     // クリックで入るために振った一時 id は、確定時に必ず落とす (文書に残さない)。
     const nextTex = removeInlineMathClickPlaceholderIds(
-      normalizeInlineMathLineBreakInput(mathField?.value ?? "", {
+      normalizeInlineMathLineBreakInput(mathField ? getMathfieldLatex(mathField) : "", {
         forceLatexCommands: true,
       }),
     );
@@ -1904,7 +1909,7 @@ function InlineMathLiveField({
     } else if (action === "before") {
       onReturnToTextBefore(nextTex);
     } else if (action === "backspace") {
-      onDeleteBackwardFromStart(nextTex);
+      onDeleteBackwardFromStart?.(nextTex);
     } else {
       onCommit(nextTex);
     }
@@ -1992,7 +1997,7 @@ function InlineMathLiveField({
         return;
       }
 
-      if (shouldDeleteBeforeInlineMathOnBackspace(event, mathField)) {
+      if (onDeleteBackwardFromStart && shouldDeleteBeforeInlineMathOnBackspace(event, mathField)) {
         event.preventDefault();
         event.stopPropagation();
         commit(mathField, "backspace");

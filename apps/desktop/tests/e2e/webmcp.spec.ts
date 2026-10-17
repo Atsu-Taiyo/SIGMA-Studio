@@ -32,6 +32,7 @@ test(`WebMCP SVG image preview, revision, approval and reload retain the source 
   await expect.poll(() => page.evaluate(() => (window as unknown as { __sigmaWebMcpTools: Map<string, unknown> }).__sigmaWebMcpTools.has("insert_svg_image"))).toBe(true);
   await page.locator(".document-tab-action-hover").hover();
   await page.getByRole("menu", { name: "新規教材" }).getByRole("menuitem", { name: whiteboard ? "ホワイトボード" : "空の教材", exact: true }).click();
+  await page.getByRole("dialog", { name: /を作成しました$/ }).getByRole("button", { name: "閉じる" }).click();
   if (whiteboard) await expect(page.locator(".whiteboard-page-canvas")).toBeVisible();
   await expect.poll(() => page.evaluate(() => (window as unknown as { __sigmaWebMcpTools: Map<string, unknown> }).__sigmaWebMcpTools.has("insert_svg_image"))).toBe(true);
   type Tools = Map<string, { execute(input: unknown): Promise<unknown> | unknown }>;
@@ -331,6 +332,7 @@ test("WebMCP on a whiteboard rejects body text, previews proposed shapes as ghos
   const newDocMenu = page.getByRole("menu", { name: "新規教材" });
   await expect(newDocMenu).toBeVisible();
   await newDocMenu.getByRole("menuitem", { name: "ホワイトボード" }).click();
+  await page.getByRole("dialog", { name: /を作成しました$/ }).getByRole("button", { name: "閉じる" }).click();
   await expect(page.locator(".whiteboard-page-canvas")).toBeVisible();
   // ツール登録は教材ごとに張り直されるので、新しい教材の分を待つ。
   await expect.poll(() => page.evaluate(() => (

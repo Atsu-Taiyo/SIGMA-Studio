@@ -1,3 +1,5 @@
+import { installMathLiveOpenFenceLatex } from "@/lib/mathlive-open-fence";
+
 export interface MathKeyboardKeyboardEventLike {
   altKey: boolean;
   code: string;
@@ -157,6 +159,8 @@ export function handleMathKeyboardMathShortcut(event: MathKeyboardShortcutEventL
 }
 
 export function getMathfieldLatex(mathField: MathKeyboardMathfieldLike): string {
+  // 閉じ括弧を消した括弧を `(x.` と書き出さないようにしてから読む (`mathlive-open-fence.ts`)。
+  installMathLiveOpenFenceLatex(mathField);
   if (typeof mathField.getValue === "function") {
     return mathField.getValue();
   }

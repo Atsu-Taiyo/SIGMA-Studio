@@ -134,6 +134,7 @@ test("the pocket carries text and a shape to another material in the real app, o
     await page.mouse.click(box!.x + box!.width - 8, box!.y + box!.height / 2);
     await expect(page.locator(".page-mode").first()).toHaveAttribute("data-overlay-editing", "false");
     await page.getByRole("button", { name: "新規教材", exact: true }).click();
+    await page.getByRole("dialog", { name: /を作成しました$/ }).getByRole("button", { name: "閉じる" }).click();
     await expect(page.locator(".document-tab")).toHaveCount(2);
     await expect(page.locator('[data-sigma-doc-id="body_carried"]')).toHaveCount(0);
     await expect(cards()).toHaveCount(3);
@@ -279,6 +280,7 @@ test("dragging a card lands it where it is dropped, on the page and on a whitebo
     await expect(page.locator(".page-mode").first()).toHaveAttribute("data-overlay-editing", "false");
     await page.getByRole("button", { name: "新規教材" }).hover();
     await page.getByRole("menuitem", { name: "ホワイトボード", exact: true }).click();
+    await page.getByRole("dialog", { name: /を作成しました$/ }).getByRole("button", { name: "閉じる" }).click();
     await expect(page.locator(".whiteboard-page-canvas")).toBeVisible();
     await expect(cards()).toHaveCount(2);
 
@@ -410,6 +412,7 @@ test("text copied across blocks pastes onto a new whiteboard as one text shape, 
 
     await page.getByRole("button", { name: "新規教材" }).hover();
     await page.getByRole("menuitem", { name: "ホワイトボード", exact: true }).click();
+    await page.getByRole("dialog", { name: /を作成しました$/ }).getByRole("button", { name: "閉じる" }).click();
     const canvas = page.locator(".whiteboard-page-canvas");
     await expect(canvas).toBeVisible();
     const viewport = (await canvas.boundingBox())!;

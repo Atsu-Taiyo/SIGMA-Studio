@@ -244,6 +244,7 @@ function inheritInlinePresentation(source: InlineNode | undefined, replacement: 
     ...(source.boxedPaddingY === undefined ? {} : { boxedPaddingY: source.boxedPaddingY }),
     ...(source.boxedVariant === undefined ? {} : { boxedVariant: source.boxedVariant }),
     ...(source.boxedTone === undefined ? {} : { boxedTone: source.boxedTone }),
+    ...(source.boxedRoundness === undefined ? {} : { boxedRoundness: source.boxedRoundness }),
   };
   if (replacement.type === "text") {
     return { ...inherited, ...replacement } as InlineNode;
@@ -313,6 +314,7 @@ function applyInlineFormatPatch<T extends InlineNode>(child: T, patch: InlineFor
       delete next.boxedPaddingY;
       delete next.boxedVariant;
       delete next.boxedTone;
+      delete next.boxedRoundness;
     }
     if (marks.size > 0) {
       next.marks = [...marks] as T["marks"];
@@ -353,5 +355,6 @@ function textStyleSignature(node: Extract<InlineNode, { type: "text" }>): string
     boxedPaddingY: node.boxedPaddingY,
     boxedVariant: node.boxedVariant,
     boxedTone: node.boxedTone,
+    boxedRoundness: node.boxedRoundness,
   });
 }

@@ -16,7 +16,7 @@ import { DocumentTabSaveDot, SaveStatusBadge } from "@/components/editor/editor-
 import { InlineMathDetails } from "@/components/editor/EditorSettings";
 import { EDITOR_TOOLBAR_CARET_SIZE, EDITOR_TOOLBAR_ICON_SIZE, EDITOR_TOOLBAR_TEXT_ICON_SIZE, EditorToolbarColorButton, EditorToolbarGroup, EditorToolbarIconButton, EditorToolbarMenuButton, EditorToolbarSelect, EditorToolbarSeparator } from "@/components/editor/EditorToolbar";
 import { ToolbarPopover } from "@/components/editor/ToolbarPopover";
-import { BOXED_TEXT_STYLE_OPTIONS, BLOCK_STRUCTURE_OPTIONS, BLOCK_STYLE_OPTIONS, DEFAULT_FONT_FAMILY_VALUE, KEYBOARD_ZOOM_STEP, LINE_HEIGHT_OPTIONS, MAX_BOXED_TEXT_PADDING_Y, MIN_BOXED_TEXT_PADDING_Y, TEXT_ALIGN_OPTIONS, type BlockStructureOptionValue } from "@/components/editor/editor-shell/constants";
+import { BOXED_TEXT_ROUNDNESS_STEP, BOXED_TEXT_STYLE_OPTIONS, BLOCK_STRUCTURE_OPTIONS, BLOCK_STYLE_OPTIONS, DEFAULT_FONT_FAMILY_VALUE, KEYBOARD_ZOOM_STEP, LINE_HEIGHT_OPTIONS, MAX_BOXED_TEXT_PADDING_Y, MAX_BOXED_TEXT_ROUNDNESS, MIN_BOXED_TEXT_PADDING_Y, MIN_BOXED_TEXT_ROUNDNESS, TEXT_ALIGN_OPTIONS, type BlockStructureOptionValue } from "@/components/editor/editor-shell/constants";
 import { BoxedTextIcon, BoxedTextStylePreview, LineEndpointMenuButton } from "@/components/editor/editor-shell/formatting-icons";
 import {
   fillPreviewPatch,
@@ -32,6 +32,7 @@ import { isLineToolCommand, isShapeMenuCommand } from "@/components/editor/overl
 import { OverlayLineDashMenuButton, OverlayLineWidthMenuButton } from "@/components/editor/overlay-line-style-menus";
 import { dispatchOverlayStylePreview } from "@/components/editor/page-overlay-types";
 import { IconButton } from "@/components/ui/Button";
+import { Shimmer } from "@/components/ui/Shimmer";
 import { Inline, Inset } from "@/components/ui/layout";
 // 矢印/Home/End の移動先計算は設定タブと同じ純関数を使う（実装を二重に持たない）。
 // Tabs コンポーネント自体は使わない（Settings.module.css をクロームへ漏らさないため）。
@@ -44,7 +45,7 @@ import { INLINE_MATH_FONT_MENU_ATTRIBUTE } from "@/lib/math-font-style";
 import { SUPPORTED_OVERLAY_IMAGE_MIME_TYPES } from "@/lib/overlay-image-files";
 import { POWERPOINT_IMPORT_ACCEPT } from "@/lib/powerpoint-import";
 import { EXTENSION_ICON_COMPONENTS } from "@/components/editor/extensions/extension-icons";
-import { AlertTriangle, AppWindow, ArrowDownRight, ArrowLeft, Bold, Braces, BringToFront, Building2, ChartSpline, Check, ChevronDown, ChevronRight, ChevronUp, ClipboardCopy, ClipboardPaste, Clock3, Code, Columns3, Copy, Cuboid, Download, Eye, FileCog, FilePlus, FileQuestion, FileText, FolderOpen, Highlighter, ImageIcon, Italic, Keyboard, LayoutTemplate, Library, List, ListChevronsUpDown, ListOrdered, ListPlus, ListTree, Loader2, MessageSquare, Minus, MinusCircle, MoreHorizontal, MoveDown, MoveUp, PaintBucket, PenLine, Plus, PlusCircle, Puzzle, Quote, Redo2, Replace, Rows3, Search, SendToBack, SeparatorHorizontal, Shapes, Sigma, SlidersHorizontal, Sparkles, Square, SquareFunction, Trash2, Type, Underline, Undo2, X } from "lucide-react";
+import { AlertTriangle, AppWindow, ArrowDownRight, ArrowLeft, Bold, Braces, BringToFront, Building2, ChartSpline, Check, ChevronDown, ChevronRight, ChevronUp, ClipboardCopy, ClipboardPaste, Clock3, Code, Columns3, Copy, Cuboid, Download, Eye, FileCog, FilePlus, FileQuestion, FileText, FolderOpen, Highlighter, ImageIcon, Italic, Keyboard, LayoutTemplate, Library, List, ListChevronsUpDown, ListOrdered, ListPlus, ListTree, Loader2, MessageSquare, Minus, MinusCircle, MoreHorizontal, MoveDown, MoveUp, PaintBucket, PenLine, Plus, PlusCircle, Puzzle, Quote, Redo2, Replace, Rows3, Search, SendToBack, SeparatorHorizontal, Shapes, Share2, Sigma, SlidersHorizontal, Sparkles, Square, SquareFunction, Trash2, Type, Underline, Undo2, X } from "lucide-react";
 import { Fragment } from "react";
 import type { ReactNode } from "react";
 import type { DesktopUpdateState } from "@/types/desktop";
@@ -79,10 +80,10 @@ interface RibbonGroupDefinition {
 // Closed popovers return no DOM. Guard their JSX here as well so typing does
 // not build invisible font/shape catalogs on every document render.
 export function renderEditorChrome(chrome: EditorChromeValue) {
-  const { activeDocumentOpenFailure, activeFileId, addBlock, aiMenuButtonRef, appUpdateState, closeDocumentTab, commentsPanelOpen, commitDocumentTitle, copyDocumentText, createDocumentTab, createWhiteboardDocumentTab, degradedWatcherScopes, deleteActiveDocument, documentMetadatas, documentTitle, duplicateActiveDocument, exportJson, exportMenuOpen, fileMenuButtonRef, handleTitleUpdateAction, importDocumentFile, importInputRef, insertMenuButtonRef, loadingFileId, newDocButtonRef, newDocMenuOpen, openCommandSettings, openDocumentInWorkspace, openDocumentListDialog, openDocumentTabs, openImportDialog, openNewDocMenu, openOtherImportDialog, extensionMenu = [], extensionsMenuButtonRef, runExtensionItem, openPrintPreview, openTextImportDialog, openVersionHistory, openWorkspaceScreen, otherImportInputRef, promoteAiToSidebar, reportIssue, requestOverlayImages, resolvedDocumentTitle, scheduleCloseNewDocMenu, setAiSettingsOpen, setDesktopSettingsOpen, setExportMenuOpen, setExtensionsOpen, setNewDocMenuOpen, setOutlineDialogOpen, setOverlayEditing, setPageSettingsOpen, setTemplateGalleryOpen, setTexCommandReferenceOpen, setTexEnvironmentSettingsOpen, setTitleInputFocused, settingsMenuButtonRef, showRichTitle, showTitleUpdateButton, titleInputValue, titleRichNodes, titleUpdateButtonDisabled, toggleCommentsPanel, toggleProblemDisplayPart, problemDisplay, problemDisplayAvailable, uiLayoutPreference, updateMetadata, versionHistoryOpen, workspaceTabsRow } = chrome.appMenu;
+  const { activeDocumentOpenFailure, activeFileId, addBlock, aiMenuButtonRef, appUpdateState, closeDocumentTab, commentsPanelOpen, commitDocumentTitle, copyDocumentText, createDocumentTab, createDocumentTabInWorkspace, createWhiteboardDocumentTab, degradedWatcherScopes, deleteActiveDocument, documentMetadatas, documentTitle, duplicateActiveDocument, exportJson, exportMenuOpen, fileMenuButtonRef, handleTitleUpdateAction, importDocumentFile, importInputRef, insertMenuButtonRef, loadingFileId, newDocButtonRef, newDocMenuOpen, newMaterialTargets, openCommandSettings, openDocumentInWorkspace, openDocumentListDialog, openDocumentTabs, openImportDialog, openNewDocMenu, openOtherImportDialog, extensionMenu = [], extensionsMenuButtonRef, runExtensionItem, openPrintPreview, openTextImportDialog, openVersionHistory, openWorkspaceScreen, otherImportInputRef, promoteAiToSidebar, reportIssue, requestOverlayImages, resolvedDocumentTitle, scheduleCloseNewDocMenu, setAiSettingsOpen, setDesktopSettingsOpen, setExportMenuOpen, setExtensionsOpen, setNewDocMenuOpen, setOutlineDialogOpen, setOverlayEditing, setPageSettingsOpen, setTemplateGalleryOpen, setTexCommandReferenceOpen, setTexEnvironmentSettingsOpen, setTitleInputFocused, settingsMenuButtonRef, showRichTitle, showTitleUpdateButton, titleInputValue, titleRichNodes, titleUpdateButtonDisabled, toggleCommentsPanel, toggleProblemDisplayPart, problemDisplay, problemDisplayAvailable, uiLayoutPreference, updateMetadata, versionHistoryOpen, workspaceTabsRow } = chrome.appMenu;
   const { commandTooltip, renderMenuShortcut } = chrome.commands;
   const { setMaterialLibraryOpen } = chrome.editing;
-  const { ActiveTextAlignIcon, activeFontFamilyLabel, activeTextAlignOption, activeTextFontSize, activeTextFontSizeMixed, applyBlockStructure, applyBoxedTextPaddingY, applyInlineFormat, applyLineHeight, applyTextAlign, applyTextStyle, blockStyleState, boldActive, boxedTextActive, boxedTextButtonRef, boxedTextMenuOpen, boxedTextPaddingY, boxedTextVariant, canUseBlockStructure, canUseLineHeight, canUseTextAlign, canUseTextBlockStyle, canUseTextToolbar, fontFamily, fontFamilyButtonRef, fontFamilyIsKnownOption, fontFamilyIsMixed, fontFamilyMenuOpen, fontFamilyQuery, handleLineHeightStepClick, italicActive, lineHeight, lineHeightButtonRef, lineHeightCustomOpen, lineHeightInput, lineHeightInputError, lineHeightMenuOpen, moreBlocksMenuButtonRef, moreBlocksMenuOpen, orderedListMenuButtonRef, orderedListMenuOpen, setMoreBlocksMenuOpen, setOrderedListMenuOpen, saveEditorFontFamilyPreference, selectBoxedTextVariant, selectedTextAlign, selectedTextStyle, setFontFamily, setFontFamilyQuery, setLineHeightCustomOpen, setLineHeightInput, setLineHeightInputError, setTextBackgroundColor, setTextColor, setTextFontSize, startLineHeightStepping, stopLineHeightStepping, textAlignButtonRef, textAlignMenuOpen, textBackgroundColor, textBackgroundColorButtonRef, textColor, textColorButtonRef, toggleBoxedText, underlineActive, visibleCustomFontOptions, visibleFontFamilyGroups, blockStyleButtonRef, blockStyleMenuOpen, fontSizeInputRef, fontSizeSkipBlurRef, fontSizeInput, setFontSizeInput } = chrome.format;
+  const { ActiveTextAlignIcon, activeFontFamilyLabel, activeTextAlignOption, activeTextFontSize, activeTextFontSizeMixed, applyBlockStructure, applyBoxedTextPaddingY, applyBoxedTextRoundness, applyInlineFormat, applyLineHeight, applyTextAlign, applyTextStyle, blockStyleState, boldActive, boxedTextActive, boxedTextButtonRef, boxedTextMenuOpen, boxedTextPaddingY, boxedTextRoundness, boxedTextVariant, canUseBlockStructure, canUseLineHeight, canUseTextAlign, canUseTextBlockStyle, canUseTextToolbar, fontFamily, fontFamilyButtonRef, fontFamilyIsKnownOption, fontFamilyIsMixed, fontFamilyMenuOpen, fontFamilyQuery, handleLineHeightStepClick, italicActive, lineHeight, lineHeightButtonRef, lineHeightCustomOpen, lineHeightInput, lineHeightInputError, lineHeightMenuOpen, moreBlocksMenuButtonRef, moreBlocksMenuOpen, orderedListMenuButtonRef, orderedListMenuOpen, setMoreBlocksMenuOpen, setOrderedListMenuOpen, saveEditorFontFamilyPreference, selectBoxedTextVariant, selectedTextAlign, selectedTextStyle, setFontFamily, setFontFamilyQuery, setLineHeightCustomOpen, setLineHeightInput, setLineHeightInputError, setTextBackgroundColor, setTextColor, setTextFontSize, startLineHeightStepping, stopLineHeightStepping, textAlignButtonRef, textAlignMenuOpen, textBackgroundColor, textBackgroundColorButtonRef, textColor, textColorButtonRef, toggleBoxedText, underlineActive, visibleCustomFontOptions, visibleFontFamilyGroups, blockStyleButtonRef, blockStyleMenuOpen, fontSizeInputRef, fontSizeSkipBlurRef, fontSizeInput, setFontSizeInput } = chrome.format;
   const { ActiveLineToolIcon, activeLineToolItem, activeOverlayTool, bodyToolbarLockedByAi, cancelInlineMathMenuClose, inlineMathButtonRef, inlineMathMenuOpen, lineToolMenuButtonRef, lineToolMenuOpen, openInlineMathMenu, scheduleInlineMathMenuClose, selectedInlineMath, selectedInlineMathDetails, setInlineMathMenuOpen, shapeMenuButtonRef, shapeMenuOpen, startInlineMathFromToolbar } = chrome.insert;
   const { findNext, findPrevious, overlayEditing, replaceAll, replaceNext, replaceOpen, replaceText, searchButtonRef, searchMatchCount, searchOpen, searchQuery, setReplaceOpen, setReplaceText, setSearchOpen, setSearchQuery } = chrome.search;
   const { applyOverlayStyle, arrangeOverlayShapes, canChangeOverlayShapeType, changeOverlayShapeType, canArrangeOverlayShapes, canUseFillStyleControls, canUseLineEndpointControls, canUseLineStyleControls, canUseStrokeStyleControls, effectiveLineDashMenuOpen, effectiveLineEndpointMenu, effectiveLineWidthMenuOpen, fillColorButtonRef, fillColorPatch, lineDashButtonRef, lineWidthButtonRef, overlaySelection, selectedOverlayLineDash, selectedOverlayLineSize, selectionFill, selectionFillColor, selectionFillOpacity, setStrokeColor, strokeColor, strokeColorButtonRef } = chrome.shapeStyle;
@@ -592,6 +593,61 @@ export function renderEditorChrome(chrome: EditorChromeValue) {
     <div className="menubar-document-actions">{chrome.shared.documentActions}</div>
   ) : null;
 
+  // 「新規教材」で作成先のワークスペースを選ぶ欄。docs ではホバーで開くメニューの下段、Word風では
+  // Backstage の「新規」に同じ項目を出す (両レイアウトで同じコマンド集合にする)。
+  // 印 (✓) は、そのまま押したときの作成先 (直前の教材のワークスペース。作れなければ既定の作成先)。
+  const renderNewMaterialTargets = (variant: "menu" | "backstage") => {
+    if (isEmbedded) return null;
+    const { loading, options } = newMaterialTargets;
+    if (!loading && options.length === 0) return null;
+    const groupLabel = t("tabs.newInWorkspaceGroup");
+    const rows = options.length === 0
+      ? (
+        <div className="new-doc-menu-target-loading" role="status" aria-label={t("tabs.newTargetsLoading")}>
+          <Shimmer variant="icon" />
+          <Shimmer />
+        </div>
+      )
+      : options.map((option) => {
+        const name = option.sharedItems ? t("collaboration.sharedItems") : option.name;
+        const label = t("tabs.newInWorkspace", { replace: { name } });
+        const content = (
+          <>
+            <Building2 size={variant === "menu" ? 15 : 18} aria-hidden="true" />
+            <span className="new-doc-menu-target-name">{label}</span>
+            <span className="new-doc-menu-target-meta" aria-hidden="true">
+              {option.cloud && <Share2 size={13} />}
+              {option.isDefault && <Check size={14} />}
+            </span>
+          </>
+        );
+        const common = {
+          type: "button" as const,
+          // 印 (✓) の意味はホバー・フォーカスで出す。Backstage のコマンドはほかと同じく名前も title に持つ。
+          title: option.isDefault ? t("tabs.newTargetDefault") : variant === "backstage" ? label : undefined,
+          "data-new-material-target": option.workspaceId,
+          "data-default": option.isDefault ? "true" : undefined,
+        };
+        return variant === "menu"
+          ? <button key={option.workspaceId} {...common} role="menuitem" onClick={() => { setNewDocMenuOpen(false); void createDocumentTabInWorkspace(option.workspaceId); }}>{content}</button>
+          : <button key={option.workspaceId} {...common} className="ribbon-backstage-command new-doc-backstage-target" aria-label={label} onClick={() => runBackstageCommand(() => void createDocumentTabInWorkspace(option.workspaceId))}>{content}</button>;
+      });
+    return variant === "menu"
+      ? (
+        <>
+          <div className="new-doc-menu-separator" role="separator" />
+          <div className="new-doc-menu-group-label" aria-hidden="true">{groupLabel}</div>
+          <div className="new-doc-menu-targets" role="group" aria-label={groupLabel}>{rows}</div>
+        </>
+      )
+      : (
+        <div className="ribbon-backstage-group" role="group" aria-label={groupLabel}>
+          <h3 className="ribbon-backstage-group-label" aria-hidden="true">{groupLabel}</h3>
+          {rows}
+        </div>
+      );
+  };
+
   const menubarRightActions = (
     <div className="menubar-right-actions">
       <div className="workspace-account-actions">
@@ -627,7 +683,14 @@ export function renderEditorChrome(chrome: EditorChromeValue) {
             aria-haspopup="menu"
             aria-expanded={newDocMenuOpen}
             disabled={isEmbedded}
-            onClick={() => void createDocumentTab()}
+            onClick={() => { setNewDocMenuOpen(false); void createDocumentTab(); }}
+            onKeyDown={(event) => {
+              // 押すとそのまま作る (直前の教材と同じワークスペース)。作成先を選ぶメニューは、
+              // ホバーのほか ↓ でも開く (キーボードだけでも選べるように)。開くと先頭の項目へ焦点が移る。
+              if (event.key !== "ArrowDown" || isEmbedded) return;
+              event.preventDefault();
+              openNewDocMenu();
+            }}
           >
             <FilePlus size={15} />
           </button>
@@ -659,6 +722,7 @@ export function renderEditorChrome(chrome: EditorChromeValue) {
                 <LayoutTemplate size={15} />
                 <span>{t("tabs.newFromTemplate")}</span>
               </button>
+              {renderNewMaterialTargets("menu")}
             </div>
             </>}
           </ToolbarPopover>
@@ -1302,6 +1366,37 @@ export function renderEditorChrome(chrome: EditorChromeValue) {
                   <PlusCircle size={14} />
                 </button>
               </div>
+              {/* 丸め具合は角丸だけが読む。他の種類の角は尖っている。並びは上下余白と同じ。 */}
+              {boxedTextVariant === "oval" ? (
+                <div className="boxed-text-padding-stepper" data-boxed-text-stepper="roundness">
+                  <span className="boxed-text-padding-label">{t("format.boxedText.roundness")}</span>
+                  <button
+                    type="button"
+                    title={t("format.boxedText.roundnessDecrease", { step: BOXED_TEXT_ROUNDNESS_STEP })}
+                    aria-label={t("format.boxedText.roundnessDecrease", { step: BOXED_TEXT_ROUNDNESS_STEP })}
+                    disabled={!canUseTextToolbar || boxedTextRoundness <= MIN_BOXED_TEXT_ROUNDNESS}
+                    onMouseDown={(event) => event.preventDefault()}
+                    onClick={() => {
+                      applyBoxedTextRoundness(boxedTextRoundness - BOXED_TEXT_ROUNDNESS_STEP);
+                    }}
+                  >
+                    <Minus size={14} />
+                  </button>
+                  <output aria-live="polite">{boxedTextRoundness}%</output>
+                  <button
+                    type="button"
+                    title={t("format.boxedText.roundnessIncrease", { step: BOXED_TEXT_ROUNDNESS_STEP })}
+                    aria-label={t("format.boxedText.roundnessIncrease", { step: BOXED_TEXT_ROUNDNESS_STEP })}
+                    disabled={!canUseTextToolbar || boxedTextRoundness >= MAX_BOXED_TEXT_ROUNDNESS}
+                    onMouseDown={(event) => event.preventDefault()}
+                    onClick={() => {
+                      applyBoxedTextRoundness(boxedTextRoundness + BOXED_TEXT_ROUNDNESS_STEP);
+                    }}
+                  >
+                    <PlusCircle size={14} />
+                  </button>
+                </div>
+              ) : null}
               </>}
             </ToolbarPopover>
           </div>
@@ -2644,6 +2739,7 @@ export function renderEditorChrome(chrome: EditorChromeValue) {
             </button>
           </div>
         )}
+        {backstage.section === "new" && !isEmbedded && renderNewMaterialTargets("backstage")}
 
         {backstage.section === "open" && (
           <div className="ribbon-backstage-group">

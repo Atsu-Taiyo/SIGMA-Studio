@@ -5,17 +5,17 @@ description: "個別に動かせる図形・矢印・補助線・吹き出し・
 
 # 図形・矢印・注記を編集する
 
-図や絵そのものは `insert_svg_image`（sigma-svg-figure）で入れる。この skill は、**部品を後から個別に動かしたい**と頼まれた図、そして図の上に重ねる文字注記や強調の線、さらに既存図形の修正のためのもの。
+図や絵そのものは `insert_svg_image`（sigma-svg-figure）で入れる。部品ごとに動かしたい図もSVGで描き、`convert_svg_image`（画面の「図形に変換」と同じ変換器）で線・図形・文字に分解する（`insert_shape` で部品を作り直さない）。この skill は、図や本文の上に重ねる文字注記・強調の線・吹き出しと、既存図形（「図形に変換」で分解した図の部品を含む）の修正のためのもの。
 
 ## 選び方
 
 | したいこと | tool |
 | --- | --- |
-| 部品ごとに編集できる図（ユーザーがそう求めたとき） | `insert_shape` を部品の数だけ |
+| 部品ごとに編集したい図 | `insert_svg_image` で描いて `convert_svg_image`（sigma-svg-figure） |
 | 図や本文の上に数式・文字の注記を置く | `insert_shape`（kind は text） |
 | 本文の一部を囲む・強調する、手順の向きを示す | `insert_shape`（rectangle / highlight / arrow） |
 | 吹き出し | `insert_shape`（kind は callout） |
-| 既存の図形・SVG画像の位置・大きさ・色・文字 | `update_shape` |
+| 既存の図形・SVG画像の位置・大きさ・色・文字、「図形に変換」した図の部品 | `update_shape` |
 | 2つ以上の図形をそろえる・等間隔にする | `align_shapes` |
 | 図形の削除 | `delete_shapes`（本文ブロックは `organize_blocks`） |
 
@@ -53,7 +53,7 @@ SVG内の `<text>` はTeXを解釈しない。分数や添字の多いラベル�
 
 ## 元画像そっくりに再現するとき
 
-参照図への忠実な再現を求められ、部品ごとの編集も必要なときだけ、visual edit session を使う: `begin_visual_edit_session`（`sourceAnalysis` と `plannedShapes`）→ `visual_insert_shape` / `visual_replace_shape` / `visual_remove_shape` → `render_visual_edit_session` → `inspect_visual_edit_session` → `review_visual_edit_session` → `propose_visual_edit_session`。renderのpreviewを元画像と見比べ、直して繰り返す。輪郭のトレースはしない。それ以外の再現は SVG（sigma-image-material-reconstruction）。
+部品単位での忠実な再現を求められたときだけ、visual edit session を使う: `begin_visual_edit_session`（`sourceAnalysis` と `plannedShapes`）→ `visual_insert_shape` / `visual_replace_shape` / `visual_remove_shape` → `render_visual_edit_session` → `inspect_visual_edit_session` → `review_visual_edit_session` → `propose_visual_edit_session`。renderのpreviewを元画像と見比べ、直して繰り返す。輪郭のトレースはしない。それ以外の再現は SVG（sigma-image-material-reconstruction）で描き、部品ごとに動かしたいなら `convert_svg_image` で分解する。
 
 ## 確認
 

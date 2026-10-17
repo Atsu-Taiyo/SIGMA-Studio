@@ -14,6 +14,8 @@ export type SaveState =
   | "syncing"
   | "saved"
   | "offline"
+  /** The server refuses the oldest unsent edit; later edits wait behind it on this device. */
+  | "sync-rejected"
   | "permission-error"
   | "save-error"
   | "epoch-error";
@@ -46,7 +48,11 @@ export function fromBase64(
     throw new Error("PAYLOAD_LIMIT");
   const binary = atob(value);
   if (binary.length > limit) throw new Error("PAYLOAD_LIMIT");
-  return Uint8Array.from(binary, (char) => char.charCodeAt(0));
+  // `Uint8Array.from(文字列, 関数)` は文字列のイテレータを回し、1バイトごとに関数を呼ぶ。
+  // 起動時は共有教材を全部この経路で復号するので、添字で直接詰める (#204)。
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return bytes;
 }
 export function syncStepOne(doc: Y.Doc): Uint8Array {
   const encoder = encoding.createEncoder();

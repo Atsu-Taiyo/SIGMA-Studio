@@ -368,6 +368,13 @@ function visitInlineNode(node: InlineNode, path: string, report: SafetyReporter)
   ) {
     report(`${path}.boxedPaddingY`, "paddingが不正です。");
   }
+  // 0–100 (%)。描くときに 100 で丸めるので上限は設けず、数でないものだけを止める。
+  if (
+    node.boxedRoundness !== undefined
+    && !isSafePositiveCssNumber(node.boxedRoundness, Number.MAX_SAFE_INTEGER, true)
+  ) {
+    report(`${path}.boxedRoundness`, "角の丸みが不正です。");
+  }
 }
 
 function validateTextAlign(value: unknown, path: string, report: SafetyReporter) {

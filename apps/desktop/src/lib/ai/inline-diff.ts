@@ -20,6 +20,7 @@ interface InlineTokenTextProps {
   boxedPaddingY?: number;
   boxedVariant?: TextInlineNode["boxedVariant"];
   boxedTone?: TextInlineNode["boxedTone"];
+  boxedRoundness?: number;
 }
 
 interface InlineTokenMathProps {
@@ -31,6 +32,7 @@ interface InlineTokenMathProps {
   boxedPaddingY?: number;
   boxedVariant?: MathInlineNode["boxedVariant"];
   boxedTone?: MathInlineNode["boxedTone"];
+  boxedRoundness?: number;
   semanticRole?: MathInlineNode["semanticRole"];
   altText?: string;
 }
@@ -100,6 +102,7 @@ function extractTextProps(node: TextInlineNode): InlineTokenTextProps {
     boxedPaddingY: node.boxedPaddingY,
     boxedVariant: node.boxedVariant,
     boxedTone: node.boxedTone,
+    boxedRoundness: node.boxedRoundness,
   };
 }
 
@@ -113,6 +116,7 @@ function extractMathProps(node: MathInlineNode): InlineTokenMathProps {
     boxedPaddingY: node.boxedPaddingY,
     boxedVariant: node.boxedVariant,
     boxedTone: node.boxedTone,
+    boxedRoundness: node.boxedRoundness,
     semanticRole: node.semanticRole,
     altText: node.altText,
   };

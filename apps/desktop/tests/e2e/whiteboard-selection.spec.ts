@@ -115,6 +115,7 @@ test("creates an empty whiteboard from the new-document menu", async ({ page }) 
 
   await page.getByRole("button", { name: "新規教材" }).hover();
   await page.getByRole("menuitem", { name: "ホワイトボード" }).click();
+  await page.getByRole("dialog", { name: /を作成しました$/ }).getByRole("button", { name: "閉じる" }).click();
 
   await expect(page.locator(".whiteboard-page-canvas")).toBeVisible();
   await expect(page.locator(".text-flow-editor")).toHaveCount(0);

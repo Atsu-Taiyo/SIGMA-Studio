@@ -13,39 +13,73 @@ import { setInlineMathInputMode } from "@/lib/inline-math-mode";
 const UI_LOCALE_STORAGE_KEY = "sigma-studio:ui-locale";
 
 vi.mock("mathlive", () => ({}));
-vi.mock("@/features/rendering/adapters/react", () => ({
-  InlineMathPreview: ({ tex, className }: { tex: string; className?: string }) => (
-    <span className={`inline-math-node ${className ?? ""}`}>
-      <span className="math-preview math-preview-inline">{tex}</span>
-    </span>
-  ),
-  MathPreview: ({ tex, className }: { tex: string; className?: string }) => <span className={`math-preview ${className ?? ""}`}>{tex}</span>,
-  useMathEnvironment: () => ({ macroSet: { mathLiveMacros: {} }, typesetStyle: "displaystyle" }),
-}));
+vi.mock("@/features/rendering/adapters/react", () => {
+  // 実物は context の値なので描画をまたいで同じオブジェクト。毎回作ると入力欄の effect が
+  // 描画のたびに走り直し、実機に無い値の書き戻しが起きる。
+  const mathEnvironment = { macroSet: { mathLiveMacros: {} }, typesetStyle: "displaystyle" };
+  return {
+    InlineMathPreview: ({ tex, className }: { tex: string; className?: string }) => (
+      <span className={`inline-math-node ${className ?? ""}`}>
+        <span className="math-preview math-preview-inline">{tex}</span>
+      </span>
+    ),
+    MathPreview: ({ tex, className }: { tex: string; className?: string }) => <span className={`math-preview ${className ?? ""}`}>{tex}</span>,
+    useMathEnvironment: () => mathEnvironment,
+  };
+});
 
 let GraphExpressionMathInput: typeof import("@/components/editor/EditorSettings").GraphExpressionMathInput;
 let OverlayGraphSettings: typeof import("@/components/editor/EditorSettings").OverlayGraphSettings;
 let MathExpressionInput: typeof import("./MathExpressionInput").MathExpressionInput;
 
 class TestMathFieldElement extends HTMLElement {
-  value = "";
+  #value = "";
   position = 0;
+  /** 外 (React 側) から `value` へ書き込まれた値。MathLive は書き込みのたびに式を読み直す。 */
+  valueWrites: string[] = [];
+  commands: string[] = [];
 
   constructor() {
     super();
     this.tabIndex = 0;
   }
 
-  executeCommand() {}
+  get value() {
+    return this.#value;
+  }
+
+  set value(next: string) {
+    this.#value = next;
+    this.position = next.length;
+    this.valueWrites.push(next);
+  }
+
+  executeCommand(command: string) {
+    this.commands.push(command);
+  }
 
   insert(text: string) {
     this.value += text;
     this.position = this.value.length;
   }
+
+  /** MathLive 自身の編集 (打鍵・Backspace) を真似る。値は欄の中で変わり、`input` だけが外へ出る。 */
+  editInside(latex: string) {
+    this.#value = latex;
+    this.position = latex.length;
+    this.dispatchEvent(new Event("input", { bubbles: true }));
+  }
 }
 
 let container: HTMLDivElement;
 let root: Root;
+
+/** React の onChange まで届くように、値の記録を迂回する本来の setter で書いてから input を出す。 */
+function typeIntoTextarea(input: HTMLTextAreaElement, value: string) {
+  Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")?.set?.call(input, value);
+  input.setSelectionRange(value.length, value.length);
+  input.dispatchEvent(new Event("input", { bubbles: true }));
+}
 
 async function flushAsyncEffects() {
   await Promise.resolve();
@@ -257,6 +291,132 @@ describe("MathExpressionInput", () => {
     expect(
       container.querySelector<TestMathFieldElement>('[data-testid="graph-expression-field"]')?.value,
     ).toBe("x+2");
+  });
+
+  describe("リアルタイム表示でグラフの式を消して打ち直す", () => {
+    async function openLiveGraphExpression(onCommitExpression: (expression: string, tex: string) => void) {
+      await act(async () => {
+        root.render(
+          <GraphExpressionMathInput
+            tex={"\\sin(x)"}
+            ariaLabel="関数 1 の式"
+            dataTestId="graph-expression"
+            live
+            onCommitExpression={onCommitExpression}
+          />,
+        );
+      });
+      await act(async () => {
+        container.querySelector<HTMLButtonElement>('[data-testid="graph-expression"]')?.click();
+        await flushAsyncEffects();
+        await new Promise((resolve) => window.setTimeout(resolve, 60));
+      });
+      const field = container.querySelector<TestMathFieldElement>('[data-testid="graph-expression-field"]');
+      expect(field).not.toBeNull();
+      return field!;
+    }
+
+    async function editInside(field: TestMathFieldElement, latex: string) {
+      await act(async () => {
+        field.editInside(latex);
+        await flushAsyncEffects();
+        await new Promise((resolve) => window.setTimeout(resolve, 60));
+      });
+    }
+
+    it("入力のたびに値を入力欄へ書き戻さず、途中の式が書き出しと読み直しの往復で変わらない", async () => {
+      setInlineMathInputMode("mathlive");
+      const onCommitExpression = vi.fn();
+      const field = await openLiveGraphExpression(onCommitExpression);
+      // 開いたときの 1 回だけ。
+      expect(field.valueWrites).toEqual(["\\sin(x)"]);
+      expect(field.commands.filter((command) => command === "moveToMathfieldEnd")).toHaveLength(1);
+
+      // 実機の MathLive で sin(x) を末尾から Backspace したときに書き出される値の列。
+      // 閉じ括弧を消すと `\sin(x.` になる。これを欄へ書き戻すと MathLive が `.` を文字として読み直し、
+      // キャレットも末尾 (括弧の外) へ送られて、次の Backspace でまた `.` が増えていた。
+      const seen: string[] = [];
+      for (const latex of ["\\sin(x.", "\\sin(.", "\\sin", ""]) {
+        await editInside(field, latex);
+        seen.push(field.value);
+      }
+      expect(seen).toEqual(["\\sin(x.", "\\sin(.", "\\sin", ""]);
+      expect(field.valueWrites).toEqual(["\\sin(x)"]);
+      expect(field.commands.filter((command) => command === "moveToMathfieldEnd")).toHaveLength(1);
+      expect(container.querySelector('[data-testid="graph-expression-field"]')).toBe(field);
+      expect(container.querySelector(".graph-expression-error")?.textContent)
+        .toBe("数値や変数を使った式を入力してください。");
+
+      await editInside(field, "x^2");
+      expect(field.valueWrites).toEqual(["\\sin(x)"]);
+      expect(onCommitExpression).toHaveBeenLastCalledWith("x^2", "x^2");
+      expect(container.querySelector(".graph-expression-error")?.textContent).toBe("");
+    });
+
+    it("全部消した入力欄で Backspace を押しても閉じず、続けて打った式がグラフへ届く (リアルタイム表示)", async () => {
+      setInlineMathInputMode("mathlive");
+      const onCommitExpression = vi.fn();
+      const field = await openLiveGraphExpression(onCommitExpression);
+
+      await editInside(field, "");
+      // MathLive は Backspace を先に処理する。消し終えた欄 (先頭・空) で押された Backspace が届く。
+      for (let index = 0; index < 3; index += 1) {
+        await act(async () => {
+          field.dispatchEvent(new KeyboardEvent("keydown", { key: "Backspace", bubbles: true, cancelable: true }));
+          await flushAsyncEffects();
+        });
+      }
+      expect(container.querySelector('[data-testid="graph-expression-field"]')).toBe(field);
+      expect(document.activeElement).toBe(field);
+
+      await editInside(field, "x");
+      expect(onCommitExpression).toHaveBeenLastCalledWith("x", "x");
+      await act(async () => {
+        field.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
+        await flushAsyncEffects();
+      });
+      expect(container.querySelector('[data-testid="graph-expression-field"]')).toBeNull();
+      expect(onCommitExpression).toHaveBeenLastCalledWith("x", "x");
+    });
+
+    it("TeXモードでも、空の入力欄の Backspace で閉じず続けて入力できる", async () => {
+      setInlineMathInputMode("tex");
+      const onCommitExpression = vi.fn();
+      await act(async () => {
+        root.render(
+          <GraphExpressionMathInput
+            tex="x"
+            ariaLabel="関数 1 の式"
+            dataTestId="graph-expression"
+            live
+            onCommitExpression={onCommitExpression}
+          />,
+        );
+      });
+      await act(async () => {
+        container.querySelector<HTMLButtonElement>('[data-testid="graph-expression"]')?.click();
+        await flushAsyncEffects();
+      });
+      const textarea = () => document.querySelector<HTMLTextAreaElement>('[data-testid="graph-expression-field"]');
+      expect(textarea()).not.toBeNull();
+
+      await act(async () => {
+        typeIntoTextarea(textarea()!, "");
+        await flushAsyncEffects();
+      });
+      await act(async () => {
+        textarea()?.dispatchEvent(new KeyboardEvent("keydown", { key: "Backspace", bubbles: true, cancelable: true }));
+        await flushAsyncEffects();
+      });
+      expect(textarea()).not.toBeNull();
+
+      await act(async () => {
+        typeIntoTextarea(textarea()!, "x+1");
+        await flushAsyncEffects();
+      });
+      expect(onCommitExpression).toHaveBeenLastCalledWith("x+1", "x+1");
+      expect(textarea()?.value).toBe("x+1");
+    });
   });
 
   it("同一バッチのグラフ設定更新を最新specへ順番に合成する", async () => {

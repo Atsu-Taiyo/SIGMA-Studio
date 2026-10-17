@@ -46,6 +46,9 @@ async function setup(pendingAsset = false) {
   vi.useFakeTimers({ toFake: ["setInterval", "clearInterval", "Date"] });
   await sessions.initialize();
   instances.push(sessions);
+  // A clean journal stays closed at startup; these cases exercise the session once the
+  // document is first used (the app reads it before it edits or views it).
+  if (!pendingAsset) await sessions.read("file");
   const internal = sessions as unknown as { sessions: Map<string, {
     journal: SharedDocumentJournal; viewing: boolean; lastSynchronizedAt: number;
     socket: WebSocket; pendingAssetRevision: number; uploadedAssetRevision: number;

@@ -62,6 +62,21 @@ export default function PrintPage() {
         const renderId = params.get("renderId");
         setProfile(toOutputProfileName(params.get("profile")));
 
+        // The AI's convert_svg_image: this hidden page only converts one SVG image of its document,
+        // with the editor's own measurement, and leaves the result for the main process.
+        if (renderId && params.get("task") === "svg-convert") {
+          const shapeId = params.get("shapeId") ?? "";
+          window.__sigmaSvgConversion = (async () => {
+            const renderDocument = (await window.sigmaPreviewAPI?.getRenderDocument(renderId)) ?? null;
+            if (!renderDocument) {
+              return { ok: false as const, error: DEFAULT_PRINT_TRANSLATE("load.aiDocumentFailed") };
+            }
+            const { runSvgConversionTask } = await import("@/components/print/svg-conversion-task");
+            return runSvgConversionTask(renderDocument, shapeId);
+          })();
+          return;
+        }
+
         if (renderId) {
           const bridge = getDesktopBridge();
           const renderDocument = (await (window.sigmaPreviewAPI?.getRenderDocument(renderId)

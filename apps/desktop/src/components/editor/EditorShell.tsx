@@ -1,5 +1,6 @@
 "use client";
 import type { DocumentSessionHost } from "@/features/document-session/contracts";
+import { isDocumentWritable } from "@/features/document-session/writable";
 import { DocumentSessionContext,DocumentWritableContext } from "./document-session-context";
 import { DOCUMENT_BLOCK_OPERATION_PORTS } from "./editor-shell/document-operation-ports";
 import { scheduleEditorBlockFocus } from "./editor-shell/editor-focus";
@@ -46,6 +47,9 @@ import { useEditorCommandRouting } from "./editor-shell/use-editor-command-routi
 import { useExternalDocumentOpen } from "./editor-shell/use-external-document-open";
 import { useMaterialLibraryController } from "./editor-shell/use-material-library-controller";
 import { useWorkspaceDocumentCommands } from "./editor-shell/use-workspace-document-commands";
+import { useNewMaterialTargets } from "./editor-shell/use-new-material-targets";
+import type { CreatedMaterialNotice } from "./editor-shell/new-material-destination";
+import { NewMaterialCreatedDialog } from "./NewMaterialCreatedDialog";
 export type { EmbeddedEditorHost } from "./editor-shell/document-lifecycle-types";
 
 import {
@@ -179,7 +183,7 @@ import { PocketBar, usePocketPhase } from "@/features/pocket";
 import { FilesPanel } from "@/features/right-dock/view/FilesPanel";
 import { RightDockToggle } from "@/features/right-dock/view/RightDock";
 import { RightDockHost } from "@/features/right-dock/view/RightDockHost";
-import { resolveTextToolbarTarget } from "./editor-shell/text-toolbar-target";
+import { resolveTextToolbarMarkState, resolveTextToolbarTarget } from "./editor-shell/text-toolbar-target";
 
 import { readRenderedTextFontSize,type SelectionFontSize } from "@/components/tiptap/text-format-font-size";
 import {
@@ -351,6 +355,7 @@ getSharedOverlayLineSize,
 import { getVisibleEditorPageNumber,scrollEditorCanvasToPage } from "@/components/editor/editor-shell/page-navigation";
 import {
 clampBoxedTextPaddingY,
+clampBoxedTextRoundness,
 getFontFamilyLabel,
 normalizeBoxedTextVariant,
 type BlockStyleCommandValue
@@ -664,7 +669,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
     setSaveState("warning");
     setStatusMessage(message);
   }, [setSaveState, setStatusMessage, tE]);
-  const { textFontSize, setTextFontSize, textFontSizeMixed, setTextFontSizeMixed, fontSizeInput, setFontSizeInput, boxedTextPaddingY, setBoxedTextPaddingY, boxedTextActive, boldActive, italicActive, underlineActive, blockStyleState, documentTextFormatTarget, hasMultiEditorTextRunSpan, boxedTextVariant, setBoxedTextVariant, textColor, setTextColor, textBackgroundColor, setTextBackgroundColor, strokeColor, setStrokeColor, fontFamily, setFontFamily, lineHeight, setLineHeight, lineHeightInput, setLineHeightInput, lineHeightInputError, setLineHeightInputError, lineHeightCustomOpen, setLineHeightCustomOpen, getLastBoxedFormat, rememberBoxedFormat, saveEditorFontFamilyPreference } = useTextFormattingState();
+  const { textFontSize, setTextFontSize, textFontSizeMixed, setTextFontSizeMixed, fontSizeInput, setFontSizeInput, boxedTextPaddingY: reportedBoxedTextPaddingY, setBoxedTextPaddingY, boxedTextActive: reportedBoxedTextActive, boldActive: reportedBoldActive, italicActive: reportedItalicActive, underlineActive: reportedUnderlineActive, blockStyleState, documentTextFormatTarget, hasMultiEditorTextRunSpan, boxedTextVariant: reportedBoxedTextVariant, setBoxedTextVariant, boxedTextRoundness: reportedBoxedTextRoundness, setBoxedTextRoundness, textColor, setTextColor, textBackgroundColor, setTextBackgroundColor, strokeColor, setStrokeColor, fontFamily, setFontFamily, lineHeight, setLineHeight, lineHeightInput, setLineHeightInput, lineHeightInputError, setLineHeightInputError, lineHeightCustomOpen, setLineHeightCustomOpen, getLastBoxedFormat, rememberBoxedFormat, saveEditorFontFamilyPreference } = useTextFormattingState();
   // ツールバーの入力欄へフォーカスが移っても、本文の選択を見せ続ける (`HeldBodySelectionOverlay`)。
   const chromeHeldBodyEditor = useChromeHeldBodySelection();
   const zoom = useStore(editorStore, (state) => state.zoom);
@@ -677,12 +682,16 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
   }, []);
   const { pageSettingsOpen, setPageSettingsOpen, commandSettingsOpen, setCommandSettingsOpen, commandPaletteOpen, setCommandPaletteOpen, settingsFocusEntryId, setSettingsFocusEntryId, texCommandReferenceOpen, setTexCommandReferenceOpen, texEnvironmentSettingsOpen, setTexEnvironmentSettingsOpen, documentListOpen, setDocumentListOpen, desktopSettingsOpen, setDesktopSettingsOpen, extensionsOpen, setExtensionsOpen, desktopSettingsUpdateCheckRequest, setDesktopSettingsUpdateCheckRequest, openDesktopSettingsFromChrome } = useEditorDialogState();
   const [workspaceReady, setWorkspaceReady] = useState(isEmbedded);
+  /** 新規教材を作った直後に、作った場所を示すダイアログの中身。 */
+  const [createdMaterialNotice, setCreatedMaterialNotice] = useState<CreatedMaterialNotice | null>(null);
   const [ledgerFailure, setLedgerFailure] = useState<LedgerSchemaFailure | null>(null);
   const [workspaceReloadNonce, setWorkspaceReloadNonce] = useState(0);
   const [loadingFileId, setLoadingFileId] = useState<string | null>(null);
   // 教材の中身 (壊れたJSON / スキーマ違反) が原因で本文を組み立てられなかった教材。
   // その教材がアクティブな間だけ、編集キャンバスの代わりに原因と修復プロンプトを出す。
   const [documentMetadatas, setDocumentMetadatas] = useState<DocumentMetadata[]>([]);
+  const documentMetadatasRef = useRef(documentMetadatas);
+  useLayoutEffect(() => { documentMetadatasRef.current = documentMetadatas; }, [documentMetadatas]);
   const [openFileIds, setOpenFileIds] = useState<string[]>(() => [initialDocument.docId]);
   const [activeFileId, setActiveFileId] = useState(initialDocument.docId);
   const cameraByFileIdRef = useRef(new Map<string, { zoom: number; panX: number; panY: number }>());
@@ -703,15 +712,28 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
     void sessionHost.setActiveFile(workspaceReady ? activeFileId : null);
     return () => { void sessionHost.setActiveFile?.(null); };
   }, [activeFileId, sessionHost, workspaceReady]);
+  // A shared file is written only through its session: main rejects a JSON save of it
+  // (SHARED_SESSION_WRITE_REQUIRED). Loading waits for the session, so this only covers the
+  // moment a file is shared while open: edits wait for the session instead of collecting in
+  // a JSON copy that can never be saved. The connection itself never blocks editing.
+  const activeFileShared = useMemo(
+    () => Boolean(sessionHost) && documentMetadatas.some((item) => item.fileId === activeFileId && Boolean(item.sharing)),
+    [activeFileId, documentMetadatas, sessionHost],
+  );
+  const awaitingSharedSession = activeFileShared && !documentSession;
   const sessionWritable = useSyncExternalStore(
     listener => {
       const unsubscribeSession = documentSession?.subscribe(listener) ?? (() => {});
       const unsubscribeAuthority = sessionHost?.subscribeAuthority?.(listener) ?? (() => {});
       return () => { unsubscribeSession(); unsubscribeAuthority(); };
     },
-    () => sessionHost?.get(activeFileId)?.writable ?? !(sessionHost?.isReadOnly?.(activeFileId) ?? false),
-    () => sessionHost?.get(activeFileId)?.writable ?? !(sessionHost?.isReadOnly?.(activeFileId) ?? false),
+    () => isDocumentWritable(sessionHost, activeFileId, activeFileShared),
+    () => isDocumentWritable(sessionHost, activeFileId, activeFileShared),
   );
+  useEffect(() => {
+    if (!awaitingSharedSession || !workspaceReady) return;
+    void sessionHost?.attachSession?.(activeFileId, true);
+  }, [activeFileId, awaitingSharedSession, sessionHost, workspaceReady]);
   const sessionWritableRef = useRef(sessionWritable);
   useLayoutEffect(() => { sessionWritableRef.current = sessionWritable; }, [sessionWritable]);
   const activeFileIdRef = useRef(activeFileId);
@@ -869,7 +891,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
   const [mcpPreviewBusy, setMcpPreviewBusy] = useState(false);
   const aiDocumentWriteInProgress = mcpPreviewBusy || !sessionWritable;
   const sessionEditExtensions = useMemo(() => sessionWritable ? undefined
-    : sessionReadOnlyExtensions(t("collaboration.readOnlyDocument")), [sessionWritable, t]);
+    : sessionReadOnlyExtensions(t(awaitingSharedSession ? "collaboration.sessionOpening" : "collaboration.readOnlyDocument")), [awaitingSharedSession, sessionWritable, t]);
   // 絞り込みで隠した領域に錨を下ろした図形は、見せず・触らせず・書き換えさせない (`useProblemDisplayEditing`)。
   const problemDisplayEditing = useProblemDisplayEditing(document, problemDisplayActive ? problemDisplay : undefined);
   const pageEditorExtensions = useMemo(
@@ -1554,10 +1576,27 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
   }, [refreshDocumentMetadatas, resetEditorDocument, saveWorkspaceState, setSaveState, setStatusMessage]);
 
   const rememberPristineDraft = useCallback((fileId: string, initial: SigmaDocument) => { untouchedNewDocumentsRef.current.set(fileId, initial); }, []);
-  const { documentOpenFailure, documentOpenFailureRef, showRecordedDocumentOpenFailure, enterDocumentOpenFailureState, loadWorkspaceDocument } = useDocumentRecovery({ announceRecovery, rememberPristineDraft, activateFailedDocument });
+  const { documentOpenFailure, documentOpenFailureRef, showRecordedDocumentOpenFailure, enterDocumentOpenFailureState, loadWorkspaceDocument: loadRecoveredWorkspaceDocument } = useDocumentRecovery({ announceRecovery, rememberPristineDraft, activateFailedDocument });
+  // Opening a shared file makes main announce its session. Show the file only once that
+  // session is attached, so its edits go to the session (journaled locally, sent when the
+  // sync gets through) and never to a JSON copy that main rejects; the editor never flashes
+  // read-only meanwhile. A file the host holds back until its session arrives (`isReadOnly`)
+  // counts as shared even before the library list has loaded (startup).
+  const loadWorkspaceDocument = useCallback(async (fileId: string) => {
+    const loaded = await loadRecoveredWorkspaceDocument(fileId);
+    const shared = documentMetadatasRef.current.some((item) => item.fileId === fileId && Boolean(item.sharing))
+      || (sessionHost?.isReadOnly?.(fileId) ?? false);
+    if (loaded && sessionHost?.attachSession) await sessionHost.attachSession(fileId, shared);
+    return loaded;
+  }, [loadRecoveredWorkspaceDocument, sessionHost]);
 
   const isCurrentDocumentDirty = useCallback(() => {
     return !areSigmaDocumentsEquivalent(documentRef.current, lastSavedDocumentRef.current);
+  }, []);
+  // Commits what every mounted overlay editor still holds on its save debounce. Stable, because
+  // the boundary save (and through it the window-close subscription) depends on it.
+  const flushOverlayChanges = useCallback(() => {
+    window.dispatchEvent(new CustomEvent(FLUSH_OVERLAY_CHANGES_EVENT));
   }, []);
   const {
     cancelPendingAutosaveRef,
@@ -1586,6 +1625,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
     externalChangeFileIdsRef,
     mcpPreviewBusyRef,
     isCurrentDocumentDirty,
+    flushPendingEdits: flushOverlayChanges,
     isEmbedded,
     setSaveState,
     setStatusMessage,
@@ -2619,6 +2659,24 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
     ? wholeTextShapeSize?.fontSize ?? null
     : textFontSize;
   const activeTextFontSizeMixed = wholeTextShape ? wholeTextShapeSize?.fontSizeMixed === true : textFontSizeMixed;
+  // A shape selected as a whole has no text session to report its marks; the buttons read the shape.
+  const {
+    bold: boldActive,
+    italic: italicActive,
+    underline: underlineActive,
+    boxed: boxedTextActive,
+    boxedVariant: boxedTextVariant,
+    boxedPaddingY: boxedTextPaddingY,
+    boxedRoundness: boxedTextRoundness,
+  } = resolveTextToolbarMarkState(wholeTextShape, {
+    bold: reportedBoldActive,
+    italic: reportedItalicActive,
+    underline: reportedUnderlineActive,
+    boxed: reportedBoxedTextActive,
+    boxedVariant: reportedBoxedTextVariant,
+    boxedPaddingY: reportedBoxedTextPaddingY,
+    boxedRoundness: reportedBoxedTextRoundness,
+  });
   useLayoutEffect(() => {
     // Sync before paint so a newly selected shape never displays the old size.
     // Keep the inline field in sync with the selection without replacing a value
@@ -2770,10 +2828,6 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
   const updateOverlay = (overlay: PageOverlay, options?: OverlayChangeOptions) => writeOverlay(overlay, options);
   // Automatic re-anchor after a deletion: coalesce into the deletion's undo entry.
   const reanchorOverlay = (overlay: PageOverlay) => writeOverlay(overlay, { history: "coalesce" });
-
-  const flushOverlayChanges = () => {
-    window.dispatchEvent(new CustomEvent(FLUSH_OVERLAY_CHANGES_EVENT));
-  };
 
   const { previewOpen, setPreviewOpen, pdfExporting, exportedPdfPath, setExportedPdfPath, printPreviewRenderState, setPrintPreviewRenderState, openPrintPreview, exportPdf, openPrintWindow } = useDocumentPrintController({ isDesktopApp, isEmbedded, getDocument: getCurrentSessionDocument, getActiveFileId: getActiveWorkspaceFileId, flushOverlayChanges, saveCurrentDocumentRecord, setSaveState, setStatusMessage });
 
@@ -3236,6 +3290,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
     || ribbonBackstageOpen
     || commandPaletteOpen
     || versionHistoryPreviewActive
+    || createdMaterialNotice !== null
     || windowCloseSaveDialog !== null;
 
   useEffect(() => {
@@ -3362,7 +3417,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
     }
   }, [setColorStylePanel, setLineDashMenuOpen, setLineWidthMenuOpen]);
 
-  const applyInlineFormat = (command: "color" | "backgroundColor" | "fontFamily" | "fontSize" | "lineHeight" | "boxedPaddingY" | "boxedVariant", value: string) => {
+  const applyInlineFormat = (command: "color" | "backgroundColor" | "fontFamily" | "fontSize" | "lineHeight" | "boxedPaddingY" | "boxedVariant" | "boxedRoundness", value: string) => {
     if (!canUseTextToolbar) {
       return;
     }
@@ -3383,6 +3438,13 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
     applyInlineFormat("boxedPaddingY", String(nextPaddingY));
   };
 
+  const applyBoxedTextRoundness = (roundness: number) => {
+    const nextRoundness = clampBoxedTextRoundness(roundness);
+    setBoxedTextRoundness(nextRoundness);
+    rememberBoxedFormat({ roundness: nextRoundness });
+    applyInlineFormat("boxedRoundness", String(nextRoundness));
+  };
+
   const toggleBoxedText = () => {
     if (!canUseTextToolbar) {
       return;
@@ -3397,6 +3459,9 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
       const variant = normalizeBoxedTextVariant(getLastBoxedFormat().variant) ?? "frame";
       if (variant !== "frame") {
         applyInlineFormat("boxedVariant", variant);
+      }
+      if (variant === "oval") {
+        applyInlineFormat("boxedRoundness", String(clampBoxedTextRoundness(getLastBoxedFormat().roundness)));
       }
       applyInlineFormat("boxedPaddingY", String(clampBoxedTextPaddingY(getLastBoxedFormat().paddingY)));
     }
@@ -3455,6 +3520,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
     openWorkspaceScreen,
     openDocumentAsTab,
     createDocumentTab,
+    createDocumentTabInWorkspace,
     createWhiteboardDocumentTab,
     duplicateActiveDocument,
     openDocumentListDialog,
@@ -3495,9 +3561,15 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
     setDocumentListOpen,
     setSaveState,
     setStatusMessage,
+    showCreatedMaterialLocation: setCreatedMaterialNotice,
     t,
     tEditor
   });
+  // 「新規教材」のメニュー (Word風は Backstage の「新規」) を開いている間だけ、作成先に選べるワークスペースを読む。
+  const newMaterialTargets = useNewMaterialTargets(
+    !isEmbedded && workspaceReady && (newDocMenuOpen || (ribbonBackstageOpen && ribbonBackstageState.section === "new")),
+    documentMetadatas.find((item) => item.fileId === activeFileId),
+  );
 
   const {
     importInputRef,
@@ -4402,6 +4474,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
       boxed: boxedTextActive,
       boxedVariant: boxedTextVariant,
       boxedPaddingY: boxedTextPaddingY,
+      boxedRoundness: boxedTextRoundness,
       textColor,
       textBackgroundColor,
       textAlign: selectedTextAlign,
@@ -4415,6 +4488,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
       toggleBoxed: toggleBoxedText,
       selectBoxedVariant: selectBoxedTextVariant,
       setBoxedPaddingY: applyBoxedTextPaddingY,
+      setBoxedRoundness: applyBoxedTextRoundness,
       setTextColor: (color) => {
         setTextColor(color);
         applyInlineFormat("color", color);
@@ -4476,12 +4550,12 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
     },
     format: {
       ActiveTextAlignIcon, activeFontFamilyLabel, activeTextAlignOption,
-      activeTextFontSize, activeTextFontSizeMixed, applyBoxedTextPaddingY, applyInlineFormat, applyLineHeight,
+      activeTextFontSize, activeTextFontSizeMixed, applyBoxedTextPaddingY, applyBoxedTextRoundness, applyInlineFormat, applyLineHeight,
       applyBlockStructure, applyTextAlign, applyTextStyle, blockStyleState, boldActive, boxedTextActive, boxedTextButtonRef,
       canUseBlockStructure,
       moreBlocksMenuButtonRef, moreBlocksMenuOpen, setMoreBlocksMenuOpen,
       orderedListMenuButtonRef, orderedListMenuOpen, setOrderedListMenuOpen,
-      boxedTextMenuOpen, boxedTextPaddingY, boxedTextVariant, canUseLineHeight, canUseTextAlign,
+      boxedTextMenuOpen, boxedTextPaddingY, boxedTextRoundness, boxedTextVariant, canUseLineHeight, canUseTextAlign,
       blockStyleButtonRef, blockStyleMenuOpen,
       canUseTextBlockStyle, canUseTextToolbar, fontFamily, fontFamilyButtonRef,
       fontFamilyIsKnownOption, fontFamilyIsMixed, fontFamilyMenuOpen, fontFamilyQuery,
@@ -4529,11 +4603,11 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
     appMenu: {
       openProblemLibrary: () => setProblemLibraryOpen(true),
       activeDocumentOpenFailure, activeFileId, addBlock, aiMenuButtonRef, appUpdateState,
-      closeDocumentTab, commentsPanelOpen, problemDisplay, problemDisplayAvailable, toggleProblemDisplayPart: toggleProblemDisplay, commitDocumentTitle, copyDocumentText, createDocumentTab, createWhiteboardDocumentTab, degradedWatcherScopes,
+      closeDocumentTab, commentsPanelOpen, problemDisplay, problemDisplayAvailable, toggleProblemDisplayPart: toggleProblemDisplay, commitDocumentTitle, copyDocumentText, createDocumentTab, createDocumentTabInWorkspace, createWhiteboardDocumentTab, degradedWatcherScopes,
       deleteActiveDocument, documentMetadatas, documentTitle, duplicateActiveDocument, exportJson,
       exportMenuOpen, fileMenuButtonRef, handleTitleUpdateAction,
       importDocumentFile, importInputRef, insertMenuButtonRef, loadingFileId, extensionMenu, extensionsMenuButtonRef, runExtensionItem,
-      newDocButtonRef, newDocMenuOpen, openCommandSettings, openDocumentInWorkspace,
+      newDocButtonRef, newDocMenuOpen, newMaterialTargets, openCommandSettings, openDocumentInWorkspace,
       openDocumentListDialog, openDocumentTabs, openImportDialog, openNewDocMenu, openOtherImportDialog,
       openPrintPreview, openTextImportDialog, otherImportInputRef,
       openVersionHistory, openWorkspaceScreen, promoteAiToSidebar, reportIssue, requestOverlayImages,
@@ -5162,6 +5236,8 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
       <EditorPrintPreview previewOpen={previewOpen} document={document} renderState={printPreviewRenderState} pdfExporting={pdfExporting} isDesktopApp={isDesktopApp} isEmbedded={isEmbedded} onRenderStateChange={setPrintPreviewRenderState} onExport={() => void exportPdf()} onOpenExternal={() => void openPrintWindow()} onClose={() => setPreviewOpen(false)} tE={tE} />
 
       {exportedPdfPath && <PdfExportSuccessDialog filePath={exportedPdfPath} onClose={() => setExportedPdfPath(null)} />}
+
+      <NewMaterialCreatedDialog notice={createdMaterialNotice} onClose={() => setCreatedMaterialNotice(null)} />
 
       <DocumentLibraryDialog
         open={documentListOpen}

@@ -1,7 +1,7 @@
 import type { OverlayBounds, OverlayPoint, OverlayShape } from "@/features/document";
 
 import type { OverlayInteractionMode, ResizeHandle } from "./interaction-mode";
-import { dragSign } from "./math";
+import { dragSign, getSelectionShortAxis } from "./math";
 import { getSolidKind, getSolidNaturalAspect, hasCustomSolidPoints } from "./solid-geometry";
 
 const EQUILATERAL_TRIANGLE_HEIGHT_RATIO = Math.sqrt(3) / 2;
@@ -49,6 +49,44 @@ export function getResizeHandleSet(
   }
 
   return { hitOnly: [], visible: [...EDGE_RESIZE_HANDLES, ...CORNER_RESIZE_HANDLES] };
+}
+
+/** Below this short side (page px) the edge bars cover the outline they sit on — a circle's four extremes first. */
+const EDGE_RESIZE_HANDLE_MIN_SHORT_AXIS = 40;
+
+/** Below this the corner squares go too and only the frame is left. The point handles go at the same size. */
+const CORNER_RESIZE_HANDLE_MIN_SHORT_AXIS = 24;
+
+export interface OverlayResizeHandleLayout extends OverlayResizeHandleSet {
+  /**
+   * Nothing is drawn, so the grab areas sit just outside the frame. Straddling the edges as usual,
+   * the strips meet in the middle of a shape this small and leave nothing to move it by.
+   */
+  grabOutside: boolean;
+}
+
+/**
+ * Stops drawing the handles a small selection would be buried under.
+ *
+ * The handles do not shrink with the shape, so on a small one they are all that shows. The edge bars
+ * stop being drawn first and the corners next; a handle that is not drawn stays where it can be
+ * dragged, and the resize cursor still says so. Handles scale with the page zoom, so the cut-off is
+ * in page px.
+ */
+export function fitResizeHandlesToFrame(
+  handles: OverlayResizeHandleSet,
+  bounds: OverlayBounds,
+): OverlayResizeHandleLayout {
+  const shortAxis = getSelectionShortAxis(bounds);
+  const drawsEdges = shortAxis >= EDGE_RESIZE_HANDLE_MIN_SHORT_AXIS;
+  const drawsCorners = shortAxis >= CORNER_RESIZE_HANDLE_MIN_SHORT_AXIS;
+  const visible = handles.visible.filter((handle) => isCornerResizeHandle(handle) ? drawsCorners : drawsEdges);
+  return {
+    visible,
+    hitOnly: [...handles.hitOnly, ...handles.visible.filter((handle) => !visible.includes(handle))],
+    // A text shape never draws its handles, at any size; its grab strips stay as they are.
+    grabOutside: handles.visible.length > 0 && visible.length === 0,
+  };
 }
 
 export function isCornerResizeHandle(handle: ResizeHandle): boolean {

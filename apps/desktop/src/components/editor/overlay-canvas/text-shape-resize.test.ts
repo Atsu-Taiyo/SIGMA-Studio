@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  fitResizeHandlesToFrame,
   getResizeHandleSet,
   getSelectionResizeFrame,
   getShapeBounds,
@@ -268,6 +269,47 @@ describe("the handles a selection offers", () => {
 
   it("offers the full set for a multi-shape selection, text included", () => {
     expect(getResizeHandleSet([{ type: "text" }, { type: "geo" }]).visible).toHaveLength(8);
+  });
+});
+
+describe("the handles a small selection draws", () => {
+  const frame = (w: number, h: number) => ({ x: 0, y: 0, w, h });
+  const geo = getResizeHandleSet([{ type: "geo" }]);
+
+  it("draws all eight while the short side has room for them", () => {
+    expect(fitResizeHandlesToFrame(geo, frame(40, 300))).toEqual({ ...geo, grabOutside: false });
+  });
+
+  it("stops drawing the edge bars first and keeps them draggable", () => {
+    expect(fitResizeHandlesToFrame(geo, frame(300, 39))).toEqual({
+      visible: ["nw", "ne", "sw", "se"],
+      hitOnly: ["n", "e", "s", "w"],
+      grabOutside: false,
+    });
+    expect(fitResizeHandlesToFrame(geo, frame(24, 24)).visible).toEqual(["nw", "ne", "sw", "se"]);
+  });
+
+  it("draws nothing below that and moves the grab areas off the shape", () => {
+    expect(fitResizeHandlesToFrame(geo, frame(23, 300))).toEqual({
+      visible: [],
+      hitOnly: ["n", "e", "s", "w", "nw", "ne", "sw", "se"],
+      grabOutside: true,
+    });
+    // A selection squashed flat still keeps every handle to drag it open again.
+    expect(fitResizeHandlesToFrame(geo, frame(0, 0)).hitOnly).toHaveLength(8);
+  });
+
+  it("keeps the handles a shape never draws where they were", () => {
+    const text = getResizeHandleSet([{ type: "text" }]);
+    expect(fitResizeHandlesToFrame(text, frame(200, 18))).toEqual({ ...text, grabOutside: false });
+
+    const arc = getResizeHandleSet([{ type: "arc" }]);
+    expect(fitResizeHandlesToFrame(arc, frame(30, 30))).toEqual({ ...arc, grabOutside: false });
+    expect(fitResizeHandlesToFrame(arc, frame(12, 12))).toEqual({
+      visible: [],
+      hitOnly: ["n", "e", "s", "w", "nw", "ne", "sw", "se"],
+      grabOutside: true,
+    });
   });
 });
 

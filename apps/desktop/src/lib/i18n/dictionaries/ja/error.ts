@@ -250,6 +250,8 @@ export const error = {
       targetNotFound: "指定されたtargetIdをpreview対象ページ内で確認できません: {{targetId}}",
       renderFailed: "ページコンテキストのレンダリングに失敗しました。",
       bridgePortMissing: "render bridge serverのポートを取得できませんでした。",
+      svgConversionTimedOut: "SVGの図形への変換がタイムアウトしました。",
+      svgConversionFailed: "アプリの描画環境でSVGを図形に変換できませんでした。",
     },
     proposal: {
       notFound: "MCP編集提案が見つかりません。",
@@ -262,6 +264,8 @@ export const error = {
       regenerateReplayFailed: "現在の教材へ編集案を再適用できないため、提案の再生成が必要です。",
       changedBeforeApproval: "AI提案が上書きする対象が承認前に変更されているため、承認できませんでした。",
       applyFailed: "現在の教材に編集案を適用できませんでした。対象ブロックが変更または削除されている可能性があります。",
+      sharedServerRejected: "共有サーバーがこの教材の変更を受け付けなかったため、承認できませんでした。アプリの新しい形式に共有サーバーがまだ対応していない可能性があります。編集内容は端末に保存されています。",
+      sharedSyncUnavailable: "共有教材をクラウドと同期できなかったため、承認できませんでした。接続を確認してから、もう一度承認してください。",
       validationFailed: "提案の検証に失敗しました。",
       saveFailed: "MCP編集提案を保存できませんでした。",
       autoApproved: "検証済みのため自動承認しました。",

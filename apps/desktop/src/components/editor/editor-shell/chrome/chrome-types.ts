@@ -30,6 +30,7 @@ import type { Translate } from "@/lib/i18n";
 import type { EditorCommandId } from "@/lib/editor-command-shortcuts";
 import type { Graph2DPreset } from "@/lib/graph2d";
 import type { DocumentMetadata } from "@/lib/storage";
+import type { NewMaterialTargets } from "@/components/editor/editor-shell/use-new-material-targets";
 import type { UiLayoutPreference } from "@/lib/ui-layout-preference";
 import type { DesktopUpdateState } from "@/types/desktop";
 import type { LucideIcon } from "lucide-react";
@@ -118,7 +119,9 @@ export interface EditorChromeFormat {
   activeTextFontSize: number | null;
   activeTextFontSizeMixed: boolean;
   applyBoxedTextPaddingY: (paddingY: number) => void;
-  applyInlineFormat: (command: "color" | "backgroundColor" | "fontFamily" | "fontSize" | "lineHeight" | "boxedPaddingY" | "boxedVariant", value: string) => void;
+  /** 角丸の囲み文字の丸め具合 (%) を決める。 */
+  applyBoxedTextRoundness: (roundness: number) => void;
+  applyInlineFormat: (command: "color" | "backgroundColor" | "fontFamily" | "fontSize" | "lineHeight" | "boxedPaddingY" | "boxedVariant" | "boxedRoundness", value: string) => void;
   applyLineHeight: (nextLineHeightValue: string, options?: { updateInput?: boolean; }) => boolean;
   applyBlockStructure: (value: BlockStyleCommandValue) => void;
   applyTextAlign: (align: TextAlign) => void;
@@ -130,6 +133,8 @@ export interface EditorChromeFormat {
   boxedTextButtonRef: RefObject<HTMLButtonElement | null>;
   boxedTextMenuOpen: boolean;
   boxedTextPaddingY: number;
+  /** 角丸の囲み文字の丸め具合 (%)。既定の丸みは 100。 */
+  boxedTextRoundness: number;
   boxedTextVariant: BoxedVariant;
   blockStyleButtonRef: RefObject<HTMLButtonElement | null>;
   blockStyleMenuOpen: boolean;
@@ -287,6 +292,10 @@ export interface EditorChromeAppMenu {
   problemDisplayAvailable: boolean;
   toggleProblemDisplayPart: (part: ProblemDisplayPart) => void;
   createDocumentTab: () => Promise<void>;
+  /** 「新規教材」のメニューで選んだワークスペースに空の教材を作る。 */
+  createDocumentTabInWorkspace: (workspaceId: string) => Promise<void>;
+  /** 「新規教材」のメニューに出す作成先のワークスペース (メニューを開いている間だけ読む)。 */
+  newMaterialTargets: NewMaterialTargets;
   createWhiteboardDocumentTab: () => Promise<void>;
   /** 教材をクリップボードのテキストとして書き出す。 */
   copyDocumentText: () => Promise<void>;

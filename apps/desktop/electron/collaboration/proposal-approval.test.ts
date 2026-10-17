@@ -22,6 +22,7 @@ import { collectOccupiedInsertIds } from "../proposals/freshness";
 import { replayProposalDraft } from "../proposals/replay";
 import { createSharedProposalApprover } from "./proposal-approval";
 import { approvalFile, observeSharedRead, readSharedProposal, withSharedReadScope } from "./proposal-context";
+import { CollaborationHttpError } from "./transport";
 
 const te = createCurrentLocaleTranslator("error");
 
@@ -153,6 +154,7 @@ function createSharedSession(userData: string, fileId: string, document: SigmaDo
   const receipts = new Map<string, { body: string; seq: number }>();
   const requests: SharedApproval[] = [];
   let failBeforeServer: Error | null = null;
+  let failAfterServer: Error | null = null;
   const sessions = {
     directory: path.join(userData, "collaboration-v1"),
     has: (id: string) => id === fileId,
@@ -191,6 +193,11 @@ function createSharedSession(userData: string, fileId: string, document: SigmaDo
       server = parseSigmaDocument(next);
       seq += 1;
       receipts.set(approval.operationId, { body, seq });
+      if (failAfterServer) {
+        const error = failAfterServer;
+        failAfterServer = null;
+        throw error;
+      }
       local = server;
       return { seq };
     }),
@@ -203,6 +210,7 @@ function createSharedSession(userData: string, fileId: string, document: SigmaDo
     editByAnotherParticipant: (edit: (document: SigmaDocument) => SigmaDocument) => {
       server = parseSigmaDocument(edit(server));
     },
+    failNextApprovalAfterTheServer: (error: Error) => { failAfterServer = error; },
     failNextApprovalBeforeTheServer: (error: Error) => {
       failBeforeServer = error;
     },
@@ -218,7 +226,7 @@ async function createFixture(userData: string) {
   const proposals = new LocalMcpEditProposalStore(userData);
   const shared = createSharedSession(userData, file.fileId, sharedDocument());
   const broadcastLocalStoreChange = vi.fn();
-  const approver = createSharedProposalApprover(shared.sessions, proposals, {
+  let approver = createSharedProposalApprover(shared.sessions, proposals, {
     localSigmaDocStore: documents,
     broadcastLocalStoreChange,
     translate: te,
@@ -241,6 +249,7 @@ async function createFixture(userData: string) {
   return {
     ...shared,
     fileId: file.fileId,
+    restartApprover: () => { approver = createSharedProposalApprover(shared.sessions, proposals, { localSigmaDocStore: documents, broadcastLocalStoreChange, translate: te }); },
     proposals,
     approve: async (...records: LocalMcpEditProposal[]) => (await approver(records))!,
     /** A proposal the AI made from the shared document as it is now (its envelope is captured too). */
@@ -424,7 +433,7 @@ describe("shared proposal approval", () => {
     fixture.editByAnotherParticipant(editText("p_1", "The big cat sat."));
     fixture.failNextApprovalBeforeTheServer(new Error("network"));
 
-    await expect(fixture.approve(proposal)).resolves.toEqual({ ok: false, code: "conflict", error: te("electron.proposal.applyFailed") });
+    await expect(fixture.approve(proposal)).resolves.toEqual({ ok: false, error: te("electron.proposal.sharedSyncUnavailable") });
     expect(await fixture.statusOf(proposal)).toBe("pending");
     await expect(fixture.approve(proposal)).resolves.toMatchObject({ ok: true });
 
@@ -433,6 +442,47 @@ describe("shared proposal approval", () => {
     expect(fixture.requests[0].operationId).not.toBe(envelope.operationId);
     expect(fixture.requests[0].operationId).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-8[0-9a-f]{3}-[0-9a-f]{12}$/);
     expect(textOf(fixture.server(), "p_1")).toBe("The big dog sat.");
+  });
+
+  it.each([false, true])("recovers a lost approval response after restart without inserting twice (rewritten=%s)", async (rewritten) => {
+    const proposal = await fixture.createProposal(draftOf([
+      replace("p_1", "The dog sat."),
+      { operation: "insertOverlayShape", summary: "図形", targetId: "p_2", overlayShape: geo("inserted_once", 400) as never, assets: {} },
+    ]));
+    if (rewritten) fixture.editByAnotherParticipant(editText("p_1", "The big cat sat."));
+    fixture.failNextApprovalAfterTheServer(new TypeError("fetch failed"));
+    await expect(fixture.approve(proposal)).resolves.toMatchObject({ ok: false, error: te("electron.proposal.sharedSyncUnavailable") });
+    expect(await fixture.statusOf(proposal)).toBe("pending");
+    expect(shapesOf(fixture.server()).filter((shape) => shape.id === "inserted_once")).toHaveLength(1);
+    fixture.restartApprover();
+    await expect(fixture.approve(proposal)).resolves.toMatchObject({ ok: true });
+    expect(fixture.requests).toHaveLength(2);
+    expect(fixture.requests[1]).toEqual(fixture.requests[0]);
+    expect(await fixture.statusOf(proposal)).toBe("approved");
+    expect(shapesOf(fixture.server()).filter((shape) => shape.id === "inserted_once")).toHaveLength(1);
+    expect(textOf(fixture.server(), "p_1")).toBe(rewritten ? "The big dog sat." : "The dog sat.");
+    expect(await fs.readdir(path.join(userData, "collaboration-v1", "approval-attempts"))).toEqual([]);
+  });
+
+  // MISS.md R21: a server older than the app refused the document's oldest unsent edit, so the sync
+  // before every approval failed — and was reported as "the target was changed or deleted".
+  it("reports a sync the server refuses as the server refusing it, not as a conflict", async () => {
+    const proposal = await fixture.createProposal(draftOf([replace("p_1", "The dog sat.")]));
+    fixture.sessions.flush.mockRejectedValueOnce(new CollaborationHttpError("INVALID_REQUEST", 400));
+
+    await expect(fixture.approve(proposal)).resolves.toEqual({ ok: false, error: te("electron.proposal.sharedServerRejected") });
+    expect(await fixture.statusOf(proposal)).toBe("pending");
+    expect(fixture.requests).toEqual([]);
+  });
+
+  it("tells a refused approval and a server-side conflict apart", async () => {
+    const proposal = await fixture.createProposal(draftOf([replace("p_1", "The dog sat.")]));
+    fixture.failNextApprovalBeforeTheServer(new CollaborationHttpError("INVALID_REQUEST", 400));
+    await expect(fixture.approve(proposal)).resolves.toEqual({ ok: false, error: te("electron.proposal.sharedServerRejected") });
+
+    fixture.failNextApprovalBeforeTheServer(new CollaborationHttpError("PROPOSAL_CONFLICT", 409));
+    await expect(fixture.approve(proposal)).resolves.toEqual({ ok: false, code: "conflict", error: te("electron.proposal.changedBeforeApproval") });
+    expect(await fixture.statusOf(proposal)).toBe("pending");
   });
 
   it("keeps checking what a room's later turn cannot merge without stopping it when nobody edited it", async () => {

@@ -29,6 +29,24 @@ describe("Tiptap adapter", () => {
   });
 
 
+  it("keeps an oval box's roundness through the editor and drops it where it cannot apply", () => {
+    const paragraph: ParagraphNode = {
+      type: "paragraph", id: "roundness", children: [
+        { type: "text", text: "丸み", marks: ["boxed"], boxedVariant: "oval", boxedRoundness: 40 },
+        { type: "mathInline", id: "roundness-math", tex: "x", display: "inline", marks: ["boxed"], boxedVariant: "oval", boxedRoundness: 20, semanticRole: "expression" },
+        { type: "text", text: "既定", marks: ["boxed"], boxedVariant: "oval", boxedRoundness: 100 },
+        { type: "text", text: "四角", marks: ["boxed"], boxedVariant: "thick", boxedRoundness: 40 },
+      ],
+    };
+    expect(fromTiptap(toTiptap(paragraph), paragraph).children).toEqual([
+      { type: "text", text: "丸み", marks: ["boxed"], boxedVariant: "oval", boxedRoundness: 40 },
+      { type: "mathInline", id: "roundness-math", tex: "x", display: "inline", marks: ["boxed"], boxedVariant: "oval", boxedRoundness: 20, semanticRole: "expression" },
+      // 既定の丸み (100%) は書かない。角が尖った種類は丸め具合を読まないので残さない。
+      { type: "text", text: "既定", marks: ["boxed"], boxedVariant: "oval" },
+      { type: "text", text: "四角", marks: ["boxed"], boxedVariant: "thick" },
+    ]);
+  });
+
   it("keeps overlay inline projection as a document-feature compatibility export", () => {
     expect(overlayRichTextInlinesToInlineNodes)
       .toBe(canonicalOverlayRichTextInlinesToInlineNodes);

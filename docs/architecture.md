@@ -56,7 +56,7 @@ AI編集toolの拡張計画は `docs/ai-edit-tool-roadmap.md` に置きます。
 
 明示的に共有した教材だけは、同じYjs履歴をElectron main・renderer・教材ごとの同期サーバーで複製する。SigmaDocの意味スキーマは維持し、JSONは表示・検証・書き出しの投影として扱う。ローカル専用教材は従来どおりJSONが正本で、ログインやサーバー接続を必要としない。
 
-`features/document-session/contracts.ts` は汎用の編集・履歴・保存・一時selection契約。DesktopEditorが外側から共有sessionを注入する。純粋なdocument/rendering coreと公開Editor/ViewerへYjsやクラウドの実装を持ち込まない。共有中の通常保存はmainのjournal flushへ置き換え、古いJSONのwatcherやrevision整数を共有状態への上書き経路にしない。
+`features/document-session/contracts.ts` は汎用の編集・履歴・保存・一時selection契約。DesktopEditorが外側から共有sessionを注入する。純粋なdocument/rendering coreと公開Editor/ViewerへYjsやクラウドの実装を持ち込まない。共有中の通常保存はmainのjournal flushへ置き換え、古いJSONのwatcherやrevision整数を共有状態への上書き経路にしない。mainはsessionを登録したらその場で `reset` で知らせ、初回の同期を待たずに開く (編集はjournalに積み、同期が通ったら送る)。編集面は共有教材を読み込んだらsessionが届くのを待ってから表示し、接続は待たない。sessionの無い共有教材はJSONで編集させない (`features/document-session/writable.ts`)。
 
 共有AIは本人のローカルMCPがmainの現在の投影を読み、private proposalを既存UIへ返す。承認時はサーバーで権限・対象と参照元のハッシュ・冪等操作IDを検証する。`mergeBasis`を持つ提案は、承認の直前に同期した文書へローカルの承認と同じ三者マージを当て、書き換えたdraftと、合成した単位だけを今のハッシュにした事前条件を送る (合成できない対象と参照元は元のハッシュのまま。承認の記録の形式は変えない)。共有中は従来の長時間予約と自動rebase/自動承認を使用しない。UndoはYjsの選択的履歴へ接続する。
 
@@ -739,6 +739,8 @@ border を引く、running region のリストは region スコープ、静的�
 - 文書ファイルの判別、復旧、形式別parserとID・用紙・題名の正規化は`editor-shell/document-file-import.ts`が扱う。
   `use-document-file-commands.ts`がパスワード・テキスト受け渡しdialogのstate/ref、入出力操作を所有する。
   `use-workspace-document-commands.ts`が教材の開閉・作成・複製・一覧操作を扱い、解析・保存待ち・record作成・タブ採用の順序を保つ。
+  新規教材の作成先 (そのまま押すと直前の教材と同じワークスペース・フォルダ、作れなければ既定の作成先、メニューで選べば
+  そのワークスペースの直下) と、作成後に示す実際の保存場所は`new-material-destination.ts`が決める。
 - タブを閉じる操作と教材一覧からの削除は`editor-shell/document-tab-commands.ts`が扱う。
   通常のタブ操作に使うrender時点の状態と、未編集教材の削除時に再確認する現在の状態を区別する。
   読み取ったrevisionでの削除、一覧・workspace同期、最後の空タブを閉じる際の保存停止・画面遷移の順序を保ち、

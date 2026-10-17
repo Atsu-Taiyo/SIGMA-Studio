@@ -14,6 +14,10 @@ export function HeadingNumberingProvider({
   return <HeadingNumberingContext.Provider value={numbers}>{children}</HeadingNumberingContext.Provider>;
 }
 
+export function useHeadingNumbers(): ReadonlyMap<string, string> {
+  return useContext(HeadingNumberingContext);
+}
+
 export function useHeadingNumber(blockId: string): string | undefined {
-  return useContext(HeadingNumberingContext).get(blockId);
+  return useHeadingNumbers().get(blockId);
 }

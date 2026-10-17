@@ -645,8 +645,8 @@ function canonicalizeOverlayTextContinuation(
 
 function canonicalizeInlineNode(node: InlineNode): InlineNode {
   const keys = node.type === "text"
-    ? ["type", "text", "marks", "underlineStyle", "color", "backgroundColor", "fontFamily", "fontSize", "boxedPaddingY", "boxedVariant", "boxedTone"]
-    : ["type", "id", "tex", "display", "marks", "underlineStyle", "color", "backgroundColor", "fontFamily", "fontSize", "boxedPaddingY", "boxedVariant", "boxedTone", "semanticRole", "altText"];
+    ? ["type", "text", "marks", "underlineStyle", "color", "backgroundColor", "fontFamily", "fontSize", "boxedPaddingY", "boxedVariant", "boxedTone", "boxedRoundness"]
+    : ["type", "id", "tex", "display", "marks", "underlineStyle", "color", "backgroundColor", "fontFamily", "fontSize", "boxedPaddingY", "boxedVariant", "boxedTone", "boxedRoundness", "semanticRole", "altText"];
   return sanitizeInlineNodeCssScalars(
     pickDefined(node as unknown as Record<string, unknown>, keys),
   ) as unknown as InlineNode;
