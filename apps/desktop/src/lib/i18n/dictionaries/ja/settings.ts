@@ -139,7 +139,6 @@ export const settings = {
     description: "変更はすぐに教材へ反映されます",
     titleSection: "タイトル",
     subtitleSection: "サブタイトル",
-    previewSubtitle: "見出し",
     titlePlaceholder: "タイトルを入力",
     titleInsertMath: "タイトルに数式を挿入",
     titleHint: "Σ から本文と同じ数式を入れられます",

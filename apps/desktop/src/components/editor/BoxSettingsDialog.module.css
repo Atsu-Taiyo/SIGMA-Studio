@@ -308,10 +308,12 @@
 
 }
 
+/* プレビューを上に、設定をその下に置く。プレビューは紙面の箱と同じ幅で組むので、横に並べる
+   細い列では読めない大きさまで縮んでしまう。 */
 .workbench {
   display: grid;
-  grid-template-columns: 224px minmax(0, 1fr);
-  gap: 28px;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--space-xl);
   align-items: start;
 }
 
@@ -319,51 +321,57 @@
   min-width: 0;
 }
 
+/* 設定を下へたどっても結果が見えるよう、本文のスクロールの上端に留める。
+   下の設定が透けないよう、本文と同じ地色で塗る。 */
 .previewPanel {
   position: sticky;
   top: 0;
+  z-index: 1;
+  display: grid;
+  gap: var(--space-sm);
   min-width: 0;
-  padding: 18px;
+  padding: var(--space-md);
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-control);
   background: var(--surface-soft);
+  box-shadow: 0 0 0 var(--space-md) var(--background);
+}
+
+.previewHeader {
+  display: flex;
+  min-width: 0;
+  align-items: baseline;
+  gap: var(--space-sm);
 }
 
 .previewHeading {
+  flex: 0 0 auto;
   color: var(--text-muted);
   font-size: 11px;
   font-weight: 650;
 }
 
+.currentStyleName {
+  flex: 0 0 auto;
+  font-size: 13px;
+}
+
+.previewDescription {
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 紙。長い箱は枠の中だけスクロールして、設定の欄を押し下げすぎない。 */
 .livePreview {
-  margin: 20px -6px 16px;
-  padding: 16px 10px;
+  max-height: min(34vh, 300px);
+  overflow: auto;
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-control);
-  background: #fff;
-  color: #111;
-}
-
-.livePreview .stylePreviewViewport {
-  height: 104px;
-}
-.livePreview .stylePreview:global(.sigma-doc-box-block) {
-  height: auto;
-  min-height: 180px;
-}
-.livePreview .stylePreview :global(.sigma-doc-box-title) {
-  white-space: normal;
-  overflow: visible;
-  line-height: 1.5;
-}
-.livePreview .previewLine {
-  background: #c5c5c5;
-}
-
-.currentStyleName {
-  display: block;
-  margin-bottom: 4px;
-  font-size: 13px;
+  background: #ffffff;
+  overscroll-behavior: contain;
 }
 
 .stylePicker {
@@ -574,19 +582,6 @@
 }
 
 @media (max-width: 800px) {
-  .workbench {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
-  .previewPanel {
-    position: static;
-  }
-
-  .livePreview {
-    max-width: 360px;
-    margin-inline: auto;
-  }
-
   .settingsGrid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }

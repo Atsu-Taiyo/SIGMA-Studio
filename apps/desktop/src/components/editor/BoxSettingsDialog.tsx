@@ -1,9 +1,9 @@
 "use client";
 
-import { useEffect, useId, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { useId, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { AlignCenter, AlignLeft, AlignRight, ChevronDown, Minus, Plus, RotateCcw } from "lucide-react";
-import { InlineContent } from "@/features/rendering/adapters/react";
 
+import { BoxSettingsPreview, type BoxPreviewPaper } from "@/components/editor/BoxSettingsPreview";
 import { BoxTitleEditor } from "@/components/editor/BoxTitleEditor";
 import { ColorPalette } from "@/components/editor/ColorPalette";
 import { ToolbarPopover } from "@/components/editor/ToolbarPopover";
@@ -11,6 +11,7 @@ import { Grid, Inline, Stack } from "@/components/ui/layout";
 import { Select } from "@/components/ui/Select";
 import { ModalBody, ModalFrame, ModalHeader } from "@/components/ui/Modal";
 import type {
+  BoxBlockChildBlock,
   BoxBlockNode,
   BoxFrameSpec,
   BoxSpacingPx,
@@ -44,6 +45,10 @@ interface BoxSettingsDialogProps {
   title: InlineNode[];
   /** 2 欄の見出しを持つ箱だけが渡す。 */
   subtitle?: InlineNode[];
+  /** 箱の本文 (開いた時点のもの)。プレビューを紙面と同じ中身で描く。 */
+  body?: BoxBlockChildBlock[];
+  /** 紙面での箱の幅と本文の字の大きさ。プレビューを紙面と同じ組版幅で組む。 */
+  paper?: BoxPreviewPaper;
   mathFractionSizing?: MathFractionSizing | null;
   /** ⋯メニューの「タイトルを編集…」から開いたときだけタイトル入力へキャレットを置く。 */
   autoFocusTitle?: boolean;
@@ -80,6 +85,8 @@ export function BoxSettingsDialog({
   boxBlock,
   title,
   subtitle,
+  body,
+  paper,
   mathFractionSizing,
   autoFocusTitle = false,
   onStyleChange,
@@ -161,20 +168,24 @@ export function BoxSettingsDialog({
       />
       <ModalBody padding="xl">
         <div className={styles.workbench}>
-          <aside className={styles.previewPanel} aria-label={t("box.preview")}>
-            <span className={styles.previewHeading}>{t("box.preview")}</span>
+          {/* 紙面と同じ描画・同じ組版幅で、その箱の中身をそのまま描く。設定を下へたどっても見えるよう上に留める。 */}
+          <section className={styles.previewPanel} aria-label={t("box.preview")}>
+            <div className={styles.previewHeader}>
+              <span className={styles.previewHeading}>{t("box.preview")}</span>
+              <strong className={styles.currentStyleName}>{selectedStyleName}</strong>
+              <span className={styles.previewDescription}>{selectedStyleDescription}</span>
+            </div>
             <div className={styles.livePreview} data-testid="box-live-preview">
-              <BoxStylePreview
-                styleId={boxBlock.styleId}
-                frame={resolvedFrame}
+              <BoxSettingsPreview
+                box={boxBlock}
                 title={title}
                 subtitle={hasSubtitle ? subtitle ?? [] : undefined}
+                body={body}
+                paper={paper}
                 mathFractionSizing={mathFractionSizing}
               />
             </div>
-            <strong className={styles.currentStyleName}>{selectedStyleName}</strong>
-            <p className={styles.fieldHint}>{selectedStyleDescription}</p>
-          </aside>
+          </section>
           <Stack gap="xl" className={styles.controls}>
             <Stack as="section" gap="sm" aria-labelledby="box-settings-title-heading">
               <SectionHeading id="box-settings-title-heading" title={t("box.titleSection")} />
@@ -748,31 +759,19 @@ function SegmentedButton({
   );
 }
 
-function BoxStylePreview({ styleId, frame, title, subtitle, mathFractionSizing }: {
+/**
+ * スタイル一覧の縮小見本。決まった見出しと本文の線で、そのスタイルの枠を半分の大きさで見せる。
+ * 設定中の箱そのものは {@link BoxSettingsPreview} が紙面と同じ描画で見せる。
+ */
+function BoxStylePreview({ styleId, frame }: {
   styleId: string;
   frame: BoxFrameSpec;
-  title?: InlineNode[];
-  subtitle?: InlineNode[];
-  mathFractionSizing?: MathFractionSizing | null;
 }) {
   const t = useT("settings");
-  const frameRef = useRef<HTMLSpanElement>(null);
-  const [previewHeight, setPreviewHeight] = useState<number>();
-  const live = title !== undefined;
-  useEffect(() => {
-    const element = frameRef.current;
-    if (!live || !element) return;
-    // The frame is scaled to half size. Reserve its actual painted height so
-    // long titles and larger padding do not cover the style description.
-    const observer = new ResizeObserver(() => setPreviewHeight(element.offsetHeight / 2 + 14));
-    observer.observe(element);
-    return () => observer.disconnect();
-  }, [live]);
   const className = boxFrameClassName(`${styles.stylePreview} sigma-doc-box-block`, frame, styleId);
   return (
-    <span className={styles.stylePreviewViewport} style={live ? { height: previewHeight } : undefined} aria-hidden="true">
+    <span className={styles.stylePreviewViewport} aria-hidden="true">
       <span
-        ref={frameRef}
         className={className}
         data-box-style={styleId}
         style={boxFrameStyleVars(frame, "closed") as CSSProperties}
@@ -783,12 +782,7 @@ function BoxStylePreview({ styleId, frame, title, subtitle, mathFractionSizing }
         <span className="sigma-doc-box-corner top-right" />
         <span className="sigma-doc-box-corner bottom-left" />
         <span className="sigma-doc-box-corner bottom-right" />
-        <span className="sigma-doc-box-title">{title?.length ? <InlineContent nodes={title} mathFractionSizing={mathFractionSizing} /> : t("box.previewTitle")}</span>
-        {subtitle ? (
-          <span className="sigma-doc-box-title sigma-doc-box-subtitle">
-            {subtitle.length ? <InlineContent nodes={subtitle} mathFractionSizing={mathFractionSizing} /> : t("box.previewSubtitle")}
-          </span>
-        ) : null}
+        <span className="sigma-doc-box-title">{t("box.previewTitle")}</span>
         <span className="sigma-doc-box-body">
           <span className={styles.previewLine} />
           <span className={styles.previewLine} />

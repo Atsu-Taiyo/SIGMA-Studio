@@ -139,7 +139,7 @@ test("box design catalogue in the desktop editor", async ({}, testInfo) => {
     await slider.focus();
     await slider.press("ArrowRight");
     await expect(radius).toHaveValue("25");
-    await expect(page.getByTestId("box-live-preview").locator(".sigma-doc-box-block")).toHaveCSS("border-top-left-radius", "25px");
+    await expect(page.getByTestId("box-live-preview").locator(".print-box-block")).toHaveCSS("border-top-left-radius", "25px");
     const borderStyle = page.getByTestId("box-field-borderStyle");
     await borderStyle.click();
     await expect(page.getByRole("listbox")).toBeVisible();
