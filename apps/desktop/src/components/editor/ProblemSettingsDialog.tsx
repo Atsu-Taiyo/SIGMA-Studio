@@ -278,8 +278,7 @@ function ProblemTagsInput({
     }
   };
 
-  const handleDraftChange = (event: ChangeEvent<HTMLInputElement>) => {
-    const nextValue = event.target.value;
+  const acceptDraft = (nextValue: string) => {
     if (!PROBLEM_TAG_SEPARATOR_PATTERN.test(nextValue)) {
       setDraft(nextValue);
       return;
@@ -288,6 +287,16 @@ function ProblemTagsInput({
     const nextDraft = parts.pop() ?? "";
     appendTags(parts);
     setDraft(nextDraft);
+  };
+
+  const handleDraftChange = (event: ChangeEvent<HTMLInputElement>) => {
+    // While the IME is converting, the field holds a reading (びぶん), not the word yet. It is split
+    // into chips once the conversion is confirmed (compositionend).
+    if ((event.nativeEvent as InputEvent).isComposing) {
+      setDraft(event.target.value);
+      return;
+    }
+    acceptDraft(event.target.value);
   };
 
   return (
@@ -323,7 +332,16 @@ function ProblemTagsInput({
         value={draft}
         placeholder={problem.tags.length === 0 ? t("problem.tagPlaceholder") : ""}
         onChange={handleDraftChange}
+        // The confirmed text is final now: separators typed in it split it as typed ones do.
+        onCompositionEnd={(event) => acceptDraft(event.currentTarget.value)}
         onKeyDown={(event) => {
+          // Chromium delivers the Enter that confirms a conversion while the text is still composed,
+          // and writes the confirmed text into the field after this keydown. Committing here made the
+          // chip and then had the same word written back into the emptied field, behind the chip.
+          // A Backspace that edits the composition belongs to the IME too, not to the last chip.
+          if (event.nativeEvent.isComposing || event.keyCode === 229) {
+            return;
+          }
           if (event.key === "Enter") {
             event.preventDefault();
             commitDraft();
