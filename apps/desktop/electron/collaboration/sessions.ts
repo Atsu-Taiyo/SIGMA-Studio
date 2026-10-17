@@ -17,6 +17,7 @@ import {
   type MemberRole,
   type SaveState,
   type OperationIdentity,
+  type SharedBinding,
 } from "../../src/features/collaboration/model/protocol";
 import {
   isObject,
@@ -33,7 +34,7 @@ import type {
 import type { SharedApproval } from "../../src/features/collaboration/model/approval";
 import { CollaborationAuth, collaborationConfig } from "./auth";
 import { CollaborationHttpError, readResponseBytes, readResponseJson, responseError, retryDelay } from "./transport";
-import { durableWrite, SharedDocumentJournal } from "./journal";
+import { durableWrite, SharedDocumentJournal, type JournalSummary } from "./journal";
 import { logLedgerEvent } from "../ledger-log";
 import { isRemoteId, validateAcknowledgements, validateApproval, validateDocumentIdentity, validateSnapshot, validateSync } from "./response-validation";
 
@@ -79,6 +80,15 @@ export class CollaborationSessions {
   readonly auth: CollaborationAuth | null;
   private registry: Registry = { version: 1, files: {} };
   private sessions = new Map<string, Session>();
+  /**
+   * 登録済みで、まだ journal を開いていない共有教材 (送信待ちが無いと起動時に確かめたもの)。
+   * 値は journal の素性。開くのは `session()` だけで、開いたら取り除く。
+   */
+  private dormant = new Map<string, SharedBinding>();
+  /** 同じ教材の journal を開く・読む処理を1つずつにする (journal の書き手は常に1つ)。 */
+  private journalTails = new Map<string, Promise<unknown>>();
+  /** 最後に受け取った共有一覧の権限。後から開くセッションにも同じ制限をかける。 */
+  private catalogRoles: { actorId: string | null; allowed: Map<string, MemberRole> } | null = null;
   private registryTail: Promise<void> = Promise.resolve();
   private retry?: ReturnType<typeof setInterval>;
   private readonly lifetime = new AbortController();
@@ -130,8 +140,10 @@ export class CollaborationSessions {
       .readdir(path.join(this.directory, "documents"), { withFileTypes: true })
       .catch(() => []);
     const recoveredEpochs = new Map<string, number>();
-    // 復元のために開いた journal は、下で登録済みの教材を開くときにそのまま使う。
-    // 共有教材の数だけ Yjs 文書を2回ずつ復号すると、起動が秒単位で遅れる。
+    // 起動時は Yjs 文書を復号せず、各 journal の素性と送信待ちの数だけを読む (`inspect`)。
+    // 索引に無い journal を登録し直すときだけ、従来どおり復号して壊れていないことを確かめ、
+    // 開いたものはそのままセッションに使う。
+    const summaries = new Map<string, JournalSummary>();
     const scanned = new Map<string, SharedDocumentJournal>();
     let repaired = false;
     for (const folder of folders) {
@@ -148,13 +160,14 @@ export class CollaborationSessions {
         continue;
       }
       try {
-        const recovered = await SharedDocumentJournal.open(
-          path.join(this.directory, "documents", folder.name),
-        );
-        const { binding } = recovered;
-        const previous = this.registry.files[binding.localFileId];
-        const previousEpoch = recoveredEpochs.get(binding.localFileId);
-        if (!previous || (previousEpoch !== undefined && binding.epoch > previousEpoch)) {
+        const folderPath = path.join(this.directory, "documents", folder.name);
+        const summary = await SharedDocumentJournal.inspect(folderPath);
+        summaries.set(folder.name, summary);
+        const previous = this.registry.files[summary.binding.localFileId];
+        const previousEpoch = recoveredEpochs.get(summary.binding.localFileId);
+        if (!previous || (previousEpoch !== undefined && summary.binding.epoch > previousEpoch)) {
+          const recovered = await SharedDocumentJournal.open(folderPath);
+          const { binding } = recovered;
           const intent = binding.epoch === 1
             ? await fs.readFile(path.join(this.directory, `initialize-${binding.localFileId}.json`), "utf8").then((raw) => JSON.parse(raw) as { operationId: string }).catch(() => null)
             : null;
@@ -168,8 +181,8 @@ export class CollaborationSessions {
           };
           recoveredEpochs.set(binding.localFileId, binding.epoch);
           repaired = true;
+          scanned.set(folder.name, recovered);
         }
-        scanned.set(folder.name, recovered);
       } catch {
         /* The normal session open below reports corrupt registered journals. */
       }
@@ -181,23 +194,19 @@ export class CollaborationSessions {
         if (!/^[A-Za-z0-9_-]+$/.test(directory))
           throw new Error("INVALID_BINDING");
         // 同じ journal を指す登録が2つあっても、文書の実体は共有しない (2つ目は開き直す)。
-        const journal = scanned.get(directory)
-          ?? await SharedDocumentJournal.open(
-            path.join(this.directory, "documents", directory),
-          );
+        const scannedJournal = scanned.get(directory);
         scanned.delete(directory);
-        this.sessions.set(fileId, {
-          journal,
-          role: entry.role,
-          status:
-            this.auth?.user()?.id === entry.actorId
-              ? "offline"
-              : "permission-error",
-          assets: {},
-          tail: Promise.resolve(),
-        });
-        await this.loadAssets(fileId, false);
-        await this.recoverPendingAssets(fileId);
+        const summary = summaries.get(directory);
+        // 送信待ちの無い教材は、初めて使うときに開く (`session`)。送信待ちがあるかもしれない
+        // 教材 (未送信の編集・未初期化・段階共有中・未アップロードの画像・読めなかった journal) は
+        // 従来どおりここで開き、再送の対象にする。
+        if (!scannedJournal && summary?.binding.localFileId === fileId && !(await this.mayHavePendingWork(entry, summary))) {
+          this.dormant.set(fileId, summary.binding);
+          continue;
+        }
+        await this.attach(fileId, scannedJournal ?? await SharedDocumentJournal.open(
+          path.join(this.directory, "documents", directory),
+        ));
       } catch {
         console.error(
           "[collaboration] local shared session unavailable; original data retained",
@@ -238,6 +247,126 @@ export class CollaborationSessions {
       if (!cached.uploaded) { session.pendingAssetRevision = 1; break; }
     }
   }
+  private async mayHavePendingWork(entry: Registry["files"][string], summary: JournalSummary): Promise<boolean> {
+    if (!entry.initialized || entry.staged || summary.pending > 0) return true;
+    const folder = path.join(this.directory, "assets", summary.binding.sharedDocumentId);
+    const files = await fs.readdir(folder).catch(() => []);
+    for (const file of files.filter((name) => name.endsWith(".json"))) {
+      try {
+        const cached = JSON.parse(await fs.readFile(path.join(folder, file), "utf8")) as { uploaded: boolean };
+        if (!cached.uploaded) return true;
+      } catch {
+        return true;
+      }
+    }
+    return false;
+  }
+  /** Registers an opened journal as the file's session (the former startup path). */
+  private async attach(fileId: string, journal: SharedDocumentJournal): Promise<Session> {
+    const entry = this.registry.files[fileId];
+    const session: Session = {
+      journal,
+      role: entry.role,
+      status: this.auth?.user()?.id === entry.actorId ? "offline" : "permission-error",
+      assets: {},
+      tail: Promise.resolve(),
+      viewing: (this.viewedFileId === fileId || this.visibleFileIds.has(fileId)) && entry.actorId === this.auth?.user()?.id,
+    };
+    const restriction = this.catalogRoles;
+    if (restriction && entry.actorId === this.actorId() && restriction.actorId === this.actorId()) {
+      const role = restriction.allowed.get(entry.sharedDocumentId);
+      if (!role) session.status = "permission-error";
+      else session.role = role;
+    }
+    this.sessions.set(fileId, session);
+    this.dormant.delete(fileId);
+    try {
+      await this.loadAssets(fileId, false);
+      await this.recoverPendingAssets(fileId);
+    } catch {
+      console.error(
+        "[collaboration] local shared session unavailable; original data retained",
+      );
+    }
+    return session;
+  }
+  private withJournal<T>(fileId: string, run: () => Promise<T>): Promise<T> {
+    const result = (this.journalTails.get(fileId) ?? Promise.resolve()).then(run);
+    const tail = result.catch(() => {});
+    this.journalTails.set(fileId, tail);
+    void tail.then(() => {
+      if (this.journalTails.get(fileId) === tail) this.journalTails.delete(fileId);
+    });
+    return result;
+  }
+  /**
+   * The file's session, opening its journal on first use. A file left closed at startup had
+   * nothing to send, and only an open session can queue more, so nothing waits on it.
+   * The renderer learns about the new session from `reset`, as for any other registration.
+   */
+  private session(fileId: string): Promise<Session> {
+    const open = this.sessions.get(fileId);
+    if (open) return Promise.resolve(open);
+    if (!this.has(fileId)) return Promise.reject(new Error("SHARED_SESSION_REQUIRED"));
+    return this.withJournal(fileId, async () => {
+      const existing = this.sessions.get(fileId);
+      if (existing) return existing;
+      const entry = this.registry.files[fileId];
+      if (!entry) throw new Error("SHARED_SESSION_REQUIRED");
+      const directory = entry.journalDirectory ?? entry.sharedDocumentId;
+      let journal: SharedDocumentJournal;
+      try {
+        if (!/^[A-Za-z0-9_-]+$/.test(directory)) throw new Error("INVALID_BINDING");
+        journal = await SharedDocumentJournal.open(path.join(this.directory, "documents", directory));
+      } catch {
+        console.error(
+          "[collaboration] local shared session unavailable; original data retained",
+        );
+        throw new Error("SHARED_SESSION_UNAVAILABLE");
+      }
+      if (this.registry.files[fileId] !== entry) {
+        journal.document.destroy();
+        throw new Error("SHARED_SESSION_REQUIRED");
+      }
+      // A file opened because it is viewed is synchronized by `view` / `visibleFiles` itself.
+      const session = await this.attach(fileId, journal);
+      this.emit({ type: "reset", fileId });
+      return session;
+    });
+  }
+  /** Opens a not-yet-opened file that this account is looking at; other files stay closed. */
+  private async openViewed(fileId: string): Promise<Session | undefined> {
+    const open = this.sessions.get(fileId);
+    if (open || !this.dormant.has(fileId)) return open;
+    if (this.registry.files[fileId]?.actorId !== this.auth?.user()?.id) return undefined;
+    return this.session(fileId).catch(() => undefined);
+  }
+  /**
+   * Reads a not-yet-opened journal for a read-only preview without registering a session
+   * (registering would make every renderer reread its sessions). It holds the same per-file
+   * turn as `session()`, so no writer can open the journal while it is read.
+   */
+  private readDormant(fileId: string): Promise<SigmaDocument> {
+    return this.withJournal(fileId, async () => {
+      const open = this.sessions.get(fileId);
+      if (open) return parseSigmaDocument(open.journal.document.project());
+      const entry = this.registry.files[fileId];
+      const directory = entry?.journalDirectory ?? entry?.sharedDocumentId;
+      if (!directory || !/^[A-Za-z0-9_-]+$/.test(directory)) throw new Error("SHARED_SESSION_UNAVAILABLE");
+      const journal = await SharedDocumentJournal.open(path.join(this.directory, "documents", directory));
+      try {
+        return parseSigmaDocument(journal.document.project());
+      } finally {
+        journal.document.destroy();
+      }
+    });
+  }
+  /** The shared document as stored locally, opening its session on first use. */
+  async read(fileId: string): Promise<SigmaDocument | undefined> {
+    if (!this.has(fileId)) return undefined;
+    await this.session(fileId);
+    return this.project(fileId);
+  }
   has(fileId: string): boolean {
     return Boolean(this.registry.files[fileId]);
   }
@@ -259,7 +388,7 @@ export class CollaborationSessions {
     fileId: string,
     document: SigmaDocument,
   ): Promise<{ ok: boolean; revision?: number; error?: string }> {
-    const session = this.require(fileId);
+    const session = await this.session(fileId);
     await session.tail;
     await session.journal.flush();
     // A legacy JSON save is never promoted into a CRDT mutation.
@@ -282,7 +411,8 @@ export class CollaborationSessions {
             .filter((id) => this.registry.files[id].actorId === user.id)
             .map((id) => this.describe(id))
         : [],
-      restrictedFileIds: [...this.sessions.keys()],
+      // 開く前の教材も共有されている。セッションが届くまで画面は書き込ませない。
+      restrictedFileIds: Object.keys(this.registry.files),
     };
   }
   describe(fileId: string): SessionInfo {
@@ -453,7 +583,7 @@ export class CollaborationSessions {
   async retainLocal(fileId: string): Promise<void> {
     const entry = this.registry.files[fileId];
     if (!entry || entry.actorId !== this.actorId()) throw new Error("ACCOUNT_CHANGED");
-    const session = this.require(fileId);
+    const session = await this.session(fileId);
     await session.tail;
     await session.journal.compact();
     await this.loadAssets(fileId, false);
@@ -494,9 +624,10 @@ export class CollaborationSessions {
   }
   actorId(): string | null { return this.auth?.user()?.id ?? null; }
   bindings(): { fileId: string; sharedDocumentId: string; actorId: string; docId?: string }[] {
-    return Object.entries(this.registry.files).map(([fileId, entry]) => ({ fileId, sharedDocumentId: entry.sharedDocumentId, actorId: entry.actorId, docId: this.sessions.get(fileId)?.journal.binding.docId }));
+    return Object.entries(this.registry.files).map(([fileId, entry]) => ({ fileId, sharedDocumentId: entry.sharedDocumentId, actorId: entry.actorId, docId: (this.sessions.get(fileId)?.journal.binding ?? this.dormant.get(fileId))?.docId }));
   }
   restrictCatalog(allowed: Map<string, MemberRole>): void {
+    this.catalogRoles = { actorId: this.actorId(), allowed };
     for (const [fileId, session] of this.sessions) {
       const entry = this.registry.files[fileId];
       if (entry.actorId !== this.actorId()) { session.socket?.close(); this.status(fileId, "permission-error"); continue; }
@@ -557,18 +688,24 @@ export class CollaborationSessions {
     if (!actor) throw new Error("AUTH_REQUIRED");
     const session = this.sessions.get(fileId);
     const binding = this.registry.files[fileId];
-    const canUseLocal = Boolean(session && binding?.actorId === actor && binding.sharedDocumentId === sharedDocumentId && !session.stopped && !session.failed && session.status !== "permission-error");
+    // A not-yet-opened file has no local edits to merge; its stored journal still serves offline.
+    const dormant = session ? undefined : this.dormant.get(fileId);
+    const restriction = this.catalogRoles;
+    const dormantAllowed = Boolean(dormant && (!restriction || restriction.actorId !== actor || restriction.allowed.has(sharedDocumentId)));
+    const canUseLocal = Boolean(binding?.actorId === actor && binding.sharedDocumentId === sharedDocumentId && (session
+      ? !session.stopped && !session.failed && session.status !== "permission-error"
+      : dormantAllowed));
     let useLocal = false;
     let document: SigmaDocument;
     try {
       const snapshot = await this.request<{ state: string; epoch: number }>(`/documents/${sharedDocumentId}/snapshot`);
       validateSnapshot(snapshot, sharedDocumentId, false);
       let shared = new SharedDocument(fromBase64(snapshot.state, MAX_DOCUMENT_BYTES));
-      useLocal = canUseLocal && session!.journal.binding.epoch === snapshot.epoch;
+      useLocal = canUseLocal && (session?.journal.binding ?? dormant)!.epoch === snapshot.epoch;
       try {
         // Combine the fresh remote state with pending local edits in an isolated
         // CRDT. Never let an idle local journal hide newer remote content.
-        if (useLocal) for (const pending of session!.journal.outbox()) {
+        if (useLocal && session) for (const pending of session.journal.outbox()) {
           const merged = shared.prepareUpdate(fromBase64(pending.update, MAX_UPDATE_BYTES), parseSigmaDocument);
           shared.destroy(); shared = merged;
         }
@@ -580,7 +717,7 @@ export class CollaborationSessions {
       const offline = (error instanceof CollaborationHttpError && error.status >= 500) || error instanceof TypeError || (error instanceof Error && (error.name === "TimeoutError" || /^(NETWORK_UNAVAILABLE|HTTP_5\d\d|fetch failed)$/.test(error.message)));
       if (!canUseLocal || !offline) throw error;
       useLocal = true;
-      document = this.project(fileId)!;
+      document = session ? this.project(fileId)! : await this.readDormant(fileId);
     }
     // Text-only readers (comment scans) skip the image download; sources stay as storage references.
     if (options?.assets === false) {
@@ -603,7 +740,9 @@ export class CollaborationSessions {
         if (!images.has(id) && totalAssetBytes >= previewAssetBudget) images.set(id, omittedImage);
         if (!images.has(id) && useLocal) {
           try {
-            const source = await this.asset(fileId, id, undefined, false);
+            const source = session
+              ? await this.asset(fileId, id, undefined, false)
+              : await this.cachedAsset(sharedDocumentId, id);
             totalAssetBytes += this.parseImage(source).bytes.byteLength;
             images.set(id, totalAssetBytes > previewAssetBudget ? omittedImage : source);
           } catch (error) {
@@ -647,7 +786,7 @@ export class CollaborationSessions {
     if (this.has(fileId)) {
       if (this.registry.files[fileId].actorId !== actorId) throw new Error("ACCOUNT_CHANGED");
       if (this.registry.files[fileId].sharedDocumentId !== sharedDocumentId) throw new Error("SESSION_IDENTITY_MISMATCH");
-      const session = this.require(fileId);
+      const session = await this.session(fileId);
       if (session.status === "permission-error") throw new Error("READ_ONLY");
       return this.project(fileId)!;
     }
@@ -742,7 +881,8 @@ export class CollaborationSessions {
     kind: "manual" | "undo" | "redo",
     epoch: number,
   ): Promise<void> {
-    const session = this.require(fileId);
+    const session = this.sessions.get(fileId);
+    if (!session) return this.session(fileId).then(() => this.update(fileId, encoded, operationId, kind, epoch));
     return this.serial(session, async () => {
       if (epoch !== session.journal.binding.epoch || this.sessions.get(fileId) !== session)
         throw new Error("EPOCH_CHANGED");
@@ -787,7 +927,7 @@ export class CollaborationSessions {
     await this.flush(fileId, true).catch(() => {});
   }
   async flush(fileId: string, online = false): Promise<void> {
-    const session = this.require(fileId);
+    const session = await this.session(fileId);
     if (session.failed) throw new Error("LOCAL_SAVE_FAILED");
     if (!online) {
       await session.tail;
@@ -1033,7 +1173,7 @@ export class CollaborationSessions {
     });
   }
   async approve(fileId: string, approval: SharedApproval, approvalIds?: string[]): Promise<{ seq: number }> {
-    const session = this.require(fileId);
+    const session = await this.session(fileId);
     await this.flush(fileId, true);
     if (approvalIds) {
       const windowId = this.approverWindow.getStore();
@@ -1060,12 +1200,13 @@ export class CollaborationSessions {
   async action<T>(fileId: string, action: string, body?: unknown): Promise<T> {
     if (this.registry.files[fileId]?.actorId !== this.actorId()) throw new Error("ACCOUNT_CHANGED");
     return this.request<T>(
-      `/documents/${this.require(fileId).journal.binding.sharedDocumentId}/${action}`,
+      `/documents/${(await this.session(fileId)).journal.binding.sharedDocumentId}/${action}`,
       body,
     );
   }
   async signOut(): Promise<void> {
     await this.auth?.signOut();
+    this.catalogRoles = null;
     for (const [fileId, session] of this.sessions) {
       session.socket?.close();
       session.viewing = false;
@@ -1077,7 +1218,7 @@ export class CollaborationSessions {
     await this.action(fileId, "backups", {});
   }
   async restore(fileId: string, backupId: string): Promise<void> {
-    const session = this.require(fileId);
+    const session = await this.session(fileId);
     const intent = path.join(
       session.journal.directory,
       `restore-${backupId}.json`,
@@ -1105,7 +1246,7 @@ export class CollaborationSessions {
     await this.reload(fileId);
   }
   async reload(fileId: string): Promise<void> {
-    const previous = this.require(fileId);
+    const previous = await this.session(fileId);
     await previous.syncing?.catch(() => {});
     await previous.tail;
     const snapshot = await this.action<{
@@ -1162,7 +1303,7 @@ export class CollaborationSessions {
     await this.flush(fileId, true);
   }
   async presence(fileId: string, state: PresenceState | null): Promise<void> {
-    const session = this.require(fileId);
+    const session = await this.session(fileId);
     if (!session.viewing) return;
     if (session.socket?.readyState !== WebSocket.OPEN)
       await this.connect(fileId).catch(() => this.status(fileId, "offline"));
@@ -1183,6 +1324,8 @@ export class CollaborationSessions {
   async visibleFiles(fileIds: string[]): Promise<void> {
     const added = fileIds.filter((id) => !this.visibleFileIds.has(id));
     this.visibleFileIds = new Set(fileIds);
+    // 並べたペインに出た共有教材は、まだ開いていなければここで開く (表示中として同期する)。
+    await Promise.all(added.map((id) => this.openViewed(id)));
     await this.view(this.viewedFileId);
     await Promise.all(added.filter((id) => id !== this.viewedFileId && this.sessions.get(id)?.viewing)
       .map((id) => this.flush(id, true).catch(() => {})));
@@ -1200,7 +1343,7 @@ export class CollaborationSessions {
       }
     }
     if (fileId) {
-      const session = this.sessions.get(fileId);
+      const session = this.sessions.get(fileId) ?? await this.openViewed(fileId);
       if (session?.viewing) {
         await session.syncing?.catch(() => {});
         await this.flush(fileId, true).catch(() => {});
@@ -1212,7 +1355,7 @@ export class CollaborationSessions {
     action: "stop" | "delete" | "leave",
   ): Promise<void> {
     await this.action(fileId, action, {});
-    const session = this.require(fileId);
+    const session = await this.session(fileId);
     session.stopped = true;
     session.socket?.close();
     this.status(fileId, "permission-error");
@@ -1225,8 +1368,8 @@ export class CollaborationSessions {
   async duplicate(
     fileId: string,
   ): ReturnType<LocalSigmaDocStore["createFileFromDocument"]> {
+    const session = await this.session(fileId);
     await this.loadAssets(fileId, true);
-    const session = this.require(fileId);
     const document = this.project(fileId)!;
     const replace = (value: unknown): unknown => {
       if (Array.isArray(value)) return value.map(replace);
@@ -1282,7 +1425,7 @@ export class CollaborationSessions {
     source?: string,
     download = true,
   ): Promise<string> {
-    const session = this.require(fileId);
+    const session = await this.session(fileId);
     if (download && this.registry.files[fileId]?.actorId !== this.actorId()) throw new Error("ACCOUNT_CHANGED");
     if (!/^[A-Za-z0-9_-]{1,180}$/.test(assetId))
       throw new Error("INVALID_ASSET");
@@ -1352,6 +1495,14 @@ export class CollaborationSessions {
     session.assets[assetId] = value;
     this.emit({ type: "asset-ready", fileId, assetId });
     return value;
+  }
+  /** A downloaded or pasted image of a not-yet-opened file, read without opening its session. */
+  private async cachedAsset(sharedDocumentId: string, assetId: string): Promise<string> {
+    if (!/^[A-Za-z0-9_-]{1,180}$/.test(assetId)) throw new Error("INVALID_ASSET");
+    const cached = JSON.parse(
+      await fs.readFile(path.join(this.directory, "assets", sharedDocumentId, `${assetId}.json`), "utf8"),
+    ) as { source: string };
+    return cached.source;
   }
   async assetResponse(source: string): Promise<Response> {
     const match = /^sigma-doc-storage:\/\/([A-Za-z0-9_-]{1,180})\/?(?:\?ready=\d+)?$/.exec(

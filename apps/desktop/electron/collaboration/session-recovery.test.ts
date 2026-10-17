@@ -37,7 +37,7 @@ it("rebuilds a corrupt index from the newest epoch and retains old offline logs"
   } finally { await sessions.close(); }
 });
 
-it("decodes each shared journal once at startup and keeps the recovered sessions usable", async () => {
+it("decodes only the journal it has to re-register at startup and reuses it as the session", async () => {
   vi.stubEnv("SIGMA_COLLABORATION_URL", "");
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), "sigma-recovery-"));
   directories.push(directory);
@@ -62,10 +62,12 @@ it("decodes each shared journal once at startup and keeps the recovered sessions
   const sessions = new CollaborationSessions(directory, new LocalSigmaDocStore(directory), () => {});
   try {
     await sessions.initialize();
-    expect(open).toHaveBeenCalledTimes(3);
-    expect(sessions.project("file-a")?.metadata.title).toBe("title-a");
-    expect(sessions.project("file-b")?.metadata.title).toBe("title-b");
+    // The registered, clean journals stay closed; the orphan is decoded once to re-register it.
+    expect(open).toHaveBeenCalledTimes(1);
     expect(sessions.describe("file-orphan").binding.sharedDocumentId).toBe("shared-orphan");
+    expect((await sessions.read("file-a"))?.metadata.title).toBe("title-a");
+    expect((await sessions.read("file-b"))?.metadata.title).toBe("title-b");
+    expect(open).toHaveBeenCalledTimes(3);
   } finally {
     open.mockRestore();
     await sessions.close();

@@ -104,15 +104,27 @@ test("closed shared journals stay idle across restart and catch up through the E
     expect(syncs).toBe(2);
     await page.evaluate(() => window.desktopAPI!.collaboration!.view(null));
     await app!.close(); app = undefined;
+    // The change received while viewing is durable in the journal.
+    const stored = await SharedDocumentJournal.open(path.join(directory, "documents", sharedId));
+    expect((stored.document.project().metadata as ObjectValue).title).toBe("Changed while closed");
+    stored.document.destroy();
 
     page = await launch();
+    // With nothing to send, the journal is not even opened at startup. The file is still
+    // restricted (read-only until its session reaches the renderer).
     const info = await page.evaluate(() => window.desktopAPI!.collaboration!.info());
-    const state = info.sessions.find((session) => session.binding.localFileId === fileId)!.state;
+    expect(info.restrictedFileIds).toContain(fileId);
+    expect(info.sessions.some((session) => session.binding.localFileId === fileId)).toBe(false);
+    await idlePastReconciliation();
+    expect(syncs).toBe(2);
+    // Viewing opens the stored journal on first use and catches up once.
+    await page.evaluate((id) => window.desktopAPI!.collaboration!.view(id), fileId);
+    expect(syncs).toBe(3);
+    const reopened = await page.evaluate(() => window.desktopAPI!.collaboration!.info());
+    const state = reopened.sessions.find((session) => session.binding.localFileId === fileId)!.state;
     const restored = new SharedDocument(fromBase64(state));
     expect((restored.project().metadata as ObjectValue).title).toBe("Changed while closed");
     restored.destroy();
-    await idlePastReconciliation();
-    expect(syncs).toBe(2);
   } finally {
     await app?.close();
     for (const client of sockets.clients) client.terminate();
