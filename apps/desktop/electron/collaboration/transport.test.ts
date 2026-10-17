@@ -1,5 +1,5 @@
 import { afterEach, expect, it, vi } from "vitest";
-import { CollaborationHttpError, readResponseBytes, readResponseJson, responseError, retryAfterMilliseconds, retryDelay } from "./transport";
+import { CollaborationHttpError, readResponseBytes, readResponseJson, responseError, retryAfterMilliseconds, retryDelay, syncFailureStatus } from "./transport";
 
 afterEach(() => vi.restoreAllMocks());
 
@@ -30,4 +30,17 @@ it("preserves HTTP status and retry deadlines without exposing arbitrary server 
   vi.spyOn(Math, "random").mockReturnValue(0.5);
   expect([1, 2, 3, 10].map(n => retryDelay(n))).toEqual([7500, 15000, 30000, 45000]);
   expect(retryDelay(1, new CollaborationHttpError("RATE_LIMIT", 429, 120_000))).toBe(120_000);
+});
+
+// MISS.md R20: a refused edit blocks every later one; showing it as "Offline" hid a week-long stall.
+it("tells a server refusing the document's edits apart from being offline", () => {
+  expect(syncFailureStatus(new CollaborationHttpError("INVALID_REQUEST", 400))).toBe("sync-rejected");
+  expect(syncFailureStatus(new CollaborationHttpError("SCHEMA_MISMATCH", 409))).toBe("sync-rejected");
+  expect(syncFailureStatus(new CollaborationHttpError("PAYLOAD_LIMIT", 413))).toBe("sync-rejected");
+  expect(syncFailureStatus(new CollaborationHttpError("EPOCH_MISMATCH", 409))).toBe("epoch-error");
+  expect(syncFailureStatus(new CollaborationHttpError("FORBIDDEN", 403))).toBe("permission-error");
+  expect(syncFailureStatus(new Error("READ_ONLY"))).toBe("permission-error");
+  expect(syncFailureStatus(new CollaborationHttpError("HTTP_502", 502))).toBe("offline");
+  expect(syncFailureStatus(new CollaborationHttpError("RATE_LIMIT", 429))).toBe("offline");
+  expect(syncFailureStatus(new TypeError("fetch failed"))).toBe("offline");
 });

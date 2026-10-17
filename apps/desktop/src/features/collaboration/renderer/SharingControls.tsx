@@ -145,6 +145,7 @@ export function SharingControls({ context, info, session, refresh }: Props) {
             {status === "saved" ? (
               <Cloud size={16} />
             ) : status === "offline" ||
+              status === "sync-rejected" ||
               status === "permission-error" ||
               status === "save-error" ||
               status === "epoch-error" ? (

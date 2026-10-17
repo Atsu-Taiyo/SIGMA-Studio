@@ -81,7 +81,7 @@ export const chrome = {
     owner: "所有者", admin: "管理者", editor: "編集者", viewer: "閲覧者", me: "自分", members: "参加者", remove: "共有を解除", retry: "再接続", localCopy: "ローカルコピーを保存",
     stop: "共有を停止", leave: "共有から退出", delete: "サーバーから削除", confirmEnd: "共同編集を終了しますか？", endDescription: "端末に保存済みの内容は残ります。必要なら先にローカルコピーを保存してください。", cancel: "キャンセル",
     error: "操作を完了できませんでした。接続と権限を確認して、もう一度お試しください。", working: "準備中", ready: "参加しました。教材一覧から開けます。",
-    status: { "epoch-error": "共有教材が復元されました", "local-saving": "端末に保存中", "local-saved": "端末保存済み・未同期", syncing: "同期中", saved: "クラウド保存済み", offline: "オフライン", "permission-error": "共有権限を確認してください", "save-error": "保存に失敗しました" },
+    status: { "epoch-error": "共有教材が復元されました", "local-saving": "端末に保存中", "local-saved": "端末保存済み・未同期", syncing: "同期中", saved: "クラウド保存済み", offline: "オフライン", "sync-rejected": "端末保存済み・サーバーが受け付けません", "permission-error": "共有権限を確認してください", "save-error": "保存に失敗しました" },
     plan: {
       /** 操作を止めたときにPaywallの見出しで示す理由。 */
       reasons: {

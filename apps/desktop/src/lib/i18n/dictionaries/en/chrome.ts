@@ -79,7 +79,7 @@ export const chrome = {
     owner: "Owner", admin: "Admin", editor: "Can edit", viewer: "View only", me: "You", members: "People", remove: "Remove access", retry: "Reconnect", localCopy: "Save a local copy",
     stop: "Stop sharing", leave: "Leave shared material", delete: "Delete from server", confirmEnd: "End collaboration?", endDescription: "Previously saved content remains on each device. Save a local copy first if you need one.", cancel: "Cancel",
     error: "The action could not be completed. Check your connection and access, then try again.", working: "Preparing", ready: "Joined. Open the material from your library.",
-    status: { "epoch-error": "Shared document restored", "local-saving": "Saving on device", "local-saved": "Saved on device · Not synced", syncing: "Syncing", saved: "Saved to cloud", offline: "Offline", "permission-error": "Check sharing access", "save-error": "Save failed" },
+    status: { "epoch-error": "Shared document restored", "local-saving": "Saving on device", "local-saved": "Saved on device · Not synced", syncing: "Syncing", saved: "Saved to cloud", offline: "Offline", "sync-rejected": "Saved on device · Server refused changes", "permission-error": "Check sharing access", "save-error": "Save failed" },
     plan: {
       reasons: {
         documentLimit: {

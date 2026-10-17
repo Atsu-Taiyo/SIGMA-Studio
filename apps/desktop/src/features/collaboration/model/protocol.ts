@@ -14,6 +14,8 @@ export type SaveState =
   | "syncing"
   | "saved"
   | "offline"
+  /** The server refuses the oldest unsent edit; later edits wait behind it on this device. */
+  | "sync-rejected"
   | "permission-error"
   | "save-error"
   | "epoch-error";

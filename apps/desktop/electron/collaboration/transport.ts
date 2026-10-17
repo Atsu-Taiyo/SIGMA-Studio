@@ -1,3 +1,5 @@
+import type { SaveState } from "../../src/features/collaboration/model/protocol";
+
 /** Bounded reads apply to decoded response bytes, including chunked/compressed bodies. */
 export async function readResponseBytes(response: Response, limit: number): Promise<Uint8Array> {
   const length = Number(response.headers.get("content-length"));
@@ -56,6 +58,27 @@ export async function responseError(response: Response): Promise<CollaborationHt
     typeof code === "string" && /^[A-Z][A-Z0-9_]{0,99}$/.test(code) ? code : `HTTP_${response.status}`,
     response.status, retryAfterMilliseconds(response.headers.get("retry-after")),
   );
+}
+
+/**
+ * The server refused the request itself (400/409/413): resending it unchanged gets the same answer until
+ * the request or the server changes. A shared document whose oldest unsent edit is refused cannot send
+ * any later edit either, so this is told apart from being unreachable (network, 5xx, 429) and from
+ * access (401/403) — e.g. a server whose document schema is older than this app (MISS.md R20).
+ */
+export function isServerRejection(error: unknown): error is CollaborationHttpError {
+  return error instanceof CollaborationHttpError && [400, 409, 413].includes(error.status);
+}
+
+/** The save state a failed synchronization leaves a shared document in. */
+export function syncFailureStatus(error: unknown): SaveState {
+  if (/EPOCH/.test(String(error))) return "epoch-error";
+  if (
+    (error instanceof CollaborationHttpError && [401, 403].includes(error.status))
+    || /ACCESS|MEMBERSHIP|READ_ONLY|DOCUMENT_UNAVAILABLE|AUTH_REQUIRED|ACCOUNT_CHANGED/.test(String(error))
+  )
+    return "permission-error";
+  return isServerRejection(error) ? "sync-rejected" : "offline";
 }
 
 /** Equal jitter avoids synchronized clients; server Retry-After remains a minimum. */
