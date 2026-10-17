@@ -5,6 +5,7 @@ import { MATHLIVE_BOX_LAYOUT_CLASS, normalizeMathLiveBoxStyle } from "@/lib/math
 import { installMathLiveCompositionAnchor } from "@/lib/mathlive-composition-anchor";
 import { installMathLiveCompositionSelection } from "@/lib/mathlive-composition-selection";
 import { collidesWithMathKeyboardShortcut } from "@/lib/math-keyboard-shortcuts";
+import { installMathLiveOpenFenceLatex } from "@/lib/mathlive-open-fence";
 
 export const MATHLIVE_MATH_MODE_SPACE = "\\ ";
 
@@ -94,6 +95,8 @@ export function configureInlineMathLiveField(
   // 既定値に頼らず明示しておく。閉じ括弧が薄く出ないようにする CSS は
   // `.inline-math-field { --smart-fence-opacity: 1 }` 側にある。
   mathField.smartFence = true;
+  // その括弧の閉じ側を消したとき `(x.` と書き出さないようにする (`mathlive-open-fence.ts`)。
+  installMathLiveOpenFenceLatex(mathField);
   // 数式のショートカット (⌃H の sin・⌃D の行列・⌃B の枠…) と同じキーの MathLive 既定動作を外す。
   // MathLive はショートカットより先にキーを受けるので、残すと挿入の前に文字が消える・動く。
   const keybindings = mathField.keybindings;
