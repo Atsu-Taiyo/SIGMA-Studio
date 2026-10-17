@@ -1,5 +1,7 @@
 import { createHash } from "node:crypto";
 import path from "node:path";
+import { promises as fs } from "node:fs";
+import { durableWrite } from "./journal";
 import { normalizeOverlaySnapshot, type SigmaDocument } from "@/features/document";
 import { rewriteAiOverlayShapeReplacementDrafts } from "@/lib/ai/overlay-shape-replacement";
 import type { AiEditSessionDraft } from "@/lib/ai/sigma-doc-edit-schema";
@@ -80,19 +82,43 @@ export function createSharedProposalApprover(
           // This window's projection only catches up with the other participants on an online
           // flush; the merge and the rebuilt preconditions must read what the server holds now.
           await throughServer(() => sessions.flush(fileId, true));
-          const before = sessions.project(fileId)!;
-          const prepared = records.some(hasMergeBasis)
-            ? await prepareMergedApproval(before, records, envelopes)
-            : prepareRecordedApproval(records, envelopes);
+          // Persist the exact attempted request before sending it. A sync after a lost
+          // response already includes our edits; merging again would conflict on inserted IDs.
+          const attemptFile = path.join(sessions.directory, "approval-attempts", `${sha256(stableValue({
+            fileId,
+            records: records.map(({ proposalId, updatedAt }) => ({ proposalId, updatedAt })),
+            operationIds: envelopes.map(({ operationId }) => operationId),
+          }))}.json`);
+          let before = sessions.project(fileId)!;
+          let prepared: PreparedApproval;
+          try {
+            const attempt = JSON.parse(await fs.readFile(attemptFile, "utf8")) as { before: SigmaDocument; prepared: PreparedApproval };
+            before = attempt.before;
+            prepared = attempt.prepared;
+          } catch (error) {
+            if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+            prepared = records.some(hasMergeBasis)
+              ? await prepareMergedApproval(before, records, envelopes)
+              : prepareRecordedApproval(records, envelopes);
+            if (prepared.approval) {
+              await fs.mkdir(path.dirname(attemptFile), { recursive: true, mode: 0o700 });
+              await durableWrite(attemptFile, JSON.stringify({ before, prepared }));
+            }
+          }
           let accepted: { seq: number } | undefined;
           let document = before;
           if (prepared.approval) {
             const approval = prepared.approval;
-            accepted = await throughServer(() => sessions.approve(
-              fileId,
-              approval,
-              proposals.map((proposal) => proposal.proposalId),
-            ));
+            accepted = await throughServer(async () => {
+              try {
+                return await sessions.approve(fileId, approval, records.map((proposal) => proposal.proposalId));
+              } catch (error) {
+                // A definitive rejection did not apply the request. The next approval may
+                // merge against newer edits; ambiguous transport failures keep the intent.
+                if (isServerRejection(error)) await fs.rm(attemptFile, { force: true });
+                throw error;
+              }
+            });
             document = sessions.project(fileId)!;
           }
           // The merged proposals first, so a group is resolved with its replayed member's report.
@@ -122,6 +148,7 @@ export function createSharedProposalApprover(
                 },
               );
           }
+          await fs.rm(attemptFile, { force: true });
           for (const proposal of records)
             if (!hasMergeBasis(proposal))
               proposalStore.recordMergeFallback("shared-approval", {
@@ -250,10 +277,8 @@ async function prepareMergedApproval(
     && stableValue(drafts) === stableValue(recorded.approval.drafts)
     && stableValue(sortById(preconditions)) === stableValue(sortById(recorded.approval.preconditions));
   return {
-    // Nothing to merge: the recorded approval itself. Otherwise a new operation id for the rewritten
-    // approval, derived from it (see `mergedOperationId`). This choice is made against the document
-    // read now, so it is not a retry guarantee: once the approval was applied (its answer lost), the
-    // retry merges onto the applied document and is never "nothing to merge" (see `mergedOperationId`).
+    // A new merge gets a deterministic identity. The caller durably retains this
+    // request for an ambiguous failure, so retries do not merge onto their own result.
     approval: drafts.length === 0
       ? null
       : unchanged
@@ -357,17 +382,9 @@ function recordedApproval(envelopes: SharedApproval[]): {
  * Retrying from the same shared document rebuilds the same drafts and preconditions, so the server
  * sees the same operation again; once the document has changed, the merge is a different operation.
  *
- * What the sync server (not in this repository) is relied on for: it answers an operation id it has
- * applied with the same result when the request is the same and refuses it otherwise, and it applies
- * `drafts` in order after checking every precondition. A rewritten approval is not stored. Known
- * risk: when the server applied an approval of a proposal with a merge basis (rewritten or sent as
- * recorded) but its answer was lost, the application itself changed the document, so a retry is merged
- * again onto the applied document into a different operation (other preconditions, another id). A
- * proposal that inserts then stops with PROPOSAL_CONFLICT on the AI's own inserted ids before sending
- * and stays pending although applied (the person discards it); a replacement is sent a second time and
- * its report counts the AI's own change as a human edit (a wrong notice). Only a legacy record (no
- * merge basis, always sent as recorded) is resent under its recorded id, idempotently as before. An
- * idempotent resend for the others is a follow-up.
+ * The server must answer the same operation id and body with the original receipt, checking
+ * idempotency before preconditions. The caller persists the request before sending, including
+ * rewritten drafts, so a lost response is retried unchanged even after restart and sync.
  */
 function mergedOperationId(
   envelopes: SharedApproval[],

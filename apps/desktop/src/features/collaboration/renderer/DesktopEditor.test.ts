@@ -1,6 +1,6 @@
 import { expect, it, vi } from "vitest";
 import { createBlankDocument } from "@/lib/blank-document";
-import type { CollaborationBridge, SessionInfo } from "../model/bridge";
+import type { CollaborationBridge, CollaborationInfo, SessionInfo } from "../model/bridge";
 import { SharedDocument } from "../model/shared-document";
 import { toBase64 } from "../model/protocol";
 import type { ObjectValue } from "../model/value";
@@ -40,7 +40,7 @@ it("reasserts the visible file after the same account signs in again", async () 
 
   await expect(readCollaborationInfo(bridge, "file")).resolves.toMatchObject({ sessions: [session] });
   expect(view).toHaveBeenCalledExactlyOnceWith("file");
-  expect(info).toHaveBeenCalledTimes(2);
+  expect(info).toHaveBeenCalledTimes(1);
 });
 
 it("does not reactivate a restricted file for a different account", async () => {
@@ -52,21 +52,36 @@ it("does not reactivate a restricted file for a different account", async () => 
   expect(view).not.toHaveBeenCalled();
 });
 
-it("hands over the first read before reasserting the viewed file over the network", async () => {
-  // A just-opened shared file must not wait for the viewed file's sync to get its session.
-  const opened = snapshot("opened");
-  const first = { configured: true, user: { actorId: "actor" }, sessions: [snapshot("file"), opened], restrictedFileIds: ["file", "opened"] };
-  const info = vi.fn().mockResolvedValueOnce(first).mockResolvedValueOnce(first);
+it("announces a newly opened session while another file's view is still waiting", async () => {
+  const a = snapshot("file-a");
+  const b = snapshot("file-b");
+  const first = { configured: true, user: null, sessions: [a], restrictedFileIds: ["file-a"] };
+  const second = { ...first, sessions: [a, b], restrictedFileIds: ["file-a", "file-b"] };
+  const info = vi.fn().mockResolvedValueOnce(first).mockResolvedValueOnce(second);
   let finishView!: () => void;
   const view = vi.fn(() => new Promise<void>((resolve) => { finishView = resolve; }));
-  const beforeView = vi.fn();
-  const reading = readCollaborationInfo({ info, view } as unknown as CollaborationBridge, "file", beforeView);
-  await vi.waitFor(() => expect(view).toHaveBeenCalledWith("file"));
-  expect(beforeView).toHaveBeenCalledExactlyOnceWith(first);
+  const afterView = vi.fn();
+  const bridge = { info, view } as unknown as CollaborationBridge;
+  const sessions = new Map<string, RendererDocumentSession>();
+  const apply = (value: CollaborationInfo) => reconcileRendererSessions(sessions, value.sessions, bridge, null, (notify) => notify());
+  // These reads are serialized exactly like reset events in DesktopEditor. The second
+  // read must attach B before the outstanding sync for A completes.
+  const firstRead = readCollaborationInfo(bridge, "file-a", afterView).then(apply);
+  const nextRead = firstRead.then(() => readCollaborationInfo(bridge, null)).then(apply);
+  await nextRead;
+  expect(sessions.has("file-b")).toBe(true);
+  expect(afterView).not.toHaveBeenCalled();
   finishView();
-  await expect(reading).resolves.toBe(first);
+  await Promise.resolve();
+  expect(afterView).toHaveBeenCalledOnce();
+  reconcileRendererSessions(sessions, [], bridge, null);
+});
 
-  const local = vi.fn();
-  await readCollaborationInfo({ info: vi.fn(async () => first), view } as unknown as CollaborationBridge, "local", local);
-  expect(local).not.toHaveBeenCalled();
+it("keeps the session available if reasserting its view fails", async () => {
+  const value = { configured: true, user: null, sessions: [snapshot("file")], restrictedFileIds: ["file"] };
+  const afterView = vi.fn();
+  const bridge = { info: vi.fn(async () => value), view: vi.fn(async () => { throw new Error("OFFLINE"); }) } as unknown as CollaborationBridge;
+  await expect(readCollaborationInfo(bridge, "file", afterView)).resolves.toBe(value);
+  await Promise.resolve();
+  expect(afterView).not.toHaveBeenCalled();
 });

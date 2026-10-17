@@ -142,7 +142,7 @@ function setup(initial: SigmaDocument, saved: SigmaDocument) {
       skippedReason: result.skippedReason,
     });
   };
-  return { overlay, writes, documentRef, isCurrentDocumentDirty, closeOutcome };
+  return { overlay, writes, documentRef, isCurrentDocumentDirty, closeOutcome, ports };
 }
 
 describe("boundary save and edits still on the overlay's save debounce", () => {
@@ -187,5 +187,28 @@ describe("boundary save and edits still on the overlay's save debounce", () => {
     });
 
     expect(await fixture.closeOutcome()).toBe("dialog");
+  });
+});
+
+describe("boundary save waiting for an earlier autosave", () => {
+  it.each([false, true])("flushes edits queued during the earlier save (reject=%s)", async (reject) => {
+    const before = documentWithShape();
+    const fixture = setup(before, before);
+    let finish!: () => void;
+    let fail!: (error: Error) => void;
+    const earlier = new Promise<void>((resolve, reject) => { finish = resolve; fail = reject; });
+    fixture.ports.inFlightSavePromiseRef.current = earlier;
+    // The real autosave clears its ref in finally, including on failure.
+    void earlier.finally(() => { fixture.ports.inFlightSavePromiseRef.current = null; }).catch(() => {});
+    fixture.overlay.hold(documentWithShape({ x: 140 }));
+    const closing = fixture.closeOutcome();
+    expect(fixture.documentRef.current).toMatchObject({ pageLayout: { overlay: { overlaySnapshot: { shapes: [expect.objectContaining({ x: 140 })] } } } });
+    expect(fixture.writes).toHaveLength(0);
+    fixture.overlay.hold(documentWithShape({ x: 220 }));
+    await act(async () => { if (reject) fail(new Error("save failed")); else finish(); });
+    expect(await closing).toBe("ready");
+    expect(fixture.writes).toHaveLength(1);
+    expect(savedShape(fixture.writes[0])).toMatchObject({ x: 220 });
+    expect(fixture.isCurrentDocumentDirty()).toBe(false);
   });
 });

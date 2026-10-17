@@ -2,6 +2,8 @@
 
 import { useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 
+import { HeadingNumberingProvider, useHeadingNumbers } from "./text-flow/HeadingNumberingContext";
+import { ProblemNumberingProvider, useProblemNumbers } from "./text-flow/ProblemNumberingContext";
 import { PrintBoxBlock } from "@/components/print/print-static-blocks";
 import type {
   BoxBlockChildBlock,
@@ -52,6 +54,10 @@ export function BoxSettingsPreview({
   paper?: BoxPreviewPaper;
   mathFractionSizing?: MathFractionSizing | null;
 }) {
+  const problemNumbers = useProblemNumbers();
+  const headingNumbers = useHeadingNumbers();
+  const previewProblemNumbers = useMemo(() => new Map([...problemNumbers].map(([id, number]) => [`${BOX_PREVIEW_ID_PREFIX}${id}`, number])), [problemNumbers]);
+  const previewHeadingNumbers = useMemo(() => new Map([...headingNumbers].map(([id, number]) => [`${BOX_PREVIEW_ID_PREFIX}${id}`, number])), [headingNumbers]);
   const viewportRef = useRef<HTMLDivElement | null>(null);
   const sheetRef = useRef<HTMLDivElement | null>(null);
   const [fit, setFit] = useState<{ scale: number; height: number } | null>(null);
@@ -106,12 +112,16 @@ export function BoxSettingsPreview({
       data-preview-scale={fit ? String(Math.round(fit.scale * 1000) / 1000) : undefined}
     >
       <div ref={sheetRef} className={`${styles.sheet} text-flow-editor`} style={sheetStyle}>
+        <ProblemNumberingProvider numbers={previewProblemNumbers}>
+        <HeadingNumberingProvider numbers={previewHeadingNumbers}>
         <PrintBoxBlock
           block={previewBox}
           columnGapMm={PREVIEW_COLUMN_GAP_MM}
           mathFractionSizing={mathFractionSizing ?? undefined}
           cornerReferenceHeightPx={boxHeightPx}
         />
+        </HeadingNumberingProvider>
+        </ProblemNumberingProvider>
       </div>
     </div>
   );

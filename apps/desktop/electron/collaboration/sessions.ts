@@ -686,20 +686,27 @@ export class CollaborationSessions {
   async previewCatalogDocument(fileId: string, sharedDocumentId: string, options?: { assets?: boolean }): Promise<SigmaDocument> {
     const actor = this.actorId();
     if (!actor) throw new Error("AUTH_REQUIRED");
-    const session = this.sessions.get(fileId);
-    const binding = this.registry.files[fileId];
-    // A not-yet-opened file has no local edits to merge; its stored journal still serves offline.
-    const dormant = session ? undefined : this.dormant.get(fileId);
-    const restriction = this.catalogRoles;
-    const dormantAllowed = Boolean(dormant && (!restriction || restriction.actorId !== actor || restriction.allowed.has(sharedDocumentId)));
-    const canUseLocal = Boolean(binding?.actorId === actor && binding.sharedDocumentId === sharedDocumentId && (session
-      ? !session.stopped && !session.failed && session.status !== "permission-error"
-      : dormantAllowed));
+    let session: Session | undefined;
+    let dormant: SharedBinding | undefined;
+    let canUseLocal = false;
+    const refreshLocal = () => {
+      session = this.sessions.get(fileId);
+      const binding = this.registry.files[fileId];
+      // A thumbnail request may overlap the first open, a permission change or logout.
+      dormant = session ? undefined : this.dormant.get(fileId);
+      const restriction = this.catalogRoles;
+      const dormantAllowed = Boolean(dormant && (!restriction || restriction.actorId !== actor || restriction.allowed.has(sharedDocumentId)));
+      canUseLocal = Boolean(actor === this.actorId() && binding?.actorId === actor && binding.sharedDocumentId === sharedDocumentId && (session
+        ? !session.stopped && !session.failed && session.status !== "permission-error"
+        : dormantAllowed));
+    };
+    refreshLocal();
     let useLocal = false;
     let document: SigmaDocument;
     try {
       const snapshot = await this.request<{ state: string; epoch: number }>(`/documents/${sharedDocumentId}/snapshot`);
       validateSnapshot(snapshot, sharedDocumentId, false);
+      refreshLocal();
       let shared = new SharedDocument(fromBase64(snapshot.state, MAX_DOCUMENT_BYTES));
       useLocal = canUseLocal && (session?.journal.binding ?? dormant)!.epoch === snapshot.epoch;
       try {
@@ -715,6 +722,7 @@ export class CollaborationSessions {
       // Offline access keeps the same account's already-opened document available.
       // Authorization failures must never use this fallback.
       const offline = (error instanceof CollaborationHttpError && error.status >= 500) || error instanceof TypeError || (error instanceof Error && (error.name === "TimeoutError" || /^(NETWORK_UNAVAILABLE|HTTP_5\d\d|fetch failed)$/.test(error.message)));
+      refreshLocal();
       if (!canUseLocal || !offline) throw error;
       useLocal = true;
       document = session ? this.project(fileId)! : await this.readDormant(fileId);

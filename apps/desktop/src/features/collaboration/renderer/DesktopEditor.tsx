@@ -17,14 +17,13 @@ import type { CollaborationBridge, CollaborationInfo, SessionInfo } from "../mod
 export async function readCollaborationInfo(
   bridge: CollaborationBridge,
   activeFileId: string | null,
-  /** Receives the first read when reasserting the viewed file (a network sync) follows it. */
-  beforeView?: (info: CollaborationInfo) => void,
+  /** Schedule a new info read after the background network sync, outside the info queue. */
+  afterView?: () => void,
 ): Promise<CollaborationInfo> {
-  let info = await bridge.info();
+  const info = await bridge.info();
   if (activeFileId && info.sessions.some((session) => session.binding.localFileId === activeFileId)) {
-    beforeView?.(info);
-    await bridge.view(activeFileId);
-    info = await bridge.info();
+    // A slow view must never hold the queue that announces another file's session.
+    void bridge.view(activeFileId).then(afterView, () => {});
   }
   return info;
 }
@@ -61,9 +60,10 @@ export function DesktopEditor() {
   const restrictedFileIds = useRef(new Set<string>());
   const authorityListeners = useRef(new Set<() => void>());
   const attachSession = useRef<(fileId: string, shared: boolean) => Promise<void>>(async () => {});
+  const refreshAfterView = useRef<() => void>(() => {});
   const [bootError, setBootError] = useState<Error | null>(null);
   const [info, setInfo] = useState<CollaborationInfo | null>(null);
-  const refresh = useCallback(async () => {
+  const refresh = useCallback(async (reassertView = true) => {
     const bridge = getDesktopBridge()?.collaboration;
     if (!bridge) {
       setInfo({ configured: false, user: null, sessions: [], restrictedFileIds: [] });
@@ -74,9 +74,7 @@ export function DesktopEditor() {
       reconcileRendererSessions(sessions.current, value.sessions, bridge, activeFileId.current);
       authorityListeners.current.forEach((listener) => listener());
     };
-    // Attach newly announced sessions from the first read. Reasserting the viewed file
-    // waits for the network and must not keep a just-opened document from its session.
-    const next = await readCollaborationInfo(bridge, activeFileId.current, apply);
+    const next = await readCollaborationInfo(bridge, reassertView ? activeFileId.current : null, () => refreshAfterView.current());
     apply(next);
     setInfo(next);
   }, []);
@@ -86,9 +84,9 @@ export function DesktopEditor() {
     const queued: Parameters<RendererDocumentSession["receive"]>[0][] = [];
     let ready = false;
     let refreshTail = Promise.resolve();
-    const reload = () => {
+    const reload = (reassertView = true) => {
       ready = false;
-      refreshTail = refreshTail.then(refresh).then(() => {
+      refreshTail = refreshTail.then(() => refresh(reassertView)).then(() => {
         if (!mounted) return;
         ready = true;
         queued.splice(0).forEach((event) => sessions.current.get(event.fileId)?.receive(event));
@@ -96,6 +94,7 @@ export function DesktopEditor() {
         if (mounted) setBootError(error instanceof Error ? error : new Error("SESSION_UNAVAILABLE"));
       });
     };
+    refreshAfterView.current = () => { if (mounted) reload(false); };
     // Wait for the session of a shared file: main announces it ("reset") before answering
     // the read that opened it. If it is still missing once the reread under way is done
     // (a missed announcement), reread through the same queue.
@@ -151,6 +150,7 @@ export function DesktopEditor() {
     const current = sessions.current;
     return () => {
       mounted = false;
+      refreshAfterView.current = () => {};
       attachSession.current = async () => {};
       unsubscribe?.();
       window.removeEventListener("compositionstart", compositionStart, true);

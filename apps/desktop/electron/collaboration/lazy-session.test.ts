@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { createBlankDocument } from "@/lib/blank-document";
 import { SharedDocument } from "../../src/features/collaboration/model/shared-document";
+import { toBase64 } from "../../src/features/collaboration/model/protocol";
 import type { CollaborationEvent } from "../../src/features/collaboration/model/bridge";
 import type { ObjectValue } from "../../src/features/collaboration/model/value";
 import { LocalSigmaDocStore } from "../local-sigma-doc-store";
@@ -166,4 +167,24 @@ it("applies the latest catalog permissions to a session opened later", async () 
   await expect(sessions.openCatalogDocument("file-a", "shared-a")).rejects.toThrow("READ_ONLY");
   await sessions.openCatalogDocument("file-b", "shared-b");
   expect(sessions.describe("file-b")).toMatchObject({ role: "viewer", status: "offline" });
+});
+
+it("includes edits made when a dormant session opens while its preview snapshot is in flight", async () => {
+  const { sessions, internal } = await setup([{ name: "a" }]);
+  await sessions.initialize();
+  let returnSnapshot!: (value: never) => void;
+  vi.spyOn(sessions, "request").mockImplementation(() => new Promise((resolve) => { returnSnapshot = resolve; }));
+  const preview = sessions.previewCatalogDocument("file-a", "shared-a", { assets: false });
+  await sessions.read("file-a");
+  const journal = internal.sessions.get("file-a")!.journal;
+  const oldSnapshot = journal.document.snapshot();
+  const edited = new SharedDocument(oldSnapshot);
+  const before = edited.project();
+  edited.change(before, { ...before, metadata: { ...(before.metadata as ObjectValue), title: "edited while preview waited" } });
+  await journal.append(edited.difference(journal.document.vector()), { operationId: crypto.randomUUID(), actorId: "actor", kind: "manual" }, true);
+  edited.destroy();
+  returnSnapshot({ state: toBase64(oldSnapshot), epoch: 1 } as never);
+  expect((await preview).metadata.title).toBe("edited while preview waited");
+  expect(journal.outbox()).toHaveLength(1);
+  expect(sessions.project("file-a")?.metadata.title).toBe("edited while preview waited");
 });

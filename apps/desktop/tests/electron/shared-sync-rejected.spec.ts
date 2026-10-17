@@ -41,6 +41,8 @@ test("a server refusing a shared document's edits is shown as a refusal, and app
   let refuseUpdates = false;
   let refusedRequests = 0;
   let sequence = 0;
+  let dropNextApprovalResponse = false;
+  const approvalReceipts = new Map<string, { body: string; result: { update: string; operationId: string; seq: number } }>();
   const server = createServer(async (request, response) => {
     const prefix = `/documents/${sharedId}`;
     const json = (value: unknown, status = 200) => response.writeHead(status, { "Content-Type": "application/json" }).end(JSON.stringify(value));
@@ -68,6 +70,12 @@ test("a server refusing a shared document's edits is shown as a refusal, and app
         return { operationId: operation.operationId, seq: ++sequence };
       }) });
     } else if (request.url === `${prefix}/approve` && Array.isArray(body.drafts ?? (body.draft ? [body.draft] : null))) {
+      const receipt = approvalReceipts.get(body.operationId);
+      if (receipt) {
+        if (receipt.body !== JSON.stringify(body)) { json({ error: "OPERATION_REUSED" }, 409); return; }
+        json(receipt.result);
+        return;
+      }
       // The server replays the approved drafts; this fixture knows only the figure insertion it is sent.
       const before = remote.project();
       const next = structuredClone(before) as unknown as SigmaDocument;
@@ -86,7 +94,10 @@ test("a server refusing a shared document's edits is shown as a refusal, and app
       const update = candidate.difference(remote.vector());
       candidate.destroy();
       remote.applyUpdate(update);
-      json({ update: toBase64(update), operationId: body.operationId, seq: ++sequence });
+      const result = { update: toBase64(update), operationId: body.operationId, seq: ++sequence };
+      approvalReceipts.set(body.operationId, { body: JSON.stringify(body), result });
+      if (dropNextApprovalResponse) { dropNextApprovalResponse = false; response.destroy(); return; }
+      json(result);
     } else response.writeHead(404).end();
   });
   const sockets = new WebSocketServer({ noServer: true });
@@ -216,12 +227,21 @@ test("a server refusing a shared document's edits is shown as a refusal, and app
     await page.evaluate((id) => window.desktopAPI!.collaboration!.flush(id, true), seeded.fileId);
     await expect(page.getByRole("status", { name: "クラウド保存済み" })).toBeVisible({ timeout: 30_000 });
     expect(JSON.stringify(remote.project())).toContain("人の追記");
+    dropNextApprovalResponse = true;
+    await apply.click();
+    await expect(page.getByText("共有教材をクラウドと同期できなかったため、承認できませんでした。接続を確認してから、もう一度承認してください。").first()).toBeVisible();
+    expect(await pending()).toHaveLength(1);
+    expect(approvalReceipts.size).toBe(1);
+    const appliedSequence = sequence;
+    await expect(apply).toBeEnabled();
     await apply.click();
     await expect.poll(async () => (await pending()).length, { timeout: 30_000 }).toBe(0);
     await expect(page.locator("[data-ai-proposal-card]")).toHaveCount(0, { timeout: 30_000 });
     await expect(page.getByText(REFUSED)).toHaveCount(0);
     const remoteShapes = () => ((remote.project() as unknown as SigmaDocument).pageLayout?.overlay?.overlaySnapshot?.shapes ?? []);
-    await expect.poll(() => remoteShapes().some((shape) => shape.type === "image")).toBe(true);
+    await expect.poll(() => remoteShapes().filter((shape) => shape.type === "image").length).toBe(1);
+    expect(approvalReceipts.size).toBe(1);
+    expect(sequence).toBe(appliedSequence);
     const saved = await page.evaluate((id) => window.desktopAPI!.storage.loadDocument(id), seeded.fileId);
     expect(saved!.pageLayout!.overlay!.overlaySnapshot!.shapes.some((shape) => shape.type === "image")).toBe(true);
     expect(JSON.stringify(saved)).toContain("人の追記");

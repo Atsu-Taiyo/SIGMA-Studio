@@ -37,6 +37,9 @@ test("box settings preview shows the box as it is drawn on the page", async ({},
       titlePosition: "c", paddingPx: { top: 30, right: 40, bottom: 24, left: 40 },
     };
     content.push(styled);
+    const numbered = createBoxBlock("fancybox", "numbered の見出し", { id: "numbered", bodyId: "numbered-body", bodyText: "本文の1行目です。番号を確認します。" });
+    numbered.blocks.push({ type: "problem", id: "numbered-problem", tags: [], numbering: { value: 7 }, lead: [], prompt: [{ type: "paragraph", id: "numbered-prompt", children: [{ type: "text", text: "箱の中の問題" }] }], solution: [], hints: [] });
+    content.push(numbered);
     const document: SigmaDocument = {
       version: "2.0", docId: "box-settings-preview", metadata: { title: "箱の設定のプレビュー" }, content,
       outputProfiles: { student: {}, teacher: {}, answerBook: {} },
@@ -61,6 +64,10 @@ test("box settings preview shows the box as it is drawn on the page", async ({},
       await expect(previewBox).toBeVisible();
       await expect(previewBox.locator(".print-box-title:not(.print-box-subtitle)")).toHaveText(box.id === "styled" ? "色と角を変えた箱" : `${box.id} の見出し`);
       await expect(previewBox.locator(".print-box-body")).toContainText(box.id === "styled" ? "赤い本文" : "本文の1行目です。");
+      if (box.id === "numbered") {
+        await expect(previewBox.locator(".print-problem-number")).toHaveText("7");
+        await expect(page.locator('.page-flow [data-sigma-doc-id="numbered"]').first()).toContainText("7");
+      }
       await dialog.getByTestId("box-live-preview").screenshot({ path: testInfo.outputPath(`${box.id}-preview.png`) });
       const preview = (await previewBox.boundingBox())!;
       // 同じ描画を同じ組版幅で組んで縮めただけなら、縦横比は紙面の箱と同じになる。
