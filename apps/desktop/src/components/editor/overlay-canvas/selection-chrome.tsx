@@ -30,6 +30,7 @@ import {
 import {
   CORNER_RESIZE_HANDLES,
   EDGE_RESIZE_HANDLES,
+  fitResizeHandlesToFrame,
   getResizeHandleSet,
   isCornerResizeHandle
 } from "./resize";
@@ -235,8 +236,8 @@ export function SelectionBox({
   const pointOnly = onlyShape ? hasPointOnlySelection(onlyShape) : false;
   // どの持ち手を出すかは「その図形が動かせる軸」で決まる (`getResizeHandleSet`)。
   // 図中テキストは幅だけなので左右のみ — 高さは内容から決まるので、上下や角をドラッグしても
-  // 次の計測で戻ってしまう。
-  const resizeHandles = getResizeHandleSet(shapes);
+  // 次の計測で戻ってしまう。小さい図形では持ち手が図形を覆うので描かない (掴む範囲は残る)。
+  const resizeHandles = fitResizeHandlesToFrame(getResizeHandleSet(shapes), bounds);
   const multi = shapes.length > 1;
   const outerTranslate = dragTranslate && shapes.every((shape) => movingShapeIds?.has(shape.id)) ? dragTranslate : null;
   const handleStyle = getAdaptiveSelectionHandleStyle(bounds, pointOnly);
@@ -271,7 +272,7 @@ export function SelectionBox({
         );
       })}
       <div
-        className={`overlay-selection-box ${pointOnly ? "point-only" : ""} ${multi ? "multi" : ""} ${cropShape ? "image-cropping" : ""}`}
+        className={`overlay-selection-box ${pointOnly ? "point-only" : ""} ${multi ? "multi" : ""} ${cropShape ? "image-cropping" : ""} ${resizeHandles.grabOutside ? "resize-grab-outside" : ""}`}
         style={{
           left: bounds.x,
           top: bounds.y,
@@ -321,8 +322,8 @@ export function SelectionBox({
               <div
                 key={handle}
                 className={`overlay-resize-handle ${handle} ${hitOnly ? "hit-only" : ""}`}
-                // Corners are placed by CSS; edges have to be sized to the box.
-                style={isCornerResizeHandle(handle) ? undefined : getEdgeResizeHandleStyle(handle, bounds)}
+                // Corners are placed by CSS; edges have to be sized to the box, unless they sit outside it.
+                style={isCornerResizeHandle(handle) || resizeHandles.grabOutside ? undefined : getEdgeResizeHandleStyle(handle, bounds)}
                 onPointerDown={(event) => onResizePointerDown(event, handle)}
               />
             ))}

@@ -2330,9 +2330,69 @@ body.page-block-dragging * {
   height: var(--overlay-resize-handle-length, 18px);
 }
 
-/* arc/扇形は角度ハンドルとの重なりを避けつつ、辺ドラッグのヒット領域は残す。 */
+/*
+ * arc/扇形は角度ハンドルとの重なりを避けつつ、辺ドラッグのヒット領域は残す。
+ * 小さい図形では角も含めて描かない (持ち手が図形を覆ってしまう)。掴む範囲とカーソルは残る。
+ */
+.overlay-resize-handle.hit-only {
+  border-color: transparent;
+  background: transparent;
+}
+
 .overlay-resize-handle.hit-only::after {
   display: none;
+}
+
+/*
+ * 持ち手を何も描かない小さい図形では、掴む範囲を枠の外側 (枠線を含む) へ出す。辺の帯は
+ * 辺をまたいで内側にも半分入るので、数 px の図形では内側が全部リサイズになり、動かせなくなる。
+ * 位置は枠線 1.5px の内側が基準なので、外へ 6px + 枠線の分。
+ */
+.overlay-selection-box.resize-grab-outside {
+  --overlay-resize-grab-outside: 7.5px;
+}
+
+.overlay-selection-box.resize-grab-outside .overlay-resize-handle {
+  width: var(--overlay-resize-grab-outside);
+  height: var(--overlay-resize-grab-outside);
+}
+
+.overlay-selection-box.resize-grab-outside .overlay-resize-handle.n,
+.overlay-selection-box.resize-grab-outside .overlay-resize-handle.s {
+  right: 0;
+  left: 0;
+  width: auto;
+}
+
+.overlay-selection-box.resize-grab-outside .overlay-resize-handle.e,
+.overlay-selection-box.resize-grab-outside .overlay-resize-handle.w {
+  top: 0;
+  bottom: 0;
+  height: auto;
+}
+
+.overlay-selection-box.resize-grab-outside .overlay-resize-handle.n,
+.overlay-selection-box.resize-grab-outside .overlay-resize-handle.nw,
+.overlay-selection-box.resize-grab-outside .overlay-resize-handle.ne {
+  top: calc(-1 * var(--overlay-resize-grab-outside));
+}
+
+.overlay-selection-box.resize-grab-outside .overlay-resize-handle.s,
+.overlay-selection-box.resize-grab-outside .overlay-resize-handle.sw,
+.overlay-selection-box.resize-grab-outside .overlay-resize-handle.se {
+  bottom: calc(-1 * var(--overlay-resize-grab-outside));
+}
+
+.overlay-selection-box.resize-grab-outside .overlay-resize-handle.w,
+.overlay-selection-box.resize-grab-outside .overlay-resize-handle.nw,
+.overlay-selection-box.resize-grab-outside .overlay-resize-handle.sw {
+  left: calc(-1 * var(--overlay-resize-grab-outside));
+}
+
+.overlay-selection-box.resize-grab-outside .overlay-resize-handle.e,
+.overlay-selection-box.resize-grab-outside .overlay-resize-handle.ne,
+.overlay-selection-box.resize-grab-outside .overlay-resize-handle.se {
+  right: calc(-1 * var(--overlay-resize-grab-outside));
 }
 
 .overlay-resize-handle.nw {
