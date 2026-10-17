@@ -1900,7 +1900,7 @@ function InlineMathLiveField({
     const mathField = element as InlineMathFieldElement | null;
     // クリックで入るために振った一時 id は、確定時に必ず落とす (文書に残さない)。
     const nextTex = removeInlineMathClickPlaceholderIds(
-      normalizeInlineMathLineBreakInput(mathField?.value ?? "", {
+      normalizeInlineMathLineBreakInput(mathField ? getMathfieldLatex(mathField) : "", {
         forceLatexCommands: true,
       }),
     );
