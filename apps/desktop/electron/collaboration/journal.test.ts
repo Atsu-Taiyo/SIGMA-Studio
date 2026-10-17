@@ -113,4 +113,42 @@ describe("durable shared document journal", () => {
     ]);
     expect((await SharedDocumentJournal.open(directory)).outbox()).toEqual([]);
   });
+  it("counts the outbox without decoding the document, exactly as opening the journal does", async () => {
+    const { directory, journal, renderer, update } = await fixture();
+    const opened = async () => {
+      const reopened = await SharedDocumentJournal.open(directory);
+      try { return reopened.outbox().length; } finally { reopened.document.destroy(); }
+    };
+    const expectSame = async (count: number) => {
+      const summary = await SharedDocumentJournal.inspect(directory);
+      expect(summary.binding).toEqual(journal.binding);
+      expect(summary.pending).toBe(count);
+      expect(await opened()).toBe(count);
+    };
+    await expectSame(0);
+    await journal.append(update, { operationId: "op1", actorId: "a", kind: "manual" }, true);
+    await expectSame(1);
+    // An update received from the server is not something to send.
+    const remote = new SharedDocument(journal.document.snapshot());
+    const before = remote.project();
+    remote.change(before, { ...before, metadata: { title: "受信" } });
+    await journal.append(remote.difference(journal.document.vector()), { operationId: "remote", actorId: "remote", kind: "manual" }, false);
+    await expectSame(1);
+    await journal.acknowledge("op1");
+    await expectSame(0);
+    await journal.append(update, { operationId: "op2", actorId: "a", kind: "manual" }, true);
+    const rotated = await fs.readFile(path.join(directory, "updates.jsonl"), "utf8");
+    await journal.compact();
+    await expectSame(1);
+    // A checkpoint written before its log was cleared: records it already contains are skipped.
+    await fs.writeFile(path.join(directory, "updates.jsonl"), rotated);
+    await expectSame(1);
+    await journal.acknowledge("op2");
+    await expectSame(0);
+    // A torn final record is not part of the journal.
+    await fs.appendFile(path.join(directory, "updates.jsonl"), '{"sequence":99,"payload":{"kind":"update","value":{"identity":{"operationId":"torn"');
+    expect((await SharedDocumentJournal.inspect(directory)).pending).toBe(0);
+    remote.destroy();
+    renderer.destroy();
+  });
 });
