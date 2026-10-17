@@ -207,6 +207,11 @@ export const chrome = {
     untitledWhiteboard: "Untitled whiteboard",
     newFromTemplate: "From a template",
     library: "Material list",
+    /** In the New material menu: pick the workspace to create a blank material in. */
+    newInWorkspaceGroup: "Workspace to create in",
+    newInWorkspace: "Create in {{name}}",
+    newTargetDefault: "Where clicking New material creates it",
+    newTargetsLoading: "Loading workspaces",
   },
   actions: {
     reportIssue: "Report an issue",

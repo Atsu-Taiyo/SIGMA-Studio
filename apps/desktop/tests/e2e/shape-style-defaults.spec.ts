@@ -259,6 +259,7 @@ test("keeps the defaults when the author switches material tabs", async ({ page 
 
   await page.getByLabel("教材タイトル").fill("教材A");
   await page.getByRole("button", { name: "新規教材", exact: true }).click();
+  await page.getByRole("dialog", { name: /を作成しました$/ }).getByRole("button", { name: "閉じる" }).click();
   await expect(page.locator(".document-tab")).toHaveCount(2);
   expect(await rememberedStyle(page)).toMatchObject({ size: "xl", color: "#00b853" });
 

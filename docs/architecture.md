@@ -739,6 +739,8 @@ border を引く、running region のリストは region スコープ、静的�
 - 文書ファイルの判別、復旧、形式別parserとID・用紙・題名の正規化は`editor-shell/document-file-import.ts`が扱う。
   `use-document-file-commands.ts`がパスワード・テキスト受け渡しdialogのstate/ref、入出力操作を所有する。
   `use-workspace-document-commands.ts`が教材の開閉・作成・複製・一覧操作を扱い、解析・保存待ち・record作成・タブ採用の順序を保つ。
+  新規教材の作成先 (そのまま押すと直前の教材と同じワークスペース・フォルダ、作れなければ既定の作成先、メニューで選べば
+  そのワークスペースの直下) と、作成後に示す実際の保存場所は`new-material-destination.ts`が決める。
 - タブを閉じる操作と教材一覧からの削除は`editor-shell/document-tab-commands.ts`が扱う。
   通常のタブ操作に使うrender時点の状態と、未編集教材の削除時に再確認する現在の状態を区別する。
   読み取ったrevisionでの削除、一覧・workspace同期、最後の空タブを閉じる際の保存停止・画面遷移の順序を保ち、

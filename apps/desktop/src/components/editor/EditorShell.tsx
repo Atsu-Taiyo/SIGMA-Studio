@@ -47,6 +47,9 @@ import { useEditorCommandRouting } from "./editor-shell/use-editor-command-routi
 import { useExternalDocumentOpen } from "./editor-shell/use-external-document-open";
 import { useMaterialLibraryController } from "./editor-shell/use-material-library-controller";
 import { useWorkspaceDocumentCommands } from "./editor-shell/use-workspace-document-commands";
+import { useNewMaterialTargets } from "./editor-shell/use-new-material-targets";
+import type { CreatedMaterialNotice } from "./editor-shell/new-material-destination";
+import { NewMaterialCreatedDialog } from "./NewMaterialCreatedDialog";
 export type { EmbeddedEditorHost } from "./editor-shell/document-lifecycle-types";
 
 import {
@@ -679,6 +682,8 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
   }, []);
   const { pageSettingsOpen, setPageSettingsOpen, commandSettingsOpen, setCommandSettingsOpen, commandPaletteOpen, setCommandPaletteOpen, settingsFocusEntryId, setSettingsFocusEntryId, texCommandReferenceOpen, setTexCommandReferenceOpen, texEnvironmentSettingsOpen, setTexEnvironmentSettingsOpen, documentListOpen, setDocumentListOpen, desktopSettingsOpen, setDesktopSettingsOpen, extensionsOpen, setExtensionsOpen, desktopSettingsUpdateCheckRequest, setDesktopSettingsUpdateCheckRequest, openDesktopSettingsFromChrome } = useEditorDialogState();
   const [workspaceReady, setWorkspaceReady] = useState(isEmbedded);
+  /** 新規教材を作った直後に、作った場所を示すダイアログの中身。 */
+  const [createdMaterialNotice, setCreatedMaterialNotice] = useState<CreatedMaterialNotice | null>(null);
   const [ledgerFailure, setLedgerFailure] = useState<LedgerSchemaFailure | null>(null);
   const [workspaceReloadNonce, setWorkspaceReloadNonce] = useState(0);
   const [loadingFileId, setLoadingFileId] = useState<string | null>(null);
@@ -3283,6 +3288,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
     || ribbonBackstageOpen
     || commandPaletteOpen
     || versionHistoryPreviewActive
+    || createdMaterialNotice !== null
     || windowCloseSaveDialog !== null;
 
   useEffect(() => {
@@ -3512,6 +3518,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
     openWorkspaceScreen,
     openDocumentAsTab,
     createDocumentTab,
+    createDocumentTabInWorkspace,
     createWhiteboardDocumentTab,
     duplicateActiveDocument,
     openDocumentListDialog,
@@ -3552,9 +3559,15 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
     setDocumentListOpen,
     setSaveState,
     setStatusMessage,
+    showCreatedMaterialLocation: setCreatedMaterialNotice,
     t,
     tEditor
   });
+  // 「新規教材」のメニュー (Word風は Backstage の「新規」) を開いている間だけ、作成先に選べるワークスペースを読む。
+  const newMaterialTargets = useNewMaterialTargets(
+    !isEmbedded && workspaceReady && (newDocMenuOpen || (ribbonBackstageOpen && ribbonBackstageState.section === "new")),
+    documentMetadatas.find((item) => item.fileId === activeFileId),
+  );
 
   const {
     importInputRef,
@@ -4588,11 +4601,11 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
     appMenu: {
       openProblemLibrary: () => setProblemLibraryOpen(true),
       activeDocumentOpenFailure, activeFileId, addBlock, aiMenuButtonRef, appUpdateState,
-      closeDocumentTab, commentsPanelOpen, problemDisplay, problemDisplayAvailable, toggleProblemDisplayPart: toggleProblemDisplay, commitDocumentTitle, copyDocumentText, createDocumentTab, createWhiteboardDocumentTab, degradedWatcherScopes,
+      closeDocumentTab, commentsPanelOpen, problemDisplay, problemDisplayAvailable, toggleProblemDisplayPart: toggleProblemDisplay, commitDocumentTitle, copyDocumentText, createDocumentTab, createDocumentTabInWorkspace, createWhiteboardDocumentTab, degradedWatcherScopes,
       deleteActiveDocument, documentMetadatas, documentTitle, duplicateActiveDocument, exportJson,
       exportMenuOpen, fileMenuButtonRef, handleTitleUpdateAction,
       importDocumentFile, importInputRef, insertMenuButtonRef, loadingFileId, extensionMenu, extensionsMenuButtonRef, runExtensionItem,
-      newDocButtonRef, newDocMenuOpen, openCommandSettings, openDocumentInWorkspace,
+      newDocButtonRef, newDocMenuOpen, newMaterialTargets, openCommandSettings, openDocumentInWorkspace,
       openDocumentListDialog, openDocumentTabs, openImportDialog, openNewDocMenu, openOtherImportDialog,
       openPrintPreview, openTextImportDialog, otherImportInputRef,
       openVersionHistory, openWorkspaceScreen, promoteAiToSidebar, reportIssue, requestOverlayImages,
@@ -5221,6 +5234,8 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
       <EditorPrintPreview previewOpen={previewOpen} document={document} renderState={printPreviewRenderState} pdfExporting={pdfExporting} isDesktopApp={isDesktopApp} isEmbedded={isEmbedded} onRenderStateChange={setPrintPreviewRenderState} onExport={() => void exportPdf()} onOpenExternal={() => void openPrintWindow()} onClose={() => setPreviewOpen(false)} tE={tE} />
 
       {exportedPdfPath && <PdfExportSuccessDialog filePath={exportedPdfPath} onClose={() => setExportedPdfPath(null)} />}
+
+      <NewMaterialCreatedDialog notice={createdMaterialNotice} onClose={() => setCreatedMaterialNotice(null)} />
 
       <DocumentLibraryDialog
         open={documentListOpen}

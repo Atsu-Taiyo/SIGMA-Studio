@@ -88,7 +88,7 @@ test("real Electron supports persisted three-way tab groups and untouched-draft 
 
     const beforeNewDocument = await page.evaluate(() => window.desktopAPI!.storage.listFiles());
     await page.getByRole("button", { name: "新規教材", exact: true }).click();
-    await page.getByRole("menu", { name: "新規教材" }).getByRole("menuitem", { name: "空の教材", exact: true }).click();
+    await page.getByRole("dialog", { name: /を作成しました$/ }).getByRole("button", { name: "閉じる" }).click();
     await expect.poll(async () => {
       const files = await page.evaluate(() => window.desktopAPI!.storage.listFiles());
       return files.find((file) => !beforeNewDocument.some((before) => before.fileId === file.fileId))?.fileId ?? null;
@@ -100,7 +100,7 @@ test("real Electron supports persisted three-way tab groups and untouched-draft 
 
     const beforeCloseDraft = await page.evaluate(() => window.desktopAPI!.storage.listFiles());
     await page.getByRole("button", { name: "新規教材", exact: true }).click();
-    await page.getByRole("menu", { name: "新規教材" }).getByRole("menuitem", { name: "空の教材", exact: true }).click();
+    await page.getByRole("dialog", { name: /を作成しました$/ }).getByRole("button", { name: "閉じる" }).click();
     await expect.poll(async () => {
       const files = await page.evaluate(() => window.desktopAPI!.storage.listFiles());
       return files.length;

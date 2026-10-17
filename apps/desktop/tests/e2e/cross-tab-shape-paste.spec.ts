@@ -202,6 +202,7 @@ async function exitOverlayEditing(page: Page): Promise<void> {
 async function openSecondTab(page: Page): Promise<void> {
   await exitOverlayEditing(page);
   await page.getByRole("button", { name: "新規教材", exact: true }).click();
+  await page.getByRole("dialog", { name: /を作成しました$/ }).getByRole("button", { name: "閉じる" }).click();
   await expect(page.locator(".document-tab")).toHaveCount(2);
   await expect.poll(() => shapeIds(page)).toEqual([]);
 }

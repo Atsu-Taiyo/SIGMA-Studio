@@ -662,6 +662,11 @@ body:has(.app-shell[data-ui-layout="word"]) .overlay-drawing-hint {
   margin-left: auto;
 }
 
+/* 作成先のワークスペース: 共有の印と「押したときの作成先」の印を行の右端へ寄せる。 */
+.app-shell[data-ui-layout="word"] .new-doc-backstage-target .new-doc-menu-target-meta {
+  margin-left: auto;
+}
+
 .app-shell[data-ui-layout="word"] .ribbon-backstage-doc-list {
   display: flex;
   flex-direction: column;

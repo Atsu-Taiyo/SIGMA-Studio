@@ -282,11 +282,13 @@ export async function collectDocsCommands(page: Page): Promise<CommandIndex> {
     await expect(menu).toHaveCount(0);
   }
 
-  // 「新規教材」はホバーで開くメニュー。中身（空の教材 / テンプレートから追加）は
-  // Word風では Backstage の「新規」にそのまま在る。
+  // 「新規教材」はホバーで開くメニュー。中身（空の教材 / テンプレートから追加 / 「…に作成」の
+  // 作成先のワークスペース）は Word風では Backstage の「新規」にそのまま在る。
   await page.locator(".document-tab-action-hover").hover();
   const newDocMenu = page.getByRole("menu", { name: "新規教材" });
   await expect(newDocMenu).toBeVisible();
+  // 作成先のワークスペース (「…に作成」) は開いてから読み込む。読み終わる前に集めると、その回だけ集合から抜ける。
+  await expect(newDocMenu.locator("[data-new-material-target]").first()).toBeVisible();
   for (const item of await collectMenuItems(page, '[role="menu"][aria-label="新規教材"]')) {
     addCommand(commands, commandName(item.label), item.enabled);
   }
@@ -345,6 +347,8 @@ export async function collectWordCommands(page: Page): Promise<CommandIndex> {
     // 「ホーム」「新規」「開く」「情報」「オプション」「ヘルプ」「戻る」を許容リストへ
     // 入れる羽目になり、**同じ名前を持つ本物の Word風専用コマンドが永久に免除される**。
     // ナビの項目名そのものは ui-layout-ribbon.spec.ts が別途固定している。
+    // 「新規」の作成先のワークスペースは開いてから読み込む (docs のホバーメニューと同じ)。
+    if (sectionName === "新規") await expect(page.locator(".ribbon-backstage-pane [data-new-material-target]").first()).toBeVisible();
     await collectScopes([".ribbon-backstage-pane"]);
   }
   await page.keyboard.press("Escape");

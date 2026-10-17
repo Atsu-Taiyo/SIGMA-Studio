@@ -210,6 +210,11 @@ export const chrome = {
     untitledWhiteboard: "無題のホワイトボード",
     newFromTemplate: "テンプレートから追加",
     library: "教材一覧",
+    /** 「新規教材」のメニューで、作成先のワークスペースを選んで空の教材を作る欄。 */
+    newInWorkspaceGroup: "作成先のワークスペース",
+    newInWorkspace: "{{name}}に作成",
+    newTargetDefault: "「新規教材」を押したときの作成先",
+    newTargetsLoading: "ワークスペースを読み込み中",
   },
   actions: {
     reportIssue: "問題を報告",

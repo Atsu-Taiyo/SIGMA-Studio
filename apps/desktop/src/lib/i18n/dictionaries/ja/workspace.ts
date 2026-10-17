@@ -206,6 +206,22 @@ export const workspace = {
     workspaceRoot: "ワークスペース直下",
     newMaterialTitle: "新しい教材",
   },
+  /** 編集画面で新規教材を作ったあとに、作った場所を示すダイアログ。 */
+  createdDialog: {
+    title: "教材を作成しました",
+    whiteboardTitle: "ホワイトボードを作成しました",
+    description: "次の場所に作成しました。",
+    material: "教材名",
+    workspace: "ワークスペース",
+    folder: "フォルダ",
+    storage: "保存先",
+    root: "ワークスペースの直下",
+    unknown: "確認できませんでした",
+    thisPc: "このPC",
+    thisBrowser: "このブラウザ",
+    cloud: "クラウド（共有）",
+    fallbackNote: "直前の教材のワークスペースには作成できないため、既定の作成先に作成しました。",
+  },
   empty: {
     rootMessage: "教材がありません",
     folderMessage: "このフォルダは空です",

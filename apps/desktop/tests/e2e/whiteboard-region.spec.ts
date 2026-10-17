@@ -52,6 +52,7 @@ test("keeps an empty range through zoom/pan, then clears on Escape, outside clic
   await selectRegion(page);
   await page.getByRole("button", { name: "新規教材" }).hover();
   await page.getByRole("menuitem", { name: "ホワイトボード", exact: true }).click();
+  await page.getByRole("dialog", { name: /を作成しました$/ }).getByRole("button", { name: "閉じる" }).click();
   await expect(region).toHaveCount(0);
   await expect(page.locator(".selection-action-popover")).toHaveCount(0);
 });
