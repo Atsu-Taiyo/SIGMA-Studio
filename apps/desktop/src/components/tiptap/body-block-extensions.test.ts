@@ -118,6 +118,37 @@ describe("SigmaDoc に無いブロックは編集面にも無い", () => {
 });
 
 describe("引用ブロック", () => {
+  it.each([false, true])("引用直後の空段落を削除しても引用は伸びない（引用末尾が空: %s）", (emptyTail) => {
+    const quote: TextFlowBlock = {
+      type: "quote", id: "quote",
+      blocks: [
+        { type: "paragraph", id: "quoted", children: [{ type: "text", text: "引用本文" }] },
+        ...(emptyTail ? [{ type: "paragraph" as const, id: "tail", children: [] }] : []),
+      ],
+    };
+    const original: TextFlowBlock[] = [quote, { type: "paragraph", id: "after", children: [] }];
+    const editor = createBodyEditor(original);
+    editor.commands.setTextSelection(editor.state.doc.content.size - 1);
+    pressKey(editor, "Backspace");
+    expect(bodyBlocks(editor)).toEqual([quote]);
+    expect(editor.state.selection.$from.parent.attrs.sigmaDocId).toBe(emptyTail ? "tail" : "quoted");
+  });
+
+  it("引用内の空行で Backspace を押すと通常どおり前の行へ戻る", () => {
+    const editor = createBodyEditor([{
+      type: "quote", id: "quote", blocks: [
+        { type: "paragraph", id: "quoted", children: [{ type: "text", text: "本文" }] },
+        { type: "paragraph", id: "empty", children: [] },
+      ],
+    }]);
+    editor.commands.setTextSelection(editor.state.doc.content.size - 2);
+    pressKey(editor, "Backspace");
+    expect(bodyBlocks(editor)).toEqual([{
+      type: "quote", id: "quote",
+      blocks: [{ type: "paragraph", id: "quoted", children: [{ type: "text", text: "本文" }] }],
+    }]);
+  });
+
   it("`> ` で引用の入れ物ができ、中身は本文ブロックのまま", () => {
     const editor = createBodyEditor();
     typeText(editor, "> 引用の中身");

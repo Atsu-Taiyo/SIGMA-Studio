@@ -71,6 +71,30 @@ export const QuoteBlockExtension = TiptapNode.create({
   addInputRules() {
     return [wrappingInputRule({ find: /^\s*>\s$/, type: this.type })];
   },
+
+  addKeyboardShortcuts() {
+    return {
+      Backspace: () => {
+        const { state, view } = this.editor;
+        const $cursor = state.selection instanceof TextSelection ? state.selection.$cursor : null;
+        if (!$cursor || $cursor.parent.type.name !== PARAGRAPH_NODE_NAME
+          || $cursor.parent.content.size !== 0 || $cursor.depth < 1) {
+          return false;
+        }
+        const start = $cursor.before();
+        const $start = state.doc.resolve(start);
+        if ($start.nodeBefore?.type !== this.type) {
+          return false;
+        }
+        // joinBackward の既定動作は空段落を引用へ取り込んでしまう。
+        // 同じ親の直前に引用がある場合は、空段落そのものを削除する。
+        const tr = state.tr.delete(start, $cursor.after());
+        tr.setSelection(TextSelection.near(tr.doc.resolve(start), -1));
+        view.dispatch(tr.scrollIntoView());
+        return true;
+      },
+    };
+  },
 });
 
 /**

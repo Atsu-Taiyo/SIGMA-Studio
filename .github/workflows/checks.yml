@@ -127,7 +127,8 @@ jobs:
               tests/electron/shared-sync-rejected.spec.ts \
               tests/electron/extensions-menu.spec.ts \
               tests/electron/local-fonts-menu.spec.ts tests/electron/math-ime-composition-scroll.spec.ts \
-              tests/electron/graph-expression-backspace.spec.ts tests/electron/math-unclosed-paren.spec.ts
+              tests/electron/graph-expression-backspace.spec.ts tests/electron/math-unclosed-paren.spec.ts \
+              tests/electron/quote-empty-paragraph-delete.spec.ts
           '
       - uses: actions/upload-artifact@v7
         if: failure()
