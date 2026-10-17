@@ -40,6 +40,36 @@ const MAX_RENDER_SVG_DIMENSION = 8192;
  */
 const MAX_RENDER_SVG_PIXELS = 25_000_000;
 
+/**
+ * Converts an SVG image to shapes the way "図形に変換" on the canvas does, in a hidden window of the
+ * app's own renderer: text and math are measured with the editor's fonts, KaTeX and layout. The MCP
+ * process has no DOM; without this route it can only estimate them. Used by the AI's
+ * `convert_svg_image`, so strokes stay at "細" or thicker (`AI_SVG_CONVERSION_LINE_SIZES`).
+ */
+export const CONVERT_SVG_IMAGE_PATH = "/convert-svg";
+
+export const ConvertSvgImageRequestSchema = z.object({
+  /** The AI's working document: the image, its asset, and the TeX preamble the math is measured with. */
+  document: z.record(z.string(), z.unknown()),
+  shapeId: z.string().min(1).max(256),
+});
+
+export type ConvertSvgImageRequest = z.infer<typeof ConvertSvgImageRequestSchema>;
+
+/** The converter's result (`SvgImageConversion`), as JSON. Its shapes and assets are validated again by the proposal. */
+export const ConvertedSvgImageSchema = z.object({
+  shapes: z.array(z.record(z.string(), z.unknown())).min(1),
+  assets: z.record(z.string(), z.record(z.string(), z.unknown())),
+  convertedCount: z.number().int().nonnegative(),
+  preservedCount: z.number().int().nonnegative(),
+  textCount: z.number().int().nonnegative(),
+  mathCount: z.number().int().nonnegative(),
+});
+
+export type ConvertSvgImageResult =
+  | { ok: true; conversion: z.infer<typeof ConvertedSvgImageSchema> }
+  | RenderPageContextFailure;
+
 export const AiRenderBridgeInfoSchema = z.object({
   version: z.literal(1),
   url: z.string().min(1),
@@ -298,6 +328,7 @@ export interface CreateAiRenderBridgeServerDeps {
   getProblemSolution?: (request: { problemId: string }) => Promise<ProblemSolutionResult>;
   renderPageContext: (request: RenderPageContextRequest) => Promise<RenderPageContextResult>;
   renderSvg: (request: RenderSvgRequest) => Promise<RenderSvgResult>;
+  convertSvgImage?: (request: ConvertSvgImageRequest) => Promise<ConvertSvgImageResult>;
   parseDocument: (input: unknown) => unknown;
 }
 
@@ -368,7 +399,8 @@ export function createAiRenderBridgeServer(deps: CreateAiRenderBridgeServerDeps)
       const isSvg = req.method === "POST" && req.url === RENDER_SVG_PATH;
       const isSolution = req.method === "POST" && req.url === PROBLEM_SOLUTION_BRIDGE_PATH;
       const isSearch = req.method === "POST" && req.url === PROBLEM_SEARCH_BRIDGE_PATH;
-      if (!isPageContext && !isSvg && !isSolution && !isSearch) {
+      const isConvertSvg = req.method === "POST" && req.url === CONVERT_SVG_IMAGE_PATH;
+      if (!isPageContext && !isSvg && !isSolution && !isSearch && !isConvertSvg) {
         sendJson(res, 404, { ok: false, error: "not found" });
         return;
       }
@@ -420,6 +452,38 @@ export function createAiRenderBridgeServer(deps: CreateAiRenderBridgeServerDeps)
           sendJson(res, result.ok ? 200 : 502, result);
         } catch {
           sendJson(res, 502, { ok: false, error: ta("problemSolution.connectionFailed") });
+        }
+        return;
+      }
+
+      if (isConvertSvg) {
+        const parsedConvertRequest = ConvertSvgImageRequestSchema.safeParse(parsedJson);
+        if (!parsedConvertRequest.success || !deps.convertSvgImage) {
+          sendJson(res, parsedConvertRequest.success ? 404 : 400, {
+            ok: false,
+            error: ta("desktop.renderBridge.invalidRequest"),
+          });
+          return;
+        }
+        try {
+          deps.parseDocument(parsedConvertRequest.data.document);
+        } catch (error) {
+          sendJson(res, 400, {
+            ok: false,
+            error: ta("desktop.renderBridge.invalidDocument", {
+              reason: error instanceof Error ? error.message : ta("desktop.renderBridge.unknownError"),
+            }),
+          });
+          return;
+        }
+        try {
+          const result = await deps.convertSvgImage(parsedConvertRequest.data);
+          sendJson(res, result.ok ? 200 : 502, result);
+        } catch (error) {
+          sendJson(res, 500, {
+            ok: false,
+            error: error instanceof Error ? error.message : ta("desktop.renderBridge.renderFailed"),
+          });
         }
         return;
       }

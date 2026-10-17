@@ -644,7 +644,33 @@ export function isOverlayOwnedAiEditDraft(operation: AiEditDraft, operations: Ai
 export function isOverlaySigmaDocMutationOp(operation: SigmaDocMutationOp): boolean {
   return operation.operation === "updateOverlayShape" ||
     operation.operation === "alignOverlayShapes" ||
-    operation.operation === "deleteOverlayShapes";
+    operation.operation === "deleteOverlayShapes" ||
+    operation.operation === "replaceOverlayShape";
+}
+
+/**
+ * The shapes a replacement draws on the page as the "after" side: its members (or its one shape),
+ * not the group that only holds them. They are drawn on their own, so their link to the group (which
+ * exists only once the proposal is applied) is dropped from the preview copy.
+ */
+export function replacementGhostShapes(op: Extract<SigmaDocMutationOp, { operation: "replaceOverlayShape" }>): OverlayShape[] {
+  return op.shapes.flatMap((shape) => {
+    if (shape.type === "group") return [];
+    if (shape.parentId !== op.shapeId) return [shape];
+    const ghost = { ...shape };
+    delete ghost.parentId;
+    return [ghost];
+  });
+}
+
+/** The shapes as they are once the replacement is applied: the replaced shape's place holds the replacement. */
+function applyReplacementToShapes(
+  shapes: OverlayShape[],
+  op: Extract<SigmaDocMutationOp, { operation: "replaceOverlayShape" }>,
+): OverlayShape[] {
+  return shapes.some((shape) => shape.id === op.shapeId)
+    ? shapes.flatMap((shape) => (shape.id === op.shapeId ? op.shapes : [shape]))
+    : shapes;
 }
 
 /** True when a proposal contains at least one visible overlay change. */
@@ -668,7 +694,7 @@ export function hasBodyAiEditChanges(preview: AiEditPreviewState): boolean {
 export function getAiEditPreviewBeforeShapeIds(preview: AiEditPreviewState): string[] {
   const ids = new Set<string>();
   for (const op of preview.draft.mutationOperations ?? []) {
-    if (op.operation === "updateOverlayShape") {
+    if (op.operation === "updateOverlayShape" || op.operation === "replaceOverlayShape") {
       ids.add(op.shapeId);
     } else if (op.operation === "alignOverlayShapes") {
       op.shapeIds.forEach((id) => ids.add(id));
@@ -862,11 +888,20 @@ export function summarizeAiEditPreviewChanges(
     buckets.set(action, bucket);
   };
   const tableLines: string[] = [];
+  const conversionLines: string[] = [];
   const replaceCounts = new Map<AiEditChangeNounId, number>();
   const bumpReplace = (noun: AiEditChangeNounId) => replaceCounts.set(noun, (replaceCounts.get(noun) ?? 0) + 1);
 
   const allOperations = preview.draft.operations;
+  // An image the proposal both inserts and converts arrives as its parts: say so once, as added shapes.
+  const insertedIds = new Set(allOperations.flatMap((operation) => (operation.operation === "insertOverlayShape" ? [operation.overlayShape.id] : [])));
+  const convertedInsertIds = new Set((preview.draft.mutationOperations ?? []).flatMap((op) => (
+    op.operation === "replaceOverlayShape" && insertedIds.has(op.shapeId) ? [op.shapeId] : []
+  )));
   for (const operation of allOperations) {
+    if (operation.operation === "insertOverlayShape" && convertedInsertIds.has(operation.overlayShape.id)) {
+      continue;
+    }
     if (operation.operation === "insertTableShape") {
       if (replacementByAddedId.has(operation.tableShape.id)) {
         bumpReplace("table");
@@ -907,10 +942,16 @@ export function summarizeAiEditPreviewChanges(
       op.shapeIds
         .filter((shapeId) => !replacementRemovedIds.has(shapeId) && !keptShapeIds.has(shapeId))
         .forEach((shapeId) => bump("delete", overlayShapeNounId(shapesById.get(shapeId))));
+    } else if (op.operation === "replaceOverlayShape") {
+      if (convertedInsertIds.has(op.shapeId)) {
+        bump("insert", "shape", replacementGhostShapes(op).length);
+      } else {
+        conversionLines.push(t("change.svgConvert", { count: replacementGhostShapes(op).length }));
+      }
     }
   }
 
-  const lines: string[] = [...tableLines];
+  const lines: string[] = [...tableLines, ...conversionLines];
   for (const [noun, count] of replaceCounts) {
     lines.push(formatAiEditChangeLine(noun, count, "replace", t));
   }
@@ -1095,6 +1136,19 @@ export function deriveAiEditPreviewDiff(
         for (let index = addedShapes.length - 1; index >= 0; index -= 1) {
           if (op.shapeIds.includes(addedShapes[index].shape.id)) addedShapes.splice(index, 1);
         }
+      } else if (op.operation === "replaceOverlayShape") {
+        // The image (drawn as "before") gives way to the shapes it becomes (drawn as ghosts). An image
+        // the same proposal inserts is only a ghost itself: its place is taken by the replacement.
+        const inserted = addedShapes.findIndex((added) => added.shape.id === op.shapeId);
+        if (inserted >= 0) {
+          addedShapes.splice(inserted, 1);
+        } else {
+          modifiedShapeIds.add(op.shapeId);
+        }
+        for (const shape of replacementGhostShapes(op)) {
+          addedShapes.push({ shape, assets: op.assets ?? {} });
+        }
+        shapeCursor = applyReplacementToShapes(shapeCursor, op);
       } else if (op.operation === "updateOverlayShape" || op.operation === "alignOverlayShapes") {
         const ids = op.operation === "updateOverlayShape" ? [op.shapeId] : op.shapeIds;
         ids.forEach((id) => modifiedShapeIds.add(id));
@@ -1206,6 +1260,12 @@ export function deriveAiEditPreviewOverlayShapes(
       continue;
     }
 
+    if (operation.operation === "replaceOverlayShape") {
+      shapes = applyReplacementToShapes(shapes, operation);
+      replacementGhostShapes(operation).forEach((shape) => affectedIds.add(shape.id));
+      continue;
+    }
+
     if (operation.operation === "deleteOverlayShapes") {
       for (const shapeId of operation.shapeIds) {
         if (replacementRemovedIds.has(shapeId)) {
@@ -1266,6 +1326,8 @@ export function derivePostApplyHighlightIds(preview: AiEditPreviewState): AiEdit
       op.blockIds.forEach((id) => blockIds.add(id));
     } else if (op.operation === "updateOverlayShape") {
       shapeIds.add(op.shapeId);
+    } else if (op.operation === "replaceOverlayShape") {
+      op.shapes.forEach((shape) => shapeIds.add(shape.id));
     } else if (op.operation === "alignOverlayShapes") {
       op.shapeIds.forEach((id) => shapeIds.add(id));
     }
@@ -1398,7 +1460,7 @@ export function resolveMutationOpAssets(
   op: SigmaDocMutationOp,
   currentAssets: Record<string, OverlayAsset>,
 ): Record<string, OverlayAsset> {
-  if (op.operation !== "updateOverlayShape" || !op.assets || Object.keys(op.assets).length === 0) {
+  if ((op.operation !== "updateOverlayShape" && op.operation !== "replaceOverlayShape") || !op.assets || Object.keys(op.assets).length === 0) {
     return currentAssets;
   }
   return { ...currentAssets, ...op.assets };
@@ -1426,6 +1488,11 @@ export function deriveAiEditPreviewShapeUpdates(
   for (const preview of previews) {
     const replacedShapeIds = new Set((preview.shapeReplacements ?? []).map((pair) => pair.removedShapeId));
     for (const op of preview.draft.mutationOperations ?? []) {
+      if (op.operation === "replaceOverlayShape") {
+        // A later update of a converted part must find the part.
+        shapes = applyReplacementToShapes(shapes, op);
+        continue;
+      }
       if (op.operation !== "updateOverlayShape" && op.operation !== "alignOverlayShapes") {
         continue;
       }

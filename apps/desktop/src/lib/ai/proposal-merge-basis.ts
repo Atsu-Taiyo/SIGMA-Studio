@@ -302,8 +302,8 @@ export interface ProposalTargets {
  *   approval compares their hashes: `collectConflictSensitiveBlockIds` reads this same definition).
  * - A proposal with a basis: what the merging replay leaves to the plain replay (`replayProposalDraft
  *   Merging`) — a replaced block outside every basis block, a deleted block or shape and an updated
- *   shape without a snapshot — and the targets of operations it never merges: aligned shapes and a
- *   reconfigured column section, always (the operation is applied over the merged unit, so it would
+ *   shape without a snapshot — and the targets of operations it never merges: aligned shapes, a shape
+ *   replaced in place (an SVG image converted to shapes) and a reconfigured column section, always (the operation is applied over the merged unit, so it would
  *   overwrite the human's value silently). A graph it updates, aligns or deletes stays out of the merge
  *   with the labels it owns.
  * - With the current `shapes`: a shape whose deletion or move reaches other shapes (a group and its
@@ -381,6 +381,12 @@ export function collectNonMergeableTargets(
           break;
         case "alignOverlayShapes":
           operation.shapeIds.forEach((id) => addShape(id, true));
+          break;
+        // A converted image becomes another kind of shape in place: a human's edit of the image could
+        // not survive, so the image stays locked while the conversion is pending (and is compared on
+        // approval), with the shapes anchored to it.
+        case "replaceOverlayShape":
+          addShape(operation.shapeId, true);
           break;
         case "deleteOverlayShapes":
           operation.shapeIds.forEach((id) => addShape(id));

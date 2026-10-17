@@ -23,6 +23,7 @@ const WRITE_CAPABLE_MCP_TOOL_NAMES = new Set([
   "update_generated_image",
   "insert_svg_image",
   "update_svg_image",
+  "convert_svg_image",
   "update_page_layout",
   "update_column_layout",
   "insert_shape",

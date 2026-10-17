@@ -126,6 +126,7 @@ export const ai = {
     single: "{{verb}} {{noun}}",
     counted: "{{verb}} {{count}} {{noun}}",
     tableInsert: "Insert a {{rows}}x{{columns}} table",
+    svgConvert: "Convert an image to {{count}} shapes",
     noun: {
       shape_one: "shape",
       shape_other: "shapes",
@@ -287,6 +288,7 @@ export const ai = {
       replaceTable: "AI table replacement",
       replaceGraph: "AI graph replacement",
       replaceShape: "AI shape replacement",
+      convertShape: "AI conversion to shapes",
       shapeEdit: "AI shape edit",
     },
     dialogAria: "AI edit: {{title}}",
@@ -670,6 +672,7 @@ export const ai = {
       draft_update_graph3d: "Updating the 3D graph",
       draft_insert_svg_image: "Drawing the figure as SVG",
       draft_update_svg_image: "Updating the SVG figure",
+      draft_convert_svg_image: "Converting the SVG figure to shapes",
       draft_insert_text_block: "Adding text",
       draft_create_problem: "Adding a problem",
       draft_update_problem_answer: "Updating the answer",

@@ -1,5 +1,6 @@
 import type { SigmaDocument } from "./model";
-import type { OverlaySnapshot } from "./overlay-model";
+import { normalizeOverlayGroups } from "./overlay-group-normalization";
+import type { OverlayAsset, OverlayShape, OverlaySnapshot } from "./overlay-model";
 
 /** Remove unreachable image payloads, without mutating snapshots held by undo. */
 export function pruneUnusedOverlayAssets(snapshot: OverlaySnapshot): OverlaySnapshot {
@@ -42,4 +43,20 @@ export function pruneUnusedDocumentOverlayAssets(document: SigmaDocument): Sigma
       : { ...nextLayout, [region]: { ...nextLayout[region], overlay: nextOverlay } };
   }
   return nextLayout === layout ? document : { ...document, pageLayout: nextLayout };
+}
+
+/**
+ * Put `shapes` where the shape `shapeId` is, in its stack position, and add `assets`. The shapes are
+ * the replacement's top-level shape (which takes the id) followed by its members. Assets nothing uses
+ * any more (the replaced image's own picture) are dropped. "図形に変換" and the AI's proposal of the
+ * same conversion both go through here, so the two cannot place the result differently.
+ */
+export function replaceOverlayShapeInSnapshot(
+  snapshot: OverlaySnapshot,
+  shapeId: string,
+  shapes: readonly OverlayShape[],
+  assets: Readonly<Record<string, OverlayAsset>> = {},
+): OverlaySnapshot {
+  const nextShapes = normalizeOverlayGroups(snapshot.shapes.flatMap((shape) => shape.id === shapeId ? [...shapes] : [shape]));
+  return pruneUnusedOverlayAssets({ ...snapshot, shapes: nextShapes, assets: { ...snapshot.assets, ...assets } });
 }

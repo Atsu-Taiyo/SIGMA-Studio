@@ -84,3 +84,13 @@ it("keeps the image and reports a read failure when the shared asset cannot be r
   expect(result.message).toBe(createTranslator("ja", "shape")("svgConversion.source"));
   await act(async () => root.unmount());
 });
+
+it("keeps a hairline as 極細 when the user converts from the canvas menu (only the AI's conversion lifts it)", async () => {
+  const hairline = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 100"><line x1="10" y1="50" x2="190" y2="50" stroke="#111111" stroke-width="0.75"/></svg>';
+  const { ports, result, Harness } = sharedFixture(async () => `data:image/svg+xml;base64,${btoa(hairline)}`);
+  const root = createRoot(document.createElement("div"));
+  await act(async () => root.render(<Harness />));
+  await act(async () => { await result.convert!("image"); });
+  expect(ports.shapesRef.current).toMatchObject([{ id: "image", type: "line", props: { size: "xs" } }]);
+  await act(async () => root.unmount());
+});

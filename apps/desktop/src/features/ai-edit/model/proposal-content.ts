@@ -38,6 +38,7 @@ import {
   hasBodyAiEditChanges,
   isOverlayAiEditDraft,
   isOverlaySigmaDocMutationOp,
+  replacementGhostShapes,
   resolveMutationOpAssets,
   type AiEditPreviewState,
 } from "./preview";
@@ -603,6 +604,10 @@ function buildPendingShapeChanges(
         pushRemoved(shapeId);
         pushAdded(finalShape(shapeId));
       });
+    } else if (op.operation === "replaceOverlayShape") {
+      // 変換前の画像が消え、変換後の部品 (グループの中身) が入る。
+      pushRemoved(op.shapeId);
+      replacementGhostShapes(op).forEach(pushAdded);
     }
   }
 

@@ -16,6 +16,7 @@ import { LocalAiEditRunLogStore } from "./ai-edit-run-log-store";
 import {
   computePageContextCaptureRect,
   computePreviewBadgeLayout,
+  ConvertedSvgImageSchema,
   createAiRenderBridgeServer,
   DEFAULT_MAX_LONG_SIDE_PX,
   LocalAiRenderBridgeStore,
@@ -23,6 +24,8 @@ import {
   type RenderPageContextRequest,
   type RenderPageContextResult,
   type RenderRect,
+  type ConvertSvgImageRequest,
+  type ConvertSvgImageResult,
   type RenderSvgRequest,
   type RenderSvgResult,
 } from "./ai-render-bridge";
@@ -737,6 +740,84 @@ async function renderAiSvgPng(request: RenderSvgRequest): Promise<RenderSvgResul
     if (renderWindow && !renderWindow.isDestroyed()) {
       renderWindow.destroy();
     }
+  }
+}
+
+/** How long one conversion may take, from opening the hidden page to its result. */
+const CONVERT_SVG_TIMEOUT_MS = 30_000;
+let convertSvgInFlight = 0;
+
+/**
+ * Converts an SVG image to shapes in a hidden window of the app's own print page, so text and math are
+ * measured with the editor's fonts and KaTeX exactly as "図形に変換" on the canvas measures them. The
+ * page reads its one document through the preview bridge (`renderId`), runs the converter, and leaves
+ * the result on `window.__sigmaSvgConversion` (`src/components/print/svg-conversion-task.ts`).
+ */
+async function convertAiSvgImage(request: ConvertSvgImageRequest): Promise<ConvertSvgImageResult> {
+  if (convertSvgInFlight >= RENDER_SVG_MAX_CONCURRENT) {
+    return { ok: false, error: te("electron.preview.renderBusy") };
+  }
+  convertSvgInFlight += 1;
+  const renderId = createRenderId();
+  let renderWindow: BrowserWindow | null = null;
+  let revokePreview: () => void = () => {};
+  try {
+    pendingRenderDocuments.set(renderId, parseSigmaDocument(request.document));
+    renderWindow = new BrowserWindow({
+      width: 1200,
+      height: 900,
+      show: false,
+      webPreferences: {
+        preload: path.join(__dirname, "preview-preload.cjs"),
+        nodeIntegration: false,
+        contextIsolation: true,
+        sandbox: true,
+        backgroundThrottling: false,
+      },
+    });
+    const taskUrl = DEV_SERVER_URL ? new URL("/print", DEV_SERVER_URL) : pathToFileURL(path.join(DIST_RENDERER_DIR, "print.html"));
+    taskUrl.search = new URLSearchParams({ renderId, task: "svg-convert", shapeId: request.shapeId }).toString();
+    revokePreview = authorizePreviewSender(renderWindow.webContents, renderId, taskUrl.href);
+    renderWindow.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
+    renderWindow.webContents.on("will-navigate", (event) => event.preventDefault());
+    renderWindow.webContents.on("will-redirect", (event) => event.preventDefault());
+    await renderWindow.loadURL(taskUrl.href);
+    const timedOut = te("electron.preview.svgConversionTimedOut");
+    const result = await Promise.race([
+      renderWindow.webContents.executeJavaScript(`
+        new Promise((resolve) => {
+          const tick = () => {
+            const pending = window.__sigmaSvgConversion;
+            if (pending) {
+              Promise.resolve(pending).then(resolve, (error) => resolve({ ok: false, error: String(error && error.message || error) }));
+              return;
+            }
+            setTimeout(tick, 50);
+          };
+          tick();
+        })
+      `, true) as Promise<unknown>,
+      new Promise<ConvertSvgImageResult>((resolve) => {
+        setTimeout(() => resolve({ ok: false, error: timedOut }), CONVERT_SVG_TIMEOUT_MS);
+      }),
+    ]);
+    if (result && typeof result === "object" && (result as { ok?: unknown }).ok === true) {
+      const conversion = ConvertedSvgImageSchema.safeParse((result as { conversion?: unknown }).conversion);
+      if (conversion.success) {
+        return { ok: true, conversion: conversion.data };
+      }
+    }
+    const error = result && typeof result === "object" ? (result as { error?: unknown }).error : undefined;
+    return { ok: false, error: typeof error === "string" && error ? error : te("electron.preview.svgConversionFailed") };
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : te("electron.preview.svgConversionFailed") };
+  } finally {
+    convertSvgInFlight -= 1;
+    revokePreview();
+    if (renderWindow && !renderWindow.isDestroyed()) {
+      renderWindow.destroy();
+    }
+    pendingRenderDocuments.delete(renderId);
   }
 }
 
@@ -1776,6 +1857,7 @@ async function startAiRenderBridgeServer(): Promise<void> {
     getProblemSolution: (request) => fetchProblemSolution(request, collaborationSessions.auth),
     renderPageContext: renderAiPageContextPng,
     renderSvg: renderAiSvgPng,
+    convertSvgImage: convertAiSvgImage,
     parseDocument: (input) => parseSigmaDocument(input),
   });
   aiRenderBridgeServer = server;

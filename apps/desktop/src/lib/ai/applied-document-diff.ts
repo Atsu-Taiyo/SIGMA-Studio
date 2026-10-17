@@ -115,6 +115,10 @@ export function deriveAppliedDocumentDiff(
       } else if (operation.operation === "updateOverlayShape") {
         pushUnique(removedShapeIds, removedShapeSeen, operation.shapeId);
         pushUnique(addedShapeIds, addedShapeSeen, operation.shapeId);
+      } else if (operation.operation === "replaceOverlayShape") {
+        // 変換前の画像が消え、同じIDのグループと部品が入る。
+        pushUnique(removedShapeIds, removedShapeSeen, operation.shapeId);
+        operation.shapes.forEach((shape) => pushUnique(addedShapeIds, addedShapeSeen, shape.id));
       } else if (operation.operation === "alignOverlayShapes") {
         operation.shapeIds.forEach((id) => {
           pushUnique(removedShapeIds, removedShapeSeen, id);
@@ -216,6 +220,8 @@ export function deriveAppliedDraftFallback(
     for (const operation of draft.mutationOperations ?? []) {
       if (operation.operation === "updateOverlayShape") {
         pushShape(currentShapesById.get(operation.shapeId));
+      } else if (operation.operation === "replaceOverlayShape") {
+        operation.shapes.forEach((shape) => pushShape(currentShapesById.get(shape.id) ?? shape));
       } else if (operation.operation === "alignOverlayShapes") {
         operation.shapeIds.forEach((id) => pushShape(currentShapesById.get(id)));
       }

@@ -1212,6 +1212,58 @@ describe("getAiEditPreviewBeforeShapeIds", () => {
   });
 });
 
+describe("an SVG image converted to shapes (replaceOverlayShape)", () => {
+  const image = { id: "figure", type: "image", x: 10, y: 20, props: { assetId: "figure_asset", w: 100, h: 50 } } as unknown as OverlayShape;
+  const part = (id: string, x: number) => ({ id, type: "geo", x, y: 20, parentId: "figure",
+    props: { w: 20, h: 10, geo: "rectangle", fill: "none", color: "#111111", labelColor: "#111111", dash: "solid", size: "m" } }) as unknown as OverlayShape;
+  const fragment = { id: "kept", type: "image", x: 60, y: 20, parentId: "figure", props: { assetId: "kept_asset", w: 10, h: 10 } } as unknown as OverlayShape;
+  const conversion: SigmaDocMutationOp = {
+    operation: "replaceOverlayShape", summary: "SVG画像を図形に変換", shapeId: "figure",
+    shapes: [{ id: "figure", type: "group", x: 10, y: 20, props: { w: 100, h: 50 } } as unknown as OverlayShape, part("p1", 10), fragment],
+    assets: { kept_asset: { id: "kept_asset" } as unknown as OverlayAsset },
+  };
+
+  it("draws the image as the before side and its parts (not the group) as ghosts, with the kept fragments' pictures", () => {
+    const preview = makePreview({ mutationOperations: [conversion] });
+    const diff = deriveAiEditPreviewDiff([preview], [image]);
+    expect([...diff.modifiedShapeIds]).toEqual(["figure"]);
+    expect(diff.removedShapeIds.size).toBe(0);
+    expect(diff.addedShapes.map((added) => added.shape.id)).toEqual(["p1", "kept"]);
+    // Ghosts are drawn on their own: the group only exists once the proposal is applied.
+    expect(diff.addedShapes.every((added) => added.shape.parentId === undefined)).toBe(true);
+    expect(diff.addedShapes[1]!.assets).toEqual({ kept_asset: { id: "kept_asset" } });
+    expect(getAiEditPreviewBeforeShapeIds(preview)).toEqual(["figure"]);
+    expect(isOverlayOnlyAiEditPreview(preview)).toBe(true);
+    expect(hasOverlayAiEditChanges(preview)).toBe(true);
+    expect(hasBodyAiEditChanges(preview)).toBe(false);
+  });
+
+  it("replaces an image the same proposal inserts instead of drawing it", () => {
+    const preview = makePreview({
+      operations: [{ operation: "insertOverlayShape", summary: "挿入", targetId: "b1", overlayShape: image, assets: {} } as unknown as AiEditDraft],
+      mutationOperations: [conversion],
+    });
+    const diff = deriveAiEditPreviewDiff([preview], []);
+    expect(diff.modifiedShapeIds.size).toBe(0);
+    expect(diff.addedShapes.map((added) => added.shape.id)).toEqual(["p1", "kept"]);
+    // The net effect is new shapes, not an image that is added and converted.
+    expect(summarizeAiEditPreviewChanges(preview, [])).toEqual(["図形を2件追加"]);
+  });
+
+  it("says what it does, keeps a later update of a part, and highlights the result after approval", () => {
+    const preview = makePreview({ mutationOperations: [conversion, { operation: "updateOverlayShape", summary: "移動", shapeId: "p1", patch: { x: 30 } }] });
+    expect(summarizeAiEditPreviewChanges(preview, [image])).toEqual(["画像を2個の図形に変換", "図形を更新"]);
+    expect(deriveAiEditPreviewShapeUpdates([preview], [image])).toMatchObject([{ shapeId: "p1", after: { x: 30 } }]);
+    expect(derivePostApplyHighlightIds(preview).shapeIds).toEqual(expect.arrayContaining(["figure", "p1", "kept"]));
+    expect(resolveMutationOpAssets(conversion, {})).toEqual({ kept_asset: { id: "kept_asset" } });
+  });
+
+  it("keeps the image locked while the conversion is pending, even with a merge basis", () => {
+    const preview = { ...makePreview({ mutationOperations: [conversion] }), mergeSources: [{ proposalId: "p1", createdAt: "2026-10-16T00:00:00.000Z", draft: makePreview({ mutationOperations: [conversion] }).draft, mergeBasis: { version: 1, entities: {}, anchors: {} } as unknown as ProposalMergeBasis }] };
+    expect([...derivePendingAiProposalLockTargets([preview], [image]).shapeIds]).toContain("figure");
+  });
+});
+
 describe("deriveAiEditPreviewDiff", () => {
   it("derives nothing for body operations (the removed blocks come from the merged result)", () => {
     const diff = deriveAiEditPreviewDiff([makePreview({ operations: [replaceDraft, legacyReplaceDraft, insertAfterDraft] })]);

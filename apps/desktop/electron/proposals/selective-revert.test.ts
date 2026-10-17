@@ -235,6 +235,30 @@ describe("buildSelectiveRevertDocument", () => {
     expect(getShapes(result.document)).toHaveLength(0);
   });
 
+  it("reverts an SVG image converted to shapes: the image and its picture come back, the parts go", () => {
+    const svg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 50"><rect x="10" y="10" width="30" height="20" fill="none" stroke="#111111" stroke-width="2"/><line x1="50" y1="25" x2="90" y2="25" stroke="#111111" stroke-width="2"/></svg>';
+    const image: OverlayShape = { id: "figure", type: "image", x: 20, y: 20, props: { assetId: "figure_asset", w: 100, h: 50 } };
+    const base = topLevelDoc([paragraph("p1", "p1")], [geoShape("below", "#0000ff"), image]);
+    const asset = { id: "figure_asset", type: "image" as const, props: { w: 100, h: 50, name: "図", mimeType: "image/svg+xml", isAnimated: false, fileSize: svg.length, src: `data:image/svg+xml;base64,${Buffer.from(svg).toString("base64")}` } };
+    const revertDocument = parseSigmaDocument({ ...base, pageLayout: { ...base.pageLayout!, overlay: { overlaySnapshot: { version: 1, shapes: getShapes(base), assets: { figure_asset: asset } } } } });
+    const group = { id: "figure", type: "group", x: 20, y: 20, props: { w: 100, h: 50 } } as OverlayShape;
+    const parts = [{ ...geoShape("part_rect", "#111111"), parentId: "figure" }, { ...geoShape("part_line", "#111111"), x: 60, parentId: "figure" }] as OverlayShape[];
+    const draft: AiEditSessionDraft = {
+      summary: "SVG画像を2個の図形に変換", plan: [], warnings: [], operations: [],
+      mutationOperations: [{ operation: "replaceOverlayShape", summary: "SVG画像を2個の図形に変換", shapeId: "figure", shapes: [group, ...parts] }],
+    };
+    const batchDrafts = batch("pr1", draft);
+    const currentDocument = applyBatch(revertDocument, batchDrafts);
+    expect(getShapes(currentDocument).map((shape) => shape.id)).toEqual(["below", "figure", "part_rect", "part_line"]);
+    expect(currentDocument.pageLayout?.overlay?.overlaySnapshot?.assets.figure_asset).toBeUndefined();
+
+    const result = buildSelectiveRevertDocument({ revertDocument, batchDrafts, currentDocument });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(getShapes(result.document)).toEqual(getShapes(revertDocument));
+    expect(result.document.pageLayout?.overlay?.overlaySnapshot?.assets.figure_asset).toEqual(asset);
+  });
+
   it("composes across two saved batches when they are rolled back newest-first", () => {
     // 同じturnが2回の保存に分かれて適用されたケース。UI (EditorShell の revertAppliedProposals)
     // は appliedRevision の降順にバッチを巻き戻す — その順序でしか元の教材へ戻らないことを固定する。

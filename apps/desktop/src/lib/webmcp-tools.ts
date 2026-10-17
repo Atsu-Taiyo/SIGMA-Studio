@@ -685,7 +685,8 @@ function replayConflictIds(
   collectMissingMergeUnitIds(draft, mergeBasis, (id) => findBlock(current, id) !== null || currentShapeIds.has(id))
     .forEach((id) => conflicts.add(id));
   for (const operation of draft.mutationOperations ?? []) {
-    if (operation.operation === "updateOverlayShape") compareImageAsset(operation.shapeId);
+    // A conversion reads the image's picture: a human who replaced it makes the converted shapes stale.
+    if (operation.operation === "updateOverlayShape" || operation.operation === "replaceOverlayShape") compareImageAsset(operation.shapeId);
     else if (operation.operation === "alignOverlayShapes" || operation.operation === "deleteOverlayShapes") operation.shapeIds.forEach(compareImageAsset);
     else if (operation.operation === "updatePageLayout" && !sameValue(layoutWithoutOverlay(base), layoutWithoutOverlay(current))) conflicts.add("pageLayout");
     else if (operation.operation === "setDocumentColumns" && !sameValue(base.pageLayout?.flow, current.pageLayout?.flow)) conflicts.add("pageLayout.flow");

@@ -7,6 +7,7 @@ import type { ParagraphNode, ProblemNode, SigmaDocument } from "@/features/docum
 import {
   canForceApplyProposalConflict,
   collectConflictSensitiveBlockIds,
+  collectOccupiedInsertIds,
   collectTouchedBlockIds,
   computeTouchedBlocks,
   findConflictingBlockIds,
@@ -682,6 +683,26 @@ describe("collectTouchedBlockIds", () => {
       ],
     };
     expect(collectTouchedBlockIds(draft)).toEqual(["shape_1", "shape_2"]);
+  });
+});
+
+describe("an SVG image converted to shapes (replaceOverlayShape)", () => {
+  const conversion = (memberId: string): AiEditSessionDraft => ({
+    summary: "SVG画像を図形に変換", plan: [], warnings: [], operations: [],
+    mutationOperations: [{
+      operation: "replaceOverlayShape", summary: "SVG画像を図形に変換", shapeId: "figure",
+      shapes: [{ id: "figure", type: "group", x: 0, y: 0, props: { w: 10, h: 10 } } as never, { id: memberId, type: "geo", parentId: "figure" } as never],
+    }],
+  });
+
+  it("touches the image and the parts it adds, and compares the image (it is not merged)", () => {
+    expect(collectTouchedBlockIds(conversion("part"))).toEqual(["figure", "part"]);
+    expect(collectConflictSensitiveBlockIds(conversion("part"))).toEqual(["figure"]);
+  });
+
+  it("is stale when a part's id was taken since the proposal", () => {
+    expect(collectOccupiedInsertIds(conversion("part"), { part: "h" })).toEqual(["part"]);
+    expect(collectOccupiedInsertIds(conversion("part"), {})).toEqual([]);
   });
 });
 
