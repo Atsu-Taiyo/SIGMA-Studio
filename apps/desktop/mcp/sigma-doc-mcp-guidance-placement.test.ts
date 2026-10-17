@@ -56,10 +56,16 @@ describe("MCP guidance placement", () => {
       "xmlnsと正のviewBox", "表示属性(fill/stroke等)", "class", "pattern・filter", "TeXは解釈されない",
       "白黒基調・透明背景", "w:hの比はviewBoxに合わせます", "本文は回り込みません",
       "verification.previewのPNGを必ず実見", "update_svg_image", "update_shapeのx/y/w/h", "render_block_contextまたはrender_page",
+      // 部品ごとに編集したい図もSVGで描き、「図形に変換」で分解する。分解される書き方の要点もここが持つ。
+      "部品ごとに編集したい図もこのツールで描きます", "「図形に変換」で線・図形・文字・数式に分解", "曲線はM…Q…を1本ずつ",
+      "円弧はQで近似", "線のstrokeと同じ色の標準marker(三角・V字・丸)", "stroke-widthは0.75/1.25/2/3/5", "部品はupdate_svg_imageでは直せないのでupdate_shape",
     ]) {
       expect(svg).toContain(phrase);
     }
+    expect(svg).not.toContain("部品ごとに個別編集する図形だけinsert_shape");
     const shape = descriptionOf("insert_shape");
+    expect(shape).toContain("部品ごとに編集したい場合もinsert_svg_image(SVG1枚)で描いてください");
+    expect(shape).not.toContain("部品ごとに個別編集する図形、");
     expect(shape).toContain("polylineで近似しないでください");
     expect(shape).toContain("wがテキストの折り返し幅");
     expect(shape).toContain("高さは内容から導出されるのでhは指定できません");
