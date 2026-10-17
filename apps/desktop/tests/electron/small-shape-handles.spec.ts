@@ -39,11 +39,15 @@ test("a shrinking shape stops drawing its handles but stays resizable and movabl
     // 起動直後の window は about:blank のことがあり、そのまま localStorage を触ると SecurityError になる。
     await page.waitForURL(/^(https?|file):/, { timeout: 60_000 });
     await page.waitForLoadState("domcontentloaded");
-    await page.evaluate(() => localStorage.setItem("sigma-studio:ui-locale", "ja"));
+    await page.waitForFunction(() => Boolean(window.desktopAPI?.settings?.setUiLocale));
+    // Desktop startup restores the native preference after hydration. A localStorage-only
+    // locale races that restore on English CI hosts and leaves the toolbar in English.
+    expect(await page.evaluate(async () => {
+      localStorage.setItem("sigma-studio:ui-layout-preference", JSON.stringify({ mode: "docs", onboardingCompleted: true }));
+      return window.desktopAPI!.settings!.setUiLocale!("ja");
+    })).toMatchObject({ ok: true });
     await page.reload();
     await expect(page.locator("[data-startup-splash]")).toHaveCount(0, { timeout: 60_000 });
-    const onboarding = page.locator('[data-ui-layout-choice="docs"]');
-    if (await onboarding.isVisible()) await onboarding.click();
     await page.setViewportSize({ width: 1400, height: 900 });
     await expect(page.getByRole("button", { name: "図形", exact: true }).first()).toBeVisible();
     expect(await page.evaluate(() => window.desktopAPI?.isDesktop)).toBe(true);

@@ -195,7 +195,7 @@ function throughServer<T>(step: () => Promise<T>): Promise<T> {
  * Only an edit the merge cannot keep is a conflict. Before approving, the shared document is synced:
  * when that fails, nothing about the proposal's targets is known, and calling it a conflict ("the target
  * was changed or deleted") sent people looking for an edit that never happened while the real cause —
- * a server refusing the document's unsent edits, or no connection — went unnoticed (MISS.md R20).
+ * a server refusing the document's unsent edits, or no connection — went unnoticed (MISS.md R21).
  */
 function sharedApprovalFailure(
   error: unknown,

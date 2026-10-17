@@ -464,7 +464,7 @@ describe("shared proposal approval", () => {
     expect(await fs.readdir(path.join(userData, "collaboration-v1", "approval-attempts"))).toEqual([]);
   });
 
-  // MISS.md R20: a server older than the app refused the document's oldest unsent edit, so the sync
+  // MISS.md R21: a server older than the app refused the document's oldest unsent edit, so the sync
   // before every approval failed — and was reported as "the target was changed or deleted".
   it("reports a sync the server refuses as the server refusing it, not as a conflict", async () => {
     const proposal = await fixture.createProposal(draftOf([replace("p_1", "The dog sat.")]));

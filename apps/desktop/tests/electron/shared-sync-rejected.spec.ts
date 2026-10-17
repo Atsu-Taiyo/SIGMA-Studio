@@ -23,7 +23,7 @@ type FigureDraft = {
 const REFUSED = "共有サーバーがこの教材の変更を受け付けなかったため、承認できませんでした。";
 
 /**
- * MISS.md R20: a sync server whose document schema is older than the app refuses the document's oldest
+ * MISS.md R21: a sync server whose document schema is older than the app refuses the document's oldest
  * unsent edit (400 INVALID_REQUEST), and every later edit waits behind it. The app used to show this as
  * "Offline" and every AI approval as a conflict ("the target was changed or deleted"). Here the app
  * shows the refusal as it is, keeps the edits on the device, and once the server accepts them again the
