@@ -9,7 +9,7 @@ vi.mock("electron", () => ({ ipcMain: {
   handle: (channel: string, handler: (...args: unknown[]) => unknown) => registered.invokes.set(channel, handler),
   on: (channel: string, handler: (...args: unknown[]) => unknown) => registered.sends.set(channel, handler),
 } }));
-import { authorizePreviewSender, configureTrustedIpc, ipcMain, isTrustedRendererUrl, registerPreviewDocumentIpc } from "./trusted-ipc";
+import { authorizePreviewSender, configureTrustedIpc, holdTrustedIpcUntil, ipcMain, isTrustedRendererUrl, registerPreviewDocumentIpc } from "./trusted-ipc";
 
 const directory = path.resolve("/sigma/out");
 const devOrigin = "http://127.0.0.1:3100/";
@@ -83,6 +83,47 @@ describe("privileged IPC sender boundary", () => {
     (preview.mainFrame as { url: string }).url = url;
     release();
     expect(() => invoke(event(preview), "render-a")).toThrow("TRUSTED_PREVIEW_REQUIRED");
+  });
+
+  it("holds calls that arrive while startup is still running, in arrival order, then serves directly", async () => {
+    let finish!: () => void;
+    holdTrustedIpcUntil(new Promise<void>((resolve) => { finish = resolve; }));
+    const calls: string[] = [];
+    ipcMain.handle("storage:list-files", (_event, id) => { calls.push(`invoke:${String(id)}`); return id; });
+    ipcMain.on("action", (_event, id) => { calls.push(`send:${String(id)}`); });
+    const invoke = registered.invokes.get("storage:list-files")!;
+    const first = invoke(event(main), "1");
+    registered.sends.get("action")!(event(main), "2");
+    const third = invoke(event(main), "3");
+    expect(() => invoke(event(contents(devOrigin)), "x")).toThrow("TRUSTED_RENDERER_REQUIRED");
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(calls).toEqual([]);
+    finish();
+    await expect(first).resolves.toBe("1");
+    await expect(third).resolves.toBe("3");
+    expect(calls).toEqual(["invoke:1", "send:2", "invoke:3"]);
+    expect(invoke(event(main), "4")).toBe("4");
+  });
+
+  it("drops held calls from a page that navigated away and refuses everything after a failed startup", async () => {
+    let finish!: () => void;
+    holdTrustedIpcUntil(new Promise<void>((resolve) => { finish = resolve; }));
+    const effect = vi.fn();
+    ipcMain.handle("storage:save-document", effect);
+    const held = registered.invokes.get("storage:save-document")!(event(main), "file");
+    (main.mainFrame as { url: string }).url = "https://attacker.test/";
+    finish();
+    await expect(held).rejects.toThrow("TRUSTED_RENDERER_REQUIRED");
+    expect(effect).not.toHaveBeenCalled();
+    (main.mainFrame as { url: string }).url = devOrigin;
+
+    holdTrustedIpcUntil(Promise.reject(new Error("STARTUP_FAILED")));
+    await expect(registered.invokes.get("storage:save-document")!(event(main), "file")).rejects.toThrow("STARTUP_FAILED");
+    expect(effect).not.toHaveBeenCalled();
+    holdTrustedIpcUntil(Promise.resolve());
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(registered.invokes.get("storage:save-document")!(event(main), "file")).toBeUndefined();
+    expect(effect).toHaveBeenCalledOnce();
   });
 
   it("accepts only application routes in development and static builds", () => {

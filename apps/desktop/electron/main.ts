@@ -1,4 +1,4 @@
-import { authorizePreviewSender, configureTrustedIpc, ipcMain, isTrustedRendererUrl } from "./trusted-ipc";
+import { authorizePreviewSender, configureTrustedIpc, holdTrustedIpcUntil, ipcMain, isTrustedRendererUrl } from "./trusted-ipc";
 import { fetchProblemSearch } from "./problem-search-client";
 import { app, BrowserWindow, Menu, nativeImage, shell, protocol } from "electron";
 import crypto from "node:crypto";
@@ -1665,15 +1665,19 @@ function registerIpc() {
 }
 
 app.whenReady().then(async () => {
-  await collaborationSessions.initialize();
-  stopSessionBridge = await startSessionBridge(collaborationSessions, localSigmaDocStore);
+  // 起動画面 (静的HTMLのスプラッシュ) は窓が開けばすぐ描かれる。共有教材の復元は教材の数に
+  // 比例して秒単位かかるので、窓を先に開き、画面からの呼び出しは準備が済むまで待たせる。
+  let finishStartup!: () => void;
+  let failStartup!: (error: unknown) => void;
+  holdTrustedIpcUntil(new Promise<void>((resolve, reject) => {
+    finishStartup = resolve;
+    failStartup = reject;
+  }));
   protocol.handle("sigma-app-font", request => applicationFontStore.response(request.url));
   protocol.handle("sigma-doc-storage", request => collaborationSessions.assetResponse(request.url));
   protocol.handle("sigma-collaboration-profile", request => profileImageResponse(request.url));
   registerCollaborationIpc(collaborationSessions, sharedCatalog);
   registerCatalogIpc(sharedCatalog, localSigmaDocStore);
-  // Development instances must not take over the installed app's URL association.
-  if (app.isPackaged) app.setAsDefaultProtocolClient(SHARE_LINK_SCHEME);
   ipcMain.handle("share-link:pending", event => {
     if (event.sender !== mainWindow?.webContents || event.senderFrame !== event.sender.mainFrame) throw new Error("MAIN_FRAME_REQUIRED");
     return shareLinkQueue.peek();
@@ -1682,18 +1686,35 @@ app.whenReady().then(async () => {
     if (event.sender !== mainWindow?.webContents || event.senderFrame !== event.sender.mainFrame) throw new Error("MAIN_FRAME_REQUIRED");
     if (typeof id === "string") shareLinkQueue.acknowledge(id);
   });
-  void sharedCatalog.refresh().then(status => status.state === "ready" ? sharedCatalog.recoverPending() : undefined).catch(() => {});
   codexAppServerClient.on("statusChanged", broadcastCodexStatusChange);
   claudeStreamClient.on("statusChanged", broadcastClaudeStatusChange);
   registerIpc();
   buildMenu();
   applyDockIcon();
   createWindow();
+  app.on("activate", () => {
+    if (BrowserWindow.getAllWindows().length === 0) {
+      createWindow();
+    }
+  });
+
+  try {
+    await collaborationSessions.initialize();
+    stopSessionBridge = await startSessionBridge(collaborationSessions, localSigmaDocStore);
+  } catch (error) {
+    console.error("[desktop] startup failed before the editor could be served", error);
+    failStartup(error);
+    return;
+  }
+  // Development instances must not take over the installed app's URL association.
+  if (app.isPackaged) app.setAsDefaultProtocolClient(SHARE_LINK_SCHEME);
+  void sharedCatalog.refresh().then(status => status.state === "ready" ? sharedCatalog.recoverPending() : undefined).catch(() => {});
   startLocalStoreWatch();
   startLocalProposalWatch();
   void localMcpProposalStore.warmIndex();
   startAiResourceWatch();
   startAiSettingsWatch();
+  finishStartup();
   // Best-effort: the render bridge accelerates render_visual_edit_session PNG
   // previews, but the MCP server always has a resvg SVG-fallback path when
   // it's unavailable, so a failure here must not abort app startup.
@@ -1715,12 +1736,6 @@ app.whenReady().then(async () => {
     setTimeout(checkForUpdatesInBackground, 5000);
     setInterval(checkForUpdatesInBackground, UPDATE_CHECK_INTERVAL_MS);
   }
-
-  app.on("activate", () => {
-    if (BrowserWindow.getAllWindows().length === 0) {
-      createWindow();
-    }
-  });
 });
 
 app.on("before-quit", (event) => {
