@@ -1,3 +1,4 @@
+import { DEFAULT_BOXED_ROUNDNESS, normalizeBoxedRoundness } from "./boxed-roundness";
 import type {
   BoxedVariant,
   HeadingNode,
@@ -22,6 +23,7 @@ export type OverlayTextCommand =
   | "boxed"
   | "boxedPaddingY"
   | "boxedVariant"
+  | "boxedRoundness"
   | "color"
   | "backgroundColor"
   | "fontFamily"
@@ -46,6 +48,8 @@ export interface OverlayTextFormatState {
   boxed: boolean;
   boxedPaddingY: number;
   boxedVariant: BoxedVariant;
+  /** 角丸の丸め具合 (%)。先頭の囲みから読み、既定の丸みは 100。 */
+  boxedRoundness: number;
 }
 
 export function getOverlayTextFormatState(blocks: readonly OverlayTextBlock[]): OverlayTextFormatState {
@@ -58,6 +62,7 @@ export function getOverlayTextFormatState(blocks: readonly OverlayTextBlock[]): 
     boxed: everyRunHasMark(runs, "boxed"),
     boxedPaddingY: normalizeNonnegativeNumber(firstBoxed?.boxedPaddingY) ?? 0,
     boxedVariant: normalizeBoxedVariant(firstBoxed?.boxedVariant) ?? "frame",
+    boxedRoundness: normalizeBoxedRoundness(firstBoxed?.boxedRoundness) ?? DEFAULT_BOXED_ROUNDNESS,
   };
 }
 
@@ -220,6 +225,18 @@ function formatInline(
       ...(variant && variant !== "frame" ? { boxedVariant: variant } : { boxedVariant: undefined }),
     };
   }
+  if (command === "boxedRoundness") {
+    // 既定の丸み (100%) は書かない。本文の囲み文字 (`setBoxedTextRoundness`) と同じ保存形。
+    const roundness = normalizeBoxedRoundness(Number.parseFloat(String(value)));
+    if (roundness === undefined) {
+      return node;
+    }
+    const boxedRoundness = roundness === DEFAULT_BOXED_ROUNDNESS ? undefined : roundness;
+    if (node.type === "mathInline") {
+      return { ...node, marks: ensureMathBoxedMark(node.marks), boxedRoundness };
+    }
+    return { ...node, marks: ensureBoxedMark(node.marks), boxedRoundness };
+  }
   if (command === "fontSize") {
     const fontSize = Number(value);
     return Number.isFinite(fontSize) && fontSize > 0 ? { ...node, fontSize } : node;
@@ -275,6 +292,7 @@ function toggleRunMark(node: InlineNode, toggle: ResolvedToggle): InlineNode {
     delete next.boxedPaddingY;
     delete next.boxedVariant;
     delete next.boxedTone;
+    delete next.boxedRoundness;
   }
   return next;
 }

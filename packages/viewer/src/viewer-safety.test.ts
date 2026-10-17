@@ -145,6 +145,19 @@ describe("viewer safety boundary", () => {
     expect(getViewerSafetyIssues(document).length).toBeGreaterThan(0);
   });
 
+  it("accepts an oval box's corner roundness and rejects one that is not a number", () => {
+    const document = createDocument();
+    document.content = [{
+      type: "paragraph",
+      id: "rounded",
+      children: [{ type: "text", text: "角", marks: ["boxed"], boxedVariant: "oval", boxedRoundness: 40 }],
+    }];
+    expect(getViewerSafetyIssues(document)).toEqual([]);
+
+    (document.content[0] as unknown as { children: Record<string, unknown>[] }).children[0].boxedRoundness = "1);background:url(x)";
+    expect(getViewerSafetyIssues(document).some((issue) => issue.includes(".boxedRoundness:"))).toBe(true);
+  });
+
   /**
    * The blocks a shape gained. A quote holds blocks rather than runs and a code block holds one of
    * its own, so a walker that only knew about paragraphs and lists would either miss the styling

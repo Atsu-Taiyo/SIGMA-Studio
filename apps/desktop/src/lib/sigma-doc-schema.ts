@@ -92,6 +92,8 @@ const LineHeightSchema = z.string().transform((value, context) => {
 }).optional();
 const BoxedVariantSchema = z.enum(["frame", "thick", "double", "oval", "shade", "compact"]).optional();
 const BoxedToneSchema = z.enum(["gray", "blue", "green", "red", "yellow"]).optional();
+// 0–100 (%)。上限は描くときに丸める (範囲外の 1 値で文書全体を読めなくしない)。
+const BoxedRoundnessSchema = z.number().min(0).optional();
 
 const TextInlineSchema = z.object({
   type: z.literal("text"),
@@ -106,6 +108,7 @@ const TextInlineSchema = z.object({
   boxedPaddingY: z.number().min(0).optional(),
   boxedVariant: BoxedVariantSchema,
   boxedTone: BoxedToneSchema,
+  boxedRoundness: BoxedRoundnessSchema,
 });
 
 const MathInlineSchema = z.object({
@@ -122,6 +125,7 @@ const MathInlineSchema = z.object({
   boxedPaddingY: z.number().min(0).optional(),
   boxedVariant: BoxedVariantSchema,
   boxedTone: BoxedToneSchema,
+  boxedRoundness: BoxedRoundnessSchema,
   semanticRole: z.enum(["expression", "equation", "variable"]).optional(),
   altText: z.string().optional(),
 });

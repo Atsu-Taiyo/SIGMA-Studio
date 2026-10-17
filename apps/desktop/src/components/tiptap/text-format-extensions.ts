@@ -5,6 +5,8 @@ import { createTextBlockTypographyPlugin } from "./text-block-typography";
 
 import { parseCssFontSizeToPt } from "@/lib/font-size-units";
 import {
+  DEFAULT_BOXED_ROUNDNESS,
+  normalizeBoxedRoundness,
   normalizeLineHeight,
   type BoxedVariant,
   type UnderlineStyle,
@@ -30,6 +32,7 @@ declare module "@tiptap/core" {
       toggleBoxedText: () => ReturnType;
       setBoxedTextPaddingY: (paddingY: number) => ReturnType;
       setBoxedTextVariant: (variant: BoxedVariant) => ReturnType;
+      setBoxedTextRoundness: (roundness: number) => ReturnType;
     };
     styledText: {
       setTextColor: (color: string) => ReturnType;
@@ -142,6 +145,13 @@ export const BoxedTextExtension = Mark.create({
         parseHTML: (element) => normalizeBoxedTone(element.getAttribute("data-sigma-doc-boxed-tone")),
         renderHTML: () => ({}),
       },
+      roundness: {
+        default: null,
+        parseHTML: (element) => normalizeBoxedRoundness(
+          Number.parseFloat(element.getAttribute("data-sigma-doc-boxed-roundness") ?? ""),
+        ) ?? null,
+        renderHTML: () => ({}),
+      },
     };
   },
 
@@ -162,6 +172,7 @@ export const BoxedTextExtension = Mark.create({
         paddingY: mark.attrs.paddingY,
         variant: normalizeBoxedVariant(mark.attrs.variant) ?? undefined,
         tone: normalizeBoxedTone(mark.attrs.tone) ?? undefined,
+        roundness: mark.attrs.roundness,
       },
       { math: mark.attrs.math === true },
     );
@@ -205,6 +216,20 @@ export const BoxedTextExtension = Mark.create({
             dispatch,
             this.name,
             { variant: normalizedVariant === "frame" ? undefined : normalizedVariant },
+            "set",
+            { mergeAttrs: true, mathAttr: true },
+          );
+        },
+      setBoxedTextRoundness:
+        (roundness) =>
+        ({ dispatch, state }) => {
+          // 既定の丸み (100%) は書かない: 既定のままの箱と同じ形で保存する。
+          const normalized = normalizeBoxedRoundness(roundness);
+          return updateInlineMarkInSelection(
+            state,
+            dispatch,
+            this.name,
+            { roundness: normalized === undefined || normalized === DEFAULT_BOXED_ROUNDNESS ? undefined : normalized },
             "set",
             { mergeAttrs: true, mathAttr: true },
           );

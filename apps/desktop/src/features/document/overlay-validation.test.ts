@@ -145,6 +145,36 @@ describe("overlay rich-text validation", () => {
     expect(isValidOverlaySnapshot(invalidSnapshot)).toBe(false);
   });
 
+  it("keeps an oval box's roundness on shape text and rejects one that is not a number", () => {
+    const shapeWithRoundness = (boxedRoundness: unknown) => ({
+      version: 1,
+      shapes: [{
+        id: "shape_rounded",
+        type: "text",
+        x: 0,
+        y: 0,
+        props: {
+          w: 120,
+          h: 32,
+          color: "#111111",
+          size: "m",
+          blocks: [{
+            type: "paragraph",
+            id: "rounded",
+            children: [{ type: "text", text: "角", marks: ["boxed"], boxedVariant: "oval", boxedRoundness }],
+          }],
+        },
+      }],
+      assets: {},
+    });
+
+    expect(isValidOverlaySnapshot(shapeWithRoundness(40))).toBe(true);
+    expect(isValidOverlaySnapshot(shapeWithRoundness("40"))).toBe(false);
+    const normalized = normalizeOverlaySnapshot(shapeWithRoundness(40));
+    const props = normalized?.shapes[0].props as unknown as { blocks: Array<{ children: Array<Record<string, unknown>> }> };
+    expect(props.blocks[0].children[0]).toMatchObject({ boxedVariant: "oval", boxedRoundness: 40 });
+  });
+
   it.each(OVERLAY_ARROWHEADS)("accepts %s on both endpoints of a line", (head) => {
     expect(isValidOverlaySnapshot(lineSnapshotWithHeads(head, head))).toBe(true);
   });

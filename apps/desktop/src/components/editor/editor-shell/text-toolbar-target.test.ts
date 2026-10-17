@@ -52,7 +52,7 @@ describe("text toolbar target", () => {
 
   it("shows a whole shape's own box so the box button can take it off again", () => {
     // Issue #210. The last caret reported "not boxed"; the selected shape's formula is boxed.
-    const stale: TextToolbarMarkState = { bold: false, italic: false, underline: false, boxed: false, boxedVariant: "frame", boxedPaddingY: 0 };
+    const stale: TextToolbarMarkState = { bold: false, italic: false, underline: false, boxed: false, boxedVariant: "frame", boxedPaddingY: 0, boxedRoundness: 100 };
     const blocks: OverlayTextBlock[] = formatOverlayTextBlocks([{ type: "paragraph", id: "p", children: [
       { type: "mathInline", id: "m", tex: "x^2", display: "inline" },
     ] }], "boxedVariant", "double");

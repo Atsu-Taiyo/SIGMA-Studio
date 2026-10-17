@@ -14,6 +14,7 @@ import type {
   SigmaDocument,
 } from "../model";
 import { listItemContinuationInlineNodes, normalizeOrderedListMarkerStyle } from "../model/blocks";
+import { normalizeBoxedRoundness } from "../boxed-roundness";
 import { blockSpaceAfterPx } from "./block-space-after";
 import { normalizeOverlaySnapshot } from "../overlay-snapshot";
 import { normalizeLineHeight } from "./line-height";
@@ -803,6 +804,7 @@ function normalizeInlineNodes(input: unknown[]): InlineNode[] {
     if (node.type === "text") {
       const boxedVariant = normalizeBoxedVariant(raw.boxedVariant);
       const boxedTone = normalizeBoxedTone(raw.boxedTone);
+      const boxedRoundness = normalizeBoxedRoundness(raw.boxedRoundness);
       return [{
         type: "text",
         text: typeof raw.text === "string" ? raw.text : "",
@@ -814,6 +816,7 @@ function normalizeInlineNodes(input: unknown[]): InlineNode[] {
         boxedPaddingY: nonnegativeNumberOr(raw.boxedPaddingY, -1) >= 0 ? nonnegativeNumberOr(raw.boxedPaddingY, 0) : undefined,
         ...(boxedVariant ? { boxedVariant } : {}),
         ...(boxedTone ? { boxedTone } : {}),
+        ...(boxedRoundness !== undefined ? { boxedRoundness } : {}),
       }];
     }
 
@@ -821,6 +824,7 @@ function normalizeInlineNodes(input: unknown[]): InlineNode[] {
       const marks = normalizeMathInlineMarks(raw.marks);
       const boxedVariant = normalizeBoxedVariant(raw.boxedVariant);
       const boxedTone = normalizeBoxedTone(raw.boxedTone);
+      const boxedRoundness = normalizeBoxedRoundness(raw.boxedRoundness);
       return [{
         type: "mathInline",
         id: typeof raw.id === "string" && raw.id ? raw.id : "running_math",
@@ -832,6 +836,7 @@ function normalizeInlineNodes(input: unknown[]): InlineNode[] {
         } : {}),
         ...(boxedVariant ? { boxedVariant } : {}),
         ...(boxedTone ? { boxedTone } : {}),
+        ...(boxedRoundness !== undefined ? { boxedRoundness } : {}),
         semanticRole: raw.semanticRole === "equation" || raw.semanticRole === "variable" ? raw.semanticRole : "expression",
       }];
     }

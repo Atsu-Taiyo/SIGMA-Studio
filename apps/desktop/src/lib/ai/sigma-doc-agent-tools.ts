@@ -140,7 +140,7 @@ import { buildGraph3DPresetNames } from "@/lib/graph3d-preset-names";
 import { createTranslator, type Translate } from "@/lib/i18n";
 import { formatGraphIssue, getGraphIssues, getGraphPlotBox } from "@/lib/graph2d";
 import { formatValidationError } from "@/lib/validation-text";
-import { isSigmaValidationError } from "@/features/document";
+import { isSigmaValidationError, normalizeBoxedRoundness } from "@/features/document";
 import { ptToPx } from "@/lib/font-size-units";
 import { createId } from "@/lib/id";
 import { parseMarkdownToTextFlowBlocks } from "@/lib/markdown-to-text-flow";
@@ -3423,6 +3423,7 @@ function createTextInline(text: string, source: Record<string, unknown>): Inline
     ...(positiveNumberOrUndefined(source.boxedPaddingY) ? { boxedPaddingY: positiveNumberOrUndefined(source.boxedPaddingY) } : {}),
     ...(boxedVariant ? { boxedVariant } : {}),
     ...(boxedTone ? { boxedTone } : {}),
+    ...(normalizeBoxedRoundness(source.boxedRoundness) !== undefined ? { boxedRoundness: normalizeBoxedRoundness(source.boxedRoundness) } : {}),
   };
 }
 
@@ -3445,6 +3446,7 @@ function createMathInline(tex: string, id: unknown, source: Record<string, unkno
     ...(positiveNumberOrUndefined(source.boxedPaddingY) ? { boxedPaddingY: positiveNumberOrUndefined(source.boxedPaddingY) } : {}),
     ...(boxedVariant ? { boxedVariant } : {}),
     ...(boxedTone ? { boxedTone } : {}),
+    ...(normalizeBoxedRoundness(source.boxedRoundness) !== undefined ? { boxedRoundness: normalizeBoxedRoundness(source.boxedRoundness) } : {}),
   };
 }
 

@@ -8,6 +8,8 @@ export interface BoxedRunFrame {
   height: number;
   variant: string | null;
   tone: string | null;
+  /** An `oval` run's `data-sigma-doc-boxed-roundness` (percent); absent at the full rounding. */
+  roundness?: string | null;
   color?: string;
 }
 
@@ -31,7 +33,7 @@ export function readBoxedRunFrames(container: HTMLElement): BoxedRunFrame[] {
   const originLeft = origin.left + (Number.parseFloat(style.borderLeftWidth) || 0) * scaleX;
   const originTop = origin.top + (Number.parseFloat(style.borderTopWidth) || 0) * scaleY;
   const frames: BoxedRunFrame[] = [];
-  let run: { left: number; top: number; right: number; bottom: number; lastRight: number; contentTop?: number; contentBottom?: number; variant: string | null; tone: string | null; color?: string; id: string | null } | undefined;
+  let run: { left: number; top: number; right: number; bottom: number; lastRight: number; contentTop?: number; contentBottom?: number; variant: string | null; tone: string | null; roundness: string | null; color?: string; id: string | null } | undefined;
   const flush = () => {
     if (run) {
       // Whitespace-only inline-flex boxes have no text baseline. Equalising their
@@ -40,7 +42,8 @@ export function readBoxedRunFrames(container: HTMLElement): BoxedRunFrame[] {
       // boxes (including a whitespace-only wrapped line) via the fallback.
       const top = run.contentTop ?? run.top, bottom = run.contentBottom ?? run.bottom;
       frames.push({ left: round(run.left), top: round(top), width: round(run.right - run.left),
-        height: round(bottom - top), variant: run.variant, tone: run.tone, ...(run.color ? { color: run.color } : {}) });
+        height: round(bottom - top), variant: run.variant, tone: run.tone,
+        ...(run.roundness ? { roundness: run.roundness } : {}), ...(run.color ? { color: run.color } : {}) });
     }
     run = undefined;
   };
@@ -48,6 +51,7 @@ export function readBoxedRunFrames(container: HTMLElement): BoxedRunFrame[] {
     const mark = segment.closest<HTMLElement>(".boxed-text") ?? segment;
     const variant = mark.getAttribute("data-sigma-doc-boxed-variant");
     const tone = mark.getAttribute("data-sigma-doc-boxed-tone");
+    const roundness = mark.getAttribute("data-sigma-doc-boxed-roundness");
     const color = window.getComputedStyle(segment).color;
     const id = segment.getAttribute("data-boxed-run-id");
     const hasContent = hasBoxedRunFrameContent(segment);
@@ -67,7 +71,7 @@ export function readBoxedRunFrames(container: HTMLElement): BoxedRunFrame[] {
         ? sameVisualLine
         : run && overlap >= Math.min(bottom - top, run.bottom - run.top) * 0.6
           && left - run.right <= 1.5 && left >= run.left - 1.5;
-      if (run && run.variant === variant && run.tone === tone && run.id === id && connect) {
+      if (run && run.variant === variant && run.tone === tone && run.roundness === roundness && run.id === id && connect) {
         run.left = Math.min(run.left, left); run.top = Math.min(run.top, top);
         run.right = Math.max(run.right, right); run.bottom = Math.max(run.bottom, bottom);
         run.lastRight = right;
@@ -76,7 +80,7 @@ export function readBoxedRunFrames(container: HTMLElement): BoxedRunFrame[] {
           run.contentBottom = Math.max(run.contentBottom ?? bottom, bottom);
         }
       } else {
-        flush(); run = { left, top, right, bottom, lastRight: right, variant, tone, color, id,
+        flush(); run = { left, top, right, bottom, lastRight: right, variant, tone, roundness, color, id,
           ...(hasContent ? { contentTop: top, contentBottom: bottom } : {}) };
       }
     }
@@ -95,6 +99,11 @@ export function createBoxedRunFrameLayer(frames: readonly BoxedRunFrame[]): HTML
     element.className = "boxed-run-frame";
     if (frame.variant) element.setAttribute("data-sigma-doc-boxed-variant", frame.variant);
     if (frame.tone) element.setAttribute("data-sigma-doc-boxed-tone", frame.tone);
+    if (frame.roundness) {
+      // Same channel as the run itself (`boxedInlineDomSpec`), read by the `oval` rule.
+      element.setAttribute("data-sigma-doc-boxed-roundness", frame.roundness);
+      element.style.setProperty("--boxed-text-roundness", String(Number(frame.roundness) / 100));
+    }
     if (frame.color) element.style.color = frame.color;
     Object.assign(element.style, { left: `${frame.left}px`, top: `${frame.top}px`, width: `${frame.width}px`, height: `${frame.height}px` });
     layer.appendChild(element);
