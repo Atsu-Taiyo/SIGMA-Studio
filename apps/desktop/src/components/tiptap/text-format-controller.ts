@@ -5,6 +5,8 @@ import { readSelectionFontSize } from "./text-format-font-size";
 import { isBoxTitleNodeName } from "./node-queries";
 
 import {
+  DEFAULT_BOXED_ROUNDNESS,
+  normalizeBoxedRoundness,
   type BoxedVariant,
   normalizeLineHeight,
   normalizeOrderedListMarkerStyle,
@@ -63,6 +65,8 @@ export interface TextFormatStateDetail {
   boxed: boolean;
   boxedPaddingY: number;
   boxedVariant: BoxedVariant;
+  /** 角丸 (`oval`) の丸め具合 (%)。既定の丸みは 100。 */
+  boxedRoundness: number;
   color: string | null;
   backgroundColor: string | null;
   /**
@@ -113,6 +117,7 @@ const CARET_SCOPED_TEXT_FORMAT_COMMANDS = new Set([
   "boxed",
   "boxedPaddingY",
   "boxedVariant",
+  "boxedRoundness",
   "color",
   "backgroundColor",
   "fontFamily",
@@ -166,6 +171,14 @@ export function applyTextFormatCommand(
       return false;
     }
     runSelected((chain) => chain.setBoxedTextVariant(variant));
+    return true;
+  }
+  if (request.command === "boxedRoundness" && typeof request.value === "string") {
+    const roundness = normalizeBoxedRoundness(Number.parseFloat(request.value));
+    if (roundness === undefined) {
+      return false;
+    }
+    runSelected((chain) => chain.setBoxedTextRoundness(roundness));
     return true;
   }
   if (request.command === "blockStyle" && options.allowBlockStyle && typeof request.value === "string") {
@@ -405,6 +418,7 @@ export function createTextFormatStateDetail(
     boxed: editor.isActive("boxed"),
     boxedPaddingY: normalizeTextFormatNonnegativeNumber(boxedAttrs.paddingY) ?? 0,
     boxedVariant: normalizeTextFormatBoxedVariant(boxedAttrs.variant) ?? "frame",
+    boxedRoundness: normalizeBoxedRoundness(boxedAttrs.roundness) ?? DEFAULT_BOXED_ROUNDNESS,
     color: normalizeTextFormatCssValue(styledTextAttrs.color),
     backgroundColor: normalizeTextFormatCssValue(styledTextAttrs.backgroundColor),
     fontFamily: effectiveFont

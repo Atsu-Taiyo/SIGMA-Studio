@@ -2,7 +2,9 @@ import {
   DEFAULT_FONT_FAMILY_VALUE,
   FONT_FAMILY_OPTIONS,
   MAX_BOXED_TEXT_PADDING_Y,
+  MAX_BOXED_TEXT_ROUNDNESS,
   MIN_BOXED_TEXT_PADDING_Y,
+  MIN_BOXED_TEXT_ROUNDNESS,
 } from "@/components/editor/editor-shell/constants";
 import {
   normalizeOrderedListMarkerStyle,
@@ -80,6 +82,14 @@ export function clampBoxedTextPaddingY(value: number): number {
   }
 
   return Math.min(MAX_BOXED_TEXT_PADDING_Y, Math.max(MIN_BOXED_TEXT_PADDING_Y, Math.round(value)));
+}
+
+export function clampBoxedTextRoundness(value: number): number {
+  if (!Number.isFinite(value)) {
+    return MAX_BOXED_TEXT_ROUNDNESS;
+  }
+
+  return Math.min(MAX_BOXED_TEXT_ROUNDNESS, Math.max(MIN_BOXED_TEXT_ROUNDNESS, Math.round(value)));
 }
 
 export function normalizeBoxedTextVariant(value: unknown): BoxedVariant | undefined {

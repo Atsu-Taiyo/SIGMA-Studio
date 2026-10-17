@@ -28,6 +28,8 @@ export interface RichTextBoxDecoration {
   connectRight?: boolean;
   math?: boolean;
   paddingY?: number;
+  /** Roundness of an `oval` box in percent; absent means the variant's full rounding. */
+  roundness?: number;
   run?: BoxedInlineRunSegment;
   tone?: string;
   type: "box";
@@ -113,8 +115,10 @@ export function createRichTextBoxDecoration(
   boxedRun?: BoxedInlineRunSegment,
   variantValue?: unknown,
   toneValue?: unknown,
+  roundnessValue?: unknown,
 ): RichTextBoxDecoration {
   const paddingY = normalizeNonnegativeNumber(paddingYValue);
+  const roundness = typeof roundnessValue === "number" ? roundnessValue : undefined;
   return {
     type: "box",
     ...(paddingY !== undefined ? { paddingY } : {}),
@@ -124,6 +128,7 @@ export function createRichTextBoxDecoration(
     run: boxedRun,
     variant: typeof variantValue === "string" ? variantValue : undefined,
     tone: typeof toneValue === "string" ? toneValue : undefined,
+    ...(roundness !== undefined ? { roundness } : {}),
   };
 }
 
@@ -149,6 +154,7 @@ function createInlineNodeRenderModel(
         boxedRun,
         child.boxedVariant,
         child.boxedTone,
+        child.boxedRoundness,
       ));
     }
     return {
@@ -174,6 +180,7 @@ function createInlineNodeRenderModel(
         boxedRun,
         child.boxedVariant,
         child.boxedTone,
+        child.boxedRoundness,
       )];
     }
     return [];

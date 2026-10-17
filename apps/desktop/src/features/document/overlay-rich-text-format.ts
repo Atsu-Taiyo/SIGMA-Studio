@@ -1,3 +1,4 @@
+import { DEFAULT_BOXED_ROUNDNESS, normalizeBoxedRoundness } from "./boxed-roundness";
 import type {
   BoxedVariant,
   HeadingNode,
@@ -7,6 +8,7 @@ import type {
   ParagraphNode,
   TextMark,
 } from "./model";
+import { overlayTextBlockInlineRuns } from "./overlay-inline-projection";
 import type {
   OverlayTextBlock,
   OverlayTextSize,
@@ -21,6 +23,7 @@ export type OverlayTextCommand =
   | "boxed"
   | "boxedPaddingY"
   | "boxedVariant"
+  | "boxedRoundness"
   | "color"
   | "backgroundColor"
   | "fontFamily"
@@ -28,12 +31,57 @@ export type OverlayTextCommand =
   | "lineHeight"
   | "textAlign";
 
+/** The marks a toolbar button switches on and off over a whole shape. */
+type OverlayTextToggleMark = "bold" | "italic" | "underline" | "boxed";
+
+/**
+ * What the toolbar shows while a whole text shape is selected (no text session open).
+ *
+ * The rule is the body editor's (`editor.isActive` over a selection): a mark is on only when every
+ * run that can carry it carries it. Math carries the box and the underline but not bold or italic,
+ * so it is left out of those two. The box's style is read off the first boxed run.
+ */
+export interface OverlayTextFormatState {
+  bold: boolean;
+  italic: boolean;
+  underline: boolean;
+  boxed: boolean;
+  boxedPaddingY: number;
+  boxedVariant: BoxedVariant;
+  /** 角丸の丸め具合 (%)。先頭の囲みから読み、既定の丸みは 100。 */
+  boxedRoundness: number;
+}
+
+export function getOverlayTextFormatState(blocks: readonly OverlayTextBlock[]): OverlayTextFormatState {
+  const runs = blocks.flatMap((block) => overlayTextBlockInlineRuns(block));
+  const firstBoxed = runs.find((run) => run.marks?.includes("boxed"));
+  return {
+    bold: everyRunHasMark(runs, "bold"),
+    italic: everyRunHasMark(runs, "italic"),
+    underline: everyRunHasMark(runs, "underline"),
+    boxed: everyRunHasMark(runs, "boxed"),
+    boxedPaddingY: normalizeNonnegativeNumber(firstBoxed?.boxedPaddingY) ?? 0,
+    boxedVariant: normalizeBoxedVariant(firstBoxed?.boxedVariant) ?? "frame",
+    boxedRoundness: normalizeBoxedRoundness(firstBoxed?.boxedRoundness) ?? DEFAULT_BOXED_ROUNDNESS,
+  };
+}
+
+/**
+ * Applies one toolbar command to every run of a shape.
+ *
+ * A toggle (bold, italic, underline, box) takes the whole shape one way: off when every run that
+ * can carry the mark has it — exactly when the toolbar shows it on — and on everywhere otherwise.
+ * Flipping each run by itself made a shape whose text and formula disagreed swap them instead.
+ */
 export function formatOverlayTextBlocks(
   blocks: readonly OverlayTextBlock[],
   command: OverlayTextCommand,
   value?: string,
 ): OverlayTextBlock[] {
-  return blocks.map((block) => formatBlock(block, command, value));
+  const toggle = isToggleCommand(command)
+    ? { mark: command, remove: everyRunHasMark(blocks.flatMap((block) => overlayTextBlockInlineRuns(block)), command) }
+    : undefined;
+  return blocks.map((block) => formatBlock(block, command, value, toggle));
 }
 
 export function fontSizeToOverlaySize(fontSize: number): OverlayTextSize {
@@ -65,10 +113,17 @@ export function overlayTextSizeToPx(size: OverlayTextSize): number {
   return 16;
 }
 
+interface ResolvedToggle {
+  mark: OverlayTextToggleMark;
+  /** Decided once for the whole shape, before any run changes. */
+  remove: boolean;
+}
+
 function formatBlock(
   block: OverlayTextBlock,
   command: OverlayTextCommand,
-  value?: string,
+  value: string | undefined,
+  toggle: ResolvedToggle | undefined,
 ): OverlayTextBlock {
   // A divider has no runs to style. A quote is styled through the blocks inside it, so selecting a
   // shape and pressing bold reaches the quoted words too — leaving them out would style everything
@@ -79,38 +134,39 @@ function formatBlock(
   if (block.type === "quote") {
     return {
       ...block,
-      blocks: block.blocks.map((child) => formatBlock(child as OverlayTextBlock, command, value) as typeof child),
+      blocks: block.blocks.map((child) => formatBlock(child as OverlayTextBlock, command, value, toggle) as typeof child),
     };
   }
   if (block.type === "codeBlock") {
-    return { ...block, children: block.children.map((child) => formatInline(child, command, value)) };
+    return { ...block, children: block.children.map((child) => formatInline(child, command, value, toggle)) };
   }
   return block.type === "list"
-    ? formatListBlock(block, command, value)
-    : formatProseBlock(block, command, value);
+    ? formatListBlock(block, command, value, toggle)
+    : formatProseBlock(block, command, value, toggle);
 }
 
 function formatListBlock(
   block: ListNode,
   command: OverlayTextCommand,
-  value?: string,
+  value: string | undefined,
+  toggle: ResolvedToggle | undefined,
 ): ListNode {
   return {
     ...block,
     items: block.items.map((item) => ({
       ...item,
-      children: item.children.map((child) => formatInline(child, command, value)),
+      children: item.children.map((child) => formatInline(child, command, value, toggle)),
       ...(command === "textAlign" ? { align: normalizeTextAlign(value) } : {}),
       ...(item.continuations === undefined
         ? {}
         : {
             continuations: item.continuations.map((child) => (
-              child.type === "divider" ? child : formatProseBlock(child, command, value)
+              child.type === "divider" ? child : formatProseBlock(child, command, value, toggle)
             )),
           }),
       ...(item.nested === undefined
         ? {}
-        : { nested: item.nested.map((child) => formatListBlock(child, command, value)) }),
+        : { nested: item.nested.map((child) => formatListBlock(child, command, value, toggle)) }),
     })),
   };
 }
@@ -118,9 +174,10 @@ function formatListBlock(
 function formatProseBlock<T extends HeadingNode | ParagraphNode>(
   block: T,
   command: OverlayTextCommand,
-  value?: string,
+  value: string | undefined,
+  toggle: ResolvedToggle | undefined,
 ): T {
-  const children = block.children.map((child) => formatInline(child, command, value));
+  const children = block.children.map((child) => formatInline(child, command, value, toggle));
   if (command === "lineHeight") {
     return { ...block, children, lineHeight: value };
   }
@@ -133,19 +190,11 @@ function formatProseBlock<T extends HeadingNode | ParagraphNode>(
 function formatInline(
   node: InlineNode,
   command: OverlayTextCommand,
-  value?: string,
+  value: string | undefined,
+  toggle: ResolvedToggle | undefined,
 ): InlineNode {
-  if (command === "bold" || command === "italic" || command === "underline" || command === "boxed") {
-    if (node.type === "mathInline" && command !== "boxed" && command !== "underline") {
-      return node;
-    }
-    if (node.type === "mathInline") {
-      return {
-        ...node,
-        marks: toggleMathMark(node.marks, command === "boxed" ? "boxed" : "underline"),
-      };
-    }
-    return { ...node, marks: toggleMark(node.marks, command) };
+  if (toggle) {
+    return toggleRunMark(node, toggle);
   }
   if (command === "boxedPaddingY") {
     if (node.type === "mathInline") {
@@ -176,6 +225,18 @@ function formatInline(
       ...(variant && variant !== "frame" ? { boxedVariant: variant } : { boxedVariant: undefined }),
     };
   }
+  if (command === "boxedRoundness") {
+    // 既定の丸み (100%) は書かない。本文の囲み文字 (`setBoxedTextRoundness`) と同じ保存形。
+    const roundness = normalizeBoxedRoundness(Number.parseFloat(String(value)));
+    if (roundness === undefined) {
+      return node;
+    }
+    const boxedRoundness = roundness === DEFAULT_BOXED_ROUNDNESS ? undefined : roundness;
+    if (node.type === "mathInline") {
+      return { ...node, marks: ensureMathBoxedMark(node.marks), boxedRoundness };
+    }
+    return { ...node, marks: ensureBoxedMark(node.marks), boxedRoundness };
+  }
   if (command === "fontSize") {
     const fontSize = Number(value);
     return Number.isFinite(fontSize) && fontSize > 0 ? { ...node, fontSize } : node;
@@ -189,36 +250,70 @@ function formatInline(
   return node;
 }
 
-function toggleMark(
-  marks: readonly TextMark[] | undefined,
-  mark: TextMark,
-): TextMark[] | undefined {
-  if (marks?.includes(mark)) {
-    const next = marks.filter((item) => item !== mark);
-    return next.length ? next : undefined;
+function isToggleCommand(command: OverlayTextCommand): command is OverlayTextToggleMark {
+  return command === "bold" || command === "italic" || command === "underline" || command === "boxed";
+}
+
+/** Math is drawn by the math renderer, which has no bold or italic of its own to switch. */
+function runCanCarryMark(run: InlineNode, mark: OverlayTextToggleMark): boolean {
+  return run.type === "text" || mark === "boxed" || mark === "underline";
+}
+
+/**
+ * Whether every run that can carry `mark` carries it. A run that is only line breaks is not
+ * counted: it shows no glyph to format, and a break at the start of a paragraph is saved as a run
+ * of its own that never picked up the marks of the text after it.
+ */
+function everyRunHasMark(runs: readonly InlineNode[], mark: OverlayTextToggleMark): boolean {
+  const counted = runs.filter((run) => (
+    runCanCarryMark(run, mark) && (run.type !== "text" || run.text.replace(/\n/g, "").length > 0)
+  ));
+  return counted.length > 0 && counted.every((run) => (run.marks as readonly string[] | undefined)?.includes(mark));
+}
+
+function toggleRunMark(node: InlineNode, toggle: ResolvedToggle): InlineNode {
+  if (!runCanCarryMark(node, toggle.mark)) {
+    return node;
   }
-  return [...(marks ?? []), mark];
+  if (!toggle.remove) {
+    return node.type === "mathInline"
+      ? { ...node, marks: withMark(node.marks, toggle.mark as "underline" | "boxed") }
+      : { ...node, marks: withMark(node.marks, toggle.mark) };
+  }
+  const next: InlineNode = node.type === "mathInline"
+    ? { ...node, marks: withoutMark(node.marks, toggle.mark as "underline" | "boxed") }
+    : { ...node, marks: withoutMark(node.marks, toggle.mark) };
+  if (next.marks === undefined) {
+    delete next.marks;
+  }
+  if (toggle.mark === "boxed") {
+    // The box's style lives beside the mark; a run that is no longer boxed keeps none of it, the
+    // same as the body editor, whose mark carries these as attributes and drops them with it.
+    delete next.boxedPaddingY;
+    delete next.boxedVariant;
+    delete next.boxedTone;
+    delete next.boxedRoundness;
+  }
+  return next;
+}
+
+function withMark<T extends string>(marks: readonly T[] | undefined, mark: T): T[] {
+  return marks?.includes(mark) ? [...marks] : [...(marks ?? []), mark];
+}
+
+function withoutMark<T extends string>(marks: readonly T[] | undefined, mark: T): T[] | undefined {
+  const next = (marks ?? []).filter((item) => item !== mark);
+  return next.length ? next : undefined;
 }
 
 function ensureBoxedMark(marks: readonly TextMark[] | undefined): TextMark[] {
-  return marks?.includes("boxed") ? [...marks] : [...(marks ?? []), "boxed"];
-}
-
-function toggleMathMark(
-  marks: readonly ("underline" | "boxed")[] | undefined,
-  mark: "underline" | "boxed",
-): Array<"underline" | "boxed"> | undefined {
-  if (marks?.includes(mark)) {
-    const next = marks.filter((item) => item !== mark);
-    return next.length ? next : undefined;
-  }
-  return [...(marks ?? []), mark];
+  return withMark(marks, "boxed");
 }
 
 function ensureMathBoxedMark(
   marks: readonly ("underline" | "boxed")[] | undefined,
 ): Array<"underline" | "boxed"> {
-  return marks?.includes("boxed") ? [...marks] : [...(marks ?? []), "boxed"];
+  return withMark(marks, "boxed");
 }
 
 function normalizeNonnegativeNumber(value: unknown): number | undefined {

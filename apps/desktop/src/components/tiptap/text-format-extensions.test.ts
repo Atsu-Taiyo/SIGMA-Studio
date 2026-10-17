@@ -162,7 +162,38 @@ describe("text format extensions", () => {
 
     expect(marks).toEqual([
       // `math` parses as a boolean rather than staying null; unchanged pre-existing behaviour.
-      { attrs: { math: false, paddingY: 2, tone: "blue", variant: "double" }, type: "boxed" },
+      { attrs: { math: false, paddingY: 2, roundness: null, tone: "blue", variant: "double" }, type: "boxed" },
+    ]);
+  });
+
+  it("keeps an oval box's corner roundness through its own serialized HTML", () => {
+    const engineSchema = getSchema(createRichTextEngineExtensions({ enableMathDelimiters: true }));
+    const window = new Window();
+    const container = window.document.createElement("div");
+    const boxed = engineSchema.marks.boxed.create({ variant: "oval", roundness: 40 });
+    expect(engineSchema.marks.boxed.spec.toDOM?.(boxed, true)).toEqual([
+      "span",
+      {
+        class: "boxed-text",
+        "data-sigma-doc-boxed-text": "true",
+        "data-sigma-doc-boxed-variant": "oval",
+        "data-sigma-doc-boxed-roundness": "40",
+        style: "--boxed-text-roundness: 0.4",
+      },
+      0,
+    ]);
+    DOMSerializer.fromSchema(engineSchema).serializeFragment(
+      engineSchema.nodes.paragraph.create(null, engineSchema.text("角", [boxed])).content,
+      { document: window.document as unknown as Document },
+      container as unknown as HTMLElement,
+    );
+
+    const parsed = DOMParser.fromSchema(engineSchema).parse(container as unknown as Node);
+    const marks = parsed.firstChild?.firstChild?.marks.map((mark) => ({ attrs: mark.attrs, type: mark.type.name }));
+    window.close();
+
+    expect(marks).toEqual([
+      { attrs: { math: false, paddingY: null, roundness: 40, tone: null, variant: "oval" }, type: "boxed" },
     ]);
   });
 

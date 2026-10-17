@@ -68,6 +68,10 @@ export const PAGE_NAVIGATOR_MAX_SCALE = 0.62;
 export const PAGE_NAVIGATOR_SCROLL_PADDING_PX = 18;
 export const MIN_BOXED_TEXT_PADDING_Y = 0;
 export const MAX_BOXED_TEXT_PADDING_Y = 12;
+/** 角丸の囲み文字の丸め具合 (%)。100 が既定の丸み、10 刻みで角を立てていく。 */
+export const MIN_BOXED_TEXT_ROUNDNESS = 10;
+export const MAX_BOXED_TEXT_ROUNDNESS = 100;
+export const BOXED_TEXT_ROUNDNESS_STEP = 10;
 // 表示ラベルは持たない (chrome namespace の `format.boxedText.variant.<variant>` /
 // `format.align.<value>` が持つ)。ここは並びと値だけの SSoT。
 export const BOXED_TEXT_STYLE_OPTIONS: Array<{ variant: BoxedVariant }> = [

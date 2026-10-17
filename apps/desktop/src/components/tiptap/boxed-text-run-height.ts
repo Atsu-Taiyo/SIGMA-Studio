@@ -266,7 +266,7 @@ function observeBoxedTextRunHeightTargets(
     resizeObserver?.observe(root);
     mutationObserver?.observe(root, {
       attributes: true,
-      attributeFilter: ["class", "data-sigma-doc-boxed-padding-y", "data-sigma-doc-boxed-variant", "data-sigma-doc-boxed-tone", "data-sigma-doc-boxed-math"],
+      attributeFilter: ["class", "data-sigma-doc-boxed-padding-y", "data-sigma-doc-boxed-variant", "data-sigma-doc-boxed-tone", "data-sigma-doc-boxed-roundness", "data-sigma-doc-boxed-math"],
       childList: true,
       characterData: true,
       subtree: true,
@@ -977,6 +977,7 @@ function getBoxedRunDomTarget(element: HTMLElement, view?: EditorView): BoxedRun
 function getBoxedRunDomStyleKey(element: HTMLElement): string {
   return getBoxedInlineStyleKey({
     boxedPaddingY: element.getAttribute("data-sigma-doc-boxed-padding-y"),
+    boxedRoundness: element.getAttribute("data-sigma-doc-boxed-roundness"),
     boxedTone: element.getAttribute("data-sigma-doc-boxed-tone"),
     boxedVariant: element.getAttribute("data-sigma-doc-boxed-variant"),
   });

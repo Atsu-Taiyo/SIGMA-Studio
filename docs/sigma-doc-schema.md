@@ -640,10 +640,13 @@ interface TextInlineNode {
   boxedPaddingY?: number;
   boxedVariant?: "frame" | "oval" | "shade";
   boxedTone?: "gray" | "blue" | "green" | "red" | "yellow";
+  boxedRoundness?: number;
 }
 ```
 
 通常の文字列です。`fontSize` はpt単位の正の数だけを受け付けます。色やフォントは必要な場合だけ保存します。`boxed` は文字の囲みを表し、`boxedPaddingY` で上下余白を調整します。`boxedVariant` は囲みの形、`boxedTone` は囲みの色調です。
+
+囲みの角は尖っていて、丸めるのは `boxedVariant: "oval"` (角丸) と `"shade"` だけです。`boxedRoundness` は角丸の丸め具合で、既定の丸み (0.9em) に対する割合を0〜100 (%) で持ちます。省略時は100 (既定の丸み) で、角丸以外の囲みは読みません。描画時に100へ丸めるので、schemaは0以上だけを確かめます。この属性を知らない古い版は読み込み時に捨てて、既定の丸みで描きます。
 
 ### Math Inline
 
@@ -657,6 +660,7 @@ interface MathInlineNode {
   boxedPaddingY?: number;
   boxedVariant?: "frame" | "oval" | "shade";
   boxedTone?: "gray" | "blue" | "green" | "red" | "yellow";
+  boxedRoundness?: number;
   semanticRole?: "expression" | "equation" | "variable";
   altText?: string;
 }
@@ -666,7 +670,7 @@ interface MathInlineNode {
 
 `tex` はMathLive/KaTeXで扱うTeX断片です。`getDocumentIssues` とAI編集の検証では `mathlive` の `validateLatex` を使って未許可コマンドや構文エラーを検出します。
 
-数式そのものを囲む場合は、`mathInline` に `marks: ["boxed"]` を付けます。囲みの形と色調は `boxedVariant` / `boxedTone` で調整できます。太字・斜体・下線などの文字装飾は数式には保存せず、必要な見た目はTeXか専用の数式表示設定として扱います。
+数式そのものを囲む場合は、`mathInline` に `marks: ["boxed"]` を付けます。囲みの形・色調・角丸の丸め具合は `boxedVariant` / `boxedTone` / `boxedRoundness` で調整できます。太字・斜体・下線などの文字装飾は数式には保存せず、必要な見た目はTeXか専用の数式表示設定として扱います。
 
 現行schemaには `mathBox` という本文ブロックも専用shapeもありません。通常の教材本文は `mathInline` に置きます。軸名、点ラベル、注釈、曲線の式ラベルなど、紙面上で動かせる必要があるグラフ文字は `graph2dShape` のSVG内部に描かず、グラフにshape anchorされた `text` shape として置きます。
 

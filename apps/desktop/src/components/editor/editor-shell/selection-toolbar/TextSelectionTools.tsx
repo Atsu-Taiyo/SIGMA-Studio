@@ -27,9 +27,12 @@ import { useT } from "@/lib/i18n/react";
 import {
   BLOCK_STRUCTURE_OPTIONS,
   BLOCK_STYLE_OPTIONS,
+  BOXED_TEXT_ROUNDNESS_STEP,
   BOXED_TEXT_STYLE_OPTIONS,
   MAX_BOXED_TEXT_PADDING_Y,
+  MAX_BOXED_TEXT_ROUNDNESS,
   MIN_BOXED_TEXT_PADDING_Y,
+  MIN_BOXED_TEXT_ROUNDNESS,
   TEXT_ALIGN_OPTIONS,
 } from "../constants";
 import type { SelectionToolbarTextBinding } from "./binding";
@@ -343,6 +346,33 @@ export function TextSelectionTools({
               <PlusCircle size={14} />
             </button>
           </div>
+          {/* 丸め具合は角丸だけが読む。他の種類の角は尖っている。並びは上下余白と同じ。 */}
+          {text.boxedVariant === "oval" ? (
+            <div className="boxed-text-padding-stepper" data-boxed-text-stepper="roundness">
+              <span className="boxed-text-padding-label">{t("format.boxedText.roundness")}</span>
+              <button
+                type="button"
+                title={t("format.boxedText.roundnessDecrease", { step: BOXED_TEXT_ROUNDNESS_STEP })}
+                aria-label={t("format.boxedText.roundnessDecrease", { step: BOXED_TEXT_ROUNDNESS_STEP })}
+                disabled={text.boxedRoundness <= MIN_BOXED_TEXT_ROUNDNESS}
+                onMouseDown={(event) => event.preventDefault()}
+                onClick={() => text.setBoxedRoundness(text.boxedRoundness - BOXED_TEXT_ROUNDNESS_STEP)}
+              >
+                <Minus size={14} />
+              </button>
+              <output aria-live="polite">{text.boxedRoundness}%</output>
+              <button
+                type="button"
+                title={t("format.boxedText.roundnessIncrease", { step: BOXED_TEXT_ROUNDNESS_STEP })}
+                aria-label={t("format.boxedText.roundnessIncrease", { step: BOXED_TEXT_ROUNDNESS_STEP })}
+                disabled={text.boxedRoundness >= MAX_BOXED_TEXT_ROUNDNESS}
+                onMouseDown={(event) => event.preventDefault()}
+                onClick={() => text.setBoxedRoundness(text.boxedRoundness + BOXED_TEXT_ROUNDNESS_STEP)}
+              >
+                <PlusCircle size={14} />
+              </button>
+            </div>
+          ) : null}
         </ToolMenu>
       </div>
 

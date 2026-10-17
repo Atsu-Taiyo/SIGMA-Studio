@@ -36,6 +36,7 @@ export {
 export { getTableCellMatrix } from "./model/table-grid";
 export { getCommentAnchorCandidateKey, getCommentAnchorKey, SIGMA_COMMENT_AGENT_VENDORS } from "./model/comments";
 export { inlineNodesToPlainText } from "./model/rich-text";
+export { DEFAULT_BOXED_ROUNDNESS, normalizeBoxedRoundness } from "./boxed-roundness";
 export * from "./overlay-graph-migration";
 export * from "./overlay-group-normalization";
 export * from "./overlay-inline-projection";

@@ -118,7 +118,9 @@ export interface EditorChromeFormat {
   activeTextFontSize: number | null;
   activeTextFontSizeMixed: boolean;
   applyBoxedTextPaddingY: (paddingY: number) => void;
-  applyInlineFormat: (command: "color" | "backgroundColor" | "fontFamily" | "fontSize" | "lineHeight" | "boxedPaddingY" | "boxedVariant", value: string) => void;
+  /** 角丸の囲み文字の丸め具合 (%) を決める。 */
+  applyBoxedTextRoundness: (roundness: number) => void;
+  applyInlineFormat: (command: "color" | "backgroundColor" | "fontFamily" | "fontSize" | "lineHeight" | "boxedPaddingY" | "boxedVariant" | "boxedRoundness", value: string) => void;
   applyLineHeight: (nextLineHeightValue: string, options?: { updateInput?: boolean; }) => boolean;
   applyBlockStructure: (value: BlockStyleCommandValue) => void;
   applyTextAlign: (align: TextAlign) => void;
@@ -130,6 +132,8 @@ export interface EditorChromeFormat {
   boxedTextButtonRef: RefObject<HTMLButtonElement | null>;
   boxedTextMenuOpen: boolean;
   boxedTextPaddingY: number;
+  /** 角丸の囲み文字の丸め具合 (%)。既定の丸みは 100。 */
+  boxedTextRoundness: number;
   boxedTextVariant: BoxedVariant;
   blockStyleButtonRef: RefObject<HTMLButtonElement | null>;
   blockStyleMenuOpen: boolean;

@@ -42,11 +42,13 @@
    stretching every shape's own `<svg>` to the region's size would distort all of them. The body
    overlay keeps that rule because its layer really is one page-sized SVG. */
 
+/* 囲み文字の角は尖らせる。丸めるのは角丸 (oval) と網かけ (shade) の種類だけ。 */
+
 .boxed-text {
   --boxed-text-border-width: 1px;
   --boxed-text-border-style: solid;
   --boxed-text-border-color: currentColor;
-  --boxed-text-border-radius: 2px;
+  --boxed-text-border-radius: 0;
   --boxed-text-background: transparent;
   box-sizing: border-box;
   display: inline;
@@ -116,7 +118,7 @@
     var(--boxed-text-border-width, 1px)
     var(--boxed-text-border-style, solid)
     var(--boxed-text-border-color, currentColor);
-  border-radius: var(--boxed-text-border-radius, 2px);
+  border-radius: var(--boxed-text-border-radius, 0);
   background-color: var(--boxed-text-background, transparent);
 }
 
@@ -328,9 +330,10 @@
   font: inherit;
 }
 
+/* 角丸の丸め具合 (`boxedRoundness`) は、既定の丸み (0.9em) に掛ける比として届く。 */
 .boxed-text[data-sigma-doc-boxed-variant="oval"],
 .boxed-run-frame[data-sigma-doc-boxed-variant="oval"] {
-  --boxed-text-border-radius: 0.9em;
+  --boxed-text-border-radius: calc(0.9em * var(--boxed-text-roundness, 1));
   padding-left: 0.45em;
   padding-right: 0.45em;
 }

@@ -35,7 +35,7 @@ export function boxedInlineDomSpec(
   source: BoxedInlineStyleSource,
   options: { math?: boolean } = {},
 ): BoxedInlineDomSpec {
-  const { paddingY, tone, variant } = normalizeBoxedInlineStyle(source);
+  const { paddingY, roundness, tone, variant } = normalizeBoxedInlineStyle(source);
   const attrs: Record<string, string> = { "data-sigma-doc-boxed-text": "true" };
   if (paddingY !== undefined) {
     attrs["data-sigma-doc-boxed-padding-y"] = String(paddingY);
@@ -47,6 +47,10 @@ export function boxedInlineDomSpec(
   if (tone) {
     attrs["data-sigma-doc-boxed-tone"] = tone;
   }
+  // Only an `oval` box that is less round than the default carries it (see `normalizeBoxedInlineStyle`).
+  if (roundness !== undefined) {
+    attrs["data-sigma-doc-boxed-roundness"] = String(roundness);
+  }
   if (options.math) {
     attrs["data-sigma-doc-boxed-math"] = "true";
   }
@@ -55,8 +59,18 @@ export function boxedInlineDomSpec(
     className: options.math
       ? `${BOXED_TEXT_CLASS_NAME} ${BOXED_INLINE_MATH_CLASS_NAME}`
       : BOXED_TEXT_CLASS_NAME,
-    style: boxedTextPaddingVars(paddingY),
+    style: boxedTextStyleVars(paddingY, roundness),
   };
+}
+
+/** The custom properties a boxed run sets on itself: its padding and an `oval` box's roundness. */
+function boxedTextStyleVars(paddingY: number | undefined, roundness: number | undefined): Record<`--${string}`, string> | undefined {
+  const padding = boxedTextPaddingVars(paddingY);
+  if (roundness === undefined) {
+    return padding;
+  }
+  // `document-surface.css` multiplies the variant's full radius by this ratio.
+  return { ...padding, "--boxed-text-roundness": String(roundness / 100) };
 }
 
 /**

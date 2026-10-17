@@ -180,7 +180,7 @@ import { PocketBar, usePocketPhase } from "@/features/pocket";
 import { FilesPanel } from "@/features/right-dock/view/FilesPanel";
 import { RightDockToggle } from "@/features/right-dock/view/RightDock";
 import { RightDockHost } from "@/features/right-dock/view/RightDockHost";
-import { resolveTextToolbarTarget } from "./editor-shell/text-toolbar-target";
+import { resolveTextToolbarMarkState, resolveTextToolbarTarget } from "./editor-shell/text-toolbar-target";
 
 import { readRenderedTextFontSize,type SelectionFontSize } from "@/components/tiptap/text-format-font-size";
 import {
@@ -352,6 +352,7 @@ getSharedOverlayLineSize,
 import { getVisibleEditorPageNumber,scrollEditorCanvasToPage } from "@/components/editor/editor-shell/page-navigation";
 import {
 clampBoxedTextPaddingY,
+clampBoxedTextRoundness,
 getFontFamilyLabel,
 normalizeBoxedTextVariant,
 type BlockStyleCommandValue
@@ -665,7 +666,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
     setSaveState("warning");
     setStatusMessage(message);
   }, [setSaveState, setStatusMessage, tE]);
-  const { textFontSize, setTextFontSize, textFontSizeMixed, setTextFontSizeMixed, fontSizeInput, setFontSizeInput, boxedTextPaddingY, setBoxedTextPaddingY, boxedTextActive, boldActive, italicActive, underlineActive, blockStyleState, documentTextFormatTarget, hasMultiEditorTextRunSpan, boxedTextVariant, setBoxedTextVariant, textColor, setTextColor, textBackgroundColor, setTextBackgroundColor, strokeColor, setStrokeColor, fontFamily, setFontFamily, lineHeight, setLineHeight, lineHeightInput, setLineHeightInput, lineHeightInputError, setLineHeightInputError, lineHeightCustomOpen, setLineHeightCustomOpen, getLastBoxedFormat, rememberBoxedFormat, saveEditorFontFamilyPreference } = useTextFormattingState();
+  const { textFontSize, setTextFontSize, textFontSizeMixed, setTextFontSizeMixed, fontSizeInput, setFontSizeInput, boxedTextPaddingY: reportedBoxedTextPaddingY, setBoxedTextPaddingY, boxedTextActive: reportedBoxedTextActive, boldActive: reportedBoldActive, italicActive: reportedItalicActive, underlineActive: reportedUnderlineActive, blockStyleState, documentTextFormatTarget, hasMultiEditorTextRunSpan, boxedTextVariant: reportedBoxedTextVariant, setBoxedTextVariant, boxedTextRoundness: reportedBoxedTextRoundness, setBoxedTextRoundness, textColor, setTextColor, textBackgroundColor, setTextBackgroundColor, strokeColor, setStrokeColor, fontFamily, setFontFamily, lineHeight, setLineHeight, lineHeightInput, setLineHeightInput, lineHeightInputError, setLineHeightInputError, lineHeightCustomOpen, setLineHeightCustomOpen, getLastBoxedFormat, rememberBoxedFormat, saveEditorFontFamilyPreference } = useTextFormattingState();
   // ツールバーの入力欄へフォーカスが移っても、本文の選択を見せ続ける (`HeldBodySelectionOverlay`)。
   const chromeHeldBodyEditor = useChromeHeldBodySelection();
   const zoom = useStore(editorStore, (state) => state.zoom);
@@ -2647,6 +2648,24 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
     ? wholeTextShapeSize?.fontSize ?? null
     : textFontSize;
   const activeTextFontSizeMixed = wholeTextShape ? wholeTextShapeSize?.fontSizeMixed === true : textFontSizeMixed;
+  // A shape selected as a whole has no text session to report its marks; the buttons read the shape.
+  const {
+    bold: boldActive,
+    italic: italicActive,
+    underline: underlineActive,
+    boxed: boxedTextActive,
+    boxedVariant: boxedTextVariant,
+    boxedPaddingY: boxedTextPaddingY,
+    boxedRoundness: boxedTextRoundness,
+  } = resolveTextToolbarMarkState(wholeTextShape, {
+    bold: reportedBoldActive,
+    italic: reportedItalicActive,
+    underline: reportedUnderlineActive,
+    boxed: reportedBoxedTextActive,
+    boxedVariant: reportedBoxedTextVariant,
+    boxedPaddingY: reportedBoxedTextPaddingY,
+    boxedRoundness: reportedBoxedTextRoundness,
+  });
   useLayoutEffect(() => {
     // Sync before paint so a newly selected shape never displays the old size.
     // Keep the inline field in sync with the selection without replacing a value
@@ -3390,7 +3409,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
     }
   }, [setColorStylePanel, setLineDashMenuOpen, setLineWidthMenuOpen]);
 
-  const applyInlineFormat = (command: "color" | "backgroundColor" | "fontFamily" | "fontSize" | "lineHeight" | "boxedPaddingY" | "boxedVariant", value: string) => {
+  const applyInlineFormat = (command: "color" | "backgroundColor" | "fontFamily" | "fontSize" | "lineHeight" | "boxedPaddingY" | "boxedVariant" | "boxedRoundness", value: string) => {
     if (!canUseTextToolbar) {
       return;
     }
@@ -3411,6 +3430,13 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
     applyInlineFormat("boxedPaddingY", String(nextPaddingY));
   };
 
+  const applyBoxedTextRoundness = (roundness: number) => {
+    const nextRoundness = clampBoxedTextRoundness(roundness);
+    setBoxedTextRoundness(nextRoundness);
+    rememberBoxedFormat({ roundness: nextRoundness });
+    applyInlineFormat("boxedRoundness", String(nextRoundness));
+  };
+
   const toggleBoxedText = () => {
     if (!canUseTextToolbar) {
       return;
@@ -3425,6 +3451,9 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
       const variant = normalizeBoxedTextVariant(getLastBoxedFormat().variant) ?? "frame";
       if (variant !== "frame") {
         applyInlineFormat("boxedVariant", variant);
+      }
+      if (variant === "oval") {
+        applyInlineFormat("boxedRoundness", String(clampBoxedTextRoundness(getLastBoxedFormat().roundness)));
       }
       applyInlineFormat("boxedPaddingY", String(clampBoxedTextPaddingY(getLastBoxedFormat().paddingY)));
     }
@@ -4430,6 +4459,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
       boxed: boxedTextActive,
       boxedVariant: boxedTextVariant,
       boxedPaddingY: boxedTextPaddingY,
+      boxedRoundness: boxedTextRoundness,
       textColor,
       textBackgroundColor,
       textAlign: selectedTextAlign,
@@ -4443,6 +4473,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
       toggleBoxed: toggleBoxedText,
       selectBoxedVariant: selectBoxedTextVariant,
       setBoxedPaddingY: applyBoxedTextPaddingY,
+      setBoxedRoundness: applyBoxedTextRoundness,
       setTextColor: (color) => {
         setTextColor(color);
         applyInlineFormat("color", color);
@@ -4504,12 +4535,12 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
     },
     format: {
       ActiveTextAlignIcon, activeFontFamilyLabel, activeTextAlignOption,
-      activeTextFontSize, activeTextFontSizeMixed, applyBoxedTextPaddingY, applyInlineFormat, applyLineHeight,
+      activeTextFontSize, activeTextFontSizeMixed, applyBoxedTextPaddingY, applyBoxedTextRoundness, applyInlineFormat, applyLineHeight,
       applyBlockStructure, applyTextAlign, applyTextStyle, blockStyleState, boldActive, boxedTextActive, boxedTextButtonRef,
       canUseBlockStructure,
       moreBlocksMenuButtonRef, moreBlocksMenuOpen, setMoreBlocksMenuOpen,
       orderedListMenuButtonRef, orderedListMenuOpen, setOrderedListMenuOpen,
-      boxedTextMenuOpen, boxedTextPaddingY, boxedTextVariant, canUseLineHeight, canUseTextAlign,
+      boxedTextMenuOpen, boxedTextPaddingY, boxedTextRoundness, boxedTextVariant, canUseLineHeight, canUseTextAlign,
       blockStyleButtonRef, blockStyleMenuOpen,
       canUseTextBlockStyle, canUseTextToolbar, fontFamily, fontFamilyButtonRef,
       fontFamilyIsKnownOption, fontFamilyIsMixed, fontFamilyMenuOpen, fontFamilyQuery,
