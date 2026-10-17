@@ -40,7 +40,11 @@ export function MathExpressionInput({
 }: MathExpressionInputProps) {
   const mathEnvironment = useMathEnvironment();
   const [editing, setEditing] = useState(false);
-  const [draftTex, setDraftTex] = useState(tex);
+  // 入力欄を開いた時点の TeX。編集中は入力欄 (MathLive / TeX) が自分で値を持つので、ここは
+  // 開くときにしか変えない。入力のたびに書き戻すと MathLive は値を読み直してキャレットを末尾へ
+  // 送り直し、書き出しと読み直しが一致しない途中の式 (閉じ括弧を消した `\sin(x` は `\sin(x.` と
+  // 書き出される) で Backspace のたびに `.` が増えていた。
+  const [fieldTex, setFieldTex] = useState(tex);
   const buttonRef = useRef<HTMLButtonElement | null>(null);
   const previousEditingRef = useRef(false);
   const initialTexRef = useRef(tex);
@@ -73,8 +77,7 @@ export function MathExpressionInput({
     setEditing(false);
   }, []);
 
-  const updateDraft = useCallback((nextTex: string) => {
-    setDraftTex(nextTex);
+  const handleFieldInput = useCallback((nextTex: string) => {
     onInputRef.current?.(nextTex);
   }, []);
 
@@ -97,15 +100,16 @@ export function MathExpressionInput({
           dataTestId={dataTestId ? `${dataTestId}-field` : undefined}
           invalid={invalid}
           locked={disabled}
-          tex={draftTex}
+          tex={fieldTex}
           mathEnvironment={mathEnvironment}
           initialCursorPosition="end"
           initialLatexCommandTrigger={null}
           initialPlaceholderIndex={null}
-          onInput={updateDraft}
+          onInput={handleFieldInput}
           onCancel={() => finishEditing(false, initialTexRef.current)}
           onCommit={(nextTex) => finishEditing(true, nextTex)}
-          onDeleteBackwardFromStart={(nextTex) => finishEditing(true, nextTex)}
+          // onDeleteBackwardFromStart は渡さない。先頭の Backspace で閉じると、全部消した直後の
+          // Backspace で焦点がボタンへ移り、続けて打った式がどこにも入らなかった。
           onReturnToTextAfter={(nextTex) => finishEditing(true, nextTex)}
           onReturnToTextBefore={(nextTex) => finishEditing(true, nextTex)}
           onPointerDown={(event) => event.stopPropagation()}
@@ -124,7 +128,7 @@ export function MathExpressionInput({
           onClick={() => {
             finishedRef.current = false;
             initialTexRef.current = tex;
-            setDraftTex(tex);
+            setFieldTex(tex);
             setEditing(true);
           }}
         >
