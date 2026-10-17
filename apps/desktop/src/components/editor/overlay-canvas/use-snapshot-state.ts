@@ -71,7 +71,17 @@ export function useOverlaySnapshotState({
     onChangeRef.current = onChange;
   }, [onChange]);
 
+  // コミットした state を ref へ写す (updater が 2 度呼ばれて ref と state の同一性がずれても揃え直す)。
+  // ただし最初の state は写さない。ref はその値で始まっているので写す意味が無く、写すと壊す:
+  // 編集面を開いたときのレイアウト effect はアンカーを解いた図形を ref へ先に書いて setShapes する。
+  // その描き直しより前に走るこの effect が最初の state (保存座標のまま) で ref を巻き戻し、
+  // それを読んだグラフのラベル整合が setShapes すると、本文に付いた図形が保存時の位置へ
+  // 戻って見えた (#207)。本文が動くまで解き直されないので、Enter で戻るように見えていた。
+  const initialShapesRef = useRef(shapes);
   useEffect(() => {
+    if (shapes === initialShapesRef.current) {
+      return;
+    }
     shapesRef.current = shapes;
   }, [shapes]);
 
