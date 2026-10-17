@@ -250,6 +250,8 @@ export const error = {
       targetNotFound: "指定されたtargetIdをpreview対象ページ内で確認できません: {{targetId}}",
       renderFailed: "ページコンテキストのレンダリングに失敗しました。",
       bridgePortMissing: "render bridge serverのポートを取得できませんでした。",
+      svgConversionTimedOut: "SVGの図形への変換がタイムアウトしました。",
+      svgConversionFailed: "アプリの描画環境でSVGを図形に変換できませんでした。",
     },
     proposal: {
       notFound: "MCP編集提案が見つかりません。",

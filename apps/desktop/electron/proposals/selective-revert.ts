@@ -31,6 +31,9 @@ const SELECTIVE_REVERT_SUPPORTED_MUTATION_OPS = new Set([
   "updateOverlayShape",
   "alignOverlayShapes",
   "deleteOverlayShapes",
+  // SVG画像の図形への変換: 画像のIDはグループ (置換) に、部品は追加として差分に出る。画像を戻すときは
+  // その画像の asset も戻す (変換が使われなくなった画像の asset を刈り込むため)。
+  "replaceOverlayShape",
 ]);
 
 // 上のホワイトリストに無い操作のうち、moveBlocks/wrapBlocksInColumns/updateLayoutSectionは
@@ -67,8 +70,9 @@ function findFirstUnsupportedMutationOp(batchDrafts: SelectiveRevertBatchDraft[]
  *    「戻すものがないだけ」であってエラーにはしない。
  * 5. current を土台に、置換IDは revertDocument 時点の内容へ戻し、AI追加のみのIDは削除し、
  *    AI削除のみのID (revertDocument.content の直下だけ対応) を元の位置付近へ再挿入する。
- *    overlay図形も同じ方針。assets は意図的に触らない (孤立assetが残っても実害はなく、
- *    ここで刈り込むと他の図形が参照しているassetを誤って消しかねない)。
+ *    overlay図形も同じ方針。assets は刈り込まない (孤立assetが残っても実害はなく、
+ *    ここで刈り込むと他の図形が参照しているassetを誤って消しかねない)。戻した画像が参照する
+ *    asset が今の教材に無いとき (図形への変換や画像の削除で刈り込まれた) だけ、戻し先から足す。
  *
  * どの入力ドキュメントも書き換えない (常に新しいオブジェクトを返す)。
  */
@@ -205,7 +209,15 @@ export function buildSelectiveRevertDocument(input: {
       }
     }
 
-    doc = writeOverlayShapes(doc, shapes);
+    // 戻した画像が参照する asset が今の教材から刈り込まれていれば、戻し先 (承認前) の asset を足す。
+    const currentAssets = normalizeOverlaySnapshot(doc.pageLayout?.overlay?.overlaySnapshot).assets;
+    const beforeAssets = normalizeOverlaySnapshot(revertDocument.pageLayout?.overlay?.overlaySnapshot).assets;
+    const restoredAssets = Object.fromEntries(shapes.flatMap((shape) => (
+      shape.type === "image" && !currentAssets[shape.props.assetId] && beforeAssets[shape.props.assetId]
+        ? [[shape.props.assetId, beforeAssets[shape.props.assetId]!]]
+        : []
+    )));
+    doc = writeOverlayShapes(doc, shapes, restoredAssets);
   }
 
   return { ok: true, document: doc };
@@ -223,10 +235,15 @@ function readOverlayShapes(document: SigmaDocument): OverlayShape[] {
  * だが、選択的revertはelectron側のこのモジュールに閉じているため、循環importを避けて
  * ここに複製してある。
  */
-function writeOverlayShapes(document: SigmaDocument, shapes: OverlayShape[]): SigmaDocument {
+function writeOverlayShapes(
+  document: SigmaDocument,
+  shapes: OverlayShape[],
+  restoredAssets: OverlaySnapshot["assets"] = {},
+): SigmaDocument {
   const withLayout = ensurePageLayout(document);
   const layout = withLayout.pageLayout!;
-  const snapshot: OverlaySnapshot = { ...normalizeOverlaySnapshot(layout.overlay?.overlaySnapshot), shapes };
+  const current = normalizeOverlaySnapshot(layout.overlay?.overlaySnapshot);
+  const snapshot: OverlaySnapshot = { ...current, shapes, assets: { ...current.assets, ...restoredAssets } };
   return {
     ...withLayout,
     pageLayout: {

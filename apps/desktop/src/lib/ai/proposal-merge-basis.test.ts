@@ -325,6 +325,20 @@ describe("contract: a human edit of a pending target survives the merge or the t
       kept: (result) => shapeIn(result, "s_2")?.x === 150,
     },
     {
+      // An SVG image converted to shapes becomes a group under the same id: the human's edit of the
+      // image cannot survive, so the image stays locked while the conversion is pending.
+      name: "a shape the AI replaces in place (an SVG image converted to shapes)",
+      draft: draftOf([], [{
+        operation: "replaceOverlayShape", summary: "図形に変換", shapeId: "s_1",
+        shapes: [
+          { id: "s_1", type: "group", x: 0, y: 0, props: { w: 40, h: 20 } } as never,
+          geo("s_1_part", 0, { parentId: "s_1" }) as never,
+        ],
+      }]),
+      target: { kind: "shape", id: "s_1" }, edit: editShape("s_1", { x: 77 }),
+      kept: (result) => shapeIn(result, "s_1")?.x === 77,
+    },
+    {
       name: "a member of a group the AI deletes (review: the deletion cascades to the members)",
       draft: draftOf([], [{ operation: "deleteOverlayShapes", summary: "削除", shapeIds: ["g"] }]),
       target: { kind: "shape", id: "m_1" },

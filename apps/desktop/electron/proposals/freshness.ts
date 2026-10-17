@@ -144,6 +144,13 @@ export function collectOccupiedInsertIds(
         mutation.blockIds.forEach((id) => deletedIds.add(id));
       } else if (mutation?.operation === "deleteOverlayShapes") {
         mutation.shapeIds.forEach((id) => deletedIds.add(id));
+      } else if (mutation?.operation === "replaceOverlayShape") {
+        // The replacement keeps the replaced shape's id; the members it adds must still be free.
+        mutation.shapes.slice(1).forEach((shape) => {
+          if (currentHashes[shape.id] !== undefined && !deletedIds.has(shape.id)) {
+            occupiedIds.add(shape.id);
+          }
+        });
       }
       continue;
     }
@@ -199,6 +206,8 @@ export function collectTouchedBlockIds(draft: AiEditSessionDraft): string[] {
       push(operation.targetId);
     } else if (operation.operation === "updateOverlayShape") {
       push(operation.shapeId);
+    } else if (operation.operation === "replaceOverlayShape") {
+      operation.shapes.forEach((shape) => push(shape.id));
     } else if (operation.operation === "alignOverlayShapes" || operation.operation === "deleteOverlayShapes") {
       operation.shapeIds.forEach(push);
     } else if (operation.operation === "wrapBlocksInColumns") {
@@ -593,7 +602,7 @@ function collectRequiredReplayTargetIds(draft: AiEditSessionDraft): string[] {
       ids.push(...operation.blockIds);
     } else if (operation.operation === "moveBlocks") {
       ids.push(...operation.blockIds, operation.targetId);
-    } else if (operation.operation === "updateOverlayShape") {
+    } else if (operation.operation === "updateOverlayShape" || operation.operation === "replaceOverlayShape") {
       ids.push(operation.shapeId);
     } else if (operation.operation === "alignOverlayShapes" || operation.operation === "deleteOverlayShapes") {
       ids.push(...operation.shapeIds);
@@ -612,11 +621,12 @@ function findNonIdenticalOverlayAssetCollisionIds(
     ...normalizeOverlaySnapshot(currentDocument.pageLayout?.overlay?.overlaySnapshot).assets,
   };
   const collisions: string[] = [];
-  for (const operation of draft.operations) {
-    if (operation.operation !== "insertOverlayShape") {
-      continue;
-    }
-    for (const [assetId, asset] of Object.entries(operation.assets ?? {})) {
+  const addedAssets = [
+    ...draft.operations.flatMap((operation) => (operation.operation === "insertOverlayShape" ? [operation.assets ?? {}] : [])),
+    ...(draft.mutationOperations ?? []).flatMap((operation) => (operation.operation === "replaceOverlayShape" ? [operation.assets ?? {}] : [])),
+  ];
+  for (const operationAssets of addedAssets) {
+    for (const [assetId, asset] of Object.entries(operationAssets)) {
       const existingAsset = assets[assetId];
       if (existingAsset && !isDeepStrictEqual(existingAsset, asset)) {
         collisions.push(assetId);

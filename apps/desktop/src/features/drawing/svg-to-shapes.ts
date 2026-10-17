@@ -10,6 +10,8 @@ export { svgNumbers };
  */
 const GEO_OUTLINE_INSET = 1;
 export type SvgMatrix = readonly [number, number, number, number, number, number];
+/** Every line size the editor offers, thinnest first. A stroke becomes the nearest one. */
+export const SVG_LINE_SIZES: readonly OverlayTextSize[] = ["xs", "s", "m", "l", "xl"];
 export const SVG_IDENTITY: SvgMatrix = [1, 0, 0, 1, 0, 0];
 
 export function multiplySvgMatrices(a: SvgMatrix, b: SvgMatrix): SvgMatrix {
@@ -60,6 +62,8 @@ export function svgPrimitiveToShapes(
   matrix: SvgMatrix,
   createId: () => string,
   markers?: SvgMarkerLookup,
+  /** The sizes a stroke may become (the nearest wins). The AI's conversion leaves out `xs`, which older versions cannot read. */
+  lineSizes: readonly OverlayTextSize[] = SVG_LINE_SIZES,
 ): OverlayShape[] | null {
   try {
     if (["clip-path", "mask", "filter", "vector-effect", "paint-order"].some((key) => attrs[key] && attrs[key] !== "none")) return null;
@@ -70,7 +74,7 @@ export function svgPrimitiveToShapes(
     if (/url\(/.test(fill + stroke)) return null;
     const scaleX = Math.hypot(matrix[0], matrix[1]), scaleY = Math.hypot(matrix[2], matrix[3]);
     const width = length(attrs["stroke-width"], 1) * Math.sqrt(scaleX * scaleY);
-    const sizes: OverlayTextSize[] = ["xs", "s", "m", "l", "xl"];
+    const sizes = lineSizes.length > 0 ? lineSizes : SVG_LINE_SIZES;
     const size = sizes.reduce((best, candidate) => Math.abs(overlayStrokeWidth(candidate) - width) < Math.abs(overlayStrokeWidth(best) - width) ? candidate : best);
     const dashValues = attrs["stroke-dasharray"] && attrs["stroke-dasharray"] !== "none" ? svgNumbers(attrs["stroke-dasharray"]) : [];
     if (dashValues.some((n) => n < 0)) return null;
@@ -128,7 +132,7 @@ export function svgPrimitiveToShapes(
         const top = Math.min(...vertices.map((p) => p.y)), bottom = Math.max(...vertices.map((p) => p.y));
         const apex = vertices.find((p, i) => vertices.filter((_v, j) => i !== j).every((v) => v.y === (p.y === top ? bottom : top)));
         if (apex && right > left && bottom > top) {
-          const box = svgPrimitiveToShapes("rect", { ...attrs, x: String(left), y: String(top), width: String(right - left), height: String(bottom - top) }, matrix, createId)?.[0];
+          const box = svgPrimitiveToShapes("rect", { ...attrs, x: String(left), y: String(top), width: String(right - left), height: String(bottom - top) }, matrix, createId, undefined, lineSizes)?.[0];
           if (box?.type === "geo") return [{ ...box, flipY: (matrix[0] * matrix[3] - matrix[1] * matrix[2] < 0) !== (apex.y === bottom),
             props: { ...box.props, geo: "triangle", apexX: (apex.x - left) * scaleX + GEO_OUTLINE_INSET } }];
         }

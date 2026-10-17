@@ -137,7 +137,12 @@ describe("official skills", () => {
     }
     expect(image).toContain("SVGで描いてから分解する");
     expect(svg).toContain("## 変換しやすい書き方");
-    expect(svg).toContain("## 「図形に変換」した後の直し方");
+    expect(svg).toContain("## 変換した後の直し方");
+    // 部品ごとに編集したい図は convert_svg_image で分解する。AIの変換は極細を細に切り上げる。
+    expect(svg).toContain("`convert_svg_image`");
+    expect(svg).toContain("極細を細(1.25)に切り上げる");
+    expect(image).toContain("`convert_svg_image`");
+    expect(shapes).toContain("`convert_svg_image`");
     expect(svg).not.toContain("図形として作り直せる");
     expect(shapes).not.toContain("`insert_shape` を部品の数だけ");
   });

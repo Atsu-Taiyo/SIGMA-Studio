@@ -151,6 +151,7 @@ export const ai = {
     /** 英語は名詞側が複数形になる (`_one`/`_other`)。日本語に複数形は無いので同じ値。 */
     counted: "{{noun}}を{{count}}件{{verb}}",
     tableInsert: "表({{rows}}×{{columns}})を挿入",
+    svgConvert: "画像を{{count}}個の図形に変換",
     noun: {
       shape_one: "図形",
       shape_other: "図形",
@@ -329,6 +330,7 @@ export const ai = {
       replaceTable: "AI表の置き換え案",
       replaceGraph: "AIグラフの置き換え案",
       replaceShape: "AI図形の置き換え案",
+      convertShape: "AI図形への変換案",
       shapeEdit: "AI図形の編集案",
     },
     dialogAria: "AIの編集案: {{title}}",
@@ -735,6 +737,7 @@ export const ai = {
       draft_update_graph3d: "3Dグラフを更新しています",
       draft_insert_svg_image: "図をSVGで描いています",
       draft_update_svg_image: "SVGの図を更新しています",
+      draft_convert_svg_image: "SVGの図を図形に変換しています",
       draft_insert_text_block: "テキストを追加しています",
       draft_create_problem: "問題を追加しています",
       draft_update_problem_answer: "解答を更新しています",
