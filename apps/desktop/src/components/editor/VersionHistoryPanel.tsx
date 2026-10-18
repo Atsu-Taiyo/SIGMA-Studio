@@ -2,46 +2,84 @@
 
 import { Clock3, Loader2, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { SigmaDocument } from "@/features/document";
+import type { DocumentSessionVersionHistory } from "@/features/document-session/contracts";
 import {
   groupDocumentVersionsByDate,
-  type DocumentVersion,
-  type DocumentVersionMetadata,
+  type DocumentVersionOrigin,
 } from "@/lib/document-version-history";
 import { getAppRuntime } from "@/lib/runtime";
 import { getDocumentVersion, listDocumentVersions } from "@/lib/storage";
 import { useAppLocale, useT } from "@/lib/i18n/react";
 
+/** 共有サーバーが残す版は 10 分ごとに増える。開いている間はこの間隔で一覧を読み直す。 */
+const SHARED_VERSION_REFRESH_MS = 60_000;
+
+/**
+ * どこの版を見せるか。ローカル教材は端末の版履歴、共有教材は共有サーバーが残す版 (セッションの
+ * `versionHistory`)。共有教材の版は端末の版履歴には無い (#244)。
+ */
+export type VersionHistorySource =
+  | { kind: "local"; fileId: string }
+  | { kind: "shared"; fileId: string; history: DocumentSessionVersionHistory };
+
+/** 一覧で選んで、編集面の代わりに表示している版。 */
+export interface VersionHistorySelection {
+  versionId: string;
+  capturedAt: string;
+  document: SigmaDocument;
+  shared: boolean;
+}
+
+interface VersionHistoryRow {
+  versionId: string;
+  capturedAt: string;
+  label: string;
+}
+
 export function VersionHistoryPanel({
   busy,
-  fileId,
+  source,
   historyWarning,
   onClose,
   onPreviewChange,
   selectedVersionId,
 }: {
   busy: boolean;
-  fileId: string;
+  source: VersionHistorySource;
   historyWarning?: string | null;
   onClose: () => void;
-  onPreviewChange: (version: DocumentVersion | null) => void;
+  onPreviewChange: (version: VersionHistorySelection | null) => void;
   selectedVersionId: string | null;
 }) {
   const t = useT("chrome");
   const locale = useAppLocale();
-  const [versions, setVersions] = useState<DocumentVersionMetadata[]>([]);
+  const [versions, setVersions] = useState<VersionHistoryRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [pendingVersionId, setPendingVersionId] = useState<string | null>(null);
-  const [failedSelection, setFailedSelection] = useState<DocumentVersionMetadata | null>(null);
+  const [failedSelection, setFailedSelection] = useState<VersionHistoryRow | null>(null);
   const refreshRequestRef = useRef(0);
   const selectionRequestRef = useRef(0);
+  const { fileId } = source;
+  const shared = source.kind === "shared" ? source.history : null;
 
   const refresh = useCallback(async () => {
     const requestId = refreshRequestRef.current + 1;
     refreshRequestRef.current = requestId;
     setLoading(true);
     try {
-      const nextVersions = await listDocumentVersions(fileId);
+      const nextVersions: VersionHistoryRow[] = shared
+        ? (await shared.list()).map((version) => ({
+          versionId: version.versionId,
+          capturedAt: version.capturedAt,
+          label: t(`versionHistory.kind.${version.kind}`),
+        }))
+        : (await listDocumentVersions(fileId)).map((version) => ({
+          versionId: version.versionId,
+          capturedAt: version.capturedAt,
+          label: t(`versionHistory.origin.${version.origin satisfies DocumentVersionOrigin}`),
+        }));
       if (refreshRequestRef.current !== requestId) return;
       setVersions(nextVersions);
       setError(null);
@@ -52,46 +90,54 @@ export function VersionHistoryPanel({
     } finally {
       if (refreshRequestRef.current === requestId) setLoading(false);
     }
-  }, [fileId, t]);
+  }, [fileId, shared, t]);
 
   useEffect(() => {
     const timeoutId = window.setTimeout(() => void refresh(), 0);
-    const unsubscribe = getAppRuntime().library.onChange((event) => {
-      if (event.type === "documentVersion" && event.fileId === fileId) void refresh();
-    });
+    // ローカルの版は保存のたびに知らせが来る。共有サーバーの版は知らせが無いので、開いている間だけ読み直す。
+    const unsubscribe = shared
+      ? (() => {
+        const intervalId = window.setInterval(() => void refresh(), SHARED_VERSION_REFRESH_MS);
+        return () => window.clearInterval(intervalId);
+      })()
+      : getAppRuntime().library.onChange((event) => {
+        if (event.type === "documentVersion" && event.fileId === fileId) void refresh();
+      });
     return () => {
       refreshRequestRef.current += 1;
       selectionRequestRef.current += 1;
       window.clearTimeout(timeoutId);
       unsubscribe();
     };
-  }, [fileId, refresh]);
+  }, [fileId, refresh, shared]);
 
-  const selectVersion = useCallback(async (metadata: DocumentVersionMetadata) => {
+  const selectVersion = useCallback(async (row: VersionHistoryRow) => {
     const requestId = selectionRequestRef.current + 1;
     selectionRequestRef.current = requestId;
     setError(null);
     setFailedSelection(null);
-    setPendingVersionId(metadata.versionId);
+    setPendingVersionId(row.versionId);
     try {
-      const nextSelected = await getDocumentVersion(fileId, metadata.versionId);
+      const document = shared
+        ? await shared.get(row.versionId)
+        : (await getDocumentVersion(fileId, row.versionId))?.document ?? null;
       if (selectionRequestRef.current !== requestId) return;
-      if (!nextSelected) {
-        setFailedSelection(metadata);
+      if (!document) {
+        setFailedSelection(row);
         setError(t("versionHistory.loadFailed"));
         return;
       }
-      onPreviewChange(nextSelected);
+      onPreviewChange({ versionId: row.versionId, capturedAt: row.capturedAt, document, shared: Boolean(shared) });
       setFailedSelection(null);
       setError(null);
     } catch {
       if (selectionRequestRef.current !== requestId) return;
-      setFailedSelection(metadata);
+      setFailedSelection(row);
       setError(t("versionHistory.loadFailed"));
     } finally {
       if (selectionRequestRef.current === requestId) setPendingVersionId(null);
     }
-  }, [fileId, onPreviewChange, t]);
+  }, [fileId, onPreviewChange, shared, t]);
 
   const selectCurrentVersion = useCallback(() => {
     selectionRequestRef.current += 1;
@@ -115,6 +161,7 @@ export function VersionHistoryPanel({
       </div>
       <div className="version-history-body">
         {historyWarning && <p className="version-history-warning" role="status">{historyWarning}</p>}
+        {shared && <p className="version-history-note">{shared.canRestore() ? t("versionHistory.sharedNote") : t("versionHistory.sharedNoteReadOnly")}</p>}
         {loading && versions.length === 0 && <p className="version-history-state" role="status"><Loader2 className="save-state-spinner" size={15} aria-hidden="true" />{t("versionHistory.loading")}</p>}
         {error && (
           <div className="version-history-state" role="alert">
@@ -141,7 +188,7 @@ export function VersionHistoryPanel({
             <div className="version-history-state">
               <Clock3 size={20} aria-hidden="true" />
               <strong>{t("versionHistory.emptyTitle")}</strong>
-              <span>{t("versionHistory.emptyBody")}</span>
+              <span>{shared ? t("versionHistory.sharedEmptyBody") : t("versionHistory.emptyBody")}</span>
             </div>
           )}
           {groups.map((group) => (
@@ -158,7 +205,7 @@ export function VersionHistoryPanel({
                   onClick={() => void selectVersion(version)}
                 >
                   <span className="version-history-time">{formatTime(version.capturedAt)}</span>
-                  <span>{t(`versionHistory.origin.${version.origin}`)}</span>
+                  <span>{version.label}</span>
                   {pendingVersionId === version.versionId && <Loader2 className="save-state-spinner" size={14} aria-hidden="true" />}
                 </button>
               ))}

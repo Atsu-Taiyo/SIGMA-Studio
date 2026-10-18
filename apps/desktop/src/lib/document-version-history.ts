@@ -27,11 +27,11 @@ export function isValidDocumentVersionCapturedAt(value: unknown): value is strin
 
 export type DocumentVersionDateGroupKind = "today" | "yesterday" | "date";
 
-export interface DocumentVersionDateGroup {
+export interface DocumentVersionDateGroup<T extends { capturedAt: string } = DocumentVersionMetadata> {
   key: string;
   kind: DocumentVersionDateGroupKind;
   date: string;
-  versions: DocumentVersionMetadata[];
+  versions: T[];
 }
 
 export function shouldCaptureDocumentVersion(input: {
@@ -90,15 +90,15 @@ function localDateKey(date: Date): string {
   return `${year}-${month}-${day}`;
 }
 
-export function groupDocumentVersionsByDate(
-  versions: readonly DocumentVersionMetadata[],
+export function groupDocumentVersionsByDate<T extends { capturedAt: string } = DocumentVersionMetadata>(
+  versions: readonly T[],
   now = new Date(),
-): DocumentVersionDateGroup[] {
+): DocumentVersionDateGroup<T>[] {
   const today = localDateKey(now);
   const yesterdayDate = new Date(now);
   yesterdayDate.setDate(yesterdayDate.getDate() - 1);
   const yesterday = localDateKey(yesterdayDate);
-  const groups = new Map<string, DocumentVersionMetadata[]>();
+  const groups = new Map<string, T[]>();
   for (const version of [...versions].sort((a, b) => b.capturedAt.localeCompare(a.capturedAt))) {
     const parsed = new Date(version.capturedAt);
     const key = Number.isNaN(parsed.getTime()) ? version.capturedAt.slice(0, 10) : localDateKey(parsed);

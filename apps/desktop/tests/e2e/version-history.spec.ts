@@ -15,8 +15,8 @@ test("previews snapshots on the canvas, restores from the banner, and captures t
   await page.evaluate(() => (window as unknown as { __seedSigmaVersionHistory: () => void }).__seedSigmaVersionHistory());
   await expect(page.locator('[data-sigma-doc-id="p_version"]')).toContainText("second saved version with additions");
 
-  await page.getByRole("button", { name: "バージョン履歴", exact: true }).click();
-  const panel = page.getByRole("complementary", { name: "バージョン履歴" });
+  await page.getByRole("button", { name: "過去の版", exact: true }).click();
+  const panel = page.getByRole("complementary", { name: "過去の版" });
   await expect(panel).toBeVisible();
   await expect(panel.locator(".version-history-row")).toHaveCount(3);
   await expect(panel.locator(".version-history-row").first()).toContainText("現在の版");

@@ -116,6 +116,7 @@ jobs:
               tests/electron/small-shape-handles.spec.ts \
               tests/electron/page-column-side-notes.spec.ts \
               tests/electron/shared-split-pane-save.spec.ts \
+              tests/electron/shared-version-history.spec.ts \
               tests/electron/svg-to-sigma.spec.ts tests/electron/box-custom-frame.spec.ts \
               tests/electron/problem-custom-frame.spec.ts tests/electron/problem-frame-ai-chat.spec.ts \
               tests/electron/problem-tags-ime.spec.ts \

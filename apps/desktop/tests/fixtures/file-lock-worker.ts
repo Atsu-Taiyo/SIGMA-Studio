@@ -85,7 +85,8 @@ async function execute(command: LockWorkerCommand): Promise<unknown> {
           origin: "user",
           document: createBlankDocument(`${command.prefix}-${index}`),
         };
-        await appendDocumentVersion(command.rootDir, command.fileId, version);
+        // Thin as of the moment the versions were captured: every one of them is recent then.
+        await appendDocumentVersion(command.rootDir, command.fileId, version, {}, Date.parse(version.capturedAt));
         versions.push(version);
       }
       return versions;
