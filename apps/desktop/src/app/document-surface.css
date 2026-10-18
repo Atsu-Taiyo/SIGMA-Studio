@@ -44,7 +44,13 @@
 
 /* 囲み文字の角は尖らせる。丸めるのは角丸 (oval) と網かけ (shade) の種類だけ。 */
 
+/* 左右の余白は枠を描く要素 (印そのもの、またはランの各 segment) に付ける。角丸・網かけは端の丸みの
+   分だけ広い (`--boxed-text-end-padding-x`) が、ランの途中の継ぎ目 (connect-left/right) は細線と同じ
+   幅に戻す。segment を包む外側の印に余白を付けると segment の間が空き、1 本の枠が途中で切れる。 */
+
 .boxed-text {
+  --boxed-run-padding-left: var(--boxed-text-end-padding-x, 0.18em);
+  --boxed-run-padding-right: var(--boxed-text-end-padding-x, 0.18em);
   --boxed-text-border-width: 1px;
   --boxed-text-border-style: solid;
   --boxed-text-border-color: currentColor;
@@ -58,7 +64,11 @@
     var(--boxed-text-border-color);
   border-radius: var(--boxed-text-border-radius);
   background-color: var(--boxed-text-background);
-  padding: calc(var(--boxed-text-padding-y, 0px) + var(--boxed-run-extra-padding-y, 0px)) 0.18em;
+  padding:
+    calc(var(--boxed-text-padding-y, 0px) + var(--boxed-run-extra-padding-y, 0px))
+    var(--boxed-run-padding-right)
+    calc(var(--boxed-text-padding-y, 0px) + var(--boxed-run-extra-padding-y, 0px))
+    var(--boxed-run-padding-left);
   line-height: var(--boxed-text-line-height, inherit);
   box-decoration-break: clone;
   -webkit-box-decoration-break: clone;
@@ -133,7 +143,11 @@
     var(--boxed-text-border-color);
   border-radius: var(--boxed-text-border-radius);
   background-color: var(--boxed-text-background);
-  padding: calc(var(--boxed-text-padding-y, 0px) + var(--boxed-run-extra-padding-top, 0px)) 0.18em calc(var(--boxed-text-padding-y, 0px) + var(--boxed-run-extra-padding-bottom, 0px));
+  padding:
+    calc(var(--boxed-text-padding-y, 0px) + var(--boxed-run-extra-padding-top, 0px))
+    var(--boxed-run-padding-right)
+    calc(var(--boxed-text-padding-y, 0px) + var(--boxed-run-extra-padding-bottom, 0px))
+    var(--boxed-run-padding-left);
   /* line-height:1 removes the font's line-box leading so a 0pt frame hugs the
      content top & bottom (みっちり) instead of the large CJK leading gap. */
   line-height: 1;
@@ -146,7 +160,9 @@
 /* 囲み内の数式marginは同幅のpaddingへ移し、枠の外形と計測を一致させる。 */
 .boxed-text [data-boxed-run-height-target="true"].inline-math-node {
   margin-inline: 0;
-  padding-inline: calc(0.18em + var(--inline-math-node-margin-x, 0px));
+  padding-inline:
+    calc(var(--boxed-run-padding-left) + var(--inline-math-node-margin-x, 0px))
+    calc(var(--boxed-run-padding-right) + var(--inline-math-node-margin-x, 0px));
 }
 
 /* drawRunFramesでは各segmentの外形を計測用に残し、描画だけを透明化する。
@@ -189,7 +205,11 @@
     var(--boxed-text-border-width)
     var(--boxed-text-border-style)
     var(--boxed-text-border-color) !important;
-  padding: var(--boxed-text-padding-y, 0px) 0.18em !important;
+  padding:
+    var(--boxed-text-padding-y, 0px)
+    var(--boxed-run-padding-right)
+    var(--boxed-text-padding-y, 0px)
+    var(--boxed-run-padding-left) !important;
   line-height: 1 !important;
   vertical-align: baseline !important;
   min-height: 0 !important;
@@ -197,6 +217,7 @@
 
 .boxed-text[data-boxed-run-connect-right="true"],
 .boxed-text [data-boxed-run-connect-right="true"] {
+  --boxed-run-padding-right: 0.18em;
   border-right-width: 0;
   border-top-right-radius: 0;
   border-bottom-right-radius: 0;
@@ -204,6 +225,7 @@
 
 .boxed-text[data-boxed-run-connect-left="true"],
 .boxed-text [data-boxed-run-connect-left="true"] {
+  --boxed-run-padding-left: 0.18em;
   border-left-width: 0;
   border-top-left-radius: 0;
   border-bottom-left-radius: 0;
@@ -334,8 +356,7 @@
 .boxed-text[data-sigma-doc-boxed-variant="oval"],
 .boxed-run-frame[data-sigma-doc-boxed-variant="oval"] {
   --boxed-text-border-radius: calc(0.9em * var(--boxed-text-roundness, 1));
-  padding-left: 0.45em;
-  padding-right: 0.45em;
+  --boxed-text-end-padding-x: 0.45em;
 }
 
 .boxed-text[data-sigma-doc-boxed-variant="shade"],
@@ -343,8 +364,7 @@
   --boxed-text-border-color: var(--boxed-tone-border, #9ca3af);
   --boxed-text-background: var(--boxed-tone-fill, #f3f4f6);
   --boxed-text-border-radius: 4px;
-  padding-left: 0.4em;
-  padding-right: 0.4em;
+  --boxed-text-end-padding-x: 0.4em;
 }
 
 /* Fill/border tones for shade boxes. Plain custom properties so they cascade

@@ -2511,9 +2511,14 @@ button.ai-source-ref-chip--document:focus-visible {
   visibility: hidden;
 }
 
+/* 静的な `.math-preview` と同じ内容の箱に重ねる。`inset: 0` は padding の外側なので、囲み文字の
+   数式 (余白を margin ではなく padding で持つ) では入力欄が余白の分だけ左上にずれ、選んだ瞬間に
+   数式が動いて枠に食い込んでいた。外枠と同じ padding を持たせて内容の箱をそろえる。 */
 .inline-math-node.editing > .inline-math-field-host {
   position: absolute;
   inset: 0;
+  box-sizing: border-box;
+  padding: inherit;
   display: inline-flex;
   align-items: baseline;
   inline-size: max-content;
@@ -2521,6 +2526,12 @@ button.ai-source-ref-chip--document:focus-visible {
   pointer-events: none;
   /* Paint the input caret after the frame's outline, including at either edge. */
   z-index: 1;
+}
+
+/* 静的な数式は行の支柱 (外枠の line-height) とベースラインをそろえて置かれる。入力欄も同じ支柱と
+   ベースラインで並べ、背の低い数式が支柱の分だけ下がる位置 (囲み文字の line-height: normal) まで合わせる。 */
+.inline-math-node.editing > .inline-math-field-host::before {
+  content: "\200b";
 }
 
 .inline-math-node.editing > .inline-math-field-host > .inline-math-field,

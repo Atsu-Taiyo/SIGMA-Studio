@@ -110,6 +110,7 @@ jobs:
               tests/electron/whiteboard-focus.spec.ts tests/electron/graph-crop.spec.ts \
               tests/electron/overlay-text-input-latency.spec.ts tests/electron/browser-sidebar.spec.ts \
               tests/electron/overlay-math-box-toggle.spec.ts tests/electron/boxed-text-corners.spec.ts \
+              tests/electron/boxed-text-run-joins.spec.ts \
               tests/electron/large-library-editing.spec.ts \
               tests/electron/shared-lazy-open.spec.ts \
               tests/electron/problem-display.spec.ts tests/electron/whiteboard-image-save.spec.ts \
