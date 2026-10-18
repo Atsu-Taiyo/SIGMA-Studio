@@ -461,7 +461,7 @@ export function usePageCanvasSelectionActions({ overlaySelection, suppressSelect
   return { overlaySelectionKey, selectionActionPopover, selectionControlsRect };
 }
 
-/** 本文の選択の位置に、AI への依頼・コメントを置く右下の角を添える (図形の選択には添えない)。 */
+/** 本文の選択の位置に、右下の角 (AI・コメントの入力欄を開く場所) を添える (図形の選択には添えない)。 */
 function withSelectionTrailingAnchor(
   position: SelectionActionPopoverPosition,
   lines: readonly DOMRect[],

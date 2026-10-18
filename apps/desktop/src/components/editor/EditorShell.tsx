@@ -1178,7 +1178,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
     return commentAnchorCandidate;
   }, [commentAnchorCandidate, currentOverlayCommentAnchor]);
 
-  // 選んだところの右下のチップから始めたコメントは、押した場所の下に入力欄を浮かべる
+  // 本文の選択の「コメント」から始めたコメントは、選んだところのすぐ下に入力欄を浮かべる
   // (コメントの欄のカードへは、外側を押したときに書きかけのまま移す)。
   const [pendingCommentPlacement, setPendingCommentPlacement] = useState<{ left: number; top: number } | null>(null);
   const openCommentComposer = useCallback((
@@ -5054,7 +5054,9 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
             onAiEditPreviewApply={stableApplyVisibleAiEditPreviewGroup}
             onAiEditPreviewDismiss={stableDismissVisibleAiEditPreviewGroup}
             onOpenSourceDocument={openSourceReferenceDocument}
-            suppressSelectionActions={aiDisplayMode === "inline" && aiInlineOpen}
+            // AI・コメントの入力欄を選んだところに浮かべている間は、その下で出る選択の操作を隠す
+            // (コメントの入力欄に焦点が移ると本文の選択がカーソル扱いになり、右下のチップが重なる)。
+            suppressSelectionActions={(aiDisplayMode === "inline" && aiInlineOpen) || Boolean(pendingCommentAnchor && pendingCommentPlacement)}
             renderSelectionActions={renderSelectionActions ? anchor => renderSelectionActions({ fileId: activeFileId, document, metadata: activeDocumentMetadata ?? undefined, anchor }) : undefined}
             selectionTools={selectionToolbarExtension}
             externalDrop={POCKET_PAGE_DROP}

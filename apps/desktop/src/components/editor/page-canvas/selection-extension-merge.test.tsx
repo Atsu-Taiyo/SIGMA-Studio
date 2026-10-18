@@ -34,7 +34,7 @@ describe("mergeSelectionExtensions", () => {
     const merged = mergeSelectionExtensions(extension("tools", "tools"), extension("ai", "ai"))!;
     const action = merged.createAction(source) as PageCanvasSelectionAction;
     expect(JSON.parse(action.key)).toEqual(["tools", "ai"]);
-    // 書式は選択の上の帯、AI は選んだところの右下のチップへ分けて出す。
+    // 書式は帯の前、AI はその後ろ (書式の帯が無ければ右下のチップ) に出す。
     expect(renderToStaticMarkup(<>{action.renderTools?.()}</>)).toBe("<b>tools</b>");
     expect(renderToStaticMarkup(<>{action.render?.({ left: 0, top: 0 })}</>)).toBe("<b>ai</b>");
   });

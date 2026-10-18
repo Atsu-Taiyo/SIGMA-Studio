@@ -91,11 +91,21 @@ test("comments: floating @ list, @claude in the text, Enter to send, and the acc
     const state = () => app.evaluate(() => (globalThis as unknown as { composerTest: ComposerTest }).composerTest);
     const imageLoaded = (locator: import("@playwright/test").Locator) => locator.evaluate((image: HTMLImageElement) => image.complete && image.naturalWidth > 0);
 
-    // 1. 選んだところの「コメント」から、ピンと入力欄だけの浮かぶ欄が開く。「@」だけのボタンは無い。
-    await page.locator(".ProseMirror p", { hasText: "練習として" }).first().click({ clickCount: 3 });
-    await page.getByRole("button", { name: "コメントを追加", exact: true }).first().click();
+    // 1. 本文を選ぶと、AI への依頼とコメントは書式と同じ帯に並ぶ (右下の別のチップに分けない)。
+    const target = page.locator(".ProseMirror p", { hasText: "練習として" }).first();
+    await target.click({ clickCount: 3 });
+    const band = page.locator(".selection-action-popover").filter({ has: page.getByRole("button", { name: "コメントを追加", exact: true }) });
+    await expect(band).toHaveCount(1);
+    await expect(band.getByRole("button", { name: "AIに追加" })).toBeVisible();
+    await expect(band.getByRole("button", { name: "ポケットに追加" })).toBeVisible();
+    await expect(page.locator(".selection-action-popover--trailing")).toHaveCount(0);
+    // 帯の「コメント」から、ピンと入力欄だけの浮かぶ欄が、帯の下ではなく選んだ文のすぐ下に開く。
+    // 書いている間は、選択の操作 (帯・チップ) を重ねない。「@」だけのボタンは無い。
+    await band.getByRole("button", { name: "コメントを追加", exact: true }).click();
     const floating = page.locator("[data-floating-comment-composer]");
     await expect(floating).toBeVisible();
+    expect((await floating.boundingBox())!.y).toBeGreaterThanOrEqual((await target.boundingBox())!.y + (await target.boundingBox())!.height);
+    await expect(page.locator(".selection-action-popover")).toHaveCount(0);
     const input = floating.getByRole("textbox", { name: "コメントを追加" });
     await expect(input).toBeFocused();
     await expect(page.locator(".comment-mention-trigger")).toHaveCount(0);
