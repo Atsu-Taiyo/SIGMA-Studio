@@ -69,6 +69,7 @@ const desktopAPI = {
     changeMember: (fileId: string, userId: string, role: string | null) => ipcRenderer.invoke("collaboration:change-member", fileId, userId, role),
     revokeInvitation: (fileId: string, tokenHash: string) => ipcRenderer.invoke("collaboration:revoke-invitation", fileId, tokenHash),
     backups: (fileId: string) => ipcRenderer.invoke("collaboration:backups", fileId),
+    version: (fileId: string, backupId: string) => ipcRenderer.invoke("collaboration:version", fileId, backupId),
     backup: (fileId: string) => ipcRenderer.invoke("collaboration:backup", fileId),
     restore: (fileId: string, backupId: string) => ipcRenderer.invoke("collaboration:restore", fileId, backupId),
     reload: (fileId: string) => ipcRenderer.invoke("collaboration:reload", fileId),

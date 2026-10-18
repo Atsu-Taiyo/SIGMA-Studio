@@ -58,6 +58,11 @@ interface Session {
   presencePayload?: string;
   pendingAssetRevision?: number;
   uploadedAssetRevision?: number;
+  /**
+   * Images referenced by past versions read through `version` (#244). They may be gone from the
+   * current document, so `assetResponse` serves these too while the versions are being looked at.
+   */
+  versionAssets?: Set<string>;
 }
 interface Registry {
   version: 1;
@@ -1216,6 +1221,23 @@ export class CollaborationSessions {
     await this.flush(fileId, true);
     await this.action(fileId, "backups", {});
   }
+  /** One past version's content. The server returns it only to participants of the document. */
+  async version(fileId: string, backupId: string): Promise<unknown> {
+    const version = await this.action<{ document?: unknown }>(fileId, `backups/${backupId}`);
+    const session = await this.session(fileId);
+    const assets = session.versionAssets ?? new Set<string>();
+    for (const assetId of storageAssetIds(version?.document)) {
+      assets.delete(assetId);
+      assets.add(assetId);
+    }
+    // Most recently viewed first to stay; a long browsing session must not grow this without bound.
+    for (const assetId of assets) {
+      if (assets.size <= MAX_VERSION_ASSETS) break;
+      assets.delete(assetId);
+    }
+    session.versionAssets = assets;
+    return version;
+  }
   async restore(fileId: string, backupId: string): Promise<void> {
     const session = await this.session(fileId);
     const intent = path.join(
@@ -1511,6 +1533,7 @@ export class CollaborationSessions {
     for (const [fileId, session] of this.sessions) {
       if (this.registry.files[fileId]?.actorId !== this.actorId() || session.status === "permission-error") continue;
       if (
+        !session.versionAssets?.has(match[1]) &&
         !JSON.stringify(session.journal.document.project()).includes(
           `sigma-doc-storage://${match[1]}`,
         )
@@ -1742,4 +1765,25 @@ function isPresenceParticipant(value: unknown): value is PresenceParticipant {
     profile.actorId === value.actorId &&
     (value.state === null || isObject(value.state))
   );
+}
+
+const MAX_VERSION_ASSETS = 500;
+
+/** The `sigma-doc-storage://` image ids a document refers to. */
+function storageAssetIds(document: unknown): string[] {
+  const ids = new Set<string>();
+  const visit = (value: unknown): void => {
+    if (typeof value === "string") {
+      const match = /^sigma-doc-storage:\/\/([A-Za-z0-9_-]{1,180})$/.exec(value);
+      if (match) ids.add(match[1]);
+      return;
+    }
+    if (Array.isArray(value)) {
+      for (const child of value) visit(child);
+      return;
+    }
+    if (isObject(value)) for (const child of Object.values(value)) visit(child);
+  };
+  visit(document);
+  return [...ids];
 }

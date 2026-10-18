@@ -574,7 +574,8 @@ export function renderEditorChrome(chrome: EditorChromeValue) {
     </button>
   );
 
-  const versionHistoryButton = isEmbedded || chrome.shared.hasDocumentSession ? null : (
+  // 共有教材でも出す。版は共有サーバーが残し、パネルはセッションの versionHistory から読む (#244)。
+  const versionHistoryButton = isEmbedded ? null : (
     <button
       type="button"
       className="version-history-button"

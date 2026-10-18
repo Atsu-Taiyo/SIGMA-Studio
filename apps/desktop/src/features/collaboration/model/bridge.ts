@@ -40,6 +40,12 @@ export interface SharedBackup {
   id: string;
   epoch: number;
   created_at: string;
+  /** Absent from servers before automatic versions (#244): every entry was a manual backup. */
+  kind?: "auto" | "manual" | "restore";
+}
+/** One version's content, for looking at it before restoring. */
+export interface SharedVersion extends SharedBackup {
+  document: unknown;
 }
 export interface PresenceState {
   pageId?: string;
@@ -100,6 +106,7 @@ export interface CollaborationBridge {
   ): Promise<void>;
   revokeInvitation(fileId: string, tokenHash: string): Promise<void>;
   backups(fileId: string): Promise<SharedBackup[]>;
+  version(fileId: string, backupId: string): Promise<SharedVersion>;
   backup(fileId: string): Promise<void>;
   restore(fileId: string, backupId: string): Promise<void>;
   reload(fileId: string): Promise<void>;

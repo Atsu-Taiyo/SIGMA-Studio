@@ -1,8 +1,8 @@
 import type { SigmaDocument } from "@/features/document";
 import { areSigmaDocumentsEquivalent } from "@/lib/document-equivalence";
+import { selectVersionsToDiscard } from "@/lib/document-version-retention";
 
 export const DOCUMENT_VERSION_CAPTURE_INTERVAL_MS = 10 * 60 * 1_000;
-export const MAX_DOCUMENT_VERSIONS = 200;
 
 export type DocumentVersionOrigin = "user" | "ai" | "restore-backup" | "tab-switch" | "app-close";
 
@@ -27,11 +27,11 @@ export function isValidDocumentVersionCapturedAt(value: unknown): value is strin
 
 export type DocumentVersionDateGroupKind = "today" | "yesterday" | "date";
 
-export interface DocumentVersionDateGroup {
+export interface DocumentVersionDateGroup<T extends { capturedAt: string } = DocumentVersionMetadata> {
   key: string;
   kind: DocumentVersionDateGroupKind;
   date: string;
-  versions: DocumentVersionMetadata[];
+  versions: T[];
 }
 
 export function shouldCaptureDocumentVersion(input: {
@@ -67,14 +67,20 @@ export function shouldCaptureDocumentVersion(input: {
   return input.nowMs - capturedAt >= (input.intervalMs ?? DOCUMENT_VERSION_CAPTURE_INTERVAL_MS);
 }
 
+/**
+ * 間引きで消す版 (`document-version-retention.ts` の規則)。日の区切りは端末の 0 時にそろえる。
+ * 共有教材の版は共有サーバーが同じ規則で間引く。
+ */
 export function selectDocumentVersionsToPrune(
   versions: readonly DocumentVersionMetadata[],
-  maxVersions = MAX_DOCUMENT_VERSIONS,
+  nowMs: number,
 ): DocumentVersionMetadata[] {
-  if (versions.length <= maxVersions) return [];
-  return [...versions]
-    .sort((a, b) => a.capturedAt.localeCompare(b.capturedAt) || a.revision - b.revision)
-    .slice(0, versions.length - maxVersions);
+  const discarded = new Set(selectVersionsToDiscard(
+    versions.map((version) => ({ id: version.versionId, capturedAt: version.capturedAt })),
+    nowMs,
+    { utcOffsetMinutes: -new Date(nowMs).getTimezoneOffset() },
+  ));
+  return versions.filter((version) => discarded.has(version.versionId));
 }
 
 function localDateKey(date: Date): string {
@@ -84,15 +90,15 @@ function localDateKey(date: Date): string {
   return `${year}-${month}-${day}`;
 }
 
-export function groupDocumentVersionsByDate(
-  versions: readonly DocumentVersionMetadata[],
+export function groupDocumentVersionsByDate<T extends { capturedAt: string } = DocumentVersionMetadata>(
+  versions: readonly T[],
   now = new Date(),
-): DocumentVersionDateGroup[] {
+): DocumentVersionDateGroup<T>[] {
   const today = localDateKey(now);
   const yesterdayDate = new Date(now);
   yesterdayDate.setDate(yesterdayDate.getDate() - 1);
   const yesterday = localDateKey(yesterdayDate);
-  const groups = new Map<string, DocumentVersionMetadata[]>();
+  const groups = new Map<string, T[]>();
   for (const version of [...versions].sort((a, b) => b.capturedAt.localeCompare(a.capturedAt))) {
     const parsed = new Date(version.capturedAt);
     const key = Number.isNaN(parsed.getTime()) ? version.capturedAt.slice(0, 10) : localDateKey(parsed);

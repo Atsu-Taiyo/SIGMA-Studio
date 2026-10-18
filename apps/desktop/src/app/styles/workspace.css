@@ -1992,6 +1992,14 @@ nav.app-menu-list[inert] *,
   line-height: 1.45;
 }
 
+/* 共有教材の版: 誰が見られて誰が戻せるか。 */
+.version-history-note {
+  margin: 0 0 var(--space-md);
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
 .version-history-list {
   display: grid;
   gap: var(--space-lg);
@@ -2192,6 +2200,21 @@ nav.app-menu-list[inert] *,
   padding: 8px 16px;
   background: color-mix(in srgb, var(--danger) 10%, var(--surface));
   color: var(--danger);
+}
+
+/* 共有教材の版を戻す前の確かめ (参加者全員の教材が戻る) と、戻せない理由。 */
+.version-history-preview-confirm {
+  color: var(--warning);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.version-history-preview-note {
+  margin: 0;
+  padding: 8px 16px;
+  background: var(--surface);
+  color: var(--text-secondary);
+  font-size: 12px;
 }
 
 .version-history-preview-scroll {
