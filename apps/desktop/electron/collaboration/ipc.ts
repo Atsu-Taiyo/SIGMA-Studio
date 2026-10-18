@@ -2,6 +2,7 @@ import { ipcMain } from "../trusted-ipc";
 import { z } from "zod";
 import { parseSigmaDocument } from "@/lib/sigma-doc-schema";
 import type { CollaborationSessions } from "./sessions";
+import { AVATAR_UPLOAD_TYPES, MAX_AVATAR_UPLOAD_BYTES } from "./profiles";
 import type { SharedApproval } from "../../src/features/collaboration/model/approval";
 import {
   MAX_PRESENCE_MESSAGE_BYTES,
@@ -85,6 +86,20 @@ export function registerCollaborationIpc(
     return sessions.approve(fileId.parse(id), value as SharedApproval);
   });
   handle("members", (id) => sessions.action(fileId.parse(id), "members"));
+  handle("profile", () => sessions.profiles.current({ fresh: true }));
+  handle("update-profile", (input) =>
+    sessions.profiles.setDisplayName(
+      z.object({ displayName: z.string().max(200).nullable() }).parse(input).displayName,
+    ),
+  );
+  handle("set-avatar", (bytes, type) =>
+    sessions.profiles.setAvatar(
+      z.instanceof(Uint8Array).refine((value) => value.byteLength <= MAX_AVATAR_UPLOAD_BYTES).parse(bytes),
+      z.enum(AVATAR_UPLOAD_TYPES).parse(type),
+    ),
+  );
+  handle("clear-avatar", () => sessions.profiles.clearAvatar());
+  handle("profiles", (ids) => sessions.profiles.lookup(z.array(uuid).max(200).parse(ids)));
   handle("invite", (id, role) =>
     sessions.action(fileId.parse(id), "invitations", {
       role: z.enum(["editor", "viewer"]).parse(role),

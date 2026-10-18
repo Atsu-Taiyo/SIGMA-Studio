@@ -7,8 +7,8 @@ import { describe, expect, it } from "vitest";
 /**
  * 配線の抜けを落とす。**新しい編集面が増えたときに気づける形**にしてある。
  *
- * 共通エンジン (`createRichTextEngineExtensions`) を通らない面が 2 つあり
- * (`CommentRichTextEditor` / `BoxTitleEditor`)、そこを見落とすと穴が残る。
+ * 共通エンジン (`createRichTextEngineExtensions`) を通らない面 (`BoxTitleEditor`) があり、
+ * そこを見落とすと穴が残る。
  */
 const SOURCE_ROOT = new URL("../../", import.meta.url);
 
@@ -172,18 +172,29 @@ describe("native history guard wiring", () => {
     // 下の 2 つは後者 — 箱タイトルはダイアログ内の入力、コメントは投稿するまで
     // SigmaDoc に 1 文字も入らない下書き。既定のまま SigmaDoc へ委譲すると、
     // 打った内容はそのままで無関係な本文編集が巻き戻る。
+    // 自分で guard を組む面 (箱タイトル) と、共通エンジンに `localHistory: true` を渡す面 (コメント) がある。
     const localDraftSurfaces = ["BoxTitleEditor.tsx", "CommentRichTextEditor.tsx"];
     const notRouted = localDraftSurfaces.filter((name) => {
       const source = readFileSync(
         fileURLToPath(new URL(`../editor/${name}`, import.meta.url)),
         "utf8",
       );
+      if (/localHistory:\s*true/u.test(source)) {
+        return false;
+      }
       return !/NativeHistoryGuardExtension\.configure\(/u.test(source)
         || !/commands\.undo\(\)/u.test(source)
         // 自前の履歴が要る。`undoRedo: false` だと戻す先が無い。
         || /undoRedo:\s*false/u.test(source);
     });
     expect(notRouted).toEqual([]);
+
+    // `localHistory` を受けたエンジンは、自前の履歴を持ち (StarterKit の undoRedo を残す)、
+    // guard をその履歴へ向ける。
+    const engine = readFileSync(fileURLToPath(new URL("rich-text-engine.ts", import.meta.url)), "utf8");
+    expect(engine).toMatch(/undoRedo:\s*localHistory \? \{\} : false/u);
+    expect(engine).toMatch(/localHistory\s*\?\s*NativeHistoryGuardExtension\.configure\(/u);
+    expect(engine).toContain("commands.undo()");
   });
 
   it("never imports the editor shell from the tiptap layer", () => {

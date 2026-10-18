@@ -170,6 +170,11 @@ export function updateBlockInDocument(
   };
 }
 
+/** 文書のすべてのブロックを本文の並び (上から下) で返す。問題の各欄・段組・箱・リストの項目の中まで降りる。 */
+export function walkDocumentBlocks(document: SigmaDocument): Iterable<EditableBlock> {
+  return walkBlocksDeep(document.content);
+}
+
 export function findBlock(document: SigmaDocument, blockId: string): EditableBlock | null {
   for (const block of walkBlocksDeep(document.content)) {
     if (block.id === blockId) {

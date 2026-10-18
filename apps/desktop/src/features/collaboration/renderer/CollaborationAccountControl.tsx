@@ -1,6 +1,6 @@
 "use client";
 
-import { LogIn, LogOut, Sparkles } from "lucide-react";
+import { LogIn, LogOut, Sparkles, UserPen } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/Button";
 import { Stack } from "@/components/ui/layout";
@@ -10,6 +10,7 @@ import type { CollaborationInfo } from "../model/bridge";
 import type { ServerCollaborationCapabilities } from "../model/catalog";
 import { collaborationPlanState } from "../model/plan";
 import { CollaborationPlanDialog } from "./CollaborationPlanDialog";
+import { CollaborationProfileDialog } from "./CollaborationProfileDialog";
 import { CollaborationProfileAvatar, collaborationProfileLabel } from "./CollaborationProfileAvatar";
 import planStyles from "./plan.module.css";
 import styles from "./sharing.module.css";
@@ -33,6 +34,7 @@ export function CollaborationAccountControl({ info, refresh }: {
     if (actorId) setPlanStatus({ actorId, capabilities: next });
   }, [actorId]);
   const [planOpen, setPlanOpen] = useState(false);
+  const [profileOpen, setProfileOpen] = useState(false);
   const root = useRef<HTMLDivElement>(null);
   const accountButton = useRef<HTMLButtonElement>(null);
   useEffect(() => {
@@ -149,6 +151,19 @@ export function CollaborationAccountControl({ info, refresh }: {
           }}>{t("collaboration.plan.recovery")}</Button>}
           {recovered && <p role="status">{t("collaboration.plan.recovered", recovered)}</p>}
           {info.user.email && info.user.email !== name ? <span>{info.user.email}</span> : null}
+          {bridge.updateProfile && (
+            <Button
+              size="sm"
+              tone="ghost"
+              onClick={() => {
+                setOpen(false);
+                setProfileOpen(true);
+              }}
+            >
+              <UserPen size={15} aria-hidden="true" />
+              {t("collaboration.editProfile")}
+            </Button>
+          )}
           {plan !== "unavailable" && plan !== "pro" && (
             <Stack gap="xs" className={planStyles.menuPlan}>
               <span>{t(`collaboration.plan.menuLabel.${plan}`)}</span>
@@ -184,6 +199,9 @@ export function CollaborationAccountControl({ info, refresh }: {
           </Button>
           {error && <span className={styles.error} role="alert">{t("collaboration.error")}</span>}
         </div>
+      )}
+      {profileOpen && (
+        <CollaborationProfileDialog user={info.user} onClose={() => setProfileOpen(false)} onSaved={refresh} />
       )}
       {planOpen && plan !== "unavailable" && (
         <CollaborationPlanDialog billingAvailable={capabilities?.billingAvailable} plan={plan} onClose={() => setPlanOpen(false)} />

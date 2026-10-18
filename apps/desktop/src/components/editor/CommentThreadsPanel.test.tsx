@@ -105,4 +105,58 @@ describe("CommentThreadsPanel", () => {
 
     expect(html).toContain("「コメントを追加」を押すと書き始められます。");
   });
+
+  it("付け先の種別 (ブロック・図形・領域) は出さず、対象なしと解決済みだけを出す", () => {
+    const at = "2026-10-18T00:00:00.000Z";
+    const message = (id: string, text: string) => ({ id, authorName: "木村", createdAt: at, body: [{ type: "text" as const, text }] });
+    const threads = [
+      { id: "block", anchor: { type: "block" as const, blockId: "p1", quote: "本文の一節" }, createdAt: at, messages: [message("m1", "ブロックへ")] },
+      { id: "shape", anchor: { type: "overlayShape" as const, shapeIds: ["s1"], quote: "選択した図形" }, createdAt: at, messages: [message("m2", "図形へ")] },
+      { id: "region", anchor: { type: "canvasRegion" as const, bounds: { x: 0, y: 0, w: 10, h: 10 }, quote: "選択した領域" }, createdAt: at, messages: [message("m3", "領域へ")] },
+      { id: "gone", anchor: { type: "block" as const, blockId: "deleted" }, createdAt: at, resolved: true, messages: [message("m4", "消えた所へ")] },
+    ];
+    const html = renderToStaticMarkup(
+      <CommentThreadsPanel
+        activeThreadId={null}
+        author={{ name: "木村" }}
+        candidateAnchor={null}
+        document={{
+          version: "2.0",
+          docId: "comment_anchor_label_test",
+          metadata: { title: "付け先" },
+          content: [{ id: "p1", type: "paragraph", children: [{ type: "text", text: "本文の一節" }] }],
+          pageLayout: { overlay: { overlaySnapshot: { shapes: [{ id: "s1", type: "rect", x: 0, y: 0, width: 10, height: 10 }] } } } as never,
+          outputProfiles: { student: {}, teacher: {}, answerBook: {} },
+        }}
+        pendingAnchor={null}
+        pendingDraft={[]}
+        replyDrafts={{}}
+        showResolved
+        threads={threads}
+        onAddThread={noop}
+        onCancelPending={noop}
+        onDeleteMessage={noop}
+        onDeleteThread={noop}
+        onEditMessage={noop}
+        onEditThread={noop}
+        onPendingDraftChange={noop}
+        onReply={noop}
+        onReplyDraftChange={noop}
+        onResolveThread={noop}
+        onReopenThread={noop}
+        onSelectThread={noop}
+        onShowResolvedChange={noop}
+        onStartThread={noop}
+        onToggleReaction={noop}
+      />,
+    );
+
+    expect(html).not.toContain(">ブロック<");
+    expect(html).not.toContain("選択した図形");
+    expect(html).not.toContain("選択した領域");
+    // 本文の引用は中身なので残す。
+    expect(html).toContain("本文の一節");
+    expect(html.match(/>対象なし</g)).toHaveLength(1);
+    expect(html).toContain(">解決済み<");
+  });
 });

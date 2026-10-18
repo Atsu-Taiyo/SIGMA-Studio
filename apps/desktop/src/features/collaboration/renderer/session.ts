@@ -38,6 +38,7 @@ import {
   MAX_PRESENCE_SHAPE_IDS,
 } from "../model/presence";
 import { shareProjection } from "./projection";
+import { collaborationAvatarSource } from "../model/profile-avatar";
 import { countPerformanceEvent, measurePerformance } from "@/lib/performance";
 
 const EMPTY_ROSTER: PresenceParticipant[] = [];
@@ -517,9 +518,7 @@ export class RendererDocumentSession implements DocumentSession {
         actorId: participant.actorId,
         clientId: participant.clientId,
         displayName: profile.displayName || profile.email || participant.actorId,
-        ...(profile.avatarUrl ? {
-          avatarSource: `sigma-collaboration-profile://avatar?url=${encodeURIComponent(profile.avatarUrl)}`,
-        } : {}),
+        ...(collaborationAvatarSource(profile) ? { avatarSource: collaborationAvatarSource(profile) } : {}),
       });
     }
     return result;

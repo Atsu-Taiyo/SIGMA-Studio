@@ -219,4 +219,15 @@ describe("mounted comment AI run", () => {
     expect(f.editCommentMessage).toHaveBeenCalledWith("first", "comment_msg-1", text(expected));
     expect(f.documentRef.current.content[0]).toMatchObject({ children: text("本文") });
   });
+
+  it("keeps the AI's TeX and emphasis as math and marks in the reply, like MCP comments and inserted body text", async () => {
+    const f = fixture();
+    render(f.options);
+    act(() => trigger("first", text("@claude 頂点を書いて"), anchor));
+    await act(async () => { f.pendingRun.resolve(f.result("頂点は $(2, -1)$ で、**最小値は $-1$** です。")); f.pendingRefresh.resolve(); });
+    const body = f.editCommentMessage.mock.lastCall?.[2] as InlineNode[];
+    expect(body.map((node) => node.type)).toEqual(["text", "mathInline", "text", "text", "mathInline", "text"]);
+    expect(body[1]).toMatchObject({ type: "mathInline", tex: "(2, -1)" });
+    expect(body[3]).toMatchObject({ type: "text", text: "最小値は ", marks: ["bold"] });
+  });
 });

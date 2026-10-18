@@ -1,8 +1,45 @@
-/* 選んだところの右下に浮かべるコメントの入力欄。カードの見た目はコメントの欄の
-   `.comment-compose-card.pending` のまま、置き方だけを画面の固定位置に変える
-   (欄の中の `position: absolute; width: 100%` より強く当てる)。 */
-.root:global(.comment-compose-card) {
+/* 選んだところの右下に浮かべるコメントの入力欄。左に書き手のピン、右に入力欄を置く
+   (Figma・Claude のコメントと同じ並び)。画面の固定位置に置く。 */
+.root {
   position: fixed;
   z-index: 121;
-  width: min(320px, calc(100vw - 24px));
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-sm);
+  width: min(348px, calc(100vw - 24px));
+}
+
+/* とがった角 (左下) が選んだところを指す涙形。白地に細い輪で、書いている最中だと分かる色を添える。 */
+.pin {
+  display: grid;
+  width: 32px;
+  height: 32px;
+  flex: 0 0 auto;
+  place-items: center;
+  border: 2px solid #2563eb;
+  border-radius: 50% 50% 50% 4px;
+  background: #ffffff;
+  box-shadow: var(--shadow-floating);
+}
+
+.pin :global(.comment-author-avatar) {
+  width: 24px;
+  height: 24px;
+  font-size: 10px;
+}
+
+/* カードの見た目はコメントの欄の `.comment-compose-card.pending` のまま、欄の中の
+   `position: absolute; width: 100%` を外して並びに置く。 */
+.card:global(.comment-compose-card) {
+  position: relative;
+  min-width: 0;
+  flex: 1 1 auto;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.card :global(.comment-composer) {
+  box-shadow: 0 2px 6px rgba(15, 23, 42, 0.06), 0 12px 32px rgba(15, 23, 42, 0.14);
 }

@@ -47,6 +47,10 @@ export function CommentDock({ document, open, panel, onOpenChange }: CommentDock
     };
     const closeOnOutsideClick = (event: MouseEvent) => {
       const target = event.target as Node | null;
+      // メンションの候補は body へ浮かべるので、Dock の外にあっても内側として扱う。
+      if (target instanceof Element && target.closest("[data-comment-popover]")) {
+        return;
+      }
       if (target && !rootRef.current?.contains(target)) {
         onOpenChange(false);
       }

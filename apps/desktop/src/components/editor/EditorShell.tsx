@@ -429,6 +429,8 @@ export interface EditorShellProps {
   renderSelectionActions?: (context: { fileId: string; document: SigmaDocument; metadata?: DocumentMetadata; anchor: SigmaCommentAnchor }) => ReactNode;
   commentIdentity?: CommentPanelAuthor & { userId: string };
   loadCommentMentionCandidates?: (fileId: string) => Promise<import("./comment-mentions").CommentMentionCandidate[]>;
+  /** コメントに出てくる人の今の名前とアイコン (共有している相手だけ)。 */
+  loadCommentPeople?: (userIds: string[]) => Promise<import("./comment-mentions").CommentMentionCandidate[]>;
   embeddedHost?: EmbeddedEditorHost;
   sessionHost?: DocumentSessionHost;
   renderDocumentActions?: (context: { fileId: string; document: SigmaDocument; getDocument: () => SigmaDocument; flush: () => Promise<unknown> }) => ReactNode;
@@ -455,7 +457,7 @@ function DocumentActionsSlot({ render, context }: {
   return render(context);
 }
 
-export function EditorShell({ embeddedHost, sessionHost, renderDocumentActions, renderSelectionActions, accountAction, commentIdentity, loadCommentMentionCandidates }: EditorShellProps = {}) {
+export function EditorShell({ embeddedHost, sessionHost, renderDocumentActions, renderSelectionActions, accountAction, commentIdentity, loadCommentMentionCandidates, loadCommentPeople }: EditorShellProps = {}) {
   // **毎レンダーで呼ばない。** `createEmptyEditorDocument()` は文書 1 個分を
   // 組み立てる (旧 `emptyEditorDocument` は module 定数だった)。打鍵のたびに
   // 走ると perf 予算 `typing.longTasksPerChar` を割る。
@@ -471,7 +473,7 @@ export function EditorShell({ embeddedHost, sessionHost, renderDocumentActions, 
 
   return (
     <EditorStoreProvider store={editorStore}>
-      <EditorShellBody embeddedHost={embeddedHost} sessionHost={sessionHost} renderDocumentActions={renderDocumentActions} renderSelectionActions={renderSelectionActions} accountAction={accountAction} commentIdentity={commentIdentity} loadCommentMentionCandidates={loadCommentMentionCandidates} editorStore={editorStore} />
+      <EditorShellBody embeddedHost={embeddedHost} sessionHost={sessionHost} renderDocumentActions={renderDocumentActions} renderSelectionActions={renderSelectionActions} accountAction={accountAction} commentIdentity={commentIdentity} loadCommentMentionCandidates={loadCommentMentionCandidates} loadCommentPeople={loadCommentPeople} editorStore={editorStore} />
     </EditorStoreProvider>
   );
 }
@@ -549,7 +551,7 @@ function canScrollWithin(
   return false;
 }
 
-function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, renderSelectionActions, accountAction, commentIdentity, loadCommentMentionCandidates, editorStore }: EditorShellProps & { editorStore: EditorStore }) {
+function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, renderSelectionActions, accountAction, commentIdentity, loadCommentMentionCandidates, loadCommentPeople, editorStore }: EditorShellProps & { editorStore: EditorStore }) {
   const {
     EMPTY_AI_LOCKED_TARGETS,
     AiEditPanel,
@@ -2847,7 +2849,8 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
   const { previewOpen, setPreviewOpen, pdfExporting, exportedPdfPath, setExportedPdfPath, printPreviewRenderState, setPrintPreviewRenderState, openPrintPreview, exportPdf, openPrintWindow } = useDocumentPrintController({ isDesktopApp, isEmbedded, getDocument: getCurrentSessionDocument, getActiveFileId: getActiveWorkspaceFileId, flushOverlayChanges, saveCurrentDocumentRecord, setSaveState, setStatusMessage });
 
   const getActiveTextTarget = (): "document" | "overlay" | "comment" => {
-    if (typeof window !== "undefined" && window.document.activeElement?.closest(".comment-thread-panel")) {
+    // 浮かべたコメントの入力欄は body に出るので、欄 (`.comment-thread-panel`) の外にある。
+    if (typeof window !== "undefined" && window.document.activeElement?.closest(".comment-thread-panel, .comment-composer")) {
       return "comment";
     }
     return overlayEditing ? "overlay" : "document";
@@ -4455,7 +4458,11 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
     visibleCommentThreadsForPanel,
   ]);
 
-  const commentPanelProps = { ...commentPanelBaseProps, loadMentionCandidates, currentUserId: commentIdentity?.userId };
+  // 「Claude に送信」は、コメントから AI を動かせる画面でだけ出す。埋め込みの編集面と、AI を持たない
+  // 公開 Editor (接続がすべて unavailable) では、押しても何も起きないので出さない。
+  const commentAiAgentsAvailable = !isEmbedded
+    && [aiConnection, claudeConnection, geminiConnection].some((connection) => connection.state.kind !== "unavailable");
+  const commentPanelProps = { ...commentPanelBaseProps, loadMentionCandidates, loadCommentPeople, aiAgentsAvailable: commentAiAgentsAvailable, currentUserId: commentIdentity?.userId };
 
   if (ledgerFailure) {
     return (
@@ -5203,6 +5210,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
           draft={pendingCommentDraft}
           document={document}
           loadMentionCandidates={loadMentionCandidates}
+          aiAgentsAvailable={commentAiAgentsAvailable}
           onDraftChange={setPendingCommentDraft}
           onSubmit={() => {
             addPendingCommentThread();

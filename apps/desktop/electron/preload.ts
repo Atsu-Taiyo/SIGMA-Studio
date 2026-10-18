@@ -79,6 +79,11 @@ const desktopAPI = {
     end: (fileId: string, action: string) => ipcRenderer.invoke("collaboration:end", fileId, action),
     copy: (fileId: string) => ipcRenderer.invoke("collaboration:copy", fileId),
     asset: (fileId: string, assetId: string, source?: string) => ipcRenderer.invoke("collaboration:asset", fileId, assetId, source),
+    profile: () => ipcRenderer.invoke("collaboration:profile"),
+    updateProfile: (input: { displayName: string | null }) => ipcRenderer.invoke("collaboration:update-profile", input),
+    setAvatar: (bytes: Uint8Array, type: string) => ipcRenderer.invoke("collaboration:set-avatar", bytes, type),
+    clearAvatar: () => ipcRenderer.invoke("collaboration:clear-avatar"),
+    profiles: (userIds: string[]) => ipcRenderer.invoke("collaboration:profiles", userIds),
     onEvent(handler: (event: unknown) => void): () => void {
       const listener = (_: unknown, event: unknown) => handler(event);
       ipcRenderer.on("collaboration:event", listener);

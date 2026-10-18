@@ -1,20 +1,20 @@
 "use client";
 
-import Placeholder from "@tiptap/extension-placeholder";
+import { Extension, type Editor } from "@tiptap/core";
 import { useMathRenderEnvironment } from "@/features/rendering/adapters/react";
 import { EditorContent, useEditor } from "@tiptap/react";
-import StarterKit from "@tiptap/starter-kit";
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, type ReactNode } from "react";
 
 import { pasteAsSingleBlockInlineContent } from "@/components/editor/text-flow/inline-block-paste";
-import { InlineMathExtension, requestInlineMathEdit } from "@/components/tiptap/inline-math-extension";
+import { requestInlineMathEdit } from "@/components/tiptap/inline-math-extension";
+import { createRichTextEngineExtensions } from "@/components/tiptap/rich-text-engine";
 import { LOCAL_EDIT_HISTORY_ATTRIBUTE } from "@/components/editor/editor-shell/command-shortcut-targets";
-import { NativeHistoryGuardExtension } from "@/components/tiptap/native-history-guard";
 import { useT } from "@/lib/i18n/react";
 import type {
   InlineNode,
   MathFractionSizing,
 } from "@/features/document";
+import { isInlineBodyEmpty } from "@/lib/comments";
 import { createId } from "@/lib/id";
 import {
   inlineNodesToTiptapDoc,
@@ -35,6 +35,12 @@ interface CommentRichTextEditorProps {
   /** 出した瞬間に打ち始められるよう、作った直後に焦点を入れる (浮かべる入力欄)。 */
   autoFocus?: boolean;
   onChange: (value: InlineNode[]) => void;
+  /** Enter (⌘Enter も) で送る。改行は Shift+Enter。メンションの候補が開いている間の Enter は候補を選ぶ。 */
+  onSubmit?: () => void;
+  /** 入力欄の中の Esc。メンションの候補が開いている間は候補を閉じるだけで、ここへは来ない。 */
+  onEscape?: () => void;
+  /** 入力欄の枠の中、本文の下に置く操作 (送信ボタンなど)。エディタを触る操作のために editor を渡す。 */
+  footer?: (editor: Editor | null) => ReactNode;
 }
 
 export function CommentRichTextEditor({
@@ -44,6 +50,9 @@ export function CommentRichTextEditor({
   placeholder,
   autoFocus = false,
   onChange,
+  onSubmit,
+  onEscape,
+  footer,
 }: CommentRichTextEditorProps) {
   const t = useT("editor");
   // 既定値を引数に書くと翻訳前の文言が焼き付くので、本文側で解決する。
@@ -52,35 +61,52 @@ export function CommentRichTextEditor({
   const previousSerializedRef = useRef(JSON.stringify(value));
   const initialContent = useMemo(() => inlineNodesToTiptapDoc(value), [value]);
 
+  const onSubmitRef = useRef(onSubmit);
+  const onEscapeRef = useRef(onEscape);
   useEffect(() => {
     valueRef.current = value;
-  }, [value]);
+    onSubmitRef.current = onSubmit;
+    onEscapeRef.current = onEscape;
+  }, [value, onSubmit, onEscape]);
 
   const mathEnvironment = useMathRenderEnvironment(mathFractionSizing);
   const editor = useEditor({
     extensions: [
       CommentMentionMark,
       CommentAgentMentionHighlight,
-      // **`undoRedo` を落とさない。** ここが編むのはコメントの下書きで、
-      // SigmaDoc には投稿するまで 1 文字も入らない (下書きの置き場は
-      // `EditorShell` の `pendingCommentDraft` / editorStore の `commentReplyDrafts` /
-      // `CommentThreadsPanel` の `editDrafts` で、いずれも React 側の state)。
-      // 「SigmaDoc に入らない面は自前の履歴を持ち、そこへ戻す」— `BoxTitleEditor` と同じ扱い。
-      StarterKit.configure({
-        heading: false,
-        underline: false,
-      }),
-      Placeholder.configure({ placeholder: resolvedPlaceholder }),
-      // prop の組版設定と文書コンテキストを 1 つの環境に畳んでから渡す
-      // (別々に読むと、片方だけ差し替わったときに静的と編集中が食い違う)。
-      InlineMathExtension.configure({ mathEnvironment }),
-      // 共通エンジンを通らないので個別に積む。既定の SigmaDoc への委譲は**使わない** —
-      // それだとコメントを打ち間違えて取り消したときに、コメントはそのままで無関係な
+      // 本文・図形テキスト・表セルと同じ共通エンジン (書式・色・下線・囲み・数式)。打った見た目と
+      // 投稿後の表示 (`InlineContent`) が本文と同じ規則で揃う。
+      // **履歴はこの欄の自前** (`localHistory`)。ここが編むのはコメントの下書きで、SigmaDoc には
+      // 投稿するまで 1 文字も入らない (下書きの置き場は `EditorShell` の `pendingCommentDraft` /
+      // editorStore の `commentReplyDrafts` / `CommentThreadsPanel` の `editDrafts` で、いずれも React 側の state)。
+      // 文書の履歴へ渡すと、コメントを打ち間違えて取り消したときにコメントはそのままで無関係な
       // 本文編集が巻き戻り、ユーザーには何が起きたか分からない。
-      NativeHistoryGuardExtension.configure({
-        onHistoryCommand: (direction, activeEditor) => (direction === "undo"
-          ? activeEditor.commands.undo()
-          : activeEditor.commands.redo()),
+      ...createRichTextEngineExtensions({
+        heading: false,
+        localHistory: true,
+        mathEnvironment,
+        placeholder: resolvedPlaceholder,
+      }),
+      // 段落の分割より先に取る。IME の変換確定の Enter は ProseMirror がここへ渡さない。
+      Extension.create({
+        name: "commentComposerKeys",
+        priority: 1000,
+        addKeyboardShortcuts: () => {
+          const submit = () => {
+            if (!onSubmitRef.current) return false;
+            onSubmitRef.current();
+            return true;
+          };
+          return {
+            Enter: submit,
+            "Mod-Enter": submit,
+            Escape: () => {
+              if (!onEscapeRef.current) return false;
+              onEscapeRef.current();
+              return true;
+            },
+          };
+        },
       }),
     ],
     content: initialContent,
@@ -88,6 +114,9 @@ export function CommentRichTextEditor({
     editorProps: {
       attributes: {
         class: "comment-rich-text-editor",
+        role: "textbox",
+        "aria-multiline": "true",
+        "aria-label": resolvedPlaceholder,
         // ⌘Z をこの欄自身の履歴へ届けるための目印
         // (`editor-shell/command-shortcut-targets.ts`)。無いと文書の undo が走り、
         // 打ったコメントは残ったまま無関係な本文が巻き戻る。
@@ -107,7 +136,12 @@ export function CommentRichTextEditor({
 
   const serializedValue = JSON.stringify(value);
   useEffect(() => {
-    if (!editor || editor.isDestroyed || editor.isFocused) {
+    if (!editor || editor.isDestroyed) {
+      return;
+    }
+    // 打っている最中 (焦点がある) は外から書き換えない。ただし送ったあとに空へ戻すのは入れる —
+    // Enter で送ると焦点は欄に残るので、ここで止めると送った文が欄に残り、次の 1 文字で下書きへ戻る。
+    if (editor.isFocused && !isInlineBodyEmpty(valueRef.current)) {
       return;
     }
     if (previousSerializedRef.current === serializedValue) {
@@ -172,9 +206,7 @@ export function CommentRichTextEditor({
   return (
     <div className="comment-rich-text-shell">
       <EditorContent editor={editor} />
-      {loadMentionCandidates && <button type="button" className="comment-mention-trigger" aria-label={t("comment.mentionMembers")} title={t("comment.mentionMembers")}
-        onMouseDown={(event) => event.preventDefault()}
-        onClick={() => editor?.chain().focus().insertContent(" @").run()}>@</button>}
+      {footer?.(editor)}
       <CommentMentionMenu editor={editor} loadCandidates={loadMentionCandidates} />
     </div>
   );

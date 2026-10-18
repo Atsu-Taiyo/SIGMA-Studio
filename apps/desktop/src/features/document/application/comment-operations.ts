@@ -22,6 +22,8 @@ export interface CommentMutationResult {
 
 export interface CreateCommentThreadInput {
   anchor: SigmaCommentAnchor;
+  /** 書いた人の共有アカウントの ID。サインインしていないときと AI のときは渡さない。 */
+  authorId?: string;
   authorName: string;
   /** AI が書いた場合だけ渡す。人が書いたコメントには付けない。 */
   agent?: SigmaCommentAgent;
@@ -37,6 +39,7 @@ export interface CreateCommentThreadResult extends CommentMutationResult {
 
 export interface AppendCommentMessageInput {
   threadId: string;
+  authorId?: string;
   authorName: string;
   /** AI が書いた場合だけ渡す。人が書いた返信には付けない。 */
   agent?: SigmaCommentAgent;
@@ -68,6 +71,7 @@ export interface ToggleCommentMessageReactionInput {
   threadId: string;
   messageId: string;
   emoji: string;
+  authorId?: string;
   authorName: string;
 }
 
@@ -98,6 +102,7 @@ export function createCommentThread(
         anchor: input.anchor,
         messages: [{
           id: messageId,
+          ...(input.authorId ? { authorId: input.authorId } : {}),
           authorName: input.authorName,
           ...(input.agent ? { agent: input.agent } : {}),
           body,
@@ -143,6 +148,7 @@ export function appendCommentMessage(
         ...thread.messages,
         {
           id: messageId,
+          ...(input.authorId ? { authorId: input.authorId } : {}),
           authorName: input.authorName,
           ...(input.agent ? { agent: input.agent } : {}),
           body,
@@ -272,7 +278,7 @@ export function toggleCommentMessageReaction(
     const firstMessageId = thread.messages[0]?.id;
     const threadReactions = thread.reactions ?? [];
     const threadReactionIndex = firstMessageId === input.messageId
-      ? findReactionIndex(threadReactions, input.emoji, input.authorName)
+      ? findReactionIndex(threadReactions, input.emoji, input)
       : -1;
     const messages = thread.messages.map((message) => {
       if (message.id !== input.messageId) {
@@ -281,11 +287,7 @@ export function toggleCommentMessageReaction(
 
       matched = true;
       const reactions = message.reactions ?? [];
-      const existingIndex = findReactionIndex(
-        reactions,
-        input.emoji,
-        input.authorName,
-      );
+      const existingIndex = findReactionIndex(reactions, input.emoji, input);
       const nextReactions = existingIndex >= 0
         ? reactions.filter((_, index) => index !== existingIndex)
         : threadReactionIndex >= 0
@@ -295,6 +297,7 @@ export function toggleCommentMessageReaction(
               {
                 id: ports.createId("comment_reaction"),
                 emoji: input.emoji,
+                ...(input.authorId ? { authorId: input.authorId } : {}),
                 authorName: input.authorName,
                 createdAt: now,
               },
@@ -380,13 +383,19 @@ function cloneInlineBody(body: readonly InlineNode[]): InlineNode[] {
   return body.map((node) => ({ ...node }));
 }
 
+/**
+ * 同じ人の同じ絵文字。ID を持つリアクション同士は ID で比べ (名前は変わりうる)、どちらかが ID を
+ * 持たない (サインイン前に付けた・古い) ときは名前で比べる。
+ */
 function findReactionIndex(
-  reactions: readonly { emoji: string; authorName?: string }[],
+  reactions: readonly { emoji: string; authorId?: string; authorName?: string }[],
   emoji: string,
-  authorName: string,
+  author: { authorId?: string; authorName: string },
 ): number {
   return reactions.findIndex((reaction) => (
-    reaction.emoji === emoji && (reaction.authorName || "") === authorName
+    reaction.emoji === emoji && (reaction.authorId && author.authorId
+      ? reaction.authorId === author.authorId
+      : (reaction.authorName || "") === author.authorName)
   ));
 }
 

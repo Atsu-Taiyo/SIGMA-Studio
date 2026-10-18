@@ -324,8 +324,9 @@ export function WorkspaceManager() {
   const profile = useCollaborationProfile();
   const commentIdentity = useMemo<CommentUserIdentity | null>(() => profile ? {
     userId: profile.actorId,
-    // 投稿者は書いた時点の表示名 / メールアドレス / ID で保存されている。
-    authorNames: [profile.displayName, profile.email, profile.actorId].filter((name): name is string => Boolean(name)),
+    // ID を持たない古いコメントは、書いた時点の表示名 / メールアドレス / ID で保存されている。
+    // 名前を自分で決めたあとも、それより前に Google の名前で書いたものを自分のものと分かるようにする。
+    authorNames: [profile.displayName, profile.providerDisplayName, profile.email, profile.actorId].filter((name): name is string => Boolean(name)),
   } : null, [profile]);
   const { latest: library, current: searchResult } = useWorkspaceLibrary(
     searchActive || searchFocused || panel !== "files" || commentIdentity !== null,

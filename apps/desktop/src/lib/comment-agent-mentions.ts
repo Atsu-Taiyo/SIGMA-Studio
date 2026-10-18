@@ -1,4 +1,5 @@
-import type { SigmaCommentAgentVendor } from "@/features/document";
+import type { InlineNode, SigmaCommentAgentVendor } from "@/features/document";
+import { inlineNodesToCommentText } from "@/lib/comments";
 
 /**
  * コメント本文の AI メンション (@claude など) を、表示のために見つける純粋関数。
@@ -39,4 +40,15 @@ export function splitCommentAiMentions(text: string): CommentTextPart[] {
   }
   if (last < text.length) parts.push({ text: text.slice(last) });
   return parts;
+}
+
+/**
+ * 本文で最初に宛てた AI (なければ null)。入力欄の「◯◯に送信」をこれで描く。
+ * AI を起動する検出 (`detectCommentAiMention`) と同じく、人へのメンション (`@Claude` さん) は数えない。
+ */
+export function findCommentAiMentionAgent(body: readonly InlineNode[]): CommentTextPart["agent"] | null {
+  const text = inlineNodesToCommentText(body.map((node): InlineNode => (
+    node.type === "text" && node.mentionUserId ? { type: "text", text: " " } : node
+  )));
+  return splitCommentAiMentions(text).find((part) => part.agent)?.agent ?? null;
 }

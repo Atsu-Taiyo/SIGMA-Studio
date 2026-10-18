@@ -1,14 +1,16 @@
 "use client";
 
-import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties, ReactNode } from "react";
 import { Check, MessageSquarePlus, MoreHorizontal, Pencil, Reply, RotateCcw, Search, Smile, Trash2 } from "lucide-react";
 
 import { CommentAuthorAvatar } from "@/components/editor/CommentAuthorAvatar";
+import { CommentComposer } from "@/components/editor/CommentComposer";
 import { CommentParticipantStack } from "@/components/editor/CommentParticipantStack";
-import { CommentRichTextEditor } from "@/components/editor/CommentRichTextEditor";
-import { getCommentThreadParticipants } from "@/components/editor/comment-participants";
-import { renderInlineContent } from "@/features/rendering/adapters/react";
+import { getCommentThreadParticipants, resolveCommentAuthor, type CommentAuthorContext } from "@/components/editor/comment-participants";
+import { useCommentPeopleDirectory, type LoadCommentPeople } from "@/components/editor/comment-people";
+import { formatCommentAbsoluteTime, formatCommentRelativeTime, useCommentClock } from "@/components/editor/comment-time";
+import { InlineContent } from "@/features/rendering/adapters/react";
 import {
   COMMENT_REACTION_USAGE_STORAGE_KEY,
   getFrequentCommentReactionEmojis,
@@ -18,12 +20,12 @@ import {
   searchCommentReactionEmojis,
   type CommentReactionUsage,
 } from "@/components/editor/comment-reactions";
+import { getCommentQuoteContent } from "@/lib/comment-quote-content";
 import {
-  getCommentAnchorLabel,
   getCommentAnchorQuote,
+  isCommentAnchorOrphan,
   isInlineBodyEmpty,
 } from "@/lib/comments";
-import type { AppLocale } from "@/lib/i18n";
 import { useAppLocale, useT } from "@/lib/i18n/react";
 import type { SigmaCommentAgent, SigmaCommentAnchor, SigmaCommentMessage, SigmaCommentReaction, SigmaCommentThread, SigmaDocument, InlineNode } from "@/features/document";
 
@@ -50,6 +52,10 @@ export interface CommentPanelAuthor {
 
 export interface CommentThreadsPanelProps {
   loadMentionCandidates?: LoadCommentMentionCandidates;
+  /** 書いた人・宛先の今の名前とアイコンを、共有アカウントの ID から引く (共有している相手だけ)。 */
+  loadCommentPeople?: LoadCommentPeople;
+  /** 入力欄に「Claude に送信」を出すか。AI が動かない画面 (埋め込みなど) では出さない。 */
+  aiAgentsAvailable?: boolean;
   currentUserId?: string;
   activeThreadId: string | null;
   author: CommentPanelAuthor;
@@ -86,6 +92,8 @@ export interface CommentThreadsPanelProps {
 
 export function CommentThreadsPanel({
   loadMentionCandidates,
+  loadCommentPeople,
+  aiAgentsAvailable = false,
   currentUserId,
   activeThreadId,
   author,
@@ -118,7 +126,6 @@ export function CommentThreadsPanel({
   onToggleReaction,
 }: CommentThreadsPanelProps) {
   const t = useT("editor");
-  const locale = useAppLocale();
   const mathFractionSizing = document.metadata.mathFractionSizing;
   const allThreads = document.comments ?? [];
   const unresolvedCount = allThreads.filter((thread) => !thread.resolved).length;
@@ -133,7 +140,11 @@ export function CommentThreadsPanel({
   const [reactionUsage, setReactionUsage] = useState<CommentReactionUsage>(loadStoredCommentReactionUsage);
   const [recentReactionKey, setRecentReactionKey] = useState<string | null>(null);
   const [expandedReplyThreadIds, setExpandedReplyThreadIds] = useState<Set<string>>(() => new Set());
-  const mentionDirectory = useCommentMentionDirectory({ author, currentUserId, loadMentionCandidates, threads });
+  const mentionDirectory = useCommentPeopleDirectory({ threads, currentUserId, author, loadPeople: loadCommentPeople, loadMembers: loadMentionCandidates });
+  const authorContext = useMemo<CommentAuthorContext>(
+    () => ({ currentAuthor: author, currentUserId, people: mentionDirectory }),
+    [author, currentUserId, mentionDirectory],
+  );
   const quickReactionEmojis = useMemo(() => getQuickCommentReactionEmojis(reactionUsage), [reactionUsage]);
   const frequentReactionEmojis = useMemo(() => getFrequentCommentReactionEmojis(reactionUsage), [reactionUsage]);
   const recentReactionEmojis = reactionUsage.recent;
@@ -214,6 +225,15 @@ export function CommentThreadsPanel({
     });
   };
 
+  const collapseReplies = (threadId: string) => {
+    onSelectThread(threadId);
+    setExpandedReplyThreadIds((current) => {
+      const next = new Set(current);
+      next.delete(threadId);
+      return next;
+    });
+  };
+
   const toggleReaction = (threadId: string, messageId: string, emoji: string) => {
     onToggleReaction(threadId, messageId, emoji);
     recordReaction(emoji);
@@ -240,11 +260,12 @@ export function CommentThreadsPanel({
         {pendingAnchor && (
           <section className="comment-compose-card pending" data-comment-card-key="pending" style={positionedItems.pendingStyle}>
             <PendingCommentComposer
-              author={author}
               anchor={pendingAnchor}
+              document={document}
               draft={pendingDraft}
               mathFractionSizing={mathFractionSizing}
               loadMentionCandidates={loadMentionCandidates}
+              aiAgentsAvailable={aiAgentsAvailable}
               onDraftChange={onPendingDraftChange}
               onCancel={onCancelPending}
               onSubmit={onAddThread}
@@ -269,7 +290,7 @@ export function CommentThreadsPanel({
           const repliesExpanded = expandedReplyThreadIds.has(thread.id);
           const replyCount = getReplyCount(thread);
           const firstMessage = thread.messages[0];
-          const cardAuthor = getMessageAuthor(firstMessage, author);
+          const cardAuthor = getMessageAuthor(firstMessage, authorContext);
           return (
             <section
               key={thread.id}
@@ -293,7 +314,7 @@ export function CommentThreadsPanel({
             >
               <div className="comment-thread-card-header">
                 <CommentAuthorLine author={cardAuthor} timestamp={firstMessage?.createdAt} />
-                {showParticipants && <ThreadParticipants thread={thread} author={author} />}
+                {showParticipants && <ThreadParticipants thread={thread} context={authorContext} />}
                 <button
                   type="button"
                   className={`comment-thread-resolve-button${thread.resolved ? " is-resolved" : ""}`}
@@ -312,14 +333,11 @@ export function CommentThreadsPanel({
                   {thread.resolved ? <RotateCcw size={14} /> : <Check size={15} />}
                 </button>
               </div>
-              <div className="comment-anchor-label">
-                <span>{getCommentAnchorLabel(thread.anchor, document, t)}</span>
-                {thread.resolved && <em>{t("comment.resolved")}</em>}
-              </div>
-              <CommentQuote anchor={thread.anchor} />
+              <CommentThreadStatus anchor={thread.anchor} document={document} resolved={Boolean(thread.resolved)} />
+              <CommentQuote anchor={thread.anchor} document={document} />
               <div className="comment-message-list">
                 {(repliesExpanded ? thread.messages : thread.messages.slice(0, 1)).map((message, index) => {
-                  const messageAuthor = getMessageAuthor(message, author);
+                  const messageAuthor = getMessageAuthor(message, authorContext);
                   const messageKey = getMessageTargetKey(thread.id, message.id);
                   const editDraft = editDrafts[messageKey] ?? message.body;
                   const editing = editingMessageKey === messageKey;
@@ -354,18 +372,19 @@ export function CommentThreadsPanel({
                   if (editing) {
                     return (
                       <div className={`comment-message-edit ${index > 0 ? "reply" : ""}`} key={message.id} onClick={(event) => event.stopPropagation()}>
-                        {index > 0 && <CommentAuthorLine author={messageAuthor} />}
-                        <CommentRichTextEditor
+                        {index > 0 && <CommentAuthorLine author={messageAuthor} timestamp={message.createdAt} />}
+                        <CommentComposer
                           loadMentionCandidates={loadMentionCandidates}
                           value={editDraft}
                           mathFractionSizing={mathFractionSizing}
                           placeholder={t("comment.editPlaceholder")}
+                          submitLabel={t("comment.save")}
+                          submitIcon="save"
+                          cancelLabel={t("comment.cancel")}
+                          autoFocus
                           onChange={(value) => setEditDrafts((current) => ({ ...current, [messageKey]: value }))}
-                        />
-                        <ComposerActions
-                          disabled={isInlineBodyEmpty(editDraft)}
-                          primaryLabel={t("comment.save")}
                           onCancel={cancelEditing}
+                          onEscape={cancelEditing}
                           onSubmit={submitEditing}
                         />
                       </div>
@@ -373,7 +392,7 @@ export function CommentThreadsPanel({
                   }
                   return (
                     <div className={`comment-message ${index === 0 ? "root" : "reply"}`} key={message.id}>
-                      {index > 0 && <CommentAuthorLine author={messageAuthor} />}
+                      {index > 0 && <CommentAuthorLine author={messageAuthor} timestamp={message.createdAt} />}
                       <CommentMessageToolbar
                         frequentEmojis={frequentReactionEmojis}
                         menuOpen={openMenuMessageKey === messageKey}
@@ -407,6 +426,7 @@ export function CommentThreadsPanel({
                       <CommentMessageBody currentUserId={currentUserId} body={message.body} mentionDirectory={mentionDirectory} mathFractionSizing={mathFractionSizing} />
                       <CommentReactionBar
                         currentAuthorName={author.name}
+                        currentUserId={currentUserId}
                         recentReactionKey={recentReactionKey}
                         reactions={getMessageReactions(thread, message.id, index)}
                         targetKey={getReactionTargetKey(thread.id, message.id)}
@@ -434,7 +454,7 @@ export function CommentThreadsPanel({
                   {replyCount > 0
                     ? (
                       <span className="comment-reply-avatars" aria-hidden="true">
-                        {getReplyAuthors(thread, author).map((replyAuthor, replyIndex) => (
+                        {getReplyAuthors(thread, authorContext).map((replyAuthor, replyIndex) => (
                           <CommentAuthorAvatar
                             key={`${replyAuthor.name}:${replyIndex}`}
                             agent={replyAuthor.agent}
@@ -446,27 +466,24 @@ export function CommentThreadsPanel({
                     )
                     : <Reply size={13} />}
                   <span>{replyCount > 0 ? t("comment.replyCount", { replies: replyCount }) : t("comment.reply")}</span>
-                  {replyCount > 0 && <em>{getLatestReplyLabel(thread, locale)}</em>}
+                  {replyCount > 0 && <LatestReplyTime thread={thread} />}
                 </button>
               )}
               {!thread.resolved && repliesExpanded && (
                 <div className="comment-reply-composer" onClick={(event) => event.stopPropagation()}>
-                  <CommentAuthorLine author={author} />
-                  <CommentRichTextEditor
+                  <CommentComposer
                     loadMentionCandidates={loadMentionCandidates}
                     value={replyDraft}
                     mathFractionSizing={mathFractionSizing}
                     placeholder={t("comment.replyPlaceholder")}
+                    submitLabel={t("comment.replySubmit")}
+                    cancelLabel={t("comment.close")}
+                    showAgentToggle={aiAgentsAvailable}
+                    // 「返信する」を押して開いたら、そのまま打ち始められるようにする。
+                    autoFocus
                     onChange={(value) => onReplyDraftChange(thread.id, value)}
-                  />
-                  <ComposerActions
-                    disabled={isInlineBodyEmpty(replyDraft)}
-                    primaryLabel={t("comment.replySubmit")}
-                    secondaryLabel={t("comment.close")}
-                    onCancel={() => {
-                      onSelectThread(thread.id);
-                      setExpandedReplyThreadIds((current) => toggleSetValue(current, thread.id));
-                    }}
+                    onCancel={() => collapseReplies(thread.id)}
+                    onEscape={() => collapseReplies(thread.id)}
                     onSubmit={() => {
                       setExpandedReplyThreadIds((current) => addSetValue(current, thread.id));
                       onReply(thread.id);
@@ -528,26 +545,33 @@ export function CommentThreadsPanel({
 }
 
 /**
- * 書きかけのコメントの中身 (書き手・引用・入力欄・送る/やめる)。コメントの欄のカードと、
- * 選んだところの右下に浮かべる入力欄 (`FloatingCommentComposer`) が同じものを使う。
+ * 書きかけのコメントの中身 (引用・入力欄)。コメントの欄のカードと、選んだところの右下に浮かべる
+ * 入力欄 (`FloatingCommentComposer`) が同じものを使う。浮かべた入力欄は選択のすぐ下に開き、
+ * 何に付けるかは選択のハイライトで見えているので、引用を繰り返さない。
  */
 export function PendingCommentComposer({
-  author,
   anchor,
+  document,
   draft,
   mathFractionSizing,
   loadMentionCandidates,
+  aiAgentsAvailable = false,
   autoFocus,
+  floating = false,
   onDraftChange,
   onCancel,
   onSubmit,
 }: {
-  author: CommentPanelAuthor;
   anchor: SigmaCommentAnchor;
+  /** 引用を本文の書式・数式で出すために引く文書。 */
+  document?: SigmaDocument;
   draft: InlineNode[];
   mathFractionSizing?: SigmaDocument["metadata"]["mathFractionSizing"];
   loadMentionCandidates?: LoadCommentMentionCandidates;
+  aiAgentsAvailable?: boolean;
   autoFocus?: boolean;
+  /** 浮かべた入力欄。取り消しは Esc と外側のクリックで行うので、ボタンを置かない。 */
+  floating?: boolean;
   onDraftChange: (value: InlineNode[]) => void;
   onCancel: () => void;
   onSubmit: () => void;
@@ -555,20 +579,21 @@ export function PendingCommentComposer({
   const t = useT("editor");
   return (
     <>
-      <CommentAuthorLine author={author} />
-      <CommentQuote anchor={anchor} />
-      <CommentRichTextEditor
+      {!floating && <CommentQuote anchor={anchor} document={document} />}
+      <CommentComposer
         loadMentionCandidates={loadMentionCandidates}
         value={draft}
         mathFractionSizing={mathFractionSizing}
-        placeholder={t("comment.agentPlaceholder")}
+        placeholder={t("comment.addComment")}
+        submitLabel={t("comment.add")}
+        showAgentToggle={aiAgentsAvailable}
+        cancelLabel={floating ? undefined : t("comment.cancel")}
         autoFocus={autoFocus}
         onChange={onDraftChange}
-      />
-      <ComposerActions
-        disabled={isInlineBodyEmpty(draft)}
-        primaryLabel={t("comment.add")}
-        onCancel={onCancel}
+        onCancel={floating ? undefined : onCancel}
+        onEscape={floating ? undefined : () => {
+          if (isInlineBodyEmpty(draft)) onCancel();
+        }}
         onSubmit={onSubmit}
       />
     </>
@@ -839,68 +864,89 @@ function CommentReactionPickerButton({
  * 1 スレッドあたりの高さが増え、右のガターに並ぶカード数が目に見えて減る。
  */
 /** 2人以上が発言したスレッドだけ、発言者の重ねアバターを出す (1人なら見出しの名前で足りる)。 */
-function ThreadParticipants({ thread, author }: { thread: SigmaCommentThread; author: CommentPanelAuthor }) {
-  const participants = useMemo(() => getCommentThreadParticipants(thread, author), [thread, author]);
+function ThreadParticipants({ thread, context }: { thread: SigmaCommentThread; context: CommentAuthorContext }) {
+  const participants = useMemo(() => getCommentThreadParticipants(thread, context), [thread, context]);
   return participants.length >= 2 ? <CommentParticipantStack participants={participants} /> : null;
 }
 
 function CommentAuthorLine({ author, timestamp }: { author: CommentPanelAuthor; timestamp?: string }) {
-  const locale = useAppLocale();
   return (
     <div className="comment-author-line">
       <CommentAuthorAvatar agent={author.agent} avatarUrl={author.avatarUrl} name={author.name} />
       <div className="comment-author-meta">
         <strong>{author.name}</strong>
         {author.agent?.model && <em className="comment-author-model">{author.agent.model}</em>}
-        {timestamp && <span>{formatCommentTimestamp(timestamp, locale)}</span>}
+        {timestamp && <CommentTime value={timestamp} />}
       </div>
     </div>
   );
 }
 
-function CommentQuote({ anchor }: { anchor: SigmaCommentAnchor }) {
+/** 「今」「5分前」。正確な日時はツールチップに出す。 */
+function CommentTime({ value }: { value: string }) {
+  const t = useT("editor");
+  const locale = useAppLocale();
+  const now = useCommentClock();
+  return (
+    <time className="comment-time" dateTime={value} title={formatCommentAbsoluteTime(value, locale)}>
+      {formatCommentRelativeTime(value, now, locale, t("comment.justNow"))}
+    </time>
+  );
+}
+
+function LatestReplyTime({ thread }: { thread: SigmaCommentThread }) {
+  const latestReply = thread.messages[thread.messages.length - 1];
+  if (!latestReply || thread.messages.length <= 1) {
+    return null;
+  }
+  return <em><CommentTime value={latestReply.createdAt} /></em>;
+}
+
+/**
+ * 「ブロック」「図形」のような付け先の種別は出さない (本文のハイライトを見れば分かる)。出すのは本文を
+ * 見ても分からない状態だけ — 付け先が消えた (対象なし) と、解決済み。
+ */
+function CommentThreadStatus({ anchor, document, resolved }: { anchor: SigmaCommentAnchor; document: SigmaDocument; resolved: boolean }) {
+  const t = useT("editor");
+  const orphan = isCommentAnchorOrphan(document, anchor);
+  if (!orphan && !resolved) {
+    return null;
+  }
+  return (
+    <div className="comment-thread-status">
+      {orphan && <span>{t("comment.anchor.orphan")}</span>}
+      {resolved && <em>{t("comment.resolved")}</em>}
+    </div>
+  );
+}
+
+/**
+ * 引用元。本文から引けるものは本文と同じ書式・数式で (`InlineContent`)、引けないもの (消えた所など) は
+ * 保存してある引用の文字列で出す。
+ */
+function CommentQuote({ anchor, document }: { anchor: SigmaCommentAnchor; document?: SigmaDocument }) {
+  // 図形・領域の引用は「選択した図形」のような名前だけ (保存と AI への指示には残す)。図を見れば分かるので出さない。
+  const hidden = anchor.type === "overlayShape" || anchor.type === "canvasRegion";
+  const content = useMemo(
+    () => (hidden || !document ? null : getCommentQuoteContent(document, anchor)),
+    [anchor, document, hidden],
+  );
+  if (hidden) {
+    return null;
+  }
+  if (content) {
+    return (
+      <blockquote className="comment-anchor-quote">
+        <InlineContent nodes={content} keyPrefix="comment-quote" mathFractionSizing={document?.metadata.mathFractionSizing} />
+      </blockquote>
+    );
+  }
   const quote = getCommentAnchorQuote(anchor);
   if (!quote) {
     return null;
   }
 
   return <blockquote className="comment-anchor-quote">{quote}</blockquote>;
-}
-
-/**
- * 本文の宛先 (userId) から名前・メール・アイコンを引く表。本文には userId と表示名しか
- * 保存していないので、メンションがあるスレッドがあるときだけ共同編集者の一覧を読んで補う。
- * 一覧に居ない人 (共有から外れた人など) は本文の表示名で描く。
- */
-function useCommentMentionDirectory({ author, currentUserId, loadMentionCandidates, threads }: {
-  author: CommentPanelAuthor;
-  currentUserId?: string;
-  loadMentionCandidates?: LoadCommentMentionCandidates;
-  threads: readonly SigmaCommentThread[];
-}): ReadonlyMap<string, CommentMentionCandidate> {
-  const hasMentions = useMemo(() => threads.some((thread) => thread.messages.some((message) => (
-    message.body.some((node) => node.type === "text" && node.mentionUserId)
-  ))), [threads]);
-  const [loaded, setLoaded] = useState<{ loader: LoadCommentMentionCandidates; members: CommentMentionCandidate[] } | null>(null);
-  useEffect(() => {
-    if (!hasMentions || !loadMentionCandidates) return;
-    let cancelled = false;
-    loadMentionCandidates()
-      .then((members) => { if (!cancelled) setLoaded({ loader: loadMentionCandidates, members }); })
-      .catch(() => {});
-    return () => { cancelled = true; };
-  }, [hasMentions, loadMentionCandidates]);
-
-  return useMemo(() => {
-    const directory = new Map<string, CommentMentionCandidate>();
-    for (const member of loaded && loaded.loader === loadMentionCandidates ? loaded.members : []) {
-      directory.set(member.userId, member);
-    }
-    if (currentUserId) {
-      directory.set(currentUserId, { userId: currentUserId, name: author.name, avatarUrl: author.avatarUrl });
-    }
-    return directory;
-  }, [author.avatarUrl, author.name, currentUserId, loaded, loadMentionCandidates]);
 }
 
 /** アイコンと名前を 1 つにまとめた宛先のチップ。詳細 (名前・メール) はツールチップに出す。 */
@@ -919,6 +965,11 @@ function CommentMentionChip({ className, title, avatar, label, userId }: {
   );
 }
 
+/**
+ * コメントの本文。本文の静的な描画 (`InlineContent` — 編集面と同じ書式・数式の組み方) に渡し、宛先 (人・AI)
+ * だけをチップにする。チップ以外の連続した部分は 1 つの `InlineContent` にまとめる — ノードごとに分けて
+ * 組むと、書式の続きや数式と文字の並びが本文と変わる。
+ */
 export function CommentMessageBody({
   currentUserId,
   body,
@@ -931,16 +982,17 @@ export function CommentMessageBody({
   mathFractionSizing?: SigmaDocument["metadata"]["mathFractionSizing"] | null;
 }) {
   const t = useT("editor");
+  const segments = useMemo(() => splitCommentBodySegments(body), [body]);
   if (isInlineBodyEmpty(body)) {
     return <p>{t("comment.emptyBody")}</p>;
   }
 
-  return <p className="rich-inline-content">{body.map((node, index) => {
-    if (node.type !== "text") {
-      return <Fragment key={index}>{renderInlineContent([node], { mathFractionSizing })}</Fragment>;
+  return <p className="comment-message-body">{segments.map((segment, index) => {
+    if (segment.kind === "inline") {
+      return <InlineContent key={index} nodes={segment.nodes} keyPrefix={`comment-${index}`} mathFractionSizing={mathFractionSizing} />;
     }
-
-    if (node.mentionUserId) {
+    if (segment.kind === "person") {
+      const { node } = segment;
       const isSelf = node.mentionUserId === currentUserId;
       const member = mentionDirectory?.get(node.mentionUserId);
       const name = member?.name ?? node.text.replace(/^[@＠]/u, "");
@@ -952,73 +1004,69 @@ export function CommentMessageBody({
           userId={node.mentionUserId}
           title={isSelf ? `${detail} · ${t("comment.mentionsYou")}` : detail}
           avatar={<CommentAuthorAvatar name={name} avatarUrl={member?.avatarUrl} />}
-          label={renderInlineContent([node], { mathFractionSizing })}
+          label={`@${name}`}
         />
       );
     }
-
-    // AI へのメンション (@claude など) は本文の文字列のまま保存されているので、表示のときに見つけてチップにする。
-    const parts = splitCommentAiMentions(node.text);
-    if (!parts.some((part) => part.agent)) {
-      return <Fragment key={index}>{renderInlineContent([node], { mathFractionSizing })}</Fragment>;
-    }
-    return <Fragment key={index}>{parts.map((part, partIndex) => part.agent
-      ? <CommentMentionChip
-        key={partIndex}
+    return (
+      <CommentMentionChip
+        key={index}
         className="comment-mention is-chip is-agent"
-        title={t("comment.mentionAgentTitle", { name: part.agent.name })}
-        avatar={<CommentAuthorAvatar name={part.agent.name} agent={{ vendor: part.agent.vendor }} />}
-        label={part.text}
+        title={t("comment.mentionAgentTitle", { name: segment.agent.name })}
+        avatar={<CommentAuthorAvatar name={segment.agent.name} agent={{ vendor: segment.agent.vendor }} />}
+        label={segment.text}
       />
-      : <Fragment key={partIndex}>{renderInlineContent([{ ...node, text: part.text }], { mathFractionSizing })}</Fragment>)}</Fragment>;
+    );
   })}</p>;
 }
 
-function ComposerActions({
-  disabled,
-  primaryLabel,
-  secondaryLabel,
-  onCancel,
-  onSubmit,
-}: {
-  disabled: boolean;
-  primaryLabel: string;
-  /** 省略時は「キャンセル」。既定値を引数に書くと翻訳前の文言が焼き付く。 */
-  secondaryLabel?: string;
-  onCancel?: () => void;
-  onSubmit: () => void;
-}) {
-  const t = useT("editor");
-  const cancelLabel = secondaryLabel ?? t("comment.cancel");
-  return (
-    <div className="comment-composer-actions">
-      {onCancel && (
-        <button type="button" className="button secondary" onClick={onCancel}>
-          {cancelLabel}
-        </button>
-      )}
-      <button type="button" className="button primary" disabled={disabled} onClick={onSubmit}>
-        {primaryLabel}
-      </button>
-    </div>
-  );
+type CommentBodySegment =
+  | { kind: "inline"; nodes: InlineNode[] }
+  | { kind: "person"; node: InlineNode & { type: "text"; mentionUserId: string } }
+  | { kind: "agent"; text: string; agent: { name: string; vendor: SigmaCommentAgent["vendor"] } };
+
+/** 本文を、そのまま組む部分と宛先のチップに分ける。AI への宛先 (@claude など) は本文の文字列のまま保存されている。 */
+function splitCommentBodySegments(body: readonly InlineNode[]): CommentBodySegment[] {
+  const segments: CommentBodySegment[] = [];
+  const pushInline = (node: InlineNode) => {
+    const last = segments.at(-1);
+    if (last?.kind === "inline") last.nodes.push(node);
+    else segments.push({ kind: "inline", nodes: [node] });
+  };
+  for (const node of body) {
+    if (node.type !== "text") {
+      pushInline(node);
+      continue;
+    }
+    if (node.mentionUserId) {
+      segments.push({ kind: "person", node: node as InlineNode & { type: "text"; mentionUserId: string } });
+      continue;
+    }
+    for (const part of splitCommentAiMentions(node.text)) {
+      if (part.agent) segments.push({ kind: "agent", text: part.text, agent: part.agent });
+      else pushInline({ ...node, text: part.text });
+    }
+  }
+  return segments;
 }
 
 function CommentReactionBar({
   currentAuthorName,
+  currentUserId,
   recentReactionKey,
   reactions,
   targetKey,
   onToggleReaction,
 }: {
   currentAuthorName: string;
+  currentUserId?: string;
   recentReactionKey: string | null;
   reactions: SigmaCommentReaction[];
   targetKey: string;
   onToggleReaction: (emoji: string) => void;
 }) {
   const t = useT("editor");
-  const groups = getReactionGroups(reactions, currentAuthorName);
+  const groups = getReactionGroups(reactions, { authorName: currentAuthorName, userId: currentUserId });
   const empty = groups.length === 0;
   return (
     <div className={`comment-reaction-bar ${empty ? "empty" : ""}`} onClick={(event) => event.stopPropagation()}>
@@ -1139,14 +1187,12 @@ function getPositionedCommentItems({
   };
 }
 
-function getMessageAuthor(message: SigmaCommentMessage | undefined, currentAuthor: CommentPanelAuthor): CommentPanelAuthor {
-  const name = message?.authorName || currentAuthor.name;
-  // AI の差出人は現在のユーザーではないので、ユーザー画像を貸さない。
-  return {
-    avatarUrl: !message?.agent && name === currentAuthor.name ? currentAuthor.avatarUrl : null,
-    agent: message?.agent ?? null,
-    name,
-  };
+function getMessageAuthor(message: SigmaCommentMessage | undefined, context: CommentAuthorContext): CommentPanelAuthor {
+  if (!message) {
+    return { name: context.currentAuthor.name, avatarUrl: context.currentAuthor.avatarUrl ?? null, agent: null };
+  }
+  const { name, avatarUrl, agent } = resolveCommentAuthor(message, context);
+  return { name, avatarUrl: avatarUrl ?? null, agent: agent ?? null };
 }
 
 function getMessageReactions(thread: SigmaCommentThread, messageId: string, messageIndex: number): SigmaCommentReaction[] {
@@ -1191,9 +1237,10 @@ function isReactionPickerOpen(target: CommentReactionTarget | null, threadId: st
   return target?.threadId === threadId && target.messageId === messageId;
 }
 
+/** 自分が付けたかは、共有アカウントの ID を持つリアクションは ID で (名前は変わりうる)、古いものは名前で見る。 */
 function getReactionGroups(
   reactions: SigmaCommentReaction[],
-  currentAuthorName: string,
+  current: { authorName: string; userId?: string },
 ): Array<{ active: boolean; count: number; emoji: string }> {
   const groups = new Map<string, { active: boolean; count: number; emoji: string }>();
   for (const reaction of reactions) {
@@ -1203,7 +1250,7 @@ function getReactionGroups(
       emoji: reaction.emoji,
     };
     group.count += 1;
-    if ((reaction.authorName || "") === currentAuthorName) {
+    if (reaction.authorId && current.userId ? reaction.authorId === current.userId : (reaction.authorName || "") === current.authorName) {
       group.active = true;
     }
     groups.set(reaction.emoji, group);
@@ -1216,30 +1263,21 @@ function getReplyCount(thread: SigmaCommentThread): number {
 }
 
 /** 折りたたんだ返信行に重ねる差出人アイコン。同じ差出人は 1 つにまとめ、先頭 3 人まで。 */
-function getReplyAuthors(thread: SigmaCommentThread, currentAuthor: CommentPanelAuthor): CommentPanelAuthor[] {
+function getReplyAuthors(thread: SigmaCommentThread, context: CommentAuthorContext): CommentPanelAuthor[] {
   const seen = new Set<string>();
   const authors: CommentPanelAuthor[] = [];
   for (const message of thread.messages.slice(1)) {
-    const author = getMessageAuthor(message, currentAuthor);
-    const key = `${author.name}:${author.agent?.vendor ?? ""}`;
+    const { key, name, avatarUrl, agent } = resolveCommentAuthor(message, context);
     if (seen.has(key)) {
       continue;
     }
     seen.add(key);
-    authors.push(author);
+    authors.push({ name, avatarUrl: avatarUrl ?? null, agent: agent ?? null });
     if (authors.length === 3) {
       break;
     }
   }
   return authors;
-}
-
-function getLatestReplyLabel(thread: SigmaCommentThread, locale: AppLocale): string {
-  const latestReply = thread.messages[thread.messages.length - 1];
-  if (!latestReply || thread.messages.length <= 1) {
-    return "";
-  }
-  return formatCommentTimestamp(latestReply.createdAt, locale);
 }
 
 function addSetValue(current: Set<string>, value: string): Set<string> {
@@ -1266,16 +1304,4 @@ function areNumberRecordsEqual(left: Record<string, number>, right: Record<strin
   }
 
   return leftKeys.every((key) => left[key] === right[key]);
-}
-
-/**
- * 時刻の表記は**表示中の UI 言語**に従う (`"ja-JP"` 決め打ちだと英語 UI でも
- * 24 時制の日本語表記のままになる)。
- */
-function formatCommentTimestamp(value: string, locale: AppLocale): string {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) {
-    return "";
-  }
-  return date.toLocaleTimeString(locale, { hour: "2-digit", minute: "2-digit" });
 }

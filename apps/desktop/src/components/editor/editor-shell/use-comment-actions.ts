@@ -24,7 +24,8 @@ export type CommentSubmissionHandler = (threadId: string, body: InlineNode[], an
 
 export interface CommentActionOptions {
   documentRef: RefObject<SigmaDocument>;
-  commentAuthor: { readonly name: string };
+  /** `userId` はサインインしている (共有アカウントがある) ときだけ。コメントに書いた人の ID として残す。 */
+  commentAuthor: { readonly name: string; readonly userId?: string };
   pendingCommentAnchor: SigmaCommentAnchor | null;
   pendingCommentDraft: InlineNode[];
   commentReplyDrafts: Record<string, InlineNode[]>;
@@ -66,6 +67,7 @@ export function useCommentActions({
     const body = pendingCommentDraft;
     const result = createCommentThread(documentRef.current, {
       anchor: pendingCommentAnchor,
+      ...(commentAuthor.userId ? { authorId: commentAuthor.userId } : {}),
       authorName: commentAuthor.name,
       body,
       color: defaultCommentColor,
@@ -78,7 +80,7 @@ export function useCommentActions({
     const summary = inlineNodesToCommentText(body);
     setStatusMessage(summary ? tEditor("status.commentAddedWith", { summary: summary.slice(0, 24) }) : tEditor("status.commentAdded"));
     onCommentSubmittedRef.current(result.threadId, body, pendingCommentAnchor);
-  }, [commentAuthor.name, commitDocumentChange, defaultCommentColor, documentRef, mutationPorts, onCommentSubmittedRef, pendingCommentAnchor, pendingCommentDraft, setActiveCommentThreadId, setCommentsPanelOpen, setPendingCommentAnchor, setPendingCommentDraft, setStatusMessage, tEditor]);
+  }, [commentAuthor.name, commentAuthor.userId, commitDocumentChange, defaultCommentColor, documentRef, mutationPorts, onCommentSubmittedRef, pendingCommentAnchor, pendingCommentDraft, setActiveCommentThreadId, setCommentsPanelOpen, setPendingCommentAnchor, setPendingCommentDraft, setStatusMessage, tEditor]);
 
   const replyToCommentThread = useCallback((threadId: string) => {
     const draft = commentReplyDrafts[threadId] ?? [];
@@ -87,6 +89,7 @@ export function useCommentActions({
     const body = draft;
     const result = appendCommentMessage(documentRef.current, {
       threadId,
+      ...(commentAuthor.userId ? { authorId: commentAuthor.userId } : {}),
       authorName: commentAuthor.name,
       body,
     }, mutationPorts);
@@ -95,7 +98,7 @@ export function useCommentActions({
     setActiveCommentThreadId(threadId);
     setStatusMessage(tEditor("status.replyAdded"));
     if (result.anchor) onCommentSubmittedRef.current(threadId, body, result.anchor);
-  }, [commentAuthor.name, commentReplyDrafts, commitDocumentChange, documentRef, mutationPorts, onCommentSubmittedRef, setActiveCommentThreadId, setCommentReplyDraft, setStatusMessage, tEditor]);
+  }, [commentAuthor.name, commentAuthor.userId, commentReplyDrafts, commitDocumentChange, documentRef, mutationPorts, onCommentSubmittedRef, setActiveCommentThreadId, setCommentReplyDraft, setStatusMessage, tEditor]);
 
   const updateCommentResolved = useCallback((threadId: string, resolved: boolean) => {
     const result = setCommentThreadResolved(documentRef.current, { threadId, resolved }, mutationPorts);
@@ -132,12 +135,13 @@ export function useCommentActions({
       threadId,
       messageId,
       emoji,
+      ...(commentAuthor.userId ? { authorId: commentAuthor.userId } : {}),
       authorName: commentAuthor.name,
     }, mutationPorts);
     commitDocumentChange(result.document);
     setActiveCommentThreadId(threadId);
     setStatusMessage(tEditor("status.reactionUpdated"));
-  }, [commentAuthor.name, commitDocumentChange, documentRef, mutationPorts, setActiveCommentThreadId, setStatusMessage, tEditor]);
+  }, [commentAuthor.name, commentAuthor.userId, commitDocumentChange, documentRef, mutationPorts, setActiveCommentThreadId, setStatusMessage, tEditor]);
 
   const deleteCommentThread = useCallback((threadId: string) => {
     const result = removeCommentThread(documentRef.current, { threadId }, mutationPorts);

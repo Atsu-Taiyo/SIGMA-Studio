@@ -5,10 +5,11 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 import { CommentAuthorAvatar } from "@/components/editor/CommentAuthorAvatar";
 import { CommentThreadsPanel, type CommentThreadsPanelProps } from "@/components/editor/CommentThreadsPanel";
-import { getCommentThreadParticipants } from "@/components/editor/comment-participants";
+import { getCommentThreadParticipants, type CommentAuthorContext } from "@/components/editor/comment-participants";
+import { useCommentPeopleDirectory } from "@/components/editor/comment-people";
 import { useCommentRailLayout } from "@/components/editor/comment-rail/use-comment-rail-layout";
 import { IconButton } from "@/components/ui/Button";
-import type { SigmaDocument } from "@/features/document";
+import type { SigmaCommentThread, SigmaDocument } from "@/features/document";
 import { useT } from "@/lib/i18n/react";
 import styles from "./CommentRail.module.css";
 
@@ -16,6 +17,7 @@ import styles from "./CommentRail.module.css";
 const FOLLOW_TOP_OFFSET_PX = 42;
 /** アイコンの並びに出すコメントの数。これを超えたぶんは「+N」にまとめる。 */
 const COMPACT_THREAD_LIMIT = 6;
+const NO_THREADS: SigmaCommentThread[] = [];
 
 type CommentRailPanelProps = Omit<
   CommentThreadsPanelProps,
@@ -73,7 +75,7 @@ export function CommentRail({ document, panel, open, whiteboard, onPeekHostChang
     if (!expandedCompact) return;
     const collapse = (event: Event) => {
       const target = event.target instanceof Element ? event.target : null;
-      if (target?.closest("[data-comment-rail], [role='menu'], [role='dialog']")) return;
+      if (target?.closest("[data-comment-rail], [data-comment-popover], [role='menu'], [role='dialog']")) return;
       setExpanded(false);
     };
     const onKey = (event: KeyboardEvent) => {
@@ -133,6 +135,17 @@ export function CommentRail({ document, panel, open, whiteboard, onPeekHostChang
   }, [activeThreadId, showCards]);
 
   const compactThreads = orderedThreads.slice(0, COMPACT_THREAD_LIMIT);
+  // 小さなアイコンの並びも、書いた人の今のアイコンで描く (広げたカードは CommentThreadsPanel が引く)。
+  const people = useCommentPeopleDirectory({
+    threads: compactActive ? compactThreads : NO_THREADS,
+    currentUserId: panel.currentUserId,
+    author: panel.author,
+    loadPeople: panel.loadCommentPeople,
+  });
+  const authorContext = useMemo<CommentAuthorContext>(
+    () => ({ currentAuthor: panel.author, currentUserId: panel.currentUserId, people }),
+    [panel.author, panel.currentUserId, people],
+  );
   const hiddenThreadCount = orderedThreads.length - compactThreads.length;
   const openThread = (threadId: string | null) => {
     setExpanded(true);
@@ -162,7 +175,7 @@ export function CommentRail({ document, panel, open, whiteboard, onPeekHostChang
       {hasComments && compactActive && (
         <div className={styles.compactList}>
           {compactThreads.map((thread) => {
-            const [first] = getCommentThreadParticipants(thread, panel.author);
+            const [first] = getCommentThreadParticipants(thread, authorContext);
             return (
               <button
                 key={thread.id}

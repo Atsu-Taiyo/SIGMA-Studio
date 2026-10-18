@@ -1,8 +1,8 @@
-import type { SigmaCommentAgent, SigmaCommentThread } from "@/features/document";
+import type { SigmaCommentAgent, SigmaCommentMessage, SigmaCommentThread } from "@/features/document";
 
 /** コメントのスレッドで発言した人 (AI を含む)。 */
 export interface CommentParticipant {
-  /** 同じ人を1人にまとめる鍵。人は名前、AI は名前と提供元。 */
+  /** 同じ人を1人にまとめる鍵。人は共有アカウントの ID (無ければ名前)、AI は名前と提供元。 */
   key: string;
   name: string;
   avatarUrl?: string | null;
@@ -22,27 +22,60 @@ export interface CommentParticipantStackLayout {
   hiddenCount: number;
 }
 
+/** 差出人を決めるための、画面側の手がかり。 */
+export interface CommentAuthorContext {
+  /** 今の自分 (名前とアイコンは画面が持つ最新のもの)。 */
+  currentAuthor: { name: string; avatarUrl?: string | null };
+  currentUserId?: string;
+  /** 共有している相手の、今の名前とアイコン (`useCommentPeopleDirectory`)。 */
+  people?: ReadonlyMap<string, { name: string; avatarUrl?: string | null }>;
+}
+
 /**
- * スレッドの発言者を、最初に発言した順に重複なく並べる。差出人名の無いメッセージは
- * 現在のユーザーの発言として扱う (保存側と同じ約束)。AI の差出人にユーザーの画像は貸さない。
+ * メッセージの差出人。共有アカウントの ID (`authorId`) を持つものは、今の名前とアイコンで描く
+ * (名前やアイコンを変えたら過去のコメントにも出る)。引けない人は保存してある名前で、頭文字で描く。
+ * ID を持たない古いメッセージは、差出人名の無いものを今のユーザーとして扱い (保存側と同じ約束)、
+ * 名前が今のユーザーと同じときだけ今のアイコンを貸す。AI の差出人にユーザーの画像は貸さない。
  */
+export function resolveCommentAuthor(
+  message: Pick<SigmaCommentMessage, "authorId" | "authorName" | "agent">,
+  context: CommentAuthorContext,
+): CommentParticipant {
+  const { currentAuthor, currentUserId, people } = context;
+  if (message.agent) {
+    const name = message.authorName || message.agent.vendor;
+    return { key: `agent:${name}:${message.agent.vendor}`, name, avatarUrl: null, agent: message.agent };
+  }
+  if (message.authorId) {
+    const person = message.authorId === currentUserId ? currentAuthor : people?.get(message.authorId);
+    return {
+      key: `user:${message.authorId}`,
+      name: person?.name || message.authorName || currentAuthor.name,
+      avatarUrl: person?.avatarUrl ?? null,
+      agent: null,
+    };
+  }
+  const name = message.authorName || currentAuthor.name;
+  return {
+    key: `name:${name}`,
+    name,
+    avatarUrl: name === currentAuthor.name ? currentAuthor.avatarUrl ?? null : null,
+    agent: null,
+  };
+}
+
+/** スレッドの発言者を、最初に発言した順に重複なく並べる。 */
 export function getCommentThreadParticipants(
   thread: Pick<SigmaCommentThread, "messages">,
-  currentAuthor: { name: string; avatarUrl?: string | null },
+  context: CommentAuthorContext,
 ): CommentParticipant[] {
   const seen = new Set<string>();
   const participants: CommentParticipant[] = [];
   for (const message of thread.messages) {
-    const name = message.authorName || currentAuthor.name;
-    const key = `${name}:${message.agent?.vendor ?? ""}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    participants.push({
-      key,
-      name,
-      avatarUrl: !message.agent && name === currentAuthor.name ? currentAuthor.avatarUrl ?? null : null,
-      agent: message.agent ?? null,
-    });
+    const participant = resolveCommentAuthor(message, context);
+    if (seen.has(participant.key)) continue;
+    seen.add(participant.key);
+    participants.push(participant);
   }
   return participants;
 }

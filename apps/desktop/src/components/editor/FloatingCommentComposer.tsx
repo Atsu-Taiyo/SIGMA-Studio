@@ -3,6 +3,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
+import { CommentAuthorAvatar } from "@/components/editor/CommentAuthorAvatar";
 import { PendingCommentComposer, type CommentPanelAuthor } from "@/components/editor/CommentThreadsPanel";
 import type { InlineNode, SigmaCommentAnchor, SigmaDocument } from "@/features/document";
 import { isInlineBodyEmpty } from "@/lib/comments";
@@ -23,6 +24,8 @@ export interface FloatingCommentComposerProps {
   draft: InlineNode[];
   document: SigmaDocument;
   loadMentionCandidates?: LoadCommentMentionCandidates;
+  /** 「Claude に送信」を出すか (AI が動く画面だけ)。 */
+  aiAgentsAvailable?: boolean;
   onDraftChange: (value: InlineNode[]) => void;
   onSubmit: () => void;
   onCancel: () => void;
@@ -41,6 +44,7 @@ export function FloatingCommentComposer({
   draft,
   document,
   loadMentionCandidates,
+  aiAgentsAvailable = false,
   onDraftChange,
   onSubmit,
   onCancel,
@@ -86,7 +90,7 @@ export function FloatingCommentComposer({
       const target = event.target instanceof Element ? event.target : null;
       // メンションの候補や数式の入力など、入力欄から開いたものの中は外側に数えない。
       if (!target || rootRef.current?.contains(target)
-        || target.closest("[role='menu'], [role='listbox'], [role='dialog'], .ML__keyboard, .ML__popover")) {
+        || target.closest("[data-comment-popover], [role='menu'], [role='listbox'], [role='dialog'], .ML__keyboard, .ML__popover")) {
         return;
       }
       onDock();
@@ -116,22 +120,29 @@ export function FloatingCommentComposer({
   return createPortal(
     <section
       ref={rootRef}
-      className={`comment-compose-card pending ${styles.root}`}
+      className={styles.root}
       data-floating-comment-composer="true"
       aria-label={t("comment.addComment")}
       style={{ left: `${position.left}px`, top: `${position.top}px` }}
     >
-      <PendingCommentComposer
-        author={author}
-        anchor={anchor}
-        draft={draft}
-        mathFractionSizing={document.metadata.mathFractionSizing}
-        loadMentionCandidates={loadMentionCandidates}
-        autoFocus
-        onDraftChange={onDraftChange}
-        onCancel={onCancel}
-        onSubmit={onSubmit}
-      />
+      {/* 書いている人のピン (Figma・Claude のコメントと同じ形)。とがった角が選んだところを指す。 */}
+      <span className={styles.pin} aria-hidden="true">
+        <CommentAuthorAvatar name={author.name} avatarUrl={author.avatarUrl} />
+      </span>
+      <div className={`comment-compose-card pending ${styles.card}`}>
+        <PendingCommentComposer
+          anchor={anchor}
+          draft={draft}
+          mathFractionSizing={document.metadata.mathFractionSizing}
+          loadMentionCandidates={loadMentionCandidates}
+          aiAgentsAvailable={aiAgentsAvailable}
+          floating
+          autoFocus
+          onDraftChange={onDraftChange}
+          onCancel={onCancel}
+          onSubmit={onSubmit}
+        />
+      </div>
     </section>,
     window.document.body,
   );

@@ -33,10 +33,14 @@ import type {
 } from "../../src/features/collaboration/model/bridge";
 import type { SharedApproval } from "../../src/features/collaboration/model/approval";
 import { CollaborationAuth, collaborationConfig } from "./auth";
+import { CollaborationProfiles } from "./profiles";
 import { CollaborationHttpError, readResponseBytes, readResponseJson, responseError, retryDelay, syncFailureStatus } from "./transport";
 import { durableWrite, SharedDocumentJournal, type JournalSummary } from "./journal";
 import { logLedgerEvent } from "../ledger-log";
 import { isRemoteId, validateAcknowledgements, validateApproval, validateDocumentIdentity, validateSnapshot, validateSync } from "./response-validation";
+
+/** `info()` が自分のプロフィールの初回の取得を待つ上限。 */
+const PROFILE_INFO_WAIT_MS = 1500;
 
 interface Session {
   journal: SharedDocumentJournal;
@@ -83,6 +87,8 @@ interface Registry {
 export class CollaborationSessions {
   readonly directory: string;
   readonly auth: CollaborationAuth | null;
+  /** 自分で決めた名前とアイコン、共有している相手の名前とアイコン。 */
+  readonly profiles: CollaborationProfiles;
   private registry: Registry = { version: 1, files: {} };
   private sessions = new Map<string, Session>();
   /**
@@ -109,6 +115,10 @@ export class CollaborationSessions {
     this.directory = path.join(userData, "collaboration-v1");
     const config = collaborationConfig();
     this.auth = config ? new CollaborationAuth(this.directory, config) : null;
+    this.profiles = new CollaborationProfiles(
+      (route, init) => this.requestRaw(route, init),
+      () => this.auth?.user()?.id ?? null,
+    );
   }
   async initialize(): Promise<void> {
     await fs.mkdir(this.directory, { recursive: true, mode: 0o700 });
@@ -403,13 +413,24 @@ export class CollaborationSessions {
   }
   async info(): Promise<CollaborationInfo> {
     const user = this.auth?.user() ?? null;
+    // 本人が決めた名前とアイコン。初回だけ取りに行くが、画面の起動を待たせないよう短く切り上げる
+    // (間に合わなければ Google の名前とアイコンで出し、取れたぶんは次の info から使う)。
+    const profile = user
+      ? (this.profiles.cached() ?? await Promise.race([
+          this.profiles.current(),
+          new Promise<null>((resolve) => setTimeout(() => resolve(null), PROFILE_INFO_WAIT_MS)),
+        ]))
+      : null;
+    const displayName = profile?.displayName ?? user?.displayName;
     return {
       configured: Boolean(this.auth),
       user: user ? {
         actorId: user.id,
         ...(user.email ? { email: user.email } : {}),
-        ...(user.displayName ? { displayName: user.displayName } : {}),
+        ...(displayName ? { displayName } : {}),
+        ...(user.displayName && displayName !== user.displayName ? { providerDisplayName: user.displayName } : {}),
         ...(user.avatarUrl ? { avatarUrl: user.avatarUrl } : {}),
+        ...(profile && profile.avatarVersion > 0 ? { avatarVersion: profile.avatarVersion } : {}),
       } : null,
       sessions: user
         ? [...this.sessions.keys()]
@@ -1210,6 +1231,7 @@ export class CollaborationSessions {
   }
   async signOut(): Promise<void> {
     await this.auth?.signOut();
+    this.profiles.clear();
     this.catalogRoles = null;
     for (const [fileId, session] of this.sessions) {
       session.socket?.close();

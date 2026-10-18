@@ -19,8 +19,23 @@ export interface SessionInfo {
 export interface CollaborationProfile {
   actorId: string;
   email?: string;
+  /** 本人が決めた名前があればそれ、なければ Google の名前。 */
   displayName?: string;
+  /** 本人が名前を決めているときの Google の名前。名前を変える前のコメントを自分のものと見分けるのに使う。 */
+  providerDisplayName?: string;
+  /** Google のアイコン。 */
   avatarUrl?: string;
+  /** 本人が決めたアイコンの版 (無ければ Google のアイコン)。表示は `collaborationAvatarSource`。 */
+  avatarVersion?: number;
+}
+/** 共有サーバーの `/profile` `/profiles/lookup` の 1 人ぶん。 */
+export interface CollaborationProfileRecord {
+  userId: string;
+  /** 本人が決めた名前。無ければ `providerDisplayName` (Google の名前) で表示する。 */
+  displayName?: string;
+  providerDisplayName?: string;
+  avatarVersion: number;
+  providerAvatarUrl?: string;
 }
 export interface PresenceParticipant {
   clientId: string;
@@ -116,5 +131,15 @@ export interface CollaborationBridge {
   end(fileId: string, action: "stop" | "delete" | "leave"): Promise<void>;
   copy(fileId: string): Promise<{ fileId: string }>;
   asset(fileId: string, assetId: string, source?: string): Promise<string>;
+  /** 自分のプロフィール (名前・アイコン) を取り直す。 */
+  profile?(): Promise<CollaborationProfileRecord | null>;
+  /** 自分の名前を変える。null や空白だけなら Google の名前へ戻す。 */
+  updateProfile?(input: { displayName: string | null }): Promise<CollaborationProfileRecord>;
+  /** 自分のアイコンを変える (256px 四方の WebP/PNG/JPEG)。 */
+  setAvatar?(bytes: Uint8Array, type: "image/webp" | "image/png" | "image/jpeg"): Promise<CollaborationProfileRecord>;
+  /** 自分のアイコンをやめて Google のアイコンへ戻す。 */
+  clearAvatar?(): Promise<CollaborationProfileRecord>;
+  /** 共有している相手の名前とアイコン。見えない人は返らない。 */
+  profiles?(userIds: string[]): Promise<CollaborationProfileRecord[]>;
   onEvent(listener: (event: CollaborationEvent) => void): () => void;
 }
