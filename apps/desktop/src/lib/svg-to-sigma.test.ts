@@ -166,6 +166,9 @@ describe("SVG to SigmaDoc shapes", () => {
 });
 
 const HEAD = '<defs><marker id="head" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#111111"/></marker></defs>';
+/** The start half of a double-headed arrow written without `auto-start-reverse`: the head is drawn pointing back along -x. */
+const START = '<marker id="start" viewBox="0 0 10 10" refX="1" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M10,0 L0,5 L10,10 z" fill="#111111"/></marker>';
+const withStart = (defs: string, start = START) => defs.replace("</defs>", `${start}</defs>`);
 
 describe("SVG markers become the line's own arrow heads", () => {
   it("converts a marker on a straight line, landing the head's tip where the marker's ink ends", () => {
@@ -195,6 +198,52 @@ describe("SVG markers become the line's own arrow heads", () => {
       points: [{ x: 0, y: 0 }, { x: expect.closeTo(81.4, 5), y: 0 }, { x: expect.closeTo(81.4, 5), y: expect.closeTo(61.4, 5) }] } });
   });
 
+  it("converts a double-headed arrow whose start marker is drawn pointing back under orient=\"auto\" (#234)", () => {
+    const result = convertSvgImageToSigma(fixture(`${withStart(HEAD)}<line x1="20" y1="60" x2="120" y2="60" stroke="#111111" stroke-width="2" marker-start="url(#start)" marker-end="url(#head)"/>`), "image");
+    expect(result).toMatchObject({ convertedCount: 1, preservedCount: 0 });
+    expect(result.snapshot.assets).toEqual({});
+    // Each tip is one marker unit (0.7 x the 2px stroke) out past its vertex, the start one to the left.
+    expect(result.snapshot.shapes).toMatchObject([{ id: "image", type: "line", x: expect.closeTo(48.6, 5), y: 110,
+      props: { kind: "polyline", arrowheadStart: "triangle", arrowheadEnd: "triangle", points: [{ x: 0, y: 0 }, { x: expect.closeTo(102.8, 5), y: 0 }] } }]);
+    expect(isValidOverlaySnapshot(result.snapshot)).toBe(true);
+  });
+
+  const V = (id: string, orient: string, d: string, refX: number) =>
+    `<marker id="${id}" viewBox="0 0 10 10" refX="${refX}" refY="5" markerWidth="8" markerHeight="8" orient="${orient}"><path d="${d}" fill="none" stroke="#111111"/></marker>`;
+  it.each([
+    ["one marker under auto-start-reverse", HEAD.replace('orient="auto"', 'orient="auto-start-reverse"'), "head", "triangle",
+      '<line x1="20" y1="60" x2="180" y2="60"/>'],
+    ["open V heads, the start one drawn pointing back", `<defs>${V("head", "auto", "M0,1 L10,5 L0,9", 10)}${V("start", "auto", "M10,1 L0,5 L10,9", 0)}</defs>`, "start", "arrow",
+      '<line x1="20" y1="60" x2="180" y2="60"/>'],
+    ["polygons in markers without a viewBox", '<defs><marker id="head" markerWidth="5" markerHeight="3.5" refX="5" refY="1.75" orient="auto"><polygon points="0 0, 5 1.75, 0 3.5" fill="#111111"/></marker>' +
+      '<marker id="start" markerWidth="5" markerHeight="3.5" refX="0" refY="1.75" orient="auto"><polygon points="5 0, 0 1.75, 5 3.5" fill="#111111"/></marker></defs>', "start", "triangle",
+      '<line x1="20" y1="60" x2="180" y2="60"/>'],
+    ["numeric orients along the line", withStart(HEAD.replace('orient="auto"', 'orient="0"'), START.replace('orient="auto"', 'orient="0"')), "start", "triangle",
+      '<line x1="20" y1="60" x2="180" y2="60"/>'],
+    ["a quadratic curve, the start head drawn pointing back", withStart(HEAD), "start", "triangle", '<path d="M20 90 Q100 10 180 90"/>'],
+    ["a polyline, the start head drawn pointing back", withStart(HEAD), "start", "triangle", '<polyline points="20,20 100,20 100,100"/>'],
+  ])("converts a double-headed arrow written with %s", (_name, defs, start, head, element) => {
+    const marked = element.replace("/>", ` fill="none" stroke="#111111" stroke-width="2" marker-start="url(#${start})" marker-end="url(#head)"/>`);
+    const result = convertSvgImageToSigma(fixture(`${defs}${marked}`), "image");
+    expect(result).toMatchObject({ convertedCount: 1, preservedCount: 0 });
+    expect(result.snapshot.shapes[0]).toMatchObject({ type: "line", props: { arrowheadStart: head, arrowheadEnd: head } });
+  });
+
+  it("follows a numeric orient where it lies along the line, including the default orient of 0", () => {
+    const right = convertSvgImageToSigma(fixture(`${HEAD.replace(' orient="auto"', "")}<line x1="20" y1="60" x2="120" y2="60" stroke="#111111" stroke-width="2" marker-end="url(#head)"/>`), "image");
+    expect(right.snapshot.shapes[0]).toMatchObject({ type: "line", props: { arrowheadEnd: "triangle", points: [{ x: 0, y: 0 }, { x: expect.closeTo(101.4, 5), y: 0 }] } });
+    const down = convertSvgImageToSigma(fixture(`${HEAD.replace('orient="auto"', 'orient="90deg"')}<line x1="20" y1="20" x2="20" y2="100" stroke="#111111" stroke-width="2" marker-end="url(#head)"/>`), "image");
+    expect(down.snapshot.shapes[0]).toMatchObject({ type: "line", props: { arrowheadEnd: "triangle", points: [{ x: 0, y: 0 }, { x: 0, y: expect.closeTo(81.4, 5) }] } });
+  });
+
+  it("puts a dot at a start where orient=\"auto\" draws it, which is into the line when the dot sits past refX", () => {
+    const dot = '<defs><marker id="dot" viewBox="0 0 10 10" refX="3" refY="5" markerWidth="5" markerHeight="5" orient="auto"><circle cx="5" cy="5" r="4" fill="#111111"/></marker></defs>';
+    const result = convertSvgImageToSigma(fixture(`${dot}<line x1="20" y1="60" x2="120" y2="60" stroke="#111111" stroke-width="2" marker-start="url(#dot)" marker-end="url(#dot)"/>`), "image");
+    // One marker unit is 0.5 x the 2px stroke, so each dot's centre is 2px along the marker's +x: into the line at the start, out of it at the end.
+    expect(result.snapshot.shapes[0]).toMatchObject({ type: "line", x: expect.closeTo(52, 5),
+      props: { arrowheadStart: expect.stringMatching(/^dot/), arrowheadEnd: expect.stringMatching(/^dot/), points: [{ x: 0, y: 0 }, { x: expect.closeTo(100, 5), y: 0 }] } });
+  });
+
   it("converts curves without a head, but only a single quadratic one", () => {
     const result = convertSvgImageToSigma(fixture('<path d="M20 90 Q60 30 120 80 M20 20 q30 20 60 0" stroke="#000" fill="none"/>'), "image");
     expect(result).toMatchObject({ convertedCount: 2, preservedCount: 0 });
@@ -220,6 +269,11 @@ describe("SVG markers become the line's own arrow heads", () => {
     ["a color the head cannot take", HEAD.replace('fill="#111111"', 'fill="#ff0000"'), 'marker-end="url(#head)"'],
     ["a marker in the middle of a path", HEAD, 'marker-mid="url(#head)" marker-end="url(#head)"'],
     ["a head that points into the line at a start", HEAD, 'marker-start="url(#head)"'],
+    ["a head drawn pointing back under auto-start-reverse, into the line at both ends",
+      withStart(HEAD, START.replace('orient="auto"', 'orient="auto-start-reverse"')), 'marker-start="url(#start)" marker-end="url(#start)"'],
+    ["a head drawn pointing back at an end", withStart(HEAD), 'marker-end="url(#start)"'],
+    ["a numeric orient across the line", HEAD.replace('orient="auto"', 'orient="90"'), 'marker-end="url(#head)"'],
+    ["a numeric orient that points into the line", HEAD.replace('orient="auto"', 'orient="180"'), 'marker-end="url(#head)"'],
     ["a marker that is not defined", HEAD, 'marker-end="url(#missing)"'],
   ])("keeps %s as SVG, with the marker definitions", (_name, defs, markers) => {
     const result = convertSvgImageToSigma(fixture(`${defs}<line x1="20" y1="60" x2="120" y2="60" stroke="#111111" stroke-width="2" ${markers}/><rect x="10" y="10" width="20" height="20"/>`), "image");
