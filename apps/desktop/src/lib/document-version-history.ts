@@ -1,8 +1,8 @@
 import type { SigmaDocument } from "@/features/document";
 import { areSigmaDocumentsEquivalent } from "@/lib/document-equivalence";
+import { selectVersionsToDiscard } from "@/lib/document-version-retention";
 
 export const DOCUMENT_VERSION_CAPTURE_INTERVAL_MS = 10 * 60 * 1_000;
-export const MAX_DOCUMENT_VERSIONS = 200;
 
 export type DocumentVersionOrigin = "user" | "ai" | "restore-backup" | "tab-switch" | "app-close";
 
@@ -67,14 +67,20 @@ export function shouldCaptureDocumentVersion(input: {
   return input.nowMs - capturedAt >= (input.intervalMs ?? DOCUMENT_VERSION_CAPTURE_INTERVAL_MS);
 }
 
+/**
+ * 間引きで消す版 (`document-version-retention.ts` の規則)。日の区切りは端末の 0 時にそろえる。
+ * 共有教材の版は共有サーバーが同じ規則で間引く。
+ */
 export function selectDocumentVersionsToPrune(
   versions: readonly DocumentVersionMetadata[],
-  maxVersions = MAX_DOCUMENT_VERSIONS,
+  nowMs: number,
 ): DocumentVersionMetadata[] {
-  if (versions.length <= maxVersions) return [];
-  return [...versions]
-    .sort((a, b) => a.capturedAt.localeCompare(b.capturedAt) || a.revision - b.revision)
-    .slice(0, versions.length - maxVersions);
+  const discarded = new Set(selectVersionsToDiscard(
+    versions.map((version) => ({ id: version.versionId, capturedAt: version.capturedAt })),
+    nowMs,
+    { utcOffsetMinutes: -new Date(nowMs).getTimezoneOffset() },
+  ));
+  return versions.filter((version) => discarded.has(version.versionId));
 }
 
 function localDateKey(date: Date): string {

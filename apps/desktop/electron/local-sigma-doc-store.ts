@@ -336,7 +336,6 @@ export class LocalSigmaDocStore {
    * プロセス起動後の初回保存でだけ実ファイルを数える。
    */
   private readonly blockHashLineCounts = new Map<string, number>();
-  private readonly versionLineCounts = new Map<string, number>();
   private readonly writeIdentity = new LocalStoreWriteIdentity({
     readFile: (filePath) => fs.readFile(filePath, "utf8"),
     stat: (filePath) => fs.stat(filePath),
@@ -741,7 +740,7 @@ export class LocalSigmaDocStore {
         origin: options.origin,
         document: normalized,
       };
-      await this.appendDocumentVersion(this.docVersionsDir, fileId, version, this.versionLineCounts, {
+      await this.appendDocumentVersion(this.docVersionsDir, fileId, version, {
         onIndexTailRecovered: (recovery) => this.logDocumentVersionIndexRecovery(fileId, recovery),
       });
       const versionMetadata: DocumentVersionMetadata = {
@@ -850,7 +849,7 @@ export class LocalSigmaDocStore {
                 capturedAt,
                 origin,
                 document: normalized,
-              }, this.versionLineCounts, {
+              }, {
                 onIndexTailRecovered: (recovery) => this.logDocumentVersionIndexRecovery(fileId, recovery),
               });
               versionCaptured = true;
