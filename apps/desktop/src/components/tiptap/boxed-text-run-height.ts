@@ -209,12 +209,13 @@ export const BoxedTextRunHeightExtension = Extension.create<BoxedTextRunHeightOp
             // 計測窓を毎 update 開くだけ無駄になる。**docChanged では絞らない** — 上のとおり
             // それをやると読み込み時の連結判定が落ちる。直前まで測れていた場合 (囲みを消した
             // 直後) は、空へ更新させるために回す。
-            update: () => {
+            update: (_view, prevState) => {
               if (
                 hasAnyBoxedRunTarget(view.dom)
                 || hasMeasurements(boxedTextRunHeightPluginKey.getState(view.state) ?? emptyBoxedRunHeightState)
               ) {
-                observer.refresh();
+                // 計測自身の dispatch は文書を変えない。文書が変わった依頼だけは計測窓の内側でも捨てきらない。
+                observer.refresh({ documentChanged: view.state.doc !== prevState.doc });
               }
             },
             destroy: () => {
@@ -237,7 +238,7 @@ function observeBoxedTextRunHeightTargets(
   view: EditorView | undefined,
   drawRunFrames: boolean,
   onMeasure: (targets: BoxedRunHeightState) => void,
-): { refresh: () => void; destroy: () => void } {
+): { refresh: (options?: { documentChanged?: boolean }) => void; destroy: () => void } {
   if (typeof window === "undefined") {
     return { refresh: () => undefined, destroy: () => undefined };
   }
@@ -251,7 +252,7 @@ function observeBoxedTextRunHeightTargets(
     onMeasure(targets);
     return drawRunFrames && hasUnframedBoxedRun(targets);
   });
-  const scheduleRefresh = scheduler.refresh;
+  const scheduleRefresh = () => scheduler.refresh();
   const resizeObserver = typeof ResizeObserver === "undefined"
     ? null
     : new ResizeObserver(scheduleRefresh);
@@ -276,7 +277,7 @@ function observeBoxedTextRunHeightTargets(
   scheduleRefresh();
 
   return {
-    refresh: scheduleRefresh,
+    refresh: scheduler.refresh,
     destroy: () => {
       scheduler.destroy();
       resizeObserver?.disconnect();

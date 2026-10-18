@@ -1,4 +1,5 @@
 import { Extension, Mark, mergeAttributes, type Editor } from "@tiptap/core";
+import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import { Plugin, PluginKey } from "@tiptap/pm/state";
 import { Decoration, DecorationSet } from "@tiptap/pm/view";
 
@@ -64,11 +65,11 @@ export const CommentAgentMentionHighlight = Extension.create({
         const decorations: Decoration[] = [];
         doc.descendants((node, position) => {
           if (!node.isTextblock) return true;
-          const text = node.textBetween(0, node.content.size, undefined, "\ufffc");
+          // 数式ノードは占位 (\ufffc) なので、テキスト上の位置と文書上の位置は一致する。
+          const text = textblockMentionText(node);
           let offset = 0;
           for (const part of splitCommentAiMentions(text)) {
             if (part.agent) {
-              // 数式ノードは 1 文字ぶんの占位 (\ufffc) なので、テキスト上の位置と文書上の位置は一致する。
               decorations.push(Decoration.inline(position + 1 + offset, position + 1 + offset + part.text.length, { class: "comment-mention is-agent" }));
             }
             offset += part.text.length;
@@ -85,4 +86,44 @@ export function insertCommentAgentMention(editor: Editor, keyword: string) {
   const range = commentMentionQuery(editor);
   if (!range) return;
   editor.chain().focus().insertContentAt({ from: range.from, to: range.to }, `@${keyword} `).run();
+}
+
+/**
+ * 段落の中身を、文書上の位置と 1 対 1 に対応する文字列にする。数式などの文字でない要素と、
+ * 人へのメンション (`@Claude` さん) は、AI の宛先と取り違えないよう同じ長さの占位に置き換える。
+ */
+function textblockMentionText(block: ProseMirrorNode): string {
+  let text = "";
+  block.forEach((child) => {
+    const person = child.marks.some((mark) => mark.type.name === "commentMention");
+    text += child.isText && !person ? child.text ?? "" : "\ufffc".repeat(child.nodeSize);
+  });
+  return text;
+}
+
+/** 入力欄の先頭に AI への宛先 (`@claude `) を足す。「◯◯に送信」を入れたとき。キャレットは動かさない。 */
+export function prependCommentAgentMention(editor: Editor, keyword: string) {
+  editor.chain().focus().insertContentAt(1, `@${keyword} `, { updateSelection: false }).run();
+}
+
+/** 入力欄から AI への宛先をすべて外す (直後の空白 1 つも)。「◯◯に送信」を外したとき。 */
+export function removeCommentAgentMentions(editor: Editor) {
+  const ranges: { from: number; to: number }[] = [];
+  editor.state.doc.descendants((node, position) => {
+    if (!node.isTextblock) return true;
+    const text = textblockMentionText(node);
+    let offset = 0;
+    for (const part of splitCommentAiMentions(text)) {
+      const start = offset;
+      offset += part.text.length;
+      if (part.agent) {
+        ranges.push({ from: position + 1 + start, to: position + 1 + offset + (text[offset] === " " ? 1 : 0) });
+      }
+    }
+    return false;
+  });
+  if (ranges.length === 0) return;
+  const tr = editor.state.tr;
+  for (const range of ranges.reverse()) tr.delete(range.from, range.to);
+  editor.view.dispatch(tr);
 }

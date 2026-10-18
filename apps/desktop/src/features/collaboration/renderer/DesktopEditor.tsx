@@ -12,6 +12,7 @@ import { RendererDocumentSession } from "./session";
 import { SelectionLinkButton } from "./SelectionLinkButton";
 import { SharingControls } from "./SharingControls";
 import { CollaborationAccountControl } from "./CollaborationAccountControl";
+import { collaborationAvatarSource, collaborationProfileFromRecord } from "../model/profile-avatar";
 import type { CollaborationBridge, CollaborationInfo, SessionInfo } from "../model/bridge";
 
 export async function readCollaborationInfo(
@@ -201,18 +202,40 @@ export function DesktopEditor() {
     />
   );
   const user = info?.user;
+  // Google のアイコンは CSP (img-src) が直接は読ませないので、ヘッダーのアイコンと同じく main の経路から読む。
   const commentIdentity = useMemo(() => user ? {
     userId: user.actorId,
     name: user.displayName || user.email || user.actorId,
-    avatarUrl: user.avatarUrl,
+    avatarUrl: collaborationAvatarSource(user),
   } : undefined, [user]);
+  // 名前とアイコンは、本人が決めたもの (共有サーバーに保存) → Google のもの → メールの順。
+  const loadCommentPeople = useCallback(async (userIds: string[]) => {
+    const bridge = getDesktopBridge()?.collaboration;
+    if (!bridge?.profiles || !user || userIds.length === 0) return [];
+    const records = await bridge.profiles(userIds);
+    return records.flatMap((record) => {
+      const profile = collaborationProfileFromRecord(record);
+      return profile.displayName
+        ? [{ userId: record.userId, name: profile.displayName, avatarUrl: collaborationAvatarSource(profile) }]
+        : [];
+    });
+  }, [user]);
   const loadCommentMentionCandidates = useCallback(async (fileId: string) => {
     const bridge = getDesktopBridge()?.collaboration;
     if (!bridge || !user || !sessions.current.has(fileId)) return [];
-    const members = await bridge.members(fileId);
-    return members.filter((member) => member.user_id !== user.actorId)
-      .map((member) => ({ userId: member.user_id, name: member.email || member.user_id, email: member.email || undefined }));
-  }, [user]);
+    const members = (await bridge.members(fileId)).filter((member) => member.user_id !== user.actorId);
+    const people = new Map((await loadCommentPeople(members.map((member) => member.user_id)).catch(() => []))
+      .map((person) => [person.userId, person]));
+    return members.map((member) => {
+      const person = people.get(member.user_id);
+      return {
+        userId: member.user_id,
+        name: person?.name || member.email || member.user_id,
+        email: member.email || undefined,
+        ...(person?.avatarUrl ? { avatarUrl: person.avatarUrl } : {}),
+      };
+    });
+  }, [loadCommentPeople, user]);
   if (bootError) throw bootError;
   if (!info) return null;
   return (
@@ -221,6 +244,7 @@ export function DesktopEditor() {
       sessionHost={host}
       commentIdentity={commentIdentity}
       loadCommentMentionCandidates={loadCommentMentionCandidates}
+      loadCommentPeople={loadCommentPeople}
       renderDocumentActions={renderActions}
       renderSelectionActions={({ fileId, document, metadata, anchor }) => metadata?.sharing?.state === "active" && metadata.sharing.capabilities.read
         ? <SelectionLinkButton key={`${fileId}:${JSON.stringify(anchor)}`} target={metadata.sharing.target} anchor={anchor} title={document.metadata.title} /> : null}

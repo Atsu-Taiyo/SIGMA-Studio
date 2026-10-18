@@ -174,7 +174,7 @@ describe("document version sidecar", () => {
         capturedAt: "2026-09-01T00:01:00.000Z",
         origin: "ai",
         document: createBlankDocument("追記版"),
-      });
+      }, {}, Date.parse("2026-09-01T00:01:00.000Z"));
       allowTruncate();
 
       await expect(recovering).resolves.toEqual([firstMetadata]);
@@ -222,20 +222,30 @@ describe("document version sidecar", () => {
       .rejects.toBeInstanceOf(DocumentVersionIndexMalformedError);
   });
 
-  it("prunes snapshot files and compacts the index to 200 versions", async () => {
+  it("thins older versions to one per day and removes their snapshot files", async () => {
     const document = createBlankDocument("履歴");
-    for (let index = 0; index < 201; index += 1) {
+    const now = Date.parse("2026-10-18T03:00:00.000Z");
+    const hour = 60 * 60 * 1_000;
+    // Three versions on a day a week ago, then today's version: the earlier two of that day go.
+    const capturedAt = [
+      now - 7 * 24 * hour,
+      now - 7 * 24 * hour + hour,
+      now - 7 * 24 * hour + 2 * hour,
+      now,
+    ];
+    for (const [index, time] of capturedAt.entries()) {
       await appendDocumentVersion(rootDir, "file_1", {
         versionId: `version_${index}`,
         revision: index,
-        capturedAt: new Date(index * 1_000).toISOString(),
+        capturedAt: new Date(time).toISOString(),
         origin: "user",
         document,
-      });
+      }, {}, now);
     }
     const metadata = await readDocumentVersionMetadata(rootDir, "file_1");
-    expect(metadata).toHaveLength(200);
-    expect(metadata[0]?.versionId).toBe("version_1");
+    expect(metadata.map((entry) => entry.versionId)).toEqual(["version_2", "version_3"]);
     await expect(fs.stat(resolveDocumentVersionSnapshotPath(rootDir, "file_1", "version_0"))).rejects.toThrow();
+    await expect(fs.stat(resolveDocumentVersionSnapshotPath(rootDir, "file_1", "version_1"))).rejects.toThrow();
+    await expect(fs.stat(resolveDocumentVersionSnapshotPath(rootDir, "file_1", "version_2"))).resolves.toBeTruthy();
   });
 });

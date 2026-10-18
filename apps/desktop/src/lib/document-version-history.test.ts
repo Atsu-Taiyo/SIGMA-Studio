@@ -85,9 +85,24 @@ describe("document version history policy", () => {
     })).toBe(false);
   });
 
-  it("selects only the oldest versions beyond the cap", () => {
-    const versions = Array.from({ length: 202 }, (_, index) => meta(index, new Date(index * 1_000).toISOString()));
-    expect(selectDocumentVersionsToPrune(versions).map((version) => version.versionId)).toEqual(["version_0", "version_1"]);
+  it("thins versions by the shared retention rule instead of a count cap", () => {
+    const now = Date.parse("2026-10-18T12:00:00+09:00");
+    // 202 versions in the last day are all kept (the old rule dropped the oldest beyond 200).
+    const recent = Array.from({ length: 202 }, (_, index) => meta(index, new Date(now - index * 60_000).toISOString()));
+    expect(selectDocumentVersionsToPrune(recent, now)).toEqual([]);
+    // Two days ago, only the last version of that (local) day survives.
+    const older = [
+      meta(1, "2026-10-16T09:00:00+09:00"),
+      meta(2, "2026-10-16T23:30:00+09:00"),
+      meta(3, "2026-10-18T11:00:00+09:00"),
+    ];
+    const previousOffset = process.env.TZ;
+    process.env.TZ = "Asia/Tokyo";
+    try {
+      expect(selectDocumentVersionsToPrune(older, now).map((version) => version.versionId)).toEqual(["version_1"]);
+    } finally {
+      process.env.TZ = previousOffset;
+    }
   });
 
   it("groups newest first into today, yesterday, and dates", () => {

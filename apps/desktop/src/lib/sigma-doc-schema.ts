@@ -192,6 +192,7 @@ const CommentAnchorSchema: z.ZodType<SigmaCommentAnchor> = z.discriminatedUnion(
 const CommentReactionSchema = z.object({
   id: z.string().min(1),
   emoji: z.string().min(1),
+  authorId: z.string().min(1).max(200).optional(),
   authorName: z.string().optional(),
   createdAt: z.string(),
 });
@@ -203,6 +204,7 @@ const CommentAgentSchema = z.object({
 
 const CommentMessageSchema = z.object({
   id: z.string().min(1),
+  authorId: z.string().min(1).max(200).optional(),
   authorName: z.string().optional(),
   agent: CommentAgentSchema.optional(),
   body: z.array(InlineNodeSchema),

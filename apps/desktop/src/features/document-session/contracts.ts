@@ -36,6 +36,28 @@ export interface RemoteSessionOverlayPresence extends SessionOverlayPresence {
   avatarSource?: string;
 }
 
+/** One saved version of a document whose versions are kept by its session's host (a shared document's server). */
+export interface DocumentSessionVersionEntry {
+  versionId: string;
+  capturedAt: string;
+  /** `auto`: kept while it was being edited. `manual`: saved by hand. `restore`: the state just before a restore. */
+  kind: "auto" | "manual" | "restore";
+}
+
+/**
+ * The versions a session's host keeps (#244). A shared document's versions live on its server, not in the
+ * device's version history, so the history panel reads them here. Documents without it use the device's history.
+ */
+export interface DocumentSessionVersionHistory {
+  /** Newest first. */
+  list(): Promise<DocumentSessionVersionEntry[]>;
+  get(versionId: string): Promise<SigmaDocument | null>;
+  /** Whether this user may put everyone's document back to a version. Everyone may look. */
+  canRestore(): boolean;
+  /** Puts everyone's document back to the version. The restored document arrives as a new session. */
+  restore(versionId: string): Promise<void>;
+}
+
 /** Host-neutral editing authority. Public editors need neither cloud nor Yjs. */
 export interface DocumentSession {
   readonly writable: boolean;
@@ -56,6 +78,8 @@ export interface DocumentSession {
   readAssetSource?(source: string): Promise<string>;
   assetSourceVersion?(): number;
   subscribeAssets?(listener: () => void): () => void;
+  /** Versions kept by the host instead of the device's version history. */
+  readonly versionHistory?: DocumentSessionVersionHistory;
 }
 export interface DocumentSessionHost {
   /** Keep a mounted detached document current until its pane is removed. */

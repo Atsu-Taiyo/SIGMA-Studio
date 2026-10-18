@@ -838,6 +838,8 @@
    影の強さだけで前後関係を出す。 */
 .comment-compose-card,
 .comment-thread-card {
+  /* 本文・引用・リアクションは差出人の名前の位置に揃える (アイコン 28px + 間 8px)。 */
+  --comment-body-indent: 36px;
   position: absolute;
   left: 0;
   display: flex;
@@ -883,8 +885,7 @@
   opacity: 0.72;
 }
 
-.comment-thread-card-header,
-.comment-composer-actions {
+.comment-thread-card-header {
   display: flex;
   align-items: center;
   gap: 6px;
@@ -956,8 +957,21 @@
 }
 
 .comment-author-avatar.image {
-  background-position: center;
-  background-size: cover;
+  overflow: hidden;
+  background: #e5e7eb;
+}
+
+.comment-author-avatar.image img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+/* 姓名の頭文字 2 つ (AK) は、1 文字と同じ丸に収まるよう少し小さく詰める。 */
+.comment-author-avatar[data-initials="2"] {
+  font-size: 10.5px;
+  letter-spacing: -0.02em;
 }
 
 /* AI が書いたコメントのアバター。地色は提供元の色 (インラインstyle) で、
@@ -1033,8 +1047,8 @@
   white-space: nowrap;
 }
 
-.comment-author-meta span {
-  margin-left: auto;
+/* 時刻は名前のすぐ右 (Figma・Claude と同じ)。解決ボタンは見出しの右端に別に置く。 */
+.comment-time {
   color: #94a3b8;
   font-size: 11px;
   font-weight: 600;
@@ -1118,25 +1132,23 @@
   color: #b91c1c;
 }
 
-/* 「何に付いたコメントか」のチップ。Figma には無い情報だが、この製品の
-   コメントは本文・数式・図形のどれにも刺さるので、対象の種別は必ず見せる。 */
-.comment-anchor-label {
+/* 本文を見ても分からない状態 (対象なし・解決済み) だけを、本文の位置に揃えて小さく出す。
+   「ブロック」「図形」のような付け先の種別は、本文のハイライトで分かるので出さない。 */
+.comment-thread-status {
   display: flex;
   align-items: center;
   gap: 6px;
-  margin-top: -2px;
+  margin-top: -4px;
+  padding-left: var(--comment-body-indent);
 }
 
-.comment-anchor-label > span {
-  padding: 2px 8px;
-  border-radius: 999px;
-  color: #475569;
-  background: #f1f5f9;
+.comment-thread-status > span {
+  color: #94a3b8;
   font-size: 10.5px;
   font-weight: 700;
 }
 
-.comment-anchor-label em {
+.comment-thread-status em {
   padding: 2px 8px;
   border-radius: 999px;
   color: #047857;
@@ -1144,6 +1156,10 @@
   font-size: 10.5px;
   font-style: normal;
   font-weight: 700;
+}
+
+.comment-thread-card > .comment-anchor-quote {
+  margin-left: var(--comment-body-indent);
 }
 
 .comment-anchor-quote {
@@ -1179,6 +1195,11 @@
   position: static;
 }
 
+.comment-message > p,
+.comment-message > .comment-reaction-bar {
+  padding-left: var(--comment-body-indent);
+}
+
 .comment-message p {
   margin: 0;
   overflow-wrap: anywhere;
@@ -1196,7 +1217,9 @@
 }
 
 .comment-message.reply {
-  gap: 6px;
+  /* 返信のアイコンは 24px。 */
+  --comment-body-indent: 32px;
+  gap: 4px;
   padding-top: 2px;
   animation: comment-message-enter 180ms ease-out;
 }
@@ -1294,20 +1317,22 @@
   gap: 8px;
 }
 
+/* 折りたたんだ返信・「返信する」。本文と同じ位置に揃えた、地の無い静かな行。 */
 .comment-reply-summary {
   display: inline-flex;
   width: fit-content;
-  max-width: 100%;
+  max-width: calc(100% - var(--comment-body-indent));
   align-items: center;
-  gap: 7px;
-  margin-top: -2px;
-  padding: 4px 9px 4px 5px;
+  gap: var(--space-sm);
+  margin-top: -4px;
+  margin-left: calc(var(--comment-body-indent) - var(--space-xs));
+  padding: var(--space-xs);
   border: 0;
-  border-radius: 999px;
-  color: #2563eb;
-  background: #f1f5f9;
+  border-radius: 8px;
+  color: #555555;
+  background: transparent;
   font-size: 12px;
-  font-weight: 760;
+  font-weight: 700;
   text-align: left;
   cursor: pointer;
 }
@@ -1355,25 +1380,11 @@
 
 .comment-reply-summary:hover,
 .comment-reply-summary:focus-visible {
-  color: #1d4ed8;
-  background: #e2e8f0;
+  color: #111111;
+  background: #f1f1f1;
   outline: none;
 }
 
-.comment-reply-composer .comment-author-line {
-  grid-template-columns: 26px minmax(0, 1fr);
-  gap: 8px;
-}
-
-.comment-reply-composer .comment-author-avatar {
-  width: 26px;
-  height: 26px;
-  font-size: 12px;
-}
-
-.comment-reply-composer .comment-author-meta strong {
-  font-size: 12px;
-}
 
 .comment-reaction-bar {
   position: relative;
@@ -1582,26 +1593,36 @@
   }
 }
 
-.comment-rich-text-shell {
-  min-height: 56px;
-  border: 1px solid transparent;
-  border-radius: 14px;
-  background: #f1f5f9;
-  transition: background 120ms ease, border-color 120ms ease;
+/* コメントの入力欄 (新しいコメント・返信・編集で共通)。Figma・Claude のコメントと同じく、枠の中に
+   本文を書き、下の段の右端の丸いボタンで送る。左下は「Claude に送信」の切り替え。 */
+.comment-composer {
+  border: 1px solid rgba(15, 23, 42, 0.12);
+  border-radius: 12px;
+  background: #ffffff;
+  transition: border-color 120ms ease, box-shadow 120ms ease;
 }
 
-.comment-rich-text-shell:focus-within {
-  border-color: rgba(37, 99, 235, 0.35);
-  background: #ffffff;
+.comment-composer:focus-within {
+  border-color: rgba(37, 99, 235, 0.55);
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12);
+}
+
+.comment-rich-text-shell {
+  display: flex;
+  flex-direction: column;
 }
 
 .comment-rich-text-editor {
-  min-height: 52px;
-  padding: 10px 14px;
+  /* 長いコメントは欄の中でスクロールし、カードを画面の外まで伸ばさない。 */
+  max-height: 220px;
+  min-height: 22px;
+  overflow-y: auto;
+  padding: var(--space-sm) var(--space-md) var(--space-xs);
   outline: none;
   color: #111827;
   font-size: 13px;
   line-height: 1.55;
+  overflow-wrap: anywhere;
 }
 
 .comment-rich-text-editor p {
@@ -1616,20 +1637,116 @@
   pointer-events: none;
 }
 
-.comment-composer-actions {
-  justify-content: flex-end;
+.comment-composer-toolbar {
+  display: flex;
+  min-height: 36px;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-sm);
+  padding: var(--space-xs) var(--space-xs) var(--space-xs) var(--space-md);
 }
 
-.comment-composer-actions .button {
+.comment-composer-buttons {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: var(--space-xs);
+}
+
+/* 送信。幅と高さが同じアイコンボタンなので真円。書いていない間は灰色で押せない。 */
+.comment-composer-send {
+  display: inline-grid;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  place-items: center;
+  border: 0;
+  border-radius: var(--radius-round, 999px);
+  color: #ffffff;
+  background: #111111;
+  cursor: pointer;
+  transition: background 120ms ease, color 120ms ease;
+}
+
+.comment-composer-send:hover:not(:disabled),
+.comment-composer-send:focus-visible {
+  background: #333333;
+  outline: none;
+}
+
+.comment-composer-send:disabled {
+  color: #b0b0b0;
+  background: #ededed;
+  cursor: default;
+}
+
+.comment-composer-cancel {
   min-height: 28px;
-  padding: 0 14px;
-  border-radius: 999px;
+  padding: 0 var(--space-sm);
+  border: 0;
+  border-radius: 8px;
+  color: #555555;
+  background: transparent;
+  font: inherit;
   font-size: 12px;
-  font-weight: 700;
+  font-weight: 650;
+  cursor: pointer;
 }
 
-.comment-composer-actions .button.primary:disabled {
-  opacity: 0.45;
+.comment-composer-cancel:hover,
+.comment-composer-cancel:focus-visible {
+  color: #111111;
+  background: #f1f1f1;
+  outline: none;
+}
+
+/* 「Claude に送信」。チェックボックスの見た目のボタン (押しても入力欄の焦点を奪わない)。 */
+.comment-composer-agent-toggle {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: 0;
+  border: 0;
+  color: #555555;
+  background: transparent;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.comment-composer-agent-toggle:hover,
+.comment-composer-agent-toggle:focus-visible {
+  color: #111111;
+  outline: none;
+}
+
+.comment-composer-agent-toggle[aria-checked="true"] {
+  color: #111111;
+}
+
+.comment-composer-checkbox {
+  display: inline-grid;
+  width: 14px;
+  height: 14px;
+  flex: 0 0 auto;
+  place-items: center;
+  border: 1.5px solid #bdbdbd;
+  border-radius: 4px;
+  color: #ffffff;
+  background: #ffffff;
+  transition: background 120ms ease, border-color 120ms ease;
+}
+
+.comment-composer-agent-toggle:focus-visible .comment-composer-checkbox {
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.18);
+}
+
+.comment-composer-agent-toggle[aria-checked="true"] .comment-composer-checkbox {
+  border-color: #111111;
+  background: #111111;
 }
 
 .comment-empty-state {
@@ -2084,14 +2201,19 @@
   line-height: 1;
 }
 
+/* 宛先 (人・AI)。入力中も投稿後も、本文の中の薄い灰色のチップ。自分宛だけは青みで目立たせる。 */
 .comment-mention {
-  border-radius: 3px;
-  background: var(--surface-hover, #eeeeee);
-  padding: 0 2px;
-  font-weight: 600;
+  border-radius: 999px;
+  background: #f1f1f1;
+  color: #111111;
+  padding: 0 6px;
+  font-weight: 650;
   overflow-wrap: anywhere;
 }
-.comment-mention.is-self { outline: 1px solid currentColor; }
+.comment-mention.is-self {
+  background: #e8f0fe;
+  color: #1d4ed8;
+}
 /* 投稿済みの宛先 (人・AI) はアイコン + 名前のチップ。詳細は title のツールチップに出す。 */
 .comment-mention.is-chip {
   display: inline-flex;
@@ -2099,62 +2221,111 @@
   gap: 4px;
   max-width: 100%;
   padding: 0 6px 0 2px;
-  border-radius: 999px;
   vertical-align: baseline;
   cursor: default;
 }
 .comment-mention.is-chip .comment-author-avatar {
   width: 16px;
   height: 16px;
-  font-size: 10px;
+  font-size: 8px;
 }
 .comment-mention.is-chip .comment-author-avatar-badge { display: none; }
 .comment-mention.is-chip .comment-author-avatar-logo { width: 11px; height: 11px; }
-.comment-mention.is-agent { border-radius: 999px; padding: 0 6px; }
-.comment-mention-option {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-.comment-mention-option .comment-author-avatar {
-  width: 22px;
-  height: 22px;
-  font-size: 11px;
-}
-.comment-mention-option .comment-author-avatar-badge { display: none; }
-.comment-mention-option-text { display: grid; min-width: 0; }
-.comment-mention-option-sub { color: var(--muted, #666); font-size: 11px; }
+
+/* `@` の候補。入力欄の中に差し込まず、キャレットの下に浮かべる (body へ出すので画面の固定位置)。 */
 .comment-mention-menu {
-  padding: 6px;
-  margin-top: 4px;
-  border: 1px solid var(--border, #d4d4d4);
-  border-radius: 6px;
+  position: fixed;
+  z-index: 140;
+  width: 264px;
+  max-height: min(320px, calc(100vh - 16px));
+  overflow-y: auto;
+  padding: var(--space-xs);
+  border: 1px solid rgba(15, 23, 42, 0.1);
+  border-radius: 12px;
+  background: #ffffff;
+  box-shadow: 0 2px 6px rgba(15, 23, 42, 0.06), 0 16px 36px rgba(15, 23, 42, 0.16);
+  color: #111111;
+  font-size: 12.5px;
+  animation: comment-mention-menu-enter 120ms ease-out;
+}
+.comment-mention-menu [role="group"] + [role="group"] {
+  margin-top: var(--space-xs);
+  padding-top: var(--space-xs);
+  border-top: 1px solid rgba(15, 23, 42, 0.06);
+}
+.comment-mention-menu-label {
+  padding: var(--space-xs) var(--space-sm);
+  color: #8a8a8a;
+  font-size: 11px;
+  font-weight: 700;
+}
+.comment-mention-menu-status {
+  padding: var(--space-xs) var(--space-sm) var(--space-sm);
+  color: #8a8a8a;
   font-size: 12px;
 }
-.comment-mention-menu-label { color: var(--muted, #666); margin-bottom: 4px; }
-.comment-mention-menu [role="listbox"] { max-height: 160px; overflow-y: auto; }
-.comment-mention-menu button {
-  display: block;
+.comment-mention-option {
+  display: flex;
   width: 100%;
-  padding: 6px;
+  min-height: 40px;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-xs) var(--space-sm);
   border: 0;
-  border-radius: 3px;
+  border-radius: 8px;
+  color: inherit;
+  background: transparent;
+  font: inherit;
   text-align: left;
-  background: transparent;
-  color: inherit;
-  overflow-wrap: anywhere;
-}
-.comment-mention-menu button[aria-selected="true"], .comment-mention-menu button:hover {
-  background: var(--surface-hover, #eeeeee);
-}
-.comment-mention-trigger {
-  padding: 2px 6px;
-  border: 0;
-  background: transparent;
-  color: inherit;
   cursor: pointer;
-  font-weight: 600;
 }
+.comment-mention-option[aria-selected="true"] {
+  background: #f1f1f1;
+}
+.comment-mention-option .comment-author-avatar {
+  width: 26px;
+  height: 26px;
+  font-size: 11px;
+}
+.comment-mention-option .comment-author-avatar[data-initials="2"] { font-size: 10px; }
+.comment-mention-option .comment-author-avatar-badge { display: none; }
+.comment-mention-option-text {
+  display: grid;
+  min-width: 0;
+  gap: 1px;
+}
+.comment-mention-option-name {
+  overflow: hidden;
+  font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.comment-mention-option-sub {
+  overflow: hidden;
+  color: #8a8a8a;
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@keyframes comment-mention-menu-enter {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .comment-mention-menu {
+    animation: none;
+  }
+}
+
 .comment-dock-mention-badge {
   position: absolute;
   right: 36px;

@@ -99,7 +99,8 @@ test("ホワイトボードの図形コメントを保存し、Undo/Redoと新�
   await dock.getByRole("button", { name: "追加", exact: true }).click();
 
   await expect(dock.locator(".comment-thread-card")).toContainText("この図形を確認してください");
-  await expect(dock.locator(".comment-anchor-label")).toContainText("図形");
+  // 付け先の種別 (図形) は、図を見れば分かるのでカードに出さない。
+  await expect(dock.locator(".comment-thread-card")).not.toContainText("選択した図形");
   await expect(page.locator(".comment-dock-badge")).toHaveText("1");
 
   await expect.poll(async () => (await savedDocument(page))?.comments?.length).toBe(1);
@@ -148,8 +149,7 @@ test("ホワイトボードの図形コメントを保存し、Undo/Redoと新�
     await restoredPage.locator(".comment-dock-toggle").click();
     const restoredCard = restoredPage.locator(`.comment-thread-card[data-comment-card-key="${thread.id}"]`);
     await expect(restoredCard).toContainText("この図形を確認してください");
-    await expect(restoredCard.locator(".comment-anchor-label")).toContainText("図形");
-    await restoredCard.locator(".comment-anchor-label").click();
+    await restoredCard.locator(".comment-message.root > p").click();
     await expect(restoredPage.locator(`.overlay-comment-marker[data-comment-thread-id="${thread.id}"]`)).toBeVisible();
     const restored = await readbackDocument(restoredPage);
     expect(restored?.comments).toEqual([thread]);

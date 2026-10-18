@@ -101,7 +101,7 @@ import { Graph3DSettingsPanelHost } from "@/components/editor/Graph3DSettingsPan
 import { PageSettingsDialog } from "@/components/editor/PageSettingsDialog";
 import { TexCommandReferenceDialog } from "@/components/editor/TexCommandReferenceDialog";
 import { TexEnvironmentSettingsDialog } from "@/components/editor/TexEnvironmentSettingsDialog";
-import { VersionHistoryPanel } from "@/components/editor/VersionHistoryPanel";
+import { VersionHistoryPanel, type VersionHistorySelection } from "@/components/editor/VersionHistoryPanel";
 import { WindowCloseSaveDialog } from "@/components/editor/WindowCloseSaveDialog";
 import { WorkspaceTabGroupGrid,type WorkspacePaneHandoff,type WorkspacePaneView } from "@/components/editor/WorkspaceTabGroupGrid";
 import { WorkspaceTabStrip } from "@/components/editor/WorkspaceTabStrip";
@@ -270,7 +270,6 @@ findBlock,
 moveTopLevelBlock,
 updateBlockInDocument
 } from "@/lib/document-tree";
-import type { DocumentVersion } from "@/lib/document-version-history";
 import {
 detectEditorShortcutPlatform,
 findCommandByShortcut,
@@ -430,6 +429,8 @@ export interface EditorShellProps {
   renderSelectionActions?: (context: { fileId: string; document: SigmaDocument; metadata?: DocumentMetadata; anchor: SigmaCommentAnchor }) => ReactNode;
   commentIdentity?: CommentPanelAuthor & { userId: string };
   loadCommentMentionCandidates?: (fileId: string) => Promise<import("./comment-mentions").CommentMentionCandidate[]>;
+  /** コメントに出てくる人の今の名前とアイコン (共有している相手だけ)。 */
+  loadCommentPeople?: (userIds: string[]) => Promise<import("./comment-mentions").CommentMentionCandidate[]>;
   embeddedHost?: EmbeddedEditorHost;
   sessionHost?: DocumentSessionHost;
   renderDocumentActions?: (context: { fileId: string; document: SigmaDocument; getDocument: () => SigmaDocument; flush: () => Promise<unknown> }) => ReactNode;
@@ -456,7 +457,7 @@ function DocumentActionsSlot({ render, context }: {
   return render(context);
 }
 
-export function EditorShell({ embeddedHost, sessionHost, renderDocumentActions, renderSelectionActions, accountAction, commentIdentity, loadCommentMentionCandidates }: EditorShellProps = {}) {
+export function EditorShell({ embeddedHost, sessionHost, renderDocumentActions, renderSelectionActions, accountAction, commentIdentity, loadCommentMentionCandidates, loadCommentPeople }: EditorShellProps = {}) {
   // **毎レンダーで呼ばない。** `createEmptyEditorDocument()` は文書 1 個分を
   // 組み立てる (旧 `emptyEditorDocument` は module 定数だった)。打鍵のたびに
   // 走ると perf 予算 `typing.longTasksPerChar` を割る。
@@ -472,7 +473,7 @@ export function EditorShell({ embeddedHost, sessionHost, renderDocumentActions, 
 
   return (
     <EditorStoreProvider store={editorStore}>
-      <EditorShellBody embeddedHost={embeddedHost} sessionHost={sessionHost} renderDocumentActions={renderDocumentActions} renderSelectionActions={renderSelectionActions} accountAction={accountAction} commentIdentity={commentIdentity} loadCommentMentionCandidates={loadCommentMentionCandidates} editorStore={editorStore} />
+      <EditorShellBody embeddedHost={embeddedHost} sessionHost={sessionHost} renderDocumentActions={renderDocumentActions} renderSelectionActions={renderSelectionActions} accountAction={accountAction} commentIdentity={commentIdentity} loadCommentMentionCandidates={loadCommentMentionCandidates} loadCommentPeople={loadCommentPeople} editorStore={editorStore} />
     </EditorStoreProvider>
   );
 }
@@ -550,7 +551,7 @@ function canScrollWithin(
   return false;
 }
 
-function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, renderSelectionActions, accountAction, commentIdentity, loadCommentMentionCandidates, editorStore }: EditorShellProps & { editorStore: EditorStore }) {
+function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, renderSelectionActions, accountAction, commentIdentity, loadCommentMentionCandidates, loadCommentPeople, editorStore }: EditorShellProps & { editorStore: EditorStore }) {
   const {
     EMPTY_AI_LOCKED_TARGETS,
     AiEditPanel,
@@ -797,14 +798,18 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
   const [versionHistoryOpen, setVersionHistoryOpen] = useState(false);
   const [versionHistoryPreviewState, setVersionHistoryPreviewState] = useState<{
     fileId: string;
-    version: DocumentVersion;
+    version: VersionHistorySelection;
   } | null>(null);
   const versionHistoryPreview = versionHistoryPreviewState?.fileId === activeFileId
     ? versionHistoryPreviewState.version
     : null;
   const versionHistoryPreviewActive = versionHistoryPreview !== null;
+  // 共有教材の版を戻せるのは編集者以上 (見るのは全員)。ローカル教材の版はいつでも戻せる。
+  const versionHistoryCanRestore = !versionHistoryPreview?.shared || Boolean(documentSession?.versionHistory?.canRestore());
   const [versionHistoryRestoreError, setVersionHistoryRestoreError] = useState<string | null>(null);
   const [versionHistoryRestoring, setVersionHistoryRestoring] = useState(false);
+  // 共有教材の版を戻すと参加者全員の教材が置き換わるので、帯の中でもう一度確かめる。
+  const [versionHistoryConfirmingSharedRestore, setVersionHistoryConfirmingSharedRestore] = useState(false);
   const [versionHistoryWarnings, setVersionHistoryWarnings] = useState<Record<string, string>>({});
   const versionHistoryWarning = versionHistoryWarnings[activeFileId] ?? null;
   // 設定 > 表示。「問題だけ」「解答だけ」など、紙面に出す領域の絞り込み。教材には書かず、
@@ -2112,8 +2117,20 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
   } = materialLibrary;
 
   useLayoutEffect(() => { materialMenuCloseRef.current = () => setMaterialActionMenu(null); }, [setMaterialActionMenu]);
-  const restoreDocumentVersion = async (version: DocumentVersion): Promise<DocumentVersionRestoreResult> => {
-    if (documentSessionRef.current) return { ok: false, error: t("collaboration.useSharedBackup") };
+  const restoreDocumentVersion = async (version: VersionHistorySelection): Promise<DocumentVersionRestoreResult> => {
+    if (version.shared) {
+      // 共有教材の版は共有サーバーが戻す。戻した教材は新しい世代のセッションで届き、編集面はそれを読み直す。
+      const history = documentSessionRef.current?.versionHistory;
+      if (!history?.canRestore()) return { ok: false, error: t("versionHistory.sharedRestoreNotAllowed") };
+      try {
+        await history.restore(version.versionId);
+      } catch {
+        return { ok: false, error: t("versionHistory.restoreFailed") };
+      }
+      setStatusMessage(t("versionHistory.sharedRestored"));
+      return { ok: true };
+    }
+    if (documentSessionRef.current) return { ok: false, error: t("versionHistory.restoreFailed") };
     const fileId = activeFileIdRef.current;
     const observedRevision = documentObservedRevisionRef.current;
     const dirtyRevision = documentDirtyRevisionRef.current;
@@ -2832,7 +2849,8 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
   const { previewOpen, setPreviewOpen, pdfExporting, exportedPdfPath, setExportedPdfPath, printPreviewRenderState, setPrintPreviewRenderState, openPrintPreview, exportPdf, openPrintWindow } = useDocumentPrintController({ isDesktopApp, isEmbedded, getDocument: getCurrentSessionDocument, getActiveFileId: getActiveWorkspaceFileId, flushOverlayChanges, saveCurrentDocumentRecord, setSaveState, setStatusMessage });
 
   const getActiveTextTarget = (): "document" | "overlay" | "comment" => {
-    if (typeof window !== "undefined" && window.document.activeElement?.closest(".comment-thread-panel")) {
+    // 浮かべたコメントの入力欄は body に出るので、欄 (`.comment-thread-panel`) の外にある。
+    if (typeof window !== "undefined" && window.document.activeElement?.closest(".comment-thread-panel, .comment-composer")) {
       return "comment";
     }
     return overlayEditing ? "overlay" : "document";
@@ -3805,8 +3823,9 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
     setVersionHistoryOpen(true);
   };
 
-  const handleVersionHistoryPreviewChange = useCallback((version: DocumentVersion | null) => {
+  const handleVersionHistoryPreviewChange = useCallback((version: VersionHistorySelection | null) => {
     setVersionHistoryRestoreError(null);
+    setVersionHistoryConfirmingSharedRestore(false);
     setVersionHistoryPreviewState(version
       ? { fileId: activeFileIdRef.current, version }
       : null);
@@ -4439,7 +4458,11 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
     visibleCommentThreadsForPanel,
   ]);
 
-  const commentPanelProps = { ...commentPanelBaseProps, loadMentionCandidates, currentUserId: commentIdentity?.userId };
+  // 「Claude に送信」は、コメントから AI を動かせる画面でだけ出す。埋め込みの編集面と、AI を持たない
+  // 公開 Editor (接続がすべて unavailable) では、押しても何も起きないので出さない。
+  const commentAiAgentsAvailable = !isEmbedded
+    && [aiConnection, claudeConnection, geminiConnection].some((connection) => connection.state.kind !== "unavailable");
+  const commentPanelProps = { ...commentPanelBaseProps, loadMentionCandidates, loadCommentPeople, aiAgentsAvailable: commentAiAgentsAvailable, currentUserId: commentIdentity?.userId };
 
   if (ledgerFailure) {
     return (
@@ -4867,7 +4890,8 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
           onClick={(event) => {
             if (versionHistoryPreviewActive) return;
             const target = event.target instanceof Element ? event.target : null;
-            if (target?.closest("[data-sigma-doc-id], [data-overlay-shape-id], .overlay-canvas-bleed-surface, .overlay-canvas-editor, .page-overlay-preview, [data-problem-area]")) {
+            // 選択バーとそこから開くメニュー (ポータル) は選択に対する操作なので、選択を解除しない。
+            if (target?.closest("[data-sigma-doc-id], [data-overlay-shape-id], .overlay-canvas-bleed-surface, .overlay-canvas-editor, .page-overlay-preview, [data-problem-area], .selection-action-popover, [data-toolbar-popover]")) {
               return;
             }
             setSelectedInlineMath(null);
@@ -5057,11 +5081,17 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
                   }).format(new Date(versionHistoryPreview.capturedAt)),
                 })}</strong>
                 <div className="version-history-preview-actions">
-                  <button
+                  {versionHistoryConfirmingSharedRestore && <span className="version-history-preview-confirm">{t("versionHistory.sharedRestoreConfirm")}</span>}
+                  {versionHistoryCanRestore && <button
                     type="button"
                     className="button primary"
                     disabled={versionHistoryRestoring}
                     onClick={() => {
+                      if (versionHistoryPreview.shared && !versionHistoryConfirmingSharedRestore) {
+                        setVersionHistoryConfirmingSharedRestore(true);
+                        return;
+                      }
+                      setVersionHistoryConfirmingSharedRestore(false);
                       setVersionHistoryRestoring(true);
                       setVersionHistoryRestoreError(null);
                       void restoreDocumentVersion(versionHistoryPreview)
@@ -5074,13 +5104,24 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
                     }}
                   >
                     {versionHistoryRestoring ? <Loader2 className="save-state-spinner" size={14} aria-hidden="true" /> : <RotateCcw size={14} aria-hidden="true" />}
-                    {t("versionHistory.restore")}
-                  </button>
-                  <button type="button" className="button" disabled={versionHistoryRestoring} onClick={() => handleVersionHistoryPreviewChange(null)}>
-                    {t("versionHistory.returnToCurrent")}
+                    {versionHistoryConfirmingSharedRestore ? t("versionHistory.sharedRestoreConfirmAction") : t("versionHistory.restore")}
+                  </button>}
+                  <button
+                    type="button"
+                    className="button"
+                    disabled={versionHistoryRestoring}
+                    onClick={() => {
+                      if (versionHistoryConfirmingSharedRestore) setVersionHistoryConfirmingSharedRestore(false);
+                      else handleVersionHistoryPreviewChange(null);
+                    }}
+                  >
+                    {versionHistoryConfirmingSharedRestore ? t("versionHistory.cancelRestore") : t("versionHistory.returnToCurrent")}
                   </button>
                 </div>
               </div>
+              {!versionHistoryCanRestore && (
+                <p className="version-history-preview-note">{t("versionHistory.sharedRestoreNotAllowed")}</p>
+              )}
               {versionHistoryRestoreError && <p className="version-history-preview-error" role="alert">{versionHistoryRestoreError}</p>}
               <div className="version-history-preview-scroll">
                 <PagedRenderSurface document={versionHistoryPreview.document} profile="teacher" />
@@ -5110,7 +5151,9 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
           <VersionHistoryPanel
             key={activeFileId}
             busy={versionHistoryRestoring}
-            fileId={activeFileId}
+            source={documentSession?.versionHistory
+              ? { kind: "shared", fileId: activeFileId, history: documentSession.versionHistory }
+              : { kind: "local", fileId: activeFileId }}
             historyWarning={versionHistoryWarning}
             onClose={() => {
               setVersionHistoryOpen(false);
@@ -5168,6 +5211,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
           draft={pendingCommentDraft}
           document={document}
           loadMentionCandidates={loadMentionCandidates}
+          aiAgentsAvailable={commentAiAgentsAvailable}
           onDraftChange={setPendingCommentDraft}
           onSubmit={() => {
             addPendingCommentThread();

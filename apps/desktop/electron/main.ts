@@ -82,7 +82,7 @@ import { ShareLinkQueue } from "./collaboration/share-link-queue";
 import { registerCatalogIpc } from "./collaboration/catalog-ipc";
 import { CollaborationSessions } from "./collaboration/sessions";
 import { registerCollaborationIpc } from "./collaboration/ipc";
-import { profileImageResponse } from "./collaboration/auth";
+import { profileProtocolResponse } from "./collaboration/profiles";
 import { startSessionBridge } from "./collaboration/local-bridge";
 import { createSharedProposalApprover } from "./collaboration/proposal-approval";
 import { createProposalApprovalCoordinator } from "./proposal-approval";
@@ -1756,7 +1756,7 @@ app.whenReady().then(async () => {
   }));
   protocol.handle("sigma-app-font", request => applicationFontStore.response(request.url));
   protocol.handle("sigma-doc-storage", request => collaborationSessions.assetResponse(request.url));
-  protocol.handle("sigma-collaboration-profile", request => profileImageResponse(request.url));
+  protocol.handle("sigma-collaboration-profile", request => profileProtocolResponse(request.url, collaborationSessions.profiles));
   registerCollaborationIpc(collaborationSessions, sharedCatalog);
   registerCatalogIpc(sharedCatalog, localSigmaDocStore);
   ipcMain.handle("share-link:pending", event => {

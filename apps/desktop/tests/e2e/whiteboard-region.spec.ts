@@ -78,7 +78,7 @@ test("saves a coordinate comment without creating a shape and restores its marke
     await restored.locator(".comment-dock-toggle").click();
     const card = restored.locator(".comment-thread-card");
     await expect(card).toContainText("この領域に図を入れる");
-    await card.locator(".comment-anchor-label").click();
+    await card.locator(".comment-message.root > p").click();
     await expect(restored.locator(`[data-comment-thread-id="${stored.comments![0].id}"].overlay-comment-marker`)).toBeVisible();
     await expect(restored.locator(retained)).toHaveCount(0);
     await card.locator(".comment-thread-menu-button").click();

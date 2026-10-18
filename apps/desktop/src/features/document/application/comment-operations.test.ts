@@ -21,6 +21,34 @@ import {
 const NOW = "2026-07-25T01:02:03.000Z";
 
 describe("comment document operations", () => {
+  it("keeps the author's account id on new threads, replies and reactions, and toggles reactions by id", () => {
+    const { ports } = mutationPorts({
+      comment_thread: ["thread_a"],
+      comment_msg: ["msg_a", "msg_b"],
+      comment_reaction: ["reaction_a", "reaction_b"],
+    });
+    const created = createCommentThread(documentWithComments([]), {
+      anchor: { type: "block", blockId: "paragraph-1" },
+      authorId: "user-1",
+      authorName: "Atsushi",
+      body: [{ type: "text", text: "確認" }],
+      color: "#f2b705",
+    }, ports);
+    expect(created.document.comments?.[0].messages[0]).toMatchObject({ authorId: "user-1", authorName: "Atsushi" });
+
+    const replied = appendCommentMessage(created.document, { threadId: "thread_a", authorId: "user-1", authorName: "Atsushi", body: [{ type: "text", text: "返信" }] }, ports);
+    expect(replied.document.comments?.[0].messages[1]).toMatchObject({ authorId: "user-1" });
+
+    const reacted = toggleCommentMessageReaction(replied.document, { threadId: "thread_a", messageId: "msg_b", emoji: "👍", authorId: "user-1", authorName: "Atsushi" }, ports);
+    expect(reacted.document.comments?.[0].messages[1].reactions).toEqual([expect.objectContaining({ authorId: "user-1", emoji: "👍" })]);
+    // 名前を変えたあとも、同じ人のリアクションとして外せる。
+    const removed = toggleCommentMessageReaction(reacted.document, { threadId: "thread_a", messageId: "msg_b", emoji: "👍", authorId: "user-1", authorName: "新しい名前" }, ports);
+    expect(removed.document.comments?.[0].messages[1].reactions).toEqual([]);
+    // 同じ名前の別人は、別のリアクションとして足す。
+    const other = toggleCommentMessageReaction(reacted.document, { threadId: "thread_a", messageId: "msg_b", emoji: "👍", authorId: "user-2", authorName: "Atsushi" }, ports);
+    expect(other.document.comments?.[0].messages[1].reactions).toHaveLength(2);
+  });
+
   it("creates a thread with deterministic ids and time while cloning its body", () => {
     const existing = commentThread("existing");
     const document = documentWithComments([existing]);

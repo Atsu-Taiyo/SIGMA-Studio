@@ -3,17 +3,14 @@
 import { UserRound } from "lucide-react";
 import { useState } from "react";
 import type { CollaborationProfile } from "../model/bridge";
+import { collaborationAvatarSource } from "../model/profile-avatar";
 import styles from "./sharing.module.css";
 
 export function collaborationProfileLabel(profile: CollaborationProfile, fallback?: string): string {
   return profile.displayName || profile.email || fallback || profile.actorId;
 }
 
-export function collaborationAvatarSource(profile: CollaborationProfile): string | undefined {
-  return profile.avatarUrl
-    ? `sigma-collaboration-profile://avatar?url=${encodeURIComponent(profile.avatarUrl)}`
-    : undefined;
-}
+export { collaborationAvatarSource };
 
 export function CollaborationProfileAvatar({
   profile,

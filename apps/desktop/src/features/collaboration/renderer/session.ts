@@ -3,6 +3,8 @@ import * as Y from "yjs";
 import type { SigmaDocument } from "@/features/document";
 import type {
   DocumentSession,
+  DocumentSessionVersionEntry,
+  DocumentSessionVersionHistory,
   SessionSelection,
   RemoteSessionSelection,
   SessionOverlayPresence,
@@ -36,6 +38,7 @@ import {
   MAX_PRESENCE_SHAPE_IDS,
 } from "../model/presence";
 import { shareProjection } from "./projection";
+import { collaborationAvatarSource } from "../model/profile-avatar";
 import { countPerformanceEvent, measurePerformance } from "@/lib/performance";
 
 const EMPTY_ROSTER: PresenceParticipant[] = [];
@@ -82,6 +85,26 @@ export class RendererDocumentSession implements DocumentSession {
   private destroyed = false;
   status: SaveState;
   role: MemberRole;
+  /**
+   * 共有教材の過去の版は共有サーバーが残す (#244)。見るのは参加者全員、戻すのは編集者以上
+   * (サーバーも同じ規則で断る)。戻すと参加者全員の教材が置き換わり、新しい世代のセッションで届く。
+   */
+  readonly versionHistory: DocumentSessionVersionHistory = {
+    list: async () => (await this.bridge.backups(this.info.binding.localFileId))
+      .filter((backup) => Number.isFinite(Date.parse(backup.created_at)))
+      .map((backup): DocumentSessionVersionEntry => ({
+        versionId: backup.id,
+        capturedAt: backup.created_at,
+        kind: backup.kind === "auto" || backup.kind === "restore" ? backup.kind : "manual",
+      }))
+      .sort((a, b) => Date.parse(b.capturedAt) - Date.parse(a.capturedAt)),
+    get: async (versionId) => {
+      const version = await this.bridge.version(this.info.binding.localFileId, versionId);
+      return version.id === versionId ? parseSigmaDocument(version.document) : null;
+    },
+    canRestore: () => this.role === "owner" || this.role === "admin" || this.role === "editor",
+    restore: (versionId) => this.bridge.restore(this.info.binding.localFileId, versionId),
+  };
   constructor(
     readonly info: SessionInfo,
     private readonly bridge: CollaborationBridge,
@@ -495,9 +518,7 @@ export class RendererDocumentSession implements DocumentSession {
         actorId: participant.actorId,
         clientId: participant.clientId,
         displayName: profile.displayName || profile.email || participant.actorId,
-        ...(profile.avatarUrl ? {
-          avatarSource: `sigma-collaboration-profile://avatar?url=${encodeURIComponent(profile.avatarUrl)}`,
-        } : {}),
+        ...(collaborationAvatarSource(profile) ? { avatarSource: collaborationAvatarSource(profile) } : {}),
       });
     }
     return result;

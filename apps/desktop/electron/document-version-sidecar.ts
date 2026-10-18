@@ -4,7 +4,6 @@ import { randomUUID } from "node:crypto";
 
 import type { SigmaDocument } from "@/features/document";
 import {
-  MAX_DOCUMENT_VERSIONS,
   isValidDocumentVersionCapturedAt,
   selectDocumentVersionsToPrune,
   type DocumentVersion,
@@ -228,8 +227,8 @@ export async function appendDocumentVersion(
   rootDir: string,
   fileId: string,
   version: DocumentVersion,
-  lineCounts?: Map<string, number>,
   readOptions: DocumentVersionSidecarReadOptions = {},
+  nowMs = Date.now(),
 ): Promise<void> {
   await withDocumentVersionLock(rootDir, fileId, "appendDocumentVersion", async () => {
     const directory = resolveDocumentVersionDirectory(rootDir, fileId);
@@ -251,16 +250,9 @@ export async function appendDocumentVersion(
       if (!isNodeError(error) || error.code !== "ENOENT") throw error;
     }
     await fs.appendFile(indexPath, `${JSON.stringify(metadata)}\n`, "utf8");
-    let count = lineCounts?.get(fileId);
-    if (count === undefined) {
-      count = (await readDocumentVersionMetadata(rootDir, fileId, readOptions)).length;
-    } else {
-      count += 1;
-    }
-    lineCounts?.set(fileId, count);
-    if (count <= MAX_DOCUMENT_VERSIONS) return;
+    // 版を足すとき (10 分ごと・AI の適用・タブ切替・終了) だけ一覧を読み、間引く。通常の保存では読まない。
     const versions = await readDocumentVersionMetadata(rootDir, fileId, readOptions);
-    const pruned = selectDocumentVersionsToPrune(versions, MAX_DOCUMENT_VERSIONS);
+    const pruned = selectDocumentVersionsToPrune(versions, nowMs);
     if (pruned.length === 0) return;
     const prunedIds = new Set(pruned.map((entry) => entry.versionId));
     const kept = versions.filter((entry) => !prunedIds.has(entry.versionId));
@@ -269,7 +261,6 @@ export async function appendDocumentVersion(
       resolveDocumentVersionSnapshotPath(rootDir, fileId, entry.versionId),
       { force: true },
     )));
-    lineCounts?.set(fileId, kept.length);
   });
 }
 

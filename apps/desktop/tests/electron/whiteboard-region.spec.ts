@@ -79,7 +79,7 @@ test("empty whiteboard region comments survive real Electron storage and restart
     }
     const card = page.locator(".comment-thread-card");
     await expect(card).toContainText("実ファイルへ保存する領域コメント");
-    await card.locator(".comment-anchor-label").click();
+    await card.locator(".comment-message.root > p").click();
     const marker = page.locator(".overlay-comment-marker");
     await expect(marker).toBeVisible();
     await expect.poll(async () => {

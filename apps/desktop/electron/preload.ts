@@ -69,6 +69,7 @@ const desktopAPI = {
     changeMember: (fileId: string, userId: string, role: string | null) => ipcRenderer.invoke("collaboration:change-member", fileId, userId, role),
     revokeInvitation: (fileId: string, tokenHash: string) => ipcRenderer.invoke("collaboration:revoke-invitation", fileId, tokenHash),
     backups: (fileId: string) => ipcRenderer.invoke("collaboration:backups", fileId),
+    version: (fileId: string, backupId: string) => ipcRenderer.invoke("collaboration:version", fileId, backupId),
     backup: (fileId: string) => ipcRenderer.invoke("collaboration:backup", fileId),
     restore: (fileId: string, backupId: string) => ipcRenderer.invoke("collaboration:restore", fileId, backupId),
     reload: (fileId: string) => ipcRenderer.invoke("collaboration:reload", fileId),
@@ -78,6 +79,11 @@ const desktopAPI = {
     end: (fileId: string, action: string) => ipcRenderer.invoke("collaboration:end", fileId, action),
     copy: (fileId: string) => ipcRenderer.invoke("collaboration:copy", fileId),
     asset: (fileId: string, assetId: string, source?: string) => ipcRenderer.invoke("collaboration:asset", fileId, assetId, source),
+    profile: () => ipcRenderer.invoke("collaboration:profile"),
+    updateProfile: (input: { displayName: string | null }) => ipcRenderer.invoke("collaboration:update-profile", input),
+    setAvatar: (bytes: Uint8Array, type: string) => ipcRenderer.invoke("collaboration:set-avatar", bytes, type),
+    clearAvatar: () => ipcRenderer.invoke("collaboration:clear-avatar"),
+    profiles: (userIds: string[]) => ipcRenderer.invoke("collaboration:profiles", userIds),
     onEvent(handler: (event: unknown) => void): () => void {
       const listener = (_: unknown, event: unknown) => handler(event);
       ipcRenderer.on("collaboration:event", listener);

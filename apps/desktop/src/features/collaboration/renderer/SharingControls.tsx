@@ -22,7 +22,7 @@ import { Shimmer } from "@/components/ui/Shimmer";
 import { useT } from "@/lib/i18n/react";
 import { getDesktopBridge } from "@/lib/desktop-bridge";
 import type { EditorShellProps } from "@/components/editor/EditorShell";
-import type { CollaborationInfo, SharedBackup } from "../model/bridge";
+import type { CollaborationInfo } from "../model/bridge";
 import type { MemberRole, SaveState } from "../model/protocol";
 import type { RendererDocumentSession } from "./session";
 import styles from "./sharing.module.css";
@@ -57,12 +57,10 @@ export function SharingControls({ context, info, session, refresh }: Props) {
   const [members, setMembers] = useState<
     { user_id: string; role: MemberRole; email: string }[]
   >([]);
-  const [backups, setBackups] = useState<SharedBackup[]>([]);
   const [removing, setRemoving] = useState<{
     user_id: string;
     email: string;
   } | null>(null);
-  const [restoring, setRestoring] = useState<string | null>(null);
   const [ending, setEnding] = useState<"stop" | "delete" | "leave" | null>(
     null,
   );
@@ -99,12 +97,6 @@ export function SharingControls({ context, info, session, refresh }: Props) {
         .then(setMembers)
         .catch(() => setError(true));
   }, [open, session, context.fileId, bridge]);
-  // Owners open this dialog to back up or restore; list what exists right away.
-  const owner = session?.role === "owner";
-  useEffect(() => {
-    if (open && owner && bridge)
-      void bridge.backups(context.fileId).then(setBackups).catch(() => setError(true));
-  }, [open, owner, context.fileId, bridge]);
   if (!bridge) return null;
   const roleOptions = [
     { value: "editor", label: t("collaboration.editor") },
@@ -115,7 +107,6 @@ export function SharingControls({ context, info, session, refresh }: Props) {
       setOpen(false);
       setEnding(null);
       setRemoving(null);
-      setRestoring(null);
     }
   };
   return (
@@ -181,11 +172,9 @@ export function SharingControls({ context, info, session, refresh }: Props) {
           title={
             removing
               ? t("collaboration.confirmRemove")
-              : restoring
-                ? t("collaboration.confirmRestore")
-                : ending
-                  ? t("collaboration.confirmEnd")
-                  : t(catalog ? "collaboration.detailsTitle" : "collaboration.title")
+              : ending
+                ? t("collaboration.confirmEnd")
+                : t(catalog ? "collaboration.detailsTitle" : "collaboration.title")
           }
           onClose={close}
         />
@@ -214,27 +203,6 @@ export function SharingControls({ context, info, session, refresh }: Props) {
                     }
                   >
                     {t("collaboration.remove")}
-                  </Button>
-                </Inline>
-              </>
-            ) : restoring ? (
-              <>
-                <p>{t("collaboration.restoreDescription")}</p>
-                <Inline gap="sm">
-                  <Button disabled={busy} onClick={() => setRestoring(null)}>
-                    {t("collaboration.cancel")}
-                  </Button>
-                  <Button
-                    tone="primary"
-                    disabled={busy}
-                    onClick={() =>
-                      void run(async () => {
-                        await bridge.restore(context.fileId, restoring);
-                        setRestoring(null);
-                      })
-                    }
-                  >
-                    {t("collaboration.restore")}
                   </Button>
                 </Inline>
               </>
@@ -449,41 +417,18 @@ export function SharingControls({ context, info, session, refresh }: Props) {
                       {t("collaboration.localCopy")}
                     </Button>
                     {session.role === "owner" && (
-                      <>
-                        <Inline gap="sm" justify="between" className={styles.syncRow}>
-                          <span className={styles.caption}>{t("collaboration.backups")}</span>
-                          <Button
-                            size="sm"
-                            disabled={busy || status !== "saved"}
-                            onClick={() =>
-                              void run(async () => {
-                                await bridge.backup(context.fileId);
-                                setBackups(
-                                  await bridge.backups(context.fileId),
-                                );
-                              })
-                            }
-                          >
-                            <History size={15} />
-                            {t("collaboration.backup")}
-                          </Button>
-                        </Inline>
-                        {backups.map((backup) => (
-                          <Inline key={backup.id} gap="sm">
-                            <span className={styles.member}>
-                              {new Date(backup.created_at).toLocaleString()}
-                            </span>
-                            <Button
-                              size="sm"
-                              tone="ghost"
-                              disabled={busy}
-                              onClick={() => setRestoring(backup.id)}
-                            >
-                              {t("collaboration.restore")}
-                            </Button>
-                          </Inline>
-                        ))}
-                      </>
+                      // 保存した版は自動の版と同じく「過去の版」で中身を見てから戻す (#244)。
+                      <Inline gap="sm" justify="between" className={styles.syncRow}>
+                        <span className={styles.caption}>{t("collaboration.backupsInHistory")}</span>
+                        <Button
+                          size="sm"
+                          disabled={busy || status !== "saved"}
+                          onClick={() => void run(() => bridge.backup(context.fileId))}
+                        >
+                          <History size={15} />
+                          {t("collaboration.backup")}
+                        </Button>
+                      </Inline>
                     )}
                     {!catalog && <Inline gap="sm">
                       {session.role === "owner" ? (
@@ -570,7 +515,7 @@ export function SharingControls({ context, info, session, refresh }: Props) {
                 )}
               </>
             )}
-            {!catalog && info.user && !ending && !restoring && (
+            {!catalog && info.user && !ending && (
               <Inline gap="sm">
                 <span className={styles.member}>{collaborationProfileLabel(info.user, t("collaboration.googleAccount"))}</span>
                 <IconButton

@@ -249,9 +249,9 @@ describe("browser store parity with the desktop store", () => {
     expect(await desktopStore.listDocumentVersions(desktopFile.fileId)).toHaveLength(2);
     expect(await browser.library.listDocumentVersions(browserFile.fileId)).toHaveLength(2);
 
-    // Both implementations must compact at the same boundary and retain the same
-    // newest 200 entries. Forced restore backups let this exercise pruning without
-    // changing either store's document revision between captures.
+    // Both implementations thin by the same rule (document-version-retention.ts): versions from
+    // the last 24 hours are all kept, so neither store drops any of these. Forced restore backups
+    // add versions without changing either store's document revision between captures.
     for (let index = 0; index < 199; index += 1) {
       await desktopStore.captureDocumentVersion(desktopFile.fileId, desktopChanged, {
         expectedRevision: desktopUnchanged.revision!,
@@ -265,8 +265,8 @@ describe("browser store parity with the desktop store", () => {
 
     const desktopVersions = await desktopStore.listDocumentVersions(desktopFile.fileId);
     const browserVersions = await browser.library.listDocumentVersions(browserFile.fileId);
-    expect(desktopVersions).toHaveLength(200);
-    expect(browserVersions).toHaveLength(200);
+    expect(desktopVersions).toHaveLength(201);
+    expect(browserVersions).toHaveLength(201);
     expect(browserVersions.map(({ origin, revision }) => ({ origin, revision })))
       .toEqual(desktopVersions.map(({ origin, revision }) => ({ origin, revision })));
     expect((await browser.library.getDocumentVersion(browserFile.fileId, browserVersions[0]!.versionId))?.document.metadata.title)

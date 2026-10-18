@@ -1,5 +1,7 @@
 "use client";
 
+import { useState } from "react";
+
 import { AntigravityMark, ClaudeMark, GeminiMark, OpenAiMark } from "@/components/branding/provider-logos";
 import { getCommentAgentBrand } from "@/lib/comment-agents";
 import { useT } from "@/lib/i18n/react";
@@ -44,22 +46,51 @@ export function CommentAuthorAvatar({
   }
 
   if (avatarUrl) {
-    return (
-      <span
-        className="comment-author-avatar image"
-        role="img"
-        aria-label={t("comment.avatarAria", { name })}
-        style={{ backgroundImage: `url(${avatarUrl})` }}
-      />
-    );
+    // 画像が読めない (オフライン・期限切れ・CSP) ときに、何も描かれない灰色の丸にしない。頭文字へ戻す。
+    return <CommentAvatarImage key={avatarUrl} avatarUrl={avatarUrl} name={name} label={t("comment.avatarAria", { name })} />;
   }
 
-  return <span className="comment-author-avatar" aria-hidden="true">{getAuthorInitial(name)}</span>;
+  return <CommentAvatarInitials name={name} />;
+}
+
+function CommentAvatarImage({ avatarUrl, name, label }: { avatarUrl: string; name: string; label: string }) {
+  const [failed, setFailed] = useState(false);
+  if (failed) {
+    return <CommentAvatarInitials name={name} />;
+  }
+  return (
+    <span className="comment-author-avatar image" role="img" aria-label={label}>
+      {/* Electron の独自スキーム (sigma-collaboration-profile:) は next/image で読めない。 */}
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img src={avatarUrl} alt="" referrerPolicy="no-referrer" draggable={false} onError={() => setFailed(true)} />
+    </span>
+  );
+}
+
+function CommentAvatarInitials({ name }: { name: string }) {
+  const initials = getAuthorInitials(name);
+  return (
+    <span className="comment-author-avatar" data-initials={initials.length} aria-hidden="true">{initials}</span>
+  );
 }
 
 export function getAuthorInitial(name: string): string {
   const trimmed = name.trim();
   return (trimmed[0] ?? "G").toUpperCase();
+}
+
+/**
+ * アイコンの頭文字。英字の名前は姓名の頭文字 2 つ (Atsushi Kim → AK)、メールアドレスは
+ * `.` や `_` で区切った名前の部分から取る (hanako.sato@… → HS)。漢字・かなは 1 文字 (佐藤 花子 → 佐)。
+ */
+export function getAuthorInitials(name: string): string {
+  const trimmed = name.trim();
+  const local = trimmed.includes("@") ? trimmed.slice(0, trimmed.indexOf("@")) : trimmed;
+  const words = local.split(/[\s._\-+]+/u).filter(Boolean);
+  if (words.length >= 2 && words.slice(0, 2).every((word) => /^[A-Za-z]/.test(word))) {
+    return `${words[0][0]}${words[1][0]}`.toUpperCase();
+  }
+  return getAuthorInitial(words[0] ?? trimmed);
 }
 
 /**

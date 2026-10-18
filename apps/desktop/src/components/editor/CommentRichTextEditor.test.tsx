@@ -4,6 +4,8 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import type { Editor } from "@tiptap/core";
+
 import { CommentRichTextEditor } from "@/components/editor/CommentRichTextEditor";
 import type { InlineNode } from "@/features/document";
 import { NATIVE_HISTORY_COMMAND_EVENT } from "@/components/tiptap/native-history-guard";
@@ -102,5 +104,54 @@ describe("CommentRichTextEditor", () => {
     // しかし文書 undo は要求していない。
     expect(events).toEqual([]);
     window.removeEventListener(NATIVE_HISTORY_COMMAND_EVENT, listener);
+  });
+
+  it("sends with Enter, keeps Shift+Enter as a line break, and lets an open mention list take Enter", async () => {
+    const onSubmit = vi.fn();
+    const onChange = vi.fn();
+    const load = vi.fn(async () => [{ userId: "taro", name: "Taro" }]);
+    await act(async () => {
+      root.render(<CommentRichTextEditor value={[{ type: "text", text: "確認 @Ta" }]} onChange={onChange} onSubmit={onSubmit} loadMentionCandidates={load} />);
+    });
+    const dom = container.querySelector<HTMLElement>(".ProseMirror")!;
+    expect(dom.getAttribute("role")).toBe("textbox");
+    // 入力欄の下に「@」だけのボタンを置かない (押すまで何か分からない)。
+    expect(container.querySelector(".comment-mention-trigger")).toBeNull();
+    const editor = (dom as HTMLElement & { editor: Editor }).editor;
+    editor.commands.setTextSelection(editor.state.doc.content.size - 1);
+    editor.isFocused = true;
+    await act(async () => { editor.emit("focus", { editor, event: new FocusEvent("focus"), transaction: editor.state.tr }); });
+    const key = (init: KeyboardEventInit) => act(() => {
+      dom.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, cancelable: true, ...init }));
+    });
+
+    // 候補が開いている間の Enter は宛先を選ぶ。送らない。
+    expect(document.body.querySelector('[role="option"]')?.textContent).toContain("Taro");
+    key({ key: "Enter" });
+    expect(onSubmit).not.toHaveBeenCalled();
+    expect(onChange.mock.lastCall?.[0]).toEqual([
+      { type: "text", text: "確認 " },
+      { type: "text", text: "@Taro", mentionUserId: "taro" },
+      { type: "text", text: " " },
+    ]);
+
+    key({ key: "Enter", shiftKey: true });
+    expect(onSubmit).not.toHaveBeenCalled();
+    expect(onChange.mock.lastCall?.[0].at(-1)).toEqual({ type: "text", text: " \n" });
+
+    key({ key: "Enter" });
+    expect(onSubmit).toHaveBeenCalledTimes(1);
+  });
+
+  it("clears itself after sending even though Enter leaves the focus in the box", () => {
+    const onChange = vi.fn();
+    render([{ type: "text", text: "送った返信" }], onChange);
+    const dom = container.querySelector<HTMLElement>(".ProseMirror")!;
+    (dom as HTMLElement & { editor: Editor }).editor.isFocused = true;
+    render([], onChange);
+    expect(textOf()).toBe("");
+    // 打っている最中の外からの書き換えは、これまでどおり入れない。
+    render([{ type: "text", text: "別の下書き" }], onChange);
+    expect(textOf()).toBe("");
   });
 });

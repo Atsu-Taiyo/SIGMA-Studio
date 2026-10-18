@@ -18,6 +18,7 @@ vi.mock("@/lib/storage", () => ({
 vi.mock("@/lib/runtime", () => ({ getAppRuntime: () => ({ library: { onChange: mocks.onChange } }) }));
 
 let VersionHistoryPanel: typeof import("./VersionHistoryPanel").VersionHistoryPanel;
+const LOCAL = { kind: "local", fileId: "file_1" } as const;
 let container: HTMLDivElement;
 let root: Root;
 
@@ -59,7 +60,7 @@ describe("VersionHistoryPanel", () => {
     const onPreviewChange = vi.fn();
     mocks.listDocumentVersions.mockResolvedValue([saved]);
     mocks.getDocumentVersion.mockResolvedValue(version(saved, "saved"));
-    await act(async () => root.render(<VersionHistoryPanel busy={false} fileId="file_1" onClose={vi.fn()} onPreviewChange={onPreviewChange} selectedVersionId={null} />));
+    await act(async () => root.render(<VersionHistoryPanel busy={false} source={LOCAL} onClose={vi.fn()} onPreviewChange={onPreviewChange} selectedVersionId={null} />));
     await flush();
     const rows = [...container.querySelectorAll<HTMLButtonElement>(".version-history-row")];
     expect(rows).toHaveLength(2);
@@ -68,10 +69,10 @@ describe("VersionHistoryPanel", () => {
     await act(async () => rows[1]!.click());
     await flush();
     expect(onPreviewChange).toHaveBeenLastCalledWith(expect.objectContaining({ versionId: "version_saved" }));
-    await act(async () => root.render(<VersionHistoryPanel busy={false} fileId="file_1" onClose={vi.fn()} onPreviewChange={onPreviewChange} selectedVersionId="version_saved" />));
+    await act(async () => root.render(<VersionHistoryPanel busy={false} source={LOCAL} onClose={vi.fn()} onPreviewChange={onPreviewChange} selectedVersionId="version_saved" />));
     expect(rows[1]!.getAttribute("aria-pressed")).toBe("true");
     expect(rows[0]!.getAttribute("aria-pressed")).toBe("false");
-    await act(async () => root.render(<VersionHistoryPanel busy={false} fileId="file_1" onClose={vi.fn()} onPreviewChange={onPreviewChange} selectedVersionId={null} />));
+    await act(async () => root.render(<VersionHistoryPanel busy={false} source={LOCAL} onClose={vi.fn()} onPreviewChange={onPreviewChange} selectedVersionId={null} />));
     expect(rows[0]!.getAttribute("aria-pressed")).toBe("true");
     expect(rows[1]!.getAttribute("aria-pressed")).toBe("false");
     await act(async () => rows[0]!.click());
@@ -81,7 +82,7 @@ describe("VersionHistoryPanel", () => {
   it("renders the empty state below the synthetic current version", async () => {
     mocks.listDocumentVersions.mockResolvedValue([]);
     await act(async () => root.render(
-      <VersionHistoryPanel busy={false} fileId="file_1" onClose={vi.fn()} onPreviewChange={vi.fn()} selectedVersionId={null} />,
+      <VersionHistoryPanel busy={false} source={LOCAL} onClose={vi.fn()} onPreviewChange={vi.fn()} selectedVersionId={null} />,
     ));
     await flush();
 
@@ -100,7 +101,7 @@ describe("VersionHistoryPanel", () => {
     mocks.getDocumentVersion.mockImplementation((_fileId: string, versionId: string) => (
       versionId === newest.versionId ? newestLoad.promise : olderLoad.promise
     ));
-    await act(async () => root.render(<VersionHistoryPanel busy={false} fileId="file_1" onClose={vi.fn()} onPreviewChange={onPreviewChange} selectedVersionId={null} />));
+    await act(async () => root.render(<VersionHistoryPanel busy={false} source={LOCAL} onClose={vi.fn()} onPreviewChange={onPreviewChange} selectedVersionId={null} />));
     await flush();
     const rows = [...container.querySelectorAll<HTMLButtonElement>(".version-history-row")];
     await act(async () => { rows[1]!.click(); rows[2]!.click(); });
@@ -115,7 +116,7 @@ describe("VersionHistoryPanel", () => {
     const onPreviewChange = vi.fn();
     mocks.listDocumentVersions.mockResolvedValue([saved]);
     mocks.getDocumentVersion.mockRejectedValueOnce(new Error("unavailable"));
-    await act(async () => root.render(<VersionHistoryPanel busy={false} fileId="file_1" onClose={vi.fn()} onPreviewChange={onPreviewChange} selectedVersionId={null} />));
+    await act(async () => root.render(<VersionHistoryPanel busy={false} source={LOCAL} onClose={vi.fn()} onPreviewChange={onPreviewChange} selectedVersionId={null} />));
     await flush();
     await act(async () => container.querySelectorAll<HTMLButtonElement>(".version-history-row")[1]!.click());
     await flush();
@@ -133,7 +134,7 @@ describe("VersionHistoryPanel", () => {
     const onPreviewChange = vi.fn();
     mocks.listDocumentVersions.mockResolvedValue([saved]);
     await act(async () => root.render(
-      <VersionHistoryPanel busy fileId="file_1" onClose={onClose} onPreviewChange={onPreviewChange} selectedVersionId={null} />,
+      <VersionHistoryPanel busy source={LOCAL} onClose={onClose} onPreviewChange={onPreviewChange} selectedVersionId={null} />,
     ));
     await flush();
 
@@ -151,5 +152,36 @@ describe("VersionHistoryPanel", () => {
     expect(onPreviewChange).not.toHaveBeenCalled();
     expect(mocks.getDocumentVersion).not.toHaveBeenCalled();
     expect(onClose).not.toHaveBeenCalled();
+  });
+  it("lists a shared document's server versions by kind, reads one, and never touches the device history", async () => {
+    const history = {
+      list: vi.fn().mockResolvedValue([
+        { versionId: "v_restore", capturedAt: "2026-09-01T03:00:00.000Z", kind: "restore" },
+        { versionId: "v_auto", capturedAt: "2026-09-01T02:00:00.000Z", kind: "auto" },
+        { versionId: "v_manual", capturedAt: "2026-09-01T01:00:00.000Z", kind: "manual" },
+      ]),
+      get: vi.fn().mockResolvedValue({ ...createBlankDocument("共有の版"), metadata: { title: "共有の版" } }),
+      canRestore: vi.fn().mockReturnValue(false),
+      restore: vi.fn(),
+    };
+    const onPreviewChange = vi.fn();
+    await act(async () => root.render(
+      <VersionHistoryPanel busy={false} source={{ kind: "shared", fileId: "file_1", history }} onClose={vi.fn()} onPreviewChange={onPreviewChange} selectedVersionId={null} />,
+    ));
+    await flush();
+    const rows = [...container.querySelectorAll<HTMLButtonElement>(".version-history-row")].slice(1);
+    expect(rows.map((row) => row.textContent)).toEqual([
+      expect.stringContaining("復元する前"),
+      expect.stringContaining("自動で保存"),
+      expect.stringContaining("手動で保存"),
+    ]);
+    expect(container.querySelector(".version-history-note")?.textContent).toContain("編集者以上");
+    await act(async () => rows[1]!.click());
+    await flush();
+    expect(history.get).toHaveBeenCalledWith("v_auto");
+    expect(onPreviewChange).toHaveBeenLastCalledWith(expect.objectContaining({ versionId: "v_auto", shared: true }));
+    expect(mocks.listDocumentVersions).not.toHaveBeenCalled();
+    expect(mocks.getDocumentVersion).not.toHaveBeenCalled();
+    expect(mocks.onChange).not.toHaveBeenCalled();
   });
 });

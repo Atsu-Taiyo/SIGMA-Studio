@@ -14,6 +14,13 @@ export interface SigmaCommentThread {
 
 export interface SigmaCommentMessage {
   id: string;
+  /**
+   * 書いた人の共有アカウントの ID (actorId)。名前とアイコンは表示のときにこの ID から引き直す —
+   * 名前やアイコンを変えたら、過去のコメントにも新しいものが出る。サインインしていない
+   * (共有アカウントの無い) 人と AI のコメントには付かない。
+   */
+  authorId?: string;
+  /** 書いた時点の表示名。ID で引けないとき (共有から外れた人・サインインしていない人) に出す。 */
   authorName?: string;
   /**
    * 差出人が AI の場合の素性。**人が書いたコメントには付けない** (欠けていること
@@ -52,6 +59,8 @@ export interface SigmaCommentAgent {
 export interface SigmaCommentReaction {
   id: string;
   emoji: string;
+  /** 付けた人の共有アカウントの ID。自分のリアクションかどうかは、あればこちらで決める (名前は変わりうる)。 */
+  authorId?: string;
   authorName?: string;
   createdAt: string;
 }

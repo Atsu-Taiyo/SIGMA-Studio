@@ -177,7 +177,7 @@ export function createBrowserRuntime(options: BrowserRuntimeOptions): AppRuntime
     };
     await tx.put("documentVersionSnapshots", versionKey(fileId, metadata.versionId), document);
     await tx.put("documentVersionMetadata", versionKey(fileId, metadata.versionId), metadata);
-    const pruned = selectDocumentVersionsToPrune([...versions, metadata]);
+    const pruned = selectDocumentVersionsToPrune([...versions, metadata], Date.parse(capturedAt));
     for (const entry of pruned) {
       await tx.delete("documentVersionMetadata", versionKey(fileId, entry.versionId));
       await tx.delete("documentVersionSnapshots", versionKey(fileId, entry.versionId));

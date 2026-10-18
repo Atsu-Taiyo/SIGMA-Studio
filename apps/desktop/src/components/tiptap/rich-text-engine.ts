@@ -113,6 +113,13 @@ interface RichTextEngineOptions {
   heading?: false | { levels?: [1, 2, 3] };
   lineHeight?: boolean;
   /**
+   * 自前の取り消し履歴を持つ。SigmaDoc に入るまでの下書きを編む面 (コメントの入力欄) だけが使う。
+   * 既定は off で、⌘Z とネイティブの取り消し (右クリック > 取り消す・3 本指スワイプ) は文書の履歴へ渡す。
+   * on にすると両方ともこの面の履歴で戻す — 文書へ渡すと、打ち間違えたコメントはそのままで無関係な
+   * 本文の編集が巻き戻る。
+   */
+  localHistory?: boolean;
+  /**
    * Draw list markers in the typography of the item's first run.
    *
    * Off by default: only the body surface has a static twin that draws lists. On a surface whose
@@ -158,6 +165,7 @@ export function createRichTextEngineExtensions({
   enableMathDelimiters = false,
   heading,
   lineHeight = false,
+  localHistory = false,
   bodyBlocks = false,
   listMarkerTypography = false,
   mathEnvironment = DEFAULT_MATH_RENDER_ENVIRONMENT,
@@ -182,13 +190,19 @@ export function createRichTextEngineExtensions({
       horizontalRule: false,
       heading: heading === false ? false : { levels: heading?.levels ?? DEFAULT_HEADING_LEVELS },
       trailingNode: false,
-      undoRedo: false,
+      undoRedo: localHistory ? {} : false,
       underline: false,
     }),
     ListKeyboardShortcutsExtension,
     // 面ごとの opt-in にしない。**新しい編集面が増えたときに素通しになるのが一番怖い**ので、
-    // 共通エンジンを通るものは全部守る (本文・RichTextEditor・図形テキスト・表セル)。
-    NativeHistoryGuardExtension,
+    // 共通エンジンを通るものは全部守る (本文・RichTextEditor・図形テキスト・表セル・コメント)。
+    localHistory
+      ? NativeHistoryGuardExtension.configure({
+          onHistoryCommand: (direction, activeEditor) => (direction === "undo"
+            ? activeEditor.commands.undo()
+            : activeEditor.commands.redo()),
+        })
+      : NativeHistoryGuardExtension,
     // After StarterKit so its own `1. ` ordered-list rule stays untouched.
     ...(orderedListMarkerStyles ? [ParenOrderedListExtension] : []),
     ...(bodyBlocks

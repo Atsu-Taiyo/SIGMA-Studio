@@ -8,6 +8,7 @@ import type { AiProvider } from "@/lib/ai/ai-providers";
 import type { CodexAiEditRequest } from "@/lib/ai/codex-ai-edit-client";
 import type { AiEditModel, AiEditReasoningEffort } from "@/lib/ai/sigma-doc-edit-schema";
 import { getCommentAgentForProviderName } from "@/lib/comment-agents";
+import { parseInlineMarkdown } from "@/lib/markdown-to-text-flow";
 import type { Translate } from "@/lib/i18n";
 
 import { buildCommentAiRunRequestPlan, deriveCommentAiRunEligibility } from "./run-request-model";
@@ -89,7 +90,8 @@ export function useCommentAiRun({
         await refreshMcpEditProposals();
         const summary = result.draft.summary?.trim()
           || (operations.length > 0 ? tEditor("status.aiDraftReady") : tEditor("status.aiAnswerReady"));
-        editCommentMessage(threadId, placeholderId, [{ type: "text", text: summary }]);
+        // AI の返事は `$...$` や `**...**` を含む。MCP のコメントや本文の挿入と同じ規則で数式・書式にして残す。
+        editCommentMessage(threadId, placeholderId, commentReplyBody(summary));
       } catch (error) {
         const message = error instanceof Error ? error.message : tEditor("status.aiRunFailed");
         editCommentMessage(threadId, placeholderId, [{ type: "text", text: tEditor("status.errorWith", { message }) }]);
@@ -107,4 +109,9 @@ export function useCommentAiRun({
   }, [maybeTriggerCommentAiRun, onCommentSubmittedRef]);
 
   return maybeTriggerCommentAiRun;
+}
+
+function commentReplyBody(summary: string): InlineNode[] {
+  const body = parseInlineMarkdown(summary);
+  return body.length > 0 ? body : [{ type: "text", text: summary }];
 }

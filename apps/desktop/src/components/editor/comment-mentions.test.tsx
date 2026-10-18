@@ -5,7 +5,7 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { CommentMentionMenu } from "./CommentMentionMenu";
-import { CommentMentionMark, commentMentionQuery, insertCommentMention } from "./comment-mentions";
+import { CommentMentionMark, commentMentionQuery, insertCommentMention, prependCommentAgentMention, removeCommentAgentMentions } from "./comment-mentions";
 import { inlineNodesToTiptapDoc, tiptapDocToInlineNodes, type TiptapDoc } from "@/lib/tiptap-adapter";
 import { detectCommentAiMention } from "@/lib/ai/comment-mention";
 import { parseSigmaDocument } from "@/lib/sigma-doc-schema";
@@ -72,7 +72,7 @@ describe("collaborator mentions", () => {
     const load = vi.fn(async () => [{ userId: "a", name: "clara@example.com", email: "clara@example.com" }, { userId: "b", name: "Bob" }]);
     await act(async () => { root.render(<CommentMentionMenu editor={editor} loadCandidates={load} />); });
     await act(async () => { editor.emit("focus", { editor, event: new FocusEvent("focus"), transaction: editor.state.tr }); });
-    const options = Array.from(container.querySelectorAll('[role="option"]'));
+    const options = Array.from(document.body.querySelectorAll('[role="option"]'));
     expect(options.map((option) => option.querySelector(".comment-mention-option-name")?.textContent)).toEqual(["clara@example.com", "Claude"]);
     expect(options[0].querySelector(".comment-mention-option-sub")).toBeNull();
     act(() => { (options[1] as HTMLElement).click(); });
@@ -91,7 +91,7 @@ describe("collaborator mentions", () => {
     const load = vi.fn(async () => [{ userId: "taro", name: "太郎", email: "taro@example.com" }]);
     await act(async () => { root.render(<CommentMentionMenu editor={editor} loadCandidates={load} />); });
     await act(async () => { editor.emit("focus", { editor, event: new FocusEvent("focus"), transaction: editor.state.tr }); });
-    const option = container.querySelector('[role="option"]')!;
+    const option = document.body.querySelector('[role="option"]')!;
     expect(option.querySelector(".comment-mention-option-name")?.textContent).toBe("太郎");
     expect(option.querySelector(".comment-mention-option-sub")?.textContent).toBe("taro@example.com");
   });
@@ -113,7 +113,7 @@ describe("collaborator mentions", () => {
     await act(async () => { root.render(<CommentMentionMenu editor={editor} loadCandidates={load} />); });
     await act(async () => { editor.emit("focus", { editor, event: new FocusEvent("focus"), transaction: editor.state.tr }); });
     // 共同編集者 2 人 + AI 4 つ。人が先に並ぶ。
-    expect(container.querySelectorAll('[role="option"]')).toHaveLength(6);
+    expect(document.body.querySelectorAll('[role="option"]')).toHaveLength(6);
     const ime = new KeyboardEvent("keydown", { key: "Enter", isComposing: true, bubbles: true, cancelable: true });
     // Observe after the mention handler, before ProseMirror handles the synthetic IME event.
     const stopAtEditor = (event: Event) => event.stopImmediatePropagation();
@@ -123,5 +123,28 @@ describe("collaborator mentions", () => {
     act(() => { editor.view.dom.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true, cancelable: true })); });
     act(() => { editor.view.dom.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true })); });
     expect(tiptapDocToInlineNodes(editor.getJSON() as TiptapDoc)[0]).toMatchObject({ text: "@Bob", mentionUserId: "b" });
+  });
+  it("「Claude に送信」は先頭に @claude を足し、外すと AI の宛先だけを消して人の宛先は残す", () => {
+    const editor = createEditor("");
+    editor.commands.setContent(inlineNodesToTiptapDoc([
+      { type: "text", text: "@Claude", mentionUserId: "person" },
+      { type: "text", text: " さんと確認" },
+    ]));
+    const caret = editor.state.doc.content.size - 1;
+    editor.commands.setTextSelection(caret);
+    prependCommentAgentMention(editor, "claude");
+    expect(editor.getText()).toBe("@claude @Claude さんと確認");
+    // キャレットは打っていた場所 (末尾) のまま。
+    expect(editor.state.selection.from).toBe(caret + "@claude ".length);
+    expect(detectCommentAiMention(tiptapDocToInlineNodes(editor.getJSON() as TiptapDoc))?.provider).toBe("claude");
+
+    editor.commands.insertContent(" @codex");
+    removeCommentAgentMentions(editor);
+    const body = tiptapDocToInlineNodes(editor.getJSON() as TiptapDoc);
+    expect(body).toEqual([
+      { type: "text", text: "@Claude", mentionUserId: "person" },
+      { type: "text", text: " さんと確認 " },
+    ]);
+    expect(detectCommentAiMention(body)).toBeNull();
   });
 });

@@ -2,10 +2,10 @@ import type { SigmaCommentMessage, SigmaCommentThread } from "../model/comments"
 import { inlineNodesToPlainText } from "../model/rich-text";
 
 /**
- * 「自分」を指すための情報。コメントのメンションは `mentionUserId` で宛先を持つが、投稿者は
- * `authorName` (書いた時点の表示名 / メールアドレス / ID) しか持たない。そのため投稿者の判定は、
- * 自分のプロフィールが取りうる名前のどれかと一致するかで行う (コメントパネルが自分の
- * リアクションを見分けるのと同じ規則)。
+ * 「自分」を指すための情報。コメントのメンションは `mentionUserId` で宛先を持つ。投稿者は
+ * `authorId` (共有アカウントの ID) を持つものはそれで、持たない古いコメントは `authorName`
+ * (書いた時点の表示名 / メールアドレス / ID) が自分のプロフィールが取りうる名前のどれかと
+ * 一致するかで判定する。
  */
 export interface CommentUserIdentity {
   userId: string;
@@ -40,7 +40,9 @@ export function commentMessageMentionsUser(message: SigmaCommentMessage, userId:
 
 /** AI の返信は、表示名がたまたま自分と同じでも自分の投稿として扱わない。 */
 export function commentMessageIsFromUser(message: SigmaCommentMessage, identity: CommentUserIdentity): boolean {
-  return !message.agent && Boolean(message.authorName) && identity.authorNames.includes(message.authorName!);
+  if (message.agent) return false;
+  if (message.authorId) return message.authorId === identity.userId;
+  return Boolean(message.authorName) && identity.authorNames.includes(message.authorName!);
 }
 
 /**

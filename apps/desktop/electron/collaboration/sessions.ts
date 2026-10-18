@@ -33,10 +33,14 @@ import type {
 } from "../../src/features/collaboration/model/bridge";
 import type { SharedApproval } from "../../src/features/collaboration/model/approval";
 import { CollaborationAuth, collaborationConfig } from "./auth";
+import { CollaborationProfiles } from "./profiles";
 import { CollaborationHttpError, readResponseBytes, readResponseJson, responseError, retryDelay, syncFailureStatus } from "./transport";
 import { durableWrite, SharedDocumentJournal, type JournalSummary } from "./journal";
 import { logLedgerEvent } from "../ledger-log";
 import { isRemoteId, validateAcknowledgements, validateApproval, validateDocumentIdentity, validateSnapshot, validateSync } from "./response-validation";
+
+/** `info()` が自分のプロフィールの初回の取得を待つ上限。 */
+const PROFILE_INFO_WAIT_MS = 1500;
 
 interface Session {
   journal: SharedDocumentJournal;
@@ -58,6 +62,11 @@ interface Session {
   presencePayload?: string;
   pendingAssetRevision?: number;
   uploadedAssetRevision?: number;
+  /**
+   * Images referenced by past versions read through `version` (#244). They may be gone from the
+   * current document, so `assetResponse` serves these too while the versions are being looked at.
+   */
+  versionAssets?: Set<string>;
 }
 interface Registry {
   version: 1;
@@ -78,6 +87,8 @@ interface Registry {
 export class CollaborationSessions {
   readonly directory: string;
   readonly auth: CollaborationAuth | null;
+  /** 自分で決めた名前とアイコン、共有している相手の名前とアイコン。 */
+  readonly profiles: CollaborationProfiles;
   private registry: Registry = { version: 1, files: {} };
   private sessions = new Map<string, Session>();
   /**
@@ -104,6 +115,10 @@ export class CollaborationSessions {
     this.directory = path.join(userData, "collaboration-v1");
     const config = collaborationConfig();
     this.auth = config ? new CollaborationAuth(this.directory, config) : null;
+    this.profiles = new CollaborationProfiles(
+      (route, init) => this.requestRaw(route, init),
+      () => this.auth?.user()?.id ?? null,
+    );
   }
   async initialize(): Promise<void> {
     await fs.mkdir(this.directory, { recursive: true, mode: 0o700 });
@@ -398,13 +413,24 @@ export class CollaborationSessions {
   }
   async info(): Promise<CollaborationInfo> {
     const user = this.auth?.user() ?? null;
+    // 本人が決めた名前とアイコン。初回だけ取りに行くが、画面の起動を待たせないよう短く切り上げる
+    // (間に合わなければ Google の名前とアイコンで出し、取れたぶんは次の info から使う)。
+    const profile = user
+      ? (this.profiles.cached() ?? await Promise.race([
+          this.profiles.current(),
+          new Promise<null>((resolve) => setTimeout(() => resolve(null), PROFILE_INFO_WAIT_MS)),
+        ]))
+      : null;
+    const displayName = profile?.displayName ?? user?.displayName;
     return {
       configured: Boolean(this.auth),
       user: user ? {
         actorId: user.id,
         ...(user.email ? { email: user.email } : {}),
-        ...(user.displayName ? { displayName: user.displayName } : {}),
+        ...(displayName ? { displayName } : {}),
+        ...(user.displayName && displayName !== user.displayName ? { providerDisplayName: user.displayName } : {}),
         ...(user.avatarUrl ? { avatarUrl: user.avatarUrl } : {}),
+        ...(profile && profile.avatarVersion > 0 ? { avatarVersion: profile.avatarVersion } : {}),
       } : null,
       sessions: user
         ? [...this.sessions.keys()]
@@ -1205,6 +1231,7 @@ export class CollaborationSessions {
   }
   async signOut(): Promise<void> {
     await this.auth?.signOut();
+    this.profiles.clear();
     this.catalogRoles = null;
     for (const [fileId, session] of this.sessions) {
       session.socket?.close();
@@ -1215,6 +1242,23 @@ export class CollaborationSessions {
   async backup(fileId: string): Promise<void> {
     await this.flush(fileId, true);
     await this.action(fileId, "backups", {});
+  }
+  /** One past version's content. The server returns it only to participants of the document. */
+  async version(fileId: string, backupId: string): Promise<unknown> {
+    const version = await this.action<{ document?: unknown }>(fileId, `backups/${backupId}`);
+    const session = await this.session(fileId);
+    const assets = session.versionAssets ?? new Set<string>();
+    for (const assetId of storageAssetIds(version?.document)) {
+      assets.delete(assetId);
+      assets.add(assetId);
+    }
+    // Most recently viewed first to stay; a long browsing session must not grow this without bound.
+    for (const assetId of assets) {
+      if (assets.size <= MAX_VERSION_ASSETS) break;
+      assets.delete(assetId);
+    }
+    session.versionAssets = assets;
+    return version;
   }
   async restore(fileId: string, backupId: string): Promise<void> {
     const session = await this.session(fileId);
@@ -1511,6 +1555,7 @@ export class CollaborationSessions {
     for (const [fileId, session] of this.sessions) {
       if (this.registry.files[fileId]?.actorId !== this.actorId() || session.status === "permission-error") continue;
       if (
+        !session.versionAssets?.has(match[1]) &&
         !JSON.stringify(session.journal.document.project()).includes(
           `sigma-doc-storage://${match[1]}`,
         )
@@ -1742,4 +1787,25 @@ function isPresenceParticipant(value: unknown): value is PresenceParticipant {
     profile.actorId === value.actorId &&
     (value.state === null || isObject(value.state))
   );
+}
+
+const MAX_VERSION_ASSETS = 500;
+
+/** The `sigma-doc-storage://` image ids a document refers to. */
+function storageAssetIds(document: unknown): string[] {
+  const ids = new Set<string>();
+  const visit = (value: unknown): void => {
+    if (typeof value === "string") {
+      const match = /^sigma-doc-storage:\/\/([A-Za-z0-9_-]{1,180})$/.exec(value);
+      if (match) ids.add(match[1]);
+      return;
+    }
+    if (Array.isArray(value)) {
+      for (const child of value) visit(child);
+      return;
+    }
+    if (isObject(value)) for (const child of Object.values(value)) visit(child);
+  };
+  visit(document);
+  return [...ids];
 }

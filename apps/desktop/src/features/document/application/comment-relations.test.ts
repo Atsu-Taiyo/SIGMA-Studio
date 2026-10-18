@@ -136,4 +136,10 @@ describe("message helpers", () => {
     expect(commentMessageIsFromUser({ ...message, authorName: "他の人" }, ME)).toBe(false);
     expect(commentMessageIsFromUser({ ...message, agent: { vendor: "openai" } }, ME)).toBe(false);
   });
+
+  it("commentMessageIsFromUser trusts the account id over the saved name, so renaming keeps and never steals authorship", () => {
+    expect(commentMessageIsFromUser({ ...message, authorId: ME.userId, authorName: "変える前の名前" }, ME)).toBe(true);
+    // 同じ名前の別人 (ID が違う) は自分ではない。
+    expect(commentMessageIsFromUser({ ...message, authorId: "user-other" }, ME)).toBe(false);
+  });
 });

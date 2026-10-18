@@ -49,7 +49,7 @@ test("desktop comments select collaborators and retain recipients after shared r
       const state = { session, updates: [] as string[], userId: "author", memberFiles: [] as string[] };
       (globalThis as unknown as { mentionTest: typeof state }).mentionTest = state;
       const replace = (name: string, handler: (...args: unknown[]) => unknown) => { ipcMain.removeHandler(`collaboration:${name}`); ipcMain.handle(`collaboration:${name}`, (_event, ...args) => handler(...args)); };
-      replace("info", () => ({ configured: true, user: { actorId: state.userId, displayName: "投稿者" }, sessions: [state.session], restrictedFileIds: [] }));
+      replace("info", () => ({ configured: true, user: { actorId: state.userId, displayName: state.userId === "author" ? "投稿者" : "共同編集者" }, sessions: [state.session], restrictedFileIds: [] }));
       replace("members", (fileId) => { state.memberFiles.push(String(fileId)); return [{ user_id: "author", role: "owner", email: "self@example.test" }, { user_id: "recipient", role: "editor", email: "collaborator@example.test" }]; });
       replace("update", (_fileId, update) => { state.updates.push(String(update)); });
       for (const name of ["view", "visible-files", "presence", "flush"]) replace(name, () => undefined);
@@ -67,13 +67,15 @@ test("desktop comments select collaborators and retain recipients after shared r
     await dock.getByRole("button", { name: "返信する", exact: true }).click();
     const input = dock.locator(".comment-reply-composer .comment-rich-text-editor");
     await input.fill("@coll");
-    await expect(dock.getByRole("option", { name: "collaborator@example.test", exact: true })).toBeVisible();
-    await expect(dock.getByRole("option", { name: "self@example.test", exact: true })).toHaveCount(0);
+    // 候補は欄の中に差し込まず、キャレットの下に浮かべる (body に出る)。
+    const mentionMenu = page.locator("[data-comment-popover]");
+    await expect(mentionMenu.getByRole("option", { name: "collaborator@example.test", exact: true })).toBeVisible();
+    await expect(mentionMenu.getByRole("option", { name: "self@example.test", exact: true })).toHaveCount(0);
     await input.press("Enter");
     await expect(input.locator('[data-comment-mention="recipient"]')).toHaveText("@collaborator@example.test");
     await input.pressSequentially(" 確認をお願いします");
     await dock.getByRole("button", { name: "返信", exact: true }).click();
-    await expect(dock.locator('.rich-inline-content [data-comment-mention="recipient"] .comment-mention-label')).toHaveText("@collaborator@example.test");
+    await expect(dock.locator('.comment-message-body [data-comment-mention="recipient"] .comment-mention-label')).toHaveText("@collaborator@example.test");
     await expect.poll(async () => app.evaluate(() => (globalThis as unknown as { mentionTest: { updates: string[] } }).mentionTest.updates.length)).toBeGreaterThan(0);
     const updates = await app.evaluate(() => (globalThis as unknown as { mentionTest: { updates: string[] } }).mentionTest.updates);
     updates.forEach((update) => shared.applyUpdate(fromBase64(update)));
@@ -92,7 +94,8 @@ test("desktop comments select collaborators and retain recipients after shared r
     await expect(mentions).toHaveText("@1");
     await mentions.click();
     await dock.locator(".comment-reply-summary").click();
-    await expect(dock.locator('.comment-mention.is-self .comment-mention-label')).toHaveText("@collaborator@example.test");
+    // 宛先のチップは、保存してある文字 (@メール) ではなく、その人の今の名前で出す (名前を変えたら追従する)。
+    await expect(dock.locator('.comment-mention.is-self .comment-mention-label')).toHaveText("@共同編集者");
     await page.screenshot({ path: testInfo.outputPath("comment-mention-desktop.png") });
     const memberFiles = await app.evaluate(() => (globalThis as unknown as { mentionTest: { memberFiles: string[] } }).mentionTest.memberFiles);
     // Saved mention chips also resolve avatars after remount/reload. Every

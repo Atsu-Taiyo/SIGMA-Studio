@@ -11,22 +11,41 @@ const person = (name: string): CommentParticipant => ({ key: `${name}:`, name })
 describe("getCommentThreadParticipants", () => {
   it("lists each speaker once, in the order they first spoke", () => {
     const thread = { messages: [message("1", "田中"), message("2", "佐藤"), message("3", "田中"), message("4", "木村")] };
-    expect(getCommentThreadParticipants(thread, me).map((p) => p.name)).toEqual(["田中", "佐藤", "木村"]);
+    expect(getCommentThreadParticipants(thread, { currentAuthor: me }).map((p) => p.name)).toEqual(["田中", "佐藤", "木村"]);
   });
 
   it("treats a message without an author name as the current user, and lends only them the avatar", () => {
     const thread = { messages: [message("1"), message("2", "田中")] };
-    const [self, other] = getCommentThreadParticipants(thread, me);
+    const [self, other] = getCommentThreadParticipants(thread, { currentAuthor: me });
     expect(self).toMatchObject({ name: "木村", avatarUrl: "data:image/png;base64,AA" });
     expect(other.avatarUrl).toBeNull();
   });
 
   it("keeps an AI apart from a person with the same name, and never lends it the user's avatar", () => {
     const thread = { messages: [message("1", "木村"), message("2", "木村", { vendor: "anthropic" })] };
-    const participants = getCommentThreadParticipants(thread, me);
+    const participants = getCommentThreadParticipants(thread, { currentAuthor: me });
     expect(participants).toHaveLength(2);
     expect(participants[1].agent).toEqual({ vendor: "anthropic" });
     expect(participants[1].avatarUrl).toBeNull();
+  });
+});
+
+describe("getCommentThreadParticipants with account ids", () => {
+  const withId = (id: string, authorId: string, authorName: string) => ({ ...message(id, authorName), authorId });
+
+  it("draws people by their current name and picture, even after they renamed themselves", () => {
+    const people = new Map([["u-tanaka", { name: "田中 (新しい名前)", avatarUrl: "sigma-collaboration-profile://avatar?user=u-tanaka&v=2" }]]);
+    const thread = { messages: [withId("1", "u-tanaka", "田中"), withId("2", "u-me", "古い自分の名前"), withId("3", "u-tanaka", "田中")] };
+    const participants = getCommentThreadParticipants(thread, { currentAuthor: me, currentUserId: "u-me", people });
+    expect(participants).toEqual([
+      { key: "user:u-tanaka", name: "田中 (新しい名前)", avatarUrl: "sigma-collaboration-profile://avatar?user=u-tanaka&v=2", agent: null },
+      { key: "user:u-me", name: "木村", avatarUrl: "data:image/png;base64,AA", agent: null },
+    ]);
+  });
+
+  it("falls back to the saved name, without anyone else's picture, for people it cannot see", () => {
+    const [stranger] = getCommentThreadParticipants({ messages: [withId("1", "u-gone", "木村")] }, { currentAuthor: me, currentUserId: "u-me" });
+    expect(stranger).toMatchObject({ name: "木村", avatarUrl: null });
   });
 });
 
