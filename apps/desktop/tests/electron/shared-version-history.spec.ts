@@ -18,6 +18,9 @@ type VersionKind = "auto" | "manual" | "restore";
 const MANUAL_ID = "aaaaaaaa-0000-4000-8000-000000000001";
 const AUTO_ID = "aaaaaaaa-0000-4000-8000-000000000002";
 const BEFORE_RESTORE_ID = "aaaaaaaa-0000-4000-8000-000000000003";
+/** An image only the 20-minutes-ago version has: the current document no longer refers to it. */
+const VERSION_ONLY_ASSET_ID = "version-only-figure";
+const FIGURE_SVG = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 80"><rect x="4" y="4" width="112" height="72" fill="#2563eb"/></svg>';
 interface FixtureVersion { id: string; kind: VersionKind; created_at: string; epoch: number; document: SigmaDocument }
 
 /**
@@ -42,6 +45,7 @@ test("a shared document's server versions are listed, previewed, and restored fo
   let sequence = 0;
   const versions = new Map<string, FixtureVersion>();
   const restoreRequests: { backupId: string; operationId: string; role: string }[] = [];
+  const assetRequests: string[] = [];
   const server = createServer(async (request, response) => {
     const prefix = `/documents/${sharedId}`;
     const json = (value: unknown, status = 200) => response.writeHead(status, { "Content-Type": "application/json" }).end(JSON.stringify(value));
@@ -54,6 +58,12 @@ test("a shared document's server versions are listed, previewed, and restored fo
     const bytes = Buffer.concat(chunks);
     const body = bytes.length ? JSON.parse(bytes.toString()) : {};
     const action = request.url.slice(prefix.length + 1);
+    if (action.startsWith("assets/") && request.method === "GET") {
+      assetRequests.push(action.slice("assets/".length));
+      if (action === `assets/${VERSION_ONLY_ASSET_ID}`) response.writeHead(200, { "Content-Type": "image/svg+xml" }).end(FIGURE_SVG);
+      else json({ error: "ASSET_UNAVAILABLE" }, 404);
+      return;
+    }
     if (action === "sync" && body.vector) {
       if (body.epoch !== epoch) { json({ error: "EPOCH_CHANGED" }, 409); return; }
       json({ update: toBase64(remote.difference(fromBase64(body.vector))), role, epoch, protocol: 1 });
@@ -140,13 +150,19 @@ test("a shared document's server versions are listed, previewed, and restored fo
       expires_in: 3600, user: { id: actorId } });
     await app!.close(); app = undefined;
     remote.initialize(JSON.parse(JSON.stringify(seeded.document)) as ObjectValue, { sharedDocumentId: sharedId, epoch: 1 });
-    const withBody = (text: string): SigmaDocument => ({
+    const withBody = (text: string, figure = false): SigmaDocument => ({
       ...structuredClone(seeded.document),
       content: [{ type: "paragraph", id: "p_body", children: [{ type: "text", text }] }],
-    });
+      ...(figure ? { pageLayout: { ...structuredClone(seeded.document.pageLayout!), overlay: { overlaySnapshot: {
+        version: 1,
+        shapes: [{ id: "figure", type: "image", x: 100, y: 160, anchor: { type: "page" }, props: { assetId: "figure-asset", w: 240, h: 160 } }],
+        assets: { "figure-asset": { id: "figure-asset", type: "image", props: { w: 120, h: 80, name: "図", mimeType: "image/svg+xml",
+          isAnimated: false, fileSize: FIGURE_SVG.length, src: `sigma-doc-storage://${VERSION_ONLY_ASSET_ID}` } } },
+      } } } } : {}),
+    } as SigmaDocument);
     const now = Date.now();
     versions.set(MANUAL_ID, { id: MANUAL_ID, kind: "manual", created_at: new Date(now - 26 * 3600_000).toISOString(), epoch: 1, document: withBody("昨日手で保存した本文") });
-    versions.set(AUTO_ID, { id: AUTO_ID, kind: "auto", created_at: new Date(now - 20 * 60_000).toISOString(), epoch: 1, document: withBody("20分前の本文") });
+    versions.set(AUTO_ID, { id: AUTO_ID, kind: "auto", created_at: new Date(now - 20 * 60_000).toISOString(), epoch: 1, document: withBody("20分前の本文", true) });
     await SharedDocumentJournal.create(path.join(directory, "documents", sharedId), {
       sharedDocumentId: sharedId, epoch: 1, protocol: 1, localFileId: seeded.fileId, docId: seeded.document.docId,
     }, remote);
@@ -191,6 +207,11 @@ test("a shared document's server versions are listed, previewed, and restored fo
     const preview = page.locator(".version-history-preview");
     await expect(preview).toContainText("20分前の本文");
     await expect(preview.locator(".paged-surface[data-paged-surface-state='ready']")).toHaveCount(1);
+    // その版にだけある画像も、版を見ている間は共有サーバーから取り寄せて描く。
+    const figure = preview.locator("img.overlay-image-shape").first();
+    await expect(figure).toBeVisible({ timeout: 30_000 });
+    await expect.poll(() => figure.evaluate((element) => (element as HTMLImageElement).naturalWidth), { timeout: 30_000 }).toBeGreaterThan(0);
+    expect(assetRequests).toContain(VERSION_ONLY_ASSET_ID);
     await page.screenshot({ path: testInfo.outputPath("shared-version-preview.png") });
 
     // 3. 戻す前に、参加者全員の教材が戻ることを帯の中で確かめる。キャンセルすると何も送らない。

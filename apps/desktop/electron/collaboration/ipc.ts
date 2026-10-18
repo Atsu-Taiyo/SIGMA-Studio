@@ -106,7 +106,7 @@ export function registerCollaborationIpc(
   );
   handle("backups", (id) => sessions.action(fileId.parse(id), "backups"));
   handle("version", (id, backupId) =>
-    sessions.action(fileId.parse(id), `backups/${uuid.parse(backupId)}`),
+    sessions.version(fileId.parse(id), uuid.parse(backupId)),
   );
   handle("backup", (id) => sessions.backup(fileId.parse(id)));
   handle("restore", (id, backupId) =>
