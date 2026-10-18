@@ -83,7 +83,8 @@ test("a shared document's server versions are listed, previewed, and restored fo
       json(version);
     } else if (action === "restore" && request.method === "POST") {
       restoreRequests.push({ backupId: body.backupId, operationId: body.operationId, role });
-      if (role === "viewer") { json({ error: "EDITOR_REQUIRED" }, 403); return; }
+      // The server refuses a viewer's write before reaching the restore itself.
+      if (role === "viewer") { json({ error: "READ_ONLY" }, 403); return; }
       const target = versions.get(body.backupId);
       if (!target) { json({ error: "BACKUP_UNAVAILABLE" }, 404); return; }
       // The state everyone had just before, kept as a version of its own.
