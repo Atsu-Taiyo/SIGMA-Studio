@@ -5,6 +5,7 @@ import {
   type AiEditSessionDraft,
 } from "@/lib/ai/sigma-doc-edit-schema";
 import {
+  collectAlreadyAppliedInsertions,
   collectMissingMergeUnitIds,
   collectNonMergeableTargets,
   findBlockContainer,
@@ -541,8 +542,22 @@ export function findMergeableProposalStructuralConflict(
   if (missingAnchors.length > 0) {
     return { blockIds: missingAnchors, reason: "anchor-missing" };
   }
-  const occupiedIds = collectOccupiedInsertIds(proposal.draft, currentHashes);
+  const occupiedIds = collectMergeableOccupiedInsertIds(proposal, currentHashes, currentDocument);
   return occupiedIds.length > 0 ? { blockIds: occupiedIds, reason: "replay-failed" } : null;
+}
+
+/**
+ * Inserted ids already taken in `currentDocument`, except the insertions the merging replay treats as
+ * done (`collectAlreadyAppliedInsertions`: the same kind of entity under the AI's new id is that very
+ * insertion, which reached the document before).
+ */
+function collectMergeableOccupiedInsertIds(
+  proposal: Pick<MergeableProposal, "draft" | "mergeBasis">,
+  currentHashes: Record<string, string>,
+  currentDocument: SigmaDocument,
+): string[] {
+  const applied = new Set(collectAlreadyAppliedInsertions(currentDocument, proposal.draft, proposal.mergeBasis).map((insertion) => insertion.id));
+  return collectOccupiedInsertIds(proposal.draft, currentHashes).filter((id) => !applied.has(id));
 }
 
 /** The whiteboard insertion target: never a block or shape id, validated by the replay itself. */
@@ -575,7 +590,7 @@ export function replayMergeableProposal(
     if (missing.reason === "anchor-missing") {
       return { ok: false, conflict: missing };
     }
-    const occupiedIds = collectOccupiedInsertIds(proposal.draft, currentHashes);
+    const occupiedIds = collectMergeableOccupiedInsertIds(proposal, currentHashes, currentDocument);
     return {
       ok: false,
       conflict: occupiedIds.length > 0 ? { blockIds: occupiedIds, reason: "replay-failed" } : missing,

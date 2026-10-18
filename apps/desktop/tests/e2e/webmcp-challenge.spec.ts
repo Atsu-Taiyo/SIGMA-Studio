@@ -80,7 +80,7 @@ test("a human addition and the agent's rewrite of the same paragraph are both ke
   // The page card previews the merged content: the person's addition and the agent's rewrite together.
   const card = page.locator('[data-flow-extension-node-id] > [data-ai-proposal-card="page"]').filter({ hasText: "AIが直した" });
   await expect(card).toContainText("人間の追記");
-  await expect(card).toContainText("あなたの編集と合わせた内容です");
+  await expect(card).toContainText("現在の編集内容に合わせて提案を調整しました。");
 
   await taskDock.getByRole("button", { name: /AIタスク/ }).hover();
   await expect(taskDock.locator(".ai-task-dock")).toBeVisible();

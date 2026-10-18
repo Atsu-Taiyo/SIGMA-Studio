@@ -89,7 +89,7 @@ describe("AssistantTurnView apply failure", () => {
           proposalBusy={false} onApplyProposal={async () => ({ ok: true })} />,
       ));
       expect(container.querySelector(".ai-chat-result-proposal [data-ai-proposal-bar-details] [data-ai-proposal-merge-notice]")?.textContent)
-        .toBe("あなたの編集と合わせた内容です");
+        .toBe("現在の編集内容に合わせて提案を調整しました。");
       await act(async () => root.render(
         <AssistantTurnView turn={turn} clockNow={0} proposal={proposal}
           proposalBusy={false} onApplyProposal={async () => ({ ok: true })} />,

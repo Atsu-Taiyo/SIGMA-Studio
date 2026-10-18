@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { withSharedReadScope } from "../electron/collaboration/proposal-context";
+import { withDocumentReadScope } from "../electron/ai-read-state";
 
 import type { McpServer, RegisteredTool, ToolCallback } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { CallToolResult, ToolAnnotations } from "@modelcontextprotocol/sdk/types.js";
@@ -106,7 +106,7 @@ export function createMcpToolRegistrar(server: McpServer, options: McpToolRegist
       activityLogger({ callId, tool: name, runId, status: "started" });
       const result = await runWithMcpToolStats(name, runId, async () => {
         try {
-          const result = await withSharedReadScope(runId, READ_ONLY_TOOL_NAMES.has(name), async () => invoke(...handlerArgs));
+          const result = await withDocumentReadScope(runId, READ_ONLY_TOOL_NAMES.has(name), async () => invoke(...handlerArgs));
           activityLogger({ callId, tool: name, runId, status: "completed" });
           return result;
         } catch (error) {

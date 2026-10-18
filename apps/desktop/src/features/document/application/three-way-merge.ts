@@ -6,8 +6,10 @@ import type { InlineNode } from "../model";
  *
  * Edits to different places are both kept. Where both sides changed the same place, both
  * insertions are kept in the fixed order ours (human) → theirs (AI), and a value both sides set
- * differently takes theirs. The result depends only on the inputs (no ids are drawn, no clocks are
- * read), so the same three inputs always merge to the same value.
+ * differently keeps ours: the human's newer value is never rolled back to apply the AI's (the
+ * overlap is reported, so the caller can say the proposal was adjusted). The result depends only on
+ * the inputs (no ids are drawn, no clocks are read), so the same three inputs always merge to the
+ * same value.
  *
  * Pure: the module depends on the canonical model types only (no Yjs, AI or editor code), so main
  * and renderer can both run it.
@@ -45,9 +47,9 @@ import type { InlineNode } from "../model";
 /** What the merge had to decide, so callers can count fallbacks (MISS R3) without re-diffing. */
 export interface ThreeWayMergeReport {
   /**
-   * Paths where both sides changed the same place: a value both set differently (theirs was kept),
+   * Paths where both sides changed the same place: a value both set differently (ours was kept),
    * insertions both made into the same gap of an inline run (both were kept), or orders both
-   * changed differently (theirs was kept). Paths look like `$.children` or `$[#blockId].children`.
+   * changed differently (ours was kept). Paths look like `$.children` or `$[#blockId].children`.
    */
   overlaps: string[];
   /** Whether some inline run was merged at a coarser granularity because of a size bound. */
@@ -779,6 +781,7 @@ function mergeInlineTokens(
 }
 
 /** "Only one side changed it → that value; both changed it differently → theirs (AI)." */
+/** A value both sides changed differently keeps ours (the human's): the AI's value is reported, not applied. */
 function mergeLeaf(base: unknown, ours: unknown, theirs: unknown, onConflict: () => void): unknown {
   if (isEqual(ours, theirs) || isEqual(theirs, base)) {
     return ours;
@@ -787,7 +790,7 @@ function mergeLeaf(base: unknown, ours: unknown, theirs: unknown, onConflict: ()
     return theirs;
   }
   onConflict();
-  return theirs;
+  return ours;
 }
 
 function orderedKeys(...records: readonly Record<string, unknown>[]): string[] {
@@ -982,20 +985,20 @@ function mergeInlineValue(
  * - If only one side changed a value, that side's value is returned as it is (at any depth).
  * - Inline runs (`InlineNode[]`) go through `mergeInline3`.
  * - Arrays whose elements all carry a unique string `id` are merged as identified elements: the
- *   order follows the side that reordered (theirs if both did), insertions are anchored after the
+ *   order follows the side that reordered (ours if both did), insertions are anchored after the
  *   preceding kept element (ours before theirs at the same anchor), and an element one side deleted
  *   while the other edited it is kept with the edit.
  * - Other arrays of equal length on all three sides are merged element by element when the two
  *   sides changed different positions; otherwise (a length change, or a position both changed)
  *   they are values.
  * - A key both sides added is merged against an empty object / identified array / inline run, so
- *   both inline texts are kept; other values (plain strings...) take theirs.
- * - A node one side changed the `type` or `kind` of is taken whole from that side (theirs if both
+ *   both inline texts are kept; other values (plain strings...) keep ours.
+ * - A node one side changed the `type` or `kind` of is taken whole from that side (ours if both
  *   changed it differently); keys of two kinds of node are never mixed.
  * - A value one side removed (key or root) and the other changed is kept with the change
  *   (`editBeatsDelete`); removed by one side and untouched by the other, it is removed.
- * - Everything else is a value: if both sides changed it differently, theirs (AI) wins and the path
- *   is reported in `overlaps`.
+ * - Everything else is a value: if both sides changed it differently, ours (the human's) is kept and
+ *   the path is reported in `overlaps`.
  * - `updatedAt` is never compared (MISS R1); where keys are merged, ours' timestamp is kept.
  * - A formula id the merge repeats anywhere in the result is renamed on theirs' copy (see
  *   `mergeInline3`); other ids the merge repeats are only reported (`duplicateIds`). Ids the inputs
@@ -1108,9 +1111,10 @@ function mergeNode(
   if (isEqual(nodeKind(ours), theirsKind)) {
     return mergeObject(base, ours, theirs, path, context);
   }
-  // The structural change wins whole; the other side's edits to this node are dropped.
+  // The structural change wins whole; the other side's edits to this node are dropped. When both
+  // sides changed the kind differently, the human's node is kept.
   addPath(context.report.overlaps, path);
-  return isEqual(theirsKind, nodeKind(base)) ? ours : theirs;
+  return isEqual(nodeKind(ours), nodeKind(base)) ? theirs : ours;
 }
 
 function mergeObject(
@@ -1333,14 +1337,15 @@ function mergeIdentifiedArray(
   const theirsOrder = theirs.map((element) => element.id).filter((id) => survivorSet.has(id));
   const oursReordered = isReordered(oursOrder, survivors);
   const theirsReordered = isReordered(theirsOrder, survivors);
+  // Both sides reordered differently: the human's order is kept.
   let spine = survivors;
-  if (theirsReordered) {
-    spine = completeOrder(theirsOrder, survivors);
-    if (oursReordered && !isEqual(completeOrder(oursOrder, survivors), spine)) {
+  if (oursReordered) {
+    spine = completeOrder(oursOrder, survivors);
+    if (theirsReordered && !isEqual(completeOrder(theirsOrder, survivors), spine)) {
       addPath(context.report.overlaps, path);
     }
-  } else if (oursReordered) {
-    spine = completeOrder(oursOrder, survivors);
+  } else if (theirsReordered) {
+    spine = completeOrder(theirsOrder, survivors);
   }
 
   // 3. Insertions, anchored after the preceding element that is kept.

@@ -14,6 +14,7 @@ export const AI_PROPOSAL_MERGE_COUNTERS = {
   invalidAfterMerge: "AiProposalMerge.invalidAfterMerge",
   anchorRelocated: "AiProposalMerge.anchorRelocated",
   legacyNoBase: "AiProposalMerge.legacyNoBase",
+  alreadyApplied: "AiProposalMerge.alreadyApplied",
 } as const;
 
 /**
@@ -51,6 +52,7 @@ export function countProposalMergeFallbacks(
     [AI_PROPOSAL_MERGE_COUNTERS.invalidAfterMerge, report.invalidAfterMerge],
     [AI_PROPOSAL_MERGE_COUNTERS.anchorRelocated, report.anchorRelocated],
     [AI_PROPOSAL_MERGE_COUNTERS.legacyNoBase, report.legacyNoBase],
+    [AI_PROPOSAL_MERGE_COUNTERS.alreadyApplied, report.alreadyApplied ?? 0],
   ], count);
 }
 

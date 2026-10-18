@@ -639,7 +639,7 @@ function mergeIdentifiedUnitsKeepingBoth<T extends { id: string }>(
   }
   if (order.reorderConflict) {
     appendUnique(report.overlaps, [axis.path]);
-    addDroppedEdit(droppedEdits, { side: "human", record: axis.path });
+    addDroppedEdit(droppedEdits, { side: "ai", record: axis.path });
   }
 
   // 3. 中身の決定。
@@ -939,7 +939,8 @@ function mergeIdOrder(
     const mineOrder = completeOrder(mineSurvivorOrder, survivors);
     const theirsOrder = completeOrder(theirsSurvivorOrder, survivors);
     reorderConflict = mineReordered && theirsReordered && !idArraysEqual(mineOrder, theirsOrder);
-    spine = theirsReordered ? theirsOrder : mineReordered ? mineOrder : survivors;
+    // Both reordered differently: the human's order is kept (the AI's reorder is the dropped edit).
+    spine = mineReordered ? mineOrder : theirsReordered ? theirsOrder : survivors;
   } else {
     // 「並べ替えた」と言えるのは、残す単位を全部持っている側だけ。片側が消した単位を残す判断に
     // なった場合 (編集 vs 削除の解決)、その側の並びには欠けがあるので基準にはできない。

@@ -1,7 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { hasSharedBinding, readSharedDocument } from "../electron/collaboration/local-bridge";
-import { observeSharedRead } from "../electron/collaboration/proposal-context";
+import { observeDocumentRead } from "../electron/ai-read-state";
 
 import type { LocalDocumentMetadata, LocalSigmaDocStore } from "../electron/local-sigma-doc-store";
 import type { SigmaDocument } from "@/features/document";
@@ -98,22 +98,26 @@ export async function loadDocumentForFile(
   document: SigmaDocument;
 }> {
   const file = knownFile ?? await getFileMetadata(store, fileId);
-  const shared = await readSharedDocument(path.dirname(store.getDataDir()), fileId);
+  const userData = path.dirname(store.getDataDir());
+  const shared = await readSharedDocument(userData, fileId);
   if (shared) {
-    observeSharedRead(path.dirname(store.getDataDir()), fileId, shared);
+    observeDocumentRead(userData, fileId, shared);
     return { file: { ...file, revision: 1, title: shared.metadata.title }, document: shared };
   }
   const key = documentCacheKey(store, fileId);
   const cached = readDocumentCache(key);
   if (cached?.revision === file.revision) {
     incrementMcpStatsCounter("documentCacheHits");
+    observeDocumentRead(userData, fileId, cached.document);
     return { file, document: cached.document };
   }
 
   const inFlight = inFlightDocumentLoads.get(key);
   if (inFlight?.revision === file.revision) {
     incrementMcpStatsCounter("documentCacheHits");
-    return inFlight.promise;
+    const loaded = await inFlight.promise;
+    observeDocumentRead(userData, fileId, loaded.document);
+    return loaded;
   }
 
   parsedDocumentCache.delete(key);
@@ -142,6 +146,7 @@ export async function loadDocumentForFile(
     if (await isDocumentCacheWriteConsistent(store, verifiedFile)) {
       writeDocumentCache(key, { fileId, revision: verifiedFile.revision, document });
     }
+    observeDocumentRead(userData, fileId, document);
     return { file: verifiedFile, document };
   })();
   inFlightDocumentLoads.set(key, { revision: file.revision, promise });

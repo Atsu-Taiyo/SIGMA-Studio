@@ -6,13 +6,11 @@ import { normalizeOverlaySnapshot, type SigmaDocument } from "@/features/documen
 import { rewriteAiOverlayShapeReplacementDrafts } from "@/lib/ai/overlay-shape-replacement";
 import type { AiEditSessionDraft } from "@/lib/ai/sigma-doc-edit-schema";
 import {
-  blockContainsId,
   collectNonMergeableTargets,
   createEmptyProposalMergeReport,
   usableProposalMergeBasis,
   type ProposalMergeReport,
 } from "@/lib/ai/proposal-merge-basis";
-import { findBlock } from "@/lib/document-tree";
 import { computeDocumentBlockHashes } from "@/lib/sigma-doc-block-hash";
 import type { CollaborationSessions } from "./sessions";
 import { readSharedProposal } from "./proposal-context";
@@ -27,6 +25,7 @@ import { collectConflictSensitiveBlockIds, collectRequiredInsertAnchorBlockIds }
 import { mergeProposalDraftsIntoDocument } from "../proposals/replay";
 import {
   assertReadPreconditions,
+  PAGE_LAYOUT_TARGET,
   type ReadPrecondition,
   type SharedApproval,
 } from "../../src/features/collaboration/model/approval";
@@ -45,6 +44,11 @@ export type SharedProposalSessions = Pick<
  * rewritten drafts with preconditions rebuilt for them (`prepareMergedApproval`). The approval record
  * (`collaboration-v1/proposals/*.json`) is not changed; a legacy record without a basis sends it as
  * recorded.
+ *
+ * The server checks what the merge overwrote against the document the merge was computed on. When
+ * someone edits it between this window's sync and the server's check, the server refuses the
+ * approval (`PROPOSAL_CONFLICT`); that is a race, not a conflict of the proposal, so the approval
+ * syncs again and merges again (up to `MAX_MERGED_APPROVAL_ATTEMPTS` times) before reporting it.
  */
 export function createSharedProposalApprover(
   sessions: SharedProposalSessions,
@@ -72,54 +76,68 @@ export function createSharedProposalApprover(
             records.push(fresh);
           }
           const envelopes = await Promise.all(
-            records.map((proposal) =>
-              readSharedProposal(
-                path.dirname(sessions.directory),
-                proposal.proposalId,
-              ),
-            ),
+            records.map((proposal) => readSharedProposalOrRebuild(path.dirname(sessions.directory), proposal)),
           );
-          // This window's projection only catches up with the other participants on an online
-          // flush; the merge and the rebuilt preconditions must read what the server holds now.
-          await throughServer(() => sessions.flush(fileId, true));
-          // Persist the exact attempted request before sending it. A sync after a lost
-          // response already includes our edits; merging again would conflict on inserted IDs.
+          // Persist the exact attempted request before sending it, so a lost response is retried
+          // unchanged (the server answers the same operation id with its receipt). Merging again
+          // after a lost response is also safe: insertions already applied are not inserted twice
+          // (`collectAlreadyAppliedInsertions`), but the retry would get a new operation id.
           const attemptFile = path.join(sessions.directory, "approval-attempts", `${sha256(stableValue({
             fileId,
             records: records.map(({ proposalId, updatedAt }) => ({ proposalId, updatedAt })),
             operationIds: envelopes.map(({ operationId }) => operationId),
           }))}.json`);
-          let before = sessions.project(fileId)!;
-          let prepared: PreparedApproval;
-          try {
-            const attempt = JSON.parse(await fs.readFile(attemptFile, "utf8")) as { before: SigmaDocument; prepared: PreparedApproval };
-            before = attempt.before;
-            prepared = attempt.prepared;
-          } catch (error) {
-            if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-            prepared = records.some(hasMergeBasis)
-              ? await prepareMergedApproval(before, records, envelopes)
-              : prepareRecordedApproval(records, envelopes);
-            if (prepared.approval) {
-              await fs.mkdir(path.dirname(attemptFile), { recursive: true, mode: 0o700 });
-              await durableWrite(attemptFile, JSON.stringify({ before, prepared }));
-            }
-          }
+          let before!: SigmaDocument;
+          let prepared!: PreparedApproval;
           let accepted: { seq: number } | undefined;
-          let document = before;
-          if (prepared.approval) {
-            const approval = prepared.approval;
-            accepted = await throughServer(async () => {
-              try {
-                return await sessions.approve(fileId, approval, records.map((proposal) => proposal.proposalId));
-              } catch (error) {
-                // A definitive rejection did not apply the request. The next approval may
-                // merge against newer edits; ambiguous transport failures keep the intent.
-                if (isServerRejection(error)) await fs.rm(attemptFile, { force: true });
-                throw error;
+          let document!: SigmaDocument;
+          for (let attempt = 1; ; attempt += 1) {
+            // This window's projection only catches up with the other participants on an online
+            // flush; the merge and the rebuilt preconditions must read what the server holds now.
+            await throughServer(() => sessions.flush(fileId, true));
+            before = sessions.project(fileId)!;
+            try {
+              const recordedAttempt = JSON.parse(await fs.readFile(attemptFile, "utf8")) as { before: SigmaDocument; prepared: PreparedApproval };
+              before = recordedAttempt.before;
+              prepared = recordedAttempt.prepared;
+            } catch (error) {
+              if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+              prepared = records.some(hasMergeBasis)
+                ? await prepareMergedApproval(before, records, envelopes)
+                : prepareRecordedApproval(records, envelopes);
+              if (prepared.approval) {
+                await fs.mkdir(path.dirname(attemptFile), { recursive: true, mode: 0o700 });
+                await durableWrite(attemptFile, JSON.stringify({ before, prepared }));
               }
-            });
+            }
+            document = before;
+            if (!prepared.approval) break;
+            const approval = prepared.approval;
+            try {
+              accepted = await throughServer(async () => {
+                try {
+                  return await sessions.approve(fileId, approval, records.map((proposal) => proposal.proposalId));
+                } catch (error) {
+                  // A definitive rejection did not apply the request. The next approval may
+                  // merge against newer edits; ambiguous transport failures keep the intent.
+                  if (isServerRejection(error)) await fs.rm(attemptFile, { force: true });
+                  throw error;
+                }
+              });
+            } catch (error) {
+              // Someone edited what the merge overwrote between the sync and the server's check: sync
+              // and merge again. A legacy record is sent as recorded, so it cannot follow (MISS R2).
+              if (
+                attempt < MAX_MERGED_APPROVAL_ATTEMPTS
+                && records.some(hasMergeBasis)
+                && error instanceof ServerStepError
+                && isServerRejection(error.reason)
+                && String(error.reason).includes("PROPOSAL_CONFLICT")
+              ) continue;
+              throw error;
+            }
             document = sessions.project(fileId)!;
+            break;
           }
           // The merged proposals first, so a group is resolved with its replayed member's report.
           let resolved = proposals[0];
@@ -178,6 +196,27 @@ export function createSharedProposalApprover(
   };
 }
 
+/** How many times an approval syncs and merges again when the server saw a newer edit (a race). */
+const MAX_MERGED_APPROVAL_ATTEMPTS = 3;
+
+/**
+ * A proposal's recorded approval, or one rebuilt from the proposal when it has none (a proposal written
+ * before its document was shared): the touched targets keep their base hashes, as a recorded one has.
+ * Not having the record is no conflict of the proposal (it used to be reported as one forever).
+ */
+async function readSharedProposalOrRebuild(userData: string, proposal: LocalMcpEditProposal): Promise<SharedApproval> {
+  try {
+    return await readSharedProposal(userData, proposal.proposalId);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    return {
+      operationId: uuidFromHash(sha256(`${proposal.proposalId}\0${proposal.updatedAt}`)),
+      draft: proposal.draft,
+      preconditions: (proposal.touchedBlocks ?? []).flatMap((item) => (item.baseHash ? [{ id: item.id, hash: item.baseHash }] : [])),
+    };
+  }
+}
+
 /** A failure while this window talked to the sync server (the pre-approval sync or the approval itself). */
 class ServerStepError extends Error {
   constructor(readonly reason: unknown) {
@@ -195,7 +234,8 @@ function throughServer<T>(step: () => Promise<T>): Promise<T> {
  * Only an edit the merge cannot keep is a conflict. Before approving, the shared document is synced:
  * when that fails, nothing about the proposal's targets is known, and calling it a conflict ("the target
  * was changed or deleted") sent people looking for an edit that never happened while the real cause —
- * a server refusing the document's unsent edits, or no connection — went unnoticed (MISS.md R21).
+ * a server refusing the document's unsent edits, or no connection — went unnoticed (MISS.md R21). An
+ * unexpected local failure is not a conflict either (issue #249): it is reported as a failure to apply.
  */
 function sharedApprovalFailure(
   error: unknown,
@@ -210,7 +250,7 @@ function sharedApprovalFailure(
         ? "electron.proposal.sharedServerRejected"
         : "electron.proposal.sharedSyncUnavailable"),
     };
-  return { ok: false, code: "conflict", error: translate("electron.proposal.applyFailed") };
+  return { ok: false, error: translate("electron.proposal.applyFailed") };
 }
 
 interface PreparedApproval {
@@ -248,12 +288,14 @@ function prepareRecordedApproval(
  * get no notice of an edit dropped for them), and rebuilds what the server checks:
  * - the merged units and anchors (`mergeBasis` entities and anchors) and what the rewritten drafts
  *   overwrite or anchor to (the targets the server requires a precondition on) are checked against
- *   their hashes in `current`, the document the merge was computed on;
+ *   their hashes in `current`, the document the merge was computed on (a newer edit of one makes the
+ *   server refuse the approval, and the caller merges again);
  * - the targets the merge cannot keep an edit of (`collectNonMergeableTargets`, the rule the local
- *   approval and the editor's locks read) keep their recorded hashes from the proposal's base, and one
- *   in `current` without a recorded hash (a member or an anchored shape added since) is a conflict;
- * - everything else recorded (the reference material the AI read, the request's selection, the page
- *   settings, moved blocks) keeps its recorded hash.
+ *   approval and the editor's locks read) and the page settings of a page-layout change keep their
+ *   recorded hashes from the proposal's base, and one in `current` without a recorded hash (a member
+ *   or an anchored shape added since) is a conflict;
+ * - nothing else: what the AI only read (reference material, the request's selection, a record taken
+ *   before issue #249) and moved blocks are no reason to refuse the proposal (MISS R24).
  * The same checks run on `current` before anything is sent, so an edit the merge cannot keep stops the
  * approval (PROPOSAL_CONFLICT) here as it would on the server.
  */
@@ -319,25 +361,10 @@ function rebuildPreconditions(
     ]),
   ].filter((id) => !keptIds.has(id)));
   const recorded = envelopes.flatMap((envelope) => envelope.preconditions);
-  // A block's hash covers everything nested in it, so a recorded block that holds a merged block or
-  // lies inside one (now or in the unit's base snapshot) is checked as merged too: the AI read the
-  // problem holding the paragraph it rewrote, or the paragraphs of the problem it rewrote. Shapes do
-  // not nest in hashes (a group's members and anchored shapes are shapes of their own, and a merged
-  // shape is never one of those: `collectNonMergeableTargets` keeps them).
-  const mergedBlocks = proposals.flatMap((proposal) => Object.entries(usableProposalMergeBasis(proposal.mergeBasis)?.entities ?? {}))
-    .flatMap(([id, entity]) => (entity.kind === "block" && mergedIds.has(id) ? [entity.value] : []))
-    .concat([...mergedIds].flatMap((id) => findBlock(current, id) ?? []));
-  for (const { id } of recorded) {
-    const block = keptIds.has(id) || mergedIds.has(id) ? null : findBlock(current, id);
-    if (
-      !keptIds.has(id)
-      && mergedBlocks.some((merged) => blockContainsId(current, merged, id) || (block !== null && blockContainsId(current, block, merged.id)))
-    )
-      mergedIds.add(id);
-  }
   const conditions = new Map<string, ReadPrecondition>();
   for (const condition of recorded) {
-    if (mergedIds.has(condition.id)) continue;
+    // Only what the approval overwrites without merging keeps its recorded hash (see above).
+    if (mergedIds.has(condition.id) || !(keptIds.has(condition.id) || condition.id === PAGE_LAYOUT_TARGET)) continue;
     if ((conditions.get(condition.id)?.hash ?? condition.hash) !== condition.hash)
       throw new Error("PROPOSAL_CONFLICT");
     conditions.set(condition.id, condition);
