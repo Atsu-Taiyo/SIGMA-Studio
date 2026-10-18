@@ -794,8 +794,6 @@ export const editor = {
     mentionMembersSection: "People",
     mentionAgentsSection: "AI agents",
     /** The toggle at the bottom left of the composer. Checking it puts `@claude` (etc.) at the start of the comment. */
-    sendToAgent: "Send to {{name}}",
-    sendToAgentHint: "{{name}} works on this comment when you send it",
     justNow: "now",
     mentionAgentTitle: "{{name}} (AI agent) · sending this comment asks it to work",
 

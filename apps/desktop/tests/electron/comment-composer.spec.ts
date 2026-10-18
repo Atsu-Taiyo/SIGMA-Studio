@@ -14,7 +14,7 @@ type ComposerTest = { avatarRequests: string[]; aiRuns: Array<{ provider: string
  * アカウント (`collaboration:info`)、Claude の接続状態、AI の実行 (`ai-edit:run`)、アカウントの
  * アイコン画像 (`sigma-collaboration-profile:`)。入力欄・候補・保存・AI への配送は本物。
  */
-test("comments: floating @ list, the Claude toggle, Enter to send, and the account avatar", async () => {
+test("comments: floating @ list, @claude in the text, Enter to send, and the account avatar", async () => {
   test.setTimeout(180_000);
   const profile = mkdtempSync(path.join(os.tmpdir(), "sigma-comment-composer-"));
   const env = Object.fromEntries(Object.entries(process.env).filter((entry): entry is [string, string] => entry[1] !== undefined));
@@ -116,13 +116,13 @@ test("comments: floating @ list, the Claude toggle, Enter to send, and the accou
     expect(menuBox.y).toBeGreaterThanOrEqual(inputBox.y + 10);
     await input.press("Enter");
     await expect(menu).toHaveCount(0);
-    const toggle = floating.getByRole("checkbox", { name: "Claude に送信" });
-    await expect(toggle).toHaveAttribute("aria-checked", "true");
+    await expect(input).toContainText("@claude");
     await expect(floating).toBeVisible();
 
-    // 3. 「Claude に送信」を外すと、AI の宛先だけが消える。
-    await toggle.click();
-    await expect(toggle).toHaveAttribute("aria-checked", "false");
+    // 3. 「Claude に送信」の切り替えは置かない。AI の宛先は本文の @claude だけで、消せば宛てない。
+    await expect(page.getByRole("checkbox", { name: "Claude に送信" })).toHaveCount(0);
+    for (let index = 0; index < "@claude ".length; index += 1) await input.press("Backspace");
+    await expect(menu).toHaveCount(0);
     await expect(input).not.toContainText("@claude");
     await expect(input).toBeFocused();
 
@@ -152,12 +152,12 @@ test("comments: floating @ list, the Claude toggle, Enter to send, and the accou
     expect(saved.comments![0].messages[0].authorName).toBe("Atsushi Kim");
     expect((await state()).aiRuns).toEqual([]);
 
-    // 5. 返信で「Claude に送信」を入れると、@claude を付けて送り、Claude が動く。
+    // 5. 返信の本文に @claude と書いて送ると、Claude が動く。
     await card.locator(".comment-reply-summary").click();
     const reply = card.getByRole("textbox", { name: "返信" });
     await reply.click();
-    await reply.pressSequentially("途中式を足して");
-    await card.getByRole("checkbox", { name: "Claude に送信" }).click();
+    await reply.pressSequentially("@claude 途中式を足して");
+    await expect(menu).toHaveCount(0);
     await expect(reply).toContainText("@claude");
     await reply.press("Enter");
     await expect.poll(async () => (await state()).aiRuns.length).toBe(1);

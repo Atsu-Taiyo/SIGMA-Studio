@@ -54,8 +54,6 @@ export interface CommentThreadsPanelProps {
   loadMentionCandidates?: LoadCommentMentionCandidates;
   /** 書いた人・宛先の今の名前とアイコンを、共有アカウントの ID から引く (共有している相手だけ)。 */
   loadCommentPeople?: LoadCommentPeople;
-  /** 入力欄に「Claude に送信」を出すか。AI が動かない画面 (埋め込みなど) では出さない。 */
-  aiAgentsAvailable?: boolean;
   currentUserId?: string;
   activeThreadId: string | null;
   author: CommentPanelAuthor;
@@ -93,7 +91,6 @@ export interface CommentThreadsPanelProps {
 export function CommentThreadsPanel({
   loadMentionCandidates,
   loadCommentPeople,
-  aiAgentsAvailable = false,
   currentUserId,
   activeThreadId,
   author,
@@ -265,7 +262,6 @@ export function CommentThreadsPanel({
               draft={pendingDraft}
               mathFractionSizing={mathFractionSizing}
               loadMentionCandidates={loadMentionCandidates}
-              aiAgentsAvailable={aiAgentsAvailable}
               onDraftChange={onPendingDraftChange}
               onCancel={onCancelPending}
               onSubmit={onAddThread}
@@ -478,7 +474,6 @@ export function CommentThreadsPanel({
                     placeholder={t("comment.replyPlaceholder")}
                     submitLabel={t("comment.replySubmit")}
                     cancelLabel={t("comment.close")}
-                    showAgentToggle={aiAgentsAvailable}
                     // 「返信する」を押して開いたら、そのまま打ち始められるようにする。
                     autoFocus
                     onChange={(value) => onReplyDraftChange(thread.id, value)}
@@ -555,7 +550,6 @@ export function PendingCommentComposer({
   draft,
   mathFractionSizing,
   loadMentionCandidates,
-  aiAgentsAvailable = false,
   autoFocus,
   floating = false,
   onDraftChange,
@@ -568,7 +562,6 @@ export function PendingCommentComposer({
   draft: InlineNode[];
   mathFractionSizing?: SigmaDocument["metadata"]["mathFractionSizing"];
   loadMentionCandidates?: LoadCommentMentionCandidates;
-  aiAgentsAvailable?: boolean;
   autoFocus?: boolean;
   /** 浮かべた入力欄。取り消しは Esc と外側のクリックで行うので、ボタンを置かない。 */
   floating?: boolean;
@@ -586,7 +579,6 @@ export function PendingCommentComposer({
         mathFractionSizing={mathFractionSizing}
         placeholder={t("comment.addComment")}
         submitLabel={t("comment.add")}
-        showAgentToggle={aiAgentsAvailable}
         cancelLabel={floating ? undefined : t("comment.cancel")}
         autoFocus={autoFocus}
         onChange={onDraftChange}

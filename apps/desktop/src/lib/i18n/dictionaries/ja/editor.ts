@@ -848,8 +848,6 @@ export const editor = {
     mentionMembersSection: "メンバー",
     mentionAgentsSection: "AI Agent",
     /** 入力欄の左下の切り替え。入れると本文の先頭に `@claude` などを付けて送る。名前はブランド名。 */
-    sendToAgent: "{{name}} に送信",
-    sendToAgentHint: "送ると {{name}} がこのコメントの内容で作業します",
     justNow: "今",
     mentionAgentTitle: "{{name}}（AI Agent）· コメントを送ると作業を依頼します",
 

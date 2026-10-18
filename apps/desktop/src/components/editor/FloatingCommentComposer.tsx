@@ -24,8 +24,6 @@ export interface FloatingCommentComposerProps {
   draft: InlineNode[];
   document: SigmaDocument;
   loadMentionCandidates?: LoadCommentMentionCandidates;
-  /** 「Claude に送信」を出すか (AI が動く画面だけ)。 */
-  aiAgentsAvailable?: boolean;
   onDraftChange: (value: InlineNode[]) => void;
   onSubmit: () => void;
   onCancel: () => void;
@@ -44,7 +42,6 @@ export function FloatingCommentComposer({
   draft,
   document,
   loadMentionCandidates,
-  aiAgentsAvailable = false,
   onDraftChange,
   onSubmit,
   onCancel,
@@ -135,7 +132,6 @@ export function FloatingCommentComposer({
           draft={draft}
           mathFractionSizing={document.metadata.mathFractionSizing}
           loadMentionCandidates={loadMentionCandidates}
-          aiAgentsAvailable={aiAgentsAvailable}
           floating
           autoFocus
           onDraftChange={onDraftChange}

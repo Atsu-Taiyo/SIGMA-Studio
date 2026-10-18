@@ -4458,11 +4458,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
     visibleCommentThreadsForPanel,
   ]);
 
-  // 「Claude に送信」は、コメントから AI を動かせる画面でだけ出す。埋め込みの編集面と、AI を持たない
-  // 公開 Editor (接続がすべて unavailable) では、押しても何も起きないので出さない。
-  const commentAiAgentsAvailable = !isEmbedded
-    && [aiConnection, claudeConnection, geminiConnection].some((connection) => connection.state.kind !== "unavailable");
-  const commentPanelProps = { ...commentPanelBaseProps, loadMentionCandidates, loadCommentPeople, aiAgentsAvailable: commentAiAgentsAvailable, currentUserId: commentIdentity?.userId };
+  const commentPanelProps = { ...commentPanelBaseProps, loadMentionCandidates, loadCommentPeople, currentUserId: commentIdentity?.userId };
 
   if (ledgerFailure) {
     return (
@@ -5211,7 +5207,6 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
           draft={pendingCommentDraft}
           document={document}
           loadMentionCandidates={loadMentionCandidates}
-          aiAgentsAvailable={commentAiAgentsAvailable}
           onDraftChange={setPendingCommentDraft}
           onSubmit={() => {
             addPendingCommentThread();
