@@ -35,6 +35,7 @@ export type LedgerEvent =
   | "document-save-revision-mismatch"
   | "shared-document-save-failed"
   | "shared-asset-save-failed"
+  | "shared-asset-repair-attempted"
   | "shared-document-sync-failed"
   | "document-version-capture-failed"
   | "document-version-cleanup-failed"
