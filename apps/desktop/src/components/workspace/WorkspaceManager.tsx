@@ -498,8 +498,8 @@ export function WorkspaceManager() {
   const showMoreSearchResults = useCallback(() => {
     setSearchShown({ query: listQuery.trim(), count: searchLimit + SEARCH_RESULT_PAGE_SIZE });
   }, [listQuery, searchLimit]);
-  // 検索欄に入ってこれから打つとき・打っている間・本文の結果が流れ込んでいる間は、カードのプレビューを
-  // 作らない (後回しにする)。プレビューは教材を丸ごと読んで組むので、その間は打鍵が画面へ届くのが遅れる。
+  // 検索欄に焦点がある間は保存済みの画像だけを使い、新しいプレビューは欄を離れてから作る。
+  // 打鍵の休止だけで再開すると、次の文字を打つときに教材の読み込み・組版が走って入力を妨げる。
   const [searchTyping, setSearchTyping] = useState(false);
   useEffect(() => {
     if (!searchTyping) return;
@@ -510,8 +510,7 @@ export function WorkspaceManager() {
   // 止めるのをやめてしまい、そこで大きな教材のプレビューを組み始める)。
   const searchTyped = searchQuery.trim().length > 0;
   const previewsPaused = searchFocused
-    ? !searchTyped || searchTyping || bodySearch.pending
-    : (searchTyped || searchActive) && (searchTyping || bodySearch.pending);
+    || ((searchTyped || searchActive) && (searchTyping || bodySearch.pending));
   useEffect(() => {
     setWorkspacePreviewLoadsPaused(previewsPaused);
   }, [previewsPaused]);
