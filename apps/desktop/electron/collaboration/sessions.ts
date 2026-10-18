@@ -1411,9 +1411,20 @@ export class CollaborationSessions {
   async duplicate(
     fileId: string,
   ): ReturnType<LocalSigmaDocStore["createFileFromDocument"]> {
+    const local = await this.exportDocument(fileId);
+    local.docId = `doc_${randomUUID()}`;
+    return this.local.createFileFromDocument({ document: local });
+  }
+  /**
+   * The shared document with its images inlined as data URLs (downloading the ones not cached yet).
+   * Its `sigma-doc-storage://` ids name images of this shared document only: a local file cannot
+   * read them once this session is closed, and another shared document's server refuses them
+   * (`MISSING_ASSET`). A copy made from this carries its own images (#250).
+   */
+  async exportDocument(fileId: string): Promise<SigmaDocument> {
     const session = await this.session(fileId);
+    await session.tail;
     await this.loadAssets(fileId, true);
-    const document = this.project(fileId)!;
     const replace = (value: unknown): unknown => {
       if (Array.isArray(value)) return value.map(replace);
       if (!isObject(value)) return value;
@@ -1431,9 +1442,7 @@ export class CollaborationSessions {
         ]),
       );
     };
-    const local = parseSigmaDocument(replace(document));
-    local.docId = `doc_${randomUUID()}`;
-    return this.local.createFileFromDocument({ document: local });
+    return parseSigmaDocument(replace(this.project(fileId)!));
   }
   async asset(
     fileId: string,

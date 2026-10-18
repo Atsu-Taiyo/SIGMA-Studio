@@ -58,6 +58,33 @@ describe("NewMaterialCreatedDialog", () => {
     }
   });
 
+  it("titles a duplicate and says the copy is not shared (#250)", async () => {
+    const { root, container, text } = await renderDialog({ ...notice, kind: "duplicate", title: "図つきの教材-のコピー", folderPath: [], origin: "fallback" });
+    try {
+      const dialog = document.querySelector('[role="dialog"]');
+      expect(dialog?.textContent).toContain("教材を複製しました");
+      expect(text("[data-new-material-storage]")).toBe("このPC");
+      expect(dialog?.textContent).toContain("複製元の場所には作成できないため、既定の作成先に複製しました。複製した教材は共有されていません。");
+      expect(dialog?.textContent).not.toContain("直前の教材");
+    } finally {
+      act(() => root.unmount());
+      container.remove();
+    }
+    const beside = await renderDialog({ ...notice, kind: "duplicate", origin: "previous" });
+    try {
+      expect(document.querySelector('[role="dialog"]')?.textContent).toContain("複製した教材は共有されず、このPCに保存されます。");
+    } finally {
+      act(() => beside.root.unmount());
+      beside.container.remove();
+    }
+    const t = createTranslator("en", "workspace");
+    expect([t("createdDialog.duplicateTitle"), t("createdDialog.duplicateFallbackNote"), t("createdDialog.duplicatePrivateNote")]).toEqual([
+      "Material duplicated",
+      "The copy can't be created where the original is, so it was created in the default location. The copy is not shared.",
+      "The copy is not shared; it is saved on this PC.",
+    ]);
+  });
+
   it("renders nothing without a notice", async () => {
     const { root, container } = await renderDialog(null);
     try {

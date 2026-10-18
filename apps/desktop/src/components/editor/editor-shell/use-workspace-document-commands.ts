@@ -23,7 +23,8 @@ import type { EmbeddedEditorHost } from "./document-lifecycle-types";
 import { closeWorkspaceDocumentTab, deleteWorkspaceDocument, type DocumentTabOpenOptions } from "./document-tab-commands";
 import type { EditorTabViewState, ResolvedEditorTabViewState } from "./editor-tab-view-state";
 import { uniqueStringIds } from "./workspace-request";
-import { loadCreatedMaterialNotice, resolveNewMaterialDestination, type CreatedMaterialNotice } from "./new-material-destination";
+import { duplicateNoticeOrigin, loadCreatedMaterialNotice, resolveNewMaterialDestination, type CreatedMaterialNotice } from "./new-material-destination";
+import { duplicateFailureMessage } from "./duplicate-failure-message";
 
 export interface WorkspaceDocumentCommandOptions {
   deleteAiDataForDocument(fileId: string): Promise<void>;
@@ -125,7 +126,7 @@ export function useWorkspaceDocumentCommands({
    * メニューでワークスペースを選んだときはそこに作り、作った場所をダイアログで示す
    * (決め方は `new-material-destination.ts`)。
    */
-  const createMaterialTab = async (kind: CreatedMaterialNotice["kind"], chosenWorkspaceId?: string) => {
+  const createMaterialTab = async (kind: Exclude<CreatedMaterialNotice["kind"], "duplicate">, chosenWorkspaceId?: string) => {
     setActiveMenu(null);
     setDocumentListOpen(false);
     if (embeddedHostRef.current) {
@@ -160,22 +161,36 @@ export function useWorkspaceDocumentCommands({
   const createDocumentTabInWorkspace = (workspaceId: string) => createMaterialTab("material", workspaceId);
   const createWhiteboardDocumentTab = () => createMaterialTab("whiteboard");
 
+  /**
+   * 複製して開く。共有教材の複製が複製元と違う場所や保存先 (このPC) になったときは、作った場所を示す (#250)。
+   * 失敗しても複製元は変わらないので、理由と次の操作を日本語で示すだけにする。
+   * 複製する教材は保存を待った後に決める (保存の間に開いている教材が変わることがある)。
+   */
+  const duplicateAndOpen = async (resolveFileId: () => string, beforeOpen?: () => void) => {
+    try {
+      if (!(await saveCurrentDocumentBeforeReplacement())) {
+        return;
+      }
+      const fileId = resolveFileId();
+      const source = documentMetadatas.find((item) => item.fileId === fileId);
+      const duplicated = await duplicateDocument(fileId);
+      beforeOpen?.();
+      await openDocumentAsTab(duplicated, tEditor("status.duplicated"));
+      const origin = duplicateNoticeOrigin(source, duplicated.metadata);
+      if (origin) showCreatedMaterialLocation(await loadCreatedMaterialNotice(duplicated.metadata, { kind: "duplicate", origin }));
+    } catch (error) {
+      setSaveState("error");
+      setStatusMessage(duplicateFailureMessage(error, tEditor));
+    }
+  };
+
   const duplicateActiveDocument = async () => {
     setActiveMenu(null);
     if (embeddedHostRef.current) {
       setStatusMessage(tEditor("status.embeddedHostOwnsDuplicate"));
       return;
     }
-    try {
-      if (!(await saveCurrentDocumentBeforeReplacement())) {
-        return;
-      }
-      const duplicated = await duplicateDocument(activeFileIdRef.current);
-      await openDocumentAsTab(duplicated, tEditor("status.duplicated"));
-    } catch (error) {
-      setSaveState("error");
-      setStatusMessage(error instanceof Error ? error.message : tEditor("status.duplicateFailed"));
-    }
+    await duplicateAndOpen(() => activeFileIdRef.current);
   };
 
   const openDocumentListDialog = async () => {
@@ -230,19 +245,7 @@ export function useWorkspaceDocumentCommands({
     await openDocumentInWorkspace(fileId, { status: tEditor("status.opened") });
   };
 
-  const duplicateDocumentFromList = async (fileId: string) => {
-    try {
-      if (!(await saveCurrentDocumentBeforeReplacement())) {
-        return;
-      }
-      const duplicated = await duplicateDocument(fileId);
-      setDocumentListOpen(false);
-      await openDocumentAsTab(duplicated, tEditor("status.duplicated"));
-    } catch (error) {
-      setSaveState("error");
-      setStatusMessage(error instanceof Error ? error.message : tEditor("status.duplicateFailed"));
-    }
-  };
+  const duplicateDocumentFromList = (fileId: string) => duplicateAndOpen(() => fileId, () => setDocumentListOpen(false));
 
   const deleteDocumentFromList = (fileId: string) => deleteWorkspaceDocument(fileId, {
     documentMetadatas,
