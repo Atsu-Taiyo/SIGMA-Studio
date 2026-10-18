@@ -3076,7 +3076,12 @@ const { candidateCommentTop, pendingCommentTop, commentThreadPositions } = usePa
         style={pageStyle}
         data-overlay-editing={isOverlayEditing ? "true" : "false"}
         data-paged-render={isPagedRender ? "true" : undefined}
-        onClick={() => {
+        onClick={(event) => {
+          // 選択バーとそこから開くメニューは、紙面の外 (ポータル) に描かれても React では紙面の子
+          // なので click がここまで来る。選択に対する操作なので、選択を解除しない。
+          if (event.target instanceof Element && event.target.closest(".selection-action-popover, [data-toolbar-popover]")) {
+            return;
+          }
           // 跨ぎドラッグは mousedown/mouseup のターゲットが別エディタになり、click は
           // 共通祖先 (ここ) で発火する。そのまま選択解除すると、跨ぎ選択が確定した瞬間に
           // selectedId が消えてリボンの書式ボタンが全部 disabled になる (選択ブロックは

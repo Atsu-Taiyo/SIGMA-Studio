@@ -4867,7 +4867,8 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
           onClick={(event) => {
             if (versionHistoryPreviewActive) return;
             const target = event.target instanceof Element ? event.target : null;
-            if (target?.closest("[data-sigma-doc-id], [data-overlay-shape-id], .overlay-canvas-bleed-surface, .overlay-canvas-editor, .page-overlay-preview, [data-problem-area]")) {
+            // 選択バーとそこから開くメニュー (ポータル) は選択に対する操作なので、選択を解除しない。
+            if (target?.closest("[data-sigma-doc-id], [data-overlay-shape-id], .overlay-canvas-bleed-surface, .overlay-canvas-editor, .page-overlay-preview, [data-problem-area], .selection-action-popover, [data-toolbar-popover]")) {
               return;
             }
             setSelectedInlineMath(null);

@@ -371,12 +371,17 @@ const BOXED_FRAME_STYLE: RichTextDomStyle = {
   "background-color": "var(--boxed-text-background, transparent)",
 };
 
+// 左右の余白。角丸・網かけの端は広く、ランの継ぎ目は細線と同じ幅 (どちらも stylesheet が変数で決める)。
+const BOXED_RUN_PADDING_LEFT = "var(--boxed-run-padding-left, var(--boxed-text-end-padding-x, 0.18em))";
+const BOXED_RUN_PADDING_RIGHT = "var(--boxed-run-padding-right, var(--boxed-text-end-padding-x, 0.18em))";
+
 /** `.boxed-text` */
 const BOXED_TEXT_BASE_STYLE: RichTextDomStyle = {
   "box-sizing": "border-box",
   display: "inline",
   ...BOXED_FRAME_STYLE,
-  padding: "calc(var(--boxed-text-padding-y, 0px) + var(--boxed-run-extra-padding-y, 0px)) 0.18em",
+  padding:
+    `calc(var(--boxed-text-padding-y, 0px) + var(--boxed-run-extra-padding-y, 0px)) ${BOXED_RUN_PADDING_RIGHT} calc(var(--boxed-text-padding-y, 0px) + var(--boxed-run-extra-padding-y, 0px)) ${BOXED_RUN_PADDING_LEFT}`,
   "line-height": "var(--boxed-text-line-height, inherit)",
   "box-decoration-break": "clone",
   "-webkit-box-decoration-break": "clone",
@@ -399,7 +404,7 @@ const BOXED_RUN_HEIGHT_TARGET_STYLE: RichTextDomStyle = {
   "align-items": "baseline",
   ...BOXED_FRAME_STYLE,
   padding:
-    "calc(var(--boxed-text-padding-y, 0px) + var(--boxed-run-extra-padding-top, 0px)) 0.18em calc(var(--boxed-text-padding-y, 0px) + var(--boxed-run-extra-padding-bottom, 0px))",
+    `calc(var(--boxed-text-padding-y, 0px) + var(--boxed-run-extra-padding-top, 0px)) ${BOXED_RUN_PADDING_RIGHT} calc(var(--boxed-text-padding-y, 0px) + var(--boxed-run-extra-padding-bottom, 0px)) ${BOXED_RUN_PADDING_LEFT}`,
   "line-height": "1",
   "vertical-align": "baseline",
   "box-decoration-break": "clone",
