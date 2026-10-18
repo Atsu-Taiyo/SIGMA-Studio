@@ -4,13 +4,19 @@ export interface MeasureFrameScheduler {
 }
 
 export interface SettlingMeasureScheduler {
-  /** Ask for a measurement. Several requests in one frame collapse into a single pass. */
-  refresh: () => void;
+  /**
+   * Ask for a measurement. Several requests in one frame collapse into a single pass.
+   * `documentChanged`: the request comes from a document change (not from the measurement's own
+   * dispatch), so it must not be lost when it lands inside the measuring window.
+   */
+  refresh: (options?: { documentChanged?: boolean }) => void;
   destroy: () => void;
 }
 
 /** 「装飾が入った DOM を読み直す」ための追いパスは 1 回で足りる。 */
 const MAX_OWED_PASSES = 1;
+/** 計測窓の内側で取りこぼした文書の変更を、依頼が途絶えてから拾い直すまでのフレーム数 (約 130ms)。 */
+const MISSED_CHANGE_IDLE_FRAMES = 8;
 
 const animationFrames: MeasureFrameScheduler = {
   request: (callback) => window.requestAnimationFrame(() => callback()),
@@ -34,6 +40,11 @@ const animationFrames: MeasureFrameScheduler = {
  * 「窓の内側の依頼を全部覚える」方式だと連続入力で常に 2 倍のパスを踏むため (実測: 20 文字の
  * 連打が 14ms/文字 → 33ms/文字)。
  *
+ * 窓の内側に着いた**文書の変更** (`documentChanged`) だけは捨てきらない。「次の更新で拾い直せる」は
+ * 次の更新が来るときだけ正しく、選択バーのメニューで囲みの種類を替えた直後のように、その後に何も
+ * 起きないと古い計測 (割れた枠) のまま止まる。すぐには回さず、依頼が `MISSED_CHANGE_IDLE_FRAMES`
+ * 途絶えてから 1 回だけ回す。連続入力の途中では次の依頼が普通にパスを回すので、パスは増えない。
+ *
  * @param measure 計測本体。`true` を返すと「もう 1 パス要る」の意味になる。
  */
 export function createSettlingMeasureScheduler(
@@ -48,10 +59,45 @@ export function createSettlingMeasureScheduler(
   let measureFrameId: number | null = null;
   let releaseFrameId: number | null = null;
   let settleFrameId: number | null = null;
+  /** 計測窓の内側に着いて、まだどのパスも読んでいない文書の変更があるか。 */
+  let missedDocumentChange = false;
+  let idleFrameId: number | null = null;
+  let idleFramesLeft = 0;
 
-  const refresh = () => {
+  const refresh = (options?: { documentChanged?: boolean }) => {
     owedPassesLeft = MAX_OWED_PASSES;
+    if (measuring && options?.documentChanged) {
+      missedDocumentChange = true;
+    }
     scheduleMeasure();
+  };
+
+  const cancelIdleWait = () => {
+    if (idleFrameId !== null) {
+      frames.cancel(idleFrameId);
+      idleFrameId = null;
+    }
+  };
+
+  const waitForIdleThenMeasure = () => {
+    idleFramesLeft = MISSED_CHANGE_IDLE_FRAMES;
+    if (idleFrameId !== null) {
+      return;
+    }
+    const tick = () => {
+      idleFrameId = null;
+      if (destroyed || !missedDocumentChange) {
+        return;
+      }
+      idleFramesLeft -= 1;
+      if (idleFramesLeft > 0) {
+        idleFrameId = frames.request(tick);
+        return;
+      }
+      owedPassesLeft = MAX_OWED_PASSES;
+      scheduleMeasure();
+    };
+    idleFrameId = frames.request(tick);
   };
 
   const scheduleMeasure = () => {
@@ -61,6 +107,9 @@ export function createSettlingMeasureScheduler(
     if (measureFrameId !== null) {
       return;
     }
+    // このパスは最新の文書を読むので、取りこぼした変更はもう無い。
+    missedDocumentChange = false;
+    cancelIdleWait();
     measureFrameId = frames.request(() => {
       measureFrameId = null;
       measuring = true;
@@ -77,6 +126,8 @@ export function createSettlingMeasureScheduler(
               owesAnotherPass = false;
               owedPassesLeft -= 1;
               scheduleMeasure();
+            } else if (missedDocumentChange) {
+              waitForIdleThenMeasure();
             }
           });
         });
@@ -88,7 +139,7 @@ export function createSettlingMeasureScheduler(
     refresh,
     destroy: () => {
       destroyed = true;
-      for (const id of [measureFrameId, releaseFrameId, settleFrameId]) {
+      for (const id of [measureFrameId, releaseFrameId, settleFrameId, idleFrameId]) {
         if (id !== null) {
           frames.cancel(id);
         }
@@ -96,6 +147,8 @@ export function createSettlingMeasureScheduler(
       measureFrameId = null;
       releaseFrameId = null;
       settleFrameId = null;
+      idleFrameId = null;
+      missedDocumentChange = false;
       owesAnotherPass = false;
       owedPassesLeft = 0;
       measuring = false;

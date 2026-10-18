@@ -139,4 +139,69 @@ describe("createSettlingMeasureScheduler", () => {
     frames.flush();
     expect(measured).toBe(0);
   });
+  it("still drops a refresh the measurement's own dispatch causes inside the window", () => {
+    const frames = createFrameQueue();
+    let measured = 0;
+    const scheduler = createSettlingMeasureScheduler(() => { measured += 1; }, frames);
+
+    scheduler.refresh();
+    frames.flush();
+    // The measurement's dispatch and the DOM changes it causes do not change the document.
+    scheduler.refresh();
+    scheduler.refresh({ documentChanged: false });
+    for (let index = 0; index < 20; index += 1) {
+      frames.flush();
+    }
+
+    expect(measured).toBe(1);
+    expect(frames.pending).toBe(0);
+  });
+
+  it("measures a document change that lands inside the window once requests stop", () => {
+    // 選択バーのメニューで囲みの丸みを変えた直後: 変更は窓の内側に着き、その後は何も起きない。
+    // 捨てきると、割れた枠 (古い計測) のまま止まっていた。
+    const frames = createFrameQueue();
+    let measured = 0;
+    const scheduler = createSettlingMeasureScheduler(() => { measured += 1; }, frames);
+
+    scheduler.refresh();
+    frames.flush();
+    expect(measured).toBe(1);
+    scheduler.refresh({ documentChanged: true });
+    frames.flush();
+    frames.flush();
+    expect(measured).toBe(1);
+    for (let index = 0; index < 7; index += 1) {
+      frames.flush();
+    }
+    expect(measured).toBe(1);
+    frames.flush();
+    frames.flush();
+    expect(measured).toBe(2);
+    for (let index = 0; index < 20; index += 1) {
+      frames.flush();
+    }
+    expect(measured).toBe(2);
+    expect(frames.pending).toBe(0);
+  });
+
+  it("adds no pass while document changes keep arriving, and catches up once at the end", () => {
+    const frames = createFrameQueue();
+    let measured = 0;
+    const scheduler = createSettlingMeasureScheduler(() => { measured += 1; }, frames);
+
+    // Typing: a change every frame. Changes outside the window run passes as before; the ones
+    // inside it are only owed, and the next ordinary pass pays that debt.
+    for (let index = 0; index < 30; index += 1) {
+      scheduler.refresh({ documentChanged: true });
+      frames.flush();
+    }
+    const whileTyping = measured;
+    expect(whileTyping).toBe(10);
+    for (let index = 0; index < 20; index += 1) {
+      frames.flush();
+    }
+    expect(measured - whileTyping).toBeLessThanOrEqual(1);
+    expect(frames.pending).toBe(0);
+  });
 });
