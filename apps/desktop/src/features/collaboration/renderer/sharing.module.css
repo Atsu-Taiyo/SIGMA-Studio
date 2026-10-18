@@ -488,6 +488,41 @@
   min-width: 0;
   color: var(--text-secondary);
 }
+/* The status opens the images that stop syncing (#251). It looks like the plain status. */
+.statusButton {
+  display: inline-flex;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-round);
+  background: transparent;
+  cursor: pointer;
+}
+.statusButton:focus-visible {
+  outline: 2px solid var(--text);
+  outline-offset: 2px;
+}
+.syncDetail {
+  min-width: 0;
+}
+.recoveryText {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text);
+}
+.recoveryList {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.recoveryList > li {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
 
 /* プロフィールの編集。見本のアイコンは表示する中で最大の大きさ (64px)。 */
 .profileAvatarRow {

@@ -28,6 +28,7 @@ import type {
   CollaborationEvent,
   SessionInfo,
   PresenceParticipant,
+  SyncDetail,
 } from "../model/bridge";
 import { isObject, type ObjectValue } from "../model/value";
 import { richText } from "../model/rich-text";
@@ -85,6 +86,8 @@ export class RendererDocumentSession implements DocumentSession {
   private destroyed = false;
   status: SaveState;
   role: MemberRole;
+  /** What waits on this device: unsent edits and images, and images that stop syncing (#251). */
+  syncDetail: SyncDetail | undefined;
   /**
    * 共有教材の過去の版は共有サーバーが残す (#244)。見るのは参加者全員、戻すのは編集者以上
    * (サーバーも同じ規則で断る)。戻すと参加者全員の教材が置き換わり、新しい世代のセッションで届く。
@@ -115,6 +118,7 @@ export class RendererDocumentSession implements DocumentSession {
     );
     this.role = info.role;
     this.status = info.status;
+    this.syncDetail = info.detail;
     this.undo = this.shared.createUndoManager(
       new Set([LOCAL_ORIGIN, this.aiOrigin]),
     );
@@ -257,6 +261,7 @@ export class RendererDocumentSession implements DocumentSession {
       const writable = this.writable;
       this.status = this.writeFailed ? "save-error" : event.status;
       this.role = event.role;
+      this.syncDetail = event.detail;
       this.notifyStatus();
       if (writable !== this.writable)
         this.notifyDocument();
