@@ -96,7 +96,15 @@ export function readRichFragment(fragment: Y.XmlFragment): ObjectValue[] {
   return result;
 }
 
-/** Change only the edited interval; retain CRDT identities outside it and for formatting. */
+/**
+ * Change only the edited places; retain CRDT identities everywhere else and for formatting.
+ *
+ * The text is diffed token by token (a character, or a formula as one token) into separate hunks, so two
+ * edits far apart in one paragraph (an AI approval fixing a word at each end) leave the text between them
+ * untouched: what someone typed there concurrently and the comment anchors on it stay where they were
+ * (issue #249). When the edit distance is too large to diff (`MAX_EDIT_DISTANCE`), the differing middle
+ * is replaced as one interval, as before.
+ */
 export function patchRichFragment(
   fragment: Y.XmlFragment,
   nodes: readonly ObjectValue[],
@@ -104,40 +112,27 @@ export function patchRichFragment(
   const text = richText(fragment);
   const before = tokens(readRichFragment(fragment));
   const after = tokens(nodes);
-  let start = 0;
-  while (
-    start < before.length &&
-    start < after.length &&
-    sameToken(before[start], after[start])
-  )
-    start++;
-  let end = 0;
-  while (
-    end < before.length - start &&
-    end < after.length - start &&
-    sameToken(before[before.length - end - 1], after[after.length - end - 1])
-  )
-    end++;
-  let offset = before
-    .slice(0, start)
-    .reduce((sum, token) => sum + token.length, 0);
-  const removed = before
-    .slice(start, before.length - end)
-    .reduce((sum, token) => sum + token.length, 0);
-  if (removed) text.delete(offset, removed);
-  const inserted = after.slice(start, after.length - end);
-  for (let index = 0; index < inserted.length;) {
-    const token = inserted[index];
-    if (typeof token.value === "string") {
-      const values: string[] = [];
-      while (index < inserted.length && typeof inserted[index].value === "string" && sameValue(token.attributes, inserted[index].attributes)) values.push(inserted[index++].value as string);
-      const value = values.join("");
-      text.insert(offset, value, token.attributes);
-      offset += value.length;
-    } else {
-      text.insertEmbed(offset, mathEmbed(token.value), token.attributes);
-      offset += token.length;
-      index++;
+  const offsets = [0];
+  for (const token of before) offsets.push(offsets[offsets.length - 1] + token.length);
+  // Applied from the end, so the offsets of earlier hunks still read `before`.
+  for (const hunk of diffTokens(before, after).reverse()) {
+    let offset = offsets[hunk.beforeStart];
+    const removed = offsets[hunk.beforeEnd] - offset;
+    if (removed) text.delete(offset, removed);
+    const inserted = after.slice(hunk.afterStart, hunk.afterEnd);
+    for (let index = 0; index < inserted.length;) {
+      const token = inserted[index];
+      if (typeof token.value === "string") {
+        const values: string[] = [];
+        while (index < inserted.length && typeof inserted[index].value === "string" && sameValue(token.attributes, inserted[index].attributes)) values.push(inserted[index++].value as string);
+        const value = values.join("");
+        text.insert(offset, value, token.attributes);
+        offset += value.length;
+      } else {
+        text.insertEmbed(offset, mathEmbed(token.value), token.attributes);
+        offset += token.length;
+        index++;
+      }
     }
   }
   const actual = tokens(readRichFragment(fragment));
@@ -147,7 +142,7 @@ export function patchRichFragment(
     if (part.insert instanceof Y.Map) embeds.set(deltaOffset, part.insert);
     deltaOffset += typeof part.insert === "string" ? part.insert.length : 1;
   }
-  offset = 0;
+  let offset = 0;
   after.forEach((token, index) => {
     const embed = embeds.get(offset);
     if (
@@ -173,4 +168,103 @@ export function patchRichFragment(
     }
     offset += token.length;
   });
+}
+
+/** Above this many differing tokens the middle is replaced as one interval (bounded time and memory). */
+const MAX_EDIT_DISTANCE = 512;
+
+interface Hunk {
+  beforeStart: number;
+  beforeEnd: number;
+  afterStart: number;
+  afterEnd: number;
+}
+
+/**
+ * The hunks turning `before` into `after`, in order: a shortest edit script (Myers) over the middle left
+ * after the common prefix and suffix, or that whole middle as one hunk when it differs too much.
+ */
+function diffTokens(before: readonly Token[], after: readonly Token[]): Hunk[] {
+  let start = 0;
+  while (start < before.length && start < after.length && sameToken(before[start], after[start])) start++;
+  let end = 0;
+  while (
+    end < before.length - start &&
+    end < after.length - start &&
+    sameToken(before[before.length - end - 1], after[after.length - end - 1])
+  )
+    end++;
+  const a = before.slice(start, before.length - end);
+  const b = after.slice(start, after.length - end);
+  if (a.length === 0 && b.length === 0) return [];
+  const whole = [{ beforeStart: start, beforeEnd: before.length - end, afterStart: start, afterEnd: after.length - end }];
+  if (a.length === 0 || b.length === 0) return whole;
+  const equal = commonRuns(a, b);
+  if (!equal) return whole;
+  const hunks: Hunk[] = [];
+  let x = 0;
+  let y = 0;
+  for (const [ax, by, length] of [...equal, [a.length, b.length, 0] as const]) {
+    if (ax > x || by > y) hunks.push({ beforeStart: start + x, beforeEnd: start + ax, afterStart: start + y, afterEnd: start + by });
+    x = ax + length;
+    y = by + length;
+  }
+  return hunks;
+}
+
+/**
+ * The runs both sequences share, in order, as `[indexInA, indexInB, length]`, from a shortest edit
+ * script (Myers' O(ND) algorithm); null when the edit distance exceeds `MAX_EDIT_DISTANCE`.
+ */
+function commonRuns(a: readonly Token[], b: readonly Token[]): Array<readonly [number, number, number]> | null {
+  const n = a.length;
+  const m = b.length;
+  // trace[d][k + d] = the furthest x on diagonal k after d edits.
+  const trace: Int32Array[] = [];
+  let last: Int32Array | undefined;
+  for (let d = 0; d <= Math.min(n + m, MAX_EDIT_DISTANCE); d++) {
+    const current = new Int32Array(2 * d + 1);
+    for (let k = -d; k <= d; k += 2) {
+      const at = (diagonal: number) => last![diagonal + d - 1];
+      let x: number;
+      if (d === 0) x = 0;
+      else if (k === -d || (k !== d && at(k - 1) < at(k + 1))) x = at(k + 1);
+      else x = at(k - 1) + 1;
+      let y = x - k;
+      while (x < n && y < m && sameToken(a[x], b[y])) {
+        x++;
+        y++;
+      }
+      current[k + d] = x;
+      if (x >= n && y >= m) {
+        trace.push(current);
+        return backtrack(trace, n, m);
+      }
+    }
+    trace.push(current);
+    last = current;
+  }
+  return null;
+}
+
+function backtrack(trace: readonly Int32Array[], n: number, m: number): Array<readonly [number, number, number]> {
+  const runs: Array<readonly [number, number, number]> = [];
+  let x = n;
+  let y = m;
+  for (let d = trace.length - 1; d > 0; d--) {
+    const previous = trace[d - 1];
+    const at = (diagonal: number) => previous[diagonal + d - 1];
+    const k = x - y;
+    const down = k === -d || (k !== d && at(k - 1) < at(k + 1));
+    const previousK = down ? k + 1 : k - 1;
+    const previousX = at(previousK);
+    const previousY = previousX - previousK;
+    const snakeX = down ? previousX : previousX + 1;
+    const snakeY = down ? previousY + 1 : previousY;
+    if (x > snakeX) runs.push([snakeX, snakeY, x - snakeX]);
+    x = previousX;
+    y = previousY;
+  }
+  if (x > 0) runs.push([0, 0, x]);
+  return runs.reverse();
 }
