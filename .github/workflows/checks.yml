@@ -123,6 +123,7 @@ jobs:
               tests/electron/svg-to-sigma.spec.ts tests/electron/box-custom-frame.spec.ts \
               tests/electron/problem-custom-frame.spec.ts tests/electron/problem-frame-ai-chat.spec.ts \
               tests/electron/problem-tags-ime.spec.ts \
+              tests/electron/shared-duplicate.spec.ts \
               tests/electron/graph-axis-end.spec.ts tests/electron/pdf-math-fonts.spec.ts \
               tests/electron/ai-image-annotation.spec.ts tests/electron/ai-proposal-merge.spec.ts \
               tests/electron/overlay-mode-switch-position.spec.ts \

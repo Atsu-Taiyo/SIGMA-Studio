@@ -139,9 +139,24 @@ export async function resolveNewMaterialDestination(
   return plan.clickTarget;
 }
 
+/**
+ * 複製した教材の場所を知らせるか (#250)。複製元と同じ場所・同じ保存先なら何も出さない (ローカル教材の複製は従来どおり)。
+ * 複製元の場所に作れず既定の作成先へ作ったときは `fallback`、同じ場所でも共有教材の複製がこのPCだけの教材になったときは
+ * `previous` (共有されていないことを知らせる)。
+ */
+export function duplicateNoticeOrigin(
+  source: Pick<WorkspaceFileSummary, "workspaceId" | "folderId" | "sharing"> | undefined,
+  copy: Pick<WorkspaceFileSummary, "workspaceId" | "folderId" | "sharing">,
+): Extract<NewMaterialOrigin, "fallback" | "previous"> | null {
+  if (!source) return null;
+  if (source.workspaceId !== copy.workspaceId || (source.folderId ?? null) !== (copy.folderId ?? null)) return "fallback";
+  return source.sharing && !copy.sharing ? "previous" : null;
+}
+
 /** 完了ダイアログに出す、実際に作った場所。 */
 export interface CreatedMaterialNotice {
-  kind: "material" | "whiteboard";
+  /** `duplicate` は教材の複製 (複製先が複製元と違う場所・保存先になったときだけ出す)。 */
+  kind: "material" | "whiteboard" | "duplicate";
   title: string;
   workspaceId: string;
   /** 読めなかったときは null。 */

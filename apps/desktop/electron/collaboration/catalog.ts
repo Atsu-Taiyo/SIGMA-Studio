@@ -40,6 +40,8 @@ export interface CatalogSessionsPort {
   bindings(): { fileId: string; sharedDocumentId: string; actorId: string; docId?: string }[];
   has(fileId: string): boolean;
   open(fileId: string, sharedDocumentId: string): Promise<SigmaDocument>;
+  /** Opens the document and returns it with its images inlined, for a copy that must not refer to this document's images. */
+  export(fileId: string, sharedDocumentId: string): Promise<SigmaDocument>;
   previewVersion?(fileId: string): string | undefined;
   preview?(fileId: string, sharedDocumentId: string, options?: { assets?: boolean }): Promise<SigmaDocument>;
   initialize(fileId: string, sharedDocumentId: string, operationId: string, document: SigmaDocument, staged?: boolean): Promise<void>;
@@ -675,22 +677,83 @@ export class DesktopSharedCatalog {
       createFileFromDocument: async input => {
         await this.account(); this.assertHierarchyMutable(input.folderId ?? input.workspaceId ?? ""); const parent = this.find(input.folderId ?? input.workspaceId ?? "");
         if (!parent) { this.rejectVirtual(input.workspaceId, input.folderId); return undefined; }
-        return this.mutate(async cache => {
-          const intent = await this.createNode(cache, parent, "document", input.document.metadata.title, input.document);
-          await this.refresh();
-          const file = (await this.listFiles()).find(f => f.fileId === intent.fileId);
-          if (!file) throw new Error("TARGET_UNAVAILABLE");
-          return { file, document: (await this.read(intent.fileId!))! };
-        });
+        return this.mutate(async cache => this.createdFile(await this.createNode(cache, parent, "document", input.document.metadata.title, input.document)));
       },
       duplicateFile: async fileId => {
         await this.account(); const node = this.find(fileId, "document"); if (!node) return undefined;
-        const source = await this.read(fileId); if (!source) throw new Error("TARGET_UNAVAILABLE");
-        const location = this.cache!.location(node);
-        const { stem, extension } = splitFileName(node.name);
-        return this.local.createFileFromDocument({ ...location, document: { ...source, docId: createBlankDocument().docId, metadata: { ...source.metadata, title: `${createCurrentLocaleTranslator("workspace")("duplicatedTitle", { title: stem })}${extension}` } } });
+        return this.duplicate(fileId, node);
       },
     };
+  }
+  private async createdFile(intent: PendingCatalogCreate): Promise<Awaited<ReturnType<LocalSigmaDocStore["createFileFromDocument"]>>> {
+    await this.refresh();
+    const file = (await this.listFiles()).find(f => f.fileId === intent.fileId);
+    if (!file) throw new Error("TARGET_UNAVAILABLE");
+    return { file, document: (await this.read(intent.fileId!))! };
+  }
+  /**
+   * Duplicates a shared material (#250). As for a new material (#211), the copy goes next to the
+   * original when that shared folder or workspace lets me create in it. Otherwise (a material shared
+   * with me on its own, a folder I can only view, the catalog unreachable) it becomes a private
+   * material on this PC; a duplicate never starts a new cloud share. Either way the images travel
+   * with the copy instead of pointing at the original's shared document.
+   */
+  private async duplicate(fileId: string, found: CatalogNode): Promise<Awaited<ReturnType<LocalSigmaDocStore["createFileFromDocument"]>>> {
+    // Decide with current authority; a failed refresh leaves the catalog offline (a private copy).
+    await this.refresh();
+    const cache = this.cache;
+    if (!cache) throw new Error("AUTH_REQUIRED");
+    const node = cache.data.nodes[found.id];
+    const sharedDocumentId = node?.sharedDocumentId;
+    if (!node || !sharedDocumentId || !node.capabilities.read) throw new Error("TARGET_UNAVAILABLE");
+    const { stem, extension } = splitFileName(node.name);
+    const title = `${createCurrentLocaleTranslator("workspace")("duplicatedTitle", { title: stem })}${extension}`;
+    const parent = node.parentId ? cache.data.nodes[node.parentId] : undefined;
+    // An earlier attempt that did not finish is resumed even when it cannot be right now, so it
+    // never completes later next to a private copy made in the meantime.
+    if (parent && (this.pendingDuplicate(cache, node.id, parent.id)
+      || (this.current.state === "ready" && parent.state === "active" && parent.capabilities.createChildren))) {
+      this.assertHierarchyMutable(cache.navigationId(parent));
+      return this.mutate(async current => {
+        const source = await this.sessions.export(fileId, sharedDocumentId);
+        this.checkAccount(current);
+        const retry = this.pendingDuplicate(current, node.id, parent.id);
+        const document: SigmaDocument = { ...source, docId: retry?.document?.docId ?? createBlankDocument().docId, metadata: { ...source.metadata, title: retry?.name ?? title } };
+        // Until the copy's journal exists, a retry takes the original's latest content.
+        if (retry && !this.sessions.has(retry.fileId!)) {
+          retry.document = structuredClone(document);
+          await current.save();
+        }
+        return this.createdFile(await this.createNode(current, parent, "document", document.metadata.title, document, node.id));
+      });
+    }
+    const source = await this.sessions.export(fileId, sharedDocumentId);
+    this.checkAccount(cache);
+    const location = this.privateCopyLocation(cache, node, await this.rawOverview());
+    return this.local.withLocalLibrary(() => this.local.createFileFromDocument({
+      ...location,
+      document: { ...source, docId: createBlankDocument().docId, metadata: { ...source.metadata, title } },
+    }));
+  }
+  private pendingDuplicate(cache: CatalogCache, sourceId: CatalogNodeId, parentId: CatalogNodeId): PendingCatalogCreate | undefined {
+    return Object.values(cache.data.creates).find(intent => !intent.complete && intent.kind === "document" && intent.duplicateOf === sourceId && intent.parentId === parentId && intent.document && intent.fileId);
+  }
+  /**
+   * A private copy goes next to the original when that is a workspace and folder of my own on this PC
+   * (a material I shared on its own). Otherwise it goes to the top of the first workspace on this PC,
+   * where a new material goes when it cannot be created next to the previous one (#211).
+   */
+  private privateCopyLocation(cache: CatalogCache, node: CatalogNode, raw: WorkspaceOverview): { workspaceId?: string; folderId?: string | null } {
+    const shared = new Set(Object.values(cache.data.nodes).filter(item => item.kind !== "document").map(item => cache.navigationId(item)));
+    const personal = raw.workspaces.filter(workspace => workspace.id !== SHARED_ITEMS_WORKSPACE_ID && !shared.has(workspace.id));
+    const location = cache.location(node, raw);
+    if (personal.some(workspace => workspace.id === location.workspaceId)) {
+      const folder = location.folderId && !shared.has(location.folderId)
+        ? raw.folders.find(item => item.id === location.folderId && item.workspaceId === location.workspaceId)
+        : undefined;
+      return { workspaceId: location.workspaceId, folderId: folder?.id ?? null };
+    }
+    return personal[0] ? { workspaceId: personal[0].id, folderId: null } : {};
   }
   private assertHierarchyMutable(...ids: string[]): void {
     for (const op of Object.values(this.cache?.data.operations ?? {})) {
@@ -711,7 +774,7 @@ export class DesktopSharedCatalog {
     return availableDocumentTitle(name, siblings, { workspaceId: "siblings", excludeFileId: excludeId });
   }
 
-  private async createNode(cache: CatalogCache, parent: CatalogNode, kind: "folder" | "document", name: string, document?: SigmaDocument): Promise<PendingCatalogCreate> {
+  private async createNode(cache: CatalogCache, parent: CatalogNode, kind: "folder" | "document", name: string, document?: SigmaDocument, duplicateOf?: CatalogNodeId): Promise<PendingCatalogCreate> {
     // mutate() refreshed authority after the caller captured its parent.
     const currentParent = cache.data.nodes[parent.id];
     if (!currentParent || currentParent.state !== "active") throw new Error("TARGET_UNAVAILABLE");
@@ -726,7 +789,7 @@ export class DesktopSharedCatalog {
         name = this.availableName(cache, parent.id, name);
         if (document) document = { ...document, metadata: { ...document.metadata, title: name } };
       }
-      intent = { operationId: randomUUID(), parentId: parent.id, kind, name, complete: false, ...(document ? { document: structuredClone(document), fileId: `file_${randomUUID()}` } : {}) };
+      intent = { operationId: randomUUID(), parentId: parent.id, kind, name, complete: false, ...(document ? { document: structuredClone(document), fileId: `file_${randomUUID()}` } : {}), ...(duplicateOf ? { duplicateOf } : {}) };
       cache.data.creates[intent.operationId] = intent;
       await cache.save();
     }

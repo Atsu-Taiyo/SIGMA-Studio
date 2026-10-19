@@ -302,6 +302,56 @@ describe("workspace document commands", () => {
     expect(f.options.untouchedNewDocumentsRef.current.has("copy")).toBe(false);
   });
 
+  // Issue #250: a failed duplicate of a cloud material showed "Error invoking remote method ...".
+  it("explains a failed duplicate in Japanese and stays on the original, from the menu and the list", async () => {
+    const f = fixture();
+    const duplicate = vi.spyOn(storage, "duplicateDocument")
+      .mockRejectedValueOnce(new Error("Error invoking remote method 'storage:duplicate-file': Error: CATALOG_OFFLINE"))
+      .mockRejectedValueOnce(new Error("Error invoking remote method 'storage:duplicate-file': Error: TARGET_UNAVAILABLE"));
+    render(f.options);
+    await actions.duplicateActiveDocument();
+    expect(f.options.setStatusMessage).toHaveBeenLastCalledWith(f.options.tEditor("status.duplicateOffline"));
+    await actions.duplicateDocumentFromList("original");
+    expect(f.options.setStatusMessage).toHaveBeenLastCalledWith(f.options.tEditor("status.duplicateSourceUnavailable"));
+    expect(duplicate).toHaveBeenCalledTimes(2);
+    expect(f.options.setSaveState).toHaveBeenLastCalledWith("error");
+    expect(f.options.resetEditorDocument).not.toHaveBeenCalled();
+    expect(f.options.setDocumentListOpen).not.toHaveBeenCalled();
+    expect(f.options.showCreatedMaterialLocation).not.toHaveBeenCalled();
+    expect(vi.mocked(f.options.setStatusMessage).mock.calls.flat().join("\n")).not.toContain("invoking");
+  });
+
+  it("shows where a shared material's copy went when it could not be placed next to the original", async () => {
+    const f = fixture();
+    // A material shared with me on its own: the copy becomes my own material on this PC.
+    Object.assign(f.options.documentMetadatas[0], { workspaceId: "shared-items", folderId: null, sharing: { ...sharedFolderSharing(false), target: { kind: "document", catalogNodeId: "node" } } });
+    mockOverview({});
+    const copy = record("copy");
+    vi.spyOn(storage, "duplicateDocument").mockResolvedValue(copy);
+    render(f.options);
+    await actions.duplicateDocumentFromList("original");
+    expect(f.options.setDocumentListOpen).toHaveBeenCalledWith(false);
+    expect(f.options.resetEditorDocument).toHaveBeenCalledWith(copy.document, "restored", 7);
+    expect(f.options.showCreatedMaterialLocation).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
+      kind: "duplicate", title: "copy", workspaceName: "マイ教材", folderPath: [], origin: "fallback",
+    }));
+  });
+
+  it("adds no notice for a copy beside a local original, and says a copy of my shared material is not shared", async () => {
+    const f = fixture();
+    mockOverview({});
+    vi.spyOn(storage, "duplicateDocument").mockResolvedValue(record("copy"));
+    render(f.options);
+    await actions.duplicateActiveDocument();
+    expect(f.options.showCreatedMaterialLocation).not.toHaveBeenCalled();
+    expect(f.options.setStatusMessage).toHaveBeenLastCalledWith(f.options.tEditor("status.duplicated"));
+
+    f.options.documentMetadatas[0].sharing = { ...sharedFolderSharing(true), target: { kind: "document", catalogNodeId: "node" as never }, placement: "owned" };
+    render(f.options);
+    await actions.duplicateActiveDocument();
+    expect(f.options.showCreatedMaterialLocation).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ kind: "duplicate", origin: "previous" }));
+  });
+
   it("passes observed revisions and live tab refs to untouched-draft deletion", async () => {
     const f = fixture();
     const draft = f.original;

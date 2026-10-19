@@ -45,6 +45,8 @@ export interface PendingCatalogCreate {
   document?: SigmaDocument;
   nodeId?: CatalogNodeId;
   sharedDocumentId?: string;
+  /** The shared material this create copies. Duplicating it again resumes this create instead of making a second copy. */
+  duplicateOf?: CatalogNodeId;
   complete: boolean;
 }
 export interface PendingCatalogMove {

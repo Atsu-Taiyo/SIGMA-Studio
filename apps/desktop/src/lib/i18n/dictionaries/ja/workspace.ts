@@ -221,6 +221,9 @@ export const workspace = {
     thisBrowser: "このブラウザ",
     cloud: "クラウド（共有）",
     fallbackNote: "直前の教材のワークスペースには作成できないため、既定の作成先に作成しました。",
+    duplicateTitle: "教材を複製しました",
+    duplicateFallbackNote: "複製元の場所には作成できないため、既定の作成先に複製しました。複製した教材は共有されていません。",
+    duplicatePrivateNote: "複製した教材は共有されず、このPCに保存されます。",
   },
   empty: {
     rootMessage: "教材がありません",
