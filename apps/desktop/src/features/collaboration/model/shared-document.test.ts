@@ -305,6 +305,36 @@ describe("shared document CRDT", () => {
       { type: "text", text: "新しい日本語の問題です" },
     ]);
   });
+  // Issue #249: an AI approval that changes two distant places of a paragraph replaced everything
+  // between them, so text someone typed there concurrently (and comment anchors in it) moved.
+  it("changes only the edited places of a paragraph, keeping the text between them", () => {
+    const [a, b] = replicas();
+    edit(a, (value) => setText(value, "一二三四五六七八九十"));
+    merge(a, b);
+    edit(a, (value) => setText(value, "【AI】一二三四五六七八九十【AI】"));
+    edit(b, (value) => setText(value, "一二三四五【人】六七八九十"));
+    merge(a, b);
+    expect(paragraph(a.project()).children).toEqual([
+      { type: "text", text: "【AI】一二三四五【人】六七八九十【AI】" },
+    ]);
+  });
+  it("keeps a comment between two edited places on the characters it was on", () => {
+    const [a, b] = replicas();
+    edit(a, (value) => {
+      setText(value, "一二三四五六七八九十");
+      value.comments = [{
+        id: "comment1",
+        anchor: { type: "textRange", start: { blockId: "p1", offset: 4 }, end: { blockId: "p1", offset: 6 }, quote: "五六" },
+        messages: [],
+      }];
+    });
+    merge(a, b);
+    edit(a, (value) => setText(value, "壱二三四五六七八九拾"));
+    merge(a, b);
+    const anchor = ((new SharedDocument(a.snapshot()).project().comments as ObjectValue[])[0].anchor as ObjectValue);
+    expect(anchor.start).toEqual({ blockId: "p1", offset: 4 });
+    expect(anchor.end).toEqual({ blockId: "p1", offset: 6 });
+  });
   it("retains concurrent independent shape attributes and atomic position pairs", () => {
     const [a, b] = replicas();
     edit(a, (value) => {
