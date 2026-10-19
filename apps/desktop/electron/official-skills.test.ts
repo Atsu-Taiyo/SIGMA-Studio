@@ -183,6 +183,9 @@ describe("official skills", () => {
     expect(converts(figure('<line x1="20" y1="60" x2="180" y2="60" stroke="#111111" stroke-width="2" marker-end="url(#head)"/>', TRIANGLE_HEAD()))).toBe(true);
     expect(converts(figure('<line x1="20" y1="60" x2="180" y2="60" stroke="#111111" stroke-width="2" marker-start="url(#head)"/>',
       TRIANGLE_HEAD().replace('orient="auto"', 'orient="auto-start-reverse"')))).toBe(true);
+    // 両端の矢印は auto-start-reverse の marker 1つを両方に付ける。
+    expect(converts(figure('<line x1="20" y1="60" x2="180" y2="60" stroke="#111111" stroke-width="2" marker-start="url(#head)" marker-end="url(#head)"/>',
+      TRIANGLE_HEAD().replace('orient="auto"', 'orient="auto-start-reverse"')))).toBe(true);
     expect(converts(figure('<g font-size="15" fill="#111111"><text x="20" y="40">ラベル</text></g><g stroke="#111111"><line x1="20" y1="60" x2="180" y2="60"/></g>'))).toBe(true);
     expect(svg).toContain("`orient=\"auto-start-reverse\"`");
 
@@ -195,6 +198,7 @@ describe("official skills", () => {
       ["曲線を `Z` で閉じたもの", figure('<path d="M20,100 Q100,20 180,100 Z" fill="none" stroke="#111111"/>')],
       ["`fill=\"none\"` を付ける", figure('<polyline points="20,100 100,20 180,100" stroke="#111111"/>')],
       ["`marker-mid`", figure('<polyline points="20,100 100,20 180,100" fill="none" stroke="#111111" marker-mid="url(#head)" marker-end="url(#head)"/>', TRIANGLE_HEAD())],
+      ["`orient=\"auto\"` のまま始点に付けると", figure('<line x1="20" y1="60" x2="180" y2="60" stroke="#111111" marker-start="url(#head)" marker-end="url(#head)"/>', TRIANGLE_HEAD())],
       ["色違い", figure('<line x1="20" y1="60" x2="180" y2="60" stroke="#111111" marker-end="url(#head)"/>', TRIANGLE_HEAD("#ff0000"))],
       ["要素が2つ以上の marker", figure('<line x1="20" y1="60" x2="180" y2="60" stroke="#111111" marker-end="url(#head)"/>',
         TRIANGLE_HEAD().replace("</marker>", '<circle cx="5" cy="5" r="1" fill="#111111"/></marker>'))],
