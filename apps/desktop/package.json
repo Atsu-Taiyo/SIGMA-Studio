@@ -85,7 +85,7 @@
     "electron": "44.7.1",
     "electron-builder": "^26.15.3",
     "esbuild": "^0.28.2",
-    "eslint": "^10.11.0",
+    "eslint": "^10.13.0",
     "eslint-config-next": "^16.4.0",
     "happy-dom": "^21.0.1",
     "typescript": "^7.0.2",
