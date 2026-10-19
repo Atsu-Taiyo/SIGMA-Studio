@@ -4,6 +4,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { EditorContent, useEditor } from "@tiptap/react";
 import type { Editor as TiptapEditor } from "@tiptap/core";
 
+import { usePreferredFontSeed } from "../text-flow/preferred-font-context";
 import { createRichTextEngineExtensions } from "@/components/tiptap/rich-text-engine";
 import { dispatchTextFormatState } from "@/components/tiptap/text-format-controller";
 import { DEFAULT_BODY_FONT_FAMILY, type OverlayTextBlock } from "@/features/document";
@@ -64,6 +65,7 @@ export function OverlayTextShapeEditor({
   onMeasuredHeight: (shapeId: OverlayShapeId, height: number) => void;
   onChange: (shapeId: OverlayShapeId, blocks: OverlayTextBlock[]) => void;
 }) {
+  const { preferredFont, seedPreferredFont } = usePreferredFontSeed();
   const wrapperRef = useRef<HTMLDivElement | null>(null);
   const contentRef = useRef(shape.props.blocks);
   const previousExternalRevisionRef = useRef(externalRevision);
@@ -121,6 +123,7 @@ export function OverlayTextShapeEditor({
     // onTransaction なら拾える。
     onTransaction: ({ editor: activeEditor }) => {
       if (activeEditor.isFocused) {
+        seedPreferredFont(activeEditor);
         dispatchTextFormatState(
         activeEditor,
         TEXT_FORMAT_STATE_EVENT,
@@ -133,6 +136,7 @@ export function OverlayTextShapeEditor({
       }
     },
     onFocus: ({ editor: activeEditor }) => {
+      seedPreferredFont(activeEditor);
       dispatchTextFormatState(
         activeEditor,
         TEXT_FORMAT_STATE_EVENT,
@@ -173,6 +177,10 @@ export function OverlayTextShapeEditor({
       onChange(shape.id, blocks);
     },
   });
+
+  useEffect(() => {
+    if (editor?.isFocused) seedPreferredFont(editor);
+  }, [editor, preferredFont, seedPreferredFont]);
 
   useEffect(() => {
     if (!editor) {

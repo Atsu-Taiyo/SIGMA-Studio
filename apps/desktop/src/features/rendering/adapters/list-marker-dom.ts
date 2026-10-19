@@ -1,7 +1,6 @@
-import type { InlineNode } from "@/features/document";
+import type { ListNode } from "@/features/document";
 import {
-  listMarkerRunsFromInlineNodes,
-  resolveListMarkerTypography,
+  resolveListMarkerTypographies,
   type ListMarkerTypography,
 } from "@/features/rendering/core";
 
@@ -75,17 +74,21 @@ export interface ListMarkerTypographyDomSpec {
 }
 
 /**
- * The `li` attribute and custom properties one SigmaDoc list item's content asks for.
+ * The `li` attribute and custom properties for each item of one SigmaDoc list (nested lists
+ * included), keyed by item id. Items that ask for nothing are absent.
  *
  * The attribute and the properties are decided together here so no surface can emit one without
  * the other — the CSS rule needs both, and a surface that emitted only the properties would style
- * nothing while looking correct in the markup.
+ * nothing while looking correct in the markup. It takes the whole list rather than one item because
+ * an empty item's marker follows the text written before it.
  */
-export function listMarkerTypographyDomSpec(
-  children: readonly InlineNode[],
-): ListMarkerTypographyDomSpec | undefined {
-  const style = listMarkerTypographyVars(
-    resolveListMarkerTypography(listMarkerRunsFromInlineNodes(children)),
-  );
-  return style ? { attrs: { [LIST_MARKER_TYPOGRAPHY_ATTRIBUTE]: "" }, style } : undefined;
+export function listMarkerTypographyDomSpecs(list: ListNode): Map<string, ListMarkerTypographyDomSpec> {
+  const specs = new Map<string, ListMarkerTypographyDomSpec>();
+  for (const [itemId, typography] of resolveListMarkerTypographies(list)) {
+    const style = listMarkerTypographyVars(typography);
+    if (style) {
+      specs.set(itemId, { attrs: { [LIST_MARKER_TYPOGRAPHY_ATTRIBUTE]: "" }, style });
+    }
+  }
+  return specs;
 }

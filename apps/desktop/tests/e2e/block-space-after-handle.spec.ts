@@ -819,6 +819,46 @@ test("plain, continued and nested list items draw one saved space at their owned
   });
 });
 
+test("list items below the grabbed item follow the pointer with their markers, and its own continuation stays", async ({ page }) => {
+  test.setTimeout(90_000);
+
+  await openDocument(page, createListDocument());
+  const scale = await readScale(page, "li_continued");
+  const travel = 60 * scale;
+  const followers = ["li_nested", "nested_item", "p_list_after"];
+  const before = Object.fromEntries(await Promise.all(
+    ["li_continuation", ...followers].map(async (id) => [id, await blockTop(page, id)] as const),
+  ));
+  const handle = await hoverBlock(page, "li_continued");
+  await expect(handle).toBeVisible();
+
+  let marked: Record<string, boolean> = {};
+  // 離すところまで含めて毎フレーム測る。以前は下の項目がドラッグ中に止まったまま、
+  // 離した瞬間にまとめて飛んでいた (後続の項目が追従集合に入っていなかった)。
+  const samples = await sampleFramesDuring(page, ["li_continuation", ...followers], async () => {
+    await grabAndDrag(page, handle, travel, 20);
+    marked = await page.evaluate(() => Object.fromEntries(
+      ["li_plain", "li_continued", "li_nested", "nested_item"].map((id) => [
+        id,
+        document.querySelector(`.page-flow [data-sigma-doc-id="${id}"]`)?.closest("li")
+          ?.classList.contains("sigma-space-after-follower") ?? false,
+      ]),
+    ));
+    await page.mouse.up();
+  }, 700);
+
+  for (const id of followers) {
+    expectContinuousDescent(samples.map((sample) => sample.tops[id]), travel);
+    expect(Math.abs(samples[samples.length - 1].tops[id] - (before[id] + travel))).toBeLessThan(4 * scale);
+  }
+  // 掴んだ項目の続きの段落は余白の上にあるので、どのフレームでも動かない。
+  for (const sample of samples) {
+    expect(Math.abs(sample.tops.li_continuation - before.li_continuation)).toBeLessThan(1);
+  }
+  // 印は li に付く (番号の ::marker ごと動く)。入れ子の項目は親の li ごと動くので印を重ねない。
+  expect(marked).toEqual({ li_plain: false, li_continued: false, li_nested: true, nested_item: false });
+});
+
 test("a page-crossing block below the drag keeps its continuation still", async ({ page }) => {
   test.setTimeout(90_000);
 

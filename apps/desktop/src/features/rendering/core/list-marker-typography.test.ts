@@ -1,8 +1,13 @@
 import { describe, expect, it } from "vitest";
 
-import type { InlineNode } from "@/features/document";
+import type { InlineNode, ListNode } from "@/features/document";
 
-import { listMarkerRunsFromInlineNodes, resolveListMarkerTypography } from "./list-marker-typography";
+import {
+  listMarkerRunsFromInlineNodes,
+  resolveListItemMarkerTypography,
+  resolveListMarkerTypographies,
+  resolveListMarkerTypography,
+} from "./list-marker-typography";
 
 describe("resolveListMarkerTypography", () => {
   it("先頭 run の書体と大きさを両方採る", () => {
@@ -141,5 +146,63 @@ describe("listMarkerRunsFromInlineNodes", () => {
 
   it("空の項目は既定を継ぐ", () => {
     expect(resolveListMarkerTypography(listMarkerRunsFromInlineNodes([]))).toBeUndefined();
+  });
+});
+
+describe("resolveListItemMarkerTypography", () => {
+  const preceding = { kind: "text" as const, hasGlyph: true, fontFamily: "serif", fontSizePt: 18, bold: true };
+
+  it("文字のある項目は自分の先頭 run だけを見る (直前の書式は使わない)", () => {
+    expect(resolveListItemMarkerTypography([{ kind: "text", hasGlyph: true }], preceding)).toBeUndefined();
+  });
+
+  it("空の項目は直前に書かれた run に合わせる (大きさ・太字も含めて全部)", () => {
+    expect(resolveListItemMarkerTypography([], preceding))
+      .toEqual({ fontFamily: "serif", fontSizePt: 18, bold: true });
+    expect(resolveListItemMarkerTypography([{ kind: "text", hasGlyph: false, fontSizePt: 9 }], preceding))
+      .toEqual({ fontFamily: "serif", fontSizePt: 18, bold: true });
+  });
+
+  it("直前に何も無ければ既定を継ぐ", () => {
+    expect(resolveListItemMarkerTypography([], undefined)).toBeUndefined();
+  });
+});
+
+describe("resolveListMarkerTypographies", () => {
+  const item = (id: string, children: InlineNode[], extra: Partial<ListNode["items"][number]> = {}): ListNode["items"][number] => (
+    { type: "listItem", id, children, ...extra }
+  );
+  const list = (items: ListNode["items"]): ListNode => ({ type: "list", id: "list", listType: "ordered", items });
+  const big: InlineNode = { type: "text", text: "いち", fontSize: 18, marks: ["bold"] };
+
+  it("空の項目は前の項目の最後の run に、空が続けばさらに前へ遡って合わせる", () => {
+    expect(resolveListMarkerTypographies(list([item("a", [big]), item("b", []), item("c", [])])))
+      .toEqual(new Map([
+        ["a", { fontSizePt: 18, bold: true }],
+        ["b", { fontSizePt: 18, bold: true }],
+        ["c", { fontSizePt: 18, bold: true }],
+      ]));
+  });
+
+  it("前の項目が無印の文字で終わっていれば、それより前の書式は持ち越さない", () => {
+    expect(resolveListMarkerTypographies(list([item("a", [big]), item("b", [{ type: "text", text: "に" }]), item("c", [])])))
+      .toEqual(new Map([["a", { fontSizePt: 18, bold: true }]]));
+  });
+
+  it("続きの段落・入れ子の項目も描かれる順に読む", () => {
+    const typographies = resolveListMarkerTypographies(list([
+      item("a", [big], {
+        continuations: [{ type: "paragraph", id: "a_p", children: [{ type: "text", text: "続き", fontSize: 9 }] }],
+        nested: [list([item("a1", [])])],
+      }),
+      item("b", []),
+    ]));
+
+    expect(typographies.get("a1")).toEqual({ fontSizePt: 9 });
+    expect(typographies.get("b")).toEqual({ fontSizePt: 9 });
+  });
+
+  it("先頭の項目が空なら既定のまま (リストの外は読まない)", () => {
+    expect(resolveListMarkerTypographies(list([item("a", [])]))).toEqual(new Map());
   });
 });

@@ -170,7 +170,9 @@ describe("viewer stylesheet size", () => {
   // frames and the no-wrap rule for imported rows add about 3.6 KB of shared document styles that the
   // print output and the embedded viewer must also draw, so they cannot live in the app-only CSS.
   // Allow 4 KiB for them (84 KiB) while keeping the generated CSS cap unchanged.
-  const MAX_AUTHORED_CSS_BYTES = 84 * 1024;
+  // 囲み文字に下線を引く規則 (囲みの区間は inline-flex で run の下線が届かないので区間自身が引き、
+  // 枠の下に線の分の余白を足す) で約 1.8KB 増えた。印刷・viewer も同じ下線を描くので 86KiB へ上げた。
+  const MAX_AUTHORED_CSS_BYTES = 86 * 1024;
   const MAX_DIST_CSS_BYTES = 128 * 1024;
 
   it("keeps the authored CSS (viewer + shared document surface) small", () => {

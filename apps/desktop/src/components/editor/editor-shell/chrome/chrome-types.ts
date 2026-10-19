@@ -167,7 +167,6 @@ export interface EditorChromeFormat {
   orderedListMenuButtonRef: RefObject<HTMLButtonElement | null>;
   orderedListMenuOpen: boolean;
   setOrderedListMenuOpen: Dispatch<SetStateAction<boolean>>;
-  saveEditorFontFamilyPreference: (nextFontFamily: string) => void;
   selectBoxedTextVariant: (variant: BoxedVariant) => void;
   selectedTextAlign: TextAlign;
   selectedTextStyle: string;

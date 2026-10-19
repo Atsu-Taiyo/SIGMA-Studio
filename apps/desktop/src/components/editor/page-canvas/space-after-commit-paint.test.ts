@@ -72,6 +72,19 @@ describe("space-after commit paint handoff", () => {
     expect(h.onFinished).toHaveBeenCalledOnce();
   });
 
+  it("reads a list item's space on its last continuation, where the stylesheet draws it", () => {
+    const h = harness();
+    h.flow.innerHTML = '<ul><li><p data-sigma-doc-id="body">1行目</p><p data-sigma-doc-id="cont" style="padding-bottom: 0px">続き</p>'
+      + '<ul><li><p data-sigma-doc-id="nested" style="padding-bottom: 24px">入れ子</p></li></ul></li></ul>';
+    h.wait();
+    // The nested list's own padding is not the item's edge.
+    h.mutate();
+    expect(h.onFinished).not.toHaveBeenCalled();
+    h.flow.querySelector<HTMLElement>('[data-sigma-doc-id="cont"]')!.style.paddingBottom = "24px";
+    h.mutate();
+    expect(h.onFinished).toHaveBeenCalledExactlyOnceWith(h.commit, true);
+  });
+
   it("observes node replacement and reads the current canvas rather than a stale node", () => {
     const h = harness();
     h.wait();

@@ -48,13 +48,20 @@ export function useTextFormattingState() {
   const [textBackgroundColor, setTextBackgroundColor] = useState<string | null>("#fff3c2");
   const [strokeColor, setStrokeColor] = useState<string | null>("#000000");
   const preferredFontFamilyRef = useRef(DEFAULT_FONT_FAMILY_VALUE);
+  // Formatting commands read this before React commits the new preference (including a reset).
+  const getPreferredFontFamily = useCallback(() => preferredFontFamilyRef.current, []);
+  const [preferredFontFamily, setPreferredFontFamily] = useState(DEFAULT_FONT_FAMILY_VALUE);
+  const fontPreferenceChangedRef = useRef(false);
   const [fontFamily, setFontFamily] = useState(DEFAULT_FONT_FAMILY_VALUE);
   const [lineHeight, setLineHeight] = useState<LineHeight>("1.75");
   const [lineHeightInput, setLineHeightInput] = useState("1.75");
   const [lineHeightInputError, setLineHeightInputError] = useState<string | null>(null);
   const [lineHeightCustomOpen, setLineHeightCustomOpen] = useState(false);
   const saveEditorFontFamilyPreference = useCallback((nextFontFamily: string) => {
+    nextFontFamily = normalizeToolbarFontFamily(nextFontFamily || DEFAULT_FONT_FAMILY_VALUE);
+    fontPreferenceChangedRef.current = true;
     preferredFontFamilyRef.current = nextFontFamily;
+    setPreferredFontFamily(nextFontFamily);
     const bridge = getDesktopBridge();
     if (!bridge?.app.saveEditorPreferences) {
       return;
@@ -73,10 +80,10 @@ export function useTextFormattingState() {
     let canceled = false;
     bridge.app.getEditorPreferences()
       .then((preferences) => {
-        if (!canceled && typeof preferences.fontFamily === "string") {
+        if (!canceled && !fontPreferenceChangedRef.current && typeof preferences.fontFamily === "string") {
           const nextFontFamily = normalizeToolbarFontFamily(preferences.fontFamily);
           preferredFontFamilyRef.current = nextFontFamily;
-          setFontFamily(nextFontFamily);
+          setPreferredFontFamily(nextFontFamily);
         }
       })
       .catch((error) => {
@@ -124,10 +131,7 @@ export function useTextFormattingState() {
       setBoxedTextVariant(normalizeBoxedTextVariant(detail.boxedVariant) ?? "frame");
       setBoxedTextRoundness(normalizeBoxedRoundness(detail.boxedRoundness) ?? DEFAULT_BOXED_ROUNDNESS);
       setBlockStyleState((current) => nextBlockStyleToolbarState(current, detail));
-      // The toolbar shows the font this position is actually drawn with. It used to fall back to
-      // `preferredFontFamilyRef` — the last font picked from the dropdown, persisted in settings —
-      // which is a different thing entirely the moment the caret moves somewhere the user did not
-      // set by hand. That preference is still kept, just no longer used as the displayed value.
+      // The toolbar reflects the actual selection; the last chosen font separately seeds empty input.
       if (detail.fontFamilyMixed === true) {
         setFontFamily("");
       } else if (typeof detail.fontFamily === "string") {
@@ -161,5 +165,5 @@ export function useTextFormattingState() {
     return () => window.removeEventListener(TEXT_FORMAT_STATE_EVENT, handleTextFormatState);
   }, []);
 
-  return { textFontSize, setTextFontSize, textFontSizeMixed, setTextFontSizeMixed, fontSizeInput, setFontSizeInput, boxedTextPaddingY, setBoxedTextPaddingY, boxedTextActive, setBoxedTextActive, boldActive, setBoldActive, italicActive, setItalicActive, underlineActive, setUnderlineActive, blockStyleState, setBlockStyleState, documentTextFormatTarget, setDocumentTextFormatTarget, hasMultiEditorTextRunSpan, setHasMultiEditorTextRunSpan, boxedTextVariant, setBoxedTextVariant, boxedTextRoundness, setBoxedTextRoundness, textColor, setTextColor, textBackgroundColor, setTextBackgroundColor, strokeColor, setStrokeColor, fontFamily, setFontFamily, lineHeight, setLineHeight, lineHeightInput, setLineHeightInput, lineHeightInputError, setLineHeightInputError, lineHeightCustomOpen, setLineHeightCustomOpen, getLastBoxedFormat, rememberBoxedFormat, saveEditorFontFamilyPreference };
+  return { textFontSize, setTextFontSize, textFontSizeMixed, setTextFontSizeMixed, fontSizeInput, setFontSizeInput, boxedTextPaddingY, setBoxedTextPaddingY, boxedTextActive, setBoxedTextActive, boldActive, setBoldActive, italicActive, setItalicActive, underlineActive, setUnderlineActive, blockStyleState, setBlockStyleState, documentTextFormatTarget, setDocumentTextFormatTarget, hasMultiEditorTextRunSpan, setHasMultiEditorTextRunSpan, boxedTextVariant, setBoxedTextVariant, boxedTextRoundness, setBoxedTextRoundness, textColor, setTextColor, textBackgroundColor, setTextBackgroundColor, strokeColor, setStrokeColor, fontFamily, setFontFamily, preferredFontFamily, getPreferredFontFamily, lineHeight, setLineHeight, lineHeightInput, setLineHeightInput, lineHeightInputError, setLineHeightInputError, lineHeightCustomOpen, setLineHeightCustomOpen, getLastBoxedFormat, rememberBoxedFormat, saveEditorFontFamilyPreference };
 }

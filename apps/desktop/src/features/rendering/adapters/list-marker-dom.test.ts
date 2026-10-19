@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import type { InlineNode } from "@/features/document";
+import type { InlineNode, ListNode } from "@/features/document";
 
 import {
   LIST_MARKER_TYPOGRAPHY_ATTRIBUTE,
-  listMarkerTypographyDomSpec,
+  listMarkerTypographyDomSpecs,
   listMarkerTypographyVars,
 } from "./list-marker-dom";
 
@@ -60,11 +60,18 @@ describe("listMarkerTypographyVars", () => {
   });
 });
 
-describe("listMarkerTypographyDomSpec", () => {
+describe("listMarkerTypographyDomSpecs", () => {
+  const list = (items: Array<[string, InlineNode[]]>): ListNode => ({
+    type: "list",
+    id: "list_1",
+    listType: "ordered",
+    items: items.map(([id, children]) => ({ type: "listItem", id, children })),
+  });
+
   it("属性とカスタムプロパティを必ず一緒に出す", () => {
     const children: InlineNode[] = [{ type: "text", text: "いち", fontFamily: "serif", fontSize: 18 }];
 
-    expect(listMarkerTypographyDomSpec(children)).toEqual({
+    expect(listMarkerTypographyDomSpecs(list([["li_1", children]])).get("li_1")).toEqual({
       attrs: { "data-list-marker-typography": "" },
       style: {
         "--sigma-doc-list-marker-font-family": "serif",
@@ -74,7 +81,12 @@ describe("listMarkerTypographyDomSpec", () => {
   });
 
   it("先頭 run に指定が無ければ属性も出さない", () => {
-    expect(listMarkerTypographyDomSpec([{ type: "text", text: "いち" }])).toBeUndefined();
-    expect(listMarkerTypographyDomSpec([])).toBeUndefined();
+    expect(listMarkerTypographyDomSpecs(list([["li_1", [{ type: "text", text: "いち" }]], ["li_2", []]])).size).toBe(0);
+  });
+
+  it("空の項目には直前の項目の書式を出す", () => {
+    const specs = listMarkerTypographyDomSpecs(list([["li_1", [{ type: "text", text: "いち", fontSize: 18 }]], ["li_2", []]]));
+
+    expect(specs.get("li_2")).toEqual(specs.get("li_1"));
   });
 });

@@ -1340,14 +1340,17 @@ const { candidateCommentTop, pendingCommentTop, commentThreadPositions } = usePa
    * は今まさに描かれている紙面そのものなので、ページ段組・局所段組・問題エリア段組の
    * どれでも同じ 1 つの判定で済む。
    */
-  const resolveBlockSpaceAfterCohort = useCallback((blockId: string): SpaceAfterPreviewCohort => (
-    resolveSpaceAfterPreviewCohort({
+  const resolveBlockSpaceAfterCohort = useCallback((blockId: string): SpaceAfterPreviewCohort => {
+    // リスト項目の余白は続きの段落の下に描かれる。続きは掴んだ辺の上にあるので動かさない。
+    const block = findBlock(pageDocument, blockId);
+    return resolveSpaceAfterPreviewCohort({
       units: units.map((unit) => ({ id: unit.id, blockIds: getFlowUnitBlockIds(unit) })),
       blockRects: layoutViewStateRef.current.blockRects,
       pageStride: pageHeightPx + PAGE_GAP_PX,
       draggedBlockId: blockId,
-    })
-  ), [layoutViewStateRef, pageHeightPx, units]);
+      draggedOwnedBlockIds: block?.type === "listItem" ? (block.continuations ?? []).map((continuation) => continuation.id) : [],
+    });
+  }, [layoutViewStateRef, pageDocument, pageHeightPx, units]);
 
   /**
    * ブロックの下端を掴んで下余白を伸ばす。

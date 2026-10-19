@@ -27,6 +27,7 @@ import { useEmbeddedDocumentSync } from "./editor-shell/use-embedded-document-sy
 import { useLineHeightControl } from "./editor-shell/use-line-height-control";
 import { useMcpProposalController } from "./editor-shell/use-mcp-proposal-controller";
 import { useOverlaySettingsController } from "./editor-shell/use-overlay-settings-controller";
+import { PreferredFontContext } from "./text-flow/preferred-font-context";
 import { useTextFormattingState } from "./editor-shell/use-text-formatting-state";
 import { useWindowCloseBoundary } from "./editor-shell/use-window-close-boundary";
 import { useWorkspaceDocumentNavigation } from "./editor-shell/use-workspace-document-navigation";
@@ -670,7 +671,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
     setSaveState("warning");
     setStatusMessage(message);
   }, [setSaveState, setStatusMessage, tE]);
-  const { textFontSize, setTextFontSize, textFontSizeMixed, setTextFontSizeMixed, fontSizeInput, setFontSizeInput, boxedTextPaddingY: reportedBoxedTextPaddingY, setBoxedTextPaddingY, boxedTextActive: reportedBoxedTextActive, boldActive: reportedBoldActive, italicActive: reportedItalicActive, underlineActive: reportedUnderlineActive, blockStyleState, documentTextFormatTarget, hasMultiEditorTextRunSpan, boxedTextVariant: reportedBoxedTextVariant, setBoxedTextVariant, boxedTextRoundness: reportedBoxedTextRoundness, setBoxedTextRoundness, textColor, setTextColor, textBackgroundColor, setTextBackgroundColor, strokeColor, setStrokeColor, fontFamily, setFontFamily, lineHeight, setLineHeight, lineHeightInput, setLineHeightInput, lineHeightInputError, setLineHeightInputError, lineHeightCustomOpen, setLineHeightCustomOpen, getLastBoxedFormat, rememberBoxedFormat, saveEditorFontFamilyPreference } = useTextFormattingState();
+  const { textFontSize, setTextFontSize, textFontSizeMixed, setTextFontSizeMixed, fontSizeInput, setFontSizeInput, boxedTextPaddingY: reportedBoxedTextPaddingY, setBoxedTextPaddingY, boxedTextActive: reportedBoxedTextActive, boldActive: reportedBoldActive, italicActive: reportedItalicActive, underlineActive: reportedUnderlineActive, blockStyleState, documentTextFormatTarget, hasMultiEditorTextRunSpan, boxedTextVariant: reportedBoxedTextVariant, setBoxedTextVariant, boxedTextRoundness: reportedBoxedTextRoundness, setBoxedTextRoundness, textColor, setTextColor, textBackgroundColor, setTextBackgroundColor, strokeColor, setStrokeColor, fontFamily, setFontFamily, preferredFontFamily, getPreferredFontFamily, lineHeight, setLineHeight, lineHeightInput, setLineHeightInput, lineHeightInputError, setLineHeightInputError, lineHeightCustomOpen, setLineHeightCustomOpen, getLastBoxedFormat, rememberBoxedFormat, saveEditorFontFamilyPreference } = useTextFormattingState();
   // ツールバーの入力欄へフォーカスが移っても、本文の選択を見せ続ける (`HeldBodySelectionOverlay`)。
   const chromeHeldBodyEditor = useChromeHeldBodySelection();
   const zoom = useStore(editorStore, (state) => state.zoom);
@@ -757,6 +758,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
   const { searchOpen, setSearchOpen, replaceOpen, setReplaceOpen, searchQuery, setSearchQuery, replaceText, setReplaceText } = useDocumentSearchState();
   const [templateGalleryOpen, setTemplateGalleryOpen] = useState(false);
   const [canPasteProblem, setCanPasteProblem] = useState(false);
+  const preferredFont = useMemo(() => ({ fontFamily: preferredFontFamily, getFontFamily: getPreferredFontFamily, rememberFontFamily: saveEditorFontFamilyPreference }), [preferredFontFamily, getPreferredFontFamily, saveEditorFontFamilyPreference]);
   const [fontFamilyQuery, setFontFamilyQuery] = useState("");
   const outlineOpen = useStore(editorStore, (state) => state.outlineOpen);
   const outlineWidth = useStore(editorStore, (state) => state.outlineWidth);
@@ -3439,6 +3441,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
     if (!canUseTextToolbar) {
       return;
     }
+    if (command === "fontFamily") saveEditorFontFamilyPreference(value);
     // 数式の入力欄で範囲を選んでいれば、フォントはその範囲だけに付ける (数式の外側の本文には付けない)。
     if (command === "fontFamily" && applyFontToInlineMathSelection(value, inlineMathFontTargetRef.current)) {
       return;
@@ -4581,7 +4584,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
       fontSizeInputRef, fontSizeSkipBlurRef, fontSizeInput, setFontSizeInput,
       handleLineHeightStepClick, italicActive, lineHeight, lineHeightButtonRef,
       lineHeightCustomOpen, lineHeightInput, lineHeightInputError, lineHeightMenuOpen,
-      saveEditorFontFamilyPreference, selectBoxedTextVariant, selectedTextAlign, selectedTextStyle,
+      selectBoxedTextVariant, selectedTextAlign, selectedTextStyle,
       setFontFamily, setFontFamilyQuery, setLineHeightCustomOpen, setLineHeightInput,
       setLineHeightInputError, setTextBackgroundColor, setTextColor, setTextFontSize,
       startLineHeightStepping, stopLineHeightStepping, textAlignButtonRef, textAlignMenuOpen,
@@ -4704,6 +4707,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
   );
 
   return (
+    <PreferredFontContext.Provider value={preferredFont}>
     <DocumentSessionContext.Provider value={documentSession}>
     <DocumentWritableContext.Provider value={sessionWritable}>
     <MathEnvironmentProvider
@@ -5349,6 +5353,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
     </MathEnvironmentProvider>
     </DocumentWritableContext.Provider>
     </DocumentSessionContext.Provider>
+    </PreferredFontContext.Provider>
   );
 }
 

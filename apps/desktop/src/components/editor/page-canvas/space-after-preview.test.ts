@@ -236,6 +236,59 @@ describe("resolveSpaceAfterPreviewCohort", () => {
     expect(cohort.followerBlockIds).toEqual([]);
   });
 
+  // 編集面ではリスト項目はユニットの一員ではない (ユニットは ProseMirror の直下のブロックだけ)。
+  // 項目の id は 1 行目の段落が持ち、入れ物はリストになる。
+  const listRects = rects({
+    before: { top: 0, left: 40, width: 400, height: 30 },
+    list: { top: 40, left: 40, width: 400, height: 160 },
+    li_a: { top: 40, left: 60, width: 380, height: 30, containerId: "list" },
+    li_a_cont: { top: 70, left: 60, width: 380, height: 30, containerId: "list" },
+    nested_list: { top: 100, left: 60, width: 380, height: 30, containerId: "list" },
+    nested_item: { top: 100, left: 80, width: 360, height: 30, containerId: "nested_list" },
+    li_b: { top: 130, left: 60, width: 380, height: 30, containerId: "list" },
+    li_c: { top: 170, left: 60, width: 380, height: 30, containerId: "list" },
+    after: { top: 210, left: 40, width: 400, height: 30 },
+    footer_line: { top: 900, left: 40, width: 400, height: 20 },
+  });
+
+  it("moves the list items below a grabbed item even though they are not unit members", () => {
+    const cohort = resolveSpaceAfterPreviewCohort({
+      units: [unit("u1", ["before", "list", "after"])],
+      blockRects: listRects,
+      pageStride: PAGE_STRIDE,
+      draggedBlockId: "li_a",
+      draggedOwnedBlockIds: ["li_a_cont"],
+    });
+
+    expect(cohort.followerUnitIds).toEqual([]);
+    expect(new Set(cohort.followerBlockIds)).toEqual(new Set(["after", "nested_list", "li_b", "li_c"]));
+  });
+
+  it("keeps the grabbed item's continuation still and measures the edge below it", () => {
+    const cohort = resolveSpaceAfterPreviewCohort({
+      units: [unit("u1", ["before", "list", "after"])],
+      blockRects: listRects,
+      pageStride: PAGE_STRIDE,
+      draggedBlockId: "li_a",
+      draggedOwnedBlockIds: ["li_a_cont"],
+    });
+
+    expect(cohort.followerBlockIds).not.toContain("li_a_cont");
+    expect(cohort.followerBlockIds).not.toContain("li_a");
+  });
+
+  it("does not mark items whose list already moves, nor blocks outside every unit", () => {
+    const cohort = resolveSpaceAfterPreviewCohort({
+      units: [unit("u1", ["before", "list", "after"])],
+      blockRects: listRects,
+      pageStride: PAGE_STRIDE,
+      draggedBlockId: "before",
+    });
+
+    expect(cohort.followerUnitIds).toEqual([]);
+    expect(cohort.followerBlockIds).toEqual(["list", "after"]);
+  });
+
   it("follows an indented block below it (a quote is not another column)", () => {
     const cohort = resolveSpaceAfterPreviewCohort({
       units: [unit("u1", ["p1", "quote"])],

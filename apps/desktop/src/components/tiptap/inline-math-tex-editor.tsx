@@ -145,7 +145,8 @@ export const InlineMathTexEditor = forwardRef<HTMLTextAreaElement, InlineMathTex
           role="dialog"
           ariaLabel={t("math.editTex")}
           gap={8}
-          zIndex="var(--z-modal-nested)"
+          // コマンド一覧を開いている間は、そのモーダルの背面に入力欄を置く。
+          zIndex={commandReferenceOpen ? "calc(var(--z-modal) - 1)" : "var(--z-modal-nested)"}
         >
           <div
             className={`${styles.editorRow} inline-math-tex-editor-row`}

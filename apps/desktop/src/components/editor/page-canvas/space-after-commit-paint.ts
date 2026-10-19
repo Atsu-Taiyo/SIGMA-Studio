@@ -40,8 +40,9 @@ export function waitForSpaceAfterCommitPaint(
     const element = getCanvas()?.querySelector<HTMLElement>(
       `.page-flow [data-sigma-doc-id="${CSS.escape(owned.blockId)}"]`,
     );
-    return element
-      ? Math.abs(Number.parseFloat(window.getComputedStyle(element).paddingBottom || "0") - owned.px) < 1
+    const edge = element ? spaceAfterEdgeElement(element) : null;
+    return edge
+      ? Math.abs(Number.parseFloat(window.getComputedStyle(edge).paddingBottom || "0") - owned.px) < 1
       : false;
   };
 
@@ -106,6 +107,23 @@ export function waitForSpaceAfterCommitPaint(
       finish(isPainted());
     }
   }, MAX_SPACE_AFTER_COMMIT_WAIT_MS);
+}
+
+/**
+ * 余白が padding として描かれる要素。リスト項目の id は 1 行目の段落が持つが、項目の余白は
+ * 最後の続きの段落 (li 直下の、リスト以外の最後の子) に描かれる (`document-surface.css`)。
+ * 1 行目だけを見ていると、続きのある項目では確定が届いたことを読めず、打ち切りまで
+ * 「余白あり × 平行移動あり」の 2 倍下がった絵が残っていた。
+ */
+function spaceAfterEdgeElement(element: HTMLElement): HTMLElement {
+  const item = element.parentElement;
+  if (item?.tagName !== "LI" || item.firstElementChild !== element) {
+    return element;
+  }
+  const owned = Array.from(item.children).filter((child): child is HTMLElement => (
+    child instanceof HTMLElement && child.tagName !== "UL" && child.tagName !== "OL"
+  ));
+  return owned.at(-1) ?? element;
 }
 
 /**

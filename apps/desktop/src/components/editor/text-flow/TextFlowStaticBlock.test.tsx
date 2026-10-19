@@ -156,6 +156,21 @@ describe("TextFlowStaticBlock list marker typography", () => {
     // value from inheriting into it.
     expect(markup.match(/data-list-marker-typography/g)).toHaveLength(1);
   });
+
+  it("gives an empty item, nested or not, the font written right before it (print matches editing)", () => {
+    const markup = renderToStaticMarkup(<TextFlowStaticBlock block={styledList([
+      {
+        id: "li_1",
+        children: [{ type: "text", text: "いち", fontFamily: '"Yu Mincho", serif', fontSize: 18, marks: ["bold"] }],
+        nested: [styledList([{ id: "li_1_1", children: [] }])],
+      },
+      { id: "li_2", children: [] },
+    ])} />);
+
+    expect(markup.match(/data-list-marker-typography/g)).toHaveLength(3);
+    expect(markup.match(/--sigma-doc-list-marker-font-size:18pt/g)).toHaveLength(3);
+    expect(markup.match(/--sigma-doc-list-marker-font-weight:bold/g)).toHaveLength(3);
+  });
 });
 
 /**

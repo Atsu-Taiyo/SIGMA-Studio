@@ -27,17 +27,30 @@ export function createSpaceAfterPreviewDecorations(
 
   const followers = new Set(preview.followerBlockIds);
   const decorations: Decoration[] = [];
-  doc.forEach((node, offset) => {
-    const blockId = typeof node.attrs?.sigmaDocId === "string" ? node.attrs.sigmaDocId : "";
-    if (!blockId || !followers.has(blockId)) {
-      return;
+  doc.descendants((node, pos) => {
+    const blockId = previewBlockIdOf(node);
+    if (blockId && followers.has(blockId)) {
+      decorations.push(
+        Decoration.node(pos, pos + node.nodeSize, {
+          class: BLOCK_SPACE_AFTER_FOLLOWER_CLASS,
+        }),
+      );
+      // 中身は一緒に動く。中にも印を付けると平行移動が二重になる。
+      return false;
     }
-    decorations.push(
-      Decoration.node(offset, offset + node.nodeSize, {
-        class: BLOCK_SPACE_AFTER_FOLLOWER_CLASS,
-      }),
-    );
+    // 入れ子のブロック (リストの項目・箱の中の段落) も追従するので降りる。行内までは降りない。
+    return !node.isTextblock && !node.isLeaf;
   });
 
   return decorations.length ? DecorationSet.create(doc, decorations) : DecorationSet.empty;
+}
+
+/**
+ * 印を付ける単位の id。リスト項目の id は 1 行目の段落が持つが、番号 (`::marker`)・続きの段落・
+ * 入れ子を描くのは li なので、印は listItem ノードに付ける (段落に付けると番号だけ置いていかれる)。
+ */
+function previewBlockIdOf(node: ProseMirrorModelNode): string {
+  const holder = node.type.name === "listItem" ? node.firstChild : node;
+  const id = holder?.attrs?.sigmaDocId;
+  return typeof id === "string" ? id : "";
 }

@@ -9,8 +9,8 @@ import {
   ListMarkerTypographyExtension,
 } from "@/components/tiptap/list-marker-typography-extension";
 import { createRichTextEngineExtensions } from "@/components/tiptap/rich-text-engine";
-import type { InlineNode } from "@/features/document";
-import { cssTextFromDeclarations, listMarkerTypographyDomSpec } from "@/features/rendering/adapters";
+import type { InlineNode, ListNode } from "@/features/document";
+import { cssTextFromDeclarations, listMarkerTypographyDomSpecs } from "@/features/rendering/adapters";
 import { inlineNodesToTiptapNodes } from "@/lib/tiptap-adapter";
 
 const schema: Schema = getSchema(createRichTextEngineExtensions({ orderedListMarkerStyles: true }));
@@ -68,6 +68,12 @@ function markerDecorations(doc: ProseMirrorNode): Array<{ from: number; attrs: R
     }));
 }
 
+/** The static renderer's declarations for a one-item list holding `children`. */
+function staticItemStyle(children: InlineNode[]): string | undefined {
+  const list: ListNode = { type: "list", id: "list_1", listType: "ordered", items: [{ type: "listItem", id: "li_1", children }] };
+  return cssTextFromDeclarations(listMarkerTypographyDomSpecs(list).get("li_1")?.style);
+}
+
 describe("createListMarkerTypographyDecorations", () => {
   it("puts the first run's font on the list item so ::marker can read it", () => {
     const doc = docWithList([listItem([{ text: "いち", fontFamily: '"Yu Mincho", serif', fontSize: 18 }])]);
@@ -114,6 +120,56 @@ describe("createListMarkerTypographyDecorations", () => {
       .toEqual(["--sigma-doc-list-marker-font-size: 9pt"]);
   });
 
+  it("gives an empty item the typography of the text written right before it", () => {
+    const doc = docWithList([
+      listItem([{ text: "いち", fontFamily: "serif", fontSize: 18, bold: true }]),
+      listItem([]),
+    ]);
+
+    expect(markerDecorations(doc).map((decoration) => decoration.attrs.style)).toEqual([
+      "--sigma-doc-list-marker-font-family: serif; --sigma-doc-list-marker-font-size: 18pt; --sigma-doc-list-marker-font-weight: bold",
+      "--sigma-doc-list-marker-font-family: serif; --sigma-doc-list-marker-font-size: 18pt; --sigma-doc-list-marker-font-weight: bold",
+    ]);
+  });
+
+  it("reads the last run of the item before, which is what Enter carries into the new item", () => {
+    const doc = docWithList([
+      listItem([{ text: "見出し", fontSize: 18, bold: true }, { text: "本文", fontSize: 9 }]),
+      listItem([]),
+    ]);
+
+    expect(markerDecorations(doc).map((decoration) => decoration.attrs.style)).toEqual([
+      "--sigma-doc-list-marker-font-size: 18pt; --sigma-doc-list-marker-font-weight: bold",
+      "--sigma-doc-list-marker-font-size: 9pt",
+    ]);
+  });
+
+  it("keeps reaching back over consecutive empty items, and into a nested list's first item", () => {
+    const doc = docWithList([
+      listItem([{ text: "いち", fontSize: 18 }], [[]]),
+      listItem([]),
+      listItem([]),
+    ]);
+
+    expect(markerDecorations(doc)).toHaveLength(4);
+    expect(new Set(markerDecorations(doc).map((decoration) => decoration.attrs.style)))
+      .toEqual(new Set(["--sigma-doc-list-marker-font-size: 18pt"]));
+  });
+
+  it("does not reach outside the list or past unstyled text", () => {
+    const outside = schema.nodeFromJSON({
+      type: "doc",
+      content: [
+        { type: "paragraph", content: [inlineNode({ text: "前の段落", fontSize: 18 })] },
+        { type: "orderedList", content: [listItem([])] },
+      ],
+    });
+    expect(markerDecorations(outside)).toEqual([]);
+
+    const unstyled = docWithList([listItem([{ text: "いち", fontSize: 18 }]), listItem([{ text: "に" }]), listItem([])]);
+    expect(markerDecorations(unstyled).map((decoration) => decoration.from)).toEqual([1]);
+  });
+
   it("works the same for bullet lists (the user asked for (1) 'とか', not only (1))", () => {
     const doc = docWithList([listItem([{ text: "いち", fontFamily: "serif" }])], "bulletList");
 
@@ -152,7 +208,7 @@ describe("editing and static projections agree on the first run", () => {
   }
 
   function staticStyle(children: InlineNode[]): string | undefined {
-    return cssTextFromDeclarations(listMarkerTypographyDomSpec(children)?.style);
+    return staticItemStyle(children);
   }
 
   const cases: Array<[string, InlineNode[]]> = [
@@ -185,6 +241,77 @@ describe("editing and static projections agree on the first run", () => {
 
   it.each(cases)("%s", (_name, children) => {
     expect(editingStyle(children)).toBe(staticStyle(children));
+  });
+});
+
+/** The same SigmaDoc list through both projections, item by item (empty items included). */
+describe("editing and static projections agree on empty items", () => {
+  function toTiptapList(list: ListNode): Record<string, unknown> {
+    return {
+      type: list.listType === "ordered" ? "orderedList" : "bulletList",
+      content: list.items.map((item) => ({
+        type: "listItem",
+        content: [
+          { type: "paragraph", content: inlineNodesToTiptapNodes(item.children) },
+          ...(item.continuations ?? []).map((continuation) => ({
+            type: "paragraph",
+            content: continuation.type === "divider" ? [] : inlineNodesToTiptapNodes(continuation.children),
+          })),
+          ...(item.nested ?? []).map(toTiptapList),
+        ],
+      })),
+    };
+  }
+
+  /** Item ids in the order the editing surface walks its `listItem` nodes (item, then nested). */
+  function itemIds(list: ListNode): string[] {
+    return list.items.flatMap((item) => [item.id, ...(item.nested ?? []).flatMap(itemIds)]);
+  }
+
+  function editingStyles(list: ListNode): Record<string, string> {
+    const doc = schema.nodeFromJSON({ type: "doc", content: [toTiptapList(list)] });
+    const ids = itemIds(list);
+    const positions: number[] = [];
+    doc.descendants((node, pos) => {
+      if (node.type.name === "listItem") positions.push(pos);
+    });
+    const styles: Record<string, string> = {};
+    for (const decoration of markerDecorations(doc)) {
+      styles[ids[positions.indexOf(decoration.from)]] = decoration.attrs.style;
+    }
+    return styles;
+  }
+
+  function staticStyles(list: ListNode): Record<string, string> {
+    return Object.fromEntries(Array.from(listMarkerTypographyDomSpecs(list), ([id, spec]) => [id, cssTextFromDeclarations(spec.style) ?? ""]));
+  }
+
+  const big: InlineNode = { type: "text", text: "いち", fontFamily: "serif", fontSize: 18, marks: ["bold"] };
+  const lists: Array<[string, ListNode]> = [
+    ["空の項目が続く", { type: "list", id: "l", listType: "ordered", items: [
+      { type: "listItem", id: "a", children: [big] },
+      { type: "listItem", id: "b", children: [] },
+      { type: "listItem", id: "c", children: [{ type: "text", text: "" }] },
+    ] }],
+    ["続きの段落の最後の run を継ぐ", { type: "list", id: "l", listType: "bullet", items: [
+      { type: "listItem", id: "a", children: [big], continuations: [{ type: "paragraph", id: "p", children: [{ type: "text", text: "続き", color: "#c0392b" }] }] },
+      { type: "listItem", id: "b", children: [] },
+    ] }],
+    ["入れ子の空の項目と、その後の親の空の項目", { type: "list", id: "l", listType: "ordered", items: [
+      { type: "listItem", id: "a", children: [big], nested: [{ type: "list", id: "n", listType: "bullet", items: [
+        { type: "listItem", id: "a1", children: [] },
+        { type: "listItem", id: "a2", children: [{ type: "text", text: "こ", fontSize: 9 }] },
+      ] }] },
+      { type: "listItem", id: "b", children: [] },
+    ] }],
+    ["数式で終わる項目の後 (書体は採らない)", { type: "list", id: "l", listType: "ordered", items: [
+      { type: "listItem", id: "a", children: [big, { type: "mathInline", id: "m", tex: "x^2", display: "inline", fontFamily: "serif", fontSize: 12 }] },
+      { type: "listItem", id: "b", children: [] },
+    ] }],
+  ];
+
+  it.each(lists)("%s", (_name, list) => {
+    expect(editingStyles(list)).toEqual(staticStyles(list));
   });
 });
 
@@ -237,8 +364,7 @@ describe("マーカーが継ぐ書式の範囲", () => {
       }],
     });
 
-    expect(markerDecorations(doc)[0]?.attrs.style)
-      .toBe(cssTextFromDeclarations(listMarkerTypographyDomSpec(children)?.style));
+    expect(markerDecorations(doc)[0]?.attrs.style).toBe(staticItemStyle(children));
   });
 
   it("下線と囲みは運ばない (::marker が受け付けない書式)", () => {

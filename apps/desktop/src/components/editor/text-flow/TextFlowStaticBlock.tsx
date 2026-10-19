@@ -17,8 +17,9 @@ import {
 import {
   codeHighlightRanges,
   inlineNodesTextBlockTypographyVars,
-  listMarkerTypographyDomSpec,
+  listMarkerTypographyDomSpecs,
   normalizeCodeLanguage,
+  type ListMarkerTypographyDomSpec,
 } from "@/features/rendering/adapters";
 import {
   boxedInlineRunAlignmentSignature,
@@ -422,17 +423,24 @@ function inlineCodeRunStyle(child: Extract<InlineNode, { type: "text" }>): CSSPr
 function TextFlowStaticList({
   block,
   shared,
+  markerTypographies,
 }: {
   block: Extract<RichBlock, { type: "list" }>;
   shared: TextFlowStaticSharedProps;
+  /** Decided once for the outermost list: an empty item reads the text before it, across levels. */
+  markerTypographies?: ReadonlyMap<string, ListMarkerTypographyDomSpec>;
 }) {
   const { classNames, omitBlockIds, styles } = shared;
+  const ownMarkerTypographies = useMemo(
+    () => markerTypographies ?? listMarkerTypographyDomSpecs(block),
+    [block, markerTypographies],
+  );
   const items = block.items.map((item) => {
     // The marker inherits the `li` font, so the typography of the item's first run has to be
     // handed to `::marker` from here — the run's own span is inside the `li` and cannot reach it.
     // Note the asymmetry with the editing surface, where `data-sigma-doc-id` sits on the inner `p`:
     // these must stay on the `li` or the CSS rule never matches.
-    const markerTypography = listMarkerTypographyDomSpec(item.children);
+    const markerTypography = ownMarkerTypographies.get(item.id);
     return (
       <li
         key={item.id}
@@ -445,7 +453,7 @@ function TextFlowStaticList({
           <TextFlowStaticBlock key={continuation.id} block={continuation} {...shared} />
         ))}
         {(item.nested ?? []).map((nested) => (
-          <TextFlowStaticList key={nested.id} block={nested} shared={shared} />
+          <TextFlowStaticList key={nested.id} block={nested} shared={shared} markerTypographies={ownMarkerTypographies} />
         ))}
       </li>
     );

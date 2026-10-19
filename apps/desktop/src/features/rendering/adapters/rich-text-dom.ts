@@ -125,23 +125,26 @@ export function buildInlineRenderModelDom(
 
     const first = underlineRun[0];
     const last = underlineRun[underlineRun.length - 1];
+    const style = findDecoration(first.entry.decorations, "underline")?.style;
+    const containsMath = underlineRun.some((piece) => piece.entry.kind === "math");
+    // A run with math draws one border under everything, boxes included; a text-only run's
+    // decoration stops at each boxed segment, which then draws the underline itself.
+    const boxedUnderline = containsMath ? undefined : style ?? "solid";
+    const members = underlineRun.map((piece) => buildInlinePieceDom(piece, options, boxedUnderline));
     nodes.push({
       kind: "element",
       tag: "span",
       className: UNDERLINE_RUN_CLASS_NAME,
       key: `${options.keyPrefix}-underline-run-${first.key}-${last.key}`,
-      attrs: underlineDomAttrs(findDecoration(first.entry.decorations, "underline")?.style),
-      selfContainedStyle: underlineRunStyle(
-        underlineRun.some((piece) => piece.entry.kind === "math"),
-        findDecoration(first.entry.decorations, "underline")?.style,
-      ),
-      children: findDecoration(first.entry.decorations, "underline")?.style === "wavy"
+      attrs: underlineDomAttrs(style),
+      selfContainedStyle: underlineRunStyle(containsMath, style),
+      children: style === "wavy"
         ? [
-          { kind: "element", tag: "span", key: `${first.key}-wave-content`, children: underlineRun.map((piece) => buildInlinePieceDom(piece, options)) },
+          { kind: "element", tag: "span", key: `${first.key}-wave-content`, children: members },
           { kind: "element", tag: "span", key: `${first.key}-wave-stroke`, className: UNDERLINE_WAVE_CLASS_NAME, attrs: { "aria-hidden": "true" },
-            selfContainedStyle: underlineWaveStrokeStyle(underlineRun.some((piece) => piece.entry.kind === "math")), children: [] },
+            selfContainedStyle: underlineWaveStrokeStyle(containsMath), children: [] },
         ]
-        : underlineRun.map((piece) => buildInlinePieceDom(piece, options)),
+        : members,
     });
     underlineRun = [];
   };
@@ -205,6 +208,7 @@ function flattenInlinePieces(
 function buildInlinePieceDom(
   piece: Extract<InlinePiece, { kind: "piece" }>,
   options: InlineRichTextDomOptions,
+  boxedUnderline?: UnderlineStyle,
 ): RichTextDomNode {
   const child = piece.entry;
   const key = `${options.keyPrefix}-${piece.key}`;
@@ -230,7 +234,7 @@ function buildInlinePieceDom(
     children = [wrap("strong", `${key}-strong`, children)];
   }
   if (boxed) {
-    children = [boxedElement(boxed, `${key}-boxed`, children, options)];
+    children = [boxedElement(boxed, `${key}-boxed`, children, options, boxedUnderline)];
   }
   if (style) {
     return { kind: "element", tag: "span", key: `${key}-styled`, style, children };
@@ -304,6 +308,7 @@ function boxedElement(
   key: string,
   children: RichTextDomNode[],
   options: InlineRichTextDomOptions,
+  underline: UnderlineStyle | undefined,
 ): RichTextDomElement {
   const spec = boxedInlineDomSpec({
     boxedPaddingY: boxed.paddingY,
@@ -319,7 +324,7 @@ function boxedElement(
     key,
     attrs: { ...spec.attrs, ...boxedRunDomAttrs(boxed.run) },
     style: mergeStyles(spec.style, alignment),
-    selfContainedStyle: boxedSelfContainedStyle(boxed),
+    selfContainedStyle: boxedSelfContainedStyle(boxed, underline),
     children,
   };
 }
@@ -341,8 +346,11 @@ function boxedElement(
  *   measuring, never in serialized output. The last one is what stops a segment painting its own
  *   border once one rectangle is drawn for the whole run — serialized output has no such rectangle,
  *   so its segments have to keep their frames.
+ *
+ * `underline` is the style of the text-only underline run the box sits in, if any: a run segment
+ * is `inline-flex`, which the run's own decoration does not reach.
  */
-export function boxedSelfContainedStyle(boxed: RichTextBoxDecoration): RichTextDomStyle {
+export function boxedSelfContainedStyle(boxed: RichTextBoxDecoration, underline?: UnderlineStyle): RichTextDomStyle {
   const style: RichTextDomStyle = { ...BOXED_TEXT_BASE_STYLE };
   if (boxed.math) {
     Object.assign(style, BOXED_INLINE_MATH_STYLE);
@@ -351,6 +359,9 @@ export function boxedSelfContainedStyle(boxed: RichTextBoxDecoration): RichTextD
   // after the math rule in the stylesheet, so it wins where the two overlap.
   if (boxed.run) {
     Object.assign(style, BOXED_RUN_HEIGHT_TARGET_STYLE);
+    if (underline) {
+      Object.assign(style, boxedRunUnderlineStyle(underline));
+    }
   }
   if (boxed.connectRight) {
     Object.assign(style, BOXED_RUN_CONNECT_RIGHT_STYLE);
@@ -404,12 +415,25 @@ const BOXED_RUN_HEIGHT_TARGET_STYLE: RichTextDomStyle = {
   "align-items": "baseline",
   ...BOXED_FRAME_STYLE,
   padding:
-    `calc(var(--boxed-text-padding-y, 0px) + var(--boxed-run-extra-padding-top, 0px)) ${BOXED_RUN_PADDING_RIGHT} calc(var(--boxed-text-padding-y, 0px) + var(--boxed-run-extra-padding-bottom, 0px)) ${BOXED_RUN_PADDING_LEFT}`,
+    `calc(var(--boxed-text-padding-y, 0px) + var(--boxed-run-extra-padding-top, 0px)) ${BOXED_RUN_PADDING_RIGHT} calc(var(--boxed-text-padding-y, 0px) + var(--boxed-run-extra-padding-bottom, 0px) + var(--boxed-run-underline-room, 0px)) ${BOXED_RUN_PADDING_LEFT}`,
   "line-height": "1",
   "vertical-align": "baseline",
   "box-decoration-break": "clone",
   "-webkit-box-decoration-break": "clone",
 };
+
+/**
+ * `.sigma-underline-run:not(:has(.math-preview)) :is(.boxed-text[data-boxed-run-height-target="true"], …)`
+ * and its style variants. The room is the one custom property written inline: it only lengthens
+ * the bottom padding above, and still reads the double box's inner-rule inset from the stylesheet.
+ */
+function boxedRunUnderlineStyle(style: UnderlineStyle): RichTextDomStyle {
+  const lineDepth = style === "wavy" || style === "double" ? "3px" : "1px";
+  return {
+    "--boxed-run-underline-room": `calc(0.2em + ${lineDepth} + var(--boxed-text-inner-rule-inset, 0px))`,
+    ...underlineStyle(style),
+  };
+}
 
 /** `.boxed-text[data-boxed-run-connect-right="true"]` */
 const BOXED_RUN_CONNECT_RIGHT_STYLE: RichTextDomStyle = {
