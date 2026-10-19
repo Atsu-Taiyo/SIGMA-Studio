@@ -136,6 +136,7 @@ jobs:
               tests/electron/local-fonts-menu.spec.ts tests/electron/math-ime-composition-scroll.spec.ts \
               tests/electron/graph-expression-backspace.spec.ts tests/electron/math-unclosed-paren.spec.ts \
               tests/electron/quote-empty-paragraph-delete.spec.ts \
+              tests/electron/selection-links.spec.ts tests/electron/workspace-body-search.spec.ts \
               tests/electron/comment-composer.spec.ts tests/electron/comment-profiles.spec.ts
           '
       - uses: actions/upload-artifact@v7

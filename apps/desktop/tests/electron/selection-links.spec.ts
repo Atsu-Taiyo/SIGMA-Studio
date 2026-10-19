@@ -7,6 +7,7 @@ import { ensurePageLayout } from "@/features/document";
 import { parseShareLink } from "@/features/collaboration/model/share-link";
 
 async function selectText(page: Page) {
+  await page.bringToFront();
   await page.evaluate(() => {
     const block = document.querySelector('[data-sigma-doc-id="linked-paragraph"]')!;
     block.closest<HTMLElement>(".ProseMirror")!.focus();
@@ -16,7 +17,7 @@ async function selectText(page: Page) {
     document.dispatchEvent(new Event("selectionchange"));
   });
   // A caret already has a block-link button. Wait for the debounced text-range action.
-  await expect(page.locator(".selection-action-popover").getByRole("button", { name: "太字", exact: true })).toBeVisible();
+  await expect(page.locator(".selection-action-popover:not(.selection-action-popover--trailing)")).toBeVisible();
 }
 
 test("shared selections copy rich links, paste, and reopen the exact range without changing the saved material", async ({}, testInfo) => {
@@ -95,10 +96,11 @@ test("shared selections copy rich links, paste, and reopen the exact range witho
     await expect(external.locator("#paste a")).toHaveAttribute("href", clipboard.text);
     await pastedWindow.evaluate(window => window.close());
     await page.bringToFront();
-    await Promise.all([
-      page.waitForEvent("domcontentloaded"),
-      app.evaluate(({ app }, link) => app.emit("open-url", { preventDefault() {} }, link), clipboard.text),
-    ]);
+    // Opening a location in the current material can navigate without reloading the renderer.
+    await app.evaluate(({ app }, link) => app.emit("open-url", { preventDefault() {} }, link), clipboard.text);
+    const confirmation = page.getByRole("dialog", { name: "共有項目を開く", exact: true });
+    await confirmation.getByRole("checkbox", { name: "共有元とリンク先を確認しました" }).check();
+    await confirmation.getByRole("button", { name: "共有項目を開く", exact: true }).click();
     await expect(page.locator(".startup-splash")).toBeHidden();
     await expect(page.locator(".external-text-range-highlight")).toHaveText("選択箇所");
     expect(new URL(page.url()).searchParams.has("location")).toBe(false);
