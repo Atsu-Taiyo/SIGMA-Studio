@@ -129,6 +129,19 @@ describe("desktop-settings", () => {
     });
   });
 
+  it("keeps complete large font catalogs across save, reopening and unrelated settings writes", async () => {
+    const fonts = Array.from({ length: 512 }, (_, index) => {
+      const hash = index.toString(16).padStart(64, "0");
+      return { id: `plugin-${hash}`, displayName: `Font ${index}`, fileName: `plugin-${hash}.ttf`,
+        cssFamily: `"Sigma Plugin Font ${hash}"`, importedAt: "2026-10-19T00:00:00.000Z" };
+    });
+    await writeDesktopSettings(dir, { customFonts: fonts });
+    expect(readDesktopSettingsSync(dir).customFonts).toEqual(fonts);
+    await writeDesktopSettings(dir, { editorFontFamily: fonts.at(-1)!.cssFamily });
+    expect(readDesktopSettingsSync(dir).customFonts).toEqual(fonts);
+    expect(JSON.parse(await readFile(path.join(dir, "settings.json"), "utf8")).customFonts).toHaveLength(512);
+  });
+
   it("persists aiAutoApplyVerifiedProposals and omits the key when false", async () => {
     await writeDesktopSettings(dir, {
       codexBin: "/usr/local/bin/codex",
