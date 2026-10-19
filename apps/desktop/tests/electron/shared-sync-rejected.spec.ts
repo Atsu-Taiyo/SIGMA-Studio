@@ -2,7 +2,7 @@ import { _electron as electron, expect, test, type ElectronApplication, type Pag
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { createServer } from "node:http";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import { createRequire } from "node:module";
 import path from "node:path";
@@ -36,8 +36,14 @@ test("a server refusing a shared document's edits is shown as a refusal, and app
   const sharedId = "77777777-7777-4777-8777-777777777777";
   const actorId = "55555555-5555-4555-8555-555555555555";
   const directory = path.join(profile, "collaboration-v1");
+  const repairCount = async () => (await readFile(path.join(profile, "data", "logs", "ledger.log"), "utf8"))
+    .trim().split("\n").filter(line => JSON.parse(line).event === "shared-asset-repair").length;
   const remote = new SharedDocument();
   const uploaded = new Map<string, { type: string; bytes: Buffer }>();
+  let assetUploads = 0;
+  let missingAssetResponses = 0;
+  const updateReceipts = new Map<string, number>();
+  const updateAttempts: unknown[] = [];
   let refuseUpdates = false;
   let refusedRequests = 0;
   let sequence = 0;
@@ -55,7 +61,7 @@ test("a server refusing a shared document's edits is shown as a refusal, and app
     const bytes = Buffer.concat(chunks);
     if (request.url.startsWith(`${prefix}/assets/`)) {
       const id = request.url.split("/").at(-1)!;
-      if (request.method === "PUT") { uploaded.set(id, { type: String(request.headers["content-type"]), bytes }); json({ ok: true }); }
+      if (request.method === "PUT") { assetUploads++; uploaded.set(id, { type: String(request.headers["content-type"]), bytes }); json({ ok: true }); }
       else response.writeHead(200, { "Content-Type": uploaded.get(id)?.type ?? "application/octet-stream" }).end(uploaded.get(id)?.bytes);
       return;
     }
@@ -65,10 +71,35 @@ test("a server refusing a shared document's edits is shown as a refusal, and app
     } else if (request.url === `${prefix}/updates` && Array.isArray(body.operations)) {
       // What the deployed server did with shapes its older schema did not know.
       if (refuseUpdates) { refusedRequests++; json({ error: "INVALID_REQUEST" }, 400); return; }
-      json({ acks: body.operations.map((operation: { operationId: string; update: string }) => {
-        remote.applyUpdate(fromBase64(operation.update));
-        return { operationId: operation.operationId, seq: ++sequence };
-      }) });
+      updateAttempts.push(body);
+      try {
+        json({ acks: body.operations.map((operation: { operationId: string; update: string }) => {
+          let seq = updateReceipts.get(operation.operationId);
+          if (seq === undefined) {
+            const candidate = remote.prepareUpdate(fromBase64(operation.update), value => {
+              const visit = (node: unknown): void => {
+                if (!node || typeof node !== "object") return;
+                const src = (node as { src?: unknown }).src;
+                if (typeof src === "string") {
+                  const match = /^sigma-doc-storage:\/\/([A-Za-z0-9_-]{1,180})$/.exec(src);
+                  if (!match || !uploaded.has(match[1])) throw new Error("MISSING_ASSET");
+                }
+                Object.values(node).forEach(visit);
+              };
+              visit(value);
+            });
+            candidate.destroy();
+            remote.applyUpdate(fromBase64(operation.update));
+            seq = ++sequence;
+            updateReceipts.set(operation.operationId, seq);
+          }
+          return { operationId: operation.operationId, seq };
+        }) });
+      } catch (error) {
+        if (!(error instanceof Error) || error.message !== "MISSING_ASSET") throw error;
+        missingAssetResponses++;
+        json({ error: "MISSING_ASSET" }, 400);
+      }
     } else if (request.url === `${prefix}/approve` && Array.isArray(body.drafts ?? (body.draft ? [body.draft] : null))) {
       const receipt = approvalReceipts.get(body.operationId);
       if (receipt) {
@@ -251,6 +282,43 @@ test("a server refusing a shared document's edits is shown as a refusal, and app
     expect(JSON.stringify(remote.project())).toContain("人の追記");
     await expect(page.locator(".document-tab-save-dot").first()).toHaveClass(/\bsaved\b/, { timeout: 30_000 });
     await page.screenshot({ path: testInfo.outputPath("shared-sync-recovered.png") });
+    expect(await repairCount()).toBe(0);
+
+    // A stale uploaded flag must not wedge later edits. Keep a typed edit pending,
+    // restart the real app, then have the fixture reject its missing image reference.
+    refuseUpdates = true;
+    const refusedBefore = refusedRequests;
+    await body.click();
+    await page.keyboard.press("End");
+    await page.keyboard.insertText("（画像補修後も残す追記）");
+    await expect.poll(() => refusedRequests).toBeGreaterThan(refusedBefore);
+    await expect(page.getByRole("status", { name: "端末保存済み・サーバーが受け付けません" })).toBeVisible();
+    await client.close();
+    await app!.close(); app = undefined;
+    uploaded.clear();
+    page = await launch();
+    await expect(page.locator(".startup-splash")).toBeHidden({ timeout: 60_000 });
+    await expect(page.locator('.text-flow-editor [data-sigma-doc-id="p_body"]').first()).toContainText("画像補修後も残す追記");
+    const uploadsBeforeRepair = assetUploads;
+    refuseUpdates = false;
+    await page.evaluate((id) => window.desktopAPI!.collaboration!.flush(id, true), seeded.fileId);
+    expect(missingAssetResponses).toBe(1);
+    expect(assetUploads).toBe(uploadsBeforeRepair + 1);
+    expect(await repairCount()).toBe(1);
+    expect(updateAttempts.at(-1)).toEqual(updateAttempts.at(-2));
+    expect(JSON.stringify(remote.project())).toContain("画像補修後も残す追記");
+    await expect(page.getByRole("status", { name: "クラウド保存済み" })).toBeVisible();
+    await expect.poll(() => page.locator("img.overlay-image-shape").first()
+      .evaluate((element) => (element as HTMLImageElement).naturalWidth)).toBeGreaterThan(0);
+    await page.screenshot({ path: testInfo.outputPath("shared-asset-repaired.png") });
+    const repairedSequence = sequence;
+    await app!.close(); app = undefined;
+    page = await launch();
+    await expect(page.locator(".startup-splash")).toBeHidden({ timeout: 60_000 });
+    await expect(page.locator('.text-flow-editor [data-sigma-doc-id="p_body"]').first()).toContainText("画像補修後も残す追記");
+    await page.evaluate((id) => window.desktopAPI!.collaboration!.flush(id, true), seeded.fileId);
+    expect(sequence).toBe(repairedSequence);
+    expect(await repairCount()).toBe(1);
   } finally {
     await client.close().catch(() => {});
     await app?.close().catch(() => {});

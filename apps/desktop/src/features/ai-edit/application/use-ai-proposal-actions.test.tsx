@@ -254,7 +254,7 @@ describe("AI proposal action controller", () => {
     expect(h.reset).not.toHaveBeenCalled();
   });
 
-  it("tells the user when the approval replaced a value typed during the approval", async () => {
+  it("tells the user when a value typed during the approval was kept over the AI's", async () => {
     const base = documentWithText("段落の本文");
     const withAlign = (align: "center" | "right"): SigmaDocument => ({
       ...base,
@@ -266,9 +266,9 @@ describe("AI proposal action controller", () => {
 
     await act(async () => { await h.read().applyAiEditPreviewGroup(["proposal"]); });
 
-    expect(h.status).toHaveBeenLastCalledWith(createCurrentLocaleTranslator("editor")("status.aiMergedHumanEditsReplaced"));
+    expect(h.status).toHaveBeenLastCalledWith(createCurrentLocaleTranslator("editor")("status.aiMergedAiEditsSkipped"));
     expect(vi.mocked(countPerformanceEvent).mock.calls.map(([name]) => name))
-      .toContain("AiProposalMerge.adoption.droppedHumanEdits");
+      .toContain("AiProposalMerge.adoption.droppedAiEdits");
   });
 
   it("rejects overlapping decisions synchronously until the original action finishes", async () => {

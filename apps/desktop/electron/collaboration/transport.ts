@@ -47,16 +47,39 @@ export function retryAfterMilliseconds(value: string | null, now = Date.now()): 
   return Number.isFinite(delay) ? Math.max(0, delay) : 0;
 }
 
+/**
+ * What a refusal of the document's images names (#251). A server that predates these fields sends only
+ * the code, so every field is optional.
+ */
+export interface AssetRefusalDetails {
+  /** `sigma-doc-storage://` image ids the document would refer to that the server never received. */
+  missingAssetIds?: string[];
+  /** Ids of the objects whose `src` is no image reference of this document at all. */
+  invalidAssetReferences?: string[];
+  /** The refused operation of the batch. */
+  operationId?: string;
+}
+
 export class CollaborationHttpError extends Error {
-  constructor(message: string, readonly status: number, readonly retryAfterMs = 0) { super(message); }
+  constructor(message: string, readonly status: number, readonly retryAfterMs = 0, readonly details: AssetRefusalDetails = {}) { super(message); }
+}
+
+const ASSET_ID = /^[A-Za-z0-9_-]{1,180}$/;
+function boundedIds(value: unknown, pattern: RegExp): string[] | undefined {
+  return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string" && pattern.test(item)).slice(0, 100) : undefined;
 }
 
 export async function responseError(response: Response): Promise<CollaborationHttpError> {
   const value = await readResponseJson<unknown>(response, 64 * 1024).catch(() => null);
-  const code = value && typeof value === "object" && "error" in value ? value.error : undefined;
+  const body = value && typeof value === "object" ? value as Record<string, unknown> : {};
+  const code = body.error;
+  const missingAssetIds = boundedIds(body.missingAssetIds, ASSET_ID);
+  const invalidAssetReferences = boundedIds(body.invalidAssetReferences, /^[^\0]{0,200}$/);
+  const operationId = typeof body.operationId === "string" && /^[0-9a-f-]{36}$/i.test(body.operationId) ? body.operationId : undefined;
   return new CollaborationHttpError(
     typeof code === "string" && /^[A-Z][A-Z0-9_]{0,99}$/.test(code) ? code : `HTTP_${response.status}`,
     response.status, retryAfterMilliseconds(response.headers.get("retry-after")),
+    { ...(missingAssetIds ? { missingAssetIds } : {}), ...(invalidAssetReferences ? { invalidAssetReferences } : {}), ...(operationId ? { operationId } : {}) },
   );
 }
 
@@ -68,6 +91,27 @@ export async function responseError(response: Response): Promise<CollaborationHt
  */
 export function isServerRejection(error: unknown): error is CollaborationHttpError {
   return error instanceof CollaborationHttpError && [400, 409, 413].includes(error.status);
+}
+
+/**
+ * Raised on this device instead of resending edits the server already refused for their images, and
+ * that could not be repaired automatically (#251). Nothing changes until the user edits, adds an image
+ * or retries, so asking again would only get the same 400.
+ */
+export const ASSET_RECOVERY_REQUIRED = "ASSET_RECOVERY_REQUIRED";
+
+/**
+ * The server refused an edit for the images it refers to (#251): an image it never received
+ * (`MISSING_ASSET`, the only code older servers send) or a `src` that is no image of the document.
+ */
+export function isAssetRefusal(error: unknown): error is CollaborationHttpError {
+  return error instanceof CollaborationHttpError && error.status === 400
+    && ["MISSING_ASSET", "INVALID_ASSET_REFERENCE", ASSET_RECOVERY_REQUIRED].includes(error.message);
+}
+
+/** The server will not store this image (type, size, or an id it holds with other bytes). */
+export function isAssetUploadRefusal(error: unknown): error is CollaborationHttpError {
+  return error instanceof CollaborationHttpError && [400, 409, 413, 415].includes(error.status);
 }
 
 /** The save state a failed synchronization leaves a shared document in. */

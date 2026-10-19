@@ -17,6 +17,7 @@ interface NewMaterialCreatedDialogProps {
 
 /**
  * 新規教材を作ったあと、どのワークスペースのどのフォルダに作ったかを示す (Issue #211)。
+ * 教材の複製が複製元と違う場所・保存先になったときも同じ形で示す (Issue #250)。
  * フォルダ名だけでは場所が曖昧になるので、ワークスペース名と、そこからのフォルダの階層を並べる。
  * 直下に作ったときもそう書く。閉じる操作は右上の X だけ (Esc でも閉じる)。
  */
@@ -29,7 +30,7 @@ export function NewMaterialCreatedDialog({ notice, onClose }: NewMaterialCreated
   return (
     <ModalFrame open size="sm" onDismiss={onClose}>
       <ModalHeader
-        title={t(notice.kind === "whiteboard" ? "createdDialog.whiteboardTitle" : "createdDialog.title")}
+        title={t(notice.kind === "whiteboard" ? "createdDialog.whiteboardTitle" : notice.kind === "duplicate" ? "createdDialog.duplicateTitle" : "createdDialog.title")}
         description={t("createdDialog.description")}
         onClose={onClose}
       />
@@ -72,7 +73,9 @@ export function NewMaterialCreatedDialog({ notice, onClose }: NewMaterialCreated
               <dd data-new-material-storage="">{storage}</dd>
             </div>
           </dl>
-          {notice.origin === "fallback" && <p className={styles.note}>{t("createdDialog.fallbackNote")}</p>}
+          {notice.kind === "duplicate"
+            ? <p className={styles.note}>{t(notice.origin === "fallback" ? "createdDialog.duplicateFallbackNote" : "createdDialog.duplicatePrivateNote")}</p>
+            : notice.origin === "fallback" && <p className={styles.note}>{t("createdDialog.fallbackNote")}</p>}
         </Stack>
       </ModalBody>
     </ModalFrame>

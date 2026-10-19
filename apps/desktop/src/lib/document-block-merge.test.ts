@@ -545,16 +545,17 @@ describe("mergeExternalDocumentChange with merge-both", () => {
     expect(result.report?.mergedUnits).toEqual(["shape_1"]);
   });
 
-  it("takes the AI's value where both set the same shape property differently", () => {
+  it("keeps the human's value where both set the same shape property differently", () => {
     const base = withShapes(baseDocument(), [geoShape("shape_1")]);
     const mine = withShapes(base, [geoShape("shape_1", { color: "#00ff00" })]);
     const theirs = withShapes(base, [geoShape("shape_1", { color: "#ff0000" })]);
 
     const result = mergeBoth(base, mine, theirs);
 
-    expect(shapesOf(result.merged)).toEqual([geoShape("shape_1", { color: "#ff0000" })]);
+    expect(shapesOf(result.merged)).toEqual([geoShape("shape_1", { color: "#00ff00" })]);
     expect(result.report?.overlaps).toEqual(["#shape_1.props.color"]);
-    expect(result.report?.droppedHumanEdits).toEqual(["#shape_1.props.color"]);
+    expect(result.report?.droppedHumanEdits).toEqual([]);
+    expect(result.report?.droppedAiEdits).toEqual(["#shape_1.props.color"]);
     expect(result.resolvedConflicts).toHaveLength(1);
   });
 
@@ -598,7 +599,7 @@ describe("mergeExternalDocumentChange with merge-both", () => {
     expect(result.report?.mergedUnits).toEqual(["p_new"]);
   });
 
-  it("follows the AI's order when both sides reordered differently, keeping both insertions", () => {
+  it("follows the human's order when both sides reordered differently, keeping both insertions", () => {
     const base = baseDocument();
     const [p1, p2, p3] = base.content;
     const mine = withContent(base, [paragraph("p_human", "人間が追加した段落"), p2!, p1!, p3!]);
@@ -606,9 +607,9 @@ describe("mergeExternalDocumentChange with merge-both", () => {
 
     const result = mergeBoth(base, mine, theirs);
 
-    expect(result.merged.content.map((block) => block.id)).toEqual(["p_human", "p3", "p1", "p2"]);
+    expect(result.merged.content.map((block) => block.id)).toEqual(["p_human", "p2", "p1", "p3"]);
     expect(result.report?.overlaps).toEqual(["$.content"]);
-    expect(result.report?.droppedHumanEdits).toEqual(["$.content"]);
+    expect(result.report?.droppedAiEdits).toEqual(["$.content"]);
     expect(result.resolvedConflicts).toHaveLength(1);
   });
 
@@ -709,16 +710,16 @@ describe("mergeExternalDocumentChange with merge-both", () => {
     expect(result.resolvedConflicts).toBeUndefined();
   });
 
-  it("takes the AI's setting where both changed the same one", () => {
+  it("keeps the human's setting where both changed the same one", () => {
     const base = baseDocument();
     const mine: SigmaDocument = { ...base, metadata: { ...base.metadata, title: "人間が変更したタイトル" } };
     const theirs: SigmaDocument = { ...base, metadata: { ...base.metadata, title: "AIが変更したタイトル" } };
 
     const result = mergeBoth(base, mine, theirs);
 
-    expect(result.merged.metadata.title).toBe("AIが変更したタイトル");
+    expect(result.merged.metadata.title).toBe("人間が変更したタイトル");
     expect(result.report?.overlaps).toEqual(["$.metadata.title"]);
-    expect(result.report?.droppedHumanEdits).toEqual(["$.metadata.title"]);
+    expect(result.report?.droppedAiEdits).toEqual(["$.metadata.title"]);
     expect(result.resolvedConflicts).toHaveLength(1);
   });
 
@@ -813,15 +814,15 @@ describe("mergeExternalDocumentChange with merge-both", () => {
     expect(result.resolvedConflicts).toHaveLength(1);
   });
 
-  it("takes the AI's value and records the human's input as dropped when both set an attribute differently", () => {
+  it("keeps the human's value and records the AI's edit as dropped when both set an attribute differently", () => {
     const base = baseDocument();
     const mine = withContent(base, [{ ...paragraph("p1", "最初の段落"), align: "center" }, ...base.content.slice(1)]);
     const theirs = withContent(base, [{ ...paragraph("p1", "最初の段落"), align: "right" }, ...base.content.slice(1)]);
 
     const result = mergeBoth(base, mine, theirs);
 
-    expect(result.merged.content[0]).toEqual({ ...paragraph("p1", "最初の段落"), align: "right" });
-    expect(result.report?.droppedHumanEdits).toEqual(["#p1.align"]);
+    expect(result.merged.content[0]).toEqual({ ...paragraph("p1", "最初の段落"), align: "center" });
+    expect(result.report?.droppedAiEdits).toEqual(["#p1.align"]);
     expect(result.resolvedConflicts).toHaveLength(1);
   });
 
@@ -868,7 +869,7 @@ describe("mergeExternalDocumentChange with merge-both", () => {
     expect(result.resolvedConflicts).toBeUndefined();
   });
 
-  it("records the human's value as dropped when the moved block's attribute was also set by the AI", () => {
+  it("records the AI's value as dropped when the moved block's attribute was also set by the human", () => {
     // 人間が y を引用の中へ移して中央揃えにし、AIは元の場所の y を右揃えにした。
     const base = withContent(baseDocument(), [quote("q", [paragraph("x", "引用")]), paragraph("y", "移す段落")]);
     const mine = withContent(base, [quote("q", [paragraph("x", "引用"), { ...paragraph("y", "移す段落"), align: "center" }])]);
@@ -877,9 +878,9 @@ describe("mergeExternalDocumentChange with merge-both", () => {
     const result = mergeBoth(base, mine, theirs);
 
     expect(result.merged.content).toEqual([
-      quote("q", [paragraph("x", "引用"), { ...paragraph("y", "移す段落"), align: "right" }]),
+      quote("q", [paragraph("x", "引用"), { ...paragraph("y", "移す段落"), align: "center" }]),
     ]);
-    expect(result.report?.droppedHumanEdits).toEqual(["#y.align"]);
+    expect(result.report?.droppedAiEdits).toEqual(["#y.align"]);
     expect(result.resolvedConflicts).toHaveLength(1);
   });
 

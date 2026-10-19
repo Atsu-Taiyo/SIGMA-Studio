@@ -7,6 +7,7 @@ import type { OverlaySelectionSummary } from "@/components/editor/page-overlay-t
 import {
   getOverlaySelectionActionPopoverPosition,
   getOverlaySelectionControlsCanvasRect,
+  getSelectionFollowUpAnchor,
   getSelectionTrailingAnchor,
   placeSelectionTrailingActions,
   type SelectionTrailingAnchor,
@@ -103,6 +104,16 @@ describe("placeSelectionTrailingActions", () => {
   it("moves above the selection only when the chip does not fit below", () => {
     expect(placeSelectionTrailingActions({ ...anchor, limitBottom: 340 }, chip)).toEqual({ left: 400, top: 214, placement: "above" });
     expect(placeSelectionTrailingActions({ ...anchor, limitBottom: 346 }, chip).placement).toBe("below");
+  });
+});
+
+describe("getSelectionFollowUpAnchor", () => {
+  const anchor: SelectionTrailingAnchor = { right: 400, bottom: 300, top: 260, limitRight: 1080, limitBottom: 1100 };
+
+  it("opens the AI and comment inputs just below the selection, not below the band above it", () => {
+    // 入力欄は錨の 46px 下 (帯の高さ 38 + 間隔 8) に開くので、錨の下端 = 選択の下端 + 間隔 6。
+    expect(getSelectionFollowUpAnchor(anchor)).toEqual({ left: 400, top: 268 });
+    expect(getSelectionFollowUpAnchor({ ...anchor, right: 1000 }).left).toBe(870);
   });
 });
 

@@ -48,6 +48,7 @@ describe("countProposalMergeFallbacks", () => {
 
   it("names the counters under AiProposalMerge", () => {
     expect(Object.values(AI_PROPOSAL_MERGE_COUNTERS).sort()).toEqual([
+      "AiProposalMerge.alreadyApplied",
       "AiProposalMerge.anchorRelocated",
       "AiProposalMerge.capped",
       "AiProposalMerge.editBeatsDelete",

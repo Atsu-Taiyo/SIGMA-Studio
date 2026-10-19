@@ -87,6 +87,8 @@ describe("pocket boundaries", () => {
     expect(importers).toEqual([]);
   });
 
+  // This parses every production source file, so parallel suite load can exceed
+  // the 5s unit-test default even when there are no boundary violations.
   it("exposes the feature only through its index", () => {
     const outside = productionSourceFiles(new URL("../../", import.meta.url))
       .filter((file) => !file.startsWith(fileURLToPath(pocketRoot)));
@@ -95,5 +97,5 @@ describe("pocket boundaries", () => {
       .map((specifier) => ({ file: file.replace(fileURLToPath(new URL("../../", import.meta.url)), ""), specifier })));
 
     expect(deepImports).toEqual([]);
-  });
+  }, 60_000);
 });

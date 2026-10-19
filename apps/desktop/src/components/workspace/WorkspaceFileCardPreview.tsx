@@ -248,7 +248,7 @@ export const WorkspaceFileCardPreview = memo(function WorkspaceFileCardPreview({
           />
         </div>
       ) : (
-        <WorkspaceFileCardPreviewFallback loading={currentPreview.status === "loading"} />
+        <WorkspaceFileCardPreviewFallback loading={currentPreview.status === "loading" && !paused} />
       )}
       {currentPreview.document && !paused ? (
         // Same surface as the print preview; the card only shows its top half.

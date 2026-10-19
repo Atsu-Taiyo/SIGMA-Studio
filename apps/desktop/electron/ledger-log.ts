@@ -35,7 +35,10 @@ export type LedgerEvent =
   | "document-save-revision-mismatch"
   | "shared-document-save-failed"
   | "shared-asset-save-failed"
+  | "shared-asset-repair-attempted"
   | "shared-document-sync-failed"
+  // 共有教材の画像の補修 (#251。MISS R3: 通常の同期では出ない)。
+  | "shared-asset-repair"
   | "document-version-capture-failed"
   | "document-version-cleanup-failed"
   | "document-version-index-tail-recovered"

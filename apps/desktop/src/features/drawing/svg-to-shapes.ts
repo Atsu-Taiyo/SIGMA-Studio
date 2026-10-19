@@ -1,6 +1,6 @@
 import type { OverlayArrowhead, OverlayDash, OverlayPoint, OverlayShape, OverlayTextSize } from "@/features/document";
 import { overlayStrokeWidth } from "@/features/rendering/core";
-import { svgMarkerArrowhead, type SvgMarkerLookup } from "./svg-markers";
+import { svgMarkerArrowhead, type SvgMarkerDefinition, type SvgMarkerLookup } from "./svg-markers";
 import { parseSvgSubpaths, svgNumbers } from "./svg-path";
 
 export { svgNumbers };
@@ -89,34 +89,37 @@ export function svgPrimitiveToShapes(
     };
     if ([props.fillOpacity, props.strokeOpacity].some((n) => n < 0 || n > 1)) return null;
     const base = () => ({ id: createId(), x: 0, y: 0, rotation: 0 });
-    const heads: Partial<Record<"start" | "end", { head: OverlayArrowhead; overshoot: number }>> = {};
+    const markerAt: Partial<Record<"start" | "end", SvgMarkerDefinition>> = {};
     if (markerKeys.length) {
       const similar = Math.abs(matrix[0] * matrix[2] + matrix[1] * matrix[3]) < 1e-7 * scaleX * scaleY && Math.abs(scaleX - scaleY) <= 1e-7 * scaleX;
       if (stroke === "none" || width <= 0 || !similar) return null;
       for (const key of markerKeys) {
-        const endpoint = key === "marker-start" ? "start" : "end";
         const id = /^url\(\s*['"]?#([^'")\s]+)['"]?\s*\)$/.exec(attrs[key])?.[1];
         const marker = id ? markers?.(id) : undefined;
-        const found = marker && svgMarkerArrowhead(marker, endpoint, { color: props.color, strokeWidth: length(attrs["stroke-width"], 1), pxPerUserUnit: scaleX, size });
-        if (!found) return null;
-        heads[endpoint] = found;
+        if (!marker) return null;
+        markerAt[key === "marker-start" ? "start" : "end"] = marker;
       }
     }
     const line = (points: OverlayPoint[], closed: boolean, kind: "polyline" | "curve" = "polyline"): OverlayShape | null => {
       const mapped = points.map((p) => point(matrix, p.x, p.y));
-      if ((heads.start || heads.end) && closed) return null;
+      if (markerKeys.length && closed) return null;
+      const heads: Partial<Record<"start" | "end", OverlayArrowhead>> = {};
       // A head's tip is where the marker's ink ends, which is past the vertex the marker is anchored on.
       for (const endpoint of ["start", "end"] as const) {
-        const head = heads[endpoint];
-        if (!head) continue;
+        const marker = markerAt[endpoint];
+        if (!marker) continue;
         const at = endpoint === "start" ? 0 : mapped.length - 1, from = endpoint === "start" ? 1 : mapped.length - 2;
+        // Which way the head has to point: out of the line, measured where the marker is drawn (before the transform).
+        const outward = { x: points[at].x - points[from].x, y: points[at].y - points[from].y };
+        const head = svgMarkerArrowhead(marker, endpoint, { color: props.color, strokeWidth: length(attrs["stroke-width"], 1), pxPerUserUnit: scaleX, size, outward });
         const dx = mapped[at].x - mapped[from].x, dy = mapped[at].y - mapped[from].y, span = Math.hypot(dx, dy);
-        if (!(span > 0)) return null;
+        if (!head || !(span > 0)) return null;
         mapped[at] = { x: mapped[at].x + dx / span * head.overshoot, y: mapped[at].y + dy / span * head.overshoot };
+        heads[endpoint] = head.head;
       }
       const x = Math.min(...mapped.map((p) => p.x)), y = Math.min(...mapped.map((p) => p.y));
       return { ...base(), type: "line", x, y, props: { ...props, kind, closed,
-        ...(heads.start ? { arrowheadStart: heads.start.head } : {}), ...(heads.end ? { arrowheadEnd: heads.end.head } : {}),
+        ...(heads.start ? { arrowheadStart: heads.start } : {}), ...(heads.end ? { arrowheadEnd: heads.end } : {}),
         fill: closed ? props.fill : "none", points: mapped.map((p) => ({ x: p.x - x, y: p.y - y })) } };
     };
     if (tag === "line") {

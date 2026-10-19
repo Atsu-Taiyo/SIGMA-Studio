@@ -2419,7 +2419,7 @@ describe("LocalMcpEditProposalStore#autoRebaseProposalsForFile", () => {
     });
   });
 
-  it("autoRebaseProposalsForFile: an occupied inserted ID is recorded as replay-failed", async () => {
+  it("autoRebaseProposalsForFile: an inserted ID the document already holds is not a conflict (the insertion is done)", async () => {
     const baseDocument = paragraphDocument(["block_anchor"]);
     const previousHashes = computeDocumentBlockHashes(parseSigmaDocument(baseDocument));
     store = new LocalMcpEditProposalStore(userDataDir, {
@@ -2453,15 +2453,10 @@ describe("LocalMcpEditProposalStore#autoRebaseProposalsForFile", () => {
     });
     const currentDocument = paragraphDocument(["block_anchor", "block_inserted"]);
 
-    expect(await store.autoRebaseProposalsForFile("file_1", currentDocument, 2)).toEqual({
-      rebased: [],
-      conflicted: [proposal.proposalId],
-    });
-    expect((await store.loadProposal(proposal.proposalId))?.conflict).toMatchObject({
-      blockIds: ["block_inserted"],
-      detectedAtRevision: 2,
-      reason: "replay-failed",
-    });
+    // Issue #249: the approval reached the document but the proposal stayed pending (a lost answer).
+    // Recording a conflict here stopped every later turn of the chat.
+    expect((await store.autoRebaseProposalsForFile("file_1", currentDocument, 2)).conflicted).toEqual([]);
+    expect((await store.loadProposal(proposal.proposalId))?.conflict).toBeUndefined();
   });
 
   it("autoRebaseProposalsForFile: deleting an external shape anchor marks the child insertion conflicted", async () => {

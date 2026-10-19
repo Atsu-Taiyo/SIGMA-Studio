@@ -100,30 +100,3 @@ function textblockMentionText(block: ProseMirrorNode): string {
   });
   return text;
 }
-
-/** 入力欄の先頭に AI への宛先 (`@claude `) を足す。「◯◯に送信」を入れたとき。キャレットは動かさない。 */
-export function prependCommentAgentMention(editor: Editor, keyword: string) {
-  editor.chain().focus().insertContentAt(1, `@${keyword} `, { updateSelection: false }).run();
-}
-
-/** 入力欄から AI への宛先をすべて外す (直後の空白 1 つも)。「◯◯に送信」を外したとき。 */
-export function removeCommentAgentMentions(editor: Editor) {
-  const ranges: { from: number; to: number }[] = [];
-  editor.state.doc.descendants((node, position) => {
-    if (!node.isTextblock) return true;
-    const text = textblockMentionText(node);
-    let offset = 0;
-    for (const part of splitCommentAiMentions(text)) {
-      const start = offset;
-      offset += part.text.length;
-      if (part.agent) {
-        ranges.push({ from: position + 1 + start, to: position + 1 + offset + (text[offset] === " " ? 1 : 0) });
-      }
-    }
-    return false;
-  });
-  if (ranges.length === 0) return;
-  const tr = editor.state.tr;
-  for (const range of ranges.reverse()) tr.delete(range.from, range.to);
-  editor.view.dispatch(tr);
-}

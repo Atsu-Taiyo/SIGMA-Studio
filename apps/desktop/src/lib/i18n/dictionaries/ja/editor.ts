@@ -512,6 +512,13 @@ export const editor = {
     embeddedHostOwnsDuplicate: "教材の複製は組み込み先が担当します",
     duplicated: "教材を複製しました",
     duplicateFailed: "教材を複製できませんでした",
+    // 複製に失敗した理由 (#250)。元の教材は失敗しても変わらないので、そう書いて次の操作を示す。
+    duplicateFailedWithCode: "教材を複製できませんでした（{{code}}）。元の教材はそのままです。",
+    duplicateOffline: "共有サーバーに接続できないため、教材を複製できませんでした。元の教材はそのままです。接続を確認して、もう一度お試しください。",
+    duplicateImagesUnavailable: "教材の画像を取得できなかったため、複製できませんでした。元の教材はそのままです。接続を確認して、もう一度お試しください。",
+    duplicateSourceUnavailable: "複製元の教材が見つからないか、アクセスできなくなっています。教材一覧を開き直して確認してください。",
+    duplicateShareInProgress: "共有の準備が終わっていないため、複製できません。準備が終わってから、もう一度お試しください。",
+    duplicateSignInRequired: "共有教材を複製するにはサインインが必要です。サインインしてから、もう一度お試しください。",
     embeddedHostOwnsList: "教材一覧は組み込み先が担当します",
     lastTabStays: "最後のタブは閉じられません",
     tabClosed: "タブを閉じました",
@@ -847,9 +854,6 @@ export const editor = {
     mentionAgentHint: "@{{keyword}} で作業を依頼",
     mentionMembersSection: "メンバー",
     mentionAgentsSection: "AI Agent",
-    /** 入力欄の左下の切り替え。入れると本文の先頭に `@claude` などを付けて送る。名前はブランド名。 */
-    sendToAgent: "{{name}} に送信",
-    sendToAgentHint: "送ると {{name}} がこのコメントの内容で作業します",
     justNow: "今",
     mentionAgentTitle: "{{name}}（AI Agent）· コメントを送ると作業を依頼します",
 

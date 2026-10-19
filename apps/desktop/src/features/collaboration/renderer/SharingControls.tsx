@@ -22,7 +22,7 @@ import { Shimmer } from "@/components/ui/Shimmer";
 import { useT } from "@/lib/i18n/react";
 import { getDesktopBridge } from "@/lib/desktop-bridge";
 import type { EditorShellProps } from "@/components/editor/EditorShell";
-import type { CollaborationInfo } from "../model/bridge";
+import type { CollaborationInfo, SyncDetail } from "../model/bridge";
 import type { MemberRole, SaveState } from "../model/protocol";
 import type { RendererDocumentSession } from "./session";
 import styles from "./sharing.module.css";
@@ -68,6 +68,11 @@ export function SharingControls({ context, info, session, refresh }: Props) {
     (listener) => session?.subscribeStatus(listener) ?? (() => {}),
     () => session?.status ?? "saved",
     () => "saved",
+  );
+  const detail = useSyncExternalStore<SyncDetail | undefined>(
+    (listener) => session?.subscribeStatus(listener) ?? (() => {}),
+    () => session?.syncDetail,
+    () => undefined,
   );
   const roster = useSyncExternalStore(
     (listener) => session?.subscribePresence(listener) ?? (() => {}),
@@ -126,26 +131,35 @@ export function SharingControls({ context, info, session, refresh }: Props) {
             )}
           </span>
         )}
-        {session && (
-          <span
-            className={styles.status}
-            title={t(`collaboration.status.${status}`)}
-            aria-label={t(`collaboration.status.${status}`)}
-            role="status"
-          >
-            {status === "saved" ? (
-              <Cloud size={16} />
-            ) : status === "offline" ||
-              status === "sync-rejected" ||
-              status === "permission-error" ||
-              status === "save-error" ||
-              status === "epoch-error" ? (
-              <CloudOff size={16} />
-            ) : (
-              <Shimmer>{<Cloud size={16} />}</Shimmer>
-            )}
-          </span>
-        )}
+        {session && (() => {
+          const indicator = (
+            <span
+              className={styles.status}
+              title={t(`collaboration.status.${status}`)}
+              aria-label={t(`collaboration.status.${status}`)}
+              role="status"
+            >
+              {status === "saved" ? (
+                <Cloud size={16} />
+              ) : status === "offline" ||
+                status === "sync-rejected" ||
+                status === "needs-recovery" ||
+                status === "permission-error" ||
+                status === "save-error" ||
+                status === "epoch-error" ? (
+                <CloudOff size={16} />
+              ) : (
+                <Shimmer>{<Cloud size={16} />}</Shimmer>
+              )}
+            </span>
+          );
+          // The images that stop syncing need the user (#251): the status opens where they are named.
+          return status === "needs-recovery" ? (
+            <button type="button" className={styles.statusButton} onClick={() => setOpen(true)} aria-label={t("collaboration.sync.openRecovery")}>
+              {indicator}
+            </button>
+          ) : indicator;
+        })()}
         <button type="button" className={styles.shareButton} onClick={() => catalog ? setCatalogOpen(true) : setOpen(true)}>
           <Share2 size={14} aria-hidden="true" />
           {t("collaboration.share")}
@@ -265,6 +279,13 @@ export function SharingControls({ context, info, session, refresh }: Props) {
                     <RefreshCw size={15} />
                   </IconButton>
                 </Inline>
+                {detail && (detail.pendingOperations > 0 || detail.pendingAssets > 0 || detail.recovery) && (
+                  <SyncDetailSection
+                    detail={detail}
+                    busy={busy}
+                    onReplace={bridge.replaceMissingImages ? () => void run(() => bridge.replaceMissingImages!(context.fileId)) : undefined}
+                  />
+                )}
                 {!catalog && <Stack gap="sm">
                   <span className={styles.caption}>
                     {t("collaboration.members")}
@@ -549,5 +570,47 @@ function DetailsDisclosure({ collapsible, summary, children }: { collapsible: bo
       <summary>{summary}</summary>
       <Stack gap="md">{children}</Stack>
     </details>
+  );
+}
+
+/**
+ * What waits on this device (#251), told apart: edits saved here but not synced, images not sent yet,
+ * and images that keep the edits from syncing — named, with how to get the edits through.
+ */
+function SyncDetailSection({ detail, busy, onReplace }: { detail: SyncDetail; busy: boolean; onReplace?: () => void }) {
+  const t = useT("chrome");
+  const images = detail.recovery?.images ?? [];
+  const shown = images.slice(0, 5);
+  return (
+    <Stack gap="sm" className={styles.syncDetail} data-sync-detail="">
+      {detail.pendingOperations > 0 && (
+        <span className={styles.caption}>{t("collaboration.sync.pendingOperations", { count: detail.pendingOperations })}</span>
+      )}
+      {detail.pendingAssets > 0 && (
+        <span className={styles.caption}>{t("collaboration.sync.pendingAssets", { count: detail.pendingAssets })}</span>
+      )}
+      {images.length > 0 && (
+        <>
+          <p className={styles.recoveryText}>{t("collaboration.sync.recoveryDescription")}</p>
+          <ul className={styles.recoveryList}>
+            {shown.map((image) => (
+              <li key={image.assetId}>
+                <span className={styles.member}>{image.name ?? t("collaboration.sync.unnamedImage")}</span>
+                <span className={styles.caption}>{t(`collaboration.sync.reason.${image.reason}`)}</span>
+              </li>
+            ))}
+            {images.length > shown.length && (
+              <li><span className={styles.caption}>{t("collaboration.sync.moreImages", { count: images.length - shown.length })}</span></li>
+            )}
+          </ul>
+          <p className={styles.caption}>{t("collaboration.sync.recoveryHint")}</p>
+          {onReplace && (
+            <Button disabled={busy} onClick={onReplace}>
+              {t("collaboration.sync.replaceMissingImages")}
+            </Button>
+          )}
+        </>
+      )}
+    </Stack>
   );
 }

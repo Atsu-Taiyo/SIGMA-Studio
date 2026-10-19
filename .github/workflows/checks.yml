@@ -104,23 +104,28 @@ jobs:
             export XDG_CURRENT_DESKTOP=GNOME
             npm run test:e2e:electron -- \
               tests/electron/ai-svg-conversion.spec.ts \
+              tests/electron/svg-to-sigma-double-arrows.spec.ts \
               tests/electron/open-document.spec.ts tests/electron/ipc-sender-security.spec.ts \
               tests/electron/file-names.spec.ts tests/electron/ai-inline-approval.spec.ts \
               tests/electron/math-ime-placeholder.spec.ts \
+              tests/electron/shared-missing-asset-repair.spec.ts \
               tests/electron/whiteboard-focus.spec.ts tests/electron/graph-crop.spec.ts \
               tests/electron/overlay-text-input-latency.spec.ts tests/electron/browser-sidebar.spec.ts \
               tests/electron/overlay-math-box-toggle.spec.ts tests/electron/boxed-text-corners.spec.ts \
               tests/electron/boxed-text-run-joins.spec.ts \
               tests/electron/large-library-editing.spec.ts \
               tests/electron/shared-lazy-open.spec.ts \
+              tests/electron/profile-avatar-crop.spec.ts \
               tests/electron/problem-display.spec.ts tests/electron/whiteboard-image-save.spec.ts \
               tests/electron/small-shape-handles.spec.ts \
+              tests/electron/ai-chat-merge-recovery.spec.ts tests/electron/shared-ai-read-merge.spec.ts \
               tests/electron/page-column-side-notes.spec.ts \
               tests/electron/shared-split-pane-save.spec.ts \
               tests/electron/shared-version-history.spec.ts \
               tests/electron/svg-to-sigma.spec.ts tests/electron/box-custom-frame.spec.ts \
               tests/electron/problem-custom-frame.spec.ts tests/electron/problem-frame-ai-chat.spec.ts \
               tests/electron/problem-tags-ime.spec.ts \
+              tests/electron/shared-duplicate.spec.ts \
               tests/electron/graph-axis-end.spec.ts tests/electron/pdf-math-fonts.spec.ts \
               tests/electron/ai-image-annotation.spec.ts tests/electron/ai-proposal-merge.spec.ts \
               tests/electron/overlay-mode-switch-position.spec.ts \
@@ -131,6 +136,7 @@ jobs:
               tests/electron/local-fonts-menu.spec.ts tests/electron/math-ime-composition-scroll.spec.ts \
               tests/electron/graph-expression-backspace.spec.ts tests/electron/math-unclosed-paren.spec.ts \
               tests/electron/quote-empty-paragraph-delete.spec.ts \
+              tests/electron/selection-links.spec.ts tests/electron/workspace-body-search.spec.ts \
               tests/electron/comment-composer.spec.ts tests/electron/comment-profiles.spec.ts
           '
       - uses: actions/upload-artifact@v7

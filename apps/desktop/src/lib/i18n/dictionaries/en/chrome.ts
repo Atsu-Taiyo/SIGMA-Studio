@@ -75,12 +75,23 @@ export const chrome = {
       name: "Display name",
       nameHint: "Leave it empty to use the name on your Google account.",
       chooseImage: "Choose an image…",
+      adjustImage: "Adjust the crop",
       useGoogleImage: "Use the Google picture",
       removeImage: "Remove the picture",
       visibility: "Only people you share materials or folders with can see them.",
       cancel: "Cancel",
       save: "Save",
       saving: "Saving…",
+      crop: {
+        title: "Crop your picture",
+        description: "Drag to move the picture and zoom to resize it.",
+        area: "Picture crop area",
+        keyboardHint: "Use the arrow keys to move the picture and + or - to zoom.",
+        zoom: "Zoom",
+        zoomIn: "Zoom in",
+        zoomOut: "Zoom out",
+        apply: "Apply",
+      },
       errors: {
         load: "Could not load your current name and picture. Check your connection and open this again.",
         save: "Could not save. Check your connection and save again.",
@@ -96,7 +107,19 @@ export const chrome = {
     owner: "Owner", admin: "Admin", editor: "Can edit", viewer: "View only", me: "You", members: "People", remove: "Remove access", retry: "Reconnect", localCopy: "Save a local copy",
     stop: "Stop sharing", leave: "Leave shared material", delete: "Delete from server", confirmEnd: "End collaboration?", endDescription: "Previously saved content remains on each device. Save a local copy first if you need one.", cancel: "Cancel",
     error: "The action could not be completed. Check your connection and access, then try again.", working: "Preparing", ready: "Joined. Open the material from your library.",
-    status: { "epoch-error": "Shared document restored", "local-saving": "Saving on device", "local-saved": "Saved on device · Not synced", syncing: "Syncing", saved: "Saved to cloud", offline: "Offline", "sync-rejected": "Saved on device · Server refused changes", "permission-error": "Check sharing access", "save-error": "Save failed" },
+    status: { "epoch-error": "Shared document restored", "local-saving": "Saving on device", "local-saved": "Saved on device · Not synced", syncing: "Syncing", saved: "Saved to cloud", offline: "Offline", "sync-rejected": "Saved on device · Server refused changes", "needs-recovery": "Saved on device · Images need attention", "permission-error": "Check sharing access", "save-error": "Save failed" },
+    /** What waits on this device (#251): unsent edits, images not sent yet, and images that stop syncing. */
+    sync: {
+      pendingOperations: "{{count}} unsynced edits (saved on this device)",
+      pendingAssets: "{{count}} images waiting to upload",
+      recoveryDescription: "These images cannot be sent to the sharing server, so your unsynced edits cannot sync. The edits are saved on this device.",
+      recoveryHint: "Paste the images again, or replace them with placeholders to sync the remaining edits. A placeholder keeps the image's position, size, and name.",
+      replaceMissingImages: "Replace with placeholders and sync",
+      openRecovery: "Review images that stop syncing",
+      unnamedImage: "Unnamed image",
+      moreImages: "{{count}} more",
+      reason: { missing: "Not on this device or the sharing server", refused: "The sharing server does not accept this image", "invalid-reference": "Not an image of this document" },
+    },
     plan: {
       reasons: {
         documentLimit: {

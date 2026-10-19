@@ -77,6 +77,7 @@ import { documentPathsFromArgv, ExternalDocumentOpenQueue } from "./external-doc
 import { registerMaterialsIpc } from "./ipc/materials";
 import { registerStorageIpc } from "./ipc/storage";
 import { DesktopSharedCatalog } from "./collaboration/catalog";
+import { catalogSessionsPort } from "./collaboration/catalog-port";
 import { SHARE_LINK_SCHEME } from "@/features/collaboration/model/share-link";
 import { ShareLinkQueue } from "./collaboration/share-link-queue";
 import { registerCatalogIpc } from "./collaboration/catalog-ipc";
@@ -191,22 +192,7 @@ const collaborationSessions = new CollaborationSessions(USER_DATA_PATH, localSig
     window.webContents.send("collaboration:event", delivered);
   }
 });
-const sharedCatalog = new DesktopSharedCatalog(collaborationSessions.directory, localSigmaDocStore, {
-  actorId: () => collaborationSessions.actorId(),
-  request: (route, body) => collaborationSessions.request(route, body),
-  bindings: () => collaborationSessions.bindings(),
-  has: id => collaborationSessions.has(id),
-  open: (id, sharedId) => collaborationSessions.openCatalogDocument(id, sharedId),
-  previewVersion: id => collaborationSessions.previewVersion(id),
-  preview: (id, sharedId, options) => collaborationSessions.previewCatalogDocument(id, sharedId, options),
-  initialize: (id, sharedId, operationId, document, staged) => collaborationSessions.initializeCatalogDocument(id, sharedId, operationId, document, staged),
-  activate: ids => collaborationSessions.activateCatalogDocuments(ids),
-  start: (id, document) => collaborationSessions.start(id, document),
-  flush: id => collaborationSessions.flush(id, true),
-  recoverLocked: () => collaborationSessions.recoverLocked(),
-  retainLocal: id => collaborationSessions.retainLocal(id),
-  restrict: allowed => collaborationSessions.restrictCatalog(allowed),
-}, status => {
+const sharedCatalog = new DesktopSharedCatalog(collaborationSessions.directory, localSigmaDocStore, catalogSessionsPort(collaborationSessions), status => {
   noteLibraryChanged();
   for (const window of BrowserWindow.getAllWindows()) window.webContents.send("shared-catalog:change", status);
 });

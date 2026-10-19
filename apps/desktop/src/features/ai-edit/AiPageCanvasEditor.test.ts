@@ -141,7 +141,7 @@ describe("AI proposal cards in the page flow", () => {
       ...DEFAULT_AI_PROPOSAL_DISPLAY_STATE,
       applyError: "失敗",
     })).not.toBe(base);
-    // 「あなたの編集と合わせた内容です」の一言はバーの下の行を足す。
+    // 「現在の編集内容に合わせて提案を調整しました。」の一言はバーの下の行を足す。
     expect(getAiProposalCardMeasureRevision(card("提案の本文", ["proposal-1"], true), "uniform", DEFAULT_AI_PROPOSAL_DISPLAY_STATE))
       .not.toBe(base);
     // 破棄理由のポップオーバーは紙面の外 (body) に出るので、カードの高さは変わらない。

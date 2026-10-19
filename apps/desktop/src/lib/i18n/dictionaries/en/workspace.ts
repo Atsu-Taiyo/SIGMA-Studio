@@ -217,6 +217,9 @@ export const workspace = {
     thisBrowser: "This browser",
     cloud: "Cloud (shared)",
     fallbackNote: "New materials can't be created in the previous material's workspace, so this one was created in the default location.",
+    duplicateTitle: "Material duplicated",
+    duplicateFallbackNote: "The copy can't be created where the original is, so it was created in the default location. The copy is not shared.",
+    duplicatePrivateNote: "The copy is not shared; it is saved on this PC.",
   },
   empty: {
     rootMessage: "No materials",

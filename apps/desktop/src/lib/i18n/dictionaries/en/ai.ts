@@ -305,7 +305,7 @@ export const ai = {
     showAfterOnly: "Show result only",
     showDiff: "Show changes",
     resultNotLaidOut: "This change can’t be shown as its result here. Use Show changes to review it.",
-    mergedWithYourEdits: "Combined with your edits",
+    mergedWithYourEdits: "Adjusted this proposal to your current edits.",
   },
   composer: {
     modelCatalogUnavailable: "The runtime cannot provide the model list.",

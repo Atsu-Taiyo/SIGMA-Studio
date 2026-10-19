@@ -262,9 +262,9 @@ describe("AiEditInlinePreviewCard", () => {
 
   it("says on the bar that the content is merged with the human's edits, only when it is", () => {
     const merged = renderCard(replaceContent(), { mergedWithHumanEdits: true });
-    expect(merged).toMatch(/data-ai-proposal-bar-details=""[^>]*>[\s\S]*data-ai-proposal-merge-notice=""[^>]*>あなたの編集と合わせた内容です</);
+    expect(merged).toMatch(/data-ai-proposal-bar-details=""[^>]*>[\s\S]*data-ai-proposal-merge-notice=""[^>]*>現在の編集内容に合わせて提案を調整しました。</);
     expect(renderCard(replaceContent())).not.toContain("data-ai-proposal-merge-notice");
-    expect(renderCard(replaceContent(), { mergedWithHumanEdits: false })).not.toContain("あなたの編集と合わせた内容です");
+    expect(renderCard(replaceContent(), { mergedWithHumanEdits: false })).not.toContain("現在の編集内容に合わせて提案を調整しました。");
   });
 
   it("offers the before-shape toggle only for a proposal whose shapes have a before and after", () => {
@@ -516,7 +516,7 @@ describe("AiEditInlinePreviewCard", () => {
     const html = renderToStaticMarkup(
       <AiEditOverlayApprovalWidget preview={preview} applying={false} placement="below" style={{}} mergedWithHumanEdits />,
     );
-    expect(html).toContain("あなたの編集と合わせた内容です");
+    expect(html).toContain("現在の編集内容に合わせて提案を調整しました。");
   });
 
   it("lets a shape update hide its before state from the bar", () => {

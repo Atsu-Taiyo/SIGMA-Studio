@@ -5,7 +5,7 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { CommentMentionMenu } from "./CommentMentionMenu";
-import { CommentMentionMark, commentMentionQuery, insertCommentMention, prependCommentAgentMention, removeCommentAgentMentions } from "./comment-mentions";
+import { CommentMentionMark, commentMentionQuery, insertCommentMention } from "./comment-mentions";
 import { inlineNodesToTiptapDoc, tiptapDocToInlineNodes, type TiptapDoc } from "@/lib/tiptap-adapter";
 import { detectCommentAiMention } from "@/lib/ai/comment-mention";
 import { parseSigmaDocument } from "@/lib/sigma-doc-schema";
@@ -123,28 +123,5 @@ describe("collaborator mentions", () => {
     act(() => { editor.view.dom.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true, cancelable: true })); });
     act(() => { editor.view.dom.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true })); });
     expect(tiptapDocToInlineNodes(editor.getJSON() as TiptapDoc)[0]).toMatchObject({ text: "@Bob", mentionUserId: "b" });
-  });
-  it("「Claude に送信」は先頭に @claude を足し、外すと AI の宛先だけを消して人の宛先は残す", () => {
-    const editor = createEditor("");
-    editor.commands.setContent(inlineNodesToTiptapDoc([
-      { type: "text", text: "@Claude", mentionUserId: "person" },
-      { type: "text", text: " さんと確認" },
-    ]));
-    const caret = editor.state.doc.content.size - 1;
-    editor.commands.setTextSelection(caret);
-    prependCommentAgentMention(editor, "claude");
-    expect(editor.getText()).toBe("@claude @Claude さんと確認");
-    // キャレットは打っていた場所 (末尾) のまま。
-    expect(editor.state.selection.from).toBe(caret + "@claude ".length);
-    expect(detectCommentAiMention(tiptapDocToInlineNodes(editor.getJSON() as TiptapDoc))?.provider).toBe("claude");
-
-    editor.commands.insertContent(" @codex");
-    removeCommentAgentMentions(editor);
-    const body = tiptapDocToInlineNodes(editor.getJSON() as TiptapDoc);
-    expect(body).toEqual([
-      { type: "text", text: "@Claude", mentionUserId: "person" },
-      { type: "text", text: " さんと確認 " },
-    ]);
-    expect(detectCommentAiMention(body)).toBeNull();
   });
 });

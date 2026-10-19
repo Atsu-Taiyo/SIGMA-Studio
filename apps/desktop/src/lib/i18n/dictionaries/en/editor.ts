@@ -469,6 +469,12 @@ export const editor = {
     embeddedHostOwnsDuplicate: "The embedding host duplicates documents",
     duplicated: "Duplicated the document",
     duplicateFailed: "Could not duplicate the document",
+    duplicateFailedWithCode: "Could not duplicate the document ({{code}}). The original is unchanged.",
+    duplicateOffline: "Could not duplicate the document because the sharing server cannot be reached. The original is unchanged. Check your connection and try again.",
+    duplicateImagesUnavailable: "Could not duplicate the document because its images could not be retrieved. The original is unchanged. Check your connection and try again.",
+    duplicateSourceUnavailable: "The original document cannot be found or is no longer accessible. Reopen the document list to check.",
+    duplicateShareInProgress: "This document cannot be duplicated until sharing finishes setting up. Try again when it is done.",
+    duplicateSignInRequired: "Sign in to duplicate a shared document, then try again.",
     embeddedHostOwnsList: "The embedding host lists documents",
     lastTabStays: "The last tab cannot be closed",
     tabClosed: "Closed the tab",
@@ -793,9 +799,6 @@ export const editor = {
     mentionAgentHint: "Ask it to work with @{{keyword}}",
     mentionMembersSection: "People",
     mentionAgentsSection: "AI agents",
-    /** The toggle at the bottom left of the composer. Checking it puts `@claude` (etc.) at the start of the comment. */
-    sendToAgent: "Send to {{name}}",
-    sendToAgentHint: "{{name}} works on this comment when you send it",
     justNow: "now",
     mentionAgentTitle: "{{name}} (AI agent) · sending this comment asks it to work",
 

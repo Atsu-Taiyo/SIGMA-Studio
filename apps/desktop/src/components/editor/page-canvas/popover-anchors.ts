@@ -31,9 +31,9 @@ export interface SelectionActionPopoverPosition {
    */
   centerX?: number;
   /**
-   * 本文の選択だけが持つ。AI への依頼・コメントは書式の帯 (選択の上) に混ぜず、選んだところの
-   * 右下に別のチップで出す — 上に出すと、打っている行の 1 行上を隠して普段の編集の邪魔になる。
-   * 図形の選択は持たない (回転ハンドル・承認バーとの避け合いを帯 1 本で決めているため)。
+   * 本文の選択だけが持つ。帯から開く AI・コメントの入力欄を選んだところのすぐ下に開くのと、
+   * 書式の帯が無いとき (カーソルだけ・数式だけ) に AI・コメントを右下のチップで出すのに使う。
+   * 図形の選択は持たない (入力欄は帯の下に開く)。
    */
   trailing?: SelectionTrailingAnchor;
 }
@@ -300,6 +300,16 @@ function findPageSheetRect(canvas: HTMLElement | null, y: number): DOMRect | nul
     }
   }
   return null;
+}
+
+/**
+ * 本文の選択の帯から開く AI・コメントの入力欄の錨 (画面座標)。入力欄は「押した部品の下」に開く
+ * 約束なので、帯がそのまま渡ると、選択の上の帯の真下 = 選んだ文の上に開いて隠す。選んだところの
+ * 右下に帯の高さの部品があるとみなした位置を返し、入力欄を選択のすぐ下に開かせる。
+ */
+export function getSelectionFollowUpAnchor(anchor: SelectionTrailingAnchor): { left: number; top: number } {
+  const { left, top } = placeSelectionTrailingActions(anchor, { width: SELECTION_ACTION_POPOVER_WIDTH, height: 0 });
+  return { left, top: top - SELECTION_ACTION_POPOVER_HEIGHT };
 }
 
 /**

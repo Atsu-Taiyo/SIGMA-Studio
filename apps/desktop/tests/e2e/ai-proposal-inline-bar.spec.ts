@@ -535,7 +535,7 @@ test("a proposal whose target the human edited previews the merged content and s
 
   const card = pageCard(page, "para_target").locator("[data-ai-proposal-card]");
   await expect(card.locator("[data-ai-proposal-content]")).toContainText("The dog sat on the red mat.");
-  await expect(card.locator("[data-ai-proposal-bar-details] [data-ai-proposal-merge-notice]")).toHaveText("あなたの編集と合わせた内容です");
+  await expect(card.locator("[data-ai-proposal-bar-details] [data-ai-proposal-merge-notice]")).toHaveText("現在の編集内容に合わせて提案を調整しました。");
   // 合成で解決できる変更なので、競合の通知 (破棄・上書き・作り直し) は出さない。
   await expect(page.locator(".ai-stale-proposals")).toHaveCount(0);
 });

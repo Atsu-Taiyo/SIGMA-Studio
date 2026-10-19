@@ -25,12 +25,14 @@ export interface SvgMarkerHead {
   tip: number;
   /** viewBox units the ink spans along the marker's x axis. */
   length: number;
-  /** Reads the same from both sides, so it needs no `auto-start-reverse` at a start endpoint. */
-  symmetric: boolean;
+  /** Which way along the marker's x axis the head points; 0 for a dot, which reads the same from both sides. */
+  direction: 1 | -1 | 0;
 }
 
 /** Where a normal head stops being the nearer match than the small one (the small one is 0.55 of it). */
 const SMALL_HEAD_THRESHOLD = 0.775;
+/** A numeric `orient` has to lie along the line within this cosine (1 degree) for a head to follow it. */
+const ALONG_THE_LINE = Math.cos(Math.PI / 180);
 const OPEN_HEADS = ["thinArrow", "arrow", "openArrow"] as const;
 
 function sameColor(a: string | undefined, b: string): boolean {
@@ -50,15 +52,39 @@ function inkLengthInStrokes(head: Exclude<OverlayArrowhead, "none">): number {
   return bounds.maxX - bounds.minX;
 }
 
-/** An isosceles outline whose apex points along +x: the only shape an arrow head is drawn in. */
+/**
+ * An isosceles outline whose apex points along +x or -x: the only shape an arrow head is drawn in.
+ * A head drawn pointing -x is how a start marker reads outward under `orient="auto"`.
+ */
 function pointingOutline(points: readonly OverlayPoint[], marker: SvgMarkerDefinition) {
   const [, , width, height] = marker.viewBox;
-  const apex = points.reduce((best, p) => p.x > best.x ? p : best);
-  const base = points.filter((p) => p !== apex);
   const tolerance = 1e-3 * Math.max(width, height);
-  if (base.length !== 2 || Math.abs(base[0].x - base[1].x) > tolerance || apex.x - base[0].x <= tolerance ||
-    Math.abs(apex.y - (base[0].y + base[1].y) / 2) > 0.02 * height) return null;
-  return { apexX: apex.x, length: apex.x - base[0].x, halfHeight: Math.abs(base[0].y - base[1].y) / 2 };
+  for (const direction of [1, -1] as const) {
+    const apex = points.reduce((best, p) => (p.x - best.x) * direction > 0 ? p : best);
+    const base = points.filter((p) => p !== apex);
+    const length = base.length === 2 ? (apex.x - base[0].x) * direction : 0;
+    if (base.length === 2 && Math.abs(base[0].x - base[1].x) <= tolerance && length > tolerance &&
+      Math.abs(apex.y - (base[0].y + base[1].y) / 2) <= 0.02 * height) {
+      return { apexX: apex.x, length, halfHeight: Math.abs(base[0].y - base[1].y) / 2, direction };
+    }
+  }
+  return null;
+}
+
+/**
+ * Which way along the marker's x axis points out of the line at this endpoint, or null when it lies across the line.
+ * `outward` is the line's direction out of the endpoint, in the line's own user space, which a numeric `orient` is measured in.
+ */
+function outwardAlongMarkerX(orient: string, endpoint: "start" | "end", outward: OverlayPoint): 1 | -1 | null {
+  if (orient === "auto-start-reverse") return 1;
+  // `auto` follows the path, so at a start endpoint the marker's +x points into the line.
+  if (orient === "auto") return endpoint === "end" ? 1 : -1;
+  const angle = /^([+-]?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?)(?:deg)?$/.exec(orient);
+  const span = Math.hypot(outward.x, outward.y);
+  if (!angle || !(span > 0)) return null;
+  const radians = Number(angle[1]) * Math.PI / 180;
+  const along = (Math.cos(radians) * outward.x + Math.sin(radians) * outward.y) / span;
+  return along >= ALONG_THE_LINE ? 1 : along <= -ALONG_THE_LINE ? -1 : null;
 }
 
 /** Recognise the few marker drawings that the editor's own arrow heads reproduce. Anything else stays SVG. */
@@ -77,7 +103,7 @@ export function classifySvgMarker(marker: SvgMarkerDefinition, color: string): S
     if (tag === "circle") {
       const cx = svgNumbers(attrs.cx ?? "0")[0], cy = svgNumbers(attrs.cy ?? "0")[0], r = svgNumbers(attrs.r ?? "0")[0];
       if (!filled || !(r > 0) || !inside([{ x: cx - r, y: cy - r }, { x: cx + r, y: cy + r }])) return null;
-      return { head: "dot", tip: cx, length: 2 * r, symmetric: true };
+      return { head: "dot", tip: cx, length: 2 * r, direction: 0 };
     }
     let points: OverlayPoint[], closed: boolean;
     if (tag === "polygon" || tag === "polyline") {
@@ -93,12 +119,12 @@ export function classifySvgMarker(marker: SvgMarkerDefinition, color: string): S
     if (points.length !== 3 || !inside(points)) return null;
     const outline = pointingOutline(points, marker);
     if (!outline) return null;
-    if (closed && filled) return { head: "triangle", tip: outline.apexX, length: outline.length, symmetric: false };
+    if (closed && filled) return { head: "triangle", tip: outline.apexX, length: outline.length, direction: outline.direction };
     if (!closed && open) {
       const angle = Math.atan2(outline.halfHeight, outline.length);
       const head = OPEN_HEADS.reduce((best, candidate) =>
         Math.abs(openHeadHalfAngle(candidate) - angle) < Math.abs(openHeadHalfAngle(best) - angle) ? candidate : best);
-      return { head, tip: outline.apexX, length: outline.length, symmetric: false };
+      return { head, tip: outline.apexX, length: outline.length, direction: outline.direction };
     }
     return null;
   } catch { return null; }
@@ -106,22 +132,23 @@ export function classifySvgMarker(marker: SvgMarkerDefinition, color: string): S
 
 /**
  * The editor head that stands for a marker at one end of a line, and how far past the line's last vertex its tip sits.
- * `pxPerUserUnit` converts the line's user space to the page; `strokeWidth` is the line's, in user units.
+ * The editor's heads always point out of the line, so a marker drawn pointing into it stays SVG.
+ * `pxPerUserUnit` converts the line's user space to the page; `strokeWidth` is the line's, in user units;
+ * `outward` is the line's direction out of this endpoint, in the same user space.
  */
 export function svgMarkerArrowhead(
   marker: SvgMarkerDefinition,
   endpoint: "start" | "end",
-  line: { color: string; strokeWidth: number; pxPerUserUnit: number; size: OverlayTextSize },
+  line: { color: string; strokeWidth: number; pxPerUserUnit: number; size: OverlayTextSize; outward: OverlayPoint },
 ): { head: OverlayArrowhead; overshoot: number } | null {
   const found = classifySvgMarker(marker, line.color);
   if (!found) return null;
-  // `auto` follows the path, so at a start endpoint it points into the line: only a symmetric head reads the same.
-  const orientation = marker.orient.trim();
-  if (!(orientation === "auto-start-reverse" || (orientation === "auto" && (endpoint === "end" || found.symmetric)))) return null;
+  const outwardX = outwardAlongMarkerX(marker.orient.trim(), endpoint, line.outward);
+  if (outwardX === null || (found.direction !== 0 && found.direction !== outwardX)) return null;
   const [, , width, height] = marker.viewBox;
   const scale = Math.min(marker.markerWidth / width, marker.markerHeight / height);
   const pxPerUnit = scale * (marker.userSpace ? 1 : line.strokeWidth) * line.pxPerUserUnit;
   const normalLength = inkLengthInStrokes(found.head) * overlayStrokeWidth(line.size);
   const head = found.length * pxPerUnit < normalLength * SMALL_HEAD_THRESHOLD ? `${found.head}Small` as OverlayArrowhead : found.head;
-  return { head, overshoot: (found.tip - marker.refX) * pxPerUnit };
+  return { head, overshoot: (found.tip - marker.refX) * outwardX * pxPerUnit };
 }

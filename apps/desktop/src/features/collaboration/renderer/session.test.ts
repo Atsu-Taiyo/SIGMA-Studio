@@ -469,3 +469,28 @@ it("fits large overlay presence inside the shared wire budget", () => {
   expect(state.selection).toBeDefined();
   expect(state.overlay?.selectedShapeIds.length ?? 0).toBeGreaterThan(0);
 });
+
+// #251: the sharing status shows what waits on this device, and the images that stop syncing.
+it("keeps the sync detail main sends with each status, and editing continues while images need the user", () => {
+  const document = createBlankDocument();
+  const shared = new SharedDocument();
+  shared.initialize(JSON.parse(JSON.stringify(document)) as ObjectValue, { sharedDocumentId: "shared", epoch: 1 });
+  const detail = { pendingOperations: 2, pendingAssets: 1 };
+  const session = new RendererDocumentSession(
+    { binding: { protocol: 1, epoch: 1, sharedDocumentId: "shared", docId: document.docId, localFileId: "file" }, state: toBase64(shared.snapshot()), role: "editor", status: "local-saved", actorId: "self", assets: {}, detail },
+    { update: vi.fn(async () => {}), presence: vi.fn(async () => {}) } as unknown as CollaborationBridge,
+  );
+  sessions.push(session);
+  shared.destroy();
+  expect(session.syncDetail).toEqual(detail);
+  const statusChanged = vi.fn();
+  session.subscribeStatus(statusChanged);
+  const recovery = { pendingOperations: 2, pendingAssets: 0, recovery: { images: [{ assetId: "image-lost", name: "paste.png", reason: "missing" as const }] } };
+  session.receive({ type: "status", fileId: "file", status: "needs-recovery", role: "editor", detail: recovery });
+  expect(statusChanged).toHaveBeenCalledOnce();
+  expect(session.status).toBe("needs-recovery");
+  expect(session.syncDetail).toEqual(recovery);
+  expect(session.writable).toBe(true);
+  session.receive({ type: "status", fileId: "file", status: "saved", role: "editor", detail: { pendingOperations: 0, pendingAssets: 0 } });
+  expect(session.syncDetail).toEqual({ pendingOperations: 0, pendingAssets: 0 });
+});

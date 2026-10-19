@@ -77,12 +77,24 @@ export const chrome = {
       name: "表示名",
       nameHint: "空にすると Google アカウントの名前に戻ります。",
       chooseImage: "画像を選ぶ…",
+      adjustImage: "範囲を調整",
       useGoogleImage: "Google のアイコンに戻す",
       removeImage: "アイコンを外す",
       visibility: "見られるのは、教材やフォルダを共有している相手だけです。",
       cancel: "キャンセル",
       save: "保存",
       saving: "保存中…",
+      /** 選んだ画像のどこをアイコンにするかを決める画面。 */
+      crop: {
+        title: "アイコンの範囲",
+        description: "ドラッグで位置を、拡大率で大きさを合わせます。",
+        area: "アイコンにする範囲",
+        keyboardHint: "矢印キーで位置を動かし、+ と - で拡大・縮小します。",
+        zoom: "拡大率",
+        zoomIn: "拡大",
+        zoomOut: "縮小",
+        apply: "適用",
+      },
       errors: {
         load: "今の名前とアイコンを読み込めませんでした。接続を確認してから開き直してください。",
         save: "保存できませんでした。接続を確認してから、もう一度保存してください。",
@@ -98,7 +110,19 @@ export const chrome = {
     owner: "所有者", admin: "管理者", editor: "編集者", viewer: "閲覧者", me: "自分", members: "参加者", remove: "共有を解除", retry: "再接続", localCopy: "ローカルコピーを保存",
     stop: "共有を停止", leave: "共有から退出", delete: "サーバーから削除", confirmEnd: "共同編集を終了しますか？", endDescription: "端末に保存済みの内容は残ります。必要なら先にローカルコピーを保存してください。", cancel: "キャンセル",
     error: "操作を完了できませんでした。接続と権限を確認して、もう一度お試しください。", working: "準備中", ready: "参加しました。教材一覧から開けます。",
-    status: { "epoch-error": "共有教材が復元されました", "local-saving": "端末に保存中", "local-saved": "端末保存済み・未同期", syncing: "同期中", saved: "クラウド保存済み", offline: "オフライン", "sync-rejected": "端末保存済み・サーバーが受け付けません", "permission-error": "共有権限を確認してください", "save-error": "保存に失敗しました" },
+    status: { "epoch-error": "共有教材が復元されました", "local-saving": "端末に保存中", "local-saved": "端末保存済み・未同期", syncing: "同期中", saved: "クラウド保存済み", offline: "オフライン", "sync-rejected": "端末保存済み・サーバーが受け付けません", "needs-recovery": "端末保存済み・画像の確認が必要です", "permission-error": "共有権限を確認してください", "save-error": "保存に失敗しました" },
+    /** 端末に残っているもの (#251)。未同期の編集・送信待ちの画像・同期を止めている画像を分けて示す。 */
+    sync: {
+      pendingOperations: "未同期の編集 {{count}}件（この端末に保存済み）",
+      pendingAssets: "送信待ちの画像 {{count}}件",
+      recoveryDescription: "次の画像を共有サーバーへ送れないため、未同期の編集を同期できません。編集はこの端末に保存されています。",
+      recoveryHint: "画像を貼り直すか、仮の画像に置き換えると、残りの編集を同期できます。仮の画像は元の画像の位置・大きさ・名前を保ちます。",
+      replaceMissingImages: "仮の画像に置き換えて同期",
+      openRecovery: "同期を止めている画像を確認",
+      unnamedImage: "名前のない画像",
+      moreImages: "ほか {{count}}件",
+      reason: { missing: "この端末にも共有サーバーにもありません", refused: "共有サーバーが受け付けない画像です", "invalid-reference": "この教材の画像ではない参照です" },
+    },
     plan: {
       /** 操作を止めたときにPaywallの見出しで示す理由。 */
       reasons: {

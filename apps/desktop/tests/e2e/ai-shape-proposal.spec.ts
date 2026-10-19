@@ -790,18 +790,18 @@ test("an AI proposal reserves only its own target while it runs, and its pending
   const mergedText = `AIの前置き。${originalTargetText}確認待ち中の追記`;
   await expect(previewDialog.locator("[data-ai-proposal-content]")).toContainText(mergedText);
   await expect(previewDialog.locator("[data-ai-proposal-bar-details] [data-ai-proposal-merge-notice]"))
-    .toHaveText("あなたの編集と合わせた内容です");
+    .toHaveText("現在の編集内容に合わせて提案を調整しました。");
   // The red "will be replaced" underlay stays on the target: its content is replaced by the merge.
   await expect(targetParagraph).toHaveClass(/text-flow-change-before/);
   // The ⌘K result and the side chat show the same merged proposal. Moving the result to the side
   // chat also gets it off the card's bar.
   const inlineResult = page.locator(".ai-inline-result");
-  await expect(inlineResult).toContainText("あなたの編集と合わせた内容です");
+  await expect(inlineResult).toContainText("現在の編集内容に合わせて提案を調整しました。");
   await inlineResult.locator(".ai-inline-result-actions").getByRole("button", { name: "サイドチャットで開く" }).click();
   await expect(inlineResult).toHaveCount(0);
   const sidebarProposal = page.locator('.ai-edit-panel[data-variant="sidebar"] .ai-chat-result-proposal');
   await expect(sidebarProposal).toContainText(mergedText);
-  await expect(sidebarProposal).toContainText("あなたの編集と合わせた内容です");
+  await expect(sidebarProposal).toContainText("現在の編集内容に合わせて提案を調整しました。");
 
   await previewDialog.locator('.ai-inline-preview-action.apply[aria-label="適用"]').click();
   await expect(previewDialog).toBeHidden();
@@ -847,7 +847,7 @@ test("a shape the AI deletes stays without the red removal once the human moves 
   // The merge keeps the moved shape, so the page no longer marks it as removed, and the bar says the
   // proposal was combined with the human's edit.
   await expect(page.locator('.overlay-shape.ai-diff-removed-shape[data-overlay-shape-id="e2e_shape_1"]')).toHaveCount(0);
-  await expect(approvalWidget.locator("[data-ai-proposal-merge-notice]")).toHaveText("あなたの編集と合わせた内容です");
+  await expect(approvalWidget.locator("[data-ai-proposal-merge-notice]")).toHaveText("現在の編集内容に合わせて提案を調整しました。");
 
   await approvalWidget.locator('.ai-inline-preview-action.apply[aria-label="適用"]').click();
   await expect(approvalWidget).toBeHidden();

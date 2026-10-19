@@ -214,6 +214,11 @@ export class SharedDocumentJournal {
     return [...this.pending.values()].map((item) => structuredClone(item));
   }
 
+  /** How many updates wait for the server's acknowledgement, without copying them. */
+  pendingCount(): number {
+    return this.pending.size;
+  }
+
   append(
     update: Uint8Array,
     identity: OperationIdentity,

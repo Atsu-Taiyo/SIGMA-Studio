@@ -192,7 +192,7 @@ test("an approval merges the human's edit made after the proposal, survives a re
     await reload();
     const diffCard = pageCard("p_diff");
     await expect(diffCard.locator("[data-ai-proposal-content]")).toContainText("The dog sat on the red mat.");
-    await expect(diffCard.locator("[data-ai-proposal-bar-details] [data-ai-proposal-merge-notice]")).toHaveText("あなたの編集と合わせた内容です");
+    await expect(diffCard.locator("[data-ai-proposal-bar-details] [data-ai-proposal-merge-notice]")).toHaveText("現在の編集内容に合わせて提案を調整しました。");
     expect((await pendingProposals()).filter((item) => item.conflict)).toEqual([]);
     await diffCard.screenshot({ path: testInfo.outputPath("merged-preview-card.png") });
     await page.screenshot({ path: testInfo.outputPath("merged-preview-page.png") });
@@ -212,7 +212,7 @@ test("an approval merges the human's edit made after the proposal, survives a re
     await typeAtParagraphEnd("p_typed", " Typed by hand.");
     await expect(bodyParagraph("p_typed")).toContainText(`${BASE_TEXT} Typed by hand.`);
     await expect(typedCard.locator("[data-ai-proposal-content]")).toContainText("The dog sat on the mat. Typed by hand.");
-    await expect(typedCard.locator("[data-ai-proposal-bar-details] [data-ai-proposal-merge-notice]")).toHaveText("あなたの編集と合わせた内容です");
+    await expect(typedCard.locator("[data-ai-proposal-bar-details] [data-ai-proposal-merge-notice]")).toHaveText("現在の編集内容に合わせて提案を調整しました。");
     await typedCard.screenshot({ path: testInfo.outputPath("typed-merged-card.png") });
     await approveOnPage("p_typed");
     expect(paragraphText(await saved(), "p_typed")).toBe("The dog sat on the mat. Typed by hand.");

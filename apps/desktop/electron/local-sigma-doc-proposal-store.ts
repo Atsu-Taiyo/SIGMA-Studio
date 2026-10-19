@@ -291,6 +291,7 @@ export class LocalMcpEditProposalStore {
     const touchedBlocks = computeTouchedBlocks(draft, baseDocument);
     // 上書きする単位のbaseを残す。承認・rebaseは、作成後の人間の編集を三者マージで残せる。
     const mergeBasis = computeProposalMergeBasis(draft, baseDocument);
+    const mergeCarry = carryAdjustment(undefined, input.adjustment);
     const proposal: LocalMcpEditProposal = {
       version: 1,
       proposalId: createId("mcp_proposal"),
@@ -315,6 +316,7 @@ export class LocalMcpEditProposalStore {
       ...(touchedBlocks.length > 0 ? { touchedBlocks } : {}),
       ...(input.requestSelection ? { requestSelection: input.requestSelection } : {}),
       mergeBasis,
+      ...(mergeCarry ? { mergeCarry } : {}),
     };
     await this.writeProposal(proposal, baseDocument);
     return proposal;
@@ -405,7 +407,7 @@ export class LocalMcpEditProposalStore {
       // (rebaseRoomDraft)、今回の操作を足す。旧レコードは従来どおり素のreplay。
       const currentBasis = usableProposalMergeBasis(current.mergeBasis);
       const rebasedRoom = currentBasis
-        ? this.rebaseRoomDraft(current, currentBasis, inputDraft, baseDocument, "same-run")
+        ? this.rebaseRoomDraft(current, currentBasis, inputDraft, baseDocument, "same-run", input.adjustment?.replacesRoomDraft)
         : null;
       const replay = rebasedRoom
         ? { ...replayProposalDraftMerging(baseDocument, rebasedRoom.draft, rebasedRoom.mergeBasis), draft: rebasedRoom.draft }
@@ -452,7 +454,7 @@ export class LocalMcpEditProposalStore {
         requestSelection: input.requestSelection ?? current.requestSelection,
         conflict: undefined,
         mergeBasis,
-        mergeCarry: rebasedRoom ? rebasedRoom.mergeCarry : current.mergeCarry,
+        mergeCarry: carryAdjustment(rebasedRoom ? rebasedRoom.mergeCarry : current.mergeCarry, input.adjustment),
         // 改訂された案は改めて自動承認の判定を受ける (見送りは前の案についての判断)。
         autoApplyDeferredAtRevision: undefined,
         autoApplyDeferredSignature: undefined,
@@ -483,7 +485,7 @@ export class LocalMcpEditProposalStore {
     // その合成結果にする (同じrunの経路と同じ規則)。
     const currentBasis = usableProposalMergeBasis(current.mergeBasis);
     const rebasedRoom = currentBasis
-      ? this.rebaseRoomDraft(current, currentBasis, inputDraft, baseDocument, "different-run")
+      ? this.rebaseRoomDraft(current, currentBasis, inputDraft, baseDocument, "different-run", input.adjustment?.replacesRoomDraft)
       : null;
     const mergeBasis = rebasedRoom?.mergeBasis;
     const roomDraft = rebasedRoom?.draft ?? inputDraft;
@@ -523,7 +525,7 @@ export class LocalMcpEditProposalStore {
       requestSelection: input.requestSelection ?? current.requestSelection,
       conflict: undefined,
       mergeBasis,
-      mergeCarry: rebasedRoom ? rebasedRoom.mergeCarry : current.mergeCarry,
+      mergeCarry: carryAdjustment(rebasedRoom ? rebasedRoom.mergeCarry : current.mergeCarry, input.adjustment),
       autoApplyDeferredAtRevision: undefined,
       autoApplyDeferredSignature: undefined,
     };
@@ -563,7 +565,15 @@ export class LocalMcpEditProposalStore {
     incoming: AiEditSessionDraft,
     baseDocument: SigmaDocument,
     mode: "same-run" | "different-run",
+    replacesRoomDraft = false,
   ): { draft: AiEditSessionDraft; mergeBasis: ProposalMergeBasis; mergeCarry: ProposalMergeReport | undefined } {
+    if (replacesRoomDraft) {
+      // The MCP rebuilt the room's whole draft onto `baseDocument` after dropping earlier changes that
+      // no longer have a place (issue #249): rebasing the stored draft again would fail on them.
+      const draft = parseAiEditSessionDraft(incoming);
+      this.recordMergeFallback("upsert-room-adjusted", { proposalId: current.proposalId, mode });
+      return { draft, mergeBasis: computeProposalMergeBasis(draft, baseDocument), mergeCarry: current.mergeCarry };
+    }
     const hasOperations = current.draft.operations.length > 0 || (current.draft.mutationOperations?.length ?? 0) > 0;
     const rebase = hasOperations ? replayProposalDraftMerging(baseDocument, current.draft, currentBasis) : null;
     const rebased = rebase?.rebasedDraft ?? current.draft;
@@ -734,6 +744,12 @@ export class LocalMcpEditProposalStore {
         .filter((proposal) => !snapshotIds.has(proposal.proposalId))
         .map((proposal) => this.deleteProposalFile(proposal.proposalId)));
       for (const [index, proposal] of snapshot.proposals.entries()) {
+        // A proposal the person approved, rejected or discarded while the run went on stays resolved:
+        // putting the snapshot back would revive it (a stuck conflict among them, issue #249).
+        const now = await this.loadProposal(proposal.proposalId);
+        if (now && now.status !== "pending") {
+          continue;
+        }
         await this.writeProposal(proposal);
         // Rewriting the restored draft takes its shared approval record again without the base it was
         // made from (the base hashes of the targets the approval cannot merge): put back the record.
@@ -2281,6 +2297,18 @@ function parseProposalMergeBasis(value: unknown): ProposalMergeBasis | null {
   return { version: 1, entities, ...(Object.keys(anchors).length > 0 ? { anchors } : {}) };
 }
 
+/** A proposal's carried merge report with what the MCP adjusted before this write (when it did anything). */
+function carryAdjustment(
+  carried: ProposalMergeReport | undefined,
+  adjustment: LocalMcpEditProposalCreateInput["adjustment"],
+): ProposalMergeReport | undefined {
+  const report = adjustment?.mergeReport;
+  if (!report || isProposalMergeQuiet(report)) {
+    return carried;
+  }
+  return combineProposalMergeReports([carried ?? createEmptyProposalMergeReport(), report]);
+}
+
 /** 承認時に保存した mergeReport の緩い読み込み (監査表示用。欠けた値は0/空として扱う)。 */
 function parseProposalMergeReport(value: unknown): ProposalMergeReport | null {
   if (!isRecord(value) || Array.isArray(value)) {
@@ -2300,6 +2328,7 @@ function parseProposalMergeReport(value: unknown): ProposalMergeReport | null {
     anchorRelocated: count(value.anchorRelocated),
     legacyNoBase: count(value.legacyNoBase),
     humanEditedUnits: strings(value.humanEditedUnits),
+    alreadyApplied: count(value.alreadyApplied),
   };
 }
 
