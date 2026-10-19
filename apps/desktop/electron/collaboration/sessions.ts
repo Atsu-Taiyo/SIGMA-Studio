@@ -62,6 +62,7 @@ interface Session {
   presencePayload?: string;
   pendingAssetRevision?: number;
   uploadedAssetRevision?: number;
+  assetRepairFailure?: { operationId: string; revision: number };
   /**
    * Images referenced by past versions read through `version` (#244). They may be gone from the
    * current document, so `assetResponse` serves these too while the versions are being looked at.
@@ -994,6 +995,39 @@ export class CollaborationSessions {
       this.status(fileId, "syncing");
     await session.tail;
     await this.uploadCachedAssets(fileId);
+    // Uploaded flags are a local cache, not proof that the server still has the
+    // image. The server returns only MISSING_ASSET, without the missing ids.
+    // Repair once per sync, including images used only by intermediate/undo
+    // operations, then resend the exact request (and its idempotency keys).
+    let repairedAssets = false;
+    const sendWithAssetRecovery = async <T>(route: string, body: unknown, operationId: string): Promise<T> => {
+      try {
+        return await this.request<T>(route, body);
+      } catch (error) {
+        if (repairedAssets || !(error instanceof CollaborationHttpError)
+          || error.status !== 400 || error.message !== "MISSING_ASSET") throw error;
+        const revision = session.pendingAssetRevision ?? 0;
+        if (session.assetRepairFailure?.operationId === operationId
+          && session.assetRepairFailure.revision === revision) throw error;
+        repairedAssets = true;
+        logLedgerEvent(path.join(path.dirname(this.directory), "data"), "shared-asset-repair-attempted", { fileId });
+        if (!await this.uploadCachedAssets(fileId, true)) {
+          session.assetRepairFailure = { operationId, revision };
+          throw error;
+        }
+        try {
+          return await this.request<T>(route, body);
+        } catch (retryError) {
+          // A malformed/unavailable reference cannot be repaired with these
+          // bytes. Do not upload the same cache on every background retry.
+          // New image bytes or a restart allow another repair attempt.
+          if (retryError instanceof CollaborationHttpError && retryError.status === 400
+            && retryError.message === "MISSING_ASSET")
+            session.assetRepairFailure = { operationId, revision };
+          throw retryError;
+        }
+      }
+    };
     if (!entry.initialized) {
       const initialFile = path.join(
         session.journal.directory,
@@ -1015,10 +1049,10 @@ export class CollaborationSessions {
         state = toBase64(session.journal.document.snapshot());
         await durableWrite(initialFile, state);
       }
-      await this.request(`${prefix}/initialize`, {
+      await sendWithAssetRecovery(`${prefix}/initialize`, {
         operationId: entry.operationId,
         state,
-      });
+      }, entry.operationId);
       entry.initialized = true;
       await this.saveRegistry();
     }
@@ -1054,7 +1088,11 @@ export class CollaborationSessions {
           return size < MAX_UPDATE_BYTES * 1.4;
         });
       if (!pending.length) throw new Error("PAYLOAD_LIMIT");
-      const result = await this.request<{
+      // Freeze the batch before the upload: edits can arrive while /sync or a
+      // previous batch is in flight, after the initial cache scan has finished.
+      if ((session.pendingAssetRevision ?? 0) !== (session.uploadedAssetRevision ?? 0))
+        await this.uploadCachedAssets(fileId);
+      const result = await sendWithAssetRecovery<{
         acks: { operationId: string; seq: number }[];
       }>(`${prefix}/updates`, {
         protocol: 1,
@@ -1063,7 +1101,7 @@ export class CollaborationSessions {
           ...item.identity,
           update: item.update,
         })),
-      });
+      }, pending[0].identity.operationId);
       validateAcknowledgements(result, pending.map(item => item.identity.operationId));
       for (let index = 0; index < pending.length; index++) {
         const ack = result.acks[index];
@@ -1629,7 +1667,7 @@ export class CollaborationSessions {
       }
     }
   }
-  private async uploadCachedAssets(fileId: string): Promise<void> {
+  private async uploadCachedAssets(fileId: string, force = false): Promise<number> {
     const session = this.require(fileId);
     const revision = session.pendingAssetRevision ?? 0;
     const folder = path.join(
@@ -1640,14 +1678,16 @@ export class CollaborationSessions {
     let files: string[];
     try {
       files = await fs.readdir(folder);
-    } catch {
-      return;
+    } catch (error) {
+      if (error && typeof error === "object" && "code" in error && error.code === "ENOENT") return 0;
+      throw error;
     }
+    let uploaded = 0;
     for (const file of files.filter((name) => name.endsWith(".json"))) {
       const item = JSON.parse(
         await fs.readFile(path.join(folder, file), "utf8"),
       ) as { source: string; uploaded: boolean };
-      if (item.uploaded) continue;
+      if (item.uploaded && !force) continue;
       const image = this.parseImage(item.source);
       await this.requestRaw(
         `/documents/${session.journal.binding.sharedDocumentId}/assets/${file.slice(0, -5)}`,
@@ -1661,8 +1701,10 @@ export class CollaborationSessions {
         path.join(folder, file),
         JSON.stringify({ ...item, uploaded: true }),
       );
+      uploaded += 1;
     }
     session.uploadedAssetRevision = revision;
+    return uploaded;
   }
   private parseImage(source: string): {
     type: string;
