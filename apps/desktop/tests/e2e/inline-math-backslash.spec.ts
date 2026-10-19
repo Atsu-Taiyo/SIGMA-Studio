@@ -550,6 +550,11 @@ test("opens the math command dialog from the TeX editor three-dot button", async
   await expect(commandDialog).toBeVisible();
   await expect(commandDialog.getByRole("searchbox", { name: "TeXコマンドを検索" })).toBeFocused();
 
+  // inertな入力欄はヒットテストから外れるため、実際の描画順を比較する。
+  const editorZIndex = await page.locator(".inline-math-tex-popover").evaluate((element) => Number(getComputedStyle(element).zIndex));
+  const dialogZIndex = await commandDialog.evaluate((element) => Number(getComputedStyle(element.closest("[data-modal-backdrop]")!).zIndex));
+  expect(editorZIndex).toBeLessThan(dialogZIndex);
+
   await commandDialog.getByRole("button", { name: "閉じる", exact: true }).click();
   await expect(commandDialog).toBeHidden();
   await expect(popover).toBeVisible();
