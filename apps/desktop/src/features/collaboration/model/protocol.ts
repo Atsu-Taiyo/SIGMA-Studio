@@ -16,6 +16,11 @@ export type SaveState =
   | "offline"
   /** The server refuses the oldest unsent edit; later edits wait behind it on this device. */
   | "sync-rejected"
+  /**
+   * The server refuses the unsent edits for images that neither this device nor the server has (#251).
+   * The edits stay on this device; `SyncDetail.recovery` names the images.
+   */
+  | "needs-recovery"
   | "permission-error"
   | "save-error"
   | "epoch-error";

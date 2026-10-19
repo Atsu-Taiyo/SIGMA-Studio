@@ -15,6 +15,31 @@ export interface SessionInfo {
   status: SaveState;
   actorId: string;
   assets: Record<string, string>;
+  detail?: SyncDetail;
+}
+/**
+ * What waits on this device for a shared document (#251): edits the server has not acknowledged,
+ * images not sent yet, and images that keep the edits from being sent and need the user.
+ */
+export interface SyncDetail {
+  pendingOperations: number;
+  pendingAssets: number;
+  recovery?: SyncRecovery;
+}
+/** The images the server refuses the unsent edits for, which this device could not repair (#251). */
+export interface SyncRecovery {
+  images: SyncRecoveryImage[];
+}
+export interface SyncRecoveryImage {
+  /** The `sigma-doc-storage://` image id, or the asset's id for a reference that is no such image. */
+  assetId: string;
+  /** The image's file name as inserted, when the document still has it. */
+  name: string | null;
+  /**
+   * `missing`: neither this device nor the server has the image. `refused`: the server will not store
+   * it. `invalid-reference`: the `src` is no image of this document (e.g. an older storage form).
+   */
+  reason: "missing" | "refused" | "invalid-reference";
 }
 export interface CollaborationProfile {
   actorId: string;
@@ -82,7 +107,7 @@ export type CollaborationEvent =
       identity: OperationIdentity;
       approvalIds?: string[];
     }
-  | { type: "status"; fileId: string; status: SaveState; role: MemberRole }
+  | { type: "status"; fileId: string; status: SaveState; role: MemberRole; detail?: SyncDetail }
   | { type: "asset-ready"; fileId: string; assetId: string }
   | { type: "reset"; fileId: string }
   | {
@@ -131,6 +156,11 @@ export interface CollaborationBridge {
   end(fileId: string, action: "stop" | "delete" | "leave"): Promise<void>;
   copy(fileId: string): Promise<{ fileId: string }>;
   asset(fileId: string, assetId: string, source?: string): Promise<string>;
+  /**
+   * Puts a placeholder in place of each image in `SyncDetail.recovery` (keeping its place, size and
+   * name) so the remaining edits can be sent (#251).
+   */
+  replaceMissingImages?(fileId: string): Promise<void>;
   /** 自分のプロフィール (名前・アイコン) を取り直す。 */
   profile?(): Promise<CollaborationProfileRecord | null>;
   /** 自分の名前を変える。null や空白だけなら Google の名前へ戻す。 */

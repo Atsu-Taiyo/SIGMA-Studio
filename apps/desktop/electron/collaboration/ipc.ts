@@ -61,9 +61,13 @@ export function registerCollaborationIpc(
       z.number().int().positive().parse(epoch),
     ),
   );
-  handle("flush", (id, online) =>
-    sessions.flush(fileId.parse(id), z.boolean().optional().parse(online)),
-  );
+  // From the renderer, an online flush is the user's retry: edits waiting for repaired images are
+  // sent again too (#251).
+  handle("flush", (id, online) => {
+    const value = z.boolean().optional().parse(online);
+    return sessions.flush(fileId.parse(id), value, value === true);
+  });
+  handle("replace-missing-images", (id) => sessions.replaceMissingImages(fileId.parse(id)));
   handle("approve", (id, input) => {
     const value = z
       .object({

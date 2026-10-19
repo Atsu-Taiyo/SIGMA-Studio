@@ -30,11 +30,14 @@ import type {
   PresenceParticipant,
   SessionInfo,
   PresenceState,
+  SyncDetail,
+  SyncRecoveryImage,
 } from "../../src/features/collaboration/model/bridge";
 import type { SharedApproval } from "../../src/features/collaboration/model/approval";
 import { CollaborationAuth, collaborationConfig } from "./auth";
 import { CollaborationProfiles } from "./profiles";
-import { CollaborationHttpError, readResponseBytes, readResponseJson, responseError, retryDelay, syncFailureStatus } from "./transport";
+import { ASSET_RECOVERY_REQUIRED, CollaborationHttpError, isAssetRefusal, isAssetUploadRefusal, readResponseBytes, readResponseJson, responseError, retryDelay, syncFailureStatus } from "./transport";
+import { documentImageReferences, mergedOperationId, mergeOperationUpdates, MISSING_IMAGE_PLACEHOLDER, STORAGE_SOURCE, updateAssetReferences } from "./asset-repair";
 import { durableWrite, SharedDocumentJournal, type JournalSummary } from "./journal";
 import { logLedgerEvent } from "../ledger-log";
 import { isRemoteId, validateAcknowledgements, validateApproval, validateDocumentIdentity, validateSnapshot, validateSync } from "./response-validation";
@@ -62,12 +65,24 @@ interface Session {
   presencePayload?: string;
   pendingAssetRevision?: number;
   uploadedAssetRevision?: number;
-  assetRepairFailure?: { operationId: string; revision: number };
   /**
    * Images referenced by past versions read through `version` (#244). They may be gone from the
    * current document, so `assetResponse` serves these too while the versions are being looked at.
    */
   versionAssets?: Set<string>;
+  /** Images saved on this device that have not reached the server yet (#251). */
+  unsentAssets?: Set<string>;
+  /** Images the server stored (or served) during this run; a repair need not send them again. */
+  confirmedAssets?: Set<string>;
+  /** Images the server will not store; sending them again gets the same answer. */
+  refusedAssets?: Set<string>;
+  /** Images neither this device nor the server has, found while repairing (cleared by a retry). */
+  unresolvedAssets?: Set<string>;
+  /**
+   * The unsent edits the server refused for images that could not be repaired (#251). While the
+   * edits (`key`) are unchanged they are not sent again until the user retries.
+   */
+  recovery?: { key: string; images: SyncRecoveryImage[] };
 }
 interface Registry {
   version: 1;
@@ -260,7 +275,10 @@ export class CollaborationSessions {
     const files = await fs.readdir(folder).catch(() => []);
     for (const file of files.filter((name) => name.endsWith(".json"))) {
       const cached = JSON.parse(await fs.readFile(path.join(folder, file), "utf8")) as { uploaded: boolean };
-      if (!cached.uploaded) { session.pendingAssetRevision = 1; break; }
+      if (!cached.uploaded) {
+        session.pendingAssetRevision = 1;
+        (session.unsentAssets ??= new Set()).add(file.slice(0, -5));
+      }
     }
   }
   private async mayHavePendingWork(entry: Registry["files"][string], summary: JournalSummary): Promise<boolean> {
@@ -451,6 +469,7 @@ export class CollaborationSessions {
       status: session.status,
       actorId: this.registry.files[fileId].actorId,
       assets: { ...session.assets },
+      detail: this.syncDetail(session),
     };
   }
   async start(fileId: string, document: SigmaDocument): Promise<SessionInfo> {
@@ -939,6 +958,7 @@ export class CollaborationSessions {
           },
         );
         candidate.destroy();
+        await this.adoptForeignAssets(fileId, updateAssetReferences([update]));
         const identity: OperationIdentity = {
           operationId,
           actorId: this.registry.files[fileId].actorId,
@@ -961,7 +981,11 @@ export class CollaborationSessions {
     if (!session || Date.now() < (session.retryAt ?? 0)) return;
     await this.flush(fileId, true).catch(() => {});
   }
-  async flush(fileId: string, online = false): Promise<void> {
+  /**
+   * `manual`: the user asked to sync (the retry button). Edits refused for images that could not be
+   * repaired are sent again only then, or once they change (#251).
+   */
+  async flush(fileId: string, online = false, manual = false): Promise<void> {
     const session = await this.session(fileId);
     if (session.failed) throw new Error("LOCAL_SAVE_FAILED");
     if (!online) {
@@ -970,14 +994,24 @@ export class CollaborationSessions {
       return;
     }
     if (session.stopped) throw new Error("DOCUMENT_UNAVAILABLE");
-    if (session.syncing) return session.syncing;
+    if (session.syncing && !manual) return session.syncing;
+    if (manual) {
+      await session.syncing?.catch(() => {});
+      if (session.syncing) return session.syncing;
+      session.recovery = undefined;
+      session.unresolvedAssets = undefined;
+    }
     session.syncing = this.synchronize(fileId)
       .then(() => { session.retryFailures = 0; session.retryAt = 0; })
       .catch((error) => {
-        this.logSaveFailure("shared-document-sync-failed", fileId, error);
+        // A refusal is logged once; the edits are not resent while they wait for the user.
+        if (!(error instanceof Error && error.message === ASSET_RECOVERY_REQUIRED))
+          this.logSaveFailure("shared-document-sync-failed", fileId, error, error instanceof CollaborationHttpError && isAssetRefusal(error)
+            ? { missingAssets: error.details.missingAssetIds?.length ?? null, invalidReferences: error.details.invalidAssetReferences?.length ?? null, recovery: session.recovery?.images.length ?? 0 }
+            : {});
         session.retryFailures = (session.retryFailures ?? 0) + 1;
         session.retryAt = Date.now() + retryDelay(session.retryFailures, error);
-        this.status(fileId, syncFailureStatus(error));
+        this.status(fileId, session.recovery && isAssetRefusal(error) ? "needs-recovery" : syncFailureStatus(error));
         throw error;
       })
       .finally(() => {
@@ -991,43 +1025,11 @@ export class CollaborationSessions {
     if (!this.auth?.user() || this.auth.user()!.id !== entry.actorId)
       throw new Error("AUTH_REQUIRED");
     const prefix = `/documents/${entry.sharedDocumentId}`;
-    if (session.status !== "saved" || session.journal.outbox().length)
+    // Edits waiting for the user's repair keep saying so while remote changes are pulled (#251).
+    if ((session.status !== "saved" || session.journal.pendingCount()) && !session.recovery)
       this.status(fileId, "syncing");
     await session.tail;
     await this.uploadCachedAssets(fileId);
-    // Uploaded flags are a local cache, not proof that the server still has the
-    // image. The server returns only MISSING_ASSET, without the missing ids.
-    // Repair once per sync, including images used only by intermediate/undo
-    // operations, then resend the exact request (and its idempotency keys).
-    let repairedAssets = false;
-    const sendWithAssetRecovery = async <T>(route: string, body: unknown, operationId: string): Promise<T> => {
-      try {
-        return await this.request<T>(route, body);
-      } catch (error) {
-        if (repairedAssets || !(error instanceof CollaborationHttpError)
-          || error.status !== 400 || error.message !== "MISSING_ASSET") throw error;
-        const revision = session.pendingAssetRevision ?? 0;
-        if (session.assetRepairFailure?.operationId === operationId
-          && session.assetRepairFailure.revision === revision) throw error;
-        repairedAssets = true;
-        logLedgerEvent(path.join(path.dirname(this.directory), "data"), "shared-asset-repair-attempted", { fileId });
-        if (!await this.uploadCachedAssets(fileId, true)) {
-          session.assetRepairFailure = { operationId, revision };
-          throw error;
-        }
-        try {
-          return await this.request<T>(route, body);
-        } catch (retryError) {
-          // A malformed/unavailable reference cannot be repaired with these
-          // bytes. Do not upload the same cache on every background retry.
-          // New image bytes or a restart allow another repair attempt.
-          if (retryError instanceof CollaborationHttpError && retryError.status === 400
-            && retryError.message === "MISSING_ASSET")
-            session.assetRepairFailure = { operationId, revision };
-          throw retryError;
-        }
-      }
-    };
     if (!entry.initialized) {
       const initialFile = path.join(
         session.journal.directory,
@@ -1049,10 +1051,7 @@ export class CollaborationSessions {
         state = toBase64(session.journal.document.snapshot());
         await durableWrite(initialFile, state);
       }
-      await sendWithAssetRecovery(`${prefix}/initialize`, {
-        operationId: entry.operationId,
-        state,
-      }, entry.operationId);
+      await this.initializeRemote(fileId, prefix, initialFile, state);
       entry.initialized = true;
       await this.saveRegistry();
     }
@@ -1078,6 +1077,17 @@ export class CollaborationSessions {
     });
     if (session.role === "viewer" && session.journal.outbox().length)
       throw new Error("READ_ONLY");
+    await this.sendOutbox(fileId, prefix);
+    await this.loadAssets(fileId, true);
+    session.lastSynchronizedAt = Date.now();
+    this.status(
+      fileId,
+      session.journal.outbox().length ? "local-saved" : "saved",
+    );
+  }
+  /** Sends the unsent edits in order, in batches. */
+  private async sendBatches(fileId: string, prefix: string): Promise<void> {
+    const session = this.require(fileId);
     while (session.journal.outbox().length) {
       let size = 0;
       const pending = session.journal
@@ -1092,7 +1102,7 @@ export class CollaborationSessions {
       // previous batch is in flight, after the initial cache scan has finished.
       if ((session.pendingAssetRevision ?? 0) !== (session.uploadedAssetRevision ?? 0))
         await this.uploadCachedAssets(fileId);
-      const result = await sendWithAssetRecovery<{
+      const result = await this.request<{
         acks: { operationId: string; seq: number }[];
       }>(`${prefix}/updates`, {
         protocol: 1,
@@ -1101,19 +1111,13 @@ export class CollaborationSessions {
           ...item.identity,
           update: item.update,
         })),
-      }, pending[0].identity.operationId);
+      });
       validateAcknowledgements(result, pending.map(item => item.identity.operationId));
       for (let index = 0; index < pending.length; index++) {
         const ack = result.acks[index];
         await session.journal.acknowledge(ack.operationId);
       }
     }
-    await this.loadAssets(fileId, true);
-    session.lastSynchronizedAt = Date.now();
-    this.status(
-      fileId,
-      session.journal.outbox().length ? "local-saved" : "saved",
-    );
   }
   private async receive(
     fileId: string,
@@ -1496,6 +1500,61 @@ export class CollaborationSessions {
       throw error;
     }
   }
+  /**
+   * Puts a placeholder in place of each image the unsent edits are refused for — keeping its place,
+   * size and name — and sends the edits again (#251). An image written inline (a `data:` URL) becomes an
+   * uploaded image instead. Only the user starts this: the images were found nowhere.
+   */
+  async replaceMissingImages(fileId: string): Promise<void> {
+    const session = await this.session(fileId);
+    if (this.registry.files[fileId]?.actorId !== this.actorId()) throw new Error("ACCOUNT_CHANGED");
+    const targets = new Map((session.recovery?.images ?? []).map((image) => [image.assetId, image.reason]));
+    if (targets.size) {
+      await session.tail;
+      const candidate = new SharedDocument(session.journal.document.snapshot());
+      const added = new Map<string, string>();
+      let update: Uint8Array | undefined;
+      try {
+        const before = candidate.project();
+        const after = structuredClone(before);
+        const replace = (value: unknown, owner: string): void => {
+          if (Array.isArray(value)) return value.forEach((child) => replace(child, owner));
+          if (!isObject(value)) return;
+          const id = typeof value.id === "string" ? value.id : owner;
+          if (typeof value.src === "string") {
+            const assetId = STORAGE_SOURCE.exec(value.src)?.[1];
+            const reason = assetId ? targets.get(assetId) : targets.get(id);
+            if (assetId ? reason === "missing" || reason === "refused" : reason === "invalid-reference") {
+              let source = MISSING_IMAGE_PLACEHOLDER;
+              let image = this.parseImage(source);
+              if (!assetId) {
+                try { image = this.parseImage(value.src); source = value.src; } catch { /* no image inline: a placeholder */ }
+              }
+              const replacement = createHash("sha256").update(image.bytes).digest("hex");
+              added.set(replacement, source);
+              value.src = `sigma-doc-storage://${replacement}`;
+              if (typeof value.mimeType === "string" || value.mimeType === null) value.mimeType = image.type;
+              if (typeof value.fileSize === "number") value.fileSize = image.bytes.byteLength;
+            }
+          }
+          Object.values(value).forEach((child) => replace(child, id));
+        };
+        replace(after, "");
+        if (added.size) {
+          const vector = candidate.vector();
+          candidate.change(before, after);
+          update = candidate.difference(vector);
+        }
+      } finally {
+        candidate.destroy();
+      }
+      if (update) {
+        for (const [assetId, source] of added) await this.accessAsset(fileId, assetId, source);
+        await this.update(fileId, toBase64(update), randomUUID(), "manual", session.journal.binding.epoch);
+      }
+    }
+    await this.flush(fileId, true, true);
+  }
   private logSaveFailure(
     event: "shared-document-save-failed" | "shared-asset-save-failed" | "shared-document-sync-failed",
     fileId: string,
@@ -1550,6 +1609,7 @@ export class CollaborationSessions {
         JSON.stringify({ source, uploaded: false }),
       );
       session.pendingAssetRevision = (session.pendingAssetRevision ?? 0) + 1;
+      (session.unsentAssets ??= new Set()).add(assetId);
       session.assets[assetId] = source;
       return source;
     }
@@ -1583,6 +1643,7 @@ export class CollaborationSessions {
       JSON.stringify({ source: value, uploaded: true }),
     );
     session.assets[assetId] = value;
+    (session.confirmedAssets ??= new Set()).add(assetId);
     this.emit({ type: "asset-ready", fileId, assetId });
     return value;
   }
@@ -1676,7 +1737,7 @@ export class CollaborationSessions {
       }
     }
   }
-  private async uploadCachedAssets(fileId: string, force = false): Promise<number> {
+  private async uploadCachedAssets(fileId: string): Promise<void> {
     const session = this.require(fileId);
     const revision = session.pendingAssetRevision ?? 0;
     const folder = path.join(
@@ -1688,32 +1749,313 @@ export class CollaborationSessions {
     try {
       files = await fs.readdir(folder);
     } catch (error) {
-      if (error && typeof error === "object" && "code" in error && error.code === "ENOENT") return 0;
+      if (error && typeof error === "object" && "code" in error && error.code === "ENOENT") return;
       throw error;
     }
-    let uploaded = 0;
     for (const file of files.filter((name) => name.endsWith(".json"))) {
       const item = JSON.parse(
         await fs.readFile(path.join(folder, file), "utf8"),
       ) as { source: string; uploaded: boolean };
-      if (item.uploaded && !force) continue;
-      const image = this.parseImage(item.source);
-      await this.requestRaw(
-        `/documents/${session.journal.binding.sharedDocumentId}/assets/${file.slice(0, -5)}`,
-        {
-          method: "PUT",
-          headers: { "Content-Type": image.type },
-          body: image.bytes,
-        },
-      );
+      if (item.uploaded) continue;
+      const assetId = file.slice(0, -5);
+      // An image the server will not store no longer holds back every other image and edit. An edit
+      // that still needs it is refused and shown for repair (#251).
+      if (session.refusedAssets?.has(assetId)) continue;
+      try {
+        const image = this.parseImage(item.source);
+        await this.requestRaw(
+          `/documents/${session.journal.binding.sharedDocumentId}/assets/${assetId}`,
+          {
+            method: "PUT",
+            headers: { "Content-Type": image.type },
+            body: image.bytes,
+          },
+        );
+      } catch (error) {
+        if (!isAssetUploadRefusal(error) && !(error instanceof Error && error.message === "INVALID_ASSET")) throw error;
+        (session.refusedAssets ??= new Set()).add(assetId);
+        continue;
+      }
       await durableWrite(
         path.join(folder, file),
         JSON.stringify({ ...item, uploaded: true }),
       );
-      uploaded += 1;
+      session.unsentAssets?.delete(assetId);
+      (session.confirmedAssets ??= new Set()).add(assetId);
     }
     session.uploadedAssetRevision = revision;
-    return uploaded;
+  }
+  /** Stops before sending again edits that wait for the user to repair their images (#251). */
+  private assertNotAwaitingRecovery(session: Session): void {
+    if (!session.recovery) return;
+    if (session.recovery.key === this.recoveryKey(session))
+      throw new CollaborationHttpError(ASSET_RECOVERY_REQUIRED, 400);
+    session.recovery = undefined;
+  }
+  /** Any new edit or image changes the key, and the edits are tried again. */
+  private recoveryKey(session: Session): string {
+    return createHash("sha256").update(JSON.stringify([
+      session.journal.outbox().map((item) => item.identity.operationId),
+      session.pendingAssetRevision ?? 0,
+    ])).digest("hex");
+  }
+  private syncDetail(session: Session): SyncDetail {
+    return {
+      pendingOperations: session.journal.pendingCount(),
+      pendingAssets: [...session.unsentAssets ?? []].filter((id) => !session.refusedAssets?.has(id)).length,
+      ...(session.recovery ? { recovery: { images: session.recovery.images.map((image) => ({ ...image })) } } : {}),
+    };
+  }
+  /**
+   * Sends the unsent edits. Refused for their images (#251), sends the images this device has —
+   * whatever its "uploaded" mark says — and tries again. When an image nobody has was written only by
+   * edits that later removed or replaced it, sends the edits as one merged update, which the server
+   * validates as the resulting document. Edits that still cannot be sent stay in the journal and wait
+   * for the user (`recovery`); the server's latest content is merged in by `/sync` as always.
+   */
+  private async sendOutbox(fileId: string, prefix: string): Promise<void> {
+    const session = this.require(fileId);
+    if (!session.journal.pendingCount()) {
+      session.recovery = undefined;
+      return;
+    }
+    this.assertNotAwaitingRecovery(session);
+    let repaired = false;
+    let merged = false;
+    for (;;) {
+      try {
+        if (merged) await this.sendMerged(fileId, prefix);
+        else await this.sendBatches(fileId, prefix);
+        session.recovery = undefined;
+        session.unresolvedAssets = undefined;
+        return;
+      } catch (error) {
+        if (!isAssetRefusal(error)) throw error;
+        if (!repaired) {
+          repaired = true;
+          const updates = session.journal.outbox().map((item) => fromBase64(item.update));
+          if (await this.repairAssets(fileId, error, updates)) continue;
+        }
+        if (!merged && session.journal.pendingCount() > 1 && this.mergedOutbox(session)) {
+          merged = true;
+          continue;
+        }
+        session.recovery = { key: this.recoveryKey(session), images: this.recoveryImages(session, error) };
+        throw error;
+      }
+    }
+  }
+  /** The unsent edits as one update, when that fits in one operation. */
+  private mergedOutbox(session: Session): { operationIds: string[]; update: Uint8Array } | undefined {
+    const pending = session.journal.outbox();
+    const update = mergeOperationUpdates(pending.map((item) => fromBase64(item.update)));
+    return update.byteLength > MAX_UPDATE_BYTES ? undefined : { operationIds: pending.map((item) => item.identity.operationId), update };
+  }
+  private async sendMerged(fileId: string, prefix: string): Promise<void> {
+    const session = this.require(fileId);
+    const merged = this.mergedOutbox(session);
+    if (!merged) throw new CollaborationHttpError("PAYLOAD_LIMIT", 413);
+    const operationId = mergedOperationId(merged.operationIds);
+    const result = await this.request<{ acks: { operationId: string; seq: number }[] }>(`${prefix}/updates`, {
+      protocol: 1,
+      epoch: session.journal.binding.epoch,
+      operations: [{ operationId, actorId: this.registry.files[fileId].actorId, kind: "manual", update: toBase64(merged.update) }],
+    });
+    validateAcknowledgements(result, [operationId]);
+    // The server holds every merged edit now; a crash before the last acknowledgement resends the
+    // rest, which the server accepts again as nothing.
+    for (const id of merged.operationIds) await session.journal.acknowledge(id);
+    this.logAssetRepair(fileId, { merged: merged.operationIds.length });
+  }
+  /**
+   * Creates the document on the server from its initial state, repairing a refusal for its images as
+   * `sendOutbox` does. When edits made since fix the refused images, the document starts from the
+   * current state instead (those edits are then contained, and the server accepts them again as
+   * nothing). A refused initialization leaves no receipt, so the same operation id can carry it.
+   */
+  private async initializeRemote(fileId: string, prefix: string, initialFile: string, initialState: string): Promise<void> {
+    const session = this.require(fileId);
+    const entry = this.registry.files[fileId];
+    this.assertNotAwaitingRecovery(session);
+    let state = initialState;
+    let repaired = false;
+    let merged = false;
+    for (;;) {
+      try {
+        await this.request(`${prefix}/initialize`, { operationId: entry.operationId, state });
+        session.recovery = undefined;
+        session.unresolvedAssets = undefined;
+        return;
+      } catch (error) {
+        if (!isAssetRefusal(error)) throw error;
+        if (!repaired) {
+          repaired = true;
+          const updates = [fromBase64(state, MAX_DOCUMENT_BYTES), ...session.journal.outbox().map((item) => fromBase64(item.update))];
+          if (await this.repairAssets(fileId, error, updates)) continue;
+        }
+        if (!merged && session.journal.pendingCount()) {
+          merged = true;
+          state = toBase64(session.journal.document.snapshot());
+          await durableWrite(initialFile, state);
+          this.logAssetRepair(fileId, { mergedInitialization: 1 });
+          continue;
+        }
+        session.recovery = { key: this.recoveryKey(session), images: this.recoveryImages(session, error) };
+        throw error;
+      }
+    }
+  }
+  /**
+   * Sends the images the refused content needs, whatever this device's "uploaded" mark says: the ones
+   * the server names (newer servers) and every image the content writes (all servers). An image the
+   * content writes but this document never had is taken from where this device keeps it for another
+   * shared document of this account (pasted from there). Returns whether anything was sent.
+   */
+  private async repairAssets(fileId: string, refusal: CollaborationHttpError, content: Uint8Array[]): Promise<boolean> {
+    const session = this.require(fileId);
+    const sharedId = session.journal.binding.sharedDocumentId;
+    const written = updateAssetReferences(content);
+    const named = new Set(refusal.details.missingAssetIds ?? []);
+    const counts = { resent: 0, adopted: 0, downloaded: 0, unresolved: 0 };
+    for (const assetId of new Set([...named, ...written])) {
+      if (session.refusedAssets?.has(assetId) || session.unresolvedAssets?.has(assetId)) continue;
+      if (!named.has(assetId) && session.confirmedAssets?.has(assetId)) continue;
+      const own: string | undefined = session.assets[assetId] ?? await this.cachedAsset(sharedId, assetId).catch(() => undefined);
+      let source: string | undefined = own ?? (written.has(assetId) ? await this.foreignAssetSource(sharedId, assetId) : undefined);
+      if (source !== undefined) {
+        if (await this.resendAsset(fileId, assetId, source)) counts[own === undefined ? "adopted" : "resent"]++;
+        continue;
+      }
+      // Not on this device. An older server does not name what is missing, so ask for the image.
+      if (!named.has(assetId)) {
+        try {
+          await this.asset(fileId, assetId);
+          counts.downloaded++;
+          continue;
+        } catch (error) {
+          if (!(error instanceof CollaborationHttpError && error.status === 404)) throw error;
+        }
+      }
+      // A copy made from another shared document before #250 kept that document's references.
+      source = written.has(assetId) ? await this.downloadForeignAsset(sharedId, assetId) : undefined;
+      if (source !== undefined) {
+        if (await this.resendAsset(fileId, assetId, source)) counts.adopted++;
+        continue;
+      }
+      (session.unresolvedAssets ??= new Set()).add(assetId);
+      counts.unresolved++;
+    }
+    this.logAssetRepair(fileId, counts);
+    return counts.resent + counts.adopted > 0;
+  }
+  /** Sends one image again and keeps it as uploaded. False when the server will not store it. */
+  private async resendAsset(fileId: string, assetId: string, source: string): Promise<boolean> {
+    const session = this.require(fileId);
+    const sharedId = session.journal.binding.sharedDocumentId;
+    try {
+      const image = this.parseImage(source);
+      await this.requestRaw(`/documents/${sharedId}/assets/${assetId}`, {
+        method: "PUT",
+        headers: { "Content-Type": image.type },
+        body: image.bytes,
+      });
+    } catch (error) {
+      if (!isAssetUploadRefusal(error) && !(error instanceof Error && error.message === "INVALID_ASSET")) throw error;
+      (session.refusedAssets ??= new Set()).add(assetId);
+      return false;
+    }
+    const folder = path.join(this.directory, "assets", sharedId);
+    await fs.mkdir(folder, { recursive: true, mode: 0o700 });
+    await durableWrite(path.join(folder, `${assetId}.json`), JSON.stringify({ source, uploaded: true }));
+    session.assets[assetId] = source;
+    session.unsentAssets?.delete(assetId);
+    (session.confirmedAssets ??= new Set()).add(assetId);
+    this.emit({ type: "asset-ready", fileId, assetId });
+    return true;
+  }
+  /** The image as this device keeps it for another shared document of this account. */
+  private async foreignAssetSource(sharedId: string, assetId: string): Promise<string | undefined> {
+    if (!STORAGE_SOURCE.test(`sigma-doc-storage://${assetId}`)) return undefined;
+    const actor = this.actorId();
+    const others = new Set(Object.values(this.registry.files)
+      .filter((entry) => entry.actorId === actor && entry.sharedDocumentId !== sharedId)
+      .map((entry) => entry.sharedDocumentId));
+    for (const session of this.sessions.values())
+      if (others.has(session.journal.binding.sharedDocumentId) && session.assets[assetId]) return session.assets[assetId];
+    for (const other of others) {
+      const source = await this.cachedAsset(other, assetId).catch(() => undefined);
+      if (source !== undefined) return source;
+    }
+    return undefined;
+  }
+  /**
+   * The image downloaded from the account's other shared document that refers to it — the document it
+   * was copied or pasted from, whose image this device never downloaded. Only the repair of refused
+   * content asks, once per image until the user retries.
+   */
+  private async downloadForeignAsset(sharedId: string, assetId: string): Promise<string | undefined> {
+    if (!STORAGE_SOURCE.test(`sigma-doc-storage://${assetId}`)) return undefined;
+    const actor = this.actorId();
+    const reference = `sigma-doc-storage://${assetId}`;
+    for (const [otherFileId, entry] of Object.entries(this.registry.files)) {
+      if (entry.actorId !== actor || entry.sharedDocumentId === sharedId) continue;
+      const open = this.sessions.get(otherFileId);
+      const document = open ? open.journal.document.project()
+        : this.dormant.has(otherFileId) ? await this.readDormant(otherFileId).catch(() => undefined) : undefined;
+      if (!document || !JSON.stringify(document).includes(reference)) continue;
+      try {
+        const response = await this.requestRaw(`/documents/${entry.sharedDocumentId}/assets/${assetId}`);
+        const source = `data:${response.headers.get("Content-Type")};base64,${Buffer.from(await readResponseBytes(response, MAX_ASSET_BYTES)).toString("base64")}`;
+        this.parseImage(source);
+        return source;
+      } catch (error) {
+        if (!(error instanceof CollaborationHttpError && [403, 404, 410].includes(error.status)) && !(error instanceof Error && error.message === "INVALID_ASSET")) throw error;
+      }
+    }
+    return undefined;
+  }
+  /**
+   * Images an edit writes that this document has never had, copied from another shared document of
+   * this account where this device keeps them (an image pasted from there). They are sent before the
+   * edit like any new image; otherwise the server refuses the edit (#251).
+   */
+  private async adoptForeignAssets(fileId: string, assetIds: Set<string>): Promise<void> {
+    const session = this.require(fileId);
+    const sharedId = session.journal.binding.sharedDocumentId;
+    for (const assetId of assetIds) {
+      if (session.assets[assetId] || await fs.access(path.join(this.directory, "assets", sharedId, `${assetId}.json`)).then(() => true, () => false)) continue;
+      // Usually an image of this document that is not downloaded yet.
+      const source = await this.foreignAssetSource(sharedId, assetId);
+      if (source === undefined) continue;
+      await this.accessAsset(fileId, assetId, source).catch(() => {
+        /* The refusal of the edit repairs or reports it instead. */
+      });
+    }
+  }
+  /** The images in the document that keep the unsent edits from being sent, with their names. */
+  private recoveryImages(session: Session, refusal: CollaborationHttpError): SyncRecoveryImage[] {
+    const images = new Map<string, SyncRecoveryImage>();
+    for (const reference of documentImageReferences(session.journal.document.project())) {
+      if (!reference.assetId) {
+        // The server's document holds no such reference: it comes from these edits.
+        if (!images.has(reference.ownerId))
+          images.set(reference.ownerId, { assetId: reference.ownerId, name: reference.name, reason: "invalid-reference" });
+        continue;
+      }
+      const reason = session.refusedAssets?.has(reference.assetId) ? "refused"
+        : session.unresolvedAssets?.has(reference.assetId) ? "missing" : undefined;
+      if (reason && !images.has(reference.assetId))
+        images.set(reference.assetId, { assetId: reference.assetId, name: reference.name, reason });
+    }
+    if (!images.size)
+      for (const assetId of refusal.details.missingAssetIds ?? [])
+        images.set(assetId, { assetId, name: null, reason: session.refusedAssets?.has(assetId) ? "refused" : "missing" });
+    return [...images.values()].slice(0, 100);
+  }
+  /** Repairs are counted (MISS.md R3): in a normal sync every count is 0 and nothing is logged. */
+  private logAssetRepair(fileId: string, counts: Record<string, number>): void {
+    if (Object.values(counts).some((count) => count > 0))
+      logLedgerEvent(path.join(path.dirname(this.directory), "data"), "shared-asset-repair", { fileId, ...counts });
   }
   private parseImage(source: string): {
     type: string;
@@ -1759,6 +2101,7 @@ export class CollaborationSessions {
       fileId,
       status: session.status,
       role: session.role,
+      detail: this.syncDetail(session),
     });
   }
   private saveRegistry(): Promise<void> {
