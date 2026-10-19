@@ -44,6 +44,7 @@ test("a shrinking shape stops drawing its handles but stays resizable and movabl
     // locale races that restore on English CI hosts and leaves the toolbar in English.
     expect(await page.evaluate(async () => {
       localStorage.setItem("sigma-studio:ui-layout-preference", JSON.stringify({ mode: "docs", onboardingCompleted: true }));
+      localStorage.setItem("sigma-studio:ui-locale", "ja");
       return window.desktopAPI!.settings!.setUiLocale!("ja");
     })).toMatchObject({ ok: true });
     await page.reload();

@@ -15,6 +15,8 @@ async function selectText(page: Page) {
     window.getSelection()!.removeAllRanges(); window.getSelection()!.addRange(range);
     document.dispatchEvent(new Event("selectionchange"));
   });
+  // A caret already has a block-link button. Wait for the debounced text-range action.
+  await expect(page.locator(".selection-action-popover").getByRole("button", { name: "太字", exact: true })).toBeVisible();
 }
 
 test("shared selections copy rich links, paste, and reopen the exact range without changing the saved material", async ({}, testInfo) => {
@@ -66,6 +68,9 @@ test("shared selections copy rich links, paste, and reopen the exact range witho
     await selectText(page); await expect(copy).toBeVisible();
     await page.screenshot({ path: testInfo.outputPath("selection-link-button.png") });
     await copy.click();
+    // The click starts an asynchronous native clipboard write; wait for that write, not a timer.
+    await expect.poll(async () => parseShareLink(await app.evaluate(async ({ clipboard }) => clipboard.readText())))
+      .toMatchObject({ target: { kind: "document" } });
     const clipboard = await app.evaluate(async ({ clipboard }) => {
       const items = await clipboard.read();
       const item = items.find((candidate) => candidate.types.includes("text/html"));

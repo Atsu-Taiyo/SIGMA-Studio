@@ -37,7 +37,7 @@ test("a server refusing a shared document's edits is shown as a refusal, and app
   const actorId = "55555555-5555-4555-8555-555555555555";
   const directory = path.join(profile, "collaboration-v1");
   const repairCount = async () => (await readFile(path.join(profile, "data", "logs", "ledger.log"), "utf8"))
-    .trim().split("\n").filter(line => JSON.parse(line).event === "shared-asset-repair-attempted").length;
+    .trim().split("\n").filter(line => JSON.parse(line).event === "shared-asset-repair").length;
   const remote = new SharedDocument();
   const uploaded = new Map<string, { type: string; bytes: Buffer }>();
   let assetUploads = 0;

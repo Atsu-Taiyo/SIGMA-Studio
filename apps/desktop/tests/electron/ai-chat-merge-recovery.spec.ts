@@ -50,6 +50,7 @@ test("the same AI chat goes on after a failed approval, and a write merges the t
     await page.waitForFunction(() => Boolean(window.desktopAPI));
     await page.evaluate(async () => {
       localStorage.setItem("sigma-studio:ui-layout-preference", JSON.stringify({ mode: "docs", onboardingCompleted: true }));
+      localStorage.setItem("sigma-studio:ui-locale", "ja");
       await window.desktopAPI!.settings!.setUiLocale!("ja");
     });
     const source = ensurePageLayout({ ...sampleDocument, docId: "ai_chat_merge_recovery", metadata: { title: "同じチャットで続ける" }, content: [
@@ -80,7 +81,9 @@ test("the same AI chat goes on after a failed approval, and a write merges the t
         fixture.runResolvers!.push(resolve);
       }));
     });
-    await page.reload();
+    const targetUrl = new URL(page.url());
+    targetUrl.searchParams.set("fileId", fileId);
+    await page.goto(targetUrl.href);
     await expect(page.locator('.text-flow-editor [data-sigma-doc-id="p_target"]')).toBeVisible();
 
     const placeCaret = (blockId: string, at: "start" | "end") => page.evaluate(({ id, edge }) => {
