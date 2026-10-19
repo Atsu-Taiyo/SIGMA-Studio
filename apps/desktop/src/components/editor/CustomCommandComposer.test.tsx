@@ -77,6 +77,47 @@ describe("CustomCommandComposer", () => {
     expect(onSubmit.mock.calls[0][0].actions).toEqual([{ type: "overlayLineWidth", value: "xs" }]);
   });
 
+  it("chooses the font from a grouped list by name, added fonts first, and names the command after it", async () => {
+    const onSubmit = vi.fn();
+    const added = { label: "数研ゴシック", value: "\"Sigma Plugin Font 9f8e7d\"" };
+    await act(async () => {
+      root.render(
+        <CustomCommandComposer
+          fontFamilyOptions={[
+            { label: "追加フォント", options: [added] },
+            { label: "基本", options: [{ label: "M PLUS 1p", value: "'M PLUS 1p', sans-serif" }] },
+          ]}
+          builtInCommands={builtIn}
+          onSubmit={onSubmit}
+          onInvalid={() => {}}
+        />,
+      );
+    });
+    const choose = async (label: string, value: string) => {
+      await act(async () => button(label).click());
+      const option = [...document.querySelectorAll<HTMLElement>('[role="option"]')].find(item => item.textContent?.trim() === value);
+      expect(option).toBeDefined();
+      await act(async () => option!.click());
+    };
+    await choose("操作 1", "フォントに変更");
+    // 値は CSS を打たせず、書体名のメニューから選ぶ。既定は先頭 (追加フォント) の書体。
+    expect(container.querySelector("input[list]")).toBeNull();
+    const fontSelect = button("フォント");
+    expect(fontSelect.textContent).toContain("数研ゴシック");
+    await act(async () => fontSelect.click());
+    const groups = [...document.querySelectorAll<HTMLElement>('[role="group"]')].map((group) => group.getAttribute("aria-label") ?? group.textContent?.split("\n")[0]);
+    expect(groups.join(" ")).toContain("追加フォント");
+    const option = [...document.querySelectorAll<HTMLElement>('[role="option"]')].find(item => item.textContent?.trim() === "M PLUS 1p");
+    expect(option?.style.fontFamily).toContain("M PLUS 1p");
+    await act(async () => option!.click());
+    await choose("フォント", "数研ゴシック");
+    await act(async () => button("追加").click());
+    expect(onSubmit).toHaveBeenCalledWith({
+      label: "フォントを 数研ゴシック に変更",
+      actions: [{ type: "fontFamily", value: added.value }],
+    });
+  });
+
   it("is a single always-open form: one step to start, no toggle", async () => {
     await render(() => {});
     expect(container.querySelectorAll(".custom-command-step")).toHaveLength(1);

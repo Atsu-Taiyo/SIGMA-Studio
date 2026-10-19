@@ -58,6 +58,16 @@ export const command = {
     lineDash: { solid: "Solid", dashed: "Dashed", dotted: "Dotted" },
     lineWidth: { xs: "Extra thin", s: "Thin", m: "Medium", l: "Thick", xl: "Extra thick" },
   },
+  /** 追加フォントごとの書体コマンド。詳細は `../ja/command.ts` を参照。 */
+  addedFont: {
+    label: "Font: {{name}}",
+    description: "Set the selected text to {{name}}",
+    keywords: "typeface added font",
+    group: "Added fonts",
+    groupAssigned: "Keys set: {{n}}",
+    expand: "Show added font commands",
+    collapse: "Hide added font commands",
+  },
   /** コマンドパレット本体の文言。 */
   palette: {
     title: "Command palette",

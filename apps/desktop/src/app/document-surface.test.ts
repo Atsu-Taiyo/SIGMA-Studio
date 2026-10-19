@@ -99,6 +99,7 @@ const EDITOR_CHROME_CLASSES = new Set([
   "page-running-direct-flow",
   "page-running-direct-overlay",
   "page-running-edge",
+  "page-running-edge-value",
   "page-running-editor-band",
   "page-running-editor-label",
   "print-paper-shimmer",

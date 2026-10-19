@@ -46,6 +46,7 @@ import {
   desktopSettingsPath,
   isAiWebSearchEnabled,
   readDesktopSettingsSync,
+  readNewDocumentPageSetup,
   resolveDesktopPromptLocale,
 } from "./desktop-settings";
 import { AUTO_APPLY_DEFER_MS, shouldDeferAutoApply } from "./auto-apply-defer";
@@ -1720,6 +1721,7 @@ function registerIpc() {
     broadcastLocalStoreChange,
     runPostSaveHooks,
     recordRendererSave,
+    readNewDocumentPageSetup: () => readNewDocumentPageSetup(SIGMA_STUDIO_DATA_PATH),
   });
 
   registerWorkspacePreviewIpc({

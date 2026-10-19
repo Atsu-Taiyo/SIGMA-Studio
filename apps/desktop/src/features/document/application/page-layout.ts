@@ -674,7 +674,8 @@ function normalizePageRunningRegion(
   const normalizedBlocks = normalizePageRunningBlocks(input?.blocks);
   return {
     enabled: typeof input?.enabled === "boolean" ? input.enabled : fallback.enabled,
-    heightMm: positiveNumberOr(input?.heightMm, fallback.heightMm),
+    // 0mm も高さとして持つ (帯が場所を取らない)。下限は付けない。
+    heightMm: nonnegativeNumberOr(input?.heightMm, fallback.heightMm),
     offsetMm: nonnegativeNumberOr(input?.offsetMm, fallback.offsetMm),
     showOnFirstPage: typeof input?.showOnFirstPage === "boolean" ? input.showOnFirstPage : fallback.showOnFirstPage,
     blocks: normalizedBlocks ?? fallback.blocks.map(cloneRichBlock),

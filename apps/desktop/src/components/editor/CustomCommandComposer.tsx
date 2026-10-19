@@ -12,6 +12,7 @@ import {
   CUSTOM_BLOCK_STYLE_VALUES,
   formatCustomCommandDescription,
   type CustomBlockStyleValue,
+  type EditorCommandDescriptionOptions,
   type EditorCommandId,
   type EditorCustomCommandAction,
   type ResolvedEditorCommand,
@@ -25,6 +26,9 @@ interface FontFamilyOption {
   value: string;
 }
 
+/** 書体 1 つ、または見出し付きの書体のまとまり (「追加フォント」「基本」など)。 */
+export type FontFamilyOptionItem = FontFamilyOption | { label: string; options: readonly FontFamilyOption[] };
+
 interface StepDraft {
   key: number;
   kind: CustomActionKind;
@@ -33,7 +37,9 @@ interface StepDraft {
 }
 
 export interface CustomCommandComposerProps {
-  fontFamilyOptions: readonly FontFamilyOption[];
+  fontFamilyOptions: readonly FontFamilyOptionItem[];
+  /** 名前を空にしたときに付く名前で、CSS の font-family を書体名で読ませる。 */
+  fontLabel?: EditorCommandDescriptionOptions["fontLabel"];
   /** 「既存のコマンドを実行」で選べる組み込みコマンド (表示用に文言を解決済み)。 */
   builtInCommands: readonly ResolvedEditorCommand[];
   onSubmit: (input: { label: string; actions: EditorCustomCommandAction[] }) => void;
@@ -63,13 +69,15 @@ const DEFAULT_HIGHLIGHT_COLOR = "#fff3c2";
  * 操作は 1 行 = 種類 + 値。複数行あれば上から順に実行される。
  */
 export function CustomCommandComposer({
-  fontFamilyOptions,
+  fontFamilyOptions: fontFamilyItems,
+  fontLabel,
   builtInCommands,
   onSubmit,
   onInvalid,
 }: CustomCommandComposerProps) {
   const t = useT("settings");
   const tCommand = useT("command");
+  const fontFamilyOptions = useMemo(() => flattenFontFamilyOptions(fontFamilyItems), [fontFamilyItems]);
   const createStep = (kind: CustomActionKind) => createStepDraft(kind, fontFamilyOptions, builtInCommands);
   const [label, setLabel] = useState("");
   const [steps, setSteps] = useState<StepDraft[]>(() => [createStep("textFormat")]);
@@ -98,7 +106,10 @@ export function CustomCommandComposer({
     }
 
     // 名前が空なら操作の内容そのものを名前にする (「何をするコマンドか」が名前で読める)。
-    const name = label.trim() || formatCustomCommandDescription(actions, tCommand);
+    // 書体は CSS の値ではなく、メニューと同じ書体名で読ませる。
+    const name = label.trim() || formatCustomCommandDescription(actions, tCommand, {
+      fontLabel: (value) => fontLabel?.(value) ?? fontFamilyOptions.find((option) => option.value === value)?.label,
+    });
     onSubmit({ label: name, actions });
     setLabel("");
     setSteps([createStep("textFormat")]);
@@ -139,7 +150,7 @@ export function CustomCommandComposer({
                 actionKind={step.kind}
                 value={step.value}
                 color={step.color}
-                fontFamilyOptions={fontFamilyOptions}
+                fontFamilyItems={fontFamilyItems}
                 builtInCommands={builtInCommands}
                 onValueChange={(value) => updateStep(step.key, { value })}
                 onColorChange={(color) => updateStep(step.key, { color })}
@@ -272,11 +283,21 @@ function isOneOf<const Value extends string>(value: string, candidates: readonly
   return (candidates as readonly string[]).includes(value);
 }
 
+function isFontFamilyOptionGroup(
+  item: FontFamilyOptionItem,
+): item is { label: string; options: readonly FontFamilyOption[] } {
+  return "options" in item;
+}
+
+function flattenFontFamilyOptions(items: readonly FontFamilyOptionItem[]): FontFamilyOption[] {
+  return items.flatMap((item) => (isFontFamilyOptionGroup(item) ? item.options : [item]));
+}
+
 function CustomCommandValueField({
   actionKind,
   value,
   color,
-  fontFamilyOptions,
+  fontFamilyItems,
   builtInCommands,
   onValueChange,
   onColorChange,
@@ -284,30 +305,14 @@ function CustomCommandValueField({
   actionKind: CustomActionKind;
   value: string;
   color: string;
-  fontFamilyOptions: readonly FontFamilyOption[];
+  fontFamilyItems: readonly FontFamilyOptionItem[];
   builtInCommands: readonly ResolvedEditorCommand[];
   onValueChange: (value: string) => void;
   onColorChange: (value: string) => void;
 }) {
   const t = useT("settings");
   if (actionKind === "fontFamily") {
-    const listId = "custom-command-font-families";
-    return (
-      <>
-        <input
-          list={listId}
-          value={value}
-          aria-label={t("commands.field.fontFamily")}
-          onChange={(event) => onValueChange(event.target.value)}
-          placeholder='"Yu Mincho", serif'
-        />
-        <datalist id={listId}>
-          {fontFamilyOptions.map((option) => (
-            <option key={option.value} value={option.value}>{option.label}</option>
-          ))}
-        </datalist>
-      </>
-    );
+    return <FontFamilySelect value={value} items={fontFamilyItems} onChange={onValueChange} />;
   }
 
   if (actionKind === "fontSize") {
@@ -544,5 +549,38 @@ function ColorValueField({
         />
       </ToolbarPopover>
     </>
+  );
+}
+
+/**
+ * 「フォントを変更」で当てる書体。CSS の値を打たせず、ツールバーの書体メニューと同じ見出し・
+ * 書体名で選ばせる (行はその書体で描く)。名前の頭文字を打つと、その書体へ移れる。
+ */
+function FontFamilySelect({
+  value,
+  items,
+  onChange,
+}: {
+  value: string;
+  items: readonly FontFamilyOptionItem[];
+  onChange: (value: string) => void;
+}) {
+  const t = useT("settings");
+  const options = useMemo<SelectItem[]>(() => items.map((item) => (
+    isFontFamilyOptionGroup(item)
+      ? {
+          label: item.label,
+          options: item.options.map((option) => ({ value: option.value, label: option.label, style: { fontFamily: option.value } })),
+        }
+      : { value: item.value, label: item.label, style: { fontFamily: item.value } }
+  )), [items]);
+  return (
+    <Select
+      aria-label={t("commands.field.fontFamily")}
+      value={value}
+      options={options}
+      placeholder={t("commands.field.fontFamily")}
+      onChange={onChange}
+    />
   );
 }

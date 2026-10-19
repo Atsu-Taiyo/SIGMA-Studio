@@ -8,7 +8,7 @@ import {
   getCommandTargetPolicy,
   shouldDispatchOverlayArrangeShortcut,
   type EditorCommandId,
-  type EditorCustomCommandDefinition,
+  type EditorRuntimeCommandDefinition,
   type EditorShortcutOverrides,
 } from "@/lib/editor-command-shortcuts";
 import type { UiLayoutPreference } from "@/lib/ui-layout-preference";
@@ -17,7 +17,8 @@ import { isCommandShortcutBlockedByTarget, isTextEntryTarget } from "./command-s
 import { createEditorCommandRunner, type EditorCommandActionPorts } from "./editor-command-actions";
 
 export interface EditorCommandConfiguration {
-  customCommands: EditorCustomCommandDefinition[];
+  /** 組み込みの一覧に無いコマンド: ユーザーのカスタムコマンドと、追加フォントごとの書体コマンド。 */
+  customCommands: readonly EditorRuntimeCommandDefinition[];
   shortcutOverrides: EditorShortcutOverrides;
   commandSettingsLoaded: boolean;
   commandSettingsError: string | null;

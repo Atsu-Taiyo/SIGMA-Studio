@@ -1,14 +1,16 @@
 "use client";
 import {
+  captureRunningRegionFitBase,
   enablePageRunningRegion,
   expandMarginsForRunningRegions,
-  fitRunningRegionToContent,
+  fitRunningRegionToEditedContent,
   getRunningRegionBoundsMm,
   MM_TO_PX,
   resizeHorizontalMarginsLayout,
   resizeRunningRegionLayout,
   type PageLayout,
   type PageOverlay,
+  type RunningRegionFitBase,
 } from "@/features/document";
 import { type TextFlowBlock } from "@/features/text-editing";
 import type { Translate } from "@/lib/i18n";
@@ -60,7 +62,14 @@ export function usePageCanvasRunningRegions({ documentId, onRunningRegionEditing
 
   const runningRegionDragRef = useRef<RunningRegionDragState | null>(null);
 
-  const runningRegionContentHeightRef = useRef<Partial<Record<RunningRegionKind, number>>>({});
+  /** いまドラッグしている帯の辺。辺の横に寸法を出すために描画へ渡す。 */
+  const [runningRegionResize, setRunningRegionResize] = useState<{ kind: RunningRegionKind; edge: RunningRegionEdge } | null>(null);
+
+  /**
+   * 編集中の帯ごとの「利用者が決めた大きさ」。`expectedHeightMm` は自動で伸縮させた後の高さで、
+   * 帯がそれと違う高さになっていたら (ドラッグ・ページ設定・元に戻す)、その大きさを新しい基準にする。
+   */
+  const runningRegionFitRef = useRef<Partial<Record<RunningRegionKind, RunningRegionFitBase & { expectedHeightMm: number }>>>({});
 
   const pageMarginDragRef = useRef<PageMarginDragState | null>(null);
 
@@ -72,9 +81,10 @@ export function usePageCanvasRunningRegions({ documentId, onRunningRegionEditing
     pageMarginDragRef.current = null;
     pageLayoutDraftRef.current = null;
     setPageLayoutDraft(null);
+    setRunningRegionResize(null);
   }, []);
   useLayoutEffect(() => {
-    runningRegionContentHeightRef.current = {};
+    runningRegionFitRef.current = {};
     return () => {
       dragCleanupRef.current?.();
       dragCleanupRef.current = null;
@@ -92,6 +102,9 @@ export function usePageCanvasRunningRegions({ documentId, onRunningRegionEditing
   }, [onRunningRegionEditingChange, onSelect, runningRegionEditKind]);
 
   const editRunningRegion = useCallback((kind: RunningRegionKind | null, pageNumber = 1) => {
+    // 編集に入り直すたびに基準を取り直す。前の編集の中身の高さを持ち越すと、描き終わる前の
+    // 空の帯を測った値を「中身が減った」と読み、引き伸ばした帯を縮めてしまう。
+    runningRegionFitRef.current = {};
     setRunningRegionOverlayEditing(false);
     setRunningRegionEditKind(kind);
     if (kind) {
@@ -132,15 +145,22 @@ export function usePageCanvasRunningRegions({ documentId, onRunningRegionEditing
     kind: RunningRegionKind,
     contentHeightPx: number,
   ) => {
-    const previousContentHeightPx = runningRegionContentHeightRef.current[kind];
-    runningRegionContentHeightRef.current[kind] = contentHeightPx;
-    const allowShrink = typeof previousContentHeightPx === "number" && contentHeightPx < previousContentHeightPx - 1;
     const baseLayout = pageLayoutDraftRef.current ?? layout;
-    const nextLayout = fitRunningRegionToContent(baseLayout, kind, contentHeightPx, { allowShrink });
+    const region = baseLayout[kind];
+    const fit = runningRegionFitRef.current[kind];
+    if (!fit || !region || Math.abs(region.heightMm - fit.expectedHeightMm) > 0.01) {
+      // 編集の始まり、または利用者が帯の大きさを変えた直後。いまの大きさが利用者の選んだもの。
+      const base = captureRunningRegionFitBase(baseLayout, kind, contentHeightPx);
+      runningRegionFitRef.current[kind] = base ? { ...base, expectedHeightMm: base.heightMm } : undefined;
+      return;
+    }
+
+    const nextLayout = fitRunningRegionToEditedContent(baseLayout, kind, contentHeightPx, fit);
     if (nextLayout === baseLayout) {
       return;
     }
 
+    fit.expectedHeightMm = nextLayout[kind]?.heightMm ?? fit.expectedHeightMm;
     onPageLayoutChange(nextLayout);
     setPageLayoutDraft(null);
     pageLayoutDraftRef.current = null;
@@ -188,6 +208,7 @@ export function usePageCanvasRunningRegions({ documentId, onRunningRegionEditing
       startBottomMm: bounds.bottomMm,
       baseLayout,
     };
+    setRunningRegionResize({ kind, edge });
 
     const ownedDrag = runningRegionDragRef.current;
     const handlePointerMove = (moveEvent: PointerEvent) => {
@@ -213,6 +234,7 @@ export function usePageCanvasRunningRegions({ documentId, onRunningRegionEditing
       }
       pageLayoutDraftRef.current = null;
       setPageLayoutDraft(null);
+      setRunningRegionResize(null);
 
     };
 
@@ -314,6 +336,7 @@ export function usePageCanvasRunningRegions({ documentId, onRunningRegionEditing
   }, [editRunningRegion, runningRegionEditKind]);
   return {
     pageLayoutDraft,
+    runningRegionResize,
     runningRegionEditKind,
     runningRegionOverlayEditing,
     setRunningRegionOverlayEditing,

@@ -1,4 +1,4 @@
-import type { SigmaDocument } from "@/features/document";
+import { applyNewDocumentPageSetup, deriveNewDocumentPageSetup, type SigmaDocument } from "@/features/document";
 import { areSigmaDocumentsEquivalent } from "@/lib/document-equivalence";
 import { createBlankDocument } from "@/lib/blank-document";
 import { isDocumentTitleExplicit } from "@/lib/document-title";
@@ -27,7 +27,12 @@ export function isPristineUntitledDocument(document: SigmaDocument, revision: nu
   if (revision !== 1 || document.content.length !== 1) return false;
   const baseTitle = document.metadata.title.replace(/[ -][1-9]\d*$/, "");
   if (isDocumentTitleExplicit(baseTitle)) return false;
-  const blank = createBlankDocument(document.metadata.title);
+  // 新しい教材は直前の教材の用紙設定を引き継いで作られる (`applyNewDocumentPageSetup`)。
+  // revision 1 = 作ってから一度も保存されていないので、用紙設定は作成時のもので、比べなくてよい。
+  const blank = applyNewDocumentPageSetup(
+    createBlankDocument(document.metadata.title),
+    deriveNewDocumentPageSetup(document),
+  );
   return isUntouchedNewDocument({
     ...blank,
     docId: document.docId,

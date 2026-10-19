@@ -33,6 +33,7 @@ import { PageRunningRegionOverlay } from "../PageRunningRegionOverlay";
 import { type ClientPoint } from "./caret-focus";
 import { OverlayCanvasEditor } from "./overlay-editor-surface";
 import { PageMarginRuler } from "./page-chrome";
+import { formatMm } from "./page-layout-format";
 import { pageRunningRegionToTextFlowBlocks } from "./running-region-text-model";
 import type { PageMarginEdge,RunningRegionEdge,RunningRegionKind } from "./types";
 import { useOverlayPreviewHandoff } from "./use-overlay-preview-handoff";
@@ -122,6 +123,7 @@ export function RunningRegionControls({
   mathFractionSizing,
   editingKind,
   editingPageNumber,
+  resizing,
   focusRequest,
   historyRevision,
   onEdit,
@@ -154,6 +156,8 @@ export function RunningRegionControls({
   mathFractionSizing?: MathFractionSizing | null;
   editingKind: RunningRegionKind | null;
   editingPageNumber: number;
+  /** いまドラッグしている帯の辺。 */
+  resizing: { kind: RunningRegionKind; edge: RunningRegionEdge } | null;
   focusRequest: number;
   historyRevision: number;
   onEdit: (kind: RunningRegionKind | null, pageNumber?: number) => void;
@@ -218,6 +222,7 @@ export function RunningRegionControls({
         totalPages={totalPages}
         mathFractionSizing={mathFractionSizing}
         editing={editingKind === "header" && pageNumber === editingPageNumber}
+        resizingEdge={resizing?.kind === "header" ? resizing.edge : null}
         focusRequest={focusRequest}
         historyRevision={historyRevision}
         onEdit={onEdit}
@@ -249,6 +254,7 @@ export function RunningRegionControls({
         totalPages={totalPages}
         mathFractionSizing={mathFractionSizing}
         editing={editingKind === "footer" && pageNumber === editingPageNumber}
+        resizingEdge={resizing?.kind === "footer" ? resizing.edge : null}
         focusRequest={focusRequest}
         historyRevision={historyRevision}
         onEdit={onEdit}
@@ -284,6 +290,7 @@ export function RunningRegionBand({
   totalPages,
   mathFractionSizing,
   editing,
+  resizingEdge = null,
   focusRequest,
   historyRevision,
   onEdit,
@@ -314,6 +321,8 @@ export function RunningRegionBand({
   totalPages: number;
   mathFractionSizing?: MathFractionSizing | null;
   editing: boolean;
+  /** この帯のドラッグ中の辺。辺の上に寸法を出す。 */
+  resizingEdge?: RunningRegionEdge | null;
   focusRequest: number;
   historyRevision: number;
   onEdit: (kind: RunningRegionKind | null, pageNumber?: number) => void;
@@ -352,10 +361,20 @@ export function RunningRegionBand({
     metrics.content.widthPx,
     region,
   );
+  // 上の辺と下の辺がそれぞれ何を動かすか。ヘッダーは上の辺が用紙の端からの位置、下の辺が高さ。
+  // フッターは逆に、上の辺が高さ、下の辺が用紙の下端からの位置。
+  const heightText = tEditor("running.heightValue", { replace: { value: formatMm(region.heightMm) } });
+  const offsetText = tEditor(kind === "header" ? "running.fromTopValue" : "running.fromBottomValue", {
+    replace: { value: formatMm(region.offsetMm) },
+  });
+  const edgeValues: Record<RunningRegionEdge, string> = kind === "header"
+    ? { start: offsetText, end: heightText }
+    : { start: heightText, end: offsetText };
 
   return (
     <div
-      className={`page-running-editor-band ${kind} ${editing ? "editing" : ""}`}
+      className={`page-running-editor-band ${kind} ${editing ? "editing" : ""} ${resizingEdge ? "resizing" : ""}`}
+      title={editing ? undefined : tEditor("running.editHint", { replace: { region: label } })}
       style={{
         top: `${top}px`,
         left: `${metrics.margins.leftPx}px`,
@@ -404,22 +423,19 @@ export function RunningRegionBand({
       )}
       {editing && (
         <>
-          <button
-            type="button"
-            className="page-running-edge start"
-            aria-label={tEditor("running.startEdge", { replace: { region: label } })}
-            title={tEditor("running.startEdge", { replace: { region: label } })}
-            onPointerDown={(event) => onEdgePointerDown(kind, "start", event)}
-            onClick={(event) => event.stopPropagation()}
-          />
-          <button
-            type="button"
-            className="page-running-edge end"
-            aria-label={tEditor("running.endEdge", { replace: { region: label } })}
-            title={tEditor("running.endEdge", { replace: { region: label } })}
-            onPointerDown={(event) => onEdgePointerDown(kind, "end", event)}
-            onClick={(event) => event.stopPropagation()}
-          />
+          {(["start", "end"] as const).map((edge) => (
+            <button
+              key={edge}
+              type="button"
+              className={`page-running-edge ${edge} ${resizingEdge === edge ? "active" : ""}`}
+              aria-label={`${tEditor(edge === "start" ? "running.startEdge" : "running.endEdge", { replace: { region: label } })} ${edgeValues[edge]}`}
+              onPointerDown={(event) => onEdgePointerDown(kind, edge, event)}
+              onClick={(event) => event.stopPropagation()}
+            >
+              {/* いまの値。辺に触れている間 (ホバー・ドラッグ) だけ出す。 */}
+              <span className="page-running-edge-value" aria-hidden="true">{edgeValues[edge]}</span>
+            </button>
+          ))}
         </>
       )}
     </div>
@@ -537,8 +553,20 @@ export function RunningRegionDirectEditor({
       return;
     }
 
-    const measuredHeight = Math.max(shell.scrollHeight, shell.getBoundingClientRect().height);
-    onContentHeightChange(kind, measuredHeight);
+    // 測るのは文字の行だけ。枠の内側の余白 (`.text-flow-shell` の padding) を数えると、
+    // 1 行のヘッダーでも帯が 12mm 前後より低くできなかった。エディタが描き終わる前
+    // (`.text-flow-editor` がまだ無い) の空の枠は測らない: 中身が減ったと読み違える。
+    // 描き終わり・折り返しの変化は ResizeObserver で拾う。
+    const report = () => {
+      const content = shell.querySelector<HTMLElement>(".text-flow-editor");
+      if (content) {
+        onContentHeightChange(kind, content.offsetHeight);
+      }
+    };
+    report();
+    const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(report);
+    observer?.observe(shell);
+    return () => observer?.disconnect();
   }, [blocks, kind, onContentHeightChange, overlayEditing, overlayWidth]);
 
   const nextRunningSelectPointRequestId = useCallback(() => {

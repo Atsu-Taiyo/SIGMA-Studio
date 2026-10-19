@@ -61,6 +61,20 @@ export const command = {
     lineDash: { solid: "実線", dashed: "破線", dotted: "点線" },
     lineWidth: { xs: "極細", s: "細い", m: "標準", l: "太い", xl: "極太" },
   },
+  /**
+   * 追加フォント (読み込んだ書体・拡張機能の書体) ごとに自動で作る書体コマンド。
+   * id が書体ごとに変わるので `label` / `description` の 1:1 表には置かず、ここの雛形で組み立てる。
+   * `{{name}}` は書体の表示名 (固有名なので訳さない)。
+   */
+  addedFont: {
+    label: "フォント: {{name}}",
+    description: "選択範囲のフォントを「{{name}}」にします",
+    keywords: "書体 追加フォント",
+    group: "追加フォント",
+    groupAssigned: "キー設定済み {{n}}",
+    expand: "追加フォントのコマンドを表示",
+    collapse: "追加フォントのコマンドを隠す",
+  },
   /** コマンドパレット本体の文言。 */
   palette: {
     title: "コマンドパレット",

@@ -7,8 +7,10 @@ import {
   isAiWebSearchEnabled,
   readDesktopEditorPreferences,
   readDesktopSettingsSync,
+  readNewDocumentPageSetup,
   writeDesktopSettings,
 } from "./desktop-settings";
+import { getDefaultPageLayout } from "@/features/document";
 
 describe("desktop-settings", () => {
   let dir: string;
@@ -71,6 +73,73 @@ describe("desktop-settings", () => {
         }),
       ],
     });
+  });
+
+  it("keeps keys assigned to added fonts' commands across a save and reload", async () => {
+    await writeDesktopSettings(dir, {
+      commandShortcuts: {
+        "format.font.added.plugin-9f8e7d": { primary: true, alt: true, key: "m" },
+        "format.font.added.font_0123abcd": null,
+      },
+    });
+
+    expect(readDesktopSettingsSync(dir).commandShortcuts).toEqual({
+      "format.font.added.plugin-9f8e7d": { primary: true, alt: true, key: "m" },
+      "format.font.added.font_0123abcd": null,
+    });
+  });
+
+  it("remembers the page setup for new materials and forgets it on null", async () => {
+    await writeDesktopSettings(dir, { codexBin: "/usr/local/bin/codex" });
+    await writeDesktopSettings(dir, {
+      newDocumentPageSetup: {
+        pageLayout: { ...getDefaultPageLayout("B5"), marginsMm: { top: 10, right: 10, bottom: 10, left: 10 } },
+        headingNumbering: { enabled: true },
+      },
+    });
+
+    expect(readNewDocumentPageSetup(dir)).toMatchObject({
+      pageLayout: { preset: "B5", marginsMm: { top: 10, right: 10, bottom: 10, left: 10 } },
+      headingNumbering: { enabled: true },
+    });
+    expect(readDesktopSettingsSync(dir).codexBin).toBe("/usr/local/bin/codex");
+    expect(readDesktopEditorPreferences(dir)).toEqual({ fontFamily: null });
+
+    await writeDesktopSettings(dir, { newDocumentPageSetup: undefined });
+    expect(readNewDocumentPageSetup(dir)).toBeNull();
+    expect(readDesktopSettingsSync(dir).codexBin).toBe("/usr/local/bin/codex");
+  });
+
+  it("never remembers a whiteboard or a corrupt page setup", async () => {
+    await writeDesktopSettings(dir, { newDocumentPageSetup: { pageLayout: getDefaultPageLayout("whiteboard") } });
+    expect(readNewDocumentPageSetup(dir)).toBeNull();
+
+    await writeFile(path.join(dir, "settings.json"), JSON.stringify({ codexBin: "/bin/codex", newDocumentPageSetup: { pageLayout: "B5" } }));
+    expect(readNewDocumentPageSetup(dir)).toBeNull();
+    expect(readDesktopSettingsSync(dir)).toEqual({ codexBin: "/bin/codex" });
+  });
+
+  it("drops header images rather than letting the settings file grow without bound", async () => {
+    const hugeLogo = `data:image/png;base64,${"A".repeat(3 * 1024 * 1024)}`;
+    const layout = getDefaultPageLayout("A4");
+    await writeDesktopSettings(dir, {
+      newDocumentPageSetup: {
+        pageLayout: {
+          ...layout,
+          header: {
+            ...layout.header!,
+            enabled: true,
+            blocks: [{ type: "paragraph", id: "school", children: [{ type: "text", text: "○○高校" }] }],
+            overlay: { overlaySnapshot: { version: 1, shapes: [{ id: "logo", type: "image", x: 0, y: 0, rotation: 0, props: { assetId: "asset_logo", w: 10, h: 10 } }], assets: { asset_logo: { id: "asset_logo", type: "image", props: { w: 10, h: 10, name: "logo", isAnimated: false, mimeType: "image/png", src: hugeLogo, fileSize: 1 } } } } },
+          },
+        },
+      },
+    });
+
+    const remembered = readNewDocumentPageSetup(dir);
+    expect(remembered?.pageLayout.header?.blocks).toEqual([{ type: "paragraph", id: "school", children: [{ type: "text", text: "○○高校" }] }]);
+    expect(remembered?.pageLayout.header?.overlay).toBeUndefined();
+    expect((await readFile(path.join(dir, "settings.json"), "utf8")).length).toBeLessThan(64 * 1024);
   });
 
   it("clears an invalid editor font family without clearing other settings", async () => {

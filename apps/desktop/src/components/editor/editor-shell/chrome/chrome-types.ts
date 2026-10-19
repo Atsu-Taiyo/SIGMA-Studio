@@ -50,6 +50,8 @@ import type { RibbonCollapseState, RibbonPanelTabId, RibbonTabState } from "./ri
 export interface EditorChromeCommands {
   commandTooltip: (label: string, commandId: EditorCommandId) => TooltipContent;
   renderMenuShortcut: (commandId: EditorCommandId) => ReactElement | null;
+  /** 書体メニューの行 (CSS の font-family) に割り当てたキーの表示。無ければ undefined。 */
+  fontFamilyShortcut: (fontFamily: string) => string | undefined;
 }
 
 /** 「他のポップオーバーを閉じる」setter 群。呼び出し箇所ごとに閉じる集合が違う（例: 囲み文字は font-family と line-width を閉じない）ため、

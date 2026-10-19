@@ -2,7 +2,6 @@
 
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { PageSettingsDialog } from "@/components/editor/PageSettingsDialog";
@@ -29,10 +28,13 @@ afterEach(async () => {
 });
 
 describe("PageSettingsDialog", () => {
-  it("does not offer the retired fraction sizing setting", () => {
-    const html = renderToStaticMarkup(<PageSettingsDialog onClose={vi.fn()} onChange={vi.fn()} />);
-    expect(html).not.toContain("分数を常に同じ大きさで表示");
-    expect(html).not.toContain("page-settings-math");
+  it("does not offer the retired fraction sizing setting", async () => {
+    await act(async () => {
+      root.render(<PageSettingsDialog onClose={vi.fn()} onChange={vi.fn()} />);
+    });
+    expect(document.body.innerHTML).toContain("page-settings-dialog");
+    expect(document.body.innerHTML).not.toContain("分数を常に同じ大きさで表示");
+    expect(document.body.innerHTML).not.toContain("page-settings-math");
   });
 
   it("英語UIではホワイトボードの説明と操作を英語で表示する", async () => {
@@ -47,25 +49,28 @@ describe("PageSettingsDialog", () => {
     });
     await act(async () => setAppLocale("en"));
 
-    expect(container.textContent).toContain("Infinite canvas");
-    expect(container.textContent).toContain("A body-free canvas that expands in every direction.");
-    expect(container.textContent).not.toContain("無限キャンバス");
+    expect(document.body.textContent).toContain("Infinite canvas");
+    expect(document.body.textContent).toContain("A body-free canvas that expands in every direction.");
+    expect(document.body.textContent).not.toContain("無限キャンバス");
   });
 
-  it("ホワイトボードを内容に合わせて1枚で印刷することを案内する", () => {
-    const html = renderToStaticMarkup(
-      <PageSettingsDialog
-        layout={getDefaultPageLayout("whiteboard")}
-        onClose={vi.fn()}
-        onChange={vi.fn()}
-      />,
-    );
+  it("ホワイトボードを内容に合わせて1枚で印刷することを案内する", async () => {
+    await act(async () => {
+      root.render(
+        <PageSettingsDialog
+          layout={getDefaultPageLayout("whiteboard")}
+          onClose={vi.fn()}
+          onChange={vi.fn()}
+        />,
+      );
+    });
+    const html = document.body.innerHTML;
 
     expect(html).toContain("すべてのオブジェクトが収まる1枚に切り出します。");
     expect(html).not.toContain("利用できません");
     expect(html).not.toContain("印刷タイルサイズ");
-    expect(html).not.toContain("幅 mm");
-    expect(html).not.toContain("高さ mm");
+    expect(html).not.toContain('id="page-custom-width"');
+    expect(html).not.toContain('id="margin-top"');
     expect(html).not.toContain('<option value="A4"');
   });
 
@@ -83,15 +88,15 @@ describe("PageSettingsDialog", () => {
       );
     });
 
-    const preset = container.querySelector<HTMLButtonElement>('[role="combobox"]#page-size-preset')!;
+    const preset = document.querySelector<HTMLButtonElement>('[role="combobox"]#page-size-preset')!;
     await act(async () => preset.click());
     const whiteboard = document.querySelector<HTMLDivElement>('[role="option"][data-value="whiteboard"]');
     expect(whiteboard).not.toBeNull();
     await act(async () => whiteboard!.click());
 
-    expect(container.textContent).toContain("本文ブロックと、本文・本文中の数式に紐づくコメントは削除");
+    expect(document.body.textContent).toContain("本文ブロックと、本文・本文中の数式に紐づくコメントは削除");
     expect(onChange).not.toHaveBeenCalled();
-    const confirm = Array.from(container.querySelectorAll<HTMLButtonElement>("button"))
+    const confirm = Array.from(document.querySelectorAll<HTMLButtonElement>("button"))
       .find((button) => button.textContent?.includes("本文とコメントを削除して切り替える"));
     expect(confirm).toBeDefined();
 
@@ -120,12 +125,96 @@ describe("PageSettingsDialog", () => {
       );
     });
 
-    const apply = Array.from(container.querySelectorAll<HTMLButtonElement>("button"))
-      .find((button) => button.textContent?.trim() === "適用");
-    expect(apply).toBeDefined();
-    await act(async () => apply!.click());
+    await act(async () => findButton("適用").click());
 
     expect(onChange).toHaveBeenCalledTimes(1);
     expect(onChange.mock.calls[0]?.[0]).toMatchObject({ preset: "whiteboard", background: "grid" });
   });
+
+  it("上余白を 10mm にすると、ヘッダーをその中に縮めてそのまま適用する", async () => {
+    // 以前は余白に 10 を入れても、適用でヘッダーの下端 (オフセット + 高さ) まで押し戻されていた。
+    const onChange = vi.fn();
+    const base = getDefaultPageLayout("A4");
+    await act(async () => {
+      root.render(
+        <PageSettingsDialog
+          layout={{
+            ...base,
+            marginsMm: { ...base.marginsMm, top: 19.5 },
+            header: { ...base.header!, enabled: true, offsetMm: 5, heightMm: 14.5 },
+          }}
+          onClose={vi.fn()}
+          onChange={onChange}
+        />,
+      );
+    });
+
+    await typeNumber("#margin-top", "10");
+    expect(document.querySelector<HTMLInputElement>("#page-header-height")?.value).toBe("5");
+    await act(async () => findButton("適用").click());
+
+    expect(onChange.mock.calls[0]?.[0]).toMatchObject({
+      marginsMm: { top: 10 },
+      header: { enabled: true, offsetMm: 5, heightMm: 5 },
+    });
+  });
+
+  it("ヘッダーの高さは 0mm にでき、揃っていた上余白も付いてくる", async () => {
+    const onChange = vi.fn();
+    const base = getDefaultPageLayout("A4");
+    await act(async () => {
+      root.render(
+        <PageSettingsDialog
+          layout={{
+            ...base,
+            marginsMm: { ...base.marginsMm, top: 13 },
+            header: { ...base.header!, enabled: true, offsetMm: 5, heightMm: 8 },
+          }}
+          onClose={vi.fn()}
+          onChange={onChange}
+        />,
+      );
+    });
+
+    await typeNumber("#page-header-height", "0");
+    expect(document.querySelector<HTMLInputElement>("#margin-top")?.value).toBe("5");
+    await act(async () => findButton("適用").click());
+
+    expect(onChange.mock.calls[0]?.[0]).toMatchObject({
+      marginsMm: { top: 5 },
+      header: { enabled: true, offsetMm: 5, heightMm: 0 },
+    });
+  });
+
+  it("ヘッダーを切っている間は位置と高さの欄を出さない", async () => {
+    await act(async () => {
+      root.render(<PageSettingsDialog layout={getDefaultPageLayout("A4")} onClose={vi.fn()} onChange={vi.fn()} />);
+    });
+    expect(document.querySelector("#page-header-height")).toBeNull();
+
+    const toggle = document.querySelector<HTMLButtonElement>('#page-settings-header [role="switch"]')!;
+    await act(async () => toggle.click());
+
+    expect(document.querySelector<HTMLInputElement>("#page-header-height")?.value).toBe("8");
+    expect(document.querySelector<HTMLInputElement>("#page-header-offset")?.value).toBe("5");
+  });
 });
+
+function findButton(text: string): HTMLButtonElement {
+  const button = Array.from(document.querySelectorAll<HTMLButtonElement>("button"))
+    .find((candidate) => candidate.textContent?.trim() === text);
+  expect(button).toBeDefined();
+  return button!;
+}
+
+async function typeNumber(selector: string, value: string) {
+  const input = document.querySelector<HTMLInputElement>(selector)!;
+  expect(input).not.toBeNull();
+  const setValue = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
+  await act(async () => {
+    input.focus();
+    setValue.call(input, value);
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  await act(async () => input.blur());
+}

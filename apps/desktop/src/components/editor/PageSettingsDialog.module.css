@@ -1,0 +1,365 @@
+/* ページ設定。左に紙面の縮小図、右に設定。色は無彩色を基本に、縮小図で触っている部分だけを
+   アクセントで示す (docs/design-rules.md: Monochrome And Gray First)。 */
+
+.dialog {
+  height: min(88vh, 760px);
+}
+
+.title {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-sm);
+}
+
+.body {
+  display: flex;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.workbench {
+  display: grid;
+  grid-template-columns: 248px minmax(0, 1fr);
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.workbench[data-whiteboard] {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.previewPane {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-md);
+  padding: var(--space-xl) var(--space-lg);
+  border-right: 1px solid var(--border-subtle);
+  background: var(--surface-soft);
+}
+
+.previewStage {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  min-height: 300px;
+}
+
+.previewSummary {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+}
+
+.form {
+  min-height: 0;
+  overflow-y: auto;
+  padding: var(--space-xl);
+  overscroll-behavior: contain;
+}
+
+.section + .section {
+  padding-top: var(--space-xl);
+  border-top: 1px solid var(--border-subtle);
+}
+
+.paperRow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: var(--space-md);
+  align-items: start;
+}
+
+.fieldGrid {
+  display: grid;
+  gap: var(--space-md);
+}
+
+.fieldGrid[data-columns="2"] {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.fieldGrid[data-columns="4"] {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.subheading {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.hint {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.whiteboardDescription {
+  padding: var(--space-md);
+  border-radius: var(--radius-control);
+  background: var(--surface-soft);
+  color: var(--text-secondary);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.whiteboardDescription strong {
+  color: var(--text-primary);
+}
+
+.whiteboardDescription p {
+  margin: 0;
+}
+
+/* 余白のプリセット。小さな排他選択なので、選択中は濃い枠ではなく薄いグレーの面で示す。 */
+.segmented {
+  display: inline-flex;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-control);
+  background: var(--surface-soft);
+}
+
+.segment {
+  min-height: 26px;
+  padding: 0 var(--space-md);
+  border: 0;
+  border-radius: calc(var(--radius-control) - 2px);
+  background: transparent;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.segment:hover {
+  color: var(--text-primary);
+}
+
+.segment[aria-pressed="true"] {
+  background: var(--background);
+  box-shadow: 0 0 0 1px var(--border-subtle);
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.segment:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* 選択欄は数値欄と同じ箱に揃える (Select はトリガーの見た目を画面側に任せている)。 */
+.select {
+  width: 100%;
+  min-height: 34px;
+  padding: 0 var(--space-md);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  background: var(--background);
+  font: inherit;
+  font-size: 13px;
+}
+
+.select:hover:not(:disabled),
+.select[aria-expanded="true"] {
+  border-color: var(--border-strong);
+}
+
+.select:focus-visible {
+  border-color: var(--border-strong);
+  outline: none;
+  box-shadow: 0 0 0 2px var(--surface-strong);
+}
+
+/* mm の数値欄: ラベル、−、値、単位、＋ を 1 つの箱に収める。ブラウザ標準のスピナーは出さない。 */
+.mmField {
+  display: grid;
+  gap: var(--space-xs);
+  min-width: 0;
+}
+
+.mmLabel {
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.mmControl {
+  display: grid;
+  grid-template-columns: 26px minmax(0, 1fr) auto 26px;
+  align-items: center;
+  min-height: 34px;
+  padding: 0 3px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  background: var(--background);
+}
+
+.mmControl:focus-within {
+  border-color: var(--border-strong);
+  box-shadow: 0 0 0 2px var(--surface-strong);
+}
+
+.mmControl input {
+  width: 100%;
+  min-width: 0;
+  min-height: 28px;
+  padding: 0 2px;
+  border: 0;
+  background: transparent;
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  appearance: textfield;
+}
+
+.mmControl input::-webkit-inner-spin-button,
+.mmControl input::-webkit-outer-spin-button {
+  margin: 0;
+  appearance: none;
+}
+
+.mmControl input:focus-visible {
+  outline: none;
+}
+
+.mmUnit {
+  padding: 0 var(--space-xs) 0 2px;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.stepButton {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-round);
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.stepButton:hover:not(:disabled) {
+  background: var(--surface-muted);
+  color: var(--text-primary);
+}
+
+.stepButton:disabled {
+  color: var(--text-disabled);
+  cursor: default;
+}
+
+.stepButton:focus-visible {
+  outline: 2px solid var(--border-strong);
+  outline-offset: 1px;
+}
+
+.errors {
+  padding: var(--space-sm) var(--space-md);
+  border: 1px solid #e9b8b8;
+  border-radius: var(--radius-control);
+  background: #fff7f7;
+  color: var(--danger);
+  font-size: 12px;
+}
+
+.errors p {
+  margin: 0;
+}
+
+.footer {
+  display: flex;
+  flex: 0 0 auto;
+  justify-content: flex-end;
+  gap: var(--space-sm);
+  padding: var(--space-md) var(--space-xl);
+  border-top: 1px solid var(--border-subtle);
+}
+
+.confirmBody {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+/* ---- 縮小図 ---- */
+
+.previewSvg {
+  display: block;
+  overflow: visible;
+}
+
+.previewPaper {
+  fill: var(--background);
+}
+
+.previewPaperEdge {
+  fill: none;
+  stroke: var(--border-strong);
+  stroke-width: 1px;
+  vector-effect: non-scaling-stroke;
+}
+
+.previewMarginHighlight {
+  fill: color-mix(in srgb, var(--accent) 16%, transparent);
+}
+
+.previewBody {
+  fill: var(--surface-soft);
+  stroke: var(--border);
+  stroke-width: 1px;
+  stroke-dasharray: 3 2;
+  vector-effect: non-scaling-stroke;
+}
+
+.previewBody[data-active] {
+  stroke: var(--accent);
+  stroke-dasharray: none;
+}
+
+.previewLine {
+  fill: var(--surface-strong);
+}
+
+.previewBand rect {
+  fill: color-mix(in srgb, var(--accent) 10%, transparent);
+  stroke: color-mix(in srgb, var(--accent) 55%, transparent);
+  stroke-width: 1px;
+  vector-effect: non-scaling-stroke;
+}
+
+.previewBand[data-active] rect {
+  fill: color-mix(in srgb, var(--accent) 22%, transparent);
+  stroke: var(--accent);
+}
+
+.previewBand text {
+  fill: var(--accent);
+  font-weight: 700;
+}
+
+@media (max-width: 720px) {
+  .workbench {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .previewPane {
+    display: none;
+  }
+
+  .paperRow,
+  .fieldGrid[data-columns="4"] {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}

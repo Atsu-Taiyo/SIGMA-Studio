@@ -494,6 +494,8 @@ code {
 }
 
 .page-running-editor-band.editing {
+  /* 0mm の帯は 1 本の線として見せる (高さを偽って広げない)。 */
+  min-height: 0;
   background: rgba(255, 255, 255, 0.72);
   outline: 1px solid rgba(15, 118, 110, 0.42);
   cursor: text;
@@ -507,10 +509,11 @@ code {
   background: rgba(15, 118, 110, 0.025);
 }
 
+/* 帯の名前は帯の外 (左の余白) に、帯の縦の中央へ置く。帯の中に置くと書いた文字に重なる。 */
 .page-running-editor-label {
   position: absolute;
-  top: 3px;
-  left: 6px;
+  top: 50%;
+  right: calc(100% + 8px);
   z-index: 6;
   padding: 1px 6px;
   border: 1px solid rgba(15, 118, 110, 0.22);
@@ -521,6 +524,8 @@ code {
   font-weight: 700;
   line-height: 1.45;
   pointer-events: none;
+  transform: translateY(-50%);
+  white-space: nowrap;
 }
 
 .page-running-edge {
@@ -569,6 +574,36 @@ code {
 
 .page-running-edge.end {
   bottom: -5px;
+}
+
+/* 辺の今の値 (高さ・用紙の端からの位置)。辺に触れている間だけ、つまみの右に出す。 */
+.page-running-edge-value {
+  position: absolute;
+  top: 50%;
+  left: calc(50% + 26px);
+  padding: 1px 6px;
+  border: 1px solid rgba(15, 118, 110, 0.34);
+  border-radius: 999px;
+  background: #ffffff;
+  box-shadow: 0 1px 4px rgba(15, 23, 42, 0.12);
+  color: #0f766e;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1.45;
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(-50%);
+  transition: opacity 120ms ease;
+}
+
+.page-running-edge:is(:hover, :focus-visible, .active) .page-running-edge-value {
+  opacity: 1;
+}
+
+/* ドラッグ中は動かしている辺の値だけを見せる。 */
+.page-running-editor-band.resizing .page-running-edge:not(.active) .page-running-edge-value {
+  opacity: 0;
 }
 
 .page-running-direct-editor {

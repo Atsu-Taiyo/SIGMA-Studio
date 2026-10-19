@@ -4,7 +4,12 @@ import { act, useLayoutEffect } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { EditorCommandId, EditorCustomCommandAction, EditorCustomCommandDefinition } from "@/lib/editor-command-shortcuts";
+import {
+  createAddedFontCommands,
+  type EditorCommandId,
+  type EditorCustomCommandAction,
+  type EditorCustomCommandDefinition,
+} from "@/lib/editor-command-shortcuts";
 import { createTranslator } from "@/lib/i18n";
 
 import { SELECT_BODY_WITH_SHAPES_EVENT } from "../text-flow/body-shape-selection";
@@ -192,6 +197,34 @@ describe("command execution ports", () => {
     expect(f.actions.text.setFontFamily).toHaveBeenCalledWith(expect.any(String));
     expect(f.actions.text.applyInlineFormat).toHaveBeenCalledWith("fontFamily", "");
     expect(f.calls.at(-1)).toEqual(["font-menu", false]);
+  });
+
+  it("applies an added font's own family like the built-in font commands", () => {
+    const f = fixture();
+    const fonts = createAddedFontCommands([
+      { id: "plugin-9f8e7d", displayName: "数研ゴシック", cssFamily: "\"Sigma Plugin Font 9f8e7d\"" },
+    ]);
+    createEditorCommandRunner(fonts, f.actions)("format.font.added.plugin-9f8e7d");
+    expect(f.calls[0]).toEqual(["close-transient"]);
+    expect(f.actions.text.setFontFamily).toHaveBeenCalledWith("\"Sigma Plugin Font 9f8e7d\"");
+    expect(f.actions.text.applyInlineFormat).toHaveBeenCalledWith("fontFamily", "\"Sigma Plugin Font 9f8e7d\"");
+    expect(f.calls.at(-1)).toEqual(["font-menu", false]);
+  });
+
+  it("dispatches a key assigned to an added font through the shared runner", () => {
+    const f = fixture();
+    const fonts = createAddedFontCommands([
+      { id: "plugin-9f8e7d", displayName: "数研ゴシック", cssFamily: "\"Sigma Plugin Font 9f8e7d\"" },
+    ]);
+    f.options.configuration = {
+      ...f.options.configuration,
+      customCommands: fonts,
+      shortcutOverrides: { "format.font.added.plugin-9f8e7d": { key: "m", ctrl: true, alt: true } },
+    };
+    render(f.options);
+    const event = press({ key: "m", code: "KeyM", ctrlKey: true, altKey: true });
+    expect(event.defaultPrevented).toBe(true);
+    expect(f.actions.text.applyInlineFormat).toHaveBeenCalledWith("fontFamily", "\"Sigma Plugin Font 9f8e7d\"");
   });
 
   it("preserves the host's current fill policy and keeps a no-fill action independent from it", () => {

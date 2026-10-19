@@ -1,10 +1,12 @@
 import type { TextAlign } from "@/features/document";
 import { addSelectionToPocket, togglePocketExpanded } from "@/features/pocket";
-import type {
-  CustomBlockStyleValue,
-  EditorCommandId,
-  EditorCustomCommandAction,
-  EditorCustomCommandDefinition,
+import {
+  isEditorAddedFontCommand,
+  isEditorCustomCommand,
+  type CustomBlockStyleValue,
+  type EditorCommandId,
+  type EditorCustomCommandAction,
+  type EditorRuntimeCommandDefinition,
 } from "@/lib/editor-command-shortcuts";
 import type { Translate } from "@/lib/i18n";
 
@@ -105,7 +107,8 @@ export interface EditorCommandActionPorts {
 
 /** Build a runner for one render; keyboard, menu and palette share the host's published runner ref. */
 export function createEditorCommandRunner(
-  customCommands: readonly EditorCustomCommandDefinition[],
+  /** カスタムコマンドと追加フォントの書体コマンド (`EditorRuntimeCommandDefinition`)。 */
+  customCommands: readonly EditorRuntimeCommandDefinition[],
   { text, overlay, menus, application }: EditorCommandActionPorts,
 ): (commandId: EditorCommandId) => void {
   const {
@@ -221,11 +224,18 @@ export function createEditorCommandRunner(
   const run = (commandId: EditorCommandId) => {
     closeTransientCommandSurfaces();
 
-    const customCommand = customCommands.find((command) => command.id === commandId);
-    if (customCommand) {
-      for (const action of customCommand.actions) {
+    const runtimeCommand = customCommands.find((command) => command.id === commandId);
+    if (runtimeCommand && isEditorCustomCommand(runtimeCommand)) {
+      for (const action of runtimeCommand.actions) {
         executeCustomCommandAction(action);
       }
+      return;
+    }
+    if (runtimeCommand && isEditorAddedFontCommand(runtimeCommand)) {
+      // 組み込みの書体コマンド (SHORTCUT_FONT_FAMILIES) と同じ経路で当てる。
+      setFontFamily(normalizeToolbarFontFamily(runtimeCommand.fontFamily));
+      applyInlineFormat("fontFamily", runtimeCommand.fontFamily);
+      setFontFamilyMenuOpen(false);
       return;
     }
 

@@ -392,6 +392,7 @@ function PageCanvasEditorImpl({
   const [textRunDocumentId] = useState(() => createId("text_run_document"));
 const {
     pageLayoutDraft,
+    runningRegionResize,
     runningRegionEditKind,
     runningRegionOverlayEditing,
     setRunningRegionOverlayEditing,
@@ -3205,6 +3206,7 @@ const { candidateCommentTop, pendingCommentTop, commentThreadPositions } = usePa
                   mathFractionSizing={mathFractionSizing}
                   editingKind={runningRegionEditKind}
                   editingPageNumber={runningRegionEditPageNumber}
+                  resizing={runningRegionResize}
                   focusRequest={runningRegionFocusRequest}
                   historyRevision={historyRevision}
                   onEdit={editRunningRegion}

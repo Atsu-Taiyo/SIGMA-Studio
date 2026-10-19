@@ -120,6 +120,39 @@ describe("LocalSigmaDocStore", () => {
     expect((await new LocalSigmaDocStore(userDataDir).loadDocument(row.fileId))?.metadata.title).toBe("既存 名前 2");
   });
 
+  it("creates a blank material with the remembered page setup and falls back to the default paper when it cannot", async () => {
+    await store.initializeWorkspace({ initialDocument: sampleDocument });
+    const created = await store.createDocument({
+      title: "引き継ぐ教材",
+      pageSetup: {
+        pageLayout: {
+          ...createBlankDocument().pageLayout!,
+          preset: "B5",
+          orientation: "landscape",
+          marginsMm: { top: 10, right: 10, bottom: 10, left: 10 },
+          flow: { type: "columns", columnCount: 2, columnGapMm: 6 },
+        },
+        headingNumbering: { enabled: true, depth: 2 },
+      },
+    });
+    expect(created.document.pageLayout).toMatchObject({
+      preset: "B5",
+      orientation: "landscape",
+      pageSize: { widthMm: 257, heightMm: 182 },
+      marginsMm: { top: 10, right: 10, bottom: 10, left: 10 },
+      flow: { columnCount: 2, columnGapMm: 6 },
+    });
+    expect(created.document.metadata.headingNumbering).toEqual({ enabled: true, depth: 2 });
+    expect((await store.loadDocument(created.file.fileId))?.pageLayout?.preset).toBe("B5");
+
+    const corrupt = await store.createDocument({
+      title: "壊れた設定",
+      pageSetup: { pageLayout: { preset: "A4", header: { enabled: true, blocks: [], overlay: { overlaySnapshot: { version: 1, shapes: [{ id: 1 }], assets: {} } } } } } as never,
+    });
+    expect(corrupt.document.pageLayout?.preset).toBe("A4");
+    expect(corrupt.document.content).toHaveLength(1);
+  });
+
   it("does not discard a blank draft if another writer saved content after it was inspected", async () => {
     await store.initializeWorkspace({ initialDocument: sampleDocument });
     const created = await store.createDocument();

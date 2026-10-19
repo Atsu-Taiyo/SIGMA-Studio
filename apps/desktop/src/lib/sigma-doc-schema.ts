@@ -601,7 +601,7 @@ const PageFlowSchema = z.object({
 
 const PageRunningRegionSchema = z.object({
   enabled: z.boolean().optional(),
-  heightMm: z.number().positive().optional(),
+  heightMm: z.number().nonnegative().optional(),
   offsetMm: z.number().nonnegative().optional(),
   showOnFirstPage: z.boolean().optional(),
   blocks: z.array(RichBlockSchema).optional(),

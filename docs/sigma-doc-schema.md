@@ -757,7 +757,7 @@ interface PageRunningRegion {
 | field | role |
 | --- | --- |
 | `enabled` | 出力時に表示するか |
-| `heightMm` | ヘッダー/フッター領域の高さ |
+| `heightMm` | ヘッダー/フッター領域の高さ。0以上 (0は帯が場所を取らない。中身ははみ出して描く) |
 | `offsetMm` | 用紙端から領域までの距離 |
 | `showOnFirstPage` | 1ページ目にも表示するか |
 | `blocks` | 繰り返し表示する本文。`heading` / `paragraph` / `list` |
@@ -774,6 +774,8 @@ interface PageRunningRegion {
 現行データでは `header.content.left` / `center` / `right` のようなスロット構造は持ちません。配置は `blocks[].align` と `overlay` で表します。
 
 有効なrunning regionは `ensurePageLayout` / `expandMarginsForRunningRegions` によって本文余白を広げます。たとえば `header.enabled` がtrueで `offsetMm + heightMm` が現在の上余白より大きい場合、`marginsMm.top` はその値まで拡張されます。
+
+編集画面は、余白と帯をこの規則より先に揃えて保存します。ページ設定で上余白を帯より狭くすると帯を余白の中へ縮め (`setPageMarginMm`)、帯を広げると余白を押し広げます (`setRunningRegionGeometryMm`)。帯の高さは利用者が決めた値を保ち、文字を足して中身が増えたときだけ伸ばします (`fitRunningRegionToEditedContent`)。
 
 ## Overlay
 

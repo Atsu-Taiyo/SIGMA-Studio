@@ -99,8 +99,13 @@ export const editor = {
     footer: "フッター",
     controlsAria: "ヘッダーとフッター",
     editing: "{{region}}編集中",
-    startEdge: "{{region}}の開始位置",
-    endEdge: "{{region}}の終了位置",
+    startEdge: "{{region}}の上端",
+    endEdge: "{{region}}の下端",
+    /** 帯の辺に出す今の値。ヘッダーの上の辺・フッターの下の辺は用紙の端からの位置。 */
+    heightValue: "高さ {{value}}mm",
+    fromTopValue: "上端から {{value}}mm",
+    fromBottomValue: "下端から {{value}}mm",
+    editHint: "ダブルクリックで{{region}}を編集",
     edit: "{{region}}の編集",
   },
   /** 文字や図形を選んだときに、選択の近くへ出る操作バー。書式そのものの文言は chrome / shape を引く。 */

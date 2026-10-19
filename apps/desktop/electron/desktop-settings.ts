@@ -2,11 +2,14 @@ import { readFileSync } from "node:fs";
 import fs from "node:fs/promises";
 import path from "node:path";
 
+import { normalizeNewDocumentPageSetup, type NewDocumentPageSetup } from "@/features/document";
 import { parseEditorCustomCommands, parseEditorShortcutOverrides } from "@/lib/editor-command-shortcuts";
 import { DEFAULT_LOCALE, normalizeLocale, type AppLocale } from "@/lib/i18n/locale";
 
 const MAX_FONT_FAMILY_LENGTH = 512;
 const MAX_CUSTOM_FONTS = 4096;
+// 設定ファイルは起動中に何度も同期で読むので、ヘッダーのロゴ画像などで膨らませない。
+const MAX_NEW_DOCUMENT_PAGE_SETUP_LENGTH = 2 * 1024 * 1024;
 
 export interface DesktopSettings {
   codexBin?: string;
@@ -28,6 +31,8 @@ export interface DesktopSettings {
   // 他の既定値と違いキーの「不在」が「まだ選んでいない」を意味する (= OSロケール検出に
   // 委ねる) ので、既定の ja を選んだ場合もキーを消さずに書く。
   uiLocale?: AppLocale;
+  // 新しい空の教材が引き継ぐ用紙設定 (直前に開いていた教材のもの)。ホワイトボードは入らない。
+  newDocumentPageSetup?: NewDocumentPageSetup;
 }
 
 export interface DesktopCustomFont {
@@ -135,6 +140,14 @@ async function writeDesktopSettingsNow(dataDir: string, settings: DesktopSetting
       delete next.aiWebSearchEnabled;
     }
   }
+  if ("newDocumentPageSetup" in settings) {
+    const pageSetup = normalizeStoredNewDocumentPageSetup(settings.newDocumentPageSetup);
+    if (pageSetup) {
+      next.newDocumentPageSetup = pageSetup;
+    } else {
+      delete next.newDocumentPageSetup;
+    }
+  }
   if ("uiLocale" in settings) {
     const uiLocale = normalizeUiLocale(settings.uiLocale);
     if (uiLocale) {
@@ -156,6 +169,35 @@ export function readDesktopEditorPreferences(dataDir: string): DesktopEditorPref
   return {
     fontFamily: readDesktopSettingsSync(dataDir).editorFontFamily ?? null,
   };
+}
+
+/** 新しい空の教材に当てる用紙設定。無い・読めないときは null (既定の用紙で作る)。 */
+export function readNewDocumentPageSetup(dataDir: string): NewDocumentPageSetup | null {
+  return readDesktopSettingsSync(dataDir).newDocumentPageSetup ?? null;
+}
+
+/**
+ * 保存・読み込みの両方で通す。大きすぎるときはヘッダー/フッターの図形 (画像を含む) を外し、
+ * それでも大きければ覚えない (新しい教材は既定の用紙になるだけで、作成は止めない)。
+ */
+export function normalizeStoredNewDocumentPageSetup(value: unknown): NewDocumentPageSetup | undefined {
+  const pageSetup = normalizeNewDocumentPageSetup(value);
+  if (!pageSetup) {
+    return undefined;
+  }
+  if (JSON.stringify(pageSetup).length <= MAX_NEW_DOCUMENT_PAGE_SETUP_LENGTH) {
+    return pageSetup;
+  }
+  const { header, footer } = pageSetup.pageLayout;
+  const withoutShapes: NewDocumentPageSetup = {
+    ...pageSetup,
+    pageLayout: {
+      ...pageSetup.pageLayout,
+      ...(header ? { header: { ...header, overlay: undefined } } : {}),
+      ...(footer ? { footer: { ...footer, overlay: undefined } } : {}),
+    },
+  };
+  return JSON.stringify(withoutShapes).length <= MAX_NEW_DOCUMENT_PAGE_SETUP_LENGTH ? withoutShapes : undefined;
 }
 
 export function normalizeEditorFontFamily(value: unknown): string | undefined {
@@ -272,6 +314,7 @@ function normalizeDesktopSettings(value: unknown): DesktopSettings {
   const aiAutoApplyVerifiedProposals = parsed.aiAutoApplyVerifiedProposals === true;
   const aiWebSearchEnabled = parsed.aiWebSearchEnabled !== false;
   const uiLocale = normalizeUiLocale(parsed.uiLocale);
+  const newDocumentPageSetup = normalizeStoredNewDocumentPageSetup(parsed.newDocumentPageSetup);
 
   if (codexBin) {
     next.codexBin = codexBin;
@@ -302,6 +345,9 @@ function normalizeDesktopSettings(value: unknown): DesktopSettings {
   }
   if (uiLocale) {
     next.uiLocale = uiLocale;
+  }
+  if (newDocumentPageSetup) {
+    next.newDocumentPageSetup = newDocumentPageSetup;
   }
 
   return next;
