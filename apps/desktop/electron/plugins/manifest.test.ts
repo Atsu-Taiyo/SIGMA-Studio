@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 
 import { EXTENSION_MENU_LIMITS } from "@/lib/extension-contracts";
 
-import { digest, validateCatalog, verifyCatalog, type CatalogPlugin } from "./manifest";
+import { digest, MAX_FILE_BYTES, MAX_PACKAGE_BYTES, MAX_PACKAGE_FILES, validateCatalog, verifyCatalog, type CatalogPlugin } from "./manifest";
 
 const worker = Buffer.from("// worker\nmodule.exports = {};\n");
 
@@ -21,6 +21,35 @@ const button = (id: string, overrides: Record<string, unknown> = {}) => ({
   type: "button", id, label: "取り込む", action: { type: "import-file", command: "convert", extensions: [".smp"] }, ...overrides,
 });
 const menu = (...items: unknown[]) => ({ menu: { sections: [{ title: "見出し", items }] } });
+
+describe("large signed font packages", () => {
+  const font = (index: number, bytes: number) => {
+    const sha256 = index.toString(16).padStart(64, "0");
+    return { path: `fonts/${sha256}.ttf`, kind: "font" as const, sha256, bytes, family: `Family ${index}`, displayName: `Family ${index}`, portable: true, complete: true };
+  };
+
+  it("verifies a signed package with hundreds of complete fonts above the old size limits", () => {
+    const pack = plugin();
+    pack.files.push(...Array.from({ length: 315 }, (_, index) => font(index, 3 * 1024 * 1024)));
+    pack.files[1] = font(0, 37 * 1024 * 1024);
+    const { privateKey, publicKey } = generateKeyPairSync("ed25519");
+    const payload = Buffer.from(JSON.stringify(catalog(pack)));
+    const envelope = { payload: payload.toString("base64"), signature: sign(null, payload, privateKey).toString("base64") };
+    expect(verifyCatalog(envelope, publicKey.export({ type: "spki", format: "pem" }) as string).plugins[0].files).toHaveLength(316);
+  });
+
+  it("still rejects oversized individual assets, packages and file counts", () => {
+    const oversizedFile = plugin();
+    oversizedFile.files.push(font(1, MAX_FILE_BYTES + 1));
+    expect(() => validateCatalog(catalog(oversizedFile))).toThrow("verification-failed");
+    const oversizedPackage = plugin();
+    oversizedPackage.files.push(...Array.from({ length: Math.floor(MAX_PACKAGE_BYTES / MAX_FILE_BYTES) + 1 }, (_, index) => font(index, MAX_FILE_BYTES)));
+    expect(() => validateCatalog(catalog(oversizedPackage))).toThrow("verification-failed");
+    const tooMany = plugin();
+    tooMany.files.push(...Array.from({ length: MAX_PACKAGE_FILES }, (_, index) => font(index, 32)));
+    expect(() => validateCatalog(catalog(tooMany))).toThrow("verification-failed");
+  });
+});
 
 describe("catalog menu contributions", () => {
   it("accepts a catalog without a menu and with a full menu", () => {
