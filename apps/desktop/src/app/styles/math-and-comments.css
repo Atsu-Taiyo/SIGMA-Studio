@@ -433,11 +433,10 @@
   background: rgba(148, 163, 184, 0.55);
 }
 
-/* 本文の選択では、書式の帯と AI・コメントのチップ (選んだところの右下) を分けて出す。
-   帯の末尾の区切りは、帯 1 本にまとめる図形の選択で AI との間に入るもので、帯だけのときは要らない。
-   書式を出せない選択では帯の中身が空になる。 */
-.selection-action-popover--tools > .selection-action-divider:last-child,
-.selection-action-popover--tools:empty {
+/* 帯の末尾の区切りは書式と AI・コメントの間に入るもので、AI・コメントを出せないときは要らない。
+   書式も AI・コメントも出せない選択では帯の中身が空になる。 */
+.selection-action-popover > .selection-action-divider:last-child,
+.selection-action-popover:empty {
   display: none;
 }
 
@@ -1594,7 +1593,7 @@
 }
 
 /* コメントの入力欄 (新しいコメント・返信・編集で共通)。Figma・Claude のコメントと同じく、枠の中に
-   本文を書き、下の段の右端の丸いボタンで送る。左下は「Claude に送信」の切り替え。 */
+   本文を書き、下の段の右端の丸いボタンで送る。 */
 .comment-composer {
   border: 1px solid rgba(15, 23, 42, 0.12);
   border-radius: 12px;
@@ -1641,7 +1640,7 @@
   display: flex;
   min-height: 36px;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-end;
   gap: var(--space-sm);
   padding: var(--space-xs) var(--space-xs) var(--space-xs) var(--space-md);
 }
@@ -1698,55 +1697,6 @@
   color: #111111;
   background: #f1f1f1;
   outline: none;
-}
-
-/* 「Claude に送信」。チェックボックスの見た目のボタン (押しても入力欄の焦点を奪わない)。 */
-.comment-composer-agent-toggle {
-  display: inline-flex;
-  min-width: 0;
-  align-items: center;
-  gap: var(--space-sm);
-  padding: 0;
-  border: 0;
-  color: #555555;
-  background: transparent;
-  font: inherit;
-  font-size: 12px;
-  font-weight: 600;
-  white-space: nowrap;
-  cursor: pointer;
-}
-
-.comment-composer-agent-toggle:hover,
-.comment-composer-agent-toggle:focus-visible {
-  color: #111111;
-  outline: none;
-}
-
-.comment-composer-agent-toggle[aria-checked="true"] {
-  color: #111111;
-}
-
-.comment-composer-checkbox {
-  display: inline-grid;
-  width: 14px;
-  height: 14px;
-  flex: 0 0 auto;
-  place-items: center;
-  border: 1.5px solid #bdbdbd;
-  border-radius: 4px;
-  color: #ffffff;
-  background: #ffffff;
-  transition: background 120ms ease, border-color 120ms ease;
-}
-
-.comment-composer-agent-toggle:focus-visible .comment-composer-checkbox {
-  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.18);
-}
-
-.comment-composer-agent-toggle[aria-checked="true"] .comment-composer-checkbox {
-  border-color: #111111;
-  background: #111111;
 }
 
 .comment-empty-state {

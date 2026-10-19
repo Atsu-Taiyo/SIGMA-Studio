@@ -155,7 +155,7 @@ export interface PageCanvasEditorProps {
   onOverlayActiveToolChange?: (tool: OverlayTool) => void;
   onRunningRegionEditingChange?: (kind: "header" | "footer" | null) => void;
   renderSelectionActions?: (anchor: SigmaCommentAnchor) => React.ReactNode;
-  /** `placement` は、選んだところの右下のチップから押したときのチップの位置 (画面座標)。 */
+  /** `placement` は本文の選択から押したときの錨 (画面座標)。その下に入力欄を浮かべる。 */
   onCommentAnchorRequest?: (anchor: SigmaCommentAnchor, placement?: { left: number; top: number }) => void;
   onCommentAnchorCandidateChange?: (anchor: SigmaCommentAnchor | null) => void;
   onCommentThreadSelect?: (threadId: string) => void;

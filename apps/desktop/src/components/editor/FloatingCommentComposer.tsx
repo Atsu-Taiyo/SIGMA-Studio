@@ -12,7 +12,7 @@ import { useT } from "@/lib/i18n/react";
 import type { LoadCommentMentionCandidates } from "./comment-mentions";
 import styles from "./FloatingCommentComposer.module.css";
 
-/** 押したチップのすぐ下に開く (チップの高さ + 間隔、画面の px)。AI の入力欄と同じ置き方。 */
+/** 錨 (押した部品) のすぐ下に開く (部品の高さ + 間隔、画面の px)。AI の入力欄と同じ置き方。 */
 const BELOW_CHIP_OFFSET_PX = 46;
 const VIEWPORT_MARGIN_PX = 12;
 
@@ -24,8 +24,6 @@ export interface FloatingCommentComposerProps {
   draft: InlineNode[];
   document: SigmaDocument;
   loadMentionCandidates?: LoadCommentMentionCandidates;
-  /** 「Claude に送信」を出すか (AI が動く画面だけ)。 */
-  aiAgentsAvailable?: boolean;
   onDraftChange: (value: InlineNode[]) => void;
   onSubmit: () => void;
   onCancel: () => void;
@@ -34,7 +32,7 @@ export interface FloatingCommentComposerProps {
 }
 
 /**
- * 選んだところの右下のチップから始めたコメントの入力欄。押した場所の下に浮かべ、書き終えた
+ * 本文の選択の「コメント」から始めたコメントの入力欄。選んだところのすぐ下に浮かべ、書き終えた
  * スレッドはコメントの欄に並ぶ。外側を押したら、書きかけを捨てずに欄のカードへ移す。
  */
 export function FloatingCommentComposer({
@@ -44,7 +42,6 @@ export function FloatingCommentComposer({
   draft,
   document,
   loadMentionCandidates,
-  aiAgentsAvailable = false,
   onDraftChange,
   onSubmit,
   onCancel,
@@ -135,7 +132,6 @@ export function FloatingCommentComposer({
           draft={draft}
           mathFractionSizing={document.metadata.mathFractionSizing}
           loadMentionCandidates={loadMentionCandidates}
-          aiAgentsAvailable={aiAgentsAvailable}
           floating
           autoFocus
           onDraftChange={onDraftChange}

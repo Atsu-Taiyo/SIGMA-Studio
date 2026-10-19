@@ -70,7 +70,7 @@ test("boxed runs join, the selection bar's box menu stays open, and an opened bo
 
     // 選択バーの囲み文字メニューは、種類を替えても開いたまま。選択も外れず、上部ツールバーも使える。
     await page.locator('.page-flow [data-sigma-doc-id="p_plain"]').first().click({ clickCount: 3 });
-    const bar = page.locator(".selection-action-popover--tools");
+    const bar = page.locator(".selection-action-popover").filter({ has: page.locator(".boxed-text-menu-trigger") });
     await bar.locator(".boxed-text-menu-trigger").click();
     const menu = page.locator(".boxed-text-menu").first();
     await expect(menu).toBeVisible();

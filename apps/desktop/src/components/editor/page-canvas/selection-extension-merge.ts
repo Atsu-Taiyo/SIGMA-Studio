@@ -7,8 +7,8 @@ import type { SelectionActionPopoverPosition } from "./popover-anchors";
  * 選択に対する 2 つの拡張 — 編集操作 (`tools`) と、機能側 (AI など) の `feature` — を 1 つにまとめる。
  *
  * 紙面は選択の測定とポップオーバーの配置だけを持ち、何が並ぶかは拡張が決める。編集操作は
- * `renderTools` (選択の上の帯)、機能側は `render` (本文の選択では右下のチップ) に出す。
- * 帯 1 本にまとめる面 (図形の選択) では編集操作が先、機能側が後 (「書式 | AIに依頼」)。
+ * `renderTools`、機能側は `render` に出し、選択の上の帯では編集操作が先、機能側が後
+ * (「書式 | AIに依頼」)。書式の帯が無い選択 (カーソルだけ・数式だけ) では、機能側だけを右下のチップに出す。
  * 候補の通知と解除は機能側のもので、編集操作は AI の参照候補を知らない。
  */
 export function mergeSelectionExtensions(

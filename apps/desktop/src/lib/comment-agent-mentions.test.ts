@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { detectCommentAiMention } from "@/lib/ai/comment-mention";
-import { COMMENT_AI_MENTION_AGENTS, findCommentAiMentionAgent, splitCommentAiMentions } from "@/lib/comment-agent-mentions";
+import { COMMENT_AI_MENTION_AGENTS, splitCommentAiMentions } from "@/lib/comment-agent-mentions";
 
 describe("splitCommentAiMentions", () => {
   it("AIメンションだけをチップ用に切り出し、前後の文はそのまま残す", () => {
@@ -29,13 +29,5 @@ describe("splitCommentAiMentions", () => {
     for (const text of ["a@claude.com", "@claudette", "x@codex"]) {
       expect(detectCommentAiMention([{ type: "text", text }]) !== null).toBe(splitCommentAiMentions(text).some((part) => part.agent));
     }
-  });
-});
-
-describe("findCommentAiMentionAgent", () => {
-  it("本文で最初に宛てた AI を返し、人へのメンション (Claude さん) は数えない", () => {
-    expect(findCommentAiMentionAgent([{ type: "text", text: "@codex 直して @claude" }])).toEqual({ name: "Codex", vendor: "openai" });
-    expect(findCommentAiMentionAgent([{ type: "text", text: "@claude", mentionUserId: "person" }, { type: "text", text: " 確認して" }])).toBeNull();
-    expect(findCommentAiMentionAgent([{ type: "text", text: "me@claude.com" }])).toBeNull();
   });
 });
