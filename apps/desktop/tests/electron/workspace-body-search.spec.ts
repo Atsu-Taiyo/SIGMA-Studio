@@ -140,3 +140,97 @@ test("workspace search finds titles at once and streams body matches across work
     await rm(profile, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
   }
 });
+
+test("workspace search displays cached images without generating thumbnails until the search field loses focus", async () => {
+  test.setTimeout(180_000);
+  const root = path.resolve(__dirname, "../..");
+  const profile = await mkdtemp(path.join(tmpdir(), "sigma-search-previews-"));
+  const env: Record<string, string> = {
+    ...Object.fromEntries(Object.entries(process.env).filter((entry): entry is [string, string] => entry[1] !== undefined)),
+    SIGMA_STUDIO_USER_DATA_DIR: profile,
+    SIGMA_COLLABORATION_URL: "", SIGMA_SUPABASE_URL: "", SIGMA_SUPABASE_ANON_KEY: "",
+  };
+  delete env.ELECTRON_RUN_AS_NODE;
+  delete env.SIGMA_STUDIO_DEV_SERVER_URL;
+  if (process.env.SIGMA_STUDIO_E2E_BASE_URL) env.SIGMA_STUDIO_DEV_SERVER_URL = process.env.SIGMA_STUDIO_E2E_BASE_URL;
+  let app = await electron.launch({ args: [root], cwd: root, env });
+  try {
+    let page = await app.firstWindow();
+    await page.waitForFunction(() => Boolean(window.desktopAPI?.storage));
+    const workspaces = await page.evaluate(async () => {
+      await window.desktopAPI!.settings!.setUiLocale!("ja");
+      const api = window.desktopAPI!.storage;
+      const initial = await api.getWorkspaceOverview();
+      const other = await api.createWorkspace("別のワークスペース");
+      if (initial.state !== "ready" || other.state !== "ready") throw new Error("No library");
+      await api.getWorkspaceOverview(initial.overview.activeWorkspaceId);
+      return { initial: initial.overview.activeWorkspaceId, other: other.overview.activeWorkspaceId };
+    });
+    const cachedId = await createMaterial(page, workspaces.initial, "検索対象・画像あり", ["本文"]);
+    const uncachedId = await createMaterial(page, workspaces.other, "検索対象・画像なし", ["画像化する本文"]);
+    const png = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
+    await page.evaluate(async ({ fileId, png }) => {
+      const loaded = await window.desktopAPI!.storage.loadDocumentWithRecovery!(fileId);
+      if (!loaded.ok) throw new Error("load failed");
+      await window.desktopAPI!.workspacePreview!.put(fileId, loaded.revision, png);
+    }, { fileId: cachedId, png });
+
+    const observeBodyReads = async () => {
+      await app.evaluate(({ ipcMain }) => {
+        const handlers = (ipcMain as unknown as { _invokeHandlers: Map<string, (...args: unknown[]) => Promise<unknown>> })._invokeHandlers;
+        const load = handlers.get("storage:load-document")!;
+        const state = globalThis as { previewBodyReads?: string[] };
+        state.previewBodyReads = [];
+        handlers.set("storage:load-document", (...args) => {
+          state.previewBodyReads!.push(args[1] as string);
+          return load(...args);
+        });
+      });
+    };
+    const openSearch = async () => {
+      const url = new URL(page.url());
+      url.pathname = env.SIGMA_STUDIO_DEV_SERVER_URL ? "/workspace" : url.pathname.replace(/index\.html$/, "workspace.html");
+      url.search = new URLSearchParams({ workspaceId: workspaces.initial }).toString();
+      await page.goto(url.href);
+      const search = page.getByPlaceholder("すべてのワークスペースを検索", { exact: true });
+      await expect(page.locator(`[data-item-key="file:${cachedId}"]`).getByTestId("workspace-file-preview-image")).toBeVisible();
+      await search.focus();
+      await app.evaluate(() => { (globalThis as { previewBodyReads?: string[] }).previewBodyReads = []; });
+      await search.fill("検索対象");
+      await expect(page.locator(`[data-item-key="file:${uncachedId}"]`)).toBeVisible();
+      await expect(page.locator(".workspace-body-search-progress")).toHaveCount(0);
+      return search;
+    };
+    await observeBodyReads();
+    const search = await openSearch();
+    const cachedCard = page.locator(`[data-item-key="file:${cachedId}"]`);
+    const uncachedCard = page.locator(`[data-item-key="file:${uncachedId}"]`);
+    await expect(cachedCard.getByTestId("workspace-file-preview-image")).toHaveAttribute("src", png);
+    // Wait past the typing debounce, the completed body search and thumbnail settling.
+    // Cached images still show, while missing images must not start a page canvas.
+    await page.waitForTimeout(2000);
+    await expect(search).toBeFocused();
+    expect(await app.evaluate(() => (globalThis as { previewBodyReads?: string[] }).previewBodyReads)).toEqual([]);
+    await expect(page.locator(".paged-thumbnail-host")).toHaveCount(0);
+    await expect(uncachedCard.getByTestId("workspace-file-preview-image")).toHaveCount(0);
+
+    await search.press("Tab");
+    await expect(uncachedCard.getByTestId("workspace-file-preview-image")).toBeVisible({ timeout: 60_000 });
+    expect(await app.evaluate(() => (globalThis as { previewBodyReads?: string[] }).previewBodyReads)).toEqual([uncachedId]);
+    const generatedPng = await uncachedCard.getByTestId("workspace-file-preview-image").getAttribute("src");
+    await expect.poll(async () => (await readdir(path.join(profile, "workspace-previews"))).length).toBe(2);
+
+    // Restart the real app: the generated image must survive and bypass document loading.
+    await app.close();
+    app = await electron.launch({ args: [root], cwd: root, env });
+    page = await app.firstWindow();
+    await page.waitForFunction(() => Boolean(window.desktopAPI?.storage));
+    await observeBodyReads();
+    await openSearch();
+    await expect(page.locator(`[data-item-key="file:${uncachedId}"]`).getByTestId("workspace-file-preview-image")).toHaveAttribute("src", generatedPng!);
+    expect(await app.evaluate(() => (globalThis as { previewBodyReads?: string[] }).previewBodyReads)).toEqual([]);
+  } finally {
+    await app.close();
+    await rm(profile, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
+  }
+});
