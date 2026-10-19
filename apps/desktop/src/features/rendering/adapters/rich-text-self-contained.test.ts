@@ -5,6 +5,7 @@ import path from "node:path";
 
 import { describe, expect, it } from "vitest";
 
+import type { InlineNode } from "@/features/document";
 import type { RichTextBoxDecoration } from "@/features/rendering/core";
 
 import {
@@ -15,9 +16,12 @@ import {
 
 import {
   boxedSelfContainedStyle,
+  buildInlineRichTextDom,
   MATH_FRAME_SELF_CONTAINED_STYLE,
   underlineRunStyle,
   underlineWaveStrokeStyle,
+  type RichTextDomElement,
+  type RichTextDomNode,
   type RichTextDomStyle,
 } from "./rich-text-dom";
 
@@ -170,6 +174,22 @@ function mergedRules(css: string, ...selectors: string[]): RichTextDomStyle {
   );
 }
 
+function findBoxedElement(nodes: RichTextDomNode[]): RichTextDomElement | undefined {
+  for (const node of nodes) {
+    if (node.kind !== "element") {
+      continue;
+    }
+    if (node.className?.split(" ").includes("boxed-text")) {
+      return node;
+    }
+    const nested = findBoxedElement(node.children);
+    if (nested) {
+      return nested;
+    }
+  }
+  return undefined;
+}
+
 const boxed = (overrides: Partial<RichTextBoxDecoration> = {}): RichTextBoxDecoration => ({
   type: "box",
   math: false,
@@ -291,6 +311,51 @@ describe("the self-contained underline mirrors document-surface.css", () => {
   it("matches the has-math branch", () => {
     expect(underlineRunStyle(true))
       .toEqual(mergedRules(documentSurfaceCss, ".sigma-underline-run:has(.math-preview)"));
+  });
+
+  // A boxed run segment is `inline-flex`, so the run's decoration does not reach its text: the
+  // segment draws the underline itself and lengthens its bottom padding to keep it off the frame.
+  it.each(["solid", "wavy", "dotted", "double"] as const)("matches the %s underline a boxed run segment draws itself", (style) => {
+    const segment = ':is(.boxed-text[data-boxed-run-height-target="true"], .boxed-text [data-boxed-run-height-target="true"])';
+    expect(boxedSelfContainedStyle(boxed({ run: runSegment }), style)).toEqual({
+      ...mergedRules(
+        documentSurfaceCss,
+        ".boxed-text",
+        '.boxed-text[data-boxed-run-height-target="true"]',
+      ),
+      ...ruleDeclarations(documentSurfaceCss, `.sigma-underline-run:not(:has(.math-preview)) ${segment}`),
+      ...(style === "solid" ? {} : ruleDeclarations(
+        documentSurfaceCss,
+        `.sigma-underline-run[data-sigma-doc-underline-style="${style}"]:not(:has(.math-preview)) ${segment}`,
+      )),
+    });
+  });
+
+  it("keeps the underline room in the measured height as well as the drawn one", () => {
+    const room = "var(--boxed-run-underline-room, 0px)";
+    expect(ruleDeclarations(documentSurfaceCss, '.boxed-text[data-boxed-run-height-target="true"]').padding).toContain(room);
+    expect(ruleDeclarations(documentSurfaceCss, '.boxed-run-measuring .boxed-text[data-boxed-run-height-target="true"]').padding)
+      .toContain(room);
+  });
+
+  it("puts the underline on boxed segments of a text-only run and leaves a run with math to its border", () => {
+    const boxedUnderlined: InlineNode = { type: "text", text: "囲み", marks: ["boxed", "underline"] };
+    const textOnly = buildInlineRichTextDom([
+      { type: "text", text: "下線の", marks: ["underline"] },
+      boxedUnderlined,
+    ], { keyPrefix: "boxed-underline" });
+    expect(findBoxedElement(textOnly)?.selfContainedStyle).toMatchObject({
+      "text-decoration-line": "underline",
+      "--boxed-run-underline-room": expect.any(String),
+    });
+
+    const withMath = buildInlineRichTextDom([
+      boxedUnderlined,
+      { type: "mathInline", id: "m", tex: "x^2", display: "inline", marks: ["underline"] },
+    ], { keyPrefix: "boxed-underline-math" });
+    const style = findBoxedElement(withMath)?.selfContainedStyle ?? {};
+    expect(style["text-decoration-line"]).toBeUndefined();
+    expect(style["--boxed-run-underline-room"]).toBeUndefined();
   });
 
   // `.sigma-underline-run:has(.math-preview) * { text-decoration: none }` has no self-contained

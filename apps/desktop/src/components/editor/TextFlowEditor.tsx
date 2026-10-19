@@ -1,4 +1,5 @@
 "use client";
+import { usePreferredFontSeed } from "./text-flow/preferred-font-context";
 import { applyEditorDocumentProjection } from "@/components/tiptap/document-projection";
 
 const sessionProjectionEditors = new WeakSet<TiptapEditor>();
@@ -782,6 +783,7 @@ function TextFlowEditorImpl({
   textRunScopeContainer,
   textRunPreserveEmpty = false,
 }: TextFlowEditorProps) {
+  const { preferredFont, seedPreferredFont, rememberFontFamily } = usePreferredFontSeed();
   const documentSession = useDocumentSession();
   const documentWritable = useDocumentWritable();
   const documentSessionRef = useRef(documentSession);
@@ -1598,6 +1600,8 @@ function TextFlowEditorImpl({
         );
       }
       if (activeEditor.isFocused) {
+        // Native focus/selection synchronization may clear stored marks without moving the caret.
+        seedPreferredFont(activeEditor);
         dispatchDocumentTextFormatState(activeEditor);
       }
     },
@@ -1620,6 +1624,7 @@ function TextFlowEditorImpl({
       }
     },
     onFocus: ({ editor: activeEditor }) => {
+      seedPreferredFont(activeEditor);
       // 跨ぎ選択のグループ外エディタ (ヘッダー/フッター・box 継続 fragment・素材ダイアログ)
       // に焦点が移ったら span を解除する。残すと本文に選択帯が出たままになる。
       clearTextRunSpanOnOutsideFocus(activeEditor);
@@ -1721,6 +1726,10 @@ function TextFlowEditorImpl({
   // remount. Runtime callbacks still read Tiptap's latest options, while the
   // editor is recreated only when extension/editor-prop configuration changes.
   }, [mathEnvironment, mathFractionSizing, readOnlyBoxTitle, showPlaceholder, singleBlock]);
+
+  useEffect(() => {
+    if (editor?.isFocused) seedPreferredFont(editor);
+  }, [editor, preferredFont, seedPreferredFont]);
 
   useLayoutEffect(() => {
     if (!editor || !documentSession) return;
@@ -3019,10 +3028,11 @@ function TextFlowEditorImpl({
   }, [editor, setCodeBlockSettingsPopover]);
 
   const applyContextTextFormat = useCallback((command: "fontFamily" | "lineHeight", value: string) => {
+    if (command === "fontFamily") rememberFontFamily(value);
     window.dispatchEvent(new CustomEvent(FORMAT_TEXT_EVENT, {
       detail: { command, value, target: formatTarget },
     }));
-  }, [formatTarget]);
+  }, [formatTarget, rememberFontFamily]);
 
   return (
     <div

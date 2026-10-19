@@ -1,9 +1,11 @@
-import { resolveDocumentFontFamily, type InlineNode } from "@/features/document";
+import { resolveDocumentFontFamily, type InlineNode, type ListNode } from "@/features/document";
 
 import { hasVisibleInlineText } from "./boxed-inline-runs";
 
 /**
  * リストのマーカー (`(1)` / `1.` / `•`) を「項目本文の直後の字体・大きさ」に合わせるための派生値。
+ * 直後に何も書かれていない (空の) 項目は、同じリストの中で直前に書かれた文字に合わせる
+ * ({@link resolveListItemMarkerTypography})。
  *
  * SigmaDoc には段落レベルのフォントが無く、字体と大きさは inline run が持つ。マーカーは `li` の
  * font を継ぐので、run の内側にある `<span style="font-…">` は `::marker` に絶対届かない。
@@ -73,6 +75,60 @@ export function resolveListMarkerTypography(
     typography.italic = true;
   }
   return Object.keys(typography).length > 0 ? typography : undefined;
+}
+
+/** 最後にグリフを出す run。空の項目のマーカーが「直前に書かれた文字」として読む。 */
+export function trailingListMarkerRun(runs: readonly ListMarkerRun[]): ListMarkerRun | undefined {
+  return runs.findLast((run) => run.hasGlyph);
+}
+
+/**
+ * 1 項目のマーカー。本文に文字があれば先頭 run、無ければ (空の項目) `precedingRun` に合わせる。
+ *
+ * `precedingRun` は同じリスト (入れ子を含む外側のリスト 1 つ) の中で、この項目より前に書かれた
+ * 最後の run。Enter で項目を分けたとき、次に打つ文字が継ぐ書式 (分割した位置の mark) と同じ
+ * ものなので、打ち始めてもマーカーが変わらない。リストの外へは遡らない — 本文は 40 ブロック
+ * ごと・問題エリアごとに別の編集面に分かれ、静的描画もブロック単位で描くので、リストの外を
+ * 読むと面の切れ目で答えが変わる。
+ */
+export function resolveListItemMarkerTypography(
+  runs: readonly ListMarkerRun[],
+  precedingRun: ListMarkerRun | undefined,
+): ListMarkerTypography | undefined {
+  if (runs.some((run) => run.hasGlyph)) {
+    return resolveListMarkerTypography(runs);
+  }
+  return precedingRun ? resolveListMarkerTypography([precedingRun]) : undefined;
+}
+
+/**
+ * SigmaDoc のリスト 1 つ (入れ子を含む) の各項目のマーカー。値が無い項目は入れない。
+ *
+ * 「前に書かれた」の順は描かれる順: 項目の 1 行目 → 続きの段落 → 入れ子のリスト。
+ */
+export function resolveListMarkerTypographies(list: ListNode): Map<string, ListMarkerTypography> {
+  const typographies = new Map<string, ListMarkerTypography>();
+  let precedingRun: ListMarkerRun | undefined;
+  const follow = (children: readonly InlineNode[]) => {
+    precedingRun = trailingListMarkerRun(listMarkerRunsFromInlineNodes(children)) ?? precedingRun;
+  };
+  const visit = (current: ListNode) => {
+    for (const item of current.items) {
+      const typography = resolveListItemMarkerTypography(listMarkerRunsFromInlineNodes(item.children), precedingRun);
+      if (typography) {
+        typographies.set(item.id, typography);
+      }
+      follow(item.children);
+      for (const continuation of item.continuations ?? []) {
+        if (continuation.type !== "divider") {
+          follow(continuation.children);
+        }
+      }
+      item.nested?.forEach(visit);
+    }
+  };
+  visit(list);
+  return typographies;
 }
 
 /**

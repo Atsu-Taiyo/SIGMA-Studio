@@ -80,6 +80,11 @@ export interface SpaceAfterPreviewCohortInput {
   /** 1 ページぶんの縦の刻み (`pageHeightPx + PAGE_GAP_PX`)。 */
   pageStride: number;
   draggedBlockId: string;
+  /**
+   * 掴んだブロックが余白の **上に** 持つ別 id のブロック (リスト項目の続きの段落)。項目の余白は
+   * 最後の続きの下に描かれるので、これらは動かさず、掴んだ辺もこれらの下端で測る。
+   */
+  draggedOwnedBlockIds?: readonly string[];
 }
 
 /**
@@ -95,20 +100,32 @@ export interface SpaceAfterPreviewCohortInput {
  * - ユニットは「そのユニットのブロックが **全部** follower のとき」だけ丸ごと動かし、その
  *   ブロックは個別の印から外す。問題枠・サイドノート・問題番号は殻が持っているので殻ごと
  *   動かすのが正しく、二重に translate されるのも構造的に防げる。
- * - 掴んだブロック自身とその子孫は絶対に含めない。
+ * - 入れ子のブロック (リストの項目・箱の中の段落) はユニットの一員ではないが、同じ規則で
+ *   追従する。リストの 1 項目を掴んだとき、下に続く項目が動かないまま離した瞬間にまとめて
+ *   飛んでいたのはこれが抜けていたため。祖先が追従するものは祖先ごと動くので印を付けない
+ *   (付けると二重に translate される)。ユニットの外 (ヘッダー・フッター) へは広げない。
+ * - 掴んだブロック自身とその子孫、余白の上に持つブロックは絶対に含めない。
  */
 export function resolveSpaceAfterPreviewCohort({
   units,
   blockRects,
   pageStride,
   draggedBlockId,
+  draggedOwnedBlockIds = [],
 }: SpaceAfterPreviewCohortInput): SpaceAfterPreviewCohort {
   const dragged = blockRects.get(draggedBlockId);
   if (!dragged) {
     return EMPTY_COHORT;
   }
 
-  const draggedBottom = dragged.top + (dragged.height ?? 0);
+  const owned = new Set(draggedOwnedBlockIds);
+  const draggedBottom = Math.max(
+    dragged.top + (dragged.height ?? 0),
+    ...draggedOwnedBlockIds.map((blockId) => {
+      const rect = blockRects.get(blockId);
+      return rect ? rect.top + (rect.height ?? 0) : Number.NEGATIVE_INFINITY;
+    }),
+  );
   // 基準は **下端が居るページ**。下余白は最後の行の下に描かれるので、ページを跨いで分割された
   // ブロックでは掴んだ側ではなく続きの側のページで追従が起きる。上端で判定すると、分割された
   // ブロックを掴んだときだけ候補が 0 件になり「ドラッグ中は動かず、離した瞬間に飛ぶ」に戻る。
@@ -117,7 +134,7 @@ export function resolveSpaceAfterPreviewCohort({
   const draggedSpan = horizontalSpan(dragged);
 
   const isFollower = (blockId: string): boolean => {
-    if (blockId === draggedBlockId) {
+    if (blockId === draggedBlockId || owned.has(blockId)) {
       return false;
     }
     const rect = blockRects.get(blockId);
@@ -146,6 +163,17 @@ export function resolveSpaceAfterPreviewCohort({
       continue;
     }
     followerBlockIds.push(...followers);
+  }
+
+  const memberIds = new Set(units.flatMap((unit) => unit.blockIds));
+  for (const blockId of blockRects.keys()) {
+    if (memberIds.has(blockId) || !isFollower(blockId)) {
+      continue;
+    }
+    const ancestors = containerChainOf(blockId, blockRects);
+    if (ancestors.some((ancestorId) => memberIds.has(ancestorId)) && !ancestors.some(isFollower)) {
+      followerBlockIds.push(blockId);
+    }
   }
 
   return { followerUnitIds, followerBlockIds };
@@ -181,14 +209,21 @@ function isDescendantOf(
   ancestorId: string,
   blockRects: ReadonlyMap<string, SpaceAfterPreviewBlockRect>,
 ): boolean {
+  return containerChainOf(blockId, blockRects).includes(ancestorId);
+}
+
+/** 入れ物の id を内側から順に。循環した実測でも止まる。 */
+function containerChainOf(
+  blockId: string,
+  blockRects: ReadonlyMap<string, SpaceAfterPreviewBlockRect>,
+): string[] {
+  const chain: string[] = [];
   const seen = new Set<string>([blockId]);
   let containerId = blockRects.get(blockId)?.containerId;
   while (containerId && !seen.has(containerId)) {
-    if (containerId === ancestorId) {
-      return true;
-    }
+    chain.push(containerId);
     seen.add(containerId);
     containerId = blockRects.get(containerId)?.containerId;
   }
-  return false;
+  return chain;
 }

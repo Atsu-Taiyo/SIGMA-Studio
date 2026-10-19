@@ -146,7 +146,7 @@
   padding:
     calc(var(--boxed-text-padding-y, 0px) + var(--boxed-run-extra-padding-top, 0px))
     var(--boxed-run-padding-right)
-    calc(var(--boxed-text-padding-y, 0px) + var(--boxed-run-extra-padding-bottom, 0px))
+    calc(var(--boxed-text-padding-y, 0px) + var(--boxed-run-extra-padding-bottom, 0px) + var(--boxed-run-underline-room, 0px))
     var(--boxed-run-padding-left);
   /* line-height:1 removes the font's line-box leading so a 0pt frame hugs the
      content top & bottom (みっちり) instead of the large CJK leading gap. */
@@ -208,7 +208,7 @@
   padding:
     var(--boxed-text-padding-y, 0px)
     var(--boxed-run-padding-right)
-    var(--boxed-text-padding-y, 0px)
+    calc(var(--boxed-text-padding-y, 0px) + var(--boxed-run-underline-room, 0px))
     var(--boxed-run-padding-left) !important;
   line-height: 1 !important;
   vertical-align: baseline !important;
@@ -264,6 +264,8 @@
 [data-sigma-doc-boxed-variant="double"] {
   --boxed-text-border-width: 1px;
   --boxed-text-border-style: solid;
+  /* 内側の線の入り込み (outline-offset)。囲みの中の下線はこの線より上に置く。 */
+  --boxed-text-inner-rule-inset: 3px;
   outline: 1px solid var(--boxed-text-border-color, currentColor);
   outline-offset: -3px;
 }
@@ -1133,6 +1135,28 @@ u:has(.math-preview) {
 .sigma-underline-run[data-sigma-doc-underline-style="double"]:not(:has(.math-preview)) {
   text-decoration-style: double;
 }
+
+/* 囲みの区間は inline-flex なので run の下線が中へ届かない。区間自身が下線を引き、枠に重ならない
+   よう下の余白を足す (計測中の規則も足すので高さ揃えに入る)。波線・二重線と二重枠はその分広く。 */
+.sigma-underline-run:not(:has(.math-preview)) :is(.boxed-text[data-boxed-run-height-target="true"], .boxed-text [data-boxed-run-height-target="true"]) {
+  --boxed-run-underline-room: calc(0.2em + 1px + var(--boxed-text-inner-rule-inset, 0px));
+  text-decoration-line: underline;
+  text-decoration-thickness: 1px;
+  text-decoration-color: currentColor;
+  text-underline-offset: 0.12em;
+  text-decoration-skip-ink: auto;
+}
+.sigma-underline-run[data-sigma-doc-underline-style="wavy"]:not(:has(.math-preview)) :is(.boxed-text[data-boxed-run-height-target="true"], .boxed-text [data-boxed-run-height-target="true"]) {
+  --boxed-run-underline-room: calc(0.2em + 3px + var(--boxed-text-inner-rule-inset, 0px));
+  text-decoration-style: wavy;
+}
+.sigma-underline-run[data-sigma-doc-underline-style="dotted"]:not(:has(.math-preview)) :is(.boxed-text[data-boxed-run-height-target="true"], .boxed-text [data-boxed-run-height-target="true"]) {
+  text-decoration-style: dotted;
+}
+.sigma-underline-run[data-sigma-doc-underline-style="double"]:not(:has(.math-preview)) :is(.boxed-text[data-boxed-run-height-target="true"], .boxed-text [data-boxed-run-height-target="true"]) {
+  --boxed-run-underline-room: calc(0.2em + 3px + var(--boxed-text-inner-rule-inset, 0px));
+  text-decoration-style: double;
+}
 .sigma-underline-run[data-sigma-doc-underline-style="dotted"]:has(.math-preview) {
   border-bottom: 1.25px dotted currentColor;
 }
@@ -1439,9 +1463,10 @@ ol[data-list-marker="paren"] {
   list-style-type: sigma-doc-paren-decimal;
 }
 
-/* マーカーは項目本文の「直後」= 先頭 run の書体・大きさに合わせる。値は li に載る 2 つの
-   カスタムプロパティで、編集中の ProseMirror・静的描画 (印刷/PDF/ビューア)・AI プレビューが
-   同じ純関数から同じものを出す。SigmaDoc には何も足さない派生値。
+/* マーカーは項目本文の「直後」= 先頭 run の書体・大きさに合わせる。空の項目は同じリストの中で
+   直前に書かれた run に合わせる。値は li に載るカスタムプロパティで、編集中の ProseMirror・
+   静的描画 (印刷/PDF/ビューア)・AI プレビューが同じ純関数から同じものを出す。
+   SigmaDoc には何も足さない派生値。
    未設定の項目では var() が fallback の inherit に落ちるので、既存文書の計算値は変わらない。 */
 :is(ol, ul) {
   /* カスタムプロパティは継承するので、このリセットが無いと「親項目が明朝なら入れ子の子項目の

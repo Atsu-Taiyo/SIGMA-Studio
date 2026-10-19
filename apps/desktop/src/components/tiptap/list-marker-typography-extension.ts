@@ -10,7 +10,7 @@ import {
 } from "@/features/rendering/adapters";
 import {
   listMarkerRunHasGlyph,
-  resolveListMarkerTypography,
+  resolveListItemMarkerTypography,
   type ListMarkerRun,
 } from "@/features/rendering/core";
 import { parseCssFontSizeToPt } from "@/lib/font-size-units";
@@ -24,7 +24,9 @@ const BOLD_MARK_NAME = "bold";
 const ITALIC_MARK_NAME = "italic";
 
 /**
- * The typography of the item's first run, projected onto the `li` for `::marker` to read.
+ * The typography of the item's first run, projected onto the `li` for `::marker` to read. An empty
+ * item takes the last run written before it in the same outermost list
+ * (`resolveListItemMarkerTypography`), which is also what the static renderer does.
  *
  * The editing surface and the static renderer disagree about where `data-sigma-doc-id` lives (the
  * inner `p` here, the `li` there), so this has to be a node decoration on the `listItem` itself:
@@ -35,20 +37,26 @@ const ITALIC_MARK_NAME = "italic";
  */
 export function createListMarkerTypographyDecorations(doc: ProseMirrorNode): DecorationSet {
   const decorations: Decoration[] = [];
+  let precedingRun: ListMarkerRun | undefined;
 
   countDecorationBlockWalk();
-  doc.descendants((node, pos) => {
+  doc.descendants((node, pos, parent) => {
     // A textblock or a leaf cannot contain a list item, and descending into inline content on
     // every document change is what made typing slow in this editor before.
     if (node.isTextblock || node.isLeaf) {
       return false;
     }
     if (node.type.name !== LIST_ITEM_NODE_NAME) {
+      // An outermost list starts a new run of "what was written before"; a nested one continues
+      // its parent item's. Pre-order puts a nested list after its parent item's own text.
+      if (node.firstChild?.type.name === LIST_ITEM_NODE_NAME && parent?.type.name !== LIST_ITEM_NODE_NAME) {
+        precedingRun = undefined;
+      }
       return true;
     }
 
     const style = cssTextFromDeclarations(
-      listMarkerTypographyVars(resolveListMarkerTypography(listItemMarkerRuns(node))),
+      listMarkerTypographyVars(resolveListItemMarkerTypography(listItemMarkerRuns(node), precedingRun)),
     );
     if (style) {
       decorations.push(Decoration.node(pos, pos + node.nodeSize, {
@@ -58,6 +66,11 @@ export function createListMarkerTypographyDecorations(doc: ProseMirrorNode): Dec
         style,
       }));
     }
+    node.forEach((child) => {
+      if (child.isTextblock) {
+        precedingRun = trailingMarkerRun(child) ?? precedingRun;
+      }
+    });
     // Keep descending: a nested list inside this item has its own items to decorate.
     return true;
   });
@@ -65,11 +78,22 @@ export function createListMarkerTypographyDecorations(doc: ProseMirrorNode): Dec
   return decorations.length > 0 ? DecorationSet.create(doc, decorations) : DecorationSet.empty;
 }
 
+/** The last run of a textblock that draws something, read from the end. */
+function trailingMarkerRun(textblock: ProseMirrorNode): ListMarkerRun | undefined {
+  for (let index = textblock.childCount - 1; index >= 0; index -= 1) {
+    const run = markerRun(textblock.child(index));
+    if (run?.hasGlyph) {
+      return run;
+    }
+  }
+  return undefined;
+}
+
 /**
  * The item's runs, stopping at the first one that draws something.
  *
- * `resolveListMarkerTypography` only looks at that run, so there is no reason to describe the rest
- * of the paragraph on every document change.
+ * `resolveListItemMarkerTypography` only looks at that run, so there is no reason to describe the
+ * rest of the paragraph on every document change.
  */
 function listItemMarkerRuns(item: ProseMirrorNode): ListMarkerRun[] {
   const paragraph = item.firstChild;
@@ -116,7 +140,7 @@ function markerRun(node: ProseMirrorNode): ListMarkerRun | undefined {
     fontSizePt: parseCssFontSizeToPt(styled?.attrs.fontSize),
     color: typeof color === "string" && color.length > 0 ? color : undefined,
     // 太字・斜体は SigmaDoc では `marks` の値、編集面では別々の mark。どちらの経路も
-    // `resolveListMarkerTypography` に同じ形で渡すことで、判断が 1 箇所に留まる。
+    // `resolveListItemMarkerTypography` に同じ形で渡すことで、判断が 1 箇所に留まる。
     bold: node.marks.some((mark) => mark.type.name === BOLD_MARK_NAME),
     italic: node.marks.some((mark) => mark.type.name === ITALIC_MARK_NAME),
   };

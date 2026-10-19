@@ -112,4 +112,35 @@ describe("createSpaceAfterPreviewDecorations", () => {
 
     expect(decoratedIds(doc, set)).toEqual(["p2"]);
   });
+
+  it("marks a following list item on the li, so its number moves with it, and nothing inside it twice", () => {
+    const listSchema = new Schema({
+      nodes: {
+        doc: { content: "block+" },
+        paragraph: { group: "block", content: "text*", attrs: { sigmaDocId: { default: "" } }, toDOM: () => ["p", 0] as const },
+        bulletList: { group: "block", content: "listItem+", attrs: { sigmaDocId: { default: "" } }, toDOM: () => ["ul", 0] as const },
+        listItem: { content: "paragraph block*", toDOM: () => ["li", 0] as const },
+        text: {},
+      },
+    });
+    const paragraph = (id: string) => listSchema.node("paragraph", { sigmaDocId: id }, listSchema.text(id));
+    const doc = listSchema.node("doc", null, [
+      listSchema.node("bulletList", { sigmaDocId: "list" }, [
+        listSchema.node("listItem", null, [
+          paragraph("li_a"),
+          listSchema.node("bulletList", { sigmaDocId: "nested_list" }, [listSchema.node("listItem", null, [paragraph("nested_item")])]),
+        ]),
+        listSchema.node("listItem", null, [paragraph("li_b"), paragraph("li_b_cont")]),
+      ]),
+    ]);
+    const set = createSpaceAfterPreviewDecorations(doc, {
+      blockId: "li_a",
+      followerBlockIds: ["nested_list", "li_b", "li_b_cont"],
+    });
+
+    expect(set.find().map((decoration) => {
+      const node = doc.nodeAt(decoration.from);
+      return `${node?.type.name}:${node?.type.name === "listItem" ? node.firstChild?.attrs.sigmaDocId : node?.attrs.sigmaDocId}`;
+    }).sort()).toEqual(["bulletList:nested_list", "listItem:li_b"]);
+  });
 });
