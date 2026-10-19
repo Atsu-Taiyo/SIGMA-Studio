@@ -25,12 +25,13 @@ test("shared selections copy rich links, paste, and reopen the exact range witho
   const profile = await mkdtemp(path.join(tmpdir(), "sigma-selection-links-"));
   const env: Record<string, string> = { ...Object.fromEntries(Object.entries(process.env).filter((entry): entry is [string, string] => entry[1] !== undefined)), SIGMA_STUDIO_USER_DATA_DIR: profile, SIGMA_COLLABORATION_URL: "", SIGMA_SUPABASE_URL: "", SIGMA_SUPABASE_ANON_KEY: "" };
   delete env.ELECTRON_RUN_AS_NODE;
-  const app = await electron.launch({ args: [root], cwd: root, env });
+  const app = await electron.launch({ args: [root, "--lang=en-US"], cwd: root, env });
   try {
     const page = await app.firstWindow();
     await page.waitForFunction(() => Boolean(window.desktopAPI?.storage));
     await page.evaluate(async () => {
       localStorage.setItem("sigma-studio:ui-layout-preference", JSON.stringify({ mode: "docs", onboardingCompleted: true }));
+      localStorage.setItem("sigma-studio:ui-locale", "ja");
       await window.desktopAPI!.settings!.setUiLocale!("ja");
     });
     const source = ensurePageLayout({ ...sampleDocument, version: "2.0", docId: "selection-link-document", metadata: { title: "選択リンク検証" }, content: [
