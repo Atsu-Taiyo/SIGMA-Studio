@@ -85,8 +85,8 @@ describe("AiChatInlineSurface result", () => {
 
   it("adds the merge notice to its bar when the proposal content is merged with the human's edits", () => {
     const html = renderSurface({ isMergedWithHumanEdits: (preview) => preview === proposal });
-    expect(html).toContain("あなたの編集と合わせた内容です");
-    expect(renderSurface()).not.toContain("あなたの編集と合わせた内容です");
+    expect(html).toContain("現在の編集内容に合わせて提案を調整しました。");
+    expect(renderSurface()).not.toContain("現在の編集内容に合わせて提案を調整しました。");
   });
 });
 

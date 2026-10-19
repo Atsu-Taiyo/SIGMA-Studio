@@ -180,6 +180,7 @@ function toProposalMergeReport(
     anchorRelocated: 0,
     legacyNoBase: 0,
     humanEditedUnits: [...(report?.mergedUnits ?? [])],
+    alreadyApplied: 0,
     droppedHumanEdits: [...(report?.droppedHumanEdits ?? [])],
     droppedAiEdits: [...(report?.droppedAiEdits ?? [])],
   };

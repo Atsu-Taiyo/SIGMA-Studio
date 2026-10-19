@@ -347,14 +347,14 @@ describe("mergeInline3", () => {
       expect(mergeInline3(base, ours, theirs).value).toEqual([text("重要")]);
     });
 
-    it("takes the AI value when both sides set the same key differently", () => {
+    it("keeps the human's value when both sides set the same key differently", () => {
       const base = [text("重要です")];
       const ours = [text("重要", { color: "#0000ff" }), text("です")];
       const theirs = [text("重要", { color: "#ff0000" }), text("です")];
 
       const merged = mergeInline3(base, ours, theirs);
 
-      expect(merged.value).toEqual([text("重要", { color: "#ff0000" }), text("です")]);
+      expect(merged.value).toEqual([text("重要", { color: "#0000ff" }), text("です")]);
       expect(merged.report.overlaps).toEqual(["$"]);
     });
   });
@@ -373,13 +373,13 @@ describe("mergeEntity3", () => {
     expect(merged.report.overlaps).toEqual([]);
   });
 
-  it("takes the AI value where both sides changed the same value, and reports the path", () => {
+  it("keeps the human's value where both sides changed the same value, and reports the path", () => {
     const ours = { ...shape, style: { ...shape.style, fill: "#ff0000" } };
     const theirs = { ...shape, style: { ...shape.style, fill: "#00ff00" } };
 
     const merged = mergeEntity3(shape, ours, theirs);
 
-    expect(merged.value).toEqual(theirs);
+    expect(merged.value).toEqual(ours);
     expect(merged.report.overlaps).toEqual(["$.style.fill"]);
   });
 
@@ -480,10 +480,10 @@ describe("mergeEntity3", () => {
       expect(merged.report.overlaps).toEqual([]);
     });
 
-    it("takes the AI node when both sides changed the type differently", () => {
+    it("keeps the human's node when both sides changed the type differently", () => {
       const merged = mergeEntity3<object>(base, heading, list);
 
-      expect(merged.value).toEqual(list);
+      expect(merged.value).toEqual(heading);
       expect(merged.report.overlaps).toEqual(["$"]);
     });
   });
@@ -525,18 +525,18 @@ describe("mergeEntity3", () => {
     expect(merged.report.overlaps).toEqual(["$.title"]);
   });
 
-  it("takes the AI string for a plain string key both sides added differently", () => {
+  it("keeps the human's string for a plain string key both sides added differently", () => {
     const box = { id: "b1", type: "box", blocks: [] };
     const merged = mergeEntity3<Record<string, unknown>>(box, { ...box, title: "Intro" }, { ...box, title: "Summary" });
 
-    expect(merged.value).toEqual({ ...box, title: "Summary" });
+    expect(merged.value).toEqual({ ...box, title: "Intro" });
     expect(merged.report.overlaps).toEqual(["$.title"]);
   });
 
-  it("takes the AI value for a key both sides added differently", () => {
+  it("keeps the human's value for a key both sides added differently", () => {
     const merged = mergeEntity3<Record<string, unknown>>(shape, { ...shape, label: "人" }, { ...shape, label: "AI" });
 
-    expect(merged.value).toEqual({ ...shape, label: "AI" });
+    expect(merged.value).toEqual({ ...shape, label: "人" });
     expect(merged.report.overlaps).toEqual(["$.label"]);
   });
 
@@ -551,10 +551,10 @@ describe("mergeEntity3", () => {
     expect(merged.report.overlaps).toEqual([]);
   });
 
-  it("takes the AI array whole when both sides changed an overlapping index", () => {
+  it("keeps the human's array whole when both sides changed an overlapping index", () => {
     const merged = mergeEntity3({ columnStartIds: ["a", "b"] }, { columnStartIds: ["b", "a"] }, { columnStartIds: ["a", "c"] });
 
-    expect(merged.value).toEqual({ columnStartIds: ["a", "c"] });
+    expect(merged.value).toEqual({ columnStartIds: ["b", "a"] });
     expect(merged.report.overlaps).toEqual(["$.columnStartIds"]);
   });
 
@@ -565,7 +565,7 @@ describe("mergeEntity3", () => {
 
     const merged = mergeEntity3(base, ours, theirs);
 
-    expect(merged.value).toEqual(theirs);
+    expect(merged.value).toEqual(ours);
     expect(merged.report.overlaps).toEqual(["$.tags", "$.points"]);
   });
 
@@ -677,13 +677,13 @@ describe("mergeEntity3", () => {
       expect(texts(mergeEntity3(base, ours, theirs).value)).toEqual(["p1:壱", "p3:三", "p2:二"]);
     });
 
-    it("takes the AI order when both sides reordered differently", () => {
+    it("keeps the human's order when both sides reordered differently", () => {
       const ours = [paragraph("p2", "二"), paragraph("p1", "一"), paragraph("p3", "三")];
       const theirs = [paragraph("p3", "三"), paragraph("p1", "一"), paragraph("p2", "二")];
 
       const merged = mergeEntity3(base, ours, theirs);
 
-      expect(texts(merged.value)).toEqual(["p3:三", "p1:一", "p2:二"]);
+      expect(texts(merged.value)).toEqual(["p2:二", "p1:一", "p3:三"]);
       expect(merged.report.overlaps).toEqual(["$"]);
     });
 

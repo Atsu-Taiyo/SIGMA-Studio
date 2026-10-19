@@ -21,7 +21,8 @@ import type { LocalMcpEditProposal } from "../proposals/contracts";
 import { collectOccupiedInsertIds } from "../proposals/freshness";
 import { replayProposalDraft } from "../proposals/replay";
 import { createSharedProposalApprover } from "./proposal-approval";
-import { approvalFile, observeSharedRead, readSharedProposal, withSharedReadScope } from "./proposal-context";
+import { approvalFile, readSharedProposal } from "./proposal-context";
+import { observeDocumentRead, withDocumentReadScope } from "../ai-read-state";
 import { CollaborationHttpError } from "./transport";
 
 const te = createCurrentLocaleTranslator("error");
@@ -173,21 +174,24 @@ function createSharedSession(userData: string, fileId: string, document: SigmaDo
       const body = JSON.stringify(approval);
       const receipt = receipts.get(approval.operationId);
       if (receipt) {
-        if (receipt.body !== body) throw new Error("OPERATION_REUSED");
+        if (receipt.body !== body) throw new CollaborationHttpError("OPERATION_REUSED", 400);
         return { seq: receipt.seq };
       }
+      // The server's answers arrive as the HTTP errors the real session raises (MISS R5).
       const before = server as unknown as ObjectValue;
-      const checked = await assertReadPreconditions(before, approval.preconditions);
+      const checked = await assertReadPreconditions(before, approval.preconditions).catch((error: unknown) => {
+        throw String(error).includes("PROPOSAL_CONFLICT") ? new CollaborationHttpError("PROPOSAL_CONFLICT", 409) : error;
+      });
       const existing = collectIds(before);
       let next = parseSigmaDocument(server);
       for (const draft of (approval.drafts ?? [approval.draft]) as AiEditSessionDraft[]) {
-        if (serverRequiredTargets(draft).some((target) => existing.has(target) && !checked.has(target))) throw new Error("MISSING_PRECONDITION");
+        if (serverRequiredTargets(draft).some((target) => existing.has(target) && !checked.has(target))) throw new CollaborationHttpError("MISSING_PRECONDITION", 400);
         if (
           draft.mutationOperations?.some((operation) => ["updatePageLayout", "setDocumentColumns"].includes(operation.operation))
           && !checked.has(PAGE_LAYOUT_TARGET)
-        ) throw new Error("MISSING_PRECONDITION");
+        ) throw new CollaborationHttpError("MISSING_PRECONDITION", 400);
         const taken = Object.fromEntries([...collectIds(next as unknown as ObjectValue).keys()].map((key) => [key, "existing"]));
-        if (collectOccupiedInsertIds(draft, taken).length > 0) throw new Error("PROPOSAL_CONFLICT");
+        if (collectOccupiedInsertIds(draft, taken).length > 0) throw new CollaborationHttpError("PROPOSAL_CONFLICT", 409);
         next = createAiEditSessionDocumentDraft(next, null, draft).nextDocument;
       }
       server = parseSigmaDocument(next);
@@ -260,8 +264,8 @@ async function createFixture(userData: string) {
      */
     createProposalAfterReading: async (draft: AiEditSessionDraft, readId: string, selectedIds: string[] = []) => {
       const runId = `run_${Math.random().toString(36).slice(2)}`;
-      await withSharedReadScope(runId, true, async () => {
-        observeSharedRead(userData, file.fileId, shared.server());
+      await withDocumentReadScope(runId, true, async () => {
+        observeDocumentRead(userData, file.fileId, shared.server());
         return { read: findBlock(shared.server(), readId) ?? shapesOf(shared.server()).find((shape) => shape.id === readId) };
       });
       const hashes = computeDocumentBlockHashes(shared.server());
@@ -480,9 +484,64 @@ describe("shared proposal approval", () => {
     fixture.failNextApprovalBeforeTheServer(new CollaborationHttpError("INVALID_REQUEST", 400));
     await expect(fixture.approve(proposal)).resolves.toEqual({ ok: false, error: te("electron.proposal.sharedServerRejected") });
 
-    fixture.failNextApprovalBeforeTheServer(new CollaborationHttpError("PROPOSAL_CONFLICT", 409));
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      fixture.sessions.approve.mockRejectedValueOnce(new CollaborationHttpError("PROPOSAL_CONFLICT", 409));
+    }
     await expect(fixture.approve(proposal)).resolves.toEqual({ ok: false, code: "conflict", error: te("electron.proposal.changedBeforeApproval") });
     expect(await fixture.statusOf(proposal)).toBe("pending");
+  });
+
+  // Issue #249: someone edited what the merge overwrote between this window's sync and the server's
+  // check. The server refuses that request; the approval syncs and merges again instead of reporting a
+  // conflict, and keeps the newer edit.
+  it("syncs and merges again when the server saw a newer edit of what the merge overwrote", async () => {
+    const proposal = await fixture.createProposal(draftOf([replace("p_1", "The dog sat.")]));
+    const approve = fixture.sessions.approve.getMockImplementation()!;
+    fixture.sessions.approve.mockImplementationOnce(async (id: string, approval: SharedApproval) => {
+      // The other participant's edit lands on the server after this window's sync.
+      fixture.editByAnotherParticipant(editText("p_1", "The big cat sat."));
+      return approve(id, approval);
+    });
+
+    const result = await fixture.approve(proposal);
+
+    expect(result).toMatchObject({ ok: true, mergeReport: { humanEditedUnits: ["p_1"] } });
+    expect(textOf(fixture.server(), "p_1")).toBe("The big dog sat.");
+    expect(fixture.requests).toHaveLength(2);
+    expect(fixture.requests[1].operationId).not.toBe(fixture.requests[0].operationId);
+    expect(await fs.readdir(path.join(userData, "collaboration-v1", "approval-attempts"))).toEqual([]);
+  });
+
+  it("approves a proposal written before the document was shared (no approval record)", async () => {
+    const proposal = await fixture.createProposal(draftOf([replace("p_1", "The dog sat.")]));
+    await fs.rm(approvalFile(userData, proposal.proposalId));
+
+    await expect(fixture.approve(proposal)).resolves.toMatchObject({ ok: true });
+    expect(textOf(fixture.server(), "p_1")).toBe("The dog sat.");
+  });
+
+  it("does not call an unexpected local failure a conflict", async () => {
+    const proposal = await fixture.createProposal(draftOf([replace("p_1", "The dog sat.")]));
+    await fs.writeFile(approvalFile(userData, proposal.proposalId), "not json");
+
+    await expect(fixture.approve(proposal)).resolves.toEqual({ ok: false, error: te("electron.proposal.applyFailed") });
+  });
+
+  // Issue #249: the approval reached the server but its answer was lost, and the chat went on (the room's
+  // proposal was revised, so the recorded attempt no longer matches). The revised proposal still inserts
+  // the shape the server already has: it is not inserted twice and the approval does not conflict.
+  it("does not insert twice when the chat continued after a lost approval answer", async () => {
+    const first = await fixture.upsertProposal(draftOf([{ operation: "insertOverlayShape", summary: "図形", targetId: "p_2", overlayShape: geo("inserted_once", 400) as never, assets: {} }]));
+    fixture.failNextApprovalAfterTheServer(new TypeError("fetch failed"));
+    await expect(fixture.approve(first)).resolves.toMatchObject({ ok: false, error: te("electron.proposal.sharedSyncUnavailable") });
+    expect(shapesOf(fixture.server()).filter((shape) => shape.id === "inserted_once")).toHaveLength(1);
+
+    const revised = await fixture.upsertProposal(draftOf([replace("p_1", "The dog sat.")]));
+    const result = await fixture.approve(revised);
+
+    expect(result).toMatchObject({ ok: true, mergeReport: { alreadyApplied: 1 } });
+    expect(shapesOf(fixture.server()).filter((shape) => shape.id === "inserted_once")).toHaveLength(1);
+    expect(textOf(fixture.server(), "p_1")).toBe("The dog sat.");
   });
 
   it("keeps checking what a room's later turn cannot merge without stopping it when nobody edited it", async () => {
@@ -507,7 +566,8 @@ describe("shared proposal approval", () => {
       const envelope = await fixture.envelopeOf(proposal);
       fixture.editByAnotherParticipant(editText("x", "edited x"));
 
-      expect(envelope.preconditions.map((condition) => condition.id)).toEqual(expect.arrayContaining(["problem", "x", "y", "s"]));
+      // What it only read is not recorded as a precondition (issue #249): only what it overwrites.
+      expect(envelope.preconditions.map((condition) => condition.id)).toEqual(["x"]);
       await expect(fixture.approve(proposal)).resolves.toMatchObject({ ok: true });
       expect(textOf(fixture.server(), "x")).toContain("edited");
       expect(textOf(fixture.server(), "x")).toContain("by AI");
@@ -526,11 +586,31 @@ describe("shared proposal approval", () => {
       expect(textOf(fixture.server(), "y")).toBe("y by AI");
     });
 
-    it("still stops when what it only read changed", async () => {
-      const proposal = await fixture.createProposalAfterReading(draftOf([replace("x", "x by AI")]), "problem");
+    // Issue #249: an edit of what the AI only read (and of the request's selection) stopped every
+    // approval of the proposal as a "conflict" ("the target was changed"), and approving again never
+    // helped. Both edits are kept now.
+    it("approves when what it only read or had selected changed, keeping that edit", async () => {
+      const proposal = await fixture.createProposalAfterReading(draftOf([replace("x", "x by AI")]), "problem", ["y"]);
       fixture.editByAnotherParticipant(editText("y", "y by another participant"));
 
-      await expect(fixture.approve(proposal)).resolves.toEqual({ ok: false, code: "conflict", error: te("electron.proposal.changedBeforeApproval") });
+      const result = await fixture.approve(proposal);
+
+      expect(result).toMatchObject({ ok: true });
+      expect(textOf(fixture.server(), "y")).toBe("y by another participant");
+      expect(textOf(fixture.server(), "x")).toBe("x by AI");
+      expect(fixture.requests[0].preconditions.map((condition) => condition.id)).toEqual(["x"]);
+    });
+
+    it("drops the read conditions of a record taken before they stopped being preconditions", async () => {
+      const proposal = await fixture.createProposalAfterReading(draftOf([replace("x", "x by AI")]), "problem");
+      const recordPath = approvalFile(userData, proposal.proposalId);
+      const record = JSON.parse(await fs.readFile(recordPath, "utf8")) as { draftHash: string; approval: SharedApproval };
+      const hashes = computeDocumentBlockHashes(fixture.server());
+      record.approval.preconditions.push({ id: "y", hash: hashes.y! }, { id: "problem", hash: hashes.problem! });
+      await fs.writeFile(recordPath, JSON.stringify(record));
+      fixture.editByAnotherParticipant(editText("y", "y by another participant"));
+
+      await expect(fixture.approve(proposal)).resolves.toMatchObject({ ok: true });
       expect(textOf(fixture.server(), "y")).toBe("y by another participant");
     });
   });

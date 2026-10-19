@@ -340,6 +340,19 @@ export interface LocalMcpEditProposalCreateInput extends LocalMcpEditProposalAtt
   sourceReferences?: AiSourceReference[];
   /** 依頼時の選択範囲スナップショット (MCPサーバーがrun contextから読み出して渡す)。 */
   requestSelection?: LocalMcpEditProposalRequestSelection;
+  /**
+   * What the MCP fitted to the current document before this write (issue #249, MISS R24), so the
+   * proposal says it was adjusted and its approval counts it (MISS R3).
+   * - `replacesRoomDraft`: the draft is the room's whole draft, rebuilt onto `baseDocument` after
+   *   dropping earlier changes that no longer have a place (`adjustRoomDraftToDocument`). It replaces
+   *   the stored draft instead of being appended to a rebase of it (that rebase would fail again).
+   * - `mergeReport`: what the write merged (a unit the human edited after the AI read it, an insertion
+   *   already applied, a dropped change): added to the proposal's `mergeCarry`.
+   */
+  adjustment?: {
+    replacesRoomDraft?: boolean;
+    mergeReport?: ProposalMergeReport;
+  };
 }
 
 // MCPサーバー (今回のバッチ外) が実行コンテキスト (AiEditRunContext相当のshape) から

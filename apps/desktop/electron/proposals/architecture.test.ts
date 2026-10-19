@@ -13,6 +13,7 @@ const allowedSiblingImports: Record<string, readonly string[]> = {
   "contracts.ts": [],
   "freshness.ts": ["./contracts"],
   "replay.ts": ["./contracts"],
+  "room-adjustment.ts": ["./contracts", "./freshness"],
   "selective-revert.ts": ["./contracts", "./replay"],
 };
 

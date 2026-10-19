@@ -11,6 +11,7 @@ import {
   collectTouchedBlockIds,
   computeTouchedBlocks,
   findConflictingBlockIds,
+  findMergeableProposalStructuralConflict,
   findProposalFreshnessConflict,
   findProposalFreshnessConflictIds,
   findRequestSelectionConflictIds,
@@ -887,7 +888,7 @@ describe("findProposalFreshnessConflict with a merge basis", () => {
       .toEqual({ blockIds: ["p_1"], reason: "anchor-missing" });
   });
 
-  it("reports a block id the draft would insert but that is now taken as unresolvable", () => {
+  it("treats an insertion whose block id the document already holds as done (issue #249: no double insert, no conflict)", () => {
     const draft: AiEditSessionDraft = {
       summary: "挿入",
       plan: ["挿入"],
@@ -902,8 +903,8 @@ describe("findProposalFreshnessConflict with a merge basis", () => {
     const proposal = mergeableProposal(draft);
     const current = paragraphDocument(["p_1", "p_2", "p_taken"]);
 
-    expect(findProposalFreshnessConflict(proposal, computeDocumentBlockHashes(current), 2, current))
-      .toEqual({ blockIds: ["p_taken"], reason: "replay-failed" });
+    expect(findProposalFreshnessConflict(proposal, computeDocumentBlockHashes(current), 2, current)).toBeNull();
+    expect(findMergeableProposalStructuralConflict({ ...proposal, mergeBasis: proposal.mergeBasis }, computeDocumentBlockHashes(current), current)).toBeNull();
   });
 
   it("does not report an image asset collision the merging replay renames", () => {

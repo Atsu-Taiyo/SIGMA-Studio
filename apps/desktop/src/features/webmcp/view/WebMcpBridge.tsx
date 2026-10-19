@@ -124,7 +124,7 @@ export const WebMcpBridge = forwardRef<WebMcpBridgeHandle, WebMcpBridgeProps>(fu
   const historyEntrySequenceRef = useRef(0);
   const { enabled, instructionScopeId, commitDocumentChange, getDocument, getRevision, getSelectedBlockId, getSelection, navigateToTarget, onPreviewGroupsChange, onHistoryChange } = props;
   // previewDraft は人の編集とすでに合成してある (webmcp-tools の再生)。プレビューはそれをそのまま当て、
-  // 「あなたの編集と合わせた内容です」は合成の報告の単位に添える (`ownerMergedHumanEditedUnits`)。
+  // 「現在の編集内容に合わせて提案を調整しました。」は合成の報告の単位に添える (`ownerMergedHumanEditedUnits`)。
   const previewGroups = useMemo<AiEditPreviewState[]>(() => proposal ? [{ targetId: proposal.previewDraft.operations[0]?.targetId ?? proposal.targetId, draft: proposal.previewDraft, createdAt: proposal.createdAt, proposalIds: [proposal.id], baseRevision: proposal.baseRevision, providers: ["chatgpt"], sessionLabel: "WebMCP", lockTargets: false, ...(proposal.mergeReport.humanEditedUnits.length > 0 ? { ownerMergedHumanEditedUnits: proposal.mergeReport.humanEditedUnits } : {}) }] : [], [proposal]);
   const liveRevision = getRevision();
   const conflictTargets = proposal?.conflictTargetIds.length

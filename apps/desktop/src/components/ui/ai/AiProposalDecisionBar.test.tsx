@@ -126,7 +126,7 @@ describe("AiProposalDecisionBar", () => {
   });
 
   it("renders a notice slot under the heading row (e.g. a merged-edit note)", () => {
-    expect(renderBar({ notice: <span>あなたの編集と合わせた内容です</span> })).toContain("あなたの編集と合わせた内容です");
+    expect(renderBar({ notice: <span>現在の編集内容に合わせて提案を調整しました。</span> })).toContain("現在の編集内容に合わせて提案を調整しました。");
   });
 
   it("disables decisions and shows the shimmer while applying", () => {
@@ -269,7 +269,7 @@ describe("AiProposalDecisionBar", () => {
   it("is a single row: references, a notice and the apply error sit under the bar, not inside it", () => {
     const html = renderBar({
       references: <span>参照元のチップ</span>,
-      notice: <span>あなたの編集と合わせた内容です</span>,
+      notice: <span>現在の編集内容に合わせて提案を調整しました。</span>,
       applyError: "対象が更新されました",
       onApplyErrorChange: () => {},
       onApply: async () => ({ ok: true }),
@@ -287,7 +287,7 @@ describe("AiProposalDecisionBar", () => {
     expect(barHtml).not.toContain("対象が更新されました");
     const detailsHtml = html.slice(detailsStart);
     expect(detailsHtml).toContain("参照元のチップ");
-    expect(detailsHtml).toContain("あなたの編集と合わせた内容です");
+    expect(detailsHtml).toContain("現在の編集内容に合わせて提案を調整しました。");
     expect(detailsHtml).toContain("対象が更新されました");
   });
 

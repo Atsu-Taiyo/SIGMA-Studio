@@ -35,6 +35,9 @@ import {
   type LocalMcpEditProposalRequestSelection,
   type McpEditProposalProvider,
 } from "../electron/local-sigma-doc-proposal-store";
+import { adjustRoomDraftToDocument, type DroppedRoomChange } from "../electron/proposals/room-adjustment";
+import { collectConflictSensitiveBlockIds } from "../electron/proposals/freshness";
+import { mergeWriteWithReadState } from "./sigma-doc-mcp-read-merge";
 import {
   collectUsedSourceReferences,
   recordLibrarySearchHits,
@@ -126,7 +129,12 @@ import {
   type SigmaDocMutationOp,
 } from "@/lib/ai/sigma-doc-edit-schema";
 import { replayProposalDraftMerging } from "@/lib/ai/proposal-replay";
-import { usableProposalMergeBasis } from "@/lib/ai/proposal-merge-basis";
+import {
+  combineProposalMergeReports,
+  createEmptyProposalMergeReport,
+  usableProposalMergeBasis,
+  type ProposalMergeReport,
+} from "@/lib/ai/proposal-merge-basis";
 import { searchSigmaDocument } from "@/lib/ai/sigma-doc-search";
 import { searchSigmaDocLibrary } from "@/lib/ai/sigma-doc-library-search";
 import { createId } from "@/lib/id";
@@ -2390,6 +2398,13 @@ function buildChangeSummary(
   };
 }
 
+/** Earlier changes of a room's proposal that were dropped because they no longer have a place. */
+interface RoomWorkingAdjustment {
+  dropped: DroppedRoomChange[];
+  /** What the merge did, with the dropped targets as places the human's side was kept. */
+  report: ProposalMergeReport;
+}
+
 /**
  * The document a room's next tool call works on: the saved document with the room's pending
  * proposal applied.
@@ -2397,21 +2412,53 @@ function buildChangeSummary(
  * A proposal with a merge basis is merged onto the saved document on every call (one merging
  * replay; a save only advances its revision, so its stored nextDocument may be behind). The store
  * later rebases the earlier turns onto this same saved document, so what the AI is shown here is
- * exactly the base its new operations are merged against. Returns the conflict when the proposal
- * cannot be merged (a target the human deleted, a non-merged target the human changed...).
+ * exactly the base its new operations are merged against.
+ *
+ * When the proposal no longer merges as a whole (a target the human deleted, a non-merged target the
+ * human changed...), the changes without a place are dropped from the working proposal and returned
+ * as `adjustment` (issue #249): the caller tells the AI and records it on the proposal. Failing here
+ * instead stopped every later tool call of the chat with "現在の作業案と教材が競合しています".
  */
 function resolveRoomWorkingDocument(
   proposal: LocalMcpEditProposal,
   document: SigmaDocument,
-): { ok: true; document: SigmaDocument; rebasedDraft?: AiEditSessionDraft } | { ok: false; conflictIds: string[] } {
+): { document: SigmaDocument; rebasedDraft?: AiEditSessionDraft; adjustment?: RoomWorkingAdjustment } {
   const mergeBasis = usableProposalMergeBasis(proposal.mergeBasis);
   if (!mergeBasis) {
-    return { ok: true, document: proposal.nextDocument };
+    return { document: proposal.nextDocument };
   }
-  const merged = replayMergeableProposal({ draft: proposal.draft, mergeBasis, touchedBlocks: proposal.touchedBlocks }, document);
-  return merged.ok
-    ? { ok: true, document: merged.result.nextDocument, rebasedDraft: merged.result.rebasedDraft }
-    : { ok: false, conflictIds: merged.conflict.blockIds };
+  const mergeable = { draft: proposal.draft, mergeBasis, touchedBlocks: proposal.touchedBlocks };
+  const merged = replayMergeableProposal(mergeable, document);
+  if (merged.ok) {
+    return { document: merged.result.nextDocument, rebasedDraft: merged.result.rebasedDraft };
+  }
+  const adjusted = adjustRoomDraftToDocument(mergeable, document)!;
+  // The human's side was kept where a change was dropped (a deletion, a value the AI's operation would
+  // overwrite): an overlap, and a unit whose result holds the human's edit, so the proposal shows that
+  // it was adjusted to the current edits wherever it is shown.
+  const droppedIds = [...new Set(adjusted.dropped.flatMap((change) => change.ids))];
+  return {
+    document: adjusted.result.nextDocument,
+    rebasedDraft: adjusted.result.rebasedDraft,
+    adjustment: {
+      dropped: adjusted.dropped,
+      report: combineProposalMergeReports([
+        adjusted.result.report,
+        { ...createEmptyProposalMergeReport(), overlaps: droppedIds.map((id) => `#${id}`), humanEditedUnits: droppedIds },
+      ]),
+    },
+  };
+}
+
+/** What the AI should do about dropped changes (told to the AI only, not written on the proposal). */
+const ROOM_ADJUSTMENT_GUIDANCE =
+  " 外した変更は人が対象を消した・変えた結果です。作り直す前にユーザーの意図を確かめ、人の編集を元に戻さないでください。";
+
+/** Message to the AI (and warning on the proposal) for earlier changes dropped from the working proposal. */
+function describeDroppedRoomChanges(dropped: readonly DroppedRoomChange[]): string {
+  const listed = dropped.slice(0, 5).map((change) => `${change.summary}（${change.ids.join(", ")}）`);
+  const more = dropped.length > 5 ? ` ほか${dropped.length - 5}件` : "";
+  return `現在の編集内容に合わせて提案を調整しました。対象が見つからない・人が変更したため、作業案の次の変更は含めていません: ${listed.join("、")}${more}。`;
 }
 
 /** A pending proposal replayed onto `document` for a preview: the same replay as its approval. */
@@ -2715,18 +2762,19 @@ async function runSessionTool(
   let workingDocument = document;
   // base を持つ案は保存済みSigmaDocへ載せ替えたdraftを持つ (store が upsert で同じ載せ替えをする)。
   let roomDraft = currentRoomProposal?.draft;
+  // 合成できない以前の変更は作業案から外して続ける (issue #249)。外した変更はAIと提案に伝える。
+  let roomAdjustment: RoomWorkingAdjustment | undefined;
   if (currentRoomProposal) {
     const working = resolveRoomWorkingDocument(currentRoomProposal, document);
-    if (!working.ok) {
-      return {
-        ok: false,
-        error: `現在の作業案と教材が競合しています: ${working.conflictIds.join(", ")}`,
-        file,
-        conflictBlockIds: working.conflictIds,
-      };
-    }
     workingDocument = working.document;
     roomDraft = working.rebasedDraft ?? roomDraft;
+    roomAdjustment = working.adjustment;
+    if (roomAdjustment) {
+      createProposalStore().recordMergeFallback("room-working-adjusted", {
+        proposalId: currentRoomProposal.proposalId,
+        dropped: roomAdjustment.dropped.length,
+      });
+    }
   }
 
   // revisionチェックはセッション実行後(このtool呼び出しが実際に何を触るかが分かってから)に
@@ -2759,7 +2807,46 @@ async function runSessionTool(
     };
   }
 
+  // AIが読んだ後に人が直した単位は、読んだ時の内容をbaseにして合成する (issue #249, MISS R24)。
+  // 古いハッシュ・revisionだけを理由に拒否しない。合成できないときだけ従来どおり今の内容を返す。
+  const writtenDraft = draft.draft;
+  const readMerge = await mergeWriteWithReadState({
+    userData: path.dirname(store.getDataDir()),
+    fileId: request.fileId,
+    runId: writeContext.attribution.runId ?? request.runId,
+    savedDocument: document,
+    workingDocument,
+    draft: writtenDraft,
+  });
+  if (readMerge.kind === "failed") {
+    return {
+      ok: false,
+      error:
+        `対象ブロックが編集されているためrevisionが一致しません (読んだ後の人の編集と合成できませんでした)。現在: ${file.revision}, ` +
+        `expectedRevision: ${request.expectedRevision}, 競合ブロック: ${readMerge.ids.join(", ")}`,
+      file,
+      toolResult,
+      changeSummary,
+      conflictBlockIds: readMerge.ids,
+      conflictBlocks: readMerge.ids.map((id) => describeConflictTarget(document, id)),
+    };
+  }
+  if (readMerge.kind === "merged") {
+    draft.draft = readMerge.draft;
+    draft.nextDocument = readMerge.nextDocument;
+  }
+
   let revisionNote: string | null = null;
+  if (request.expectedRevision > file.revision) {
+    // A revision the document never had is not something the AI read: ask it to read again.
+    return {
+      ok: false,
+      error: `revisionが一致しません。現在: ${file.revision}, expectedRevision: ${request.expectedRevision}`,
+      file,
+      toolResult,
+      changeSummary,
+    };
+  }
   if (file.revision !== request.expectedRevision) {
     if (containsPageLayoutMutation(draft.draft)) {
       return {
@@ -2775,14 +2862,25 @@ async function runSessionTool(
         changeSummary,
       };
     }
-    const reconciliation = await reconcileStaleExpectedRevision({
-      store,
-      fileId: request.fileId,
-      expectedRevision: request.expectedRevision,
-      currentRevision: file.revision,
-      currentDocument: document,
-      touchedIds: collectTouchedBlockIds(draft.draft),
-    });
+    // 何を見たか分からない (このrunで読んでいない) 上書き対象だけを revision の記録で確かめる。
+    // 挿入のアンカーや読んだ対象が変わっていても拒否しない (読んだ対象は上で合成済み)。
+    const readIds = new Set(readMerge.readIds);
+    const unreadOverwrittenIds = collectConflictSensitiveBlockIds(writtenDraft).filter((id) => !readIds.has(id));
+    const reconciliation = unreadOverwrittenIds.length === 0
+      ? {
+          accepted: true as const,
+          note:
+            `expectedRevision ${request.expectedRevision} は古かったが、上書きする対象は読んだ時の内容から合成したため受理しました` +
+            `(現在revision: ${file.revision})。以後はrevision: ${file.revision} をexpectedRevisionに使ってください。`,
+        }
+      : await reconcileStaleExpectedRevision({
+          store,
+          fileId: request.fileId,
+          expectedRevision: request.expectedRevision,
+          currentRevision: file.revision,
+          currentDocument: document,
+          touchedIds: unreadOverwrittenIds,
+        });
     if (!reconciliation.accepted) {
       return {
         ok: false,
@@ -2797,6 +2895,14 @@ async function runSessionTool(
     }
     revisionNote = reconciliation.note;
   }
+  const readMergeNote = readMerge.kind === "merged"
+    ? `読んだ後に人が編集していた ${readMerge.mergedIds.join(", ")} は、人の編集を残してこの変更を合成しました。`
+    : null;
+  const roomAdjustmentNote = roomAdjustment ? describeDroppedRoomChanges(roomAdjustment.dropped) : null;
+  const adjustmentReports = [
+    ...(roomAdjustment ? [roomAdjustment.report] : []),
+    ...(readMerge.kind === "merged" ? [readMerge.report] : []),
+  ];
 
   const validation = buildValidationSummary(draft.nextDocument);
   if (!validation.ok) {
@@ -2829,10 +2935,13 @@ async function runSessionTool(
     ]);
     // 過去ターンは作業文書に合わせて載せ替えたdraftから集約する: 集約が正規化 (相殺された
     // 図形の挿入/削除の除去) されて保存済みdraftと先頭が揃わなくても、そのまま置き換えられる。
-    const aggregateDraft = mergeRoomProposalDraft(
+    const mergedAggregateDraft = mergeRoomProposalDraft(
       currentRoomProposal && roomDraft ? { ...currentRoomProposal, draft: roomDraft } : currentRoomProposal,
       draft.draft,
     );
+    const aggregateDraft = roomAdjustmentNote
+      ? { ...mergedAggregateDraft, warnings: [...mergedAggregateDraft.warnings, roomAdjustmentNote] }
+      : mergedAggregateDraft;
     const aggregateChangedIds = Array.from(new Set([
       ...(currentRoomProposal?.changedIds ?? []),
       ...draft.changedIds,
@@ -2869,6 +2978,9 @@ async function runSessionTool(
       draft: aggregateDraft,
       nextDocument: aggregateNextDocument,
       ...(aggregateSourceReferences.length ? { sourceReferences: aggregateSourceReferences } : {}),
+      ...(adjustmentReports.length > 0
+        ? { adjustment: { replacesRoomDraft: Boolean(roomAdjustment), mergeReport: combineProposalMergeReports(adjustmentReports) } }
+        : {}),
       // Persist first with an explicitly unverified state. The app-bridge PNG
       // render can take substantially longer than the proposal write; keeping
       // validationOk:false makes this early-visible proposal ineligible for
@@ -2925,6 +3037,8 @@ async function runSessionTool(
         ? "現在の作業案は変更差分がなくなったため取り下げました。"
         : createDryRunMessage(toolResult.message),
       revisionNote,
+      readMergeNote,
+      roomAdjustmentNote ? `${roomAdjustmentNote}${ROOM_ADJUSTMENT_GUIDANCE}` : null,
     ].filter((part): part is string => Boolean(part)).join(" "),
   };
 
@@ -2940,6 +3054,10 @@ async function runSessionTool(
     verification,
     instructionForAgent: VERIFICATION_INSTRUCTION,
     ...(revisionNote ? { revisionReconciliation: { expectedRevision: request.expectedRevision, acceptedAtRevision: file.revision, note: revisionNote } } : {}),
+    ...(readMerge.kind === "merged" ? { readStateMerge: { mergedIds: readMerge.mergedIds, note: readMergeNote } } : {}),
+    ...(roomAdjustment
+      ? { roomAdjustment: { droppedChanges: roomAdjustment.dropped, note: roomAdjustmentNote } }
+      : {}),
   }, extraContent);
 }
 
@@ -4497,10 +4615,9 @@ if (resolveMcpProvider() === "chatgpt") {
     let working = document;
     if (pending && !pending.invalidReason && (usableProposalMergeBasis(pending.mergeBasis) || pending.baseRevision === file.revision)) {
       const resolved = resolveRoomWorkingDocument(pending, document);
-      if (resolved.ok) {
-        working = resolved.document;
-      } else {
-        // 合成できない作業案の画像は保存済みSigmaDocから引く (退避は台帳ログで数える)。
+      working = resolved.document;
+      if (resolved.adjustment) {
+        // 合成できない以前の変更は外した作業文書から引く (退避は台帳ログで数える)。
         createProposalStore().recordMergeFallback("image-reference-working-document", { proposalId: pending.proposalId });
       }
     }
@@ -5231,11 +5348,8 @@ registerTool(
     }
     let workingDocument = document;
     if (currentRoomProposal) {
-      const working = resolveRoomWorkingDocument(currentRoomProposal, document);
-      if (!working.ok) {
-        throw new Error(`現在の作業案と教材が競合しています: ${working.conflictIds.join(", ")}`);
-      }
-      workingDocument = working.document;
+      // 合成できない以前の変更を外した作業文書で始める。外した変更は提案時の upsert で伝える。
+      workingDocument = resolveRoomWorkingDocument(currentRoomProposal, document).document;
     }
     const resolvedTargetId = targetId?.trim() || selectedId?.trim() || null;
     if (!resolvedTargetId) {
@@ -5764,7 +5878,18 @@ registerTool(
       roomId: visualWriteContext.attribution.roomId,
       runId: visualWriteContext.attribution.runId,
     });
-    const aggregateDraft = mergeRoomProposalDraft(currentRoomProposal, draft.draft);
+    // 合成できない以前の変更は作業案から外して足す (issue #249。runSessionTool と同じ規則)。
+    const roomAdjustment = currentRoomProposal && !currentRoomProposal.invalidReason
+      ? resolveRoomWorkingDocument(currentRoomProposal, currentDocument)
+      : null;
+    const roomForAggregate = currentRoomProposal && roomAdjustment?.adjustment && roomAdjustment.rebasedDraft
+      ? { ...currentRoomProposal, draft: roomAdjustment.rebasedDraft }
+      : currentRoomProposal;
+    const roomAdjustmentNote = roomAdjustment?.adjustment ? describeDroppedRoomChanges(roomAdjustment.adjustment.dropped) : null;
+    const mergedAggregateDraft = mergeRoomProposalDraft(roomForAggregate, draft.draft);
+    const aggregateDraft = roomAdjustmentNote
+      ? { ...mergedAggregateDraft, warnings: [...mergedAggregateDraft.warnings, roomAdjustmentNote] }
+      : mergedAggregateDraft;
     const aggregateChangedIds = Array.from(new Set([...(currentRoomProposal?.changedIds ?? []), ...draft.changedIds]));
     const proposal = await proposalStore.upsertCurrentProposal({
       ...visualWriteContext.attribution,
@@ -5793,6 +5918,9 @@ registerTool(
       },
       draft: aggregateDraft,
       nextDocument: draft.nextDocument,
+      ...(roomAdjustment?.adjustment
+        ? { adjustment: { replacesRoomDraft: true, mergeReport: roomAdjustment.adjustment.report } }
+        : {}),
       // issues.length === 0 was just checked above, and inspect/review both machine-gated
       // (proposalTimeInspection.passed / session.lastReview.passed) before reaching this point —
       // see buildWriteVerification's proposal-creation call for why this field matters
@@ -5803,7 +5931,8 @@ registerTool(
     return {
       ok: true,
       proposalCreated: true,
-      message: [proposalSummary, revisionNote].filter((part): part is string => Boolean(part)).join(" "),
+      message: [proposalSummary, revisionNote, roomAdjustmentNote ? `${roomAdjustmentNote}${ROOM_ADJUSTMENT_GUIDANCE}` : null]
+        .filter((part): part is string => Boolean(part)).join(" "),
       proposal: summarizeProposalForToolResult(proposal),
       file,
       changeSummary: buildChangeSummary(draft, []),

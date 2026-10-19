@@ -68,6 +68,12 @@ export interface ProposalMergeReport {
   /** Units the human had edited since the base: the result contains the human's change too. */
   humanEditedUnits: string[];
   /**
+   * Insertions whose block or shape id the document already holds: the insertion reached the document
+   * before (an approval whose answer was lost, or that stopped before the proposal was resolved), so it
+   * is not inserted a second time (`collectAlreadyAppliedInsertions`).
+   */
+  alreadyApplied: number;
+  /**
    * Only on the renderer's adoption merge (typing during the approval round trip): places where the
    * human's input was replaced by the AI's content (`$` is the whole document).
    */
@@ -118,6 +124,7 @@ export function createEmptyProposalMergeReport(): ProposalMergeReport {
     anchorRelocated: 0,
     legacyNoBase: 0,
     humanEditedUnits: [],
+    alreadyApplied: 0,
   };
 }
 
@@ -132,7 +139,8 @@ export function isProposalMergeQuiet(report: ProposalMergeReport): boolean {
     && report.invalidAfterMerge === 0
     && report.anchorRelocated === 0
     && report.legacyNoBase === 0
-    && report.humanEditedUnits.length === 0;
+    && report.humanEditedUnits.length === 0
+    && (report.alreadyApplied ?? 0) === 0;
 }
 
 /** Counts of a report, for logs (paths and ids are left out). */
@@ -147,6 +155,7 @@ export function summarizeProposalMergeReport(report: ProposalMergeReport): Recor
     anchorRelocated: report.anchorRelocated,
     legacyNoBase: report.legacyNoBase,
     humanEditedUnits: report.humanEditedUnits.length,
+    alreadyApplied: report.alreadyApplied ?? 0,
   };
 }
 
@@ -170,6 +179,7 @@ export function combineProposalMergeReports(reports: readonly ProposalMergeRepor
     combined.anchorRelocated += report.anchorRelocated;
     combined.legacyNoBase += report.legacyNoBase;
     appendUnique(combined.humanEditedUnits, report.humanEditedUnits);
+    combined.alreadyApplied += report.alreadyApplied ?? 0;
   }
   return combined;
 }
@@ -219,6 +229,72 @@ export function collectMissingMergeUnitIds(
       : operation.operation === "deleteOverlayShapes" ? operation.shapeIds : []
   )).filter((id) => !reinserted.has(id)));
   return Object.keys(mergeBasis.entities).filter((id) => !exists(id) && !deletedByDraft.has(id));
+}
+
+/** One insertion of a draft that the document already holds (`collectAlreadyAppliedInsertions`). */
+export interface AlreadyAppliedInsertion {
+  /** Index in `draft.operations`. */
+  operationIndex: number;
+  id: string;
+  kind: ProposalMergeBasisEntity["kind"];
+  /** What the insertion inserts (the AI's block or shape as it created it). */
+  value: EditableBlock | OverlayShape;
+}
+
+/**
+ * Insertions whose id the document already holds as the same kind of entity (a block for
+ * `insertAfter`, an overlay shape for a shape or table), and that the draft did not delete or create
+ * earlier. The ids the AI tools create are new random ids, so such an id is this very insertion: it
+ * reached the document already (an approval applied on the server whose answer was lost, an approval
+ * that saved but stopped before the proposal was resolved). Replaying it again would fail on the taken
+ * id and stop every later turn of the chat, so the merging replay treats it as done and merges the
+ * draft's later edits of it with the human's (base = the inserted value). A legacy record without a
+ * merge basis keeps reporting the taken id (`collectOccupiedInsertIds`).
+ */
+export function collectAlreadyAppliedInsertions(
+  document: SigmaDocument,
+  draft: AiEditSessionDraft,
+  mergeBasis?: ProposalMergeBasis,
+): AlreadyAppliedInsertion[] {
+  const shapeIds = new Set(normalizeOverlaySnapshot(document.pageLayout?.overlay?.overlaySnapshot).shapes.map((shape) => shape.id));
+  const touchedByDraft = new Set<string>();
+  const applied: AlreadyAppliedInsertion[] = [];
+  for (const entry of resolveAiEditSessionOperationOrder(draft)) {
+    if (entry.kind === "mutation") {
+      const mutation = draft.mutationOperations?.[entry.index];
+      if (mutation?.operation === "deleteBlocks") {
+        mutation.blockIds.forEach((id) => touchedByDraft.add(id));
+      } else if (mutation?.operation === "deleteOverlayShapes") {
+        mutation.shapeIds.forEach((id) => touchedByDraft.add(id));
+      } else if (mutation?.operation === "replaceOverlayShape") {
+        mutation.shapes.forEach((shape) => touchedByDraft.add(shape.id));
+      }
+      continue;
+    }
+    const operation = draft.operations[entry.index]!;
+    const inserted: { kind: ProposalMergeBasisEntity["kind"]; value: EditableBlock | OverlayShape } | null = operation.operation === "insertAfter"
+      ? { kind: "block", value: operation.insertedBlock }
+      : operation.operation === "insertOverlayShape"
+        ? { kind: "shape", value: operation.overlayShape }
+        : operation.operation === "insertTableShape" ? { kind: "shape", value: operation.tableShape } : null;
+    if (!inserted) {
+      if ("replacementBlock" in operation) {
+        collectBlocksById([operation.replacementBlock as SigmaBlock]).forEach((_, nestedId) => touchedByDraft.add(nestedId));
+      }
+      continue;
+    }
+    const id = inserted.value.id;
+    const exists = inserted.kind === "block" ? findBlock(document, id) !== null : shapeIds.has(id);
+    if (exists && !touchedByDraft.has(id) && !mergeBasis?.entities[id]) {
+      applied.push({ operationIndex: entry.index, id, kind: inserted.kind, value: inserted.value });
+    }
+    if (operation.operation === "insertAfter") {
+      collectBlocksById([operation.insertedBlock as SigmaBlock]).forEach((_, nestedId) => touchedByDraft.add(nestedId));
+    } else {
+      touchedByDraft.add(id);
+    }
+  }
+  return applied;
 }
 
 /** The id an insert operation creates at the top (block, overlay shape or table), else null. */

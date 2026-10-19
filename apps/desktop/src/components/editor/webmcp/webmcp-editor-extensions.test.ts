@@ -348,7 +348,7 @@ describe("WebMCP editor extensions", () => {
       currentDocument = { ...currentDocument, content: [currentDocument.content[0]!, { type: "paragraph", id: "p_delete", children: [{ type: "text", text: "Delete me? No, a human kept me" }] }] };
       revision += 1;
       await renderBridge();
-      // 合成した draft はもう p_delete を消さず、カードには「あなたの編集と合わせた内容です」の単位が渡る。
+      // 合成した draft はもう p_delete を消さず、カードには「現在の編集内容に合わせて提案を調整しました。」の単位が渡る。
       expect(previewGroups[0]?.draft.mutationOperations ?? []).toEqual([]);
       expect(previewGroups[0]?.ownerMergedHumanEditedUnits).toEqual(["p_delete"]);
 

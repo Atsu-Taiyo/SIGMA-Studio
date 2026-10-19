@@ -129,7 +129,7 @@ describe("decideAiApprovedDocument", () => {
     expect(decision.kind === "merge" && decision.resolvedConflicts).toHaveLength(1);
   });
 
-  it("reports the approval as overriding the typing when both set the same attribute differently", () => {
+  it("keeps the typing and reports the AI's value as not applied when both set the same attribute differently", () => {
     const base = createDocument();
     const current = withContent(base, [{ ...paragraph("p_1", "本文1"), align: "center" }, base.content[1]!]);
     const approved = withContent(base, [{ ...paragraph("p_1", "本文1"), align: "right" }, base.content[1]!]);
@@ -141,11 +141,11 @@ describe("decideAiApprovedDocument", () => {
       normalizedApprovedDocument: approved,
     });
 
-    // 人間の入力がAIの値で置き換わったので、黙らずに競合として伝える (従来の通知が出る)。
-    expect(decision.document.content[0]).toEqual({ ...paragraph("p_1", "本文1"), align: "right" });
+    // 人を優先する: 入力を残し、反映しなかったAIの値を黙らずに競合として伝える (従来の通知が出る)。
+    expect(decision.document.content[0]).toEqual({ ...paragraph("p_1", "本文1"), align: "center" });
     expect(decision.kind === "merge" && decision.resolvedConflicts).toHaveLength(1);
-    expect(decision.kind === "merge" && decision.mergeReport.droppedHumanEdits).toEqual(["#p_1.align"]);
-    expect(decision.kind === "merge" && decision.mergeReport.droppedAiEdits).toEqual([]);
+    expect(decision.kind === "merge" && decision.mergeReport.droppedHumanEdits).toEqual([]);
+    expect(decision.kind === "merge" && decision.mergeReport.droppedAiEdits).toEqual(["#p_1.align"]);
   });
 
   it("keeps every block id once when the human moved a block the AI edited where it was", () => {

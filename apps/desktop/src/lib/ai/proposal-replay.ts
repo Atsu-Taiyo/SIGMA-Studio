@@ -24,6 +24,7 @@ import {
 import { createCurrentLocaleTranslator } from "@/lib/i18n";
 import {
   blockContainsId,
+  collectAlreadyAppliedInsertions,
   collectReinsertedDeletionIds,
   combineProposalMergeReports,
   createEmptyProposalMergeReport,
@@ -205,6 +206,10 @@ export interface ProposalMergeReplayResult {
  *   rest of the document) is replaced by the AI's version (`invalidAfterMerge`). When the replay
  *   fails with the merged units, only the units whose merged contents cannot be applied fall back
  *   to the AI's version. When even that fails the error is thrown: the conflict cannot be resolved.
+ * - An insertion whose id the document already holds (`collectAlreadyAppliedInsertions`: the
+ *   insertion reached the document before, e.g. an approval whose answer was lost) is not inserted a
+ *   second time; the draft's later edits of what it inserted are merged with the human's, with the
+ *   inserted value as their base (`alreadyApplied`).
  * - Moves, layout changes and the legacy normalizations stay the plain replay's.
  *
  * When nothing deviates from the plain replay (no unit was edited by the human, nothing had to be
@@ -219,8 +224,9 @@ export function replayProposalDraftMerging(
   onMergeFailure: ProposalMergeFailureRule = "ai-side",
 ): ProposalMergeReplayResult {
   // Only insertAfter anchors can move; a shape inserted against a block or shape the human deleted
-  // keeps the legacy contract: the external anchor must still exist.
-  const missingAnchors = findMissingShapeInsertAnchors(document, draft);
+  // keeps the legacy contract: the external anchor must still exist (unless the insertion is done).
+  const alreadyApplied = new Set(collectAlreadyAppliedInsertions(document, draft, mergeBasis).map((insertion) => insertion.operationIndex));
+  const missingAnchors = findMissingShapeInsertAnchors(document, draft, alreadyApplied);
   if (missingAnchors.length > 0) {
     throw new ProposalMergeReplayError(te("electron.proposal.regenerateMissingTarget"), "anchor-missing", missingAnchors);
   }
@@ -416,6 +422,7 @@ function assembleReport(plan: MergingReplayPlan, fallBack: ReadonlySet<string>):
   appendUnique(report.humanEditedUnits, plan.keptDeletions);
   report.anchorRelocated = plan.anchorRewrites.size;
   report.reidentified += plan.renamedAssetCount;
+  report.alreadyApplied = plan.alreadyApplied.size;
   return report;
 }
 
@@ -423,7 +430,11 @@ function assembleReport(plan: MergingReplayPlan, fallBack: ReadonlySet<string>):
 const WHITEBOARD_CANVAS_TARGET_ID = "CANVAS";
 
 /** Block or shape anchors of inserted shapes/tables that exist neither now nor in the draft. */
-function findMissingShapeInsertAnchors(document: SigmaDocument, draft: AiEditSessionDraft): string[] {
+function findMissingShapeInsertAnchors(
+  document: SigmaDocument,
+  draft: AiEditSessionDraft,
+  alreadyApplied: ReadonlySet<number> = new Set(),
+): string[] {
   const shapeIds = new Set(normalizeOverlaySnapshot(document.pageLayout?.overlay?.overlaySnapshot).shapes.map((shape) => shape.id));
   const createdIds = new Set<string>();
   const missing: string[] = [];
@@ -444,7 +455,7 @@ function findMissingShapeInsertAnchors(document: SigmaDocument, draft: AiEditSes
     const shape = operation.operation === "insertOverlayShape" ? operation.overlayShape : operation.tableShape;
     const anchor = shape.anchor;
     const anchorId = anchor?.type === "block" ? anchor.blockId : anchor?.type === "shape" ? anchor.shapeId : null;
-    for (const id of [operation.targetId, anchorId]) {
+    for (const id of alreadyApplied.has(entry.index) ? [] : [operation.targetId, anchorId]) {
       if (
         id
         && id !== WHITEBOARD_CANVAS_TARGET_ID
@@ -506,6 +517,8 @@ interface MergingReplayPlan {
   /** Shape id → (old asset id → new asset id) for inserted images whose asset id was taken. */
   assetRenames: Map<string, Map<string, string>>;
   renamedAssetCount: number;
+  /** Operation indexes of insertions the document already holds: they are not replayed again. */
+  alreadyApplied: Set<number>;
 }
 
 function planMergingReplay(
@@ -523,15 +536,36 @@ function planMergingReplay(
     anchorRewrites: new Map(),
     assetRenames: new Map(),
     renamedAssetCount: 0,
+    alreadyApplied: new Set(),
   };
+  // An insertion the document already holds is done; what the draft later does to the inserted block
+  // or shape is merged with the human's edits of it like any other unit, its base being the value the
+  // insertion created.
+  const alreadyApplied = collectAlreadyAppliedInsertions(document, draft, mergeBasis);
+  alreadyApplied.forEach((insertion) => plan.alreadyApplied.add(insertion.operationIndex));
+  const basis: ProposalMergeBasis = alreadyApplied.length === 0
+    ? mergeBasis
+    : {
+        ...mergeBasis,
+        entities: {
+          ...mergeBasis.entities,
+          ...Object.fromEntries(alreadyApplied.map((insertion) => [
+            insertion.id,
+            insertion.kind === "block"
+              ? { kind: "block" as const, value: structuredClone(insertion.value as EditableBlock) }
+              : { kind: "shape" as const, value: structuredClone(insertion.value as OverlayShape) },
+          ])),
+        },
+      };
   const documentIds = countContentIds(document.content);
-  planBlockUnits(document, draft, mergeBasis, plan, documentIds);
-  planShapeUnits(document, draft, mergeBasis, plan);
-  planDeletions(document, draft, mergeBasis, plan);
-  planReinsertions(document, draft, mergeBasis, plan, documentIds);
-  planAnchorRelocations(document, draft, mergeBasis, plan);
-  planAssetRenames(document, draft, plan);
-  plan.rewrites = plan.blockUnits.size > 0
+  planBlockUnits(document, draft, basis, plan, documentIds);
+  planShapeUnits(document, draft, basis, plan);
+  planDeletions(document, draft, basis, plan);
+  planReinsertions(document, draft, basis, plan, documentIds);
+  planAnchorRelocations(document, draft, basis, plan);
+  planAssetRenames(document, withoutOperations(draft, plan.alreadyApplied), plan);
+  plan.rewrites = plan.alreadyApplied.size > 0
+    || plan.blockUnits.size > 0
     || plan.shapeUnits.size > 0
     || plan.reinsertUnits.size > 0
     || plan.deleteRewrites.size > 0
@@ -841,6 +875,11 @@ function planAnchorRelocations(
   }
 }
 
+/** The draft without the given operations (planning only: the indexes of the other ops shift). */
+function withoutOperations(draft: AiEditSessionDraft, indexes: ReadonlySet<number>): AiEditSessionDraft {
+  return indexes.size === 0 ? draft : { ...draft, operations: draft.operations.filter((_, index) => !indexes.has(index)) };
+}
+
 /** Same walk as the legacy asset-collision check, so exactly its collisions are renamed. */
 function planAssetRenames(
   document: SigmaDocument,
@@ -887,7 +926,7 @@ function rewriteDraft(
   for (const unit of plan.blockUnits.values()) {
     unit.operationIndexes.forEach((index) => unitByOperation.set(index, unit));
   }
-  const removedOperations = new Set<number>();
+  const removedOperations = new Set<number>(plan.alreadyApplied);
   const removedMutations = new Set<number>();
 
   const reinsertByOperation = new Map([...plan.reinsertUnits.values()].map((unit) => [unit.operationIndex, unit]));
@@ -985,7 +1024,7 @@ function rewriteDraft(
 }
 
 /** Drops operations and re-indexes the recorded cross-array order accordingly. */
-function removeDraftEntries(
+export function removeDraftEntries(
   draft: AiEditSessionDraft,
   removedOperations: ReadonlySet<number>,
   removedMutations: ReadonlySet<number>,

@@ -5,7 +5,13 @@ import type { AiEditSessionDraft, SigmaDocMutationOp } from "@/lib/ai/sigma-doc-
 import { findBlock, updateBlockInDocument } from "@/lib/document-tree";
 import { parseSigmaDocument } from "@/lib/sigma-doc-schema";
 
-import { collectMissingMergeUnitIds, collectNonMergeableTargets, computeProposalMergeBasis, type ProposalMergeBasis } from "./proposal-merge-basis";
+import {
+  collectAlreadyAppliedInsertions,
+  collectMissingMergeUnitIds,
+  collectNonMergeableTargets,
+  computeProposalMergeBasis,
+  type ProposalMergeBasis,
+} from "./proposal-merge-basis";
 import { replayProposalDraftMerging } from "./proposal-replay";
 
 const paragraph = (id: string, text = `段落 ${id}`) => ({ id, type: "paragraph" as const, children: [{ type: "text" as const, text }] });
@@ -191,6 +197,66 @@ describe("collectMissingMergeUnitIds", () => {
 
     expect(collectMissingMergeUnitIds(draft, mergeBasis, (id) => !gone.has(id))).toEqual([]);
     expect(collectMissingMergeUnitIds(reinserting, mergeBasis, (id) => !gone.has(id))).toEqual(["p_2"]);
+  });
+});
+
+/**
+ * Issue #249: an approval reached the document but its answer was lost (or it stopped before the
+ * proposal was resolved), and the chat went on. Replaying the insertion again failed on the taken id and
+ * stopped every later turn; it must neither fail nor insert twice.
+ */
+describe("collectAlreadyAppliedInsertions and the merging replay", () => {
+  const insertShape = (id: string): AiEditSessionDraft["operations"][number] => ({
+    operation: "insertOverlayShape", summary: "図形", targetId: "p_1", overlayShape: rectangle(id) as never, assets: {},
+  });
+  const withShape = (document: SigmaDocument, shape: ReturnType<typeof rectangle>): SigmaDocument => ({
+    ...document,
+    pageLayout: {
+      ...document.pageLayout,
+      overlay: {
+        ...document.pageLayout!.overlay,
+        overlaySnapshot: {
+          ...document.pageLayout!.overlay!.overlaySnapshot!,
+          shapes: [...document.pageLayout!.overlay!.overlaySnapshot!.shapes, shape as never],
+        },
+      },
+    },
+  } as SigmaDocument);
+  const shapeOf = (document: SigmaDocument, id: string) => document.pageLayout?.overlay?.overlaySnapshot?.shapes.filter((shape) => shape.id === id) ?? [];
+
+  it("finds insertions whose id the document holds as the same kind, but not other kinds or ids the draft deleted first", () => {
+    const document = baseDocument();
+    const draft = draftOf([insertAfter("p_1", "p_2"), insertShape("s_1"), insertShape("p_3"), insertAfter("p_1", "p_new")]);
+    expect(collectAlreadyAppliedInsertions(document, draft).map(({ id, kind }) => ({ id, kind }))).toEqual([
+      { id: "p_2", kind: "block" },
+      { id: "s_1", kind: "shape" },
+    ]);
+    const replacing: AiEditSessionDraft = {
+      ...draftOf([insertAfter("p_1", "p_2")], [{ operation: "deleteBlocks", summary: "削除", blockIds: ["p_2"] }]),
+      operationOrder: [{ kind: "mutation", index: 0 }, { kind: "operation", index: 0 }],
+    };
+    expect(collectAlreadyAppliedInsertions(document, replacing)).toEqual([]);
+  });
+
+  it("does not insert an applied shape twice and keeps the human's later edit of it over the AI's earlier update", () => {
+    const base = baseDocument();
+    const draft = draftOf([insertShape("ai_shape"), replace("p_1")], [
+      { operation: "updateOverlayShape", summary: "移動", shapeId: "ai_shape", patch: { x: 100 } },
+    ]);
+    const basis = computeProposalMergeBasis(draft, base);
+    // The first approval applied the whole draft; the human then moved the shape again.
+    const applied = replayProposalDraftMerging(base, draft, basis).nextDocument;
+    const humanMoved = withShape(
+      { ...applied, pageLayout: { ...applied.pageLayout, overlay: { ...applied.pageLayout!.overlay, overlaySnapshot: { ...applied.pageLayout!.overlay!.overlaySnapshot!, shapes: applied.pageLayout!.overlay!.overlaySnapshot!.shapes.filter((shape) => shape.id !== "ai_shape") } } } } as SigmaDocument,
+      { ...rectangle("ai_shape"), x: 250 },
+    );
+
+    const again = replayProposalDraftMerging(humanMoved, draft, basis);
+
+    expect(shapeOf(again.nextDocument, "ai_shape")).toEqual([expect.objectContaining({ x: 250 })]);
+    expect(findBlock(again.nextDocument, "p_1")).toEqual(findBlock(applied, "p_1"));
+    expect(again.report.alreadyApplied).toBe(1);
+    expect(again.rebasedDraft.operations.map((operation) => operation.operation ?? "replace")).toEqual(["replace"]);
   });
 });
 

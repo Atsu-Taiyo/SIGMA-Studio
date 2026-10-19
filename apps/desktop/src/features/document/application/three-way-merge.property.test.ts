@@ -180,9 +180,9 @@ function restrictTo(identities: readonly string[], allowed: ReadonlySet<string>)
   return identities.filter((identity) => allowed.has(identity));
 }
 
-/** 片側だけ変えたらその値、両側が変えたら theirs。 */
+/** 片側だけ変えたらその値、両側が変えたら ours (人の値を巻き戻さない)。 */
 function expectedValue<T>(base: T, ours: T, theirs: T): T {
-  return theirs === base ? ours : theirs;
+  return ours === base ? theirs : ours;
 }
 
 interface Scenario {
