@@ -780,7 +780,6 @@ function mergeInlineTokens(
   return { tokens: merged, fromTheirs };
 }
 
-/** "Only one side changed it → that value; both changed it differently → theirs (AI)." */
 /** A value both sides changed differently keeps ours (the human's): the AI's value is reported, not applied. */
 function mergeLeaf(base: unknown, ours: unknown, theirs: unknown, onConflict: () => void): unknown {
   if (isEqual(ours, theirs) || isEqual(theirs, base)) {

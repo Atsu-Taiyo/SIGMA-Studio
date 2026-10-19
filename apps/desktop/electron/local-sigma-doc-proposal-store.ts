@@ -2297,7 +2297,6 @@ function parseProposalMergeBasis(value: unknown): ProposalMergeBasis | null {
   return { version: 1, entities, ...(Object.keys(anchors).length > 0 ? { anchors } : {}) };
 }
 
-/** 承認時に保存した mergeReport の緩い読み込み (監査表示用。欠けた値は0/空として扱う)。 */
 /** A proposal's carried merge report with what the MCP adjusted before this write (when it did anything). */
 function carryAdjustment(
   carried: ProposalMergeReport | undefined,
@@ -2310,6 +2309,7 @@ function carryAdjustment(
   return combineProposalMergeReports([carried ?? createEmptyProposalMergeReport(), report]);
 }
 
+/** 承認時に保存した mergeReport の緩い読み込み (監査表示用。欠けた値は0/空として扱う)。 */
 function parseProposalMergeReport(value: unknown): ProposalMergeReport | null {
   if (!isRecord(value) || Array.isArray(value)) {
     return null;

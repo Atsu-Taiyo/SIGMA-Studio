@@ -799,7 +799,6 @@ export const editor = {
     mentionAgentHint: "Ask it to work with @{{keyword}}",
     mentionMembersSection: "People",
     mentionAgentsSection: "AI agents",
-    /** The toggle at the bottom left of the composer. Checking it puts `@claude` (etc.) at the start of the comment. */
     justNow: "now",
     mentionAgentTitle: "{{name}} (AI agent) · sending this comment asks it to work",
 

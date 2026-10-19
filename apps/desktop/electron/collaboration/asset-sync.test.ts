@@ -184,9 +184,9 @@ it.each([400, 403])("keeps refused operations durable and bounds recovery (HTTP 
   await expect(first.sessions.flush("file", true)).rejects.toThrow("MISSING_ASSET");
   expect(f.batches).toHaveLength(status === 400 ? 2 : 1);
   expect(f.uploads).toHaveLength(status === 400 ? 2 : 1);
-  expect(first.sessions.describe("file").status).toBe(status === 400 ? "sync-rejected" : "permission-error");
-  await expect(first.sessions.flush("file", true)).rejects.toThrow("MISSING_ASSET");
-  expect(f.batches).toHaveLength(status === 400 ? 3 : 2);
+  expect(first.sessions.describe("file").status).toBe(status === 400 ? "needs-recovery" : "permission-error");
+  await expect(first.sessions.flush("file", true)).rejects.toThrow(status === 400 ? "ASSET_RECOVERY_REQUIRED" : "MISSING_ASSET");
+  expect(f.batches).toHaveLength(2);
   expect(f.uploads).toHaveLength(status === 400 ? 2 : 1); // No repeated cache upload for an unchanged refusal.
   first.renderer.destroy();
   await first.close();

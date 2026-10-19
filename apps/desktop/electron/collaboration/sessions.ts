@@ -1917,9 +1917,13 @@ export class CollaborationSessions {
     const written = updateAssetReferences(content);
     const named = new Set(refusal.details.missingAssetIds ?? []);
     const counts = { resent: 0, adopted: 0, downloaded: 0, unresolved: 0 };
-    for (const assetId of new Set([...named, ...written])) {
+    // Older servers return no ids. Include images already in the current document too:
+    // an acknowledged image may have disappeared remotely since its upload (#255).
+    const current = named.size === 0
+      ? documentImageReferences(session.journal.document.project()).flatMap((image) => image.assetId ? [image.assetId] : [])
+      : [];
+    for (const assetId of new Set([...named, ...written, ...current])) {
       if (session.refusedAssets?.has(assetId) || session.unresolvedAssets?.has(assetId)) continue;
-      if (!named.has(assetId) && session.confirmedAssets?.has(assetId)) continue;
       const own: string | undefined = session.assets[assetId] ?? await this.cachedAsset(sharedId, assetId).catch(() => undefined);
       let source: string | undefined = own ?? (written.has(assetId) ? await this.foreignAssetSource(sharedId, assetId) : undefined);
       if (source !== undefined) {
