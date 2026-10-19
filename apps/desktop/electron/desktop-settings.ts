@@ -6,7 +6,7 @@ import { parseEditorCustomCommands, parseEditorShortcutOverrides } from "@/lib/e
 import { DEFAULT_LOCALE, normalizeLocale, type AppLocale } from "@/lib/i18n/locale";
 
 const MAX_FONT_FAMILY_LENGTH = 512;
-const MAX_CUSTOM_FONTS = 200;
+const MAX_CUSTOM_FONTS = 4096;
 
 export interface DesktopSettings {
   codexBin?: string;
