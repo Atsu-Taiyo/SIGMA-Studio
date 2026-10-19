@@ -1,0 +1,114 @@
+/*
+ * アイコンにする範囲を決める画面。丸い枠 (240px) がアイコンの見え方で、その外は暗くして画像の続きを見せる。
+ * 枠の大きさは見た目だけの値で、範囲の計算は割合 (`model/avatar-crop.ts`) なので CSS だけで変えられる。
+ */
+.stage {
+  --avatar-crop-frame: 240px;
+  position: relative;
+  overflow: hidden;
+  height: calc(var(--avatar-crop-frame) + 2 * var(--space-xl));
+  border-radius: var(--radius-panel);
+  background: var(--surface-strong);
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+.stage[data-dragging="true"] {
+  cursor: grabbing;
+}
+.stage:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.frame {
+  position: absolute;
+  top: calc(50% - var(--avatar-crop-frame) / 2);
+  left: calc(50% - var(--avatar-crop-frame) / 2);
+  width: var(--avatar-crop-frame);
+  height: var(--avatar-crop-frame);
+}
+.frame img,
+.preview img {
+  position: absolute;
+  max-width: none;
+  max-height: none;
+  pointer-events: none;
+  -webkit-user-drag: none;
+}
+/* 枠の外を暗くする。box-shadow は角丸に沿うので、丸い穴になる。 */
+.mask {
+  position: absolute;
+  inset: 0;
+  border-radius: var(--radius-round);
+  box-shadow: 0 0 0 1px rgb(255 255 255 / 85%), 0 0 0 100vmax rgb(17 17 17 / 52%);
+  pointer-events: none;
+}
+
+.slider {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 20px;
+  margin: 0;
+  padding: 0;
+  background: transparent;
+  cursor: pointer;
+  appearance: none;
+}
+.slider:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+.slider:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.slider::-webkit-slider-runnable-track {
+  height: 4px;
+  border-radius: 2px;
+  background: linear-gradient(to right, var(--text-secondary) var(--slider-fill), var(--surface-strong) var(--slider-fill));
+}
+.slider::-webkit-slider-thumb {
+  width: 14px;
+  height: 14px;
+  margin-top: -5px;
+  border: 1px solid var(--border-strong);
+  border-radius: 50%;
+  background: var(--background);
+  box-shadow: 0 1px 3px #0002;
+  appearance: none;
+}
+.slider::-moz-range-track {
+  height: 4px;
+  border-radius: 2px;
+  background: var(--surface-strong);
+}
+.slider::-moz-range-progress {
+  height: 4px;
+  background: var(--text-secondary);
+}
+.slider::-moz-range-thumb {
+  width: 12px;
+  height: 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: 50%;
+  background: var(--background);
+}
+
+/* 表示する大きさの見本。ダイアログの見本 (64px) とヘッダー (28px) に揃える。 */
+.preview {
+  position: relative;
+  overflow: hidden;
+  flex: 0 0 auto;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-round);
+  background: var(--surface-muted);
+}
+.preview_lg {
+  width: 64px;
+  height: 64px;
+}
+.preview_sm {
+  width: 28px;
+  height: 28px;
+}

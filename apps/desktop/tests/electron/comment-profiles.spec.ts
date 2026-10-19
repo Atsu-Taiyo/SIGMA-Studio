@@ -140,7 +140,7 @@ test("profile name and picture changes reach the header, comment authors and men
     await expect(nameInput).toHaveAttribute("placeholder", "Atsushi Kim");
     await nameInput.fill("木村 篤");
     const photo = await page.evaluate(async () => {
-      // 横長の写真 (真ん中で正方形に切り抜かれる)。
+      // 横長の写真 (切り抜く範囲は動かさず、真ん中の正方形のまま適用する)。
       const canvas = window.document.createElement("canvas");
       canvas.width = 900;
       canvas.height = 600;
@@ -150,6 +150,7 @@ test("profile name and picture changes reach the header, comment authors and men
       return canvas.toDataURL("image/png").split(",")[1];
     });
     await dialog.locator('input[type="file"]').setInputFiles({ name: "photo.png", mimeType: "image/png", buffer: Buffer.from(photo, "base64") });
+    await page.getByRole("dialog", { name: "アイコンの範囲" }).getByRole("button", { name: "適用", exact: true }).click();
     await expect(dialog.getByTestId("profile-avatar-preview").locator("img")).toHaveAttribute("src", /^blob:/);
     await dialog.screenshot({ path: test.info().outputPath("profile-dialog.png") });
     await dialog.getByRole("button", { name: "保存", exact: true }).click();
