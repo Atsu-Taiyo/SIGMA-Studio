@@ -3,7 +3,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { expect, it, vi } from "vitest";
-import { ApplicationFontStore } from "./application-font-store";
+import { ApplicationFontStore, APPLICATION_FONT_MAX_BYTES } from "./application-font-store";
 
 it("shares a verified resource, survives reopening, and serves only its content ID", async () => {
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), "sigma-font-store-"));
@@ -37,5 +37,20 @@ it("rejects a mismatched download without persisting it", async () => {
     const bytes = Buffer.alloc(32); bytes[1] = 1;
     await expect(store.ensure("a".repeat(64), async () => bytes)).rejects.toThrow("INVALID_FONT_RESOURCE");
     expect(await fs.readdir(directory)).toEqual([]);
+  } finally { await fs.rm(directory, { recursive: true, force: true }); }
+});
+
+it("reopens a complete large font and keeps the resource size bound", async () => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), "sigma-large-font-"));
+  try {
+    const bytes = Buffer.alloc(37 * 1024 * 1024); bytes[1] = 1;
+    const id = createHash("sha256").update(bytes).digest("hex");
+    await new ApplicationFontStore(directory).ensure(id, async () => bytes);
+    const reopened = new ApplicationFontStore(directory);
+    expect((await reopened.read(id))?.byteLength).toBe(bytes.length);
+    const oversized = Buffer.alloc(APPLICATION_FONT_MAX_BYTES + 1); oversized[1] = 1;
+    const oversizedId = createHash("sha256").update(oversized).digest("hex");
+    await expect(reopened.ensure(oversizedId, async () => oversized)).rejects.toThrow("INVALID_FONT_RESOURCE");
+    expect(await fs.readdir(directory)).toEqual([`${id}.font`]);
   } finally { await fs.rm(directory, { recursive: true, force: true }); }
 });

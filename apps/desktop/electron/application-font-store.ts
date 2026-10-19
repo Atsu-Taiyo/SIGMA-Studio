@@ -2,7 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
 
-export const APPLICATION_FONT_MAX_BYTES = 24 * 1024 * 1024;
+export const APPLICATION_FONT_MAX_BYTES = 64 * 1024 * 1024;
 export const isApplicationFontId = (value: unknown): value is string => typeof value === "string" && /^[a-f0-9]{64}$/u.test(value);
 
 function fontType(bytes: Uint8Array): string | null {

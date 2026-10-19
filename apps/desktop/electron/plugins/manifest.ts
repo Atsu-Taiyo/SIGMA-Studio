@@ -2,8 +2,9 @@ import { createHash, verify } from "node:crypto";
 
 import { EXTENSION_ICON_NAMES, EXTENSION_MENU_LIMITS, type ExtensionIconName } from "@/lib/extension-contracts";
 
-export const MAX_FILE_BYTES = 24 * 1024 * 1024;
-export const MAX_PACKAGE_BYTES = 128 * 1024 * 1024;
+export const MAX_FILE_BYTES = 64 * 1024 * 1024;
+export const MAX_PACKAGE_BYTES = 2 * 1024 * 1024 * 1024;
+export const MAX_PACKAGE_FILES = 1024;
 export const MAX_CATALOG_BYTES = 1024 * 1024;
 
 /** ホストが返すエラーの種類。描画側の文言や再試行の判断はこの値で決まる。 */
@@ -144,7 +145,7 @@ export function validateCatalog(catalog: unknown): Catalog {
     if (!plugin || !isId(plugin.id) || ids.has(plugin.id) || !isVersion(plugin.version) || !isVersion(plugin.minAppVersion)
       || typeof plugin.name !== "string" || !plugin.name.trim() || plugin.name.length > 100
       || typeof plugin.description !== "string" || plugin.description.length > 500
-      || plugin.entry !== "worker.cjs" || !Array.isArray(plugin.files) || !plugin.files.length || plugin.files.length > 256
+      || plugin.entry !== "worker.cjs" || !Array.isArray(plugin.files) || !plugin.files.length || plugin.files.length > MAX_PACKAGE_FILES
       || !Array.isArray(plugin.capabilities) || plugin.capabilities.length < 1 || plugin.capabilities.length > 4
       || !plugin.capabilities.every((capability) => KNOWN_CAPABILITIES.has(capability))) return invalid();
     ids.add(plugin.id);
