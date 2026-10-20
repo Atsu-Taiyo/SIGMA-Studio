@@ -92,7 +92,7 @@ function fixture() {
       setCommandPaletteOpen: record("palette"),
       openPrintPreview: record("print"),
       toggleCommentsPanel: record("comments"),
-      setOutlineDialogOpen: record("outline-dialog"),
+      openOutlineDock: record("outline-dock"),
       promoteAiToSidebar: record("chat"),
       setAiSettingsOpen: record("ai-settings"),
       setPageSettingsOpen: record("page-settings"),

@@ -310,7 +310,7 @@ export const command = {
     "edit.boxedText": "本文または図中テキストの選択範囲に囲みを付けます",
     "view.commandPalette": "すべてのコマンドと設定を名前で探して実行します",
     "view.comments": "コメントパネルの表示/非表示を切り替えます",
-    "view.outlineDialog": "教材全体のアウトラインダイアログを開きます",
+    "view.outlineDialog": "見出しと問題のアウトラインを、キャンバス左上のカードで開きます",
     "view.regionCapture": "紙面をドラッグして範囲を選び、コピー・保存・AIへの質問ができます (⌥⇧ を押しながらドラッグでも始められます)",
     "view.pocket": "編集画面の上のポケットを開閉します。追加したものは別のページや教材へ持っていけます",
     "document.new": "空の教材を新しいタブで作成します",

@@ -22,6 +22,10 @@ export function documentSearchText(document: SigmaDocument): string {
   for (const region of [pageLayout?.header, pageLayout?.footer]) {
     if (!region) continue;
     collectBlocks(region.blocks, lines);
+    // ページ専用の文字も引ける (共通の文字と同じ扱い)。
+    if (Array.isArray(region.pageContents)) {
+      for (const content of region.pageContents) collectBlocks(content?.blocks, lines);
+    }
     collectOverlay(region.overlay, lines);
   }
   collectOverlay(pageLayout?.overlay, lines);

@@ -96,6 +96,12 @@ function portableRunningRegion(region: PageRunningRegion | undefined): PageRunni
   }
   const overlay = portableOverlay(region.overlay);
   const next: PageRunningRegion = { ...region, blocks: structuredClone(region.blocks) };
+  // ページごとの例外 (出さないページ・出すページ・ページ専用の文字) は、元の教材のそのページの話。
+  // 中身の違う新しい教材へは運ばない。「先頭ページのみ」などのまとまり (showOnFirstPage /
+  // showOnLaterPages) は用紙設定なので引き継ぐ。
+  delete next.hiddenPages;
+  delete next.shownPages;
+  delete next.pageContents;
   if (overlay) {
     next.overlay = overlay;
   } else {

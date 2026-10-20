@@ -1,6 +1,7 @@
 "use client";
 import {
   captureRunningRegionFitBase,
+  clearRunningRegionPageContents,
   enablePageRunningRegion,
   expandMarginsForRunningRegions,
   fitRunningRegionToEditedContent,
@@ -8,9 +9,13 @@ import {
   MM_TO_PX,
   resizeHorizontalMarginsLayout,
   resizeRunningRegionLayout,
+  setRunningRegionPageContentEnabled,
+  setRunningRegionPageRange,
+  setRunningRegionShownOnPage,
   type PageLayout,
   type PageOverlay,
   type RunningRegionFitBase,
+  type RunningRegionPageRange,
 } from "@/features/document";
 import { type TextFlowBlock } from "@/features/text-editing";
 import type { Translate } from "@/lib/i18n";
@@ -121,16 +126,80 @@ export function usePageCanvasRunningRegions({ documentId, onRunningRegionEditing
     editRunningRegion(kind, pageNumber);
   }, [editRunningRegion, layout, onPageLayoutChange]);
 
+  /** そのページだけ帯を出す/出さない。ページ数は、いまより先の古い印を片付けるのに使う。 */
+  const setRunningRegionShownOnPageAt = useCallback((
+    kind: RunningRegionKind,
+    pageNumber: number,
+    shown: boolean,
+    totalPages: number,
+  ) => {
+    const baseLayout = pageLayoutDraftRef.current ?? layout;
+    const nextLayout = setRunningRegionShownOnPage(baseLayout, kind, pageNumber, shown, totalPages);
+    if (nextLayout === baseLayout) {
+      return;
+    }
+
+    onPageLayoutChange(nextLayout);
+    setPageLayoutDraft(null);
+    pageLayoutDraftRef.current = null;
+  }, [layout, onPageLayoutChange]);
+
+  /** 「すべて/先頭ページのみ/先頭以外」のまとまりで、どのページに出すかを決める。 */
+  const setRunningRegionPageRangeFor = useCallback((kind: RunningRegionKind, range: RunningRegionPageRange) => {
+    const baseLayout = pageLayoutDraftRef.current ?? layout;
+    const nextLayout = setRunningRegionPageRange(baseLayout, kind, range);
+    if (nextLayout === baseLayout) {
+      return;
+    }
+
+    onPageLayoutChange(nextLayout);
+    setPageLayoutDraft(null);
+    pageLayoutDraftRef.current = null;
+  }, [layout, onPageLayoutChange]);
+
+  /** ページ専用の中身をすべてやめて、共通の中身に戻す。 */
+  const clearRunningRegionPageContentsFor = useCallback((kind: RunningRegionKind) => {
+    const baseLayout = pageLayoutDraftRef.current ?? layout;
+    const nextLayout = clearRunningRegionPageContents(baseLayout, kind);
+    if (nextLayout === baseLayout) {
+      return;
+    }
+
+    onPageLayoutChange(nextLayout);
+    setPageLayoutDraft(null);
+    pageLayoutDraftRef.current = null;
+  }, [layout, onPageLayoutChange]);
+
+  /** そのページだけ中身を変える/共通に戻す。 */
+  const setRunningRegionPageContentAt = useCallback((
+    kind: RunningRegionKind,
+    pageNumber: number,
+    enabled: boolean,
+    totalPages: number,
+  ) => {
+    const baseLayout = pageLayoutDraftRef.current ?? layout;
+    const nextLayout = setRunningRegionPageContentEnabled(baseLayout, kind, pageNumber, enabled, totalPages);
+    if (nextLayout === baseLayout) {
+      return;
+    }
+
+    onPageLayoutChange(nextLayout);
+    setPageLayoutDraft(null);
+    pageLayoutDraftRef.current = null;
+  }, [layout, onPageLayoutChange]);
+
   const updateRunningRegionBlocks = useCallback((
     kind: RunningRegionKind,
     nextBlocks: TextFlowBlock[],
   ) => {
     const baseLayout = pageLayoutDraftRef.current ?? layout;
+    // いま編集しているページがページ専用の中身を持っていれば、その文字だけを書き換える。
     const nextLayout = replacePageRunningRegionTextFlow(
       baseLayout,
       kind,
       nextBlocks,
       tEditorText,
+      runningRegionEditPageNumber,
     );
     if (!nextLayout) {
       return;
@@ -139,7 +208,7 @@ export function usePageCanvasRunningRegions({ documentId, onRunningRegionEditing
     onPageLayoutChange(nextLayout);
     setPageLayoutDraft(null);
     pageLayoutDraftRef.current = null;
-  }, [layout, onPageLayoutChange, tEditorText]);
+  }, [layout, onPageLayoutChange, runningRegionEditPageNumber, tEditorText]);
 
   const resizeRunningRegionForContent = useCallback((
     kind: RunningRegionKind,
@@ -346,6 +415,10 @@ export function usePageCanvasRunningRegions({ documentId, onRunningRegionEditing
     setHorizontalMarginEditPageNumber,
     editRunningRegion,
     enableRunningRegion,
+    setRunningRegionShownOnPageAt,
+    setRunningRegionPageRangeFor,
+    setRunningRegionPageContentAt,
+    clearRunningRegionPageContentsFor,
     beginPageMarginDrag,
     runningRegionFocusRequest,
     updateRunningRegionBlocks,

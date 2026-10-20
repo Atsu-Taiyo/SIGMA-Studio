@@ -143,7 +143,6 @@ describe("design tokens", () => {
     expect(readFileSync(new URL("../editor/PageSettingsDialog.tsx", import.meta.url), "utf8")).toContain("<ModalFrame");
     for (const path of [
       "../editor/TableSettingsDialog.tsx",
-      "../editor/editor-shell/editor-outline-dialog.tsx",
       "../editor/editor-shell/material-dialogs.tsx",
       "../templates/TemplateGallery.tsx",
       "../print/PdfExportSuccessDialog.tsx",

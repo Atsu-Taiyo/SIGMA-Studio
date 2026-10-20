@@ -6,7 +6,6 @@ import { DOCUMENT_BLOCK_OPERATION_PORTS } from "./editor-shell/document-operatio
 import { scheduleEditorBlockFocus } from "./editor-shell/editor-focus";
 import { useEditorHost } from "./editor-shell/editor-host";
 import type { AiEditAttachment,AiEditPreviewState,AiEditReference,AiEditShapeOnlyPreview,AiProposalApplyOutcome } from "./editor-shell/editor-host-contracts";
-import { EditorOutlineDialog } from "./editor-shell/editor-outline-dialog";
 import { EditorPrintPreview } from "./editor-shell/editor-print-preview";
 import { tAi,tEditor,tShape,tWorkspace } from "./editor-shell/editor-translations";
 import { sessionReadOnlyExtensions } from "./editor-shell/session-read-only-extensions";
@@ -20,6 +19,7 @@ import { useDocumentPrintController } from "./editor-shell/use-document-print-co
 import { useDocumentRecovery } from "./editor-shell/use-document-recovery";
 import { useDocumentSearchCommands,useDocumentSearchState } from "./editor-shell/use-document-search";
 import { useProblemDisplayEditing } from "./editor-shell/use-problem-display-editing";
+import { OutlineDock } from "./OutlineDock";
 import { mergeEditorExtensionSets } from "./webmcp/webmcp-editor-extensions";
 import { useEditorChromeController } from "./editor-shell/use-editor-chrome-controller";
 import { useEditorDialogState } from "./editor-shell/use-editor-dialog-state";
@@ -264,7 +264,6 @@ resolveDocumentTitleContent
 } from "@/lib/document-title";
 import {
 addRichBlockToProblem,
-collectOutline,
 createParagraph,
 duplicateTopLevelBlock,
 ensureEditableBody,
@@ -289,6 +288,7 @@ import { useT } from "@/lib/i18n/react";
 import { createId } from "@/lib/id";
 import { availableDocumentTitle } from "@/lib/library-ledger";
 import type { LedgerSchemaFailure } from "@/lib/library-schema";
+import { buildOutlineNavigation } from "@/lib/outline-navigation";
 import { getSupportedOverlayImageFiles } from "@/lib/overlay-image-files";
 import { countPerformanceEvent,measurePerformance } from "@/lib/performance";
 import { OPEN_LINK_REQUEST_EVENT, readOpenLinkRequest } from "@/lib/link-open-request";
@@ -767,7 +767,8 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
   const outlineWidth = useStore(editorStore, (state) => state.outlineWidth);
   // 一旦、左側の印刷プレビュー（ページナビゲータ）は非表示にする。true に戻せば復活する。
   const [showPageNavigator] = useState(false);
-  const [outlineDialogOpen, setOutlineDialogOpen] = useState(false);
+  // 「アウトラインを表示」コマンドが OutlineDock を開く合図。増えるたびに開く。
+  const [outlineDockRequest, setOutlineDockRequest] = useState(0);
   const [activePageNumber, setActivePageNumber] = useState(1);
   // 描画されたページ総数。真値は PageCanvasEditor の layoutViewState.pageCount だけなので
   // prop で上げてもらう（DOM の data-page-count から読み戻すのは派生の逆流）。
@@ -2517,15 +2518,12 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
 
   // 画面のアウトラインは表示言語で引く (`t` を省略すると `collectOutline` の既定 =
   // 日本語になる。既定が日本語なのは AI / MCP の呼び出しを固定するため)。
-  // 画面のアウトラインは表示言語で引く (`t` を省略すると `collectOutline` の既定 =
-  // 日本語になる。既定が日本語なのは AI / MCP の呼び出しを固定するため)。
-  const outline = useMemo(
-    () => collectOutline(document, { t: tE, includeLayoutHeadings: true }),
+  const outlineItems = useMemo(
+    () => buildOutlineNavigation(document, {
+      t: tE,
+      headingNumbers: getHeadingNumberMap(document.content, document.metadata.headingNumbering),
+    }),
     [document, tE],
-  );
-  const outlineHeadingNumbers = useMemo(
-    () => getHeadingNumberMap(document.content, document.metadata.headingNumbering),
-    [document.content, document.metadata.headingNumbering],
   );
   // コメント装飾は本文ユニットごとの effect で更新されるので、コメントの無い文書で
   // 毎回新しい空配列を渡すと打鍵のたびにユニット数だけ無駄な更新が走る。
@@ -2553,12 +2551,19 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
     selectedIdRef.current = blockId;
     materialBlockSelectionRef.current = blockId;
     setSelectedId(blockId);
-    setOutlineDialogOpen(false);
     window.document.getElementById(blockId)?.scrollIntoView({
       block: "center",
       behavior: "smooth",
     });
-  }, [setSelectedId, setSelectedInlineMath, setOutlineDialogOpen]);
+  }, [setSelectedId, setSelectedInlineMath]);
+  const openOutlineDock = useCallback(() => {
+    if (outlineItems.length === 0) {
+      // 見出しも問題も無い教材では入口 (OutlineDock) 自体が無い。コマンドの押し損ねに理由を返す。
+      setStatusMessage(tE("outline.empty"));
+      return;
+    }
+    setOutlineDockRequest((current) => current + 1);
+  }, [outlineItems.length, setStatusMessage, tE]);
 
   useEffect(() => {
     if (!workspaceReady) {
@@ -4084,7 +4089,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
         undoDocumentChange, redoDocumentChange, createDocumentTab, openDocumentListDialog,
         duplicateActiveDocument, addBlock, setSearchOpen, setOutlineOpen, applyZoom,
         resetZoom, setSettingsFocusEntryId, setCommandPaletteOpen, openPrintPreview,
-        toggleCommentsPanel, setOutlineDialogOpen, promoteAiToSidebar, setAiSettingsOpen,
+        toggleCommentsPanel, openOutlineDock, promoteAiToSidebar, setAiSettingsOpen,
         setPageSettingsOpen, openCommandSettings, setMaterialLibraryOpen, setStatusMessage,
         tEditor,
       },
@@ -4660,7 +4665,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
       openVersionHistory, openWorkspaceScreen, promoteAiToSidebar, reportIssue, requestOverlayImages,
       resolvedDocumentTitle, scheduleCloseNewDocMenu,
       setAiSettingsOpen, setDesktopSettingsOpen: openDesktopSettingsFromChrome, setExtensionsOpen, setExportMenuOpen, setNewDocMenuOpen,
-      setOutlineDialogOpen, setOverlayEditing, setPageSettingsOpen, setTemplateGalleryOpen,
+      setOverlayEditing, setPageSettingsOpen, setTemplateGalleryOpen,
       setTexCommandReferenceOpen, setTexEnvironmentSettingsOpen, setTitleInputFocused,
       settingsMenuButtonRef, showRichTitle,
       showTitleUpdateButton, titleInputValue, titleRichNodes, workspaceTabsRow,
@@ -4947,6 +4952,16 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
               resolvedProposals={resolvedMcpEditProposals}
               webMcpInstructionScopeId={webMcpEnabled ? document.docId : null}
               webMcpHistory={webMcpEnabled ? webMcpHistory : undefined}
+            />
+          )}
+          {/* 見出し・節・問題の一覧。AI タスクの入口の真下に同じ作法で置く (畳んだ間はアイコンだけ)。
+              見出しも問題も無い教材と、本文を持たないホワイトボードでは出さない。 */}
+          {!versionHistoryPreviewActive && workspaceReady && !activeDocumentOpenFailure && !isWhiteboardDocument && outlineItems.length > 0 && (
+            <OutlineDock
+              items={outlineItems}
+              selectedId={selectedId}
+              onSelectItem={selectOutlineItem}
+              openRequest={outlineDockRequest}
             />
           )}
           {problemDisplayActive && pageEditorMounted && (
@@ -5300,8 +5315,6 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
           onClose={() => setDocumentTextCopyFallback(null)}
         />
       )}
-
-      <EditorOutlineDialog outlineDialogOpen={outlineDialogOpen} resolvedDocumentTitle={resolvedDocumentTitle} titleNodes={documentTitle.nodes} outline={outline} outlineHeadingNumbers={outlineHeadingNumbers} selectedId={selectedId} selectOutlineItem={selectOutlineItem} onClose={() => setOutlineDialogOpen(false)} tE={tE} />
 
       <EditorPrintPreview previewOpen={previewOpen} document={document} renderState={printPreviewRenderState} pdfExporting={pdfExporting} isDesktopApp={isDesktopApp} isEmbedded={isEmbedded} onRenderStateChange={setPrintPreviewRenderState} onExport={() => void exportPdf()} onOpenExternal={() => void openPrintWindow()} onClose={() => setPreviewOpen(false)} tE={tE} />
 

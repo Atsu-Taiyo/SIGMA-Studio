@@ -344,7 +344,6 @@ export interface EditorChromeAppMenu {
   setExtensionsOpen: Dispatch<SetStateAction<boolean>>;
   setExportMenuOpen: Dispatch<SetStateAction<boolean>>;
   setNewDocMenuOpen: Dispatch<SetStateAction<boolean>>;
-  setOutlineDialogOpen: Dispatch<SetStateAction<boolean>>;
   setOverlayEditing: Dispatch<SetStateAction<boolean>>;
   setPageSettingsOpen: Dispatch<SetStateAction<boolean>>;
   setTemplateGalleryOpen: Dispatch<SetStateAction<boolean>>;

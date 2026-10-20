@@ -50,19 +50,6 @@
   min-width: 0;
 }
 
-.workspace-brand-mark {
-  display: grid;
-  flex: 0 0 auto;
-  place-items: center;
-  width: 34px;
-  height: 34px;
-  border-radius: 10px;
-  background: var(--text-primary);
-  color: #ffffff;
-  font-size: 17px;
-  font-weight: 700;
-}
-
 .workspace-page-brand h1 {
   margin: 0;
   overflow: hidden;
@@ -2918,95 +2905,6 @@ nav.app-menu-list[inert] *,
   border-radius: 6px;
 }
 
-.outline-dialog-backdrop {
-  position: fixed;
-  inset: 0;
-  z-index: 142;
-  display: grid;
-  place-items: center;
-  padding: 24px;
-  background: rgba(15, 23, 42, 0.24);
-}
-
-.outline-dialog {
-  display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
-  width: min(520px, calc(100vw - 32px));
-  max-height: min(680px, calc(100vh - 48px));
-  overflow: hidden;
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  background: #ffffff;
-  box-shadow: 0 24px 64px rgba(15, 23, 42, 0.22);
-}
-
-.outline-dialog-header {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 14px 16px 12px;
-  border-bottom: 1px solid var(--border-subtle);
-}
-
-.outline-dialog-header > div {
-  display: grid;
-  gap: 3px;
-  min-width: 0;
-}
-
-.outline-dialog-header h2,
-.outline-dialog-header p,
-.outline-dialog-empty {
-  margin: 0;
-}
-
-.outline-dialog-header h2 {
-  color: var(--text-primary);
-  font-size: 16px;
-  font-weight: 750;
-}
-
-.outline-dialog-header p {
-  overflow: hidden;
-  color: var(--text-secondary);
-  font-size: 12px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.outline-dialog-list {
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-  min-height: 0;
-  overflow-y: auto;
-  padding: 10px;
-}
-
-.outline-dialog-list button {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 10px;
-  width: 100%;
-  min-height: 36px;
-  padding: 7px 9px;
-  border: 1px solid transparent;
-  border-radius: 7px;
-  background: transparent;
-  color: var(--text-secondary);
-  text-align: left;
-  cursor: pointer;
-}
-
-.outline-dialog-list button:hover,
-.outline-dialog-list button:focus-visible,
-.outline-dialog-list button.selected {
-  border-color: var(--border);
-  background: var(--surface-muted);
-  color: var(--text-primary);
-  outline: none;
-}
 /* Menu controls are siblings of sidebar navigation buttons. */
 .workspace-nav-row,
 .workspace-tree-file-row {

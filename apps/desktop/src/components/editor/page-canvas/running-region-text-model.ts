@@ -1,6 +1,9 @@
 import {
   expandMarginsForRunningRegions,
   enablePageRunningRegion,
+  getRunningRegionBlocksForPage,
+  hasRunningRegionPageContent,
+  replaceRunningRegionPageContentBlocks,
   type PageLayout,
   type PageRunningRegion,
   type RichBlock,
@@ -13,12 +16,18 @@ import { getTextFlowBlockChildren } from "@/features/text-editing";
 import { textFlowBlockToProblemAreaBlock } from "./reconciliation";
 import type { RunningRegionKind } from "./types";
 
+/**
+ * 帯の本文をエディタの形にする。`pageNumber` を渡すと、そのページ専用の中身があればその文字、
+ * 無ければ共通の文字。
+ */
 export function pageRunningRegionToTextFlowBlocks(
   region: PageRunningRegion,
   kind: RunningRegionKind,
+  pageNumber?: number,
 ): TextFlowBlock[] {
-  if (region.blocks.length) {
-    return region.blocks.map(cloneTextFlowBlock);
+  const source = pageNumber === undefined ? region.blocks : getRunningRegionBlocksForPage(region, pageNumber);
+  if (source.length) {
+    return source.map(cloneTextFlowBlock);
   }
 
   return [{
@@ -105,11 +114,16 @@ export function textFlowBlocksToRunningBlocks(
   });
 }
 
+/**
+ * 編集した文字を帯へ書き戻す。`pageNumber` のページがページ専用の中身を持っているときは、その
+ * ページ専用の文字だけを書き換える (共通の文字や、ほかのページは変わらない)。
+ */
 export function replacePageRunningRegionTextFlow(
   layout: PageLayout,
   kind: RunningRegionKind,
   nextBlocks: TextFlowBlock[],
   t: Translate<"editor"> = createTranslator(DEFAULT_LOCALE, "editor"),
+  pageNumber?: number,
 ): PageLayout | null {
   const enabledLayout = expandMarginsForRunningRegions(
     enablePageRunningRegion(layout, kind),
@@ -119,11 +133,16 @@ export function replacePageRunningRegionTextFlow(
     return null;
   }
 
+  const blocks = textFlowBlocksToRunningBlocks(nextBlocks, t);
+  if (pageNumber !== undefined && hasRunningRegionPageContent(region, pageNumber)) {
+    return replaceRunningRegionPageContentBlocks(enabledLayout, kind, pageNumber, blocks);
+  }
+
   return {
     ...enabledLayout,
     [kind]: {
       ...region,
-      blocks: textFlowBlocksToRunningBlocks(nextBlocks, t),
+      blocks,
     },
   };
 }

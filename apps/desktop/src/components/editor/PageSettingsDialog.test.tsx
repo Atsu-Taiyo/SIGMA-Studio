@@ -186,6 +186,49 @@ describe("PageSettingsDialog", () => {
     });
   });
 
+  it("ヘッダーを「先頭ページのみ」にでき、選び直すと「すべて」に戻る", async () => {
+    const onChange = vi.fn();
+    const base = getDefaultPageLayout("A4");
+    await act(async () => {
+      root.render(
+        <PageSettingsDialog
+          layout={{ ...base, header: { ...base.header!, enabled: true } }}
+          onClose={vi.fn()}
+          onChange={onChange}
+        />,
+      );
+    });
+    const group = () => document.querySelector<HTMLElement>('#page-settings-header [role="radiogroup"]')!;
+    const radio = (label: string) => Array.from(group().querySelectorAll<HTMLElement>('[role="radio"]'))
+      .find((candidate) => candidate.textContent?.trim() === label)!;
+
+    expect(group().getAttribute("aria-label")).toBe("表示するページ");
+    expect(radio("すべて").getAttribute("aria-checked")).toBe("true");
+
+    await act(async () => radio("先頭ページのみ").click());
+    expect(radio("先頭ページのみ").getAttribute("aria-checked")).toBe("true");
+    await act(async () => findButton("適用").click());
+    expect(onChange.mock.calls[0]?.[0].header).toMatchObject({ showOnFirstPage: true, showOnLaterPages: false });
+    expect(onChange.mock.calls[0]?.[0].header).not.toHaveProperty("hiddenPages");
+  });
+
+  it("ページごとの例外があるときは、どれも選ばず、その状態を説明する", async () => {
+    const base = getDefaultPageLayout("A4");
+    await act(async () => {
+      root.render(
+        <PageSettingsDialog
+          layout={{ ...base, header: { ...base.header!, enabled: true, hiddenPages: [3] } }}
+          onClose={vi.fn()}
+          onChange={vi.fn()}
+        />,
+      );
+    });
+    const radios = Array.from(document.querySelectorAll<HTMLElement>('#page-settings-header [role="radio"]'));
+
+    expect(radios.map((radio) => radio.getAttribute("aria-checked"))).toEqual(["false", "false", "false"]);
+    expect(document.querySelector("#page-settings-header")?.textContent).toContain("ページごとに表示を変えています");
+  });
+
   it("ヘッダーを切っている間は位置と高さの欄を出さない", async () => {
     await act(async () => {
       root.render(<PageSettingsDialog layout={getDefaultPageLayout("A4")} onClose={vi.fn()} onChange={vi.fn()} />);

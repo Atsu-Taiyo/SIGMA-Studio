@@ -4,14 +4,17 @@ import { TextFlowEditor } from "@/components/editor/TextFlowEditor";
 import {
   getRunningRegionBoundsMm,
   getRunningRegionOverlaySize,
+  hasRunningRegionPageContent,
+  isRunningRegionShownOnPage,
   mmToPx,
-  pageRunningRegionHasContent,
+  pageRunningRegionHasContentOnPage,
   type MathFractionSizing,
   type PageLayout,
   type PageMetrics,
   type PageOverlay,
   type PageRunningRegion,
   type RunningRegionFieldValues,
+  type RunningRegionPageRange,
 } from "@/features/document";
 import { type TextFlowBlock } from "@/features/text-editing";
 import { useT } from "@/lib/i18n/react";
@@ -34,6 +37,7 @@ import { type ClientPoint } from "./caret-focus";
 import { OverlayCanvasEditor } from "./overlay-editor-surface";
 import { PageMarginRuler } from "./page-chrome";
 import { formatMm } from "./page-layout-format";
+import { RunningRegionOptions } from "./running-region-options";
 import { pageRunningRegionToTextFlowBlocks } from "./running-region-text-model";
 import type { PageMarginEdge,RunningRegionEdge,RunningRegionKind } from "./types";
 import { useOverlayPreviewHandoff } from "./use-overlay-preview-handoff";
@@ -65,12 +69,12 @@ export function RunningRegionPageView({
   metrics: PageMetrics;
   mathFractionSizing?: MathFractionSizing | null;
 }) {
-  const blocks = useMemo(() => region ? pageRunningRegionToTextFlowBlocks(region, kind) : [], [kind, region]);
+  const blocks = useMemo(() => region ? pageRunningRegionToTextFlowBlocks(region, kind, pageNumber) : [], [kind, pageNumber, region]);
   const fieldValues = useMemo<RunningRegionFieldValues>(
     () => ({ title, page: pageNumber, total: totalPages }),
     [pageNumber, title, totalPages],
   );
-  if (!region?.enabled || !pageRunningRegionHasContent(region) || (pageNumber === 1 && !region.showOnFirstPage)) {
+  if (!region?.enabled || !pageRunningRegionHasContentOnPage(region, pageNumber) || !isRunningRegionShownOnPage(region, pageNumber)) {
     return null;
   }
 
@@ -127,6 +131,10 @@ export function RunningRegionControls({
   focusRequest,
   historyRevision,
   onEdit,
+  onShownOnPageChange,
+  onPageRangeChange,
+  onPageContentChange,
+  onClearPageContents,
   onBlocksChange,
   onContentHeightChange,
   onEdgePointerDown,
@@ -161,6 +169,14 @@ export function RunningRegionControls({
   focusRequest: number;
   historyRevision: number;
   onEdit: (kind: RunningRegionKind | null, pageNumber?: number) => void;
+  /** そのページだけ帯を出す/出さない。 */
+  onShownOnPageChange: (kind: RunningRegionKind, pageNumber: number, shown: boolean) => void;
+  /** 「すべて/先頭ページのみ/先頭以外」のまとまりで、どのページに出すかを決める。 */
+  onPageRangeChange: (kind: RunningRegionKind, range: RunningRegionPageRange) => void;
+  /** そのページだけ中身を変える/共通に戻す。 */
+  onPageContentChange: (kind: RunningRegionKind, pageNumber: number, enabled: boolean) => void;
+  /** ページ専用の中身をすべてやめて、共通の中身に戻す。 */
+  onClearPageContents: (kind: RunningRegionKind) => void;
   onBlocksChange: (kind: RunningRegionKind, nextBlocks: TextFlowBlock[]) => void;
   onContentHeightChange: (kind: RunningRegionKind, contentHeightPx: number) => void;
   onEdgePointerDown: (
@@ -226,6 +242,10 @@ export function RunningRegionControls({
         focusRequest={focusRequest}
         historyRevision={historyRevision}
         onEdit={onEdit}
+        onShownOnPageChange={onShownOnPageChange}
+        onPageRangeChange={onPageRangeChange}
+        onPageContentChange={onPageContentChange}
+        onClearPageContents={onClearPageContents}
         onBlocksChange={onBlocksChange}
         onContentHeightChange={onContentHeightChange}
         onEdgePointerDown={onEdgePointerDown}
@@ -258,6 +278,10 @@ export function RunningRegionControls({
         focusRequest={focusRequest}
         historyRevision={historyRevision}
         onEdit={onEdit}
+        onShownOnPageChange={onShownOnPageChange}
+        onPageRangeChange={onPageRangeChange}
+        onPageContentChange={onPageContentChange}
+        onClearPageContents={onClearPageContents}
         onBlocksChange={onBlocksChange}
         onContentHeightChange={onContentHeightChange}
         onEdgePointerDown={onEdgePointerDown}
@@ -294,6 +318,10 @@ export function RunningRegionBand({
   focusRequest,
   historyRevision,
   onEdit,
+  onShownOnPageChange,
+  onPageRangeChange,
+  onPageContentChange,
+  onClearPageContents,
   onBlocksChange,
   onContentHeightChange,
   onEdgePointerDown,
@@ -326,6 +354,10 @@ export function RunningRegionBand({
   focusRequest: number;
   historyRevision: number;
   onEdit: (kind: RunningRegionKind | null, pageNumber?: number) => void;
+  onShownOnPageChange: (kind: RunningRegionKind, pageNumber: number, shown: boolean) => void;
+  onPageRangeChange: (kind: RunningRegionKind, range: RunningRegionPageRange) => void;
+  onPageContentChange: (kind: RunningRegionKind, pageNumber: number, enabled: boolean) => void;
+  onClearPageContents: (kind: RunningRegionKind) => void;
   onBlocksChange: (kind: RunningRegionKind, nextBlocks: TextFlowBlock[]) => void;
   onContentHeightChange: (kind: RunningRegionKind, contentHeightPx: number) => void;
   onEdgePointerDown: (
@@ -348,10 +380,12 @@ export function RunningRegionBand({
   onOverlayActiveToolChange?: (tool: OverlayTool) => void;
 }) {
   const tEditor = useT("editor");
+  const bandRef = useRef<HTMLDivElement | null>(null);
   if (!region?.enabled) {
     return null;
   }
 
+  const shownOnPage = isRunningRegionShownOnPage(region, pageNumber);
   const bounds = getRunningRegionBoundsMm(layout, kind);
   const top = mmToPx(bounds.topMm);
   // Shared with `PageRunningRegionView`: the band used to subtract the page sheet's 2px border
@@ -373,7 +407,8 @@ export function RunningRegionBand({
 
   return (
     <div
-      className={`page-running-editor-band ${kind} ${editing ? "editing" : ""} ${resizingEdge ? "resizing" : ""}`}
+      ref={bandRef}
+      className={`page-running-editor-band ${kind} ${editing ? "editing" : ""} ${resizingEdge ? "resizing" : ""} ${shownOnPage ? "" : "page-hidden"}`}
       title={editing ? undefined : tEditor("running.editHint", { replace: { region: label } })}
       style={{
         top: `${top}px`,
@@ -392,12 +427,12 @@ export function RunningRegionBand({
         onEdit(kind, pageNumber);
       }}
     >
-      {editing && <span className="page-running-editor-label">{label}</span>}
       {editing && (
         <RunningRegionDirectEditor
           kind={kind}
           label={label}
           region={region}
+          pageNumber={pageNumber}
           fieldValues={{ title, page: pageNumber, total: totalPages }}
           mathFractionSizing={mathFractionSizing}
           focusRequest={focusRequest}
@@ -438,6 +473,28 @@ export function RunningRegionBand({
           ))}
         </>
       )}
+      <RunningRegionOptions
+        kind={kind}
+        label={label}
+        region={region}
+        bandRef={bandRef}
+        pageNumber={pageNumber}
+        totalPages={totalPages}
+        title={title}
+        editing={editing}
+        shownOnPage={shownOnPage}
+        ownContent={hasRunningRegionPageContent(region, pageNumber)}
+        onShownOnPageChange={(shown) => onShownOnPageChange(kind, pageNumber, shown)}
+        onPageRangeChange={(range) => onPageRangeChange(kind, range)}
+        onClearOwnContents={() => onClearPageContents(kind)}
+        onOwnContentChange={(enabled) => {
+          onPageContentChange(kind, pageNumber, enabled);
+          // 変えるときは、そのまま書き始められるように編集に入る。
+          if (enabled) {
+            onEdit(kind, pageNumber);
+          }
+        }}
+      />
     </div>
   );
 }
@@ -446,6 +503,7 @@ export function RunningRegionDirectEditor({
   kind,
   label,
   region,
+  pageNumber,
   fieldValues,
   mathFractionSizing,
   focusRequest,
@@ -471,6 +529,8 @@ export function RunningRegionDirectEditor({
   kind: RunningRegionKind;
   label: string;
   region: PageRunningRegion;
+  /** 編集しているページ。ページ専用の中身があれば、その文字を編集する。 */
+  pageNumber: number;
   /** 差し込みに見せる、このページの値 (編集していないページと同じ見え方にする)。 */
   fieldValues?: RunningRegionFieldValues;
   mathFractionSizing?: MathFractionSizing | null;
@@ -505,7 +565,7 @@ export function RunningRegionDirectEditor({
   const [selectedRunningBlockId, setSelectedRunningBlockId] = useState<string | null>(null);
   const [runningSelectPointRequest, setRunningSelectPointRequest] = useState<OverlaySelectPointRequest | null>(null);
   const runningSelectPointRequestIdRef = useRef(0);
-  const blocks = useMemo(() => pageRunningRegionToTextFlowBlocks(region, kind), [kind, region]);
+  const blocks = useMemo(() => pageRunningRegionToTextFlowBlocks(region, kind, pageNumber), [kind, pageNumber, region]);
   const fieldTitle = fieldValues?.title;
   const fieldPage = fieldValues?.page;
   const fieldTotal = fieldValues?.total;

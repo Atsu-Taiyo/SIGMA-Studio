@@ -21,7 +21,9 @@ test("header and horizontal margins are edited from page double clicks", async (
 
   await page.mouse.dblclick(canvasBox!.x + canvasBox!.width / 2, canvasBox!.y + 42);
   await expect(page.locator(".page-running-direct-editor.header")).toBeVisible();
-  await expect(page.locator(".page-layout-mode-chip")).toContainText("ヘッダー編集中");
+  // 「ヘッダー編集中」の札も、帯の名前の札も出さない。出るのは帯の右の設定ボタンだけ。
+  await expect(page.getByText("ヘッダー編集中")).toHaveCount(0);
+  await expect(page.locator(".page-running-editor-band.header.editing .page-running-options-toggle")).toBeVisible();
 
   const headerBand = page.locator(".page-running-editor-band.header.editing");
   const headerEdge = page.locator(".page-running-editor-band.header.editing .page-running-edge.end");
@@ -54,7 +56,6 @@ test("header and horizontal margins are edited from page double clicks", async (
 
   await page.mouse.click(canvasBox!.x + canvasBox!.width / 2, canvasBox!.y + 190);
   await expect(page.locator(".page-running-direct-editor.header")).toHaveCount(0);
-  await expect(page.locator(".page-layout-mode-chip")).toHaveCount(0);
 
   await page.mouse.dblclick(canvasBox!.x + 24, canvasBox!.y + 210);
   await expect(page.locator(".page-margin-ruler")).toBeVisible();

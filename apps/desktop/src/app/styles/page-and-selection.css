@@ -1,19 +1,5 @@
 
 
-.outline-dialog-list span {
-  min-width: 0;
-  overflow: hidden;
-  font-size: 13px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.outline-dialog-empty {
-  padding: 10px 8px;
-  color: var(--text-muted);
-  font-size: 13px;
-}
-
 code {
   font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
   color: var(--text-muted);
@@ -366,23 +352,6 @@ code {
   transform: translate(1px, 1px);
 }
 
-.page-layout-mode-chip {
-  position: absolute;
-  top: 8px;
-  left: calc(var(--page-width) - 10px);
-  z-index: 3;
-  padding: 3px 8px;
-  border: 1px solid rgba(15, 118, 110, 0.24);
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.92);
-  color: #0f766e;
-  font-size: 11px;
-  font-weight: 750;
-  line-height: 1.4;
-  pointer-events: none;
-  transform: translateX(-100%);
-}
-
 .page-content-guide {
   position: absolute;
   border: 1px dashed rgba(99, 102, 241, 0.22);
@@ -509,23 +478,216 @@ code {
   background: rgba(15, 118, 110, 0.025);
 }
 
-/* 帯の名前は帯の外 (左の余白) に、帯の縦の中央へ置く。帯の中に置くと書いた文字に重なる。 */
-.page-running-editor-label {
+/* そのページだけ出さない帯。編集中は中身を薄くして、このページには出ないことを見せる。 */
+.page-running-editor-band.page-hidden:not(.editing):hover {
+  outline: 1px dashed rgba(15, 118, 110, 0.34);
+}
+
+.page-running-editor-band.page-hidden.editing .page-running-direct-editor {
+  opacity: 0.4;
+}
+
+/* 帯の右に出る設定ボタン (帯にカーソルを合わせたときと編集中だけ)。帯との隙間は、ボタンの
+   ::before で埋めて、帯からボタンへ動かす間に消えないようにする。隠すときは少し遅らせる。 */
+.page-running-options-toggle {
   position: absolute;
   top: 50%;
-  right: calc(100% + 8px);
-  z-index: 6;
-  padding: 1px 6px;
-  border: 1px solid rgba(15, 118, 110, 0.22);
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.86);
-  color: #0f766e;
-  font-size: 10px;
-  font-weight: 700;
-  line-height: 1.45;
-  pointer-events: none;
+  left: calc(100% + 6px);
+  z-index: 8;
+  display: grid;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  place-items: center;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-round);
+  background: var(--background);
+  box-shadow: 0 6px 16px -10px rgb(15 23 42 / 0.35);
+  color: var(--text-secondary);
+  cursor: pointer;
+  opacity: 0;
   transform: translateY(-50%);
+  transition: opacity 120ms ease, visibility 0s linear 200ms;
+  visibility: hidden;
+}
+
+.page-running-options-toggle::before {
+  position: absolute;
+  top: 0;
+  right: 100%;
+  bottom: 0;
+  width: 8px;
+  content: "";
+}
+
+.page-running-editor-band:hover .page-running-options-toggle,
+.page-running-editor-band.editing .page-running-options-toggle,
+.page-running-options.open .page-running-options-toggle,
+.page-running-options-toggle:focus-visible {
+  opacity: 1;
+  transition-delay: 0s;
+  visibility: visible;
+}
+
+.page-running-options-toggle:hover,
+.page-running-options-toggle:focus-visible,
+.page-running-options.open .page-running-options-toggle {
+  border-color: var(--border);
+  color: var(--text-primary);
+  outline: none;
+}
+
+.page-running-options-card {
+  position: absolute;
+  right: -32px;
+  z-index: 9;
+  display: grid;
+  width: 304px;
+  gap: 4px;
+  padding: 6px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 14px;
+  background: var(--background);
+  box-shadow: 0 20px 48px -20px rgb(15 23 42 / 0.35);
+  color: var(--text-primary);
+  font-size: 12px;
+  line-height: 1.5;
+  text-align: left;
+  animation: ui-dialog-in 150ms ease both;
+}
+
+.page-running-options.header .page-running-options-card {
+  top: calc(100% + 10px);
+}
+
+.page-running-options.footer .page-running-options-card {
+  bottom: calc(100% + 10px);
+}
+
+.page-running-options-section {
+  display: grid;
+  gap: 2px;
+}
+
+.page-running-options-section + .page-running-options-section {
+  padding-top: 4px;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.page-running-options-caption {
+  margin: 0;
+  padding: 4px 10px 2px;
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 650;
+}
+
+/* 表示するページのまとまり (すべて / 先頭ページのみ / 先頭ページ以外)。選んだものだけ面を持つ。 */
+.page-running-options-range {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 2px;
+  margin: 2px 4px 4px;
+  padding: 2px;
+  border-radius: 9px;
+  background: var(--surface-soft);
+}
+
+.page-running-options-range-option {
+  min-width: 0;
+  padding: 4px 2px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font: inherit;
+  font-size: 11.5px;
   white-space: nowrap;
+}
+
+.page-running-options-range-option:hover,
+.page-running-options-range-option:focus-visible {
+  color: var(--text-primary);
+  outline: none;
+}
+
+.page-running-options-range-option[aria-checked="true"] {
+  background: var(--background);
+  box-shadow: 0 1px 3px rgb(15 23 42 / 0.14);
+  color: var(--text-primary);
+  font-weight: 650;
+}
+
+.page-running-options-item,
+.page-running-options-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 6px 10px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+}
+
+.page-running-options-item {
+  cursor: pointer;
+}
+
+.page-running-options-item:hover,
+.page-running-options-item:focus-visible {
+  background: var(--surface-soft);
+  outline: none;
+}
+
+.page-running-options-value {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.page-running-options-hint {
+  margin: 0;
+  padding: 0 10px;
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.page-running-options-link {
+  justify-self: start;
+  margin: 0 10px 4px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font: inherit;
+  font-size: 11px;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.page-running-options-link:hover,
+.page-running-options-link:focus-visible {
+  color: var(--text-primary);
+  outline: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .page-running-options-toggle {
+    transition: none;
+  }
+
+  .page-running-options-card {
+    animation: none;
+  }
 }
 
 .page-running-edge {

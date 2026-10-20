@@ -88,7 +88,8 @@ export interface EditorCommandApplicationPorts {
   setCommandPaletteOpen(open: boolean): void;
   openPrintPreview(): void;
   toggleCommentsPanel(): void;
-  setOutlineDialogOpen(open: boolean): void;
+  /** アウトラインのカード (OutlineDock) を開く。 */
+  openOutlineDock(): void;
   promoteAiToSidebar(): void;
   setAiSettingsOpen(open: boolean): void;
   setPageSettingsOpen(open: boolean): void;
@@ -126,7 +127,7 @@ export function createEditorCommandRunner(
     undoDocumentChange, redoDocumentChange, createDocumentTab, openDocumentListDialog,
     duplicateActiveDocument, addBlock, setSearchOpen, setOutlineOpen, applyZoom, resetZoom,
     setSettingsFocusEntryId, setCommandPaletteOpen, openPrintPreview, toggleCommentsPanel,
-    setOutlineDialogOpen, promoteAiToSidebar, setAiSettingsOpen, setPageSettingsOpen,
+    openOutlineDock, promoteAiToSidebar, setAiSettingsOpen, setPageSettingsOpen,
     openCommandSettings, setMaterialLibraryOpen, setStatusMessage, tEditor,
   } = application;
 
@@ -307,7 +308,7 @@ export function createEditorCommandRunner(
       return;
     }
     if (commandId === "view.outlineDialog") {
-      setOutlineDialogOpen(true);
+      openOutlineDock();
       return;
     }
     if (commandId === "view.pocket") {

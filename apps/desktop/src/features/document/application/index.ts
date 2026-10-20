@@ -13,5 +13,7 @@ export * from "./page-layout";
 export * from "./page-layout-resize";
 export * from "./page-setup-edit";
 export * from "./running-region-fields";
+export * from "./running-region-page-content";
+export * from "./running-region-visibility";
 export * from "./page-running-region-layout";
 export * from "./three-way-merge";

@@ -1,7 +1,9 @@
 import {
+  getRunningRegionBlocksForPage,
   getRunningRegionOverlaySize,
+  isRunningRegionShownOnPage,
   mmToPx,
-  pageRunningRegionHasContent,
+  pageRunningRegionHasContentOnPage,
   renderRunningRegionTemplateText,
   type PageMetrics,
   type MathFractionSizing,
@@ -31,11 +33,11 @@ export function PageRunningRegionView({
   metrics,
   mathFractionSizing,
 }: PageRunningRegionViewProps) {
-  if (!region?.enabled || !pageRunningRegionHasContent(region)) {
+  if (!region?.enabled || !pageRunningRegionHasContentOnPage(region, pageNumber)) {
     return null;
   }
 
-  if (pageNumber === 1 && !region.showOnFirstPage) {
+  if (!isRunningRegionShownOnPage(region, pageNumber)) {
     return null;
   }
 
@@ -62,7 +64,7 @@ export function PageRunningRegionView({
       />
       <div className="page-running-text-layer text-flow-shell">
         <div className="text-flow-editor">
-          {region.blocks.map((block) => (
+          {getRunningRegionBlocksForPage(region, pageNumber).map((block) => (
             <TextFlowStaticBlock
               key={block.id}
               block={block}

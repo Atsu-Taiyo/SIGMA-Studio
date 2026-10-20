@@ -747,6 +747,10 @@ interface PageRunningRegion {
   heightMm: number;
   offsetMm: number;
   showOnFirstPage: boolean;
+  showOnLaterPages?: boolean;
+  hiddenPages?: number[];
+  shownPages?: number[];
+  pageContents?: { page: number; blocks: RichBlock[] }[];
   blocks: RichBlock[];
   overlay?: PageOverlay;
 }
@@ -759,9 +763,15 @@ interface PageRunningRegion {
 | `enabled` | 出力時に表示するか |
 | `heightMm` | ヘッダー/フッター領域の高さ。0以上 (0は帯が場所を取らない。中身ははみ出して描く) |
 | `offsetMm` | 用紙端から領域までの距離 |
-| `showOnFirstPage` | 1ページ目にも表示するか |
-| `blocks` | 繰り返し表示する本文。`heading` / `paragraph` / `list` |
+| `showOnFirstPage` | 1ページ目に表示するか |
+| `showOnLaterPages` | 2ページ目以降を既定で表示するか。省略は表示する。`false` で「先頭ページのみ」(全ページぶんの印は持たず、ページが増えてもあとのページへ効く) |
+| `hiddenPages` | 2ページ目以降を既定で表示する (`showOnLaterPages` が省略または `true`) とき、表示しないページ番号 (2以上・昇順・重複なし)。空なら持たない |
+| `shownPages` | 2ページ目以降を既定で表示しない (`showOnLaterPages: false`) とき、表示するページ番号 |
+| `pageContents` | ページ専用の文字。`page` (1始まり) のページだけ、`blocks` の代わりにこの文字を出す。同じ番号は1つだけ。図形・画像 (`overlay`) はページごとには変えず共通 |
+| `blocks` | 繰り返し表示する本文 (ページ専用の文字を持たないページに出す共通の文字)。`heading` / `paragraph` / `list` |
 | `overlay` | running region内で繰り返す図形、画像、自由配置テキスト |
+
+ページ番号 (`hiddenPages` / `shownPages` / `pageContents` の `page`) は組版の結果で決まるページの位置の番号です。本文が増減してページが送られると、例外やページ専用の文字も同じ番号のページへ移ります (ブロックには結び付けません)。1ページ目はいつも `showOnFirstPage` が決め、一覧に1が書かれていても `showOnFirstPage` へ寄せて読みます。使わない側の一覧は読み込み時に捨てます。
 
 左/中央/右のスロットは正規データに持ちません。配置は `blocks[].align` と `overlay` で表します。
 

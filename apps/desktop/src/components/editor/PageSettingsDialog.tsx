@@ -5,6 +5,9 @@ import {
   Columns3,
   Columns4,
   FileCog,
+  FileMinus,
+  FileText,
+  Files,
   Minus,
   Plus,
   RectangleHorizontal,
@@ -33,14 +36,17 @@ import {
   normalizePageLayout,
   PAGE_MARGIN_PRESETS_MM,
   setPageMarginMm,
+  getRunningRegionPageRange,
   setRunningRegionEnabled,
   setRunningRegionGeometryMm,
+  setRunningRegionPageRange,
   type PageLayout,
   type PageMarginPresetId,
   type PageMarginSide,
   type PageOrientation,
   type PageRunningRegion,
   type PageSizePreset,
+  type RunningRegionPageRange,
   type HeadingNumberingConfig,
   type HeadingNumberingStyle,
 } from "@/features/document";
@@ -337,7 +343,7 @@ export function PageSettingsDialog({
                     region={draft.header}
                     onEnabledChange={(enabled) => update((current) => setRunningRegionEnabled(current, "header", enabled))}
                     onGeometryChange={(patch) => update((current) => setRunningRegionGeometryMm(current, "header", patch))}
-                    onShowOnFirstPageChange={(showOnFirstPage) => update((current) => withRegion(current, "header", { showOnFirstPage }))}
+                    onPageRangeChange={(range) => update((current) => setRunningRegionPageRange(current, "header", range))}
                     focusProps={focusProps("header")}
                   />
 
@@ -347,7 +353,7 @@ export function PageSettingsDialog({
                     region={draft.footer}
                     onEnabledChange={(enabled) => update((current) => setRunningRegionEnabled(current, "footer", enabled))}
                     onGeometryChange={(patch) => update((current) => setRunningRegionGeometryMm(current, "footer", patch))}
-                    onShowOnFirstPageChange={(showOnFirstPage) => update((current) => withRegion(current, "footer", { showOnFirstPage }))}
+                    onPageRangeChange={(range) => update((current) => setRunningRegionPageRange(current, "footer", range))}
                     focusProps={focusProps("footer")}
                   />
                 </>
@@ -463,15 +469,6 @@ const MARGIN_PREVIEW_PARTS: Record<PageMarginSide, PageSetupPreviewPart> = {
   right: "marginRight",
 };
 
-function withRegion(
-  layout: PageLayout,
-  kind: "header" | "footer",
-  patch: Partial<PageRunningRegion>,
-): PageLayout {
-  const region = layout[kind];
-  return region ? { ...layout, [kind]: { ...region, ...patch } } : layout;
-}
-
 function FormSection({
   id,
   title,
@@ -511,7 +508,7 @@ function RunningRegionSection({
   region,
   onEnabledChange,
   onGeometryChange,
-  onShowOnFirstPageChange,
+  onPageRangeChange,
   focusProps,
 }: {
   /** 設定パレットのスクロール先 (`settings-catalog.ts` の anchorId)。 */
@@ -520,7 +517,7 @@ function RunningRegionSection({
   region: PageRunningRegion | undefined;
   onEnabledChange: (enabled: boolean) => void;
   onGeometryChange: (patch: { offsetMm?: number; heightMm?: number }) => void;
-  onShowOnFirstPageChange: (value: boolean) => void;
+  onPageRangeChange: (range: RunningRegionPageRange) => void;
   focusProps: { onFocus: () => void; onMouseEnter: () => void };
 }) {
   const t = useT("settings");
@@ -556,16 +553,27 @@ function RunningRegionSection({
               onChange={(heightMm) => onGeometryChange({ heightMm })}
             />
           </div>
-          <SettingsRow
-            label={t("page.regionFirstPage")}
-            control={(
-              <Switch
-                checked={region.showOnFirstPage}
-                label={t("page.regionFirstPage")}
-                onCheckedChange={onShowOnFirstPageChange}
-              />
-            )}
-          />
+          <SettingsField label={t("page.regionPages")}>
+            <ChoiceGroup<RunningRegionPageRange | "custom">
+              aria-label={t("page.regionPages")}
+              columns={3}
+              // ページごとの例外があるときは、どれも選ばれない (下の説明が、その状態を知らせる)。
+              value={getRunningRegionPageRange(region) ?? "custom"}
+              options={[
+                { value: "all", label: t("page.regionPagesAll"), icon: Files },
+                { value: "firstOnly", label: t("page.regionPagesFirstOnly"), icon: FileText },
+                { value: "exceptFirst", label: t("page.regionPagesExceptFirst"), icon: FileMinus },
+              ]}
+              onChange={(range) => {
+                if (range !== "custom") {
+                  onPageRangeChange(range);
+                }
+              }}
+            />
+          </SettingsField>
+          {getRunningRegionPageRange(region) === null ? (
+            <p className={styles.hint}>{t("page.regionPagesCustom")}</p>
+          ) : null}
           <p className={styles.hint}>{t(kind === "header" ? "page.regionHint" : "page.footerHint")}</p>
         </>
       ) : null}

@@ -7,6 +7,7 @@ import type {
   PageOrientation,
   PageOverlay,
   PageRunningRegion,
+  PageRunningRegionPageContent,
   PageSizePreset,
   ProblemAreaBlock,
   RichBlock,
@@ -384,6 +385,18 @@ export function pageRunningRegionHasContent(region: PageRunningRegion | undefine
   );
 }
 
+/**
+ * そのページに描くものがあるか。文字 (ページ専用の中身があればそちら) か、共通の図形・画像。
+ * ページ専用の中身を空にしたページは、共通の文字があっても何も出さない。
+ */
+export function pageRunningRegionHasContentOnPage(
+  region: PageRunningRegion | undefined,
+  pageNumber: number,
+): boolean {
+  const blocks = region?.pageContents?.find((content) => content.page === pageNumber)?.blocks ?? region?.blocks ?? [];
+  return Boolean(blocks.some(richBlockHasContent) || pageOverlayHasContent(region?.overlay));
+}
+
 export function paginateBlocks(content: SigmaBlock[], layout: PageLayout = getDefaultPageLayout()): PaginatedPage[] {
   return paginateBlocksIntoColumns(content, layout);
 }
@@ -672,15 +685,86 @@ function normalizePageRunningRegion(
   fallback: PageRunningRegion,
 ): PageRunningRegion {
   const normalizedBlocks = normalizePageRunningBlocks(input?.blocks);
+  const pages = normalizeRunningRegionPages(input, fallback);
+  const pageContents = normalizePageContents(input?.pageContents);
   return {
     enabled: typeof input?.enabled === "boolean" ? input.enabled : fallback.enabled,
     // 0mm も高さとして持つ (帯が場所を取らない)。下限は付けない。
     heightMm: nonnegativeNumberOr(input?.heightMm, fallback.heightMm),
     offsetMm: nonnegativeNumberOr(input?.offsetMm, fallback.offsetMm),
-    showOnFirstPage: typeof input?.showOnFirstPage === "boolean" ? input.showOnFirstPage : fallback.showOnFirstPage,
+    showOnFirstPage: pages.showOnFirstPage,
+    // 既定 (出す) のときと空のときはキーごと持たない (保存した教材に印を増やさない)。
+    ...(pages.showOnLaterPages ? {} : { showOnLaterPages: false }),
+    ...(pages.hiddenPages ? { hiddenPages: pages.hiddenPages } : {}),
+    ...(pages.shownPages ? { shownPages: pages.shownPages } : {}),
+    ...(pageContents ? { pageContents } : {}),
     blocks: normalizedBlocks ?? fallback.blocks.map(cloneRichBlock),
     overlay: normalizePageOverlay(input?.overlay),
   };
+}
+
+/**
+ * どのページに出すか。1 ページ目は `showOnFirstPage` だけが決めるので、一覧に 1 が書かれていたら
+ * そちらへ寄せる (AI や手書きの JSON が 1 を一覧に書いても、同じ意味になる)。
+ * 2 ページ目以降の一覧は、既定と逆にするページだけ。既定で出すなら出さないページ、既定で出さないなら
+ * 出すページ。使わない側の一覧は捨てる。
+ */
+function normalizeRunningRegionPages(
+  input: PageLayoutInput["header"],
+  fallback: PageRunningRegion,
+): { showOnFirstPage: boolean; showOnLaterPages: boolean; hiddenPages?: number[]; shownPages?: number[] } {
+  let showOnFirstPage = typeof input?.showOnFirstPage === "boolean" ? input.showOnFirstPage : fallback.showOnFirstPage;
+  const showOnLaterPages = input?.showOnLaterPages !== false;
+  const hidden = normalizePageNumbers(input?.hiddenPages);
+  const shown = normalizePageNumbers(input?.shownPages);
+
+  if (showOnLaterPages) {
+    if (hidden.includes(1)) {
+      showOnFirstPage = false;
+    }
+    const hiddenPages = hidden.filter((page) => page >= 2);
+    return { showOnFirstPage, showOnLaterPages, ...(hiddenPages.length > 0 ? { hiddenPages } : {}) };
+  }
+
+  if (shown.includes(1)) {
+    showOnFirstPage = true;
+  }
+  const shownPages = shown.filter((page) => page >= 2);
+  return { showOnFirstPage, showOnLaterPages, ...(shownPages.length > 0 ? { shownPages } : {}) };
+}
+
+/** ページ番号: 1 以上の整数だけを、昇順・重複なしで。 */
+function normalizePageNumbers(input: unknown): number[] {
+  if (!Array.isArray(input)) {
+    return [];
+  }
+
+  return [...new Set(input.filter((page): page is number => (
+    typeof page === "number" && Number.isInteger(page) && page >= 1
+  )))].sort((left, right) => left - right);
+}
+
+/** ページ専用の中身: ページ番号ごとに 1 つ (同じ番号が重なったら後のもの)。昇順。 */
+function normalizePageContents(input: unknown): PageRunningRegionPageContent[] | undefined {
+  if (!Array.isArray(input)) {
+    return undefined;
+  }
+
+  const byPage = new Map<number, RichBlock[]>();
+  for (const entry of input) {
+    if (!isRecord(entry) || typeof entry.page !== "number" || !Number.isInteger(entry.page) || entry.page < 1) {
+      continue;
+    }
+    const blocks = normalizePageRunningBlocks(entry.blocks);
+    if (blocks) {
+      byPage.set(entry.page, blocks);
+    }
+  }
+
+  const contents = [...byPage]
+    .sort(([left], [right]) => left - right)
+    .map(([page, blocks]) => ({ page, blocks }));
+  return contents.length > 0 ? contents : undefined;
 }
 
 function normalizePageRunningBlocks(input: unknown): RichBlock[] | undefined {

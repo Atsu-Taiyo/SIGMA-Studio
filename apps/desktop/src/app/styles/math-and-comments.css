@@ -189,7 +189,6 @@
 .template-gallery-backdrop,
 .workspace-create-backdrop,
 .file-access-backdrop,
-.outline-dialog-backdrop,
 .desktop-settings-overlay {
   animation: ui-fade-in 140ms ease both;
 }
@@ -201,7 +200,6 @@
 .template-gallery-dialog,
 .workspace-create-dialog,
 .file-access-dialog,
-.outline-dialog,
 .desktop-settings-modal {
   animation: ui-dialog-in 170ms ease both;
 }
@@ -230,7 +228,6 @@
 .find-icon-button,
 .find-action-button,
 .outline-list button,
-.outline-dialog-list button,
 .print-preview-page-nav-button,
 .toolbar-icon-color,
 .mcp-proposal-button,

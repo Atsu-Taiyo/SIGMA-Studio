@@ -110,6 +110,26 @@ describe("new document page setup", () => {
     expect(Object.keys(headerSnapshot?.assets ?? {})).toEqual(["asset_logo"]);
   });
 
+  // 「このページだけ出さない」は元の教材のそのページの話。中身の違う新しい教材へは持ち込まない
+  // (1 ページ目の出し方 showOnFirstPage は用紙設定なので引き継ぐ)。
+  it("does not carry the pages a header was switched off on into the new material", () => {
+    const source = sourceDocument();
+    source.pageLayout!.header!.hiddenPages = [3, 5];
+    source.pageLayout!.header!.pageContents = [{ page: 2, blocks: [{ type: "paragraph", id: "own", children: [{ type: "text", text: "2ページ" }] }] }];
+    source.pageLayout!.footer!.showOnLaterPages = false;
+    source.pageLayout!.footer!.shownPages = [4];
+    const created = applyNewDocumentPageSetup(blank(), deriveNewDocumentPageSetup(source));
+
+    expect(created.pageLayout?.header).not.toHaveProperty("hiddenPages");
+    expect(created.pageLayout?.header).not.toHaveProperty("pageContents");
+    expect(created.pageLayout?.header?.showOnFirstPage).toBe(false);
+    // 「先頭ページのみ」のようなまとまりは用紙設定なので引き継ぎ、ページごとの例外だけ外す。
+    expect(created.pageLayout?.footer).toMatchObject({ showOnFirstPage: true, showOnLaterPages: false });
+    expect(created.pageLayout?.footer).not.toHaveProperty("shownPages");
+    expect(source.pageLayout?.header?.hiddenPages).toEqual([3, 5]);
+    expect(source.pageLayout?.header?.pageContents).toHaveLength(1);
+  });
+
   it("does not share header objects with the source document", () => {
     const source = sourceDocument();
     const created = applyNewDocumentPageSetup(blank(), deriveNewDocumentPageSetup(source));

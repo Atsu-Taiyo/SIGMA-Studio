@@ -34,6 +34,11 @@ export function findRunningRegionFields(text: string): RunningRegionFieldMatch[]
   return matches;
 }
 
+/** 本文へ書く差し込みの文字 (`{page}` など)。描くときだけ、そのページの値に置き換わる。 */
+export function runningRegionFieldToken(field: RunningRegionFieldName): string {
+  return `{${field}}`;
+}
+
 export function resolveRunningRegionField(field: RunningRegionFieldName, values: RunningRegionFieldValues): string {
   if (field === "title") {
     return values.title;

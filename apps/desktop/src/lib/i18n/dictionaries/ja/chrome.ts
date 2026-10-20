@@ -223,7 +223,6 @@ export const chrome = {
     settings: {
       label: "設定",
       comments: "コメント表示",
-      outline: "アウトラインを表示",
       shortcuts: "ショートカット設定",
       texReference: "数式コマンド確認",
       texEnvironment: "TeX・TikZ環境設定",
@@ -560,8 +559,6 @@ export const chrome = {
     },
     pageSetupLauncher: "ページ設定ダイアログを開く",
     pageSetup: "ページ設定",
-    outline: "アウトライン",
-    outlineTooltip: "アウトラインを表示",
     columnsApply: "{{columns}}段組",
     columnsClear: "段組を解除",
   },

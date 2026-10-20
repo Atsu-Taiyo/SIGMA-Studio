@@ -402,6 +402,10 @@ const {
     setHorizontalMarginEditPageNumber,
     editRunningRegion,
     enableRunningRegion,
+    setRunningRegionShownOnPageAt,
+    setRunningRegionPageRangeFor,
+    setRunningRegionPageContentAt,
+    clearRunningRegionPageContentsFor,
     beginPageMarginDrag,
     runningRegionFocusRequest,
     updateRunningRegionBlocks,
@@ -2648,7 +2652,7 @@ const { candidateCommentTop, pendingCommentTop, commentThreadPositions } = usePa
         }, { once: true });
       }
     }
-    if (target?.closest(".page-running-direct-editor, .page-context-menu, .problem-context-menu, .selection-action-popover")) {
+    if (target?.closest(".page-running-direct-editor, .page-running-options, .page-context-menu, .problem-context-menu, .selection-action-popover")) {
       return;
     }
 
@@ -3186,13 +3190,6 @@ const { candidateCommentTop, pendingCommentTop, commentThreadPositions } = usePa
 
           {!pageOverlayEditing && (
             <div className="page-layout-controls" aria-label={tEditorText("running.controlsAria")}>
-              {runningRegionEditKind && (
-                <div className="page-layout-mode-chip">
-                  {tEditorText("running.editing", { replace: {
-                    region: tEditorText(runningRegionEditKind === "header" ? "running.header" : "running.footer"),
-                  } })}
-                </div>
-              )}
               {visiblePageIndexes.map((index) => (
                 <RunningRegionControls
                   key={`running-region-controls-${index}`}
@@ -3210,6 +3207,10 @@ const { candidateCommentTop, pendingCommentTop, commentThreadPositions } = usePa
                   focusRequest={runningRegionFocusRequest}
                   historyRevision={historyRevision}
                   onEdit={editRunningRegion}
+                  onShownOnPageChange={(kind, pageNumber, shown) => setRunningRegionShownOnPageAt(kind, pageNumber, shown, pageCount)}
+                  onPageRangeChange={setRunningRegionPageRangeFor}
+                  onPageContentChange={(kind, pageNumber, enabled) => setRunningRegionPageContentAt(kind, pageNumber, enabled, pageCount)}
+                  onClearPageContents={clearRunningRegionPageContentsFor}
                   onBlocksChange={updateRunningRegionBlocks}
                   onContentHeightChange={resizeRunningRegionForContent}
                   onEdgePointerDown={startRunningRegionDrag}
