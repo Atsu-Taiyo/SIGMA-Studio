@@ -181,6 +181,13 @@ export type ProblemAreaColumnSpan = "column" | "full";
 export interface ProblemAreaLayout {
     minHeightMm?: number;
     columnSpan?: ProblemAreaColumnSpan;
+    /**
+     * 導入文 (`lead`) の行を出さない。導入文は番号の右隣の1行で、ふだんは空でも常に描く。これを立てると、
+     * 導入文が空の間だけ行ごと畳み、番号は問題文の先頭へ移る。文字があれば隠さない (見えない文字を作らない)。
+     * 問題設定でオフにするときは、導入文の文字を捨ててこれを立てる。
+     * `lead` 以外のエリアでは使わない (それらは中身があるときだけ描く)。
+     */
+    hidden?: boolean;
 }
 
 export interface ProblemNumbering {
@@ -1267,10 +1274,35 @@ export interface PageRunningRegion {
     heightMm: number;
     offsetMm: number;
     showOnFirstPage: boolean;
+    /**
+     * 2 ページ目以降を、既定で出すか。省略は出す。`false` にすると「先頭ページのみ」。
+     * ページごとの例外は `hiddenPages` / `shownPages` が持つ。
+     */
+    showOnLaterPages?: boolean;
+    /**
+     * 2 ページ目以降を既定で出す (`showOnLaterPages` が `true`/省略) とき、出さないページ番号
+     * (2 以上・昇順・重複なし)。空なら持たない。1 ページ目は `showOnFirstPage` が決める。
+     * ページ番号は組版の結果で決まる位置の番号なので、本文を足してページが送られると、出さないページも
+     * 同じ番号のページへ移る (ブロックには結び付けない)。
+     */
+    hiddenPages?: number[];
+    /** 2 ページ目以降を既定で出さない (`showOnLaterPages: false`) とき、出すページ番号。 */
+    shownPages?: number[];
+    /**
+     * ページ専用の中身 (文字)。ここにあるページだけ `blocks` の代わりにこの文字を出す。ページ番号は
+     * `hiddenPages` と同じ位置の番号。図形・画像 (`overlay`) はページごとには変えず、共通のまま。
+     */
+    pageContents?: PageRunningRegionPageContent[];
     /** Free-form header/footer body. This is the canonical repeated text content. */
     blocks: RichBlock[];
     /** Repeated overlay for figures, images, graphs, and free-positioned text inside this region. */
     overlay?: PageOverlay;
+}
+
+export interface PageRunningRegionPageContent {
+    /** 1 始まりのページ番号。 */
+    page: number;
+    blocks: RichBlock[];
 }
 
 /**

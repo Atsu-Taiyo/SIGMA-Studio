@@ -10,6 +10,8 @@ import {
 } from "@/components/tiptap/sigma-doc-container-extensions";
 import { SigmaDocTextAttrs } from "@/components/tiptap/sigma-doc-text-attributes";
 import { createRichTextEngineExtensions } from "@/components/tiptap/rich-text-engine";
+import { applyEditorDocumentProjection } from "@/components/tiptap/document-projection";
+import { createTextFormatStateDetail } from "@/components/tiptap/text-format-controller";
 import {
   EDITOR_TEXT_SLICE_MIME,
   extractVisibleEditorClipboardHtml,
@@ -18,13 +20,15 @@ import {
   takeBodyTextCut,
 } from "@/lib/editor-clipboard";
 import type { TextFlowBlock } from "@/features/text-editing";
-import { replaceTopLevelTextFlowBlocks } from "@/features/text-editing";
+import { replaceTopLevelTextFlowBlocks, textCaretAddress } from "@/features/text-editing";
 
 import {
   applyTextRunSpanFormat,
   applyTextRunSpanFormatForEvent,
   beginTextRunSpanComposition,
   clearTextRunSpan,
+  validateTextRunSpanTransaction,
+  refreshTextRunSpanSurfaces,
   clearTextRunSpanOnOutsidePointerDown,
   copyActiveTextRunSpan,
   getActiveTextRunSpan,
@@ -112,9 +116,26 @@ function createUnit(
     fragmentBlockIdFor: () => null,
     order: [order],
     surface: { kind: "unit", unitId },
-    ownsBlock: (blockId) => paragraphs.some((paragraph) => paragraph.id === blockId),
-    addressAt: () => null,
-    posFor: () => null,
+    ownsBlock: (blockId) => {
+      let owns = false;
+      editor.state.doc.descendants(node => { if (node.attrs.sigmaDocId === blockId) owns = true; });
+      return owns;
+    },
+    addressAt: position => {
+      const resolved = editor.state.doc.resolve(position);
+      for (let depth = resolved.depth; depth > 0; depth--) {
+        const id: unknown = resolved.node(depth).attrs.sigmaDocId;
+        if (typeof id === "string") return textCaretAddress(id, position - resolved.start(depth));
+      }
+      return null;
+    },
+    posFor: address => {
+      let position: number | null = null;
+      editor.state.doc.descendants((node, pos) => {
+        if (node.attrs.sigmaDocId === address.blockId) position = pos + 1 + address.offset;
+      });
+      return position;
+    },
     localYFor: () => null,
     caretLineAdvance: () => null,
     focusCaretAtLocalY: () => false,
@@ -126,6 +147,8 @@ function createUnit(
     applyCaret: () => false,
     textRun: handle,
   });
+  editor.on("transaction", ({ transaction }) => validateTextRunSpanTransaction(editor, transaction));
+  refreshTextRunSpanSurfaces();
   return { editor, handle, onChange, markCrossEditorSync, applyCrossEditorSync, unregister };
 }
 
@@ -367,6 +390,52 @@ describe("handleTextRunSpanTextInput", () => {
 });
 
 describe("getTextRunSpanFontSize", () => {
+  function createFontSizeSpan(texts: string[]) {
+    const units = texts.map((text, order) => {
+      const unit = createUnit(`unit-${order}`, order, [{ id: `p${order}`, text }]);
+      const element = unit.editor.view.dom.parentElement!;
+      document.body.append(element);
+      unit.editor.view.dom.style.fontSize = "16px";
+      cleanups.push(() => { unit.unregister(); unit.editor.destroy(); element.remove(); });
+      if (text) {
+        unit.editor.chain().setTextSelection({ from: 0, to: unit.editor.state.doc.content.size }).setFontSize(13).run();
+      }
+      return unit;
+    });
+    expect(selectEntireTextRun(units[0].editor)).toBe(true);
+    return units;
+  }
+
+  it.each([
+    { texts: ["本文", ""] },
+    { texts: ["", "本文"] },
+    { texts: ["前半", "", "後半"] },
+  ])("ignores empty-paragraph-only surfaces in $texts", ({ texts }) => {
+    const units = createFontSizeSpan(texts);
+    for (const unit of units) {
+      expect(getTextRunSpanFontSize(unit.editor)).toEqual({ fontSize: 13, fontSizeMixed: false });
+    }
+  });
+
+  it("still measures paragraph sizes when every selected surface is empty", () => {
+    const [first, second] = createFontSizeSpan(["", ""]);
+    expect(getTextRunSpanFontSize(first.editor)).toEqual({ fontSize: 12, fontSizeMixed: false });
+    second.editor.view.dom.style.fontSize = "20px";
+    expect(getTextRunSpanFontSize(first.editor)).toEqual({ fontSize: 12, fontSizeMixed: true });
+  });
+
+  it("keeps different text sizes mixed across an empty surface", () => {
+    const [first, , last] = createFontSizeSpan(["前半", "", "後半"]);
+    last.editor.chain().setTextSelection({ from: 0, to: last.editor.state.doc.content.size }).setFontSize(12).run();
+    expect(getTextRunSpanFontSize(first.editor)).toEqual({ fontSize: 13, fontSizeMixed: true });
+  });
+
+  it("does not overwrite the focused editor's size when no surface can be measured", () => {
+    const { first } = createSpanPair();
+    const spy = vi.spyOn(window, "getComputedStyle").mockReturnValue({ fontSize: "" } as CSSStyleDeclaration);
+    expect(getTextRunSpanFontSize(first.editor)).toBeNull();
+    spy.mockRestore();
+  });
   it("reports the first size and mixed state across separately mounted text surfaces", () => {
     const { first, second } = createSpanPair();
     first.editor.chain().setTextSelection({ from: 0, to: first.editor.state.doc.content.size }).setFontSize(10.5).run();
@@ -380,6 +449,58 @@ describe("getTextRunSpanFontSize", () => {
 });
 
 describe("getTextRunSpanToggleMarkStates", () => {
+  function createToggleSpan(paragraphsByUnit: string[][]): TestUnit[] {
+    const units = paragraphsByUnit.map((texts, order) => {
+      const unit = createUnit(`unit-${order}`, order, texts.map((text, index) => ({
+        id: `p${order}-${index}`,
+        text,
+      })));
+      cleanups.push(() => { unit.unregister(); unit.editor.destroy(); });
+      return unit;
+    });
+    expect(selectEntireTextRun(units[0].editor)).toBe(true);
+    return units;
+  }
+
+  describe.each(["bold", "italic", "underline", "boxed"] as const)("%s", (command) => {
+    it.each([
+      { paragraphs: [["前半", "後半"], [""]] },
+      { paragraphs: [[""], ["前半", "後半"]] },
+      { paragraphs: [["前半"], [""], ["後半"]] },
+      { paragraphs: [["", "前半", ""], ["", "後半", ""]] },
+    ])("空段落を除いて表示と3回のトグルが揃う: $paragraphs", ({ paragraphs }) => {
+      const units = createToggleSpan(paragraphs);
+      for (const unit of units) {
+        expect(getTextRunSpanToggleMarkStates(unit.editor)?.[command]).toBe(false);
+      }
+
+      for (const pressed of [true, false, true]) {
+        expect(applyTextRunSpanFormat({ command })).toBe(true);
+        let textCount = 0;
+        for (const unit of units) {
+          expect(getTextRunSpanToggleMarkStates(unit.editor)?.[command]).toBe(pressed);
+          unit.editor.state.doc.descendants((node) => {
+            if (node.isText) {
+              textCount += 1;
+              expect(node.marks.some(mark => mark.type.name === command)).toBe(pressed);
+            }
+          });
+        }
+        expect(textCount).toBeGreaterThan(0);
+      }
+    });
+
+    it("全部の面が空段落だけなら適用前後とも押下状態は false", () => {
+      const units = createToggleSpan([[""], ["", ""]]);
+      for (let click = 0; click <= 3; click += 1) {
+        for (const unit of units) {
+          expect(getTextRunSpanToggleMarkStates(unit.editor)?.[command]).toBe(false);
+        }
+        if (click < 3) expect(applyTextRunSpanFormat({ command })).toBe(true);
+      }
+    });
+  });
+
   it("トグル表示は span 全体で判定する (片側だけ太字なら OFF = 押すと追加、と向きが揃う)", () => {
     const { first, second } = createSpanPair();
     first.editor.chain()
@@ -614,6 +735,209 @@ describe("applyTextRunSpanFormat", () => {
     // レジストリの onChange は呼ばれない。
     expect(first.onChange).not.toHaveBeenCalled();
     expect(second.onChange).not.toHaveBeenCalled();
+  });
+
+  it("keeps every unit selected across repeated sizes and unrelated surface mounts", async () => {
+    const { first, second } = createSpanPair();
+    for (const size of [13, 14, 15]) {
+      expect(applyTextRunSpanFormat({ command: "fontSize", value: String(size) })).toBe(true);
+      // Reflow can mount another surface (including a new page's running region).
+      const extra = createUnit("extra", 5, [{ id: "extra", text: "新しい面" }]);
+      extra.unregister();
+      extra.editor.destroy();
+      await Promise.resolve();
+      expect(getActiveTextRunSpan()).not.toBeNull();
+      for (const unit of [first, second]) {
+        expect(unit.editor.state.selection.empty).toBe(false);
+        expect(unit.editor.view.dom.hasAttribute("data-text-run-span")).toBe(true);
+        unit.editor.state.doc.descendants(node => {
+          if (node.isText) expect(node.marks.find(mark => mark.type.name === "styledText")?.attrs.fontSize).toBe(size);
+        });
+      }
+    }
+    applyTextRunSpanFormat({ command: "bold" });
+    expect(firstTextMarks(first.editor)).toContain("bold");
+    expect(firstTextMarks(second.editor)).toContain("bold");
+  });
+
+  it("rebinds an endpoint to its replacement surface, then clears when that endpoint really disappears", async () => {
+    const { first, second } = createSpanPair();
+    first.unregister();
+    first.editor.destroy();
+    const replacement = createUnit("unit-a", 0, [{ id: "p1", text: "前半一" }, { id: "p2", text: "前半二" }]);
+    cleanups.push(() => { replacement.unregister(); replacement.editor.destroy(); });
+    await Promise.resolve();
+    expect(getActiveTextRunSpan()).not.toBeNull();
+    expect(replacement.editor.state.selection.empty).toBe(false);
+    applyTextRunSpanFormat({ command: "bold" });
+    expect(firstTextMarks(replacement.editor)).toContain("bold");
+    expect(firstTextMarks(second.editor)).toContain("bold");
+    replacement.unregister();
+    await Promise.resolve();
+    expect(getActiveTextRunSpan()).toBeNull();
+  });
+
+  it("publishes updated span state once even when a toolbar menu owns focus", () => {
+    const { first, second } = createSpanPair();
+    const publish = vi.fn((editor: Editor) => getTextRunSpanFontSize(editor));
+    const event = new Event("format");
+    applyTextRunSpanFormatForEvent(event, { command: "fontSize", value: "18" }, publish);
+    applyTextRunSpanFormatForEvent(event, { command: "fontSize", value: "18" }, publish);
+    expect(first.editor.isFocused).toBe(false);
+    expect(second.editor.isFocused).toBe(false);
+    expect(publish).toHaveBeenCalledTimes(1);
+    expect(publish.mock.results[0].value).toEqual({ fontSize: 18, fontSizeMixed: false });
+  });
+
+  it("publishes color, background and font from the selected start with an unselected preceding unit", () => {
+    const { first } = createSpanPair();
+    const preceding = createUnit("preceding", -1, [{ id: "outside", text: "選択外" }]);
+    cleanups.push(() => { preceding.unregister(); preceding.editor.destroy(); });
+    const publish = vi.fn((editor: Editor) => createTextFormatStateDetail(editor, "document", undefined, { state: editor.state }));
+    for (const [command, value] of [["color", "#ff0000"], ["backgroundColor", "#ffff00"], ["fontFamily", "serif"], ["color", "#0000ff"], ["fontFamily", "monospace"]]) {
+      applyTextRunSpanFormatForEvent(new Event("format"), { command, value }, publish);
+      expect(publish.mock.lastCall?.[0]).toBe(first.editor);
+      const state = publish.mock.results.at(-1)!.value;
+      expect(state[command as "color" | "backgroundColor" | "fontFamily"]).toBe(value);
+      expect(preceding.editor.getAttributes("styledText")[command]).toBeFalsy();
+    }
+  });
+
+  it("returns focus to the held span on Enter without changing its range or scrolling", () => {
+    const { first, second } = createSpanPair();
+    document.body.append(first.editor.view.dom.parentElement!, second.editor.view.dom.parentElement!);
+    const input = document.createElement("input");
+    document.body.append(input);
+    cleanups.push(() => { input.remove(); first.editor.view.dom.parentElement?.remove(); second.editor.view.dom.parentElement?.remove(); });
+    input.focus();
+    const selected = structuredClone(getActiveTextRunSpan());
+    const focus = vi.spyOn(first.editor.view, "focus");
+    const scroll = vi.spyOn(first.editor.view, "dispatch");
+    applyTextRunSpanFormatForEvent(new Event("format"), { command: "fontSize", value: "18", restoreFocus: true });
+    expect(document.activeElement).toBe(first.editor.view.dom);
+    expect(getActiveTextRunSpan()).toEqual(selected);
+    expect(first.editor.state.selection.empty).toBe(false);
+    expect(second.editor.state.selection.empty).toBe(false);
+    expect(focus).toHaveBeenCalledTimes(1);
+    expect(scroll.mock.calls.some(([transaction]) => transaction.scrolledIntoView)).toBe(false);
+    input.focus();
+    const doc = first.editor.state.doc;
+    applyTextRunSpanFormatForEvent(new Event("format"), { command: "fontSize", value: "18", restoreFocus: true, focusOnly: true });
+    expect(first.editor.state.doc).toBe(doc);
+    expect(document.activeElement).toBe(first.editor.view.dom);
+  });
+
+  it("does not revive a span after structural formatting or an explicit history clear", async () => {
+    const { first } = createSpanPair();
+    const event = new Event("format");
+    applyTextRunSpanFormatForEvent(event, { command: "blockStyle", value: "h1" });
+    await Promise.resolve();
+    expect(getActiveTextRunSpan()).toBeNull();
+    expect(applyTextRunSpanFormatForEvent(event, { command: "blockStyle", value: "h1" })).toBe(true);
+    selectEntireTextRun(first.editor);
+    refreshTextRunSpanSurfaces();
+    clearTextRunSpan();
+    await Promise.resolve();
+    expect(getActiveTextRunSpan()).toBeNull();
+  });
+
+  it("clears after a text edit without reviving when the text is restored in the same task", async () => {
+    const { second } = createSpanPair();
+    const original = second.editor.getJSON();
+    second.editor.view.dispatch(second.editor.state.tr.insertText("追加", 1));
+    expect(getActiveTextRunSpan()).toBeNull();
+    second.editor.commands.setContent(original, { emitUpdate: false });
+    await Promise.resolve();
+    expect(getActiveTextRunSpan()).toBeNull();
+  });
+
+  function partialSpan(backward: boolean) {
+    const first = createUnit("unit-a", 0, [{ id: "p1", text: "abcdefgh" }]);
+    const middle = createUnit("unit-middle", 1, [{ id: "middle", text: "途中" }]);
+    const last = createUnit("unit-b", 2, [{ id: "p2", text: "ijklmnop" }]);
+    cleanups.push(() => [first, middle, last].forEach(unit => { unit.unregister(); unit.editor.destroy(); }));
+    const origin = backward ? last : first;
+    origin.editor.commands.setTextSelection(backward ? 5 : 2);
+    const event = new KeyboardEvent("keydown", { key: backward ? "ArrowUp" : "ArrowDown", shiftKey: true, ctrlKey: true, metaKey: true });
+    expect(handleTextRunSpanKeyDown(event, origin.editor.view.dom)).toBe(true);
+    expect(getActiveTextRunSpan()).not.toBeNull();
+    return { first, middle, last };
+  }
+
+  it.each([false, true])("clears insertion projections before the selected text (backward=%s)", async backward => {
+    const { first } = partialSpan(backward);
+    applyEditorDocumentProjection(first.editor, { type: "doc", content: [paragraphNode("p1", "XXabcdefgh")] });
+    expect(getActiveTextRunSpan()).toBeNull();
+    await Promise.resolve();
+    expect(getActiveTextRunSpan()).toBeNull();
+  });
+
+  it.each([false, true])("keeps the original characters through whole/partial mark dispatches and projections (backward=%s)", async backward => {
+    const { first, middle, last } = partialSpan(backward);
+    await Promise.resolve();
+    const selected = () => [first, middle, last].map(({ editor }) => editor.state.doc.textBetween(editor.state.selection.from, editor.state.selection.to));
+    const before = selected();
+    for (const projection of [false, true]) {
+      for (const partial of [false, true]) {
+        for (const unit of [first, middle, last]) {
+          const { editor } = unit;
+          const from = partial ? 2 : 1;
+          const to = partial ? 3 : editor.state.doc.content.size - 1;
+          const mark = partial ? editor.schema.marks.styledText.create({ fontSize: 18 }) : editor.schema.marks.bold.create();
+          const transaction = editor.state.tr.addMark(from, to, mark);
+          if (projection) {
+            // Remove marks first so the projection actually has a mark-only diff.
+            editor.view.dispatch(editor.state.tr.removeMark(from, to, mark.type));
+            applyEditorDocumentProjection(editor, transaction.doc.toJSON());
+          } else editor.view.dispatch(transaction);
+          await Promise.resolve();
+          expect(getActiveTextRunSpan()).not.toBeNull();
+          expect(selected()).toEqual(before);
+        }
+      }
+    }
+  });
+
+  it("clears when an intermediate unit changes or disappears", async () => {
+    const { middle } = partialSpan(false);
+    middle.editor.view.dispatch(middle.editor.state.tr.insertText("変", 1));
+    expect(getActiveTextRunSpan()).toBeNull();
+    selectEntireTextRun(middle.editor);
+    middle.unregister();
+    await Promise.resolve();
+    expect(getActiveTextRunSpan()).toBeNull();
+  });
+
+  it.each([false, true])("rebinds a block to another unit only if its entire content is unchanged (changed=%s)", async changed => {
+    const { first } = createSpanPair();
+    first.unregister();
+    const replacement = createUnit("moved-unit", 0, [
+      { id: "p1", text: changed ? "XX前半一" : "前半一" }, { id: "p2", text: "前半二" },
+    ]);
+    cleanups.push(() => { replacement.unregister(); replacement.editor.destroy(); });
+    await Promise.resolve();
+    if (changed) expect(getActiveTextRunSpan()).toBeNull();
+    else expect(getActiveTextRunSpan()?.anchor).toEqual({ unitId: "moved-unit", pos: 1 });
+  });
+
+  it("does not rebind a span into another canvas reusing the same group and block IDs", async () => {
+    const { first, second } = createSpanPair();
+    const previousCanvas = document.createElement("div");
+    const nextCanvas = document.createElement("div");
+    previousCanvas.className = nextCanvas.className = "page-canvas";
+    document.body.append(previousCanvas, nextCanvas);
+    previousCanvas.append(first.editor.view.dom.parentElement!, second.editor.view.dom.parentElement!);
+    selectEntireTextRun(first.editor);
+    first.unregister(); second.unregister();
+    const nextFirst = createUnit("next-a", 0, [{ id: "p1", text: "前半一" }, { id: "p2", text: "前半二" }]);
+    const nextSecond = createUnit("next-b", 1, [{ id: "p3", text: "後半一" }, { id: "p4", text: "後半二" }]);
+    nextCanvas.append(nextFirst.editor.view.dom.parentElement!, nextSecond.editor.view.dom.parentElement!);
+    cleanups.push(() => {
+      nextFirst.unregister(); nextSecond.unregister(); nextFirst.editor.destroy(); nextSecond.editor.destroy();
+      previousCanvas.remove(); nextCanvas.remove();
+    });
+    await Promise.resolve();
+    expect(getActiveTextRunSpan()).toBeNull();
   });
 
   it("トグルの向きは span 全体で 1 回だけ判定する (片側だけ太字なら全体を太字にする)", () => {

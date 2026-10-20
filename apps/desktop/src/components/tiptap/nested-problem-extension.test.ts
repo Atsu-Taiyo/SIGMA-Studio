@@ -32,7 +32,7 @@ function paragraph(id: string, text: string) {
   return { type: "paragraph" as const, id, children: [{ type: "text" as const, text }] };
 }
 
-function boxedProblem(): TextFlowBlock[] {
+function boxedProblem(extra: Record<string, unknown> = {}, lead: unknown[] = []): TextFlowBlock[] {
   return [{
     type: "boxBlock",
     id: "box",
@@ -41,16 +41,20 @@ function boxedProblem(): TextFlowBlock[] {
       type: "problem",
       id: "boxed",
       tags: [],
-      lead: [],
+      lead,
       prompt: [paragraph("boxed_prompt", "問題文")],
       hints: [],
       solution: [paragraph("boxed_solution", "解答")],
+      ...extra,
     }],
   }] as unknown as TextFlowBlock[];
 }
 
 /** 箱の編集面と同じ構成。`display` は編集面が `getProblemDisplay` で渡す値。 */
-function createBoxEditor(display: { current: ProblemDisplayFilter | undefined }) {
+function createBoxEditor(
+  display: { current: ProblemDisplayFilter | undefined },
+  problem: { extra?: Record<string, unknown>; lead?: unknown[] } = {},
+) {
   const editor = new Editor({
     element: document.createElement("div"),
     extensions: createRichTextEngineExtensions({
@@ -68,7 +72,7 @@ function createBoxEditor(display: { current: ProblemDisplayFilter | undefined })
       listMarkerTypography: true,
       orderedListMarkerStyles: true,
     }),
-    content: textFlowToTiptap(boxedProblem()),
+    content: textFlowToTiptap(boxedProblem(problem.extra, problem.lead)),
   });
   editors.push(editor);
   return editor;
@@ -139,5 +143,33 @@ describe("problems nested in a box under the display filter (設定 > 表示)", 
     editor.view.dispatch(editor.state.tr.setMeta(nestedProblemLayoutKey, true));
     expect(areaElement(editor, "lead").getAttribute("data-problem-number")).toBe("3");
     expect(areaElement(editor, "prompt").style.display).toBe("");
+  });
+});
+
+describe("problems nested in a box with the lead line turned off", () => {
+  const leadOff = { areaLayout: { lead: { hidden: true } } };
+  const noDisplay = () => ({ current: undefined as ProblemDisplayFilter | undefined });
+
+  it("folds the empty lead and hands the number to the problem text", () => {
+    const editor = createBoxEditor(noDisplay(), { extra: leadOff });
+
+    expect(areaElement(editor, "lead").style.display).toBe("none");
+    expect(areaElement(editor, "lead").getAttribute("data-problem-number")).toBeNull();
+    expect(areaElement(editor, "prompt").getAttribute("data-problem-number")).toBe("3");
+  });
+
+  it("keeps the lead line, and the number on it, by default", () => {
+    const editor = createBoxEditor(noDisplay());
+
+    expect(areaElement(editor, "lead").style.display).toBe("");
+    expect(areaElement(editor, "lead").getAttribute("data-problem-number")).toBe("3");
+    expect(areaElement(editor, "prompt").getAttribute("data-problem-number")).toBeNull();
+  });
+
+  it("does not hide a lead that has text", () => {
+    const editor = createBoxEditor(noDisplay(), { extra: leadOff, lead: [paragraph("boxed_lead", "導入文")] });
+
+    expect(areaElement(editor, "lead").style.display).toBe("");
+    expect(areaElement(editor, "lead").getAttribute("data-problem-number")).toBe("3");
   });
 });

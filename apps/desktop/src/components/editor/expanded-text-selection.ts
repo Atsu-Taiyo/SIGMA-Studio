@@ -1,3 +1,4 @@
+import { finishTextPointerSelection } from "./text-pointer-selection";
 import type { Editor } from "@tiptap/core";
 import type { MouseEvent as ReactMouseEvent } from "react";
 
@@ -93,6 +94,7 @@ export function startExpandedTextSelection(event: ReactMouseEvent<HTMLElement>, 
       Math.abs(upEvent.clientY - startPoint.y) > DRAG_SELECTION_THRESHOLD_PX
     ) {
       updateSelection(upEvent.clientX, upEvent.clientY);
+      finishTextPointerSelection(editor, upEvent);
     }
     ownerWindow.removeEventListener("mousemove", handleMouseMove);
   };

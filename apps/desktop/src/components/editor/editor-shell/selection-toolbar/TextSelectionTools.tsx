@@ -76,6 +76,9 @@ export function TextSelectionTools({
   const alignRef = useRef<HTMLButtonElement>(null);
   const moreRef = useRef<HTMLButtonElement>(null);
 
+  const disabledReason = text.disabledReason;
+  const structuralReason = disabledReason ?? t("format.disabled.unsupportedBlock");
+  const sizeReason = disabledReason ?? (text.fontSize === null ? t("format.disabled.fontSizeUnavailable") : undefined);
   const styleMenuEnabled = text.canBlockStyle || text.canBlockStructure;
   const structureLabel = text.blockStructure.listType === "bullet"
     ? t("format.blockStructure.bulletList")
@@ -100,12 +103,12 @@ export function TextSelectionTools({
   return (
     <>
       {/* 段落スタイル: 本文 / 見出し 1〜3 / リスト・引用・コード */}
-      {inBody && <><div className="shape-menu-anchor">
+      {inBody && <><div className="shape-menu-anchor" title={!styleMenuEnabled ? structuralReason : undefined}>
         <button
           ref={styleRef}
           type="button"
           className="selection-toolbar-select"
-          title={t("format.blockStyle.aria")}
+          title={!styleMenuEnabled ? structuralReason : t("format.blockStyle.aria")}
           aria-label={t("format.blockStyle.aria")}
           aria-haspopup="menu"
           aria-expanded={openId === "style"}
@@ -174,12 +177,12 @@ export function TextSelectionTools({
       <ToolDivider /></>}
 
       {/* フォントサイズ: − 12 ＋。数字を押すと候補の一覧。入力欄は置かない (フォーカスが移ると選択が外れる)。 */}
-      <div className="selection-toolbar-size" title={text.fontSizeMixed ? t("format.fontSize.mixedHelp") : text.fontSize === null ? t("format.fontSize.aria") : `${text.fontSize}pt`}>
+      <div className="selection-toolbar-size" title={sizeReason ?? (text.fontSizeMixed ? t("format.fontSize.mixedHelp") : text.fontSize === null ? t("format.fontSize.aria") : `${text.fontSize}pt`)}>
         <button
           type="button"
           className="selection-toolbar-step"
           aria-label={t("format.fontSize.decrease")}
-          title={t("format.fontSize.decrease")}
+          title={sizeReason ?? t("format.fontSize.decrease")}
           disabled={!text.enabled || text.fontSize === null}
           onMouseDown={(event) => event.preventDefault()}
           onClick={(event) => {
@@ -210,7 +213,7 @@ export function TextSelectionTools({
           type="button"
           className="selection-toolbar-step"
           aria-label={t("format.fontSize.increase")}
-          title={t("format.fontSize.increase")}
+          title={sizeReason ?? t("format.fontSize.increase")}
           disabled={!text.enabled || text.fontSize === null}
           onMouseDown={(event) => event.preventDefault()}
           onClick={(event) => {
@@ -250,6 +253,7 @@ export function TextSelectionTools({
       <ToolIconButton
         label={text.bold ? t("format.bold.remove") : t("format.bold.apply")}
         active={text.bold}
+        disabledReason={structuralReason}
         disabled={!text.enabled}
         onClick={() => text.toggleInline("bold")}
       >
@@ -258,6 +262,7 @@ export function TextSelectionTools({
       <ToolIconButton
         label={text.italic ? t("format.italic.remove") : t("format.italic.apply")}
         active={text.italic}
+        disabledReason={structuralReason}
         disabled={!text.enabled}
         onClick={() => text.toggleInline("italic")}
       >
@@ -266,6 +271,7 @@ export function TextSelectionTools({
       <ToolIconButton
         label={text.underline ? t("format.underline.remove") : t("format.underline.apply")}
         active={text.underline}
+        disabledReason={structuralReason}
         disabled={!text.enabled}
         onClick={() => text.toggleInline("underline")}
       >
@@ -277,6 +283,7 @@ export function TextSelectionTools({
         <ToolIconButton
           label={text.boxed ? t("format.boxedText.removeTooltip") : t("format.boxedText.applyTooltip")}
           active={text.boxed}
+          disabledReason={structuralReason}
           disabled={!text.enabled}
           onClick={text.toggleBoxed}
         >
@@ -292,6 +299,7 @@ export function TextSelectionTools({
           aria-label={t("format.boxedText.settings", { padding: text.boxedPaddingY })}
           aria-haspopup="dialog"
           aria-expanded={openId === "boxed"}
+          disabledReason={structuralReason}
           disabled={!text.enabled}
           onClick={(event) => {
             event.stopPropagation();
@@ -387,6 +395,7 @@ export function TextSelectionTools({
         label={t("format.textColor.label")}
         icon={<span aria-hidden="true" className="toolbar-icon-color-glyph">A</span>}
         swatch={text.textColor}
+        disabledReason={disabledReason}
         disabled={!text.enabled}
         palette={({ close }) => (
           <ColorPalette
@@ -408,6 +417,7 @@ export function TextSelectionTools({
         label={t("format.backgroundColor.label")}
         icon={<Highlighter size={TOOLBAR_ICON_SIZE} aria-hidden="true" />}
         swatch={text.textBackgroundColor}
+        disabledReason={disabledReason}
         disabled={!text.enabled}
         palette={({ close }) => (
           <ColorPalette
@@ -429,10 +439,11 @@ export function TextSelectionTools({
           variant="textAlign"
           className="selection-toolbar-button"
           active={openId === "align"}
-          title={t("format.align.label")}
+          title={!text.canAlign ? structuralReason : t("format.align.label")}
           aria-label={t("format.align.current", { value: t(`format.align.${activeAlign.value}`) })}
           aria-haspopup="menu"
           aria-expanded={openId === "align"}
+          disabledReason={structuralReason}
           disabled={!text.canAlign}
           onClick={(event) => {
             event.stopPropagation();
@@ -478,6 +489,7 @@ export function TextSelectionTools({
           aria-label={t("format.blockStructure.more")}
           aria-haspopup="menu"
           aria-expanded={openId === "more"}
+          disabledReason={structuralReason}
           disabled={!text.canBlockStructure}
           onClick={(event) => {
             event.stopPropagation();

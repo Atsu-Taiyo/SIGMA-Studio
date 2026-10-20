@@ -187,10 +187,8 @@
 .material-edit-backdrop,
 .info-dialog-backdrop,
 .template-gallery-backdrop,
-.page-settings-backdrop,
 .workspace-create-backdrop,
 .file-access-backdrop,
-.outline-dialog-backdrop,
 .desktop-settings-overlay {
   animation: ui-fade-in 140ms ease both;
 }
@@ -200,10 +198,8 @@
 .material-edit-dialog,
 .info-dialog,
 .template-gallery-dialog,
-.page-settings-dialog,
 .workspace-create-dialog,
 .file-access-dialog,
-.outline-dialog,
 .desktop-settings-modal {
   animation: ui-dialog-in 170ms ease both;
 }
@@ -232,7 +228,6 @@
 .find-icon-button,
 .find-action-button,
 .outline-list button,
-.outline-dialog-list button,
 .print-preview-page-nav-button,
 .toolbar-icon-color,
 .mcp-proposal-button,
@@ -1476,25 +1471,6 @@
   position: sticky;
   top: 0;
   z-index: 1;
-  display: grid;
-  grid-template-columns: 16px minmax(0, 1fr);
-  align-items: center;
-  gap: 6px;
-  height: 32px;
-  padding: 0 8px;
-  border: 1px solid rgba(203, 213, 225, 0.86);
-  border-radius: 8px;
-  color: #64748b;
-  background: #ffffff;
-}
-
-.comment-reaction-picker-search input {
-  min-width: 0;
-  border: 0;
-  outline: none;
-  color: #111827;
-  background: transparent;
-  font-size: 12px;
 }
 
 .comment-reaction-picker-section {
@@ -1769,7 +1745,6 @@
 	  .material-edit-backdrop,
 	  .info-dialog-backdrop,
 	  .template-gallery-backdrop,
-  .page-settings-backdrop,
   .workspace-create-backdrop,
   .file-access-backdrop,
   .desktop-settings-overlay,
@@ -1778,10 +1753,8 @@
 	  .material-edit-dialog,
 	  .info-dialog,
 	  .template-gallery-dialog,
-  .template-gallery-search-input,
   .slash-command-popover,
   .slash-command-preview,
-  .page-settings-dialog,
   .workspace-create-dialog,
   .file-access-dialog,
   .desktop-settings-modal,

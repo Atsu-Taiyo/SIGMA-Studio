@@ -9,13 +9,12 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
   RefreshCw,
-  Search,
   UserRoundPlus,
-  X,
 } from "lucide-react";
 import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import type { FormEvent, MouseEvent as ReactMouseEvent } from "react";
 
+import { SigmaMark } from "@/components/branding/SigmaMark";
 import { Button, IconButton } from "@/components/ui/Button";
 import { useWorkspaceLibrary } from "./use-workspace-search";
 import { useWorkspaceBodySearch } from "./use-workspace-body-search";
@@ -36,6 +35,7 @@ import {
 import { toggleWorkspaceBookmark, useWorkspaceBookmarks, workspaceBookmarkKey, type WorkspaceBookmarkKind } from "@/lib/workspace-bookmarks";
 import type { CommentUserIdentity } from "@/features/document";
 import { useCollaborationProfile } from "@/features/collaboration/renderer/use-collaboration-profile";
+import { SearchField } from "@/components/ui/SearchField";
 import { Select } from "@/components/ui/Select";
 
 import {
@@ -1315,30 +1315,21 @@ export function WorkspaceManager() {
             aria-controls="workspace-sidebar"
             onClick={() => setViewPreference({ sidebarCollapsed: !sidebarCollapsed })}
           >{sidebarCollapsed ? <PanelLeftOpen size={18} /> : <PanelLeftClose size={18} />}</IconButton>
-          <div className="workspace-brand-mark" aria-hidden="true">Σ</div>
+          <SigmaMark size={34} />
           <h1>Sigma Studio</h1>
         </div>
-        <label className="workspace-search">
-          <Search size={16} />
-          <input
-            aria-label={t("search.material")}
-            value={searchQuery}
-            placeholder={t("search.placeholder")}
-            onChange={(event) => { setSearchQuery(event.target.value); setSearchTyping(true); setPanel("files"); }}
-            onFocus={() => setSearchFocused(true)}
-            onBlur={() => setSearchFocused(false)}
-          />
-          {searchQuery.trim().length > 0 && (
-            <button
-              type="button"
-              className="workspace-search-clear"
-              aria-label={t("search.clear")}
-              onClick={() => setSearchQuery("")}
-            >
-              <X size={14} />
-            </button>
-          )}
-        </label>
+        <SearchField
+          size="lg"
+          className="workspace-search"
+          aria-label={t("search.material")}
+          clearLabel={t("search.clear")}
+          value={searchQuery}
+          placeholder={t("search.placeholder")}
+          onChange={(value) => { setSearchQuery(value); setSearchTyping(true); setPanel("files"); }}
+          onClear={() => setSearchQuery("")}
+          onFocus={() => setSearchFocused(true)}
+          onBlur={() => setSearchFocused(false)}
+        />
         <div className="workspace-page-actions">
           {overview?.catalog && <Button size="sm" tone="ghost" onClick={() => setJoinOpen(true)}><UserRoundPlus size={15} />{tc("collaboration.join")}</Button>}
           <button

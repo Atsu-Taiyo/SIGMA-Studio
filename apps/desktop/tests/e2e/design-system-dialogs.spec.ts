@@ -21,7 +21,7 @@ test.describe("design system dialogs", () => {
     await expect(dialog).toBeVisible();
     expect(await dialog.evaluate((element) => element.parentElement?.parentElement === document.body)).toBe(true);
     expect(await page.locator(".app-shell").evaluate((element) => element.closest("[inert]") !== null)).toBe(true);
-    await expect(dialog.getByRole("textbox", { name: "コマンドを検索" })).toBeFocused();
+    await expect(dialog.getByRole("searchbox", { name: "コマンドを検索" })).toBeFocused();
     const closeButton = dialog.getByRole("button", { name: "閉じる", exact: true });
     await expect(closeButton).toHaveCount(1);
     const closeButtonShape = await closeButton.evaluate((element) => {
@@ -162,7 +162,7 @@ test.describe("design system dialogs", () => {
     await expect(dialog.locator(".ai-chat-room-dialog-preview, .ai-chat-room-dialog-time")).toHaveCount(0);
 
     await searchButton.click();
-    const searchInput = dialog.getByRole("textbox", { name: "履歴を検索" });
+    const searchInput = dialog.getByRole("searchbox", { name: "履歴を検索" });
     await expect(searchInput).toBeFocused();
     await searchInput.fill("Claude");
     await expect(rows).toHaveCount(1);

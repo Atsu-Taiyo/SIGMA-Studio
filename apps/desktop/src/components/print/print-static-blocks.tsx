@@ -19,7 +19,7 @@ import {
 } from "@/features/document";
 import { renderInlineContent } from "@/features/rendering/adapters/react";
 import { getProblemNumberFontSize, getLayoutSectionColumns, getLayoutSectionColumnWidths, migrateLegacyLayoutColumns } from "@/features/text-editing/model";
-import { createIndependentColumnLayout } from "@/features/rendering/core";
+import { createIndependentColumnLayout, isProblemLeadFolded } from "@/features/rendering/core";
 import {
   boxBlockSubtitleText,
   boxBlockTitleText,
@@ -142,7 +142,7 @@ export function buildProblemAreaPrintUnits(
     }))
     .filter(({ area, blocks, minHeightMm }) => (
       area === "lead"
-        ? typeof problemNumber === "number" || blocks.length > 0 || Boolean(minHeightMm)
+        ? !isProblemLeadFolded(problem) && (typeof problemNumber === "number" || blocks.length > 0 || Boolean(minHeightMm))
         : area === "prompt" || blocks.length > 0 || Boolean(minHeightMm)
     ));
   const frameAreas = areas.filter(({ area }) => isProblemFrameArea(area));
@@ -513,7 +513,8 @@ export function PrintProblemArea({
   sourceId?: string;
 }) {
   const isFirstFragment = !fragmentRole || fragmentRole === "single" || fragmentRole === "first";
-  const showNumber = area === "lead" && typeof problemNumber === "number" && isFirstFragment;
+  // 番号は問題の先頭の領域に付く。ふだんは導入文だが、導入文の行を出さない設定では問題文が持つ。
+  const showNumber = isFirstProblemArea && typeof problemNumber === "number" && isFirstFragment;
   if (blocks.length === 0 && !layoutSectionFragment && !blockSlice && !minHeightMm && !showNumber) return null;
 
   const showEmptyLeadPlaceholder = showNumber && blocks.length === 0;

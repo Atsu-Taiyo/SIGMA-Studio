@@ -506,7 +506,7 @@ const ProblemNodeSchema = BaseNodeSchema.extend({
   hints: z.array(ProblemAreaBlockSchema),
   areaLayout: z
     .object({
-      lead: ProblemAreaLayoutSchema.optional(),
+      lead: ProblemAreaLayoutSchema.extend({ hidden: z.boolean().optional() }).optional(),
       prompt: ProblemAreaLayoutSchema.optional(),
       solution: ProblemAreaLayoutSchema.optional(),
       hints: ProblemAreaLayoutSchema.optional(),
@@ -601,9 +601,16 @@ const PageFlowSchema = z.object({
 
 const PageRunningRegionSchema = z.object({
   enabled: z.boolean().optional(),
-  heightMm: z.number().positive().optional(),
+  heightMm: z.number().nonnegative().optional(),
   offsetMm: z.number().nonnegative().optional(),
   showOnFirstPage: z.boolean().optional(),
+  showOnLaterPages: z.boolean().optional(),
+  hiddenPages: z.array(z.number().int().positive()).optional(),
+  shownPages: z.array(z.number().int().positive()).optional(),
+  pageContents: z.array(z.object({
+    page: z.number().int().positive(),
+    blocks: z.array(RichBlockSchema),
+  })).optional(),
   blocks: z.array(RichBlockSchema).optional(),
   overlay: PageOverlaySchema.optional(),
 });

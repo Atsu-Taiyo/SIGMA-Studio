@@ -20,13 +20,13 @@ describe("resolveDragAutoScrollStep", () => {
     expect(resolveDragAutoScrollStep(796, 0, 800, 1100)).toBeGreaterThan(0);
   });
 
-  it("端への食い込みを帯幅で正規化し、最大速度でクランプする", () => {
+  it("端への食い込みを帯幅で正規化し、外の遠方では5倍でクランプする", () => {
     const shallow = resolveDragAutoScrollStep(772, 0, 800, 1100);
     const deep = resolveDragAutoScrollStep(784, 0, 800, 1100);
     expect(deep).toBeGreaterThan(shallow);
     expect(resolveDragAutoScrollStep(784, 0, 800, 1100)).toBe(550);
-    expect(resolveDragAutoScrollStep(2000, 0, 800, 1100)).toBe(1100);
-    expect(resolveDragAutoScrollStep(-2000, 0, 800, 1100)).toBe(-1100);
+    expect(resolveDragAutoScrollStep(2000, 0, 800, 1100)).toBe(5500);
+    expect(resolveDragAutoScrollStep(-2000, 0, 800, 1100)).toBe(-5500);
   });
 
   it("両端の帯を置けない狭い viewport では動かない", () => {
@@ -193,5 +193,30 @@ describe("createDragAutoScroller", () => {
     frames.runFrame(100);
     expect(panBy).toHaveBeenCalledWith(0, 1);
     scroller.stop();
+  });
+});
+
+describe("outside viewport acceleration", () => {
+  it.each([[0, 800, 480], [120, 1200, 1100], [50, 900, 900]])("is continuous and symmetric for viewport %s…%s", (start, end, speed) => {
+    expect(resolveDragAutoScrollStep(start + 16, start, end, speed)).toBe(-speed / 2);
+    expect(resolveDragAutoScrollStep(end - 16, start, end, speed)).toBe(speed / 2);
+    expect(resolveDragAutoScrollStep(start, start, end, speed)).toBe(-speed);
+    expect(resolveDragAutoScrollStep(end, start, end, speed)).toBe(speed);
+    let previous = speed;
+    for (const distance of [0.001, 1, 30, 60, 120, 180, 239, 240]) {
+      const current = resolveDragAutoScrollStep(end + distance, start, end, speed);
+      expect(current).toBeGreaterThan(previous);
+      expect(resolveDragAutoScrollStep(start - distance, start, end, speed)).toBe(-current);
+      previous = current;
+    }
+    expect(resolveDragAutoScrollStep(end + 240, start, end, speed)).toBe(5 * speed);
+    expect(resolveDragAutoScrollStep(end + 2000, start, end, speed)).toBe(5 * speed);
+    expect(resolveDragAutoScrollStep(start - 240, start, end, speed)).toBe(-5 * speed);
+    expect(resolveDragAutoScrollStep(end + 0.001, start, end, speed)).toBeCloseTo(speed, 5);
+    expect(resolveDragAutoScrollStep(end - 0.001, start, end, speed)).toBeCloseTo(speed, 1);
+  });
+  it("does not scroll narrow viewports even when the pointer is far outside", () => {
+    expect(resolveDragAutoScrollStep(-500, 100, 164, 480)).toBe(0);
+    expect(resolveDragAutoScrollStep(2000, 100, 130, 480)).toBe(0);
   });
 });

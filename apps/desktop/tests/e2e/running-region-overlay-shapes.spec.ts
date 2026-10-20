@@ -27,11 +27,12 @@ async function enableRunningRegions(page: Page): Promise<void> {
   await page.getByRole("button", { name: "設定" }).click();
   await page.getByRole("menuitem", { name: "ページ設定" }).click();
 
-  const headerRegion = page.getByRole("region", { name: "ヘッダー" });
-  const footerRegion = page.getByRole("region", { name: "フッター" });
-  await headerRegion.getByLabel("表示", { exact: true }).check();
-  await footerRegion.getByLabel("表示", { exact: true }).check();
-  await page.getByRole("button", { name: "適用", exact: true }).click();
+  const dialog = page.getByRole("dialog", { name: "ページ設定", exact: true });
+  await dialog.getByRole("switch", { name: "ヘッダーを表示", exact: true }).click();
+  await dialog.getByRole("switch", { name: "フッターを表示", exact: true }).click();
+  await expect(dialog.getByRole("switch", { name: "ヘッダーを表示", exact: true })).toHaveAttribute("aria-checked", "true");
+  await expect(dialog.getByRole("switch", { name: "フッターを表示", exact: true })).toHaveAttribute("aria-checked", "true");
+  await dialog.getByRole("button", { name: "適用", exact: true }).click();
 }
 
 async function insertRunningRegionRectangle(page: Page, kind: "header" | "footer"): Promise<void> {

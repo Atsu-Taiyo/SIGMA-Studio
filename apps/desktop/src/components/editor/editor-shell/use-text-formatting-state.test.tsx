@@ -40,3 +40,21 @@ describe("preferred font state", () => {
     expect(state.preferredFontFamily).toBe("monospace");
   });
 });
+
+it("retains sizes for partial reports, but clears unavailable or disabled targets and document resets", () => {
+  getBridge.mockReturnValue(null);
+  act(() => root.render(<Harness />));
+  const report = (detail: object) => act(() => { window.dispatchEvent(new CustomEvent(TEXT_FORMAT_STATE_EVENT, { detail })); });
+  report({ fontSize: 9, enabled: true, fontSizeMixed: true });
+  report({ bold: true });
+  expect(state.textFontSize).toBe(9);
+  expect(state.textFontSizeMixed).toBe(true);
+  report({ fontSize: null, enabled: true });
+  expect(state.textFontSize).toBeNull();
+  report({ fontSize: 12 });
+  report({ enabled: false });
+  expect(state.textFontSize).toBeNull();
+  report({ fontSize: 9 });
+  act(() => state.setTextFontSize(null));
+  expect(state.textFontSize).toBeNull();
+});

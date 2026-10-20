@@ -38,6 +38,15 @@ export function readSelectionFontSize(
   view: EditorView,
   range: { from: number; to: number } = view.state.selection,
 ): SelectionFontSize {
+  const { fontSize, fontSizeMixed } = readSelectionFontSizeDetails(view, range);
+  return { fontSize, fontSizeMixed };
+}
+
+/** Distinguish selected inline content from empty blocks and boundary/caret fallbacks. */
+export function readSelectionFontSizeDetails(
+  view: EditorView,
+  range: { from: number; to: number } = view.state.selection,
+): SelectionFontSize & { hasInlineContent: boolean } {
   const { state } = view;
   const styleCache = new Map<Element, number | null>();
   const readSize = (pos: number, marks: readonly Mark[], caret = false): number | null => {
@@ -64,20 +73,46 @@ export function readSelectionFontSize(
     return {
       fontSize: readSize(range.from, state.storedMarks ?? $pos.marks(), true),
       fontSizeMixed: false,
+      hasInlineContent: false,
     };
   }
 
   let fontSize: number | null = null;
   let fontSizeMixed = false;
-  state.doc.nodesBetween(range.from, range.to, (node, pos) => {
-    if (fontSizeMixed) return false;
-    if (!node.isInline && !(node.isTextblock && node.childCount === 0)) return true;
-    const current = readSize(pos, node.marks);
+  let hasInlineContent = false;
+  const emptyBlocks: Array<{ pos: number; marks: readonly Mark[] }> = [];
+  const measure = (pos: number, marks: readonly Mark[]) => {
+    const current = readSize(pos, marks);
     if (current !== null) {
       if (fontSize === null) fontSize = current;
       else if (Math.abs(fontSize - current) > 0.001) fontSizeMixed = true;
     }
-    return false;
+  };
+  state.doc.nodesBetween(range.from, range.to, (node, pos) => {
+    if (fontSizeMixed) return false;
+    if (node.isInline && (node.isLeaf || node.isAtom)) {
+      hasInlineContent = true;
+      measure(pos, node.marks);
+      return false;
+    }
+    if (node.isTextblock && node.childCount === 0) {
+      emptyBlocks.push({ pos, marks: node.marks });
+      return false;
+    }
+    return true;
   });
-  return { fontSize, fontSizeMixed };
+  // Empty paragraphs only own the effective size when no inline content is selected.
+  if (!hasInlineContent) {
+    for (const { pos, marks } of emptyBlocks) {
+      measure(pos, marks);
+      if (fontSizeMixed) break;
+    }
+  }
+  if (fontSize === null) {
+    // A paragraph-end → next-paragraph-start range contains only a boundary. Read
+    // its start exactly like a caret, without persisting derived font attributes.
+    const $from = state.doc.resolve(range.from);
+    fontSize = readSize(range.from, state.storedMarks ?? $from.marks(), true);
+  }
+  return { fontSize, fontSizeMixed, hasInlineContent };
 }

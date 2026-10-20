@@ -6,8 +6,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createTranslator } from "@/lib/i18n";
 
+import { createAddedFontCommands } from "@/lib/editor-command-shortcuts";
+
 import type { PaletteEntry } from "../command-palette-model";
 import type { SettingsSurfaceId } from "../settings-catalog";
+import { SHORTCUT_FONT_FAMILIES } from "./constants";
 import { useCommandPalette, type EditorCommandPaletteOptions } from "./use-command-palette";
 
 let root: Root;
@@ -137,6 +140,25 @@ describe("mounted command palette", () => {
     render(f.options);
     expect(palette.paletteEntries.find((entry) => entry.id === "custom.my-format"))
       .toMatchObject({ label: "授業用の強調", shortcut: "⌘⌥J" });
+  });
+
+  it("lists added fonts as runnable commands and labels font menu rows with their keys", () => {
+    const f = fixture();
+    const [addedFont] = createAddedFontCommands([
+      { id: "plugin-9f8e7d", displayName: "数研ゴシック", cssFamily: "\"Sigma Plugin Font 9f8e7d\"" },
+    ]);
+    f.options.catalog.customCommands = [addedFont];
+    f.options.catalog.shortcutOverrides = {
+      [addedFont.id]: { key: "m", primary: true, alt: true },
+      "format.font.yuMincho": { key: "y", primary: true, alt: true },
+    };
+    render(f.options);
+    expect(palette.paletteEntries.find((entry) => entry.id === addedFont.id))
+      .toMatchObject({ label: "フォント: 数研ゴシック", shortcut: "⌘⌥M" });
+    expect(palette.fontFamilyShortcut(addedFont.fontFamily)).toBe("⌘⌥M");
+    // 組み込みの書体コマンドは、メニューの行と値が完全に一致するときだけ添える。
+    expect(palette.fontFamilyShortcut(SHORTCUT_FONT_FAMILIES["format.font.yuMincho"])).toBe("⌘⌥Y");
+    expect(palette.fontFamilyShortcut(SHORTCUT_FONT_FAMILIES["format.font.klee"])).toBeUndefined();
   });
 
   it("closes immediately and waits one frame before reading the current command runner", () => {

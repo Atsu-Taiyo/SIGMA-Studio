@@ -1,4 +1,6 @@
 "use client";
+
+import { isTextPointerSelectionClick } from "@/components/editor/text-pointer-selection";
 import {
   startLocalColumnPointerSelection,
   type TextRunScopeContainer,
@@ -281,6 +283,7 @@ export function LayoutSectionFlowUnit({
       style={style}
       onClick={(event) => {
         event.stopPropagation();
+        if (isTextPointerSelectionClick(event.nativeEvent)) return;
         onSelect(unit.section.id);
       }}
     >

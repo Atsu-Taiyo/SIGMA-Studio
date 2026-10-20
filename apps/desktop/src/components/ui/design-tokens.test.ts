@@ -139,10 +139,10 @@ describe("design tokens", () => {
     expect(modalSource).toContain("onPointerDown={handlePointerDown}");
     expect(modalSource).toContain("event.target === event.currentTarget");
 
+    // ページ設定は共通の ModalFrame に移った (上の Modal.tsx の検査が受け持つ)。
+    expect(readFileSync(new URL("../editor/PageSettingsDialog.tsx", import.meta.url), "utf8")).toContain("<ModalFrame");
     for (const path of [
-      "../editor/PageSettingsDialog.tsx",
       "../editor/TableSettingsDialog.tsx",
-      "../editor/editor-shell/editor-outline-dialog.tsx",
       "../editor/editor-shell/material-dialogs.tsx",
       "../templates/TemplateGallery.tsx",
       "../print/PdfExportSuccessDialog.tsx",

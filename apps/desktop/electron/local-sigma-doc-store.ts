@@ -14,8 +14,10 @@ import {
 } from "@/lib/sigma-doc-schema";
 import { createId } from "@/lib/id";
 import {
+  applyNewDocumentPageSetup,
   ensurePageLayout,
   pruneUnusedDocumentOverlayAssets,
+  type NewDocumentPageSetup,
   type SigmaDocument,
 } from "@/features/document";
 import { createBlankDocument } from "@/lib/blank-document";
@@ -252,6 +254,8 @@ interface CreateDocumentPayload {
   title?: string;
   workspaceId?: string | null;
   folderId?: string | null;
+  /** 直前に開いていた教材の用紙設定。新しい空の教材だけが引き継ぐ (複製・取り込みは自分の用紙のまま)。 */
+  pageSetup?: NewDocumentPageSetup | null;
 }
 
 interface CreateFileFromDocumentPayload {
@@ -957,7 +961,7 @@ export class LocalSigmaDocStore {
 
   async createDocument(payload: CreateDocumentPayload = {}): Promise<LocalWorkspaceFileCreateResult> {
     const title = normalizeDocumentTitle(payload.title);
-    const document = createBlankDocument(title);
+    const document = createBlankDocumentWithPageSetup(title, payload.pageSetup);
     return this.createFileFromDocument({
       document,
       workspaceId: payload.workspaceId,
@@ -2561,6 +2565,20 @@ function decodeDocumentFileName(filename: string): string | null {
   }
 }
 
+
+/**
+ * 覚えている用紙設定を空の教材へ当てる。当てた結果が教材として読めないときは既定の用紙で作る
+ * (設定ファイルが壊れていても、新しい教材を作れなくしない)。
+ */
+function createBlankDocumentWithPageSetup(title: string, pageSetup: NewDocumentPageSetup | null | undefined): SigmaDocument {
+  const blank = createBlankDocument(title);
+  if (!pageSetup) return blank;
+  try {
+    return ensurePageLayout(parseSigmaDocument(applyNewDocumentPageSetup(blank, pageSetup)));
+  } catch {
+    return blank;
+  }
+}
 function normalizeDocumentTitle(title?: string): string {
   const normalized = title?.trim() ?? "";
   return (normalized || DEFAULT_DOCUMENT_TITLE).slice(0, 160);

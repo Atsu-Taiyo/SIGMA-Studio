@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties a
 import { AiThinkingOrb } from "@/components/branding/AiThinkingOrb";
 import { renderProviderMark } from "@/components/branding/provider-logos";
 import { IconButton } from "@/components/ui/Button";
+import { SearchField } from "@/components/ui/SearchField";
 import { ModalBody, ModalFrame, ModalHeader } from "@/components/ui/Modal";
 import { Shimmer } from "@/components/ui/Shimmer";
 import { getReferenceDisplayLabel } from "@/lib/ai/ai-edit-reference";
@@ -205,16 +206,16 @@ export function ChatRoomHistory({
           )}
         />
         <ModalBody className="ai-chat-room-dialog-body" padding="none" scroll="hidden" data-search-open={searchOpen}>
-          {searchOpen && <label className="ai-chat-room-search">
-              <Search size={15} />
-              <input
+          {searchOpen && <div className="ai-chat-room-search">
+              <SearchField
                 ref={searchInputRef}
+                size="sm"
                 value={searchQuery}
-                onChange={(event) => setSearchQuery(event.currentTarget.value)}
+                onChange={setSearchQuery}
                 placeholder={t("chat.searchHistory")}
                 aria-label={t("chat.searchHistory")}
               />
-          </label>}
+          </div>}
           <div className="ai-chat-room-dialog-list" role="list">
               {filteredRooms.length === 0 ? (
                 <p className="ai-chat-room-dialog-empty">{t("chat.noMatchingHistory")}</p>

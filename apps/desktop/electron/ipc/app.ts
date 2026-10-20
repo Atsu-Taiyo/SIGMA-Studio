@@ -17,6 +17,7 @@ import {
   readDesktopSettingsSync,
   writeDesktopSettings,
   type DesktopCustomFont,
+  type DesktopSettings,
 } from "../desktop-settings";
 import { restorePreviousInputSource, switchToAsciiInputSource } from "../input-source";
 
@@ -160,6 +161,13 @@ export function registerAppIpc(deps: RegisterAppIpcDeps): void {
     const fontFamily = getEditorFontFamilyPreferencePatch(payload);
     if (fontFamily !== undefined) {
       await writeDesktopSettings(dataDir, { editorFontFamily: fontFamily });
+    }
+    // 直前に開いていた教材の用紙設定。新しい空の教材 (storage:create-document) がこれを当てる。
+    // 中身は writeDesktopSettings が正規化し、ホワイトボード・壊れた値は覚えない。
+    if (typeof payload === "object" && payload !== null && "newDocumentPageSetup" in payload) {
+      await writeDesktopSettings(dataDir, {
+        newDocumentPageSetup: (payload as { newDocumentPageSetup?: unknown }).newDocumentPageSetup as DesktopSettings["newDocumentPageSetup"],
+      });
     }
     return {
       ok: true,

@@ -13,7 +13,7 @@ test("ambiguous icon actions explain the result and show the current shortcut", 
   await page.getByRole("button", { name: "設定", exact: true }).click();
   await page.getByRole("menuitem", { name: "ショートカット設定" }).click();
   const commandDialog = page.getByRole("dialog", { name: "ショートカット設定" });
-  await commandDialog.getByRole("textbox", { name: "コマンドを検索" }).fill("元に戻す");
+  await commandDialog.getByRole("searchbox", { name: "コマンドを検索" }).fill("元に戻す");
   await commandDialog.getByRole("button", { name: "元に戻す のキー割り当てを変更" }).click();
   await page.keyboard.press("q");
   await commandDialog.getByRole("button", { name: "元に戻す を既定に戻す" }).hover();

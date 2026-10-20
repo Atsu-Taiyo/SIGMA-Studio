@@ -50,6 +50,8 @@ import type { RibbonCollapseState, RibbonPanelTabId, RibbonTabState } from "./ri
 export interface EditorChromeCommands {
   commandTooltip: (label: string, commandId: EditorCommandId) => TooltipContent;
   renderMenuShortcut: (commandId: EditorCommandId) => ReactElement | null;
+  /** 書体メニューの行 (CSS の font-family) に割り当てたキーの表示。無ければ undefined。 */
+  fontFamilyShortcut: (fontFamily: string) => string | undefined;
 }
 
 /** 「他のポップオーバーを閉じる」setter 群。呼び出し箇所ごとに閉じる集合が違う（例: 囲み文字は font-family と line-width を閉じない）ため、
@@ -121,7 +123,7 @@ export interface EditorChromeFormat {
   applyBoxedTextPaddingY: (paddingY: number) => void;
   /** 角丸の囲み文字の丸め具合 (%) を決める。 */
   applyBoxedTextRoundness: (roundness: number) => void;
-  applyInlineFormat: (command: "color" | "backgroundColor" | "fontFamily" | "fontSize" | "lineHeight" | "boxedPaddingY" | "boxedVariant" | "boxedRoundness", value: string) => void;
+  applyInlineFormat: (command: "color" | "backgroundColor" | "fontFamily" | "fontSize" | "lineHeight" | "boxedPaddingY" | "boxedVariant" | "boxedRoundness", value: string, options?: { restoreFocus?: boolean; focusOnly?: boolean }) => boolean;
   applyLineHeight: (nextLineHeightValue: string, options?: { updateInput?: boolean; }) => boolean;
   applyBlockStructure: (value: BlockStyleCommandValue) => void;
   applyTextAlign: (align: TextAlign) => void;
@@ -143,6 +145,7 @@ export interface EditorChromeFormat {
   canUseBlockStructure: boolean;
   canUseTextBlockStyle: boolean;
   canUseTextToolbar: boolean;
+  textToolbarDisabledReason?: string;
   fontFamily: string;
   fontFamilyButtonRef: RefObject<HTMLButtonElement | null>;
   fontFamilyIsKnownOption: boolean;
@@ -342,7 +345,6 @@ export interface EditorChromeAppMenu {
   setExtensionsOpen: Dispatch<SetStateAction<boolean>>;
   setExportMenuOpen: Dispatch<SetStateAction<boolean>>;
   setNewDocMenuOpen: Dispatch<SetStateAction<boolean>>;
-  setOutlineDialogOpen: Dispatch<SetStateAction<boolean>>;
   setOverlayEditing: Dispatch<SetStateAction<boolean>>;
   setPageSettingsOpen: Dispatch<SetStateAction<boolean>>;
   setTemplateGalleryOpen: Dispatch<SetStateAction<boolean>>;

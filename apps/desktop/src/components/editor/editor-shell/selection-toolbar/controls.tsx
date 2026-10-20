@@ -24,6 +24,7 @@ export function ToolIconButton({
   label,
   active = false,
   disabled = false,
+  disabledReason,
   danger = false,
   onClick,
   children,
@@ -31,6 +32,7 @@ export function ToolIconButton({
   label: string;
   active?: boolean;
   disabled?: boolean;
+  disabledReason?: string;
   danger?: boolean;
   onClick: () => void;
   children: ReactNode;
@@ -40,6 +42,7 @@ export function ToolIconButton({
       className="selection-toolbar-button"
       active={active}
       danger={danger}
+      disabledReason={disabledReason}
       title={label}
       aria-label={label}
       aria-pressed={active || undefined}
@@ -85,6 +88,7 @@ export function ToolLabelButton({
 
 /** 色を選ぶボタンとパレット。`allowTransparent` のときは「なし」が選べる。 */
 export function ToolColorMenu({
+  disabledReason,
   id,
   openId,
   onToggle,
@@ -106,6 +110,7 @@ export function ToolColorMenu({
   /** ボタンの下に敷く現在色の帯。 */
   swatch?: string | null;
   disabled?: boolean;
+  disabledReason?: string;
   palette: (props: { close: () => void }) => ReactNode;
 }) {
   const open = openId === id && !disabled;
@@ -121,6 +126,7 @@ export function ToolColorMenu({
         aria-label={label}
         aria-haspopup="dialog"
         aria-expanded={open}
+        disabledReason={disabledReason}
         disabled={disabled}
         onClick={(event) => {
           event.stopPropagation();

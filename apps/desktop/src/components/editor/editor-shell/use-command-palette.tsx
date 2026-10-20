@@ -9,16 +9,23 @@ import {
   formatShortcutText,
   getEditorCommandCatalog,
   getShortcutForCommand,
+  isEditorAddedFontCommand,
   resolveEditorCommandCatalog,
+  type EditorCommandDescriptionOptions,
   type EditorCommandId,
-  type EditorCustomCommandDefinition,
+  type EditorRuntimeCommandDefinition,
   type EditorShortcutOverrides,
   type EditorShortcutPlatform,
 } from "@/lib/editor-command-shortcuts";
 import type { Translate } from "@/lib/i18n";
 
+import { SHORTCUT_FONT_FAMILIES } from "./constants";
+
 export interface EditorCommandPaletteCatalog {
-  customCommands: EditorCustomCommandDefinition[];
+  /** 組み込みの一覧に無いコマンド: ユーザーのカスタムコマンドと、追加フォントごとの書体コマンド。 */
+  customCommands: readonly EditorRuntimeCommandDefinition[];
+  /** 説明文に出す CSS の font-family を書体名で読ませる (無ければ値のまま)。 */
+  fontLabel?: EditorCommandDescriptionOptions["fontLabel"];
   shortcutOverrides: EditorShortcutOverrides;
   shortcutPlatform: EditorShortcutPlatform;
   isEmbedded: boolean;
@@ -48,7 +55,7 @@ export interface EditorCommandPaletteOptions {
 /** Resolve labels only for an open palette and execute commands after its modal focus isolation ends. */
 export function useCommandPalette({
   commandPaletteOpen,
-  catalog: { customCommands, shortcutOverrides, shortcutPlatform, isEmbedded, tCommand, tSettings },
+  catalog: { customCommands, fontLabel, shortcutOverrides, shortcutPlatform, isEmbedded, tCommand, tSettings },
   surfaces: {
     setCommandPaletteOpen, setSettingsFocusEntryId, setDesktopSettingsOpen, setExtensionsOpen, setAiSettingsOpen,
     setPageSettingsOpen, setTexEnvironmentSettingsOpen, openCommandSettings,
@@ -56,14 +63,30 @@ export function useCommandPalette({
   runShortcutCommandRef,
 }: EditorCommandPaletteOptions) {
   const renderMenuShortcut = (commandId: EditorCommandId) => {
-    const label = formatShortcutText(getShortcutForCommand(shortcutOverrides, commandId), shortcutPlatform);
+    const label = formatShortcutText(getShortcutForCommand(shortcutOverrides, commandId, customCommands), shortcutPlatform);
     return label ? <kbd>{label}</kbd> : null;
   };
+  // 書体メニューの各行に「この書体にするキー」を添えるための表。値 (CSS の font-family) が
+  // メニューの行と完全に一致する書体コマンドだけを載せる。キーが無い書体は載せない。
+  const fontFamilyShortcutLabels = useMemo(() => {
+    const labels = new Map<string, string>();
+    const add = (fontFamily: string, commandId: EditorCommandId) => {
+      if (!fontFamily || labels.has(fontFamily)) return;
+      const label = formatShortcutText(getShortcutForCommand(shortcutOverrides, commandId, customCommands), shortcutPlatform);
+      if (label) labels.set(fontFamily, label);
+    };
+    for (const [commandId, fontFamily] of Object.entries(SHORTCUT_FONT_FAMILIES)) add(fontFamily, commandId);
+    for (const command of customCommands) {
+      if (isEditorAddedFontCommand(command)) add(command.fontFamily, command.id);
+    }
+    return labels;
+  }, [customCommands, shortcutOverrides, shortcutPlatform]);
+  const fontFamilyShortcut = (fontFamily: string): string | undefined => fontFamilyShortcutLabels.get(fontFamily);
   // パレットの候補。`t` を持ち込むのは **描画のときだけ** で、打鍵ごとに走る
   // `findCommandByShortcut` はこの解決を通らない (罠 6)。
   // 開くまで作らないのは、155 件の解決 (t() 約 600 回) を初回描画から外すため。
   const paletteEntries = useMemo(() => (commandPaletteOpen ? buildPaletteEntries({
-    commands: resolveEditorCommandCatalog(getEditorCommandCatalog(customCommands), tCommand),
+    commands: resolveEditorCommandCatalog(getEditorCommandCatalog(customCommands), tCommand, { fontLabel }),
     resolveShortcut: (commandId) => getShortcutForCommand(shortcutOverrides, commandId, customCommands),
     formatShortcut: (binding) => formatShortcutText(binding, shortcutPlatform),
     translateSetting: (key) => tSettings(key as never) as string,
@@ -74,7 +97,7 @@ export function useCommandPalette({
     // 何も描かれない。死に行を並べない。
     isSettingsSurfaceAvailable: (surface) => !isEmbedded
       || (surface !== "desktopApp" && surface !== "desktopAi" && surface !== "aiResources" && surface !== "extensions"),
-  }) : []), [commandPaletteOpen, customCommands, isEmbedded, shortcutOverrides, shortcutPlatform, tCommand, tSettings]);
+  }) : []), [commandPaletteOpen, customCommands, fontLabel, isEmbedded, shortcutOverrides, shortcutPlatform, tCommand, tSettings]);
 
   const runPaletteEntry = useCallback((entry: PaletteEntry) => {
     setCommandPaletteOpen(false);
@@ -134,7 +157,7 @@ export function useCommandPalette({
   ]);
 
   const commandTooltip = (label: string, commandId: EditorCommandId): TooltipContent => {
-    const shortcut = formatShortcutText(getShortcutForCommand(shortcutOverrides, commandId), shortcutPlatform);
+    const shortcut = formatShortcutText(getShortcutForCommand(shortcutOverrides, commandId, customCommands), shortcutPlatform);
     return { label, shortcut: shortcut || null };
   };
   const overlayArrangeShortcutLabels = {
@@ -145,6 +168,7 @@ export function useCommandPalette({
   };
   return {
     renderMenuShortcut,
+    fontFamilyShortcut,
     paletteEntries,
     runPaletteEntry,
     commandTooltip,

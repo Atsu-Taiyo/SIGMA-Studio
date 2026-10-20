@@ -3,8 +3,8 @@
 import { readStylesheet as readFileSync } from "../../../tests/helpers/read-stylesheet";
 
 import { Editor, getSchema, type Editor as TiptapEditor } from "@tiptap/core";
-import { Fragment, Slice } from "@tiptap/pm/model";
-import { EditorState, NodeSelection, TextSelection } from "@tiptap/pm/state";
+import { Fragment, Schema, Slice } from "@tiptap/pm/model";
+import { AllSelection, EditorState, NodeSelection, TextSelection } from "@tiptap/pm/state";
 import { describe, expect, it, vi } from "vitest";
 
 import {
@@ -12,6 +12,7 @@ import {
 } from "@/components/tiptap/sigma-doc-text-identity";
 import {
   applyTextFlowSelectionBookmark,
+  captureTextFlowFormatSelection,
   focusTextFlowSurface,
   getTextFlowSelectionBookmark,
   resolveManualTextPageBreakBlocks,
@@ -1227,7 +1228,8 @@ describe("TextFlowEditor list conversion", () => {
       blockNodeType: "paragraph",
       allowBlockStyle: false,
     });
-    expect(applyTextFormatCommand(editor, { command: "bold" }, options)).toBe(true);
+    expect(options).not.toBeNull();
+    expect(applyTextFormatCommand(editor, { command: "bold" }, options!)).toBe(true);
     expect(calls).toEqual([
       ["focus"],
       ["setTextSelection", {
@@ -1241,6 +1243,53 @@ describe("TextFlowEditor list conversion", () => {
       }],
       ["run"],
     ]);
+  });
+});
+
+describe("saved text-format range fingerprints", () => {
+  it("rejects stale offsets before both the live PM range and whole-block fallbacks", () => {
+    const schema = getSchema(createRichTextEngineExtensions({ blockExtensions: [SigmaDocTextAttrs] }));
+    const doc = schema.nodeFromJSON(textFlowToTiptap([paragraph("p", "abcdefgh")]));
+    const saved = captureTextFlowFormatSelection(doc, "p", { from: 2, to: 5 });
+    const next = schema.nodeFromJSON(textFlowToTiptap([paragraph("p", "XXabcdefgh")]));
+    for (const to of [2, 5]) {
+      const state = EditorState.create({ schema, doc: next, selection: TextSelection.create(next, 2, to) });
+      const editor = { state, isFocused: false } as TiptapEditor;
+      expect(resolveTextFlowFormatCommandOptions(editor, "p", saved)).toBeNull();
+    }
+  });
+
+  it("keeps the saved range after marks change, including split text nodes", () => {
+    const schema = getSchema(createRichTextEngineExtensions({ blockExtensions: [SigmaDocTextAttrs] }));
+    const doc = schema.nodeFromJSON(textFlowToTiptap([paragraph("p", "abcdefgh")]));
+    const saved = captureTextFlowFormatSelection(doc, "p", { from: 2, to: 5 });
+    const initial = EditorState.create({ schema, doc });
+    const state = initial.apply(initial.tr.addMark(3, 4, schema.marks.bold.create()));
+    const editor = { state, isFocused: false } as TiptapEditor;
+    expect(resolveTextFlowFormatCommandOptions(editor, "p", saved)?.selection).toEqual({ from: 2, to: 5 });
+  });
+
+  it("fingerprints all blocks covered by a saved range", () => {
+    const schema = getSchema(createRichTextEngineExtensions({ blockExtensions: [SigmaDocTextAttrs] }));
+    const doc = schema.nodeFromJSON(textFlowToTiptap([paragraph("p", "abcdefgh"), paragraph("q", "ijklmnop")]));
+    const saved = captureTextFlowFormatSelection(doc, "p", { from: 2, to: 15 });
+    const initial = EditorState.create({ schema, doc });
+    const state = initial.apply(initial.tr.insertText("XX", 11));
+    const editor = { state, isFocused: false } as TiptapEditor;
+    expect(resolveTextFlowFormatCommandOptions(editor, "p", saved)).toBeNull();
+  });
+
+  it("keeps fixed offsets within the unchanged block when an earlier block shifts its PM position", () => {
+    const schema = getSchema(createRichTextEngineExtensions({ blockExtensions: [SigmaDocTextAttrs] }));
+    const doc = schema.nodeFromJSON(textFlowToTiptap([paragraph("before", "prefix"), paragraph("p", "abcdefgh")]));
+    const from = doc.firstChild!.nodeSize + 2;
+    const saved = captureTextFlowFormatSelection(doc, "p", { from, to: from + 3 });
+    const initial = EditorState.create({ schema, doc });
+    const state = initial.apply(initial.tr.insertText("XX", 1));
+    const editor = { state, isFocused: false } as TiptapEditor;
+    const range = resolveTextFlowFormatCommandOptions(editor, "p", saved)?.selection;
+    expect(range).toEqual({ from: from + 2, to: from + 5 });
+    expect(state.doc.textBetween(range!.from, range!.to)).toBe("bcd");
   });
 });
 
@@ -1699,3 +1748,20 @@ function getText(block: TextFlowBlock): string {
   }
   return block.children.map((child) => child.type === "text" ? child.text : `$${child.tex}$`).join("");
 }
+
+describe("all-selection text-format context", () => {
+  it.each(["listItem", "problem", "boxBlock", "layoutSection", "quote"])("finds text under a leading %s", (container) => {
+    const schema = new Schema({ nodes: {
+      doc: { content: "block+" }, text: { group: "inline" },
+      paragraph: { content: "inline*", group: "block", attrs: { sigmaDocId: { default: null } } },
+      [container]: { content: "block+", group: "block", attrs: { sigmaDocId: { default: null } } },
+    } });
+    const doc = schema.node("doc", null, [schema.node(container, { sigmaDocId: "container" }, [
+      schema.node("paragraph", { sigmaDocId: "text" }, schema.text("本文")),
+    ])]);
+    const state = EditorState.create({ schema, doc, selection: new AllSelection(doc) });
+    expect(resolveTextFormatStateContext(state)).toEqual({ enabled: true, nodeType: "paragraph", blockId: "text" });
+    const nodeSelected = state.apply(state.tr.setSelection(NodeSelection.create(doc, 0)));
+    expect(resolveTextFormatStateContext(nodeSelected).enabled).toBe(false);
+  });
+});

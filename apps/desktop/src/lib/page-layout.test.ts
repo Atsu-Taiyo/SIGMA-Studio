@@ -300,6 +300,49 @@ describe("page layout", () => {
     expect(getPageLayoutIssues(expanded)).toEqual([]);
   });
 
+  // zod は未知のキーを捨てる。スキーマに足していないと、保存して開き直したときに
+  // 「このページだけ出さない」が消える。
+  it("keeps the pages a running region is switched off on through a parse round trip", () => {
+    const document = parseSigmaDocument({
+      ...sampleDocument,
+      pageLayout: {
+        header: { enabled: true, showOnFirstPage: false, hiddenPages: [4, 2, 2] },
+        footer: { enabled: true, showOnLaterPages: false, shownPages: [3] },
+      },
+    });
+
+    expect(document.pageLayout?.header?.hiddenPages).toEqual([2, 4]);
+    expect(document.pageLayout?.header?.showOnFirstPage).toBe(false);
+    expect(document.pageLayout?.header).not.toHaveProperty("showOnLaterPages");
+    expect(document.pageLayout?.footer).toMatchObject({ showOnLaterPages: false, shownPages: [3] });
+    expect(document.pageLayout?.footer).not.toHaveProperty("hiddenPages");
+    expect(() => parseSigmaDocument({
+      ...sampleDocument,
+      pageLayout: { header: { enabled: true, hiddenPages: [0] } },
+    })).toThrow();
+  });
+
+  // ページ専用の文字も、保存して開き直したときに消えない (スキーマに足していないと捨てられる)。
+  it("keeps a page's own running text through a parse round trip", () => {
+    const document = parseSigmaDocument({
+      ...sampleDocument,
+      pageLayout: {
+        header: {
+          enabled: true,
+          pageContents: [{ page: 3, blocks: [{ type: "paragraph", id: "own", children: [{ type: "text", text: "第3回" }] }] }],
+        },
+      },
+    });
+
+    expect(document.pageLayout?.header?.pageContents).toEqual([
+      { page: 3, blocks: [expect.objectContaining({ id: "own" })] },
+    ]);
+    expect(() => parseSigmaDocument({
+      ...sampleDocument,
+      pageLayout: { header: { enabled: true, pageContents: [{ page: 0, blocks: [] }] } },
+    })).toThrow();
+  });
+
   it("keeps block order stable across A4 page pagination", () => {
     const blocks = Array.from({ length: 34 }, (_, index): SigmaBlock => ({
       type: "paragraph",

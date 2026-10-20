@@ -16,6 +16,10 @@ export const common = {
   },
   /** ツールチップのショートカット表記 (`components/ui/Tooltip.tsx`)。 */
   shortcutAria: "ショートカット {{shortcut}}",
+  /** 検索欄の既定文言 (`components/ui/SearchField.tsx`)。入力欄の名前と案内は呼び出し側が渡す。 */
+  search: {
+    clear: "検索をクリア",
+  },
   /**
    * 色パレット / カラーピッカーの文言。本文ツールバー・図形ダイアログ・表ダイアログの
    * どこからも同じ部品が出るので、特定の面の namespace ではなくここに置く。

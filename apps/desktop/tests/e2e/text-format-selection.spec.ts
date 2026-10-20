@@ -1067,3 +1067,96 @@ test("keeps the toolbar font correct through a font change and undo", async ({ p
   await page.keyboard.press("ControlOrMeta+Z");
   await expect.poll(() => toolbarFontLabel(page)).toBe(documentFontLabel);
 });
+
+// Real press → move → release exercises Chromium's common-ancestor click. DOM Range
+// setup bypasses that click and cannot catch this regression.
+for (const releaseAt of ["right margin", "below last line", "problem margin"] as const) {
+  test(`keeps text formatting enabled after a body drag ends in the ${releaseAt}`, async ({ page }) => {
+    await page.setViewportSize({ width: 1920, height: 1080 });
+    const paragraph: ParagraphNode = {
+      type: "paragraph", id: "drag_format_body",
+      children: [{ type: "text", text: "本文を途中からドラッグして、編集面の外で離しても書式を変更できます。" }],
+    };
+    const source = ensurePageLayout(createDocument(releaseAt === "problem margin" ? [{
+      type: "problem", id: "drag_problem", tags: [], lead: [], prompt: [paragraph], hints: [], solution: [],
+      frame: { enabled: true, styleId: "fancybox" },
+    }] : [paragraph]));
+    await installDesktopRuntimeMock(page, source);
+    await page.goto("/");
+    await expect(page.locator(".startup-splash")).toBeHidden();
+    const block = page.locator('.text-flow-editor [data-sigma-doc-id="drag_format_body"]').first();
+    await expect(block).toBeVisible();
+    await block.scrollIntoViewIfNeeded();
+    const points = await block.evaluate((element, releaseAt) => {
+      const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);
+      const text = walker.nextNode();
+      if (!text) throw new Error("Missing drag text");
+      const range = document.createRange();
+      range.setStart(text, 5);
+      range.setEnd(text, 6);
+      const glyph = range.getBoundingClientRect();
+      const shell = element.closest(".text-flow-shell")!.getBoundingClientRect();
+      const start = { x: glyph.left + glyph.width / 2, y: glyph.top + glyph.height / 2 };
+      let end = releaseAt === "below last line"
+        ? { x: start.x + 20, y: shell.bottom + 24 }
+        : { x: shell.right + 24, y: start.y };
+      if (releaseAt === "problem margin") {
+        const area = element.closest("[data-problem-area]");
+        if (!area) throw new Error("Missing problem area for drag release");
+        const bounds = area.getBoundingClientRect();
+        const marker = area.querySelector(".problem-number-marker")?.getBoundingClientRect();
+        // The number marker may be inside the text shell. Hit-test actual margins.
+        const candidates = [
+          { x: bounds.right - 3, y: start.y },
+          { x: bounds.left + 3, y: start.y },
+          { x: bounds.right - 3, y: bounds.bottom - 3 },
+          { x: bounds.left + 3, y: bounds.bottom - 3 },
+          { x: start.x + 40, y: bounds.bottom - 3 },
+          { x: bounds.right - 3, y: bounds.top + 3 },
+          { x: bounds.left + 3, y: bounds.top + 3 },
+          { x: start.x + 40, y: bounds.top + 3 },
+          ...(marker ? [
+            { x: marker.left - 3, y: marker.top + marker.height / 2 },
+            { x: marker.right + 3, y: marker.top + marker.height / 2 },
+          ] : []),
+        ];
+        const margin = candidates.find(({ x, y }) => {
+          // A vertical drag in a one-line paragraph can resolve to the starting column.
+          if (Math.abs(x - start.x) < 20) return false;
+          if (x <= bounds.left || x >= bounds.right || y <= bounds.top || y >= bounds.bottom) return false;
+          const hit = document.elementFromPoint(x, y);
+          return hit?.closest("[data-problem-area]") === area && !hit.closest(".text-flow-shell");
+        });
+        if (!margin) throw new Error("No drag release point inside the problem area and outside the text editor");
+        end = margin;
+      }
+      if (document.elementFromPoint(end.x, end.y)?.closest(".text-flow-shell")) {
+        throw new Error("Regression test must release outside the text editor");
+      }
+      if (releaseAt === "problem margin" && !document.elementFromPoint(end.x, end.y)?.closest("[data-problem-area]")) {
+        throw new Error("Regression test must release inside the problem margin");
+      }
+      return { start, end };
+    }, releaseAt);
+    await page.mouse.move(points.start.x, points.start.y);
+    await page.mouse.down();
+    await page.mouse.move(points.end.x, points.end.y, { steps: 12 });
+    await page.mouse.up();
+
+    expect(await selectedText(page), "Drag precondition: releasing in the margin must select nonempty body text").not.toBe("");
+    const sizeInput = page.getByRole("textbox", { name: "フォントサイズ", exact: true });
+    await expect(sizeInput).toBeEnabled();
+    await expect(sizeInput).toHaveValue(/^[0-9]+(?:\.[0-9]+)?$/);
+    await expect(page.locator(QUICK_TOOLBAR).getByRole("button", { name: "太字", exact: true })).toBeEnabled();
+    const selectionSize = page.locator(".selection-toolbar-size-value");
+    await expect(selectionSize).toBeVisible();
+    await expect(selectionSize).toHaveText(/^[0-9]+(?:\.[0-9]+)?$/);
+    await expect(selectionSize).toBeEnabled();
+    const selectionBar = page.locator(".selection-action-popover");
+    await expect(selectionBar.getByRole("button", { name: "フォントサイズを小さく", exact: true })).toBeEnabled();
+
+    // A subsequent plain margin click must still clear/select the container normally.
+    await page.mouse.click(points.end.x, points.end.y);
+    await expect(sizeInput).toBeDisabled();
+  });
+}

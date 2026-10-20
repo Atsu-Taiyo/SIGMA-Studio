@@ -2,18 +2,25 @@
 
 import { act, useEffect, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Editor } from "@tiptap/core";
+import { applyEditorDocumentProjection } from "@/components/tiptap/document-projection";
+import type { TextFormatStateDetail } from "@/components/tiptap/text-format-controller";
+import { DEFAULT_FONT_FAMILY_VALUE, TEXT_FORMAT_STATE_EVENT } from "./editor-shell/constants";
+import { resolveEditorHistoryShortcutTarget } from "./editor-shell/command-shortcut-targets";
 
 import {
   TextFlowEditor,
+  textFlowToTiptap,
   type TextFlowChangeContext,
 } from "@/components/editor/TextFlowEditor";
 import {
   clearTextRunSpan,
+  getActiveTextRunSpan,
   getTextRunEditors,
   handleTextRunSpanKeyDown,
   handleTextRunSpanTextInput,
+  selectEntireTextRun,
 } from "@/components/editor/text-flow/text-run-span";
 import {
   replaceTopLevelTextFlowBlocks,
@@ -56,11 +63,16 @@ let root: Root;
 let savedBlocks: TextFlowBlock[] = [];
 let changes: ChangeCall[] = [];
 
-function Harness(): React.JSX.Element {
-  const [blocks, setBlocks] = useState<TextFlowBlock[]>(INITIAL_BLOCKS);
+function Harness({ initialBlocks = INITIAL_BLOCKS, selectedId = null, historyRestore }: {
+  initialBlocks?: TextFlowBlock[];
+  selectedId?: string | null;
+  historyRestore?: { blocks: TextFlowBlock[]; revision: number };
+}): React.JSX.Element {
+  const [blocks, setBlocks] = useState<TextFlowBlock[]>(initialBlocks);
+  const displayedBlocks = historyRestore?.blocks ?? blocks;
   useEffect(() => {
-    savedBlocks = blocks;
-  }, [blocks]);
+    savedBlocks = displayedBlocks;
+  }, [displayedBlocks]);
   const apply = (
     previousIds: string[],
     nextBlocks: TextFlowBlock[],
@@ -74,14 +86,14 @@ function Harness(): React.JSX.Element {
       nextBlocks,
     ) as TextFlowBlock[]);
   };
-  const before = blocks.filter((block) => block.id === "p_before");
-  const after = blocks.filter((block) => block.id !== "p_before");
+  const before = displayedBlocks.filter((block) => block.id === "p_before");
+  const after = displayedBlocks.filter((block) => block.id !== "p_before");
 
   return <>
     <TextFlowEditor
       blocks={before}
-      selectedId={null}
-      historyRevision={0}
+      selectedId={selectedId}
+      historyRevision={historyRestore?.revision ?? 0}
       onSelect={() => {}}
       onChange={apply}
       textRunGroupId="integration-document"
@@ -91,8 +103,8 @@ function Harness(): React.JSX.Element {
     />
     <TextFlowEditor
       blocks={after}
-      selectedId={null}
-      historyRevision={0}
+      selectedId={selectedId}
+      historyRevision={historyRestore?.revision ?? 0}
       paginationBeforeIds={after.filter((block) => block.pagination?.break).map((block) => block.id)}
       onSelect={() => {}}
       onChange={apply}
@@ -120,9 +132,9 @@ afterEach(() => {
   container.remove();
 });
 
-async function renderHarness(): Promise<ReturnType<typeof getTextRunEditors>> {
+async function renderHarness(props: Parameters<typeof Harness>[0] = {}): Promise<ReturnType<typeof getTextRunEditors>> {
   await act(async () => {
-    root.render(<Harness />);
+    root.render(<Harness {...props} />);
   });
   const editors = getTextRunEditors("integration-document");
   expect(editors).toHaveLength(2);
@@ -175,6 +187,342 @@ function clipboardWith(types: { html?: string; text?: string }): DataTransfer {
   }
   return clipboardData;
 }
+
+describe("TextFlowEditor toolbar range retention", () => {
+  async function selectForToolbar() {
+    const [{ editor }] = await renderHarness({
+      initialBlocks: [paragraph("p_before", "abcdefgh"), paragraph("p_after", "ijklmnop")],
+      selectedId: "p_before",
+    });
+    const input = document.createElement("input");
+    input.setAttribute("data-toolbar-popover", "");
+    container.append(input);
+    await act(async () => {
+      editor.view.focus();
+      editor.commands.setTextSelection({ from: 2, to: 5 });
+      input.focus();
+    });
+    expect(editor.isFocused).toBe(false);
+    expect(document.activeElement).toBe(input);
+    return { editor, input };
+  }
+
+  async function format(command: string, value?: string, options?: { restoreFocus?: boolean }) {
+    await act(async () => {
+      window.dispatchEvent(new CustomEvent("sigma-studio:format-text", { detail: { command, value, target: "document", ...options } }));
+    });
+  }
+
+  it.each([
+    { value: "bad", focusOnly: true },
+    { value: "", focusOnly: true },
+    { value: "12", focusOnly: true },
+    { value: "18", focusOnly: false },
+  ])("does not resume an idle tab without a saved range ($value, focusOnly=$focusOnly)", async ({ value, focusOnly }) => {
+    const [{ editor }] = await renderHarness({
+      initialBlocks: [
+        { type: "paragraph", id: "p_before", children: [{ type: "text", text: "abcdefgh", fontSize: 12 }] },
+        paragraph("p_after", "ijklmnop"),
+      ],
+      // A selected block alone must not restore its caret or select its whole text.
+      selectedId: "p_before",
+    });
+    const input = document.createElement("input");
+    container.append(input);
+    await act(async () => { input.focus(); });
+    const focus = vi.spyOn(editor.view, "focus");
+    const publish = vi.fn();
+    const doc = editor.state.doc;
+    const selection = editor.state.selection;
+    const saved = structuredClone(savedBlocks);
+    const detail = { command: "fontSize", value, target: "document", focusOnly, restoreFocus: true, focusBlockId: null };
+    window.addEventListener(TEXT_FORMAT_STATE_EVENT, publish);
+    try {
+      await act(async () => {
+        window.dispatchEvent(new CustomEvent("sigma-studio:format-text", { detail }));
+      });
+      expect(focus).not.toHaveBeenCalled();
+      expect(document.activeElement).toBe(input);
+      expect(publish).not.toHaveBeenCalled();
+      expect(detail.focusBlockId).toBeNull();
+      expect(editor.state.doc).toBe(doc);
+      expect(editor.state.selection).toBe(selection);
+      expect(savedBlocks).toEqual(saved);
+      expect(changes).toHaveLength(0);
+    } finally {
+      window.removeEventListener(TEXT_FORMAT_STATE_EVENT, publish);
+      focus.mockRestore();
+    }
+  });
+
+  it("returns focus and the saved range from font search after committing a font size", async () => {
+    const { editor, input } = await selectForToolbar();
+    await format("fontSize", "15", { restoreFocus: true });
+    expect(document.activeElement).toBe(editor.view.dom);
+    await act(async () => {
+      input.type = "search";
+      input.focus();
+      input.value = "Hiragino Mincho";
+      editor.commands.setTextSelection(2); // Exercise the range saved before search took focus.
+    });
+    await format("fontFamily", "Hiragino Mincho ProN");
+
+    expect(document.activeElement).toBe(editor.view.dom);
+    expect(window.getSelection()?.toString()).toBe("bcd");
+    expect(savedBlocks[0]).toMatchObject({ children: [
+      { text: "a" }, { text: "bcd", fontSize: 15, fontFamily: "Hiragino Mincho ProN" }, { text: "efgh" },
+    ] });
+
+    // The focus handoff must retain a valid target for the next toolbar command.
+    await act(async () => { input.focus(); });
+    await format("bold");
+    expect(savedBlocks[0]).toMatchObject({ children: [
+      { text: "a" }, { text: "bcd", fontSize: 15, fontFamily: "Hiragino Mincho ProN", marks: ["bold"] }, { text: "efgh" },
+    ] });
+  });
+
+  it("routes history to the document after font search and republishes the restored font", async () => {
+    const { editor, input } = await selectForToolbar();
+    const originalBlocks = structuredClone(savedBlocks);
+    const reports: TextFormatStateDetail[] = [];
+    const collect = (event: Event) => reports.push((event as CustomEvent<TextFormatStateDetail>).detail);
+    window.addEventListener(TEXT_FORMAT_STATE_EVENT, collect);
+    try {
+      await act(async () => {
+        input.type = "search";
+        input.value = "Hiragino Mincho";
+      });
+      await format("fontFamily", "Hiragino Mincho ProN");
+      expect(reports.at(-1)?.fontFamily).toBe("Hiragino Mincho ProN");
+      expect(resolveEditorHistoryShortcutTarget({
+        target: document.activeElement, direction: "undo", isComposing: false,
+      }).kind).toBe("document");
+
+      // The shell owns SigmaDoc undo; deliver its restored blocks/revision to the same editor.
+      const changeCount = changes.length;
+      await act(async () => root.render(<Harness
+        selectedId="p_before"
+        historyRestore={{ blocks: originalBlocks, revision: 1 }}
+      />));
+      expect(document.activeElement).toBe(editor.view.dom);
+      expect(editor.state.selection.empty).toBe(false);
+      expect(editor.getJSON().content![0].content).toEqual([{ type: "text", text: "abcdefgh" }]);
+      expect(reports.at(-1)?.fontFamily).toBe(DEFAULT_FONT_FAMILY_VALUE);
+      expect(savedBlocks).toEqual(originalBlocks);
+      expect(changes).toHaveLength(changeCount);
+    } finally {
+      window.removeEventListener(TEXT_FORMAT_STATE_EVENT, collect);
+    }
+  });
+
+  it("does not format stale offsets or the entire block after an insertion projection", async () => {
+    const { editor, input } = await selectForToolbar();
+    await act(async () => {
+      applyEditorDocumentProjection(editor, textFlowToTiptap([paragraph("p_before", "XXabcdefgh")]));
+    });
+    for (const collapsed of [false, true]) {
+      await act(async () => {
+        // A projected selection must not be saved again while toolbar focus is held.
+        editor.commands.setTextSelection(collapsed ? 2 : { from: 2, to: 5 });
+      });
+      await format("fontSize", "18");
+      await format("bold");
+      await format("fontFamily", "Hiragino Mincho ProN");
+      expect(editor.getJSON().content![0].content).toEqual([{ type: "text", text: "XXabcdefgh" }]);
+      expect(document.activeElement).toBe(input);
+    }
+    expect(changes).toHaveLength(0);
+
+    await act(async () => {
+      editor.view.focus();
+      editor.commands.setTextSelection({ from: 4, to: 7 });
+      input.focus();
+    });
+    await format("fontSize", "20");
+    expect(savedBlocks[0]).toMatchObject({ children: [
+      { text: "XXa" }, { text: "bcd", fontSize: 20 }, { text: "efgh" },
+    ] });
+  });
+
+  it("reuses the saved range for repeated formatting after a mark-only projection", async () => {
+    const { editor, input } = await selectForToolbar();
+    await act(async () => {
+      const marked = editor.state.tr.addMark(2, 5, editor.schema.marks.bold.create()).doc;
+      applyEditorDocumentProjection(editor, marked.toJSON());
+      editor.commands.setTextSelection(2); // Force the saved-range fallback.
+    });
+    for (const size of [18, 18, 20]) {
+      await format("fontSize", String(size));
+      expect(editor.state.doc.textBetween(editor.state.selection.from, editor.state.selection.to)).toBe("bcd");
+      expect(savedBlocks[0]).toMatchObject({ children: [
+        { text: "a" }, { text: "bcd", marks: ["bold"], fontSize: size }, { text: "efgh" },
+      ] });
+      expect(document.activeElement).toBe(input);
+    }
+  });
+
+  it("restores the saved range on unchanged-size Enter without changing the document", async () => {
+    const { editor, input } = await selectForToolbar();
+    await act(async () => {
+      editor.commands.setTextSelection(2);
+    });
+    expect(editor.state.selection.empty).toBe(true);
+    const doc = editor.state.doc;
+    const saved = structuredClone(savedBlocks);
+
+    const detail = { command: "fontSize", value: "10.5", target: "document", focusOnly: true, restoreFocus: true, focusBlockId: null };
+    await act(async () => {
+      window.dispatchEvent(new CustomEvent("sigma-studio:format-text", {
+        detail,
+      }));
+    });
+
+    expect(detail.focusBlockId).toBe("p_before");
+    expect(document.activeElement).toBe(editor.view.dom);
+    expect(editor.state.selection.from).toBe(2);
+    expect(editor.state.selection.to).toBe(5);
+    expect(editor.state.doc).toBe(doc);
+    expect(savedBlocks).toEqual(saved);
+    expect(changes).toHaveLength(0);
+
+    // Returning to the toolbar must still allow the same range to be formatted.
+    await act(async () => { input.focus(); });
+    await format("fontSize", "20");
+    expect(savedBlocks[0]).toMatchObject({ children: [
+      { text: "a" }, { text: "bcd", fontSize: 20 }, { text: "efgh" },
+    ] });
+  });
+
+  it("does not resume a saved range whose document fingerprint changed", async () => {
+    const { editor, input } = await selectForToolbar();
+    await act(async () => {
+      applyEditorDocumentProjection(editor, textFlowToTiptap([paragraph("p_before", "replacement")]));
+    });
+    const doc = editor.state.doc;
+    const publish = vi.fn();
+    window.addEventListener(TEXT_FORMAT_STATE_EVENT, publish);
+    try {
+      await act(async () => {
+        window.dispatchEvent(new CustomEvent("sigma-studio:format-text", {
+          detail: { command: "fontSize", value: "10.5", target: "document", focusOnly: true, restoreFocus: true },
+        }));
+      });
+      expect(document.activeElement).toBe(input);
+      expect(editor.state.doc).toBe(doc);
+      expect(publish).not.toHaveBeenCalled();
+      expect(changes).toHaveLength(0);
+    } finally {
+      window.removeEventListener(TEXT_FORMAT_STATE_EVENT, publish);
+    }
+  });
+
+  it("acknowledges unchanged-size Enter for a live cross-editor span", async () => {
+    const [{ editor }] = await renderHarness();
+    const input = document.createElement("input");
+    container.append(input);
+    await act(async () => {
+      selectEntireTextRun(editor);
+      input.focus();
+    });
+    const span = structuredClone(getActiveTextRunSpan());
+    const saved = structuredClone(savedBlocks);
+    const detail = { command: "fontSize", value: "10.5", target: "document", focusOnly: true, restoreFocus: true, focusBlockId: null };
+    await act(async () => {
+      window.dispatchEvent(new CustomEvent("sigma-studio:format-text", { detail }));
+    });
+    expect(detail.focusBlockId).toBe("p_before");
+    expect(document.activeElement).toBe(editor.view.dom);
+    expect(getActiveTextRunSpan()).toEqual(span);
+    expect(savedBlocks).toEqual(saved);
+    expect(changes).toHaveLength(0);
+  });
+
+  it("keeps a whole-run selection ending in a divider through repeated font sizes", async () => {
+    const editors = await renderHarness({ initialBlocks: [
+      paragraph("p_before", "abcdefgh"),
+      paragraph("p_after", "ijklmnop"),
+      { type: "divider", id: "divider_end" },
+    ] });
+    await act(async () => {
+      expect(selectEntireTextRun(editors[0].editor)).toBe(true);
+    });
+    expect(getActiveTextRunSpan()).not.toBeNull();
+
+    for (const size of [18, 20]) {
+      await format("fontSize", String(size));
+      expect(getActiveTextRunSpan()).not.toBeNull();
+      for (const { editor } of editors) {
+        expect(editor.state.selection.empty).toBe(false);
+        editor.state.doc.descendants(node => {
+          if (node.isText) expect(node.marks.find(mark => mark.type.name === "styledText")?.attrs.fontSize).toBe(size);
+        });
+      }
+      expect(savedBlocks).toMatchObject([
+        { id: "p_before", children: [{ text: "abcdefgh", fontSize: size }] },
+        { id: "p_after", children: [{ text: "ijklmnop", fontSize: size }] },
+        { type: "divider", id: "divider_end" },
+      ]);
+    }
+  });
+
+  it("returns from font search without losing a cross-editor range or its next formatting target", async () => {
+    const { editor, input } = await selectForToolbar();
+    await act(async () => {
+      editor.view.focus();
+      expect(selectEntireTextRun(editor)).toBe(true);
+      input.type = "search";
+      input.focus();
+      input.value = "Hiragino Mincho";
+    });
+    const span = getActiveTextRunSpan();
+    expect(span).not.toBeNull();
+    const selectedTexts = () => getTextRunEditors("integration-document").map(({ editor: surface }) => (
+      surface.state.doc.textBetween(surface.state.selection.from, surface.state.selection.to)
+    ));
+    expect(selectedTexts()).toEqual(["abcdefgh", "ijklmnop"]);
+
+    await format("fontFamily", "Hiragino Mincho ProN");
+    expect(document.activeElement).toBe(editor.view.dom);
+    // Formatting normalizes document boundaries to valid text positions; the text stays selected.
+    expect(getActiveTextRunSpan()).toMatchObject({
+      groupId: span!.groupId, anchor: { unitId: span!.anchor.unitId }, head: { unitId: span!.head.unitId },
+    });
+    expect(selectedTexts()).toEqual(["abcdefgh", "ijklmnop"]);
+    const formattedSpan = getActiveTextRunSpan();
+    await act(async () => { input.focus(); });
+    await format("fontSize", "20");
+    expect(document.activeElement).toBe(input);
+    expect(getActiveTextRunSpan()).toEqual(formattedSpan);
+    expect(selectedTexts()).toEqual(["abcdefgh", "ijklmnop"]);
+    expect(savedBlocks).toMatchObject([
+      { id: "p_before", children: [{ text: "abcdefgh", fontFamily: "Hiragino Mincho ProN", fontSize: 20 }] },
+      { id: "p_after", children: [{ text: "ijklmnop", fontFamily: "Hiragino Mincho ProN", fontSize: 20 }] },
+    ]);
+    for (const { editor: surface } of getTextRunEditors("integration-document")) {
+      expect(surface.state.selection.empty).toBe(false);
+    }
+  });
+
+  it("invalidates saved offsets in unchanged surfaces when another selected surface changes text", async () => {
+    const { editor, input } = await selectForToolbar();
+    const other = getTextRunEditors("integration-document")[1].editor;
+    await act(async () => {
+      editor.view.focus();
+      expect(selectEntireTextRun(editor)).toBe(true);
+      input.focus();
+    });
+    expect(getActiveTextRunSpan()).not.toBeNull();
+    await act(async () => {
+      applyEditorDocumentProjection(other, textFlowToTiptap([paragraph("p_after", "XXijklmnop")]));
+    });
+    expect(getActiveTextRunSpan()).toBeNull();
+    await format("bold");
+    await format("fontSize", "18");
+    expect(editor.getJSON().content![0].content).toEqual([{ type: "text", text: "abcdefgh" }]);
+    expect(other.getJSON().content![0].content).toEqual([{ type: "text", text: "XXijklmnop" }]);
+    expect(changes).toHaveLength(0);
+  });
+});
 
 describe("TextFlowEditor manual page-break integration", () => {
   it("keeps an ordinary partial-text paste inline at a block end", async () => {

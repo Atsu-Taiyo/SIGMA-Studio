@@ -260,4 +260,89 @@ describe("PageRunningRegionView", () => {
 
     expect(html).toContain(renderMathHtml("\\frac{1}{2}", DEFAULT_MATH_RENDER_ENVIRONMENT));
   });
+
+  // 「このページだけ出さない」は、紙面の編集面・PDF と同じ答えをこの静的な描画 (プレビュー・
+  // ビューア) でも使う。1 ページ目は showOnFirstPage、2 ページ目以降は hiddenPages が決める。
+  it("draws a page's own text instead of the shared text, and nothing on a page whose own text is empty", () => {
+    const metrics = getPageMetrics(getDefaultPageLayout());
+    const region: PageRunningRegion = {
+      enabled: true,
+      heightMm: 12,
+      offsetMm: 5,
+      showOnFirstPage: true,
+      blocks: [{ type: "paragraph", id: "shared", children: [{ type: "text", text: "共通の文字" }] }],
+      pageContents: [
+        { page: 2, blocks: [{ type: "paragraph", id: "shared", children: [{ type: "text", text: "2ページ専用の文字" }] }] },
+        { page: 3, blocks: [{ type: "paragraph", id: "shared", children: [{ type: "text", text: "" }] }] },
+      ],
+    };
+    const render = (pageNumber: number) => renderToStaticMarkup(
+      <PageRunningRegionView
+        region={region}
+        kind="header"
+        title="小テスト"
+        pageNumber={pageNumber}
+        totalPages={4}
+        metrics={metrics}
+      />,
+    );
+
+    expect(render(1)).toContain("共通の文字");
+    expect(render(2)).toContain("2ページ専用の文字");
+    expect(render(2)).not.toContain("共通の文字");
+    expect(render(3)).toBe("");
+    expect(render(4)).toContain("共通の文字");
+  });
+
+  it("shows only the first page when the later pages' default is off, however many pages there are", () => {
+    const metrics = getPageMetrics(getDefaultPageLayout());
+    const region: PageRunningRegion = {
+      enabled: true,
+      heightMm: 12,
+      offsetMm: 5,
+      showOnFirstPage: true,
+      showOnLaterPages: false,
+      shownPages: [3],
+      blocks: [{ type: "paragraph", id: "header_p", children: [{ type: "text", text: "{title}" }] }],
+    };
+    const render = (pageNumber: number) => renderToStaticMarkup(
+      <PageRunningRegionView
+        region={region}
+        kind="header"
+        title="小テスト"
+        pageNumber={pageNumber}
+        totalPages={40}
+        metrics={metrics}
+      />,
+    );
+
+    expect([1, 2, 3, 4, 40].map((page) => render(page) !== "")).toEqual([true, false, true, false, false]);
+  });
+
+  it("leaves out the pages the header is switched off on and keeps the others", () => {
+    const metrics = getPageMetrics(getDefaultPageLayout());
+    const region: PageRunningRegion = {
+      enabled: true,
+      heightMm: 12,
+      offsetMm: 5,
+      showOnFirstPage: false,
+      hiddenPages: [3],
+      blocks: [{ type: "paragraph", id: "header_p", children: [{ type: "text", text: "{title}" }] }],
+    };
+    const render = (pageNumber: number) => renderToStaticMarkup(
+      <PageRunningRegionView
+        region={region}
+        kind="header"
+        title="小テスト"
+        pageNumber={pageNumber}
+        totalPages={4}
+        metrics={metrics}
+      />,
+    );
+
+    expect(render(1)).toBe("");
+    expect(render(2)).toContain("小テスト");
+    expect(render(3)).toBe("");
+    expect(render(4)).toContain("小テスト");
+  });
 });

@@ -4,14 +4,17 @@ import { TextFlowEditor } from "@/components/editor/TextFlowEditor";
 import {
   getRunningRegionBoundsMm,
   getRunningRegionOverlaySize,
+  hasRunningRegionPageContent,
+  isRunningRegionShownOnPage,
   mmToPx,
-  pageRunningRegionHasContent,
+  pageRunningRegionHasContentOnPage,
   type MathFractionSizing,
   type PageLayout,
   type PageMetrics,
   type PageOverlay,
   type PageRunningRegion,
   type RunningRegionFieldValues,
+  type RunningRegionPageRange,
 } from "@/features/document";
 import { type TextFlowBlock } from "@/features/text-editing";
 import { useT } from "@/lib/i18n/react";
@@ -33,6 +36,8 @@ import { PageRunningRegionOverlay } from "../PageRunningRegionOverlay";
 import { type ClientPoint } from "./caret-focus";
 import { OverlayCanvasEditor } from "./overlay-editor-surface";
 import { PageMarginRuler } from "./page-chrome";
+import { formatMm } from "./page-layout-format";
+import { RunningRegionOptions } from "./running-region-options";
 import { pageRunningRegionToTextFlowBlocks } from "./running-region-text-model";
 import type { PageMarginEdge,RunningRegionEdge,RunningRegionKind } from "./types";
 import { useOverlayPreviewHandoff } from "./use-overlay-preview-handoff";
@@ -64,12 +69,12 @@ export function RunningRegionPageView({
   metrics: PageMetrics;
   mathFractionSizing?: MathFractionSizing | null;
 }) {
-  const blocks = useMemo(() => region ? pageRunningRegionToTextFlowBlocks(region, kind) : [], [kind, region]);
+  const blocks = useMemo(() => region ? pageRunningRegionToTextFlowBlocks(region, kind, pageNumber) : [], [kind, pageNumber, region]);
   const fieldValues = useMemo<RunningRegionFieldValues>(
     () => ({ title, page: pageNumber, total: totalPages }),
     [pageNumber, title, totalPages],
   );
-  if (!region?.enabled || !pageRunningRegionHasContent(region) || (pageNumber === 1 && !region.showOnFirstPage)) {
+  if (!region?.enabled || !pageRunningRegionHasContentOnPage(region, pageNumber) || !isRunningRegionShownOnPage(region, pageNumber)) {
     return null;
   }
 
@@ -122,9 +127,14 @@ export function RunningRegionControls({
   mathFractionSizing,
   editingKind,
   editingPageNumber,
+  resizing,
   focusRequest,
   historyRevision,
   onEdit,
+  onShownOnPageChange,
+  onPageRangeChange,
+  onPageContentChange,
+  onClearPageContents,
   onBlocksChange,
   onContentHeightChange,
   onEdgePointerDown,
@@ -154,9 +164,19 @@ export function RunningRegionControls({
   mathFractionSizing?: MathFractionSizing | null;
   editingKind: RunningRegionKind | null;
   editingPageNumber: number;
+  /** いまドラッグしている帯の辺。 */
+  resizing: { kind: RunningRegionKind; edge: RunningRegionEdge } | null;
   focusRequest: number;
   historyRevision: number;
   onEdit: (kind: RunningRegionKind | null, pageNumber?: number) => void;
+  /** そのページだけ帯を出す/出さない。 */
+  onShownOnPageChange: (kind: RunningRegionKind, pageNumber: number, shown: boolean) => void;
+  /** 「すべて/先頭ページのみ/先頭以外」のまとまりで、どのページに出すかを決める。 */
+  onPageRangeChange: (kind: RunningRegionKind, range: RunningRegionPageRange) => void;
+  /** そのページだけ中身を変える/共通に戻す。 */
+  onPageContentChange: (kind: RunningRegionKind, pageNumber: number, enabled: boolean) => void;
+  /** ページ専用の中身をすべてやめて、共通の中身に戻す。 */
+  onClearPageContents: (kind: RunningRegionKind) => void;
   onBlocksChange: (kind: RunningRegionKind, nextBlocks: TextFlowBlock[]) => void;
   onContentHeightChange: (kind: RunningRegionKind, contentHeightPx: number) => void;
   onEdgePointerDown: (
@@ -218,9 +238,14 @@ export function RunningRegionControls({
         totalPages={totalPages}
         mathFractionSizing={mathFractionSizing}
         editing={editingKind === "header" && pageNumber === editingPageNumber}
+        resizingEdge={resizing?.kind === "header" ? resizing.edge : null}
         focusRequest={focusRequest}
         historyRevision={historyRevision}
         onEdit={onEdit}
+        onShownOnPageChange={onShownOnPageChange}
+        onPageRangeChange={onPageRangeChange}
+        onPageContentChange={onPageContentChange}
+        onClearPageContents={onClearPageContents}
         onBlocksChange={onBlocksChange}
         onContentHeightChange={onContentHeightChange}
         onEdgePointerDown={onEdgePointerDown}
@@ -249,9 +274,14 @@ export function RunningRegionControls({
         totalPages={totalPages}
         mathFractionSizing={mathFractionSizing}
         editing={editingKind === "footer" && pageNumber === editingPageNumber}
+        resizingEdge={resizing?.kind === "footer" ? resizing.edge : null}
         focusRequest={focusRequest}
         historyRevision={historyRevision}
         onEdit={onEdit}
+        onShownOnPageChange={onShownOnPageChange}
+        onPageRangeChange={onPageRangeChange}
+        onPageContentChange={onPageContentChange}
+        onClearPageContents={onClearPageContents}
         onBlocksChange={onBlocksChange}
         onContentHeightChange={onContentHeightChange}
         onEdgePointerDown={onEdgePointerDown}
@@ -284,9 +314,14 @@ export function RunningRegionBand({
   totalPages,
   mathFractionSizing,
   editing,
+  resizingEdge = null,
   focusRequest,
   historyRevision,
   onEdit,
+  onShownOnPageChange,
+  onPageRangeChange,
+  onPageContentChange,
+  onClearPageContents,
   onBlocksChange,
   onContentHeightChange,
   onEdgePointerDown,
@@ -314,9 +349,15 @@ export function RunningRegionBand({
   totalPages: number;
   mathFractionSizing?: MathFractionSizing | null;
   editing: boolean;
+  /** この帯のドラッグ中の辺。辺の上に寸法を出す。 */
+  resizingEdge?: RunningRegionEdge | null;
   focusRequest: number;
   historyRevision: number;
   onEdit: (kind: RunningRegionKind | null, pageNumber?: number) => void;
+  onShownOnPageChange: (kind: RunningRegionKind, pageNumber: number, shown: boolean) => void;
+  onPageRangeChange: (kind: RunningRegionKind, range: RunningRegionPageRange) => void;
+  onPageContentChange: (kind: RunningRegionKind, pageNumber: number, enabled: boolean) => void;
+  onClearPageContents: (kind: RunningRegionKind) => void;
   onBlocksChange: (kind: RunningRegionKind, nextBlocks: TextFlowBlock[]) => void;
   onContentHeightChange: (kind: RunningRegionKind, contentHeightPx: number) => void;
   onEdgePointerDown: (
@@ -339,10 +380,12 @@ export function RunningRegionBand({
   onOverlayActiveToolChange?: (tool: OverlayTool) => void;
 }) {
   const tEditor = useT("editor");
+  const bandRef = useRef<HTMLDivElement | null>(null);
   if (!region?.enabled) {
     return null;
   }
 
+  const shownOnPage = isRunningRegionShownOnPage(region, pageNumber);
   const bounds = getRunningRegionBoundsMm(layout, kind);
   const top = mmToPx(bounds.topMm);
   // Shared with `PageRunningRegionView`: the band used to subtract the page sheet's 2px border
@@ -352,10 +395,21 @@ export function RunningRegionBand({
     metrics.content.widthPx,
     region,
   );
+  // 上の辺と下の辺がそれぞれ何を動かすか。ヘッダーは上の辺が用紙の端からの位置、下の辺が高さ。
+  // フッターは逆に、上の辺が高さ、下の辺が用紙の下端からの位置。
+  const heightText = tEditor("running.heightValue", { replace: { value: formatMm(region.heightMm) } });
+  const offsetText = tEditor(kind === "header" ? "running.fromTopValue" : "running.fromBottomValue", {
+    replace: { value: formatMm(region.offsetMm) },
+  });
+  const edgeValues: Record<RunningRegionEdge, string> = kind === "header"
+    ? { start: offsetText, end: heightText }
+    : { start: heightText, end: offsetText };
 
   return (
     <div
-      className={`page-running-editor-band ${kind} ${editing ? "editing" : ""}`}
+      ref={bandRef}
+      className={`page-running-editor-band ${kind} ${editing ? "editing" : ""} ${resizingEdge ? "resizing" : ""} ${shownOnPage ? "" : "page-hidden"}`}
+      title={editing ? undefined : tEditor("running.editHint", { replace: { region: label } })}
       style={{
         top: `${top}px`,
         left: `${metrics.margins.leftPx}px`,
@@ -373,12 +427,12 @@ export function RunningRegionBand({
         onEdit(kind, pageNumber);
       }}
     >
-      {editing && <span className="page-running-editor-label">{label}</span>}
       {editing && (
         <RunningRegionDirectEditor
           kind={kind}
           label={label}
           region={region}
+          pageNumber={pageNumber}
           fieldValues={{ title, page: pageNumber, total: totalPages }}
           mathFractionSizing={mathFractionSizing}
           focusRequest={focusRequest}
@@ -404,24 +458,43 @@ export function RunningRegionBand({
       )}
       {editing && (
         <>
-          <button
-            type="button"
-            className="page-running-edge start"
-            aria-label={tEditor("running.startEdge", { replace: { region: label } })}
-            title={tEditor("running.startEdge", { replace: { region: label } })}
-            onPointerDown={(event) => onEdgePointerDown(kind, "start", event)}
-            onClick={(event) => event.stopPropagation()}
-          />
-          <button
-            type="button"
-            className="page-running-edge end"
-            aria-label={tEditor("running.endEdge", { replace: { region: label } })}
-            title={tEditor("running.endEdge", { replace: { region: label } })}
-            onPointerDown={(event) => onEdgePointerDown(kind, "end", event)}
-            onClick={(event) => event.stopPropagation()}
-          />
+          {(["start", "end"] as const).map((edge) => (
+            <button
+              key={edge}
+              type="button"
+              className={`page-running-edge ${edge} ${resizingEdge === edge ? "active" : ""}`}
+              aria-label={`${tEditor(edge === "start" ? "running.startEdge" : "running.endEdge", { replace: { region: label } })} ${edgeValues[edge]}`}
+              onPointerDown={(event) => onEdgePointerDown(kind, edge, event)}
+              onClick={(event) => event.stopPropagation()}
+            >
+              {/* いまの値。辺に触れている間 (ホバー・ドラッグ) だけ出す。 */}
+              <span className="page-running-edge-value" aria-hidden="true">{edgeValues[edge]}</span>
+            </button>
+          ))}
         </>
       )}
+      <RunningRegionOptions
+        kind={kind}
+        label={label}
+        region={region}
+        bandRef={bandRef}
+        pageNumber={pageNumber}
+        totalPages={totalPages}
+        title={title}
+        editing={editing}
+        shownOnPage={shownOnPage}
+        ownContent={hasRunningRegionPageContent(region, pageNumber)}
+        onShownOnPageChange={(shown) => onShownOnPageChange(kind, pageNumber, shown)}
+        onPageRangeChange={(range) => onPageRangeChange(kind, range)}
+        onClearOwnContents={() => onClearPageContents(kind)}
+        onOwnContentChange={(enabled) => {
+          onPageContentChange(kind, pageNumber, enabled);
+          // 変えるときは、そのまま書き始められるように編集に入る。
+          if (enabled) {
+            onEdit(kind, pageNumber);
+          }
+        }}
+      />
     </div>
   );
 }
@@ -430,6 +503,7 @@ export function RunningRegionDirectEditor({
   kind,
   label,
   region,
+  pageNumber,
   fieldValues,
   mathFractionSizing,
   focusRequest,
@@ -455,6 +529,8 @@ export function RunningRegionDirectEditor({
   kind: RunningRegionKind;
   label: string;
   region: PageRunningRegion;
+  /** 編集しているページ。ページ専用の中身があれば、その文字を編集する。 */
+  pageNumber: number;
   /** 差し込みに見せる、このページの値 (編集していないページと同じ見え方にする)。 */
   fieldValues?: RunningRegionFieldValues;
   mathFractionSizing?: MathFractionSizing | null;
@@ -489,7 +565,7 @@ export function RunningRegionDirectEditor({
   const [selectedRunningBlockId, setSelectedRunningBlockId] = useState<string | null>(null);
   const [runningSelectPointRequest, setRunningSelectPointRequest] = useState<OverlaySelectPointRequest | null>(null);
   const runningSelectPointRequestIdRef = useRef(0);
-  const blocks = useMemo(() => pageRunningRegionToTextFlowBlocks(region, kind), [kind, region]);
+  const blocks = useMemo(() => pageRunningRegionToTextFlowBlocks(region, kind, pageNumber), [kind, pageNumber, region]);
   const fieldTitle = fieldValues?.title;
   const fieldPage = fieldValues?.page;
   const fieldTotal = fieldValues?.total;
@@ -537,8 +613,20 @@ export function RunningRegionDirectEditor({
       return;
     }
 
-    const measuredHeight = Math.max(shell.scrollHeight, shell.getBoundingClientRect().height);
-    onContentHeightChange(kind, measuredHeight);
+    // 測るのは文字の行だけ。枠の内側の余白 (`.text-flow-shell` の padding) を数えると、
+    // 1 行のヘッダーでも帯が 12mm 前後より低くできなかった。エディタが描き終わる前
+    // (`.text-flow-editor` がまだ無い) の空の枠は測らない: 中身が減ったと読み違える。
+    // 描き終わり・折り返しの変化は ResizeObserver で拾う。
+    const report = () => {
+      const content = shell.querySelector<HTMLElement>(".text-flow-editor");
+      if (content) {
+        onContentHeightChange(kind, content.offsetHeight);
+      }
+    };
+    report();
+    const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(report);
+    observer?.observe(shell);
+    return () => observer?.disconnect();
   }, [blocks, kind, onContentHeightChange, overlayEditing, overlayWidth]);
 
   const nextRunningSelectPointRequestId = useCallback(() => {

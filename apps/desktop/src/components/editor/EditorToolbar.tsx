@@ -75,6 +75,7 @@ type SharedToolbarButtonProps = ButtonHTMLAttributes<HTMLButtonElement> & {
   preserveFocus?: boolean;
   /** 記号だけでは結果が曖昧な操作に限って表示する短い補足。 */
   tooltip?: TooltipContent;
+  disabledReason?: string;
 };
 
 function callToolbarMouseDown(
@@ -96,6 +97,7 @@ export function EditorToolbarIconButton({
   large = false,
   preserveFocus = true,
   tooltip,
+  disabledReason,
   className,
   type = "button",
   onMouseDown,
@@ -119,7 +121,8 @@ export function EditorToolbarIconButton({
       {children}
     </button>
   );
-  return tooltip ? <Tooltip {...tooltip}>{button}</Tooltip> : button;
+  const effectiveTooltip = buttonProps.disabled && disabledReason ? { label: disabledReason } : tooltip;
+  return effectiveTooltip ? <Tooltip {...effectiveTooltip}>{button}</Tooltip> : button;
 }
 
 const MENU_BUTTON_VARIANT_CLASS = {
@@ -138,6 +141,7 @@ export function EditorToolbarMenuButton({
   variant,
   preserveFocus = true,
   tooltip,
+  disabledReason,
   className,
   type = "button",
   onMouseDown,
@@ -165,7 +169,8 @@ export function EditorToolbarMenuButton({
       {children}
     </button>
   );
-  return tooltip ? <Tooltip {...tooltip}>{button}</Tooltip> : button;
+  const effectiveTooltip = buttonProps.disabled && disabledReason ? { label: disabledReason } : tooltip;
+  return effectiveTooltip ? <Tooltip {...effectiveTooltip}>{button}</Tooltip> : button;
 }
 
 /** ツールバーの選択コントロール。OSのドロップダウンではなく共通の `Select` を着せ替えて使う。 */
@@ -192,6 +197,7 @@ export function EditorToolbarColorButton({
   text = false,
   preserveFocus = true,
   tooltip,
+  disabledReason,
   className,
   type = "button",
   onMouseDown,
@@ -212,5 +218,6 @@ export function EditorToolbarColorButton({
       {children}
     </button>
   );
-  return tooltip ? <Tooltip {...tooltip}>{button}</Tooltip> : button;
+  const effectiveTooltip = buttonProps.disabled && disabledReason ? { label: disabledReason } : tooltip;
+  return effectiveTooltip ? <Tooltip {...effectiveTooltip}>{button}</Tooltip> : button;
 }

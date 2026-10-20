@@ -1,6 +1,7 @@
+import { finishTextPointerSelection } from "../text-pointer-selection";
 import type { Editor } from "@tiptap/core";
 import { DOMSerializer, Fragment, Slice } from "@tiptap/pm/model";
-import { AllSelection, TextSelection, type Selection } from "@tiptap/pm/state";
+import { AllSelection, Selection, TextSelection, type Transaction } from "@tiptap/pm/state";
 import type { MouseEvent as ReactMouseEvent } from "react";
 
 import { getEditorSideAtClientPoint, startExpandedTextSelection } from "@/components/editor/expanded-text-selection";
@@ -11,7 +12,7 @@ import {
   type TextRunCaretPoint,
   type TextRunEditorRange,
 } from "@/components/editor/page-canvas/text-run-selection";
-import { readSelectionFontSize, type SelectionFontSize } from "@/components/tiptap/text-format-font-size";
+import { readSelectionFontSizeDetails, type SelectionFontSize } from "@/components/tiptap/text-format-font-size";
 import { isBoxTitleNodeName } from "@/components/tiptap/node-queries";
 import { applyTextFormatCommand } from "@/components/tiptap/text-format-controller";
 import { hasPrimaryShortcutModifier } from "@/lib/editor-command-shortcuts";
@@ -27,11 +28,13 @@ import { PROBLEM_AREA_ORDER, type SigmaBlock } from "@/features/document";
 import { posAtClientPoint } from "@/components/editor/text-flow/pos-at-client-point";
 import { getEditorVisualRectAtPoint, getEditorVisualRects } from "./editor-visual-rects";
 import { localColumnAtPoint } from "./local-column-dom";
+import { retainedSelectionFingerprint } from "./retained-selection-fingerprint";
 import { createId } from "@/lib/id";
 import { tiptapNodesToInlineNodes } from "@/lib/tiptap-adapter";
 import {
   getTextFlowBlockEditorLength,
   getTextFlowBlockIds,
+  type CaretAddress,
   type TextFlowBlock,
   type TextFlowSelectionBookmark,
   collapsedCaretBookmark,
@@ -59,6 +62,7 @@ import {
 import { emptyTextFlowParagraph, sliceToTextFlowBlocks } from "./text-run-slice";
 import { textFlowBlockToTiptapNode } from "./tiptap-document-adapter";
 import {
+  getCaretSurface,
   getTextRunSurface,
   getTextRunSurfaceByViewDom,
   getTextRunSurfaces,
@@ -128,6 +132,64 @@ export interface TextRunSpan {
 
 const spanListeners = new Set<() => void>();
 let activeSpan: TextRunSpan | null = null;
+let spanCanvas: Element | null = null;
+let spanAddresses: { anchor: CaretAddress | null; head: CaretAddress | null } | null = null;
+let spanFingerprint: string | null = null;
+let spanRefreshQueued = false;
+
+function retainedSpanEditors(span: TextRunSpan): TextRunEditorHandle[] {
+  return getTextRunEditors(span.groupId).filter(handle => !spanCanvas || spanCanvas.contains(handle.editor.view.dom));
+}
+
+/** Wait for the whole React commit before resolving endpoints in replacement surfaces. */
+export function refreshTextRunSpanSurfaces(): void {
+  if (!activeSpan || spanRefreshQueued) return;
+  spanRefreshQueued = true;
+  queueMicrotask(() => {
+    spanRefreshQueued = false;
+    const span = activeSpan;
+    if (!span) return;
+    const editors = retainedSpanEditors(span);
+    if (!spanAddresses?.anchor || !spanAddresses.head || spanFingerprint === null
+      || retainedSelectionFingerprint(editors.map(handle => handle.editor.state.doc), spanAddresses.anchor, spanAddresses.head) !== spanFingerprint) {
+      clearTextRunSpan();
+      return;
+    }
+    const resolve = (address: CaretAddress): TextRunCaretPoint | null => {
+      for (const handle of editors) {
+        const surface = getCaretSurface(handle.editor);
+        const pos = surface?.ownsBlock(address.blockId) ? surface.posFor(address) : null;
+        if (pos != null) return { unitId: handle.unitId, pos };
+      }
+      return null;
+    };
+    const anchor = resolve(spanAddresses.anchor);
+    const head = resolve(spanAddresses.head);
+    if (!anchor || !head) {
+      clearTextRunSpan();
+      return;
+    }
+    // Do not recapture the fingerprint or addresses while restoring a selection.
+    activeSpan = { groupId: span.groupId, anchor, head };
+    syncSpanEditorSelections(activeSpan);
+    notifySpanListeners();
+  });
+}
+
+/** Content edits invalidate fixed offsets, including preventUpdate/remote projections. */
+export function validateTextRunSpanTransaction(editor: Editor, transaction: Transaction): void {
+  const span = activeSpan;
+  const handle = getTextRunSurface(editor);
+  if (!span || !handle || handle.groupId !== span.groupId || !transaction.docChanged
+    || (spanCanvas && !spanCanvas.contains(editor.view.dom))) return;
+  if (!spanAddresses?.anchor || !spanAddresses.head || spanFingerprint === null
+    || retainedSelectionFingerprint(retainedSpanEditors(span).map(handle =>
+      handle.editor === editor ? transaction.doc : handle.editor.state.doc), spanAddresses.anchor, spanAddresses.head) !== spanFingerprint) {
+    clearTextRunSpan();
+    return;
+  }
+  refreshTextRunSpanSurfaces();
+}
 
 /** IME 合成後の境界結合の予約: 削除書き込み後のブロック列を前提に、結合先ブロックを指す。 */
 interface SpanCompositionBoundaryJoin {
@@ -153,9 +215,9 @@ interface PendingSpanComposition {
 let pendingSpanComposition: PendingSpanComposition | null = null;
 
 /**
- * 面が本当に消えたときだけ、その面に掛かっていた跨ぎ選択と IME 合成の予約を捨てる。
- * 登録は `caret-router` が一手に持つので、担当ブロック列が変わっただけでは呼ばれない
- * (以前は打鍵のたびに再登録が走り、この後始末が跨ぎ選択を消していた)。
+ * IME の予約は消えた面に結びつくが、選択はブロックに結びつく。
+ * 同じ commit で現れた代わりの面に選択を移し、本当に終端が消えたときだけ解除する。
+ * 担当ブロック列の変更は registry の登録解除を起こさない。
  */
 subscribeCaretSurfaceUnregister((handle) => {
   const textRun = handle.textRun;
@@ -165,8 +227,8 @@ subscribeCaretSurfaceUnregister((handle) => {
   if (pendingSpanComposition?.editor === handle.editor) {
     pendingSpanComposition = null;
   }
-  if (activeSpan?.anchor.unitId === textRun.unitId || activeSpan?.head.unitId === textRun.unitId) {
-    clearTextRunSpan();
+  if (activeSpan?.groupId === textRun.groupId) {
+    refreshTextRunSpanSurfaces();
   }
 });
 
@@ -192,6 +254,10 @@ export function subscribeTextRunSpan(listener: () => void): () => void {
 
 export function clearTextRunSpan(): void {
   setActiveTextRunSpan(null);
+}
+
+export function clearTextRunSpanForCanvas(canvas: Element | null): void {
+  if (canvas && spanCanvas === canvas) clearTextRunSpan();
 }
 
 export function isMultiEditorTextRunSpan(): boolean {
@@ -604,6 +670,7 @@ export function startTextRunPointerSelection(
   };
   const ownerWindow = editor.view.dom.ownerDocument.defaultView ?? window;
 
+  let selectionEditor = editor;
   const updateSelection = (clientX: number, clientY: number) => {
     const target = editorAtPoint(runEditors, clientX, clientY) ?? handle;
     // 余白からのドラッグは、本文へ入った行の端を起点にする。単一編集面の
@@ -633,6 +700,7 @@ export function startTextRunPointerSelection(
       pos,
       posRange: getClickSelectionRange(target.editor, pos, clickDetail),
     });
+    selectionEditor = target.editor;
     applySpan(groupId, anchor, { unitId: target.unitId, pos: headPos }, target);
   };
 
@@ -669,6 +737,9 @@ export function startTextRunPointerSelection(
       // dispatch は PM が DOM 選択へ同期しないため、放置すると IME 置換の対象が
       // アンカー位置の collapsed 選択になる)。
       syncFocusedEditorDomSelectionToSpan();
+      if (dragging || hasDragged(startPoint, upEvent.clientX, upEvent.clientY)) {
+        finishTextPointerSelection(firstSelectedSpanEditor(selectionEditor), upEvent);
+      }
     }
     autoScroller?.stop();
     ownerWindow.removeEventListener("mousemove", handleMouseMove);
@@ -713,6 +784,7 @@ export function startTextRunAtomPointerSelection(
 
   const startPoint = { x: event.clientX, y: event.clientY };
   const ownerWindow = editor.view.dom.ownerDocument.defaultView ?? window;
+  let selectionEditor = editor;
   const updateSelection = (clientX: number, clientY: number) => {
     const target = editorAtPoint(runEditors, clientX, clientY) ?? handle;
     const pos = posInEditor(target.editor, clientX, clientY);
@@ -727,6 +799,7 @@ export function startTextRunAtomPointerSelection(
     const backward = targetIndex !== originIndex
       ? targetIndex < originIndex
       : pos < atom.from || (pos <= atom.to && pointerBackward);
+    selectionEditor = target.editor;
     applySpan(
       groupId,
       { unitId: handle.unitId, pos: backward ? atom.to : atom.from },
@@ -776,6 +849,7 @@ export function startTextRunAtomPointerSelection(
     upEvent.preventDefault();
     updateSelection(upEvent.clientX, upEvent.clientY);
     syncFocusedEditorDomSelectionToSpan();
+    finishTextPointerSelection(firstSelectedSpanEditor(selectionEditor), upEvent);
   };
 
   ownerWindow.addEventListener("mousemove", handleMouseMove);
@@ -1159,6 +1233,8 @@ export function handleTextRunSpanKeyDown(event: KeyboardEvent, viewDom: HTMLElem
 export interface TextRunSpanFormatRequest {
   command: string;
   value?: unknown;
+  restoreFocus?: boolean;
+  focusOnly?: boolean;
 }
 
 /** span 全体で一括判定するトグル系マーク (部分適用でユニットごとに向きが割れないように)。 */
@@ -1202,9 +1278,7 @@ export function applyTextRunSpanFormat(request: TextRunSpanFormatRequest): boole
 
   const toggleMark = SPAN_TOGGLE_MARK_COMMANDS[request.command];
   if (toggleMark) {
-    const add = !targets.every(({ handle, range }) => (
-      rangeFullyMarked(handle.editor, range.from, range.to, toggleMark)
-    ));
+    const add = !spanRangesFullyMarked(targets, toggleMark);
     for (const { handle, range } of targets) {
       const selection = { from: range.from, to: range.to };
       const chain = handle.editor.chain().setTextSelection(selection);
@@ -1238,15 +1312,28 @@ export function applyTextRunSpanFormat(request: TextRunSpanFormatRequest): boole
  */
 const appliedSpanFormatEvents = new WeakSet<Event>();
 
-export function applyTextRunSpanFormatForEvent(event: Event, request: TextRunSpanFormatRequest): boolean {
-  if (!isMultiEditorTextRunSpan()) {
-    return false;
-  }
-  if (appliedSpanFormatEvents.has(event)) {
-    return true;
-  }
+export function applyTextRunSpanFormatForEvent(
+  event: Event,
+  request: TextRunSpanFormatRequest,
+  onApplied?: (editor: Editor) => void,
+): boolean {
+  if (appliedSpanFormatEvents.has(event)) return true;
+  if (!isMultiEditorTextRunSpan()) return false;
   appliedSpanFormatEvents.add(event);
-  return applyTextRunSpanFormat(request);
+  const editors = activeSpan ? getTextRunEditors(activeSpan.groupId) : [];
+  const ranges = activeSpan ? rangesForSpan(activeSpan) : [];
+  const firstRange = ranges.find(range => range.from < range.to);
+  const stateEditor = editors.find(handle => handle.unitId === firstRange?.unitId);
+  const focusEditor = editors.find(handle => handle.editor.isFocused && ranges.some(range => range.unitId === handle.unitId)) ?? stateEditor;
+  const applied = request.focusOnly || applyTextRunSpanFormat(request);
+  // Enter commits a numeric field and resumes body editing. view.focus restores the PM
+  // selection synchronously with preventScroll; repeated toolbar buttons keep their focus.
+  if (applied && request.restoreFocus) focusEditor?.editor.view.focus();
+  // Toolbar menus may hold focus, so no editor's focused-only transaction listener publishes.
+  if (applied && stateEditor) onApplied?.(stateEditor.editor);
+  // Structure changes intentionally leave range restoration to the shell's caret handoff.
+  if (request.command === "blockStyle") clearTextRunSpan();
+  return applied;
 }
 
 export interface TextRunSpanToggleMarkStates {
@@ -1276,14 +1363,11 @@ export function getTextRunSpanToggleMarkStates(editor: Editor): TextRunSpanToggl
   if (targets.length === 0) {
     return null;
   }
-  const fullyMarked = (markName: string) => targets.every(({ handle, range }) => (
-    rangeFullyMarked(handle.editor, range.from, range.to, markName)
-  ));
   return {
-    bold: fullyMarked("bold"),
-    italic: fullyMarked("italic"),
-    underline: fullyMarked("underline"),
-    boxed: fullyMarked("boxed"),
+    bold: spanRangesFullyMarked(targets, "bold"),
+    italic: spanRangesFullyMarked(targets, "italic"),
+    underline: spanRangesFullyMarked(targets, "underline"),
+    boxed: spanRangesFullyMarked(targets, "boxed"),
   };
 }
 
@@ -1292,27 +1376,41 @@ export function getTextRunSpanFontSize(editor: Editor): SelectionFontSize | null
   const span = activeSpan;
   if (!span || !isMultiEditorTextRunSpan() || getTextRunSurface(editor)?.groupId !== span.groupId) return null;
   const editors = getTextRunEditors(span.groupId);
+  const sizes = rangesForSpan(span).flatMap((range) => {
+    const handle = editors.find((candidate) => candidate.unitId === range.unitId);
+    return handle ? [readSelectionFontSizeDetails(handle.editor.view, range)] : [];
+  });
+  const hasInlineContent = sizes.some((size) => size.hasInlineContent);
   let fontSize: number | null = null;
   let fontSizeMixed = false;
-  for (const range of rangesForSpan(span)) {
-    const handle = editors.find((candidate) => candidate.unitId === range.unitId);
-    if (!handle) continue;
-    const current = readSelectionFontSize(handle.editor.view, range);
+  for (const current of sizes) {
+    if (hasInlineContent && !current.hasInlineContent) continue;
     if (current.fontSize === null) continue;
     if (fontSize !== null && Math.abs(fontSize - current.fontSize) > 0.001) fontSizeMixed = true;
     fontSize ??= current.fontSize;
     fontSizeMixed ||= current.fontSizeMixed;
     if (fontSizeMixed) break;
   }
-  return { fontSize, fontSizeMixed };
+  return fontSize === null ? null : { fontSize, fontSizeMixed };
 }
 
-/** 範囲内の全インライン葉 (テキスト・数式などのアトム) が指定マークを持つか。 */
-function rangeFullyMarked(editor: Editor, from: number, to: number, markName: string): boolean {
-  const markType = editor.state.schema.marks[markName];
-  if (!markType) {
-    return false;
+/** 空の面は判定から除外する。ただし全ての面が空なら false。トグルと表示で共有する。 */
+function spanRangesFullyMarked(
+  targets: readonly { handle: TextRunEditorHandle; range: TextRunEditorRange }[],
+  markName: string,
+): boolean {
+  let sawInline = false;
+  for (const { handle, range } of targets) {
+    const fullyMarked = rangeFullyMarked(handle.editor, range.from, range.to, markName);
+    if (fullyMarked === false) return false;
+    if (fullyMarked === true) sawInline = true;
   }
+  return sawInline;
+}
+
+/** 範囲内の全インライン葉 (テキスト・数式などのアトム) が指定マークを持つか。葉が無ければ null。 */
+function rangeFullyMarked(editor: Editor, from: number, to: number, markName: string): boolean | null {
+  const markType = editor.state.schema.marks[markName];
   let sawInline = false;
   let fully = true;
   editor.state.doc.nodesBetween(from, to, (node) => {
@@ -1324,13 +1422,13 @@ function rangeFullyMarked(editor: Editor, from: number, to: number, markName: st
     }
     if (node.isText || node.isLeaf) {
       sawInline = true;
-      if (!markType.isInSet(node.marks)) {
+      if (!markType?.isInSet(node.marks)) {
         fully = false;
       }
     }
     return false;
   });
-  return sawInline && fully;
+  return sawInline ? fully : null;
 }
 
 /** 範囲先頭のブロック文脈 (heading / boxBlockTitle 判定) を持つノード名。 */
@@ -1963,6 +2061,13 @@ function applySpan(
   }
 
   setActiveTextRunSpan({ groupId, anchor, head });
+  syncSpanEditorSelections({ groupId, anchor, head });
+}
+
+function syncSpanEditorSelections(span: TextRunSpan): void {
+  const { groupId, anchor, head } = span;
+  const runEditors = getTextRunEditors(groupId);
+  const ranges = rangesForSpan(span);
   // 各ユニットの担当範囲を PM の状態選択としても張る (anchor/head の向きは保つ)。これが
   //   1. 数式アトムの `text-selected` 装飾の出典 — Highlight はテキストしか描かないので、
   //      アトムの選択背景は状態選択由来の装飾が補完する (焦点の無いユニットにも要る)。
@@ -2093,6 +2198,27 @@ function setEditorDomSelection(editor: Editor, anchor: number, head: number): vo
 function setActiveTextRunSpan(next: TextRunSpan | null, preserveSelectionUnitId?: string): void {
   const previousGroupId = activeSpan?.groupId;
   activeSpan = next;
+  spanCanvas = next
+    ? getTextRunEditors(next.groupId)[0]?.editor.view.dom.closest(".page-canvas") ?? (previousGroupId === next.groupId ? spanCanvas : null)
+    : null;
+  const addressFor = (point: TextRunCaretPoint): CaretAddress | null => {
+    const handle = next && getTextRunEditors(next.groupId).find(handle => handle.unitId === point.unitId);
+    if (!handle) return null;
+    const surface = getCaretSurface(handle.editor);
+    const position = Math.max(0, Math.min(point.pos, handle.editor.state.doc.content.size));
+    const address = surface?.addressAt(position);
+    if (address || !surface) return address ?? null;
+    // Whole-run selection starts/ends in a document gap, outside any block.
+    // Skip selectable atoms such as dividers and capture a textblock edge.
+    const resolved = handle.editor.state.doc.resolve(position);
+    const bias = position === 0 ? 1 : -1;
+    const selection = Selection.findFrom(resolved, bias, true) ?? Selection.findFrom(resolved, -bias, true);
+    return selection ? surface.addressAt(selection.head) : null;
+  };
+  spanAddresses = next ? { anchor: addressFor(next.anchor), head: addressFor(next.head) } : null;
+  spanFingerprint = next && spanAddresses?.anchor && spanAddresses.head
+    ? retainedSelectionFingerprint(getTextRunEditors(next.groupId).map(handle => handle.editor.state.doc), spanAddresses.anchor, spanAddresses.head)
+    : null;
   if (previousGroupId && (!next || next.groupId !== previousGroupId)) {
     for (const handle of getTextRunEditors(previousGroupId)) {
       handle.editor.view.dom.removeAttribute("data-text-run-span");
@@ -2194,4 +2320,12 @@ function clamp(value: number, min: number, max: number): number {
     return min;
   }
   return Math.min(Math.max(value, min), max);
+}
+
+/** Span ranges are ordered by document position, independent of drag direction. */
+function firstSelectedSpanEditor(fallback: Editor): Editor {
+  const first = activeSpan ? rangesForSpan(activeSpan)[0] : null;
+  return first && activeSpan
+    ? getTextRunEditors(activeSpan.groupId).find(handle => handle.unitId === first.unitId)?.editor ?? fallback
+    : fallback;
 }

@@ -22,36 +22,8 @@
 }
 
 .search {
-  display: inline-flex;
   flex: 1 1 280px;
-  align-items: center;
-  gap: var(--space-sm);
   min-width: min(280px, 100%);
-  min-height: 38px;
-  padding: 0 var(--space-md);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-control);
-  background: var(--surface);
-  color: var(--text-secondary);
-}
-
-.search:focus-within {
-  border-color: var(--border-strong);
-  outline: 2px solid color-mix(in srgb, var(--accent) 24%, transparent);
-}
-
-.search input {
-  width: 100%;
-  min-width: 0;
-  border: 0;
-  outline: none;
-  background: transparent;
-  color: var(--text-primary);
-  font-size: 13px;
-}
-
-.search input::placeholder {
-  color: var(--text-muted);
 }
 
 .resultCount {

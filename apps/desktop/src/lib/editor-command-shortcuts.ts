@@ -110,6 +110,67 @@ export interface EditorCustomCommandDefinition extends EditorCommandShortcutDefi
   defaultBinding: null;
 }
 
+/** 追加フォント (読み込んだ書体・拡張機能の書体) ごとのコマンドの id の頭。 */
+export const ADDED_FONT_COMMAND_PREFIX = "format.font.added.";
+const ADDED_FONT_COMMAND_ID_PATTERN = /^format\.font\.added\.[a-z0-9._-]+$/;
+
+/**
+ * 追加フォント 1 書体ごとに自動で作る「選択範囲をこの書体にする」コマンド。
+ * 組み込みの `format.font.*` と同じ扱いでキーを割り当てられるが、一覧は書体の読み込み後に決まる。
+ * 保存はしない (キーの割り当てだけが id で残る)。
+ */
+export interface EditorAddedFontCommandDefinition extends EditorCommandShortcutDefinition {
+  id: `${typeof ADDED_FONT_COMMAND_PREFIX}${string}`;
+  categoryId: "font";
+  addedFont: true;
+  /** 書体の表示名。書体の固有名なので**翻訳しない**。 */
+  fontLabel: string;
+  /** 適用する CSS の font-family。 */
+  fontFamily: string;
+  defaultBinding: null;
+}
+
+/**
+ * 組み込みの一覧に無く、実行時に決まるコマンド。ユーザーが作ったカスタムコマンドと、
+ * 追加フォントごとの書体コマンド。カタログの検索・キーの割り当てはどちらも同じ経路を通る。
+ */
+export type EditorRuntimeCommandDefinition = EditorCustomCommandDefinition | EditorAddedFontCommandDefinition;
+
+/**
+ * 追加フォントの一覧から書体コマンドを作る。id は書体の id (読み込んだ書体は `font_…`、
+ * 拡張機能の書体は `plugin-<sha256>`) から作るので、書体が入れ直されない限り割り当てたキーが残る。
+ */
+export function createAddedFontCommands(
+  fonts: readonly { id: string; displayName: string; cssFamily: string }[],
+): EditorAddedFontCommandDefinition[] {
+  const commands: EditorAddedFontCommandDefinition[] = [];
+  const seen = new Set<string>();
+  for (const font of fonts) {
+    const key = font.id.toLowerCase().replace(/[^a-z0-9._-]+/g, "-").replace(/^[-.]+|[-.]+$/g, "");
+    const fontFamily = font.cssFamily.trim();
+    const id = `${ADDED_FONT_COMMAND_PREFIX}${key}` as const;
+    if (!key || !fontFamily || seen.has(id)) {
+      continue;
+    }
+    seen.add(id);
+    commands.push({
+      id,
+      categoryId: "font",
+      addedFont: true,
+      fontLabel: font.displayName.trim() || fontFamily,
+      fontFamily,
+      defaultBinding: null,
+    });
+  }
+  return commands;
+}
+
+export function isEditorAddedFontCommand(
+  command: EditorCommandShortcutDefinition,
+): command is EditorAddedFontCommandDefinition {
+  return "addedFont" in command && (command as EditorAddedFontCommandDefinition).addedFont === true;
+}
+
 export const EDITOR_SHORTCUT_STORAGE_KEY = "sigma-studio:command-shortcuts";
 export const EDITOR_CUSTOM_COMMANDS_STORAGE_KEY = "sigma-studio:custom-commands";
 
@@ -402,9 +463,9 @@ export function detectEditorShortcutPlatform(platform = getNavigatorPlatform()):
 }
 
 export function getEditorCommandCatalog(
-  customCommands: readonly EditorCustomCommandDefinition[] = [],
+  runtimeCommands: readonly EditorRuntimeCommandDefinition[] = [],
 ): readonly EditorCommandShortcutDefinition[] {
-  return customCommands.length === 0 ? EDITOR_COMMAND_SHORTCUTS : [...EDITOR_COMMAND_SHORTCUTS, ...customCommands];
+  return runtimeCommands.length === 0 ? EDITOR_COMMAND_SHORTCUTS : [...EDITOR_COMMAND_SHORTCUTS, ...runtimeCommands];
 }
 
 /**
@@ -414,60 +475,64 @@ export function getEditorCommandCatalog(
  */
 export function getCommandTargetPolicy(
   commandId: string,
-  customCommands: readonly EditorCustomCommandDefinition[] = [],
+  runtimeCommands: readonly EditorRuntimeCommandDefinition[] = [],
 ): EditorCommandTargetPolicy {
-  const definition = getEditorCommandCatalog(customCommands).find((command) => command.id === commandId);
+  const definition = getEditorCommandCatalog(runtimeCommands).find((command) => command.id === commandId);
   return definition?.targetPolicy ?? "documentSurface";
 }
 
 export function getCommandShortcutDefinition(
   commandId: EditorCommandId,
-  customCommands: readonly EditorCustomCommandDefinition[] = [],
+  runtimeCommands: readonly EditorRuntimeCommandDefinition[] = [],
 ): EditorCommandShortcutDefinition {
-  const definition = getEditorCommandCatalog(customCommands).find((command) => command.id === commandId);
+  const definition = getEditorCommandCatalog(runtimeCommands).find((command) => command.id === commandId);
   if (!definition) {
     throw new Error(`Unknown editor command: ${commandId}`);
   }
   return definition;
 }
 
+/**
+ * 割り当てを保存してよい id か。追加フォントの書体コマンドは、書体の一覧を読み込む前
+ * (起動直後) や、拡張機能を一時的に外している間も割り当てを捨てないよう、形だけで受け付ける。
+ */
 export function isEditorCommandId(value: string): value is EditorCommandId {
-  return EDITOR_COMMAND_IDS.has(value) || value.startsWith("custom.");
+  return EDITOR_COMMAND_IDS.has(value) || value.startsWith("custom.") || ADDED_FONT_COMMAND_ID_PATTERN.test(value);
 }
 
 export function getShortcutForCommand(
   overrides: EditorShortcutOverrides,
   commandId: EditorCommandId,
-  customCommands: readonly EditorCustomCommandDefinition[] = [],
+  runtimeCommands: readonly EditorRuntimeCommandDefinition[] = [],
 ): EditorShortcutBinding | null {
   if (Object.prototype.hasOwnProperty.call(overrides, commandId)) {
     return overrides[commandId] ?? null;
   }
 
-  return getCommandShortcutDefinition(commandId, customCommands).defaultBinding;
+  return getCommandShortcutDefinition(commandId, runtimeCommands).defaultBinding;
 }
 
 export function assignShortcutOverride(
   overrides: EditorShortcutOverrides,
   commandId: EditorCommandId,
   binding: EditorShortcutBinding,
-  customCommands: readonly EditorCustomCommandDefinition[] = [],
+  runtimeCommands: readonly EditorRuntimeCommandDefinition[] = [],
 ): EditorShortcutOverrides {
   const normalizedBinding = normalizeShortcutBinding(binding);
   const next: EditorShortcutOverrides = { ...overrides };
 
-  for (const command of getEditorCommandCatalog(customCommands)) {
+  for (const command of getEditorCommandCatalog(runtimeCommands)) {
     if (command.id === commandId) {
       continue;
     }
 
-    const currentBinding = getShortcutForCommand(next, command.id, customCommands);
+    const currentBinding = getShortcutForCommand(next, command.id, runtimeCommands);
     if (currentBinding && areShortcutBindingsEqual(currentBinding, normalizedBinding)) {
       next[command.id] = null;
     }
   }
 
-  const defaultBinding = getCommandShortcutDefinition(commandId, customCommands).defaultBinding;
+  const defaultBinding = getCommandShortcutDefinition(commandId, runtimeCommands).defaultBinding;
   if (defaultBinding && areShortcutBindingsEqual(defaultBinding, normalizedBinding)) {
     delete next[commandId];
   } else {
@@ -504,24 +569,24 @@ export function findShortcutConflict(
   overrides: EditorShortcutOverrides,
   commandId: EditorCommandId,
   binding: EditorShortcutBinding,
-  customCommands: readonly EditorCustomCommandDefinition[] = [],
+  runtimeCommands: readonly EditorRuntimeCommandDefinition[] = [],
 ): EditorCommandShortcutDefinition | null {
   const normalizedBinding = normalizeShortcutBinding(binding);
-  return getEditorCommandCatalog(customCommands).find((command) => (
+  return getEditorCommandCatalog(runtimeCommands).find((command) => (
     command.id !== commandId &&
-    getShortcutForCommand(overrides, command.id, customCommands) !== null &&
-    areShortcutBindingsEqual(getShortcutForCommand(overrides, command.id, customCommands), normalizedBinding)
+    getShortcutForCommand(overrides, command.id, runtimeCommands) !== null &&
+    areShortcutBindingsEqual(getShortcutForCommand(overrides, command.id, runtimeCommands), normalizedBinding)
   )) ?? null;
 }
 
 export function findCommandByShortcut(
   event: Pick<KeyboardEvent, "altKey" | "code" | "ctrlKey" | "key" | "metaKey" | "shiftKey">,
   overrides: EditorShortcutOverrides,
-  customCommands: readonly EditorCustomCommandDefinition[] = [],
+  runtimeCommands: readonly EditorRuntimeCommandDefinition[] = [],
   platform: EditorShortcutPlatform = detectEditorShortcutPlatform(),
 ): { commandId: EditorCommandId; binding: EditorShortcutBinding } | null {
-  for (const command of getEditorCommandCatalog(customCommands)) {
-    const binding = getShortcutForCommand(overrides, command.id, customCommands);
+  for (const command of getEditorCommandCatalog(runtimeCommands)) {
+    const binding = getShortcutForCommand(overrides, command.id, runtimeCommands);
     if (binding && shortcutMatchesEvent(binding, event, platform)) {
       return { commandId: command.id, binding };
     }
@@ -833,13 +898,20 @@ export function createEditorCustomCommandDefinition(input: {
 export function resolveEditorCommandCatalog(
   catalog: readonly EditorCommandShortcutDefinition[],
   t: Translate<"command">,
+  options?: EditorCommandDescriptionOptions,
 ): readonly ResolvedEditorCommand[] {
-  return catalog.map((command) => resolveEditorCommand(command, t));
+  return catalog.map((command) => resolveEditorCommand(command, t, options));
+}
+
+/** 説明文の組み立てに使う補助。CSS の font-family の値を、メニューと同じ書体名で読ませる。 */
+export interface EditorCommandDescriptionOptions {
+  fontLabel?: (fontFamily: string) => string | undefined;
 }
 
 export function resolveEditorCommand(
   command: EditorCommandShortcutDefinition,
   t: Translate<"command">,
+  options?: EditorCommandDescriptionOptions,
 ): ResolvedEditorCommand {
   const category = t(`category.${command.categoryId}`);
   if (isEditorCustomCommand(command)) {
@@ -849,9 +921,18 @@ export function resolveEditorCommand(
       // (UI に説明の入力欄が無いので、失われるユーザー入力は存在しない)。
       label: command.label,
       category,
-      description: formatCustomCommandDescription(command.actions, t),
+      description: formatCustomCommandDescription(command.actions, t, options),
       // シノニムはカタログ側の概念。ユーザーが作ったコマンドには無い。
       keywords: "",
+    };
+  }
+  if (isEditorAddedFontCommand(command)) {
+    return {
+      ...command,
+      label: t("addedFont.label", { name: command.fontLabel }),
+      category,
+      description: t("addedFont.description", { name: command.fontLabel }),
+      keywords: t("addedFont.keywords"),
     };
   }
   return {
@@ -876,20 +957,22 @@ export function isEditorCustomCommand(
 export function formatCustomCommandDescription(
   actions: readonly EditorCustomCommandAction[],
   t: Translate<"command">,
+  options?: EditorCommandDescriptionOptions,
 ): string {
-  return actions.map((action) => formatCustomCommandActionDescription(action, t)).join(" → ");
+  return actions.map((action) => formatCustomCommandActionDescription(action, t, options)).join(" → ");
 }
 
 export function formatCustomCommandActionDescription(
   action: EditorCustomCommandAction,
   t: Translate<"command">,
+  options?: EditorCommandDescriptionOptions,
 ): string {
   switch (action.type) {
     case "textFormat":
       return t("customAction.textFormat", { value: t(`customValue.textFormat.${action.command}`) });
     case "fontFamily":
       return action.value
-        ? t("customAction.fontFamily", { value: action.value })
+        ? t("customAction.fontFamily", { value: options?.fontLabel?.(action.value) ?? action.value })
         : t("customAction.fontFamilyDefault");
     case "fontSize":
       return t("customAction.fontSize", { value: action.value });

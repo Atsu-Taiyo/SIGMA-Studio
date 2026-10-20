@@ -1,0 +1,22 @@
+/*
+ * build/icon.svg のタイルを CSS で写したもの。比率は icon.svg に合わせる:
+ *   角丸半径 = 一辺 × 0.225 (185.4 / 824)、Σ の高さ = 一辺の約56%。
+ * 色はテーマに依存させない。明暗どちらの背景でもアイコンと同じ黒いタイルに見せる。
+ */
+.mark {
+  display: inline-grid;
+  flex: 0 0 auto;
+  place-items: center;
+  border-radius: 22.5%;
+  background: linear-gradient(180deg, #26262c 0%, #101013 50%, #000000 100%);
+  /* 上端のごく薄い縁。暗い背景でタイルの輪郭が沈まないようにする (icon.svg と同じ) */
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.09);
+  color: #ffffff;
+}
+
+.glyph {
+  display: block;
+  height: 56%;
+  width: auto;
+  aspect-ratio: 549 / 643;
+}

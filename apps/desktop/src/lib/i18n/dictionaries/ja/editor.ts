@@ -98,10 +98,45 @@ export const editor = {
     header: "ヘッダー",
     footer: "フッター",
     controlsAria: "ヘッダーとフッター",
-    editing: "{{region}}編集中",
-    startEdge: "{{region}}の開始位置",
-    endEdge: "{{region}}の終了位置",
+    startEdge: "{{region}}の上端",
+    endEdge: "{{region}}の下端",
+    /** 帯の辺に出す今の値。ヘッダーの上の辺・フッターの下の辺は用紙の端からの位置。 */
+    heightValue: "高さ {{value}}mm",
+    fromTopValue: "上端から {{value}}mm",
+    fromBottomValue: "下端から {{value}}mm",
+    editHint: "ダブルクリックで{{region}}を編集",
     edit: "{{region}}の編集",
+    /** 帯の右に出る丸いボタン。押すと、差し込みと「このページだけ出さない」のカードが開く。 */
+    options: "{{region}}の設定",
+    insertCaption: "ページ番号などを入れる",
+    insert: {
+      page: "ページ番号",
+      total: "総ページ数",
+      pageOfTotal: "ページ番号 / 総ページ数",
+      title: "題名",
+    },
+    showOnPage: "このページに{{region}}を表示",
+    showOnPageAria: "{{page}}ページ目に{{region}}を表示",
+    /** 「表示するページ」: まとまり (すべて/先頭ページのみ/先頭ページ以外) と、このページだけの例外。 */
+    range: {
+      caption: "表示するページ",
+      all: "すべて",
+      firstOnly: "先頭ページのみ",
+      exceptFirst: "先頭ページ以外",
+    },
+    hiddenPages: "表示していないページ: {{pages}}",
+    shownPages: "表示するページ: {{pages}}",
+    noPages: "どのページにも表示していません",
+    pageSeparator: "・",
+    /** 「内容」: そのページだけ文字を変える。図形・画像は共通のまま。 */
+    content: {
+      caption: "内容",
+      own: "このページだけ内容を変える",
+      ownAria: "{{page}}ページ目だけ{{region}}の内容を変える",
+      hint: "文字だけがページごとに変わります。図形と画像は共通です。",
+      pages: "内容を変えているページ: {{pages}}",
+      reset: "すべて共通に戻す",
+    },
   },
   /** 文字や図形を選んだときに、選択の近くへ出る操作バー。書式そのものの文言は chrome / shape を引く。 */
   selectionToolbar: {
@@ -352,10 +387,12 @@ export const editor = {
     problemPrompt: "問題文を入力",
     problemSolution: "解答を入力",
   },
-  /** アウトライン一覧のブロック名。 */
+  /** アウトライン (キャンバス左上のカード) と、一覧のブロック名。 */
   outline: {
     empty: "見出しや問題がまだありません。",
     title: "アウトライン",
+    /** 件数は `{{items}}` (`{{count}}` は i18next の複数形の予約語)。 */
+    titleWithCount: "アウトライン ({{items}}件)",
     problem: "問題 {{number}}",
     paragraph: "段落",
     list: "リスト",

@@ -1259,6 +1259,27 @@ describe("SigmaDoc schema", () => {
     expect(problem.areaLayout?.solution?.minHeightMm).toBe(36.5);
   });
 
+  it("keeps the lead line switch and refuses a non-boolean one", () => {
+    const withLead = (lead: unknown) => ({
+      ...sampleDocument,
+      content: [{
+        type: "problem",
+        id: "problem_lead_switch",
+        tags: [],
+        lead: [],
+        prompt: [{ type: "paragraph", id: "prompt_lead_switch", children: [{ type: "text", text: "問題文" }] }],
+        solution: [],
+        hints: [],
+        areaLayout: { lead },
+      }],
+    });
+
+    const parsed = parseSigmaDocument(withLead({ hidden: true }));
+    const problem = parsed.content[0];
+    expect(problem.type === "problem" ? problem.areaLayout?.lead : null).toEqual({ hidden: true });
+    expect(() => parseSigmaDocument(withLead({ hidden: "yes" }))).toThrow();
+  });
+
   it("accepts layout sections inside problem solutions", () => {
     const parsed = parseSigmaDocument({
       ...sampleDocument,

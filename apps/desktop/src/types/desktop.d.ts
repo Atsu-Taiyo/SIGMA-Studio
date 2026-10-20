@@ -5,7 +5,7 @@ import type { AiEditPlanStep, AiEditRunEvent, AiEditRunResult } from "@/lib/ai/a
 import type { AiEditSessionDraft } from "@/lib/ai/sigma-doc-edit-schema";
 import type { AiAppliedDocumentDiff } from "@/lib/ai/applied-document-diff";
 import type { ProposalMergeBasis, ProposalMergeReport } from "@/lib/ai/proposal-merge-basis";
-import type { SigmaDocument } from "@/features/document";
+import type { NewDocumentPageSetup, SigmaDocument } from "@/features/document";
 import type { LedgerSchemaFailure } from "@/lib/library-schema";
 import type { SigmaDocumentRecoveryIssue, SigmaDocumentSchemaFailure } from "@/lib/sigma-doc-schema";
 import type { MaterialContent, MaterialItem } from "@/types/material";
@@ -456,7 +456,14 @@ export interface DesktopAppAPI {
   getInfo(): Promise<DesktopAppInfo>;
   openLatestReleasePage(): Promise<{ ok: boolean; error?: string }>;
   getEditorPreferences?(): Promise<DesktopEditorPreferences>;
-  saveEditorPreferences?(preferences: { fontFamily?: string | null }): Promise<DesktopEditorPreferencesSaveResult>;
+  /**
+   * `newDocumentPageSetup` は直前に開いていた教材の用紙設定。新しい空の教材が引き継ぐ
+   * (main が正規化して覚える。`null` で忘れる)。
+   */
+  saveEditorPreferences?(preferences: {
+    fontFamily?: string | null;
+    newDocumentPageSetup?: NewDocumentPageSetup | null;
+  }): Promise<DesktopEditorPreferencesSaveResult>;
   onCloseRequested?(handler: () => void): () => void;
   acknowledgeCloseRequest?(): Promise<boolean>;
   notifyCloseReady?(): Promise<boolean>;

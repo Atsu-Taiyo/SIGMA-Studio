@@ -18,6 +18,9 @@ export const common = {
     details: "Details",
   },
   shortcutAria: "Shortcut {{shortcut}}",
+  search: {
+    clear: "Clear search",
+  },
   color: {
     paletteAria: "Choose a color",
     standard: "Standard colors",

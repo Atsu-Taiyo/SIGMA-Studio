@@ -58,6 +58,16 @@ export const command = {
     lineDash: { solid: "Solid", dashed: "Dashed", dotted: "Dotted" },
     lineWidth: { xs: "Extra thin", s: "Thin", m: "Medium", l: "Thick", xl: "Extra thick" },
   },
+  /** 追加フォントごとの書体コマンド。詳細は `../ja/command.ts` を参照。 */
+  addedFont: {
+    label: "Font: {{name}}",
+    description: "Set the selected text to {{name}}",
+    keywords: "typeface added font",
+    group: "Added fonts",
+    groupAssigned: "Keys set: {{n}}",
+    expand: "Show added font commands",
+    collapse: "Hide added font commands",
+  },
   /** コマンドパレット本体の文言。 */
   palette: {
     title: "Command palette",
@@ -293,7 +303,7 @@ export const command = {
     "edit.boxedText": "Draws a box around the selected body or figure text",
     "view.commandPalette": "Searches every command and setting by name and runs it",
     "view.comments": "Shows or hides the comments panel",
-    "view.outlineDialog": "Opens the outline dialog for the whole material",
+    "view.outlineDialog": "Opens the outline of headings and problems in the card at the top left of the canvas",
     "view.regionCapture": "Drag over the page to pick an area, then copy it, save it or ask the AI about it (you can also start by holding Option/Alt + Shift and dragging)",
     "view.pocket": "Opens or closes the pocket above the editing area. Things you add can be carried to another page or material",
     "document.new": "Creates an empty material in a new tab",

@@ -1,4 +1,6 @@
 "use client";
+
+import { isTextPointerSelectionClick } from "@/components/editor/text-pointer-selection";
 import { isSvgImageAsset } from "@/lib/svg-to-sigma";
 import { BlockEditor } from "@/components/editor/BlockEditor";
 import { CommentThreadsPanel } from "@/components/editor/CommentThreadsPanel";
@@ -19,10 +21,12 @@ import { mergeLargePasteDeferredBlockIds } from "@/components/editor/text-flow/l
 import { shouldRestoreTextFlowSelectionAfterChange } from "@/components/editor/text-flow/text-run-replacement";
 import {
   clearTextRunSpanOnOutsidePointerDown,
+  clearTextRunSpanForCanvas,
   getFocusedTextRunLeadingBlockIds,
   getFocusedTextRunUnitIds,
   isMultiEditorTextRunSpan,
 } from "@/components/editor/text-flow/text-run-span";
+import { clearBoxFragmentSelection, clearBoxFragmentSelectionForCanvas } from "./text-flow/box-fragment-selection";
 import { TextRunSelectionOverlay } from "@/components/editor/text-flow/TextRunSelectionOverlay";
 import {
   REQUEST_BOX_SETTINGS_EVENT,
@@ -392,6 +396,7 @@ function PageCanvasEditorImpl({
   const [textRunDocumentId] = useState(() => createId("text_run_document"));
 const {
     pageLayoutDraft,
+    runningRegionResize,
     runningRegionEditKind,
     runningRegionOverlayEditing,
     setRunningRegionOverlayEditing,
@@ -401,6 +406,10 @@ const {
     setHorizontalMarginEditPageNumber,
     editRunningRegion,
     enableRunningRegion,
+    setRunningRegionShownOnPageAt,
+    setRunningRegionPageRangeFor,
+    setRunningRegionPageContentAt,
+    clearRunningRegionPageContentsFor,
     beginPageMarginDrag,
     runningRegionFocusRequest,
     updateRunningRegionBlocks,
@@ -807,6 +816,17 @@ const {
     setFlowElement((current) => current === node ? current : node);
   }, []);
   const canvasRef = useRef<HTMLDivElement | null>(null);
+  const selectionBoundaryRef = useRef({ documentId: pageDocument.docId, historyRevision });
+  useLayoutEffect(() => {
+    const previous = selectionBoundaryRef.current;
+    if (previous.documentId !== pageDocument.docId || previous.historyRevision !== historyRevision) {
+      // The entire set of text surfaces can be replaced by a restore. Observe the
+      // revision here too, where the owner survives those surface replacements.
+      clearTextRunSpanForCanvas(canvasRef.current);
+      clearBoxFragmentSelectionForCanvas(canvasRef.current);
+    }
+    selectionBoundaryRef.current = { documentId: pageDocument.docId, historyRevision };
+  }, [historyRevision, pageDocument.docId]);
   // Feature layers need the current element reactively; handlers and
   // measurement code continue to use the imperative ref.
   const [canvasElement, setCanvasElement] = useState<HTMLDivElement | null>(null);
@@ -2647,7 +2667,7 @@ const { candidateCommentTop, pendingCommentTop, commentThreadPositions } = usePa
         }, { once: true });
       }
     }
-    if (target?.closest(".page-running-direct-editor, .page-context-menu, .problem-context-menu, .selection-action-popover")) {
+    if (target?.closest(".page-running-direct-editor, .page-running-options, .page-context-menu, .problem-context-menu, .selection-action-popover")) {
       return;
     }
 
@@ -2684,6 +2704,7 @@ const { candidateCommentTop, pendingCommentTop, commentThreadPositions } = usePa
       // 区別できない (section の onClick ガード) ため、経路はドラッグと衝突しない
       // pointerdown に置く。図形ヒットは除外 — 図形操作中は本文選択を保持する契約。
       clearTextRunSpanOnOutsidePointerDown();
+      clearBoxFragmentSelection();
     }
 
     if (!runningRegionEditKind && !event.ctrlKey && !event.metaKey && !event.shiftKey && !event.altKey) {
@@ -3080,6 +3101,7 @@ const { candidateCommentTop, pendingCommentTop, commentThreadPositions } = usePa
         data-overlay-editing={isOverlayEditing ? "true" : "false"}
         data-paged-render={isPagedRender ? "true" : undefined}
         onClick={(event) => {
+          if (isTextPointerSelectionClick(event.nativeEvent)) return;
           // 選択バーとそこから開くメニューは、紙面の外 (ポータル) に描かれても React では紙面の子
           // なので click がここまで来る。選択に対する操作なので、選択を解除しない。
           if (event.target instanceof Element && event.target.closest(".selection-action-popover, [data-toolbar-popover]")) {
@@ -3185,13 +3207,6 @@ const { candidateCommentTop, pendingCommentTop, commentThreadPositions } = usePa
 
           {!pageOverlayEditing && (
             <div className="page-layout-controls" aria-label={tEditorText("running.controlsAria")}>
-              {runningRegionEditKind && (
-                <div className="page-layout-mode-chip">
-                  {tEditorText("running.editing", { replace: {
-                    region: tEditorText(runningRegionEditKind === "header" ? "running.header" : "running.footer"),
-                  } })}
-                </div>
-              )}
               {visiblePageIndexes.map((index) => (
                 <RunningRegionControls
                   key={`running-region-controls-${index}`}
@@ -3205,9 +3220,14 @@ const { candidateCommentTop, pendingCommentTop, commentThreadPositions } = usePa
                   mathFractionSizing={mathFractionSizing}
                   editingKind={runningRegionEditKind}
                   editingPageNumber={runningRegionEditPageNumber}
+                  resizing={runningRegionResize}
                   focusRequest={runningRegionFocusRequest}
                   historyRevision={historyRevision}
                   onEdit={editRunningRegion}
+                  onShownOnPageChange={(kind, pageNumber, shown) => setRunningRegionShownOnPageAt(kind, pageNumber, shown, pageCount)}
+                  onPageRangeChange={setRunningRegionPageRangeFor}
+                  onPageContentChange={(kind, pageNumber, enabled) => setRunningRegionPageContentAt(kind, pageNumber, enabled, pageCount)}
+                  onClearPageContents={clearRunningRegionPageContentsFor}
                   onBlocksChange={updateRunningRegionBlocks}
                   onContentHeightChange={resizeRunningRegionForContent}
                   onEdgePointerDown={startRunningRegionDrag}
@@ -3249,6 +3269,7 @@ const { candidateCommentTop, pendingCommentTop, commentThreadPositions } = usePa
                   } as CSSProperties}
                   onClick={(event) => {
                     event.stopPropagation();
+                    if (isTextPointerSelectionClick(event.nativeEvent)) return;
                     onSelect(sectionId);
                   }}
                 >

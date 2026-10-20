@@ -137,10 +137,14 @@ export function useTextFormattingState() {
       } else if (typeof detail.fontFamily === "string") {
         setFontFamily(normalizeToolbarFontFamily(detail.fontFamily));
       }
-      setTextFontSizeMixed(detail.fontSizeMixed === true);
+      if ("fontSizeMixed" in detail || "fontSize" in detail || detail.enabled === false) {
+        setTextFontSizeMixed(detail.enabled !== false && detail.fontSizeMixed === true);
+      }
       if (typeof detail.fontSize === "number" && Number.isFinite(detail.fontSize) && detail.fontSize > 0) {
         setTextFontSize(detail.fontSize);
-      } else {
+      } else if ("fontSize" in detail || detail.enabled === false) {
+        // Partial mark-only reports do not invalidate a measured selection size. An
+        // explicit null (unmeasurable/new target) clears it, so stale values never leak.
         setTextFontSize(null);
       }
       if (typeof detail.color === "string") {

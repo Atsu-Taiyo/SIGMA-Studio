@@ -44,6 +44,44 @@ describe("effective font size", () => {
     expect(readSelectionFontSize(editor.view, { from: 1, to: 8 })).toEqual({ fontSize: 12, fontSizeMixed: true });
   });
 
+  it.each(["text", "mathInline"])("ignores empty paragraphs around selected 13pt %s", (type) => {
+    const editor = createEditor([
+      { type: "paragraph" },
+      { type: "paragraph", content: [{
+        type,
+        ...(type === "text" ? { text: "本文" } : { attrs: { id: "m1", tex: "x" } }),
+        marks: [{ type: "styledText", attrs: { fontSize: 13 } }],
+      }] },
+      { type: "paragraph" },
+    ]);
+    const before = editor.getJSON();
+    expect(readSelectionFontSize(editor.view, { from: 0, to: editor.state.doc.content.size }))
+      .toEqual({ fontSize: 13, fontSizeMixed: false });
+    expect(editor.getJSON()).toEqual(before);
+  });
+
+  it("reads an empty-paragraph-only range even when unselected text has a different size", () => {
+    const editor = createEditor([
+      { type: "paragraph" },
+      { type: "paragraph", content: [{ type: "text", text: "本文", marks: [{ type: "styledText", attrs: { fontSize: 13 } }] }] },
+    ]);
+    (editor.view.nodeDOM(0) as HTMLElement).style.fontSize = "20px";
+    expect(readSelectionFontSize(editor.view, { from: 0, to: 2 }))
+      .toEqual({ fontSize: 15, fontSizeMixed: false });
+  });
+
+  it("keeps 13pt and 12pt text mixed while ignoring a preceding empty paragraph", () => {
+    const editor = createEditor([
+      { type: "paragraph" },
+      { type: "paragraph", content: [
+        { type: "text", text: "大", marks: [{ type: "styledText", attrs: { fontSize: 13 } }] },
+        { type: "text", text: "小", marks: [{ type: "styledText", attrs: { fontSize: 12 } }] },
+      ] },
+    ]);
+    expect(readSelectionFontSize(editor.view, { from: 0, to: editor.state.doc.content.size }))
+      .toEqual({ fontSize: 13, fontSizeMixed: true });
+  });
+
   it("reads selected shape headings and mixed runs", () => {
     const root = document.createElement("div");
     root.style.fontSize = "16px";
@@ -70,4 +108,15 @@ describe("effective font size", () => {
     expect(readSelectionFontSize(editor.view)).toEqual({ fontSize: 10.5, fontSizeMixed: false });
     expect(editor.getJSON()).toEqual(before);
   });
+});
+
+it("reads a boundary-only range like a caret at its start without writing sizes", () => {
+  const editor = createEditor([
+    { type: "paragraph", content: [{ type: "text", text: "A", marks: [{ type: "styledText", attrs: { fontSize: 9 } }] }] },
+    { type: "paragraph", content: [{ type: "text", text: "B" }] },
+  ]);
+  const before = editor.getJSON();
+  expect(readSelectionFontSize(editor.view, { from: 2, to: 4 })).toEqual({ fontSize: 9, fontSizeMixed: false });
+  expect(readSelectionFontSize(editor.view, { from: 3, to: 4 }).fontSize).toBe(12);
+  expect(editor.getJSON()).toEqual(before);
 });

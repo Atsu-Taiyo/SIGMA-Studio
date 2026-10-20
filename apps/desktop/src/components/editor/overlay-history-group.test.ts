@@ -188,7 +188,7 @@ describe("body-side history group carrier", () => {
   it("carries the key to the units a cross-editor replacement touches", () => {
     // 跨ぎ置換は `onUpdate` を通らずに本文を書く。再チャンクが起こす後続の `onUpdate` に
     // キーが乗らないと、本文書き込みと 250ms 後の図形保存の**間に別エントリが挟まる**。
-    const onUpdate = sliceOf(textFlowSource, "      clearBoxFragmentSelection();", "      const historyGrouping =");
+    const onUpdate = sliceOf(textFlowSource, "    onUpdate: ({ editor: activeEditor, transaction }) =>", "      const historyGrouping =");
     const read = onUpdate.indexOf("crossEditorSyncRef.current?.historyGroup");
     const clear = onUpdate.indexOf("crossEditorSyncRef.current = null;");
     expect(read).toBeGreaterThan(0);

@@ -223,7 +223,6 @@ export const chrome = {
     settings: {
       label: "設定",
       comments: "コメント表示",
-      outline: "アウトラインを表示",
       shortcuts: "ショートカット設定",
       texReference: "数式コマンド確認",
       texEnvironment: "TeX・TikZ環境設定",
@@ -284,6 +283,17 @@ export const chrome = {
     redoTooltip: "戻した操作をやり直す",
   },
   format: {
+    disabled: {
+      aiLocked: "AIが編集中の部分です",
+      readOnly: "閲覧のみの文書です",
+      sessionOpening: "文書への接続を待っています",
+      previewBusy: "AIの編集処理が終わるまでお待ちください",
+      tableCellRequired: "表のセルを編集すると使えます",
+      textShapeRequired: "文字のある図形を選ぶと使えます",
+      noTextSelection: "本文の文字を選ぶと使えます",
+      unsupportedBlock: "この選択では使えない書式です",
+      fontSizeUnavailable: "文字サイズを取得できていません",
+    },
     blockStructure: {
       bulletList: "箇条書き",
       orderedList: "番号付きリスト",
@@ -560,8 +570,6 @@ export const chrome = {
     },
     pageSetupLauncher: "ページ設定ダイアログを開く",
     pageSetup: "ページ設定",
-    outline: "アウトライン",
-    outlineTooltip: "アウトラインを表示",
     columnsApply: "{{columns}}段組",
     columnsClear: "段組を解除",
   },

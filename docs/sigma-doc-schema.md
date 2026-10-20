@@ -554,6 +554,8 @@ interface ProblemNode extends BaseNode {
 interface ProblemAreaLayout {
   minHeightMm?: number;
   columnSpan?: "column" | "full";
+  /** 導入文 (`lead`) だけが使う。導入文の行を出さない。 */
+  hidden?: boolean;
 }
 
 interface ProblemNumbering {
@@ -594,7 +596,7 @@ interface CustomFrame {
 
 `lead`、`solution`、`hint` は独立したtop-level blockではありません。必ず対象の `problem` の内側に置きます。
 
-編集画面と印刷では、`problem` は `lead`、`prompt`、`hints`、`solution` を本文中の連続したエリアとして展開します。エディタ上ではエリア境界を示す紙面外のサイド注とガイド線を表示しますが、このガイドと自動の「問題」「コメント」「解答」ラベルは本文データやPDFには出力しません。紙面に見出しを出したい場合は、ユーザーが各エリア内の本文として書きます。導入文エリアは常に編集可能で、使わない場合は空欄のままにします。空のコメント、解答エリアは編集画面でも既定では表示せず、追加操作で表示します。問題番号はラベルではなく、表示対象の問題に対して本文順で `1`、`2` のように導出し、番号の右隣に導入文を置きます。番号は未指定なら直前の表示番号 + 1、`numbering.value` があればその番号を使い、後続の自動番号は指定番号 + 1 から続けます。`frame.enabled` が `true` の場合のみ、問題文に枠線を表示し、導入文、コメント、解答には枠線を表示しません。
+編集画面と印刷では、`problem` は `lead`、`prompt`、`hints`、`solution` を本文中の連続したエリアとして展開します。エディタ上ではエリア境界を示す紙面外のサイド注とガイド線を表示しますが、このガイドと自動の「問題」「コメント」「解答」ラベルは本文データやPDFには出力しません。紙面に見出しを出したい場合は、ユーザーが各エリア内の本文として書きます。導入文エリアはふだん常に編集可能で、使わない場合は空欄のままにします。問題設定で導入文の行をオフにする (`areaLayout.lead.hidden: true`) と、導入文の文字を削除して行ごと畳み、番号は問題文の先頭に付きます。文字・数式・図などが残っているあいだは、設定があっても畳みません。空のコメント、解答エリアは編集画面でも既定では表示せず、追加操作で表示します。問題番号はラベルではなく、表示対象の問題に対して本文順で `1`、`2` のように導出し、番号の右隣に導入文を置きます。番号は未指定なら直前の表示番号 + 1、`numbering.value` があればその番号を使い、後続の自動番号は指定番号 + 1 から続けます。`frame.enabled` が `true` の場合のみ、問題文に枠線を表示し、導入文、コメント、解答には枠線を表示しません。
 
 問題文の枠線は、標準・二重・角付きに加えて、ユーザーが自分で描いた枠 (`styleId: "custom"`) を選べます。絵の作り方は SVG の貼り付け / ファイル読み込み、TikZ (SVGへ変換して保存)、AI (SVGを描かせる) の3つで、どれも最後は `custom.svg` の1枚に行き着きます。TikZ や HTML を任意実行・埋め込みしないのは箱 (`boxBlock`) と同じ方針です。
 
@@ -607,6 +609,8 @@ interface CustomFrame {
 
 
 `areaLayout.*.minHeightMm` は、そのエリアの最小高さです。内容が増えた場合は内容の高さが優先され、手動で広げた高さは最小高さとして保持されます。
+
+`areaLayout.lead.hidden` は導入文の行を出さない設定です。未指定または `false` は従来どおり導入文を常に描きます。`true` でも、導入文に空の段落以外のブロックがあるあいだは描きます (問題設定でオフにすると導入文を空にするので、AI編集などで後から書かれた場合の備えです)。
 
 `areaLayout.*.columnSpan` は、文書全体が段組みのときのエリア幅です。未指定または `"column"` は通常の段内配置、`"full"` は本文幅いっぱいの全幅配置です。
 
@@ -747,6 +751,10 @@ interface PageRunningRegion {
   heightMm: number;
   offsetMm: number;
   showOnFirstPage: boolean;
+  showOnLaterPages?: boolean;
+  hiddenPages?: number[];
+  shownPages?: number[];
+  pageContents?: { page: number; blocks: RichBlock[] }[];
   blocks: RichBlock[];
   overlay?: PageOverlay;
 }
@@ -757,11 +765,17 @@ interface PageRunningRegion {
 | field | role |
 | --- | --- |
 | `enabled` | 出力時に表示するか |
-| `heightMm` | ヘッダー/フッター領域の高さ |
+| `heightMm` | ヘッダー/フッター領域の高さ。0以上 (0は帯が場所を取らない。中身ははみ出して描く) |
 | `offsetMm` | 用紙端から領域までの距離 |
-| `showOnFirstPage` | 1ページ目にも表示するか |
-| `blocks` | 繰り返し表示する本文。`heading` / `paragraph` / `list` |
+| `showOnFirstPage` | 1ページ目に表示するか |
+| `showOnLaterPages` | 2ページ目以降を既定で表示するか。省略は表示する。`false` で「先頭ページのみ」(全ページぶんの印は持たず、ページが増えてもあとのページへ効く) |
+| `hiddenPages` | 2ページ目以降を既定で表示する (`showOnLaterPages` が省略または `true`) とき、表示しないページ番号 (2以上・昇順・重複なし)。空なら持たない |
+| `shownPages` | 2ページ目以降を既定で表示しない (`showOnLaterPages: false`) とき、表示するページ番号 |
+| `pageContents` | ページ専用の文字。`page` (1始まり) のページだけ、`blocks` の代わりにこの文字を出す。同じ番号は1つだけ。図形・画像 (`overlay`) はページごとには変えず共通 |
+| `blocks` | 繰り返し表示する本文 (ページ専用の文字を持たないページに出す共通の文字)。`heading` / `paragraph` / `list` |
 | `overlay` | running region内で繰り返す図形、画像、自由配置テキスト |
+
+ページ番号 (`hiddenPages` / `shownPages` / `pageContents` の `page`) は組版の結果で決まるページの位置の番号です。本文が増減してページが送られると、例外やページ専用の文字も同じ番号のページへ移ります (ブロックには結び付けません)。1ページ目はいつも `showOnFirstPage` が決め、一覧に1が書かれていても `showOnFirstPage` へ寄せて読みます。使わない側の一覧は読み込み時に捨てます。
 
 左/中央/右のスロットは正規データに持ちません。配置は `blocks[].align` と `overlay` で表します。
 
@@ -774,6 +788,8 @@ interface PageRunningRegion {
 現行データでは `header.content.left` / `center` / `right` のようなスロット構造は持ちません。配置は `blocks[].align` と `overlay` で表します。
 
 有効なrunning regionは `ensurePageLayout` / `expandMarginsForRunningRegions` によって本文余白を広げます。たとえば `header.enabled` がtrueで `offsetMm + heightMm` が現在の上余白より大きい場合、`marginsMm.top` はその値まで拡張されます。
+
+編集画面は、余白と帯をこの規則より先に揃えて保存します。ページ設定で上余白を帯より狭くすると帯を余白の中へ縮め (`setPageMarginMm`)、帯を広げると余白を押し広げます (`setRunningRegionGeometryMm`)。帯の高さは利用者が決めた値を保ち、文字を足して中身が増えたときだけ伸ばします (`fitRunningRegionToEditedContent`)。
 
 ## Overlay
 

@@ -4,6 +4,7 @@
 //   build/icon.svg  →  build/icon.png  (1024px, Linux/`app.dock.setIcon()`/BrowserWindow)
 //                   →  build/icon.icns (macOS, electron-builder `mac.icon`)
 //                   →  build/icon.ico  (Windows, electron-builder `win.icon`)
+//                   →  build/appx/*.png (Windows Store のタイル。electron-builder が `build/appx` から拾う)
 //
 // 実行: npm run icons:generate   (apps/desktop から)
 //
@@ -35,6 +36,19 @@ const ICNS_ENTRIES = [
 
 const ICO_SIZES = [16, 24, 32, 48, 64, 128, 256];
 
+// Windows Store のタイル。名前と大きさは electron-builder が読む4枚で固定。
+// icon.svg の角丸タイル (x/y 100..924) の周りに余白を少しだけ残して切り出し、角の外側は透明にする。
+// 背景を塗らないので、Start メニューやタスクバーでも角丸のまま見える (appx.backgroundColor は transparent)。
+// 横長のタイルは高さを合わせ、左右を透明にして角丸タイルを中央に置く。
+const APPX_ENTRIES = [
+  { name: "Square44x44Logo.png", width: 44, height: 44 },
+  { name: "StoreLogo.png", width: 50, height: 50 },
+  { name: "Square150x150Logo.png", width: 150, height: 150 },
+  { name: "Wide310x150Logo.png", width: 310, height: 150 },
+];
+const APPX_TILE_CENTER = 512;
+const APPX_TILE_EXTENT = 824 + 2 * 16;
+
 const svg = readFileSync(SVG_PATH);
 const renderCache = new Map();
 
@@ -51,6 +65,29 @@ function render(px) {
     .asPng();
   renderCache.set(px, png);
   return png;
+}
+
+/** icon.svg のルート要素の viewBox を差し替え、width/height は viewBox から決まるようにする。 */
+function withViewBox(source, viewBox) {
+  const root = /<svg\b[^>]*>/.exec(source);
+  if (!root) {
+    throw new Error("build/icon.svg has no <svg> root element");
+  }
+  const replacement = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${viewBox}">`;
+  return Buffer.from(source.toString("utf8").replace(root[0], replacement), "utf8");
+}
+
+function renderAppxTile({ width, height }) {
+  const viewHeight = APPX_TILE_EXTENT;
+  const viewWidth = (APPX_TILE_EXTENT * width) / height;
+  const x = APPX_TILE_CENTER - viewWidth / 2;
+  const y = APPX_TILE_CENTER - viewHeight / 2;
+  return new Resvg(withViewBox(svg, `${x} ${y} ${viewWidth} ${viewHeight}`), {
+    fitTo: { mode: "width", value: width },
+    background: "rgba(0,0,0,0)",
+  })
+    .render()
+    .asPng();
 }
 
 /**
@@ -104,6 +141,13 @@ console.log(`[icons] wrote ${path.relative(process.cwd(), pngPath)} (1024px)`);
 const icoPath = path.join(BUILD_DIR, "icon.ico");
 writeFileSync(icoPath, buildIco(ICO_SIZES.map((px) => ({ px, png: render(px) }))));
 console.log(`[icons] wrote ${path.relative(process.cwd(), icoPath)} (${ICO_SIZES.join(", ")}px)`);
+
+const appxDir = path.join(BUILD_DIR, "appx");
+mkdirSync(appxDir, { recursive: true });
+for (const entry of APPX_ENTRIES) {
+  writeFileSync(path.join(appxDir, entry.name), renderAppxTile(entry));
+}
+console.log(`[icons] wrote ${path.relative(process.cwd(), appxDir)}/ (${APPX_ENTRIES.map((entry) => entry.name).join(", ")})`);
 
 const icnsPath = path.join(BUILD_DIR, "icon.icns");
 if (process.platform === "darwin") {

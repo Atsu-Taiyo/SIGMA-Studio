@@ -1,9 +1,10 @@
 "use client";
 
 import { useEffect, useId, useMemo, useRef, useState } from "react";
-import { BookOpen, CircleAlert, CircleCheck, CircleHelp, ExternalLink, FilePlus, Minus, RotateCw, Search, SearchX, Tag, X } from "lucide-react";
-import { Button, IconButton } from "@/components/ui/Button";
+import { BookOpen, CircleAlert, CircleCheck, CircleHelp, ExternalLink, FilePlus, Minus, RotateCw, SearchX, Tag } from "lucide-react";
+import { Button } from "@/components/ui/Button";
 import { Grid, Inline, Inset, Stack } from "@/components/ui/layout";
+import { SearchField } from "@/components/ui/SearchField";
 import { Select } from "@/components/ui/Select";
 import { Shimmer } from "@/components/ui/Shimmer";
 import { ModalBody, ModalFrame, ModalHeader } from "@/components/ui/Modal";
@@ -115,15 +116,8 @@ export function ProblemLibraryDialog({ onImport, onClose }: Props) {
           run(query, category);
         }}>
           <Inline gap="sm" wrap>
-            <div className={styles.search}>
-              <Search size={16} aria-hidden="true" />
-              <input ref={searchInputRef} data-modal-initial-focus value={query} onChange={event => setQuery(event.target.value)} maxLength={500}
-                placeholder={t("problemLibrary.placeholder")} aria-label={t("problemLibrary.keyword")} enterKeyHint="search" disabled={!!importing} />
-              {query && <IconButton label={t("problemLibrary.clear")} tone="ghost" size="sm" disabled={!!importing} onClick={() => {
-                setQuery("");
-                searchInputRef.current?.focus();
-              }}><X size={15} aria-hidden="true" /></IconButton>}
-            </div>
+            <SearchField ref={searchInputRef} className={styles.search} data-modal-initial-focus value={query} onChange={setQuery} maxLength={500}
+              placeholder={t("problemLibrary.placeholder")} aria-label={t("problemLibrary.keyword")} clearLabel={t("problemLibrary.clear")} enterKeyHint="search" disabled={!!importing} />
             {/* The shared Select keeps the keyboard and ARIA behaviour; the icon is a sibling because the trigger only renders its label. */}
             <div className={styles.tagFilter} data-active={category !== "" || undefined}>
               <Tag className={styles.tagIcon} size={14} aria-hidden="true" />
