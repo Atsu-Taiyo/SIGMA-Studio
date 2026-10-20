@@ -1,0 +1,84 @@
+/* 検索欄の見た目の正本 (ワークスペースの検索バー)。幅・余白などの配置は呼び出し側が className で足す。 */
+.field {
+  --search-height: 42px;
+  --search-inline: 16px;
+  --search-gap: 10px;
+  --search-font-size: 14px;
+  display: flex;
+  align-items: center;
+  gap: var(--search-gap);
+  height: var(--search-height);
+  padding: 0 var(--search-inline);
+  border: 1px solid transparent;
+  border-radius: var(--radius-round);
+  background: var(--surface-muted);
+  color: var(--text-muted);
+  transition: background-color 140ms ease, border-color 140ms ease, box-shadow 140ms ease;
+}
+
+/* メニューやポップオーバーの中。ページ上部より一回り小さくし、周りの行 (13px) に文字の大きさを合わせる。 */
+.field[data-size="sm"] {
+  --search-height: 34px;
+  --search-inline: 12px;
+  --search-gap: 8px;
+  --search-font-size: 13px;
+}
+
+.field:focus-within {
+  border-color: var(--border-subtle);
+  background: var(--background);
+  box-shadow: 0 1px 2px rgba(17, 17, 17, 0.05), 0 8px 24px rgba(17, 17, 17, 0.08);
+}
+
+/* 枠で切られるメニューの中では、広がる影を使わず、枠と白い面だけで焦点を示す。 */
+.field[data-size="sm"]:focus-within {
+  box-shadow: 0 1px 2px rgba(17, 17, 17, 0.06);
+}
+
+.icon {
+  flex: 0 0 auto;
+}
+
+.input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  outline: none;
+  background: transparent;
+  color: var(--text-primary);
+  font-size: var(--search-font-size);
+  appearance: none;
+}
+
+.input::placeholder {
+  color: var(--text-muted);
+}
+
+/* 消去ボタンはこちらで描く。ブラウザ標準の × と二重に出さない。 */
+.input::-webkit-search-cancel-button,
+.input::-webkit-search-decoration {
+  display: none;
+  appearance: none;
+}
+
+/* メニュー内の汎用ボタンの規則 (.shape-menu button: 幅100%・高さ32px など) に負けないよう、クラスを重ねる。 */
+.field .clear.clear {
+  display: grid;
+  flex: 0 0 auto;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-round);
+  background: transparent;
+  color: var(--text-muted);
+}
+
+.field .clear.clear:hover,
+.field .clear.clear:focus-visible {
+  background: var(--surface-strong);
+  color: var(--text-primary);
+  outline: none;
+}

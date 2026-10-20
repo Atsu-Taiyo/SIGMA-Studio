@@ -75,58 +75,9 @@
 }
 
 .workspace-search {
-  display: inline-flex;
-  align-items: center;
-  gap: 10px;
+  /* 見た目は共通の SearchField が持つ。ここはヘッダー内の配置だけ。 */
   width: min(560px, 100%);
-  height: 42px;
   margin: 0 auto;
-  padding: 0 16px;
-  border: 1px solid transparent;
-  border-radius: 999px;
-  background: var(--surface-muted);
-  color: var(--text-muted);
-  transition: background-color 140ms ease, border-color 140ms ease, box-shadow 140ms ease;
-}
-
-.workspace-search:focus-within {
-  border-color: var(--border-subtle);
-  background: var(--background);
-  box-shadow: 0 1px 2px rgba(17, 17, 17, 0.05), 0 8px 24px rgba(17, 17, 17, 0.08);
-}
-
-.workspace-search input {
-  flex: 1;
-  min-width: 0;
-  border: 0;
-  outline: none;
-  background: transparent;
-  color: var(--text-primary);
-  font-size: 14px;
-}
-
-.workspace-search input::placeholder {
-  color: var(--text-muted);
-}
-
-.workspace-search-clear {
-  display: grid;
-  flex: 0 0 auto;
-  place-items: center;
-  width: 24px;
-  height: 24px;
-  padding: 0;
-  border: 0;
-  border-radius: 999px;
-  background: transparent;
-  color: var(--text-muted);
-}
-
-.workspace-search-clear:hover,
-.workspace-search-clear:focus-visible {
-  background: var(--surface-strong);
-  color: var(--text-primary);
-  outline: none;
 }
 
 .workspace-page-actions,

@@ -2994,31 +2994,7 @@ button:disabled {
 }
 
 .font-family-menu-search {
-  display: flex;
-  align-items: center;
-  gap: var(--space-sm);
-  min-height: 34px;
   margin-bottom: var(--space-xs);
-  padding-inline: var(--space-sm);
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-control);
-  background: var(--surface-soft);
-  color: var(--text-muted);
-}
-
-.font-family-menu-search input {
-  width: 100%;
-  min-width: 0;
-  border: 0;
-  outline: 0;
-  background: transparent;
-  color: var(--text-primary);
-  font: inherit;
-  font-size: 12px;
-}
-
-.font-family-menu-search input::placeholder {
-  color: var(--text-muted);
 }
 
 .font-family-menu-group {

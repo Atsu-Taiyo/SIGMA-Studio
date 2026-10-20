@@ -32,6 +32,7 @@ import { isLineToolCommand, isShapeMenuCommand } from "@/components/editor/overl
 import { OverlayLineDashMenuButton, OverlayLineWidthMenuButton } from "@/components/editor/overlay-line-style-menus";
 import { dispatchOverlayStylePreview } from "@/components/editor/page-overlay-types";
 import { IconButton } from "@/components/ui/Button";
+import { SearchField } from "@/components/ui/SearchField";
 import { Shimmer } from "@/components/ui/Shimmer";
 import { Inline, Inset } from "@/components/ui/layout";
 // 矢印/Home/End の移動先計算は設定タブと同じ純関数を使う（実装を二重に持たない）。
@@ -1022,17 +1023,15 @@ export function renderEditorChrome(chrome: EditorChromeValue) {
               ariaLabel={t("format.font.aria")}
             >
               {(fontFamilyMenuOpen && canUseTextToolbar) && <div className="font-family-menu-content" {...{ [INLINE_MATH_FONT_MENU_ATTRIBUTE]: "" }}>
-              <label className="font-family-menu-search">
-                <Search size={14} aria-hidden="true" />
-                <input
-                  type="search"
-                  value={fontFamilyQuery}
-                  aria-label={t("format.font.search")}
-                  placeholder={t("format.font.search")}
-                  data-popover-initial-focus=""
-                  onChange={(event) => setFontFamilyQuery(event.target.value)}
-                />
-              </label>
+              <SearchField
+                size="sm"
+                className="font-family-menu-search"
+                value={fontFamilyQuery}
+                aria-label={t("format.font.search")}
+                placeholder={t("format.font.search")}
+                data-popover-initial-focus=""
+                onChange={setFontFamilyQuery}
+              />
               {!fontFamilyIsKnownOption ? (
                 <div className="font-family-menu-group" role="group" aria-label={t("format.font.currentGroup")}>
                   <div className="font-family-menu-group-label">{t("format.font.currentGroup")}</div>
