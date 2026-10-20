@@ -9,6 +9,7 @@ import {
   getHiddenOptionalProblemAreas,
   getOptionalProblemAreaBlockIdPrefix,
   resolveProblemAreaTransition,
+  setProblemLeadShown,
 } from "./problem-area-model";
 
 describe("problem area model", () => {
@@ -199,6 +200,59 @@ describe("problem area model", () => {
     expect(
       result.type === "problem" ? result.areaLayout : null,
     ).toBeUndefined();
+  });
+});
+
+describe("setProblemLeadShown", () => {
+  it("marks the lead line off and clears the mark again, keeping the other layout", () => {
+    const problem = problemNode("problem");
+    problem.areaLayout = { solution: { minHeightMm: 6 } };
+
+    const off = setProblemLeadShown(problem, false);
+    expect(off.areaLayout).toEqual({ solution: { minHeightMm: 6 }, lead: { hidden: true } });
+    expect(problem.areaLayout).toEqual({ solution: { minHeightMm: 6 } });
+
+    expect(setProblemLeadShown(off, true).areaLayout).toEqual({ solution: { minHeightMm: 6 } });
+  });
+
+  it("leaves no empty areaLayout behind once the lead line is back on", () => {
+    const off = setProblemLeadShown(problemNode("problem"), false);
+
+    expect(off.areaLayout).toEqual({ lead: { hidden: true } });
+    expect(setProblemLeadShown(off, true).areaLayout).toBeUndefined();
+  });
+
+  it("keeps a lead height that was reserved when only the mark is removed", () => {
+    const problem = problemNode("problem");
+    problem.areaLayout = { lead: { minHeightMm: 8, hidden: true } };
+
+    expect(setProblemLeadShown(problem, true).areaLayout).toEqual({ lead: { minHeightMm: 8 } });
+  });
+
+  it("throws away the lead text, and its reserved height, when the line is turned off", () => {
+    const problem = problemNode("problem", {
+      lead: [paragraph("lead_1", "次の問いに答えよ。"), paragraph("lead_2", "続き")],
+      prompt: [paragraph("prompt_1", "問題")],
+    });
+    problem.areaLayout = { lead: { minHeightMm: 8, columnSpan: "full" }, solution: { minHeightMm: 6 } };
+
+    const off = setProblemLeadShown(problem, false);
+
+    expect(off.lead).toEqual([]);
+    expect(off.prompt).toBe(problem.prompt);
+    expect(off.areaLayout).toEqual({ lead: { columnSpan: "full", hidden: true }, solution: { minHeightMm: 6 } });
+    // 元の問題は変えない (取り消しで戻せる)。
+    expect(problem.lead).toHaveLength(2);
+  });
+
+  it("does not touch the lead when the line is turned back on", () => {
+    const problem = problemNode("problem", { lead: [paragraph("lead_1", "あとから書いた導入文")] });
+    problem.areaLayout = { lead: { hidden: true } };
+
+    const on = setProblemLeadShown(problem, true);
+
+    expect(on.lead).toBe(problem.lead);
+    expect(on.areaLayout).toBeUndefined();
   });
 });
 

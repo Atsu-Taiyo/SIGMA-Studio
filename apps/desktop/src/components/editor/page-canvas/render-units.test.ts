@@ -374,3 +374,49 @@ describe("buildRenderUnits with a problem display filter", () => {
     expect(areasOf(units)).toEqual(["hints", "solution"]);
   });
 });
+
+describe("buildRenderUnits with the lead line turned off", () => {
+  function problemWith(lead: TextFlowBlock[], hidden = true) {
+    return {
+      type: "problem",
+      id: "q1",
+      tags: [],
+      lead,
+      prompt: [paragraph("q1_prompt", "問題文")],
+      hints: [],
+      solution: [],
+      areaLayout: hidden ? { lead: { hidden: true } } : undefined,
+    } as unknown as SigmaBlock;
+  }
+
+  function problemAreas(units: readonly RenderUnit[]) {
+    return units.filter((unit): unit is Extract<RenderUnit, { type: "problemArea" }> => unit.type === "problemArea");
+  }
+
+  it("folds an empty lead and hands the number to the problem text", () => {
+    const units = problemAreas(buildRenderUnits([problemWith([])], null, null, undefined, undefined));
+
+    expect(units.map((unit) => unit.area)).toEqual(["prompt"]);
+    expect(units[0]?.isFirstProblemArea).toBe(true);
+  });
+
+  it("folds a lead that only holds an empty paragraph, which is what typing and deleting leaves", () => {
+    const units = problemAreas(buildRenderUnits([problemWith([
+      { type: "paragraph", id: "q1_lead", children: [] } as TextFlowBlock,
+    ])]));
+
+    expect(units.map((unit) => unit.area)).toEqual(["prompt"]);
+  });
+
+  it("keeps a lead that has text, so no text is ever left undrawn", () => {
+    const units = problemAreas(buildRenderUnits([problemWith([paragraph("q1_lead", "導入文")])]));
+
+    expect(units.map((unit) => unit.area)).toEqual(["lead", "prompt"]);
+  });
+
+  it("draws the lead line as before unless the problem turned it off", () => {
+    const units = problemAreas(buildRenderUnits([problemWith([], false)]));
+
+    expect(units.map((unit) => unit.area)).toEqual(["lead", "prompt"]);
+  });
+});

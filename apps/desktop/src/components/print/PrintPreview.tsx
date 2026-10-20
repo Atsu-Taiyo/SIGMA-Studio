@@ -1627,7 +1627,7 @@ function getMeasuredPrintBlockRects(
           const fragmentBlockIds = collectProblemAreaBlockSubtreeIds(block.blocks);
           const firstBlockRect = sourceNestedRects.find((nested) => nested.id === block.blocks[0]?.id);
           const firstBlockTop = firstBlockRect?.top ?? 0;
-          const showsProblemNumber = block.area === "lead" &&
+          const showsProblemNumber = block.isFirstProblemArea &&
             typeof block.problemNumber === "number" &&
             (block.fragmentRole === "first" || block.fragmentRole === "single");
           const sourceLeftOrigin = showsProblemNumber ? 0 : firstBlockRect?.left ?? 0;

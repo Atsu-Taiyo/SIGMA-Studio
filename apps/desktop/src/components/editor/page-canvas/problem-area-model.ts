@@ -151,3 +151,29 @@ function setProblemAreaMinHeight(
     areaLayout: Object.keys(areaLayout).length > 0 ? areaLayout : undefined,
   };
 }
+
+/**
+ * 導入文 (番号の右隣の1行) を出すか。出す (既定) ときは印を外し、空になった `areaLayout` も残さない。
+ * 出さないときは導入文の文字と予約した高さを捨てて、行ごと畳む (`isProblemLeadFolded`)。
+ * 捨てた中身は、ここを通した変更の取り消し (Ctrl+Z) で戻る。
+ */
+export function setProblemLeadShown(problem: ProblemNode, shown: boolean): ProblemNode {
+  const areaLayout = { ...(problem.areaLayout ?? {}) };
+  const lead = { ...(areaLayout.lead ?? {}) };
+  if (shown) {
+    delete lead.hidden;
+  } else {
+    lead.hidden = true;
+    delete lead.minHeightMm;
+  }
+  if (Object.keys(lead).length > 0) {
+    areaLayout.lead = lead;
+  } else {
+    delete areaLayout.lead;
+  }
+  return {
+    ...problem,
+    ...(shown || problem.lead.length === 0 ? {} : { lead: [] }),
+    areaLayout: Object.keys(areaLayout).length > 0 ? areaLayout : undefined,
+  };
+}

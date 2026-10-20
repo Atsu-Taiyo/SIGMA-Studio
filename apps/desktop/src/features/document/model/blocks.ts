@@ -213,6 +213,13 @@ export type ProblemAreaColumnSpan = "column" | "full";
 export interface ProblemAreaLayout {
   minHeightMm?: number;
   columnSpan?: ProblemAreaColumnSpan;
+  /**
+   * 導入文 (`lead`) の行を出さない。導入文は番号の右隣の1行で、ふだんは空でも常に描く。これを立てると、
+   * 導入文が空の間だけ行ごと畳み、番号は問題文の先頭へ移る。文字があれば隠さない (見えない文字を作らない)。
+   * 問題設定でオフにするときは、導入文の文字を捨ててこれを立てる。
+   * `lead` 以外のエリアでは使わない (それらは中身があるときだけ描く)。
+   */
+  hidden?: boolean;
 }
 
 export interface ProblemNumbering {

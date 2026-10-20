@@ -506,7 +506,7 @@ const ProblemNodeSchema = BaseNodeSchema.extend({
   hints: z.array(ProblemAreaBlockSchema),
   areaLayout: z
     .object({
-      lead: ProblemAreaLayoutSchema.optional(),
+      lead: ProblemAreaLayoutSchema.extend({ hidden: z.boolean().optional() }).optional(),
       prompt: ProblemAreaLayoutSchema.optional(),
       solution: ProblemAreaLayoutSchema.optional(),
       hints: ProblemAreaLayoutSchema.optional(),
