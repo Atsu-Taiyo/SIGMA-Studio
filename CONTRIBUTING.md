@@ -148,3 +148,9 @@ React 19は `npm run test:public-browser`、React 18はfixtureのビルド後に
 `npm run test:public-browser:react18` で検証します。従来の `test:public-browser:react19` は通常の検証へのaliasです。
 両テストは実際のReact版と
 編集・保存・再読込を確認し、CIとnpm公開前にも両方を実行します。
+
+## 日次の開発・保守自動化
+
+GitHub Actionsによる外部OSS調査、改善Draft PR、独立レビュー、実行監視の設定と検証範囲は
+[Software Factoryの運用](docs/software-factory.md) を参照してください。
+Factory自身とCIの変更は通常のPRでレビューし、生成した改善案から合格条件を変更できないようにします。

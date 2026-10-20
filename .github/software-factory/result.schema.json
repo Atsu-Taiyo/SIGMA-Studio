@@ -1,0 +1,29 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["status", "topic", "title", "summary", "evidence", "sources", "tests", "limitations"],
+  "properties": {
+    "status": { "type": "string", "enum": ["change", "proposal", "noop"] },
+    "topic": { "type": "string" },
+    "title": { "type": "string" },
+    "summary": { "type": "string" },
+    "evidence": { "type": "array", "items": { "type": "string" } },
+    "sources": {
+      "type": "array",
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["url", "revision", "reason"],
+        "properties": { "url": { "type": "string" }, "revision": { "type": "string" }, "reason": { "type": "string" } }
+      }
+    },
+    "tests": {
+      "type": "array",
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["command", "result"],
+        "properties": { "command": { "type": "string" }, "result": { "type": "string" } }
+      }
+    },
+    "limitations": { "type": "array", "items": { "type": "string" } }
+  }
+}

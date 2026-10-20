@@ -1,0 +1,33 @@
+name: Software Factory health
+
+on:
+  schedule:
+    - cron: '23 3,9,15 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: software-factory-health
+  cancel-in-progress: false
+
+jobs:
+  health:
+    if: github.repository == 'Atsu-Taiyo/SIGMA-Studio' && vars.SIGMA_FACTORY_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: read
+      issues: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+      - uses: actions/github-script@v9
+        with:
+          script: |
+            const factory = await import(`${process.env.GITHUB_WORKSPACE}/.github/software-factory/github.mjs`);
+            await factory.checkHealth({github, context, core});

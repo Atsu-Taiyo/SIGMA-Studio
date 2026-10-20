@@ -1,0 +1,200 @@
+name: Software Factory daily
+
+on:
+  schedule:
+    - cron: '0 21 * * *' # 06:00 Asia/Tokyo
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'readiness: 設定確認のみ / improve: 調査から改善PRまで'
+        type: choice
+        options: [readiness, improve]
+        default: readiness
+
+permissions:
+  contents: read
+
+concurrency:
+  group: software-factory-daily
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    if: github.repository == 'Atsu-Taiyo/SIGMA-Studio' && (github.event_name == 'workflow_dispatch' || vars.SIGMA_FACTORY_ENABLED == 'true')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: read
+      issues: read
+      pull-requests: read
+    outputs:
+      base_sha: ${{ steps.prepare.outputs.base_sha }}
+      run_ai: ${{ steps.prepare.outputs.run_ai }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+      - uses: actions/github-script@v9
+        id: prepare
+        env:
+          HAS_OPENAI_KEY: ${{ secrets.OPENAI_API_KEY != '' && 'true' || '' }}
+          HAS_FACTORY_TOKEN: ${{ secrets.SIGMA_FACTORY_GITHUB_TOKEN != '' && 'true' || '' }}
+        with:
+          script: |
+            const factory = await import(`${process.env.GITHUB_WORKSPACE}/.github/software-factory/github.mjs`);
+            await factory.prepareDaily({github, context, core});
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: factory-context
+          path: .factory-output/context.json
+          include-hidden-files: true
+          retention-days: 14
+
+  improve:
+    needs: prepare
+    if: needs.prepare.outputs.run_ai == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.prepare.outputs.base_sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci
+      - uses: actions/download-artifact@v7
+        with:
+          name: factory-context
+          path: .factory-output
+      - name: Research similar OSS and implement one improvement
+        uses: openai/codex-action@bdf19a4a223ec2549a3e2274a0cf61556bc07675 # v1
+        timeout-minutes: 25
+        with:
+          openai-api-key: ${{ secrets.OPENAI_API_KEY }}
+          codex-version: '0.163.0'
+          model: ${{ vars.SIGMA_FACTORY_MODEL }}
+          effort: high
+          permission-profile: ':workspace'
+          safety-strategy: drop-sudo
+          prompt-file: .github/software-factory/daily.md
+          output-schema-file: .github/software-factory/result.schema.json
+          output-file: .factory-output/result.json
+          codex-args: '["--ephemeral", "-c", "web_search=\"live\""]'
+      - name: Collect the candidate as data
+        run: node .github/software-factory/core.mjs collect
+      - uses: actions/upload-artifact@v7
+        with:
+          name: factory-candidate
+          path: |
+            .factory-output/context.json
+            .factory-output/result.json
+            .factory-output/change.patch
+          include-hidden-files: true
+          retention-days: 14
+
+  verify:
+    needs: [prepare, improve]
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    outputs:
+      status: ${{ steps.inspect.outputs.status }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.prepare.outputs.base_sha }}
+          persist-credentials: false
+      - uses: actions/download-artifact@v7
+        with:
+          name: factory-candidate
+          path: .factory-output
+      - name: Enforce the patch policy on a fresh checkout
+        id: inspect
+        run: node .github/software-factory/core.mjs verify
+      - uses: actions/setup-node@v7
+        if: steps.inspect.outputs.status == 'change'
+        with:
+          node-version: '24'
+          cache: npm
+      - if: steps.inspect.outputs.status == 'change'
+        run: |
+          npm ci
+          npm exec --workspace @sigma-studio/desktop -- next typegen
+          npm run typecheck
+          npm run lint
+          npm --workspace @sigma-studio/desktop run test -- --maxWorkers=2 --testTimeout=30000
+      - uses: actions/upload-artifact@v7
+        with:
+          name: factory-manifest
+          path: .factory-output/manifest.json
+          include-hidden-files: true
+          retention-days: 14
+
+  review:
+    needs: [prepare, verify]
+    if: needs.verify.outputs.status != 'noop'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.prepare.outputs.base_sha }}
+          persist-credentials: false
+      - uses: actions/download-artifact@v7
+        with:
+          name: factory-candidate
+          path: .factory-output
+      - uses: actions/download-artifact@v7
+        with:
+          name: factory-manifest
+          path: .factory-output
+      - name: Review the candidate independently
+        uses: openai/codex-action@bdf19a4a223ec2549a3e2274a0cf61556bc07675 # v1
+        timeout-minutes: 15
+        with:
+          openai-api-key: ${{ secrets.OPENAI_API_KEY }}
+          codex-version: '0.163.0'
+          model: ${{ vars.SIGMA_FACTORY_MODEL }}
+          effort: high
+          permission-profile: ':read-only'
+          safety-strategy: drop-sudo
+          prompt-file: .github/software-factory/review.md
+          output-schema-file: .github/software-factory/review.schema.json
+          output-file: .factory-output/review.json
+          codex-args: '["--ephemeral"]'
+      - uses: actions/upload-artifact@v7
+        with:
+          name: factory-independent-review
+          path: .factory-output/review.json
+          include-hidden-files: true
+          retention-days: 14
+
+  publish:
+    needs: [prepare, review]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.prepare.outputs.base_sha }}
+          persist-credentials: false
+      - uses: actions/download-artifact@v7
+        with:
+          name: factory-candidate
+          path: .factory-output
+      - uses: actions/download-artifact@v7
+        with:
+          name: factory-independent-review
+          path: .factory-output
+      - name: Publish an approved proposal or Draft PR
+        uses: actions/github-script@v9
+        with:
+          github-token: ${{ secrets.SIGMA_FACTORY_GITHUB_TOKEN }}
+          script: |
+            const factory = await import(`${process.env.GITHUB_WORKSPACE}/.github/software-factory/github.mjs`);
+            await factory.publishDaily({github, context, core});

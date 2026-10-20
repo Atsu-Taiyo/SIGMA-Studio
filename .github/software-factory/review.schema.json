@@ -1,0 +1,11 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["candidate_digest", "verdict", "summary", "findings"],
+  "properties": {
+    "candidate_digest": { "type": "string" },
+    "verdict": { "type": "string", "enum": ["approve", "reject"] },
+    "summary": { "type": "string" },
+    "findings": { "type": "array", "items": { "type": "string" } }
+  }
+}
