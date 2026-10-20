@@ -1,10 +1,11 @@
 "use client";
 
-import { ChevronRight, FileText, Folder, FolderOpen, LayoutGrid, RefreshCw, Search, X } from "lucide-react";
+import { ChevronRight, FileText, Folder, FolderOpen, LayoutGrid, RefreshCw, Search } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { KeyboardEvent } from "react";
 
 import { IconButton } from "@/components/ui/Button";
+import { SearchField } from "@/components/ui/SearchField";
 import { Select } from "@/components/ui/Select";
 import { DocumentTitleText } from "@/features/rendering/adapters/react";
 import { useT } from "@/lib/i18n/react";
@@ -196,35 +197,32 @@ export function FilesPanel({ documents, activeFileId, openFileIds, onOpenFile, o
           {/* 検索は虫眼鏡のアイコンだけを置き、押すと空いている幅いっぱいに広がる。 */}
           <div className={styles.search} data-open={searchOpen || undefined}>
             {searchOpen ? (
-              <div className={styles.searchField}>
-                <Search size={14} className={styles.searchIcon} aria-hidden="true" />
-                <input
-                  ref={searchInputRef}
-                  type="search"
-                  className={styles.searchInput}
-                  value={query}
-                  aria-label={t("rightDock.files.searchLabel")}
-                  placeholder={t("rightDock.files.searchPlaceholder")}
-                  onChange={(event) => setQuery(event.target.value)}
-                  // 絞り込み中はそのまま開いておく。空のまま離れたときだけ、アイコンへ畳む。
-                  onBlur={() => {
-                    if (!query.trim()) closeSearch();
-                  }}
-                  onKeyDown={(event) => {
-                    if (event.key !== "Escape") return;
-                    event.stopPropagation();
-                    if (query) {
-                      setQuery("");
-                    } else {
-                      restoreSearchFocusRef.current = true;
-                      closeSearch();
-                    }
-                  }}
-                />
-                <IconButton label={t("rightDock.files.closeSearch")} tone="ghost" size="sm" onClick={closeSearch}>
-                  <X size={14} aria-hidden="true" />
-                </IconButton>
-              </div>
+              <SearchField
+                ref={searchInputRef}
+                size="sm"
+                value={query}
+                aria-label={t("rightDock.files.searchLabel")}
+                placeholder={t("rightDock.files.searchPlaceholder")}
+                onChange={setQuery}
+                // 右端の × は、入力の有無にかかわらず出して、欄を閉じる操作を兼ねる。
+                alwaysShowClear
+                clearLabel={t("rightDock.files.closeSearch")}
+                onClear={closeSearch}
+                // 絞り込み中はそのまま開いておく。空のまま離れたときだけ、アイコンへ畳む。
+                onBlur={() => {
+                  if (!query.trim()) closeSearch();
+                }}
+                onKeyDown={(event) => {
+                  if (event.key !== "Escape") return;
+                  event.stopPropagation();
+                  if (query) {
+                    setQuery("");
+                  } else {
+                    restoreSearchFocusRef.current = true;
+                    closeSearch();
+                  }
+                }}
+              />
             ) : (
               <IconButton
                 ref={searchToggleRef}

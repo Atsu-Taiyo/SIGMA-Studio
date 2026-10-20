@@ -68,53 +68,8 @@
 }
 
 .search[data-open="true"] {
-  min-width: 152px;
+  min-width: 180px;
   flex-grow: 1;
-}
-
-.searchField {
-  position: relative;
-  display: flex;
-  height: 34px;
-  align-items: center;
-  overflow: hidden;
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-control);
-  background: var(--background);
-  transition: border-color 140ms ease;
-}
-
-.searchField:focus-within {
-  border-color: var(--border-strong);
-}
-
-.searchIcon {
-  flex: 0 0 auto;
-  margin-left: var(--space-sm);
-  color: var(--text-muted);
-  pointer-events: none;
-}
-
-.searchInput {
-  min-width: 0;
-  flex: 1 1 auto;
-  padding: var(--space-sm) 0 var(--space-sm) var(--space-sm);
-  border: 0;
-  background: transparent;
-  color: var(--text-primary);
-  font: inherit;
-  font-size: 12px;
-  outline: none;
-}
-
-.searchInput::placeholder {
-  color: var(--text-muted);
-}
-
-/* ブラウザ標準の × は共通の閉じるボタンと重なるので出さない。 */
-.searchInput::-webkit-search-cancel-button {
-  display: none;
-  appearance: none;
 }
 
 @media (prefers-reduced-motion: reduce) {

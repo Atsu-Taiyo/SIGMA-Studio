@@ -2,7 +2,8 @@
 
 import { Fragment, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties, ReactNode } from "react";
-import { Check, MessageSquarePlus, MoreHorizontal, Pencil, Reply, RotateCcw, Search, Smile, Trash2 } from "lucide-react";
+import { Check, MessageSquarePlus, MoreHorizontal, Pencil, Reply, RotateCcw, Smile, Trash2 } from "lucide-react";
+import { SearchField } from "@/components/ui/SearchField";
 
 import { CommentAuthorAvatar } from "@/components/editor/CommentAuthorAvatar";
 import { CommentComposer } from "@/components/editor/CommentComposer";
@@ -741,18 +742,16 @@ function CommentReactionPicker({
 
   return (
     <div className="comment-reaction-picker" role="dialog" aria-label={t("comment.reactions")}>
-      <label className="comment-reaction-picker-search">
-        <Search size={14} aria-hidden="true" />
-        <input
-          type="search"
-          value={query}
-          placeholder={t("comment.searchEmoji")}
-          aria-label={t("comment.searchEmoji")}
-          onChange={(event) => onQueryChange(event.currentTarget.value)}
-          onClick={(event) => event.stopPropagation()}
-          onMouseDown={(event) => event.stopPropagation()}
-        />
-      </label>
+      <SearchField
+        size="sm"
+        className="comment-reaction-picker-search"
+        value={query}
+        placeholder={t("comment.searchEmoji")}
+        aria-label={t("comment.searchEmoji")}
+        onChange={onQueryChange}
+        onClick={(event) => event.stopPropagation()}
+        onMouseDown={(event) => event.stopPropagation()}
+      />
       {showSavedSections && recentEmojis.length > 0 && (
         <CommentReactionPickerSection
           title={t("comment.recent")}

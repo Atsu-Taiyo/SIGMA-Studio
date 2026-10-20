@@ -11,7 +11,6 @@ import {
   PanelRight,
   Paperclip,
   Plus,
-  Search,
   Sparkles,
   SquarePen,
   X,
@@ -20,6 +19,7 @@ import { AntigravityMark, ClaudeMark, OpenAiMark, renderModelMark } from "@/comp
 import { AiChatTextInput } from "@/components/editor/AiChatTextInput";
 import { ToolbarPopover } from "@/components/editor/ToolbarPopover";
 import { Shimmer } from "@/components/ui/Shimmer";
+import { SearchField } from "@/components/ui/SearchField";
 import { getAiEditReferenceKey, getReferenceDisplayLabel } from "@/lib/ai/ai-edit-reference";
 import {
   cycleReasoningEffort,
@@ -406,14 +406,13 @@ export function AiChatComposer({ controller, models, pinnedReferences,onRemovePi
                   <span>{t("composer.addFile")}</span>
                 </button>
                 <div className="ai-chat-menu-divider" />
-                <div className="ai-chat-context-picker-search">
-                  <Search size={13} />
-                  <input
+                <SearchField
                     ref={contextPickerSearchRef}
-                    type="text"
+                    size="sm"
+                    className="ai-chat-context-picker-search"
                     value={contextPickerQuery}
-                    onChange={(event) => {
-                      setContextPickerQuery(event.currentTarget.value);
+                    onChange={(value) => {
+                      setContextPickerQuery(value);
                       setContextPickerActiveIndex(0);
                     }}
                     onKeyDown={(event) => {
@@ -446,7 +445,6 @@ export function AiChatComposer({ controller, models, pinnedReferences,onRemovePi
                     placeholder={t("composer.searchDocsAndSkills")}
                     aria-label={t("composer.searchContext")}
                   />
-                </div>
                 <div className="ai-chat-context-picker-list">
                   <div className="ai-chat-menu-title">{t("composer.documents")}</div>
                   {contextPickerDocLoading && contextPickerDocCandidates.length === 0 ? (

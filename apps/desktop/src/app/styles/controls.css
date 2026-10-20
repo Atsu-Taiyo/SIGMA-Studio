@@ -1079,32 +1079,8 @@ button:disabled {
 }
 
 .command-settings-search {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-sm);
   flex: 1 1 auto;
   min-width: 0;
-  height: 34px;
-  padding: 0 var(--space-md);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-control);
-  background: var(--surface);
-  color: var(--text-secondary);
-}
-
-.command-settings-search:focus-within {
-  border-color: var(--border-strong);
-  outline: 2px solid color-mix(in srgb, var(--accent) 24%, transparent);
-}
-
-.command-settings-search input {
-  width: 100%;
-  min-width: 0;
-  border: 0;
-  background: transparent;
-  color: var(--text-primary);
-  outline: none;
-  font-size: 13px;
 }
 
 /* 名前 + 操作の並び。開閉も段階もない 1 枚のフォーム。 */

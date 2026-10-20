@@ -3,6 +3,7 @@
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 
 import { ModalBody, ModalFrame } from "@/components/ui/Modal";
+import { SearchField } from "@/components/ui/SearchField";
 import { useAppLocale, useT } from "@/lib/i18n/react";
 
 import {
@@ -102,9 +103,10 @@ function CommandPaletteBody({
     >
       <ModalBody className="command-palette-body" padding="none">
         <div className="command-palette-search">
-          <input
+          <SearchField
+            size="lg"
+            aria-label={t("palette.placeholder")}
             data-modal-initial-focus
-            className="command-palette-input"
             value={query}
             role="combobox"
             aria-expanded
@@ -115,7 +117,7 @@ function CommandPaletteBody({
             maxLength={MAX_QUERY_LENGTH}
             spellCheck={false}
             autoComplete="off"
-            onChange={(event) => setQuery(event.target.value)}
+            onChange={setQuery}
             onKeyDown={(event) => {
               // IME 変換中の Enter は「確定」であって「実行」ではない。日本語で
               // 「たいじ」→変換→Enter が、そのままコマンド実行になってはいけない。

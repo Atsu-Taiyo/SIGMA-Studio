@@ -1318,6 +1318,7 @@ export function WorkspaceManager() {
           <h1>Sigma Studio</h1>
         </div>
         <SearchField
+          size="lg"
           className="workspace-search"
           aria-label={t("search.material")}
           clearLabel={t("search.clear")}

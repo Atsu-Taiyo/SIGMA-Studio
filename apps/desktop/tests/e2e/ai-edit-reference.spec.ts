@@ -117,7 +117,7 @@ test("opens the sidebar composer from the AI menu and shows current context acti
   await composer.getByRole("button", { name: "コンテキストを追加" }).click();
   const menu = page.locator('.ai-chat-context-menu[aria-label="コンテキストを追加"]');
   await expect(menu).toBeVisible();
-  await expect(menu.getByRole("textbox", { name: "コンテキストを検索" })).toBeVisible();
+  await expect(menu.getByRole("searchbox", { name: "コンテキストを検索" })).toBeVisible();
   await expect(menu).toContainText("ドキュメント");
   await expect(menu).toContainText("スキル");
   await expect(menu).toContainText("Actions");

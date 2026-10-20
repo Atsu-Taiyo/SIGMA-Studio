@@ -1,10 +1,11 @@
 "use client";
 
-import { ChevronDown, ChevronRight, Keyboard, RotateCcw, Search, Trash2, X } from "lucide-react";
+import { ChevronDown, ChevronRight, Keyboard, RotateCcw, Trash2, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { KeyboardEvent as ReactKeyboardEvent } from "react";
 
 import { Button, IconButton } from "@/components/ui/Button";
+import { SearchField } from "@/components/ui/SearchField";
 import { ModalBody, ModalFrame, ModalHeader } from "@/components/ui/Modal";
 import { useT } from "@/lib/i18n/react";
 
@@ -322,16 +323,15 @@ export function CommandSettingsDialog({
       <ModalBody className="command-settings-content" padding="none" scroll="hidden">
 
         <div className="command-settings-toolbar">
-          <label className="command-settings-search">
-            <Search size={16} />
-            <input
-              data-modal-initial-focus
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-              placeholder={t("commands.search")}
-              aria-label={t("commands.search")}
-            />
-          </label>
+          <SearchField
+            size="sm"
+            className="command-settings-search"
+            data-modal-initial-focus
+            value={query}
+            onChange={setQuery}
+            placeholder={t("commands.search")}
+            aria-label={t("commands.search")}
+          />
           <Button tone="secondary" className="command-settings-toolbar-action" onClick={resetAll}>
             <RotateCcw size={15} />
             {t("commands.resetAll")}

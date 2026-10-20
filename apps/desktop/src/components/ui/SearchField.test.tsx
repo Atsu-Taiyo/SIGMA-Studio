@@ -99,6 +99,38 @@ describe("SearchField", () => {
     expect(onChange).not.toHaveBeenCalled();
   });
 
+  it("offers three sizes and defaults to the dialog-toolbar one", () => {
+    render(<>
+      <SearchField aria-label="既定" value="" onChange={() => {}} />
+      <SearchField aria-label="大" size="lg" value="" onChange={() => {}} />
+      <SearchField aria-label="小" size="sm" value="" onChange={() => {}} />
+    </>);
+    const sizes = Array.from(container.querySelectorAll("[data-search-field]")).map((field) => field.getAttribute("data-size"));
+    expect(sizes).toEqual(["md", "lg", "sm"]);
+  });
+
+  it("can keep the right-hand button while empty so it also closes the field", () => {
+    const onClear = vi.fn();
+    render(<SearchField aria-label="ファイルを検索" value="" onChange={() => {}} alwaysShowClear clearLabel="検索を閉じる" onClear={onClear} />);
+    expect(clearButton()?.getAttribute("aria-label")).toBe("検索を閉じる");
+    act(() => clearButton()!.click());
+    expect(onClear).toHaveBeenCalledTimes(1);
+  });
+
+  it("shows trailing content between the input and the clear button", () => {
+    render(<SearchField aria-label="検索" value="sin" onChange={() => {}} trailing={<span data-testid="count">3件</span>} />);
+    const field = container.querySelector("[data-search-field]")!;
+    const parts = Array.from(field.children).map((child) => child.tagName.toLowerCase());
+    expect(parts).toEqual(["svg", "input", "span", "button"]);
+    expect(field.querySelector("[data-testid='count']")?.textContent).toBe("3件");
+  });
+
+  it("disables the clear button together with the input", () => {
+    render(<SearchField aria-label="検索" value="sin" onChange={() => {}} disabled />);
+    expect(input().disabled).toBe(true);
+    expect(clearButton()?.disabled).toBe(true);
+  });
+
   it("takes the compact size, layout class, input attributes and ref from the caller", () => {
     const ref = createRef<HTMLInputElement>();
     render(<SearchField ref={ref} size="sm" className="font-family-menu-search" aria-label="フォントを検索" clearLabel="消す" data-popover-initial-focus="" value="Hira" onChange={() => {}} />);

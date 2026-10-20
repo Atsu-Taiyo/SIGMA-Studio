@@ -2,13 +2,17 @@
 
 import { Search, X } from "lucide-react";
 import { forwardRef, useImperativeHandle, useRef } from "react";
-import type { InputHTMLAttributes } from "react";
+import type { InputHTMLAttributes, ReactNode } from "react";
 
 import { useT } from "@/lib/i18n/react";
 
 import styles from "./SearchField.module.css";
 
-export type SearchFieldSize = "md" | "sm";
+/** `lg` はページ上部とパレット、`md` はダイアログの道具列、`sm` はメニュー・ポップオーバー・サイドバー。 */
+export type SearchFieldSize = "lg" | "md" | "sm";
+
+const ICON_SIZE: Record<SearchFieldSize, number> = { lg: 16, md: 15, sm: 14 };
+const CLEAR_ICON_SIZE: Record<SearchFieldSize, number> = { lg: 14, md: 13, sm: 12 };
 
 export interface SearchFieldProps extends Omit<InputHTMLAttributes<HTMLInputElement>, "value" | "defaultValue" | "onChange" | "type" | "size" | "className"> {
   value: string;
@@ -19,9 +23,12 @@ export interface SearchFieldProps extends Omit<InputHTMLAttributes<HTMLInputElem
   clearLabel?: string;
   /** 消去ボタンの動作。入力の変更と別の扱いが要るときだけ渡す (省略すると `onChange("")`)。 */
   onClear?: () => void;
-  /** `md` はページ上部の検索バー、`sm` はメニューやポップオーバーの中。 */
+  /** 入力が空でも右端のボタンを出す。欄そのものを閉じる操作と兼ねるときに使う (`clearLabel` / `onClear` を合わせて渡す)。 */
+  alwaysShowClear?: boolean;
+  /** 入力欄の後ろ、右端のボタンの前に置く補助表示 (一致件数など)。 */
+  trailing?: ReactNode;
   size?: SearchFieldSize;
-  /** 外側の面に付ける。幅や余白などの配置だけを、画面側の CSS に置く。 */
+  /** 外側の面に付ける。幅・余白・固定位置などの配置だけを、画面側の CSS に置く。 */
   className?: string;
 }
 
@@ -30,7 +37,7 @@ export interface SearchFieldProps extends Omit<InputHTMLAttributes<HTMLInputElem
  * フォーカスで白へ変わる状態までを持つ。何を絞るか、いつ検索するかは持たず、値は呼び出し側が所有する。
  */
 export const SearchField = forwardRef<HTMLInputElement, SearchFieldProps>(function SearchField(
-  { value, onChange, clearLabel, onClear, size = "md", className, ...inputProps },
+  { value, onChange, clearLabel, onClear, alwaysShowClear = false, trailing, size = "md", className, ...inputProps },
   ref,
 ) {
   const t = useT("common");
@@ -39,7 +46,7 @@ export const SearchField = forwardRef<HTMLInputElement, SearchFieldProps>(functi
 
   return (
     <label className={[styles.field, className].filter(Boolean).join(" ")} data-search-field="" data-size={size}>
-      <Search className={styles.icon} size={size === "sm" ? 14 : 16} aria-hidden="true" />
+      <Search className={styles.icon} size={ICON_SIZE[size]} aria-hidden="true" />
       <input
         {...inputProps}
         ref={inputRef}
@@ -48,11 +55,13 @@ export const SearchField = forwardRef<HTMLInputElement, SearchFieldProps>(functi
         value={value}
         onChange={(event) => onChange(event.target.value)}
       />
-      {value.trim().length > 0 && (
+      {trailing != null && <span className={styles.trailing}>{trailing}</span>}
+      {(alwaysShowClear || value.trim().length > 0) && (
         <button
           type="button"
           className={styles.clear}
           aria-label={clearLabel ?? t("search.clear")}
+          disabled={inputProps.disabled}
           // 押しても入力欄から焦点を奪わない (メニューの中では、焦点が動くとメニューや選択範囲の扱いが変わる)。
           onMouseDown={(event) => event.preventDefault()}
           onClick={() => {
@@ -61,7 +70,7 @@ export const SearchField = forwardRef<HTMLInputElement, SearchFieldProps>(functi
             inputRef.current?.focus();
           }}
         >
-          <X size={size === "sm" ? 12 : 14} aria-hidden="true" />
+          <X size={CLEAR_ICON_SIZE[size]} aria-hidden="true" />
         </button>
       )}
     </label>
