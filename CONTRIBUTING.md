@@ -116,7 +116,9 @@ CSS・フォント・画像の扱いも本番設定を通します。`dist` は�
 `test:scripts` は実際のversion CLIを一時ディレクトリで実行し、manifest同期とcheckの読取専用性を検査します。
 
 Pull Requestとmainへのpushでは [Checks](.github/workflows/checks.yml) が基本チェックと公開パッケージの
-ビルド・契約テストを実行します。保存ロックはmacOS・Windows・Linuxの別jobで実プロセスの競合・終了を検査し、
+ビルド・契約テストを実行します。`Required CI` は必須jobすべての成功を確認し、失敗・キャンセル・skip・結果の欠落では失敗します。
+mainのマージ条件には、この集約checkと個別の必須checkを指定します。最新mainを含む変更でCIを通し、管理者・Botの迂回は許可しません。
+保存ロックはmacOS・Windows・Linuxの別jobで実プロセスの競合・終了を検査し、
 配布に使うElectronでもネイティブ依存を読み込みます。手元では
 `npm --workspace @sigma-studio/desktop run test -- file-lock`で対象テストを実行できます。
 ブラウザの確認範囲と結果はPRに記載してください。

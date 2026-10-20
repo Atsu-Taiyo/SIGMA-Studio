@@ -13,6 +13,30 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  required-ci:
+    name: Required CI
+    if: ${{ always() }}
+    needs: [desktop, dependency-security, electron-smoke, public-packages, file-lock]
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Require every mandatory job to succeed
+        env:
+          REQUIRED_CI_RESULTS: ${{ toJSON(needs) }}
+        run: |
+          node <<'NODE'
+          const results = JSON.parse(process.env.REQUIRED_CI_RESULTS ?? "{}");
+          const required = ["desktop", "dependency-security", "electron-smoke", "public-packages", "file-lock"];
+          const incomplete = required.filter((name) => results[name]?.result !== "success");
+          if (incomplete.length > 0) {
+            for (const name of incomplete) {
+              console.error(`${name}: ${results[name]?.result ?? "missing"}`);
+            }
+            process.exit(1);
+          }
+          console.log("All mandatory CI jobs succeeded.");
+          NODE
+
   desktop:
     name: Desktop build and checks
     runs-on: ubuntu-latest
