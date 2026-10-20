@@ -113,6 +113,7 @@ jobs:
               tests/electron/overlay-text-input-latency.spec.ts tests/electron/browser-sidebar.spec.ts \
               tests/electron/overlay-math-box-toggle.spec.ts tests/electron/boxed-text-corners.spec.ts \
               tests/electron/boxed-text-run-joins.spec.ts tests/electron/boxed-text-underline.spec.ts \
+              tests/electron/overlay-boxed-text-typing.spec.ts \
               tests/electron/large-library-editing.spec.ts \
               tests/electron/shared-lazy-open.spec.ts \
               tests/electron/profile-avatar-crop.spec.ts \

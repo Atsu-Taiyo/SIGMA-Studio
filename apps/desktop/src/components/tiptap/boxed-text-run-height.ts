@@ -345,6 +345,9 @@ export function reconcileBoxedRunHeightState(
 
   const seen = new Set<string>();
   const surviving = new Set<string>();
+  // Where the boxed content of each surviving container really is, read off the same walk that
+  // verifies its signature. Mapping moves a target; only the document knows what is still boxed.
+  const boxedContent = new Map<string, BoxedRunDomTarget[]>();
   // 入れ物 (段落/見出し) の同一性だけを見るので、その中身へは降りない。
   countDecorationBlockWalk();
   transaction.doc.descendants((node, pos) => {
@@ -356,10 +359,13 @@ export function reconcileBoxedRunHeightState(
           // same frame on both containers.
           ambiguous.add(key);
           surviving.delete(key);
+          boxedContent.delete(key);
         } else {
           seen.add(key);
-          if (expected.get(key) === boxedRunContainerSignature(node, pos)) {
+          const docTargets = collectBoxedRunDocTargetsForTextBlock(node, pos);
+          if (expected.get(key) === boxedRunSignature(docTargets)) {
             surviving.add(key);
+            boxedContent.set(key, docTargets);
           }
         }
       }
@@ -389,7 +395,19 @@ export function reconcileBoxedRunHeightState(
       surviving.delete(containerKey);
       continue;
     }
-    mapped.push({ ...target, containerKey, from: from.pos, to: to.pos });
+    // The widest mapping above takes in whatever was inserted exactly on an edge, because typing
+    // inside the run's own mark has to grow it — and it cannot tell that the new character is
+    // *outside* the run (box turned off, caret right after it, next character typed unboxed). A
+    // mark removed from the last character of a run moves no position at all. Either way the
+    // character stays inside the decoration the frame is read from, and the frame is drawn one
+    // character too wide until something else measures again. So the range is cut back to the
+    // boxed content the document actually holds.
+    const range = clipToBoxedContent(from.pos, to.pos, boxedContent.get(containerKey));
+    if (!range) {
+      surviving.delete(containerKey);
+      continue;
+    }
+    mapped.push({ ...target, containerKey, from: range.from, to: range.to });
   }
 
   const keepSurviving = <T>(record: Record<string, T>): Record<string, T> => {
@@ -412,6 +430,31 @@ export function reconcileBoxedRunHeightState(
 }
 
 /**
+ * `from`..`to` cut back to the boxed content among `boxed` (a container's boxed inline children,
+ * in document order), or undefined when none of it lies inside. A segment that is only part of a
+ * child keeps its own edges; one that reaches past a child's edge stops at it.
+ */
+function clipToBoxedContent(
+  from: number,
+  to: number,
+  boxed: readonly BoxedRunDomTarget[] | undefined,
+): { from: number; to: number } | undefined {
+  let first: number | undefined;
+  let last: number | undefined;
+  for (const child of boxed ?? []) {
+    if (child.from === undefined || child.to === undefined || child.to <= from) {
+      continue;
+    }
+    if (child.from >= to) {
+      break;
+    }
+    first ??= Math.max(child.from, from);
+    last = Math.min(child.to, to);
+  }
+  return first === undefined || last === undefined ? undefined : { from: first, to: last };
+}
+
+/**
  * Which boxed runs a container holds — not where they sit.
  *
  * Offsets are left out on purpose. Including them would invalidate the container on every
@@ -421,7 +464,10 @@ export function reconcileBoxedRunHeightState(
  * disappearing, or changing style — the things a kept rectangle cannot survive.
  */
 export function boxedRunContainerSignature(node: ProseMirrorNode, pos: number): string {
-  const targets = collectBoxedRunDocTargetsForTextBlock(node, pos);
+  return boxedRunSignature(collectBoxedRunDocTargetsForTextBlock(node, pos));
+}
+
+function boxedRunSignature(targets: readonly BoxedRunDomTarget[]): string {
   return `${targets.length}#${targets.map((target) => target.styleKey ?? "").join(";")}`;
 }
 
