@@ -1,7 +1,8 @@
+import { createTranslator } from "@/lib/i18n";
 import { describe, expect, it } from "vitest";
 import type { OverlayShape } from "@/features/document";
 import { formatOverlayTextBlocks, type OverlayTextBlock } from "@/features/document";
-import { resolveTextToolbarMarkState, resolveTextToolbarTarget, type TextToolbarMarkState } from "./text-toolbar-target";
+import { resolveTextToolbarLockReason, resolveTextToolbarMarkState, resolveTextToolbarTarget, type TextToolbarMarkState } from "./text-toolbar-target";
 
 const base: Parameters<typeof resolveTextToolbarTarget>[0] = {
   selectedBlock: { id: "body", type: "paragraph" },
@@ -10,8 +11,8 @@ const base: Parameters<typeof resolveTextToolbarTarget>[0] = {
   runningRegionEditing: false,
   overlayEditing: false,
   overlaySelection: { selectedShapes: [] },
-  bodyLocked: false,
-  overlayLocked: false,
+  bodyLockReason: null,
+  overlayLockReason: null,
 };
 
 describe("text toolbar target", () => {
@@ -38,7 +39,7 @@ describe("text toolbar target", () => {
       selectedShapes: [{ id: "shape", type: "callout" } as OverlayShape],
     } };
     expect(resolveTextToolbarTarget(context).enabled).toBe(true);
-    expect(resolveTextToolbarTarget({ ...context, overlayLocked: true }).enabled).toBe(false);
+    expect(resolveTextToolbarTarget({ ...context, overlayLockReason: "aiLocked" }).enabled).toBe(false);
   });
 
   it("retains body, box title and running-region formatting with their structural limits", () => {
@@ -47,7 +48,7 @@ describe("text toolbar target", () => {
       documentTextTarget: { enabled: true, blockId: "box", nodeType: "boxBlockTitle" },
     })).toMatchObject({ enabled: true, canUseLineHeight: false, canUseTextBlockStyle: false });
     expect(resolveTextToolbarTarget({ ...base, selectedBlock: null, runningRegionEditing: true }).enabled).toBe(true);
-    expect(resolveTextToolbarTarget({ ...base, bodyLocked: true }).enabled).toBe(false);
+    expect(resolveTextToolbarTarget({ ...base, bodyLockReason: "aiLocked" as const }).enabled).toBe(false);
   });
 
   it("shows a whole shape's own box so the box button can take it off again", () => {
@@ -68,4 +69,52 @@ describe("text toolbar target", () => {
     } });
     expect(resolveTextToolbarMarkState(editing.wholeTextShape, stale)).toBe(stale);
   });
+});
+
+describe("text toolbar disabled reasons", () => {
+  it("returns no reason for enabled text, including all-selection spans", () => {
+    expect(resolveTextToolbarTarget(base)).toMatchObject({ enabled: true, disabledReason: null });
+    expect(resolveTextToolbarTarget({ ...base, selectedBlock: null, hasTextRunSpan: true })).toMatchObject({ enabled: true, disabledReason: null });
+  });
+  it.each([
+    [{ selectedBlock: null }, "noTextSelection"],
+    [{ selectedBlock: { id: "p", type: "problem" } }, "unsupportedBlock"],
+    [{ overlayEditing: true }, "textShapeRequired"],
+    [{ bodyLockReason: "aiLocked" as const }, "aiLocked"],
+    [{ bodyLockReason: "readOnly" as const }, "readOnly"],
+    [{ bodyLockReason: "previewBusy" as const }, "previewBusy"],
+    [{ bodyLockReason: "sessionOpening" as const }, "sessionOpening"],
+    [{ overlayEditing: true, overlayLockReason: "readOnly" as const }, "readOnly"],
+  ])("gates disabled controls with the returned reason %s", (patch, disabledReason) => {
+    expect(resolveTextToolbarTarget({ ...base, ...patch })).toMatchObject({ enabled: false, disabledReason });
+  });
+  it("explains whole-table, non-text-shape, and empty overlay selections", () => {
+    for (const [type, reason] of [["tableShape", "tableCellRequired"], ["geo", "textShapeRequired"]] as const) {
+      expect(resolveTextToolbarTarget({ ...base, overlayEditing: true, overlaySelection: {
+        selectedShapes: [{ id: "shape", type } as OverlayShape],
+      } })).toMatchObject({ enabled: false, disabledReason: reason });
+    }
+    expect(resolveTextToolbarTarget({ ...base, overlayEditing: true })).toMatchObject({
+      enabled: false, disabledReason: "textShapeRequired",
+    });
+  });
+  it("uses connection/write access before AI preview and per-target locks", () => {
+    const writable = { writable: true, awaitingSession: false, previewBusy: false, aiLocked: false };
+    expect(resolveTextToolbarLockReason(writable)).toBeNull();
+    expect(resolveTextToolbarLockReason({ ...writable, aiLocked: true })).toBe("aiLocked");
+    expect(resolveTextToolbarLockReason({ ...writable, previewBusy: true, aiLocked: true })).toBe("previewBusy");
+    expect(resolveTextToolbarLockReason({ ...writable, writable: false, previewBusy: true })).toBe("readOnly");
+    expect(resolveTextToolbarLockReason({ ...writable, writable: false, awaitingSession: true })).toBe("sessionOpening");
+  });
+});
+
+it("has Japanese and English disabled explanations", () => {
+  const ja = createTranslator("ja", "chrome");
+  const en = createTranslator("en", "chrome");
+  expect(ja("format.disabled.aiLocked")).toBe("AIが編集中の部分です");
+  expect(en("format.disabled.aiLocked")).toBe("AI is editing this part");
+  for (const reason of ["aiLocked", "readOnly", "sessionOpening", "previewBusy", "textShapeRequired", "tableCellRequired", "noTextSelection", "unsupportedBlock", "fontSizeUnavailable"] as const) {
+    expect(en(`format.disabled.${reason}`)).not.toContain("format.disabled.");
+    expect(en(`format.disabled.${reason}`)).not.toBe(ja(`format.disabled.${reason}`));
+  }
 });

@@ -13,6 +13,7 @@ import {
   sameExtensionActionPopover,
   type CommentAnchorCandidateGate,
 } from "./comment-anchor-candidate";
+import { hasHeldCanvasTextSelection } from "./held-text-selection";
 import { findBlockElement,getMathTexFromRange } from "./comment-geometry";
 import { ExtensionActionPopoverState } from "./editor-contracts";
 import type { PageCanvasSelectionAction,PageCanvasSelectionExtension } from "./editor-extension";
@@ -255,7 +256,8 @@ export function usePageCanvasSelectionActions({ overlaySelection, suppressSelect
         setCommentAnchorOwnershipRevision((revision) => revision + 1);
       }
     };
-    const clearTextSelectionActions = () => {
+    const clearTextSelectionActions = (force = false) => {
+      if (!force && hasHeldCanvasTextSelection(canvasRef.current, window.document.activeElement)) return;
       setExtensionTextSelectionPopover((current) => sameExtensionActionPopover(current, null) ? current : null);
       setCommentTextSelectionPopover((current) => sameCommentAnchorPopover(current, null) ? current : null);
       releaseTextSelectionCommentAnchor();
@@ -269,12 +271,15 @@ export function usePageCanvasSelectionActions({ overlaySelection, suppressSelect
     const updateTextSelectionReference = () => {
       frame = 0;
       if (isOverlayEditingRef.current) {
-        clearTextSelectionActions();
+        clearTextSelectionActions(true);
         return;
       }
 
       const selection = window.getSelection();
       const canvas = canvasRef.current;
+      // Inputs and popovers temporarily replace Chromium's DOM selection. Keep the
+      // existing actions while their body range is still held by ProseMirror.
+      if (hasHeldCanvasTextSelection(canvas, window.document.activeElement, false)) return;
       if (!selection || selection.rangeCount === 0 || selection.isCollapsed || !canvas) {
         clearTextSelectionActions();
         return;
@@ -344,6 +349,7 @@ export function usePageCanvasSelectionActions({ overlaySelection, suppressSelect
     // 公開する。`isOverlayEditing` を deps に戻すとリスナ登録ごと毎回作り直しになる。
     scheduleTextSelectionUpdateRef.current = scheduleUpdate;
     window.document.addEventListener("selectionchange", scheduleUpdate);
+    window.document.addEventListener("focusin", scheduleUpdate);
     window.addEventListener("resize", scheduleUpdate);
     window.addEventListener("scroll", scheduleUpdate, true);
     return () => {
@@ -355,6 +361,7 @@ export function usePageCanvasSelectionActions({ overlaySelection, suppressSelect
         window.cancelAnimationFrame(frame);
       }
       window.document.removeEventListener("selectionchange", scheduleUpdate);
+      window.document.removeEventListener("focusin", scheduleUpdate);
       window.removeEventListener("resize", scheduleUpdate);
       window.removeEventListener("scroll", scheduleUpdate, true);
     };

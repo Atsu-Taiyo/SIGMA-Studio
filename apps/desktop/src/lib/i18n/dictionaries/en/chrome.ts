@@ -280,6 +280,17 @@ export const chrome = {
     redoTooltip: "Redo the undone action",
   },
   format: {
+    disabled: {
+      aiLocked: "AI is editing this part",
+      readOnly: "This document is read-only",
+      sessionOpening: "Waiting to connect to the document",
+      previewBusy: "Wait for the AI edit to finish",
+      tableCellRequired: "Edit a table cell to use text formatting",
+      textShapeRequired: "Select a shape with text to use text formatting",
+      noTextSelection: "Select body text to use this",
+      unsupportedBlock: "This format is unavailable for this selection",
+      fontSizeUnavailable: "The text size is not available yet",
+    },
     blockStructure: {
       bulletList: "Bulleted list",
       orderedList: "Numbered list",

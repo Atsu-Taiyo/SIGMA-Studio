@@ -1,4 +1,8 @@
 "use client";
+
+import { registerTextPointerSelectionCommit } from "./text-pointer-selection";
+import { resolveTextSelectionBlockId } from "./text-flow/text-selection-block";
+import { retainedSelectionFingerprint } from "./text-flow/retained-selection-fingerprint";
 import { usePreferredFontSeed } from "./text-flow/preferred-font-context";
 import { applyEditorDocumentProjection } from "@/components/tiptap/document-projection";
 
@@ -56,6 +60,7 @@ import { BoxSettingsDialog } from "@/components/editor/BoxSettingsDialog";
 import type { BoxPreviewPaper } from "@/components/editor/BoxSettingsPreview";
 import  {
   caretAtTextblockEdgeLine,
+  getCaretSurfaces,
   flushPendingCaret,
   focusCaretAddress,
   moveCaretHorizontally,
@@ -66,6 +71,7 @@ import  {
   type CaretSurfaceFacets,
 } from "@/components/editor/text-flow/caret-router";
 import { flushDeferredCaretScroll, getCaretSurfaceBand, getCaretZoomScale, scrollCaretIntoView } from "@/components/editor/text-flow/caret-scroll";
+import { resolveTextFormatRecipient } from "./text-flow/text-format-recipient";
 import { posAtClientPoint } from "@/components/editor/text-flow/pos-at-client-point";
 import type { TextFlowChangeDecorationState } from "@/components/tiptap/change-decoration";
 import  {
@@ -183,7 +189,11 @@ import { inlineNodesToTiptapNodes, tiptapNodesToInlineNodes, type TiptapDoc, typ
 import { SELECT_BODY_WITH_SHAPES_EVENT, collectSelectedBlockIds, requestBodySelectionShapes } from "./text-flow/body-shape-selection";
 import  {
   clearBoxFragmentSelection,
+  getBoxFragmentSelectionRanges,
+  validateBoxFragmentSelectionTransaction,
+  refreshBoxFragmentSelectionSurfaces,
   clearBoxFragmentSelectionOnOutsideFocus,
+  subscribeBoxFragmentSelection,
   startBoxFragmentPointerSelection,
 } from "./text-flow/box-fragment-selection";
 import { beginTextFlowDocumentChange, publishTextFlowSelectionBookmark } from "./text-flow/caret-bookmark-events";
@@ -240,9 +250,12 @@ import  {
   applyTextRunSpanFormatForEvent,
   beginTextRunSpanComposition,
   clearTextRunSpan,
+  validateTextRunSpanTransaction,
+  refreshTextRunSpanSurfaces,
   clearTextRunSpanOnOutsideFocus,
   collectTextRunSpanBlockIds,
   copyActiveTextRunSpan,
+  getActiveTextRunSpan,
   getTextRunSpanCompositionHistoryGroup,
   getTextRunSpanToggleMarkStates,
   getTextRunSpanFontSize,
@@ -898,7 +911,7 @@ function TextFlowEditorImpl({
   };
   const slashCommandCandidatesRef = useRef<SlashCommandCandidate[]>([]);
   const slashCommandActiveIndexRef = useRef(0);
-  const lastTextSelectionRef = useRef<{ blockId: string; from: number; to: number } | null>(null);
+  const lastTextSelectionRef = useRef<SavedTextFlowFormatSelection | null>(null);
   const selectionBeforeTransactionRef = useRef<TextFlowSelectionBookmark | null>(null);
   const verticalNavigationXRef = useRef<number | null>(null);
   const [clipboardSession] = useState(() => new TextFlowClipboardSession());
@@ -1105,10 +1118,6 @@ function TextFlowEditorImpl({
   useLayoutEffect(() => {
     onChangeRef.current = onChange;
   }, [onChange]);
-
-  useEffect(() => {
-    clearTextRunSpan();
-  }, [historyRevision]);
 
   useEffect(() => {
     onBoundaryDeleteRef.current = onBoundaryDelete;
@@ -1591,6 +1600,9 @@ function TextFlowEditorImpl({
     // keystroke. The isFocused guard keeps a background editor's programmatic
     // transactions from clobbering the focused editor's toolbar state.
     onTransaction: ({ editor: activeEditor, transaction }) => {
+      lastTextSelectionRef.current = validateTextFlowFormatSelection(transaction.doc, lastTextSelectionRef.current);
+      validateTextRunSpanTransaction(activeEditor, transaction);
+      validateBoxFragmentSelectionTransaction(activeEditor, transaction);
       if (transaction.docChanged) {
         const dom = readMountedEditorDom(activeEditor);
         if (dom) dom.dataset.flowMeasureRevision = String(Number(dom.dataset.flowMeasureRevision ?? 0) + 1);
@@ -1618,12 +1630,14 @@ function TextFlowEditorImpl({
         onSelect(selectedBlockId);
         refreshSelectedTextBlock(activeEditor.view);
         const { from, to, empty } = activeEditor.state.selection;
-        if (!empty) {
-          lastTextSelectionRef.current = { blockId: selectedBlockId, from, to };
+        if (!empty && (activeEditor.isFocused || lastTextSelectionRef.current !== "invalidated")) {
+          lastTextSelectionRef.current = captureTextFlowFormatSelection(activeEditor.state.doc, selectedBlockId, { from, to });
         }
       }
     },
     onFocus: ({ editor: activeEditor }) => {
+      // A deliberate return to the editor establishes a new formatting target.
+      lastTextSelectionRef.current = null;
       seedPreferredFont(activeEditor);
       // 跨ぎ選択のグループ外エディタ (ヘッダー/フッター・box 継続 fragment・素材ダイアログ)
       // に焦点が移ったら span を解除する。残すと本文に選択帯が出たままになる。
@@ -1641,6 +1655,9 @@ function TextFlowEditorImpl({
         selectedIdRef.current = selectedBlockId;
         onSelect(selectedBlockId);
         refreshSelectedTextBlock(activeEditor.view);
+        if (!activeEditor.state.selection.empty) {
+          lastTextSelectionRef.current = captureTextFlowFormatSelection(activeEditor.state.doc, selectedBlockId, activeEditor.state.selection);
+        }
       }
       onFocusChange?.(
         true,
@@ -1658,7 +1675,6 @@ function TextFlowEditorImpl({
       onFocusChange?.(false, getEditorTextBlockIds(activeEditor));
     },
     onUpdate: ({ editor: activeEditor, transaction }) => measurePerformance("TextFlowEditor.onUpdate", () => {
-      clearBoxFragmentSelection();
       // このエディタ自身の編集が始まった時点で、未消化の跨ぎ置換マークは古い (置換がこの
       // ユニットの内容を変えなかったときだけ残る)。放置すると、この編集の blocksSyncKey
       // 変化でタイピング途中の setContent + 古い選択復元が走り、キャレットが飛ぶ。
@@ -1981,6 +1997,8 @@ function TextFlowEditorImpl({
     }
 
     previousHistoryRevisionRef.current = historyRevision;
+    clearTextRunSpan();
+    clearBoxFragmentSelection();
     historyGroupingRef.current = createTextFlowHistoryGroupingState();
     // 履歴復元はこの下で内容を丸ごと入れ直すので、未消化の跨ぎ置換マークはここで役目を
     // 終える。残すと復元後の最初の同期で古い選択復元が走る。
@@ -2514,6 +2532,8 @@ function TextFlowEditorImpl({
     };
     caretFacetsRef.current = facets;
     updateCaretSurfaceFacets(editor, facets);
+    refreshTextRunSpanSurfaces();
+    refreshBoxFragmentSelectionSurfaces();
   }, [
     boxFragmentReplicaId,
     boxFragmentReplicaIndex,
@@ -2536,7 +2556,10 @@ function TextFlowEditorImpl({
     if (!editor || editor.isDestroyed || !facets || !caretSurfaceRef.current) {
       return;
     }
-    return registerCaretSurface({ editor, ...facets });
+    const unregister = registerCaretSurface({ editor, ...facets });
+    refreshTextRunSpanSurfaces();
+    refreshBoxFragmentSelectionSurfaces();
+    return unregister;
   }, [editor]);
 
   // 数式から押し始めたドラッグも、本文の左ドラッグと同じ追跡で編集面をまたいで伸ばす。数式は
@@ -2550,6 +2573,20 @@ function TextFlowEditorImpl({
     ));
   }, [editor, textRunGroupId]);
 
+  useEffect(() => {
+    if (!editor) return;
+    return registerTextPointerSelectionCommit(editor, () => {
+      if (editor.isDestroyed) return;
+      const id = getSelectedTextBlockId(editor);
+      if (id) {
+        selectedIdRef.current = id;
+        onSelect(id);
+        refreshSelectedTextBlock(editor.view);
+      }
+      if (editor.isFocused) dispatchDocumentTextFormatState(editor);
+    });
+  }, [editor, onSelect]);
+
   // span の変化でツールバーの書式状態を配り直す。Shift+矢印での跨ぎ拡張は head 側の
   // (焦点ではない) エディタにしか transaction を流さないため、onTransaction の配信だけだと
   // 焦点エディタの担当分を最後に見た状態のまま止まり、トグルの向きと表示がずれる。
@@ -2557,12 +2594,33 @@ function TextFlowEditorImpl({
     if (!editor) {
       return;
     }
-    return subscribeTextRunSpan(() => {
+    const hasSpan = () => !!textRunGroupId && getActiveTextRunSpan()?.groupId === textRunGroupId;
+    let heldSpan = hasSpan();
+    let heldFragment = editor.view.dom.hasAttribute("data-box-fragment-span");
+    const invalidateClearedSelection = () => {
+      if (editor.isDestroyed) return;
+      const nextSpan = hasSpan();
+      const nextFragment = editor.view.dom.hasAttribute("data-box-fragment-span");
+      // Clearing a logical selection in another surface must also discard this
+      // surface's saved offsets, even if its own block text did not change.
+      if ((heldSpan && !nextSpan) || (heldFragment && !nextFragment)) {
+        lastTextSelectionRef.current = "invalidated";
+      }
+      heldSpan = nextSpan;
+      heldFragment = nextFragment;
+    };
+    const unsubscribeSpan = subscribeTextRunSpan(() => {
+      invalidateClearedSelection();
       if (!editor.isDestroyed && editor.isFocused) {
         dispatchDocumentTextFormatState(editor);
       }
     });
-  }, [editor]);
+    const unsubscribeFragment = subscribeBoxFragmentSelection(invalidateClearedSelection);
+    return () => {
+      unsubscribeSpan();
+      unsubscribeFragment();
+    };
+  }, [editor, textRunGroupId]);
 
   useEffect(() => {
     if (!editor) {
@@ -2710,31 +2768,62 @@ function TextFlowEditorImpl({
       if (eventTarget !== formatTarget) {
         return;
       }
+      // Choosing a font completes the menu's search input. Return its held range
+      // to the body so native selection and the next history shortcut use this editor.
+      const restoreFocus = detail?.restoreFocus === true || detail?.command === "fontFamily";
       // 跨ぎ選択への書式適用は span 経路で全ユニットの担当範囲へ配る (ネイティブ選択は
       // 焦点エディタの担当分にしか無いので、通常経路だと部分適用になる)。リスナーは
       // 全ユニットに付いているため、同じイベントにつき 1 回だけ適用される。
-      if (isMultiEditorTextRunSpan()) {
-        if (typeof detail?.command === "string") {
-          applyTextRunSpanFormatForEvent(event, {
-            command: detail.command,
-            value: detail.value,
-          });
-        }
+      if (typeof detail?.command === "string" && applyTextRunSpanFormatForEvent(event, {
+        command: detail.command, value: detail.value,
+        restoreFocus, focusOnly: detail.focusOnly === true,
+      }, (stateEditor) => {
+        detail.focusBlockId = getSelectedTextBlockId(stateEditor);
+        dispatchDocumentTextFormatState(stateEditor);
+      })) {
         return;
       }
-      const handlesSelectedBlock = !!selectedId && textFlowBlocksContainId(blocks, selectedId);
-      if ((!editor.isFocused && !handlesSelectedBlock) || !detail?.command) {
-        return;
+      const candidates = getCaretSurfaces().map(handle => ({
+        editor: handle.editor,
+        focused: handle.editor.isFocused,
+        replica: handle.surface.kind === "fragmentReplica",
+        ownsSelectedBlock: !!selectedId && handle.ownsBlock(selectedId),
+      }));
+      // Standalone rich-text surfaces can opt out of the caret registry.
+      if (!candidates.some(candidate => candidate.editor === editor)) {
+        candidates.push({ editor, focused: editor.isFocused, replica: !!boxFragmentReplicaId,
+          ownsSelectedBlock: !!selectedId && textFlowBlocksContainId(blocks, selectedId) });
       }
+      const bodyHasFocus = !!window.document.activeElement?.closest(".ProseMirror");
+      if (!detail?.command || resolveTextFormatRecipient(event, candidates, bodyHasFocus) !== editor) return;
 
-      applyTextFormatCommand(editor, {
+      lastTextSelectionRef.current = validateTextFlowFormatSelection(editor.state.doc, lastTextSelectionRef.current);
+      if (detail.command === "fontSize" && restoreFocus) {
+        const saved = lastTextSelectionRef.current;
+        const hasSavedRange = saved && saved !== "invalidated" && saved.blockId === selectedId;
+        const hasFragmentRange = getBoxFragmentSelectionRanges().some(range => editor.view.dom.contains(range.commonAncestorContainer));
+        // An idle tab's caret / selected-block fallback is not a selection to
+        // return to. Cross-unit ranges were handled by the span path above.
+        if (!hasSavedRange && !hasFragmentRange) return;
+      }
+      const options = resolveTextFlowFormatCommandOptions(editor, selectedId, lastTextSelectionRef.current);
+      if (!options) return;
+      if (detail.focusOnly && options.selection) editor.commands.setTextSelection(options.selection);
+      if (!detail.focusOnly) applyTextFormatCommand(editor, {
         command: detail.command as string,
         value: detail.value,
-      }, resolveTextFlowFormatCommandOptions(
-        editor,
-        selectedId,
-        lastTextSelectionRef.current,
-      ));
+      }, {
+        ...options,
+        // Inline formatting keeps the current focus and must not request scrollIntoView.
+        focusEditor: detail.command === "blockStyle",
+      });
+      // PM restores its held selection and focuses with preventScroll synchronously.
+      if (restoreFocus) editor.view.focus();
+
+      dispatchDocumentTextFormatState(editor);
+
+      // Structural commands keep their existing collapse/focus handoff behavior.
+      if (detail.command === "blockStyle") clearBoxFragmentSelection();
 
       // 適用後にキャレットが入ったブロックを、イベント経由で呼び出し側へ返す。
       // ブロックの入れ物を作り替えるとこのエディタごと remount されることがあり、
@@ -2746,7 +2835,7 @@ function TextFlowEditorImpl({
 
     window.addEventListener(FORMAT_TEXT_EVENT, formatText);
     return () => window.removeEventListener(FORMAT_TEXT_EVENT, formatText);
-  }, [blocks, editor, formatTarget, selectedId]);
+  }, [blocks, boxFragmentReplicaId, editor, formatTarget, selectedId]);
 
   const selectSlashCommandCandidate = useCallback((candidate: SlashCommandCandidate) => {
     if (!editor || editor.isDestroyed) {
@@ -3073,6 +3162,7 @@ function TextFlowEditorImpl({
         // 本文の左ドラッグを PM のクリック判定より先に所有する。後段で始めると、
         // 連続クリックの preventDefault によって追跡が始まらず、押したままでも範囲が伸びない。
         verticalNavigationXRef.current = null;
+        clearBoxFragmentSelection();
         if (!startBoxFragmentPointerSelection(event, editor)) {
           startTextRunPointerSelection(event, editor, textRunGroupId);
         }
@@ -3091,6 +3181,7 @@ function TextFlowEditorImpl({
         if (commentThreadId) {
           onCommentThreadSelect?.(commentThreadId);
         }
+        if (event.button === 0 && !event.defaultPrevented) clearBoxFragmentSelection();
         const boxFragmentSelectionStarted = editor
           ? startBoxFragmentPointerSelection(event, editor)
           : false;
@@ -3141,7 +3232,7 @@ function TextFlowEditorImpl({
         const selectedBlockId = getSelectedTextBlockId(editor);
         if (selectedBlockId && hasSelection) {
           const { from, to } = editor.state.selection;
-          lastTextSelectionRef.current = { blockId: selectedBlockId, from, to };
+          lastTextSelectionRef.current = captureTextFlowFormatSelection(editor.state.doc, selectedBlockId, { from, to });
           selectedIdRef.current = selectedBlockId;
           onSelect(selectedBlockId);
         }
@@ -3523,7 +3614,15 @@ function dispatchDocumentTextFormatState(activeEditor: TiptapEditor): void {
 }
 
 export function resolveTextFormatStateContext(state: EditorState): TextFormatStateContext {
-  const { $from } = state.selection;
+  let { $from } = state.selection;
+  if ($from.depth === 0 && !state.selection.empty && !(state.selection instanceof NodeSelection)) {
+    state.doc.nodesBetween(state.selection.from, state.selection.to, (node, pos) => {
+      if ($from.depth > 0) return false;
+      if (!node.isTextblock) return true;
+      $from = state.doc.resolve(pos + 1);
+      return false;
+    });
+  }
   for (let depth = $from.depth; depth > 0; depth -= 1) {
     const node = $from.node(depth);
     const nodeType = node.type.name;
@@ -3585,11 +3684,46 @@ export function resolveTextFormatStateContext(state: EditorState): TextFormatSta
   };
 }
 
+type SavedTextFlowFormatSelection = (TextFormatSelectionRange & {
+  blockId: string;
+  anchor: CaretAddress;
+  head: CaretAddress;
+  fingerprint: string;
+}) | "invalidated";
+
+export function captureTextFlowFormatSelection(
+  doc: ProseMirrorModelNode,
+  blockId: string,
+  range: TextFormatSelectionRange,
+): SavedTextFlowFormatSelection {
+  const addressAt = (position: number, bias: number) => getTextFlowCaretAddress(doc, position, DEFAULT_CARET_AFFINITY)
+    ?? getTextFlowCaretAddress(doc, TextSelection.near(doc.resolve(position), bias).head, DEFAULT_CARET_AFFINITY);
+  const anchor = addressAt(range.from, 1);
+  const head = addressAt(range.to, -1);
+  const fingerprint = anchor && head ? retainedSelectionFingerprint([doc], anchor, head) : null;
+  return anchor && head && fingerprint !== null
+    ? { ...range, blockId, anchor, head, fingerprint }
+    : "invalidated";
+}
+
+function validateTextFlowFormatSelection(
+  doc: ProseMirrorModelNode,
+  saved: SavedTextFlowFormatSelection | null,
+): SavedTextFlowFormatSelection | null {
+  if (!saved || saved === "invalidated") return saved;
+  return retainedSelectionFingerprint([doc], saved.anchor, saved.head) === saved.fingerprint
+    ? saved : "invalidated";
+}
+
 export function resolveTextFlowFormatCommandOptions(
   editor: TiptapEditor,
   selectedId: string | null,
-  lastSelection: { blockId: string; from: number; to: number } | null,
-): TextFormatCommandOptions {
+  lastSelection: SavedTextFlowFormatSelection | null,
+): TextFormatCommandOptions | null {
+  lastSelection = validateTextFlowFormatSelection(editor.state.doc, lastSelection);
+  // Invalidated offsets must not fall through to an entire block or a projected
+  // PM range while a toolbar input owns focus. Keep this state until new editor input.
+  if (lastSelection === "invalidated" && !editor.isFocused) return null;
   const currentSelection = editor.state.selection;
   let selection: TextFormatSelectionRange | null = null;
   if (
@@ -3604,13 +3738,15 @@ export function resolveTextFlowFormatCommandOptions(
     // editor needs the saved-selection / selected-block fallback below.
     if (
       lastSelection &&
-      lastSelection.blockId === selectedId &&
-      isValidTextFormatSelection(lastSelection, editor.state.doc.content.size)
+      lastSelection !== "invalidated" &&
+      lastSelection.blockId === selectedId
     ) {
-      selection = {
-        from: lastSelection.from,
-        to: lastSelection.to,
-      };
+      // Keep the block-relative offsets fixed. Earlier, unselected blocks may
+      // change PM absolute positions without changing the selected fingerprint.
+      const from = getTextFlowSelectionPosition(editor, lastSelection.anchor);
+      const to = getTextFlowSelectionPosition(editor, lastSelection.head);
+      if (from === null || to === null || !isValidTextFormatSelection({ from, to }, editor.state.doc.content.size)) return null;
+      selection = { from, to };
     } else {
       const selectedRange = getTextBlockRange(editor.state.doc, selectedId);
       selection = selectedRange
@@ -3980,17 +4116,7 @@ function getTextFlowPositionAtClientPoint(
 }
 
 function getTextFlowBlockIdAtPosition(editor: TiptapEditor, position: number): string | null {
-  const doc = editor.state.doc;
-  const resolvedPosition = doc.resolve(Math.max(0, Math.min(position, doc.content.size)));
-  for (let depth = resolvedPosition.depth; depth >= 0; depth -= 1) {
-    const id = resolvedPosition.node(depth).attrs.sigmaDocId;
-    if (typeof id === "string" && id) {
-      return id;
-    }
-  }
-
-  return getTextFlowBlockIdFromAdjacentNode(resolvedPosition.nodeAfter) ??
-    getTextFlowBlockIdFromAdjacentNode(resolvedPosition.nodeBefore);
+  return resolveTextSelectionBlockId(editor.state.doc, position);
 }
 
 function getTextFlowBlockIdFromAdjacentNode(node: ProseMirrorModelNode | null): string | null {
@@ -4520,7 +4646,9 @@ export function applySharedTextFlowProjection(editor: TiptapEditor, blocks: Text
 }
 
 function getSelectedTextBlockId(editor: TiptapEditor): string | null {
-  return getTextFlowBlockIdAtPosition(editor, editor.state.selection.from);
+  const selection = editor.state.selection;
+  if (selection instanceof NodeSelection) return getTextFlowBlockIdFromAdjacentNode(selection.node);
+  return resolveTextSelectionBlockId(editor.state.doc, selection.from, selection.to);
 }
 
 function getBoxBlockIdAtContext(editor: TiptapEditor, target: EventTarget | null): string | null {
