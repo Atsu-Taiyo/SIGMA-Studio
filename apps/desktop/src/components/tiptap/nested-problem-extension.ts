@@ -39,8 +39,13 @@ export function createNestedProblemDecorations(
     const hasBody = (area: (typeof PROBLEM_AREA_ORDER)[number], index: number) => displayed(area) && Boolean(
       area === "prompt" || node.child(index).content.size > 0 || metadata.areaLayout?.[area]?.minHeightMm,
     );
-    // 番号はふだん導入文に付く。「問題」を隠した表示では、いちばん上に出る領域が持つ。
-    const numberArea = displayed("lead") ? "lead" : PROBLEM_AREA_ORDER.find((area, index) => hasBody(area, index));
+    // 番号はふだん導入文に付く。「問題」を隠した表示や、導入文の行を出さない設定 (空の間だけ効く) では、
+    // いちばん上に出る領域が持つ。
+    const leadLayout = metadata.areaLayout?.lead;
+    const leadFolded = leadLayout?.hidden === true && !leadLayout.minHeightMm && isBlankAreaNode(node.child(0));
+    const numberArea = displayed("lead") && !leadFolded
+      ? "lead"
+      : PROBLEM_AREA_ORDER.find((area, index) => hasBody(area, index));
     const visibleFrameAreas = PROBLEM_AREA_ORDER.filter((area, index) => area !== "lead" && hasBody(area, index));
     const visibleAreaCount = PROBLEM_AREA_ORDER.filter((area, index) => hasBody(area, index) || (area === numberArea && number !== undefined)).length;
     if (visibleAreaCount === 0) {
@@ -73,6 +78,15 @@ export function createNestedProblemDecorations(
     return true;
   });
   return DecorationSet.create(doc, decorations);
+}
+
+/** 領域に文字が無い: 空の段落だけ (`isProblemLeadBlank` の編集面版)。 */
+function isBlankAreaNode(areaNode: ProseMirrorNode): boolean {
+  let blank = true;
+  areaNode.forEach((child) => {
+    if (child.type.name !== "paragraph" || child.content.size > 0) blank = false;
+  });
+  return blank;
 }
 
 /** Problems nested in a box share its text surface; SigmaDoc owns the four areas. */

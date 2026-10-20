@@ -5,6 +5,7 @@ import { useId, useRef, useState, type ChangeEvent, type CSSProperties } from "r
 
 import { ModalBody, ModalFrame, ModalHeader } from "@/components/ui/Modal";
 import type { ProblemNode } from "@/features/document";
+import { isProblemLeadBlank, isProblemLeadFolded } from "@/features/rendering/core";
 import {
   CUSTOM_FRAME_STYLE_ID,
   getProblemFrameStyleId,
@@ -17,6 +18,7 @@ import {
 import { customFrameImageSrc, getCustomFrameStyle } from "@/lib/custom-frame";
 import { findFrameLibraryEntry, useFrameLibrary } from "@/lib/frame-library";
 import { CustomFrameEditor } from "./CustomFrameEditor";
+import { setProblemLeadShown } from "./page-canvas/problem-area-model";
 import styles from "./ProblemSettingsDialog.module.css";
 import { useT } from "@/lib/i18n/react";
 
@@ -98,6 +100,23 @@ export function ProblemSettingsDialog({ problem, onChange, onClose }: ProblemSet
                 />
               </label>
             </div>
+          </section>
+
+          <section className={styles.section} aria-labelledby="problem-lead-heading">
+            <h3 className={styles.sectionTitle} id="problem-lead-heading">{t("problem.lead")}</h3>
+            <label className={styles.checkboxField}>
+              <input
+                data-testid="problem-lead-shown"
+                type="checkbox"
+                checked={!isProblemLeadFolded(problem)}
+                // オフにすると、導入文の文字は捨てて行ごと畳む。
+                onChange={(event) => onChange((current) => setProblemLeadShown(current, event.target.checked))}
+              />
+              <span>{t("problem.showLead")}</span>
+            </label>
+            <p className={styles.hint}>
+              {isProblemLeadBlank(problem) ? t("problem.showLeadHint") : t("problem.leadFilledHint")}
+            </p>
           </section>
 
           <section className={styles.section} aria-labelledby="problem-frame-heading">

@@ -152,3 +152,57 @@ describe("ProblemSettingsDialog tags", () => {
     expect(current.tags).toEqual(["微分"]);
   });
 });
+
+describe("ProblemSettingsDialog lead line", () => {
+  const leadSwitch = () => document.body.querySelector<HTMLInputElement>('[data-testid="problem-lead-shown"]')!;
+
+  it("turns the lead line off and back on, leaving no layout behind", async () => {
+    await render();
+    expect(leadSwitch().checked).toBe(true);
+    expect(leadSwitch().disabled).toBe(false);
+
+    await act(async () => leadSwitch().click());
+    expect(current.areaLayout).toEqual({ lead: { hidden: true } });
+    expect(leadSwitch().checked).toBe(false);
+
+    await act(async () => leadSwitch().click());
+    expect(current.areaLayout).toBeUndefined();
+    expect(leadSwitch().checked).toBe(true);
+  });
+
+  it("warns that the lead text goes, then throws it away when the line is turned off", async () => {
+    await render({
+      ...createProblem(),
+      lead: [{ type: "paragraph", id: "lead_1", children: [{ type: "text", text: "次の問いに答えよ。" }] }],
+    });
+
+    expect(leadSwitch().checked).toBe(true);
+    expect(leadSwitch().disabled).toBe(false);
+    expect(document.body.textContent).toContain("導入文の文字は削除されます");
+
+    await act(async () => leadSwitch().click());
+    expect(current.lead).toEqual([]);
+    expect(current.areaLayout).toEqual({ lead: { hidden: true } });
+    expect(leadSwitch().checked).toBe(false);
+
+    // もう一度オンにしても、捨てた文字は戻らない。行だけが空で戻る。
+    await act(async () => leadSwitch().click());
+    expect(current.lead).toEqual([]);
+    expect(current.areaLayout).toBeUndefined();
+    expect(leadSwitch().checked).toBe(true);
+  });
+
+  it("turns off a lead that was written after the line was switched off", async () => {
+    await render({
+      ...createProblem(),
+      lead: [{ type: "paragraph", id: "lead_1", children: [{ type: "text", text: "AIが書いた導入文" }] }],
+      areaLayout: { lead: { hidden: true } },
+    });
+
+    // 文字があるので行は描かれている: チェックはオンに見え、外すと捨てて畳む。
+    expect(leadSwitch().checked).toBe(true);
+    await act(async () => leadSwitch().click());
+    expect(current.lead).toEqual([]);
+    expect(leadSwitch().checked).toBe(false);
+  });
+});
