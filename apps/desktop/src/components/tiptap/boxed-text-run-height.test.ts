@@ -315,6 +315,74 @@ describe("reconcileBoxedRunHeightState", () => {
     expect(reconciled.inlineTargets[0]).toMatchObject({ containerKey: "p_a", from: 1, to: 5 });
   });
 
+  describe("an edit on the edge of a run", () => {
+    // 囲みを Off にして続きを打つと、その 1 文字は囲みの外 (印なし) で入る。端の位置を
+    // 「文字を巻き込む側」へ写像すると、その文字まで装飾 (= 枠を読む DOM) に入り、枠が 1 文字ぶん
+    // 太いまま次の測り直しまで残る (囲みの外の文字が枠の中に見える)。
+    const edge = (side: "start" | "end", boxed: boolean) => {
+      const document = documentOf(paragraph("p_a", "abc", true), paragraph("p_b", "xyz", false));
+      const state = EditorState.create({ doc: document });
+      const typed = schema.text("Z", boxed ? [boxedMark] : undefined);
+      const reconciled = reconcileBoxedRunHeightState(
+        measuredState("p_a", document, 0),
+        state.tr.insert(side === "start" ? 1 : 4, typed),
+      );
+      return reconciled.inlineTargets[0];
+    };
+
+    it("leaves an unboxed character after the run outside its target", () => {
+      expect(edge("end", false)).toMatchObject({ from: 1, to: 4 });
+    });
+
+    it("leaves an unboxed character before the run outside its target", () => {
+      expect(edge("start", false)).toMatchObject({ from: 2, to: 5 });
+    });
+
+    it("still grows the target over a boxed character typed at either edge", () => {
+      expect(edge("end", true)).toMatchObject({ from: 1, to: 5 });
+      expect(edge("start", true)).toMatchObject({ from: 1, to: 5 });
+    });
+
+    // 端の 1 文字だけ囲みを外す・囲みのない文字で置き換える、は位置が動かない (または動いても
+    // 巻き込む側へ写る) ので、写像だけでは範囲が囲みの外の文字を含んだまま残る。
+    it("cuts the target back when the mark is removed from the run's last or first character", () => {
+      const document = documentOf(paragraph("p_a", "abc", true), paragraph("p_b", "xyz", false));
+      const state = EditorState.create({ doc: document });
+      const removeAt = (from: number, to: number) => reconcileBoxedRunHeightState(
+        measuredState("p_a", document, 0),
+        state.tr.removeMark(from, to, schema.marks.boxed),
+      );
+
+      expect(removeAt(3, 4).inlineTargets[0]).toMatchObject({ from: 1, to: 3 });
+      expect(removeAt(1, 2).inlineTargets[0]).toMatchObject({ from: 2, to: 4 });
+      expect(removeAt(3, 4).frames.p_a).toEqual([frame]);
+    });
+
+    it("cuts the target back when the run's last character is replaced by an unboxed one", () => {
+      const document = documentOf(paragraph("p_a", "abc", true), paragraph("p_b", "xyz", false));
+      const state = EditorState.create({ doc: document });
+
+      const reconciled = reconcileBoxedRunHeightState(
+        measuredState("p_a", document, 0),
+        state.tr.replaceWith(3, 4, schema.text("Z")),
+      );
+
+      expect(reconciled.inlineTargets[0]).toMatchObject({ from: 1, to: 3 });
+    });
+
+    it("keeps the container, so the drawn frame does not fall back to segment borders", () => {
+      const document = documentOf(paragraph("p_a", "abc", true), paragraph("p_b", "xyz", false));
+      const state = EditorState.create({ doc: document });
+      const reconciled = reconcileBoxedRunHeightState(
+        measuredState("p_a", document, 0),
+        state.tr.insert(4, schema.text("Z")),
+      );
+
+      expect(reconciled.frames.p_a).toEqual([frame]);
+      expect(reconciled.blockTargets.p_a).toBe(24);
+    });
+  });
+
   it("keeps a container when the character just outside its run is deleted", () => {
     // 隣を消しただけで無効化すると、囲みの前後で Backspace するたびに枠がセグメント border へ
     // 落ちる。写像は正しく効くので、拒否すべきは「範囲ごと差し替えられた」ときだけ。

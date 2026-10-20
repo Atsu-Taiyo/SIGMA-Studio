@@ -92,6 +92,13 @@
   vertical-align: baseline;
 }
 
+/* 図中テキストは行高 1 の行。囲みの外側の印が自前の行高 (測る前 1.78em+余白、測った後 normal) を
+   持つと行が伸び縮みして上下にブレ、編集中だけ静的より高くなる。段落の行高を継ぐ。 */
+
+.overlay-text-shape .boxed-text {
+  line-height: inherit;
+}
+
 /* 編集面ではheight-targetが入れ子、静的出力ではboxed-text自身になる。 */
 
 .boxed-text:has([data-boxed-run-height-target="true"]) {
