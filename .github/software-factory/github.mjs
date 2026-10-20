@@ -128,6 +128,7 @@ export async function preparePrReview({ github, context, core, directory = OUTPU
   const { data: metadata } = await github.rest.repos.get(repo);
   if (pr.base.ref !== metadata.default_branch) return;
   const { data: base } = await github.rest.repos.getCommit({ ...repo, ref: metadata.default_branch });
+  if (pr.base.sha !== base.sha) { core.notice("PR base changed during preparation; retry the review."); return; }
   const files = await github.paginate(github.rest.pulls.listFiles, { ...repo, pull_number: number, per_page: 100 });
   let remaining = 160000;
   const changes = files.slice(0, 100).map((f) => {
@@ -135,7 +136,7 @@ export async function preparePrReview({ github, context, core, directory = OUTPU
     remaining -= patch.length;
     return { path: f.filename, status: f.status, patch };
   });
-  save("context.json", { number, head_sha: pr.head.sha, base_sha: base.sha, title: pr.title, body: pr.body?.slice(0, 12000), ci: run?.conclusion || "manual", truncated: files.length > 100 || remaining === 0 || files.some((f) => !f.patch || f.patch.length > 12000), files: changes }, directory);
+  save("context.json", { number, head_sha: pr.head.sha, base_ref: pr.base.ref, base_sha: base.sha, title: pr.title, body: pr.body?.slice(0, 12000), ci: run?.conclusion || "manual", truncated: files.length > 100 || remaining === 0 || files.some((f) => !f.patch || f.patch.length > 12000), files: changes }, directory);
   if (!process.env.HAS_OPENAI_KEY) throw new Error("Configure GitHub Actions secret OPENAI_API_KEY");
   core.setOutput("base_sha", base.sha);
   core.setOutput("run_ai", "true");
@@ -146,7 +147,11 @@ export async function publishPrReview({ github, context, core, directory = OUTPU
   const review = validateReview(JSON.parse(readFileSync(path.join(directory, "review.json"), "utf8")), input.head_sha);
   const repo = context.repo;
   const { data: pr } = await github.rest.pulls.get({ ...repo, pull_number: input.number });
-  if (pr.state !== "open" || pr.head.sha !== input.head_sha) { core.notice("PR changed; discard the stale review."); return; }
+  const { data: metadata } = await github.rest.repos.get(repo);
+  if (pr.state !== "open" || pr.head.sha !== input.head_sha || input.base_ref !== metadata.default_branch
+    || pr.base?.ref !== input.base_ref || pr.base?.sha !== input.base_sha) {
+    core.notice("PR head or base changed; discard the stale review."); return;
+  }
   const tag = `<!-- sigma-factory-review:${input.head_sha} -->`;
   const reviews = await github.paginate(github.rest.pulls.listReviews, { ...repo, pull_number: input.number, per_page: 100 });
   if (reviews.some((r) => r.user?.login === "github-actions[bot]" && r.body?.includes(tag))) return;

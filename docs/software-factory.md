@@ -24,6 +24,12 @@ API障害や検証失敗はActionsの失敗として残し、無限に修正を�
 
 ## 認証と有効化
 
+CodexにはChatGPTログインによるOAuth認証と、APIキー認証があります。APIキーはCodex全体の必須条件ではありません。
+ただし、[公式のCI向けOAuth手順](https://learn.chatgpt.com/docs/auth/ci-cd-auth)は信頼できる非公開の自動化を対象とし、公開・OSSリポジトリでは使わないよう明記しています。
+この公開repoのActionsへローカルの `auth.json` をコピーする構成にはしません。
+[CodexのGitHub連携](https://learn.chatgpt.com/docs/third-party/github)によるPRレビューは別の経路であり、ActionsへのOpenAI APIキー登録なしで利用できます。
+以下はAPIキーを選んだ場合の実装・手順です。OAuthを使う日次実行経路の決定と初回検証が済むまでは、自動実行を無効のままにします。
+
 初期状態では `SIGMA_FACTORY_ENABLED` を設定せず、自動のAI呼び出しを開始しません。
 専用の認証と利用予算を用意し、[Actions Secrets](https://github.com/Atsu-Taiyo/SIGMA-Studio/settings/secrets/actions)に次を登録します。
 値はチャット、ソース、Issue、PR、ログへ貼らないでください。
@@ -63,7 +69,7 @@ jobとAI stepに時間制限がありますが、これは金額の上限では�
 
 AIは最新mainから作業し、参照した外部OSSのURL・コミットまたは版・ライセンス上の扱い・採用と見送りの理由を残します。
 大規模な構造変更、新機能、保存形式、依存、Factory自身の変更は先に提案します。
-小さなコード変更は20ファイル・1000行・512KiBまでとし、アプリと公開パッケージのsrc・テスト、一部docsに限定します。
+小さなコード変更は20ファイル・1000行・512KiBまでとし、アプリと公開パッケージのsrc・テスト、`docs/collaboration-user-guide.md` と `docs/opening-material-files.md` に限定します。
 CI、Factory、合格条件、方針文書、manifest・lockfile、symlink・実行属性・binary・renameは自動候補から除外します。
 テストを削って通す変更は受け付けません。
 
@@ -71,7 +77,7 @@ CI、Factory、合格条件、方針文書、manifest・lockfile、symlink・実
 独立したAIレビューは元のソースと候補差分を読み、変更内容のdigestを返します。
 投稿jobでdigest、変更範囲、最新main、重複、未解決の指摘を再確認してからDraft PRを作ります。
 AIが報告した検証と、検証job・PRのCI結果は区別します。実Electronや対応OS、PDF、共有サービスが未確認なら明記します。
-PR更新後は古いheadのレビューを投稿しません。同じheadへのレビューは重複投稿しません。
+PRのheadまたはbaseが変わった場合は古い差分のレビューを投稿しません。同じheadへのレビューは重複投稿しません。
 
 `workflow_run`で起動するレビューはmainのworkflow・指示・補助コードだけを読みます。
 PRのコードやartifactをcheckout・実行せず、GitHub APIから取得した差分をデータとして渡します。

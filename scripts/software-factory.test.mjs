@@ -104,12 +104,17 @@ test("actual collect and verify CLIs transfer a candidate without leaking output
   assert.equal(manifest.digest, candidateDigest(result(), patch));
 });
 
-for (const filename of [".github/workflows/checks.yml", "scripts/check.mjs", "package.json", "docs/architecture.md", "apps/desktop/src/AGENTS.md"]) {
+for (const filename of [".github/workflows/checks.yml", "scripts/check.mjs", "package.json", "docs/architecture.md", "docs/flow-pagination-architecture.md", "docs/performance-budget.md", "docs/distribution.md", "docs/new-policy.md", "apps/desktop/src/AGENTS.md"]) {
   test(`rejects generated changes to policy or infrastructure: ${filename}`, (t) => {
     const f = fixture(t);
     assert.throws(() => inspectPatch(f.patchFor(filename, "changed\n"), f.cwd), /manual implementation/);
   });
 }
+
+test("accepts only explicitly listed user documentation", (t) => {
+  const f = fixture(t);
+  assert.equal(inspectPatch(f.patchFor("docs/opening-material-files.md", "ファイルを開く手順\n"), f.cwd).length, 1);
+});
 
 test("accepts a new regression test", (t) => {
   const f = fixture(t);
@@ -159,6 +164,7 @@ test("rejects credentials in reference URLs and oversized reports", () => {
 test("review must match the exact candidate and cannot approve unresolved findings", () => {
   assert.throws(() => validateReview({ candidate_digest: "old", verdict: "approve", summary: "ok", findings: [] }, "new"), /match/);
   assert.throws(() => validateReview({ candidate_digest: "new", verdict: "approve", summary: "ok", findings: ["broken"] }, "new"), /Unresolved/);
+  assert.throws(() => validateReview({ candidate_digest: "new", verdict: "reject", summary: "ok", findings: Array(30).fill("x".repeat(2000)) }, "new"), /too large/);
 });
 
 test("publication sends only allowed blobs to a Draft PR and never merges", async (t) => {
@@ -262,14 +268,25 @@ test("external contributor data cannot trigger paid automatic review", async (t)
 
 test("a current PR review is posted as a comment, never as an approval", async (t) => {
   const f = fixture(t); const a = api(f.base);
-  f.write(".factory-output/context.json", JSON.stringify({ number: 42, head_sha: f.base, truncated: true }));
+  f.write(".factory-output/context.json", JSON.stringify({ number: 42, head_sha: f.base, base_ref: "main", base_sha: f.base, truncated: true }));
   f.write(".factory-output/review.json", JSON.stringify({ candidate_digest: f.base, verdict: "reject", summary: "保存の回帰", findings: ["P1 src/example.ts:1 保存で内容が失われる"] }));
-  a.github.rest.pulls.get = async () => ({ data: { state: "open", head: { sha: f.base } } });
+  a.github.rest.pulls.get = async () => ({ data: { state: "open", head: { sha: f.base }, base: { ref: "main", sha: f.base } } });
   a.github.rest.pulls.listReviews = async () => ({ data: [] });
   a.github.rest.pulls.createReview = async (value) => { a.calls.push(["review", value]); };
   await publishPrReview({ ...a, directory: path.join(f.cwd, ".factory-output") });
   assert.equal(a.calls.length, 1); assert.equal(a.calls[0][1].event, "COMMENT");
   assert.match(a.calls[0][1].body, /全体確認済みとは扱いません/);
+});
+
+test("a retargeted or advanced base discards a review even when the head is unchanged", async (t) => {
+  for (const base of [{ ref: "release", sha: "b".repeat(40) }, { ref: "main", sha: "b".repeat(40) }]) {
+    const f = fixture(t); const a = api(f.base);
+    f.write(".factory-output/context.json", JSON.stringify({ number: 42, head_sha: f.base, base_ref: "main", base_sha: f.base }));
+    f.write(".factory-output/review.json", JSON.stringify({ candidate_digest: f.base, verdict: "approve", summary: "ok", findings: [] }));
+    a.github.rest.pulls.get = async () => ({ data: { state: "open", head: { sha: f.base }, base } });
+    await publishPrReview({ ...a, directory: path.join(f.cwd, ".factory-output") });
+    assert.equal(a.calls.length, 0);
+  }
 });
 
 test("health ignores successful readiness-only runs and does not repeat the same alert", async (t) => {

@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 
 export const OUTPUT = ".factory-output";
 const STATUSES = new Set(["change", "proposal", "noop"]);
+const EDITABLE_DOCS = new Set(["docs/collaboration-user-guide.md", "docs/opening-material-files.md"]);
 
 function text(value, name, maximum = 12000) {
   if (typeof value !== "string" || value.length > maximum) throw new Error(`Invalid ${name}`);
@@ -60,9 +61,9 @@ export function inspectPatch(patch, cwd = process.cwd()) {
     if (filename.split("/").some((part) => !part || part === "." || part === "..") || filename.includes("\\") || /[\u0000-\u001f\u007f]/.test(filename)) {
       throw new Error("Unsafe patch path");
     }
-    const allowed = /^(?:apps\/desktop\/(?:src|electron|mcp|tests)\/|packages\/(?:editor|viewer)\/src\/|docs\/)/.test(filename);
-    const policy = /(?:^|\/)AGENTS\.md$/.test(filename)
-      || /^(?:docs\/(?:software-factory|architecture|design-rules|sigma-doc-schema|pdf-parity-architecture)\.md)$/.test(filename);
+    const allowed = /^(?:apps\/desktop\/(?:src|electron|mcp|tests)\/|packages\/(?:editor|viewer)\/src\/)/.test(filename)
+      || EDITABLE_DOCS.has(filename);
+    const policy = /(?:^|\/)AGENTS\.md$/.test(filename);
     if (!allowed || policy) throw new Error(`Path needs manual implementation: ${filename}`);
     if (/\.(?:test|spec)\.[cm]?[jt]sx?$/.test(filename) && Number(added) === 0 && Number(removed) > 0) {
       throw new Error("Removing tests needs manual implementation");
@@ -105,6 +106,7 @@ export function validateReview(review, digest) {
   if (!review || review.candidate_digest !== digest || !["approve", "reject"].includes(review.verdict)) {
     throw new Error("Review does not match the candidate");
   }
+  if (Buffer.byteLength(JSON.stringify(review)) > 48000) throw new Error("Review report is too large");
   text(review.summary, "review summary");
   if (!Array.isArray(review.findings) || review.findings.length > 30) throw new Error("Invalid review findings");
   review.findings.forEach((finding) => text(finding, "review finding", 3000));
