@@ -219,7 +219,6 @@ export const chrome = {
     settings: {
       label: "Settings",
       comments: "Show comments",
-      outline: "Show outline",
       shortcuts: "Keyboard shortcuts",
       texReference: "Equation command reference",
       texEnvironment: "TeX / TikZ environment",
@@ -552,8 +551,6 @@ export const chrome = {
     },
     pageSetupLauncher: "Open the page setup dialog",
     pageSetup: "Page setup",
-    outline: "Outline",
-    outlineTooltip: "Show outline",
     columnsApply: "{{columns}} columns",
     columnsClear: "Remove columns",
   },

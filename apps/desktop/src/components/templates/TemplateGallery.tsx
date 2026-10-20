@@ -12,6 +12,7 @@ import {
   Trash2,
   X,
 } from "lucide-react";
+import { SearchField } from "@/components/ui/SearchField";
 
 import { PagedThumbnailRenderer } from "@/components/print/paged-render/PagedThumbnailRenderer";
 import { getAppRuntime } from "@/lib/runtime";
@@ -276,23 +277,19 @@ export function TemplateGallery({
               ))
             )}
           </div>
-          <label className="template-gallery-search">
-            <Search size={15} aria-hidden="true" />
-            <input
-              type="search"
-              className="template-gallery-search-input"
-              value={search}
-              placeholder={t("template.searchPlaceholder")}
-              aria-label={t("template.searchPlaceholder")}
-              onChange={(event) => setSearch(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === "Escape" && search) {
-                  event.stopPropagation();
-                  setSearch("");
-                }
-              }}
-            />
-          </label>
+          <SearchField
+            className="template-gallery-search"
+            value={search}
+            placeholder={t("template.searchPlaceholder")}
+            aria-label={t("template.searchPlaceholder")}
+            onChange={setSearch}
+            onKeyDown={(event) => {
+              if (event.key === "Escape" && search) {
+                event.stopPropagation();
+                setSearch("");
+              }
+            }}
+          />
           {canSave && (
             <button
               type="button"

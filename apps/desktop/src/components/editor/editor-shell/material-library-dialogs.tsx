@@ -1,6 +1,7 @@
 "use client";
 
-import { Library, Loader2, MoreHorizontal, Plus, PlusCircle, Search, X } from "lucide-react";
+import { Library, Loader2, MoreHorizontal, Plus, PlusCircle, X } from "lucide-react";
+import { SearchField } from "@/components/ui/SearchField";
 
 import { MaterialContentPreview, MaterialPreview } from "@/components/editor/MaterialPreview";
 import { useT } from "@/lib/i18n/react";
@@ -68,16 +69,13 @@ export function MaterialLibraryDialogs({ controller }: { controller: MaterialLib
               </button>
             </header>
             <div className="material-library-toolbar">
-              <label className="material-library-search">
-                <Search size={15} aria-hidden="true" />
-                <input
-                  type="search"
-                  value={materialSearch}
-                  placeholder={tE("material.search")}
-                  aria-label={tE("material.search")}
-                  onChange={(event) => setMaterialSearch(event.target.value)}
-                />
-              </label>
+              <SearchField
+                className="material-library-search"
+                value={materialSearch}
+                placeholder={tE("material.search")}
+                aria-label={tE("material.search")}
+                onChange={setMaterialSearch}
+              />
               {/* 名前や使う場面は追加ダイアログでプレビューを見ながら決める。一覧の上に常設の入力欄は置かない。 */}
               <button type="button" className="button secondary material-library-add" disabled={materialsLoading} onClick={() => openMaterialAddDialog()}>
                 <Plus size={15} aria-hidden="true" />

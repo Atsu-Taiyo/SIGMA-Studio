@@ -1,27 +1,58 @@
 "use client";
 
-import { FileCog, X } from "lucide-react";
-import { useMemo, useState } from "react";
+import {
+  Columns2,
+  Columns3,
+  Columns4,
+  FileCog,
+  FileMinus,
+  FileText,
+  Files,
+  Minus,
+  Plus,
+  RectangleHorizontal,
+  RectangleVertical,
+  Square,
+} from "lucide-react";
+import { useId, useMemo, useState } from "react";
+import type { ReactNode } from "react";
 
 import { ColumnRuleControls } from "./ColumnRuleControls";
-import type { ColumnRule } from "@/features/document";
+import { PageSetupPreview, type PageSetupPreviewPart } from "./PageSetupPreview";
+import { Button } from "@/components/ui/Button";
+import { ChoiceGroup } from "@/components/ui/ChoiceGroup";
+import { Inline, Stack } from "@/components/ui/layout";
+import { ModalBody, ModalFrame, ModalHeader } from "@/components/ui/Modal";
 import { Select } from "@/components/ui/Select";
 import { SettingsField, SettingsRow, SettingsSection, Switch } from "@/components/ui/settings";
 import {
+  applyPageMarginPreset,
   expandMarginsForRunningRegions,
+  getActivePageMarginPreset,
   getPageLayoutIssues,
   MIN_PAGE_BODY_HEIGHT_MM,
   getPageSizeForPreset,
   isWhiteboardPageLayout,
   normalizePageLayout,
+  PAGE_MARGIN_PRESETS_MM,
+  setPageMarginMm,
+  getRunningRegionPageRange,
+  setRunningRegionEnabled,
+  setRunningRegionGeometryMm,
+  setRunningRegionPageRange,
   type PageLayout,
+  type PageMarginPresetId,
+  type PageMarginSide,
   type PageOrientation,
+  type PageRunningRegion,
   type PageSizePreset,
+  type RunningRegionPageRange,
   type HeadingNumberingConfig,
   type HeadingNumberingStyle,
 } from "@/features/document";
 import { useT } from "@/lib/i18n/react";
 
+import styles from "./PageSettingsDialog.module.css";
 import { useSettingsEntryFocus } from "./settings-entry-focus";
 import { formatSigmaValidationCode } from "@/lib/validation-text";
 
@@ -38,31 +69,6 @@ interface PageSettingsDialogProps {
   focusEntryId?: string;
 }
 
-interface PageSettingsDraft {
-  preset: PageSizePreset;
-  orientation: PageOrientation;
-  widthMm: number;
-  heightMm: number;
-  marginTop: number;
-  marginRight: number;
-  marginBottom: number;
-  marginLeft: number;
-  columnCount: number;
-  columnGapMm: number;
-  columnRule?: ColumnRule;
-  headerEnabled: boolean;
-  headerHeightMm: number;
-  headerOffsetMm: number;
-  headerShowOnFirstPage: boolean;
-  footerEnabled: boolean;
-  footerHeightMm: number;
-  footerOffsetMm: number;
-  footerShowOnFirstPage: boolean;
-  headingNumberingEnabled: boolean;
-  headingNumberingStyle: HeadingNumberingStyle;
-  headingNumberingDepth: 1 | 2 | 3;
-}
-
 // 用紙名 (A4/A3/…) は国際共通の規格名なので訳さない。`custom` だけが翻訳対象。
 const PAGE_PRESET_OPTIONS: Array<{ value: PageSizePreset; label?: string }> = [
   { value: "A4", label: "A4" },
@@ -73,8 +79,20 @@ const PAGE_PRESET_OPTIONS: Array<{ value: PageSizePreset; label?: string }> = [
   { value: "whiteboard" },
 ];
 
-const COLUMN_COUNT_OPTIONS = [1, 2, 3, 4] as const;
+const COLUMN_ICONS = { 1: Square, 2: Columns2, 3: Columns3, 4: Columns4 } as const;
+const MARGIN_PRESETS: PageMarginPresetId[] = ["standard", "narrow", "wide"];
+const MARGIN_PRESET_LABEL_KEYS = {
+  standard: "page.marginPresetStandard",
+  narrow: "page.marginPresetNarrow",
+  wide: "page.marginPresetWide",
+} as const;
 
+/**
+ * 用紙・余白・段組み・ヘッダー/フッター・見出し番号。左に紙面の縮小図を置き、触っている欄の
+ * 部分をそこで光らせる。下書きは `PageLayout` そのもので持ち、1 つの値を変えるたびに
+ * 関係する値 (ヘッダーと上余白など) も合わせる (`page-setup-edit.ts`)。見えている値がそのまま
+ * 適用され、「適用」で黙って押し戻されることはない。
+ */
 export function PageSettingsDialog({
   layout,
   headingNumbering,
@@ -88,481 +106,591 @@ export function PageSettingsDialog({
   const tCommon = useT("common");
   useSettingsEntryFocus(focusEntryId);
   const normalizedLayout = useMemo(() => normalizePageLayout(layout), [layout]);
-  const [draft, setDraft] = useState<PageSettingsDraft>(() =>
-    layoutToDraft(normalizedLayout, headingNumbering),
-  );
+  const [draft, setDraft] = useState<PageLayout>(normalizedLayout);
+  const [numbering, setNumbering] = useState<Required<HeadingNumberingConfig>>(() => ({
+    enabled: headingNumbering?.enabled ?? false,
+    style: headingNumbering?.style ?? "decimal",
+    depth: headingNumbering?.depth ?? 3,
+  }));
+  const [highlight, setHighlight] = useState<PageSetupPreviewPart | null>(null);
   const [showWhiteboardConfirm, setShowWhiteboardConfirm] = useState(false);
   const presetOptions = isWhiteboardPageLayout(normalizedLayout)
     ? PAGE_PRESET_OPTIONS.filter((option) => option.value === "whiteboard")
     : PAGE_PRESET_OPTIONS;
 
-  const nextLayout = useMemo<PageLayout>(() => {
-    const pageSize = draft.preset === "custom" || draft.preset === "whiteboard"
-      ? { widthMm: draft.widthMm, heightMm: draft.heightMm }
-      : getPageSizeForPreset(draft.preset, draft.orientation);
-
-    return {
-      preset: draft.preset,
-      orientation: draft.orientation,
-      pageSize,
-      marginsMm: {
-        top: draft.marginTop,
-        right: draft.marginRight,
-        bottom: draft.marginBottom,
-        left: draft.marginLeft,
-      },
-      flow: {
-        type: "columns",
-        columnCount: draft.columnCount,
-        columnGapMm: draft.columnGapMm,
-        ...(draft.columnRule ? { columnRule: draft.columnRule } : {}),
-      },
-      header: {
-        enabled: draft.headerEnabled,
-        heightMm: draft.headerHeightMm,
-        offsetMm: draft.headerOffsetMm,
-        showOnFirstPage: draft.headerShowOnFirstPage,
-        blocks: normalizedLayout.header?.blocks ?? [],
-        overlay: normalizedLayout.header?.overlay,
-      },
-      footer: {
-        enabled: draft.footerEnabled,
-        heightMm: draft.footerHeightMm,
-        offsetMm: draft.footerOffsetMm,
-        showOnFirstPage: draft.footerShowOnFirstPage,
-        blocks: normalizedLayout.footer?.blocks ?? [],
-        overlay: normalizedLayout.footer?.overlay,
-      },
-      overlay: normalizedLayout.overlay,
-      // ドラフトには載せない (ダイアログでは編集しない) が、ここで拾わないと
-      // 「適用」を押した瞬間に浮遊コントロールで選んだ背景が既定へ戻る。
-      background: normalizedLayout.background,
-    };
-  }, [
-    draft,
-    normalizedLayout.background,
-    normalizedLayout.footer?.blocks,
-    normalizedLayout.footer?.overlay,
-    normalizedLayout.header?.blocks,
-    normalizedLayout.header?.overlay,
-    normalizedLayout.overlay,
-  ]);
-
-  const normalizedNextLayout = useMemo(
-    () => expandMarginsForRunningRegions(normalizePageLayout(nextLayout)),
-    [nextLayout],
+  const nextLayout = useMemo(
+    () => expandMarginsForRunningRegions(normalizePageLayout(draft)),
+    [draft],
   );
-  const issues = useMemo(() => getPageLayoutIssues(normalizedNextLayout), [normalizedNextLayout]);
+  const issues = useMemo(() => getPageLayoutIssues(nextLayout), [nextLayout]);
   const canApply = issues.length === 0;
+  const isWhiteboard = draft.preset === "whiteboard";
+  const activeMarginPreset = getActivePageMarginPreset(draft);
 
-  const updateDraft = <Key extends keyof PageSettingsDraft>(key: Key, value: PageSettingsDraft[Key]) => {
-    setDraft((current) => ({ ...current, [key]: value }));
-  };
+  const update = (change: (current: PageLayout) => PageLayout) => setDraft((current) => change(current));
+  const focusProps = (part: PageSetupPreviewPart) => ({
+    onFocus: () => setHighlight(part),
+    onMouseEnter: () => setHighlight(part),
+  });
 
   const updatePreset = (preset: PageSizePreset) => {
-    const isCurrentWhiteboard = isWhiteboardPageLayout(normalizedLayout);
-    const isNextWhiteboard = preset === "whiteboard";
-
-    if (!isCurrentWhiteboard && isNextWhiteboard && hasContent) {
+    if (!isWhiteboardPageLayout(normalizedLayout) && preset === "whiteboard" && hasContent) {
       setShowWhiteboardConfirm(true);
       return;
     }
+    update((current) => ({
+      ...current,
+      preset,
+      pageSize: preset === "custom" || preset === "whiteboard"
+        ? current.pageSize
+        : getPageSizeForPreset(preset, current.orientation),
+    }));
+  };
 
-    setDraft((current) => {
-      const currentSize = current.preset === "custom" || current.preset === "whiteboard"
-        ? { widthMm: current.widthMm, heightMm: current.heightMm }
-        : getPageSizeForPreset(current.preset, current.orientation);
-      const pageSize = preset === "custom" || preset === "whiteboard"
-        ? currentSize
-        : getPageSizeForPreset(preset, current.orientation);
-
-      return {
-        ...current,
-        preset,
-        widthMm: pageSize.widthMm,
-        heightMm: pageSize.heightMm,
-      };
-    });
+  const updateOrientation = (orientation: PageOrientation) => {
+    update((current) => ({
+      ...current,
+      orientation,
+      pageSize: getPageSizeForPreset(current.preset, orientation, current.pageSize),
+    }));
   };
 
   const confirmWhiteboardSwitch = () => {
     setShowWhiteboardConfirm(false);
-    onChange(normalizePageLayout({
-      ...nextLayout,
-      preset: "whiteboard",
-      pageSize: { widthMm: draft.widthMm, heightMm: draft.heightMm },
-    }), {
-      enabled: draft.headingNumberingEnabled,
-      style: draft.headingNumberingStyle,
-      depth: draft.headingNumberingDepth,
-    });
+    onChange(normalizePageLayout({ ...draft, preset: "whiteboard" }), numbering);
     onClose();
-  };
-
-  const updateOrientation = (orientation: PageOrientation) => {
-    setDraft((current) => {
-      const pageSize = getPageSizeForPreset(
-        current.preset,
-        orientation,
-        { widthMm: current.widthMm, heightMm: current.heightMm },
-      );
-      return {
-        ...current,
-        orientation,
-        widthMm: pageSize.widthMm,
-        heightMm: pageSize.heightMm,
-      };
-    });
   };
 
   const apply = () => {
     if (!canApply) {
       return;
     }
-    onChange(normalizedNextLayout, {
-      enabled: draft.headingNumberingEnabled,
-      style: draft.headingNumberingStyle,
-      depth: draft.headingNumberingDepth,
-    });
+    onChange(nextLayout, numbering);
     onClose();
   };
 
-  const isWhiteboard = draft.preset === "whiteboard";
+  const summary = t("page.previewSummary", {
+    paper: draft.preset === "custom" ? t("page.custom") : draft.preset,
+    orientation: t(nextLayout.orientation === "landscape" ? "page.landscape" : "page.portrait"),
+    width: formatMm(nextLayout.pageSize.widthMm),
+    height: formatMm(nextLayout.pageSize.heightMm),
+  });
 
   return (
-    <div className="page-settings-backdrop" data-modal-backdrop="" role="presentation" onPointerDown={onClose}>
-      <section
-        className="page-settings-dialog"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="page-settings-title"
-        onPointerDown={(event) => event.stopPropagation()}
-      >
-        <header className="page-settings-header">
-          <div className="page-settings-title">
-            <FileCog size={18} />
-            <h2 id="page-settings-title">{t("page.title")}</h2>
-          </div>
-          <button type="button" className="icon-button" aria-label={tCommon("actions.close")} title={tCommon("actions.close")} onClick={onClose}>
-            <X size={17} />
-          </button>
-        </header>
+    <ModalFrame
+      open
+      onDismiss={onClose}
+      size="lg"
+      className="page-settings-backdrop"
+      surfaceClassName={`page-settings-dialog ${styles.dialog}`}
+      ariaLabel={t("page.title")}
+    >
+      <ModalHeader
+        title={(
+          <span className={styles.title}>
+            <FileCog size={18} aria-hidden="true" />
+            <span>{t("page.title")}</span>
+          </span>
+        )}
+        onClose={onClose}
+      />
 
-        <div className="page-settings-body">
-          <div id="page-settings-paper" className="page-settings-grid">
-            <label className="field-label" htmlFor="page-size-preset">{t("page.paperSize")}</label>
-            <Select
-              id="page-size-preset"
-              value={draft.preset}
-              options={presetOptions.map((option) => ({
-                value: option.value,
-                label: option.label ?? t(option.value === "whiteboard" ? "page.whiteboard" : "page.custom"),
-              }))}
-              onChange={(preset) => updatePreset(preset as PageSizePreset)}
-            />
-
-            {!isWhiteboard && (
-              <>
-                <label className="field-label" htmlFor="page-orientation">{t("page.orientation")}</label>
-                <Select
-                  id="page-orientation"
-                  value={draft.orientation}
-                  options={[
-                    { value: "portrait", label: t("page.portrait") },
-                    { value: "landscape", label: t("page.landscape") },
-                  ]}
-                  onChange={(orientation) => updateOrientation(orientation as PageOrientation)}
-                />
-              </>
-            )}
-          </div>
-
-          {isWhiteboard && (
-            <div className="page-settings-whiteboard-description">
-              <strong>{t("page.whiteboardDescriptionTitle")}</strong>
-              <p>{t("page.whiteboardDescriptionBody")}</p>
-            </div>
-          )}
-
-          {draft.preset === "custom" ? (
-            <div className="page-settings-grid two-columns">
-              <NumberField
-                id="page-custom-width"
-                label={t("page.widthMm")}
-                value={draft.widthMm}
-                onChange={(value) => updateDraft("widthMm", value)}
-              />
-              <NumberField
-                id="page-custom-height"
-                label={t("page.heightMm")}
-                value={draft.heightMm}
-                onChange={(value) => updateDraft("heightMm", value)}
-              />
-            </div>
-          ) : !isWhiteboard ? (
-            <p className="page-settings-summary">
-              {draft.preset} {getPageSizeForPreset(draft.preset, draft.orientation).widthMm}×{getPageSizeForPreset(draft.preset, draft.orientation).heightMm}mm
-            </p>
+      <ModalBody padding="none" scroll="hidden" className={styles.body}>
+        <div className={styles.workbench} data-whiteboard={isWhiteboard || undefined}>
+          {!isWhiteboard ? (
+            <aside className={styles.previewPane} aria-label={t("page.preview")}>
+              <div className={styles.previewStage}>
+                <PageSetupPreview layout={nextLayout} highlight={highlight} />
+              </div>
+              <p className={styles.previewSummary}>{summary}</p>
+            </aside>
           ) : null}
 
-          {!isWhiteboard && (
-            <>
-              <section id="page-settings-margins" className="page-settings-section" aria-label={t("page.margins")}>
-                <h3>{t("page.margins")}</h3>
-                <div className="page-settings-grid four-columns">
-                  <NumberField id="margin-top" label={t("page.marginTop")} value={draft.marginTop} onChange={(value) => updateDraft("marginTop", value)} />
-                  <NumberField id="margin-right" label={t("page.marginRight")} value={draft.marginRight} onChange={(value) => updateDraft("marginRight", value)} />
-                  <NumberField id="margin-bottom" label={t("page.marginBottom")} value={draft.marginBottom} onChange={(value) => updateDraft("marginBottom", value)} />
-                  <NumberField id="margin-left" label={t("page.marginLeft")} value={draft.marginLeft} onChange={(value) => updateDraft("marginLeft", value)} />
+          <div className={styles.form} onMouseLeave={() => setHighlight(null)}>
+            <Stack gap="xl">
+              <FormSection id="page-settings-paper" title={t("page.paper")} {...focusProps("paper")}>
+                <div className={styles.paperRow}>
+                  <SettingsField label={t("page.paperSize")} htmlFor="page-size-preset">
+                    <Select
+                      id="page-size-preset"
+                      className={styles.select}
+                      value={draft.preset}
+                      options={presetOptions.map((option) => ({
+                        value: option.value,
+                        label: option.label ?? t(option.value === "whiteboard" ? "page.whiteboard" : "page.custom"),
+                      }))}
+                      onChange={(preset) => updatePreset(preset as PageSizePreset)}
+                    />
+                  </SettingsField>
+                  {!isWhiteboard ? (
+                    <SettingsField label={t("page.orientation")}>
+                      <ChoiceGroup<PageOrientation>
+                        aria-label={t("page.orientation")}
+                        columns={2}
+                        value={draft.orientation}
+                        options={[
+                          { value: "portrait", label: t("page.portrait"), icon: RectangleVertical },
+                          { value: "landscape", label: t("page.landscape"), icon: RectangleHorizontal },
+                        ]}
+                        onChange={updateOrientation}
+                      />
+                    </SettingsField>
+                  ) : null}
                 </div>
-              </section>
+                {draft.preset === "custom" ? (
+                  <div className={styles.fieldGrid} data-columns="2">
+                    <MmField
+                      id="page-custom-width"
+                      label={t("page.widthMm")}
+                      value={draft.pageSize.widthMm}
+                      min={1}
+                      onChange={(value) => update((current) => ({ ...current, pageSize: { ...current.pageSize, widthMm: value } }))}
+                    />
+                    <MmField
+                      id="page-custom-height"
+                      label={t("page.heightMm")}
+                      value={draft.pageSize.heightMm}
+                      min={1}
+                      onChange={(value) => update((current) => ({ ...current, pageSize: { ...current.pageSize, heightMm: value } }))}
+                    />
+                  </div>
+                ) : null}
+                {isWhiteboard ? (
+                  <div className={styles.whiteboardDescription}>
+                    <strong>{t("page.whiteboardDescriptionTitle")}</strong>
+                    <p>{t("page.whiteboardDescriptionBody")}</p>
+                  </div>
+                ) : null}
+              </FormSection>
 
-              <section id="page-settings-columns" className="page-settings-section" aria-label={t("page.columns")}>
-                <h3>{t("page.columns")}</h3>
-                <div className="page-settings-grid two-columns">
-                  <label className="field-label" htmlFor="page-column-count">{t("page.columnCount")}</label>
-                  <Select
-                    id="page-column-count"
-                    value={String(draft.columnCount)}
-                    options={COLUMN_COUNT_OPTIONS.map((count) => ({ value: String(count), label: String(count) }))}
-                    onChange={(count) => updateDraft("columnCount", Number(count))}
+              {!isWhiteboard ? (
+                <>
+                  <FormSection
+                    id="page-settings-margins"
+                    title={t("page.margins")}
+                    actions={(
+                      <div className={styles.segmented} role="group" aria-label={t("page.marginPresets")}>
+                        {MARGIN_PRESETS.map((preset) => (
+                          <button
+                            key={preset}
+                            type="button"
+                            className={styles.segment}
+                            aria-pressed={activeMarginPreset === preset}
+                            title={formatMarginPreset(PAGE_MARGIN_PRESETS_MM[preset])}
+                            onClick={() => update((current) => applyPageMarginPreset(current, preset))}
+                          >
+                            {t(MARGIN_PRESET_LABEL_KEYS[preset])}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  >
+                    <div className={styles.fieldGrid} data-columns="4">
+                      {(["top", "bottom", "left", "right"] as const).map((side) => (
+                        <MmField
+                          key={side}
+                          id={`margin-${side}`}
+                          label={t(MARGIN_LABEL_KEYS[side])}
+                          value={draft.marginsMm[side]}
+                          onChange={(value) => update((current) => setPageMarginMm(current, side, value))}
+                          {...focusProps(MARGIN_PREVIEW_PARTS[side])}
+                        />
+                      ))}
+                    </div>
+                  </FormSection>
+
+                  <FormSection id="page-settings-columns" title={t("page.columns")} {...focusProps("columns")}>
+                    <ChoiceGroup<"1" | "2" | "3" | "4">
+                      aria-label={t("page.columnCount")}
+                      columns={4}
+                      value={String(draft.flow.columnCount) as "1" | "2" | "3" | "4"}
+                      options={([1, 2, 3, 4] as const).map((count) => ({
+                        value: String(count) as "1" | "2" | "3" | "4",
+                        label: t("page.columnOption", { count }),
+                        icon: COLUMN_ICONS[count],
+                      }))}
+                      onChange={(count) => update((current) => ({ ...current, flow: { ...current.flow, columnCount: Number(count) } }))}
+                    />
+                    {draft.flow.columnCount > 1 ? (
+                      <>
+                        <div className={styles.fieldGrid} data-columns="2">
+                          <MmField
+                            id="page-column-gap"
+                            label={t("page.columnGapMm")}
+                            value={draft.flow.columnGapMm}
+                            onChange={(value) => update((current) => ({ ...current, flow: { ...current.flow, columnGapMm: value } }))}
+                          />
+                        </div>
+                        <Stack gap="sm">
+                          <h4 className={styles.subheading}>{t("columnRule.title")}</h4>
+                          <p className={styles.hint}>{t("columnRule.pageScope")}</p>
+                          <ColumnRuleControls
+                            value={draft.flow.columnRule}
+                            columnCount={draft.flow.columnCount}
+                            onChange={(columnRule) => update((current) => ({
+                              ...current,
+                              flow: { ...current.flow, ...(columnRule ? { columnRule } : { columnRule: undefined }) },
+                            }))}
+                          />
+                        </Stack>
+                      </>
+                    ) : null}
+                  </FormSection>
+
+                  <RunningRegionSection
+                    sectionId="page-settings-header"
+                    kind="header"
+                    region={draft.header}
+                    onEnabledChange={(enabled) => update((current) => setRunningRegionEnabled(current, "header", enabled))}
+                    onGeometryChange={(patch) => update((current) => setRunningRegionGeometryMm(current, "header", patch))}
+                    onPageRangeChange={(range) => update((current) => setRunningRegionPageRange(current, "header", range))}
+                    focusProps={focusProps("header")}
                   />
-                  <NumberField
-                    id="page-column-gap"
-                    label={t("page.columnGapMm")}
-                    value={draft.columnGapMm}
-                    onChange={(value) => updateDraft("columnGapMm", value)}
+
+                  <RunningRegionSection
+                    sectionId="page-settings-footer"
+                    kind="footer"
+                    region={draft.footer}
+                    onEnabledChange={(enabled) => update((current) => setRunningRegionEnabled(current, "footer", enabled))}
+                    onGeometryChange={(patch) => update((current) => setRunningRegionGeometryMm(current, "footer", patch))}
+                    onPageRangeChange={(range) => update((current) => setRunningRegionPageRange(current, "footer", range))}
+                    focusProps={focusProps("footer")}
                   />
-                </div>
-                {draft.columnCount > 1 && <>
-                  <h4 className="column-rule-heading">{t("columnRule.title")}</h4>
-                  <p className="field-label">{t("columnRule.pageScope")}</p>
-                  <ColumnRuleControls value={draft.columnRule} onChange={value => updateDraft("columnRule", value)} columnCount={draft.columnCount} />
-                </>}
-              </section>
+                </>
+              ) : null}
 
-              <RunningRegionFields
-                sectionId="page-settings-header"
-                idPrefix="page-header"
-                title={t("page.header")}
-                enabled={draft.headerEnabled}
-                heightMm={draft.headerHeightMm}
-                offsetMm={draft.headerOffsetMm}
-                showOnFirstPage={draft.headerShowOnFirstPage}
-                onEnabledChange={(value) => updateDraft("headerEnabled", value)}
-                onHeightChange={(value) => updateDraft("headerHeightMm", value)}
-                onOffsetChange={(value) => updateDraft("headerOffsetMm", value)}
-                onShowOnFirstPageChange={(value) => updateDraft("headerShowOnFirstPage", value)}
-              />
-
-              <RunningRegionFields
-                sectionId="page-settings-footer"
-                idPrefix="page-footer"
-                title={t("page.footer")}
-                enabled={draft.footerEnabled}
-                heightMm={draft.footerHeightMm}
-                offsetMm={draft.footerOffsetMm}
-                showOnFirstPage={draft.footerShowOnFirstPage}
-                onEnabledChange={(value) => updateDraft("footerEnabled", value)}
-                onHeightChange={(value) => updateDraft("footerHeightMm", value)}
-                onOffsetChange={(value) => updateDraft("footerOffsetMm", value)}
-                onShowOnFirstPageChange={(value) => updateDraft("footerShowOnFirstPage", value)}
-              />
-            </>
-          )}
-
-          <SettingsSection
-            id="page-settings-heading-numbering"
-            title={t("page.headingNumbers")}
-            description={t("page.headingNumbersDescription")}
-          >
-            <SettingsRow
-              label={t("page.headingNumbersShow")}
-              control={(
-                <Switch
-                  checked={draft.headingNumberingEnabled}
+              <SettingsSection
+                id="page-settings-heading-numbering"
+                title={t("page.headingNumbers")}
+                description={t("page.headingNumbersDescription")}
+                className={styles.section}
+              >
+                <SettingsRow
                   label={t("page.headingNumbersShow")}
-                  onCheckedChange={(enabled) => updateDraft("headingNumberingEnabled", enabled)}
+                  control={(
+                    <Switch
+                      checked={numbering.enabled}
+                      label={t("page.headingNumbersShow")}
+                      onCheckedChange={(enabled) => setNumbering((current) => ({ ...current, enabled }))}
+                    />
+                  )}
                 />
+                {numbering.enabled ? (
+                  <div className={styles.fieldGrid} data-columns="2">
+                    <SettingsField label={t("page.headingNumbersStyle")} htmlFor="page-heading-numbering-style">
+                      <Select
+                        id="page-heading-numbering-style"
+                        className={styles.select}
+                        value={numbering.style}
+                        options={[
+                          { value: "decimal", label: "1.1.3" },
+                          { value: "sectionSign", label: "§1.1.3" },
+                          { value: "chapterJa", label: t("page.headingNumbersStyleChapter") },
+                        ]}
+                        onChange={(style) => setNumbering((current) => ({ ...current, style: style as HeadingNumberingStyle }))}
+                      />
+                    </SettingsField>
+                    <SettingsField label={t("page.headingNumbersDepth")} htmlFor="page-heading-numbering-depth">
+                      <Select
+                        id="page-heading-numbering-depth"
+                        className={styles.select}
+                        value={String(numbering.depth)}
+                        options={([1, 2, 3] as const).map((depth) => ({
+                          value: String(depth),
+                          label: t(`page.headingNumbersDepth${depth}`),
+                        }))}
+                        onChange={(depth) => setNumbering((current) => ({ ...current, depth: Number(depth) as 1 | 2 | 3 }))}
+                      />
+                    </SettingsField>
+                  </div>
+                ) : null}
+              </SettingsSection>
+
+              {issues.length > 0 && (
+                <div className={styles.errors} role="alert">
+                  {/* `getPageLayoutIssues` はコードを返す。文言は `shape` 辞書が持つ
+                      (`features/document` は最下層なので表示文字列を抱えない)。 */}
+                  {issues.map((issue) => (
+                    <p key={issue}>{formatSigmaValidationCode(issue, { min: MIN_PAGE_BODY_HEIGHT_MM }, tShape)}</p>
+                  ))}
+                </div>
               )}
-            />
-            <SettingsField label={t("page.headingNumbersStyle")} htmlFor="page-heading-numbering-style">
-              <Select
-                id="page-heading-numbering-style"
-                value={draft.headingNumberingStyle}
-                disabled={!draft.headingNumberingEnabled}
-                options={[
-                  { value: "decimal", label: "1.1.3" },
-                  { value: "sectionSign", label: "§1.1.3" },
-                  { value: "chapterJa", label: t("page.headingNumbersStyleChapter") },
-                ]}
-                onChange={(style) => updateDraft("headingNumberingStyle", style as HeadingNumberingStyle)}
-              />
-            </SettingsField>
-            <SettingsField label={t("page.headingNumbersDepth")} htmlFor="page-heading-numbering-depth">
-              <Select
-                id="page-heading-numbering-depth"
-                value={String(draft.headingNumberingDepth)}
-                disabled={!draft.headingNumberingEnabled}
-                options={([1, 2, 3] as const).map((depth) => ({
-                  value: String(depth),
-                  label: t(`page.headingNumbersDepth${depth}`),
-                }))}
-                onChange={(depth) => updateDraft("headingNumberingDepth", Number(depth) as 1 | 2 | 3)}
-              />
-            </SettingsField>
-          </SettingsSection>
-
-          {issues.length > 0 && (
-            <div className="page-settings-errors" role="alert">
-              {/* `getPageLayoutIssues` はコードを返す。文言は `shape` 辞書が持つ
-                  (`features/document` は最下層なので表示文字列を抱えない)。 */}
-              {issues.map((issue) => (
-                <p key={issue}>{formatSigmaValidationCode(issue, { min: MIN_PAGE_BODY_HEIGHT_MM }, tShape)}</p>
-              ))}
-            </div>
-          )}
-        </div>
-
-        <footer className="page-settings-footer">
-          <button type="button" className="button secondary" onClick={onClose}>
-            {tCommon("actions.cancel")}
-          </button>
-          <button type="button" className="button primary" onClick={apply} disabled={!canApply}>
-            {t("page.apply")}
-          </button>
-        </footer>
-
-        {showWhiteboardConfirm && (
-          <div className="page-settings-confirm-backdrop" role="presentation" onMouseDown={() => setShowWhiteboardConfirm(false)}>
-            <div className="page-settings-confirm-dialog" role="alertdialog" aria-modal="true" aria-labelledby="whiteboard-confirm-title" onMouseDown={(event) => event.stopPropagation()}>
-              <h3 id="whiteboard-confirm-title">{t("page.whiteboardConfirmTitle")}</h3>
-              <p>{t("page.whiteboardConfirmBody")}</p>
-              <div className="page-settings-confirm-actions">
-                <button type="button" className="button secondary" onClick={() => setShowWhiteboardConfirm(false)}>
-                  {tCommon("actions.cancel")}
-                </button>
-                <button type="button" className="button primary" onClick={confirmWhiteboardSwitch}>
-                  {t("page.whiteboardConfirmAction")}
-                </button>
-              </div>
-            </div>
+            </Stack>
           </div>
-        )}
-      </section>
-    </div>
+        </div>
+      </ModalBody>
+
+      <footer className={styles.footer}>
+        <Button tone="secondary" onClick={onClose}>
+          {tCommon("actions.cancel")}
+        </Button>
+        <Button tone="primary" onClick={apply} disabled={!canApply}>
+          {t("page.apply")}
+        </Button>
+      </footer>
+
+      <ModalFrame
+        open={showWhiteboardConfirm}
+        onDismiss={() => setShowWhiteboardConfirm(false)}
+        layer="nested"
+        size="sm"
+        ariaLabel={t("page.whiteboardConfirmTitle")}
+      >
+        <ModalHeader title={t("page.whiteboardConfirmTitle")} onClose={() => setShowWhiteboardConfirm(false)} />
+        <ModalBody padding="xl">
+          <Stack gap="xl">
+            <p className={styles.confirmBody}>{t("page.whiteboardConfirmBody")}</p>
+            <Inline gap="sm" justify="end">
+              <Button tone="secondary" onClick={() => setShowWhiteboardConfirm(false)}>
+                {tCommon("actions.cancel")}
+              </Button>
+              <Button tone="danger" onClick={confirmWhiteboardSwitch}>
+                {t("page.whiteboardConfirmAction")}
+              </Button>
+            </Inline>
+          </Stack>
+        </ModalBody>
+      </ModalFrame>
+    </ModalFrame>
   );
 }
 
-function RunningRegionFields({
-  sectionId,
-  idPrefix,
+const MARGIN_LABEL_KEYS = {
+  top: "page.marginTop",
+  bottom: "page.marginBottom",
+  left: "page.marginLeft",
+  right: "page.marginRight",
+} as const;
+
+const MARGIN_PREVIEW_PARTS: Record<PageMarginSide, PageSetupPreviewPart> = {
+  top: "marginTop",
+  bottom: "marginBottom",
+  left: "marginLeft",
+  right: "marginRight",
+};
+
+function FormSection({
+  id,
   title,
-  enabled,
-  heightMm,
-  offsetMm,
-  showOnFirstPage,
+  actions,
+  children,
+  onFocus,
+  onMouseEnter,
+}: {
+  id: string;
+  title: ReactNode;
+  actions?: ReactNode;
+  children: ReactNode;
+  onFocus?: () => void;
+  onMouseEnter?: () => void;
+}) {
+  return (
+    <SettingsSection
+      id={id}
+      title={title}
+      actions={actions}
+      className={styles.section}
+      onFocus={onFocus}
+      onMouseEnter={onMouseEnter}
+    >
+      {children}
+    </SettingsSection>
+  );
+}
+
+/**
+ * ヘッダー/フッター 1 つ分。表示を入れたときだけ位置と高さを出す (切っている間の値は見せない)。
+ * ヘッダーは用紙の上端から、フッターは下端から測る。
+ */
+function RunningRegionSection({
+  sectionId,
+  kind,
+  region,
   onEnabledChange,
-  onHeightChange,
-  onOffsetChange,
-  onShowOnFirstPageChange,
+  onGeometryChange,
+  onPageRangeChange,
+  focusProps,
 }: {
   /** 設定パレットのスクロール先 (`settings-catalog.ts` の anchorId)。 */
   sectionId: string;
-  idPrefix: string;
-  title: string;
-  enabled: boolean;
-  heightMm: number;
-  offsetMm: number;
-  showOnFirstPage: boolean;
-  onEnabledChange: (value: boolean) => void;
-  onHeightChange: (value: number) => void;
-  onOffsetChange: (value: number) => void;
-  onShowOnFirstPageChange: (value: boolean) => void;
+  kind: "header" | "footer";
+  region: PageRunningRegion | undefined;
+  onEnabledChange: (enabled: boolean) => void;
+  onGeometryChange: (patch: { offsetMm?: number; heightMm?: number }) => void;
+  onPageRangeChange: (range: RunningRegionPageRange) => void;
+  focusProps: { onFocus: () => void; onMouseEnter: () => void };
 }) {
   const t = useT("settings");
+  const title = t(kind === "header" ? "page.header" : "page.footer");
+  const enabled = region?.enabled ?? false;
+  const idPrefix = kind === "header" ? "page-header" : "page-footer";
   return (
-    <section id={sectionId} className="page-settings-section" aria-label={title}>
-      <div className="page-settings-section-title">
-        <h3>{title}</h3>
-        <label className="page-settings-checkbox">
-          <input
-            type="checkbox"
-            checked={enabled}
-            onChange={(event) => onEnabledChange(event.target.checked)}
-          />
-          <span>{t("page.regionShow")}</span>
-        </label>
-      </div>
-      <div className="page-settings-grid three-columns">
-        <NumberField id={`${idPrefix}-height`} label={t("page.regionHeightMm")} value={heightMm} onChange={onHeightChange} />
-        <NumberField id={`${idPrefix}-offset`} label={t("page.regionOffsetMm")} value={offsetMm} onChange={onOffsetChange} />
-        <label className="page-settings-checkbox inline">
-          <input
-            type="checkbox"
-            checked={showOnFirstPage}
-            onChange={(event) => onShowOnFirstPageChange(event.target.checked)}
-          />
-          <span>{t("page.regionFirstPage")}</span>
-        </label>
-      </div>
-      <p className="page-settings-hint">{t("page.regionHint")}</p>
-    </section>
+    <FormSection
+      id={sectionId}
+      title={title}
+      actions={(
+        <Switch
+          checked={enabled}
+          label={t("page.regionShow", { region: title })}
+          onCheckedChange={onEnabledChange}
+        />
+      )}
+      {...focusProps}
+    >
+      {enabled && region ? (
+        <>
+          <div className={styles.fieldGrid} data-columns="2">
+            <MmField
+              id={`${idPrefix}-offset`}
+              label={t(kind === "header" ? "page.regionOffsetMm" : "page.regionOffsetFromBottomMm")}
+              value={region.offsetMm}
+              onChange={(offsetMm) => onGeometryChange({ offsetMm })}
+            />
+            <MmField
+              id={`${idPrefix}-height`}
+              label={t("page.regionHeightMm")}
+              value={region.heightMm}
+              onChange={(heightMm) => onGeometryChange({ heightMm })}
+            />
+          </div>
+          <SettingsField label={t("page.regionPages")}>
+            <ChoiceGroup<RunningRegionPageRange | "custom">
+              aria-label={t("page.regionPages")}
+              columns={3}
+              // ページごとの例外があるときは、どれも選ばれない (下の説明が、その状態を知らせる)。
+              value={getRunningRegionPageRange(region) ?? "custom"}
+              options={[
+                { value: "all", label: t("page.regionPagesAll"), icon: Files },
+                { value: "firstOnly", label: t("page.regionPagesFirstOnly"), icon: FileText },
+                { value: "exceptFirst", label: t("page.regionPagesExceptFirst"), icon: FileMinus },
+              ]}
+              onChange={(range) => {
+                if (range !== "custom") {
+                  onPageRangeChange(range);
+                }
+              }}
+            />
+          </SettingsField>
+          {getRunningRegionPageRange(region) === null ? (
+            <p className={styles.hint}>{t("page.regionPagesCustom")}</p>
+          ) : null}
+          <p className={styles.hint}>{t(kind === "header" ? "page.regionHint" : "page.footerHint")}</p>
+        </>
+      ) : null}
+    </FormSection>
   );
 }
 
-function NumberField({
+/**
+ * mm の数値欄。−/＋ で 1mm ずつ、矢印キーでも動かせる。入力途中の空欄や「1.」は
+ * そのまま打てるよう下書きの文字列で持ち、確かな数になったときだけ反映する。
+ */
+function MmField({
   id,
   label,
   value,
+  min = 0,
   onChange,
+  onFocus,
+  onMouseEnter,
 }: {
   id: string;
   label: string;
   value: number;
+  min?: number;
   onChange: (value: number) => void;
+  onFocus?: () => void;
+  onMouseEnter?: () => void;
 }) {
+  const t = useT("settings");
+  const unitId = useId();
+  const [text, setText] = useState<string | null>(null);
+  const shown = text ?? formatMm(value);
+  const commit = (next: number) => {
+    setText(null);
+    onChange(Math.max(min, roundTenth(next)));
+  };
+  const stepBy = (direction: 1 | -1) => {
+    const current = Number(shown);
+    commit((Number.isFinite(current) ? current : value) + direction);
+  };
   return (
-    <label className="page-settings-number-field" htmlFor={id}>
-      <span className="field-label">{label}</span>
-      <input
-        id={id}
-        type="number"
-        min={0}
-        step={0.5}
-        value={Number.isFinite(value) ? value : 0}
-        onChange={(event) => onChange(Number(event.target.value))}
-      />
-    </label>
+    <div className={styles.mmField} onMouseEnter={onMouseEnter}>
+      <label className={styles.mmLabel} htmlFor={id}>{label}</label>
+      <div className={styles.mmControl}>
+        <button
+          type="button"
+          className={styles.stepButton}
+          aria-label={t("page.decrease", { label })}
+          disabled={value <= min}
+          onClick={() => stepBy(-1)}
+          onFocus={onFocus}
+        >
+          <Minus size={13} aria-hidden="true" />
+        </button>
+        <input
+          id={id}
+          type="number"
+          inputMode="decimal"
+          min={min}
+          step={0.5}
+          value={shown}
+          aria-describedby={unitId}
+          onFocus={(event) => {
+            event.currentTarget.select();
+            onFocus?.();
+          }}
+          onChange={(event) => {
+            const raw = event.target.value;
+            setText(raw);
+            const next = Number(raw);
+            if (raw.trim() !== "" && Number.isFinite(next) && next >= min) {
+              onChange(next);
+            }
+          }}
+          onBlur={() => {
+            const next = Number(shown);
+            if (shown.trim() !== "" && Number.isFinite(next)) {
+              commit(next);
+            } else {
+              setText(null);
+            }
+          }}
+          onKeyDown={(event) => {
+            if (event.key === "ArrowUp" || event.key === "ArrowDown") {
+              event.preventDefault();
+              stepBy(event.key === "ArrowUp" ? 1 : -1);
+            } else if (event.key === "Enter") {
+              event.currentTarget.blur();
+            }
+          }}
+        />
+        <span className={styles.mmUnit} id={unitId}>{t("page.mmUnit")}</span>
+        <button
+          type="button"
+          className={styles.stepButton}
+          aria-label={t("page.increase", { label })}
+          onClick={() => stepBy(1)}
+          onFocus={onFocus}
+        >
+          <Plus size={13} aria-hidden="true" />
+        </button>
+      </div>
+    </div>
   );
 }
 
-function layoutToDraft(
-  layout: PageLayout,
-  headingNumbering?: HeadingNumberingConfig,
-): PageSettingsDraft {
-  return {
-    preset: layout.preset,
-    orientation: layout.orientation,
-    widthMm: layout.pageSize.widthMm,
-    heightMm: layout.pageSize.heightMm,
-    marginTop: layout.marginsMm.top,
-    marginRight: layout.marginsMm.right,
-    marginBottom: layout.marginsMm.bottom,
-    marginLeft: layout.marginsMm.left,
-    columnCount: Math.min(4, Math.max(1, layout.flow.columnCount)),
-    columnGapMm: layout.flow.columnGapMm,
-    columnRule: layout.flow.columnRule,
-    headerEnabled: layout.header?.enabled ?? false,
-    headerHeightMm: layout.header?.heightMm ?? 8,
-    headerOffsetMm: layout.header?.offsetMm ?? 5,
-    headerShowOnFirstPage: layout.header?.showOnFirstPage ?? true,
-    footerEnabled: layout.footer?.enabled ?? false,
-    footerHeightMm: layout.footer?.heightMm ?? 8,
-    footerOffsetMm: layout.footer?.offsetMm ?? 5,
-    footerShowOnFirstPage: layout.footer?.showOnFirstPage ?? true,
-    headingNumberingEnabled: headingNumbering?.enabled ?? false,
-    headingNumberingStyle: headingNumbering?.style ?? "decimal",
-    headingNumberingDepth: headingNumbering?.depth ?? 3,
-  };
+function formatMarginPreset(margins: Record<PageMarginSide, number>): string {
+  const values = [margins.top, margins.right, margins.bottom, margins.left];
+  return values.every((value) => value === values[0])
+    ? `${formatMm(values[0])} mm`
+    : `${formatMm(margins.top)} / ${formatMm(margins.right)} / ${formatMm(margins.bottom)} / ${formatMm(margins.left)} mm`;
+}
+
+function formatMm(value: number): string {
+  return Number.isInteger(value) ? String(value) : String(roundTenth(value));
+}
+
+function roundTenth(value: number): number {
+  return Math.round(value * 10) / 10;
 }

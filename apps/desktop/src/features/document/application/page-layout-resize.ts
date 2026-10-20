@@ -1,5 +1,5 @@
 import type { PageLayout } from "../model";
-import { MIN_PAGE_BODY_HEIGHT_MM, mmToPx } from "./page-layout";
+import { DEFAULT_PAGE_FOOTER, DEFAULT_PAGE_HEADER, MIN_PAGE_BODY_HEIGHT_MM, mmToPx } from "./page-layout";
 import type { PageRunningRegionKind } from "./page-running-region-layout";
 
 export type PageRunningRegionResizeEdge = "start" | "end";
@@ -25,17 +25,20 @@ export function enablePageRunningRegion(
   kind: PageRunningRegionKind,
 ): PageLayout {
   const current = layout[kind];
-  if (!current) {
+  if (!current || current.enabled) {
+    // 表示中の帯は、高さが 0mm でもそのまま。打つたびに既定の高さへ戻さない。
     return layout;
   }
 
+  // 0mm に畳んで隠した帯を出し直すときは、見つけて掴める既定の高さから始める。
+  const defaultHeightMm = (kind === "header" ? DEFAULT_PAGE_HEADER : DEFAULT_PAGE_FOOTER).heightMm;
   return {
     ...layout,
     [kind]: {
       ...current,
       enabled: true,
       offsetMm: Math.max(0, current.offsetMm),
-      heightMm: Math.max(1, current.heightMm),
+      heightMm: current.heightMm > 0 ? current.heightMm : defaultHeightMm,
     },
   };
 }
@@ -68,7 +71,8 @@ export function resizeRunningRegionLayout(
   deltaMm: number,
 ): PageLayout {
   const { baseLayout, kind } = drag;
-  const minHeightMm = 3;
+  // 高さは 0mm まで縮められる (帯が場所を取らない)。
+  const minHeightMm = 0;
   const pageHeightMm = baseLayout.pageSize.heightMm;
   let topMm = drag.startTopMm;
   let bottomMm = drag.startBottomMm;

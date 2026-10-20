@@ -72,16 +72,18 @@ test.describe("body editing in English", () => {
     await expect(popover.locator(".slash-command-kind")).toContainText(["Box"]);
     await page.keyboard.press("Escape");
 
-    // アウトラインは `collectOutline` が付ける名前がそのまま出る面。
+    // アウトラインはキャンバス左上のカード。行の名前は `collectOutline` が付ける名前がそのまま出る。
+    // 設定メニューには無い (入口はカードのアイコンだけ)。
     await page.getByRole("button", { name: "Settings", exact: true }).click();
-    await page.getByRole("menuitem", { name: "Show outline" }).click();
-    const outline = page.getByRole("dialog", { name: "Outline", exact: true });
+    await expect(page.getByRole("menuitem", { name: "Show outline" })).toHaveCount(0);
+    await page.keyboard.press("Escape");
+    await page.getByRole("button", { name: /^Outline \(\d+ items\)$/ }).hover();
+    const outline = page.getByRole("region", { name: "Outline", exact: true });
     await expect(outline).toBeVisible();
-    await expect(outline.getByRole("heading", { name: "Outline" })).toBeVisible();
-    // 行の名前は `collectOutline` が付ける。見出しが空なら種別名がそのまま出るので、
-    // ここが日本語のままだと「ダイアログの枠だけ英語」を見逃す。
-    await expect(outline.locator(".outline-dialog-list")).toContainText("Heading");
-    await expect(outline.locator(".outline-dialog-list")).toContainText("Problem 1");
+    await expect(outline.getByText("Outline", { exact: true })).toBeVisible();
+    // 見出しが空なら種別名がそのまま出るので、ここが日本語のままだと「カードの枠だけ英語」を見逃す。
+    await expect(outline.getByRole("button", { name: "Heading" })).toBeVisible();
+    await expect(outline.getByRole("button", { name: "Problem 1" })).toBeVisible();
   });
 
   test("writes the placeholder of a column section and a problem area in English", async ({ page }) => {
@@ -119,9 +121,11 @@ test.describe("body editing stays in Japanese", () => {
     await expect(page.locator(".comment-thread-panel")).toContainText("コメントはありません");
 
     await page.getByRole("button", { name: "設定", exact: true }).click();
-    await page.getByRole("menuitem", { name: "アウトラインを表示" }).click();
-    const outline = page.getByRole("dialog", { name: "アウトライン", exact: true });
-    await expect(outline.locator(".outline-dialog-list")).toContainText("見出し");
-    await expect(outline.locator(".outline-dialog-list")).toContainText("問題 1");
+    await expect(page.getByRole("menuitem", { name: "アウトラインを表示" })).toHaveCount(0);
+    await page.keyboard.press("Escape");
+    await page.getByRole("button", { name: /^アウトライン \(\d+件\)$/ }).hover();
+    const outline = page.getByRole("region", { name: "アウトライン", exact: true });
+    await expect(outline.getByRole("button", { name: "見出し" })).toBeVisible();
+    await expect(outline.getByRole("button", { name: "問題 1" })).toBeVisible();
   });
 });

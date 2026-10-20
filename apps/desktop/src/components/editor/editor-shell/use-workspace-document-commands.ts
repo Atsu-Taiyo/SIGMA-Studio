@@ -25,6 +25,7 @@ import type { EditorTabViewState, ResolvedEditorTabViewState } from "./editor-ta
 import { uniqueStringIds } from "./workspace-request";
 import { duplicateNoticeOrigin, loadCreatedMaterialNotice, resolveNewMaterialDestination, type CreatedMaterialNotice } from "./new-material-destination";
 import { duplicateFailureMessage } from "./duplicate-failure-message";
+import { flushNewDocumentPageSetup } from "./new-document-page-setup-memory";
 
 export interface WorkspaceDocumentCommandOptions {
   deleteAiDataForDocument(fileId: string): Promise<void>;
@@ -140,6 +141,8 @@ export function useWorkspaceDocumentCommands({
       const current = documentMetadatas.find(item => item.fileId === activeFileIdRef.current);
       if (workspaceReady && !current) throw new Error("TARGET_UNAVAILABLE");
       const destination = await resolveNewMaterialDestination(current, chosenWorkspaceId);
+      // 新しい教材は、いま開いている教材の用紙設定で作る (main が覚えた値を当てる)。
+      if (kind === "material") await flushNewDocumentPageSetup();
       const created = kind === "whiteboard"
         ? await createDocumentFromSigmaDocument({
           ...createBlankDocument(t("tabs.untitledWhiteboard")),

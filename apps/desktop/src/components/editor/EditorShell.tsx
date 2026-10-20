@@ -6,7 +6,6 @@ import { DOCUMENT_BLOCK_OPERATION_PORTS } from "./editor-shell/document-operatio
 import { scheduleEditorBlockFocus } from "./editor-shell/editor-focus";
 import { useEditorHost } from "./editor-shell/editor-host";
 import type { AiEditAttachment,AiEditPreviewState,AiEditReference,AiEditShapeOnlyPreview,AiProposalApplyOutcome } from "./editor-shell/editor-host-contracts";
-import { EditorOutlineDialog } from "./editor-shell/editor-outline-dialog";
 import { EditorPrintPreview } from "./editor-shell/editor-print-preview";
 import { tAi,tEditor,tShape,tWorkspace } from "./editor-shell/editor-translations";
 import { sessionReadOnlyExtensions } from "./editor-shell/session-read-only-extensions";
@@ -20,6 +19,7 @@ import { useDocumentPrintController } from "./editor-shell/use-document-print-co
 import { useDocumentRecovery } from "./editor-shell/use-document-recovery";
 import { useDocumentSearchCommands,useDocumentSearchState } from "./editor-shell/use-document-search";
 import { useProblemDisplayEditing } from "./editor-shell/use-problem-display-editing";
+import { OutlineDock } from "./OutlineDock";
 import { mergeEditorExtensionSets } from "./webmcp/webmcp-editor-extensions";
 import { useEditorChromeController } from "./editor-shell/use-editor-chrome-controller";
 import { useEditorDialogState } from "./editor-shell/use-editor-dialog-state";
@@ -48,6 +48,7 @@ import { useEditorCommandRouting } from "./editor-shell/use-editor-command-routi
 import { useExternalDocumentOpen } from "./editor-shell/use-external-document-open";
 import { useMaterialLibraryController } from "./editor-shell/use-material-library-controller";
 import { useWorkspaceDocumentCommands } from "./editor-shell/use-workspace-document-commands";
+import { useRememberNewDocumentPageSetup } from "./editor-shell/new-document-page-setup-memory";
 import { useNewMaterialTargets } from "./editor-shell/use-new-material-targets";
 import type { CreatedMaterialNotice } from "./editor-shell/new-material-destination";
 import { NewMaterialCreatedDialog } from "./NewMaterialCreatedDialog";
@@ -263,7 +264,6 @@ resolveDocumentTitleContent
 } from "@/lib/document-title";
 import {
 addRichBlockToProblem,
-collectOutline,
 createParagraph,
 duplicateTopLevelBlock,
 ensureEditableBody,
@@ -272,9 +272,11 @@ moveTopLevelBlock,
 updateBlockInDocument
 } from "@/lib/document-tree";
 import {
+createAddedFontCommands,
 detectEditorShortcutPlatform,
 findCommandByShortcut,
-type EditorCommandId
+type EditorCommandId,
+type EditorRuntimeCommandDefinition
 } from "@/lib/editor-command-shortcuts";
 import { DEFAULT_FILL_OPACITY } from "@/lib/fill-opacity";
 import type { Graph2DPreset } from "@/lib/graph2d";
@@ -286,6 +288,7 @@ import { useT } from "@/lib/i18n/react";
 import { createId } from "@/lib/id";
 import { availableDocumentTitle } from "@/lib/library-ledger";
 import type { LedgerSchemaFailure } from "@/lib/library-schema";
+import { buildOutlineNavigation } from "@/lib/outline-navigation";
 import { getSupportedOverlayImageFiles } from "@/lib/overlay-image-files";
 import { countPerformanceEvent,measurePerformance } from "@/lib/performance";
 import { OPEN_LINK_REQUEST_EVENT, readOpenLinkRequest } from "@/lib/link-open-request";
@@ -764,7 +767,8 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
   const outlineWidth = useStore(editorStore, (state) => state.outlineWidth);
   // 一旦、左側の印刷プレビュー（ページナビゲータ）は非表示にする。true に戻せば復活する。
   const [showPageNavigator] = useState(false);
-  const [outlineDialogOpen, setOutlineDialogOpen] = useState(false);
+  // 「アウトラインを表示」コマンドが OutlineDock を開く合図。増えるたびに開く。
+  const [outlineDockRequest, setOutlineDockRequest] = useState(0);
   const [activePageNumber, setActivePageNumber] = useState(1);
   // 描画されたページ総数。真値は PageCanvasEditor の layoutViewState.pageCount だけなので
   // prop で上げてもらう（DOM の data-page-count から読み戻すのは派生の逆流）。
@@ -2514,15 +2518,12 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
 
   // 画面のアウトラインは表示言語で引く (`t` を省略すると `collectOutline` の既定 =
   // 日本語になる。既定が日本語なのは AI / MCP の呼び出しを固定するため)。
-  // 画面のアウトラインは表示言語で引く (`t` を省略すると `collectOutline` の既定 =
-  // 日本語になる。既定が日本語なのは AI / MCP の呼び出しを固定するため)。
-  const outline = useMemo(
-    () => collectOutline(document, { t: tE, includeLayoutHeadings: true }),
+  const outlineItems = useMemo(
+    () => buildOutlineNavigation(document, {
+      t: tE,
+      headingNumbers: getHeadingNumberMap(document.content, document.metadata.headingNumbering),
+    }),
     [document, tE],
-  );
-  const outlineHeadingNumbers = useMemo(
-    () => getHeadingNumberMap(document.content, document.metadata.headingNumbering),
-    [document.content, document.metadata.headingNumbering],
   );
   // コメント装飾は本文ユニットごとの effect で更新されるので、コメントの無い文書で
   // 毎回新しい空配列を渡すと打鍵のたびにユニット数だけ無駄な更新が走る。
@@ -2550,12 +2551,19 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
     selectedIdRef.current = blockId;
     materialBlockSelectionRef.current = blockId;
     setSelectedId(blockId);
-    setOutlineDialogOpen(false);
     window.document.getElementById(blockId)?.scrollIntoView({
       block: "center",
       behavior: "smooth",
     });
-  }, [setSelectedId, setSelectedInlineMath, setOutlineDialogOpen]);
+  }, [setSelectedId, setSelectedInlineMath]);
+  const openOutlineDock = useCallback(() => {
+    if (outlineItems.length === 0) {
+      // 見出しも問題も無い教材では入口 (OutlineDock) 自体が無い。コマンドの押し損ねに理由を返す。
+      setStatusMessage(tE("outline.empty"));
+      return;
+    }
+    setOutlineDockRequest((current) => current + 1);
+  }, [outlineItems.length, setStatusMessage, tE]);
 
   useEffect(() => {
     if (!workspaceReady) {
@@ -2632,6 +2640,25 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
     () => localFontMenuGroups(filterFontFamilyGroups(""), systemFonts) as ReturnType<typeof filterFontFamilyGroups>,
     [systemFonts],
   );
+  // 追加フォントごとの「この書体にする」コマンド。組み込みの書体コマンドと同じ表でキーを引く。
+  const addedFontCommands = useMemo(() => createAddedFontCommands(customFonts), [customFonts]);
+  const runtimeCommands = useMemo<readonly EditorRuntimeCommandDefinition[]>(
+    () => (addedFontCommands.length === 0 ? customCommands : [...customCommands, ...addedFontCommands]),
+    [addedFontCommands, customCommands],
+  );
+  // ショートカット設定のカスタムコマンド作成欄で選べる書体。追加フォントを先頭に、メニューと同じ見出しで並べる。
+  const commandFontFamilyOptions = useMemo(() => [
+    ...(customFontOptions.length > 0 ? [{ label: t("format.font.customGroup"), options: customFontOptions }] : []),
+    ...availableFontFamilyGroups.map((group) => ({ label: t(`format.font.group.${group.id}`), options: group.options })),
+  ], [availableFontFamilyGroups, customFontOptions, t]);
+  // コマンドの説明に出る CSS の font-family を、メニューと同じ書体名で読ませる。
+  const commandFontLabel = useMemo(() => {
+    const labels = new Map<string, string>();
+    for (const option of [...customFontOptions, ...availableFontFamilyGroups.flatMap((group) => group.options)]) {
+      if (!labels.has(option.value)) labels.set(option.value, option.label);
+    }
+    return (fontFamily: string) => labels.get(fontFamily);
+  }, [availableFontFamilyGroups, customFontOptions]);
   const visibleFontFamilyGroups = useMemo(
     () => filterFontFamilyGroups(fontFamilyQuery, (group) => t(`format.font.group.${group.id}`), availableFontFamilyGroups),
     [fontFamilyQuery, availableFontFamilyGroups, t],
@@ -4032,7 +4059,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
   };
 
   useEditorCommandRouting({
-    configuration: { customCommands, shortcutOverrides, commandSettingsLoaded, commandSettingsError },
+    configuration: { customCommands: runtimeCommands, shortcutOverrides, commandSettingsLoaded, commandSettingsError },
     keyboard: {
       isModalSurfaceOpen,
       uiLayoutMode: uiLayoutPreference.mode,
@@ -4062,7 +4089,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
         undoDocumentChange, redoDocumentChange, createDocumentTab, openDocumentListDialog,
         duplicateActiveDocument, addBlock, setSearchOpen, setOutlineOpen, applyZoom,
         resetZoom, setSettingsFocusEntryId, setCommandPaletteOpen, openPrintPreview,
-        toggleCommentsPanel, setOutlineDialogOpen, promoteAiToSidebar, setAiSettingsOpen,
+        toggleCommentsPanel, openOutlineDock, promoteAiToSidebar, setAiSettingsOpen,
         setPageSettingsOpen, openCommandSettings, setMaterialLibraryOpen, setStatusMessage,
         tEditor,
       },
@@ -4093,7 +4120,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
       // Defer to a user-rebound command on ⌘K/Ctrl+K: the command-shortcut listener
       // shares this capture phase and stopPropagation won't stop a sibling listener,
       // so without this the same keystroke would both run the command and toggle.
-      if (findCommandByShortcut(event, shortcutOverrides, customCommands)) {
+      if (findCommandByShortcut(event, shortcutOverrides, runtimeCommands)) {
         return;
       }
       event.preventDefault();
@@ -4110,7 +4137,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
     };
     window.addEventListener("keydown", handleInlineShortcut, true);
     return () => window.removeEventListener("keydown", handleInlineShortcut, true);
-  }, [aiDisplayMode, aiSidebarOpen, aiInlineOpen, applyAiSurface, closeAiSurface, openAiInline, commandSettingsOpen, texCommandReferenceOpen, commandSettingsError, commandSettingsLoaded, pageSettingsOpen, documentListOpen, previewOpen, aiSettingsOpen, desktopSettingsOpen, materialLibraryOpen, ribbonBackstageOpen, commandPaletteOpen, customCommands, shortcutOverrides, isInlineToggleShortcut, toggleSurface]);
+  }, [aiDisplayMode, aiSidebarOpen, aiInlineOpen, applyAiSurface, closeAiSurface, openAiInline, commandSettingsOpen, texCommandReferenceOpen, commandSettingsError, commandSettingsLoaded, pageSettingsOpen, documentListOpen, previewOpen, aiSettingsOpen, desktopSettingsOpen, materialLibraryOpen, ribbonBackstageOpen, commandPaletteOpen, runtimeCommands, shortcutOverrides, isInlineToggleShortcut, toggleSurface]);
 
   // 導出は毎回新しい配列を作るので、useMemo の中で 1 回だけ呼ぶ。裸で呼ぶと本文と無関係な
   // 再レンダー (メニュー・選択・フォーカス) のたびに nodes の参照が変わり、タイトル・タブ・
@@ -4132,6 +4159,8 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
   // 記録済みの失敗は、その教材がアクティブな間だけ画面に出す (他の教材を開いている
   // 間は残っていても無害。次にその教材を開こうとした時点で読み直して更新される)。
   const activeDocumentOpenFailure = documentOpenFailure?.fileId === activeFileId ? documentOpenFailure : null;
+  // 新しい教材は、直前に開いていた教材の用紙設定で作る (読み込み前・開けなかった教材は元にしない)。
+  useRememberNewDocumentPageSetup(document, workspaceReady && !isEmbedded && !activeDocumentOpenFailure);
   // ページ編集面が実際に描かれる条件。ステータスバーのページ数もこれを見る
   // （描かれていないのに前の教材のページ数を出さないため。onPageCountChange は
   // アンマウントでは呼ばれない）。
@@ -4240,13 +4269,14 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
 
   const {
     renderMenuShortcut,
+    fontFamilyShortcut,
     paletteEntries,
     runPaletteEntry,
     commandTooltip,
     overlayArrangeShortcutLabels,
   } = useCommandPalette({
     commandPaletteOpen,
-    catalog: { customCommands, shortcutOverrides, shortcutPlatform, isEmbedded, tCommand, tSettings },
+    catalog: { customCommands: runtimeCommands, fontLabel: commandFontLabel, shortcutOverrides, shortcutPlatform, isEmbedded, tCommand, tSettings },
     surfaces: {
       setCommandPaletteOpen, setSettingsFocusEntryId, setDesktopSettingsOpen, setExtensionsOpen, setAiSettingsOpen,
       setPageSettingsOpen, setTexEnvironmentSettingsOpen, openCommandSettings,
@@ -4547,7 +4577,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
   // React.memo も付けない（参照が毎回変わるので無意味なうえ、付け方次第で腐敗を招く）。
   const chrome: EditorChromeValue = {
     commands: {
-      commandTooltip, renderMenuShortcut,
+      commandTooltip, renderMenuShortcut, fontFamilyShortcut,
     },
     toolbarMenus: {
       setActiveMenu, setBoxedTextMenuOpen, setColorStylePanel, setFontFamilyMenuOpen,
@@ -4635,7 +4665,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
       openVersionHistory, openWorkspaceScreen, promoteAiToSidebar, reportIssue, requestOverlayImages,
       resolvedDocumentTitle, scheduleCloseNewDocMenu,
       setAiSettingsOpen, setDesktopSettingsOpen: openDesktopSettingsFromChrome, setExtensionsOpen, setExportMenuOpen, setNewDocMenuOpen,
-      setOutlineDialogOpen, setOverlayEditing, setPageSettingsOpen, setTemplateGalleryOpen,
+      setOverlayEditing, setPageSettingsOpen, setTemplateGalleryOpen,
       setTexCommandReferenceOpen, setTexEnvironmentSettingsOpen, setTitleInputFocused,
       settingsMenuButtonRef, showRichTitle,
       showTitleUpdateButton, titleInputValue, titleRichNodes, workspaceTabsRow,
@@ -4922,6 +4952,16 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
               resolvedProposals={resolvedMcpEditProposals}
               webMcpInstructionScopeId={webMcpEnabled ? document.docId : null}
               webMcpHistory={webMcpEnabled ? webMcpHistory : undefined}
+            />
+          )}
+          {/* 見出し・節・問題の一覧。AI タスクの入口の真下に同じ作法で置く (畳んだ間はアイコンだけ)。
+              見出しも問題も無い教材と、本文を持たないホワイトボードでは出さない。 */}
+          {!versionHistoryPreviewActive && workspaceReady && !activeDocumentOpenFailure && !isWhiteboardDocument && outlineItems.length > 0 && (
+            <OutlineDock
+              items={outlineItems}
+              selectedId={selectedId}
+              onSelectItem={selectOutlineItem}
+              openRequest={outlineDockRequest}
             />
           )}
           {problemDisplayActive && pageEditorMounted && (
@@ -5276,8 +5316,6 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
         />
       )}
 
-      <EditorOutlineDialog outlineDialogOpen={outlineDialogOpen} resolvedDocumentTitle={resolvedDocumentTitle} titleNodes={documentTitle.nodes} outline={outline} outlineHeadingNumbers={outlineHeadingNumbers} selectedId={selectedId} selectOutlineItem={selectOutlineItem} onClose={() => setOutlineDialogOpen(false)} tE={tE} />
-
       <EditorPrintPreview previewOpen={previewOpen} document={document} renderState={printPreviewRenderState} pdfExporting={pdfExporting} isDesktopApp={isDesktopApp} isEmbedded={isEmbedded} onRenderStateChange={setPrintPreviewRenderState} onExport={() => void exportPdf()} onOpenExternal={() => void openPrintWindow()} onClose={() => setPreviewOpen(false)} tE={tE} />
 
       {exportedPdfPath && <PdfExportSuccessDialog filePath={exportedPdfPath} onClose={() => setExportedPdfPath(null)} />}
@@ -5320,7 +5358,9 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
         <CommandSettingsDialog
           overrides={shortcutOverrides}
           customCommands={customCommands}
-          fontFamilyOptions={availableFontFamilyGroups.flatMap(group => group.options)}
+          addedFontCommands={addedFontCommands}
+          fontFamilyOptions={commandFontFamilyOptions}
+          fontLabel={commandFontLabel}
           platform={shortcutPlatform}
           onChange={setShortcutOverrides}
           onCustomCommandsChange={setCustomCommands}

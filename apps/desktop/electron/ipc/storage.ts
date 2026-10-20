@@ -8,7 +8,7 @@ import {
 import { LocalSigmaDocStore, type LocalStoreChangeEvent } from "../local-sigma-doc-store";
 import { toLedgerSchemaFailure } from "../ledger-schema-error";
 import { createProposalApprovalCoordinator, type ApproveProposalResult } from "../proposal-approval";
-import type { SigmaDocument } from "@/features/document";
+import type { NewDocumentPageSetup, SigmaDocument } from "@/features/document";
 import { createCurrentLocaleTranslator } from "@/lib/i18n";
 
 const te = createCurrentLocaleTranslator("error");
@@ -41,6 +41,8 @@ export interface RegisterStorageIpcDeps {
    * 判定するために使う。承認IPC・revert等ここを通らない保存経路では呼ばない。
    */
   recordRendererSave: (fileId: string) => void;
+  /** 新しい空の教材に当てる用紙設定 (直前に開いていた教材のもの)。無ければ既定の用紙。 */
+  readNewDocumentPageSetup?: () => NewDocumentPageSetup | null;
 }
 
 export function registerStorageIpc(deps: RegisterStorageIpcDeps): void {
@@ -149,7 +151,9 @@ export function registerStorageIpc(deps: RegisterStorageIpcDeps): void {
   });
 
   ipcMain.handle("storage:create-document", async (_event, payload: unknown) => {
-    return localSigmaDocStore.createDocument(payload as Parameters<LocalSigmaDocStore["createDocument"]>[0]);
+    const input = isPlainObject(payload) ? payload as Parameters<LocalSigmaDocStore["createDocument"]>[0] : {};
+    // 用紙設定は画面から受け取らず、main が覚えている値だけを当てる。
+    return localSigmaDocStore.createDocument({ ...input, pageSetup: deps.readNewDocumentPageSetup?.() ?? null });
   });
 
   ipcMain.handle("storage:create-file-from-document", async (_event, payload: unknown) => {

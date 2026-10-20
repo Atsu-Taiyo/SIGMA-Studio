@@ -1,10 +1,11 @@
 "use client";
 
-import { Check, Copy, Search, SearchX, SquareFunction } from "lucide-react";
+import { Check, Copy, SearchX, SquareFunction } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
 import { MathPreview } from "@/features/rendering/adapters/react";
 import { IconButton } from "@/components/ui/Button";
+import { SearchField } from "@/components/ui/SearchField";
 import { Grid, Inline, Inset, Stack } from "@/components/ui/layout";
 import { ModalBody, ModalFrame, ModalHeader } from "@/components/ui/Modal";
 import { writeTextToClipboard } from "@/lib/clipboard-text";
@@ -76,17 +77,14 @@ export function TexCommandReferenceDialog({ onClose }: TexCommandReferenceDialog
         </span>
         <Inset className={styles.toolbar} space="lg">
           <Inline className={styles.searchRow} gap="md" justify="between" wrap>
-            <label className={styles.search}>
-              <Search size={16} aria-hidden="true" />
-              <input
-                data-modal-initial-focus
-                type="search"
-                value={query}
-                onChange={(event) => setQuery(event.target.value)}
-                placeholder={t("dialog.searchPlaceholder")}
-                aria-label={t("dialog.searchAria")}
-              />
-            </label>
+            <SearchField
+              className={styles.search}
+              data-modal-initial-focus
+              value={query}
+              onChange={setQuery}
+              placeholder={t("dialog.searchPlaceholder")}
+              aria-label={t("dialog.searchAria")}
+            />
             <span className={styles.resultCount} role="status" aria-live="polite">
               {t("dialog.resultCount", { count: references.length })}
             </span>

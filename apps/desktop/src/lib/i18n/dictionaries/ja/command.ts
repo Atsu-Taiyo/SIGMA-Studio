@@ -61,6 +61,20 @@ export const command = {
     lineDash: { solid: "実線", dashed: "破線", dotted: "点線" },
     lineWidth: { xs: "極細", s: "細い", m: "標準", l: "太い", xl: "極太" },
   },
+  /**
+   * 追加フォント (読み込んだ書体・拡張機能の書体) ごとに自動で作る書体コマンド。
+   * id が書体ごとに変わるので `label` / `description` の 1:1 表には置かず、ここの雛形で組み立てる。
+   * `{{name}}` は書体の表示名 (固有名なので訳さない)。
+   */
+  addedFont: {
+    label: "フォント: {{name}}",
+    description: "選択範囲のフォントを「{{name}}」にします",
+    keywords: "書体 追加フォント",
+    group: "追加フォント",
+    groupAssigned: "キー設定済み {{n}}",
+    expand: "追加フォントのコマンドを表示",
+    collapse: "追加フォントのコマンドを隠す",
+  },
   /** コマンドパレット本体の文言。 */
   palette: {
     title: "コマンドパレット",
@@ -296,7 +310,7 @@ export const command = {
     "edit.boxedText": "本文または図中テキストの選択範囲に囲みを付けます",
     "view.commandPalette": "すべてのコマンドと設定を名前で探して実行します",
     "view.comments": "コメントパネルの表示/非表示を切り替えます",
-    "view.outlineDialog": "教材全体のアウトラインダイアログを開きます",
+    "view.outlineDialog": "見出しと問題のアウトラインを、キャンバス左上のカードで開きます",
     "view.regionCapture": "紙面をドラッグして範囲を選び、コピー・保存・AIへの質問ができます (⌥⇧ を押しながらドラッグでも始められます)",
     "view.pocket": "編集画面の上のポケットを開閉します。追加したものは別のページや教材へ持っていけます",
     "document.new": "空の教材を新しいタブで作成します",

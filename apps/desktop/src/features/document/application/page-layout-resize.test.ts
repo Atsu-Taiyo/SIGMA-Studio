@@ -43,13 +43,21 @@ describe("page layout resize model", () => {
       },
     }, "header");
 
+    // 0mm に畳んで隠した帯は、出し直すときに既定の高さから始める (掴める大きさにする)。
     expect(result.header).toEqual({
       ...layout.header,
       enabled: true,
       offsetMm: 0,
-      heightMm: 1,
+      heightMm: 8,
     });
     expect(result.footer).toBe(layout.footer);
+  });
+
+  it("leaves an already shown running region alone, even at zero height", () => {
+    const layout = createLayout();
+    const zeroHeight = { ...layout, header: { ...layout.header!, enabled: true, heightMm: 0 } };
+
+    expect(enablePageRunningRegion(zeroHeight, "header")).toBe(zeroHeight);
   });
 
   it("clamps header and footer growth to preserve the minimum body height", () => {
@@ -92,7 +100,7 @@ describe("page layout resize model", () => {
     ).toBe(30);
   });
 
-  it("keeps a resized running region at least three millimeters high", () => {
+  it("lets a resized running region shrink to zero height", () => {
     const layout = createLayout();
     const header = resizeRunningRegionLayout({
       baseLayout: layout,
@@ -110,13 +118,13 @@ describe("page layout resize model", () => {
     }, -1_000);
 
     expect(header.header).toMatchObject({
-      offsetMm: 10,
-      heightMm: 3,
+      offsetMm: 13,
+      heightMm: 0,
     });
     expect(header.marginsMm.top).toBe(13);
     expect(footer.footer).toMatchObject({
-      offsetMm: 10,
-      heightMm: 3,
+      offsetMm: 13,
+      heightMm: 0,
     });
     expect(footer.marginsMm.bottom).toBe(13);
   });

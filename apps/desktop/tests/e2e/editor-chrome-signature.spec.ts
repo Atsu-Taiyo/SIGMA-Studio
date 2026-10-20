@@ -188,7 +188,6 @@ const DOCS_APP_MENU_ITEMS: Readonly<Record<string, readonly string[]>> = {
   ],
   "設定": [
     "menuitemcheckbox|コメント表示|true|false|true",
-    "menuitem|アウトラインを表示||false|true",
     "menuitem|ショートカット設定⌘⌥,||false|true",
     "menuitem|数式コマンド確認||false|true",
     "menuitem|TeX・TikZ環境設定||false|true",

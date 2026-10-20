@@ -10,6 +10,7 @@
 // つまり「1関数・1 render pass で全部作る」ことが緑の条件で、共有はサブ関数ではなく
 // **ローカル const** で行います。WI-4 のリボンも同じ制約に従ってください。
 
+import { SigmaMark } from "@/components/branding/SigmaMark";
 import { OrganizationMembershipBadge } from "@/components/editor/plugins/OrganizationMembershipBadge";
 import { ColorPalette } from "@/components/editor/ColorPalette";
 import { DocumentTabSaveDot, SaveStatusBadge } from "@/components/editor/editor-shell/SaveStatusIndicators";
@@ -32,6 +33,7 @@ import { isLineToolCommand, isShapeMenuCommand } from "@/components/editor/overl
 import { OverlayLineDashMenuButton, OverlayLineWidthMenuButton } from "@/components/editor/overlay-line-style-menus";
 import { dispatchOverlayStylePreview } from "@/components/editor/page-overlay-types";
 import { IconButton } from "@/components/ui/Button";
+import { SearchField } from "@/components/ui/SearchField";
 import { Shimmer } from "@/components/ui/Shimmer";
 import { Inline, Inset } from "@/components/ui/layout";
 // 矢印/Home/End の移動先計算は設定タブと同じ純関数を使う（実装を二重に持たない）。
@@ -45,7 +47,7 @@ import { INLINE_MATH_FONT_MENU_ATTRIBUTE } from "@/lib/math-font-style";
 import { SUPPORTED_OVERLAY_IMAGE_MIME_TYPES } from "@/lib/overlay-image-files";
 import { POWERPOINT_IMPORT_ACCEPT } from "@/lib/powerpoint-import";
 import { EXTENSION_ICON_COMPONENTS } from "@/components/editor/extensions/extension-icons";
-import { AlertTriangle, AppWindow, ArrowDownRight, ArrowLeft, Bold, Braces, BringToFront, Building2, ChartSpline, Check, ChevronDown, ChevronRight, ChevronUp, ClipboardCopy, ClipboardPaste, Clock3, Code, Columns3, Copy, Cuboid, Download, Eye, FileCog, FilePlus, FileQuestion, FileText, FolderOpen, Highlighter, ImageIcon, Italic, Keyboard, LayoutTemplate, Library, List, ListChevronsUpDown, ListOrdered, ListPlus, ListTree, Loader2, MessageSquare, Minus, MinusCircle, MoreHorizontal, MoveDown, MoveUp, PaintBucket, PenLine, Plus, PlusCircle, Puzzle, Quote, Redo2, Replace, Rows3, Search, SendToBack, SeparatorHorizontal, Shapes, Share2, Sigma, SlidersHorizontal, Sparkles, Square, SquareFunction, Trash2, Type, Underline, Undo2, X } from "lucide-react";
+import { AlertTriangle, AppWindow, ArrowDownRight, ArrowLeft, Bold, Braces, BringToFront, Building2, ChartSpline, Check, ChevronDown, ChevronRight, ChevronUp, ClipboardCopy, ClipboardPaste, Clock3, Code, Columns3, Copy, Cuboid, Download, Eye, FileCog, FilePlus, FileQuestion, FileText, FolderOpen, Highlighter, ImageIcon, Italic, Keyboard, LayoutTemplate, Library, List, ListChevronsUpDown, ListOrdered, ListPlus, Loader2, MessageSquare, Minus, MinusCircle, MoreHorizontal, MoveDown, MoveUp, PaintBucket, PenLine, Plus, PlusCircle, Puzzle, Quote, Redo2, Replace, Rows3, Search, SendToBack, SeparatorHorizontal, Shapes, Share2, Sigma, SlidersHorizontal, Sparkles, Square, SquareFunction, Trash2, Type, Underline, Undo2, X } from "lucide-react";
 import { Fragment } from "react";
 import type { ReactNode } from "react";
 import type { DesktopUpdateState } from "@/types/desktop";
@@ -80,8 +82,8 @@ interface RibbonGroupDefinition {
 // Closed popovers return no DOM. Guard their JSX here as well so typing does
 // not build invisible font/shape catalogs on every document render.
 export function renderEditorChrome(chrome: EditorChromeValue) {
-  const { activeDocumentOpenFailure, activeFileId, addBlock, aiMenuButtonRef, appUpdateState, closeDocumentTab, commentsPanelOpen, commitDocumentTitle, copyDocumentText, createDocumentTab, createDocumentTabInWorkspace, createWhiteboardDocumentTab, degradedWatcherScopes, deleteActiveDocument, documentMetadatas, documentTitle, duplicateActiveDocument, exportJson, exportMenuOpen, fileMenuButtonRef, handleTitleUpdateAction, importDocumentFile, importInputRef, insertMenuButtonRef, loadingFileId, newDocButtonRef, newDocMenuOpen, newMaterialTargets, openCommandSettings, openDocumentInWorkspace, openDocumentListDialog, openDocumentTabs, openImportDialog, openNewDocMenu, openOtherImportDialog, extensionMenu = [], extensionsMenuButtonRef, runExtensionItem, openPrintPreview, openTextImportDialog, openVersionHistory, openWorkspaceScreen, otherImportInputRef, promoteAiToSidebar, reportIssue, requestOverlayImages, resolvedDocumentTitle, scheduleCloseNewDocMenu, setAiSettingsOpen, setDesktopSettingsOpen, setExportMenuOpen, setExtensionsOpen, setNewDocMenuOpen, setOutlineDialogOpen, setOverlayEditing, setPageSettingsOpen, setTemplateGalleryOpen, setTexCommandReferenceOpen, setTexEnvironmentSettingsOpen, setTitleInputFocused, settingsMenuButtonRef, showRichTitle, showTitleUpdateButton, titleInputValue, titleRichNodes, titleUpdateButtonDisabled, toggleCommentsPanel, toggleProblemDisplayPart, problemDisplay, problemDisplayAvailable, uiLayoutPreference, updateMetadata, versionHistoryOpen, workspaceTabsRow } = chrome.appMenu;
-  const { commandTooltip, renderMenuShortcut } = chrome.commands;
+  const { activeDocumentOpenFailure, activeFileId, addBlock, aiMenuButtonRef, appUpdateState, closeDocumentTab, commentsPanelOpen, commitDocumentTitle, copyDocumentText, createDocumentTab, createDocumentTabInWorkspace, createWhiteboardDocumentTab, degradedWatcherScopes, deleteActiveDocument, documentMetadatas, documentTitle, duplicateActiveDocument, exportJson, exportMenuOpen, fileMenuButtonRef, handleTitleUpdateAction, importDocumentFile, importInputRef, insertMenuButtonRef, loadingFileId, newDocButtonRef, newDocMenuOpen, newMaterialTargets, openCommandSettings, openDocumentInWorkspace, openDocumentListDialog, openDocumentTabs, openImportDialog, openNewDocMenu, openOtherImportDialog, extensionMenu = [], extensionsMenuButtonRef, runExtensionItem, openPrintPreview, openTextImportDialog, openVersionHistory, openWorkspaceScreen, otherImportInputRef, promoteAiToSidebar, reportIssue, requestOverlayImages, resolvedDocumentTitle, scheduleCloseNewDocMenu, setAiSettingsOpen, setDesktopSettingsOpen, setExportMenuOpen, setExtensionsOpen, setNewDocMenuOpen, setOverlayEditing, setPageSettingsOpen, setTemplateGalleryOpen, setTexCommandReferenceOpen, setTexEnvironmentSettingsOpen, setTitleInputFocused, settingsMenuButtonRef, showRichTitle, showTitleUpdateButton, titleInputValue, titleRichNodes, titleUpdateButtonDisabled, toggleCommentsPanel, toggleProblemDisplayPart, problemDisplay, problemDisplayAvailable, uiLayoutPreference, updateMetadata, versionHistoryOpen, workspaceTabsRow } = chrome.appMenu;
+  const { commandTooltip, renderMenuShortcut, fontFamilyShortcut } = chrome.commands;
   const { setMaterialLibraryOpen } = chrome.editing;
   const { ActiveTextAlignIcon, activeFontFamilyLabel, activeTextAlignOption, activeTextFontSize, activeTextFontSizeMixed, applyBlockStructure, applyBoxedTextPaddingY, applyBoxedTextRoundness, applyInlineFormat, applyLineHeight, applyTextAlign, applyTextStyle, blockStyleState, boldActive, boxedTextActive, boxedTextButtonRef, boxedTextMenuOpen, boxedTextPaddingY, boxedTextRoundness, boxedTextVariant, canUseBlockStructure, canUseLineHeight, canUseTextAlign, canUseTextBlockStyle, canUseTextToolbar, fontFamily, fontFamilyButtonRef, fontFamilyIsKnownOption, fontFamilyIsMixed, fontFamilyMenuOpen, fontFamilyQuery, handleLineHeightStepClick, italicActive, lineHeight, lineHeightButtonRef, lineHeightCustomOpen, lineHeightInput, lineHeightInputError, lineHeightMenuOpen, moreBlocksMenuButtonRef, moreBlocksMenuOpen, orderedListMenuButtonRef, orderedListMenuOpen, setMoreBlocksMenuOpen, setOrderedListMenuOpen, selectBoxedTextVariant, selectedTextAlign, selectedTextStyle, setFontFamily, setFontFamilyQuery, setLineHeightCustomOpen, setLineHeightInput, setLineHeightInputError, setTextBackgroundColor, setTextColor, setTextFontSize, startLineHeightStepping, stopLineHeightStepping, textAlignButtonRef, textAlignMenuOpen, textBackgroundColor, textBackgroundColorButtonRef, textColor, textColorButtonRef, toggleBoxedText, underlineActive, visibleCustomFontOptions, visibleFontFamilyGroups, blockStyleButtonRef, blockStyleMenuOpen, fontSizeInputRef, fontSizeSkipBlurRef, fontSizeInput, setFontSizeInput } = chrome.format;
   const { ActiveLineToolIcon, activeLineToolItem, activeOverlayTool, bodyToolbarLockedByAi, cancelInlineMathMenuClose, inlineMathButtonRef, inlineMathMenuOpen, lineToolMenuButtonRef, lineToolMenuOpen, openInlineMathMenu, scheduleInlineMathMenuClose, selectedInlineMath, selectedInlineMathDetails, setInlineMathMenuOpen, shapeMenuButtonRef, shapeMenuOpen, startInlineMathFromToolbar } = chrome.insert;
@@ -100,8 +102,7 @@ export function renderEditorChrome(chrome: EditorChromeValue) {
 
   const documentIcon = (
     <div className="document-icon" aria-hidden="true">
-      <span>Σ</span>
-      <span>Studio</span>
+      <SigmaMark size={32} />
     </div>
   );
 
@@ -363,10 +364,6 @@ export function renderEditorChrome(chrome: EditorChromeValue) {
           >
             {commentsPanelOpen ? <Check size={16} /> : <span aria-hidden="true" />}
             <span>{t("appMenu.settings.comments")}</span>
-          </button>
-          <button type="button" role="menuitem" onClick={() => { setActiveMenu(null); setOutlineDialogOpen(true); }}>
-            <ListTree size={16} />
-            <span>{t("appMenu.settings.outline")}</span>
           </button>
           {problemDisplayAvailable && (
             // 開閉はCSSの :hover / :focus-within だけ (状態を持たない)。チェックを付け外しても
@@ -1022,17 +1019,15 @@ export function renderEditorChrome(chrome: EditorChromeValue) {
               ariaLabel={t("format.font.aria")}
             >
               {(fontFamilyMenuOpen && canUseTextToolbar) && <div className="font-family-menu-content" {...{ [INLINE_MATH_FONT_MENU_ATTRIBUTE]: "" }}>
-              <label className="font-family-menu-search">
-                <Search size={14} aria-hidden="true" />
-                <input
-                  type="search"
-                  value={fontFamilyQuery}
-                  aria-label={t("format.font.search")}
-                  placeholder={t("format.font.search")}
-                  data-popover-initial-focus=""
-                  onChange={(event) => setFontFamilyQuery(event.target.value)}
-                />
-              </label>
+              <SearchField
+                size="sm"
+                className="font-family-menu-search"
+                value={fontFamilyQuery}
+                aria-label={t("format.font.search")}
+                placeholder={t("format.font.search")}
+                data-popover-initial-focus=""
+                onChange={setFontFamilyQuery}
+              />
               {!fontFamilyIsKnownOption ? (
                 <div className="font-family-menu-group" role="group" aria-label={t("format.font.currentGroup")}>
                   <div className="font-family-menu-group-label">{t("format.font.currentGroup")}</div>
@@ -1051,36 +1046,7 @@ export function renderEditorChrome(chrome: EditorChromeValue) {
                   </button>
                 </div>
               ) : null}
-              {visibleFontFamilyGroups.map((group) => (
-                <div className="font-family-menu-group" role="group" aria-label={t(`format.font.group.${group.id}`)} key={group.id}>
-                  <div className="font-family-menu-group-label">{t(`format.font.group.${group.id}`)}</div>
-                  {group.options.map((item) => (
-                    <button
-                      key={`${group.id}-${item.value}`}
-                      type="button"
-                      role="menuitemradio"
-                      aria-checked={fontFamily === item.value}
-                      className={fontFamily === item.value ? "active" : undefined}
-                      title={item.label}
-                      style={{ fontFamily: item.value }}
-                      onMouseDown={(event) => event.preventDefault()}
-                      onClick={() => {
-                        const nextFontFamily = normalizeToolbarFontFamily(item.value);
-                        setFontFamily(nextFontFamily);
-                        applyInlineFormat("fontFamily", item.value === DEFAULT_FONT_FAMILY_VALUE ? "" : item.value);
-                        setFontFamilyMenuOpen(false);
-                      }}
-                    >
-                      <span className="font-family-menu-option-label">{item.label}</span>
-                      {fontFamily === item.value ? (
-                        <Check size={14} className="font-family-menu-check" />
-                      ) : (
-                        <span className="font-family-menu-check" aria-hidden="true" />
-                      )}
-                    </button>
-                  ))}
-                </div>
-              ))}
+              {/* 読み込んだ書体・拡張機能の書体は、このPCの書体 (数百) の後ろに埋もれないよう先頭に置く。 */}
               {visibleCustomFontOptions.length > 0 && (
                 <div className="font-family-menu-group" role="group" aria-label={t("format.font.customGroup")}>
                   <div className="font-family-menu-group-label">{t("format.font.customGroup")}</div>
@@ -1102,6 +1068,7 @@ export function renderEditorChrome(chrome: EditorChromeValue) {
                       }}
                     >
                       <span className="font-family-menu-option-label">{item.label}</span>
+                      <FontFamilyMenuShortcut label={fontFamilyShortcut(item.value)} />
                       {fontFamily === item.value ? (
                         <Check size={14} className="font-family-menu-check" />
                       ) : (
@@ -1111,6 +1078,37 @@ export function renderEditorChrome(chrome: EditorChromeValue) {
                   ))}
                 </div>
               )}
+              {visibleFontFamilyGroups.map((group) => (
+                <div className="font-family-menu-group" role="group" aria-label={t(`format.font.group.${group.id}`)} key={group.id}>
+                  <div className="font-family-menu-group-label">{t(`format.font.group.${group.id}`)}</div>
+                  {group.options.map((item) => (
+                    <button
+                      key={`${group.id}-${item.value}`}
+                      type="button"
+                      role="menuitemradio"
+                      aria-checked={fontFamily === item.value}
+                      className={fontFamily === item.value ? "active" : undefined}
+                      title={item.label}
+                      style={{ fontFamily: item.value }}
+                      onMouseDown={(event) => event.preventDefault()}
+                      onClick={() => {
+                        const nextFontFamily = normalizeToolbarFontFamily(item.value);
+                        setFontFamily(nextFontFamily);
+                        applyInlineFormat("fontFamily", item.value === DEFAULT_FONT_FAMILY_VALUE ? "" : item.value);
+                        setFontFamilyMenuOpen(false);
+                      }}
+                    >
+                      <span className="font-family-menu-option-label">{item.label}</span>
+                      <FontFamilyMenuShortcut label={fontFamilyShortcut(item.value)} />
+                      {fontFamily === item.value ? (
+                        <Check size={14} className="font-family-menu-check" />
+                      ) : (
+                        <span className="font-family-menu-check" aria-hidden="true" />
+                      )}
+                    </button>
+                  ))}
+                </div>
+              ))}
               {visibleFontFamilyGroups.length === 0 && visibleCustomFontOptions.length === 0 && (
                 <p className="font-family-menu-empty">{t("format.font.empty")}</p>
               )}
@@ -3021,13 +3019,7 @@ export function renderEditorChrome(chrome: EditorChromeValue) {
         key: "show",
         label: t("ribbon.group.view"),
         rows: [
-          <Fragment key="show-1">
-            <EditorToolbarIconButton withText title={t("ribbon.outlineTooltip")} aria-label={t("ribbon.outlineTooltip")} onClick={() => setOutlineDialogOpen(true)}>
-              <ListTree size={EDITOR_TOOLBAR_TEXT_ICON_SIZE} />
-              <span>{t("ribbon.outline")}</span>
-            </EditorToolbarIconButton>
-          </Fragment>,
-          <Fragment key="show-2">{commentsToggleButton}</Fragment>,
+          <Fragment key="show-1">{commentsToggleButton}</Fragment>,
         ],
       },
       { key: "zoom", label: t("ribbon.group.zoom"), rows: [<>{zoomOutButton}{zoomSelect}{zoomInButton}</>] },
@@ -3269,4 +3261,9 @@ function getTitleUpdateButtonTitle(state: DesktopUpdateState | null, t: Translat
   return state?.availableVersion
     ? t("update.available", { version: state.availableVersion })
     : t("update.update");
+}
+
+/** 書体メニューの行に添える「この書体にするキー」。割り当てが無ければ何も描かない。 */
+function FontFamilyMenuShortcut({ label }: { label: string | undefined }) {
+  return label ? <kbd className="font-family-menu-shortcut">{label}</kbd> : null;
 }
