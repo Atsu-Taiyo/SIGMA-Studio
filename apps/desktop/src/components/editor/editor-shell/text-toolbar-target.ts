@@ -2,6 +2,18 @@ import type { TextFormatStateContext } from "@/components/tiptap/text-format-con
 import { getOverlayTextFormatState, type OverlayTextBlock, type OverlayTextFormatState } from "@/features/document";
 import type { OverlaySelectionSummary } from "../page-overlay-types";
 
+export type TextToolbarLockReason = "aiLocked" | "readOnly" | "sessionOpening" | "previewBusy";
+export type TextToolbarDisabledReason = TextToolbarLockReason | "tableCellRequired" | "textShapeRequired" | "noTextSelection" | "unsupportedBlock";
+
+/** The same reason gates the controls and explains why they are disabled. */
+export function resolveTextToolbarLockReason(context: {
+  writable: boolean; awaitingSession: boolean; previewBusy: boolean; aiLocked: boolean;
+}): TextToolbarLockReason | null {
+  if (!context.writable) return context.awaitingSession ? "sessionOpening" : "readOnly";
+  if (context.previewBusy) return "previewBusy";
+  return context.aiLocked ? "aiLocked" : null;
+}
+
 interface TextToolbarContext {
   selectedBlock: { id: string; type: string } | null;
   documentTextTarget: TextFormatStateContext | null;
@@ -9,8 +21,8 @@ interface TextToolbarContext {
   runningRegionEditing: boolean;
   overlayEditing: boolean;
   overlaySelection: Pick<OverlaySelectionSummary, "selectedShapes" | "textEditing">;
-  bodyLocked: boolean;
-  overlayLocked: boolean;
+  bodyLockReason: TextToolbarLockReason | null;
+  overlayLockReason: TextToolbarLockReason | null;
 }
 
 /**
@@ -27,8 +39,10 @@ export function resolveTextToolbarTarget(context: TextToolbarContext) {
   const isCodeBlock = selectedBlock?.type === "codeBlock";
   const canFormatSelectedText = isBoxTitle || isCodeBlock || context.hasTextRunSpan
     || ["section", "paragraph", "heading", "listItem"].includes(selectedBlock?.type ?? "");
-  const documentEnabled = !context.overlayEditing && !context.bodyLocked
-    && (canFormatSelectedText || context.runningRegionEditing);
+  const documentReason: TextToolbarDisabledReason | null = context.bodyLockReason
+    ?? (canFormatSelectedText || context.runningRegionEditing ? null
+      : selectedBlock ? "unsupportedBlock" : "noTextSelection");
+  const documentEnabled = !context.overlayEditing && documentReason === null;
   const editing = overlaySelection.textEditing;
   const selectedShape = overlaySelection.selectedShapes.length === 1
     ? overlaySelection.selectedShapes[0] : null;
@@ -38,9 +52,12 @@ export function resolveTextToolbarTarget(context: TextToolbarContext) {
   const isShapeText = editing?.kind === "text"
     && (editingShape?.type === "text" || editingShape?.type === "callout");
   const isWholeTextShape = !editing && (selectedShape?.type === "text" || selectedShape?.type === "callout");
-  const overlayEnabled = context.overlayEditing && !context.overlayLocked
-    && (isTableCell || isShapeText || isWholeTextShape);
+  const overlayDisabledReason: TextToolbarDisabledReason | null = context.overlayLockReason
+    ?? (isTableCell || isShapeText || isWholeTextShape ? null : overlaySelection.selectedShapes.some(shape => shape.type === "tableShape")
+      ? "tableCellRequired" : "textShapeRequired");
+  const overlayEnabled = context.overlayEditing && overlayDisabledReason === null;
   return {
+    disabledReason: context.overlayEditing ? overlayDisabledReason : documentReason,
     target: context.overlayEditing ? "overlay" as const : "document" as const,
     isBoxTitle,
     isCodeBlock,

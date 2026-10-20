@@ -19,6 +19,7 @@ import type { BlockStyleToolbarState } from "../toolbar-formatting";
 export interface SelectionToolbarTextBinding {
   /** 文字書式 (太字・サイズ・色…) を受けられる選択か。 */
   enabled: boolean;
+  disabledReason?: string;
   canBlockStyle: boolean;
   canBlockStructure: boolean;
   canAlign: boolean;

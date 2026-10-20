@@ -1,4 +1,6 @@
 "use client";
+
+import { isTextPointerSelectionClick } from "@/components/editor/text-pointer-selection";
 import { type TextRunScopeContainer } from "@/components/editor/text-flow/text-run-span";
 import {
   type TextFlowBoxFragmentSourceLayout,
@@ -205,6 +207,7 @@ export function ProblemAreaFlowUnit({
       style={style}
       onClick={(event) => {
         event.stopPropagation();
+        if (isTextPointerSelectionClick(event.nativeEvent)) return;
         onSelect(problem.id);
       }}
     >

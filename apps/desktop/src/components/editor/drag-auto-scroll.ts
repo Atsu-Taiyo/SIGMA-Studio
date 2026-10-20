@@ -1,4 +1,7 @@
 const DRAG_AUTO_SCROLL_EDGE_PX = 32;
+// 240px spans the ribbon and window chrome above the canvas: far outside reaches 5×.
+const DRAG_AUTO_SCROLL_OUTSIDE_DISTANCE_PX = 240;
+const DRAG_AUTO_SCROLL_OUTSIDE_MULTIPLIER = 5;
 const DRAG_AUTO_SCROLL_MAX_DELTA_SECONDS = 1 / 15;
 
 export interface DragAutoScrollViewportBounds {
@@ -17,6 +20,7 @@ interface CreateDragAutoScrollerOptions {
     clientY: number,
     layout: { rectSettled: boolean },
   ) => void;
+  /** Reference speed at the viewport edge; outside acceleration reaches five times this. */
   maxSpeedPxPerSec: number;
   horizontal?: boolean;
   vertical?: boolean;
@@ -46,7 +50,7 @@ export function resolveDragAutoScrollStep(
   clientPos: number,
   viewportStart: number,
   viewportEnd: number,
-  maxSpeedPxPerSec: number,
+  edgeSpeedPxPerSec: number,
   edge = DRAG_AUTO_SCROLL_EDGE_PX,
 ): number {
   if (viewportEnd - viewportStart <= edge * 2) {
@@ -54,13 +58,20 @@ export function resolveDragAutoScrollStep(
   }
   if (clientPos < viewportStart + edge) {
     const incursion = viewportStart + edge - clientPos;
-    return -maxSpeedPxPerSec * Math.min(1, incursion / edge);
+    return -edgeSpeedPxPerSec * speedFactor(incursion, edge);
   }
   if (clientPos > viewportEnd - edge) {
     const incursion = clientPos - (viewportEnd - edge);
-    return maxSpeedPxPerSec * Math.min(1, incursion / edge);
+    return edgeSpeedPxPerSec * speedFactor(incursion, edge);
   }
   return 0;
+}
+
+function speedFactor(incursion: number, edge: number): number {
+  if (incursion <= edge) return incursion / edge;
+  const distance = Math.min(1, (incursion - edge) / DRAG_AUTO_SCROLL_OUTSIDE_DISTANCE_PX);
+  // Continuous, monotone smoothstep outside; no speed jump at the edge or cap.
+  return 1 + (DRAG_AUTO_SCROLL_OUTSIDE_MULTIPLIER - 1) * distance * distance * (3 - 2 * distance);
 }
 
 /**

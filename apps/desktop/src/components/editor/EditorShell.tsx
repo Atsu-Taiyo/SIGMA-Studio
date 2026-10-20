@@ -1,4 +1,6 @@
 "use client";
+
+import { isTextPointerSelectionClick } from "@/components/editor/text-pointer-selection";
 import type { DocumentSessionHost } from "@/features/document-session/contracts";
 import { isDocumentWritable } from "@/features/document-session/writable";
 import { DocumentSessionContext,DocumentWritableContext } from "./document-session-context";
@@ -185,7 +187,7 @@ import { PocketBar, usePocketPhase } from "@/features/pocket";
 import { FilesPanel } from "@/features/right-dock/view/FilesPanel";
 import { RightDockToggle } from "@/features/right-dock/view/RightDock";
 import { RightDockHost } from "@/features/right-dock/view/RightDockHost";
-import { resolveTextToolbarMarkState, resolveTextToolbarTarget } from "./editor-shell/text-toolbar-target";
+import { resolveTextToolbarLockReason, resolveTextToolbarMarkState, resolveTextToolbarTarget } from "./editor-shell/text-toolbar-target";
 
 import { readRenderedTextFontSize,type SelectionFontSize } from "@/components/tiptap/text-format-font-size";
 import {
@@ -2603,8 +2605,14 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
   }, [document, selectedId]);
   const aiLockedBodySelection = isAiLockedBlock(aiLockedTargets, selectedId);
   const aiLockedOverlaySelection = isAiLockedShapeSelection(aiLockedTargets, overlaySelection.selectedShapeIds);
-  const bodyToolbarLockedByAi = aiDocumentWriteInProgress || aiLockedBodySelection;
-  const overlayToolbarLockedByAi = aiDocumentWriteInProgress || aiLockedOverlaySelection;
+  const bodyTextToolbarLockReason = resolveTextToolbarLockReason({
+    writable: sessionWritable, awaitingSession: awaitingSharedSession, previewBusy: mcpPreviewBusy, aiLocked: aiLockedBodySelection,
+  });
+  const overlayTextToolbarLockReason = resolveTextToolbarLockReason({
+    writable: sessionWritable, awaitingSession: awaitingSharedSession, previewBusy: mcpPreviewBusy, aiLocked: aiLockedOverlaySelection,
+  });
+  const bodyToolbarLockedByAi = bodyTextToolbarLockReason !== null;
+  const overlayToolbarLockedByAi = overlayTextToolbarLockReason !== null;
   const textToolbar = resolveTextToolbarTarget({
     selectedBlock,
     documentTextTarget: documentTextFormatTarget,
@@ -2612,8 +2620,8 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
     runningRegionEditing: !!runningRegionEditingKind,
     overlayEditing,
     overlaySelection,
-    bodyLocked: bodyToolbarLockedByAi,
-    overlayLocked: overlayToolbarLockedByAi,
+    bodyLockReason: bodyTextToolbarLockReason,
+    overlayLockReason: overlayTextToolbarLockReason,
   });
   const canFormatSelectedText = textToolbar.canFormatSelectedText;
   const selectedTextStyle =
@@ -2681,6 +2689,8 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
     || customFontOptions.some((option) => option.value === fontFamily);
   const hasOverlaySelection = overlaySelection.selectedCount > 0;
   const canUseTextToolbar = textToolbar.enabled;
+  const textToolbarDisabledReason = textToolbar.disabledReason
+    ? t(`format.disabled.${textToolbar.disabledReason}`) : undefined;
   const canUseLineHeight = textToolbar.canUseLineHeight;
   const wholeTextShape = textToolbar.wholeTextShape;
   const [wholeTextShapeMeasurement, setWholeTextShapeMeasurement] = useState<{
@@ -3464,17 +3474,20 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
     }
   }, [setColorStylePanel, setLineDashMenuOpen, setLineWidthMenuOpen]);
 
-  const applyInlineFormat = (command: "color" | "backgroundColor" | "fontFamily" | "fontSize" | "lineHeight" | "boxedPaddingY" | "boxedVariant" | "boxedRoundness", value: string) => {
+  const applyInlineFormat = (command: "color" | "backgroundColor" | "fontFamily" | "fontSize" | "lineHeight" | "boxedPaddingY" | "boxedVariant" | "boxedRoundness", value: string, options?: { restoreFocus?: boolean; focusOnly?: boolean }) => {
     if (!canUseTextToolbar) {
-      return;
+      return false;
     }
+    if (options?.focusOnly && textToolbar.target !== "document") return false;
     if (command === "fontFamily") saveEditorFontFamilyPreference(value);
     // 数式の入力欄で範囲を選んでいれば、フォントはその範囲だけに付ける (数式の外側の本文には付けない)。
     if (command === "fontFamily" && applyFontToInlineMathSelection(value, inlineMathFontTargetRef.current)) {
-      return;
+      return true;
     }
 
-    window.dispatchEvent(new CustomEvent(FORMAT_TEXT_EVENT, { detail: { command, value, target: textToolbar.target } }));
+    const detail = { command, value, target: textToolbar.target, ...options, focusBlockId: null as string | null };
+    window.dispatchEvent(new CustomEvent(FORMAT_TEXT_EVENT, { detail }));
+    return textToolbar.target !== "document" || detail.focusBlockId !== null;
   };
 
   const { applyLineHeight, startLineHeightStepping, handleLineHeightStepClick, stopLineHeightStepping } = useLineHeightControl({ enabled: canUseLineHeight, lineHeight, menuOpen: lineHeightMenuOpen, customOpen: lineHeightCustomOpen, setLineHeight, setLineHeightInput, setLineHeightInputError, applyFormat: applyInlineFormat, t });
@@ -4513,6 +4526,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
   const selectionToolbarBinding: SelectionToolbarBinding = {
     text: {
       enabled: canUseTextToolbar,
+      disabledReason: textToolbarDisabledReason,
       canBlockStyle: canUseTextBlockStyle,
       canBlockStructure: canUseBlockStructure,
       canAlign: canUseTextAlign,
@@ -4609,7 +4623,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
       orderedListMenuButtonRef, orderedListMenuOpen, setOrderedListMenuOpen,
       boxedTextMenuOpen, boxedTextPaddingY, boxedTextRoundness, boxedTextVariant, canUseLineHeight, canUseTextAlign,
       blockStyleButtonRef, blockStyleMenuOpen,
-      canUseTextBlockStyle, canUseTextToolbar, fontFamily, fontFamilyButtonRef,
+      canUseTextBlockStyle, canUseTextToolbar, textToolbarDisabledReason, fontFamily, fontFamilyButtonRef,
       fontFamilyIsKnownOption, fontFamilyIsMixed, fontFamilyMenuOpen, fontFamilyQuery,
       fontSizeInputRef, fontSizeSkipBlurRef, fontSizeInput, setFontSizeInput,
       handleLineHeightStepClick, italicActive, lineHeight, lineHeightButtonRef,
@@ -4918,6 +4932,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
           data-whiteboard={isWhiteboardDocument ? "true" : undefined}
           ref={attachEditorCanvas}
           onClick={(event) => {
+            if (isTextPointerSelectionClick(event.nativeEvent)) return;
             if (versionHistoryPreviewActive) return;
             const target = event.target instanceof Element ? event.target : null;
             // 選択バーとそこから開くメニュー (ポータル) は選択に対する操作なので、選択を解除しない。

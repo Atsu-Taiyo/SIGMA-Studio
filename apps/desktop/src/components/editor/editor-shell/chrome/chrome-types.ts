@@ -123,7 +123,7 @@ export interface EditorChromeFormat {
   applyBoxedTextPaddingY: (paddingY: number) => void;
   /** 角丸の囲み文字の丸め具合 (%) を決める。 */
   applyBoxedTextRoundness: (roundness: number) => void;
-  applyInlineFormat: (command: "color" | "backgroundColor" | "fontFamily" | "fontSize" | "lineHeight" | "boxedPaddingY" | "boxedVariant" | "boxedRoundness", value: string) => void;
+  applyInlineFormat: (command: "color" | "backgroundColor" | "fontFamily" | "fontSize" | "lineHeight" | "boxedPaddingY" | "boxedVariant" | "boxedRoundness", value: string, options?: { restoreFocus?: boolean; focusOnly?: boolean }) => boolean;
   applyLineHeight: (nextLineHeightValue: string, options?: { updateInput?: boolean; }) => boolean;
   applyBlockStructure: (value: BlockStyleCommandValue) => void;
   applyTextAlign: (align: TextAlign) => void;
@@ -145,6 +145,7 @@ export interface EditorChromeFormat {
   canUseBlockStructure: boolean;
   canUseTextBlockStyle: boolean;
   canUseTextToolbar: boolean;
+  textToolbarDisabledReason?: string;
   fontFamily: string;
   fontFamilyButtonRef: RefObject<HTMLButtonElement | null>;
   fontFamilyIsKnownOption: boolean;
