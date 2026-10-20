@@ -14,6 +14,7 @@ import {
 import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import type { FormEvent, MouseEvent as ReactMouseEvent } from "react";
 
+import { SigmaMark } from "@/components/branding/SigmaMark";
 import { Button, IconButton } from "@/components/ui/Button";
 import { useWorkspaceLibrary } from "./use-workspace-search";
 import { useWorkspaceBodySearch } from "./use-workspace-body-search";
@@ -1314,7 +1315,7 @@ export function WorkspaceManager() {
             aria-controls="workspace-sidebar"
             onClick={() => setViewPreference({ sidebarCollapsed: !sidebarCollapsed })}
           >{sidebarCollapsed ? <PanelLeftOpen size={18} /> : <PanelLeftClose size={18} />}</IconButton>
-          <div className="workspace-brand-mark" aria-hidden="true">Σ</div>
+          <SigmaMark size={34} />
           <h1>Sigma Studio</h1>
         </div>
         <SearchField

@@ -141,7 +141,8 @@ module.exports = {
     publisherDisplayName: windowsStorePublisherDisplayName || undefined,
     displayName: "Sigma Studio",
     languages: ["ja-JP", "en-US"],
-    backgroundColor: "#ffffff",
+    // build/appx のタイルは角丸の黒タイルで、角の外は透明。色を敷くとその角が四角く塗られるので敷かない。
+    backgroundColor: "transparent",
     artifactName: "Sigma-Studio-Store-${version}-${arch}.${ext}",
   },
   nsis: {

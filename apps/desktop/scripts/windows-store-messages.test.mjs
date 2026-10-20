@@ -73,6 +73,17 @@ describe("Windows Store build messages", () => {
     expect(config.appx.languages).toEqual(["ja-JP", "en-US"]);
   });
 
+  it("lets the rounded Store tiles show through instead of painting a square plate", () => {
+    Object.assign(process.env, {
+      SIGMA_STUDIO_WINDOWS_STORE: "true",
+      WINDOWS_STORE_IDENTITY_NAME: "example.identity",
+      WINDOWS_STORE_PUBLISHER: "CN=Example",
+      WINDOWS_STORE_PUBLISHER_DISPLAY_NAME: "Example",
+    });
+
+    expect(loadBuilderConfig().appx.backgroundColor).toBe("transparent");
+  });
+
   it("localizes the builder error for missing Store identity values", () => {
     Object.assign(process.env, {
       SIGMA_STUDIO_WINDOWS_STORE: "true",
