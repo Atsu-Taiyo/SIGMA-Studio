@@ -2983,6 +2983,8 @@ button:disabled {
   overflow-x: hidden;
   overflow-y: auto;
   overscroll-behavior: contain;
+  /* 列を枠の幅に固定する。暗黙の auto 列だと最も長い書体名 (nowrap) の幅まで広がり、検索欄と行が枠からはみ出して右端が切れる。 */
+  grid-template-columns: minmax(0, 1fr);
   gap: 2px;
 }
 
@@ -3021,6 +3023,7 @@ button:disabled {
 
 .font-family-menu-group {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 2px;
 }
 
