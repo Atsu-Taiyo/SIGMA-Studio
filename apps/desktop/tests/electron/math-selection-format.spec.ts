@@ -61,6 +61,13 @@ test("math-only selection has text tools and mixed formatting toggles together a
     await expect(tools).toBeVisible();
     await tools.getByRole("button", { name: /太字/ }).click();
     await expect.poll(savedRuns).toEqual([["bold"], String.raw`\boldsymbol{x^2}`, ["bold"]]);
+    // A restored text-range anchor counts the canonical formatted TeX, not attrs.tex.
+    await page.reload();
+    await expect(mixed).toBeVisible();
+    await page.evaluate((from) => window.dispatchEvent(new CustomEvent("sigma-studio:ai-reference-text-range", { detail: { anchors: [{
+      type: "textRange", start: { blockId: "mixed", offset: from }, end: { blockId: "mixed", offset: from + 2 }, quote: "後文",
+    }] } })), "本文".length + String.raw`\boldsymbol{x^2}`.length + 2);
+    await expect(mixed.locator(".external-text-range-highlight")).toHaveText("後文");
     // A formula selected inside a mixed line exposes the same tools.
     await mixed.locator(".inline-math-node").evaluate((element) => {
       element.closest<HTMLElement>(".ProseMirror")!.focus();

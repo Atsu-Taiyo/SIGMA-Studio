@@ -2914,7 +2914,7 @@ function nodeTextForClipboard(node: ProseMirrorNode): string {
   }
 
   if (node.type.name === "mathInline") {
-    return `$${String(node.attrs.tex ?? "")}$`;
+    return `$${writeMathTextFormat(String(node.attrs.tex ?? ""), node.marks)}$`;
   }
 
   if (node.content.size === 0) {
