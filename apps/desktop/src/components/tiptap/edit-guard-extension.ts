@@ -5,6 +5,7 @@ import { Decoration, DecorationSet, type EditorView } from "@tiptap/pm/view";
 
 import { countDecorationBlockWalk } from "./decoration-walk-metrics";
 import type { TextContentReservation } from "@/features/text-editing";
+import { writeMathTextFormat } from "@/lib/math-text-format";
 import { resolveEditGuardSpans, transactionTouchesEditGuardSpans } from "./edit-guard-ranges";
 
 /**
@@ -450,7 +451,7 @@ export function collectEditGuardHighlightSpans(
     }
     if (node.isLeaf) {
       const isInlineMath = node.type.name === "mathInline";
-      const tex = isInlineMath && typeof node.attrs.tex === "string" ? node.attrs.tex : "";
+      const tex = isInlineMath ? writeMathTextFormat(String(node.attrs.tex ?? ""), node.marks) : "";
       const plainLength = isInlineMath ? (tex ? tex.length + 2 : 1) : 0;
       const mathInlineId = isInlineMath && typeof node.attrs.id === "string" ? node.attrs.id : null;
       if (wholeBlock || (isInlineMath && (

@@ -21,6 +21,7 @@ import {
   createBlockCommentAnchor,
   createTextCommentAnchorFromRange,
   getClosestBlockId,
+  getCommentOffsetText,
   getOverlaySelectionActionPopoverPosition,
   getOverlaySelectionControlsCanvasRect,
   getOverlaySelectionTargetBlockId,
@@ -53,14 +54,15 @@ interface Inputs {
   isOverlayEditing: boolean;
   onCommentAnchorRequest: ((anchor: SigmaCommentAnchor, placement?: { left: number; top: number }) => void) | undefined;
   renderSelectionActions: ((anchor: SigmaCommentAnchor) => React.ReactNode) | undefined;
-  selectedInlineMath: { id: string; tex: string; blockId?: string; } | null;
+  selectedInlineMath: { id: string; tex: string; blockId?: string; getCanonicalTex?: () => string; } | null;
   totalHeight: number;
+  layoutRevision: number;
   /** 描いた図形の選択ポップオーバーの幅 (画面の px)。測る前は見積もり。 */
   overlayPopoverWidthPx?: number;
 }
 
 const TEXT_SELECTION_ACTION_DEBOUNCE_MS = 120;
-export function usePageCanvasSelectionActions({ overlaySelection, suppressSelectionActions, pageOverlayEditing, selectionExtension, selectedId, document, bodyOverlayModeStatus, overlayCommentAnchor, canvasRef, zoom, isWhiteboard, whiteboardPanX, whiteboardPanY, onCommentAnchorCandidateChange, isOverlayEditing, onCommentAnchorRequest, renderSelectionActions, selectedInlineMath, totalHeight, overlayPopoverWidthPx }: Inputs) {
+export function usePageCanvasSelectionActions({ overlaySelection, suppressSelectionActions, pageOverlayEditing, selectionExtension, selectedId, document, bodyOverlayModeStatus, overlayCommentAnchor, canvasRef, zoom, isWhiteboard, whiteboardPanX, whiteboardPanY, onCommentAnchorCandidateChange, isOverlayEditing, onCommentAnchorRequest, renderSelectionActions, selectedInlineMath, totalHeight, layoutRevision, overlayPopoverWidthPx }: Inputs) {
 
   const [extensionTextSelectionPopover, setExtensionTextSelectionPopover] = useState<ExtensionActionPopoverState | null>(null);
 
@@ -277,6 +279,12 @@ export function usePageCanvasSelectionActions({ overlaySelection, suppressSelect
 
       const selection = window.getSelection();
       const canvas = canvasRef.current;
+      // The retained atom range contains the last committed data-tex. While its
+      // input owns the draft, hand comments/actions to the selected-math path.
+      if (canvas?.querySelector(".inline-math-node.editing")) {
+        clearTextSelectionActions(true);
+        return;
+      }
       // Inputs and popovers temporarily replace Chromium's DOM selection. Keep the
       // existing actions while their body range is still held by ProseMirror.
       if (hasHeldCanvasTextSelection(canvas, window.document.activeElement, false)) return;
@@ -291,7 +299,7 @@ export function usePageCanvasSelectionActions({ overlaySelection, suppressSelect
         return;
       }
 
-      const selectedText = selection.toString().trim();
+      const selectedText = getCommentOffsetText(range).trim();
       const targetId = getRangeTargetBlockId(range, canvas);
       const selectionRect = getRangeScreenRect(range);
       if (!selectedText || !targetId || !selectionRect) {
@@ -402,7 +410,9 @@ export function usePageCanvasSelectionActions({ overlaySelection, suppressSelect
       return () => window.cancelAnimationFrame(frame);
     }
 
-    const frame = window.requestAnimationFrame(() => {
+    let frame = 0;
+    const updatePosition = () => {
+      frame = 0;
       const canvas = canvasRef.current;
       if (!canvas) {
         applySelectedTargetPopovers(null, null);
@@ -411,6 +421,7 @@ export function usePageCanvasSelectionActions({ overlaySelection, suppressSelect
       }
 
       if (selectedInlineMath) {
+        const canonicalTex = selectedInlineMath.getCanonicalTex?.() ?? selectedInlineMath.tex;
         const mathElement = canvas.querySelector<HTMLElement>(
           `.inline-math-node[data-id="${CSS.escape(selectedInlineMath.id)}"]`,
         );
@@ -424,7 +435,7 @@ export function usePageCanvasSelectionActions({ overlaySelection, suppressSelect
               kind: "inlineMath",
               targetId,
               mathInlineId: selectedInlineMath.id,
-              tex: selectedInlineMath.tex,
+              tex: canonicalTex,
             }) ?? null
           : null;
         const commentAnchor: SigmaCommentAnchor | null = targetId && canComment
@@ -432,8 +443,8 @@ export function usePageCanvasSelectionActions({ overlaySelection, suppressSelect
               type: "inlineMath",
               blockId: targetId,
               mathInlineId: selectedInlineMath.id,
-              quote: selectedInlineMath.tex ? `$${selectedInlineMath.tex}$` : undefined,
-              tex: selectedInlineMath.tex,
+              quote: canonicalTex ? `$${canonicalTex}$` : undefined,
+              tex: canonicalTex,
             }
           : null;
         const rect = mathElement?.getBoundingClientRect();
@@ -461,10 +472,20 @@ export function usePageCanvasSelectionActions({ overlaySelection, suppressSelect
         extensionAction && position ? { action: extensionAction, position } : null,
         commentAnchor && position ? { anchor: commentAnchor, position } : null,
       );
-    });
-
-    return () => window.cancelAnimationFrame(frame);
-  }, [commentAnchorOwnershipRevision, document, hasCommentAnchorRequest, isOverlayEditing, selectionExtension, selectedId, selectedInlineMath, totalHeight, zoom, canvasRef]);
+    };
+    const scheduleUpdate = () => {
+      if (frame) window.cancelAnimationFrame(frame);
+      frame = window.requestAnimationFrame(updatePosition);
+    };
+    scheduleUpdate();
+    window.addEventListener("resize", scheduleUpdate);
+    window.addEventListener("scroll", scheduleUpdate, true);
+    return () => {
+      if (frame) window.cancelAnimationFrame(frame);
+      window.removeEventListener("resize", scheduleUpdate);
+      window.removeEventListener("scroll", scheduleUpdate, true);
+    };
+  }, [commentAnchorOwnershipRevision, document, hasCommentAnchorRequest, isOverlayEditing, selectionExtension, selectedId, selectedInlineMath, totalHeight, layoutRevision, zoom, canvasRef]);
   return { overlaySelectionKey, selectionActionPopover, selectionControlsRect };
 }
 

@@ -18,6 +18,7 @@ import { ParenOrderedListExtension } from "@/components/tiptap/paren-ordered-lis
 import { SearchHighlightExtension } from "@/components/tiptap/search-highlight-extension";
 import {
   BoxedTextExtension,
+  InlineMarkToggleCommands,
   LineHeightExtension,
   StyledTextExtension,
   TextBlockStyleExtension,
@@ -179,6 +180,7 @@ export function createRichTextEngineExtensions({
     // Underline before StarterKit so its schema rank is outer to bold/italic.
     // (Also set priority: 1000 on the mark itself; see UnderlineExtension.)
     UnderlineExtension,
+    InlineMarkToggleCommands,
     StarterKit.configure({
       // SigmaDoc に対応するブロックが無い 3 つは、スキーマから外す。
       //

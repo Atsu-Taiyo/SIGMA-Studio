@@ -2,6 +2,7 @@ import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import type { Transaction } from "@tiptap/pm/state";
 
 import { rebaseProtectedTextRanges, type TextContentReservation } from "@/features/text-editing";
+import { writeMathTextFormat } from "@/lib/math-text-format";
 
 export interface EditGuardSpan { from: number; to: number }
 
@@ -25,7 +26,7 @@ export function resolveEditGuardSpans(
       units.push({ from, to: from + child.nodeSize });
     } else if (child.type.name === "mathInline") {
       const span = { from, to: from + child.nodeSize };
-      const value = `$${child.attrs.tex ?? ""}$`;
+      const value = `$${writeMathTextFormat(String(child.attrs.tex ?? ""), child.marks)}$`;
       text += value;
       for (let i = 0; i < value.length; i++) units.push(span);
       if (typeof child.attrs.id === "string") math.set(child.attrs.id, span);

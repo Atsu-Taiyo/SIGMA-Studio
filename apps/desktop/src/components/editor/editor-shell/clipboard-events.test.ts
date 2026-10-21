@@ -188,6 +188,14 @@ describe("editor copy ownership", () => {
     expect(ports.setStatusMessage).toHaveBeenCalledWith(t("status.mathCopied"));
     expect(ports.setCanPasteProblem).not.toHaveBeenCalled();
   });
+  it("copies the canonical formatted formula from a math selection", () => {
+    const target = mount('<span class="inline-math-node" data-target></span>');
+    const tex = String.raw`\boldsymbol{\mathit{x}}`;
+    install({ selectedInlineMath: { tex: "x", getCanonicalTex: () => tex } });
+    const data = clipboardData();
+    expect(dispatch(target, "copy", data).defaultPrevented).toBe(true);
+    expect(readEditorClipboardPayload(data)).toEqual(createInlineMathClipboardPayload(tex));
+  });
 });
 
 describe("editor paste ownership", () => {

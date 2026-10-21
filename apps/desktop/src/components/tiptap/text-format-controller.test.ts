@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { commitInlineMathDrafts, registerInlineMathDraftCommit } from "./inline-math-draft-commit";
 
 import { getSchema, type Editor as TiptapEditor } from "@tiptap/core";
 import { EditorState, TextSelection } from "@tiptap/pm/state";
@@ -57,6 +58,31 @@ describe("text format controller", () => {
     ]);
   });
 
+  it("commits only the target editor's active math draft before building its format chain", () => {
+    const target = createEditor();
+    const other = createEditor();
+    const unregister = registerInlineMathDraftCommit(target.editor, () => { target.calls.push(["commitDraft"]); });
+    const unregisterOther = registerInlineMathDraftCommit(other.editor, () => { other.calls.push(["commitDraft"]); });
+    try {
+      applyTextFormatCommand(target.editor, { command: "bold" }, { selection: { from: 3, to: 4 }, blockNodeType: "paragraph" });
+      expect(target.calls[0]).toEqual(["commitDraft"]);
+      expect(target.calls[3]).toEqual(["toggleBold"]);
+      expect(other.calls).toEqual([]);
+      unregister();
+      target.calls.length = 0;
+      commitInlineMathDrafts(target.editor);
+      expect(target.calls).toEqual([]);
+      // Stale cleanup must not remove a newly opened view's callback.
+      const removeReplacement = registerInlineMathDraftCommit(target.editor, () => { target.calls.push(["replacement"]); });
+      unregister();
+      commitInlineMathDrafts(target.editor);
+      expect(target.calls).toEqual([["replacement"]]);
+      removeReplacement();
+    } finally {
+      unregister();
+      unregisterOther();
+    }
+  });
   it("supports block style and preserves selection for TextFlow block attributes", () => {
     const heading = createEditor();
     applyTextFormatCommand(heading.editor, { command: "blockStyle", value: "h2" }, {

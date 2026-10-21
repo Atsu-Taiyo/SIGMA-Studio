@@ -10,6 +10,8 @@ export type EditorSaveState = "idle" | "saving" | "saved" | "warning" | "error";
 export interface EditorSelectedInlineMath {
   id: string;
   tex: string;
+  /** Read canonical TeX for export while tex/cursor stay in the editable formula. */
+  getCanonicalTex?: (tex?: string) => string;
   cursor: number;
   blockId?: string;
   setCursor?: (cursor: number) => void;

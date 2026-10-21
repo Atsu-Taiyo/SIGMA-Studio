@@ -19,7 +19,7 @@ import { TextSelectionTools } from "./TextSelectionTools";
 export function createSelectionToolbarExtension(): PageCanvasSelectionExtension {
   return {
     createAction: (source) => {
-      if (source.kind === "textRange") {
+      if (source.kind === "textRange" || source.kind === "inlineMath") {
         return {
           key: JSON.stringify(["tools", "text", source.targetId]),
           renderTools: () => <TextToolsHost />,

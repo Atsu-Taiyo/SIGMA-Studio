@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
@@ -21,6 +21,11 @@ test("a shrinking shape stops drawing its handles but stays resizable and movabl
   test.skip(!PREPARED, "Build Electron and supply SIGMA_STUDIO_E2E_BASE_URL, or prepare the static renderer.");
   test.setTimeout(180_000);
   const profile = mkdtempSync(path.join(tmpdir(), "sigma-small-shape-handles-"));
+  // Seed the canonical preference before renderer startup can persist the OS locale.
+  // Calling setUiLocale while the first settings.get is pending races that bootstrap.
+  const dataDir = path.join(profile, "sigma", "data");
+  mkdirSync(dataDir, { recursive: true });
+  writeFileSync(path.join(dataDir, "settings.json"), JSON.stringify({ uiLocale: "ja" }));
   let app: ElectronApplication | undefined;
   const errors: string[] = [];
 
@@ -40,13 +45,11 @@ test("a shrinking shape stops drawing its handles but stays resizable and movabl
     await page.waitForURL(/^(https?|file):/, { timeout: 60_000 });
     await page.waitForLoadState("domcontentloaded");
     await page.waitForFunction(() => Boolean(window.desktopAPI?.settings?.setUiLocale));
-    // Desktop startup restores the native preference after hydration. A localStorage-only
-    // locale races that restore on English CI hosts and leaves the toolbar in English.
-    expect(await page.evaluate(async () => {
+    // The persisted locale must be visible through the real bridge on both launches.
+    expect(await page.evaluate(() => window.desktopAPI!.settings!.get())).toMatchObject({ uiLocale: "ja" });
+    await page.evaluate(() => {
       localStorage.setItem("sigma-studio:ui-layout-preference", JSON.stringify({ mode: "docs", onboardingCompleted: true }));
-      localStorage.setItem("sigma-studio:ui-locale", "ja");
-      return window.desktopAPI!.settings!.setUiLocale!("ja");
-    })).toMatchObject({ ok: true });
+    });
     await page.reload();
     await expect(page.locator("[data-startup-splash]")).toHaveCount(0, { timeout: 60_000 });
     await page.setViewportSize({ width: 1400, height: 900 });

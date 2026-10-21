@@ -136,7 +136,11 @@ export const InlineMathTexEditor = forwardRef<HTMLTextAreaElement, InlineMathTex
         <ToolbarPopover
           open
           anchorRef={previewRef}
-          onClose={() => {
+          onClose={(event) => {
+            // The formatting action commits this draft in the same editor turn.
+            // Closing on pointer-down would publish the old selection first.
+            if (event?.type === "pointerdown" && event.target instanceof Element
+              && event.target.closest(".selection-action-popover")) return;
             if (!commandReferenceOpen) {
               onClose();
             }

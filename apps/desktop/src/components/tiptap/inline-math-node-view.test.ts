@@ -1,7 +1,7 @@
 import { getSchema } from "@tiptap/core";
 import { DEFAULT_MATH_RENDER_ENVIRONMENT } from "@/lib/math-environment";
 import { Window } from "happy-dom";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { InlineMathNodeView } from "@/components/tiptap/inline-math-extension";
 import { createRichTextEngineExtensions } from "@/components/tiptap/rich-text-engine";
@@ -49,6 +49,59 @@ function createNodeView(tex: string, id = "m1") {
 const TEST_MATH_ENVIRONMENT = DEFAULT_MATH_RENDER_ENVIRONMENT;
 
 describe("InlineMathNodeView", () => {
+  it("exposes canonical selected math without changing the editing cursor coordinates", () => {
+    const { view } = createNodeView("x");
+    let selection: { tex: string; cursor: number; getCanonicalTex?: (tex?: string) => string } | undefined;
+    const listener = (event: Event) => { selection = (event as CustomEvent).detail; };
+    windowRef.addEventListener("sigma-studio:select-inline-math", listener as never);
+    try {
+      view.update(mathNode("x").mark([schema.marks.bold.create()]), []);
+      view.selectNode();
+      expect(selection).toMatchObject({ tex: "x", cursor: 1 });
+      expect(selection?.getCanonicalTex?.()).toBe(String.raw`\boldsymbol{x}`);
+      expect(selection?.getCanonicalTex?.("new+1")).toBe(String.raw`\boldsymbol{new+1}`);
+      const readCanonical = selection?.getCanonicalTex;
+      view.update(mathNode("y").mark([schema.marks.italic.create()]), []);
+      expect(readCanonical?.()).toBe(String.raw`\mathit{y}`);
+      expect(readCanonical?.("new+2")).toBe(String.raw`\mathit{new+2}`);
+    } finally {
+      windowRef.removeEventListener("sigma-studio:select-inline-math", listener as never);
+      view.destroy();
+    }
+  });
+  it.each(["bold", "italic"])("keeps an uncommitted draft across a %s-only update", (mark) => {
+    const { view } = createNodeView("x^2");
+    const editing = view as unknown as { editing: boolean; editingTex: string | null; renderEditingField: () => void };
+    const render = vi.spyOn(editing, "renderEditingField").mockImplementation(() => {});
+    editing.editing = true;
+    editing.editingTex = "x^3+1";
+    view.selectNode();
+    let selectedTex: string | undefined;
+    const listener = (event: Event) => { selectedTex = (event as CustomEvent).detail.tex; };
+    windowRef.addEventListener("sigma-studio:select-inline-math", listener as never);
+    try {
+      view.update(mathNode("x^2").mark([schema.marks[mark].create()]), []);
+      expect(editing.editingTex).toBe("x^3+1");
+      expect(selectedTex).toBe("x^3+1");
+      expect(render).toHaveBeenCalledOnce();
+      view.update(mathNode("y^2").mark([schema.marks[mark].create()]), []);
+      expect(editing.editingTex).toBe("y^2");
+    } finally {
+      windowRef.removeEventListener("sigma-studio:select-inline-math", listener as never);
+      render.mockRestore();
+      editing.editing = false;
+      view.destroy();
+    }
+  });
+  it.each(["bold", "italic"])("keeps %s in the static layout box on each input", (mark) => {
+    const { view } = createNodeView("x");
+    view.update(mathNode("x").mark([schema.marks[mark].create()]), []);
+    const input = view as unknown as { handleEditingInput: (tex: string, cursor: number) => void };
+    input.handleEditingInput("y+1", 3);
+    const canonical = mark === "bold" ? String.raw`\boldsymbol{y+1}` : String.raw`\mathit{y+1}`;
+    expect(view.dom.firstElementChild?.innerHTML).toBe(renderMathHtml(canonical, TEST_MATH_ENVIRONMENT));
+    view.destroy();
+  });
   it("builds the shared static math DOM", () => {
     const { view } = createNodeView("x^2");
 
@@ -85,6 +138,17 @@ describe("InlineMathNodeView", () => {
     expect(view.dom.getAttribute("data-tex")).toBe(String.raw`\frac{1}{2}`);
     expect(view.dom.getAttribute("title")).toBe(String.raw`\frac{1}{2}`);
     expect(body.innerHTML).toBe(renderMathHtml(String.raw`\frac{1}{2}`, TEST_MATH_ENVIRONMENT));
+  });
+
+  it("updates the rendered formula when only its text formatting changes", () => {
+    const { view } = createNodeView("x^2");
+    const body = view.dom.firstElementChild as HTMLElement;
+    const bold = schema.nodes.mathInline.create({ id: "m1", tex: "x^2" }, null, [schema.marks.bold.create()]);
+    expect(view.update(bold, [])).toBe(true);
+    expect(body.innerHTML).toBe(renderMathHtml(String.raw`\boldsymbol{x^2}`, TEST_MATH_ENVIRONMENT));
+    expect(view.dom.getAttribute("data-tex")).toBe(String.raw`\boldsymbol{x^2}`);
+    view.update(mathNode("x^2"), []);
+    expect(body.innerHTML).toBe(renderMathHtml("x^2", TEST_MATH_ENVIRONMENT));
   });
 
   it("follows the id when the node is replaced by one with a new id", () => {

@@ -2420,6 +2420,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
       setSelectedInlineMath({
         id,
         tex: detail.tex,
+        getCanonicalTex: typeof detail.getCanonicalTex === "function" ? detail.getCanonicalTex : undefined,
         cursor,
         blockId,
         setCursor: setCursor
@@ -2809,12 +2810,12 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
   const effectiveLineEndpointMenu = canUseLineEndpointControls ? lineEndpointMenu : null;
   const effectiveLineDashMenuOpen = canUseLineStyleControls && lineDashMenuOpen;
   const effectiveLineWidthMenuOpen = canUseLineStyleControls && lineWidthMenuOpen;
-  const updateInlineMathTexFromDetails = useCallback((mathInlineId: string, tex: string, cursor?: number) => {
+  const updateInlineMathTexFromDetails = useCallback((mathInlineId: string, tex: string, cursor?: number, canonicalTex = tex) => {
     if (!mathInlineId) {
       return;
     }
 
-    commitDocumentChange((current) => updateInlineMathTexInDocument(current, mathInlineId, tex));
+    commitDocumentChange((current) => updateInlineMathTexInDocument(current, mathInlineId, canonicalTex));
     setSelectedInlineMath((current) => (
       current?.id === mathInlineId
         ? { ...current, tex, cursor: typeof cursor === "number" ? cursor : current.cursor }
@@ -2834,8 +2835,9 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
           tex,
           cursor: typeof cursor === "number" ? cursor : selectedInlineMath.cursor,
         };
+        const canonicalTex = selectedInlineMath.getCanonicalTex?.(tex) ?? tex;
         updateInlineMathDraft(selectedInlineMath.id, tex, cursor);
-        updateInlineMathTexFromDetails(selectedInlineMath.id, tex, cursor);
+        updateInlineMathTexFromDetails(selectedInlineMath.id, tex, cursor, canonicalTex);
         window.setTimeout(() => {
           setSelectedInlineMath((current) => (
             current?.id === selectedInlineMath.id
@@ -4361,7 +4363,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
       inlineMath: selection.selectedInlineMath
         ? {
             id: selection.selectedInlineMath.id,
-            tex: selection.selectedInlineMath.tex,
+            tex: selection.selectedInlineMath.getCanonicalTex?.() ?? selection.selectedInlineMath.tex,
             ...(selection.selectedInlineMath.blockId ? { blockId: selection.selectedInlineMath.blockId } : {}),
           }
         : null,
