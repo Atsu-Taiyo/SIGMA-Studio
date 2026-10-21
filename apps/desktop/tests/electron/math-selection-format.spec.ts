@@ -29,6 +29,7 @@ test("math-only selection has text tools and mixed formatting toggles together a
       ], outputProfiles: { student: {}, teacher: {}, answerBook: {} },
     } as SigmaDocument);
     const fileId = await page.evaluate(async (document) => {
+      localStorage.setItem("sigma-studio:inline-math-input-mode", "tex");
       localStorage.setItem("sigma-studio:ui-layout-preference", JSON.stringify({ mode: "docs", onboardingCompleted: true }));
       await window.desktopAPI!.settings!.setUiLocale!("ja");
       const storage = window.desktopAPI!.storage;
@@ -110,6 +111,27 @@ test("math-only selection has text tools and mixed formatting toggles together a
     await selectParagraph("mixed");
     await tools.getByRole("button", { name: /太字/ }).click();
     await expect.poll(savedRuns).toEqual([["bold"], String.raw`\boldsymbol{x^2}`, ["bold"]]);
+    // The real pointer gesture must preserve the input and apply the new mark.
+    await mixed.locator(".inline-math-node").dblclick();
+    const draft = page.getByRole("textbox", { name: "TeX", exact: true });
+    await draft.fill("x^3+1");
+    await mixed.evaluate((element) => {
+      // Textarea autofocus can scroll an outer viewport underneath the fixed menu.
+      for (let parent = element.parentElement; parent; parent = parent.parentElement) parent.scrollTop = 0;
+    });
+    await tools.getByRole("button", { name: /太字/ }).click();
+    await expect.poll(savedRuns).toEqual([["bold"], "x^3+1", ["bold"]]);
+    await page.reload();
+    await expect(mixed.locator(".inline-math-node")).toHaveAttribute("data-tex", "x^3+1");
+    await mixed.locator(".inline-math-node").dblclick();
+    await draft.fill("x^4+2");
+    await mixed.evaluate((element) => {
+      for (let parent = element.parentElement; parent; parent = parent.parentElement) parent.scrollTop = 0;
+    });
+    await tools.getByRole("button", { name: /斜体/ }).click();
+    await expect.poll(savedRuns).toEqual([["bold"], String.raw`\mathit{x^4+2}`, ["bold"]]);
+    await page.reload();
+    await expect(mixed.locator(".inline-math-node")).toHaveAttribute("data-tex", String.raw`\mathit{x^4+2}`);
   } finally {
     await app.close();
     rmSync(profile, { recursive: true, force: true });

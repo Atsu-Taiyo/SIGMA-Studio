@@ -1,7 +1,7 @@
 import { getSchema } from "@tiptap/core";
 import { DEFAULT_MATH_RENDER_ENVIRONMENT } from "@/lib/math-environment";
 import { Window } from "happy-dom";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { InlineMathNodeView } from "@/components/tiptap/inline-math-extension";
 import { createRichTextEngineExtensions } from "@/components/tiptap/rich-text-engine";
@@ -64,6 +64,30 @@ describe("InlineMathNodeView", () => {
       expect(readCanonical?.()).toBe(String.raw`\mathit{y}`);
     } finally {
       windowRef.removeEventListener("sigma-studio:select-inline-math", listener as never);
+      view.destroy();
+    }
+  });
+  it.each(["bold", "italic"])("keeps an uncommitted draft across a %s-only update", (mark) => {
+    const { view } = createNodeView("x^2");
+    const editing = view as unknown as { editing: boolean; editingTex: string | null; renderEditingField: () => void };
+    const render = vi.spyOn(editing, "renderEditingField").mockImplementation(() => {});
+    editing.editing = true;
+    editing.editingTex = "x^3+1";
+    view.selectNode();
+    let selectedTex: string | undefined;
+    const listener = (event: Event) => { selectedTex = (event as CustomEvent).detail.tex; };
+    windowRef.addEventListener("sigma-studio:select-inline-math", listener as never);
+    try {
+      view.update(mathNode("x^2").mark([schema.marks[mark].create()]), []);
+      expect(editing.editingTex).toBe("x^3+1");
+      expect(selectedTex).toBe("x^3+1");
+      expect(render).toHaveBeenCalledOnce();
+      view.update(mathNode("y^2").mark([schema.marks[mark].create()]), []);
+      expect(editing.editingTex).toBe("y^2");
+    } finally {
+      windowRef.removeEventListener("sigma-studio:select-inline-math", listener as never);
+      render.mockRestore();
+      editing.editing = false;
       view.destroy();
     }
   });

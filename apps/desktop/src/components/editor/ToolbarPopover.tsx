@@ -28,7 +28,7 @@ interface ToolbarPopoverProps {
   /** The trigger button the popover is positioned against. */
   anchorRef: RefObject<HTMLElement | null>;
   /** Called when a click lands outside both the popover and its anchor. */
-  onClose: () => void;
+  onClose: (event?: Event) => void;
   /** Horizontal alignment of the popover relative to the anchor. */
   align?: "left" | "right";
   /** Vertical gap between the anchor and the popover, in px. */
@@ -182,7 +182,7 @@ export function ToolbarPopover({
       if (!target) return;
       if (popoverRef.current?.contains(target)) return;
       if (anchorRef.current?.contains(target)) return;
-      onCloseRef.current();
+      onCloseRef.current(event);
     };
     const handleKeyDown = (event: KeyboardEvent) => {
       const target = event.target as Node | null;
@@ -190,7 +190,7 @@ export function ToolbarPopover({
       if (!popoverRef.current?.contains(target) && !anchorRef.current?.contains(target)) return;
       event.preventDefault();
       event.stopPropagation();
-      onCloseRef.current();
+      onCloseRef.current(event);
       anchorRef.current?.focus({ preventScroll: true });
     };
     document.addEventListener("focusin", handleFocusIn);

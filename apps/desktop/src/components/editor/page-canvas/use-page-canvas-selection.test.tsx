@@ -21,16 +21,18 @@ const canvas = document.createElement("div");
 canvas.getBoundingClientRect = () => new DOMRect(0, 0, 2000, 4000);
 const canvasRef: RefObject<HTMLDivElement | null> = { current: canvas };
 
-function Probe({ suppressed, status = null, widthPx, selected = selection }: {
+function Probe({ suppressed, status = null, widthPx, selected = selection, math = null, layoutRevision = 1 }: {
   suppressed: boolean;
   status?: OverlayModeStatus | null;
   widthPx?: number;
   selected?: OverlaySelectionSummary;
+  math?: { id: string; tex: string; blockId: string } | null;
+  layoutRevision?: number;
 }) {
   const current = usePageCanvasSelectionActions({
     overlaySelection: selected,
     suppressSelectionActions: suppressed,
-    pageOverlayEditing: true,
+    pageOverlayEditing: !math,
     selectionExtension: extension,
     selectedId: null,
     document: document_,
@@ -42,11 +44,12 @@ function Probe({ suppressed, status = null, widthPx, selected = selection }: {
     whiteboardPanX: 0,
     whiteboardPanY: 0,
     onCommentAnchorCandidateChange: undefined,
-    isOverlayEditing: true,
+    isOverlayEditing: !math,
     onCommentAnchorRequest: undefined,
     renderSelectionActions: undefined,
-    selectedInlineMath: null,
+    selectedInlineMath: math,
     totalHeight: 4000,
+    layoutRevision,
     overlayPopoverWidthPx: widthPx,
   });
   useLayoutEffect(() => { owner = current; });
@@ -90,4 +93,35 @@ it("spans the shape popover's measured width and keeps the same rect while nothi
   // 選択の要約が作り直されても (同じ図形・同じ位置)、同じ矩形を渡す。
   await render({ suppressed: false, widthPx: 480, selected: { ...selection } });
   expect(owner.selectionControlsRect).toBe(first);
+});
+
+it("reanchors selected math after a committed layout changes position without changing height", async () => {
+  const node = document.createElement("span");
+  node.className = "inline-math-node";
+  node.dataset.id = "m1";
+  let top = 220;
+  node.getBoundingClientRect = () => new DOMRect(400, top, 40, 25);
+  canvas.append(node);
+  const math = { id: "m1", tex: "x", blockId: "p1" };
+  try {
+    await render({ suppressed: false, math, layoutRevision: 1 });
+    expect(owner.selectionActionPopover?.position.top).toBe(174);
+    top = 360;
+    await render({ suppressed: false, math, layoutRevision: 2 });
+    expect(owner.selectionActionPopover?.position.top).toBe(314);
+    top = 440;
+    await act(async () => {
+      window.dispatchEvent(new Event("scroll"));
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    });
+    expect(owner.selectionActionPopover?.position.top).toBe(394);
+    top = 520;
+    await act(async () => {
+      window.dispatchEvent(new Event("resize"));
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    });
+    expect(owner.selectionActionPopover?.position.top).toBe(474);
+  } finally {
+    node.remove();
+  }
 });

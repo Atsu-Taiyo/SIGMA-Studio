@@ -24,6 +24,7 @@ import {
 } from "@/features/rendering/adapters";
 import { startAtomPointerSelection } from "@/components/tiptap/atom-pointer-selection";
 import { writeMathTextFormat } from "@/lib/math-text-format";
+import { registerInlineMathDraftCommit } from "./inline-math-draft-commit";
 import { InlineMathTexEditor } from "@/components/tiptap/inline-math-tex-editor";
 import { getDesktopBridge } from "@/lib/desktop-bridge";
 import { readEditorClipboardPayload } from "@/lib/editor-clipboard";
@@ -500,6 +501,7 @@ export class InlineMathNodeView implements NodeView {
   private initialLatexCommandTrigger: InlineMathLatexCommandTrigger | null = null;
   private inputSourceSession: DesktopAsciiInputSession | null = null;
   private pendingEditFrame = 0;
+  private unregisterDraftCommit: (() => void) | null = null;
   private readonly disposers: Array<() => void> = [];
 
   constructor(
@@ -593,11 +595,12 @@ export class InlineMathNodeView implements NodeView {
     }
 
     countPerformanceEvent("InlineMathNodeView.rerender");
+    const texChanged = nextTex !== this.tex;
     this.tex = nextTex;
     this.dom.setAttribute("data-tex", renderTex);
     this.dom.setAttribute("title", renderTex);
     if (this.editing) {
-      this.editingTex = nextTex;
+      if (texChanged) this.editingTex = nextTex;
       this.renderEditingField();
     } else if (this.body) {
       setInlineMathBodyTex(this.body, renderTex, { environment: this.mathEnvironment });
@@ -605,7 +608,7 @@ export class InlineMathNodeView implements NodeView {
     if (this.selected) {
       // 選択中の数式が undo/redo や AI 適用で書き変わったら、数式パネルへ知らせ直す。
       // 知らせないとパネルは古い TeX を編集し続ける (旧 React 版は tex を deps に持っていた)。
-      this.dispatchSelection(nextTex);
+      this.dispatchSelection(this.editingTex ?? nextTex);
     }
     return true;
   }
@@ -644,6 +647,8 @@ export class InlineMathNodeView implements NodeView {
   }
 
   destroy(): void {
+    this.unregisterDraftCommit?.();
+    this.unregisterDraftCommit = null;
     // 先に編集フラグを落とす。ノードが消えた後 (= PM が破棄した後) に走る `finishEditing`
     // — 枠コマンドへの変換がまさにそれ — が、外れた DOM へ数式を描き直さないように。
     this.editing = false;
@@ -748,6 +753,14 @@ export class InlineMathNodeView implements NodeView {
     let template: string | null = null;
     if (!this.editing) {
       this.editing = true;
+      // The input steals DOM focus, so retain exactly this atom for formatting
+      // rather than a previous paragraph selection or the blurred-block fallback.
+      const position = this.getPos();
+      if (typeof position === "number" && !this.editor.isDestroyed) {
+        this.editor.view.dispatch(this.editor.state.tr.setSelection(
+          TextSelection.create(this.editor.state.doc, position, position + this.node.nodeSize),
+        ));
+      }
       this.inputSourceSession = requestDesktopAsciiInputSource();
       // クリックなどで開いてから入力欄が焦点を取るまでの打鍵も、入力欄へ流す。
       if (!isHoldingInlineMathTypeAhead(this.id)) {
@@ -761,6 +774,9 @@ export class InlineMathNodeView implements NodeView {
       }
     }
     this.editingTex = template === null ? nextTex : "";
+    this.unregisterDraftCommit ??= registerInlineMathDraftCommit(this.editor, () => {
+      if (this.editing && !this.editGuarded) this.commitMath(this.editingTex ?? this.tex);
+    });
     this.initialCursorPosition = cursorPosition;
     this.initialPlaceholderIndex = options.placeholderIndex ?? null;
     this.initialLatexCommandTrigger = options.pendingLatexCommandTrigger ?? null;
@@ -772,6 +788,8 @@ export class InlineMathNodeView implements NodeView {
     if (!this.editing) {
       return;
     }
+    this.unregisterDraftCommit?.();
+    this.unregisterDraftCommit = null;
     this.editing = false;
     this.editingTex = null;
     this.dom.classList.remove("editing");

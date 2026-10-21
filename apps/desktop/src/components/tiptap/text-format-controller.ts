@@ -4,6 +4,7 @@ import type { EditorView } from "@tiptap/pm/view";
 import { readSelectionFontSize } from "./text-format-font-size";
 import { selectionFullyMarked } from "./text-format-extensions";
 import { isBoxTitleNodeName } from "./node-queries";
+import { commitInlineMathDrafts } from "./inline-math-draft-commit";
 
 import {
   DEFAULT_BOXED_ROUNDNESS,
@@ -135,6 +136,7 @@ export function applyTextFormatCommand(
   options: TextFormatCommandOptions,
 ): boolean {
   const runSelected = (apply: (chain: TextFormatChain) => TextFormatChain) => {
+    commitInlineMathDrafts(editor);
     runTextFormatChain(editor, options.selection, apply, options.focusEditor !== false);
   };
   /** ブロックの入れ物を作り替えるコマンド。位置が動くので選択の復元はしない。 */

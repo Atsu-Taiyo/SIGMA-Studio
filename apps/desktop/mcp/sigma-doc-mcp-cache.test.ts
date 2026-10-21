@@ -447,6 +447,19 @@ describe("MCP document and preview caches", () => {
     }
   });
 
+  it("does not cache a body newer than the library index", async () => {
+    const staleLibrary = new Date(Date.now() - 10_000);
+    await fs.utimes(path.join(store.getDataDir(), "library.json"), staleLibrary, staleLibrary);
+    resetMcpRunStats();
+    resetDocumentLoadCache();
+    for (let index = 0; index < 2; index += 1) {
+      await client.callTool({ name: "read_local_document", arguments: { fileId } });
+    }
+    expect(getMcpRunStats().counters).toMatchObject({
+      documentDiskLoads: 2, documentParses: 2, documentCacheMisses: 2, documentCacheHits: 0,
+    });
+  });
+
   it("evicts the least recently used parsed document after the eighth entry", async () => {
     const fileIds = [fileId];
     for (let index = 1; index < 9; index += 1) {
@@ -458,6 +471,11 @@ describe("MCP document and preview caches", () => {
       });
       fileIds.push(created.file.fileId);
     }
+    // This tests eviction, so every entry must be eligible for caching. Creation
+    // writes the library and bodies separately. Do not conflate that timestamp
+    // window with the cache's eviction order.
+    const libraryIsNewest = new Date(Date.now() + 1_000);
+    await fs.utimes(path.join(store.getDataDir(), "library.json"), libraryIsNewest, libraryIsNewest);
     resetMcpRunStats();
     resetDocumentLoadCache();
 

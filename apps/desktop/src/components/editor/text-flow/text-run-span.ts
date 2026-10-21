@@ -840,6 +840,7 @@ export function startTextRunAtomPointerSelection(
     autoScroller?.stop();
     ownerWindow.removeEventListener("mousemove", handleMouseMove);
     if (!dragging && !hasDragged(startPoint, upEvent.clientX, upEvent.clientY)) {
+      clearTextRunSpan();
       onClick();
       return;
     }
