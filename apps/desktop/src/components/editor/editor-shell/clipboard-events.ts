@@ -30,7 +30,7 @@ type BlockPaste =
 interface EditorClipboardPorts {
   overlayEditing: boolean;
   pasteTikz?: (text: string) => boolean;
-  selectedInlineMath: { tex: string } | null;
+  selectedInlineMath: { tex: string; getCanonicalTex?: () => string } | null;
   getSelectedBlock: () => SigmaBlock | null;
   isMaterialEditing: () => boolean;
   insertBlocks: (paste: BlockPaste) => void;
@@ -68,7 +68,7 @@ export function registerEditorClipboardEvents(ports: EditorClipboardPorts): () =
       && isInlineMathClipboardTarget(event.target) && !isNativeClipboardTarget(event.target)
     ) {
       event.preventDefault();
-      writeEditorClipboardData(event.clipboardData, createInlineMathClipboardPayload(selectedInlineMath.tex));
+      writeEditorClipboardData(event.clipboardData, createInlineMathClipboardPayload(selectedInlineMath.getCanonicalTex?.() ?? selectedInlineMath.tex));
       setStatusMessage(t("status.mathCopied"));
       return;
     }

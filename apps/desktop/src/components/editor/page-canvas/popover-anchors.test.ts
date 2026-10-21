@@ -5,6 +5,7 @@ import type { OverlayShape } from "@/components/editor/overlay-canvas/types";
 import type { OverlaySelectionSummary } from "@/components/editor/page-overlay-types";
 
 import {
+  getCommentOffsetText,
   getOverlaySelectionActionPopoverPosition,
   getOverlaySelectionControlsCanvasRect,
   getSelectionFollowUpAnchor,
@@ -12,6 +13,15 @@ import {
   placeSelectionTrailingActions,
   type SelectionTrailingAnchor,
 } from "./popover-anchors";
+
+it("reads math-only selections from TeX even when the formula has no native selected text", () => {
+  const paragraph = document.createElement("p");
+  paragraph.innerHTML = '<span class="inline-math-node" data-tex="x^2" contenteditable="false"></span>';
+  const range = document.createRange();
+  range.selectNodeContents(paragraph);
+  expect(range.toString()).toBe("");
+  expect(getCommentOffsetText(range)).toBe("$x^2$");
+});
 
 const rectangle = {
   id: "shape-1",

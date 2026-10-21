@@ -23,6 +23,7 @@ import {
   setInlineMathBodyTex,
 } from "@/features/rendering/adapters";
 import { startAtomPointerSelection } from "@/components/tiptap/atom-pointer-selection";
+import { writeMathTextFormat } from "@/lib/math-text-format";
 import { InlineMathTexEditor } from "@/components/tiptap/inline-math-tex-editor";
 import { getDesktopBridge } from "@/lib/desktop-bridge";
 import { readEditorClipboardPayload } from "@/lib/editor-clipboard";
@@ -522,7 +523,7 @@ export class InlineMathNodeView implements NodeView {
 
     // `text-selected` と編集ガードの属性は ProseMirror が装飾としてこの要素に付けるので、
     // ここでは付けない (二重管理にすると付け外しの順序で食い違う)。
-    this.dom = createInlineMathFrameElement(this.tex, {
+    this.dom = createInlineMathFrameElement(writeMathTextFormat(this.tex, this.node.marks), {
       id: this.id,
       environment: this.mathEnvironment,
     });
@@ -561,6 +562,7 @@ export class InlineMathNodeView implements NodeView {
     if (node.type !== this.node.type) {
       return false;
     }
+    const previousRenderTex = writeMathTextFormat(this.tex, this.node.marks);
     this.node = node;
     this.decorations = decorations;
     // ロックは打鍵と無関係に付いたり外れたりする。編集中の入力欄はロック状態を props で
@@ -580,8 +582,9 @@ export class InlineMathNodeView implements NodeView {
         this.dom.removeAttribute("data-id");
       }
     }
-    if (nextTex === this.tex) {
-      // ここが本題: 打鍵で文書が作り直されても、tex が同じ数式は DOM を一切触らない。
+    const renderTex = writeMathTextFormat(nextTex, node.marks);
+    if (nextTex === this.tex && renderTex === previousRenderTex) {
+      // 打鍵で文書が作り直されても、TeX と太字・斜体が同じ数式は DOM を触らない。
       // 例外はロックの付け外し (入力欄が props で受け取っているので描き直しが要る)。
       if (editGuardChanged && this.editing) {
         this.renderEditingField();
@@ -591,13 +594,13 @@ export class InlineMathNodeView implements NodeView {
 
     countPerformanceEvent("InlineMathNodeView.rerender");
     this.tex = nextTex;
-    this.dom.setAttribute("data-tex", nextTex);
-    this.dom.setAttribute("title", nextTex);
+    this.dom.setAttribute("data-tex", renderTex);
+    this.dom.setAttribute("title", renderTex);
     if (this.editing) {
       this.editingTex = nextTex;
       this.renderEditingField();
     } else if (this.body) {
-      setInlineMathBodyTex(this.body, nextTex, { environment: this.mathEnvironment });
+      setInlineMathBodyTex(this.body, renderTex, { environment: this.mathEnvironment });
     }
     if (this.selected) {
       // 選択中の数式が undo/redo や AI 適用で書き変わったら、数式パネルへ知らせ直す。
@@ -720,6 +723,7 @@ export class InlineMathNodeView implements NodeView {
       detail: {
         id: this.id,
         tex: nextTex,
+        getCanonicalTex: () => writeMathTextFormat(this.editingTex ?? this.tex, this.node.marks),
         cursor: clampInlineMathTexCursor(cursor, nextTex),
         blockId: findInlineMathBlockId(this.editor, this.id),
         updateTex: (tex: string) => this.updateTexAttribute(tex),
@@ -780,10 +784,10 @@ export class InlineMathNodeView implements NodeView {
   private renderStaticBody(): void {
     if (this.body?.isConnected) {
       this.body.removeAttribute("aria-hidden");
-      setInlineMathBodyTex(this.body, this.tex, { environment: this.mathEnvironment });
+      setInlineMathBodyTex(this.body, writeMathTextFormat(this.tex, this.node.marks), { environment: this.mathEnvironment });
       return;
     }
-    const body = createInlineMathBodyElement(this.tex, { environment: this.mathEnvironment });
+    const body = createInlineMathBodyElement(writeMathTextFormat(this.tex, this.node.marks), { environment: this.mathEnvironment });
     if (typeof body === "string") {
       this.dom.textContent = body;
       this.body = null;
@@ -804,14 +808,14 @@ export class InlineMathNodeView implements NodeView {
     // absolute overlay なので、Shadow DOM の内部寸法やキャレット層が行高・折返し・改ページを
     // 変えることはない。`aria-hidden` は入力欄との二重読み上げを防ぐため。
     if (!this.body?.isConnected) {
-      const body = createInlineMathBodyElement(editingTex, { environment: this.mathEnvironment });
+      const body = createInlineMathBodyElement(writeMathTextFormat(editingTex, this.node.marks), { environment: this.mathEnvironment });
       if (typeof body !== "string") {
         this.body = body;
         this.dom.prepend(body);
       }
     }
     if (this.body) {
-      setInlineMathBodyTex(this.body, editingTex, { environment: this.mathEnvironment });
+      setInlineMathBodyTex(this.body, writeMathTextFormat(editingTex, this.node.marks), { environment: this.mathEnvironment });
       this.body.setAttribute("aria-hidden", "true");
     }
     if (!this.fieldContainer) {
@@ -2246,7 +2250,7 @@ export const InlineMathExtension = Node.create<MathNodeOptions>({
   },
 
   renderText({ node }) {
-    const tex = String(node.attrs.tex ?? "");
+    const tex = writeMathTextFormat(String(node.attrs.tex ?? ""), node.marks);
     return tex ? `$${tex}$` : "";
   },
 
@@ -2911,7 +2915,7 @@ function nodeTextForClipboard(node: ProseMirrorNode): string {
   }
 
   if (node.type.name === "mathInline") {
-    return `$${String(node.attrs.tex ?? "")}$`;
+    return `$${writeMathTextFormat(String(node.attrs.tex ?? ""), node.marks)}$`;
   }
 
   if (node.content.size === 0) {

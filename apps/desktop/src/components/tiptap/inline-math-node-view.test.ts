@@ -49,6 +49,24 @@ function createNodeView(tex: string, id = "m1") {
 const TEST_MATH_ENVIRONMENT = DEFAULT_MATH_RENDER_ENVIRONMENT;
 
 describe("InlineMathNodeView", () => {
+  it("exposes canonical selected math without changing the editing cursor coordinates", () => {
+    const { view } = createNodeView("x");
+    let selection: { tex: string; cursor: number; getCanonicalTex?: () => string } | undefined;
+    const listener = (event: Event) => { selection = (event as CustomEvent).detail; };
+    windowRef.addEventListener("sigma-studio:select-inline-math", listener as never);
+    try {
+      view.update(mathNode("x").mark([schema.marks.bold.create()]), []);
+      view.selectNode();
+      expect(selection).toMatchObject({ tex: "x", cursor: 1 });
+      expect(selection?.getCanonicalTex?.()).toBe(String.raw`\boldsymbol{x}`);
+      const readCanonical = selection?.getCanonicalTex;
+      view.update(mathNode("y").mark([schema.marks.italic.create()]), []);
+      expect(readCanonical?.()).toBe(String.raw`\mathit{y}`);
+    } finally {
+      windowRef.removeEventListener("sigma-studio:select-inline-math", listener as never);
+      view.destroy();
+    }
+  });
   it("builds the shared static math DOM", () => {
     const { view } = createNodeView("x^2");
 
@@ -85,6 +103,17 @@ describe("InlineMathNodeView", () => {
     expect(view.dom.getAttribute("data-tex")).toBe(String.raw`\frac{1}{2}`);
     expect(view.dom.getAttribute("title")).toBe(String.raw`\frac{1}{2}`);
     expect(body.innerHTML).toBe(renderMathHtml(String.raw`\frac{1}{2}`, TEST_MATH_ENVIRONMENT));
+  });
+
+  it("updates the rendered formula when only its text formatting changes", () => {
+    const { view } = createNodeView("x^2");
+    const body = view.dom.firstElementChild as HTMLElement;
+    const bold = schema.nodes.mathInline.create({ id: "m1", tex: "x^2" }, null, [schema.marks.bold.create()]);
+    expect(view.update(bold, [])).toBe(true);
+    expect(body.innerHTML).toBe(renderMathHtml(String.raw`\boldsymbol{x^2}`, TEST_MATH_ENVIRONMENT));
+    expect(view.dom.getAttribute("data-tex")).toBe(String.raw`\boldsymbol{x^2}`);
+    view.update(mathNode("x^2"), []);
+    expect(body.innerHTML).toBe(renderMathHtml("x^2", TEST_MATH_ENVIRONMENT));
   });
 
   it("follows the id when the node is replaced by one with a new id", () => {

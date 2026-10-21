@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 
-import { getSchema } from "@tiptap/core";
+import { Editor, getSchema } from "@tiptap/core";
 import { DOMParser, DOMSerializer } from "@tiptap/pm/model";
 import { EditorState, TextSelection } from "@tiptap/pm/state";
 import StarterKit from "@tiptap/starter-kit";
@@ -9,7 +9,7 @@ import { describe, expect, it } from "vitest";
 
 import { InlineMathExtension } from "@/components/tiptap/inline-math-extension";
 import { createRichTextEngineExtensions } from "@/components/tiptap/rich-text-engine";
-import { UnderlineExtension, updateInlineMarkInSelection } from "@/components/tiptap/text-format-extensions";
+import { selectionFullyMarked, UnderlineExtension, updateInlineMarkInSelection } from "@/components/tiptap/text-format-extensions";
 
 const schema = getSchema([
   UnderlineExtension,
@@ -21,6 +21,29 @@ const schema = getSchema([
 ]);
 
 describe("text format extensions", () => {
+  it.each(["bold", "italic", "underline"] as const)("includes unmarked math when toggling mixed %s selections", (mark) => {
+    const editor = new Editor({
+      extensions: createRichTextEngineExtensions(),
+      content: { type: "doc", content: [{ type: "paragraph", content: [
+        { type: "text", text: "a", marks: [{ type: mark }] },
+        { type: "mathInline", attrs: { id: "mixed-math", tex: "x^2" } },
+        { type: "text", text: "b", marks: [{ type: mark }] },
+      ] }] },
+    });
+    try {
+      editor.commands.setTextSelection({ from: 1, to: 4 });
+      expect(selectionFullyMarked(editor.state, mark)).toBe(false);
+      const toggle = () => mark === "bold" ? editor.commands.toggleBold()
+        : mark === "italic" ? editor.commands.toggleItalic() : editor.commands.toggleUnderline();
+      toggle();
+      expect(selectionFullyMarked(editor.state, mark)).toBe(true);
+      editor.state.doc.firstChild!.forEach((node) => expect(node.marks.some((entry) => entry.type.name === mark)).toBe(true));
+      toggle();
+      editor.state.doc.firstChild!.forEach((node) => expect(node.marks.some((entry) => entry.type.name === mark)).toBe(false));
+    } finally {
+      editor.destroy();
+    }
+  });
   it.each(["solid", "wavy", "dotted", "double"] as const)("keeps %s underline on edited text/math through schema HTML and canonical round trip", (style) => {
     const mark = schema.marks.underline.create({ style });
     const doc = schema.nodes.doc.create(null, schema.nodes.paragraph.create(null, [

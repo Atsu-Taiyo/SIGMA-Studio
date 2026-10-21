@@ -10,6 +10,7 @@ import {
   getTextRangeForBlock,
 } from "@/features/text-editing";
 import type { SigmaTextRangeCommentAnchor } from "@/features/document";
+import { writeMathTextFormat } from "@/lib/math-text-format";
 
 export {
   EXTERNAL_TEXT_RANGE_HIGHLIGHT_EVENT,
@@ -161,7 +162,7 @@ function createExternalTextRangeDecorations(
 
 function getPlainTextInlineLength(node: ProseMirrorModelNode): number {
   if (node.type.name === "mathInline") {
-    const tex = typeof node.attrs.tex === "string" ? node.attrs.tex : "";
+    const tex = writeMathTextFormat(typeof node.attrs.tex === "string" ? node.attrs.tex : "", node.marks);
     return tex ? tex.length + 2 : 1;
   }
   const text = typeof node.text === "string" ? node.text : node.textContent;

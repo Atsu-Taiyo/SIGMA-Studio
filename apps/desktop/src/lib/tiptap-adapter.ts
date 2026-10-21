@@ -16,6 +16,7 @@ import {
 } from "@/features/document";
 import { parseCssFontSizeToPt } from "@/lib/font-size-units";
 import { createId } from "@/lib/id";
+import { readMathTextFormat, writeMathTextFormat } from "@/lib/math-text-format";
 
 export {
   inlineNodesToPlainText,
@@ -132,7 +133,7 @@ export function inlineNodesToTiptapNodes(children: InlineNode[]): TiptapNode[] {
         type: "mathInline",
         attrs: {
           id: child.id,
-          tex: child.tex,
+          tex: readMathTextFormat(child.tex).tex,
         },
         ...(marks ? { marks } : {}),
 
@@ -225,7 +226,7 @@ export function tiptapNodesToInlineNodes(nodes: TiptapNode[]): InlineNode[] {
       result.push({
         type: "mathInline",
         id: String(node.attrs?.id ?? `m_inline_${result.length}`),
-        tex: String(node.attrs?.tex ?? ""),
+        tex: writeMathTextFormat(String(node.attrs?.tex ?? ""), node.marks),
         display: "inline",
         ...(marks ? { marks } : {}),
         ...(getUnderlineStyle(node) ? { underlineStyle: getUnderlineStyle(node) } : {}),
@@ -428,6 +429,9 @@ function boxedMarkAttrs(node: {
 
 function inlineMathMarksToTiptapMarks(node: Extract<InlineNode, { type: "mathInline" }>): TiptapNode[] | undefined {
   const marks: TiptapNode[] = [];
+  const format = readMathTextFormat(node.tex);
+  if (format.bold) marks.push({ type: "bold" });
+  if (format.italic) marks.push({ type: "italic" });
   const fontSize = normalizeFontSize(node.fontSize);
   const fontFamily = resolveDocumentFontFamily(node.fontFamily);
   if (node.color || node.backgroundColor || fontFamily || fontSize) {

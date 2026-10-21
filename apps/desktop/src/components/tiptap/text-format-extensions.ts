@@ -111,6 +111,19 @@ export const UnderlineExtension = Mark.create({
   },
 });
 
+/** Override StarterKit's toggles, whose active check skips unmarked inline atoms. */
+export const InlineMarkToggleCommands = Extension.create({
+  name: "inlineMarkToggleCommands",
+  // Commands from lower-priority extensions are registered last.
+  priority: 1,
+  addCommands() {
+    return {
+      toggleBold: () => ({ state, dispatch }) => updateInlineMarkInSelection(state, dispatch, "bold", {}, "toggle"),
+      toggleItalic: () => ({ state, dispatch }) => updateInlineMarkInSelection(state, dispatch, "italic", {}, "toggle"),
+    };
+  },
+});
+
 export const BoxedTextExtension = Mark.create({
   name: "boxed",
 
@@ -406,7 +419,7 @@ export function updateInlineMarkInSelection(
   }
 
   const { empty, from, to, $from } = state.selection;
-  const shouldRemove = mode === "unset" || (mode === "toggle" && selectionHasMark(state, markType));
+  const shouldRemove = mode === "unset" || (mode === "toggle" && selectionFullyMarked(state, markName));
   if (dispatch) {
     const tr = state.tr;
     if (empty) {
@@ -463,24 +476,27 @@ function resolveInlineMarkAttrs(
   return merged;
 }
 
-function selectionHasMark(state: EditorState, markType: MarkType): boolean {
+export function selectionFullyMarked(state: EditorState, markName: string): boolean {
+  const markType = state.schema.marks[markName];
+  if (!markType) return false;
   const { empty, from, to, $from } = state.selection;
   if (empty) {
     return markType.isInSet(state.storedMarks ?? $from.marks()) !== undefined;
   }
 
-  let hasMark = false;
-  state.doc.nodesBetween(from, to, (node) => {
-    if (hasMark) {
+  let sawInline = false;
+  let fullyMarked = true;
+  state.doc.nodesBetween(from, to, (node, _pos, parent) => {
+    if (!fullyMarked) {
       return false;
     }
-
-    if (node.isInline && markType.isInSet(node.marks)) {
-      hasMark = true;
+    if (node.isInline && node.type.name !== "hardBreak" && parent?.type.allowsMarkType(markType)) {
+      sawInline = true;
+      fullyMarked = markType.isInSet(node.marks) !== undefined;
     }
     return undefined;
   });
-  return hasMark;
+  return sawInline && fullyMarked;
 }
 
 function selectionContainsMarkableInlineNode(state: EditorState, markType: MarkType): boolean {

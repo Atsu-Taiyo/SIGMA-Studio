@@ -12,6 +12,20 @@ import {
 import type { ParagraphNode } from "@/types/sigma-doc";
 
 describe("Tiptap adapter", () => {
+  it("projects math bold/italic from TeX and saves toggles without unsupported canonical marks", () => {
+    const paragraph: ParagraphNode = { type: "paragraph", id: "formatted-math", children: [
+      { type: "mathInline", id: "formatted", tex: String.raw`\boldsymbol{\mathit{x^2}}`, display: "inline", marks: ["underline"] },
+    ] };
+    const projected = toTiptap(paragraph);
+    const math = projected.content![0].content![0];
+    expect(math.attrs?.tex).toBe("x^2");
+    expect(math.marks?.map((mark) => mark.type)).toEqual(["bold", "italic", "underline"]);
+    expect(fromTiptap(projected, paragraph).children[0]).toMatchObject(paragraph.children[0]);
+    math.marks = math.marks!.filter((mark) => mark.type !== "bold");
+    expect(fromTiptap(projected, paragraph).children[0]).toMatchObject({ tex: String.raw`\mathit{x^2}`, marks: ["underline"] });
+    math.marks = [];
+    expect(fromTiptap(projected, paragraph).children[0]).toMatchObject({ tex: "x^2" });
+  });
   it.each(["solid", "wavy", "dotted", "double"] as const)("preserves %s underline styles through edits and hard breaks", (underlineStyle) => {
     const paragraph: ParagraphNode = {
       type: "paragraph", id: "underline-style", children: [
