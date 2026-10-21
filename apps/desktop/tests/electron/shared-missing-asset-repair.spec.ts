@@ -397,7 +397,9 @@ test("edits that need an image found nowhere are kept, not resent forever, and s
     await page.screenshot({ path: testInfo.outputPath("missing-image-recovery.png") });
     await details.getByRole("button", { name: "仮の画像に置き換えて同期" }).click();
     await expect(page.locator("[data-sync-detail]")).toHaveCount(0, { timeout: 30_000 });
-    await page.keyboard.press("Escape");
+    const sharing = page.getByRole("dialog", { name: "共有の詳細", exact: true });
+    await sharing.getByRole("button", { name: "閉じる", exact: true }).click();
+    await expect(sharing).toHaveCount(0);
     await expect(page.getByRole("status", { name: "クラウド保存済み" })).toBeVisible({ timeout: 30_000 });
     const remote = snapshotOf(server.state.remote.project());
     expect(imageNames(server.state.remote.project())).toEqual(["lost.png", "ok.png"]);
