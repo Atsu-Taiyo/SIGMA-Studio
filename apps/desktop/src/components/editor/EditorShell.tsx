@@ -2420,6 +2420,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
       setSelectedInlineMath({
         id,
         tex: detail.tex,
+        getCanonicalTex: typeof detail.getCanonicalTex === "function" ? detail.getCanonicalTex : undefined,
         cursor,
         blockId,
         setCursor: setCursor
@@ -4361,7 +4362,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
       inlineMath: selection.selectedInlineMath
         ? {
             id: selection.selectedInlineMath.id,
-            tex: selection.selectedInlineMath.tex,
+            tex: selection.selectedInlineMath.getCanonicalTex?.() ?? selection.selectedInlineMath.tex,
             ...(selection.selectedInlineMath.blockId ? { blockId: selection.selectedInlineMath.blockId } : {}),
           }
         : null,

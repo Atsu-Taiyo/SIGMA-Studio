@@ -186,6 +186,7 @@ export interface SelectedOverlayGraph {
 export interface SelectedInlineMath {
   id: string;
   tex: string;
+  getCanonicalTex?: () => string;
   cursor: number;
   blockId?: string;
   setCursor?: (cursor: number) => void;

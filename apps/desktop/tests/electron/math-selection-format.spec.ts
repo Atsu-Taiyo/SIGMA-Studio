@@ -78,6 +78,11 @@ test("math-only selection has text tools and mixed formatting toggles together a
       window.document.dispatchEvent(new Event("selectionchange"));
     });
     await expect(tools).toBeVisible();
+    expect(await mixed.locator(".inline-math-node").evaluate((element) => {
+      const clipboardData = new DataTransfer();
+      element.dispatchEvent(new ClipboardEvent("copy", { bubbles: true, cancelable: true, clipboardData }));
+      return clipboardData.getData("text/plain");
+    })).toBe(String.raw`$\boldsymbol{x^2}$`);
     await tools.getByRole("button", { name: /太字/ }).click();
     await expect.poll(savedRuns).toEqual([["bold"], "x^2", ["bold"]]);
     await selectParagraph("mixed");

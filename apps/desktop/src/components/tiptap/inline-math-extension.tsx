@@ -723,6 +723,7 @@ export class InlineMathNodeView implements NodeView {
       detail: {
         id: this.id,
         tex: nextTex,
+        getCanonicalTex: () => writeMathTextFormat(this.editingTex ?? this.tex, this.node.marks),
         cursor: clampInlineMathTexCursor(cursor, nextTex),
         blockId: findInlineMathBlockId(this.editor, this.id),
         updateTex: (tex: string) => this.updateTexAttribute(tex),

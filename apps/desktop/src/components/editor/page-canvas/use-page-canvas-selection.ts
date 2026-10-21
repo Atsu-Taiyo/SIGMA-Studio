@@ -54,7 +54,7 @@ interface Inputs {
   isOverlayEditing: boolean;
   onCommentAnchorRequest: ((anchor: SigmaCommentAnchor, placement?: { left: number; top: number }) => void) | undefined;
   renderSelectionActions: ((anchor: SigmaCommentAnchor) => React.ReactNode) | undefined;
-  selectedInlineMath: { id: string; tex: string; blockId?: string; } | null;
+  selectedInlineMath: { id: string; tex: string; blockId?: string; getCanonicalTex?: () => string; } | null;
   totalHeight: number;
   /** 描いた図形の選択ポップオーバーの幅 (画面の px)。測る前は見積もり。 */
   overlayPopoverWidthPx?: number;
@@ -412,6 +412,7 @@ export function usePageCanvasSelectionActions({ overlaySelection, suppressSelect
       }
 
       if (selectedInlineMath) {
+        const canonicalTex = selectedInlineMath.getCanonicalTex?.() ?? selectedInlineMath.tex;
         const mathElement = canvas.querySelector<HTMLElement>(
           `.inline-math-node[data-id="${CSS.escape(selectedInlineMath.id)}"]`,
         );
@@ -425,7 +426,7 @@ export function usePageCanvasSelectionActions({ overlaySelection, suppressSelect
               kind: "inlineMath",
               targetId,
               mathInlineId: selectedInlineMath.id,
-              tex: selectedInlineMath.tex,
+              tex: canonicalTex,
             }) ?? null
           : null;
         const commentAnchor: SigmaCommentAnchor | null = targetId && canComment
@@ -433,8 +434,8 @@ export function usePageCanvasSelectionActions({ overlaySelection, suppressSelect
               type: "inlineMath",
               blockId: targetId,
               mathInlineId: selectedInlineMath.id,
-              quote: selectedInlineMath.tex ? `$${selectedInlineMath.tex}$` : undefined,
-              tex: selectedInlineMath.tex,
+              quote: canonicalTex ? `$${canonicalTex}$` : undefined,
+              tex: canonicalTex,
             }
           : null;
         const rect = mathElement?.getBoundingClientRect();

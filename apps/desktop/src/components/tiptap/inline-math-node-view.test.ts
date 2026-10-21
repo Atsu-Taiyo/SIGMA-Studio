@@ -49,6 +49,24 @@ function createNodeView(tex: string, id = "m1") {
 const TEST_MATH_ENVIRONMENT = DEFAULT_MATH_RENDER_ENVIRONMENT;
 
 describe("InlineMathNodeView", () => {
+  it("exposes canonical selected math without changing the editing cursor coordinates", () => {
+    const { view } = createNodeView("x");
+    let selection: { tex: string; cursor: number; getCanonicalTex?: () => string } | undefined;
+    const listener = (event: Event) => { selection = (event as CustomEvent).detail; };
+    windowRef.addEventListener("sigma-studio:select-inline-math", listener as never);
+    try {
+      view.update(mathNode("x").mark([schema.marks.bold.create()]), []);
+      view.selectNode();
+      expect(selection).toMatchObject({ tex: "x", cursor: 1 });
+      expect(selection?.getCanonicalTex?.()).toBe(String.raw`\boldsymbol{x}`);
+      const readCanonical = selection?.getCanonicalTex;
+      view.update(mathNode("y").mark([schema.marks.italic.create()]), []);
+      expect(readCanonical?.()).toBe(String.raw`\mathit{y}`);
+    } finally {
+      windowRef.removeEventListener("sigma-studio:select-inline-math", listener as never);
+      view.destroy();
+    }
+  });
   it("builds the shared static math DOM", () => {
     const { view } = createNodeView("x^2");
 
