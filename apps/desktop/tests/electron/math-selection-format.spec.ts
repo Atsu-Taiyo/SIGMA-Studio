@@ -9,7 +9,7 @@ test("math-only selection has text tools and mixed formatting toggles together a
   test.setTimeout(60_000);
   const root = process.cwd();
   const profile = mkdtempSync(path.join(tmpdir(), "sigma-math-selection-"));
-  const settingsDir = path.join(profile, "sigma", "data");
+  const settingsDir = path.join(profile, "data");
   mkdirSync(settingsDir, { recursive: true });
   writeFileSync(path.join(settingsDir, "settings.json"), JSON.stringify({ uiLocale: "ja" }));
   const env: Record<string, string> = Object.fromEntries(Object.entries(process.env).filter((entry): entry is [string, string] => entry[1] !== undefined));
@@ -21,6 +21,7 @@ test("math-only selection has text tools and mixed formatting toggles together a
     const page = await app.firstWindow();
     await page.setViewportSize({ width: 1440, height: 1000 });
     await page.waitForFunction(() => Boolean(window.desktopAPI));
+    expect(await page.evaluate(() => window.desktopAPI!.settings!.get())).toMatchObject({ uiLocale: "ja" });
     const document = ensurePageLayout({
       version: "2.0", docId: "math-selection", metadata: { title: "数式の選択と書式" },
       content: [
@@ -43,6 +44,7 @@ test("math-only selection has text tools and mixed formatting toggles together a
     await page.reload();
     const mixed = page.locator('.page-flow [data-sigma-doc-id="mixed"]').first();
     await expect(mixed).toBeVisible({ timeout: 60_000 });
+    await expect(page.getByRole("button", { name: "太字", exact: true })).toBeVisible();
     const selectParagraph = async (id: string) => {
       await page.locator(`.page-flow [data-sigma-doc-id="${id}"]`).first().evaluate((element) => {
         const editor = element.closest<HTMLElement>(".ProseMirror")!;
