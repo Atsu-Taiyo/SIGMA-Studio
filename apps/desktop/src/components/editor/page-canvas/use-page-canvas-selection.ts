@@ -80,19 +80,13 @@ export function usePageCanvasSelectionActions({ overlaySelection, suppressSelect
     ? overlaySelectionPopoverMeasurement.position
     : null;
 
-  // A math input owns the selected atom. Its retained native text range may
-  // still point at pre-layout coordinates while the TeX popover has focus.
-  const editingSelectedMath = Boolean(selectedInlineMath && canvasRef.current?.querySelector(
-    `.inline-math-node.editing[data-id="${CSS.escape(selectedInlineMath.id)}"]`,
-  ));
-
   const extensionActionPopover = suppressSelectionActions
     ? null
-    : (editingSelectedMath ? extensionSelectedTargetPopover : extensionTextSelectionPopover ?? extensionSelectedTargetPopover);
+    : (extensionTextSelectionPopover ?? extensionSelectedTargetPopover);
 
   const commentAnchorPopover = suppressSelectionActions
     ? null
-    : (editingSelectedMath ? commentSelectedTargetPopover : commentTextSelectionPopover ?? commentSelectedTargetPopover);
+    : (commentTextSelectionPopover ?? commentSelectedTargetPopover);
 
   const bodySelectionActionPopoverPosition = extensionActionPopover?.position ?? commentAnchorPopover?.position ?? null;
 
