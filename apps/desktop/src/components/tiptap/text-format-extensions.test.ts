@@ -21,6 +21,52 @@ const schema = getSchema([
 ]);
 
 describe("text format extensions", () => {
+  it.each([
+    [String.raw`\boldsymbol{x}`, ["bold"]],
+    [String.raw`\mathit{x}`, ["italic"]],
+    [String.raw`\boldsymbol{\mathit{x}}`, ["bold", "italic"]],
+  ] as const)("normalizes canonical Viewer HTML %s into removable editor marks", (tex, marks) => {
+    const editor = new Editor({ extensions: createRichTextEngineExtensions(), content: "<p></p>" });
+    try {
+      editor.view.pasteHTML(`<p>前<span data-sigma-doc-math-inline="true" data-id="viewer-math" data-tex="${tex}"></span>後</p>`);
+      const math = editor.state.doc.firstChild!.child(1);
+      expect(math.attrs.tex).toBe("x");
+      expect(math.attrs.id).not.toBe("viewer-math");
+      expect(math.marks.map((mark) => mark.type.name)).toEqual(marks);
+      editor.commands.setTextSelection({ from: 2, to: 3 });
+      for (const mark of marks) {
+        expect(selectionFullyMarked(editor.state, mark)).toBe(true);
+        if (mark === "bold") editor.commands.toggleBold();
+        else editor.commands.toggleItalic();
+      }
+      expect(editor.state.doc.firstChild!.child(1).marks).toEqual([]);
+      expect(editor.state.doc.firstChild!.child(1).attrs.tex).toBe("x");
+    } finally {
+      editor.destroy();
+    }
+  });
+  it("keeps inherited marks without duplicating canonical math formatting on HTML paste", () => {
+    const editor = new Editor({ extensions: createRichTextEngineExtensions(), content: "<p></p>" });
+    try {
+      editor.view.pasteHTML(String.raw`<p><u><strong><span data-sigma-doc-math-inline="true" data-tex="\boldsymbol{x}"></span></strong></u></p>`);
+      const math = editor.state.doc.firstChild!.firstChild!;
+      expect(math.attrs.tex).toBe("x");
+      expect(math.marks.map((mark) => mark.type.name)).toEqual(["underline", "bold"]);
+    } finally {
+      editor.destroy();
+    }
+  });
+  it("normalizes canonical TeX inserted by the math command", () => {
+    const editor = new Editor({ extensions: createRichTextEngineExtensions(), content: "<p></p>" });
+    try {
+      editor.commands.insertMathInline({ id: "inserted-math", tex: String.raw`\boldsymbol{\mathit{x}}` });
+      const math = editor.state.doc.firstChild!.firstChild!;
+      expect(math.attrs.tex).toBe("x");
+      expect(math.marks.map((mark) => mark.type.name)).toEqual(["bold", "italic"]);
+    } finally {
+      editor.destroy();
+    }
+  });
   it.each(["bold", "italic", "underline"] as const)("includes unmarked math when toggling mixed %s selections", (mark) => {
     const editor = new Editor({
       extensions: createRichTextEngineExtensions(),

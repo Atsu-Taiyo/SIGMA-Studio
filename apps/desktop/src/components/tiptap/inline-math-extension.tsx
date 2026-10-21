@@ -23,7 +23,7 @@ import {
   setInlineMathBodyTex,
 } from "@/features/rendering/adapters";
 import { startAtomPointerSelection } from "@/components/tiptap/atom-pointer-selection";
-import { writeMathTextFormat } from "@/lib/math-text-format";
+import { readMathTextFormat, writeMathTextFormat } from "@/lib/math-text-format";
 import { registerInlineMathDraftCommit } from "./inline-math-draft-commit";
 import { InlineMathTexEditor } from "@/components/tiptap/inline-math-tex-editor";
 import { getDesktopBridge } from "@/lib/desktop-bridge";
@@ -728,7 +728,7 @@ export class InlineMathNodeView implements NodeView {
       detail: {
         id: this.id,
         tex: nextTex,
-        getCanonicalTex: () => writeMathTextFormat(this.editingTex ?? this.tex, this.node.marks),
+        getCanonicalTex: (tex = this.editingTex ?? this.tex) => writeMathTextFormat(tex, this.node.marks),
         cursor: clampInlineMathTexCursor(cursor, nextTex),
         blockId: findInlineMathBlockId(this.editor, this.id),
         updateTex: (tex: string) => this.updateTexAttribute(tex),
@@ -2277,13 +2277,9 @@ export const InlineMathExtension = Node.create<MathNodeOptions>({
       insertMathInline:
         (attrs) =>
         ({ commands }) => {
-          const inserted = commands.insertContent({
-            type: this.name,
-            attrs: {
-              id: attrs.id,
-              tex: attrs.tex,
-            },
-          });
+          const inserted = commands.insertContent(inlineNodesToTiptapNodes([
+            { type: "mathInline", id: attrs.id, tex: attrs.tex, display: "inline" },
+          ]) as JSONContent[]);
 
           if (inserted && attrs.startEditing) {
             requestInlineMathEdit(attrs.id);
@@ -2374,7 +2370,9 @@ export const InlineMathExtension = Node.create<MathNodeOptions>({
             }
 
             event.preventDefault();
-            const node = this.type.create({ id: createId("m_inline"), tex });
+            const node = view.state.schema.nodeFromJSON(inlineNodesToTiptapNodes([
+              { type: "mathInline", id: createId("m_inline"), tex, display: "inline" },
+            ])[0]);
             view.dispatch(view.state.tr.replaceSelectionWith(node).scrollIntoView());
             return true;
           },
@@ -2893,13 +2891,23 @@ function refreshMathInlineIdsInFragment(fragment: Fragment): Fragment {
 function refreshMathInlineIdsInNode(node: ProseMirrorNode): ProseMirrorNode {
   const content = node.content.size > 0 ? refreshMathInlineIdsInFragment(node.content) : node.content;
   if (node.type.name === "mathInline") {
+    // Viewer HTML carries canonical TeX; editor HTML may already carry marks.
+    // Normalize both through the same format reader, preserving unrelated marks.
+    const format = readMathTextFormat(String(node.attrs.tex ?? ""));
+    let marks = node.marks;
+    for (const name of ["bold", "italic"] as const) {
+      const type = node.type.schema.marks[name];
+      if (format[name] && type) marks = type.create().addToSet(marks);
+    }
+    const canSplit = (!format.bold || node.type.schema.marks.bold) && (!format.italic || node.type.schema.marks.italic);
     return node.type.create(
       {
         ...node.attrs,
         id: createId("m_inline"),
+        tex: canSplit ? format.tex : node.attrs.tex,
       },
       content,
-      node.marks,
+      marks,
     );
   }
 

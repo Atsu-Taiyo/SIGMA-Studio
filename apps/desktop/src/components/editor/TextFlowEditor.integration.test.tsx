@@ -31,6 +31,7 @@ import {
   writeEditorClipboardData,
 } from "@/lib/editor-clipboard";
 import { setAppLocale } from "@/lib/i18n/react";
+import type { SigmaCommentThread } from "@/types/sigma-doc";
 
 const INITIAL_BLOCKS: TextFlowBlock[] = [
   paragraph("p_before", "前の段落テキストです。"),
@@ -63,10 +64,11 @@ let root: Root;
 let savedBlocks: TextFlowBlock[] = [];
 let changes: ChangeCall[] = [];
 
-function Harness({ initialBlocks = INITIAL_BLOCKS, selectedId = null, historyRestore }: {
+function Harness({ initialBlocks = INITIAL_BLOCKS, selectedId = null, historyRestore, commentThreads = [] }: {
   initialBlocks?: TextFlowBlock[];
   selectedId?: string | null;
   historyRestore?: { blocks: TextFlowBlock[]; revision: number };
+  commentThreads?: SigmaCommentThread[];
 }): React.JSX.Element {
   const [blocks, setBlocks] = useState<TextFlowBlock[]>(initialBlocks);
   const displayedBlocks = historyRestore?.blocks ?? blocks;
@@ -92,6 +94,7 @@ function Harness({ initialBlocks = INITIAL_BLOCKS, selectedId = null, historyRes
   return <>
     <TextFlowEditor
       blocks={before}
+      commentThreads={commentThreads}
       selectedId={selectedId}
       historyRevision={historyRestore?.revision ?? 0}
       onSelect={() => {}}
@@ -103,6 +106,7 @@ function Harness({ initialBlocks = INITIAL_BLOCKS, selectedId = null, historyRes
     />
     <TextFlowEditor
       blocks={after}
+      commentThreads={commentThreads}
       selectedId={selectedId}
       historyRevision={historyRestore?.revision ?? 0}
       paginationBeforeIds={after.filter((block) => block.pagination?.break).map((block) => block.id)}
@@ -140,6 +144,23 @@ async function renderHarness(props: Parameters<typeof Harness>[0] = {}): Promise
   expect(editors).toHaveLength(2);
   return editors;
 }
+
+it("restores a comment after formatted math at the canonical text offset", async () => {
+  const tex = String.raw`\boldsymbol{\mathit{x}}`;
+  const from = 1 + tex.length + 2;
+  await renderHarness({
+    initialBlocks: [{ type: "paragraph", id: "p_before", children: [
+      { type: "text", text: "前" },
+      { type: "mathInline", id: "comment-math", tex, display: "inline" },
+      { type: "text", text: "対象末尾" },
+    ] }, paragraph("p_after", "次の段落")],
+    commentThreads: [{
+      id: "range-after-math", createdAt: "2026-10-21T00:00:00Z", messages: [],
+      anchor: { type: "textRange", start: { blockId: "p_before", offset: from }, end: { blockId: "p_before", offset: from + 2 }, quote: "対象" },
+    }],
+  });
+  expect(container.querySelector('[data-comment-thread-id="range-after-math"]')?.textContent).toBe("対象");
+});
 
 function textRangeForBlock(editor: Editor, blockId: string): { from: number; to: number } {
   let range: { from: number; to: number } | null = null;

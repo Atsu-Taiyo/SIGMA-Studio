@@ -31,7 +31,19 @@ test("math-only selection has text tools and mixed formatting toggles together a
           { type: "text", text: "後文" },
         ] },
         { type: "paragraph", id: "math-only", children: [{ type: "mathInline", id: "only-math", tex: "y^2", display: "inline" }] },
-      ], outputProfiles: { student: {}, teacher: {}, answerBook: {} },
+        { type: "paragraph", id: "comment-target", children: [
+          { type: "text", text: "前" },
+          { type: "mathInline", id: "comment-math", tex: String.raw`\boldsymbol{\mathit{z}}`, display: "inline" },
+          { type: "text", text: "対象末尾" },
+        ] },
+        { type: "paragraph", id: "paste-target", children: [{ type: "text", text: "貼り付け先" }] },
+      ],
+      comments: [{
+        id: "range-after-math", createdAt: "2026-10-21T00:00:00Z",
+        anchor: { type: "textRange", start: { blockId: "comment-target", offset: 1 + String.raw`\boldsymbol{\mathit{z}}`.length + 2 }, end: { blockId: "comment-target", offset: 3 + String.raw`\boldsymbol{\mathit{z}}`.length + 2 }, quote: "対象" },
+        messages: [{ id: "comment-message", authorName: "検証", createdAt: "2026-10-21T00:00:00Z", body: [{ type: "text", text: "保存した範囲" }] }],
+      }],
+      outputProfiles: { student: {}, teacher: {}, answerBook: {} },
     } as SigmaDocument);
     const fileId = await page.evaluate(async (document) => {
       localStorage.setItem("sigma-studio:inline-math-input-mode", "tex");
@@ -45,6 +57,9 @@ test("math-only selection has text tools and mixed formatting toggles together a
     const mixed = page.locator('.page-flow [data-sigma-doc-id="mixed"]').first();
     await expect(mixed).toBeVisible({ timeout: 60_000 });
     await expect(page.getByRole("button", { name: "太字", exact: true })).toBeVisible();
+    const commentTarget = page.locator('.page-flow [data-sigma-doc-id="comment-target"]').first();
+    expect(await commentTarget.evaluate((element) => Boolean(element.closest(".ProseMirror")))).toBe(true);
+    await expect(commentTarget.locator('.comment-text-highlight[data-comment-thread-id="range-after-math"]')).toHaveText("対象");
     const selectParagraph = async (id: string) => {
       await page.locator(`.page-flow [data-sigma-doc-id="${id}"]`).first().evaluate((element) => {
         const editor = element.closest<HTMLElement>(".ProseMirror")!;
@@ -148,10 +163,48 @@ test("math-only selection has text tools and mixed formatting toggles together a
     const composer = page.locator("[data-floating-comment-composer]");
     await composer.getByRole("textbox", { name: "コメントを追加", exact: true }).fill("数式の下書きを確認");
     await composer.getByRole("button", { name: "追加", exact: true }).click();
-    const savedAnchor = () => page.evaluate(async (id) => (await window.desktopAPI!.storage.loadDocument(id))?.comments?.[0]?.anchor, fileId);
+    const savedAnchor = () => page.evaluate(async (id) => (await window.desktopAPI!.storage.loadDocument(id))?.comments?.find((thread) => thread.anchor.type === "inlineMath")?.anchor, fileId);
     await expect.poll(savedAnchor).toMatchObject({ type: "inlineMath", mathInlineId: "mixed-math", tex: String.raw`\mathit{x^5+3}`, quote: String.raw`$\mathit{x^5+3}$` });
     await page.reload();
     await expect.poll(savedAnchor).toMatchObject({ type: "inlineMath", tex: String.raw`\mathit{x^5+3}` });
+    await expect(commentTarget.locator('.comment-text-highlight[data-comment-thread-id="range-after-math"]')).toHaveText("対象");
+    await selectParagraph("paste-target");
+    await page.locator('.page-flow [data-sigma-doc-id="paste-target"]').first().evaluate((element) => {
+      const clipboardData = new DataTransfer();
+      clipboardData.setData("text/html", String.raw`<p>前<span data-sigma-doc-math-inline="true" data-id="viewer-copy" data-tex="\boldsymbol{\mathit{w}}"></span>後</p>`);
+      clipboardData.setData("text/plain", String.raw`前$\boldsymbol{\mathit{w}}$後`);
+      element.dispatchEvent(new ClipboardEvent("paste", { bubbles: true, cancelable: true, clipboardData }));
+    });
+    const pastedMath = page.locator('.page-flow [data-sigma-doc-id="paste-target"] .inline-math-node').first();
+    await expect(pastedMath).toHaveAttribute("data-tex", String.raw`\boldsymbol{\mathit{w}}`);
+    await pastedMath.evaluate((element) => {
+      element.closest<HTMLElement>(".ProseMirror")!.focus();
+      const range = window.document.createRange();
+      range.selectNode(element);
+      window.getSelection()!.removeAllRanges();
+      window.getSelection()!.addRange(range);
+      window.document.dispatchEvent(new Event("selectionchange"));
+    });
+    await tools.getByRole("button", { name: /太字/ }).click();
+    await tools.getByRole("button", { name: /斜体/ }).click();
+    const savedPaste = () => page.evaluate(async (id) => {
+      const block = (await window.desktopAPI!.storage.loadDocument(id))?.content.find((block) => block.id === "paste-target");
+      return block?.type === "paragraph" ? block.children.find((child) => child.type === "mathInline")?.tex : null;
+    }, fileId);
+    await expect.poll(savedPaste).toBe("w");
+    await page.reload();
+    await expect(pastedMath).toHaveAttribute("data-tex", "w");
+    const paletteMath = page.locator('.page-flow [data-sigma-doc-id="math-only"] .inline-math-node').first();
+    await paletteMath.dblclick();
+    await page.getByRole("button", { name: "数式", exact: true }).first().hover();
+    await page.getByRole("button", { name: "to", exact: true }).click();
+    const savedPalette = () => page.evaluate(async (id) => {
+      const block = (await window.desktopAPI!.storage.loadDocument(id))?.content.find((block) => block.id === "math-only");
+      return block?.type === "paragraph" ? block.children.find((child) => child.type === "mathInline")?.tex : null;
+    }, fileId);
+    await expect.poll(savedPalette).toBe(String.raw`\boldsymbol{y^2\to}`);
+    await page.reload();
+    await expect(paletteMath).toHaveAttribute("data-tex", String.raw`\boldsymbol{y^2\to}`);
   } finally {
     await app.close();
     rmSync(profile, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });

@@ -72,6 +72,7 @@ import  {
 } from "@/components/editor/text-flow/caret-router";
 import { flushDeferredCaretScroll, getCaretSurfaceBand, getCaretZoomScale, scrollCaretIntoView } from "@/components/editor/text-flow/caret-scroll";
 import { resolveTextFormatRecipient } from "./text-flow/text-format-recipient";
+import { writeMathTextFormat } from "@/lib/math-text-format";
 import { posAtClientPoint } from "@/components/editor/text-flow/pos-at-client-point";
 import type { TextFlowChangeDecorationState } from "@/components/tiptap/change-decoration";
 import  {
@@ -3518,7 +3519,7 @@ function createTextRangeDecorations(
 
 function getPlainTextInlineLength(node: ProseMirrorModelNode): number {
   if (node.type.name === "mathInline") {
-    const tex = typeof node.attrs.tex === "string" ? node.attrs.tex : "";
+    const tex = writeMathTextFormat(typeof node.attrs.tex === "string" ? node.attrs.tex : "", node.marks);
     return tex ? tex.length + 2 : 1;
   }
 
