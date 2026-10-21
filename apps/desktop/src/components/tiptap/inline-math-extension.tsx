@@ -2249,7 +2249,7 @@ export const InlineMathExtension = Node.create<MathNodeOptions>({
   },
 
   renderText({ node }) {
-    const tex = String(node.attrs.tex ?? "");
+    const tex = writeMathTextFormat(String(node.attrs.tex ?? ""), node.marks);
     return tex ? `$${tex}$` : "";
   },
 

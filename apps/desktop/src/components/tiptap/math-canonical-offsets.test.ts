@@ -34,6 +34,7 @@ describe("canonical offsets around formatted math", () => {
       try {
         const baselineText = `前$${tex}$後`;
         const from = baselineText.length - 1;
+        expect(editor.getText()).toBe(baselineText);
         expect(getPlainTextBlockLength(editor.state.doc.firstChild!)).toBe(baselineText.length);
         window.dispatchEvent(new CustomEvent(EXTERNAL_TEXT_RANGE_HIGHLIGHT_EVENT, { detail: { anchors: [{
           type: "textRange", start: { blockId: "p1", offset: from }, end: { blockId: "p1", offset: from + 1 }, quote: "後",
