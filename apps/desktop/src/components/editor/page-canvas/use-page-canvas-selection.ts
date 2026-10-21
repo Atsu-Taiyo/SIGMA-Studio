@@ -21,6 +21,7 @@ import {
   createBlockCommentAnchor,
   createTextCommentAnchorFromRange,
   getClosestBlockId,
+  getCommentOffsetText,
   getOverlaySelectionActionPopoverPosition,
   getOverlaySelectionControlsCanvasRect,
   getOverlaySelectionTargetBlockId,
@@ -291,7 +292,7 @@ export function usePageCanvasSelectionActions({ overlaySelection, suppressSelect
         return;
       }
 
-      const selectedText = selection.toString().trim();
+      const selectedText = getCommentOffsetText(range).trim();
       const targetId = getRangeTargetBlockId(range, canvas);
       const selectionRect = getRangeScreenRect(range);
       if (!selectedText || !targetId || !selectionRect) {

@@ -87,6 +87,17 @@ describe("InlineMathNodeView", () => {
     expect(body.innerHTML).toBe(renderMathHtml(String.raw`\frac{1}{2}`, TEST_MATH_ENVIRONMENT));
   });
 
+  it("updates the rendered formula when only its text formatting changes", () => {
+    const { view } = createNodeView("x^2");
+    const body = view.dom.firstElementChild as HTMLElement;
+    const bold = schema.nodes.mathInline.create({ id: "m1", tex: "x^2" }, null, [schema.marks.bold.create()]);
+    expect(view.update(bold, [])).toBe(true);
+    expect(body.innerHTML).toBe(renderMathHtml(String.raw`\boldsymbol{x^2}`, TEST_MATH_ENVIRONMENT));
+    expect(view.dom.getAttribute("data-tex")).toBe(String.raw`\boldsymbol{x^2}`);
+    view.update(mathNode("x^2"), []);
+    expect(body.innerHTML).toBe(renderMathHtml("x^2", TEST_MATH_ENVIRONMENT));
+  });
+
   it("follows the id when the node is replaced by one with a new id", () => {
     const { view } = createNodeView("x^2", "m1");
 

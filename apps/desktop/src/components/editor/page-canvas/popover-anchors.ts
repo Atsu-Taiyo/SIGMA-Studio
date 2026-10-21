@@ -446,7 +446,7 @@ function getRangeOffsetWithinElement(element: HTMLElement, container: Node, offs
   return getCommentOffsetText(offsetRange).length;
 }
 
-function getCommentOffsetText(range: Range): string {
+export function getCommentOffsetText(range: Range): string {
   const fragment = range.cloneContents();
   fragment.querySelectorAll<HTMLElement>("[data-sigma-doc-math-inline], .inline-math-node").forEach((element) => {
     const tex = element.getAttribute("data-tex") ?? "";

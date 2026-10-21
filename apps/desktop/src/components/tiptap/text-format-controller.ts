@@ -2,6 +2,7 @@ import type { Editor as TiptapEditor } from "@tiptap/core";
 import type { EditorState } from "@tiptap/pm/state";
 import type { EditorView } from "@tiptap/pm/view";
 import { readSelectionFontSize } from "./text-format-font-size";
+import { selectionFullyMarked } from "./text-format-extensions";
 import { isBoxTitleNodeName } from "./node-queries";
 
 import {
@@ -412,10 +413,10 @@ export function createTextFormatStateDetail(
       : null,
     // isActive() reads storedMarks first and falls back to the marks at the
     // cursor, so these stay true for a collapsed caret sitting inside a run.
-    bold: editor.isActive("bold"),
-    italic: editor.isActive("italic"),
-    underline: editor.isActive("underline"),
-    boxed: editor.isActive("boxed"),
+    bold: fontContext?.state ? selectionFullyMarked(fontContext.state, "bold") : editor.isActive("bold"),
+    italic: fontContext?.state ? selectionFullyMarked(fontContext.state, "italic") : editor.isActive("italic"),
+    underline: fontContext?.state ? selectionFullyMarked(fontContext.state, "underline") : editor.isActive("underline"),
+    boxed: fontContext?.state ? selectionFullyMarked(fontContext.state, "boxed") : editor.isActive("boxed"),
     boxedPaddingY: normalizeTextFormatNonnegativeNumber(boxedAttrs.paddingY) ?? 0,
     boxedVariant: normalizeTextFormatBoxedVariant(boxedAttrs.variant) ?? "frame",
     boxedRoundness: normalizeBoxedRoundness(boxedAttrs.roundness) ?? DEFAULT_BOXED_ROUNDNESS,
