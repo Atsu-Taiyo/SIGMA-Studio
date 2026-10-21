@@ -876,7 +876,7 @@ export class InlineMathNodeView implements NodeView {
   private handleEditingInput(nextTex: string, cursor?: number): void {
     this.editingTex = nextTex;
     if (this.body) {
-      setInlineMathBodyTex(this.body, nextTex, { environment: this.mathEnvironment });
+      setInlineMathBodyTex(this.body, writeMathTextFormat(nextTex, this.node.marks), { environment: this.mathEnvironment });
     }
     this.dispatchSelection(nextTex, cursor);
   }

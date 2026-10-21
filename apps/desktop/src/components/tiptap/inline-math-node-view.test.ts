@@ -91,6 +91,15 @@ describe("InlineMathNodeView", () => {
       view.destroy();
     }
   });
+  it.each(["bold", "italic"])("keeps %s in the static layout box on each input", (mark) => {
+    const { view } = createNodeView("x");
+    view.update(mathNode("x").mark([schema.marks[mark].create()]), []);
+    const input = view as unknown as { handleEditingInput: (tex: string, cursor: number) => void };
+    input.handleEditingInput("y+1", 3);
+    const canonical = mark === "bold" ? String.raw`\boldsymbol{y+1}` : String.raw`\mathit{y+1}`;
+    expect(view.dom.firstElementChild?.innerHTML).toBe(renderMathHtml(canonical, TEST_MATH_ENVIRONMENT));
+    view.destroy();
+  });
   it("builds the shared static math DOM", () => {
     const { view } = createNodeView("x^2");
 

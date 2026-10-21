@@ -279,6 +279,12 @@ export function usePageCanvasSelectionActions({ overlaySelection, suppressSelect
 
       const selection = window.getSelection();
       const canvas = canvasRef.current;
+      // The retained atom range contains the last committed data-tex. While its
+      // input owns the draft, hand comments/actions to the selected-math path.
+      if (canvas?.querySelector(".inline-math-node.editing")) {
+        clearTextSelectionActions(true);
+        return;
+      }
       // Inputs and popovers temporarily replace Chromium's DOM selection. Keep the
       // existing actions while their body range is still held by ProseMirror.
       if (hasHeldCanvasTextSelection(canvas, window.document.activeElement, false)) return;

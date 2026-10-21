@@ -1,5 +1,5 @@
 import { _electron as electron, expect, test } from "@playwright/test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { ensurePageLayout } from "../../src/lib/page-layout";
@@ -9,9 +9,13 @@ test("math-only selection has text tools and mixed formatting toggles together a
   test.setTimeout(60_000);
   const root = process.cwd();
   const profile = mkdtempSync(path.join(tmpdir(), "sigma-math-selection-"));
+  const settingsDir = path.join(profile, "sigma", "data");
+  mkdirSync(settingsDir, { recursive: true });
+  writeFileSync(path.join(settingsDir, "settings.json"), JSON.stringify({ uiLocale: "ja" }));
   const env: Record<string, string> = Object.fromEntries(Object.entries(process.env).filter((entry): entry is [string, string] => entry[1] !== undefined));
   env.SIGMA_STUDIO_USER_DATA_DIR = profile;
   delete env.ELECTRON_RUN_AS_NODE;
+  delete env.SIGMA_STUDIO_DEV_SERVER_URL;
   const app = await electron.launch({ args: [root], cwd: root, env });
   try {
     const page = await app.firstWindow();
@@ -31,7 +35,6 @@ test("math-only selection has text tools and mixed formatting toggles together a
     const fileId = await page.evaluate(async (document) => {
       localStorage.setItem("sigma-studio:inline-math-input-mode", "tex");
       localStorage.setItem("sigma-studio:ui-layout-preference", JSON.stringify({ mode: "docs", onboardingCompleted: true }));
-      await window.desktopAPI!.settings!.setUiLocale!("ja");
       const storage = window.desktopAPI!.storage;
       const created = await storage.createFileFromDocument({ document });
       await storage.saveWorkspace({ openFileIds: [created.file.fileId], activeFileId: created.file.fileId });
@@ -132,8 +135,23 @@ test("math-only selection has text tools and mixed formatting toggles together a
     await expect.poll(savedRuns).toEqual([["bold"], String.raw`\mathit{x^4+2}`, ["bold"]]);
     await page.reload();
     await expect(mixed.locator(".inline-math-node")).toHaveAttribute("data-tex", String.raw`\mathit{x^4+2}`);
+    await mixed.locator(".inline-math-node").dblclick();
+    await draft.fill("x^5+3");
+    await expect(mixed.locator(".inline-math-node > .math-preview .ML__it").first()).toBeAttached();
+    await mixed.evaluate((element) => {
+      for (let parent = element.parentElement; parent; parent = parent.parentElement) parent.scrollTop = 0;
+    });
+    const band = page.locator(".selection-action-popover");
+    await band.getByRole("button", { name: "コメントを追加", exact: true }).click();
+    const composer = page.locator("[data-floating-comment-composer]");
+    await composer.getByRole("textbox", { name: "コメントを追加", exact: true }).fill("数式の下書きを確認");
+    await composer.getByRole("button", { name: "追加", exact: true }).click();
+    const savedAnchor = () => page.evaluate(async (id) => (await window.desktopAPI!.storage.loadDocument(id))?.comments?.[0]?.anchor, fileId);
+    await expect.poll(savedAnchor).toMatchObject({ type: "inlineMath", mathInlineId: "mixed-math", tex: String.raw`\mathit{x^5+3}`, quote: String.raw`$\mathit{x^5+3}$` });
+    await page.reload();
+    await expect.poll(savedAnchor).toMatchObject({ type: "inlineMath", tex: String.raw`\mathit{x^5+3}` });
   } finally {
     await app.close();
-    rmSync(profile, { recursive: true, force: true });
+    rmSync(profile, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
   }
 });

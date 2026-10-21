@@ -21,19 +21,21 @@ const canvas = document.createElement("div");
 canvas.getBoundingClientRect = () => new DOMRect(0, 0, 2000, 4000);
 const canvasRef: RefObject<HTMLDivElement | null> = { current: canvas };
 
-function Probe({ suppressed, status = null, widthPx, selected = selection, math = null, layoutRevision = 1 }: {
+function Probe({ suppressed, status = null, widthPx, selected = selection, math = null, layoutRevision = 1, selectionExtension = extension, comments = false }: {
   suppressed: boolean;
   status?: OverlayModeStatus | null;
   widthPx?: number;
   selected?: OverlaySelectionSummary;
-  math?: { id: string; tex: string; blockId: string } | null;
+  math?: { id: string; tex: string; blockId: string; getCanonicalTex?: () => string } | null;
+  selectionExtension?: PageCanvasSelectionExtension;
+  comments?: boolean;
   layoutRevision?: number;
 }) {
   const current = usePageCanvasSelectionActions({
     overlaySelection: selected,
     suppressSelectionActions: suppressed,
     pageOverlayEditing: !math,
-    selectionExtension: extension,
+    selectionExtension,
     selectedId: null,
     document: document_,
     bodyOverlayModeStatus: status,
@@ -45,7 +47,7 @@ function Probe({ suppressed, status = null, widthPx, selected = selection, math 
     whiteboardPanY: 0,
     onCommentAnchorCandidateChange: undefined,
     isOverlayEditing: !math,
-    onCommentAnchorRequest: undefined,
+    onCommentAnchorRequest: comments ? () => {} : undefined,
     renderSelectionActions: undefined,
     selectedInlineMath: math,
     totalHeight: 4000,
@@ -123,5 +125,49 @@ it("reanchors selected math after a committed layout changes position without ch
     expect(owner.selectionActionPopover?.position.top).toBe(474);
   } finally {
     node.remove();
+  }
+});
+
+it("hands a retained range back to the editing math's current draft", async () => {
+  const block = document.createElement("p");
+  block.dataset.sigmaDocId = "p1";
+  const node = document.createElement("span");
+  node.className = "inline-math-node";
+  node.dataset.id = "m1";
+  node.dataset.sigmaDocMathInline = "";
+  node.dataset.tex = "old";
+  node.textContent = "old";
+  node.getBoundingClientRect = () => new DOMRect(400, 220, 40, 25);
+  block.append(node); canvas.append(block); document.body.append(canvas);
+  let draft = "old";
+  const math = { id: "m1", tex: "old", blockId: "p1", getCanonicalTex: () => draft };
+  const selectionExtension: PageCanvasSelectionExtension = {
+    createAction: (source) => ({ key: source.kind, render: () => null }),
+  };
+  try {
+    await render({ suppressed: false, math, selectionExtension, comments: true });
+    const range = document.createRange();
+    range.selectNode(node);
+    range.getClientRects = () => [node.getBoundingClientRect()] as unknown as DOMRectList;
+    range.getBoundingClientRect = () => node.getBoundingClientRect();
+    window.getSelection()!.removeAllRanges();
+    window.getSelection()!.addRange(range);
+    await act(async () => {
+      document.dispatchEvent(new Event("selectionchange"));
+      await new Promise((resolve) => setTimeout(resolve, 200));
+    });
+    expect(owner.selectionActionPopover?.extensionAction?.key).toBe("textRange");
+    node.classList.add("editing");
+    draft = String.raw`\boldsymbol{new}`;
+    await render({ suppressed: false, math: { ...math, tex: "new" }, selectionExtension, comments: true });
+    await act(async () => {
+      document.dispatchEvent(new Event("selectionchange"));
+      await new Promise((resolve) => setTimeout(resolve, 200));
+    });
+    await render({ suppressed: false, math: { ...math, tex: "new" }, selectionExtension, comments: true });
+    expect(owner.selectionActionPopover?.extensionAction?.key).toBe("inlineMath");
+    expect(owner.selectionActionPopover?.commentAnchor).toMatchObject({ type: "inlineMath", tex: draft, quote: `$${draft}$` });
+  } finally {
+    window.getSelection()!.removeAllRanges(); block.remove(); canvas.remove();
   }
 });
