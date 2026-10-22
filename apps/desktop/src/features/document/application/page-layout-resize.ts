@@ -132,6 +132,34 @@ export function resizeRunningRegionLayout(
         heightMm: roundMm(bottomMm - topMm),
       };
 
+  // The band controls text flow; its edges must not carry the drawings with them.
+  // Keep the stored region-relative coordinates aligned with the same page position,
+  // using the rounded bounds that will actually be rendered and saved.
+  const nextTopMm = kind === "header"
+    ? nextRegion.offsetMm
+    : pageHeightMm - nextRegion.offsetMm - nextRegion.heightMm;
+  const overlayDeltaY = mmToPx(getRunningRegionBoundsMm(baseLayout, kind).topMm - nextTopMm);
+  const snapshot = current.overlay?.overlaySnapshot;
+  if (snapshot && overlayDeltaY !== 0) {
+    nextRegion.overlay = {
+      ...current.overlay,
+      overlaySnapshot: {
+        ...snapshot,
+        shapes: snapshot.shapes.map((shape) => ({
+          ...shape,
+          y: shape.y + overlayDeltaY,
+          ...(shape.anchor?.type === "block" ? {
+            anchor: {
+              ...shape.anchor,
+              dy: shape.anchor.dy + overlayDeltaY,
+              ...(shape.anchor.line ? { line: { ...shape.anchor.line, dy: shape.anchor.line.dy + overlayDeltaY } } : {}),
+            },
+          } : {}),
+        })),
+      },
+    };
+  }
+
   return alignMarginToRunningRegionBoundary({
     ...baseLayout,
     [kind]: nextRegion,

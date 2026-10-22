@@ -789,7 +789,9 @@ code {
   position: absolute;
   inset: 0;
   z-index: 3;
-  overflow: hidden;
+  overflow: visible;
+  --overlay-bleed-x: 0px;
+  --overlay-bleed-top: 0px;
 }
 
 .page-running-direct-overlay.preview {
