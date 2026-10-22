@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
 
+import { createPageArrangement } from "@/features/rendering/core";
+
 import {
   clampPasteCenterToNearestPage,
+  createArrangedPastePointMapper,
   clientPointToCanvasPoint,
   countPasteLayoutPages,
   hasPageLayout,
@@ -126,5 +129,24 @@ describe("isPointerPasteSurface", () => {
     expect(isPointerPasteSurface(node([".page-mode"], passive))).toBe(false);
     const whiteboard = node(["[data-whiteboard='true']"]);
     expect(isPointerPasteSurface(node([".page-mode"], whiteboard))).toBe(false);
+  });
+});
+
+describe("createArrangedPastePointMapper", () => {
+  it("keeps the single-column mapping when pages are not arranged in two columns", () => {
+    expect(createArrangedPastePointMapper(null)).toBeUndefined();
+  });
+
+  it("maps a pointer on the right-hand page of a spread to that page's model coordinates", () => {
+    // 幅 800・高さ 1000・隙間 40 のページを 2 列に。並べた紙面の幅は 800 + 40 + 800 = 1640。
+    const arrangement = createPageArrangement({ mode: "spread", pageWidth: 800, pageHeight: 1000, pageGap: 40 });
+    const toCanvasPoint = createArrangedPastePointMapper(arrangement)!;
+    // 画面では半分の大きさ (幅 820) で描かれている。
+    const rect = { left: 100, top: 50, width: 820, height: 520 };
+    // 2 ページ目 (右の列、1 行目) の左上から (200, 300) の点 → モデルでは 2 ページ目 (y = 1040 から)。
+    const pointer = { x: 100 + (840 + 200) / 2, y: 50 + 300 / 2 };
+    expect(toCanvasPoint(pointer, rect)).toEqual({ x: 200, y: 1040 + 300 });
+    // 3 ページ目 (左の列、2 行目) の点。
+    expect(toCanvasPoint({ x: 100 + 100 / 2, y: 50 + (1040 + 60) / 2 }, rect)).toEqual({ x: 100, y: 2 * 1040 + 60 });
   });
 });

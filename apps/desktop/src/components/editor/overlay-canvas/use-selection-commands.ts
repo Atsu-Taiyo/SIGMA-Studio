@@ -58,7 +58,8 @@ import {
   type OverlayInteractionAction
 } from "./interaction-mode";
 import { prepareOverlayShapesForPaste, type ApplyPastedOverlayShapesOptions } from "./paste-shapes";
-import { resolvePointerPastePlacement } from "./pointer-paste";
+import { readCanvasPageArrangement } from "../page-canvas/page-arrangement-dom";
+import { createArrangedPastePointMapper, resolvePointerPastePlacement } from "./pointer-paste";
 import {
   reanchorShapesByPosition
 } from "./reanchor-model";
@@ -476,6 +477,7 @@ export function useOverlaySelectionCommands({
           pageHeightPx,
           pageGapPx,
         },
+        createArrangedPastePointMapper(readCanvasPageArrangement(canvasRef.current)),
       )
       : null;
     const prepared = prepareOverlayShapesForPaste({
