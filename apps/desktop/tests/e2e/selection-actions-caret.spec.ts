@@ -96,11 +96,12 @@ async function settle(page: Page) {
   await page.waitForTimeout(500);
 }
 
-async function clickIntoText(page: Page, id: string) {
+async function clickIntoText(page: Page, id: string, side: "left" | "right" = "left") {
   const target = block(page, id);
   await expect(target).toBeVisible();
   const box = (await target.boundingBox())!;
-  await page.mouse.click(box.x + Math.min(30, box.width / 2), box.y + Math.min(box.height / 2, 12));
+  const x = side === "left" ? box.x + Math.min(30, box.width / 2) : box.x + box.width - 30;
+  await page.mouse.click(x, box.y + Math.min(box.height / 2, 12));
   await expect.poll(() => caretIn(page, id)).toBe(true);
   await settle(page);
 }
@@ -128,28 +129,22 @@ test("a caret alone floats nothing, a text range shows the band, collapsing hide
   await expect(popover(page)).toHaveCount(0);
 });
 
-test("a caret in a list item, a box, a problem or a math paragraph floats nothing", async ({ page }) => {
+test("a caret in a list item, a box or a problem floats nothing", async ({ page }) => {
   for (const id of ["li_2", "p_box_1", "p_prompt", "p_solution"]) {
     await clickIntoText(page, id);
     await expect(popover(page), `caret in ${id}`).toHaveCount(0);
   }
 });
 
-test("a caret still names its block as the comment target in the comment dock", async ({ page }) => {
+test("moving focus away from the caret (ribbon field, typing) does not float anything", async ({ page }) => {
   await clickIntoText(page, "p_text");
+  await page.keyboard.type("あ");
+  await settle(page);
   await expect(popover(page)).toHaveCount(0);
 
-  const toggle = page.locator(".comment-dock-toggle");
-  await expect(toggle).toBeVisible();
-  if ((await toggle.getAttribute("aria-expanded")) !== "true") {
-    await toggle.click();
-  }
-  const dock = page.locator(".comment-dock");
-  await expect(dock).toBeVisible();
-  // ドックを開いてもカーソルは動かない。付け先の案内 (対象を選んでください) は出ない = 候補がある。
-  await expect(dock.locator(".comment-dock-target-hint")).toHaveCount(0);
-  await dock.locator(".comment-dock-header").getByRole("button", { name: "コメントを追加" }).click();
-  await expect(dock.locator(".comment-compose-card.pending")).toBeVisible();
+  // 本文を離れてリボンの入力欄を触っても、カーソルを置いただけの状態は変わらない。
+  await page.getByRole("textbox", { name: "フォントサイズ", exact: true }).click();
+  await settle(page);
   await expect(popover(page)).toHaveCount(0);
 });
 
@@ -181,7 +176,7 @@ test("a block picked with its handle keeps the chip, and clicking into its text 
   await expect(aiButton(page)).toBeVisible();
   await expect(commentButton(page)).toBeVisible();
 
-  // 本文をクリックすればカーソルだけの状態に戻り、チップは消える。
-  await clickIntoText(page, "p_text");
+  // 本文をクリックすればカーソルだけの状態に戻り、チップは消える (つまみのメニューは左側に開くので右端を押す)。
+  await clickIntoText(page, "p_text", "right");
   await expect(popover(page)).toHaveCount(0);
 });
