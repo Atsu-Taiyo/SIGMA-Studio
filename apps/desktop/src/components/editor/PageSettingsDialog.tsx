@@ -32,7 +32,9 @@ import {
   getPageLayoutIssues,
   MIN_PAGE_BODY_HEIGHT_MM,
   getPageSizeForPreset,
+  DEFAULT_PAGE_NUMBER_START,
   isWhiteboardPageLayout,
+  MAX_PAGE_NUMBER_START,
   normalizePageLayout,
   PAGE_MARGIN_PRESETS_MM,
   setPageMarginMm,
@@ -360,6 +362,21 @@ export function PageSettingsDialog({
                     onPageRangeChange={(range) => update((current) => setRunningRegionPageRange(current, "footer", range))}
                     focusProps={focusProps("footer")}
                   />
+
+                  <FormSection id="page-settings-numbering" title={t("page.pageNumbering")}>
+                    <div className={styles.fieldGrid} data-columns="2">
+                      <NumberField
+                        id="page-number-start"
+                        label={t("page.pageNumberStart")}
+                        value={draft.pageNumberStart ?? DEFAULT_PAGE_NUMBER_START}
+                        min={0}
+                        max={MAX_PAGE_NUMBER_START}
+                        integer
+                        onChange={(pageNumberStart) => update((current) => ({ ...current, pageNumberStart }))}
+                      />
+                    </div>
+                    <p className={styles.hint}>{t("page.pageNumberStartHint")}</p>
+                  </FormSection>
                 </>
               ) : null}
 
@@ -586,17 +603,11 @@ function RunningRegionSection({
 }
 
 /**
- * mm の数値欄。−/＋ で 1mm ずつ、矢印キーでも動かせる。入力途中の空欄や「1.」は
- * そのまま打てるよう下書きの文字列で持ち、確かな数になったときだけ反映する。
+ * mm の数値欄 (0.5 刻みで動かし、0.1mm に丸める)。中身は `NumberField`。
  */
 function MmField({
-  id,
-  label,
-  value,
   min = 0,
-  onChange,
-  onFocus,
-  onMouseEnter,
+  ...props
 }: {
   id: string;
   label: string;
@@ -607,12 +618,48 @@ function MmField({
   onMouseEnter?: () => void;
 }) {
   const t = useT("settings");
+  return <NumberField {...props} min={min} unit={t("page.mmUnit")} />;
+}
+
+/**
+ * 数値欄。−/＋ で 1 ずつ、矢印キーでも動かせる。入力途中の空欄や「1.」は
+ * そのまま打てるよう下書きの文字列で持ち、確かな数になったときだけ反映する。
+ * `integer` は整数だけ (ページ番号など)。範囲を超えた入力は確定 (離れる・Enter) のときに範囲内へ寄せる。
+ * 単位が無い欄は `unit` を省く。
+ */
+function NumberField({
+  id,
+  label,
+  value,
+  min = 0,
+  max,
+  integer = false,
+  unit,
+  onChange,
+  onFocus,
+  onMouseEnter,
+}: {
+  id: string;
+  label: string;
+  value: number;
+  min?: number;
+  max?: number;
+  integer?: boolean;
+  unit?: string;
+  onChange: (value: number) => void;
+  onFocus?: () => void;
+  onMouseEnter?: () => void;
+}) {
+  const t = useT("settings");
   const unitId = useId();
   const [text, setText] = useState<string | null>(null);
-  const shown = text ?? formatMm(value);
+  const formatValue = integer ? String : formatMm;
+  const shown = text ?? formatValue(value);
+  const inRange = (next: number) => next >= min && (max === undefined || next <= max);
   const commit = (next: number) => {
     setText(null);
-    onChange(Math.max(min, roundTenth(next)));
+    const rounded = integer ? Math.round(next) : roundTenth(next);
+    onChange(Math.min(max ?? Number.POSITIVE_INFINITY, Math.max(min, rounded)));
   };
   const stepBy = (direction: 1 | -1) => {
     const current = Number(shown);
@@ -621,7 +668,7 @@ function MmField({
   return (
     <div className={styles.mmField} onMouseEnter={onMouseEnter}>
       <label className={styles.mmLabel} htmlFor={id}>{label}</label>
-      <div className={styles.mmControl}>
+      <div className={styles.mmControl} data-unitless={unit ? undefined : true}>
         <button
           type="button"
           className={styles.stepButton}
@@ -635,11 +682,12 @@ function MmField({
         <input
           id={id}
           type="number"
-          inputMode="decimal"
+          inputMode={integer ? "numeric" : "decimal"}
           min={min}
-          step={0.5}
+          max={max}
+          step={integer ? 1 : 0.5}
           value={shown}
-          aria-describedby={unitId}
+          aria-describedby={unit ? unitId : undefined}
           onFocus={(event) => {
             event.currentTarget.select();
             onFocus?.();
@@ -648,7 +696,7 @@ function MmField({
             const raw = event.target.value;
             setText(raw);
             const next = Number(raw);
-            if (raw.trim() !== "" && Number.isFinite(next) && next >= min) {
+            if (raw.trim() !== "" && Number.isFinite(next) && inRange(next) && (!integer || Number.isInteger(next))) {
               onChange(next);
             }
           }}
@@ -669,11 +717,12 @@ function MmField({
             }
           }}
         />
-        <span className={styles.mmUnit} id={unitId}>{t("page.mmUnit")}</span>
+        {unit ? <span className={styles.mmUnit} id={unitId}>{unit}</span> : null}
         <button
           type="button"
           className={styles.stepButton}
           aria-label={t("page.increase", { label })}
+          disabled={max !== undefined && value >= max}
           onClick={() => stepBy(1)}
           onFocus={onFocus}
         >

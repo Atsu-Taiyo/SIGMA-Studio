@@ -18,6 +18,33 @@ import {
  * blocks that continue an item) survives a round trip, and block identity survives an edit.
  */
 describe("a shape's blocks through the editor", () => {
+  it("takes the space after a block from the editor, so a value the editor just wrote is not rolled back", () => {
+    const before: OverlayTextBlock[] = [
+      { type: "paragraph", id: "tiptap_adapter_test_space_1", children: [{ type: "text", text: "段落" }] },
+      {
+        type: "list",
+        id: "tiptap_adapter_test_space_2",
+        listType: "bullet",
+        items: [{ type: "listItem", id: "tiptap_adapter_test_space_3", children: [{ type: "text", text: "項目" }] }],
+      },
+    ];
+    const doc = overlayTextBlocksToTiptapDoc(before);
+    doc.content[0].attrs = { ...doc.content[0].attrs, spaceAfterPx: 16 };
+    const item = doc.content[1].content?.[0];
+    if (item) {
+      item.attrs = { ...item.attrs, spaceAfterPx: 8 };
+      const leading = item.content?.[0];
+      if (leading) leading.attrs = { ...leading.attrs, listItemSpaceAfterPx: 8 };
+    }
+
+    const after = tiptapDocToOverlayTextBlocks(doc, before);
+
+    expect(after[0]).toMatchObject({ id: "tiptap_adapter_test_space_1", spaceAfterPx: 16 });
+    expect(after[1].type === "list" ? after[1].items[0].spaceAfterPx : undefined).toBe(8);
+    // 往復しても落ちない: 取り出した blocks をもう一度編集面へ渡して戻す。
+    expect(tiptapDocToOverlayTextBlocks(overlayTextBlocksToTiptapDoc(after), after)).toEqual(after);
+  });
+
   it("projects legacy standard Mincho marks to the bundled editor font", () => {
     const document: OverlayTextBlock[] = [{
         type: "paragraph", id: "tiptap_adapter_test_60",

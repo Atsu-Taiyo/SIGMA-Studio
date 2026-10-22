@@ -85,7 +85,15 @@ import type {
 } from "./types";
 
 /** Reports the box height a shape's drawn text needs, so the derived cache can be kept honest. */
-export type OverlayTextMeasuredHeightHandler = (shapeId: OverlayShapeId, height: number) => void;
+/**
+ * `preview` は文書へ保存しない仮の高さ。段落の下余白をドラッグしている間、箱を中身に追従させる
+ * ための値で、履歴にも保存にも積まない (確定する 1 手に混ぜる)。
+ */
+export type OverlayTextMeasuredHeightHandler = (
+  shapeId: OverlayShapeId,
+  height: number,
+  options?: { preview?: boolean },
+) => void;
 
 const ORIGIN_PICK_MARKER_RADIUS = 14;
 const tShape = createCurrentLocaleTranslator("shape");

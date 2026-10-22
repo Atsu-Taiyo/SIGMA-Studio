@@ -1,0 +1,7 @@
+APP_ORIGIN=http://127.0.0.1:3990
+ALLOW_LOCAL_AUTH=true
+SIGMA_COLLABORATION_URL=https://your-existing-collaboration-worker.workers.dev
+SIGMA_SUPABASE_URL=https://your-existing-project.supabase.co
+SIGMA_SUPABASE_ANON_KEY=sb_publishable_your_existing_public_key
+# Generate at least 32 random bytes. Keep this file private; use a Worker Secret in production.
+SESSION_SECRET=

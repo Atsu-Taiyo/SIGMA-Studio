@@ -133,6 +133,24 @@ function register(editor: Editor, options: Partial<CaretSurfaceFacets> & { unitI
 }
 
 describe("キャレット面の registry", () => {
+  it("routes identical block IDs only within the focused document without remounting", () => {
+    const left = createEditor("左");
+    const right = createEditor("右");
+    let focus = "left";
+    const applyLeft = vi.fn(() => true);
+    const applyRight = vi.fn(() => true);
+    register(left, { unitId: "same", ownsInput: () => focus === "left", ownsBlock: id => id === "p_1", applyCaret: applyLeft });
+    register(right, { unitId: "same", ownsInput: () => focus === "right", ownsBlock: id => id === "p_1", applyCaret: applyRight });
+    const selection: TextFlowSelectionBookmark = { anchor: { affinity: "after", kind: "text", blockId: "p_1", offset: 1 }, head: { affinity: "after", kind: "text", blockId: "p_1", offset: 1 }, preferredX: null };
+    expect(deliverCaret(selection)).toBe(true);
+    expect(applyLeft).toHaveBeenCalledOnce();
+    expect(applyRight).not.toHaveBeenCalled();
+    focus = "right";
+    expect(deliverCaret(selection)).toBe(true);
+    expect(applyLeft).toHaveBeenCalledOnce();
+    expect(applyRight).toHaveBeenCalledOnce();
+    expect(left.isDestroyed || right.isDestroyed).toBe(false);
+  });
   it("ファセットの書き換えでは登録が解除されない", () => {
     const editor = createEditor("本文");
     const unregistered = vi.fn();

@@ -14,6 +14,13 @@ import { type FlowLine, type FlowPlacement, type PlacedLine, type Region } from 
 export interface FlowDisplacement {
   dx: number;
   dy: number;
+  /**
+   * ページの並び (`page-arrangement.ts`) で、この要素が載るページを表示のために動かした量
+   * (絶対値)。変位はこの量を含む。描かれた矩形をモデル座標へ読み戻す計測が差し引く。
+   * 1 列では付かない。
+   */
+  pageShiftX?: number;
+  pageShiftY?: number;
 }
 
 export interface FlowFragmentSource {

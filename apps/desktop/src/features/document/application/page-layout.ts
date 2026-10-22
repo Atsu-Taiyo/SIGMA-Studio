@@ -19,6 +19,7 @@ import { normalizeBoxedRoundness } from "../boxed-roundness";
 import { blockSpaceAfterPx } from "./block-space-after";
 import { normalizeOverlaySnapshot } from "../overlay-snapshot";
 import { normalizeLineHeight } from "./line-height";
+import { DEFAULT_PAGE_NUMBER_START, normalizePageNumberStart } from "./running-region-fields";
 import type { SigmaValidationCode } from "../validation-error";
 
 type PageRunningRegionInput = Partial<PageRunningRegion>;
@@ -220,6 +221,10 @@ export function normalizePageLayout(input?: PageLayoutInput): PageLayout {
     };
   }
 
+  // 既定の 1 は持たない (番号を変えていない教材の保存内容を変えない)。ホワイトボードはヘッダー/フッターが無いので持たない。
+  const pageNumberStart = normalizePageNumberStart(input?.pageNumberStart);
+  const pageNumberStartField = pageNumberStart === DEFAULT_PAGE_NUMBER_START ? {} : { pageNumberStart };
+
   return {
     preset,
     orientation,
@@ -249,6 +254,7 @@ export function normalizePageLayout(input?: PageLayoutInput): PageLayout {
     // 用紙プリセットでも落とさない。印刷の切り出しは preset:"custom" の紙を返すので、
     // ここで捨てると画面で選んだ背景が印刷経路の再正規化で消える。
     background: normalizePageBackground(input?.background),
+    ...pageNumberStartField,
   };
 }
 

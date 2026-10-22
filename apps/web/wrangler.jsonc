@@ -1,0 +1,18 @@
+{
+  "$schema": "../../node_modules/wrangler/config-schema.json",
+  "name": "sigma-studio-web",
+  "account_id": "6ccc5b3ea80285e4dd970ecd4effd022",
+  "main": "worker.mjs",
+  "compatibility_date": "2026-10-20",
+  "workers_dev": true,
+  "preview_urls": false,
+  "limits": { "cpu_ms": 100 },
+  "services": [{ "binding": "COLLABORATION", "service": "sigma-studio-collab-experiment" }],
+  "vars": {
+    "APP_ORIGIN": "https://sigma-studio-web.sigma-studio-experiment.workers.dev",
+    "SIGMA_COLLABORATION_URL": "https://sigma-studio-collab-experiment.sigma-studio-experiment.workers.dev",
+    "SIGMA_SUPABASE_URL": "https://rhosppiepmvrpgonbzml.supabase.co"
+  },
+  "assets": { "directory": "../desktop/out", "binding": "ASSETS", "run_worker_first": ["/api/*", "/auth/callback/*"] },
+  "observability": { "enabled": false }
+}

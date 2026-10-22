@@ -261,4 +261,117 @@ describe("prepareOverlayShapesForPaste", () => {
       expect({ x: grouped!.x + 55, y: grouped!.y + 20 }).toEqual({ x: 300, y: 300 });
     });
   });
+  describe("pointerPlacement (⌘V at the mouse pointer)", () => {
+    // 3 ページ: 高さ 1000、隙間 40 → ページ k は y = 1040k .. 1040k + 1000。
+    const PAGED = {
+      canvasWidth: 800,
+      canvasHeight: 3 * 1000 + 2 * 40,
+      pageHeightPx: 1000,
+      pageGapPx: 40,
+    };
+    const pasteArgs = { canvasWidth: PAGED.canvasWidth, canvasHeight: PAGED.canvasHeight };
+
+    it("centres the selection on the pointer instead of nudging it by 20px", () => {
+      const payload = createOverlayClipboardPayload([geo("a", 100, 100)], {}, "doc_a");
+
+      const [pasted] = prepareOverlayShapesForPaste({
+        payload, ...pasteArgs, pointerPlacement: { point: { x: 400, y: 300 }, layout: PAGED },
+      }).shapes;
+
+      // 80x40 の図形の中心が (400, 300) になる。
+      expect({ x: pasted.x, y: pasted.y }).toEqual({ x: 360, y: 280 });
+    });
+
+    it("pulls the group back onto the page it landed on", () => {
+      const payload = createOverlayClipboardPayload([geo("a", 100, 100)], {}, "doc_a");
+
+      const [pasted] = prepareOverlayShapesForPaste({
+        payload, ...pasteArgs, pointerPlacement: { point: { x: 790, y: 5 }, layout: PAGED },
+      }).shapes;
+
+      // 右上の角に半分はみ出す位置 → 図形全体がページの中 (x 720..800, y 0..40)。
+      expect({ x: pasted.x, y: pasted.y }).toEqual({ x: 720, y: 0 });
+    });
+
+    it("puts a paste aimed at the grey gap on the nearer page", () => {
+      const payload = createOverlayClipboardPayload([geo("a", 100, 100)], {}, "doc_a");
+
+      // 1 ページ目の下端 1000 と 2 ページ目の上端 1040 の間。1015 は 1 ページ目に近い。
+      const upper = prepareOverlayShapesForPaste({
+        payload, ...pasteArgs, pointerPlacement: { point: { x: 400, y: 1015 }, layout: PAGED },
+      }).shapes[0];
+      // 1030 は 2 ページ目に近い。
+      const lower = prepareOverlayShapesForPaste({
+        payload, ...pasteArgs, pointerPlacement: { point: { x: 400, y: 1030 }, layout: PAGED },
+      }).shapes[0];
+
+      expect(upper.y + 40).toBeLessThanOrEqual(1000);
+      expect(lower.y).toBeGreaterThanOrEqual(1040);
+    });
+
+    it("does not pin the shape to the page: a block anchor is removed so it is re-picked by position", () => {
+      const anchored: OverlayShape = {
+        ...geo("shape_1", 10, 10),
+        anchor: { type: "block", blockId: "p_1", dy: 8 },
+      };
+      const payload = createOverlayClipboardPayload([anchored], {}, "doc_a");
+
+      const [pasted] = prepareOverlayShapesForPaste({
+        payload, ...pasteArgs, targetDocId: "doc_a",
+        pointerPlacement: { point: { x: 400, y: 600 }, layout: PAGED },
+      }).shapes;
+
+      // `centerAt` (ドロップ) は { type: "page" } に固定するが、ポインタは新しい図形と同じ「アンカー無し」。
+      expect(pasted).not.toHaveProperty("anchor");
+    });
+
+    it("keeps a shape that was pinned to the page pinned", () => {
+      const pinned: OverlayShape = { ...geo("shape_1", 10, 10), anchor: { type: "page" } };
+      const payload = createOverlayClipboardPayload([pinned], {}, "doc_a");
+
+      const [pasted] = prepareOverlayShapesForPaste({
+        payload, ...pasteArgs, targetDocId: "doc_a",
+        pointerPlacement: { point: { x: 400, y: 600 }, layout: PAGED },
+      }).shapes;
+
+      expect(pasted.anchor).toEqual({ type: "page" });
+    });
+
+    it("also frees a block anchor that came from another document", () => {
+      const anchored: OverlayShape = {
+        ...geo("shape_1", 10, 10),
+        anchor: { type: "block", blockId: "p_1", dy: 8 },
+      };
+      const payload = createOverlayClipboardPayload([anchored], {}, "doc_a");
+
+      const [pasted] = prepareOverlayShapesForPaste({
+        payload, ...pasteArgs, targetDocId: "doc_b",
+        pointerPlacement: { point: { x: 400, y: 600 }, layout: PAGED },
+      }).shapes;
+
+      expect(pasted).not.toHaveProperty("anchor");
+    });
+
+    it("lets an explicit centerAt win over the pointer", () => {
+      const payload = createOverlayClipboardPayload([geo("a", 100, 100)], {}, "doc_a");
+
+      const [pasted] = prepareOverlayShapesForPaste({
+        payload, ...pasteArgs, centerAt: { x: 140, y: 120 },
+        pointerPlacement: { point: { x: 400, y: 600 }, layout: PAGED },
+      }).shapes;
+
+      expect({ x: pasted.x, y: pasted.y }).toEqual({ x: 100, y: 100 });
+    });
+
+    it("moves a multi-shape selection as one unit around the pointer", () => {
+      // 外接矩形 x 100..280, y 200..300 → 中心 (190, 250)。
+      const payload = createOverlayClipboardPayload([geo("a", 100, 200), geo("b", 200, 260)], {}, "doc_a");
+
+      const [a, b] = prepareOverlayShapesForPaste({
+        payload, ...pasteArgs, pointerPlacement: { point: { x: 400, y: 500 }, layout: PAGED },
+      }).shapes;
+
+      expect({ x: a.x, y: a.y, bx: b.x, by: b.y }).toEqual({ x: 310, y: 450, bx: 410, by: 510 });
+    });
+  });
 });

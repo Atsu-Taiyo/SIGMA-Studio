@@ -28,6 +28,7 @@ import {
   getPageLayoutIssues,
   isWhiteboardPageLayout,
   normalizePageLayout,
+  normalizePageNumberStart,
 } from "@/features/document";
 import { FONT_SIZE_UNIT_PT, pxToPt } from "@/lib/font-size-units";
 import { createCurrentLocaleTranslator } from "@/lib/i18n";
@@ -640,6 +641,8 @@ const PageLayoutSchema = z
     overlay: PageOverlaySchema.optional(),
     // zod の既定は unknown key を strip する。ここに足さないと保存 → 読み直しで背景が消える。
     background: z.enum(["grid", "dots", "none"]).optional(),
+    // 範囲外・小数・文字は、教材を開けなくするより既定 (1) へ戻す。既定は `normalizePageLayout` が持たない。
+    pageNumberStart: z.unknown().transform(normalizePageNumberStart).optional(),
   })
   .transform((layout) => expandMarginsForRunningRegions(normalizePageLayout(layout)))
   .superRefine((layout, context) => {

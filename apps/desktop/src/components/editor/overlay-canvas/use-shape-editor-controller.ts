@@ -70,7 +70,11 @@ export function useOverlayShapeEditorController({ activeTextEditorRef, selectSha
    * grows: its height is also the bubble the user can drag, and silently shrinking that would undo
    * a deliberate size. Coalesced into one history entry so a re-measure never costs an undo step.
    */
-  const handleTextMeasuredHeight = useCallback((shapeId: OverlayShapeId, height: number) => {
+  const handleTextMeasuredHeight = useCallback((
+    shapeId: OverlayShapeId,
+    height: number,
+    options?: { preview?: boolean },
+  ) => {
     const shape = shapesRef.current.find((item) => item.id === shapeId);
     if (!shape || !isOverlayRichTextShape(shape)) {
       return;
@@ -81,11 +85,14 @@ export function useOverlayShapeEditorController({ activeTextEditorRef, selectSha
       return;
     }
 
+    // 仮の高さ (段落の下余白のドラッグ中) は画面の状態だけを動かす。保存も履歴も積まないので、
+    // 離した時の確定 (`handleTextChange`) が、この高さを含めて 1 手で書く。ドラッグ・リサイズ中の
+    // 図形が `updateShape` を options なしで呼ぶのと同じ扱い。
     updateShape({
       id: shapeId,
       type: shape.type,
       props: { h: nextHeight },
-    }, { history: "coalesce" });
+    }, options?.preview ? undefined : { history: "coalesce" });
   }, [shapesRef, updateShape]);
 
   const handleTextChange = useCallback((shapeId: OverlayShapeId, blocks: OverlayTextBlock[]) => {

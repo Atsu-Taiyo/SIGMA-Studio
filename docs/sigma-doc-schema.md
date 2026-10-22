@@ -701,6 +701,7 @@ interface PageLayout {
   header?: PageRunningRegion;
   footer?: PageRunningRegion;
   overlay?: PageOverlay;
+  pageNumberStart?: number;
 }
 ```
 
@@ -719,6 +720,7 @@ interface PageLayout {
 | `flow.columnGapMm` | `8` |
 | `header.enabled` | `false` |
 | `footer.enabled` | `false` |
+| `pageNumberStart` | `1` (持たない) |
 
 標準プリセットは次のJIS系サイズです。
 
@@ -786,8 +788,10 @@ interface PageRunningRegion {
 ページ番号やタイトルは通常のテキスト内トークンとして保存します。
 
 - `{title}`: `metadata.title`
-- `{page}`: 現在ページ番号
-- `{total}`: 総ページ数
+- `{page}`: 現在ページ番号 (`pageLayout.pageNumberStart` から数える)
+- `{total}`: 総ページ数 (最後のページに出る番号と同じ)
+
+`pageLayout.pageNumberStart` は `{page}` を数え始める番号で、0以上9999以下の整数です。省略は `1` で、既定のときは持たないので、番号を変えていない教材の保存内容は変わりません。範囲外・小数・数値でない値は読み込み時に既定へ戻します (教材は開けます)。表紙を0ページにしたいときは `0` にします。5ページ(組版上)で `0` なら、ページは0〜4と出て、最後のページの `{page}/{total}` は「4/4」です (`{total}` = ページ数 + 開始番号 − 1。`features/document/application/running-region-fields.ts` の `getRunningRegionPageNumbers`)。変わるのはこの2つの差し込みの値だけで、`showOnFirstPage` / `showOnLaterPages` / `hiddenPages` / `shownPages` / `pageContents` のページ番号、ページ移動、PDFのページ位置は組版上のページ(1始まり)のままです。ホワイトボードはヘッダー/フッターを持たないので、この値も持ちません。新しい教材へ引き継ぐ用紙設定にも含めません。
 
 現行データでは `header.content.left` / `center` / `right` のようなスロット構造は持ちません。配置は `blocks[].align` と `overlay` で表します。
 

@@ -21,7 +21,8 @@ import { type TextFlowBlock } from "@/features/text-editing";
 import type { Translate } from "@/lib/i18n";
 import type { PointerEvent as ReactPointerEvent } from "react";
 import { useCallback,useEffect,useLayoutEffect,useRef,useState } from "react";
-import type { OverlayChangeOptions,PageLayoutChangeOptions } from "../page-overlay-types";
+import { flushSync } from "react-dom";
+import { FLUSH_OVERLAY_CHANGES_EVENT, type OverlayChangeOptions, type PageLayoutChangeOptions } from "../page-overlay-types";
 import { replacePageRunningRegionTextFlow } from "./running-region-text-model";
 import type {
   PageMarginDragState,
@@ -42,6 +43,8 @@ interface Inputs {
 }
 
 export function usePageCanvasRunningRegions({ documentId, onRunningRegionEditingChange, onSelect, onPageLayoutChange, layout, tEditorText, zoom }: Inputs) {
+  const layoutRef = useRef(layout);
+  useLayoutEffect(() => { layoutRef.current = layout; }, [layout]);
 
   const [pageLayoutDraft, setPageLayoutDraft] = useState<PageLayout | null>(null);
 
@@ -267,7 +270,10 @@ export function usePageCanvasRunningRegions({ documentId, onRunningRegionEditing
     startClientY: number,
   ) => {
     cancelLayoutDrag();
-    const baseLayout = pageLayoutDraftRef.current ?? layout;
+    // Commit the running canvas before the resize preview replaces it. Otherwise a delayed
+    // anchor save can overwrite the compensated coordinates halfway through the band drag.
+    flushSync(() => window.dispatchEvent(new Event(FLUSH_OVERLAY_CHANGES_EVENT)));
+    const baseLayout = pageLayoutDraftRef.current ?? layoutRef.current;
     const bounds = getRunningRegionBoundsMm(baseLayout, kind);
     runningRegionDragRef.current = {
       kind,
@@ -319,7 +325,7 @@ export function usePageCanvasRunningRegions({ documentId, onRunningRegionEditing
     window.addEventListener("pointermove", handlePointerMove);
     window.addEventListener("pointerup", handlePointerUp);
     window.addEventListener("pointercancel", handlePointerCancel);
-  }, [cancelLayoutDrag, layout, onPageLayoutChange, zoom]);
+  }, [cancelLayoutDrag, onPageLayoutChange, zoom]);
 
   const startRunningRegionDrag = useCallback((
     kind: RunningRegionKind,

@@ -9,6 +9,7 @@ export interface MathKeyboardKeyboardEventLike {
 }
 
 export interface MathKeyboardMathfieldLike {
+  executeCommand?: (command: "moveToNextPlaceholder") => unknown;
   getValue?: () => string;
   insert: (tex: string, options?: {
     focus?: boolean;
@@ -136,13 +137,44 @@ export function getMathKeyboardMathShortcut(event: MathKeyboardKeyboardEventLike
     null;
 }
 
+/**
+ * 分子と分母がどちらも空欄だけの分数 (`\frac{#?}{#?}`・`\dfrac`・`\tfrac`・`\cfrac`)。
+ * 二項係数 (`\binom`) は分数ではないので含めない。
+ */
+const FRACTION_TEMPLATE_PATTERN = /^\\[dtc]?frac\s*\{#\?\}\s*\{#\?\}$/;
+
+export function isMathFractionTemplate(tex: string): boolean {
+  return FRACTION_TEMPLATE_PATTERN.test(tex.trim());
+}
+
+/**
+ * 分数を入れた直後のキャレットを、MathLive が選んだ分子の空欄から分母の空欄へ移す。
+ * 分数は分母から入れる (製品の決定)。分子へは↑で移れる (MathLive の分数の移動)。
+ *
+ * ショートカット (数式の中・本文から)・数式パレット・`/frac` などの入力が同じ挿入
+ * (`insertMathKeyboardMathTemplate`) を通るので、ここ 1 か所で揃う。選んだ範囲を包む
+ * テンプレート (`wrapsSelection`、二乗など) は分数ではないので影響しない。
+ */
+export function focusMathFractionDenominator(mathField: MathKeyboardMathfieldLike, tex: string): boolean {
+  if (!isMathFractionTemplate(tex) || typeof mathField.executeCommand !== "function") {
+    return false;
+  }
+  // 分子の空欄が選ばれた状態からの「次の空欄」は分母 (MathLive は分子・分母の順に原子を持つ)。
+  mathField.executeCommand("moveToNextPlaceholder");
+  return true;
+}
+
 export function insertMathKeyboardMathTemplate(mathField: MathKeyboardMathfieldLike, tex: string): boolean {
-  mathField.insert(tex, {
+  const inserted = mathField.insert(tex, {
     focus: true,
     format: "latex",
     mode: "math",
     selectionMode: "placeholder",
   });
+  // 入らなかった (読み取り専用・MathLive が止めた) ときに「次の空欄」へ動くと、別の場所へ飛ぶ。
+  if (inserted !== false) {
+    focusMathFractionDenominator(mathField, tex);
+  }
   return true;
 }
 

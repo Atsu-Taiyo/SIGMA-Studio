@@ -18,6 +18,7 @@ import {
 } from "@/lib/editor-clipboard";
 import type { Translate } from "@/lib/i18n";
 import { readSpreadsheetClipboard } from "@/lib/spreadsheet-clipboard";
+import { readFlowPageShift } from "../page-canvas/page-arrangement-dom";
 import { viewportToCanvasAnchor } from "../page-canvas/popover-anchors";
 
 import { isMultiEditorTextRunSpan, replaceActiveTextRunSpan } from "../text-flow/text-run-span";
@@ -28,6 +29,7 @@ type BlockPaste =
   | { kind: "textFlowBlocks"; blocks: ClipboardTextFlowBlock[] };
 
 interface EditorClipboardPorts {
+  ownsInput?: () => boolean;
   overlayEditing: boolean;
   pasteTikz?: (text: string) => boolean;
   selectedInlineMath: { tex: string; getCanonicalTex?: () => string } | null;
@@ -36,8 +38,13 @@ interface EditorClipboardPorts {
   insertBlocks: (paste: BlockPaste) => void;
   pasteShapes: (
     payload: Extract<EditorClipboardPayload, { kind: "overlayShapes" }>,
-    options?: { centerAt?: { x: number; y: number }; unbounded?: boolean },
+    options?: { centerAt?: { x: number; y: number }; unbounded?: boolean; pointerClient?: { x: number; y: number } },
   ) => void;
+  /**
+   * ⌘V の瞬間にマウスポインタがいる点 (client 座標)。文書の編集領域の上にいないとき・位置が
+   * 分からないときは null で、その場合の図形は従来どおり元の位置から少しずらして貼られる。
+   */
+  getPointerPastePoint?: () => { x: number; y: number } | null;
   /**
    * 本文を持たない紙面 (ホワイトボード) か。本文のコピー (問題・文章・数式) は貼る場所が無いので、
    * テキスト部分だけを文章の図形にして貼る。
@@ -59,10 +66,12 @@ export function registerEditorClipboardEvents(ports: EditorClipboardPorts): () =
   const { overlayEditing, selectedInlineMath, setStatusMessage, translate: t } = ports;
   let literalPasteRequested = false;
   const handleKeyDown = (event: KeyboardEvent) => {
+    if (ports.ownsInput && !ports.ownsInput()) return;
     literalPasteRequested = (event.ctrlKey || event.metaKey) && event.shiftKey && event.key.toLowerCase() === "v";
   };
 
   const handleCopy = (event: ClipboardEvent) => {
+    if (ports.ownsInput && !ports.ownsInput()) return;
     if (
       !overlayEditing && selectedInlineMath && event.clipboardData
       && isInlineMathClipboardTarget(event.target) && !isNativeClipboardTarget(event.target)
@@ -129,7 +138,21 @@ export function registerEditorClipboardEvents(ports: EditorClipboardPorts): () =
     return true;
   };
 
+  /**
+   * 図形の ⌘V。ポインタが文書の編集領域の上にいるときだけ、その位置を添える
+   * (外にいる・位置不明なら従来どおり、元の位置から少しずらして貼られる)。
+   */
+  const pasteShapesAtPointer = (payload: Extract<EditorClipboardPayload, { kind: "overlayShapes" }>) => {
+    const pointerClient = ports.getPointerPastePoint?.();
+    if (pointerClient) {
+      ports.pasteShapes(payload, { pointerClient });
+    } else {
+      ports.pasteShapes(payload);
+    }
+  };
+
   const handlePaste = (event: ClipboardEvent) => {
+    if (ports.ownsInput && !ports.ownsInput()) return;
     const literalPaste = literalPasteRequested;
     literalPasteRequested = false;
     if (event.defaultPrevented) return;
@@ -177,7 +200,7 @@ export function registerEditorClipboardEvents(ports: EditorClipboardPorts): () =
       }
       event.preventDefault();
       event.stopPropagation();
-      ports.pasteShapes(eventPayload);
+      pasteShapesAtPointer(eventPayload);
       setStatusMessage(eventPayload.shapes.length === 1
         ? t("status.shapesPasted")
         : t("status.shapesPastedCount", { shapes: eventPayload.shapes.length }));
@@ -194,7 +217,7 @@ export function registerEditorClipboardEvents(ports: EditorClipboardPorts): () =
       }
       event.preventDefault();
       event.stopPropagation();
-      ports.pasteShapes(toOverlayShapesClipboardPayload(eventPayload));
+      pasteShapesAtPointer(toOverlayShapesClipboardPayload(eventPayload));
       setStatusMessage(t("status.shapesPastedBodyHint"));
       return;
     }
@@ -265,7 +288,9 @@ function tablePasteCenter(target: EventTarget | null, width: number, height: num
   if (!block || !canvas.contains(block)) return undefined;
   const rect = block.getBoundingClientRect();
   const point = viewportToCanvasAnchor({ left: rect.left, top: rect.bottom }, canvas);
-  return { x: point.left + width / 2, y: point.top + 8 + height / 2 };
+  // 図形の座標は紙面 (モデル) 座標。2 ページ並びではブロックはそのページのずらしで描かれている。
+  const shift = readFlowPageShift(block);
+  return { x: point.left - shift.x + width / 2, y: point.top - shift.y + 8 + height / 2 };
 }
 
 /** 本文の contenteditable は図形も受け取れるので、通常の入力欄とは区別する。 */

@@ -19,7 +19,7 @@ function render(kind: "header" | "footer", layoutPatch: Parameters<typeof normal
       bandRef={{ current: null }}
       pageNumber={2}
       totalPages={4}
-      title="小テスト"
+      fieldValues={{ title: "小テスト", page: 2, total: 4 }}
       editing={false}
       shownOnPage
       ownContent={false}

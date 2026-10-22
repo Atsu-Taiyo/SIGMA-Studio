@@ -16,6 +16,7 @@ import { expandMarginsForRunningRegions, isWhiteboardPageLayout, normalizePageLa
  *
  * ページ設定ダイアログで決めるもの (用紙・向き・余白・段組み・ヘッダー/フッター・背景・見出し番号) だけを持つ。
  * ヘッダー/フッターは位置だけでなく中身 (学校名・ロゴなど) も用紙の一部として持つ。
+ * ページ番号の開始 (`pageNumberStart`) は教材ごとの構成なので含めない。
  * 本文・本文の図形 (`pageLayout.overlay`)・題名・コメントは教材そのものなので含めない。
  * ホワイトボードは用紙ではないので、引き継ぐ元にならない (`null`)。
  */
@@ -61,6 +62,8 @@ export function normalizeNewDocumentPageSetup(value: unknown): NewDocumentPageSe
     footer: portableRunningRegion(normalized.footer),
   });
   delete pageLayout.overlay;
+  // 表紙を 0 ページにするなどの数え方は、その教材の構成の話。次の教材へは運ばない。
+  delete pageLayout.pageNumberStart;
   const headingNumbering = normalizeHeadingNumbering(record.headingNumbering);
   return headingNumbering ? { pageLayout, headingNumbering } : { pageLayout };
 }

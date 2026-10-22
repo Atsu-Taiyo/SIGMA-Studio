@@ -789,7 +789,9 @@ code {
   position: absolute;
   inset: 0;
   z-index: 3;
-  overflow: hidden;
+  overflow: visible;
+  --overlay-bleed-x: 0px;
+  --overlay-bleed-top: 0px;
 }
 
 .page-running-direct-overlay.preview {
@@ -1745,6 +1747,28 @@ body.page-block-dragging * {
   outline-offset: 2px;
 }
 
+/* 編集中のテキスト図形の段落ごとの下端つまみ。見た目と当たり判定は本文のつまみ
+   (.page-block-space-handle) をそのまま使い、ここは置き場所だけを決める:
+   図形の箱 (position: relative) を原点にした左ガター。回転・ズームは箱の変換に乗るので、
+   座標は箱の局所 px のまま書く。レイヤー自身は何も受けず、つまみだけがポインタを受ける。 */
+.overlay-text-space-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  pointer-events: none;
+}
+
+.overlay-text-space-layer > .overlay-text-space-handle {
+  position: absolute;
+  left: 0;
+  pointer-events: auto;
+}
+
+/* 相手の段落が決まるまでは出さない (置き場所を測れていない)。 */
+.overlay-text-space-layer > .overlay-text-space-handle:not([data-visible="true"]) {
+  display: none;
+}
+
 /* Selection reads as a wash of colour, not as a frame: a border here competes with the
    problem frames and the box blocks that are already drawn as rectangles. */
 .page-block-selection-outline {
@@ -1815,6 +1839,13 @@ body.page-block-dragging * {
   right: var(--overlay-bleed-x, 0);
   top: var(--overlay-bleed-top, 0);
   bottom: 0;
+}
+
+/* 2 ページ並び: 図形をそのページのずらしで描く寸法 0 の箱 (`overlay-canvas/page-shift.tsx`)。 */
+.overlay-page-shift {
+  position: absolute;
+  width: 0;
+  height: 0;
 }
 
 .overlay-canvas-bleed-surface.background,

@@ -15,9 +15,11 @@ interface Inputs {
   canvasRef: RefObject<HTMLDivElement | null>;
   zoom: number;
   pageHeightPx: number;
+  /** 1 行に並ぶページ数 (2 ページ並びでは 2)。 */
+  pagesPerRow?: number;
 }
 
-export function usePageCanvasViewport({ isPagedRender, pageCount, canvasRef, zoom, pageHeightPx }: Inputs) {
+export function usePageCanvasViewport({ isPagedRender, pageCount, canvasRef, zoom, pageHeightPx, pagesPerRow = 1 }: Inputs) {
 
   const [scrollVisiblePageRange, setVisiblePageRange] = useState<VisiblePageRange>(
     () => createInitialVisiblePageRange(),
@@ -52,6 +54,7 @@ export function usePageCanvasViewport({ isPagedRender, pageCount, canvasRef, zoo
         pageCount,
         pageGapPx: PAGE_GAP_PX,
         pageHeightPx,
+        pagesPerRow,
         previousScrollSample: pageWindowScrollRef.current,
         zoomScale: zoom / 100,
       });
@@ -80,6 +83,7 @@ export function usePageCanvasViewport({ isPagedRender, pageCount, canvasRef, zoo
         pageCount,
         pageGapPx: PAGE_GAP_PX,
         pageHeightPx,
+        pagesPerRow,
         previousScrollSample: pageWindowScrollRef.current,
         zoomScale: zoom / 100,
       });
@@ -108,6 +112,6 @@ export function usePageCanvasViewport({ isPagedRender, pageCount, canvasRef, zoo
       scroller.removeEventListener("scroll", scheduleUpdate);
       window.removeEventListener("resize", scheduleUpdate);
     };
-  }, [canvasRef, pageCount, pageHeightPx, zoom]);
+  }, [canvasRef, pageCount, pageHeightPx, pagesPerRow, zoom]);
   return { visiblePageRange };
 }

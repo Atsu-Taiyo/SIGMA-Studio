@@ -24,7 +24,9 @@ import {
   boundsFromPoints,
   getAxisAlignedRotatedBounds
 } from "./math";
+import { OverlayPageShift } from "./page-shift";
 import { getSelectionTransformOriginFromPivot } from "./selection-chrome";
+import type { PageArrangement } from "@/features/rendering/core";
 import type {
   OverlayBounds,
   OverlayShape
@@ -58,8 +60,11 @@ export function useRemoteOverlayPresence(
 
 export function RemoteOverlayPresenceLayer({
   shapes,
+  arrangement,
 }: {
   shapes: OverlayShape[];
+  /** ページの並び。枠はモデル座標のまま、載るページのずらしで描く。 */
+  arrangement?: PageArrangement | null;
 }) {
   const session = useDocumentSession();
   const participants = useRemoteOverlayPresence(session);
@@ -85,21 +90,24 @@ export function RemoteOverlayPresenceLayer({
             style={{ "--overlay-remote-color": color } as CSSProperties}
           >
             {frames.map((frame) => (
-              <div
-                key={frame.id}
-                className="overlay-remote-selection-box"
-                data-remote-shape-id={frame.id}
-                style={getRemoteOverlayPresenceFrameStyle(frame)}
-              />
+              <OverlayPageShift key={frame.id} arrangement={arrangement} y={frame.y}>
+                <div
+                  className="overlay-remote-selection-box"
+                  data-remote-shape-id={frame.id}
+                  style={getRemoteOverlayPresenceFrameStyle(frame)}
+                />
+              </OverlayPageShift>
             ))}
-            <span
-              className="overlay-remote-presence-label"
-              data-remote-label-slot={labelSlot}
-              style={{ left: labelBounds.x, top: labelBounds.y - (labelSlot * 30) }}
-            >
-              <RemotePresenceAvatar participant={participant} />
-              <span>{participant.displayName}</span>
-            </span>
+            <OverlayPageShift arrangement={arrangement} y={labelBounds.y}>
+              <span
+                className="overlay-remote-presence-label"
+                data-remote-label-slot={labelSlot}
+                style={{ left: labelBounds.x, top: labelBounds.y - (labelSlot * 30) }}
+              >
+                <RemotePresenceAvatar participant={participant} />
+                <span>{participant.displayName}</span>
+              </span>
+            </OverlayPageShift>
           </div>
         );
       })}

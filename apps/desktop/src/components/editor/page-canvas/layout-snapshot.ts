@@ -35,6 +35,11 @@ export interface PageLayoutSnapshot {
   unitLayouts: Record<string, FlowUnitLayout>;
   /** フロー直下のユニットの変位 (レイアウトに影響しない translate)。 */
   unitDisplacements: Record<string, FlowDisplacement>;
+  /**
+   * ユニットの変位のモデル座標の値 (ページの並びのずらしを含まない)。どの段に置かれたか
+   * (サイド注の位置) の判断に使う。1 列では `unitDisplacements` と同じ。
+   */
+  modelUnitDisplacements: Record<string, FlowDisplacement>;
   /** 編集面の最上位ブロックの、ユニットからの相対変位。 */
   nodeDisplacements: Record<string, FlowDisplacement>;
   /** 複数の領域に分かれたユニットの、描かれた内容の末尾 (サイド注・リサイズつまみの位置)。 */

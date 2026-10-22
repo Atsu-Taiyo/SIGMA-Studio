@@ -11,6 +11,7 @@ import {
   type SigmaBlock,
 } from "@/features/document";
 import { hasBreakBefore, PROBLEM_AREA_ORDER } from "./block-ops";
+import { readFlowPageShift } from "./page-arrangement-dom";
 import { getLayoutSectionColumnCount } from "./render-units";
 import type { ProblemAreaColumnLayout } from "./types";
 
@@ -86,6 +87,9 @@ export function measureLocalColumnContextMenuLayout(
   const blockLayouts: Record<string, TextFlowColumnBlockLayout> = {};
   const markerLayouts: Record<string, TextFlowColumnBlockLayout> = {};
 
+  // 2 ページ並びでは、別のページへ送られた列の子はそのページのずらしだけ動いて描かれている。
+  // 区切りを探す位置 (どのページ・どの段か) は紙面 (モデル) 座標で比べる。
+  const bodyShift = readFlowPageShift(body);
   const columns = [...body.querySelectorAll<HTMLElement>(":scope > .layout-section-independent-column")];
   const children = columns.length > 0 ? columns.flatMap(column => [...column.children]) : [...body.children];
   for (const child of children) {
@@ -93,9 +97,10 @@ export function measureLocalColumnContextMenuLayout(
       continue;
     }
     const rect = child.getBoundingClientRect();
+    const childShift = readFlowPageShift(child);
     const childLayout = roundTextFlowColumnBlockLayout({
-      x: (rect.left - bodyRect.left) / safeZoomFactor,
-      y: (rect.top - bodyRect.top) / safeZoomFactor,
+      x: (rect.left - bodyRect.left) / safeZoomFactor - (childShift.x - bodyShift.x),
+      y: (rect.top - bodyRect.top) / safeZoomFactor - (childShift.y - bodyShift.y),
       width: rect.width / safeZoomFactor,
     });
     const markerBlockId = child.getAttribute("data-page-break-marker") !== null

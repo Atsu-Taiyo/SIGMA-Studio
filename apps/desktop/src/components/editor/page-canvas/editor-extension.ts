@@ -5,6 +5,7 @@ import type { MeasuredBlock } from "@/components/editor/overlay-canvas/anchor";
 import type { OverlayAsset, OverlayShape } from "@/components/editor/overlay-canvas/types";
 import type { OverlaySelectionSummary } from "@/components/editor/page-overlay-types";
 import type { OverlayPoint, SigmaCommentAnchor, SigmaDocument } from "@/features/document";
+import type { PageArrangement } from "@/features/rendering/core";
 
 import type { SelectionActionPopoverPosition } from "./popover-anchors";
 
@@ -55,6 +56,12 @@ export interface PageCanvasOverlayPresentationContext {
    * (`getOverlaySelectionControlsCanvasRect`)。
    */
   selectionControlsRect: { x: number; y: number; w: number; h: number } | null;
+  /**
+   * ページの並び (2 ページずつ横に並べているときだけ。1 列では null)。上の座標はすべて紙面の
+   * モデル座標 (縦 1 列) なので、`floatingContent` は描くときにそのページのずらしを足す
+   * (`pageShift` / `modelToDisplay`)。
+   */
+  pageArrangement: PageArrangement | null;
 }
 
 export interface PageCanvasOverlayPresentation {
@@ -132,6 +139,8 @@ export interface PageCanvasLayerContext {
   blockRects: Map<string, MeasuredBlock>;
   inlineContentTargetIds: ReadonlySet<string>;
   canvasElement: HTMLElement | null;
+  /** ページの並び (2 ページ並びのときだけ)。`blockRects` はモデル座標なので、描く位置へはずらしを足す。 */
+  pageArrangement: PageArrangement | null;
 }
 
 export interface PageCanvasEditorExtension {

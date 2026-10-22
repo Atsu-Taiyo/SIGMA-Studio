@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 
 import type { PageLayout } from "../model";
+import type { OverlayGeoShape } from "../overlay-model";
+import { mmToPx } from "./page-layout";
 import {
   enablePageRunningRegion,
   getRunningRegionBoundsMm,
@@ -127,6 +129,46 @@ describe("page layout resize model", () => {
       heightMm: 0,
     });
     expect(footer.marginsMm.bottom).toBe(13);
+  });
+
+  it.each(["header", "footer"] as const)("keeps %s drawings at their page positions when either edge moves", (kind) => {
+    const layout = createLayout();
+    const shape: OverlayGeoShape = {
+      id: "drawing",
+      type: "geo",
+      x: -20,
+      y: 3,
+      anchor: { type: "block", blockId: "header-text", dy: 1, line: { index: 0, dy: 2 } },
+      props: { w: 80, h: 30, geo: "rectangle", fill: "none", color: "black", labelColor: "black", dash: "solid", size: "m" },
+    };
+    const child: OverlayGeoShape = {
+      ...shape,
+      id: "label",
+      y: 8,
+      anchor: { type: "shape", shapeId: shape.id, dx: 0, dy: 5 },
+    };
+    const snapshot = { version: 1 as const, shapes: [shape, child], assets: {} };
+    layout[kind] = { ...layout[kind]!, overlay: { overlaySnapshot: snapshot } };
+    const bounds = getRunningRegionBoundsMm(layout, kind);
+    const pageY = mmToPx(bounds.topMm) + shape.y;
+
+    for (const edge of ["start", "end"] as const) {
+      for (const deltaMm of [-1_000, -2.26, 2.26, 1_000]) {
+        const result = resizeRunningRegionLayout({
+          kind, edge, baseLayout: layout, startTopMm: bounds.topMm, startBottomMm: bounds.bottomMm,
+        }, deltaMm);
+        const resultSnapshot = result[kind]!.overlay!.overlaySnapshot!;
+        const [movedShape, movedChild] = resultSnapshot.shapes;
+        expect(mmToPx(getRunningRegionBoundsMm(result, kind).topMm) + movedShape.y).toBeCloseTo(pageY);
+        expect(movedShape.x).toBe(-20);
+        expect(movedShape.anchor).toEqual({ type: "block", blockId: "header-text", dy: 1 + movedShape.y - shape.y, line: { index: 0, dy: 2 + movedShape.y - shape.y } });
+        expect(movedChild.y - movedShape.y).toBeCloseTo(5);
+        expect(movedChild.anchor).toEqual(child.anchor);
+        expect(resultSnapshot.assets).toBe(snapshot.assets);
+      }
+    }
+    expect(snapshot.shapes).toEqual([shape, child]);
+    expect(shape.y).toBe(3);
   });
 
   it("clamps left and right margins to a sixty millimeter content width", () => {

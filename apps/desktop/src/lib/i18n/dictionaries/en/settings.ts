@@ -146,6 +146,9 @@ export const settings = {
     columnOption: "{{count}} col.",
     regionOffsetFromBottomMm: "From the bottom edge",
     footerHint: "Double-click the band at the bottom of the page to type text and page numbers. To change what shows on each page, use the button at the band's right.",
+    pageNumbering: "Page numbers",
+    pageNumberStart: "Start page numbering at",
+    pageNumberStartHint: "Use 0 to number a cover page 0. The total in headers and footers matches the last page's number.",
     apply: "Apply",
   },
   box: {
@@ -761,6 +764,7 @@ export const settings = {
       columns: "column columns gap count 段組み 段数",
       header: "header top running 上部 ヘッダー",
       footer: "footer bottom running 下部 フッター",
+      pageNumber: "page number numbering start cover zero total ページ番号 開始 表紙 総ページ数",
       math: "math equation fraction typesetting 数式 分数",
       shortcuts: "shortcut key binding keyboard ショートカット キー",
       customCommand: "custom command add command カスタムコマンド",

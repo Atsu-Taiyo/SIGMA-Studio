@@ -253,6 +253,76 @@ describe("PageSettingsDialog", () => {
     expect(document.querySelector<HTMLInputElement>("#page-header-height")?.value).toBe("8");
     expect(document.querySelector<HTMLInputElement>("#page-header-offset")?.value).toBe("5");
   });
+
+  describe("ページ番号の開始", () => {
+    const renderDialog = async (layout = getDefaultPageLayout("A4"), onChange = vi.fn()) => {
+      await act(async () => {
+        root.render(<PageSettingsDialog layout={layout} onClose={vi.fn()} onChange={onChange} />);
+      });
+      return onChange;
+    };
+
+    it("既定は 1 で、触らずに適用しても値を書かない", async () => {
+      const onChange = await renderDialog();
+
+      expect(document.querySelector<HTMLInputElement>("#page-number-start")?.value).toBe("1");
+      expect(document.querySelector("#page-settings-numbering")?.textContent).toContain("表紙を0ページにするときは0");
+      await act(async () => findButton("適用").click());
+
+      expect(onChange.mock.calls[0]?.[0]).not.toHaveProperty("pageNumberStart");
+    });
+
+    it("0 を入れて適用すると、表紙を 0 ページにする値が渡る", async () => {
+      const onChange = await renderDialog();
+
+      await typeNumber("#page-number-start", "0");
+      expect(document.querySelector<HTMLInputElement>("#page-number-start")?.value).toBe("0");
+      await act(async () => findButton("適用").click());
+
+      expect(onChange.mock.calls[0]?.[0]).toMatchObject({ pageNumberStart: 0 });
+    });
+
+    it("保存されている値を欄に出し、1 に戻して適用すると持たなくなる", async () => {
+      const onChange = await renderDialog({ ...getDefaultPageLayout("A4"), pageNumberStart: 0 });
+
+      expect(document.querySelector<HTMLInputElement>("#page-number-start")?.value).toBe("0");
+      await typeNumber("#page-number-start", "1");
+      await act(async () => findButton("適用").click());
+
+      expect(onChange.mock.calls[0]?.[0]).not.toHaveProperty("pageNumberStart");
+    });
+
+    it("整数の 0〜9999 に収め、0 で減らすボタンを止める", async () => {
+      const onChange = await renderDialog({ ...getDefaultPageLayout("A4"), pageNumberStart: 0 });
+      const decrease = document.querySelector<HTMLButtonElement>('button[aria-label="ページ番号の開始を減らす"]')!;
+      const increase = document.querySelector<HTMLButtonElement>('button[aria-label="ページ番号の開始を増やす"]')!;
+
+      expect(decrease.disabled).toBe(true);
+      expect(increase.disabled).toBe(false);
+      await typeNumber("#page-number-start", "12345");
+      expect(document.querySelector<HTMLInputElement>("#page-number-start")?.value).toBe("9999");
+      expect(document.querySelector<HTMLButtonElement>('button[aria-label="ページ番号の開始を増やす"]')?.disabled).toBe(true);
+      await typeNumber("#page-number-start", "-3");
+      expect(document.querySelector<HTMLInputElement>("#page-number-start")?.value).toBe("0");
+      await act(async () => findButton("適用").click());
+
+      expect(onChange.mock.calls[0]?.[0]).toMatchObject({ pageNumberStart: 0 });
+    });
+
+    it("英語UIでも名前とヒントが英語で出る", async () => {
+      await renderDialog();
+      await act(async () => setAppLocale("en"));
+
+      expect(document.querySelector("#page-settings-numbering")?.textContent).toContain("Start page numbering at");
+      expect(document.querySelector("#page-settings-numbering")?.textContent).toContain("Use 0 to number a cover page 0.");
+    });
+
+    it("ヘッダー/フッターの無いホワイトボードには出さない", async () => {
+      await renderDialog(getDefaultPageLayout("whiteboard"));
+
+      expect(document.querySelector("#page-settings-numbering")).toBeNull();
+    });
+  });
 });
 
 function findButton(text: string): HTMLButtonElement {

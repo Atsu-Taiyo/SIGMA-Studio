@@ -19,6 +19,7 @@ import {
   getSelectedShapesForClipboard
 } from "./grouping";
 import type { ApplyPastedOverlayShapesOptions } from "./paste-shapes";
+import { getPointerPasteClientPoint } from "./pointer-paste";
 import { isTextInputTarget } from "./selection-command-model";
 import type {
   OverlayAsset,
@@ -199,7 +200,10 @@ export function useOverlayClipboard({
       }
 
       const shapesPayload = payload.kind === "textAndShapes" ? toOverlayShapesClipboardPayload(payload) : payload;
-      if (!applyPastedOverlayShapes(shapesPayload)) {
+      // ポインタが文書の編集領域の上にあるときは、その位置へ貼る。メニューやサイドバーの上・
+      // ウィンドウの外・位置不明なら従来どおり元の位置から少しずらす。
+      const pointerClient = getPointerPasteClientPoint();
+      if (!applyPastedOverlayShapes(shapesPayload, pointerClient ? { pointerClient } : undefined)) {
         return;
       }
 

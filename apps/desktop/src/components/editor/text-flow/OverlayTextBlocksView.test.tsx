@@ -235,6 +235,75 @@ describe("a shape's text drawn by the body's static renderer", () => {
    * different layers — the model cannot import the component — so they are pinned to each other
    * here instead of being kept in step by hand.
    */
+  describe("space after a block", () => {
+    const paragraph = (spaceAfterPx?: number): OverlayTextBlock => ({
+      type: "paragraph",
+      id: "p_sp",
+      ...(spaceAfterPx ? { spaceAfterPx } : {}),
+      children: [{ type: "text", text: "余白" }],
+    });
+
+    it("writes the shared custom property, and nothing at all for an untouched block", () => {
+      expect(render([paragraph(14)])).toContain("--sigma-doc-space-after:14px");
+      expect(render([paragraph()])).not.toContain("space-after");
+    });
+
+    it("leaves the padding to the stylesheet on the app surfaces", () => {
+      expect(render([paragraph(14)])).not.toContain("padding-bottom");
+    });
+
+    it("inlines the padding when the output has no stylesheet (the exported SVG)", () => {
+      const html = render([
+        paragraph(14),
+        { type: "heading", id: "h_sp", level: 2, spaceAfterPx: 6, children: [{ type: "text", text: "見出し" }] },
+        { type: "divider", id: "d_sp", spaceAfterPx: 4 },
+      ], true);
+
+      expect(html).toMatch(/<p style="[^"]*padding-bottom:14px/);
+      expect(html).toMatch(/<h2 style="[^"]*padding-bottom:6px/);
+      expect(html).toMatch(/<hr[^>]*style="[^"]*padding-bottom:4px/);
+    });
+
+    it("does not pad a quote or a code block, which draw their frame around the padding", () => {
+      const html = render([
+        { type: "quote", id: "q_sp", spaceAfterPx: 20, blocks: [{ type: "paragraph", id: "qp_sp", children: [{ type: "text", text: "引用" }] }] },
+        { type: "codeBlock", id: "c_sp", spaceAfterPx: 20, children: [{ type: "text", text: "a" }] },
+      ], true);
+
+      expect(html).not.toContain("padding-bottom");
+    });
+
+    it("draws a list's space on the list, and an item's space under its last owned line", () => {
+      const html = render([{
+        type: "list",
+        id: "l_sp",
+        listType: "bullet",
+        spaceAfterPx: 8,
+        items: [
+          { type: "listItem", id: "li_a", spaceAfterPx: 9, children: [{ type: "text", text: "単独" }] },
+          {
+            type: "listItem",
+            id: "li_b",
+            spaceAfterPx: 11,
+            children: [{ type: "text", text: "先頭" }],
+            continuations: [
+              { type: "paragraph", id: "c_1", children: [{ type: "text", text: "続き1" }] },
+              { type: "paragraph", id: "c_2", children: [{ type: "text", text: "続き2" }] },
+            ],
+          },
+        ],
+      }], true);
+
+      expect(html).toMatch(/<ul style="[^"]*padding-bottom:8px/);
+      // 継続行の無い項目は、先頭行が最後の所有本文。
+      expect(html).toMatch(/<span style="[^"]*padding-bottom:9px[^"]*" data-sigma-doc-list-item-text/);
+      // 継続行のある項目は、最後の継続行だけが引き受ける (先頭行・途中の継続行は押さない)。
+      expect(html.match(/padding-bottom:11px/g)).toHaveLength(1);
+      expect(html).toMatch(/<p style="[^"]*padding-bottom:11px[^"]*">続き2/);
+      expect(html).toMatch(/--sigma-doc-list-item-space-after:11px/);
+    });
+  });
+
   it("accepts exactly the blocks a shape can hold", () => {
     expectTypeOf<OverlayTextBlock>().toEqualTypeOf<TextFlowStaticBlockNode>();
   });

@@ -2,7 +2,7 @@
 
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { Select } from "./Select";
 import { ModalFrame } from "./Modal";
@@ -55,9 +55,43 @@ beforeEach(() => {
 afterEach(() => {
   act(() => root.unmount());
   container.remove();
+  vi.restoreAllMocks();
 });
 
 describe("Select", () => {
+  it("keeps an overflowing menu steady when the available height is fractional", () => {
+    let resized!: ResizeObserverCallback;
+    vi.stubGlobal("ResizeObserver", class {
+      constructor(callback: ResizeObserverCallback) { resized = callback; }
+      observe() {}
+      disconnect() {}
+    });
+    vi.spyOn(window, "innerHeight", "get").mockReturnValue(900);
+    const menuHeight = () => Math.min(2800, Number.parseFloat(listbox()?.style.maxHeight ?? "2800"));
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
+      return this.classList.contains("ui-select")
+        ? new DOMRect(415, 285.03125, 400, 32)
+        : new DOMRect(415, 0, 400, menuHeight());
+    });
+    vi.spyOn(HTMLElement.prototype, "offsetHeight", "get").mockImplementation(() => Math.round(menuHeight()));
+    vi.spyOn(HTMLElement.prototype, "clientHeight", "get").mockImplementation(() => Math.round(menuHeight()) - 2);
+    vi.spyOn(HTMLElement.prototype, "scrollHeight", "get").mockReturnValue(2800);
+    vi.spyOn(HTMLElement.prototype, "offsetWidth", "get").mockReturnValue(400);
+    try {
+      render(<Select value="0" options={Array.from({ length: 100 }, (_, i) => ({ value: String(i), label: `Font ${i}` }))} onChange={() => {}} />);
+      act(() => trigger().click());
+      const placements: string[] = [];
+      for (let i = 0; i < 6; i++) {
+        act(() => resized([], {} as ResizeObserver));
+        placements.push(listbox()!.style.cssText);
+      }
+      expect(new Set(placements).size).toBe(1);
+      expect(Number.parseFloat(listbox()!.style.top) + menuHeight()).toBeLessThanOrEqual(892);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("closes its menu before Escape dismisses the owning modal", () => {
     let dismissals = 0;
     render(

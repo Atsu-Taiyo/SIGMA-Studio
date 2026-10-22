@@ -63,6 +63,8 @@ Object.assign(surfaceFiles, {
   },
   "src/components/editor/overlay-canvas/shapes/table-editor-model.ts": { t: "settings" },
   "src/components/editor/page-canvas/WhiteboardBackgroundControl.tsx": { t: "shape" },
+  // 本文の下余白つまみ (`pageCanvas.spaceAfter*`) と同じ文言を、編集中の図中テキストのつまみも引く。
+  "src/components/editor/overlay-canvas/text-shape-space-after-handle.tsx": { tEditor: "editor" },
 });
 
 type Reference = { file: string; fn: string; ns: string; key: string };

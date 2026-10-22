@@ -429,6 +429,44 @@ describe("math tiptap extensions", () => {
     })).resolves.toBeUndefined();
   });
 
+  it("logs a failed switch to ascii input in development without surfacing it", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    try {
+      for (const failure of [
+        vi.fn().mockResolvedValue({ ok: false, platform: "darwin", error: "English input source was not found." }),
+        vi.fn().mockRejectedValue(new Error("ipc failed")),
+      ]) {
+        vi.stubGlobal("window", { desktopAPI: { inputSource: { restore: vi.fn(), switchToAscii: failure } } });
+        const session = requestDesktopAsciiInputSource();
+        await expect(session?.restoreToken).resolves.toBeNull();
+      }
+      expect(warn).toHaveBeenCalledTimes(2);
+      expect(warn.mock.calls[0]?.[0]).toBe("Failed to switch to the ASCII input source for math editing");
+      expect(warn.mock.calls[0]?.[1]).toBe("English input source was not found.");
+      expect(warn.mock.calls[1]?.[1]).toBeInstanceOf(Error);
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it("stays quiet when the switch is skipped on an unsupported OS or succeeds without a restore token", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    try {
+      for (const result of [
+        { ok: false, platform: "linux", error: "unsupported", skipped: true },
+        { ok: true, platform: "win32" },
+      ]) {
+        vi.stubGlobal("window", {
+          desktopAPI: { inputSource: { restore: vi.fn(), switchToAscii: vi.fn().mockResolvedValue(result) } },
+        });
+        await expect(requestDesktopAsciiInputSource()?.restoreToken).resolves.toBeNull();
+      }
+      expect(warn).not.toHaveBeenCalled();
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
   it("renders MathKeyboard shortcut templates with MathLive placeholders", () => {
     const representativeIds = new Set(["fraction", "nth-root", "sin-power", "matrix-2x2", "cases-3", "less-than-or-equal"]);
     for (const shortcut of MATH_KEYBOARD_SHORTCUTS.filter((entry) => representativeIds.has(entry.id))) {

@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 
+import { createBlankDocument } from "./blank-document";
+
 import {
   createDocumentFromTemplate,
   normalizeTemplateName,
@@ -42,6 +44,21 @@ describe("templates", () => {
     expect(created.content).toHaveLength(template.document.content.length);
     // The source template document is untouched.
     expect(template.document.metadata.title).toBe("テンプレ教材");
+  });
+
+  it("keeps the template's page setup and does not share it with the template", () => {
+    const template = createTemplate();
+    template.document.pageLayout = {
+      ...createBlankDocument().pageLayout!,
+      preset: "B5",
+      orientation: "landscape",
+      pageSize: { widthMm: 257, heightMm: 182 },
+      marginsMm: { top: 16, right: 10, bottom: 15, left: 10 },
+    };
+    const created = createDocumentFromTemplate(template);
+
+    expect(created.pageLayout).toEqual(template.document.pageLayout);
+    expect(created.pageLayout).not.toBe(template.document.pageLayout);
   });
 });
 

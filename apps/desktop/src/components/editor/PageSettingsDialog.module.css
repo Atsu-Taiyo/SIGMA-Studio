@@ -200,6 +200,11 @@
   background: var(--background);
 }
 
+/* 単位の無い欄 (ページ番号など)。 */
+.mmControl[data-unitless] {
+  grid-template-columns: 26px minmax(0, 1fr) 26px;
+}
+
 .mmControl:focus-within {
   border-color: var(--border-strong);
   box-shadow: 0 0 0 2px var(--surface-strong);

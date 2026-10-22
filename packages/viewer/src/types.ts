@@ -1272,6 +1272,13 @@ export interface PageLayout {
     overlay?: PageOverlay;
     /** 下地のパターン。用紙プリセットでは通常 `undefined` (無地)。 */
     background?: PageBackground;
+    /**
+     * ヘッダー/フッターの `{page}` を数え始める番号 (0〜9999 の整数)。省略は 1。表紙を 0 ページに
+     * したいときは 0。`{total}` は最後のページに出る番号 (ページ数 + 開始番号 − 1) と同じになる。
+     * 変えるのは差し込みの値だけで、表示するページの指定・ページ専用の中身・ページ移動は
+     * 組版上のページ (1 始まり) のまま。既定のときは持たない。
+     */
+    pageNumberStart?: number;
 }
 
 export interface PageRunningRegion {

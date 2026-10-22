@@ -105,7 +105,8 @@ export class RendererDocumentSession implements DocumentSession {
       const version = await this.bridge.version(this.info.binding.localFileId, versionId);
       return version.id === versionId ? parseSigmaDocument(version.document) : null;
     },
-    canRestore: () => this.role === "owner" || this.role === "admin" || this.role === "editor",
+    canRestore: () => (this.bridge.canRestoreVersion?.(this.info.binding.localFileId) ?? true)
+      && (this.role === "owner" || this.role === "admin" || this.role === "editor"),
     restore: (versionId) => this.bridge.restore(this.info.binding.localFileId, versionId),
   };
   constructor(
@@ -361,6 +362,8 @@ export class RendererDocumentSession implements DocumentSession {
     const assetId = canonical.slice(20);
     const preview = this.pendingAssetPreviews.get(assetId);
     if (preview) return preview;
+    const browserSource = this.bridge.assetUrl?.(this.info.binding.localFileId, assetId);
+    if (browserSource) return browserSource;
     const readyVersion = this.assetReadyVersions.get(assetId);
     return readyVersion ? `${canonical}?ready=${readyVersion}` : canonical;
   }

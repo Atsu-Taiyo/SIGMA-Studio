@@ -604,7 +604,12 @@ function canonicalizeOverlayTextBlock(block: OverlayTextBlock): OverlayTextBlock
         "type", "id", "listType", "start", "markerStyle", "spaceAfterPx",
       ]),
       items: block.items.map((item) => ({
-        ...pickDefined(item as unknown as Record<string, unknown>, ["type", "id", "align"]),
+        // An item's own space (the "↓-" handle under a list item) is a named key like the blocks'
+        // — leaving it out would keep the spacing while the shape is edited and erase it on save.
+        ...pickDefined({
+          ...(item as unknown as Record<string, unknown>),
+          spaceAfterPx: normalizeBlockSpaceAfterPx(item.spaceAfterPx),
+        }, ["type", "id", "align", "spaceAfterPx"]),
         children: item.children.map(canonicalizeInlineNode),
         ...(item.continuations === undefined
           ? {}

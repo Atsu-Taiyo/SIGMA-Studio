@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { readFile } from "node:fs/promises";
 import type { SigmaDocument } from "@sigma-studio/viewer";
 import sampleDocument from "../../examples/editor-react19/src/sample-document.json";
 
@@ -71,6 +72,24 @@ test("Viewer display settings preserve SigmaDoc; edits survive host save and rel
   expect(withoutSaveTimestamps(await readSavedDocument(page)))
     .toEqual(withoutSaveTimestamps(expectedReloaded));
   await expect(page.locator(".save-state.saving")).toHaveCount(0);
+  // Export the reloaded canonical document through the real browser download.
+  const fileMenu = page.getByRole("button", { name: "ファイル", exact: true });
+  if (await fileMenu.isVisible()) {
+    await fileMenu.click();
+    await page.getByRole("menuitem", { name: "エクスポート", exact: true }).hover();
+  } else {
+    await page.getByRole("tab", { name: "ファイル", exact: true }).click();
+    await page.getByRole("button", { name: "エクスポート", exact: true }).click();
+  }
+  const downloadReady = page.waitForEvent("download");
+  await page.getByText("JSONをエクスポート", { exact: true }).click();
+  const download = await downloadReady;
+  expect(download.suggestedFilename()).toBe(`${resavedTitle.replaceAll(" ", "-")}.sigma`);
+  expect(await download.failure()).toBeNull();
+  const downloadedPath = await download.path();
+  if (!downloadedPath) throw new Error("Expected a downloaded SigmaDoc file");
+  expect(withoutSaveTimestamps(JSON.parse(await readFile(downloadedPath, "utf8"))))
+    .toEqual(withoutSaveTimestamps(expectedReloaded));
   // The browser's history returns to the host Viewer with the same document.
   await page.goBack();
   await expect(page.locator("#material-heading")).toHaveText(resavedTitle);

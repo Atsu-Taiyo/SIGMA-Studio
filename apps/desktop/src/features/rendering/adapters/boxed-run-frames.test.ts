@@ -52,6 +52,33 @@ describe("connected text and math frames", () => {
     ]);
   });
 
+  it("draws one frame across a bold label, a boxed space, a tall formula and a long tail (measured in the editor)", () => {
+    const p = paragraph();
+    // 「（参考）」(太字) + 全角空白 + 積分つきの数式 + 「　型だけは…」。editing view has no run id, so the
+    // frame comes from the geometry alone: the space box (no baseline) sits high and short.
+    const rows: Array<[number, number, number, number, string]> = [
+      [100, 50, 70.8, 43.1, "（参考）"],
+      [170.8, 62.7, 21.8, 18, "　"],
+      [192.5, 50, 116.9, 43.1, "In=∫tanⁿx"],
+      [308.4, 50, 390.8, 43.1, "　型だけは「部分積分」ではなく「式変形」で作る！"],
+    ];
+    rows.forEach(([x, y, width, height, text], index) => {
+      const span = segment(p, [rect(x, y, width, height)]); span.textContent = text;
+      span.removeAttribute("data-boxed-run-id");
+      if (index === 2) span.dataset.sigmaDocBoxedMath = "true";
+    });
+    expect(readBoxedRunFrames(p)).toEqual([{ left: 0, top: 0, width: 599.2, height: 43.1, variant: null, tone: null }]);
+  });
+
+  it("keeps two frames when an unboxed full-width space separates two boxed runs", () => {
+    const p = paragraph();
+    // 囲んでいない空白は枠の外。隙間 (約 16px) は繋がない。
+    for (const [x, width, text] of [[100, 86.8, "（参考）　"], [186.8, 116.9, "In="], [319.6, 375.8, "型だけは"]] as const) {
+      const span = segment(p, [rect(x, 50, width, 43.1)]); span.textContent = text; span.removeAttribute("data-boxed-run-id");
+    }
+    expect(readBoxedRunFrames(p).map(f => [f.left, f.width])).toEqual([[0, 203.7], [219.6, 375.8]]);
+  });
+
   it("keeps wrapped fragments apart even when a tall previous line overlaps the next line", () => {
     const p = paragraph();
     const first = segment(p, [rect(100, 50, 60, 60)]);

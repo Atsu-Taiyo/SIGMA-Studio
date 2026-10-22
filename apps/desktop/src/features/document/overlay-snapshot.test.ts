@@ -711,6 +711,40 @@ describe("overlay shape collection operations", () => {
     expect((normalized.shapes[0] as OverlayTextShape).props.blocks[0]).toMatchObject({ spaceAfterPx: 13 });
   });
 
+  it("keeps a list item's bottom spacing (nested items too) and drops one that rounds to nothing", () => {
+    // 項目の余白は図中テキストのつまみ (リスト項目の「↓-」) が書く。正準形が項目の `spaceAfterPx` を
+    // 名指ししないと、編集中は効いて、保存した瞬間に消える。
+    const input = textShape("shape_text");
+    input.props.blocks = [{
+      type: "list",
+      id: "l_space",
+      listType: "bullet",
+      items: [
+        {
+          type: "listItem",
+          id: "li_space_1",
+          spaceAfterPx: 9.4,
+          children: [{ type: "text", text: "甲" }],
+          nested: [{
+            type: "list",
+            id: "l_space_nested",
+            listType: "bullet",
+            items: [{ type: "listItem", id: "li_space_2", spaceAfterPx: 500, children: [{ type: "text", text: "乙" }] }],
+          }],
+        },
+        { type: "listItem", id: "li_space_3", spaceAfterPx: 0.2, children: [{ type: "text", text: "丙" }] },
+      ],
+    }];
+
+    expect(isOverlayShape(input)).toBe(true);
+    const normalized = normalizeOverlaySnapshot({ version: 1, shapes: [input], assets: {} });
+    const [list] = (normalized.shapes[0] as OverlayTextShape).props.blocks;
+
+    expect(list.type === "list" ? list.items[0].spaceAfterPx : undefined).toBe(9);
+    expect(list.type === "list" ? list.items[0].nested?.[0].items[0].spaceAfterPx : undefined).toBe(400);
+    expect(list.type === "list" ? "spaceAfterPx" in list.items[1] : true).toBe(false);
+  });
+
   it("patches props shallowly and strips undefined fields", () => {
     const shape = textShape("shape_text");
 

@@ -282,7 +282,7 @@ export async function collectDocsCommands(page: Page): Promise<CommandIndex> {
     await expect(menu).toHaveCount(0);
   }
 
-  // 「新規教材」はホバーで開くメニュー。中身（空の教材 / テンプレートから追加 / 「…に作成」の
+  // 「新規教材」はホバーで開くメニュー。中身（空の教材 / テンプレートから新規 / テンプレートを挿入 / 「…に作成」の
   // 作成先のワークスペース）は Word風では Backstage の「新規」にそのまま在る。
   await page.locator(".document-tab-action-hover").hover();
   const newDocMenu = page.getByRole("menu", { name: "新規教材" });
