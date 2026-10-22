@@ -459,6 +459,11 @@ MathLiveを使います。
 
 表示はKaTeXを使います。MathLiveは入力とTeX検証に使い、KaTeXは表示に使います。
 
+数式の入力欄のキー入力は、本文と図形内テキストで同じ入力欄 (`components/tiptap/inline-math-extension.tsx`) を通ります。次の3つはMathLiveの既定とは違う動きなので、各ファイルが持ちます。
+- 分数のテンプレート (`\frac{#?}{#?}`・`\dfrac`・`\tfrac`・`\cfrac`) は、数式の中のCtrl+/・本文から押したCtrl+/・数式パレット・`/frac`の入力のどれでも、入れた直後に分母の空欄が選ばれます (`lib/math-keyboard-shortcuts.ts` の `focusMathFractionDenominator`。入口ごとに分けず挿入の1か所で揃える)。分子へはMathLiveの↑で移ります。選んだ範囲を包むテンプレート (`wrapsSelection`) と、分数ではない二項係数 (`\binom`) は最初の空欄のままです。
+- 上付きと下付きの両方を持つ原子 (`\int_a^b`・`\sum`・`x_1^2`) では、上付きの中で↓、下付きの中で↑を押すと反対側の枠の末尾へ移ります。いちばん内側の枠で決め、分数・配列・片側だけの原子はMathLiveの動きのままです (`lib/mathlive-script-navigation.ts`。MathLiveの内部 `_mathfield.model` を読むのはここと `mathlive-open-fence.ts` だけで、実物のMathLiveで確かめるtestがあります)。
+- IMEが全角で確定した英数・記号 (U+FF01〜U+FF5E と全角スペース) は、MathLiveへ渡す前に半角へ戻します (`lib/half-width-ascii.ts`・`lib/mathlive-half-width-input.ts`)。変換中の文字には触れず、かな・漢字はそのままです。入力ソースの英数への切り替え (`electron/input-source.ts`) は非同期で英語の入力ソースが無いと失敗するため、この確定時の変換が本体で、切り替えの失敗は開発中だけ `console.warn` に出します。
+
 数式の一部に選んだフォントは、TeXの `\htmlStyle{font-family:…}{…}` として正本に残します (`lib/math-font-style.ts`)。ツールバーのフォントは、数式の入力欄で範囲を選んでいればその範囲だけに付きます (`components/tiptap/inline-math-font.ts`。範囲はMathLiveが構造の境目をまたいで持つことがあるので、同じTeXを表す最も狭い範囲へ詰めてから置き換える)。数式の入力欄は焦点を失うと確定して閉じますが、フォントメニュー (`INLINE_MATH_FONT_MENU_ATTRIBUTE` の印の中) の検索欄へ移ったときだけは閉じずに待ち、メニューを開いた時点の入力欄へ付けます。メニューの外へ焦点が出るか、入力欄へ焦点が戻らないままメニューが閉じたら確定します。数式の文字は書体クラスが自前のフォントを持つので、包んだ要素の指定を継がせる規則を静的描画 (`document-surface.css`) と編集中の入力欄 (`SIGMA_MATHLIVE_MACRO_STYLES`) の両方に置きます。無害化 (`math-markup.ts`) は `font-family` をフォント名の並びとしてだけ通します。
 
 ### Overlay Canvas

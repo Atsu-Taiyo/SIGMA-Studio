@@ -59,7 +59,8 @@ for (const entry of ["body", "math", "placeholder"] as const) {
         await expect(paragraph.locator("math-field")).toBeFocused();
         await page.keyboard.press("Control+/");
       } else {
-        const prompt = (await paragraph.locator(".ML__prompt-atom").first().boundingBox())!;
+        // 分数を入れた直後は分母が選ばれるので、空欄から入るときも分母 (2 つ目) をクリックして揃える。
+        const prompt = (await paragraph.locator(".ML__prompt-atom").nth(1).boundingBox())!;
         await page.mouse.click(prompt.x + prompt.width / 2, prompt.y + prompt.height / 2);
       }
       const node = paragraph.locator(".inline-math-node");
@@ -69,11 +70,12 @@ for (const entry of ["body", "math", "placeholder"] as const) {
       const scrollBefore = await scroller.evaluate(el => ({ top: el.scrollTop, left: el.scrollLeft }));
       expect(scrollBefore.top).toBeGreaterThan(400);
       await expect.poll(() => frameOverflow(node)).toBeLessThanOrEqual(1);
-      await page.keyboard.type("12");
-      await expect.poll(() => fractionTex(field)).toMatch(/\\(?:d?frac)\{12\}/);
-      await expect.poll(() => scroller.evaluate((el, top) => Math.abs(el.scrollTop - top), scrollBefore.top)).toBeLessThan(3);
-      await page.keyboard.press("Tab");
+      // 分母から入り、↑で分子へ移る。
       await page.keyboard.type("34");
+      await expect.poll(() => fractionTex(field)).toMatch(/\\(?:d?frac)\{\}\{34\}/);
+      await expect.poll(() => scroller.evaluate((el, top) => Math.abs(el.scrollTop - top), scrollBefore.top)).toBeLessThan(3);
+      await page.keyboard.press("ArrowUp");
+      await page.keyboard.type("12");
       await expect.poll(() => fractionTex(field)).toMatch(/\\(?:d?frac)\{12\}\{34\}/);
       await expect.poll(() => frameOverflow(node)).toBeLessThanOrEqual(1);
       await expect.poll(() => scroller.evaluate((el, top) => Math.abs(el.scrollTop - top), scrollBefore.top)).toBeLessThan(3);
