@@ -183,6 +183,9 @@ let removeListeners: (() => void) | null = null;
 
 function installPointerListeners(): () => void {
   const remember = (event: PointerEvent) => {
+    // Caret handoff replays an earlier press after the canvas yields to the body.
+    // That synthetic event must not replace a newer physical pointer position.
+    if (!event.isTrusted) return;
     // 指やペンで触れた後の位置は「ポインタが乗っている」とは言えないので覚えない。
     lastPointer = event.pointerType === "touch" ? null : { x: event.clientX, y: event.clientY };
   };

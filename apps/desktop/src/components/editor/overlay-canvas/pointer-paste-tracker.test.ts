@@ -6,9 +6,10 @@ import { getPointerPasteClientPoint, trackPointerForPaste } from "./pointer-past
 
 const cleanups: Array<() => void> = [];
 
-function pointer(type: "pointermove" | "pointerdown", x: number, y: number, pointerType = "mouse") {
+function pointer(type: "pointermove" | "pointerdown", x: number, y: number, pointerType = "mouse", trusted = true) {
   const event = new MouseEvent(type, { clientX: x, clientY: y, bubbles: true });
   Object.defineProperty(event, "pointerType", { value: pointerType });
+  Object.defineProperty(event, "isTrusted", { value: trusted });
   document.body.dispatchEvent(event);
 }
 
@@ -49,6 +50,15 @@ describe("the pointer position kept for shape paste", () => {
     pointer("pointermove", 140, 260);
 
     expect(getPointerPasteClientPoint()).toEqual({ x: 140, y: 260 });
+  });
+
+  it("keeps the real pointer position when a delayed body-caret handoff replays an older press", () => {
+    mountSurface('<section class="page-mode"><div data-under-pointer></div></section>');
+    track();
+    pointer("pointerdown", 100, 200);
+    pointer("pointermove", 300, 400);
+    pointer("pointerdown", 100, 200, "mouse", false);
+    expect(getPointerPasteClientPoint()).toEqual({ x: 300, y: 400 });
   });
 
   it("is null over the menu bar, a dialog or anything else that is not the editing area", () => {
