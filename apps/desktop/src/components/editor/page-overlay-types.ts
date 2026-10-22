@@ -196,6 +196,12 @@ export type OverlayActionRequestInput =
       centerAt?: { x: number; y: number };
       /** 紙のサイズへ押し戻さない (ホワイトボード。パンで見えている負の座標へも置ける)。 */
       unbounded?: boolean;
+      /**
+       * ⌘V のとき、ポインタがいる画面上の点 (client 座標)。編集領域の上にあるときだけ shell が渡す。
+       * 貼り付けた図形全体の中心をその点へ置き、いちばん近いページの内側へ押し戻す (`centerAt` が優先)。
+       * 紙面の座標への変換は、キャンバスの実測を持つ編集面が貼り付けの瞬間に行う。
+       */
+      pointerClient?: { x: number; y: number };
     };
 
 export type OverlayActionRequest = OverlayActionRequestInput & { id: number };

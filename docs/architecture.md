@@ -589,6 +589,7 @@ remote asset参照の例:
 ```
 
 オーバーレイ上でリサイズ・移動・整列ができ、本文ブロックへの `anchor` でテキストのリフローに追従させられます。画像をダブルクリックするとキャンバス内トリミングモードに入り、表示中の写真範囲だけを変更できます。
+ダブルクリックだけは、一番手前の図形が文字を直さない図形（画像・図・グラフ・四角形など）のとき、点の下にある編集できる文章の図形のうち一番手前（`overlay-canvas/double-click-target.ts`）の編集に入ります。覆っている図形は変更せず、クリックでの選択は従来どおり一番手前が勝ちます。下に文章が無い、またはロック・編集ポリシーの予約・非表示のときは従来の動き（画像ならトリミング）です。
 
 ## Graphs And Math Labels
 
@@ -730,6 +731,12 @@ border を引く、running region のリストは region スコープ、静的�
   coreの公開入口へDOMイベントの責務を持ち込まず、必要なcanvas adapterだけがこの小さな入口を参照する。
 - ネイティブclipboardのイベント所有権と転送は`editor-shell/clipboard-events.ts`が扱う。
   copyのbubble、pasteのcapture、複数editorにまたがる置換の遅延順序を維持し、SigmaDocの変更・履歴・選択はshell側のportへ返す。
+- 図形の⌘Vはマウスポインタの位置へ置く。ポインタの最後の位置は`overlay-canvas/pointer-paste.ts`がwindowの`pointermove`/`pointerleave`だけで覚え
+  （React stateを持たない）、貼る瞬間に`elementFromPoint`が文書の編集領域（`.page-mode`。分割表示の読み取り専用ペインとホワイトボードは除く）の上のときだけ
+  `pasteShapes`要求の`pointerClient`（client座標）としてoverlayへ渡す。メニューバー・サイドバー・ダイアログの上や位置不明は渡さず、従来の「元の位置から20pxずらす」。
+  紙面座標への変換とページへの押し戻し（灰色の隙間は近いページへ）は、キャンバスの実測を持つ編集面が`prepareOverlayShapesForPaste`の`pointerPlacement`で行う。
+  ポインタに置いた図形はブロックのanchorを外し（ページ固定は固定のまま）、保存の再アンカーが置いた位置から新しい図形と同じように近い本文ブロックへ付け直す。
+  ドロップ・ホワイトボードの`centerAt`は従来どおりページ固定に留め、ページの並びを持たない面（running region・素材編集）は従来の置き方のまま。
 - 本文clipboardのcopy・cut・貼付経路と編集面ごとの履歴キーは`text-flow/clipboard-transactions.ts`が扱う。
   図中テキストも同じ`copyEditorSelection`・`pasteIntoEditorSurface`を通し、編集面ごとの独自のcopy・paste分岐を持たない。
   payloadを持たない貼付はスキーマ自身のHTML往復（`renderHTML`→`parseHTML`）で戻すので、markの`parseHTML`は

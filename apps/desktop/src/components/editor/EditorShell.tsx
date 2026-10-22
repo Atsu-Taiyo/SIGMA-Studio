@@ -391,6 +391,7 @@ TextFlowProblemCommandRequest,
 import { createEditorStore,EditorStoreProvider,type EditorStore } from "@/features/editor-state";
 import { useStableCallback } from "@/lib/react/use-stable-callback";
 import { beginTablePlacementFeedback,cancelTablePlacementFeedback,trackTablePlacementPointer } from "./overlay-canvas/table-placement-feedback";
+import { getPointerPasteClientPoint, trackPointerForPaste } from "./overlay-canvas/pointer-paste";
 /**
  * コメントの既定の作者。
  *
@@ -983,6 +984,8 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
   const [runningRegionEditingKind, setRunningRegionEditingKind] = useState<"header" | "footer" | null>(null);
   const [overlayCommandRequest, setOverlayCommandRequest] = useState<OverlayCommandRequest | null>(null);
   useEffect(trackTablePlacementPointer, []);
+  // 図形の ⌘V をポインタの位置へ置くため、ポインタの最後の位置を覚える (描画し直さない軽い listener)。
+  useEffect(trackPointerForPaste, []);
   useEffect(() => () => cancelTablePlacementFeedback(), [document.docId]);
   const [overlayImageRequest, setOverlayImageRequest] = useState<OverlayImageRequest | null>(null);
   const [overlayActionRequest, setOverlayActionRequest] = useState<OverlayActionRequest | null>(null);
@@ -2512,8 +2515,10 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
         payload,
         centerAt: options?.centerAt,
         unbounded: options?.unbounded,
+        pointerClient: options?.pointerClient,
       });
     },
+    getPointerPastePoint: getPointerPasteClientPoint,
     bodyless: isWhiteboardDocument,
     getBodylessPasteCenter: getWhiteboardViewportCenter,
     setCanPasteProblem,
