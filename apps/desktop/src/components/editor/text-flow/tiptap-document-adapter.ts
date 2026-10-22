@@ -67,11 +67,25 @@ export function textFlowToTiptap(blocks: TextFlowBlock[]): TiptapDoc {
   };
 }
 
+export interface TiptapToTextFlowOptions {
+  retainDeletedManualBreakOwners?: boolean;
+  /**
+   * 下余白 (`spaceAfterPx`) の出典。
+   *
+   * - `"carry"` (既定): 既にある id のブロックは `previousBlocks` (SigmaDoc 側) が正。本文は余白を
+   *   SigmaDoc へ先に書き、編集面へはあとから流し込むので、PM の attrs の方が古いことがある。
+   * - `"node"`: PM の attrs が正。図中テキストの編集面は余白を **PM の属性へ直接** 書く (流し込むと
+   *   選択が飛ぶ) ので、SigmaDoc 側の方が古い。attrs がそのまま見えている余白でもある。
+   */
+  spaceAfter?: "carry" | "node";
+}
+
 export function tiptapToTextFlow(
   doc: TiptapDoc,
   previousBlocks: TextFlowBlock[] = [],
-  options: { retainDeletedManualBreakOwners?: boolean } = {},
+  options: TiptapToTextFlowOptions = {},
 ): TextFlowBlock[] {
+  const trustsNodeSpaceAfter = options.spaceAfter === "node";
   const usedIds = new Set<string>();
   const previousById = new Map(previousBlocks.map((block) => [block.id, block]));
 
@@ -95,9 +109,9 @@ export function tiptapToTextFlow(
       // 余白をコミットした直後の onUpdate が古い PM attrs でコミットを巻き戻す。
       const isSplitTail = usedIds.has(block.id);
       const carried = isSplitTail
-        ? withCarriedBlockFields(block, undefined)
+        ? withCarriedBlockFields(block, undefined, trustsNodeSpaceAfter)
         : previous
-          ? withCarriedBlockFields(block, previous)
+          ? withCarriedBlockFields(block, previous, trustsNodeSpaceAfter)
           : block;
       return ensureUniqueTextFlowBlockIds(carried, usedIds);
     });
@@ -172,8 +186,13 @@ function withoutManualBreak<T extends TextFlowBlock>(block: T): T {
  * PM の attrs ではなく SigmaDoc 側を正とするフィールドを載せ直す。
  * `previous` が無い (= 分割後半) ときは両方落とす。
  */
-function withCarriedBlockFields<T extends TextFlowBlock>(block: T, previous: TextFlowBlock | undefined): T {
-  return withSpaceAfter(withPagination(block, previous?.pagination), previous?.spaceAfterPx);
+function withCarriedBlockFields<T extends TextFlowBlock>(
+  block: T,
+  previous: TextFlowBlock | undefined,
+  keepNodeSpaceAfter = false,
+): T {
+  const paginated = withPagination(block, previous?.pagination);
+  return keepNodeSpaceAfter ? paginated : withSpaceAfter(paginated, previous?.spaceAfterPx);
 }
 
 function withPagination<T extends TextFlowBlock>(block: T, pagination: PaginationHints | undefined): T {

@@ -1,13 +1,13 @@
 import { Extension } from "@tiptap/core";
 
-import {
-  BLOCK_SPACE_AFTER_CSS_VARIABLE,
-  blockSpaceAfterFromStyleValue,
-  blockSpaceAfterStyleAttr,
-  listItemSpaceAfterStyleAttr,
-  normalizeLineHeight,
-} from "@/features/document";
+import { normalizeLineHeight } from "@/features/document";
 import { normalizeTextAlign } from "@/features/text-editing";
+
+import {
+  BLOCK_SPACE_AFTER_ATTRIBUTE,
+  LIST_ITEM_LEADING_SPACE_AFTER_ATTRIBUTE,
+  LIST_ITEM_SPACE_AFTER_ATTRIBUTE,
+} from "./block-space-after-attributes";
 
 export const SigmaDocTextAttrs = Extension.create({
   name: "sigmaDocTextAttrs",
@@ -36,15 +36,8 @@ export const SigmaDocTextAttrs = Extension.create({
           // ブロック下余白。`pagination` と違って **DOM へ出す** — 編集面・静的描画・印刷/PDF が
           // 同じインライン custom property を読んで `document-surface.css` の padding になる。
           // (`mergeAttributes` は同じ `style` キーを "; " で繋ぐので textAlign / lineHeight と共存する)
-          spaceAfterPx: {
-            default: null,
-            // Enter で割ったとき後半へ複製しない。「このブロックの下の余白」なので前半が持つ。
-            keepOnSplit: false,
-            parseHTML: (element) => blockSpaceAfterFromStyleValue(
-              element.style.getPropertyValue(BLOCK_SPACE_AFTER_CSS_VARIABLE),
-            ),
-            renderHTML: (attributes) => blockSpaceAfterStyleAttr(attributes.spaceAfterPx),
-          },
+          // Enter で割ったとき後半へ複製しない (`keepOnSplit: false`)。図中テキストと定義を共有する。
+          spaceAfterPx: BLOCK_SPACE_AFTER_ATTRIBUTE,
           sigmaDocId: {
             default: null,
             renderHTML: (attributes) => {
@@ -68,12 +61,7 @@ export const SigmaDocTextAttrs = Extension.create({
         // nested list belongs below it.
         types: ["listItem"],
         attributes: {
-          spaceAfterPx: {
-            default: null,
-            keepOnSplit: false,
-            parseHTML: () => null,
-            renderHTML: (attributes) => listItemSpaceAfterStyleAttr(attributes.spaceAfterPx),
-          },
+          spaceAfterPx: LIST_ITEM_SPACE_AFTER_ATTRIBUTE,
         },
       },
       {
@@ -81,12 +69,7 @@ export const SigmaDocTextAttrs = Extension.create({
         attributes: {
           // Persistence-only list-item field. It must not render the ordinary block spacing
           // variable on the leading paragraph, or the same item space is drawn twice.
-          listItemSpaceAfterPx: {
-            default: null,
-            keepOnSplit: false,
-            parseHTML: () => null,
-            renderHTML: () => ({}),
-          },
+          listItemSpaceAfterPx: LIST_ITEM_LEADING_SPACE_AFTER_ATTRIBUTE,
           // Temporary editor projection ownership. SigmaDoc remains canonical through
           // layout.columnStartIds; this survives deletion of a column-start block in PM.
           layoutColumnIndex: {
