@@ -3688,7 +3688,18 @@ const { candidateCommentTop, pendingCommentTop, commentThreadPositions } = usePa
             </div>
           )}
 
-          <div className={`page-overlay-layer ${pageOverlayEditing ? "editing" : ""}`}>
+          <div
+            className={`page-overlay-layer ${pageOverlayEditing ? "editing" : ""}`}
+            onDoubleClick={(event) => {
+              // 本文から図形を素のダブルクリックすると、1 回目の押下で図形の編集面へ渡し、編集面の
+              // 読み込みを待つ間の覆い (`.overlay-canvas-loading`) が 2 回目の押下とダブルクリックを
+              // 受ける。ここで拾わないと、下の文章の図形の編集へ入れず選択だけが残る。覆いは
+              // プレビュー面と同じ大きさなので、プレビュー面のダブルクリックと同じ依頼にする。
+              if ((event.target as Element).classList?.contains("overlay-canvas-loading")) {
+                handleOverlayPreviewDoubleClick(event);
+              }
+            }}
+          >
             {pageOverlayEditing ? (
               <>
                 <OverlayCanvasEditor
