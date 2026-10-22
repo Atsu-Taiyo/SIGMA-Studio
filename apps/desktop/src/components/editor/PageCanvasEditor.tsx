@@ -380,6 +380,7 @@ function PageCanvasEditorImpl({
   publishesSessionPresence: publishesSessionPresenceProp,
 }: PageCanvasEditorProps) {
   const tEditorText = useT("editor");
+  const tSettings = useT("settings");
   const isPagedRender = presentation === "paged";
   const publishesSessionPresence = !isPagedRender && publishesSessionPresenceProp !== false;
     countPerformanceEvent("PageCanvasEditor.render");
@@ -655,6 +656,7 @@ const {
   const [problemSettingsId, setProblemSettingsId] = useState<string | null>(null);
   const [problemAreaHeightDrafts, setProblemAreaHeightDrafts] = useState<Record<string, number>>({});
   const [columnRuleTarget, setColumnRuleTarget] = useState<{ sectionId: string; blockId: string } | null>(null);
+  const [columnRulePage, setColumnRulePage] = useState<number | null>(null);
   const columnRuleSection = columnRuleTarget ? findBlock(pageDocument, columnRuleTarget.sectionId) : null;
   const requestColumnRuleSettings = useCallback((sectionId: string, blockId: string) => {
     setColumnRuleTarget({ sectionId, blockId });
@@ -2453,6 +2455,7 @@ const { candidateCommentTop, pendingCommentTop, commentThreadPositions } = usePa
     }
 
     const target = event.target instanceof Element ? event.target : null;
+    if (target?.closest(".page-column-rule-control")) return;
     const canvas = canvasRef.current;
     const overlayPoint = !runningRegionEditKind ? getOverflowOverlayPointFromClient(event.clientX, event.clientY) : null;
     const svgImage = overlayPoint ? getTopmostBodyModeOverlayHit(visibleBodyHitShapes, overlayPoint) : null;
@@ -2463,6 +2466,27 @@ const { candidateCommentTop, pendingCommentTop, commentThreadPositions } = usePa
       setProblemContextMenu(null);
       requestOverlayPreviewSelection(canvas.getBoundingClientRect(), event.clientX, event.clientY, false, false, false, undefined, svgImage.id, true);
       return;
+    }
+    // Hit-test the empty gutter instead of putting a transparent button over full-width body text.
+    if (!isPagedRender && canvas && !svgImage && !runningRegionEditKind && metrics.flow.columnCount > 1
+      && !target?.closest('[data-flow-span="full"], .layout-section-independent-columns')) {
+      const rect = canvas.getBoundingClientRect();
+      const x = (event.clientX - rect.left) * 100 / zoom;
+      const y = (event.clientY - rect.top) * 100 / zoom;
+      const pageIndex = Math.floor(y / (pageHeightPx + PAGE_GAP_PX));
+      const pageY = y - pageIndex * (pageHeightPx + PAGE_GAP_PX);
+      const inBody = pageY >= metrics.margins.topPx && pageY <= pageHeightPx - metrics.margins.bottomPx;
+      const nearRule = Array.from({ length: metrics.flow.columnCount - 1 }, (_, index) =>
+        metrics.margins.leftPx + (index + 1) * metrics.flow.columnWidthPx + (index + 0.5) * metrics.flow.columnGapPx,
+      ).some(left => Math.abs(x - left) <= Math.min(6, metrics.flow.columnGapPx / 2));
+      if (pageIndex >= 0 && inBody && nearRule) {
+        event.preventDefault();
+        event.stopPropagation();
+        setBodyContextMenu(null);
+        setProblemContextMenu(null);
+        setColumnRulePage(pageIndex + 1);
+        return;
+      }
     }
     const problemAreaElement = target?.closest<HTMLElement>("[data-problem-area]") ?? null;
     const problemId = problemAreaElement?.closest("[data-problem-id]")?.getAttribute("data-problem-id") ?? null;
@@ -2537,6 +2561,8 @@ const { candidateCommentTop, pendingCommentTop, commentThreadPositions } = usePa
     });
   }, [
     isOverlayEditing,
+    isPagedRender,
+    metrics,
     getOverflowOverlayPointFromClient,
     overlay,
     requestOverlayPreviewSelection,
@@ -3158,8 +3184,8 @@ const { candidateCommentTop, pendingCommentTop, commentThreadPositions } = usePa
                 key={index}
                 style={{ top: `${index * (pageHeightPx + PAGE_GAP_PX)}px`, ...sheetBackgroundStyle }}
               >
-                <ColumnGuides metrics={metrics} />
-                <PageColumnRules metrics={metrics} />
+                <ColumnGuides metrics={metrics} pageNumber={index + 1} />
+                <PageColumnRules metrics={metrics} pageNumber={index + 1} />
                 {!(runningRegionEditKind === "header" && index + 1 === runningRegionEditPageNumber) && (
                   <RunningRegionPageView
                     region={visibleLayout.header}
@@ -3207,6 +3233,23 @@ const { candidateCommentTop, pendingCommentTop, commentThreadPositions } = usePa
 
           {!pageOverlayEditing && (
             <div className="page-layout-controls" aria-label={tEditorText("running.controlsAria")}>
+              {!isPagedRender && metrics.flow.columnCount > 1 && visiblePageIndexes.flatMap(index =>
+                Array.from({ length: metrics.flow.columnCount - 1 }, (_, divider) => (
+                  <button key={`column-rule-${index}-${divider}`} type="button"
+                    className="page-column-rule-control"
+                    aria-label={tSettings("columnRule.title")}
+                    title={tSettings("columnRule.title")}
+                    style={{
+                      top: index * (pageHeightPx + PAGE_GAP_PX) + Math.max(0, metrics.margins.topPx - 24),
+                      left: metrics.margins.leftPx + (divider + 1) * metrics.flow.columnWidthPx + (divider + 0.5) * metrics.flow.columnGapPx,
+                      height: 24,
+                    }}
+                    onMouseDown={event => event.stopPropagation()}
+                    onClick={() => setColumnRulePage(index + 1)}
+                    onContextMenu={event => { event.preventDefault(); event.stopPropagation(); setColumnRulePage(index + 1); }}
+                  ><span /></button>
+                )),
+              )}
               {visiblePageIndexes.map((index) => (
                 <RunningRegionControls
                   key={`running-region-controls-${index}`}
@@ -3948,6 +3991,19 @@ const { candidateCommentTop, pendingCommentTop, commentThreadPositions } = usePa
           onClose={() => setProblemSettingsId(null)}
         />
       )}
+      {columnRulePage !== null && <ColumnRuleDialog
+        pageNumber={columnRulePage}
+        columnCount={layout.flow.columnCount}
+        value={layout.flow.pageColumnRules?.find(entry => entry.page === columnRulePage)?.rule ?? layout.flow.columnRule}
+        onClose={() => setColumnRulePage(null)}
+        onApply={rule => rule && onPageLayoutChange({
+          ...layout,
+          flow: { ...layout.flow, pageColumnRules: [
+            ...(layout.flow.pageColumnRules ?? []).filter(entry => entry.page !== columnRulePage),
+            { page: columnRulePage, rule },
+          ] },
+        })}
+      />}
       {columnRuleSection?.type === "layoutSection" && (
         <ColumnRuleDialog key={columnRuleSection.id} section={columnRuleSection}
           onClose={closeColumnRuleSettings}

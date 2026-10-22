@@ -11,8 +11,8 @@ import type { PointerEvent as ReactPointerEvent } from "react";
 import { formatMm } from "./page-layout-format";
 import type { PageMarginEdge } from "./types";
 
-export function ColumnGuides({ metrics }: { metrics: PageMetrics }) {
-  if (metrics.flow.columnCount <= 1 || metrics.flow.columnRule) {
+export function ColumnGuides({ metrics, pageNumber = 1 }: { metrics: PageMetrics; pageNumber?: number }) {
+  if (metrics.flow.columnCount <= 1 || metrics.flow.pageColumnRules?.some(entry => entry.page === pageNumber) || metrics.flow.columnRule) {
     return null;
   }
 

@@ -596,7 +596,8 @@ const PageFlowSchema = z.object({
   type: z.literal("columns").optional(),
   columnCount: z.number().int().min(1).max(4).optional(),
   columnGapMm: z.number().nonnegative().optional(),
-    columnRule: ColumnRuleSchema.optional(),
+  columnRule: ColumnRuleSchema.optional(),
+  pageColumnRules: z.array(z.object({ page: z.number().int().positive(), rule: ColumnRuleSchema })).optional(),
 });
 
 const PageRunningRegionSchema = z.object({

@@ -28,6 +28,18 @@ afterEach(async () => {
 });
 
 describe("PageSettingsDialog", () => {
+  it("draws B4 landscape separators in the paper preview without a duplicate diagram", async () => {
+    const layout = getDefaultPageLayout("B4");
+    layout.orientation = "landscape";
+    layout.flow = { ...layout.flow, columnCount: 2, columnRule: { style: "double", widthPx: 3, color: "#123456" } };
+    await act(async () => root.render(<PageSettingsDialog layout={layout} onClose={vi.fn()} onChange={vi.fn()} />));
+    const preview = document.querySelector('[data-testid="page-setup-preview"]')!;
+    expect(preview.getAttribute("viewBox")).toBe("0 0 364 257");
+    const lines = preview.querySelectorAll('[data-testid="page-setup-column-rule"] line');
+    expect(lines.length).toBe(2);
+    expect(lines[0].getAttribute("stroke")).toBe("#123456");
+    expect(document.querySelector(".column-rule-preview")).toBeNull();
+  });
   it("does not offer the retired fraction sizing setting", async () => {
     await act(async () => {
       root.render(<PageSettingsDialog onClose={vi.fn()} onChange={vi.fn()} />);

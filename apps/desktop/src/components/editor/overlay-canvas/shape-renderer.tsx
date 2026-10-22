@@ -6,7 +6,7 @@ import type {
 } from "react";
 
 import { OverlayTextBlocksView } from "@/components/editor/text-flow/OverlayTextBlocksView";
-import { overlayTextScale } from "@/features/rendering/core";
+import { getTextBoxDecoration, overlayTextScale } from "@/features/rendering/core";
 import {
   Graph2DPreview,
   Graph3DStaticLabelOverlay,
@@ -335,6 +335,7 @@ export const OverlayShapeView = memo(function OverlayShapeView({
         transform: composeShapeTransform(rotation, dragTranslate, shape.flipX, shape.flipY),
         transformOrigin: shapeTransformOrigin(shape, bounds, rotation),
         opacity: shape.opacity,
+        isolation: shape.type === "text" ? "isolate" : undefined,
         // Pointer routing for outline-only frames uses the canvas geometry
         // hit test; their rectangular DIV must not cover enclosed text/math.
         ...((shape.type === "geo" || shape.type === "line") && shape.props.hitTestMode === "stroke"
@@ -358,6 +359,14 @@ export const OverlayShapeView = memo(function OverlayShapeView({
         onDoubleClick(event, shape);
       }}
     >
+      {shape.type === "text" && <svg
+        className="overlay-text-box-decoration"
+        aria-hidden="true"
+        width={bounds.w} height={bounds.h}
+        style={{ position: "absolute", inset: 0, overflow: "visible", pointerEvents: "none", zIndex: -1 }}
+      >
+        <rect width={bounds.w} height={bounds.h} {...getTextBoxDecoration(shape)} />
+      </svg>}
       <ShapeBody
         key={!editing && (shape.type === "text" || shape.type === "callout") ? textPaintRevision : undefined}
         shape={displayedShape}

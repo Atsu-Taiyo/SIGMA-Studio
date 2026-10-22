@@ -200,7 +200,10 @@ export function PageSettingsDialog({
           {!isWhiteboard ? (
             <aside className={styles.previewPane} aria-label={t("page.preview")}>
               <div className={styles.previewStage}>
-                <PageSetupPreview layout={nextLayout} highlight={highlight} />
+                <PageSetupPreview layout={nextLayout} highlight={highlight}
+                  onColumnRuleChange={columnRule => update(current => ({
+                    ...current, flow: { ...current.flow, columnRule, pageColumnRules: undefined },
+                  }))} />
               </div>
               <p className={styles.previewSummary}>{summary}</p>
             </aside>
@@ -325,11 +328,12 @@ export function PageSettingsDialog({
                           <h4 className={styles.subheading}>{t("columnRule.title")}</h4>
                           <p className={styles.hint}>{t("columnRule.pageScope")}</p>
                           <ColumnRuleControls
+                            showPreview={false}
                             value={draft.flow.columnRule}
                             columnCount={draft.flow.columnCount}
                             onChange={(columnRule) => update((current) => ({
                               ...current,
-                              flow: { ...current.flow, ...(columnRule ? { columnRule } : { columnRule: undefined }) },
+                              flow: { ...current.flow, columnRule, pageColumnRules: undefined },
                             }))}
                           />
                         </Stack>

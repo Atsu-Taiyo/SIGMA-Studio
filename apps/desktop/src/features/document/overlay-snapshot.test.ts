@@ -57,6 +57,23 @@ function textShape(id: string): OverlayTextShape {
 }
 
 describe("overlay snapshot normalization", () => {
+  it("round trips text-box fill and border independently of glyph formatting", () => {
+    const shape = textShape("decorated");
+    Object.assign(shape.props, {
+      fill: "solid", fillColor: "#ffffff", fillOpacity: 0.5,
+      strokeColor: "#123456", strokeOpacity: 0.8, strokeWidth: "l", dash: "dotted",
+    });
+    const reloaded = normalizeOverlaySnapshot(JSON.parse(JSON.stringify({ ...createEmptyOverlaySnapshot(), shapes: [shape] })));
+    expect(reloaded.shapes[0]).toEqual(shape);
+    expect(isOverlayShape(reloaded.shapes[0])).toBe(true);
+    const unsafe = structuredClone(shape);
+    unsafe.props.fillColor = "red;position:fixed";
+    unsafe.props.strokeColor = "url(https://example.invalid)";
+    const cleaned = normalizeOverlaySnapshot({ ...createEmptyOverlaySnapshot(), shapes: [unsafe] }).shapes[0];
+    expect(cleaned.props).not.toHaveProperty("fillColor");
+    expect(cleaned.props).not.toHaveProperty("strokeColor");
+    expect(cleaned.props).toHaveProperty("color", "black");
+  });
   it.each(["solid", "wavy", "dotted", "double"] as const)("keeps %s underline style through snapshot normalization and renderer projection", (underlineStyle) => {
     const original = textShape(`underline-${underlineStyle}`);
     original.props.blocks = [{ type: "paragraph", id: "native-underline", children: [

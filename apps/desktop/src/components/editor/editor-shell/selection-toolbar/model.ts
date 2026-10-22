@@ -82,20 +82,21 @@ export function readSharedOpacity(shapes: readonly OverlayShape[]): number | nul
 export function readSharedStrokeColor(shapes: readonly OverlayShape[]): string | null {
   let result: string | null = null;
   for (const shape of shapes) {
-    if (shape.type !== "geo" && shape.type !== "arrow" && shape.type !== "line" && shape.type !== "arc") {
+    if (!hasStroke(shape)) {
       continue;
     }
+    const color = shape.type === "text" ? shape.props.strokeColor ?? shape.props.color : shape.props.color;
     if (result === null) {
-      result = shape.props.color;
-    } else if (result !== shape.props.color) {
+      result = color;
+    } else if (result !== color) {
       return null;
     }
   }
   return result;
 }
 
-function hasStroke(shape: OverlayShape): shape is Extract<OverlayShape, { type: "geo" | "arrow" | "line" | "arc" }> {
-  return shape.type === "geo" || shape.type === "arrow" || shape.type === "line" || shape.type === "arc";
+function hasStroke(shape: OverlayShape): shape is Extract<OverlayShape, { type: "geo" | "arrow" | "line" | "arc" | "text" }> {
+  return shape.type === "text" || shape.type === "geo" || shape.type === "arrow" || shape.type === "line" || shape.type === "arc";
 }
 
 /** 枠線の不透明度 (1 = 不透明)。枠線を持つ図形が同じ値ならその値、食い違い・該当なしは `null`。 */
@@ -105,7 +106,7 @@ export function readSharedStrokeOpacity(shapes: readonly OverlayShape[]): number
     if (!hasStroke(shape)) {
       continue;
     }
-    const opacity = normalizeFillOpacity(shape.props.strokeOpacity);
+    const opacity = shape.type === "text" && !shape.props.dash ? 0 : normalizeFillOpacity(shape.props.strokeOpacity);
     if (result === null) {
       result = opacity;
     } else if (result !== opacity) {

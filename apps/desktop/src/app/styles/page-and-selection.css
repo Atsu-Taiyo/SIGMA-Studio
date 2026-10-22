@@ -818,6 +818,39 @@ code {
   pointer-events: none;
 }
 
+.page-column-rule-control {
+  position: absolute;
+  width: 12px;
+  padding: 0;
+  transform: translateX(-50%);
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+}
+
+.page-column-rule-control:hover,
+.page-column-rule-control:focus-visible {
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  outline: 1px solid var(--border-strong);
+}
+
+.page-column-rule-control span {
+  position: absolute;
+  top: 50%;
+  left: 3px;
+  width: 6px;
+  height: 24px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-control);
+  background: var(--background);
+  opacity: 0;
+}
+
+.page-column-rule-control:hover span,
+.page-column-rule-control:focus-visible span {
+  opacity: 1;
+}
+
 .page-column-guides span {
   position: absolute;
   top: var(--page-margin-top);

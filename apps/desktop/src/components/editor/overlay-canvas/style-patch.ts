@@ -7,17 +7,17 @@ import { isClosedPolyline } from "./shapes/line";
 import type { OverlaySelectionStylePatch } from "../page-overlay-types";
 
 export function canShapeStyleStroke(shape: OverlayShape): boolean {
-  return shape.type === "geo" || shape.type === "arrow" || shape.type === "line" || shape.type === "arc";
+  return shape.type === "text" || shape.type === "geo" || shape.type === "arrow" || shape.type === "line" || shape.type === "arc";
 }
 
 export function canShapeStyleFill(shape: OverlayShape): boolean {
-  return shape.type === "geo" ||
+  return shape.type === "text" || shape.type === "geo" ||
     (shape.type === "arc" && shape.props.kind === "sector") ||
     (shape.type === "line" && isClosedPolyline(shape.props.kind, shape.props.points, shape.props.closed));
 }
 
 export function canShapeStyleLine(shape: OverlayShape): boolean {
-  return shape.type === "geo" || shape.type === "arrow" || shape.type === "line" || shape.type === "arc" || shape.type === "callout";
+  return shape.type === "text" || shape.type === "geo" || shape.type === "arrow" || shape.type === "line" || shape.type === "arc" || shape.type === "callout";
 }
 
 export function canShapeStyleLineEndpoints(shape: OverlayShape): boolean {
@@ -194,8 +194,13 @@ export function applyStylePatchToShape(shape: OverlayShape, style: OverlaySelect
       ...base,
       props: {
         ...shape.props,
-        color: style.color ?? shape.props.color,
-        size: style.size ?? shape.props.size,
+        fill: style.fill ?? shape.props.fill,
+        fillColor: style.fillColor ?? shape.props.fillColor,
+        fillOpacity: style.fillOpacity ?? shape.props.fillOpacity,
+        strokeColor: style.color ?? shape.props.strokeColor,
+        strokeOpacity: style.strokeOpacity ?? shape.props.strokeOpacity,
+        dash: style.dash ?? (style.color !== undefined || style.size !== undefined || (style.strokeOpacity ?? 0) > 0 ? shape.props.dash ?? "solid" : shape.props.dash),
+        strokeWidth: style.size ?? shape.props.strokeWidth,
       },
     };
   }

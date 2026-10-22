@@ -67,7 +67,7 @@ export const settings = {
     "save": "Save",
     "keywords": "TikZ tikz packages libraries environment diagram LaTeX"
 },
-  columnRule: { title: "Column separators", color: "Line color", preview: "Column separator preview", pageScope: "Applies to every page", localScope: "Applies to this column block" },
+  columnRule: { title: "Column separators", color: "Line color", preview: "Column separator preview", pageScope: "Applies to every page", localScope: "Applies to this column block", singlePageScope: "Applies to page {{page}}" },
   language: {
     title: "Language",
     label: "Display language",

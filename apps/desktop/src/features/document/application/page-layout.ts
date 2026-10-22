@@ -111,6 +111,7 @@ export interface PageMetrics {
     columnGapMm: number;
     columnGapPx: number;
     columnRule?: ColumnRule;
+    pageColumnRules?: PageLayout["flow"]["pageColumnRules"];
     columnWidthMm: number;
     columnWidthPx: number;
   };
@@ -234,6 +235,13 @@ export function normalizePageLayout(input?: PageLayoutInput): PageLayout {
       columnCount,
       columnGapMm,
       ...(normalizeColumnRule(input?.flow?.columnRule) ? { columnRule: normalizeColumnRule(input?.flow?.columnRule) } : {}),
+      ...(Array.isArray(input?.flow?.pageColumnRules) ? {
+        pageColumnRules: [...new Map(input.flow.pageColumnRules.flatMap(entry => {
+          if (!entry || typeof entry !== "object") return [];
+          const rule = normalizeColumnRule(entry.rule);
+          return Number.isSafeInteger(entry.page) && entry.page > 0 && rule ? [[entry.page, { page: entry.page, rule }] as const] : [];
+        })).values()].sort((a, b) => a.page - b.page),
+      } : {}),
     },
     header: normalizePageRunningRegion(input?.header, DEFAULT_PAGE_HEADER),
     footer: normalizePageRunningRegion(input?.footer, DEFAULT_PAGE_FOOTER),
@@ -287,6 +295,7 @@ export function getPageMetrics(layout: PageLayout = getDefaultPageLayout()): Pag
       columnGapMm: normalized.flow.columnGapMm,
       columnGapPx: mmToPx(normalized.flow.columnGapMm),
       ...(normalized.flow.columnRule ? { columnRule: normalized.flow.columnRule } : {}),
+      ...(normalized.flow.pageColumnRules ? { pageColumnRules: normalized.flow.pageColumnRules } : {}),
       columnWidthMm,
       columnWidthPx: mmToPx(columnWidthMm),
     },

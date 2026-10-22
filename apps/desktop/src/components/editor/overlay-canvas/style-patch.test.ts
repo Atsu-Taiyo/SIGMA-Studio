@@ -121,9 +121,9 @@ describe("sharedFill", () => {
   });
 
   it("ignores shapes that cannot take a fill", () => {
-    expect(sharedFill([textShape, rectangle({ fillOpacity: 0.5 })]))
+    expect(sharedFill([sector({ kind: "arc" }), rectangle({ fillOpacity: 0.5 })]))
       .toEqual({ kind: "solid", fillColor: "#ff0000", fillOpacity: 0.5 });
-    expect(sharedFill([textShape])).toEqual({ kind: "unavailable" });
+    expect(sharedFill([textShape])).toEqual({ kind: "none" });
     expect(sharedFill([])).toEqual({ kind: "unavailable" });
   });
 
@@ -138,13 +138,13 @@ describe("sharedFill", () => {
   it("covers exactly the shapes the fill controls are enabled for", () => {
     // `canShapeStyleFill` decides whether the toolbar button is live; `sharedFill` decides what it
     // shows. If the two disagreed, an enabled button would report "unavailable".
-    for (const shape of [rectangle(), sector(), closedPolyline()]) {
+    for (const shape of [textShape, rectangle(), sector(), closedPolyline()]) {
       expect(canShapeStyleFill(shape)).toBe(true);
       expect(sharedFill([shape]).kind).not.toBe("unavailable");
     }
     const openArc = sector({ kind: "arc" });
     const openPolyline = closedPolyline({ closed: false });
-    for (const shape of [textShape, openArc, openPolyline]) {
+    for (const shape of [openArc, openPolyline]) {
       expect(canShapeStyleFill(shape)).toBe(false);
       expect(sharedFill([shape])).toEqual({ kind: "unavailable" });
     }
@@ -152,6 +152,18 @@ describe("sharedFill", () => {
 });
 
 describe("applying a fill patch", () => {
+  it("decorates a text box without changing its glyph colour, font or content", () => {
+    const styled = applyStylePatchToShape(textShape, {
+      fill: "solid", fillColor: "#ffffff", fillOpacity: 0.6,
+      color: "#dc2626", dash: "dotted", size: "xl", strokeOpacity: 0.8,
+    });
+    expect(styled).toMatchObject({ type: "text", props: {
+      color: "#111827", size: "m", blocks: [], w: 100, h: 16,
+      fill: "solid", fillColor: "#ffffff", fillOpacity: 0.6,
+      strokeColor: "#dc2626", dash: "dotted", strokeWidth: "xl", strokeOpacity: 0.8,
+    } });
+    expect(sharedFill([styled])).toEqual({ kind: "solid", fillColor: "#ffffff", fillOpacity: 0.6 });
+  });
   it.each([
     ["geo", rectangle],
     ["sector", sector],

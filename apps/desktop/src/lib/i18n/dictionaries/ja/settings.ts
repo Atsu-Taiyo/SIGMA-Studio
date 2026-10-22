@@ -66,7 +66,7 @@ export const settings = {
     "save": "保存",
     "keywords": "TikZ tikz パッケージ ライブラリ 環境 図 LaTeX"
 },
-  columnRule: { title: "段間の線", color: "線の色", preview: "段間の線のプレビュー", pageScope: "全ページに適用", localScope: "この部分段組に適用" },
+  columnRule: { title: "段間の線", color: "線の色", preview: "段間の線のプレビュー", pageScope: "全ページに適用", localScope: "この部分段組に適用", singlePageScope: "{{page}}ページ目に適用" },
   language: {
     title: "言語",
     label: "表示言語",
