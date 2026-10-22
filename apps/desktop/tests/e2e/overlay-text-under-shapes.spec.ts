@@ -203,7 +203,7 @@ async function grabTopmost(page: Page, point: { x: number; y: number }, selected
   await page.waitForTimeout(700);
 }
 
-test("edits the text under an image when the image is selected and double-clicked", async ({ page }) => {
+test("edits the text under an image after the body hands the press over (select, then double-click)", async ({ page }) => {
   const point = await overlapPoint(page, TEXT_UNDER_IMAGE, COVER_IMAGE);
   await grabTopmost(page, point, COVER_IMAGE);
 
@@ -223,11 +223,18 @@ test("edits the text under an image when the image is selected and double-clicke
   expect(cover.props.crop).toBeUndefined();
 });
 
-test("edits the text under an image straight from the body, with plain double-clicking", async ({ page }) => {
+test("edits the text under an image when the double-click arrives at the body-mode preview", async ({ page }) => {
   const point = await overlapPoint(page, TEXT_UNDER_IMAGE, COVER_IMAGE);
 
-  // 本文モードのまま、掴む前にいきなりダブルクリックする。
-  await page.mouse.dblclick(point.x, point.y);
+  // 本文モードで図形のプレビュー面が受けるダブルクリック (AIのロック中など、図形が押下を直接受けない
+  // 面の入口)。人の素早い押下は読み込み中の面に吸われて届かないので、イベントを直接送る。
+  await expect(page.locator('[data-overlay-editing="true"]')).toHaveCount(0);
+  await page.locator(".page-overlay-preview").last().dispatchEvent("dblclick", {
+    clientX: point.x,
+    clientY: point.y,
+    bubbles: true,
+    cancelable: true,
+  });
 
   await expect(textEditor(page, TEXT_UNDER_IMAGE)).toBeFocused();
   await page.keyboard.type("本文から");

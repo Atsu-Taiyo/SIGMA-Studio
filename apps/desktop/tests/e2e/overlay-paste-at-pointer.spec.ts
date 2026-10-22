@@ -11,6 +11,7 @@ import { installDesktopRuntimeMock } from "./desktop-runtime-mock";
  */
 
 const BODY_BLOCK_ID = "p_paste_pointer_body";
+const SECOND_PAGE_BLOCK_ID = "p_paste_pointer_page_two";
 const SOURCE_RECT = "paste_pointer_rect";
 const ANCHORED_RECT = "paste_pointer_anchored_rect";
 const RECT_SIZE = { w: 160, h: 90 };
@@ -21,6 +22,13 @@ function pointerPasteDocument(): SigmaDocument {
   document.metadata = { ...document.metadata, title: "ポインタ位置への貼り付け E2E" };
   document.content = [
     { type: "paragraph", id: BODY_BLOCK_ID, children: [{ type: "text", text: "本文の一行です。" }] },
+    // 2 ページ目 (ページの間の灰色の隙間へ貼る確認に使う)。
+    {
+      type: "paragraph",
+      id: SECOND_PAGE_BLOCK_ID,
+      pagination: { break: true },
+      children: [{ type: "text", text: "二ページ目の本文です。" }],
+    },
   ];
   document.pageLayout = {
     ...document.pageLayout!,
@@ -78,7 +86,8 @@ test.beforeEach(async ({ page }) => {
   await page.addInitScript(() => {
     window.localStorage.clear();
   });
-  await page.setViewportSize({ width: 1600, height: 1100 });
+  // 2 ページが縦に並んで見える高さ (ページの間の隙間へポインタを置く確認のため)。
+  await page.setViewportSize({ width: 1600, height: 2500 });
   await installDesktopRuntimeMock(page, pointerPasteDocument());
   await page.goto("/");
   await expect(page.locator(`[data-sigma-doc-id="${BODY_BLOCK_ID}"]`).first()).toBeVisible();
@@ -192,11 +201,41 @@ test("pulls a paste aimed at the grey margin back onto the page", async ({ page 
   expect(margin).toBeGreaterThan(0);
   expect(paper.x + paper.width).toBeLessThan(viewportWidth);
 
-  await page.mouse.move(margin, paper.y + 520);
+  const pointerY = paper.y + 520;
+  await page.mouse.move(margin, pointerY);
   const pasted = await pasteAndGetNewBox(page, 2);
 
-  expect(pasted.x).toBeGreaterThanOrEqual(paper.x - 1);
-  expect(pasted.x + pasted.width).toBeLessThanOrEqual(paper.x + paper.width + 1);
+  // 横は紙の左端へ押し戻され、縦はポインタの高さに置かれる (従来の +20px ではない)。
+  expect(Math.abs(pasted.x - paper.x)).toBeLessThan(2);
+  expect(Math.abs(centerOfBox(pasted).y - pointerY)).toBeLessThan(3);
+});
+
+test("puts a paste aimed at the grey gap between two pages on the nearer page", async ({ page }) => {
+  const sourceBox = await copySourceRectangle(page);
+  const canvas = page.locator(".page-canvas").first();
+  const paper = (await canvas.boundingBox())!;
+  const pageHeight = Number(await canvas.getAttribute("data-page-height"));
+  const stride = Number(await canvas.getAttribute("data-page-stride"));
+  expect(await canvas.getAttribute("data-page-count")).toBe("2");
+  const scale = sourceBox.width / RECT_SIZE.w;
+  const firstBottom = paper.y + pageHeight * scale;
+  const secondTop = paper.y + stride * scale;
+  const gap = secondTop - firstBottom;
+  expect(gap).toBeGreaterThan(8);
+  const x = paper.x + paper.width / 2;
+
+  // 隙間の上寄り (1 ページ目に近い): 1 ページ目の内側に収まる。
+  await page.mouse.move(x, firstBottom + gap * 0.2);
+  const upper = await pasteAndGetNewBox(page, 2);
+  expect(upper.y + upper.height).toBeLessThanOrEqual(firstBottom + 1);
+  expect(upper.y).toBeGreaterThanOrEqual(paper.y - 1);
+
+  // 隙間の下寄り (2 ページ目に近い): 2 ページ目の内側に収まる。
+  await page.mouse.move(x, secondTop - gap * 0.2);
+  await page.keyboard.press("ControlOrMeta+V");
+  await expect(page.locator(".overlay-shape-geo")).toHaveCount(4);
+  const lower = (await page.locator(".overlay-shape-geo.selected").first().boundingBox())!;
+  expect(lower.y).toBeGreaterThanOrEqual(secondTop - 1);
 });
 
 test("keeps a page-pinned shape pinned and saves the pasted position", async ({ page }) => {
@@ -206,6 +245,9 @@ test("keeps a page-pinned shape pinned and saves the pasted position", async ({ 
 
   await page.mouse.move(target.x, target.y);
   const pasted = await pasteAndGetNewBox(page, 2);
+  const center = centerOfBox(pasted);
+  expect(Math.abs(center.x - target.x)).toBeLessThan(3);
+  expect(Math.abs(center.y - target.y)).toBeLessThan(3);
   const scale = sourceBox.width / RECT_SIZE.w;
 
   await expect.poll(async () => (await savedShapes(page)).length).toBe(3);
@@ -214,6 +256,7 @@ test("keeps a page-pinned shape pinned and saves the pasted position", async ({ 
   expect(copy.anchor?.type).toBe("page");
   // 保存された座標は、画面の位置を紙面の座標に直したもの。
   expect(copy.x).toBeCloseTo((pasted.x - paper.x) / scale, 0);
+  expect(copy.y).toBeCloseTo((pasted.y - paper.y) / scale, 0);
 });
 
 test("hangs a pasted block-anchored shape on the body text again instead of pinning it to the page", async ({ page }) => {
