@@ -4,6 +4,7 @@ import { type TextFlowBlock } from "@/features/text-editing";
 import type { CSSProperties } from "react";
 import { FLOW_DX_ATTRIBUTE,FLOW_DY_ATTRIBUTE } from "./flow-probe";
 import { type PageLayoutSnapshot } from "./layout-snapshot";
+import { getFlowPageShiftAttributes } from "./page-arrangement-dom";
 import { getPageColumnSideNote,isFullSpanUnit,SIDE_NOTE_IN_COLUMN_GAP } from "./render-units";
 import type { RenderUnit } from "./types";
 
@@ -148,6 +149,7 @@ export function getFlowDisplacementProps(displacement: FlowDisplacement | undefi
     attributes: {
       [FLOW_DX_ATTRIBUTE]: String(displacement.dx),
       [FLOW_DY_ATTRIBUTE]: String(displacement.dy),
+      ...getFlowPageShiftAttributes(displacement),
     },
   };
 }
@@ -172,6 +174,7 @@ export function createInitialPageLayoutSnapshot(pageHeightPx: number): PageLayou
     totalHeight: pageHeightPx,
     unitLayouts: {},
     unitDisplacements: {},
+    modelUnitDisplacements: {},
     nodeDisplacements: {},
     visualEnds: {},
     sideNoteLabelYs: {},

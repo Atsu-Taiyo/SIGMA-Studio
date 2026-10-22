@@ -123,6 +123,7 @@ export function RunningRegionControls({
   layout,
   metrics,
   pageTopPx,
+  pageLeftPx = 0,
   pageNumber,
   title,
   totalPages,
@@ -159,6 +160,8 @@ export function RunningRegionControls({
   layout: PageLayout;
   metrics: PageMetrics;
   pageTopPx: number;
+  /** 2 ページ並びの右の列のページの左端 (表示座標)。1 列では 0。 */
+  pageLeftPx?: number;
   pageNumber: number;
   /** 差し込み (`{title}` `{page}` `{total}`) に見せる値。 */
   title: string;
@@ -210,7 +213,7 @@ export function RunningRegionControls({
 }) {
   const tEditorText = useT("editor");
   return (
-    <div className="page-layout-control-sheet" style={{ top: `${pageTopPx}px` }}>
+    <div className="page-layout-control-sheet" style={{ top: `${pageTopPx}px`, ...(pageLeftPx ? { left: `${pageLeftPx}px` } : {}) }}>
       {marginEditing && (
         <div
           className="page-content-guide"

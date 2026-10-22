@@ -203,6 +203,7 @@ isWhiteboardPageLayout,
 MIN_PAGE_BODY_HEIGHT_MM,
 MM_TO_PX,
 normalizePageLayout,
+PAGE_GAP_PX,
 repairDuplicateTopLevelIds,
 type BoxedVariant,
 type CommentMutationPorts,
@@ -222,6 +223,8 @@ type TextAlign
 import type { MeasuredBlock } from "@/features/drawing";
 import { MathEnvironmentProvider } from "@/features/rendering/adapters/react";
 import {
+  createPageArrangement,
+  displayCanvasSize,
   FULL_PROBLEM_DISPLAY,
   isProblemDisplayFiltered,
   parseDocumentTitleInlineNodes,
@@ -309,6 +312,7 @@ type DocumentMetadata
 } from "@/lib/storage";
 import { templateInsertContent } from "@/lib/templates";
 import { useUiLayoutPreference } from "@/lib/ui-layout-preference";
+import { usePageArrangementPreference, type PageArrangementPreference } from "@/lib/page-arrangement-preference";
 import { useCustomFonts } from "@/lib/use-custom-fonts";
 import { localFontMenuGroups } from "@/lib/local-font-menu";
 import { formatSigmaValidationCode } from "@/lib/validation-text";
@@ -1148,6 +1152,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
   const clearSurfacePreview = useCallback(() => surfacePreviewClearRef.current(), []);
   const { rightDock, setRightDock, rightDockWidth, setRightDockWidth, aiSidebarOpen, aiDisplayMode, aiInlineOpen, aiInlineAnchor, aiInlineSessionId, aiInlineClosing, aiSettingsOpen, setAiSettingsOpen, applyAiSurface, openAiInline, promoteAiToSidebar, openRightDockSurface, closeAiSurface, collapseRightDock, closeRightDockChat } = useAiSurfaceController({ isDesktopApp, transitions: { openInline, promoteToSidebar, closeSurface }, dismissVersionHistory, clearRunAnchor: clearInlineRunAnchor, hasRunAnchor: hasInlineRunAnchor, clearAiEditPinnedReferences: clearAiInlineSessionContext, clearAiEditPreview: clearSurfacePreview });
   const [storedUiLayoutPreference, updateUiLayoutPreference] = useUiLayoutPreference();
+  const [pageArrangementPreference, setPageArrangementPreference] = usePageArrangementPreference();
   // Word風リボンは再検討まで露出しない。保存済み設定は消さず、表示時だけ既定UIへ倒す。
   const uiLayoutPreference = useMemo(() => (
     storedUiLayoutPreference.mode === "docs"
@@ -1882,25 +1887,50 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
     applyZoom(100);
   }, [applyZoom, editorStore, isWhiteboardDocument]);
 
+  const pageArrangementRef = useRef(pageArrangementPreference);
+  useLayoutEffect(() => {
+    pageArrangementRef.current = pageArrangementPreference;
+  }, [pageArrangementPreference]);
+
+  /**
+   * 並べたページ全体 (2 ページ並びなら 2 ページと間隔) が横に収まるまで倍率を下げる。
+   * 上げはしない (手で決めた倍率とスプリッタのドラッグは使う人のもの)。
+   */
+  const fitZoomToPageWidth = useCallback(() => {
+    const scroller = editorCanvasRef.current;
+    if (!scroller) return;
+    const style = window.getComputedStyle(scroller);
+    const available = scroller.clientWidth - Number.parseFloat(style.paddingLeft || "0")
+      - Number.parseFloat(style.paddingRight || "0");
+    const metrics = getPageMetrics(ensurePageLayout(documentRef.current).pageLayout!);
+    const pageWidth = displayCanvasSize(createPageArrangement({
+      mode: pageArrangementRef.current,
+      pageWidth: metrics.page.widthMm * MM_TO_PX,
+      pageHeight: metrics.page.heightPx,
+      pageGap: PAGE_GAP_PX,
+    }), 2).width;
+    if (available <= 0 || pageWidth <= 0) return;
+    const fitted = Math.floor((available / pageWidth) * 100);
+    if (fitted < editorStore.getState().zoom) applyZoom(Math.max(25, fitted));
+  }, [applyZoom, editorStore]);
+
   // A newly narrowed pane should keep the entire page visible. Only lower the
   // zoom here; manual zoom changes and splitter dragging remain under user control.
   useEffect(() => {
     if (!editorCanvasElement || workspaceLayout.groups.length < 2 || isWhiteboardDocument || cameraByFileIdRef.current.has(activeFileId)) return;
     let frame = window.requestAnimationFrame(() => {
-      frame = window.requestAnimationFrame(() => {
-        const scroller = editorCanvasRef.current;
-        if (!scroller) return;
-        const style = window.getComputedStyle(scroller);
-        const available = scroller.clientWidth - Number.parseFloat(style.paddingLeft || "0")
-          - Number.parseFloat(style.paddingRight || "0");
-        const pageWidth = getPageMetrics(ensurePageLayout(documentRef.current).pageLayout!).page.widthMm * MM_TO_PX;
-        if (available <= 0 || pageWidth <= 0) return;
-        const fitted = Math.floor((available / pageWidth) * 100);
-        if (fitted < editorStore.getState().zoom) applyZoom(Math.max(25, fitted));
-      });
+      frame = window.requestAnimationFrame(fitZoomToPageWidth);
     });
     return () => window.cancelAnimationFrame(frame);
-  }, [activeFileId, applyZoom, editorCanvasElement, editorStore, isWhiteboardDocument, workspaceLayout.groups.length]);
+  }, [activeFileId, editorCanvasElement, fitZoomToPageWidth, isWhiteboardDocument, workspaceLayout.groups.length]);
+
+  /** 表示 > ページの並び。2 ページ並びにしたら、2 ページが横に収まる倍率まで下げる。 */
+  const changePageArrangement = useCallback((next: PageArrangementPreference) => {
+    setPageArrangementPreference(next);
+    if (next !== "spread" || isWhiteboardDocument) return;
+    pageArrangementRef.current = next;
+    window.requestAnimationFrame(fitZoomToPageWidth);
+  }, [fitZoomToPageWidth, isWhiteboardDocument, setPageArrangementPreference]);
 
   /**
    * パンは常に「差分」で受ける。中ボタンドラッグは 1 フレームに何度も動くので、
@@ -4675,6 +4705,9 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
       pageCount: pageEditorMounted ? editorPageCount : 1,
       zoom,
       zoomOptions,
+      // ホワイトボードにページは無いので並びの切り替えも出さない。
+      pageArrangement: isWhiteboardDocument ? null : pageArrangementPreference,
+      setPageArrangement: changePageArrangement,
     },
     appMenu: {
       openProblemLibrary: () => setProblemLibraryOpen(true),
@@ -5065,6 +5098,7 @@ function EditorShellBody({ embeddedHost, sessionHost, renderDocumentActions, ren
             aiApplyAnimation={aiApplyAnimation}
             fontSize={BASE_EDITOR_FONT_SIZE}
             zoom={zoom}
+            pageArrangement={pageArrangementPreference}
             whiteboardPanX={whiteboardPan.panX}
             whiteboardPanY={whiteboardPan.panY}
             onWhiteboardViewportChange={handleWhiteboardViewportChange}

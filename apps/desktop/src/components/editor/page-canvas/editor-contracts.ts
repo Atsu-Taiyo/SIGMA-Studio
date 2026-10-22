@@ -43,6 +43,8 @@ import type {
   PageCanvasSelectionExtension,
 } from "./editor-extension";
 
+import type { PageArrangementMode } from "@/features/rendering/core";
+
 export interface PageCanvasEditorProps {
   document: SigmaDocument;
   selectedId: string | null;
@@ -174,6 +176,12 @@ export interface PageCanvasEditorProps {
    * clone of this DOM — see docs/pdf-parity-architecture.md.
    */
   presentation?: "edit" | "paged";
+  /**
+   * ページの並び (表示だけの設定。文書には書かない)。`"spread"` は 2 ページずつ横に並べる。
+   * 座標・ページ割り・保存する値は 1 列のときと同じモデル座標のまま、描くときだけ動かす
+   * (`features/rendering/core/page-arrangement.ts`)。ホワイトボードと `presentation="paged"` は常に 1 列。
+   */
+  pageArrangement?: PageArrangementMode;
   /**
    * 問題のうち見せる領域 (設定 > 表示 の 問題 / 解答 / コメント)。表示だけの絞り込みで、教材は変えない。
    * 隠した領域は描かず、ページ割りにも入れない。描いた領域はふだんどおり編集でき、領域ごとの書き戻し

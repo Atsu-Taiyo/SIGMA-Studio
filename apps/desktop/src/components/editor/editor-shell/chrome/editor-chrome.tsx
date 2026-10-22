@@ -47,7 +47,7 @@ import { INLINE_MATH_FONT_MENU_ATTRIBUTE } from "@/lib/math-font-style";
 import { SUPPORTED_OVERLAY_IMAGE_MIME_TYPES } from "@/lib/overlay-image-files";
 import { POWERPOINT_IMPORT_ACCEPT } from "@/lib/powerpoint-import";
 import { EXTENSION_ICON_COMPONENTS } from "@/components/editor/extensions/extension-icons";
-import { AlertTriangle, AppWindow, ArrowDownRight, ArrowLeft, Bold, Braces, BringToFront, Building2, ChartSpline, Check, ChevronDown, ChevronRight, ChevronUp, ClipboardCopy, ClipboardPaste, Clock3, Code, Columns3, Copy, Cuboid, Download, Eye, FileCog, FilePlus, FileQuestion, FileText, FolderOpen, Highlighter, ImageIcon, Italic, Keyboard, LayoutTemplate, Library, List, ListChevronsUpDown, ListOrdered, ListPlus, Loader2, MessageSquare, Minus, MinusCircle, MoreHorizontal, MoveDown, MoveUp, PaintBucket, PenLine, Plus, PlusCircle, Puzzle, Quote, Redo2, Replace, Rows3, Search, SendToBack, SeparatorHorizontal, Shapes, Share2, Sigma, SlidersHorizontal, Sparkles, Square, SquareFunction, Trash2, Type, Underline, Undo2, X } from "lucide-react";
+import { AlertTriangle, AppWindow, ArrowDownRight, ArrowLeft, Bold, BookOpen, Braces, BringToFront, Building2, ChartSpline, Check, ChevronDown, ChevronRight, ChevronUp, ClipboardCopy, ClipboardPaste, Clock3, Code, Columns3, Copy, Cuboid, Download, Eye, FileCog, FilePlus, FileQuestion, FileText, FolderOpen, Highlighter, ImageIcon, Italic, Keyboard, LayoutTemplate, Library, List, ListChevronsUpDown, ListOrdered, ListPlus, Loader2, MessageSquare, Minus, MinusCircle, MoreHorizontal, MoveDown, MoveUp, PaintBucket, PenLine, Plus, PlusCircle, Puzzle, Quote, RectangleVertical, Redo2, Replace, Rows3, Search, SendToBack, SeparatorHorizontal, Shapes, Share2, Sigma, SlidersHorizontal, Sparkles, Square, SquareFunction, Trash2, Type, Underline, Undo2, X } from "lucide-react";
 import { Fragment } from "react";
 import type { ReactNode } from "react";
 import type { DesktopUpdateState } from "@/types/desktop";
@@ -91,7 +91,7 @@ export function renderEditorChrome(chrome: EditorChromeValue) {
   const { applyOverlayStyle, arrangeOverlayShapes, canChangeOverlayShapeType, changeOverlayShapeType, canArrangeOverlayShapes, canUseFillStyleControls, canUseLineEndpointControls, canUseLineStyleControls, canUseStrokeStyleControls, effectiveLineDashMenuOpen, effectiveLineEndpointMenu, effectiveLineWidthMenuOpen, fillColorButtonRef, fillColorPatch, lineDashButtonRef, lineWidthButtonRef, overlaySelection, selectedOverlayLineDash, selectedOverlayLineSize, selectionFill, selectionFillColor, selectionFillOpacity, setStrokeColor, strokeColor, strokeColorButtonRef } = chrome.shapeStyle;
   const { activeMenu, aiDocumentWriteInProgress, colorStylePanel, document, getActiveTextTarget, imageInputRef, insertInlineMath, isDesktopApp, isEmbedded, runEditCommand, runOverlayCommand, setStatusMessage, shapeGallerySections, lineToolItems, t, toggleMenu, versionHistoryPreviewActive } = chrome.shared;
   const { setActiveMenu, setBoxedTextMenuOpen, setColorStylePanel, setFontFamilyMenuOpen, setBlockStyleMenuOpen, setLineDashMenuOpen, setLineEndpointMenu, setLineHeightMenuOpen, setLineToolMenuOpen, setLineWidthMenuOpen, setShapeMenuOpen, setTextAlignMenuOpen } = chrome.toolbarMenus;
-  const { activePageNumber, applyZoom, pageCount, zoom, zoomOptions } = chrome.view;
+  const { activePageNumber, applyZoom, pageArrangement, pageCount, setPageArrangement, zoom, zoomOptions } = chrome.view;
   const { applyColumnCommand, backstage, closeBackstage, columnCommand, contextualTabVisible, ribbonCollapse, ribbonIdPrefix, ribbonTabState, selectBackstageSection, selectRibbonTab, toggleBackstage, toggleRibbonCollapse } = chrome.ribbon;
 
   // word を離れているのに state だけ open が残っていても、ここで必ず閉じた扱いにする。
@@ -2579,8 +2579,42 @@ export function renderEditorChrome(chrome: EditorChromeValue) {
     </EditorToolbarIconButton>
   );
 
+  // ページの並び (表示だけの設定)。ツールバーでは 2 列の入/切を 1 つのアイコンで、リボンでは
+  // 「1列 / 2列」の 2 つで出す。ページの無い教材 (ホワイトボード) では出さない。
+  const pageArrangementToggle = pageArrangement && (
+    <EditorToolbarIconButton
+      tooltip={{ label: t("view.pageArrangementSpreadTooltip") }}
+      aria-label={`${t("view.pageArrangement")}: ${t("view.pageArrangementSpread")}`}
+      aria-pressed={pageArrangement === "spread"}
+      active={pageArrangement === "spread"}
+      onClick={() => setPageArrangement(pageArrangement === "spread" ? "single" : "spread")}
+    >
+      <BookOpen size={EDITOR_TOOLBAR_ICON_SIZE} />
+    </EditorToolbarIconButton>
+  );
+
+  const pageArrangementRibbonButtons = pageArrangement && ([
+    { value: "single", label: t("view.pageArrangementSingle"), title: t("view.pageArrangementSingleTooltip"), Icon: RectangleVertical },
+    { value: "spread", label: t("view.pageArrangementSpread"), title: t("view.pageArrangementSpreadTooltip"), Icon: BookOpen },
+  ] as const).map(({ value, label, title, Icon }) => (
+    <Fragment key={`page-arrangement-${value}`}>
+      <EditorToolbarIconButton
+        withText
+        title={title}
+        aria-label={`${t("view.pageArrangement")}: ${label}`}
+        aria-pressed={pageArrangement === value}
+        active={pageArrangement === value}
+        onClick={() => setPageArrangement(value)}
+      >
+        <Icon size={EDITOR_TOOLBAR_TEXT_ICON_SIZE} />
+        <span>{label}</span>
+      </EditorToolbarIconButton>
+    </Fragment>
+  ));
+
   const viewGroup = (
     <EditorToolbarGroup push ariaLabel={t("toolbar.group.view")}>
+    {pageArrangementToggle}
     {zoomOutButton}
     {zoomSelect}
     {zoomInButton}
@@ -3050,6 +3084,9 @@ export function renderEditorChrome(chrome: EditorChromeValue) {
           <Fragment key="show-1">{commentsToggleButton}</Fragment>,
         ],
       },
+      ...(pageArrangementRibbonButtons
+        ? [{ key: "pageArrangement", label: t("view.pageArrangement"), rows: pageArrangementRibbonButtons }]
+        : []),
       { key: "zoom", label: t("ribbon.group.zoom"), rows: [<>{zoomOutButton}{zoomSelect}{zoomInButton}</>] },
     ],
     shapeFormat: [

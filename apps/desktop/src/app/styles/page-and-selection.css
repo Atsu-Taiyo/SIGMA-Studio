@@ -1805,6 +1805,13 @@ body.page-block-dragging * {
   bottom: 0;
 }
 
+/* 2 ページ並び: 図形をそのページのずらしで描く寸法 0 の箱 (`overlay-canvas/page-shift.tsx`)。 */
+.overlay-page-shift {
+  position: absolute;
+  width: 0;
+  height: 0;
+}
+
 .overlay-canvas-bleed-surface.background,
 .overlay-canvas-editor.background,
 .overlay-canvas-editor.background .overlay-shape {

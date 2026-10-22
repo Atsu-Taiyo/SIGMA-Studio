@@ -37,7 +37,8 @@ describe("page canvas pure-model dependency boundary", () => {
     const measure = measurement.indexOf("probeFlow(flow, {");
     const build = measurement.indexOf("buildFlowModel(tree,", measure);
     const place = measurement.indexOf("placeFlow(built.model,", build);
-    const plan = measurement.indexOf("planFlowRender(built, placement", place);
+    // 描く指示はページの並び (表示だけの変換) を足した版も同じ配置から作る (`planArrangedFlowRender`)。
+    const plan = measurement.indexOf("planArrangedFlowRender(", place);
     const adopt = measurement.indexOf("setLayoutViewState(", plan);
     expect(measure).toBeGreaterThan(-1);
     expect(build).toBeGreaterThan(measure);
