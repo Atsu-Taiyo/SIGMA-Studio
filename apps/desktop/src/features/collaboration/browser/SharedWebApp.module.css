@@ -1,0 +1,23 @@
+.page { min-height: 100dvh; padding: 36px max(24px, calc((100vw - 1100px) / 2)); background: var(--surface); color: var(--text-primary); }
+.header { display: flex; align-items: center; justify-content: space-between; gap: 24px; padding-bottom: 28px; }
+.header h1 { font-size: 22px; margin: 8px 0 0; }
+.brand { font-size: 14px; font-weight: 700; color: var(--text-secondary); }
+.actions { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; font-size: 13px; }
+.login { padding: 64px 0; text-align: center; }
+.login p, .help { color: var(--text-secondary); font-size: 13px; line-height: 1.7; }
+.search { display: flex; align-items: center; gap: 8px; max-width: 420px; padding: 8px 12px; border: 1px solid var(--border-subtle); border-radius: var(--radius-control); }
+.search input { width: 100%; border: 0; outline: 0; background: transparent; font: inherit; }
+.table { width: 100%; border-collapse: collapse; font-size: 14px; }
+.table th, .table td { text-align: left; padding: 14px 12px; border-bottom: 1px solid var(--border-subtle); }
+.table th { color: var(--text-secondary); font-size: 12px; font-weight: 500; }
+.table button { padding: 0; border: 0; background: transparent; color: inherit; font: inherit; cursor: pointer; text-align: left; }
+.table button:hover { text-decoration: underline; }
+.error { padding: 12px; color: var(--text-primary); background: var(--surface-soft); border: 1px solid var(--border-subtle); border-radius: var(--radius-control); font-size: 13px; }
+.skeleton { height: 160px; border-radius: var(--radius-control); background: linear-gradient(90deg, var(--surface-soft), var(--surface-strong), var(--surface-soft)); background-size: 200% 100%; animation: shimmer 1.5s linear infinite; }
+.editor { height: 100dvh; display: grid; grid-template-rows: auto minmax(0, 1fr); }
+.editorNavigation { display: flex; align-items: center; gap: 12px; padding: 6px 12px; border-bottom: 1px solid var(--border-subtle); font-size: 12px; }
+.editor > :last-child { min-height: 0; }
+.editor :global(.app-shell) { height: 100%; min-height: 0; }
+@keyframes shimmer { to { background-position: -200% 0; } }
+@media (prefers-reduced-motion: reduce) { .skeleton { animation: none; } }
+@media (max-width: 700px) { .header { align-items: flex-start; flex-direction: column; } }
